@@ -689,8 +689,8 @@ export function registerIpc(getAppInfo: () => ReturnType<HiveRequests['app:info'
     'skills:openFolder': () => void shell.openPath(workspace.skillsDir),
 
     'mcp:list': () => mcp.listMcp(),
-    'mcp:setGlobal': async (name, enabled) => {
-      await mcp.setMcpGlobal(name, enabled)
+    'mcp:setGlobal': async (name, enabled, expected) => {
+      await mcp.setMcpGlobal(name, enabled, expected)
       emit({ type: 'skills-changed' })
       workspace.scheduleRefresh()
     },
@@ -722,6 +722,21 @@ export function registerIpc(getAppInfo: () => ReturnType<HiveRequests['app:info'
       return imported
     },
     'mcp:openFolder': () => void shell.openPath(workspace.mcpDir),
+    'mcp:pickFile': async () => {
+      const r = await dialog.showOpenDialog(win(), {
+        title: 'Add an MCP server from a file',
+        properties: ['openFile'],
+        filters: [{ name: 'MCP server (.json definition or .zip folder)', extensions: ['json', 'zip'] }]
+      })
+      return r.canceled || !r.filePaths[0] ? null : r.filePaths[0]
+    },
+    'mcp:previewFile': (file) => mcp.previewMcpFile(file),
+    'mcp:addFromFile': async (file, name, replace) => {
+      const m = await mcp.addMcpFromFile(file, name, replace)
+      emit({ type: 'skills-changed' })
+      workspace.scheduleRefresh()
+      return m
+    },
 
     'notes:tree': () => notes.notesTree(),
     'notes:create': (rel, isDir) => notes.createNote(rel, isDir),

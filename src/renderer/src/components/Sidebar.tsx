@@ -670,13 +670,14 @@ function McpPanel() {
         <InfoTip text="MCP servers deployed to the workspace (.hive/mcp). Enable them for all projects here; turn them off per project in the project's MCP tab. Changes apply to new sessions." />
         <div className="actions">
           <IconButton icon="add" title="New MCP Server…" onClick={() => void create()} />
+          <IconButton icon="file-add" title="Add MCP Server from File (.json or .zip)…" onClick={() => void actions.addMcpServerFromFile().then((m) => m && load())} />
           <IconButton icon="refresh" title="Refresh" onClick={load} />
           <IconButton icon="folder-opened" title="Open MCP Folder" onClick={() => void call('mcp:openFolder')} />
         </div>
       </div>
       <div className="pane-body">
         <Section title="Workspace" count={servers.length}>
-          {loaded.current && servers.length === 0 && <div className="pane-empty">No MCP servers yet. Create one, or drop a &lt;name&gt;.json definition into .hive/mcp.</div>}
+          {loaded.current && servers.length === 0 && <div className="pane-empty">No MCP servers yet. Create one with +, or add one from a .json definition or a .zip of a server folder.</div>}
           {servers.map((m) => (
             <div key={m.name} className={cx('row tall', selected === m.name && 'selected')} onClick={() => set({ selectedMcp: m.name })}>
               <Icon name={m.error ? 'error' : m.def?.url ? 'globe' : 'plug'} />
@@ -697,7 +698,7 @@ function McpPanel() {
                 <IconButton icon="trash" title="Delete server" onClick={() => void actions.deleteMcpServer(m.name)} />
               </div>
               <Tooltip content={m.globallyEnabled ? 'Enabled for all projects (new sessions). Click to disable.' : 'Disabled. Click to enable for all projects (new sessions).'}>
-                <Switch small checked={m.globallyEnabled} disabled={!!m.error} onChange={(v) => void actions.attempt('Could not update server', () => call('mcp:setGlobal', m.name, v)).then(load)} />
+                <Switch small checked={m.globallyEnabled} disabled={!!m.error} onChange={(v) => void actions.setMcpServerEnabled(m, v).then(load)} />
               </Tooltip>
             </div>
           ))}

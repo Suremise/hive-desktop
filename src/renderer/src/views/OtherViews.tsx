@@ -397,7 +397,7 @@ Try asking an agent: *"Write a handover for the next session using the hive tool
                 small
                 checked={info.globallyEnabled}
                 disabled={!!info.error}
-                onChange={(v) => void actions.attempt('Could not update', () => call('mcp:setGlobal', selected, v)).then(() => set((s) => ({ skillsVersion: s.skillsVersion + 1 })))}
+                onChange={(v) => void actions.setMcpServerEnabled(info, v)}
               />
               Enabled
             </label>
@@ -417,6 +417,16 @@ Try asking an agent: *"Write a handover for the next session using the hive tool
             <Icon name="warning" /> {w}
           </div>
         ))}
+        {!!info?.runs.length && (
+          <div className="banner info mcp-runs" aria-label="What it runs">
+            <Icon name="terminal" />
+            <div>
+              {info.runs.map((r) => (
+                <div key={r}>{r}</div>
+              ))}
+            </div>
+          </div>
+        )}
         <div style={{ display: 'flex', flex: 1, minHeight: 0 }}>
           <div className="editor-host" style={{ flex: `0 0 ${editorShare * 100}%`, position: 'relative' }}>
             <CodeEditor value={text} language="json" onChange={edit} onSave={() => void save()} wordWrap={false} />

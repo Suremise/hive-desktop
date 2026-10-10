@@ -250,11 +250,17 @@ export class WorkspaceService {
       log.warn('watching the workspace root', e)
     }
     const assistantHome = this.assistantHome.toLowerCase()
+    const mcpDir = this.mcpDir.toLowerCase() + sep
     this.watcher = chokidar.watch(this.hiveDir, {
       depth: 5,
       ignoreInitial: true,
-      // The Assistant's home changes with every launch; nothing in it is shown from the file system.
-      ignored: (p: string) => resolve(p).toLowerCase() === assistantHome
+      // The Assistant's home changes with every launch; nothing in it is shown from the file system. In .hive/mcp only
+      // the definitions (<name>.json) are: a server's own folder (added from a .zip, #550) isn't watched, since a watched
+      // folder inside it would stop Windows moving the folder (Replace, Delete).
+      ignored: (p: string) => {
+        const at = resolve(p).toLowerCase()
+        return at === assistantHome || (at.startsWith(mcpDir) && (at.slice(mcpDir.length).includes(sep) || !at.endsWith('.json')))
+      }
     })
     this.watcher.on('all', (evt, p) => {
       const rel = this.path ? p.slice(this.path.length + 1).replace(/\\/g, '/') : ''

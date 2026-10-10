@@ -159,6 +159,8 @@ export function Dialogs() {
       }
     >
       {dialog.message && <p style={{ marginTop: 0 }} className="muted">{dialog.message}</p>}
+      {dialog.list && dialog.list.length > 0 && <DialogList items={dialog.list} />}
+      {dialog.detail && <div className="detail" style={{ marginBottom: 10 }}>{dialog.detail}</div>}
       <input
         ref={inputRef}
         className={cx('input', error && 'invalid')}

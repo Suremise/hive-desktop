@@ -1319,6 +1319,29 @@ export interface McpServerInfo {
   error?: string
   globallyEnabled: boolean
   secretWarnings: string[]
+  /** What it runs, shown before it is enabled (#550): the command or URL, folder, environment and header names. */
+  runs: string[]
+  /** Which copy of its definition this is (a replace or an edit changes it): an enable says which it showed. */
+  revision?: string
+}
+
+/** The server an enable showed the user (#550): refused if its definition has been replaced or edited since. */
+export interface McpShown {
+  def: McpServerDef | null
+  revision?: string
+}
+
+/** A server read from a .json definition or a .zip server folder, before it is added (#550). */
+export interface McpFileServer {
+  /** A name for it: the definition's file name, else the zip's folder or file name. */
+  name: string
+  def: McpServerDef
+  runs: string[]
+  secretWarnings: string[]
+  /** The files a .zip unpacks to .hive/mcp/<name>/ (none for a .json). */
+  files: number
+  /** A server of this name exists already. */
+  exists: boolean
 }
 
 export interface CompactionEvent {
