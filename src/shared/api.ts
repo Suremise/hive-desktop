@@ -1,3 +1,4 @@
+import type { AgentLeftovers } from './agentProcesses'
 import type { AntivirusStatus, AvAction, AvChangeResult, AvSuggestionReply } from './antivirus'
 import type {
   ArchiveBatch,
@@ -258,6 +259,10 @@ export interface HiveRequests {
   /** Stops the CLI's background job holding a conversation, then resumes it in the agent. */
   'session:stopBackgroundAndResume': (projectPath: string, agentId: string, jobId: string, sessionId: string) => void
   'session:stop': (projectPath: string, agentId?: string) => void
+  /** What this window's agents left running when they stopped (#507). */
+  'session:leftovers': () => AgentLeftovers[]
+  /** Ends what the agent's stopped launches left running (only processes they started), or keeps it running and stops listing it. Returns how many. */
+  'session:settleLeftovers': (projectPath: string, agentId: string, how: 'end' | 'keep') => number
   /** Types a short "carry on" into a running agent whose turn a refused sign-in stopped (Resume (n), #309). */
   'session:carryOn': (projectPath: string, agentId: string) => void
   'session:archive': (projectPath: string, sessionId: string, archived: boolean) => void

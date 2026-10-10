@@ -1,7 +1,8 @@
 import { randomBytes } from 'crypto'
 import { existsSync } from 'original-fs'
 import { basename, join } from 'path'
-import { MAX_AGENTS, ROLE_MAX, mergeBlocked, moveAgentTo, projectAgents, slugify, swapAgentsIn } from '../shared/defaults'
+import { MAX_AGENTS, ROLE_MAX, agentPtyKey, mergeBlocked, moveAgentTo, projectAgents, slugify, swapAgentsIn } from '../shared/defaults'
+import { forgetPtys } from './ptyHost'
 import { agentProvider, defaultProviderPending, isKnownProvider } from '../shared/providers'
 import type { AddAgentOptions, AgentBranchStatus, AgentDef, AgentPatch, AgentWorktree, MergeResult, ProjectConfig, ProjectGitInfo, RemovedAgent, WorktreeCheck } from '../shared/types'
 import { config } from './config'
@@ -274,6 +275,8 @@ export async function removeAgent(projectPath: string, agentId: string, opts: { 
   await endReviews(basename(projectPath), agentId, 'the agent was removed', workspaceOf(projectPath))
   // Its lanes, as builder or reviewer, are abandoned (#483).
   await laneAgentRemoved(workspaceOf(projectPath), basename(projectPath), agentId).catch((e) => log.warn('abandoning the lanes of a removed agent', e))
+  // Its terminal's kept size and output go: a new agent never has its id (#489).
+  forgetPtys(agentPtyKey(projectPath, agentId))
   await workspaceOf(projectPath).refresh()
   return result
 }

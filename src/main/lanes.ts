@@ -1,8 +1,8 @@
 import { randomBytes } from 'crypto'
 import { join } from 'path'
 import { projectAgents } from '../shared/defaults'
-import { DEFAULT_LANE_ROUNDS, DEFAULT_LANE_WAIT_MINUTES, allDone, keptLanes, laneView, listedLanes, readLanes, running, type LaneAgent, type LaneChange, type LaneRecord } from '../shared/lanes'
-import type { LaneInfo, TaskCard } from '../shared/types'
+import { DEFAULT_LANE_ROUNDS, DEFAULT_LANE_WAIT_MINUTES, allDone, isFrozen, keptLanes, laneView, listedLanes, readLanes, running, type LaneAgent, type LaneChange, type LaneRecord } from '../shared/lanes'
+import type { LaneCard, LaneInfo, TaskCard } from '../shared/types'
 import { onHiveEvent } from './events'
 import { readJson, withFileLock, writeJsonAtomic } from './fsutil'
 import { createLogger, userText } from './logger'
@@ -58,11 +58,15 @@ async function mutate<T>(ws: WorkspaceService, fn: (lanes: LaneRecord[]) => T | 
 const now = (): string => new Date().toISOString()
 const newId = (): string => `lane-${randomBytes(3).toString('hex')}`
 
-/** Ends a lane: ended when all its cards are merged (or `merged` says so), else abandoned. */
-function close(l: LaneRecord, state: 'ended' | 'abandoned', mergeCommit?: string | null): void {
+/**
+ * Ends a lane: ended when all its cards are merged (or `merged` says so), else abandoned. `cards`: its cards as they read
+ * just now, kept as it was left (#512), when they are still its list (a start may have changed it meanwhile).
+ */
+function close(l: LaneRecord, state: 'ended' | 'abandoned', cards: readonly LaneCard[] | undefined, mergeCommit?: string | null): void {
   l.state = state
   l.endedAt = l.updatedAt = now()
   if (mergeCommit) l.mergeCommit = mergeCommit
+  if (cards && cards.length === l.cards.length && cards.every((c, i) => c.number === l.cards[i])) l.frozen = [...cards]
 }
 
 /** The lane cards as the board has them now, each read once, as the lane's project sees them. */
@@ -71,13 +75,15 @@ async function cardsOf(ws: WorkspaceService, lanes: readonly LaneRecord[]): Prom
   const out = new Map<string, Map<number, TaskCard | null>>()
   for (const l of lanes) {
     const m = new Map<number, TaskCard | null>()
+    out.set(l.id, m)
+    // An ended lane reads as it was left: nothing to read.
+    if (isFrozen(l)) continue
     for (const n of l.cards) {
       let r = reads.get(n)
       if (!r) reads.set(n, (r = getTask(n, ws).catch(() => null)))
       const card = await r
       m.set(n, card && !card.archived && inScope(card, l.project) ? card : null)
     }
-    out.set(l.id, m)
   }
   return out
 }
@@ -152,7 +158,7 @@ export async function startLane(ws: WorkspaceService, s: StartLane): Promise<Lan
     let replaced: LaneRecord | null = null
     if (was) {
       const v = (await views(ws, [was]))[0]
-      close(was, v.current === null ? 'ended' : 'abandoned')
+      close(was, v.current === null ? 'ended' : 'abandoned', v.cards)
       replaced = was
     }
     const rec: LaneRecord = {
@@ -211,11 +217,11 @@ export async function joinLane(ws: WorkspaceService, j: { project: string; build
  * `abandoned`. `agent`: a project agent ending it, which must be its builder or reviewer.
  */
 export async function endLane(ws: WorkspaceService, id: string, o: { abandoned?: boolean; mergeCommit?: string | null; project?: string; agent?: string }): Promise<LaneInfo> {
-  const rec = await mutate(ws, (lanes) => {
+  const rec = await mutate(ws, async (lanes) => {
     const l = lanes.find((x) => x.id === id && (!o.project || same(x.project, o.project)))
     if (!l) throw new LaneError(404, `Unknown lane ${id}`)
     if (o.agent && l.builder.id !== o.agent && l.reviewer?.id !== o.agent) throw new LaneError(403, "Only a lane's builder or reviewer ends it (or the user, or the Assistant)")
-    if (running(l)) close(l, o.abandoned ? 'abandoned' : 'ended', o.mergeCommit)
+    if (running(l)) close(l, o.abandoned ? 'abandoned' : 'ended', (await views(ws, [l]))[0].cards, o.mergeCommit)
     else if (o.mergeCommit && !l.mergeCommit) l.mergeCommit = o.mergeCommit
     return l
   })
@@ -249,8 +255,8 @@ export async function laneAgentRemoved(ws: WorkspaceService, project: string, ag
   if (!ws.path) return
   const has = (await read(ws)).some((l) => running(l) && same(l.project, project) && (l.builder.id === agentId || l.reviewer?.id === agentId))
   if (!has) return
-  await mutate(ws, (lanes) => {
-    for (const l of lanes) if (running(l) && same(l.project, project) && (l.builder.id === agentId || l.reviewer?.id === agentId)) close(l, 'abandoned')
+  await mutate(ws, async (lanes) => {
+    for (const l of lanes) if (running(l) && same(l.project, project) && (l.builder.id === agentId || l.reviewer?.id === agentId)) close(l, 'abandoned', (await views(ws, [l]))[0].cards)
   })
 }
 
@@ -293,12 +299,13 @@ export async function refresh(ws: WorkspaceService): Promise<void> {
       return !!n && (!n.has(l.builder.id) || (!!l.reviewer && !n.has(l.reviewer.id)))
     })
     if (done.length || orphan.length) {
+      const cardsNow = new Map(live.map((l, i) => [l.id, vs[i].cards]))
       await withFileLock(fileOf(ws), async () => {
         const kept = await read(ws)
         for (const l of kept) {
           if (!running(l)) continue
-          if (done.some((d) => d.id === l.id)) close(l, 'ended')
-          else if (orphan.some((d) => d.id === l.id)) close(l, 'abandoned')
+          if (done.some((d) => d.id === l.id)) close(l, 'ended', cardsNow.get(l.id))
+          else if (orphan.some((d) => d.id === l.id)) close(l, 'abandoned', cardsNow.get(l.id))
         }
         await write(ws, kept)
       })

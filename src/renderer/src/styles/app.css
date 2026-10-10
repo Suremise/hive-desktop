@@ -3954,6 +3954,25 @@ body.pane-resizing .monaco-editor {
   font-size: 11px;
   color: var(--accent-ink);
 }
+/* Processes a stopped agent left running (#507): a click ends or keeps them. */
+.agent-leftovers {
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+  flex-shrink: 0;
+  padding: 0 4px;
+  border: 0;
+  border-radius: 3px;
+  background: none;
+  font: inherit;
+  font-size: 11px;
+  color: var(--warning);
+  white-space: nowrap;
+  cursor: pointer;
+}
+.agent-leftovers:hover {
+  background: color-mix(in srgb, var(--warning) 14%, transparent);
+}
 /* A worktree agent's unmerged commits on its tab. */
 .agent-unmerged {
   display: inline-flex;
@@ -7693,12 +7712,13 @@ button.progress-run-show:focus-visible {
   background: var(--border);
 }
 
-/* The Progress panel's bottom (#484): the lanes, pinned there and growing upward; past four, the list scrolls, and
-   sooner on a short panel (at most 40% of it, the bar always shown). Folded, only its bar stays. */
+/* The Progress panel's bottom (#484): the lanes, pinned there and growing upward; past six (#512: a full team of six
+   pairs), the list scrolls, and sooner on a short panel (at most half of it, the bar always shown), so the runs above
+   stay readable. Folded, only its bar stays. */
 .progress-lanes {
   flex: 0 1 auto;
   min-height: 28px;
-  max-height: 40%;
+  max-height: 50%;
   display: flex;
   flex-direction: column;
   border-top: 1px solid var(--border-subtle);
@@ -7739,7 +7759,7 @@ button.progress-run-show:focus-visible {
 .progress-lanes-list {
   flex: 0 1 auto;
   min-height: 0;
-  max-height: 244px;
+  max-height: 366px;
   overflow-y: auto;
   overflow-x: hidden;
   overscroll-behavior: contain;
@@ -7753,9 +7773,15 @@ button.progress-run-show:focus-visible {
   border: 1px solid var(--border-subtle);
   min-width: 0;
 }
+/* Ended and abandoned lanes are muted and still (#512): their cards as they left them, nothing moving. */
 .progress-lane.ended,
 .progress-lane.abandoned {
   opacity: 0.65;
+}
+.progress-lane.ended .lane-seg,
+.progress-lane.abandoned .lane-seg {
+  animation: none;
+  filter: saturate(0.45);
 }
 .progress-lane-top {
   display: flex;
@@ -7855,6 +7881,13 @@ button.progress-run-show:focus-visible {
     repeating-linear-gradient(-45deg, var(--error) 0 2px, transparent 2px 5px),
     color-mix(in srgb, var(--error) 18%, var(--bg));
   box-shadow: inset 0 0 0 1px var(--error);
+}
+/* An ended lane with no record of its cards (#512): a dashed outline, nothing inside: not known. */
+.lane-seg.unrecorded {
+  background: none;
+  box-shadow: none;
+  outline: 1px dashed var(--border);
+  outline-offset: -1px;
 }
 .lane-seg.failed::after {
   content: '';

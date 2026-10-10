@@ -16,6 +16,7 @@ import { hiveWindows } from './windows'
 import { GUIDANCE_REVISION } from './guidance'
 import { hiveSkills } from './skills'
 import { inWorkspace } from './workspace'
+import { trackingLost, trackingProblem } from './agentProcesses'
 
 /** How much of Hive's log a report carries. */
 const LOG_LINES = 50
@@ -118,7 +119,8 @@ export async function diagnostics(): Promise<string> {
     '',
     '### Settings',
     '',
-    `- File locks: ${s.agents.fileLocks}; merge style: ${s.agents.mergeStyle}; background task limit: ${s.agents.backgroundTaskMinutes} min`,
+    `- File locks: ${s.agents.fileLocks}; merge style: ${s.agents.mergeStyle}; background task limit: ${s.agents.backgroundTaskMinutes} min; leftover processes: ${s.agents.leftoverProcesses}`,
+    `- Agents' processes: ${process.platform !== 'win32' ? 'not tracked (Windows only)' : trackingProblem() ? `not tracked: ${trackingProblem()}` : 'tracked'}${trackingLost() ? `; earlier, ${trackingLost()}` : ''}`,
     `- Confirm before quitting: ${s.general.confirmOnQuit}; close to tray: ${s.general.closeToTray ? 'on' : 'off'}; minimise to tray: ${s.general.minimizeToTray ? 'on' : 'off'}; keep the PC awake: ${s.general.keepAwake}`,
     `- Transcript backups: ${s.sessions.backupTranscripts ? 'on' : 'off'}; cache TTL: ${s.sessions.cacheTtl}; Overview refresh: ${s.sessions.overviewRefresh}`,
     `- Agent API: ${s.agentApi.enabled ? 'on' : 'off'}; built-in hive MCP server: ${s.agentApi.provideHiveMcp ? 'on' : 'off'}; session input: ${s.agentApi.allowSessionInput ? 'allowed' : 'off'}`,

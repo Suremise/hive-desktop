@@ -51,6 +51,9 @@ import { asksYou } from '../shared/inbox'
 import { FinishBatcher, finishedNotice, noticeRoute, type FocusedHive, type NoticeRoute } from '../shared/bursts'
 import { recordCards } from './cardSessions'
 import { listMcp, toLaunchDef } from './mcp'
+import { launchEnded, leftoversOf, noteUntracked, settleLeftovers, trackingProblem, trackingReady, trackLaunch, type TrackResult } from './agentProcesses'
+import type { GateWord } from './launchGate'
+import { leftoversSummary, processCount } from '../shared/agentProcesses'
 import { childEnv, killPty, refreshPty, spawnPty, startSize, writePty } from './ptyHost'
 import { TerminalScreen } from './terminalScreen'
 import { KeysStopped, PickNotFound, typeKeySteps } from './keySteps'
@@ -963,6 +966,7 @@ class SessionManager {
       state.statusMessage = `Setting up the worktree: ${setup}`
       const sh = shellCommand(setup)
       try {
+        const tracked = await this.trackingReady()
         // The same last check as before an agent's own launch.
         if (this.starting.get(id)?.cancelled || this.shuttingDown || workspaceFor(projectPath)?.closing) throw new Error('The agent was stopped before it had started.')
         opts.allowed?.()
@@ -972,6 +976,8 @@ class SessionManager {
           cwd,
           env: childEnv(),
           quietExit: true,
+          // What the setup command starts is the launch's too (an `npm install` left running).
+          ...(tracked ? { track: (pid: number, cancelled: AbortSignal) => trackLaunch({ runId, projectPath, agentId, agentName: agent.name }, pid, cancelled).then((r) => this.launchWord(r)) } : {}),
           onExit: (code) => void this.afterSetup(projectPath, agentId, code, { sessionId, name: sessionName, resume: !!opts.resumeId })
         })
       } catch (e) {
@@ -1019,6 +1025,7 @@ class SessionManager {
       // Removed while setting up.
     }
     if (code !== 0 || !agent || l.stopRequested) {
+      void this.afterLaunch(l.state.runId, this.label(l.state))
       this.forget(id)
       emit({ type: 'session-status', state: { ...l.state, status: 'stopped', settingUp: false } })
       if (agent && !l.stopRequested) toast('error', `${basename(projectPath)} · ${agent.name}: setup failed`, `The setup command exited with code ${code}. Its output is in the agent's terminal. Fix it and start the agent again, or start it without setup.`, undefined, projectPath)
@@ -1031,6 +1038,7 @@ class SessionManager {
     try {
       await this.launch(projectPath, { ...agent, needsSetup: false }, launch)
     } catch (e) {
+      void this.afterLaunch(l.state.runId, this.label(l.state))
       this.forget(id)
       emit({ type: 'session-status', state: { ...l.state, status: 'stopped' } })
       toast('error', `Could not start ${agent.name}`, (e as Error).message, undefined, projectPath)
@@ -1127,6 +1135,8 @@ class SessionManager {
     // What the session got, measured on the copies its CLI reads (not their sources: a kept old copy is what it reads).
     const deliveredSizes = await deliveredSkillSizes(adapter, ctx, delivered).catch(() => ({ catalog: 0, bytes: 0, unmeasured: Object.values(delivered).filter((d) => d.revision).length }))
     if (workspace.isAssistantHome(projectPath)) await this.onAssistantLaunch(projectPath)
+    // Through its gate when its processes can be tracked (#507), else directly, untracked, as said once.
+    const tracked = await this.trackingReady()
     // Checked after the last await, just before spawning: stopped, its workspace closed or switched, or the
     // provider turned off while this launch was being prepared, it must not start a process.
     if (l.stopRequested || this.live.get(id) !== l || this.starting.get(id)?.cancelled || !workspaceFor(projectPath) || this.shuttingDown || workspaceFor(projectPath)?.closing) throw new Error('The agent was stopped before it had started.')
@@ -1177,7 +1187,7 @@ class SessionManager {
     const size = startSize(key)
     const screen = l.adapter.footerMode || l.adapter.modeMenuKeys ? new TerminalScreen(size.cols, size.rows) : null
     l.screen = screen
-    const proc = spawnPty(key, {
+    spawnPty(key, {
       ...size,
       file: cmd.file,
       args: cmd.args,
@@ -1194,12 +1204,20 @@ class SessionManager {
         this.watchReadyOutput(id, data)
       },
       onResize: (cols, rows) => screen?.resize(cols, rows),
+      // Everything it starts is tracked, to offer to end what it leaves running (#507): it starts once it is.
+      ...(tracked
+        ? {
+            track: (pid: number, cancelled: AbortSignal) => {
+              state.pid = pid
+              return trackLaunch({ runId: state.runId, projectPath, agentId: agent.id, agentName: agent.name }, pid, cancelled).then((r) => this.launchWord(r))
+            }
+          }
+        : {}),
       onExit: (code, output) => {
         screen?.dispose()
         void this.onExit(projectPath, agent.id, state.runId, code, output)
       }
     })
-    state.pid = proc.pid
     l.initialPrompt = undefined
     l.startAllowed = undefined
     l.backupTimer = setInterval(() => void this.backup(projectPath, agent.id), 5000)
@@ -2032,6 +2050,7 @@ class SessionManager {
     if (basename(projectPath) === ASSISTANT_DIR) this.onAssistantExit(projectPath)
     else endAgentToken(projectPath, agentId, runId)
     this.launchEnded(projectPath, agentId, runId)
+    void this.afterLaunch(runId, l ? this.label(l.state) : basename(projectPath))
     if (sessionId) {
       if (await this.anyTranscript(projectPath, sessionId)) {
         await workspace.upsertSession(projectPath, { id: sessionId, lastActiveAt: new Date().toISOString() }).catch(() => undefined)
@@ -2052,6 +2071,62 @@ class SessionManager {
       state: { provider: l?.state.provider ?? '', runId, projectPath, agentId, cwd: l?.state.cwd ?? projectPath, sessionId, status: 'stopped', startedAt: l?.state.startedAt ?? '', launchSignature: '', unseen: false }
     })
     workspaceOf(projectPath).scheduleRefresh()
+  }
+
+  /**
+   * What a launch's gate is told (#507): its command runs once its processes are tracked. One that can't be tracked
+   * runs anyway, untracked, and Hive says so (once); only one stopped while it was being tracked doesn't.
+   */
+  private launchWord(r: TrackResult): GateWord {
+    if (r.tracked) return { go: true }
+    if (r.reason === 'it was stopped before it started') return { go: false, reason: r.reason }
+    this.untracked(r.reason)
+    return { go: true }
+  }
+
+  /** Whether a launch can go through its gate, its processes tracked (#507); when not, said once (untracked). */
+  private async trackingReady(): Promise<boolean> {
+    const ok = await trackingReady()
+    if (!ok && process.platform === 'win32') this.untracked(trackingProblem())
+    return ok
+  }
+
+  /** Agents' processes can't be tracked (#507): said once a Hive run (noteUntracked); agents start all the same. */
+  private untracked(reason: string | null): void {
+    noteUntracked(reason)
+  }
+
+  /**
+   * A launch's CLI has exited: what it left running (#507) is ended, as Settings → Agents says, or offered to the user
+   * to end; the agent's pane header lists it meanwhile. Quitting Hive asks about every agent's at once instead.
+   */
+  private async afterLaunch(runId: string, label: string): Promise<void> {
+    let left = await launchEnded(runId)
+    if (!left) return
+    // Those it couldn't end stay listed, and are offered as below.
+    let failure = ''
+    if (config.settings.agents.leftoverProcesses === 'end') {
+      try {
+        await settleLeftovers(left.projectPath, left.agentId, 'end')
+        return
+      } catch {
+        failure = ` Hive couldn't end ${left.processes.length + left.more === 1 ? 'it' : 'them'} by itself.`
+        left = leftoversOf(left.projectPath, left.agentId)
+      }
+    }
+    if (this.shuttingDown) return
+    const n = left.processes.length + left.more
+    if (!n) return
+    toast(
+      'warning',
+      `${label} left ${processCount(n)} running`,
+      `${leftoversSummary(left)}. ${n === 1 ? 'It was' : 'They were'} started by the agent and may hold the project's folder or ports.${failure}`,
+      [
+        { label: 'End Them', command: 'session.settleLeftovers', args: [left.projectPath, left.agentId, 'end'] },
+        { label: 'Keep Running', command: 'session.settleLeftovers', args: [left.projectPath, left.agentId, 'keep'] }
+      ],
+      left.projectPath
+    )
   }
 
   /** The running session's transcript, once the provider has written one. */
