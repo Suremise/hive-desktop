@@ -4,7 +4,8 @@ import { encodeProjectPath, parseTranscript } from '../src/main/providers/claude
 import { recacheEstimate } from '../src/main/providers/common'
 import { parseSkillFrontmatter } from '../src/main/skills'
 import { findSecretWarnings, toLaunchDef } from '../src/main/mcp'
-import { claudeFileAllowed, splitArgs, withFileLock, writeJsonAtomic } from '../src/main/fsutil'
+import { claudeFileAllowed, withFileLock, writeJsonAtomic } from '../src/main/fsutil'
+import { splitArgs } from '../src/shared/providers'
 import { readFile, readdir } from 'fs/promises'
 import { assertSessionId, isSessionId, compactThreshold, DEFAULT_APP_CONFIG, DEFAULT_SETTINGS, effectiveModelLabel, mergeDefaults, migrateConfig, modelLabel } from '../src/shared/defaults'
 import { tempDir, tempRoot } from './tempDir'
@@ -450,6 +451,32 @@ describe('Claude Code hooks', () => {
     // The user's own choice in Extra arguments stands.
     expect(snapshot({ ...ctx, extraArgs: ['--system-prompt-snapshot', 'on'] })).toBe('on')
     expect(claudeCode.buildCommand(ctx.executable, { ...ctx, extraArgs: ['--system-prompt-snapshot=on'] }).args.filter((a) => a.startsWith('--system-prompt-snapshot'))).toEqual(['--system-prompt-snapshot=on'])
+  })
+
+  it('passes the first task after "--", so extra arguments ending in a list option keep it (#523)', async () => {
+    const { claudeCode } = await import('../src/main/providers/claude/adapter')
+    const ctx = {
+      projectPath: 'C:\\ws\\p', agentId: 'a-1', executable: 'C:\\bin\\claude.exe', cwd: 'C:\\ws\\p', workspacePath: 'C:\\ws', runId: 'r', sessionId: '00000000-0000-4000-8000-000000000000',
+      resume: false, name: '', skills: [], mcpServers: {}, model: null, effort: null, permissionMode: null, extraArgs: ['--allowedTools', 'mcp__hive', 'Bash'], hookUrl: '', hookAuthFile: '', privateDir: 'C:/hive/launches/r', guidance: '', env: {}, allowBackgroundSessions: true, use200kContext: false,
+      initialPrompt: 'Work on card #12'
+    }
+    // Claude Code 2.1.296 reads a plain argument after "--allowedTools a b" as another tool rule; after "--" it is the task.
+    expect(claudeCode.buildCommand(ctx.executable, ctx).args.slice(-5)).toEqual(['--allowedTools', 'mcp__hive', 'Bash', '--', 'Work on card #12'])
+    expect(claudeCode.buildCommand(ctx.executable, { ...ctx, resume: true }).args.slice(-2)).toEqual(['--', 'Work on card #12'])
+    // The user's "--settings" Hive takes out is not where the task goes.
+    expect(claudeCode.buildCommand(ctx.executable, { ...ctx, extraArgs: ['--settings', '{}'] }).args.slice(-2)).toEqual(['--', 'Work on card #12'])
+    // An option whose value is "--" is written with "=": Hive's own "--" still comes before the task.
+    expect(claudeCode.buildCommand(ctx.executable, { ...ctx, extraArgs: ['--append-system-prompt=--', '--allowedTools', 'Read'] }).args.slice(-5)).toEqual(['--append-system-prompt=--', '--allowedTools', 'Read', '--', 'Work on card #12'])
+    // No task, no "--".
+    expect(claudeCode.buildCommand(ctx.executable, { ...ctx, initialPrompt: undefined }).args).not.toContain('--')
+  })
+
+  it('refuses extra arguments with a bare "--" (#523: Hive doesn\'t guess what it meant)', async () => {
+    const { extraArgsProblem } = await import('../src/shared/providers')
+    const refused = 'Hive passes the task after "--"; remove it from extra arguments.'
+    for (const args of ['--', '--allowedTools Read Bash --', '--append-system-prompt -- --allowedTools Read', '-- hello', '--verbose "--"']) expect(extraArgsProblem(args)).toContain(refused)
+    expect(extraArgsProblem(['--model', 'opus', '--'])).toContain('--option=--')
+    for (const args of ['', '--append-system-prompt=--', '--allowedTools a b', '--add-dir "../my -- lib"', '---', '--x']) expect(extraArgsProblem(args)).toBeNull()
   })
 })
 

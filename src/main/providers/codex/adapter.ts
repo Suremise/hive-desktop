@@ -13,7 +13,7 @@ import { providerSettings } from '../../../shared/providers'
 import { config } from '../../config'
 import { createLogger, userText } from '../../logger'
 import { findSecretWarnings } from '../../mcpSecrets'
-import { AGENTS_SKILLS, EDITOR_EXTENSION_PATH, EDITOR_ROOTS, agentsSkillCopyPath, compareVersions, hookForwardCommand, promptArg, readFirstLine, run, syncAgentsSkills, toSpawnable } from '../common'
+import { AGENTS_SKILLS, EDITOR_EXTENSION_PATH, EDITOR_ROOTS, agentsSkillCopyPath, compareVersions, hookForwardCommand, readFirstLine, run, syncAgentsSkills, taskArgs, toSpawnable } from '../common'
 import type { BackgroundTaskEvent, CatalogRead, CommandSpec, ExternalSession, KeySteps, LaunchContext, LiveDetails, LockDecision, NormalizedHook, ProviderAdapter, SkillDelivery, SkillRoots, UsageParser } from '../types'
 import { codexBackgroundMemo, codexBackgroundTasks, type CodexBackgroundMemo } from './background'
 import { CodexConversationParser, CodexUsageParser, codexImageData, parseRollout, patchPaths, rolloutDetails, rolloutSubSession } from './rollout'
@@ -558,7 +558,7 @@ export class CodexAdapter implements ProviderAdapter {
     }
     args.push(...ctx.extraArgs)
     // Codex takes a first prompt as its last argument (after "resume <id>" too) and starts on it.
-    if (ctx.initialPrompt) args.push(promptArg(executable, ctx.initialPrompt))
+    if (ctx.initialPrompt) args.push(...taskArgs(executable, ctx.initialPrompt))
     const s = toSpawnable(executable, args)
     return { file: s.file, args: s.args, env: ctx.env }
   }

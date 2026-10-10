@@ -9,7 +9,7 @@ import { ASSISTANT_DIR, ASSISTANT_NAME } from '../shared/assistant'
 import { formatDateTime } from '../shared/dates'
 import { assistantTools } from '../shared/assistantTools'
 import { COMPACTING_MESSAGE, HIVE_DIR, agentPtyKey, assertSessionId, cliRename, formatBytes, isSessionId, projectAgents, resumeRecord, transcriptWarnLimit } from '../shared/defaults'
-import { agentLaunchSettings, defaultProviderPending, isProviderEnabled, modeAllowed, permissionLabel, providerDescriptor, providerSettings } from '../shared/providers'
+import { agentLaunchSettings, defaultProviderPending, extraArgsProblem, isProviderEnabled, modeAllowed, permissionLabel, providerDescriptor, providerSettings, splitArgs } from '../shared/providers'
 import { resolvedModel } from '../shared/models'
 import type {
   AutoCompactSetting,
@@ -42,7 +42,7 @@ import { providerService } from './providerService'
 import { config } from './config'
 import { emit, emitTo, toast } from './events'
 import { presentWindow, showOsNotification, testNotifyLog, testQuiet } from './testQuiet'
-import { hashText, heldOpen, isInUse, readJson, removePath, samePlace, treeSignature, splitArgs, syncCopy, syncCopyLocked, syncCopyNow, trashAllOrNothing, withFileLock, writeJsonAtomic } from './fsutil'
+import { hashText, heldOpen, isInUse, readJson, removePath, samePlace, treeSignature, syncCopy, syncCopyLocked, syncCopyNow, trashAllOrNothing, withFileLock, writeJsonAtomic } from './fsutil'
 import { createLogger, userText } from './logger'
 import { applyStep, compactionOver, expireTasks, hookStep, idleAfter, titleStep, type HookStatusInput, type HookStep } from './hookStatus'
 import { Compaction } from './compaction'
@@ -1080,6 +1080,9 @@ class SessionManager {
     }
 
     const eff = await this.effective(projectPath, pinProvider(agent, state.provider))
+    // Extra arguments saved before Settings refused a bare "--" (#523) stop the launch before anything changes.
+    const argsProblem = extraArgsProblem(eff.extraArgs)
+    if (argsProblem) throw new Error(`${argsProblem} Fix it in ${workspace.isAssistantHome(projectPath) ? 'Settings → Assistant' : `Project Settings or Settings → ${adapter.descriptor.name}`}.`)
     l.configuredMode = eff.permissionMode
     let mode = eff.permissionMode
     if (l.modeOverride && modeAllowed(adapter.id, l.modeOverride, config.settings)) mode = l.modeOverride
