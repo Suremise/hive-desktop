@@ -83,6 +83,19 @@ async function until(fn, ms = 10000, interval = 100) {
   return v
 }
 
+/**
+ * Hovers `locator` and returns the text of the tooltip it shows, once `want(text)` holds (or the text shown after ms).
+ * A tooltip shows after its delay (ui.tsx), measured hidden before it is placed, so this waits for it to be visible
+ * with the text, never for the delay. The mouse first leaves for the window's corner, so an earlier tip has gone.
+ */
+async function hoverTip(page, locator, want, ms = 10000) {
+  const tip = () => page.locator('.tip:visible').last().innerText({ timeout: 1000 }).catch(() => '')
+  await page.mouse.move(5, 5)
+  await until(async () => (await page.locator('.tip:visible').count()) === 0, ms)
+  await locator.hover()
+  return (await until(async () => { const t = await tip(); return want(t) && t }, ms)) || (await tip())
+}
+
 let quitWatches = 0
 /**
  * Watches a test copy of Hive quit, telling Hive's part from the process's (#424). Start it before the quit.
@@ -741,4 +754,4 @@ async function haikuAutoCaveat(page, autoOffered) {
   return [ok, JSON.stringify(caveat)]
 }
 
-module.exports = { ROOT, ELECTRON, WORK, CODEX_HOME, CLAUDE_TEST_HOME, TRASH, trashed, tidyUp, ownClaudeHome, probeDir, hiveEnv, childEnv, baseEnv, git, GIT_LOCKED, plainText, trustChoice, haikuAutoMode, haikuAutoCaveat, sleep, port, until, quitWatch, appReady, openWorkspace, hadEstimate, fitWindow, enableProviders, fakeClaude, launch, waitForProvider, addAgent, soloAgent, ptyKey, acceptClaudeTrust, withFileLock, trustForCodex, gitProject, codexSignedIn, launchDir, launchHook, codexHook, samplePng, environmentProblem, environmentProblems, stepVerdict, checked, cliStep, sendPrompt, skip }
+module.exports = { ROOT, ELECTRON, WORK, CODEX_HOME, CLAUDE_TEST_HOME, TRASH, trashed, tidyUp, ownClaudeHome, probeDir, hiveEnv, childEnv, baseEnv, git, GIT_LOCKED, plainText, trustChoice, haikuAutoMode, haikuAutoCaveat, sleep, port, until, hoverTip, quitWatch, appReady, openWorkspace, hadEstimate, fitWindow, enableProviders, fakeClaude, launch, waitForProvider, addAgent, soloAgent, ptyKey, acceptClaudeTrust, withFileLock, trustForCodex, gitProject, codexSignedIn, launchDir, launchHook, codexHook, samplePng, environmentProblem, environmentProblems, stepVerdict, checked, cliStep, sendPrompt, skip }

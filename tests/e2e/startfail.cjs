@@ -87,17 +87,17 @@ const check = (name, ok, extra = '') => {
   check('Show opens the agent with the failure', !!(await until(async () => (await bar.count()) === 1, 5000)))
 
   // --- Fixed, Retry starts it, and the failure goes.
+  // Saved by the time agents:update returns, and Retry starts it from what's saved.
   await inv('agents:update', alpha, agent.id, { model: '' })
-  await lib.sleep(300)
   await bar.getByRole('button', { name: 'Retry' }).click()
   check('Retry starts it again', !!(await until(async () => (await live())?.status === 'ready', 15000)))
-  check('the failure is gone once it starts', (await bar.count()) === 0 && !/Failed to start/.test(await text(header)) && (await tab.locator('.dot.error').count()) === 0)
+  check('the failure is gone once it starts', !!(await until(async () => (await bar.count()) === 0 && !/Failed to start/.test(await text(header)) && (await tab.locator('.dot.error').count()) === 0)))
 
   // --- A stop isn't a failed start.
   await inv('session:stop', alpha, agent.id)
   await until(async () => !(await live()), 8000)
-  await lib.sleep(800)
-  check('a stop shows no failure', (await bar.count()) === 0 && (await pane.locator('.session-ended').count()) === 1)
+  // The pane says the session ended once the stop reaches it; a failure would show by then, in place of that.
+  check('a stop shows no failure', !!(await until(async () => (await pane.locator('.session-ended:not(.start-failed)').count()) === 1)) && (await bar.count()) === 0)
   await page.screenshot({ path: path.join(lib.WORK, 'startfail-3-stopped.png') })
 
   await app.close()
