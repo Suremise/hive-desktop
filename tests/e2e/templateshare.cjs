@@ -5,7 +5,8 @@
 // Keep Both), an invalid file refused with the reason, and Delete. A project's Templates tab lists its own and the
 // workspace's with their scopes, and loads into that project. Screenshots and reachability at 1700 and 900 px in both
 // themes. #271: Edit… in the view (name, description, layout; an agent changed in the Agent Settings dialog, one added
-// (a taken name refused), moved, one removed), saved, then loaded: exactly those agents. The file dialogs and the
+// (a taken name refused), moved, one removed), saved, then loaded: exactly those agents. #510: an agent's Save saves the
+// template too; changes not saved survive leaving the editor (marked in the list), and Cancel discards them. The file dialogs and the
 // Recycle Bin are answered in main (never the real ones). Agents use the fake Claude
 // Code (fake-claude/), never started. Dev build, throwaway profile and workspace; a quiet test copy.
 const lib = require('./lib.cjs')
@@ -107,7 +108,7 @@ const check = (name, ok, extra = '') => {
   await dialog.getByRole('button', { name: 'Continue' }).click()
   const confirmLoad = page.locator('.dialog', { hasText: 'Load "Team"?' })
   await confirmLoad.waitFor({ timeout: 5000 })
-  check("…then loading's confirmation, for the chosen project", /Removed:\s*• Old/.test(await confirmLoad.innerText()))
+  check("…then loading's confirmation, for the chosen project", (await confirmLoad.locator('.template-plan-removed li').evaluateAll((l) => l.map((x) => x.dataset.agent))).join() === 'Old')
   await confirmLoad.getByRole('button', { name: 'Load template' }).click()
   check('Load into Project… replaces that project\'s agents and layout', !!(await lib.until(async () => JSON.stringify(projectCfg(beta).agents.map((a) => a.name)) === '["Builder","Reviewer"]', 10000)) && projectCfg(beta).layout === 'columns2')
 
@@ -245,7 +246,8 @@ const check = (name, ok, extra = '') => {
   const teamFile = path.join(wsTemplates, 'pair.json')
   const savedTeam = await lib.until(async () => {
     const j = JSON.parse(fs.readFileSync(teamFile, 'utf8'))
-    return j.name === 'Team edited' ? j : null
+    // (Its agents' Saves saved it already, #510: Save Template's own save is the one without Builder.)
+    return j.name === 'Team edited' && !j.agents.some((x) => x.name === 'Builder') ? j : null
   }, 5000)
   check('Save Template writes it where it is kept: name, description, layout and the agents in order', !!savedTeam && savedTeam.description === 'Builds, then reviews.' && savedTeam.layout === 'columns3' && JSON.stringify(savedTeam.agents.map((a) => [a.name, a.role ?? '', a.worktree])) === '[["Tester","",false],["Reviewer","checker",true]]', JSON.stringify(savedTeam))
   check('…and the view shows it again, with its description', !!(await lib.until(async () => (await detail.count()) === 1 && /Builds, then reviews\./.test(await detail.innerText()), 5000)))
@@ -283,6 +285,119 @@ const check = (name, ok, extra = '') => {
   await page.locator('.dialog', { hasText: 'Discard your changes?' }).getByRole('button', { name: 'Discard' }).click()
   check('Discard and Reload shows it as it is now', !!(await lib.until(async () => (await editor.count()) === 0 && /external change must survive/.test(await detail.innerText()), 5000)))
 
+
+  // --- #510: an agent's Save in the editor saves the template too (Save means save), and the editor stays open. Its
+  // changes not saved yet (a new name) survive leaving it for another template: the list marks it, and it opens again
+  // with them. Cancel then discards them. Both themes.
+  await sidebar.locator('.template-row[aria-label="Team edited"]').first().click()
+  await detail.getByRole('button', { name: 'Edit…' }).click()
+  await editor.waitFor({ timeout: 5000 })
+  await editor.locator('[aria-label="Edit Tester…"]').click()
+  const testerDialog = page.locator('.dialog', { hasText: 'Tester settings (template)' })
+  await testerDialog.waitFor({ timeout: 5000 })
+  check("the agent's dialog says its Save saves it in the template", /Save saves it in the template/.test(await testerDialog.innerText()), await testerDialog.innerText())
+  await testerDialog.locator('#agent-role').fill('qa')
+  await testerDialog.getByRole('button', { name: 'Save' }).click()
+  const roleOf = () => JSON.parse(fs.readFileSync(teamFile, 'utf8')).agents.find((a) => a.name === 'Tester')?.role
+  check("an agent's Save saves the template, with no Save Template", !!(await lib.until(() => roleOf() === 'qa', 5000)), String(roleOf()))
+  // (The file is written a moment before the editor has the reply.)
+  check('…the editor stays open, with nothing left unsaved', !!(await lib.until(async () => (await editor.count()) === 1 && (await editor.locator('.template-unsaved-note').count()) === 0 && (await editor.getByRole('button', { name: 'Save Template' }).isDisabled()), 5000)))
+  check('…and never says it was saved again meanwhile (its own save)', !(await lib.until(async () => (await editor.locator('.template-stale').count()) > 0, 1500)))
+  await editor.getByRole('button', { name: 'Close' }).click()
+  await detail.getByRole('button', { name: 'Edit…' }).click()
+  await editor.waitFor({ timeout: 5000 })
+  check('closed and opened again: the change is kept', /qa/.test(await editor.locator('tbody tr[data-agent="Tester"]').innerText()))
+  // A change not saved, then another template: nothing lost.
+  await editor.locator('#template-name').fill('Team pending')
+  check('a change not saved is marked in the editor', (await editor.locator('.template-unsaved-note').count()) === 1)
+  await sidebar.locator('.template-row[aria-label="Bump"]').first().click()
+  const teamRow = sidebar.locator('.template-row[aria-label="Team edited"]').first()
+  check('…another template: the list marks this one "Not saved"', !!(await lib.until(async () => (await teamRow.locator('.template-unsaved').count()) === 1, 5000)))
+  for (const theme of ['dark', 'light']) {
+    await inv('settings:update', { appearance: { theme } })
+    await lib.sleep(300)
+    await shot(`unsaved-row-${theme}`)
+  }
+  await teamRow.click()
+  check('…back: the editor opens again with the change', !!(await lib.until(async () => (await editor.count()) === 1 && (await editor.locator('#template-name').inputValue()) === 'Team pending', 5000)))
+  for (const theme of ['dark', 'light']) {
+    await inv('settings:update', { appearance: { theme } })
+    await lib.sleep(300)
+    await shot(`unsaved-editor-${theme}`)
+  }
+  await inv('settings:update', { appearance: { theme: 'dark' } })
+  await editor.getByRole('button', { name: 'Cancel' }).click()
+  await page.locator('.dialog', { hasText: 'Discard your changes?' }).getByRole('button', { name: 'Discard' }).click()
+  check('Cancel discards it: the editor closes, the mark goes, the template is as saved', !!(await lib.until(async () => (await editor.count()) === 0 && (await teamRow.locator('.template-unsaved').count()) === 0, 5000)) && JSON.parse(fs.readFileSync(teamFile, 'utf8')).name === 'Team edited')
+
+  // --- #510 round 2: a slow save. While it runs nothing in the editor can change (so no edit is lost when it ends, and
+  // no agent's Save is accepted that isn't saved); then Reload Window and quitting ask about a draft not saved.
+  const slow = (v) => app.evaluate((_e, x) => void (process.env.HIVE_TEST_SLOW_IPC = x), v)
+  const disabledNow = async () => ({
+    name: await editor.locator('#template-name').isDisabled(),
+    edit: await editor.locator('[aria-label="Edit Tester…"]').isDisabled(),
+    add: await editor.getByRole('button', { name: 'Add Agent…' }).isDisabled(),
+    remove: await editor.locator('[aria-label="Remove Tester"]').isDisabled()
+  })
+  const teamNow = () => JSON.parse(fs.readFileSync(teamFile, 'utf8'))
+  await teamRow.click()
+  await detail.getByRole('button', { name: 'Edit…' }).click()
+  await editor.waitFor({ timeout: 5000 })
+  await editor.locator('#template-name').fill('Team slow')
+  await slow('templates:update=2500*1')
+  await editor.getByRole('button', { name: 'Save Template' }).click()
+  await lib.until(async () => /Saving…/.test(await editor.innerText()), 2000)
+  const whileSaving = await disabledNow()
+  check('a slow Save Template: while it saves, the name, agents and their buttons are disabled', Object.values(whileSaving).every(Boolean), JSON.stringify(whileSaving))
+  await shot('saving')
+  check('…then it is saved and the editor closes', !!(await lib.until(async () => (await editor.count()) === 0 && teamNow().name === 'Team slow', 8000)), JSON.stringify(teamNow().name))
+  // An agent's Save while its template save is slow: no other Save can start until it is done, and each one saved is.
+  const slowRow = sidebar.locator('.template-row[aria-label="Team slow"]').first()
+  await slowRow.click()
+  await detail.getByRole('button', { name: 'Edit…' }).click()
+  await editor.waitFor({ timeout: 5000 })
+  const saveTester = async (role) => {
+    await editor.locator('[aria-label="Edit Tester…"]').click()
+    await testerDialog.waitFor({ timeout: 5000 })
+    await testerDialog.locator('#agent-role').fill(role)
+    await testerDialog.getByRole('button', { name: 'Save' }).click()
+    await lib.until(async () => (await testerDialog.count()) === 0, 3000)
+  }
+  // (Another value: Hive reads the setting again only when it changes.)
+  await slow('templates:update=2501*1')
+  await saveTester('first-save')
+  const duringAgentSave = await disabledNow()
+  check("an agent's Save saving slowly: no other agent can be edited meanwhile", duringAgentSave.edit && duringAgentSave.add && duringAgentSave.name && teamNow().agents.find((a) => a.name === 'Tester')?.role !== 'first-save', JSON.stringify(duringAgentSave))
+  check('…then it is saved', !!(await lib.until(() => teamNow().agents.find((a) => a.name === 'Tester')?.role === 'first-save', 8000)))
+  await lib.until(async () => !(await editor.locator('[aria-label="Edit Tester…"]').isDisabled()), 3000)
+  await saveTester('second-save')
+  check('…and the next agent Save is saved too, with nothing left unsaved', !!(await lib.until(async () => teamNow().agents.find((a) => a.name === 'Tester')?.role === 'second-save' && (await editor.locator('.template-unsaved-note').count()) === 0, 5000)))
+  // A draft not saved: Reload Window asks first (and Cancel keeps it), quitting asks too, and Save and quit saves it.
+  await editor.locator('#template-name').fill('Team at quit')
+  await page.evaluate(() => document.activeElement?.blur())
+  await page.keyboard.press('Control+Shift+P')
+  await page.locator('.palette input').fill('Reload Window')
+  await lib.sleep(300)
+  await page.keyboard.press('Enter')
+  const askSave = page.locator('.dialog', { hasText: 'Save your changes?' })
+  check('Reload Window with a template draft asks to save it first', !!(await lib.until(async () => (await askSave.count()) === 1 && /Template "Team slow"/.test(await askSave.innerText()), 5000)), await askSave.innerText().catch(() => ''))
+  await shot('reload-asks')
+  await askSave.getByRole('button', { name: 'Cancel' }).click()
+  check('…Cancel keeps the draft, still open', !!(await lib.until(async () => (await askSave.count()) === 0, 3000)) && (await editor.locator('#template-name').inputValue()) === 'Team at quit')
+  const q = await lib.quitWatch(app)
+  await inv('app:quit')
+  const quitDialog = page.locator('.dialog', { hasText: 'unsaved changes' })
+  check('quitting with a template draft asks about it', !!(await lib.until(async () => (await quitDialog.count()) === 1 && /pair\.json/.test(await quitDialog.innerText()), 5000)), await quitDialog.innerText().catch(() => ''))
+  for (const theme of ['dark', 'light']) {
+    await inv('settings:update', { appearance: { theme } })
+    await lib.sleep(300)
+    await shot(`quit-asks-${theme}`)
+  }
+  await quitDialog.getByRole('button', { name: 'Save and quit' }).click()
+  check('…Save and quit saves it, then Hive quits', !!(await q.untilDecided(8000)) && teamNow().name === 'Team at quit', JSON.stringify(teamNow().name))
+  await q.gone(30000)
+  console.log(failed ? `${failed} check(s) failed` : 'all checks passed')
+  process.exit(failed ? 1 : 0)
   await app.close()
   console.log(failed ? `${failed} check(s) failed` : 'all checks passed')
   process.exit(failed ? 1 : 0)

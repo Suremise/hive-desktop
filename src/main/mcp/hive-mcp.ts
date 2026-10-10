@@ -11,7 +11,7 @@
 import { AsyncLocalStorage } from 'async_hooks'
 import { appendFileSync, readFileSync } from 'fs'
 import { createInterface } from 'readline'
-import { hiveInstructions, projectHandovers, withLatestHandover } from '../../shared/hiveGuidance'
+import { hiveInstructions, withLatestHandover } from '../../shared/hiveGuidance'
 import { AGENT_ONLY_TOOLS, ASSISTANT_ONLY_TOOLS, assistantTools, controlAllows } from '../../shared/assistantTools'
 import { COLUMN_IDS } from '../../shared/tasks'
 import { AGENT_WAIT_MAX_SECONDS, WAIT_MAX_SECONDS } from '../../shared/watch'
@@ -101,24 +101,10 @@ interface Tool {
   run: (args: Record<string, any>) => Promise<unknown>
 }
 
-interface NoteFile {
-  relPath: string
-  name: string
-  isDir: boolean
-  children?: NoteFile[]
-  modified?: string
-}
-
-/** This project's handovers, newest first (see projectHandovers). */
-async function handovers(project?: string): Promise<NoteFile[]> {
-  const tree = (await api('GET', '/v1/shared')) as NoteFile[]
-  let all: string[] = []
-  try {
-    all = ((await api('GET', '/v1/projects')) as { name: string }[]).map((x) => x.name)
-  } catch {
-    // Without the project list, the file name alone decides.
-  }
-  return projectHandovers(tree, project, all, async (relPath) => ((await api('GET', `/v1/shared/file?path=${enc(relPath)}`)) as { content: string }).content)
+/** A project's handovers, newest first, as Hive finds them (under its earlier folder names too, #514); none named: every one. */
+async function handovers(project?: string): Promise<{ relPath: string }[]> {
+  const list = (await api('GET', `/v1/shared/handovers${project ? `?project=${enc(project)}` : ''}`)) as { path: string }[]
+  return list.map((h) => ({ relPath: h.path }))
 }
 
 const enc = (s: string): string => encodeURIComponent(s)

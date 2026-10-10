@@ -6,6 +6,8 @@ import type { MetricsReport } from '../shared/metrics'
 import { renameRetrying, writeTextAtomic } from './fsutil'
 import { createLogger } from './logger'
 import type { WorkspaceService } from './workspace'
+import { ownerOfName } from './projectNames'
+import { existsSync } from 'original-fs'
 
 /**
  * Kept comparisons (#117): scenario benchmarks and Performance exports a user imported (or kept from the page), each a
@@ -61,12 +63,16 @@ export interface BenchContext {
   dir: string
   lifetime: AbortSignal
   workspacePath: string
+  /** A project's stable id now, by its folder name (#514); null for none. */
+  idOf?: (project: string) => string | null
+  /** The project a comparison kept under a folder name is (#514, projectNames.ts's ownerOfName); null when that can't be known. */
+  ownerOf?: (project: string) => string | null
 }
 
 /** The context of a workspace now (synchronously: call it before awaiting anything). */
 export function benchContext(w: WorkspaceService): BenchContext {
   if (!w.path || w.lifetime.aborted) throw new Error('No workspace is open.')
-  return { dir: join(w.path, '.hive', 'metrics', 'benchmarks'), lifetime: w.lifetime, workspacePath: w.path }
+  return { dir: join(w.path, '.hive', 'metrics', 'benchmarks'), lifetime: w.lifetime, workspacePath: w.path, idOf: (p) => w.projectIdsNow().byPath.get(join(w.path!, p).toLowerCase()) ?? null, ownerOf: (p) => ownerOfName(w, p) }
 }
 
 /** Refuses work whose workspace closed or switched since it started. */
@@ -243,7 +249,7 @@ async function readIndex(ctx: BenchContext): Promise<Index> {
   for (const [k, v] of Object.entries(sel).slice(0, MAX_SELECTED)) {
     const o = v && typeof v === 'object' ? (v as Record<string, unknown>) : {}
     const id = (x: unknown): string | undefined => (typeof x === 'string' && ID.test(x) ? x : undefined)
-    if (/^(workspace|own|project:[^\0]{1,255})$/.test(k)) selected[k] = { base: id(o.base), run: id(o.run) }
+    if (/^(workspace|own|project:[^\0]{1,255}|owner:p-[0-9a-f]{12})$/.test(k)) selected[k] = { base: id(o.base), run: id(o.run) }
   }
   return reconcile(ctx, { version: 1, entries, selected }, new Set(files))
 }
@@ -393,7 +399,9 @@ function keep(ctx: BenchContext, a: Artifact): Promise<KeptEntry> {
     }
     const txn = randomBytes(6).toString('hex')
     const id = randomBytes(6).toString('hex')
-    const entry: KeptEntry = { id, label: a.label, kind: a.kind, scope: a.scope, createdAt: a.createdAt, keptAt: new Date().toISOString(), pinned: false, about: aboutOf(a) }
+    // A project's is its id's (#514).
+    const owner = a.scope.kind === 'project' ? ctx.idOf?.(a.scope.project) : null
+    const entry: KeptEntry = { id, label: a.label, kind: a.kind, scope: a.scope, createdAt: a.createdAt, keptAt: new Date().toISOString(), pinned: false, about: aboutOf(a), ...(owner ? { owner } : {}) }
     const others = index.entries.filter((e) => !evicted.includes(e))
     // (1) Recorded: nothing is touched yet.
     await writeIndex(ctx, { ...index, entries: [...others, ...evicted.map((e) => ({ ...e, state: 'removing' as const, txn })), { ...entry, state: 'adding', txn }] })
@@ -465,18 +473,67 @@ export async function keepReport(ctx: BenchContext, report: MetricsReport, appVe
   return keep(ctx, a)
 }
 
-/** The kept (not being added or removed) entries of a scope. */
-const keptOf = (index: Index, scope: CompareScope): KeptEntry[] => index.entries.filter((e) => !e.state && compareScopeKey(e.scope) === compareScopeKey(scope))
+/**
+ * A scope's key for its chosen baseline and run: a project's by its stable id (#514), so the choice stays its own
+ * whatever it is called later; one with no id (or another scope) by the scope.
+ */
+const selectionKey = (ctx: BenchContext, scope: CompareScope): string => {
+  const id = scope.kind === 'project' ? ctx.idOf?.(scope.project) : null
+  return id ? `owner:${id}` : compareScopeKey(scope)
+}
+
+/**
+ * The kept (not being added or removed) entries of a scope. A project's are those its id owns (#514): kept for it, or
+ * kept before owners under a name that is it (ownerOf, until they are given owners: adoptBenchmarkOwners).
+ */
+const keptOf = (index: Index, scope: CompareScope, ctx: BenchContext): KeptEntry[] => {
+  const kept = index.entries.filter((e) => !e.state)
+  const id = scope.kind === 'project' ? ctx.idOf?.(scope.project) : null
+  if (scope.kind !== 'project' || !id) return kept.filter((e) => !e.owner && compareScopeKey(e.scope) === compareScopeKey(scope))
+  return kept.filter((e) => e.scope.kind === 'project' && (e.owner ? e.owner === id : ctx.ownerOf?.(e.scope.project) === id))
+}
+
+/**
+ * Gives the project comparisons kept before owners (#514) the project they are (ownerOf), and moves a chosen baseline
+ * and run kept by a project's name to its id. In the index's turn, and in the workspace it began in (closed or
+ * switched meanwhile: nothing changes); nothing else changes.
+ */
+export function adoptBenchmarkOwners(ctx: BenchContext): Promise<void> {
+  return serial(ctx, async () => {
+    if (!existsSync(join(ctx.dir, 'index.json'))) return
+    const index = await readIndex(ctx)
+    live(ctx)
+    let changed = false
+    const owner = (name: string): string | null => ctx.ownerOf?.(name) ?? null
+    for (const e of index.entries) {
+      if (e.owner || e.scope.kind !== 'project') continue
+      const id = owner(e.scope.project)
+      if (!id) continue
+      e.owner = id
+      changed = true
+    }
+    for (const [k, v] of Object.entries(index.selected)) {
+      if (!k.startsWith('project:')) continue
+      const id = owner(k.slice('project:'.length))
+      if (!id) continue
+      index.selected[`owner:${id}`] ??= v
+      delete index.selected[k]
+      changed = true
+    }
+    if (changed) await writeIndex(ctx, index)
+  })
+}
 
 /** A scope's kept artifacts (only its own), newest first, its chosen baseline and run, and what a recovery or clean-up did. */
 export async function listBenchmarks(ctx: BenchContext, scope: CompareScope): Promise<{ entries: KeptEntry[]; base: string | null; run: string | null; notice?: string }> {
   const index = await serial(ctx, () => readIndex(ctx))
   const said = notices.get(ctx.dir)
   notices.delete(ctx.dir)
-  const entries = keptOf(index, scope)
-    .map(({ state: _s, txn: _t, ...e }: IndexEntry) => e)
+  const entries = keptOf(index, scope, ctx)
+    .map(({ state: _s, txn: _t, owner: _o, ...e }: IndexEntry) => e)
     .sort((a, b) => b.keptAt.localeCompare(a.keptAt))
-  const sel = index.selected[compareScopeKey(scope)] ?? {}
+  // Its own choice, else the one made under an earlier name.
+  const sel = index.selected[selectionKey(ctx, scope)] ?? index.selected[compareScopeKey(scope)] ?? {}
   const has = (id?: string): string | null => (id && entries.some((e) => e.id === id) ? id : null)
   return { entries, base: has(sel.base), run: has(sel.run), ...(said?.length ? { notice: said.join(' ') } : {}) }
 }
@@ -485,7 +542,7 @@ export async function listBenchmarks(ctx: BenchContext, scope: CompareScope): Pr
 export async function readBenchmark(ctx: BenchContext, scope: CompareScope, id: string): Promise<Artifact> {
   if (!ID.test(id)) throw new Error('No such comparison')
   const index = await serial(ctx, () => readIndex(ctx))
-  const entry = keptOf(index, scope).find((e) => e.id === id)
+  const entry = keptOf(index, scope, ctx).find((e) => e.id === id)
   if (!entry) throw new Error('No such comparison for this scope')
   const a = await readArtifactFile(ctx, id)
   live(ctx)
@@ -502,7 +559,7 @@ export async function readBenchmark(ctx: BenchContext, scope: CompareScope, id: 
 export function removeBenchmark(ctx: BenchContext, scope: CompareScope, id: string): Promise<void> {
   return serial(ctx, async () => {
     const index = await readIndex(ctx)
-    const entry = keptOf(index, scope).find((e) => e.id === id)
+    const entry = keptOf(index, scope, ctx).find((e) => e.id === id)
     if (!entry) return
     const txn = randomBytes(6).toString('hex')
     const marked: Index = { ...index, entries: index.entries.map((e) => (e.id === id ? { ...e, state: 'removing' as const, txn } : e)) }
@@ -515,7 +572,7 @@ export function removeBenchmark(ctx: BenchContext, scope: CompareScope, id: stri
 export function pinBenchmark(ctx: BenchContext, scope: CompareScope, id: string, pinned: boolean): Promise<void> {
   return serial(ctx, async () => {
     const index = await readIndex(ctx)
-    const entry = keptOf(index, scope).find((e) => e.id === id) as IndexEntry | undefined
+    const entry = keptOf(index, scope, ctx).find((e) => e.id === id) as IndexEntry | undefined
     if (!entry) return
     entry.pinned = pinned
     await writeIndex(ctx, index)
@@ -525,10 +582,10 @@ export function pinBenchmark(ctx: BenchContext, scope: CompareScope, id: string,
 export function selectBenchmarks(ctx: BenchContext, scope: CompareScope, base: string | null, run: string | null): Promise<void> {
   return serial(ctx, async () => {
     const index = await readIndex(ctx)
-    const key = compareScopeKey(scope)
-    const mine = (id: string | null): string | undefined => (id && keptOf(index, scope).some((e) => e.id === id) ? id : undefined)
+    const key = selectionKey(ctx, scope)
+    const mine = (id: string | null): string | undefined => (id && keptOf(index, scope, ctx).some((e) => e.id === id) ? id : undefined)
     // Selections of scopes with nothing kept go (bounded however many projects came and went).
-    const scopes = new Set(index.entries.map((e) => compareScopeKey(e.scope)))
+    const scopes = new Set([key, ...index.entries.map((e) => (e.owner ? `owner:${e.owner}` : compareScopeKey(e.scope)))])
     const selected = Object.fromEntries(Object.entries(index.selected).filter(([k]) => scopes.has(k)))
     selected[key] = { base: mine(base), run: mine(run) }
     await writeIndex(ctx, { ...index, selected })

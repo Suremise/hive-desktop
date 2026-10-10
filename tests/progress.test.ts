@@ -47,6 +47,27 @@ describe('progress runs', () => {
     expect(s.start(assistant, { title: 'x' })).toMatchObject({ agentName: 'Hive Assistant', source: 'assistant' })
   })
 
+  it("projects renamed together (#514): each one's runs, open and ended, are its own at its folder now (a swap keeps each one's), once", async () => {
+    const s = store()
+    const a = s.start(alfie, { title: 'done' })
+    s.finish(alfie, a.id, { ok: true })
+    const open = s.start(alfie, { title: 'going' })
+    const b = s.start(betty, { title: 'beta' })
+    changes = []
+    const swap = [
+      { from: 'C:\\WS\\Alpha', to: 'C:\\ws\\beta' },
+      { from: 'C:\\ws\\beta', to: 'C:\\ws\\alpha' }
+    ]
+    await s.applyRenames(WS, swap, 2)
+    const byId = () => new Map(s.list(WS).map((r) => [r.id, r.projectPath]))
+    expect([byId().get(a.id), byId().get(open.id), byId().get(b.id)]).toEqual(['C:\\ws\\beta', 'C:\\ws\\beta', 'C:\\ws\\alpha'])
+    expect(changes.at(-1)?.ws).toBe(WS)
+    // Again (or an older one): nothing changes.
+    await s.applyRenames(WS, swap, 2)
+    await s.applyRenames(WS, [{ from: 'C:\\ws\\beta', to: 'C:\\ws\\x' }], 1)
+    expect([byId().get(a.id), byId().get(b.id)]).toEqual(['C:\\ws\\beta', 'C:\\ws\\alpha'])
+  })
+
   it("only its owner (or a script in the workspace) updates or finishes it; others get 404 as for an unknown run", () => {
     const s = store()
     const r = s.start(alfie, { title: 'tests', total: 3 })

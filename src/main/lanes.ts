@@ -1,10 +1,13 @@
 import { randomBytes } from 'crypto'
 import { join } from 'path'
-import { projectAgents } from '../shared/defaults'
+import { existsSync } from 'original-fs'
+import { HIVE_DIR, projectAgents } from '../shared/defaults'
 import { allDone, isFrozen, loopDefaults, keptLanes, laneView, listedLanes, readLanes, running, type LaneAgent, type LaneChange, type LaneRecord } from '../shared/lanes'
 import type { LaneCard, LaneInfo, TaskCard } from '../shared/types'
 import { onHiveEvent } from './events'
 import { readJson, withFileLock, writeJsonAtomic } from './fsutil'
+import { isProjectId, projectIdNamed, projectNameOf, projectNow, savedProjectName } from '../shared/projectIds'
+import { keepBeforeIds } from './beforeIds'
 import { createLogger, userText } from './logger'
 import { getTask, inScope } from './tasks'
 import { openWorkspaces, type WorkspaceService } from './workspace'
@@ -34,12 +37,102 @@ export class LaneError extends Error {
   }
 }
 
+/** Each lane's project id as it was read, so a lane whose project the workspace doesn't have now keeps it. */
+const readIds = new WeakMap<LaneRecord, string>()
+
+/**
+ * A workspace's lanes; each names its project by its stable id too (#508): its project is the one that has the id now
+ * (projectNow), and a lane saved before ids has its name only.
+ */
 async function read(ws: WorkspaceService): Promise<LaneRecord[]> {
-  return readLanes(await readJson<unknown>(fileOf(ws), null))
+  const data = await readJson<unknown>(fileOf(ws), null)
+  const raw = data && typeof data === 'object' && Array.isArray((data as { lanes?: unknown }).lanes) ? ((data as { lanes: unknown[] }).lanes as Record<string, unknown>[]) : []
+  // Listed now: the cards read against these lanes next see the same projects (a lane and its cards agree).
+  const ids = await ws.projectIds({ fresh: true })
+  const idOf = new Map<string, string>()
+  for (const v of raw) {
+    if (!v || typeof v !== 'object' || typeof v.id !== 'string' || !isProjectId(v.projectId)) continue
+    idOf.set(v.id, v.projectId)
+    if (typeof v.project === 'string') v.project = projectNow(ids, v.project, v.projectId)
+  }
+  const lanes = readLanes(data)
+  for (const l of lanes) if (idOf.has(l.id)) readIds.set(l, idOf.get(l.id)!)
+  return lanes
 }
 
+/** The lanes as saved: each with its project's id beside its name (the id it had, for a project the workspace doesn't have now). */
 async function write(ws: WorkspaceService, lanes: LaneRecord[]): Promise<void> {
-  await writeJsonAtomic(fileOf(ws), { version: 1, lanes: keptLanes(lanes, Date.now()) })
+  const ids = await ws.projectIds()
+  const stamped = keptLanes(lanes, Date.now()).map((l) => {
+    const saved = savedProjectName(l.project)
+    const projectId = (saved === l.project ? projectIdNamed(ids, saved) : null) ?? readIds.get(l)
+    const { id, project: _shown, ...rest } = l
+    return { id, project: saved, ...(projectId ? { projectId } : {}), ...rest }
+  })
+  await writeJsonAtomic(fileOf(ws), { version: 1, lanes: stamped })
+}
+
+/**
+ * Each lane names its project by id too (#508), once, when the workspace opens: those saved before ids whose name is a
+ * project get its id, and those whose project was renamed since its name now. lanes.json keeps its content from before
+ * beside it once (`lanes.json.before-ids.bak`). Lanes under a name no project has are left as they are (Repair:
+ * moveOrphanLanes). Changes nothing the second time. Returns how many lanes changed.
+ */
+export async function stampLaneProjects(ws: WorkspaceService): Promise<number> {
+  if (!ws.path) return 0
+  const file = fileOf(ws)
+  const n = await withFileLock(file, async () => {
+    const before = await readJson<{ lanes?: unknown } | null>(file, null)
+    if (!before || !Array.isArray(before.lanes)) return 0
+    const lanes = await read(ws)
+    const ids = await ws.projectIds()
+    const names = new Map(lanes.map((l) => [l.id, l.project]))
+    const changing = (before.lanes as Record<string, unknown>[]).filter((v) => {
+      if (!v || typeof v !== 'object' || typeof v.project !== 'string') return false
+      if (isProjectId(v.projectId)) return names.get(v.id as string) !== v.project && !!projectNameOf(ids, v.projectId)
+      return !!projectIdNamed(ids, v.project)
+    }).length
+    if (!changing) return 0
+    await keepBeforeIds(file)
+    await write(ws, lanes)
+    return changing
+  })
+  if (n) {
+    log.info(`${n} lane(s) now name their project by its id`)
+    changed(ws)
+  }
+  return n
+}
+
+/**
+ * Repair (#508): lanes saved before ids under a project's old name go to the project they belong to now, with its id.
+ * In lanes.json's lock, read again there; one with an id, or under another name now, is left as it is. Returns how many.
+ */
+export async function moveOrphanLanes(ws: WorkspaceService, m: { from: string; to: string }): Promise<number> {
+  if (!ws.path) return 0
+  const file = fileOf(ws)
+  const n = await withFileLock(file, async () => {
+    const lanes = await read(ws)
+    const moving = lanes.filter((l) => !readIds.has(l) && same(l.project, m.from))
+    if (!moving.length) return 0
+    for (const l of moving) {
+      l.project = m.to
+      l.updatedAt = now()
+    }
+    await keepBeforeIds(file)
+    await write(ws, lanes)
+    return moving.length
+  })
+  if (n) {
+    log.info(`Repair gave ${n} lane(s) of ${userText(m.from)} to ${userText(m.to)}`)
+    changed(ws)
+  }
+  return n
+}
+
+/** The lanes saved before ids (#508), as Repair weighs whose they are: their project's name and their agents. */
+export async function legacyLanes(ws: WorkspaceService): Promise<{ name: string; agents: string[] }[]> {
+  return (await read(ws)).filter((l) => !readIds.has(l)).map((l) => ({ name: l.project, agents: [l.builder.id, ...(l.reviewer ? [l.reviewer.id] : [])] }))
 }
 
 /** Changes a workspace's lanes under its lock: fn changes the list it is given (or throws), and says whether it did. */
@@ -94,7 +187,9 @@ async function namesOf(ws: WorkspaceService, lanes: readonly LaneRecord[]): Prom
   for (const l of lanes) {
     const k = l.project.toLowerCase()
     if (out.has(k) || !ws.path) continue
-    const cfg = await ws.projectConfig(join(ws.path, l.project)).catch(() => null)
+    // A project not there by that name (renamed a moment ago, or gone) is unknown, not one without agents.
+    const p = join(ws.path, l.project)
+    const cfg = existsSync(join(p, HIVE_DIR, 'project.json')) ? await ws.projectConfig(p).catch(() => null) : null
     out.set(k, cfg ? new Map(projectAgents(cfg).map((a) => [a.id, a.name])) : null)
   }
   return out

@@ -1,5 +1,6 @@
 import { app } from 'electron'
-import { join } from 'path'
+import { basename, join, resolve } from 'path'
+import { existsSync } from 'original-fs'
 import { readFile } from 'original-fs/promises'
 import type { MergeSlotInfo } from '../shared/types'
 import { emit, toast } from './events'
@@ -9,7 +10,10 @@ import { MergeSlots, parseSlotRecords, type SlotRecord } from './mergeSlots'
 import { setUserMergeSlot } from './projectAgents'
 import { progress } from './progressService'
 import { sessions } from './sessions'
-import { workspace, workspaceOf } from './workspace'
+import { workspace, workspaceFor, workspaceOf, type WorkspaceService } from './workspace'
+import { keepBeforeIds } from './beforeIds'
+import { rebase, samePath } from '../shared/movePaths'
+import { NO_PROJECT_IDS, type ProjectIdIndex } from '../shared/projectIds'
 
 const log = createLogger('mergeSlots')
 
@@ -58,29 +62,88 @@ function changed(projectPath: string): void {
 async function save(workspacePath: string): Promise<void> {
   const file = recordFile(workspacePath)
   await withFileLock(file, async () => {
-    const holds: SlotRecord[] = mergeSlots.heldByAgents().filter((h) => workspacePathOf(h.projectPath)?.toLowerCase() === workspacePath.toLowerCase())
-    await writeTextAtomic(file, JSON.stringify({ version: 1, holds }, null, 2) + '\n')
+    await writeTextAtomic(file, JSON.stringify({ version: 1, holds: heldIn(workspacePath) }, null, 2) + '\n')
+  })
+}
+
+/** This workspace's agents' holds, each with its project's stable id (#508), so one told after a rename names the project now. */
+function heldIn(workspacePath: string): SlotRecord[] {
+  return mergeSlots.heldByAgents().flatMap((h) => {
+    let ws: ReturnType<typeof workspaceOf>
+    try {
+      ws = workspaceOf(h.projectPath)
+    } catch {
+      return []
+    }
+    if (ws.path?.toLowerCase() !== workspacePath.toLowerCase()) return []
+    const projectId = ws.projectIdsNow().byPath.get(h.projectPath.toLowerCase())
+    return [projectId ? { ...h, projectId } : h]
+  })
+}
+
+/**
+ * Where a hold Hive closed under belongs now (#508): its project's folder by its id (renamed or moved since, the whole
+ * workspace too); one saved before ids, at its folder (under the workspace's folder now, if the workspace moved), or at
+ * the project last opened there (project.json's lastPath, #146) when exactly one was. Null when it can't be known: its
+ * project is gone, or another project has its folder (never told as that one's).
+ */
+async function placeHold(ws: WorkspaceService, ids: ProjectIdIndex, from: string | null, h: SlotRecord): Promise<string | null> {
+  const now = h.projectId ? ids.byId.get(h.projectId) : undefined
+  if (now) return now
+  const moved = (p: string): string => (from && ws.path ? (rebase(p, from, ws.path) ?? p) : p)
+  const at = moved(h.projectPath)
+  const here = ids.byPath.get(resolve(at).toLowerCase())
+  if (here) return h.projectId ? null : at
+  if (h.projectId) return null
+  const was: string[] = []
+  for (const p of ids.byId.values()) {
+    const last = (await ws.projectConfig(p).catch(() => null))?.lastPath
+    if (last && samePath(moved(last), at)) was.push(p)
+  }
+  return was.length === 1 ? was[0] : null
+}
+
+/** Holds that couldn't be placed (#508), kept beside the record (the latest few) rather than lost once they're told. */
+const MAX_UNPLACED = 50
+async function keepUnplaced(file: string, holds: SlotRecord[]): Promise<void> {
+  const kept = `${file.replace(/\.json$/, '')}.unplaced.json`
+  const had = parseSlotRecords((await readFile(kept, 'utf8').catch(() => null)) ?? '')
+  await writeTextAtomic(kept, JSON.stringify({ version: 1, holds: [...had, ...holds].slice(-MAX_UNPLACED) }, null, 2) + '\n')
+}
+
+/** The record's holds that Hive no longer has, taken from it: kept as it was beside it first (once) when any is placed elsewhere. */
+async function orphansIn(file: string, workspacePath: string | null, place: (h: SlotRecord) => Promise<string | null>): Promise<{ hold: SlotRecord; at: string | null }[]> {
+  return withFileLock(file, async () => {
+    const raw = await readFile(file, 'utf8').catch(() => null)
+    if (raw === null) return []
+    const live = new Set(mergeSlots.heldByAgents().map((h) => `${h.projectPath.toLowerCase()}#${h.branch}#${h.runId}`))
+    const orphans = parseSlotRecords(raw).filter((h) => !live.has(`${h.projectPath.toLowerCase()}#${h.branch}#${h.runId}`))
+    const placed = await Promise.all(orphans.map(async (hold) => ({ hold, at: await place(hold) })))
+    if (placed.some((p) => !p.at || !samePath(p.at, p.hold.projectPath)) || !workspacePath) await keepBeforeIds(file)
+    const unplaced = placed.filter((p) => !p.at).map((p) => p.hold)
+    if (unplaced.length) await keepUnplaced(file, unplaced)
+    await writeTextAtomic(file, JSON.stringify({ version: 1, holds: workspacePath ? heldIn(workspacePath) : [] }, null, 2) + '\n')
+    return placed
   })
 }
 
 /**
  * A workspace opened: holds its record has that Hive no longer has (it closed or crashed while an agent held the slot)
- * are told to the user, since that merge may be half done, and dropped from the record.
+ * are told to the user, since that merge may be half done, and dropped from the record. Each is told in its project
+ * now (#508), and so are the holds recorded where the workspace was before it moved (its record is by its folder) when
+ * nothing is there now; one whose project can't be known is told in the workspace, and kept beside the record.
  */
 export async function recoverMergeSlots(workspacePath: string): Promise<void> {
-  const file = recordFile(workspacePath)
-  const gone = await withFileLock(file, async () => {
-    const raw = await readFile(file, 'utf8').catch(() => null)
-    if (raw === null) return []
-    const live = new Set(mergeSlots.heldByAgents().map((h) => `${h.projectPath.toLowerCase()}#${h.branch}#${h.runId}`))
-    const orphans = parseSlotRecords(raw).filter((h) => !live.has(`${h.projectPath.toLowerCase()}#${h.branch}#${h.runId}`))
-    const holds = mergeSlots.heldByAgents().filter((h) => workspacePathOf(h.projectPath)?.toLowerCase() === workspacePath.toLowerCase())
-    await writeTextAtomic(file, JSON.stringify({ version: 1, holds }, null, 2) + '\n')
-    return orphans
-  })
-  for (const h of gone) {
+  const ws = workspaceFor(workspacePath)
+  const ids = (await ws?.projectIds({ fresh: true })) ?? NO_PROJECT_IDS
+  const last = ws?.movedFrom
+  const from = last && !existsSync(join(last, '.hive')) && !workspaceFor(last) ? last : null
+  const place = (h: SlotRecord): Promise<string | null> => (ws ? placeHold(ws, ids, from, h) : Promise.resolve(h.projectPath))
+  const gone = [...(await orphansIn(recordFile(workspacePath), workspacePath, place)), ...(from ? await orphansIn(recordFile(from), null, place) : [])]
+  for (const { hold: h, at } of gone) {
     log.info(`Merge slot: Hive closed while ${userText(h.agentName)} held it for ${userText(h.branch)}`)
-    toast('warning', `${h.agentName} was merging when Hive closed`, `It held the merge slot for ${h.branch}${h.cards.length ? ` (${h.cards.map((n) => `#${n}`).join(', ')})` : ''}. Check the project's main checkout for a merge left half done (git status there) before the next merge.`, undefined, h.projectPath)
+    const where = at ? '' : ` in ${basename(h.projectPath)}, a project this workspace no longer has (its folder is another project's now, or gone)`
+    toast('warning', `${h.agentName} was merging when Hive closed`, `It held the merge slot for ${h.branch}${h.cards.length ? ` (${h.cards.map((n) => `#${n}`).join(', ')})` : ''}${where}. Check the project's main checkout for a merge left half done (git status there) before the next merge.`, undefined, at ?? workspacePath)
   }
 }
 

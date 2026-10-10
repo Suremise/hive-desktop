@@ -3,13 +3,12 @@ import { copyFile, mkdir, readdir, readFile, rmdir } from 'original-fs/promises'
 import { existsSync } from 'original-fs'
 import { HIVE_DIR, agentPtyKey, projectAgents } from '../shared/defaults'
 import { forgetPtys } from './ptyHost'
-import { projectHandovers } from '../shared/hiveGuidance'
 import type { AgentDef, ProjectRemoval, ProjectRemovalInfo, TaskCard } from '../shared/types'
 import { config } from './config'
 import { suspendWatching } from './files'
 import { containsPlace, readJson, realPath, removePath, samePlace, writeJsonAtomic } from './fsutil'
 import { createLogger, userText } from './logger'
-import { notesTree } from './notes'
+import { handoversFor } from './notes'
 import { sessions } from './sessions'
 import { archiveProjectCards, deleteProjectCards, importCards, projectCards, restoreProjectCards } from './tasks'
 import { REMOVED_DIR, workspace, type WorkspaceService } from './workspace'
@@ -38,13 +37,11 @@ async function allNames(ws: WorkspaceService): Promise<string[]> {
 }
 
 /**
- * The project's handovers in the shared notes, by path relative to .hive/shared. Strictly: a file is its own when
- * its header names it, or it has no header and no other project could own it (they are moved or deleted).
+ * The project's handovers in the shared notes, by path relative to .hive/shared: those its id owns (#514), never
+ * another project's that had its name (they are moved or deleted).
  */
 async function handoversOf(ws: WorkspaceService, name: string): Promise<string[]> {
-  const tree = await notesTree()
-  const mine = await projectHandovers(tree, name, await allNames(ws), (rel) => readFile(join(ws.sharedDir, rel), 'utf8'), { strict: true })
-  return mine.map((f) => f.relPath)
+  return (await handoversFor(ws, name)).map((f) => f.relPath)
 }
 
 /** A project folder of the open workspace, shown or hidden. */

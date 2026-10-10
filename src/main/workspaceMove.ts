@@ -1,7 +1,7 @@
 import { existsSync } from 'original-fs'
 import { readFile, stat } from 'original-fs/promises'
-import { basename, join, resolve } from 'path'
-import type { MoveHostPlan, MoveOptions, MovePlan, MoveReport, MoveWorktree, PathDataCopy, WorkspaceMoved } from '../shared/types'
+import { basename, dirname, join, resolve } from 'path'
+import type { MoveCards, MoveHostPlan, MoveOptions, MovePlan, MoveReport, MoveWorktree, PathDataCopy, WorkspaceMoved } from '../shared/types'
 import { HIVE_DIR, projectAgents } from '../shared/defaults'
 import { moveHasWork, rebase, rebaseAny, samePath, worktreeCandidates, type PathMove } from '../shared/movePaths'
 import { recreateWorktree } from './agentWorktree'
@@ -14,6 +14,13 @@ import { recentChanged } from './recentWorkspaces'
 import { sessions } from './sessions'
 import type { WorkspaceService } from './workspace'
 import { listWorktrees } from './worktrees'
+import { orphanNames } from '../shared/projectIds'
+import { legacyCards, moveOrphanCards, stampCardProjects } from './tasks'
+import { legacyLanes, moveOrphanLanes } from './lanes'
+import { legacyWatches, moveOrphanWatches } from './watches'
+import { adoptHandovers } from './notes'
+import { noteFormerName } from './projectNames'
+import { adoptBenchmarkOwners, benchContext } from './benchmarks'
 
 /**
  * A workspace (or project) moved to another folder (#146). Hive records where each was last opened (`lastPath` in
@@ -238,12 +245,45 @@ function workingAt(folder: string): string[] {
     .flatMap((k) => all[k] ?? [])
 }
 
+/**
+ * Records saved before ids (#508: cards, lanes, watches) under a name no project has, their project renamed or moved
+ * since, and whose they are now: a project moving now from that name (renamed in the workspace, or with it), else the one
+ * whose agents worked on them (orphanNames). Records with an id are their project's by it, and never come here.
+ */
+async function cardMoves(ws: WorkspaceService, hosts: Host[], wsFrom: string | null): Promise<MoveCards[]> {
+  const folders = [...(await ws.listProjectPaths()), ...(await ws.listProjectPaths({ hidden: true }))]
+  const taken = [...folders.map((p) => basename(p)), ...(ws.config.hiddenProjects ?? []).map((h) => h.name)]
+  const known = new Set(taken.map((n) => n.toLowerCase()))
+  const cards = await legacyCards(ws)
+  const lanes = await legacyLanes(ws)
+  const watches = await legacyWatches(ws)
+  const left = (r: { name: string }): boolean => !known.has(r.name.toLowerCase())
+  if (![...cards, ...lanes, ...watches].some(left)) return []
+  const projects: { name: string; agents: Set<string> }[] = []
+  for (const p of folders) {
+    if (!existsSync(join(p, PROJECT_FILE))) continue
+    const agents = new Set(projectAgents(await ws.projectConfig(p)).map((a) => a.id))
+    for (const s of (await ws.sessionsFile(p)).sessions) if (s.agentId) agents.add(s.agentId)
+    projects.push({ name: basename(p), agents })
+  }
+  // Renamed in place, or moved with the workspace: not a project brought in from somewhere else under another name.
+  const here = ws.path!
+  const renamed = hosts.filter((h) => !h.assistant && !h.pendingOnly && (samePath(dirname(h.from), here) || (!!wsFrom && samePath(dirname(h.from), wsFrom)))).map((h) => ({ from: basename(h.from), to: h.name }))
+  const same = (a: string, b: string): boolean => a.toLowerCase() === b.toLowerCase()
+  return orphanNames([...cards, ...lanes, ...watches], taken, projects, renamed).map((m) => {
+    const nLanes = lanes.filter((l) => same(l.name, m.from)).length
+    const nWatches = watches.filter((w) => same(w.name, m.from)).length
+    return { ...m, cards: cards.filter((c) => same(c.name, m.from)).map((c) => c.number), ...(nLanes ? { lanes: nLanes } : {}), ...(nWatches ? { watches: nWatches } : {}) }
+  })
+}
+
 /** What Repair would do now; null when nothing moved. */
 export async function movePlan(ws: WorkspaceService, opts: MoveOptions = {}): Promise<MovePlan | null> {
   if (!ws.path) return null
   const here = ws.path
   const { from, hosts } = await movedHosts(ws)
-  if (!hosts.length && !from) return null
+  const cards = await cardMoves(ws, hosts, from)
+  if (!hosts.length && !from && !cards.length) return null
   const wsMove = { from: from ?? here, to: here }
   const planned: MoveHostPlan[] = []
   for (const h of hosts) {
@@ -259,12 +299,14 @@ export async function movePlan(ws: WorkspaceService, opts: MoveOptions = {}): Pr
     running: runningIn(ws, await projectFolders(ws)),
     hosts: planned,
     recent: !!from && config.get().recentWorkspaces.some((p) => samePath(p, from)),
-    working: from ? workingAt(from).filter((n) => !workingAt(here).includes(n)) : []
+    working: from ? workingAt(from).filter((n) => !workingAt(here).includes(n)) : [],
+    ...(cards.length ? { cards } : {})
   }
 }
 
 /** The plan's headline for the banner, or null when there's nothing to repair. */
-export const movedSummary = (plan: MovePlan | null): WorkspaceMoved | null => (plan && moveHasWork(plan) ? { from: plan.from, projects: plan.projects, pending: plan.pending } : null)
+export const movedSummary = (plan: MovePlan | null): WorkspaceMoved | null =>
+  plan && moveHasWork(plan) ? { from: plan.from, projects: plan.projects, pending: plan.pending, ...(plan.cards?.length ? { cards: plan.cards } : {}) } : null
 
 /**
  * On opening a workspace: records the folders of those opened for the first time, and works out whether anything
@@ -312,10 +354,26 @@ export async function repairMove(ws: WorkspaceService, opts: MoveOptions = {}): 
 }
 const repairing = new WeakMap<WorkspaceService, Promise<MoveReport>>()
 
+/**
+ * Gives the handovers and kept comparisons saved under a name a project had (#514) to that project: those under the
+ * names this Repair recorded, and any a Repair before recorded but couldn't give (the record of names keeps them).
+ */
+async function adoptSaved(ws: WorkspaceService, report: MoveReport): Promise<void> {
+  try {
+    await adoptHandovers(ws)
+    await adoptBenchmarkOwners(benchContext(ws))
+  } catch (e) {
+    report.failed.push(`The handovers and kept comparisons saved under a project's earlier name couldn't all be given to it (${e instanceof Error ? e.message : String(e)}). Repair tries again.`)
+  }
+}
+
 async function repairNow(ws: WorkspaceService, opts: MoveOptions): Promise<MoveReport> {
   const report: MoveReport = { done: [], skipped: [], failed: [], complete: false }
   const plan = await movePlan(ws, opts)
   if (!plan || !moveHasWork(plan)) {
+    // What a Repair before couldn't give its project (#514): tried again, and it isn't done until that is.
+    await adoptSaved(ws, report)
+    if (report.failed.length) return report
     if (plan) await recordDone(ws, plan.hosts.map((h) => h.path), true)
     ws.setMoved(null)
     report.skipped.push('Nothing to repair: everything already points to where the workspace is now.')
@@ -397,6 +455,39 @@ async function repairNow(ws: WorkspaceService, opts: MoveOptions): Promise<MoveR
       if (sessionsOk && pending.some((x) => samePath(x.from, m.from) && samePath(x.to, m.to)) && !results.some((f) => f.failed?.length)) await donePending(ws, h.path, m)
     }
     if (report.failed.length === failedBefore && !open) repaired.push(h.path)
+  }
+  // Cards left under a project's old name go to the project now (#508); every card then names its project by id.
+  // Its lanes and its agents' card watches saved before ids go with them.
+  for (const m of plan.cards ?? []) {
+    try {
+      // First, in the record of names, that the project had that name (#514): what was saved under it (handovers, kept
+      // comparisons) is then given to it, by this Repair or, if that fails, by the next (or when Hive next follows the
+      // projects' names, after a restart too), once the cards that told it are moved.
+      const id = ws.projectIdsNow().byPath.get(join(ws.path!, m.to).toLowerCase())
+      if (id) await noteFormerName(ws, id, m.from)
+      const n = m.cards.length ? await moveOrphanCards(ws, m) : 0
+      if (n) report.done.push(`${n} card${n === 1 ? '' : 's'} of ${m.from} now belong${n === 1 ? 's' : ''} to ${m.to}, with ${n === 1 ? 'its' : 'their'} agents.`)
+      const lanes = m.lanes ? await moveOrphanLanes(ws, m) : 0
+      const watches = m.watches ? await moveOrphanWatches(ws, m) : 0
+      const also = [lanes ? `${lanes} lane${lanes === 1 ? '' : 's'}` : '', watches ? `${watches} card watch${watches === 1 ? '' : 'es'}` : ''].filter(Boolean)
+      if (also.length) report.done.push(`${also.join(' and ')} of ${m.from} now ${lanes + watches === 1 ? 'is' : 'are'} ${m.to}'s.`)
+    } catch (e) {
+      report.failed.push(`What was saved under ${m.from} couldn't all be given to ${m.to} (${e instanceof Error ? e.message : String(e)}). Repair tries again.`)
+    }
+  }
+  if (plan.cards?.length) await stampCardProjects(ws).catch((e) => log.warn("giving the cards their projects' ids", e))
+  await adoptSaved(ws, report)
+  // A project renamed in place stays Working on under its new name.
+  const renamedHere = plan.hosts.filter((h) => !samePath(h.path, ws.assistantHome) && samePath(dirname(h.from), plan.to) && basename(h.from).toLowerCase() !== h.name.toLowerCase())
+  const marked = renamedHere.filter((h) => workingAt(plan.to).some((n) => n.toLowerCase() === basename(h.from).toLowerCase()))
+  if (marked.length) {
+    config.update((c) => {
+      for (const k of Object.keys(c.activeProjects).filter((x) => samePath(x, plan.to))) {
+        const list = c.activeProjects[k] ?? []
+        c.activeProjects[k] = [...new Set(list.map((n) => marked.find((h) => basename(h.from).toLowerCase() === n.toLowerCase())?.name ?? n))]
+      }
+    })
+    report.done.push(`Working on: ${trimList(marked.map((h) => h.name))}, as before ${marked.length === 1 ? 'its' : 'their'} rename.`)
   }
   if (plan.recent && plan.from) {
     const from = plan.from

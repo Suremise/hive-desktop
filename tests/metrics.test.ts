@@ -127,6 +127,28 @@ describe('scope', () => {
   })
 })
 
+describe('projects renamed (#514)', () => {
+  it("each one's measurements under its old name are its own under the new one, all at once (a swap keeps each one's), once", async () => {
+    const { w } = await open()
+    for (let i = 0; i < 3; i++) metrics.recordApi(metrics.metricsHandle(w), 'alpha', api())
+    metrics.recordApi(metrics.metricsHandle(w), 'beta', api('/v1/tasks/:n'))
+    metrics.recordApi(metrics.metricsHandle(w), 'gamma', api())
+    // alpha and beta swapped names; gamma is untouched.
+    expect(metrics.applyMetricsRenames(metrics.metricsHandle(w), [{ from: 'alpha', to: 'beta' }, { from: 'beta', to: 'alpha' }], 2)).toBe(true)
+    const count = (p: string) => sumApi(Object.values(metrics.queryMetrics(w, { scope: { kind: 'project', project: p } }).projects)).count
+    expect([count('beta'), count('alpha'), count('gamma')]).toEqual([3, 1, 1])
+    expect(metrics.queryMetrics(w, { scope: { kind: 'project', project: 'alpha' } }).projects.alpha.api.map((s) => s.route)).toEqual(['/v1/tasks/:n'])
+    // The same batch again, or an older one: nothing changes.
+    expect(metrics.applyMetricsRenames(metrics.metricsHandle(w), [{ from: 'alpha', to: 'beta' }, { from: 'beta', to: 'alpha' }], 2)).toBe(false)
+    expect(metrics.applyMetricsRenames(metrics.metricsHandle(w), [{ from: 'gamma', to: 'beta' }], 1)).toBe(false)
+    expect([count('beta'), count('alpha'), count('gamma')]).toEqual([3, 1, 1])
+    // A later one merges into what the new name has.
+    expect(metrics.applyMetricsRenames(metrics.metricsHandle(w), [{ from: 'gamma', to: 'beta' }], 3)).toBe(true)
+    expect([count('beta'), count('gamma')]).toEqual([4, 0])
+    await disposeWorkspaceService(w)
+  })
+})
+
 describe('bounds', () => {
   it('labels only from known sets; caps on series and projects drop and count, never grow', async () => {
     const { w } = await open()

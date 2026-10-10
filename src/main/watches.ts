@@ -5,6 +5,9 @@ import { basename, dirname, join, resolve } from 'path'
 import { projectAgents } from '../shared/defaults'
 import { cardChange, carriedOver, changesBetween, changesSince, ENTRY_KEY, limitLine, markOf, movedIntoSince, seenOf, readMark, readSavedCondition, WAKE_MAX_BYTES, wakeAbout, watchLabel, cardWakeLine, userNameOf, releasedLine, withLanesTail, type Released, type ReplyNote, alreadyThere, encodeSince, WATCH_DEFAULT_LIMIT_MINUTES, WATCH_MAX_CARDS, WATCH_MAX_LIMIT_MINUTES, type Baseline, type CardChange, type CardMark, type Seen, type WatchChange, type WatchCondition } from '../shared/watch'
 import { agentBusy, agentEvent, agentLimitLine, agentMarkOf, agentPart, agentWakeLine, agentWatchLabel, readSavedAgentCondition, readSavedAgentMark, replyFirstLine, type AgentEvent, type AgentMark, type AgentNow, type AgentWatchCondition, type WatchedAgent } from '../shared/agentWatch'
+import { isProjectId, type ProjectIdIndex } from '../shared/projectIds'
+import { rebase } from '../shared/movePaths'
+import { keepBeforeIds } from './beforeIds'
 import type { LiveSessionState, TaskCard, TaskColumn, TaskWatchInfo } from '../shared/types'
 import { ASSISTANT_AGENT_ID } from '../shared/assistant'
 import { config } from './config'
@@ -43,6 +46,11 @@ const userName = (): string => userNameOf(config.settings.general?.userName)
 interface WatchRecord {
   id: string
   projectPath: string
+  /**
+   * The watcher's project's stable id (#508): read back, the watch follows its project to the folder that has the id now
+   * (renamed or moved within the workspace). None for the Assistant, and in watches from before.
+   */
+  projectId?: string
   agentId: string
   /**
    * The project whose cards the agent may see (a project agent's own), or null for the whole board (the Assistant). Worked
@@ -250,15 +258,30 @@ function load(ws: WorkspaceService): Promise<Store> {
     const list: WatchRecord[] = []
     const invalid = read.invalid
     let delivered = false
+    // Each watch in its project's folder now, by the project's id (#508), its agents' too; one from before gets the ids.
+    const ids = await ws.projectIds()
+    if (!open()) throw closedError()
+    let stamped = false
+    const gone = new Set<WatchRecord>()
+    const from = oldFolder(ws, path, ids, read.list.map((x) => x.rec))
+    for (const { rec } of read.list) {
+      const r = followIds(ws, path, ids, rec, from)
+      if (r === 'gone') gone.add(rec)
+      else if (r === 'changed') stamped = true
+    }
+    // watches.json keeps what it was before the ids beside it, once.
+    if (stamped || gone.size) await keepBeforeIds(fileOf(path))
     for (const { rec, raw } of read.list) {
-      if (!hostedIn(ws, path, rec.projectPath) || (rec.agents && !rec.agents.agents.every((a) => mayWatch(ws, path, rec.projectPath, a.projectPath)))) invalid.push(raw)
+      if (gone.has(rec)) invalid.push(raw)
+      else if (!hostedIn(ws, path, rec.projectPath) || (rec.agents && !rec.agents.agents.every((a) => mayWatch(ws, path, rec.projectPath, a.projectPath)))) invalid.push(raw)
       else if (rec.fired?.sending) {
         delivered = true
         log.info(`The wake for ${userText(rec.agentId)} was being typed when Hive stopped: it counts as delivered`)
-      } else list.push({ ...rec, scope: scopeFor(ws, rec.projectPath) })
+      } else if (list.some((x) => same(x.projectPath, rec.projectPath) && x.agentId === rec.agentId)) invalid.push(raw)
+      else list.push({ ...rec, scope: scopeFor(ws, rec.projectPath) })
     }
     // Delivered ones leave the file at the next tick.
-    const store: Store = { ws, path, life, list, invalid, saved: read.text, dirty: delivered, queue: Promise.resolve(), delivering: new Map(), woke: new Map(), wokeAgents: new Map(), wokeReplies: new Map() }
+    const store: Store = { ws, path, life, list, invalid, saved: read.text, dirty: delivered || stamped || gone.size > 0, queue: Promise.resolve(), delivering: new Map(), woke: new Map(), wokeAgents: new Map(), wokeReplies: new Map() }
     // Read back too big for every watch to end (a hand edit, an older build): room is made, nothing is lost.
     if (budget(store, list) > MAX_FILE_BYTES) {
       const over: WatchRecord[] = []
@@ -425,11 +448,14 @@ function readRecord(v: unknown): WatchRecord | null {
   }
   const from = { ...(seen ? { seen } : {}), ...(r.self ? { self: r.self as string } : {}) }
   // The scope is set by the workspace that loads it (from the agent's folder), whatever the file says.
-  return { id: r.id, projectPath: r.projectPath, agentId: r.agentId, scope: '', cond, ...(agents ? { agents, agentMarks } : {}), marks, current: { ...marks }, since: r.since, ...from, limitMinutes: minutes, limitAt: r.limitAt, ...(typeof r.replySeq === 'number' ? { replySeq: r.replySeq } : {}), ...(on ? { on } : {}), ...(r.watcherName ? { watcherName: r.watcherName as string } : {}), ...(released ? { released } : {}), ...(fired ? { fired } : {}) }
+  return { id: r.id, projectPath: r.projectPath, ...(isProjectId(r.projectId) ? { projectId: r.projectId } : {}), agentId: r.agentId, scope: '', cond, ...(agents ? { agents, agentMarks } : {}), marks, current: { ...marks }, since: r.since, ...from, limitMinutes: minutes, limitAt: r.limitAt, ...(typeof r.replySeq === 'number' ? { replySeq: r.replySeq } : {}), ...(on ? { on } : {}), ...(r.watcherName ? { watcherName: r.watcherName as string } : {}), ...(released ? { released } : {}), ...(fired ? { fired } : {}) }
 }
 
 /** An agent watch's condition on cards: none. */
 const NO_CARDS: WatchCondition = { cards: [], changes: [] }
+
+/** A watch as the file keeps it (the scope and the cards as last seen are worked out on load). */
+const entryOf = ({ scope: _scope, current: _current, ...r }: WatchRecord): object => r
 
 /** The file's text for a list of watches (the scope and the cards as last seen aren't saved: both are worked out on load). */
 const fileText = (store: Store, list: WatchRecord[], invalid = store.invalid): string =>
@@ -578,6 +604,11 @@ const infoOf = (r: WatchRecord): TaskWatchInfo =>
   r.agents
     ? { cards: [], changes: [], agents: r.agents.agents.map((a) => a.name), label: agentWatchLabel(r.agents), since: r.since, limitAt: r.limitAt }
     : { cards: r.cond.cards, changes: r.cond.changes, ...(r.cond.column ? { column: r.cond.column } : {}), label: watchLabel(r.cond), since: r.since, limitAt: r.limitAt }
+/** A watcher's project's id (#508), as the workspace last read the ids (it reads them when it opens). */
+const projectIdOf = (ws: WorkspaceService, projectPath: string): { projectId?: string } => {
+  const id = ws.isAssistantHome(projectPath) ? undefined : ws.projectIdsNow().byPath.get(resolve(projectPath).toLowerCase())
+  return id ? { projectId: id } : {}
+}
 const recordOf = (store: Store, projectPath: string, agentId: string): WatchRecord | undefined => store.list.find((x) => same(x.projectPath, projectPath) && x.agentId === agentId)
 const agentKey = (projectPath: string, agentId: string): string => `${projectPath.toLowerCase()}#${agentId}`
 
@@ -691,7 +722,7 @@ export async function registerWatch(ws: WorkspaceService, projectPath: string, a
     const minutes = Math.min(WATCH_MAX_LIMIT_MINUTES, Math.max(1, Math.round(limitMinutes)))
     // The Assistant's: the user's replies to its cards' agents from what its last wake told (#418).
     const replySeq = scope === null ? (store.wokeReplies.get(agentKey(projectPath, agentId)) ?? latestReplySeq()) : undefined
-    const rec: WatchRecord | null = already ? null : { id: randomBytes(6).toString('hex'), projectPath, agentId, scope, cond, marks, current: now, since, ...from, ...(replySeq !== undefined ? { replySeq } : {}), ...(Object.keys(on).length ? { on, ...(self ? { watcherName: self } : {}) } : {}), limitMinutes: minutes, limitAt: new Date(Date.now() + minutes * 60_000).toISOString() }
+    const rec: WatchRecord | null = already ? null : { id: randomBytes(6).toString('hex'), projectPath, ...projectIdOf(ws, projectPath), agentId, scope, cond, marks, current: now, since, ...from, ...(replySeq !== undefined ? { replySeq } : {}), ...(Object.keys(on).length ? { on, ...(self ? { watcherName: self } : {}) } : {}), limitMinutes: minutes, limitAt: new Date(Date.now() + minutes * 60_000).toISOString() }
     const next = [...store.list.filter((x) => x !== old), ...(rec ? [rec] : [])]
     // Every watch must be able to fire, be typed and end within the file's limit: make room, else refuse.
     if (rec && budget(store, next) > MAX_FILE_BYTES && !((await setAside(store)) && budget(store, next) <= MAX_FILE_BYTES))
@@ -870,8 +901,9 @@ export async function revokeReplies(): Promise<void> {
 }
 
 /** A watched agent as it is now (#416): not running reads as stopped. A watching agent's own watch is said too. */
-function agentNowOf(a: Pick<WatchedAgent, 'projectPath' | 'agentId'>): AgentNow {
-  const now = sessions.agentNow(a.projectPath, a.agentId)
+function agentNowOf(a: Pick<WatchedAgent, 'projectPath' | 'agentId' | 'gone'>): AgentNow {
+  // One whose project is gone (#508) is stopped: whatever runs at its folder now is another project's.
+  const now = a.gone ? null : sessions.agentNow(a.projectPath, a.agentId)
   if (!now) return { status: 'stopped', runId: null, prompts: 0, pending: false }
   return { ...now, watch: now.status === 'watching' ? (sessions.watchFor(a.projectPath, a.agentId)?.label ?? null) : null }
 }
@@ -891,9 +923,10 @@ function agentHits(rec: WatchRecord): AgentHit[] {
     const mark = rec.agentMarks?.[key]
     const cur = agentNowOf(agent)
     // What the user sent it from its pane since (#418), for the Assistant.
-    const r = replyTo(rec.scope, agent.projectPath, agent.agentId, mark?.seq ?? 0)
+    // One whose project is gone (#508): nothing recorded at its folder is its own any more, only that it stopped.
+    const r = agent.gone ? null : replyTo(rec.scope, agent.projectPath, agent.agentId, mark?.seq ?? 0)
     const said = r ? { reply: r.text } : {}
-    const h = happenedSince(key, mark?.seq ?? 0, ib)
+    const h = agent.gone ? null : happenedSince(key, mark?.seq ?? 0, ib)
     if (h) {
       out.push({ agent, event: agentEvent(h.now, undefined, ib)!, now: shownTo(rec.scope, agent, h.now), again: agentBusy(cur, ib), seq: Math.max(h.seq, r?.seq ?? 0), ...said })
       continue
@@ -954,7 +987,8 @@ export async function registerAgentWatch(ws: WorkspaceService, projectPath: stri
     const before = store.list
     if (!already.length && !old && store.list.length >= MAX_WATCHES) throw new Error(`This workspace already has ${MAX_WATCHES} watches, the most Hive keeps: wait for some to end`)
     const minutes = Math.min(WATCH_MAX_LIMIT_MINUTES, Math.max(1, Math.round(limitMinutes)))
-    const rec: WatchRecord | null = already.length ? null : { id: randomBytes(6).toString('hex'), projectPath, agentId, scope, cond: NO_CARDS, agents: cond, agentMarks, marks: {}, current: {}, since, limitMinutes: minutes, limitAt: new Date(Date.now() + minutes * 60_000).toISOString() }
+    const followed = { ...cond, agents: cond.agents.map((a) => ({ ...a, ...projectIdOf(ws, a.projectPath) })) }
+    const rec: WatchRecord | null = already.length ? null : { id: randomBytes(6).toString('hex'), projectPath, ...projectIdOf(ws, projectPath), agentId, scope, cond: NO_CARDS, agents: followed, agentMarks, marks: {}, current: {}, since, limitMinutes: minutes, limitAt: new Date(Date.now() + minutes * 60_000).toISOString() }
     const next = [...store.list.filter((x) => x !== old), ...(rec ? [rec] : [])]
     if (rec && budget(store, next) > MAX_FILE_BYTES && !((await setAside(store)) && budget(store, next) <= MAX_FILE_BYTES))
       throw new Error('Too many watches to keep in this workspace: wait for some to end')
@@ -986,7 +1020,8 @@ export async function registerAgentWatch(ws: WorkspaceService, projectPath: stri
 async function evaluateAgents(store: Store): Promise<void> {
   if (!store.list.some((r) => r.agents && !r.fired)) return
   await locked(store, async () => {
-    let changed = false
+    // Watched agents in their projects' folders now (#508).
+    let changed = followProjects(store, store.ws.projectIdsNow())
     for (const rec of store.list) {
       if (!rec.agents || rec.fired) continue
       const hits = agentHits(rec)
@@ -1402,6 +1437,137 @@ function applyRelease(rec: WatchRecord, released: Released[], ended: { n: number
   return left.length
 }
 
+/**
+ * A project's place by its stable id (#508), for a watch's own folder or a watched agent's: the folder that has its id
+ * now (renamed or moved since, the whole workspace too), `gone` when its id is no project's now and another project has
+ * its folder (never that project's watch), or the id to stamp on one saved before ids whose folder is a project. Only
+ * this workspace's projects: the index is its own.
+ */
+function placeOf(ids: ProjectIdIndex, projectPath: string, projectId: string | undefined): { path?: string; id?: string; gone?: true } {
+  const now = projectId ? ids.byId.get(projectId) : undefined
+  if (now) return same(resolve(now), resolve(projectPath)) ? {} : { path: now }
+  const here = ids.byPath.get(resolve(projectPath).toLowerCase())
+  if (!projectId) return here ? { id: here } : {}
+  return here && here !== projectId ? { gone: true } : {}
+}
+
+/**
+ * The folder this workspace was in before it moved here (#146), for watches saved there: as the workspace records it
+ * (movedFrom: where it was last opened, as it opened), or else as its watches with ids say, when those whose project is
+ * here now were all saved under one other folder. Null when it didn't move, or that can't be known.
+ */
+function oldFolder(ws: WorkspaceService, path: string, ids: ProjectIdIndex, list: readonly WatchRecord[]): string | null {
+  if (ws.movedFrom) return same(ws.movedFrom, resolve(path)) ? null : ws.movedFrom
+  const roots = new Map<string, string>()
+  for (const rec of list)
+    for (const t of [rec, ...(rec.agents?.agents ?? [])])
+      if (t.projectId && ids.byId.has(t.projectId) && !ws.isAssistantHome(t.projectPath)) {
+        const d = dirname(resolve(t.projectPath))
+        if (!same(d, resolve(path))) roots.set(d.toLowerCase(), d)
+      }
+  return roots.size === 1 ? [...roots.values()][0] : null
+}
+
+/** A path saved under the workspace's old folder (oldFolder), as it is under its folder now; any other path as it is. */
+const movedPath = (path: string, from: string | null, p: string): string => (from ? (rebase(resolve(p), from, resolve(path)) ?? p) : p)
+
+/**
+ * Brings a watch to its projects' folders now, by their ids (#508): its own (the watcher's), and each agent an agent watch
+ * follows (with its marks, and the agents a fired line tells, kept by their folder). An id in this workspace's index
+ * decides, wherever it was saved (the whole workspace moved since too): the folder is that project's, so always one of
+ * this workspace's. One from before ids, and the Assistant's, come from the workspace's old folder (`from`, oldFolder)
+ * to the same place under its folder now, never from another path, and get their ids. `gone`: the watcher's project is
+ * gone and another project has its folder. A watched agent whose project is gone while another project has its folder is
+ * marked `gone`: told as stopped, never as that project's agent of the same id.
+ */
+function followIds(ws: WorkspaceService, path: string, ids: ProjectIdIndex, rec: WatchRecord, from: string | null): 'same' | 'changed' | 'gone' {
+  let changed = false
+  const known = (id: string | undefined): boolean => !!id && ids.byId.has(id)
+  if (!ws.isAssistantHome(rec.projectPath)) {
+    const p = known(rec.projectId) ? rec.projectPath : movedPath(path, from, rec.projectPath)
+    if (ws.isAssistantHome(p)) {
+      rec.projectPath = ws.assistantHome
+      changed = true
+    } else if (known(rec.projectId) || hostedIn(ws, path, p)) {
+      const at = placeOf(ids, p, rec.projectId)
+      if (at.gone) return 'gone'
+      const to = at.path ?? p
+      if (to !== rec.projectPath) {
+        log.info(`A watch follows its project to ${userText(basename(to))}`)
+        rec.projectPath = to
+        changed = true
+      }
+      if (at.id) {
+        rec.projectId = at.id
+        changed = true
+      }
+    }
+  }
+  for (const a of rec.agents?.agents ?? []) {
+    const p = known(a.projectId) ? a.projectPath : movedPath(path, from, a.projectPath)
+    if (!known(a.projectId) && !mayWatch(ws, path, rec.projectPath, p)) continue
+    const at = placeOf(ids, p, a.projectId)
+    if (!!at.gone !== !!a.gone) {
+      if (at.gone) {
+        log.info("A watched agent's project is gone, and another project has its folder: it is told as stopped")
+        a.gone = true
+      } else delete a.gone
+      changed = true
+    }
+    const to = at.path ?? p
+    if (to !== a.projectPath) {
+      const was = agentKey(a.projectPath, a.agentId)
+      a.projectPath = to
+      a.project = basename(to)
+      const key = agentKey(a.projectPath, a.agentId)
+      if (rec.agentMarks && was in rec.agentMarks && was !== key) {
+        rec.agentMarks[key] = rec.agentMarks[was]
+        delete rec.agentMarks[was]
+      }
+      if (rec.fired?.agents) rec.fired.agents = rec.fired.agents.map((k) => (k === was ? key : k))
+      changed = true
+    }
+    if (at.id) {
+      a.projectId = at.id
+      changed = true
+    }
+  }
+  return changed ? 'changed' : 'same'
+}
+
+/**
+ * Watches whose project was renamed or moved within the workspace while Hive runs (#508) go with it, by its id: their
+ * folder and the cards they may see are the project's now, and so do the agents an agent watch follows. A watch whose
+ * project is gone while another project has its folder leaves the list, kept aside in the file (as one that isn't valid
+ * is when read). Whether any changed (in the store's lock).
+ */
+function followProjects(store: Store, ids: ProjectIdIndex): boolean {
+  let changed = false
+  const from = oldFolder(store.ws, store.path, ids, store.list)
+  for (const rec of [...store.list]) {
+    const before = rec.projectPath
+    const r = followIds(store.ws, store.path, ids, rec, from)
+    if (r === 'same') continue
+    changed = true
+    if (r === 'gone') {
+      store.list = store.list.filter((x) => x !== rec)
+      store.invalid.push(entryOf(rec))
+      sessions.watchChanged(before, rec.agentId)
+      continue
+    }
+    if (rec.projectPath !== before) {
+      // An agent has one watch: one made at the new folder since stays.
+      if (store.list.some((x) => x !== rec && same(x.projectPath, rec.projectPath) && x.agentId === rec.agentId)) {
+        store.list = store.list.filter((x) => x !== rec)
+        continue
+      }
+      rec.scope = scopeFor(store.ws, rec.projectPath)
+      sessions.watchChanged(rec.projectPath, rec.agentId)
+    }
+  }
+  return changed
+}
+
 /** Checks a workspace's watches against its board: those whose cards changed (as they count) fire, then are delivered. */
 async function evaluate(ws: WorkspaceService): Promise<void> {
   const store = await load(ws)
@@ -1413,7 +1579,8 @@ async function evaluate(ws: WorkspaceService): Promise<void> {
   const ended: { n: number; what: string }[] = []
   const narrowed: WatchRecord[] = []
   await locked(store, async () => {
-    let changed = false
+    // The projects as they are now, which the cards read below see too.
+    let changed = followProjects(store, await store.ws.projectIds({ fresh: true }))
     // Each card read once for all the watches on it (#321).
     const reads: CardReads = new Map()
     for (const rec of [...store.list]) {
@@ -1526,6 +1693,53 @@ export function initWatches(): void {
 }
 
 /** Forgets a workspace's watches in memory, as closing it does (they stay on disk for its next opening): for tests. */
+/**
+ * Reads a workspace's watches as it opens (#508): each is brought to its projects' folders by their ids, and one saved
+ * before ids gets them, saved now (watches.json keeps what it was before beside it, once) rather than at the next change.
+ */
+export async function stampWatchProjects(ws: WorkspaceService): Promise<void> {
+  const store = await load(ws)
+  if (store.dirty) await locked(store, () => saveQuietly(store))
+}
+
+/** The watches saved before ids (#508) whose folder is no project now, as Repair weighs whose they are: the folder's name and the watcher. */
+export async function legacyWatches(ws: WorkspaceService): Promise<{ name: string; agents: string[] }[]> {
+  const store = await load(ws)
+  const ids = await ws.projectIds()
+  return store.list.filter((r) => !r.projectId && !ws.isAssistantHome(r.projectPath) && !ids.byPath.has(resolve(r.projectPath).toLowerCase())).map((r) => ({ name: basename(resolve(r.projectPath)), agents: [r.agentId] }))
+}
+
+/**
+ * Repair (#508): watches saved before ids in a project's old folder go to the project's folder now, with its id. In the
+ * store's lock; one with an id, or in another folder now, is left as it is. Returns how many moved.
+ */
+export async function moveOrphanWatches(ws: WorkspaceService, m: { from: string; to: string }): Promise<number> {
+  const store = await load(ws)
+  const ids = await ws.projectIds()
+  const to = join(store.path, m.to)
+  const projectId = ids.byPath.get(to.toLowerCase())
+  if (!projectId) return 0
+  const moved = await locked(store, async () => {
+    const list = store.list.filter((r) => !r.projectId && !ws.isAssistantHome(r.projectPath) && same(dirname(resolve(r.projectPath)), resolve(store.path)) && same(basename(resolve(r.projectPath)), m.from))
+    for (const r of list) {
+      if (recordOf(store, to, r.agentId)) {
+        store.list = store.list.filter((x) => x !== r)
+        continue
+      }
+      r.projectPath = to
+      r.projectId = projectId
+      r.scope = scopeFor(ws, to)
+    }
+    if (list.length) {
+      await keepBeforeIds(fileOf(store.path))
+      await saveQuietly(store)
+    }
+    return list
+  })
+  for (const r of moved) sessions.watchChanged(r.projectPath, r.agentId)
+  return moved.length
+}
+
 export function forgetWatches(ws: WorkspaceService): void {
   if (ws.path && stores.get(ws.path.toLowerCase())?.ws === ws) stores.delete(ws.path.toLowerCase())
 }

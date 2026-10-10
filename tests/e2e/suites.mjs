@@ -113,6 +113,7 @@ export const SUITES = [
   { name: 'progress', serial: 'window focus' },
   { name: 'progresslanes' },
   { name: 'progressreport' },
+  { name: 'projectrename' },
   { name: 'providerdetect' },
   { name: 'providers' },
   { name: 'quit' },
