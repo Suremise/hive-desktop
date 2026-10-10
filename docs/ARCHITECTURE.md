@@ -12,6 +12,8 @@ This document explains how Hive is put together, for anyone changing the code. P
 │ providers/      ProviderAdapter registry; claude/, codex/, copilot/ adapters │
 │ providerService.ts  each provider's install info, setup tasks                │
 │ ptyHost.ts      node-pty processes, output buffers                           │
+│ agentProcesses.ts  each launch's process tree (a job object), leftovers      │
+│ launchGate.ts   holds a terminal's command until its job is made             │
 │ servers.ts      hook server (random port) + Agent API (configured port)      │
 │ skills.ts mcp.ts notes.ts git.ts files.ts   feature services                 │
 │ ipc.ts          typed IPC handlers        tray.ts   system tray              │
