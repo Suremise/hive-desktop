@@ -1208,7 +1208,12 @@ route('POST', '/v1/lanes', async ({ body }) =>
     if (!assistantCaller()) return start()
     return assistantChange('agents', `start a lane in ${basename(p)}`, async () => {
       const r = await start()
-      return { done: `Lane ${r.lane.id} ${r.did} in ${basename(p)}: ${r.lane.builder.name} / ${r.lane.reviewer?.name ?? 'no reviewer'}, ${r.lane.cards.map((c) => `#${c.number}`).join(', ')}`, result: r }
+      // #402: a lane the Assistant starts but doesn't watch goes unfollowed ("they'll tell you"): its reply says so.
+      const last = r.lane.cards[r.lane.cards.length - 1]?.number
+      const watched = sessions.watchFor(ws.assistantHome, ASSISTANT_AGENT_ID)?.cards ?? []
+      const nudge = last !== undefined && !watched.includes(last) ? `No card watch of yours covers #${last}, the lane's last card: watch it (hive_wait_for_tasks, wake) to follow the lane to its end.` : ''
+      const result = nudge ? { ...r, note: [r.note, nudge].filter(Boolean).join(' ') } : r
+      return { done: `Lane ${r.lane.id} ${r.did} in ${basename(p)}: ${r.lane.builder.name} / ${r.lane.reviewer?.name ?? 'no reviewer'}, ${r.lane.cards.map((c) => `#${c.number}`).join(', ')}`, result }
     })
   })
 )

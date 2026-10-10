@@ -36,6 +36,90 @@ Codex run.
 
 Every scenario ran once per provider. Models vary from run to run, so a single result is a sample, not a rate.
 
+## Coordinator out of the box: fakes, Codex (its default model), Claude Code (sonnet), fixtures v43, 10 October 2026
+
+#402 (Darren's decisions: adaptive habits, the team material in its own skill) folds the coordinator playbook into the
+bundled guidance: a new Assistant skill **run-lanes** (lanes by files, builder and reviewer briefs, **one watch over the
+whole team**: every unfinished lane's last card and any card in Review, waiting for the user or at a merge point, on any
+change; a board sweep and the whole watch started again on each wake; changing a running lane; verifying claims);
+**coordinate-agents** gains "Fit the setup" (light for one or two agents, run-lanes for three or more, pairs or
+worktrees, or a wake about a card in a running lane; a one-line suggestion at most), the Done wording (the agent moves its
+own merged card; the Assistant only when asked), "one watch at a time: a watch you start again lists everything you
+still follow", and, while an agent asks the user, "before you end your turn, start your watch again over the other
+work"; the **Coordinator** mode puts watching and verifying first. Hive's reply to the Assistant's `hive_lane start`
+says when no watch of its covers the lane's last card.
+
+Scoring (round 2, after HR1's review): a watch check reads the Assistant's **live watch** at the end of its turn (the
+session's `watch`: a new watch replaces the last, so an earlier call proves nothing), which must cover the named cards on
+any column move. Scenarios, with #325's scoring: **coordinator-team-lanes** (four agents, two lanes: run-lanes read, each
+builder and reviewer briefed with card-loop, its cards and partner, ends its turn watching both lanes' last cards, no
+"they'll tell you"), **coordinator-wake-failed** (woken by a failed review: reads it, sweeps, watches both lanes' ends
+again, gives no verdict and writes no review card), **coordinator-wake-question** (woken by an agent's question: passes it
+on, answers nothing, and watches both lanes again, the other lane too), **coordinator-reassign** (a card moved between
+running lanes), **coordinator-follow-up** (a complete card placed in the lane owning its files) and
+**coordinator-lanes-to-end** (both lanes followed through Hive's real wakes: Builder2's lane ends while it watches, it is
+woken, sweeps and watches Coder's lane; that ends, it is woken again and says both are done). Every **mode-*-plans**
+checks its cards are complete (80+ characters) and a decision reaches the user, and every **mode-*-coordinates** that one
+card on one agent reads no run-lanes and starts no lane. The fixtures' lane agents aren't running, so nothing is in Doing
+unless a scenario needs it; v38 makes coordinator-wake-question's lanes run as in life (Coder started and idle after
+asking, Builder2 working on #3): with nothing running, Codex read both lanes as stalled and offered to restart Coder
+rather than watch. The harness now stops what still runs from a scenario's folder after Hive closes (a command Codex
+started through hive-progress outlived its session and held the folder, crashing the runner: Non-shipping #542).
+- **Fakes**, v37 (baselines `hb1-402r2-before`, the fixtures on the guidance and code before #402, and `hb1-402r2-after`;
+  results `2026-10-10T14-25-39-fake` and `2026-10-10T15-25-55-fake`): before, coordinator-team-lanes can't read
+  run-lanes (it doesn't exist); every other scenario passes. After, all pass, lanes-to-end included (it acts out the two
+  wakes). Performance → Compare: comparable, 53 **No change** (the agents' scenarios), 21 **Larger** (one sample a
+  side): the Assistant's launch guidance is 696 bytes larger in Coordinator mode (the mode's habits, run-lanes in the
+  skills' catalog) and 266 in the other modes (the catalog). v38's wake-question passes on the fakes
+  (`2026-10-10T16-47-16-fake`). v39 makes lanes-to-end count an idle Assistant as its turn ending only once the
+  wake's turn was seen working, or after three idle polls (once, after main was merged, it read the moment Hive types a
+  wake in as the end); it then passed 4 of 4 on the fakes (`2026-10-10T19-59-35-fake` to `…T20-01-01-fake`).
+- **Codex, before** (v37, `2026-10-10T15-06-00-codex`, $0.33): team-lanes briefed all four and ended watching both lane
+  ends, but had no run-lanes to read; **wake-failed** ended watching #1 and #2, not Builder2's lane; **wake-question**
+  ended its turn with no watch; **lanes-to-end** never watched both lanes and timed out with both still running;
+  reassign and follow-up pass.
+- **Codex, after** (v37, `2026-10-10T16-11-15-codex`, $0.59): team-lanes, wake-failed, reassign, follow-up and
+  **lanes-to-end** (all six checks: two real wakes, a sweep, both lanes ended, the user told) pass, as do
+  assistant-dispatch and assistant-new-lane. **wake-question** with the lanes not running ended with no watch (1 run here,
+  3 more with the sharper "start your watch again" line, `2026-10-10T16-25-48-codex`, $0.12: 0 of 4 watched both lanes;
+  it read both lanes as stalled). With v38's running lanes (`2026-10-10T16-50-01-codex`, 3 runs, $0.11) it passed the
+  question on and answered nothing in all 3, and ended every turn watching both lanes: once on both lanes' last cards
+  (the check passes), twice on the asking card #1 and Builder2's running #3 (both lanes covered, but not by their last
+  cards as run-lanes says: the check fails). Samples, not rates.
+- **mode-coordinator-coordinates under Codex** fails "launched in Coordinator mode": the check reads Claude Code's
+  instructions file, which a Codex launch doesn't write (Non-shipping #520). Its other checks pass (no run-lanes and no
+  lane for one card).
+- **Claude Code**: not run: its test home isn't signed in. Codex spend for #402: about $1.84 in round 1 and about $1.15 in
+  round 2 (two runs that crashed on a held folder before #542's fix aren't counted).
+
+**Round 3** (HR1's second review: the strict end-card check kept; Claude Code's test home available). Fixtures v40
+score a watch by what it wakes on: column moves, comments and verdicts (a column-only watch misses a question and a
+failed review left in Review), and a board sweep only when it comes after the first watch (a wake's turn). v41 runs the
+lanes in lanes-to-end too (both builders working on their current cards) and its setup helpers fail the scenario
+(`setup: …`) when an agent isn't ready or working, with the environment problem when the screen shows one (they had
+answered Claude Code's trust question on the raw screen and with Down then Enter, which can quit it, #218: Builder2's
+"exited 1"). The harness stops only what is the scenario's own: its Hive's process tree (taken before it closes, by pid
+and start time) and what names its folder at a path boundary (never `scenario-2`'s) and started after it
+(`tests/e2e/folderProcesses.cjs`). Guidance: run-lanes says a lane's last card stays in the watch while an earlier one
+waits for the user; coordinate-agents' question bullet, the one Codex reads on a wake, says "each running lane by its
+last card (run-lanes)". Product: the Assistant's card wake ends, while lanes run, with "Lanes are still running
+(hive_lane list): before you end your turn, watch them all again in one watch, each lane by its last card
+(run-lanes)." (v42 checks lanes-to-end's first real wake says so; v43's simulated wakes end the same way).
+- **Codex, question wake, strict end-card check:** v40 (coordinate-agents without the end-card words) 1 of 3, watching
+  the asking card #1 and #3 (`2026-10-10T20-18-12-codex`, `…20-19-15…`, `…20-20-12…`, $0.11); v41 with them 3 of 3
+  (`…20-36-21…`, `…20-37-16…`, `…20-38-07…`, $0.12); v42 (the simulated wake not yet ending as Hive's does) 1 of 3
+  (`…20-48-05…`, `…20-49-25…`, `…20-50-09…`, $0.12); v43 3 of 3 (`…20-54-51…`, `…20-55-39…`, `…20-56-26…`, $0.14).
+  Every run passed the question on and answered nothing. wake-failed v43 passes (`…20-57-14…`); lanes-to-end with
+  running lanes passes, v41 and v42 (`…20-41-11…`, `…20-50-59…`).
+- **Claude Code (sonnet), question wake** v41, the lanes running (Builder2 working, Coder idle): 0 of 3 ended watching
+  (`2026-10-10T20-38-55-claude-code`, `…20-39-33…`, `…20-40-15…`, $0.27): it read no skill on the wake, passed the
+  question on and said its watch had ended, then stopped. That is what the lanes-running wake tail is for; its test
+  home's sign-in then expired ("Login expired · Please run /login"), so the v43 runs stopped at setup, reported as the
+  environment (`…20-58-08…`, `…20-58-53…`), and lanes-to-end under Claude Code too (`…20-43-06…`). HR1's earlier
+  Claude run of lanes-to-end (v38 fixture) passed 6 of 6. Claude Code with the tail: to run once the home is signed in.
+- **Fakes**: every coordinator scenario passes on v43 (`2026-10-10T20-53-34-fake` and the runs before it).
+- Round-3 model spend: Codex about $0.80, Claude Code about $0.52.
+
 ## The Assistant lists lanes at Look: fakes, Codex (its default model), fixtures v35, 10 October 2026
 
 #500 (Darren's decision: at Control level Look the Assistant can list lanes, a read): `hive_lane` joins the Assistant's

@@ -61,6 +61,15 @@ The checks are positive and negative:
   - at Look and advise, changes nothing;
   - at Control agents, starts a card (which worked), waits for it, and the card gets done;
   - with full control, plans as cards without starting them.
+  - in Coordinator mode with a team (#402): reads run-lanes, briefs each builder and reviewer with the card-loop skill,
+    their cards and partner, and ends its turn with one live watch on every lane's last card (scored on the watch it
+    ends with, which replaces any before it, and on any move of those cards); woken by a failed review or an agent's
+    question, it reads the card, sweeps the board, watches every lane again (not only the card that woke it) and leaves
+    the fix (or the answer) to the loop (or the user); moves a card between running lanes; places a follow-up in the lane
+    that owns its files; and follows two lanes through Hive's real wakes as each ends, re-watching what is left, until
+    both have ended (the fake Claude Code acts out the Assistant's wakes from its `fake-wakes-Assistant.txt`);
+  - in every mode (#325, #402): cards it plans are complete (80+ characters each), an open design question reaches the
+    user, and one card on one agent loads no run-lanes and starts no lane.
 
 ## Running
 
@@ -79,6 +88,13 @@ node tests/scenarios/measure.cjs              # what sessions are given about Hi
 The scenarios run the dev build in `out/`. A run first checks it is built from the source as it is now (the e2e
 runner's build stamp, `tests/e2e/build.mjs`) and rebuilds it if not, so a run or a baseline never measures other code.
 Hive's test copies run quiet (`src/main/testQuiet.ts`): no window on screen, no focus taken, no notifications.
+After each scenario, once Hive has closed, the harness stops what of it still runs (a command an agent started can
+outlive its session: #542): what the scenario's Hive started (its process tree, taken before it closes, each by pid and
+start time), and what names the scenario's folder on its command line (the folder itself, never a sibling whose name
+starts the same) and started after the scenario did (`tests/e2e/folderProcesses.cjs`; the result's `leftOver` says how
+many). A folder it still can't remove is kept and named in the result (`kept`) rather than ending the run. Setup helpers
+that start an agent for the fixture (a builder working, an agent idle) fail the scenario (`setup: …`, with the
+environment problem when the screen shows one) when it doesn't get there, rather than run on a fixture it didn't get.
 
 - **The fakes** (`fake`, the default, `fake-codex` and `fake-copilot`) act each scenario out with their scripted commands (`skill NAME`, `boardmove`,
   `boardreview`, `boardcomment`). It checks the harness itself and the board rules Hive enforces, at no cost. Checks

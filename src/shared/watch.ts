@@ -345,6 +345,21 @@ const shortName = (name: string): string => {
 export const WAKE_MAX_BYTES = 1000
 const jsonBytes = (s: string): number => new TextEncoder().encode(JSON.stringify(s)).length
 
+/**
+ * What the Assistant's card wake ends with while lanes are running (#402): its watch has ended, and the lanes still need
+ * one. Kept whole: the rest of the line is cut to make room.
+ */
+export const LANES_RUNNING_TAIL = ' Lanes are still running (hive_lane list): before you end your turn, watch them all again in one watch, each lane by its last card (run-lanes).'
+export function withLanesTail(line: string, max = WAKE_MAX_BYTES): string {
+  if (line.endsWith(LANES_RUNNING_TAIL)) return line
+  let s = line
+  if (jsonBytes(s + LANES_RUNNING_TAIL) > max) {
+    while (s && jsonBytes(`${s}…${LANES_RUNNING_TAIL}`) > max) s = s.slice(0, -1)
+    s = `${s}…`
+  }
+  return s + LANES_RUNNING_TAIL
+}
+
 const firstLine = (text: string, max = 160): string => {
   const line = text.split('\n').map((l) => l.trim()).find(Boolean) ?? ''
   return line.length > max ? `${line.slice(0, max - 1)}…` : line

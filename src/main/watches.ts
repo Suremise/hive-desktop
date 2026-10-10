@@ -3,13 +3,15 @@ import { app } from 'electron'
 import { link, mkdir, readFile, rename, rm, writeFile } from 'original-fs/promises'
 import { basename, dirname, join, resolve } from 'path'
 import { projectAgents } from '../shared/defaults'
-import { cardChange, carriedOver, changesBetween, changesSince, ENTRY_KEY, limitLine, markOf, movedIntoSince, seenOf, readMark, readSavedCondition, WAKE_MAX_BYTES, wakeAbout, watchLabel, cardWakeLine, userNameOf, releasedLine, type Released, type ReplyNote, alreadyThere, encodeSince, WATCH_DEFAULT_LIMIT_MINUTES, WATCH_MAX_CARDS, WATCH_MAX_LIMIT_MINUTES, type Baseline, type CardChange, type CardMark, type Seen, type WatchChange, type WatchCondition } from '../shared/watch'
+import { cardChange, carriedOver, changesBetween, changesSince, ENTRY_KEY, limitLine, markOf, movedIntoSince, seenOf, readMark, readSavedCondition, WAKE_MAX_BYTES, wakeAbout, watchLabel, cardWakeLine, userNameOf, releasedLine, withLanesTail, type Released, type ReplyNote, alreadyThere, encodeSince, WATCH_DEFAULT_LIMIT_MINUTES, WATCH_MAX_CARDS, WATCH_MAX_LIMIT_MINUTES, type Baseline, type CardChange, type CardMark, type Seen, type WatchChange, type WatchCondition } from '../shared/watch'
 import { agentBusy, agentEvent, agentLimitLine, agentMarkOf, agentPart, agentWakeLine, agentWatchLabel, readSavedAgentCondition, readSavedAgentMark, replyFirstLine, type AgentEvent, type AgentMark, type AgentNow, type AgentWatchCondition, type WatchedAgent } from '../shared/agentWatch'
 import type { LiveSessionState, TaskCard, TaskColumn, TaskWatchInfo } from '../shared/types'
+import { ASSISTANT_AGENT_ID } from '../shared/assistant'
 import { config } from './config'
 import { onHiveEvent } from './events'
 import { readCapped, renameRetrying } from './fsutil'
 import { createLogger, userText } from './logger'
+import { listLanes } from './lanes'
 import { noteLoopWatch } from './loopCheck'
 import { sessions } from './sessions'
 import { getTask, inScope, noteOnCard, unknownTask } from './tasks'
@@ -1166,6 +1168,9 @@ async function deliver(store: Store, rec: WatchRecord): Promise<void> {
         return
       }
     }
+    // The Assistant woken from a card watch while lanes run (#402): its watch has ended, so the line says to watch them
+    // all again (a model that reads no skill on a wake otherwise ends its turn watching nothing).
+    if (rec.agentId === ASSISTANT_AGENT_ID && !rec.agents && rec.cond.cards.length && (await listLanes(store.ws).catch(() => [])).some((l) => l.state === 'active' || l.state === 'paused')) line = withLanesTail(line, MAX_LINE_BYTES)
     // Saved as being typed before the first key: if Hive stops before the watch's end is saved, it is never typed again.
     // Not saved, nothing is typed (tried again later).
     const marked = await locked(store, async () => {
