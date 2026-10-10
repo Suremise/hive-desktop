@@ -5,11 +5,19 @@ const lib = require('./lib.cjs')
 const { _electron } = require('playwright-core')
 const fs = require('fs')
 const path = require('path')
+const { runningCliSuites, printSandboxDiagnostics } = require('./codexDiagnostics.cjs')
 
 const userData = path.join(lib.WORK, 'cxbg-profile')
 const ws = path.join(lib.WORK, 'cxbg-ws')
 const proj = path.join(ws, 'demo')
 let failed = 0
+let diagnosticWindow = null
+let diagnosticPrinted = false
+const diagnostics = (terminal = '') => {
+  if (!diagnosticWindow || diagnosticPrinted) return
+  diagnosticPrinted = true
+  printSandboxDiagnostics({ ...diagnosticWindow, terminal }, path.join(lib.WORK, 'codex-sandbox-diagnostics.json'))
+}
 const check = (name, ok, extra = '') => {
   lib.checked(ok)
   if (!ok) failed++
@@ -57,6 +65,7 @@ const check = (name, ok, extra = '') => {
   const prompt =
     "Call exec_command once with cmd \"Start-Sleep -Seconds 40; Set-Content -Path bg-done.txt -Value done\" and yield_time_ms 1000. It will return a session id while the command keeps running: do not wait for it, poll it or call write_stdin. If you call it from a script, print only its session id (text(r.session_id)). Reply with the single word STARTED and end your turn."
   // Codex answering the prompt is the CLI's part (a usage limit or the network there is the environment's: lib.cliStep).
+  diagnosticWindow = { from: Date.now(), peersBefore: runningCliSuites() }
   const t0 = await lib.cliStep('the prompt’s turn', { session: key }, async () => {
     // Typed the way Hive types prompts (a long text at once is a paste to Codex, and Enter then adds a line).
     for (let i = 0; i < prompt.length; i += 8) {
@@ -73,12 +82,14 @@ const check = (name, ok, extra = '') => {
   // Hive's part: counting what the turn left running.
   const counted = await until((s) => s?.backgroundTasks === 1 && s, 10000)
   check('the running command is counted', counted?.backgroundTasks === 1, JSON.stringify(counted && { tasks: counted.backgroundTasks }))
+  if (!counted) diagnostics(lib.plainText(await inv('pty:buffer', key)))
   seen.clear()
   await page.screenshot({ path: path.join(lib.WORK, 'codex-background.png') })
 
   // The command ends about 40 s after it started: the count drops, and Codex doesn't start a turn of its own.
   const done = await until((s) => !s?.backgroundTasks && fs.existsSync(path.join(proj, 'bg-done.txt')) && s, 90000)
   check('the count drops when the command ends', !!done && !done.backgroundTasks, JSON.stringify(done && { tasks: done.backgroundTasks, file: fs.existsSync(path.join(proj, 'bg-done.txt')) }))
+  if (!done) diagnostics(lib.plainText(await inv('pty:buffer', key)))
   await until(() => Date.now() - t0 > 60000, 30000)
   const after = await live()
   check('Codex stayed finished: no turn of its own when the command ended', after?.status === 'finished' && !seen.has('working'), JSON.stringify({ status: after?.status, seen: [...seen] }))
@@ -89,5 +100,6 @@ const check = (name, ok, extra = '') => {
   process.exit(failed ? 1 : 0)
 })().catch((e) => {
   console.log('FAIL', e.message)
+  diagnostics()
   process.exit(1)
 })

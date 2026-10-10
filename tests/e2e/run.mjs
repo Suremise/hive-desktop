@@ -41,6 +41,7 @@ import { devBuild, ensureBuild } from './build.mjs'
 import { FAILED_KEEP_MS, finishRunDirs, keepSuiteFiles, logsRootFor, markRunFailed, newRunDir, omittedLine, pruneRunDirsReleasing } from './logs.mjs'
 import { LANES, claimLane, laneWork } from './lanes.mjs'
 import { describeClaim, heavySlots, needsSlot, waitForSlot } from './slots.mjs'
+import { usesCodexHome, waitForCodexHome } from './codexHomeLock.mjs'
 import { autoClean, holdLane } from './clean.mjs'
 import { recycleBinCount, recycleBinLine } from './recycleBin.mjs'
 import { readUnpackedInfo } from '../../scripts/distCopy.mjs'
@@ -334,7 +335,15 @@ async function runOnce(k) {
   const results = []
   const startedAt = Date.now()
   const running = new Set()
-  const report = () => progress.suite(finished, [...running].map((n) => step(k, n)).join(', '))
+  const report = () => {
+    // A failed real-CLI suite can name the other runners' current suites (#478), rather than guessing at a collision.
+    try {
+      writeFileSync(join(logDir, 'running-suites.json'), JSON.stringify({ pid: process.pid, root, lane: lane?.lane ?? null, at: Date.now(), suites: [...running].map((name) => ({ name, needs: chosen.find((s) => s.name === name)?.needs ?? [] })) }))
+    } catch (e) {
+      console.log(`DIAGNOSTIC running suites unavailable: ${e.code || e.message}`)
+    }
+    progress.suite(finished, [...running].map((n) => step(k, n)).join(', '))
+  }
   if (repeat > 1) console.log(`\n--- Run ${k} of ${repeat}`)
 
   function finish(s, r) {
@@ -355,6 +364,18 @@ async function runOnce(k) {
     report()
   }
 
+  async function runSuite(s, port) {
+    const lease = usesCodexHome(s) ? await waitForCodexHome(lib.CODEX_HOME, { kind: 'e2e', root, what: `e2e: ${s.name}`, argv: args }) : null
+    try {
+      // Only suites actually starting count as running in peer diagnostics; a queued Codex suite cannot collide.
+      running.add(s.name)
+      report()
+      return await run(s.name, port)
+    } finally {
+      lease?.release()
+    }
+  }
+
   /** Runs suites one after another (skipping those that can't run here), each with this port. */
   async function inTurn(list, port) {
     for (const s of list) {
@@ -364,9 +385,7 @@ async function runOnce(k) {
         results.push({ name: s.name, skipped: why, environment: why.startsWith('environment:') })
         continue
       }
-      running.add(s.name)
-      report()
-      finish(s, await run(s.name, port))
+      finish(s, await runSuite(s, port))
     }
   }
 
@@ -376,9 +395,7 @@ async function runOnce(k) {
     inTurn(cliLane, PORT_BASE - 1),
     ...Array.from({ length: Math.min(poolSlots, queue.length) }, async (_, slot) => {
       for (let s = queue.shift(); s; s = queue.shift()) {
-        running.add(s.name)
-        report()
-        finish(s, await run(s.name, PORT_BASE + slot))
+        finish(s, await runSuite(s, PORT_BASE + slot))
       }
     })
   ])
