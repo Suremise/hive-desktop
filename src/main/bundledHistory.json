@@ -16,7 +16,10 @@
       "3fb228195f827051",
       "3ba4b0db7645e8e7",
       "e0160cb6386f760e",
-      "365d19a2861fbb95"
+      "365d19a2861fbb95",
+      "93b4e72598bd2234",
+      "f81c17d505682e91",
+      "4732af7376af14dc"
     ],
     "coordinate-agents": [
       "148fcb5639058ac2",
@@ -29,7 +32,9 @@
       "d65280f92cb80438",
       "4c31f7f502b7c858",
       "1a0f6fca9143fc1f",
-      "76c33b390b578bed"
+      "76c33b390b578bed",
+      "bf36987e290479cd",
+      "10d8a3444c3c81d8"
     ],
     "handover": [
       "60ac1268a067e829",
@@ -57,6 +62,9 @@
       "0bd3ae708c0c0fe2",
       "a54e65f51c3c2b77",
       "65b1ae8595727dfd"
+    ],
+    "run-lanes": [
+      "b42f313edbb95eca"
     ],
     "split-work": [
       "9f3b17bc4a73bdd1",
@@ -87,7 +95,8 @@
   },
   "personas": {
     "coordinator": [
-      "2cd699f6b4a7c3b1"
+      "2cd699f6b4a7c3b1",
+      "8ab80fcd42401537"
     ],
     "orchestrator": [
       "21ce0d9749e31d4d",

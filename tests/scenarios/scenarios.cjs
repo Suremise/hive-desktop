@@ -7,7 +7,7 @@
 // commands: those runs check the harness, the board rules and Hive's own costs (benchmarks) for free. The real CLIs are the model trials (opt-in, see README.md).
 //
 // Fixture version: bump when a scenario's setup or checks change, so results can be compared across versions.
-const FIXTURES_VERSION = 33
+const FIXTURES_VERSION = 45
 
 /** The subject's hive tool calls that the server ran, by tool (each has ok, error and args). */
 const called = (o, tool) => o.hiveCalls.filter((c) => c.tool === tool)
@@ -27,34 +27,48 @@ const ran = (o, tool) => called(o, tool).filter((c) => c.ok)
  * the task typed in, until it is working. The fakes do "work N" (`fakeSecs`: the wake quotes Coder's reply, which the
  * fake Assistant then does too, within the fakes' minute); a model runs the command (`secs`, long enough to watch).
  */
-async function busyCoder(c, fakeSecs, secs) {
+async function busyCoder(c, fakeSecs, secs, agent = c.agents.coder) {
   const providers = (await c.inv('settings:get')).providers ?? {}
   if (c.fake || Object.values(providers).some((p) => /fake-(claude|codex)/i.test(String(p?.executablePath ?? '')))) secs = fakeSecs
-  await coderTask(c, `Run this in the shell and wait for it to end, then reply "built": node -e "setTimeout(() => {}, ${secs * 1000})" (work ${secs})`)
+  await coderTask(c, `Run this in the shell and wait for it to end, then reply "built": node -e "setTimeout(() => {}, ${secs * 1000})" (work ${secs})`, agent)
 }
-/** Coder's live session (status, runId, sessionId), or undefined. */
-const coderLive = async (c) => (await c.inv('session:live')).find((s) => s.projectPath.toLowerCase() === c.alpha.toLowerCase() && s.agentId === c.agents.coder.id)
-/** Starts Coder (a trust question answered), waits until it's ready and types `task` in, until it is working. */
-async function coderTask(c, task) {
-  const key = `session:${c.alpha.toLowerCase()}#${c.agents.coder.id}`
+/** Coder's (or `agent`'s) live session (status, runId, sessionId), or undefined. */
+const coderLive = async (c, agent = c.agents.coder) => (await c.inv('session:live')).find((s) => s.projectPath.toLowerCase() === c.alpha.toLowerCase() && s.agentId === agent.id)
+/**
+ * Starts Coder (or `agent`; a trust question answered), waits until it's ready and types `task` in, until it is working.
+ * With no task, leaves it started and idle. Throws when it doesn't get there (`setup: …`, with its status and the end of
+ * its screen, and the environment problem when the screen shows one), so a scenario never runs on a fixture it didn't get.
+ */
+async function coderTask(c, task, agent = c.agents.coder) {
+  const key = `session:${c.alpha.toLowerCase()}#${agent.id}`
   const sleep = (ms) => new Promise((r) => setTimeout(r, ms))
-  await c.inv('session:start', c.alpha, { agentId: c.agents.coder.id })
-  for (let t = Date.now(); Date.now() - t < 90000 && !['ready', 'finished'].includes((await coderLive(c))?.status); ) {
-    const screen = String(await c.inv('pty:buffer', key).catch(() => ''))
+  const fail = async (what) => {
+    const lib = require('../e2e/lib.cjs')
+    const screen = lib.plainText(String(await c.inv('pty:buffer', key).catch(() => ''))).trim()
+    const env = lib.environmentProblem(screen)
+    throw new Error(`setup: ${agent.name ?? agent.id} ${what} (status ${(await coderLive(c, agent))?.status ?? 'not running'})${env ? `; environment: ${env}` : ''}; its screen ends: ${screen.slice(-400)}`)
+  }
+  await c.inv('session:start', c.alpha, { agentId: agent.id })
+  for (let t = Date.now(); Date.now() - t < 90000 && !['ready', 'finished'].includes((await coderLive(c, agent))?.status); ) {
+    // Terminal UIs draw spaces as cursor moves: matched as plain text.
+    const lib = require('../e2e/lib.cjs')
+    const screen = lib.plainText(String(await c.inv('pty:buffer', key).catch(() => '')))
     // Copilot's: "Do you trust the files in this folder?", Yes first.
     if (/Do you trust the files in this folder/i.test(screen)) await c.inv('pty:write', key, '\r')
-    else if (/trust this folder/i.test(screen)) {
-      await c.inv('pty:write', key, '\x1b[B')
-      await sleep(300)
-      await c.inv('pty:write', key, '\r')
-    }
+    // Claude Code's menu starts on "No, exit" (Enter there quits it): Down until "Yes" shows selected, then Enter (#218).
+    else if (lib.trustChoice(screen)) await lib.acceptClaudeTrust(c.inv, c.alpha, agent.id, 20000)
+    // Codex's: Yes first.
+    else if (/trust this folder/i.test(screen)) await c.inv('pty:write', key, '\r')
     await sleep(500)
   }
+  if (!['ready', 'finished'].includes((await coderLive(c, agent))?.status)) await fail("didn't get ready in 90 s")
+  if (!task) return
   await sleep(1500)
   await c.inv('pty:write', key, task)
   await sleep(400)
   await c.inv('pty:write', key, '\r')
-  for (let t = Date.now(); Date.now() - t < 30000 && (await coderLive(c))?.status !== 'working'; ) await sleep(500)
+  for (let t = Date.now(); Date.now() - t < 30000 && (await coderLive(c, agent))?.status !== 'working'; ) await sleep(500)
+  if ((await coderLive(c, agent))?.status !== 'working') await fail("didn't start working on its task in 30 s")
 }
 const read = (o, skill) => o.skillsRead.includes(skill)
 /** A call's arguments (JSON) have key: value. */
@@ -1102,6 +1116,36 @@ module.exports.SCENARIOS = [
       ]
     }
   },
+  ...[
+    // #412: the workspace's Card loop rounds and wait are 7 and 3 h; a loop started without saying takes them, one that
+    // says its own (3, 1 h) keeps those.
+    { id: 'card-loop-lane-defaults', said: '', rounds: 7, wait: 180, title: "A card loop builder told no rounds or wait (#412): its lane takes the workspace's settings, and it waits that long" },
+    { id: 'card-loop-lane-override', said: ' Rounds: 3. Wait: 1h.', rounds: 3, wait: 60, title: "A card loop builder told its rounds and wait (#412): they win over the workspace's settings" }
+  ].map((v) => ({
+    id: v.id,
+    title: v.title,
+    files: { 'greet.js': "module.exports = (name) => 'Hello, ' + name\n" },
+    async setup(c) {
+      await c.inv('workspace:setLoops', { rounds: 7, waitHours: 3 })
+      await c.card('a', { title: 'Greeting says Hi', description: 'greet.js returns "Hi, <name>" instead of "Hello, <name>".', agent: 'coder' })
+      await c.card('b', { title: 'Greeting trims the name', description: 'greet.js trims spaces around the name.', agent: 'coder' })
+    },
+    prompt: (c) => `Work through cards #${c.cards.a} then #${c.cards.b} as their builder; Implementer reviews them.${v.said}`,
+    fake: (c) =>
+      `skill card-loop then hive hive_lane ${JSON.stringify({ action: 'start', cards: [c.cards.a, c.cards.b], reviewer: 'Implementer', ...(v.said ? { rounds: v.rounds, waitMinutes: v.wait } : {}) })} then boardmove ${c.cards.a} doing then hive hive_wait_for_tasks ${JSON.stringify({ cards: [c.cards.a], changes: ['verdict', 'column'], column: 'passed', wake: true, limitMinutes: v.wait })} then boardmove ${c.cards.a} review then boardcomment ${c.cards.a}`,
+    expect: (o, c) => {
+      const file = require('path').join(c.ws, '.hive', 'lanes.json')
+      const lanes = require('fs').existsSync(file) ? JSON.parse(require('fs').readFileSync(file, 'utf8')) : []
+      const lane = (Array.isArray(lanes) ? lanes : (lanes.lanes ?? [])).find((l) => l.cards?.includes(c.cards.a))
+      const waits = ran(o, 'hive_wait_for_tasks').map((x) => argsOf(x)).filter((a) => a.cards?.includes(c.cards.a))
+      return [
+        ['read the card-loop skill', read(o, 'card-loop'), o.skillsRead.join(',')],
+        [`its lane has ${v.rounds} rounds and a ${v.wait}-minute wait`, lane?.rounds === v.rounds && lane?.waitMinutes === v.wait, JSON.stringify(lane ? { rounds: lane.rounds, waitMinutes: lane.waitMinutes } : null)],
+        [`it waits for the verdict with that wait (limitMinutes ${v.wait})`, waits.some((a) => a.limitMinutes === v.wait), JSON.stringify(waits)],
+        ['ended its turn with a live watch for the verdict', o.status === 'watching', o.status]
+      ]
+    }
+  })),
   {
     id: 'card-loop-lane-join',
     title: "A card loop reviewer joins its builder's lane (#483) by the builder's name, then waits for the first card",
@@ -1298,6 +1342,26 @@ module.exports.SCENARIOS = [
     }
   },
   {
+    id: 'assistant-look-lanes',
+    title: 'The Assistant at Look and advise asked which card loops are running (#500): lists the lanes, changes none',
+    role: 'assistant',
+    control: 'look',
+    async setup(c) {
+      const a = await c.card('a', { title: 'Greeting says Hi', description: 'greet.js returns "Hi, <name>".', agent: 'coder', column: 'doing' })
+      const b = await c.card('b', { title: 'Greeting trims the name', description: 'greet.js trims the name.', agent: 'coder' })
+      const r = await c.api('POST', '/v1/lanes', { project: 'alpha', builder: 'Coder', reviewer: 'Implementer', cards: [a, b], name: 'greetings' })
+      if (r.status !== 200) throw new Error(`lane: ${r.text}`)
+    },
+    prompt: 'Which card loops (lanes) are running, and which card is each on?',
+    fake: 'hive hive_lane {"action":"list"}',
+    expect: (o, c) => [
+      ['listed the lanes (hive_lane list), which worked', ran(o, 'hive_lane').some((x) => argsOf(x).action === 'list'), o.hiveCalls.map((x) => `${x.tool}${x.ok ? '' : '!'}`).join(',')],
+      ['started, joined or ended none', !called(o, 'hive_lane').some((x) => argsOf(x).action !== 'list'), o.hiveCalls.map((x) => x.args).join(' | ')],
+      ["its answer names the lane's current card", new RegExp(`#?${c.cards.a}\\b`).test(o.finalReply ?? ''), (o.finalReply ?? '').slice(0, 300)]
+    ],
+    fakeSkips: ["its answer names the lane's current card"]
+  },
+  {
     id: 'assistant-new-lane',
     title: "The Assistant starting an idle agent's next lane (#437): one call gives it the lane in a new conversation, and the old one is kept",
     role: 'assistant',
@@ -1351,6 +1415,95 @@ module.exports.SCENARIOS = [
         [`went on to #${c.cards.b} (began its review, or watched it)`, onB, o.hiveCalls.map((x) => x.tool).join(',')],
         [`didn't wait on #${c.cards.a} again`, !watchedA],
         ["didn't stop to ask the user", called(o, 'hive_notify').length === 0]
+      ]
+    }
+  },
+  {
+    id: 'card-loop-blocked',
+    title: "A reviewer in a card loop whose card its builder blocks to ask the user while it waits (#468, #481): keeps waiting rather than moving on, and reviews it once it is unblocked and back in Review, woken by Hive alone",
+    role: 'agent',
+    async setup(c) {
+      const a = await c.card('a', {
+        title: 'Retry the upload',
+        description: 'Retry a failed upload once.',
+        agent: 'implementer',
+        column: 'doing',
+        comments: ['Done: one retry. Ready for review.', 'Review round 1: FAILED. 1. The retry ignores the server’s Retry-After.']
+      })
+      giveVerdict(c, a, 'failed', 'Coder (alpha)')
+      await c.card('b', { title: 'Show upload progress', description: 'Show a progress bar while uploading.', agent: 'implementer' })
+    },
+    // As on #468: once the reviewer has ended its turn watching for the next round, its builder blocks the card to ask
+    // the user; 15 s later (answered) it clears the block, fixes it and returns it to Review. Nobody prompts the
+    // reviewer: only Hive's wake from its own watch brings it back (before #481 the block ended that watch).
+    async during(c, status) {
+      if (c.returnedAt || !['watching', 'ready', 'finished'].includes(status)) return
+      if (!c.blockedAt) {
+        if (status !== 'watching') return
+        await c.api('POST', `/v1/tasks/${c.cards.a}/comments`, { text: 'Asked the user: honour Retry-After up to what limit?' })
+        await c.inv('tasks:update', c.cards.a, { blocked: 'Asked the user: honour Retry-After up to what limit?' })
+        c.blockedAt = Date.now()
+        return
+      }
+      if (Date.now() - c.blockedAt < 15000) return
+      await c.api('POST', `/v1/tasks/${c.cards.a}/comments`, { text: 'The user answered: up to 60 s. Fixed: the retry waits for Retry-After, capped at 60 s. Ready for review.' })
+      await c.inv('tasks:update', c.cards.a, { blocked: '' })
+      await c.inv('tasks:update', c.cards.a, { column: 'review' })
+      c.returnedAt = Date.now()
+    },
+    // Through the block, then the wake and the review it starts: until a verdict on the card (at most 4 minutes after
+    // its return).
+    async keepWaiting(c) {
+      if (c.blockedAt && !c.returnedAt) return true
+      if (!c.returnedAt || Date.now() - c.returnedAt > 240000) return false
+      const card = (await c.api('GET', `/v1/tasks/${c.cards.a}`)).body
+      return !(card?.history ?? []).some((h) => /^Coder\b/.test(h.by) && /^Review (passed|failed)/.test(h.what) && Date.parse(h.at) > c.returnedAt)
+    },
+    prompt: (c) => `You are the reviewer in a card loop (the card-loop skill): cards #${c.cards.a}, then #${c.cards.b}; rounds 3; wait 1h; your builder is Implementer. You have just failed #${c.cards.a} in round 1 (your verdict is its last comment), and Implementer is fixing it.`,
+    fake: (c) => `skill card-loop then hive hive_wait_for_tasks {"cards":[${c.cards.a}],"column":"review","wake":true}`,
+    // The fake Claude Code's answer to Hive's wake: it reviews the card.
+    fakeWakes: (c) => [`boardreview ${c.cards.a} start then boardreview ${c.cards.a} passed passed`],
+    expect: (o, c) => {
+      const back = c.returnedAt ?? Infinity
+      const by = (h) => /^Coder\b/.test(h.by)
+      const ha = o.cards.a?.history ?? []
+      const verdictAt = Date.parse(ha.find((h) => by(h) && /^Review (passed|failed)/.test(h.what) && Date.parse(h.at) > back)?.at ?? '') || Infinity
+      const waits = ran(o, 'hive_wait_for_tasks')
+      const has = (x, n) => new RegExp(`"cards"\\s*:\\s*\\[[^\\]]*\\b${n}\\b`).test(String(x.args))
+      // A call's time (the fake's are reported when its CLI closes input, so only a model's tell order).
+      const before = (x) => Date.parse(x.at) < verdictAt
+      return [
+        ['read the card-loop skill', read(o, 'card-loop'), o.skillsRead.join(',')],
+        // The builder returns it only once the reviewer ends its turn watching (`during`).
+        [`watched #${c.cards.a} for its return to Review`, waits.some((x) => has(x, c.cards.a) && /"column"\s*:\s*"review"/.test(String(x.args))), waits.map((x) => String(x.args)).join(' | ')],
+        [`the builder returned #${c.cards.a} once the reviewer was watching`, Number.isFinite(back), String(c.returnedAt)],
+        ["reviewed the card after its return, with nobody prompting it (Hive's wake)", ha.some((h) => by(h) && h.what === 'Started reviewing' && Date.parse(h.at) > back), ha.map((h) => `${h.by}: ${h.what}`).join(' | ')],
+        ['gave it a verdict', Number.isFinite(verdictAt), ha.map((h) => `${h.by}: ${h.what}`).join(' | ')],
+        ["didn't move on to the next card before that verdict", !waits.some((x) => before(x) && has(x, c.cards.b) && !has(x, c.cards.a)) && !ran(o, 'hive_update_task').some((x) => before(x) && field(x.args, 'number', c.cards.b)), o.hiveCalls.map((x) => `${x.tool}@${x.at}`).join(',')]
+      ]
+    },
+    // Only the fake Claude Code answers a wake (its wake script); the fake Codex can't.
+    fakeSkips: (provider) => (provider === 'fake' ? [] : ["reviewed the card after its return, with nobody prompting it (Hive's wake)", 'gave it a verdict'])
+  },
+  {
+    id: 'card-loop-loop-wake',
+    title: "A reviewer in a card loop woken by Hive's own loop wake, with no watch of its own (#405): reviews the card, then waits for the next",
+    role: 'agent',
+    files: { 'sync.js': SYNC_JS },
+    async setup(c) {
+      await c.card('a', { title: 'Retry the sync', description: 'sync.js: try the sync up to three times, 1 s apart, before giving up.', agent: 'implementer', column: 'review', comments: ['Done: retries added, 1 s apart. Ready for review.'] })
+      await c.card('b', { title: 'Show sync progress', description: 'Show a progress bar while syncing.', agent: 'implementer' })
+    },
+    prompt: (c) =>
+      `You are the reviewer in a card loop (the card-loop skill): cards #${c.cards.a}, then #${c.cards.b}; rounds 3; wait 1h; your builder is Implementer. You had no card watch when Hive typed this line: [Hive] #${c.cards.a} (Implementer's card) is in Review. You review this card in its loop: carry on with it (hive_read_task with latestComment for the comment in full).`,
+    fake: (c) => `skill card-loop then boardreview ${c.cards.a} start then boardreview ${c.cards.a} passed passed then hive hive_wait_for_tasks {"cards":[${c.cards.b}],"column":"review","wake":true}`,
+    expect: (o, c) => {
+      const h = history(o.cards.a)
+      return [
+        ['read the card-loop skill', read(o, 'card-loop'), o.skillsRead.join(',')],
+        [`reviewed #${c.cards.a}: started a review and gave a verdict`, h.includes('Started reviewing') && h.some((x) => /^Review (passed|failed)$/.test(x)), h.join(' | ')],
+        ["didn't ask the user (no hive_notify)", called(o, 'hive_notify').length === 0, o.hiveCalls.map((x) => x.tool).join(',')],
+        ['ended its turn with a live watch', o.status === 'watching', o.status]
       ]
     }
   },
@@ -1450,6 +1603,287 @@ module.exports.SCENARIOS.push({
   }
 });
 
+// A team in Coordinator mode (#402, with #325's scoring): lanes planned, briefed and watched to their end; wakes handled
+// (a failed review, a question for the user); a card moved between lanes; a follow-up placed in the lane owning its files.
+/** Builder2 and Reviewer2 beside Coder and Implementer: four agents, as the provider runs them. */
+async function team(c) {
+  const like = c.agents.coder
+  for (const [k, name] of [['builder2', 'Builder2'], ['reviewer2', 'Reviewer2']]) {
+    c.agents[k] = await c.inv('agents:add', c.alpha, { location: 'project', name, provider: like.provider, model: like.model ?? '', effort: like.effort ?? '', permissionMode: like.permissionMode })
+  }
+}
+/**
+ * Two running lanes: Coder and Implementer on greet.js (#a, #b), Builder2 and Reviewer2 on the README (#c, and #d if
+ * given). Nothing in Doing unless asked (`aColumn`): the agents aren't running, and a card in Doing would be stalled.
+ */
+async function twoLanes(c, { d = false, aColumn = 'todo' } = {}) {
+  await team(c)
+  await c.card('a', { title: 'greet() says Hi', description: 'src/greet.js: greet(name) returns "Hi, <name>".', agent: 'coder', column: aColumn })
+  await c.card('b', { title: 'greet() trims the name', description: 'src/greet.js: greet trims spaces around the name.', agent: 'coder' })
+  await c.card('c', { title: 'README: usage', description: 'README.md: a Usage section with one example of greet().', agent: 'builder2' })
+  if (d) await c.card('d', { title: 'README: licence line', description: 'README.md: a line saying the licence is MIT.', agent: 'builder2' })
+  for (const [builder, reviewer, cards] of [['Coder', 'Implementer', [c.cards.a, c.cards.b]], ['Builder2', 'Reviewer2', [c.cards.c, ...(d ? [c.cards.d] : [])]]]) {
+    const r = await c.api('POST', '/v1/lanes', { project: 'alpha', builder, reviewer, cards, name: `${builder}'s lane` })
+    if (r.status !== 200) throw new Error(`lane: ${r.text}`)
+  }
+}
+/** What Hive's card wake to the Assistant ends with while lanes run (src/shared/watch.ts, the same: a unit test checks). */
+const LANES_RUNNING_TAIL = ' Lanes are still running (hive_lane list): before you end your turn, watch them all again in one watch, each lane by its last card (run-lanes).'
+/** The Assistant's card watches that worked and wake it (with wake: true), each with its cards. */
+const cardWatches = (o) => ran(o, 'hive_wait_for_tasks').filter((x) => argsOf(x).wake === true && !argsOf(x).cancel)
+/**
+ * What a team watch must wake on (run-lanes: leave out `column` and `changes`): a column move, a question in a comment,
+ * and a failed verdict, which leaves its card in Review.
+ */
+const TEAM_WAKES = ['column', 'comment', 'verdict']
+/** A card watch (not an agent watch, no single column) over every one of `cards` that wakes on all of TEAM_WAKES. */
+const watchCovers = (w, cards) => !!w && !w.agents && !w.column && TEAM_WAKES.every((k) => (w.changes ?? []).includes(k)) && cards.every((n) => (w.cards ?? []).includes(n))
+/**
+ * The watch it ended its turn with (the live one: a new watch replaces the last, so an earlier call proves nothing) covers
+ * every one of `cards`, waking it on whatever happens to them (watchCovers).
+ */
+const liveWatchCovers = (o, cards) => o.status === 'watching' && watchCovers(o.watch, cards)
+/** Board sweeps (cards, lanes or agents read) after its first wake watch: in a turn a wake started, not the first one. */
+const sweepsAfterWatch = (o) => {
+  const first = o.hiveCalls.findIndex((x) => x.tool === 'hive_wait_for_tasks' && x.ok && argsOf(x).wake === true)
+  return first < 0 ? 0 : o.hiveCalls.slice(first + 1).filter((x) => x.ok && ['hive_list_tasks', 'hive_lane', 'hive_project_status', 'hive_list_projects', 'hive_read_task'].includes(x.tool)).length
+}
+const liveWatch = (o) => `${o.status}; ${JSON.stringify(o.watch)}; calls: ${cardWatches(o).map((x) => x.args).join(' | ')}`
+/** A brief the Assistant sent an agent (hive_prompt_agent's text, hive_start_agent's prompt), by the agent's name. */
+const briefsTo = (o, name) =>
+  [...ran(o, 'hive_prompt_agent'), ...ran(o, 'hive_start_agent'), ...ran(o, 'hive_start_task')]
+    .filter((x) => new RegExp(`^${name}$`, 'i').test(String(argsOf(x).agent ?? '')))
+    .map((x) => String(argsOf(x).text ?? argsOf(x).prompt ?? argsOf(x).note ?? ''))
+const names = (text, ...parts) => parts.every((p) => new RegExp(typeof p === 'number' ? `#?${p}\\b` : p, 'i').test(text))
+/** A card's agent id (the API gives the agent as { id, name, … }). */
+const agentOf = (card) => card?.agent?.id ?? card?.agent ?? null
+const IDLE_PROMISE = /they('ll| will) (tell|let) you|(tell|let) you know when they/i
+module.exports.SCENARIOS.push(
+  {
+    id: 'coordinator-team-lanes',
+    title: 'Coordinator mode with four agents asked to run two lanes (#402): reads run-lanes, briefs all four completely, watches both lanes to their end',
+    role: 'assistant',
+    control: 'agents',
+    persona: 'coordinator',
+    async setup(c) {
+      await team(c)
+      await c.card('a', { title: 'greet() says Hi', description: 'src/greet.js: greet(name) returns "Hi, <name>".' })
+      await c.card('b', { title: 'greet() trims the name', description: 'src/greet.js: greet trims spaces around the name.' })
+      await c.card('c', { title: 'README: usage', description: 'README.md: a Usage section with one example of greet().' })
+    },
+    prompt: (c) =>
+      `Run two card loops in alpha. Coder builds #${c.cards.a}, then #${c.cards.b}, reviewed by Implementer. Builder2 builds #${c.cards.c}, reviewed by Reviewer2. All four work in the project folder (no worktrees, nothing to merge). Brief and start them, and follow both lanes to the end.`,
+    fake: (c) => {
+      const brief = (who, text) => `hive hive_start_agent {"project":"alpha","agent":"${who}","prompt":"${text} (work 1)"}`
+      return [
+        'skill coordinate-agents',
+        'skill run-lanes',
+        brief('Coder', `Builder in a card-loop lane: cards #${c.cards.a}, #${c.cards.b}; your reviewer is Implementer.`),
+        brief('Implementer', `Reviewer in a card-loop lane: cards #${c.cards.a}, #${c.cards.b}; your builder is Coder.`),
+        brief('Builder2', `Builder in a card-loop lane: card #${c.cards.c}; your reviewer is Reviewer2.`),
+        brief('Reviewer2', `Reviewer in a card-loop lane: card #${c.cards.c}; your builder is Builder2.`),
+        `hive hive_wait_for_tasks {"cards":[${c.cards.b},${c.cards.c}],"wake":true,"limitMinutes":360}`
+      ].join(' then ')
+    },
+    expect: (o, c) => {
+      const { a, b } = c.cards
+      const cc = c.cards.c
+      const brief = (name, ...parts) => briefsTo(o, name).some((t) => names(t, 'card[- ]loop', ...parts))
+      return [
+        ['read the run-lanes skill', read(o, 'run-lanes'), o.skillsRead.join(',')],
+        ["briefed Coder: card-loop, its cards and its reviewer", brief('Coder', a, b, 'Implementer'), briefsTo(o, 'Coder').join(' | ').slice(0, 300)],
+        ['briefed Implementer: card-loop, the cards and its builder', brief('Implementer', a, b, 'Coder'), briefsTo(o, 'Implementer').join(' | ').slice(0, 300)],
+        ['briefed Builder2: card-loop, its card and its reviewer', brief('Builder2', cc, 'Reviewer2'), briefsTo(o, 'Builder2').join(' | ').slice(0, 300)],
+        ['briefed Reviewer2: card-loop, the card and its builder', brief('Reviewer2', cc, 'Builder2'), briefsTo(o, 'Reviewer2').join(' | ').slice(0, 300)],
+        ["ended its turn watching both lanes' last cards (its live watch, waking on moves, comments and verdicts)", liveWatchCovers(o, [b, cc]), liveWatch(o)],
+        ['no "they\'ll tell you"', !IDLE_PROMISE.test(o.finalReply ?? ''), (o.finalReply ?? '').slice(0, 300)]
+      ]
+    }
+  },
+  {
+    id: 'coordinator-wake-failed',
+    title: "Coordinator mode woken by a failed review in a lane (#402): reads it, sweeps the board, watches again, and leaves the review to the loop",
+    role: 'assistant',
+    control: 'agents',
+    persona: 'coordinator',
+    async setup(c) {
+      await twoLanes(c, { aColumn: 'review' })
+      await c.api('POST', `/v1/tasks/${c.cards.a}/comments`, { text: "Round 1: FAILED. 1. greet.js doesn't trim the name before greeting." })
+    },
+    prompt: (c) =>
+      `[Hive] #${c.cards.a} (Coder's card) is in Review: Implementer failed it; latest comment by Implementer: "Round 1: FAILED. 1. greet.js doesn't trim the name before greeting." Your card watch has ended: carry on (hive_read_task with latestComment for the comment in full).${LANES_RUNNING_TAIL}`,
+    fake: (c) => `hive hive_read_task {"number":${c.cards.a},"latestComment":true} then hive hive_list_tasks {"project":"alpha"} then hive hive_wait_for_tasks {"cards":[${c.cards.a},${c.cards.b},${c.cards.c}],"wake":true,"limitMinutes":360}`,
+    expect: (o, c) => {
+      const { a, b } = c.cards
+      const cc = c.cards.c
+      return [
+        ['read the card', ran(o, 'hive_read_task').some((x) => field(x.args, 'number', a)), o.hiveCalls.map((x) => x.tool).join(',')],
+        ['swept the board (the cards, the lanes or the agents)', ['hive_list_tasks', 'hive_lane', 'hive_project_status', 'hive_list_projects'].some((t) => ran(o, t).length > 0), o.hiveCalls.map((x) => x.tool).join(',')],
+        ["ended its turn watching again: both lanes' last cards (its live watch, waking on moves, comments and verdicts)", liveWatchCovers(o, [b, cc]), liveWatch(o)],
+        // Its builder isn't running (a stopped lane): starting it on the fix is fine; reviewing it or a review card isn't.
+        ['left the review to the loop: no verdict of its own and no separate review card', !called(o, 'hive_update_task').some((x) => field(x.args, 'number', a) && argsOf(x).review) && !ran(o, 'hive_create_task').some((x) => /review/i.test(String(argsOf(x).title ?? ''))), o.hiveCalls.map((x) => x.tool).join(',')],
+        ['told the user about the failed card', new RegExp(`#?${a}\\b`).test(o.finalReply ?? ''), (o.finalReply ?? '').slice(0, 300)]
+      ]
+    },
+    fakeSkips: ['told the user about the failed card']
+  },
+  {
+    id: 'coordinator-wake-question',
+    title: 'Coordinator mode woken by an agent asking the user something in a lane (#402): passes the question on, never answers it, watches again',
+    role: 'assistant',
+    control: 'agents',
+    persona: 'coordinator',
+    async setup(c) {
+      await twoLanes(c, { aColumn: 'doing' })
+      await c.api('POST', `/v1/tasks/${c.cards.a}/comments`, { text: 'Question for the user: should greet() throw on an empty name (A) or return "Hi" (B)?' })
+      // As in a real lane: Coder asked and waits for the user (started, idle), and Builder2's lane carries on (#c in Doing,
+      // Builder2 working), so there is running work to keep watching.
+      await coderTask(c, '')
+      await c.api('PATCH', `/v1/tasks/${c.cards.c}`, { column: 'doing' })
+      await busyCoder(c, 20, 300, c.agents.builder2)
+    },
+    prompt: (c) =>
+      `[Hive] #${c.cards.a} (Coder's card) is in Doing; latest comment by Coder: "Question for the user: should greet() throw on an empty name (A) or return "Hi" (B)?" Your card watch has ended: carry on (hive_read_task with latestComment for the comment in full).${LANES_RUNNING_TAIL}`,
+    fake: (c) => `hive hive_read_task {"number":${c.cards.a},"latestComment":true} then hive hive_wait_for_tasks {"cards":[${c.cards.a},${c.cards.b},${c.cards.c}],"wake":true,"limitMinutes":360}`,
+    expect: (o, c) => {
+      const { b } = c.cards
+      const cc = c.cards.c
+      return [
+        ["didn't answer for the user: no decision, and nothing typed into Coder", !(o.cards.a?.decisions ?? []).length && called(o, 'hive_prompt_agent').length === 0, JSON.stringify(o.cards.a?.decisions ?? [])],
+        ["ended its turn watching again: both lanes' last cards, the other lane too (its live watch, waking on moves, comments and verdicts)", liveWatchCovers(o, [b, cc]), liveWatch(o)],
+        ['passed the question on to the user', /empty name/i.test(o.finalReply ?? '') || ran(o, 'hive_notify').length > 0, (o.finalReply ?? '').slice(0, 300)]
+      ]
+    },
+    fakeSkips: ['passed the question on to the user']
+  },
+  {
+    id: 'coordinator-reassign',
+    title: "Coordinator mode asked to move a card between running lanes (#402): reassigns it, its new lane has it, and the watch covers it",
+    role: 'assistant',
+    control: 'agents',
+    persona: 'coordinator',
+    async setup(c) {
+      await twoLanes(c, { d: true })
+    },
+    prompt: (c) => `Move #${c.cards.d} out of Builder2's lane: Coder should build it after #${c.cards.b}, in the same lane, and Implementer review it. Keep following the lanes.`,
+    fake: (c) =>
+      [
+        `hive hive_update_task {"number":${c.cards.d},"agent":"Coder"}`,
+        `hive hive_lane {"action":"start","project":"alpha","builder":"Coder","reviewer":"Implementer","cards":[${c.cards.a},${c.cards.b},${c.cards.d}]}`,
+        `hive hive_lane {"action":"start","project":"alpha","builder":"Builder2","reviewer":"Reviewer2","cards":[${c.cards.c}]}`,
+        `hive hive_wait_for_tasks {"cards":[${c.cards.c},${c.cards.d}],"wake":true,"limitMinutes":360}`
+      ].join(' then '),
+    expect: (o, c) => {
+      const lanes = (o.lanes ?? []).filter((l) => l.state === 'active' || l.state === 'paused')
+      const coderLane = lanes.find((l) => l.builder?.name === 'Coder')
+      const otherLane = lanes.find((l) => l.builder?.name === 'Builder2')
+      const d = c.cards.d
+      return [
+        ['gave the card to Coder', agentOf(o.cards.d) === c.agents.coder.id, agentOf(o.cards.d)],
+        ["Coder's lane has it after #" + c.cards.b + ', or Coder was told', (coderLane?.cards ?? []).map((x) => x.number).includes(d) || briefsTo(o, 'Coder').some((t) => names(t, d)), JSON.stringify(lanes.map((l) => [l.builder?.name, l.cards?.map((x) => x.number)]))],
+        ["Builder2's lane no longer has it", !(otherLane?.cards ?? []).map((x) => x.number).includes(d), JSON.stringify(otherLane?.cards?.map((x) => x.number))],
+        ["ended its turn watching both lanes' last cards, the moved card's new place (its live watch, waking on moves, comments and verdicts)", liveWatchCovers(o, [d, c.cards.c]), liveWatch(o)]
+      ]
+    }
+  },
+  {
+    id: 'coordinator-follow-up',
+    title: 'Coordinator mode given a follow-up found in review (#402, #325): writes a complete card and puts it in the lane that owns its files',
+    role: 'assistant',
+    control: 'agents',
+    persona: 'coordinator',
+    async setup(c) {
+      await twoLanes(c)
+    },
+    prompt: 'Implementer noticed while reviewing that greet.js should also escape HTML in the name before greeting. Write that up as a follow-up card and put it where it belongs.',
+    fake: (c) =>
+      `hive hive_create_task {"project":"alpha","title":"greet() escapes HTML in the name","description":"src/greet.js: escape <, >, & and quotes in the name before greeting. Found by Implementer reviewing #${c.cards.a}. Done when greet('<b>') returns Hi, &lt;b&gt;.","agent":"Coder"}`,
+    expect: (o, c) => {
+      const mine = new Set(Object.values(c.cards))
+      const created = o.allCards.filter((x) => !mine.has(x.number))
+      const card = created[0]
+      const inCoders = (o.lanes ?? []).some((l) => l.builder?.name === 'Coder' && l.cards.some((x) => x.number === card?.number))
+      const inOthers = (o.lanes ?? []).some((l) => l.builder?.name === 'Builder2' && l.cards.some((x) => x.number === card?.number))
+      const text = `${card?.description ?? ''} ${(card?.comments ?? []).map((x) => x.text).join(' ')}`
+      return [
+        ['wrote one card for it', created.length === 1, created.map((x) => x.title).join(' | ')],
+        ['complete: says what, where (greet.js) and what done looks like, in 80+ characters', !!card && /greet/i.test(text) && text.trim().length >= 80, text.slice(0, 300)],
+        ["placed in the lane that owns greet.js: Coder's (its agent, its lane, or named on it)", !!card && (agentOf(card) === c.agents.coder.id || inCoders || /Coder/.test(text)), JSON.stringify({ agent: agentOf(card), lanes: (o.lanes ?? []).map((l) => [l.builder?.name, l.cards.map((x) => x.number)]) })],
+        ["not in Builder2's lane", !!card && agentOf(card) !== c.agents.builder2?.id && !inOthers]
+      ]
+    }
+  },
+  {
+    id: 'coordinator-lanes-to-end',
+    title: "Coordinator mode following two running lanes to their end (#402): Hive's real wakes as each lane finishes; it sweeps, watches what is left, and says when both are done",
+    role: 'assistant',
+    control: 'agents',
+    persona: 'coordinator',
+    async setup(c) {
+      // Running as in life: each builder works on its lane's current card in Doing (a model checks they are running).
+      await twoLanes(c, { aColumn: 'doing' })
+      await c.api('PATCH', `/v1/tasks/${c.cards.c}`, { column: 'doing' })
+      await busyCoder(c, 20, 600)
+      await busyCoder(c, 20, 600, c.agents.builder2)
+      c.stage = 0
+      c.wakes = 0
+    },
+    prompt: (c) =>
+      `Two card loops are running in alpha: Coder builds #${c.cards.a}, then #${c.cards.b} (Implementer reviews), and Builder2 builds #${c.cards.c} (Reviewer2 reviews). Follow both lanes to the end and tell me when they're done.`,
+    fake: (c) => `skill coordinate-agents then skill run-lanes then hive hive_wait_for_tasks {"cards":[${c.cards.b},${c.cards.c}],"wake":true,"limitMinutes":360}`,
+    // Its next steps when Hive wakes it: Builder2's lane is done (sweep, watch Coder's), then Coder's (both done).
+    fakeWakes: (c) => [`hive hive_list_tasks {} then hive hive_wait_for_tasks {"cards":[${c.cards.b}],"wake":true,"limitMinutes":360}`, 'hive hive_lane {"action":"list"}'],
+    // The lanes finish while it watches: Builder2's card goes to Done (Hive wakes it), then, once it watches again (a new
+    // watch: another `since`), Coder's two. A wake is Hive's real one, typed in when a watched card changes; a turn that
+    // ends with no watch, or the last wake's turn ending, closes the scenario.
+    // Idle counts once the wake's turn was seen working, or after three idle polls in a row: as Hive ends the watch to
+    // type the wake in, the session can read idle for a moment before that turn starts.
+    during: async (c, status) => {
+      const watch = (await c.inv('session:live')).find((s) => s.agentId === 'assistant')?.watch ?? null
+      if (c.stage > 0 && status === 'working') c.woke = true
+      c.idlePolls = ['ready', 'finished', 'waiting'].includes(status) ? (c.idlePolls ?? 0) + 1 : 0
+      const idle = c.idlePolls > 0 && (c.woke || c.idlePolls >= 3)
+      if (c.stage === 0 && status === 'watching' && watch) {
+        c.firstWatch = watch
+        c.stage = 1
+        c.woke = false
+        await c.api('PATCH', `/v1/tasks/${c.cards.c}`, { column: 'done' })
+      } else if (c.stage === 1 && status === 'watching' && watch && watch.since !== c.firstWatch.since) {
+        c.secondWatch = watch
+        c.wakes = 1
+        c.stage = 2
+        c.woke = false
+        for (const k of ['a', 'b']) await c.api('PATCH', `/v1/tasks/${c.cards[k]}`, { column: 'done' })
+      } else if (c.stage === 1 && idle) {
+        c.wakes = 1
+        c.stage = 3
+      } else if (c.stage === 2 && (idle || (status === 'watching' && watch && watch.since !== c.secondWatch.since))) {
+        c.wakes = 2
+        c.stage = 3
+      }
+    },
+    keepWaiting: (c) => c.stage < 3,
+    expect: (o, c) => {
+      const { b } = c.cards
+      const cc = c.cards.c
+      const covers = watchCovers
+      const sweeps = sweepsAfterWatch(o)
+      const ours = (o.lanes ?? []).filter((l) => ['Coder', 'Builder2'].includes(l.builder?.name))
+      return [
+        ["first watched both lanes' last cards (waking on moves, comments and verdicts)", covers(c.firstWatch, [b, cc]), JSON.stringify(c.firstWatch)],
+        ["woken by Builder2's lane ending, it watched Coder's lane's end again", c.wakes >= 1 && covers(c.secondWatch, [b]), JSON.stringify({ wakes: c.wakes, watch: c.secondWatch })],
+        ["Hive's first wake said lanes are still running, to watch them all again", /Lanes are still running/.test(o.wakeLines?.[0] ?? ''), (o.wakeLines ?? []).join(' | ').slice(0, 300)],
+        ['swept the board on a wake (cards, lanes or agents, after its first watch)', sweeps >= 1, o.hiveCalls.map((x) => x.tool).join(',')],
+        ["woken again by Coder's lane ending", c.wakes >= 2, String(c.wakes)],
+        ['both lanes ended', ours.length === 2 && ours.every((l) => l.state === 'ended'), JSON.stringify(ours.map((l) => [l.builder?.name, l.state]))],
+        ['told the user both are done', /done|finished|ended|complete/i.test(o.finalReply ?? ''), (o.finalReply ?? '').slice(0, 300)]
+      ]
+    },
+    // Only the fake Claude Code acts out wakes (fake-wakes-<agent>.txt); the told-the-user check needs a model.
+    fakeSkips: (p) => (p === 'fake' ? ['told the user both are done'] : ["Hive's first wake said lanes are still running, to watch them all again", "woken by Builder2's lane ending, it watched Coder's lane's end again", "woken again by Coder's lane ending", 'both lanes ended', 'swept the board on a wake (cards, lanes or agents, after its first watch)', 'told the user both are done'])
+  }
+)
+
 for (const [id, name] of MODES) {
   module.exports.SCENARIOS.push({
     id: `mode-${id}-plans`,
@@ -1462,9 +1896,12 @@ for (const [id, name] of MODES) {
     expect: (o, c) => [
       [`launched in ${name} mode`, launchedIn(c, name)],
       ['started nothing', called(o, 'hive_start_task').length === 0 && called(o, 'hive_start_agent').length === 0 && called(o, 'hive_prompt_agent').length === 0],
-      ['wrote cards for alpha, or asked first', ran(o, 'hive_create_task').length >= 1 || /\?/.test(o.finalReply ?? ''), String(ran(o, 'hive_create_task').length)]
+      ['wrote cards for alpha, or asked first', ran(o, 'hive_create_task').length >= 1 || /\?/.test(o.finalReply ?? ''), String(ran(o, 'hive_create_task').length)],
+      // #325: cards complete enough to start cold, and the open design question put to the user rather than guessed.
+      ['each card it wrote says what, where and when it is done (80+ characters)', ran(o, 'hive_create_task').every((x) => String(argsOf(x).description ?? '').trim().length >= 80), ran(o, 'hive_create_task').map((x) => String(argsOf(x).description ?? '').length).join(',')],
+      ['surfaced a decision for the user (a question in its reply or on a card)', /\?/.test(o.finalReply ?? '') || ran(o, 'hive_create_task').some((x) => /\?/.test(String(argsOf(x).description ?? '')))]
     ],
-    fakeSkips: ['wrote cards for alpha, or asked first']
+    fakeSkips: ['wrote cards for alpha, or asked first', 'surfaced a decision for the user (a question in its reply or on a card)']
   })
   module.exports.SCENARIOS.push({
     id: `mode-${id}-coordinates`,
@@ -1481,10 +1918,12 @@ for (const [id, name] of MODES) {
     expect: (o, c) => [
       [`launched in ${name} mode`, launchedIn(c, name)],
       ['started the card with hive_start_task, which worked', ran(o, 'hive_start_task').length >= 1, o.hiveCalls.map((x) => `${x.tool}${x.ok ? '' : '!'}`).join(',')],
-      ["didn't type the card into the agent instead", called(o, 'hive_prompt_agent').length === 0]
+      ["didn't type the card into the agent instead", called(o, 'hive_prompt_agent').length === 0],
+      // #402: one card on one agent is no team: run-lanes stays unread and no lane is started.
+      ['stayed light: no run-lanes and no lane for one card', !read(o, 'run-lanes') && called(o, 'hive_lane').every((x) => argsOf(x).action === 'list'), o.skillsRead.join(',')]
     ],
     fakeSkips: ['started the card with hive_start_task, which worked']
   })
 }
 
-module.exports.helpers = { called, ran, read, moved, history, field, movedInto, runs }
+module.exports.helpers = { called, ran, read, moved, history, field, movedInto, runs, LANES_RUNNING_TAIL }
