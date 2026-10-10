@@ -1,8 +1,8 @@
 import { basename } from './util'
 import { call, errorMessage } from './api'
-import { agentOf, agentProviderOf, choose, confirm, findProject, focusAfterRemoving, focusAgent, runOnce, isAssistantPath, setAssistantOpen, focusedAgentId, get, notify, prompt, revealAgent, set, setActivity, setProjectTab, showAgent, showView } from './store'
+import { agentOf, agentProviderOf, choose, confirm, findProject, focusAfterRemoving, focusAgent, runOnce, isAssistantPath, setAssistantOpen, focusedAgentId, get, notify, prompt, revealAgent, set, setActivity, setProjectTab, showAgent, showView, useStore } from './store'
 import { MANY_AGENTS, MAX_AGENTS, chosenLayout, moveAgentTo, sessionInAgentFolder, swapAgentsIn } from '@shared/defaults'
-import { isProviderEnabled, projectDefaultProvider, providerName } from '@shared/providers'
+import { defaultProviderPending, isProviderEnabled, projectDefaultProvider, providerName } from '@shared/providers'
 import { agentsToResume, resumeAll, stalledOnSignIn } from '@shared/resumeAll'
 import { batchLine, eachAgent, removeLine, sessionsToArchive, type BatchResult } from '@shared/startAll'
 import type { OldWorktreeOutcome, ProjectInfo, ProjectProviderConfig, ProviderId, SessionLayout, SessionListItem, ToastAction } from '@shared/types'
@@ -176,10 +176,18 @@ export async function waitForStop(path: string, agentId?: string, timeoutMs = 80
   }
 }
 
-/** The agent's provider is turned on and installed; otherwise says so (or opens its setup) and returns false. */
-async function ensureAgent(path: string, agentId: string): Promise<boolean> {
-  const p = project(path)
-  const provider = agentProviderOf(p, agentOf(p, agentId))
+/**
+ * The agent's provider (for a resume, the conversation's: #506) is turned on and installed; otherwise says so (or opens
+ * its setup) and returns false.
+ */
+async function ensureAgent(path: string, agentId: string, resumes?: ProviderId): Promise<boolean> {
+  const a = (): ReturnType<typeof agentOf> => agentOf(project(path), agentId)
+  // Automatic's pick matters only to an agent that follows it and isn't running (a running one has its provider).
+  const provider = await detectedProvider(
+    () => resumes ?? agentProviderOf(project(path), a()),
+    () => !resumes && !a()?.live && !a()?.provider && defaultProviderPending(project(path)?.config, get().settings)
+  )
+  if (!provider) return false
   const name = providerName(provider)
   if (!isProviderEnabled(get().settings, provider)) {
     notify('warning', `${name} is turned off`, `Turn it on in Settings → Providers to run this agent, or give the agent another provider in its settings.`, [{ label: 'Open Settings', command: 'settings.providers' }])
@@ -190,6 +198,33 @@ async function ensureAgent(path: string, agentId: string): Promise<boolean> {
     return false
   }
   return ensureWorktree(path, agentId)
+}
+
+/**
+ * A provider once Hive has looked for the CLIs it depends on (#506), at most 20 s: at start, Automatic's pick (when
+ * `auto` says it is used) and whether a CLI is installed aren't known yet, and deciding then would pick the wrong
+ * provider or open Agent Setup. Null, said to the user, when Hive is still looking after that: nothing is decided from a guess.
+ */
+async function detectedProvider(resolve: () => ProviderId, auto: () => boolean): Promise<ProviderId | null> {
+  const settled = (): boolean => {
+    const i = get().providers[resolve()]
+    return !auto() && !!i && (i.found || !i.checking)
+  }
+  if (settled()) return resolve()
+  const ok = await new Promise<boolean>((done) => {
+    const stop = (v: boolean): void => {
+      clearTimeout(timer)
+      unsubscribe()
+      done(v)
+    }
+    const timer = setTimeout(() => stop(false), 20_000)
+    const unsubscribe = useStore.subscribe(() => {
+      if (settled()) stop(true)
+    })
+  })
+  if (ok) return resolve()
+  notify('warning', 'Still looking for the coding agents', 'Hive is still finding out which coding agent CLIs are installed. Try again in a moment.')
+  return null
 }
 
 /**
@@ -241,7 +276,11 @@ export async function quickAddAgent(path: string | null = get().selectedProject,
     notify('warning', 'No room for another agent', `A project can have up to ${MAX_AGENTS} agents. Remove one first.`)
     return null
   }
-  const provider = forProvider ?? projectDefaultProvider(p?.config, get().settings)
+  const provider = await detectedProvider(
+    () => forProvider ?? projectDefaultProvider(project(path)?.config, get().settings),
+    () => !forProvider && defaultProviderPending(project(path)?.config, get().settings)
+  )
+  if (!provider) return null
   if (!isProviderEnabled(get().settings, provider) || !get().providers[provider]?.found) {
     set({ addAgentFor: path })
     return null
@@ -316,46 +355,39 @@ export async function newSession(path: string | null = get().selectedProject, ag
 }
 
 /**
- * Which agent resumes a session. A session runs in the folder it started in and with its provider, so
- * one from a worktree goes back to the agent working there (null if none does, or it runs another
- * provider). For the project folder: the agent asked for, else one that isn't running — the agent that
- * last ran it, the focused one, any other in the folder — else the agent that ran it.
+ * Which agent resumes a session. A session runs in the folder it started in, and always in the provider that recorded
+ * it, whatever the agent's provider is now (#506), so one from a worktree goes back to the agent working there (null if
+ * none does). For the project folder: the agent asked for, else one that isn't running — the agent that last ran it,
+ * the focused one, another of its provider, any other in the folder — else the agent that ran it.
  */
 export function resumeTarget(p: ProjectInfo | undefined, item: Pick<SessionListItem, 'agentId' | 'cwd'> & { provider?: ProviderId }, preferred?: string): string | null {
   if (!p) return preferred ?? null
-  const sameProvider = (a: ProjectInfo['agents'][number]): boolean => !item.provider || agentProviderOf(p, a) === item.provider
   // The Hive Assistant's sessions ran in the workspace folder, with its one agent.
-  if (isAssistantPath(p.path)) return p.agents[0] && sameProvider(p.agents[0]) ? p.agents[0].id : null
-  if (item.cwd && item.cwd.toLowerCase() !== p.path.toLowerCase()) {
-    const a = p.agents.find((x) => x.worktree?.path.toLowerCase() === item.cwd!.toLowerCase())
-    return a && sameProvider(a) ? a.id : null
-  }
-  const inFolder = (id: string | undefined): boolean => !!id && p.agents.some((a) => a.id === id && !a.worktree && sameProvider(a))
+  if (isAssistantPath(p.path)) return p.agents[0]?.id ?? null
+  if (item.cwd && item.cwd.toLowerCase() !== p.path.toLowerCase()) return p.agents.find((x) => x.worktree?.path.toLowerCase() === item.cwd!.toLowerCase())?.id ?? null
+  const inFolder = (id: string | undefined): boolean => !!id && p.agents.some((a) => a.id === id && !a.worktree)
   const free = (id: string | undefined): boolean => inFolder(id) && !agentOf(p, id!)?.live
   if (inFolder(preferred)) return preferred!
   const recorded = item.agentId
   const focused = focusedAgentId(p) ?? undefined
   if (free(recorded)) return recorded!
   if (free(focused)) return focused!
-  const other = p.agents.find((a) => !a.worktree && !a.live && sameProvider(a))?.id
-  return other ?? (inFolder(recorded) ? recorded! : (p.agents.find((a) => !a.worktree && sameProvider(a))?.id ?? null))
+  const idle = p.agents.filter((a) => !a.worktree && !a.live)
+  const other = (idle.find((a) => item.provider && agentProviderOf(p, a) === item.provider) ?? idle[0])?.id
+  return other ?? (inFolder(recorded) ? recorded! : (p.agents.find((a) => !a.worktree)?.id ?? null))
 }
 
-/** Agents that can run a session: those working in the folder it ran in, with its provider. */
-export function agentsForSession(p: ProjectInfo, item: Pick<SessionListItem, 'cwd'> & { provider?: ProviderId }): ProjectInfo['agents'] {
-  return p.agents.filter((a) => sessionInAgentFolder(p.path, a, item) && (!item.provider || agentProviderOf(p, a) === item.provider))
+/** Agents that can run a session: those working in the folder it ran in (it runs in its own provider in any of them). */
+export function agentsForSession(p: ProjectInfo, item: Pick<SessionListItem, 'cwd'>): ProjectInfo['agents'] {
+  return p.agents.filter((a) => sessionInAgentFolder(p.path, a, item))
 }
 
 export async function resumeSession(path: string, item: Pick<SessionListItem, 'id' | 'recache' | 'title' | 'name' | 'agentId' | 'cwd'> & { provider?: ProviderId }, agentId?: string): Promise<void> {
   let p = project(path)
   let target = resumeTarget(p, item, agentId)
-  // A session from the project folder that no agent can run (none runs its provider): add one that does.
+  // A session from the project folder, and the project has no agent there: add one of its provider.
   const inProjectFolder = !item.cwd || item.cwd.toLowerCase() === path.toLowerCase()
-  if (!target && isAssistantPath(path)) {
-    const who = item.provider ? providerName(item.provider) : 'another provider'
-    notify('warning', "Can't resume this conversation", `It ran in ${who}, and the Assistant now runs ${providerName(agentProviderOf(p, p?.agents[0]))}. Switch its provider in Assistant Settings to resume it.`)
-    return
-  }
+  if (!target && isAssistantPath(path)) return
   if (!target && inProjectFolder && item.provider && (p?.agents.length ?? 0) < MAX_AGENTS) {
     target = await quickAddAgent(path, item.provider)
     if (!target) return
@@ -368,12 +400,12 @@ export async function resumeSession(path: string, item: Pick<SessionListItem, 'i
       'warning',
       "Can't resume this session",
       inWorktree
-        ? `It ran in a worktree no ${who} agent uses any more (${item.cwd}). Add a ${who} agent for that worktree (Add Agent → existing worktree) to resume it.`
-        : `It ran in ${who}, and no agent in the project folder runs ${who}. Conversations can't move between providers: add a ${who} agent, or continue the work with a handover.`
+        ? `It ran in a worktree no agent uses any more (${item.cwd}). Add an agent for that worktree (Add Agent → existing worktree) to resume it.`
+        : `It ran in the project folder, and no agent works there. Add an agent to resume it (it runs in ${who}).`
     )
     return
   }
-  if (!(await ensureAgent(path, target))) return
+  if (!(await ensureAgent(path, target, item.provider))) return
   // One conversation can't run in two terminals: show the agent that has it open instead.
   const holder = p?.agents.find((a) => a.live?.sessionId === item.id)
   if (p && holder && holder.id !== target) {
