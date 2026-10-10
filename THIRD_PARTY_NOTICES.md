@@ -12,9 +12,7 @@ Hive's Windows installer and its uninstaller are built with [NSIS](https://nsis.
 - The UAC plug-in (`UAC.dll`) by Anders, zlib licence: https://nsis.sourceforge.io/UAC_plug-in.
 - The WinShell plug-in (`WinShell.dll`) by Anders, published as freeware: https://nsis.sourceforge.io/WinShell_plug-in.
 
-The installed app also includes Elevate (`resources/elevate.exe`, version 1.0.0.2894) by Johannes Passing, unmodified, which the installer builder (electron-builder) includes for updates that need administrator rights. Its repository (https://github.com/jpassing/elevate) declares the MIT licence in `LICENSE.md` and the GNU LGPL 2.1 or later in its source; both are reproduced below.
-
-The notices of these installer components and of Elevate are under "Installer and other components" at the end of this file.
+The notices of these installer components are under "Installer and other components" at the end of this file.
 
 Where a package offers a choice of licences, its entry says which one Hive uses.
 
@@ -3448,7 +3446,7 @@ SOFTWARE.
 
 # Installer and other components
 
-Not npm packages: the parts of the installer and uninstaller listed at the top of this file, and Elevate.
+Not npm packages: the parts of the installer and uninstaller listed at the top of this file.
 
 ## NSIS (the installer and uninstaller)
 
@@ -3678,70 +3676,9 @@ Published as freeware at https://nsis.sourceforge.io/WinShell_plug-in, without a
 installer and uninstaller use is identical to the one published there.
 ```
 
-## Elevate (`resources/elevate.exe`)
-
-```text
-Elevate 1.0 (elevate.exe, version 1.0.0.2894), by Johannes Passing, 2007. Source: https://github.com/jpassing/elevate
-
-Hive ships it unmodified, as a separate executable that Hive's updater can run (electron-builder includes it for
-updates that need administrator rights).
-
-Its repository declares two licences:
-
-- The repository's LICENSE.md is the MIT licence (with its copyright line left as a template):
-
-    The MIT License (MIT)
-    
-    Copyright (c) <year> <copyright holders>
-    
-    Permission is hereby granted, free of charge, to any person obtaining a copy
-     of this software and associated documentation files (the "Software"), to deal
-     in the Software without restriction, including without limitation the rights
-     to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
-     copies of the Software, and to permit persons to whom the Software is
-     furnished to do so, subject to the following conditions:
-    
-    The above copyright notice and this permission notice shall be included in
-     all copies or substantial portions of the Software.
-    
-    THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
-     IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
-     FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
-     AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
-     LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
-     OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN
-     THE SOFTWARE.
-
-- The header of its source file Elevate/main.c says:
-
-    /*----------------------------------------------------------------------
-     * Purpose:
-     *		Execute a process on the command line with elevated rights on Vista
-     *
-     * Copyright:
-     *		Johannes Passing (johannes.passing@googlemail.com)
-     *
-     * This library is free software; you can redistribute it and/or
-     * modify it under the terms of the GNU Lesser General Public
-     * License as published by the Free Software Foundation; either
-     * version 2.1 of the License, or (at your option) any later version.
-     *
-     * This library is distributed in the hope that it will be useful,
-     * but WITHOUT ANY WARRANTY; without even the implied warranty of
-     * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the GNU
-     * Lesser General Public License for more details.
-     *
-     * You should have received a copy of the GNU Lesser General Public
-     * License along with this library; if not, write to the Free Software
-     * Foundation, Inc., 59 Temple Place, Suite 330, Boston, MA  02111-1307 USA
-     */
-
-  The GNU Lesser General Public License, version 2.1, is at the end of this file.
-```
-
 ## GNU Lesser General Public License, version 2.1
 
-The licence of the Nsis7z and StdUtils plug-ins and of Elevate, above:
+The licence of the Nsis7z and StdUtils plug-ins, above:
 
 ```text
 GNU LESSER GENERAL PUBLIC LICENSE
