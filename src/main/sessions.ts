@@ -2178,7 +2178,7 @@ class SessionManager {
   }
 
   /** Copies the live transcript into <project>/.hive/sessions so it survives the CLI's own cleanup. */
-  private async backup(projectPath: string, agentId: string, force = false): Promise<void> {
+  private async backup(projectPath: string, agentId: string, force = false, hooksBefore?: number): Promise<void> {
     const l = this.live.get(liveId(projectPath, agentId))
     if (!l) return
     // Tasks that expire or run past the limit end without a word in the transcript.
@@ -2186,8 +2186,8 @@ class SessionManager {
     const sessionId = l.state.sessionId
     const src = await this.liveTranscript(l)
     if (!src) return
-    // The hooks so far, for the transcript as it is now (readDetails).
-    const hooks = l.hooksSeen ?? 0
+    // The hooks so far, for the transcript as it is now (readDetails); a switch's, those before the prompt that switched.
+    const hooks = hooksBefore ?? l.hooksSeen ?? 0
     const s = await stat(src).catch(() => null)
     if (!s) return
     this.noteTranscriptSize(l, s.size)
@@ -2777,8 +2777,10 @@ class SessionManager {
     // A turn's end releases only the locks claimed before it arrived: PreToolUse claims them at once, outside this queue.
     const arrived = this.lockSeq
     const launch = this.findLaunch(runId, body.session_id)?.[1]
-    if (launch) launch.hooksSeen = (launch.hooksSeen ?? 0) + 1
-    return this.inHookOrder(runId ?? `session:${String(body.session_id ?? '')}`, () => this.handleHookNow(runId, body, arrived))
+    // The launch's hooks before this one: what the old conversation had seen, if this one switches conversations.
+    const before = launch?.hooksSeen ?? 0
+    if (launch) launch.hooksSeen = before + 1
+    return this.inHookOrder(runId ?? `session:${String(body.session_id ?? '')}`, () => this.handleHookNow(runId, body, arrived, before))
   }
 
   /** Runs `fn` after what is queued for the launch (its hooks, its title), in the order they came. */
@@ -2792,7 +2794,7 @@ class SessionManager {
     return run
   }
 
-  private async handleHookNow(runId: string | null, body: Record<string, any>, arrived: number): Promise<void> {
+  private async handleHookNow(runId: string | null, body: Record<string, any>, arrived: number, hooksBefore: number): Promise<void> {
     const found = this.findLaunch(runId, body.session_id)
     if (!found) return
     const [id, l] = found
@@ -2802,7 +2804,7 @@ class SessionManager {
     // The user started or opened another conversation in the CLI (/clear, /new, /resume): follow it. Only a
     // prompt switches, since helpers the CLI runs for itself (subagents) can report other session ids.
     if (hook.event.kind === 'prompt' && st.sessionId && hook.sessionId && hook.sessionId !== st.sessionId && isSessionId(hook.sessionId)) {
-      await this.switchSession(l, hook.sessionId, hook.transcriptPath)
+      await this.switchSession(l, hook.sessionId, hook.transcriptPath, hooksBefore)
     } else if (hook.transcriptPath && hook.transcriptPath !== l.transcriptPath) l.transcriptPath = hook.transcriptPath
     // Providers that choose their own session id report it here (the first hook of the launch).
     if (!st.sessionId && hook.sessionId) {
@@ -2937,11 +2939,15 @@ class SessionManager {
     if (told) log.debug(`${userText(label)}: ${told} (${cause})`)
   }
 
-  /** Moves a running agent to the conversation the CLI switched to: the old one is backed up, the new one recorded. */
-  private async switchSession(l: LiveSession, sessionId: string, transcriptPath: string | null): Promise<void> {
+  /**
+   * Moves a running agent to the conversation the CLI switched to: the old one is backed up, the new one recorded.
+   * `hooksBefore`: the launch's hooks before the prompt that switched. What the old conversation's last read finds (an
+   * interrupt without a hook, #475) is older than that prompt, so it is read as of then and doesn't undo it (#517).
+   */
+  private async switchSession(l: LiveSession, sessionId: string, transcriptPath: string | null, hooksBefore: number): Promise<void> {
     const st = l.state
     const old = st.sessionId
-    await this.backup(st.projectPath, st.agentId, true).catch(() => undefined)
+    await this.backup(st.projectPath, st.agentId, true, hooksBefore).catch(() => undefined)
     await workspace.upsertSession(st.projectPath, { id: old, lastActiveAt: new Date().toISOString() }).catch(() => undefined)
     log.info(`${userText(this.label(st))}: the CLI moved from session ${old} to ${sessionId}`)
     try {
