@@ -473,6 +473,8 @@ export interface WorkspaceConfig {
   mcp: { enabled: string[] }
   /** Project folders Hive leaves out (Hide, or Remove from Hive while the folder is still in the workspace), by folder name. */
   hiddenProjects?: HiddenProject[]
+  /** Card loops' rounds and wait in hours when a request doesn't say (#412, Settings → Workspace); absent: 10 and 6. */
+  loops?: { rounds?: number; waitHours?: number }
 }
 
 /** A project folder Hive leaves out of the workspace, until it's restored in Settings → Workspace. */
@@ -718,6 +720,11 @@ export interface ProjectConfig {
   worktreeCopy: string | null
   /** Command run in a new worktree before its agent's first session, e.g. "npm install". */
   worktreeSetup: string
+  /** Hive wakes a card loop's reviewer when a card arrives in Review, and its builder on a verdict (#405). */
+  loopWakes: boolean
+  /** Card loops' rounds and wait in hours for this project (#412); null inherits the workspace's. */
+  loopRounds: number | null
+  loopWaitHours: number | null
 }
 
 export interface ProjectProviderConfig {

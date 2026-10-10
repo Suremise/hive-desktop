@@ -246,6 +246,10 @@ async function runScenario(sc, providerKey, opts = {}) {
       git: (...a) => execFileSync('git', a, { cwd: alpha, encoding: 'utf8', env: lib.baseEnv() })
     }
     if (sc.setup) await sc.setup(ctx)
+    // What the fake Claude Code does when Hive wakes it (fake-wakes-<agent>.txt, a line per wake): a scenario's next steps,
+    // for the session under test (the Assistant's by its name, #402).
+    const wakesOf = sc.role === 'assistant' ? 'Assistant' : coder.name
+    if (providerKey === 'fake' && sc.fakeWakes) fs.writeFileSync(path.join(fakeHome, `fake-wakes-${String(wakesOf).replace(/[^\w-]/g, '_')}.txt`), sc.fakeWakes(ctx).join('\n') + '\n')
     const skillNames = fs.existsSync(ctx.skillsDir) ? fs.readdirSync(ctx.skillsDir).filter((d) => !d.startsWith('.')) : []
 
     // Start the session under test, answer a trust question, wait until it's ready, and send the prompt.
@@ -372,6 +376,10 @@ async function runScenario(sc, providerKey, opts = {}) {
     }
     const observed = observeTranscript(items, skillNames)
     observed.status = s?.status ?? 'stopped'
+    // The watch it ended its turn with (#402): the live one, not every watch it started (a new one replaces the last).
+    observed.watch = s?.watch ?? null
+    // The lines Hive typed in to wake it (#402), in order.
+    observed.wakeLines = items.filter((x) => x.kind === 'user' && String(x.text ?? '').trim().startsWith('[Hive]')).map((x) => String(x.text).trim().slice(0, 1000))
     observed.guidance = result.guidance
     // What the hive servers ran: the subject's own calls, and everyone's (an agent the Assistant started).
     observed.allHiveCalls = readMcpLog(mcpLog)
@@ -382,6 +390,8 @@ async function runScenario(sc, providerKey, opts = {}) {
     observed.tokenLeak = tokens.some((t) => observed.tools.some((x) => x.result.includes(t)) || observed.replies.some((r) => r.includes(t)))
     observed.cards = Object.fromEntries(await Promise.all(Object.entries(ctx.cards).map(async ([k, n]) => [k, (await api('GET', `/v1/tasks/${n}`)).body])))
     observed.allCards = (await api('GET', '/v1/tasks')).body ?? []
+    // The lanes as the run left them (#402): running and lately ended.
+    observed.lanes = (await api('GET', '/v1/lanes')).body ?? []
     observed.notes = ((await api('GET', '/v1/shared')).body ?? []).flatMap(function flat(e) {
       return e.isDir ? (e.children ?? []).flatMap(flat) : [e.relPath]
     })
@@ -409,7 +419,7 @@ async function runScenario(sc, providerKey, opts = {}) {
     const gotRev = result.guidance?.delivered?.guidance
     result.staleGuidance = !!(startRev && gotRev && startRev !== gotRev)
     result.checks = (sc.expect?.(observed, ctx) ?? []).map(([name, ok, detail]) =>
-      p.fake && (sc.fakeSkips ?? []).includes(name) ? { name, ok: null, skipped: 'fake provider' } : { name, ok: !!ok, ...(ok ? {} : { detail: String(detail ?? '').slice(0, 300) }) }
+      p.fake && (typeof sc.fakeSkips === 'function' ? sc.fakeSkips(providerKey) : (sc.fakeSkips ?? [])).includes(name) ? { name, ok: null, skipped: 'fake provider' } : { name, ok: !!ok, ...(ok ? {} : { detail: String(detail ?? '').slice(0, 300) }) }
     )
     // Kept short in the results (whole tool calls can be large, and must not carry a token).
     const short = (v) => tokens.reduce((x, t) => x.split(t).join('<token>'), String(v)).slice(0, 400)
@@ -417,15 +427,27 @@ async function runScenario(sc, providerKey, opts = {}) {
   } catch (e) {
     result.error = String(e?.stack ?? e)
   } finally {
+    // What its Hive started, while it still runs (a command an agent left can outlive its session, #542).
+    const tree = lib.processTree(app.process()?.pid)
     for (const x of await inv('session:live').catch(() => [])) await inv('session:stop', x.projectPath, x.agentId).catch(() => undefined)
     await sleep(1500)
     await app.close().catch(() => undefined)
     await standIn?.close()
+    // A command an agent started can outlive its session (#542): stop it, so it doesn't hold the folder.
+    const leftOver = lib.stopProcessesIn(root, started, tree)
+    if (leftOver) result.leftOver = `${leftOver} process(es) the scenario's Hive started, or still running from its folder, were stopped`
     result.seconds = Math.round((Date.now() - started) / 1000)
     // Unless a card cites it now, or the board can't be read (evidence.cjs reads it afresh): then it stays, said in the result.
     const kept = opts.keep ? null : opts.evidence?.protects(root)
     if (kept) result.kept = `${root} (${kept})`
-    else if (!opts.keep) fs.rmSync(root, { recursive: true, force: true, maxRetries: 3 })
+    else if (!opts.keep) {
+      // Still locked: this scenario says so, and the run goes on.
+      try {
+        fs.rmSync(root, { recursive: true, force: true, maxRetries: 3 })
+      } catch (e) {
+        result.kept = `${root} (couldn't be removed: ${e.code ?? e.message})`
+      }
+    }
   }
   return result
 }

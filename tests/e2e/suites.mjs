@@ -89,6 +89,7 @@ export const SUITES = [
   { name: 'leftovers' },
   { name: 'loadfail' },
   { name: 'longsession' },
+  { name: 'loopwakes' },
   { name: 'loopwatch' },
   { name: 'mcp' },
   { name: 'mergeslot' },
