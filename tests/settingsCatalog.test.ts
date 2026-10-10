@@ -5,7 +5,7 @@ import { readFileSync } from 'fs'
 import { join } from 'path'
 import { describe, expect, it } from 'vitest'
 import { DEFAULT_PROJECT_CONFIG, DEFAULT_SETTINGS, mergeDefaults } from '../src/shared/defaults'
-import { PROVIDERS, dangerModes, defaultProviderSettings, labelList } from '../src/shared/providers'
+import { PROVIDERS, dangerModes, defaultProviderSettings, labelList, modeAllowed, offeredModes } from '../src/shared/providers'
 import { APP_SETTINGS_CATALOG, PROJECT_SETTINGS_CATALOG, PROJECT_SETTINGS_SECTIONS, SETTINGS_CATALOG, SETTINGS_SECTIONS, checkSettingValue, settingDefault, settingEntry, settingKind, settingChangeTexts, settingPatch, settingPath, settingValue, settingValueText } from '../src/shared/settingsCatalog'
 import type { AppSettings } from '../src/shared/types'
 
@@ -248,12 +248,27 @@ describe('the settings catalog', () => {
 })
 
 describe("a provider's danger opt-in (#461)", () => {
-  it('names every mode it unlocks: Copilot has two, Autopilot and Allow all', () => {
+  it("names the mode it unlocks: Copilot's is Autopilot alone (#490: Allow all needs no opt-in)", () => {
     const e = entry('copilot.enableDangerousMode')
-    expect(e.title).toBe('Enable the Autopilot and Allow all options')
-    expect(e.desc).toBe('Allow projects and agents to choose "Autopilot" or "Allow all", where the agent runs every action without asking.')
-    expect(e.tip).toBe('Autopilot and Allow all are never a global default. When turned off, projects and agents using them return to Inherit.')
-    expect(e.confirmOn?.title).toBe('Enable the Autopilot and Allow all options?')
+    expect(e.title).toBe('Enable the Autopilot option')
+    expect(e.desc).toBe('Allow projects and agents to choose "Autopilot", where the agent runs every action without asking.')
+    expect(e.tip).toBe('Autopilot is never a global default. When turned off, projects and agents using it return to Inherit.')
+    expect(e.confirmOn?.title).toBe('Enable the Autopilot option?')
+  })
+
+  it("offers Copilot's Allow all without the opt-in, and Autopilot only with it; a ticked opt-in keeps Autopilot (#490)", () => {
+    const off = { providers: { copilot: { enableDangerousMode: false } } } as unknown as Pick<AppSettings, 'providers'>
+    // As settings saved before #490 have it ticked (the same setting: nothing to move).
+    const ticked = mergeDefaults(structuredClone(DEFAULT_SETTINGS), { providers: { copilot: { enableDangerousMode: true } } } as unknown as Partial<AppSettings>)
+    expect(modeAllowed('copilot', 'allow-all', off)).toBe(true)
+    expect(modeAllowed('copilot', 'autopilot', off)).toBe(false)
+    expect(offeredModes('copilot', off).map((m) => m.value)).toEqual(['ask', 'accept-edits', 'plan', 'allow-all'])
+    expect(modeAllowed('copilot', 'autopilot', ticked)).toBe(true)
+    expect(offeredModes('copilot', ticked).map((m) => m.value)).toEqual(['ask', 'accept-edits', 'plan', 'autopilot', 'allow-all'])
+    // Allow all can be Copilot's default mode, as any mode outside the opt-in can; Autopilot can't.
+    const choices = (entry('copilot.defaultPermissionMode').options ?? []).map((o) => o.value)
+    expect(choices).toContain('allow-all')
+    expect(choices).not.toContain('autopilot')
   })
 
   it('reads as before for a provider with one (Claude Code, Codex)', () => {
@@ -266,7 +281,7 @@ describe("a provider's danger opt-in (#461)", () => {
   })
 
   it('lists labels as a phrase', () => {
-    expect(dangerModes('copilot').map((m) => m.value)).toEqual(['autopilot', 'allow-all'])
+    expect(dangerModes('copilot').map((m) => m.value)).toEqual(['autopilot'])
     expect(labelList([])).toBe('')
     expect(labelList(['A'])).toBe('A')
     expect(labelList(['A', 'B'])).toBe('A and B')

@@ -830,7 +830,7 @@ export function ChangesTab({ project: owner }: { project: ProjectInfo }) {
                 <strong>{diff.path}</strong> <span className="faint">{whose ? `${base} ↔ ${whose}` : 'HEAD ↔ working tree'}</span>
               </span>
               <IconButton icon={inline ? 'split-horizontal' : 'list-flat'} title={inline ? 'Side by side' : 'Inline'} onClick={() => setInline(!inline)} />
-              <IconButton icon="go-to-file" title="Open file" onClick={() => void call('app:openPath', `${project.path}\\${diff.path.replace(/\//g, '\\')}`)} />
+              <IconButton icon="go-to-file" title="Open file" onClick={() => void actions.attempt('Could not open the file', () => call('changes:openFile', root, diff.path))} />
             </div>
             {/* A refresh of the shown file failed: its last diff stays, but it may be out of date. */}
             {diffError && (

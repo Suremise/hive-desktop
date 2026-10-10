@@ -508,6 +508,8 @@ export interface HiveRequests {
   /** root is a project or one of its agents' worktrees. With base, lists everything changed since the branch left base. */
   'git:status': (root: string, base?: string) => GitStatus
   'git:diff': (root: string, file: string, base?: string) => GitDiff
+  /** Opens a file of a Changes root (as git:status takes it, an unused worktree's too, #495) with its default app. */
+  'changes:openFile': (root: string, file: string) => void
   /** Whether git itself runs (#346): as last checked, or checked again with `recheck`. */
   'git:tool': (recheck?: boolean) => GitTool
 

@@ -8,7 +8,8 @@
 // at, never its folder as if it had none; if that first look fails, it says so with Retry (still not its folder), and
 // Retry settles it: the list, or, for a project with no worktrees, its folder. A project whose worktrees are all in use
 // shows Unused worktrees empty. Each
-// page says what it shows. Screenshots in both themes. Repositories made with the suite's own git; throwaway profile
+// page says what it shows, and a diff's Open file opens that folder's copy, an unused worktree outside the workspace's
+// too (#495). Screenshots in both themes. Repositories made with the suite's own git; throwaway profile
 // and workspace; quiet; no agent is started.
 const lib = require('./lib.cjs')
 const fs = require('fs')
@@ -155,6 +156,38 @@ function inUse(project, name) {
   await picker.selectOption('')
   check('the project folder, last: what it shows', !!(await lib.until(async () => (await about.getAttribute('data-about')) === 'project', 8000)))
   await shots('project-folder')
+
+  // --- Open file opens the file of the folder whose diff is shown (#495): an agent's worktree, an unused one in Hive's
+  // folder, one made outside the workspace, and the project folder, each with a file only it has. Main's shell is
+  // stubbed, so nothing opens: the path it was asked to open is recorded.
+  await app.evaluate(({ shell }) => {
+    globalThis.__opened = []
+    shell.openPath = async (p) => (globalThis.__opened.push(p), '')
+  })
+  const opened = () => app.evaluate(() => globalThis.__opened.at(-1) ?? null)
+  for (const [label, value, folder] of [["Coder's worktree", coder.id, coder.worktree.path], ['B4’s unused worktree', `unused:${b4}`, b4], ['the unused worktree outside the workspace', `unused:${other}`, other], ['the project folder', '', repo]]) {
+    const name = `only-${(value || 'project').replace(/[^\w]+/g, '-').slice(-24)}.txt`
+    fs.writeFileSync(path.join(folder, name), 'only here\n')
+    await picker.selectOption(value)
+    const fileRow = page.locator('.split-list .row', { hasText: name })
+    const listed = await lib.until(async () => (await fileRow.count()) > 0, 10000)
+    if (!listed) await page.locator('.split-list .pane-header [aria-label^="Refresh"]').click()
+    await lib.until(async () => (await fileRow.count()) > 0, 10000)
+    await fileRow.first().click()
+    const button = page.locator('.split-main [aria-label="Open file"]')
+    await lib.until(async () => (await button.count()) > 0 && (await page.locator('.split-main .path strong').innerText().catch(() => '')) === name, 10000)
+    const before = await app.evaluate(() => globalThis.__opened.length)
+    await button.click()
+    const got = await lib.until(async () => (await app.evaluate(() => globalThis.__opened.length)) > before && (await opened()), 5000)
+    check(`Open file on ${label} opens its own copy`, typeof got === 'string' && got.toLowerCase() === path.join(folder, name).toLowerCase(), `${got} (wanted ${path.join(folder, name)})`)
+    fs.rmSync(path.join(folder, name), { force: true })
+  }
+  await page.screenshot({ path: path.join(lib.WORK, 'changespicker-open-file.png') })
+  // Only a file of a folder the Changes tab may read: not one outside it, nor a folder that isn't one.
+  fs.writeFileSync(path.join(outside, 'loose.txt'), 'outside\n')
+  const before = await app.evaluate(() => globalThis.__opened.length)
+  const refusals = [await inv('changes:openFile', repo, '..\\..\\changespicker-outside\\loose.txt').then(() => 'opened', (e) => e.message), await inv('changes:openFile', outside, 'loose.txt').then(() => 'opened', (e) => e.message)]
+  check('Open file refuses a file outside the folder, and a folder that is no Changes root', refusals.every((r) => r !== 'opened') && (await app.evaluate(() => globalThis.__opened.length)) === before, JSON.stringify(refusals))
 
   // --- No agent, only an unused worktree, looked at for the first time: the spinner, not its folder.
   await slow('worktrees:unused=4000')
