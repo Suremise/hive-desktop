@@ -58,6 +58,7 @@ export const SUITES = [
   { name: 'codex-extra', needs: ['codex'] },
   { name: 'codex-handover', needs: ['codex'] },
   { name: 'codex-setup', needs: ['codex'] },
+  { name: 'codexfolder' },
   { name: 'compact', needs: ['claude'], claudeHome: 'own' },
   { name: 'context' },
   { name: 'contrast' },

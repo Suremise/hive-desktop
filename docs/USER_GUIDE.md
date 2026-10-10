@@ -795,6 +795,8 @@ On Windows, Codex runs commands in a sandbox, which it sets up once. **Help → 
 
 If **Set up** can't find what it needs in Codex (a Codex version that names its `/permissions` presets differently), Hive shows a warning saying what it couldn't find and leaves Codex's terminal open: choose **Ask for approval** in its `/permissions` menu yourself to bring up the sandbox setup, or update Hive.
 
+**A stray `.codex` folder.** Codex treats a `.codex` folder in a project as its own (for the project's Codex config). If an agent leaves scratch files or logs in one, Codex's sandbox can fail to protect it, and then every Codex agent's commands in that project fail with *"setup refresh had errors"*. Hive warns when a `.codex` folder in a folder an agent works in holds something that isn't Codex's configuration (its `config.toml`, custom agents in `agents`, `rules`, and files they name): move those files out, and leave Codex's configuration where it is.
+
 Once Codex has set the sandbox up, Hive closes it and Agent Setup says so. With the non-admin sandbox, Agent Setup shows **Upgrade** to switch to the default one later. Codex agents that are running keep their sandbox until they restart. **Full access** doesn't use the sandbox at all.
 
 **Full access** is like Bypass: it only appears after you tick **Settings → Codex → Enable the Full access option**, and projects using it show a red warning. Codex's **Plan** mode is separate from the preset: choose **Plan** in the mode menu (or press Shift+Tab in the terminal), and the badge shows "· Plan". In Codex's sandbox the `.git` folder is read-only, so Codex asks before committing.

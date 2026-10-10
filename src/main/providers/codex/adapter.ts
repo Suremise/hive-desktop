@@ -19,6 +19,7 @@ import { codexBackgroundMemo, codexBackgroundTasks, type CodexBackgroundMemo } f
 import { CodexConversationParser, CodexUsageParser, codexImageData, parseRollout, patchPaths, rolloutDetails, rolloutSubSession } from './rollout'
 import { parseCodexModels } from './models'
 import { PERMISSIONS_MENU_LABELS, permissionsMenuNumber } from './permissionsMenu'
+import { strayCodexWarning } from './strayFolder'
 
 const log = createLogger('codex')
 
@@ -523,6 +524,10 @@ export class CodexAdapter implements ProviderAdapter {
       log.warn(`Codex ${version} hashes hooks differently from Hive; Hive asks Codex for the hashes on each launch`)
     }
     this.hashesByRun.set(ctx.runId, theirs)
+  }
+
+  folderWarning(folder: string): { title: string; message: string } | null {
+    return strayCodexWarning(folder)
   }
 
   buildCommand(executable: string, ctx: LaunchContext): CommandSpec {

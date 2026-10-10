@@ -1140,6 +1140,7 @@ class SessionManager {
       this.launchNotices.add(noticeKey)
       toast('warning', `${this.label(state)}: ${notice.title}`, notice.message, undefined, projectPath)
     }
+    this.checkFolder(projectPath, ctx.cwd)
     // Where it compacts by itself (#242): for the model it runs as, the choice's (an alias resolved) or the CLI's default.
     const chosenModel = eff.model || info.defaultModel || ''
     // Once the session reports the model it runs, that model alone: another model's window isn't its own.
@@ -2747,6 +2748,7 @@ class SessionManager {
     const ev = hook.event
     // Hooks are handled in order, so the next one waits for this read: a turn's end counts the tasks it started.
     if (ev.kind === 'stop') {
+      this.checkFolder(st.projectPath, st.cwd)
       await this.refreshBackground(l)
       this.sweepTasks(l)
       if (ev.lastMessage) l.lastReply = ev.lastMessage.slice(0, 2000)
@@ -3040,6 +3042,27 @@ class SessionManager {
 
   /** Providers and versions already warned about (see checkUnderstood). */
   private warnedFormats = new Set<string>()
+  /** Folder warnings shown (folderWarning), by provider and folder: shown again only once the folder was fine. */
+  private folderWarnings = new Set<string>()
+
+  /**
+   * Warns of what in a folder agents work in stops a turned-on provider's CLI there (#509: a stray .codex folder, which
+   * any agent may have made): checked as each agent starts and at each turn's end, so one that appears is told soon.
+   */
+  private checkFolder(projectPath: string, folder: string): void {
+    for (const a of allProviders()) {
+      if (!a.folderWarning || !isProviderEnabled(config.settings, a.id)) continue
+      const key = `${a.id}\n${resolve(folder).toLowerCase()}`
+      const w = a.folderWarning(folder)
+      if (!w) this.folderWarnings.delete(key)
+      else if (!this.folderWarnings.has(key)) {
+        this.folderWarnings.add(key)
+        log.warn(`${a.descriptor.name}: ${w.title} (${userText(folder)})`)
+        toast('warning', w.title, w.message, undefined, projectPath)
+      }
+    }
+  }
+
   /** Launch notices already shown (launchNotice), by agent, folder and notice: once each while Hive runs. */
   private launchNotices = new Set<string>()
 
