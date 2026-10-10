@@ -4048,6 +4048,12 @@ body.pane-resizing .monaco-editor {
   align-items: center;
   gap: 4px;
 }
+/* The template editor's changes not saved yet (#510). */
+.template-unsaved-note {
+  color: var(--warning);
+  font-size: 12px;
+  margin-right: 6px;
+}
 .template-detail-body {
   overflow-x: auto;
 }

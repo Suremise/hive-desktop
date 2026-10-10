@@ -10,9 +10,9 @@ import { setDateStyle } from '@shared/dates'
 import { chooseFocus, deferredFocus } from './deferredFocus'
 import type { ProjectTab } from '@shared/projectTabs'
 import type { ProgressFilter } from '@shared/progress'
-import type { TemplateAgent } from '@shared/templates'
+import type { TemplateAgent, TemplateRef } from '@shared/templates'
 import type { GitTool } from '@shared/gitTool'
-import type { AgentBranchStatus, AssistantPanelSide, BoardFold, QuitScope, TaskCard, TaskColumn, UpdateState, WorkspaceUsage, RecentWorkspace } from '@shared/types'
+import type { AgentBranchStatus, AssistantPanelSide, BoardFold, PageLayout, QuitScope, TaskCard, TaskColumn, UpdateState, WorkspaceUsage, RecentWorkspace } from '@shared/types'
 import type {
   AgentApiInfo,
   AgentInfo,
@@ -43,6 +43,18 @@ export type { ProjectTab } from '@shared/projectTabs'
  * agents (names to keep unique, roles to suggest), the project whose settings an empty choice shows (a project's
  * Templates tab; none in the Templates view), and where the answer goes (the agent as saved, or null: cancelled).
  */
+/** A template being edited (#510): its revision and content as saved (what a save expects there), and the draft. */
+export type TemplateDraft = { name: string; description: string; layout: PageLayout; agents: TemplateAgent[] }
+export interface TemplateEdit {
+  /** The template (where it is kept). */
+  ref: TemplateRef
+  savedAt: string | null
+  /** The revision this editor's last save replaced: the list shows it until it reads the template again. */
+  was?: string | null
+  saved: TemplateDraft
+  draft: TemplateDraft
+}
+
 export interface TemplateAgentRequest {
   key: number
   template: string
@@ -267,6 +279,12 @@ interface State {
   agentSettingsFor: AgentRef | null
   /** The Agent Settings dialog for a template's agent (#271): open while set; it answers the template editor. */
   templateAgentFor: TemplateAgentRequest | null
+  /**
+   * Template editors open in this window (#510), by workspace and template (templateEditKey): the template as saved and
+   * the draft. Kept while the window is open, so leaving the editor (another template, another view) loses nothing: it
+   * opens again with its changes, and the list marks a template with changes not saved.
+   */
+  templateEdits: Record<string, TemplateEdit>
   /** Worktree agent whose Merge dialog is open. */
   mergeFor: AgentRef | null
   /** The agent whose work "Hand Over to…" hands to another agent. */
@@ -420,6 +438,7 @@ export const useStore = create<State>(() => ({
   addAgentPreset: null,
   agentSettingsFor: null,
   templateAgentFor: null,
+  templateEdits: {},
   mergeFor: null,
   handOverFor: null,
   overviewJump: null,
