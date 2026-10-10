@@ -115,7 +115,8 @@ describe('the suites a change needs (affected.mjs)', () => {
     expect(affectedSuites(['tests/e2e/fake-codex/fake-codex.cjs'], names).suites).toEqual(['attention', 'defaultprovider', 'footerfit', 'freshpath', 'models', 'sessiontree', 'skilldelivery', 'termsize'])
     expect(affectedSuites(['tests/e2e/fake-bridge.cjs'], names).all).toBe(true)
     expect(affectedSuites(['resources/tray.png'], names).all).toBe(true)
-    expect(affectedSuites(['scripts/release.mjs'], names).all).toBe(true)
+    expect(affectedSuites(['scripts/build-icons.mjs'], names).all).toBe(true)
+    expect(affectedSuites(['scripts/release.mjs'], names).suites).toEqual(['testedclis'])
     expect(affectedSuites(['docs/SPEC.md'], names).suites).toEqual(['about'])
     expect(affectedSuites(['tests/progress.test.ts', 'AGENTS.md'], names).suites).toEqual([])
     // The skills for developing Hive are notes for agents, neither shipped nor read by the app (#197).

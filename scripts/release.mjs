@@ -30,6 +30,8 @@ if (stale) {
   console.error(`${MANIFEST} isn't of this code: ${stale}. Run the real tier on this commit (npm run e2e -- --all --real --build --record), then npm run tested-clis, and commit the manifest (RELEASING.md).`)
   process.exit(1)
 }
+// The committed notices must match what ships (#386): the build would otherwise regenerate them after the clean-tree check.
+if (spawnSync('node', ['scripts/licenses.mjs', '--check'], { stdio: 'inherit', cwd: new URL('..', import.meta.url) }).status !== 0) process.exit(1)
 
 console.log(`Building Hive Desktop ${pkg.version} and uploading a draft release…`)
 const run = (cmd, args) => {

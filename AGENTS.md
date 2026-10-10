@@ -38,7 +38,7 @@ npm run licenses       # regenerate THIRD_PARTY_NOTICES.md (also part of build)
 npm run release        # build + upload a DRAFT GitHub release — only when asked (RELEASING.md)
 ```
 
-Hive is MIT-licensed (`LICENSE`). `THIRD_PARTY_NOTICES.md` is generated from what ships: the main process's `dependencies` plus the renderer libraries listed in `scripts/licenses.mjs` (`RENDERER`). When a new library is bundled into the renderer, add it there; commit the regenerated file. Only add dependencies with permissive licences (MIT, BSD, ISC, Apache-2.0 and similar) unless the maintainer agrees otherwise.
+Hive is MIT-licensed (`LICENSE`). `THIRD_PARTY_NOTICES.md` is generated from what ships: the main process's `dependencies` plus the renderer libraries listed in `scripts/thirdPartyNotices.mjs` (`RENDERER`). When a new library is bundled into the renderer, add it there; commit the regenerated file. A unit test (`tests/licenses.test.ts`, so CI) fails when the committed file is out of date; `npm run licenses -- --check` checks without writing. Only add dependencies with permissive licences (MIT, BSD, ISC, Apache-2.0 and similar) unless the maintainer agrees otherwise.
 
 npm 11 blocks install scripts by default; esbuild and electron-winstaller are approved in package.json. If a new dependency needs a script, `npm approve-scripts <pkg>`.
 
