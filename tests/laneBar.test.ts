@@ -1,8 +1,9 @@
 // A lane's segmented bar in the Progress panel (#484): each card's segment from the board (column, blocked, review
-// rounds), the hover text, folding a long lane's finished cards, and the header's numbers.
+// rounds), the hover text, folding a long lane's finished cards, and the header's numbers; an ended lane's segments as it
+// left them, the card being worked, and the panel's order of lanes (#512).
 import { describe, expect, it } from 'vitest'
-import { cardSegment, fitSegments, laneCards, laneSummary, reviewRounds, segmentsThatFit, type CardSegment } from '../src/shared/laneBar'
-import type { TaskCard, TaskColumn } from '../src/shared/types'
+import { cardSegment, currentCard, fitSegments, frozenSegment, laneCards, laneSummary, panelOrder, reviewRounds, segmentsThatFit, type CardSegment, type SegmentState } from '../src/shared/laneBar'
+import type { LaneCard, LaneState, TaskCard, TaskColumn } from '../src/shared/types'
 
 const card = (number: number, column: TaskColumn, history: string[] = [], extra: Partial<TaskCard> = {}): TaskCard => ({
   number,
@@ -75,7 +76,9 @@ describe('a lane', () => {
   it('keeps the lane order and its header numbers', () => {
     const cards = laneCards([3, 1, 5, 2, 4], tasks)
     expect(cards.map((c) => c.number)).toEqual([3, 1, 5, 2, 4])
-    expect(laneSummary(cards)).toEqual({ finished: 2, total: 5, current: 3 })
+    // #3 is in Review and #4 in Doing: the builder is building #4 (#512).
+    expect(laneSummary(cards)).toEqual({ finished: 2, total: 5, current: 4 })
+    expect(laneSummary(laneCards([3, 1, 5], tasks))).toEqual({ finished: 1, total: 3, current: 3 })
     expect(laneSummary(laneCards([1, 2], tasks))).toEqual({ finished: 2, total: 2, current: null })
   })
 
@@ -95,5 +98,64 @@ describe('a lane', () => {
   it('fits segments of at least 12 px with 2 px gaps, and never fewer than three', () => {
     expect(segmentsThatFit(240)).toBe(17)
     expect(segmentsThatFit(12)).toBe(3)
+  })
+})
+
+describe('the card a lane is on (#512)', () => {
+  const on = (...states: SegmentState[]) => currentCard(states.map((state, i) => ({ number: i + 1, state })))
+
+  it('the card being built, else the one in Review, else the first still to do', () => {
+    expect(on('done', 'review', 'doing', 'todo')).toEqual({ current: 3, waiting: false })
+    expect(on('passed', 'todo', 'review')).toEqual({ current: 3, waiting: false })
+    expect(on('done', 'todo', 'todo')).toEqual({ current: 2, waiting: false })
+    expect(on('done', 'passed')).toEqual({ current: null, waiting: false })
+  })
+
+  it("waits for the user only while its first open card is blocked and nothing else is worked", () => {
+    // The builder moved on to the next card while #1 waits for the user: working on #2, not waiting.
+    expect(on('blocked', 'doing', 'todo')).toEqual({ current: 2, waiting: false })
+    expect(on('blocked', 'review')).toEqual({ current: 2, waiting: false })
+    // Nothing else being worked: waiting on the blocked card.
+    expect(on('passed', 'blocked', 'todo')).toEqual({ current: 2, waiting: true })
+    // A later card blocked (its own reason) doesn't make it wait.
+    expect(on('doing', 'todo', 'blocked')).toEqual({ current: 1, waiting: false })
+    // Finished as the caller says (a gone card counts as finished for the lane).
+    expect(currentCard([{ number: 1, state: 'todo', finished: true }, { number: 2, state: 'todo' }])).toEqual({ current: 2, waiting: false })
+  })
+})
+
+describe("an ended lane's segments (#512)", () => {
+  const lc = (number: number, column: LaneCard['column'], over: Partial<LaneCard> = {}): LaneCard => ({ number, title: `Card ${number}`, column, blocked: null, round: 1, reviewing: false, ...over })
+
+  it('shows each card as the lane left it, never failed (it keeps no verdicts)', () => {
+    expect(frozenSegment(lc(5, 'doing', { round: 2 }))).toEqual({ kind: 'card', number: 5, state: 'doing', failed: false, round: 2, label: '#5 Card 5 · Doing, round 2, when the lane ended' })
+    expect(frozenSegment(lc(6, 'passed', { round: 3 }))).toMatchObject({ state: 'passed', round: 3, label: '#6 Card 6 · Passed in round 3, when the lane ended' })
+    expect(frozenSegment(lc(7, 'todo'))).toMatchObject({ state: 'todo', round: null, label: '#7 Card 7 · Todo, when the lane ended' })
+    expect(frozenSegment(lc(8, 'review', { blocked: 'Asked Darren' }))).toMatchObject({ state: 'blocked', label: '#8 Card 8 · Review, round 1 · Blocked: Asked Darren, when the lane ended' })
+    expect(frozenSegment(lc(9, 'hold'))).toMatchObject({ state: 'blocked', label: '#9 Card 9 · On Hold, when the lane ended' })
+    expect(frozenSegment(lc(10, 'gone'))).toMatchObject({ state: 'todo', round: null, label: '#10 · not on the board when the lane ended' })
+  })
+
+  it("says when the lane kept no record of a card, never where the board has it now", () => {
+    expect(frozenSegment(lc(11, 'unrecorded'))).toEqual({ kind: 'card', number: 11, state: 'unrecorded', failed: false, round: null, label: '#11 Card 11 · not recorded: the lane ended before Hive kept where its cards were' })
+    expect(frozenSegment(lc(12, 'unrecorded', { title: '' })).label).toBe('#12 · not recorded: the lane ended before Hive kept where its cards were')
+    // Not finished, not worked: such a lane has no current card to show.
+    expect(laneSummary([frozenSegment(lc(11, 'unrecorded'))])).toMatchObject({ finished: 0, total: 1 })
+  })
+})
+
+describe("the panel's order of lanes (#512)", () => {
+  const lane = (id: string, state: LaneState, startedAt: string, endedAt: string | null = null) => ({ id, state, startedAt, endedAt })
+
+  it('running first, then paused, then ended and abandoned; newest first in each', () => {
+    const list = [
+      lane('old-ended', 'ended', '2026-10-10T01:00:00Z', '2026-10-10T02:00:00Z'),
+      lane('old-run', 'active', '2026-10-10T01:00:00Z'),
+      lane('paused', 'paused', '2026-10-10T03:00:00Z'),
+      lane('dropped', 'abandoned', '2026-10-09T23:00:00Z', '2026-10-10T04:00:00Z'),
+      lane('new-run', 'active', '2026-10-10T05:00:00Z')
+    ]
+    expect(panelOrder(list).map((l) => l.id)).toEqual(['new-run', 'old-run', 'paused', 'dropped', 'old-ended'])
+    expect(list[0].id).toBe('old-ended')
   })
 })

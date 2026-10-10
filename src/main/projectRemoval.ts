@@ -1,7 +1,8 @@
 import { basename, dirname, extname, join, resolve } from 'path'
 import { copyFile, mkdir, readdir, readFile, rmdir } from 'original-fs/promises'
 import { existsSync } from 'original-fs'
-import { HIVE_DIR, projectAgents } from '../shared/defaults'
+import { HIVE_DIR, agentPtyKey, projectAgents } from '../shared/defaults'
+import { forgetPtys } from './ptyHost'
 import { projectHandovers } from '../shared/hiveGuidance'
 import type { AgentDef, ProjectRemoval, ProjectRemovalInfo, TaskCard } from '../shared/types'
 import { config } from './config'
@@ -155,8 +156,10 @@ export async function removeProject(projectPath: string, how: ProjectRemoval): P
       log.info(`Hid ${userText(name)}`)
       return { warnings: [] }
     }
-    if (how === 'remove') return await removeFromHive(ws, p, info, agents)
-    return await deleteProject(ws, p, info, agents)
+    const done = how === 'remove' ? await removeFromHive(ws, p, info, agents) : await deleteProject(ws, p, info, agents)
+    // Its agents' terminals' kept sizes and output go with it (#489); a hidden project keeps them.
+    forgetPtys(agentPtyKey(p, ''))
+    return done
   } finally {
     unfence()
     removing.delete(key)

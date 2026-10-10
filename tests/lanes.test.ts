@@ -1,7 +1,8 @@
 // Lanes (#483): the card loops a workspace runs, as the card-loop skill registers them. How a lane reads against the
 // board (its current card, paused while that is blocked, rounds), which are listed, what is kept, and the service:
-// start, update, join (either order), end, an agent's removal, and following the board (all Done ends it).
-import { mkdirSync, writeFileSync } from 'fs'
+// start, update, join (either order), end, an agent's removal, and following the board (all Done ends it). An ended or
+// abandoned lane keeps its cards as it left them, and a lane is on the card being worked (#512).
+import { mkdirSync, readFileSync, writeFileSync } from 'fs'
 import { join } from 'path'
 import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest'
 import * as electron from 'electron'
@@ -59,6 +60,47 @@ describe('a lane against the board', () => {
     expect(laneView(rec({ state: 'ended', endedAt: '2026-10-09T11:00:00.000Z' }), new Map([[1, card(1, 'doing', { blocked: 'x' })]])).state).toBe('ended')
   })
 
+  it("is on the card being worked: a builder that moved on while a blocked card waits isn't paused (#512)", () => {
+    const moved = laneView(rec(), new Map([[1, card(1, 'review', { blocked: 'Asked the user' })], [2, card(2, 'doing')], [3, card(3, 'todo')]]))
+    expect([moved.state, moved.current, moved.pausedOn]).toEqual(['active', 2, null])
+    expect(laneLine(moved)).toContain('active, on #2; #1 Review (blocked), #2 Doing')
+    // A card in Review and the next in Doing (fixing while it is reviewed, or the next card started): the one in Doing.
+    expect(laneView(rec(), new Map([[1, card(1, 'review')], [2, card(2, 'doing')], [3, card(3, 'todo')]])).current).toBe(2)
+  })
+
+  it('an ended or abandoned lane reads as it left its cards, not as the board has them now (#512)', () => {
+    const frozen = [
+      { number: 1, title: 'Card 1', column: 'passed' as const, blocked: null, round: 2, reviewing: false },
+      { number: 2, title: 'Card 2', column: 'doing' as const, blocked: null, round: 1, reviewing: false },
+      { number: 3, title: 'Card 3', column: 'todo' as const, blocked: null, round: 1, reviewing: false }
+    ]
+    const board = new Map([[1, card(1, 'done')], [2, card(2, 'done')], [3, card(3, 'doing')]])
+    const v = laneView(rec({ state: 'abandoned', endedAt: '2026-10-09T11:00:00.000Z', frozen }), board)
+    expect(v.cards).toEqual(frozen)
+    expect([v.state, v.current]).toEqual(['abandoned', 2])
+    // A running lane always reads the board (a stale snapshot ignored).
+    expect(laneView(rec({ frozen }), board).cards.map((c) => c.column)).toEqual(['done', 'done', 'doing'])
+  })
+
+  it("one ended without that record (before #512, or a damaged one) says its cards weren't recorded, whatever the board does", () => {
+    // An abandoned lane with no snapshot while another lane moves its card #2 Doing → Review → Done: it reads the same
+    // throughout, its cards not recorded, with no current card, and only their titles from the board.
+    const legacy = rec({ state: 'abandoned', endedAt: '2026-10-09T11:00:00.000Z', name: 'old' })
+    const seen = (['doing', 'review', 'done'] as const).map((col) => laneView(legacy, new Map([[1, card(1, 'passed')], [2, card(2, col, { blocked: col === 'review' ? 'x' : null })], [3, null]])))
+    for (const v of seen) {
+      expect(v.cards).toEqual([
+        { number: 1, title: 'Card 1', column: 'unrecorded', blocked: null, round: 1, reviewing: false },
+        { number: 2, title: 'Card 2', column: 'unrecorded', blocked: null, round: 1, reviewing: false },
+        { number: 3, title: '', column: 'unrecorded', blocked: null, round: 1, reviewing: false }
+      ])
+      expect([v.state, v.current, v.pausedOn]).toEqual(['abandoned', null, null])
+      expect(laneLine(v)).toBe('B1 / R1 (alpha) old: abandoned; #1 not recorded, #2 not recorded, #3 not recorded; rounds 10, wait 6 h. lane-1')
+    }
+    // A snapshot that doesn't read back (damaged by hand) is dropped by readLane: the same.
+    const damaged = readLane({ ...legacy, frozen: [{ number: 1 }, { number: 2 }, { number: 3 }] })!
+    expect(laneView(damaged, new Map([[2, card(2, 'doing')]])).cards.map((c) => c.column)).toEqual(['unrecorded', 'unrecorded', 'unrecorded'])
+  })
+
   it('a card gone (archived, deleted, another project) reads as gone and is skipped', () => {
     const v = laneView(rec(), new Map([[1, card(1, 'done')], [2, null], [3, card(3, 'todo')]]))
     expect(v.cards[1]).toMatchObject({ number: 2, column: 'gone', title: '' })
@@ -113,6 +155,14 @@ describe('which lanes are listed and kept', () => {
     expect(readLane({ ...rec(), rounds: 0 })).toBeNull()
     expect(readLanes({ lanes: [rec(), rec(), 'junk', null] }).length).toBe(1)
     expect(readLanes('nonsense')).toEqual([])
+    // Its snapshot (#512) reads back whole, or not at all (the lane kept, reading the board).
+    const frozen = [1, 2, 3].map((number) => ({ number, title: `Card ${number}`, column: 'todo' as const, blocked: null, round: 1, reviewing: false }))
+    const ended = rec({ state: 'ended', endedAt: '2026-10-09T11:00:00.000Z', frozen })
+    expect(readLane(ended)).toEqual(ended)
+    const { frozen: _dropped, ...without } = ended
+    expect(readLane({ ...ended, frozen: frozen.slice(0, 2) })).toEqual(without)
+    expect(readLane({ ...ended, frozen: [frozen[1], frozen[0], frozen[2]] })).toEqual(without)
+    expect(readLane({ ...ended, frozen: [{ ...frozen[0], column: 'sideways' }, frozen[1], frozen[2]] })).toEqual(without)
   })
 
   it('checks what a call gives', () => {
@@ -231,6 +281,33 @@ describe('the lanes service', () => {
     expect((await lanes.getLane(w, l.id)).state).toBe('abandoned')
   })
 
+  it('an abandoned lane keeps its cards as it left them, while another lane works them (#512)', async () => {
+    const [c1, c2] = [await make('Z1'), await make('Z2')]
+    await run(() => tasks.updateTask(c1.number, { column: 'doing' }, user))
+    const l = (await lanes.startLane(w, { project: 'alpha', builder: 'b2', reviewer: 'r1', cards: [c1.number, c2.number], by: 'B2 (alpha)' })).lane
+    const dropped = await lanes.endLane(w, l.id, { abandoned: true })
+    expect(dropped.cards.map((c) => [c.number, c.column])).toEqual([[c1.number, 'doing'], [c2.number, 'todo']])
+    // B1 takes the cards on in a lane of its own and moves them on.
+    const next = (await lanes.startLane(w, { project: 'alpha', builder: 'b1', reviewer: 'r1', cards: [c1.number, c2.number], by: 'B1 (alpha)' })).lane
+    await run(() => tasks.updateTask(c1.number, { column: 'review' }, user))
+    await run(() => tasks.updateTask(c2.number, { column: 'doing' }, user))
+    const after = await lanes.getLane(w, l.id)
+    expect([after.state, after.cards.map((c) => c.column)]).toEqual(['abandoned', ['doing', 'todo']])
+    expect((await lanes.getLane(w, next.id)).cards.map((c) => c.column)).toEqual(['review', 'doing'])
+    // Kept in the file, so it reads the same after a restart.
+    const file = join(wsPath, '.hive', 'lanes.json')
+    const data = JSON.parse(readFileSync(file, 'utf8')) as { lanes: LaneRecord[] }
+    const kept = data.lanes.find((x) => x.id === l.id)
+    expect(kept?.frozen?.map((c) => c.column)).toEqual(['doing', 'todo'])
+    // Without that record (a lane ended before #512, or the record damaged): not recorded, never the board's now.
+    delete kept!.frozen
+    writeFileSync(file, JSON.stringify(data))
+    await run(() => tasks.updateTask(c1.number, { column: 'done' }, user))
+    const legacy = await lanes.getLane(w, l.id)
+    expect([legacy.state, legacy.current, legacy.cards.map((c) => [c.title, c.column])]).toEqual(['abandoned', null, [['Z1', 'unrecorded'], ['Z2', 'unrecorded']]])
+    await lanes.endLane(w, next.id, { abandoned: true })
+  })
+
   it('follows the board: paused while blocked, ended once every card is Done, and the window is told', async () => {
     const [c1, c2] = [await make('F1'), await make('F2')]
     const l = (await lanes.startLane(w, { project: 'alpha', builder: 'b1', reviewer: 'r1', cards: [c1.number, c2.number], by: 'B1 (alpha)' })).lane
@@ -245,5 +322,8 @@ describe('the lanes service', () => {
     await run(() => tasks.updateTask(c2.number, { column: 'done' }, user))
     expect(await told((e) => mine(e)?.state === 'ended')).toBe(true)
     expect((await lanes.getLane(w, l.id)).endedAt).not.toBeNull()
+    // Ended by the board, it keeps its cards as they were (#512): a card reopened later doesn't show in it.
+    await run(() => tasks.updateTask(c1.number, { column: 'doing' }, user))
+    expect((await lanes.getLane(w, l.id)).cards.map((c) => c.column)).toEqual(['done', 'done'])
   })
 })
