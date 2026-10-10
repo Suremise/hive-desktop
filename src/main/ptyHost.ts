@@ -3,6 +3,7 @@ import type { IPty } from '@lydell/node-pty'
 import { sendPty } from './events'
 import { argsForLog, createLogger, userText } from './logger'
 import { allProviders } from './providers'
+import { launchGate, type GateWord } from './launchGate'
 
 const log = createLogger('pty')
 const MAX_BUFFER = 512 * 1024
@@ -54,7 +55,18 @@ export interface SpawnOptions {
   quietExit?: boolean
   /** Start from what the key's previous process printed, so the terminal replays both after a reload. */
   continueBuffer?: boolean
+  /**
+   * Called with its process's id, and the command held until what it returns says: on Windows the terminal first
+   * runs a gate (launchGate.ts), which this puts in a job, so everything the command starts is in it (#507). The
+   * command runs only on `go: true`; anything else ends the terminal with its reason. `cancelled` is aborted if the
+   * terminal exits first (stopped meanwhile): what it did for the process must be undone then.
+   */
+  track?: (pid: number, cancelled: AbortSignal) => Promise<GateWord>
 }
+
+/** How long, at most, a process's id is waited for (track), and how often it is looked at meanwhile. */
+const PID_WAIT_MS = 15_000
+const PID_POLL_MS = 10
 
 /** Output of processes that exited quietly, for the process that continues in their terminal. */
 const carried = new Map<string, string[]>()
@@ -84,14 +96,21 @@ export function spawnPty(key: string, opts: SpawnOptions): IPty {
   if (entries.has(key)) throw new Error(`A process is already running for ${key}`)
   log.info(`spawn ${userText(key)}: ${opts.file} ${JSON.stringify(argsForLog(opts.args.map(forLog)))}`)
   const size = startSize(key)
-  const proc = pty.spawn(opts.file, opts.args, {
-    name: 'xterm-256color',
-    cols: opts.cols ?? size.cols,
-    rows: opts.rows ?? size.rows,
-    cwd: opts.cwd,
-    env: opts.env,
-    useConptyDll: false
-  })
+  const gate = opts.track && process.platform === 'win32' ? launchGate(opts.file, opts.args, opts.env) : null
+  let proc: IPty
+  try {
+    proc = pty.spawn(gate?.file ?? opts.file, gate?.args ?? opts.args, {
+      name: 'xterm-256color',
+      cols: opts.cols ?? size.cols,
+      rows: opts.rows ?? size.rows,
+      cwd: opts.cwd,
+      env: gate?.env ?? opts.env,
+      useConptyDll: false
+    })
+  } catch (e) {
+    gate?.close()
+    throw e
+  }
   const prior = opts.continueBuffer ? carried.get(key) ?? [] : []
   carried.delete(key)
   const entry: PtyEntry = { proc, onResize: opts.onResize, buffer: [...prior], size: prior.reduce((n, s) => n + s.length, 0) }
@@ -103,7 +122,16 @@ export function spawnPty(key: string, opts: SpawnOptions): IPty {
     sendPty('pty:data', key, data)
     opts.onData?.(data)
   })
+  const track = opts.track
+  const exited = new AbortController()
+  if (track)
+    whenPid(proc, (pid) => {
+      const word: Promise<GateWord> = pid ? track(pid, exited.signal) : Promise.resolve({ go: false, reason: 'Hive never learned the id of the process it started' })
+      gate?.open(word)
+    })
   proc.onExit(({ exitCode }) => {
+    exited.abort()
+    gate?.close()
     log.info(`exit ${userText(key)}: ${exitCode}`)
     if (entries.get(key)?.proc === proc) entries.delete(key)
     if (opts.quietExit) carried.set(key, entry.buffer)
@@ -111,6 +139,24 @@ export function spawnPty(key: string, opts: SpawnOptions): IPty {
     opts.onExit?.(exitCode, entry.buffer.join('').slice(-8000))
   })
   return proc
+}
+
+/**
+ * Calls back with the process's id once it has one (0 if it exits or the wait runs out first). node-pty on Windows
+ * starts the process when the pseudoconsole has connected, a moment after spawn, and gives no event for it: so it is
+ * looked at until then.
+ */
+function whenPid(proc: IPty, done: (pid: number) => void): void {
+  if (proc.pid > 0) return done(proc.pid)
+  const since = Date.now()
+  let exited = false
+  proc.onExit(() => (exited = true))
+  const timer = setInterval(() => {
+    if (proc.pid > 0 || exited || Date.now() - since > PID_WAIT_MS) {
+      clearInterval(timer)
+      done(proc.pid > 0 ? proc.pid : 0)
+    }
+  }, PID_POLL_MS)
 }
 
 export function writePty(key: string, data: string): void {

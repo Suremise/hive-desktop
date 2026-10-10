@@ -5,6 +5,7 @@ import { MAX_AGENTS, SESSION_LAYOUTS, agentPageCount, agentsPerPage, dropIndex, 
 import type { AgentInfo, LiveSessionState, PageLayout, ProjectInfo, SessionLayout, SessionListItem, SessionUsage } from '@shared/types'
 import { TEMPLATE_SCOPES, type TemplateEntry, type TemplateScope } from '@shared/templates'
 import type { StartFailure } from '@shared/startFailure'
+import { processCount } from '@shared/agentProcesses'
 import { formatDateTime, formatWhen } from '@shared/dates'
 import * as actions from '../actions'
 import { call, errorMessage } from '../api'
@@ -482,6 +483,41 @@ function Locks({ a }: { a: AgentInfo }) {
   )
 }
 
+/**
+ * Processes the agent's stopped launches left running (#507), such as a preview server: how many, each in the tooltip,
+ * and a click to end them or keep them running (then no longer listed). Gone once they end by themselves.
+ */
+function Leftovers({ project, a }: { project: ProjectInfo; a: AgentInfo }) {
+  const menu = useContextMenu()
+  const left = useStore((s) => s.leftovers[projectKey(project.path, a.id)])
+  if (!left) return null
+  const n = left.processes.length + left.more
+  const labels = left.processes.slice(0, 15).map((p) => p.label)
+  const rest = n - labels.length
+  const settle = (how: 'end' | 'keep') => () => void actions.attempt(how === 'end' ? 'Could not end the processes' : 'Could not keep the processes', () => call('session:settleLeftovers', project.path, a.id, how))
+  return (
+    <>
+      <Tooltip content={<span style={{ whiteSpace: 'pre-line' }}>{`${processCount(n)} this agent started ${n === 1 ? 'is' : 'are'} still running after it stopped. ${n === 1 ? 'It' : 'They'} may hold the project's folder or ports:\n${labels.join('\n')}${rest > 0 ? `\n…and ${rest} more` : ''}\n\nClick to end ${n === 1 ? 'it' : 'them'}, or keep ${n === 1 ? 'it' : 'them'} running.`}</span>}>
+        <button
+          type="button"
+          className="agent-leftovers"
+          aria-label={`${processCount(n)} left running`}
+          onClick={(e) => {
+            e.stopPropagation()
+            menu.openAt(...below(e.currentTarget), [
+              { label: `End ${n === 1 ? 'It' : `All ${n}`}`, icon: 'stop-circle', onClick: settle('end') },
+              { label: 'Keep Running (Stop Listing)', icon: 'check', onClick: settle('keep') }
+            ])
+          }}
+        >
+          <Icon name="warning" /> {n} left running
+        </button>
+      </Tooltip>
+      {menu.element}
+    </>
+  )
+}
+
 /** Where a menu opens under a button. */
 const below = (el: Element): [number, number] => {
   const r = el.getBoundingClientRect()
@@ -871,6 +907,7 @@ function PaneHeader({ project, a, focused }: { project: ProjectInfo; a: AgentInf
       <ReviewMark live={live} />
       <CardChip project={project} a={a} short />
       <Locks a={a} />
+      <Leftovers project={project} a={a} />
       <div className="grow" />
       {size !== 'menu' &&
         (live ? (
