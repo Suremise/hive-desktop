@@ -9,7 +9,7 @@ import { ASSISTANT_DIR, ASSISTANT_NAME } from '../shared/assistant'
 import { formatDateTime } from '../shared/dates'
 import { assistantTools } from '../shared/assistantTools'
 import { COMPACTING_MESSAGE, HIVE_DIR, agentPtyKey, assertSessionId, cliRename, formatBytes, isSessionId, projectAgents, resumeRecord, transcriptWarnLimit } from '../shared/defaults'
-import { agentLaunchSettings, isProviderEnabled, modeAllowed, permissionLabel, providerDescriptor, providerSettings } from '../shared/providers'
+import { agentLaunchSettings, defaultProviderPending, isProviderEnabled, modeAllowed, permissionLabel, providerDescriptor, providerSettings } from '../shared/providers'
 import { resolvedModel } from '../shared/models'
 import type {
   AutoCompactSetting,
@@ -396,6 +396,17 @@ class Moves {
 }
 
 const recordProvider = (rec: Pick<SessionRecord, 'agent'> | undefined): ProviderId => rec?.agent || 'claude-code'
+/**
+ * The agent as its running or resumed conversation sees it (#506): a conversation runs the provider that recorded it,
+ * whatever the agent's provider is now (a default resolving otherwise, or the agent switched since). The agent's own
+ * model, effort, mode and context are its current provider's, so a conversation of another provider takes the
+ * project's settings for its own instead.
+ */
+const pinProvider = (agent: AgentDef, provider: ProviderId | '' | undefined): AgentDef => {
+  if (!provider || agent.provider === provider) return agent
+  if (!agent.provider) return { ...agent, provider }
+  return { ...agent, provider, model: undefined, effort: undefined, permissionMode: undefined, use200kContext: undefined }
+}
 
 /**
  * The delivered skills' sizes, for metrics, measured on each copy its CLI reads: its catalog entry (its SKILL.md's name
@@ -686,7 +697,7 @@ class SessionManager {
       let restartNeeded = false
       if (l && !l.state.settingUp) {
         try {
-          const eff = await this.effective(projectPath, a)
+          const eff = await this.effective(projectPath, pinProvider(a, l.state.provider))
           restartNeeded = this.signature(eff) !== l.state.launchSignature
           this.noticeModeSetting(l, eff.permissionMode)
         } catch {
@@ -878,28 +889,36 @@ class SessionManager {
     if (this.live.has(id)) throw new Error(count > 1 ? `${agent.name} is already running. Stop it first.` : 'A session is already running for this project. Stop it first.')
     const holder = opts.resumeId ? this.projectStates(projectPath).find((s) => s.sessionId === opts.resumeId) : undefined
     if (holder) throw new Error(`This conversation is already open in ${holder.agentName ?? 'another agent'}. An agent can only resume a session no other agent is running.`)
-    const providerId = agentLaunchSettings(agent, cfg, config.settings).provider
+    const assistant = workspace.isAssistantHome(projectPath)
+    const existing = opts.resumeId ? (await workspace.sessionsFile(projectPath)).sessions.find((s) => s.id === opts.resumeId) : undefined
+    this.assertStarting(id)
+    // A resume runs the provider its conversation ran in (#506), whatever the agent's provider is now: neither a default
+    // nor a change of the agent's own re-points one. A new conversation following Automatic waits until Hive knows what
+    // is installed.
+    const recorded = opts.resumeId ? await this.resumeProvider(projectPath, opts.resumeId, existing) : null
+    this.assertStarting(id)
+    if (!recorded && !agent.provider && defaultProviderPending(cfg, config.settings)) await providerService.settle()
+    this.assertStarting(id)
+    const providerId = recorded ?? agentLaunchSettings(agent, cfg, config.settings).provider
+    // At start, Hive may still be looking for that CLI.
+    await providerService.settle(providerId)
+    this.assertStarting(id)
     const adapter = providerAdapter(providerId)
     const name = adapter.descriptor.name
-    if (!isProviderEnabled(config.settings, providerId)) throw new Error(`${name} is turned off. Turn it on in Settings → Providers to run ${agent.name}.`)
+    const runs = opts.resumeId ? 'to resume this conversation' : `to run ${agent.name}`
+    if (!isProviderEnabled(config.settings, providerId)) throw new Error(`${name} is turned off. Turn it on in Settings → Providers ${runs}.`)
     const info = providerService.info(providerId)
-    if (!info.found || !info.path) throw new Error(`${name} is required to run ${agent.name}. Install it from Help → Agent Setup.`)
+    if (!info.found || !info.path) throw new Error(`${name} is required ${runs}. Install it from Help → Agent Setup.`)
     await workspace.ensureProject(projectPath)
     // The Assistant works in the workspace folder, where it can read every project.
-    const assistant = workspace.isAssistantHome(projectPath)
     const cwd = assistant ? workspaceOf(projectPath).path! : (agent.worktree?.path ?? projectPath)
     if (!existsSync(cwd)) throw new Error(`${agent.name}'s worktree folder is missing: ${cwd}. Start ${agent.name} from its pane to recreate the worktree on its branch (Repair… if the workspace moved), or remove the agent.`)
 
-    const existing = opts.resumeId ? (await workspace.sessionsFile(projectPath)).sessions.find((s) => s.id === opts.resumeId) : undefined
-    this.assertStarting(id)
     if (existing?.archived) throw new Error('This session is archived. Unarchive it before resuming.')
     // A sub-session (a Codex guardian review, say) is not a conversation: never resumed (#239).
     const sub = opts.resumeId ? (existing ? await this.recordSub(projectPath, existing) : (await adapter.listSessions(cwd).catch(() => [])).find((e) => e.id === opts.resumeId)?.sub) : undefined
     if (sub) throw new Error(`That session is a ${sub.kind} ${name} ran for another session, not a conversation: it can't be resumed.`)
     this.assertStarting(id)
-    if (opts.resumeId && existing && recordProvider(existing) !== providerId) {
-      throw new Error(`This conversation ran in ${providerDescriptor(recordProvider(existing)).name}, and ${agent.name} runs ${name}. Conversations can't move between providers: continue it with a handover instead.`)
-    }
     // By real paths (#455): the worktree's stored path may have changed form (an 8.3 short name, a junction) since.
     if (opts.resumeId && existing && !samePlace(existing.cwd ?? projectPath, cwd)) {
       throw new Error(`This session ran in ${existing.cwd ?? projectPath}. Resume it with the agent that works in that folder.`)
@@ -1060,7 +1079,7 @@ class SessionManager {
       }
     }
 
-    const eff = await this.effective(projectPath, agent)
+    const eff = await this.effective(projectPath, pinProvider(agent, state.provider))
     l.configuredMode = eff.permissionMode
     let mode = eff.permissionMode
     if (l.modeOverride && modeAllowed(adapter.id, l.modeOverride, config.settings)) mode = l.modeOverride
@@ -1131,6 +1150,7 @@ class SessionManager {
       this.launchNotices.add(noticeKey)
       toast('warning', `${this.label(state)}: ${notice.title}`, notice.message, undefined, projectPath)
     }
+    this.checkFolder(projectPath, ctx.cwd)
     // Where it compacts by itself (#242): for the model it runs as, the choice's (an alias resolved) or the CLI's default.
     const chosenModel = eff.model || info.defaultModel || ''
     // Once the session reports the model it runs, that model alone: another model's window isn't its own.
@@ -1953,7 +1973,7 @@ class SessionManager {
       if (st.settingUp) continue
       const { agent } = await this.agentDef(st.projectPath, st.agentId).catch(() => ({ agent: null }))
       if (!agent) continue
-      const mode = (await this.effective(st.projectPath, agent)).permissionMode
+      const mode = (await this.effective(st.projectPath, pinProvider(agent, st.provider))).permissionMode
       if (!mode || mode === l.configuredMode) continue
       l.configuredMode = mode
       if (mode === st.permissionMode) continue
@@ -1972,7 +1992,8 @@ class SessionManager {
   async stopBackgroundAndResume(projectPath: string, agentId: string, jobId: string, sessionId: string): Promise<void> {
     projectPath = workspace.assertSessionHost(projectPath)
     const { agent, cfg } = await this.agentDef(projectPath, agentId)
-    const adapter = providerAdapter(agentLaunchSettings(agent, cfg, config.settings).provider)
+    const rec = (await workspace.sessionsFile(projectPath)).sessions.find((s) => s.id === sessionId)
+    const adapter = providerAdapter((await this.resumeProvider(projectPath, sessionId, rec)) ?? agentLaunchSettings(agent, cfg, config.settings).provider)
     const info = providerService.info(adapter.id)
     if (!adapter.stopBackgroundJob || !info.path) throw new Error(`${adapter.descriptor.name} can't stop background sessions.`)
     await adapter.stopBackgroundJob(info.path, jobId)
@@ -2802,6 +2823,7 @@ class SessionManager {
     const ev = hook.event
     // Hooks are handled in order, so the next one waits for this read: a turn's end counts the tasks it started.
     if (ev.kind === 'stop') {
+      this.checkFolder(st.projectPath, st.cwd)
       await this.refreshBackground(l)
       this.sweepTasks(l)
       if (ev.lastMessage) l.lastReply = ev.lastMessage.slice(0, 2000)
@@ -3095,6 +3117,27 @@ class SessionManager {
 
   /** Providers and versions already warned about (see checkUnderstood). */
   private warnedFormats = new Set<string>()
+  /** Folder warnings shown (folderWarning), by provider and folder: shown again only once the folder was fine. */
+  private folderWarnings = new Set<string>()
+
+  /**
+   * Warns of what in a folder agents work in stops a turned-on provider's CLI there (#509: a stray .codex folder, which
+   * any agent may have made): checked as each agent starts and at each turn's end, so one that appears is told soon.
+   */
+  private checkFolder(projectPath: string, folder: string): void {
+    for (const a of allProviders()) {
+      if (!a.folderWarning || !isProviderEnabled(config.settings, a.id)) continue
+      const key = `${a.id}\n${resolve(folder).toLowerCase()}`
+      const w = a.folderWarning(folder)
+      if (!w) this.folderWarnings.delete(key)
+      else if (!this.folderWarnings.has(key)) {
+        this.folderWarnings.add(key)
+        log.warn(`${a.descriptor.name}: ${w.title} (${userText(folder)})`)
+        toast('warning', w.title, w.message, undefined, projectPath)
+      }
+    }
+  }
+
   /** Launch notices already shown (launchNotice), by agent, folder and notice: once each while Hive runs. */
   private launchNotices = new Set<string>()
 
@@ -3153,6 +3196,15 @@ class SessionManager {
       if (existsSync(b)) return b
     }
     return null
+  }
+
+  /**
+   * The provider a conversation to resume ran in (#506): its record's, or for one Hive has no record of (started
+   * outside Hive) the provider whose CLI has its transcript. Null when neither knows it: the agent's provider tries.
+   */
+  async resumeProvider(projectPath: string, sessionId: string, rec: SessionRecord | undefined): Promise<ProviderId | null> {
+    if (rec) return recordProvider(rec)
+    return (await this.providerTranscript(projectPath, sessionId).catch(() => null))?.provider ?? null
   }
 
   /** The provider a session of this project belongs to. */

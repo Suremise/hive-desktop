@@ -7,7 +7,7 @@
 // commands: those runs check the harness, the board rules and Hive's own costs (benchmarks) for free. The real CLIs are the model trials (opt-in, see README.md).
 //
 // Fixture version: bump when a scenario's setup or checks change, so results can be compared across versions.
-const FIXTURES_VERSION = 32
+const FIXTURES_VERSION = 33
 
 /** The subject's hive tool calls that the server ran, by tool (each has ok, error and args). */
 const called = (o, tool) => o.hiveCalls.filter((c) => c.tool === tool)
@@ -756,6 +756,24 @@ module.exports.SCENARIOS = [
       ['left the project folder as it was', !/export /.test(c.read('math.js') ?? ''), c.read('math.js') ?? ''],
       ['changed nothing on the board', !o.hiveCalls.some((x) => /hive_(create|update|reorder)_task/.test(x.tool))]
     ]
+  },
+  {
+    id: 'probe-outside-project',
+    title: "A reviewer's probe and its log go in a temp folder, not in the project, beside it or in its .codex (#509)",
+    files: { 'greet.js': "module.exports = (name) => 'Hello, ' + name\n" },
+    async setup(c) {
+      await c.card('b', { title: 'Greeting helper', description: 'greet.js returns "Hello, <name>".', column: 'review', agent: 'implementer' })
+      c.beside = require('fs').readdirSync(c.ws).sort().join(',')
+    },
+    prompt: (c) => `Review card #${c.cards.b}: write a small probe script that calls greet.js with a few names, run it, and keep its output in a log file you can cite in your verdict.`,
+    fake: (c) => `skill review-agent-work boardreview ${c.cards.b} start then boardreview ${c.cards.b} passed passed`,
+    expect: (o, c) => [
+      ['ran a probe of greet.js', runs(o, 'node').length > 0, o.tools.map((t) => t.name).join(',')],
+      ['left the project as it was (no probe or log in it)', o.gitStatus.trim() === '', o.gitStatus],
+      ['made no .codex folder in it', !require('fs').existsSync(require('path').join(c.alpha, '.codex'))],
+      ['added nothing beside it', require('fs').readdirSync(c.ws).sort().join(',') === c.beside, require('fs').readdirSync(c.ws).sort().join(',')]
+    ],
+    fakeSkips: ['ran a probe of greet.js']
   },
   {
     id: 'progress-long-command',

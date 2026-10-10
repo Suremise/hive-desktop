@@ -280,7 +280,7 @@ export function SessionsTab({ project, assistant = false }: { project: ProjectIn
       providerInstalled: install && !install.checking ? install.found : null,
       runners: actions.agentsForSession(project, s),
       canAddAgent: !assistant && (!s.cwd || s.cwd.toLowerCase() === project.path.toLowerCase()) && project.agents.length < MAX_AGENTS,
-      ...(assistant ? { assistantProvider: agentProviderOf(project, project.agents[0]) } : {})
+      assistant
     }
   }
   const whyNot = (s: SessionListItem): string | null => resumeBlock(s, resumeCtx(s))
