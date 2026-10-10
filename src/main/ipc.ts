@@ -29,7 +29,7 @@ import { keepAwakeCount } from './power'
 import { progress } from './progressService'
 import { mergeSlots, recoverMergeSlots, workspaceSlots } from './mergeSlotHost'
 import { slotBranch } from './mergeSlots'
-import { endLane, listLanes } from './lanes'
+import { endLane, listLanes, stampLaneProjects } from './lanes'
 import { badgeDescription } from '../shared/taskbar'
 import * as files from './files'
 import * as mcp from './mcp'
@@ -63,7 +63,7 @@ import { setTitleBarBackdrops, setTitleBarColors } from './titleBar'
 import { showWindow } from './tray'
 import { resetMetrics } from './metrics'
 import { metricsExport, metricsReport } from './metricsUsage'
-import { cancelWatch } from './watches'
+import { cancelWatch, stampWatchProjects } from './watches'
 import { cardBusy } from './cardBusy'
 import { benchContext, importBenchmark, keepReport, listBenchmarks, pinBenchmark, readBenchmark, removeBenchmark, selectBenchmarks } from './benchmarks'
 
@@ -162,7 +162,14 @@ export function registerIpc(getAppInfo: () => ReturnType<HiveRequests['app:info'
   WorkspaceService.onOpened = async (fresh) => {
     await syncBundled({ fresh }).catch((e) => log.warn("updating the workspace's bundled skills and personas", e))
     const ws = workspace
-    void tasks.archiveOldDone(ws).catch((e) => log.warn('archiving old Done cards', e))
+    // Each card, lane and card watch names its project by its stable id (#508), then old Done cards are archived.
+    void tasks
+      .stampCardProjects(ws)
+      .catch((e) => log.warn("giving the cards their projects' ids", e))
+      .then(() => stampLaneProjects(ws).catch((e) => log.warn("giving the lanes their projects' ids", e)))
+      .then(() => stampWatchProjects(ws).catch((e) => log.warn("giving the card watches their projects' ids", e)))
+      .then(() => tasks.archiveOldDone(ws))
+      .catch((e) => log.warn('archiving old Done cards', e))
     // Moved since it was last opened (#146)? In the background: the window opens meanwhile, and a banner follows.
     void checkMoved(contextWorkspace()!).catch((e) => log.warn('checking whether the workspace moved', e))
     // A merge slot an agent held when Hive closed: its merge may be half done (#350).

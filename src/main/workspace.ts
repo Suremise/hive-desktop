@@ -1,5 +1,6 @@
+import { randomBytes } from 'crypto'
 import { basename, join, resolve, sep } from 'path'
-import { mkdir, readdir, readFile, writeFile } from 'original-fs/promises'
+import { mkdir, readdir, readFile, stat, writeFile } from 'original-fs/promises'
 import { existsSync, statSync, watch, type FSWatcher as RootWatcher } from 'original-fs'
 import { AsyncLocalStorage } from 'async_hooks'
 import type { BrowserWindow } from 'electron'
@@ -15,6 +16,7 @@ import { allProviders } from './providers'
 import { worktreesRoot } from './worktrees'
 import { ensureHiveExcluded, gitDirOf, hiveVcs } from './hiveVcs'
 import { gitProblem } from './gitTool'
+import { NO_PROJECT_IDS, isProjectId, settleProjectIds, type ProjectIdEntry, type ProjectIdIndex } from '../shared/projectIds'
 
 const log = createLogger('workspace')
 
@@ -77,6 +79,15 @@ export class WorkspaceService {
   repairingMove = false
   /** Moved since last opened, with something to repair (#146, workspaceMove.ts); the window's banner offers Repair…. */
   private moved: WorkspaceMoved | null = null
+  /** The projects' ids (#508) as last read, for the folder list they were read for (`key`), and a read under way. */
+  /**
+   * Where the workspace was before it moved here (#146: workspace.json's lastPath as it opened), or null: records saved
+   * there by path (card watches, merge holds, #508) come to their folders here by it. Repair updating lastPath meanwhile
+   * doesn't change it.
+   */
+  movedFrom: string | null = null
+  private ids: (ProjectIdIndex & { key: string; at: number }) | null = null
+  private idsRead: { key: string; run: Promise<ProjectIdIndex> } | null = null
 
   setLiveProvider(p: LiveProvider): void {
     WorkspaceService.liveProvider = p
@@ -157,6 +168,8 @@ export class WorkspaceService {
     const fresh = !existsSync(join(abs, HIVE_DIR))
     await this.ensureWorkspaceStructure()
     this.wsConfig = mergeDefaults(structuredClone(DEFAULT_WORKSPACE_CONFIG), withoutSkillSwitches(await readKeptJson(join(this.hiveDir, 'workspace.json'), {})))
+    const last = this.wsConfig.lastPath
+    this.movedFrom = last && resolve(last).toLowerCase() !== abs.toLowerCase() ? resolve(last) : null
     config.update((c) => {
       c.lastWorkspace = abs
       c.recentWorkspaces = [abs, ...c.recentWorkspaces.filter((p) => p.toLowerCase() !== abs.toLowerCase())].slice(0, 12)
@@ -165,6 +178,8 @@ export class WorkspaceService {
     // Every window's recent list: this one first, and open here (#144).
     emit({ type: 'recent-changed' })
     for (const p of await this.listProjectPaths()) await this.ensureProject(p).catch((e) => log.warn(`ensureProject ${userText(p)}`, e))
+    // Every project has its id (#508) before the board, lanes and watches are read by it.
+    await this.projectIds().catch((e) => log.warn('reading the project ids', e))
     try {
       await this.ensureProject(this.assistantHome)
       // The Assistant's conversations and backups are this machine's: kept out of git if the workspace is a repository.
@@ -194,6 +209,8 @@ export class WorkspaceService {
     }
     if (this.refreshTimer) clearTimeout(this.refreshTimer)
     this.refreshTimer = null
+    if (this.idsTimer) clearTimeout(this.idsTimer)
+    this.idsTimer = null
     this.rootWatcher?.close()
     this.rootWatcher = null
     await this.watcher?.close()
@@ -201,6 +218,9 @@ export class WorkspaceService {
     this.path = null
     this.cached = null
     this.moved = null
+    this.movedFrom = null
+    this.ids = null
+    this.idsRead = null
     // The closed workspace's agent worktrees and settings must not route to (or be allowed by) the next one.
     this.roots.clear()
     this.unusedRoots.clear()
@@ -244,7 +264,13 @@ export class WorkspaceService {
     // an .asar file (#246). A folder appearing, going or renamed there reads the project list again (a project's own
     // folder changing reports 'change').
     try {
-      this.rootWatcher = watch(this.path, (evt) => evt === 'rename' && this.scheduleRefresh())
+      this.rootWatcher = watch(this.path, (evt) => {
+        if (evt !== 'rename') return
+        // A folder renamed, added or gone: the projects' ids are read again, and a project renamed tells the board (#508).
+        if (this.ids) this.ids.at = 0
+        this.scheduleRefresh()
+        this.scheduleIdsCheck()
+      })
       this.rootWatcher.on('error', (e) => log.warn('workspace root watcher error', e))
     } catch (e) {
       log.warn('watching the workspace root', e)
@@ -290,6 +316,17 @@ export class WorkspaceService {
     else emit(event)
   }
 
+  private idsTimer: NodeJS.Timeout | null = null
+
+  /** The projects' ids read again shortly (#508): a folder renamed or moved in the workspace root tells the board. */
+  private scheduleIdsCheck(): void {
+    if (this.idsTimer) clearTimeout(this.idsTimer)
+    this.idsTimer = setTimeout(() => {
+      this.idsTimer = null
+      if (this.path) void this.projectIds({ fresh: true }).catch((e) => log.warn('reading the project ids', e))
+    }, 250)
+  }
+
   scheduleRefresh(): void {
     if (this.refreshTimer) clearTimeout(this.refreshTimer)
     // A window closed meanwhile (its agents stopping afterwards) has nothing to refresh.
@@ -298,13 +335,92 @@ export class WorkspaceService {
 
   /** The workspace's project folders, without the ones hidden or removed from Hive (hidden: true lists only those). */
   async listProjectPaths(opts: { hidden?: boolean } = {}): Promise<string[]> {
-    if (!this.path) return []
-    const entries = await readdir(this.path, { withFileTypes: true })
+    // Its folder as the call began: one closing meanwhile still lists that folder's, never a null path.
+    const path = this.path
+    if (!path) return []
+    const entries = await readdir(path, { withFileTypes: true })
     const hidden = new Set((this.wsConfig.hiddenProjects ?? []).map((h) => h.name.toLowerCase()))
     return entries
       .filter((e) => e.isDirectory() && !e.name.startsWith('.') && !e.name.startsWith('$') && hidden.has(e.name.toLowerCase()) === !!opts.hidden)
-      .map((e) => join(this.path!, e.name))
+      .map((e) => join(path, e.name))
       .sort((a, b) => basename(a).localeCompare(basename(b), undefined, { sensitivity: 'base' }))
+  }
+
+  /**
+   * Each project's stable id (#508), hidden projects' too, read again whenever the folders in the workspace change (a
+   * rename shows as one going and one coming). A project without one is given one now, and so is a copy of a folder that
+   * brought its project.json along (settleProjectIds says which keeps the id). Folders without Hive's files have none.
+   */
+  async projectIds(opts: { fresh?: boolean } = {}): Promise<ProjectIdIndex> {
+    if (!this.path) return NO_PROJECT_IDS
+    // Listed again at most once a second (a board read checks many cards, each by its project's id), or now with
+    // `fresh`: what is read in the second after that sees the same projects.
+    if (this.ids && !opts.fresh && Date.now() - this.ids.at < 1000) return this.ids
+    const paths = [...(await this.listProjectPaths()), ...(await this.listProjectPaths({ hidden: true }))]
+    // Each folder with its project.json's identity and time: a folder replaced by another of the same name, or two
+    // projects that swapped names, read again too.
+    const key = (
+      await Promise.all(
+        paths.map(async (p) => {
+          const st = await stat(join(p, HIVE_DIR, 'project.json')).catch(() => null)
+          return `${p.toLowerCase()}:${st ? `${st.ino}:${st.mtimeMs}` : '-'}`
+        })
+      )
+    )
+      .sort()
+      .join('|')
+    if (this.ids?.key === key) {
+      this.ids.at = Date.now()
+      return this.ids
+    }
+    if (this.idsRead?.key === key) return this.idsRead.run
+    const run = this.readProjectIds(paths, key).finally(() => {
+      if (this.idsRead?.run === run) this.idsRead = null
+    })
+    this.idsRead = { key, run }
+    return run
+  }
+
+  /** The projects' ids as last read (projectIds), for code that can't wait: a folder not read yet has none. */
+  projectIdsNow(): ProjectIdIndex {
+    return this.ids ?? NO_PROJECT_IDS
+  }
+
+  private async readProjectIds(paths: string[], key: string): Promise<ProjectIdIndex> {
+    const gen = this.generation
+    const entries: ProjectIdEntry[] = []
+    for (const p of paths) {
+      if (!existsSync(join(p, HIVE_DIR, 'project.json'))) continue
+      const cfg = await this.projectConfig(p).catch(() => null)
+      if (cfg) entries.push({ path: p, id: cfg.id, lastPath: cfg.lastPath })
+    }
+    const { keep, fresh } = settleProjectIds(entries)
+    for (const p of fresh) {
+      if (gen !== this.generation) break
+      // In project.json's lock, against the file as it is then: an id of its own given meanwhile stays.
+      const taken = new Set(keep.values())
+      const cfg = await this.mutateProjectConfig(p, (c) => (isProjectId(c.id) && !taken.has(c.id) ? {} : { id: `p-${randomBytes(6).toString('hex')}` })).catch((e) => {
+        log.warn(`giving ${userText(basename(p))} its project id`, e)
+        return null
+      })
+      if (cfg?.id) keep.set(p.toLowerCase(), cfg.id)
+    }
+    const byPath = new Map<string, string>()
+    const byId = new Map<string, string>()
+    for (const p of paths) {
+      const id = keep.get(p.toLowerCase())
+      if (!id) continue
+      byPath.set(p.toLowerCase(), id)
+      byId.set(id, p)
+    }
+    const index = { key, byPath, byId, at: Date.now() }
+    if (gen !== this.generation) return index
+    const was = this.ids
+    this.ids = index
+    // A project renamed or moved (an id at another folder now): the cards, lanes and watches that name it read differently,
+    // so the window and the services that follow the board look again (#508).
+    if (was && [...byId].some(([id, p]) => { const before = was.byId.get(id); return !!before && before.toLowerCase() !== p.toLowerCase() }) && this.path) this.emit({ type: 'tasks-changed', workspacePath: this.path })
+    return index
   }
 
   /** Projects Hive leaves out (Hide, Remove from Hive), and whether each folder is still in the workspace. */

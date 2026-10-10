@@ -682,6 +682,11 @@ export type Inherit<T> = 'inherit' | T
 export interface ProjectConfig {
   /** 2 since 0.2.0: agents are all equal and a project starts with none (0.1's agents are cleared). */
   version: 2
+  /**
+   * The project's stable id (#508), made once and kept in its folder, so it goes with a rename or a move: the workspace's
+   * cards, lanes and watches name the project by it (and by its folder name, read back from the id).
+   */
+  id?: string
   /** Project-scoped shortcut overrides (project, session and agent commands), over the global ones. */
   keybindings?: KeybindingOverrides
   mcp: { disabled: string[] }
@@ -1183,6 +1188,25 @@ export interface WorkspaceMoved {
   projects: string[]
   /** Projects that didn't move but have a worktree's sessions or data still to follow it to a new folder (#146). */
   pending: string[]
+  /**
+   * Cards left under a project's old name (#508): saved before projects had ids, by a project renamed or moved since.
+   * Repair gives them to the project they belong to now. Absent when there are none.
+   */
+  cards?: MoveCards[]
+}
+
+/**
+ * Cards of a project that isn't in the workspace by that name (#508), and the project they belong to now: the one
+ * Repair moves from that name, else the one whose agents worked on them (their agents and sessions are only its).
+ */
+export interface MoveCards {
+  /** The name the cards were saved with, and the project's folder name now. */
+  from: string
+  to: string
+  cards: number[]
+  /** How many of its lanes and agents' card watches were saved under that name too (absent: none). */
+  lanes?: number
+  watches?: number
 }
 
 /** What Repair… would do for a moved workspace or project (#146). */

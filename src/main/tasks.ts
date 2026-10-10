@@ -7,6 +7,8 @@ import { COLUMN_CHOICES, TASK_COLUMNS, cardMatches, isTaskColumn, restoreOrders,
 import { ordinal } from '../shared/toolReplies'
 import type { ArchiveBatch, ArchiveRequest, ArchiveResult, TaskCard, TaskDecision, TaskColumn, TaskComment, TaskPatch, UnarchiveResult } from '../shared/types'
 import { returnRound } from '../shared/watch'
+import { isProjectId, projectIdNamed, projectNameOf, projectNow, savedProjectName, type ProjectIdIndex } from '../shared/projectIds'
+import { keepBeforeIds } from './beforeIds'
 import { config } from './config'
 import { emit } from './events'
 import { readJson, withFileLock, writeJsonAtomic } from './fsutil'
@@ -18,7 +20,9 @@ const log = createLogger('tasks')
 
 /**
  * The workspace's task board: one JSON file per card in .hive/tasks (<number>.json), and board.json with the next
- * number. Cards belong to a project (by folder name) and can be given to one of its agents.
+ * number. Cards belong to a project and can be given to one of its agents. A card names its project by folder name
+ * and by the project's stable id (#508, `projectId` in the file): the name is read back from the id, so a project
+ * renamed or moved keeps its cards, and saving a card writes both (the name for people and older Hive versions).
  */
 
 /**
@@ -84,7 +88,7 @@ function changed(ws: WorkspaceService = workspace): void {
 }
 
 /** A card read from disk, with anything missing or of the wrong type made safe (the files can be edited by hand). */
-function clean(raw: Partial<TaskCard>, n: number): TaskCard {
+function clean(raw: Partial<TaskCard> & { projectId?: unknown }, n: number, ids?: ProjectIdIndex): TaskCard {
   const nums = (v: unknown): number[] => (Array.isArray(v) ? v.filter((x): x is number => Number.isInteger(x) && x > 0) : [])
   const strs = (v: unknown): string[] => (Array.isArray(v) ? v.filter((x): x is string => typeof x === 'string') : [])
   const now = new Date(0).toISOString()
@@ -92,7 +96,8 @@ function clean(raw: Partial<TaskCard>, n: number): TaskCard {
     number: n,
     title: typeof raw.title === 'string' ? raw.title : `Task ${n}`,
     description: typeof raw.description === 'string' ? raw.description : '',
-    project: typeof raw.project === 'string' ? raw.project : '',
+    // Renamed or moved since it was saved: the project that has its id now (projectNow).
+    project: ids ? projectNow(ids, typeof raw.project === 'string' ? raw.project : '', raw.projectId) : typeof raw.project === 'string' ? raw.project : '',
     agent: typeof raw.agent === 'string' && raw.agent ? raw.agent : null,
     ...(typeof raw.agentName === 'string' ? { agentName: raw.agentName } : {}),
     ...(raw.review && typeof raw.review.agent === 'string' && raw.review.agent && typeof raw.review.since === 'string'
@@ -152,10 +157,11 @@ export async function allTasks(ws: WorkspaceService = workspace): Promise<TaskCa
   if (!ws.path) return []
   const names = await readdir(tasksDir(ws)).catch(() => [] as string[])
   const numbers = new Set(names.flatMap((f) => (/^(\d+)\.json$/.test(f) ? [Number(f.slice(0, -5))] : [])))
+  const ids = await ws.projectIds()
   const out: TaskCard[] = []
   for (const n of numbers) {
     const raw = await readJson<Partial<TaskCard> | null>(cardFile(n, ws), null)
-    if (raw && typeof raw === 'object') out.push(withoutGone(clean(raw, n), (x) => numbers.has(x)))
+    if (raw && typeof raw === 'object') out.push(withoutGone(clean(raw, n, ids), (x) => numbers.has(x)))
   }
   return sortCards(out)
 }
@@ -194,7 +200,124 @@ export async function getTask(n: number, ws: WorkspaceService = workspace): Prom
   if (!Number.isInteger(n) || n < 1) throw new Error(`Unknown task #${n}`)
   const raw = await readJson<Partial<TaskCard> | null>(cardFile(n, ws), null)
   if (!raw || typeof raw !== 'object') throw new Error(`Unknown task #${n}`)
-  return withoutGone(clean(raw, n), (x) => existsSync(cardFile(x, ws)))
+  return withoutGone(clean(raw, n, await ws.projectIds()), (x) => existsSync(cardFile(x, ws)))
+}
+
+/**
+ * Writes a card (in its lock) with its project's id beside its name (#508). A card whose project the workspace doesn't
+ * have now (removed, or renamed before it had an id) keeps the id it was saved with, if any, and never takes another
+ * project's: shown as goneProject's while another project has its name, it is saved with that name as it was.
+ */
+async function saveCard(ws: WorkspaceService, n: number, card: TaskCard): Promise<void> {
+  const saved = savedProjectName(card.project)
+  let projectId = saved && saved === card.project ? projectIdNamed(await ws.projectIds(), saved) : null
+  if (!projectId && saved) {
+    const was = await readJson<{ project?: unknown; projectId?: unknown } | null>(cardFile(n, ws), null)
+    if (was && isProjectId(was.projectId) && typeof was.project === 'string' && was.project.toLowerCase() === saved.toLowerCase()) projectId = was.projectId
+  }
+  const { number, title, description, project: _shown, ...rest } = card
+  await writeJsonAtomic(cardFile(n, ws), { number, title, description, project: saved, ...(projectId ? { projectId } : {}), ...rest })
+}
+
+/** A card file's fields in Hive's order, with its project and id as given (the rest as they were). */
+function withProject(raw: Record<string, unknown>, project: string, projectId: string): Record<string, unknown> {
+  const { number, title, description, project: _was, projectId: _id, ...rest } = raw
+  return { number, title, description, project, projectId, ...rest }
+}
+
+/**
+ * Each card names its project by id too (#508), once: a card saved before ids (or by an older Hive, which leaves the id
+ * out) whose name is a project of the workspace gets that project's id, and a card whose project was renamed or moved
+ * since gets its name now. A card with an id no project has (its project removed or gone) is left as it is, and so is one
+ * saved before ids under a name no project has (Repair can give those to their project). Under the board's lock, each
+ * card in its own, read again there, every field kept; each keeps its content from before beside it once
+ * (`<n>.json.before-ids.bak`). Run each time the workspace opens; it changes nothing the second time.
+ */
+export function stampCardProjects(ws: WorkspaceService): Promise<number> {
+  return boardLock(ws, async () => {
+    if (!ws.path) return 0
+    const ids = await ws.projectIds()
+    const names = await readdir(tasksDir(ws)).catch(() => [] as string[])
+    let n = 0
+    for (const f of names) {
+      if (!/^\d+\.json$/.test(f)) continue
+      const file = join(tasksDir(ws), f)
+      const did = await withFileLock(file, async () => {
+        const raw = await readJson<Record<string, unknown> | null>(file, null)
+        if (!raw || typeof raw !== 'object' || typeof raw.project !== 'string' || !raw.project) return false
+        let next: { project: string; projectId: string } | null = null
+        if (isProjectId(raw.projectId)) {
+          const now = projectNameOf(ids, raw.projectId)
+          if (now && now !== raw.project) next = { project: now, projectId: raw.projectId }
+        } else {
+          const id = projectIdNamed(ids, raw.project)
+          if (id) next = { project: raw.project, projectId: id }
+        }
+        if (!next) return false
+        await keepBeforeIds(file)
+        await writeJsonAtomic(file, withProject(raw, next.project, next.projectId))
+        return true
+      }).catch((e) => {
+        log.warn(`giving card ${f} its project's id`, e)
+        return false
+      })
+      if (did) n++
+    }
+    if (n) {
+      log.info(`${n} card(s) now name their project by its id`)
+      changed(ws)
+    }
+    return n
+  })
+}
+
+/** The cards saved before ids (#508: no projectId in the file), as Repair weighs whose they are: their project's name and agents. */
+export async function legacyCards(ws: WorkspaceService): Promise<{ number: number; name: string; agents: string[] }[]> {
+  if (!ws.path) return []
+  const out: { number: number; name: string; agents: string[] }[] = []
+  for (const f of await readdir(tasksDir(ws)).catch(() => [] as string[])) {
+    const n = /^(\d+)\.json$/.exec(f)?.[1]
+    if (!n) continue
+    const raw = await readJson<Record<string, unknown> | null>(join(tasksDir(ws), f), null)
+    if (!raw || typeof raw !== 'object' || isProjectId(raw.projectId) || typeof raw.project !== 'string' || !raw.project) continue
+    const review = raw.review as { agent?: unknown } | undefined
+    const agents = [raw.agent, review?.agent].filter((a): a is string => typeof a === 'string' && !!a)
+    out.push({ number: Number(n), name: raw.project, agents })
+  }
+  return out.sort((a, b) => a.number - b.number)
+}
+
+/**
+ * Gives cards saved before ids under a project's old name to the project they belong to now (#508, Repair's plan), with
+ * its id and a line in each one's history by Repair; nothing else of the card changes (its date neither: nobody edited
+ * it, and an archived card's date is when Archived says it was archived). Under the board's lock, each card read again
+ * in its own: one with an id, or under another name now, is left as it is. Each keeps its content from before beside it
+ * once, as stampCardProjects does. Returns how many moved.
+ */
+export function moveOrphanCards(ws: WorkspaceService, m: { from: string; to: string; cards: number[] }): Promise<number> {
+  return boardLock(ws, async () => {
+    const projectId = projectIdNamed(await ws.projectIds(), m.to)
+    if (!projectId) throw new Error(`${m.to} isn't a project of the workspace now`)
+    let n = 0
+    for (const x of m.cards) {
+      const file = cardFile(x, ws)
+      const moved = await withFileLock(file, async () => {
+        const raw = await readJson<Record<string, unknown> | null>(file, null)
+        if (!raw || typeof raw !== 'object' || isProjectId(raw.projectId) || typeof raw.project !== 'string' || raw.project.toLowerCase() !== m.from.toLowerCase()) return false
+        const history = Array.isArray(raw.history) ? raw.history : []
+        const entry = { at: new Date().toISOString(), by: 'Repair', what: `Project: ${m.from} → ${m.to} (renamed or moved)`, id: entryId() }
+        await keepBeforeIds(file)
+        await writeJsonAtomic(file, { ...withProject(raw, m.to, projectId), history: [...history, entry].slice(-MAX_HISTORY) })
+        return true
+      })
+      if (moved) n++
+    }
+    if (n) {
+      log.info(`Repair gave ${n} card(s) of ${userText(m.from)} to ${userText(m.to)}`)
+      changed(ws)
+    }
+    return n
+  })
 }
 
 /** The next card number, never reused (board.json keeps it; past every card file, damaged ones too, if it is lost). */
@@ -379,7 +502,7 @@ async function reorderTasksLocked(column: TaskColumn, numbers: unknown, actor: T
       if (card.column !== column || card.archived) throw new Error(`#${x} changed while the cards were being put in order; read the board again.`)
       card.order = orderAt(i)
       if (was !== i && actor.kind !== 'user') note(card, by, i === 0 ? `Moved to the top of ${W}` : `Placed ${ordinal(i + 1)} in ${W}`)
-      await writeJsonAtomic(cardFile(x, ws), card)
+      await saveCard(ws, x, card)
     }).catch((e) => {
       if (i) changed(ws)
       throw e
@@ -456,7 +579,7 @@ async function createTaskLocked(
     createdBy: by,
     updatedAt: now
   }
-  await writeJsonAtomic(cardFile(n, ws), card)
+  await saveCard(ws, n, card)
   log.info(`#${n} created by ${userText(by)}: ${userText(title)}`)
   changed(ws)
   return card
@@ -612,7 +735,7 @@ async function updateTaskLocked(n: number, patch: TaskPatch, actor: TaskActor, o
     // (the Assistant's control and session) checks it here, so a revoked change saves nothing. Unlike `check`, it doesn't
     // see the card as it was before this change.
     opts.commit?.()
-    await writeJsonAtomic(cardFile(n, ws), card)
+    await saveCard(ws, n, card)
     return card
   })
   changed(ws)
@@ -707,7 +830,7 @@ export async function noteOnCard(n: number, what: string, ws: WorkspaceService =
   await withFileLock(cardFile(n, ws), async () => {
     const card = await getTask(n, ws)
     note(card, 'Hive', what)
-    await writeJsonAtomic(cardFile(n, ws), card)
+    await saveCard(ws, n, card)
   })
   changed(ws)
 }
@@ -725,7 +848,7 @@ export async function endReviews(project: string, agentId: string, why: string, 
       if (card.review?.agent !== agentId) return false
       note(card, 'Hive', `Review by ${card.review.agentName} stopped: ${why}`)
       delete card.review
-      await writeJsonAtomic(cardFile(c.number, ws), card)
+      await saveCard(ws, c.number, card)
       return true
     }).catch((e) => {
       log.warn(`Could not end the review of #${c.number}`, e)
@@ -771,7 +894,7 @@ export async function commentTask(n: number, comment: string, actor: TaskActor):
     if (!inScope(c, scopeOf(actor))) throw unknownTask(n)
     if (c.archived && actor.kind !== 'user') throw new TaskPermissionError(`#${n} is archived. Only the user can bring it back.`)
     addComment(c, actorName(actor), t)
-    await writeJsonAtomic(cardFile(n, ws), c)
+    await saveCard(ws, n, c)
     return c
   })
   changed(ws)
@@ -801,7 +924,7 @@ export async function editDecision(n: number, id: string, newText: string | null
       d.text = t
       d.editedAt = new Date().toISOString()
     }
-    await writeJsonAtomic(cardFile(n, ws), c)
+    await saveCard(ws, n, c)
     return c
   })
   changed(ws)
@@ -826,7 +949,7 @@ async function archiveTaskLocked(n: number, archived: boolean): Promise<TaskCard
     note(c, 'You', archived ? 'Archived' : 'Brought back from the archive')
     // Back at the end of its column.
     if (!archived) c.order = orderIn(await allTasks(ws), c.column, n, null)
-    await writeJsonAtomic(cardFile(n, ws), c)
+    await saveCard(ws, n, c)
     return c
   })
   changed(ws)
@@ -917,7 +1040,7 @@ export async function archiveBatch(numbers: unknown, req: ArchiveRequest, actor:
         fresh.archivedFor = 'user'
         fresh.archivedBatch = batch.id
         note(fresh, 'You', `Archived in a batch of ${going.length} (${what})`)
-        await writeJsonAtomic(cardFile(c.number, ws), fresh)
+        await saveCard(ws, c.number, fresh)
         done.push(c.number)
       }).catch((e) => {
         log.warn(`Could not archive #${c.number} with its batch`, e)
@@ -985,7 +1108,7 @@ async function unarchiveBatchLocked(id: string, actor: TaskActor): Promise<Unarc
           delete fresh.archivedBatch
           fresh.order = orders.get(c.number) ?? orderIn(await allTasks(ws), column, c.number, null)
           note(fresh, 'You', `Brought back with its batch (${batch.label})`)
-          await writeJsonAtomic(cardFile(c.number, ws), fresh)
+          await saveCard(ws, c.number, fresh)
           restored.push(c.number)
         }).catch((e) => {
           log.warn(`Could not bring #${c.number} back with its batch`, e)
@@ -1055,7 +1178,7 @@ async function dropRefs(ws: WorkspaceService, gone: Set<number>): Promise<void> 
       if (!fresh) return
       fresh.blockedBy = fresh.blockedBy.filter((x) => !gone.has(x))
       fresh.links = fresh.links.filter((x) => !gone.has(x))
-      await writeJsonAtomic(cardFile(c.number, ws), fresh)
+      await saveCard(ws, c.number, fresh)
     })
   }
 }
@@ -1085,7 +1208,7 @@ export async function archiveOldDone(ws: WorkspaceService, now = Date.now()): Pr
       fresh.archived = true
       fresh.archivedFor = 'done'
       note(fresh, 'Hive', `Archived after ${days} day${days === 1 ? '' : 's'} in Done`)
-      await writeJsonAtomic(cardFile(c.number, ws), fresh)
+      await saveCard(ws, c.number, fresh)
       out.push(c.number)
     })
   }
@@ -1114,7 +1237,7 @@ export async function archiveProjectCards(ws: WorkspaceService, project: string,
       fresh.archived = true
       fresh.archivedFor = why
       note(fresh, 'You', why === 'project-hidden' ? `Archived: ${project} was hidden` : `Archived: ${project} was removed from Hive`)
-      await writeJsonAtomic(cardFile(c.number, ws), fresh)
+      await saveCard(ws, c.number, fresh)
       out.push(fresh)
     })
   }
@@ -1132,7 +1255,7 @@ export async function restoreProjectCards(ws: WorkspaceService, project: string)
       fresh.archived = false
       delete fresh.archivedFor
       note(fresh, 'You', `Brought back: ${project} was restored`)
-      await writeJsonAtomic(cardFile(c.number, ws), fresh)
+      await saveCard(ws, c.number, fresh)
       n++
     })
   }
@@ -1182,7 +1305,7 @@ async function importCardsLocked(ws: WorkspaceService, cards: TaskCard[], projec
     }
     c.order = orderIn(all, c.column, null, null) + c.order / 1e6
     note(c, 'You', `Brought back with ${project} (it was #${raw.number})`)
-    await writeJsonAtomic(cardFile(c.number, ws), c)
+    await saveCard(ws, c.number, c)
   }
   changed(ws)
   return cards.length
