@@ -1,4 +1,4 @@
-import { fitSegments, laneCards, laneSummary, segmentsThatFit, type LaneSegment } from '@shared/laneBar'
+import { fitSegments, frozenSegment, laneCards, laneSummary, segmentsThatFit, type LaneSegment } from '@shared/laneBar'
 import { set, useStore } from '../store'
 import type { Lane } from '../laneSource'
 import { cx } from '../util'
@@ -7,10 +7,11 @@ import { Icon, Tooltip } from './ui'
 
 /**
  * The bottom of the Progress panel (#484): the lanes (a builder and its reviewer working through cards in order), one
- * row each, pinned to the bottom and growing upward; past about four the list scrolls. A row is a header (the pair, the
- * lane, the card it is on, finished/total) and a segmented bar, one segment per card coloured and patterned by where it
- * is. Hover a segment for the card and its round; a click opens the card. The section folds down to its header bar
- * (remembered per workspace), and isn't there at all without lanes.
+ * row each, pinned to the bottom and growing upward, running ones first; past six the list scrolls (#512). A row is a
+ * header (the pair, the lane, the card being worked, finished/total) and a segmented bar, one segment per card coloured
+ * and patterned by where it is. An ended or abandoned lane shows its cards as it left them, muted and still (#512), never
+ * the board's now. Hover a segment for the card and its round; a click opens the card. The section folds down to its
+ * header bar (remembered per workspace), and isn't there at all without lanes.
  */
 
 const foldKey = (ws: string): string => `progress-lanes-fold:${ws.toLowerCase()}`
@@ -44,8 +45,10 @@ export function LanesSection({ lanes, width }: { lanes: Lane[]; width: number })
 
 function LaneRow({ lane: l, max }: { lane: Lane; max: number }) {
   const tasks = useStore((s) => s.tasks)
-  const cards = laneCards(l.cards, tasks)
+  const cards = l.frozen ? l.frozen.map(frozenSegment) : laneCards(l.cards, tasks)
   const { finished, total, current } = laneSummary(cards)
+  // A lane that ended without a record of its cards doesn't know how many were finished (#512).
+  const unknown = cards.some((c) => c.state === 'unrecorded')
   const segments = fitSegments(cards, max)
   const pair = l.reviewer ? `${l.builder.name} / ${l.reviewer.name}` : l.builder.name
   const word = STATE_WORD[l.state]
@@ -56,12 +59,12 @@ function LaneRow({ lane: l, max }: { lane: Lane; max: number }) {
         {l.name && <span className="progress-lane-name faint">· {l.name}</span>}
         <div className="grow" />
         {word && <span className={cx('progress-lane-state', l.state)}>{word}</span>}
-        {current !== null && <span className="progress-lane-current">#{current}</span>}
+        {current !== null && !l.frozen && <span className="progress-lane-current">#{current}</span>}
         <span className="progress-lane-count faint">
-          {finished}/{total}
+          {unknown ? '–' : finished}/{total}
         </span>
       </div>
-      <div className="lane-bar" role="list" aria-label={`${pair}: ${finished} of ${total} cards finished`}>
+      <div className="lane-bar" role="list" aria-label={unknown ? `${pair}: ${total} cards, not recorded` : `${pair}: ${finished} of ${total} cards finished`}>
         {segments.map((s) => (
           <Segment key={s.kind === 'card' ? s.number : `${s.kind}-${s.numbers[0]}`} segment={s} />
         ))}

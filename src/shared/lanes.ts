@@ -1,3 +1,4 @@
+import { currentCard, laneCardState } from './laneBar'
 import type { LaneCard, LaneInfo, LaneState, TaskCard } from './types'
 
 /**
@@ -31,6 +32,11 @@ export interface LaneRecord {
   updatedAt: string
   endedAt: string | null
   mergeCommit: string | null
+  /**
+   * Its cards as they were when it ended or was abandoned (#512), so it reads as it was left, not as the board has those
+   * cards now (another lane may be working them). Missing for lanes ended before it was kept.
+   */
+  frozen?: LaneCard[]
 }
 
 /** The card-loop skill's own defaults, used when a lane is started without them. */
@@ -62,15 +68,27 @@ export function laneCard(n: number, card: TaskCard | null): LaneCard {
 /** Whether a lane's card is finished for the loop: passed review, merged, or gone. */
 const finished = (c: LaneCard): boolean => c.column === 'passed' || c.column === 'done' || c.column === 'gone'
 
+/** Whether a lane reads its cards as it left them (ended or abandoned, with its snapshot) rather than from the board. */
+export const isFrozen = (rec: Pick<LaneRecord, 'state' | 'frozen'>): boolean => !running(rec) && !!rec.frozen
+
 /**
- * A lane as it reads now: its cards from the board (`cards`: each card, or null when gone or outside the lane's project),
- * its agents' names as the project has them now (`names`: by id; one missing keeps the name last known).
+ * An ended lane's card with no record of where it was (#512): ended before Hive kept one, or the record didn't read back.
+ * Only its title comes from the board; where it is now is another lane's business, never this one's history.
+ */
+const unrecordedCard = (n: number, card: TaskCard | null): LaneCard => ({ number: n, title: card?.title ?? '', column: 'unrecorded', blocked: null, round: 1, reviewing: false })
+
+/**
+ * A lane as it reads now: a running one's cards from the board (`cards`: each card, or null when gone or outside the
+ * lane's project); an ended or abandoned one's as it left them (`frozen`), or `unrecorded` without that record, never
+ * as the board has them now (#512). Its agents' names as the project has them now (`names`: by id; one missing keeps the
+ * name last known). Its current card is the one being worked, and it is paused only while it waits for the user
+ * (currentCard); an ended lane without its record has none.
  */
 export function laneView(rec: LaneRecord, cards: ReadonlyMap<number, TaskCard | null>, names?: ReadonlyMap<string, string>): LaneInfo {
-  const list = rec.cards.map((n) => laneCard(n, cards.get(n) ?? null))
-  const current = list.find((c) => !finished(c))?.number ?? null
-  const blocked = current !== null && !!list.find((c) => c.number === current)?.blocked
-  const state: LaneState = rec.state === 'active' && blocked ? 'paused' : rec.state
+  const unrecorded = !running(rec) && !rec.frozen
+  const list = isFrozen(rec) ? rec.frozen! : rec.cards.map((n) => (unrecorded ? unrecordedCard : laneCard)(n, cards.get(n) ?? null))
+  const { current, waiting } = unrecorded ? { current: null, waiting: false } : currentCard(list.map((c) => ({ number: c.number, state: laneCardState(c), finished: finished(c) })))
+  const state: LaneState = rec.state === 'active' && waiting ? 'paused' : rec.state
   const named = (a: LaneAgent): LaneAgent => ({ id: a.id, name: names?.get(a.id) ?? a.name })
   return {
     id: rec.id,
@@ -118,6 +136,11 @@ const text = (v: unknown, max: number): v is string => typeof v === 'string' && 
 const time = (v: unknown): v is string => text(v, 40) && Number.isFinite(Date.parse(v))
 const agentOf = (v: unknown): LaneAgent | null => (isObj(v) && text(v.id, 128) && text(v.name, 200) ? { id: v.id, name: v.name } : null)
 const whole = (v: unknown, max: number): v is number => Number.isInteger(v) && (v as number) >= 1 && (v as number) <= max
+const COLUMNS: readonly LaneCard['column'][] = ['hold', 'todo', 'doing', 'review', 'passed', 'done', 'gone']
+const cardOf = (v: unknown): LaneCard | null =>
+  isObj(v) && whole(v.number, 1e9) && typeof v.title === 'string' && v.title.length <= 1000 && COLUMNS.includes(v.column as LaneCard['column']) && (v.blocked === null || (typeof v.blocked === 'string' && v.blocked.length <= 2000)) && whole(v.round, 1000) && typeof v.reviewing === 'boolean'
+    ? { number: v.number, title: v.title, column: v.column as LaneCard['column'], blocked: v.blocked as string | null, round: v.round, reviewing: v.reviewing }
+    : null
 
 /** A kept lane, checked (the file can be edited by hand); null if it isn't one. */
 export function readLane(v: unknown): LaneRecord | null {
@@ -132,6 +155,9 @@ export function readLane(v: unknown): LaneRecord | null {
   if (!text(v.startedBy, 200) || !time(v.startedAt) || !time(v.updatedAt) || !(v.endedAt === null || time(v.endedAt))) return null
   if (v.state !== 'active' && v.endedAt === null) return null
   if (!(v.name === null || text(v.name, LANE_NAME_MAX)) || !(v.mergeCommit === null || text(v.mergeCommit, 64))) return null
+  // Its snapshot, kept only when every card of it reads back (else it reads from the board, as before #512).
+  const frozen = Array.isArray(v.frozen) && v.frozen.length === cards.length ? v.frozen.map(cardOf) : null
+  const snapshot = frozen?.every((c, i) => c && c.number === cards[i]) ? (frozen as LaneCard[]) : null
   return {
     id: v.id,
     project: v.project,
@@ -146,7 +172,8 @@ export function readLane(v: unknown): LaneRecord | null {
     startedAt: v.startedAt,
     updatedAt: v.updatedAt,
     endedAt: v.endedAt as string | null,
-    mergeCommit: v.mergeCommit as string | null
+    mergeCommit: v.mergeCommit as string | null,
+    ...(snapshot ? { frozen: snapshot } : {})
   }
 }
 
@@ -189,10 +216,10 @@ export function laneName(v: unknown): string | null {
 /** A wait in a few words: "6 h", "90 min". */
 export const waitText = (minutes: number): string => (minutes >= 60 && minutes % 60 === 0 ? `${minutes / 60} h` : minutes >= 60 ? `${Math.round((minutes / 60) * 10) / 10} h` : `${minutes} min`)
 
-const COLUMN_WORD: Record<LaneCard['column'], string> = { hold: 'On Hold', todo: 'Todo', doing: 'Doing', review: 'Review', passed: 'Passed', done: 'Done', gone: 'gone' }
+const COLUMN_WORD: Record<LaneCard['column'], string> = { hold: 'On Hold', todo: 'Todo', doing: 'Doing', review: 'Review', passed: 'Passed', done: 'Done', gone: 'gone', unrecorded: 'not recorded' }
 
 /** A lane's card in a few words: "#405 Review r2", "#412 Todo", "#402 Doing (blocked)". */
-const cardWord = (c: LaneCard): string => `#${c.number} ${COLUMN_WORD[c.column]}${c.round > 1 && c.column !== 'gone' ? ` r${c.round}` : ''}${c.blocked ? ' (blocked)' : ''}`
+const cardWord = (c: LaneCard): string => `#${c.number} ${COLUMN_WORD[c.column]}${c.round > 1 && c.column !== 'gone' && c.column !== 'unrecorded' ? ` r${c.round}` : ''}${c.blocked ? ' (blocked)' : ''}`
 
 /**
  * A lane in one line, for the hive tools: "B1 / R1 (hive) lanes and loops: active, on #405; #483 Passed, #405 Review r2,

@@ -1839,13 +1839,16 @@ export type HiveEvent =
  */
 export type LaneState = 'active' | 'paused' | 'ended' | 'abandoned'
 
-/** A lane's card as the board has it now. */
+/** A lane's card as the board has it now, or as an ended lane left it (#512). */
 export interface LaneCard {
   number: number
   /** '' when gone. */
   title: string
-  /** gone: archived, deleted or moved to another project. */
-  column: TaskColumn | 'gone'
+  /**
+   * gone: archived, deleted or moved to another project. unrecorded: the lane ended without a record of where its cards
+   * were (it ended before Hive kept one, or the record was damaged): not known, and never the board's now.
+   */
+  column: TaskColumn | 'gone' | 'unrecorded'
   blocked: string | null
   /** The round it is in, or took: 1 + the reviews it has failed. */
   round: number
