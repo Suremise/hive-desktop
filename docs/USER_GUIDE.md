@@ -689,6 +689,17 @@ A server can be a program Hive starts (`command`, `args`, `env`, as above) or on
 
 A server you add or change is used by sessions started afterwards; restart a running session to give it the change.
 
+### Adding a server from a file
+
+**Add MCP Server from File** (the file icon in the MCP view's header) adds a server someone gave you, as **Add Skill from File** does for skills:
+
+- a **`.json`** definition, in the format above: it becomes `.hive/mcp/<name>.json`;
+- a **`.zip`** of a server's folder: its code is unpacked to `.hive/mcp/<name>/` and its definition becomes `.hive/mcp/<name>.json`. The definition is a file named `hive-mcp.json` (or `hive-mcp.example.json`) at the top of the zip, or inside one folder at its top. It refers to the server's code through `${HIVE_MCP_DIR}`, for example `"args": ["${HIVE_MCP_DIR}/notes/server.js"]` for a zip of a `notes` folder holding `hive-mcp.json` and `server.js`. Added under another name, Hive changes those references to the new folder.
+
+Before adding it, Hive shows the name it will have (the file's or the folder's, which you can change) and **what it runs**: the command and its arguments, or the address it connects to, and the names of its environment variables and headers (a `${NAME}` reference shown as itself, never a value). A name already in use asks whether to **Replace** that server (the old one goes to the Recycle Bin) or choose another name. The server is added **turned off**: it runs nothing until you enable it, and enabling a server shows what it runs again and asks first. A server's view shows what it runs above its definition, and deleting a server added from a `.zip` also moves its folder to the Recycle Bin.
+
+Nothing in the file runs while it's added. Hive refuses a zip with files that would land outside the server's folder (`..`, a drive or a leading `/`), names Windows can't hold, links, more than 5,000 files or more than 200 MB unpacked, and a definition without a `command` or `url`.
+
 ### The built-in `hive` server
 
 Every session also gets Hive's own MCP server, which lets agents list projects, read and write shared notes, write handovers, read and update the task board, and notify you. Try: *"Write a handover for the next session using the hive tools."* A new session is told about these tools and about the project's latest handover, so *"read the handover"* is enough to pick up where the last session stopped. See the [Agent API reference](AGENT_API.md).
@@ -764,7 +775,7 @@ Each project can override the global defaults in its **Settings** tab, which has
 | | Effort | Reasoning effort, from the levels the chosen model takes (see [Models, effort levels and prices](#models-effort-levels-and-prices)) |
 | | Use 200K context (instead of 1M) | Claude Code only: Inherit, On or Off. On holds this project's agents to a 200K context window |
 | | Permission mode | How much the agent asks before acting (below) |
-| | Extra arguments | Additional command-line arguments for the CLI. For Claude Code, a `--settings` file (relative to the agent's folder) or inline JSON is merged into the settings Hive starts it with: your settings and hooks apply, and Hive keeps its own hooks and status line (an allowlist of hook URLs or variables gets Hive's added). A `--settings` with no value, or settings that are missing, aren't a file of at most 2 MiB, aren't JSON, or would turn Hive's hooks off (`disableAllHooks`), stop the agent from starting, with a message saying which |
+| | Extra arguments | Additional command-line arguments for the CLI. For Claude Code, a `--settings` file (relative to the agent's folder) or inline JSON is merged into the settings Hive starts it with: your settings and hooks apply, and Hive keeps its own hooks and status line (an allowlist of hook URLs or variables gets Hive's added). A `--settings` with no value, or settings that are missing, aren't a file of at most 2 MiB, aren't JSON, or would turn Hive's hooks off (`disableAllHooks`), stop the agent from starting, with a message saying which. Claude Code and Codex get an agent's first task after a `--` of Hive's own, so extra arguments can't hold a bare `--`: saving one is refused, saying why, and one saved by an older Hive stops the agent from starting until you remove it. An option whose value is `--` is written with `=` (`--append-system-prompt=--`) |
 | Sessions | Suggest compacting above | When the Compact button turns orange (see [Sessions](#sessions)) |
 | | Warn when a transcript is over | When a conversation's transcript size turns amber |
 | | Completion chime | On, off or inherit |

@@ -1016,15 +1016,6 @@ export function hashText(text: string): string {
   return createHash('sha256').update(text).digest('hex').slice(0, 16)
 }
 
-/** Splits a command-line string into arguments, honouring double and single quotes. */
-export function splitArgs(input: string): string[] {
-  const out: string[] = []
-  const re = /"([^"]*)"|'([^']*)'|(\S+)/g
-  let m: RegExpExecArray | null
-  while ((m = re.exec(input))) out.push(m[1] ?? m[2] ?? m[3])
-  return out
-}
-
 /**
  * In Claude Code's config folder, only what Hive shows: the user CLAUDE.md and auto memory (editable),
  * and skills (read-only). Never credentials or settings.

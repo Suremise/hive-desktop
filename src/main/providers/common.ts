@@ -168,6 +168,16 @@ export function promptArg(executable: string, text: string): string {
 }
 
 /**
+ * A first task after the user's extra arguments, for a CLI that takes it as its last positional argument (Claude Code,
+ * Codex): behind a "--" of Hive's own, so an option that takes a list ("--allowedTools a b", Codex's "--image a.png")
+ * ending the extra arguments can't read the task as another of its values (#523). Extra arguments never hold a bare
+ * "--" of their own: Settings refuses one, and so does a launch (extraArgsProblem).
+ */
+export function taskArgs(executable: string, text: string): string[] {
+  return ['--', promptArg(executable, text)]
+}
+
+/**
  * A shell command that forwards a hook's JSON (stdin) to Hive's hook server with curl (on PATH in Windows 10+, and in
  * Git Bash), for hooks a CLI can only run as commands. The Authorization header comes from the launch's auth file
  * (`-H @<file>`, in Hive's user data), so neither the command nor any file it is written to holds a token (#345). The

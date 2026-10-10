@@ -7,7 +7,7 @@ import type { HiveChannel, HiveRequests } from '../shared/api'
 import * as updater from './updater'
 import type { ProviderId, QuitChoice } from '../shared/types'
 import { instructionFiles, instructionsShared, shareInstructions, SHARED_INSTRUCTIONS, type InstructionsFile } from '../shared/instructions'
-import { isKnownProvider, projectProviderConfig, providerDescriptor } from '../shared/providers'
+import { extraArgsProblem, isKnownProvider, projectProviderConfig, providerDescriptor } from '../shared/providers'
 import { isProjectPref, projectPrefValue, withProjectPref } from '../shared/uiPrefs'
 import { applyBoardFold } from '../shared/tasks'
 import { EMPTY_TIPS_STATE, applyTipsChange, tipsChange, tipsState } from '../shared/tips'
@@ -93,6 +93,12 @@ function spawnDetached(file: string, args: string[], cwd?: string): boolean {
 function knownProvider(id: unknown): ProviderId {
   if (typeof id !== 'string' || !isKnownProvider(id)) throw new Error(`Unknown provider "${String(id)}".`)
   return id
+}
+
+/** Refuses extra arguments with a bare "--" (#523): Hive passes the task after its own. */
+function assertExtraArgs(args: unknown): void {
+  const problem = typeof args === 'string' ? extraArgsProblem(args) : null
+  if (problem) throw new Error(problem)
 }
 
 function guardFile(path: string, write = false): string {
@@ -442,7 +448,10 @@ export function registerIpc(getAppInfo: () => ReturnType<HiveRequests['app:info'
       workspace.setActive(p, active)
       return workspace.refresh()
     },
-    'project:updateConfig': (p, patch) => workspace.updateProjectConfig(workspace.assertProject(p), patch),
+    'project:updateConfig': (p, patch) => {
+      for (const c of Object.values(patch.providers ?? {})) assertExtraArgs(c?.extraArgs)
+      return workspace.updateProjectConfig(workspace.assertProject(p), patch)
+    },
     'project:excludeHive': async (p) => {
       p = workspace.assertProject(p)
       const r = await ensureHiveExcluded(p)
@@ -465,6 +474,7 @@ export function registerIpc(getAppInfo: () => ReturnType<HiveRequests['app:info'
     },
     'project:updateProvider': (p, provider, patch) => {
       const id = knownProvider(provider)
+      assertExtraArgs(patch.extraArgs)
       return workspace.mutateProjectConfig(workspace.assertProject(p), (cfg) => ({ providers: { ...cfg.providers, [id]: { ...projectProviderConfig(cfg, id), ...patch } } }))
     },
     'project:openInExplorer': (p) => void shell.openPath(workspace.assertProject(p)),
@@ -683,8 +693,8 @@ export function registerIpc(getAppInfo: () => ReturnType<HiveRequests['app:info'
     'skills:openFolder': () => void shell.openPath(workspace.skillsDir),
 
     'mcp:list': () => mcp.listMcp(),
-    'mcp:setGlobal': async (name, enabled) => {
-      await mcp.setMcpGlobal(name, enabled)
+    'mcp:setGlobal': async (name, enabled, expected) => {
+      await mcp.setMcpGlobal(name, enabled, expected)
       emit({ type: 'skills-changed' })
       workspace.scheduleRefresh()
     },
@@ -716,6 +726,21 @@ export function registerIpc(getAppInfo: () => ReturnType<HiveRequests['app:info'
       return imported
     },
     'mcp:openFolder': () => void shell.openPath(workspace.mcpDir),
+    'mcp:pickFile': async () => {
+      const r = await dialog.showOpenDialog(win(), {
+        title: 'Add an MCP server from a file',
+        properties: ['openFile'],
+        filters: [{ name: 'MCP server (.json definition or .zip folder)', extensions: ['json', 'zip'] }]
+      })
+      return r.canceled || !r.filePaths[0] ? null : r.filePaths[0]
+    },
+    'mcp:previewFile': (file) => mcp.previewMcpFile(file),
+    'mcp:addFromFile': async (file, name, replace) => {
+      const m = await mcp.addMcpFromFile(file, name, replace)
+      emit({ type: 'skills-changed' })
+      workspace.scheduleRefresh()
+      return m
+    },
 
     'notes:tree': () => notes.notesTree(),
     'notes:create': (rel, isDir) => notes.createNote(rel, isDir),
