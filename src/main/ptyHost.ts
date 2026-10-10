@@ -33,6 +33,50 @@ const entries = new Map<string, PtyEntry>()
  * draws its first screens at the pane's width rather than redrawing them at a resize (#486).
  */
 const paneSizes = new Map<string, { cols: number; rows: number }>()
+/**
+ * How many stopped terminals' sizes and carried outputs are kept (#489), the least recently set first to go. A running
+ * terminal's are always kept, on top of these, and count once it has stopped (trimmed then). Keys come and go with
+ * agents, workspaces and task terminals, so neither may grow for as long as Hive runs; a removed agent's or project's
+ * are forgotten at once (forgetPtys).
+ */
+let MAX_PANE_SIZES = 200
+let MAX_CARRIED = 20
+
+/** Tests: other bounds (to exceed them without hundreds of processes); none restores the usual ones. */
+export function setPtyKeptLimitsForTests(limits?: { sizes: number; carried: number }): void {
+  MAX_PANE_SIZES = limits?.sizes ?? 200
+  MAX_CARRIED = limits?.carried ?? 20
+}
+
+/** Sets a key's value as the most recently used, then trims. */
+function remember<V>(map: Map<string, V>, key: string, value: V, max: number): void {
+  map.delete(key)
+  map.set(key, value)
+  trim(map, max)
+}
+
+/** Drops the least recently set keys without a running process until at most `max` of those are left. */
+function trim<V>(map: Map<string, V>, max: number): void {
+  let stopped = 0
+  for (const k of map.keys()) if (!entries.has(k)) stopped++
+  for (const k of map.keys()) {
+    if (stopped <= max) break
+    if (!entries.has(k)) {
+      map.delete(k)
+      stopped--
+    }
+  }
+}
+
+/** Forgets what is kept for terminals whose key starts with `prefix` (an agent's, or `session:<project>#` for all of a project's), unless running. */
+export function forgetPtys(prefix: string): void {
+  for (const map of [paneSizes, carried]) for (const k of [...map.keys()]) if (k.startsWith(prefix) && !entries.has(k)) map.delete(k)
+}
+
+/** How many terminals' sizes and carried outputs are kept (tests). */
+export function keptPtyCounts(): { sizes: number; carried: number } {
+  return { sizes: paneSizes.size, carried: carried.size }
+}
 
 /** The size a process started in this terminal now gets: its pane's when the window has given one. */
 export function startSize(key: string): { cols: number; rows: number } {
@@ -134,8 +178,11 @@ export function spawnPty(key: string, opts: SpawnOptions): IPty {
     gate?.close()
     log.info(`exit ${userText(key)}: ${exitCode}`)
     if (entries.get(key)?.proc === proc) entries.delete(key)
-    if (opts.quietExit) carried.set(key, entry.buffer)
+    if (opts.quietExit) remember(carried, key, entry.buffer, MAX_CARRIED)
     else sendPty('pty:exit', key, exitCode)
+    // No longer running: its kept size and output count toward the bounds now.
+    trim(paneSizes, MAX_PANE_SIZES)
+    trim(carried, MAX_CARRIED)
     opts.onExit?.(exitCode, entry.buffer.join('').slice(-8000))
   })
   return proc
@@ -169,7 +216,7 @@ export function resizePty(key: string, cols: number, rows: number): void {
   cols = Math.floor(cols)
   rows = Math.floor(rows)
   // Kept with no process too: one started next in this terminal starts at it.
-  paneSizes.set(key, { cols, rows })
+  remember(paneSizes, key, { cols, rows }, MAX_PANE_SIZES)
   const e = entries.get(key)
   if (e?.refresh) e.wanted = { cols, rows }
   // An unchanged size isn't passed on: every resize makes a TUI like Claude Code redraw (#247).
