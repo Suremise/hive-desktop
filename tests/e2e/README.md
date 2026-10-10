@@ -271,6 +271,8 @@ Agent API; `HIVE_PROGRESS_CHECK_DEV=1 node tests/e2e/packaged-progress.cjs` chec
   codeword only those give), not the system prompt Claude Code recorded: after Restart in This Mode… and after a switch
   while it was stopped. `node tests/e2e/assistantresume.cjs --snapshot-on` is its negative control (the recorded
   prompt asked for: the old codeword comes back).
+  The probe waits for the mode notice's finished turn, then matches the codeword reply to the question's new
+  transcript item (#473); an acknowledgement of the notice cannot stand in for that answer.
 - **Codex** for the `codex*` suites, signed in to the **test home** `%LOCALAPPDATA%\hive-test\codex` (never your
   own `~/.codex`). Sign in once:
   ```powershell
