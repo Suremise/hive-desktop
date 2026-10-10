@@ -566,7 +566,7 @@ It doesn't use one of a project's agent slots, and it runs in the workspace fold
 
 **Settings → Assistant → Control** decides, for every workspace:
 
-- **Look and advise**: it reads and suggests; you act.
+- **Look and advise**: it reads and suggests; you act. It can still tell you which card loops (lanes) are running.
 - **Control agents**: when you ask it, it also adds agents, changes their settings, starts and stops them, gives idle ones tasks, hands one agent's work over to another, and adds, changes and starts cards on the task board. Ask *"add two agents to web: one to fix the login tests, one to update the docs"*, or *"ask Codex to review hive, then hand its findings over to Claude to fix"*, and it does.
 - **Control agents and create projects** (the default): also new projects.
 

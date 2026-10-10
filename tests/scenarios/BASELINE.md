@@ -36,6 +36,21 @@ Codex run.
 
 Every scenario ran once per provider. Models vary from run to run, so a single result is a sample, not a rate.
 
+## The Assistant lists lanes at Look: fakes, Codex (its default model), fixtures v35, 10 October 2026
+
+#500 (Darren's decision: at Control level Look the Assistant can list lanes, a read): `hive_lane` joins the Assistant's
+tools at every level (`ASSISTANT_LANE_TOOLS`), and its description at Look and advise says only list works; the Agent
+API already refused start, join and end below Control agents (403). Fixtures v35 add **assistant-look-lanes** (Look, a
+running lane, "which lanes are running and where are they?": it lists the lanes, starts or ends none, and names the
+lane's current card).
+- **Fakes** (baselines `hb1-500-before`, the v35 fixtures on the code before #500, and `hb1-500-after`; results
+  `2026-10-10T08-41-53-fake` and `2026-10-10T10-06-29-fake`): 68 of 68 pass both times. Performance → Compare:
+  comparable, 68 **No change**. The fake doesn't check Claude Code's permission list, so it can't show the gap.
+- **Codex: 2 of 2 pass** (`2026-10-10T10-28-46-codex`, $0.084): assistant-look-lanes and assistant-new-lane. On the old
+  code assistant-look-lanes passed too (`2026-10-10T09-01-01-codex`): Codex doesn't gate Hive's tools by the
+  Assistant's trusted list, so the gap was Claude Code's (a permission prompt at Look).
+- **Claude Code**: not run: its test home isn't signed in.
+
 ## Card-loop rounds and wait as settings: fakes, Codex (its default model), fixtures v34, 10 October 2026
 
 #412 (Darren's decision: Rounds 10, Wait 6h, set per workspace, a project can override, a prompt's own values win): a

@@ -12,7 +12,7 @@ import { AsyncLocalStorage } from 'async_hooks'
 import { appendFileSync, readFileSync } from 'fs'
 import { createInterface } from 'readline'
 import { hiveInstructions, projectHandovers, withLatestHandover } from '../../shared/hiveGuidance'
-import { AGENT_ONLY_TOOLS, ASSISTANT_ONLY_TOOLS, assistantTools } from '../../shared/assistantTools'
+import { AGENT_ONLY_TOOLS, ASSISTANT_ONLY_TOOLS, assistantTools, controlAllows } from '../../shared/assistantTools'
 import { COLUMN_IDS } from '../../shared/tasks'
 import { AGENT_WAIT_MAX_SECONDS, WAIT_MAX_SECONDS } from '../../shared/watch'
 import { CLAIM_WAIT_MAX_SECONDS, CLAIM_WAIT_SECONDS } from '../../shared/mergeSlot'
@@ -399,7 +399,7 @@ const tools: Tool[] = [
   {
     name: 'hive_lane',
     description: ASSISTANT
-      ? "Lanes: Hive's record of a builder and reviewer taking a project's cards in order (card-loop), shown to the user. Bookkeeping: a loop runs the same without one. start: project, builder, reviewer, cards in order, rounds, waitMinutes, name (the builder's running lane with any of these cards is updated instead; rounds and waitMinutes left out are the project's card-loop settings). end: lane (its id), mergeCommit, or abandoned=true unmerged. list: running and lately ended lanes (project narrows, all=true every one kept). Replies with each lane in a line: its agents, state (active, paused while its current card is blocked, ended, abandoned), cards, rounds, wait and id."
+      ? `Lanes: Hive's record of a builder and reviewer taking a project's cards in order (card-loop), shown to the user. Bookkeeping: a loop runs the same without one. start: project, builder, reviewer, cards in order, rounds, waitMinutes, name (the builder's running lane with any of these cards is updated instead; rounds and waitMinutes left out are the project's card-loop settings). end: lane (its id), mergeCommit, or abandoned=true unmerged. list: running and lately ended lanes (project narrows, all=true every one kept). Replies with each lane in a line: its agents, state (active, paused while its current card is blocked, ended, abandoned), cards, rounds, wait and id.${controlAllows(CONTROL, 'agents') ? '' : ' At Look and advise only list works: start and end need Control agents.'}`
       : "Your card loop's lane: Hive's record of a builder and reviewer taking cards in order, shown to the user. Bookkeeping: if a call fails, carry on with the loop. start (the builder): cards in order, reviewer, rounds, waitMinutes, name; again with a changed list updates it. rounds and waitMinutes left out are the project's card-loop settings. join (the reviewer): builder (its name), and cards if it hasn't started one yet. end: lane (its id), mergeCommit after the merge, or abandoned=true. list: your project's lanes. Replies with the lane in a line: its agents, state, cards, rounds, wait and id.",
     inputSchema: {
       type: 'object',

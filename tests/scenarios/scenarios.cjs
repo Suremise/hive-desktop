@@ -7,7 +7,7 @@
 // commands: those runs check the harness, the board rules and Hive's own costs (benchmarks) for free. The real CLIs are the model trials (opt-in, see README.md).
 //
 // Fixture version: bump when a scenario's setup or checks change, so results can be compared across versions.
-const FIXTURES_VERSION = 34
+const FIXTURES_VERSION = 35
 
 /** The subject's hive tool calls that the server ran, by tool (each has ok, error and args). */
 const called = (o, tool) => o.hiveCalls.filter((c) => c.tool === tool)
@@ -1231,6 +1231,26 @@ module.exports.SCENARIOS = [
         ["didn't type it into Coder (it has it)", called(o, 'hive_prompt_agent').length === 0]
       ]
     }
+  },
+  {
+    id: 'assistant-look-lanes',
+    title: 'The Assistant at Look and advise asked which card loops are running (#500): lists the lanes, changes none',
+    role: 'assistant',
+    control: 'look',
+    async setup(c) {
+      const a = await c.card('a', { title: 'Greeting says Hi', description: 'greet.js returns "Hi, <name>".', agent: 'coder', column: 'doing' })
+      const b = await c.card('b', { title: 'Greeting trims the name', description: 'greet.js trims the name.', agent: 'coder' })
+      const r = await c.api('POST', '/v1/lanes', { project: 'alpha', builder: 'Coder', reviewer: 'Implementer', cards: [a, b], name: 'greetings' })
+      if (r.status !== 200) throw new Error(`lane: ${r.text}`)
+    },
+    prompt: 'Which card loops (lanes) are running, and which card is each on?',
+    fake: 'hive hive_lane {"action":"list"}',
+    expect: (o, c) => [
+      ['listed the lanes (hive_lane list), which worked', ran(o, 'hive_lane').some((x) => argsOf(x).action === 'list'), o.hiveCalls.map((x) => `${x.tool}${x.ok ? '' : '!'}`).join(',')],
+      ['started, joined or ended none', !called(o, 'hive_lane').some((x) => argsOf(x).action !== 'list'), o.hiveCalls.map((x) => x.args).join(' | ')],
+      ["its answer names the lane's current card", new RegExp(`#?${c.cards.a}\\b`).test(o.finalReply ?? ''), (o.finalReply ?? '').slice(0, 300)]
+    ],
+    fakeSkips: ["its answer names the lane's current card"]
   },
   {
     id: 'assistant-new-lane',

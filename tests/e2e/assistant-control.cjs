@@ -175,6 +175,14 @@ const check = (name, ok, extra = '') => {
   const looked = await api('POST', '/v1/projects/alpha/agents', { name: 'Nope' })
   check('Look and advise refuses changes', looked.status === 403 && /Look and advise/.test(looked.body?.error), JSON.stringify(looked.body))
   check('but it can still read', (await api('GET', '/v1/projects/alpha/agents/Builder/activity')).status === 200)
+  // Lanes at Look (#500): listed; started, joined and ended only at Control agents.
+  check('it lists lanes', (await api('GET', '/v1/lanes')).status === 200)
+  const laneStart = await api('POST', '/v1/lanes', { project: 'alpha', builder: 'Builder', cards: [1] })
+  check("…and can't start one", laneStart.status === 403 && /Look and advise/.test(laneStart.body?.error), JSON.stringify(laneStart.body))
+  const laneJoin = await api('POST', '/v1/lanes/join', { project: 'alpha', builder: 'Builder', reviewer: 'Fixer' })
+  check("…join one", laneJoin.status === 403, JSON.stringify(laneJoin.body))
+  const laneEnd = await api('POST', '/v1/lanes/lane-000000/end', { abandoned: true })
+  check('…or end one', laneEnd.status === 403, JSON.stringify(laneEnd.body))
   await inv('settings:update', { assistant: { control: 'agents' } })
   check('Control agents can\'t create projects', (await api('POST', '/v1/projects', { name: 'delta' })).status === 403)
   check('nor remove agents (no such call)', (await api('DELETE', `/v1/projects/alpha/agents/Builder`)).status === 404)
@@ -262,6 +270,9 @@ const check = (name, ok, extra = '') => {
   check('project agents get the board tools', ['hive_list_tasks', 'hive_read_task', 'hive_create_task', 'hive_update_task', 'hive_reorder_tasks'].every((t) => asAgent.includes(t)), asAgent.join(','))
   check('Control agents: agent tools, no project creation', asAgents.includes('hive_prompt_agent') && asAgents.includes('hive_stop_agent') && asAgents.includes('hive_hand_over') && asAgents.includes('hive_start_task') && !asAgents.includes('hive_create_project'))
   check('Look and advise: reading tools only', asLook.includes('hive_agent_activity') && asLook.includes('hive_wait_for_agents') && asLook.includes('hive_list_tasks') && !asLook.includes('hive_add_agent') && !asLook.includes('hive_start_task'))
+  // Its lane tool says only list works there (#500); trusted at every level (sessions' trustedHiveTools, unit-tested).
+  const laneTool = (envExtra) => JSON.parse(execFileSync(process.execPath, [path.join(lib.ROOT, 'out', 'main', 'hive-mcp.js')], { input: JSON.stringify({ jsonrpc: '2.0', id: 1, method: 'tools/list' }) + '\n', env: lib.childEnv({ HIVE_API_URL: API, ...envExtra }), timeout: 10000 }).toString().split('\n')[0]).result.tools.find((t) => t.name === 'hive_lane')
+  check('Look and advise: hive_lane says only list works', /only list works/.test(laneTool({ HIVE_ROLE: 'assistant', HIVE_ASSISTANT_CONTROL: 'look' })?.description ?? '') && !/only list works/.test(laneTool({ HIVE_ROLE: 'assistant', HIVE_ASSISTANT_CONTROL: 'agents' })?.description ?? ''))
 
   // Let the agents finish before closing.
   await until(async () => !(await inv('session:live')).some((s) => s.status === 'working' || s.status === 'starting'), 30000)
