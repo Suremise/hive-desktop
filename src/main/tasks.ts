@@ -87,6 +87,21 @@ function changed(ws: WorkspaceService = workspace): void {
   if (ws.path) emit({ type: 'tasks-changed', workspacePath: ws.path })
 }
 
+/** A card loop's handoff (#405): a card arrived in Review (moved or returned there), or its review gave a verdict. */
+export interface LoopEvent {
+  ws: WorkspaceService
+  card: TaskCard
+  kind: 'review' | 'verdict'
+  /** Who made the change. */
+  actor: TaskActor
+}
+let loopEvents: ((e: LoopEvent) => void) | null = null
+/** Told of each loop handoff once its change is saved (loopWakes.ts wakes the card's reviewer or builder). */
+export function onLoopEvent(fn: (e: LoopEvent) => void): void {
+  loopEvents = fn
+}
+const INTO_REVIEW_SAID = /^(Moved to (the (top|bottom) of )?Review\b|Returned for review, round \d+)/
+
 /** A card read from disk, with anything missing or of the wrong type made safe (the files can be edited by hand). */
 function clean(raw: Partial<TaskCard> & { projectId?: unknown }, n: number, ids?: ProjectIdIndex): TaskCard {
   const nums = (v: unknown): number[] => (Array.isArray(v) ? v.filter((x): x is number => Number.isInteger(x) && x > 0) : [])
@@ -602,6 +617,7 @@ async function updateTaskLocked(n: number, patch: TaskPatch, actor: TaskActor, o
   const ws = workspace
   const by = actorName(actor)
   const comment = opts.comment === undefined ? null : commentText(opts.comment)
+  let handoff: LoopEvent['kind'] | null = null
   const result = await withFileLock(cardFile(n, ws), async () => {
     const card = await getTask(n, ws)
     const scope = scopeOf(actor)
@@ -736,9 +752,17 @@ async function updateTaskLocked(n: number, patch: TaskPatch, actor: TaskActor, o
     // see the card as it was before this change.
     opts.commit?.()
     await saveCard(ws, n, card)
+    handoff = said.some((x) => x === 'Review passed' || x === 'Review failed') ? 'verdict' : said.some((x) => INTO_REVIEW_SAID.test(x)) ? 'review' : null
     return card
   })
   changed(ws)
+  if (handoff) {
+    try {
+      loopEvents?.({ ws, card: result, kind: handoff, actor })
+    } catch (e) {
+      log.warn('a loop handoff', e)
+    }
+  }
   return result
 }
 

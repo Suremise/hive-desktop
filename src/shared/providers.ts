@@ -433,6 +433,24 @@ export interface AgentLaunchSettings {
   use200kContext: boolean
 }
 
+/** Splits a command-line string (extra arguments) into arguments, honouring double and single quotes. */
+export function splitArgs(input: string): string[] {
+  const out: string[] = []
+  const re = /"([^"]*)"|'([^']*)'|(\S+)/g
+  let m: RegExpExecArray | null
+  while ((m = re.exec(input))) out.push(m[1] ?? m[2] ?? m[3])
+  return out
+}
+
+/**
+ * Why extra arguments can't be used, or null: a bare "--" (#523, Darren's decision). Hive passes an agent's first task
+ * after a "--" of its own, so one of the user's would either end the options early or be read as the task; Hive doesn't
+ * guess which it meant. An option whose value is "--" is written with "=".
+ */
+export function extraArgsProblem(input: string | string[]): string | null {
+  return (typeof input === 'string' ? splitArgs(input) : input).includes('--') ? 'Hive passes the task after "--"; remove it from extra arguments. For an option whose value is "--", write --option=--.' : null
+}
+
 /** What an agent launches with: its own overrides, else the project's (for its provider), else the global defaults. */
 export function agentLaunchSettings(agent: Pick<AgentDef, 'provider' | 'model' | 'effort' | 'permissionMode' | 'use200kContext'> | null | undefined, cfg: Pick<ProjectConfig, 'providers' | 'defaultProvider'>, settings: Pick<AppSettings, 'providers' | 'defaultProvider'>): AgentLaunchSettings {
   const provider = agentProvider(agent, cfg, settings)

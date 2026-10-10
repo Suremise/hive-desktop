@@ -3,16 +3,18 @@ import { app } from 'electron'
 import { link, mkdir, readFile, rename, rm, writeFile } from 'original-fs/promises'
 import { basename, dirname, join, resolve } from 'path'
 import { projectAgents } from '../shared/defaults'
-import { cardChange, carriedOver, changesBetween, changesSince, ENTRY_KEY, limitLine, markOf, movedIntoSince, seenOf, readMark, readSavedCondition, WAKE_MAX_BYTES, wakeAbout, watchLabel, cardWakeLine, userNameOf, releasedLine, type Released, type ReplyNote, alreadyThere, encodeSince, WATCH_DEFAULT_LIMIT_MINUTES, WATCH_MAX_CARDS, WATCH_MAX_LIMIT_MINUTES, type Baseline, type CardChange, type CardMark, type Seen, type WatchChange, type WatchCondition } from '../shared/watch'
+import { cardChange, carriedOver, changesBetween, changesSince, ENTRY_KEY, limitLine, markOf, movedIntoSince, seenOf, readMark, readSavedCondition, WAKE_MAX_BYTES, wakeAbout, watchLabel, cardWakeLine, userNameOf, releasedLine, withLanesTail, type Released, type ReplyNote, alreadyThere, encodeSince, WATCH_DEFAULT_LIMIT_MINUTES, WATCH_MAX_CARDS, WATCH_MAX_LIMIT_MINUTES, type Baseline, type CardChange, type CardMark, type Seen, type WatchChange, type WatchCondition } from '../shared/watch'
 import { agentBusy, agentEvent, agentLimitLine, agentMarkOf, agentPart, agentWakeLine, agentWatchLabel, readSavedAgentCondition, readSavedAgentMark, replyFirstLine, type AgentEvent, type AgentMark, type AgentNow, type AgentWatchCondition, type WatchedAgent } from '../shared/agentWatch'
 import { isProjectId, type ProjectIdIndex } from '../shared/projectIds'
 import { rebase } from '../shared/movePaths'
 import { keepBeforeIds } from './beforeIds'
-import type { LiveSessionState, TaskCard, TaskWatchInfo } from '../shared/types'
+import type { LiveSessionState, TaskCard, TaskColumn, TaskWatchInfo } from '../shared/types'
+import { ASSISTANT_AGENT_ID } from '../shared/assistant'
 import { config } from './config'
 import { onHiveEvent } from './events'
 import { readCapped, renameRetrying } from './fsutil'
 import { createLogger, userText } from './logger'
+import { listLanes } from './lanes'
 import { noteLoopWatch } from './loopCheck'
 import { sessions } from './sessions'
 import { getTask, inScope, noteOnCard, unknownTask } from './tasks'
@@ -85,7 +87,7 @@ interface WatchRecord {
   replySeq?: number
   /**
    * A project agent's part in each watched card as the watch began (#420): its agent, its reviewer, or a reviewer
-   * waiting for it to arrive in Review ("awaiting"), and whether it was blocked (as last seen). A card it has no part in
+   * waiting for it to arrive in Review ("awaiting"). A card it has no part in
    * (another agent's card it depends on) isn't here, and is never released. The watcher's board name, for the history.
    */
   on?: Record<string, OnCard>
@@ -191,7 +193,6 @@ function fitLine(line: string): string {
 /** A watcher's part in a card (#420). */
 interface OnCard {
   role: 'agent' | 'reviewer' | 'awaiting'
-  blocked: boolean
 }
 
 /** The watches of each open workspace, loaded on first need (by its path, case-folded). */
@@ -429,9 +430,10 @@ function readRecord(v: unknown): WatchRecord | null {
   if (r.on !== undefined) {
     if (!r.on || typeof r.on !== 'object' || Array.isArray(r.on)) return null
     on = {}
-    for (const [k, part] of Object.entries(r.on as Record<string, { role?: unknown; blocked?: unknown }>)) {
-      if (!cond.cards.includes(Number(k)) || !part || !['agent', 'reviewer', 'awaiting'].includes(part.role as string) || typeof part.blocked !== 'boolean') return null
-      on[k] = { role: part.role as OnCard['role'], blocked: part.blocked }
+    // A watch saved before #481 also kept whether the card was blocked: no longer used.
+    for (const [k, part] of Object.entries(r.on as Record<string, { role?: unknown }>)) {
+      if (!cond.cards.includes(Number(k)) || !part || !['agent', 'reviewer', 'awaiting'].includes(part.role as string)) return null
+      on[k] = { role: part.role as OnCard['role'] }
     }
   }
   if (r.watcherName !== undefined && !text(r.watcherName, 300)) return null
@@ -692,7 +694,8 @@ export async function registerWatch(ws: WorkspaceService, projectPath: string, a
     const marks: Record<string, CardMark> = {}
     const seen: Record<string, Seen> = {}
     const now: Record<string, CardMark> = {}
-    // A project agent's part in each card (#420): what ends its watch on one when the card is reassigned or blocked.
+    // A project agent's part in each card (#420): what ends its watch on one when the card is reassigned. A
+    // blocked card stays (#481): it is paused, not gone, and the watch carries on until it moves again.
     const on: Record<string, OnCard> = {}
     let already: CardChange | null = null
     for (const n of cond.cards) {
@@ -700,7 +703,7 @@ export async function registerWatch(ws: WorkspaceService, projectPath: string, a
       await testHooks.afterRead?.()
       if (!card) throw unknownTask(n)
       const role = scope === null ? null : card.agent === agentId ? 'agent' : card.review?.agent === agentId ? 'reviewer' : cond.column === 'review' ? 'awaiting' : null
-      if (role) on[n] = { role, blocked: !!card.blocked }
+      if (role) on[n] = { role }
       const mark = markOf(card)
       if (alreadyThere(mark, cond)) {
         already = cardChange(n, card, ['column'])
@@ -1053,6 +1056,54 @@ const settling = new Set<string>()
 const idle = (st: LiveSessionState | null): boolean => !!st && (st.status === 'watching' || st.status === 'ready' || st.status === 'finished')
 
 /**
+ * Whether an agent's own card watch tells it of this change to card n (#405: Hive's loop wakes leave it to the watch),
+ * the card being in `column` now: a watch on the card that counts a move into Review (`review`); one that counts a
+ * verdict, or a move into the card's column now (`verdict`: a passing one that moved it to Passed; a failed one leaves
+ * it in Review, which a watch for Passed doesn't count); or one that has fired and tells the card. Its watches not
+ * loaded yet: false.
+ */
+export function watchCovers(projectPath: string, agentId: string, n: number, kind: 'review' | 'verdict', column: TaskColumn): boolean {
+  const store = storeFor(projectPath)
+  const rec = store && recordOf(store, projectPath, agentId)
+  if (!rec || rec.agents || !rec.cond.cards.includes(n)) return false
+  if (rec.fired) return rec.fired.cards.includes(n)
+  const into = (c: TaskColumn): boolean => rec.cond.changes.includes('column') && (!rec.cond.column || rec.cond.column === c)
+  if (kind === 'verdict') return rec.cond.changes.includes('verdict') || (column !== 'review' && into(column))
+  return into('review')
+}
+
+/**
+ * Types a line of Hive's that isn't a watch's (#405: a loop wake) into an agent, as a wake is typed: only while it is
+ * idle, nobody types there, no earlier line is waiting there and no watch of its own has a line to type (that goes
+ * first); one wake at a time per agent; checked to be taken (#376). `wanted` is asked again before every piece and
+ * before Enter. Whether it was typed (false: try again later).
+ */
+export async function typeLine(projectPath: string, agentId: string, line: string, wanted: () => boolean): Promise<boolean> {
+  const key = agentKey(projectPath, agentId)
+  const busy = (): boolean => !idle(sessions.liveFor(projectPath, agentId)) || sessions.userMayBeTyping(projectPath, agentId)
+  if (waking.has(key) || busy() || sessions.lineWaiting(projectPath, agentId) || !wanted()) return false
+  const store = storeFor(projectPath)
+  if (store?.list.some((x) => x.fired && same(x.projectPath, projectPath) && x.agentId === agentId)) return false
+  waking.add(key)
+  try {
+    const before = sessions.promptsTaken(projectPath, agentId)
+    await sessions.sendPrompt(projectPath, agentId, line, () => {
+      if (!wanted()) throw new Error('It is no longer wanted.')
+      if (!idle(sessions.liveFor(projectPath, agentId))) throw new Error('The agent got busy.')
+      if (sessions.userMayBeTyping(projectPath, agentId)) throw new Error('The user is typing there.')
+    })
+    log.info(`Woke ${userText(agentId)}: ${userText(line.slice(0, 80))}`)
+    if (before) void confirmTaken(projectPath, agentId, before, line).catch((e) => log.warn('checking a wake was taken', e))
+    return true
+  } catch (e) {
+    log.info(`Wake for ${userText(agentId)} put off: ${(e as Error).message}`)
+    return false
+  } finally {
+    waking.delete(key)
+  }
+}
+
+/**
  * Types a fired watch's line into its agent, if it is idle and the user isn't typing there; otherwise later (its next
  * idle status, or the tick). The watch stays (the agent shows watching and takes no other work) until the line is in:
  * then it ends. Cancelled or replaced meanwhile, the typing stops before Enter; refused (the agent got busy, the user
@@ -1104,7 +1155,7 @@ async function deliver(store: Store, rec: WatchRecord): Promise<void> {
       // Told as the cards are now, every change since the watch began (#224): one that landed after the line was made
       // is in it too, and a card that has left the agent's view is told as gone.
       const r = await check(store, rec)
-      // A card released since the line was made (#420: reassigned or blocked before it was typed) is told as released,
+      // A card released since the line was made (#420: reassigned before it was typed) is told as released,
       // not as the change that fired it.
       let left = rec.cond.cards.length
       if (r.released.length) {
@@ -1152,6 +1203,9 @@ async function deliver(store: Store, rec: WatchRecord): Promise<void> {
         return
       }
     }
+    // The Assistant woken from a card watch while lanes run (#402): its watch has ended, so the line says to watch them
+    // all again (a model that reads no skill on a wake otherwise ends its turn watching nothing).
+    if (rec.agentId === ASSISTANT_AGENT_ID && !rec.agents && rec.cond.cards.length && (await listLanes(store.ws).catch(() => [])).some((l) => l.state === 'active' || l.state === 'paused')) line = withLanesTail(line, MAX_LINE_BYTES)
     // Saved as being typed before the first key: if Hive stops before the watch's end is saved, it is never typed again.
     // Not saved, nothing is typed (tried again later).
     const marked = await locked(store, async () => {
@@ -1338,20 +1392,14 @@ async function check(store: Store, rec: WatchRecord, cards?: CardReads): Promise
 
 /**
  * Whether a watched card leaves the watch because the watcher's part in it ended (#420): the card was given to another
- * agent (or none) when the watcher had it; another agent reviews it when the watcher reviewed it, or waited for it to
- * arrive in Review; or it became blocked (also by the watcher itself). Null: it stays. A card that is gone is told as
- * gone, as before. What it was last seen as is kept (an unblocked card blocked again releases it).
+ * agent (or none) when the watcher had it; or another agent reviews it when the watcher reviewed it, or waited for it
+ * to arrive in Review. Null: it stays. A card that is gone is told as gone, as before. A blocked card stays too (#481):
+ * it is paused, not gone, and its loop waits for it (a reviewer that moved on deadlocked with its builder).
  */
 function releaseOf(rec: WatchRecord, n: number, card: TaskCard | null): Released | null {
   const on = rec.on?.[n]
   if (!on || !card || card.archived) return null
   const me = rec.agentId
-  if (card.blocked && !on.blocked) {
-    // Also when the watcher blocked it itself (it asked the user): its loop moves on meanwhile.
-    on.blocked = true
-    return { number: n, why: 'blocked', detail: card.blocked }
-  }
-  if (!card.blocked) on.blocked = false
   const reviewer = card.review && card.review.agent !== me ? card.review.agentName || card.review.agent : null
   if (on.role === 'agent' && card.agent !== me) return { number: n, why: 'reassigned', detail: card.agentName ?? card.agent ?? null }
   if ((on.role === 'reviewer' || on.role === 'awaiting') && reviewer) return { number: n, why: 'reviewer', detail: reviewer }

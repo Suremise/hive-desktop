@@ -113,6 +113,10 @@ export interface PromptRequest {
   initial?: string
   confirmLabel?: string
   validate?: (value: string) => string | null
+  /** Items under the message, one per line, with a Copy button (what an MCP server runs, #550). */
+  list?: readonly string[]
+  /** Under the list: what else to know (warnings). */
+  detail?: string
   /** A tick box under the field; `set` gets the user's choice before the dialog resolves. */
   check?: { label: string; initial: boolean; set: (checked: boolean) => void }
   resolve: (value: string | null) => void

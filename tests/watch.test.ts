@@ -6,7 +6,7 @@ import { existsSync, mkdirSync, readdirSync, readFileSync, renameSync, rmSync, w
 import { basename, join } from 'path'
 import { afterAll, describe, expect, it, vi } from 'vitest'
 import * as electron from 'electron'
-import { alreadyThere, changesBetween, decodeSince, encodeSince, limitLine, markOf, movedIntoSince, readCondition, returnRound, WAKE_MAX_BYTES, wakeAbout, wakeLine, wakeLines, carriedOver, changesSince, seenOf, watchLabel, cardChange } from '../src/shared/watch'
+import { alreadyThere, changesBetween, decodeSince, encodeSince, limitLine, markOf, movedIntoSince, readCondition, returnRound, WAKE_MAX_BYTES, wakeAbout, wakeLine, wakeLines, carriedOver, changesSince, seenOf, watchLabel, cardChange, LANES_RUNNING_TAIL, withLanesTail } from '../src/shared/watch'
 import { taskWaitText } from '../src/shared/toolReplies'
 import { hookStep } from '../src/main/hookStatus'
 import type { TaskCard } from '../src/shared/types'
@@ -1589,5 +1589,21 @@ describe('watches (main/watches.ts)', async () => {
     // Not watching: never.
     expect(watches.watchKeepsQuitWaiting({ ...(st as object), status: 'finished' } as never)).toBeNull()
     await disposeWorkspaceService(w)
+  })
+})
+
+// The Assistant woken from a card watch while lanes run (#402): the line says to watch them all again, kept whole.
+describe("the lanes-running tail of the Assistant's wake", () => {
+  const bytes = (x: string) => Buffer.byteLength(JSON.stringify(x))
+  it('is added once, after the line', () => {
+    const line = '[Hive] #1 is in Doing. Your card watch has ended: carry on.'
+    expect(withLanesTail(line)).toBe(line + LANES_RUNNING_TAIL)
+    expect(withLanesTail(withLanesTail(line))).toBe(line + LANES_RUNNING_TAIL)
+    expect(LANES_RUNNING_TAIL).toMatch(/each lane by its last card \(run-lanes\)/)
+  })
+  it('a long line is cut to make room: the tail is always whole, and the line fits', () => {
+    const out = withLanesTail('[Hive] ' + 'x'.repeat(2000))
+    expect(out.endsWith('…' + LANES_RUNNING_TAIL)).toBe(true)
+    expect(bytes(out)).toBeLessThanOrEqual(WAKE_MAX_BYTES)
   })
 })

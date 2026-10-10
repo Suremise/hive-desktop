@@ -2,7 +2,7 @@ import { randomBytes } from 'crypto'
 import { join } from 'path'
 import { existsSync } from 'original-fs'
 import { HIVE_DIR, projectAgents } from '../shared/defaults'
-import { DEFAULT_LANE_ROUNDS, DEFAULT_LANE_WAIT_MINUTES, allDone, isFrozen, keptLanes, laneView, listedLanes, readLanes, running, type LaneAgent, type LaneChange, type LaneRecord } from '../shared/lanes'
+import { allDone, isFrozen, loopDefaults, keptLanes, laneView, listedLanes, readLanes, running, type LaneAgent, type LaneChange, type LaneRecord } from '../shared/lanes'
 import type { LaneCard, LaneInfo, TaskCard } from '../shared/types'
 import { onHiveEvent } from './events'
 import { readJson, withFileLock, writeJsonAtomic } from './fsutil'
@@ -235,6 +235,9 @@ export async function startLane(ws: WorkspaceService, s: StartLane): Promise<Lan
   const reviewer = s.reviewer ? await agentIn(ws, s.project, s.reviewer) : s.reviewer === undefined ? undefined : null
   if (s.reviewer && !reviewer) throw new LaneError(404, 'Unknown agent: the reviewer must be an agent of the project')
   if (reviewer && reviewer.id === builder.id) throw new LaneError(400, "A lane's builder can't be its reviewer")
+  // Rounds and wait the start doesn't give: the project's, else the workspace's (#412).
+  const project = ws.path ? await ws.projectConfig(join(ws.path, s.project)).catch(() => null) : null
+  const defaults = loopDefaults(ws.config, project)
   const r = await mutate(ws, async (lanes) => {
     const was = lanes.find((l) => running(l) && same(l.project, s.project) && l.builder.id === builder.id)
     const t = now()
@@ -263,8 +266,8 @@ export async function startLane(ws: WorkspaceService, s: StartLane): Promise<Lan
       builder,
       reviewer: reviewer ?? null,
       cards: s.cards,
-      rounds: s.rounds ?? DEFAULT_LANE_ROUNDS,
-      waitMinutes: s.waitMinutes ?? DEFAULT_LANE_WAIT_MINUTES,
+      rounds: s.rounds ?? defaults.rounds,
+      waitMinutes: s.waitMinutes ?? defaults.waitHours * 60,
       state: 'active',
       startedBy: s.by,
       startedAt: t,

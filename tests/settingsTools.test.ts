@@ -83,3 +83,22 @@ describe("the settings tools on a provider's prices", () => {
     })
   })
 })
+
+describe('extra arguments with a bare "--" (#523)', () => {
+  it("are refused when saved, the providers' and the Assistant's, and the settings stay as they were", () => {
+    const was = structuredClone(config.settings)
+    try {
+      const refused = 'Hive passes the task after "--"; remove it from extra arguments.'
+      expect(() => config.updateSettings({ providers: { 'claude-code': { extraArgs: '--allowedTools Read Bash --' } } } as never)).toThrow(refused)
+      expect(() => config.updateSettings({ assistant: { providers: { codex: { extraArgs: '-- hello' } } } } as never)).toThrow(refused)
+      expect(config.settings.providers['claude-code'].extraArgs).toBe(was.providers['claude-code'].extraArgs)
+      expect(config.settings.assistant.providers.codex?.extraArgs).toBe(was.assistant.providers.codex?.extraArgs)
+      // An option's value of "--" written with "=" is kept.
+      config.updateSettings({ providers: { 'claude-code': { extraArgs: '--append-system-prompt=--' } } } as never)
+      expect(config.settings.providers['claude-code'].extraArgs).toBe('--append-system-prompt=--')
+    } finally {
+      config.settings.providers = was.providers
+      config.settings.assistant = was.assistant
+    }
+  })
+})

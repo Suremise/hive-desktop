@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from 'react'
-import type { AppSettings, ChimeSound, EffortLevel, EffortOption, FallbackModel, ModelPrice, PermissionMode, ProviderId, TaskColumn } from '@shared/types'
+import type { AppSettings, ChimeSound, EffortLevel, EffortOption, FallbackModel, ModelPrice, PermissionMode, ProviderId, TaskColumn, WorkspaceConfig } from '@shared/types'
 import { DEFAULT_COLUMN_COLORS, TASK_COLUMNS, columnColor } from '@shared/tasks'
 import { DEFAULT_PERSONA } from '@shared/assistant'
 import { PRICES_CHECKED, SHIPPED_PRICES, priceRows } from '@shared/prices'
@@ -294,7 +294,8 @@ function GlobalModelPicker({ provider }: { provider: ProviderId }) {
   return <ModelPicker provider={provider} value={value} base={{ value: '', label: `${providerDescriptor(provider).name} default` }} onChange={(v) => void update(def, v)} />
 }
 
-const getValue = (s: AppSettings, def: SettingDef): unknown => settingValue(def, s)
+/** A row's value: Hive's settings, or the open workspace's own (Settings → Workspace's card loops, #412). */
+const getValue = (s: AppSettings, def: SettingDef, loops: WorkspaceConfig['loops']): unknown => settingValue(def, s, null, { loops })
 
 const defaultValue = (def: SettingDef): unknown => settingDefault(def)
 
@@ -308,6 +309,10 @@ async function update(def: SettingDef, value: unknown): Promise<void> {
   if (def.action) return
   const change = settingPatch(def, value)
   if ('settings' in change) return saveSettings(change.settings as SettingsPatch)
+  if ('workspace' in change) {
+    const info = await actions.attempt('Could not save setting', () => call('workspace:setLoops', change.workspace))
+    if (info) set({ workspace: info })
+  }
 }
 
 /** Turns a provider on or off. Turning it off with agents running asks whether to stop them. */
@@ -343,7 +348,9 @@ export async function setProviderEnabled(provider: ProviderId, on: boolean): Pro
 }
 
 function Control({ def, settings }: { def: SettingDef; settings: AppSettings }) {
-  const value = getValue(settings, def)
+  // The workspace's own values come from its config: shown again when it changes.
+  const loops = useStore((s) => s.workspace?.config.loops)
+  const value = getValue(settings, def, loops)
   const [draft, setDraft] = useState(String(value ?? ''))
   useEffect(() => setDraft(String(value ?? '')), [value])
   switch (def.type) {
@@ -752,16 +759,17 @@ export function SettingsView() {
   const section = useStore((s) => s.settingsSection) as Section
   const query = useStore((s) => s.settingsQuery)
   const [modifiedOnly, setModifiedOnly] = useState(false)
+  const loops = useStore((s) => s.workspace?.config.loops)
 
   const visible = useMemo(() => {
     const q = query.trim().toLowerCase()
     return SETTINGS.filter((d) => {
       if (q && !`${d.title} ${d.desc} ${d.tip} ${d.key}`.toLowerCase().includes(q)) return false
-      if (modifiedOnly && (d.type === 'custom' || getValue(settings!, d) === defaultValue(d))) return false
+      if (modifiedOnly && (d.type === 'custom' || getValue(settings!, d, loops) === defaultValue(d))) return false
       if (!q && !modifiedOnly && d.section !== section) return false
       return true
     })
-  }, [query, section, settings, modifiedOnly])
+  }, [query, section, settings, modifiedOnly, loops])
 
   if (!settings) return null
   const grouped = SECTIONS.map((s) => ({ ...s, items: visible.filter((d) => d.section === s.id) })).filter((g) => g.items.length)
@@ -795,7 +803,7 @@ export function SettingsView() {
               <h2>{g.label}</h2>
               <p>{g.desc}</p>
               {g.items.map((d) => {
-                const modified = (d.type !== 'custom' || ['defaultModel', 'defaultEffort', 'defaultProvider', 'modelFallback', 'effortFallback'].includes(d.key)) && getValue(settings, d) !== defaultValue(d)
+                const modified = (d.type !== 'custom' || ['defaultModel', 'defaultEffort', 'defaultProvider', 'modelFallback', 'effortFallback'].includes(d.key)) && getValue(settings, d, loops) !== defaultValue(d)
                 return (
                   d.wide ? (
                     <div key={`${d.section}.${d.key}`} className="setting wide">

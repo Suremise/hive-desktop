@@ -1310,6 +1310,15 @@ textarea.input {
   background: rgba(78, 201, 107, 0.12);
   color: var(--fg-strong);
 }
+/* What an MCP server runs (#550): its command or URL, environment and header names, one per line. */
+.banner.mcp-runs {
+  align-items: flex-start;
+}
+.banner.mcp-runs > div {
+  min-width: 0;
+  font-family: var(--font-mono, monospace);
+  overflow-wrap: anywhere;
+}
 .banner.success .codicon {
   color: var(--success);
 }
