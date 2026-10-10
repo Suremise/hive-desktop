@@ -458,8 +458,11 @@ export const useStore = create<State>(() => ({
   sessionEpoch: {}
 }))
 
-// Automatic's default provider (#474) follows what Hive found, as this window last heard.
-setInstalledCheck((id) => !!useStore.getState().providers[id]?.found)
+// Automatic's default provider (#474) follows what Hive found, as this window last heard: unknown until it has said (#506).
+setInstalledCheck((id) => {
+  const i = useStore.getState().providers[id]
+  return !i ? null : i.found ? true : i.checking ? null : false
+})
 
 export const set = useStore.setState
 export const get = useStore.getState

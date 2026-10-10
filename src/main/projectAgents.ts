@@ -2,7 +2,7 @@ import { randomBytes } from 'crypto'
 import { existsSync } from 'original-fs'
 import { basename, join } from 'path'
 import { MAX_AGENTS, ROLE_MAX, mergeBlocked, moveAgentTo, projectAgents, slugify, swapAgentsIn } from '../shared/defaults'
-import { agentProvider, isKnownProvider } from '../shared/providers'
+import { agentProvider, defaultProviderPending, isKnownProvider } from '../shared/providers'
 import type { AddAgentOptions, AgentBranchStatus, AgentDef, AgentPatch, AgentWorktree, MergeResult, ProjectConfig, ProjectGitInfo, RemovedAgent, WorktreeCheck } from '../shared/types'
 import { config } from './config'
 import { toast } from './events'
@@ -15,6 +15,7 @@ import { laneAgentRemoved } from './lanes'
 import { workspace, workspaceOf } from './workspace'
 import * as wt from './worktrees'
 import { gitProblem } from './gitTool'
+import { providerService } from './providerService'
 
 const log = createLogger('agents')
 
@@ -154,7 +155,9 @@ export async function prepareAgent(projectPath: string, cfg: ProjectConfig, opts
   // Never reused: sessions of a removed agent keep its id and must not attach to a new one.
   const id = `a-${randomBytes(4).toString('hex')}`
 
-  // The provider is stored on the agent, so changing a default later doesn't move existing agents.
+  // The provider is stored on the agent, so changing a default later doesn't move existing agents. Automatic's is only
+  // known once Hive has looked for every CLI before the one it found (#506).
+  if (!opts.provider && defaultProviderPending(cfg, config.settings)) await providerService.settle()
   const provider = opts.provider || agentProvider(null, cfg, config.settings)
   if (!isKnownProvider(provider)) throw new Error(`Unknown provider "${provider}".`)
   const def: AgentDef = { id, name, provider }

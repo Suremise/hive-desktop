@@ -1,4 +1,4 @@
-import type { ProviderId, SessionListItem } from './types'
+import type { SessionListItem } from './types'
 import { providerName } from './providers'
 
 /**
@@ -13,12 +13,12 @@ export interface ResumeContext {
   providerEnabled: boolean
   /** Its provider's CLI was found; null while not known yet. */
   providerInstalled: boolean | null
-  /** The agents that can run it now (its provider, the folder it ran in). */
+  /** The agents that can run it now: those working in the folder it ran in (it resumes in its own provider, #506). */
   runners: readonly { id: string; name: string }[]
   /** Resume may add an agent for it (a session from the project folder, and room for another agent). */
   canAddAgent: boolean
-  /** The Hive Assistant's conversations: the provider it runs now (it has one agent). */
-  assistantProvider?: ProviderId
+  /** The Hive Assistant's conversations: its one agent resumes each in the provider it ran in (#506). */
+  assistant?: boolean
 }
 
 type Resumable = Pick<SessionListItem, 'provider' | 'sub' | 'hasTranscript' | 'hasBackup' | 'cwd' | 'agentId' | 'agentName'>
@@ -30,11 +30,9 @@ export function resumeBlock(s: Resumable, ctx: ResumeContext): string | null {
   if (!s.hasTranscript && !s.hasBackup) return `Neither ${who} nor Hive has its transcript any more, so there is nothing to resume.`
   if (!ctx.providerEnabled) return `${who} is turned off. Turn it on in Settings → Providers to resume it.`
   if (ctx.providerInstalled === false) return `${who} isn't installed. Set it up in Agent Setup to resume it.`
-  if (ctx.assistantProvider !== undefined) {
-    return ctx.assistantProvider === s.provider ? null : `It ran in ${who}, and the Assistant now runs ${providerName(ctx.assistantProvider)}. Switch its provider in Assistant Settings to resume it.`
-  }
+  if (ctx.assistant) return null
   if (!ctx.runners.length && !ctx.canAddAgent) {
-    return s.cwd ? `It ran in a worktree no ${who} agent uses any more (${s.cwd}). Add a ${who} agent for that worktree to resume it.` : `No ${who} agent can run it, and the project has no room for another agent.`
+    return s.cwd ? `It ran in a worktree no agent uses any more (${s.cwd}). Add an agent for that worktree to resume it.` : 'No agent works in the project folder, and the project has no room for another agent.'
   }
   return null
 }

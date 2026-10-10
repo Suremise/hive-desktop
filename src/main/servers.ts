@@ -6,7 +6,7 @@ import { basename, dirname, join, relative, resolve as resolvePath } from 'path'
 import { stat } from 'original-fs/promises'
 import type { AgentApiInfo, AssistantControl, EffortLevel, HiveEvent, LiveSessionState, PermissionMode, ProviderId, SkillInfo, TaskCard, TaskColumn, TaskPatch, TaskStartTarget, ToastLevel } from '../shared/types'
 import { DEFAULT_API_PORT, HIVE_DIR, projectAgents, stopAsksUser, transcriptWarnLimit } from '../shared/defaults'
-import { PROVIDERS, agentProvider, isKnownProvider, isProviderEnabled, offeredModes, projectDefaultProvider, providerName } from '../shared/providers'
+import { PROVIDERS, agentProvider, defaultProviderPending, isKnownProvider, isProviderEnabled, offeredModes, projectDefaultProvider, providerName } from '../shared/providers'
 import { fallbackEfforts, modelGroups } from '../shared/models'
 import { ASSISTANT_AGENT_ID, ASSISTANT_DIR, ASSISTANT_NAME } from '../shared/assistant'
 import { timeLeft } from '../shared/progress'
@@ -626,6 +626,8 @@ route('POST', '/v1/projects/:name/handover', async ({ params, body }) => {
 
 /** The providers agents can run: whether each is on and installed, and its models, effort levels and modes. */
 route('GET', '/v1/providers', async () => {
+  // Which is the default is only known once Hive has looked for the CLIs (#506).
+  const known = await providerService.detected()
   const s = config.settings
   return PROVIDERS.map((p) => {
     const info = providerService.info(p.id)
@@ -639,7 +641,7 @@ route('GET', '/v1/providers', async () => {
       tested: info.tested ? { version: info.tested.version, installed: info.found ? info.tested.installed : 'not installed' } : null,
       problem: info.readiness?.find((r) => r.level === 'error')?.message ?? null,
       // What new agents use now: Automatic's pick when no provider was chosen (#474).
-      isDefault: projectDefaultProvider(null, s) === p.id,
+      isDefault: (known || !defaultProviderPending(null, s)) && projectDefaultProvider(null, s) === p.id,
       defaultModel: info.defaultModel ?? null,
       // What the pickers offer: the CLI's own models, else the fallback list in Settings (#125).
       models: modelGroups(p.id, info, s).filter((g) => !g.unavailable).flatMap((g) => g.models.map((m) => ({ value: m.value, label: m.label }))),
@@ -796,7 +798,9 @@ route('POST', '/v1/projects/:name/agents', async ({ params, body }) => {
   const project = basename(p)
   return assistantChange('agents', `add an agent to ${project}`, async () => {
     const set = agentSettings(body)
-    const provider = set.provider ?? projectDefaultProvider((await workspace.projectConfig(p)), config.settings)
+    const cfg = await workspace.projectConfig(p)
+    if (!set.provider && defaultProviderPending(cfg, config.settings)) await providerService.settle()
+    const provider = set.provider ?? projectDefaultProvider(cfg, config.settings)
     if (!isProviderEnabled(config.settings, provider)) throw new HttpError(409, `${PROVIDERS.find((x) => x.id === provider)?.name ?? provider} is turned off in Settings → Providers.`)
     const def = await addAgent(p, {
       name: body?.name ? String(body.name) : undefined,
