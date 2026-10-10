@@ -6,6 +6,7 @@ import type { BrowserWindow } from 'electron'
 import chokidar, { type FSWatcher } from 'chokidar'
 import { ASSISTANT_DIR, ASSISTANT_NAME, PERSONAS_DIR, assistantProjectConfig } from '../shared/assistant'
 import { DEFAULT_PROJECT_CONFIG, DEFAULT_WORKSPACE_CONFIG, HIVE_DIR, mergeDefaults, migrateProjectConfig, projectAgents, withLegacyProjectFields, withoutSkillSwitches } from '../shared/defaults'
+import { LANE_MAX_ROUNDS, LOOP_WAIT_MAX_HOURS } from '../shared/lanes'
 import type { AgentDef, AgentInfo, HiddenProject, HiveEvent, KeptUsage, LiveSessionState, ProjectConfig, ProjectInfo, RemovedData, SessionRecord, WorkspaceConfig, WorkspaceInfo, WorkspaceMoved } from '../shared/types'
 import { config } from './config'
 import { emit, emitTo } from './events'
@@ -317,6 +318,20 @@ export class WorkspaceService {
   hiddenProjects(): (HiddenProject & { present: boolean })[] {
     if (!this.path) return []
     return (this.wsConfig.hiddenProjects ?? []).map((h) => ({ ...h, present: existsSync(join(this.path!, h.name)) }))
+  }
+
+  /**
+   * Sets the workspace's card-loop rounds and wait in hours (#412, Settings → Workspace): a value given replaces its own,
+   * one left out stays. Saved in workspace.json; the window hears of it as a workspace change.
+   */
+  async setLoops(patch: { rounds?: number; waitHours?: number }): Promise<void> {
+    if (!this.path) throw new Error('No workspace is open')
+    const whole = (v: unknown, max: number): boolean => v === undefined || (typeof v === 'number' && Number.isInteger(v) && v >= 1 && v <= max)
+    if (!whole(patch.rounds, LANE_MAX_ROUNDS)) throw new Error(`Card loop rounds take a whole number from 1 to ${LANE_MAX_ROUNDS}.`)
+    if (!whole(patch.waitHours, LOOP_WAIT_MAX_HOURS)) throw new Error(`Card loop wait takes a whole number of hours from 1 to ${LOOP_WAIT_MAX_HOURS}.`)
+    this.wsConfig.loops = { ...this.wsConfig.loops, ...(patch.rounds !== undefined ? { rounds: patch.rounds } : {}), ...(patch.waitHours !== undefined ? { waitHours: patch.waitHours } : {}) }
+    await this.saveWorkspaceConfig()
+    this.scheduleRefresh()
   }
 
   /** Leaves a project folder out of the workspace (mode says how), or takes it back (null). */

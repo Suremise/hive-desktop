@@ -14,16 +14,20 @@ Two agents take the same cards in turn: the **builder** does each card and sends
 From the user's request:
 - **role**: `builder` or `reviewer`;
 - **cards**: the numbers, in the order given (one at a time, never ahead);
-- **rounds**: how many rounds a card gets before you ask the user (default 5; "rounds: 10"). A round is one build and its review (below);
-- **wait**: how long with no change before you tell the user (default 2 hours; "wait: 4h");
+- **rounds**: how many rounds a card gets before you ask the user ("rounds: 10"). A round is one build and its review (below);
+- **wait**: how long with no change before you tell the user ("wait: 4h");
+
+Rounds or wait the request doesn't give are the project's settings (Card loops: 10 rounds and 6 hours unless the user changed them): the lane's reply below says them.
 
 Ask if the role or the cards aren't clear.
 
 ## The lane
 
 Hive keeps a record of the loop, its **lane**, and shows it to the user. Register it as you start, with `hive_lane`:
-- builder: `action: "start"`, the cards in order, `reviewer` (its name), `rounds`, `waitMinutes`;
+- builder: `action: "start"`, the cards in order, `reviewer` (its name), and `rounds` and `waitMinutes` only if the request gave them;
 - reviewer: `action: "join"`, `builder` (its name) and the cards.
+
+Its reply gives the lane's rounds and wait: use them where your request gave none. Without a lane, 10 rounds and 6 hours.
 
 Hive follows the board from there and ends the lane when its cards are Done. If the cards change mid-loop (one added, the order changed), the builder starts it again with the new list. If the user calls the loop off, end the lane with `action: "end"`, `abandoned: true`; stopping to ask the user leaves it as it is. The lane is only a record: if the tool is missing or a call fails, carry on with the loop.
 
@@ -46,9 +50,13 @@ If a wake isn't possible (the tool says so), wait in the call instead: `hive_wai
 
 **Never end a turn in a loop without a watch**, unless the loop is over or you're asking the user. Woken with nothing to do yet (a reviewer whose card isn't back in Review), start the same watch again.
 
+Hive also wakes a loop's agents itself (unless the project turned it off): the reviewer when a card arrives in Review, the builder on a verdict ("[Hive] #12 (B1's card) is in Review. You review this card in its loop…"). Act on it as on your watch's wake. Watches are still how you wait: where yours tells you of the change, Hive's own wake isn't typed.
+
 **Another agent's card** (one your card depends on): its wake names whose card it is ("[Hive] #12 (Claude's card) is in Passed…"). It tells you that card changed, not yours: read it, then carry on with your card, or watch again. **Passed means it passed review, not that it's merged**; Done means merged. When your card needs another one merged, check it is in Done or main has it (e.g. `git merge-base --is-ancestor <its commit> main`), or ask the user, before going on.
 
-**A card that left your watch** ("[Hive] #12 was reassigned to …", "… is reviewed by …" or "… is blocked …", "your watch on it ended"): it isn't yours to wait for any more. Drop it from your list and carry on with your next card, without asking.
+**A card that left your watch** ("[Hive] #12 was reassigned to …" or "… is reviewed by …", "your watch on it ended"): it isn't yours to wait for any more. Drop it from your list and carry on with your next card, without asking.
+
+**A blocked card is paused, not gone**: it stays on your list and your watch on it carries on. Don't take the next card meanwhile (the other side can't either): the builder asks the user (below), and once it's unblocked and back in Review the reviewer's watch wakes it as usual.
 
 ## Builder
 

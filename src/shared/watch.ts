@@ -345,6 +345,21 @@ const shortName = (name: string): string => {
 export const WAKE_MAX_BYTES = 1000
 const jsonBytes = (s: string): number => new TextEncoder().encode(JSON.stringify(s)).length
 
+/**
+ * What the Assistant's card wake ends with while lanes are running (#402): its watch has ended, and the lanes still need
+ * one. Kept whole: the rest of the line is cut to make room.
+ */
+export const LANES_RUNNING_TAIL = ' Lanes are still running (hive_lane list): before you end your turn, watch them all again in one watch, each lane by its last card (run-lanes).'
+export function withLanesTail(line: string, max = WAKE_MAX_BYTES): string {
+  if (line.endsWith(LANES_RUNNING_TAIL)) return line
+  let s = line
+  if (jsonBytes(s + LANES_RUNNING_TAIL) > max) {
+    while (s && jsonBytes(`${s}…${LANES_RUNNING_TAIL}`) > max) s = s.slice(0, -1)
+    s = `${s}…`
+  }
+  return s + LANES_RUNNING_TAIL
+}
+
 const firstLine = (text: string, max = 160): string => {
   const line = text.split('\n').map((l) => l.trim()).find(Boolean) ?? ''
   return line.length > max ? `${line.slice(0, max - 1)}…` : line
@@ -366,8 +381,21 @@ const columnWord = (c: TaskColumn | 'gone'): string => (c === 'gone' ? 'gone' : 
  */
 export function wakeLine(change: CardChange, more = 0): string {
   const others = more ? ` (and ${more} more watched card${more === 1 ? '' : 's'} changed)` : ''
+  return lineOf(change, `${others}. Your card watch has ended: carry on (hive_read_task with latestComment for the comment in full).`)
+}
+
+/**
+ * The line of Hive's loop wake (#405), typed with no card watch of the agent's: a card arrived in Review for its
+ * reviewer (`review`), or its review's verdict for its builder (`verdict`). Worded as a card watch's line, so the
+ * card-loop skill reads it the same way.
+ */
+export function loopWakeLine(change: CardChange, kind: 'review' | 'verdict'): string {
+  const who = kind === 'review' ? "You review this card in its loop: carry on with it" : 'This is your card in its loop: carry on'
+  return lineOf(change, `. ${who} (hive_read_task with latestComment for the comment in full).`)
+}
+
+function lineOf(change: CardChange, tail: string): string {
   const head = `[Hive] #${change.number}${whereNow(change)}`
-  const tail = `${others}. Your card watch has ended: carry on (hive_read_task with latestComment for the comment in full).`
   if (!change.comment) return head + tail
   // The card, its state and what to do always fit (names are short); the comment's first line gives way, cut with "…".
   const by = shortName(change.comment.by)
@@ -485,8 +513,9 @@ export function cardWakeLine(changes: CardChange[], replies: ReplyNote[], releas
 }
 
 /**
- * A card that left a watch because the watcher's part in it ended (#420): reassigned to another agent, reviewed by
- * another, or blocked. Its agent's or reviewer's name now, or the reason it is blocked.
+ * A card that left a watch because the watcher's part in it ended (#420): reassigned to another agent, or reviewed by
+ * another. Its agent's or reviewer's name now. 'blocked' is only in watches saved before #481: a blocked card is paused,
+ * and stays in the watch now.
  */
 export interface Released {
   number: number
@@ -516,7 +545,7 @@ export function releasedLine(released: Released[]): string {
     const line = `[Hive] ${released.map((r) => releasedPart(r, full)).join('; ')}${tail}`
     if (jsonBytes(line) <= WAKE_MAX_BYTES) return line
   }
-  return `[Hive] ${cards(released.map((r) => r.number))} left your watch (reassigned or blocked)${tail}`
+  return `[Hive] ${cards(released.map((r) => r.number))} left your watch (reassigned, or reviewed by another)${tail}`
 }
 
 /** The line Hive types when a watch's overall limit passes with no change. */
@@ -530,7 +559,7 @@ export function limitLine(cond: WatchCondition, minutes: number, released: Relea
     const line = `[Hive] ${released.map((r) => releasedPart(r, full)).join('; ')}${tail}`
     if (jsonBytes(line) <= WAKE_MAX_BYTES) return line
   }
-  return `[Hive] ${cards(released.map((r) => r.number))} left your watch (reassigned or blocked)${tail}`
+  return `[Hive] ${cards(released.map((r) => r.number))} left your watch (reassigned, or reviewed by another)${tail}`
 }
 
 const cards = (ns: number[]): string => ns.map((n) => `#${n}`).join(', ')
