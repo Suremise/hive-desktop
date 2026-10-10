@@ -216,7 +216,9 @@ same code while every required check still runs:
 them, or when the change is to Hive's side of every CLI (`REAL_TIER` in `affected.mjs`: `sessions.ts`, the providers,
 `providerService`, the terminal host, hook status, transcripts, `lib.cjs`) or to code no area names; a provider's own
 adapter (`src/main/providers/claude/`, `codex/`) picks only its real suites. Add an area to `affected.mjs` when you add a
-suite or a source file; `tests/e2esuites.test.ts` checks every suite and source file is covered.
+suite or a source file; `tests/e2esuites.test.ts` checks every suite and source file is covered. What only the unit
+tests use (`tests/*.test.ts` and their helpers in `tests/`, `vitest.config.ts`, CI's workflow: `UNIT_ONLY`) selects no
+suite, so an e2e suite or scenario must never load a `.ts` helper from `tests/` (the unit test fails if one does).
 
 **Progress in Hive.** Run from an agent's session in Hive, the runner shows in that Hive's Progress panel: **e2e: N
 suites**, a step per suite, and the time left from how long each suite took before (kept in
