@@ -52,6 +52,7 @@ import { abandonWindowStorage } from './storage'
 import { agentTokenFile } from './agentTokens'
 import { progress, setTaskbarTestHook, startProgress } from './progressService'
 import { startMergeSlots } from './mergeSlotHost'
+import { startLanes } from './lanes'
 import { checkInstallDir } from './installDir'
 
 const log = createLogger('main')
@@ -785,6 +786,7 @@ app.whenReady().then(async () => {
   // Long runs agents report (the Progress panel): stale runs, and the setting.
   startProgress()
   startMergeSlots()
+  startLanes()
   // Test builds can record the taskbar's progress calls, which the page can't see.
   if (!app.isPackaged && process.env.HIVE_TEST_TASKBAR_LOG) {
     const file = process.env.HIVE_TEST_TASKBAR_LOG

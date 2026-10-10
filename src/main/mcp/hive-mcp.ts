@@ -18,7 +18,8 @@ import { AGENT_WAIT_MAX_SECONDS, WAIT_MAX_SECONDS } from '../../shared/watch'
 import { CLAIM_WAIT_MAX_SECONDS, CLAIM_WAIT_SECONDS } from '../../shared/mergeSlot'
 import { agentApiCall } from './agentApiCall'
 import { MAX_ROWS, agentWatchText, batchText, changedText, claimText, createdText, mergeSlotText, noteText, notesListText, noteWrittenText, projectListText, releaseText, reorderText, settingChangedText, settingListText, settingText, skillListText, taskListText, taskWaitText, type NoteEntry, type ProjectRow, type SettingDetail, type SettingRow, type SkillRow, type TaskBatch, type TaskChange, type TaskReorder, type TaskRow } from '../../shared/toolReplies'
-import type { MergeSlotInfo } from '../../shared/types'
+import type { LaneInfo, MergeSlotInfo } from '../../shared/types'
+import { laneChangeText, laneEndText, lanesText, type LaneChange } from '../../shared/lanes'
 
 const VERSION = '1.0.0'
 const API = (process.env.HIVE_API_URL || 'http://127.0.0.1:47821').replace(/\/$/, '')
@@ -393,6 +394,43 @@ const tools: Tool[] = [
       if (a.action === 'release') return releaseText((await api('POST', `${base}/release`, branch)) as Parameters<typeof releaseText>[0])
       if (a.action !== 'claim') throw new Error('action must be claim, release or status')
       return claimText((await api('POST', `${base}/claim`, { ...branch, ...(a.cards !== undefined ? { cards: a.cards } : {}), ...(a.timeoutSeconds !== undefined ? { timeoutSeconds: a.timeoutSeconds } : {}) }, waitReplyMs(a.timeoutSeconds, CLAIM_WAIT_SECONDS, CLAIM_WAIT_MAX_SECONDS))) as Parameters<typeof claimText>[0], Date.now())
+    }
+  },
+  {
+    name: 'hive_lane',
+    description: ASSISTANT
+      ? "Lanes: Hive's record of a builder and reviewer taking a project's cards in order (card-loop), shown to the user. Bookkeeping: a loop runs the same without one. start: project, builder, reviewer, cards in order, rounds, waitMinutes, name (the builder's running lane with any of these cards is updated instead). end: lane (its id), mergeCommit, or abandoned=true unmerged. list: running and lately ended lanes (project narrows, all=true every one kept). Replies with each lane in a line: its agents, state (active, paused while its current card is blocked, ended, abandoned), cards and id."
+      : "Your card loop's lane: Hive's record of a builder and reviewer taking cards in order, shown to the user. Bookkeeping: if a call fails, carry on with the loop. start (the builder): cards in order, reviewer, rounds, waitMinutes, name; again with a changed list updates it. join (the reviewer): builder (its name), and cards if it hasn't started one yet. end: lane (its id), mergeCommit after the merge, or abandoned=true. list: your project's lanes. Replies with the lane in a line: its agents, state, cards and id.",
+    inputSchema: {
+      type: 'object',
+      properties: {
+        action: { type: 'string', enum: ['start', 'join', 'end', 'list'] },
+        cards: cardsArg('Card numbers, in the order they are done.'),
+        ...(ASSISTANT ? { project: { type: 'string' }, builder: { type: 'string', description: 'Agent name or id.' } } : { builder: { type: 'string', description: "join: the builder's name." } }),
+        reviewer: { type: 'string', description: 'Agent name or id.' },
+        rounds: { type: 'number' },
+        waitMinutes: { type: 'number' },
+        name: { type: 'string', description: 'A short label for the lane.' },
+        lane: { type: 'string', description: 'end: the lane id.' },
+        mergeCommit: { type: 'string' },
+        abandoned: { type: 'boolean' },
+        all: { type: 'boolean' }
+      },
+      required: ['action']
+    },
+    run: async (a) => {
+      const pick = (keys: string[]): Record<string, unknown> => Object.fromEntries(keys.filter((k) => a[k] !== undefined).map((k) => [k, a[k]]))
+      if (a.action === 'list') {
+        const q = [a.project ? `project=${enc(a.project)}` : '', a.all ? 'all=true' : ''].filter(Boolean).join('&')
+        return lanesText((await api('GET', `/v1/lanes${q ? `?${q}` : ''}`)) as LaneInfo[], !!a.all)
+      }
+      // An agent's lane is its project's, with itself as the builder (start) or the reviewer (join).
+      const me = ASSISTANT ? {} : { project: PROJECT, ...(process.env.HIVE_AGENT_ID ? { [a.action === 'join' ? 'reviewer' : 'builder']: process.env.HIVE_AGENT_ID } : {}) }
+      if (a.action === 'start') return laneChangeText((await api('POST', '/v1/lanes', { ...pick(['project', 'builder', 'reviewer', 'cards', 'rounds', 'waitMinutes', 'name']), ...me })) as LaneChange)
+      if (a.action === 'join') return laneChangeText((await api('POST', '/v1/lanes/join', { ...pick(['project', 'builder', 'cards']), ...me })) as LaneChange)
+      if (a.action !== 'end') throw new Error('action must be start, join, end or list')
+      if (typeof a.lane !== 'string' || !a.lane) throw new Error('lane is required: the id hive_lane list gives')
+      return laneEndText((await api('POST', `/v1/lanes/${enc(a.lane)}/end`, pick(['mergeCommit', 'abandoned']))) as LaneInfo)
     }
   },
   {
