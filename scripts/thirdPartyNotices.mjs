@@ -30,7 +30,8 @@ const licenceFiles = (dir) =>
     .sort()
     .map((f) => ({ file: f, text: licenceText(readFileSync(join(dir, f), 'utf8')) }))
 
-// What ships that isn't an npm package (#185): the installer's and uninstaller's NSIS parts and plug-ins, and Elevate.
+// What ships that isn't an npm package (#185): the installer's and uninstaller's NSIS parts and plug-ins. (Elevate,
+// electron-builder's elevate.exe, isn't shipped since #385: electron-builder.yml packElevateHelper.)
 // Their notices, as the components give them (or as their published pages state), are kept in scripts/notices.
 const COMPONENTS = [
   { title: 'NSIS (the installer and uninstaller)', intro: 'NSIS 3.0.4.1 and the `System.dll`, `nsDialogs.dll` and `nsExec.dll` plug-ins that come with it. Its licence file:', file: 'nsis.txt' },
@@ -38,8 +39,7 @@ const COMPONENTS = [
   { title: 'StdUtils plug-in (the installer and uninstaller)', intro: '`StdUtils.dll` 1.1.4.0, by LoRd_MuldeR. Its notice:', file: 'stdutils.txt' },
   { title: 'UAC plug-in (the installer and uninstaller)', intro: '`UAC.dll`, by Anders (https://nsis.sourceforge.io/UAC_plug-in, with its source). Its licence, as included with it:', file: 'uac.txt' },
   { title: 'WinShell plug-in (the installer and uninstaller)', file: 'winshell.txt' },
-  { title: 'Elevate (`resources/elevate.exe`)', file: 'elevate.txt' },
-  { title: 'GNU Lesser General Public License, version 2.1', intro: 'The licence of the Nsis7z and StdUtils plug-ins and of Elevate, above:', file: 'lgpl-2.1.txt' }
+  { title: 'GNU Lesser General Public License, version 2.1', intro: 'The licence of the Nsis7z and StdUtils plug-ins, above:', file: 'lgpl-2.1.txt' }
 ]
 
 /**
@@ -91,9 +91,7 @@ export function generateNotices(root, noticesDir = join(root, 'scripts', 'notice
     '- The UAC plug-in (`UAC.dll`) by Anders, zlib licence: https://nsis.sourceforge.io/UAC_plug-in.',
     '- The WinShell plug-in (`WinShell.dll`) by Anders, published as freeware: https://nsis.sourceforge.io/WinShell_plug-in.',
     '',
-    'The installed app also includes Elevate (`resources/elevate.exe`, version 1.0.0.2894) by Johannes Passing, unmodified, which the installer builder (electron-builder) includes for updates that need administrator rights. Its repository (https://github.com/jpassing/elevate) declares the MIT licence in `LICENSE.md` and the GNU LGPL 2.1 or later in its source; both are reproduced below.',
-    '',
-    'The notices of these installer components and of Elevate are under "Installer and other components" at the end of this file.',
+    'The notices of these installer components are under "Installer and other components" at the end of this file.',
     '',
     'Where a package offers a choice of licences, its entry says which one Hive uses.',
     '',
@@ -114,7 +112,7 @@ export function generateNotices(root, noticesDir = join(root, 'scripts', 'notice
     for (const f of files) out.push(...(files.length > 1 ? [`*${f.file}*`, ''] : []), '```text', f.text, '```', '')
   }
 
-  out.push('# Installer and other components', '', 'Not npm packages: the parts of the installer and uninstaller listed at the top of this file, and Elevate.', '')
+  out.push('# Installer and other components', '', 'Not npm packages: the parts of the installer and uninstaller listed at the top of this file.', '')
   for (const c of COMPONENTS) {
     out.push(`## ${c.title}`, '', ...(c.intro ? [c.intro, ''] : []), '```text', licenceText(readFileSync(join(noticesDir, c.file), 'utf8')), '```', '')
   }
