@@ -51,6 +51,8 @@ The checks are positive and negative:
   waiting reviewer is woken. A builder woken by one card passing while the other failed at the same moment acts on the
   failed one too. A builder starting a loop registers its lane (the cards in order, its reviewer, rounds and wait) before
   its first card's review; a reviewer joins its builder's lane by name, starting none of its own (#483).
+  A reviewer whose card its builder blocks while it waits (to ask the user) keeps watching it rather than moving on, and
+  reviews it when Hive wakes it once the card is unblocked and back in Review (#481).
 - **With `work-on-card` deleted**, the board rules still hold, and **an edited skill** is the one followed.
 - **The Assistant**:
   - at Look and advise, changes nothing;

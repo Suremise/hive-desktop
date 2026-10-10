@@ -36,6 +36,29 @@ Codex run.
 
 Every scenario ran once per provider. Models vary from run to run, so a single result is a sample, not a rate.
 
+## A blocked card stays in its loop: fakes, Codex (its default model), fixtures v32, 10 October 2026
+
+#481 (Darren's decision: a blocked card stays in its lane, paused; the reviewer never drops it): a card that becomes
+blocked no longer leaves an agent's watch (#420 released it, so on #468 the reviewer dropped a card its builder had
+blocked to ask a question, and nobody reviewed it when it came back). card-loop says a blocked card is paused, not gone:
+the loop doesn't take the next card meanwhile. Fixtures v32 add **card-loop-blocked**, #468 replayed: the reviewer has
+just failed #1 and waits for its next round; once it is watching, its builder blocks #1 to ask the user, 15 s later
+unblocks it and returns it to Review; nobody prompts the reviewer, and it must review #1 (woken by Hive) without moving
+on to #2. The harness gained `fakeWakes` (the fake Claude Code's answer to a wake) and `fakeSkips(provider)`.
+- **Fakes** (baselines `hb1-481-before-v32`, the v32 fixtures on the old watch code and skill, and `hb1-481-after-v32`;
+  results `2026-10-10T04-32-47-fake` and `2026-10-10T05-01-38-fake`): before, card-loop-blocked **fails** as #468 did
+  (the block ends the watch, "Ended Coder (alpha)'s watch on it: the card is blocked", and the returned card is never
+  reviewed); after, all 64 pass. Performance → Compare: comparable, 63 **No change**, card-loop-blocked incomplete (its
+  before sample timed out).
+- **Codex, on the old code: card-loop-blocked fails** (`2026-10-10T04-56-06-codex`, $0.051): released by the block, the
+  reviewer moved on to #2 and never reviewed #1.
+- **Codex, with #481: 2 of 2 pass** (`2026-10-10T05-19-49-codex`, $0.15): card-loop-blocked reviewed #1 once Hive woke
+  it, without moving on first; card-loop-released still drops a reassigned card and goes on. Under v31 (the scenario
+  without the block mid-watch) card-loop-rounds and card-loop-recurring-review passed with it too
+  (`2026-10-10T03-49-51-codex`).
+- **Claude Code (sonnet)**: not run: its test home isn't signed in (`2026-10-10T05-22-30-claude-code`, skipped for the
+  environment).
+
 ## A bulk board change is one change: fakes, Codex (`gpt-5.6-luna`), Claude Code (sonnet), fixtures v29, 9 October 2026
 
 #488 (Darren's decision): the Assistant's `hive_update_tasks` counts as one of its 30 changes for a message, however

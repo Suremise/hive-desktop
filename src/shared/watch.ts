@@ -485,8 +485,9 @@ export function cardWakeLine(changes: CardChange[], replies: ReplyNote[], releas
 }
 
 /**
- * A card that left a watch because the watcher's part in it ended (#420): reassigned to another agent, reviewed by
- * another, or blocked. Its agent's or reviewer's name now, or the reason it is blocked.
+ * A card that left a watch because the watcher's part in it ended (#420): reassigned to another agent, or reviewed by
+ * another. Its agent's or reviewer's name now. 'blocked' is only in watches saved before #481: a blocked card is paused,
+ * and stays in the watch now.
  */
 export interface Released {
   number: number
@@ -516,7 +517,7 @@ export function releasedLine(released: Released[]): string {
     const line = `[Hive] ${released.map((r) => releasedPart(r, full)).join('; ')}${tail}`
     if (jsonBytes(line) <= WAKE_MAX_BYTES) return line
   }
-  return `[Hive] ${cards(released.map((r) => r.number))} left your watch (reassigned or blocked)${tail}`
+  return `[Hive] ${cards(released.map((r) => r.number))} left your watch (reassigned, or reviewed by another)${tail}`
 }
 
 /** The line Hive types when a watch's overall limit passes with no change. */
@@ -530,7 +531,7 @@ export function limitLine(cond: WatchCondition, minutes: number, released: Relea
     const line = `[Hive] ${released.map((r) => releasedPart(r, full)).join('; ')}${tail}`
     if (jsonBytes(line) <= WAKE_MAX_BYTES) return line
   }
-  return `[Hive] ${cards(released.map((r) => r.number))} left your watch (reassigned or blocked)${tail}`
+  return `[Hive] ${cards(released.map((r) => r.number))} left your watch (reassigned, or reviewed by another)${tail}`
 }
 
 const cards = (ns: number[]): string => ns.map((n) => `#${n}`).join(', ')

@@ -77,7 +77,7 @@ interface WatchRecord {
   replySeq?: number
   /**
    * A project agent's part in each watched card as the watch began (#420): its agent, its reviewer, or a reviewer
-   * waiting for it to arrive in Review ("awaiting"), and whether it was blocked (as last seen). A card it has no part in
+   * waiting for it to arrive in Review ("awaiting"). A card it has no part in
    * (another agent's card it depends on) isn't here, and is never released. The watcher's board name, for the history.
    */
   on?: Record<string, OnCard>
@@ -183,7 +183,6 @@ function fitLine(line: string): string {
 /** A watcher's part in a card (#420). */
 interface OnCard {
   role: 'agent' | 'reviewer' | 'awaiting'
-  blocked: boolean
 }
 
 /** The watches of each open workspace, loaded on first need (by its path, case-folded). */
@@ -406,9 +405,10 @@ function readRecord(v: unknown): WatchRecord | null {
   if (r.on !== undefined) {
     if (!r.on || typeof r.on !== 'object' || Array.isArray(r.on)) return null
     on = {}
-    for (const [k, part] of Object.entries(r.on as Record<string, { role?: unknown; blocked?: unknown }>)) {
-      if (!cond.cards.includes(Number(k)) || !part || !['agent', 'reviewer', 'awaiting'].includes(part.role as string) || typeof part.blocked !== 'boolean') return null
-      on[k] = { role: part.role as OnCard['role'], blocked: part.blocked }
+    // A watch saved before #481 also kept whether the card was blocked: no longer used.
+    for (const [k, part] of Object.entries(r.on as Record<string, { role?: unknown }>)) {
+      if (!cond.cards.includes(Number(k)) || !part || !['agent', 'reviewer', 'awaiting'].includes(part.role as string)) return null
+      on[k] = { role: part.role as OnCard['role'] }
     }
   }
   if (r.watcherName !== undefined && !text(r.watcherName, 300)) return null
@@ -661,7 +661,8 @@ export async function registerWatch(ws: WorkspaceService, projectPath: string, a
     const marks: Record<string, CardMark> = {}
     const seen: Record<string, Seen> = {}
     const now: Record<string, CardMark> = {}
-    // A project agent's part in each card (#420): what ends its watch on one when the card is reassigned or blocked.
+    // A project agent's part in each card (#420): what ends its watch on one when the card is reassigned. A
+    // blocked card stays (#481): it is paused, not gone, and the watch carries on until it moves again.
     const on: Record<string, OnCard> = {}
     let already: CardChange | null = null
     for (const n of cond.cards) {
@@ -669,7 +670,7 @@ export async function registerWatch(ws: WorkspaceService, projectPath: string, a
       await testHooks.afterRead?.()
       if (!card) throw unknownTask(n)
       const role = scope === null ? null : card.agent === agentId ? 'agent' : card.review?.agent === agentId ? 'reviewer' : cond.column === 'review' ? 'awaiting' : null
-      if (role) on[n] = { role, blocked: !!card.blocked }
+      if (role) on[n] = { role }
       const mark = markOf(card)
       if (alreadyThere(mark, cond)) {
         already = cardChange(n, card, ['column'])
@@ -1069,7 +1070,7 @@ async function deliver(store: Store, rec: WatchRecord): Promise<void> {
       // Told as the cards are now, every change since the watch began (#224): one that landed after the line was made
       // is in it too, and a card that has left the agent's view is told as gone.
       const r = await check(store, rec)
-      // A card released since the line was made (#420: reassigned or blocked before it was typed) is told as released,
+      // A card released since the line was made (#420: reassigned before it was typed) is told as released,
       // not as the change that fired it.
       let left = rec.cond.cards.length
       if (r.released.length) {
@@ -1303,20 +1304,14 @@ async function check(store: Store, rec: WatchRecord, cards?: CardReads): Promise
 
 /**
  * Whether a watched card leaves the watch because the watcher's part in it ended (#420): the card was given to another
- * agent (or none) when the watcher had it; another agent reviews it when the watcher reviewed it, or waited for it to
- * arrive in Review; or it became blocked (also by the watcher itself). Null: it stays. A card that is gone is told as
- * gone, as before. What it was last seen as is kept (an unblocked card blocked again releases it).
+ * agent (or none) when the watcher had it; or another agent reviews it when the watcher reviewed it, or waited for it
+ * to arrive in Review. Null: it stays. A card that is gone is told as gone, as before. A blocked card stays too (#481):
+ * it is paused, not gone, and its loop waits for it (a reviewer that moved on deadlocked with its builder).
  */
 function releaseOf(rec: WatchRecord, n: number, card: TaskCard | null): Released | null {
   const on = rec.on?.[n]
   if (!on || !card || card.archived) return null
   const me = rec.agentId
-  if (card.blocked && !on.blocked) {
-    // Also when the watcher blocked it itself (it asked the user): its loop moves on meanwhile.
-    on.blocked = true
-    return { number: n, why: 'blocked', detail: card.blocked }
-  }
-  if (!card.blocked) on.blocked = false
   const reviewer = card.review && card.review.agent !== me ? card.review.agentName || card.review.agent : null
   if (on.role === 'agent' && card.agent !== me) return { number: n, why: 'reassigned', detail: card.agentName ?? card.agent ?? null }
   if ((on.role === 'reviewer' || on.role === 'awaiting') && reviewer) return { number: n, why: 'reviewer', detail: reviewer }

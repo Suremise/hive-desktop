@@ -48,7 +48,9 @@ If a wake isn't possible (the tool says so), wait in the call instead: `hive_wai
 
 **Another agent's card** (one your card depends on): its wake names whose card it is ("[Hive] #12 (Claude's card) is in Passed…"). It tells you that card changed, not yours: read it, then carry on with your card, or watch again. **Passed means it passed review, not that it's merged**; Done means merged. When your card needs another one merged, check it is in Done or main has it (e.g. `git merge-base --is-ancestor <its commit> main`), or ask the user, before going on.
 
-**A card that left your watch** ("[Hive] #12 was reassigned to …", "… is reviewed by …" or "… is blocked …", "your watch on it ended"): it isn't yours to wait for any more. Drop it from your list and carry on with your next card, without asking.
+**A card that left your watch** ("[Hive] #12 was reassigned to …" or "… is reviewed by …", "your watch on it ended"): it isn't yours to wait for any more. Drop it from your list and carry on with your next card, without asking.
+
+**A blocked card is paused, not gone**: it stays on your list and your watch on it carries on. Don't take the next card meanwhile (the other side can't either): the builder asks the user (below), and once it's unblocked and back in Review the reviewer's watch wakes it as usual.
 
 ## Builder
 

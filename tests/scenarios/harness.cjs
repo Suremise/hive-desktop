@@ -246,6 +246,8 @@ async function runScenario(sc, providerKey, opts = {}) {
       git: (...a) => execFileSync('git', a, { cwd: alpha, encoding: 'utf8', env: lib.baseEnv() })
     }
     if (sc.setup) await sc.setup(ctx)
+    // What the fake Claude Code does when Hive wakes it (fake-wakes-<agent>.txt, a line per wake): a scenario's next steps.
+    if (providerKey === 'fake' && sc.fakeWakes) fs.writeFileSync(path.join(fakeHome, `fake-wakes-${String(coder.name).replace(/[^\w-]/g, '_')}.txt`), sc.fakeWakes(ctx).join('\n') + '\n')
     const skillNames = fs.existsSync(ctx.skillsDir) ? fs.readdirSync(ctx.skillsDir).filter((d) => !d.startsWith('.')) : []
 
     // Start the session under test, answer a trust question, wait until it's ready, and send the prompt.
@@ -409,7 +411,7 @@ async function runScenario(sc, providerKey, opts = {}) {
     const gotRev = result.guidance?.delivered?.guidance
     result.staleGuidance = !!(startRev && gotRev && startRev !== gotRev)
     result.checks = (sc.expect?.(observed, ctx) ?? []).map(([name, ok, detail]) =>
-      p.fake && (sc.fakeSkips ?? []).includes(name) ? { name, ok: null, skipped: 'fake provider' } : { name, ok: !!ok, ...(ok ? {} : { detail: String(detail ?? '').slice(0, 300) }) }
+      p.fake && (typeof sc.fakeSkips === 'function' ? sc.fakeSkips(providerKey) : (sc.fakeSkips ?? [])).includes(name) ? { name, ok: null, skipped: 'fake provider' } : { name, ok: !!ok, ...(ok ? {} : { detail: String(detail ?? '').slice(0, 300) }) }
     )
     // Kept short in the results (whole tool calls can be large, and must not carry a token).
     const short = (v) => tokens.reduce((x, t) => x.split(t).join('<token>'), String(v)).slice(0, 400)

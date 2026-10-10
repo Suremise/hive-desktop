@@ -7,7 +7,7 @@
 // commands: those runs check the harness, the board rules and Hive's own costs (benchmarks) for free. The real CLIs are the model trials (opt-in, see README.md).
 //
 // Fixture version: bump when a scenario's setup or checks change, so results can be compared across versions.
-const FIXTURES_VERSION = 30
+const FIXTURES_VERSION = 32
 
 /** The subject's hive tool calls that the server ran, by tool (each has ok, error and args). */
 const called = (o, tool) => o.hiveCalls.filter((c) => c.tool === tool)
@@ -1258,6 +1258,73 @@ module.exports.SCENARIOS = [
         ["didn't stop to ask the user", called(o, 'hive_notify').length === 0]
       ]
     }
+  },
+  {
+    id: 'card-loop-blocked',
+    title: "A reviewer in a card loop whose card its builder blocks to ask the user while it waits (#468, #481): keeps waiting rather than moving on, and reviews it once it is unblocked and back in Review, woken by Hive alone",
+    role: 'agent',
+    async setup(c) {
+      const a = await c.card('a', {
+        title: 'Retry the upload',
+        description: 'Retry a failed upload once.',
+        agent: 'implementer',
+        column: 'doing',
+        comments: ['Done: one retry. Ready for review.', 'Review round 1: FAILED. 1. The retry ignores the server’s Retry-After.']
+      })
+      giveVerdict(c, a, 'failed', 'Coder (alpha)')
+      await c.card('b', { title: 'Show upload progress', description: 'Show a progress bar while uploading.', agent: 'implementer' })
+    },
+    // As on #468: once the reviewer has ended its turn watching for the next round, its builder blocks the card to ask
+    // the user; 15 s later (answered) it clears the block, fixes it and returns it to Review. Nobody prompts the
+    // reviewer: only Hive's wake from its own watch brings it back (before #481 the block ended that watch).
+    async during(c, status) {
+      if (c.returnedAt || !['watching', 'ready', 'finished'].includes(status)) return
+      if (!c.blockedAt) {
+        if (status !== 'watching') return
+        await c.api('POST', `/v1/tasks/${c.cards.a}/comments`, { text: 'Asked the user: honour Retry-After up to what limit?' })
+        await c.inv('tasks:update', c.cards.a, { blocked: 'Asked the user: honour Retry-After up to what limit?' })
+        c.blockedAt = Date.now()
+        return
+      }
+      if (Date.now() - c.blockedAt < 15000) return
+      await c.api('POST', `/v1/tasks/${c.cards.a}/comments`, { text: 'The user answered: up to 60 s. Fixed: the retry waits for Retry-After, capped at 60 s. Ready for review.' })
+      await c.inv('tasks:update', c.cards.a, { blocked: '' })
+      await c.inv('tasks:update', c.cards.a, { column: 'review' })
+      c.returnedAt = Date.now()
+    },
+    // Through the block, then the wake and the review it starts: until a verdict on the card (at most 4 minutes after
+    // its return).
+    async keepWaiting(c) {
+      if (c.blockedAt && !c.returnedAt) return true
+      if (!c.returnedAt || Date.now() - c.returnedAt > 240000) return false
+      const card = (await c.api('GET', `/v1/tasks/${c.cards.a}`)).body
+      return !(card?.history ?? []).some((h) => /^Coder\b/.test(h.by) && /^Review (passed|failed)/.test(h.what) && Date.parse(h.at) > c.returnedAt)
+    },
+    prompt: (c) => `You are the reviewer in a card loop (the card-loop skill): cards #${c.cards.a}, then #${c.cards.b}; rounds 3; wait 1h; your builder is Implementer. You have just failed #${c.cards.a} in round 1 (your verdict is its last comment), and Implementer is fixing it.`,
+    fake: (c) => `skill card-loop then hive hive_wait_for_tasks {"cards":[${c.cards.a}],"column":"review","wake":true}`,
+    // The fake Claude Code's answer to Hive's wake: it reviews the card.
+    fakeWakes: (c) => [`boardreview ${c.cards.a} start then boardreview ${c.cards.a} passed passed`],
+    expect: (o, c) => {
+      const back = c.returnedAt ?? Infinity
+      const by = (h) => /^Coder\b/.test(h.by)
+      const ha = o.cards.a?.history ?? []
+      const verdictAt = Date.parse(ha.find((h) => by(h) && /^Review (passed|failed)/.test(h.what) && Date.parse(h.at) > back)?.at ?? '') || Infinity
+      const waits = ran(o, 'hive_wait_for_tasks')
+      const has = (x, n) => new RegExp(`"cards"\\s*:\\s*\\[[^\\]]*\\b${n}\\b`).test(String(x.args))
+      // A call's time (the fake's are reported when its CLI closes input, so only a model's tell order).
+      const before = (x) => Date.parse(x.at) < verdictAt
+      return [
+        ['read the card-loop skill', read(o, 'card-loop'), o.skillsRead.join(',')],
+        // The builder returns it only once the reviewer ends its turn watching (`during`).
+        [`watched #${c.cards.a} for its return to Review`, waits.some((x) => has(x, c.cards.a) && /"column"\s*:\s*"review"/.test(String(x.args))), waits.map((x) => String(x.args)).join(' | ')],
+        [`the builder returned #${c.cards.a} once the reviewer was watching`, Number.isFinite(back), String(c.returnedAt)],
+        ["reviewed the card after its return, with nobody prompting it (Hive's wake)", ha.some((h) => by(h) && h.what === 'Started reviewing' && Date.parse(h.at) > back), ha.map((h) => `${h.by}: ${h.what}`).join(' | ')],
+        ['gave it a verdict', Number.isFinite(verdictAt), ha.map((h) => `${h.by}: ${h.what}`).join(' | ')],
+        ["didn't move on to the next card before that verdict", !waits.some((x) => before(x) && has(x, c.cards.b) && !has(x, c.cards.a)) && !ran(o, 'hive_update_task').some((x) => before(x) && field(x.args, 'number', c.cards.b)), o.hiveCalls.map((x) => `${x.tool}@${x.at}`).join(',')]
+      ]
+    },
+    // Only the fake Claude Code answers a wake (its wake script); the fake Codex can't.
+    fakeSkips: (provider) => (provider === 'fake' ? [] : ["reviewed the card after its return, with nobody prompting it (Hive's wake)", 'gave it a verdict'])
   },
   {
     id: 'assistant-plan',
