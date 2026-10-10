@@ -45,5 +45,8 @@ nsis:
   uninstallerIcon: build/icon.ico
   artifactName: Hive-Setup-${version}.${ext}
   deleteAppDataOnUninstall: false
+  # No resources/elevate.exe (#385): electron-updater only runs it for per-machine installs (or if starting the
+  # installer fails with EACCES), and Hive's per-user installer needs no administrator rights.
+  packElevateHelper: false
   # Gives ALL APPLICATION PACKAGES read access to the install folder (installer.nsh).
   include: build/installer.nsh

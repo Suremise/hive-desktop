@@ -1,5 +1,6 @@
 import { useEffect, useMemo } from 'react'
-import type { LaneInfo } from '@shared/types'
+import { panelOrder } from '@shared/laneBar'
+import type { LaneCard, LaneInfo } from '@shared/types'
 import { call } from './api'
 import { set, useStore } from './store'
 
@@ -19,8 +20,12 @@ export interface Lane {
   name: string | null
   /** Its cards' numbers, in the order they are worked. The panel reads each card from the board itself, as it is now. */
   cards: number[]
-  /** paused: a card is blocked on the user; ended: merged; abandoned: an agent was removed, or it was given up. */
+  /** paused: it waits for the user (a blocked card, nothing else worked); ended: merged; abandoned: an agent was removed, or it was given up. */
   state: LaneInfo['state']
+  /** Ended or abandoned: its cards as it left them (#512), never the board's now. */
+  frozen: LaneCard[] | null
+  startedAt: string
+  endedAt: string | null
 }
 
 const NO_LANES: Lane[] = []
@@ -28,7 +33,10 @@ const NO_INFO: LaneInfo[] = []
 
 const folderName = (p: string): string => p.split(/[\\/]/).filter(Boolean).pop()?.toLowerCase() ?? ''
 
-/** This window's lanes, loaded when its workspace changes (events keep them current), in the workspace's projects. */
+/**
+ * This window's lanes, loaded when its workspace changes (events keep them current), in the workspace's projects, in the
+ * panel's order (running first, panelOrder).
+ */
 export function useLanes(): Lane[] {
   const ws = useStore((s) => s.workspace?.path)
   useEffect(() => {
@@ -48,8 +56,9 @@ export function useLanes(): Lane[] {
     const who = (a: { id: string; name: string }): Lane['builder'] => ({ agentId: a.id, name: a.name })
     const lanes = raw.flatMap((d): Lane[] => {
       const project = pathOf.get(d.project.toLowerCase())
-      return project ? [{ id: d.id, project, builder: who(d.builder), reviewer: d.reviewer ? who(d.reviewer) : null, name: d.name, cards: d.cards.map((c) => c.number), state: d.state }] : []
+      const frozen = d.state === 'ended' || d.state === 'abandoned' ? d.cards : null
+      return project ? [{ id: d.id, project, builder: who(d.builder), reviewer: d.reviewer ? who(d.reviewer) : null, name: d.name, cards: d.cards.map((c) => c.number), state: d.state, frozen, startedAt: d.startedAt, endedAt: d.endedAt }] : []
     })
-    return lanes.length ? lanes : NO_LANES
+    return lanes.length ? panelOrder(lanes) : NO_LANES
   }, [raw, projects])
 }

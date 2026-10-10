@@ -8,6 +8,7 @@ import type { KeepAwakeSetting } from './keepAwake'
 import type { DateFormat, TimeFormat } from './dates'
 import type { ProjectPref } from './uiPrefs'
 import type { GitTool } from './gitTool'
+import type { AgentLeftovers, LeftoverProcessMode } from './agentProcesses'
 
 export type ThemeSetting = 'dark' | 'light' | 'system'
 /** A coding-agent CLI Hive can run ("claude-code", "codex"). See src/shared/providers.ts. */
@@ -175,6 +176,8 @@ export interface AppSettings {
     mergeStyle: MergeStyle
     /** How long a background task an agent started counts as running if it never reports its end, in minutes. */
     backgroundTaskMinutes: number
+    /** What to do with processes an agent leaves running when it stops: offer to end them, or end them (#507). */
+    leftoverProcesses: LeftoverProcessMode
   }
   board: {
     /** Done cards are archived this many days after they went into Done. 0 never. */
@@ -1791,6 +1794,8 @@ export type HiveEvent =
   | { type: 'session-status'; state: LiveSessionState }
   /** `failure`: the CLI exited before its session started (and nobody stopped it): why, for the agent's pane. */
   | { type: 'session-exit'; projectPath: string; agentId: string; sessionId: string; exitCode: number; failure?: StartFailure }
+  /** What an agent's stopped launches left running changed (#507): found, ended, kept, or ended by themselves (no processes). */
+  | { type: 'agent-leftovers'; leftovers: AgentLeftovers }
   | { type: 'toast'; toast: ToastMessage }
   | { type: 'chime'; projectPath: string; silent?: boolean }
   | { type: 'settings-changed'; settings: AppSettings }
@@ -1846,13 +1851,16 @@ export type HiveEvent =
  */
 export type LaneState = 'active' | 'paused' | 'ended' | 'abandoned'
 
-/** A lane's card as the board has it now. */
+/** A lane's card as the board has it now, or as an ended lane left it (#512). */
 export interface LaneCard {
   number: number
   /** '' when gone. */
   title: string
-  /** gone: archived, deleted or moved to another project. */
-  column: TaskColumn | 'gone'
+  /**
+   * gone: archived, deleted or moved to another project. unrecorded: the lane ended without a record of where its cards
+   * were (it ended before Hive kept one, or the record was damaged): not known, and never the board's now.
+   */
+  column: TaskColumn | 'gone' | 'unrecorded'
   blocked: string | null
   /** The round it is in, or took: 1 + the reviews it has failed. */
   round: number

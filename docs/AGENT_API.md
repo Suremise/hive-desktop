@@ -386,12 +386,13 @@ A **lane** is Hive's record of a card loop: a builder and a reviewer taking a pr
 
 A lane is `{ id, project, name, builder: { id, name }, reviewer, cards, current, state, pausedOn, rounds, waitMinutes, startedBy, startedAt, updatedAt, endedAt, mergeCommit }`:
 - `cards` are in the lane's order, each `{ number, title, column, blocked, round, reviewing }`: `column` is `gone` for a card archived, deleted or moved to another project, and `round` is 1 plus the reviews it has failed.
-- `current` is the first card not in Passed or Done.
+- `current` is the card being worked: the first in Doing that isn't blocked, else the first in Review, else the first not in Passed or Done.
 - `state` is one of:
   - `active`;
-  - `paused` while the current card is blocked (`pausedOn`), back to `active` when it isn't;
+  - `paused` while it waits for the user: its first card not in Passed or Done is blocked and no other card is in Doing or Review (`pausedOn`); back to `active` when that card isn't blocked or another one is worked;
   - `ended` once every card is in Done, or when the builder ends it after its merge;
   - `abandoned` when its builder or reviewer is removed from the project, or it is ended unmerged.
+- An `ended` or `abandoned` lane's `cards` (and `current`) are as they were when it ended, not as the board has them now: another lane may be working those cards. A lane that ended without a record of them (before Hive kept one, or a damaged record) gives each card's `column` as `unrecorded` (not known) and `current` as null.
 - An agent that is stopped keeps its lane: quitting Hive and restarts stop agents too.
 - A builder has one running lane: starting a lane that shares a card with its running one updates that lane (a card added, the order changed, a reviewer given), and one sharing none ends it (`ended` when it has no card left to do, every one Passed, Done or gone, else `abandoned`).
 - Ended lanes are listed until their builder starts another, or for an hour, and kept for a day.

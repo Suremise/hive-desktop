@@ -106,7 +106,8 @@ export const DEFAULT_SETTINGS: AppSettings = {
     fileLocks: 'block',
     worktreeCopy: '.env*',
     mergeStyle: 'merge',
-    backgroundTaskMinutes: 60
+    backgroundTaskMinutes: 60,
+    leftoverProcesses: 'ask'
   },
   board: {
     archiveDoneDays: 14,

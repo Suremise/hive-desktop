@@ -1,5 +1,5 @@
 import { columnLabel } from './tasks'
-import type { TaskCard } from './types'
+import type { LaneCard, LaneState, TaskCard } from './types'
 
 /**
  * A lane in the Progress panel (#484): a segmented bar, one equal-width segment per card in the lane's order, coloured
@@ -7,8 +7,11 @@ import type { TaskCard } from './types'
  * review verdicts), so a lane needs only its cards' numbers.
  */
 
-/** A card's segment: Done, Passed, in Review, in Doing, still to do, or blocked / waiting for the user (On Hold). */
-export type SegmentState = 'done' | 'passed' | 'review' | 'doing' | 'todo' | 'blocked'
+/**
+ * A card's segment: Done, Passed, in Review, in Doing, still to do, or blocked / waiting for the user (On Hold); or, in a
+ * lane that ended without a record of its cards, unrecorded (not known, #512).
+ */
+export type SegmentState = 'done' | 'passed' | 'review' | 'doing' | 'todo' | 'blocked' | 'unrecorded'
 
 export interface CardSegment {
   kind: 'card'
@@ -81,6 +84,59 @@ export function cardSegment(n: number, card: TaskCard | undefined): CardSegment 
   return { kind: 'card', number: n, state, failed, round, label: `#${n} ${card.title} · ${what}` }
 }
 
+/** A lane card's state as the lane last read it (LaneCard): a gone card reads as still to do, as one not on the board. */
+export function laneCardState(c: LaneCard): SegmentState {
+  if (c.column === 'unrecorded') return 'unrecorded'
+  if (c.column === 'done') return 'done'
+  if (c.column === 'passed') return 'passed'
+  if (c.blocked || c.column === 'hold') return 'blocked'
+  if (c.column === 'review') return 'review'
+  if (c.column === 'doing') return 'doing'
+  return 'todo'
+}
+
+/**
+ * A segment as the lane left it when it ended or was abandoned (#512): frozen, so a card another lane works on now never
+ * shows as worked here too. The lane keeps no review verdicts, so a frozen segment marks no failed round.
+ */
+export function frozenSegment(c: LaneCard): CardSegment {
+  const state = laneCardState(c)
+  if (c.column === 'gone') return { kind: 'card', number: c.number, state, failed: false, round: null, label: `#${c.number} · not on the board when the lane ended` }
+  // Ended without a record of its cards: said so, rather than the board's now presented as when it ended.
+  if (c.column === 'unrecorded') return { kind: 'card', number: c.number, state, failed: false, round: null, label: `#${c.number}${c.title ? ` ${c.title}` : ''} · not recorded: the lane ended before Hive kept where its cards were` }
+  const where = c.column === 'hold' ? 'On Hold' : columnLabel(c.column)
+  const inRound = c.column === 'doing' || c.column === 'review'
+  const round = inRound || isFinished(state) ? c.round : null
+  let what = where
+  if (round !== null && inRound) what = `${where}, round ${round}`
+  else if (round !== null && round > 1) what = `${where} in round ${round}`
+  if (c.blocked) what += ` · Blocked: ${c.blocked}`
+  return { kind: 'card', number: c.number, state, failed: false, round, label: `#${c.number} ${c.title} · ${what}, when the lane ended` }
+}
+
+/**
+ * The card a lane is on (#512): the one its builder is building (the first in Doing that isn't blocked), else the first
+ * in Review, else the first still to do. `waiting`: the lane can't go on until the user answers: its first unfinished
+ * card is blocked (or On Hold) and no other is in Doing or Review; that card is then the current one. A builder that
+ * moved on to the next card while a blocked one waits is working, not waiting. `finished` defaults to Passed or Done.
+ */
+export function currentCard(cards: readonly { number: number; state: SegmentState; finished?: boolean }[]): { current: number | null; waiting: boolean } {
+  const open = cards.filter((c) => !(c.finished ?? isFinished(c.state)))
+  if (!open.length) return { current: null, waiting: false }
+  const free = open.filter((c) => c.state !== 'blocked')
+  const worked = free.find((c) => c.state === 'doing') ?? free.find((c) => c.state === 'review')
+  if (open[0].state === 'blocked' && !worked) return { current: open[0].number, waiting: true }
+  return { current: (worked ?? free[0] ?? open[0]).number, waiting: false }
+}
+
+const GROUP: Record<LaneState, number> = { active: 0, paused: 1, ended: 2, abandoned: 2 }
+
+/** The panel's order of lanes (#512): running ones, then paused ones, then ended and abandoned ones; newest first in each. */
+export function panelOrder<T extends { state: LaneState; startedAt: string; endedAt: string | null }>(lanes: readonly T[]): T[] {
+  const at = (l: T): string => (GROUP[l.state] === 2 ? (l.endedAt ?? l.startedAt) : l.startedAt)
+  return [...lanes].sort((a, b) => GROUP[a.state] - GROUP[b.state] || at(b).localeCompare(at(a)))
+}
+
 /** Every card of a lane as a segment, in the lane's order. */
 export function laneCards(numbers: readonly number[], tasks: readonly TaskCard[]): CardSegment[] {
   const byNumber = new Map(tasks.map((t) => [t.number, t]))
@@ -109,7 +165,7 @@ export function fitSegments(cards: CardSegment[], max: number): LaneSegment[] {
   return [...out, ...rest.slice(0, room - 1), { kind: 'more', numbers: more.map((c) => c.number), label: `${more.length} more: ${cardList(more.map((c) => c.number))}` }]
 }
 
-/** A lane's header numbers: its finished cards out of all, and the card it is on (the first unfinished, in order). */
+/** A lane's header numbers: its finished cards out of all, and the card it is on (currentCard). */
 export function laneSummary(cards: CardSegment[]): { finished: number; total: number; current: number | null } {
-  return { finished: cards.filter((c) => isFinished(c.state)).length, total: cards.length, current: cards.find((c) => !isFinished(c.state))?.number ?? null }
+  return { finished: cards.filter((c) => isFinished(c.state)).length, total: cards.length, current: currentCard(cards).current }
 }
