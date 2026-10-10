@@ -44,6 +44,9 @@ export function hiveInstructions(project: string, role: HiveRole = 'agent', prog
     // #476: Hive tracks the folder it gave the session (locks, Changes, merging, card tools); a worktree made here isn't.
     // One the user asks for is theirs (#482).
     "Hive sets your folder: make no git worktree to work in unless the user asks (else ask for an agent with its own). Merge or remove a subagent's worktree before you finish.",
+    // #509: a probe written into a project's .codex stopped every Codex agent's commands there; logs left beside
+    // worktrees outlived them.
+    "Put scratch, probes and logs in a temp folder (as the project's notes say, or your scratchpad), never in or beside a project or worktree, nor in its .codex, .claude or .agents (a stray .codex stops Codex's commands).",
     'Board rules, whatever a skill says, or if it is missing:',
     '- Working on a card: move it to doing first (also when it is back from review), then to review with a comment saying what you did.',
     '- Reviewing a card is not working on it: it stays in review with its agent (hive_update_task review start, then failed, or passed with column passed). If it leaves review meanwhile, your review is over: leave the card where it is (not back to review or on to passed).',

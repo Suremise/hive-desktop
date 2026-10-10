@@ -1,7 +1,8 @@
 import { homedir } from 'os'
+import { app } from 'electron'
 import type { AgentInstallInfo, ModelCatalog, ProviderId, ProviderTask } from '../shared/types'
 import { observedEffortKey } from '../shared/models'
-import { isProviderEnabled, providerSettings, setInstalledCheck } from '../shared/providers'
+import { autoProviderPending, isProviderEnabled, providerSettings, setInstalledCheck } from '../shared/providers'
 import { toSpawnable } from './providers/common'
 import { allProviders, provider } from './providers'
 import type { KeySteps } from './providers/types'
@@ -114,7 +115,49 @@ class ProviderService {
     const was = this.infos.get(id)?.loggedIn
     this.infos.set(id, info)
     emit({ type: 'provider-install', provider: id, info })
+    for (const fn of [...this.changed]) fn()
     if (was === false && info.loggedIn === true) this.signedIn(id)
+  }
+
+  private changed = new Set<() => void>()
+
+  /**
+   * How long a launch or a new agent waits for detection before it is refused (detected, settle). Tests only (unpackaged
+   * builds): HIVE_TEST_DETECT_WAIT_MS shortens it.
+   */
+  detectWaitMs = (!app.isPackaged && Number(process.env.HIVE_TEST_DETECT_WAIT_MS)) || 20_000
+
+  /**
+   * Waits until Hive knows (#506): with no `id`, Automatic's provider (every turned-on provider has answered, found or
+   * missing); with `id`, only that provider's CLI (turned on or not), so a launch of a known provider never waits for
+   * another. True once known; false when it still isn't after detectWaitMs (a CLI that never answers doesn't hold a
+   * launch for ever), and then nothing may be decided from a guess.
+   */
+  async detected(id?: ProviderId): Promise<boolean> {
+    const settled = (): boolean => (id ? !(this.info(id).checking && !this.info(id).found) : !autoProviderPending(config.settings))
+    if (settled()) return true
+    return new Promise<boolean>((resolve) => {
+      const done = (ok: boolean): void => {
+        clearTimeout(timer)
+        this.changed.delete(check)
+        resolve(ok)
+      }
+      const check = (): void => {
+        if (settled()) done(true)
+      }
+      const timer = setTimeout(() => {
+        log.warn(`Still looking for the coding agent CLIs after ${this.detectWaitMs / 1000} s: nothing decided from a guess`)
+        done(false)
+      }, this.detectWaitMs)
+      this.changed.add(check)
+    })
+  }
+
+  /** detected(), refusing when Hive is still looking: what calls it would otherwise commit to a guess (#506). */
+  async settle(id?: ProviderId): Promise<void> {
+    if (await this.detected(id)) return
+    const name = id ? provider(id).descriptor.name : 'the coding agent CLIs'
+    throw new Error(`Hive is still looking for ${name}. Try again in a moment.`)
   }
 
   /**
@@ -140,7 +183,12 @@ class ProviderService {
     const latestWanted = checkLatest ?? (isProviderEnabled(config.settings, id) && providerSettings(config.settings, id).checkUpdatesOnLaunch)
     let next: AgentInstallInfo
     try {
+      // Tests only (unpackaged builds): HIVE_TEST_SLOW_DETECT="claude-code=6000" holds that provider's detection (#506).
+      const slow = app.isPackaged ? 0 : Number((process.env.HIVE_TEST_SLOW_DETECT ?? '').split(',').find((x) => x.startsWith(`${id}=`))?.slice(id.length + 1) ?? 0)
+      if (slow > 0) await new Promise((r) => setTimeout(r, slow))
       const found = await adapter.locate()
+      // Found is known before its version, models and sign-in are: Automatic's pick needs only that (#506).
+      if (found.path && this.refreshes.get(id) === run && !this.info(id).found) this.set(id, { ...this.info(id), found: true, path: found.path })
       const latest = latestWanted ? await adapter.latestVersion() : prev.latestVersion
       // The version this release was tested with, against the installed one (#365).
       const tested = await testedVersion(id)
@@ -299,4 +347,7 @@ class ProviderService {
 export const providerService = new ProviderService()
 
 // Automatic's default provider (#474) follows what this process found.
-setInstalledCheck((id) => providerService.info(id).found)
+setInstalledCheck((id) => {
+  const i = providerService.info(id)
+  return i.found ? true : i.checking ? null : false
+})
