@@ -18,6 +18,9 @@ import { orphanNames } from '../shared/projectIds'
 import { legacyCards, moveOrphanCards, stampCardProjects } from './tasks'
 import { legacyLanes, moveOrphanLanes } from './lanes'
 import { legacyWatches, moveOrphanWatches } from './watches'
+import { adoptHandovers } from './notes'
+import { noteFormerName } from './projectNames'
+import { adoptBenchmarkOwners, benchContext } from './benchmarks'
 
 /**
  * A workspace (or project) moved to another folder (#146). Hive records where each was last opened (`lastPath` in
@@ -351,10 +354,26 @@ export async function repairMove(ws: WorkspaceService, opts: MoveOptions = {}): 
 }
 const repairing = new WeakMap<WorkspaceService, Promise<MoveReport>>()
 
+/**
+ * Gives the handovers and kept comparisons saved under a name a project had (#514) to that project: those under the
+ * names this Repair recorded, and any a Repair before recorded but couldn't give (the record of names keeps them).
+ */
+async function adoptSaved(ws: WorkspaceService, report: MoveReport): Promise<void> {
+  try {
+    await adoptHandovers(ws)
+    await adoptBenchmarkOwners(benchContext(ws))
+  } catch (e) {
+    report.failed.push(`The handovers and kept comparisons saved under a project's earlier name couldn't all be given to it (${e instanceof Error ? e.message : String(e)}). Repair tries again.`)
+  }
+}
+
 async function repairNow(ws: WorkspaceService, opts: MoveOptions): Promise<MoveReport> {
   const report: MoveReport = { done: [], skipped: [], failed: [], complete: false }
   const plan = await movePlan(ws, opts)
   if (!plan || !moveHasWork(plan)) {
+    // What a Repair before couldn't give its project (#514): tried again, and it isn't done until that is.
+    await adoptSaved(ws, report)
+    if (report.failed.length) return report
     if (plan) await recordDone(ws, plan.hosts.map((h) => h.path), true)
     ws.setMoved(null)
     report.skipped.push('Nothing to repair: everything already points to where the workspace is now.')
@@ -441,6 +460,11 @@ async function repairNow(ws: WorkspaceService, opts: MoveOptions): Promise<MoveR
   // Its lanes and its agents' card watches saved before ids go with them.
   for (const m of plan.cards ?? []) {
     try {
+      // First, in the record of names, that the project had that name (#514): what was saved under it (handovers, kept
+      // comparisons) is then given to it, by this Repair or, if that fails, by the next (or when Hive next follows the
+      // projects' names, after a restart too), once the cards that told it are moved.
+      const id = ws.projectIdsNow().byPath.get(join(ws.path!, m.to).toLowerCase())
+      if (id) await noteFormerName(ws, id, m.from)
       const n = m.cards.length ? await moveOrphanCards(ws, m) : 0
       if (n) report.done.push(`${n} card${n === 1 ? '' : 's'} of ${m.from} now belong${n === 1 ? 's' : ''} to ${m.to}, with ${n === 1 ? 'its' : 'their'} agents.`)
       const lanes = m.lanes ? await moveOrphanLanes(ws, m) : 0
@@ -452,6 +476,7 @@ async function repairNow(ws: WorkspaceService, opts: MoveOptions): Promise<MoveR
     }
   }
   if (plan.cards?.length) await stampCardProjects(ws).catch((e) => log.warn("giving the cards their projects' ids", e))
+  await adoptSaved(ws, report)
   // A project renamed in place stays Working on under its new name.
   const renamedHere = plan.hosts.filter((h) => !samePath(h.path, ws.assistantHome) && samePath(dirname(h.from), plan.to) && basename(h.from).toLowerCase() !== h.name.toLowerCase())
   const marked = renamedHere.filter((h) => workingAt(plan.to).some((n) => n.toLowerCase() === basename(h.from).toLowerCase()))

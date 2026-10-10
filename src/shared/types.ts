@@ -398,6 +398,8 @@ export interface AppConfig {
   window: WindowState
   /** The windows open when Hive last quit, each with its workspace (null: the welcome page), reopened at start. */
   windows?: (WindowState & { workspace: string | null })[]
+  /** Per workspace (lowercased path): the last project rename (#514, `.hive/project-names.json`'s number) its view preferences and Working on follow. */
+  renamesApplied?: Record<string, number>
   /** Always on Top: the workspaces (lowercased paths) whose window was left pinned. This machine's, never in .hive. */
   alwaysOnTop?: Record<string, true>
   /**
@@ -470,6 +472,8 @@ export interface WorkspaceConfig {
   version: 1
   /** Where the workspace was last opened (#146): a different folder now means it was moved, and Repair… is offered. */
   lastPath?: string
+  /** The last project rename (#514, `project-names.json`'s number) its hidden and removed projects follow. */
+  renamesApplied?: number
   mcp: { enabled: string[] }
   /** Project folders Hive leaves out (Hide, or Remove from Hive while the folder is still in the workspace), by folder name. */
   hiddenProjects?: HiddenProject[]

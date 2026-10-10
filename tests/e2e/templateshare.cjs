@@ -300,7 +300,8 @@ const check = (name, ok, extra = '') => {
   await testerDialog.getByRole('button', { name: 'Save' }).click()
   const roleOf = () => JSON.parse(fs.readFileSync(teamFile, 'utf8')).agents.find((a) => a.name === 'Tester')?.role
   check("an agent's Save saves the template, with no Save Template", !!(await lib.until(() => roleOf() === 'qa', 5000)), String(roleOf()))
-  check('…the editor stays open, with nothing left unsaved', (await editor.count()) === 1 && (await editor.locator('.template-unsaved-note').count()) === 0 && (await editor.getByRole('button', { name: 'Save Template' }).isDisabled()))
+  // (The file is written a moment before the editor has the reply.)
+  check('…the editor stays open, with nothing left unsaved', !!(await lib.until(async () => (await editor.count()) === 1 && (await editor.locator('.template-unsaved-note').count()) === 0 && (await editor.getByRole('button', { name: 'Save Template' }).isDisabled()), 5000)))
   check('…and never says it was saved again meanwhile (its own save)', !(await lib.until(async () => (await editor.locator('.template-stale').count()) > 0, 1500)))
   await editor.getByRole('button', { name: 'Close' }).click()
   await detail.getByRole('button', { name: 'Edit…' }).click()

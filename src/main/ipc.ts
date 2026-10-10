@@ -28,6 +28,7 @@ import { diagnostics } from './diagnostics'
 import { keepAwakeCount } from './power'
 import { progress } from './progressService'
 import { mergeSlots, recoverMergeSlots, workspaceSlots } from './mergeSlotHost'
+import { followNames } from './projectRename'
 import { slotBranch } from './mergeSlots'
 import { endLane, listLanes, stampLaneProjects } from './lanes'
 import { badgeDescription } from '../shared/taskbar'
@@ -176,6 +177,8 @@ export function registerIpc(getAppInfo: () => ReturnType<HiveRequests['app:info'
     // A merge slot an agent held when Hive closed: its merge may be half done (#350).
     if (ws.path) void recoverMergeSlots(ws.path).catch((e) => log.warn('recovering the merge slots', e))
   }
+  // Each read of the projects' ids (#514): their names by id, and what follows a rename, follow it.
+  WorkspaceService.onIdsRead = followNames
   /** The window the current request came from. */
   const win = (): BrowserWindow => {
     const w = contextWorkspace()?.window

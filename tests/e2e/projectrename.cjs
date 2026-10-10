@@ -65,6 +65,9 @@ const oldCard = (n, proj, agent) =>
   oldCard(1, 'old-site', 'a-claude')
   oldCard(2, 'old-site', null)
   fs.writeFileSync(path.join(tasksDir, 'board.json'), JSON.stringify({ version: 1, next: 3 }))
+  // #514: a handover of alpha's, as Hive writes them (its name's project slug and its header).
+  fs.mkdirSync(path.join(ws, '.hive', 'shared', 'handovers'), { recursive: true })
+  fs.writeFileSync(path.join(ws, '.hive', 'shared', 'handovers', '2026-10-01-alpha-plan.md'), '# Plan\n\n- **Project:** alpha\n- **Date:** 2026-10-01 10:00 (2026-10-01T10:00:00Z)\n\nWhere it stands.\n')
   lib.enableProviders(userData)
   const env = { HIVE_API_PORT: lib.port(47866) }
 
@@ -93,6 +96,14 @@ const oldCard = (n, proj, agent) =>
   const mine = (list) => list.filter((c) => [doing.number, todo.number, old.number].includes(c.number))
   check("the renamed project's cards are its at once, archived ones too", mine(await cards()).every((c) => c.project === 'gamma') && mine(await cards()).length === 3, JSON.stringify(mine(await cards()).map((c) => c.project)))
   check('none is left under the old name', !(await cards()).some((c) => c.project === 'alpha'))
+  // #514: its handover from before the rename is still its latest (what hive_read_latest_handover reads).
+  const apiToken = JSON.parse(fs.readFileSync(path.join(userData, 'agent-api.json'), 'utf8')).token
+  const handovers = async (name) => (await (await fetch(`http://127.0.0.1:${env.HIVE_API_PORT}/v1/shared/handovers?project=${name}`, { headers: { Authorization: `Bearer ${apiToken}` } })).json())
+  check("the renamed project's latest handover is the one from before its rename", !!(await lib.until(async () => (await handovers('gamma'))[0]?.path === 'handovers/2026-10-01-alpha-plan.md', 10000)), JSON.stringify(await handovers('gamma')))
+  check("…and the workspace's record of names has its rename, by its id", !!(await lib.until(() => {
+    const j = fs.existsSync(path.join(ws, '.hive', 'project-names.json')) ? readJson(path.join(ws, '.hive', 'project-names.json')) : null
+    return j?.projects?.[id]?.name === 'gamma' && JSON.stringify(j.projects[id].former) === '["alpha"]'
+  }, 10000)))
   check('the card files catch up when the workspace opens', !!(await lib.until(() => readJson(path.join(tasksDir, `${doing.number}.json`)).project === 'gamma', 10000)))
   await page.getByRole('button', { name: 'Task Board' }).click()
   const tile = page.locator(`.task-card[data-task="${doing.number}"]`)

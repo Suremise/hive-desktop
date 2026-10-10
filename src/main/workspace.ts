@@ -49,6 +49,18 @@ export interface SessionsFile {
 
 type LiveProvider = (projectPath: string, cfg: ProjectConfig) => Promise<{ live: LiveSessionState | null; restartNeeded: boolean; agents: AgentInfo[] }>
 
+/**
+ * What a read of the projects' ids saw of each one (#514): its folder, its id, where it was last opened (project.json's
+ * lastPath, #146) and whether it is a copy just given an id of its own. projectNames.ts keeps the workspace's record of
+ * their names by id from it.
+ */
+export interface ProjectSeen {
+  path: string
+  id: string
+  lastPath?: string
+  copy: boolean
+}
+
 export class WorkspaceService {
   path: string | null = null
   private wsConfig: WorkspaceConfig = structuredClone(DEFAULT_WORKSPACE_CONFIG)
@@ -58,6 +70,8 @@ export class WorkspaceService {
   private static liveProvider: LiveProvider = async (_p, cfg) => ({ live: null, restartNeeded: false, agents: projectAgents(cfg).map((a) => ({ ...a, live: null, restartNeeded: false, resume: null })) })
   /** Called each time a workspace opens, in its context; `fresh` when Hive set the folder up just now (it had no .hive). */
   static onOpened: ((fresh: boolean) => Promise<unknown>) | null = null
+  /** Each read of the projects' ids (#514): the workspace's record of their names follows it (projectNames.ts). Never awaited. */
+  static onIdsRead: ((ws: WorkspaceService, seen: ProjectSeen[]) => void) | null = null
   /** Told when a workspace starts closing (its path still set), so services drop what they keep for it. */
   static readonly closingListeners = new Set<(path: string) => void>()
   /** The window showing this workspace: its events go there. */
@@ -257,6 +271,32 @@ export class WorkspaceService {
     return run
   }
 
+  /**
+   * Saves workspace.json with a change (worked out from the settings as they are when it is written) that takes effect
+   * only once it is saved: a save that fails leaves the settings as they were, so whatever it marks done (#514's
+   * renamesApplied) is done again next time.
+   */
+  saveWorkspaceConfigWith(change: (c: WorkspaceConfig) => Partial<WorkspaceConfig>): Promise<void> {
+    const file = join(this.hiveDir, 'workspace.json')
+    const data = this.wsConfig
+    this.configSaves++
+    let text: string | null = null
+    const run = this.savingConfig
+      .then(async () => {
+        const next = { ...data, ...change(data) }
+        text = JSON.stringify(next, null, 2) + '\n'
+        await writeKeptJson(file, next)
+        // Worked out again: the settings may have changed in memory while it was written (their own save is after this one).
+        Object.assign(data, change(data))
+      })
+      .finally(() => {
+        this.configSaves--
+        if (text !== null) this.configWritten = text
+      })
+    this.savingConfig = run.catch(() => undefined)
+    return run
+  }
+
   private startWatching(): void {
     if (!this.path) return
     // Watch only the workspace root (projects appearing/disappearing) and the .hive folder. The root is watched without
@@ -389,10 +429,13 @@ export class WorkspaceService {
   private async readProjectIds(paths: string[], key: string): Promise<ProjectIdIndex> {
     const gen = this.generation
     const entries: ProjectIdEntry[] = []
+    const cfgs = new Map<string, ProjectConfig>()
     for (const p of paths) {
       if (!existsSync(join(p, HIVE_DIR, 'project.json'))) continue
       const cfg = await this.projectConfig(p).catch(() => null)
-      if (cfg) entries.push({ path: p, id: cfg.id, lastPath: cfg.lastPath })
+      if (!cfg) continue
+      entries.push({ path: p, id: cfg.id, lastPath: cfg.lastPath })
+      cfgs.set(p.toLowerCase(), cfg)
     }
     const { keep, fresh } = settleProjectIds(entries)
     for (const p of fresh) {
@@ -417,6 +460,14 @@ export class WorkspaceService {
     if (gen !== this.generation) return index
     const was = this.ids
     this.ids = index
+    // Each project by its id, as this read saw it (#514): the record of their names, and what follows a rename, go from it.
+    const copies = new Set(fresh.map((p) => p.toLowerCase()))
+    const seen: ProjectSeen[] = []
+    for (const [lower, id] of byPath) {
+      const cfg = cfgs.get(lower)
+      seen.push({ path: byId.get(id)!, id, ...(cfg?.lastPath ? { lastPath: cfg.lastPath } : {}), copy: copies.has(lower) && isProjectId(cfg?.id) })
+    }
+    WorkspaceService.onIdsRead?.(this, seen)
     // A project renamed or moved (an id at another folder now): the cards, lanes and watches that name it read differently,
     // so the window and the services that follow the board look again (#508).
     if (was && [...byId].some(([id, p]) => { const before = was.byId.get(id); return !!before && before.toLowerCase() !== p.toLowerCase() }) && this.path) this.emit({ type: 'tasks-changed', workspacePath: this.path })
