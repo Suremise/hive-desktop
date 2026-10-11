@@ -50,9 +50,11 @@ function oldHandover(ws: string, file: string, projectName: string, session?: st
   mkdirSync(join(ws, '.hive', 'shared', 'handovers'), { recursive: true })
   writeFileSync(join(ws, '.hive', 'shared', 'handovers', file), `# Handover\n\n- **Project:** ${projectName}\n${session ? `- **Session:** ${session}\n` : ''}- **Date:** 2026-10-01 10:00 (2026-10-01T10:00:00Z)\n\nWhere things stand.\n`)
 }
-/** Until `want` holds (up to 15 s, for a loaded machine): the ids read again (each read is followed in the background). */
+/** Bounds a wait for the projects' names to be followed (in the background, after each read): only a hung run takes this long. */
+const HUNG_MS = 15_000
+/** Until `want` holds (up to HUNG_MS): the ids read again (each read is followed in the background). */
 async function until(w: WS, want: () => boolean | Promise<boolean>): Promise<boolean> {
-  for (const end = Date.now() + 15_000; Date.now() < end; ) {
+  for (const end = Date.now() + HUNG_MS; Date.now() < end; ) {
     if (await want()) return true
     await w.projectIds({ fresh: true })
     await new Promise((r) => setTimeout(r, 20))
@@ -314,7 +316,7 @@ describe('what keeps a project by name or path follows a rename, once (#514)', (
       await move(join(ws, 'gamma'), join(ws, 'delta'))
       expect(await until(w, () => progress.list(ws).find((r) => r.id === run.id)?.projectPath === join(ws, 'delta') && !followingNames(w))).toBe(true)
       retry!()
-      await vi.waitFor(() => expect(followingNames(w)).toBe(false), { timeout: 15_000 })
+      await vi.waitFor(() => expect(followingNames(w)).toBe(false), { timeout: HUNG_MS })
       expect(journal(ws).renames.map((r) => [r.id, r.from, r.to])).toEqual([[id, 'alpha', 'gamma'], [id, 'gamma', 'delta']])
       expect(progress.list(ws).find((r) => r.id === run.id)?.projectPath).toBe(join(ws, 'delta'))
       expect(prefs(ws, 'delta')).toBe('codex')
