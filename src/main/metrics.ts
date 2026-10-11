@@ -331,6 +331,8 @@ class Store {
    * nothing before it counts as observed. 0: none.
    */
   evictedThrough = 0
+  /** The last project rename (#514, projectNames.ts's number) its measurements follow: saved with them, so one is applied once. */
+  renamesApplied = 0
   private timer: NodeJS.Timeout | null = null
   private dirty = false
   private saving: Promise<void> = Promise.resolve()
@@ -402,6 +404,7 @@ class Store {
       }
       this.observed = readStretches(data.observed)
       this.evictedThrough = count(data.evictedThrough) ?? 0
+      this.renamesApplied = count(data.renamesApplied) ?? 0
     } catch {
       // Unreadable: start again (only aggregates are lost).
     }
@@ -484,7 +487,7 @@ class Store {
     this.roll(clock.now())
     try {
       const now = clock.now()
-      const json = (): string => JSON.stringify({ version: 1, buckets: this.buckets, observed: this.observed, ...(this.evictedThrough ? { evictedThrough: this.evictedThrough } : {}) })
+      const json = (): string => JSON.stringify({ version: 1, buckets: this.buckets, observed: this.observed, ...(this.evictedThrough ? { evictedThrough: this.evictedThrough } : {}), ...(this.renamesApplied ? { renamesApplied: this.renamesApplied } : {}) })
       let text = json()
       // Over the file's cap (in UTF-8 bytes, as it is read back): the oldest buckets go first, all of them if need be,
       // so Hive never writes a file it would refuse to load.
@@ -658,6 +661,36 @@ export function metricsHandle(w: WorkspaceService | null | undefined): MetricsHa
     closing.add(saving)
   })
   return entry
+}
+
+/**
+ * Projects renamed within the workspace together (#514, one batch of projectNames.ts's renames, `seq` its last): what
+ * was measured under each old name is that project's, under its new name now, bucket by bucket, all at once (two that
+ * swapped names keep their own), merged with what the new name has (its caps aside: nothing measured is lost to them),
+ * its losses counted the same way. Applied once (`renamesApplied`, saved with the measurements); whether it was now.
+ */
+export function applyMetricsRenames(h: MetricsHandle | null, batch: { from: string; to: string }[], seq: number): boolean {
+  if (!h || h.lifetime.aborted || seq <= h.store.renamesApplied) return false
+  const moves = batch.map((r) => [projectLabel(r.from), projectLabel(r.to)] as const).filter((m): m is readonly [string, string] => !!m[0] && !!m[1] && m[0] !== m[1])
+  for (const bucket of h.store.buckets) {
+    // Taken out first, every one, then given to the new names: a swap never merges the two.
+    const parts = moves.map(([a]) => bucket.projects[a])
+    const dropped = moves.map(([a]) => bucket.droppedBy[a])
+    for (const [a] of moves) {
+      const part = bucket.projects[a]
+      // Its series leave with it; merging counts those the new name hasn't (so the bucket's count stays true).
+      if (part) bucket.series -= Object.keys(part.api).length + Object.keys(part.mcp).length + Object.keys(part.guidance).length + Object.keys(part.catalog).length
+      delete bucket.projects[a]
+      delete bucket.droppedBy[a]
+    }
+    moves.forEach(([, b], i) => {
+      if (parts[i]) mergePart(bucket, (bucket.projects[b] ??= emptyPart()), parts[i], false, b)
+      if (dropped[i]) bucket.droppedBy[b] = (bucket.droppedBy[b] ?? 0) + dropped[i]
+    })
+  }
+  h.store.renamesApplied = seq
+  h.store.changed()
+  return true
 }
 
 /** The handle's bucket now, if its workspace is still the one it was taken for and Hive is recording. */

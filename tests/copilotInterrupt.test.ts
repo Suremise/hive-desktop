@@ -59,7 +59,7 @@ describe('a Copilot turn that ends on a refused prompt', () => {
   beforeAll(async () => {
     mkdirSync(join(p, '.hive'), { recursive: true })
     mkdirSync(join(wsPath, '.hive'), { recursive: true })
-    writeFileSync(join(p, '.hive', 'project.json'), JSON.stringify({ version: 2, agents: [] }))
+    writeFileSync(join(p, '.hive', 'project.json'), JSON.stringify({ version: 2, agents: [{ id: 'd', name: 'Switcher', provider: 'copilot' }] }))
     w = createWorkspaceService()
     await w.open(wsPath)
   })
@@ -95,6 +95,19 @@ describe('a Copilot turn that ends on a refused prompt', () => {
     expect(st.status).toBe('working')
     await reading
     await settled(st)
+    expect(st.status).toBe('working')
+  })
+
+  it("doesn't undo the first prompt of another conversation with the old one's unread refusal (#517)", async () => {
+    // The refusal is unread when the user starts another conversation (/new) and prompts: the switch backs the old
+    // conversation up, and that read finds its interrupt, older than the prompt that switched.
+    const { st } = agent('d')
+    const next = join(base, 'd-next.jsonl')
+    writeFileSync(next, line('user.message', '2026-10-09T10:01:00.000Z', { content: 'start over' }))
+    const sessionId = '0000000e-0000-4000-8000-000000000000'
+    await hook(st, { session_id: sessionId, transcript_path: next, hook_event_name: 'UserPromptSubmit', prompt: 'start over' })
+    await settled(st)
+    expect((st as State & { sessionId: string }).sessionId).toBe(sessionId)
     expect(st.status).toBe('working')
   })
 })

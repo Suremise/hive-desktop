@@ -37,8 +37,8 @@ export const progress = new ProgressStore({
   },
   history: {
     load: (workspacePath) => readJson<unknown>(historyFile(workspacePath), null),
-    save: (workspacePath, runs) =>
-      writeTextAtomic(historyFile(workspacePath), JSON.stringify({ version: 1, runs })).catch((e) => log.warn(`could not keep Recent for ${userText(workspacePath)}`, e)),
+    save: (workspacePath, runs, renames) =>
+      writeTextAtomic(historyFile(workspacePath), JSON.stringify({ version: 1, runs, ...(renames ? { renames } : {}) })).catch((e) => log.warn(`could not keep Recent for ${userText(workspacePath)}`, e)),
     forget: () => removePath(historyDir()).catch((e) => log.warn('could not forget Recent', e))
   }
 })

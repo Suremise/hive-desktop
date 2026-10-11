@@ -5,6 +5,7 @@
  */
 import type { SessionStatus } from './types'
 import { DEFAULT_USER_NAME, WAKE_MAX_BYTES } from './watch'
+import { isProjectId } from './projectIds'
 
 /** An agent a watch follows: where it is, and its name and project's for the line (as they were when the watch began). */
 export interface WatchedAgent {
@@ -12,6 +13,10 @@ export interface WatchedAgent {
   agentId: string
   name: string
   project: string
+  /** Its project's stable id (#508): the watch follows the project to a new folder by it. Absent in watches from before. */
+  projectId?: string
+  /** Its project is gone, and another project has its folder (#508): it reads as stopped, never as that project's agent. */
+  gone?: true
 }
 
 /** What an agent watch waits for: its agents, and whether background tasks the agent started still count as working. */
@@ -88,7 +93,7 @@ export function readSavedAgentCondition(v: unknown): AgentWatchCondition | null 
   for (const a of r.agents as Record<string, unknown>[]) {
     if (!a || typeof a !== 'object' || !text(a.projectPath, 1024) || !text(a.agentId, 128) || !text(a.name, 300) || !text(a.project, 300)) return null
     if (agents.some((x) => x.projectPath.toLowerCase() === (a.projectPath as string).toLowerCase() && x.agentId === a.agentId)) return null
-    agents.push({ projectPath: a.projectPath, agentId: a.agentId, name: a.name, project: a.project })
+    agents.push({ projectPath: a.projectPath, agentId: a.agentId, name: a.name, project: a.project, ...(isProjectId(a.projectId) ? { projectId: a.projectId } : {}), ...(a.gone === true ? { gone: true as const } : {}) })
   }
   return { agents, ignoreBackground: r.ignoreBackground }
 }

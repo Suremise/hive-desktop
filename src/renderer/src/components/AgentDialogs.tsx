@@ -602,8 +602,8 @@ export function AgentSettingsDialog() {
 }
 
 /**
- * The same dialog for a template's agent (#271), from the template editor: what it saves goes back to the editor (the
- * template is saved there). An empty choice stays empty in the template (it follows the project it is loaded into).
+ * The same dialog for a template's agent (#271), from the template editor: what it saves goes back to the editor (which
+ * saves the template with it, #510). An empty choice stays empty in the template (it follows the project it is loaded into).
  */
 export function TemplateAgentDialog() {
   const req = useStore((s) => s.templateAgentFor)
@@ -628,7 +628,7 @@ export function TemplateAgentDialog() {
       config={project ?? { config: DEFAULT_PROJECT_CONFIG }}
       roles={roleSuggestions(req.others)}
       works="choice"
-      note={`For the template "${req.template}": saved when you save the template. Settings left as "Project's" follow the project it is loaded into.`}
+      note={`For the template "${req.template}": Save saves it in the template. Settings left as "Project's" follow the project it is loaded into.`}
       nameProblem={(n) => (req.others.some((o) => o.name.toLowerCase() === n.toLowerCase()) ? `Another agent of the template is called "${n}".` : null)}
       confirmSave={async (f) => !(f.permission && f.permission !== a?.permissionMode && !(await confirmDangerousMode(f.provider, f.permission, f.name.trim())))}
       save={async (f) => {

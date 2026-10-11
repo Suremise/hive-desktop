@@ -5,11 +5,13 @@ import { MANY_AGENTS, MAX_AGENTS, chosenLayout, moveAgentTo, sessionInAgentFolde
 import { defaultProviderPending, isProviderEnabled, projectDefaultProvider, providerName } from '@shared/providers'
 import { agentsToResume, resumeAll, stalledOnSignIn } from '@shared/resumeAll'
 import { batchLine, eachAgent, removeLine, sessionsToArchive, type BatchResult } from '@shared/startAll'
-import type { OldWorktreeOutcome, ProjectInfo, ProjectProviderConfig, ProviderId, SessionLayout, SessionListItem, ToastAction } from '@shared/types'
+import type { McpServerInfo, OldWorktreeOutcome, ProjectInfo, ProjectProviderConfig, ProviderId, SessionLayout, SessionListItem, ToastAction } from '@shared/types'
 import { TEMPLATE_NAME_MAX, type TemplateEntry, type TemplateScope } from '@shared/templates'
-import { oldWorktreesNotice, templateLoadDetail } from '@shared/templateLoad'
+import { oldWorktreesNotice, templateLoadDetail, templateLoadView } from '@shared/templateLoad'
 import { formatTokens, type SessionAction } from './util'
 import { statusText } from './components/ui'
+import { createElement } from 'react'
+import { TemplatePlan } from './components/TemplatePlan'
 import { clearEditorDraft, clearEditorDraftsUnder } from './editorDrafts'
 
 /** Runs an async action and shows a toast if it fails. */
@@ -635,10 +637,81 @@ export async function archiveCurrent(path: string | null = get().selectedProject
 }
 
 /** Deletes a workspace MCP server after asking; true when it was deleted. */
+/**
+ * Turns a workspace MCP server on for every project, or off. On asks first, showing what it runs (#550): new sessions
+ * start it, so the user sees the command and its arguments, or the URL, before anything runs.
+ */
+export async function setMcpServerEnabled(server: Pick<McpServerInfo, 'name' | 'def' | 'revision' | 'runs' | 'secretWarnings'>, on: boolean): Promise<boolean> {
+  if (on) {
+    const ok = await confirm({
+      title: `Enable ${server.name}?`,
+      message: 'New sessions in every project start it (a project can turn it off in its MCP tab). It runs:',
+      list: server.runs,
+      detail: server.secretWarnings.length ? server.secretWarnings.join('\n') : undefined,
+      confirmLabel: 'Enable'
+    })
+    if (!ok) return false
+  }
+  const done = await attempt('Could not update the server', async () => {
+    // The definition shown: if it was replaced or edited meanwhile, Hive refuses, and the user looks again.
+    await call('mcp:setGlobal', server.name, on, on ? { def: server.def, revision: server.revision } : undefined)
+    return true
+  })
+  set((s) => ({ skillsVersion: s.skillsVersion + 1 }))
+  return !!done
+}
+
+/**
+ * Add MCP Server from File (#550): a .json definition, or a .zip of a server folder. The dialog shows what it runs and
+ * the name it gets (the file's, editable); a name in use asks to replace it or choose another. Added turned off.
+ */
+export async function addMcpServerFromFile(): Promise<McpServerInfo | null> {
+  const file = await attempt('Could not open the file', () => call('mcp:pickFile'))
+  if (!file) return null
+  const server = await attempt('Could not add the server', () => call('mcp:previewFile', file))
+  if (!server) return null
+  let name = server.name
+  for (;;) {
+    const picked = await prompt({
+      title: 'Add MCP Server from File',
+      message: `Adds ${basename(file)} to the workspace (.hive/mcp)${server.files ? `, with its ${server.files === 1 ? 'file' : `${server.files} files`} in a folder of its own` : ''}. It is added turned off: it runs nothing until you enable it. Once enabled, it runs:`,
+      list: server.runs,
+      detail: server.secretWarnings.length ? server.secretWarnings.join('\n') : undefined,
+      placeholder: 'server-name',
+      initial: name,
+      confirmLabel: 'Add',
+      validate: (v) => (/^[a-zA-Z0-9][a-zA-Z0-9_-]{0,63}$/.test(v.trim()) && v.trim().toLowerCase() !== 'hive' ? null : 'Use letters, numbers, "-" and "_". "hive" is reserved.')
+    })
+    if (!picked) return null
+    name = picked.trim()
+    const taken = name === server.name ? server.exists : ((await attempt('Could not list the servers', () => call('mcp:list'))) ?? []).some((m) => m.name.toLowerCase() === name.toLowerCase())
+    let replace = false
+    if (taken) {
+      const choice = await choose({
+        title: `Replace ${name}?`,
+        message: `The workspace has a server named ${name}.`,
+        detail: 'Replace moves it (and the folder of one added from a .zip) to the Recycle Bin and adds this one, turned off. Or choose another name.',
+        danger: true,
+        choices: [
+          { label: 'Choose Another Name', value: 'rename' },
+          { label: 'Replace', value: 'replace' }
+        ]
+      })
+      if (!choice) return null
+      if (choice === 'rename') continue
+      replace = true
+    }
+    const added = await attempt('Could not add the server', () => call('mcp:addFromFile', file, name, replace))
+    if (!added) return null
+    set((s) => ({ skillsVersion: s.skillsVersion + 1, selectedMcp: added.name }))
+    return added
+  }
+}
+
 export async function deleteMcpServer(name: string): Promise<boolean> {
   const ok = await confirm({
     title: 'Delete MCP server?',
-    message: `Move ${name}.json to the Recycle Bin? Projects will no longer be able to use it.`,
+    message: `Move ${name}.json to the Recycle Bin, with its folder if it was added from a .zip? Projects will no longer be able to use it.`,
     confirmLabel: 'Delete',
     busyLabel: 'Deleting…',
     danger: true,
@@ -806,8 +879,11 @@ export async function loadTemplate(path: string, entry: Pick<TemplateEntry, 'sco
   const ok = await confirm({
     title: `Load "${plan.name}"?`,
     message: plan.remove.length ? `It replaces every agent of ${p?.name ?? 'this project'}.` : `It adds its agents to ${p?.name ?? 'this project'}.`,
-    // Who goes and who comes: each new agent's settings, and its new worktree's branch and folder in this project (#268).
+    // Who goes and who comes: each new agent's settings, and its new worktree's branch and folder in this project (#268),
+    // as a table (#511).
     detail: p ? templateLoadDetail(plan, p.config, get().settings, (id) => get().providers[id]) : undefined,
+    content: p ? createElement(TemplatePlan, { view: templateLoadView(plan, p.config, get().settings, (id) => get().providers[id]) }) : undefined,
+    wide: true,
     scrollDetail: true,
     confirmLabel: 'Load template',
     busyLabel: 'Loading…',

@@ -100,6 +100,27 @@ const check = (name, ok, extra = '') => {
   check('a stop shows no failure', (await bar.count()) === 0 && (await pane.locator('.session-ended').count()) === 1)
   await page.screenshot({ path: path.join(lib.WORK, 'startfail-3-stopped.png') })
 
+  // --- A bare "--" in extra arguments (#523): Hive passes the task after its own, so Project Settings refuses one, and
+  // one saved before (an older Hive's project.json) stops the launch, saying why, before the CLI starts.
+  const refused = 'Hive passes the task after "--"; remove it from extra arguments.'
+  const saving = await inv('project:updateProvider', alpha, 'claude-code', { extraArgs: '--allowedTools Read Bash --' }).then(() => '', (e) => String(e?.message ?? e))
+  check('Project Settings refuses a bare "--", saying why', saving.includes(refused), saving)
+  const projectFile = path.join(alpha, '.hive', 'project.json')
+  const pj = JSON.parse(fs.readFileSync(projectFile, 'utf8'))
+  check('and keeps what was saved', !(pj.providers?.['claude-code']?.extraArgs ?? '').includes('--allowedTools'), JSON.stringify(pj.providers))
+  await inv('project:updateProvider', alpha, 'claude-code', { extraArgs: '--append-system-prompt=--' })
+  check('an option whose value is "--" is written with "="', JSON.parse(fs.readFileSync(projectFile, 'utf8')).providers?.['claude-code']?.extraArgs === '--append-system-prompt=--')
+  fs.writeFileSync(projectFile, JSON.stringify({ ...pj, providers: { ...pj.providers, 'claude-code': { ...pj.providers?.['claude-code'], extraArgs: '--allowedTools Read Bash --' } } }, null, 2))
+  await inv('workspace:refresh')
+  const started = await inv('session:start', alpha, { agentId: agent.id, prompt: 'Work on card #12' }).then(() => '', (e) => String(e?.message ?? e))
+  check('a saved bare "--" stops the launch, saying why', started.includes(refused) && started.includes('Fix it in Project Settings or Settings → Claude Code.'), started)
+  check('and the CLI never started', !(await live()))
+  // Started from the window, the refusal shows as a notification.
+  await header.getByRole('button', { name: 'New Session' }).click()
+  const notice = page.locator('.toast', { hasText: refused })
+  check('the window shows why', !!(await until(async () => (await notice.count()) === 1)), JSON.stringify(await page.locator('.toast').allInnerTexts()))
+  await page.screenshot({ path: path.join(lib.WORK, 'startfail-4-dashes.png') })
+
   await app.close()
   console.log(failed ? `${failed} check(s) failed` : 'All checks passed')
   process.exit(failed ? 1 : 0)

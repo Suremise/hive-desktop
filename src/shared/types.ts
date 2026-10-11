@@ -398,6 +398,8 @@ export interface AppConfig {
   window: WindowState
   /** The windows open when Hive last quit, each with its workspace (null: the welcome page), reopened at start. */
   windows?: (WindowState & { workspace: string | null })[]
+  /** Per workspace (lowercased path): the last project rename (#514, `.hive/project-names.json`'s number) its view preferences and Working on follow. */
+  renamesApplied?: Record<string, number>
   /** Always on Top: the workspaces (lowercased paths) whose window was left pinned. This machine's, never in .hive. */
   alwaysOnTop?: Record<string, true>
   /**
@@ -470,6 +472,8 @@ export interface WorkspaceConfig {
   version: 1
   /** Where the workspace was last opened (#146): a different folder now means it was moved, and Repair… is offered. */
   lastPath?: string
+  /** The last project rename (#514, `project-names.json`'s number) its hidden and removed projects follow. */
+  renamesApplied?: number
   mcp: { enabled: string[] }
   /** Project folders Hive leaves out (Hide, or Remove from Hive while the folder is still in the workspace), by folder name. */
   hiddenProjects?: HiddenProject[]
@@ -687,6 +691,11 @@ export type Inherit<T> = 'inherit' | T
 export interface ProjectConfig {
   /** 2 since 0.2.0: agents are all equal and a project starts with none (0.1's agents are cleared). */
   version: 2
+  /**
+   * The project's stable id (#508), made once and kept in its folder, so it goes with a rename or a move: the workspace's
+   * cards, lanes and watches name the project by it (and by its folder name, read back from the id).
+   */
+  id?: string
   /** Project-scoped shortcut overrides (project, session and agent commands), over the global ones. */
   keybindings?: KeybindingOverrides
   mcp: { disabled: string[] }
@@ -1193,6 +1202,25 @@ export interface WorkspaceMoved {
   projects: string[]
   /** Projects that didn't move but have a worktree's sessions or data still to follow it to a new folder (#146). */
   pending: string[]
+  /**
+   * Cards left under a project's old name (#508): saved before projects had ids, by a project renamed or moved since.
+   * Repair gives them to the project they belong to now. Absent when there are none.
+   */
+  cards?: MoveCards[]
+}
+
+/**
+ * Cards of a project that isn't in the workspace by that name (#508), and the project they belong to now: the one
+ * Repair moves from that name, else the one whose agents worked on them (their agents and sessions are only its).
+ */
+export interface MoveCards {
+  /** The name the cards were saved with, and the project's folder name now. */
+  from: string
+  to: string
+  cards: number[]
+  /** How many of its lanes and agents' card watches were saved under that name too (absent: none). */
+  lanes?: number
+  watches?: number
 }
 
 /** What Repair… would do for a moved workspace or project (#146). */
@@ -1326,6 +1354,29 @@ export interface McpServerInfo {
   error?: string
   globallyEnabled: boolean
   secretWarnings: string[]
+  /** What it runs, shown before it is enabled (#550): the command or URL, folder, environment and header names. */
+  runs: string[]
+  /** Which copy of its definition this is (a replace or an edit changes it): an enable says which it showed. */
+  revision?: string
+}
+
+/** The server an enable showed the user (#550): refused if its definition has been replaced or edited since. */
+export interface McpShown {
+  def: McpServerDef | null
+  revision?: string
+}
+
+/** A server read from a .json definition or a .zip server folder, before it is added (#550). */
+export interface McpFileServer {
+  /** A name for it: the definition's file name, else the zip's folder or file name. */
+  name: string
+  def: McpServerDef
+  runs: string[]
+  secretWarnings: string[]
+  /** The files a .zip unpacks to .hive/mcp/<name>/ (none for a .json). */
+  files: number
+  /** A server of this name exists already. */
+  exists: boolean
 }
 
 export interface CompactionEvent {

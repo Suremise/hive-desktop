@@ -30,7 +30,7 @@ import { GUIDANCE_REVISION, skillRevisions } from './guidance'
 import agentApiDoc from '../../docs/AGENT_API.md?raw'
 import { createLogger } from './logger'
 import { listMcp } from './mcp'
-import { assertInShared, createHandover, NoteConflict, notesTree, readNote, writeNote } from './notes'
+import { assertInShared, createHandover, handoversFor, NoteConflict, notesTree, readNote, writeNote } from './notes'
 import { mergeSlots } from './mergeSlotHost'
 import * as lanes from './lanes'
 import { laneCards, laneName, laneNumber } from '../shared/lanes'
@@ -1257,6 +1257,16 @@ route('POST', '/v1/lanes/:id/end', async ({ params, body }) =>
 )
 
 route('GET', '/v1/shared', async () => inWorkspace(requireWorkspace(), () => notesTree()))
+
+// A project's handovers, newest first (under its earlier folder names too, #514); no project: every one. Their paths
+// as /v1/shared/file takes them. What hive_read_latest_handover and the session guidance find.
+route('GET', '/v1/shared/handovers', async ({ query }) => {
+  const name = query.get('project')
+  const project = name ? projectByName(name) : null
+  const ws = project ? workspaceOf(project) : requireWorkspace()
+  const list = await inWorkspace(ws, () => handoversFor(ws, project ? basename(project) : undefined))
+  return list.map((f) => ({ path: f.relPath, ...(f.modified ? { modified: f.modified } : {}) }))
+})
 
 route('GET', '/v1/shared/file', async ({ query }) => {
   const rel = query.get('path')

@@ -1,7 +1,7 @@
 // The Load template dialog's detail (#268): same-name replacements marked, each new agent's settings in short (inherited
 // ones as what they resolve to, marked "(default)"), each new worktree's branch and folder, and the setup command.
 import { describe, expect, it } from 'vitest'
-import { oldWorktreesNotice, templateAgentSettings, templateLoadDetail } from '../src/shared/templateLoad'
+import { oldWorktreesNotice, templateAgentSettings, templateLoadDetail, templateLoadView } from '../src/shared/templateLoad'
 import type { AppSettings, ProjectConfig } from '../src/shared/types'
 import type { ModelInfo } from '../src/shared/models'
 
@@ -68,6 +68,28 @@ describe('the Load template dialog (#268)', () => {
     const fresh = templateLoadDetail({ ...plan, remove: [] }, cfg, settings, () => info)
     expect(fresh.startsWith('Created:')).toBe(true)
     expect(fresh).not.toMatch(/replaced|\(new\)|conversations stay/)
+  })
+
+  it("as a table (#511): each created agent in the template's order, its settings with the defaults marked, where it works", () => {
+    const plan = {
+      remove: [{ id: 'a', name: 'Claude', running: false, dirty: 0, worktree: { path: 'D:/x/site/claude', branch: 'hive/claude' } }],
+      create: [
+        { name: 'HB1', role: 'builder', provider: 'claude-code' as const, model: 'opus', worktree: true },
+        { name: 'claude', provider: 'claude-code' as const, worktree: true },
+        { name: 'HR1', provider: 'claude-code' as const, worktree: false }
+      ],
+      worktrees: [{ branch: 'hive/hb1', path: 'D:/x/site/hb1', base: 'main' }, { branch: 'hive/claude', path: 'D:/x/site/claude', base: 'main', reuse: true as const }, null],
+      setup: null
+    }
+    const v = templateLoadView(plan, cfg, settings, () => info)
+    expect(v.created.map((a) => a.name)).toEqual(['HB1', 'claude', 'HR1'])
+    expect(v.created[0]).toMatchObject({ role: 'builder', replaces: false, providerName: 'Claude Code', model: { text: 'Opus 5.5', isDefault: false }, effort: { text: 'Medium', isDefault: true }, where: { kind: 'new', branch: 'hive/hb1', path: 'D:/x/site/hb1', base: 'main' } })
+    expect(v.created[1]).toMatchObject({ replaces: true, model: { text: 'Opus 5.5', isDefault: true }, where: { kind: 'reuse', branch: 'hive/claude' } })
+    expect(v.created[2].where).toEqual({ kind: 'folder' })
+    // "(default)" is the view's to show, never in the text it shows.
+    expect(v.created.every((a) => [a.model, a.effort, a.mode].every((x) => !x || !/default\)/.test(x.text)))).toBe(true)
+    expect(v.removed).toEqual([{ name: 'Claude', note: 'its worktree on hive/claude goes on with the new Claude', replaced: true }])
+    expect(v.notes).toEqual(["Their conversations stay in the Sessions tab, and their open cards go back (Doing ones to Todo). The layout becomes the template's."])
   })
 
   it("the notice after removing old worktrees says what went whole, whose branch stayed and why, and what was kept (#313)", () => {

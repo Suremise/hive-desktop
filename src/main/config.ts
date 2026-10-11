@@ -2,6 +2,7 @@ import { app } from 'electron'
 import { join } from 'path'
 import { copyFileSync, existsSync } from 'original-fs'
 import { DEFAULT_APP_CONFIG, mergeDefaults, migrateConfig, withLegacySettings } from '../shared/defaults'
+import { extraArgsProblem } from '../shared/providers'
 import type { AppConfig, AppSettings, EffortOption, FallbackModel, ModelPrice, ProviderSettings } from '../shared/types'
 import type { SettingsPatch } from '../shared/api'
 import { readKeptJsonSync, writeKeptJson } from './fsutil'
@@ -53,6 +54,13 @@ class ConfigStore {
   }
 
   updateSettings(patch: SettingsPatch): AppSettings {
+    // Extra arguments with a bare "--" are refused, the providers' and the Assistant's (#523).
+    for (const p of [patch.providers, patch.assistant?.providers]) {
+      for (const s of Object.values(p ?? {})) {
+        const problem = typeof s?.extraArgs === 'string' ? extraArgsProblem(s.extraArgs) : null
+        if (problem) throw new Error(problem)
+      }
+    }
     const prev = structuredClone(this.data.settings)
     this.data.settings = mergeDefaults(this.data.settings, patch)
     this.scheduleSave()

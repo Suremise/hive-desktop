@@ -468,6 +468,8 @@ export class MergeSlots {
 /** An agent's hold as the workspace's record keeps it, to tell the user about one Hive closed under. */
 export interface SlotRecord {
   projectPath: string
+  /** The project's stable id (#508): the record is told against the folder that has it now. */
+  projectId?: string
   branch: string
   agentId: string
   agentName: string
@@ -494,7 +496,7 @@ export function parseSlotRecords(text: string): SlotRecord[] {
     const r = h as Record<string, unknown>
     if (!str(r.projectPath, 1000) || !str(r.branch, 200) || !str(r.agentId) || !str(r.agentName) || !str(r.runId)) continue
     const cards = Array.isArray(r.cards) ? r.cards.filter((n): n is number => Number.isInteger(n) && (n as number) > 0).slice(0, MAX_CARDS) : []
-    out.push({ projectPath: r.projectPath, branch: r.branch, agentId: r.agentId, agentName: r.agentName, runId: r.runId, cards, since: Number(r.since) || 0, until: Number(r.until) || 0 })
+    out.push({ projectPath: r.projectPath, ...(str(r.projectId, 64) ? { projectId: r.projectId } : {}), branch: r.branch, agentId: r.agentId, agentName: r.agentName, runId: r.runId, cards, since: Number(r.since) || 0, until: Number(r.until) || 0 })
   }
   return out
 }
