@@ -48,7 +48,7 @@ import { missingWorktree, recreateWorktree, unlinkMissingWorktree } from './agen
 import { projectAgents as agentsOf } from '../shared/defaults'
 import type { MoveOptions } from '../shared/types'
 import { killPty, ptyBuffer, ptySize, resizePty, writePty } from './ptyHost'
-import { apiInfo, regenerateToken } from './servers'
+import { apiInfo, createViewer, regenerateToken, revokeViewer } from './servers'
 import * as projectAgents from './projectAgents'
 import * as templates from './templates'
 import * as branchWatch from './branchWatch'
@@ -861,7 +861,9 @@ export function registerIpc(getAppInfo: () => ReturnType<HiveRequests['app:info'
     'api:regenerateToken': async () => {
       await regenerateToken()
       return apiInfo()
-    }
+    },
+    'api:createViewer': (name) => createViewer(String(name ?? '')),
+    'api:revokeViewer': (id) => revokeViewer(String(id ?? ''))
   }
 
   // Tests only (unpackaged builds), so a suite can see what the window does while an action runs or fails:

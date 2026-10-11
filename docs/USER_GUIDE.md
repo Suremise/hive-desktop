@@ -853,6 +853,18 @@ GitHub Copilot's modes:
 
 **Switching mode while an agent runs.** The mode badge in each agent's footer shows the mode its session is really in. Click it, or press **Ctrl+Alt+M**, and choose another: Hive switches it straight away, without a restart, the same way pressing **Shift+Tab** in the terminal does (which Hive also notices). Don't ask and Bypass permissions can't be reached that way, so choosing them restarts the session in that mode and carries on the same conversation. For Codex, Hive picks the preset from Codex's `/permissions` menu. The switch applies to that session only; the settings decide what new sessions start in. When you change the setting while agents are running, Hive offers to **Switch Now**. This works with `NO_COLOR` set too (Claude Code then shows its footer without colours): Hive reads the mode as it appears on the terminal's screen and leaves your `NO_COLOR` preference as it is.
 
+## Agent API
+
+Hive has a local API that agents, scripts and other apps use to talk to it: it listens on your computer only (`127.0.0.1`), and every call needs a token. **Settings → Agent API** turns it on or off, sets its port and shows its access token, which can do anything you can. Agents get tokens of their own automatically. See the [Agent API reference](AGENT_API.md).
+
+### Viewer tokens
+
+An app that only shows what Hive is doing, such as **Apiary** (the office view), should get a **viewer token** rather than the access token: it can read everything in your workspaces (projects, agents, the board, lanes, merge slots, the Progress panel) and follow what happens as it happens, but it can't change anything. Every attempt to change something is refused.
+
+To make one, open **Settings → Agent API → Viewer tokens**, type a name for the app (say *Apiary*) and click **Make viewer token**. The new token shows in its row: copy it and paste it into the app once. **Revoke** cuts that app off at once (it is refused from its next call, and stops receiving events), without touching anything else that uses the API. Hive keeps viewer tokens in its own folder (`%APPDATA%\Hive\agent-api-viewers.json`), never in a project.
+
+The app finds a running Hive by itself: while the Agent API is on, Hive keeps its address (never a token) in `%APPDATA%\Hive\agent-api-discovery.json`, and removes it when the API is turned off or Hive quits.
+
 ## Updating Hive
 
 Hive keeps itself up to date from its GitHub releases. By default it checks shortly after starting and every six hours, downloads a new version in the background, and installs it the next time you quit Hive — it never restarts on its own, so your agents are never interrupted.

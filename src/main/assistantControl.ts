@@ -99,9 +99,9 @@ export function allows(need: AssistantControl): boolean {
 
 /**
  * Records something the Assistant did (or was refused), in its panel's list and hive.log; with `more`, the setting it
- * changed (for Revert) or the change the user reverted.
+ * changed (for Revert), the change the user reverted, or the line without what it quotes (`brief`).
  */
-export function record(workspacePath: string, text: string, error?: string, more: { setting?: AssistantSettingChange; revertOf?: string } = {}): AssistantAction {
+export function record(workspacePath: string, text: string, error?: string, more: { setting?: AssistantSettingChange; revertOf?: string; brief?: string } = {}): AssistantAction {
   const s = stateOf(workspacePath)
   const action: AssistantAction = { id: randomUUID(), at: new Date().toISOString(), text, ok: !error, ...(error ? { error } : {}), ...more }
   s.actions.push(action)

@@ -2593,6 +2593,21 @@ p.hint {
   font-family: 'Cascadia Code', Consolas, monospace;
   font-size: 12px;
 }
+.viewer-tokens {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  max-width: 760px;
+  margin-top: 8px;
+}
+.viewer-tokens .token-box .input {
+  min-width: 220px;
+}
+.viewer-tokens td.row-actions,
+.viewer-tokens td.faint {
+  width: 1%;
+  white-space: nowrap;
+}
 
 /* ---------- About ---------- */
 .about {

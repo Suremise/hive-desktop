@@ -546,6 +546,10 @@ export interface HiveRequests {
 
   'api:info': () => AgentApiInfo
   'api:regenerateToken': () => AgentApiInfo
+  /** A new read-only viewer token with this name (#620). */
+  'api:createViewer': (name: string) => AgentApiInfo
+  /** Revokes a viewer token (its id): its requests are refused from now on. */
+  'api:revokeViewer': (id: string) => AgentApiInfo
 }
 
 export type HiveChannel = keyof HiveRequests

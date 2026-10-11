@@ -40,6 +40,7 @@ import { leftoversSummary, processCount } from '../shared/agentProcesses'
 import { installShims } from './progressReporters/shims'
 import { insideArchive, onCorruptFile } from './fsutil'
 import { apiEnv, assistantApiUrl, startApiServer, startHookServer } from './servers'
+import { clearDiscovery, clearDiscoveryNow } from './apiDiscovery'
 import { clearHookAuth } from './hookTokens'
 import { assistantHome, assistantTokenFile, endAssistant, newAssistantToken, newTurn } from './assistantControl'
 import { sessions } from './sessions'
@@ -540,6 +541,8 @@ async function quitNow(tellUser: boolean): Promise<void> {
   await progress.saveNow().catch(() => undefined)
   await flushMetrics().catch(() => undefined)
   await config.flush()
+  // Apps that find Hive by its discovery file stop looking for this one (#620).
+  await clearDiscovery()
   if (installOnQuit) installNow()
   else app.quit()
 }
@@ -882,6 +885,8 @@ app.on('before-quit', (e) => {
 })
 
 app.on('will-quit', () => {
+  // Any other way out (the updater's install, a renderer crash's quit) clears it too.
+  clearDiscoveryNow()
   killAll()
   closeProcessTracking()
   unwatchAll()

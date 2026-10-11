@@ -30,7 +30,7 @@ const ms = (v: number | null, count: number): string => (v === null ? (count ? `
 const num = (n: number): string => Math.round(n).toLocaleString()
 const pct = (part: number, whole: number): string => (whole ? `${((part / whole) * 100).toFixed(part && part / whole < 0.01 ? 1 : 0)}%` : '—')
 
-const ROLE_LABEL: Record<PerfRole, string> = { all: 'Everyone', agent: 'Project agents', assistant: 'The Assistant', api: 'Scripts' }
+const ROLE_LABEL: Record<PerfRole, string> = { all: 'Everyone', agent: 'Project agents', assistant: 'The Assistant', api: 'Scripts', viewer: 'Viewer apps' }
 
 /** The activity bar's Performance view: the workspace, with the sidebar's (or the page's) project filter. */
 export function PerformanceView() {
@@ -236,7 +236,7 @@ function PerformancePage({ workspacePath, scope, filters, setFilters, projects, 
                 <label className="perf-filter">
                   Who
                   <select className="input" value={filters.role} onChange={(e) => setFilters({ role: e.target.value as PerfRole })} aria-label="Who did the work">
-                    {(isTab ? (['all', 'agent'] as PerfRole[]) : (['all', 'agent', 'assistant', 'api'] as PerfRole[])).map((r) => (
+                    {(isTab ? (['all', 'agent'] as PerfRole[]) : (['all', 'agent', 'assistant', 'api', 'viewer'] as PerfRole[])).map((r) => (
                       <option key={r} value={r}>
                         {ROLE_LABEL[r]}
                       </option>

@@ -195,6 +195,7 @@ describe('reporting a run', () => {
     // The first step line gives the total, so the run starts with it: step 1 of 2 starting is 0 finished.
     expect(calls[0]).toMatchObject({ method: 'POST', path: '/v1/progress', auth: 'Bearer agent-token' })
     // With its process (#549: once it is gone without a finish, Hive says the run ended without a report).
+    // Its own title: not the command line, so nothing says it is (#620).
     expect(calls[0].body).toEqual({ title: 'Build', total: 2, step: 0, stepName: 'first', command: expect.stringContaining('-e'), pid: process.pid })
     const patches = calls.filter((c) => c.method === 'PATCH')
     expect(patches.every((c) => c.path === '/v1/progress/run-1')).toBe(true)
@@ -229,6 +230,10 @@ describe('reporting a run', () => {
     const script = `seen((c) => c.length > 0).then(() => { console.log('##hive-progress step=2 total=5 name=late'); return seen((c) => c.some((x) => x.method === 'PATCH')) }).then(() => { console.log('##hive-progress step=3 total=9 name=later'); return seen((c) => c.some((x) => x.body.stepName === 'later')) })`
     await wrap(['--', ...seenNode, '-e', script], env(), 0)
     expect(calls[0].body).not.toHaveProperty('total')
+    // No title of its own: its title is its command line, and the reporter says so, for the Agent API to name it by its program alone (#620).
+    // (Here the command line is long: the title is cut shorter than the command, so the two differ.)
+    expect(calls[0].body.titleFromCommand).toBe(true)
+    expect(String(calls[0].body.command).startsWith(String(calls[0].body.title).replace(/…$/, ''))).toBe(true)
     const patches = calls.filter((c) => c.method === 'PATCH')
     expect(patches.map((c) => c.body)).toEqual([
       { total: 5, step: 1, stepName: 'late' },

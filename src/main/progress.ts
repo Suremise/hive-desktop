@@ -144,7 +144,8 @@ export function keptRuns(saved: unknown, workspacePath: string): ProgressRun[] {
       seenAt: keptNumber(r.seenAt) ?? finishedAt,
       expectedMs: keptNumber(r.expectedMs),
       exitCode: keptNumber(r.exitCode),
-      logPath: keptText(r.logPath, MAX_LOG_PATH)
+      logPath: keptText(r.logPath, MAX_LOG_PATH),
+      ...(r.titleFromCommand === true ? { titleFromCommand: true as const } : {})
     })
   }
   return out
@@ -270,6 +271,7 @@ export class ProgressStore {
     const estimateMs = int(body.estimateMs, 'estimateMs', 0, MAX_ESTIMATE_MS)
     const waiting = text(body.waiting, 'waiting', MAX_STEP_NAME)
     const pid = int(body.pid, 'pid', 1, 4_294_967_295)
+    if (body.titleFromCommand !== undefined && typeof body.titleFromCommand !== 'boolean') throw new ProgressError(400, 'titleFromCommand must be true or false')
     const list = this.runs.get(key(caller.workspacePath)) ?? []
     const mine = list.filter((r) => isOpenRun(r) && this.owns(caller, r, true))
     if (mine.length >= MAX_OPEN_PER_OWNER) throw new ProgressError(429, `At most ${MAX_OPEN_PER_OWNER} runs can be open at once: finish one first`)
@@ -306,7 +308,8 @@ export class ProgressStore {
       seenAt: null,
       expectedMs: estimateMs ?? null,
       exitCode: null,
-      logPath: null
+      logPath: null,
+      ...(body.titleFromCommand === true ? { titleFromCommand: true as const } : {})
     }
     this.runs.set(key(caller.workspacePath), [run, ...list])
     this.flush(caller.workspacePath)
