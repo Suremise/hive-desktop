@@ -1,5 +1,5 @@
 import { randomUUID, randomBytes } from 'crypto'
-import { basename, dirname, extname, isAbsolute, join, relative, resolve } from 'path'
+import { basename, dirname, extname, isAbsolute, join, resolve } from 'path'
 import { copyFile, mkdir, open, readdir, rename, rm, stat, writeFile } from 'original-fs/promises'
 import { existsSync, realpathSync } from 'original-fs'
 import { typedText } from '../shared/terminalInput'
@@ -42,7 +42,7 @@ import { providerService } from './providerService'
 import { config } from './config'
 import { emit, emitTo, toast } from './events'
 import { presentWindow, showOsNotification, testNotifyLog, testQuiet } from './testQuiet'
-import { hashText, heldOpen, isInUse, readJson, removePath, samePlace, treeSignature, syncCopy, syncCopyLocked, syncCopyNow, trashAllOrNothing, withFileLock, writeJsonAtomic } from './fsutil'
+import { hashText, heldOpen, isInUse, readJson, placeRelative, removePath, samePlace, treeSignature, syncCopy, syncCopyLocked, syncCopyNow, trashAllOrNothing, withFileLock, writeJsonAtomic } from './fsutil'
 import { createLogger, userText } from './logger'
 import { applyStep, compactionOver, expireTasks, hookStep, idleAfter, titleStep, type HookStatusInput, type HookStep } from './hookStatus'
 import { Compaction } from './compaction'
@@ -255,7 +255,7 @@ function lockKey(abs: string): string {
 
 /** What Hive types to tell an agent it may make the locked edits the user allowed. */
 function goAheadPrompt(cwd: string, paths: string[]): string {
-  const files = paths.map((p) => relative(cwd, p) || basename(p)).join(', ')
+  const files = paths.map((p) => placeRelative(cwd, p) || basename(p)).join(', ')
   return `The user allowed you to edit ${files} while the other agent works on ${paths.length > 1 ? 'them' : 'it'}. Go ahead with the ${paths.length > 1 ? 'edits' : 'edit'}.`
 }
 
@@ -2631,7 +2631,7 @@ class SessionManager {
       const held = this.locks.get(lockKey(abs))
       const holder = held && held.liveId !== id ? this.live.get(held.liveId) : undefined
       if (!holder || now - held!.at >= LOCK_TTL_MS) continue
-      const rel = relative(holder.state.cwd, abs) || basename(abs)
+      const rel = placeRelative(holder.state.cwd, abs) || basename(abs)
       const who = holder.state.agentName ?? 'Another agent'
       log.info(`Lock: ${userText(l.state.agentName)} → ${userText(rel)} held by ${userText(who)} (${mode})`)
       if (mode === 'warn') {
@@ -2764,7 +2764,7 @@ class SessionManager {
     const l = this.live.get(id)
     if (!l) return
     const files: string[] = []
-    for (const v of this.locks.values()) if (v.liveId === id) files.push(relative(l.state.cwd, v.path).replace(/\\/g, '/'))
+    for (const v of this.locks.values()) if (v.liveId === id) files.push(placeRelative(l.state.cwd, v.path).replace(/\\/g, '/'))
     l.state.lockedFiles = files.length ? files : undefined
     this.emitState(l.state)
   }
