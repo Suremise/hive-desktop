@@ -23,9 +23,13 @@ const { execFileSync } = require('child_process')
 const runContext = require('./runContext.cjs')
 
 /** Areas: folders that hold evidence rather than being it (relative to hive-test). Naming one keeps nothing. */
-const AREAS = new Set(['', 'e2e', 'e2e/lanes', 'e2e/logs', 'e2e/logs/nested', 'scenarios', 'scenarios/lanes', 'scenarios/results', 'scenarios/baselines', 'scratch'])
-/** Whether rel (relative to hive-test, with `/`) is an area: one of AREAS, or a lane (`e2e/lanes/0`, `scenarios/lanes/3`). */
-const isArea = (rel) => AREAS.has(rel) || /^(?:e2e|scenarios)\/lanes\/\d+$/.test(rel)
+const AREAS = new Set(['', 'e2e', 'e2e/lanes', 'e2e/logs', 'e2e/logs/nested', 'scenarios', 'scenarios/lanes', 'scenarios/results', 'scenarios/baselines', 'scratch', 'codex', 'codex/sessions', 'codex/packages', 'codex/cache'])
+/**
+ * Whether rel (relative to hive-test, with `/`) is an area: one of AREAS, a lane (`e2e/lanes/0`, `scenarios/lanes/3`), or
+ * in the Codex test home a year or month of rollouts, a package or its releases, or a cache (#404: cards name the home
+ * and its folders when they talk about Codex; a rollout, a day's rollouts or a release cited keeps it).
+ */
+const isArea = (rel) => AREAS.has(rel) || /^(?:e2e|scenarios)\/lanes\/\d+$/.test(rel) || /^codex\/(?:sessions\/\d{4}(?:\/\d{2})?|packages\/[^/]+(?:\/releases)?|cache\/[^/]+)$/.test(rel)
 
 /**
  * Areas of the temp folder (clearDir, #304): Claude Code's sessions folder and the folders down to a scratchpad

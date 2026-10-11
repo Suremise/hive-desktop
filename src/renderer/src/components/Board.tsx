@@ -1221,6 +1221,10 @@ export function TaskDialog() {
   // The fields as the dialog opened: Save sends only what the user changed since, so a change an agent made
   // meanwhile (moving the card to Review, say) isn't put back.
   const orig = useRef<Record<string, string>>({})
+  // Bumped as the fields open, so the dialog draws again with them (#548): when every field already holds what it is set
+  // to (the first New Card), no state changes, React skips that render, and Escape answers with the first render's view
+  // (made before `orig` was filled), asking to discard an empty card.
+  const [, setOpened] = useState(0)
 
   // Filled from the card when it opens (later changes by agents show in its comments and history), before anything is
   // drawn or answered: a render with the last card's fields (or none) would show them, and take them for edits (#288).
@@ -1249,6 +1253,7 @@ export function TaskDialog() {
       blockedBy: c?.blockedBy.map((n) => `#${n}`).join(' ') ?? '',
       links: c?.links.map((n) => `#${n}`).join(' ') ?? ''
     }
+    setOpened((n) => n + 1)
     setPreview(!!c?.description)
     setComment('')
     setDecision('')

@@ -124,6 +124,9 @@ function rolloutPath() {
   fs.mkdirSync(dir, { recursive: true })
   const file = path.join(dir, `rollout-${now.toISOString().slice(0, 19).replace(/:/g, '-')}-${sessionId}.jsonl`)
   fs.writeFileSync(file, JSON.stringify({ timestamp: now.toISOString(), type: 'session_meta', payload: { id: sessionId, cwd: process.cwd(), timestamp: now.toISOString() } }) + '\n')
+  // Hive's instructions (-c developer_instructions=…), recorded as the developer message Codex starts its rollout with.
+  const given = args.find((a, i) => args[i - 1] === '-c' && a.startsWith('developer_instructions='))
+  if (given) fs.appendFileSync(file, JSON.stringify({ timestamp: now.toISOString(), type: 'response_item', payload: { type: 'message', role: 'developer', content: [{ type: 'input_text', text: JSON.parse(given.slice('developer_instructions='.length)) }] } }) + '\n')
   return file
 }
 let rollout = null

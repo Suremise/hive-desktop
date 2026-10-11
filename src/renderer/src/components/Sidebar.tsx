@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
-import type { McpServerInfo, NoteFile, ProjectInfo, SkillInfo, TaskCard } from '@shared/types'
-import { agentDoingCards, agentReviewCards } from '@shared/tasks'
-import { cardText } from './CardChip'
+import type { McpServerInfo, NoteFile, ProjectInfo, SkillInfo } from '@shared/types'
+import { AgentsTable, agentsText } from './AgentsTable'
+import { useLanes, type Lane } from '../laneSource'
 import { agentLaunchSettings, modeOption } from '@shared/providers'
 import { agentsToResume } from '@shared/resumeAll'
 import * as actions from '../actions'
@@ -9,7 +9,7 @@ import { call } from '../api'
 import { commandKeybinding, runCommand } from '../commands'
 import { get, notify, projectState, prompt, set, setProjectTab, toggleCompactSidebar, useStore } from '../store'
 import { cx, formatKeybinding } from '../util'
-import { Icon, IconButton, InfoTip, LoadFailed, SearchInput, StaleNote, StatusDot, STATUS_TEXT, statusText, Switch, Tooltip, useContextMenu, type MenuEntry } from './ui'
+import { Icon, IconButton, InfoTip, LoadFailed, SearchInput, StaleNote, StatusDot, STATUS_TEXT, Switch, Tooltip, useContextMenu, type MenuEntry } from './ui'
 import { addSkill, deleteSkill, HiveSkillsWarning, restoreBundled, SKILL_LEVEL_TIP, SkillRow } from './Skills'
 import { TemplatesPanel } from './Templates'
 import { hasEditorDraftsUnder } from '../editorDrafts'
@@ -124,11 +124,9 @@ function compactTip(): string {
   return kb ? ` (${formatKeybinding(kb)})` : ''
 }
 
-/** An agent's line in a project's tooltip: "Agent 2: working · #5 Prompt snippets" (or "· reviewing #5 …"). */
-function agentTipLine(p: ProjectInfo, a: ProjectInfo['agents'][number], tasks: TaskCard[]): string {
-  const card = cardText(agentDoingCards(tasks, p.name, a.id))
-  const review = card ? '' : cardText(agentReviewCards(tasks, p.name, a.id))
-  return `${a.name}: ${a.live ? statusText(a.live) : 'not running'}${card ? ` · ${card}` : review ? ` · reviewing ${review}` : ''}`
+/** A project's lanes (its builders and reviewers, to pair them up in its agents table, #529). */
+function projectLanes(lanes: readonly Lane[], p: ProjectInfo): Lane[] {
+  return lanes.filter((l) => l.project.toLowerCase() === p.path.toLowerCase())
 }
 
 /** Right-click menu for a project, shared by the full list and the compact rail. */
@@ -208,6 +206,7 @@ function ProjectsRail() {
   const workspace = useStore((s) => s.workspace)
   const needs = useNeedCounts()
   const tasks = useStore((s) => s.tasks)
+  const lanes = useLanes()
   const selected = useStore((s) => s.selectedProject)
   const menu = useContextMenu()
 
@@ -234,7 +233,9 @@ function ProjectsRail() {
   const item = (p: ProjectInfo) => {
     const state = projectState(p)
     const status = state ? STATUS_TEXT[state.status] : p.active ? 'No session' : 'Inactive'
-    const running = p.agents.filter((a) => a.live).length
+    // Its agents as a table (#529), whenever it has any.
+    const table = p.agents.length > 0
+    const lanesOf = projectLanes(lanes, p)
     const tip = (
       <div className="rail-tip">
         <strong>{p.name}</strong>
@@ -247,22 +248,25 @@ function ProjectsRail() {
             <Icon name="git-branch" /> {p.branch}
           </div>
         )}
-        {(running > 1 || p.agents.some((a) => agentDoingCards(tasks, p.name, a.id).length)) &&
-          p.agents.map((a) => (
-            <div key={a.id} className="desc">
-              {agentTipLine(p, a, tasks)}
-            </div>
-          ))}
+        {table && <AgentsTable project={p} tasks={tasks} lanes={lanesOf} />}
       </div>
     )
     return (
-      <Tooltip key={p.path} content={tip} side="right" block>
+      <Tooltip key={p.path} content={tip} side="right" block focus className={table ? 'agents-tip' : undefined}>
         <div
           className={cx('rail-project', selected === p.path && 'selected', !p.active && 'inactive')}
+          role="button"
+          tabIndex={0}
           onClick={() => actions.selectProject(p.path)}
+          onKeyDown={(e) => {
+            if (e.key !== 'Enter' && e.key !== ' ') return
+            e.preventDefault()
+            actions.selectProject(p.path)
+          }}
           onDoubleClick={() => p.active && !state && void actions.newSession(p.path)}
           onContextMenu={(e) => menu.open(e, projectMenu(p))}
           aria-label={`${p.name}: ${status}`}
+          aria-description={table ? agentsText(p, tasks, lanesOf) : undefined}
         >
           <span className="rail-initials">{projectInitials(p.name)}</span>
           <span className={cx('dot', state?.status ?? (p.active ? 'idle' : 'stopped'), state?.unseen && 'unseen')} />
@@ -296,6 +300,7 @@ function ProjectsPanel() {
   const workspace = useStore((s) => s.workspace)
   const needs = useNeedCounts()
   const tasks = useStore((s) => s.tasks)
+  const lanes = useLanes()
   const selected = useStore((s) => s.selectedProject)
   const settings = useStore((s) => s.settings)
   const menu = useContextMenu()
@@ -323,6 +328,7 @@ function ProjectsPanel() {
     const state = projectState(p)
     const running = p.agents.filter((a) => a.live).length
     const status = state ? STATUS_TEXT[state.status] : p.active ? 'No session' : 'Inactive'
+    const lanesOf = projectLanes(lanes, p)
     return (
       <div
         key={p.path}
@@ -341,8 +347,10 @@ function ProjectsPanel() {
               </Tooltip>
             )}
             {running > 1 && (
-              <Tooltip content={<span style={{ whiteSpace: 'pre-line' }}>{p.agents.map((a) => agentTipLine(p, a, tasks)).join('\n')}</span>}>
-                <span className="agent-count">{running}</span>
+              <Tooltip content={<AgentsTable project={p} tasks={tasks} lanes={lanesOf} />} className="agents-tip">
+                <span className="agent-count" aria-description={agentsText(p, tasks, lanesOf)}>
+                  {running}
+                </span>
               </Tooltip>
             )}
             {p.agents.some((a) => a.restartNeeded) && (
@@ -363,10 +371,12 @@ function ProjectsPanel() {
                 <Icon name="git-branch" /> {p.branch} ·
               </>
             )}{' '}
-            {/* Its agents and their cards, when one has a card in Doing (the agent count has them with several running). */}
-            {p.agents.some((a) => agentDoingCards(tasks, p.name, a.id).length) ? (
-              <Tooltip content={<span style={{ whiteSpace: 'pre-line' }}>{p.agents.map((a) => agentTipLine(p, a, tasks)).join('\n')}</span>}>
-                <span className="project-status">{status}</span>
+            {/* Its agents as a table (#529), whenever it has any: on hover, or on keyboard focus (the row's one tab stop for it). */}
+            {p.agents.length ? (
+              <Tooltip content={<AgentsTable project={p} tasks={tasks} lanes={lanesOf} />} className="agents-tip" focus>
+                <span className="project-status" tabIndex={0} aria-label={`${p.name} agents: ${status}`} aria-description={agentsText(p, tasks, lanesOf)}>
+                  {status}
+                </span>
               </Tooltip>
             ) : (
               status

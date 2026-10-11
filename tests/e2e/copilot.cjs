@@ -25,7 +25,6 @@ const sibling2 = path.join(ws, 'paren-1-')
 const copilotDir = path.join(lib.WORK, 'copilot-cli')
 const copilotHome = path.join(copilotDir, 'copilot-home')
 const apiLog = path.join(lib.WORK, 'copilot-api.jsonl')
-const sleep = lib.sleep
 let failed = 0
 const check = (name, ok, extra = '') => {
   lib.checked(ok)
@@ -71,7 +70,34 @@ const check = (name, ok, extra = '') => {
     const screen = async (id) => lib.plainText(await inv('pty:buffer', key(id)).catch(() => ''))
     const status = async (id) => (await live(id))?.status
     const reach = (id, wanted, ms = 30000) => lib.until(async () => wanted.includes(await status(id)), ms, 300)
-    const send = (id, text, accept = ['working', 'waiting', 'finished']) => lib.sendPrompt(inv, key(id), text, { submitted: async () => accept.includes(await status(id)) })
+    // Copilot's dialogs end with this line. Hive shows waiting (Copilot's Notification hook) a moment before Copilot
+    // draws the dialog, and a key pressed before that is lost under load (#541): a key for a dialog waits for one drawn
+    // since the prompt that asks for it (the terminal's buffer keeps the earlier dialogs' lines).
+    const DIALOG = /enter to select · esc to cancel/g
+    const dialogsIn = async (k) => (lib.plainText(await inv('pty:buffer', k).catch(() => '')).match(DIALOG) ?? []).length
+    const dialogsAtSend = new Map()
+    // How long Copilot may take to draw a dialog after Hive shows it waiting: generous, for a loaded machine.
+    const DIALOG_DRAWN_MS = 30000
+    const answer = async (k, keys) => {
+      const before = dialogsAtSend.get(k) ?? 0
+      if (!(await lib.until(async () => (await dialogsIn(k)) > before, DIALOG_DRAWN_MS, 200))) {
+        const shown = lib.plainText(await inv('pty:buffer', k).catch(() => '')).slice(-400)
+        throw new Error(`no dialog drawn in ${k} within ${DIALOG_DRAWN_MS} ms of its prompt (${before} before it, ${await dialogsIn(k)} now), so no key was sent: ${shown}`)
+      }
+      await inv('pty:write', k, keys)
+    }
+    // Submitted once the agent shows one of `accept` after the prompt: a status it already had before (the last turn's
+    // finished) doesn't count, or the next prompt is typed while this turn still runs, and Copilot queues it (#541).
+    const send = async (id, text, accept = ['working', 'waiting', 'finished']) => {
+      dialogsAtSend.set(key(id), await dialogsIn(key(id)))
+      const before = await live(id)
+      return lib.sendPrompt(inv, key(id), text, {
+        submitted: async () => {
+          const l = await live(id)
+          return !!l && accept.includes(l.status) && (l.status !== before?.status || l.statusSince !== before?.statusSince)
+        }
+      })
+    }
     // The statuses an agent shows until its turn finishes or it waits for the user (or `ms` passes), polled.
     const timeline = async (id, ms = 30000) => {
       const seen = []
@@ -122,7 +148,7 @@ const check = (name, ok, extra = '') => {
     await page.screenshot({ path: path.join(lib.WORK, 'copilot-2-denied.png') })
 
     // A approves (Enter on Yes): the edit goes through and the turn finishes; the claim goes with it.
-    await inv('pty:write', key(a.id), '\r')
+    await answer(key(a.id), '\r')
     check('A: the approved edit finishes', !!(await reach(a.id, ['finished'])), await status(a.id))
     check('a.ts edited by A', fs.readFileSync(path.join(proj, 'a.ts'), 'utf8').includes('probed'))
     check('A: lets a.ts go at the end of its turn', !((await live(a.id))?.lockedFiles ?? []).length, JSON.stringify((await live(a.id))?.lockedFiles))
@@ -148,7 +174,7 @@ const check = (name, ok, extra = '') => {
     // aborts the turn (the transcript's abort).
     await send(b.id, `write ../${path.basename(sibling)}/outside-b.txt from B`, ['working', 'waiting'])
     check('B: a file outside its folder still asks', !!(await reach(b.id, ['waiting'])), await status(b.id))
-    await inv('pty:write', key(b.id), '\x1b')
+    await answer(key(b.id), '\x1b')
     const bEvents = path.join(copilotHome, 'session-state', sb.sessionId, 'events.jsonl')
     const bLog = () => (fs.existsSync(bEvents) ? fs.readFileSync(bEvents, 'utf8') : '')
     check('B: refused with Esc, its turn ends', !!(await reach(b.id, ['ready', 'finished'], 20000)), await status(b.id))
@@ -184,7 +210,10 @@ const check = (name, ok, extra = '') => {
     const liveC = async () => (await inv('session:live')).find((l) => l.agentId === c.id)
     const statusC = async () => (await liveC())?.status
     const reachC = (wanted, ms = 30000) => lib.until(async () => wanted.includes(await statusC()), ms, 300)
-    const sendC = (text) => lib.sendPrompt(inv, keyC, text, { submitted: async () => ['working', 'waiting'].includes(await statusC()) })
+    const sendC = async (text) => {
+      dialogsAtSend.set(keyC, await dialogsIn(keyC))
+      return lib.sendPrompt(inv, keyC, text, { submitted: async () => ['working', 'waiting'].includes(await statusC()) })
+    }
     const sc = await inv('session:start', proj2, { agentId: c.id })
     if (await lib.until(async () => /Do you trust the files in this folder/.test(lib.plainText(await inv('pty:buffer', keyC).catch(() => ''))), 30000, 300)) await inv('pty:write', keyC, '\r')
     check('C: ready in paren(1)', !!(await reachC(['ready'])), await statusC())
@@ -195,12 +224,12 @@ const check = (name, ok, extra = '') => {
     await sendC('edit p.txt probe probed-by-c')
     check('C: an edit in its folder asks', !!(await reachC(['waiting'])), await statusC())
     check('p.txt unchanged until approved', fs.readFileSync(path.join(proj2, 'p.txt'), 'utf8') === 'probe\n')
-    await inv('pty:write', keyC, '\r')
+    await answer(keyC, '\r')
     check('C: approved, the edit goes through and the turn finishes', !!(await reachC(['finished'])), await statusC())
     check('p.txt edited by C once approved', fs.readFileSync(path.join(proj2, 'p.txt'), 'utf8').includes('probed-by-c'))
     await sendC(`write ../${path.basename(sibling2)}/outside-c.txt from C`)
     check('C: a write into the look-alike sibling asks', !!(await reachC(['waiting'])), await statusC())
-    await inv('pty:write', keyC, '\x1b')
+    await answer(keyC, '\x1b')
     check('C: refused with Esc, its turn ends', !!(await reachC(['ready', 'finished'], 20000)), await statusC())
     check('nothing written in the look-alike sibling', !fs.existsSync(path.join(sibling2, 'outside-c.txt')))
     // Stopped from Hive while Copilot shows a permission dialog: Ctrl+C closes it, then exits, with the totals (#465).
@@ -253,7 +282,7 @@ const check = (name, ok, extra = '') => {
     // Esc on a permission dialog: no hook comes; the transcript's abort ends the turn.
     await send(a.id, 'shell New-Item -Path made-by-copilot.txt -ItemType File')
     check('A: the command waits for permission', !!(await reach(a.id, ['waiting'])), await status(a.id))
-    await inv('pty:write', key(a.id), '\x1b')
+    await answer(key(a.id), '\x1b')
     check('A: Esc on the dialog ends the turn (abort in the transcript)', !!(await reach(a.id, ['ready', 'finished'], 20000)), await status(a.id))
     check('the command never ran', !fs.existsSync(path.join(proj, 'made-by-copilot.txt')))
 
@@ -268,8 +297,7 @@ const check = (name, ok, extra = '') => {
       await send(a.id, prompt)
       const prompting = await lib.until(async () => asked.test(await screen(a.id)) && (await status(a.id)) === 'waiting', 30000, 300)
       check(`A: ${what} asks first`, !!prompting, `${await status(a.id)} ${(await screen(a.id)).slice(-300)}`)
-      await sleep(300)
-      await inv('pty:write', key(a.id), '\x1b')
+      await answer(key(a.id), '\x1b')
       // From this refusal on: the log's next after the earlier ones.
       const after = await lib.until(() => {
         const evs = aLog()

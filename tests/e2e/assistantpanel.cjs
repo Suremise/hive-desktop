@@ -43,7 +43,20 @@ const check = (name, ok, extra = '') => {
   page.on('pageerror', (e) => check('no page errors', false, e.message))
   await lib.fitWindow(app, page, { width: 1500, height: 900 })
   await lib.appReady(page)
-  let inv = (ch, ...a) => page.evaluate(([c, x]) => window.hive.invoke(c, ...x), [ch, a])
+  // A call that hasn't answered in 60 s fails the suite saying which, and whether the window and Hive's main process
+  // still answer, with a screenshot (#492: once, under two full sets, the suite hung here until the runner's 10 minutes).
+  const answers = (p, ms) => Promise.race([p.then(() => 'yes', (e) => `error: ${e.message}`), lib.sleep(ms).then(() => 'no')])
+  const watched = (call, what) => {
+    const t = setTimeout(async () => {
+      const renderer = await answers(page.evaluate(() => 1), 5000)
+      const main = await answers(app.evaluate(() => 1), 5000)
+      const shot = await answers(page.screenshot({ path: path.join(lib.WORK, 'assistantpanel-unanswered.png') }), 10000)
+      console.log(`FAIL ${what} hasn't answered in 60 s (the window answers: ${renderer}; Hive's main process answers: ${main}; screenshot taken: ${shot})`)
+      process.exit(1)
+    }, 60000)
+    return call.finally(() => clearTimeout(t))
+  }
+  let inv = (ch, ...a) => watched(page.evaluate(([c, x]) => window.hive.invoke(c, ...x), [ch, a]), `inv ${ch}`)
   await lib.openWorkspace(inv, page, ws)
   const home = (await inv('workspace:refresh')).assistant.path
   const key = lib.ptyKey(home, 'assistant')
@@ -126,7 +139,7 @@ const check = (name, ok, extra = '') => {
   const colours = await attentionAA()
   check('…in the attention colour, with AA contrast on its tint in both themes', Object.values(colours).every((c) => c.got === c.want && c.ratio >= 4.5), JSON.stringify(colours))
   await shots('waiting')
-  await idle()
+  check('…and its turn ends by itself after the question', await idle())
 
   // --- What it did: under the footer, the last 3, Show all scrolls inside the same height.
   // Newest first they are: a card, two setting changes (with Revert, a taller button), then three cards.
@@ -279,7 +292,7 @@ const check = (name, ok, extra = '') => {
   page.on('pageerror', (e) => check('no page errors', false, e.message))
   await lib.fitWindow(app, page, { width: 1500, height: 900 })
   await lib.appReady(page)
-  inv = (ch, ...a) => page.evaluate(([c, x]) => window.hive.invoke(c, ...x), [ch, a])
+  inv = (ch, ...a) => watched(page.evaluate(([c, x]) => window.hive.invoke(c, ...x), [ch, a]), `inv ${ch}`)
   await lib.until(async () => (await panel().count()) === 1, 10000)
   if ((await panel().count()) === 0) {
     await page.evaluate(() => document.activeElement?.blur())

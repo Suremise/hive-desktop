@@ -89,9 +89,9 @@ const agentFile = () => JSON.parse(fs.readFileSync(path.join(home, '.hive', 'pro
   await page.locator('.assistant-persona').click()
   await lib.sleep(300)
   await page.locator('.context-menu .menu-item, .menu .menu-item', { hasText: 'Planner' }).first().click()
-  await lib.sleep(800)
-  check('choosing a mode saves it for the workspace', agentFile().persona === 'planner', JSON.stringify(agentFile()))
-  check('the header shows it', (await page.locator('.assistant-persona').innerText()).includes('Planner'))
+  check('choosing a mode saves it for the workspace', !!(await lib.until(() => agentFile().persona === 'planner', 10000)), JSON.stringify(agentFile()))
+  // The header follows once the workspace is refreshed, which can be after the file is saved.
+  check('the header shows it', !!(await lib.until(async () => (await page.locator('.assistant-persona').innerText()).includes('Planner'), 10000)))
 
   // Assistant Settings: this workspace's effort, over the default.
   await inv('agents:update', home, 'assistant', { effort: 'medium' })

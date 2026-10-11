@@ -194,10 +194,16 @@ same code while every required check still runs:
   2.1.292, Codex 0.160.1"; each Hive notes its choice in the suite's `hive-clis.jsonl`, `HIVE_TEST_CLI_LOG`), and
   `run-record.json` beside it holds them per suite: `npm run tested-clis` makes the release's "Tested with" manifest
   from it (#365, RELEASING.md). The runner itself never starts a CLI.
-- **The reviewer** checks the record's fingerprint is the code it's reviewing (`npm run e2e -- --fingerprint` in the
-  builder's folder) and trusts it for those suites. It reruns the quick checks (`npm run typecheck`, `npm run lint`,
-  `npm test`) and the one or two suites closest to the riskiest change, and spends the rest of its time on its own
-  probes. It reruns more when there's no record, the fingerprint differs, or a result looks wrong.
+- **The reviewer** checks the record instead of repeating it (#533): its fingerprint is the code it's reviewing
+  (`npm run e2e -- --fingerprint` in the builder's folder), it's recent, the suites the change needs ran, and each
+  failure in it is explained. It then runs the quick checks (`npm run typecheck`, `npm run lint`), the unit tests the
+  change affects (`npx vitest run --changed <base>`, where `<base>` is the commit the card's work started from;
+  uncommitted changes count too; it follows imports, so add the tests that read a changed file, such as a skill's
+  Markdown or a fixture), not the whole unit suite, and the one or two suites closest to the riskiest change,
+  and spends the rest of its time on its own probes. It reruns a whole suite or set only when there's no record, the
+  fingerprint differs or the record is stale, a result looks wrong, or the change is to shared test infrastructure (the
+  runner, `lib.cjs`, the run context, the scenario harness, `vitest.config.ts` or a helper in `tests/`), and says in
+  its verdict which and why.
 - **Follow-up rounds** run the suites the fixes affect (`--affected`). **Before a card passes**, every suite it names
   has run on its final code (the builder's last record).
 - **Before a merge to main**, run the **full set** (the fake tier): `npm run e2e -- --all --build --record`, so suites
@@ -336,7 +342,20 @@ kept and why, without removing anything; `--days N` sets the age, default 3).
   anything left from before suites had folders of their own; in scenario lanes, numbered copies (`<scenario>-2`…) and
   folders older than the age; in `e2e`, anything but `lanes` and `logs` older than the age (suites run on their own,
   probes); and anything else in `hive-test` older than the age (one-off folders and files).
-- **Stays:** the CLI test homes (`codex`, `claude`: their sign-ins; never opened), scenario results and baselines, the
+- **In the Codex test home** (`codex`, #404), which otherwise only grows (1.8 GB by 8 Oct 2026): its rollouts older
+  than the age (`sessions\YYYY\MM\DD`; a folder whose rollouts are all that old goes whole), package copies Codex no
+  longer runs (`packages\<name>\releases\<version>` that is neither its `current` link's target nor the version
+  `auto-update-version` names: 430 MB each; when the link or marker is blank, malformed or names no release there,
+  every release of that package stays) and downloads it left unfinished in `cache` (`.tmp*`) older than the age.
+  Only under the home's lease (`codexHomeLock.mjs`, the one real Codex suites and scenarios hold), taken without
+  waiting: while a run holds it, nothing there goes ("a run is using the Codex test home"), and it goes next time.
+  Once it holds the lease, the clean-up plans the home again and checks each item just before it goes, so a release
+  Codex took up or a rollout it refreshed since the first look stays. Nothing is looked in or deleted through a link
+  (a junction or symlink anywhere on the path, the home's own included).
+  Never its sign-in (`auth.json`), config, sandbox setup (`.sandbox`, `.sandbox-bin`, `cap_sid`), databases (Codex
+  prunes its own logs), plugins, skills or history. What stays is about 0.8 GB, most of it the copy of Codex it runs
+  (430 MB) and the sandbox's (320 MB). The Claude Code test home is small (about 80 MB) and isn't opened.
+- **Stays:** the CLI test homes' sign-ins, config and sandbox setup (`codex`, but for the above; `claude`, never opened), scenario results and baselines, the
   claims and locks, the concurrency checker's folders (it removes its own), the Progress panel's timings; logs (the
   runner keeps the newest ten runs); a lane a runner holds.
 - **Evidence stays, whoever deletes** (`evidence.cjs`): anything a card that isn't Done cites is kept by the clean-up,
@@ -378,7 +397,9 @@ Start from an existing suite and use `lib.cjs`:
   for a child that is part of Hive (the hive MCP server, `hive-progress`); never `process.env` (Run context, above);
 - `port(<default>)` for its Agent API port (never a fixed number, so it can run beside others); add it to an area in
   `affected.mjs` and to `suites.mjs` (sorted), with `serial: '<why>'` if it can't run beside others;
-- `until(fn, ms)` to wait for something to happen rather than a fixed `sleep()`, which is slower and flakier;
+- `until(fn, ms)` to wait for what you expect to see, never a fixed `sleep()` and then a check, nor a single read just
+  after an action: the rules every test follows are in [tests/README.md](../README.md) (Tests wait for conditions,
+  never for time), and reviewers check them;
 - `enableProviders()` for the profile, `launch()`; `fakeClaude(userData, home, trusted)` to run the fake Claude Code
   (below) when the suite only needs some session running;
 - `addAgent()` / `soloAgent()`: projects start without agents;

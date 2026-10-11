@@ -327,12 +327,12 @@ function projectByName(name: string): string {
 /** A watching agent's watch, as every status reply gives it (small: what for and until when); undefined otherwise. */
 const watchingOf = (live: LiveSessionState | null | undefined) =>
   live?.status === 'watching' && live.watch ? { cards: live.watch.cards, ...(live.watch.agents ? { agents: live.watch.agents } : {}), ...(live.watch.column ? { column: live.watch.column } : {}), changes: live.watch.changes, label: live.watch.label, limitAt: live.watch.limitAt } : undefined
-/** An agent's open progress run, as status replies give it (small: what, how far, time left); undefined without one. */
+/** An agent's open progress run, as status replies give it (small: what, how far, what it waits for, time left); undefined without one. */
 function progressOf(projectPath: string, agentId: string) {
   const r = progress.openRunOf(projectPath, agentId)
   if (!r) return undefined
   const etaMs = timeLeft(r, Date.now())
-  return { title: r.title, ...(r.total !== null ? { step: r.step ?? 0, total: r.total } : {}), ...(r.stepName ? { stepName: r.stepName } : {}), ...(etaMs !== null ? { etaMs } : {}), ...(r.state === 'stale' ? { stale: true } : {}) }
+  return { title: r.title, ...(r.total !== null ? { step: r.step ?? 0, total: r.total } : {}), ...(r.stepName ? { stepName: r.stepName } : {}), ...(r.waiting ? { waiting: r.waiting } : {}), ...(etaMs !== null ? { etaMs } : {}), ...(r.state === 'stale' ? { stale: true } : {}) }
 }
 
 /** An agent's status message: a watching agent's is what it waits for. */

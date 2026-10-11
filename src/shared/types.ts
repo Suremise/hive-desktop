@@ -1998,10 +1998,26 @@ export interface ProgressRun {
   startedAt: number
   updatedAt: number
   finishedAt: number | null
-  /** stale: running, but no report for longer than expected, or its agent stopped. */
-  state: 'running' | 'stale' | 'passed' | 'failed'
+  /**
+   * stale: running, but no report for longer than expected, or its agent stopped. stopped (#549): ended without passing
+   * or failing: its command was interrupted (Ctrl+C), or its reporter's process is gone without a finish.
+   */
+  state: 'running' | 'stale' | 'passed' | 'failed' | 'stopped'
   /** Why a stale run is stale: no report for too long, or its agent's session stopped. */
   staleReason: 'quiet' | 'agent-stopped' | null
+  /** Why a stopped run stopped: interrupted (its reporter said so), or gone (its process ended without a report). */
+  stopReason: 'interrupted' | 'gone' | null
+  /**
+   * What a running run waits for before it can go on ("waiting for a test slot: …", #549), or null. While it waits it
+   * has no time left (estimateMs null; the time that was left resumes when it stops waiting) and never goes stale.
+   */
+  waiting: string | null
+  /** Since when it waits (ms), while it does. */
+  waitingSince: number | null
+  /** The time that was left when it began to wait, given back when it stops (null: none). Not shown. */
+  heldEstimateMs: number | null
+  /** The reporting process, when the reporter gave it: once it is gone, an open run ends as stopped (gone). */
+  pid: number | null
   summary: string | null
   /** The user dismissed it: listed under Recent only. */
   dismissed: boolean

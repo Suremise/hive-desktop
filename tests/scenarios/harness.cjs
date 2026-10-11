@@ -30,8 +30,10 @@ const PROVIDERS = {
   // The fake Codex, in a throwaway home of its own (never the signed-in test home).
   'fake-codex': { provider: 'codex', fake: true, executable: path.join(lib.ROOT, 'tests', 'e2e', 'fake-codex', 'fake-codex.cmd'), mode: 'full-access' },
   // Accept edits, with the hive tools, commands and skills allowed on the command line (the project's extra arguments):
-  // it never asks, and needs no bypass mode (which Claude Code asks to accept once).
-  'claude-code': { provider: 'claude-code', executable: '', mode: 'acceptEdits', extraArgs: '--allowedTools mcp__hive Bash PowerShell Skill' },
+  // it never asks, and needs no bypass mode (which Claude Code asks to accept once). One value after `=`: the option
+  // takes a list, and as separate words it also took the first task Hive passes last, so an agent started on a card sat
+  // idle (#498).
+  'claude-code': { provider: 'claude-code', executable: '', mode: 'acceptEdits', extraArgs: '--allowedTools=mcp__hive,Bash,PowerShell,Skill' },
   codex: { provider: 'codex', executable: '', mode: 'full-access' },
   // The real Copilot CLI, offline against the scripted stand-in model (tests/e2e/fake-copilot-api.cjs), in a home of the
   // run's own: a fake as far as cost and sign-in go (no credits, none), Copilot's own tools and hooks for the rest.
@@ -328,6 +330,7 @@ async function runScenario(sc, providerKey, opts = {}) {
     const limit = Date.now() + (opts.timeoutMs ?? 300000)
     let sawWork = false
     let quietSince = 0
+    const trustAnswered = new Set()
     while (Date.now() < limit) {
       const s = await live()
       const status = s?.status ?? 'stopped'
@@ -345,19 +348,25 @@ async function runScenario(sc, providerKey, opts = {}) {
         if (Date.now() - quietSince > (status === 'waiting' ? 3000 : 6000)) break
       }
       if (sc.during) await sc.during(ctx, status)
-      // Other agents of the project started during the run (the Assistant dispatching one) ask to trust its folder.
+      // Other agents of the project started during the run (the Assistant dispatching one) ask to trust its folder, once
+      // each. Claude Code's menu starts on "No, exit": lib's answer presses Enter only with "Yes" selected (#498: a blind
+      // Down and Enter could quit it, and was sent again each second while the question was still in the buffer).
+      const running = (await inv('session:live').catch(() => [])).filter((x) => x.projectPath.toLowerCase() === alpha.toLowerCase())
       for (const a of Object.values(ctx.agents)) {
-        if (sc.role !== 'assistant' && a.id === coder.id) continue
+        if ((sc.role !== 'assistant' && a.id === coder.id) || trustAnswered.has(a.id) || !running.some((x) => x.agentId === a.id)) continue
         const k = lib.ptyKey(alpha, a.id)
-        if (/Do you trust the files in this folder/i.test(plain(await inv('pty:buffer', k).catch(() => '')).slice(-2000))) await inv('pty:write', k, '\r')
-        else if (/trust this folder/i.test(plain(await inv('pty:buffer', k).catch(() => '')).slice(-2000))) {
-          await inv('pty:write', k, p.provider === 'codex' ? '\r' : '\x1b[B')
-          await sleep(300)
-          if (p.provider !== 'codex') await inv('pty:write', k, '\r')
+        const tail = plain(await inv('pty:buffer', k).catch(() => '')).slice(-2000)
+        if (/Do you trust the files in this folder/i.test(tail)) {
+          await inv('pty:write', k, '\r')
+          trustAnswered.add(a.id)
+        } else if (/trust this folder/i.test(tail)) {
+          if (p.provider === 'codex') await inv('pty:write', k, '\r')
+          if (p.provider === 'codex' || (await lib.acceptClaudeTrust(inv, alpha, a.id, 3000))) trustAnswered.add(a.id)
         }
       }
-      // A dispatched agent's work is part of the outcome: wait while one is still working (within the limit).
-      if (sc.waitForAgents && quietSince && (await inv('session:live')).some((x) => x.projectPath.toLowerCase() === alpha.toLowerCase() && ['working', 'starting', 'background'].includes(x.status))) quietSince = Date.now()
+      // A dispatched agent's work is part of the outcome: wait while one is still working, or at a question (its folder's
+      // trust, answered above; #498), within the limit.
+      if (sc.waitForAgents && quietSince && running.some((x) => ['working', 'starting', 'background', 'waiting'].includes(x.status))) quietSince = Date.now()
       // Something Hive does after the turn has ended (a line it types later, #401) is part of the outcome: wait for it.
       if (sc.keepWaiting && quietSince && (await sc.keepWaiting(ctx, status))) quietSince = Date.now()
       await sleep(1000)
@@ -368,6 +377,8 @@ async function runScenario(sc, providerKey, opts = {}) {
     await sleep(p.fake ? 500 : 2500)
     const metricsAfter = await snapshot()
     const sessionId = s?.sessionId ?? (await inv('workspace:refresh')).projects.find((x) => x.name === 'alpha')?.agents.find((a) => a.id === coder.id)?.lastSessionId
+    // The session under test, for checks of what it was launched with (Codex's rollout carries its instructions, #520).
+    ctx.session = { id: sessionId ?? null, codexHome: env.CODEX_HOME }
     const transcript = sessionId ? await inv('transcript:read', host, sessionId).catch(() => null) : null
     // Tool calls the parser shortened for display are read in full (for the token check and read evidence).
     const items = transcript?.items ?? []
@@ -424,6 +435,8 @@ async function runScenario(sc, providerKey, opts = {}) {
     // Kept short in the results (whole tool calls can be large, and must not carry a token).
     const short = (v) => tokens.reduce((x, t) => x.split(t).join('<token>'), String(v)).slice(0, 400)
     result.observed = { ...observed, tools: observed.tools.map((t) => ({ ...t, input: short(t.input), result: short(t.result) })), replies: undefined, settings: undefined, finalReply: short(observed.finalReply) }
+    // What each of the project's agents showed at the end, for a check that failed on an agent's work (#498).
+    if (sc.waitForAgents) result.observed.panes = Object.fromEntries(await Promise.all(Object.entries(ctx.agents).map(async ([k, a]) => [k, tokens.reduce((x, t) => x.split(t).join('<token>'), plain(await inv('pty:buffer', lib.ptyKey(alpha, a.id)).catch(() => ''))).slice(-1200)])))
   } catch (e) {
     result.error = String(e?.stack ?? e)
   } finally {
