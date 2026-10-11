@@ -380,10 +380,11 @@ async function boardPatch(n, change) {
   }
   fs.appendFileSync(path.join(home, 'fake-calls.jsonl'), JSON.stringify(record) + '\n')
   write({ type: 'user', message: { role: 'user', content: [{ type: 'tool_result', tool_use_id: id, content: JSON.stringify(record.body ?? record.error ?? null), is_error: record.status !== 200 }] } })
-  // Where Hive's hive server logs the calls it runs (tests only), this call is logged too, as the server would.
+  // Where Hive's hive server logs the calls it runs (tests only), this call is logged too, as the server would; `direct`:
+  // no hive server ran it, so none reports it to Hive's metrics.
   try {
     const env = JSON.parse(fs.readFileSync(opts['--mcp-config'], 'utf8')).mcpServers.hive.env
-    if (env.HIVE_TEST_MCP_LOG) fs.appendFileSync(env.HIVE_TEST_MCP_LOG, JSON.stringify({ at: new Date().toISOString(), tool: 'hive_update_task', role: env.HIVE_ROLE === 'assistant' ? 'assistant' : 'agent', project: env.HIVE_PROJECT, agent: env.HIVE_AGENT_ID ?? null, ok: record.status === 200, args: JSON.stringify({ number: n, ...change }) }) + '\n')
+    if (env.HIVE_TEST_MCP_LOG) fs.appendFileSync(env.HIVE_TEST_MCP_LOG, JSON.stringify({ at: new Date().toISOString(), tool: 'hive_update_task', role: env.HIVE_ROLE === 'assistant' ? 'assistant' : 'agent', project: env.HIVE_PROJECT, agent: env.HIVE_AGENT_ID ?? null, ok: record.status === 200, args: JSON.stringify({ number: n, ...change }), direct: true }) + '\n')
   } catch {
     // No log.
   }

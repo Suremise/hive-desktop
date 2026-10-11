@@ -36,25 +36,24 @@ async function busyCoder(c, fakeSecs, secs) {
 const coderLive = async (c) => (await c.inv('session:live')).find((s) => s.projectPath.toLowerCase() === c.alpha.toLowerCase() && s.agentId === c.agents.coder.id)
 /** Starts Coder (a trust question answered), waits until it's ready and types `task` in, until it is working. */
 async function coderTask(c, task) {
-  const key = `session:${c.alpha.toLowerCase()}#${c.agents.coder.id}`
-  const sleep = (ms) => new Promise((r) => setTimeout(r, ms))
+  const lib = require('../e2e/lib.cjs')
+  const key = lib.ptyKey(c.alpha, c.agents.coder.id)
+  const ready = async () => ['ready', 'finished'].includes((await coderLive(c))?.status)
   await c.inv('session:start', c.alpha, { agentId: c.agents.coder.id })
-  for (let t = Date.now(); Date.now() - t < 90000 && !['ready', 'finished'].includes((await coderLive(c))?.status); ) {
+  for (let t = Date.now(); Date.now() - t < 90000 && !(await ready()); ) {
     const screen = String(await c.inv('pty:buffer', key).catch(() => ''))
-    // Copilot's: "Do you trust the files in this folder?", Yes first.
+    // Copilot's: "Do you trust the files in this folder?", Yes first. Claude Code's starts on "No, exit": lib's answer
+    // presses Enter only once "Yes" shows selected (#218). Answered: on once the session is at its prompt.
     if (/Do you trust the files in this folder/i.test(screen)) await c.inv('pty:write', key, '\r')
-    else if (/trust this folder/i.test(screen)) {
-      await c.inv('pty:write', key, '\x1b[B')
-      await sleep(300)
-      await c.inv('pty:write', key, '\r')
+    else if (/trust this folder/i.test(screen)) await lib.acceptClaudeTrust(c.inv, c.alpha, c.agents.coder.id)
+    else {
+      await lib.sleep(500)
+      continue
     }
-    await sleep(500)
+    await lib.until(ready, 30000)
   }
-  await sleep(1500)
-  await c.inv('pty:write', key, task)
-  await sleep(400)
-  await c.inv('pty:write', key, '\r')
-  for (let t = Date.now(); Date.now() - t < 30000 && (await coderLive(c))?.status !== 'working'; ) await sleep(500)
+  // Typed in, and Enter pressed once it shows (again if the CLI dropped it), until Coder is working.
+  await lib.sendPrompt(c.inv, key, task, { submitted: async () => (await coderLive(c))?.status === 'working', waitMs: 10000 })
 }
 const read = (o, skill) => o.skillsRead.includes(skill)
 /** A call's arguments (JSON) have key: value. */
@@ -414,6 +413,7 @@ module.exports.SCENARIOS = [
       giveVerdict(c, c.cards.r, 'failed', 'Coder (alpha)')
       await c.api('POST', `/v1/tasks/${c.cards.r}/comments`, { text: 'Round 1: failed. 1. greet.js says "Helo".' })
       await c.api('POST', `/v1/tasks/${c.cards.r}/comments`, { text: 'Fixed: greet.js says "Hello, <name>" now.' })
+      // Deliberate: the decision's time must come after the comments' (the scenario is about a decision made since).
       await new Promise((r) => setTimeout(r, 20))
       await c.inv('tasks:update', c.cards.r, { decision: 'Greet with "Hi, <name>", never "Hello".' })
     },
@@ -547,6 +547,7 @@ module.exports.SCENARIOS = [
     title: 'Pick up from the latest handover and carry on, checking it against the current state',
     async setup(c) {
       await c.handover('Old plan', '## Next steps\n1. Create old.txt containing "old".\n')
+      // Deliberate: the newer handover's time must be a later second than the old one's (the newest is the one written last).
       await new Promise((r) => setTimeout(r, 1100))
       await c.handover('Notes feature', '## Current state\nnotes.txt holds 1 line.\n\n## Next steps\n1. Create next.txt containing "next".\n')
       c.write('notes.txt', 'one\ntwo\n')
@@ -565,6 +566,7 @@ module.exports.SCENARIOS = [
     title: 'Continue from a named handover that is not the latest: its next step, not the newer one',
     async setup(c) {
       await c.handover('Old plan', '## Next steps\n1. Create old.txt containing "old".\n')
+      // Deliberate: the newer handover's time must be a later second than the old one's (the newest is the one written last).
       await new Promise((r) => setTimeout(r, 1100))
       await c.handover('Notes feature', '## Next steps\n1. Create next.txt containing "next".\n')
     },
