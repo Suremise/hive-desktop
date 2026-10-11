@@ -26,6 +26,11 @@ export class TerminalScreen {
     this.term.resize(Math.floor(cols), Math.floor(rows))
   }
 
+  /** Whether the CLI has turned bracketed paste on (#597): it then reads a pasted line as text, however it arrives. */
+  bracketedPaste(): boolean {
+    return !!this.term?.modes.bracketedPasteMode
+  }
+
   /** The visible lines, top to bottom, without trailing blanks. */
   text(): string {
     const buf = this.term?.buffer.active

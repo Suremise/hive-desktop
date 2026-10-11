@@ -170,7 +170,8 @@ export const COPILOT_DESCRIPTOR: ProviderDescriptor = {
     backgroundSessions: false,
     backgroundWakes: false,
     // Its interface fills the screen: drawn while its terminal changed size, it can stay at the old width (#486).
-    startupSizeRefresh: true
+    startupSizeRefresh: true,
+    bracketedPaste: false
   },
   reservedKeys: [],
   instructionsFile: 'AGENTS.md',

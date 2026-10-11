@@ -1803,7 +1803,12 @@ class SessionManager {
       await new Promise((r) => setTimeout(r, 150))
       check()
       typed = true
-      await typeInto(key, text.replace(/\s+/g, ' ').trim(), () => (check(), true))
+      const line = text.replace(/\s+/g, ' ').trim()
+      // A CLI busy for a moment reads what Hive typed in one go, Ctrl+U and Enter included: Claude Code takes such a
+      // read as a paste with those keys in it as text, and then Enter again doesn't send it either (#597). A bracketed
+      // paste is text however it arrives. A slash command is still typed: pasted, it is sent as a message.
+      if (l?.screen?.bracketedPaste() && l.adapter.descriptor.capabilities.bracketedPaste && !line.startsWith('/')) writePty(key, `\x1b[200~${line.replace(/[\x00-\x1f\x7f-\x9f]/g, '')}\x1b[201~`)
+      else await typeInto(key, line, () => (check(), true))
       await new Promise((r) => setTimeout(r, 300))
       check()
       const before = l?.prompts ?? 0

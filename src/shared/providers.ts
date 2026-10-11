@@ -78,6 +78,12 @@ export interface ProviderCapabilities {
    * started (its first status), again once it is ready, and after Hive switches its mode live.
    */
   startupSizeRefresh: boolean
+  /**
+   * The CLI reads a bracketed paste as text however its input arrives (#597), so Hive's typed prompts go in as one
+   * while its terminal has bracketed paste on. Typed in pieces, a prompt that reaches a busy Claude Code in one read
+   * with Hive's Ctrl+U or Enter is taken as a paste with those keys in it, and isn't sent by Enter or by Enter again.
+   */
+  bracketedPaste: boolean
 }
 
 /** What the CLI said about a model, for modeCaveat. */
