@@ -80,9 +80,9 @@ const read = (rel) => fs.readFileSync(path.join(proj, rel), 'utf8')
   check('md: preview updates while typing', (await pane.locator('.md-preview h2').allInnerTexts()).includes('Added live'))
   check('md: dirty marker in toolbar and tree', (await pane.locator('.editor-toolbar .dirty-dot').count()) === 1 && (await row('README.md').locator('.dirty-dot').count()) === 1)
   await page.keyboard.press('Control+S')
-  await sleep(800)
-  check('md: Ctrl+S saves to disk', read('README.md').includes('## Added live'))
-  check('md: dirty marker cleared', (await pane.locator('.editor-toolbar .dirty-dot').count()) === 0)
+  check('md: Ctrl+S saves to disk', !!(await lib.until(() => read('README.md').includes('## Added live'), 10000)))
+  // The marker clears once the save's reply reaches the editor, which can be after the file is on disk.
+  check('md: dirty marker cleared', !!(await lib.until(async () => (await pane.locator('.editor-toolbar .dirty-dot').count()) === 0, 10000)))
   check('md: front matter kept on disk', read('README.md').startsWith('---\ntitle'))
 
   // Link to another markdown file opens it.

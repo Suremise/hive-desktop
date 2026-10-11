@@ -72,9 +72,8 @@ const shot = (page, name) => page.screenshot({ path: path.join(lib.WORK, `number
   check('…and clears the message', (await error.count()) === 0)
 
   await never.check()
-  await lib.sleep(500)
-  check('Never saves 0', (await sessions()).compactSuggestTokens === 0)
-  check('…and disables the box', await box.isDisabled())
+  check('Never saves 0', !!(await lib.until(async () => (await sessions()).compactSuggestTokens === 0, 10000)))
+  check('…and disables the box', !!(await lib.until(() => box.isDisabled(), 10000)))
   await shot(page, '2-never')
   await never.uncheck()
   await lib.sleep(500)

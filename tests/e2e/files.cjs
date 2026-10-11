@@ -77,24 +77,25 @@ const check = (name, ok) => {
   await page.locator('.files-list .pane-header').getByRole('button', { name: 'New File…' }).click()
   await page.locator('.inline-name').fill('notes/todo.md')
   await page.keyboard.press('Enter')
-  await sleep(800)
-  check('new file notes/todo.md (from the selected file, so inside src)', exists('src/notes/todo.md'))
+  check('new file notes/todo.md (from the selected file, so inside src)', !!(await lib.until(() => exists('src/notes/todo.md'), 10000)))
+  // The tab then selects the new file: a click before that loses its selection to it.
+  check('…and selects the new file', !!(await lib.until(async () => (await page.locator('.file-row.selected[data-rel="src/notes/todo.md"]').count()) === 1, 10000)))
 
   // Rename README.md with F2.
   await row('README.md').click()
   await page.keyboard.press('F2')
   await page.locator('.inline-name').fill('README2.md')
   await page.keyboard.press('Enter')
-  await sleep(700)
-  check('rename README.md -> README2.md', exists('README2.md') && !exists('README.md'))
+  check('rename README.md -> README2.md', !!(await lib.until(() => exists('README2.md') && !exists('README.md'), 10000)))
+  // The tab then reloads the folder and selects the renamed file: a click before that loses its selection to it.
+  check('…and selects the renamed file', !!(await lib.until(async () => (await page.locator('.file-row.selected[data-rel="README2.md"]').count()) === 1, 10000)))
 
   // Copy src/util.ts into dist via Ctrl+C / Ctrl+V.
   await row('src/util.ts').click()
   await page.keyboard.press('Control+C')
   await row('dist').click()
   await page.keyboard.press('Control+V')
-  await sleep(700)
-  check('copy/paste src/util.ts -> dist/util.ts', exists('dist/util.ts') && exists('src/util.ts'))
+  check('copy/paste src/util.ts -> dist/util.ts', !!(await lib.until(() => exists('dist/util.ts') && exists('src/util.ts'), 10000)))
 
   // Cut README2.md into src.
   await row('README2.md').click()

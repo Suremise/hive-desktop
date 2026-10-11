@@ -66,7 +66,7 @@ For each card, in order:
 3. **Passed** (a passing verdict, or moved to Passed): take the next card. Once your work is merged (merge-ready, when the user asks: it says how to merge, taking turns at the merge slot, when other branches merge too), your Passed cards go to Done.
 4. **Failed**: if the card has now failed as many reviews as **rounds** (with rounds: 2, its second failed review), that was its last round: don't fix it, stop and ask (below). Otherwise move it to Doing, fix the **blocking** findings, comment on what changed, start the watch again, and move it back to Review: the next round, which wakes the reviewer (a failed card moved to Review without leaving it is returned for review, which wakes it too). Suggestions that aren't blocking can become follow-up cards (`hive_create_task`) rather than another round.
 
-**Checks in a round:** each move to Review carries a run record (work-on-card). After a round's fixes, rerun the checks those fixes affect (the project's notes may have a way to pick them), not every check again; but before a card can pass, the card's full checks must have run on its final code. The reviewer trusts the record and adds its own probes (review-agent-work).
+**Checks in a round:** each move to Review carries a run record (work-on-card). After a round's fixes, rerun the checks those fixes affect (the project's notes may have a way to pick them), not every check again; but before a card can pass, the card's full checks must have run on its final code. The reviewer checks the record instead of repeating it, and runs the affected tests and its own probes (review-agent-work).
 
 ## Reviewer
 

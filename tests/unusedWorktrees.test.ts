@@ -77,10 +77,25 @@ beforeAll(async () => {
 afterAll(async () => {
   await disposeWorkspaceService(w)
 })
-afterEach(() => {
+afterEach(async () => {
   process.env.PATH = PATH
   setGitToolForTests({ state: 'unknown' })
   failing = null
+  // Each test's worktrees go with it (#459): a listing checks every worktree of the project, several git calls each, so
+  // ones left by earlier tests made a later test's listings slower the more tests ran before it (24 by the Changes tab's,
+  // 7 s a listing alone), past its limit under load. A worktree Windows still holds is tried again a few times, then left.
+  const left = git(proj, 'worktree', 'list', '--porcelain').split(/\r?\n/).filter((l) => l.startsWith('worktree ')).map((l) => l.slice('worktree '.length)).slice(1)
+  for (const path of left) {
+    for (let i = 0; i < 5; i++) {
+      try {
+        git(proj, 'worktree', 'remove', '--force', '--force', path)
+        break
+      } catch {
+        await new Promise((r) => setTimeout(r, 200))
+      }
+    }
+  }
+  git(proj, 'worktree', 'prune')
 })
 
 describe('listing', () => {

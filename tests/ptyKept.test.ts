@@ -64,17 +64,21 @@ describe.runIf(process.platform === 'win32')('more running terminals than the bo
     setPtyKeptLimitsForTests({ sizes: 3, carried: 20 })
     forgetPtys('session:c:\\burst')
     const keys = Array.from({ length: 6 }, (_, i) => agentPtyKey('C:\\burst\\p', `a-${i}`))
+    const exited = new Set<string>()
     const exits = keys.map(
       (key, i) =>
         new Promise<void>((resolve) => {
-          spawnPty(key, { file: process.execPath, args: ['-e', 'setTimeout(() => {}, 60000)'], cwd: process.cwd(), env, onExit: () => resolve() })
+          spawnPty(key, { file: process.execPath, args: ['-e', 'setTimeout(() => {}, 60000)'], cwd: process.cwd(), env, onExit: () => (exited.add(key), resolve()) })
           resizePty(key, 100 + i, 30)
         })
     )
     // Running, each keeps its size although six is over the bound.
     for (const [i, key] of keys.entries()) expect(startSize(key)).toEqual({ cols: 100 + i, rows: 30 })
     for (const key of keys) killPty(key)
-    await Promise.all(exits)
+    // Each exit is waited for. One that never came (once, under four unit suites at once, #560; not seen again in 360
+    // kills under load) is named after 30 s, a bound for a hang, rather than the test timing out with no word of which.
+    await Promise.race([Promise.all(exits), new Promise((r) => setTimeout(r, 30_000))])
+    expect(keys.filter((k) => !exited.has(k)), 'terminals killed whose exit never came').toEqual([])
     // Stopped, at most three stopped terminals' sizes remain: the three set last.
     expect(keptPtyCounts().sizes).toBeLessThanOrEqual(3)
     expect(keys.slice(3).map((k) => startSize(k))).toEqual([3, 4, 5].map((i) => ({ cols: 100 + i, rows: 30 })))

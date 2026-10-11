@@ -543,7 +543,7 @@ The cards are kept in `.hive/tasks`, one file each, so a workspace you commit sh
 
 ### Card loops
 
-Two agents can take a list of cards in turn, one building and one reviewing, without you passing each card between them. Tell one agent *"work through #111 to #117 as the builder"* and another *"review #111 to #117 as they come in"*. Both use Hive's **card-loop** skill. The builder does a card and moves it to Review. The reviewer reviews it and passes it, or sends it back with findings; the builder fixes them and moves it to Review again. When a card passes, the builder starts the next one.
+Two agents can take a list of cards in turn, one building and one reviewing, without you passing each card between them. Tell one agent *"work through #111 to #117 as the builder"* and another *"review #111 to #117 as they come in"*. Both use Hive's **card-loop** skill. The builder does a card and moves it to Review. The reviewer reviews it and passes it, or sends it back with findings; the builder fixes them and moves it to Review again. When a card passes, the builder starts the next one. The builder says which checks it ran, on exactly which code; the reviewer checks that record rather than running everything again, and runs the tests the change affects and its own probes.
 
 A card sent back with findings stays in Review. The builder moves it to Doing while it fixes them, then back to Review; if it moves it to Review without it leaving, the card is **returned for review** all the same (*Returned for review, round 2* in its history) and the reviewer is woken. You can return such a card yourself: right-click it → **Move to → Review (next round)**.
 
@@ -654,7 +654,7 @@ Skills are instructions an agent loads when they're relevant. There are no switc
 
 **Skills that come with Hive.** Hive gives every workspace its own skills for working with Hive:
 
-- for agents: `work-on-card` (carry a card from Doing to Review), `review-agent-work` (review another agent's work without changing it, marking the card), `merge-ready` (get a branch ready to review and merge) and `use-hive-api` (scripts that call Hive's Agent API);
+- for agents: `work-on-card` (carry a card from Doing to Review; tests it writes wait for what they expect to see, never for a length of time, so they pass on a slower or busier machine too), `review-agent-work` (review another agent's work without changing it, marking the card; a new test that sleeps and then checks fails the review; it checks the builder's record of the tests it ran rather than running them all again), `merge-ready` (get a branch ready to review and merge) and `use-hive-api` (scripts that call Hive's Agent API);
 - for the Hive Assistant: `coordinate-agents` (plan work as cards, brief and start agents, follow them) and `run-lanes` (run a team's card loops: plan lanes, brief builders and reviewers, watch them to the end);
 - for both: `handover` (wrap up for a later session), `pick-up` (carry on from a handover, checking it against the current state), `split-work` (plan how several agents can share a task) and `workspace-note` (record a decision or convention in the shared notes).
 
