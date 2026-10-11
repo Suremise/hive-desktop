@@ -44,6 +44,8 @@ fs.writeFileSync(path.join(scratch, 'from explorer.txt'), 'dropped')
 
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms))
 const exists = (rel) => fs.existsSync(path.join(proj, rel))
+// The longest a check waits for its condition: a bound for a hung run, never how long the step should take.
+const HUNG_MS = 10000
 const results = []
 const check = (name, ok) => {
   results.push(`${ok ? 'PASS' : 'FAIL'}  ${name}`)
@@ -61,17 +63,20 @@ const check = (name, ok) => {
   await page.locator('.tab', { hasText: 'Files' }).click()
   await sleep(800)
   const row = (rel) => page.locator(`.file-row[data-rel="${rel}"]`)
+  const selected = async (rel) => (await page.locator(`.file-row.selected[data-rel="${rel}"]`).count()) === 1
 
   await row('src').click()
   await sleep(500)
   await row('src/app.ts').click()
-  await sleep(300)
-  await page.screenshot({ path: path.join(shots, '1-tree.png') })
-  check('git modified colour on src/app.ts', (await row('src/app.ts').locator('.label').getAttribute('class')).includes('git-M'))
-  check('untracked colour on src/new.ts', (await row('src/new.ts').locator('.label').getAttribute('class')).includes('git-U'))
-  check('dist is dimmed (gitignored)', (await row('dist').getAttribute('class')).includes('ignored'))
-  check('.hive is dimmed', (await row('.hive').getAttribute('class')).includes('ignored'))
+  // A row's classes, '' while it isn't there (git's status arrives after the tree).
+  const cls = (loc) => loc.getAttribute('class', { timeout: 1000 }).catch(() => '').then((c) => c ?? '')
+  const classed = async (loc, c) => !!(await lib.until(async () => (await cls(loc)).includes(c), HUNG_MS))
+  check('git modified colour on src/app.ts', await classed(row('src/app.ts').locator('.label'), 'git-M'))
+  check('untracked colour on src/new.ts', await classed(row('src/new.ts').locator('.label'), 'git-U'))
+  check('dist is dimmed (gitignored)', await classed(row('dist'), 'ignored'))
+  check('.hive is dimmed', await classed(row('.hive'), 'ignored'))
   check('.git hidden', (await row('.git').count()) === 0)
+  await page.screenshot({ path: path.join(shots, '1-tree.png') })
 
   // New file with an intermediate folder.
   await page.locator('.files-list .pane-header').getByRole('button', { name: 'New File…' }).click()
@@ -102,14 +107,13 @@ const check = (name, ok) => {
   await page.keyboard.press('Control+X')
   await row('src').click() // collapses src, still the paste target
   await page.keyboard.press('Control+V')
-  await sleep(700)
-  check('cut/paste README2.md -> src/README2.md', exists('src/README2.md') && !exists('README2.md'))
+  // Moved on disk, then the tab selects what it pasted: a click before that loses its selection to it.
+  check('cut/paste README2.md -> src/README2.md', !!(await lib.until(async () => exists('src/README2.md') && !exists('README2.md') && (await selected('src/README2.md')), HUNG_MS)))
 
   // Duplicate via the context menu.
   await row('.gitignore').click({ button: 'right' })
   await page.locator('.menu-item', { hasText: 'Duplicate' }).click()
-  await sleep(700)
-  check('duplicate .gitignore -> ".gitignore copy"', exists('.gitignore copy'))
+  check('duplicate .gitignore -> ".gitignore copy"', !!(await lib.until(async () => exists('.gitignore copy') && (await selected('.gitignore copy')), HUNG_MS)))
 
   // Delete (Recycle Bin) with confirmation.
   await row('.gitignore copy').click()
@@ -132,8 +136,7 @@ const check = (name, ok) => {
     dst.dispatchEvent(new DragEvent('dragover', { dataTransfer: dt, bubbles: true, cancelable: true }))
     dst.dispatchEvent(new DragEvent('drop', { dataTransfer: dt, bubbles: true, cancelable: true }))
   })
-  await sleep(800)
-  check('drag src/new.ts onto dist moves it', exists('dist/new.ts') && !exists('src/new.ts'))
+  check('drag src/new.ts onto dist moves it', !!(await lib.until(async () => exists('dist/new.ts') && !exists('src/new.ts') && (await selected('dist/new.ts')), HUNG_MS)))
 
   // Drop from Explorer onto the root.
   await page.evaluate(() => {
@@ -151,8 +154,7 @@ const check = (name, ok) => {
     t.dispatchEvent(new DragEvent('dragover', { dataTransfer: dt, bubbles: true, cancelable: true }))
     t.dispatchEvent(new DragEvent('drop', { dataTransfer: dt, bubbles: true, cancelable: true }))
   })
-  await sleep(800)
-  check('drop from Explorer copies into the project', exists('from explorer.txt'))
+  check('drop from Explorer copies into the project', !!(await lib.until(async () => exists('from explorer.txt') && (await selected('from explorer.txt')), HUNG_MS)))
 
   // Live update from outside Hive.
   w('made-outside.txt', 'hi')
@@ -161,9 +163,9 @@ const check = (name, ok) => {
 
   // Filter.
   await page.locator('.files-filter input').fill('util')
-  await sleep(700)
+  // Filtered: a flat list of the matches, so the tree's other rows go.
+  check('filter finds src/util.ts', !!(await lib.until(async () => (await row('src/util.ts').count()) === 1 && (await row('src/app.ts').count()) === 0, HUNG_MS)))
   await page.screenshot({ path: path.join(shots, '2-filter.png') })
-  check('filter finds src/util.ts', (await row('src/util.ts').count()) === 1)
   await page.locator('.files-filter input').fill('')
   await sleep(400)
 
@@ -187,8 +189,7 @@ const check = (name, ok) => {
   await sleep(600)
   await page.screenshot({ path: path.join(shots, '5-viewer.png') })
   await page.keyboard.press('ArrowRight')
-  await sleep(300)
-  check('viewer navigates', (await page.locator('.dialog-header h2').innerText()).includes('10-00-00'))
+  check('viewer navigates', !!(await lib.until(async () => (await page.locator('.dialog-header h2').innerText({ timeout: 1000 }).catch(() => '')).includes('10-00-00'), HUNG_MS)))
   await page.keyboard.press('Escape')
 
   // Light theme check of the Files tab.

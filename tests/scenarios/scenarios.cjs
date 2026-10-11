@@ -63,11 +63,9 @@ async function coderTask(c, task, agent = c.agents.coder) {
   }
   if (!['ready', 'finished'].includes((await coderLive(c, agent))?.status)) await fail("didn't get ready in 90 s")
   if (!task) return
-  await sleep(1500)
-  await c.inv('pty:write', key, task)
-  await sleep(400)
-  await c.inv('pty:write', key, '\r')
-  for (let t = Date.now(); Date.now() - t < 30000 && (await coderLive(c, agent))?.status !== 'working'; ) await sleep(500)
+  // Typed in, Enter pressed (again if the CLI dropped it, or the text typed again), until it is working.
+  const lib = require('../e2e/lib.cjs')
+  await lib.sendPrompt(c.inv, key, task, { submitted: async () => (await coderLive(c, agent))?.status === 'working', waitMs: 10000 })
   if ((await coderLive(c, agent))?.status !== 'working') await fail("didn't start working on its task in 30 s")
 }
 const read = (o, skill) => o.skillsRead.includes(skill)
@@ -629,6 +627,7 @@ module.exports.SCENARIOS = [
       giveVerdict(c, c.cards.r, 'failed', 'Coder (alpha)')
       await c.api('POST', `/v1/tasks/${c.cards.r}/comments`, { text: 'Round 1: failed. 1. greet.js says "Helo".' })
       await c.api('POST', `/v1/tasks/${c.cards.r}/comments`, { text: 'Fixed: greet.js says "Hello, <name>" now.' })
+      // Deliberate: the decision's time must come after the comments' (the scenario is about a decision made since).
       await new Promise((r) => setTimeout(r, 20))
       await c.inv('tasks:update', c.cards.r, { decision: 'Greet with "Hi, <name>", never "Hello".' })
     },
@@ -762,6 +761,7 @@ module.exports.SCENARIOS = [
     title: 'Pick up from the latest handover and carry on, checking it against the current state',
     async setup(c) {
       await c.handover('Old plan', '## Next steps\n1. Create old.txt containing "old".\n')
+      // Deliberate: the newer handover's time must be a later second than the old one's (the newest is the one written last).
       await new Promise((r) => setTimeout(r, 1100))
       await c.handover('Notes feature', '## Current state\nnotes.txt holds 1 line.\n\n## Next steps\n1. Create next.txt containing "next".\n')
       c.write('notes.txt', 'one\ntwo\n')
@@ -780,6 +780,7 @@ module.exports.SCENARIOS = [
     title: 'Continue from a named handover that is not the latest: its next step, not the newer one',
     async setup(c) {
       await c.handover('Old plan', '## Next steps\n1. Create old.txt containing "old".\n')
+      // Deliberate: the newer handover's time must be a later second than the old one's (the newest is the one written last).
       await new Promise((r) => setTimeout(r, 1100))
       await c.handover('Notes feature', '## Next steps\n1. Create next.txt containing "next".\n')
     },

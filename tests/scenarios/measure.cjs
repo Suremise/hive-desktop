@@ -15,6 +15,8 @@ const lib = require('../e2e/lib.cjs')
 
 const OUT = path.join(lib.WORK, '..', 'scenarios', 'measure')
 const bytes = (s) => Buffer.byteLength(s ?? '', 'utf8')
+// The longest a measurement waits for what it is waiting on (the workspace, a turn, a stop): a bound for a hung run.
+const HUNG_MS = 30000
 
 /** The hive MCP server's instructions and tools, started as the launch starts it. */
 function hiveServer(env) {
@@ -87,7 +89,7 @@ const tomlString = (v) => (v.startsWith('"') ? JSON.parse(v) : v)
       try {
         await lib.waitForProvider(inv, 'codex', 60000)
         await inv('workspace:open', ws)
-        await lib.sleep(1200)
+        await lib.until(async () => (await inv('workspace:refresh'))?.projects?.some((p) => p.name === 'alpha'), HUNG_MS)
         if (catalog === 'long') {
           for (let i = 1; i <= 40; i++) {
             const d = path.join(ws, '.hive', 'skills', `team-skill-${i}`)
@@ -102,17 +104,16 @@ const tomlString = (v) => (v.startsWith('"') ? JSON.parse(v) : v)
           await inv('session:start', host, { agentId: id, ...(resumeId ? { resumeId } : {}) })
           const t = Date.now()
           while (Date.now() - t < 30000 && !['ready', 'finished'].includes((await live(host, id))?.status)) await lib.sleep(300)
-          // One exchange, so there is a conversation to resume.
-          await inv('pty:write', lib.ptyKey(host, id), 'hello')
-          await lib.sleep(300)
-          await inv('pty:write', lib.ptyKey(host, id), '\r')
-          await lib.sleep(2500)
+          // One exchange, so there is a conversation to resume: sent, then over (the session back at its prompt).
+          let worked = false
+          await lib.sendPrompt(inv, lib.ptyKey(host, id), 'hello', { submitted: async () => (worked ||= ['working', 'finished'].includes((await live(host, id))?.status)) })
+          await lib.until(async () => worked && ['finished', 'ready'].includes((await live(host, id))?.status) && !!(await live(host, id))?.sessionId, HUNG_MS)
           const sid = (await live(host, id))?.sessionId
           // Claude Code's MCP config is in the launch's private folder, which goes when it stops (#345): read it first.
           const launched = fs.existsSync(path.join(claudeHome, 'fake-launches.jsonl')) ? fs.readFileSync(path.join(claudeHome, 'fake-launches.jsonl'), 'utf8').trim().split('\n').map((l) => JSON.parse(l)).at(-1) : null
           if (launched?.opts?.['--mcp-config'] && fs.existsSync(launched.opts['--mcp-config'])) mcpConfigs.set(launched.opts['--mcp-config'], fs.readFileSync(launched.opts['--mcp-config'], 'utf8'))
           await inv('session:stop', host, id)
-          await lib.sleep(1500)
+          await lib.until(async () => ['stopped', 'error', undefined].includes((await live(host, id))?.status), HUNG_MS)
           return sid
         }
         // A row says "resumed" only when the CLI was actually started on that conversation (its own arguments).

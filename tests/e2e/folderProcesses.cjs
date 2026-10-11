@@ -4,7 +4,7 @@
 // and start time, so a reused pid is never taken), and what names its folder on the command line (a path boundary, so
 // `scenario` never takes `scenario-2`'s) and started after the test did.
 const path = require('path')
-const { execFileSync, spawnSync } = require('child_process')
+const { execFileSync } = require('child_process')
 const { baseEnv } = require('./runContext.cjs')
 
 /** A folder or command line in one spelling: lower case, backslashes, no trailing separator. */
@@ -73,20 +73,50 @@ function processTree(pid) {
 const stillRunning = (list, tree) => tree.filter((t) => list.some((p) => p.pid === t.pid && p.started === t.started)).map((t) => t.pid)
 
 /**
- * Stops the processes that are the test's own (above), each with its children: those naming `folder` that started at
- * or after `since`, and those of `tree` (processTree's, taken before its Hive closed) still running. Returns how many.
+ * Ends each of `targets` ({ pid, started }) only while that pid is still the same process: a handle to it is opened, its
+ * start time checked against `started`, and it is ended through that same handle. So a pid Windows has given another
+ * process since the list was read (one that ended with its parent, say) is never what is ended (#547). Returns how many
+ * were ended.
  */
-function stopProcessesIn(folder, since = 0, tree = []) {
-  if (process.platform !== 'win32') return 0
-  let pids
+function endExactly(targets) {
+  if (process.platform !== 'win32' || !targets.length) return 0
+  const list = targets.map((t) => `${Number(t.pid)}:${Number(t.started)}`).join(',')
+  const ps = `$ended = 0; foreach ($t in '${list}'.Split(',')) { $id, $at = $t.Split(':'); try { $p = [Diagnostics.Process]::GetProcessById([int]$id); $null = $p.Handle; if ([Math]::Abs(([DateTimeOffset]$p.StartTime).ToUnixTimeMilliseconds() - [long]$at) -le 1) { $p.Kill(); $ended++ } } catch {} }; $ended`
   try {
-    const list = processes()
-    pids = [...new Set([...ownedBy(list, folder, since), ...stillRunning(list, tree)])].filter((pid) => pid !== process.pid)
+    return Number(execFileSync('powershell.exe', ['-NoProfile', '-Command', ps], { encoding: 'utf8', env: baseEnv() }).trim()) || 0
   } catch {
     return 0
   }
-  for (const pid of pids) spawnSync('taskkill', ['/pid', String(pid), '/T', '/F'], { stdio: 'ignore', env: baseEnv() })
-  return pids.length
 }
 
-module.exports = { namesFolder, ownedBy, descendantsIn, stillRunning, processTree, stopProcessesIn }
+/**
+ * Stops the processes that are the test's own (above), each with its children: those naming `folder` that started at
+ * or after `since`, and those of `tree` (processTree's, taken before its Hive closed) still running. Each is ended as
+ * the process it was when listed (endExactly), never by a pid alone; what one started meanwhile is found by the next
+ * look (a few at most). Returns how many were ended.
+ */
+function stopProcessesIn(folder, since = 0, tree = []) {
+  if (process.platform !== 'win32') return 0
+  let ended = 0
+  for (let look = 0; look < 3; look++) {
+    let list
+    try {
+      list = processes()
+    } catch {
+      return ended
+    }
+    const pick = new Map()
+    const add = (p) => p && p.pid !== process.pid && pick.set(p.pid, p.started)
+    for (const pid of [...ownedBy(list, folder, since), ...stillRunning(list, tree)]) {
+      add(list.find((p) => p.pid === pid))
+      for (const d of descendantsIn(list, pid)) add(d)
+    }
+    if (!pick.size) break
+    const now = endExactly([...pick].map(([pid, started]) => ({ pid, started })))
+    ended += now
+    if (!now) break
+  }
+  return ended
+}
+
+module.exports = { namesFolder, ownedBy, descendantsIn, stillRunning, processTree, processes, endExactly, stopProcessesIn }
