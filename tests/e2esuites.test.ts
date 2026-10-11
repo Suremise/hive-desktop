@@ -32,6 +32,8 @@ import { FAILED_KEEP_MS, FAILED_MAX, KEEP_RUNS, finishRunDirs, keepSuiteFiles, l
 import { createRequire } from 'module'
 import { ProgressStore } from '../src/main/progress'
 import { tempDir } from './tempDir'
+// The longest a wait here waits for what it waits on: a bound for a hung run, never how long it should take (#570).
+const HUNG_MS = 10000
 
 type Suite = { name: string; needs?: string[]; serial?: string }
 type Area = { paths: string[]; suites: string[] }
@@ -1786,13 +1788,43 @@ describe('heavy runs: at most a few at once on the machine, the rest queue in or
   const now = () => clock
   const ask = (dir2: string, owner: number, more: object = {}) => trySlot(dir2, { slots: 2, owner, alive, now, what: `run ${owner}`, root: `C:/wt${owner}`, ...more })
 
-  it('a heavy run: more than five suites or scenarios, or a repeat; HIVE_TEST_HEAVY_SLOTS says how many at once (default 2)', () => {
+  it("how many at once (#589): the machine's config.json, HIVE_TEST_HEAVY_SLOTS over it, else 2, saying why in one line", () => {
+    const folder = tempDir('hive-slots-config-')
+    const file = join(folder, 'config.json')
+    const lines: string[] = []
+    const count = (env: Record<string, string> = {}) => heavySlots(env, file, (l: string) => lines.push(l))
+    // No file: the default, said once however often it is asked.
+    expect(count()).toBe(2)
+    expect(count()).toBe(2)
+    expect(lines).toEqual([`Test slots: 2 heavy runs at once, the default (${file}: there is none).`])
+    // The file's count, read each time (an edit counts from the next run), BOM and other settings beside it are fine.
+    writeFileSync(file, JSON.stringify({ heavySlots: 3 }))
+    expect(count()).toBe(3)
+    writeFileSync(file, '\uFEFF' + JSON.stringify({ other: true, heavySlots: 4 }))
+    expect(count()).toBe(4)
+    // The environment variable overrides it; a bad one is left out, said once.
+    expect(count({ HIVE_TEST_HEAVY_SLOTS: '1' })).toBe(1)
+    for (const bad of ['0', '-1', '1.5', 'x']) expect(count({ HIVE_TEST_HEAVY_SLOTS: bad })).toBe(4)
+    expect(count({ HIVE_TEST_HEAVY_SLOTS: '' })).toBe(4)
+    expect(lines.filter((l) => l.includes('HIVE_TEST_HEAVY_SLOTS'))).toHaveLength(4)
+    // A bad file: the default, with the reason.
+    lines.length = 0
+    for (const [text, why] of [
+      ['{ heavySlots: 3', "isn't JSON"],
+      [JSON.stringify({ heavySlots: 0 }), 'heavySlots 0 isn\'t a whole number from 1'],
+      [JSON.stringify({ heavySlots: '3' }), 'heavySlots "3" isn\'t a whole number from 1'],
+      [JSON.stringify({ other: 1 }), 'no heavySlots in it']
+    ]) {
+      writeFileSync(file, text)
+      expect(count(), text).toBe(2)
+      expect(lines.at(-1), text).toContain(why)
+    }
+  })
+
+  it('a heavy run: more than five suites or scenarios, or a repeat', () => {
     expect(isHeavy({ count: 5 })).toBe(false)
     expect(isHeavy({ count: 6 })).toBe(true)
     expect(isHeavy({ count: 1, repeat: 2 })).toBe(true)
-    expect(heavySlots({})).toBe(2)
-    expect(heavySlots({ HIVE_TEST_HEAVY_SLOTS: '3' })).toBe(3)
-    for (const bad of ['0', '-1', '1.5', 'x', '']) expect(heavySlots({ HIVE_TEST_HEAVY_SLOTS: bad })).toBe(2)
     expect(parseArgs(['--all', '--no-wait'], names)).toMatchObject({ all: true, noWait: true })
     expect(parseArgs(['--all'], names)).toMatchObject({ noWait: false })
   })
@@ -1979,9 +2011,9 @@ describe('heavy runs: at most a few at once on the machine, the rest queue in or
     const looks: { ahead: number; first: boolean }[] = []
     let goesFirst = false
     const merging = waitForSlot(dir2, { slots: 1, owner: 105, alive, now, pollMs: 20, first: async () => goesFirst, onWait: (r: { ahead: number; first: boolean }) => looks.push(r) })
-    await vi.waitFor(() => expect(looks.at(-1)).toMatchObject({ ahead: 1, first: false }))
+    await vi.waitFor(() => expect(looks.at(-1)).toMatchObject({ ahead: 1, first: false }), { timeout: HUNG_MS })
     goesFirst = true
-    await vi.waitFor(() => expect(looks.at(-1)).toMatchObject({ ahead: 0, first: true }))
+    await vi.waitFor(() => expect(looks.at(-1)).toMatchObject({ ahead: 0, first: true }), { timeout: HUNG_MS })
     holding.release()
     const got = await merging
     expect(got.slot).toBe(0)

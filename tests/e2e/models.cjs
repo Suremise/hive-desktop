@@ -222,29 +222,29 @@ const check = (name, ok, extra = '') => {
   // A listed model with no price (its shipped price removed): a row asking for one, with no Remove.
   await row('claude-opus-4-6').getByRole('button', { name: 'Remove from the table' }).click()
   const noPrice = row('claude-opus-4-6').locator('.badge', { hasText: 'No price: enter one' })
-  check('a model Claude Code lists without a price asks for one', !!(await lib.until(async () => (await noPrice.count()) === 1, 3000)) && (await row('claude-opus-4-6').getByRole('button', { name: 'Remove from the table' }).count()) === 0)
+  check('a model Claude Code lists without a price asks for one', !!(await lib.until(async () => (await noPrice.count()) === 1, HUNG_MS)) && (await row('claude-opus-4-6').getByRole('button', { name: 'Remove from the table' }).count()) === 0)
   await page.screenshot({ path: path.join(lib.WORK, 'models-prices-claude.png') })
   await row('claude-opus-4-6').getByLabel('claude-opus-4-6 Input').fill('3')
   await row('claude-opus-4-6').getByLabel('claude-opus-4-6 Input').blur()
-  check('…and entering one saves it as yours', !!(await lib.until(async () => (await update({})).providers['claude-code'].prices['claude-opus-4-6']?.input === 3, 3000)) && !!(await lib.until(async () => (await noPrice.count()) === 0, 3000)))
+  check('…and entering one saves it as yours', !!(await lib.until(async () => (await update({})).providers['claude-code'].prices['claude-opus-4-6']?.input === 3, HUNG_MS)) && !!(await lib.until(async () => (await noPrice.count()) === 0, HUNG_MS)))
   await prices.getByRole('button', { name: 'Reset to defaults' }).click()
-  await lib.until(async () => !Object.keys((await update({})).providers['claude-code'].prices).length, 3000)
+  await lib.until(async () => !Object.keys((await update({})).providers['claude-code'].prices).length, HUNG_MS)
 
   // Claude Code reports its cost: Session costs chooses its report (the default) or my prices.
   const costRow = page.locator('.setting', { has: page.locator('.s-title', { hasText: 'Session costs' }) })
   const costSelect = costRow.locator('select')
   check("Claude Code: Session costs, its reported cost by default", (await costSelect.inputValue()) === 'reported' && (await costSelect.locator('option').allTextContents()).join('|') === "Claude Code's reported cost|My prices (the table below)", await costSelect.inputValue())
   await costSelect.selectOption('prices')
-  check('…and choosing my prices is saved', !!(await lib.until(async () => (await update({})).providers['claude-code'].costSource === 'prices', 3000)))
+  check('…and choosing my prices is saved', !!(await lib.until(async () => (await update({})).providers['claude-code'].costSource === 'prices', HUNG_MS)))
   check('Claude Code shows no "doesn\'t report costs" note', (await page.locator('.price-note').count()) === 0)
   await costSelect.selectOption('reported')
-  await lib.until(async () => (await update({})).providers['claude-code'].costSource === 'reported', 3000)
+  await lib.until(async () => (await update({})).providers['claude-code'].costSource === 'reported', HUNG_MS)
 
   // Codex reports no cost: no choice, a note with its pricing link, and its own list's models.
   await openSection('Codex')
   check('Codex: no Session costs choice', (await costRow.count()) === 0)
   const note = page.locator('.price-note')
-  check("…but a note that it doesn't report costs, with OpenAI's pricing link", !!(await lib.until(async () => (await note.count()) === 1, 3000)) && /Codex doesn't report costs, so Hive estimates them from these prices/.test(await note.innerText()) && (await note.locator('a', { hasText: "OpenAI's pricing" }).count()) === 1)
+  check("…but a note that it doesn't report costs, with OpenAI's pricing link", !!(await lib.until(async () => (await note.count()) === 1, HUNG_MS)) && /Codex doesn't report costs, so Hive estimates them from these prices/.test(await note.innerText()) && (await note.locator('a', { hasText: "OpenAI's pricing" }).count()) === 1)
   check('…and a shipped model Codex no longer lists (gpt-5.3-codex) greyed', (await row('gpt-5.3-codex').locator('.badge', { hasText: "not in Codex's list" }).count()) === 1)
   await page.screenshot({ path: path.join(lib.WORK, 'models-prices-codex.png') })
 
