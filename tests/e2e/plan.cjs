@@ -14,6 +14,8 @@ const inTwoHours = new Date(Date.now() + 2 * 3600e3 + 14 * 60e3).toISOString()
 fs.writeFileSync(path.join(userData, 'config.json'), JSON.stringify({ version: 1, planUsage: { fiveHour: { usedPercent: 86, resetsAt: inTwoHours }, sevenDay: { usedPercent: 40, resetsAt: null }, updatedAt: new Date().toISOString() } }))
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms))
 const results = []
+// The longest a check waits for its condition: a bound for a hung run, never how long the step should take.
+const HUNG_MS = 10000
 const check = (n, ok, extra = '') => results.push(`${ok ? 'PASS' : 'FAIL'}  ${n}${extra ? ` (${extra})` : ''}`)
 ;(async () => {
   const env = lib.hiveEnv({ HIVE_USER_DATA: userData, ...lib.ownClaudeHome('plan').env })
@@ -76,11 +78,13 @@ const check = (n, ok, extra = '') => results.push(`${ok ? 'PASS' : 'FAIL'}  ${n}
   check('no 1M-context choice in the picker', (await picker.locator('input[type=checkbox]').count()) === 0)
   await picker.locator('select').selectOption(first)
   check(`${first} saved as chosen`, !!(await lib.until(async () => (await savedModel()) === first, 5000)), await savedModel())
-  await picker.locator('select').selectOption('custom'); await sleep(200)
-  check('the custom model box says how to ask for 1M ([1m])', /\[1m\]/.test((await picker.locator('input.input').getAttribute('placeholder')) ?? ''))
+  await picker.locator('select').selectOption('custom')
+  check('the custom model box says how to ask for 1M ([1m])', !!(await lib.until(async () => /\[1m\]/.test((await picker.locator('input.input').getAttribute('placeholder', { timeout: 1000 }).catch(() => '')) ?? ''), HUNG_MS)))
   await picker.locator('input.input').fill('claude-sonnet-9-9'); await picker.locator('input.input').press('Enter')
-  check('custom model ID saved', !!(await lib.until(async () => (await inv('settings:get')).providers['claude-code'].defaultModel === 'claude-sonnet-9-9', 10000)))
-  await picker.locator('select').selectOption(first); await sleep(400)
+  check('custom model ID saved', !!(await lib.until(async () => (await inv('settings:get')).providers['claude-code'].defaultModel === 'claude-sonnet-9-9', HUNG_MS)))
+  // Saved before the reset below: a save still on its way would land after it and undo it.
+  await picker.locator('select').selectOption(first)
+  check(`${first} saved again after the custom ID`, !!(await lib.until(async () => (await savedModel()) === first, HUNG_MS)), await savedModel())
   await page.screenshot({ path: path.join(shots, '3-settings.png') })
   await inv('settings:update', { providers: { 'claude-code': { defaultModel: '', defaultEffort: 'high' } } })
 
@@ -91,7 +95,7 @@ const check = (n, ok, extra = '') => results.push(`${ok ? 'PASS' : 'FAIL'}  ${n}
   await page.locator('.tab', { hasText: 'Settings' }).click(); await sleep(500)
   await page.locator('.settings-nav .row', { hasText: 'Claude Code' }).click(); await sleep(300)
   const pp = page.locator('.setting', { hasText: 'Model' }).locator('.model-picker').first()
-  check('project picker offers Inherit', (await pp.locator('option').first().textContent()).startsWith('Inherit'))
+  check('project picker offers Inherit', !!(await lib.until(async () => ((await pp.locator('option').first().textContent({ timeout: 1000 }).catch(() => '')) ?? '').startsWith('Inherit'), HUNG_MS)))
   await page.screenshot({ path: path.join(shots, '4-project-settings.png') })
 
   // Real session: the status line reaches Hive and prints nothing.
@@ -99,7 +103,8 @@ const check = (n, ok, extra = '') => results.push(`${ok ? 'PASS' : 'FAIL'}  ${n}
   await inv('workspace:refresh')
   await page.locator('.tab', { hasText: 'Session' }).first().click(); await sleep(800)
   // The model's name: Claude Code's default model, by its name once Claude Code has said which it is (#125).
-  const chip = await page.locator('.pane-footer-bar .pane-foot-item', { hasText: /default/ }).first().textContent().catch(() => '')
+  const chipText = () => page.locator('.pane-footer-bar .pane-foot-item', { hasText: /default/ }).first().textContent({ timeout: 1000 }).catch(() => '').then((t) => t ?? '')
+  const chip = (await lib.until(async () => { const t = await chipText(); return t.includes('· High') && t }, HUNG_MS)) || (await chipText())
   check('the agent footer shows the configured effort', chip.includes('· High'), chip)
   await inv('session:start', proj, { agentId: agent.id })
   await lib.acceptClaudeTrust(inv, proj, agent.id)

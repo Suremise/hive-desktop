@@ -17,6 +17,8 @@ const check = (name, ok, extra = '') => {
   console.log(`${ok ? 'PASS' : 'FAIL'} ${name}${ok || !extra ? '' : ` (${extra})`}`)
 }
 const read = (f) => fs.readFileSync(f, 'utf8')
+// The longest a check waits for its condition: a bound for a hung run, never how long the step should take.
+const HUNG_MS = 10000
 
 ;(async () => {
   for (const d of [userData, ws]) fs.rmSync(d, { recursive: true, force: true })
@@ -39,8 +41,10 @@ const read = (f) => fs.readFileSync(f, 'utf8')
     await page.locator('.split-main .monaco').first().click({ position: { x: 200, y: 10 } })
     await page.keyboard.press('Control+End')
     await page.keyboard.type(text)
-    await sleep(400)
+    await lib.until(unsaved, HUNG_MS)
   }
+  const unsaved = async () => (await toolbar.innerText()).includes('●')
+  const dialogText = () => page.locator('.dialog').last().innerText({ timeout: 1000 }).catch(() => '')
   const openNote = async () => {
     await page.keyboard.press('Control+Shift+H')
     await sleep(600)
@@ -57,27 +61,27 @@ const read = (f) => fs.readFileSync(f, 'utf8')
   // A note's edits survive going to another view and back.
   await openNote()
   await toolbar.locator('button[aria-label="Edit"]').click()
-  await sleep(600)
+  // The editor's lines are there once Monaco has loaded into it: typing before that is lost.
+  await lib.until(async () => (await page.locator('.split-main .monaco .view-lines').count()) === 1, HUNG_MS)
   await typeAtEnd('DRAFT-1 ')
   await openServer()
   await openNote()
-  check('note: unsaved edits kept after changing view', (await page.locator('.split-main .monaco').first().innerText()).includes('DRAFT-1'))
-  check('note: still marked unsaved', (await toolbar.innerText()).includes('●'))
+  check('note: unsaved edits kept after changing view', !!(await lib.until(async () => (await page.locator('.split-main .monaco').first().innerText({ timeout: 1000 }).catch(() => '')).includes('DRAFT-1'), HUNG_MS)))
+  check('note: still marked unsaved', !!(await lib.until(unsaved, HUNG_MS)))
 
   // Changed on disk meanwhile (as an agent would): Save asks before overwriting, Cancel keeps the disk's version.
   fs.writeFileSync(note, '# Plan\nAGENT\n')
   await toolbar.locator('.btn', { hasText: 'Save' }).click()
-  await sleep(600)
-  const dlg = await page.locator('.dialog').last().innerText().catch(() => '')
+  const dlg = (await lib.until(async () => { const t = await dialogText(); return /changed on disk/.test(t) && t }, HUNG_MS)) || (await dialogText())
   check('note: save asks when the file changed on disk', /changed on disk/.test(dlg), dlg.slice(0, 120))
   await page.locator('.dialog .btn', { hasText: 'Cancel' }).last().click()
-  await sleep(400)
+  // Once the dialog has gone, the cancelled save is over: the file must still be the agent's.
+  await lib.until(async () => (await page.locator('.dialog').count()) === 0, HUNG_MS)
   check("note: cancelling keeps the agent's version", read(note) === '# Plan\nAGENT\n')
   await toolbar.locator('.btn', { hasText: 'Save' }).click()
-  await sleep(600)
   await page.locator('.dialog .btn', { hasText: 'Overwrite' }).last().click()
-  await sleep(600)
-  check('note: Overwrite saves my version', read(note).includes('DRAFT-1'))
+  // Saved on disk, and then the editor knows it (its dot goes): the next edit must count as a new one.
+  check('note: Overwrite saves my version', !!(await lib.until(async () => read(note).includes('DRAFT-1') && !(await unsaved()), HUNG_MS)))
   await typeAtEnd('DRAFT-2 ')
 
   // An MCP server saved without its final newline (Hive adds one) saves again without a false conflict.
@@ -85,29 +89,29 @@ const read = (f) => fs.readFileSync(f, 'utf8')
   await page.locator('.split-main .monaco').first().click({ position: { x: 200, y: 10 } })
   await page.keyboard.press('Control+End')
   await page.keyboard.press('Backspace')
-  await sleep(300)
-  check('mcp: removing the final newline is an edit', (await toolbar.innerText()).includes('●'))
+  check('mcp: removing the final newline is an edit', !!(await lib.until(unsaved, HUNG_MS)))
   await toolbar.locator('.btn', { hasText: 'Save' }).click()
-  await sleep(600)
-  check('mcp: saved with a final newline', read(server) === '{ "command": "node", "args": [] }\n', JSON.stringify(read(server)))
+  // The file is unchanged by this save (Hive adds the newline back), so the dot going is what says it's done.
+  check('mcp: saved with a final newline', !!(await lib.until(async () => !(await unsaved()), HUNG_MS)) && read(server) === '{ "command": "node", "args": [] }\n', JSON.stringify(read(server)))
   await typeAtEnd(' ')
   await toolbar.locator('.btn', { hasText: 'Save' }).click()
-  await sleep(600)
-  check('mcp: saving again is no conflict', (await page.locator('.dialog').count()) === 0 && read(server).trimEnd() === '{ "command": "node", "args": [] }' && read(server) !== '{ "command": "node", "args": [] }\n', JSON.stringify(read(server)))
+  // A false conflict would ask (a dialog) instead of writing the file, so the file being written rules it out.
+  const savedAgain = () => read(server).trimEnd() === '{ "command": "node", "args": [] }' && read(server) !== '{ "command": "node", "args": [] }\n'
+  check('mcp: saving again is no conflict', !!(await lib.until(savedAgain, HUNG_MS)) && (await page.locator('.dialog').count()) === 0, JSON.stringify(read(server)))
 
   // An MCP server's edits are kept the same way.
   await typeAtEnd(' ')
   await openNote()
   await openServer()
-  check('mcp: unsaved edits kept after changing view', (await toolbar.innerText()).includes('●'))
+  check('mcp: unsaved edits kept after changing view', !!(await lib.until(unsaved, HUNG_MS)))
 
   // Quitting lists both and saves them.
   await page.evaluate(() => window.hive.invoke('app:quit'))
-  await sleep(800)
-  const quit = await page.locator('.dialog').last().innerText().catch(() => '')
+  const quit = (await lib.until(async () => { const t = await dialogText(); return /plan\.md/.test(t) && /demo\.json/.test(t) && t }, HUNG_MS)) || (await dialogText())
   check('quit: lists the unsaved note and server', /plan\.md/.test(quit) && /demo\.json/.test(quit), quit.replace(/\s+/g, ' ').slice(0, 200))
   const exited = new Promise((r) => app.process().once('exit', () => r(true)))
   await page.getByRole('button', { name: 'Save and quit' }).click()
+  // 8 s bounds a hung quit: the check waits for the exit itself.
   check('quit: Hive quits after saving', await Promise.race([exited, sleep(8000).then(() => false)]))
   check('quit: the note was saved', read(note).includes('DRAFT-2'))
   check('quit: the server was saved', read(server) !== '{ "command": "node", "args": [] }\n' && !!JSON.parse(read(server)))

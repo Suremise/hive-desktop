@@ -12,7 +12,7 @@ import { ASSISTANT_AGENT_ID, ASSISTANT_DIR, ASSISTANT_NAME } from '../shared/ass
 import { timeLeft } from '../shared/progress'
 import { ProgressError, admitReport, type ProgressCaller } from './progress'
 import { progress, progressGate } from './progressService'
-import { COLUMN_CHOICES, columnLabel, isTaskColumn, notWatchingReason, reviewStalled, stalledReason } from '../shared/tasks'
+import { COLUMN_CHOICES, columnLabel, commentSummary, isTaskColumn, reviewStalled } from '../shared/tasks'
 import type { HandoverAuthor } from '../shared/hiveGuidance'
 import { newestComments, progressLabel, taskRow, withoutHistory, type ProjectRow, type SkillRow, type TaskChange, type TaskReorder, type TaskView } from '../shared/toolReplies'
 import * as assistant from './assistantControl'
@@ -22,7 +22,8 @@ import { addAgent, updateAgent } from './projectAgents'
 import { providerService } from './providerService'
 import { config } from './config'
 import { emit, onHiveEvent, toast } from './events'
-import { cancelWatch, encodeSince, registerAgentWatch, registerWatch, scopedCard } from './watches'
+import { cancelWatch, encodeSince, registerAgentWatch, registerLaneWatch, registerWatch, scopedCard } from './watches'
+import { readLaneCondition } from '../shared/laneWatch'
 import { agentBusy, AGENT_WATCH_MAX_AGENTS, type AgentNow, type WatchedAgent } from '../shared/agentWatch'
 import { alreadyThere, cardChange, changesBetween, decodeSince, markOf, movedIntoSince, readCondition, AGENT_WAIT_MAX_SECONDS, WAIT_MAX_SECONDS, WATCH_DEFAULT_LIMIT_MINUTES, WATCH_MAX_LIMIT_MINUTES, type CardChange, type CardMark } from '../shared/watch'
 import { insideReal, placeMatcher, placeRelative, readCapped, readJson, writeJsonAtomic } from './fsutil'
@@ -37,6 +38,8 @@ import { laneCards, laneName, laneNumber } from '../shared/lanes'
 import { DEFAULT_WAIT_MS, MAX_WAIT_MS, MergeSlotError, slotBranch, slotCards, type SlotAgent } from './mergeSlots'
 import { writePty } from './ptyHost'
 import { sessions } from './sessions'
+import { cardStall } from './cardStall'
+import { cancelMessages, leaveMessage, MESSAGE_MAX_CHARS, messagesOf } from './agentMessages'
 import * as tasks from './tasks'
 import * as taskBatch from './taskBatch'
 import { startTask } from './taskStart'
@@ -897,13 +900,13 @@ route('POST', '/v1/projects/:name/agents/:agent/prompt', async ({ params, body }
     const st = sessions.liveFor(p, agentId)
     // Never over the top of the agent's work, a question to the user, or the user's own typing.
     if (!st) throw new HttpError(409, `${a.name} isn't running. Start it with the task instead (hive_start_agent with prompt).`)
-    if (st.status === 'starting') throw new HttpError(409, `${a.name} is still starting. Wait for it (hive_wait_for_agents), then try again.`)
+    if (st.status === 'starting') throw new HttpError(409, `${a.name} is still starting. Wait for it (hive_wait_for_agents), then try again, or leave it a message (hive_message_agent).`)
     if (st.status === 'waiting') throw new HttpError(409, `${a.name} is waiting for the user${st.statusMessage ? ` (${st.statusMessage})` : ''}. Tell the user; don't answer for them.`)
-    if (st.status === 'working') throw new HttpError(409, `${a.name} is working. Wait until it's idle (hive_wait_for_agents), then give it the task.`)
+    if (st.status === 'working') throw new HttpError(409, `${a.name} is working. Wait until it's idle (hive_wait_for_agents), then give it the task, or leave it a message it gets when it is (hive_message_agent).`)
     if (st.status === 'signin') throw new HttpError(409, `${a.name}'s CLI needs the user to sign in again (its sign-in expired). Tell the user; nothing it is given runs until then.`)
-    if (st.status === 'watching') throw new HttpError(409, `${a.name} is ${st.watch?.label.replace(/^Waiting/, 'waiting') ?? 'waiting on cards'} (${st.watch?.agents ? 'an agent watch' : 'a card watch'}): it takes no other work until it is woken or the user cancels the watch.`)
+    if (st.status === 'watching') throw new HttpError(409, `${a.name} is ${st.watch?.label.replace(/^Waiting/, 'waiting') ?? 'waiting on cards'} (${st.watch?.agents ? 'an agent watch' : 'a card watch'}): it takes no new task until it is woken or the user cancels the watch. To tell it something for the work it is waiting on, leave it a message (hive_message_agent): it is woken by it and its watch carries on.`)
     if (st.status === 'background') {
-      throw new HttpError(409, `${a.name} is waiting on ${tasksWord(st.backgroundTasks ?? 0)} it started (such as a test run) and carries on by itself when they end. Wait for it (hive_wait_for_agents), then give it the task. If it seems stuck, tell the user.`)
+      throw new HttpError(409, `${a.name} is waiting on ${tasksWord(st.backgroundTasks ?? 0)} it started (such as a test run) and carries on by itself when they end. Wait for it (hive_wait_for_agents), then give it the task, or leave it a message it gets when it is idle (hive_message_agent). If it seems stuck, tell the user.`)
     }
     if (sessions.userMayBeTyping(p, agentId)) throw new HttpError(409, `The user has just typed in ${a.name}'s terminal and may still be writing there. Ask the user before giving it a task.`)
     // A line Hive typed that its CLI hasn't taken (#430): more typing would be lost behind it, or clear it.
@@ -924,6 +927,42 @@ route('POST', '/v1/projects/:name/agents/:agent/prompt', async ({ params, body }
     }
     await sessions.sendPrompt(p, agentId, text)
     return { done: `Gave ${a.name} in ${basename(p)} a task: ${clip(text.replace(/\s+/g, ' '), 80)}`, result: { ok: true } }
+  })
+})
+
+// A message for a running agent that may not take a prompt now (#530): typed at once when it can be (idle, or watching:
+// its watch carries on), else queued and typed as its next line once it is idle. cancel=true cancels those waiting.
+route('POST', '/v1/projects/:name/agents/:agent/message', async ({ params, body }) => {
+  const p = projectByName(params[0])
+  const agentId = await agentParam(p, decodeURIComponent(params[1]))
+  const a = await agentDefOf(p, agentId)
+  if (body?.cancel === true) {
+    return assistantChange<{ cancelled: number }>('agents', `cancel the messages waiting for ${a.name} in ${basename(p)}`, async () => {
+      const n = cancelMessages(p, agentId, 'the Assistant')
+      return { done: n ? `Cancelled ${n === 1 ? 'the message' : `${n} messages`} waiting for ${a.name} in ${basename(p)}` : `No message was waiting for ${a.name} in ${basename(p)}`, result: { cancelled: n } }
+    })
+  }
+  const text = typeof body?.text === 'string' ? body.text.trim() : ''
+  if (!text) throw new HttpError(400, 'text is required')
+  if (text.length > MESSAGE_MAX_CHARS) throw new HttpError(400, `text is at most ${MESSAGE_MAX_CHARS} characters (this has ${text.length})`)
+  return assistantChange<{ typed: boolean; queued: number; status: string }>('agents', `leave ${a.name} in ${basename(p)} a message`, async (guard) => {
+    const st = sessions.liveFor(p, agentId)
+    if (!st) throw new HttpError(409, `${a.name} isn't running. Start it with the message as its task instead (hive_start_agent with prompt).`)
+    // Its permission goes with it: checked again before it is typed, however long it waits, and before each piece.
+    const allowed = (): string | null => {
+      try {
+        guard()
+        return null
+      } catch (e) {
+        return (e as { status?: number }).status === 403 ? 'the user turned Settings → Assistant → Control down' : "the Assistant's session that left it ended"
+      }
+    }
+    const r = await leaveMessage(p, agentId, a.name, 'the Assistant', text, allowed).catch((e: Error) => {
+      throw new HttpError(409, e.message)
+    })
+    if (r.fate === 'cancelled' || r.fate === 'dropped' || r.fate === 'refused') throw new HttpError(409, `The message wasn't typed into ${a.name}: ${r.fate === 'cancelled' ? `${r.detail ?? 'the user'} cancelled it` : r.fate === 'refused' ? `refused, ${r.detail}` : `dropped, ${r.detail}`}.`)
+    const typed = r.fate === 'delivered'
+    return { done: `${typed ? 'Gave' : 'Left'} ${a.name} in ${basename(p)} a message${typed ? '' : ' (queued)'}: ${clip(text.replace(/\s+/g, ' '), 80)}`, result: { typed, queued: r.queued, status: typed ? (sessions.liveFor(p, agentId)?.status ?? 'stopped') : st.status } }
   })
 })
 
@@ -966,6 +1005,8 @@ async function agentActivity(p: string, agentId: string, detail = false) {
   }
   const folder = a.worktree?.path ?? p
   const typed = sessions.userTypedAt(p, agentId)
+  // Messages left for it (#530): those waiting (the start of each), and what became of the last ones.
+  const msgs = messagesOf(p, agentId)
   return {
     project: info.name,
     agent: a.name,
@@ -991,7 +1032,9 @@ async function agentActivity(p: string, agentId: string, detail = false) {
     recentTools,
     ...(Object.keys(clipped).length ? { clipped } : {}),
     lockedFiles: sessions.locksFor(p, agentId).map((f) => placeRelative(folder, f) || f),
-    userTypedSecondsAgo: typed ? Math.round((Date.now() - typed) / 1000) : null
+    userTypedSecondsAgo: typed ? Math.round((Date.now() - typed) / 1000) : null,
+    ...(msgs.queued.length ? { messagesWaiting: msgs.queued.map((m) => ({ from: m.from, at: m.at, text: clip(m.text.replace(/\s+/g, ' '), 80) })) } : {}),
+    ...(msgs.last ? { lastMessages: msgs.last } : {})
   }
 }
 
@@ -1213,10 +1256,11 @@ route('POST', '/v1/lanes', async ({ body }) =>
     if (!assistantCaller()) return start()
     return assistantChange('agents', `start a lane in ${basename(p)}`, async () => {
       const r = await start()
-      // #402: a lane the Assistant starts but doesn't watch goes unfollowed ("they'll tell you"): its reply says so.
-      const last = r.lane.cards[r.lane.cards.length - 1]?.number
-      const watched = sessions.watchFor(ws.assistantHome, ASSISTANT_AGENT_ID)?.cards ?? []
-      const nudge = last !== undefined && !watched.includes(last) ? `No card watch of yours covers #${last}, the lane's last card: watch it (hive_wait_for_tasks, wake) to follow the lane to its end.` : ''
+      // #402: a lane the Assistant starts but doesn't watch goes unfollowed ("they'll tell you"): its reply says so. A
+      // lane watch (#531) on every running lane, or on this one, follows it.
+      const w = sessions.watchFor(ws.assistantHome, ASSISTANT_AGENT_ID)
+      const followed = !!w?.lanes && (w.lanes.includes('all') || w.lanes.includes(r.lane.id))
+      const nudge = followed ? '' : 'No watch of yours follows this lane: watch the lanes (hive_wait_for_tasks with lanes ["all"], wake) to follow it to its end.'
       const result = nudge ? { ...r, note: [r.note, nudge].filter(Boolean).join(' ') } : r
       return { done: `Lane ${r.lane.id} ${r.did} in ${basename(p)}: ${r.lane.builder.name} / ${r.lane.reviewer?.name ?? 'no reviewer'}, ${r.lane.cards.map((c) => `#${c.number}`).join(', ')}`, result }
     })
@@ -1348,15 +1392,6 @@ async function taskActor(): Promise<tasks.TaskActor> {
   return { kind: 'agent', name: 'Agent API' }
 }
 
-/** This workspace's agents that left cards in play with no card watch (#376), for a card's `stalled`. */
-function loopAgents(): { name: string; project: string; notWatching?: number[] }[] {
-  const ws = workspace.path?.toLowerCase()
-  return sessions
-    .liveStates()
-    .filter((s) => s.notWatching?.length && !!ws && workspaceOf(s.projectPath).path?.toLowerCase() === ws)
-    .map((s) => ({ name: s.agentName ?? s.agentId, project: basename(s.projectPath), notWatching: s.notWatching }))
-}
-
 /**
  * A card with what its agent is doing now (and its name now), for callers deciding what to do next. `agents` keeps
  * each project's agents for a whole list, so a long board reads each project.json once.
@@ -1389,8 +1424,9 @@ async function taskView(c: TaskCard, agents = new Map<string, Promise<ReturnType
     comments: c.comments.map(tasks.withoutId),
     history: c.history.map(tasks.withoutId),
     agent,
-    // A Doing card nobody works on, or a card an agent was looping on and left with no watch (#376).
-    stalled: stalledReason(c, now) ?? notWatchingReason(c, loopAgents())
+    // A Doing card nobody works on, a card an agent was looping on and left with no watch (#376), or one in Review its
+    // watching reviewer hasn't started on (#521).
+    stalled: cardStall(c, now, workspace.path)
   }
   // A review whose reviewer has gone or isn't running (Hive ends those, but one can show while that happens).
   if (c.review && c.project) {
@@ -1487,7 +1523,9 @@ route('GET', '/v1/tasks/:n', async ({ params, query }) => {
   const n = raw === null ? null : Number(raw)
   if (n !== null && (!Number.isInteger(n) || n < 1)) throw new HttpError(400, `comments must be a whole number from 1: "${raw}"`)
   const lean = n === null ? view : newestComments(view, n)
-  return query.get('history') === 'false' ? withoutHistory(lean) : lean
+  // summary=true (#532): each comment as its first line, with the whole comment's length when there is more.
+  const told = query.get('summary') === 'true' ? { ...lean, comments: lean.comments.map(commentSummary) } : lean
+  return query.get('history') === 'false' ? withoutHistory(told) : told
 })
 
 route('POST', '/v1/tasks', async ({ body }) => {
@@ -1598,9 +1636,11 @@ route('POST', '/v1/tasks/reorder', async ({ body }) => {
 
 // Only a card's newest comment (its author, time and whole text), for "check the latest comment": the card's
 // description, earlier comments and history stay out of the reply. A card without comments gives comment null.
-route('GET', '/v1/tasks/:n/comments/latest', async ({ params }) => {
+route('GET', '/v1/tasks/:n/comments/latest', async ({ params, query }) => {
   requireWorkspace()
-  return tasks.latestComment(taskNumber(params[0]), await taskActor())
+  const r = await tasks.latestComment(taskNumber(params[0]), await taskActor())
+  // summary=true (#532): its first line, with its whole length when there is more.
+  return query.get('summary') === 'true' && r.comment ? { ...r, comment: commentSummary(r.comment) } : r
 })
 
 route('POST', '/v1/tasks/:n/comments', async ({ params, body }) => {
@@ -1638,9 +1678,22 @@ route('POST', '/v1/tasks/wait', async ({ body }) => {
   const who = me ? { projectPath: me.projectPath, agentId: me.agentId } : home ? { projectPath: home, agentId: 'assistant' } : null
   if (body?.cancel === true) {
     if (!who) throw new HttpError(400, 'Only an agent or the Assistant has a card watch to cancel.')
-    const agentWatch = !!sessions.watchFor(who.projectPath, who.agentId)?.agents
+    const w = sessions.watchFor(who.projectPath, who.agentId)
     const had = await cancelWatch(ws, who.projectPath, who.agentId)
-    return { done: had ? `Cancelled your ${agentWatch ? 'agent' : 'card'} watch.` : 'You had no card watch.' }
+    return { done: had ? `Cancelled your ${w?.agents ? 'agent' : w?.lanes ? 'lane' : 'card'} watch.` : 'You had no card watch.' }
+  }
+  // A lane watch (#531): whole lanes, not cards; always one that wakes.
+  if (body?.lanes !== undefined) {
+    if (body.cards !== undefined || body.column !== undefined || body.changes !== undefined || body.fresh !== undefined) throw new HttpError(400, 'lanes goes without cards, column, changes or fresh: events says what counts')
+    const lc = readLaneCondition(body)
+    if (typeof lc === 'string') throw new HttpError(400, lc)
+    if (body.wake !== true || !who) throw new HttpError(400, 'A lane watch wakes you (wake: true), for an agent or the Assistant: a script waits on cards.')
+    const limit = body?.limitMinutes === undefined ? WATCH_DEFAULT_LIMIT_MINUTES : Number(body.limitMinutes)
+    if (!Number.isFinite(limit) || limit < 1 || limit > WATCH_MAX_LIMIT_MINUTES) throw new HttpError(400, `limitMinutes must be from 1 to ${WATCH_MAX_LIMIT_MINUTES}`)
+    const r = await registerLaneWatch(ws, who.projectPath, who.agentId, lc, limit).catch((e: Error) => {
+      throw new HttpError(e.message.startsWith('No such lane') ? 404 : 409, e.message)
+    })
+    return { watching: r.watching.label, limitAt: r.watching.limitAt, events: lc.events, ...(r.replaced ? { replaced: r.replaced } : {}) }
   }
   const cond = readCondition(body ?? {})
   if (typeof cond === 'string') throw new HttpError(400, cond)

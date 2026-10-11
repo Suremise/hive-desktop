@@ -5,6 +5,9 @@ import { join } from 'path'
 import { afterAll, describe, expect, it, vi } from 'vitest'
 import { tempDir } from './tempDir'
 
+// The longest a test waits for what it is waiting on: a bound for a hung run, never how long it should take.
+const HUNG_MS = 10000
+
 // Its own user data folder, so the auth files never meet another test's.
 const userData = await vi.hoisted(async () => (await import('./tempDir')).tempDir('hive-hook-tokens-'))
 vi.mock('electron', () => ({ app: { getPath: () => userData, getVersion: () => '0.0.0-test', isPackaged: false } }))
@@ -46,7 +49,7 @@ describe('hook tokens per launch (#345)', () => {
     // Ended: refused, and its file goes; the other launch's still works.
     endHookToken('runa')
     expect(hookTokenMatches('runa', `Bearer ${a.token}`)).toBe(false)
-    await vi.waitFor(() => expect(existsSync(a.file)).toBe(false))
+    await vi.waitFor(() => expect(existsSync(a.file)).toBe(false), { timeout: HUNG_MS })
     expect(hookTokenMatches('runb', `Bearer ${b.token}`)).toBe(true)
     endHookToken('runb')
   })
@@ -114,7 +117,7 @@ describe('hook tokens per launch (#345)', () => {
       }
       // The launch ends: its private folder goes.
       endHookToken(runId)
-      await vi.waitFor(() => expect(existsSync(auth.dir)).toBe(false))
+      await vi.waitFor(() => expect(existsSync(auth.dir)).toBe(false), { timeout: HUNG_MS })
     }
   })
 })

@@ -52,7 +52,7 @@ Say how sure you are when you aren't certain. Then give the verdict, with what y
 
 For a card, end your review with `hive_update_task`:
 
-- `review: "passed"` or `"failed"`, with the report as `comment`.
+- `review: "passed"` or `"failed"`, with the report as `comment`. Its **first line is the verdict in one line**: "Round 1: PASSED" (with the gist), or "Round 1: FAILED: 2 findings: <their titles>". The findings and the evidence follow below it.
 - **Passed**: move it to `passed` in the same change (`column: "passed"`): reviewed, waiting to be merged. Not to `done`, which means merged.
 - **Failed**: it stays in Review. Leave its fixes to whoever the user asks to make them.
 

@@ -1,7 +1,7 @@
 import { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
 import type { AgentInfo, ArchiveBatch, BoardFold, ProjectInfo, ProviderId, TaskCard, TaskColumn, TaskDecision, TaskPatch, TaskStartTarget } from '@shared/types'
 import { gitProblemText } from '@shared/gitTool'
-import { TASK_COLUMNS, applyBoardFold, cardMatches, newSinceStart, archivedAt, columnColor, columnLabel, notWatchingReason, reviewStalled, stalledReason, taskOverview, type BoardFoldChange } from '@shared/tasks'
+import { TASK_COLUMNS, applyBoardFold, cardMatches, newSinceStart, archivedAt, columnColor, columnLabel, notWatchingReason, reviewStalled, reviewWaitReason, stalledReason, taskOverview, type BoardFoldChange } from '@shared/tasks'
 import { enabledProviders, isProviderEnabled, projectDefaultProvider, providerName } from '@shared/providers'
 import { call, errorMessage } from '../api'
 import { NO_PROJECTS, agentProviderOf, choose, confirm, get, loadTasks, notify, revealAgent, set, setProjectTab, showView, useDateStyle, useStore, type ArchiveAllRequest, type DoingRequest } from '../store'
@@ -14,6 +14,7 @@ import { BusyButton, Icon, IconButton, InfoTip, Markdown, Modal, SearchInput, ST
 import { DataTable, type DataColumn } from './DataTable'
 import { DialogList } from './Overlays'
 import { reportArchived, unarchiveBatch } from '../boardBatches'
+import { useNow } from '../usage'
 import { ProviderIcon } from './ProviderIcon'
 
 const NO_TASKS: TaskCard[] = []
@@ -59,12 +60,17 @@ function cardAgent(projects: ProjectInfo[], c: TaskCard): { project: ProjectInfo
 }
 
 /**
- * Why nobody is working on the card, from the agents as the window knows them: a Doing card's agent gone or stopped, or
- * an agent looping on the card (Doing or Review) whose turn ended with no card watch (#376).
+ * Why nobody is working on the card, from the agents as the window knows them: a Doing card's agent gone or stopped, an
+ * agent looping on the card (Doing or Review) whose turn ended with no card watch (#376), or a card in Review an agent
+ * watches but hasn't started reviewing for a while (#521).
  */
 export function cardStalled(projects: ProjectInfo[], c: TaskCard): string | null {
   const { agent } = cardAgent(projects, c)
-  return stalledReason(c, agent ? { name: agent.name, running: !!agent.live } : null) ?? notWatchingReason(c, projects.flatMap((p) => p.agents.map((a) => ({ name: a.name, project: p.name, notWatching: a.live?.notWatching }))))
+  return (
+    stalledReason(c, agent ? { name: agent.name, running: !!agent.live } : null) ??
+    notWatchingReason(c, projects.flatMap((p) => p.agents.map((a) => ({ name: a.name, project: p.name, notWatching: a.live?.notWatching })))) ??
+    reviewWaitReason(c, projects.flatMap((p) => p.agents.flatMap((a) => (a.live?.watch?.cards.length ? [{ name: a.name, project: p.name, agentId: a.id, cards: a.live.watch.cards }] : []))))
+  )
 }
 
 
@@ -273,6 +279,8 @@ function CardTile({
   const { agent } = cardAgent(projects, c)
   // A Doing card whose agent has finished is waiting for someone to look: it shows like a finished agent.
   const finished = c.column === 'doing' && agent?.live?.status === 'finished'
+  // Read again each minute: a card waiting in Review becomes stalled with time (#521).
+  useNow(60_000)
   const stalled = cardStalled(projects, c)
   const fold = <IconButton icon={folded ? 'chevron-right' : 'chevron-down'} title={folded ? `Expand #${c.number}` : `Collapse #${c.number} to one line`} className="task-fold" expanded={!folded} onClick={() => foldCards([c.number], !folded)} />
   const props = {
@@ -336,7 +344,7 @@ function CardTile({
           </Tooltip>
         )}
         {stalled && (
-          <Tooltip block content={/ isn't watching #\d+:/.test(stalled) ? 'Nothing will wake that agent when this card changes. Show it and ask it to carry on its card loop.' : 'Nobody is working on it. Start it again (on this agent or another), or move it back to Todo.'}>
+          <Tooltip block content={/ isn't watching #\d+:/.test(stalled) ? 'Nothing will wake that agent when this card changes. Show it and ask it to carry on its card loop.' : / hasn't started reviewing it:/.test(stalled) ? "Its reviewer's watch didn't wake it. Show the reviewer and ask it to review the card." : 'Nobody is working on it. Start it again (on this agent or another), or move it back to Todo.'}>
             <div className="task-stalled">
               <Icon name="debug-pause" />
               <span className="task-note-text">Stalled: {stalled}</span>
@@ -824,7 +832,10 @@ export function BoardToolbar({
 export function TaskStrip({ project }: { project: ProjectInfo | null }) {
   const tasks = useStore((s) => s.tasks)
   const projects = useStore((s) => s.workspace?.projects ?? NO_PROJECTS)
-  const o = useMemo(() => taskOverview(tasks, project?.name ?? null, (c) => !!cardStalled(projects, c)), [tasks, projects, project?.name])
+  // Counted again each minute: a card waiting in Review becomes stalled with time (#521).
+  const tick = useNow(60_000)
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  const o = useMemo(() => taskOverview(tasks, project?.name ?? null, (c) => !!cardStalled(projects, c)), [tasks, projects, project?.name, tick])
   const open = (): void => {
     if (project) return setProjectTab(project.path, 'tasks')
     set({ boardProject: null, boardArchived: false, boardQuery: '' })
@@ -1114,6 +1125,7 @@ export function BoardPanel() {
   const chosen = useStore((s) => s.boardProject)
   const open = (name: string | null): number => tasks.filter((c) => !c.archived && c.column !== 'done' && (name === null || c.project.toLowerCase() === name.toLowerCase())).length
   const review = tasks.filter((c) => !c.archived && c.column === 'review')
+  useNow(60_000)
   const stalled = tasks.filter((c) => cardStalled(projects, c))
   const row = (name: string | null, label: string, icon: string) => (
     <div key={label} className={cx('row', chosen === name && 'selected')} onClick={() => set({ boardProject: name })}>
