@@ -90,10 +90,34 @@ function endExactly(targets) {
 }
 
 /**
+ * `targets` ({ pid, started }) ordered so each comes before its parent when its parent is one of them (by `list`'s
+ * parent links, a parent started after its child being a reused pid's): children are ended first. Ending a parent first
+ * can take its children with it before they are reached: Node starts each child in a job that ends with its parent
+ * (libuv's kill-on-close job), and the GitHub runner ends them before the next is reached (#615).
+ */
+function childrenFirst(list, targets) {
+  const byPid = new Map(list.map((p) => [p.pid, p]))
+  const picked = new Map(targets.map((t) => [t.pid, t]))
+  // How many of its ancestors are among `targets`.
+  const depth = (t) => {
+    const seen = new Set([t.pid])
+    let p = byPid.get(t.pid)
+    while (p) {
+      const up = picked.get(p.parent)
+      if (!up || seen.has(up.pid) || up.started > p.started) break
+      seen.add(up.pid)
+      p = byPid.get(up.pid)
+    }
+    return seen.size - 1
+  }
+  return targets.map((t, i) => ({ t, i, d: depth(t) })).sort((a, b) => b.d - a.d || a.i - b.i).map((x) => x.t)
+}
+
+/**
  * Stops the processes that are the test's own (above), each with its children: those naming `folder` that started at
  * or after `since`, and those of `tree` (processTree's, taken before its Hive closed) still running. Each is ended as
- * the process it was when listed (endExactly), never by a pid alone; what one started meanwhile is found by the next
- * look (a few at most). Returns how many were ended.
+ * the process it was when listed (endExactly), never by a pid alone, and children before their parents (childrenFirst);
+ * what one started meanwhile is found by the next look (a few at most). Returns how many were ended.
  */
 function stopProcessesIn(folder, since = 0, tree = []) {
   if (process.platform !== 'win32') return 0
@@ -112,11 +136,11 @@ function stopProcessesIn(folder, since = 0, tree = []) {
       for (const d of descendantsIn(list, pid)) add(d)
     }
     if (!pick.size) break
-    const now = endExactly([...pick].map(([pid, started]) => ({ pid, started })))
+    const now = endExactly(childrenFirst(list, [...pick].map(([pid, started]) => ({ pid, started }))))
     ended += now
     if (!now) break
   }
   return ended
 }
 
-module.exports = { namesFolder, ownedBy, descendantsIn, stillRunning, processTree, processes, endExactly, stopProcessesIn }
+module.exports = { namesFolder, ownedBy, descendantsIn, stillRunning, processTree, processes, endExactly, childrenFirst, stopProcessesIn }
