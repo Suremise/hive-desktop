@@ -39,8 +39,8 @@ Every scenario ran once per provider. Models vary from run to run, so a single r
 ## A decision put to the user without a "?" counts: fakes, Codex rescored, fixtures v52, 11 October 2026
 
 #566: every **mode-*-plans**' "wrote cards for alpha, or asked first" and "surfaced a decision for the user" looked only
-for a `?`. A request to choose now counts too ("Please choose…", "Let me know which…", "I need your decision on…"); a
-closing "Let me know if you need anything" doesn't. Fixtures v52.
+for a `?`. A request to choose now counts too ("Please choose…", "Let me know which…", "I need your decision on…"); a polite
+closing ("Please let me know if you need anything else", "Tell me if anything is unclear") doesn't. Fixtures v52.
 - **Fakes**: the four mode-*-plans pass as before (`2026-10-11T10-14-53-fake`); both checks are skipped for the fakes,
   which act nothing out there.
 - **Codex rescored, no new trial**: the one model trial of these on record (`2026-10-10T23-50-39-codex`,

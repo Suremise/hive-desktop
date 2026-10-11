@@ -395,4 +395,14 @@ describe('mode-*-plans: a decision put to the user', () => {
     expect(check(outcome('No cards or agents have been started.'), 'wrote cards for alpha, or asked first')).toBe(false)
     expect(check(outcome('Planned it. Let me know if you need anything else.'), 'surfaced a decision')).toBe(false)
   })
+
+  it('a polite closing is not a decision, in the reply or on a card', () => {
+    for (const closing of ['Planned it. Please let me know if you need anything else.', 'Please tell me if anything is unclear.', 'Please let me know what else you need.', 'Let me know what you think.']) {
+      expect(check(outcome(closing), 'wrote cards for alpha, or asked first')).toBe(false)
+      expect(check(outcome(closing), 'surfaced a decision')).toBe(false)
+      expect(check(outcome('Done.', [`Export the board to CSV from the board's menu, done when the file opens in Excel. ${closing}`]), 'surfaced a decision')).toBe(false)
+    }
+    expect(check(outcome('Please let me know which delimiter to use.'), 'surfaced a decision')).toBe(true)
+    expect(check(outcome('Done.', ['Export the board to CSV. Tell me whether archived cards belong in it before this starts.']), 'surfaced a decision')).toBe(true)
+  })
 })
