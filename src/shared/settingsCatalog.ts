@@ -399,15 +399,30 @@ function providerRows(p: ProviderDescriptor): Row[] {
     type: 'custom',
     wide: true
   })
+  // Only a provider that reports its own cost has a choice (#436): for the others the table is the only source.
+  if (p.capabilities.reportsCost)
+    defs.push({
+      section,
+      provider: p.id,
+      key: 'costSource',
+      title: 'Session costs',
+      desc: `Where a session's API-equivalent cost comes from: ${p.name}'s own report, or your prices in the table below.`,
+      tip: `${p.name}'s reported cost follows its own price table and updates with the CLI; Hive never recomputes it, even when that table lags a price change. Choose your prices for your own rates (a discount, another tier). Either way the table is used for sessions with no reported cost.`,
+      type: 'select',
+      options: [
+        { value: 'reported', label: `${p.name}'s reported cost` },
+        { value: 'prices', label: 'My prices (the table below)' }
+      ]
+    })
   defs.push({
     section,
     provider: p.id,
     key: 'prices',
     title: 'API prices',
     desc: p.capabilities.reportsCost
-      ? `${p.name} reports each session's cost itself; these prices are only used for sessions without one. USD per million tokens.`
+      ? `${p.name} reports each session's cost itself; these prices are used for sessions without one, or for all of them with Session costs set to your prices. USD per million tokens.`
       : `Used to estimate what ${p.name} sessions would cost at API prices (shown with ≈ on the Overview). USD per million tokens.`,
-    tip: `Hive's starting prices are the published ones, checked ${PRICES_CHECKED}: edit any that are out of date, add models and remove them. Hive never fetches prices. On a subscription you are not charged these — they show how heavy the work was.`,
+    tip: `Hive's starting prices are the published ones, checked ${PRICES_CHECKED}: edit any that are out of date, add models and remove them. The table lists the models ${p.name} has, so a new one shows with "No price" until you enter one. Hive never fetches prices. On a subscription you are not charged these — they show how heavy the work was.`,
     type: 'custom',
     wide: true
   })
