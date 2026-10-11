@@ -10,13 +10,13 @@ import { afterAll, describe, expect, it, vi } from 'vitest'
 // @ts-expect-error: plain .mjs modules without types
 import { SUITES } from './e2e/suites.mjs'
 // @ts-expect-error: plain .mjs modules without types
-import { AREAS, EVERYTHING, REAL_TIER, UNIT_ONLY, affectedSuites, under, unitTest } from './e2e/affected.mjs'
+import { AREAS, DOCS_ONLY, EVERYTHING, REAL_TIER, UNIT_ONLY, affectedSuites, under, unitTest } from './e2e/affected.mjs'
 // @ts-expect-error: plain .mjs modules without types
 import { fingerprint } from './e2e/record.mjs'
 // @ts-expect-error: plain .mjs modules without types
 import { isRealCli, needsDevBuild, packagedStatus, parentSuite, parseArgs, portBase, realNotRun, recordStatus, repeatStatus, selectSuites, suiteOutcome } from './e2e/runner.mjs'
 // @ts-expect-error: plain .mjs modules without types
-import { recordMarkdown } from './e2e/record.mjs'
+import { recordJson, recordMarkdown, selectionLine, selectionOf } from './e2e/record.mjs'
 // @ts-expect-error: plain .mjs modules without types
 import { makeDist } from '../scripts/distCopy.mjs'
 // @ts-expect-error: plain .mjs modules without types
@@ -156,6 +156,34 @@ describe('the suites a change needs (affected.mjs)', () => {
     expect(affectedSuites(['SRC\\Renderer\\src\\components\\Progress.tsx'], names).suites).toContain('progress')
   })
 
+  it('a file no area names falls back to the full set, real tier too, wherever it is (#628: merges run --affected)', () => {
+    const unmapped = ['src/main/brandNewThing.ts', 'src/renderer/src/components/BrandNew.tsx', 'src/shared/brandNew.ts', 'src/brandNew/x.ts', 'resources/brandNew.bin', 'scripts/brandNew.mjs', 'build/brandNew.nsh', 'tests/e2e/brandNewHelper.mjs', 'tests/e2e/fake-brandnew/cli.cjs', 'brandNew.config.json']
+    for (const f of unmapped) {
+      const r = affectedSuites([f], names, realNames)
+      expect(r, f).toMatchObject({ all: true, real: realNames })
+      expect(r.why[0], f).toMatch(/no area names it, so every suite/)
+      // With files an area does name, still the full set.
+      expect(affectedSuites(['src/renderer/src/components/Progress.tsx', f, 'docs/SPEC.md'], names, realNames), f).toMatchObject({ all: true, real: realNames })
+    }
+    // Every tracked file selects something, unless it is documentation or the unit tests': none is silently left out.
+    const tracked = execFileSync('git', ['ls-files'], { cwd: root, encoding: 'utf8' }).split(/\r?\n/).filter(Boolean)
+    const nothing = tracked.filter((f) => {
+      const r = affectedSuites([f], names, realNames)
+      return !r.all && !r.suites.length
+    })
+    for (const f of nothing) expect(under(f, DOCS_ONLY) || unitTest(f), `${f} selects no suite: give it an area in affected.mjs`).toBe(true)
+  })
+
+  it('shared test tooling means the full set (#628): the runner and its helpers, the concurrency checker, the scenario harness', () => {
+    for (const f of ['tests/e2e/run.mjs', 'tests/e2e/runner.mjs', 'tests/e2e/affected.mjs', 'tests/e2e/record.mjs', 'tests/e2e/recycleBin.mjs', 'tests/e2e/concurrency.mjs', 'tests/e2e/tempWorktrees.mjs', 'tests/e2e/runContext.cjs', 'tests/scenarios/harness.cjs', 'tests/scenarios/run.mjs']) {
+      const r = affectedSuites([f], names, realNames)
+      expect(r.all, f).toBe(true)
+      expect(r.why[0], f).toMatch(/shared by every part of Hive/)
+    }
+    // The scenarios themselves, and the notes on testing, are checked by npm run scenarios and need no suite.
+    for (const f of ['tests/scenarios/scenarios.cjs', 'tests/scenarios/README.md', 'tests/README.md', 'scripts/testWaits.mjs']) expect(affectedSuites([f], names, realNames), f).toEqual({ suites: [], why: [] })
+  })
+
   it('picks real-CLI suites only for changes to what they cover (card #191)', () => {
     const pick = (...files: string[]) => affectedSuites(files, names, realNames)
     for (const p of REAL_TIER as string[]) expect(existsSync(join(root, p.replace(/\/$/, ''))), p).toBe(true)
@@ -292,6 +320,28 @@ describe('the real tier and environment failures (card #191)', () => {
     expect(md).toContain('Not run: the real tier (`--real`): agents, quit.')
     expect(md).toMatch(/\*\*Skipped for the environment\*\* .*: codex\./)
     expect(recordMarkdown({ code: 'abc', when: 'now', jobs: 4, results: [results[0]], logDir: 'x', summary: 's' })).not.toMatch(/Not run|environment/)
+  })
+
+  it('the record says how its suites were picked (#628): the full set, or what --affected selected and why', () => {
+    const results = [{ name: 'board', ok: true, seconds: 3 }]
+    const rec = (selection: unknown) => recordMarkdown({ code: 'abc', when: 'now', jobs: 4, results, logDir: 'x', summary: '1 passed', selection })
+    expect(rec(selectionOf({ all: true }))).toContain('Selected: the full set (fake tier).')
+    // Nothing named and no --affected is the full set too.
+    expect(selectionOf({})).toMatchObject({ how: 'all', full: true })
+    expect(rec(selectionOf({ named: ['board'] }))).toContain('Selected: the suites named; named: board (not the full set).')
+    const base = { base: 'main', mergeBase: '4255cbc0a1b2c3d4', files: 3 }
+    const some = selectionOf({ ...base, affected: { suites: ['board', 'review'], why: ['src/main/tasks.ts: board, review', 'docs/SPEC.md: about'] } })
+    expect(some).toMatchObject({ how: 'affected', full: false, base: 'main', files: 3 })
+    expect(rec(some)).toContain('Selected: `--affected` since main (4255cbc0a1b2), 3 changed files: not the full set, because src/main/tasks.ts: board, review; docs/SPEC.md: about.')
+    const every = selectionOf({ ...base, files: 1, named: ['codex'], affected: { all: true, real: [], why: ['tests/e2e/run.mjs: shared by every part of Hive'] } })
+    expect(rec(every)).toContain('Selected: `--affected` since main (4255cbc0a1b2), 1 changed file: every fake suite (the full set), because tests/e2e/run.mjs: shared by every part of Hive; named: codex.')
+    // A long list of reasons is cut to a few.
+    const many = selectionOf({ ...base, files: 9, affected: { suites: ['board'], why: Array.from({ length: 9 }, (_, i) => `f${i}: board`) } })
+    expect(selectionLine(many)).toMatch(/f4: board; and 4 more\.$/)
+    // In the record's data too; a record made without one has none.
+    expect(recordJson({ code: 'abc', when: 'now', results, selection: some }).selection).toEqual(some)
+    expect(recordJson({ code: 'abc', when: 'now', results })).not.toHaveProperty('selection')
+    expect(recordMarkdown({ code: 'abc', when: 'now', jobs: 4, results, logDir: 'x', summary: 's' })).not.toContain('Selected:')
   })
 })
 

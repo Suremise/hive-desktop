@@ -9,7 +9,7 @@ npm run e2e                      # the full set: every fake-tier suite (the pack
 npm run e2e -- --all --real      # everything, the real tier (real Claude Code and Codex) too
 npm run e2e -- --only-real       # only the real tier
 npm run e2e -- agents transcript # just these
-npm run e2e -- --affected        # the suites the changes since main need (affected.mjs), uncommitted ones included, real ones too
+npm run e2e -- --affected        # the suites the changes since main need (affected.mjs), uncommitted ones included, real ones too; before a merge to main
 npm run e2e -- <suites> --build --record # and print a run record for the card (saved with the run's logs, and the latest as logs/run-record.md)
 npm run e2e -- --fingerprint     # the code's fingerprint, to compare with a run record
 npm run e2e -- <suites> --repeat 3 --build --record # three runs, stopping at the first that fails; one record for all
@@ -232,22 +232,32 @@ same code while every required check still runs:
   its verdict which and why.
 - **Follow-up rounds** run the suites the fixes affect (`--affected`). **Before a card passes**, every suite it names
   has run on its final code (the builder's last record).
-- **Before a merge to main**, run the **full set** (the fake tier): `npm run e2e -- --all --build --record`, so suites
-  no card named still pass. Run the **real tier** too (`--all --real`, or `--affected --only-real` for just the real
-  suites the branch needs) when `--affected` selects any real suite (the runner says which: a change to providers,
-  launching the CLIs, hooks and status, transcripts or `lib.cjs`), **before a release**, and **after updating Claude
-  Code or Codex**. A real suite skipped for the environment doesn't block a merge, but the record says so and the
-  reviewer decides whether it must run again first. CI runs only the unit tests.
+- **Before a merge to main** (#628), run the **affected suites** on the merged code,
+  `npm run e2e -- --affected --build --record`, with the unit tests, typecheck and lint, so suites no card named but
+  the branch touches still pass. It picks the **full set** itself when the branch changes code every part of Hive goes
+  through, test tooling (the runner and its helpers, `lib.cjs`, the run context, the fake Claude Code, the concurrency
+  checker, the scenario harness, `affected.mjs` itself) or any file no area names (below); the record's `Selected:`
+  line says what it picked and why, so the reviewer sees it. It takes the **real tier**'s suites the branch needs too (the runner says which: a
+  change to providers, launching the CLIs, hooks and status, transcripts or `lib.cjs`). A real suite skipped for the
+  environment doesn't block a merge, but the record says so and the reviewer decides whether it must run again first.
+  CI runs only the unit tests.
+- **The full set runs at checkpoints**: `npm run e2e -- --all --build --record` for **every RC and release**
+  (RELEASING.md, with the real tier: `--all --real`), when `--affected` selects it (above), and **on request** (the
+  user, or a reviewer who says why). Run the real tier on its own (`--all --only-real`) **after updating Claude Code
+  or Codex**.
 - **When a change could make tests flaky** (the runner, `lib.cjs`, running suites side by side, waits), run it several
   times: `npm run e2e -- --all --build --record --repeat 3`. The repeat stops at the first run that fails, and its one
   record is valid only if every run passed on the same code. A failure means fix it and start a new repeat: a later
   passing run doesn't make up for an earlier failure.
 
 `--affected` errs towards more: a change to a file every part of Hive goes through (the IPC contract, types, the store,
-`lib.cjs`, the fake CLIs…) or to code no area names means every fake suite. Real suites come in when an area names
-them, or when the change is to Hive's side of every CLI (`REAL_TIER` in `affected.mjs`: `sessions.ts`, the providers,
-`providerService`, the terminal host, hook status, transcripts, `lib.cjs`) or to code no area names; a provider's own
-adapter (`src/main/providers/claude/`, `codex/`) picks only its real suites. Add an area to `affected.mjs` when you add a
+`lib.cjs`, the fake Claude Code, the runner and the scenario harness: `EVERYTHING` in `affected.mjs`) or to any file no
+area names (code, resources, scripts, build files) means every fake suite; only documentation (`DOCS_ONLY`) and what
+only the unit tests use select nothing, and `tests/e2esuites.test.ts` checks that every other tracked file selects a
+suite. Real suites come in when an area names them, or when the change is to Hive's side of every CLI (`REAL_TIER` in
+`affected.mjs`: `sessions.ts`, the providers, `providerService`, the terminal host, hook status, transcripts,
+`lib.cjs`) or to code no area names; a provider's own adapter (`src/main/providers/claude/`, `codex/`) picks only its
+real suites. Add an area to `affected.mjs` when you add a
 suite or a source file; `tests/e2esuites.test.ts` checks every suite and source file is covered. What only the unit
 tests use (`tests/*.test.ts` and their helpers in `tests/`, `vitest.config.ts`, CI's workflow: `UNIT_ONLY`) selects no
 suite, so an e2e suite or scenario must never load a `.ts` helper from `tests/` (the unit test fails if one does).

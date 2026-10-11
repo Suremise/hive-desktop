@@ -110,17 +110,39 @@ const cliLine = (clis) =>
     .join(', ')
 
 /**
+ * How a run picked its suites (#628), for the record, so a reviewer sees whether it was the full set or what
+ * `--affected` selected and why: { how: 'all' (the full set: --all, or nothing named), 'affected' or 'named', full
+ * (every fake suite ran), base and mergeBase (--affected), files (how many changed), why (affected.mjs's reasons), named }.
+ */
+export function selectionOf({ all = false, named = [], affected = null, base = null, mergeBase = null, files = 0 }) {
+  if (!affected) return all || !named.length ? { how: 'all', full: true, named } : { how: 'named', full: false, named }
+  return { how: 'affected', full: !!affected.all, base, mergeBase, files, why: affected.why ?? [], named }
+}
+
+/** The record's line saying how the suites were picked (selectionOf), with --affected's reasons, a few at most. */
+export function selectionLine(sel, max = 5) {
+  if (!sel) return null
+  const named = sel.named?.length ? `; named: ${sel.named.join(', ')}` : ''
+  if (sel.how === 'all') return `Selected: the full set (fake tier)${named}.`
+  if (sel.how === 'named') return `Selected: the suites named${named} (not the full set).`
+  const since = `\`--affected\` since ${sel.base}${sel.mergeBase ? ` (${sel.mergeBase.slice(0, 12)})` : ''}, ${sel.files} changed file${sel.files === 1 ? '' : 's'}`
+  const why = sel.why.slice(0, max).join('; ') + (sel.why.length > max ? `; and ${sel.why.length - max} more` : '')
+  return `Selected: ${since}: ${sel.full ? 'every fake suite (the full set)' : 'not the full set'}${why ? `, because ${why}` : ''}${named}.`
+}
+
+/**
  * The record as data (run-record.json beside run-record.md), for scripts: `npm run tested-clis` makes the release's
  * tested-with manifest from it (#365). The code, whether it can be trusted, the real CLIs' versions, each suite's
  * result (the last run's, for a repeat: a valid record had every run pass) with the CLIs its Hive selected.
  */
-export function recordJson({ code, when, results, problems = [], notRun = [], clis = {} }) {
+export function recordJson({ code, when, results, problems = [], notRun = [], clis = {}, selection = null }) {
   return {
     code,
     when,
     valid: !problems.length,
     problems,
     clis,
+    ...(selection ? { selection } : {}),
     results: results.map((r) => ({ name: r.name, ok: !!r.ok, skipped: r.skipped ?? null, environment: !!r.environment, clis: r.clis ?? [], ...(windowsOf(r).length ? { windows: windowsOf(r) } : {}) })),
     notRun
   }
@@ -130,10 +152,10 @@ export function recordJson({ code, when, results, problems = [], notRun = [], cl
 const windowsOf = (r) => (r.ok === false ? [...(describeExit(r.code) ? [`exit ${describeExit(r.code)}`] : []), ...(r.windows ?? [])] : [])
 
 /** The record as Markdown, to paste into a card comment: the fingerprint, each suite's result and time, the logs; and
- * first, if it can't be trusted (recordStatus), why. After the table: the real CLIs' versions (clis, when real suites
+ * first, if it can't be trusted (recordStatus), why. After the table: how the suites were picked (selection), the real CLIs' versions (clis, when real suites
  * ran), the real tier not run (notRun), and the suites skipped for the environment (a real CLI's usage limit, sign-in,
  * network), which are no result for the code. */
-export function recordMarkdown({ code, when, jobs, results, logDir, summary, problems = [], runs = null, notRun = [], clis = {}, homes = [] }) {
+export function recordMarkdown({ code, when, jobs, results, logDir, summary, problems = [], runs = null, notRun = [], clis = {}, homes = [], selection = null }) {
   // A skip's reason can quote the CLI: no | to break the table.
   const skippedCell = (r) => `skipped: ${r.skipped.replace(/\|/g, '/')}`
   const cell = (r) => (!r ? '–' : r.skipped ? skippedCell(r) : `${r.ok ? 'pass' : `**FAIL**${r.failed?.length ? ` (${r.failed.length} check${r.failed.length === 1 ? '' : 's'})` : ''}`} ${r.seconds ?? '–'}s`)
@@ -143,6 +165,7 @@ export function recordMarkdown({ code, when, jobs, results, logDir, summary, pro
   const envSkipped = [...new Set((runs ?? [{ results }]).flatMap((r) => r.results.filter((x) => x.environment).map((x) => x.name)))]
   const windows = results.filter((r) => windowsOf(r).length).map((r) => `${r.name}: ${windowsOf(r).join('; ')}`)
   const notes = [
+    ...(selection ? [selectionLine(selection)] : []),
     ...(windows.length ? [`Windows codes (#599): ${windows.join(' · ')}.`] : []),
     ...(Object.keys(clis).length ? [`Real CLIs (as Hive selected them): ${cliLine(clis)}.`] : []),
     ...(homes.length ? [`Real CLIs' homes (#368): ${homes.join('; ')}.`] : []),
