@@ -8,9 +8,10 @@ import { tempDir } from './tempDir'
 type Proc = { pid: number; parent?: number; commandLine: string; started: number }
 type Tree = { pid: number; started: number }[]
 const req = createRequire(import.meta.url)
-const { namesFolder, ownedBy, descendantsIn, stillRunning, processes, endExactly, stopProcessesIn } = req('./e2e/folderProcesses.cjs') as {
+const { namesFolder, ownedBy, descendantsIn, stillRunning, processes, endExactly, childrenFirst, stopProcessesIn } = req('./e2e/folderProcesses.cjs') as {
   processes: () => Proc[]
   endExactly: (targets: Tree) => number
+  childrenFirst: (list: Proc[], targets: Tree) => Tree
   namesFolder: (cmd: string, folder: string) => boolean
   ownedBy: (list: Proc[], folder: string, since?: number, self?: number) => number[]
   descendantsIn: (list: Proc[], root: number) => Tree
@@ -58,6 +59,24 @@ describe("a scenario's leftover processes (#542, #402)", () => {
     // Once Hive closed: 103 still runs, 102 ended, and 101's pid now belongs to another process.
     const after = [list[3], { pid: 101, parent: 7, started: 5000, commandLine: 'someone else' }, list[5]]
     expect(stillRunning(after, tree)).toEqual([103])
+  })
+
+  it('children are ended before their parents, which can take them with them (#615)', () => {
+    // The GitHub runner's values: a parent naming the folder, its child (a lower pid), each start time as WMI and .NET
+    // both gave it. Ending the parent first ended the child with it (Node's kill-on-close job), so it was never reached.
+    const parent = { pid: 6440, parent: 1300, started: 1791740931617, commandLine: 'node -e x tree\\child.pid' }
+    const child = { pid: 6252, parent: 6440, started: 1791740931655, commandLine: 'node -e y' }
+    const grandchild = { pid: 7000, parent: 6252, started: 1791740931700, commandLine: 'node -e z' }
+    const list = [child, grandchild, parent]
+    const at = (p: Proc) => ({ pid: p.pid, started: p.started })
+    expect(childrenFirst(list, [at(parent), at(child)])).toEqual([at(child), at(parent)])
+    expect(childrenFirst(list, [at(parent), at(child), at(grandchild)])).toEqual([at(grandchild), at(child), at(parent)])
+    expect(childrenFirst(list, [at(grandchild), at(parent), at(child)])).toEqual([at(grandchild), at(child), at(parent)])
+    // A parent pid that is now another process (started after its "child") isn't its parent: the order given stays.
+    const reused = { ...parent, started: 1791740940000 }
+    expect(childrenFirst([child, reused], [at(reused), at(child)])).toEqual([at(reused), at(child)])
+    // Unrelated targets keep their order.
+    expect(childrenFirst(list, [at(grandchild), at(parent)])).toEqual([at(grandchild), at(parent)])
   })
 
   const tmp = tempDir('hive-folder-processes-')
@@ -117,6 +136,7 @@ describe("a scenario's leftover processes (#542, #402)", () => {
       const childPidNow = Number(readFileSync(childPid, 'utf8'))
       const child = processes().find((p) => p.pid === childPidNow)!
       expect(child).toBeTruthy()
+      // The child is in a job that ends with its parent (Node's): only ending it first reaches it (#615).
       expect(stopProcessesIn(own, since)).toBe(2)
       await vi.waitFor(() => expect(parent.exitCode !== null || parent.signalCode !== null).toBe(true), { timeout: 15000, interval: 100 })
       expect(alive(child)).toBe(false)
