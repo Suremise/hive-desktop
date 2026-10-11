@@ -7388,7 +7388,8 @@ textarea.input.task-blocked-input {
 .progress-run.stale {
   border-color: var(--warning);
 }
-.progress-run.passed {
+.progress-run.passed,
+.progress-run.stopped {
   animation: progress-fade 10s ease-in forwards;
 }
 @keyframes progress-fade {
@@ -7464,6 +7465,11 @@ button.progress-run-show:focus-visible {
 .progress-stale {
   color: var(--warning);
 }
+/* Stopped (#549): interrupted, or ended without a report: neither passed nor a fault, so muted. */
+.progress-stopped,
+.progress-waiting-icon {
+  color: var(--fg-muted);
+}
 .progress-bar {
   height: 6px;
   border-radius: 3px;
@@ -7484,6 +7490,16 @@ button.progress-run-show:focus-visible {
 }
 .progress-run.stale .progress-bar > div {
   background: var(--warning);
+}
+.progress-run.stopped .progress-bar > div {
+  background: var(--fg-faint);
+}
+/* Waiting (#549): still diagonal hatching across the bar, no fill: it hasn't started. */
+.progress-bar.waiting > div,
+.progress-mini.waiting > span {
+  background: repeating-linear-gradient(-45deg, var(--fg-faint) 0 3px, transparent 3px 7px);
+  opacity: 0.7;
+  transition: none;
 }
 .progress-bar.indeterminate > div {
   animation: progress-slide 1.4s ease-in-out infinite;
@@ -7677,6 +7693,9 @@ button.progress-run-show:focus-visible {
 .progress-recent.stale > .tip-wrap > .codicon {
   color: var(--warning);
 }
+.progress-recent.stopped > .tip-wrap > .codicon {
+  color: var(--fg-muted);
+}
 .progress-rail {
   flex-shrink: 0;
   width: 28px;
@@ -7729,6 +7748,9 @@ button.progress-run-show:focus-visible {
 .progress-mini.stale > span {
   background: var(--warning);
 }
+.progress-mini.stopped > span {
+  background: var(--fg-faint);
+}
 .progress-mini.indeterminate > span {
   animation: progress-rise 1.4s ease-in-out infinite;
 }
@@ -7760,7 +7782,8 @@ button.progress-run-show:focus-visible {
 @media (prefers-reduced-motion: reduce) {
   .progress-bar.indeterminate > div,
   .progress-mini.indeterminate > span,
-  .progress-run.passed {
+  .progress-run.passed,
+  .progress-run.stopped {
     animation: none;
   }
 }

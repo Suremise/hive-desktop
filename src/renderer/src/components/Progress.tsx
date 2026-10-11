@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from 'react'
-import { ALL_PROJECTS, RECENT_RUNS, RUN_STATE_WORDS, SHOW_ALL, activeFilter, agentChoices, filterChoices, filterRuns, fractionDone, inStrip, isListed, isOpenRun, isRecent, runDetails, runDetailsText, shortDuration, stripRuns, timeLeft, unseenTrouble } from '@shared/progress'
+import { ALL_PROJECTS, RECENT_RUNS, SHOW_ALL, activeFilter, agentChoices, barLook, filterChoices, filterRuns, fractionDone, inStrip, isListed, isOpenRun, isRecent, runDetails, runDetailsText, runStateWord, runStatusLine, shortDuration, stripRuns, unseenTrouble } from '@shared/progress'
 import type { MergeSlotInfo, ProgressRun } from '@shared/types'
 import { attempt, selectProject } from '../actions'
 import { call } from '../api'
@@ -89,7 +89,7 @@ export function ProgressPanel() {
   const anyOpen = runs.some(isOpenRun)
   // Once a second while something runs or is about to fold into Recent (a passed run, a failure just seen), else now
   // and then.
-  const folding = runs.some((r) => !r.dismissed && (r.state === 'passed' || r.seenAt !== null))
+  const folding = runs.some((r) => !r.dismissed && (r.state === 'passed' || r.state === 'stopped' || r.seenAt !== null))
   const now = useNow(anyOpen || folding ? 1000 : 30000)
   const unseen = runs.some(unseenTrouble)
   // Looking at the open panel counts as seeing what failed or went stale: the taskbar's and the strip's red clear,
@@ -199,18 +199,9 @@ export function ProgressPanel() {
   )
 }
 
-/** A run's state in a line: how long it took, or has been going and how long is left; why a stale one is. */
-function statusLine(r: ProgressRun, now: number): string {
-  const ended = r.finishedAt ?? now
-  const left = r.state === 'running' ? timeLeft(r, now) : null
-  if (r.state === 'passed') return `Passed in ${shortDuration(ended - r.startedAt)}`
-  if (r.state === 'failed') return `Failed after ${shortDuration(ended - r.startedAt)}`
-  if (r.state === 'stale') return r.staleReason === 'agent-stopped' ? 'Its agent stopped before it finished' : `Stopped reporting ${shortDuration(now - r.updatedAt)} ago`
-  return `${shortDuration(now - r.startedAt)}${left !== null ? ` · about ${shortDuration(left)} left` : ''}`
-}
-
-/** Its steps: "4 of 12: carddialog", or the step's name alone. */
+/** Its steps: "4 of 12: carddialog", or the step's name alone; while it waits, what for (#549). */
 function stepLine(r: ProgressRun): string | null {
+  if (r.state === 'running' && r.waiting) return r.waiting
   return r.total !== null ? `${Math.min((r.step ?? 0) + (r.state === 'running' && r.stepName ? 1 : 0), r.total)} of ${r.total}${r.stepName ? `: ${r.stepName}` : ''}` : r.stepName
 }
 
@@ -222,10 +213,11 @@ function RunRow({ run: r, now, open, onToggle }: { run: ProgressRun; now: number
   const project = useStore((s) => (r.projectPath ? (findProject(s, r.projectPath)?.name ?? null) : null))
   const showable = useStore((s) => whyNotShown(s, r) === null)
   const fraction = fractionDone(r)
+  const look = barLook(r)
   const step = stepLine(r)
   return (
     <div
-      className={cx('progress-run', r.state, open && 'open')}
+      className={cx('progress-run', r.state, look === 'waiting' && 'waiting', open && 'open')}
       data-run={r.id}
       onClick={() => {
         // Not when the click ended a text selection (copying a failure's summary).
@@ -255,6 +247,8 @@ function RunRow({ run: r, now, open, onToggle }: { run: ProgressRun; now: number
         {r.state === 'passed' && <Icon name="pass" className="progress-ok" />}
         {r.state === 'failed' && <Icon name="error" className="progress-fail" />}
         {r.state === 'stale' && <Icon name="warning" className="progress-stale" />}
+        {r.state === 'stopped' && <Icon name="circle-slash" className="progress-stopped" />}
+        {look === 'waiting' && <Icon name="clock" className="progress-waiting-icon" />}
         <DetailsToggle run={r} open={open} onToggle={onToggle} />
         {(r.state === 'failed' || r.state === 'stale') && (
           <IconButton
@@ -270,11 +264,20 @@ function RunRow({ run: r, now, open, onToggle }: { run: ProgressRun; now: number
       <Tooltip block content={r.command ?? r.title}>
         <div className="progress-title">{r.title}</div>
       </Tooltip>
-      <div className={cx('progress-bar', fraction === null && r.state === 'running' && 'indeterminate')} role="progressbar" aria-valuemin={0} aria-valuemax={100} aria-valuenow={fraction === null ? undefined : Math.round(fraction * 100)} aria-label={r.title}>
-        <div style={{ width: `${fraction === null ? (r.state === 'running' ? 30 : 100) : Math.round(fraction * 100)}%` }} />
+      {/* Waiting (#549): a still, hatched bar across, no fill and no value: nothing has started. */}
+      <div
+        className={cx('progress-bar', look === 'moving' && 'indeterminate', look === 'waiting' && 'waiting')}
+        role="progressbar"
+        aria-valuemin={0}
+        aria-valuemax={100}
+        aria-valuenow={look === 'steps' ? Math.round(fraction! * 100) : undefined}
+        aria-valuetext={look === 'waiting' ? 'waiting' : undefined}
+        aria-label={r.title}
+      >
+        <div style={{ width: `${look === 'steps' ? Math.round(fraction! * 100) : look === 'moving' ? 30 : 100}%` }} />
       </div>
       {step && <div className="progress-step faint">{step}</div>}
-      <div className="progress-status faint">{statusLine(r, now)}</div>
+      <div className="progress-status faint">{runStatusLine(r, now)}</div>
       {r.summary && r.state === 'failed' && <div className="progress-summary">{r.summary}</div>}
       {open && <RunDetails run={r} now={now} />}
     </div>
@@ -319,8 +322,8 @@ function RecentRow({ run: r, now, open, onToggle }: { run: ProgressRun; now: num
     if (open) item.current?.querySelector('.progress-details')?.scrollIntoView({ block: 'nearest' })
   }, [open])
   const took = r.finishedAt !== null ? shortDuration(r.finishedAt - r.startedAt) : ''
-  const icon = r.state === 'passed' ? 'pass' : r.state === 'failed' ? 'error' : 'warning'
-  const what = r.state === 'passed' ? 'passed' : r.state === 'failed' ? 'failed' : 'stopped reporting'
+  const icon = r.state === 'passed' ? 'pass' : r.state === 'failed' ? 'error' : r.state === 'stopped' ? 'circle-slash' : 'warning'
+  const what = runStateWord(r)
   return (
     <div ref={item} className={cx('progress-recent-item', r.state, open && 'open')} data-run={r.id}>
       <div
@@ -441,10 +444,11 @@ function ProgressRail({ runs, filtered }: { runs: ProgressRun[]; filtered: { nam
       )}
       {bars.map((r) => {
         const f = fractionDone(r)
+        const look = barLook(r)
         return (
-          <Tooltip key={r.id} content={`${r.agentName}: ${r.title}${f !== null ? ` (${Math.round(f * 100)}%)` : ''}`}>
-            <span className={cx('progress-mini', r.state, f === null && r.state === 'running' && 'indeterminate')} data-run={r.id}>
-              <span style={{ height: `${f === null ? (r.state === 'running' ? 40 : 100) : Math.max(4, Math.round(f * 100))}%` }} />
+          <Tooltip key={r.id} content={`${r.agentName}: ${r.title}${look === 'waiting' ? ' (waiting)' : f !== null ? ` (${Math.round(f * 100)}%)` : ''}`}>
+            <span className={cx('progress-mini', r.state, look === 'moving' && 'indeterminate', look === 'waiting' && 'waiting')} data-run={r.id}>
+              <span style={{ height: `${look === 'steps' ? Math.max(4, Math.round(f! * 100)) : look === 'moving' ? 40 : 100}%` }} />
             </span>
           </Tooltip>
         )
@@ -456,7 +460,7 @@ function ProgressRail({ runs, filtered }: { runs: ProgressRun[]; filtered: { nam
               <div>{more.length} more:</div>
               {more.slice(0, MORE_LISTED).map((r) => (
                 <div key={r.id}>
-                  {r.agentName}: {r.title} ({RUN_STATE_WORDS[r.state]})
+                  {r.agentName}: {r.title} ({r.waiting && r.state === 'running' ? 'waiting' : runStateWord(r)})
                 </div>
               ))}
               {more.length > MORE_LISTED && <div className="faint">and {more.length - MORE_LISTED} others: open the panel to see them</div>}
