@@ -84,7 +84,10 @@ const check = (name, ok, extra = '') => {
   await lib.cliStep('the relaunch with the new effort', { session: lib.ptyKey(proj, agent.id) }, async () => {
     // A relaunch soon after the first start can be asked to trust the folder again (its "Yes" not saved yet, #283):
     // answered once the relaunch's own process runs (until then the terminal holds the first session's screen).
-    await lib.until(async () => launched() > before, 20000)
+    // A relaunch that never spawns fails here, with nothing read or typed in the old terminal (#341).
+    const spawned = !!(await lib.until(async () => launched() > before, 20000))
+    check('the restart starts a new Claude Code process', spawned, `launches: ${launched()}, before: ${before}`)
+    if (!spawned) return
     // One wait for the relaunch to be ready, answering the trust question whenever its process asks (#323): it could
     // ask after a fixed window for it had passed (a slow start right after a full run), and nobody answered it then.
     // Since the spawn the terminal holds only the new process's output, so the question there is its own. The budget is

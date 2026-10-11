@@ -2,9 +2,9 @@
 // deleting one, or a conversation's group, has the checks of deleting sessions (#239): none while the conversation
 // runs, and none if another program has one open (all or nothing).
 import { spawn, type ChildProcess } from 'child_process'
-import { existsSync, mkdirSync, readdirSync, readFileSync, rmSync, symlinkSync, writeFileSync } from 'fs'
+import { existsSync, lstatSync, mkdirSync, readdirSync, readFileSync, rmdirSync, rmSync, symlinkSync, writeFileSync } from 'fs'
 import { join } from 'path'
-import { afterAll, afterEach, beforeAll, describe, expect, it } from 'vitest'
+import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it } from 'vitest'
 import * as electron from 'electron'
 import { tempDir } from './tempDir'
 
@@ -62,6 +62,16 @@ describe.runIf(process.platform === 'win32')("the Assistant's images", () => {
     await w.open(wsPath)
     await run(() => workspace.upsertSession(home, { id: conv, agent: 'claude-code', name: 'Planning the week' }))
   })
+  // Each case starts with no images of the Assistant's: what one leaves (a group kept, a junction) is never another's.
+  beforeEach(() => {
+    const root = join(home, '.hive', 'images')
+    for (const name of existsSync(root) ? readdirSync(root) : []) {
+      const p = join(root, name)
+      // A junction (the link case's) goes as a link, never followed into the folder it points at.
+      if (lstatSync(p).isSymbolicLink()) rmdirSync(p)
+      else rmSync(p, { recursive: true, force: true })
+    }
+  })
   afterEach(() => {
     s.live.clear()
     for (const h of holders.splice(0)) h.kill()
@@ -69,6 +79,8 @@ describe.runIf(process.platform === 'win32')("the Assistant's images", () => {
   })
   afterAll(async () => {
     await disposeWorkspaceService(w)
+    // Clearing a junction between cases left the user's folder it pointed at as it was.
+    if (existsSync(join(base, 'outside'))) expect(readFileSync(join(base, 'outside', 'personal.png'), 'utf8')).toBe('mine')
   })
 
   it('lists them from its home, by conversation, with its name', async () => {
@@ -80,6 +92,9 @@ describe.runIf(process.platform === 'win32')("the Assistant's images", () => {
   })
 
   it('one image held by another program is not deleted; a conversation group goes all or none', async () => {
+    // Another conversation's images, which stay.
+    const kept = '00000000-0000-4000-8000-000000000005'
+    png(kept, '2026-10-05T08-30-00.png')
     const a = png(other, '2026-10-05T09-00-00.png')
     const b = png(other, '2026-10-05T09-30-00.png')
     await hold(b)
@@ -87,14 +102,16 @@ describe.runIf(process.platform === 'win32')("the Assistant's images", () => {
     await expect(run(() => files.trashImageGroup(home, other))).rejects.toThrow(/one of these images open/)
     expect(existsSync(a) && existsSync(b)).toBe(true)
     expect(trashed).toEqual([])
-    for (const h of holders.splice(0)) h.kill()
-    await new Promise((r) => setTimeout(r, 300))
+    // Let go once each holder has exited (Windows closes a process's handles as it ends).
+    await Promise.all(holders.splice(0).map((h) => new Promise<void>((done) => (h.exitCode !== null || h.signalCode !== null ? done() : (h.once('exit', () => done()), h.kill())))))
     expect(await run(() => files.trashImageGroup(home, other))).toBe(2)
     expect(existsSync(imagesOf(other))).toBe(false)
-    expect(readdirSync(join(home, '.hive', 'images'))).toEqual([conv])
+    expect(readdirSync(imagesOf(kept))).toEqual(['2026-10-05T08-30-00.png'])
   })
 
   it('not while the conversation runs: neither one image nor its group', async () => {
+    png(conv, '2026-10-05T10-00-00.png')
+    png(conv, '2026-10-05T11-00-00.png')
     s.live.set('assistant', { state: { provider: 'claude-code', runId: 'r', projectPath: home, agentId: 'assistant', sessionId: conv, status: 'ready' } })
     await expect(run(() => files.trashImageGroup(home, conv))).rejects.toThrow(/running/)
     const one = join(imagesOf(conv), readdirSync(imagesOf(conv))[0])

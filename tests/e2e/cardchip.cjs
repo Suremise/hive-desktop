@@ -69,22 +69,14 @@ const check = (name, ok, extra = '') => {
 
   // A card in Todo for it shows nothing; in Doing it shows.
   const card = await inv('tasks:create', { title: 'Attention inbox', project: 'alpha', agent: coder.id })
-  await lib.sleep(800)
+  await lib.sleep(800) // On purpose: that nothing shows is the check, so it gives a chip time to show wrongly.
   check('a Todo card shows no chip', (await tab.locator('.card-chip').count()) === 0)
   await inv('tasks:update', card.number, { column: 'doing' })
   check('the strip tab shows #n only', !!(await until(async () => (await tab.locator('.card-chip').count()) === 1, 5000)) && (await tab.locator('.card-chip').innerText()).trim() === `#${card.number}`, await tab.locator('.card-chip').innerText().catch(() => ''))
   check('the pane header shows #n only, at any width (#311)', !!(await until(async () => (await header.locator('.card-chip').innerText().catch(() => '')).trim() === `#${card.number}`, 5000)), await header.locator('.card-chip').innerText().catch(() => ''))
-  /** The tooltip shown while hovering something. */
-  const tipOf = async (locator) => {
-    await page.mouse.move(5, 5)
-    await lib.sleep(200)
-    await locator.hover()
-    await lib.sleep(900)
-    return page.locator('.tip').last().innerText().catch(() => '')
-  }
-  let tip = await tipOf(header.locator('.card-chip'))
+  let tip = await lib.hoverTip(page, header.locator('.card-chip'), (t) => t.includes(`#${card.number} Attention inbox`))
   check("…its tooltip has the card's title", tip.includes(`#${card.number} Attention inbox`), tip)
-  tip = await tipOf(tab)
+  tip = await lib.hoverTip(page, tab, (t) => t.includes(`Working on #${card.number} Attention inbox`))
   check("the strip tab's tooltip lists the card with its title", tip.includes(`Working on #${card.number} Attention inbox`), tip)
   check('the other agent shows none', (await page.locator('.agent-tab', { hasText: 'Other' }).locator('.card-chip').count()) === 0)
   await page.screenshot({ path: path.join(lib.WORK, 'cardchip-1-pane.png') })
@@ -92,10 +84,11 @@ const check = (name, ok, extra = '') => {
   // A second Doing card: "+1".
   const second = await inv('tasks:create', { title: 'Prompt snippets', project: 'alpha', agent: coder.id, column: 'doing' })
   check('a second Doing card shows +1', !!(await until(async () => /\+1/.test(await tab.locator('.card-chip').innerText().catch(() => '')), 5000)))
-  const headerChip = (await header.locator('.card-chip').innerText()).replace(/\s+/g, '')
-  check('…in the pane header too, still without titles', headerChip === `#${card.number}+1`, headerChip)
-  tip = await tipOf(header.locator('.card-chip'))
-  check("…whose tooltip lists both cards' titles", tip.includes(`#${card.number} Attention inbox`) && tip.includes(`#${second.number} Prompt snippets`), tip)
+  const headerChip = async () => (await header.locator('.card-chip').innerText({ timeout: 1000 }).catch(() => '')).replace(/\s+/g, '')
+  check('…in the pane header too, still without titles', !!(await until(async () => (await headerChip()) === `#${card.number}+1`, 5000)), await headerChip())
+  const both = (t) => t.includes(`#${card.number} Attention inbox`) && t.includes(`#${second.number} Prompt snippets`)
+  tip = await lib.hoverTip(page, header.locator('.card-chip'), both)
+  check("…whose tooltip lists both cards' titles", both(tip), tip)
   await page.screenshot({ path: path.join(lib.WORK, 'cardchip-1b-short.png') })
   await page.mouse.move(5, 5)
 
@@ -111,11 +104,12 @@ const check = (name, ok, extra = '') => {
   const recorded = async () => JSON.parse(fs.readFileSync(path.join(alpha, '.hive', 'sessions.json'), 'utf8')).sessions.find((s) => s.id === sessionId)?.cards ?? []
   check('the session records its cards', !!(await until(async () => (await recorded()).length === 2, 8000)), JSON.stringify(await recorded()))
 
-  // The sidebar's tooltip for the project.
-  await page.locator('.project-row', { hasText: 'alpha' }).locator('.project-status').hover()
-  await lib.sleep(900)
-  const tipText = await page.locator('.tip').last().innerText().catch(() => '')
-  check("the project's tooltip lists the agent's card", tipText.includes(`Coder: `) && tipText.includes(`#${card.number} Attention inbox +1`), tipText)
+  // The sidebar's tooltip for the project: its agents as a table (#529), the agent's row with its card. Shown (hoverTip:
+  // pointer away, then hovered until the tip says it), then its row read.
+  await lib.hoverTip(page, page.locator('.project-row', { hasText: 'alpha' }).locator('.project-status'), (t) => t.includes(`#${card.number} Attention inbox +1`))
+  const coderCard = page.locator('.tip.agents-tip tr[data-agent="Coder"] .agents-table-card')
+  const tipText = (await until(async () => (await coderCard.count()) === 1 && (await coderCard.innerText()), 10000)) || ''
+  check("the project's tooltip lists the agent's card", tipText.includes(`#${card.number} Attention inbox +1`), tipText)
 
   // The Workspace Overview's running list.
   await page.keyboard.press('Control+Shift+O')
@@ -170,8 +164,9 @@ const check = (name, ok, extra = '') => {
     }
   }
   await inv('settings:update', { appearance: { theme: 'dark' } })
-  tip = await tipOf(row)
-  check("the row's tooltip: its status, both cards with their titles and its progress", tip.includes('Coder: ') && tip.includes(`Working on #${card.number} Attention inbox`) && tip.includes(`Working on #${second.number} Prompt snippets`) && tip.includes('Progress: e2e: 12 suites with a long title to cut short 4/12'), tip)
+  const rowTip = (t) => t.includes('Coder: ') && t.includes(`Working on #${card.number} Attention inbox`) && t.includes(`Working on #${second.number} Prompt snippets`) && t.includes('Progress: e2e: 12 suites with a long title to cut short 4/12')
+  tip = await lib.hoverTip(page, row, rowTip)
+  check("the row's tooltip: its status, both cards with their titles and its progress", rowTip(tip), tip)
   await page.mouse.move(5, 5)
   await row.locator('.card-chip').click()
   check("clicking the overview's chip opens the card", !!(await until(async () => (await dialog.count()) === 1, 5000)))

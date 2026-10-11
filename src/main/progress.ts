@@ -60,6 +60,8 @@ export interface ProgressDeps {
   changed: (workspacePath: string, runs: ProgressRun[]) => void
   /** Whether a run's agent still has a running session (a stopped one's runs go stale). */
   ownerRunning: (run: ProgressRun) => boolean
+  /** Whether a reporter's process is still there (#549); without it, a run's pid is never checked. */
+  processAlive?: (pid: number) => boolean
   emitEveryMs?: number
   /** Keeps ended runs across restarts; without it they are kept in memory only. */
   history?: ProgressHistory
@@ -86,7 +88,7 @@ function text(v: unknown, name: string, max: number): string | undefined {
   return s.length > max ? `${s.slice(0, max - 1)}…` : s
 }
 
-const KEPT_STATES = new Set<unknown>(['passed', 'failed', 'stale'])
+const KEPT_STATES = new Set<unknown>(['passed', 'failed', 'stale', 'stopped'])
 const SOURCES = new Set<unknown>(['agent', 'assistant', 'api'])
 
 /** A kept text field, cut to its limit, or null when it isn't text. */
@@ -132,6 +134,11 @@ export function keptRuns(saved: unknown, workspacePath: string): ProgressRun[] {
       finishedAt,
       state: r.state as ProgressRun['state'],
       staleReason: r.staleReason === 'quiet' || r.staleReason === 'agent-stopped' ? r.staleReason : null,
+      stopReason: r.state === 'stopped' ? (r.stopReason === 'gone' ? 'gone' : 'interrupted') : null,
+      waiting: null,
+      waitingSince: null,
+      heldEstimateMs: null,
+      pid: null,
       summary: keptText(r.summary, MAX_SUMMARY),
       dismissed: r.dismissed === true,
       seenAt: keptNumber(r.seenAt) ?? finishedAt,
@@ -261,6 +268,8 @@ export class ProgressStore {
     const command = text(body.command, 'command', MAX_COMMAND)
     const stepName = text(body.stepName, 'stepName', MAX_STEP_NAME)
     const estimateMs = int(body.estimateMs, 'estimateMs', 0, MAX_ESTIMATE_MS)
+    const waiting = text(body.waiting, 'waiting', MAX_STEP_NAME)
+    const pid = int(body.pid, 'pid', 1, 4_294_967_295)
     const list = this.runs.get(key(caller.workspacePath)) ?? []
     const mine = list.filter((r) => isOpenRun(r) && this.owns(caller, r, true))
     if (mine.length >= MAX_OPEN_PER_OWNER) throw new ProgressError(429, `At most ${MAX_OPEN_PER_OWNER} runs can be open at once: finish one first`)
@@ -280,12 +289,18 @@ export class ProgressStore {
       total: total ?? null,
       step: total !== undefined ? (step ?? 0) : (step ?? null),
       stepName: stepName || null,
-      estimateMs: estimateMs ?? null,
+      // Waiting from the start: its estimate is held until it stops waiting.
+      estimateMs: waiting ? null : (estimateMs ?? null),
       startedAt: now,
       updatedAt: now,
       finishedAt: null,
       state: 'running',
       staleReason: null,
+      stopReason: null,
+      waiting: waiting || null,
+      waitingSince: waiting ? now : null,
+      heldEstimateMs: waiting ? (estimateMs ?? null) : null,
+      pid: pid ?? null,
       summary: null,
       dismissed: false,
       seenAt: null,
@@ -307,6 +322,8 @@ export class ProgressStore {
     const step = int(body.step, 'step', 0, total ?? run.total ?? MAX_TOTAL)
     const stepName = text(body.stepName, 'stepName', MAX_STEP_NAME)
     const estimateMs = int(body.estimateMs, 'estimateMs', 0, MAX_ESTIMATE_MS)
+    // waiting: what it waits for now; empty: it waits no more (#549).
+    const waiting = text(body.waiting, 'waiting', MAX_STEP_NAME)
     const now = this.deps.now()
     if (total !== undefined) {
       run.total = total
@@ -314,8 +331,23 @@ export class ProgressStore {
     }
     if (step !== undefined) run.step = step
     if (stepName !== undefined) run.stepName = stepName || null
-    // estimateMs is the time left as of updatedAt: without a new one, what is left now keeps the same deadline.
-    run.estimateMs = estimateMs !== undefined ? estimateMs : timeLeft(run, now)
+    // estimateMs is the time left as of updatedAt: without a new one, what is left now keeps the same deadline. While it
+    // waits there is none: what was left is held, and given back from the moment it stops waiting (the wait isn't counted).
+    const left = estimateMs !== undefined ? estimateMs : run.waiting ? run.heldEstimateMs : timeLeft(run, now)
+    if (waiting) {
+      if (!run.waiting) run.waitingSince = now
+      run.waiting = waiting
+      run.heldEstimateMs = left
+      run.estimateMs = null
+    } else {
+      if (waiting === '') {
+        run.waiting = null
+        run.waitingSince = null
+        run.heldEstimateMs = null
+      }
+      if (run.waiting) run.heldEstimateMs = left
+      else run.estimateMs = left
+    }
     // The first estimate says how long it was expected to take in all (its details compare that with how long it took).
     if (run.expectedMs === null && estimateMs !== undefined) run.expectedMs = now - run.startedAt + estimateMs
     run.updatedAt = now
@@ -328,6 +360,9 @@ export class ProgressStore {
 
   finish(caller: ProgressCaller, id: string, body: Record<string, unknown>): ProgressRun {
     if (typeof body.ok !== 'boolean') throw new ProgressError(400, 'ok (true or false) is required')
+    if (body.stopped !== undefined && typeof body.stopped !== 'boolean') throw new ProgressError(400, 'stopped must be true or false')
+    // stopped (#549): it neither passed nor failed: its command was interrupted (Ctrl+C), whatever ok says.
+    const stopped = body.stopped === true
     const summary = text(body.summary, 'summary', MAX_SUMMARY)
     const exitCode = int(body.exitCode, 'exitCode', -2_147_483_648, 4_294_967_295)
     const logPath = text(body.logPath, 'logPath', MAX_LOG_PATH)
@@ -336,8 +371,10 @@ export class ProgressStore {
     const now = this.deps.now()
     run.finishedAt = now
     run.updatedAt = now
-    run.state = body.ok ? 'passed' : 'failed'
+    run.state = stopped ? 'stopped' : body.ok ? 'passed' : 'failed'
     run.staleReason = null
+    run.stopReason = stopped ? 'interrupted' : null
+    this.endWait(run)
     run.summary = summary || null
     run.seenAt = null
     if (exitCode !== undefined) run.exitCode = exitCode
@@ -365,12 +402,27 @@ export class ProgressStore {
     return this.runs.get(key(workspacePath))?.find((r) => r.id === id)?.logPath ?? null
   }
 
-  /** Marks quiet runs, and runs whose agent stopped, as stale. Called on a timer. */
+  /**
+   * Marks quiet runs, and runs whose agent stopped, as stale; ends an open run whose reporter's process is gone (#549:
+   * killed before it could report) as stopped, "ended without a report". Called on a timer.
+   */
   sweep(): void {
     const now = this.deps.now()
+    const alive = this.deps.processAlive
     for (const list of this.runs.values()) {
       let changed = false
+      let ended = false
       for (const r of list) {
+        if (alive && r.pid !== null && isOpenRun(r) && !alive(r.pid)) {
+          r.state = 'stopped'
+          r.stopReason = 'gone'
+          r.staleReason = null
+          r.finishedAt = now
+          r.seenAt = null
+          this.endWait(r)
+          ended = true
+          continue
+        }
         if (r.state !== 'running') continue
         const stopped = r.source !== 'api' && !this.deps.ownerRunning(r)
         if (stopped || isOverdue(r, now)) {
@@ -380,8 +432,16 @@ export class ProgressStore {
           changed = true
         }
       }
-      if (changed && list[0]) this.flush(list[0].workspacePath)
+      if (ended && list[0]) this.ended(list[0].workspacePath)
+      else if (changed && list[0]) this.flush(list[0].workspacePath)
     }
+  }
+
+  /** A run that ended stops waiting, and keeps no estimate. */
+  private endWait(r: ProgressRun): void {
+    r.waiting = null
+    r.waitingSince = null
+    r.heldEstimateMs = null
   }
 
   /**

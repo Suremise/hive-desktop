@@ -4,6 +4,9 @@
 // corrupted the heap: Hive's main process died, with nothing in its log (replysize's page closed this way under load).
 // Twelve rounds, two agents each (one stopped just before the switch, one still working): Hive survives every switch, and
 // each switch leaves no session running. Fake Claude Code; dev build, throwaway profile and workspaces, quiet.
+// A round counts only once both its agents are running, and "no session running" is read from Hive's own list of every
+// live session and the agents' processes (exited only when Windows says there is no such process), and any error fails
+// the suite (#339).
 const lib = require('./lib.cjs')
 const fs = require('fs')
 const path = require('path')
@@ -41,7 +44,22 @@ const check = (name, ok, extra = '') => {
     }
   }
   const agents = {}
-  const live = async (proj) => (await inv('session:list', proj)).filter((s) => s.live).length
+  // Hive's list of every live session, whichever workspace it's in: session:list checks the project is the window's,
+  // which a switch has just changed, so its error can't be read as "none running" (#339).
+  const liveIn = async (proj) => (await inv('session:live')).filter((s) => s.projectPath.toLowerCase() === proj.toLowerCase())
+  // What a project still runs: its sessions in Hive's list and the processes of the agents last started there.
+  const pids = {}
+  const runningIn = async (proj) => ({ sessions: (await liveIn(proj)).length, processes: (pids[proj] ?? []).filter(lib.processRunning).length })
+  // The switch waits a moment for its sessions to end, then goes on: wait for the project to run nothing, and say what
+  // it still ran if it doesn't.
+  const leftNothing = async (name, proj) => {
+    let left
+    const none = await lib.until(async () => {
+      left = await runningIn(proj)
+      return !left.sessions && !left.processes
+    }, 15000)
+    check(name, none, JSON.stringify(left))
+  }
 
   let rounds = 0
   try {
@@ -49,20 +67,34 @@ const check = (name, ok, extra = '') => {
       if (gone) break
       const proj = projects[r % 2]
       await lib.openWorkspace(inv, page, r % 2 ? wsB : wsA)
-      if (r > 1) check(`round ${r}: the last switch left no session running in ${path.basename(projects[(r + 1) % 2])}`, (await live(projects[(r + 1) % 2]).catch(() => 0)) === 0)
+      if (r > 0) await leftNothing(`round ${r}: the last switch left no session running in ${path.basename(projects[(r + 1) % 2])}`, projects[(r + 1) % 2])
       agents[proj] ??= [await lib.addAgent(inv, proj, { name: 'One' }), await lib.addAgent(inv, proj, { name: 'Two' })]
       const [one, two] = agents[proj]
       await inv('session:start', proj, { agentId: one.id })
       await inv('session:start', proj, { agentId: two.id })
-      await lib.until(async () => (await live(proj)) === 2, 10000)
+      // Both running, in Hive's list and as processes, before the stop and the switch: a round without them proves nothing.
+      const both = await lib.until(async () => {
+        const l = await liveIn(proj)
+        return l.length === 2 && l.every((s) => s.pid) && l
+      }, 10000)
+      pids[proj] = (both || (await liveIn(proj))).map((s) => s.pid).filter(Boolean)
+      const now = await runningIn(proj)
+      const ready = !!both && now.sessions === 2 && now.processes === 2
+      check(`round ${r}: both agents are running before the stop`, ready, JSON.stringify(now))
+      if (!ready) throw new Error(`round ${r} has no two agents running to stop and switch from`)
       // Stop one (Stop pressed again while it stops, as an impatient user might), and switch straight away: the switch
       // stops the other, and finds this one still live.
       await Promise.all([inv('session:stop', proj, one.id), inv('session:stop', proj, one.id), inv('session:stop', proj, one.id)])
       rounds = r + 1
     }
-    if (!gone) await lib.openWorkspace(inv, page, wsA)
+    if (!gone) {
+      await lib.openWorkspace(inv, page, wsA)
+      await leftNothing(`the final switch left no session running in ${path.basename(projects[1])}`, projects[1])
+    }
   } catch (e) {
-    console.log(`stopped at round ${rounds}: ${String(e.message).split('\n')[0]}`)
+    // Whatever stopped the rounds or the final check (a failed query, a switch that didn't show) fails the suite: it was
+    // never "no session running" (#339).
+    check(`the rounds and the final switch ran without an error (stopped at round ${rounds})`, false, String(e?.message ?? e).split('\n')[0])
   }
   check('Hive survives stopping an agent and switching workspace at once, twelve times', !gone && alive() && rounds === 12, JSON.stringify({ rounds, pageClosed: gone, mainAlive: alive() }))
 

@@ -40,6 +40,10 @@ transcript(B, 1, true)
 
 const results = []
 const check = (name, ok, extra = '') => results.push(`${ok ? 'PASS' : 'FAIL'}  ${name}${extra ? ` (${extra})` : ''}`)
+// The longest a check waits for its condition: a bound for a hung run, never how long the step should take.
+const HUNG_MS = 10000
+/** Whether fn() comes true (checked until it does, up to HUNG_MS). */
+const becomes = async (fn) => !!(await lib.until(fn, HUNG_MS))
 
 ;(async () => {
   const { app, page, inv } = await lib.launch({ userData })
@@ -59,12 +63,11 @@ const check = (name, ok, extra = '') => results.push(`${ok ? 'PASS' : 'FAIL'}  $
   await page.locator('.tab', { hasText: 'Overview' }).click()
   const head = page.locator('.session-head')
   await head.waitFor({ timeout: 15000 })
-  await lib.sleep(500)
 
   const picker = head.locator('select')
-  check('the session details have an agent picker', (await picker.count()) === 1)
-  check('it starts on the focused agent', (await picker.inputValue()) === alpha.id, await picker.inputValue())
-  check("it shows that agent's session", /Alpha work/.test(await head.textContent()), await head.textContent())
+  check('the session details have an agent picker', await becomes(async () => (await picker.count()) === 1))
+  check('it starts on the focused agent', await becomes(async () => (await picker.inputValue()) === alpha.id), await picker.inputValue())
+  check("it shows that agent's session", await becomes(async () => /Alpha work/.test(await head.textContent())), await head.textContent())
   const table = page.locator('.compaction-history')
   const rows = table.locator('tbody tr:not(.table-no-match)')
   const paging = table.locator('.table-paging')
@@ -130,7 +133,7 @@ const check = (name, ok, extra = '') => results.push(`${ok ? 'PASS' : 'FAIL'}  $
   await agents.locator('th button', { hasText: 'Agent' }).click()
   await page.screenshot({ path: path.join(shots, '1b-sorted-dark.png') })
   await inv('settings:update', { appearance: { theme: 'light' } })
-  await lib.sleep(300)
+  await lib.until(async () => (await page.evaluate(() => document.documentElement.getAttribute('data-theme'))) === 'light', HUNG_MS)
   await page.screenshot({ path: path.join(shots, '1b-sorted-light.png') })
   await inv('settings:update', { appearance: { theme: 'dark' } })
   // A row opens its compaction in the Sessions tab, at its divider with the summary open; from the keyboard too.
@@ -145,9 +148,8 @@ const check = (name, ok, extra = '') => results.push(`${ok ? 'PASS' : 'FAIL'}  $
   await head.waitFor({ timeout: 10000 })
 
   await picker.selectOption(beta.id)
-  await lib.sleep(300)
-  check("picking another agent shows its session", /Beta work/.test(await head.textContent()), await head.textContent())
-  check('with its own compactions', (await rows.count()) === 1, String(await rows.count()))
+  check("picking another agent shows its session", await becomes(async () => /Beta work/.test(await head.textContent())), await head.textContent())
+  check('with its own compactions', await becomes(async () => (await rows.count()) === 1), String(await rows.count()))
   // The compaction that followed a big turn says so (#154): the context showed 116k, the turn added 72k.
   const note = rows.first().locator('.compaction-turn')
   check('a compaction after a big turn says "turn added 72.4k output"', /turn added 72\.4k output/i.test((await note.innerText().catch(() => '')) ?? ''), await rows.first().innerText())

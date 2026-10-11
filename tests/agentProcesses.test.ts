@@ -1,12 +1,17 @@
 // What an agent's launch leaves running (#507): its CLI joins a job as it starts, everything it starts joins with it
 // (detached, through a process that has exited since), and only the job's processes are ever listed or ended. The real
 // job host (PowerShell) on Windows; the labels shown for them anywhere.
+import { createRequire } from 'module'
 import { spawn, type ChildProcess } from 'child_process'
 import { readFileSync, writeFileSync, existsSync } from 'fs'
 import { join } from 'path'
 import { afterAll, describe, expect, it, vi } from 'vitest'
 import { leftoversSummary, processLabel } from '../src/shared/agentProcesses'
 import { tempDir } from './tempDir'
+// What the test started that is still running: stopped by its command line (it names the test's folder) and start,
+// never by a pid remembered from earlier, which Windows may have given another process since: under load that could
+// be a concurrent run's Vitest worker (#547: a likely cause of one exiting with code 1, not reproduced).
+const { stopProcessesIn } = createRequire(import.meta.url)('./e2e/folderProcesses.cjs') as { stopProcessesIn: (folder: string, since?: number) => number }
 
 const events: unknown[] = []
 vi.mock('../src/main/events', () => ({ emit: (e: unknown) => events.push(e) }))
@@ -68,7 +73,7 @@ else {
 }
 `
   )
-  const started: number[] = []
+  const since = Date.now()
   const pidsIn = (file: string): Record<string, number> => (existsSync(file) ? Object.fromEntries(readFileSync(file, 'utf8').trim().split('\n').filter(Boolean).map((l) => [l.split(' ')[0], Number(l.split(' ')[1])])) : {})
 
   async function launch(runId: string, out: string): Promise<ChildProcess> {
@@ -78,14 +83,13 @@ else {
     cli.stdin!.write('go\n')
     await new Promise((r) => cli.once('exit', r))
     expect(await until(() => Object.keys(pidsIn(out)).length === 2, 10000)).toBe(true)
-    started.push(...Object.values(pidsIn(out)))
     return cli
   }
 
   afterAll(async () => {
     const { closeProcessTracking } = await import('../src/main/agentProcesses')
     closeProcessTracking()
-    for (const pid of started) if (alive(pid)) process.kill(pid)
+    stopProcessesIn(dir, since)
   })
 
   it('lists what a stopped launch left running, ends only that, and leaves a process it did not start alone', async () => {
@@ -95,7 +99,6 @@ else {
     spawn(process.execPath, [script, 'stranger', other], { detached: true, stdio: 'ignore', windowsHide: true }).unref()
     expect(await until(() => !!pidsIn(other).stranger, 10000)).toBe(true)
     const stranger = pidsIn(other).stranger
-    started.push(stranger)
 
     const out = join(dir, 'run1.txt')
     await launch('run1', out)

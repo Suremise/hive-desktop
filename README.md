@@ -111,6 +111,9 @@ npm run release    # build and upload a draft GitHub release (see RELEASING.md)
 
 See [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) for how it fits together and [docs/SPEC.md](docs/SPEC.md) for product decisions.
 
+Tests wait for what they expect to see, never for a length of time, and pass under load on any machine: the rules
+for writing and reviewing them are in [tests/README.md](tests/README.md).
+
 ## Troubleshooting
 
 - **Hive doesn't open, or says "Hive can't start"**: the folder Hive is installed in has a permission entry for a Windows app package but none for ALL APPLICATION PACKAGES, so Hive's sandboxed windows can't read it. Hive adds the entry when it can, and otherwise shows the command to run: see [Troubleshooting](docs/USER_GUIDE.md#troubleshooting) in the user guide.

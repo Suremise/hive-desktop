@@ -16,8 +16,11 @@
 // - In the e2e work folder: anything but `lanes` and `logs` older than the age (suites run on their own, probes).
 // - Anything else in hive-test older than the age (one-off folders and files: reviewers' and builders' probes).
 //   `scratch\<agent>-<date>` is the place for probes that must be under hive-test: its folders go by the same age.
+// - In the Codex test home (#404, codexPlan), under its lease (codexHomeLock.mjs; nothing while a run holds it): rollouts
+//   older than the age, package copies Codex no longer runs, and unfinished downloads in its cache older than the age.
 // What stays, always:
-// - The CLI test homes (`codex`, `claude`: their sign-ins), never opened; scenario results and baselines; the claims
+// - The CLI test homes' sign-ins, config, sandbox setup and databases (`codex`: all but the above; `claude`: never
+//   opened); scenario results and baselines; the claims
 //   and locks (`e2e-lanes`, `heavy-slots`, `build-locks`), the concurrency checker's folders (it removes its own:
 //   tempWorktrees.mjs) and the Progress panel's timings. Logs (`e2e\logs`) are pruned by the runner (logs.mjs).
 // - A lane a runner holds.
@@ -26,17 +29,18 @@
 //   found up from this repository's main checkout, or a card that can't be read), nothing at all is removed: what is
 //   cited can't be known. The same rules hold wherever tests delete their output (evidence.cjs).
 // Links (a worktree's node_modules is a junction) are removed as links, never followed.
-import { existsSync, lstatSync, mkdirSync, readFileSync, rmSync, writeFileSync } from 'fs'
+import { existsSync, lstatSync, mkdirSync, readFileSync, realpathSync, rmSync, writeFileSync } from 'fs'
 import { createRequire } from 'module'
-import { dirname, join, relative, resolve, sep } from 'path'
+import { basename, dirname, join, relative, resolve, sep } from 'path'
 import { fileURLToPath } from 'url'
+import { acquireCodexHome } from './codexHomeLock.mjs'
 import { LANES, claimHeld, withLock } from './lanes.mjs'
 import { processAlive } from './logs.mjs'
 import { SUITES } from './suites.mjs'
 
 const require = createRequire(import.meta.url)
 const runContext = require('./runContext.cjs')
-const { claimedByRuns, evidenceFor, safeList, sizeOf, removeTree } = require('./evidence.cjs')
+const { claimedByRuns, evidenceFor, linkOnPath, safeList, sizeOf, removeTree } = require('./evidence.cjs')
 
 /** Leftovers older than this many days go (--days). */
 export const PRUNE_DAYS = 3
@@ -44,7 +48,7 @@ const DAY = 24 * 60 * 60_000
 
 /** What stays in hive-test whatever its age, and why (the names of its own folders and files). */
 export const KEPT = {
-  codex: 'the Codex test home (its sign-in)',
+  codex: 'the Codex test home (its sign-in; old rollouts, package copies and unfinished downloads go: codexPlan)',
   claude: 'the Claude Code test home (its sign-in)',
   scenarios: 'scenario results and baselines (Performance → Compare)',
   'e2e-lanes': "the lanes' claims",
@@ -151,7 +155,131 @@ export function plan({ root, days = PRUNE_DAYS, now = Date.now(), held = () => f
   for (const name of safeList(e2e)) if (name !== 'lanes' && name !== 'logs') look(join(e2e, name), { area: 'e2e' })
   for (const name of safeList(join(root, 'scratch'))) look(join(root, 'scratch', name), { area: 'scratch' })
   for (const name of safeList(root)) if (!(name in KEPT) && name !== 'e2e' && name !== 'scratch') look(join(root, name), { area: 'other' })
+  out.push(...codexPlan({ root, days, now, ev }))
   return out
+}
+
+/**
+ * What goes from the Codex test home (#404), which otherwise only grows (1.8 GB on 8 Oct 2026). Only these, each listed
+ * as an item of area 'codex':
+ * - rollouts (`sessions\YYYY\MM\DD\rollout-*.jsonl`) older than the age: a year, month or day folder whose rollouts are
+ *   all that old goes whole, else its old rollouts one by one. Codex's index and databases still name them; it lists and
+ *   resumes the rest as before;
+ * - package copies Codex no longer runs: a `packages\<name>\releases\<version>` that is neither the release its
+ *   `current` link points to nor the one its `auto-update-version` names. Only when what is there says which those are:
+ *   a link or marker that is blank, malformed or names no release there keeps all of that package's releases;
+ * - downloads Codex left unfinished in `cache\<name>\.tmp*`, older than the age.
+ * Never its sign-in (`auth.json`), config, sandbox setup (`.sandbox`, `.sandbox-bin`, `cap_sid`), databases (Codex
+ * prunes its own logs), plugins, skills or history: nothing else in it is looked at. Never a user's own ~/.codex, and
+ * nothing reached through a link (junction or symlink) anywhere on its path, the home's own included: a folder that is
+ * a link isn't looked in, and an item that is one, or has one on its way, isn't listed. Each item's check() says, just
+ * before it goes, why it must stay after all (it changed, or a link appeared), or null: clean() plans the home again
+ * under its lease, and checks each item at once before removing it.
+ */
+export function codexPlan({ root, home = join(root, 'codex'), days = PRUNE_DAYS, now = Date.now(), ev }) {
+  const out = []
+  if (runContext.isUserCliHome(home) || !existsSync(home) || linkOnPath(home)) return out
+  const maxAge = days * DAY
+  const rel = (p) => relative(root, p).split(sep).join('/')
+  const stat = (p) => {
+    try {
+      return lstatSync(p)
+    } catch {
+      return null
+    }
+  }
+  const age = (p) => Math.max(0, now - (stat(p)?.mtimeMs ?? now))
+  /** A real folder (not a link to one). */
+  const isDir = (p) => !!stat(p)?.isDirectory()
+  /** A real folder's entries; nothing for anything else, so no link is ever looked through. */
+  const list = (p) => (isDir(p) ? safeList(p) : [])
+  const add = (path, why, still) => {
+    const kept = ev.protects(path)
+    const check = () => (linkOnPath(path) ? 'a link is on its way' : still())
+    out.push({ path, rel: rel(path), area: 'codex', age: age(path), remove: !kept, why: kept ?? why, check })
+  }
+  // Rollouts: whether everything under a folder is a rollout older than the age (an empty folder is, once old itself).
+  const stale = (p) => (isDir(p) ? list(p).every((n) => stale(join(p, n))) && (list(p).length > 0 || age(p) >= maxAge) : !!stat(p)?.isFile() && /^rollout-.*\.jsonl$/.test(basename(p)) && age(p) >= maxAge)
+  const staleStill = (p) => () => (stale(p) ? null : 'it changed since the plan')
+  const sessions = (dir, depth) => {
+    for (const name of list(dir)) {
+      const p = join(dir, name)
+      if (!isDir(p)) {
+        if (stale(p)) add(p, `a rollout ${(age(p) / DAY).toFixed(1)} days old`, staleStill(p))
+      } else if (stale(p)) add(p, `rollouts all older than ${days} days`, staleStill(p))
+      else if (depth < 3) sessions(p, depth + 1)
+    }
+  }
+  sessions(join(home, 'sessions'), 0)
+  for (const pkg of list(join(home, 'packages'))) {
+    const dir = join(home, 'packages', pkg)
+    const used = releasesInUse(dir)
+    if (!used) continue
+    for (const v of list(join(dir, 'releases')))
+      if (!used.has(v.toLowerCase())) {
+        const p = join(dir, 'releases', v)
+        if (isDir(p)) add(p, `a copy of Codex's ${pkg} it no longer runs (it runs ${[...used].join(', ')})`, () => (releasesInUse(dir)?.has(v.toLowerCase()) === false ? null : 'Codex runs it now, or which it runs is no longer clear'))
+      }
+  }
+  for (const c of list(join(home, 'cache')))
+    for (const name of list(join(home, 'cache', c))) {
+      const p = join(home, 'cache', c, name)
+      const unfinished = () => name.startsWith('.tmp') && !!stat(p)?.isFile() && age(p) >= maxAge
+      if (unfinished()) add(p, `an unfinished download ${(age(p) / DAY).toFixed(1)} days old`, () => (unfinished() ? null : 'it changed since the plan'))
+    }
+  return out
+}
+
+/** A release's name as Codex writes it (`0.160.1-x86_64-pc-windows-msvc`): no path, nothing blank. */
+const RELEASE = /^[0-9A-Za-z][0-9A-Za-z._+-]*$/
+
+/**
+ * The releases a Codex package uses (lower-cased names), from its `current` link and its `auto-update-version`, each
+ * naming a real folder in its `releases` (the link pointing right into it); or null when that can't be told: neither
+ * there, either one there but blank, malformed or naming no release there, or `releases` not a real folder.
+ */
+function releasesInUse(dir) {
+  const releases = join(dir, 'releases')
+  const realDir = (p) => {
+    try {
+      return lstatSync(p).isDirectory()
+    } catch {
+      return false
+    }
+  }
+  if (!realDir(releases)) return null
+  const used = new Set()
+  const current = join(dir, 'current')
+  if (lstatSafe(current)) {
+    try {
+      const target = realpathSync.native(current)
+      const name = basename(target)
+      if (realpathSync.native(dirname(target)).toLowerCase() !== realpathSync.native(releases).toLowerCase() || !RELEASE.test(name) || !realDir(join(releases, name))) return null
+      used.add(name.toLowerCase())
+    } catch {
+      return null
+    }
+  }
+  const marker = join(dir, 'auto-update-version')
+  if (lstatSafe(marker)) {
+    let v
+    try {
+      v = readFileSync(marker, 'utf8').trim()
+    } catch {
+      return null
+    }
+    if (!RELEASE.test(v) || !realDir(join(releases, v))) return null
+    used.add(v.toLowerCase())
+  }
+  return used.size ? used : null
+}
+
+function lstatSafe(p) {
+  try {
+    return lstatSync(p)
+  } catch {
+    return null
+  }
 }
 
 /** Which lanes of the plan each item is in (e2e or scenarios lane k), so the clean-up claims them first. */
@@ -162,9 +290,10 @@ function laneOf(root, p) {
 
 /**
  * Removes what plan() says goes, each idle lane under its claim. budgetMs bounds the time (a runner's clean-up at its
- * end): what is left goes next time. Returns { removed: [{ rel, size }], kept, failed: [{ rel, error }], freed, stopped }.
+ * end): what is left goes next time; the Codex test home last, under its lease (acquire: codexHomeLock.mjs's). Returns
+ * { items, removed: [{ rel, size }], failed: [{ rel, error }], freed, stopped }.
  */
-export async function clean({ root = runContext.TEST_ROOT, lanesDir = runContext.LANES_DIR, days = PRUNE_DAYS, dryRun = false, budgetMs = Infinity, ev, now = Date.now(), alive = processAlive, owner = process.pid } = {}) {
+export async function clean({ root = runContext.TEST_ROOT, lanesDir = runContext.LANES_DIR, days = PRUNE_DAYS, dryRun = false, budgetMs = Infinity, ev, now = Date.now(), alive = processAlive, owner = process.pid, acquire = acquireCodexHome } = {}) {
   const start = Date.now()
   const heldNow = new Set()
   for (let k = 0; k < LANES; k++) {
@@ -182,12 +311,31 @@ export async function clean({ root = runContext.TEST_ROOT, lanesDir = runContext
   const result = { items, removed: [], failed: [], freed: 0, stopped: false, blocked: look.ok ? null : look.why }
   if (dryRun || !look.ok) return result
   const releases = new Map()
+  /** Removes one item (its lane, if any, claimed by the caller): unless it is cited since the plan. */
+  const remove = (item) => {
+    // Cited since the plan (the cards are read again after a while)?
+    const kept = ev.protects(item.path)
+    if (kept) {
+      result.failed.push({ rel: item.rel, error: kept })
+      return
+    }
+    try {
+      const size = removeTree(item.path)
+      result.removed.push({ rel: item.rel, size })
+      result.freed += size
+    } catch (e) {
+      result.failed.push({ rel: item.rel, error: e.code ?? e.message })
+    }
+  }
+  const late = () => {
+    if (Date.now() - start <= budgetMs) return false
+    result.stopped = true
+    return true
+  }
+  let lease = null
   try {
-    for (const item of items.filter((i) => i.remove)) {
-      if (Date.now() - start > budgetMs) {
-        result.stopped = true
-        break
-      }
+    for (const item of items.filter((i) => i.remove && i.area !== 'codex')) {
+      if (late()) break
       const k = laneOf(root, item.path)
       if (k !== null && !releases.has(k)) {
         const release = await holdLane(lanesDir, k, { owner, alive })
@@ -197,22 +345,30 @@ export async function clean({ root = runContext.TEST_ROOT, lanesDir = runContext
         result.failed.push({ rel: item.rel, error: 'a runner took the lane meanwhile' })
         continue
       }
-      // Cited since the plan (the cards are read again after a while)?
-      const kept = ev.protects(item.path)
-      if (kept) {
-        result.failed.push({ rel: item.rel, error: kept })
-        continue
-      }
-      try {
-        const size = removeTree(item.path)
-        result.removed.push({ rel: item.rel, size })
-        result.freed += size
-      } catch (e) {
-        result.failed.push({ rel: item.rel, error: e.code ?? e.message })
+      remove(item)
+    }
+    // The Codex test home, under its lease (codexHomeLock.mjs, taken without waiting: while a run holds it, nothing
+    // there goes). What goes is planned again now the lease is held, and each item checked at once before it goes, so
+    // nothing Codex took up or refreshed since the first look is removed.
+    if (!result.stopped && items.some((i) => i.remove && i.area === 'codex')) {
+      const got = await acquire(join(root, 'codex'), { poolRoot: join(root, 'codex-home-locks'), wait: false, owner, alive, root: 'test:clean', what: 'housekeeping' })
+      if (!got.release) {
+        for (const item of items.filter((i) => i.remove && i.area === 'codex')) result.failed.push({ rel: item.rel, error: 'a run is using the Codex test home' })
+      } else {
+        lease = got
+        const fresh = codexPlan({ root, days, now: Math.max(now, Date.now()), ev: ev.snapshot() })
+        result.items = [...items.filter((i) => i.area !== 'codex'), ...fresh]
+        for (const item of fresh.filter((i) => i.remove)) {
+          if (late()) break
+          const changed = item.check()
+          if (changed) result.failed.push({ rel: item.rel, error: changed })
+          else remove(item)
+        }
       }
     }
   } finally {
     for (const release of releases.values()) release?.()
+    lease?.release()
   }
   return result
 }

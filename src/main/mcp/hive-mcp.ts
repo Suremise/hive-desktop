@@ -15,6 +15,7 @@ import { hiveInstructions, withLatestHandover } from '../../shared/hiveGuidance'
 import { AGENT_ONLY_TOOLS, ASSISTANT_ONLY_TOOLS, assistantTools, controlAllows } from '../../shared/assistantTools'
 import { COLUMN_IDS } from '../../shared/tasks'
 import { AGENT_WAIT_MAX_SECONDS, WAIT_MAX_SECONDS } from '../../shared/watch'
+import { LANE_EVENTS } from '../../shared/laneWatch'
 import { CLAIM_WAIT_MAX_SECONDS, CLAIM_WAIT_SECONDS } from '../../shared/mergeSlot'
 import { agentApiCall } from './agentApiCall'
 import { MAX_ROWS, agentWatchText, batchText, changedText, claimText, createdText, mergeSlotText, noteText, notesListText, noteWrittenText, projectListText, releaseText, reorderText, settingChangedText, settingListText, settingText, skillListText, taskListText, taskWaitText, type NoteEntry, type ProjectRow, type SettingDetail, type SettingRow, type SkillRow, type TaskBatch, type TaskChange, type TaskReorder, type TaskRow } from '../../shared/toolReplies'
@@ -210,7 +211,7 @@ const tools: Tool[] = [
   },
   {
     name: 'hive_agent_activity',
-    description: "What one agent is doing: status, background tasks, transcript size (transcriptMB; past transcriptWarnMB it slows down, so suggest a handover to a new conversation), the start of the task it was last given and of its latest reply, its last tool calls this turn, locked files, and how long ago the user typed in its terminal. Texts are clipped: the task to 300 characters, the reply to 500, the last 3 tool calls (100 characters each); detail=true raises that to 2000, 3000 and the last 10 calls (200 each). toolCalls is how many calls this turn had, and clipped gives the whole length of a text that was cut. Hive gives no more of a conversation than that: for the rest, the card's comments or the agent itself.",
+    description: "What one agent is doing: status, background tasks, transcript size (transcriptMB; past transcriptWarnMB it slows down, so suggest a handover to a new conversation), the start of the task it was last given and of its latest reply, its last tool calls this turn, locked files, how long ago the user typed in its terminal, and messages left for it (hive_message_agent): messagesWaiting, and lastMessages (delivered, cancelled, refused or dropped). Texts are clipped: the task to 300 characters, the reply to 500, the last 3 tool calls (100 characters each); detail=true raises that to 2000, 3000 and the last 10 calls (200 each). toolCalls is how many calls this turn had, and clipped gives the whole length of a text that was cut. Hive gives no more of a conversation than that: for the rest, the card's comments or the agent itself.",
     inputSchema: { type: 'object', properties: { project: projectArg, agent: agentArg, detail: { type: 'boolean' } } },
     run: (a) => api('GET', `${agentPath(a)}/activity${a.detail ? '?detail=true' : ''}`)
   },
@@ -309,6 +310,19 @@ const tools: Tool[] = [
     run: (a) => api('POST', `${agentPath(a)}/prompt`, { text: a.text, newConversation: a.newConversation })
   },
   {
+    name: 'hive_message_agent',
+    description:
+      "Leave a running agent a message it can't take as a prompt now: one that is watching (a card loop), working, waiting on background tasks or for the user, or where the user just typed. Typed at once when it is idle or watching (a watching agent is woken by it, and its watch carries on), else queued and typed with its next line: first in a wake that comes first (its watch's, a loop wake), or on its own once it is idle (at most 5 waiting, 4000 characters each; dropped if it stops; refused if your Control is turned down meanwhile). For what it already works on (a re-brief, the user's answer); a new task is still hive_prompt_agent or hive_start_task. hive_agent_activity shows what waits and whether it was delivered. cancel=true cancels the messages waiting.",
+    inputSchema: { type: 'object', properties: { project: projectArg, agent: agentArg, text: { type: 'string' }, cancel: { type: 'boolean' } }, required: ['project', 'agent'] },
+    run: async (a) => {
+      const r = (await api('POST', `${agentPath(a)}/message`, a.cancel === true ? { cancel: true } : { text: a.text })) as { typed?: boolean; queued?: number; status?: string; cancelled?: number }
+      const who = String(a.agent || 'the agent')
+      if (a.cancel === true) return r.cancelled ? `Cancelled ${r.cancelled === 1 ? 'the message' : `${r.cancelled} messages`} waiting for ${who}.` : `No message was waiting for ${who}.`
+      if (r.typed) return `Typed into ${who} now${r.status === 'watching' ? ': its watch carries on' : ''}.`
+      return `Queued for ${who} (${r.status}): typed with its next line, a wake or once it is idle; ${r.queued} waiting. hive_agent_activity says when it is delivered.`
+    }
+  },
+  {
     name: 'hive_hand_over',
     description:
       "Hand one agent's work to another in the same project (Hand Over to…): Hive has `from` (running and idle) write a handover, waits for it, then starts `to` (or tells it, if idle) to read it and carry on. handover=false hands over the latest one instead. `to` the same as `from` carries on in a new conversation, making a long transcript short. Returns at once: follow with hive_wait_for_agents.",
@@ -337,7 +351,7 @@ const tools: Tool[] = [
   {
     name: 'hive_wait_for_tasks',
     description:
-      `Wait for cards to change: a column move, a new comment, a review verdict or a new agent (changes narrows it). column alone: only until one is in that column (at once if it already is; nothing else counts); column with changes including "column": until one moves into it, or another change listed. Either way a card already in that column answers at once; fresh=true (with column) waits only for the next move into it: a card there must leave and come back, or be returned for review. wake=true: Hive types one line into this session when one changes, naming every watched card that changed${ASSISTANT ? " (and when the user sends a watched card's agent or reviewer a prompt from its pane, with its first line)" : ''}, or after limitMinutes with none (default 120); a watch started after a wake also counts what others changed since that wake: end your turn after calling it; nothing runs, and no other work is given to you, meanwhile. Without wake, it waits here up to timeoutSeconds (default 300, at most 840) and replies with each change (column, by whom, the latest comment's first line) or no change, with since: pass it back to the next wait so nothing between them is missed. cancel=true ends your watch. Your project's cards only.`,
+      `Wait for cards to change: a column move, a new comment, a review verdict or a new agent (changes narrows it). column alone: only until one is in that column (at once if it already is; nothing else counts); column with changes including "column": until one moves into it, or another change listed. Either way a card already in that column answers at once; fresh=true (with column) waits only for the next move into it: a card there must leave and come back, or be returned for review. wake=true: Hive types one line into this session when one changes, naming every watched card that changed${ASSISTANT ? " (and when the user sends a watched card's agent or reviewer a prompt from its pane, with its first line)" : ''}, or after limitMinutes with none (default 120); a watch started after a wake also counts what others changed since that wake: end your turn after calling it; nothing runs, and no other work is given to you, meanwhile. Without wake, it waits here up to timeoutSeconds (default 300, at most 840) and replies with each change (column, by whom, the latest comment's first line) or no change, with since: pass it back to the next wait so nothing between them is missed. cancel=true ends your watch. Your project's cards only. lanes (with wake, instead of cards): a lane watch on whole card loops (hive_lane list gives their ids), or ["all"] for every running lane${ASSISTANT ? '' : ' of your project'}, started later too: each lane's cards are followed as it goes on, with no card limit, and it wakes you only for events (default: a failed review, a card blocked or stalled, a lane whose cards have all passed so its merge is due, a lane ended or abandoned; add passed or moved to count those), one line naming each lane and card.`,
     inputSchema: {
       type: 'object',
       properties: {
@@ -349,13 +363,15 @@ const tools: Tool[] = [
         limitMinutes: { type: 'number' },
         timeoutSeconds: { type: 'number' },
         since: { type: 'string' },
-        cancel: { type: 'boolean' }
+        cancel: { type: 'boolean' },
+        lanes: { type: 'array', items: { type: 'string' }, description: 'Lane ids, or ["all"]: a lane watch (with wake) instead of cards.' },
+        events: { type: 'array', items: { type: 'string', enum: [...LANE_EVENTS] }, description: 'What a lane watch counts (default: failed, blocked, stalled, merge-due, ended, abandoned).' }
       }
     },
     run: async (a) =>
       taskWaitText(
         (await api('POST', '/v1/tasks/wait', {
-          ...(a.cancel ? { cancel: true } : { cards: a.cards, changes: a.changes, column: a.column, fresh: a.fresh, wake: a.wake === true, limitMinutes: a.limitMinutes, timeoutSeconds: a.timeoutSeconds, since: a.since })
+          ...(a.cancel ? { cancel: true } : a.lanes !== undefined ? { lanes: a.lanes, events: a.events, wake: a.wake === true, limitMinutes: a.limitMinutes } : { cards: a.cards, changes: a.changes, column: a.column, fresh: a.fresh, wake: a.wake === true, limitMinutes: a.limitMinutes, timeoutSeconds: a.timeoutSeconds, since: a.since })
         }, a.cancel || a.wake === true ? undefined : waitReplyMs(a.timeoutSeconds, 300, WAIT_MAX_SECONDS))) as Parameters<typeof taskWaitText>[0]
       )
   },
@@ -422,21 +438,22 @@ const tools: Tool[] = [
   {
     name: 'hive_read_task',
     description:
-      "One card as JSON: its decisions first (what the user decided: they win over the description), then description, comments, links, agent and reviewer. comments=n gives only its newest n comments (commentsOmitted counts the others); latestComment=true only the newest (comment null if none); history=true adds who changed what and when (historyEntries says how many entries there are).",
+      "One card as JSON: its decisions first (what the user decided: they win over the description), then description, comments, links, agent and reviewer. comments=n gives only its newest n comments (commentsOmitted counts the others); latestComment=true only the newest (comment null if none); summary=true gives each comment as its first line, its summary (length: the whole comment's, when there is more: read it without summary when you need the detail); history=true adds who changed what and when (historyEntries says how many entries there are).",
     inputSchema: {
       type: 'object',
       properties: {
         number: { type: 'number', description: 'The card number (#12 is 12).' },
         comments: { type: 'number', description: 'Only the newest n comments.' },
         latestComment: { type: 'boolean', description: 'Only the newest comment.' },
+        summary: { type: 'boolean', description: 'Each comment as its first line only.' },
         history: { type: 'boolean' }
       },
       required: ['number']
     },
     run: (a) => {
       const n = enc(String(a.number))
-      if (a.latestComment) return api('GET', `/v1/tasks/${n}/comments/latest`)
-      const q = [a.history ? '' : 'history=false', Number(a.comments) > 0 ? `comments=${Math.floor(Number(a.comments))}` : ''].filter(Boolean).join('&')
+      if (a.latestComment) return api('GET', `/v1/tasks/${n}/comments/latest${a.summary ? '?summary=true' : ''}`)
+      const q = [a.history ? '' : 'history=false', Number(a.comments) > 0 ? `comments=${Math.floor(Number(a.comments))}` : '', a.summary ? 'summary=true' : ''].filter(Boolean).join('&')
       return api('GET', `/v1/tasks/${n}${q ? `?${q}` : ''}`)
     }
   },

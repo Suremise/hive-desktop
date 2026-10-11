@@ -126,6 +126,26 @@ export const placeKey = (p: string): string => realPath(p).toLowerCase()
 /** Whether two paths are the same place (`placeKey`). */
 export const samePlace = (a: string, b: string): boolean => placeKey(a) === placeKey(b)
 
+/**
+ * A test for whether a path is the place `folder` is, for matching the cwd a CLI recorded with Hive's spelling of a
+ * folder (#493): the same spelling, or else the same real location (`placeKey`), each other spelling resolved once.
+ */
+export function placeMatcher(folder: string): (p: string) => boolean {
+  const spelt = resolve(folder).toLowerCase()
+  let key: string | undefined
+  const seen = new Map<string, boolean>()
+  return (p) => {
+    const s = resolve(p).toLowerCase()
+    if (s === spelt) return true
+    let same = seen.get(s)
+    if (same === undefined) {
+      same = placeKey(p) === (key ??= placeKey(folder))
+      seen.set(s, same)
+    }
+    return same
+  }
+}
+
 /** Whether `outer` is `inner` or a folder containing it, by real paths (`placeKey`). */
 export function containsPlace(outer: string, inner: string): boolean {
   const x = placeKey(outer).replace(/[\\/]$/, '')
@@ -467,13 +487,17 @@ export async function copyDir(src: string, dest: string): Promise<void> {
   await cp(src, dest, { recursive: true, force: true })
 }
 
+/** Files copyMissing would have copied into a destination without apply, by lower-cased relative path: their size and time. */
+export type PlannedCopies = Map<string, { size: number; mtimeMs: number }>
+
 /**
  * Copies the files of src that dest hasn't got (#146: a moved folder's data), never overwriting: a file already in dest
  * with the same size and time is taken as copied before (copies keep the time), one that differs is kept and listed.
  * Links are left out; what can't be read is listed as failed. Without apply, only counts. Paths in the lists are relative
- * to src ('.' for src itself).
+ * to src ('.' for src itself). Several sources copied into one dest share a `planned`, so without apply a later source
+ * counts what an earlier one would copy as already there.
  */
-export async function copyMissing(src: string, dest: string, apply: boolean): Promise<{ copy: number; kept: string[]; failed: string[] }> {
+export async function copyMissing(src: string, dest: string, apply: boolean, planned?: PlannedCopies): Promise<{ copy: number; kept: string[]; failed: string[] }> {
   const out = { copy: 0, kept: [] as string[], failed: [] as string[] }
   const walk = async (rel: string): Promise<void> => {
     // A folder or file that can't be read is listed as failed, not skipped: Repair says so and tries it again.
@@ -488,16 +512,18 @@ export async function copyMissing(src: string, dest: string, apply: boolean): Pr
       if (!e.isFile()) continue
       const from = join(src, r)
       const to = join(dest, r)
-      const [a, b] = await Promise.all([stat(from).catch(() => null), stat(to).catch(() => null)])
+      const [a, there] = await Promise.all([stat(from).catch(() => null), stat(to).catch(() => null)])
       if (!a) {
         out.failed.push(r)
         continue
       }
+      const b = there ?? (apply ? undefined : planned?.get(r.toLowerCase()))
       if (b) {
         if (b.size !== a.size || Math.abs(b.mtimeMs - a.mtimeMs) >= 2) out.kept.push(r)
         continue
       }
       if (!apply) {
+        planned?.set(r.toLowerCase(), { size: a.size, mtimeMs: a.mtimeMs })
         out.copy++
         continue
       }

@@ -11,6 +11,10 @@ fs.mkdirSync(shots, { recursive: true })
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms))
 const results = []
 const check = (name, ok) => results.push(`${ok ? 'PASS' : 'FAIL'}  ${name}`)
+// The longest a check waits for its condition: a bound for a hung run, never how long the step should take.
+const HUNG_MS = 10000
+/** Whether fn() comes true (checked until it does, up to HUNG_MS). */
+const becomes = async (fn) => !!(await lib.until(fn, HUNG_MS))
 
 /** Adds an agent to a project and starts it (projects start without agents). */
 async function startIn(inv, proj) {
@@ -71,23 +75,21 @@ const forceClose = async (app) => {
     // Its sessions up and idle, so quitting finds them running.
     await untilReady(inv, 2)
     await page.evaluate(() => window.hive.invoke('app:quit')) // same entry point as the tray's Quit Hive
-    await sleep(800)
-    check('dialog: shown in-app', (await page.locator('.dialog', { hasText: 'Quit Hive?' }).count()) === 1)
-    check('dialog: lists both sessions', (await page.locator('.quit-row').count()) === 2)
+    const dialogShown = () => becomes(async () => (await page.locator('.dialog', { hasText: 'Quit Hive?' }).count()) === 1)
+    check('dialog: shown in-app', await dialogShown())
+    check('dialog: lists both sessions', await becomes(async () => (await page.locator('.quit-row').count()) === 2))
     check('dialog: no "quit when finished" when nothing is working', (await page.locator('.dialog button', { hasText: 'Quit when' }).count()) === 0)
     await page.screenshot({ path: path.join(shots, '1-dialog-idle.png') })
     await page.locator('.dialog button', { hasText: 'Cancel' }).click()
-    await sleep(800)
-    check('cancel: dialog closed, sessions still running', (await page.locator('.quit-row').count()) === 0 && (await inv('session:live')).length === 2)
+    check('cancel: dialog closed, sessions still running', await becomes(async () => (await page.locator('.quit-row').count()) === 0 && (await inv('app:quitState')).request === null) && (await inv('session:live')).length === 2)
     // Escape also cancels.
     await page.evaluate(() => window.hive.invoke('app:quit'))
-    await sleep(600)
+    await dialogShown()
     await page.keyboard.press('Escape')
-    await sleep(600)
-    check('escape: cancels', (await inv('session:live')).length === 2 && (await inv('app:quitState')).request === null)
+    check('escape: cancels', await becomes(async () => (await inv('app:quitState')).request === null && (await page.locator('.quit-row').count()) === 0) && (await inv('session:live')).length === 2)
     // Don't ask again + Quit now.
     await page.evaluate(() => window.hive.invoke('app:quit'))
-    await sleep(600)
+    await dialogShown()
     await page.locator('.quit-dontask input').check()
     const q = await lib.quitWatch(app)
     await page.locator('.dialog button', { hasText: 'Quit now' }).click()
@@ -124,7 +126,8 @@ const forceClose = async (app) => {
     // Its session up and idle, so quitting finds it running.
     await untilReady(inv, 1)
     await page.evaluate(() => window.hive.invoke('app:quit'))
-    await sleep(600)
+    // The decision answers the quit request, so it waits for there to be one.
+    await lib.until(async () => (await inv('app:quitState')).request !== null, HUNG_MS)
     const q = await lib.quitWatch(app)
     await inv('app:quitDecision', 'wait', false).catch(() => undefined)
     const quit = await quits(q)

@@ -2,7 +2,7 @@
 // rounds), the hover text, folding a long lane's finished cards, and the header's numbers; an ended lane's segments as it
 // left them, the card being worked, and the panel's order of lanes (#512).
 import { describe, expect, it } from 'vitest'
-import { cardSegment, currentCard, fitSegments, frozenSegment, laneCards, laneSummary, panelOrder, reviewRounds, segmentsThatFit, type CardSegment, type SegmentState } from '../src/shared/laneBar'
+import { cardSegment, chosenLaneRows, currentCard, DEFAULT_LANE_ROWS, draggedLaneRows, fitSegments, frozenSegment, keyedLaneRows, laneCards, laneRowsNow, lanesShown, laneSummary, maxLaneRows, panelOrder, reviewRounds, segmentsThatFit, type CardSegment, type SegmentState } from '../src/shared/laneBar'
 import type { LaneCard, LaneState, TaskCard, TaskColumn } from '../src/shared/types'
 
 const card = (number: number, column: TaskColumn, history: string[] = [], extra: Partial<TaskCard> = {}): TaskCard => ({
@@ -157,5 +157,67 @@ describe("the panel's order of lanes (#512)", () => {
     ]
     expect(panelOrder(list).map((l) => l.id)).toEqual(['new-run', 'old-run', 'paused', 'dropped', 'old-ended'])
     expect(list[0].id).toBe('old-ended')
+  })
+})
+
+describe("the lanes section's height (#569)", () => {
+  it('shows up to four lanes by default, and only as many as there are', () => {
+    expect(DEFAULT_LANE_ROWS).toBe(4)
+    expect([1, 2, 3, 4, 5, 9].map((n) => lanesShown(undefined, n))).toEqual([1, 2, 3, 4, 4, 4])
+    expect(lanesShown(null, 7)).toBe(4)
+  })
+
+  it('a kept choice wins, as whole lanes, at least one, never more than there are', () => {
+    expect(lanesShown(6, 9)).toBe(6)
+    expect(lanesShown(6, 3)).toBe(3)
+    expect(lanesShown(1, 5)).toBe(1)
+    expect(chosenLaneRows(2.6)).toBe(3)
+    expect(chosenLaneRows(0)).toBe(1)
+    expect(chosenLaneRows(-4)).toBe(1)
+    // A damaged value is no choice.
+    expect(chosenLaneRows(Number.NaN)).toBe(4)
+    expect(chosenLaneRows(Infinity)).toBe(4)
+  })
+
+  it('the most it can show: no more lanes than there are, nor than the room holds', () => {
+    // 61 px a lane: 300 px holds four whole ones.
+    expect(maxLaneRows(9, 300, 61)).toBe(4)
+    expect(maxLaneRows(9, 305, 61)).toBe(5)
+    expect(maxLaneRows(9, 304, 61)).toBe(5)
+    expect(maxLaneRows(3, 1000, 61)).toBe(3)
+    // Always one, however short.
+    expect(maxLaneRows(5, 10, 61)).toBe(1)
+    expect(maxLaneRows(5, 0, 0)).toBe(5)
+  })
+
+  it('dragging snaps to whole lanes: up for more, down for fewer, between one and the most', () => {
+    expect(draggedLaneRows(4, 0, 61, 9)).toBe(4)
+    expect(draggedLaneRows(4, -29, 61, 9)).toBe(4)
+    expect(draggedLaneRows(4, -31, 61, 9)).toBe(5)
+    expect(draggedLaneRows(4, -122, 61, 9)).toBe(6)
+    expect(draggedLaneRows(4, 61, 61, 9)).toBe(3)
+    expect(draggedLaneRows(4, 1000, 61, 9)).toBe(1)
+    expect(draggedLaneRows(4, -1000, 61, 7)).toBe(7)
+  })
+
+  it('a panel too short for the choice shows the whole lanes that fit, and keeps the choice', () => {
+    // Seven chosen, room for two (61 px a lane): two show, two is the most, seven is still the choice.
+    expect(laneRowsNow(7, 7, 130, 61)).toEqual({ chosen: 7, shown: 2, max: 2 })
+    // Room again: the choice shows.
+    expect(laneRowsNow(7, 7, 1000, 61)).toEqual({ chosen: 7, shown: 7, max: 7 })
+    // Not measured yet: the choice, up to the lanes there are.
+    expect(laneRowsNow(undefined, 9, null, 61)).toEqual({ chosen: 4, shown: 4, max: 9 })
+    // However short, one lane.
+    expect(laneRowsNow(5, 6, -40, 61)).toEqual({ chosen: 5, shown: 1, max: 1 })
+  })
+
+  it('keys: Up a lane more, Down one fewer, Home one, End the most; others are not its', () => {
+    expect(keyedLaneRows(4, 'ArrowUp', 7)).toBe(5)
+    expect(keyedLaneRows(4, 'ArrowDown', 7)).toBe(3)
+    expect(keyedLaneRows(7, 'ArrowUp', 7)).toBe(7)
+    expect(keyedLaneRows(1, 'ArrowDown', 7)).toBe(1)
+    expect(keyedLaneRows(4, 'Home', 7)).toBe(1)
+    expect(keyedLaneRows(4, 'End', 7)).toBe(7)
+    expect(keyedLaneRows(4, 'Enter', 7)).toBeNull()
   })
 })

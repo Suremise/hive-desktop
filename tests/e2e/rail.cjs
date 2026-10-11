@@ -10,6 +10,10 @@ for (const n of ['hive', 'web-dashboard', 'apiServer', 'notes']) fs.mkdirSync(pa
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms))
 let pass = 0, fail = 0
 const check = (name, ok, extra = '') => { if (ok) pass++; else fail++; console.log(ok ? 'PASS' : 'FAIL', name, extra) }
+// The longest a check waits for its condition: a bound for a hung run, never how long the step should take.
+const HUNG_MS = 10000
+/** Whether fn() comes true (checked until it does, up to HUNG_MS). */
+const becomes = async (fn) => !!(await lib.until(fn, HUNG_MS))
 ;(async () => {
   lib.enableProviders(userData)
   const env = lib.hiveEnv({ HIVE_USER_DATA: userData })
@@ -20,33 +24,38 @@ const check = (name, ok, extra = '') => { if (ok) pass++; else fail++; console.l
   const inv = (ch, ...a) => page.evaluate(([c, x]) => window.hive.invoke(c, ...x), [ch, a])
   await inv('workspace:open', ws); await sleep(800)
   await inv('project:setActive', path.join(ws, 'hive'), true)
-  await inv('project:setActive', path.join(ws, 'web-dashboard'), true); await sleep(800)
-  const sbWidth = () => page.locator('.sidebar').first().evaluate((e) => Math.round(e.getBoundingClientRect().width))
+  await inv('project:setActive', path.join(ws, 'web-dashboard'), true)
+  const sbWidth = () => page.locator('.sidebar').first().evaluate((e) => Math.round(e.getBoundingClientRect().width)).catch(() => -1)
+  // The two active projects are listed first once the workspace has them.
+  await lib.until(async () => (await page.locator('.project-row:not(.inactive)').count()) === 2 && (await page.locator('.project-row').count()) === 4, HUNG_MS)
 
   check('starts full', (await sbWidth()) === 280 && (await page.locator('.rail').count()) === 0)
-  await page.locator('.pane-header .icon-btn[aria-label^="Compact Sidebar"]').first().click(); await sleep(400)
-  check('button compacts', (await sbWidth()) === 48 && (await page.locator('.rail').count()) === 1, `(${await sbWidth()})`)
+  await page.locator('.pane-header .icon-btn[aria-label^="Compact Sidebar"]').first().click()
+  check('button compacts', await becomes(async () => (await sbWidth()) === 48 && (await page.locator('.rail').count()) === 1), `(${await sbWidth()})`)
   const labels = await page.locator('.rail-initials').allTextContents()
   check('initials', JSON.stringify(labels) === JSON.stringify(['Hi', 'WD', 'AS', 'No']), JSON.stringify(labels))
   check('separator between active and other', (await page.locator('.rail-sep').count()) === 1)
-  check('saved', (await inv('ui:get')).sidebarCompact === true)
+  check('saved', await becomes(async () => (await inv('ui:get')).sidebarCompact === true))
 
-  await page.locator('.rail-project').nth(1).click(); await sleep(500)
-  check('click selects project', await page.locator('.rail-project').nth(1).evaluate((e) => e.classList.contains('selected')))
-  await page.locator('.rail-project').nth(0).hover(); await sleep(700)
-  const tip = await page.locator('.tip').first().textContent().catch(() => '')
+  await page.locator('.rail-project').nth(1).click()
+  check('click selects project', await becomes(() => page.locator('.rail-project').nth(1).evaluate((e) => e.classList.contains('selected'))))
+  // A tip shows after its delay (ui.tsx): wait for it, not for the delay.
+  await page.locator('.rail-project').nth(0).hover()
+  const tipText = () => page.locator('.tip').first().textContent({ timeout: 1000 }).catch(() => '').then((t) => t ?? '')
+  const tip = (await lib.until(async () => { const t = await tipText(); return /hive/.test(t) && /No session/.test(t) && t }, HUNG_MS)) || (await tipText())
   check('tooltip shows name and status', /hive/.test(tip) && /No session/.test(tip), JSON.stringify(tip))
   await page.screenshot({ path: path.join(scratch, 'rail-1-tip.png') })
   await page.mouse.move(700, 400)
-  await page.locator('.rail-project').nth(0).click({ button: 'right' }); await sleep(300)
-  check('context menu', await page.getByText('Resume Last Session').first().isVisible())
-  await page.keyboard.press('Escape'); await sleep(200)
+  await page.locator('.rail-project').nth(0).click({ button: 'right' })
+  check('context menu', await becomes(() => page.getByText('Resume Last Session').first().isVisible()))
+  await page.keyboard.press('Escape')
+  await lib.until(async () => (await page.getByText('Resume Last Session').count()) === 0, HUNG_MS)
 
   // Other panels stay full width while compact is on
-  await page.locator('.activity-btn[aria-label="Shared Notes"]').click(); await sleep(400)
-  check('notes full width', (await sbWidth()) === 280)
-  await page.locator('.activity-btn[aria-label="Projects"]').click(); await sleep(400)
-  check('back to rail', (await sbWidth()) === 48)
+  await page.locator('.activity-btn[aria-label="Shared Notes"]').click()
+  check('notes full width', await becomes(async () => (await sbWidth()) === 280))
+  await page.locator('.activity-btn[aria-label="Projects"]').click()
+  check('back to rail', await becomes(async () => (await sbWidth()) === 48))
 
   // Drag out restores; drag in snaps
   const drag = async (dx) => {
@@ -54,18 +63,18 @@ const check = (name, ok, extra = '') => { if (ok) pass++; else fail++; console.l
     const x = b.x + b.width / 2, y = b.y + 300
     await page.mouse.move(x, y); await page.mouse.down()
     await page.mouse.move(x + dx / 2, y, { steps: 4 }); await page.mouse.move(x + dx, y, { steps: 4 })
-    await page.mouse.up(); await sleep(400)
+    await page.mouse.up()
   }
   await drag(250)
-  check('drag out expands', (await sbWidth()) === 298 && (await inv('ui:get')).sidebarCompact === false, `(${await sbWidth()})`)
+  check('drag out expands', await becomes(async () => (await sbWidth()) === 298 && (await inv('ui:get')).sidebarCompact === false), `(${await sbWidth()})`)
   await drag(-230)
-  check('drag in snaps to rail', (await sbWidth()) === 48 && (await inv('ui:get')).sidebarCompact === true, `(${await sbWidth()})`)
+  check('drag in snaps to rail', await becomes(async () => (await sbWidth()) === 48 && (await inv('ui:get')).sidebarCompact === true), `(${await sbWidth()})`)
 
   // Keyboard shortcut
-  await page.keyboard.press('Control+Alt+B'); await sleep(400)
-  check('Ctrl+Alt+B expands to the earlier width', (await sbWidth()) === 298, `(${await sbWidth()})`)
-  await page.keyboard.press('Control+Alt+B'); await sleep(400)
-  check('Ctrl+Alt+B compacts', (await sbWidth()) === 48)
+  await page.keyboard.press('Control+Alt+B')
+  check('Ctrl+Alt+B expands to the earlier width', await becomes(async () => (await sbWidth()) === 298), `(${await sbWidth()})`)
+  await page.keyboard.press('Control+Alt+B')
+  check('Ctrl+Alt+B compacts', await becomes(async () => (await sbWidth()) === 48))
 
   // Persists across reload
   await page.reload(); await lib.appReady(page)
@@ -111,8 +120,8 @@ const check = (name, ok, extra = '') => { if (ok) pass++; else fail++; console.l
   await app.evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows()[0].webContents.setZoomFactor(1))
   await page.evaluate(() => document.querySelectorAll('.rail-project .project-need-count').forEach((b) => b.remove()))
   await page.screenshot({ path: path.join(scratch, 'rail-2.png') })
-  await page.locator('.rail-btn[aria-label="Expand Sidebar"]').click(); await sleep(400)
-  check('expand button', (await sbWidth()) > 200)
+  await page.locator('.rail-btn[aria-label="Expand Sidebar"]').click()
+  check('expand button', await becomes(async () => (await sbWidth()) > 200))
   await page.screenshot({ path: path.join(scratch, 'rail-3-full.png') })
 
   // Light theme look

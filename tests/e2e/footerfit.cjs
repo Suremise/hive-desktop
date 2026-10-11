@@ -27,8 +27,11 @@ const until = async (fn, ms = 10000) => {
   return v
 }
 
-/** In the page: narrows the agent's footer from `from` (null: its pane's width) to `to` px, `step` at a time, and says what it shows at each width. */
-function sweep([agent, from, to, step]) {
+/**
+ * In the page: narrows the agent's footer from `from` (null: its pane's width) to `to` px, `step` at a time, and says what
+ * it shows at each width. `keep` leaves the footer at the last width (for a screenshot) instead of giving it back its own.
+ */
+function sweep([agent, from, to, step, keep]) {
   const r = (x) => x.getBoundingClientRect()
   const el = [...document.querySelectorAll('.agent-pane')].filter((p) => p.querySelector('.pane-header-bar')?.textContent.includes(agent)).map((p) => p.querySelector('.pane-footer-bar')).find((f) => f && f.getBoundingClientRect().width > 0)
   if (!el) return [{ w: -1, fit: -1, overlaps: ['no footer shown for ' + agent + ': ' + [...document.querySelectorAll('.agent-pane')].map((p) => p.querySelector('.pane-header-bar')?.textContent + '=' + Math.round(p.querySelector('.pane-footer-bar')?.getBoundingClientRect().width ?? -1)).join(', ')] }]
@@ -63,23 +66,36 @@ function sweep([agent, from, to, step]) {
       overlaps
     }
   }
-  const wait = () => new Promise((res) => setTimeout(res, 25))
+  // The footer picks its level in a ResizeObserver. Resize observers are called in the order they were made, so one of
+  // ours, made after the footer's, is called once the footer has measured the new width: that is when it has seen it.
+  const measured = (w) =>
+    new Promise((res) => {
+      el.style.width = `${w}px`
+      const ro = new ResizeObserver(() => {
+        ro.disconnect()
+        res()
+      })
+      ro.observe(el)
+    })
+  const frame = () => new Promise((res) => requestAnimationFrame(() => res()))
+  // The longest a width waits for the footer to stop changing, in frames: a bound for a hung render, never the wait itself.
+  const HUNG_FRAMES = 120
   return (async () => {
     const out = []
     for (let w = from; step > 0 ? w <= to : w >= to; w += step) {
-      el.style.width = `${w}px`
-      await wait()
+      await measured(w)
+      // A level change renders again (and is measured again): the footer has settled when a frame changes nothing.
       let s = read()
-      // A level change renders again: wait until it settles.
-      for (let i = 0; i < 5; i++) {
-        await wait()
+      let settled = false
+      for (let i = 0; i < HUNG_FRAMES && !settled; i++) {
+        await frame()
         const again = read()
-        if (JSON.stringify(again) === JSON.stringify(s)) break
+        settled = JSON.stringify(again) === JSON.stringify(s)
         s = again
       }
-      out.push(s)
+      out.push(settled ? s : { ...s, overlaps: [...s.overlaps, 'still changing after ' + HUNG_FRAMES + ' frames'] })
     }
-    el.style.width = ''
+    if (!keep) el.style.width = ''
     return out
   })()
 }
@@ -153,17 +169,20 @@ function problems(states, { hasSize, hasCtx, hasCost }) {
   check("the Codex agent's footer says Approve for me", /Approve for me/.test(await footerOf('Checker').innerText().catch(() => '')), await footerOf('Checker').innerText().catch(() => ''))
   // One agent at a time, so each footer has the pane's whole width to give up, at 125% too.
   await page.locator('.layout-switch button[aria-label="One at a time"]').click()
-  /** Shows the agent (one at a time). */
+  /** Shows the agent (one at a time); each sweep then waits for the footer to have measured each width it sets. */
   const show = async (name, tag) => {
     await page.locator('.agent-tab', { hasText: name }).click()
     const shown = await until(async () => (await footerOf(name).count()) === 1 && ((await footerOf(name).boundingBox())?.width ?? 0) > 0, 5000)
     if (!shown) await page.screenshot({ path: path.join(lib.WORK, `footerfit-show-${tag}.png`) })
-    await lib.sleep(300)
   }
+  // The window's zoom is in its device pixel ratio once it has applied (the ratio at 100% is the screen's own).
+  const ratio = () => page.evaluate(() => window.devicePixelRatio)
+  const atFull = await ratio()
+  const zoomed = (zoom) => until(async () => Math.abs((await ratio()) - atFull * zoom) < 0.01)
 
   for (const zoom of [1, 1.25]) {
     await app.evaluate(({ BrowserWindow }, z) => BrowserWindow.getAllWindows()[0].webContents.setZoomFactor(z), zoom)
-    await lib.sleep(600)
+    await zoomed(zoom)
     const z = `${zoom * 100}%`
     // Claude Code: every step.
     await show('Writer', 'claude')
@@ -190,12 +209,11 @@ function problems(states, { hasSize, hasCtx, hasCost }) {
     check(`${z}: …"Approve for me" in full when there is room, shortened when not`, cx[0].label === 'full' && cx.some((s) => s.label === 'cut' && s.chipIcons), JSON.stringify(cx.find((s) => s.label === 'cut')))
   }
   await app.evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows()[0].webContents.setZoomFactor(1))
-  await lib.sleep(400)
+  await zoomed(1)
 
   // Screenshots of each step, both themes.
   await show('Writer', 'claude')
   const all = await page.evaluate(sweep, ['Writer', null, 120, -3])
-  const widthFor = (pred) => all.find(pred)?.w
   const shots = [
     ['0-full', (s) => s.fit === 0],
     ['1-size', (s) => s.fit === 1],
@@ -203,15 +221,16 @@ function problems(states, { hasSize, hasCtx, hasCost }) {
     ['3-ctx', (s) => s.fit === 3 && s.label === 'full'],
     ['4-label', (s) => s.label === 'cut' && s.cost === 'shown']
   ]
-  const widths = []
-  for (const [, pred] of shots) widths.push(widthFor(pred))
+  const wants = shots.map(([, pred]) => all.find(pred))
   for (const theme of ['dark', 'light']) {
     await inv('settings:update', { appearance: { theme } })
-    await lib.sleep(300)
+    await until(async () => (await page.evaluate(() => document.documentElement.getAttribute('data-theme'))) === theme)
     for (let i = 0; i < shots.length; i++) {
-      if (!widths[i]) continue
-      await cf.evaluate((el, w) => (el.style.width = `${w}px`), widths[i])
-      await lib.sleep(250)
+      const want = wants[i]
+      if (!want) continue
+      // The footer at that width, once it has measured it and settled: the screenshot shows the step the sweep found.
+      const [at] = await page.evaluate(sweep, ['Writer', want.w, want.w, -1, true])
+      check(`screenshot ${shots[i][0]} (${theme}) shows its step`, at.w === want.w && at.fit === want.fit && at.label === want.label && !at.overlaps.length, JSON.stringify(at))
       const box = await cf.boundingBox()
       await page.screenshot({ path: path.join(lib.WORK, `footerfit-${shots[i][0]}-${theme}.png`), clip: { x: box.x, y: box.y - 4, width: Math.max(box.width, 200), height: box.height + 8 } })
     }
