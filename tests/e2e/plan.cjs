@@ -80,8 +80,8 @@ const check = (n, ok, extra = '') => results.push(`${ok ? 'PASS' : 'FAIL'}  ${n}
   check(`${first} saved as chosen`, !!(await lib.until(async () => (await savedModel()) === first, 5000)), await savedModel())
   await picker.locator('select').selectOption('custom')
   check('the custom model box says how to ask for 1M ([1m])', !!(await lib.until(async () => /\[1m\]/.test((await picker.locator('input.input').getAttribute('placeholder', { timeout: 1000 }).catch(() => '')) ?? ''), HUNG_MS)))
-  await picker.locator('input.input').fill('claude-sonnet-9-9'); await picker.locator('input.input').press('Enter'); await sleep(400)
-  check('custom model ID saved', (await inv('settings:get')).providers['claude-code'].defaultModel === 'claude-sonnet-9-9')
+  await picker.locator('input.input').fill('claude-sonnet-9-9'); await picker.locator('input.input').press('Enter')
+  check('custom model ID saved', !!(await lib.until(async () => (await inv('settings:get')).providers['claude-code'].defaultModel === 'claude-sonnet-9-9', HUNG_MS)))
   // Saved before the reset below: a save still on its way would land after it and undo it.
   await picker.locator('select').selectOption(first)
   check(`${first} saved again after the custom ID`, !!(await lib.until(async () => (await savedModel()) === first, HUNG_MS)), await savedModel())

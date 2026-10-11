@@ -243,12 +243,12 @@ const check = (name, ok, extra = '') => {
   check('both are listed in Done by the Assistant', listed.includes(`Put #${o2}, #${o1} at the top of Todo`) && listed.some((t) => t && t.startsWith(`#${o1} `) && t.endsWith('moved it to the top of Todo')), JSON.stringify(listed.slice(-3)))
   const doneTop = await api('PATCH', `/v1/tasks/${cardNo}`, { position: 'top' })
   check("the Assistant can't put Done in order, and the user isn't asked", doneTop.status === 403 && (await page.locator('.assistant-question').count()) === 0, JSON.stringify(doneTop))
-  // A lane the Assistant starts unwatched (#402; its changes count towards the limit below): the reply nudges it to watch the lane's last card; watched, it doesn't.
+  // A lane the Assistant starts unwatched (#402; its changes count towards the limit below): the reply nudges it to watch the lanes; with a lane watch on them all (#531), it doesn't.
   const unwatched = await api('POST', '/v1/lanes', { project: 'alpha', builder: 'Builder', cards: [o1, o2] })
-  check('a lane started with no watch on its last card: the reply says to watch it', unwatched.status === 200 && new RegExp(`No card watch of yours covers #${o2}`).test(unwatched.body?.note ?? ''), JSON.stringify(unwatched.body))
-  const watching = await api('POST', '/v1/tasks/wait', { cards: [o2], changes: ['column'], wake: true })
+  check('a lane started with no watch following it: the reply says to watch the lanes', unwatched.status === 200 && /No watch of yours follows this lane/.test(unwatched.body?.note ?? ''), JSON.stringify(unwatched.body))
+  const watching = await api('POST', '/v1/tasks/wait', { lanes: ['all'], wake: true })
   const rewatched = await api('POST', '/v1/lanes', { project: 'alpha', builder: 'Builder', cards: [o1, o2] })
-  check('…and with one, no nudge', watching.status === 200 && rewatched.status === 200 && !/No card watch/.test(rewatched.body?.note ?? ''), JSON.stringify({ watching: watching.body, rewatched: rewatched.body }))
+  check('…and with one, no nudge', watching.status === 200 && rewatched.status === 200 && !/No watch of yours/.test(rewatched.body?.note ?? ''), JSON.stringify({ watching: watching.body, rewatched: rewatched.body }))
   await api('POST', '/v1/tasks/wait', { cancel: true })
   await api('POST', `/v1/lanes/${encodeURIComponent(rewatched.body?.lane?.id ?? unwatched.body?.lane?.id)}/end`, { abandoned: true })
 

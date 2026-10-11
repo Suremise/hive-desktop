@@ -806,6 +806,33 @@ describe('agent watches (main/watches.ts)', async () => {
     await disposeWorkspaceService(w)
   })
 
+  it('a watch for a card to be in Review, started after a wake that told it there, fires when it leaves and comes back (#521)', async () => {
+    const { w, alpha } = await open()
+    const st = fake(alpha)
+    const user = { kind: 'user' } as const
+    const builder = { kind: 'agent', name: 'Reviewer (alpha)', self: { project: 'alpha', agentId: 'a2' }, scope: 'alpha' } as const
+    const c = (await inWorkspace(w, () => tasks.createTask({ title: 'Asks a question', project: 'alpha', agent: 'a2', column: 'doing' }, user))).number
+    const d = (await inWorkspace(w, () => tasks.createTask({ title: 'Next', project: 'alpha', agent: 'a2', column: 'todo' }, user))).number
+    // a1 reviews a2's cards: woken when c arrives in Review (the wake tells it there).
+    await watches.registerWatch(w, alpha, 'a1', readCondition({ cards: [c], column: 'review' }) as WatchCondition)
+    await inWorkspace(w, () => tasks.updateTask(c, { column: 'review' }, builder))
+    await watches.evaluateWatches(w)
+    await vi.waitFor(() => expect(st.typed).toHaveLength(1))
+    // Before it is reviewed its builder takes it back and blocks it to ask the user; answered, it is unblocked. The
+    // reviewer (told by the user) waits for it to be in Review, as on 10 Oct: column alone, no fresh.
+    await inWorkspace(w, () => tasks.updateTask(c, { column: 'doing', blocked: 'Which icon?' }, builder))
+    await inWorkspace(w, () => tasks.updateTask(c, { blocked: '' }, user))
+    st.status = 'watching'
+    expect('watching' in (await watches.registerWatch(w, alpha, 'a1', readCondition({ cards: [c, d], column: 'review' }) as WatchCondition))).toBe(true)
+    await watches.evaluateWatches(w)
+    expect(st.typed).toHaveLength(1)
+    await inWorkspace(w, () => tasks.updateTask(c, { column: 'review' }, builder, { comment: 'Round 2 ready' }))
+    await watches.evaluateWatches(w)
+    await vi.waitFor(() => expect(st.typed).toHaveLength(2))
+    expect(st.typed[1]).toMatch(new RegExp(`^\\[Hive\\] #${c} \\(Reviewer's card\\) is in Review; latest comment by Reviewer \\(alpha\\): "Round 2 ready"`))
+    await disposeWorkspaceService(w)
+  })
+
   it("a wake's next watch counts what happened in between: an agent that finished and took new work meanwhile fires it at once", async () => {
     const { w, alpha } = await open()
     const st = fake(alpha)

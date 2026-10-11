@@ -1,7 +1,8 @@
 // A card leaving the watch of an agent whose part in it ended (#420), on fake Claude Code agents (fake-claude/): a
 // reviewer waiting for a card to arrive in Review is woken once when the card is given to another agent, and no longer
 // waits; a watch on two cards keeps one that gets blocked (#481: paused, not gone), and wakes when it is unblocked and
-// back in Review; the card's new agent keeps its own watch; the card's history says whose watch ended. Dev build, throwaway profile,
+// back in Review, also when the wake before told it there (#521); the card's new agent keeps its own watch; the card's history
+// says whose watch ended. Dev build, throwaway profile,
 // workspace and CLAUDE_CONFIG_DIR.
 const lib = require('./lib.cjs')
 const { _electron } = require('playwright-core')
@@ -106,6 +107,42 @@ const check = (name, ok, extra = '') => {
   await inv('tasks:update', c2, { column: 'review' })
   check('unblocked and back in Review, it wakes the reviewer', !!(await until(async () => wakes('Reviewer').length === 2, 20000)) && wakes('Reviewer')[1].startsWith(`[Hive] #${c2} (Builder's card) is in Review`), JSON.stringify(wakes('Reviewer').slice(1)))
   check("…and its history ends nobody's watch", !(await card(c2)).history.some((h) => /^Ended .*'s watch on it/.test(h.what)), JSON.stringify((await card(c2)).history))
+
+  // 10 Oct (#521): the wake told the reviewer the card was in Review; before it reviews, the builder takes it back and
+  // blocks it to ask the user, the user answers and it is unblocked, and the reviewer watches again for it to be in Review
+  // (column alone). Back in Review, it wakes the reviewer (it used to start from what the wake told: "in Review" already).
+  await until(() => idle(reviewer.id), 15000)
+  await inv('tasks:update', c2, { column: 'doing', blocked: 'Which icon?' })
+  await inv('tasks:update', c2, { blocked: '' })
+  await say(reviewer.id, watch([c2, c3], { column: 'review' }))
+  check('the reviewer watches the card again, now in Doing', !!(await until(async () => (await live(reviewer.id))?.status === 'watching', 15000)))
+  await inv('tasks:update', c2, { column: 'review' })
+  check('back in Review after a wake that told it there, it wakes the reviewer (#521)', !!(await until(async () => wakes('Reviewer').length === 3, 20000)) && wakes('Reviewer')[2].startsWith(`[Hive] #${c2} (Builder's card) is in Review`), JSON.stringify(wakes('Reviewer').slice(2)))
+
+  // A card in Review that its watching reviewer hasn't started on shows as stalled once it has waited 15 min (#521): in
+  // its lane's row in the Progress panel. The window's clock is moved on 20 min (main's isn't: nothing else changes).
+  await until(() => idle(reviewer.id), 15000)
+  await say(builder.id, `hive hive_lane ${JSON.stringify({ action: 'start', cards: [c3], reviewer: 'Reviewer' })}`)
+  await say(reviewer.id, watch([c3], { changes: ['verdict'] }))
+  await until(async () => (await live(reviewer.id))?.status === 'watching', 15000)
+  await page.locator('.progress-rail').click()
+  const lane = page.locator('.progress-lane').first()
+  check('the lane shows in the Progress panel', !!(await until(async () => (await lane.count()) === 1, 15000)))
+  await page.evaluate(() => {
+    const real = Date.now
+    Date.now = () => real() + 20 * 60_000
+  })
+  await inv('tasks:update', c3, { column: 'review' })
+  const marker = lane.locator('.progress-lane-state.stalled')
+  check("the lane says it is stalled: its card waits in Review on a reviewer that hasn't started", !!(await until(async () => (await marker.count()) === 1, 15000)))
+  await marker.hover()
+  const tip = page.locator('.tip', { hasText: `#${c3}: Reviewer is watching #${c3} but hasn't started reviewing it: in Review for 20 min.` })
+  check('…and its tooltip says why', !!(await until(async () => (await tip.count()) === 1, 5000)), (await page.locator('.tip').allInnerTexts()).join(' | '))
+  await page.screenshot({ path: path.join(lib.WORK, 'watchrelease-stalled-lane.png') })
+  // The lane's own wake (#405: the watch counts only a verdict) is typed into the reviewer meanwhile: taken first.
+  await until(async () => wakes('Reviewer').some((t) => t.startsWith(`[Hive] #${c3} (Builder's card) is in Review. You review this card`)) && (await idle(reviewer.id)), 20000)
+  await say(reviewer.id, `boardreview ${c3} start`)
+  check('…until its review starts', !!(await until(async () => (await marker.count()) === 0, 15000)))
 
   await app.close()
   console.log(failed ? `\n${failed} FAILED` : '\nALL PASSED')
