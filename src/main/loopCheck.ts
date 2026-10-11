@@ -1,5 +1,6 @@
 import { app } from 'electron'
 import { basename } from 'path'
+import { tasksWillWake } from '../shared/providers'
 import type { LiveSessionState, TaskCard } from '../shared/types'
 import { onHiveEvent } from './events'
 import { createLogger, userText } from './logger'
@@ -58,8 +59,12 @@ export function noteLoopWatch(projectPath: string, agentId: string, cards: numbe
   }
 }
 
-/** Idle with no watch: its turn has ended and nothing is set to wake it. */
-const unwatched = (st: LiveSessionState | null): boolean => !!st && (st.status === 'ready' || st.status === 'finished') && !st.watch
+/**
+ * Idle with no watch: its turn has ended and nothing is set to wake it. Background tasks still running will, where its
+ * CLI is woken by them (#521: a builder that ended its turn while its e2e run went on was shown as not watching), so it
+ * isn't flagged until they end; a CLI that isn't woken by them (Codex) is flagged as before.
+ */
+export const unwatched = (st: Pick<LiveSessionState, 'status' | 'watch' | 'backgroundTasks' | 'provider'> | null): boolean => !!st && (st.status === 'ready' || st.status === 'finished') && !st.watch && !tasksWillWake(st)
 
 /** A session's status changed: an agent in a loop that went idle with no watch is checked after the grace. */
 function statusChanged(st: LiveSessionState): void {

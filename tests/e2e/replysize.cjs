@@ -188,6 +188,12 @@ const prose = (seed, n) => {
   check('history=true adds it', JSON.parse(tool('hive_read_task', { number: target, history: true }).text).history.length >= 1)
   const latest = JSON.parse(measure('hive_read_task (latestComment)', tool('hive_read_task', { number: target, latestComment: true }), 1500))
   check('latestComment=true: the newest comment only', latest.number === target && latest.comment?.text === read.comments.at(-1).text && JSON.stringify(Object.keys(latest)) === '["number","comment"]', JSON.stringify(latest).slice(0, 200))
+  // Summaries (#532): each comment as its first line, with the whole comment's length when there is more.
+  const summary = JSON.parse(measure('hive_read_task (latestComment, summary)', tool('hive_read_task', { number: target, latestComment: true, summary: true }), 500))
+  const fullLatest = read.comments.at(-1).text
+  check('summary=true: the latest comment as its first line, with its whole length', summary.comment?.text === fullLatest.split('\n').map((l) => l.trim()).find(Boolean).slice(0, 300) && (summary.comment.text === fullLatest.trim() || summary.comment.length === fullLatest.length), JSON.stringify(summary).slice(0, 300))
+  const allSummary = JSON.parse(tool('hive_read_task', { number: target, summary: true }).text)
+  check('…and every comment of a card read with it', allSummary.comments.length === read.comments.length && allSummary.comments.every((x, i) => x.text.length <= 300 && read.comments[i].text.includes(x.text.replace(/…$/, '').slice(0, 20))), JSON.stringify(allSummary.comments).slice(0, 300))
   const created = measure('hive_create_task', tool('hive_create_task', { title: 'Measured card', description: prose(500, 1800), labels: ['bug'] }), 400)
   check('a new card: its number and place', /^#\d+ created in Todo \(51st of 51\) for alpha: Measured card$/.test(created), created)
   const commented = measure('hive_update_task (comment)', tool('hive_update_task', { number: target, comment: 'Looked at it.' }), 400)
@@ -310,6 +316,10 @@ const prose = (seed, n) => {
   const agentAlready = measure('hive_wait_for_agents (wake, not working)', tool('hive_wait_for_agents', { agents: [{ project: 'alpha', agent: 'Coder' }], wake: true }, 'assistant'), 300)
   check('an agent watch on an agent not working: already, with its state', agentAlready.startsWith('Already: Coder (alpha) is '), agentAlready)
   check('cancel with no watch says so', measure('hive_wait_for_agents (cancel)', tool('hive_wait_for_agents', { cancel: true }, 'assistant'), 100) === 'You had no watch.', texts['hive_wait_for_agents (cancel)'])
+  // A lane watch (#531): begun, saying what it counts; cancelled.
+  const laneWatch = measure('hive_wait_for_tasks (lanes, wake)', tool('hive_wait_for_tasks', { lanes: ['all'], wake: true }, 'assistant'), 300)
+  check('a lane watch begun (default events, not repeated): to end the turn', laneWatch.startsWith('Waiting on all running lanes. End your turn now: Hive types a line into this session on a lane event'), laneWatch)
+  check('…cancelled', measure('hive_wait_for_tasks (lanes, cancel)', tool('hive_wait_for_tasks', { cancel: true }, 'assistant'), 100) === 'Cancelled your lane watch.', texts['hive_wait_for_tasks (lanes, cancel)'])
   check('activating a project confirms it', measure('hive_activate_project', tool('hive_activate_project', { project: 'gamma' }, 'assistant'), 300) === 'gamma is on.')
   measure('hive_create_project', tool('hive_create_project', { name: 'epsilon' }, 'assistant'), 300)
   const added = measure('hive_add_agent', tool('hive_add_agent', { project: 'beta', name: 'Helper' }, 'assistant'), 400)
@@ -320,6 +330,10 @@ const prose = (seed, n) => {
   await until(async () => (await live(path.join(ws, 'beta'), (await inv('workspace:refresh')).projects.find((p) => p.name === 'beta').agents.find((a) => a.name === 'Helper').id))?.status === 'ready')
   measure('hive_prompt_agent', tool('hive_prompt_agent', { project: 'beta', agent: 'Helper', text: 'turn 1' }, 'assistant'), 300)
   await lib.until(async () => (await live(path.join(ws, 'beta'), (await inv('workspace:refresh')).projects.find((p) => p.name === 'beta').agents.find((a) => a.name === 'Helper').id))?.status === 'finished', 15000) // its turn over: stopping a working agent would ask the user
+  const msg = measure('hive_message_agent', tool('hive_message_agent', { project: 'beta', agent: 'Helper', text: 'turn 2' }, 'assistant'), 200)
+  check('a message to an idle agent is typed at once', msg === 'Typed into Helper now.', msg)
+  check('cancel with nothing waiting says so', measure('hive_message_agent (cancel)', tool('hive_message_agent', { project: 'beta', agent: 'Helper', cancel: true }, 'assistant'), 100) === 'No message was waiting for Helper.', texts['hive_message_agent (cancel)'])
+  await lib.until(async () => (await live(path.join(ws, 'beta'), (await inv('workspace:refresh')).projects.find((p) => p.name === 'beta').agents.find((a) => a.name === 'Helper').id))?.status === 'finished', 15000)
   measure('hive_stop_agent', tool('hive_stop_agent', { project: 'beta', agent: 'Helper' }, 'assistant'), 300)
   const startedCard = measure('hive_start_task', tool('hive_start_task', { number: todo[20], name: 'Starter' }, 'assistant'), 600)
   check('a started card: who has it', new RegExp(`^Started #${todo[20]} .+ on a new agent, Starter in \\w+; the card is in Doing\\.`).test(startedCard), startedCard)

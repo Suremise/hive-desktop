@@ -1046,11 +1046,20 @@ export interface TaskWatchInfo {
   column?: TaskColumn
   /** An agent watch's agents, by name (#416: its cards are none). */
   agents?: string[]
+  /** A lane watch's lanes, by id, or ["all"] (#531: its cards are none). */
+  lanes?: string[]
   /** "Waiting for #12 → Review", "Waiting for B6 to finish". */
   label: string
   since: string
   /** When Hive wakes it to say nothing changed (ISO). */
   limitAt: string
+}
+
+/** A message left for a running agent (#530): who from ("the Assistant"), its text, when. */
+export interface QueuedMessage {
+  from: string
+  text: string
+  at: string
 }
 
 export interface LiveSessionState {
@@ -1112,6 +1121,11 @@ export interface LiveSessionState {
    * Shown in its pane until the CLI takes it or the user types there; nothing more is typed into it meanwhile.
    */
   untakenLine?: { since: string; text: string }
+  /**
+   * Messages left for it while it couldn't take a prompt (#530: the Assistant's hive_message_agent), typed as its next
+   * line once it is idle; shown in its pane, where the user can cancel them.
+   */
+  queuedMessages?: QueuedMessage[]
   /**
    * Its last turn stopped because its CLI's sign-in was refused, and it hasn't carried on since (#309): the CLI's
    * message and when. Status `signin` until the CLI is signed in again, then `ready`; Resume (n) carries it on.

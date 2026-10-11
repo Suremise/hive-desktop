@@ -12,6 +12,8 @@ import { hookStep } from '../src/main/hookStatus'
 import type { TaskCard } from '../src/shared/types'
 import { tempDir } from './tempDir'
 
+// The longest a test waits for what it is waiting on: a bound for a hung run, never how long it should take.
+const HUNG_MS = 10000
 const at = (m: number): string => new Date(Date.UTC(2026, 9, 3, 12, m)).toISOString()
 const cardOf = (over: Partial<TaskCard> = {}): TaskCard => ({ number: 7, title: 'T', description: '', project: 'alpha', agent: 'a1', column: 'doing', order: 1, labels: [], blocked: null, blockedBy: [], links: [], comments: [], history: [], archived: false, createdAt: at(0), createdBy: 'You', updatedAt: at(0), ...over })
 
@@ -386,10 +388,12 @@ describe('watches (main/watches.ts)', async () => {
       await watches.registerWatch(w, alpha, 'a1', { cards: [c.number], changes: ['comment'] })
       await inWorkspace(w, () => tasks.commentTask(c.number, 'news', user))
       await watches.evaluateWatches(w)
-      expect(st.typed).toHaveLength(1)
+      // Typed by this evaluation, or by one the comment started meanwhile (which this one then leaves to it).
+      await vi.waitFor(() => expect(st.typed).toHaveLength(1), { timeout: HUNG_MS })
       // Not taken: Enter once more after the wait, and it is taken then.
       await vi.waitFor(() => expect(cli.enters).toBe(1), { timeout: 2000 })
-      await new Promise((r) => setTimeout(r, 400))
+      // Taken then: no Enter after its check has ended.
+      await vi.waitFor(() => expect(watches.confirmsInFlight()).toBe(0), { timeout: HUNG_MS })
       expect(cli.enters).toBe(1)
       // Never taken: Enter once more only, never a third time.
       cli.takeOnEnter = false
@@ -398,7 +402,7 @@ describe('watches (main/watches.ts)', async () => {
       await inWorkspace(w, () => tasks.commentTask(c.number, 'more news', user))
       await watches.evaluateWatches(w)
       await vi.waitFor(() => expect(cli.enters).toBe(2), { timeout: 2000 })
-      await new Promise((r) => setTimeout(r, 500))
+      await vi.waitFor(() => expect(watches.confirmsInFlight()).toBe(0), { timeout: HUNG_MS })
       expect(cli.enters).toBe(2)
       // Still not taken: marked once, with the line (#430); the next wake waits while it is, then goes in.
       expect(marks).toHaveLength(1)
@@ -413,15 +417,15 @@ describe('watches (main/watches.ts)', async () => {
       cli.takeOnType = true
       untaken = false
       await watches.tick()
-      await vi.waitFor(() => expect(st.typed).toHaveLength(3))
+      await vi.waitFor(() => expect(st.typed).toHaveLength(3), { timeout: HUNG_MS })
       // Taken as typed: no Enter again.
       st.status = 'watching'
       await watches.registerWatch(w, alpha, 'a1', { cards: [c.number], changes: ['comment'] })
       await inWorkspace(w, () => tasks.commentTask(c.number, 'last news', user))
       await watches.evaluateWatches(w)
-      expect(st.typed).toHaveLength(4)
+      await vi.waitFor(() => expect(st.typed).toHaveLength(4), { timeout: HUNG_MS })
       expect(marks).toHaveLength(1)
-      await new Promise((r) => setTimeout(r, 500))
+      await vi.waitFor(() => expect(watches.confirmsInFlight()).toBe(0), { timeout: HUNG_MS })
       expect(cli.enters).toBe(2)
     } finally {
       watches.testHooks.takeMs = undefined
@@ -523,8 +527,7 @@ describe('watches (main/watches.ts)', async () => {
     // Read back after the workspace's watches are forgotten (Hive restarted): the same watch.
     watches.forgetWatches(w)
     expect(watches.watchFor(alpha, 'a1')).toBeNull()
-    await new Promise((r) => setTimeout(r, 100))
-    expect(watches.watchFor(alpha, 'a1')?.cards).toEqual([c.number])
+    await vi.waitFor(() => expect(watches.watchFor(alpha, 'a1')?.cards).toEqual([c.number]), { timeout: HUNG_MS })
     await watches.tick(Date.now() + 29 * 60_000)
     expect(st.typed).toEqual([])
     await watches.tick(Date.now() + 31 * 60_000)
@@ -639,17 +642,24 @@ describe('watches (main/watches.ts)', async () => {
       const { w, alpha } = await open()
       const st = fake(alpha)
       const [a, b] = await twoInReview(w)
-      watches.testHooks.settleMs = 400
+      const SETTLE_MS = 400
+      watches.testHooks.settleMs = SETTLE_MS
+      // The clock stands still while both changes land, so the second is inside the first's settle however long a loaded
+      // machine takes to make it; then it moves past the settle, and the line goes.
+      const frozenAt = Date.now()
+      vi.useFakeTimers({ toFake: ['Date'], now: frozenAt })
       try {
         await watches.registerWatch(w, alpha, 'a1', { cards: [a, b], ...verdictOrDone })
         await verdict(w, a, 'passed')
         await watches.evaluateWatches(w)
-        await new Promise((r) => setTimeout(r, 100))
         await verdict(w, b, 'failed')
         await watches.evaluateWatches(w)
         expect(st.typed).toEqual([])
-        await vi.waitFor(() => expect(st.typed).toHaveLength(1), { timeout: 3000 })
+        vi.setSystemTime(frozenAt + SETTLE_MS + 100)
+        await watches.evaluateWatches(w)
+        await vi.waitFor(() => expect(st.typed).toHaveLength(1), { timeout: HUNG_MS })
       } finally {
+        vi.useRealTimers()
         watches.testHooks.settleMs = 0
       }
       expect(st.typed[0]).toMatch(new RegExp(`^\\[Hive\\] #${a} is in Review: Reviewer \\(alpha\\) passed it \\(latest comment by Reviewer \\(alpha\\): "Round 1: PASSED"\\); #${b} is in Review: Reviewer \\(alpha\\) failed it \\(latest comment by Reviewer \\(alpha\\): "Round 1: FAILED"\\)\\. Your card watch has ended`))
@@ -989,6 +999,8 @@ describe('watches (main/watches.ts)', async () => {
     const stranger = { ...saved.watches[0], id: 'stranger', agentId: 'a4', projectId: 'p-000000000000', projectPath: join(path, '..', 'not-here', 'alpha') }
     writeFileSync(file, JSON.stringify({ version: 1, watches: [bad, elsewhere, stranger, ...saved.watches] }))
     watches.forgetWatches(w)
+    // Read back from the file (in the background) before the change it waits for.
+    await vi.waitFor(() => expect(watches.watchFor(alpha, 'a1')).not.toBeNull(), { timeout: HUNG_MS })
     await inWorkspace(w, () => tasks.commentTask(c.number, 'Ready', user))
     await expect(watches.evaluateWatches(w)).resolves.toBeUndefined()
     expect(st.typed).toHaveLength(1)
@@ -1626,7 +1638,7 @@ describe("the lanes-running tail of the Assistant's wake", () => {
     const line = '[Hive] #1 is in Doing. Your card watch has ended: carry on.'
     expect(withLanesTail(line)).toBe(line + LANES_RUNNING_TAIL)
     expect(withLanesTail(withLanesTail(line))).toBe(line + LANES_RUNNING_TAIL)
-    expect(LANES_RUNNING_TAIL).toMatch(/each lane by its last card \(run-lanes\)/)
+    expect(LANES_RUNNING_TAIL).toMatch(/one lane watch \(hive_wait_for_tasks with lanes \["all"\], wake; run-lanes\)/)
   })
   it('a long line is cut to make room: the tail is always whole, and the line fits', () => {
     const out = withLanesTail('[Hive] ' + 'x'.repeat(2000))

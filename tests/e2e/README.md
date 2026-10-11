@@ -178,6 +178,19 @@ process id, under the same claims lock as lanes); a crashed or killed run's slot
 `npm run e2e:concurrency -- --heavy` checks it: three heavy runs from three worktrees with two slots (in a pool of their
 own, `HIVE_TEST_HEAVY_DIR`), one waiting visibly, `--no-wait`, and a killed run's slot.
 
+**How many heavy runs at once** (#544). The default is two (`DEFAULT_SLOTS` in `slots.mjs`). A machine with more
+cores and memory, or with nothing else running, may take more; a slower one fewer. To change it, set
+`HIVE_TEST_HEAVY_SLOTS` to a whole number, 1 or more (anything else means 2). Set it as a Windows user environment
+variable, so that every run on the machine gets the same number: each run counts the slots with its own value, so a run
+started with a higher number than the others can take a slot they are waiting for. A variable set in Windows reaches
+only programs started afterwards: restart Hive (and open terminals) after changing it. Agents' sessions get it once
+#567 is merged; until then Hive leaves the `HIVE_*` variables out of a session's environment, so a run an agent starts
+uses two whatever is set, and only a terminal outside Hive gets the setting. Before raising it, measure on that
+machine: start several full sets at once with the higher number and check that they still pass and how long each takes,
+with nothing else testing meanwhile (#544 has a script that does this). A pool of its own
+(`HIVE_TEST_HEAVY_DIR`) with a count of its own is for checking the queue itself (`npm run e2e:concurrency -- --heavy`),
+never for getting round it.
+
 **Unit tests under load.** `npm test` uses half the cores (`maxWorkers: '50%'` in `vitest.config.ts`) and allows 20 s
 a test and 30 s a hook, so a full run beside an e2e set doesn't hit Vitest's 5 s default. A test that needs longer says
 so itself (`it(…, 60_000)`), and a test that waits for something waits for it (polling), not for a fixed time.
@@ -342,7 +355,20 @@ kept and why, without removing anything; `--days N` sets the age, default 3).
   anything left from before suites had folders of their own; in scenario lanes, numbered copies (`<scenario>-2`…) and
   folders older than the age; in `e2e`, anything but `lanes` and `logs` older than the age (suites run on their own,
   probes); and anything else in `hive-test` older than the age (one-off folders and files).
-- **Stays:** the CLI test homes (`codex`, `claude`: their sign-ins; never opened), scenario results and baselines, the
+- **In the Codex test home** (`codex`, #404), which otherwise only grows (1.8 GB by 8 Oct 2026): its rollouts older
+  than the age (`sessions\YYYY\MM\DD`; a folder whose rollouts are all that old goes whole), package copies Codex no
+  longer runs (`packages\<name>\releases\<version>` that is neither its `current` link's target nor the version
+  `auto-update-version` names: 430 MB each; when the link or marker is blank, malformed or names no release there,
+  every release of that package stays) and downloads it left unfinished in `cache` (`.tmp*`) older than the age.
+  Only under the home's lease (`codexHomeLock.mjs`, the one real Codex suites and scenarios hold), taken without
+  waiting: while a run holds it, nothing there goes ("a run is using the Codex test home"), and it goes next time.
+  Once it holds the lease, the clean-up plans the home again and checks each item just before it goes, so a release
+  Codex took up or a rollout it refreshed since the first look stays. Nothing is looked in or deleted through a link
+  (a junction or symlink anywhere on the path, the home's own included).
+  Never its sign-in (`auth.json`), config, sandbox setup (`.sandbox`, `.sandbox-bin`, `cap_sid`), databases (Codex
+  prunes its own logs), plugins, skills or history. What stays is about 0.8 GB, most of it the copy of Codex it runs
+  (430 MB) and the sandbox's (320 MB). The Claude Code test home is small (about 80 MB) and isn't opened.
+- **Stays:** the CLI test homes' sign-ins, config and sandbox setup (`codex`, but for the above; `claude`, never opened), scenario results and baselines, the
   claims and locks, the concurrency checker's folders (it removes its own), the Progress panel's timings; logs (the
   runner keeps the newest ten runs); a lane a runner holds.
 - **Evidence stays, whoever deletes** (`evidence.cjs`): anything a card that isn't Done cites is kept by the clean-up,

@@ -16,6 +16,10 @@ const check = (name, ok, extra = '') => {
   console.log(`${ok ? 'PASS' : 'FAIL'} ${name}${ok || !extra ? '' : ` (${extra})`}`)
 }
 const shot = (page, name) => page.screenshot({ path: path.join(lib.WORK, `numbers-${name}.png`) })
+// The longest a check waits for its condition: a bound for a hung run, never how long the step should take.
+const HUNG_MS = 10000
+/** Whether fn() comes true (it's checked until it does, up to HUNG_MS). */
+const becomes = async (fn) => !!(await lib.until(fn, HUNG_MS))
 
 ;(async () => {
   for (const d of [userData, ws]) fs.rmSync(d, { recursive: true, force: true })
@@ -48,49 +52,50 @@ const shot = (page, name) => page.screenshot({ path: path.join(lib.WORK, `number
     await box.press('Delete')
     if (text) await page.keyboard.type(text)
     await box.press('Enter')
-    await lib.sleep(500)
   }
+  const errorText = () => error.innerText({ timeout: 1000 }).catch(() => '')
   check('the 0 sentence is gone from the description', !(await row.innerText()).includes('0 never'))
 
+  // A box that saves nothing shows the saved value again: that's what each refused entry waits for, then the setting is read.
   await enter('')
+  check('cleared box: shows the saved value', await becomes(async () => (await box.inputValue()) === '200000'), await box.inputValue())
   check('cleared box: setting kept', (await sessions()).compactSuggestTokens === 200000)
-  check('cleared box: shows the saved value', (await box.inputValue()) === '200000', await box.inputValue())
   check('cleared box: no message', (await error.count()) === 0)
 
   await enter('500')
-  check('out of range: message under the box', (await error.innerText().catch(() => '')) === 'Between 1,000 and 2,000,000.')
+  check('out of range: message under the box', await becomes(async () => (await errorText()) === 'Between 1,000 and 2,000,000.'))
+  check('out of range: box shows the saved value', await becomes(async () => (await box.inputValue()) === '200000'))
   check('out of range: setting kept', (await sessions()).compactSuggestTokens === 200000)
-  check('out of range: box shows the saved value', (await box.inputValue()) === '200000')
   await shot(page, '1-range')
 
   await enter('1e')
-  check('not a number: message', (await error.innerText().catch(() => '')).startsWith('Enter a number.'))
+  check('not a number: message', await becomes(async () => (await errorText()).startsWith('Enter a number.')))
   check('not a number: setting kept', (await sessions()).compactSuggestTokens === 200000)
 
   await enter('150000')
-  check('a value in range saves', (await sessions()).compactSuggestTokens === 150000)
-  check('…and clears the message', (await error.count()) === 0)
+  check('a value in range saves', await becomes(async () => (await sessions()).compactSuggestTokens === 150000))
+  check('…and clears the message', await becomes(async () => (await error.count()) === 0))
 
   await never.check()
   check('Never saves 0', !!(await lib.until(async () => (await sessions()).compactSuggestTokens === 0, 10000)))
   check('…and disables the box', !!(await lib.until(() => box.isDisabled(), 10000)))
   await shot(page, '2-never')
   await never.uncheck()
-  await lib.sleep(500)
-  check('unticking Never brings back the last value', (await sessions()).compactSuggestTokens === 150000)
+  check('unticking Never brings back the last value', await becomes(async () => (await sessions()).compactSuggestTokens === 150000))
 
   await enter('0')
-  check('typing 0 is Never', (await sessions()).compactSuggestTokens === 0 && (await never.isChecked()))
+  check('typing 0 is Never', await becomes(async () => (await sessions()).compactSuggestTokens === 0 && (await never.isChecked())))
   await never.uncheck()
-  await lib.sleep(500)
+  await lib.until(async () => (await sessions()).compactSuggestTokens === 150000, HUNG_MS)
 
   // A failed save leaves the setting, and the box, as they were.
   await app.evaluate(() => {
     process.env.HIVE_TEST_FAIL_IPC = 'settings:update*1'
   })
   await enter('120000')
+  // The box shows 120000 until the save has failed, then the saved value again.
+  check('failed save: box shows the saved value', await becomes(async () => (await box.inputValue()) === '150000'), await box.inputValue())
   check('failed save: setting kept', (await sessions()).compactSuggestTokens === 150000)
-  check('failed save: box shows the saved value', (await box.inputValue()) === '150000', await box.inputValue())
   await app.evaluate(() => {
     delete process.env.HIVE_TEST_FAIL_IPC
   })
@@ -111,23 +116,20 @@ const shot = (page, name) => page.screenshot({ path: path.join(lib.WORK, `number
     delete process.env.HIVE_TEST_SLOW_IPC
   })
   await never.uncheck()
-  await lib.sleep(500)
-  check('…unticking brings back the number', (await sessions()).compactSuggestTokens === 120000, String((await sessions()).compactSuggestTokens))
+  check('…unticking brings back the number', await becomes(async () => (await sessions()).compactSuggestTokens === 120000), String((await sessions()).compactSuggestTokens))
   await enter('150000')
+  await lib.until(async () => (await sessions()).compactSuggestTokens === 150000, HUNG_MS)
 
   // The other settings that 0 turns off have their checkbox too.
   await page.locator('.settings-nav .row', { hasText: 'Board' }).first().click()
-  await lib.sleep(400)
   const archive = page.locator('.setting', { hasText: 'Archive Done cards after' })
+  await lib.until(async () => (await archive.count()) === 1, HUNG_MS)
   await archive.locator('label', { hasText: 'Never' }).locator('input').check()
-  await lib.sleep(400)
-  check('Archive Done cards: Never saves 0', (await inv('settings:get')).board.archiveDoneDays === 0)
+  check('Archive Done cards: Never saves 0', await becomes(async () => (await inv('settings:get')).board.archiveDoneDays === 0))
   await archive.locator('label', { hasText: 'Never' }).locator('input').uncheck()
-  await lib.sleep(400)
-  check('…unticking brings back 14', (await inv('settings:get')).board.archiveDoneDays === 14)
+  check('…unticking brings back 14', await becomes(async () => (await inv('settings:get')).board.archiveDoneDays === 14))
   await page.locator('.settings-nav .row', { hasText: 'Assistant' }).first().click()
-  await lib.sleep(400)
-  check('Pause after you type has No pause', (await page.locator('.setting', { hasText: 'Pause after you type' }).locator('label', { hasText: 'No pause' }).count()) === 1)
+  check('Pause after you type has No pause', await becomes(async () => (await page.locator('.setting', { hasText: 'Pause after you type' }).locator('label', { hasText: 'No pause' }).count()) === 1))
 
   // Project Settings: empty inherits, the same messages, and Never for the project.
   await page.getByText('demo', { exact: true }).first().click()
@@ -145,29 +147,26 @@ const shot = (page, name) => page.screenshot({ path: path.join(lib.WORK, `number
     await pbox.press('Delete')
     if (text) await page.keyboard.type(text)
     await pbox.press('Enter')
-    await lib.sleep(700)
   }
-  check('project: inherits by default', (await projectCfg()).compactSuggestTokens === null)
+  const projectValue = async () => (await projectCfg()).compactSuggestTokens
+  check('project: inherits by default', (await projectValue()) === null)
   check('project: placeholder shows the global value', (await pbox.getAttribute('placeholder')) === 'Inherit (150,000)', await pbox.getAttribute('placeholder'))
   await penter('5000')
-  check('project: a value saves', (await projectCfg()).compactSuggestTokens === 5000)
+  check('project: a value saves', await becomes(async () => (await projectValue()) === 5000))
   await penter('10')
-  check('project: out of range shows a message', (await prow.locator('.field-error').innerText().catch(() => '')) === 'Between 1,000 and 2,000,000.')
-  check('project: out of range keeps the value', (await projectCfg()).compactSuggestTokens === 5000)
+  check('project: out of range shows a message', await becomes(async () => (await prow.locator('.field-error').innerText({ timeout: 1000 }).catch(() => '')) === 'Between 1,000 and 2,000,000.'))
+  check('project: out of range keeps the value', (await projectValue()) === 5000)
   await pnever.check()
-  await lib.sleep(700)
-  check('project: Never saves 0', (await projectCfg()).compactSuggestTokens === 0)
+  check('project: Never saves 0', await becomes(async () => (await projectValue()) === 0))
   await shot(page, '3-project')
   await pnever.uncheck()
-  await lib.sleep(700)
-  check('project: unticking brings back its value', (await projectCfg()).compactSuggestTokens === 5000)
+  check('project: unticking brings back its value', await becomes(async () => (await projectValue()) === 5000))
   await penter('')
-  check('project: a cleared box inherits', (await projectCfg()).compactSuggestTokens === null)
+  check('project: a cleared box inherits', await becomes(async () => (await projectValue()) === null))
   await pnever.check()
-  await lib.sleep(700)
+  await lib.until(async () => (await projectValue()) === 0, HUNG_MS)
   await pnever.uncheck()
-  await lib.sleep(700)
-  check('project: unticking Never after inheriting brings back its last value', (await projectCfg()).compactSuggestTokens === 5000)
+  check('project: unticking Never after inheriting brings back its last value', await becomes(async () => (await projectValue()) === 5000))
 
   // The same for the project, whose saves could finish in either order.
   await app.evaluate(() => {

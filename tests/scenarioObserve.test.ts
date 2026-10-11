@@ -544,6 +544,30 @@ describe('a trial the environment stops (trialEnvironment)', () => {
   })
 })
 
+// Before reading Hive's metrics, the harness waits until they count every hive call the bridges logged (#527): the whole
+// run on both sides, so a setup call reported before the scenario's baseline counts as reported, not missing.
+describe("every logged hive call reported (allCallsReported)", () => {
+  const { allCallsReported } = require('./scenarios/harness.cjs') as { allCallsReported: (logged: { tool: string; direct?: boolean }[], metrics: unknown) => boolean }
+  const mcp = (count: number) => [{ tool: 'hive_list_tasks', mode: 'compact', outcome: 'ok', count, chars: 10, bytes: 10, totalMs: 1 }]
+  const metrics = (project: number, workspace = 0) => ({ projects: { alpha: { mcp: mcp(project) } }, workspace: { mcp: mcp(workspace) } })
+  const call = (name: string, direct?: boolean) => ({ tool: name, ...(direct ? { direct } : {}) })
+
+  it("counts a setup call reported before the scenario's baseline (the whole run on both sides)", () => {
+    // Setup: one call, reported before the baseline; the scenario: one more (the Assistant's, in the workspace).
+    expect(allCallsReported([call('hive_list_tasks'), call('hive_prompt_agent')], metrics(1, 1))).toBe(true)
+  })
+
+  it('waits while a call has not been reported yet, or the metrics could not be read', () => {
+    expect(allCallsReported([call('hive_list_tasks'), call('hive_prompt_agent')], metrics(1))).toBe(false)
+    expect(allCallsReported([call('hive_list_tasks')], null)).toBe(false)
+  })
+
+  it("leaves out a fake's direct board change, which no bridge reports", () => {
+    expect(allCallsReported([call('hive_update_task', true)], metrics(0))).toBe(true)
+    expect(allCallsReported([call('hive_update_task', true), call('hive_read_task')], metrics(0))).toBe(false)
+  })
+})
+
 // A coordinator's watch is scored as it ended its turn (#402): a new watch replaces the last, so a combined one followed
 // by a narrower one leaves only the narrower, and earlier calls prove nothing.
 describe("the Assistant's live watch (coordinator scenarios)", () => {

@@ -1,6 +1,6 @@
 import { spawn, type ChildProcess } from 'child_process'
 import { createRequire } from 'module'
-import { mkdirSync, rmSync } from 'fs'
+import { existsSync, mkdirSync, readFileSync, rmSync } from 'fs'
 import { join } from 'path'
 import { afterAll, describe, expect, it, vi } from 'vitest'
 import { tempDir } from './tempDir'
@@ -8,7 +8,9 @@ import { tempDir } from './tempDir'
 type Proc = { pid: number; parent?: number; commandLine: string; started: number }
 type Tree = { pid: number; started: number }[]
 const req = createRequire(import.meta.url)
-const { namesFolder, ownedBy, descendantsIn, stillRunning, stopProcessesIn } = req('./e2e/folderProcesses.cjs') as {
+const { namesFolder, ownedBy, descendantsIn, stillRunning, processes, endExactly, stopProcessesIn } = req('./e2e/folderProcesses.cjs') as {
+  processes: () => Proc[]
+  endExactly: (targets: Tree) => number
   namesFolder: (cmd: string, folder: string) => boolean
   ownedBy: (list: Proc[], folder: string, since?: number, self?: number) => number[]
   descendantsIn: (list: Proc[], root: number) => Tree
@@ -80,4 +82,47 @@ describe("a scenario's leftover processes (#542, #402)", () => {
       for (const c of Object.values(kids)) if (!exited(c)) c.kill()
     }
   }, 30000)
+
+  it.runIf(process.platform === 'win32')('never ends a pid that is now another process: only the one it was when listed (#547)', async () => {
+    const kid = spawn(process.execPath, ['-e', 'setInterval(() => {}, 1000)'], { env: baseEnv(), stdio: 'ignore' })
+    const exited = () => kid.exitCode !== null || kid.signalCode !== null
+    try {
+      const listed = processes().find((p) => p.pid === kid.pid)!
+      expect(listed).toBeTruthy()
+      // As if the listed process had ended and Windows had given its pid to this one, started later: left alone.
+      expect(endExactly([{ pid: kid.pid!, started: listed.started - 5000 }])).toBe(0)
+      expect(exited()).toBe(false)
+      // The process it was when listed: ended.
+      expect(endExactly([{ pid: kid.pid!, started: listed.started }])).toBe(1)
+      await vi.waitFor(() => expect(exited()).toBe(true), { timeout: 15000, interval: 100 })
+      // Already gone: nothing to end, and no error.
+      expect(endExactly([{ pid: kid.pid!, started: listed.started }])).toBe(0)
+    } finally {
+      if (!exited()) kid.kill()
+    }
+  }, 30000)
+
+  it.runIf(process.platform === 'win32')('a process of its own and the child it started: each ended once, by what it was when listed', async () => {
+    const own = join(tmp, 'tree')
+    mkdirSync(own, { recursive: true })
+    const childPid = join(own, 'child.pid')
+    const since = Date.now() - 1000
+    // A parent naming the folder, whose child doesn't (as a shell and the command it runs).
+    const script = `require('fs').writeFileSync(process.argv[1], String(require('child_process').spawn(process.execPath, ['-e', 'setInterval(() => {}, 1000)'], { stdio: 'ignore' }).pid)); setInterval(() => {}, 1000)`
+    const parent = spawn(process.execPath, ['-e', script, childPid], { env: baseEnv(), stdio: 'ignore' })
+    // Still that process (pid and start): a pid given to another process since counts as gone.
+    const alive = (t: { pid: number; started: number }) => processes().some((p) => p.pid === t.pid && p.started === t.started)
+    try {
+      await vi.waitFor(() => expect(existsSync(childPid) && Number(readFileSync(childPid, 'utf8')) > 0).toBe(true), { timeout: 15000, interval: 100 })
+      const childPidNow = Number(readFileSync(childPid, 'utf8'))
+      const child = processes().find((p) => p.pid === childPidNow)!
+      expect(child).toBeTruthy()
+      expect(stopProcessesIn(own, since)).toBe(2)
+      await vi.waitFor(() => expect(parent.exitCode !== null || parent.signalCode !== null).toBe(true), { timeout: 15000, interval: 100 })
+      expect(alive(child)).toBe(false)
+      expect(stopProcessesIn(own, since)).toBe(0)
+    } finally {
+      if (parent.exitCode === null && parent.signalCode === null) parent.kill()
+    }
+  }, 60000)
 })

@@ -8,6 +8,9 @@ import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest'
 import * as electron from 'electron'
 import { tempDir } from './tempDir'
 
+// The longest a test waits for what it is waiting on: a bound for a hung run, never how long it should take.
+const HUNG_MS = 10000
+
 const base = tempDir('hive-titleorder-')
 ;(electron.app as unknown as { getPath: () => string }).getPath = () => join(base, 'profile')
 
@@ -68,7 +71,7 @@ describe('the title in order with the hooks', () => {
     s.watchTitle(a.id, title('[ . ] Action Required | alpha'))
     release()
     await Promise.all(hooks)
-    await vi.waitFor(() => expect(a.state.status).toBe('waiting'))
+    await vi.waitFor(() => expect(a.state.status).toBe('waiting'), { timeout: HUNG_MS })
     expect(a.state.statusMessage).toBe('Codex asks to run curl.exe https://example.com')
     expect(told.mock.calls.filter((c) => c[3] === 'waiting')).toHaveLength(1)
   })
@@ -79,14 +82,14 @@ describe('the title in order with the hooks', () => {
     await a.hook('UserPromptSubmit', { prompt: 'approve' })
     await a.hook('PermissionRequest', CURL)
     s.watchTitle(a.id, title('[ ! ] Action Required | alpha'))
-    await vi.waitFor(() => expect(a.state.status).toBe('waiting'))
+    await vi.waitFor(() => expect(a.state.status).toBe('waiting'), { timeout: HUNG_MS })
     let release!: () => void
     s.hookQueues.set(a.runId, new Promise<void>((r) => (release = r)))
     s.watchTitle(a.id, title('alpha'))
     // Not before the hooks ahead of it.
     expect(a.state.status).toBe('waiting')
     release()
-    await vi.waitFor(() => expect(a.state.status).toBe('working'))
+    await vi.waitFor(() => expect(a.state.status).toBe('working'), { timeout: HUNG_MS })
     expect(told.mock.calls.filter((c) => c[3] === 'waiting')).toHaveLength(1)
   })
 })

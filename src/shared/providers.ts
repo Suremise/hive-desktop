@@ -204,6 +204,14 @@ export function providerDescriptor(id: ProviderId | null | undefined): ProviderD
   return PROVIDERS.find((p) => p.id === (id || DEFAULT_PROVIDER)) ?? { ...UNKNOWN, id: id ?? 'unknown', name: id ?? 'Unknown provider' }
 }
 
+/**
+ * Whether an agent's background tasks will wake it when they end (#521): it has some, and its CLI starts a turn for
+ * them (`backgroundWakes`). A CLI that doesn't (Codex) leaves the agent idle, so they don't count as something waking it.
+ */
+export function tasksWillWake(st: { provider?: ProviderId | null; backgroundTasks?: number }): boolean {
+  return !!st.backgroundTasks && providerDescriptor(st.provider).capabilities.backgroundWakes
+}
+
 export function isKnownProvider(id: unknown): id is ProviderId {
   return typeof id === 'string' && PROVIDERS.some((p) => p.id === id)
 }

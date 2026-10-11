@@ -9,6 +9,9 @@ import { afterAll, beforeAll, beforeEach, describe, expect, it, vi } from 'vites
 import * as electron from 'electron'
 import { tempDir } from './tempDir'
 
+// The longest a test waits for what it is waiting on: a bound for a hung run, never how long it should take.
+const HUNG_MS = 10000
+
 // What Hive types into agents' terminals, recorded instead (no process runs); onWrite acts as each piece goes in.
 const pty = vi.hoisted(() => ({ typed: [] as { key: string; data: string }[], onWrite: (_data: string): void => undefined }))
 vi.mock('../src/main/ptyHost', async (original) => ({
@@ -107,7 +110,7 @@ describe('Allow on an "Ask me" lock', () => {
     expect(await a.edit()).not.toBeNull()
     a.editor.status = 'finished'
     await a.allow()
-    await vi.waitFor(() => expect(a.goAhead()).toBe(true))
+    await vi.waitFor(() => expect(a.goAhead()).toBe(true), { timeout: HUNG_MS })
   })
 
   it('clicked while the blocked agent is still in its turn: nothing is typed then; at its end, the go-ahead, and the edit is allowed', async () => {
@@ -118,7 +121,7 @@ describe('Allow on an "Ask me" lock', () => {
     expect(a.typed()).toEqual([])
     await a.hook('Stop')
     expect(a.editor.status).toBe('finished')
-    await vi.waitFor(() => expect(a.goAhead()).toBe(true))
+    await vi.waitFor(() => expect(a.goAhead()).toBe(true), { timeout: HUNG_MS })
     // The next turn's retry goes through: the turn's end released the allowance the click gave, and it was given again.
     a.editor.status = 'working'
     expect(await a.edit()).toBeNull()
@@ -160,7 +163,7 @@ describe('Allow on an "Ask me" lock', () => {
     // The retry also edits the second file, which other holds and nobody allowed: the whole edit is refused.
     expect(await a.edit(a.file, a.second)).not.toBeNull()
     await a.hook('Stop')
-    await vi.waitFor(() => expect(a.goAhead()).toBe(true))
+    await vi.waitFor(() => expect(a.goAhead()).toBe(true), { timeout: HUNG_MS })
     expect(a.typed().join('')).not.toContain(a.second)
   })
 
@@ -221,7 +224,7 @@ describe('Allow on an "Ask me" lock', () => {
     await a.allow()
     await a.hook('Stop')
     // Delivery has begun (the input cleared): the user interrupts, and the agent is ready again.
-    await vi.waitFor(() => expect(a.typed()).toContain('\x15'))
+    await vi.waitFor(() => expect(a.typed()).toContain('\x15'), { timeout: HUNG_MS })
     await a.hook('Interrupt')
     expect(a.editor.status).toBe('ready')
     await typingTime()

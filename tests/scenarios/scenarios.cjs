@@ -7,7 +7,7 @@
 // commands: those runs check the harness, the board rules and Hive's own costs (benchmarks) for free. The real CLIs are the model trials (opt-in, see README.md).
 //
 // Fixture version: bump when a scenario's setup or checks change, so results can be compared across versions.
-const FIXTURES_VERSION = 51
+const FIXTURES_VERSION = 52
 
 /** The subject's hive tool calls that the server ran, by tool (each has ok, error and args). */
 const called = (o, tool) => o.hiveCalls.filter((c) => c.tool === tool)
@@ -63,11 +63,9 @@ async function coderTask(c, task, agent = c.agents.coder) {
   }
   if (!['ready', 'finished'].includes((await coderLive(c, agent))?.status)) await fail("didn't get ready in 90 s")
   if (!task) return
-  await sleep(1500)
-  await c.inv('pty:write', key, task)
-  await sleep(400)
-  await c.inv('pty:write', key, '\r')
-  for (let t = Date.now(); Date.now() - t < 30000 && (await coderLive(c, agent))?.status !== 'working'; ) await sleep(500)
+  // Typed in, Enter pressed (again if the CLI dropped it, or the text typed again), until it is working.
+  const lib = require('../e2e/lib.cjs')
+  await lib.sendPrompt(c.inv, key, task, { submitted: async () => (await coderLive(c, agent))?.status === 'working', waitMs: 10000 })
   if ((await coderLive(c, agent))?.status !== 'working') await fail("didn't start working on its task in 30 s")
 }
 const read = (o, skill) => o.skillsRead.includes(skill)
@@ -444,6 +442,17 @@ const worktreeCount = (c) => c.git('worktree', 'list', '--porcelain').split(/\r?
 const contractWas = (o, on) => o.measures?.coreChars === require('../../src/shared/hiveGuidance.ts').hiveInstructions('alpha', 'agent', on).length
 
 module.exports.FIXTURES_VERSION = FIXTURES_VERSION
+/**
+ * The latest comment by `who` (a name in its author) on a card, and its first line that isn't blank (#532: reports and
+ * verdicts lead with a one-line summary). Null when it has none.
+ */
+const leadLine = (card, who) => {
+  const c = (card?.comments ?? []).filter((x) => who.test(x.by)).at(-1)
+  return c ? { line: c.text.split('\n').map((l) => l.trim()).find(Boolean) ?? '', text: c.text } : null
+}
+/** A first line that reads as a summary: a sentence or so, not a heading alone or the whole report on one line. */
+const summaryLine = (l) => !!l && l.line.length >= 10 && l.line.length <= 300
+
 module.exports.SCENARIOS = [
   {
     id: 'work-on-card',
@@ -452,11 +461,12 @@ module.exports.SCENARIOS = [
       await c.card('a', { title: 'Add CONTRIBUTING.md', description: 'Add a CONTRIBUTING.md at the root with one line: "Be kind."' })
     },
     prompt: (c) => `Work on card #${c.cards.a}.`,
-    fake: (c) => `skill work-on-card boardmove ${c.cards.a} doing then boardmove ${c.cards.a} review then boardcomment ${c.cards.a}`,
+    fake: (c) => `skill work-on-card boardmove ${c.cards.a} doing then hive hive_update_task {"number":${c.cards.a},"column":"review","comment":"Ready for review: CONTRIBUTING.md added with its one line.\\n\\nWhat changed: CONTRIBUTING.md at the root. Checks: none needed for a text file."}`,
     expect: (o, c) => [
       ['read the work-on-card skill', read(o, 'work-on-card'), o.skillsRead.join(',')],
       ['moved it to Doing before Review', movedInto(o.cards.a, 'Doing') >= 0 && movedInto(o.cards.a, 'Doing') < movedInto(o.cards.a, 'Review', true), history(o.cards.a).join(' | ')],
       ['it ends in Review, with a comment of the agent', o.cards.a?.column === 'review' && (o.cards.a?.comments ?? []).some((x) => /Coder/.test(x.by)), o.cards.a?.column],
+      ['its report leads with a one-line summary (#532)', summaryLine(leadLine(o.cards.a, /Coder/)), JSON.stringify(leadLine(o.cards.a, /Coder/)?.line ?? null)],
       ['not Done (the user decides)', o.cards.a?.column !== 'done'],
       ['the work is there', /Be kind/.test(c.read('CONTRIBUTING.md') ?? ''), 'no CONTRIBUTING.md']
     ],
@@ -470,11 +480,12 @@ module.exports.SCENARIOS = [
       await c.card('b', { title: 'Greeting helper', description: 'greet.js returns "Hello, <name>".', column: 'review', agent: 'implementer', comments: ['Done: greet.js added.'] })
     },
     prompt: (c) => `Review card #${c.cards.b}.`,
-    fake: (c) => `skill review-agent-work boardreview ${c.cards.b} start then boardreview ${c.cards.b} failed`,
+    fake: (c) => `skill review-agent-work boardreview ${c.cards.b} start then hive hive_update_task {"number":${c.cards.b},"review":"failed","comment":"Round 1: FAILED: 1 finding: greet() says Helo.\\n\\n1. greet.js returns \\"Helo, <name>\\": make it \\"Hello, <name>\\"."}`,
     expect: (o, c) => [
       ['read the review-agent-work skill', read(o, 'review-agent-work'), o.skillsRead.join(',')],
       ['marked itself as reviewer (review start)', ran(o, 'hive_update_task').some((x) => field(x.args, 'review', 'start')) && history(o.cards.b).includes('Started reviewing')],
       ['gave a verdict (passed or failed)', history(o.cards.b).some((h) => /^Review (passed|failed)$/.test(h)), history(o.cards.b).join(' | ')],
+      ['its verdict leads with one line saying it (#532)', summaryLine(leadLine(o.cards.b, /Coder/)) && /pass|fail/i.test(leadLine(o.cards.b, /Coder/).line), JSON.stringify(leadLine(o.cards.b, /Coder/)?.line ?? null)],
       ['the card stays in Review with the implementer', o.cards.b?.column === 'review' && o.cards.b?.agent?.id === c.agents.implementer.id, `${o.cards.b?.column} / ${o.cards.b?.agent?.name}`],
       ['never moved to Doing', movedInto(o.cards.b, 'Doing') < 0],
       ['changed no files (a review only reads)', o.gitStatus.trim() === '', o.gitStatus]
@@ -769,6 +780,7 @@ module.exports.SCENARIOS = [
       giveVerdict(c, c.cards.r, 'failed', 'Coder (alpha)')
       await c.api('POST', `/v1/tasks/${c.cards.r}/comments`, { text: 'Round 1: failed. 1. greet.js says "Helo".' })
       await c.api('POST', `/v1/tasks/${c.cards.r}/comments`, { text: 'Fixed: greet.js says "Hello, <name>" now.' })
+      // Deliberate: the decision's time must come after the comments' (the scenario is about a decision made since).
       await new Promise((r) => setTimeout(r, 20))
       await c.inv('tasks:update', c.cards.r, { decision: 'Greet with "Hi, <name>", never "Hello".' })
     },
@@ -949,6 +961,7 @@ module.exports.SCENARIOS = [
     title: 'Pick up from the latest handover and carry on, checking it against the current state',
     async setup(c) {
       await c.handover('Old plan', '## Next steps\n1. Create old.txt containing "old".\n')
+      // Deliberate: the newer handover's time must be a later second than the old one's (the newest is the one written last).
       await new Promise((r) => setTimeout(r, 1100))
       await c.handover('Notes feature', '## Current state\nnotes.txt holds 1 line.\n\n## Next steps\n1. Create next.txt containing "next".\n')
       c.write('notes.txt', 'one\ntwo\n')
@@ -967,6 +980,7 @@ module.exports.SCENARIOS = [
     title: 'Continue from a named handover that is not the latest: its next step, not the newer one',
     async setup(c) {
       await c.handover('Old plan', '## Next steps\n1. Create old.txt containing "old".\n')
+      // Deliberate: the newer handover's time must be a later second than the old one's (the newest is the one written last).
       await new Promise((r) => setTimeout(r, 1100))
       await c.handover('Notes feature', '## Next steps\n1. Create next.txt containing "next".\n')
     },
@@ -1708,6 +1722,42 @@ module.exports.SCENARIOS = [
     }
   },
   {
+    id: 'assistant-message-watching',
+    title: "The Assistant passing the user's answer to a reviewer watching its card (#530): leaves it a message, which wakes it and keeps its watch; never asks the user to paste it",
+    role: 'assistant',
+    control: 'agents',
+    async setup(c) {
+      await c.card('w', { title: 'Export the report', description: 'Add an export of the report. Open question for the user: CSV or JSON?', agent: 'implementer', column: 'doing' })
+      // Coder reviews it in a card loop and waits for it to arrive in Review (a card watch): it takes no new task meanwhile.
+      // Typed here: its turn may go from working to watching faster than coderTask looks for working.
+      await coderTask(c)
+      const key = `session:${c.alpha.toLowerCase()}#${c.agents.coder.id}`
+      await c.inv('pty:write', key, `hive hive_wait_for_tasks {"cards":[${c.cards.w}],"column":"review","wake":true}`)
+      await new Promise((r) => setTimeout(r, 400))
+      await c.inv('pty:write', key, '\r')
+      for (let t = Date.now(); Date.now() - t < 120000 && (await coderLive(c))?.status !== 'watching'; ) await new Promise((r) => setTimeout(r, 500))
+      if ((await coderLive(c))?.status !== 'watching') throw new Error(`setup: Coder isn't watching #${c.cards.w} (status ${(await coderLive(c))?.status})`)
+    },
+    prompt: (c) => `I've decided card #${c.cards.w}'s open question: exports are JSON. Coder reviews that card in its card loop and is waiting for it to arrive in Review: tell Coder, so it checks for JSON in its review.`,
+    fake: (c) => `skill coordinate-agents then hive hive_message_agent {"project":"alpha","agent":"Coder","text":"The user decided #${c.cards.w}: exports are JSON. Check for JSON when you review it."}`,
+    // Coder's watch as the Assistant works: a message is typed without ending it.
+    during: async (c) => {
+      const s = await coderLive(c)
+      if (s) c.coderWatch = s.watch?.cards ?? null
+    },
+    expect: (o, c) => {
+      const msgs = called(o, 'hive_message_agent')
+      const sent = msgs.some((x) => x.ok && /coder/i.test(String(argsOf(x).agent)) && /json/i.test(String(argsOf(x).text ?? '')))
+      return [
+        ['read the coordinate-agents skill', read(o, 'coordinate-agents'), o.skillsRead.join(',')],
+        ['left Coder a message with the answer (hive_message_agent), which worked', sent, msgs.map((x) => `${x.args}${x.ok ? '' : '!'}`).join(' | ')],
+        ["didn't give it a task or stop it", called(o, 'hive_prompt_agent').length === 0 && called(o, 'hive_stop_agent').length === 0, o.hiveCalls.map((x) => x.tool).join(',')],
+        ["didn't ask the user to paste it into Coder's pane", !/\bpaste\b/i.test(o.finalReply ?? '') && called(o, 'hive_notify').length === 0, (o.finalReply ?? '').slice(0, 300)],
+        ["Coder's watch carries on", !!c.coderWatch?.includes(c.cards.w), JSON.stringify(c.coderWatch)]
+      ]
+    }
+  },
+  {
     id: 'card-loop-released',
     title: 'A reviewer in a card loop told its card was reassigned (#420): drops it and carries on with the next, without asking',
     role: 'agent',
@@ -1953,7 +2003,7 @@ async function twoLanes(c, { d = false, aColumn = 'todo' } = {}) {
   }
 }
 /** What Hive's card wake to the Assistant ends with while lanes run (src/shared/watch.ts, the same: a unit test checks). */
-const LANES_RUNNING_TAIL = ' Lanes are still running (hive_lane list): before you end your turn, watch them all again in one watch, each lane by its last card (run-lanes).'
+const LANES_RUNNING_TAIL = ' Lanes are still running (hive_lane list): before you end your turn, watch them again in one lane watch (hive_wait_for_tasks with lanes ["all"], wake; run-lanes).'
 /** The Assistant's card watches that worked and wake it (with wake: true), each with its cards. */
 const cardWatches = (o) => ran(o, 'hive_wait_for_tasks').filter((x) => argsOf(x).wake === true && !argsOf(x).cancel)
 /**
@@ -1961,8 +2011,11 @@ const cardWatches = (o) => ran(o, 'hive_wait_for_tasks').filter((x) => argsOf(x)
  * and a failed verdict, which leaves its card in Review.
  */
 const TEAM_WAKES = ['column', 'comment', 'verdict']
-/** A card watch (not an agent watch, no single column) over every one of `cards` that wakes on all of TEAM_WAKES. */
-const watchCovers = (w, cards) => !!w && !w.agents && !w.column && TEAM_WAKES.every((k) => (w.changes ?? []).includes(k)) && cards.every((n) => (w.cards ?? []).includes(n))
+/**
+ * A lane watch on every running lane (#531: it follows each lane's cards as the lane goes on), or a card watch (not an
+ * agent watch, no single column) over every one of `cards` that wakes on all of TEAM_WAKES.
+ */
+const watchCovers = (w, cards) => !!w && ((w.lanes ?? []).includes('all') || (!w.agents && !w.lanes && !w.column && TEAM_WAKES.every((k) => (w.changes ?? []).includes(k)) && cards.every((n) => (w.cards ?? []).includes(n))))
 /**
  * The watch it ended its turn with (the live one: a new watch replaces the last, so an earlier call proves nothing) covers
  * every one of `cards`, waking it on whatever happens to them (watchCovers).
@@ -2007,7 +2060,7 @@ module.exports.SCENARIOS.push(
         brief('Implementer', `Reviewer in a card-loop lane: cards #${c.cards.a}, #${c.cards.b}; your builder is Coder.`),
         brief('Builder2', `Builder in a card-loop lane: card #${c.cards.c}; your reviewer is Reviewer2.`),
         brief('Reviewer2', `Reviewer in a card-loop lane: card #${c.cards.c}; your builder is Builder2.`),
-        `hive hive_wait_for_tasks {"cards":[${c.cards.b},${c.cards.c}],"wake":true,"limitMinutes":360}`
+        `hive hive_wait_for_tasks {"lanes":["all"],"wake":true,"limitMinutes":360}`
       ].join(' then ')
     },
     expect: (o, c) => {
@@ -2037,7 +2090,7 @@ module.exports.SCENARIOS.push(
     },
     prompt: (c) =>
       `[Hive] #${c.cards.a} (Coder's card) is in Review: Implementer failed it; latest comment by Implementer: "Round 1: FAILED. 1. greet.js doesn't trim the name before greeting." Your card watch has ended: carry on (hive_read_task with latestComment for the comment in full).${LANES_RUNNING_TAIL}`,
-    fake: (c) => `hive hive_read_task {"number":${c.cards.a},"latestComment":true} then hive hive_list_tasks {"project":"alpha"} then hive hive_wait_for_tasks {"cards":[${c.cards.a},${c.cards.b},${c.cards.c}],"wake":true,"limitMinutes":360}`,
+    fake: (c) => `hive hive_read_task {"number":${c.cards.a},"latestComment":true} then hive hive_list_tasks {"project":"alpha"} then hive hive_wait_for_tasks {"lanes":["all"],"wake":true,"limitMinutes":360}`,
     expect: (o, c) => {
       const { a, b } = c.cards
       const cc = c.cards.c
@@ -2069,7 +2122,7 @@ module.exports.SCENARIOS.push(
     },
     prompt: (c) =>
       `[Hive] #${c.cards.a} (Coder's card) is in Doing; latest comment by Coder: "Question for the user: should greet() throw on an empty name (A) or return "Hi" (B)?" Your card watch has ended: carry on (hive_read_task with latestComment for the comment in full).${LANES_RUNNING_TAIL}`,
-    fake: (c) => `hive hive_read_task {"number":${c.cards.a},"latestComment":true} then hive hive_wait_for_tasks {"cards":[${c.cards.a},${c.cards.b},${c.cards.c}],"wake":true,"limitMinutes":360}`,
+    fake: (c) => `hive hive_read_task {"number":${c.cards.a},"latestComment":true} then hive hive_wait_for_tasks {"lanes":["all"],"wake":true,"limitMinutes":360}`,
     expect: (o, c) => {
       const { b } = c.cards
       const cc = c.cards.c
@@ -2096,7 +2149,7 @@ module.exports.SCENARIOS.push(
         `hive hive_update_task {"number":${c.cards.d},"agent":"Coder"}`,
         `hive hive_lane {"action":"start","project":"alpha","builder":"Coder","reviewer":"Implementer","cards":[${c.cards.a},${c.cards.b},${c.cards.d}]}`,
         `hive hive_lane {"action":"start","project":"alpha","builder":"Builder2","reviewer":"Reviewer2","cards":[${c.cards.c}]}`,
-        `hive hive_wait_for_tasks {"cards":[${c.cards.c},${c.cards.d}],"wake":true,"limitMinutes":360}`
+        `hive hive_wait_for_tasks {"lanes":["all"],"wake":true,"limitMinutes":360}`
       ].join(' then '),
     expect: (o, c) => {
       const lanes = (o.lanes ?? []).filter((l) => l.state === 'active' || l.state === 'paused')
@@ -2155,9 +2208,9 @@ module.exports.SCENARIOS.push(
     },
     prompt: (c) =>
       `Two card loops are running in alpha: Coder builds #${c.cards.a}, then #${c.cards.b} (Implementer reviews), and Builder2 builds #${c.cards.c} (Reviewer2 reviews). Follow both lanes to the end and tell me when they're done.`,
-    fake: (c) => `skill coordinate-agents then skill run-lanes then hive hive_wait_for_tasks {"cards":[${c.cards.b},${c.cards.c}],"wake":true,"limitMinutes":360}`,
+    fake: () => `skill coordinate-agents then skill run-lanes then hive hive_wait_for_tasks {"lanes":["all"],"wake":true,"limitMinutes":360}`,
     // Its next steps when Hive wakes it: Builder2's lane is done (sweep, watch Coder's), then Coder's (both done).
-    fakeWakes: (c) => [`hive hive_list_tasks {} then hive hive_wait_for_tasks {"cards":[${c.cards.b}],"wake":true,"limitMinutes":360}`, 'hive hive_lane {"action":"list"}'],
+    fakeWakes: () => [`hive hive_list_tasks {} then hive hive_wait_for_tasks {"lanes":["all"],"wake":true,"limitMinutes":360}`, 'hive hive_lane {"action":"list"}'],
     // The lanes finish while it watches: Builder2's card goes to Done (Hive wakes it), then, once it watches again (a new
     // watch: another `since`), Coder's two. A wake is Hive's real one, typed in when a watched card changes; a turn that
     // ends with no watch, or the last wake's turn ending, closes the scenario.
@@ -2197,7 +2250,7 @@ module.exports.SCENARIOS.push(
       return [
         ["first watched both lanes' last cards (waking on moves, comments and verdicts)", covers(c.firstWatch, [b, cc]), JSON.stringify(c.firstWatch)],
         ["woken by Builder2's lane ending, it watched Coder's lane's end again", c.wakes >= 1 && covers(c.secondWatch, [b]), JSON.stringify({ wakes: c.wakes, watch: c.secondWatch })],
-        ["Hive's first wake said lanes are still running, to watch them all again", /Lanes are still running/.test(o.wakeLines?.[0] ?? ''), (o.wakeLines ?? []).join(' | ').slice(0, 300)],
+        ["Hive's first wake said lanes are still running, to watch them all again", /Lanes are still running|watch the lanes again/.test(o.wakeLines?.[0] ?? ''), (o.wakeLines ?? []).join(' | ').slice(0, 300)],
         ['swept the board on a wake (cards, lanes or agents, after its first watch)', sweeps >= 1, o.hiveCalls.map((x) => x.tool).join(',')],
         ["woken again by Coder's lane ending", c.wakes >= 2, String(c.wakes)],
         ['both lanes ended', ours.length === 2 && ours.every((l) => l.state === 'ended'), JSON.stringify(ours.map((l) => [l.builder?.name, l.state]))],

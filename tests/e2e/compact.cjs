@@ -11,6 +11,8 @@ for (const d of [userData, ws, shots]) fs.rmSync(d, { recursive: true, force: tr
 fs.mkdirSync(path.join(ws, 'demo'), { recursive: true }); fs.mkdirSync(shots, { recursive: true })
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms))
 const results = []
+// The longest a check waits for its condition: a bound for a hung run, never how long the step should take.
+const HUNG_MS = 10000
 const check = (n, ok) => results.push(`${ok ? 'PASS' : 'FAIL'}  ${n}`)
 ;(async () => {
   lib.enableProviders(userData)
@@ -39,10 +41,8 @@ const check = (n, ok) => results.push(`${ok ? 'PASS' : 'FAIL'}  ${n}`)
   check('empty session: button disabled', await btn.isDisabled())
   // The dialog via Session menu -> Compact Conversation.
   await page.locator('.menubar-item', { hasText: 'Session' }).first().click()
-  await sleep(400)
   await page.getByText('Compact Conversation…').first().click()
-  await sleep(600)
-  check('dialog opens from the Session menu', (await page.locator('.dialog', { hasText: 'Compact demo?' }).count()) === 1)
+  check('dialog opens from the Session menu', !!(await lib.until(async () => (await page.locator('.dialog', { hasText: 'Compact demo?' }).count()) === 1, HUNG_MS)))
   await page.locator('.compact-focus textarea').fill('keep the test notes')
   await page.screenshot({ path: path.join(shots, '2-dialog.png') })
   await page.locator('.dialog button', { hasText: /^\s*Compact\s*$/ }).click()
@@ -59,8 +59,8 @@ const check = (n, ok) => results.push(`${ok ? 'PASS' : 'FAIL'}  ${n}`)
   await page.screenshot({ path: path.join(shots, '3-after.png') })
   // Settings rows.
   await page.locator('.tab', { hasText: 'Settings' }).click(); await sleep(600)
-  await page.locator('.settings-nav .row', { hasText: 'Sessions' }).click(); await sleep(300)
-  check('project threshold row', (await page.getByText('Suggest compacting above').count()) >= 1)
+  await page.locator('.settings-nav .row', { hasText: 'Sessions' }).click()
+  check('project threshold row', !!(await lib.until(async () => (await page.getByText('Suggest compacting above').count()) >= 1, HUNG_MS)))
   await page.screenshot({ path: path.join(shots, '5-project-settings.png') })
   await inv('session:stop', proj); await lib.until(async () => (await inv('session:live')).length === 0, 15000)
   console.log(results.join('\n'))
