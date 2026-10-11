@@ -1,6 +1,6 @@
 import { randomBytes } from 'crypto'
 import { basename, join } from 'path'
-import { mkdir, readdir, stat } from 'original-fs/promises'
+import { mkdir, readdir, readFile, stat } from 'original-fs/promises'
 import { existsSync } from 'original-fs'
 import { projectAgents } from '../shared/defaults'
 import { COLUMN_CHOICES, TASK_COLUMNS, cardMatches, isTaskColumn, restoreOrders, sortCards } from '../shared/tasks'
@@ -199,13 +199,19 @@ async function bounded<T, R>(items: T[], limit: number, fn: (x: T) => Promise<R>
 
 /** A card's place on the board: all that placing another card needs of it (#458). */
 type CardPlace = Pick<TaskCard, 'number' | 'column' | 'order' | 'archived' | 'project'>
-/** A card file's place fields as last read, and the file's stamp then (its time, size and file id); null fields: not a card. */
+/** A card file's place fields as read, and the file's stamp then (its time, size and file id); null fields: not a card (not JSON). */
 interface KnownPlace {
   stamp: string
   raw: Pick<Partial<TaskCard>, 'column' | 'order' | 'archived' | 'project'> & { projectId?: unknown } | null
 }
-/** Each board's known places, by its tasks folder (lower-cased), as of its last read: only what is on it then. */
-const knownPlaces = new Map<string, Map<number, KnownPlace>>()
+/**
+ * Each open board's known places, as of its last read (only what is on it then), by its workspace's lifetime: dropped when
+ * the workspace closes, and a read still going then can't keep them (it finds the lifetime over).
+ */
+const knownPlaces = new WeakMap<AbortSignal, Map<number, KnownPlace>>()
+
+/** Whether a workspace lifetime's board places are kept (for tests). */
+export const placesKept = (life: AbortSignal): boolean => knownPlaces.has(life)
 
 /**
  * Every card's place (archived ones too), in board order, for placing a card (#458). Each change that places one did
@@ -218,18 +224,28 @@ export async function boardPlaces(ws: WorkspaceService): Promise<CardPlace[]> {
   const dir = tasksDir(ws)
   const names = await readdir(dir).catch(() => [] as string[])
   const numbers = names.flatMap((f) => (/^(\d+)\.json$/.test(f) ? [Number(f.slice(0, -5))] : []))
+  const life = ws.lifetime
   const ids = await ws.projectIds()
-  const was = knownPlaces.get(dir.toLowerCase())
+  const was = knownPlaces.get(life)
   const now = new Map<number, KnownPlace>()
   const out = await bounded(numbers, READS_AT_ONCE, async (n): Promise<CardPlace[]> => {
-    const file = cardFile(n, ws)
+    const file = join(dir, `${n}.json`)
     const st = await stat(file).catch(() => null)
     if (!st?.isFile()) return []
     // Stat'ed before it is read: a change in between is read again next time, as its stamp is newer than the one kept.
     const stamp = `${st.mtimeMs}:${st.size}:${st.ino}`
     let known = was?.get(n)
     if (known?.stamp !== stamp) {
-      const raw = await readJson<(Partial<TaskCard> & { projectId?: unknown }) | null>(file, null)
+      // A file that can't be read now (held by another program, gone) has no place this time, as in allTasks, and is
+      // read again next time; one that isn't a card (not JSON) is known not to be one until it changes.
+      const text = await readFile(file, 'utf8').catch(() => null)
+      if (text === null) return []
+      let raw: (Partial<TaskCard> & { projectId?: unknown }) | null = null
+      try {
+        raw = JSON.parse(text)
+      } catch {
+        // Not a card.
+      }
       known = { stamp, raw: raw && typeof raw === 'object' ? { column: raw.column, order: raw.order, archived: raw.archived, project: raw.project, projectId: raw.projectId } : null }
     }
     now.set(n, known)
@@ -237,7 +253,10 @@ export async function boardPlaces(ws: WorkspaceService): Promise<CardPlace[]> {
     const c = clean(known.raw, n, ids)
     return [{ number: n, column: c.column, order: c.order, archived: c.archived, project: c.project }]
   })
-  knownPlaces.set(dir.toLowerCase(), now)
+  if (!life.aborted) {
+    if (!knownPlaces.has(life)) life.addEventListener('abort', () => knownPlaces.delete(life), { once: true })
+    knownPlaces.set(life, now)
+  }
   return sortCards(out.flat())
 }
 

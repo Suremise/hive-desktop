@@ -1,7 +1,8 @@
 // Placing a card doesn't read the whole board (#458). Each change that places a card (creating one, a move, a batch)
 // did read every card file, one at a time, under the board's lock: N cards created in a row cost about N²/2 reads. Now
 // placement reads only the card files changed since it last looked (each file is still stat'ed, and stays the truth for
-// its card), so a card changed or removed by hand, or by another program, is placed by what its file says now.
+// its card), so a card changed or removed by hand, or by another program, is placed by what its file says now. A file that
+// can't be read for a moment is read again next time, and what is kept for a board goes when its workspace closes.
 import { mkdirSync, rmSync, writeFileSync } from 'fs'
 import { join } from 'path'
 import { afterAll, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest'
@@ -9,14 +10,21 @@ import * as electron from 'electron'
 import type { TaskCard } from '../src/shared/types'
 import { tempDir } from './tempDir'
 
-// The card files read (fs/promises' readFile of <n>.json in a tasks folder), counted.
-const reads = vi.hoisted(() => ({ cards: 0 }))
+// The card files read (fs/promises' readFile of <n>.json in a tasks folder), counted; reading the file named `busy` fails,
+// as when another program holds it, and `during` runs (once) as a card file is read.
+const reads = vi.hoisted(() => ({ cards: 0, busy: null as string | null, during: null as null | (() => Promise<void>) }))
 vi.mock('fs/promises', async (original) => {
   const real = await original<typeof import('fs/promises')>()
   return {
     ...real,
-    readFile: ((path: Parameters<typeof real.readFile>[0], ...rest: unknown[]) => {
-      if (/[\\/]tasks[\\/]\d+\.json$/.test(String(path))) reads.cards++
+    readFile: (async (path: Parameters<typeof real.readFile>[0], ...rest: unknown[]) => {
+      if (/[\\/]tasks[\\/]\d+\.json$/.test(String(path))) {
+        reads.cards++
+        const during = reads.during
+        reads.during = null
+        await during?.()
+      }
+      if (reads.busy && String(path).endsWith(reads.busy)) return Promise.reject(Object.assign(new Error(`EBUSY: resource busy or locked, open '${String(path)}'`), { code: 'EBUSY' }))
       return (real.readFile as (...a: unknown[]) => Promise<unknown>)(path, ...rest)
     }) as typeof real.readFile
   }
@@ -93,6 +101,37 @@ describe('placing a card on a big board (#458)', () => {
     writeFileSync(join(tasksDir, '8.json'), '{ not json')
     expect((await run(() => tasks.boardPlaces(w))).some((c) => c.number === 8)).toBe(false)
     expect((await run(() => tasks.createTask({ title: 'Hold again', project: 'p', column: 'hold' }, user))).order).toBe(502)
+  })
+
+  it("a card file that can't be read for a moment is read again, though it hasn't changed since", async () => {
+    cardFile(11, { column: 'todo', order: 20_000 })
+    reads.busy = join('tasks', '11.json')
+    try {
+      // Unreadable now: no place, as the whole board read leaves it out too.
+      expect((await run(() => tasks.boardPlaces(w))).some((c) => c.number === 11)).toBe(false)
+    } finally {
+      reads.busy = null
+    }
+    // Readable again, the file unchanged: read again, and placed by it.
+    expect((await run(() => tasks.boardPlaces(w))).find((c) => c.number === 11)?.order).toBe(20_000)
+    expect((await run(() => tasks.createTask({ title: 'After 11', project: 'p' }, user))).order).toBe(20_001)
+  })
+
+  it('what is kept for a board goes when its workspace closes, also with a read still going; reopened, it places as before', async () => {
+    const life = w.lifetime
+    expect(tasks.placesKept(life)).toBe(true)
+    // A read under way as the workspace closes (closed while it reads a changed card file): it finishes, finds the
+    // workspace's lifetime over and keeps nothing.
+    cardFile(12, { column: 'todo', order: 12 })
+    const closing = w
+    reads.during = () => disposeWorkspaceService(closing)
+    expect((await run(() => tasks.boardPlaces(closing))).some((c) => c.number === 12)).toBe(true)
+    expect(reads.during).toBeNull()
+    expect(tasks.placesKept(life)).toBe(false)
+    w = createWorkspaceService()
+    await w.open(wsPath)
+    expect((await run(() => tasks.createTask({ title: 'Reopened', project: 'p', column: 'hold' }, user))).order).toBe(503)
+    expect(tasks.placesKept(w.lifetime)).toBe(true)
   })
 
   it('places the same as the whole board read: every card, in board order', async () => {
