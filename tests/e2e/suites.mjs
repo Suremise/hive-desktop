@@ -75,6 +75,7 @@ export const SUITES = [
   { name: 'donemove' },
   { name: 'drafts' },
   { name: 'editor' },
+  { name: 'failfast' },
   { name: 'filelinks' },
   { name: 'files' },
   { name: 'footerfit' },

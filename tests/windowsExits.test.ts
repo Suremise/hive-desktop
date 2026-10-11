@@ -1,0 +1,87 @@
+// A process that fails to start is reported with its code (#599): what a Windows exit code means (windowsExits.cjs),
+// the e2e runner's record of it, and the rule that keeps such a process from waiting behind an error dialog: test
+// tooling starts nothing through the shell, so every child inherits Node's error mode.
+import { execFileSync } from 'child_process'
+import { readFileSync } from 'fs'
+import { createRequire } from 'module'
+import { join } from 'path'
+import { describe, expect, it } from 'vitest'
+// @ts-expect-error: plain .mjs modules without types
+import { recordJson, recordMarkdown } from './e2e/record.mjs'
+// @ts-expect-error: plain .mjs modules without types
+import { resultLines } from './e2e/runner.mjs'
+
+const { ntstatus, describeExit, exitText, windowsCodesIn } = createRequire(import.meta.url)('./e2e/windowsExits.cjs')
+const root = join(__dirname, '..')
+
+describe('what a Windows exit code means', () => {
+  it('reads a status code however Node reports it, and leaves ordinary exit codes alone', () => {
+    expect([ntstatus(3221225794), ntstatus(-1073741502), ntstatus(0xc0000135)]).toEqual([0xc0000142, 0xc0000142, 0xc0000135])
+    expect([ntstatus(0), ntstatus(1), ntstatus(130), ntstatus(null), ntstatus(2 ** 33), ntstatus(1.5)]).toEqual([null, null, null, null, null, null])
+  })
+
+  it('says the code and what to do: a startup failure under load means fewer runs at once', () => {
+    expect(describeExit(3221225794)).toBe("0xc0000142: a DLL failed to initialise as it started, usually Windows' desktop heap running short with many processes at once: rerun with fewer runs at once")
+    expect(exitText(-1073741515)).toBe("0xc0000135: a DLL it needs wasn't found")
+    expect(exitText(0xc0001234)).toBe('0xc0001234: the process ended abnormally (a Windows status code)')
+    expect([exitText(1), exitText(null), describeExit(1)]).toEqual(['1', 'null', null])
+  })
+
+  it('finds the known codes in output, each once, and nothing in numbers that only look like one', () => {
+    const out = ['<process did exit: exitCode=3221225794, signal=null>', 'git exited with 0xC0000142', 'Error: exit code -1073741819', 'took 3221291234 ms', 'id 0xc0001234', 'v1.3221225794.0']
+    expect(windowsCodesIn(out.join('\n'))).toEqual([describeExit(0xc0000142), describeExit(0xc0000005)])
+    expect(windowsCodesIn('')).toEqual([])
+    expect(windowsCodesIn(undefined)).toEqual([])
+  })
+})
+
+describe("the runner's line for a suite that ended with a Windows code (#599)", () => {
+  it('says the code and its meaning in the line, and the codes its output named under it', () => {
+    expect(resultLines('board', { ok: false, code: 3221225794, seconds: 4, failed: [], windows: [describeExit(0xc0000135)] })).toEqual([
+      `board                 FAIL  4s  (exit ${describeExit(0xc0000142)})`,
+      `    Windows: ${describeExit(0xc0000135)}`
+    ])
+    expect(resultLines('files', { ok: false, code: 1, seconds: 2, failed: ['FAIL x '], windows: [] })).toEqual(['files                 FAIL  2s  (exit 1; 1 failed check)', '    FAIL x'])
+    // A passed suite says nothing of what its output named; a skipped one, its reason.
+    expect(resultLines('about', { ok: true, code: 0, seconds: 3, failed: [], windows: [describeExit(0xc0000005)] })).toEqual(['about                 pass  3s'])
+    expect(resultLines('codex', { skipped: 'environment: no Codex', seconds: 0 })).toEqual(['codex                 SKIP  0s  (environment: no Codex)'])
+  })
+})
+
+describe("the run record names a failed suite's Windows codes (#599)", () => {
+  const results = [
+    { name: 'about', ok: true, seconds: 3, code: 0, windows: [] },
+    { name: 'board', ok: false, seconds: 9, code: 3221225794, failed: [], windows: [describeExit(0xc0000135)] },
+    { name: 'files', ok: false, seconds: 5, code: 1, failed: ['FAIL x'], windows: [] }
+  ]
+
+  it('in the Markdown, after the table', () => {
+    const md = recordMarkdown({ code: 'abc1234', when: '2026-10-11 15:00', jobs: 4, results, logDir: 'C:\\logs', summary: '1 passed, 2 failed' })
+    expect(md).toContain(`Windows codes (#599): board: exit ${describeExit(0xc0000142)}; ${describeExit(0xc0000135)}.`)
+    expect(md).not.toMatch(/files: |about: /)
+  })
+
+  it('in the JSON, for scripts', () => {
+    const json = recordJson({ code: 'abc1234', when: 'now', results })
+    expect(json.results.map((r: { windows?: string[] }) => r.windows ?? null)).toEqual([null, [`exit ${describeExit(0xc0000142)}`, describeExit(0xc0000135)], null])
+  })
+})
+
+describe('test tooling starts nothing through the shell (#599)', () => {
+  it('so every process it starts inherits Node’s error mode and fails at once, never behind an error dialog', () => {
+    // ShellExecute starts a program with the default error mode: one that then fails to start shows Windows' dialog and
+    // waits for someone to click OK. child_process (and node-pty) start it directly, with the parent's mode.
+    const shellLaunch = [/Start-Process/i, /Invoke-Item/i, /\bshell\.open(Path|External)\s*\(/, /['"]\/c['"],\s*['"]start['"]/i, /cmd(\.exe)?\s+\/c\s+start\b/i, /\bstart\s+""/i]
+    const files = execFileSync('git', ['ls-files', '-co', '--exclude-standard', 'tests', 'scripts'], { cwd: root, encoding: 'utf8' })
+      .split(/\r?\n/)
+      .filter((f) => /\.(c|m)?[jt]s$/.test(f) && !f.startsWith('tests/fixtures/') && f !== 'tests/windowsExits.test.ts')
+    expect(files.length).toBeGreaterThan(100)
+    const found = files.flatMap((f) =>
+      readFileSync(join(root, f), 'utf8')
+        .split(/\r?\n/)
+        // Code, not the comments that explain the rule.
+        .flatMap((l, i) => (!/^\s*(\/\/|\*|\/\*)/.test(l) && shellLaunch.some((re) => re.test(l)) ? [`${f}:${i + 1}`] : []))
+    )
+    expect(found).toEqual([])
+  })
+})

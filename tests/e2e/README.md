@@ -344,6 +344,17 @@ the Recycle Bin, read only, before and after a run, and says so under the summar
 266 items before and after the run").
 `HIVE_TEST_CODEX_HOME` points the Codex suites at another test home.
 
+**A process that fails to start** (#599): under heavy load Windows can fail one as it starts (0xc0000142: its desktop
+heap runs short with many processes at once). It ends at once with that code, never waiting behind Windows'
+"Application Error" dialog: Node sets the error mode that keeps the dialog away (SEM_FAILCRITICALERRORS), Electron
+keeps it, and whatever the runners, the suites, the unit test workers and the test copies of Hive start directly
+inherits it. Something started through the shell (PowerShell's `Start-Process`, `start`, a file opened by its
+association) starts without it, so test tooling never does that (`tests/windowsExits.test.ts` checks). Nothing
+machine-wide is changed. The runners say such a code with what it means (`windowsExits.cjs`): in a failed suite's line
+(`FAIL 3s (exit 0xc0000142: a DLL failed to initialise as it started, usually Windows' desktop heap running short …:
+rerun with fewer runs at once)`), under it for a code its output names (a child's, or Electron's that didn't start), and
+in the run record. Seeing 0xc0000142, run fewer test runs at once rather than looking for a fault in the code.
+
 ## Housekeeping
 
 What the tests leave in `%LOCALAPPDATA%\hive-test` is removed once it is no longer needed (`clean.mjs`, #253). The e2e

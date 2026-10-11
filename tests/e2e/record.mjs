@@ -9,6 +9,7 @@ import { createRequire } from 'module'
 import { join, win32 } from 'path'
 
 const runContext = createRequire(import.meta.url)('./runContext.cjs')
+const { describeExit } = createRequire(import.meta.url)('./windowsExits.cjs')
 
 /** Not code under test: builds used to rewrite it with only line-ending changes (fixed by #148), and a checkout without that fix still does. */
 const NOT_CODE = ['THIRD_PARTY_NOTICES.md']
@@ -120,10 +121,13 @@ export function recordJson({ code, when, results, problems = [], notRun = [], cl
     valid: !problems.length,
     problems,
     clis,
-    results: results.map((r) => ({ name: r.name, ok: !!r.ok, skipped: r.skipped ?? null, environment: !!r.environment, clis: r.clis ?? [] })),
+    results: results.map((r) => ({ name: r.name, ok: !!r.ok, skipped: r.skipped ?? null, environment: !!r.environment, clis: r.clis ?? [], ...(windowsOf(r).length ? { windows: windowsOf(r) } : {}) })),
     notRun
   }
 }
+
+/** A failed suite's Windows codes (#599): its own exit code, described, and those its output names. */
+const windowsOf = (r) => (r.ok === false ? [...(describeExit(r.code) ? [`exit ${describeExit(r.code)}`] : []), ...(r.windows ?? [])] : [])
 
 /** The record as Markdown, to paste into a card comment: the fingerprint, each suite's result and time, the logs; and
  * first, if it can't be trusted (recordStatus), why. After the table: the real CLIs' versions (clis, when real suites
@@ -137,7 +141,9 @@ export function recordMarkdown({ code, when, jobs, results, logDir, summary, pro
   const warning = problems.length ? [`**Not valid — don't trust this record:** ${problems.join('; ')}.`, ''] : []
   const head = `**e2e run record** · code \`${code}\` · ${when} · ${jobs > 1 ? `${jobs} at a time` : 'one at a time'}`
   const envSkipped = [...new Set((runs ?? [{ results }]).flatMap((r) => r.results.filter((x) => x.environment).map((x) => x.name)))]
+  const windows = results.filter((r) => windowsOf(r).length).map((r) => `${r.name}: ${windowsOf(r).join('; ')}`)
   const notes = [
+    ...(windows.length ? [`Windows codes (#599): ${windows.join(' · ')}.`] : []),
     ...(Object.keys(clis).length ? [`Real CLIs (as Hive selected them): ${cliLine(clis)}.`] : []),
     ...(homes.length ? [`Real CLIs' homes (#368): ${homes.join('; ')}.`] : []),
     ...(notRun.length ? [`Not run: the real tier (\`--real\`): ${notRun.join(', ')}.`] : []),
