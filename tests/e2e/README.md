@@ -261,6 +261,27 @@ passed to them), and it never changes the output or the results. Turn it off wit
 `packaged-progress` checks the `hive-progress` wrapper as installed (`dist/win-unpacked`), against a stand-in for the
 Agent API; `HIVE_PROGRESS_CHECK_DEV=1 node tests/e2e/packaged-progress.cjs` checks the dev build's copy.
 
+### The installer on a clean machine: the Sandbox checks
+
+The e2e suites test the app on this machine. The **Sandbox checks** (the mcp repo's
+`servers/windows-sandbox/scenarios/hive-checks.js`, #538) test the **installer** on a clean Windows in Windows Sandbox:
+a fresh install and first launch, the first run with no CLIs (#474), a CLI appearing while Hive runs (#472), an upgrade
+from the previous release with its settings kept, uninstall, and a new workspace. Two throwaway Sandboxes, about 3
+minutes, the network off and Hive's fake CLIs only: no real CLI, sign-in or credential goes in. It writes `report.md`
+(pass or fail per check, with screenshots) and passes only with every check run.
+
+- **When:** on each release candidate, once it is built and before the user installs it (RELEASING.md step 1, the
+  release-hive skill), with the verdict and report folder commented on the release card.
+- **How:** `node "<mcp repo>\servers\windows-sandbox\scenarios\hive-checks.js" --installer "<the RC's installer>"
+  --hive "<the main checkout>" --report "$env:LOCALAPPDATA\hive-test\sandbox-reports\<version>-rc<n>"`. It starts its
+  own copy of the Sandbox server, so it needs no MCP registration.
+- **One Sandbox at a time** on the machine: when another is running it says NOT RUN (exit 2); wait, or pass
+  `--wait-min 30`. It never stops a Sandbox it didn't start.
+- **By hand** (an agent working in a Sandbox through the `windows-sandbox` MCP tools): Hive turns MCP servers on per
+  project, not per agent, so until it can give a server to chosen agents only (#537), the server is on only in a
+  release-testing project that holds just the release-testing agent (the mcp repo's
+  `servers/windows-sandbox/RELEASE-TESTING.md`).
+
 ## What they need
 
 - **Claude Code**, installed. **No real suite runs it in your own `~/.claude`** (#368): each one says its home in
