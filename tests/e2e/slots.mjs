@@ -73,6 +73,20 @@ export function isHeavy({ count, repeat = 1 }) {
   return repeat > 1 || count > HEAVY_OVER
 }
 
+/** Vitest options whose value is the next argument (so it is no file filter). */
+const VITEST_VALUE_OPTIONS = ['-c', '--config', '-r', '--root', '--dir', '--reporter', '--outputFile', '--environment', '--pool', '--maxWorkers', '--testTimeout', '--hookTimeout', '--retry', '--bail', '--mode', '--exclude']
+
+/**
+ * Whether a unit test run is the whole set (#599), heavy as a full e2e set is: its workers and what its tests start beside
+ * e2e runs were what ran Windows short (0xc0000142 dialogs). A run of some files (a file filter), some tests (-t), the
+ * changed or related files, a shard or a project, or watch mode, isn't. args: Vitest's command line after its script.
+ */
+export function isFullUnitRun({ args, watch = false, changed = false, related = [], testNamePattern = null }) {
+  if (watch || changed || related?.length || testNamePattern) return false
+  if (args.some((a) => /^(--changed|--related|-t|--testNamePattern|--shard|--project|--watch|-w)(=|$)/.test(a))) return false
+  return !args.some((a, i) => !a.startsWith('-') && a !== 'run' && !VITEST_VALUE_OPTIONS.includes(args[i - 1]))
+}
+
 /**
  * Whether a run waits for a test slot (both runners ask): a heavy one, unless it was started inside a suite
  * (runner.mjs parentSuite: a suite's agent shell, say). That run's load is its parent's, whose slot counts it; waiting

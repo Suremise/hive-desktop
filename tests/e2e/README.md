@@ -165,12 +165,15 @@ was kept with `--keep`. Two started from the same worktree share its build, so i
 **Heavy runs queue** (`slots.mjs`, #204). Several agents each running full sets on one machine slowed each other until
 tests that pass alone timed out. So at most **two heavy runs** go at once across every worktree
 (`heavySlots` in `%LOCALAPPDATA%\hive-test\config.json` changes it: "How many heavy runs at once", below): an e2e run of more than five suites (`--all`, `--real`, a big `--affected`) or
-any `--repeat`, and a scenario run of more than five scenarios or with `--repeat`. A run of a few suites, a single
-scenario, or a runner started inside a suite never waits: e2e or scenarios (`needsSlot`, #211), since its parent's run
+any `--repeat`, a scenario run of more than five scenarios or with `--repeat`, and a **full unit run** (`npm test`, a
+`vitest run` of the whole set: `tests/unitSlot.ts`, `isFullUnitRun`, #599; its workers and what its tests start, beside
+e2e runs, were what ran Windows short of desktop heap: 0xc0000142, below). A run of a few suites, a single
+scenario, a focused unit run (some files, `-t`, `--changed`, `--related`, or watch mode), or a runner or unit run
+started inside a suite never waits (`needsSlot`, #211), since its parent's run
 holds a slot and waiting behind it would never end. It still keeps apart from its parent (a nested e2e runner in the
 parent's `nested` folder with ports above the parent's, a nested scenario run in a lane of its own). A heavy run that finds both slots taken waits for one,
 before it builds, in the order runs asked. It prints `Waiting for a test slot …: held by e2e: 68 suites in <worktree>
-(process …, 12 min)` and shows in the Progress panel as **e2e: waiting for a test slot** (or **scenarios: …**), naming
+(process …, 12 min)` and shows in the Progress panel as **e2e: waiting for a test slot** (or **scenarios: …**, **unit tests: …**), naming
 who holds them, until it gets one (`Got a test slot after N s`). So a run that seems stuck is usually waiting: that line
 says for whom. `--no-wait` fails at once instead (exit 2, saying who holds them).
 **A pre-merge run goes first** (#558): one started in the session of the agent that holds its project's merge slot
@@ -374,6 +377,23 @@ direct `shell.trashItem` anywhere else); the installed app and `npm run dev` use
 the Recycle Bin, read only, before and after a run, and says so under the summary and in the run record ("Recycle Bin:
 266 items before and after the run").
 `HIVE_TEST_CODEX_HOME` points the Codex suites at another test home.
+
+**A process that fails to start** (#599): under heavy load Windows can fail one as it starts (0xc0000142: its desktop
+heap runs short with many processes at once). Node sets the error mode that keeps Windows' error dialogs away
+(SEM_FAILCRITICALERRORS), Electron keeps it, and whatever the runners, the suites, the unit test workers and the test
+copies of Hive start directly inherits it. Something started through the shell (PowerShell's `Start-Process`, `start`,
+a file opened by its association) starts without it, so test tooling never does that (`tests/windowsExits.test.ts`
+checks). That is no promise that a run can't hang on a dialog: see the end of this paragraph. Nothing machine-wide is
+changed. The runners say such a code with what it means (`windowsExits.cjs`): in a failed suite's line
+(`FAIL 3s (exit 0xc0000142: a DLL failed to initialise as it started, usually Windows' desktop heap running short …:
+rerun with fewer runs at once)`), under it for a code its output names (a child's, or Electron's that didn't start), and
+in the run record. Seeing 0xc0000142, run fewer test runs at once rather than looking for a fault in the code.
+**Such a failure can still show a dialog and hold the run:** logged under load, the desktop heap running out showed
+Windows' "Application Error" dialog even for processes that had the error mode (children of Vitest workers during full
+unit runs beside e2e runs), and the process waits behind it until someone clicks OK. Fewer heavy runs at once makes it
+rarer (a full unit run is a heavy run, above); only a machine-wide setting, left to the machine's owner, would stop it.
+The `failfast` suite checks the reporting (a child ending with 0xc0000142 is seen at once, and said), not that a real
+startup failure shows no dialog.
 
 ## Housekeeping
 

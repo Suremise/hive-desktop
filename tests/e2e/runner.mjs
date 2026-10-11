@@ -1,6 +1,9 @@
 // The e2e runner's decisions, kept pure so tests/e2esuites.test.ts can check them without running suites: what the
 // command line asks for (parseArgs), which suites that is (selectSuites), and whether a run record can be trusted
 // (recordStatus). run.mjs does the running.
+import { createRequire } from 'module'
+
+const { exitText } = createRequire(import.meta.url)('./windowsExits.cjs')
 
 const VALUE_FLAGS = ['--jobs', '--affected', '--repeat', '--clear-dir']
 const PLAIN_FLAGS = ['--all', '--real', '--only-real', '--record', '--fingerprint', '--build', '--packaged', '--no-progress', '--no-wait', '--pre-merge', '--keep-files']
@@ -95,6 +98,17 @@ export const realNotRun = (suites, chosen) => suites.filter((s) => isRealCli(s) 
  * cliStep says how many failed checks it put down to that (`SKIPPED-FAILS n`); a FAIL line beyond those (a check
  * before the step, a page error) keeps the suite a FAIL. An `ENVIRONMENT` line alone never makes a skip.
  */
+/**
+ * A suite's result line, then the lines under a failed one: its FAIL lines, and the Windows codes its output names
+ * (#599: a child that failed to start or crashed), each with its meaning, as is its own exit code in the line.
+ */
+export function resultLines(name, r) {
+  if (r.skipped) return [`${name.padEnd(22)}SKIP  ${r.seconds}s  (${r.skipped})`]
+  const failed = r.failed ?? []
+  const head = `${name.padEnd(22)}${r.ok ? 'pass' : 'FAIL'}  ${r.seconds}s${r.ok ? '' : `  (exit ${exitText(r.code)}${failed.length ? `; ${failed.length} failed check${failed.length === 1 ? '' : 's'}` : ''})`}`
+  return [head, ...failed.map((f) => `    ${f.trim()}`), ...(r.ok === false ? (r.windows ?? []).map((w) => `    Windows: ${w}`) : [])]
+}
+
 export function suiteOutcome({ code, out }) {
   const lines = out.split(/\r?\n/)
   const failed = lines.filter((l) => /^\s*FAIL/.test(l))

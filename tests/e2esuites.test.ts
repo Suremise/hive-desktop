@@ -24,7 +24,7 @@ import { buildLock, buildStamp, buildStamped, buildStampedAt, builtOnce, devBuil
 // @ts-expect-error: plain .mjs modules without types
 import { LANES, LANE_PORTS, claimHeld, claimLane, lanePorts, laneWork, pickLane, portFree } from './e2e/lanes.mjs'
 // @ts-expect-error: plain .mjs modules without types
-import { describeClaim, heavySlots, holdsMergeSlot, isHeavy, needsSlot, preMerge, trySlot, waitForSlot, waitLine } from './e2e/slots.mjs'
+import { describeClaim, heavySlots, holdsMergeSlot, isFullUnitRun, isHeavy, needsSlot, preMerge, trySlot, waitForSlot, waitLine } from './e2e/slots.mjs'
 // @ts-expect-error: plain .mjs modules without types
 import { addWorktree, invocationDir, keepDir, removeInvocation, removeStale, removeWorktree } from './e2e/tempWorktrees.mjs'
 // @ts-expect-error: plain .mjs modules without types
@@ -52,7 +52,7 @@ describe('the e2e suite list', () => {
 
   it('names suites that exist, and every suite file is listed', () => {
     for (const n of names) expect(existsSync(join(dir, `${n}.cjs`)), n).toBe(true)
-    const helpers = ['lib', 'fake-bridge', 'fake-copilot-api', 'runContext', 'evidence', 'codexDiagnostics', 'folderProcesses']
+    const helpers = ['lib', 'fake-bridge', 'fake-copilot-api', 'runContext', 'evidence', 'codexDiagnostics', 'folderProcesses', 'windowsExits']
     const files = execFileSync('git', ['ls-files', 'tests/e2e/*.cjs'], { cwd: root, encoding: 'utf8' })
       .split(/\r?\n/)
       .filter(Boolean)
@@ -1842,6 +1842,20 @@ describe('heavy runs: at most a few at once on the machine, the rest queue in or
       expect(src, f).toMatch(/if \(needsSlot\(\{ count: chosen\.length, repeat: \w+(\.repeat)? \}\)\) \{/)
       expect(src, f).not.toMatch(/\bisHeavy\b/)
     }
+  })
+
+  it('a full unit run is heavy; a focused one, or watch mode, is not (#599)', () => {
+    const full = (args: string[], cfg: object = {}) => isFullUnitRun({ args, ...cfg })
+    // npm test, and the whole set with options whose values aren't file filters.
+    expect([full(['run']), full([]), full(['run', '--reporter', 'verbose']), full(['run', '--maxWorkers=2', '--reporter=dot'])]).toEqual([true, true, true, true])
+    // Some files, some tests, the changed or related files, a shard or a project, watch mode: light.
+    expect([full(['run', 'tests/tips.test.ts']), full(['run', 'tips']), full(['run', '-t', 'rounds']), full(['run', '--changed', '3317ffa']), full(['run', '--changed']), full(['run', '--shard=1/3']), full(['--watch'])]).toEqual([false, false, false, false, false, false, false])
+    // What Vitest resolved says the same, however the command line put it.
+    expect([full(['run'], { watch: true }), full(['run'], { changed: true }), full(['run'], { related: ['src/a.ts'] }), full(['run'], { testNamePattern: /x/ })]).toEqual([false, false, false, false])
+    // The unit tests' global setup asks it, with a run started inside a suite left out (its parent's slot counts it).
+    const setup = readFileSync(join(__dirname, 'unitSlot.ts'), 'utf8')
+    expect(setup).toMatch(/if \(parentSuite\(\) \|\| !isFullUnitRun\(/)
+    expect(readFileSync(join(__dirname, '..', 'vitest.config.ts'), 'utf8')).toContain("globalSetup: ['tests/unitSlot.ts']")
   })
 
   it('two take the slots; the others wait in the order they asked, and the first to ask gets the next free one', async () => {
