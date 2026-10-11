@@ -2,7 +2,9 @@
 // name, as on GitHub's runner) is the same place as its real path. Opening a workspace, telling whether one moved (and
 // Repair's Locate), project removal's guards (and Delete) and resuming a session compare places
 // (`samePlace`/`containsPlace`), not spellings. Each test uses a junction, which makes another name on any machine
-// (tests/pathAliases.ts). Windows (windowShowing, switching a window's workspace) are in the e2e suite `windows`.
+// (tests/pathAliases.ts). Windows (windowShowing, switching a window's workspace) are in the e2e suite `windows`. The
+// Agent API's X-Hive-Workspace header finds a workspace named another way, and locked files and transcript paths read
+// relative to a folder named the other way (#494).
 import { execFileSync } from 'child_process'
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'fs'
 import { join } from 'path'
@@ -21,7 +23,10 @@ const { checkedWorktrees, removeProject } = await import('../src/main/projectRem
 const { sessions } = await import('../src/main/sessions')
 const { providerService } = await import('../src/main/providerService')
 const { config } = await import('../src/main/config')
-const { containsPlace, samePlace } = await import('../src/main/fsutil')
+const { containsPlace, placeRelative, samePlace } = await import('../src/main/fsutil')
+const { findWorkspace } = await import('../src/main/servers')
+const { shortPath } = await import('../src/main/providers/conversation')
+const { codex } = await import('../src/main/providers/codex/adapter')
 
 const git = (cwd: string, ...a: string[]): string => execFileSync('git', ['-c', 'user.email=t@t', '-c', 'user.name=t', '-c', 'core.autocrlf=false', ...a], { cwd, encoding: 'utf8' })
 const wsPath = join(base, 'ws')
@@ -180,6 +185,56 @@ describe('places by real path (#455)', () => {
       providerService.info = info
       config.settings.providers['claude-code'].enabled = enabled
       await w.mutateProjectConfig(proj, () => ({ agents: [] }))
+    }
+  })
+
+  it('the X-Hive-Workspace header finds the open workspace named through a junction', () => {
+    const ws = alias(wsPath, 'ws-header')
+    expect(findWorkspace(ws)).toBe(w)
+    expect(findWorkspace(join(ws, '.'))).toBe(w)
+    expect(findWorkspace('ws')).toBe(w)
+    expect(findWorkspace(join(base, 'elsewhere', 'ws'))).toBeNull()
+  })
+
+  it('a path inside a folder named the other way reads relative to it; one outside keeps its relative path', () => {
+    const named = alias(proj, 'proj-relative')
+    expect(placeRelative(named, join(proj, 'src', 'a.txt'))).toBe(join('src', 'a.txt'))
+    expect(placeRelative(proj, join(named, 'a.txt'))).toBe('a.txt')
+    expect(placeRelative(named, proj)).toBe('')
+    expect(placeRelative(proj, join(wsPath, 'x.txt'))).toBe(join('..', 'x.txt'))
+    // Transcripts show a tool's path relative to the project the same way.
+    expect(shortPath(join(proj, 'src', 'a.txt'), named)).toBe('src/a.txt')
+    expect(shortPath(join(wsPath, 'x.txt'), named)).toBe(join(wsPath, 'x.txt'))
+  })
+
+  it("a lock message and an agent's locked files read relative to its folder named the other way", async () => {
+    const s = sessions as unknown as { live: Map<string, unknown>; runs: Map<string, string>; locks: Map<string, { liveId: string }> }
+    const named = alias(proj, 'proj-locks')
+    // Two running Codex agents (no process): the holder's folder is the junction, while the CLIs report the real one.
+    const running = (agentId: string, cwd: string) => {
+      const state: Record<string, unknown> = { provider: 'codex', runId: `run-${agentId}`, projectPath: proj, agentId, cwd, sessionId: `session-${agentId}`, status: 'working', startedAt: '', launchSignature: '', unseen: false }
+      s.live.set(`${proj.toLowerCase()}#${agentId}`, { state, adapter: codex, transcriptMtime: '', defaultModel: false, modeTail: '', launchMode: null, configuredMode: null })
+      s.runs.set(`run-${agentId}`, `${proj.toLowerCase()}#${agentId}`)
+      return state
+    }
+    const edit = (st: Record<string, unknown>) =>
+      inWorkspace(w, async () => sessions.preToolUse(st.runId as string, { hook_event_name: 'PreToolUse', session_id: st.sessionId, cwd: proj, tool_name: 'apply_patch', tool_input: { command: '*** Begin Patch\n*** Update File: a.txt\n@@\n+x\n*** End Patch' } }))
+    const was = config.settings.agents.fileLocks
+    config.settings.agents.fileLocks = 'warn'
+    try {
+      const holder = running('lh', named)
+      const editor = running('le', proj)
+      expect(await edit(holder)).toBeNull()
+      expect(holder.lockedFiles).toEqual(['a.txt'])
+      const reply = JSON.stringify(await edit(editor))
+      expect(reply).toContain('is also editing a.txt right now')
+    } finally {
+      config.settings.agents.fileLocks = was
+      for (const id of ['lh', 'le']) {
+        s.live.delete(`${proj.toLowerCase()}#${id}`)
+        s.runs.delete(`run-${id}`)
+      }
+      for (const [k, v] of s.locks) if (v.liveId.endsWith('#lh') || v.liveId.endsWith('#le')) s.locks.delete(k)
     }
   })
 })

@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef } from 'react'
 import type { ProjectInfo, SessionListItem } from '@shared/types'
 import { PROVIDERS, isProviderEnabled } from '@shared/providers'
+import { usesOwnPrices } from '@shared/prices'
 import { PERIODS, activeIn, costText, periodFrom, stackedDaily, sumUsage, totalTokens, type DayTotal, type UsageGroup } from '@shared/usageTotals'
 import { call, errorMessage } from '../api'
 import { selectProject } from '../actions'
@@ -316,7 +317,7 @@ export function WorkspaceOverviewView() {
               </h2>
               <div className="cards">
                 <Card title="Tokens" value={formatTokens(totalTokens(t))} sub={`${formatTokens(t.output)} output`} />
-                <Card title="API-equivalent cost" value={costText(t)} sub={t.unpriced ? `${t.unpriced} without a price` : !t.estimated ? 'as reported' : p.capabilities.reportsCost ? 'partly estimated' : 'estimated'} tip={COST_TIP} />
+                <Card title="API-equivalent cost" value={costText(t)} sub={t.unpriced ? `${t.unpriced} without a price` : !t.estimated ? 'as reported' : p.capabilities.reportsCost && !usesOwnPrices(p.id, settings) ? 'partly estimated' : 'estimated'} tip={COST_TIP} />
                 <Card title="Sessions" value={t.sessions} sub={`${formatNumber(t.prompts)} prompts`} />
               </div>
               <PlanLimits provider={p.id} />

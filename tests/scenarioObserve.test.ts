@@ -507,6 +507,68 @@ describe('a trial the environment stops (trialEnvironment)', () => {
     expect(trialEnvironment({})).toBeNull()
   })
 
+  // #577: Claude Code 2.1.296 with an OAuth session it couldn't refresh printed this and exited with 1 at launch.
+  describe('a CLI that exits at launch (launchEnded)', () => {
+    const { launchEnded, startFailureIn, claudeAuthStatus, parseAuthStatus } = require('./scenarios/harness.cjs') as {
+      launchEnded: (o: { screen?: string; reason?: string; auth?: { loggedIn?: boolean } | null }) => { environment?: string; error?: string }
+      startFailureIn: (file: string) => string
+      claudeAuthStatus: (file: string, agentId: string, env: { CLAUDE_CONFIG_DIR?: string }) => { loggedIn?: boolean } | null
+      parseAuthStatus: (out: string) => { loggedIn?: boolean } | null
+    }
+    const { mkdirSync, writeFileSync } = require('fs') as typeof import('fs')
+    const { dirname, join } = require('path') as typeof import('path')
+    const OAUTH = 'Failed to authenticate: OAuth session expired and could not be refreshed'
+
+    it('its last screen or the reason Hive gives: skipped for the environment, with the sign-in advice', () => {
+      const why = launchEnded({ screen: `Claude Code ${OAUTH}` }).environment
+      expect(why).toMatch(/^not signed in: /)
+      expect(environmentAdvice(why!, 'claude-code')).toMatch(/^sign in to Claude Code's test home .*, by hand$/)
+      expect(launchEnded({ reason: OAUTH }).environment).toMatch(/^not signed in: /)
+    })
+
+    it('nothing seen, but its auth status says it is signed out: skipped too', () => {
+      expect(launchEnded({ auth: { loggedIn: false } }).environment).toMatch(/^not signed in: its auth status/)
+      expect(launchEnded({ screen: 'Claude Code', auth: { loggedIn: false } }).environment).toMatch(/^not signed in: its auth status/)
+    })
+
+    it('a concrete launch failure stays an error even when the test home is signed out too, from Hive or the screen', () => {
+      const bad = "error: option '--model <model>' argument 'x' is invalid."
+      expect(launchEnded({ reason: bad, auth: { loggedIn: false } })).toEqual({ error: `the session ended at launch: ${bad}` })
+      expect(launchEnded({ screen: `Claude Code ${bad}`, auth: { loggedIn: false } })).toEqual({ error: `the session ended at launch: ${bad}` })
+      expect(launchEnded({ screen: 'Claude Code Cannot find module node:sqlite', auth: { loggedIn: true } })).toEqual({ error: 'the session ended at launch: Cannot find module node:sqlite' })
+    })
+
+    it("reads auth status as Claude Code prints it: indented JSON, signed in or not", () => {
+      expect(parseAuthStatus('{\n  "loggedIn": true,\n  "authMethod": "claude.ai"\n}\n')).toEqual({ loggedIn: true, authMethod: 'claude.ai' })
+      expect(parseAuthStatus('{\r\n  "loggedIn": false,\r\n  "authMethod": "none"\r\n}\r\n')).toEqual({ loggedIn: false, authMethod: 'none' })
+      expect(parseAuthStatus('')).toBeNull()
+      expect(parseAuthStatus('not json')).toBeNull()
+    })
+
+    it("asks the CLI Hive started, and keeps its answer when it exits with 1 signed out (the fake, in a test home)", () => {
+      const dir = tempDir('hive-auth-status-')
+      const home = join(dir, 'home')
+      mkdirSync(home)
+      const log = join(dir, 'hive.log')
+      writeFileSync(log, `2026-10-11T08:24:30.000Z [INFO] [pty] spawn \u2068session:c:\\x\\alpha#a-1\u2069: ${join(process.cwd(), 'tests', 'e2e', 'fake-claude', 'fake-claude.cmd')} ["--session-id","x"]\n`)
+      expect(claudeAuthStatus(log, 'a-1', { CLAUDE_CONFIG_DIR: home })).toMatchObject({ loggedIn: true })
+      writeFileSync(join(home, 'fake-signin.json'), JSON.stringify({ expired: true, atLaunch: true }))
+      expect(claudeAuthStatus(log, 'a-1', { CLAUDE_CONFIG_DIR: home })).toMatchObject({ loggedIn: false })
+      expect(claudeAuthStatus(log, 'a-2', { CLAUDE_CONFIG_DIR: home })).toBeNull()
+    }, 30000)
+
+    it('anything else is an error at once, saying what it showed', () => {
+      expect(launchEnded({ reason: "error: option '--model <model>' argument 'x' is invalid.", auth: { loggedIn: true } })).toEqual({ error: "the session ended at launch: error: option '--model <model>' argument 'x' is invalid." })
+      expect(launchEnded({})).toEqual({ error: 'the session ended at launch' })
+    })
+
+    it("reads the reason from Hive's log", () => {
+      const log = join(tempDir('hive-start-failure-'), 'hive.log')
+      writeFileSync(log, `2026-10-11T08:24:30.000Z [INFO] [pty] spawn x\n2026-10-11T08:24:33.000Z [WARN] [sessions] ⁨alpha · Coder⁩: exited with code 1 before it started: ⁨${OAUTH}⁩\n`)
+      expect(startFailureIn(log)).toBe(OAUTH)
+      expect(startFailureIn(join(dirname(log), 'none.log'))).toBe('')
+    })
+  })
   // Claude Code's transcript read as Hive reads it (its parser), then the notices the harness takes as the CLI's (#342):
   // a background task's summary or a command's output may talk about an expired sign-in or a limit without one.
   describe("the CLI's own notices, not what it relays (cliNotices, #342)", () => {
@@ -637,6 +699,41 @@ describe("the scenarios' simulated wake", () => {
   it("ends with Hive's own lanes-running tail", async () => {
     const { LANES_RUNNING_TAIL } = await import('../src/shared/watch')
     expect(helpers.LANES_RUNNING_TAIL).toBe(LANES_RUNNING_TAIL)
+  })
+})
+
+// A decision put to the user counts without a "?" (#566): Codex once ended a plan with "Please choose the export target".
+describe('mode-*-plans: a decision put to the user', () => {
+  const sc = SCENARIOS.find((x) => x.id === 'mode-coordinator-plans')!
+  const ctx = { ws: 'no-such-workspace' }
+  const outcome = (finalReply: string, descriptions: string[] = []) => ({
+    hiveCalls: descriptions.map((description) => ({ tool: 'hive_create_task', ok: true, args: JSON.stringify({ title: 'Export', description }) })),
+    finalReply
+  })
+  const check = (o: unknown, name: string) => sc.expect(o, ctx).find(([n]) => n.startsWith(name))![1]
+  const CODEX = 'Please choose the export target and contents above. I recommend all unarchived cards with ID, title, column, agent, labels and blockers. No cards or agents have been started.'
+
+  it('a request to choose, with no cards, is asking first and surfaces the decision', () => {
+    expect(check(outcome(CODEX), 'wrote cards for alpha, or asked first')).toBe(true)
+    expect(check(outcome(CODEX), 'surfaced a decision')).toBe(true)
+    expect(check(outcome('Let me know which columns you want in the file.'), 'surfaced a decision')).toBe(true)
+    expect(check(outcome('Done.', ['Export the board. Open: I need your decision on the delimiter before this starts.']), 'surfaced a decision')).toBe(true)
+  })
+
+  it('a question still counts; a reply that puts nothing to the user does not', () => {
+    expect(check(outcome('Which format should the export use?'), 'surfaced a decision')).toBe(true)
+    expect(check(outcome('No cards or agents have been started.'), 'wrote cards for alpha, or asked first')).toBe(false)
+    expect(check(outcome('Planned it. Let me know if you need anything else.'), 'surfaced a decision')).toBe(false)
+  })
+
+  it('a polite closing is not a decision, in the reply or on a card', () => {
+    for (const closing of ['Planned it. Please let me know if you need anything else.', 'Please tell me if anything is unclear.', 'Please let me know what else you need.', 'Let me know what you think.']) {
+      expect(check(outcome(closing), 'wrote cards for alpha, or asked first')).toBe(false)
+      expect(check(outcome(closing), 'surfaced a decision')).toBe(false)
+      expect(check(outcome('Done.', [`Export the board to CSV from the board's menu, done when the file opens in Excel. ${closing}`]), 'surfaced a decision')).toBe(false)
+    }
+    expect(check(outcome('Please let me know which delimiter to use.'), 'surfaced a decision')).toBe(true)
+    expect(check(outcome('Done.', ['Export the board to CSV. Tell me whether archived cards belong in it before this starts.']), 'surfaced a decision')).toBe(true)
   })
 })
 

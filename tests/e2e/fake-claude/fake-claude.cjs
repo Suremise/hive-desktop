@@ -45,9 +45,11 @@
 // - Ctrl+C twice, or "/exit", ends it with SessionEnd.
 // - With fake-signin.json in CLAUDE_CONFIG_DIR saying { "expired": true } (read each time; one test home, so one sign-in
 //   for all its agents, #309), it acts out an expired sign-in as Claude Code 2.1.291 does: `auth status --json` says
-//   it isn't logged in, and each prompt's turn ends at once with "Login expired · Please run /login" and a StopFailure
+//   it isn't logged in (indented JSON, exit 1, as 2.1.296 does), and each prompt's turn ends at once with "Login expired · Please run /login" and a StopFailure
 //   hook (error authentication_failed) instead of Stop. "/login" typed in it signs in (the file says expired: false)
 //   and carries the failed turn on by itself, as Claude Code did: a tool call (PostToolUse), then the reply and Stop.
+//   With "atLaunch": true as well, it stops before its session starts, as Claude Code 2.1.296 did with an OAuth session
+//   it couldn't refresh: "Failed to authenticate: OAuth session expired and could not be refreshed", exit 1 (#577).
 // - `--model fail-start` makes it refuse to start, printing an error and exiting with 1, as Claude Code does for an
 //   argument it rejects.
 // - `-p --input-format stream-json` answers the Agent SDK's initialize control request with Claude Code 2.1.289's
@@ -75,9 +77,21 @@ function signedOut() {
     return false
   }
 }
+/** The expired sign-in stops it at launch (fake-signin.json { "expired": true, "atLaunch": true }, #577). */
+function expiredAtLaunch() {
+  try {
+    const s = JSON.parse(fs.readFileSync(path.join(process.env.CLAUDE_CONFIG_DIR || '', 'fake-signin.json'), 'utf8'))
+    return s.expired === true && s.atLaunch === true
+  } catch {
+    return false
+  }
+}
+// As Claude Code prints it: indented JSON, and exit 1 when it isn't logged in (#577).
 if (args[0] === 'auth') {
-  console.log(JSON.stringify(signedOut() ? { loggedIn: false, authMethod: 'none' } : { loggedIn: true, authMethod: 'claude.ai' }))
-  process.exit(0)
+  const out = signedOut()
+  console.log(JSON.stringify(out ? { loggedIn: false, authMethod: 'none' } : { loggedIn: true, authMethod: 'claude.ai' }, null, 2))
+  process.stdout.write('', () => process.exit(out ? 1 : 0))
+  return
 }
 /** fake-models.json in the test home ({ haikuAuto }), or null (#234). */
 function fakeModels() {
@@ -599,6 +613,13 @@ async function main() {
     trustMenu = null
     if (!yes) process.exit(1)
     fs.writeFileSync(trustFile, JSON.stringify([...trusted, cwd.toLowerCase()]))
+  }
+  // An OAuth session that expired and can't be refreshed: Claude Code says so and exits with 1 before its session
+  // starts (#577, as 2.1.296 did).
+  if (expiredAtLaunch()) {
+    out('Failed to authenticate: OAuth session expired and could not be refreshed\r\n')
+    process.stdout.write('', () => process.exit(1))
+    return
   }
   // --name: Claude Code keeps it as the session's name (a custom title, as /rename does).
   if (opts['--name']) write({ type: 'custom-title', customTitle: opts['--name'] })

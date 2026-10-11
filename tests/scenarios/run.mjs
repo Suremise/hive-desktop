@@ -6,6 +6,7 @@
 //   npm run scenarios -- --provider claude-code --model haiku --budget 2      # model trials (opt-in, cost tokens)
 //   npm run scenarios -- --provider codex --model gpt-5.6-luna --only work-on-card,review-card
 //   npm run scenarios -- --only work-on-card --signed-out   # the fake signed out: the trial is skipped for the environment
+//   npm run scenarios -- --only work-on-card --signed-out=launch   # its OAuth expired: it exits at launch, skipped too
 //
 // A trial that Hive shows waiting for a sign-in, or whose CLI says it hit a limit or can't reach its API, is skipped for
 // the environment at once (no checks failed, no cost), and so are the provider's other trials, said once (#302).
@@ -80,7 +81,8 @@ if (!PROVIDERS[provider]) {
   process.exit(2)
 }
 // The fake Claude Code acting out an expired sign-in: to check that a trial the environment stops is skipped (#302).
-const signedOut = argv.includes('--signed-out')
+// --signed-out=launch: its OAuth session can't be refreshed, so it exits before its session starts (#577).
+const signedOut = argv.includes('--signed-out=launch') ? 'launch' : argv.includes('--signed-out')
 if (signedOut && provider !== 'fake') {
   console.error('--signed-out is for the fake Claude Code (--provider fake) only: a real CLI is never signed out from here.')
   process.exit(2)

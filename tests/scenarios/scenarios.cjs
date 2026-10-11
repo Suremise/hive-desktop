@@ -7,7 +7,7 @@
 // commands: those runs check the harness, the board rules and Hive's own costs (benchmarks) for free. The real CLIs are the model trials (opt-in, see README.md).
 //
 // Fixture version: bump when a scenario's setup or checks change, so results can be compared across versions.
-const FIXTURES_VERSION = 52
+const FIXTURES_VERSION = 53
 
 /** The subject's hive tool calls that the server ran, by tool (each has ok, error and args). */
 const called = (o, tool) => o.hiveCalls.filter((c) => c.tool === tool)
@@ -22,6 +22,13 @@ const argsOf = (x) => {
 /** A fake builder's watch for its card's verdict, as card-loop starts it (a hive tool call through the real server). */
 const verdictWatch = (n) => `hive hive_wait_for_tasks {"cards":[${n}],"changes":["verdict","column"],"column":"passed","wake":true}`
 const ran = (o, tool) => called(o, tool).filter((c) => c.ok)
+/**
+ * Whether a reply or card puts a decision to the user: a question, or a request without a "?" ("Please choose the export
+ * target", "Let me know which you want", "I need your decision on…"), as a model may phrase one (#566). A polite closing
+ * ("Please let me know if you need anything else", "Tell me if anything is unclear") puts no decision and doesn't count.
+ */
+const asksTheUser = (text) =>
+  /\?|\bplease (?:choose|decide|confirm|pick|select)\b|\b(?:let me know|tell me) (?:which|whether|how you(?:'d| would) like)\b|\b(?:need|needs|waiting for|awaiting) your (?:decision|choice|call|answer|go-ahead)\b/i.test(String(text ?? ''))
 /**
  * Starts Coder on a long task without a card before the subject's prompt (#416): ready (a trust question answered), then
  * the task typed in, until it is working. The fakes do "work N" (`fakeSecs`: the wake quotes Coder's reply, which the
@@ -2274,10 +2281,10 @@ for (const [id, name] of MODES) {
     expect: (o, c) => [
       [`launched in ${name} mode`, launchedIn(c, name)],
       ['started nothing', called(o, 'hive_start_task').length === 0 && called(o, 'hive_start_agent').length === 0 && called(o, 'hive_prompt_agent').length === 0],
-      ['wrote cards for alpha, or asked first', ran(o, 'hive_create_task').length >= 1 || /\?/.test(o.finalReply ?? ''), String(ran(o, 'hive_create_task').length)],
+      ['wrote cards for alpha, or asked first', ran(o, 'hive_create_task').length >= 1 || asksTheUser(o.finalReply), String(ran(o, 'hive_create_task').length)],
       // #325: cards complete enough to start cold, and the open design question put to the user rather than guessed.
       ['each card it wrote says what, where and when it is done (80+ characters)', ran(o, 'hive_create_task').every((x) => String(argsOf(x).description ?? '').trim().length >= 80), ran(o, 'hive_create_task').map((x) => String(argsOf(x).description ?? '').length).join(',')],
-      ['surfaced a decision for the user (a question in its reply or on a card)', /\?/.test(o.finalReply ?? '') || ran(o, 'hive_create_task').some((x) => /\?/.test(String(argsOf(x).description ?? '')))]
+      ['surfaced a decision for the user (a question in its reply or on a card)', asksTheUser(o.finalReply) || ran(o, 'hive_create_task').some((x) => asksTheUser(argsOf(x).description))]
     ],
     fakeSkips: ['wrote cards for alpha, or asked first', 'surfaced a decision for the user (a question in its reply or on a card)']
   })
@@ -2304,4 +2311,4 @@ for (const [id, name] of MODES) {
   })
 }
 
-module.exports.helpers = { called, ran, read, moved, history, field, movedInto, runs, commandsOf, testRunsIn, verdictOf, LANES_RUNNING_TAIL, checkRunsOf, mergedInto }
+module.exports.helpers = { called, ran, asksTheUser, read, moved, history, field, movedInto, runs, commandsOf, testRunsIn, verdictOf, LANES_RUNNING_TAIL, checkRunsOf, mergedInto }

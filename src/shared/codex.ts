@@ -57,6 +57,7 @@ export const CODEX_DESCRIPTOR: ProviderDescriptor = {
   cliName: 'codex',
   icon: 'codex',
   setupUrl: 'https://developers.openai.com/codex/cli',
+  pricingUrl: 'https://openai.com/api/pricing/',
   permissionModes: CODEX_PERMISSION_MODES,
   defaultPermissionMode: 'approve-for-me',
   assistantMode: 'approve-for-me',

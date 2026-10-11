@@ -53,8 +53,8 @@ describe('the settings catalog', () => {
       }
       if (section === 'providers') {
         for (const p of PROVIDERS) {
-          // A setting the provider's capabilities don't give it has no row (Codex has no 200K switch).
-          const lacks = new Set([...(p.capabilities.contextLimit ? [] : ['use200kContext']), ...(p.capabilities.backgroundSessions ? [] : ['allowBackgroundSessions'])])
+          // A setting the provider's capabilities don't give it has no row (Codex has no 200K switch, nor a cost source: it reports no cost).
+          const lacks = new Set([...(p.capabilities.contextLimit ? [] : ['use200kContext']), ...(p.capabilities.backgroundSessions ? [] : ['allowBackgroundSessions']), ...(p.capabilities.reportsCost ? [] : ['costSource'])])
           for (const key of Object.keys(defaultProviderSettings(p))) if (!PROVIDER_INTERNAL.has(key) && !lacks.has(key) && !ids.has(`${p.id}.${key}`)) missing.push(`${p.id}.${key}`)
         }
         continue

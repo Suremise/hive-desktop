@@ -9,7 +9,7 @@ import { parseCodexModels } from '../src/main/providers/codex/models'
 import { catalogLabel, catalogModel, chosenName, effortText, fallbackEfforts, fallbackModels, modelCaps, modelGroups, modelSource, modelSourceText, shippedModels } from '../src/shared/models'
 import { modeCaveat } from '../src/shared/providers'
 import { agentModelShown, effectiveModelLabel, effortLabel } from '../src/shared/defaults'
-import { modelPrice, priceRows } from '../src/shared/prices'
+import { listedPriceModels, modelPrice, priceRows, usesOwnPrices } from '../src/shared/prices'
 import { config } from '../src/main/config'
 import type { AgentInstallInfo, AppSettings, ModelCatalog, ProviderSettings } from '../src/shared/types'
 
@@ -292,6 +292,51 @@ describe('prices: editable defaults, with models added and removed', () => {
     const rows = priceRows('codex', s)
     expect(rows.map((r) => r.model)).not.toContain('gpt-5.5')
     expect(rows.at(-1)).toMatchObject({ model: 'gpt-7', shipped: false, edited: true })
+  })
+})
+
+describe("price tables follow the CLI's model list (#436)", () => {
+  it("lists the CLI's models by the ids the table uses: an alias by the id it stands for, a dated id without its date", () => {
+    const listed = listedPriceModels('claude-code', claude)!
+    expect(listed).toContain('claude-opus-5-5')
+    // haiku → claude-haiku-4-5-20251001 in this reply.
+    expect(listed).toContain('claude-haiku-4-5')
+    expect(listed).not.toContain('opus')
+    expect(listedPriceModels('codex', null)).toBeNull()
+  })
+
+  // A CLI update adds a model Hive has no price for.
+  const newer = { ...codex, models: [...codex.models, { value: 'gpt-reserve', label: 'GPT Reserve' }] }
+
+  it('a listed model with no price is a row to enter one; a priced one the CLI no longer lists stays, marked', () => {
+    expect(listedPriceModels('codex', codex)).not.toContain('gpt-reserve')
+    const rows = priceRows('codex', settingsWith('codex', {}), listedPriceModels('codex', newer))
+    expect(rows.find((r) => r.model === 'gpt-reserve')).toEqual({ model: 'gpt-reserve', price: null, shipped: false, edited: false, listed: true })
+    expect(rows.find((r) => r.model === 'gpt-6.1-sol')).toMatchObject({ shipped: true, listed: true })
+    expect(rows.find((r) => r.model === 'gpt-5.3-codex')).toMatchObject({ shipped: true, listed: false })
+    // Each model once, the unpriced ones after the priced.
+    expect(new Set(rows.map((r) => r.model)).size).toBe(rows.length)
+    expect(rows.findIndex((r) => !r.price)).toBeGreaterThan(rows.findLastIndex((r) => r.price))
+  })
+
+  it("a price entered for a listed model makes it the user's row; without a list nothing is marked", () => {
+    const s = settingsWith('codex', { prices: { 'gpt-reserve': { input: 1, cachedInput: 0.1, output: 2 } } })
+    const rows = priceRows('codex', s, listedPriceModels('codex', newer))
+    expect(rows.filter((r) => r.model === 'gpt-reserve')).toEqual([{ model: 'gpt-reserve', price: { input: 1, cachedInput: 0.1, output: 2 }, shipped: false, edited: true, listed: true }])
+    expect(priceRows('codex', s).every((r) => r.listed === null && r.price)).toBe(true)
+  })
+
+  it("Claude Code's model removed by the user but still listed shows to enter a price again", () => {
+    const rows = priceRows('claude-code', settingsWith('claude-code', { pricesRemoved: ['claude-opus-5-5'] }), listedPriceModels('claude-code', claude))
+    expect(rows.filter((r) => r.model === 'claude-opus-5-5')).toEqual([{ model: 'claude-opus-5-5', price: null, shipped: false, edited: false, listed: true }])
+  })
+
+  it('the choice of cost source is only for a provider that reports its cost (the descriptor), and the report by default', () => {
+    expect(usesOwnPrices('claude-code', settingsWith('claude-code', {}))).toBe(false)
+    expect(usesOwnPrices('claude-code', settingsWith('claude-code', { costSource: 'prices' }))).toBe(true)
+    expect(usesOwnPrices('copilot', settingsWith('copilot', { costSource: 'prices' }))).toBe(true)
+    // Codex has no report: its table is the only source anyway, so there is no choice to make.
+    expect(usesOwnPrices('codex', settingsWith('codex', { costSource: 'prices' }))).toBe(false)
   })
 })
 
