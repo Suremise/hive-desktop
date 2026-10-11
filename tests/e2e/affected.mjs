@@ -76,6 +76,8 @@ export const AREAS = [
   { paths: ['tests/e2e/codexDiagnostics.cjs'], suites: ['codex-background'] },
   { paths: ['src/main/ptyHost.ts', 'src/main/sessions.ts'], suites: ['stopswitch', 'replysize', 'quit', 'copilotsize', 'termsize'] },
   { paths: ['src/main/agentProcesses.ts', 'src/main/launchGate.ts', 'src/main/ptyHost.ts', 'src/shared/agentProcesses.ts', 'src/main/sessions.ts', 'tests/e2e/fake-claude/linger.cjs'], suites: ['leftovers'] },
+  // The real CLIs' background processes (#515): only when what tracks them changes, not with every sessions.ts change.
+  { paths: ['src/main/agentProcesses.ts', 'src/main/launchGate.ts'], suites: ['leftovers-claude', 'leftovers-codex'] },
   { paths: ['src/main/agentTokens.ts'], suites: ['boardscope', 'review', 'progress', 'progressreport', 'cardloop', 'replysize'] },
   { paths: ['src/main/assistantControl.ts', 'src/main/taskBatch.ts', 'src/shared/assistant.ts', 'src/shared/assistantTools.ts', 'src/main/personas.ts', 'src/renderer/src/components/Assistant.tsx', 'src/renderer/src/components/AssistantMark.tsx', 'src/renderer/src/components/AssistantView.tsx', 'src/renderer/src/components/Personas.tsx'], suites: ['assistantside', 'assistant', 'assistant-control', 'assistantend', 'assistantimages', 'tipcorner', 'replysize', 'claude-real', 'assistantoverview', 'assistantbatch', 'assistantcompact', 'assistantsettings', 'assistantmode', 'cardchip', 'assistantpanel'] },
   { paths: ['src/main/installDir.ts'], suites: ['installdir'] },
@@ -104,11 +106,11 @@ export const AREAS = [
   // Models and capabilities from the CLIs, and their fallbacks (#125).
   { paths: ['src/shared/models.ts', 'tests/fixtures/claude-initialize.json', 'tests/fixtures/codex-debug-models.json'], suites: ['models', 'assistant', 'footerfit', 'agents-ui', 'automode'] },
   { paths: ['src/main/power.ts', 'src/shared/keepAwake.ts'], suites: ['quitwait', 'quit'] },
-  { paths: ['src/main/progress.ts', 'src/main/progressService.ts', 'src/shared/progress.ts', 'src/renderer/src/components/Progress.tsx', 'src/renderer/src/components/ShowAllList.tsx'], suites: ['progress', 'progresslanes', 'progressreport', 'replysize'] },
-  { paths: ['src/renderer/src/components/ProgressLanes.tsx', 'src/renderer/src/components/ProgressMerge.tsx', 'src/renderer/src/laneSource.ts', 'src/shared/laneBar.ts'], suites: ['progresslanes'] },
+  { paths: ['src/main/progress.ts', 'src/main/progressService.ts', 'src/shared/progress.ts', 'src/renderer/src/components/Progress.tsx', 'src/renderer/src/components/ShowAllList.tsx'], suites: ['progress', 'progresslanes', 'progressreport', 'progressstates', 'replysize'] },
+  { paths: ['src/renderer/src/components/ProgressLanes.tsx', 'src/renderer/src/components/ProgressMerge.tsx', 'src/renderer/src/laneSource.ts', 'src/shared/laneBar.ts'], suites: ['agentstable', 'progresslanes'] },
   // The shared list's other user: the Assistant's "Done by the Assistant" (#312).
   { paths: ['src/renderer/src/components/ShowAllList.tsx'], suites: ['assistantpanel'] },
-  { paths: ['src/main/progressReporters/'], suites: ['progressreport', 'packaged-progress'] },
+  { paths: ['src/main/progressReporters/'], suites: ['progressreport', 'progressstates', 'packaged-progress'] },
   { paths: ['src/main/projectAgents.ts'], suites: ['agents', 'agents-ui', 'reorder', 'pages', 'unmerged', 'removeall', 'mergeslot'] },
   { paths: ['src/main/mergeSlots.ts', 'src/main/mergeSlotHost.ts', 'src/shared/mergeSlot.ts', 'src/renderer/src/components/MergeSlots.tsx'], suites: ['mergeslot', 'progresslanes', 'replysize'] },
   // Lanes (#483): the card loop registers its lane; replysize measures hive_lane; the Progress panel shows them (#484).
@@ -150,7 +152,8 @@ export const AREAS = [
   // Recent workspaces (#144).
   { paths: ['src/main/recentWorkspaces.ts'], suites: ['recent', 'windows'] },
   { paths: ['src/renderer/src/components/Resizer.tsx'], suites: ['resize', 'progress'] },
-  { paths: ['src/renderer/src/components/Sidebar.tsx'], suites: ['rail', 'windows', 'contrast'] },
+  { paths: ['src/renderer/src/components/Sidebar.tsx'], suites: ['agentstable', 'cardchip', 'rail', 'windows', 'contrast'] },
+  { paths: ['src/renderer/src/components/AgentsTable.tsx', 'src/shared/agentTable.ts'], suites: ['agentstable', 'cardchip'] },
   { paths: ['src/renderer/src/components/Tips.tsx', 'src/renderer/src/tips.ts', 'src/shared/tips.ts', 'src/shared/corner.ts', 'docs/USER_GUIDE.md'], suites: ['tips', 'tipcorner'] },
   { paths: ['src/renderer/src/tips.ts', 'src/shared/tips.ts'], suites: ['tipwindows'] },
   { paths: ['src/renderer/src/startupReplay.ts'], suites: ['tips', 'tipwindows', 'skillprefs', 'sessiontree'] },
@@ -161,7 +164,7 @@ export const AREAS = [
   { paths: ['src/renderer/src/views/OtherViews.tsx'], suites: ['about', 'skills', 'drafts', 'windows', 'recent', 'welcomefit'] },
   { paths: ['src/renderer/src/views/ProjectTabs.tsx'], suites: ['overview', 'taskoverview', 'skillaudience', 'numbers', 'storage', 'unpricedcost', 'changes', 'changespicker', 'unusedwt'] },
   { paths: ['src/renderer/src/components/DataTable.tsx', 'src/shared/tableView.ts'], suites: ['overview', 'ctxpercent', 'performance', 'perftable', 'boardarchive'] },
-  { paths: ['src/renderer/src/views/ProjectView.tsx'], suites: ['agents-ui', 'resumeall', 'paneheader', 'rail', 'tabstrip', 'startall', 'narrowmain', 'removeall', 'defaultprovider'] },
+  { paths: ['src/renderer/src/views/ProjectView.tsx'], suites: ['agents-ui', 'agentstable', 'resumeall', 'paneheader', 'rail', 'tabstrip', 'startall', 'narrowmain', 'removeall', 'defaultprovider'] },
   { paths: ['src/renderer/src/views/SettingsView.tsx'], suites: ['numbers', 'keys', 'providers', 'context', 'models', 'assistantsettings'] },
   { paths: ['src/shared/settingsCatalog.ts', 'src/main/settingsTools.ts'], suites: ['assistantsettings', 'numbers', 'replysize', 'providers', 'context'] },
   { paths: ['src/renderer/src/views/WorkspaceOverview.tsx'], suites: ['wsoverview', 'taskoverview', 'cardchip', 'unpricedcost'] },

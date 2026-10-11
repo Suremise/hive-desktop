@@ -824,6 +824,63 @@ kbd {
 .rail-tip strong {
   display: block;
 }
+/* A project's agents as a table (#529): wider than a plain tooltip, never scrolling inside; long cells cut to one line.
+   Styled as the Load template dialog's table (.table, #511), tighter. Each column may take at most its share of the room
+   the tooltip has (--agents-room: its width less padding, the dots and the cells' padding), so all four always fit, at
+   any window width and zoom; below that a column is as wide as its longest cell. */
+.tip.agents-tip {
+  --agents-room: calc(min(760px, 100vw - 16px) - 120px);
+  max-width: min(760px, calc(100vw - 16px));
+}
+.rail-tip .agents-table {
+  margin-top: 6px;
+}
+.table.agents-table {
+  width: auto;
+  font-size: 12px;
+}
+.table.agents-table th {
+  padding: 2px 8px 3px;
+  font-size: 10.5px;
+}
+.table.agents-table td {
+  padding: 3px 8px;
+  white-space: nowrap;
+}
+.table.agents-table th:first-child,
+.table.agents-table td:first-child {
+  padding-left: 0;
+}
+.table.agents-table tr:hover td {
+  background: none;
+}
+.table.agents-table tbody tr:last-child td {
+  border-bottom: none;
+}
+.agents-table-name {
+  font-weight: 600;
+  color: var(--fg-strong);
+}
+.agents-table-name .dot {
+  display: inline-block;
+  margin-right: 6px;
+  vertical-align: middle;
+}
+.agents-table tr.off td {
+  color: var(--fg-muted);
+}
+.agents-table-cut > span {
+  display: block;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  max-width: min(220px, calc(var(--agents-room) * 0.24));
+}
+.agents-table-name > span {
+  max-width: min(160px, calc(var(--agents-room) * 0.16));
+}
+.agents-table-card > span {
+  max-width: min(300px, calc(var(--agents-room) * 0.36));
+}
 
 /* ---------- Status dots ---------- */
 .dot {
@@ -7331,7 +7388,8 @@ textarea.input.task-blocked-input {
 .progress-run.stale {
   border-color: var(--warning);
 }
-.progress-run.passed {
+.progress-run.passed,
+.progress-run.stopped {
   animation: progress-fade 10s ease-in forwards;
 }
 @keyframes progress-fade {
@@ -7407,6 +7465,11 @@ button.progress-run-show:focus-visible {
 .progress-stale {
   color: var(--warning);
 }
+/* Stopped (#549): interrupted, or ended without a report: neither passed nor a fault, so muted. */
+.progress-stopped,
+.progress-waiting-icon {
+  color: var(--fg-muted);
+}
 .progress-bar {
   height: 6px;
   border-radius: 3px;
@@ -7427,6 +7490,16 @@ button.progress-run-show:focus-visible {
 }
 .progress-run.stale .progress-bar > div {
   background: var(--warning);
+}
+.progress-run.stopped .progress-bar > div {
+  background: var(--fg-faint);
+}
+/* Waiting (#549): still diagonal hatching across the bar, no fill: it hasn't started. */
+.progress-bar.waiting > div,
+.progress-mini.waiting > span {
+  background: repeating-linear-gradient(-45deg, var(--fg-faint) 0 3px, transparent 3px 7px);
+  opacity: 0.7;
+  transition: none;
 }
 .progress-bar.indeterminate > div {
   animation: progress-slide 1.4s ease-in-out infinite;
@@ -7620,6 +7693,9 @@ button.progress-run-show:focus-visible {
 .progress-recent.stale > .tip-wrap > .codicon {
   color: var(--warning);
 }
+.progress-recent.stopped > .tip-wrap > .codicon {
+  color: var(--fg-muted);
+}
 .progress-rail {
   flex-shrink: 0;
   width: 28px;
@@ -7672,6 +7748,9 @@ button.progress-run-show:focus-visible {
 .progress-mini.stale > span {
   background: var(--warning);
 }
+.progress-mini.stopped > span {
+  background: var(--fg-faint);
+}
 .progress-mini.indeterminate > span {
   animation: progress-rise 1.4s ease-in-out infinite;
 }
@@ -7703,7 +7782,8 @@ button.progress-run-show:focus-visible {
 @media (prefers-reduced-motion: reduce) {
   .progress-bar.indeterminate > div,
   .progress-mini.indeterminate > span,
-  .progress-run.passed {
+  .progress-run.passed,
+  .progress-run.stopped {
     animation: none;
   }
 }
@@ -7780,16 +7860,44 @@ button.progress-run-show:focus-visible {
   background: var(--border);
 }
 
-/* The Progress panel's bottom (#484): the lanes, pinned there and growing upward; past six (#512: a full team of six
-   pairs), the list scrolls, and sooner on a short panel (at most half of it, the bar always shown), so the runs above
-   stay readable. Folded, only its bar stays. */
+/* The Progress panel's bottom (#484): the lanes, pinned there and growing upward; past the lanes chosen (four by
+   default, #569; the list's max-height is set in whole lanes), the list scrolls, and sooner on a short panel (the bar
+   always shown; the runs keep their 72 px), so the runs above stay readable. Folded, only its bar stays. */
 .progress-lanes {
+  position: relative;
   flex: 0 1 auto;
   min-height: 28px;
-  max-height: 50%;
   display: flex;
   flex-direction: column;
   border-top: 1px solid var(--border-subtle);
+}
+/* Its top edge: drag up for more lanes, down for fewer (#569). A thin strip over the border, the accent when hovered,
+   dragged or focused. */
+.progress-lanes-edge {
+  position: absolute;
+  left: 0;
+  right: 0;
+  top: -4px;
+  height: 7px;
+  z-index: 2;
+  cursor: row-resize;
+  touch-action: none;
+}
+.progress-lanes-edge::after {
+  content: '';
+  position: absolute;
+  left: 0;
+  right: 0;
+  top: 3px;
+  height: 2px;
+}
+.progress-lanes-edge:hover::after,
+.progress-lanes-edge.dragging::after,
+.progress-lanes-edge:focus-visible::after {
+  background: var(--accent);
+}
+.progress-lanes-edge:focus-visible {
+  outline: none;
 }
 .progress-lanes-bar {
   flex-shrink: 0;
@@ -7827,7 +7935,6 @@ button.progress-run-show:focus-visible {
 .progress-lanes-list {
   flex: 0 1 auto;
   min-height: 0;
-  max-height: 366px;
   overflow-y: auto;
   overflow-x: hidden;
   overscroll-behavior: contain;

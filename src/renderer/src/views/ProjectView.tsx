@@ -9,7 +9,8 @@ import * as actions from '../actions'
 import { call } from '../api'
 import { commandKeybinding } from '../commands'
 import { AddAgentButton, AgentStrip, PANE_FOOTER, PANE_HEADER, PaneChrome, RESUME_TINT, ResumeButton, TerminalLayer, usePanes, useWidth } from '../components/AgentPanes'
-import { Icon, IconButton, STATUS_TEXT, statusText, Switch, Tooltip, useContextMenu } from '../components/ui'
+import { Icon, IconButton, STATUS_TEXT, Switch, Tooltip, useContextMenu } from '../components/ui'
+import { ProjectAgentsTable, useAgentsText } from '../components/AgentsTable'
 import { agentProviderOf, projectKey, projectState, set, setProjectTab, useFocusedAgent, useStore, type ProjectTab } from '../store'
 import { carriesFiles, cx, formatKeybinding } from '../util'
 import { FilesTab, ImagesTab } from './FilesTab'
@@ -216,6 +217,8 @@ export function ProjectView({ visible }: { visible: boolean }) {
   const narrow = headerWidth > 0 && headerWidth < 860
   const tight = headerWidth > 0 && headerWidth < 640
   const cramped = headerWidth > 0 && headerWidth < 460
+  // The status badge's table as text, for its accessible description (#529).
+  const agentsDescription = useAgentsText(project)
 
   if (!workspace) return null
 
@@ -311,13 +314,11 @@ export function ProjectView({ visible }: { visible: boolean }) {
         <div className="flex project-title">
           <h1 title={project.name}>{project.name}</h1>
           <Tooltip
-            content={
-              <span style={{ whiteSpace: 'pre-line' }}>
-                {project.agents.length ? project.agents.map((a) => `${a.name}: ${a.live ? statusText(a.live) : 'not running'}`).join('\n') : 'No agents yet'}
-              </span>
-            }
+            content={project.agents.length ? <ProjectAgentsTable project={project} /> : 'No agents yet'}
+            className={project.agents.length ? 'agents-tip' : undefined}
+            focus
           >
-            <span className={cx('badge', (combined?.status === 'working' || combined?.status === 'background') && 'accent', combined?.status === 'waiting' && 'warn', combined?.status === 'signin' && 'signin', combined?.status === 'finished' && 'success')}>
+            <span tabIndex={0} aria-description={agentsDescription || undefined} className={cx('badge', (combined?.status === 'working' || combined?.status === 'background') && 'accent', combined?.status === 'waiting' && 'warn', combined?.status === 'signin' && 'signin', combined?.status === 'finished' && 'success')}>
               <span className={cx('dot', combined?.status ?? 'idle')} /> {combined ? STATUS_TEXT[combined.status] : 'No session'}
               {many && inStatus > 0 && !tight && (
                 <span className="faint">
