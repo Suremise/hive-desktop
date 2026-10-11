@@ -152,8 +152,16 @@ async function runScenario(sc, providerKey, opts = {}) {
   const mcpLog = path.join(root, 'mcp-calls.jsonl')
   // The stand-in model for fake-copilot, on a port of its own; closed when the run ends.
   const modelLog = path.join(root, 'copilot-api.jsonl')
+  // Emptied first (with no evidence store: a caller of its own, like an e2e suite). Still in use (something an earlier
+  // run left running holds it, #542): this scenario fails, saying so, and the run goes on.
+  if (!opts.evidence) {
+    try {
+      fs.rmSync(root, { recursive: true, force: true, maxRetries: 3 })
+    } catch (e) {
+      return { scenario: sc.id, title: sc.title, provider: providerKey, model: opts.model ?? '(default)', role: sc.role ?? 'agent', checks: [], observed: null, usage: null, measures: null, seconds: 0, error: `its folder ${root} is still in use from an earlier run (${e.code ?? e.message}): something left running holds it` }
+    }
+  }
   const standIn = p.standIn ? await startFakeCopilotApi({ log: modelLog }) : null
-  if (!opts.evidence) fs.rmSync(root, { recursive: true, force: true })
   fs.mkdirSync(fakeHome, { recursive: true })
   if (providerKey === 'fake-codex') {
     fs.mkdirSync(fakeCodexHome, { recursive: true })
