@@ -1036,7 +1036,7 @@ describe("a project agent's board", () => {
   })
 
   it('authorises every write on the card as it is under its lock (a project change while a write waits)', async () => {
-    const { withFileLock } = await import('../src/main/fsutil')
+    const { fileLockDepth, withFileLock } = await import('../src/main/fsutil')
     const file = (x: number): string => join(wsPath, '.hive', 'tasks', `${x}.json`)
     // Someone (the user, the Assistant) moves the card to beta while the agent's write waits for the card.
     // Written as another copy of Hive from before project ids would (#508): without the id, which it doesn't keep.
@@ -1051,31 +1051,37 @@ describe("a project agent's board", () => {
     let reorder!: Promise<unknown>
     await withFileLock(file(c2), async () => {
       reorder = run(() => tasks.reorderTasks('todo', [c1, c2], alphaAgent))
-      await new Promise((r) => setTimeout(r, 150))
+      // Its checks passed and its write to c2 waits behind this lock (the first card is written meanwhile).
+      await expect.poll(() => fileLockDepth(file(c2)), { timeout: HUNG_MS }).toBe(2)
       toBeta(c2)
     })
     await expect(reorder).rejects.toThrow(`Unknown task #${c2}`)
     const after2 = await run(() => tasks.getTask(c2))
     expect(after2.order).toBe(before2.order)
     expect(after2.history).toEqual(before2.history)
-    // The first card in a reorder, an update and a comment, likewise.
-    const before1 = await run(() => tasks.getTask(c1))
-    // Each outcome is caught as it happens: they are refused together, once the card is free.
-    let pending: Promise<unknown>[] = []
-    await withFileLock(file(c1), async () => {
-      pending = [
-        run(() => tasks.reorderTasks('todo', [c1], alphaAgent)),
-        run(() => tasks.updateTask(c1, { column: 'review', blocked: 'mine' }, alphaAgent)),
-        run(() => tasks.commentTask(c1, 'mine', alphaAgent))
-      ].map((p) => p.then(() => 'written', (e: Error) => e.message))
-      await new Promise((r) => setTimeout(r, 150))
-      toBeta(c1)
-    })
-    expect(await Promise.all(pending)).toEqual(Array(3).fill(`Unknown task #${c1}`))
-    const after1 = await run(() => tasks.getTask(c1))
-    expect([after1.column, after1.blocked, after1.comments.length, after1.order]).toEqual(['todo', null, 0, before1.order])
-    expect(after1.history).toEqual(before1.history)
-    for (const x of [c1, c2]) await run(() => tasks.deleteTask(x))
+    // The first card in a reorder, an update and a comment, likewise: each on a card of its own, since a reorder and an
+    // update also take the board's lock (an update queued behind the reorder would only reach the card after the move).
+    const writes: [string, (x: number) => Promise<unknown>][] = [
+      ['reorder', (x) => run(() => tasks.reorderTasks('todo', [x], alphaAgent))],
+      ['update', (x) => run(() => tasks.updateTask(x, { column: 'review', blocked: 'mine' }, alphaAgent))],
+      ['comment', (x) => run(() => tasks.commentTask(x, 'mine', alphaAgent))]
+    ]
+    for (const [what, write] of writes) {
+      const x = (await run(() => tasks.createTask({ title: what, project: 'alpha' }, user))).number
+      const before = await run(() => tasks.getTask(x))
+      let outcome!: Promise<string>
+      await withFileLock(file(x), async () => {
+        // Caught as it happens: it is refused once the card is free.
+        outcome = write(x).then(() => 'written', (e: Error) => e.message)
+        // Its checks passed and its write waits behind this lock.
+        await expect.poll(() => fileLockDepth(file(x)), { timeout: HUNG_MS }).toBe(2)
+        toBeta(x)
+      })
+      expect([what, await outcome]).toEqual([what, `Unknown task #${x}`])
+      const after = await run(() => tasks.getTask(x))
+      expect([after.column, after.blocked, after.comments.length, after.order]).toEqual(['todo', null, 0, before.order])
+      expect(after.history).toEqual(before.history)
+    }
   })
 
   it('reads only the latest comment, as far as it may read the card', async () => {
@@ -1384,16 +1390,21 @@ describe('removal and board under faults', () => {
     const s = sessions as unknown as { start: (...a: unknown[]) => Promise<unknown> }
     const original = s.start
     let launches = 0
+    // The launch fails once the second Start has been refused: the first is still starting until then.
+    let fail: () => void = () => undefined
+    const failing = new Promise<void>((r) => (fail = r))
     s.start = async () => {
       launches++
-      await new Promise((r) => setTimeout(r, 50))
+      await failing
       throw new Error('Claude Code is required to run Agent 1.')
     }
     try {
       const first = run(() => startTask(c.number, { kind: 'new-agent', worktree: false }, user))
       await expect(run(() => startTask(c.number, { kind: 'new-agent', worktree: false }, user))).rejects.toThrow(/already being started/)
+      fail()
       await expect(first).rejects.toThrow(/required/)
     } finally {
+      fail()
       s.start = original
     }
     expect(launches).toBe(1)
@@ -1416,7 +1427,7 @@ describe('removal and board under faults', () => {
         const starting = run(() => startTask(c.number, { kind: 'agent', agentId: 'd1' }, user))
         const handled = expect(starting).rejects.toThrow(/launch failed/)
         // Taken (Doing, the agent's) before the launch; the user decides meanwhile; then the launch fails.
-        for (let i = 0; i < 50 && (await run(() => tasks.getTask(c.number))).column !== 'doing'; i++) await new Promise((r) => setTimeout(r, 20))
+        await expect.poll(async () => (await run(() => tasks.getTask(c.number))).column, { timeout: HUNG_MS }).toBe('doing')
         await run(() => tasks.updateTask(c.number, { column: decision }, user))
         release()
         await handled
@@ -1627,7 +1638,7 @@ describe('removal and board under faults', () => {
       const a = await run(() => tasks.createTask({ title: 'First card', project: 'oneatatime' }, user))
       const b = await run(() => tasks.createTask({ title: 'Second card', project: 'oneatatime' }, user))
       const first = run(() => startTask(a.number, { kind: 'agent', agentId: 'o1' }, user))
-      for (let i = 0; i < 50 && !prompts.length; i++) await new Promise((r) => setTimeout(r, 20))
+      await expect.poll(() => prompts.length, { timeout: HUNG_MS }).toBe(1)
       await expect(run(() => startTask(b.number, { kind: 'agent', agentId: 'o1' }, user))).rejects.toThrow(/being given another card/)
       release()
       await first
