@@ -24,7 +24,7 @@ import { buildLock, buildStamp, buildStamped, buildStampedAt, builtOnce, devBuil
 // @ts-expect-error: plain .mjs modules without types
 import { LANES, LANE_PORTS, claimHeld, claimLane, lanePorts, laneWork, pickLane, portFree } from './e2e/lanes.mjs'
 // @ts-expect-error: plain .mjs modules without types
-import { describeClaim, heavySlots, isHeavy, needsSlot, trySlot, waitForSlot } from './e2e/slots.mjs'
+import { describeClaim, heavySlots, holdsMergeSlot, isHeavy, needsSlot, preMerge, trySlot, waitForSlot, waitLine } from './e2e/slots.mjs'
 // @ts-expect-error: plain .mjs modules without types
 import { addWorktree, invocationDir, keepDir, removeInvocation, removeStale, removeWorktree } from './e2e/tempWorktrees.mjs'
 // @ts-expect-error: plain .mjs modules without types
@@ -1780,7 +1780,7 @@ describe('heavy runs: at most a few at once on the machine, the rest queue in or
   afterAll(() => rmSync(tmp, { recursive: true, force: true }))
   let n = 0
   const newPool = () => join(tmp, `pool-${++n}`)
-  const live = new Set([101, 102, 103, 104])
+  const live = new Set([101, 102, 103, 104, 105, 106])
   const alive = (pid: number) => live.has(pid)
   let clock = 1_000_000
   const now = () => clock
@@ -1871,6 +1871,122 @@ describe('heavy runs: at most a few at once on the machine, the rest queue in or
     expect(got.waitedMs).toBeGreaterThan(0)
     got.release()
     expect(readdirSync(dir2).filter((f) => f.endsWith('.json'))).toEqual([])
+  })
+
+  it('a pre-merge run goes first (#558): it takes the next free slot before two that asked earlier, and says so', async () => {
+    const dir2 = newPool()
+    await ask(dir2, 101)
+    await ask(dir2, 102)
+    clock += 10
+    expect(await ask(dir2, 103)).toMatchObject({ ahead: 0 })
+    clock += 10
+    expect(await ask(dir2, 104)).toMatchObject({ ahead: 1 })
+    clock += 10
+    // The merge slot holder's run asks last and is next in line; the others move back one.
+    const merging = await ask(dir2, 105, { first: true })
+    expect(merging).toMatchObject({ ahead: 0 })
+    expect(waitLine({ ...(merging as { holders: object[]; ahead: number }), first: true }, 2)).toMatch(/^Waiting for a test slot \(2 heavy runs at once on this machine, HIVE_TEST_HEAVY_SLOTS\), pre-merge, next in line: held by run 101 in C:\/wt101 /)
+    expect(await ask(dir2, 103)).toMatchObject({ ahead: 1 })
+    expect(await ask(dir2, 104)).toMatchObject({ ahead: 2 })
+    // A second pre-merge run queues behind the first, still ahead of the others.
+    clock += 10
+    const second = await ask(dir2, 106, { first: true })
+    expect(second).toMatchObject({ ahead: 1 })
+    expect(waitLine({ ...(second as { holders: object[]; ahead: number }), first: true }, 2)).toMatch(/, pre-merge, 1 pre-merge ahead of this one: held by/)
+    // 101 finishes: 103 looks first, but the pre-merge run gets the slot. 102 keeps its own: no run is stopped.
+    rmSync(join(dir2, 'slot-0.json'))
+    expect(await ask(dir2, 103)).toMatchObject({ ahead: 2 })
+    expect(await ask(dir2, 105, { first: true })).toEqual({ slot: 0 })
+    expect(readdirSync(dir2).filter((f) => f.startsWith('slot-')).sort()).toEqual(['slot-0.json', 'slot-1.json'])
+    // Holding it, others waiting name it as a pre-merge run.
+    expect(describeClaim(JSON.parse(readFileSync(join(dir2, 'slot-0.json'), 'utf8')), clock)).toBe('run 105 (pre-merge) in C:/wt105 (process 105, 0 min)')
+    expect(await ask(dir2, 106, { first: true })).toMatchObject({ ahead: 0 })
+  })
+
+  it("a crashed pre-merge run's place expires: the run that asked first takes the slot", async () => {
+    const dir2 = newPool()
+    await ask(dir2, 101)
+    await ask(dir2, 102)
+    clock += 10
+    await ask(dir2, 103)
+    clock += 10
+    expect(await ask(dir2, 105, { first: true })).toMatchObject({ ahead: 0 })
+    live.delete(105)
+    try {
+      rmSync(join(dir2, 'slot-1.json'))
+      expect(await ask(dir2, 103)).toEqual({ slot: 1 })
+      expect(readdirSync(dir2).some((f) => f.startsWith('wait-'))).toBe(false)
+    } finally {
+      live.add(105)
+    }
+  })
+
+  it("the merge slot holder's run: asked of Hive with the session's own variables; anything else is an ordinary run", async () => {
+    const session = { HIVE_API_URL: 'http://127.0.0.1:1/', HIVE_API_TOKEN: 'tok', HIVE_PROJECT: 'hive', HIVE_AGENT: 'HB4', HIVE_WORKSPACE: 'D:/ws' }
+    const calls: { url: string; init: RequestInit }[] = []
+    const answer = (body: unknown, ok = true) =>
+      (async (url: string, init: RequestInit) => {
+        calls.push({ url, init })
+        return { ok, json: async () => body }
+      }) as unknown as typeof fetch
+    const holder = (name: string, kind = 'agent') => ({ holder: { kind, name } })
+    expect(await holdsMergeSlot(session, { fetch: answer(holder('HB4')) })).toBe(true)
+    expect(calls[0].url).toBe('http://127.0.0.1:1/v1/projects/hive/merge-slot')
+    expect(calls[0].init.headers).toMatchObject({ Authorization: 'Bearer tok', 'X-Hive-Workspace': encodeURIComponent('D:/ws') })
+    expect(await holdsMergeSlot(session, { fetch: answer(holder('HB1')) })).toBe(false)
+    expect(await holdsMergeSlot(session, { fetch: answer(holder('HB4', 'user')) })).toBe(false)
+    expect(await holdsMergeSlot(session, { fetch: answer({ holder: null }) })).toBe(false)
+    expect(await holdsMergeSlot(session, { fetch: answer(holder('HB4'), false) })).toBe(false)
+    const refused = (async () => {
+      throw new Error('connection refused')
+    }) as unknown as typeof fetch
+    expect(await holdsMergeSlot(session, { fetch: refused })).toBe(false)
+    // Not a Hive agent's session: Hive isn't asked.
+    const asked = calls.length
+    for (const k of ['HIVE_API_URL', 'HIVE_PROJECT', 'HIVE_AGENT', 'HIVE_API_TOKEN']) expect(await holdsMergeSlot({ ...session, [k]: '' }, { fetch: answer(holder('HB4')) }), k).toBe(false)
+    expect(calls.length).toBe(asked)
+    // The token from its file, as hive-progress reads it, when the variable isn't set.
+    const file = join(tmp, 'token.json')
+    writeFileSync(file, JSON.stringify({ token: 'from-file' }))
+    expect(await holdsMergeSlot({ ...session, HIVE_API_TOKEN: '', HIVE_API_TOKEN_FILE: file }, { fetch: answer(holder('HB4')) })).toBe(true)
+    expect(calls.at(-1)!.init.headers).toMatchObject({ Authorization: 'Bearer from-file' })
+  })
+
+  it('--pre-merge goes first without asking; otherwise Hive is asked again at most every 30 s while the run waits', async () => {
+    expect(parseArgs(['--all', '--pre-merge'], names)).toMatchObject({ preMerge: true })
+    expect(parseArgs(['--all'], names)).toMatchObject({ preMerge: false })
+    let asks = 0
+    let holds = false
+    let t = 0
+    const flagged = preMerge(true, { holds: async () => (asks++, false) })
+    expect(await flagged()).toBe(true)
+    expect(asks).toBe(0)
+    const first = preMerge(false, { holds: async () => (asks++, holds), now: () => t, askMs: 30_000 })
+    expect(await first()).toBe(false)
+    holds = true
+    t += 29_000
+    expect(await first()).toBe(false)
+    t += 1_000
+    expect(await first()).toBe(true)
+    expect(asks).toBe(2)
+  })
+
+  it('waiting: a run that becomes pre-merge while it waits moves to the front at its next look', async () => {
+    const dir2 = newPool()
+    const holding = await waitForSlot(dir2, { slots: 1, owner: 101, alive, now })
+    expect(await trySlot(dir2, { slots: 1, owner: 103, alive, now })).toMatchObject({ ahead: 0 })
+    clock += 10
+    const looks: { ahead: number; first: boolean }[] = []
+    let goesFirst = false
+    const merging = waitForSlot(dir2, { slots: 1, owner: 105, alive, now, pollMs: 20, first: async () => goesFirst, onWait: (r: { ahead: number; first: boolean }) => looks.push(r) })
+    await vi.waitFor(() => expect(looks.at(-1)).toMatchObject({ ahead: 1, first: false }))
+    goesFirst = true
+    await vi.waitFor(() => expect(looks.at(-1)).toMatchObject({ ahead: 0, first: true }))
+    holding.release()
+    const got = await merging
+    expect(got.slot).toBe(0)
+    got.release()
+    rmSync(join(dir2, 'wait-103.json'))
   })
 })
 
