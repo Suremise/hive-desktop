@@ -6,6 +6,8 @@ const lib = require('./lib.cjs')
 const { _electron } = require('playwright-core')
 const fs = require('fs')
 const path = require('path')
+// The longest a wait here waits for what it waits on: a bound for a hung run, never how long it should take (#570).
+const HUNG_MS = 30000
 
 const userData = path.join(lib.WORK, 'lanewatch-profile')
 const ws = path.join(lib.WORK, 'lanewatch-ws')
@@ -65,7 +67,7 @@ const check = (name, ok, extra = '') => {
   fs.writeFileSync(path.join(claudeHome, 'fake-trusted.json'), JSON.stringify([ws.toLowerCase(), alpha.toLowerCase(), home.toLowerCase()]))
   for (const a of [builder, reviewer, builder2]) await inv('session:start', alpha, { agentId: a.id })
   await inv('session:start', home, { agentId: 'assistant' })
-  check('the agents and the Assistant start', !!(await until(async () => (await idle(alpha, builder.id)) && (await idle(alpha, reviewer.id)) && (await idle(alpha, builder2.id)) && ['ready', 'finished'].includes((await live(home, 'assistant'))?.status))), JSON.stringify(await Promise.all([[alpha, builder.id], [alpha, reviewer.id], [alpha, builder2.id], [home, 'assistant']].map(async ([p, id]) => (await live(p, id))?.status ?? 'none'))))
+  check('the agents and the Assistant start', !!(await until(async () => (await idle(alpha, builder.id)) && (await idle(alpha, reviewer.id)) && (await idle(alpha, builder2.id)) && ['ready', 'finished'].includes((await live(home, 'assistant'))?.status), HUNG_MS)), JSON.stringify(await Promise.all([[alpha, builder.id], [alpha, reviewer.id], [alpha, builder2.id], [home, 'assistant']].map(async ([p, id]) => (await live(p, id))?.status ?? 'none'))))
 
   // A lane: Builder builds #a, #b; Reviewer reviews. Registered by the builder, as card-loop does.
   const newCard = async (title, agentId) => (await inv('tasks:create', { title, project: 'alpha', agent: agentId, column: 'doing' })).number

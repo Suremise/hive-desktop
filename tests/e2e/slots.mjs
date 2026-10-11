@@ -1,6 +1,6 @@
 // Heavy test runs, machine-wide (#204). Several agents checking their cards at once on one machine (full e2e sets,
 // repeats, scenario runs) slowed each other until tests timed out: the flakes were the load, not the code. So at most
-// a few heavy runs go at once across every worktree (HIVE_TEST_HEAVY_SLOTS, default 2); a heavy run started while
+// a few heavy runs go at once across every worktree (heavySlots in hive-test\config.json, default 2, #589); a heavy run started while
 // they are all taken waits for one, in the order the runs asked, saying who holds them (and in Hive's Progress panel).
 // A pre-merge run goes first (#558): one started by the agent holding its project's merge slot (holdsMergeSlot), or
 // with --pre-merge. It takes the next free slot before runs that asked earlier for other reasons (a merge shouldn't wait
@@ -12,25 +12,79 @@
 // for a run holding a slot and `wait-<pid>.json` for one waiting (when it asked; `first` for a pre-merge run), each
 // with its runner's process id, changed only under the claims lock. A crashed run's claim expires: its process is gone (or it is a day old).
 import { mkdirSync, readdirSync, readFileSync, rmSync, writeFileSync } from 'fs'
+import { createRequire } from 'module'
 import { join } from 'path'
 import { processAlive } from './logs.mjs'
 import { claimHeld, withLock } from './lanes.mjs'
 import { parentSuite } from './runner.mjs'
 
-/** Heavy runs at once, unless HIVE_TEST_HEAVY_SLOTS says otherwise. */
+/** Heavy runs at once, unless the machine's config.json or HIVE_TEST_HEAVY_SLOTS says otherwise. */
 export const DEFAULT_SLOTS = 2
+/**
+ * The machine's test settings (#589): `{ "heavySlots": 3 }` in the shared test folder, read each time a run asks, so an
+ * edit counts from the next run with no restart. Machine-wide, as the slots are: every worktree's runs read the same file.
+ */
+export const CONFIG_FILE = join(createRequire(import.meta.url)('./runContext.cjs').TEST_ROOT, 'config.json')
 /** A run of more suites or scenarios than this (or any repeat) is heavy. */
 export const HEAVY_OVER = 5
 
-/** How many heavy runs may go at once: HIVE_TEST_HEAVY_SLOTS (a whole number, 1 or more), else DEFAULT_SLOTS. */
-export function heavySlots(env = process.env) {
-  const n = Number(env.HIVE_TEST_HEAVY_SLOTS)
-  return Number.isInteger(n) && n >= 1 ? n : DEFAULT_SLOTS
+/** What a run has said about where its count came from: each line once a process. */
+const said = new Set()
+const sayOnce = (say, line) => {
+  if (said.has(line)) return
+  said.add(line)
+  say(line)
+}
+
+/**
+ * How many heavy runs may go at once (#589): HIVE_TEST_HEAVY_SLOTS, a one-off override; else `heavySlots` in the machine's
+ * config.json (CONFIG_FILE); else DEFAULT_SLOTS. Each a whole number, 1 or more. A missing or unreadable file, or a value
+ * that isn't one, falls back to the default, and the run says so in one line (once).
+ */
+export function heavySlots(env = process.env, file = CONFIG_FILE, say = (line) => console.error(line)) {
+  const whole = (v) => Number.isInteger(v) && v >= 1
+  const set = env.HIVE_TEST_HEAVY_SLOTS
+  if (set !== undefined && set !== '') {
+    if (whole(Number(set))) return Number(set)
+    sayOnce(say, `Test slots: HIVE_TEST_HEAVY_SLOTS=${JSON.stringify(set)} isn't a whole number from 1; it is left out.`)
+  }
+  let text
+  try {
+    text = readFileSync(file, 'utf8')
+  } catch (e) {
+    const why = e?.code === 'ENOENT' ? 'there is none' : `it can't be read (${e?.code ?? e?.message})`
+    sayOnce(say, `Test slots: ${DEFAULT_SLOTS} heavy runs at once, the default (${file}: ${why}).`)
+    return DEFAULT_SLOTS
+  }
+  let n
+  try {
+    n = JSON.parse(text.replace(/^\uFEFF/, ''))?.heavySlots
+  } catch {
+    sayOnce(say, `Test slots: ${DEFAULT_SLOTS} heavy runs at once, the default (${file} isn't JSON).`)
+    return DEFAULT_SLOTS
+  }
+  if (whole(n)) return n
+  sayOnce(say, `Test slots: ${DEFAULT_SLOTS} heavy runs at once, the default (${file}: ${n === undefined ? 'no heavySlots in it' : `heavySlots ${JSON.stringify(n)} isn't a whole number from 1`}).`)
+  return DEFAULT_SLOTS
 }
 
 /** Whether a run is heavy: more than HEAVY_OVER suites or scenarios, or run more than once (--repeat). */
 export function isHeavy({ count, repeat = 1 }) {
   return repeat > 1 || count > HEAVY_OVER
+}
+
+/** Vitest options whose value is the next argument (so it is no file filter). */
+const VITEST_VALUE_OPTIONS = ['-c', '--config', '-r', '--root', '--dir', '--reporter', '--outputFile', '--environment', '--pool', '--maxWorkers', '--testTimeout', '--hookTimeout', '--retry', '--bail', '--mode', '--exclude']
+
+/**
+ * Whether a unit test run is the whole set (#599), heavy as a full e2e set is: its workers and what its tests start beside
+ * e2e runs were what ran Windows short (0xc0000142 dialogs). A run of some files (a file filter), some tests (-t), the
+ * changed or related files, a shard or a project, or watch mode, isn't. args: Vitest's command line after its script.
+ */
+export function isFullUnitRun({ args, watch = false, changed = false, related = [], testNamePattern = null }) {
+  if (watch || changed || related?.length || testNamePattern) return false
+  if (args.some((a) => /^(--changed|--related|-t|--testNamePattern|--shard|--project|--watch|-w)(=|$)/.test(a))) return false
+  return !args.some((a, i) => !a.startsWith('-') && a !== 'run' && !VITEST_VALUE_OPTIONS.includes(args[i - 1]))
 }
 
 /**

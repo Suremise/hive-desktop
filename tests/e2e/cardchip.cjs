@@ -8,6 +8,8 @@ const lib = require('./lib.cjs')
 const { _electron } = require('playwright-core')
 const fs = require('fs')
 const path = require('path')
+// The longest a wait here waits for what it waits on: a bound for a hung run, never how long it should take (#570).
+const HUNG_MS = 20000
 
 const userData = path.join(lib.WORK, 'cardchip-profile')
 const ws = path.join(lib.WORK, 'cardchip-ws')
@@ -54,13 +56,13 @@ const check = (name, ok, extra = '') => {
   await inv('project:updateConfig', alpha, { layout: 'columns2' })
   // A running session with one exchange (so Hive keeps its record).
   await inv('session:start', alpha, { agentId: coder.id })
-  await until(async () => ['waiting', 'ready'].includes((await live(coder.id))?.status))
+  await until(async () => ['waiting', 'ready'].includes((await live(coder.id))?.status), HUNG_MS)
   if ((await live(coder.id))?.status === 'waiting') await inv('pty:write', lib.ptyKey(alpha, coder.id), '\r')
-  await until(async () => (await live(coder.id))?.status === 'ready')
+  await until(async () => (await live(coder.id))?.status === 'ready', HUNG_MS)
   await inv('pty:write', lib.ptyKey(alpha, coder.id), 'hello')
   await lib.sleep(300)
   await inv('pty:write', lib.ptyKey(alpha, coder.id), '\r')
-  check('Coder ran once', !!(await until(async () => (await live(coder.id))?.status === 'finished')))
+  check('Coder ran once', !!(await until(async () => (await live(coder.id))?.status === 'finished', HUNG_MS)))
   const sessionId = (await live(coder.id)).sessionId
 
   const tab = page.locator('.agent-tab', { hasText: 'Coder' })
@@ -98,7 +100,7 @@ const check = (name, ok, extra = '') => {
   check('clicking the chip opens the card', !!(await until(async () => (await dialog.count()) === 1, 5000)))
   await page.screenshot({ path: path.join(lib.WORK, 'cardchip-2-dialog.png') })
   await page.keyboard.press('Escape')
-  await until(async () => (await dialog.count()) === 0, 3000)
+  await until(async () => (await dialog.count()) === 0, HUNG_MS)
 
   // The session records both cards.
   const recorded = async () => JSON.parse(fs.readFileSync(path.join(alpha, '.hive', 'sessions.json'), 'utf8')).sessions.find((s) => s.id === sessionId)?.cards ?? []
@@ -171,7 +173,7 @@ const check = (name, ok, extra = '') => {
   await row.locator('.card-chip').click()
   check("clicking the overview's chip opens the card", !!(await until(async () => (await dialog.count()) === 1, 5000)))
   await page.keyboard.press('Escape')
-  await until(async () => (await dialog.count()) === 0, 3000)
+  await until(async () => (await dialog.count()) === 0, HUNG_MS)
   await progress(`/v1/progress/${run.id}/finish`, { ok: true })
   check('once the run ends, the row says its status again', !!(await until(async () => !(await row.locator('.assistant-agent-status').textContent().catch(() => '')).startsWith('e2e'), 8000)))
   await page.keyboard.press('Control+Alt+I')

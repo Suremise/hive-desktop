@@ -11,6 +11,8 @@
 const lib = require('./lib.cjs')
 const fs = require('fs')
 const path = require('path')
+// The longest a wait here waits for what it waits on: a bound for a hung run, never how long it should take (#570).
+const HUNG_MS = 10000
 
 const userData = path.join(lib.WORK, 'unusedwt-profile')
 const ws = path.join(lib.WORK, 'unusedwt-ws')
@@ -110,7 +112,7 @@ function pathWithoutGit() {
   await shot('changes-merge-light')
   await theme('dark')
   await mergeDialog.getByRole('button', { name: 'Cancel' }).click()
-  await lib.until(async () => (await mergeDialog.count()) === 0, 3000)
+  await lib.until(async () => (await mergeDialog.count()) === 0, HUNG_MS)
   await shot('changes-open-dark')
   await theme('light')
   await shot('changes-open-light')
@@ -160,7 +162,7 @@ function pathWithoutGit() {
   check('Give to an agent… opens Add Agent on Existing worktree, that one chosen', (await add.locator('.choice.selected', { hasText: 'Existing worktree' }).count()) === 1 && chosen.toLowerCase() === ahead.worktree.path.toLowerCase(), chosen)
   await shot('give')
   await page.keyboard.press('Escape')
-  await lib.until(async () => (await add.count()) === 0, 3000)
+  await lib.until(async () => (await add.count()) === 0, HUNG_MS)
   await aheadRow.getByRole('button', { name: 'Remove anyway…' }).click()
   const danger = page.locator('.dialog', { hasText: 'Remove the worktree anyway?' })
   await lib.until(async () => (await danger.count()) === 1, 5000)

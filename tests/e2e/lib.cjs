@@ -16,6 +16,7 @@ const { TEST_ROOT, WORK, CODEX_HOME, CLAUDE_TEST_HOME, hiveEnv, childEnv, baseEn
 const ROOT = path.resolve(__dirname, '..', '..')
 /** Electron's executable (the electron package resolves to its path in plain Node). */
 const ELECTRON = require('electron')
+const { windowsCodesIn } = require('./windowsExits.cjs')
 // WORK: where suites keep their profiles, workspaces and screenshots. Stable, so Claude Code trusts its folders once.
 fs.mkdirSync(WORK, { recursive: true })
 
@@ -257,7 +258,12 @@ async function openWorkspace(inv, page, ws, ms = 20000) {
  */
 async function launch({ userData, env = {}, viewport = { width: 1400, height: 850 }, readyMs = 90000 }) {
   // The run context's environment (quiet, tips off, the suite's port) with the profile and the suite's own variables.
-  const app = await _electron.launch({ executablePath: ELECTRON, args: [ROOT], cwd: ROOT, env: hiveEnv({ HIVE_USER_DATA: userData, ...env }) })
+  const app = await _electron.launch({ executablePath: ELECTRON, args: [ROOT], cwd: ROOT, env: hiveEnv({ HIVE_USER_DATA: userData, ...env }) }).catch((e) => {
+    // Electron that failed to start (0xc0000142 under heavy load, #599): its exit code said with what it means.
+    const said = windowsCodesIn(e?.message)
+    if (said.length && e instanceof Error) e.message = `${e.message}\nWindows: ${said.join('; ')}`
+    throw e
+  })
   let page
   try {
     page = await app.firstWindow()
@@ -361,6 +367,7 @@ async function chooseTrust(inv, key, timeoutMs = 20000) {
       return true
     }
     await inv('pty:write', key, '\x1b[B')
+    // A try's pace, not a bound: not on "Yes" within 2 s, Down is pressed again (timeoutMs bounds the whole).
     await until(async () => (await choice()) === 'Yes, I trust this folder', 2000, 150)
   }
   return false

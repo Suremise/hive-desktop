@@ -10,6 +10,8 @@ const fs = require('fs')
 const path = require('path')
 const { createHash } = require('crypto')
 const { execFileSync } = require('child_process')
+// The longest a wait here waits for what it waits on: a bound for a hung run, never how long it should take (#570).
+const HUNG_MS = 15000
 
 const userData = path.join(lib.WORK, 'replysize-profile')
 const ws = path.join(lib.WORK, 'replysize-ws')
@@ -77,12 +79,12 @@ const prose = (seed, n) => {
   await lib.addAgent(inv, path.join(ws, 'beta'), { name: 'Builder' })
   const live = async (p, id) => (await inv('session:live')).find((s) => s.projectPath.toLowerCase() === p.toLowerCase() && s.agentId === id)
   await inv('session:start', alpha, { agentId: coder.id })
-  await until(async () => (await live(alpha, coder.id))?.status === 'ready')
+  await until(async () => (await live(alpha, coder.id))?.status === 'ready', HUNG_MS)
   for (let i = 1; i <= 4; i++) {
     await inv('pty:write', lib.ptyKey(alpha, coder.id), `turn ${i}`)
     await lib.sleep(200)
     await inv('pty:write', lib.ptyKey(alpha, coder.id), '\r')
-    await until(async () => String(await inv('pty:buffer', lib.ptyKey(alpha, coder.id))).includes(`Done: turn ${i}`))
+    await until(async () => String(await inv('pty:buffer', lib.ptyKey(alpha, coder.id))).includes(`Done: turn ${i}`), HUNG_MS)
   }
 
   // The board: 50 in Todo, 6 in Doing, 10 in Review, 10 in Done; long descriptions, three comments each, some history.
@@ -102,7 +104,7 @@ const prose = (seed, n) => {
   // The Assistant: its own token, for its tools.
   const home = (await inv('workspace:refresh')).assistant.path
   await inv('session:start', home, { agentId: 'assistant' })
-  await until(async () => (await live(home, 'assistant'))?.status === 'ready')
+  await until(async () => (await live(home, 'assistant'))?.status === 'ready', HUNG_MS)
   const asTokenFile = path.join(userData, 'assistant-api', `${createHash('sha256').update(ws.toLowerCase()).digest('hex').slice(0, 16)}.json`)
 
   /** One hive tool call through hive-mcp.js: the text the agent gets (role 'assistant+settings': with Change settings on). */
@@ -327,7 +329,7 @@ const prose = (seed, n) => {
   measure('hive_update_agent', tool('hive_update_agent', { project: 'beta', agent: 'Helper', effort: 'high' }, 'assistant'), 1000)
   const started = measure('hive_start_agent', tool('hive_start_agent', { project: 'beta', agent: 'Helper' }, 'assistant'), 400)
   check('a start: its status and session', /^Started Helper in beta: \w+, session [\w-]+\. Follow it with hive_wait_for_agents\.$/.test(started), started)
-  await until(async () => (await live(path.join(ws, 'beta'), (await inv('workspace:refresh')).projects.find((p) => p.name === 'beta').agents.find((a) => a.name === 'Helper').id))?.status === 'ready')
+  await until(async () => (await live(path.join(ws, 'beta'), (await inv('workspace:refresh')).projects.find((p) => p.name === 'beta').agents.find((a) => a.name === 'Helper').id))?.status === 'ready', HUNG_MS)
   measure('hive_prompt_agent', tool('hive_prompt_agent', { project: 'beta', agent: 'Helper', text: 'turn 1' }, 'assistant'), 300)
   await lib.until(async () => (await live(path.join(ws, 'beta'), (await inv('workspace:refresh')).projects.find((p) => p.name === 'beta').agents.find((a) => a.name === 'Helper').id))?.status === 'finished', 15000) // its turn over: stopping a working agent would ask the user
   const msg = measure('hive_message_agent', tool('hive_message_agent', { project: 'beta', agent: 'Helper', text: 'turn 2' }, 'assistant'), 200)

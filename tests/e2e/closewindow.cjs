@@ -10,6 +10,8 @@
 const lib = require('./lib.cjs')
 const fs = require('fs')
 const path = require('path')
+// The longest a wait here waits for what it waits on: a bound for a hung run, never how long it should take (#570).
+const HUNG_MS = 10000
 
 const userData = path.join(lib.WORK, 'closewindow-profile')
 const wsA = path.join(lib.WORK, 'closewindow-ws-a')
@@ -100,7 +102,7 @@ const invOn = (page) => (ch, ...a) => page.evaluate(([c, x]) => window.hive.invo
   const waitDialog = (page, ms = 8000) => lib.until(() => dialogIn(page), ms)
   const cancel = async (page) => {
     await page.locator('.dialog button', { hasText: 'Cancel' }).click()
-    await lib.until(async () => !(await dialogIn(page)), 3000)
+    await lib.until(async () => !(await dialogIn(page)), HUNG_MS)
   }
 
   // --- One window.
@@ -144,7 +146,7 @@ const invOn = (page) => (ch, ...a) => page.evaluate(([c, x]) => window.hive.invo
   let p2 = await openB()
   let inv2 = invOn(p2)
   check('an agent runs in B', await startAgent(inv2, beta))
-  check('Hive counts two windows', !!(await lib.until(async () => (await inv1('window:count')) === 2, 3000)))
+  check('Hive counts two windows', !!(await lib.until(async () => (await inv1('window:count')) === 2, HUNG_MS)))
   menu = await fileMenu(p1)
   await closeMenu(p1)
   const exit = menu.find((m) => m[0].startsWith('Exit'))
@@ -179,7 +181,7 @@ const invOn = (page) => (ch, ...a) => page.evaluate(([c, x]) => window.hive.invo
   await p2.locator('.dialog button', { hasText: /Close window/ }).last().click()
   check('…and closes B when confirmed', await closedB)
   check("B's agent stopped, A's runs on", !!(await lib.until(async () => !(await liveIn(inv1, beta)), 5000)) && (await liveIn(inv1, alpha)))
-  check('one window again: Exit is plain "Exit"', !!(await lib.until(async () => { const m = await fileMenu(p1); await closeMenu(p1); return m.some((x) => x[0] === 'Exit') }, 3000)))
+  check('one window again: Exit is plain "Exit"', !!(await lib.until(async () => { const m = await fileMenu(p1); await closeMenu(p1); return m.some((x) => x[0] === 'Exit') }, HUNG_MS)))
 
   // --- Exit with two windows: says it closes both, groups the agents by workspace; "Close this window only".
   p2 = await openB()

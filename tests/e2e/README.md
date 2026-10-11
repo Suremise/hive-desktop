@@ -164,15 +164,16 @@ was kept with `--keep`. Two started from the same worktree share its build, so i
 
 **Heavy runs queue** (`slots.mjs`, #204). Several agents each running full sets on one machine slowed each other until
 tests that pass alone timed out. So at most **two heavy runs** go at once across every worktree
-(`HIVE_TEST_HEAVY_SLOTS` changes it: set it as a user environment variable and restart Hive, whose sessions keep it
-while dropping Hive's other `HIVE_` variables (`SESSION_SETTINGS` in `src/main/ptyHost.ts`, #567), so the runs agents
-start use it): an e2e run of more than five suites (`--all`, `--real`, a big `--affected`) or
-any `--repeat`, and a scenario run of more than five scenarios or with `--repeat`. A run of a few suites, a single
-scenario, or a runner started inside a suite never waits: e2e or scenarios (`needsSlot`, #211), since its parent's run
+(`heavySlots` in `%LOCALAPPDATA%\hive-test\config.json` changes it: "How many heavy runs at once", below): an e2e run of more than five suites (`--all`, `--real`, a big `--affected`) or
+any `--repeat`, a scenario run of more than five scenarios or with `--repeat`, and a **full unit run** (`npm test`, a
+`vitest run` of the whole set: `tests/unitSlot.ts`, `isFullUnitRun`, #599; its workers and what its tests start, beside
+e2e runs, were what ran Windows short of desktop heap: 0xc0000142, below). A run of a few suites, a single
+scenario, a focused unit run (some files, `-t`, `--changed`, `--related`, or watch mode), or a runner or unit run
+started inside a suite never waits (`needsSlot`, #211), since its parent's run
 holds a slot and waiting behind it would never end. It still keeps apart from its parent (a nested e2e runner in the
 parent's `nested` folder with ports above the parent's, a nested scenario run in a lane of its own). A heavy run that finds both slots taken waits for one,
 before it builds, in the order runs asked. It prints `Waiting for a test slot …: held by e2e: 68 suites in <worktree>
-(process …, 12 min)` and shows in the Progress panel as **e2e: waiting for a test slot** (or **scenarios: …**), naming
+(process …, 12 min)` and shows in the Progress panel as **e2e: waiting for a test slot** (or **scenarios: …**, **unit tests: …**), naming
 who holds them, until it gets one (`Got a test slot after N s`). So a run that seems stuck is usually waiting: that line
 says for whom. `--no-wait` fails at once instead (exit 2, saying who holds them).
 **A pre-merge run goes first** (#558): one started in the session of the agent that holds its project's merge slot
@@ -190,18 +191,18 @@ own, `HIVE_TEST_HEAVY_DIR`), one waiting visibly, `--no-wait`, a killed run's sl
 before two that asked earlier (the stand-in Agent API says its agent holds the merge slot), and a killed pre-merge run's
 place.
 
-**How many heavy runs at once** (#544). The default is two (`DEFAULT_SLOTS` in `slots.mjs`). A machine with more
-cores and memory, or with nothing else running, may take more; a slower one fewer. To change it, set
-`HIVE_TEST_HEAVY_SLOTS` to a whole number, 1 or more (anything else means 2). Set it as a Windows user environment
-variable, so that every run on the machine gets the same number: each run counts the slots with its own value, so a run
-started with a higher number than the others can take a slot they are waiting for. A variable set in Windows reaches
-only programs started afterwards: restart Hive (and open terminals) after changing it. Agents' sessions get it once
-#567 is merged; until then Hive leaves the `HIVE_*` variables out of a session's environment, so a run an agent starts
-uses two whatever is set, and only a terminal outside Hive gets the setting. Before raising it, measure on that
-machine: start several full sets at once with the higher number and check that they still pass and how long each takes,
-with nothing else testing meanwhile (#544 has a script that does this). A pool of its own
-(`HIVE_TEST_HEAVY_DIR`) with a count of its own is for checking the queue itself (`npm run e2e:concurrency -- --heavy`),
-never for getting round it.
+**How many heavy runs at once** (#544, #589). The default is two (`DEFAULT_SLOTS` in `slots.mjs`). A machine with more
+cores and memory, or with nothing else running, may take more; a slower one fewer. To change it, write the number into
+the shared test folder's settings file, `%LOCALAPPDATA%\hive-test\config.json`: `{ "heavySlots": 3 }`, a whole number,
+1 or more. It is machine-wide, as the slots are: every worktree's runs, an agent's or a terminal's, read the same file,
+so they all count the same slots. It is read each time a run asks for a slot, so an edit counts from the next run, with
+no restart of Hive or a terminal. A missing or unreadable file, or a value that isn't a whole number from 1, means two,
+and the run says so in one line (`Test slots: …`). `HIVE_TEST_HEAVY_SLOTS`, a whole number, overrides the file for one
+run (the concurrency checker uses it); Hive doesn't pass it on to its sessions (it drops its `HIVE_` variables), and a
+run started with a higher number than the others can take a slot they are waiting for, so use the file for the
+machine's setting. If runs start failing after raising it, go back down. A pool of its own (`HIVE_TEST_HEAVY_DIR`) with
+a count of its own is for checking the queue itself (`npm run e2e:concurrency -- --heavy`), never for getting round
+it.
 
 **Unit tests under load.** `npm test` uses half the cores (`maxWorkers: '50%'` in `vitest.config.ts`) and allows 20 s
 a test and 30 s a hook, so a full run beside an e2e set doesn't hit Vitest's 5 s default. A test that needs longer says
@@ -377,6 +378,23 @@ the Recycle Bin, read only, before and after a run, and says so under the summar
 266 items before and after the run").
 `HIVE_TEST_CODEX_HOME` points the Codex suites at another test home.
 
+**A process that fails to start** (#599): under heavy load Windows can fail one as it starts (0xc0000142: its desktop
+heap runs short with many processes at once). Node sets the error mode that keeps Windows' error dialogs away
+(SEM_FAILCRITICALERRORS), Electron keeps it, and whatever the runners, the suites, the unit test workers and the test
+copies of Hive start directly inherits it. Something started through the shell (PowerShell's `Start-Process`, `start`,
+a file opened by its association) starts without it, so test tooling never does that (`tests/windowsExits.test.ts`
+checks). That is no promise that a run can't hang on a dialog: see the end of this paragraph. Nothing machine-wide is
+changed. The runners say such a code with what it means (`windowsExits.cjs`): in a failed suite's line
+(`FAIL 3s (exit 0xc0000142: a DLL failed to initialise as it started, usually Windows' desktop heap running short …:
+rerun with fewer runs at once)`), under it for a code its output names (a child's, or Electron's that didn't start), and
+in the run record. Seeing 0xc0000142, run fewer test runs at once rather than looking for a fault in the code.
+**Such a failure can still show a dialog and hold the run:** logged under load, the desktop heap running out showed
+Windows' "Application Error" dialog even for processes that had the error mode (children of Vitest workers during full
+unit runs beside e2e runs), and the process waits behind it until someone clicks OK. Fewer heavy runs at once makes it
+rarer (a full unit run is a heavy run, above); only a machine-wide setting, left to the machine's owner, would stop it.
+The `failfast` suite checks the reporting (a child ending with 0xc0000142 is seen at once, and said), not that a real
+startup failure shows no dialog.
+
 ## Housekeeping
 
 What the tests leave in `%LOCALAPPDATA%\hive-test` is removed once it is no longer needed (`clean.mjs`, #253). The e2e
@@ -402,7 +420,7 @@ kept and why, without removing anything; `--days N` sets the age, default 3).
   prunes its own logs), plugins, skills or history. What stays is about 0.8 GB, most of it the copy of Codex it runs
   (430 MB) and the sandbox's (320 MB). The Claude Code test home is small (about 80 MB) and isn't opened.
 - **Stays:** the CLI test homes' sign-ins, config and sandbox setup (`codex`, but for the above; `claude`, never opened), scenario results and baselines, the
-  claims and locks, the concurrency checker's folders (it removes its own), the Progress panel's timings; logs (the
+  claims and locks, the concurrency checker's folders (it removes its own), the Progress panel's timings, the machine's test settings (`config.json`: `heavySlots`, #589); logs (the
   runner keeps the newest ten runs); a lane a runner holds.
 - **Evidence stays, whoever deletes** (`evidence.cjs`): anything a card that isn't Done cites is kept by the clean-up,
   by the runners' own deletions (a suite's or scenario's earlier folder, a passed suite's folders, log pruning,

@@ -20,6 +20,8 @@ const fs = require('fs')
 const os = require('os')
 const path = require('path')
 const { randomBytes } = require('crypto')
+// The longest a wait here waits for what it waits on: a bound for a hung run, never how long it should take (#570).
+const HUNG_MS = 10000
 
 const control = process.argv.includes('--snapshot-on')
 const userData = path.join(lib.WORK, 'assistantresume-profile')
@@ -115,7 +117,7 @@ const persona = ({ name, word: w }) =>
   const panel = page.locator('.assistant-panel')
   const menu = async (label) => {
     await panel.locator('.assistant-persona').click()
-    await lib.until(async () => (await page.locator('.menu .menu-item').count()) > 0, 3000)
+    await lib.until(async () => (await page.locator('.menu .menu-item').count()) > 0, HUNG_MS)
     await page.locator('.menu .menu-item', { hasText: label }).first().click()
   }
 

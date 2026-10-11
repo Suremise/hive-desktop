@@ -10,6 +10,8 @@ const lib = require('./lib.cjs')
 const { _electron } = require('playwright-core')
 const fs = require('fs')
 const path = require('path')
+// The longest a wait here waits for what it waits on: a bound for a hung run, never how long it should take (#570).
+const HUNG_MS = 10000
 
 const userData = path.join(lib.WORK, 'swap-profile')
 const ws = path.join(lib.WORK, 'swap-ws')
@@ -126,7 +128,7 @@ const check = (name, ok, extra = '') => {
   check('page 2 shows Two', JSON.stringify(await paneNames()) === '["Two"]', JSON.stringify(await paneNames()))
   await drag(header('Two'), [page.locator('.page-switch button[aria-label="Agent page 1"]'), () => pane('Three')], 900)
   check('holding over page 1 showed it, and the drop swapped across pages', !!(await settle('Four,Two,One,Three')), `${saved()} / ${await paneNames()} / page ${await activePage()}`)
-  check('the drag has ended after its source left the screen', !!(await lib.until(async () => (await page.locator('.pane-drop').count()) === 0, 3000)))
+  check('the drag has ended after its source left the screen', !!(await lib.until(async () => (await page.locator('.pane-drop').count()) === 0, HUNG_MS)))
 
   // --- Escape after the hover switched pages (the dragged pane has left the screen), released without moving: the drag
   // ends at once, nothing moves, nothing restarts.
@@ -142,7 +144,7 @@ const check = (name, ok, extra = '') => {
   await page.mouse.move(p1.x, p1.y, { steps: 8 })
   await lib.sleep(150)
   await page.mouse.move(p1.x + 1, p1.y, { steps: 2 })
-  check('held over page 1, it shows (the dragged pane is gone)', !!(await lib.until(async () => (await activePage()) === 1, 3000)) && (await page.locator('.pane-drop').count()) === 3)
+  check('held over page 1, it shows (the dragged pane is gone)', !!(await lib.until(async () => (await activePage()) === 1, HUNG_MS)) && (await page.locator('.pane-drop').count()) === 3)
   await page.keyboard.press('Escape')
   await page.mouse.up()
   await lib.sleep(400)

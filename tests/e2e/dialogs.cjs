@@ -7,6 +7,8 @@ const lib = require('./lib.cjs')
 const { _electron } = require('playwright-core')
 const fs = require('fs')
 const path = require('path')
+// The longest a wait here waits for what it waits on: a bound for a hung run, never how long it should take (#570).
+const HUNG_MS = 10000
 
 const userData = path.join(lib.WORK, 'dialogs-profile')
 const ws = path.join(lib.WORK, 'dialogs-ws')
@@ -80,7 +82,7 @@ const check = (name, ok, extra = '') => {
   const addStart = await movesWell('Add Agent', add)
   await page.screenshot({ path: path.join(lib.WORK, 'dialogs-add-moved.png') })
   await page.keyboard.press('Escape')
-  await lib.until(async () => (await add.count()) === 0, 3000)
+  await lib.until(async () => (await add.count()) === 0, HUNG_MS)
   await page.locator('.agent-add.split-caret').click(); await page.locator('.menu .menu-item', { hasText: 'Configure Agent and Add…' }).click()
   await lib.until(async () => (await add.count()) === 1, 5000)
   check('Add Agent: opens centred again next time', near(addStart, await box(add)), JSON.stringify(await box(add)))
@@ -106,7 +108,7 @@ const check = (name, ok, extra = '') => {
   await page.screenshot({ path: path.join(lib.WORK, 'dialogs-settings-moved-light.png') })
   await inv('settings:update', { appearance: { theme: 'dark' } })
   await page.keyboard.press('Escape')
-  await lib.until(async () => (await page.locator('.dialog').count()) === 0, 3000)
+  await lib.until(async () => (await page.locator('.dialog').count()) === 0, HUNG_MS)
 
   // --- A question over the card dialog: each moves on its own; Escape closes the top one only.
   await inv('tasks:create', { title: 'Move the question', description: 'Words', project: 'alpha' })
@@ -125,12 +127,12 @@ const check = (name, ok, extra = '') => {
   await dragBy(ask, 110, 60)
   check('a question over a dialog moves on its own', near(askAt, await box(ask), 110, 60) && near(cardAt, await box(card)), JSON.stringify({ ask: await box(ask), card: await box(card) }))
   await page.keyboard.press('Escape')
-  const closedTop = !!(await lib.until(async () => (await ask.count()) === 0, 3000))
+  const closedTop = !!(await lib.until(async () => (await ask.count()) === 0, HUNG_MS))
   check('…and Escape closes only the question', closedTop && (await card.count()) === 1, JSON.stringify({ ask: await ask.count(), dialogs: await page.locator('.dialog').count(), titles: await page.locator('.dialog-header h2').allInnerTexts() }))
   await page.keyboard.press('Escape')
-  await lib.until(async () => (await ask.count()) === 1, 3000)
+  await lib.until(async () => (await ask.count()) === 1, HUNG_MS)
   await ask.getByRole('button', { name: 'Discard' }).click()
-  await lib.until(async () => (await page.locator('.dialog').count()) === 0, 3000)
+  await lib.until(async () => (await page.locator('.dialog').count()) === 0, HUNG_MS)
 
   // --- The image viewer stays put (an opt-out).
   await page.locator('.activity-btn[aria-label="Projects"]').click()

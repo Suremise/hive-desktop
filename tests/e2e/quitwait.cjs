@@ -6,6 +6,8 @@ const lib = require('./lib.cjs')
 const { _electron } = require('playwright-core')
 const fs = require('fs')
 const path = require('path')
+// The longest a wait here waits for what it waits on: a bound for a hung run, never how long it should take (#570).
+const HUNG_MS = 10000
 
 let failed = 0
 const check = (name, ok, extra = '') => {
@@ -95,8 +97,8 @@ async function keepBusy(inv, alpha, agent, live, secs) {
     check('it is working', !!(await keepBusy(inv, alpha, agent, live, 4)))
     if (onBattery) console.log('(on battery: the PC is not kept awake by default, so those checks are skipped)')
     else {
-      check('while it works, the PC is kept awake', !!(await until(async () => (await inv('app:keepAwake')) === 1, 3000)))
-      check('and the status bar says so', !!(await until(async () => /Keeping the PC awake: 1 agent working/.test(await awakeItem.innerText().catch(() => '')), 3000)))
+      check('while it works, the PC is kept awake', !!(await until(async () => (await inv('app:keepAwake')) === 1, HUNG_MS)))
+      check('and the status bar says so', !!(await until(async () => /Keeping the PC awake: 1 agent working/.test(await awakeItem.innerText().catch(() => '')), HUNG_MS)))
       await page.screenshot({ path: path.join(lib.WORK, 'quitwait-2-awake.png') })
     }
     await page.evaluate(() => window.hive.invoke('app:quit'))

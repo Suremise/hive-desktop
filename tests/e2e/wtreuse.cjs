@@ -7,6 +7,8 @@
 const lib = require('./lib.cjs')
 const fs = require('fs')
 const path = require('path')
+// The longest a wait here waits for what it waits on: a bound for a hung run, never how long it should take (#570).
+const HUNG_MS = 10000
 
 const userData = path.join(lib.WORK, 'wtreuse-profile')
 const ws = path.join(lib.WORK, 'wtreuse-ws')
@@ -51,7 +53,7 @@ const same = (a, b) => path.resolve(a).toLowerCase() === path.resolve(b).toLower
   const shot = (name) => page.screenshot({ path: path.join(lib.WORK, `wtreuse-${name}.png`) })
   const theme = async (t) => {
     await inv('settings:update', { appearance: { theme: t } })
-    await lib.until(async () => (await page.evaluate(() => document.documentElement.dataset.theme ?? '')) === t, 3000)
+    await lib.until(async () => (await page.evaluate(() => document.documentElement.dataset.theme ?? '')) === t, HUNG_MS)
   }
   const agents = async () => (await inv('workspace:refresh')).projects.find((p) => same(p.path, repo))?.agents ?? []
   await page.getByText('repo', { exact: true }).first().click()
@@ -96,7 +98,7 @@ const same = (a, b) => path.resolve(a).toLowerCase() === path.resolve(b).toLower
   await theme('dark')
   await offer.getByText('reuse it (it keeps its work)').click()
   const existing = dialog.locator('.choice', { hasText: 'Existing worktree' })
-  check('…and its offer picks Existing worktree with it', !!(await lib.until(async () => (await existing.locator('input[type="radio"]').isChecked()) && same(await existing.locator('select').inputValue(), held), 3000)))
+  check('…and its offer picks Existing worktree with it', !!(await lib.until(async () => (await existing.locator('input[type="radio"]').isChecked()) && same(await existing.locator('select').inputValue(), held), HUNG_MS)))
   await dialog.getByRole('button', { name: 'Add Agent', exact: true }).click()
   const heldAgent = await lib.until(async () => (await agents()).find((a) => a.name === 'Held'), 15000)
   check('Held works in it, its commit kept', !!heldAgent && same(heldAgent.worktree?.path ?? '', held) && git(held, 'rev-parse', 'HEAD') === heldTip, JSON.stringify(heldAgent?.worktree))

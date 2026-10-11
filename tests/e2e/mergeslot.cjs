@@ -8,6 +8,8 @@ const lib = require('./lib.cjs')
 const { _electron } = require('playwright-core')
 const fs = require('fs')
 const path = require('path')
+// The longest a wait here waits for what it waits on: a bound for a hung run, never how long it should take (#570).
+const HUNG_MS = 30000
 
 const userData = path.join(lib.WORK, 'mergeslot-profile')
 const ws = path.join(lib.WORK, 'mergeslot-ws')
@@ -62,7 +64,7 @@ const check = (name, ok, extra = '') => {
   }
   const start = async (dir, id) => {
     await inv('session:start', dir, { agentId: id })
-    return until(async () => (await live(dir, id))?.status === 'ready')
+    return until(async () => (await live(dir, id))?.status === 'ready', HUNG_MS)
   }
   /** Types a prompt into an agent (as the user does), Enter included. */
   const say = async (dir, id, text) => {
@@ -86,7 +88,7 @@ const check = (name, ok, extra = '') => {
   // --- Two agents claim at once: one merges, the other waits its turn and runs its checks once, after.
   const checksFile = path.join(alpha, 'checks.txt')
   await say(alpha, ann.id, `${slot({ action: 'claim', cards: [1] })} then work 8 then shell: echo Ann>>checks.txt then ${slot({ action: 'release' })}`)
-  check('the first claim holds the slot', !!(await until(async () => (await slotNow())?.holder?.name === 'Ann')), JSON.stringify(await slotNow()))
+  check('the first claim holds the slot', !!(await until(async () => (await slotNow())?.holder?.name === 'Ann', HUNG_MS)), JSON.stringify(await slotNow()))
   await say(alpha, bob.id, `${slot({ action: 'claim', cards: [2], timeoutSeconds: 25 })} then shell: echo Bob>>checks.txt then ${slot({ action: 'release' })}`)
   const waitingNote = 'Waiting for the merge slot (Ann is merging #1)'
   check("the second waits, and its status says for whom", !!(await until(async () => (await live(alpha, bob.id))?.mergeSlot === waitingNote, 10000)), JSON.stringify((await live(alpha, bob.id))?.mergeSlot))
@@ -120,7 +122,7 @@ const check = (name, ok, extra = '') => {
 
   // --- A holder whose session ends frees the slot: the one waiting gets it.
   await say(alpha, ann.id, slot({ action: 'claim', cards: [3] }))
-  await until(async () => (await slotNow())?.holder?.name === 'Ann')
+  await until(async () => (await slotNow())?.holder?.name === 'Ann', HUNG_MS)
   await say(alpha, bob.id, `${slot({ action: 'claim', timeoutSeconds: 25 })} then work 1`)
   await until(async () => (await slotNow())?.waiting?.length === 1, 10000)
   await inv('session:stop', alpha, ann.id)
@@ -135,7 +137,7 @@ const check = (name, ok, extra = '') => {
   // --- The user releases a holder from the Progress panel (after a question), only the hold the question named.
   await idle(alpha, bob.id)
   await say(alpha, bob.id, slot({ action: 'claim', cards: [4] }))
-  await until(async () => (await slotNow())?.holder?.name === 'Bob')
+  await until(async () => (await slotNow())?.holder?.name === 'Bob', HUNG_MS)
   const askRelease = async () => {
     await page.locator('.progress-panel .progress-merge-card button', { hasText: 'Release' }).click()
     return until(async () => (await page.locator('.dialog', { hasText: 'Release the merge slot?' }).count()) === 1, 5000)

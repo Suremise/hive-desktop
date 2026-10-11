@@ -9,6 +9,8 @@ const lib = require('./lib.cjs')
 const { _electron } = require('playwright-core')
 const fs = require('fs')
 const path = require('path')
+// The longest a wait here waits for what it waits on: a bound for a hung run, never how long it should take (#570).
+const HUNG_MS = 10000
 
 const userData = path.join(lib.WORK, 'assistantimages-profile')
 const ws = path.join(lib.WORK, 'assistantimages-ws')
@@ -105,7 +107,7 @@ const at = (h) => new Date(Date.UTC(2026, 9, 5, h, 0, 0)).toISOString()
   await lib.until(async () => (await page.locator('.image-viewer').count()) > 0, 5000)
   check('an image opens in the viewer', (await page.locator('.image-viewer img').count()) > 0)
   await page.keyboard.press('Escape')
-  await lib.until(async () => (await page.locator('.image-viewer').count()) === 0, 3000)
+  await lib.until(async () => (await page.locator('.image-viewer').count()) === 0, HUNG_MS)
 
   // --- A group's name opens its conversation in the conversations tree.
   await group.locator('.image-group-name').click()
@@ -117,7 +119,7 @@ const at = (h) => new Date(Date.UTC(2026, 9, 5, h, 0, 0)).toISOString()
   // --- The command.
   await page.keyboard.press('Control+Shift+P')
   await page.locator('.palette input').fill('Show Assistant Images')
-  await lib.until(async () => (await page.locator('.palette-item', { hasText: 'Show Assistant Images' }).count()) > 0, 3000)
+  await lib.until(async () => (await page.locator('.palette-item', { hasText: 'Show Assistant Images' }).count()) > 0, HUNG_MS)
   await page.keyboard.press('Enter')
   await lib.until(async () => (await group.count()) > 0, 5000)
   check('"Show Assistant Images" shows them', (await group.count()) === 1)

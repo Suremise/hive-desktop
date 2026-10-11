@@ -17,20 +17,29 @@ Anyone who clones the repository must get the same results, on any machine and u
   once just after an action that changes it: a click, an IPC call, a hook, a file write, a git command.
 - **A timeout bounds a hung run, and never makes a test pass.** Make it generous, and name or explain it. Raising a
   timeout isn't a fix: a change that raises one says why, in the code and on the card.
+- **Every wait states its bound** (#570). No `vi.waitFor`, `expect.poll` or `until` is left to its default (Vitest's
+  1 s is a time budget under load; until's 10 s is a default nobody chose): each passes a named bound for a hung run,
+  `HUNG_MS` (10–30 s) in the file, as `until(fn, HUNG_MS)` or `{ timeout: HUNG_MS }`. A bound under 5 s is a time
+  budget, so it needs a comment saying why it is short: a retry's pace (press again if this one was lost), or a quiet
+  period that is the point of the check (nothing comes within it).
+- **Wait for Hive to settle, not for a quiet spell.** Watches and loop wakes finish their work in the background (a
+  delivery a comment started, the settle before a wake, the check that a typed wake was taken). In unit tests,
+  `await watches.settled()` (and `await loopWakes.settled()`, which waits for both) resolves once nothing of theirs is
+  in flight; check after it, never straight after `evaluateWatches` or `tryLoopWakes`, and never after a short sleep.
 - **No test depends on another's leftovers.** Each test sets up and removes its own state: folders, git worktrees,
   processes, settings, environment variables. It passes alone, in any order, and when run twice.
 - **Tests pass under load.** The full suites run beside other runs (up to two heavy runs on a machine by default, the
-  e2e runner's test slots, several unit suites at once). Before calling a test done, run it under that load, not only
-  alone. A machine can be set to take more or fewer heavy runs with `HIVE_TEST_HEAVY_SLOTS` ([e2e](e2e/README.md), "How
-  many heavy runs at once"); a test must pass with any number of them.
+  e2e runner's test slots, which a full unit run takes too, and focused unit runs beside them). Before calling a test done, run it under that load, not only
+  alone. A machine can be set to take more or fewer heavy runs in `%LOCALAPPDATA%\hive-test\config.json` (`heavySlots`;
+  [e2e](e2e/README.md), "How many heavy runs at once"); a test must pass with any number of them.
 
 A sleep that is the point of the test is fine: checking that something does *not* happen within a period, pacing
 keystrokes, a fake standing in for a slow CLI. Say so in a comment beside it. Something that is truly waited for with
 a sleep, where nothing can be observed, is the exception: say why in the comment.
 
-**`npm run test:waits`** (`scripts/testWaits.mjs`) finds the sleeps a branch adds or changes in the tests since main
-(uncommitted and new files too) that a check follows within three lines, with no comment beside or above saying why;
-it exits 1 when there is one, and 2 when it can't compare (no `main`, a bad `--base`, git failing): nothing was
+**`npm run test:waits`** (`scripts/testWaits.mjs`) finds every wait in the tests that states no bound of its own, or one
+under 5 s with no comment, and the sleeps a branch adds or changes in the tests since main (uncommitted and new files
+too) that a check follows within three lines, with no comment beside or above saying why; it exits 1 when there is one, and 2 when it can't compare (no `main`, a bad `--base`, git failing): nothing was
 checked, so that isn't a pass. Only the first check after a sleep counts, and the sleep is let through only when that
 check itself waits (`until`, `waitFor`, `poll`): a wait in a later check doesn't cover an earlier one. A short sleep
 needs its comment like a long one. A pause inside a loop that polls state is the loop's way of

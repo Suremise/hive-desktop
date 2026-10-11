@@ -11,6 +11,8 @@ import { LANE_DEFAULT_EVENTS, laneHits, laneWakeLine, readLaneCondition, type La
 import { WAKE_MAX_BYTES } from '../src/shared/watch'
 import { taskWaitText } from '../src/shared/toolReplies'
 import { tempDir } from './tempDir'
+// The longest a wait here waits for what it waits on: a bound for a hung run, never how long it should take (#570).
+const HUNG_MS = 10000
 
 const card = (over: Partial<LaneMark['cards'][string]> = {}) => ({ c: 'doing' as const, b: false, s: false, f: '', p: '', ...over })
 
@@ -68,6 +70,7 @@ describe('lane watches (main/watches.ts, #531)', async () => {
   const tasks = await import('../src/main/tasks')
   const watches = await import('../src/main/watches')
   watches.testHooks.settleMs = 0
+  // A check reads what Hive did after `await watches.settled()`: deliveries run in the background (#570).
   const lanes = await import('../src/main/lanes')
   const { sessions } = await import('../src/main/sessions')
   let k = 0
@@ -128,34 +131,38 @@ describe('lane watches (main/watches.ts, #531)', async () => {
     // A plain move into Review: nothing.
     await inWorkspace(w, () => tasks.updateTask(a, { column: 'review' }, agent('b1')))
     await watches.evaluateWatches(w)
+    await watches.settled()
     expect(st.typed).toEqual([])
     // A failed review: told, with its lane and reviewer.
     await fail(w, a, 'r1')
     await watches.evaluateWatches(w)
-    await vi.waitFor(() => expect(st.typed).toHaveLength(1))
+    await vi.waitFor(() => expect(st.typed).toHaveLength(1), { timeout: HUNG_MS })
     expect(st.typed[0]).toMatch(new RegExp(`^\\[Hive\\] Lane B1 / R1 \\(greetings\\): #${a} failed review \\(R1 \\(alpha\\)\\)\\. Your lane watch has ended`))
     // Watched again: a block in the other lane.
     await watchAll(w, home, st)
     await inWorkspace(w, () => tasks.updateTask(c, { blocked: 'Which icon?' }, agent('b2')))
     await watches.evaluateWatches(w)
-    await vi.waitFor(() => expect(st.typed).toHaveLength(2))
+    await vi.waitFor(() => expect(st.typed).toHaveLength(2), { timeout: HUNG_MS })
     expect(st.typed[1]).toMatch(new RegExp(`^\\[Hive\\] Lane B2 / R2: #${c} is blocked: "Which icon\\?"`))
     // Both of B1's cards pass: its merge is due. Then Done: the lane ends.
     await watchAll(w, home, st)
     for (const n of [a, b]) await inWorkspace(w, () => tasks.updateTask(n, { column: 'passed' }, user))
     await watches.evaluateWatches(w)
-    await vi.waitFor(() => expect(st.typed).toHaveLength(3))
+    await vi.waitFor(() => expect(st.typed).toHaveLength(3), { timeout: HUNG_MS })
     expect(st.typed[2]).toMatch(/^\[Hive\] Lane B1 \/ R1 \(greetings\): all its cards passed: its merge is due\./)
     await watchAll(w, home, st)
     for (const n of [a, b]) await inWorkspace(w, () => tasks.updateTask(n, { column: 'done' }, user))
     // Hive ends a lane whose cards are all Done as it follows the board (lanes.refresh).
     await lanes.refresh(w)
     await watches.evaluateWatches(w)
-    await vi.waitFor(() => expect(st.typed).toHaveLength(4))
+    await vi.waitFor(() => expect(st.typed).toHaveLength(4), { timeout: HUNG_MS })
     expect(st.typed[3]).toMatch(/^\[Hive\] Lane B1 \/ R1 \(greetings\): ended \(merged\)\./)
     await disposeWorkspaceService(w)
   })
 
+  // 27 cards and three lanes: about 2 s alone, 5 s with four runs at once, and past the 20 s default with twelve suites
+  // four at once beside a full e2e set (#570's proofs). Its bound for a hung run fits that work.
+  const MANY_CARDS_HUNG_MS = 60_000
   it('"all" takes in a lane started later and cards added to a lane, with no card limit; events narrow what counts', async () => {
     const { w, alpha, home } = await open()
     const st = fake(alpha, home)
@@ -166,11 +173,12 @@ describe('lane watches (main/watches.ts, #531)', async () => {
     const [x] = await newCards(w, 'b3', 1)
     await lanes.startLane(w, { project: 'alpha', builder: 'b3', reviewer: 'r1', cards: [x], by: 'B3 (alpha)' })
     await watches.evaluateWatches(w)
+    await watches.settled()
     expect(st.typed).toEqual([])
     await inWorkspace(w, () => tasks.updateTask(x, { column: 'review' }, agent('b3')))
     await fail(w, x, 'r1')
     await watches.evaluateWatches(w)
-    await vi.waitFor(() => expect(st.typed).toHaveLength(1))
+    await vi.waitFor(() => expect(st.typed).toHaveLength(1), { timeout: HUNG_MS })
     expect(st.typed[0]).toContain(`#${x} failed review`)
     // A lane started after the watch with a card already blocked when first seen: told once.
     await watchAll(w, home, st)
@@ -178,7 +186,7 @@ describe('lane watches (main/watches.ts, #531)', async () => {
     await inWorkspace(w, () => tasks.updateTask(y, { blocked: 'Asked before the lane was seen' }, agent('b2')))
     await lanes.startLane(w, { project: 'alpha', builder: 'b2', reviewer: 'r2', cards: [y], by: 'B2 (alpha)' })
     await watches.evaluateWatches(w)
-    await vi.waitFor(() => expect(st.typed).toHaveLength(2))
+    await vi.waitFor(() => expect(st.typed).toHaveLength(2), { timeout: HUNG_MS })
     expect(st.typed[1]).toContain(`#${y} is blocked: "Asked before the lane was seen"`)
     st.typed.splice(1, 1)
     // The 25th card of a lane (more than a card watch's 20).
@@ -187,22 +195,23 @@ describe('lane watches (main/watches.ts, #531)', async () => {
     await inWorkspace(w, () => tasks.updateTask(last, { column: 'review' }, agent('b1')))
     await fail(w, last, 'r1')
     await watches.evaluateWatches(w)
-    await vi.waitFor(() => expect(st.typed).toHaveLength(2))
+    await vi.waitFor(() => expect(st.typed).toHaveLength(2), { timeout: HUNG_MS })
     expect(st.typed[1]).toContain(`#${last} failed review`)
     // Only passes asked for: a failed review is quiet, a pass wakes it.
     await watchAll(w, home, st, ['passed'])
     await inWorkspace(w, () => tasks.updateTask(many[0], { column: 'review' }, agent('b1')))
     await fail(w, many[0], 'r1')
     await watches.evaluateWatches(w)
+    await watches.settled()
     expect(st.typed).toHaveLength(2)
     await inWorkspace(w, () => tasks.updateTask(many[1], { column: 'review' }, agent('b1')))
     await inWorkspace(w, () => tasks.updateTask(many[1], { review: 'start' }, agent('r1')))
     await inWorkspace(w, () => tasks.updateTask(many[1], { review: 'passed', column: 'passed' }, agent('r1'), { comment: 'Round 1: PASSED' }))
     await watches.evaluateWatches(w)
-    await vi.waitFor(() => expect(st.typed).toHaveLength(3))
+    await vi.waitFor(() => expect(st.typed).toHaveLength(3), { timeout: HUNG_MS })
     expect(st.typed[2]).toContain(`#${many[1]} passed review`)
     await disposeWorkspaceService(w)
-  })
+  }, MANY_CARDS_HUNG_MS)
 
   it('seven lanes, 28 cards, in one watch: each lane followed, one wake for the lane that changed (#531 card)', async () => {
     const { w, alpha, home } = await open(7)
@@ -218,7 +227,7 @@ describe('lane watches (main/watches.ts, #531)', async () => {
     await inWorkspace(w, () => tasks.updateTask(n, { column: 'review' }, agent('b7')))
     await fail(w, n, 'r1')
     await watches.evaluateWatches(w)
-    await vi.waitFor(() => expect(st.typed).toHaveLength(1))
+    await vi.waitFor(() => expect(st.typed).toHaveLength(1), { timeout: HUNG_MS })
     expect(st.typed[0]).toMatch(new RegExp(`^\\[Hive\\] Lane B7 / R1: #${n} failed review \\(R1 \\(alpha\\)\\)\\. Your lane watch has ended`))
     await disposeWorkspaceService(w)
   })
@@ -233,11 +242,12 @@ describe('lane watches (main/watches.ts, #531)', async () => {
     await inWorkspace(w, () => tasks.updateTask(b, { blocked: 'Blocked before it joined the lane' }, agent('b1')))
     await lanes.startLane(w, { project: 'alpha', builder: 'b1', reviewer: 'r1', cards: [a, b], by: 'B1 (alpha)' })
     await watches.evaluateWatches(w)
-    await vi.waitFor(() => expect(st.typed).toHaveLength(1))
+    await vi.waitFor(() => expect(st.typed).toHaveLength(1), { timeout: HUNG_MS })
     expect(st.typed[0]).toContain(`#${b} is blocked: "Blocked before it joined the lane"`)
     // Told once: the next watch starts from what that wake told.
     await watchAll(w, home, st)
     await watches.evaluateWatches(w)
+    await watches.settled()
     expect(st.typed).toHaveLength(1)
     await disposeWorkspaceService(w)
   })
@@ -253,18 +263,19 @@ describe('lane watches (main/watches.ts, #531)', async () => {
       await watchAll(w, home, st)
       await inWorkspace(w, () => tasks.updateTask(a, { blocked: 'A question' }, agent('b1')))
       await watches.evaluateWatches(w)
-      await vi.waitFor(() => expect(st.typed).toHaveLength(1))
+      await vi.waitFor(() => expect(st.typed).toHaveLength(1), { timeout: HUNG_MS })
       // While it handles that wake, the other lane ends (its card Done) or is abandoned.
       if (how === 'ended') {
         await inWorkspace(w, () => tasks.updateTask(c, { column: 'done' }, user))
         await lanes.refresh(w)
       } else await lanes.endLane(w, other.id, { abandoned: true })
       await watchAll(w, home, st)
-      await vi.waitFor(() => expect(st.typed).toHaveLength(2))
+      await vi.waitFor(() => expect(st.typed).toHaveLength(2), { timeout: HUNG_MS })
       expect(st.typed[1]).toMatch(new RegExp(`^\\[Hive\\] Lane B2 / R2: ${how === 'ended' ? 'ended \\(merged\\)' : 'was abandoned'}\\.`))
       // Its end told, the lane leaves the watch: nothing more about it.
       await watchAll(w, home, st)
       await watches.evaluateWatches(w)
+      await watches.settled()
       expect(st.typed).toHaveLength(2)
       expect(watches.watchFor(home, 'assistant')?.label).toBe('Waiting on all running lanes')
       await disposeWorkspaceService(w)
@@ -281,7 +292,7 @@ describe('lane watches (main/watches.ts, #531)', async () => {
       await watchAll(w, home, st, events)
       await inWorkspace(w, () => tasks.updateTask(a, { blocked: 'A question' }, agent('b1')))
       await watches.evaluateWatches(w)
-      await vi.waitFor(() => expect(st.typed).toHaveLength(1))
+      await vi.waitFor(() => expect(st.typed).toHaveLength(1), { timeout: HUNG_MS })
       return { w, home, st, a }
     }
 
@@ -294,11 +305,12 @@ describe('lane watches (main/watches.ts, #531)', async () => {
         await inWorkspace(w, () => tasks.updateTask(b, { review: 'start' }, agent('r1')))
         await inWorkspace(w, () => tasks.updateTask(b, { review: verdict }, agent('r1'), { comment: `Round 1: ${verdict.toUpperCase()}` }))
         await watchAll(w, home, st, ['failed', 'passed', 'blocked'])
-        await vi.waitFor(() => expect(st.typed).toHaveLength(2))
+        await vi.waitFor(() => expect(st.typed).toHaveLength(2), { timeout: HUNG_MS })
         expect(st.typed[1]).toContain(`#${b} ${verdict} review (R1 (alpha))`)
         expect(st.typed[1]).not.toContain(`#${a} is blocked`)
         await watchAll(w, home, st, ['failed', 'passed', 'blocked'])
         await watches.evaluateWatches(w)
+        await watches.settled()
         expect(st.typed).toHaveLength(2)
         await disposeWorkspaceService(w)
       })
@@ -310,10 +322,11 @@ describe('lane watches (main/watches.ts, #531)', async () => {
       await inWorkspace(w, () => tasks.updateTask(c, { blocked: 'Asked as the lane started' }, agent('b2')))
       await lanes.startLane(w, { project: 'alpha', builder: 'b2', reviewer: 'r2', cards: [c], by: 'B2 (alpha)' })
       await watchAll(w, home, st)
-      await vi.waitFor(() => expect(st.typed).toHaveLength(2))
+      await vi.waitFor(() => expect(st.typed).toHaveLength(2), { timeout: HUNG_MS })
       expect(st.typed[1]).toMatch(new RegExp(`^\\[Hive\\] Lane B2 / R2: #${c} is blocked: "Asked as the lane started"`))
       await watchAll(w, home, st)
       await watches.evaluateWatches(w)
+      await watches.settled()
       expect(st.typed).toHaveLength(2)
       await disposeWorkspaceService(w)
     })
@@ -328,10 +341,11 @@ describe('lane watches (main/watches.ts, #531)', async () => {
           await lanes.refresh(w)
         } else await lanes.endLane(w, l.id, { abandoned: true })
         await watchAll(w, home, st)
-        await vi.waitFor(() => expect(st.typed).toHaveLength(2))
+        await vi.waitFor(() => expect(st.typed).toHaveLength(2), { timeout: HUNG_MS })
         expect(st.typed[1]).toMatch(new RegExp(`^\\[Hive\\] Lane B2 / R2: ${how === 'ended' ? 'ended \\(merged\\)' : 'was abandoned'}\\.`))
         await watchAll(w, home, st)
         await watches.evaluateWatches(w)
+        await watches.settled()
         expect(st.typed).toHaveLength(2)
         await disposeWorkspaceService(w)
       })
@@ -352,15 +366,17 @@ describe('lane watches (main/watches.ts, #531)', async () => {
     await watches.evaluateWatches(w)
     await inWorkspace(w, () => tasks.updateTask(c, { blocked: 'Second question' }, agent('b2')))
     await watches.evaluateWatches(w)
+    await watches.settled()
     expect(st.typed).toEqual([])
     st.status = 'watching'
     await watches.tick()
-    await vi.waitFor(() => expect(st.typed).toHaveLength(1))
+    await vi.waitFor(() => expect(st.typed).toHaveLength(1), { timeout: HUNG_MS })
     expect(st.typed[0]).toContain(`#${a} is blocked: "First question"`)
     expect(st.typed[0]).toContain(`#${c} is blocked: "Second question"`)
     // Both told: the next watch doesn't tell them again.
     await watchAll(w, home, st)
     await watches.evaluateWatches(w)
+    await watches.settled()
     expect(st.typed).toHaveLength(1)
     await disposeWorkspaceService(w)
   })
@@ -372,12 +388,13 @@ describe('lane watches (main/watches.ts, #531)', async () => {
     await lanes.startLane(w, { project: 'alpha', builder: 'b1', reviewer: 'r1', cards: [a], by: 'B1 (alpha)' })
     await watchAll(w, home, st)
     await watches.evaluateWatches(w)
+    await watches.settled()
     expect(st.typed).toEqual([])
     // B1 stops: its Doing card has nobody on it.
     const liveFor = sessions.liveFor.bind(sessions)
     Object.assign(sessions, { liveFor: (p: string, id: string) => (id === 'b1' ? null : liveFor(p, id)) })
     await watches.evaluateWatches(w)
-    await vi.waitFor(() => expect(st.typed).toHaveLength(1))
+    await vi.waitFor(() => expect(st.typed).toHaveLength(1), { timeout: HUNG_MS })
     expect(st.typed[0]).toContain(`#${a} is stalled: "B1 isn't running."`)
     await disposeWorkspaceService(w)
   })
@@ -391,12 +408,12 @@ describe('lane watches (main/watches.ts, #531)', async () => {
     await watches.registerLaneWatch(w, home, 'assistant', { ids: [l.id], events: ['failed', 'blocked'] })
     await inWorkspace(w, () => tasks.updateTask(a, { blocked: 'A question' }, agent('b1')))
     await watches.evaluateWatches(w)
-    await vi.waitFor(() => expect(st.typed).toHaveLength(1))
+    await vi.waitFor(() => expect(st.typed).toHaveLength(1), { timeout: HUNG_MS })
     // Between the wake and the next watch, #b is blocked too: the next watch is woken at once.
     await inWorkspace(w, () => tasks.updateTask(b, { blocked: 'Another question' }, agent('b1')))
     st.status = 'watching'
     await watches.registerLaneWatch(w, home, 'assistant', { ids: [l.id], events: ['failed', 'blocked'] })
-    await vi.waitFor(() => expect(st.typed).toHaveLength(2))
+    await vi.waitFor(() => expect(st.typed).toHaveLength(2), { timeout: HUNG_MS })
     expect(st.typed[1]).toContain(`#${b} is blocked: "Another question"`)
     expect(st.typed[1]).not.toContain(`#${a} is blocked`)
     await expect(watches.registerLaneWatch(w, home, 'assistant', { ids: ['lane-nosuch'], events: ['failed'] })).rejects.toThrow(/No such lane: lane-nosuch/)
@@ -406,6 +423,7 @@ describe('lane watches (main/watches.ts, #531)', async () => {
     watches.forgetWatches(w)
     expect(watches.watchFor(home, 'assistant')).toBeNull()
     await watches.evaluateWatches(w)
+    await watches.settled()
     expect(watches.watchFor(home, 'assistant')?.label).toBe('Waiting on all running lanes')
     await disposeWorkspaceService(w)
   })

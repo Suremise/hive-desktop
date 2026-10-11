@@ -8,6 +8,8 @@ const lib = require('./lib.cjs')
 const { _electron } = require('playwright-core')
 const fs = require('fs')
 const path = require('path')
+// The longest a wait here waits for what it waits on: a bound for a hung run, never how long it should take (#570).
+const HUNG_MS = 10000
 
 const userData = path.join(lib.WORK, 'loadfail-profile')
 const ws = path.join(lib.WORK, 'loadfail-ws')
@@ -55,26 +57,26 @@ const check = (name, ok, extra = '') => {
   await failNext('transcript:search')
   await page.locator('.files-filter input').fill('needle')
   const failedBox = page.locator('.load-failed')
-  check('search: a failure shows the error with Retry', !!(await until(async () => /Could not load the search results: .*failed/.test(await text('.load-failed')))))
+  check('search: a failure shows the error with Retry', !!(await until(async () => /Could not load the search results: .*failed/.test(await text('.load-failed')), HUNG_MS)))
   check('search: no "No matches" for a failure', !/No matches/.test(await text('.sessions-scope')))
   await page.screenshot({ path: path.join(lib.WORK, 'loadfail-1-search.png') })
   await failedBox.getByRole('button', { name: 'Retry' }).click()
-  check('search: Retry searches again (a real empty result)', !!(await until(async () => (await failedBox.count()) === 0 && /No matches/.test(await text('.sessions-scope')))))
+  check('search: Retry searches again (a real empty result)', !!(await until(async () => (await failedBox.count()) === 0 && /No matches/.test(await text('.sessions-scope')), HUNG_MS)))
 
   // --- Skills tab: a failed read isn't "no skills"; Retry loads them without reopening the tab.
   await failNext('skills:list')
   await page.locator('.tab', { hasText: 'Skills' }).click()
-  check('skills: a failure shows the error with Retry', !!(await until(async () => /Could not load the skills: .*failed/.test(await text('.load-failed')))))
+  check('skills: a failure shows the error with Retry', !!(await until(async () => /Could not load the skills: .*failed/.test(await text('.load-failed')), HUNG_MS)))
   check('skills: no empty groups for a failure', (await page.locator('.skill-group').count()) === 0)
   await page.screenshot({ path: path.join(lib.WORK, 'loadfail-2-skills.png') })
   await failedBox.getByRole('button', { name: 'Retry' }).click()
-  check('skills: Retry loads them', !!(await until(async () => (await failedBox.count()) === 0 && (await page.locator('.skill-group').count()) > 0)))
+  check('skills: Retry loads them', !!(await until(async () => (await failedBox.count()) === 0 && (await page.locator('.skill-group').count()) > 0, HUNG_MS)))
   // A refresh that fails keeps the list, with a note.
   await failNext('skills:list')
   await page.locator('.split-list .pane-header').getByRole('button', { name: 'Refresh' }).click()
-  check('skills: a failed refresh keeps the list, with a note', !!(await until(async () => /Could not refresh the skills/.test(await text('.load-stale')) && (await page.locator('.skill-group').count()) > 0)))
+  check('skills: a failed refresh keeps the list, with a note', !!(await until(async () => /Could not refresh the skills/.test(await text('.load-stale')) && (await page.locator('.skill-group').count()) > 0, HUNG_MS)))
   await page.locator('.load-stale').getByRole('button', { name: 'Retry' }).click()
-  check('skills: Retry clears the note', !!(await until(async () => (await page.locator('.load-stale').count()) === 0)))
+  check('skills: Retry clears the note', !!(await until(async () => (await page.locator('.load-stale').count()) === 0, HUNG_MS)))
 
   // --- A project's results are its own: another project whose load fails or is overtaken never shows them.
   const project = (name) => page.locator('.sidebar').getByText(name, { exact: true }).first().click()
@@ -83,56 +85,56 @@ const check = (name, ok, extra = '') => {
   // stays open for that project), so a list of the other project's would show.
   const openProvider = async () => {
     const t = page.locator('.skill-provider-toggle')
-    await until(async () => (await t.count()) > 0)
+    await until(async () => (await t.count()) > 0, HUNG_MS)
     if ((await t.getAttribute('aria-expanded').catch(() => 'true')) === 'false') await t.click()
   }
   await project('beta')
   await page.locator('.tab', { hasText: 'Skills' }).click()
-  await until(async () => (await page.locator('.skill-group').count()) > 0)
+  await until(async () => (await page.locator('.skill-group').count()) > 0, HUNG_MS)
   await openProvider()
   await project('alpha')
   await openProvider()
-  check('skills: alpha lists its own local skill', !!(await until(async () => (await alphaOnly.count()) === 1)))
+  check('skills: alpha lists its own local skill', !!(await until(async () => (await alphaOnly.count()) === 1, HUNG_MS)))
   // The Skills tab stays open (both projects show it) while beta's load fails.
   await failNext('skills:list')
   await project('beta')
-  check("skills: beta's failed load says so, without alpha's skills", !!(await until(async () => /Could not load the skills/.test(await text('.load-failed')))) && (await alphaOnly.count()) === 0)
+  check("skills: beta's failed load says so, without alpha's skills", !!(await until(async () => /Could not load the skills/.test(await text('.load-failed')), HUNG_MS)) && (await alphaOnly.count()) === 0)
   check("skills: nor as beta's stale list", (await page.locator('.load-stale').count()) === 0)
   await page.screenshot({ path: path.join(lib.WORK, 'loadfail-5-switch.png') })
   // Whichever Retry shows, so the checks after this one still run if the error showed as a stale note.
   await page.getByRole('button', { name: 'Retry' }).first().click()
-  check("skills: Retry loads beta's own", !!(await until(async () => (await failedBox.count()) === 0 && (await page.locator('.skill-group').count()) > 0)) && (await alphaOnly.count()) === 0)
+  check("skills: Retry loads beta's own", !!(await until(async () => (await failedBox.count()) === 0 && (await page.locator('.skill-group').count()) > 0, HUNG_MS)) && (await alphaOnly.count()) === 0)
   // Alpha's answer arrives late, after beta is shown: it isn't shown as beta's.
   await slowNext('skills:list', 2500)
   await project('alpha')
   await lib.sleep(300)
   await project('beta')
-  await until(async () => (await page.locator('.skill-group').count()) > 0)
+  await until(async () => (await page.locator('.skill-group').count()) > 0, HUNG_MS)
   await lib.sleep(3500) // A fixed wait on purpose: the slowed answer for the old choice arrives later, and this checks it doesn't replace the new one.
   check("skills: alpha's late answer isn't shown in beta", (await alphaOnly.count()) === 0 && (await page.locator('.skill-group').count()) > 0)
   await project('alpha')
-  check('skills: back in alpha, its own again', !!(await until(async () => (await alphaOnly.count()) === 1)))
+  check('skills: back in alpha, its own again', !!(await until(async () => (await alphaOnly.count()) === 1, HUNG_MS)))
   // While beta's own load is slow, alpha's list isn't shown as beta's: beta is loading.
   await slowNext('skills:list', 2500)
   await project('beta')
   await lib.sleep(600)
   check("skills: while beta loads, alpha's skills aren't shown", (await alphaOnly.count()) === 0 && /Loading/.test(await text('.split-list .pane-body')))
-  check('skills: then beta has its own', !!(await until(async () => (await page.locator('.skill-group').count()) > 0)) && (await alphaOnly.count()) === 0)
+  check('skills: then beta has its own', !!(await until(async () => (await page.locator('.skill-group').count()) > 0, HUNG_MS)) && (await alphaOnly.count()) === 0)
 
   // --- Workspace Overview: a failed first load isn't a spinner forever.
   await failNext('workspace:usage')
   await page.keyboard.press('Control+Shift+O')
-  check('overview: a failure shows the error with Retry', !!(await until(async () => /Could not load the workspace's usage: .*failed/.test(await text('.load-failed')))))
+  check('overview: a failure shows the error with Retry', !!(await until(async () => /Could not load the workspace's usage: .*failed/.test(await text('.load-failed')), HUNG_MS)))
   await page.screenshot({ path: path.join(lib.WORK, 'loadfail-3-overview.png') })
   await failedBox.getByRole('button', { name: 'Retry' }).click()
-  check('overview: Retry loads it', !!(await until(async () => (await failedBox.count()) === 0 && /Summary/.test(await text('.overview-head')))))
+  check('overview: Retry loads it', !!(await until(async () => (await failedBox.count()) === 0 && /Summary/.test(await text('.overview-head')), HUNG_MS)))
   // A failed refresh keeps the figures, with when they're from.
   await failNext('workspace:usage')
   await page.locator('.overview-head').getByRole('button', { name: 'Refresh' }).click()
-  check('overview: a failed refresh keeps the figures, with a note', !!(await until(async () => /Could not refresh the usage; last updated \d/.test(await text('.load-stale')) && (await page.locator('.cards').count()) > 0)))
+  check('overview: a failed refresh keeps the figures, with a note', !!(await until(async () => /Could not refresh the usage; last updated \d/.test(await text('.load-stale')) && (await page.locator('.cards').count()) > 0, HUNG_MS)))
   await page.screenshot({ path: path.join(lib.WORK, 'loadfail-4-stale.png') })
   await page.locator('.load-stale').getByRole('button', { name: 'Retry' }).click()
-  check('overview: Retry clears the note', !!(await until(async () => (await page.locator('.load-stale').count()) === 0)))
+  check('overview: Retry clears the note', !!(await until(async () => (await page.locator('.load-stale').count()) === 0, HUNG_MS)))
 
   await app.close()
   console.log(failed ? `${failed} check(s) failed` : 'All checks passed')

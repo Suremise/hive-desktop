@@ -20,7 +20,7 @@
 //   --build         build first (npx electron-vite build), only if the build isn't from this source (build.mjs).
 //   --packaged      include the installer's suites (need npm run dist); --no-progress: don't report to Hive.
 //   --no-wait       a heavy run (more than 5 suites, or --repeat) fails at once when every test slot on this machine is
-//                   taken, instead of waiting for one (slots.mjs; HIVE_TEST_HEAVY_SLOTS, default 2).
+//                   taken, instead of waiting for one (slots.mjs; heavySlots in hive-test\config.json, default 2).
 //   --pre-merge     a heavy run checking a merge goes first in the queue for a test slot (#558). Not needed in the
 //                   session of an agent holding the merge slot: such a run goes first anyway (slots.mjs holdsMergeSlot).
 // Needs a dev build. A suite fails when it exits non-zero or prints a line starting with FAIL. Each suite gets its own
@@ -38,7 +38,7 @@ import { e2eProgress, slotWaitProgress } from '../progressReport.mts'
 import { SUITES } from './suites.mjs'
 import { affectedSuites, changedFiles } from './affected.mjs'
 import { CLI_LOG, fingerprint, readCliLog, realCliHomes, realCliVersions, recordJson, recordMarkdown } from './record.mjs'
-import { isRealCli, needsDevBuild, packagedStatus, parentSuite, parseArgs, portBase, realNotRun, repeatStatus, selectSuites, suiteOutcome } from './runner.mjs'
+import { isRealCli, needsDevBuild, packagedStatus, parentSuite, parseArgs, portBase, realNotRun, repeatStatus, resultLines, selectSuites, suiteOutcome } from './runner.mjs'
 import { devBuild, ensureBuild } from './build.mjs'
 import { FAILED_KEEP_MS, finishRunDirs, keepSuiteFiles, logsRootFor, markRunFailed, newRunDir, omittedLine, pruneRunDirsReleasing } from './logs.mjs'
 import { LANES, claimLane, laneWork } from './lanes.mjs'
@@ -54,6 +54,7 @@ const lib = createRequire(import.meta.url)('./lib.cjs')
 const runContext = createRequire(import.meta.url)('./runContext.cjs')
 const { claimedByRuns, clearDir, evidenceFor, findBoard, finishSuiteDir, freshFolder, recordKept, releaseKept } = createRequire(import.meta.url)('./evidence.cjs')
 const { stopProcessesIn } = createRequire(import.meta.url)('./folderProcesses.cjs')
+const { describeExit, windowsCodesIn } = createRequire(import.meta.url)('./windowsExits.cjs')
 
 const args = process.argv.slice(2)
 const opts = parseArgs(args, SUITES.map((s) => s.name))
@@ -247,7 +248,10 @@ const run = (name, port) =>
     }, 10 * 60_000)
     child.on('exit', (code) => {
       clearTimeout(timer)
-      const outcome = { ...suiteOutcome({ code, out }), clis: suiteClis(dir) }
+      // The Windows codes its output names (#599: a child that failed to start or crashed), not its own exit code: its
+      // result line says that one.
+      const windows = windowsCodesIn(out).filter((w) => w !== describeExit(code))
+      const outcome = { ...suiteOutcome({ code, out }), clis: suiteClis(dir), windows }
       // What a suite's agents left running from its folder (a command through hive-progress, a server: #542) would hold
       // the folder and outlive the run: stopped, by command line (its folder, started since the suite did), never by name.
       const stopped = dir ? stopProcessesIn(dir, started) : 0
@@ -361,9 +365,8 @@ async function runOnce(k) {
     writeFileSync(join(logDir, `${s.name}.log`), r.out)
     // A folder it kept goes with this run's logs (pruneRunDirsReleasing → releaseKept).
     if (r.kept && r.dir) recordKept(logDir, [r.dir])
-    if (r.skipped) console.log(`${s.name.padEnd(22)}SKIP  ${r.seconds}s  (${r.skipped})`)
-    else console.log(`${s.name.padEnd(22)}${r.ok ? 'pass' : 'FAIL'}  ${r.seconds}s${r.ok ? '' : `  (exit ${r.code}${r.failed.length ? `; ${r.failed.length} failed check${r.failed.length === 1 ? '' : 's'}` : ''})`}`)
-    for (const f of r.skipped ? [] : r.failed) console.log(`    ${f.trim()}`)
+    // Its line, its FAIL lines, and a Windows code it ended with or names, with its meaning (#599).
+    for (const line of resultLines(s.name, r)) console.log(line)
     // A failure with no FAIL line (an exception, a timeout): its last lines say why.
     if (r.ok === false && !r.failed.length) for (const line of r.out.split(/\r?\n/).filter((x) => x.trim()).slice(-5)) console.log(`    | ${line.trim().slice(0, 200)}`)
     if (r.kept && r.ok === false) console.log(`    its profiles and workspaces are kept: ${r.kept}`)

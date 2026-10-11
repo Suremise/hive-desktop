@@ -7,6 +7,8 @@ const lib = require('./lib.cjs')
 const { _electron } = require('playwright-core')
 const fs = require('fs')
 const path = require('path')
+// The longest a wait here waits for what it waits on: a bound for a hung run, never how long it should take (#570).
+const HUNG_MS = 10000
 
 const userData = path.join(lib.WORK, 'attention-profile')
 const ws = path.join(lib.WORK, 'attention-ws')
@@ -94,7 +96,7 @@ const check = (name, ok, extra = '') => {
   const underReview = (s) => /^working\|\|[^|]*\|Codex asks to run /.test(s)
   const neverStatus = (a) => !states(a).some((s) => s.split('|')[1].includes('Codex asks'))
   await turn(reviewed, 'review allow')
-  check('under review: its status still says Working…, with the review mark', !!(await until(async () => (await mark.isVisible().catch(() => false)) && (await status()) === 'Working…', 3000)), await status())
+  check('under review: its status still says Working…, with the review mark', !!(await until(async () => (await mark.isVisible().catch(() => false)) && (await status()) === 'Working…', HUNG_MS)), await status())
   check('an approved auto-review finishes the turn', !!(await finished(reviewed)))
   check('and the mark goes', (await mark.count()) === 0)
   check('it was under review, with what was asked', states(reviewed).some(underReview), states(reviewed).join(' > '))
@@ -111,7 +113,7 @@ const check = (name, ok, extra = '') => {
     await lib.fitWindow(app, page, { width, height: 850 })
     await turn(reviewed, 'review long')
     const t0 = Date.now()
-    const shown = await until(async () => mark.isVisible().catch(() => false), 4000)
+    const shown = await until(async () => mark.isVisible().catch(() => false), HUNG_MS)
     const text = await header.innerText().catch(() => '')
     check(`${width}px ${theme}: the long request is under review`, !!shown && (await status()) === 'Working…', await status())
     check(`${width}px ${theme}: none of it in the header`, !/\$env|npm\.cmd|hive-test|Codex asks/.test(text), text.replace(/\s+/g, ' '))
@@ -120,7 +122,7 @@ const check = (name, ok, extra = '') => {
     const hovered = await until(async () => {
       await mark.hover({ timeout: 500 }).catch(() => undefined)
       return (await tip.count()) === 1
-    }, 2500)
+    }, HUNG_MS)
     check(`${width}px ${theme}: the details on hover: the reviewer, and what it asks`, !!hovered && /reviewer is checking/.test(await tip.innerText()), `mark visible: ${await mark.isVisible().catch(() => false)}; tips: ${await page.locator('.tip').allInnerTexts().then((t) => t.join(' | '))}; ${Date.now() - t0} ms; ${states(reviewed).join(' > ')}`)
     await page.screenshot({ path: path.join(lib.WORK, `attention-review-${width}-${theme}.png`) })
     await page.mouse.move(5, 5)
@@ -138,7 +140,7 @@ const check = (name, ok, extra = '') => {
   check('told once, though its title blinks', told('Asking') === 1, String(told('Asking')))
   // The inbox (finishes the window hasn't shown yet may be listed with it).
   await page.locator('[data-inbox-toggle]').click()
-  check('the inbox says it needs input', !!(await until(() => page.getByText('Needs input: Codex asks to run curl.exe https://example.com').isVisible().catch(() => false), 3000)))
+  check('the inbox says it needs input', !!(await until(() => page.getByText('Needs input: Codex asks to run curl.exe https://example.com').isVisible().catch(() => false), HUNG_MS)))
   await page.screenshot({ path: path.join(lib.WORK, 'attention-1-approval.png') })
   await page.keyboard.press('Escape')
   await inv('pty:write', askKey, 'y')
@@ -157,10 +159,10 @@ const check = (name, ok, extra = '') => {
   await lib.sleep(1600) // A fixed wait on purpose: this checks that something does NOT happen, which no condition can show.
   check('told once', told('Reviewed') === 1, String(told('Reviewed')))
   check('never waiting', !states(reviewed).some((s) => s.startsWith('waiting')), states(reviewed).join(' > '))
-  check('its pane says so', !!(await until(() => page.locator('.pane-status.asks', { hasText: 'has a question for you' }).isVisible().catch(() => false), 3000)))
+  check('its pane says so', !!(await until(() => page.locator('.pane-status.asks', { hasText: 'has a question for you' }).isVisible().catch(() => false), HUNG_MS)))
   check('it needs you in the status bar', await page.locator('[data-inbox-toggle]', { hasText: /needs? you/ }).isVisible().catch(() => false))
   await page.locator('[data-inbox-toggle]').click()
-  check('the inbox shows the question', !!(await until(() => page.getByText('Asks: Which colour?').isVisible().catch(() => false), 3000)))
+  check('the inbox shows the question', !!(await until(() => page.getByText('Asks: Which colour?').isVisible().catch(() => false), HUNG_MS)))
   await page.screenshot({ path: path.join(lib.WORK, 'attention-2-question.png') })
   await page.keyboard.press('Escape')
   await inv('pty:write', lib.ptyKey(proj, reviewed.id), 'a')

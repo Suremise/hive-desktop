@@ -7,6 +7,8 @@ const { _electron } = require('playwright-core')
 const { createHash } = require('crypto')
 const fs = require('fs')
 const path = require('path')
+// The longest a wait here waits for what it waits on: a bound for a hung run, never how long it should take (#570).
+const HUNG_MS = 20000
 
 const userData = path.join(lib.WORK, 'bg-profile')
 const ws = path.join(lib.WORK, 'bg-ws')
@@ -51,9 +53,9 @@ const check = (name, ok, extra = '') => {
   const info = await inv('workspace:refresh')
   const home = info.assistant.path
   await inv('session:start', home, { agentId: 'assistant' })
-  await until(async () => (await live(home, 'assistant'))?.status === 'waiting')
+  await until(async () => (await live(home, 'assistant'))?.status === 'waiting', HUNG_MS)
   await inv('pty:write', lib.ptyKey(home, 'assistant'), '\r')
-  await until(async () => (await live(home, 'assistant'))?.status === 'ready')
+  await until(async () => (await live(home, 'assistant'))?.status === 'ready', HUNG_MS)
   const tokenFile = path.join(userData, 'assistant-api', `${createHash('sha256').update(ws.toLowerCase()).digest('hex').slice(0, 16)}.json`)
   const token = JSON.parse(fs.readFileSync(tokenFile, 'utf8')).token
   const api = async (method, p, body) => {
@@ -66,12 +68,12 @@ const check = (name, ok, extra = '') => {
   const added = await api('POST', '/v1/projects/alpha/agents', { name: 'Tester', prompt: 'background 12' })
   check('the agent starts on its task', added.status === 200, JSON.stringify(added.body))
   const id = added.body?.agent?.id
-  await until(async () => (await live(alpha, id))?.status === 'waiting')
+  await until(async () => (await live(alpha, id))?.status === 'waiting', HUNG_MS)
   await inv('pty:write', lib.ptyKey(alpha, id), '\r')
   const bg = await until(async () => {
     const s = await live(alpha, id)
     return s?.status === 'background' && s
-  })
+  }, HUNG_MS)
   check('its turn ends with the task running: background, not finished', bg?.backgroundTasks === 1, JSON.stringify(bg && { status: bg.status, tasks: bg.backgroundTasks }))
   const t0 = Date.now()
 

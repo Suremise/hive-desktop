@@ -14,6 +14,8 @@ export default defineConfig({
     // git runs with none of the shell's GIT_* variables (tests/cleanGitEnv.ts, #425, first) and no global config, as on
     // GitHub's runner (tests/noGlobalGit.ts, #448).
     setupFiles: ['tests/cleanGitEnv.ts', 'tests/watchRealPaths.ts', 'tests/noGlobalGit.ts'],
+    // A full run is a heavy run: it waits for a test slot as a full e2e set does (tests/unitSlot.ts, #599).
+    globalSetup: ['tests/unitSlot.ts'],
     // Under load (e2e sets, scenario runs and other agents' tests on the same machine), Vitest's defaults (5 s a test, a
     // worker per core) made tests fail that pass alone (#189, #196, #204): half the cores, so a full run beside an e2e set
     // leaves it room, and longer limits. Not to cover a wait for time: tests wait for conditions (#524's rule,

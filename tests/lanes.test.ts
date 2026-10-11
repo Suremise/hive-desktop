@@ -9,6 +9,8 @@ import * as electron from 'electron'
 import type { HiveEvent, TaskCard } from '../src/shared/types'
 import { allDone, keptLanes, laneLine, laneView, listedLanes, loopDefaults, readLane, readLanes, laneCards, laneNumber, laneName, LANE_LINGER_MS, LANE_KEEP_MS, MAX_LANES, type LaneRecord } from '../src/shared/lanes'
 import { tempDir } from './tempDir'
+// The longest a wait here waits for what it waits on: a bound for a hung run, never how long it should take (#570).
+const HUNG_MS = 10000
 
 const base = tempDir('hive-lanes-')
 ;(electron.app as unknown as { getPath: () => string }).getPath = () => join(base, 'profile')
@@ -338,7 +340,7 @@ describe('the lanes service', () => {
   it('follows the board: paused while blocked, ended once every card is Done, and the window is told', async () => {
     const [c1, c2] = [await make('F1'), await make('F2')]
     const l = (await lanes.startLane(w, { project: 'alpha', builder: 'b1', reviewer: 'r1', cards: [c1.number, c2.number], by: 'B1 (alpha)' })).lane
-    const told = (fn: (x: Extract<HiveEvent, { type: 'lanes-changed' }>) => boolean) => until(() => events.some((e) => e.type === 'lanes-changed' && fn(e)))
+    const told = (fn: (x: Extract<HiveEvent, { type: 'lanes-changed' }>) => boolean) => until(() => events.some((e) => e.type === 'lanes-changed' && fn(e)), HUNG_MS)
     const mine = (e: Extract<HiveEvent, { type: 'lanes-changed' }>) => e.lanes.find((x) => x.id === l.id)
     expect(await told((e) => mine(e)?.state === 'active')).toBe(true)
     await run(() => tasks.updateTask(c1.number, { column: 'doing', blocked: 'Asked the user' }, user))

@@ -13,6 +13,8 @@ const { _electron } = require('playwright-core')
 const fs = require('fs')
 const path = require('path')
 const { execFileSync } = require('child_process')
+// The longest a wait here waits for what it waits on: a bound for a hung run, never how long it should take (#570).
+const HUNG_MS = 10000
 
 const userData = path.join(lib.WORK, 'paneheader-profile')
 const ws = path.join(lib.WORK, 'paneheader-ws')
@@ -110,20 +112,20 @@ function commits(wt, n) {
       check(`${tag}…named "Worktree: <branch> in <folder>"`, label === `Worktree: ${long.worktree.branch} in ${long.worktree.path}`, label)
       const full = (t) => t.length === 1 && t[0].includes(`Worktree: ${long.worktree.branch}`) && t[0].includes(`in ${long.worktree.path}`) && t[0].includes('branched from')
       await away()
-      await until(async () => (await tips()).length === 0, 3000)
+      await until(async () => (await tips()).length === 0, HUNG_MS)
       await el.hover()
-      await until(async () => full(await tips()), 3000)
+      await until(async () => full(await tips()), HUNG_MS)
       check(`${tag}…hovered: one tooltip, with its branch, folder and base`, full(await tips()), JSON.stringify(await tips()))
       await away()
-      await until(async () => (await tips()).length === 0, 3000)
+      await until(async () => (await tips()).length === 0, HUNG_MS)
       // From the keyboard: Tab on to the next control and Shift+Tab back (before it may be a terminal, which keeps Tab).
       await el.focus()
       await page.keyboard.press('Tab')
       await page.keyboard.press('Shift+Tab')
-      await until(async () => full(await tips()), 3000)
+      await until(async () => full(await tips()), HUNG_MS)
       check(`${tag}…focused from the keyboard: the same tooltip`, (await el.evaluate((n) => n === document.activeElement)) && full(await tips()), JSON.stringify(await tips()))
       await page.keyboard.press('Tab')
-      await until(async () => (await tips()).length === 0, 3000)
+      await until(async () => (await tips()).length === 0, HUNG_MS)
     }
     // The last Tab left the next agent's icon focused, its tooltip showing: nothing focused for the pictures.
     await page.evaluate(() => document.activeElement?.blur())
@@ -327,10 +329,10 @@ function commits(wt, n) {
   const before = (await inspect(long)).mode
   await page.evaluate(() => document.activeElement?.blur())
   await page.keyboard.press('Control+B')
-  await until(async () => (await inspect(long)).width > LABELS_FROM, 3000)
+  await until(async () => (await inspect(long)).width > LABELS_FROM, HUNG_MS)
   await fits('sidebar hidden')
   await page.keyboard.press('Control+B')
-  await until(async () => (await inspect(long)).width < LABELS_FROM, 3000)
+  await until(async () => (await inspect(long)).width < LABELS_FROM, HUNG_MS)
   await fits('sidebar shown again')
   check('the sidebar round trip restores icons', before === 'icons' && (await inspect(long)).mode === 'icons', before)
 
@@ -377,7 +379,7 @@ function commits(wt, n) {
   const compactVia = async (focus) => {
     await compactBtn.click()
     const dialog = page.locator('[role=dialog]', { hasText: 'Compact alpha' })
-    await until(() => dialog.isVisible(), 3000)
+    await until(() => dialog.isVisible(), HUNG_MS)
     await dialog.locator('textarea').fill(focus)
     await dialog.getByRole('button', { name: 'Compact', exact: true }).click()
     return !!(await until(async () => (await dialog.count()) === 0, 30000))
@@ -390,7 +392,7 @@ function commits(wt, n) {
     const sizes = await rects()
     check(`${w}px: the dialog closes after a long focus is entered`, await compactVia(LONG_FOCUS))
     check(`${w}px: the agent is compacting`, !!(await until(async () => (await live(long.id))?.statusMessage === 'Compacting the conversation…', 5000)))
-    await until(async () => (await spinning()).running, 3000)
+    await until(async () => (await spinning()).running, HUNG_MS)
     const s1 = await spinning()
     check(`${w}px: after the dialog closes, Compact's spinner turns`, s1.loading && s1.running && s1.turned, JSON.stringify(s1))
     await lib.sleep(2000) // A fixed wait on purpose: this checks the spinner is still turning 2 s later, so the time is the point.
@@ -398,7 +400,7 @@ function commits(wt, n) {
     check(`${w}px: and is still turning 2 s later`, s2.loading && s2.running && s2.turned, JSON.stringify(s2))
     check(`${w}px: Compact is disabled meanwhile`, await compactBtn.isDisabled())
     await compactBtn.hover({ force: true })
-    check(`${w}px: its tooltip says it is compacting`, !!(await until(async () => (await page.locator('.tip').filter({ hasText: 'Compacting the conversation…' }).count()) > 0, 3000)))
+    check(`${w}px: its tooltip says it is compacting`, !!(await until(async () => (await page.locator('.tip').filter({ hasText: 'Compacting the conversation…' }).count()) > 0, HUNG_MS)))
     await page.mouse.move(5, 400)
     check(`${w}px: no button changed size`, (await rects()) === sizes, `${sizes} → ${await rects()}`)
     await fits(`${w}px while compacting`)
@@ -409,7 +411,7 @@ function commits(wt, n) {
     const again = await inv('session:compact', alpha, 'again', long.id).then(() => 'sent', (e) => String(e.message ?? e))
     check(`${w}px: a second compaction is refused`, again.includes('already compacting'), again)
     check(`${w}px: the agent is ready once it has compacted`, !!(await until(async () => (await live(long.id))?.status === 'ready', 15000)))
-    check(`${w}px: and Compact is the still fold icon again`, !!(await until(idleIcon, 3000)))
+    check(`${w}px: and Compact is the still fold icon again`, !!(await until(idleIcon, HUNG_MS)))
   }
   const boundaries = fs.readdirSync(path.join(claudeHome, 'projects'), { recursive: true }).filter((f) => f.endsWith('.jsonl'))
   const compactions = boundaries.map((f) => fs.readFileSync(path.join(claudeHome, 'projects', f), 'utf8').split('"compact_boundary"').length - 1).reduce((x, y) => x + y, 0)
@@ -418,14 +420,14 @@ function commits(wt, n) {
   // A compaction that fails: the spinner stops.
   await turn()
   check('a failing compaction is sent', await compactVia('compactfail hold 2'))
-  check('it spins while it runs', !!(await until(async () => (await spinning()).running, 3000)))
+  check('it spins while it runs', !!(await until(async () => (await spinning()).running, HUNG_MS)))
   check('after the failure the agent is ready', !!(await until(async () => (await live(long.id))?.status === 'ready', 15000)))
-  check('and Compact is still', !!(await until(idleIcon, 3000)))
+  check('and Compact is still', !!(await until(idleIcon, HUNG_MS)))
 
   // Cancelled by stopping the agent: no spinner, and Resume is offered.
   await turn()
   check('a long compaction is sent', await compactVia('hold 30'))
-  check('it spins', !!(await until(async () => (await spinning()).running, 3000)))
+  check('it spins', !!(await until(async () => (await spinning()).running, HUNG_MS)))
   await inv('session:stop', alpha, long.id)
   check('stopped mid-compaction: the header offers Resume', !!(await until(() => header(long).getByRole('button', { name: 'Resume', exact: true }).isVisible(), 10000)))
   check('and has no spinner', (await header(long).locator('.codicon-loading').count()) === 0)
@@ -434,7 +436,7 @@ function commits(wt, n) {
   // Restarted: Compact is still, and a compaction with nothing to compact ends by itself.
   await header(long).getByRole('button', { name: 'New Session' }).click()
   check('a new session starts', !!(await until(async () => (await live(long.id))?.status === 'ready', 15000)))
-  check('Compact is still in the new session', !!(await until(async () => (await compactBtn.locator('.codicon-fold').count()) === 1, 3000)))
+  check('Compact is still in the new session', !!(await until(async () => (await compactBtn.locator('.codicon-fold').count()) === 1, HUNG_MS)))
   await inv('session:compact', alpha, '', long.id)
   check('nothing to compact: it ends by itself, and Compact is still', !!(await until(async () => (await live(long.id))?.status === 'ready' && (await compactBtn.locator('.codicon-loading').count()) === 0, 8000)))
 

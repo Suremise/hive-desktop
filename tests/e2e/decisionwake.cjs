@@ -7,6 +7,8 @@ const lib = require('./lib.cjs')
 const { _electron } = require('playwright-core')
 const fs = require('fs')
 const path = require('path')
+// The longest a wait here waits for what it waits on: a bound for a hung run, never how long it should take (#570).
+const HUNG_MS = 30000
 
 const userData = path.join(lib.WORK, 'decisionwake-profile')
 const ws = path.join(lib.WORK, 'decisionwake-ws')
@@ -72,7 +74,7 @@ const check = (name, ok, extra = '') => {
   // What it does when Hive's line comes: reads the card's decisions, as work-on-card says.
   fs.writeFileSync(path.join(claudeHome, 'fake-wakes-Asker.txt'), `hive hive_read_task {"number":${n}}\nhive hive_read_task {"number":${n}}\nhive hive_read_task {"number":${n}}\n`)
   await inv('session:start', alpha, { agentId: agent.id })
-  check('the agent starts', !!(await until(() => idle(agent.id))))
+  check('the agent starts', !!(await until(() => idle(agent.id), HUNG_MS)))
   // It asks the user and its turn ends (waiting for the user: finished, no question menu).
   await say(agent.id, 'Here is the shot list: approve it? work 1')
   await until(() => idle(agent.id), 15000)

@@ -6,6 +6,8 @@ const lib = require('./lib.cjs')
 const { _electron } = require('playwright-core')
 const fs = require('fs')
 const path = require('path')
+// The longest a wait here waits for what it waits on: a bound for a hung run, never how long it should take (#570).
+const HUNG_MS = 10000
 
 const scratch = lib.WORK
 const userData = path.join(scratch, 'image-profile')
@@ -104,7 +106,7 @@ fs.mkdirSync(shots, { recursive: true })
   await lib.until(async () => (await page.locator('.image-viewer').count()) === 1, 5000)
   check("viewer: a running session's image can't be deleted", await del.isDisabled(), await viewerTitle())
   await del.hover({ force: true })
-  const why = await lib.until(async () => (await page.locator('.tip', { hasText: 'Its session is running' }).count()) > 0, 3000)
+  const why = await lib.until(async () => (await page.locator('.tip', { hasText: 'Its session is running' }).count()) > 0, HUNG_MS)
   check('viewer: … and its Delete says why', !!why, await page.locator('.tip').allInnerTexts().then((x) => x.join(' | ')))
   await page.screenshot({ path: path.join(shots, '3-viewer-running.png') })
   await inv('settings:update', { appearance: { theme: 'light' } })
@@ -114,9 +116,9 @@ fs.mkdirSync(shots, { recursive: true })
   for (let i = 0; i < 3 && !/2026-01-01T09-00-00/.test(await viewerTitle()); i++) await page.keyboard.press('ArrowRight')
   check("viewer: moving to a stopped session's image enables Delete", /2026-01-01T09-00-00/.test(await viewerTitle()) && (await del.isEnabled()), await viewerTitle())
   await page.keyboard.press('ArrowLeft')
-  check('viewer: … and moving back disables it again', !!(await lib.until(() => del.isDisabled(), 3000)), await viewerTitle())
+  check('viewer: … and moving back disables it again', !!(await lib.until(() => del.isDisabled(), HUNG_MS)), await viewerTitle())
   await page.keyboard.press('Escape')
-  await lib.until(async () => (await page.locator('.image-viewer').count()) === 0, 3000)
+  await lib.until(async () => (await page.locator('.image-viewer').count()) === 0, HUNG_MS)
   await tab('Session').click()
 
   // Ended bar: clear the input first so nothing is sent, then stop.

@@ -7,6 +7,8 @@
 const lib = require('./lib.cjs')
 const fs = require('fs')
 const path = require('path')
+// The longest a wait here waits for what it waits on: a bound for a hung run, never how long it should take (#570).
+const HUNG_MS = 10000
 
 const userData = path.join(lib.WORK, 'tabstrip-profile')
 const ws = path.join(lib.WORK, 'tabstrip-ws')
@@ -120,7 +122,7 @@ const check = (name, ok, extra = '') => {
   await shot('tabstrip-2-icons-dark.png')
   await page.locator('.tabs .tab', { hasText: 'Changes' }).hover()
   const tip = page.locator('.tip')
-  check('an icon-only tab\'s tooltip names it', !!(await lib.until(async () => ((await tip.textContent().catch(() => '')) ?? '').startsWith('Changes'), 3000)), await tip.textContent().catch(() => ''))
+  check('an icon-only tab\'s tooltip names it', !!(await lib.until(async () => ((await tip.textContent().catch(() => '')) ?? '').startsWith('Changes'), HUNG_MS)), await tip.textContent().catch(() => ''))
   await page.mouse.move(5, 500)
   await inv('settings:update', { appearance: { theme: 'light' } })
   await lib.sleep(300)
@@ -156,11 +158,11 @@ const check = (name, ok, extra = '') => {
   // Hiding the sidebar there gives the strip more room, and the labels if they fit in it.
   await page.evaluate(() => document.activeElement?.blur())
   await page.keyboard.press('Control+B')
-  await lib.until(async () => (await inspect()).width > atMin.width, 3000)
+  await lib.until(async () => (await inspect()).width > atMin.width, HUNG_MS)
   const noSidebar = await inspect()
   await expectFit(`sidebar hidden at the minimum width (${noSidebar.width}px)`, noSidebar.width >= labelsNeed ? 'labels' : 'icons')
   await page.keyboard.press('Control+B')
-  await lib.until(async () => (await inspect()).width === atMin.width, 3000)
+  await lib.until(async () => (await inspect()).width === atMin.width, HUNG_MS)
   await expectFit('sidebar shown again', 'icons')
 
   // --- Dragging files over the (icon-only) Session tab switches to it while an agent runs.
@@ -174,7 +176,7 @@ const check = (name, ok, extra = '') => {
     dt.items.add(new File(['x'], 'drop.txt', { type: 'text/plain' }))
     t.dispatchEvent(new DragEvent('dragover', { dataTransfer: dt, bubbles: true, cancelable: true }))
   })
-  check('dragging files over the icon-only Session tab switches to it', !!(await lib.until(async () => (await inspect()).active === 'Session', 3000)), (await inspect()).active)
+  check('dragging files over the icon-only Session tab switches to it', !!(await lib.until(async () => (await inspect()).active === 'Session', HUNG_MS)), (await inspect()).active)
 
   await inv('session:stop', alpha).catch(() => undefined)
   await app.close()
