@@ -161,7 +161,23 @@ function runMode() {
 // What it was started with, for suites that check the launch: the options, Claude Code's own variables and the
 // Agent API token Hive gave it.
 const launchEnv = Object.fromEntries(Object.entries(process.env).filter(([k]) => k.startsWith('CLAUDE_CODE_') || k.startsWith('HIVE_API_TOKEN')))
-fs.appendFileSync(path.join(home, 'fake-launches.jsonl'), JSON.stringify({ cwd: process.cwd(), sessionId, opts, env: launchEnv }) + '\n')
+fs.appendFileSync(path.join(home, 'fake-launches.jsonl'), JSON.stringify({ cwd: process.cwd(), sessionId, pid: process.pid, parent: process.ppid, opts, env: launchEnv }) + '\n')
+// How it ended, in fake-exits.jsonl in its home (#551): its own exit with the code, or an error it didn't catch (then
+// exit 1, as Node would). A launch with no line there was ended by Ctrl+C, its console closing or a kill.
+const exitLog = (entry) => {
+  try {
+    fs.appendFileSync(path.join(home, 'fake-exits.jsonl'), JSON.stringify({ at: new Date().toISOString(), pid: process.pid, sessionId, ...entry }) + '\n')
+  } catch {
+    // Its home gone: nothing to tell.
+  }
+}
+process.on('exit', (code) => exitLog({ code }))
+for (const event of ['uncaughtException', 'unhandledRejection'])
+  process.on(event, (e) => {
+    exitLog({ [event]: String(e?.stack ?? e) })
+    process.stderr.write(`${e?.stack ?? e}\n`)
+    process.exit(1)
+  })
 /**
  * The terminal's size, recorded in fake-sizes.jsonl in its home at the start and at each change (#247): what Hive tells
  * the CLI. Polled as well as on 'resize', which a ConPTY child doesn't always get.

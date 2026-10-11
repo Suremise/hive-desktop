@@ -52,7 +52,21 @@ const check = (name, ok, extra = '') => {
     await lib.sleep(300) // on purpose: the fake reads a typed line before its Enter, as a CLI does
     await inv('pty:write', key, '\r')
     await lib.until(async () => (await live())?.status === 'working', 5000)
-    return !!(await lib.until(async () => (await live())?.status === 'finished', 30000))
+    const finished = !!(await lib.until(async () => (await live())?.status === 'finished', 30000))
+    if (!finished) await whyNotFinished(text)
+    return finished
+  }
+  /**
+   * Evidence for a turn that didn't finish (#551: the restarted Assistant's terminal ended just after its first call):
+   * the session's state, how each fake ended (fake-exits.jsonl: none for one ended from outside), and Hive's log of
+   * terminals and the Assistant.
+   */
+  const whyNotFinished = async (text) => {
+    const read = (f) => (fs.existsSync(f) ? fs.readFileSync(f, 'utf8').trim().split(/\r?\n/) : [])
+    console.log(`DIAGNOSTIC the turn "${text.slice(0, 60)}" didn't finish; the session: ${JSON.stringify((await live()) ?? null)}`)
+    for (const l of read(path.join(claudeHome, 'fake-exits.jsonl'))) console.log(`DIAGNOSTIC fake exit: ${l.slice(0, 600)}`)
+    for (const l of read(path.join(claudeHome, 'fake-launches.jsonl'))) console.log(`DIAGNOSTIC fake launch: session ${JSON.parse(l).sessionId}`)
+    for (const l of read(path.join(userData, 'logs', 'hive.log')).filter((line) => /\[(pty|assistant|sessions?|agents?|processes)\]|WARN|ERROR/.test(line)).slice(-40)) console.log(`DIAGNOSTIC ${l.slice(0, 400)}`)
   }
 
   // --- Change settings: under Control, off by default.

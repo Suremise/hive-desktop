@@ -177,13 +177,15 @@ export function spawnPty(key: string, opts: SpawnOptions): IPty {
   const exited = new AbortController()
   if (track)
     whenPid(proc, (pid) => {
+      log.info(`started ${userText(key)}: process ${pid}`)
       const word: Promise<GateWord> = pid ? track(pid, exited.signal) : Promise.resolve({ go: false, reason: 'Hive never learned the id of the process it started' })
       gate?.open(word)
     })
   proc.onExit(({ exitCode }) => {
     exited.abort()
     gate?.close()
-    log.info(`exit ${userText(key)}: ${exitCode}`)
+    // No code: its terminal closed while its process (pid) may still run (#551).
+    log.info(`exit ${userText(key)}: ${exitCode}${exitCode === undefined ? ` (process ${proc.pid}${processRunning(proc.pid) ? ' still running' : ' gone'}${entry.killed ? '' : ', not killed by Hive'})` : ''}`)
     if (entries.get(key)?.proc === proc) entries.delete(key)
     if (opts.quietExit) remember(carried, key, entry.buffer, MAX_CARRIED)
     else sendPty('pty:exit', key, exitCode)
@@ -285,12 +287,44 @@ export function killPty(key: string): void {
   const e = entries.get(key)
   if (!e || e.killed) return
   e.killed = true
+  log.info(`kill ${userText(key)} (process ${e.proc.pid})`)
+  logConsoleKills(key, e.proc)
   try {
     e.proc.kill()
   } catch (err) {
     e.killed = false
     log.warn(`kill ${userText(key)} failed`, err)
   }
+}
+
+/** Whether a process id is running now (any process with that id). */
+function processRunning(pid: number): boolean {
+  if (!(pid > 0)) return false
+  try {
+    process.kill(pid, 0)
+    return true
+  } catch (e) {
+    return (e as NodeJS.ErrnoException).code === 'EPERM'
+  }
+}
+
+/**
+ * On Windows node-pty's kill() asks a helper it starts which processes are attached to the console, and ends those
+ * ids when the answer comes, which under load can be a second or two later: logged, ids and delay, so a process of
+ * another terminal ended under a reused id can be told (#551). Diagnostics only: node-pty's own (private) call is
+ * wrapped, and left alone where it isn't there.
+ */
+function logConsoleKills(key: string, proc: IPty): void {
+  if (process.platform !== 'win32') return
+  const agent = (proc as unknown as { _agent?: { _getConsoleProcessList?: () => Promise<number[]> } })._agent
+  const list = agent?._getConsoleProcessList
+  if (!agent || typeof list !== 'function') return
+  const since = Date.now()
+  agent._getConsoleProcessList = () =>
+    list.call(agent).then((pids) => {
+      log.info(`kill ${userText(key)}: node-pty ends its console's processes ${pids.join(', ') || '(none)'} (listed after ${Date.now() - since} ms)`)
+      return pids
+    })
 }
 
 export function killAll(): void {
