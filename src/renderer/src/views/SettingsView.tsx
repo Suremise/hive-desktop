@@ -2,7 +2,7 @@ import { useEffect, useMemo, useState } from 'react'
 import type { AppSettings, ChimeSound, EffortLevel, EffortOption, FallbackModel, ModelPrice, PermissionMode, ProviderId, TaskColumn, WorkspaceConfig } from '@shared/types'
 import { DEFAULT_COLUMN_COLORS, TASK_COLUMNS, columnColor } from '@shared/tasks'
 import { DEFAULT_PERSONA } from '@shared/assistant'
-import { PRICES_CHECKED, SHIPPED_PRICES, priceRows } from '@shared/prices'
+import { PRICES_CHECKED, SHIPPED_PRICES, listedPriceModels, priceRows } from '@shared/prices'
 import { APP_SETTINGS_CATALOG, SETTINGS_SECTIONS, providerSection, settingDefault, settingPatch, settingValue, type SettingEntry, type SettingsSection } from '@shared/settingsCatalog'
 import { effortText, fallbackEfforts, fallbackModels, modelSource, modelSourceText, runsAsName } from '@shared/models'
 import type { SettingsPatch } from '@shared/api'
@@ -87,14 +87,21 @@ function providerControl(provider: ProviderId, key: string): (() => React.ReactN
 // Fields drawn as part of another row (the Assistant's "With <provider>") aren't rows of their own.
 const SETTINGS: SettingDef[] = APP_SETTINGS_CATALOG.filter((e) => !e.hidden).map((e) => ({ ...e, render: e.provider ? providerControl(e.provider, e.key) : CONTROLS[e.id] }))
 
-/** The price table for a provider's models: Hive's prices (editable defaults), with the user's changes, added and removed models (#125). */
+/**
+ * The price table for a provider's models: Hive's prices (editable defaults), with the user's changes, added and removed
+ * models (#125), and the models the CLI lists (#436): one with no price marked to enter one, a priced one it no longer
+ * lists greyed. A provider that doesn't report costs says where to check its prices.
+ */
 function PriceTable({ provider }: { provider: ProviderId }) {
   const settings = useStore((s) => s.settings)
+  const catalog = useStore((s) => s.providers[provider]?.catalog)
   const ps = providerSettings(settings, provider)
   const own = ps.prices
   const removed = ps.pricesRemoved ?? []
   const shipped = SHIPPED_PRICES[provider] ?? {}
-  const rows = priceRows(provider, settings)
+  const p = providerDescriptor(provider)
+  const listed = useMemo(() => listedPriceModels(provider, catalog), [provider, catalog])
+  const rows = priceRows(provider, settings, listed)
   const [adding, setAdding] = useState('')
   const cols: { key: keyof ModelPrice; label: string }[] = [
     { key: 'input', label: 'Input' },
@@ -130,6 +137,15 @@ function PriceTable({ provider }: { provider: ProviderId }) {
   const edited = Object.keys(own).length > 0 || removed.length > 0
   return (
     <div className="fallback-table">
+      {!p.capabilities.reportsCost && (
+        <div className="fallback-source price-note">
+          <Icon name="info" />
+          <span>
+            {p.name} doesn't report costs, so Hive estimates them from these prices. Check them against{' '}
+            <a onClick={() => void call('app:openExternal', p.pricingUrl)}>{p.company}'s pricing</a>.
+          </span>
+        </div>
+      )}
       <div className="fallback-source faint">Hive's starting prices, checked {PRICES_CHECKED}: edit them if they are out of date.</div>
       <table className="table price-table">
         <thead>
@@ -144,10 +160,16 @@ function PriceTable({ provider }: { provider: ProviderId }) {
           </tr>
         </thead>
         <tbody>
-          {rows.map(({ model: m, price, shipped: isShipped, edited: isEdited }) => (
-            <tr key={m}>
+          {rows.map(({ model: m, price, shipped: isShipped, edited: isEdited, listed: isListed }) => (
+            <tr key={m} className={cx(isListed === false && 'unlisted')}>
               <td className="mono">
                 {m} {isEdited && <span className="badge">{isShipped ? 'edited' : 'yours'}</span>}
+                {!price && <span className="badge warn">No price: enter one</span>}
+                {isListed === false && (
+                  <Tooltip content={`${p.name} doesn't list this model now; its price stays for older sessions.`}>
+                    <span className="badge">not in {p.name}'s list</span>
+                  </Tooltip>
+                )}
               </td>
               {cols.map((c) => (
                 <td key={c.key} className="num">
@@ -156,7 +178,7 @@ function PriceTable({ provider }: { provider: ProviderId }) {
               ))}
               <td className="row-actions">
                 {isEdited && isShipped && <IconButton icon="discard" title="Back to Hive's price" onClick={() => back(m)} />}
-                <IconButton icon="trash" title="Remove from the table" onClick={() => remove(m)} />
+                {price && <IconButton icon="trash" title="Remove from the table" onClick={() => remove(m)} />}
               </td>
             </tr>
           ))}
