@@ -5018,6 +5018,16 @@ body.pane-resizing .monaco-editor {
   width: 90px;
   text-align: right;
 }
+.price-table .badge {
+  margin-left: 6px;
+}
+/* A priced model the CLI no longer lists (#436): kept for older sessions, greyed. */
+.price-table tr.unlisted td {
+  opacity: 0.6;
+}
+.price-note a {
+  cursor: pointer;
+}
 /* Settings → provider: the editable fallbacks (models, effort levels) and prices, each with where its data comes from (#125). */
 .fallback-table {
   display: flex;

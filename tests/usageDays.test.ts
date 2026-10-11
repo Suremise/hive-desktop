@@ -2,7 +2,7 @@
 import { describe, expect, it } from 'vitest'
 import { ClaudeUsageParser, parseTranscript } from '../src/main/providers/claude/usage'
 import { parseRollout } from '../src/main/providers/codex/rollout'
-import { dayOffset, localDay, usageFrom, withDayCosts } from '../src/shared/usageDays'
+import { dayOffset, localDay, priceUsage, usageFrom, withDayCosts } from '../src/shared/usageDays'
 import { DEFAULT_SETTINGS } from '../src/shared/defaults'
 import { estimateCost } from '../src/shared/prices'
 
@@ -50,6 +50,26 @@ describe('usage by day', () => {
     expect(d30.costUsd!).toBeGreaterThan(0.5)
     expect(d30.costEstimated).toBe(true)
     expect(u.costReports).toBeUndefined()
+  })
+
+  it("Claude Code's reported cost by default; with the user's prices chosen, Hive's estimate, each day too (#436)", () => {
+    const raw = parseTranscript(text, 's')
+    const reported = priceUsage(raw, DEFAULT_SETTINGS)
+    // The last report ($1.50) plus Hive's estimate for r4, after it.
+    expect(reported.costUsd!).toBeGreaterThan(1.5)
+    expect(reported.costUsd!).toBeLessThan(1.6)
+    const mine = { providers: { ...DEFAULT_SETTINGS.providers, 'claude-code': { ...DEFAULT_SETTINGS.providers['claude-code'], costSource: 'prices' as const, prices: { 'claude-sonnet-5-5': { input: 1, cachedInput: 0.1, cacheWrite: 1.25, output: 5 } } } } }
+    const own = priceUsage(raw, mine)
+    expect(own.costUsd).toBeCloseTo(estimateCost(raw, mine)!, 9)
+    expect(own.costEstimated).toBe(true)
+    const days = Object.values(own.days!)
+    expect(days.reduce((n, d) => n + d.costUsd!, 0)).toBeCloseTo(own.costUsd!, 9)
+    expect(days.every((d) => d.costEstimated)).toBe(true)
+    // The parser's result is left as it was, for pricing again.
+    expect(raw.costReports?.length).toBe(2)
+    // No price for its model: the report stays.
+    const unpriced = priceUsage({ ...raw, model: 'claude-unknown-9' }, mine)
+    expect(unpriced.costUsd!).toBeGreaterThanOrEqual(1.5)
   })
 
   it('reads a growing transcript a piece at a time, the same as all at once', () => {

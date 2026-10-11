@@ -1,5 +1,5 @@
 // What Hive says about unused worktrees (#353): shared by the window and its tests.
-import type { UnusedWorktree } from './types'
+import type { UnusedWorktree, WorktreeReuse } from './types'
 import type { TemplateDeleted } from './templates'
 
 const plural = (n: number, one: string, many = `${one}s`): string => `${n} ${n === 1 ? one : many}`
@@ -58,6 +58,25 @@ export function lostByRemoving(w: UnusedWorktree): string[] | null {
   if (c.dirty === undefined || c.ahead === undefined) return null
   return lostLines({ path: w.path, branch: w.branch, into: c.into, ahead: c.ahead, dirty: c.dirty })
 }
+
+/**
+ * What adding an agent did about an unused worktree it could reuse (#456), as the dialog's notice and the Agent API's
+ * reply say it: "reused hive/b4, brought up to main at 66ce11b", or why it made a new one.
+ */
+export function reuseNote(r: WorktreeReuse): string {
+  if (!r.reused) return `made a new worktree, leaving ${r.branch}'s unused one as it is (${r.notReused ?? 'not checked'})`
+  if (r.keptWork) return `reused ${r.branch} as it is (it keeps its work)`
+  return r.upTo ? `reused ${r.branch}, brought up to ${r.base} at ${r.upTo.slice(0, 7)}` : `reused ${r.branch}, already at ${r.base}`
+}
+
+/**
+ * Files whose change means a reused worktree runs the project's worktree setup again (#456): the lockfiles of the usual
+ * package managers. A worktree brought up to the base without one of them changing doesn't (its node_modules is there).
+ */
+const SETUP_FILES = /(^|\/)(package-lock\.json|npm-shrinkwrap\.json|yarn\.lock|pnpm-lock\.yaml|bun\.lockb?|Cargo\.lock|go\.sum|poetry\.lock|uv\.lock|Pipfile\.lock|Gemfile\.lock|composer\.lock|packages\.lock\.json)$/i
+
+/** Whether any of these changed files (git's paths) is a lockfile, so a reused worktree's setup runs again (#456). */
+export const lockfileChanged = (files: readonly string[]): boolean => files.some((f) => SETUP_FILES.test(f.trim()))
 
 /** The Overview's line (#400): "7 unused worktrees (7 merged)", or null with none. */
 export function unusedSummary(list: UnusedWorktree[]): string | null {

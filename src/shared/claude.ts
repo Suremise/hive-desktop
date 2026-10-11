@@ -137,6 +137,7 @@ export const CLAUDE_DESCRIPTOR: ProviderDescriptor = {
   cliName: 'claude',
   icon: 'claude',
   setupUrl: 'https://code.claude.com/docs/en/setup',
+  pricingUrl: 'https://platform.claude.com/docs/en/about-claude/pricing',
   permissionModes: CLAUDE_PERMISSION_MODES,
   defaultPermissionMode: 'auto',
   // Plan mode would block the hive tools.

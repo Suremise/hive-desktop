@@ -154,6 +154,25 @@ export function containsPlace(outer: string, inner: string): boolean {
 }
 
 /**
+ * `to` relative to `from`, for showing (a locked file to an agent, from its folder): as written when `to` is inside `from`,
+ * else by both paths' real locations when it is inside it by another name (a junction, an 8.3 short name: #494), so it
+ * never reads `..\..\RUNNER~1\…`; else as written.
+ */
+export function placeRelative(from: string, to: string): string {
+  return relativeInside(from, to) ?? relative(from, to)
+}
+
+/** `to` relative to `from` when it is inside it (or is it: ''), by spelling or else by real locations (`placeRelative`); else null. */
+export function relativeInside(from: string, to: string): string | null {
+  const rel = relative(from, to)
+  if (!leavesFolder(rel)) return rel
+  const real = relative(realPath(from), realPath(to))
+  return leavesFolder(real) ? null : real
+}
+
+const leavesFolder = (rel: string): boolean => rel === '..' || rel.startsWith('..' + sep) || isAbsolute(rel)
+
+/**
  * Whether a path is inside an .asar archive (`…\app.asar\icon.png`). Such a path isn't a file on disk, and Electron's
  * readers that take a path (nativeImage, its file: loader) open the archive for it and keep it open until Hive quits,
  * so a build can't replace it (#246). Hive's file routes refuse them; the .asar itself is fine. Only an archive counts:
@@ -450,6 +469,7 @@ function copyRangeSync(src: string, dest: string, flags: 'r+' | 'w', from: numbe
 }
 
 const fileLocks = new Map<string, Promise<unknown>>()
+const fileLockCalls = new Map<string, number>()
 
 /**
  * Runs fn with the file locked against other withFileLock calls for the same path, so a
@@ -461,11 +481,18 @@ export function withFileLock<T>(path: string, fn: () => Promise<T>): Promise<T> 
   const run = prev.then(fn, fn)
   const tail = run.catch(() => undefined)
   fileLocks.set(key, tail)
+  fileLockCalls.set(key, (fileLockCalls.get(key) ?? 0) + 1)
   void tail.then(() => {
     if (fileLocks.get(key) === tail) fileLocks.delete(key)
+    const left = (fileLockCalls.get(key) ?? 1) - 1
+    if (left) fileLockCalls.set(key, left)
+    else fileLockCalls.delete(key)
   })
   return run
 }
+
+/** How many withFileLock calls for path are running or waiting: tests wait on it for a write to be queued. */
+export const fileLockDepth = (path: string): number => fileLockCalls.get(path.toLowerCase()) ?? 0
 
 export async function isDir(path: string): Promise<boolean> {
   try {

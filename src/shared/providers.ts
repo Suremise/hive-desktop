@@ -105,6 +105,8 @@ export interface ProviderDescriptor {
   /** Icon key for the renderer (see ProviderIcon). */
   icon: string
   setupUrl: string
+  /** The provider's published API prices, which its price table is checked against (#436). */
+  pricingUrl: string
   permissionModes: ModeOption[]
   defaultPermissionMode: PermissionMode
   /** Effort levels and their names: the starting fallback when the CLI doesn't report a model's own (models.ts). */
@@ -242,6 +244,7 @@ export function defaultProviderSettings(p: ProviderDescriptor): ProviderSettings
     checkUpdatesOnLaunch: true,
     allowBackgroundSessions: false,
     use200kContext: false,
+    costSource: 'reported',
     prices: {}
   }
 }

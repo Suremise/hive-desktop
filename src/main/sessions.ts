@@ -1,5 +1,5 @@
 import { randomUUID, randomBytes } from 'crypto'
-import { basename, dirname, extname, isAbsolute, join, relative, resolve } from 'path'
+import { basename, dirname, extname, isAbsolute, join, resolve } from 'path'
 import { copyFile, mkdir, open, readdir, rename, rm, stat, writeFile } from 'original-fs/promises'
 import { existsSync, realpathSync } from 'original-fs'
 import { typedText } from '../shared/terminalInput'
@@ -36,14 +36,14 @@ import type {
 } from '../shared/types'
 import { provider as providerAdapter, allProviders } from './providers'
 import { recacheEstimate } from './providers/common'
-import { estimateCost } from '../shared/prices'
-import { withDayCosts } from '../shared/usageDays'
+import { usesOwnPrices } from '../shared/prices'
+import { priceUsage } from '../shared/usageDays'
 import type { Ask, HookEvent, LaunchContext, LaunchSkill, ProviderAdapter, SkillDelivery, UsageParser } from './providers/types'
 import { providerService } from './providerService'
 import { config } from './config'
 import { emit, emitTo, toast } from './events'
 import { presentWindow, showOsNotification, testNotifyLog, testQuiet } from './testQuiet'
-import { hashText, heldOpen, isInUse, readJson, removePath, samePlace, treeSignature, syncCopy, syncCopyLocked, syncCopyNow, trashAllOrNothing, withFileLock, writeJsonAtomic } from './fsutil'
+import { hashText, heldOpen, isInUse, readJson, placeRelative, removePath, samePlace, treeSignature, syncCopy, syncCopyLocked, syncCopyNow, trashAllOrNothing, withFileLock, writeJsonAtomic } from './fsutil'
 import { createLogger, userText } from './logger'
 import { applyStep, compactionOver, expireTasks, hookStep, idleAfter, titleStep, type HookStatusInput, type HookStep } from './hookStatus'
 import { Compaction } from './compaction'
@@ -148,8 +148,10 @@ interface LiveSession {
    * the transcript is dropped if one came after the read began, as that hook says something newer (#475).
    */
   hooksSeen?: number
-  /** When the cost estimate was last worked out (providers that don't report cost). */
+  /** When the cost estimate was last worked out (providers that don't report cost, or the user's prices: #436). */
   costAt?: number
+  /** The cost the CLI last reported for this launch, kept while the user's prices are shown instead (#436). */
+  reportedCost?: number
   /** Terminal output while a mode switch waits for the CLI's confirmation. */
   switchTail?: string
   /** The first task, for the launch's command line (cleared once launched). */
@@ -256,7 +258,7 @@ function lockKey(abs: string): string {
 
 /** What Hive types to tell an agent it may make the locked edits the user allowed. */
 function goAheadPrompt(cwd: string, paths: string[]): string {
-  const files = paths.map((p) => relative(cwd, p) || basename(p)).join(', ')
+  const files = paths.map((p) => placeRelative(cwd, p) || basename(p)).join(', ')
   return `The user allowed you to edit ${files} while the other agent works on ${paths.length > 1 ? 'them' : 'it'}. Go ahead with the ${paths.length > 1 ? 'edits' : 'edit'}.`
 }
 
@@ -803,19 +805,7 @@ class SessionManager {
 
   /** A result with costs from the current prices: the provider's report, else (or on top) Hive's estimate, and each day's share. */
   private priced(raw: SessionUsage): SessionUsage {
-    const usage = structuredClone(raw)
-    // Providers that don't report a cost get Hive's estimate from their token counts (prices: Settings → provider).
-    if (usage.costUsd === null) {
-      const est = estimateCost(usage, config.settings)
-      if (est !== null) Object.assign(usage, { costUsd: est, costEstimated: true })
-    } else if (usage.costUnreported) {
-      // The provider reports its cost only now and then: the tokens since get Hive's estimate on top.
-      const est = estimateCost({ ...usage, ...usage.costUnreported }, config.settings)
-      if (est) Object.assign(usage, { costUsd: usage.costUsd + est, costEstimated: true })
-    }
-    // Each day's share, for the Overview's periods.
-    withDayCosts(usage, config.settings)
-    return usage
+    return priceUsage(raw, config.settings)
   }
 
   /**
@@ -2279,15 +2269,47 @@ class SessionManager {
         l.defaultModel = false
       }
     }
-    // The estimate re-reads the whole transcript: every 30 seconds while the agent works, and at each turn's end.
-    if (!l.adapter.descriptor.capabilities.reportsCost && (force || Date.now() - (l.costAt ?? 0) > COST_INTERVAL_MS)) {
-      l.costAt = Date.now()
-      const usage = await this.usageFor(src, sessionId, l.state.provider)
-      if (usage?.costUsd != null && (usage.costUsd !== l.state.costUsd || !l.state.costEstimated)) {
-        Object.assign(l.state, { costUsd: usage.costUsd, costEstimated: usage.costEstimated })
-        this.emitState(l.state)
-      }
-    }
+    await this.liveCost(l, src, force)
+  }
+
+  /**
+   * A live session's cost as the settings say now (#436): the CLI's own report (`reportedCost`, from its status line)
+   * for a provider that reports one, unless the user chose their prices; else Hive's estimate, which re-reads the whole
+   * transcript, so at most every 30 seconds while the agent works and at each turn's end (`force`, also after a price
+   * change). With the user's prices but none for its model, the CLI's newest report (its status line's, else its
+   * transcript's), never recomputed. Without a price or a report the cost is cleared, so it shows as unknown.
+   */
+  private async liveCost(l: LiveSession, src: string, force: boolean): Promise<void> {
+    const own = usesOwnPrices(l.state.provider, config.settings)
+    if (l.adapter.descriptor.capabilities.reportsCost && !own) return this.setLiveCost(l, l.reportedCost, false)
+    if (!force && Date.now() - (l.costAt ?? 0) <= COST_INTERVAL_MS) return
+    l.costAt = Date.now()
+    const usage = await this.usageFor(src, l.state.sessionId, l.state.provider)
+    // The settings changed while it was read: the read they started decides.
+    if (usesOwnPrices(l.state.provider, config.settings) !== own || !usage) return
+    // An estimate is Hive's (the user's prices, or a provider that reports none); anything else is the CLI's report.
+    if (usage.costUsd != null && usage.costEstimated) this.setLiveCost(l, usage.costUsd, true)
+    else if (own) this.setLiveCost(l, l.reportedCost ?? usage.costUsd ?? undefined, false)
+    else this.setLiveCost(l, usage.costUsd ?? undefined, false)
+  }
+
+  private setLiveCost(l: LiveSession, costUsd: number | undefined, estimated: boolean): void {
+    if (l.state.costUsd === costUsd && !!l.state.costEstimated === estimated) return
+    Object.assign(l.state, { costUsd, costEstimated: estimated })
+    this.emitState(l.state)
+  }
+
+  /** Prices or the cost source changed (#436): each live session's cost again, at once, idle ones too. */
+  async repriceLive(): Promise<void> {
+    await Promise.all(
+      [...this.live.values()]
+        .filter((l) => l.state.sessionId)
+        .map((l) =>
+          this.liveTranscript(l)
+            .then((src) => (src ? this.liveCost(l, src, true) : l.adapter.descriptor.capabilities.reportsCost && !usesOwnPrices(l.state.provider, config.settings) ? this.setLiveCost(l, l.reportedCost, false) : undefined))
+            .catch((e) => log.warn('could not price a live session again', e))
+        )
+    )
   }
 
   /**
@@ -2620,13 +2642,17 @@ class SessionManager {
     const st = l.state
     // Running another model than expected: its own auto-compact window, if its settings give it one (#242).
     const autoCompact = d.modelId && d.modelId !== st.modelId && l.autoCompactFor ? l.autoCompactFor(d.modelId) : st.autoCompact
-    const next = { autoCompact, effort: d.effort ?? st.effort, modelName: d.modelName ?? st.modelName, modelId: d.modelId ?? st.modelId, costUsd: d.costUsd ?? st.costUsd, planMode: d.planMode ?? st.planMode, permissionMode: d.permissionMode ?? st.permissionMode, contextWindow: d.contextWindow ?? st.contextWindow }
+    // The CLI's report is kept; it is shown unless the user chose their prices (#436), and then it isn't an estimate.
+    if (d.costUsd != null) l.reportedCost = d.costUsd
+    const reported = d.costUsd != null && !usesOwnPrices(st.provider, config.settings)
+    const next = { autoCompact, effort: d.effort ?? st.effort, modelName: d.modelName ?? st.modelName, modelId: d.modelId ?? st.modelId, costUsd: reported ? d.costUsd : st.costUsd, costEstimated: reported ? false : st.costEstimated, planMode: d.planMode ?? st.planMode, permissionMode: d.permissionMode ?? st.permissionMode, contextWindow: d.contextWindow ?? st.contextWindow }
     if (
       next.effort === st.effort &&
       next.modelName === st.modelName &&
       next.modelId === st.modelId &&
       JSON.stringify(next.autoCompact) === JSON.stringify(st.autoCompact) &&
       next.costUsd === st.costUsd &&
+      !!next.costEstimated === !!st.costEstimated &&
       next.planMode === st.planMode &&
       next.permissionMode === st.permissionMode &&
       (!d.permissionMode || d.permissionMode === st.modeObserved) &&
@@ -2672,7 +2698,7 @@ class SessionManager {
       const held = this.locks.get(lockKey(abs))
       const holder = held && held.liveId !== id ? this.live.get(held.liveId) : undefined
       if (!holder || now - held!.at >= LOCK_TTL_MS) continue
-      const rel = relative(holder.state.cwd, abs) || basename(abs)
+      const rel = placeRelative(holder.state.cwd, abs) || basename(abs)
       const who = holder.state.agentName ?? 'Another agent'
       log.info(`Lock: ${userText(l.state.agentName)} → ${userText(rel)} held by ${userText(who)} (${mode})`)
       if (mode === 'warn') {
@@ -2805,7 +2831,7 @@ class SessionManager {
     const l = this.live.get(id)
     if (!l) return
     const files: string[] = []
-    for (const v of this.locks.values()) if (v.liveId === id) files.push(relative(l.state.cwd, v.path).replace(/\\/g, '/'))
+    for (const v of this.locks.values()) if (v.liveId === id) files.push(placeRelative(l.state.cwd, v.path).replace(/\\/g, '/'))
     l.state.lockedFiles = files.length ? files : undefined
     this.emitState(l.state)
   }
@@ -3010,6 +3036,8 @@ class SessionManager {
       l.lastBackupAt = undefined
       st.costUsd = undefined
       st.costEstimated = undefined
+      l.reportedCost = undefined
+      l.costAt = undefined
       this.releaseLocks(liveId(st.projectPath, st.agentId))
       await this.recordSession(st.projectPath, agent, l)
     } catch (e) {
