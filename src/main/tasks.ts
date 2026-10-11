@@ -1,6 +1,6 @@
 import { randomBytes } from 'crypto'
 import { basename, join } from 'path'
-import { mkdir, readdir } from 'original-fs/promises'
+import { mkdir, readdir, stat } from 'original-fs/promises'
 import { existsSync } from 'original-fs'
 import { projectAgents } from '../shared/defaults'
 import { COLUMN_CHOICES, TASK_COLUMNS, cardMatches, isTaskColumn, restoreOrders, sortCards } from '../shared/tasks'
@@ -173,12 +173,72 @@ export async function allTasks(ws: WorkspaceService = workspace): Promise<TaskCa
   const names = await readdir(tasksDir(ws)).catch(() => [] as string[])
   const numbers = new Set(names.flatMap((f) => (/^(\d+)\.json$/.test(f) ? [Number(f.slice(0, -5))] : [])))
   const ids = await ws.projectIds()
-  const out: TaskCard[] = []
-  for (const n of numbers) {
+  const out = await bounded([...numbers], READS_AT_ONCE, async (n) => {
     const raw = await readJson<Partial<TaskCard> | null>(cardFile(n, ws), null)
-    if (raw && typeof raw === 'object') out.push(withoutGone(clean(raw, n, ids), (x) => numbers.has(x)))
+    return raw && typeof raw === 'object' ? [withoutGone(clean(raw, n, ids), (x) => numbers.has(x))] : []
+  })
+  return sortCards(out.flat())
+}
+
+/** How many card files the board reads at once (#458): one at a time, a board of 500 cards took 0.1 s to read. */
+const READS_AT_ONCE = 16
+
+/** `fn` on each of `items`, at most `limit` at a time; the results in the items' order. */
+async function bounded<T, R>(items: T[], limit: number, fn: (x: T) => Promise<R>): Promise<R[]> {
+  const out: R[] = []
+  let next = 0
+  const worker = async (): Promise<void> => {
+    while (next < items.length) {
+      const i = next++
+      out[i] = await fn(items[i])
+    }
   }
-  return sortCards(out)
+  await Promise.all(Array.from({ length: Math.min(limit, items.length) }, worker))
+  return out
+}
+
+/** A card's place on the board: all that placing another card needs of it (#458). */
+type CardPlace = Pick<TaskCard, 'number' | 'column' | 'order' | 'archived' | 'project'>
+/** A card file's place fields as last read, and the file's stamp then (its time, size and file id); null fields: not a card. */
+interface KnownPlace {
+  stamp: string
+  raw: Pick<Partial<TaskCard>, 'column' | 'order' | 'archived' | 'project'> & { projectId?: unknown } | null
+}
+/** Each board's known places, by its tasks folder (lower-cased), as of its last read: only what is on it then. */
+const knownPlaces = new Map<string, Map<number, KnownPlace>>()
+
+/**
+ * Every card's place (archived ones too), in board order, for placing a card (#458). Each change that places one did
+ * read every card file, one at a time, under the board's lock: N cards created in a row cost about N²/2 reads. A card
+ * file is read again only when its stamp has changed since (a write by Hive, another program or the user replaces or
+ * changes it); the others are only stat'ed, a few at a time. Each file stays the truth for its card.
+ */
+export async function boardPlaces(ws: WorkspaceService): Promise<CardPlace[]> {
+  if (!ws.path) return []
+  const dir = tasksDir(ws)
+  const names = await readdir(dir).catch(() => [] as string[])
+  const numbers = names.flatMap((f) => (/^(\d+)\.json$/.test(f) ? [Number(f.slice(0, -5))] : []))
+  const ids = await ws.projectIds()
+  const was = knownPlaces.get(dir.toLowerCase())
+  const now = new Map<number, KnownPlace>()
+  const out = await bounded(numbers, READS_AT_ONCE, async (n): Promise<CardPlace[]> => {
+    const file = cardFile(n, ws)
+    const st = await stat(file).catch(() => null)
+    if (!st?.isFile()) return []
+    // Stat'ed before it is read: a change in between is read again next time, as its stamp is newer than the one kept.
+    const stamp = `${st.mtimeMs}:${st.size}:${st.ino}`
+    let known = was?.get(n)
+    if (known?.stamp !== stamp) {
+      const raw = await readJson<(Partial<TaskCard> & { projectId?: unknown }) | null>(file, null)
+      known = { stamp, raw: raw && typeof raw === 'object' ? { column: raw.column, order: raw.order, archived: raw.archived, project: raw.project, projectId: raw.projectId } : null }
+    }
+    now.set(n, known)
+    if (!known.raw) return []
+    const c = clean(known.raw, n, ids)
+    return [{ number: n, column: c.column, order: c.order, archived: c.archived, project: c.project }]
+  })
+  knownPlaces.set(dir.toLowerCase(), now)
+  return sortCards(out.flat())
 }
 
 /** Cards on the board, filtered; with `scope`, only that project's (asking for another project is refused). */
@@ -396,7 +456,7 @@ async function cardRefs(v: unknown, self: number | null, what: string, scope: st
 }
 
 /** The order that puts a card before `before` in `column` (at the end without one). */
-function orderIn(cards: TaskCard[], column: TaskColumn, self: number | null, before: number | null | undefined): number {
+function orderIn(cards: CardPlace[], column: TaskColumn, self: number | null, before: number | null | undefined): number {
   const list = cards.filter((c) => c.column === column && !c.archived && c.number !== self)
   const i = before ? list.findIndex((c) => c.number === before) : -1
   if (i < 0) return (list.length ? Math.max(...list.map((c) => c.order)) : 0) + 1
@@ -419,7 +479,7 @@ function checkHold(column: TaskColumn, actor: TaskActor, n?: number): void {
  * agent's or the Assistant's explicit placement is checked (the card it names has to be in the column; never in
  * Done) and, when it moves the card, says so for the history; the user's drags are saved quietly.
  */
-function placement(all: TaskCard[], card: TaskCard, column: TaskColumn, patch: TaskPatch, actor: TaskActor): { order: number; said?: string } {
+function placement(all: CardPlace[], card: TaskCard, column: TaskColumn, patch: TaskPatch, actor: TaskActor): { order: number; said?: string } {
   const { before, position } = patch
   const placed = (before !== undefined && before !== null) || position !== undefined
   if (position !== undefined && position !== 'top' && position !== 'bottom') throw new Error(`Unknown position "${String(position)}": top or bottom.`)
@@ -492,7 +552,7 @@ async function reorderTasksLocked(column: TaskColumn, numbers: unknown, actor: T
   const ws = workspace
   const by = actorName(actor)
   const W = COLUMN_WORD[column]
-  const all = await allTasks(ws)
+  const all = await boardPlaces(ws)
   const list = all.filter((c) => c.column === column && !c.archived)
   // A confined agent orders its project's cards only, and they stay where the project's cards are in the column.
   const scope = scopeOf(actor)
@@ -582,7 +642,7 @@ async function createTaskLocked(
     agent: agent?.id ?? null,
     ...(agent ? { agentName: agent.name } : {}),
     column,
-    order: orderIn(await allTasks(ws), column, null, null),
+    order: orderIn(await boardPlaces(ws), column, null, null),
     labels: input.labels ? labelsOf(input.labels) : [],
     blocked: input.blocked?.trim() ? text(input.blocked.trim(), 1000, 'blocked reason') : null,
     blockedBy,
@@ -695,8 +755,7 @@ async function updateTaskLocked(n: number, patch: TaskPatch, actor: TaskActor, o
       const column = patch.column ?? card.column
       if (!isTaskColumn(column)) throw new Error(`Unknown column "${String(column)}": ${COLUMN_CHOICES}.`)
       if (column !== card.column) checkHold(column, actor, n)
-      const all = await allTasks(ws)
-      const place = placement(all, card, column, patch, actor)
+      const place = placement(await boardPlaces(ws), card, column, patch, actor)
       if (column !== card.column) said.push(place.said ?? `Moved to ${COLUMN_WORD[column]}`)
       else {
         // Moved to Review by its agent (or the user, on the board) while still there after a failed review: returned for
@@ -972,7 +1031,7 @@ async function archiveTaskLocked(n: number, archived: boolean): Promise<TaskCard
     delete c.archivedBatch
     note(c, 'You', archived ? 'Archived' : 'Brought back from the archive')
     // Back at the end of its column.
-    if (!archived) c.order = orderIn(await allTasks(ws), c.column, n, null)
+    if (!archived) c.order = orderIn(await boardPlaces(ws), c.column, n, null)
     await saveCard(ws, n, c)
     return c
   })
@@ -1038,7 +1097,7 @@ export async function archiveBatch(numbers: unknown, req: ArchiveRequest, actor:
           : (busy?.(c) ?? null)
   await mkdir(tasksDir(ws), { recursive: true })
   const result = await withFileLock(batchesFile(ws), async (): Promise<ArchiveResult> => {
-    const all = await allTasks(ws)
+    const all = await boardPlaces(ws)
     const want = new Set(nums)
     const going = all.filter((c) => want.has(c.number) && !c.archived)
     if (!going.length) return { batch: null, archived: [], skipped: [] }
@@ -1111,7 +1170,7 @@ async function unarchiveBatchLocked(id: string, actor: TaskActor): Promise<Unarc
       if (!c) failed.add(n)
       else if (c.archived && c.archivedBatch === id) back.push(c)
     }
-    const all = await allTasks(ws)
+    const all = await boardPlaces(ws)
     const restored: number[] = []
     for (const { id: column } of TASK_COLUMNS) {
       const mine = back.filter((c) => c.column === column)
@@ -1130,7 +1189,7 @@ async function unarchiveBatchLocked(id: string, actor: TaskActor): Promise<Unarc
           fresh.archived = false
           delete fresh.archivedFor
           delete fresh.archivedBatch
-          fresh.order = orders.get(c.number) ?? orderIn(await allTasks(ws), column, c.number, null)
+          fresh.order = orders.get(c.number) ?? orderIn(await boardPlaces(ws), column, c.number, null)
           note(fresh, 'You', `Brought back with its batch (${batch.label})`)
           await saveCard(ws, c.number, fresh)
           restored.push(c.number)
@@ -1317,7 +1376,7 @@ async function importCardsLocked(ws: WorkspaceService, cards: TaskCard[], projec
   await mkdir(tasksDir(ws), { recursive: true })
   const map = new Map<number, number>()
   for (const c of cards) map.set(c.number, await nextNumber(ws))
-  const all = await allTasks(ws)
+  const all = await boardPlaces(ws)
   for (const raw of cards) {
     const c = clean(raw, map.get(raw.number)!)
     c.project = project

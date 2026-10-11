@@ -179,8 +179,8 @@ export function cardMatches(c: Pick<TaskCard, 'number' | 'title' | 'description'
 }
 
 /** Cards in board order: by column, then position. */
-export function sortCards(cards: TaskCard[]): TaskCard[] {
-  const col = (c: TaskCard): number => TASK_COLUMNS.findIndex((x) => x.id === c.column)
+export function sortCards<T extends Pick<TaskCard, 'number' | 'column' | 'order'>>(cards: T[]): T[] {
+  const col = (c: T): number => TASK_COLUMNS.findIndex((x) => x.id === c.column)
   return [...cards].sort((a, b) => col(a) - col(b) || a.order - b.order || a.number - b.number)
 }
 
