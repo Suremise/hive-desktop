@@ -298,6 +298,40 @@ describe('a trial the environment stops (trialEnvironment)', () => {
     expect(trialEnvironment({ status: 'working', replies: ['Interrupted by you'] })).toBeNull()
     expect(trialEnvironment({})).toBeNull()
   })
+
+  // #577: Claude Code 2.1.296 with an OAuth session it couldn't refresh printed this and exited with 1 at launch.
+  describe('a CLI that exits at launch (launchEnded)', () => {
+    const { launchEnded, startFailureIn } = require('./scenarios/harness.cjs') as {
+      launchEnded: (o: { screen?: string; reason?: string; auth?: { loggedIn?: boolean } | null }) => { environment?: string; error?: string }
+      startFailureIn: (file: string) => string
+    }
+    const { writeFileSync } = require('fs') as typeof import('fs')
+    const { dirname, join } = require('path') as typeof import('path')
+    const OAUTH = 'Failed to authenticate: OAuth session expired and could not be refreshed'
+
+    it('its last screen or the reason Hive gives: skipped for the environment, with the sign-in advice', () => {
+      const why = launchEnded({ screen: `Claude Code ${OAUTH}` }).environment
+      expect(why).toMatch(/^not signed in: /)
+      expect(environmentAdvice(why!, 'claude-code')).toMatch(/^sign in to Claude Code's test home .*, by hand$/)
+      expect(launchEnded({ reason: OAUTH }).environment).toMatch(/^not signed in: /)
+    })
+
+    it('nothing seen, but its auth status says it is signed out: skipped too', () => {
+      expect(launchEnded({ auth: { loggedIn: false } }).environment).toMatch(/^not signed in: its auth status/)
+    })
+
+    it('anything else is an error at once, saying what it showed', () => {
+      expect(launchEnded({ reason: "error: option '--model <model>' argument 'x' is invalid.", auth: { loggedIn: true } })).toEqual({ error: "the session ended at launch: error: option '--model <model>' argument 'x' is invalid." })
+      expect(launchEnded({})).toEqual({ error: 'the session ended at launch' })
+    })
+
+    it("reads the reason from Hive's log", () => {
+      const log = join(tempDir('hive-start-failure-'), 'hive.log')
+      writeFileSync(log, `2026-10-11T08:24:30.000Z [INFO] [pty] spawn x\n2026-10-11T08:24:33.000Z [WARN] [sessions] ⁨alpha · Coder⁩: exited with code 1 before it started: ⁨${OAUTH}⁩\n`)
+      expect(startFailureIn(log)).toBe(OAUTH)
+      expect(startFailureIn(join(dirname(log), 'none.log'))).toBe('')
+    })
+  })
 })
 
 // A coordinator's watch is scored as it ended its turn (#402): a new watch replaces the last, so a combined one followed

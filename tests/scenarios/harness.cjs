@@ -112,6 +112,52 @@ function trialEnvironment({ status = null, replies = [], screen = '' } = {}) {
   return lib.environmentProblem([...replies, screen].join('\n'))
 }
 
+/** The lines of Hive's log (a test profile's), or none. */
+const logLines = (file) => {
+  try {
+    return fs.readFileSync(file, 'utf8').split(/\r?\n/)
+  } catch {
+    return []
+  }
+}
+/** Whether Hive's log says this agent's terminal exited (its process ended). */
+const ptyExitedIn = (file, agentId) => logLines(file).some((l) => /\[pty\] exit /.test(l) && l.includes(`#${agentId}⁩`))
+/**
+ * Why Hive says a CLI exited before its session started (sessions.ts failedStart), or '': the latest such line, which
+ * names the agent by its label, not its id (a scenario's session under test starts first).
+ */
+function startFailureIn(file) {
+  const line = logLines(file).filter((l) => /exited with code -?\d+ before it started: /.test(l)).pop() ?? ''
+  return /before it started: ⁨([^⁩]*)⁩/.exec(line)?.[1].trim() ?? ''
+}
+/**
+ * What Claude Code's own `auth status --json` says of its home now, through the executable Hive started this agent
+ * with (its log's spawn line), or null if it can't be asked. A test home only: `env` names it.
+ */
+function claudeAuthStatus(file, agentId, env) {
+  const spawned = logLines(file).filter((l) => /\[pty\] spawn /.test(l) && l.includes(`#${agentId}⁩`)).pop() ?? ''
+  const exe = /⁩: (.+?) \[/.exec(spawned)?.[1]
+  if (!exe || !env.CLAUDE_CONFIG_DIR) return null
+  try {
+    const out = execFileSync(process.env.ComSpec || 'cmd.exe', ['/d', '/s', '/c', `"${exe}" auth status --json`], { env: lib.childEnv({ CLAUDE_CONFIG_DIR: env.CLAUDE_CONFIG_DIR }), encoding: 'utf8', timeout: 30000, windowsHide: true, windowsVerbatimArguments: true, stdio: ['ignore', 'pipe', 'ignore'] })
+    return JSON.parse(out.trim().split(/\r?\n/).pop() ?? '')
+  } catch {
+    return null
+  }
+}
+
+/**
+ * A CLI that exited before its session started (#577): skipped for the environment when what it last showed, the
+ * reason Hive gives, or its sign-in status says so (an OAuth session it couldn't refresh prints its error and exits
+ * at once, often before a poll sees the screen); otherwise an error, at once rather than after the trial's limits.
+ */
+function launchEnded({ screen = '', reason = '', auth = null } = {}) {
+  const why = trialEnvironment({ screen: [screen, reason].join('\n') }) ?? (auth?.loggedIn === false ? "not signed in: its auth status says it isn't logged in" : null)
+  if (why) return { environment: why }
+  const said = (reason || screen.slice(-200)).trim()
+  return { error: `the session ended at launch${said ? `: ${said}` : ''}` }
+}
+
 /** What to do about an environment skip, said once for the trials it stops (never a sign-in from here). */
 function environmentAdvice(why, providerKey) {
   if (PROVIDERS[providerKey]?.fake) return 'run them without --signed-out (the fake was started signed out)'
@@ -123,7 +169,8 @@ function environmentAdvice(why, providerKey) {
 
 /**
  * Runs `sc` with `providerKey` (fake, claude-code or codex). `opts`: { model, effort, timeoutMs, port, keep, workRoot,
- * signedOut (a fake only: it acts out an expired sign-in, for checking the environment skip) }.
+ * signedOut (a fake only: it acts out an expired sign-in, for checking the environment skip; 'launch': one that stops it
+ * at launch) }.
  * Returns { scenario, provider, model, cliVersion, guidance, observed, checks, usage, seconds, error }.
  */
 async function runScenario(sc, providerKey, opts = {}) {
@@ -153,7 +200,7 @@ async function runScenario(sc, providerKey, opts = {}) {
   // The fake trusts these folders; the real Claude Code asks (answered below); Codex reads its test home's trust list.
   fs.writeFileSync(path.join(fakeHome, 'fake-trusted.json'), JSON.stringify([alpha.toLowerCase(), ws.toLowerCase()]))
   // A fake that acts out an expired sign-in: each prompt's turn ends with "Login expired · Please run /login".
-  if (opts.signedOut && p.fake) fs.writeFileSync(path.join(fakeHome, 'fake-signin.json'), JSON.stringify({ expired: true }))
+  if (opts.signedOut && p.fake) fs.writeFileSync(path.join(fakeHome, 'fake-signin.json'), JSON.stringify({ expired: true, ...(opts.signedOut === 'launch' ? { atLaunch: true } : {}) }))
   if (providerKey === 'codex') {
     lib.trustForCodex(alpha)
     lib.trustForCodex(ws)
@@ -279,11 +326,25 @@ async function runScenario(sc, providerKey, opts = {}) {
       return result
     }
     const readyBy = Date.now() + 90000
+    // The CLI's last screen while it starts: Hive drops a terminal's buffer when its process exits (#577).
+    let lastScreen = ''
+    let seen = false
+    let endedAtLaunch = null
     while (Date.now() < readyBy) {
       const s = await live()
       if (s?.status === 'ready' || s?.status === 'finished') break
+      const screen = plain(await inv('pty:buffer', key).catch(() => ''))
+      if (screen) lastScreen = screen
+      // Exited before its session started (an OAuth session it couldn't refresh, #577): no prompt can reach it.
+      const hiveLog = path.join(userData, 'logs', 'hive.log')
+      if (s) seen = true
+      else if (seen || ptyExitedIn(hiveLog, agentId)) {
+        endedAtLaunch = launchEnded({ screen: lastScreen, reason: startFailureIn(hiveLog), auth: p.provider === 'claude-code' ? claudeAuthStatus(hiveLog, agentId, env) : null })
+        if (endedAtLaunch.environment) return skipFor(endedAtLaunch.environment)
+        break
+      }
       // Nothing typed yet: what the terminal shows is the CLI's own (a sign-in screen, a limit).
-      const before = trialEnvironment({ status: s?.status, screen: plain(await inv('pty:buffer', key).catch(() => '')) })
+      const before = trialEnvironment({ status: s?.status, screen })
       if (before) return skipFor(before)
       // Copilot asks "Do you trust the files in this folder?", Yes first.
       if (/Do you trust the files in this folder/i.test(plain(await inv('pty:buffer', key).catch(() => '')))) {
@@ -316,8 +377,8 @@ async function runScenario(sc, providerKey, opts = {}) {
       }
       return false
     }
-    await sleep(1500)
-    for (let attempt = 0; attempt < 3; attempt++) {
+    if (!endedAtLaunch) await sleep(1500)
+    for (let attempt = 0; attempt < (endedAtLaunch ? 0 : 3); attempt++) {
       if (attempt < 2 || !plain(await inv('pty:buffer', key).catch(() => '')).includes(text.slice(0, 30))) await inv('pty:write', key, attempt ? `\x15${text}` : text)
       await sleep(400)
       await inv('pty:write', key, '\r')
@@ -327,7 +388,8 @@ async function runScenario(sc, providerKey, opts = {}) {
 
     // Wait for the turn to end: working (or background) first, then finished/ready for a few seconds. `during` sees the
     // board while it works, for scenarios that change things under it.
-    const limit = Date.now() + (opts.timeoutMs ?? 300000)
+    // A session that ended at launch has no turn to wait for.
+    const limit = endedAtLaunch ? Date.now() : Date.now() + (opts.timeoutMs ?? 300000)
     let sawWork = false
     let quietSince = 0
     const trustAnswered = new Set()
@@ -372,7 +434,8 @@ async function runScenario(sc, providerKey, opts = {}) {
       await sleep(1000)
     }
     const s = await live()
-    if (!s || Date.now() >= limit) result.error = s ? 'timed out' : 'the session ended'
+    if (endedAtLaunch) result.error = endedAtLaunch.error
+    else if (!s || Date.now() >= limit) result.error = s ? 'timed out' : 'the session ended'
     // The bridge reports its calls when its CLI closes input: give the last report a moment.
     await sleep(p.fake ? 500 : 2500)
     const metricsAfter = await snapshot()
@@ -465,4 +528,4 @@ async function runScenario(sc, providerKey, opts = {}) {
   return result
 }
 
-module.exports = { runScenario, observeTranscript, readMcpLog, sourceFingerprint, metricsTotals, measuresOf, trialEnvironment, environmentAdvice, PROVIDERS, CLAUDE_TEST_HOME, claudeSignedIn }
+module.exports = { runScenario, observeTranscript, readMcpLog, sourceFingerprint, metricsTotals, measuresOf, trialEnvironment, launchEnded, startFailureIn, claudeAuthStatus, environmentAdvice, PROVIDERS, CLAUDE_TEST_HOME, claudeSignedIn }

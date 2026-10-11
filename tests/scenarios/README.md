@@ -125,7 +125,10 @@ environment problem when the screen shows one) when it doesn't get there, rather
     home by hand, or run them again later). results.json and summary.md say "skipped: environment: …", and
     benchmark.json has the sample as incomplete, so Performance → Compare counts no sample for it. To check this
     without a model: `npm run scenarios -- --only work-on-card --signed-out` (the fake Claude Code acts out an expired
-    sign-in; fakes only).
+    sign-in; fakes only). A CLI that exits before its session starts (an OAuth session it couldn't refresh: "Failed to
+    authenticate: OAuth session expired and could not be refreshed", exit 1) is matched by its last screen, the reason
+    Hive logs, or, for Claude Code, its own `auth status --json` in the test home; anything else ends the trial at once
+    as `ERROR the session ended at launch: …`, not after the trial's limits (#577). `--signed-out=launch` acts it out.
   - Each scenario is one session of the chosen model, 6 minutes at most. `--budget` (USD, API-equivalent, above 0,
     default 2) stops the run once the scenarios so far cost that much. A trial that reports no cost makes the spend
     unknown, so no further trial starts unless `--allow-unknown-cost` is given; the summary then says the total is
