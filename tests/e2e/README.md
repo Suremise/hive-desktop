@@ -194,10 +194,16 @@ same code while every required check still runs:
   2.1.292, Codex 0.160.1"; each Hive notes its choice in the suite's `hive-clis.jsonl`, `HIVE_TEST_CLI_LOG`), and
   `run-record.json` beside it holds them per suite: `npm run tested-clis` makes the release's "Tested with" manifest
   from it (#365, RELEASING.md). The runner itself never starts a CLI.
-- **The reviewer** checks the record's fingerprint is the code it's reviewing (`npm run e2e -- --fingerprint` in the
-  builder's folder) and trusts it for those suites. It reruns the quick checks (`npm run typecheck`, `npm run lint`,
-  `npm test`) and the one or two suites closest to the riskiest change, and spends the rest of its time on its own
-  probes. It reruns more when there's no record, the fingerprint differs, or a result looks wrong.
+- **The reviewer** checks the record instead of repeating it (#533): its fingerprint is the code it's reviewing
+  (`npm run e2e -- --fingerprint` in the builder's folder), it's recent, the suites the change needs ran, and each
+  failure in it is explained. It then runs the quick checks (`npm run typecheck`, `npm run lint`), the unit tests the
+  change affects (`npx vitest run --changed <base>`, where `<base>` is the commit the card's work started from;
+  uncommitted changes count too; it follows imports, so add the tests that read a changed file, such as a skill's
+  Markdown or a fixture), not the whole unit suite, and the one or two suites closest to the riskiest change,
+  and spends the rest of its time on its own probes. It reruns a whole suite or set only when there's no record, the
+  fingerprint differs or the record is stale, a result looks wrong, or the change is to shared test infrastructure (the
+  runner, `lib.cjs`, the run context, the scenario harness, `vitest.config.ts` or a helper in `tests/`), and says in
+  its verdict which and why.
 - **Follow-up rounds** run the suites the fixes affect (`--affected`). **Before a card passes**, every suite it names
   has run on its final code (the builder's last record).
 - **Before a merge to main**, run the **full set** (the fake tier): `npm run e2e -- --all --build --record`, so suites
