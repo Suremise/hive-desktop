@@ -26,6 +26,8 @@ import type {
   QueuedMessage,
   SessionBulkAction,
   SessionBulkResult,
+  Attached,
+  AttachmentPlan,
   SessionListItem,
   SessionRecord,
   SessionSkipReason,
@@ -43,7 +45,7 @@ import { providerService } from './providerService'
 import { config } from './config'
 import { emit, emitTo, tellListeners, toast } from './events'
 import { presentWindow, showOsNotification, testNotifyLog, testQuiet } from './testQuiet'
-import { hashText, heldOpen, isInUse, readJson, placeRelative, removePath, samePlace, treeSignature, syncCopy, syncCopyLocked, syncCopyNow, trashAllOrNothing, withFileLock, writeJsonAtomic } from './fsutil'
+import { hashText, heldOpen, insideReal, isInUse, readJson, placeRelative, removePath, samePlace, treeSignature, syncCopy, syncCopyLocked, syncCopyNow, trashAllOrNothing, withFileLock, writeJsonAtomic } from './fsutil'
 import { createLogger, userText } from './logger'
 import { applyStep, compactionOver, expireTasks, hookStep, idleAfter, titleStep, type HookStatusInput, type HookStep } from './hookStatus'
 import { Compaction } from './compaction'
@@ -72,6 +74,8 @@ import { endAgentToken, newAgentToken } from './agentTokens'
 import { endHookToken, newHookToken } from './hookTokens'
 import { beingRead, viewingWindows } from './transcriptReads'
 import { trash } from './trash'
+import { attachmentsDir } from './attachmentsFolder'
+import { attachmentKind } from '../shared/attachments'
 
 const log = createLogger('sessions')
 
@@ -1264,10 +1268,11 @@ class SessionManager {
   private async recordSession(projectPath: string, agent: Pick<AgentDef, 'id' | 'name' | 'worktree'>, l: LiveSession): Promise<void> {
     const { state } = l
     const sessionId = state.sessionId
-    // Images pasted before the provider named the session wait in the launch's folder: move them to the session's.
-    const early = join(projectPath, HIVE_DIR, 'images', `run-${state.runId}`)
+    // Attachments pasted before the provider named the session wait in the launch's folder: move them to the session's.
+    const attachments = await attachmentsDir(projectPath)
+    const early = join(attachments, `run-${state.runId}`)
     if (existsSync(early)) {
-      const dest = join(projectPath, HIVE_DIR, 'images', sessionId)
+      const dest = join(attachments, sessionId)
       await mkdir(dest, { recursive: true }).catch(() => undefined)
       for (const f of await readdir(early).catch(() => [] as string[])) await rename(join(early, f), join(dest, f)).catch((e) => log.warn(`Could not move ${userText(f)}`, e))
       await rm(early, { recursive: true, force: true }).catch(() => undefined)
@@ -3239,34 +3244,90 @@ class SessionManager {
   }
 
   /**
-   * Saves an image for the running session under <project>/.hive/images/<sessionId> and returns
-   * its path, which is pasted into the terminal so the transcript records which image was sent.
-   * Takes the clipboard image when no source file is given; returns null if there is none.
+   * Saves the clipboard's image for the running session in its attachments folder (<host>/.hive/attachments/<sessionId>)
+   * and returns its path, which is pasted into the terminal so the transcript records which image was sent; null when the
+   * clipboard holds no image.
    */
-  async saveImage(projectPath: string, sourceFile?: string, agentId?: string): Promise<string | null> {
+  async pasteImage(projectPath: string, agentId?: string): Promise<string | null> {
     projectPath = workspace.assertSessionHost(projectPath)
+    const l = await this.attachTarget(projectPath, agentId)
+    const item = (await clipboard.read()).find((i) => i.types.includes('image/png'))
+    if (!item) return null
+    const png = Buffer.from(await ((await item.getType('image/png')) as Blob).arrayBuffer())
+    const dest = await this.attachmentFile(projectPath, l, null)
+    await writeFile(dest, png)
+    return dest
+  }
+
+  /**
+   * How each file would be attached to the agent's running session (#387), changing nothing: a file from outside the
+   * session's folder is copied into its attachments folder, and so is an image (kept with the session, for the
+   * Attachments tab); a file in the session's folder, or already attached, goes as it is, by its path, as does a folder.
+   */
+  async planAttach(projectPath: string, sources: string[], agentId?: string): Promise<AttachmentPlan[]> {
+    projectPath = workspace.assertSessionHost(projectPath)
+    const l = await this.attachTarget(projectPath, agentId)
+    const attachments = await attachmentsDir(projectPath)
+    const out: AttachmentPlan[] = []
+    for (const raw of (Array.isArray(sources) ? sources : []).slice(0, 100)) {
+      if (typeof raw !== 'string' || !raw || !isAbsolute(raw)) continue
+      const source = resolve(raw)
+      const name = basename(source)
+      const st = await stat(source).catch(() => null)
+      const kind = attachmentKind(name)
+      if (!st || st.isDirectory()) {
+        out.push({ source, name, size: 0, kind, copy: false, folder: !!st })
+        continue
+      }
+      const kept = existsSync(attachments) && insideReal(source, [attachments])
+      const copy = !kept && st.isFile() && (kind === 'image' || !insideReal(source, [l.state.cwd]))
+      out.push({ source, name, size: st.size, kind, copy, folder: false })
+    }
+    return out
+  }
+
+  /** Attaches files to the agent's running session as planAttach says: the copies made, and the paths to paste. */
+  async attach(projectPath: string, sources: string[], agentId?: string): Promise<Attached[]> {
+    projectPath = workspace.assertSessionHost(projectPath)
+    const l = await this.attachTarget(projectPath, agentId)
+    const out: Attached[] = []
+    for (const p of await this.planAttach(projectPath, sources, agentId)) {
+      if (!p.copy) {
+        out.push({ source: p.source, path: p.source, name: p.name, kind: p.kind, copied: false })
+        continue
+      }
+      const dest = await this.attachmentFile(projectPath, l, p.name)
+      await copyFile(p.source, dest)
+      out.push({ source: p.source, path: dest, name: p.name, kind: p.kind, copied: true })
+    }
+    return out
+  }
+
+  /** The agent's running session, which attachments go to (the sole agent when none is named). */
+  private async attachTarget(projectPath: string, agentId?: string): Promise<LiveSession> {
     agentId ||= await this.soleAgent(projectPath)
     const l = this.live.get(liveId(projectPath, agentId))
     if (!l) throw new Error('No session is running for this agent.')
-    let png: Buffer | null = null
-    // A file given by the window (a drop, Insert into Session) must be an image, from the workspace or pasted/dropped from outside it.
-    if (sourceFile && !/\.(png|jpe?g|gif|webp|bmp)$/i.test(sourceFile)) throw new Error('Only images can be added to a session this way.')
-    if (!sourceFile) {
-      const item = (await clipboard.read()).find((i) => i.types.includes('image/png'))
-      if (!item) return null
-      png = Buffer.from(await ((await item.getType('image/png')) as Blob).arrayBuffer())
-    }
-    // Until the provider reports the session id, images go in a folder named after the launch.
-    const dir = join(projectPath, HIVE_DIR, 'images', l.state.sessionId || `run-${l.state.runId}`)
+    return l
+  }
+
+  /**
+   * A new file's path in the session's attachments folder: named by the time, then the file's own name (a clipboard
+   * image has none), so they list in the order they came and the agent sees what each is. Until the provider reports
+   * the session id, they go in a folder named after the launch.
+   */
+  private async attachmentFile(projectPath: string, l: LiveSession, name: string | null): Promise<string> {
+    const dir = join(await attachmentsDir(projectPath), l.state.sessionId || `run-${l.state.runId}`)
     await mkdir(dir, { recursive: true })
     const d = new Date()
     const pad = (n: number): string => String(n).padStart(2, '0')
     const stamp = `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}_${pad(d.getHours())}-${pad(d.getMinutes())}-${pad(d.getSeconds())}`
-    const ext = sourceFile ? extname(sourceFile).toLowerCase() : '.png'
-    let dest = join(dir, `${stamp}${ext}`)
-    for (let i = 2; existsSync(dest); i++) dest = join(dir, `${stamp}-${i}${ext}`)
-    if (png) await writeFile(dest, png)
-    else await copyFile(sourceFile!, dest)
+    // Characters Windows refuses in a name, and control characters, become "_"; a long name keeps its end (the extension).
+    const own = name ? name.replace(/[<>:"/\\|?*\x00-\x1f]/g, '_').replace(/[. ]+$/, '').slice(-100) : ''
+    const ext = own ? extname(own) : '.png'
+    const base = own ? `${stamp}_${own.slice(0, own.length - ext.length)}` : stamp
+    let dest = join(dir, `${base}${ext}`)
+    for (let i = 2; existsSync(dest); i++) dest = join(dir, `${base}-${i}${ext}`)
     return dest
   }
 
@@ -3611,12 +3672,12 @@ class SessionManager {
   }
 
   /**
-   * Runs fn with the session reserved and not running (in any window): removing its images. Nothing resumes it, or
-   * archives or deletes it, until fn is done, so it can't start pasting while its images go.
+   * Runs fn with the session reserved and not running (in any window): removing its attachments. Nothing resumes it, or
+   * archives or deletes it, until fn is done, so it can't start pasting while its attachments go.
    */
   whileStopped<T>(projectPath: string, sessionId: string, fn: () => Promise<T>): Promise<T> {
     return this.whileReserved(projectPath, sessionId, async () => {
-      if (this.liveAnywhere(sessionId)) throw new SessionInUse('live', 'It is running, and may paste more images. Stop it first.')
+      if (this.liveAnywhere(sessionId)) throw new SessionInUse('live', 'It is running, and may attach more files. Stop it first.')
       return fn()
     })
   }

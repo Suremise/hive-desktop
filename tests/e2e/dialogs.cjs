@@ -22,10 +22,10 @@ const check = (name, ok, extra = '') => {
 ;(async () => {
   for (const d of [userData, ws]) fs.rmSync(d, { recursive: true, force: true })
   lib.gitProject(alpha)
-  // A session's image, for the Images tab's viewer.
+  // A session's image, for the Attachments tab's viewer.
   const id = '11111111-aaaa-bbbb-cccc-000000000001'
-  fs.mkdirSync(path.join(alpha, '.hive', 'images', id), { recursive: true })
-  fs.writeFileSync(path.join(alpha, '.hive', 'images', id, '2026-10-05_10-00-00.png'), lib.samplePng(400, 200))
+  fs.mkdirSync(path.join(alpha, '.hive', 'attachments', id), { recursive: true })
+  fs.writeFileSync(path.join(alpha, '.hive', 'attachments', id, '2026-10-05_10-00-00.png'), lib.samplePng(400, 200))
   fs.writeFileSync(path.join(alpha, '.hive', 'sessions.json'), JSON.stringify({ version: 1, sessions: [{ id, agent: 'claude-code', name: 'Pictures', createdAt: '', lastActiveAt: '', archived: false }] }))
   const claude = lib.fakeClaude(userData, path.join(lib.WORK, 'dialogs-claude-home'), [alpha])
   const env = lib.hiveEnv({ HIVE_USER_DATA: userData, HIVE_API_PORT: lib.port(47933), ...claude })
@@ -137,7 +137,7 @@ const check = (name, ok, extra = '') => {
   // --- The image viewer stays put (an opt-out).
   await page.locator('.activity-btn[aria-label="Projects"]').click()
   await page.getByText('alpha', { exact: true }).first().click()
-  await page.locator('.tab', { hasText: 'Images' }).click()
+  await page.locator('.tab', { hasText: 'Attachments' }).click()
   await lib.until(async () => (await page.locator('.thumb').count()) === 1, 10000)
   await page.locator('.thumb').first().click()
   const viewer = top()

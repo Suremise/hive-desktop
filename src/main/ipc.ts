@@ -534,7 +534,9 @@ export function registerIpc(getAppInfo: () => ReturnType<HiveRequests['app:info'
     'session:allowLockedEdit': (p, agentId, path) => sessions.allowLockedEdit(p, agentId, path),
     'session:applyModes': () => sessions.applyModeSettings(),
     'session:compact': (p, focus, agentId) => sessions.compact(p, focus, agentId),
-    'session:saveImage': (p, sourceFile, agentId) => sessions.saveImage(p, sourceFile, agentId),
+    'session:pasteImage': (p, agentId) => sessions.pasteImage(p, agentId),
+    'session:planAttach': (p, sources, agentId) => sessions.planAttach(p, sources, agentId),
+    'session:attach': (p, sources, agentId) => sessions.attach(p, sources, agentId),
 
     'agents:add': (p, opts) => projectAgents.addAgent(p, opts),
     'agents:update': (p, id, patch) => projectAgents.updateAgent(p, id, patch),
@@ -626,9 +628,10 @@ export function registerIpc(getAppInfo: () => ReturnType<HiveRequests['app:info'
     'files:setUnsaved': (paths) => quitControl.setUnsaved(win(), Array.isArray(paths) ? paths.filter((p) => typeof p === 'string') : []),
     'files:unwatch': (p) => files.unwatchProject(p),
 
-    'images:list': (p) => files.listImages(p),
-    'images:trash': (p, path) => files.trashImage(p, path),
-    'images:trashGroup': (p, id) => files.trashImageGroup(p, id),
+    'attachments:list': (p) => files.listAttachments(p),
+    'attachments:read': (p, path) => files.readAttachment(p, path),
+    'attachments:trash': (p, path) => files.trashAttachment(p, path),
+    'attachments:trashGroup': (p, id) => files.trashAttachmentGroup(p, id),
     'transcript:read': (p, id, opts) => transcripts.read(p, id, opts ?? {}),
     'transcript:tool': (p, id, itemId) => transcripts.tool(p, id, itemId),
     'transcript:image': (p, id, imageId) => transcripts.image(p, id, imageId),
@@ -646,7 +649,7 @@ export function registerIpc(getAppInfo: () => ReturnType<HiveRequests['app:info'
       await writeTextAtomic(r.filePath, await transcripts.markdown(p, id, title))
       return r.filePath
     },
-    'images:copy': async (path) => {
+    'attachments:copyImage': async (path) => {
       // From its bytes: nativeImage reading a path itself is asar-aware (#246).
       const img = nativeImage.createFromBuffer(await readFile(guardFile(path)))
       if (img.isEmpty()) throw new Error('Not an image')

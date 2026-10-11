@@ -60,7 +60,7 @@ export const IMAGE_EXT = /\.(png|jpe?g|gif|webp|bmp)$/i
 /** Quotes a path for pasting into a terminal when it contains whitespace. */
 export const quotePath = (p: string): string => (/\s/.test(p) ? `"${p}"` : p)
 
-/** Drag payload for files dragged out of the Files and Images tabs. */
+/** Drag payload for files dragged out of the Files and Attachments tabs. */
 export const HIVE_FILES_MIME = 'application/x-hive-files'
 
 export function carriesFiles(dt: DataTransfer | null): boolean {

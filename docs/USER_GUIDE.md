@@ -104,7 +104,7 @@ Each **project** (every subfolder except dot-folders) gets its own `.hive` folde
 
 ### What Hive keeps in a project
 
-A project's `.hive` folder is this computer's, not the project's: its settings, the session list, transcript backups and archive, pasted images, and each agent's launch folder (the skills, MCP servers and hooks it started with). None of it belongs in commits or shared copies. What could hold a secret isn't kept there at all: the key the hooks use to report an agent's status, and each session's settings and MCP server configuration (which may carry your servers' keys or a `--settings` file's `env`), go in Hive's own data folder instead, for as long as that session runs.
+A project's `.hive` folder is this computer's, not the project's: its settings, the session list, transcript backups and archive, attachments (files pasted or dropped into sessions), and each agent's launch folder (the skills, MCP servers and hooks it started with). None of it belongs in commits or shared copies. What could hold a secret isn't kept there at all: the key the hooks use to report an agent's status, and each session's settings and MCP server configuration (which may carry your servers' keys or a `--settings` file's `env`), go in Hive's own data folder instead, for as long as that session runs.
 
 Hive keeps `.hive` out of git by adding it to the repository's `.git/info/exclude`, never your `.gitignore`. It checks again whenever it refreshes the project and before every agent starts, so a repository you create later (`git init`), or one in a folder above the project (a workspace kept in git), is covered too.
 
@@ -368,14 +368,14 @@ Select a template to see what it holds: each agent's name, role, coding agent, m
 
 ### Archiving and backups
 
-Claude Code and Codex delete old transcripts after a while. Hive keeps a copy of every session transcript in the project's `.hive/sessions` folder, and archived sessions in `.hive/archive`. Images you paste or drop into a session are kept in `.hive/images`. Hive only deletes them when you ask (deleting a session sends its transcript copies to the Recycle Bin; its images stay). If the CLI has removed a transcript, Hive restores it from the backup when you resume.
+Claude Code and Codex delete old transcripts after a while. Hive keeps a copy of every session transcript in the project's `.hive/sessions` folder, and archived sessions in `.hive/archive`. Files you paste or drop into a session are kept in `.hive/attachments`. Hive only deletes them when you ask (deleting a session sends its transcript copies to the Recycle Bin; its attachments stay). If the CLI has removed a transcript, Hive restores it from the backup when you resume.
 
-**Storage.** **Project Settings → Storage** (or **Project Storage and Clean Up…** in the command palette) shows how much space Hive keeps for the project: transcript backups (`.hive/sessions`), the archive (`.hive/archive`), images (`.hive/images`) and each agent's worktree. It's measured in the background, so a large worktree never holds up the window, and leaving the page stops measuring; **Refresh** measures again. The coding agents' own transcripts (in `~/.claude` and `~/.codex`) aren't counted. **Settings → Workspace → Storage** shows the workspace's total and every project, the Hive Assistant included, biggest first; **Storage** next to one opens its page.
+**Storage.** **Project Settings → Storage** (or **Project Storage and Clean Up…** in the command palette) shows how much space Hive keeps for the project: transcript backups (`.hive/sessions`), the archive (`.hive/archive`), attachments (`.hive/attachments`) and each agent's worktree. It's measured in the background, so a large worktree never holds up the window, and leaving the page stops measuring; **Refresh** measures again. The coding agents' own transcripts (in `~/.claude` and `~/.codex`) aren't counted. **Settings → Workspace → Storage** shows the workspace's total and every project, the Hive Assistant included, biggest first; **Storage** next to one opens its page.
 
 **Clean Up…** on that page moves old files to the Recycle Bin. Nothing is cleaned up automatically. Choose what goes:
 
-- **Images of archived sessions** last active more than 90 days ago (or the number of days you set). This is the only option on at first.
-- **Images of deleted sessions**, and of launches that never got a session (folders named `run-…`).
+- **Attachments of archived sessions** last active more than 90 days ago (or the number of days you set). This is the only option on at first.
+- **Attachments of deleted sessions**, and of launches that never got a session (folders named `run-…`).
 - **Hive's backups of archived sessions** last active more than a number of days ago, only where Claude Code or Codex still has the transcript. The session stays: you can still resume and read it, from the CLI's copy, for as long as the CLI keeps it.
 - **Backups of archived sessions the CLI no longer has.** Hive's copy is the last one, so these sessions are deleted, as **Delete Session** does: they can't be resumed or read afterwards. The dialog warns you when this is on.
 
@@ -609,9 +609,9 @@ The **Hive Assistant** button in the activity bar (the robot) opens everything e
 
 - **Modes** lists its modes (below).
 - **All Conversations** shows every conversation you've had with it, in the same tree as a project's **Sessions** tab (by provider, with any sessions a conversation started under it). Search them, read any in full, export, rename, archive, delete or resume one, or archive or delete a whole branch. **Show** on the running conversation opens the panel.
-- **All Images** shows the screenshots and images you've pasted or dropped into its conversations, grouped by conversation, newest first, like a project's **Images** tab. Click one to view it, or right-click it to copy, open or reveal it. Click a conversation's name to read it. The bin next to it moves all of that conversation's images to the Recycle Bin (none if another program has one open). Images of a conversation that is running can't be deleted until it stops.
+- **All Attachments** shows the screenshots and files you've pasted or dropped into its conversations, grouped by conversation, newest first, like a project's [Attachments](#attachments) tab. Click one to view it, or right-click it to copy or reveal it. Click a conversation's name to read it. The bin next to it moves all of that conversation's attachments to the Recycle Bin (none if another program has one open). Attachments of a conversation that is running can't be deleted until it stops.
 
-The panel's **⋯** menu opens the same view with **All Conversations…** or **Manage Modes…**; the command palette has **Show Assistant Conversations**, **Show Assistant Modes** and **Show Assistant Images**.
+The panel's **⋯** menu opens the same view with **All Conversations…** or **Manage Modes…**; the command palette has **Show Assistant Conversations**, **Show Assistant Modes** and **Show Assistant Attachments**.
 
 ### Modes
 
@@ -759,9 +759,26 @@ Select a file and it opens on the right, ready to edit, with syntax highlighting
 
 Files with unsaved changes get a ● in the tree. The edits are kept while you look at other files or tabs, and follow a file you rename or move in the Files tab. Deleting a file with unsaved changes warns you first. When you quit, Hive lists the files with unsaved changes and saves them or discards them, as you choose; reloading the window or switching workspace offers to save them first. Unsaved changes are not kept if Hive crashes, so save often. If a file changes on disk while you have unsaved edits, for example because the agent edited it, Hive tells you and lets you **Reload** it or **Overwrite with mine**. A file without edits simply updates. Binary files and files over 5 MB aren't opened; use **Open in Default App** for those.
 
-## Images
+## Attachments
 
-The **Images** tab shows every screenshot and image pasted or dropped into the project's sessions, grouped by session (newest first), with archived sessions at the bottom. Click one to view it large and use ← / → to move between them. From the viewer or the right-click menu you can **Insert into Session**, **Copy Image**, **Copy Path**, **Reveal** it, or **Delete** it (to the Recycle Bin). Click a session's name to read its transcript, or its bin to move all of its images to the Recycle Bin at once. A running session's images can't be deleted until it stops: **Delete** is greyed out (in the viewer too; hover it to see why). You can also drag a thumbnail onto the **Session** tab.
+You can attach any file to an agent's or the Assistant's prompt: paste a screenshot with **Ctrl+V**, or drag files from Explorer (or from the Files or Attachments tab) onto its terminal. Each file reaches the agent as its path in the prompt:
+
+- A file from **outside the agent's folder** (its project or worktree; for the Assistant, the workspace) is copied into the session's attachments folder, `.hive/attachments`, and the copy's path is pasted. So is every **image**, wherever it comes from, so the Attachments tab keeps what you showed the agent.
+- A file **inside the agent's folder** goes as it is, by its path, so the agent works on the real file. So does a folder.
+- Files over **20 MB** are asked about first: an agent may not manage a file that large (its CLI can refuse it, or reading it can fill much of its context).
+- Hive never runs what you attach: it only copies it and pastes its path.
+
+While you write the prompt, a **chip** for each attachment shows over the top right of the terminal, with the kind of file. The agent's CLI reads some kinds itself and the rest **by path**: the agent opens them with its own tools (a zip it might unpack, a PDF it might convert). Hover a chip for its path and which. **×** dismisses a chip (the path stays in the prompt); sending the prompt clears them.
+
+| | Images | PDFs | Text, logs, code | Other files |
+|---|---|---|---|---|
+| Claude Code | read itself | read itself | read itself | by path |
+| Codex | read itself | by path | read itself | by path |
+| GitHub Copilot | read itself | by path | read itself | by path |
+
+The **Attachments** tab shows everything pasted or dropped into the project's sessions, grouped by session (newest first), with archived sessions at the bottom. Images show as thumbnails, other files by their kind's icon and name. When there's more than one kind, the filters above (**All**, **Images**, **PDFs**, **Text**, **Other**) show just one kind. Click one to view it large and use ← / → to move between them: images, PDFs, Markdown, CSV tables and text are previewed as in the Files tab, and other files say there's no preview. From the viewer or the right-click menu you can **Insert into Session**, **Copy Path**, **Reveal** it, **Copy Image** (images), **Open** it in its program (images and PDFs only, never anything that could run), or **Delete** it (to the Recycle Bin). Click a session's name to read its transcript, or its bin to move all of its attachments to the Recycle Bin at once. A running session's attachments can't be deleted until it stops: **Delete** is greyed out (in the viewer too; hover it to see why). You can also drag one onto the **Session** tab.
+
+This tab was called **Images**, and the folder `.hive/images`, before attachments could be any file. Hive moves the old folder's files into `.hive/attachments` the first time it needs them, and links to the old paths (in a transcript, or printed in a terminal) still open the moved files in Hive. An agent given an old path in an earlier conversation won't find it there any more: give it the file again.
 
 ## Changes
 
@@ -966,7 +983,7 @@ Tick **Don't ask again** to stop the question about sessions, or change it any t
 | Next / previous agent page | Ctrl+Alt+PageDown / Ctrl+Alt+PageUp |
 | Focus the session terminal | Ctrl+` |
 | Next / previous project | Ctrl+PageDown / Ctrl+PageUp |
-| Project tabs | Alt+1 … Alt+9, Alt+0 (Session, Overview, Sessions, Files, Images, Changes, Memory, Skills, MCP, Settings; Tasks has none, but you can give it one); Ctrl+Tab / Ctrl+Shift+Tab for the next / previous tab |
+| Project tabs | Alt+1 … Alt+9, Alt+0 (Session, Overview, Sessions, Files, Attachments, Changes, Memory, Skills, MCP, Settings; Tasks has none, but you can give it one); Ctrl+Tab / Ctrl+Shift+Tab for the next / previous tab |
 | Task board / new card | Ctrl+Shift+J / Ctrl+Alt+T |
 | Workspace Overview | Ctrl+Shift+O |
 | Toggle sidebar | Ctrl+B (outside the terminal) |
@@ -987,7 +1004,7 @@ In the terminal, Ctrl+C copies when text is selected (otherwise it interrupts th
 
 **Terminals out of sight.** While an agent's terminal isn't shown (Settings is open, or you're on another tab, project or page), it keeps its size: the agent goes on drawing for the width you last saw. When you come back, the terminal fits its pane again once the window has settled, and the agent redraws only if the pane's size changed meanwhile. If you were following the output at the bottom, you're still at the bottom; if you had scrolled up to read, you're still on the same line.
 
-**Screenshots and files.** With a screenshot on the clipboard (for example from Win+Shift+S), press **Ctrl+V** in a session: Hive saves the image in the project's `.hive/images` folder and pastes its path, and Claude Code attaches it as `[Image #1]`. You can also **drag files** from Explorer onto the terminal to paste their paths; images are copied into `.hive/images` first. The images are kept per session, so you can always see what was sent (see [Images](#images)).
+**Screenshots and files.** With a screenshot on the clipboard (for example from Win+Shift+S), press **Ctrl+V** in a session: Hive saves the image in the session's `.hive/attachments` folder and pastes its path, and Claude Code attaches it as `[Image #1]`. You can also **drag files** from Explorer onto the terminal: any kind of file, its path pasted, copied into `.hive/attachments` first when it comes from outside the agent's folder or is an image. They're kept per session, so you can always see what was sent (see [Attachments](#attachments)).
 
 ## Troubleshooting
 

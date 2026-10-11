@@ -82,6 +82,8 @@ export const CODEX_DESCRIPTOR: ProviderDescriptor = {
     autoCompactReserve: null,
     // A pasted image path becomes [Image #n] (checked with Codex 0.159).
     imagePaste: true,
+    // Images (pasted, or its view_image tool) and text; a PDF it can only dump with a shell command (checked with 0.162.1).
+    attachments: ['image', 'text'],
     // Codex rejects permissionDecision "ask" (and then runs the tool), so Hive asks the user itself.
     lockAsk: false,
     backgroundSessions: false,

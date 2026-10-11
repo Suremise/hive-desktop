@@ -214,6 +214,7 @@ interface State {
   /** The persona open in the Personas view (its file). */
   selectedPersona: string | null
   /** What the Assistant view's main area shows: its conversations or the selected persona. */
+  /** 'images' is its Attachments (#387; the id from before, kept). */
   assistantSection: 'conversations' | 'personas' | 'images'
   /** The Hive Assistant's panel is shown (per workspace, saved in the pane sizes as assistant-open:<path>). */
   assistantOpen: boolean
@@ -809,7 +810,7 @@ export function showView(a: Exclude<Activity, 'docs' | 'settings'>): void {
   set({ activity: a, lastSideActivity: a, sidebarVisible: true })
 }
 
-/** Shows the Hive Assistant view (activity bar) on its conversations, its personas or its images. */
+/** Shows the Hive Assistant view (activity bar) on its conversations, its personas or its attachments ('images'). */
 export function showAssistantView(section: 'conversations' | 'personas' | 'images'): void {
   set({ assistantSection: section })
   showView('assistant')
@@ -932,7 +933,7 @@ export function prompt(opts: Omit<PromptRequest, 'kind' | 'resolve'>): Promise<s
   return new Promise((resolve) => openDialog({ kind: 'prompt', ...opts, resolve }))
 }
 
-/** Listeners for 'files-changed' events (Files and Images tabs). */
+/** Listeners for 'files-changed' events (Files and Attachments tabs). */
 export const filesListeners = new Set<(projectPath: string, dirs: string[]) => void>()
 
 let tasksLoad = 0

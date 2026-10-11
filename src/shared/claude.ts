@@ -162,6 +162,8 @@ export const CLAUDE_DESCRIPTOR: ProviderDescriptor = {
     contextLimit: true,
     autoCompactReserve: 33_000,
     imagePaste: true,
+    // Its Read tool returns a PDF as a document and an image as an image (checked with 2.1.296).
+    attachments: ['image', 'pdf', 'text'],
     lockAsk: true,
     backgroundSessions: true,
     backgroundWakes: true,
