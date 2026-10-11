@@ -10,7 +10,7 @@ import { samePath } from '../../../shared/movePaths'
 import { config } from '../../config'
 import { claudeFileAllowed, contentHash, ContentTooLarge, copyMissing, copySkillTree, sourceProblem, tooBigToDeliver, isDir, linksNotCopied, readJson, removePath, writeJsonAtomic } from '../../fsutil'
 import { createLogger, userText } from '../../logger'
-import { EDITOR_EXTENSION_PATH, EDITOR_ROOTS, compareVersions, hookForwardCommand, promptArg, readFirstLine, run, runsThroughCmd, toSpawnable } from '../common'
+import { EDITOR_EXTENSION_PATH, EDITOR_ROOTS, compareVersions, hookForwardCommand, readFirstLine, run, runsThroughCmd, taskArgs, toSpawnable } from '../common'
 import type { StartHint } from '../../../shared/startFailure'
 import type { BackgroundTaskEvent, CatalogRead, CommandSpec, ExternalSession, LaunchContext, LiveDetails, LockDecision, NormalizedHook, ProviderAdapter, SkillDelivery, SkillRoots } from '../types'
 import { autoCompactOf, settingsScopes } from './autoCompact'
@@ -330,7 +330,7 @@ export class ClaudeCodeAdapter implements ProviderAdapter {
     if (ctx.permissionMode) args.push('--permission-mode', ctx.permissionMode)
     args.push(...withoutSettingsArgs(ctx.extraArgs))
     // Claude Code takes a first message as its last argument and starts on it.
-    if (ctx.initialPrompt) args.push(promptArg(executable, ctx.initialPrompt))
+    if (ctx.initialPrompt) args.push(...taskArgs(executable, ctx.initialPrompt))
     const s = toSpawnable(executable, args)
     // Agent view (← on an empty prompt) moves the session into Claude Code's background service, out of Hive's
     // reach: Stop would only close the terminal and the session would keep running. Off unless the user allows it.

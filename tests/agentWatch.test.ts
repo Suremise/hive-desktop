@@ -2,8 +2,8 @@
 // and agent watches in main/watches.ts: one fires once when a watched agent finishes its turn, waits for the user or
 // stops, wakes its watcher only when it is idle and the user isn't typing (else later), and ends on wake or cancel. The
 // sessions are stand-ins here (the e2e agentwatch suite runs real ones).
-import { mkdirSync, rmSync, writeFileSync } from 'fs'
-import { join } from 'path'
+import { mkdirSync, readFileSync, renameSync, rmSync, writeFileSync } from 'fs'
+import { basename, join } from 'path'
 import { afterAll, describe, expect, it, vi } from 'vitest'
 import * as electron from 'electron'
 import { agentBusy, agentEvent, agentLimitLine, agentPart, agentWakeLine, agentWatchLabel, readSavedAgentCondition, type AgentNow } from '../src/shared/agentWatch'
@@ -209,6 +209,94 @@ describe('agent watches (main/watches.ts)', async () => {
     st.status = 'watching'
     await watches.tick()
     expect(st.typed).toEqual(['[Hive] Reviewer (alpha) finished: "First done." (working again now); Second (alpha) finished: "Second done.". Your agent watch has ended: carry on (hive_agent_activity for more).'])
+    await disposeWorkspaceService(w)
+  })
+
+  it("a project renamed while Hive runs: an agent watch follows both its watcher and the agents it watches (#508)", async () => {
+    const { w, path, alpha } = await open()
+    const st = fake(alpha)
+    move(st, alpha, 'a2', nowOf())
+    await watches.registerAgentWatch(w, alpha, 'a1', { agents: [reviewer(alpha)], ignoreBackground: false })
+    const file = join(path, '.hive', 'watches.json')
+    const id = JSON.parse(readFileSync(join(alpha, '.hive', 'project.json'), 'utf8')).id
+    expect(JSON.parse(readFileSync(file, 'utf8')).watches[0].agents.agents[0].projectId).toBe(id)
+    const gamma = join(path, 'gamma')
+    renameSync(alpha, gamma)
+    const st2 = fake(gamma)
+    st2.agents.set('a2', nowOf())
+    await w.projectIds({ fresh: true })
+    await watches.evaluateAgentWatches(w)
+    expect(st2.typed).toEqual([])
+    const saved = JSON.parse(readFileSync(file, 'utf8')).watches[0]
+    expect(saved).toMatchObject({ projectPath: gamma, projectId: id })
+    expect(saved.agents.agents[0]).toMatchObject({ projectPath: gamma, project: 'gamma', projectId: id })
+    expect(Object.keys(saved.agentMarks)).toEqual([`${gamma.toLowerCase()}#a2`])
+    // Its reviewer finishes: the watcher is told, under the project's name now.
+    move(st2, gamma, 'a2', nowOf({ status: 'finished', reply: 'Done.' }))
+    await watches.evaluateAgentWatches(w)
+    expect(st2.typed).toEqual([expect.stringMatching(/^\[Hive\] Reviewer \(gamma\) finished: "Done\."/)])
+    await disposeWorkspaceService(w)
+  })
+
+  it('the whole workspace moved while Hive was closed: an agent watch comes with its watcher, its agents and their marks, and is delivered (#508 round 3)', async () => {
+    const { w, path, alpha, beta } = await open()
+    const st = fake(alpha)
+    move(st, alpha, 'a2', nowOf())
+    const { checkMoved } = await import('../src/main/workspaceMove')
+    await checkMoved(w)
+    await w.projectIds({ fresh: true })
+    // beta's b1 works too, wherever beta is.
+    const busyB1 = () => {
+      const agentNow = sessions.agentNow
+      Object.assign(sessions, { agentNow: (p: string, id: string) => (id === 'b1' && basename(p) === 'beta' ? { ...nowOf(), statusMessage: null, backgroundTasks: 0, reply: null } : agentNow(p, id)) })
+    }
+    busyB1()
+    expect('watching' in (await watches.registerAgentWatch(w, alpha, 'a1', { agents: [reviewer(alpha), { projectPath: beta, agentId: 'b1', name: 'Other', project: 'beta' }], ignoreBackground: false }))).toBe(true)
+    await disposeWorkspaceService(w)
+    const to = `${path}-moved`
+    renameSync(path, to)
+    const [alpha2, beta2] = [join(to, 'alpha'), join(to, 'beta')]
+    const st2 = fake(alpha2)
+    busyB1()
+    st2.agents.set('a2', nowOf())
+    const w2 = createWorkspaceService()
+    await w2.open(to)
+    await watches.stampWatchProjects(w2)
+    const saved = JSON.parse(readFileSync(join(to, '.hive', 'watches.json'), 'utf8')).watches[0]
+    expect(saved.projectPath).toBe(alpha2)
+    expect(saved.agents.agents.map((a: { projectPath: string }) => a.projectPath)).toEqual([alpha2, beta2])
+    expect(Object.keys(saved.agentMarks).sort()).toEqual([`${alpha2.toLowerCase()}#a2`, `${beta2.toLowerCase()}#b1`].sort())
+    move(st2, alpha2, 'a2', nowOf({ status: 'finished', reply: 'Moved, done.' }))
+    await watches.evaluateAgentWatches(w2)
+    expect(st2.typed).toEqual([expect.stringMatching(/^\[Hive\] Reviewer \(alpha\) finished: "Moved, done\."/)])
+    await disposeWorkspaceService(w2)
+  })
+
+  it("a watched agent whose project is gone while another project has its folder (a copied project.json, the same agent id) is told as stopped, never as that one's (#508 round 3)", async () => {
+    const { w, path, alpha, beta } = await open()
+    const st = fake(alpha)
+    // The new beta's agent b1 is "finished", with a reply: neither is the watched one's.
+    const agentNow = sessions.agentNow
+    const other = (p: string, id: string) => (p.toLowerCase() === beta.toLowerCase() && id === 'b1' ? { status: 'working', runId: 'r1', prompts: 1, pending: false, statusMessage: null, backgroundTasks: 0, reply: null } : agentNow(p, id))
+    Object.assign(sessions, { agentNow: other })
+    await w.projectIds({ fresh: true })
+    await watches.registerAgentWatch(w, alpha, 'a1', { agents: [{ projectPath: beta, agentId: 'b1', name: 'Other', project: 'beta' }], ignoreBackground: false })
+    const file = join(path, '.hive', 'watches.json')
+    const before = JSON.parse(readFileSync(file, 'utf8'))
+    // Replaced: another project at beta's folder, with b1 too.
+    writeFileSync(join(beta, '.hive', 'project.json'), JSON.stringify({ version: 2, id: 'p-ffffffffffff', agents: [{ id: 'b1', name: 'Other' }] }))
+    Object.assign(sessions, { agentNow: (p: string, id: string) => (p.toLowerCase() === beta.toLowerCase() && id === 'b1' ? { status: 'finished', runId: 'r9', prompts: 3, pending: false, statusMessage: null, backgroundTasks: 0, reply: 'NEW PROJECT REPLY' } : agentNow(p, id)) })
+    watches.noteAgentStatus({ projectPath: beta, agentId: 'b1', status: 'finished', runId: 'r9' } as never)
+    // Read back from the file first (Hive reopened), then checked.
+    watches.forgetWatches(w)
+    await w.projectIds({ fresh: true })
+    await watches.stampWatchProjects(w)
+    expect(JSON.parse(readFileSync(file, 'utf8')).watches[0].agents.agents[0]).toMatchObject({ projectId: before.watches[0].agents.agents[0].projectId, gone: true })
+    await watches.evaluateAgentWatches(w)
+    await watches.tick()
+    expect(st.typed).toEqual([expect.stringMatching(/^\[Hive\] Other \(beta\) stopped\./)])
+    expect(st.typed[0]).not.toContain('NEW PROJECT REPLY')
+    Object.assign(sessions, { agentNow })
     await disposeWorkspaceService(w)
   })
 

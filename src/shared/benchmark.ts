@@ -563,6 +563,8 @@ export interface KeptEntry {
   pinned: boolean
   /** One line saying what it is (provider and model, or the export's range and filters). */
   about: string
+  /** A project's: that project's stable id (#514), so it stays its own whatever the project is called later. */
+  owner?: string
 }
 
 /** An index entry re-read: a fresh, checked object or null. */
@@ -570,7 +572,8 @@ export function readEntry(v: unknown): KeptEntry | null {
   const e = obj(v)
   const scope = readScope(e?.scope)
   if (!e || !scope || typeof e.id !== 'string' || !/^[0-9a-f]{12}$/.test(e.id) || (e.kind !== 'scenarios' && e.kind !== 'export')) return null
-  return { id: e.id, label: text(e.label, 80), kind: e.kind, scope, createdAt: iso(e.createdAt), keptAt: iso(e.keptAt) || new Date(0).toISOString(), pinned: e.pinned === true, about: text(e.about, 300) }
+  const owner = scope.kind === 'project' && typeof e.owner === 'string' && /^p-[0-9a-f]{12}$/.test(e.owner) ? { owner: e.owner } : {}
+  return { id: e.id, label: text(e.label, 80), kind: e.kind, scope, createdAt: iso(e.createdAt), keptAt: iso(e.keptAt) || new Date(0).toISOString(), pinned: e.pinned === true, about: text(e.about, 300), ...owner }
 }
 
 /** An import: kept, refused (with why), or a question (use a workspace export's part for this project?). */

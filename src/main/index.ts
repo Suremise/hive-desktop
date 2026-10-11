@@ -12,8 +12,8 @@ import { Readable } from 'stream'
 import type { AppInfo, McpServerDef, QuitChoice, QuitScope, QuitSession, WindowState } from '../shared/types'
 import { providerService } from './providerService'
 import { checkGit } from './gitTool'
-import { handoverSession, hiveInstructions, projectHandovers, withLatestHandover, wrapsLongCommands } from '../shared/hiveGuidance'
-import { notesTree } from './notes'
+import { handoverSession, hiveInstructions, withLatestHandover, wrapsLongCommands } from '../shared/hiveGuidance'
+import { handoversFor } from './notes'
 import { assistantInstructions } from './personas'
 import { ASSISTANT_NAME, assistantPersona } from '../shared/assistant'
 import { MARKED_LOG } from '../shared/redact'
@@ -744,14 +744,12 @@ app.whenReady().then(async () => {
       if (!sessions.hiveMcp(projectPath)) return ''
       if (workspace.isAssistantHome(projectPath)) return hiveInstructions('', 'assistant')
       const project = basename(projectPath)
-      const names = (await workspace.listProjectPaths()).map((p) => basename(p))
-      const latest = (await projectHandovers(await notesTree(), project, names, (rel) => readFile(join(workspace.sharedDir, rel), 'utf8')))[0]
+      const latest = (await handoversFor(workspace, project))[0]
       return withLatestHandover(hiveInstructions(project, 'agent', wrapsLongCommands(config.settings.general)), latest?.relPath)
     })
   sessions.recentHandovers = (projectPath, count) =>
     inWorkspace(workspaceOf(projectPath), async () => {
-      const names = (await workspace.listProjectPaths()).map((p) => basename(p))
-      const recent = (await projectHandovers(await notesTree(), basename(projectPath), names, (rel) => readFile(join(workspace.sharedDir, rel), 'utf8'))).slice(0, count)
+      const recent = (await handoversFor(workspace, basename(projectPath))).slice(0, count)
       return Promise.all(
         recent.map(async (h) => ({ relPath: h.relPath, modified: h.modified ?? '', session: handoverSession(await readFile(join(workspace.sharedDir, h.relPath), 'utf8').catch(() => '')) }))
       )

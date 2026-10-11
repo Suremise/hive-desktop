@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useState } from 'react'
-import type { MoveOptions, MovePlan, MoveReport, MoveWorktree } from '@shared/types'
+import type { MoveCards, MoveOptions, MovePlan, MoveReport, MoveWorktree, WorkspaceMoved } from '@shared/types'
 import { providerName } from '@shared/providers'
 import { moveHasWork } from '@shared/movePaths'
 import { call } from '../api'
@@ -13,7 +13,16 @@ import { cx } from '../util'
  * Recent), does it on confirmation and says what it did. Main works it all out (workspaceMove.ts).
  */
 
-const movedKey = (m: { from: string | null; projects: string[]; pending: string[] }): string => `${m.from ?? ''}|${m.projects.join('|')}|${m.pending.join('|')}`
+const movedKey = (m: WorkspaceMoved): string => `${m.from ?? ''}|${m.projects.join('|')}|${m.pending.join('|')}|${(m.cards ?? []).map((c) => `${c.from}>${c.to}:${c.cards.length}`).join('|')}`
+
+const counted = (n: number, one: string, many = `${one}s`): string => `${n} ${n === 1 ? one : many}`
+/** What was saved under a project's old name (#508): "9 cards", "9 cards and 1 lane". */
+const savedUnder = (m: MoveCards): string => {
+  const parts = [m.cards.length ? counted(m.cards.length, 'card') : '', m.lanes ? counted(m.lanes, 'lane') : '', m.watches ? counted(m.watches, 'card watch', 'card watches') : ''].filter(Boolean)
+  return parts.length > 1 ? `${parts.slice(0, -1).join(', ')} and ${parts.at(-1)}` : parts[0] ?? ''
+}
+/** "9 cards of hive-website belong to website": what was left under a project's old name (#508). */
+const cardsLine = (m: MoveCards): string => `${savedUnder(m)} of ${m.from} belong${m.cards.length + (m.lanes ?? 0) + (m.watches ?? 0) === 1 ? 's' : ''} to ${m.to}`
 
 export function MovedBanner() {
   const moved = useStore((s) => s.workspace?.moved ?? null)
@@ -27,12 +36,17 @@ export function MovedBanner() {
     <>
       {moved.projects.length === 1 ? `The project ${moved.projects[0]} was` : `${moved.projects.length} projects were`} moved to another folder.
     </>
-  ) : (
+  ) : moved.pending.length ? (
     <>A worktree of {moved.pending.join(', ')} was made again at a new folder, and not everything has followed it yet.</>
-  )
+  ) : null
+  const cards = moved.cards ?? []
   return (
     <div className="banner warn moved-banner">
-      <Icon name="folder-opened" /> <span className="grow">{what} Agents' worktrees, sessions and conversations still point to the old folder.</span>
+      <Icon name="folder-opened" />{' '}
+      <span className="grow">
+        {what ? <>{what} Agents' worktrees, sessions and conversations still point to the old folder.</> : null}
+        {cards.length > 0 && <>{what ? ' ' : ''}{cards.map(cardsLine).join('; ')}, which was renamed or moved: the board still lists them under the old name.</>}
+      </span>
       <button className="btn small primary" onClick={() => set({ moveRepairOpen: true })}>
         Repair…
       </button>
@@ -187,8 +201,10 @@ export function MoveRepairDialog() {
                 <>
                   The workspace moved from <span className="mono">{plan.from}</span> to <span className="mono">{plan.to}</span>.
                 </>
-              ) : (
+              ) : plan.hosts.length ? (
                 <>Projects moved to another folder.</>
+              ) : (
+                <>Cards are listed under a project's old name.</>
               )}{' '}
               Repair will:
             </p>
@@ -238,6 +254,18 @@ export function MoveRepairDialog() {
                 </section>
               )
             })}
+            {(plan.cards ?? []).length > 0 && (
+              <section>
+                <h4>Board</h4>
+                <ul>
+                  {plan.cards!.map((m) => (
+                    <li key={m.from}>
+                      Give the {savedUnder(m)} saved under <strong>{m.from}</strong>{m.cards.length ? ` (${m.cards.map((n) => `#${n}`).join(', ')})` : ''} to <strong>{m.to}</strong>, where cards show with their agents, archived ones too.
+                    </li>
+                  ))}
+                </ul>
+              </section>
+            )}
             {plan.recent && (
               <p>
                 Open Recent: list <span className="mono">{plan.to}</span> instead of the old folder.

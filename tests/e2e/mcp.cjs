@@ -12,6 +12,12 @@ const srv = http.createServer((req, res) => {
   const u = new URL(req.url, 'http://x')
   res.setHeader('Content-Type', 'application/json')
   if (u.pathname === '/v1/shared') return res.end(JSON.stringify(tree))
+  // A project's handovers, newest first (#514: Hive finds them; here by the file name alone).
+  if (u.pathname === '/v1/shared/handovers') {
+    const want = u.searchParams.get('project')
+    const files = tree[0].children.filter((f) => f.name !== 'README.md' && (!want || f.name.slice(11).startsWith(`${want}-`)))
+    return res.end(JSON.stringify(files.map((f) => ({ path: f.relPath })).reverse()))
+  }
   if (u.pathname === '/v1/shared/file') return res.end(JSON.stringify({ path: u.searchParams.get('path'), content: '# content of ' + u.searchParams.get('path') }))
   res.statusCode = 404; res.end('{}')
 })

@@ -258,6 +258,8 @@ Shared notes live in the workspace's `.hive/shared` folder. Paths are relative t
 
 `GET /v1/shared/file?path=handovers/2026-09-28-api-auth.md` — `{ path, content, revision }`. The revision is a short hash of the note's text.
 
+`GET /v1/shared/handovers?project=api` — the project's handovers, newest first, as `[{ path, modified }]` (paths as `/v1/shared/file` takes them; which handovers are a project's is below, under the hive tools). Without `project`, every handover. An unknown project is `404`.
+
 `PUT /v1/shared/file?path=conventions.md` — create or replace a note:
 
 ```json
@@ -510,7 +512,7 @@ When **Provide Hive tools to sessions** is on (the default), Hive adds an MCP se
 | `hive_list_shared_notes` | `GET /v1/shared`, a path per line |
 | `hive_read_shared_note` | `GET /v1/shared/file` |
 | `hive_write_shared_note` | `PUT /v1/shared/file` |
-| `hive_read_latest_handover` | `GET /v1/shared`, then `GET /v1/shared/file` for the project's newest handover (see below) |
+| `hive_read_latest_handover` | `GET /v1/shared/handovers?project=`, then `GET /v1/shared/file` for the project's newest handover (see below) |
 | `hive_create_handover` | `POST /v1/shared/handovers` |
 | `hive_notify` | `POST /v1/notify` |
 | `hive_list_skills` | `GET /v1/skills`, a line per skill (the session's project's, for an agent) |
@@ -548,7 +550,7 @@ The Hive Assistant's `hive` server always runs (even with this setting or the Ag
 
 It also has the board tools above; Claude Code runs `hive_create_task`, `hive_update_task`, `hive_update_tasks`, `hive_reorder_tasks` and `hive_lane` without asking from Control agents up. Claude Code runs these without asking (they are Hive's own, and limited by the control level); Codex gets a 15-minute tool timeout for them, since waiting and asking the user can take minutes.
 
-A handover belongs to a project when its file name is `handovers/<date>-<project>-<title>.md`, as `hive_create_handover` writes it. When another project's name begins the same way (`hive` and `hive-website`), the `**Project:**` line at the top of the handover decides.
+A handover belongs to a project when its file name is `handovers/<date>-<project>-<title>.md`, as `hive_create_handover` writes it. When another project's name begins the same way (`hive` and `hive-website`), the `**Project:**` line at the top of the handover decides. Hive records whose each handover is by the project's stable id as it writes it (older ones once, from what they say), so a project renamed in the workspace keeps its handovers, and a project that later takes its old name never gets them.
 
 The server's instructions (for Codex, which doesn't show MCP server instructions to the model, Hive passes the same text as developer instructions) are Hive's short session contract: that handovers, shared notes, other projects and the board are Hive's and are reached with these tools rather than by searching the file system, which of Hive's skills covers which workflow (`work-on-card`, `review-agent-work`, and `coordinate-agents` for the Assistant), and the board's boundaries in a line, which hold even when a skill is missing. When the project has a handover, the instructions also name the latest one, so a new session knows it is there from the start. The tools' descriptions say what each takes, changes and answers; how to carry out a workflow is the skills'. `GET /v1/status` gives the revision of this guidance, and `GET /v1/projects/{name}` each running agent's `launched` revisions (its guidance and skills at launch).
 
