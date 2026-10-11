@@ -210,7 +210,7 @@ const tools: Tool[] = [
   },
   {
     name: 'hive_agent_activity',
-    description: "What one agent is doing: status, background tasks, transcript size (transcriptMB; past transcriptWarnMB it slows down, so suggest a handover to a new conversation), the start of the task it was last given and of its latest reply, its last tool calls this turn, locked files, and how long ago the user typed in its terminal. Texts are clipped: the task to 300 characters, the reply to 500, the last 3 tool calls (100 characters each); detail=true raises that to 2000, 3000 and the last 10 calls (200 each). toolCalls is how many calls this turn had, and clipped gives the whole length of a text that was cut. Hive gives no more of a conversation than that: for the rest, the card's comments or the agent itself.",
+    description: "What one agent is doing: status, background tasks, transcript size (transcriptMB; past transcriptWarnMB it slows down, so suggest a handover to a new conversation), the start of the task it was last given and of its latest reply, its last tool calls this turn, locked files, how long ago the user typed in its terminal, and messages left for it (hive_message_agent): messagesWaiting, and lastMessages (delivered, cancelled, refused or dropped). Texts are clipped: the task to 300 characters, the reply to 500, the last 3 tool calls (100 characters each); detail=true raises that to 2000, 3000 and the last 10 calls (200 each). toolCalls is how many calls this turn had, and clipped gives the whole length of a text that was cut. Hive gives no more of a conversation than that: for the rest, the card's comments or the agent itself.",
     inputSchema: { type: 'object', properties: { project: projectArg, agent: agentArg, detail: { type: 'boolean' } } },
     run: (a) => api('GET', `${agentPath(a)}/activity${a.detail ? '?detail=true' : ''}`)
   },
@@ -307,6 +307,19 @@ const tools: Tool[] = [
       "Type a task into an idle running agent and send it. Refused while it is working, starting, waiting on background tasks or for the user, or just after the user typed there. Write the task in full: the agent sees nothing else from you. newConversation=true ends its conversation (kept in the Sessions tab) and starts it in a new one on the task, without a handover. For work on a card, use hive_start_task.",
     inputSchema: { type: 'object', properties: { project: projectArg, agent: agentArg, text: { type: 'string' }, newConversation: { type: 'boolean' } }, required: ['project', 'agent', 'text'] },
     run: (a) => api('POST', `${agentPath(a)}/prompt`, { text: a.text, newConversation: a.newConversation })
+  },
+  {
+    name: 'hive_message_agent',
+    description:
+      "Leave a running agent a message it can't take as a prompt now: one that is watching (a card loop), working, waiting on background tasks or for the user, or where the user just typed. Typed at once when it is idle or watching (a watching agent is woken by it, and its watch carries on), else queued and typed with its next line: first in a wake that comes first (its watch's, a loop wake), or on its own once it is idle (at most 5 waiting, 4000 characters each; dropped if it stops; refused if your Control is turned down meanwhile). For what it already works on (a re-brief, the user's answer); a new task is still hive_prompt_agent or hive_start_task. hive_agent_activity shows what waits and whether it was delivered. cancel=true cancels the messages waiting.",
+    inputSchema: { type: 'object', properties: { project: projectArg, agent: agentArg, text: { type: 'string' }, cancel: { type: 'boolean' } }, required: ['project', 'agent'] },
+    run: async (a) => {
+      const r = (await api('POST', `${agentPath(a)}/message`, a.cancel === true ? { cancel: true } : { text: a.text })) as { typed?: boolean; queued?: number; status?: string; cancelled?: number }
+      const who = String(a.agent || 'the agent')
+      if (a.cancel === true) return r.cancelled ? `Cancelled ${r.cancelled === 1 ? 'the message' : `${r.cancelled} messages`} waiting for ${who}.` : `No message was waiting for ${who}.`
+      if (r.typed) return `Typed into ${who} now${r.status === 'watching' ? ': its watch carries on' : ''}.`
+      return `Queued for ${who} (${r.status}): typed with its next line, a wake or once it is idle; ${r.queued} waiting. hive_agent_activity says when it is delivered.`
+    }
   },
   {
     name: 'hive_hand_over',

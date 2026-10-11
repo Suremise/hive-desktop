@@ -37,6 +37,7 @@ import { laneCards, laneName, laneNumber } from '../shared/lanes'
 import { DEFAULT_WAIT_MS, MAX_WAIT_MS, MergeSlotError, slotBranch, slotCards, type SlotAgent } from './mergeSlots'
 import { writePty } from './ptyHost'
 import { sessions } from './sessions'
+import { cancelMessages, leaveMessage, MESSAGE_MAX_CHARS, messagesOf } from './agentMessages'
 import * as tasks from './tasks'
 import * as taskBatch from './taskBatch'
 import { startTask } from './taskStart'
@@ -896,13 +897,13 @@ route('POST', '/v1/projects/:name/agents/:agent/prompt', async ({ params, body }
     const st = sessions.liveFor(p, agentId)
     // Never over the top of the agent's work, a question to the user, or the user's own typing.
     if (!st) throw new HttpError(409, `${a.name} isn't running. Start it with the task instead (hive_start_agent with prompt).`)
-    if (st.status === 'starting') throw new HttpError(409, `${a.name} is still starting. Wait for it (hive_wait_for_agents), then try again.`)
+    if (st.status === 'starting') throw new HttpError(409, `${a.name} is still starting. Wait for it (hive_wait_for_agents), then try again, or leave it a message (hive_message_agent).`)
     if (st.status === 'waiting') throw new HttpError(409, `${a.name} is waiting for the user${st.statusMessage ? ` (${st.statusMessage})` : ''}. Tell the user; don't answer for them.`)
-    if (st.status === 'working') throw new HttpError(409, `${a.name} is working. Wait until it's idle (hive_wait_for_agents), then give it the task.`)
+    if (st.status === 'working') throw new HttpError(409, `${a.name} is working. Wait until it's idle (hive_wait_for_agents), then give it the task, or leave it a message it gets when it is (hive_message_agent).`)
     if (st.status === 'signin') throw new HttpError(409, `${a.name}'s CLI needs the user to sign in again (its sign-in expired). Tell the user; nothing it is given runs until then.`)
-    if (st.status === 'watching') throw new HttpError(409, `${a.name} is ${st.watch?.label.replace(/^Waiting/, 'waiting') ?? 'waiting on cards'} (${st.watch?.agents ? 'an agent watch' : 'a card watch'}): it takes no other work until it is woken or the user cancels the watch.`)
+    if (st.status === 'watching') throw new HttpError(409, `${a.name} is ${st.watch?.label.replace(/^Waiting/, 'waiting') ?? 'waiting on cards'} (${st.watch?.agents ? 'an agent watch' : 'a card watch'}): it takes no new task until it is woken or the user cancels the watch. To tell it something for the work it is waiting on, leave it a message (hive_message_agent): it is woken by it and its watch carries on.`)
     if (st.status === 'background') {
-      throw new HttpError(409, `${a.name} is waiting on ${tasksWord(st.backgroundTasks ?? 0)} it started (such as a test run) and carries on by itself when they end. Wait for it (hive_wait_for_agents), then give it the task. If it seems stuck, tell the user.`)
+      throw new HttpError(409, `${a.name} is waiting on ${tasksWord(st.backgroundTasks ?? 0)} it started (such as a test run) and carries on by itself when they end. Wait for it (hive_wait_for_agents), then give it the task, or leave it a message it gets when it is idle (hive_message_agent). If it seems stuck, tell the user.`)
     }
     if (sessions.userMayBeTyping(p, agentId)) throw new HttpError(409, `The user has just typed in ${a.name}'s terminal and may still be writing there. Ask the user before giving it a task.`)
     // A line Hive typed that its CLI hasn't taken (#430): more typing would be lost behind it, or clear it.
@@ -923,6 +924,42 @@ route('POST', '/v1/projects/:name/agents/:agent/prompt', async ({ params, body }
     }
     await sessions.sendPrompt(p, agentId, text)
     return { done: `Gave ${a.name} in ${basename(p)} a task: ${clip(text.replace(/\s+/g, ' '), 80)}`, result: { ok: true } }
+  })
+})
+
+// A message for a running agent that may not take a prompt now (#530): typed at once when it can be (idle, or watching:
+// its watch carries on), else queued and typed as its next line once it is idle. cancel=true cancels those waiting.
+route('POST', '/v1/projects/:name/agents/:agent/message', async ({ params, body }) => {
+  const p = projectByName(params[0])
+  const agentId = await agentParam(p, decodeURIComponent(params[1]))
+  const a = await agentDefOf(p, agentId)
+  if (body?.cancel === true) {
+    return assistantChange<{ cancelled: number }>('agents', `cancel the messages waiting for ${a.name} in ${basename(p)}`, async () => {
+      const n = cancelMessages(p, agentId, 'the Assistant')
+      return { done: n ? `Cancelled ${n === 1 ? 'the message' : `${n} messages`} waiting for ${a.name} in ${basename(p)}` : `No message was waiting for ${a.name} in ${basename(p)}`, result: { cancelled: n } }
+    })
+  }
+  const text = typeof body?.text === 'string' ? body.text.trim() : ''
+  if (!text) throw new HttpError(400, 'text is required')
+  if (text.length > MESSAGE_MAX_CHARS) throw new HttpError(400, `text is at most ${MESSAGE_MAX_CHARS} characters (this has ${text.length})`)
+  return assistantChange<{ typed: boolean; queued: number; status: string }>('agents', `leave ${a.name} in ${basename(p)} a message`, async (guard) => {
+    const st = sessions.liveFor(p, agentId)
+    if (!st) throw new HttpError(409, `${a.name} isn't running. Start it with the message as its task instead (hive_start_agent with prompt).`)
+    // Its permission goes with it: checked again before it is typed, however long it waits, and before each piece.
+    const allowed = (): string | null => {
+      try {
+        guard()
+        return null
+      } catch (e) {
+        return (e as { status?: number }).status === 403 ? 'the user turned Settings → Assistant → Control down' : "the Assistant's session that left it ended"
+      }
+    }
+    const r = await leaveMessage(p, agentId, a.name, 'the Assistant', text, allowed).catch((e: Error) => {
+      throw new HttpError(409, e.message)
+    })
+    if (r.fate === 'cancelled' || r.fate === 'dropped' || r.fate === 'refused') throw new HttpError(409, `The message wasn't typed into ${a.name}: ${r.fate === 'cancelled' ? `${r.detail ?? 'the user'} cancelled it` : r.fate === 'refused' ? `refused, ${r.detail}` : `dropped, ${r.detail}`}.`)
+    const typed = r.fate === 'delivered'
+    return { done: `${typed ? 'Gave' : 'Left'} ${a.name} in ${basename(p)} a message${typed ? '' : ' (queued)'}: ${clip(text.replace(/\s+/g, ' '), 80)}`, result: { typed, queued: r.queued, status: typed ? (sessions.liveFor(p, agentId)?.status ?? 'stopped') : st.status } }
   })
 })
 
@@ -965,6 +1002,8 @@ async function agentActivity(p: string, agentId: string, detail = false) {
   }
   const folder = a.worktree?.path ?? p
   const typed = sessions.userTypedAt(p, agentId)
+  // Messages left for it (#530): those waiting (the start of each), and what became of the last ones.
+  const msgs = messagesOf(p, agentId)
   return {
     project: info.name,
     agent: a.name,
@@ -990,7 +1029,9 @@ async function agentActivity(p: string, agentId: string, detail = false) {
     recentTools,
     ...(Object.keys(clipped).length ? { clipped } : {}),
     lockedFiles: sessions.locksFor(p, agentId).map((f) => relative(folder, f) || f),
-    userTypedSecondsAgo: typed ? Math.round((Date.now() - typed) / 1000) : null
+    userTypedSecondsAgo: typed ? Math.round((Date.now() - typed) / 1000) : null,
+    ...(msgs.queued.length ? { messagesWaiting: msgs.queued.map((m) => ({ from: m.from, at: m.at, text: clip(m.text.replace(/\s+/g, ' '), 80) })) } : {}),
+    ...(msgs.last ? { lastMessages: msgs.last } : {})
   }
 }
 

@@ -7,7 +7,7 @@
 // commands: those runs check the harness, the board rules and Hive's own costs (benchmarks) for free. The real CLIs are the model trials (opt-in, see README.md).
 //
 // Fixture version: bump when a scenario's setup or checks change, so results can be compared across versions.
-const FIXTURES_VERSION = 44
+const FIXTURES_VERSION = 45
 
 /** The subject's hive tool calls that the server ran, by tool (each has ok, error and args). */
 const called = (o, tool) => o.hiveCalls.filter((c) => c.tool === tool)
@@ -1316,6 +1316,42 @@ module.exports.SCENARIOS = [
         ['in one call: no stop, start or hand-over of Coder', called(o, 'hive_stop_agent').length === 0 && called(o, 'hive_start_agent').length === 0 && called(o, 'hive_hand_over').length === 0],
         ['Coder runs in a new conversation', !!c.before?.sessionId && !!c.after && c.after.runId !== c.before.runId, JSON.stringify({ before: c.before?.sessionId, after: c.after?.sessionId, seen: c.seen })],
         ['its last conversation stays in the Sessions history', (c.history ?? []).includes(c.before?.sessionId), (c.history ?? []).join(',')]
+      ]
+    }
+  },
+  {
+    id: 'assistant-message-watching',
+    title: "The Assistant passing the user's answer to a reviewer watching its card (#530): leaves it a message, which wakes it and keeps its watch; never asks the user to paste it",
+    role: 'assistant',
+    control: 'agents',
+    async setup(c) {
+      await c.card('w', { title: 'Export the report', description: 'Add an export of the report. Open question for the user: CSV or JSON?', agent: 'implementer', column: 'doing' })
+      // Coder reviews it in a card loop and waits for it to arrive in Review (a card watch): it takes no new task meanwhile.
+      // Typed here: its turn may go from working to watching faster than coderTask looks for working.
+      await coderTask(c)
+      const key = `session:${c.alpha.toLowerCase()}#${c.agents.coder.id}`
+      await c.inv('pty:write', key, `hive hive_wait_for_tasks {"cards":[${c.cards.w}],"column":"review","wake":true}`)
+      await new Promise((r) => setTimeout(r, 400))
+      await c.inv('pty:write', key, '\r')
+      for (let t = Date.now(); Date.now() - t < 120000 && (await coderLive(c))?.status !== 'watching'; ) await new Promise((r) => setTimeout(r, 500))
+      if ((await coderLive(c))?.status !== 'watching') throw new Error(`setup: Coder isn't watching #${c.cards.w} (status ${(await coderLive(c))?.status})`)
+    },
+    prompt: (c) => `I've decided card #${c.cards.w}'s open question: exports are JSON. Coder reviews that card in its card loop and is waiting for it to arrive in Review: tell Coder, so it checks for JSON in its review.`,
+    fake: (c) => `skill coordinate-agents then hive hive_message_agent {"project":"alpha","agent":"Coder","text":"The user decided #${c.cards.w}: exports are JSON. Check for JSON when you review it."}`,
+    // Coder's watch as the Assistant works: a message is typed without ending it.
+    during: async (c) => {
+      const s = await coderLive(c)
+      if (s) c.coderWatch = s.watch?.cards ?? null
+    },
+    expect: (o, c) => {
+      const msgs = called(o, 'hive_message_agent')
+      const sent = msgs.some((x) => x.ok && /coder/i.test(String(argsOf(x).agent)) && /json/i.test(String(argsOf(x).text ?? '')))
+      return [
+        ['read the coordinate-agents skill', read(o, 'coordinate-agents'), o.skillsRead.join(',')],
+        ['left Coder a message with the answer (hive_message_agent), which worked', sent, msgs.map((x) => `${x.args}${x.ok ? '' : '!'}`).join(' | ')],
+        ["didn't give it a task or stop it", called(o, 'hive_prompt_agent').length === 0 && called(o, 'hive_stop_agent').length === 0, o.hiveCalls.map((x) => x.tool).join(',')],
+        ["didn't ask the user to paste it into Coder's pane", !/\bpaste\b/i.test(o.finalReply ?? '') && called(o, 'hive_notify').length === 0, (o.finalReply ?? '').slice(0, 300)],
+        ["Coder's watch carries on", !!c.coderWatch?.includes(c.cards.w), JSON.stringify(c.coderWatch)]
       ]
     }
   },

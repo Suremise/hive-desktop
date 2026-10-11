@@ -487,6 +487,34 @@ function Locks({ a }: { a: AgentInfo }) {
  * Processes the agent's stopped launches left running (#507), such as a preview server: how many, each in the tooltip,
  * and a click to end them or keep them running (then no longer listed). Gone once they end by themselves.
  */
+/** Messages left for it that wait to be typed (#530): who from and their start, and Cancel. */
+function QueuedMessages({ project, a, live }: { project: ProjectInfo; a: AgentInfo; live: LiveSessionState | null | undefined }) {
+  const menu = useContextMenu()
+  const items = live?.queuedMessages
+  if (!items?.length) return null
+  const n = items.length
+  const word = n === 1 ? 'message' : `${n} messages`
+  const cancel = () => void actions.attempt('Could not cancel the messages', () => call('session:cancelMessages', project.path, a.id))
+  return (
+    <>
+      <Tooltip content={<span style={{ whiteSpace: 'pre-line' }}>{`${n === 1 ? 'A message' : `${n} messages`} for ${a.name}, typed as its next line once it is idle:\n${items.map((m) => `From ${m.from}: ${m.text.length > 120 ? `${m.text.slice(0, 119)}…` : m.text}`).join('\n')}\n\nClick to cancel ${n === 1 ? 'it' : 'them'}.`}</span>}>
+        <button
+          type="button"
+          className="agent-messages"
+          aria-label={`${word} waiting`}
+          onClick={(e) => {
+            e.stopPropagation()
+            menu.openAt(...below(e.currentTarget), [{ label: n === 1 ? 'Cancel the Message' : `Cancel the ${n} Messages`, icon: 'close', onClick: cancel }])
+          }}
+        >
+          <Icon name="mail" /> {n === 1 ? '1 message' : `${n} messages`} waiting
+        </button>
+      </Tooltip>
+      {menu.element}
+    </>
+  )
+}
+
 function Leftovers({ project, a }: { project: ProjectInfo; a: AgentInfo }) {
   const menu = useContextMenu()
   const left = useStore((s) => s.leftovers[projectKey(project.path, a.id)])
@@ -908,6 +936,7 @@ function PaneHeader({ project, a, focused }: { project: ProjectInfo; a: AgentInf
       <CardChip project={project} a={a} short />
       <Locks a={a} />
       <Leftovers project={project} a={a} />
+      <QueuedMessages project={project} a={a} live={live} />
       <div className="grow" />
       {size !== 'menu' &&
         (live ? (

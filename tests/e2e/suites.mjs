@@ -11,6 +11,7 @@
 // branches land in different places (tests/e2esuites.test.ts checks).
 export const SUITES = [
   { name: 'about' },
+  { name: 'agentmessage' },
   { name: 'agents' },
   { name: 'agents-ui' },
   { name: 'agentview', needs: ['claude'], claudeHome: 'own' },

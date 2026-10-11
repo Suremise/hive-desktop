@@ -23,6 +23,7 @@ import type {
   PermissionMode,
   ProjectConfig,
   ProviderId,
+  QueuedMessage,
   SessionBulkAction,
   SessionBulkResult,
   SessionListItem,
@@ -527,6 +528,33 @@ class SessionManager {
     return true
   }
 
+  /**
+   * Whether the user has typed in an agent's terminal since Hive's line still waiting there was typed (#530 round 3
+   * finding): the prompt then holds their draft too, whatever the typing pause says, and is theirs, not Hive's to clear.
+   * False when no line of Hive's waits.
+   */
+  userTypedOverLine(projectPath: string, agentId: string): boolean {
+    const l = this.live.get(liveId(projectPath, agentId))
+    return !!l?.typed && this.userTypedAt(projectPath, agentId) >= l.typed.at
+  }
+
+  /**
+   * Clears a line Hive typed that its CLI hasn't taken (Ctrl+U): #530, a message whose sender may no longer send it is
+   * never submitted by Hive's Enter again. Only Hive's own line, as it typed it: one still waiting (typed, not taken),
+   * with no input of the user's since it was typed (however long ago: the typing pause doesn't make a draft Hive's), and
+   * under submitAgain's conditions (the same launch, idle, nobody typing there, Hive not typing). The line no longer
+   * counts as waiting. Whether it was cleared.
+   */
+  clearTyped(projectPath: string, agentId: string, runId: string): boolean {
+    const l = this.live.get(liveId(projectPath, agentId))
+    const key = this.key(projectPath, agentId)
+    if (!l || l.state.runId !== runId || (l.state.status !== 'ready' && l.state.status !== 'finished') || this.userMayBeTyping(projectPath, agentId) || this.delivering.has(key)) return false
+    if (!l.typed || (l.prompts ?? 0) > l.typed.prompts || this.userTypedOverLine(projectPath, agentId)) return false
+    writePty(key, '\x15')
+    l.typed = undefined
+    return true
+  }
+
   /** Marks (or clears) the cards an agent in a card loop left with no watch (#376): they show as stalled. */
   setNotWatching(projectPath: string, agentId: string, cards: number[] | null): void {
     const l = this.live.get(liveId(projectPath, agentId))
@@ -534,6 +562,14 @@ class SessionManager {
     const next = cards?.length ? cards : undefined
     if (JSON.stringify(l.state.notWatching) === JSON.stringify(next)) return
     l.state.notWatching = next
+    this.emitState(l.state)
+  }
+
+  /** Shows (or clears) the messages left for an agent that wait to be typed (#530, agentMessages.ts). */
+  setQueuedMessages(projectPath: string, agentId: string, items: QueuedMessage[] | null): void {
+    const l = this.live.get(liveId(projectPath, agentId))
+    if (!l) return
+    l.state.queuedMessages = items?.length ? items.map((m) => ({ ...m })) : undefined
     this.emitState(l.state)
   }
 

@@ -31,7 +31,7 @@ Lane end: claim the merge slot, use merge-ready, merge your branch into main, mo
 Follow-ups go to Todo as new cards.
 ```
 
-Then what this lane needs: test homes or other safety rules, risky areas, overlaps with other lanes, a merge point mid-lane. Write them in now: you can't add to a busy agent's instructions later. A reviewer's brief: `Use card-loop as the reviewer. Cards, in order: #12, #15. Your builder is B1, in <folder>.`, with what to look at closely on risky cards.
+Then what this lane needs: test homes or other safety rules, risky areas, overlaps with other lanes, a merge point mid-lane. Write them in now: anything you add later reaches a busy agent only as a message (`hive_message_agent`), at its next turn. A reviewer's brief: `Use card-loop as the reviewer. Cards, in order: #12, #15. Your builder is B1, in <folder>.`, with what to look at closely on risky cards.
 
 - Give rounds and a wait only when the user did; otherwise the lane takes the project's card-loop settings.
 - Agents working in the project folder, with no worktree, have nothing to merge: their brief says to commit, and to move a passed card to Done.

@@ -36,6 +36,23 @@ Codex run.
 
 Every scenario ran once per provider. Models vary from run to run, so a single result is a sample, not a rate.
 
+## The Assistant leaves a message for a busy agent: fakes, Codex (its default model), fixtures v44–v45, 11 October 2026
+
+#530: `hive_message_agent` leaves a watching or busy agent a message (typed at once into an idle or watching agent, its
+watch carrying on; else with its next line, at the front of a wake that comes first), and coordinate-agents and run-lanes
+say to use it rather than ask the user to paste. Fixtures v45 add **assistant-message-watching** (Coder reviews a card in
+its loop and watches for it; the user's answer to the card's question is to reach Coder: it is passed by message, with no
+new task, stop or request to paste, and Coder's watch carries on).
+- **Fakes**: baseline `hb1-530-before` (v44 on main a669fc1 with the #530 code but its old tool descriptions and skills):
+  75 of 75 pass. After round 1 (`hb1-530-after`, results `2026-10-11T01-09-28-fake`): 76 of 76, and no scenario's Hive
+  cost changed but the new one's. After round 2's tool description (v45, `hb1-530-after2`, results
+  `2026-10-11T02-23-02-fake`): 76 of 76.
+- **Codex: 3 of 3 pass**, twice: round 1 (`2026-10-11T01-34-39-codex`, $0.149) and round 2
+  (`2026-10-11T02-49-45-codex`, $0.202): assistant-message-watching, assistant-reply-decision (records the decision and
+  doesn't message Coder, which has the answer), assistant-agent-watch. In the new scenario Codex also recorded the
+  answer on the card and watched it.
+- **Claude Code**: not run: its test home isn't signed in.
+
 ## Coordinator out of the box: fakes, Codex (its default model), Claude Code (sonnet), fixtures v43, 10 October 2026
 
 #402 (Darren's decisions: adaptive habits, the team material in its own skill) folds the coordinator playbook into the

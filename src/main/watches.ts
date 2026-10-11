@@ -1073,12 +1073,31 @@ export function watchCovers(projectPath: string, agentId: string, n: number, kin
 }
 
 /**
+ * What rides a wake typed into an agent (#530: the messages left for it, agentMessages.ts): its text, put first in the
+ * line; `still` asked before each piece and before Enter (false stops the typing: the wake is typed again later, with
+ * what rides it then); `taken` once the line is in.
+ */
+export interface Rider {
+  text: string
+  still: () => boolean
+  taken: () => void
+  /** Whether its sender may still send it, for the confirmation's Enter again; `withdrawn` when the line was cleared. */
+  allowed: () => boolean
+  withdrawn: () => void
+}
+let wakeRider: ((projectPath: string, agentId: string) => Rider | null) | null = null
+/** Registers what rides agents' wakes (agentMessages.ts, at start). */
+export function onWakeRider(fn: (projectPath: string, agentId: string) => Rider | null): void {
+  wakeRider = fn
+}
+
+/**
  * Types a line of Hive's that isn't a watch's (#405: a loop wake) into an agent, as a wake is typed: only while it is
  * idle, nobody types there, no earlier line is waiting there and no watch of its own has a line to type (that goes
  * first); one wake at a time per agent; checked to be taken (#376). `wanted` is asked again before every piece and
  * before Enter. Whether it was typed (false: try again later).
  */
-export async function typeLine(projectPath: string, agentId: string, line: string, wanted: () => boolean): Promise<boolean> {
+export async function typeLine(projectPath: string, agentId: string, line: string, wanted: () => boolean, opts: { rider?: boolean; ride?: RideCheck } = {}): Promise<boolean> {
   const key = agentKey(projectPath, agentId)
   const busy = (): boolean => !idle(sessions.liveFor(projectPath, agentId)) || sessions.userMayBeTyping(projectPath, agentId)
   if (waking.has(key) || busy() || sessions.lineWaiting(projectPath, agentId) || !wanted()) return false
@@ -1087,13 +1106,20 @@ export async function typeLine(projectPath: string, agentId: string, line: strin
   waking.add(key)
   try {
     const before = sessions.promptsTaken(projectPath, agentId)
-    await sessions.sendPrompt(projectPath, agentId, line, () => {
+    // Messages left for the agent ride the wake, first (#530); a line of their own takes none.
+    const rider = opts.rider === false ? null : (wakeRider?.(projectPath, agentId) ?? null)
+    const text = rider ? `${rider.text} ${line}` : line
+    await sessions.sendPrompt(projectPath, agentId, text, () => {
       if (!wanted()) throw new Error('It is no longer wanted.')
+      if (rider && !rider.still()) throw new Error('The messages riding it changed.')
       if (!idle(sessions.liveFor(projectPath, agentId))) throw new Error('The agent got busy.')
       if (sessions.userMayBeTyping(projectPath, agentId)) throw new Error('The user is typing there.')
     })
-    log.info(`Woke ${userText(agentId)}: ${userText(line.slice(0, 80))}`)
-    if (before) void confirmTaken(projectPath, agentId, before, line).catch((e) => log.warn('checking a wake was taken', e))
+    rider?.taken()
+    log.info(`Woke ${userText(agentId)}: ${userText(text.slice(0, 80))}`)
+    // Kept to what rode it (#530) until the CLI takes it: its own check (a message's line), or its rider's.
+    const ride = opts.ride ?? (rider ? { still: rider.allowed, withdrawn: rider.withdrawn, instead: line } : undefined)
+    if (before) void confirmTaken(projectPath, agentId, before, text, ride).catch((e) => log.warn('checking a wake was taken', e))
     return true
   } catch (e) {
     log.info(`Wake for ${userText(agentId)} put off: ${(e as Error).message}`)
@@ -1223,9 +1249,13 @@ async function deliver(store: Store, rec: WatchRecord): Promise<void> {
     if (!marked) return
     // What the CLI had taken before the line: it is taken once that goes up (#376).
     const before = sessions.promptsTaken(rec.projectPath, rec.agentId)
+    // Messages left for the agent ride its wake, first (#530), so it has them before it acts on the wake.
+    const rider = wakeRider?.(rec.projectPath, rec.agentId) ?? null
+    const typedLine = rider ? `${rider.text} ${line}` : line
     try {
-      await sessions.sendPrompt(rec.projectPath, rec.agentId, line, () => {
+      await sessions.sendPrompt(rec.projectPath, rec.agentId, typedLine, () => {
         if (!current()) throw new Error('The watch was cancelled.')
+        if (rider && !rider.still()) throw new Error('The messages riding it changed.')
         if (!idle(sessions.liveFor(rec.projectPath, rec.agentId))) throw new Error('The agent got busy.')
         if (sessions.userMayBeTyping(rec.projectPath, rec.agentId)) throw new Error('The user is typing there.')
         if (telling && (!tellReplies() || replyGeneration !== generation)) throw new RepliesRevoked()
@@ -1247,9 +1277,10 @@ async function deliver(store: Store, rec: WatchRecord): Promise<void> {
       }
       throw e
     }
-    log.info(`Woke ${userText(rec.agentId)}: ${userText(line.slice(0, 80))}`)
+    rider?.taken()
+    log.info(`Woke ${userText(rec.agentId)}: ${userText(typedLine.slice(0, 80))}`)
     for (const x of endedAt) void noteOnCard(x.n, x.what, store.ws).catch((e) => log.warn(`noting on #${x.n} that a watch ended`, e))
-    if (before) void confirmTaken(rec.projectPath, rec.agentId, before, line).catch((e) => log.warn('checking a wake was taken', e))
+    if (before) void confirmTaken(rec.projectPath, rec.agentId, before, typedLine, rider ? { still: rider.allowed, withdrawn: rider.withdrawn, instead: line } : undefined).catch((e) => log.warn('checking a wake was taken', e))
     // What earlier wakes told about cards this one didn't stays: it is still all the agent was told about them.
     const known = new Map(store.woke.get(key))
     for (const [n, b] of Object.entries(told)) {
@@ -1287,17 +1318,51 @@ async function deliver(store: Store, rec: WatchRecord): Promise<void> {
  * wake stayed in its prompt, unsent, for hours, while its watch had ended. Not taken in time, Enter is pressed again,
  * once; still not taken, it is logged, and the agent's cards show as stalled when its loop is checked (loopCheck.ts).
  */
-export async function confirmTaken(projectPath: string, agentId: string, before: { runId: string; count: number }, line: string): Promise<boolean> {
+export async function confirmTaken(projectPath: string, agentId: string, before: { runId: string; count: number }, line: string, ride?: RideCheck): Promise<boolean> {
   // Nothing more is typed into it while this runs, however long (#430): released when it ends (taken, or marked).
   const release = sessions.holdForConfirm(projectPath, agentId, before.runId)
+  let instead: { line: string; afterTaken: number | null } | null = null
   try {
-    return await confirming(projectPath, agentId, before, line)
+    const r = await confirming(projectPath, agentId, before, line, ride)
+    if (r === 'withdrawn' || r === 'kept') {
+      // Cleared: typed again at once. Left as it is (the user's draft is in it): only once that prompt is submitted.
+      if (ride?.instead) instead = { line: ride.instead, afterTaken: r === 'kept' ? before.count : null }
+      return false
+    }
+    return r
   } finally {
     release?.()
+    if (instead) void retype(projectPath, agentId, before.runId, instead.line, instead.afterTaken).catch((e) => log.warn('typing a wake again', e))
   }
 }
 
-async function confirming(projectPath: string, agentId: string, before: { runId: string; count: number }, line: string): Promise<boolean> {
+/**
+ * What rode a typed line (#530: messages left for the agent), for its confirmation: `still`, whether its sender may still
+ * send it, asked before Enter is pressed again; `withdrawn` when it may not and the line was cleared instead; `instead`,
+ * the line to type in its place (the wake it rode), or null (a message's own line).
+ */
+export interface RideCheck {
+  still: () => boolean
+  withdrawn: () => void
+  instead: string | null
+}
+
+/**
+ * Types a wake again after the line it was in was withdrawn (#530), as soon as it can be typed, while the launch lasts;
+ * with `afterTaken` (the CLI's prompt count when that line was typed), only once its prompt has been submitted since, so
+ * a draft of the user's still in it is never typed over.
+ */
+async function retype(projectPath: string, agentId: string, runId: string, line: string, afterTaken: number | null = null): Promise<void> {
+  for (const end = Date.now() + 30 * 60_000; Date.now() < end; ) {
+    if (sessions.liveFor(projectPath, agentId)?.runId !== runId) return
+    const taken = sessions.promptsTaken(projectPath, agentId)
+    if ((afterTaken === null || (!!taken && taken.runId === runId && taken.count > afterTaken)) && (await typeLine(projectPath, agentId, line, () => true))) return
+    await new Promise((r) => setTimeout(r, 1000))
+  }
+  log.warn(`A wake for ${userText(agentId)} couldn't be typed again after its line was cleared`)
+}
+
+async function confirming(projectPath: string, agentId: string, before: { runId: string; count: number }, line: string, ride?: RideCheck): Promise<boolean | 'withdrawn' | 'kept'> {
   const t0 = Date.now()
   const taken = (): boolean => {
     const now = sessions.promptsTaken(projectPath, agentId)
@@ -1318,9 +1383,25 @@ async function confirming(projectPath: string, agentId: string, before: { runId:
   // Enter again, once, when that is safe (the same launch, idle, nobody typing there, Hive not typing): waited for a
   // while rather than given up at once (#430). Never a third Enter.
   let retried = false
+  let withheld = false
   for (const end = Date.now() + 6 * takeMs(); ; ) {
     if (taken()) return true
-    if (sessions.submitAgain(projectPath, agentId, before.runId)) {
+    // What rode the line may no longer be sent (#530: its sender's Control turned down, its session ended): never
+    // submitted by this Enter. The line is cleared when that is safe (as an Enter would be), and its wake typed again.
+    if (ride && !ride.still()) {
+      withheld = true
+      // The user has typed into it since (round 3 finding): their draft, not Hive's line to clear or offer for Enter.
+      if (sessions.userTypedOverLine(projectPath, agentId)) {
+        ride.withdrawn()
+        log.info(`Left the line typed into ${userText(agentId)} as it is: what rode it may no longer be sent, and the user has typed there since`)
+        return 'kept'
+      }
+      if (sessions.clearTyped(projectPath, agentId, before.runId)) {
+        ride.withdrawn()
+        log.info(`Cleared the line typed into ${userText(agentId)}: what rode it may no longer be sent`)
+        return 'withdrawn'
+      }
+    } else if (sessions.submitAgain(projectPath, agentId, before.runId)) {
       retried = true
       break
     }
@@ -1333,7 +1414,13 @@ async function confirming(projectPath: string, agentId: string, before: { runId:
     log.warn(`The wake typed into ${userText(agentId)} wasn't taken: pressed Enter again`)
     if (await waitTaken()) return true
     log.warn(`The wake typed into ${userText(agentId)} still wasn't taken: it may be waiting in its prompt`)
-  } else log.warn(`The wake typed into ${userText(agentId)} wasn't taken, and Enter couldn't be pressed again (busy, or the user typing there)`)
+  } else log.warn(`The wake typed into ${userText(agentId)} wasn't taken, and Enter couldn't be pressed again (${withheld ? 'what rode it may no longer be sent, and the line could not be cleared' : 'busy, or the user typing there'})`)
+  // What rode it may no longer be sent and it couldn't be cleared: never offered for Enter (the user isn't asked to
+  // send it); its wake comes again once the prompt is next submitted.
+  if (withheld) {
+    ride!.withdrawn()
+    return 'kept'
+  }
   // Shown in its pane, the user told once, and nothing more typed into it until it is taken (#430).
   sessions.lineNotTaken(projectPath, agentId, before.runId, line, retried)
   return false
