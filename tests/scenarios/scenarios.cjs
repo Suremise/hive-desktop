@@ -7,7 +7,7 @@
 // commands: those runs check the harness, the board rules and Hive's own costs (benchmarks) for free. The real CLIs are the model trials (opt-in, see README.md).
 //
 // Fixture version: bump when a scenario's setup or checks change, so results can be compared across versions.
-const FIXTURES_VERSION = 45
+const FIXTURES_VERSION = 46
 
 /** The subject's hive tool calls that the server ran, by tool (each has ok, error and args). */
 const called = (o, tool) => o.hiveCalls.filter((c) => c.tool === tool)
@@ -1579,7 +1579,21 @@ const launchedIn = (c, name) => {
   const file = require('path').join(c.ws, '.hive', 'assistant', '.hive', 'launch-assistant', 'instructions.md')
   if (fs.existsSync(file) && fs.readFileSync(file, 'utf8').includes(`# Your mode: ${name}`)) return true
   // fake-copilot: what Copilot sent its model (the stand-in's log), whose system prompt carries the launch's instructions.
-  return !!c.modelLog && fs.existsSync(c.modelLog) && fs.readFileSync(c.modelLog, 'utf8').includes(`# Your mode: ${name}`)
+  if (c.modelLog && fs.existsSync(c.modelLog) && fs.readFileSync(c.modelLog, 'utf8').includes(`# Your mode: ${name}`)) return true
+  // Codex (and the fake): its instructions come as -c developer_instructions, which the session's own rollout records as
+  // its first developer message (#462, #520). Its rollout only: the test home keeps earlier runs' sessions.
+  const id = c.session?.id
+  if (!id || !c.session.codexHome) return false
+  const find = (dir, depth) => {
+    for (const e of fs.existsSync(dir) ? fs.readdirSync(dir, { withFileTypes: true }) : []) {
+      const f = require('path').join(dir, e.name)
+      const hit = e.isDirectory() ? (depth < 3 ? find(f, depth + 1) : null) : e.name.endsWith(`-${id}.jsonl`) ? f : null
+      if (hit) return hit
+    }
+    return null
+  }
+  const rollout = find(require('path').join(c.session.codexHome, 'sessions'), 0)
+  return !!rollout && fs.readFileSync(rollout, 'utf8').split('\n').some((l) => /"role":"developer"/.test(l) && l.includes(`# Your mode: ${name}`))
 }
 // A bulk move (#417): a whole column in one call, not a call per card (hive_update_tasks).
 module.exports.SCENARIOS.push({

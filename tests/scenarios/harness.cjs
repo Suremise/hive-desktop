@@ -377,6 +377,8 @@ async function runScenario(sc, providerKey, opts = {}) {
     await sleep(p.fake ? 500 : 2500)
     const metricsAfter = await snapshot()
     const sessionId = s?.sessionId ?? (await inv('workspace:refresh')).projects.find((x) => x.name === 'alpha')?.agents.find((a) => a.id === coder.id)?.lastSessionId
+    // The session under test, for checks of what it was launched with (Codex's rollout carries its instructions, #520).
+    ctx.session = { id: sessionId ?? null, codexHome: env.CODEX_HOME }
     const transcript = sessionId ? await inv('transcript:read', host, sessionId).catch(() => null) : null
     // Tool calls the parser shortened for display are read in full (for the token check and read evidence).
     const items = transcript?.items ?? []
