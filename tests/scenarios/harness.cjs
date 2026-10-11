@@ -125,6 +125,12 @@ function trialEnvironment({ status = null, replies = [], screen = '' } = {}) {
   return lib.environmentProblem([...replies, screen].join('\n'))
 }
 
+/**
+ * The CLI's own notices in a transcript's items (#342): not a background task's summary or a command's output (a
+ * notice `from` them), which may discuss a sign-in or a limit without the CLI having one.
+ */
+const cliNotices = (items) => (items ?? []).filter((x) => x.kind === 'notice' && !x.from).map((x) => x.text)
+
 /** What to do about an environment skip, said once for the trials it stops (never a sign-in from here). */
 function environmentAdvice(why, providerKey) {
   if (PROVIDERS[providerKey]?.fake) return 'run them without --signed-out (the fake was started signed out)'
@@ -152,7 +158,9 @@ async function runScenario(sc, providerKey, opts = {}) {
   const fakeHome = path.join(root, 'claude-home')
   const fakeCodexHome = path.join(root, 'codex-home')
   const mcpLog = path.join(root, 'mcp-calls.jsonl')
-  // The stand-in model for fake-copilot, on a port of its own; closed when the run ends.
+  // Each change to the merge slots, with its time (HIVE_TEST_MERGE_SLOT_LOG, #374): who held one and who waited, when.
+  const slotLog = path.join(root, 'merge-slots.jsonl')
+  // What fake-copilot's stand-in model was sent (it starts just before the launch, below).
   const modelLog = path.join(root, 'copilot-api.jsonl')
   // Emptied first (with no evidence store: a caller of its own, like an e2e suite). Still in use (something an earlier
   // run left running holds it, #542): this scenario fails, saying so, and the run goes on.
@@ -163,7 +171,6 @@ async function runScenario(sc, providerKey, opts = {}) {
       return { scenario: sc.id, title: sc.title, provider: providerKey, model: opts.model ?? '(default)', role: sc.role ?? 'agent', checks: [], observed: null, usage: null, measures: null, seconds: 0, error: `its folder ${root} is still in use from an earlier run (${e.code ?? e.message}): something left running holds it` }
     }
   }
-  const standIn = p.standIn ? await startFakeCopilotApi({ log: modelLog }) : null
   fs.mkdirSync(fakeHome, { recursive: true })
   if (providerKey === 'fake-codex') {
     fs.mkdirSync(fakeCodexHome, { recursive: true })
@@ -205,17 +212,27 @@ async function runScenario(sc, providerKey, opts = {}) {
 
   const port = opts.port ?? 47930
   const started = Date.now()
-  // Each CLI's home is a test one: the fake's per run, the real Claude Code's and Codex's signed-in test homes.
-  const env = {
-    HIVE_API_PORT: String(port),
-    HIVE_TEST_TIPS: 'off',
-    HIVE_TEST_MCP_LOG: mcpLog,
-    CLAUDE_CONFIG_DIR: providerKey === 'claude-code' ? CLAUDE_TEST_HOME : fakeHome,
-    CODEX_HOME: providerKey === 'fake-codex' ? fakeCodexHome : lib.CODEX_HOME,
-    // Copilot in the run's own home, its profile folder faked and the GitHub CLI's login hidden (fake-copilot-api.cjs).
-    ...(standIn ? copilotTestEnv(standIn, root) : {})
+  // The stand-in model for fake-copilot, on a port of its own: closed when the run ends, or at once if Copilot's
+  // environment or the launch fails before the run begins (#464), and that failure is the one thrown.
+  const standIn = p.standIn ? await startFakeCopilotApi({ log: modelLog }) : null
+  let app, inv, env
+  try {
+    // Each CLI's home is a test one: the fake's per run, the real Claude Code's and Codex's signed-in test homes.
+    env = {
+      HIVE_API_PORT: String(port),
+      HIVE_TEST_TIPS: 'off',
+      HIVE_TEST_MCP_LOG: mcpLog,
+      HIVE_TEST_MERGE_SLOT_LOG: slotLog,
+      CLAUDE_CONFIG_DIR: providerKey === 'claude-code' ? CLAUDE_TEST_HOME : fakeHome,
+      CODEX_HOME: providerKey === 'fake-codex' ? fakeCodexHome : lib.CODEX_HOME,
+      // Copilot in the run's own home, its profile folder faked and the GitHub CLI's login hidden (fake-copilot-api.cjs).
+      ...(standIn ? copilotTestEnv(standIn, root) : {})
+    }
+    ;({ app, inv } = await lib.launch({ userData, env }))
+  } catch (e) {
+    await standIn?.close().catch(() => undefined)
+    throw e
   }
-  const { app, inv } = await lib.launch({ userData, env })
   const result = { scenario: sc.id, title: sc.title, provider: providerKey, model: opts.model ?? '(default)', role: sc.role ?? 'agent', control: sc.role === 'assistant' ? (sc.control ?? 'projects') : undefined, cliVersion: null, guidance: null, checks: [], observed: null, usage: null, measures: null, metricsOverheadMs: 0, seconds: 0, error: null }
   try {
     const info = await lib.waitForProvider(inv, p.provider, 60000)
@@ -275,7 +292,27 @@ async function runScenario(sc, providerKey, opts = {}) {
       note: (rel, content) => api('PUT', `/v1/shared/file?path=${encodeURIComponent(rel)}`, { content }),
       write: (rel, text) => fs.writeFileSync(path.join(alpha, rel), text),
       read: (rel) => (fs.existsSync(path.join(alpha, rel)) ? fs.readFileSync(path.join(alpha, rel), 'utf8') : null),
-      git: (...a) => execFileSync('git', a, { cwd: alpha, encoding: 'utf8', env: lib.baseEnv() })
+      git: (...a) => execFileSync('git', a, { cwd: alpha, encoding: 'utf8', env: lib.baseEnv() }),
+      /** Starts another of alpha's agents ('implementer'), with no prompt: running, so it can hold the merge slot. */
+      startAgent: async (key) => {
+        await inv('session:start', alpha, { agentId: ctx.agents[key].id })
+        const up = await lib.until(async () => (await inv('session:live')).some((x) => x.projectPath.toLowerCase() === alpha.toLowerCase() && x.agentId === ctx.agents[key].id), 30000)
+        if (!up) throw new Error(`${key} didn't start within 30 s`)
+      },
+      /**
+       * alpha's merge slot as another of its running agents ('implementer') uses it: claim or release with that agent's
+       * own Agent API token (each agent's in the profile's agent-api folder, as its hive tools read it).
+       */
+      slot: async (key, action, body = {}) => {
+        const file = path.join(userData, 'agent-api', `${require('crypto').createHash('sha256').update(`${alpha.toLowerCase()}#${ctx.agents[key].id}`).digest('hex').slice(0, 16)}.json`)
+        const token = JSON.parse(fs.readFileSync(file, 'utf8')).token
+        const res = await fetch(`http://127.0.0.1:${port}/v1/projects/alpha/merge-slot/${action}`, { method: 'POST', headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' }, body: JSON.stringify(body) })
+        const reply = await res.json().catch(() => null)
+        if (res.status !== 200) throw new Error(`${key}'s merge slot ${action}: ${res.status} ${JSON.stringify(reply)}`)
+        return reply
+      },
+      /** alpha's merge slot now, as a script reads it. */
+      slotNow: async () => (await api('GET', '/v1/projects/alpha/merge-slot')).body
     }
     if (sc.setup) await sc.setup(ctx)
     // What the fake Claude Code does when Hive wakes it (fake-wakes-<agent>.txt, a line per wake): a scenario's next steps,
@@ -358,7 +395,7 @@ async function runScenario(sc, providerKey, opts = {}) {
       // The CLI's own notes in the transcript (an API error, "Login expired · Please run /login", a usage limit: notices,
       // never the prompt or the model's replies), or Hive waiting for a sign-in: skipped for the environment at once,
       // rather than waiting out the limit and failing every check (#302).
-      const notices = s?.sessionId ? ((await inv('transcript:read', host, s.sessionId).catch(() => null))?.items ?? []).filter((x) => x.kind === 'notice').map((x) => x.text) : []
+      const notices = s?.sessionId ? cliNotices((await inv('transcript:read', host, s.sessionId).catch(() => null))?.items) : []
       const stopped = trialEnvironment({ status, replies: notices })
       if (stopped) return skipFor(stopped)
       if (['working', 'background', 'starting'].includes(status)) {
@@ -423,6 +460,8 @@ async function runScenario(sc, providerKey, opts = {}) {
     // What the hive servers ran: the subject's own calls, and everyone's (an agent the Assistant started).
     observed.allHiveCalls = readMcpLog(mcpLog)
     observed.hiveCalls = observed.allHiveCalls.filter((c) => (sc.role === 'assistant' ? c.role === 'assistant' : c.agent === coder.id))
+    // Each change to the merge slots (JSON lines, as the MCP log): { at, slots: [{ project, branch, holder, waiting }] }.
+    observed.slotLog = readMcpLog(slotLog)
     // Any Agent API token (the workspace's, or an agent's for this launch) in what the session printed or said.
     const tokensIn = (dir) => (fs.existsSync(dir) ? fs.readdirSync(dir).map((f) => JSON.parse(fs.readFileSync(path.join(dir, f), 'utf8')).token) : [])
     const tokens = [apiToken, ...tokensIn(path.join(userData, 'agent-api')), ...tokensIn(path.join(userData, 'assistant-api'))].filter((t) => typeof t === 'string' && t.length >= 16)
@@ -495,4 +534,4 @@ async function runScenario(sc, providerKey, opts = {}) {
   return result
 }
 
-module.exports = { runScenario, observeTranscript, readMcpLog, allCallsReported, sourceFingerprint, metricsTotals, measuresOf, trialEnvironment, environmentAdvice, PROVIDERS, CLAUDE_TEST_HOME, claudeSignedIn }
+module.exports = { runScenario, observeTranscript, readMcpLog, allCallsReported, sourceFingerprint, metricsTotals, measuresOf, trialEnvironment, cliNotices, environmentAdvice, PROVIDERS, CLAUDE_TEST_HOME, claudeSignedIn }
