@@ -226,7 +226,7 @@ else {
       `param($src, $node)
 $ErrorActionPreference = 'Stop'
 Add-Type -ReferencedAssemblies System.Management -TypeDefinition (Get-Content -Raw $src)
-$sleeper = { Start-Process -FilePath $node -ArgumentList '-e', 'setTimeout(() => {}, 60000)' -PassThru -WindowStyle Hidden }
+$sleeper = { $s = [System.Diagnostics.ProcessStartInfo]::new($node, '-e "setTimeout(() => {}, 60000)"'); $s.UseShellExecute = $false; $s.CreateNoWindow = $true; [System.Diagnostics.Process]::Start($s) }
 $r = [ordered]@{}
 $m = & $sleeper
 $r.added = [HiveJobs]::Add('t', $m.Id)

@@ -20,7 +20,7 @@ Anyone who clones the repository must get the same results, on any machine and u
 - **No test depends on another's leftovers.** Each test sets up and removes its own state: folders, git worktrees,
   processes, settings, environment variables. It passes alone, in any order, and when run twice.
 - **Tests pass under load.** The full suites run beside other runs (up to two heavy runs on a machine by default, the
-  e2e runner's test slots, several unit suites at once). Before calling a test done, run it under that load, not only
+  e2e runner's test slots, which a full unit run takes too, and focused unit runs beside them). Before calling a test done, run it under that load, not only
   alone. A machine can be set to take more or fewer heavy runs with `HIVE_TEST_HEAVY_SLOTS` ([e2e](e2e/README.md), "How
   many heavy runs at once"); a test must pass with any number of them.
 

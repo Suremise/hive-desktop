@@ -61,6 +61,7 @@ export const EVERYTHING = [
   'tests/e2e/codexHomeLock.mjs',
   'tests/e2e/clean.mjs',
   'tests/e2e/evidence.cjs',
+  'tests/e2e/windowsExits.cjs',
   'tests/progressReport.mts',
   'package.json',
   'package-lock.json',
@@ -74,6 +75,8 @@ export const EVERYTHING = [
  */
 export const AREAS = [
   { paths: ['tests/e2e/codexDiagnostics.cjs'], suites: ['codex-background'] },
+  // A process that fails to start, reported with its code (#599).
+  { paths: ['tests/e2e/windowsExits.cjs', 'tests/e2e/record.mjs'], suites: ['failfast'] },
   { paths: ['src/main/ptyHost.ts', 'src/main/sessions.ts'], suites: ['stopswitch', 'replysize', 'quit', 'copilotsize', 'termsize'] },
   { paths: ['src/main/agentProcesses.ts', 'src/main/launchGate.ts', 'src/main/ptyHost.ts', 'src/shared/agentProcesses.ts', 'src/main/sessions.ts', 'tests/e2e/fake-claude/linger.cjs'], suites: ['leftovers'] },
   { paths: ['tests/scenarios/harness.cjs', 'tests/e2e/folderProcesses.cjs', 'tests/e2e/fake-claude/linger.cjs', 'src/main/progressReporters/'], suites: ['scenarioteardown'] },
