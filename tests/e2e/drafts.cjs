@@ -67,8 +67,11 @@ const read = (f) => fs.readFileSync(f, 'utf8')
   // Changed on disk meanwhile (as an agent would): Save asks before overwriting, Cancel keeps the disk's version.
   fs.writeFileSync(note, '# Plan\nAGENT\n')
   await toolbar.locator('.btn', { hasText: 'Save' }).click()
-  await sleep(600)
-  const dlg = await page.locator('.dialog').last().innerText().catch(() => '')
+  const dialogText = () => page.locator('.dialog').last().innerText().catch(() => '')
+  const dlg = (await lib.until(async () => {
+    const text = await dialogText()
+    return /changed on disk/.test(text) ? text : null
+  })) ?? (await dialogText())
   check('note: save asks when the file changed on disk', /changed on disk/.test(dlg), dlg.slice(0, 120))
   await page.locator('.dialog .btn', { hasText: 'Cancel' }).last().click()
   await sleep(400)
@@ -76,8 +79,7 @@ const read = (f) => fs.readFileSync(f, 'utf8')
   await toolbar.locator('.btn', { hasText: 'Save' }).click()
   await sleep(600)
   await page.locator('.dialog .btn', { hasText: 'Overwrite' }).last().click()
-  await sleep(600)
-  check('note: Overwrite saves my version', read(note).includes('DRAFT-1'))
+  check('note: Overwrite saves my version', await lib.until(() => read(note).includes('DRAFT-1')))
   await typeAtEnd('DRAFT-2 ')
 
   // An MCP server saved without its final newline (Hive adds one) saves again without a false conflict.
@@ -88,7 +90,7 @@ const read = (f) => fs.readFileSync(f, 'utf8')
   await sleep(300)
   check('mcp: removing the final newline is an edit', (await toolbar.innerText()).includes('●'))
   await toolbar.locator('.btn', { hasText: 'Save' }).click()
-  await sleep(600)
+  await lib.until(() => read(server) === '{ "command": "node", "args": [] }\n')
   check('mcp: saved with a final newline', read(server) === '{ "command": "node", "args": [] }\n', JSON.stringify(read(server)))
   await typeAtEnd(' ')
   await toolbar.locator('.btn', { hasText: 'Save' }).click()
@@ -103,12 +105,19 @@ const read = (f) => fs.readFileSync(f, 'utf8')
 
   // Quitting lists both and saves them.
   await page.evaluate(() => window.hive.invoke('app:quit'))
-  await sleep(800)
-  const quit = await page.locator('.dialog').last().innerText().catch(() => '')
+  const quit = (await lib.until(async () => {
+    const text = await dialogText()
+    return /plan\.md/.test(text) && /demo\.json/.test(text) ? text : null
+  })) ?? (await dialogText())
   check('quit: lists the unsaved note and server', /plan\.md/.test(quit) && /demo\.json/.test(quit), quit.replace(/\s+/g, ' ').slice(0, 200))
-  const exited = new Promise((r) => app.process().once('exit', () => r(true)))
+  // Hive's part (saving both, then app.quit) and the process's exit are waited for separately (#424): the limits only
+  // bound a hang, since a loaded machine stretches both (#563).
+  const quitting = await lib.quitWatch(app)
+  const clicked = Date.now()
   await page.getByRole('button', { name: 'Save and quit' }).click()
-  check('quit: Hive quits after saving', await Promise.race([exited, sleep(8000).then(() => false)]))
+  const quits = !!(await quitting.untilDecided(30000)) && (await quitting.gone(30000))
+  check('quit: Hive quits after saving', quits, quitting.timings(clicked))
+  console.log(`quit: ${quitting.timings(clicked)}`)
   check('quit: the note was saved', read(note).includes('DRAFT-2'))
   check('quit: the server was saved', read(server) !== '{ "command": "node", "args": [] }\n' && !!JSON.parse(read(server)))
   // Hive has quit (that was the test): Playwright may already have let go of it, so asking about it can throw.
