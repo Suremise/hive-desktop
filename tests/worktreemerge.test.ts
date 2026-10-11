@@ -20,7 +20,8 @@ async function twoBranches(): Promise<{ project: string; a: { path: string; bran
   root = tempDir('hive-merge-')
   const project = join(root, 'project')
   run(root, 'init', '-q', '-b', 'main', project)
-  for (const [k, v] of [['user.name', 'Test'], ['user.email', 'test@example.com'], ['core.autocrlf', 'false']]) run(project, 'config', k, v)
+  // core.eol: the repo's `* text=auto` (#149) checks text out with the native ending (CRLF on Windows) otherwise.
+  for (const [k, v] of [['user.name', 'Test'], ['user.email', 'test@example.com'], ['core.autocrlf', 'false'], ['core.eol', 'lf']]) run(project, 'config', k, v)
   copyFileSync(join(__dirname, '..', '.gitattributes'), join(project, '.gitattributes'))
   writeFileSync(join(project, 'CHANGELOG.md'), CHANGELOG)
   run(project, 'add', '-A')

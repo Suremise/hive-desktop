@@ -1,3 +1,31 @@
+# Line endings (#149): git stores text as LF, whatever a machine's settings; the working tree's ending is left to each
+# machine's core.autocrlf / core.eol (CRLF on Windows with autocrlf). tests/lineEndings.test.ts fails on a mixed file.
+* text=auto
+
+# Shell scripts Git Bash runs break with CRLF.
+*.sh text eol=lf
+*.bash text eol=lf
+
+# Binaries: never converted or diffed as text.
+*.png binary
+*.jpg binary
+*.jpeg binary
+*.gif binary
+*.webp binary
+*.ico binary
+*.icns binary
+*.exe binary
+*.dll binary
+*.node binary
+*.zip binary
+*.7z binary
+*.gz binary
+*.pdf binary
+*.woff binary
+*.woff2 binary
+*.ttf binary
+*.otf binary
+
 # Branches all add CHANGELOG entries at the top of Unreleased: keep both sides instead of a conflict.
 # Only for the CHANGELOG (union keeps both versions of a changed line without warning). See AGENTS.md.
 CHANGELOG.md merge=union
