@@ -15,9 +15,11 @@ import { onHiveEvent } from './events'
 import { readCapped, renameRetrying } from './fsutil'
 import { createLogger, userText } from './logger'
 import { listLanes } from './lanes'
+import { laneCardMark, laneHits, laneLimitLine, laneWakeLine, laneWatchLabel, mergeDue, newLaneBase, readSavedLaneCondition, readSavedLaneMark, verdictsOf, type LaneHit, type LaneMark, type LaneNow, type LaneWatchCondition } from '../shared/laneWatch'
+import { cardStallIn } from './cardStall'
 import { noteLoopWatch } from './loopCheck'
 import { sessions } from './sessions'
-import { getTask, inScope, noteOnCard, unknownTask } from './tasks'
+import { allTasks, getTask, inScope, noteOnCard, unknownTask } from './tasks'
 import { openWorkspaces, workspaceFor, type WorkspaceService } from './workspace'
 
 /**
@@ -62,6 +64,19 @@ interface WatchRecord {
   /** An agent watch (#416): the agents it follows, and each as it was when the watch began (by agentKey). */
   agents?: AgentWatchCondition
   agentMarks?: Record<string, AgentMark>
+  /**
+   * A lane watch (#531): the lanes it follows (ids, or every running lane in the watcher's view) and what counts, and each
+   * lane as last measured (by id): as the watch began, moved on while nothing that counts happens, and what its line
+   * told once it fires. No cards: a lane's cards are followed as the lane goes on.
+   */
+  lanes?: LaneWatchCondition
+  laneMarks?: Record<string, LaneMark>
+  /**
+   * Where a lane watch's view of what is new begins (#531 round 2 finding): a lane started, or a card added to a lane,
+   * after it is measured from an empty start. The watch's own start, or for one started after a wake, when that wake's
+   * line was made, so what happened between the wake and this watch is told.
+   */
+  laneSince?: string
   /** Each watched card as it was when the watch began: what a change is measured from. */
   marks: Record<string, CardMark>
   /**
@@ -102,7 +117,7 @@ interface WatchRecord {
    * delivered when Hive stopped, and is never typed again (at most once). `agents`: an agent watch's agents it tells about
    * (by agentKey; none for its limit).
    */
-  fired?: { line: string; at: string; cards: number[]; agents?: string[]; replies?: true; sending?: string }
+  fired?: { line: string; at: string; cards: number[]; agents?: string[]; lanes?: true; replies?: true; sending?: string }
 }
 
 interface Store {
@@ -134,6 +149,15 @@ interface Store {
    * bounded as `woke`.
    */
   wokeAgents: Map<string, Map<string, number>>
+  /**
+   * What each agent's lane watch wakes told it (#531): when the line was made, and each lane's mark, by id. Its next lane
+   * watch starts there. In memory, bounded as `woke`.
+   */
+  wokeLanes: Map<string, { at: string; marks: Map<string, LaneMark> }>
+  /** A lane check is due (debounced: status changes come in bursts). */
+  laneCheck?: ReturnType<typeof setTimeout>
+  /** When the tick last checked lane watches (stalls come with time). */
+  laneTickAt?: number
   /** The latest of the user's replies (#418) each watcher's wakes told it about: its next card watch starts there. */
   wokeReplies: Map<string, number>
 }
@@ -281,7 +305,7 @@ function load(ws: WorkspaceService): Promise<Store> {
       else list.push({ ...rec, scope: scopeFor(ws, rec.projectPath) })
     }
     // Delivered ones leave the file at the next tick.
-    const store: Store = { ws, path, life, list, invalid, saved: read.text, dirty: delivered || stamped || gone.size > 0, queue: Promise.resolve(), delivering: new Map(), woke: new Map(), wokeAgents: new Map(), wokeReplies: new Map() }
+    const store: Store = { ws, path, life, list, invalid, saved: read.text, dirty: delivered || stamped || gone.size > 0, queue: Promise.resolve(), delivering: new Map(), woke: new Map(), wokeAgents: new Map(), wokeLanes: new Map(), wokeReplies: new Map() }
     // Read back too big for every watch to end (a hand edit, an older build): room is made, nothing is lost.
     if (budget(store, list) > MAX_FILE_BYTES) {
       const over: WatchRecord[] = []
@@ -393,7 +417,24 @@ function readRecord(v: unknown): WatchRecord | null {
     }
     agents = a
   }
-  const cond = agents ? NO_CARDS : readSavedCondition(r.cond)
+  // A lane watch (#531): its lanes and their marks, and no cards.
+  let lanes: LaneWatchCondition | undefined
+  let laneMarks: Record<string, LaneMark> | undefined
+  if (r.lanes !== undefined) {
+    const c = readSavedLaneCondition(r.lanes)
+    if (!c || agents || !r.laneMarks || typeof r.laneMarks !== 'object' || Array.isArray(r.laneMarks)) return null
+    const entries = Object.entries(r.laneMarks as Record<string, unknown>)
+    if (entries.length > 200) return null
+    laneMarks = {}
+    for (const [id, m] of entries) {
+      const mark = /^[\w-]{1,64}$/.test(id) ? readSavedLaneMark(m) : null
+      if (!mark) return null
+      laneMarks[id] = mark
+    }
+    lanes = c
+    if (r.laneSince !== undefined && !time(r.laneSince)) return null
+  }
+  const cond = agents || lanes ? NO_CARDS : readSavedCondition(r.cond)
   if (!cond || !r.marks || typeof r.marks !== 'object') return null
   const marks: Record<string, CardMark> = {}
   for (const n of cond.cards) {
@@ -409,7 +450,7 @@ function readRecord(v: unknown): WatchRecord | null {
     const cards = Array.isArray(f?.cards) ? f.cards.filter((n): n is number => cond.cards.includes(n as number)) : null
     if (!f || typeof f.line !== 'string' || jsonBytes(f.line) > MAX_LINE_BYTES || !f.line.startsWith('[Hive] ') || !time(f.at) || !cards || (f.sending !== undefined && !time(f.sending))) return null
     const told = Array.isArray(f.agents) && agentMarks ? f.agents.filter((k): k is string => typeof k === 'string' && k in agentMarks!) : undefined
-    fired = { line: f.line, at: f.at, cards, ...(told?.length ? { agents: told } : {}), ...(f.replies === true ? { replies: true as const } : {}), ...(f.sending ? { sending: f.sending as string } : {}) }
+    fired = { line: f.line, at: f.at, cards, ...(told?.length ? { agents: told } : {}), ...(f.lanes === true && lanes ? { lanes: true as const } : {}), ...(f.replies === true ? { replies: true as const } : {}), ...(f.sending ? { sending: f.sending as string } : {}) }
   }
   // Where its view of each card ended (every card, or none from before #224), and whose own changes aren't news.
   let seen: Record<string, Seen> | undefined
@@ -448,7 +489,7 @@ function readRecord(v: unknown): WatchRecord | null {
   }
   const from = { ...(seen ? { seen } : {}), ...(r.self ? { self: r.self as string } : {}) }
   // The scope is set by the workspace that loads it (from the agent's folder), whatever the file says.
-  return { id: r.id, projectPath: r.projectPath, ...(isProjectId(r.projectId) ? { projectId: r.projectId } : {}), agentId: r.agentId, scope: '', cond, ...(agents ? { agents, agentMarks } : {}), marks, current: { ...marks }, since: r.since, ...from, limitMinutes: minutes, limitAt: r.limitAt, ...(typeof r.replySeq === 'number' ? { replySeq: r.replySeq } : {}), ...(on ? { on } : {}), ...(r.watcherName ? { watcherName: r.watcherName as string } : {}), ...(released ? { released } : {}), ...(fired ? { fired } : {}) }
+  return { id: r.id, projectPath: r.projectPath, ...(isProjectId(r.projectId) ? { projectId: r.projectId } : {}), agentId: r.agentId, scope: '', cond, ...(agents ? { agents, agentMarks } : {}), ...(lanes ? { lanes, laneMarks, ...(r.laneSince ? { laneSince: r.laneSince as string } : {}) } : {}), marks, current: { ...marks }, since: r.since, ...from, limitMinutes: minutes, limitAt: r.limitAt, ...(typeof r.replySeq === 'number' ? { replySeq: r.replySeq } : {}), ...(on ? { on } : {}), ...(r.watcherName ? { watcherName: r.watcherName as string } : {}), ...(released ? { released } : {}), ...(fired ? { fired } : {}) }
 }
 
 /** An agent watch's condition on cards: none. */
@@ -603,7 +644,9 @@ const saveQuietly = (store: Store): Promise<void> =>
 const infoOf = (r: WatchRecord): TaskWatchInfo =>
   r.agents
     ? { cards: [], changes: [], agents: r.agents.agents.map((a) => a.name), label: agentWatchLabel(r.agents), since: r.since, limitAt: r.limitAt }
-    : { cards: r.cond.cards, changes: r.cond.changes, ...(r.cond.column ? { column: r.cond.column } : {}), label: watchLabel(r.cond), since: r.since, limitAt: r.limitAt }
+    : r.lanes
+      ? { cards: [], changes: [], lanes: r.lanes.ids === 'all' ? ['all'] : [...r.lanes.ids], label: laneWatchLabel(r.lanes), since: r.since, limitAt: r.limitAt }
+      : { cards: r.cond.cards, changes: r.cond.changes, ...(r.cond.column ? { column: r.cond.column } : {}), label: watchLabel(r.cond), since: r.since, limitAt: r.limitAt }
 /** A watcher's project's id (#508), as the workspace last read the ids (it reads them when it opens). */
 const projectIdOf = (ws: WorkspaceService, projectPath: string): { projectId?: string } => {
   const id = ws.isAssistantHome(projectPath) ? undefined : ws.projectIdsNow().byPath.get(resolve(projectPath).toLowerCase())
@@ -1034,6 +1077,167 @@ async function evaluateAgents(store: Store): Promise<void> {
   for (const rec of store.list.filter((r) => r.agents && r.fired)) await deliver(store, rec)
 }
 
+/** How often the tick checks lane watches (a stall that comes with time, a card waiting in Review, #521). */
+const LANE_TICK_MS = 30_000
+
+/** Checks a workspace's lane watches soon: once for a burst of status changes. */
+function laneCheckSoon(store: Store): void {
+  if (store.laneCheck || !store.list.some((r) => r.lanes && !r.fired)) return
+  store.laneCheck = setTimeout(() => {
+    store.laneCheck = undefined
+    void evaluateLanes(store).catch((e) => log.warn('checking lane watches', e))
+  }, 1000)
+  store.laneCheck.unref?.()
+}
+
+/**
+ * The lanes a lane watch follows, as they are now (#531): those it names, or every running lane, and any it already
+ * follows (so a lane's end is told); in the watcher's view (a project agent: its project's lanes; the Assistant: all).
+ * Each lane's cards as the board has them now, with their verdicts, blocks and stalls.
+ */
+async function lanesNow(store: Store, rec: Pick<WatchRecord, 'scope' | 'lanes' | 'laneMarks'> & { since?: string; laneSince?: string }, board?: TaskCard[]): Promise<LaneNow[]> {
+  const cond = rec.lanes!
+  const inView = (await listLanes(store.ws, { all: true })).filter((l) => rec.scope === null || same(l.project, rec.scope))
+  // Every running lane, and a lane it follows until its end has been told (round 1 finding: one that ended between a
+  // wake and the watch after it, which starts from what the wake told).
+  const told = (id: string): boolean => !!rec.laneMarks?.[id] && rec.laneMarks[id].state !== 'ended' && rec.laneMarks[id].state !== 'abandoned'
+  // A lane started since the watch's view began, and not yet followed: also when it has already ended or been abandoned
+  // (round 2 finding), so its end is told.
+  const from = Date.parse(rec.laneSince ?? rec.since ?? '')
+  const isNew = (l: { id: string; startedAt: string }): boolean => !rec.laneMarks?.[l.id] && Date.parse(l.startedAt) > from
+  const chosen = cond.ids === 'all' ? inView.filter((l) => l.state === 'active' || l.state === 'paused' || told(l.id) || isNew(l)) : inView.filter((l) => (cond.ids as string[]).includes(l.id))
+  const byNumber = new Map((board ?? (await allTasks(store.ws))).map((c) => [c.number, c]))
+  const agents = new Map()
+  const out: LaneNow[] = []
+  for (const l of chosen) {
+    const marks: LaneMark['cards'] = {}
+    const cards: LaneNow['cards'] = []
+    for (const lc of l.cards) {
+      const found = byNumber.get(lc.number)
+      // A card moved to another project is gone from the lane.
+      const card = found && same(found.project, l.project) ? found : null
+      const stalled = card && !card.archived ? await cardStallIn(store.ws, card, agents) : null
+      marks[lc.number] = laneCardMark(card, stalled)
+      const v = card ? verdictsOf(card) : null
+      cards.push({ number: lc.number, blocked: card?.blocked ?? null, stalled, failedBy: v?.failed?.by ?? null, passedBy: v?.passed?.by ?? null })
+    }
+    const label = `${l.builder.name}${l.reviewer ? ` / ${l.reviewer.name}` : ''}${l.name ? ` (${l.name})` : ''}`
+    out.push({ id: l.id, label, mark: { state: l.state, mergeDue: mergeDue(Object.values(marks)), cards: marks }, cards })
+  }
+  return out
+}
+
+/**
+ * A lane watch's events since its marks (#531), and where its marks would move to: each lane it follows now (a lane
+ * started after an "all" watch began, from an empty start, so what it already has is told; a card new to a lane likewise,
+ * from when the watch began). Lanes no longer followed (an ended one told) leave an "all" watch's marks.
+ */
+async function laneRound(store: Store, rec: WatchRecord, board?: TaskCard[]): Promise<{ hits: LaneHit[]; next: Record<string, LaneMark> }> {
+  const cond = rec.lanes!
+  const nows = await lanesNow(store, rec, board)
+  const started = new Map((await listLanes(store.ws, { all: true })).map((l) => [l.id, l.startedAt]))
+  const hits: LaneHit[] = []
+  const next: Record<string, LaneMark> = cond.ids === 'all' ? {} : { ...rec.laneMarks }
+  for (const n of nows) {
+    const from = rec.laneSince ?? rec.since
+    const was = rec.laneMarks?.[n.id] ?? (Date.parse(started.get(n.id) ?? '') > Date.parse(from) ? newLaneBase(n, from) : undefined)
+    const h = laneHits(was, n, cond.events, from)
+    if (h) hits.push(h)
+    next[n.id] = n.mark
+  }
+  return { hits, next }
+}
+
+/**
+ * Checks a workspace's lane watches (#531): a lane with an event that counts fires its watch, telling every lane's events
+ * in one line, and the watch's marks become what that line told. Otherwise each lane's mark moves on to now, so a card
+ * that gets blocked again after an unblock counts, and a lane or card new to the watch starts from now.
+ */
+async function evaluateLanes(store: Store): Promise<void> {
+  if (!alive(store) || !store.list.some((r) => r.lanes && !r.fired)) return
+  const board = await allTasks(store.ws).catch(() => null)
+  if (!board) return
+  await locked(store, async () => {
+    let changed = false
+    for (const rec of store.list) {
+      if (!rec.lanes || rec.fired) continue
+      try {
+        const { hits, next } = await laneRound(store, rec, board)
+        if (hits.length) {
+          // Fired: its marks stay where they were, so the line typed later is worked out again from there with
+          // whatever else happened meanwhile (one batch, round 1 finding), and becomes what the wake told.
+          rec.fired = { line: fitLine(laneWakeLine(hits)), at: new Date().toISOString(), cards: [], lanes: true }
+          changed = true
+        } else if (JSON.stringify(next) !== JSON.stringify(rec.laneMarks)) {
+          rec.laneMarks = next
+          changed = true
+        }
+      } catch (e) {
+        if (!alive(store)) throw e
+        log.warn(`checking the lane watch of ${userText(rec.agentId)}`, e)
+      }
+    }
+    if (changed) await saveQuietly(store)
+  })
+  for (const rec of store.list.filter((r) => r.lanes && r.fired)) await deliver(store, rec)
+}
+
+export type LaneWatchResult = { watching: TaskWatchInfo; replaced?: string }
+
+/**
+ * Starts (or replaces) an agent's watch on lanes (#531): the lanes it names (each in its view, else an error), or every
+ * running lane. After a wake, each lane starts from what that wake told, so an event since fires it at once. It is the
+ * agent's one watch: a card or agent watch it had ends (said in the reply).
+ */
+export async function registerLaneWatch(ws: WorkspaceService, projectPath: string, agentId: string, cond: LaneWatchCondition, limitMinutes = WATCH_DEFAULT_LIMIT_MINUTES): Promise<LaneWatchResult> {
+  const store = await load(ws)
+  if (!hostedIn(ws, store.path, projectPath)) throw new Error(`Not a project of this workspace: ${projectPath}`)
+  const scope = scopeFor(ws, projectPath)
+  if (cond.ids !== 'all') {
+    const known = (await listLanes(ws, { all: true })).filter((l) => scope === null || same(l.project, scope))
+    const unknown = cond.ids.filter((id) => !known.some((l) => l.id === id))
+    if (unknown.length) throw new Error(`No such lane${unknown.length === 1 ? '' : 's'}: ${unknown.join(', ')} (hive_lane list gives the lanes and their ids)`)
+  }
+  const result = await locked(store, async (): Promise<LaneWatchResult> => {
+    const since = new Date().toISOString()
+    const told = store.wokeLanes.get(agentKey(projectPath, agentId))
+    // After a wake, what is new is measured from when its line was made: a lane started or a card added since then is
+    // told (round 2 finding); otherwise from now.
+    const laneSince = told?.at ?? since
+    const toldMarks = told ? Object.fromEntries(told.marks) : undefined
+    const nows = await lanesNow(store, { scope, lanes: cond, laneSince, ...(toldMarks ? { laneMarks: toldMarks } : {}) })
+    const started = new Map((await listLanes(ws, { all: true })).map((l) => [l.id, l.startedAt]))
+    const laneMarks: Record<string, LaneMark> = {}
+    for (const n of nows) {
+      const t = told?.marks.get(n.id)
+      if (t) laneMarks[n.id] = t
+      // Started since that wake: left unmarked, so the first check measures it from an empty start.
+      else if (!(told && Date.parse(started.get(n.id) ?? '') > Date.parse(laneSince))) laneMarks[n.id] = n.mark
+    }
+    const old = recordOf(store, projectPath, agentId)
+    const before = store.list
+    if (!old && store.list.length >= MAX_WATCHES) throw new Error(`This workspace already has ${MAX_WATCHES} watches, the most Hive keeps: wait for some to end`)
+    const minutes = Math.min(WATCH_MAX_LIMIT_MINUTES, Math.max(1, Math.round(limitMinutes)))
+    const rec: WatchRecord = { id: randomBytes(6).toString('hex'), projectPath, ...projectIdOf(ws, projectPath), agentId, scope, cond: NO_CARDS, lanes: cond, laneMarks, laneSince, marks: {}, current: {}, since, limitMinutes: minutes, limitAt: new Date(Date.now() + minutes * 60_000).toISOString() }
+    const next = [...store.list.filter((x) => x !== old), rec]
+    if (budget(store, next) > MAX_FILE_BYTES && !((await setAside(store)) && budget(store, next) <= MAX_FILE_BYTES)) throw new Error('Too many watches to keep in this workspace: wait for some to end')
+    store.list = next
+    try {
+      await save(store)
+    } catch (e) {
+      store.list = before
+      throw new Error(`Could not save the watch: ${(e as Error).message}`, { cause: e })
+    }
+    stopDelivery(store, old)
+    log.info(`${userText(agentId)} watches ${cond.ids === 'all' ? 'all running lanes' : cond.ids.join(', ')}`)
+    return { watching: infoOf(rec), ...(old ? { replaced: infoOf(old).label } : {}) }
+  })
+  sessions.watchChanged(projectPath, agentId)
+  // Checked once in place: an event since a wake, or while it was being set up, isn't missed.
+  void evaluateLanes(store).catch((e) => log.warn('checking lane watches', e))
+  return result
+}
+
 /** Typing a wake stopped: it tells a reply of the user's, and they turned telling replies off meanwhile (#418). */
 class RepliesRevoked extends Error {
   constructor() {
@@ -1065,11 +1269,30 @@ const idle = (st: LiveSessionState | null): boolean => !!st && (st.status === 'w
 export function watchCovers(projectPath: string, agentId: string, n: number, kind: 'review' | 'verdict', column: TaskColumn): boolean {
   const store = storeFor(projectPath)
   const rec = store && recordOf(store, projectPath, agentId)
-  if (!rec || rec.agents || !rec.cond.cards.includes(n)) return false
+  if (!rec || rec.agents || rec.lanes || !rec.cond.cards.includes(n)) return false
   if (rec.fired) return rec.fired.cards.includes(n)
   const into = (c: TaskColumn): boolean => rec.cond.changes.includes('column') && (!rec.cond.column || rec.cond.column === c)
   if (kind === 'verdict') return rec.cond.changes.includes('verdict') || (column !== 'review' && into(column))
   return into('review')
+}
+
+/**
+ * What rides a wake typed into an agent (#530: the messages left for it, agentMessages.ts): its text, put first in the
+ * line; `still` asked before each piece and before Enter (false stops the typing: the wake is typed again later, with
+ * what rides it then); `taken` once the line is in.
+ */
+export interface Rider {
+  text: string
+  still: () => boolean
+  taken: () => void
+  /** Whether its sender may still send it, for the confirmation's Enter again; `withdrawn` when the line was cleared. */
+  allowed: () => boolean
+  withdrawn: () => void
+}
+let wakeRider: ((projectPath: string, agentId: string) => Rider | null) | null = null
+/** Registers what rides agents' wakes (agentMessages.ts, at start). */
+export function onWakeRider(fn: (projectPath: string, agentId: string) => Rider | null): void {
+  wakeRider = fn
 }
 
 /**
@@ -1078,7 +1301,7 @@ export function watchCovers(projectPath: string, agentId: string, n: number, kin
  * first); one wake at a time per agent; checked to be taken (#376). `wanted` is asked again before every piece and
  * before Enter. Whether it was typed (false: try again later).
  */
-export async function typeLine(projectPath: string, agentId: string, line: string, wanted: () => boolean): Promise<boolean> {
+export async function typeLine(projectPath: string, agentId: string, line: string, wanted: () => boolean, opts: { rider?: boolean; ride?: RideCheck } = {}): Promise<boolean> {
   const key = agentKey(projectPath, agentId)
   const busy = (): boolean => !idle(sessions.liveFor(projectPath, agentId)) || sessions.userMayBeTyping(projectPath, agentId)
   if (waking.has(key) || busy() || sessions.lineWaiting(projectPath, agentId) || !wanted()) return false
@@ -1087,13 +1310,20 @@ export async function typeLine(projectPath: string, agentId: string, line: strin
   waking.add(key)
   try {
     const before = sessions.promptsTaken(projectPath, agentId)
-    await sessions.sendPrompt(projectPath, agentId, line, () => {
+    // Messages left for the agent ride the wake, first (#530); a line of their own takes none.
+    const rider = opts.rider === false ? null : (wakeRider?.(projectPath, agentId) ?? null)
+    const text = rider ? `${rider.text} ${line}` : line
+    await sessions.sendPrompt(projectPath, agentId, text, () => {
       if (!wanted()) throw new Error('It is no longer wanted.')
+      if (rider && !rider.still()) throw new Error('The messages riding it changed.')
       if (!idle(sessions.liveFor(projectPath, agentId))) throw new Error('The agent got busy.')
       if (sessions.userMayBeTyping(projectPath, agentId)) throw new Error('The user is typing there.')
     })
-    log.info(`Woke ${userText(agentId)}: ${userText(line.slice(0, 80))}`)
-    if (before) void confirmTaken(projectPath, agentId, before, line).catch((e) => log.warn('checking a wake was taken', e))
+    rider?.taken()
+    log.info(`Woke ${userText(agentId)}: ${userText(text.slice(0, 80))}`)
+    // Kept to what rode it (#530) until the CLI takes it: its own check (a message's line), or its rider's.
+    const ride = opts.ride ?? (rider ? { still: rider.allowed, withdrawn: rider.withdrawn, instead: line } : undefined)
+    if (before) void confirmTaken(projectPath, agentId, before, text, ride).catch((e) => log.warn('checking a wake was taken', e))
     return true
   } catch (e) {
     log.info(`Wake for ${userText(agentId)} put off: ${(e as Error).message}`)
@@ -1115,7 +1345,7 @@ async function deliver(store: Store, rec: WatchRecord): Promise<void> {
   const key = agentKey(rec.projectPath, rec.agentId)
   // Changes landing together are told together: a watch fired by a change waits a moment before its line is typed (#224).
   const due = Date.parse(rec.fired.at) + (testHooks.settleMs ?? SETTLE_MS)
-  if ((rec.fired.cards.length || rec.fired.agents?.length) && Date.now() < due) {
+  if ((rec.fired.cards.length || rec.fired.agents?.length || rec.fired.lanes) && Date.now() < due) {
     if (!settling.has(rec.id)) {
       settling.add(rec.id)
       setTimeout(() => {
@@ -1145,6 +1375,10 @@ async function deliver(store: Store, rec: WatchRecord): Promise<void> {
     const toldAgents = new Map(Object.entries(rec.agentMarks ?? {}).map(([k, m]) => [k, m.seq]))
     // A card watch's: the latest reply of the user's the line tells (#418), else where it began.
     let toldReply = rec.replySeq
+    // A lane watch's: each lane as the line tells it (#531).
+    let laneTold: Record<string, LaneMark> | null = null
+    // When the line was made from them: the fire, or when it was made again just now.
+    let laneToldAt = rec.fired.at
     // Cards released as it is delivered (#420), noted in their history once it is typed.
     const endedAt: { n: number; what: string }[] = []
     for (const n of rec.cond.cards) {
@@ -1190,6 +1424,15 @@ async function deliver(store: Store, rec: WatchRecord): Promise<void> {
         await withdraw(store, rec, current)
         return
       }
+    } else if (rec.fired.lanes && rec.lanes) {
+      // Every lane's events since the watch's marks (#531): ones that landed after it fired are in the same line, and
+      // the marks it is typed with are what the wake told.
+      const r = await laneRound(store, rec).catch(() => null)
+      if (r?.hits.length) {
+        line = fitLine(laneWakeLine(r.hits))
+        laneTold = r.next
+        laneToldAt = new Date().toISOString()
+      }
     } else if (rec.fired.agents?.length) {
       // Every agent's latest event since the watch began (#416): one that finished meanwhile is in it too, and one
       // given work again since is still told what it did (and that it is working again).
@@ -1211,6 +1454,7 @@ async function deliver(store: Store, rec: WatchRecord): Promise<void> {
     const marked = await locked(store, async () => {
       if (!current() || !rec.fired) return false
       rec.fired.line = line
+      if (laneTold) rec.laneMarks = laneTold
       rec.fired.sending = new Date().toISOString()
       try {
         await save(store)
@@ -1223,9 +1467,13 @@ async function deliver(store: Store, rec: WatchRecord): Promise<void> {
     if (!marked) return
     // What the CLI had taken before the line: it is taken once that goes up (#376).
     const before = sessions.promptsTaken(rec.projectPath, rec.agentId)
+    // Messages left for the agent ride its wake, first (#530), so it has them before it acts on the wake.
+    const rider = wakeRider?.(rec.projectPath, rec.agentId) ?? null
+    const typedLine = rider ? `${rider.text} ${line}` : line
     try {
-      await sessions.sendPrompt(rec.projectPath, rec.agentId, line, () => {
+      await sessions.sendPrompt(rec.projectPath, rec.agentId, typedLine, () => {
         if (!current()) throw new Error('The watch was cancelled.')
+        if (rider && !rider.still()) throw new Error('The messages riding it changed.')
         if (!idle(sessions.liveFor(rec.projectPath, rec.agentId))) throw new Error('The agent got busy.')
         if (sessions.userMayBeTyping(rec.projectPath, rec.agentId)) throw new Error('The user is typing there.')
         if (telling && (!tellReplies() || replyGeneration !== generation)) throw new RepliesRevoked()
@@ -1247,9 +1495,10 @@ async function deliver(store: Store, rec: WatchRecord): Promise<void> {
       }
       throw e
     }
-    log.info(`Woke ${userText(rec.agentId)}: ${userText(line.slice(0, 80))}`)
+    rider?.taken()
+    log.info(`Woke ${userText(rec.agentId)}: ${userText(typedLine.slice(0, 80))}`)
     for (const x of endedAt) void noteOnCard(x.n, x.what, store.ws).catch((e) => log.warn(`noting on #${x.n} that a watch ended`, e))
-    if (before) void confirmTaken(rec.projectPath, rec.agentId, before, line).catch((e) => log.warn('checking a wake was taken', e))
+    if (before) void confirmTaken(rec.projectPath, rec.agentId, before, typedLine, rider ? { still: rider.allowed, withdrawn: rider.withdrawn, instead: line } : undefined).catch((e) => log.warn('checking a wake was taken', e))
     // What earlier wakes told about cards this one didn't stays: it is still all the agent was told about them.
     const known = new Map(store.woke.get(key))
     for (const [n, b] of Object.entries(told)) {
@@ -1261,6 +1510,12 @@ async function deliver(store: Store, rec: WatchRecord): Promise<void> {
     store.woke.set(key, known)
     if (store.woke.size > MAX_WATCHES) store.woke.delete(store.woke.keys().next().value!)
     if (rec.agents) noteToldAgents(store, key, toldAgents)
+    // A lane watch's: each lane as its line told it (#531), where the agent's next lane watch starts.
+    if (rec.lanes && rec.laneMarks) {
+      store.wokeLanes.delete(key)
+      store.wokeLanes.set(key, { at: laneToldAt, marks: new Map(Object.entries(rec.laneMarks)) })
+      if (store.wokeLanes.size > MAX_WATCHES) store.wokeLanes.delete(store.wokeLanes.keys().next().value!)
+    }
     if (toldReply !== undefined) {
       store.wokeReplies.delete(key)
       store.wokeReplies.set(key, toldReply)
@@ -1287,17 +1542,51 @@ async function deliver(store: Store, rec: WatchRecord): Promise<void> {
  * wake stayed in its prompt, unsent, for hours, while its watch had ended. Not taken in time, Enter is pressed again,
  * once; still not taken, it is logged, and the agent's cards show as stalled when its loop is checked (loopCheck.ts).
  */
-export async function confirmTaken(projectPath: string, agentId: string, before: { runId: string; count: number }, line: string): Promise<boolean> {
+export async function confirmTaken(projectPath: string, agentId: string, before: { runId: string; count: number }, line: string, ride?: RideCheck): Promise<boolean> {
   // Nothing more is typed into it while this runs, however long (#430): released when it ends (taken, or marked).
   const release = sessions.holdForConfirm(projectPath, agentId, before.runId)
+  let instead: { line: string; afterTaken: number | null } | null = null
   try {
-    return await confirming(projectPath, agentId, before, line)
+    const r = await confirming(projectPath, agentId, before, line, ride)
+    if (r === 'withdrawn' || r === 'kept') {
+      // Cleared: typed again at once. Left as it is (the user's draft is in it): only once that prompt is submitted.
+      if (ride?.instead) instead = { line: ride.instead, afterTaken: r === 'kept' ? before.count : null }
+      return false
+    }
+    return r
   } finally {
     release?.()
+    if (instead) void retype(projectPath, agentId, before.runId, instead.line, instead.afterTaken).catch((e) => log.warn('typing a wake again', e))
   }
 }
 
-async function confirming(projectPath: string, agentId: string, before: { runId: string; count: number }, line: string): Promise<boolean> {
+/**
+ * What rode a typed line (#530: messages left for the agent), for its confirmation: `still`, whether its sender may still
+ * send it, asked before Enter is pressed again; `withdrawn` when it may not and the line was cleared instead; `instead`,
+ * the line to type in its place (the wake it rode), or null (a message's own line).
+ */
+export interface RideCheck {
+  still: () => boolean
+  withdrawn: () => void
+  instead: string | null
+}
+
+/**
+ * Types a wake again after the line it was in was withdrawn (#530), as soon as it can be typed, while the launch lasts;
+ * with `afterTaken` (the CLI's prompt count when that line was typed), only once its prompt has been submitted since, so
+ * a draft of the user's still in it is never typed over.
+ */
+async function retype(projectPath: string, agentId: string, runId: string, line: string, afterTaken: number | null = null): Promise<void> {
+  for (const end = Date.now() + 30 * 60_000; Date.now() < end; ) {
+    if (sessions.liveFor(projectPath, agentId)?.runId !== runId) return
+    const taken = sessions.promptsTaken(projectPath, agentId)
+    if ((afterTaken === null || (!!taken && taken.runId === runId && taken.count > afterTaken)) && (await typeLine(projectPath, agentId, line, () => true))) return
+    await new Promise((r) => setTimeout(r, 1000))
+  }
+  log.warn(`A wake for ${userText(agentId)} couldn't be typed again after its line was cleared`)
+}
+
+async function confirming(projectPath: string, agentId: string, before: { runId: string; count: number }, line: string, ride?: RideCheck): Promise<boolean | 'withdrawn' | 'kept'> {
   const t0 = Date.now()
   const taken = (): boolean => {
     const now = sessions.promptsTaken(projectPath, agentId)
@@ -1318,9 +1607,25 @@ async function confirming(projectPath: string, agentId: string, before: { runId:
   // Enter again, once, when that is safe (the same launch, idle, nobody typing there, Hive not typing): waited for a
   // while rather than given up at once (#430). Never a third Enter.
   let retried = false
+  let withheld = false
   for (const end = Date.now() + 6 * takeMs(); ; ) {
     if (taken()) return true
-    if (sessions.submitAgain(projectPath, agentId, before.runId)) {
+    // What rode the line may no longer be sent (#530: its sender's Control turned down, its session ended): never
+    // submitted by this Enter. The line is cleared when that is safe (as an Enter would be), and its wake typed again.
+    if (ride && !ride.still()) {
+      withheld = true
+      // The user has typed into it since (round 3 finding): their draft, not Hive's line to clear or offer for Enter.
+      if (sessions.userTypedOverLine(projectPath, agentId)) {
+        ride.withdrawn()
+        log.info(`Left the line typed into ${userText(agentId)} as it is: what rode it may no longer be sent, and the user has typed there since`)
+        return 'kept'
+      }
+      if (sessions.clearTyped(projectPath, agentId, before.runId)) {
+        ride.withdrawn()
+        log.info(`Cleared the line typed into ${userText(agentId)}: what rode it may no longer be sent`)
+        return 'withdrawn'
+      }
+    } else if (sessions.submitAgain(projectPath, agentId, before.runId)) {
       retried = true
       break
     }
@@ -1333,7 +1638,13 @@ async function confirming(projectPath: string, agentId: string, before: { runId:
     log.warn(`The wake typed into ${userText(agentId)} wasn't taken: pressed Enter again`)
     if (await waitTaken()) return true
     log.warn(`The wake typed into ${userText(agentId)} still wasn't taken: it may be waiting in its prompt`)
-  } else log.warn(`The wake typed into ${userText(agentId)} wasn't taken, and Enter couldn't be pressed again (busy, or the user typing there)`)
+  } else log.warn(`The wake typed into ${userText(agentId)} wasn't taken, and Enter couldn't be pressed again (${withheld ? 'what rode it may no longer be sent, and the line could not be cleared' : 'busy, or the user typing there'})`)
+  // What rode it may no longer be sent and it couldn't be cleared: never offered for Enter (the user isn't asked to
+  // send it); its wake comes again once the prompt is next submitted.
+  if (withheld) {
+    ride!.withdrawn()
+    return 'kept'
+  }
   // Shown in its pane, the user told once, and nothing more typed into it until it is taken (#430).
   sessions.lineNotTaken(projectPath, agentId, before.runId, line, retried)
   return false
@@ -1362,8 +1673,9 @@ async function check(store: Store, rec: WatchRecord, cards?: CardReads): Promise
     const prev = rec.current?.[n]
     if (prev?.column !== after.column || prev?.agent !== after.agent) moved = true
     ;(rec.current ??= {})[n] = after
-    // Seen moved into the column as last seen (it was elsewhere, it's there now): also when its history no longer says.
-    const intoAsSeen = !!rec.cond.moveInto && !!rec.cond.column && !!prev && prev.column !== rec.cond.column && after.column === rec.cond.column
+    // Seen moved into the column as last seen (it was elsewhere, it's there now): also when its history no longer says,
+    // and for a watch that waits only to see it there (#521).
+    const intoAsSeen = !!rec.cond.column &&!!prev && prev.column !== rec.cond.column && after.column === rec.cond.column
     const seen = rec.seen?.[n]
     let kinds: WatchChange[] | 'gone'
     if (seen) {
@@ -1584,7 +1896,7 @@ async function evaluate(ws: WorkspaceService): Promise<void> {
     // Each card read once for all the watches on it (#321).
     const reads: CardReads = new Map()
     for (const rec of [...store.list]) {
-      if (rec.fired || rec.agents) continue
+      if (rec.fired || rec.agents || rec.lanes) continue
       // One watch that can't be checked doesn't stop the others.
       try {
         const r = await check(store, rec, reads)
@@ -1614,6 +1926,8 @@ async function evaluate(ws: WorkspaceService): Promise<void> {
   for (const rec of narrowed) sessions.watchChanged(rec.projectPath, rec.agentId)
   if (moved && alive(store)) watchedCardsMoved?.()
   for (const rec of store.list.filter((r) => r.fired)) await deliver(store, rec)
+  // Lane watches follow the same board (#531).
+  await evaluateLanes(store).catch((e) => log.warn('checking lane watches', e))
 }
 
 /** Told when watched cards move or change hands (after the watches have seen it): a pending quit checks again. */
@@ -1630,7 +1944,7 @@ export async function tick(now = Date.now()): Promise<void> {
       let changed = store.dirty
       for (const rec of store.list) {
         if (!rec.fired && Date.parse(rec.limitAt) <= now) {
-          rec.fired = { line: fitLine(rec.agents ? agentLimitLine(rec.agents, rec.limitMinutes) : limitLine(rec.cond, rec.limitMinutes, rec.released ?? [])), at: new Date(now).toISOString(), cards: [] }
+          rec.fired = { line: fitLine(rec.agents ? agentLimitLine(rec.agents, rec.limitMinutes) : rec.lanes ? laneLimitLine(rec.lanes, rec.limitMinutes) : limitLine(rec.cond, rec.limitMinutes, rec.released ?? [])), at: new Date(now).toISOString(), cards: [] }
           changed = true
         }
       }
@@ -1639,6 +1953,11 @@ export async function tick(now = Date.now()): Promise<void> {
     // Agent watches are checked on every status change; also here, for what no status change tells (a typed prompt
     // its CLI never took).
     await evaluateAgents(store).catch((e) => log.warn('checking agent watches', e))
+    // Lane watches (#531): a stall comes with time (a card waiting in Review), so they are checked now and then too.
+    if (now - (store.laneTickAt ?? 0) >= LANE_TICK_MS) {
+      store.laneTickAt = now
+      await evaluateLanes(store).catch((e) => log.warn('checking lane watches', e))
+    }
     for (const rec of store.list.filter((r) => r.fired)) await deliver(store, rec)
   }
 }
@@ -1654,6 +1973,8 @@ export function watchKeepsQuitWaiting(st: LiveSessionState): string | null {
   if (!rec) return null
   // An agent watch: while an agent it waits for works.
   if (rec.agents) return rec.agents.agents.some((a) => agentBusy(agentNowOf(a), rec.agents!.ignoreBackground)) ? st.watch.label : null
+  // A lane watch: it follows lanes, not work it is waiting on (#531).
+  if (rec.lanes) return null
   const busyCard = rec.cond.cards.some((n) => {
     const m = rec.current?.[n] ?? rec.marks[n]
     return m && (m.column === 'doing' || m.column === 'review') && m.agent && m.agent !== st.agentId
@@ -1675,10 +1996,15 @@ export function initWatches(): void {
     if (e.type === 'tasks-changed') {
       const ws = openWorkspaces().find((w) => w.path && same(w.path, e.workspacePath))
       if (ws) void evaluate(ws).catch((err) => log.warn('checking watches', err))
+    } else if (e.type === 'lanes-changed') {
+      const store = [...stores.values()].find((x) => same(x.path, e.workspacePath))
+      if (store) laneCheckSoon(store)
     } else if (e.type === 'session-status') {
       noteAgentStatus(e.state)
       const store = storeFor(e.state.projectPath)
       if (!store) return
+      // A stall can come with a status (an agent idle with no watch, one stopped): lane watches look again (#531).
+      laneCheckSoon(store)
       // An agent someone watches changed status (#416).
       const { projectPath, agentId } = e.state
       if (store.list.some((x) => x.agents && !x.fired && x.agents.agents.some((a) => same(a.projectPath, projectPath) && a.agentId === agentId)))

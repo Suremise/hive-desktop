@@ -135,10 +135,12 @@ export function idleAfter(s: Pick<HookStatusInput, 'backgroundWakes' | 'tasks'>,
 
 /**
  * A compaction is over (its hook, or what Hive saw instead: the transcript, the CLI refusing it, a time limit):
- * an agent still showing it is idle again; anything since (a prompt began a turn) stands.
+ * an agent still showing it is idle again (`idle`: background while its background tasks run, #521: an idle compaction
+ * left a builder waiting on its e2e run "ready", and it was flagged as not watching); anything since (a prompt began a
+ * turn) stands.
  */
-export function compactionOver(s: Pick<HookStatusInput, 'status' | 'statusMessage'>): HookStep {
-  return isCompacting(s) ? { next: 'ready', message: null, actions: [] } : { next: null, actions: [] }
+export function compactionOver(s: Pick<HookStatusInput, 'status' | 'statusMessage'>, idle: SessionStatus = 'ready'): HookStep {
+  return isCompacting(s) ? { next: idle, message: null, actions: [] } : { next: null, actions: [] }
 }
 
 export function hookStep(ev: HookEvent, s: HookStatusInput): HookStep {
@@ -204,7 +206,7 @@ export function hookStep(ev: HookEvent, s: HookStatusInput): HookStep {
     }
     case 'compactEnd':
       // Hive's, or one the CLI did while idle (/compact typed in it): idle again. One mid-turn leaves the turn working.
-      return { ...compactionOver(s), actions: s.compacting ? ['compactEnded'] : [] }
+      return { ...compactionOver(s, idleAfter(s, 'ready')), actions: s.compacting ? ['compactEnded'] : [] }
     case 'end':
       return { next: 'stopped', question: null, review: null, ...RESOLVED, actions: ['releaseAllLocks', 'clearTasks'] }
     case 'ignore':

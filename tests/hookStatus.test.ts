@@ -205,7 +205,13 @@ describe('hook → status, for each provider', () => {
       // A prompt typed meanwhile (queued until it is done) starts a turn its end doesn't idle.
       const queued = send(adapter, agent('ready'), h.compactStart, h.prompt, h.compactEnd)
       expect([queued.status, queued.statusMessage], name).toEqual(['working', undefined])
+      // Compacted while waiting on its background tasks (#521): background again, not ready, where they wake it.
+      const waiting = send(adapter, agent('background', { tasks: 1 }), h.compactStart, h.compactEnd)
+      expect(waiting.status, name).toBe(adapter.descriptor.capabilities.backgroundWakes ? 'background' : 'ready')
     }
+    const shown = agent('working', { statusMessage: COMPACTING_MESSAGE })
+    expect(applyStep(shown, compactionOver(shown, 'background'))).toBe(true)
+    expect(shown.status).toBe('background')
   })
 
   it('duplicates: the same question or a second Stop notifies once', async () => {

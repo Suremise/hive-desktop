@@ -199,7 +199,9 @@ export function changesSince(card: TaskCard | null, base: Baseline & { since: st
   const h = news(entriesAfter(card.history, base.seen.h))
   const c = news(entriesAfter(card.comments, base.seen.c))
   const out: WatchChange[] = []
-  const moved = !!cond.moveInto && !!cond.column && h.some((e) => intoColumn(e.what) === cond.column)
+  // Any move into the column counts, also for a watch that waits only to see it there (#521): a starting mark carried
+  // over from a wake can say the card was there when it has left and come back since (told in Review, then Doing).
+  const moved = !!cond.column && h.some((e) => intoColumn(e.what) === cond.column)
   if (kinds.has('column') && (now.column !== base.mark.column || moved) && (!cond.column || now.column === cond.column)) out.push('column')
   if (kinds.has('comment') && c.length) out.push('comment')
   if (kinds.has('verdict') && h.some((e) => VERDICT.test(e.what))) out.push('verdict')
@@ -349,7 +351,7 @@ const jsonBytes = (s: string): number => new TextEncoder().encode(JSON.stringify
  * What the Assistant's card wake ends with while lanes are running (#402): its watch has ended, and the lanes still need
  * one. Kept whole: the rest of the line is cut to make room.
  */
-export const LANES_RUNNING_TAIL = ' Lanes are still running (hive_lane list): before you end your turn, watch them all again in one watch, each lane by its last card (run-lanes).'
+export const LANES_RUNNING_TAIL = ' Lanes are still running (hive_lane list): before you end your turn, watch them again in one lane watch (hive_wait_for_tasks with lanes ["all"], wake; run-lanes).'
 export function withLanesTail(line: string, max = WAKE_MAX_BYTES): string {
   if (line.endsWith(LANES_RUNNING_TAIL)) return line
   let s = line

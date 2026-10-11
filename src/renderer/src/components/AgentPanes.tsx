@@ -487,6 +487,34 @@ function Locks({ a }: { a: AgentInfo }) {
  * Processes the agent's stopped launches left running (#507), such as a preview server: how many, each in the tooltip,
  * and a click to end them or keep them running (then no longer listed). Gone once they end by themselves.
  */
+/** Messages left for it that wait to be typed (#530): who from and their start, and Cancel. */
+function QueuedMessages({ project, a, live }: { project: ProjectInfo; a: AgentInfo; live: LiveSessionState | null | undefined }) {
+  const menu = useContextMenu()
+  const items = live?.queuedMessages
+  if (!items?.length) return null
+  const n = items.length
+  const word = n === 1 ? 'message' : `${n} messages`
+  const cancel = () => void actions.attempt('Could not cancel the messages', () => call('session:cancelMessages', project.path, a.id))
+  return (
+    <>
+      <Tooltip content={<span style={{ whiteSpace: 'pre-line' }}>{`${n === 1 ? 'A message' : `${n} messages`} for ${a.name}, typed as its next line once it is idle:\n${items.map((m) => `From ${m.from}: ${m.text.length > 120 ? `${m.text.slice(0, 119)}…` : m.text}`).join('\n')}\n\nClick to cancel ${n === 1 ? 'it' : 'them'}.`}</span>}>
+        <button
+          type="button"
+          className="agent-messages"
+          aria-label={`${word} waiting`}
+          onClick={(e) => {
+            e.stopPropagation()
+            menu.openAt(...below(e.currentTarget), [{ label: n === 1 ? 'Cancel the Message' : `Cancel the ${n} Messages`, icon: 'close', onClick: cancel }])
+          }}
+        >
+          <Icon name="mail" /> {n === 1 ? '1 message' : `${n} messages`} waiting
+        </button>
+      </Tooltip>
+      {menu.element}
+    </>
+  )
+}
+
 function Leftovers({ project, a }: { project: ProjectInfo; a: AgentInfo }) {
   const menu = useContextMenu()
   const left = useStore((s) => s.leftovers[projectKey(project.path, a.id)])
@@ -890,12 +918,12 @@ function PaneHeader({ project, a, focused }: { project: ProjectInfo; a: AgentInf
       ) : live?.status === 'watching' && live.watch ? (
         // Waiting on cards (a watch): what for, until when, and Cancel (it takes no other work while it waits).
         <span className="pane-status watching">
-          <Tooltip content={`${live.watch.label}: Hive types a line into it when ${live.watch.agents ? `${live.watch.agents.length === 1 ? 'it finishes' : 'one of them finishes'}, waits for you or stops` : live.watch.cards.length === 1 ? 'the card changes' : 'one of them changes'}, or at ${formatWhen(live.watch.limitAt)} if nothing does. Nothing runs meanwhile, and it takes no other work.`}>
+          <Tooltip content={`${live.watch.label}: Hive types a line into it when ${live.watch.agents ? `${live.watch.agents.length === 1 ? 'it finishes' : 'one of them finishes'}, waits for you or stops` : live.watch.lanes ? 'a review fails, a card is blocked or stalled, or a lane is due to merge or ends' : live.watch.cards.length === 1 ? 'the card changes' : 'one of them changes'}, or at ${formatWhen(live.watch.limitAt)} if nothing does. Nothing runs meanwhile, and it takes no other work.`}>
             <span className="watch-label">
               <Icon name="eye" /> {live.watch.label}
             </span>
           </Tooltip>
-          <button className="btn small subtle watch-cancel" aria-label={live.watch.agents ? 'Cancel the agent watch' : 'Cancel the card watch'} onClick={() => void call('watch:cancel', project.path, a.id).catch((e) => notify('error', 'Could not cancel the watch', String((e as Error).message ?? e)))}>
+          <button className="btn small subtle watch-cancel" aria-label={live.watch.agents ? 'Cancel the agent watch' : live.watch.lanes ? 'Cancel the lane watch' : 'Cancel the card watch'} onClick={() => void call('watch:cancel', project.path, a.id).catch((e) => notify('error', 'Could not cancel the watch', String((e as Error).message ?? e)))}>
             Cancel
           </button>
         </span>
@@ -908,6 +936,7 @@ function PaneHeader({ project, a, focused }: { project: ProjectInfo; a: AgentInf
       <CardChip project={project} a={a} short />
       <Locks a={a} />
       <Leftovers project={project} a={a} />
+      <QueuedMessages project={project} a={a} live={live} />
       <div className="grow" />
       {size !== 'menu' &&
         (live ? (
