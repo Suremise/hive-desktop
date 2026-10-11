@@ -43,6 +43,7 @@ export const EVERYTHING = [
   'src/shared/types.ts',
   'src/shared/defaults.ts',
   'src/shared/dates.ts',
+  'src/shared/units.ts',
   'src/shared/providers.ts',
   'src/main/providers/',
   'tests/e2e/lib.cjs',
