@@ -10,6 +10,8 @@ const lib = require('./lib.cjs')
 const { _electron } = require('playwright-core')
 const fs = require('fs')
 const path = require('path')
+// The longest a wait here waits for what it waits on: a bound for a hung run, never how long it should take (#570).
+const HUNG_MS = 15000
 
 const PORT = Number(lib.port(47867))
 const userData = path.join(lib.WORK, 'agentstable-profile')
@@ -85,8 +87,8 @@ const LONG = 'Coordinator out of the box: fold the coordinator playbook into the
   const shoot = async (name, clip) => {
     for (const theme of ['dark', 'light']) {
       await inv('settings:update', { appearance: { theme } })
-      await until(async () => (await page.evaluate(() => document.documentElement.dataset.theme)) === theme, 3000)
-      await until(async () => (await page.locator('.tip.agents-tip').count()) === 1, 3000)
+      await until(async () => (await page.evaluate(() => document.documentElement.dataset.theme)) === theme, HUNG_MS)
+      await until(async () => (await page.locator('.tip.agents-tip').count()) === 1, HUNG_MS)
       await page.screenshot({ path: path.join(shots, `${name}-${theme}.png`), ...(clip ? { clip } : {}) })
     }
     await inv('settings:update', { appearance: { theme: 'dark' } })
@@ -122,7 +124,7 @@ const LONG = 'Coordinator out of the box: fold the coordinator playbook into the
     // Nothing focused (a focused trigger keeps its tooltip shown), the mouse away.
     await page.evaluate(() => document.activeElement?.blur?.())
     await page.mouse.move(700, 500)
-    await until(async () => (await page.locator('.tip').count()) === 0, 3000)
+    await until(async () => (await page.locator('.tip').count()) === 0, HUNG_MS)
     await locator.hover()
     await until(async () => (await page.locator('.tip.agents-tip table.agents-table').count()) === 1, 5000)
     return readTable()
@@ -141,7 +143,7 @@ const LONG = 'Coordinator out of the box: fold the coordinator playbook into the
 
   // --- The compact sidebar: the alpha tile's tooltip.
   await page.locator('.pane-header .icon-btn[aria-label^="Compact Sidebar"]').first().click()
-  await until(async () => (await page.locator('.rail-project').count()) === 2)
+  await until(async () => (await page.locator('.rail-project').count()) === 2, HUNG_MS)
   const tile = page.locator('.rail-project[aria-label^="alpha"]')
   const t12 = await hoverTable(tile)
   check('12 agents: a table with Agent, State, Card and Waiting for', JSON.stringify(t12?.head) === JSON.stringify(['Agent', 'State', 'Card', 'Waiting for']), JSON.stringify(t12?.head))
@@ -160,11 +162,11 @@ const LONG = 'Coordinator out of the box: fold the coordinator playbook into the
 
   // --- Keyboard: Tab reaches the tile, which shows the table and has it in its accessible description; Enter opens it.
   await page.locator('.rail-project[aria-label^="solo"]').click()
-  await until(async () => (await page.locator('.project-header h1', { hasText: 'solo' }).count()) === 1)
+  await until(async () => (await page.locator('.project-header h1', { hasText: 'solo' }).count()) === 1, HUNG_MS)
   await page.mouse.move(700, 500)
   await page.locator('.rail-btn[aria-label="Expand Sidebar"]').focus()
   await page.keyboard.press('Tab')
-  check('Tab reaches the first project tile', !!(await until(async () => (await page.evaluate(() => document.activeElement?.getAttribute('aria-label') ?? '')).startsWith('alpha'), 3000)))
+  check('Tab reaches the first project tile', !!(await until(async () => (await page.evaluate(() => document.activeElement?.getAttribute('aria-label') ?? '')).startsWith('alpha'), HUNG_MS)))
   check('on keyboard focus it shows the table', !!(await until(async () => (await page.locator('.tip.agents-tip table.agents-table tbody tr').count()) === 12, 5000)))
   const ax = await focusedAx()
   check('a screen reader gets a button named for the project, with the rows as its description', ax?.role === 'button' && ax.name.startsWith('alpha') && ax.description.includes(`R1: Waiting for #${c1} → Review`) && ax.description.includes('B3: Not running'), JSON.stringify(ax))
@@ -186,18 +188,18 @@ const LONG = 'Coordinator out of the box: fold the coordinator playbook into the
 
   // --- The full sidebar: the agent count, and the project header's status.
   await page.locator('.rail-btn[aria-label="Expand Sidebar"]').click()
-  await until(async () => (await page.locator('.project-row').count()) === 2)
+  await until(async () => (await page.locator('.project-row').count()) === 2, HUNG_MS)
   const count = await hoverTable(page.locator('.project-row', { hasText: 'alpha' }).locator('.agent-count'))
   check('the agent count shows the same table', count?.rows.map((r) => r.name).join(',') === t12?.rows.map((r) => r.name).join(','), JSON.stringify(count?.rows.map((r) => r.name)))
   await shoot('sidebar-count')
   await page.locator('.project-row', { hasText: 'alpha' }).click()
-  await until(async () => (await page.locator('.project-header h1', { hasText: 'alpha' }).count()) === 1)
+  await until(async () => (await page.locator('.project-header h1', { hasText: 'alpha' }).count()) === 1, HUNG_MS)
   const header = await hoverTable(page.locator('.project-header .project-title .badge').first())
   check('the project header shows the same table', header?.rows.length === 12 && row(header, 'R1')[3] === `#${c1} → Review`, JSON.stringify(header?.rows.map((r) => r.cells)))
   await shoot('header')
   // The full sidebar's status and the header's badge on keyboard focus, each described.
   await page.mouse.move(700, 500)
-  await until(async () => (await page.locator('.tip').count()) === 0, 3000)
+  await until(async () => (await page.locator('.tip').count()) === 0, HUNG_MS)
   const statusEl = page.locator('.project-row', { hasText: 'alpha' }).locator('.project-status')
   await page.locator('.project-row', { hasText: 'alpha' }).locator('.switch').focus()
   await page.keyboard.press('Shift+Tab')
@@ -218,7 +220,7 @@ const LONG = 'Coordinator out of the box: fold the coordinator playbook into the
   await app.evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows()[0].webContents.setZoomFactor(1.25))
   await until(async () => (await page.evaluate(() => Math.round(window.innerWidth))) === 720, 5000)
   await page.locator('.pane-header .icon-btn[aria-label^="Compact Sidebar"]').first().click()
-  await until(async () => (await page.locator('.rail-project').count()) === 2)
+  await until(async () => (await page.locator('.rail-project').count()) === 2, HUNG_MS)
   const narrow = await hoverTable(page.locator('.rail-project[aria-label^="alpha"]'))
   check('narrow at 125%: all four columns', JSON.stringify(narrow?.head) === JSON.stringify(['Agent', 'State', 'Card', 'Waiting for']), JSON.stringify(narrow?.head))
   check('narrow at 125%: every column fits, nothing scrolls', fits(narrow), fitText(narrow))

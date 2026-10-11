@@ -2,6 +2,8 @@
 const lib = require('./lib.cjs')
 const { _electron } = require('playwright-core')
 const fs = require('fs'), path = require('path')
+// The longest a wait here waits for what it waits on: a bound for a hung run, never how long it should take (#570).
+const HUNG_MS = 10000
 const scratch = lib.WORK, userData = path.join(scratch, 'agentsui-profile')
 const root = path.join(scratch, 'agentsui')
 for (const d of [userData, root]) fs.rmSync(d, { recursive: true, force: true })
@@ -38,7 +40,7 @@ const check = (name, ok, extra = '') => { if (ok) pass++; else fail++; console.l
   await sleep(500)
   check('…without adding an agent', (await inv('workspace:refresh')).projects[0].agents.length === 0)
   await page.keyboard.press('Escape')
-  await lib.until(async () => (await addDialog.count()) === 0, 3000)
+  await lib.until(async () => (await addDialog.count()) === 0, HUNG_MS)
   await page.evaluate(() => document.activeElement?.blur())
   await page.keyboard.press('Control+Alt+Shift+N'); await lib.until(async () => (await inv('workspace:refresh')).projects[0].agents.length === 1, 10000)
   p0 = (await inv('workspace:refresh')).projects[0]

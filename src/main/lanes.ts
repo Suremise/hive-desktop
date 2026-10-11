@@ -61,6 +61,17 @@ async function read(ws: WorkspaceService): Promise<LaneRecord[]> {
 }
 
 /** The lanes as saved: each with its project's id beside its name (the id it had, for a project the workspace doesn't have now). */
+/**
+ * Told as soon as a workspace's lanes are written, before the settled `lanes-changed` event (300 ms later): a lane's
+ * reviewer decides who a loop wake goes to, and a wake being typed checks that nothing changed meanwhile (#578 round 2:
+ * one typed to a reviewer taken off the lane inside that window).
+ */
+const writtenListeners = new Set<() => void>()
+export function onLanesWritten(fn: () => void): () => void {
+  writtenListeners.add(fn)
+  return () => writtenListeners.delete(fn)
+}
+
 async function write(ws: WorkspaceService, lanes: LaneRecord[]): Promise<void> {
   const ids = await ws.projectIds()
   const stamped = keptLanes(lanes, Date.now()).map((l) => {
@@ -70,6 +81,7 @@ async function write(ws: WorkspaceService, lanes: LaneRecord[]): Promise<void> {
     return { id, project: saved, ...(projectId ? { projectId } : {}), ...rest }
   })
   await writeJsonAtomic(fileOf(ws), { version: 1, lanes: stamped })
+  for (const fn of writtenListeners) fn()
 }
 
 /**

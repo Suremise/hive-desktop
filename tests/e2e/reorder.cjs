@@ -6,6 +6,8 @@ const lib = require('./lib.cjs')
 const { _electron } = require('playwright-core')
 const fs = require('fs')
 const path = require('path')
+// The longest a wait here waits for what it waits on: a bound for a hung run, never how long it should take (#570).
+const HUNG_MS = 10000
 
 const userData = path.join(lib.WORK, 'reorder-profile')
 const ws = path.join(lib.WORK, 'reorder-ws')
@@ -83,9 +85,9 @@ const check = (name, ok, extra = '') => {
   // Drag Three's tab onto One's left half: Three goes first.
   const tab = (n) => page.locator('.agent-tab', { hasText: n })
   await drag(tab('Three'), tab('One'), { dx: -20 })
-  check('dragging a tab moves the agent', !!(await until(async () => (await tabNames()) === 'Three,One,Two')), await tabNames())
+  check('dragging a tab moves the agent', !!(await until(async () => (await tabNames()) === 'Three,One,Two', HUNG_MS)), await tabNames())
   check('the panes follow', (await paneNames()) === 'Three,One,Two', await paneNames())
-  check('the order is saved', !!(await until(async () => saved() === 'Three,One,Two')), saved())
+  check('the order is saved', !!(await until(async () => saved() === 'Three,One,Two', HUNG_MS)), saved())
   await page.screenshot({ path: path.join(lib.WORK, 'reorder-1-tab.png') })
 
   // Drag One's pane by its header onto Two's pane: One takes Two's place.
@@ -95,14 +97,14 @@ const check = (name, ok, extra = '') => {
   await page.mouse.down()
   await page.mouse.move(a.x + a.width / 2 + 10, a.y + a.height / 2, { steps: 3 })
   const target = page.locator('.pane-drop').last()
-  check('dragging a pane shows where it can go', !!(await until(async () => (await page.locator('.pane-drop').count()) === 2, 3000)))
+  check('dragging a pane shows where it can go', !!(await until(async () => (await page.locator('.pane-drop').count()) === 2, HUNG_MS)))
   const b = await target.boundingBox()
   await page.mouse.move(b.x + b.width / 2, b.y + b.height / 2, { steps: 8 })
   await lib.sleep(200)
   await page.screenshot({ path: path.join(lib.WORK, 'reorder-2-pane-drag.png') })
   await page.mouse.up()
-  check("dropping a pane on another puts it in that agent's place", !!(await until(async () => (await paneNames()) === 'Three,Two,One')), await paneNames())
-  check('and saves it', !!(await until(async () => saved() === 'Three,Two,One')), saved())
+  check("dropping a pane on another puts it in that agent's place", !!(await until(async () => (await paneNames()) === 'Three,Two,One', HUNG_MS)), await paneNames())
+  check('and saves it', !!(await until(async () => saved() === 'Three,Two,One', HUNG_MS)), saved())
   check('the running agent kept its session', (await live(one.id))?.sessionId === session)
   check('and its terminal', String(await inv('pty:buffer', lib.ptyKey(alpha, one.id))).includes('Done: hello'))
 
@@ -111,31 +113,31 @@ const check = (name, ok, extra = '') => {
   check('the header has Stop but no archive button', (await oneBar.getByRole('button', { name: 'Stop', exact: true }).count()) === 1 && (await oneBar.locator('button[aria-label*="Archive"]').count()) === 0)
   await oneBar.getByRole('button', { name: 'More', exact: true }).click()
   const archiveItem = page.locator('.menu .menu-item', { hasText: 'Archive and Start New…' })
-  check("its ⋯ menu has Archive and Start New…", !!(await until(async () => (await archiveItem.count()) === 1, 3000)))
+  check("its ⋯ menu has Archive and Start New…", !!(await until(async () => (await archiveItem.count()) === 1, HUNG_MS)))
   await page.screenshot({ path: path.join(lib.WORK, 'reorder-archive-menu.png') })
   await page.keyboard.press('Escape')
-  await until(async () => (await page.locator('.menu').count()) === 0, 3000)
+  await until(async () => (await page.locator('.menu').count()) === 0, HUNG_MS)
 
   // The shortcut moves the focused agent: One (last) to the left.
   await page.locator('.agent-tab', { hasText: 'One' }).click()
   await lib.sleep(300)
   await page.keyboard.press('Control+Alt+Shift+ArrowLeft')
-  check('Ctrl+Alt+Shift+Left moves the focused agent left', !!(await until(async () => saved() === 'Three,One,Two')), saved())
+  check('Ctrl+Alt+Shift+Left moves the focused agent left', !!(await until(async () => saved() === 'Three,One,Two', HUNG_MS)), saved())
 
   // Two pages: four more agents (seven in all), the layout automatic again (a 3×2 grid: pages of six, #134).
   await inv('project:updateConfig', alpha, { layout: 'auto' })
   for (const name of ['Four', 'Five', 'Six', 'Seven']) await lib.addAgent(inv, alpha, { name })
-  await until(async () => (await page.locator('.page-switch button').count()) === 2)
+  await until(async () => (await page.locator('.page-switch button').count()) === 2, HUNG_MS)
   check('seven agents make two pages', (await page.locator('.page-switch button').count()) === 2)
   // Move Right on the sixth (last of page 1) takes it to page 2.
   await page.locator('.agent-tab', { hasText: 'Six' }).click({ button: 'right' })
   await page.locator('.menu .menu-item', { hasText: 'Move Right' }).click()
-  check('Move Right crosses to the next page', !!(await until(async () => saved() === 'Three,One,Two,Four,Five,Seven,Six')), saved())
-  check('and the view follows the agent to its page', !!(await until(async () => (await page.locator('.page-switch button.active').innerText()).trim() === '2')))
+  check('Move Right crosses to the next page', !!(await until(async () => saved() === 'Three,One,Two,Four,Five,Seven,Six', HUNG_MS)), saved())
+  check('and the view follows the agent to its page', !!(await until(async () => (await page.locator('.page-switch button.active').innerText()).trim() === '2', HUNG_MS)))
 
   // Drop Six's tab on page 1's button: the last place on page 1.
   await drag(tab('Six'), page.locator('.page-switch button[aria-label="Agent page 1"]'))
-  check("dropping on a page button moves it to that page's last place", !!(await until(async () => saved() === 'Three,One,Two,Four,Five,Six,Seven')), saved())
+  check("dropping on a page button moves it to that page's last place", !!(await until(async () => saved() === 'Three,One,Two,Four,Five,Six,Seven', HUNG_MS)), saved())
   await page.screenshot({ path: path.join(lib.WORK, 'reorder-3-pages.png') })
   check('still running throughout', (await live(one.id))?.sessionId === session)
 

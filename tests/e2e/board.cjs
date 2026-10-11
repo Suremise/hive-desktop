@@ -7,6 +7,8 @@ const lib = require('./lib.cjs')
 const { _electron } = require('playwright-core')
 const fs = require('fs')
 const path = require('path')
+// The longest a wait here waits for what it waits on: a bound for a hung run, never how long it should take (#570).
+const HUNG_MS = 20000
 
 const userData = path.join(lib.WORK, 'board-profile')
 const ws = path.join(lib.WORK, 'board-ws')
@@ -64,6 +66,7 @@ const check = (name, ok, extra = '') => {
   const escapeCloses = async (d) => {
     for (let i = 0; i < 3; i++) {
       await page.keyboard.press('Escape')
+      // A try's pace, not a bound: not closed within 3 s, Escape is pressed again (the three tries are the bound).
       if (await until(async () => (await d.count()) === 0, 3000)) return true
     }
     return false
@@ -183,7 +186,7 @@ const check = (name, ok, extra = '') => {
   await startDialog.locator('label.choice', { hasText: 'A new agent' }).first().click()
   await startDialog.getByRole('button', { name: 'Start' }).click()
   const project = async () => (await inv('workspace:get')).projects.find((p) => p.name === 'alpha')
-  const agent = await until(async () => (await project())?.agents[0])
+  const agent = await until(async () => (await project())?.agents[0], HUNG_MS)
   check('Start adds an agent to the project', !!agent)
   const live = async () => (await inv('session:live')).find((s) => s.projectPath.toLowerCase() === alpha.toLowerCase() && s.agentId === agent.id)
   const ran = !!(await until(async () => (await live())?.status === 'finished', 30000))

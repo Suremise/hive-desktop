@@ -10,6 +10,8 @@ const lib = require('./lib.cjs')
 const { _electron } = require('playwright-core')
 const fs = require('fs')
 const path = require('path')
+// The longest a wait here waits for what it waits on: a bound for a hung run, never how long it should take (#570).
+const HUNG_MS = 30000
 
 const userData = path.join(lib.WORK, 'cardloop-profile')
 const ws = path.join(lib.WORK, 'cardloop-ws')
@@ -65,7 +67,7 @@ const check = (name, ok, extra = '') => {
   const script = (agent, lines) => fs.writeFileSync(path.join(claudeHome, `fake-wakes-${agent}.txt`), lines.join('\n') + '\n')
   const start = async (id) => {
     await inv('session:start', alpha, { agentId: id })
-    return until(async () => (await live(id))?.status === 'ready')
+    return until(async () => (await live(id))?.status === 'ready', HUNG_MS)
   }
   /** Types a prompt into an agent (as the user does), Enter included. */
   const say = async (id, text) => {
@@ -95,7 +97,7 @@ const check = (name, ok, extra = '') => {
   // Then it waits for c1 to arrive in Review: watching, never idle.
   const lane = (body) => `hive hive_lane ${JSON.stringify(body)}`
   await say(reviewer.id, `${lane({ action: 'join', builder: 'Builder', cards: [c1, c2] })} then ${wait(c1, { column: 'review' })}`)
-  const watching = await until(async () => (await live(reviewer.id))?.status === 'watching')
+  const watching = await until(async () => (await live(reviewer.id))?.status === 'watching', HUNG_MS)
   const st = await live(reviewer.id)
   check('the reviewer is watching: status watching, with what for', !!watching && st?.watch?.label === `Waiting for #${c1} → Review`, JSON.stringify({ status: st?.status, watch: st?.watch }))
   check('its header says so, with Cancel', !!(await until(async () => (await page.locator('.pane-status.watching', { hasText: `Waiting for #${c1} → Review` }).count()) >= 1, 5000)))
@@ -163,7 +165,7 @@ const check = (name, ok, extra = '') => {
   // The builder registers its lane (the same one, now with its rounds and wait), works c1, watching for its verdict
   // before moving it to Review; then the loop runs by itself.
   await say(builder.id, `${lane({ action: 'start', cards: [c1, c2], reviewer: 'Reviewer', rounds: 3, waitMinutes: 240, name: 'two cards' })} then ${built(c1)}`)
-  const registered = await until(async () => (await api('GET', '/v1/lanes')).body?.find((l) => l.rounds === 3))
+  const registered = await until(async () => (await api('GET', '/v1/lanes')).body?.find((l) => l.rounds === 3), HUNG_MS)
   check("the builder's start updated that lane: one lane, its rounds, wait and name", (await api('GET', '/v1/lanes')).body?.length === 1 && registered?.id === joined?.id && registered?.waitMinutes === 240 && registered?.name === 'two cards' && registered?.startedBy === 'Reviewer (alpha)', JSON.stringify(registered))
   const done = await until(async () => (await card(c1))?.column === 'passed' && (await card(c2))?.column === 'passed', 90000)
   check('both cards end in Passed (#170)', !!done, JSON.stringify({ c1: (await card(c1))?.column, c2: (await card(c2))?.column }))
@@ -192,7 +194,7 @@ const check = (name, ok, extra = '') => {
   // Merged (Done): the lane ends by itself and stays listed for now, with when it ended.
   await inv('tasks:update', c1, { column: 'done' })
   await inv('tasks:update', c2, { column: 'done' })
-  const endedLane = await until(async () => (await inv('lanes:list')).find((l) => l.id === joined?.id && l.state === 'ended'))
+  const endedLane = await until(async () => (await inv('lanes:list')).find((l) => l.id === joined?.id && l.state === 'ended'), HUNG_MS)
   check('all its cards Done: the lane has ended, still listed, with its end time', !!endedLane?.endedAt, JSON.stringify(endedLane))
 
   // --- Not over the user's typing or the agent's own work; survives a stop and resume; Cancel.
@@ -201,7 +203,7 @@ const check = (name, ok, extra = '') => {
   script('Third', ['work 1', 'work 1', 'work 1', 'work 1'])
   await start(third.id)
   await say(third.id, wait(c3, { changes: ['comment'] }))
-  await until(async () => (await live(third.id))?.status === 'watching')
+  await until(async () => (await live(third.id))?.status === 'watching', HUNG_MS)
   // The user types (no Enter) in its terminal, then the card changes: no wake while the user may still be typing.
   await inv('pty:write', lib.ptyKey(alpha, third.id), 'half a thought')
   await inv('tasks:comment', c3, 'First change')
@@ -209,32 +211,32 @@ const check = (name, ok, extra = '') => {
   check('no wake while the user is typing there', wakes('Third').length === 0, JSON.stringify(wakes('Third')))
   const afterPause = await until(async () => wakes('Third').length === 1, 15000)
   check('…and one wake once the typing pause has passed', !!afterPause && wakes('Third').length === 1)
-  await until(async () => (await live(third.id))?.status === 'finished')
+  await until(async () => (await live(third.id))?.status === 'finished', HUNG_MS)
   // A watch, then the agent busy (a turn the user started): the change waits for its turn to end.
   await say(third.id, wait(c3, { changes: ['comment'] }))
-  await until(async () => (await live(third.id))?.status === 'watching')
+  await until(async () => (await live(third.id))?.status === 'watching', HUNG_MS)
   await say(third.id, 'work 4')
-  await until(async () => (await live(third.id))?.status === 'working')
+  await until(async () => (await live(third.id))?.status === 'working', HUNG_MS)
   await inv('tasks:comment', c3, 'Second change')
   await lib.sleep(1500) // A fixed wait on purpose: this checks that something does NOT happen, which no condition can show.
   check('no wake while the agent is working', wakes('Third').length === 1)
   check('…and one wake when its turn ends', !!(await until(async () => wakes('Third').length === 2, 15000)))
-  await until(async () => (await live(third.id))?.status === 'finished')
+  await until(async () => (await live(third.id))?.status === 'finished', HUNG_MS)
   // A watch survives a stop and a resume: a change while it is stopped wakes it once it is back.
   await say(third.id, wait(c3, { changes: ['comment'] }))
-  await until(async () => (await live(third.id))?.status === 'watching')
+  await until(async () => (await live(third.id))?.status === 'watching', HUNG_MS)
   const sid = (await live(third.id)).sessionId
   await inv('session:stop', alpha, third.id)
-  await until(async () => !(await live(third.id)))
+  await until(async () => !(await live(third.id)), HUNG_MS)
   await inv('tasks:comment', c3, 'Third change')
   await lib.sleep(1500) // A fixed wait on purpose: this checks that something does NOT happen, which no condition can show.
   check('no wake while it is stopped', wakes('Third').length === 2)
   await inv('session:start', alpha, { agentId: third.id, resumeId: sid })
   check('…and one wake after it is resumed', !!(await until(async () => wakes('Third').length === 3, 30000)))
-  await until(async () => (await live(third.id))?.status === 'finished')
+  await until(async () => (await live(third.id))?.status === 'finished', HUNG_MS)
   // Compact while watching: allowed (the watch is kept); a change during the compaction wakes it only once that has ended.
   await say(third.id, wait(c3, { changes: ['comment'] }))
-  await until(async () => (await live(third.id))?.status === 'watching')
+  await until(async () => (await live(third.id))?.status === 'watching', HUNG_MS)
   await page.keyboard.press('Control+3')
   await lib.sleep(500)
   const compactBtn = page.locator('.pane-header-bar', { hasText: 'Third' }).locator('button[aria-label="Compact"]').first()
@@ -248,12 +250,12 @@ const check = (name, ok, extra = '') => {
   await lib.sleep(1500) // A fixed wait on purpose: this checks that something does NOT happen, which no condition can show.
   check('no wake while it compacts', wakes('Third').length === 3, JSON.stringify(wakes('Third')))
   check('…and one wake once the compaction has ended', !!(await until(async () => wakes('Third').length === 4, 20000)))
-  await until(async () => (await live(third.id))?.status === 'finished')
+  await until(async () => (await live(third.id))?.status === 'finished', HUNG_MS)
   // Cancel: the watch ends, the status is finished again, and a change wakes nothing. A longer label (three cards) in a
   // pane at its narrowest header (three panes, under 340 px each): Cancel stays clickable, and is clicked there. The
   // agent's More menu has Cancel Card Watch too, for a pane too narrow for anything else.
   await say(third.id, wait([c3, c1, c2], { changes: ['comment'] }))
-  await until(async () => (await live(third.id))?.status === 'watching')
+  await until(async () => (await live(third.id))?.status === 'watching', HUNG_MS)
   await page.keyboard.press('Control+3')
   await lib.sleep(500)
   await app.evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows()[0]?.webContents.setZoomFactor(1))
@@ -278,10 +280,10 @@ const check = (name, ok, extra = '') => {
   const dep = (await inv('tasks:create', { title: 'Needed first', project: 'alpha', agent: builder.id, column: 'review' })).number
   script('Third', ['work 1'])
   await say(third.id, wait(dep, { column: 'passed' }))
-  await until(async () => (await live(third.id))?.status === 'watching')
+  await until(async () => (await live(third.id))?.status === 'watching', HUNG_MS)
   await inv('tasks:update', dep, { column: 'passed' })
   check("a dependency's wake names its agent and says Passed isn't merged", !!(await until(async () => wakes('Third').length === 5, 15000)) && wakes('Third')[4].text.includes(`#${dep} (Builder's card) is in Passed (Passed isn't merged)`), JSON.stringify(wakes('Third').slice(4)))
-  await until(async () => (await live(third.id))?.status === 'finished')
+  await until(async () => (await live(third.id))?.status === 'finished', HUNG_MS)
 
   // --- A bounded wait (no wake): it returns on a comment, a move and a verdict; times out; since misses nothing.
   const c4 = (await inv('tasks:create', { title: 'Waited on', project: 'alpha', agent: builder.id })).number
@@ -336,7 +338,7 @@ const check = (name, ok, extra = '') => {
   const q2 = (await inv('tasks:create', { title: 'Quit two', project: 'alpha', column: 'doing', agent: builder.id })).number
   const reviewerWakes = wakes('Reviewer').length
   await say(reviewer.id, wait([q1, q2], { column: 'review' }))
-  await until(async () => (await live(reviewer.id))?.status === 'watching')
+  await until(async () => (await live(reviewer.id))?.status === 'watching', HUNG_MS)
   await inv('app:quit')
   const quitWhen = page.locator('.dialog button', { hasText: 'Quit when' })
   await until(async () => (await quitWhen.count()) === 1, 5000)

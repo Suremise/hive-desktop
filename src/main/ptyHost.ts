@@ -116,11 +116,11 @@ const PID_POLL_MS = 10
 const carried = new Map<string, string[]>()
 
 /**
- * HIVE_ variables that are the user's own settings for what runs in sessions, kept when the others are dropped: how
- * many heavy test runs go at once on the machine (tests/e2e/slots.mjs, #567). Only named ones: the other HIVE_TEST_
- * variables configure a test copy of Hive itself, and would reach the copies its agents start.
+ * HIVE_ variables a session keeps on purpose when Hive's others are dropped: none today. Only named ones, for a setting
+ * of the user's that what runs in sessions needs (#567); the HIVE_TEST_ variables configure a test copy of Hive itself
+ * and would reach the copies its agents start. The heavy test-slot count lives in the test folder's config.json (#589).
  */
-export const SESSION_SETTINGS = new Set(['HIVE_TEST_HEAVY_SLOTS'])
+export const SESSION_SETTINGS = new Set<string>([])
 
 /** Builds a child environment from Hive's own, minus variables that would change how child Electron apps behave. */
 export function childEnv(extra: Record<string, string> = {}): Record<string, string> {

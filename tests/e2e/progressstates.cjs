@@ -10,6 +10,8 @@ const { _electron } = require('playwright-core')
 const fs = require('fs')
 const path = require('path')
 const { spawnSync } = require('child_process')
+// The longest a wait here waits for what it waits on: a bound for a hung run, never how long it should take (#570).
+const HUNG_MS = 30000
 
 const PORT = Number(lib.port(47868))
 const userData = path.join(lib.WORK, 'progressstates-profile')
@@ -73,7 +75,7 @@ const until = (fn, ms = 30000) => lib.until(fn, ms, 150)
   const shoot = async (name) => {
     for (const theme of ['dark', 'light']) {
       await inv('settings:update', { appearance: { theme } })
-      await until(async () => (await page.evaluate(() => document.documentElement.dataset.theme)) === theme, 3000)
+      await until(async () => (await page.evaluate(() => document.documentElement.dataset.theme)) === theme, HUNG_MS)
       await page.screenshot({ path: path.join(shots, `${name}-${theme}.png`) })
     }
     await inv('settings:update', { appearance: { theme: 'dark' } })
@@ -86,7 +88,7 @@ const until = (fn, ms = 30000) => lib.until(fn, ms, 150)
   await page.locator('.xterm').first().click().catch(() => undefined)
   await page.keyboard.press('Control+Alt+P')
   const panel = page.locator('.progress-panel')
-  check('the Progress panel opens', !!(await until(async () => (await panel.count()) === 1)))
+  check('the Progress panel opens', !!(await until(async () => (await panel.count()) === 1, HUNG_MS)))
   const rowOf = (id) => panel.locator(`.progress-run[data-run="${id}"]`)
   const textOf = async (id) => ((await rowOf(id).textContent().catch(() => '')) ?? '').replace(/\s+/g, ' ')
 

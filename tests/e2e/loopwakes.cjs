@@ -9,6 +9,8 @@ const lib = require('./lib.cjs')
 const { _electron } = require('playwright-core')
 const fs = require('fs')
 const path = require('path')
+// The longest a wait here waits for what it waits on: a bound for a hung run, never how long it should take (#570).
+const HUNG_MS = 30000
 
 const userData = path.join(lib.WORK, 'loopwakes-profile')
 const ws = path.join(lib.WORK, 'loopwakes-ws')
@@ -72,7 +74,7 @@ const check = (name, ok, extra = '') => {
     return n
   }
   for (const a of [builder, reviewer, other]) await inv('session:start', alpha, { agentId: a.id })
-  check('the agents start', !!(await until(async () => (await idle(builder.id)) && (await idle(reviewer.id)) && (await idle(other.id)))))
+  check('the agents start', !!(await until(async () => (await idle(builder.id)) && (await idle(reviewer.id)) && (await idle(other.id)), HUNG_MS)))
   const c1 = await newCard('First')
   const c2 = await newCard('Second')
   const c3 = await newCard('Third', 'todo')

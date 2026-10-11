@@ -167,6 +167,7 @@ describe('the clean-up (clean.mjs)', () => {
       'scratch/claudio-2026-10-01/': 10,
       'scratch/claudio-2026-10-06/': 0,
       'progress-timings.json': 30,
+      'config.json': 30,
       'heavy-slots/': 30,
       'build-locks/': 30
     })
@@ -195,8 +196,8 @@ describe('the clean-up (clean.mjs)', () => {
     const r = await run(m)
     const gone = r.removed.map((x: { rel: string }) => x.rel).sort()
     expect(gone).toEqual(['charts-132', 'checks.txt', 'e2e/lanes/0/about', 'e2e/lanes/0/about-7', 'e2e/lanes/0/board', 'e2e/lanes/0/board-profile', 'e2e/lanes/0/board.png', 'e2e/lanes/3/about', 'e2e/lanes/3/board-profile', 'e2e/review12-probe', 'e2e/review14-done', 'scenarios/lanes/0/new-scenario-3', 'scenarios/lanes/0/old-scenario', 'scratch/claudio-2026-10-01'])
-    // Never the test homes' sign-ins, scenario results, logs, the claims and the timings.
-    for (const p of ['codex/auth.json', 'codex/packages', 'claude/.credentials.json', 'scenarios/results/run1/results.json', 'e2e/logs/run-20260101-000000/board.log', 'progress-timings.json', 'heavy-slots', 'build-locks'])
+    // Never the test homes' sign-ins, scenario results, logs, the claims, the timings and the machine's test settings.
+    for (const p of ['codex/auth.json', 'codex/packages', 'claude/.credentials.json', 'scenarios/results/run1/results.json', 'e2e/logs/run-20260101-000000/board.log', 'progress-timings.json', 'config.json', 'heavy-slots', 'build-locks'])
       expect(there(m.root, p), p).toBe(true)
     // A lane a runner holds: nothing in it, legacy or old.
     expect(there(m.root, 'e2e/lanes/1/board-profile/x')).toBe(true)
@@ -246,6 +247,10 @@ describe('the clean-up (clean.mjs)', () => {
     expect(readdirSync(join(m.root, 'e2e', 'lanes', '3'))).toEqual(['plan'])
     expect(there(m.root, 'e2e/review13-cited')).toBe(true)
     expect(there(m.root, 'codex/auth.json')).toBe(true)
+    // The machine's test settings stay too (#589: else the slot count would quietly go back to two); stale output goes.
+    expect(there(m.root, 'config.json')).toBe(true)
+    expect(there(m.root, 'charts-132')).toBe(false)
+    expect(there(m.root, 'short tmp')).toBe(false)
   })
 
   it("never follows a link out (a worktree's node_modules junction)", async () => {

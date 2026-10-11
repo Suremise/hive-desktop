@@ -13,6 +13,8 @@ const lib = require('./lib.cjs')
 const { _electron } = require('playwright-core')
 const fs = require('fs')
 const path = require('path')
+// The longest a wait here waits for what it waits on: a bound for a hung run, never how long it should take (#570).
+const HUNG_MS = 10000
 
 const userData = path.join(lib.WORK, 'assistantpanel-profile')
 const ws = path.join(lib.WORK, 'assistantpanel-ws')
@@ -162,7 +164,7 @@ const check = (name, ok, extra = '') => {
   const folded3 = (await list.boundingBox()).height
   const term3 = await box('.assistant-terminal')
   await section.getByRole('button', { name: /Show all 6/ }).click()
-  await lib.until(async () => (await rows.count()) === 6, 3000)
+  await lib.until(async () => (await rows.count()) === 6, HUNG_MS)
   const all = await list.evaluate((el) => ({ height: el.getBoundingClientRect().height, scroll: el.scrollHeight, client: el.clientHeight }))
   check('Show all: every one, scrolling inside the same height', (await rows.count()) === 6 && Math.abs(all.height - folded3) <= 1 && all.scroll > all.client, `${JSON.stringify(all)} vs ${folded3}`)
   const termAll = await box('.assistant-terminal')
@@ -170,7 +172,7 @@ const check = (name, ok, extra = '') => {
   await list.evaluate((el) => (el.scrollTop = el.scrollHeight))
   await shots('all')
   await section.getByRole('button', { name: 'Show fewer' }).click()
-  check('Show fewer: the last 3 again, at the top', !!(await lib.until(async () => (await rows.count()) === 3, 3000)) && (await list.evaluate((el) => el.scrollTop)) === 0)
+  check('Show fewer: the last 3 again, at the top', !!(await lib.until(async () => (await rows.count()) === 3, HUNG_MS)) && (await list.evaluate((el) => el.scrollTop)) === 0)
   const fewer = { list: (await list.boundingBox()).height, term: (await box('.assistant-terminal')).height }
   check('…the list and the terminal the same size as before', Math.abs(fewer.list - folded3) <= 1 && Math.abs(fewer.term - term3.height) <= 1, `${JSON.stringify(fewer)} vs ${folded3}, ${term3.height}`)
   const inside = await list.evaluate((el) => {
@@ -192,7 +194,7 @@ const check = (name, ok, extra = '') => {
   const before = { term: await box('.assistant-terminal'), rows: await rowsOf() }
   await head.focus()
   await page.keyboard.press('Enter')
-  check('Enter folds it to its header', !!(await lib.until(async () => (await head.getAttribute('aria-expanded')) === 'false' && (await rows.count()) === 0, 3000)))
+  check('Enter folds it to its header', !!(await lib.until(async () => (await head.getAttribute('aria-expanded')) === 'false' && (await rows.count()) === 0, HUNG_MS)))
   await lib.sleep(500) // on purpose: the terminal refits after its box changes
   const after = { term: await box('.assistant-terminal'), rows: await rowsOf() }
   check('…the terminal gets the room', after.term.height > before.term.height + 40, `${before.term.height} → ${after.term.height}`)
@@ -248,7 +250,7 @@ const check = (name, ok, extra = '') => {
   const dialog = page.locator('.dialog', { hasText: '#2' })
   check('…that opens its card', !!(await lib.until(async () => (await dialog.count()) === 1, 5000)))
   await page.keyboard.press('Escape')
-  await lib.until(async () => (await page.locator('.dialog').count()) === 0, 3000)
+  await lib.until(async () => (await page.locator('.dialog').count()) === 0, HUNG_MS)
 
   // --- Narrow: the line is cut short with "…", the whole of it in its tooltip.
   const edge = await page.locator('.assistant-panel > .pane-resizer').boundingBox()
@@ -261,13 +263,13 @@ const check = (name, ok, extra = '') => {
   const cut = await status().locator('.assistant-status-text').evaluate((el) => ({ cut: el.scrollWidth > el.clientWidth, ellipsis: getComputedStyle(el).textOverflow }))
   check('narrow: the status line is cut short with “…”', cut.cut && cut.ellipsis === 'ellipsis', JSON.stringify(cut))
   await status().locator('.assistant-status-text').hover()
-  check('…its tooltip has the whole line', !!(await lib.until(async () => /Status: Waiting for #1, #2 → Review \(watch until/.test((await page.locator('.tip:visible').allInnerTexts()).join(' ')), 3000)))
+  check('…its tooltip has the whole line', !!(await lib.until(async () => /Status: Waiting for #1, #2 → Review \(watch until/.test((await page.locator('.tip:visible').allInnerTexts()).join(' ')), HUNG_MS)))
   await page.mouse.move(0, 0)
   await head.click()
-  await lib.until(async () => (await rows.count()) === 3, 3000)
+  await lib.until(async () => (await rows.count()) === 3, HUNG_MS)
   await shots('narrow')
   await head.click()
-  await lib.until(async () => (await head.getAttribute('aria-expanded')) === 'false', 3000)
+  await lib.until(async () => (await head.getAttribute('aria-expanded')) === 'false', HUNG_MS)
   await page.locator('.assistant-panel > .pane-resizer').dblclick()
 
   // --- A project in the workspace list folds to one line: its dot and how many run (Enter on its chevron too).
@@ -277,7 +279,7 @@ const check = (name, ok, extra = '') => {
   check('a project’s chevron says it is open', (await fold.getAttribute('aria-expanded')) === 'true' && (await project.locator('.assistant-agent').count()) >= 1)
   await fold.focus()
   await page.keyboard.press('Enter')
-  check('Enter folds the project to one line', !!(await lib.until(async () => (await fold.getAttribute('aria-expanded')) === 'false' && (await project.locator('.assistant-agent').count()) === 0, 3000)))
+  check('Enter folds the project to one line', !!(await lib.until(async () => (await fold.getAttribute('aria-expanded')) === 'false' && (await project.locator('.assistant-agent').count()) === 0, HUNG_MS)))
   const summary = (await project.locator('.assistant-project-summary').innerText().catch(() => '')).trim()
   check('…its name, its dot and how many agents run', /^(\d+ running|not running)$/.test(summary) && (await project.locator('.assistant-project-summary .dot').count()) === 1 && (await project.locator('.assistant-project-name').innerText()).trim() === 'alpha', summary)
   check('…in one line', (await project.locator('.assistant-project-head').boundingBox()).height <= 22)
@@ -308,7 +310,7 @@ const check = (name, ok, extra = '') => {
   const alphaAgain = panel().locator('.assistant-project[data-project="alpha"]')
   check('…and so is the project', (await alphaAgain.locator('.assistant-project-fold').getAttribute('aria-expanded')) === 'false' && (await alphaAgain.locator('.assistant-agent').count()) === 0)
   await alphaAgain.locator('.assistant-project-fold').press(' ')
-  check('Space unfolds it again', !!(await lib.until(async () => (await alphaAgain.locator('.assistant-project-fold').getAttribute('aria-expanded')) === 'true' && (await alphaAgain.locator('.assistant-agent').count()) >= 1, 3000)))
+  check('Space unfolds it again', !!(await lib.until(async () => (await alphaAgain.locator('.assistant-project-fold').getAttribute('aria-expanded')) === 'true' && (await alphaAgain.locator('.assistant-agent').count()) >= 1, HUNG_MS)))
 
   // --- Its mark where the Assistant is listed: its run in the Progress panel (reported with its own token, as
   // hive-progress would), the Workspace Overview's running row, and the hidden panel's strip.

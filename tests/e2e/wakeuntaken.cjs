@@ -7,6 +7,8 @@ const lib = require('./lib.cjs')
 const { _electron } = require('playwright-core')
 const fs = require('fs')
 const path = require('path')
+// The longest a wait here waits for what it waits on: a bound for a hung run, never how long it should take (#570).
+const HUNG_MS = 30000
 
 const userData = path.join(lib.WORK, 'wakeuntaken-profile')
 const ws = path.join(lib.WORK, 'wakeuntaken-ws')
@@ -70,7 +72,7 @@ const check = (name, ok, extra = '') => {
   const agent = await lib.addAgent(inv, alpha, { name: 'Watcher' })
   const card = (await inv('tasks:create', { title: 'Watched', project: 'alpha' })).number
   await inv('session:start', alpha, { agentId: agent.id })
-  check('the agent starts', !!(await until(() => idle(agent.id))))
+  check('the agent starts', !!(await until(() => idle(agent.id), HUNG_MS)))
   const watch = async () => {
     await say(agent.id, `hive hive_wait_for_tasks {"cards":[${card}],"changes":["comment"],"wake":true}`)
     return until(async () => (await live(agent.id))?.status === 'watching', 15000)

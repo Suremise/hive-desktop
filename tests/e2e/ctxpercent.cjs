@@ -6,6 +6,8 @@ const lib = require('./lib.cjs')
 const { _electron } = require('playwright-core')
 const fs = require('fs')
 const path = require('path')
+// The longest a wait here waits for what it waits on: a bound for a hung run, never how long it should take (#570).
+const HUNG_MS = 10000
 
 const userData = path.join(lib.WORK, 'ctxpercent-profile')
 const ws = path.join(lib.WORK, 'ctxpercent-ws')
@@ -80,7 +82,7 @@ const until = async (fn, ms = 10000) => {
   check("…breaking it down: the last turn's input + its output (thinking included), which add up to the figure", !!parts && num(parts[1]) + num(parts[2]) === tokens && num(parts[2]) > 0, JSON.stringify(lines))
   await page.screenshot({ path: path.join(lib.WORK, 'ctxpercent-tip-dark.png') })
   await inv('settings:update', { appearance: { theme: 'light' } })
-  await until(themeIs('light'))
+  await until(themeIs('light'), HUNG_MS)
   await page.screenshot({ path: path.join(lib.WORK, 'ctxpercent-tip-light.png') })
   await inv('settings:update', { appearance: { theme: 'dark' } })
   await page.mouse.move(5, 5)
@@ -142,7 +144,7 @@ const until = async (fn, ms = 10000) => {
   check('…in the session as read at launch', JSON.stringify((await live())?.autoCompact) === JSON.stringify({ window: 150000, source: "autoCompactWindow in the project's .claude/settings.local.json" }), JSON.stringify((await live())?.autoCompact))
   await page.screenshot({ path: path.join(lib.WORK, 'ctxpercent-autocompact-dark.png') })
   await inv('settings:update', { appearance: { theme: 'light' } })
-  await until(themeIs('light'))
+  await until(themeIs('light'), HUNG_MS)
   await page.screenshot({ path: path.join(lib.WORK, 'ctxpercent-autocompact-light.png') })
   await inv('settings:update', { appearance: { theme: 'dark' } })
   fs.rmSync(localSettings, { force: true })

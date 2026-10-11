@@ -7,6 +7,8 @@
 const lib = require('./lib.cjs')
 const fs = require('fs')
 const path = require('path')
+// The longest a wait here waits for what it waits on: a bound for a hung run, never how long it should take (#570).
+const HUNG_MS = 10000
 
 const userData = path.join(lib.WORK, 'performance-profile')
 const ws = path.join(lib.WORK, 'performance-ws')
@@ -89,14 +91,14 @@ const check = (name, ok, extra = '') => {
   const exported = async (modifiers = []) => {
     fs.rmSync(out, { force: true })
     await page.locator('.performance-page:visible button', { hasText: 'Export' }).click({ modifiers })
-    const text = await until(async () => fs.existsSync(out) && fs.readFileSync(out, 'utf8'))
+    const text = await until(async () => fs.existsSync(out) && fs.readFileSync(out, 'utf8'), HUNG_MS)
     return text ? { text, json: JSON.parse(text) } : null
   }
   const trendRequests = (e) => e.json.report.trend.reduce((n, p) => n + p.requests, 0)
 
   await page.locator('.activitybar button[aria-label="Performance"]').click()
-  check('the activity bar opens Performance', !!(await until(async () => (await page.locator('.performance-page:visible h1', { hasText: 'Performance' }).count()) === 1)))
-  check('24 hours by default: the workspace is every project and its own work', !!(await until(async () => (await requests()) === '47')), await requests())
+  check('the activity bar opens Performance', !!(await until(async () => (await page.locator('.performance-page:visible h1', { hasText: 'Performance' }).count()) === 1, HUNG_MS)))
+  check('24 hours by default: the workspace is every project and its own work', !!(await until(async () => (await requests()) === '47', HUNG_MS)), await requests())
   const bars = page.locator('.perf-trend .daily-col')
   check('an hourly trend with every hour of the range', (await bars.count()) === 25, String(await bars.count()))
   check('the tools table is sorted by characters', (await page.locator('.table-wrap').first().locator('tbody tr td:first-child').allInnerTexts()).join() === 'hive_read_task,hive_list_tasks', (await page.locator('.table-wrap').first().locator('tbody tr td:first-child').allInnerTexts()).join())
@@ -110,10 +112,10 @@ const check = (name, ok, extra = '') => {
   const tools = perfTable('Per call')
   await tools.locator('th button', { hasText: 'Calls' }).click()
   check('the tools table sorts by Calls, most first', (await firstCells(tools)) === 'hive_list_tasks,hive_read_task', await firstCells(tools))
-  check('…remembered for the table', !!(await until(async () => (await inv('ui:get'))?.panes?.['table-sort:perf-tools:calls'] === 2)), JSON.stringify((await inv('ui:get'))?.panes))
+  check('…remembered for the table', !!(await until(async () => (await inv('ui:get'))?.panes?.['table-sort:perf-tools:calls'] === 2, HUNG_MS)), JSON.stringify((await inv('ui:get'))?.panes))
   await page.locator('.activitybar button[aria-label="Projects"]').click()
   await page.locator('.activitybar button[aria-label="Performance"]').click()
-  check('…and still sorted so when the view comes back', !!(await until(async () => (await firstCells(tools)) === 'hive_list_tasks,hive_read_task')), await firstCells(tools))
+  check('…and still sorted so when the view comes back', !!(await until(async () => (await firstCells(tools)) === 'hive_list_tasks,hive_read_task', HUNG_MS)), await firstCells(tools))
   await tools.locator('th button', { hasText: 'Calls' }).click()
   await tools.locator('th button', { hasText: 'Calls' }).click()
   check('…until it goes back to its default (characters), which keeps nothing', (await firstCells(tools)) === 'hive_read_task,hive_list_tasks' && !Object.keys((await inv('ui:get'))?.panes ?? {}).some((k) => k.startsWith('table-sort:perf-tools:')), await firstCells(tools))
@@ -129,7 +131,7 @@ const check = (name, ok, extra = '') => {
   await launches.locator('th button', { hasText: 'Launches' }).click()
   const usage = perfTable('Cache read')
   const usageWho = async () => (await usage.locator('tbody tr td:nth-child(2)').allInnerTexts()).map((x) => x.trim()).join()
-  check('Provider usage has the agents’ and the Assistant’s rows', !!(await until(async () => (await usageWho()).split(',').sort().join() === 'Agents,Assistant')), await usageWho())
+  check('Provider usage has the agents’ and the Assistant’s rows', !!(await until(async () => (await usageWho()).split(',').sort().join() === 'Agents,Assistant', HUNG_MS)), await usageWho())
   await usage.locator('th button', { hasText: 'Sessions' }).click()
   check('…sorted by Sessions, most first: the agents’ two', (await usageWho()) === 'Agents,Assistant', await usageWho())
   await usage.locator('th button', { hasText: 'Sessions' }).click()
@@ -140,16 +142,16 @@ const check = (name, ok, extra = '') => {
   await shot('wide-dark')
 
   await page.locator('.performance-page:visible .segmented button', { hasText: '7 days' }).click()
-  check('7 days adds the older work, with a daily trend', !!(await until(async () => (await requests()) === '148')) && (await bars.count()) === 8, `${await requests()} ${await bars.count()}`)
+  check('7 days adds the older work, with a daily trend', !!(await until(async () => (await requests()) === '148', HUNG_MS)) && (await bars.count()) === 8, `${await requests()} ${await bars.count()}`)
   const tools7 = perfTable('Per call')
   const toolPaging = async () => ((await tools7.locator('.table-paging').innerText().catch(() => '')) ?? '').replace(/\s+/g, ' ')
   check('…its tools table pages: thirteen tools, ten a page', /1–10 of 13/.test(await toolPaging()) && (await tools7.locator('tbody tr').count()) === 10, await toolPaging())
   await tools7.locator('input[aria-label="Filter Tool"]').fill('shared_note')
-  check('…and filters by tool', !!(await until(async () => (await firstCells(tools7)).split(',').sort().join() === 'hive_list_shared_notes,hive_read_shared_note,hive_write_shared_note')), await firstCells(tools7))
+  check('…and filters by tool', !!(await until(async () => (await firstCells(tools7)).split(',').sort().join() === 'hive_list_shared_notes,hive_read_shared_note,hive_write_shared_note', HUNG_MS)), await firstCells(tools7))
   await tools7.locator('input[aria-label="Filter Tool"]').fill('nothing like a tool')
   check('…no matches: says so', (await tools7.locator('.table-no-match').count()) === 1)
   await tools7.locator('.table-no-match button', { hasText: 'Clear filters' }).click()
-  check('…and Clear filters brings them back', !!(await until(async () => /of 13/.test(await toolPaging()))), await toolPaging())
+  check('…and Clear filters brings them back', !!(await until(async () => /of 13/.test(await toolPaging()), HUNG_MS)), await toolPaging())
   // Latency past the histogram's last bound ("> 10 s") is the slowest, whichever way p95 sorts; rows with none come last (#305).
   const routes7 = perfTable('Route')
   const routeOrder = async () => (await routes7.locator('tbody tr').allInnerTexts()).map((t) => (/\/v1\/\S+/.exec(t) ?? [''])[0])
@@ -160,7 +162,7 @@ const check = (name, ok, extra = '') => {
   await routes7.locator('th button', { hasText: 'p95' }).click()
   check('…and says history Hive removed for space is unavailable', /removed to keep the metrics file under its size limit/.test(await page.locator('.perf-coverage').innerText()), await page.locator('.perf-coverage').innerText())
   await page.locator('.performance-page:visible .segmented button', { hasText: '24 hours' }).click()
-  await until(async () => (await requests()) === '47')
+  await until(async () => (await requests()) === '47', HUNG_MS)
 
   // Reading it adds nothing: Refresh shows the same.
   await page.locator('.performance-page:visible button[aria-label="Refresh"]').click()
@@ -168,23 +170,23 @@ const check = (name, ok, extra = '') => {
   check('reading the page adds nothing to it', (await requests()) === '47', await requests())
 
   await page.locator('.sidebar .row', { hasText: 'alpha' }).click()
-  check("the sidebar's project: only its work", !!(await until(async () => (await requests()) === '30')), await requests())
+  check("the sidebar's project: only its work", !!(await until(async () => (await requests()) === '30', HUNG_MS)), await requests())
   check('…named in the header', (await page.locator('.perf-scope').innerText()).includes('alpha'))
   check('…and no skill service (shared by the workspace)', (await page.locator('h2', { hasText: 'Skill service' }).count()) === 0)
   check("…with the warning that some losses couldn't be attributed, as on its tab", /couldn’t be attributed/.test(await page.locator('.perf-coverage').innerText()))
   await page.locator('.sidebar .row', { hasText: 'Workspace’s own work' }).click()
-  check("the workspace's own work", !!(await until(async () => (await requests()) === '5')), await requests())
+  check("the workspace's own work", !!(await until(async () => (await requests()) === '5', HUNG_MS)), await requests())
   const ownFile = await exported()
   check("…its trend and its export are its own too (no project's)", ownFile && trendRequests(ownFile) === 5 && Object.keys(ownFile.json.report.projects).length === 0 && ownFile.json.filters.own === true, ownFile && JSON.stringify({ t: trendRequests(ownFile), p: Object.keys(ownFile.json.report.projects), f: ownFile.json.filters }))
   await page.locator('.sidebar .row', { hasText: 'Whole workspace' }).click()
-  await until(async () => (await requests()) === '47')
+  await until(async () => (await requests()) === '47', HUNG_MS)
   await page.locator('select[aria-label="Who did the work"]').selectOption('api')
-  check('the role filter: scripts only', !!(await until(async () => (await requests()) === '5')), await requests())
+  check('the role filter: scripts only', !!(await until(async () => (await requests()) === '5', HUNG_MS)), await requests())
   const scriptsFile = await exported()
   check('…in the trend and the export too, with the filter named', scriptsFile && trendRequests(scriptsFile) === 5 && scriptsFile.json.filters.role === 'api' && scriptsFile.json.report.trend.every((p) => p.launches === 0), scriptsFile && JSON.stringify(scriptsFile.json.filters))
   check('…and what the filter can’t narrow is said', /shared: not per role or provider/.test(await page.locator('.perf-coverage').innerText()))
   await page.locator('select[aria-label="Who did the work"]').selectOption('all')
-  await until(async () => (await requests()) === '47')
+  await until(async () => (await requests()) === '47', HUNG_MS)
 
   // Each filter sits with the sections it changes (#270): Who frames the cards, chart and tables, not the skill
   // service; Provider frames launches and the providers' usage only, and keeps every provider to pick from.
@@ -196,7 +198,7 @@ const check = (name, ok, extra = '') => {
   const guidanceRows = () => byProvider.locator('.data-table', { has: page.locator('th', { hasText: 'Launches' }) }).locator('tbody tr td:first-child').allInnerTexts()
   check('…offering every provider with data', (await providerOptions()).join() === 'All providers,Claude Code,Codex', (await providerOptions()).join())
   await page.locator('select[aria-label="Provider"]').selectOption('codex')
-  check('picking Codex narrows its sections to Codex', !!(await until(async () => (await guidanceRows()).join() === 'Codex')), (await guidanceRows()).join())
+  check('picking Codex narrows its sections to Codex', !!(await until(async () => (await guidanceRows()).join() === 'Codex', HUNG_MS)), (await guidanceRows()).join())
   check('…leaves the sections it doesn’t frame as they were', (await requests()) === '47' && /3 launches/.test(await page.locator('.performance-page:visible .card', { hasText: 'Guidance per launch' }).innerText()), `${await requests()} ${await page.locator('.performance-page:visible .card', { hasText: 'Guidance per launch' }).innerText()}`)
   check('…and still offers Claude Code', (await providerOptions()).join() === 'All providers,Claude Code,Codex', (await providerOptions()).join())
   await byProvider.scrollIntoViewIfNeeded()
@@ -210,13 +212,13 @@ const check = (name, ok, extra = '') => {
   await page.locator('.performance-page:visible button', { hasText: 'Keep current view' }).click()
   await page.locator('.dialog input.input').first().fill('Codex picked')
   await page.locator('.dialog .btn.primary').click()
-  const keptCodex = await until(async () => (await inv('benchmarks:list', { kind: 'workspace' })).entries.find((e) => e.label === 'Codex picked'))
+  const keptCodex = await until(async () => (await inv('benchmarks:list', { kind: 'workspace' })).entries.find((e) => e.label === 'Codex picked'), HUNG_MS)
   const keptSummary = keptCodex && (await inv('benchmarks:read', { kind: 'workspace' }, keptCodex.id)).summary
   check('…and so does Keep current view', keptSummary && keptSummary.totals.launches === 3 && keptSummary.filters.provider === undefined, keptSummary && JSON.stringify({ t: keptSummary.totals, f: keptSummary.filters }))
   await page.locator('.performance-page:visible .segmented button', { hasText: 'Now' }).click()
-  await until(async () => (await requests()) === '47')
+  await until(async () => (await requests()) === '47', HUNG_MS)
   await page.locator('select[aria-label="Provider"]').selectOption('claude-code')
-  check('Codex → Claude Code in one step', !!(await until(async () => (await guidanceRows()).join() === 'Claude Code')), (await guidanceRows()).join())
+  check('Codex → Claude Code in one step', !!(await until(async () => (await guidanceRows()).join() === 'Claude Code', HUNG_MS)), (await guidanceRows()).join())
   await page.locator('select[aria-label="Provider"]').selectOption('')
 
   // A scope switched while the last query is slow: the late answer for the old scope is never shown.
@@ -226,7 +228,7 @@ const check = (name, ok, extra = '') => {
   await page.locator('.sidebar .row', { hasText: 'alpha' }).click()
   await lib.sleep(300)
   await page.locator('.sidebar .row', { hasText: 'beta' }).click()
-  check('a scope switched during a slow query shows the new scope', !!(await until(async () => (await requests()) === '12')), await requests())
+  check('a scope switched during a slow query shows the new scope', !!(await until(async () => (await requests()) === '12', HUNG_MS)), await requests())
   await lib.sleep(3000) // A fixed wait on purpose: the slowed answer for the old choice arrives later, and this checks it doesn't replace the new one.
   check("…and the old scope's late reply doesn't replace it", (await requests()) === '12', await requests())
   await app.evaluate(() => {
@@ -234,25 +236,25 @@ const check = (name, ok, extra = '') => {
   })
 
   await page.locator('.sidebar .row', { hasText: 'gamma' }).click()
-  check('a project with nothing recorded says so', !!(await until(async () => (await page.locator('.perf-empty').count()) === 1)))
+  check('a project with nothing recorded says so', !!(await until(async () => (await page.locator('.perf-empty').count()) === 1, HUNG_MS)))
   await shot('empty')
 
   // A provider chosen elsewhere stays visible in an empty scope, saying it has nothing there, and can be changed (#294).
   const providerSelect = page.locator('.performance-page:visible select[aria-label="Provider"]')
   await page.locator('.sidebar .row', { hasText: 'Whole workspace' }).click()
-  await until(async () => (await requests()) === '47')
+  await until(async () => (await requests()) === '47', HUNG_MS)
   await providerSelect.selectOption('claude-code')
   await page.locator('.sidebar .row', { hasText: 'gamma' }).click()
-  check('an empty scope keeps a chosen provider’s filter, saying it has nothing there', !!(await until(async () => (await page.locator('.performance-page:visible .perf-empty').count()) === 1 && (await providerSelect.count()) === 1 && (await providerSelect.inputValue()) === 'claude-code' && /Nothing from Claude Code in the last 24 hours/.test(await page.locator('.performance-page:visible .perf-by-provider').innerText()))))
+  check('an empty scope keeps a chosen provider’s filter, saying it has nothing there', !!(await until(async () => (await page.locator('.performance-page:visible .perf-empty').count()) === 1 && (await providerSelect.count()) === 1 && (await providerSelect.inputValue()) === 'claude-code' && /Nothing from Claude Code in the last 24 hours/.test(await page.locator('.performance-page:visible .perf-by-provider').innerText()), HUNG_MS)))
   await shot('empty-provider')
   await providerSelect.selectOption('')
-  check('…which can be set back to all providers (then, with nothing to filter, it goes)', !!(await until(async () => (await providerSelect.count()) === 0)))
+  check('…which can be set back to all providers (then, with nothing to filter, it goes)', !!(await until(async () => (await providerSelect.count()) === 0, HUNG_MS)))
   await page.locator('.sidebar .row', { hasText: 'Whole workspace' }).click()
-  check('…and back where there is data, everything shows, all providers', !!(await until(async () => (await requests()) === '47' && (await providerSelect.count()) === 1 && (await providerSelect.inputValue()) === '')))
+  check('…and back where there is data, everything shows, all providers', !!(await until(async () => (await requests()) === '47' && (await providerSelect.count()) === 1 && (await providerSelect.inputValue()) === '', HUNG_MS)))
 
   // Export of the whole workspace: plain, then sanitized.
   await page.locator('.sidebar .row', { hasText: 'Whole workspace' }).click()
-  await until(async () => (await requests()) === '47')
+  await until(async () => (await requests()) === '47', HUNG_MS)
   const plain = (await exported())?.json
   check('Export saves the report with its schema, version, units, coverage and trend', plain && plain.schema === 'hive-metrics/1' && plain.app.version && plain.units.bytes && plain.coverage.observedMs > 0 && plain.report.trend.length === 25 && 'alpha' in plain.report.projects, JSON.stringify(plain).slice(0, 200))
   const clean = (await exported(['Shift']))?.text
@@ -262,7 +264,7 @@ const check = (name, ok, extra = '') => {
   await page.locator('.activitybar button[aria-label="Projects"]').click()
   await page.locator('.sidebar .row', { hasText: 'beta' }).first().click()
   await page.locator('.tab', { hasText: 'Performance' }).click()
-  check("a project's Performance tab shows only its project", !!(await until(async () => (await requests()) === '12')), await requests())
+  check("a project's Performance tab shows only its project", !!(await until(async () => (await requests()) === '12', HUNG_MS)), await requests())
   check('…with no scope choice and agents as the only role', (await page.locator('select[aria-label="Scope"]').count()) === 0 && (await page.locator('select[aria-label="Who did the work"] option').count()) === 2)
   check('…and its own providers to pick from', (await providerOptions()).join() === 'All providers,Codex', (await providerOptions()).join())
   await shot('tab')
@@ -270,7 +272,7 @@ const check = (name, ok, extra = '') => {
   // Not recording: a banner, and what was recorded is still shown.
   await inv('settings:update', { sessions: { recordPerformance: false } })
   await page.locator('.performance-page:visible button[aria-label="Refresh"]').click()
-  check('not recording: a banner says so, the numbers stay', !!(await until(async () => (await page.locator('.perf-banner').count()) === 1)) && (await requests()) === '12')
+  check('not recording: a banner says so, the numbers stay', !!(await until(async () => (await page.locator('.perf-banner').count()) === 1, HUNG_MS)) && (await requests()) === '12')
   await inv('settings:update', { sessions: { recordPerformance: true } })
 
   // Light theme, and a narrow window.

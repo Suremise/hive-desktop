@@ -7,6 +7,8 @@ const lib = require('./lib.cjs')
 const { _electron } = require('playwright-core')
 const fs = require('fs')
 const path = require('path')
+// The longest a wait here waits for what it waits on: a bound for a hung run, never how long it should take (#570).
+const HUNG_MS = 10000
 
 const userData = path.join(lib.WORK, 'taskbar-profile')
 const ws = path.join(lib.WORK, 'taskbar-ws')
@@ -109,7 +111,7 @@ const until = async (fn, ms = 10000) => {
 
   // --- Both settings turn them off; turning the flash off stops the one under way (the window was never focused).
   await inv('settings:update', { notifications: { taskbarCount: false, flashOnWaiting: false } })
-  check('turning the flash off stops it', !!(await until(async () => (await flashes()).at(-1) === false, 3000)), JSON.stringify(await flashes()))
+  check('turning the flash off stops it', !!(await until(async () => (await flashes()).at(-1) === false, HUNG_MS)), JSON.stringify(await flashes()))
   clearFlashes()
   await page.getByText('alpha', { exact: true }).first().click()
   await send(beta, two, 'ask go')

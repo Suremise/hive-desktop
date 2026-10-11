@@ -7,6 +7,8 @@ const { createHash } = require('crypto')
 const { execFileSync } = require('child_process')
 const fs = require('fs')
 const path = require('path')
+// The longest a wait here waits for what it waits on: a bound for a hung run, never how long it should take (#570).
+const HUNG_MS = 20000
 
 const userData = path.join(lib.WORK, 'control-profile')
 const ws = path.join(lib.WORK, 'control-ws')
@@ -59,10 +61,10 @@ const check = (name, ok, extra = '') => {
   await page.getByText('gamma', { exact: true }).first().click()
   await lib.sleep(300)
   await inv('session:start', home, { agentId: 'assistant' })
-  const asking = await until(async () => (await live(home, 'assistant'))?.status === 'waiting' && (await live(home, 'assistant')))
+  const asking = await until(async () => (await live(home, 'assistant'))?.status === 'waiting' && (await live(home, 'assistant')), HUNG_MS)
   check('a trust question before the start shows as waiting', !!asking && /trust/i.test(asking.statusMessage ?? ''), JSON.stringify(asking && { status: asking.status, msg: asking.statusMessage }))
   await inv('pty:write', lib.ptyKey(home, 'assistant'), '\r')
-  check('answered, it starts', !!(await until(async () => (await live(home, 'assistant'))?.status === 'ready')))
+  check('answered, it starts', !!(await until(async () => (await live(home, 'assistant'))?.status === 'ready', HUNG_MS)))
 
   // Its hive tools: its own token file, its role and control level.
   const tokenFile = path.join(userData, 'assistant-api', `${createHash('sha256').update(ws.toLowerCase()).digest('hex').slice(0, 16)}.json`)
@@ -92,13 +94,13 @@ const check = (name, ok, extra = '') => {
   const added = await api('POST', '/v1/projects/alpha/agents', { name: 'Builder', prompt: 'work 3' })
   check('it adds an agent that starts on a task', added.status === 200 && added.body?.agent?.name === 'Builder', JSON.stringify(added.body))
   const builder = added.body?.agent?.id
-  const trusting = await until(async () => (await live(alpha, builder))?.status === 'waiting')
+  const trusting = await until(async () => (await live(alpha, builder))?.status === 'waiting', HUNG_MS)
   check("a new folder's trust question waits for the user", !!trusting)
   const askingRun = (await live(alpha, builder))?.runId
   const askingFresh = await api('POST', '/v1/projects/alpha/agents/Builder/prompt', { text: 'work 1', newConversation: true })
   check('no new conversation for an agent waiting for the user', askingFresh.status === 409 && /waiting for the user/.test(askingFresh.body?.error) && !!askingRun && (await live(alpha, builder))?.runId === askingRun, JSON.stringify(askingFresh.body))
   await inv('pty:write', lib.ptyKey(alpha, builder), '\r')
-  check('then it works on the task', !!(await until(async () => (await live(alpha, builder))?.status === 'working')))
+  check('then it works on the task', !!(await until(async () => (await live(alpha, builder))?.status === 'working', HUNG_MS)))
   check("the user's view didn't move", (await page.locator('.project-header, .project-title').first().innerText().catch(() => '')).includes('gamma'))
   const busy = await api('POST', `/v1/projects/alpha/agents/Builder/prompt`, { text: 'more' })
   check('no task for a working agent', busy.status === 409 && /working/.test(busy.body?.error), JSON.stringify(busy.body))
@@ -123,7 +125,7 @@ const check = (name, ok, extra = '') => {
   const old = await live(alpha, builder)
   const fresh = await api('POST', '/v1/projects/alpha/agents/Builder/prompt', { text: 'work 1', newConversation: true })
   check('an idle agent takes a task in a new conversation', fresh.status === 200 && fresh.body?.newConversation === true, JSON.stringify(fresh.body))
-  const renewed = await until(async () => { const s = await live(alpha, builder); return s?.sessionId && s.sessionId !== old?.sessionId && s })
+  const renewed = await until(async () => { const s = await live(alpha, builder); return s?.sessionId && s.sessionId !== old?.sessionId && s }, HUNG_MS)
   check('it runs as a new launch with a new session', !!old?.sessionId && !!renewed && renewed.runId !== old.runId, JSON.stringify({ old: old?.sessionId, now: renewed?.sessionId }))
   await api('POST', '/v1/agents/wait', { agents: [{ project: 'alpha', agent: 'Builder' }], timeoutSeconds: 30 })
   const freshAct = (await api('GET', '/v1/projects/alpha/agents/Builder/activity')).body
@@ -136,10 +138,10 @@ const check = (name, ok, extra = '') => {
   // A second agent, started idle, takes a task; its edit shows as a locked file and a tool call.
   const second = await api('POST', '/v1/projects/alpha/agents', { name: 'Fixer', start: true })
   const fixer = second.body?.agent?.id
-  check('an agent started idle is ready', !!(await until(async () => (await live(alpha, fixer))?.status === 'ready')))
+  check('an agent started idle is ready', !!(await until(async () => (await live(alpha, fixer))?.status === 'ready', HUNG_MS)))
   const given = await api('POST', '/v1/projects/alpha/agents/Fixer/prompt', { text: 'edit a.ts work 6' })
   check('an idle agent takes a task', given.status === 200, JSON.stringify(given.body))
-  await until(async () => (await live(alpha, fixer))?.status === 'working')
+  await until(async () => (await live(alpha, fixer))?.status === 'working', HUNG_MS)
   await lib.until(async () => { const b = (await api('GET', '/v1/projects/alpha/agents/Fixer/activity')).body; return b?.recentTools?.some((t) => t.tool === 'Edit') && b.lockedFiles?.includes('a.ts') }, 10000)
   const working = (await api('GET', '/v1/projects/alpha/agents/Fixer/activity')).body
   check('its activity shows the edit and the locked file', working?.recentTools?.some((t) => t.tool === 'Edit') && working.lockedFiles?.includes('a.ts'), JSON.stringify(working))
@@ -160,7 +162,7 @@ const check = (name, ok, extra = '') => {
   await card.waitFor({ timeout: 10000 }).catch(() => {})
   const qs = await inv('assistant:questions')
   await inv('assistant:answer', qs[0]?.id, true)
-  check('and a yes stops it', (await stopping2).status === 200 && !!(await until(async () => !(await live(alpha, fixer)))))
+  check('and a yes stops it', (await stopping2).status === 200 && !!(await until(async () => !(await live(alpha, fixer)), HUNG_MS)))
   const stoppedFresh = await api('POST', '/v1/projects/alpha/agents/Fixer/prompt', { text: 'work 1', newConversation: true })
   check('a stopped agent gets no new conversation: start it instead', stoppedFresh.status === 409 && /isn't running/.test(stoppedFresh.body?.error) && !(await live(alpha, fixer)), JSON.stringify(stoppedFresh.body))
 

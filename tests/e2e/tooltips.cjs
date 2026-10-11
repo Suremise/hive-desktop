@@ -8,6 +8,8 @@ const lib = require('./lib.cjs')
 const { _electron } = require('playwright-core')
 const fs = require('fs')
 const path = require('path')
+// The longest a wait here waits for what it waits on: a bound for a hung run, never how long it should take (#570).
+const HUNG_MS = 10000
 
 const userData = path.join(lib.WORK, 'tooltips-profile')
 const ws = path.join(lib.WORK, 'tooltips-ws')
@@ -34,12 +36,12 @@ const check = (name, ok, extra = '') => {
   /** Hovers the element and measures its tooltip, its anchor (the tooltip's wrapper) and the window. */
   const hover = async (locator, shot) => {
     await page.mouse.move(700, 450)
-    await lib.until(async () => (await page.locator('.tip').count()) === 0, 3000)
+    await lib.until(async () => (await page.locator('.tip').count()) === 0, HUNG_MS)
     await locator.hover()
     const shown = await lib.until(() => page.evaluate(() => {
       const t = document.querySelector('.tip')
       return !!t && getComputedStyle(t).visibility === 'visible'
-    }), 3000)
+    }), HUNG_MS)
     if (!shown) return null
     const geo = await locator.evaluate((el) => {
       const r = (b) => ({ left: b.left, top: b.top, right: b.right, bottom: b.bottom })
@@ -74,7 +76,7 @@ const check = (name, ok, extra = '') => {
 
     // The Notifications panel's ✕ and Clear all, the report's case.
     if ((await page.locator('.notif-panel').count()) === 0) await page.locator('.activity-btn[aria-label="Notifications"]').click()
-    await lib.until(async () => (await page.locator('.notif-panel').count()) === 1, 3000)
+    await lib.until(async () => (await page.locator('.notif-panel').count()) === 1, HUNG_MS)
     const close = page.locator('.notif-panel button[aria-label="Close"]')
     const closeBox = await close.boundingBox()
     const g = await beside(`${at}: Notifications ✕`, close, { rightAligned: closeBox && closeBox.x + closeBox.width > (await page.evaluate(() => innerWidth)) - 200, shot: `notifications-${theme}` })

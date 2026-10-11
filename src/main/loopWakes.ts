@@ -3,10 +3,10 @@ import { projectAgents } from '../shared/defaults'
 import type { TaskCard, TaskHistoryEntry } from '../shared/types'
 import { cardChange, loopWakeLine, wakeAbout } from '../shared/watch'
 import { onHiveEvent } from './events'
-import { listLanes } from './lanes'
+import { listLanes, onLanesWritten } from './lanes'
 import { createLogger, userText } from './logger'
 import { getTask, noteOnCard, onLoopEvent, type LoopEvent, type TaskActor } from './tasks'
-import { typeLine, watchCovers } from './watches'
+import { inFlightNow as watchesInFlight, settled as watchesSettled, typeLine, watchCovers, watchTold } from './watches'
 import { workspaceFor, type WorkspaceService } from './workspace'
 
 /**
@@ -45,6 +45,35 @@ const KEEP_MS = 24 * 60 * 60_000
 const SETTLE_MS = 1500
 /** At most this many wakes wait at once (the oldest go first). */
 const MAX_PENDING = 200
+
+/**
+ * For unit tests: the settle before a handoff's wake is first tried (SETTLE_MS; 0 tries it at once), and a pause before
+ * a handoff is worked out (#578: a handoff later than the watch that tells the same change).
+ */
+export const testHooks: { settleMs?: number; beforeHandoff?: () => Promise<void> } = {}
+
+/**
+ * What loop wakes are doing in the background (#570): handoffs being worked out, the settle before each wake's first
+ * try, and tries. `settled()` resolves once none is left, nor any of the watches' work they lead to. A wake kept waiting
+ * for its agent to be idle isn't in flight: it is in `pendingLoopWakes()`.
+ */
+const inFlight = new Set<Promise<unknown>>()
+function inBackground(what: string, work: Promise<unknown>): void {
+  const p = work.catch((e) => log.warn(what, e))
+  inFlight.add(p)
+  void p.finally(() => inFlight.delete(p))
+}
+function inBackgroundAfter(ms: number, what: string, work: () => Promise<unknown>): void {
+  inBackground(what, new Promise<void>((done, fail) => setTimeout(() => work().then(() => done(), fail), ms).unref?.()))
+}
+
+/** Resolves once loop wakes and watches have nothing in flight: every handoff so far is typed, kept or dropped. */
+export async function settled(): Promise<void> {
+  while (inFlight.size || watchesInFlight()) {
+    await Promise.allSettled([...inFlight])
+    await watchesSettled()
+  }
+}
 
 const same = (a: string, b: string): boolean => a.toLowerCase() === b.toLowerCase()
 const selfOf = (actor: TaskActor): string | null => (actor.kind === 'agent' && actor.self ? actor.self.agentId : null)
@@ -87,11 +116,12 @@ function enqueue(ws: WorkspaceService, projectPath: string, card: TaskCard, kind
   pending.delete(key)
   pending.set(key, { ws, projectPath, agentId: to.id, agentName: to.name, n: card.number, kind, since, at: Date.now() })
   while (pending.size > MAX_PENDING) pending.delete(pending.keys().next().value!)
-  setTimeout(() => void attempt(key).catch((err) => log.warn('a loop wake', err)), SETTLE_MS).unref?.()
+  inBackgroundAfter(testHooks.settleMs ?? SETTLE_MS, 'a loop wake', () => attempt(key))
 }
 
 /** A handoff saved (tasks.ts): whose wake it is, if anyone's, queued and tried after a settle. */
 async function handoff(e: LoopEvent): Promise<void> {
+  await testHooks.beforeHandoff?.()
   const { card, kind, actor } = e
   if (!e.ws.path || !card.project || card.archived) return
   const projectPath = join(e.ws.path, card.project)
@@ -153,7 +183,10 @@ async function attemptNow(key: string): Promise<void> {
   const drop = (): void => {
     if (pending.get(key) === p) pending.delete(key)
   }
-  if (!card || !stillDue(p, card) || watchCovers(p.projectPath, p.agentId, p.n, p.kind, card.column) || !(await wakesOn(p.ws, p.projectPath))) return drop()
+  // Its own watch told it already (#578): a watch whose line had read this handoff's own history entry, even one that has
+  // ended since (a handoff slower than the watch's settle and typing found no watch to leave it to).
+  const told = !!card && !!p.since && watchTold(p.projectPath, p.agentId, card, p.since)
+  if (!card || !stillDue(p, card) || watchCovers(p.projectPath, p.agentId, p.n, p.kind, card.column) || told || !(await wakesOn(p.ws, p.projectPath))) return drop()
   // Only to whose wake it is now: another reviewer given the lane meanwhile gets it instead (#405 round 1 finding).
   const to = await targetOf(p.ws, p.projectPath, card, p.kind)
   if (to?.id !== p.agentId) {
@@ -174,7 +207,7 @@ async function attemptNow(key: string): Promise<void> {
 function tryPending(projectPath?: string, agentId?: string): void {
   for (const [key, p] of pending) {
     if (projectPath && !(same(p.projectPath, projectPath) && p.agentId === agentId)) continue
-    void attempt(key).catch((e) => log.warn('a loop wake', e))
+    inBackground('a loop wake', attempt(key))
   }
 }
 
@@ -183,12 +216,14 @@ let started = false
 export function initLoopWakes(): void {
   if (started) return
   started = true
-  onLoopEvent((e) => void handoff(e).catch((err) => log.warn('a loop handoff', err)))
+  onLoopEvent((e) => inBackground('a loop handoff', handoff(e)))
+  // A lane written counts at once: its settled lanes-changed event comes 300 ms later (#578 round 2).
+  onLanesWritten(() => rolesSeq++)
   onHiveEvent((e) => {
     if (e.type === 'tasks-changed' || e.type === 'lanes-changed') rolesSeq++
     if (e.type !== 'session-status') return
     const s = e.state.status
-    if (s === 'ready' || s === 'finished' || s === 'watching') setTimeout(() => tryPending(e.state.projectPath, e.state.agentId), 500)
+    if (s === 'ready' || s === 'finished' || s === 'watching') inBackgroundAfter(500, 'a loop wake', async () => tryPending(e.state.projectPath, e.state.agentId))
   })
   const timer = setInterval(() => tryPending(), 5000)
   timer.unref?.()

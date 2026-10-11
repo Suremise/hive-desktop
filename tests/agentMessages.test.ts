@@ -9,6 +9,8 @@ import { join } from 'path'
 import { afterAll, beforeEach, describe, expect, it, vi } from 'vitest'
 import * as electron from 'electron'
 import { tempDir } from './tempDir'
+// The longest a wait here waits for what it waits on: a bound for a hung run, never how long it should take (#570).
+const HUNG_MS = 10000
 
 describe('messages left for agents (#530)', async () => {
   const base = tempDir('hive-messages-')
@@ -180,7 +182,7 @@ describe('messages left for agents (#530)', async () => {
       st.status = 'ready'
       expect(await leave('Revoked before the retry.', allowed)).toEqual({ fate: 'delivered', queued: 0 })
       why = 'the user turned Settings → Assistant → Control down'
-      await vi.waitFor(() => expect(cli.clears).toBe(1), { timeout: 3000 })
+      await vi.waitFor(() => expect(cli.clears).toBe(1), { timeout: HUNG_MS })
       expect(cli.enters).toBe(0)
       expect(messages.messagesOf(alpha, 'b1').last).toMatchObject({ outcome: 'refused', detail: 'the user turned Settings → Assistant → Control down' })
       // Riding a wake: the same, and the wake is typed again alone, and taken.
@@ -191,17 +193,17 @@ describe('messages left for agents (#530)', async () => {
       expect(await watches.typeLine(alpha, 'b1', '[Hive] #5 is in Review.', () => true)).toBe(true)
       expect(st.typed.at(-1)).toBe('[Hive] Message from the Assistant: Riding, revoked before the retry. [Hive] #5 is in Review.')
       why = "the Assistant's session that left it ended"
-      await vi.waitFor(() => expect(cli.clears).toBe(2), { timeout: 3000 })
+      await vi.waitFor(() => expect(cli.clears).toBe(2), { timeout: HUNG_MS })
       await vi.waitFor(() => expect(st.typed.at(-1)).toBe('[Hive] #5 is in Review.'), { timeout: 5000 })
       expect(st.typed.filter((t) => t.includes('Riding, revoked'))).toHaveLength(1)
       expect(messages.messagesOf(alpha, 'b1').last).toMatchObject({ outcome: 'refused', detail: "the Assistant's session that left it ended" })
       // The wake typed again is taken by the Enter again (nothing rides it now): one Enter, for it.
-      await vi.waitFor(() => expect(cli.enters).toBe(1), { timeout: 3000 })
+      await vi.waitFor(() => expect(cli.enters).toBe(1), { timeout: HUNG_MS })
       // Still allowed: the Enter again submits it, as before.
       why = null
       st.status = 'ready'
       await leave('Still allowed.', allowed)
-      await vi.waitFor(() => expect(cli.enters).toBe(2), { timeout: 3000 })
+      await vi.waitFor(() => expect(cli.enters).toBe(2), { timeout: HUNG_MS })
       expect(cli.clears).toBe(2)
 
       // The user typed into the line since (round 3 finding): their draft. No Enter, no clear, not offered for Enter.
@@ -210,7 +212,7 @@ describe('messages left for agents (#530)', async () => {
       st.status = 'ready'
       await leave('Drafted over, revoked.', allowed)
       why = 'the user turned Settings → Assistant → Control down'
-      await vi.waitFor(() => expect(messages.messagesOf(alpha, 'b1').last).toMatchObject({ outcome: 'refused' }), { timeout: 3000 })
+      await vi.waitFor(() => expect(messages.messagesOf(alpha, 'b1').last).toMatchObject({ outcome: 'refused' }), { timeout: HUNG_MS })
       expect([cli.enters, cli.clears, marks]).toEqual([2, 2, []])
       // Riding a wake, drafted over: the wake isn't typed over the draft; it comes once the user's prompt is submitted.
       why = null
@@ -220,7 +222,7 @@ describe('messages left for agents (#530)', async () => {
       expect(await watches.typeLine(alpha, 'b1', '[Hive] #6 is in Review.', () => true)).toBe(true)
       const typed = st.typed.length
       why = "the Assistant's session that left it ended"
-      await vi.waitFor(() => expect(messages.messagesOf(alpha, 'b1').last).toMatchObject({ outcome: 'refused', detail: "the Assistant's session that left it ended" }), { timeout: 3000 })
+      await vi.waitFor(() => expect(messages.messagesOf(alpha, 'b1').last).toMatchObject({ outcome: 'refused', detail: "the Assistant's session that left it ended" }), { timeout: HUNG_MS })
       st.status = 'finished'
       await new Promise((r) => setTimeout(r, 1500)) // A fixed wait on purpose: this checks that the wake is NOT typed over the draft.
       expect([st.typed.length, cli.enters, cli.clears, marks]).toEqual([typed, 2, 2, []])

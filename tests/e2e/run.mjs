@@ -20,7 +20,7 @@
 //   --build         build first (npx electron-vite build), only if the build isn't from this source (build.mjs).
 //   --packaged      include the installer's suites (need npm run dist); --no-progress: don't report to Hive.
 //   --no-wait       a heavy run (more than 5 suites, or --repeat) fails at once when every test slot on this machine is
-//                   taken, instead of waiting for one (slots.mjs; HIVE_TEST_HEAVY_SLOTS, default 2).
+//                   taken, instead of waiting for one (slots.mjs; heavySlots in hive-test\config.json, default 2).
 //   --pre-merge     a heavy run checking a merge goes first in the queue for a test slot (#558). Not needed in the
 //                   session of an agent holding the merge slot: such a run goes first anyway (slots.mjs holdsMergeSlot).
 // Needs a dev build. A suite fails when it exits non-zero or prints a line starting with FAIL. Each suite gets its own

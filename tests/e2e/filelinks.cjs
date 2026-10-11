@@ -6,6 +6,8 @@ const lib = require('./lib.cjs')
 const { _electron } = require('playwright-core')
 const fs = require('fs')
 const path = require('path')
+// The longest a wait here waits for what it waits on: a bound for a hung run, never how long it should take (#570).
+const HUNG_MS = 10000
 
 const userData = path.join(lib.WORK, 'filelinks-profile')
 const ws = path.join(lib.WORK, 'filelinks-ws')
@@ -84,7 +86,7 @@ const lines = (n, tag) => Array.from({ length: n }, (_, i) => `// ${tag} line ${
   check("a file that doesn't exist isn't linked", (await linkTitle()) === 0)
   const app1 = await textAt(key, 'src/app.ts:25:4')
   await page.mouse.move(app1.x + 4, app1.y)
-  check('an existing file is linked, with a tooltip', !!(await until(async () => (await linkTitle()) === 1, 3000)))
+  check('an existing file is linked, with a tooltip', !!(await until(async () => (await linkTitle()) === 1, HUNG_MS)))
   await page.screenshot({ path: path.join(lib.WORK, 'filelinks-1-hover.png') })
 
   // --- A plain click is just a click.
