@@ -138,9 +138,20 @@ function claudeAuthStatus(file, agentId, env) {
   const spawned = logLines(file).filter((l) => /\[pty\] spawn /.test(l) && l.includes(`#${agentId}⁩`)).pop() ?? ''
   const exe = /⁩: (.+?) \[/.exec(spawned)?.[1]
   if (!exe || !env.CLAUDE_CONFIG_DIR) return null
+  let out = ''
   try {
-    const out = execFileSync(process.env.ComSpec || 'cmd.exe', ['/d', '/s', '/c', `"${exe}" auth status --json`], { env: lib.childEnv({ CLAUDE_CONFIG_DIR: env.CLAUDE_CONFIG_DIR }), encoding: 'utf8', timeout: 30000, windowsHide: true, windowsVerbatimArguments: true, stdio: ['ignore', 'pipe', 'ignore'] })
-    return JSON.parse(out.trim().split(/\r?\n/).pop() ?? '')
+    out = execFileSync(process.env.ComSpec || 'cmd.exe', ['/d', '/s', '/c', `"${exe}" auth status --json`], { env: lib.childEnv({ CLAUDE_CONFIG_DIR: env.CLAUDE_CONFIG_DIR }), encoding: 'utf8', timeout: 30000, windowsHide: true, windowsVerbatimArguments: true, stdio: ['ignore', 'pipe', 'ignore'] })
+  } catch (e) {
+    // Signed out, it exits with 1, still printing its answer.
+    out = typeof e?.stdout === 'string' ? e.stdout : ''
+  }
+  return parseAuthStatus(out)
+}
+/** `auth status --json`'s answer (indented JSON over several lines), or null when it printed none. */
+function parseAuthStatus(out) {
+  try {
+    const j = JSON.parse(String(out ?? '').trim())
+    return j && typeof j === 'object' ? j : null
   } catch {
     return null
   }
@@ -148,11 +159,14 @@ function claudeAuthStatus(file, agentId, env) {
 
 /**
  * A CLI that exited before its session started (#577): skipped for the environment when what it last showed, the
- * reason Hive gives, or its sign-in status says so (an OAuth session it couldn't refresh prints its error and exits
- * at once, often before a poll sees the screen); otherwise an error, at once rather than after the trial's limits.
+ * reason Hive gives, or (when Hive gives none) its sign-in status says so (an OAuth session it couldn't refresh prints
+ * its error and exits at once, often before a poll sees the screen); otherwise an error, at once rather than after the
+ * trial's limits.
  */
 function launchEnded({ screen = '', reason = '', auth = null } = {}) {
-  const why = trialEnvironment({ screen: [screen, reason].join('\n') }) ?? (auth?.loggedIn === false ? "not signed in: its auth status says it isn't logged in" : null)
+  // Its auth status only stands in for a reason Hive didn't get: a concrete one (an argument it rejects) stays an error
+  // even when the test home is signed out too, so a broken launch isn't hidden as the environment.
+  const why = trialEnvironment({ screen: [screen, reason].join('\n') }) ?? (!reason.trim() && auth?.loggedIn === false ? "not signed in: its auth status says it isn't logged in" : null)
   if (why) return { environment: why }
   const said = (reason || screen.slice(-200)).trim()
   return { error: `the session ended at launch${said ? `: ${said}` : ''}` }
@@ -528,4 +542,4 @@ async function runScenario(sc, providerKey, opts = {}) {
   return result
 }
 
-module.exports = { runScenario, observeTranscript, readMcpLog, sourceFingerprint, metricsTotals, measuresOf, trialEnvironment, launchEnded, startFailureIn, claudeAuthStatus, environmentAdvice, PROVIDERS, CLAUDE_TEST_HOME, claudeSignedIn }
+module.exports = { runScenario, observeTranscript, readMcpLog, sourceFingerprint, metricsTotals, measuresOf, trialEnvironment, launchEnded, startFailureIn, claudeAuthStatus, parseAuthStatus, environmentAdvice, PROVIDERS, CLAUDE_TEST_HOME, claudeSignedIn }

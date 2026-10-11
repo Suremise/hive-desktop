@@ -301,11 +301,13 @@ describe('a trial the environment stops (trialEnvironment)', () => {
 
   // #577: Claude Code 2.1.296 with an OAuth session it couldn't refresh printed this and exited with 1 at launch.
   describe('a CLI that exits at launch (launchEnded)', () => {
-    const { launchEnded, startFailureIn } = require('./scenarios/harness.cjs') as {
+    const { launchEnded, startFailureIn, claudeAuthStatus, parseAuthStatus } = require('./scenarios/harness.cjs') as {
       launchEnded: (o: { screen?: string; reason?: string; auth?: { loggedIn?: boolean } | null }) => { environment?: string; error?: string }
       startFailureIn: (file: string) => string
+      claudeAuthStatus: (file: string, agentId: string, env: { CLAUDE_CONFIG_DIR?: string }) => { loggedIn?: boolean } | null
+      parseAuthStatus: (out: string) => { loggedIn?: boolean } | null
     }
-    const { writeFileSync } = require('fs') as typeof import('fs')
+    const { mkdirSync, writeFileSync } = require('fs') as typeof import('fs')
     const { dirname, join } = require('path') as typeof import('path')
     const OAUTH = 'Failed to authenticate: OAuth session expired and could not be refreshed'
 
@@ -318,7 +320,31 @@ describe('a trial the environment stops (trialEnvironment)', () => {
 
     it('nothing seen, but its auth status says it is signed out: skipped too', () => {
       expect(launchEnded({ auth: { loggedIn: false } }).environment).toMatch(/^not signed in: its auth status/)
+      expect(launchEnded({ screen: 'Claude Code', auth: { loggedIn: false } }).environment).toMatch(/^not signed in: its auth status/)
     })
+
+    it('a concrete launch failure stays an error even when the test home is signed out too', () => {
+      expect(launchEnded({ reason: "error: option '--model <model>' argument 'x' is invalid.", auth: { loggedIn: false } })).toEqual({ error: "the session ended at launch: error: option '--model <model>' argument 'x' is invalid." })
+    })
+
+    it("reads auth status as Claude Code prints it: indented JSON, signed in or not", () => {
+      expect(parseAuthStatus('{\n  "loggedIn": true,\n  "authMethod": "claude.ai"\n}\n')).toEqual({ loggedIn: true, authMethod: 'claude.ai' })
+      expect(parseAuthStatus('{\r\n  "loggedIn": false,\r\n  "authMethod": "none"\r\n}\r\n')).toEqual({ loggedIn: false, authMethod: 'none' })
+      expect(parseAuthStatus('')).toBeNull()
+      expect(parseAuthStatus('not json')).toBeNull()
+    })
+
+    it("asks the CLI Hive started, and keeps its answer when it exits with 1 signed out (the fake, in a test home)", () => {
+      const dir = tempDir('hive-auth-status-')
+      const home = join(dir, 'home')
+      mkdirSync(home)
+      const log = join(dir, 'hive.log')
+      writeFileSync(log, `2026-10-11T08:24:30.000Z [INFO] [pty] spawn \u2068session:c:\\x\\alpha#a-1\u2069: ${join(process.cwd(), 'tests', 'e2e', 'fake-claude', 'fake-claude.cmd')} ["--session-id","x"]\n`)
+      expect(claudeAuthStatus(log, 'a-1', { CLAUDE_CONFIG_DIR: home })).toMatchObject({ loggedIn: true })
+      writeFileSync(join(home, 'fake-signin.json'), JSON.stringify({ expired: true, atLaunch: true }))
+      expect(claudeAuthStatus(log, 'a-1', { CLAUDE_CONFIG_DIR: home })).toMatchObject({ loggedIn: false })
+      expect(claudeAuthStatus(log, 'a-2', { CLAUDE_CONFIG_DIR: home })).toBeNull()
+    }, 30000)
 
     it('anything else is an error at once, saying what it showed', () => {
       expect(launchEnded({ reason: "error: option '--model <model>' argument 'x' is invalid.", auth: { loggedIn: true } })).toEqual({ error: "the session ended at launch: error: option '--model <model>' argument 'x' is invalid." })
