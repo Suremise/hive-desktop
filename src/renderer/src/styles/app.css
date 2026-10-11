@@ -7860,16 +7860,44 @@ button.progress-run-show:focus-visible {
   background: var(--border);
 }
 
-/* The Progress panel's bottom (#484): the lanes, pinned there and growing upward; past six (#512: a full team of six
-   pairs), the list scrolls, and sooner on a short panel (at most half of it, the bar always shown), so the runs above
-   stay readable. Folded, only its bar stays. */
+/* The Progress panel's bottom (#484): the lanes, pinned there and growing upward; past the lanes chosen (four by
+   default, #569; the list's max-height is set in whole lanes), the list scrolls, and sooner on a short panel (the bar
+   always shown; the runs keep their 72 px), so the runs above stay readable. Folded, only its bar stays. */
 .progress-lanes {
+  position: relative;
   flex: 0 1 auto;
   min-height: 28px;
-  max-height: 50%;
   display: flex;
   flex-direction: column;
   border-top: 1px solid var(--border-subtle);
+}
+/* Its top edge: drag up for more lanes, down for fewer (#569). A thin strip over the border, the accent when hovered,
+   dragged or focused. */
+.progress-lanes-edge {
+  position: absolute;
+  left: 0;
+  right: 0;
+  top: -4px;
+  height: 7px;
+  z-index: 2;
+  cursor: row-resize;
+  touch-action: none;
+}
+.progress-lanes-edge::after {
+  content: '';
+  position: absolute;
+  left: 0;
+  right: 0;
+  top: 3px;
+  height: 2px;
+}
+.progress-lanes-edge:hover::after,
+.progress-lanes-edge.dragging::after,
+.progress-lanes-edge:focus-visible::after {
+  background: var(--accent);
+}
+.progress-lanes-edge:focus-visible {
+  outline: none;
 }
 .progress-lanes-bar {
   flex-shrink: 0;
@@ -7907,7 +7935,6 @@ button.progress-run-show:focus-visible {
 .progress-lanes-list {
   flex: 0 1 auto;
   min-height: 0;
-  max-height: 366px;
   overflow-y: auto;
   overflow-x: hidden;
   overscroll-behavior: contain;
