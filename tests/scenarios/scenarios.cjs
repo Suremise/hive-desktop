@@ -7,7 +7,7 @@
 // commands: those runs check the harness, the board rules and Hive's own costs (benchmarks) for free. The real CLIs are the model trials (opt-in, see README.md).
 //
 // Fixture version: bump when a scenario's setup or checks change, so results can be compared across versions.
-const FIXTURES_VERSION = 52
+const FIXTURES_VERSION = 53
 
 /** The subject's hive tool calls that the server ran, by tool (each has ok, error and args). */
 const called = (o, tool) => o.hiveCalls.filter((c) => c.tool === tool)
@@ -70,11 +70,9 @@ async function coderTask(c, task, agent = c.agents.coder) {
   }
   if (!['ready', 'finished'].includes((await coderLive(c, agent))?.status)) await fail("didn't get ready in 90 s")
   if (!task) return
-  await sleep(1500)
-  await c.inv('pty:write', key, task)
-  await sleep(400)
-  await c.inv('pty:write', key, '\r')
-  for (let t = Date.now(); Date.now() - t < 30000 && (await coderLive(c, agent))?.status !== 'working'; ) await sleep(500)
+  // Typed in, Enter pressed (again if the CLI dropped it, or the text typed again), until it is working.
+  const lib = require('../e2e/lib.cjs')
+  await lib.sendPrompt(c.inv, key, task, { submitted: async () => (await coderLive(c, agent))?.status === 'working', waitMs: 10000 })
   if ((await coderLive(c, agent))?.status !== 'working') await fail("didn't start working on its task in 30 s")
 }
 const read = (o, skill) => o.skillsRead.includes(skill)
@@ -107,25 +105,102 @@ const giveVerdict = (c, n, result, by = 'Implementer (alpha)') => {
 const reviewMoves = (card) => history(card).filter((w) => /^Moved to (the (top|bottom) of )?Review\b/.test(w)).length
 /** The card loop scenarios' code: retries with a delay that is never awaited (round 1's fix, incomplete). */
 /**
- * The project's checks for merge-main-moved (#306): each run records the commit it checked and where the base was at
- * that moment, `<HEAD> <base>` a line (check-runs.txt, ignored).
+ * The project's checks for the merge scenarios (#306, #374), in check-runs.txt (ignored): each run records as it starts
+ * the commit it checks, where the base is, the commit a merge in progress brings in (`git merge --no-commit`: its
+ * MERGE_HEAD, else -), and the tree it checks: the tracked files as they are on disk, staged or not (written through a
+ * copy of the index, so the agent's own is untouched; - when git can't, as mid-conflict), `start <id> <HEAD> <base>
+ * <MERGE_HEAD> <tree> <time>`; and as it ends its result, `end <id> pass|fail <time>`. A branch whose feature.js says
+ * "broken" fails them (merge-checks-fail).
  */
-const checkJs = (base) => `const git = (args) => require('child_process').execSync('git ' + args, { encoding: 'utf8' }).trim()
-require('fs').appendFileSync('check-runs.txt', git('rev-parse HEAD') + ' ' + git('rev-parse ${base}') + '\\n')
-console.log('checks passed')
+const checkJs = (base) => `const fs = require('fs')
+const git = (args) => require('child_process').execSync('git ' + args, { encoding: 'utf8' }).trim()
+const id = process.pid + '-' + Date.now()
+let merging = '-'
+try {
+  merging = git('rev-parse -q --verify MERGE_HEAD') || '-'
+} catch {}
+let tree = '-'
+const index = '.git/check-index-' + id
+try {
+  fs.copyFileSync(git('rev-parse --git-path index'), index)
+  // These two git calls only, on the copy of the index.
+  process.env.GIT_INDEX_FILE = index
+  git('add -u')
+  tree = git('write-tree')
+} catch {}
+delete process.env.GIT_INDEX_FILE
+fs.rmSync(index, { force: true })
+fs.appendFileSync('check-runs.txt', 'start ' + id + ' ' + git('rev-parse HEAD') + ' ' + git('rev-parse ${base}') + ' ' + merging + ' ' + tree + ' ' + new Date().toISOString() + '\\n')
+const ok = !(fs.existsSync('feature.js') && fs.readFileSync('feature.js', 'utf8').includes('broken'))
+fs.appendFileSync('check-runs.txt', 'end ' + id + ' ' + (ok ? 'pass' : 'fail') + ' ' + new Date().toISOString() + '\\n')
+console.log(ok ? 'checks passed' : 'checks FAILED: feature.js is broken')
+process.exit(ok ? 0 : 1)
 `
 /**
- * How the branch went into the base: { tip, before }, the branch tip merged and the base just before. From the base's
- * reflog, the latest update that brought c.merge.feature in (the base before and after it): after a merge commit its
- * second parent, after a fast-forward the commit itself. Without a reflog, the base's first-parent line: the newest
- * commit whose parent doesn't have the feature yet. Null when the feature isn't in the base.
+ * The checks' runs, in order: [{ head, base, merging, tree, start, end, ok }] (times in ms; merging, the commit a merge
+ * in progress brings in, and tree, the tree checked, or null). A run that hasn't ended has end and ok null; a line the
+ * setup wrote (`<HEAD> <base>`, a run long ago) has no times or tree and passed.
+ */
+const checkRunsOf = (c) => {
+  const runs = []
+  for (const l of (c.read('check-runs.txt') ?? '').split(/\r?\n/).filter(Boolean)) {
+    const f = l.split(' ')
+    if (f[0] === 'start') runs.push({ id: f[1], head: f[2], base: f[3], merging: f[4] === '-' ? null : f[4], tree: f[5] === '-' ? null : f[5], start: Date.parse(f[6]), end: null, ok: null })
+    else if (f[0] === 'end') {
+      const r = runs.find((x) => x.id === f[1])
+      if (r) Object.assign(r, { ok: f[2] === 'pass', end: Date.parse(f[3]) })
+    } else runs.push({ head: f[0], base: f[1], start: null, end: null, ok: true })
+  }
+  return runs
+}
+/**
+ * When git updated a branch, to the millisecond (#374): a reference-transaction hook (git's own shell, cheap: nothing
+ * runs for a transaction that changes no branch) records each branch update as its transaction is prepared (before the
+ * ref changes) and committed (after), `<phase> <ms> <from> <to> <ref>` a line in .git/ref-times.txt, so a merge's moment
+ * is the interval between them.
+ */
+const REF_TIMES_HOOK = `#!/bin/sh
+case "$1" in prepared|committed) ;; *) exit 0 ;; esac
+input=$(cat)
+case "$input" in *" refs/heads/"*) ;; *) exit 0 ;; esac
+ms=$(date +%s%3N)
+printf '%s\\n' "$input" | while read -r from to ref; do
+  case "$ref" in refs/heads/*) echo "$1 $ms $from $to $ref" >> .git/ref-times.txt ;; esac
+done
+`
+/** A merge scenario's repository: the checks committed on the base, then a feature branch (feature.js says `feature`). */
+function mergeRepo(c, feature = "module.exports = 'feature'\n") {
+  c.git('config', 'user.email', 'agent@example.com')
+  c.git('config', 'user.name', 'Agent')
+  c.write('.git/hooks/reference-transaction', REF_TIMES_HOOK)
+  const base = c.git('branch', '--show-current').trim()
+  c.write('.gitignore', 'check-runs.txt\n')
+  c.write('check.js', checkJs(base))
+  c.git('add', '-A')
+  c.git('commit', '-qm', 'The checks')
+  c.git('checkout', '-qb', 'feature')
+  c.write('feature.js', feature)
+  c.git('add', '-A')
+  c.git('commit', '-qm', 'The feature')
+  const tip = c.git('rev-parse', 'HEAD').trim()
+  c.git('checkout', '-q', base)
+  return { base, feature: tip, checked: c.git('rev-parse', 'HEAD').trim() }
+}
+/**
+ * How the branch went into the base: { tip, before, at, tree }, the branch tip merged, the base just before, the tree
+ * the base got (what went in), and when: { from,
+ * to } in ms, from the ref update's transaction being prepared to its being committed (.git/ref-times.txt; null when
+ * there's no record of it). From the base's reflog, the latest update that brought c.merge.feature in (the base before
+ * and after it): after a merge commit its second parent, after a fast-forward the commit itself. Without a reflog, the
+ * base's first-parent line: the newest commit whose parent doesn't have the feature yet. Null when the feature isn't in
+ * the base.
  */
 const mergedInto = (c) => {
   const { base, feature } = c.merge
   if (!ancestor(c, feature, base)) return null
-  const tipOf = (after, before) => {
+  const tipOf = (after, before, at = null) => {
     const parents = c.git('rev-list', '--parents', '-n', '1', after).trim().split(' ').slice(1)
-    return { tip: parents.length > 1 && parents[0] === before ? parents[1] : after, before }
+    return { tip: parents.length > 1 && parents[0] === before ? parents[1] : after, before, at, tree: c.git('rev-parse', `${after}^{tree}`).trim() }
   }
   let log = []
   try {
@@ -134,10 +209,86 @@ const mergedInto = (c) => {
     // No reflog: the first-parent line below.
   }
   // Newest first: the latest update that brought it in (a merge undone and done again counts as done again).
-  for (let k = 0; k < log.length - 1; k++) if (ancestor(c, feature, log[k]) && !ancestor(c, feature, log[k + 1])) return tipOf(log[k], log[k + 1])
+  for (let k = 0; k < log.length - 1; k++) if (ancestor(c, feature, log[k]) && !ancestor(c, feature, log[k + 1])) return tipOf(log[k], log[k + 1], refUpdateTime(c, `refs/heads/${base}`, log[k + 1], log[k]))
   const line = c.git('rev-list', '--first-parent', base).split(/\s+/).filter(Boolean)
   const i = line.findIndex((x) => !ancestor(c, feature, x))
   return i < 1 ? null : tipOf(line[i - 1], line[i])
+}
+/** When `ref` went from `from` to `to`: { from, to } in ms (prepared, committed), the latest such update, or null. */
+function refUpdateTime(c, ref, from, to) {
+  const lines = (c.read('.git/ref-times.txt') ?? '').split(/\r?\n/).filter(Boolean).map((l) => l.trim().split(' '))
+  const is = (f, phase) => f[0] === phase && f[2] === from && f[3] === to && f[4] === ref
+  const k = lines.findLastIndex((f) => is(f, 'committed'))
+  const p = k < 0 ? -1 : lines.slice(0, k).findLastIndex((f) => is(f, 'prepared'))
+  return p < 0 ? null : { from: Number(lines[p][1]), to: Number(lines[k][1]) }
+}
+/**
+ * The merge slot as Hive saw it (its slot log, #374), for agent `name` and alpha's slot for `branch`: each time it held
+ * the slot, told so (taken), [{ from, to, released }] in ms (to null while still held; released, the time of the agent's
+ * own release call that ended it, null when it ended otherwise: its session's end, the user, a hold that ran out); its
+ * claims and releases as Hive resolved them (this slot's only, so a call for another branch isn't one); and the holder it
+ * waited behind in line.
+ */
+function slotHolds(o, name, branch) {
+  const holds = []
+  const calls = []
+  let cur = null
+  let ended = null
+  const waitedBehind = new Set()
+  const here = (x) => /[\\/]alpha$/i.test(x.project) && x.branch === branch
+  for (const e of o.slotLog ?? []) {
+    const at = Date.parse(e.at)
+    if (e.event) {
+      if (!here(e) || e.agent !== name) continue
+      calls.push({ event: e.event, outcome: e.outcome, at })
+      // A release that released: the hold the slot's last change ended (written just before the call's own line).
+      if (e.event === 'release' && e.outcome === 'released' && ended) ended.released = at
+      ended = null
+      continue
+    }
+    const s = (e.slots ?? []).find(here)
+    // Neither this slot (free) nor a hold of the agent's: another slot changed.
+    if (!s && !cur) continue
+    // This slot changed again before any release call: the hold that ended isn't the call's.
+    ended = null
+    if (s?.waiting?.includes(name) && s.holder && s.holder.name !== name) waitedBehind.add(s.holder.name)
+    const mine = !!s?.holder && s.holder.name === name && s.holder.taken
+    if (mine && !cur) cur = { from: at, to: null, released: null }
+    if (!mine && cur) {
+      cur.to = at
+      holds.push(cur)
+      ended = cur
+      cur = null
+    }
+  }
+  if (cur) holds.push(cur)
+  return { holds, calls, waitedBehind: [...waitedBehind] }
+}
+/**
+ * The checks that went into a merge: the last run that checked exactly the tree the merge gave the base (on the branch
+ * with the base merged in, or on the base with the merge in progress, `git merge --no-commit`: a file changed after the
+ * checks makes another tree), with the base where the merge found it, and ended passing before the merge (when both
+ * times are known: a merge git kept no time of is judged on the content alone).
+ */
+const wentInto = (runs, merged) => runs.filter((r) => r.tree === merged.tree && r.base === merged.before && r.ok === true && (merged.at == null || r.end <= merged.at.from)).at(-1) ?? null
+/** The hold that covered the whole of [from, to] (ms), or null: an unknown time is never covered. */
+const holdThrough = (holds, from, to) => (from == null || to == null ? null : (holds.find((h) => h.from <= from && (h.to == null || to <= h.to)) ?? null))
+/**
+ * The merge slot checks of a merge (#374): the agent's claim of the base's slot held; it held it from before the checks
+ * that went in (`wentIn`: a run that ended passing) until they ended, and through the merge (the same hold, the merge
+ * after the checks); and its own release of the base's slot ended that hold after the merge.
+ */
+function slotChecks(o, c, merged, wentIn) {
+  const { holds, calls } = slotHolds(o, 'Coder', c.merge.base)
+  const during = wentIn?.ok ? holdThrough(holds, wentIn.start, wentIn.end) : null
+  const atMerge = merged?.at ? holdThrough(holds, merged.at.from, merged.at.to) : null
+  const shown = JSON.stringify(holds)
+  return [
+    [`claimed the merge slot for ${c.merge.base} and got it (hive_merge_slot claim)`, calls.some((x) => x.event === 'claim' && x.outcome === 'held'), JSON.stringify(calls)],
+    ['held the slot while the checks that went in ran, start to end', !!during, `${shown} | checks ${JSON.stringify(wentIn)}`],
+    ['merged while still holding it, after the checks', !!atMerge && atMerge === during && wentIn.end <= merged.at.from, `${shown} | merged ${JSON.stringify(merged?.at)}`],
+    ['released the slot itself after merging', !!atMerge && atMerge.released !== null && atMerge.to >= merged.at.to, shown]
+  ]
 }
 /**
  * Whether commit a is in b's history (git merge-base --is-ancestor: 0 yes, 1 no). Git failing otherwise is no answer:
@@ -636,6 +787,7 @@ module.exports.SCENARIOS = [
       giveVerdict(c, c.cards.r, 'failed', 'Coder (alpha)')
       await c.api('POST', `/v1/tasks/${c.cards.r}/comments`, { text: 'Round 1: failed. 1. greet.js says "Helo".' })
       await c.api('POST', `/v1/tasks/${c.cards.r}/comments`, { text: 'Fixed: greet.js says "Hello, <name>" now.' })
+      // Deliberate: the decision's time must come after the comments' (the scenario is about a decision made since).
       await new Promise((r) => setTimeout(r, 20))
       await c.inv('tasks:update', c.cards.r, { decision: 'Greet with "Hi, <name>", never "Hello".' })
     },
@@ -676,22 +828,9 @@ module.exports.SCENARIOS = [
   },
   {
     id: 'merge-main-moved',
-    title: 'Merging when the base moved after the checks: merge it in again, rerun the checks, then merge (#306)',
+    title: 'Merging when the base moved after the checks: through the merge slot, merge it in again, rerun the checks, then merge (#306, #374)',
     async setup(c) {
-      c.git('config', 'user.email', 'agent@example.com')
-      c.git('config', 'user.name', 'Agent')
-      const base = c.git('branch', '--show-current').trim()
-      c.write('.gitignore', 'check-runs.txt\n')
-      c.write('check.js', checkJs(base))
-      c.git('add', '-A')
-      c.git('commit', '-qm', 'The checks')
-      c.git('checkout', '-qb', 'feature')
-      c.write('feature.js', "module.exports = 'feature'\n")
-      c.git('add', '-A')
-      c.git('commit', '-qm', 'The feature')
-      const feature = c.git('rev-parse', 'HEAD').trim()
-      c.git('checkout', '-q', base)
-      const checked = c.git('rev-parse', 'HEAD').trim()
+      const { base, feature, checked } = mergeRepo(c)
       // The checks passed on the branch, with the base as it was then.
       c.write('check-runs.txt', `${feature} ${checked}\n`)
       // Then another branch was merged: the base moved after the checks.
@@ -702,20 +841,80 @@ module.exports.SCENARIOS = [
     },
     prompt: (c) =>
       `The branch feature is ready. Its checks (node check.js) passed a while ago, with ${c.merge.base} at ${c.merge.checked.slice(0, 7)}. I'm asking you to merge it into ${c.merge.base} now: ${c.merge.base} is checked out in this folder.`,
-    fake: (c) => `skill merge-ready then shell: git checkout -q feature && git merge -q --no-edit ${c.merge.base} && node check.js && git checkout -q ${c.merge.base} && git merge -q --no-ff --no-edit feature`,
+    fake: (c) =>
+      `skill merge-ready then hive hive_merge_slot {"action":"claim","branch":"${c.merge.base}"} then shell: git checkout -q feature && git merge -q --no-edit ${c.merge.base} && node check.js && git checkout -q ${c.merge.base} && git merge -q --no-ff --no-edit feature then hive hive_merge_slot {"action":"release","branch":"${c.merge.base}"}`,
     expect: (o, c) => {
       const merged = mergedInto(c)
-      const checkRuns = (c.read('check-runs.txt') ?? '').split(/\r?\n/).filter(Boolean).map((l) => l.split(' '))
+      const checkRuns = checkRunsOf(c)
+      // What went in is what was checked: that exact tip, before the merge, with the base where the merge found it.
+      const wentIn = merged ? wentInto(checkRuns, merged) : null
       return [
         ['read the merge-ready skill', read(o, 'merge-ready'), o.skillsRead.join(',')],
         ['the branch is merged into the base', !!merged],
         ['it merged the moved base into the branch first', !!merged && ancestor(c, c.merge.moved, merged.tip), merged?.tip],
-        // What went in is what was checked: that exact tip, before the merge, with the base where the merge found it.
-        [
-          'the exact tip it merged was checked before merging, against the base as it was then',
-          !!merged && checkRuns.some(([head, base]) => head === merged.tip && base === merged.before),
-          `${JSON.stringify(merged)} | ${checkRuns.map((r) => r.join('@')).join(', ')}`
-        ]
+        ['the exact tip it merged was checked before merging, against the base as it was then', !!wentIn, `${JSON.stringify(merged)} | ${checkRuns.map((r) => `${r.head}@${r.base}`).join(', ')}`],
+        ...slotChecks(o, c, merged, wentIn)
+      ]
+    }
+  },
+  {
+    id: 'merge-slot-queued',
+    title: 'Merging while another agent holds the merge slot: wait in line, claim again, then check and merge holding it (#374)',
+    async setup(c) {
+      c.merge = mergeRepo(c)
+      // Implementer is merging into the same base: running, holding the slot until Coder is in line behind it.
+      await c.startAgent('implementer')
+      const held = await c.slot('implementer', 'claim', { cards: [7], timeoutSeconds: 0 })
+      if (!held?.held) throw new Error(`Implementer didn't get the free slot: ${JSON.stringify(held)}`)
+    },
+    // Implementer finishes once Coder waits behind it: the slot passes on.
+    async during(c) {
+      if (c.merge.released) return
+      const slot = await c.slotNow()
+      if (slot?.holder?.name === 'Implementer' && slot.waiting.some((w) => w.name === 'Coder')) {
+        await c.slot('implementer', 'release')
+        c.merge.released = true
+      }
+    },
+    prompt: (c) => `The branch feature is ready and its checks are node check.js. I'm asking you to merge it into ${c.merge.base} now: ${c.merge.base} is checked out in this folder.`,
+    fake: (c) =>
+      `skill merge-ready then hive hive_merge_slot {"action":"claim","branch":"${c.merge.base}","timeoutSeconds":2} then work 3 then hive hive_merge_slot {"action":"claim","branch":"${c.merge.base}"} then shell: git checkout -q feature && git merge -q --no-edit ${c.merge.base} && node check.js && git checkout -q ${c.merge.base} && git merge -q --no-ff --no-edit feature then hive hive_merge_slot {"action":"release","branch":"${c.merge.base}"}`,
+    expect: (o, c) => {
+      const merged = mergedInto(c)
+      const checkRuns = checkRunsOf(c)
+      const wentIn = merged ? wentInto(checkRuns, merged) : null
+      const { holds, waitedBehind } = slotHolds(o, 'Coder', c.merge.base)
+      const before = slotHolds(o, 'Implementer', c.merge.base).holds[0]
+      return [
+        ['read the merge-ready skill', read(o, 'merge-ready'), o.skillsRead.join(',')],
+        ['waited in line while Implementer held the slot', waitedBehind.includes('Implementer'), JSON.stringify(waitedBehind)],
+        ['the branch is merged into the base', !!merged],
+        ['its checks ran on the tip it merged, against the base as it was then', !!wentIn, `${JSON.stringify(merged)} | ${checkRuns.map((r) => `${r.head}@${r.base}`).join(', ')}`],
+        ...slotChecks(o, c, merged, wentIn),
+        ['it held the slot only after Implementer released it', holds.length > 0 && before?.to != null && holds[0].from >= before.to, `${JSON.stringify(before)} | ${JSON.stringify(holds)}`]
+      ]
+    }
+  },
+  {
+    id: 'merge-checks-fail',
+    title: 'Merging when the checks fail: release the merge slot, and merge nothing (#374)',
+    async setup(c) {
+      c.merge = mergeRepo(c, "module.exports = 'broken'\n")
+    },
+    prompt: (c) => `The branch feature is ready and its checks are node check.js. I'm asking you to merge it into ${c.merge.base} now: ${c.merge.base} is checked out in this folder.`,
+    fake: (c) => `skill merge-ready then hive hive_merge_slot {"action":"claim","branch":"${c.merge.base}"} then shell: git checkout -q feature && git merge -q --no-edit ${c.merge.base} && node check.js then hive hive_merge_slot {"action":"release","branch":"${c.merge.base}"}`,
+    expect: (o, c) => {
+      const { holds, calls } = slotHolds(o, 'Coder', c.merge.base)
+      // The last run of its checks with the branch in (on it, or its merge in progress) that ended failing (they can't pass
+      // there), and the hold it ran in.
+      const failedRun = checkRunsOf(c).filter((r) => r.ok === false && (ancestor(c, c.merge.feature, r.head) || (!!r.merging && ancestor(c, c.merge.feature, r.merging)))).at(-1)
+      const during = failedRun ? holdThrough(holds, failedRun.start, failedRun.end) : null
+      return [
+        ['read the merge-ready skill', read(o, 'merge-ready'), o.skillsRead.join(',')],
+        [`claimed the merge slot for ${c.merge.base} and got it (hive_merge_slot claim)`, calls.some((x) => x.event === 'claim' && x.outcome === 'held'), JSON.stringify(calls)],
+        ['its checks ran on the branch and failed, while it held the slot, start to end', !!during, `${JSON.stringify(holds)} | ${JSON.stringify(failedRun)}`],
+        ['merged nothing: the branch is not in the base', !ancestor(c, c.merge.feature, c.merge.base)],
+        ['released the slot itself after the checks failed', !!during && during.released !== null && during.to >= failedRun.end, JSON.stringify(holds)]
       ]
     }
   },
@@ -769,6 +968,7 @@ module.exports.SCENARIOS = [
     title: 'Pick up from the latest handover and carry on, checking it against the current state',
     async setup(c) {
       await c.handover('Old plan', '## Next steps\n1. Create old.txt containing "old".\n')
+      // Deliberate: the newer handover's time must be a later second than the old one's (the newest is the one written last).
       await new Promise((r) => setTimeout(r, 1100))
       await c.handover('Notes feature', '## Current state\nnotes.txt holds 1 line.\n\n## Next steps\n1. Create next.txt containing "next".\n')
       c.write('notes.txt', 'one\ntwo\n')
@@ -787,6 +987,7 @@ module.exports.SCENARIOS = [
     title: 'Continue from a named handover that is not the latest: its next step, not the newer one',
     async setup(c) {
       await c.handover('Old plan', '## Next steps\n1. Create old.txt containing "old".\n')
+      // Deliberate: the newer handover's time must be a later second than the old one's (the newest is the one written last).
       await new Promise((r) => setTimeout(r, 1100))
       await c.handover('Notes feature', '## Next steps\n1. Create next.txt containing "next".\n')
     },
@@ -2110,4 +2311,4 @@ for (const [id, name] of MODES) {
   })
 }
 
-module.exports.helpers = { called, ran, asksTheUser, read, moved, history, field, movedInto, runs, commandsOf, testRunsIn, verdictOf, LANES_RUNNING_TAIL }
+module.exports.helpers = { called, ran, asksTheUser, read, moved, history, field, movedInto, runs, commandsOf, testRunsIn, verdictOf, LANES_RUNNING_TAIL, checkRunsOf, mergedInto }

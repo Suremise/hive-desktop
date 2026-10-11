@@ -14,6 +14,10 @@ const oldWs = path.join(lib.WORK, 'skills-old-ws')
 const proj = path.join(ws, 'demo')
 const dump = path.join(lib.WORK, 'skills-dump')
 const sleep = lib.sleep
+// The longest a check waits for its condition: a bound for a hung run, never how long the step should take.
+const HUNG_MS = 10000
+/** Whether fn() comes true (checked until it does, up to HUNG_MS). */
+const becomes = async (fn) => !!(await lib.until(fn, HUNG_MS))
 /** The bundled skills from before Hive kept track of them (an existing workspace without them deleted them), and the newer ones. */
 const EARLIER = ['handover', 'merge-ready', 'pick-up', 'review-agent-work', 'split-work', 'workspace-note']
 const NEWER = ['card-loop', 'coordinate-agents', 'run-lanes', 'tune-settings', 'use-hive-api', 'work-on-card']
@@ -62,9 +66,7 @@ const check = (name, ok, extra = '') => {
 
   // Skills view: Hive skills only.
   await page.keyboard.press('Control+Shift+K')
-  await sleep(800)
-  const rows = await page.locator('.skill-row').count()
-  check('Skills view lists them', rows === BUNDLED.length, String(rows))
+  check('Skills view lists them', await becomes(async () => (await page.locator('.skill-row').count()) === BUNDLED.length), String(await page.locator('.skill-row').count()))
   const viewWarning = await page.locator('.sidebar .skills-warning').allInnerTexts()
   check('Skills view: the warning over the list (#120)', viewWarning.length === 1 && viewWarning[0].trim() === 'Warning: Editing these skills may change agent behaviour in Hive', JSON.stringify(viewWarning))
   await page.screenshot({ path: path.join(lib.WORK, 'skills-view.png') })
@@ -72,12 +74,9 @@ const check = (name, ok, extra = '') => {
   // Edited → changed → Revert to default → same.
   const pickUp = path.join(skillsDir, 'pick-up', 'SKILL.md')
   fs.appendFileSync(pickUp, '\nMy own step.\n')
-  await sleep(600)
-  list = await inv('skills:workspace')
-  check('an edited bundled skill is "changed"', list.find((s) => s.name === 'pick-up')?.bundled === 'changed')
+  check('an edited bundled skill is "changed"', await becomes(async () => (await inv('skills:workspace')).find((s) => s.name === 'pick-up')?.bundled === 'changed'))
   await page.locator('.skill-row', { hasText: 'pick-up' }).click()
-  await sleep(800)
-  check('its page offers Revert to default', (await page.getByText('Revert to default').count()) === 1)
+  check('its page offers Revert to default', await becomes(async () => (await page.getByText('Revert to default').count()) === 1))
   check('a Hive skill in preview: no warning over it', (await page.locator('.split .skills-warning').count()) === 0)
   await page.getByText('Revert to default').click()
   await sleep(400)
@@ -95,11 +94,11 @@ const check = (name, ok, extra = '') => {
   fs.writeFileSync(manifestFile, JSON.stringify(manifest))
   list = await inv('skills:workspace')
   check('an edited copy of an older version: "update available"', list.find((s) => s.name === 'pick-up')?.updateAvailable === true)
+  // Away and back, so pick-up's page is shown afresh.
   await page.locator('.skill-row', { hasText: 'split-work' }).click()
-  await sleep(300)
+  await lib.until(async () => (await page.locator('.skill-row.selected', { hasText: 'split-work' }).count()) === 1, HUNG_MS)
   await page.locator('.skill-row', { hasText: 'pick-up' }).click()
-  await sleep(800)
-  check('its page says so, beside Revert to default', (await page.locator('.editor-toolbar .badge', { hasText: 'Update available' }).count()) === 1)
+  check('its page says so, beside Revert to default', await becomes(async () => (await page.locator('.editor-toolbar .badge', { hasText: 'Update available' }).count()) === 1))
   await page.screenshot({ path: path.join(lib.WORK, 'skills-update.png') })
   await page.getByText('Revert to default').click()
   await sleep(400)
@@ -110,9 +109,8 @@ const check = (name, ok, extra = '') => {
 
   // Deleted → greyed, "deleted" → Restore.
   await inv('skills:delete', path.join(skillsDir, 'split-work'))
-  await sleep(800)
-  check('deleted bundled skill: folder gone', !fs.existsSync(path.join(skillsDir, 'split-work')))
-  check('deleted bundled skill: listed greyed as deleted', (await page.locator('.skill-row.missing', { hasText: 'split-work' }).count()) === 1)
+  check('deleted bundled skill: folder gone', await becomes(() => !fs.existsSync(path.join(skillsDir, 'split-work'))))
+  check('deleted bundled skill: listed greyed as deleted', await becomes(async () => (await page.locator('.skill-row.missing', { hasText: 'split-work' }).count()) === 1))
   await page.locator('.skill-row.missing', { hasText: 'split-work' }).click()
   await sleep(800)
   await page.screenshot({ path: path.join(lib.WORK, 'skills-missing.png') })
@@ -133,7 +131,8 @@ const check = (name, ok, extra = '') => {
 
   // The notice for a skill that no longer exists (deleted outside Hive while shown).
   await page.locator('.skill-row', { hasText: 'deploy' }).first().click()
-  await sleep(600)
+  // Shown first, then deleted: the notice is for a skill that goes while it's on screen.
+  await lib.until(async () => (await page.locator('.skill-row.selected', { hasText: 'deploy' }).count()) === 1, HUNG_MS)
   fs.rmSync(path.join(skillsDir, 'deploy'), { recursive: true, force: true })
   await lib.until(async () => (await page.getByText('no longer exists in this workspace').count()) === 1, 10000)
   check('a skill deleted meanwhile: "no longer exists"', (await page.getByText('no longer exists in this workspace').count()) === 1)
@@ -162,7 +161,7 @@ const check = (name, ok, extra = '') => {
   check("project tab: Codex's skills, where Hive's Codex copy isn't a local skill", (await page.locator('.skill-provider').count()) === 1 && (await page.locator('.skill-provider .skill-row', { hasText: 'handover' }).count()) === 0)
   await pick.selectOption('claude-code')
   await page.locator('.skill-provider').first().locator('.skill-group', { hasText: 'Local' }).locator('button[aria-label^="New local skill"]').click()
-  await sleep(500)
+  await lib.until(async () => (await page.locator('.dialog input.input').count()) === 1, HUNG_MS)
   await page.locator('.dialog input.input').fill('lint-rules')
   await page.locator('.dialog input[type=checkbox]').check()
   await page.locator('.dialog .btn.primary', { hasText: 'Create' }).click()
@@ -191,7 +190,6 @@ const check = (name, ok, extra = '') => {
   const localRow = page.locator('.skill-provider').first().locator('.skill-row', { hasText: 'lint-rules' })
   await localRow.hover()
   await localRow.locator('button[aria-label="Delete skill"]').click()
-  await sleep(400)
   await page.locator('.dialog .btn.danger', { hasText: 'Delete' }).click()
   await lib.until(async () => !fs.existsSync(path.join(proj, '.agents', 'skills', 'lint-rules')), 10000)
   check('local skill deleted in the project tab', !fs.existsSync(path.join(proj, '.agents', 'skills', 'lint-rules')) && fs.existsSync(path.join(proj, '.claude', 'skills', 'lint-rules')))

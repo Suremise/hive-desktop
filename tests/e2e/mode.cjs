@@ -76,9 +76,11 @@ const check = (name, ok, extra = '') => { if (ok) pass++; else fail++; console.l
   // The relaunch can be asked to trust the folder again: the first session's "Yes" may not have been saved yet when the
   // restart stopped it, a few seconds after it started (#283, on a busy machine). Answered as at the start, once the
   // relaunch's own process runs: until then the terminal still holds the first session's screen, its question too.
-  await lib.until(async () => launches() > before, 20000)
-  if (await lib.acceptClaudeTrust(inv, proj, agent.id, 30000)) console.log('(the relaunch asked to trust the folder again: answered yes)')
-  const t1 = Date.now(); while (Date.now() - t1 < 25000 && !((await live())?.permissionMode === 'dontAsk' && (await live())?.status === 'ready')) await sleep(300)
+  // A relaunch that never spawns fails here, with no key sent to the old terminal (#341).
+  const relaunch = await lib.acceptRelaunchTrust(inv, proj, agent.id, () => launches() > before)
+  check('the restart starts a new Claude Code process', relaunch.spawned, `launches: ${launches()}, before: ${before}`)
+  if (relaunch.trusted) console.log('(the relaunch asked to trust the folder again: answered yes)')
+  const t1 = Date.now(); while (relaunch.spawned && Date.now() - t1 < 25000 && !((await live())?.permissionMode === 'dontAsk' && (await live())?.status === 'ready')) await sleep(300)
   const l2 = await live()
   // Nothing was typed in this session, so there is no conversation to resume: it restarts as a new one.
   check("restarted in Don't ask (a new session: nothing to resume yet)", l2?.permissionMode === 'dontAsk' && l2?.status === 'ready' && l2?.sessionId !== sid, JSON.stringify({ m: l2?.permissionMode, status: l2?.status, same: l2?.sessionId === sid }))

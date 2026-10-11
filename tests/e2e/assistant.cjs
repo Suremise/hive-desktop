@@ -18,6 +18,10 @@ const check = (name, ok, extra = '') => {
   console.log(`${ok ? 'PASS' : 'FAIL'} ${name}${ok || !extra ? '' : ` (${extra})`}`)
 }
 const agentFile = () => JSON.parse(fs.readFileSync(path.join(home, '.hive', 'project.json'), 'utf8')).agents?.[0] ?? {}
+// The longest a check waits for its condition: a bound for a hung run, never how long the step should take.
+const HUNG_MS = 10000
+/** Whether fn() comes true (checked until it does, up to HUNG_MS). */
+const becomes = async (fn) => !!(await lib.until(fn, HUNG_MS))
 
 ;(async () => {
   for (const d of [userData, ws, ws2]) fs.rmSync(d, { recursive: true, force: true })
@@ -44,16 +48,14 @@ const agentFile = () => JSON.parse(fs.readFileSync(path.join(home, '.hive', 'pro
   // The panel: hidden at first, Ctrl+Alt+I shows it, and each workspace remembers it.
   check('the panel starts hidden, as a strip', (await page.locator('.assistant-panel').count()) === 0 && (await page.locator('.assistant-rail', { hasText: 'Hive Assistant' }).count()) === 1)
   await page.locator('.assistant-rail').click()
-  await lib.sleep(600)
-  check('clicking the strip shows the panel', (await page.locator('.assistant-panel').count()) === 1 && (await page.locator('.assistant-rail').count()) === 0)
-  check('430 px wide by default', Math.round((await page.locator('.assistant-panel').boundingBox()).width) === 430)
+  const panelWidth = async () => Math.round((await page.locator('.assistant-panel').boundingBox().catch(() => null))?.width ?? -1)
+  check('clicking the strip shows the panel', await becomes(async () => (await page.locator('.assistant-panel').count()) === 1 && (await page.locator('.assistant-rail').count()) === 0))
+  check('430 px wide by default', await becomes(async () => (await panelWidth()) === 430), String(await panelWidth()))
   await page.keyboard.press('Control+Alt+I')
-  await lib.sleep(400)
-  check('Ctrl+Alt+I hides it again', (await page.locator('.assistant-rail').count()) === 1)
+  check('Ctrl+Alt+I hides it again', await becomes(async () => (await page.locator('.assistant-rail').count()) === 1))
   await page.keyboard.press('Control+Alt+I')
-  await lib.sleep(600)
-  check('and shows it', (await page.locator('.assistant-panel').count()) === 1)
-  check('Start is a header button', (await page.locator('.assistant-header button[aria-label="Start"]').count()) === 1)
+  check('and shows it', await becomes(async () => (await page.locator('.assistant-panel').count()) === 1))
+  check('Start is a header button', await becomes(async () => (await page.locator('.assistant-header button[aria-label="Start"]').count()) === 1))
   // Narrow: Start folds into ⋯.
   const edge = await page.locator('.assistant-panel > .pane-resizer').boundingBox()
   await page.mouse.move(edge.x + 3, edge.y + 200)
@@ -61,24 +63,20 @@ const agentFile = () => JSON.parse(fs.readFileSync(path.join(home, '.hive', 'pro
   await page.mouse.move(edge.x + 60, edge.y + 200, { steps: 5 })
   await page.mouse.move(edge.x + 123, edge.y + 200, { steps: 5 })
   await page.mouse.up()
-  await lib.sleep(600)
+  // Narrowed: the header gives up its Start button for the ⋯ menu.
+  await lib.until(async () => (await page.locator('.assistant-header button[aria-label="Start"]').count()) === 0, HUNG_MS)
   await page.locator('.assistant-header button[aria-label="More"]').click()
-  await lib.sleep(300)
-  check('a narrow panel folds Start into ⋯', (await page.locator('.assistant-header button[aria-label="Start"]').count()) === 0 && (await page.locator('.menu-item', { hasText: /^Start$/ }).count()) === 1)
+  check('a narrow panel folds Start into ⋯', await becomes(async () => (await page.locator('.menu-item', { hasText: /^Start$/ }).count()) === 1) && (await page.locator('.assistant-header button[aria-label="Start"]').count()) === 0)
   await page.keyboard.press('Escape')
   await page.locator('.assistant-panel > .pane-resizer').dblclick()
-  await lib.sleep(300)
-  check('double-clicking its edge goes back to 430 px', Math.round((await page.locator('.assistant-panel').boundingBox()).width) === 430)
+  check('double-clicking its edge goes back to 430 px', await becomes(async () => (await panelWidth()) === 430), String(await panelWidth()))
   check('inactive projects fold into one row', (await page.locator('.assistant-project').count()) === 0 && (await page.locator('.assistant-fold', { hasText: '2 inactive projects' }).count()) === 1)
   await page.locator('.assistant-fold').click()
-  await lib.sleep(300)
-  check('which expands to list them', (await page.locator('.assistant-project.inactive').count()) === 2)
+  check('which expands to list them', await becomes(async () => (await page.locator('.assistant-project.inactive').count()) === 2))
   await inv('project:setActive', path.join(ws, 'api'), true)
-  await lib.sleep(800)
-  check('an active project is listed above the fold', (await page.locator('.assistant-project:not(.inactive)', { hasText: 'api' }).count()) === 1 && (await page.locator('.assistant-fold', { hasText: '1 inactive project' }).count()) === 1)
+  check('an active project is listed above the fold', await becomes(async () => (await page.locator('.assistant-project:not(.inactive)', { hasText: 'api' }).count()) === 1 && (await page.locator('.assistant-fold', { hasText: '1 inactive project' }).count()) === 1))
   await page.locator('.assistant-fold').click()
-  await lib.sleep(300)
-  check('and folding hides the rest again', (await page.locator('.assistant-project').count()) === 1)
+  check('and folding hides the rest again', await becomes(async () => (await page.locator('.assistant-project').count()) === 1))
   check('it offers to start the Assistant', (await page.locator('.assistant-idle', { hasText: 'Coordinator' }).count()) === 1)
   await lib.openWorkspace(inv, page, ws2)
   check('another workspace has its own (hidden) panel', (await page.locator('.assistant-panel').count()) === 0)
@@ -87,17 +85,16 @@ const agentFile = () => JSON.parse(fs.readFileSync(path.join(home, '.hive', 'pro
 
   // Switching mode (not running): saved for this workspace.
   await page.locator('.assistant-persona').click()
-  await lib.sleep(300)
   await page.locator('.context-menu .menu-item, .menu .menu-item', { hasText: 'Planner' }).first().click()
   check('choosing a mode saves it for the workspace', !!(await lib.until(() => agentFile().persona === 'planner', 10000)), JSON.stringify(agentFile()))
   // The header follows once the workspace is refreshed, which can be after the file is saved.
   check('the header shows it', !!(await lib.until(async () => (await page.locator('.assistant-persona').innerText()).includes('Planner'), 10000)))
 
   // Assistant Settings: this workspace's effort, over the default.
+  // Saved by the time agents:update returns; the footer follows when the workspace's change reaches the window.
   await inv('agents:update', home, 'assistant', { effort: 'medium' })
-  await lib.sleep(500)
   check('Assistant Settings saves an override', agentFile().effort === 'medium')
-  check('the footer shows it', (await page.locator('.assistant-footer').innerText()).includes('Medium'))
+  check('the footer shows it', await becomes(async () => (await page.locator('.assistant-footer').innerText()).includes('Medium')))
   // Settings → Assistant: a new default model reaches the Assistant.
   await inv('settings:update', { assistant: { providers: { 'claude-code': { model: 'haiku' } } } })
   await lib.until(async () => (await inv('workspace:get')).assistant.config.providers['claude-code'].model === 'haiku', 10000)
@@ -106,16 +103,13 @@ const agentFile = () => JSON.parse(fs.readFileSync(path.join(home, '.hive', 'pro
   // Haiku in Auto: the fake answers with Claude Code 2.1.289's models, where Haiku has no Auto (#129), so Assistant Settings
   // and Settings → Assistant say it runs in Manual (claude-real checks that the real one does).
   await page.locator('.assistant-header button[aria-label="More"]').click()
-  await lib.sleep(300)
   await page.locator('.menu-item', { hasText: 'Assistant Settings…' }).click()
-  await lib.sleep(500)
-  check('Assistant Settings warns about Auto with Haiku', (await page.locator('.dialog .mode-caveat', { hasText: "doesn't offer Auto with Haiku 4.5: it runs in Manual" }).count()) === 1)
+  check('Assistant Settings warns about Auto with Haiku', await becomes(async () => (await page.locator('.dialog .mode-caveat', { hasText: "doesn't offer Auto with Haiku 4.5: it runs in Manual" }).count()) === 1))
   await page.keyboard.press('Escape')
+  await lib.until(async () => (await page.locator('.dialog').count()) === 0, HUNG_MS)
   await page.keyboard.press('Control+,')
-  await lib.sleep(500)
   await page.locator('.settings-nav .row', { hasText: 'Assistant' }).first().click()
-  await lib.sleep(500)
-  check('so does Settings → Assistant', (await page.locator('.mode-caveat', { hasText: "doesn't offer Auto with Haiku 4.5: it runs in Manual" }).count()) === 1)
+  check('so does Settings → Assistant', await becomes(async () => (await page.locator('.mode-caveat', { hasText: "doesn't offer Auto with Haiku 4.5: it runs in Manual" }).count()) === 1))
   await page.keyboard.press('Control+Shift+E')
   await lib.sleep(300)
 
@@ -129,13 +123,11 @@ const agentFile = () => JSON.parse(fs.readFileSync(path.join(home, '.hive', 'pro
   check('and restores', (await inv('personas:list')).find((p) => p.id === 'qa-triager')?.bundled === 'same')
   // The Hive Assistant view: a summary, its conversations and its personas.
   await page.locator('.activity-btn[aria-label="Hive Assistant"]').click()
-  await lib.sleep(800)
-  check('the Assistant view has a summary', (await page.locator('.assistant-summary .assistant-stat').count()) === 4)
+  check('the Assistant view has a summary', await becomes(async () => (await page.locator('.assistant-summary .assistant-stat').count()) === 4))
   check('it opens on the conversations', (await page.locator('.sessions-list .pane-header', { hasText: 'Conversations' }).count()) === 1 && (await page.locator('.sessions-list', { hasText: 'No conversations yet' }).count()) === 1)
   check('it lists the modes', (await page.locator('.persona-row').count()) === 5)
   await page.locator('.persona-row', { hasText: 'QA triager' }).click()
-  await lib.sleep(600)
-  check('a persona opens in the editor', (await page.locator('.split-main .editor-toolbar', { hasText: 'QA triager' }).count()) === 1)
+  check('a persona opens in the editor', await becomes(async () => (await page.locator('.split-main .editor-toolbar', { hasText: 'QA triager' }).count()) === 1))
   check('its toolbar can delete it', (await page.locator('.split-main .editor-toolbar [aria-label="Delete mode"]').count()) === 1)
 
   // One launch (no prompt): in the workspace folder, asking for Auto, with Hive's reading tools allowed.
@@ -158,7 +150,6 @@ const agentFile = () => JSON.parse(fs.readFileSync(path.join(home, '.hive', 'pro
   check('it is not a project agent', (await inv('workspace:get')).projects.every((p) => p.agents.every((a) => a.id !== 'assistant')))
   // Its conversation is in the Assistant view's browser, and reads like any session.
   await page.locator('.assistant-panel .assistant-header button[aria-label="More"]').click()
-  await lib.sleep(300)
   await page.locator('.menu-item', { hasText: 'All Conversations…' }).click()
   await lib.until(async () => (await page.locator('.session-row').count()) === 1, 10000)
   check('All Conversations… lists it', (await page.locator('.session-row').count()) === 1, String(await page.locator('.session-row').count()))

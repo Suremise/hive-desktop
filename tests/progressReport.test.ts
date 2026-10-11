@@ -16,6 +16,17 @@ import { tempDir } from './tempDir'
 
 const dir = tempDir('hive-progress-')
 afterAll(() => rmSync(dir, { recursive: true, force: true }))
+// Nothing under test may end the test's own process (#547: a worker once exited mid-file, dropping 19 tests): a call
+// to process.exit fails the test that made it, with where it came from.
+const realExit = process.exit
+beforeAll(() => {
+  process.exit = ((code?: number) => {
+    throw new Error(`process.exit(${code ?? ''}) in the test's own process`)
+  }) as typeof process.exit
+})
+afterAll(() => {
+  process.exit = realExit
+})
 
 /**
  * The stand-in Agent API: records each call; `refuse` answers the start with 401. Each call is also written to `seenFile`
@@ -23,6 +34,8 @@ afterAll(() => rmSync(dir, { recursive: true, force: true }))
  * guessing how long that takes on a loaded machine.
  */
 const calls: { method: string; path: string; auth: string; body: Record<string, unknown> }[] = []
+// The longest a test waits for what it is waiting on: a bound for a hung run, never how long it should take.
+const HUNG_MS = 10000
 const seenFile = join(dir, 'seen.json')
 let refuse = false
 let server: Server
@@ -327,7 +340,8 @@ describe('the shared reporter and timings', () => {
     capped.update({ step: 9 })
     // A run with a total keeps it.
     capped.update({ total: 20 })
-    await new Promise((res) => setTimeout(res, 100))
+    // (A finish drops an update not sent yet: each is finished once its update has arrived.)
+    await vi.waitFor(() => expect(calls.filter((c) => c.method === 'PATCH')).toHaveLength(1), { timeout: HUNG_MS })
     await capped.finish(true)
     expect(calls.find((c) => c.method === 'PATCH')?.body).toEqual({ step: 2 })
     calls.length = 0
@@ -336,12 +350,12 @@ describe('the shared reporter and timings', () => {
     late.update({ step: 9, stepName: 'setup' })
     late.update({ total: 4 })
     late.update({ total: 7 })
-    await new Promise((res) => setTimeout(res, 100))
+    await vi.waitFor(() => expect(calls.filter((c) => c.method === 'PATCH')).toHaveLength(1), { timeout: HUNG_MS })
     await late.finish(true)
     const quick = new ProgressRun({ url, token: 't', workspace: '' }, { title: 'late, then a step' }, { minIntervalMs: 10 })
     quick.update({ total: 3 })
     quick.update({ step: 8 })
-    await new Promise((res) => setTimeout(res, 100))
+    await vi.waitFor(() => expect(calls.filter((c) => c.method === 'PATCH')).toHaveLength(2), { timeout: HUNG_MS })
     await quick.finish(true)
     expect(calls.filter((c) => c.method === 'PATCH').map((c) => c.body)).toEqual([{ total: 4, step: 4, stepName: 'setup' }, { total: 3, step: 3 }])
     expect(calls.filter((c) => c.method === 'POST' && c.path === '/v1/progress').map((c) => c.body)).toEqual([{ title: 'late', pid: process.pid }, { title: 'late, then a step', pid: process.pid }])
@@ -374,7 +388,7 @@ describe('the shared reporter and timings', () => {
       // A long interval: once the first update is sent, the next waits, and the finish comes before it would be sent.
       const r = new ProgressRun({ url, token: 't', workspace: '' }, { title: `late ${ok}` }, { minIntervalMs: 60_000 })
       r.update({ step: 1 })
-      await vi.waitFor(() => expect(calls.some((c) => c.method === 'PATCH')).toBe(true))
+      await vi.waitFor(() => expect(calls.some((c) => c.method === 'PATCH')).toBe(true), { timeout: HUNG_MS })
       r.update({ total: 4, step: 2, stepName: 'late' })
       await r.finish(ok, ok ? undefined : 'exit code 1')
       expect(calls.map((c) => [c.method, c.path.replace(/run-\d+/, 'run'), c.body])).toEqual([
@@ -387,7 +401,7 @@ describe('the shared reporter and timings', () => {
     calls.length = 0
     const plain = new ProgressRun({ url, token: 't', workspace: '' }, { title: 'plain', total: 3 }, { minIntervalMs: 60_000 })
     plain.update({ step: 1 })
-    await vi.waitFor(() => expect(calls.some((c) => c.method === 'PATCH')).toBe(true))
+    await vi.waitFor(() => expect(calls.some((c) => c.method === 'PATCH')).toBe(true), { timeout: HUNG_MS })
     plain.update({ step: 2, total: 9 })
     await plain.finish(true)
     expect(calls.map((c) => c.method)).toEqual(['POST', 'PATCH', 'POST'])
@@ -564,7 +578,8 @@ describe("Hive's own test runners (tests/progressReport.mts)", () => {
     first.done('a', 1000, true)
     first.suite(1, 'b')
     first.done('b', 5000, false)
-    await new Promise((r) => setTimeout(r, 700))
+    // (A finish drops an update not sent yet: finished once the last one has arrived.)
+    await vi.waitFor(() => expect(calls.filter((c) => c.method === 'PATCH').at(-1)?.body).toEqual({ step: 1, stepName: 'b' }), { timeout: HUNG_MS })
     await first.finish(false, '1 passed, 1 failed')
     expect(calls[0].body).toEqual({ title: 'e2e: 2 suites', total: 2, step: 0, command: 'npm run e2e -- a b', pid: process.pid })
     // Each update counts the suites finished and names the one starting.
@@ -573,7 +588,7 @@ describe("Hive's own test runners (tests/progressReport.mts)", () => {
     calls.length = 0
     // a took a second; b failed (not timed), so it counts as the average of the known ones.
     const second = e2eProgress(['a', 'b'], [])
-    expect(await new Promise((r) => setTimeout(() => r(calls[0]?.body.estimateMs), 300))).toBe(2000)
+    await vi.waitFor(() => expect(calls[0]?.body.estimateMs).toBe(2000), { timeout: HUNG_MS })
     await second.finish(true)
     calls.length = 0
     const off = e2eProgress(['a'], ['--no-progress'])
@@ -590,8 +605,8 @@ describe("Hive's own test runners (tests/progressReport.mts)", () => {
     v.onTestRunStart([{ moduleId: 'x.test.ts' }, { moduleId: 'y.test.ts' }])
     v.onTestModuleEnd({ moduleId: 'C:/r/x.test.ts', relativeModuleId: 'x.test.ts', ok: () => true })
     v.onTestModuleEnd({ moduleId: 'C:/r/y.test.ts', relativeModuleId: 'y.test.ts', ok: () => false })
-    // (A finish drops an update not sent yet: give it its moment.)
-    await new Promise((r) => setTimeout(r, 300))
+    // (A finish drops an update not sent yet: finished once it has arrived.)
+    await vi.waitFor(() => expect(Object.assign({}, ...calls.filter((c) => c.method === 'PATCH').map((c) => c.body))).toEqual({ step: 2 }), { timeout: HUNG_MS })
     await v.onTestRunEnd([], [], 'failed')
     expect(calls[0].body).toEqual({ title: 'unit: 2 files', total: 2, step: 0, command: 'npm test', pid: process.pid })
     expect(Object.assign({}, ...calls.filter((c) => c.method === 'PATCH').map((c) => c.body))).toEqual({ step: 2 })

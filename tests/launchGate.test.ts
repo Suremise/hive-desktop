@@ -2,7 +2,7 @@
 // explicit word: a CLI that starts a detached server the moment it runs, with the job host not even started (cold), or
 // with tracking slower than any timeout, still leaves it in the job; tracking refused, or the pipe closing without a
 // word, never runs it. The gate passes the command line node-pty itself would have built.
-import { spawn } from 'child_process'
+import { spawn, type ChildProcess } from 'child_process'
 import { readFileSync, writeFileSync, existsSync } from 'fs'
 import { join } from 'path'
 import { createRequire } from 'module'
@@ -10,6 +10,10 @@ import * as pty from '@lydell/node-pty'
 import { afterAll, describe, expect, it, vi } from 'vitest'
 import { commandLineOf, launchGate, type GateWord } from '../src/main/launchGate'
 import { tempDir } from './tempDir'
+// What the test started that is still running: stopped by its command line (it names the test's folder) and start,
+// never by a pid remembered from earlier, which Windows may have given another process since: under load that could
+// be a concurrent run's Vitest worker (#547: a likely cause of one exiting with code 1, not reproduced).
+const { stopProcessesIn } = createRequire(import.meta.url)('./e2e/folderProcesses.cjs') as { stopProcessesIn: (folder: string, since?: number) => number }
 
 vi.mock('../src/main/events', () => ({ emit: () => undefined, sendPty: () => undefined }))
 vi.mock('../src/main/providers', () => ({ allProviders: () => [] }))
@@ -34,7 +38,8 @@ const plain = (s: string): string => s.replace(/\x1b\[[0-9;?]*[ -/]*[@-~]/g, '')
 
 describe.runIf(process.platform === 'win32')('a launch held at its gate', () => {
   const dir = tempDir('hive-gate-')
-  const pids: number[] = []
+  const since = Date.now()
+  const children: ChildProcess[] = []
   const env: Record<string, string> = {}
   for (const [k, v] of Object.entries(process.env)) if (v !== undefined && !k.startsWith('HIVE_')) env[k] = v
   // A stand-in CLI: the moment it runs, it notes that it ran and starts a detached, hidden server (its pid noted);
@@ -53,7 +58,9 @@ setTimeout(() => process.exit(7), 1500)
   afterAll(async () => {
     const { closeProcessTracking } = await import('../src/main/agentProcesses')
     closeProcessTracking()
-    for (const pid of pids) if (alive(pid)) process.kill(pid)
+    // Its own children, through their handles (not a pid Windows may have reused).
+    for (const c of children) if (c.exitCode === null && c.signalCode === null) c.kill()
+    stopProcessesIn(dir, since)
   })
 
   /** Runs the stand-in through spawnPty with this track: its exit code, output, when it ran (0: never) and its server's pid. */
@@ -67,7 +74,6 @@ setTimeout(() => process.exit(7), 1500)
     })
     await new Promise((r) => setTimeout(r, 300))
     const serverPid = existsSync(server) ? Number(readFileSync(server, 'utf8')) : 0
-    if (serverPid) pids.push(serverPid)
     return { code, output: plain(output), ranAt: existsSync(ran) ? Number(readFileSync(ran, 'utf8')) : 0, serverPid }
   }
 
@@ -125,7 +131,7 @@ setTimeout(() => process.exit(7), 1500)
     await new Promise((r) => gone.once('exit', r))
     expect(await trackLaunch({ runId: 'gate3', projectPath: dir, agentId: 'g3', agentName: 'Gone' }, gone.pid!)).toMatchObject({ tracked: false })
     const live = spawn(process.execPath, ['-e', 'setTimeout(() => {}, 30000)'], { stdio: 'ignore', windowsHide: true })
-    pids.push(live.pid!)
+    children.push(live)
     const stopped = new AbortController()
     const pending = trackLaunch({ runId: 'gate4', projectPath: dir, agentId: 'g4', agentName: 'Stopped' }, live.pid!, stopped.signal)
     stopped.abort()

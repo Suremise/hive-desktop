@@ -1545,6 +1545,7 @@ async function deliver(store: Store, rec: WatchRecord): Promise<void> {
 export async function confirmTaken(projectPath: string, agentId: string, before: { runId: string; count: number }, line: string, ride?: RideCheck): Promise<boolean> {
   // Nothing more is typed into it while this runs, however long (#430): released when it ends (taken, or marked).
   const release = sessions.holdForConfirm(projectPath, agentId, before.runId)
+  confirmsRunning++
   let instead: { line: string; afterTaken: number | null } | null = null
   try {
     const r = await confirming(projectPath, agentId, before, line, ride)
@@ -1555,10 +1556,14 @@ export async function confirmTaken(projectPath: string, agentId: string, before:
     }
     return r
   } finally {
+    confirmsRunning--
     release?.()
     if (instead) void retype(projectPath, agentId, before.runId, instead.line, instead.afterTaken).catch((e) => log.warn('typing a wake again', e))
   }
 }
+let confirmsRunning = 0
+/** How many typed wakes are being checked for being taken now: tests wait for none, after which no Enter comes. */
+export const confirmsInFlight = (): number => confirmsRunning
 
 /**
  * What rode a typed line (#530: messages left for the agent), for its confirmation: `still`, whether its sender may still

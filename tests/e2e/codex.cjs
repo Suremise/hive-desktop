@@ -94,14 +94,13 @@ function prepare() {
   const kinds = tx.items.map((i) => i.kind)
   check('transcript: prompt, edit and reply', kinds.includes('user') && tx.items.some((i) => i.kind === 'tool' && i.tool.name === 'Edit') && kinds.includes('assistant'), kinds.join(','))
 
+  // Codex takes the keys for a mode change and then reports it: each step waits for the report (20 s bounds a hung CLI).
   await inv('session:setPlanMode', proj, def.id, true)
-  await sleep(800)
-  check('Plan mode on', (await live())?.planMode === true)
+  check('Plan mode on', !!(await waitFor(async () => (await live())?.planMode === true, 20000)))
   await inv('session:setPlanMode', proj, def.id, false)
-  await sleep(800)
+  await waitFor(async () => (await live())?.planMode === false, 20000)
   const r = await inv('session:setMode', proj, def.id, 'ask')
-  await sleep(500)
-  check('switches preset with the /permissions menu', r.ok && (await live())?.permissionMode === 'ask', JSON.stringify(r))
+  check('switches preset with the /permissions menu', r.ok && !!(await waitFor(async () => (await live())?.permissionMode === 'ask', 20000)), JSON.stringify(r))
   await page.screenshot({ path: path.join(scratch, 'cxh-3-menu.png') })
 
   await inv('session:stop', proj, def.id)

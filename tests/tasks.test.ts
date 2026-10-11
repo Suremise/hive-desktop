@@ -25,6 +25,13 @@ type WS = ReturnType<typeof createWorkspaceService>
 const user = { kind: 'user' } as const
 const agent = { kind: 'agent', name: 'Agent 1 (alpha)' } as const
 const assistant = { kind: 'assistant' } as const
+/**
+ * Deliberate, not a wait for a state: lets the clock reach a later millisecond, so what is recorded next (a decision, a
+ * read) is newer than what came before it (they are compared by time).
+ */
+const laterMs = (): Promise<void> => new Promise((r) => setTimeout(r, 5))
+// The longest a test waits for what it is waiting on: a bound for a hung run, never how long it should take.
+const HUNG_MS = 10000
 
 function project(ws: string, name: string, agents: { id: string; name: string }[] = []): string {
   const p = join(ws, name)
@@ -647,26 +654,26 @@ describe('card decisions', () => {
     const me = { projectPath: alpha, agentId: 'a1' }
     const n = (await run(() => tasks.createTask({ title: 'Flagged', project: 'alpha', column: 'doing', agent: 'a1' }, user))).number
     const notice = (who = me, self = 'Coder (alpha)'): Promise<string | null> => decisionNotice(w, who, self)
-    await new Promise((r) => setTimeout(r, 5))
+    await laterMs()
     expect(await notice()).toBeNull()
     await run(() => tasks.updateTask(n, { decision: 'Use the old API.' }, user))
     expect(await notice()).toBe(`[Hive] #${n} has 1 new decision since you last read it: read the card (hive_read_task) at your next checkpoint.`)
     // Read in full: not new any more. Its own records never are.
     noteCardRead(me, n)
     expect(await notice()).toBeNull()
-    await new Promise((r) => setTimeout(r, 5))
+    await laterMs()
     await run(() => tasks.updateTask(n, { decision: 'Recorded by me' }, coder))
     expect(await notice()).toBeNull()
     // Changed by the user since it read the card: new again. Another project's agent, or one not on the card, hears nothing.
     const mine = (await run(() => tasks.getTask(n))).decisions![0]
-    await new Promise((r) => setTimeout(r, 5))
+    await laterMs()
     await run(() => tasks.editDecision(n, mine.id, 'Use the old API, v2.', user))
     expect(await notice()).toMatch(new RegExp(`^\\[Hive\\] #${n} has 1 new decision`))
     expect(await notice({ projectPath: alpha, agentId: 'r1' }, 'Reviewer (alpha)')).toBeNull()
     // In Review with a reviewer: the reviewer hears of one recorded after its review began; the builder, out of Doing, doesn't.
     await run(() => tasks.updateTask(n, { column: 'review' }, coder))
     await run(() => tasks.updateTask(n, { review: 'start' }, reviewer))
-    await new Promise((r) => setTimeout(r, 5))
+    await laterMs()
     expect(await notice({ projectPath: alpha, agentId: 'r1' }, 'Reviewer (alpha)')).toBeNull()
     await run(() => tasks.updateTask(n, { decision: 'Mobile first.' }, assistant))
     expect(await notice({ projectPath: alpha, agentId: 'r1' }, 'Reviewer (alpha)')).toMatch(new RegExp(`#${n} has 1 new decision`))
@@ -679,17 +686,17 @@ describe('card decisions', () => {
     const [d] = (await run(() => tasks.updateTask(n, { decision: 'User chose blue.' }, coder))).decisions!
     noteCardRead(me, n)
     expect(await decisionNotice(w, me, 'Coder (alpha)')).toBeNull()
-    await new Promise((r) => setTimeout(r, 5))
+    await laterMs()
     await run(() => tasks.editDecision(n, d.id, 'User now chooses green.', user))
     expect(await decisionNotice(w, me, 'Coder (alpha)')).toMatch(new RegExp(`#${n} has 1 new decision`))
     // Recorded by the agent before its work began and corrected by the user after: new too.
     await run(() => tasks.updateTask(n, { column: 'todo' }, user))
     const m = (await run(() => tasks.createTask({ title: 'Early', project: 'alpha' }, user))).number
     const [e] = (await run(() => tasks.updateTask(m, { decision: 'User chose tabs.' }, coder))).decisions!
-    await new Promise((r) => setTimeout(r, 5))
+    await laterMs()
     await run(() => tasks.updateTask(m, { column: 'doing', agent: 'a1' }, user))
     expect(await decisionNotice(w, me, 'Coder (alpha)')).toBeNull()
-    await new Promise((r) => setTimeout(r, 5))
+    await laterMs()
     await run(() => tasks.editDecision(m, e.id, 'User now chooses spaces.', user))
     expect(await decisionNotice(w, me, 'Coder (alpha)')).toMatch(new RegExp(`#${m} has 1 new decision`))
     await run(() => tasks.updateTask(m, { column: 'todo' }, user))
@@ -704,7 +711,7 @@ describe('card decisions', () => {
   it('tells an agent waiting for the user of new decisions once each: not while it works, the user types there or a line of Hive waits (#401)', async () => {
     const me = { projectPath: alpha, agentId: 'a1' }
     const n = (await run(() => tasks.createTask({ title: 'Waiting for the user', project: 'alpha', column: 'doing', agent: 'a1' }, user))).number
-    await new Promise((r) => setTimeout(r, 5))
+    await laterMs()
     await run(() => tasks.updateTask(n, { decision: 'Ship it on Friday.' }, assistant))
     await run(() => tasks.updateTask(n, { decision: 'Tell the client first.' }, assistant))
     // What an earlier line told isn't new: only later decisions count.
@@ -744,11 +751,11 @@ describe('card decisions', () => {
       await tell()
       expect(sent).toHaveLength(1)
       expect(sent[0]).toMatch(new RegExp(`#${n} has 2 new decisions`))
-      await expect.poll(async () => (await run(() => tasks.getTask(n))).history.some((h) => h.by === 'Hive' && h.what === 'Told Coder (alpha) of 2 new decisions')).toBe(true)
+      await expect.poll(async () => (await run(() => tasks.getTask(n))).history.some((h) => h.by === 'Hive' && h.what === 'Told Coder (alpha) of 2 new decisions'), { timeout: HUNG_MS }).toBe(true)
       // Told once: not again, until another decision, which is told alone.
       await tell()
       expect(sent).toHaveLength(1)
-      await new Promise((r) => setTimeout(r, 5))
+      await laterMs()
       await run(() => tasks.updateTask(n, { decision: 'Friday morning.' }, assistant))
       status = 'ready'
       await tell()
@@ -763,7 +770,7 @@ describe('card decisions', () => {
 
   it('a decision line stopped as it is typed is tried again by itself, and only while it is still true (#401)', async () => {
     const n = (await run(() => tasks.createTask({ title: 'Stopped lines', project: 'alpha', column: 'doing', agent: 'a1' }, user))).number
-    await new Promise((r) => setTimeout(r, 5))
+    await laterMs()
     await run(() => tasks.updateTask(n, { decision: 'Blue.' }, assistant))
     let typing = false
     let refusedTyping = 0
@@ -798,13 +805,14 @@ describe('card decisions', () => {
 
       // Given to another agent as the line is typed: the old one isn't told (now or on a retry), nor counted as told; the
       // new one is. Given back, the first hears of it after all.
-      await new Promise((r) => setTimeout(r, 5))
+      await laterMs()
       await run(() => tasks.updateTask(n, { decision: 'Green, not blue.' }, assistant))
       meanwhile = async () => {
         await run(() => tasks.updateTask(n, { agent: 'r1' }, user))
       }
       await decisionWakes.tellNow(w, alpha, 'a1')
-      await new Promise((r) => setTimeout(r, 300))
+      // Not on a retry either: once nothing is left to try for it.
+      await expect.poll(() => decisionWakes.settledFor(alpha, 'a1'), { timeout: HUNG_MS }).toBe(true)
       expect(mine('a1')).toHaveLength(1)
       await decisionWakes.tellNow(w, alpha, 'r1')
       expect(mine('r1')).toHaveLength(1)
@@ -815,7 +823,7 @@ describe('card decisions', () => {
 
       // The user types there for a long while (many settles) and stops without Enter: told once, by itself, however
       // long it took.
-      await new Promise((r) => setTimeout(r, 5))
+      await laterMs()
       await run(() => tasks.updateTask(n, { decision: 'Teal after all.' }, assistant))
       decisionWakes.testHooks.settleMs = 5
       typing = true
@@ -825,16 +833,16 @@ describe('card decisions', () => {
       expect(mine('a1')).toHaveLength(2)
       typing = false
       await expect.poll(() => mine('a1').length, { timeout: 3000 }).toBe(3)
-      await new Promise((r) => setTimeout(r, 200))
+      await expect.poll(() => decisionWakes.settledFor(alpha, 'a1'), { timeout: HUNG_MS }).toBe(true)
       expect(mine('a1')).toHaveLength(3)
       decisionWakes.testHooks.settleMs = 30
 
       // It reads the card as the line is typed: stopped, and not typed again (it has seen the decision).
-      await new Promise((r) => setTimeout(r, 5))
+      await laterMs()
       await run(() => tasks.updateTask(n, { decision: 'Teal.' }, assistant))
       meanwhile = () => noteCardRead({ projectPath: alpha, agentId: 'a1' }, n)
       await decisionWakes.tellNow(w, alpha, 'a1')
-      await new Promise((r) => setTimeout(r, 300))
+      await expect.poll(() => decisionWakes.settledFor(alpha, 'a1'), { timeout: HUNG_MS }).toBe(true)
       expect(mine('a1')).toHaveLength(3)
     } finally {
       for (const s of spies) s.mockRestore()
@@ -857,12 +865,12 @@ describe('card decisions', () => {
     expect(await notice()).toBeNull()
     // Fixes, and a decision recorded meanwhile; back in Review for round 2, nobody reviewing yet.
     await run(() => tasks.updateTask(n, { column: 'doing' }, coder))
-    await new Promise((r) => setTimeout(r, 5))
+    await laterMs()
     await run(() => tasks.updateTask(n, { decision: 'Mobile first.' }, assistant))
     await run(() => tasks.updateTask(n, { column: 'review' }, coder))
     expect(await notice()).toMatch(new RegExp(`#${n} has 1 new decision`))
     // Starting round 2 doesn't make it read.
-    await new Promise((r) => setTimeout(r, 5))
+    await laterMs()
     await run(() => tasks.updateTask(n, { review: 'start' }, reviewer))
     expect(await notice()).toMatch(new RegExp(`#${n} has 1 new decision`))
     noteCardRead(rev, n)

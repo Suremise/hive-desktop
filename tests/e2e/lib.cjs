@@ -83,6 +83,19 @@ async function until(fn, ms = 10000, interval = 100) {
   return v
 }
 
+/**
+ * Hovers `locator` and returns the text of the tooltip it shows, once `want(text)` holds (or the text shown after ms).
+ * A tooltip shows after its delay (ui.tsx), measured hidden before it is placed, so this waits for it to be visible
+ * with the text, never for the delay. The mouse first leaves for the window's corner, so an earlier tip has gone.
+ */
+async function hoverTip(page, locator, want, ms = 10000) {
+  const tip = () => page.locator('.tip:visible').last().innerText({ timeout: 1000 }).catch(() => '')
+  await page.mouse.move(5, 5)
+  await until(async () => (await page.locator('.tip:visible').count()) === 0, ms)
+  await locator.hover()
+  return (await until(async () => { const t = await tip(); return want(t) && t }, ms)) || (await tip())
+}
+
 let quitWatches = 0
 /**
  * Watches a test copy of Hive quit, telling Hive's part from the process's (#424). Start it before the quit.
@@ -238,13 +251,23 @@ async function openWorkspace(inv, page, ws, ms = 20000) {
   if (!ok) throw new Error(`The window didn't show the workspace ${name} within ${ms / 1000} s`)
 }
 
-/** Starts the dev build with a test profile. Returns { app, page, inv } (inv calls an IPC channel). */
-async function launch({ userData, env = {}, viewport = { width: 1400, height: 850 } }) {
+/**
+ * Starts the dev build with a test profile. Returns { app, page, inv } (inv calls an IPC channel). readyMs bounds the
+ * wait for its window to be ready; one that isn't is closed and the failure thrown.
+ */
+async function launch({ userData, env = {}, viewport = { width: 1400, height: 850 }, readyMs = 90000 }) {
   // The run context's environment (quiet, tips off, the suite's port) with the profile and the suite's own variables.
   const app = await _electron.launch({ executablePath: ELECTRON, args: [ROOT], cwd: ROOT, env: hiveEnv({ HIVE_USER_DATA: userData, ...env }) })
-  const page = await app.firstWindow()
-  await fitWindow(app, page, viewport)
-  await appReady(page)
+  let page
+  try {
+    page = await app.firstWindow()
+    await fitWindow(app, page, viewport)
+    await appReady(page, readyMs)
+  } catch (e) {
+    // Started but never ready: it closes here, as no caller gets it to close (#464); its own failure is the one thrown.
+    await app.close().catch(() => undefined)
+    throw e
+  }
   const inv = (ch, ...a) => page.evaluate(([c, args]) => window.hive.invoke(c, ...args), [ch, a])
   return { app, page, inv }
 }
@@ -304,6 +327,16 @@ async function acceptClaudeTrust(inv, proj, agentId, timeoutMs = 15000) {
     await sleep(500)
   }
   return false
+}
+
+/**
+ * After a restart: answers the relaunch's trust question (acceptClaudeTrust), but only once `spawned()` says its new
+ * process runs (within spawnMs): until then the terminal still holds the previous process's screen, its question too,
+ * so nothing is read or typed there (#341). { spawned, trusted }: spawned false when the new process wasn't seen.
+ */
+async function acceptRelaunchTrust(inv, proj, agentId, spawned, { spawnMs = 20000, timeoutMs = 30000 } = {}) {
+  if (!(await until(spawned, spawnMs))) return { spawned: false, trusted: false }
+  return { spawned: true, trusted: await acceptClaudeTrust(inv, proj, agentId, timeoutMs) }
 }
 
 /** The trust question's choice the terminal shows selected last ('No, exit' or 'Yes, …'), or null. */
@@ -517,6 +550,9 @@ function checked(ok) {
   else checks.failed++
 }
 
+/** The longest a skipped step waits for its test Hives to close before the suite exits: a bound for a hung close. */
+const CLOSE_MS = 10000
+
 /**
  * Runs a step that depends on the real CLI answering (a turn, a start), in a real-CLI suite. If a check in it failed
  * (it didn't throw) and a new environment failure appeared in its session meanwhile (stepVerdict), the suite stops
@@ -544,7 +580,7 @@ async function cliStep(name, opts, fn) {
       console.log(`SKIPPED ${v.skip}`)
       console.log(`SKIPPED-FAILS ${step.failed}`)
       // Its test Hives close first, so nothing it started is left running.
-      await Promise.race([Promise.all([...apps].map((a) => a.close().catch(() => undefined))), sleep(10000)])
+      await Promise.race([Promise.all([...apps].map((a) => a.close().catch(() => undefined))), sleep(CLOSE_MS)])
       process.exit(0)
     }
     if (v?.note) console.log(`ENVIRONMENT ${v.note}`)
@@ -566,6 +602,9 @@ async function sendPrompt(inv, key, text, { submitted, tries = 3, waitMs = 20000
     const typed = attempt > 1 && plainText(await inv('pty:buffer', key).catch(() => '')).includes(text.slice(0, 30))
     if (attempt === 1) await inv('pty:write', key, text)
     else if (!typed) await inv('pty:write', key, `\x15${text}`)
+    // Deliberate pause, not a wait for a state: a CLI takes an Enter that comes within its paste window as part of the
+    // text (a new line, not a submit), and nothing on screen says when that window ends: Copilot shows the line at once
+    // and still takes an Enter right after it as part of the paste (tried in #527). submitted() is the check.
     await sleep(400)
     await inv('pty:write', key, '\r')
     if (await until(submitted, waitMs, 500)) return attempt
@@ -665,6 +704,20 @@ function codexHook(runId) {
 // What still runs from a test's own folder after its Hive closed (#542): folderProcesses.cjs.
 const { processTree, stopProcessesIn } = require('./folderProcesses.cjs')
 
+/**
+ * Whether process `pid` still runs: false only when Windows says there is no such process (ESRCH). Any other error
+ * (EPERM…) leaves its state unknown, so it is thrown rather than read as "it exited" (#339).
+ */
+function processRunning(pid) {
+  try {
+    process.kill(pid, 0)
+    return true
+  } catch (e) {
+    if (e?.code === 'ESRCH') return false
+    throw new Error(`Can't tell whether process ${pid} runs: ${e?.code ?? e?.message ?? e}`, { cause: e })
+  }
+}
+
 const codexSignedIn = () => fs.existsSync(path.join(CODEX_HOME, 'auth.json'))
 
 /** A real PNG (a w×h gradient) for image previews, pastes and drops. */
@@ -732,16 +785,19 @@ async function haikuAutoMode(inv, host, agentId = 'assistant', timeoutMs = 15000
 /**
  * Settings → Assistant's warning about Auto with Haiku (#129): there exactly when the CLI says Auto isn't offered
  * (saying the session runs in Manual), none when it says it is, the shipped guess ("may not offer") when it doesn't say.
- * Opens Settings → Assistant (Ctrl+,). Returns [ok, what it found].
+ * Opens Settings → Assistant (Ctrl+,), waits for its model and mode defaults, then for the warning to be as it should
+ * (the window may still be taking in what the CLI said: the shipped guess first). Returns [ok, what it found].
  */
-async function haikuAutoCaveat(page, autoOffered) {
+async function haikuAutoCaveat(page, autoOffered, timeoutMs = 10000) {
   await page.keyboard.press('Control+,')
-  await sleep(500)
-  await page.locator('.settings-nav .row', { hasText: 'Assistant' }).first().click()
-  await sleep(500)
-  const caveat = await page.locator('.mode-caveat', { hasText: 'Auto with Haiku' }).allInnerTexts()
-  const ok = autoOffered === true ? !caveat.length : autoOffered === false ? caveat.length === 1 && /doesn't offer Auto with Haiku.*runs in Manual/.test(caveat[0]) : caveat.length === 1 && /may not offer Auto with Haiku/.test(caveat[0])
-  return [ok, JSON.stringify(caveat)]
+  const nav = page.locator('.settings-nav .row', { hasText: 'Assistant' }).first()
+  await nav.waitFor({ timeout: timeoutMs })
+  await nav.click()
+  await page.locator('.assistant-defaults').first().waitFor({ timeout: timeoutMs })
+  const caveat = () => page.locator('.mode-caveat', { hasText: 'Auto with Haiku' }).allInnerTexts()
+  const right = (c) => (autoOffered === true ? !c.length : autoOffered === false ? c.length === 1 && /doesn't offer Auto with Haiku.*runs in Manual/.test(c[0]) : c.length === 1 && /may not offer Auto with Haiku/.test(c[0]))
+  const ok = !!(await until(async () => right(await caveat()), timeoutMs))
+  return [ok, JSON.stringify(await caveat())]
 }
 
-module.exports = { ROOT, ELECTRON, WORK, CODEX_HOME, CLAUDE_TEST_HOME, TRASH, trashed, tidyUp, ownClaudeHome, probeDir, hiveEnv, childEnv, baseEnv, git, GIT_LOCKED, plainText, trustChoice, haikuAutoMode, haikuAutoCaveat, sleep, port, until, quitWatch, appReady, openWorkspace, hadEstimate, fitWindow, enableProviders, fakeClaude, launch, waitForProvider, addAgent, soloAgent, ptyKey, acceptClaudeTrust, withFileLock, trustForCodex, gitProject, codexSignedIn, launchDir, launchHook, codexHook, processTree, stopProcessesIn, samplePng, environmentProblem, environmentProblems, stepVerdict, checked, cliStep, sendPrompt, skip }
+module.exports = { ROOT, ELECTRON, WORK, CODEX_HOME, CLAUDE_TEST_HOME, TRASH, trashed, tidyUp, ownClaudeHome, probeDir, hiveEnv, childEnv, baseEnv, git, GIT_LOCKED, plainText, trustChoice, haikuAutoMode, haikuAutoCaveat, sleep, port, until, hoverTip, quitWatch, appReady, openWorkspace, hadEstimate, fitWindow, enableProviders, fakeClaude, launch, waitForProvider, addAgent, soloAgent, ptyKey, acceptClaudeTrust, acceptRelaunchTrust, withFileLock, trustForCodex, gitProject, codexSignedIn, launchDir, launchHook, codexHook, processTree, stopProcessesIn, processRunning, samplePng, environmentProblem, environmentProblems, stepVerdict, checked, cliStep, sendPrompt, skip }
