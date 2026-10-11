@@ -379,6 +379,33 @@ describe('a saved id decides; nothing is lost on the way (#508 round 2)', () => 
   })
 })
 
+describe('a project seen missing between reads, then at another folder, tells the board (#555)', () => {
+  it('a read during a rename (the folder listed, gone when its project.json is read) loses no rename', async () => {
+    const wsPath = join(base, 'ws-between')
+    project(wsPath, 'mu')
+    const w = createWorkspaceService()
+    await w.open(wsPath)
+    const { onHiveEvent } = await import('../src/main/events')
+    const seen: string[] = []
+    const off = onHiveEvent((e) => {
+      if (e.type === 'tasks-changed') seen.push(e.workspacePath)
+    })
+    try {
+      const id = (await w.projectIds({ fresh: true })).byPath.get(join(wsPath, 'mu').toLowerCase())
+      // As a read part way through the rename sees it: mu is no project then (out of the workspace for this read).
+      await moveFolder(join(wsPath, 'mu'), join(base, 'mu-between'))
+      expect((await w.projectIds({ fresh: true })).byId.has(id!)).toBe(false)
+      seen.length = 0
+      await moveFolder(join(base, 'mu-between'), join(wsPath, 'mu2'))
+      expect((await w.projectIds({ fresh: true })).byId.get(id!)).toBe(join(wsPath, 'mu2'))
+      expect(seen).toContain(wsPath)
+    } finally {
+      off()
+      await disposeWorkspaceService(w)
+    }
+  })
+})
+
 describe('merge holds Hive closed under are told in their project now (#508 round 3)', () => {
   const holdsFile = async (ws: string): Promise<string> => {
     const { hashText } = await import('../src/main/fsutil')

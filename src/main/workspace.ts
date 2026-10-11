@@ -102,6 +102,12 @@ export class WorkspaceService {
    */
   movedFrom: string | null = null
   private ids: (ProjectIdIndex & { key: string; at: number }) | null = null
+  /**
+   * Where each project id was last seen while this workspace is open, kept when a read misses it: a read part way through
+   * a rename (the folder listed, gone when its project.json is read), or a folder out of the workspace for a while, would
+   * otherwise make its next folder look like a new project, and the board would never hear it was renamed (#555).
+   */
+  private lastAt = new Map<string, string>()
   private idsRead: { key: string; run: Promise<ProjectIdIndex> } | null = null
 
   setLiveProvider(p: LiveProvider): void {
@@ -236,6 +242,7 @@ export class WorkspaceService {
     this.movedFrom = null
     this.ids = null
     this.idsRead = null
+    this.lastAt.clear()
     // The closed workspace's agent worktrees and settings must not route to (or be allowed by) the next one.
     this.roots.clear()
     this.unusedRoots.clear()
@@ -465,7 +472,6 @@ export class WorkspaceService {
     }
     const index = { key, byPath, byId, at: Date.now() }
     if (gen !== this.generation) return index
-    const was = this.ids
     this.ids = index
     // Each project by its id, as this read saw it (#514): the record of their names, and what follows a rename, go from it.
     const copies = new Set(fresh.map((p) => p.toLowerCase()))
@@ -477,7 +483,9 @@ export class WorkspaceService {
     WorkspaceService.onIdsRead?.(this, seen)
     // A project renamed or moved (an id at another folder now): the cards, lanes and watches that name it read differently,
     // so the window and the services that follow the board look again (#508).
-    if (was && [...byId].some(([id, p]) => { const before = was.byId.get(id); return !!before && before.toLowerCase() !== p.toLowerCase() }) && this.path) this.emit({ type: 'tasks-changed', workspacePath: this.path })
+    const moved = [...byId].some(([id, p]) => { const before = this.lastAt.get(id); return !!before && before.toLowerCase() !== p.toLowerCase() })
+    for (const [id, p] of byId) this.lastAt.set(id, p)
+    if (moved && this.path) this.emit({ type: 'tasks-changed', workspacePath: this.path })
     return index
   }
 
