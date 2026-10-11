@@ -603,7 +603,10 @@ function wireSettingsEffects(): void {
       const now = providerSettings(s, p.id)
       const before = providerSettings(prev, p.id)
       if (before.enableDangerousMode && !now.enableDangerousMode) void revertDangerousModes(p.id)
-      if (JSON.stringify(now.prices) !== JSON.stringify(before.prices)) sessions.clearUsageCache()
+      if (JSON.stringify([now.prices, now.pricesRemoved, now.costSource]) !== JSON.stringify([before.prices, before.pricesRemoved, before.costSource])) {
+        sessions.clearUsageCache()
+        void sessions.repriceLive()
+      }
       if (now.executablePath !== before.executablePath || (now.enabled && !before.enabled)) void providerService.refresh(p.id, now.enabled)
     }
   })

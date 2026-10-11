@@ -1,5 +1,5 @@
 import type { AppSettings, DayUsage, SessionUsage, UsageTokens } from './types'
-import { estimateCost } from './prices'
+import { estimateCost, usesOwnPrices } from './prices'
 
 /**
  * Usage by day, so the Overview's periods count what happened in them: a session that runs over several days
@@ -81,6 +81,30 @@ export function withDayCosts(usage: SessionUsage, settings?: Pick<AppSettings, '
   }
   delete usage.costReports
   return usage
+}
+
+/**
+ * A session's usage with costs from the current prices: the provider's report, else (or on top, for what came after
+ * it) Hive's estimate; or, when the user chose their own prices over the report (usesOwnPrices, #436), Hive's estimate
+ * alone wherever it has a price. Then each day's share (withDayCosts).
+ */
+export function priceUsage(raw: SessionUsage, settings?: Pick<AppSettings, 'providers'> | null): SessionUsage {
+  const usage = structuredClone(raw)
+  const mine = usesOwnPrices(usage.provider, settings) ? estimateCost(usage, settings) : null
+  if (mine !== null) {
+    Object.assign(usage, { costUsd: mine, costEstimated: true })
+    // Each day is then priced the same way, not shared out from the reports.
+    delete usage.costReports
+  } else if (usage.costUsd === null) {
+    // Providers that don't report a cost get Hive's estimate from their token counts (prices: Settings → provider).
+    const est = estimateCost(usage, settings)
+    if (est !== null) Object.assign(usage, { costUsd: est, costEstimated: true })
+  } else if (usage.costUnreported) {
+    // The provider reports its cost only now and then: the tokens since get Hive's estimate on top.
+    const est = estimateCost({ ...usage, ...usage.costUnreported }, settings)
+    if (est) Object.assign(usage, { costUsd: usage.costUsd + est, costEstimated: true })
+  }
+  return withDayCosts(usage, settings)
 }
 
 /** A session's usage from a day on (null: all of it), and whether it was active then at all. */

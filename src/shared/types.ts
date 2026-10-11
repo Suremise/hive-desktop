@@ -318,6 +318,11 @@ export interface ProviderSettings {
   allowBackgroundSessions: boolean
   /** Run sessions with a 200K context window instead of the model's 1M one (capabilities.contextLimit). */
   use200kContext: boolean
+  /**
+   * Where a session's cost comes from when the provider reports one (capabilities.reportsCost, #436): the CLI's own
+   * report (the truth, from its own price table: Hive never recomputes it), or Hive's estimate from the price table.
+   */
+  costSource: 'reported' | 'prices'
   /** The user's price overrides by model id; missing models use the prices Hive ships. */
   prices: Record<string, ModelPrice>
   /** Shipped prices the user removed from the table (a model of their own in `prices` wins). */
