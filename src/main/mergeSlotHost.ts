@@ -1,12 +1,12 @@
 import { app } from 'electron'
 import { basename, join, resolve } from 'path'
-import { existsSync } from 'original-fs'
+import { appendFileSync, existsSync } from 'original-fs'
 import { readFile } from 'original-fs/promises'
 import type { MergeSlotInfo } from '../shared/types'
 import { emit, toast } from './events'
 import { hashText, withFileLock, writeTextAtomic } from './fsutil'
 import { createLogger, userText } from './logger'
-import { MergeSlots, parseSlotRecords, type SlotRecord } from './mergeSlots'
+import { MergeSlots, parseSlotRecords, type ClaimResult, type ReleaseResult, type SlotAgent, type SlotRecord } from './mergeSlots'
 import { setUserMergeSlot } from './projectAgents'
 import { progress } from './progressService'
 import { sessions } from './sessions'
@@ -56,6 +56,36 @@ function changed(projectPath: string): void {
   if (!ws) return
   emit({ type: 'merge-slots-changed', workspacePath: ws, slots: workspaceSlots(ws) })
   void save(ws).catch((e) => log.warn('saving the merge slots', e))
+  testLog(ws)
+}
+
+/**
+ * Test builds only (HIVE_TEST_MERGE_SLOT_LOG, never in an installed Hive): each change to a workspace's slots, a JSON
+ * line with its time, so a scenario sees who held a slot and who waited when, not only the claims made (#374).
+ */
+function testLog(workspacePath: string): void {
+  const slots = workspaceSlots(workspacePath).map((s) => ({ project: s.project, branch: s.branch, holder: s.holder && { agentId: s.holder.agentId ?? null, name: s.holder.name, cards: s.holder.cards, taken: s.holder.taken }, waiting: s.waiting.map((w) => w.name) }))
+  writeTestLog({ at: new Date().toISOString(), slots })
+}
+
+/**
+ * Test builds only (the same log): an agent's claim or release as it ended, with the branch it resolved to (a call
+ * naming none takes the project folder's) and what it did: held or in line; released, left the line, or nothing to
+ * release (#374). A scenario tells the agent's own release from a hold that ended otherwise (its session's end, the user).
+ */
+export function slotTestEvent(agent: SlotAgent, projectPath: string, branch: string, result: ClaimResult | ReleaseResult): void {
+  const outcome = 'held' in result ? (result.held ? 'held' : 'in line') : 'released' in result ? 'released' : 'left' in result ? 'left' : 'none'
+  writeTestLog({ at: new Date().toISOString(), event: 'held' in result ? 'claim' : 'release', project: projectPath, branch, agentId: agent.agentId, agent: agent.agentName, outcome })
+}
+
+function writeTestLog(line: object): void {
+  const file = !app.isPackaged ? process.env.HIVE_TEST_MERGE_SLOT_LOG : undefined
+  if (!file) return
+  try {
+    appendFileSync(file, JSON.stringify(line) + '\n')
+  } catch {
+    // A test log that can't be written changes nothing.
+  }
 }
 
 /** The record of this workspace's agents' holds, rewritten whole under its lock as it changes. */

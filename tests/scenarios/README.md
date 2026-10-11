@@ -17,6 +17,17 @@ ran:
 - **Hive tool calls** come from the hive MCP server itself. In development builds it logs each call it ran, with
   whether it worked, to the file named by `HIVE_TEST_MCP_LOG`. Tool names in a transcript, or in a Codex script that
   may never have run, are kept apart as *mentions* and are never counted as calls.
+- **The merge slot** comes from Hive's own record: development builds write each change to the slots (who holds one,
+  told so or not, and who waits in line) and each claim or release as Hive resolved it (the branch, and what it did:
+  held or in line; released, left the line or nothing), with its time, to the file named by `HIVE_TEST_MERGE_SLOT_LOG`.
+  The merge scenarios (#374) set that beside the checks' own runs (check.js records each run's start, with the commit,
+  the base, any merge in progress and the tree it checked, and its end with the result) and the merge's moment (a reference-transaction hook
+  in the scenario's repository times each branch update to the millisecond). They check that the agent's claim of the
+  base's slot held; it held the slot from before the checks that went in (the run that checked exactly the tree the merge
+  committed) until they ended passing, and through the
+  merge after them; it waited in line behind another holder; and its own release of the base's slot ended that hold
+  after the merge, or after its checks ended failing. A hold that ended otherwise (its session's end, the user), a
+  release resolved to another branch, or a time that can't be placed doesn't count.
 - **Skills read**: a Skill call for the skill that didn't fail, or a read (not a write) of its `SKILL.md` whose result
   is that skill's own text (its `name:` line). Writing to the path, echoing it, or a failed read doesn't count.
 - **The board, shared notes and files** afterwards, through the Agent API and `git status`.
@@ -125,7 +136,10 @@ environment problem when the screen shows one) when it doesn't get there, rather
     home by hand, or run them again later). results.json and summary.md say "skipped: environment: …", and
     benchmark.json has the sample as incomplete, so Performance → Compare counts no sample for it. To check this
     without a model: `npm run scenarios -- --only work-on-card --signed-out` (the fake Claude Code acts out an expired
-    sign-in; fakes only).
+    sign-in; fakes only). A CLI that exits before its session starts (an OAuth session it couldn't refresh: "Failed to
+    authenticate: OAuth session expired and could not be refreshed", exit 1) is matched by its last screen, the reason
+    Hive logs, or, for Claude Code, its own `auth status --json` in the test home; anything else ends the trial at once
+    as `ERROR the session ended at launch: …`, not after the trial's limits (#577). `--signed-out=launch` acts it out.
   - Each scenario is one session of the chosen model, 6 minutes at most. `--budget` (USD, API-equivalent, above 0,
     default 2) stops the run once the scenarios so far cost that much. A trial that reports no cost makes the spend
     unknown, so no further trial starts unless `--allow-unknown-cost` is given; the summary then says the total is

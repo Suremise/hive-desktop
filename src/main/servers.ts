@@ -32,7 +32,7 @@ import agentApiDoc from '../../docs/AGENT_API.md?raw'
 import { createLogger } from './logger'
 import { listMcp } from './mcp'
 import { assertInShared, createHandover, handoversFor, NoteConflict, notesTree, readNote, writeNote } from './notes'
-import { mergeSlots } from './mergeSlotHost'
+import { mergeSlots, slotTestEvent } from './mergeSlotHost'
 import * as lanes from './lanes'
 import { laneCards, laneName, laneNumber } from '../shared/lanes'
 import { DEFAULT_WAIT_MS, MAX_WAIT_MS, MergeSlotError, slotBranch, slotCards, type SlotAgent } from './mergeSlots'
@@ -1157,7 +1157,9 @@ route('POST', '/v1/projects/:name/merge-slot/claim', async ({ params, body, sign
     const t = body?.timeoutSeconds
     if (t !== undefined && (typeof t !== 'number' || !Number.isFinite(t) || t < 0)) throw new HttpError(400, 'timeoutSeconds must be a number of seconds')
     const waitMs = t === undefined ? DEFAULT_WAIT_MS : Math.min(MAX_WAIT_MS, t * 1000)
-    return { ...(await mergeSlots.claim(agent, p, branch, cards, waitMs, signal)), slot: mergeSlots.status(p, branch) }
+    const result = await mergeSlots.claim(agent, p, branch, cards, waitMs, signal)
+    slotTestEvent(agent, p, branch, result)
+    return { ...result, slot: mergeSlots.status(p, branch) }
   })
 )
 
@@ -1165,7 +1167,10 @@ route('POST', '/v1/projects/:name/merge-slot/release', async ({ params, body }) 
   slotCall(async () => {
     const p = projectByName(params[0])
     const agent = await slotAgent(p)
-    return mergeSlots.release(agent, p, await slotBranchFor(p, body?.branch))
+    const branch = await slotBranchFor(p, body?.branch)
+    const result = mergeSlots.release(agent, p, branch)
+    slotTestEvent(agent, p, branch, result)
+    return result
   })
 )
 

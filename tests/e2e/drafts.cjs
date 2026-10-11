@@ -109,10 +109,14 @@ const HUNG_MS = 10000
   await page.evaluate(() => window.hive.invoke('app:quit'))
   const quit = (await lib.until(async () => { const t = await dialogText(); return /plan\.md/.test(t) && /demo\.json/.test(t) && t }, HUNG_MS)) || (await dialogText())
   check('quit: lists the unsaved note and server', /plan\.md/.test(quit) && /demo\.json/.test(quit), quit.replace(/\s+/g, ' ').slice(0, 200))
-  const exited = new Promise((r) => app.process().once('exit', () => r(true)))
+  // Hive's part (saving both, then app.quit) and the process's exit are waited for separately (#424): the limits only
+  // bound a hang, since a loaded machine stretches both (#563).
+  const quitting = await lib.quitWatch(app)
+  const clicked = Date.now()
   await page.getByRole('button', { name: 'Save and quit' }).click()
-  // 8 s bounds a hung quit: the check waits for the exit itself.
-  check('quit: Hive quits after saving', await Promise.race([exited, sleep(8000).then(() => false)]))
+  const quits = !!(await quitting.untilDecided(30000)) && (await quitting.gone(30000))
+  check('quit: Hive quits after saving', quits, quitting.timings(clicked))
+  console.log(`quit: ${quitting.timings(clicked)}`)
   check('quit: the note was saved', read(note).includes('DRAFT-2'))
   check('quit: the server was saved', read(server) !== '{ "command": "node", "args": [] }\n' && !!JSON.parse(read(server)))
   // Hive has quit (that was the test): Playwright may already have let go of it, so asking about it can throw.
