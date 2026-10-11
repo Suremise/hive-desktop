@@ -3,10 +3,10 @@ import { projectAgents } from '../shared/defaults'
 import type { TaskCard, TaskHistoryEntry } from '../shared/types'
 import { cardChange, loopWakeLine, wakeAbout } from '../shared/watch'
 import { onHiveEvent } from './events'
-import { listLanes } from './lanes'
+import { listLanes, onLanesWritten } from './lanes'
 import { createLogger, userText } from './logger'
 import { getTask, noteOnCard, onLoopEvent, type LoopEvent, type TaskActor } from './tasks'
-import { inFlightNow as watchesInFlight, settled as watchesSettled, typeLine, watchCovers } from './watches'
+import { inFlightNow as watchesInFlight, settled as watchesSettled, typeLine, watchCovers, watchTold } from './watches'
 import { workspaceFor, type WorkspaceService } from './workspace'
 
 /**
@@ -46,8 +46,11 @@ const SETTLE_MS = 1500
 /** At most this many wakes wait at once (the oldest go first). */
 const MAX_PENDING = 200
 
-/** The settle before a handoff's wake is first tried (SETTLE_MS), for unit tests: 0 tries it at once. */
-export const testHooks: { settleMs?: number } = {}
+/**
+ * For unit tests: the settle before a handoff's wake is first tried (SETTLE_MS; 0 tries it at once), and a pause before
+ * a handoff is worked out (#578: a handoff later than the watch that tells the same change).
+ */
+export const testHooks: { settleMs?: number; beforeHandoff?: () => Promise<void> } = {}
 
 /**
  * What loop wakes are doing in the background (#570): handoffs being worked out, the settle before each wake's first
@@ -118,6 +121,7 @@ function enqueue(ws: WorkspaceService, projectPath: string, card: TaskCard, kind
 
 /** A handoff saved (tasks.ts): whose wake it is, if anyone's, queued and tried after a settle. */
 async function handoff(e: LoopEvent): Promise<void> {
+  await testHooks.beforeHandoff?.()
   const { card, kind, actor } = e
   if (!e.ws.path || !card.project || card.archived) return
   const projectPath = join(e.ws.path, card.project)
@@ -179,7 +183,10 @@ async function attemptNow(key: string): Promise<void> {
   const drop = (): void => {
     if (pending.get(key) === p) pending.delete(key)
   }
-  if (!card || !stillDue(p, card) || watchCovers(p.projectPath, p.agentId, p.n, p.kind, card.column) || !(await wakesOn(p.ws, p.projectPath))) return drop()
+  // Its own watch told it already (#578): a watch whose line had read this handoff's own history entry, even one that has
+  // ended since (a handoff slower than the watch's settle and typing found no watch to leave it to).
+  const told = !!card && !!p.since && watchTold(p.projectPath, p.agentId, card, p.since)
+  if (!card || !stillDue(p, card) || watchCovers(p.projectPath, p.agentId, p.n, p.kind, card.column) || told || !(await wakesOn(p.ws, p.projectPath))) return drop()
   // Only to whose wake it is now: another reviewer given the lane meanwhile gets it instead (#405 round 1 finding).
   const to = await targetOf(p.ws, p.projectPath, card, p.kind)
   if (to?.id !== p.agentId) {
@@ -210,6 +217,8 @@ export function initLoopWakes(): void {
   if (started) return
   started = true
   onLoopEvent((e) => inBackground('a loop handoff', handoff(e)))
+  // A lane written counts at once: its settled lanes-changed event comes 300 ms later (#578 round 2).
+  onLanesWritten(() => rolesSeq++)
   onHiveEvent((e) => {
     if (e.type === 'tasks-changed' || e.type === 'lanes-changed') rolesSeq++
     if (e.type !== 'session-status') return

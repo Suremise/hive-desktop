@@ -6,7 +6,7 @@ import { existsSync, mkdirSync, readdirSync, readFileSync, renameSync, rmSync, w
 import { basename, join } from 'path'
 import { afterAll, describe, expect, it, vi } from 'vitest'
 import * as electron from 'electron'
-import { alreadyThere, changesBetween, decodeSince, encodeSince, limitLine, markOf, movedIntoSince, readCondition, returnRound, WAKE_MAX_BYTES, wakeAbout, wakeLine, wakeLines, carriedOver, changesSince, seenOf, watchLabel, cardChange, LANES_RUNNING_TAIL, withLanesTail } from '../src/shared/watch'
+import { alreadyThere, changesBetween, decodeSince, encodeSince, limitLine, markOf, movedIntoSince, readCondition, returnRound, WAKE_MAX_BYTES, wakeAbout, wakeLine, wakeLines, carriedOver, changesSince, entryWithin, seenOf, watchLabel, cardChange, LANES_RUNNING_TAIL, withLanesTail } from '../src/shared/watch'
 import { taskWaitText } from '../src/shared/toolReplies'
 import { hookStep } from '../src/main/hookStatus'
 import type { TaskCard } from '../src/shared/types'
@@ -308,6 +308,25 @@ describe('what counts as a change', () => {
     // A short comment is kept whole.
     const short = cardOf({ comments: [{ at: at(1), by: 'Codex (hive)', text: 'Round 1: PASSED' }] })
     expect(wakeLine(cardChange(7, short, ['comment']))).toContain('latest comment by Codex (hive): "Round 1: PASSED". ')
+  })
+
+  it("tells whether a history entry is within a view's boundary by which entry it is, not its time (#578)", () => {
+    // Three entries in the same millisecond: a view that ended at the second had the first two, not the third.
+    const t = at(1)
+    const history = [
+      { id: 'a00001', at: t, by: 'B1 (alpha)', what: 'Moved to Review' },
+      { id: 'a00002', at: t, by: 'R1 (alpha)', what: 'Review failed' },
+      { id: 'a00003', at: t, by: 'B1 (alpha)', what: 'Returned for review, round 2' }
+    ]
+    const seen = seenOf(cardOf({ history: history.slice(0, 2) })).h
+    expect(entryWithin(history, history[0], seen)).toBe(true)
+    expect(entryWithin(history, history[1], seen)).toBe(true)
+    expect(entryWithin(history, history[2], seen)).toBe(false)
+    // No view yet, or one whose entry is no longer kept: nothing shows it was seen.
+    expect(entryWithin(history, history[0], null)).toBe(false)
+    expect(entryWithin(history.slice(2), history[2], seen)).toBe(false)
+    // An entry the list doesn't have.
+    expect(entryWithin(history, { id: 'a00009', at: t, by: 'X', what: 'Other' }, seen)).toBe(false)
   })
 
   it('a watching agent prompted (a wake, or the user) works again; a tool ending while watching is work too', () => {

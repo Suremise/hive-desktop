@@ -3,7 +3,7 @@ import { app } from 'electron'
 import { link, mkdir, readFile, rename, rm, writeFile } from 'original-fs/promises'
 import { basename, dirname, join, resolve } from 'path'
 import { projectAgents } from '../shared/defaults'
-import { cardChange, carriedOver, changesBetween, changesSince, ENTRY_KEY, limitLine, markOf, movedIntoSince, seenOf, readMark, readSavedCondition, WAKE_MAX_BYTES, wakeAbout, watchLabel, cardWakeLine, userNameOf, releasedLine, withLanesTail, type Released, type ReplyNote, alreadyThere, encodeSince, WATCH_DEFAULT_LIMIT_MINUTES, WATCH_MAX_CARDS, WATCH_MAX_LIMIT_MINUTES, type Baseline, type CardChange, type CardMark, type Seen, type WatchChange, type WatchCondition } from '../shared/watch'
+import { cardChange, carriedOver, changesBetween, changesSince, entryWithin, ENTRY_KEY, limitLine, markOf, movedIntoSince, seenOf, readMark, readSavedCondition, WAKE_MAX_BYTES, wakeAbout, watchLabel, cardWakeLine, userNameOf, releasedLine, withLanesTail, type Released, type ReplyNote, alreadyThere, encodeSince, WATCH_DEFAULT_LIMIT_MINUTES, WATCH_MAX_CARDS, WATCH_MAX_LIMIT_MINUTES, type Baseline, type CardChange, type CardMark, type Seen, type WatchChange, type WatchCondition } from '../shared/watch'
 import { agentBusy, agentEvent, agentLimitLine, agentMarkOf, agentPart, agentWakeLine, agentWatchLabel, readSavedAgentCondition, readSavedAgentMark, replyFirstLine, type AgentEvent, type AgentMark, type AgentNow, type AgentWatchCondition, type WatchedAgent } from '../shared/agentWatch'
 import { isProjectId, type ProjectIdIndex } from '../shared/projectIds'
 import { rebase } from '../shared/movePaths'
@@ -1310,6 +1310,36 @@ export function watchCovers(projectPath: string, agentId: string, n: number, kin
 }
 
 /**
+ * What a watch's typed line last told each agent about each card (#578): the last history entry the line had read of the
+ * card (its `seen` boundary), by agent key and card. A loop wake for a change whose history entry is within that boundary
+ * is one the watch already told, so it is dropped, even once the watch itself has ended; a change after it (the next
+ * round's arrival, at any time, the same millisecond too) is news. In memory, as loop wakes are, and kept a day (a loop
+ * wake waits at most that long).
+ */
+const toldByWatch = new Map<string, Map<number, { h: string | null; at: number }>>()
+const TOLD_KEEP_MS = 24 * 60 * 60_000
+function noteToldByWatch(projectPath: string, agentId: string, told: Record<string, Baseline>): void {
+  const cards = Object.entries(told)
+  if (!cards.length) return
+  const key = agentKey(projectPath, agentId)
+  const known = toldByWatch.get(key) ?? new Map<number, { h: string | null; at: number }>()
+  for (const [n, b] of cards) {
+    known.delete(Number(n))
+    known.set(Number(n), { h: b.seen.h, at: Date.now() })
+  }
+  while (known.size > WOKE_CARDS) known.delete(known.keys().next().value!)
+  toldByWatch.delete(key)
+  toldByWatch.set(key, known)
+  while (toldByWatch.size > MAX_WATCHES) toldByWatch.delete(toldByWatch.keys().next().value!)
+}
+
+/** Whether a watch's line typed into the agent has told it of card `card`'s history entry `entry` (#578). */
+export function watchTold(projectPath: string, agentId: string, card: TaskCard, entry: TaskCard['history'][number]): boolean {
+  const t = toldByWatch.get(agentKey(projectPath, agentId))?.get(card.number)
+  return !!t && Date.now() - t.at < TOLD_KEEP_MS && entryWithin(card.history, entry, t.h)
+}
+
+/**
  * What rides a wake typed into an agent (#530: the messages left for it, agentMessages.ts): its text, put first in the
  * line; `still` asked before each piece and before Enter (false stops the typing: the wake is typed again later, with
  * what rides it then); `taken` once the line is in.
@@ -1412,6 +1442,8 @@ async function deliver(store: Store, rec: WatchRecord): Promise<void> {
     let laneTold: Record<string, LaneMark> | null = null
     // When the line was made from them: the fire, or when it was made again just now.
     let laneToldAt = rec.fired.at
+    // What the line tells of each card it names, as read for it (#578: what loop wakes then leave alone).
+    let toldOfCards: Record<string, Baseline> = {}
     // Cards released as it is delivered (#420), noted in their history once it is typed.
     const endedAt: { n: number; what: string }[] = []
     for (const n of rec.cond.cards) {
@@ -1449,6 +1481,8 @@ async function deliver(store: Store, rec: WatchRecord): Promise<void> {
         const made = cardWakeLine(r.hits, r.replies.map((x) => x.note), rec.released ?? [], userName())
         line = fitLine(made.line)
         telling = r.replies.length > 0
+        // Each card the line tells a change of, as read for it.
+        toldOfCards = Object.fromEntries(r.hits.filter((h) => h.changes !== 'gone' && r.told[h.number]).map((h) => [h.number, r.told[h.number]]))
         if (r.hits.length) told = r.told
         // Only replies the line names are told (#418).
         if (made.repliesTold) toldReply = Math.max(rec.replySeq ?? 0, ...r.replies.map((x) => x.seq))
@@ -1530,6 +1564,7 @@ async function deliver(store: Store, rec: WatchRecord): Promise<void> {
     }
     rider?.taken()
     log.info(`Woke ${userText(rec.agentId)}: ${userText(typedLine.slice(0, 80))}`)
+    noteToldByWatch(rec.projectPath, rec.agentId, toldOfCards)
     for (const x of endedAt) inBackground(`noting on #${x.n} that a watch ended`, noteOnCard(x.n, x.what, store.ws))
     if (before) inBackground('checking a wake was taken', confirmTaken(rec.projectPath, rec.agentId, before, typedLine, rider ? { still: rider.allowed, withdrawn: rider.withdrawn, instead: line } : undefined))
     // What earlier wakes told about cards this one didn't stays: it is still all the agent was told about them.

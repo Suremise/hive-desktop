@@ -141,6 +141,20 @@ export interface Seen {
 export const seenOf = (card: TaskCard): Seen => ({ h: card.history.length ? keyAt(card.history, card.history.length - 1) : null, c: card.comments.length ? keyAt(card.comments, card.comments.length - 1) : null })
 
 /**
+ * Whether `entry` (one of `list`'s, as it was read then) is at or before the entry `key` names: a view that ended there
+ * had it (#578). By its id; one from before ids by its time, text and author. Not in the list any more, or the key's
+ * entry gone: false (nothing shows it was seen).
+ */
+export function entryWithin<T extends Entry>(list: T[], entry: T, key: EntryKey | null): boolean {
+  if (!key) return false
+  const i = hasId(entry) ? list.findIndex((e) => e.id === entry.id) : list.findIndex((e) => !hasId(e) && e.at === entry.at && e.by === entry.by && hashOf(e) === hashOf(entry))
+  if (i < 0) return false
+  const after = entriesAfter(list, key)
+  // The key's entry not found (entriesAfter gives the whole list): nothing is within it.
+  return after.length < list.length && i < list.length - after.length
+}
+
+/**
  * The entries after the one `key` names (all of them for null). A card's history and comments only grow at the end and
  * are capped at the start, so when that entry is no longer kept, every entry still kept came after it.
  */
