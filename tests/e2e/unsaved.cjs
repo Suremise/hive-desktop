@@ -109,8 +109,8 @@ const quits = async (q, ms = 8000) => {
   const dialogText = await page.locator('.dialog').last().innerText().catch(() => '')
   check('delete: warns about unsaved changes', /Unsaved changes to gone\.ts will be lost/.test(dialogText), dialogText.replace(/\s+/g, ' ').slice(0, 200))
   await page.getByRole('button', { name: 'Move to Recycle Bin' }).click()
-  await sleep(900)
-  check('delete: file gone', !exists('gone.ts'))
+  // Gone from disk, and then its unsaved changes dropped (the editor's dot goes): what Quit lists below depends on both.
+  check('delete: file gone, and its unsaved changes with it', !!(await lib.until(async () => !exists('gone.ts') && (await pane.locator('.editor-toolbar .dirty-dot').count()) === 0, 10000)))
 
   // Quit: the dialog lists the two unsaved files (not the deleted one), Save and quit saves them.
   await page.evaluate(() => window.hive.invoke('app:quit'))

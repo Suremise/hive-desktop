@@ -36,6 +36,108 @@ Codex run.
 
 Every scenario ran once per provider. Models vary from run to run, so a single result is a sample, not a rate.
 
+## Merging through the merge slot: fakes, Codex (its default model, `gpt-5.6-luna`), fixtures v51 (v52 once merged with main), 11 October 2026
+
+#374 checks that merge-ready's merge slot is used, from what ran rather than mentions. The evidence:
+- Hive's own record (`HIVE_TEST_MERGE_SLOT_LOG`, development builds only): each change to the slots (who holds one,
+  told so or not, and who waits) and each claim or release as Hive resolved it (the branch, and what it did), timed.
+- The checks' own runs: check.js records each run's start (commit, base, any merge in progress, and the tree it
+  checked: the tracked files as they are on disk, staged or not) and its end with the result. What went into a merge is
+  the run that checked exactly the tree the merge committed, so a file changed after the checks doesn't count.
+- The merge's moment: a reference-transaction hook in the scenario's repository times each branch update to the
+  millisecond, from prepared to committed.
+
+**merge-main-moved** keeps #306's base-moved checks and adds:
+- the agent's claim of the base's slot held;
+- it held the slot from before the checks that went in until they ended passing;
+- it merged in the same hold, after the checks;
+- its own release of the base's slot ended that hold after the merge.
+
+New:
+- **merge-slot-queued**: Implementer, running, holds the slot until Coder is in line behind it. Coder waits, holds the
+  slot only after Implementer's release, then checks, merges and releases.
+- **merge-checks-fail**: the branch fails its checks. The agent held the slot through the failing run (on the branch,
+  or with its merge in progress in the base), merged nothing, and released the slot itself after.
+
+A hold that ended otherwise (its session's end, the user), a release resolved to another branch (#586's bare
+`release` after a checkout) or a no-op, and a time that can't be placed (a check that never ended, a merge git kept no
+time of) don't count. `tests/scenarioObserve.test.ts` fails each check on its own with a real repository: no slot use,
+never released, released by cleanup, by a release for another branch or a no-op, released between the checks and the
+merge within the same second, released while the checks ran, a check that never ended, another branch's slot, a hold
+only after the checks, a turn not taken, never in line, a failing branch merged anyway, and a staged merge changed after its checks passed and then
+committed. It also passes the staged workflow (`git merge --no-commit` in the base, the checks there, then commit or
+abort).
+- **Fakes**: baseline `before-374` (v50, on 9fce652: merge-main-moved 4/4, merged-to-done 1/1) and `after-374` (v51,
+  first round: merge-main-moved 8/8, merge-slot-queued 9/9, merge-checks-fail 5/5, merged-to-done 1/1). Same guidance
+  revision (`69388e8bab64a2cf`) and launch size (1,947 bytes core); the slot calls add 2 or 3 tool calls (107–190 bytes)
+  a scenario. The fake's release naming no branch after it checked out its branch fails "released the slot itself" in
+  merge-checks-fail (it resolves to `feature`), and passes in merge-main-moved (back on the base).
+- **Codex, its default model** (CLI 0.162.1): on the first round's evidence (`2026-10-11T08-35-35-codex`, $0.15), all
+  three passed. Those records have no call records, ref times or check ends, so they were run again on the final
+  evidence (`2026-10-11T09-10-31-codex`, $0.13). merge-main-moved passed every check. merge-slot-queued passed every slot check: it waited in line, staged the merge in the base with `--no-commit`, checked it, committed and released. Only "read the merge-ready skill" failed: it read no skill. merge-checks-fail claimed no slot this time: it staged the merge, saw the checks fail, aborted and merged nothing, so the three slot checks and the skill read failed. Models vary from sample to sample, and the first round's sample did use the slot here. Those records have no checked trees, so they can't show that what went in was what was checked. Run again on the final evidence (`2026-10-11T09-28-17-codex`, $0.16): every slot check passed in all three, the tree its checks ran on is the tree each merge committed, and only merge-checks-fail's "read the merge-ready skill" failed.
+- **Codex, `gpt-5.6-luna`** (`2026-10-11T08-31-38-codex`, $0.015, first round): read no skill and claimed no slot. It
+  merged at once in merge-main-moved (the base-moved checks fail too, as at v50) and merge-slot-queued, and in
+  merge-checks-fail ran the checks on the base and merged the broken branch. That is a model skipping merge-ready, not
+  a fixture change.
+- **Claude Code**: not run. Its test home's sign-in had expired (`claude auth status`: not logged in), and the trial
+  ended as "the session ended" rather than an environment skip (#577).
+
+## Reports and verdicts lead with a one-line summary: fakes, Codex (its default model), fixtures v46–v47, 11 October 2026
+
+#532: work-on-card has a report to Review start with a one-sentence summary, review-agent-work a verdict with one line
+("Round 1: FAILED: 2 findings: …"); `hive_read_task` with `summary: true` gives each comment as its first line, and
+card-loop and run-lanes read wakes that way when the gist is enough. Fixtures v47 add a check to **work-on-card** (its
+report leads with a summary line, 10–300 characters) and **review-card** (its verdict's first line, the same, says
+passed or failed); their fakes post that comment through `hive_update_task`.
+- **Fakes**: before `hb1-532-before` (v46 on 4d7a16a, `2026-10-11T07-33-37-fake`) 76 of 76; after (v47,
+  `hb1-532-after`, `2026-10-11T08-02-47-fake`) 76 of 76. Hive's cost changed only in the two scenarios whose fakes now
+  comment through a hive tool (0 → 91 characters, 1 call each); every other scenario is unchanged.
+- **Codex: 4 of 4 pass** (`2026-10-11T08-27-42-codex`, $0.221): work-on-card and review-card pass their new checks
+  (the report and the verdict lead with a summary line); card-loop-rounds and coordinator-wake-failed pass. It didn't
+  read with `summary: true` in these runs (coordinator-wake-failed read the latest comment in full): the reports here
+  are short, and the skills offer it when the gist is enough.
+- **Claude Code**: not run: its test home isn't signed in.
+
+## The Assistant watches whole lanes: fakes, Codex (its default model), fixtures v46, 11 October 2026
+
+#531: `hive_wait_for_tasks` with `lanes` (ids, or `["all"]`) is a lane watch: every running lane, followed as it goes on,
+no card limit, woken only for a failed review, a blocked or stalled card, a lane due to merge, ended or abandoned.
+run-lanes and coordinate-agents now say to watch the lanes that way, and the lanes-running tail and `hive_lane start`'s
+nudge point at it. Fixtures v46: the coordinator scenarios' fakes watch `lanes: ["all"]`, and a lane watch on all
+lanes counts as covering every lane's cards (`watchCovers`); coordinator-lanes-to-end's first-wake check also takes a
+lane watch's own line.
+
+**Before and after** (Performance → Compare calls v45 against v46 not comparable, so per scenario here):
+- **Fakes**: before `hb1-531-before` (v45 on a7b9e6e, results `2026-10-11T05-42-20-fake`): 76 of 76. After (v46,
+  `2026-10-11T06-16-02-fake`, baseline `hb1-531-after2`): 76 of 76. Hive's cost changed only in the coordinator
+  scenarios, whose fakes now watch lanes: after round 2 trimmed the lane watch's reply (the events only when not the
+  default), each is smaller than before (`2026-10-11T06-47-53-fake`): coordinator-team-lanes 640 → 624 characters,
+  wake-failed 554 → 534, wake-question 336 → 316, reassign 735 → 721, lanes-to-end 762 → 734; the same calls and
+  requests, the same guidance.
+- **Codex, 4 of 4 both times**: before (a7b9e6e, v45 fixtures, `2026-10-11T06-09-37-codex`, $0.252) it watched cards
+  (`{"cards":[2,3,1],…}`, the lanes' cards listed); after (v46, `2026-10-11T06-41-15-codex`, $0.235) every last watch
+  was `{"lanes":["all"],"wake":true}`. Hive's cost: team-lanes 6,304 → 4,349 characters (17 → 18 requests), wake-failed
+  3,285 → 4,518 (10 → 9), wake-question 1,460 → 1,495 (7 → 7), reassign 6,501 → 5,782 (27 → 21); one sample each.
+  Round 1's after run (`2026-10-11T05-01-03-codex`, $0.255) was also 4 of 4 with lane watches.
+- **Claude Code**: not run: its test home isn't signed in.
+
+## The Assistant leaves a message for a busy agent: fakes, Codex (its default model), fixtures v44–v45, 11 October 2026
+
+#530: `hive_message_agent` leaves a watching or busy agent a message (typed at once into an idle or watching agent, its
+watch carrying on; else with its next line, at the front of a wake that comes first), and coordinate-agents and run-lanes
+say to use it rather than ask the user to paste. Fixtures v45 add **assistant-message-watching** (Coder reviews a card in
+its loop and watches for it; the user's answer to the card's question is to reach Coder: it is passed by message, with no
+new task, stop or request to paste, and Coder's watch carries on).
+- **Fakes**: baseline `hb1-530-before` (v44 on main a669fc1 with the #530 code but its old tool descriptions and skills):
+  75 of 75 pass. After round 1 (`hb1-530-after`, results `2026-10-11T01-09-28-fake`): 76 of 76, and no scenario's Hive
+  cost changed but the new one's. After round 2's tool description (v45, `hb1-530-after2`, results
+  `2026-10-11T02-23-02-fake`): 76 of 76.
+- **Codex: 3 of 3 pass**, twice: round 1 (`2026-10-11T01-34-39-codex`, $0.149) and round 2
+  (`2026-10-11T02-49-45-codex`, $0.202): assistant-message-watching, assistant-reply-decision (records the decision and
+  doesn't message Coder, which has the answer), assistant-agent-watch. In the new scenario Codex also recorded the
+  answer on the card and watched it.
+- **Claude Code**: not run: its test home isn't signed in.
+
 ## Coordinator out of the box: fakes, Codex (its default model), Claude Code (sonnet), fixtures v43, 10 October 2026
 
 #402 (Darren's decisions: adaptive habits, the team material in its own skill) folds the coordinator playbook into the

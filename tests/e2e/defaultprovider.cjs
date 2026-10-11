@@ -104,6 +104,9 @@ const check = (name, ok, extra = '') => {
   await page.keyboard.press('Escape')
   await lib.until(async () => (await dialog.count()) === 0, 5000)
   await inv('settings:update', { defaultProvider: 'auto' })
+  // Automatic clears the warning first: the one the project's default brings must be a new one, not the last one still
+  // shown (an Add Agent opened before the window has the project's default would start on Codex).
+  await lib.until(async () => (await card.locator('[data-provider-warning]').count()) === 0, 10000)
   await inv('project:updateConfig', alpha, { defaultProvider: 'claude-code' })
   await lib.until(async () => (await card.locator('[data-provider-warning]').count()) === 1, 10000)
   check("a project's own default that is off is named too", /Claude Code is turned off/.test(await card.locator('[data-provider-warning]').innerText().catch(() => '')))

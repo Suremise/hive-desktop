@@ -13,11 +13,14 @@
 //   an Edit of that file and records the tool call. "background N" starts a background command that ends after
 //   N seconds; its task notification then starts a turn by itself, as in Claude Code. "pad N" adds N KB to the
 //   transcript. "context N": the reply's request reports N input tokens, so the session's context is about N. "ask" first asks for permission (a permission_prompt Notification), then carries on by itself.
+//   "holduntil NAME": the turn doesn't end until the test makes a file NAME in its home (CLAUDE_CONFIG_DIR).
 //   "shell: <command line>" runs a command in cmd with the session's environment (fake-shell.jsonl records it).
 //   "linger N" leaves N processes running after it ends, as an agent's preview server or tail -f does (#507): each a
 //   detached, hidden node started by a short-lived detached one that has exited by then (linger.cjs; their pids in
 //   fake-linger.jsonl in its home; each ends by itself after two minutes, in case). With fake-linger-at-start.txt (N) in
-//   its home, it leaves N the moment it starts, before anything else.
+//   its home, it leaves N the moment it starts, before anything else. "progress-linger" leaves a command running
+//   through the session's hive-progress shim, as a Codex agent once did (#542): cmd → hive-progress → a lingering node
+//   (linger.cjs; its pid in fake-progress-linger.jsonl in its home), and ends its turn without waiting for it.
 //   "boardmove N COLUMN" moves card N as hive_update_task does (the hive tools' API, token and agent, from
 //   --mcp-config) and records the answer in fake-calls.jsonl; "boardreview N ACTION [COLUMN]" reviews it the same way
 //   (review: start, passed or failed; a column with the verdict), and "boardcomment N" comments on it. All are written to the transcript as the hive tool
@@ -322,10 +325,18 @@ async function runPrompt(text) {
   }
   const background = /\bbackground\s+(\d+)/i.exec(text)
   if (background) await startBackgroundTask(Number(background[1]))
-  const linger = /\blinger\s+(\d+)/i.exec(text)
+  const linger = /(?<!-)\blinger\s+(\d+)/i.exec(text)
   if (linger) leaveRunning(Number(linger[1]))
+  if (/\bprogress-linger\b/i.test(text)) leaveProgressRunning()
   const secs = Number(/\bwork\s+(\d+)/i.exec(text)?.[1] ?? 1)
   await sleep(secs * 1000)
+  // "holduntil NAME": the turn goes on until the test makes NAME in its home, so it ends after what the test waits for
+  // (two minutes at most, in case the test died).
+  const release = /\bholduntil\s+([\w.-]+)/i.exec(text)
+  if (release) {
+    const go = path.join(process.env.CLAUDE_CONFIG_DIR || '', release[1])
+    for (const end = Date.now() + 120_000; !fs.existsSync(go) && Date.now() < end; ) await sleep(100)
+  }
   const mode = /\bwhatmode\b/i.test(text) ? ` (system prompt mode: ${/^# Your mode: (.+)$/m.exec(prompt)?.[1]?.trim() ?? 'none'})` : ''
   await endTurn(`Done: ${text}${mode}`, Number(/\bcontext\s+(\d+)/i.exec(text)?.[1] ?? 20))
   // "window N": the status line reports a context window of N tokens, as Claude Code's does.
@@ -380,10 +391,11 @@ async function boardPatch(n, change) {
   }
   fs.appendFileSync(path.join(home, 'fake-calls.jsonl'), JSON.stringify(record) + '\n')
   write({ type: 'user', message: { role: 'user', content: [{ type: 'tool_result', tool_use_id: id, content: JSON.stringify(record.body ?? record.error ?? null), is_error: record.status !== 200 }] } })
-  // Where Hive's hive server logs the calls it runs (tests only), this call is logged too, as the server would.
+  // Where Hive's hive server logs the calls it runs (tests only), this call is logged too, as the server would; `direct`:
+  // no hive server ran it, so none reports it to Hive's metrics.
   try {
     const env = JSON.parse(fs.readFileSync(opts['--mcp-config'], 'utf8')).mcpServers.hive.env
-    if (env.HIVE_TEST_MCP_LOG) fs.appendFileSync(env.HIVE_TEST_MCP_LOG, JSON.stringify({ at: new Date().toISOString(), tool: 'hive_update_task', role: env.HIVE_ROLE === 'assistant' ? 'assistant' : 'agent', project: env.HIVE_PROJECT, agent: env.HIVE_AGENT_ID ?? null, ok: record.status === 200, args: JSON.stringify({ number: n, ...change }) }) + '\n')
+    if (env.HIVE_TEST_MCP_LOG) fs.appendFileSync(env.HIVE_TEST_MCP_LOG, JSON.stringify({ at: new Date().toISOString(), tool: 'hive_update_task', role: env.HIVE_ROLE === 'assistant' ? 'assistant' : 'agent', project: env.HIVE_PROJECT, agent: env.HIVE_AGENT_ID ?? null, ok: record.status === 200, args: JSON.stringify({ number: n, ...change }), direct: true }) + '\n')
   } catch {
     // No log.
   }
@@ -546,6 +558,13 @@ process.stdin.on('data', (data) => {
 /** "linger N": N processes left running after it ends (linger.cjs), started through one that exits at once. */
 function leaveRunning(n) {
   for (let i = 0; i < n; i++) spawn(process.execPath, [path.join(__dirname, 'linger.cjs'), 'starter', path.join(home, 'fake-linger.jsonl'), process.env.HIVE_AGENT || 'agent'], { detached: true, stdio: 'ignore', windowsHide: true }).unref()
+}
+
+/** "progress-linger": a command left running through the session's hive-progress shim (on its PATH), not waited for (#542). */
+function leaveProgressRunning() {
+  const q = (x) => `"${x}"`
+  const command = ['hive-progress', '--title', q('Left running'), '--', q(process.execPath), q(path.join(__dirname, 'linger.cjs')), 'linger', q(path.join(home, 'fake-progress-linger.jsonl')), process.env.HIVE_AGENT || 'agent'].join(' ')
+  spawn('cmd.exe', ['/d', '/s', '/c', q(command)], { cwd, env: process.env, detached: true, stdio: 'ignore', windowsHide: true, windowsVerbatimArguments: true }).unref()
 }
 
 async function main() {

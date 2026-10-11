@@ -29,7 +29,8 @@
     "lint": "oxlint --deny-warnings src tests scripts",
     "e2e": "node tests/e2e/run.mjs",
     "e2e:concurrency": "node tests/e2e/concurrency.mjs",
-    "test:clean": "node tests/e2e/clean.mjs"
+    "test:clean": "node tests/e2e/clean.mjs",
+    "test:waits": "node scripts/testWaits.mjs"
   },
   "dependencies": {
     "@lydell/node-pty": "^1.2.0-beta.15",

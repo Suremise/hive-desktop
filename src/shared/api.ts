@@ -190,6 +190,8 @@ export interface HiveRequests {
   'metrics:export': (q: MetricsQuery, sanitize: boolean) => string | null
   /** Ends an agent's card watch (#128: the Cancel in its header). Whether it had one. */
   'watch:cancel': (projectPath: string, agentId: string) => boolean
+  /** Cancels the messages waiting to be typed into an agent (#530): how many there were. */
+  'session:cancelMessages': (projectPath: string, agentId: string) => number
   /** Kept comparisons (Performance → Compare), for a scope only: a project's page sees its own project's. */
   'benchmarks:list': (scope: CompareScope) => { entries: KeptEntry[]; base: string | null; run: string | null; notice?: string }
   /** Imports a benchmark or export (an open dialog; or, with `token`, a file an earlier answer asked about). Null if cancelled. */

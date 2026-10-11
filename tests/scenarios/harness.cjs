@@ -30,8 +30,10 @@ const PROVIDERS = {
   // The fake Codex, in a throwaway home of its own (never the signed-in test home).
   'fake-codex': { provider: 'codex', fake: true, executable: path.join(lib.ROOT, 'tests', 'e2e', 'fake-codex', 'fake-codex.cmd'), mode: 'full-access' },
   // Accept edits, with the hive tools, commands and skills allowed on the command line (the project's extra arguments):
-  // it never asks, and needs no bypass mode (which Claude Code asks to accept once).
-  'claude-code': { provider: 'claude-code', executable: '', mode: 'acceptEdits', extraArgs: '--allowedTools mcp__hive Bash PowerShell Skill' },
+  // it never asks, and needs no bypass mode (which Claude Code asks to accept once). One value after `=`: the option
+  // takes a list, and as separate words it also took the first task Hive passes last, so an agent started on a card sat
+  // idle (#498).
+  'claude-code': { provider: 'claude-code', executable: '', mode: 'acceptEdits', extraArgs: '--allowedTools=mcp__hive,Bash,PowerShell,Skill' },
   codex: { provider: 'codex', executable: '', mode: 'full-access' },
   // The real Copilot CLI, offline against the scripted stand-in model (tests/e2e/fake-copilot-api.cjs), in a home of the
   // run's own: a fake as far as cost and sign-in go (no credits, none), Copilot's own tools and hooks for the rest.
@@ -39,6 +41,9 @@ const PROVIDERS = {
 }
 
 const sleep = lib.sleep
+// The longest the harness waits for something it is waiting on (a file, a session, a report): a bound for a hung run,
+// never how long the step should take.
+const HUNG_MS = 30000
 const plain = (text) => String(text).replace(/\x1b\[[0-9;?]*[ -/]*[@-~]/g, ' ').replace(/\x1b\][^\x07]*\x07/g, ' ').replace(/\s+/g, ' ')
 const escape = (s) => s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
 /** Tools that write or edit files: what they're given is never evidence of a read. */
@@ -72,6 +77,16 @@ function observeTranscript(items, skillNames) {
   const hiveMentions = tools.flatMap((t) => (hiveName(t.name) ? [hiveName(t.name)] : [...t.input.matchAll(/\btools\.(?:mcp__hive__)?(hive_[a-z]+(?:_[a-z]+)*)\s*\(/g)].map((m) => m[1])))
   const replies = items.filter((x) => x.kind === 'assistant').map((x) => x.text)
   return { tools, skillsRead, hiveMentions, finalReply: replies.at(-1) ?? '', replies }
+}
+
+/**
+ * Whether Hive's metrics count every hive call the bridges logged. Both sides are the whole run: the log has every call
+ * since the launch, setup's too, and the metrics read covers the run's own workspace from before its setup. (Against the
+ * scenario's baseline instead, a setup call reported before it would be in the log but not the difference, #527.) A
+ * fake's `direct` board change went through no bridge, so nothing reports it.
+ */
+function allCallsReported(logged, metrics) {
+  return !!metrics && metricsTotals(metrics).toolCalls >= logged.filter((c) => !c.direct).length
 }
 
 /** The calls the hive MCP servers ran, from their test log: [{ tool, role, project, agent, ok, error, args }]. */
@@ -110,6 +125,12 @@ function trialEnvironment({ status = null, replies = [], screen = '' } = {}) {
   return lib.environmentProblem([...replies, screen].join('\n'))
 }
 
+/**
+ * The CLI's own notices in a transcript's items (#342): not a background task's summary or a command's output (a
+ * notice `from` them), which may discuss a sign-in or a limit without the CLI having one.
+ */
+const cliNotices = (items) => (items ?? []).filter((x) => x.kind === 'notice' && !x.from).map((x) => x.text)
+
 /** What to do about an environment skip, said once for the trials it stops (never a sign-in from here). */
 function environmentAdvice(why, providerKey) {
   if (PROVIDERS[providerKey]?.fake) return 'run them without --signed-out (the fake was started signed out)'
@@ -137,10 +158,19 @@ async function runScenario(sc, providerKey, opts = {}) {
   const fakeHome = path.join(root, 'claude-home')
   const fakeCodexHome = path.join(root, 'codex-home')
   const mcpLog = path.join(root, 'mcp-calls.jsonl')
-  // The stand-in model for fake-copilot, on a port of its own; closed when the run ends.
+  // Each change to the merge slots, with its time (HIVE_TEST_MERGE_SLOT_LOG, #374): who held one and who waited, when.
+  const slotLog = path.join(root, 'merge-slots.jsonl')
+  // What fake-copilot's stand-in model was sent (it starts just before the launch, below).
   const modelLog = path.join(root, 'copilot-api.jsonl')
-  const standIn = p.standIn ? await startFakeCopilotApi({ log: modelLog }) : null
-  if (!opts.evidence) fs.rmSync(root, { recursive: true, force: true })
+  // Emptied first (with no evidence store: a caller of its own, like an e2e suite). Still in use (something an earlier
+  // run left running holds it, #542): this scenario fails, saying so, and the run goes on.
+  if (!opts.evidence) {
+    try {
+      fs.rmSync(root, { recursive: true, force: true, maxRetries: 3 })
+    } catch (e) {
+      return { scenario: sc.id, title: sc.title, provider: providerKey, model: opts.model ?? '(default)', role: sc.role ?? 'agent', checks: [], observed: null, usage: null, measures: null, seconds: 0, error: `its folder ${root} is still in use from an earlier run (${e.code ?? e.message}): something left running holds it` }
+    }
+  }
   fs.mkdirSync(fakeHome, { recursive: true })
   if (providerKey === 'fake-codex') {
     fs.mkdirSync(fakeCodexHome, { recursive: true })
@@ -182,24 +212,43 @@ async function runScenario(sc, providerKey, opts = {}) {
 
   const port = opts.port ?? 47930
   const started = Date.now()
-  // Each CLI's home is a test one: the fake's per run, the real Claude Code's and Codex's signed-in test homes.
-  const env = {
-    HIVE_API_PORT: String(port),
-    HIVE_TEST_TIPS: 'off',
-    HIVE_TEST_MCP_LOG: mcpLog,
-    CLAUDE_CONFIG_DIR: providerKey === 'claude-code' ? CLAUDE_TEST_HOME : fakeHome,
-    CODEX_HOME: providerKey === 'fake-codex' ? fakeCodexHome : lib.CODEX_HOME,
-    // Copilot in the run's own home, its profile folder faked and the GitHub CLI's login hidden (fake-copilot-api.cjs).
-    ...(standIn ? copilotTestEnv(standIn, root) : {})
+  // The stand-in model for fake-copilot, on a port of its own: closed when the run ends, or at once if Copilot's
+  // environment or the launch fails before the run begins (#464), and that failure is the one thrown.
+  const standIn = p.standIn ? await startFakeCopilotApi({ log: modelLog }) : null
+  let app, inv, env
+  try {
+    // Each CLI's home is a test one: the fake's per run, the real Claude Code's and Codex's signed-in test homes.
+    env = {
+      HIVE_API_PORT: String(port),
+      HIVE_TEST_TIPS: 'off',
+      HIVE_TEST_MCP_LOG: mcpLog,
+      HIVE_TEST_MERGE_SLOT_LOG: slotLog,
+      CLAUDE_CONFIG_DIR: providerKey === 'claude-code' ? CLAUDE_TEST_HOME : fakeHome,
+      CODEX_HOME: providerKey === 'fake-codex' ? fakeCodexHome : lib.CODEX_HOME,
+      // Copilot in the run's own home, its profile folder faked and the GitHub CLI's login hidden (fake-copilot-api.cjs).
+      ...(standIn ? copilotTestEnv(standIn, root) : {})
+    }
+    ;({ app, inv } = await lib.launch({ userData, env }))
+  } catch (e) {
+    await standIn?.close().catch(() => undefined)
+    throw e
   }
-  const { app, inv } = await lib.launch({ userData, env })
   const result = { scenario: sc.id, title: sc.title, provider: providerKey, model: opts.model ?? '(default)', role: sc.role ?? 'agent', control: sc.role === 'assistant' ? (sc.control ?? 'projects') : undefined, cliVersion: null, guidance: null, checks: [], observed: null, usage: null, measures: null, metricsOverheadMs: 0, seconds: 0, error: null }
   try {
     const info = await lib.waitForProvider(inv, p.provider, 60000)
     result.cliVersion = info.version ?? null
     await inv('workspace:open', ws)
-    await sleep(1200)
-    const apiToken = JSON.parse(fs.readFileSync(path.join(userData, 'agent-api.json'), 'utf8')).token
+    // The Agent API's token, once Hive has written its file (read whole: a file still being written doesn't parse).
+    const apiFile = path.join(userData, 'agent-api.json')
+    const readToken = () => {
+      try {
+        return JSON.parse(fs.readFileSync(apiFile, 'utf8')).token || null
+      } catch {
+        return null
+      }
+    }
+    const apiToken = await lib.until(async () => readToken(), HUNG_MS)
+    if (!apiToken) throw new Error(`no Agent API token in ${apiFile} after ${HUNG_MS / 1000} s`)
     const api = async (method, route, body) => {
       const res = await fetch(`http://127.0.0.1:${port}${route}`, { method, headers: { Authorization: `Bearer ${apiToken}`, 'Content-Type': 'application/json' }, ...(body ? { body: JSON.stringify(body) } : {}) })
       const text = await res.text()
@@ -243,7 +292,27 @@ async function runScenario(sc, providerKey, opts = {}) {
       note: (rel, content) => api('PUT', `/v1/shared/file?path=${encodeURIComponent(rel)}`, { content }),
       write: (rel, text) => fs.writeFileSync(path.join(alpha, rel), text),
       read: (rel) => (fs.existsSync(path.join(alpha, rel)) ? fs.readFileSync(path.join(alpha, rel), 'utf8') : null),
-      git: (...a) => execFileSync('git', a, { cwd: alpha, encoding: 'utf8', env: lib.baseEnv() })
+      git: (...a) => execFileSync('git', a, { cwd: alpha, encoding: 'utf8', env: lib.baseEnv() }),
+      /** Starts another of alpha's agents ('implementer'), with no prompt: running, so it can hold the merge slot. */
+      startAgent: async (key) => {
+        await inv('session:start', alpha, { agentId: ctx.agents[key].id })
+        const up = await lib.until(async () => (await inv('session:live')).some((x) => x.projectPath.toLowerCase() === alpha.toLowerCase() && x.agentId === ctx.agents[key].id), 30000)
+        if (!up) throw new Error(`${key} didn't start within 30 s`)
+      },
+      /**
+       * alpha's merge slot as another of its running agents ('implementer') uses it: claim or release with that agent's
+       * own Agent API token (each agent's in the profile's agent-api folder, as its hive tools read it).
+       */
+      slot: async (key, action, body = {}) => {
+        const file = path.join(userData, 'agent-api', `${require('crypto').createHash('sha256').update(`${alpha.toLowerCase()}#${ctx.agents[key].id}`).digest('hex').slice(0, 16)}.json`)
+        const token = JSON.parse(fs.readFileSync(file, 'utf8')).token
+        const res = await fetch(`http://127.0.0.1:${port}/v1/projects/alpha/merge-slot/${action}`, { method: 'POST', headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' }, body: JSON.stringify(body) })
+        const reply = await res.json().catch(() => null)
+        if (res.status !== 200) throw new Error(`${key}'s merge slot ${action}: ${res.status} ${JSON.stringify(reply)}`)
+        return reply
+      },
+      /** alpha's merge slot now, as a script reads it. */
+      slotNow: async () => (await api('GET', '/v1/projects/alpha/merge-slot')).body
     }
     if (sc.setup) await sc.setup(ctx)
     // What the fake Claude Code does when Hive wakes it (fake-wakes-<agent>.txt, a line per wake): a scenario's next steps,
@@ -276,6 +345,8 @@ async function runScenario(sc, providerKey, opts = {}) {
       result.skipped = `environment: ${why}`
       return result
     }
+    // A trust question answered: the session goes on to its prompt (asked again if it doesn't).
+    const answered = () => lib.until(async () => ['ready', 'finished'].includes((await live())?.status), HUNG_MS)
     const readyBy = Date.now() + 90000
     while (Date.now() < readyBy) {
       const s = await live()
@@ -286,12 +357,12 @@ async function runScenario(sc, providerKey, opts = {}) {
       // Copilot asks "Do you trust the files in this folder?", Yes first.
       if (/Do you trust the files in this folder/i.test(plain(await inv('pty:buffer', key).catch(() => '')))) {
         await inv('pty:write', key, '\r')
-        await sleep(1500)
+        await answered()
       } else if (/trust this folder/i.test(plain(await inv('pty:buffer', key).catch(() => '')))) {
-        await inv('pty:write', key, p.provider === 'codex' ? '\r' : '\x1b[B')
-        await sleep(300)
-        if (p.provider !== 'codex') await inv('pty:write', key, '\r')
-        await sleep(1500)
+        // Claude Code's menu starts on "No, exit": lib's answer presses Enter only once "Yes" shows selected (#218).
+        if (p.provider === 'codex') await inv('pty:write', key, '\r')
+        else await lib.acceptClaudeTrust(inv, host, agentId)
+        await answered()
       }
       await sleep(500)
     }
@@ -303,24 +374,13 @@ async function runScenario(sc, providerKey, opts = {}) {
     const text = p.fake ? fakePrompt : prompt
     // The prompt is sent, then checked: a CLI still drawing its first screen can drop an Enter (sent again) or the
     // whole line (typed again).
-    const submitted = async (ms) => {
-      const t = Date.now()
-      while (Date.now() - t < ms) {
-        const s = await live()
-        if (['working', 'background'].includes(s?.status)) return true
-        const items = s?.sessionId ? ((await inv('transcript:read', host, s.sessionId).catch(() => null))?.items ?? []) : []
-        if (items.some((x) => x.kind === 'user' && x.text.includes(text.slice(0, 40)))) return true
-        await sleep(500)
-      }
-      return false
+    const submitted = async () => {
+      const s = await live()
+      if (['working', 'background'].includes(s?.status)) return true
+      const items = s?.sessionId ? ((await inv('transcript:read', host, s.sessionId).catch(() => null))?.items ?? []) : []
+      return items.some((x) => x.kind === 'user' && x.text.includes(text.slice(0, 40)))
     }
-    await sleep(1500)
-    for (let attempt = 0; attempt < 3; attempt++) {
-      if (attempt < 2 || !plain(await inv('pty:buffer', key).catch(() => '')).includes(text.slice(0, 30))) await inv('pty:write', key, attempt ? `\x15${text}` : text)
-      await sleep(400)
-      await inv('pty:write', key, '\r')
-      if (await submitted(20000)) break
-    }
+    await lib.sendPrompt(inv, key, text, { submitted, waitMs: 20000 })
     const sentAt = Date.now()
 
     // Wait for the turn to end: working (or background) first, then finished/ready for a few seconds. `during` sees the
@@ -328,13 +388,14 @@ async function runScenario(sc, providerKey, opts = {}) {
     const limit = Date.now() + (opts.timeoutMs ?? 300000)
     let sawWork = false
     let quietSince = 0
+    const trustAnswered = new Set()
     while (Date.now() < limit) {
       const s = await live()
       const status = s?.status ?? 'stopped'
       // The CLI's own notes in the transcript (an API error, "Login expired · Please run /login", a usage limit: notices,
       // never the prompt or the model's replies), or Hive waiting for a sign-in: skipped for the environment at once,
       // rather than waiting out the limit and failing every check (#302).
-      const notices = s?.sessionId ? ((await inv('transcript:read', host, s.sessionId).catch(() => null))?.items ?? []).filter((x) => x.kind === 'notice').map((x) => x.text) : []
+      const notices = s?.sessionId ? cliNotices((await inv('transcript:read', host, s.sessionId).catch(() => null))?.items) : []
       const stopped = trialEnvironment({ status, replies: notices })
       if (stopped) return skipFor(stopped)
       if (['working', 'background', 'starting'].includes(status)) {
@@ -345,29 +406,44 @@ async function runScenario(sc, providerKey, opts = {}) {
         if (Date.now() - quietSince > (status === 'waiting' ? 3000 : 6000)) break
       }
       if (sc.during) await sc.during(ctx, status)
-      // Other agents of the project started during the run (the Assistant dispatching one) ask to trust its folder.
+      // Other agents of the project started during the run (the Assistant dispatching one) ask to trust its folder, once
+      // each. Claude Code's menu starts on "No, exit": lib's answer presses Enter only with "Yes" selected (#498: a blind
+      // Down and Enter could quit it, and was sent again each second while the question was still in the buffer).
+      const running = (await inv('session:live').catch(() => [])).filter((x) => x.projectPath.toLowerCase() === alpha.toLowerCase())
       for (const a of Object.values(ctx.agents)) {
-        if (sc.role !== 'assistant' && a.id === coder.id) continue
+        if ((sc.role !== 'assistant' && a.id === coder.id) || trustAnswered.has(a.id) || !running.some((x) => x.agentId === a.id)) continue
         const k = lib.ptyKey(alpha, a.id)
-        if (/Do you trust the files in this folder/i.test(plain(await inv('pty:buffer', k).catch(() => '')).slice(-2000))) await inv('pty:write', k, '\r')
-        else if (/trust this folder/i.test(plain(await inv('pty:buffer', k).catch(() => '')).slice(-2000))) {
-          await inv('pty:write', k, p.provider === 'codex' ? '\r' : '\x1b[B')
-          await sleep(300)
-          if (p.provider !== 'codex') await inv('pty:write', k, '\r')
+        const tail = plain(await inv('pty:buffer', k).catch(() => '')).slice(-2000)
+        if (/Do you trust the files in this folder/i.test(tail)) {
+          await inv('pty:write', k, '\r')
+          trustAnswered.add(a.id)
+        } else if (/trust this folder/i.test(tail)) {
+          if (p.provider === 'codex') await inv('pty:write', k, '\r')
+          if (p.provider === 'codex' || (await lib.acceptClaudeTrust(inv, alpha, a.id, 3000))) trustAnswered.add(a.id)
         }
       }
-      // A dispatched agent's work is part of the outcome: wait while one is still working (within the limit).
-      if (sc.waitForAgents && quietSince && (await inv('session:live')).some((x) => x.projectPath.toLowerCase() === alpha.toLowerCase() && ['working', 'starting', 'background'].includes(x.status))) quietSince = Date.now()
+      // A dispatched agent's work is part of the outcome: wait while one is still working, or at a question (its folder's
+      // trust, answered above; #498), within the limit.
+      if (sc.waitForAgents && quietSince && running.some((x) => ['working', 'starting', 'background', 'waiting'].includes(x.status))) quietSince = Date.now()
       // Something Hive does after the turn has ended (a line it types later, #401) is part of the outcome: wait for it.
       if (sc.keepWaiting && quietSince && (await sc.keepWaiting(ctx, status))) quietSince = Date.now()
       await sleep(1000)
     }
     const s = await live()
     if (!s || Date.now() >= limit) result.error = s ? 'timed out' : 'the session ended'
-    // The bridge reports its calls when its CLI closes input: give the last report a moment.
-    await sleep(p.fake ? 500 : 2500)
-    const metricsAfter = await snapshot()
+    // The bridges report their calls to Hive a batch at a time (every 2 s, or as their CLI closes input): read the
+    // metrics once they count every call the bridges logged (allCallsReported). Not all within the bound (a report
+    // dropped): the last read, shown as partial.
+    let metricsAfter = await snapshot()
+    let allReported = !metricsBefore || !metricsAfter || allCallsReported(readMcpLog(mcpLog), metricsAfter)
+    if (!allReported)
+      allReported = !!(await lib.until(async () => {
+        metricsAfter = (await snapshot()) ?? metricsAfter
+        return allCallsReported(readMcpLog(mcpLog), metricsAfter)
+      }, HUNG_MS))
     const sessionId = s?.sessionId ?? (await inv('workspace:refresh')).projects.find((x) => x.name === 'alpha')?.agents.find((a) => a.id === coder.id)?.lastSessionId
+    // The session under test, for checks of what it was launched with (Codex's rollout carries its instructions, #520).
+    ctx.session = { id: sessionId ?? null, codexHome: env.CODEX_HOME }
     const transcript = sessionId ? await inv('transcript:read', host, sessionId).catch(() => null) : null
     // Tool calls the parser shortened for display are read in full (for the token check and read evidence).
     const items = transcript?.items ?? []
@@ -384,6 +460,8 @@ async function runScenario(sc, providerKey, opts = {}) {
     // What the hive servers ran: the subject's own calls, and everyone's (an agent the Assistant started).
     observed.allHiveCalls = readMcpLog(mcpLog)
     observed.hiveCalls = observed.allHiveCalls.filter((c) => (sc.role === 'assistant' ? c.role === 'assistant' : c.agent === coder.id))
+    // Each change to the merge slots (JSON lines, as the MCP log): { at, slots: [{ project, branch, holder, waiting }] }.
+    observed.slotLog = readMcpLog(slotLog)
     // Any Agent API token (the workspace's, or an agent's for this launch) in what the session printed or said.
     const tokensIn = (dir) => (fs.existsSync(dir) ? fs.readdirSync(dir).map((f) => JSON.parse(fs.readFileSync(path.join(dir, f), 'utf8')).token) : [])
     const tokens = [apiToken, ...tokensIn(path.join(userData, 'agent-api')), ...tokensIn(path.join(userData, 'assistant-api'))].filter((t) => typeof t === 'string' && t.length >= 16)
@@ -407,6 +485,7 @@ async function runScenario(sc, providerKey, opts = {}) {
     const partial = []
     if (!metricsBefore || !metricsAfter) partial.push('Hive’s metrics weren’t read')
     if (metricsAfter && metricsAfter.recording === false) partial.push('recording was off')
+    if (!allReported) partial.push('not every hive call was reported')
     const dropped = Math.max(0, (metricsAfter?.dropped ?? 0) - (metricsBefore?.dropped ?? 0))
     if (dropped) partial.push(`${dropped} measurements dropped`)
     if (metricsAfter?.coverage?.evictedThrough) partial.push('history removed for space')
@@ -424,13 +503,16 @@ async function runScenario(sc, providerKey, opts = {}) {
     // Kept short in the results (whole tool calls can be large, and must not carry a token).
     const short = (v) => tokens.reduce((x, t) => x.split(t).join('<token>'), String(v)).slice(0, 400)
     result.observed = { ...observed, tools: observed.tools.map((t) => ({ ...t, input: short(t.input), result: short(t.result) })), replies: undefined, settings: undefined, finalReply: short(observed.finalReply) }
+    // What each of the project's agents showed at the end, for a check that failed on an agent's work (#498).
+    if (sc.waitForAgents) result.observed.panes = Object.fromEntries(await Promise.all(Object.entries(ctx.agents).map(async ([k, a]) => [k, tokens.reduce((x, t) => x.split(t).join('<token>'), plain(await inv('pty:buffer', lib.ptyKey(alpha, a.id)).catch(() => ''))).slice(-1200)])))
   } catch (e) {
     result.error = String(e?.stack ?? e)
   } finally {
     // What its Hive started, while it still runs (a command an agent left can outlive its session, #542).
     const tree = lib.processTree(app.process()?.pid)
     for (const x of await inv('session:live').catch(() => [])) await inv('session:stop', x.projectPath, x.agentId).catch(() => undefined)
-    await sleep(1500)
+    // Closed once every session has stopped (a CLI still writing its transcript as Hive closes leaves it half-written).
+    await lib.until(async () => !(await inv('session:live').catch(() => [])).some((x) => !['stopped', 'error'].includes(x.status)), HUNG_MS)
     await app.close().catch(() => undefined)
     await standIn?.close()
     // A command an agent started can outlive its session (#542): stop it, so it doesn't hold the folder.
@@ -452,4 +534,4 @@ async function runScenario(sc, providerKey, opts = {}) {
   return result
 }
 
-module.exports = { runScenario, observeTranscript, readMcpLog, sourceFingerprint, metricsTotals, measuresOf, trialEnvironment, environmentAdvice, PROVIDERS, CLAUDE_TEST_HOME, claudeSignedIn }
+module.exports = { runScenario, observeTranscript, readMcpLog, allCallsReported, sourceFingerprint, metricsTotals, measuresOf, trialEnvironment, cliNotices, environmentAdvice, PROVIDERS, CLAUDE_TEST_HOME, claudeSignedIn }

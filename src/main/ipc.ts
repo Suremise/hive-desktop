@@ -66,6 +66,7 @@ import { showWindow } from './tray'
 import { resetMetrics } from './metrics'
 import { metricsExport, metricsReport } from './metricsUsage'
 import { cancelWatch, stampWatchProjects } from './watches'
+import { cancelMessages } from './agentMessages'
 import { cardBusy } from './cardBusy'
 import { benchContext, importBenchmark, keepReport, listBenchmarks, pinBenchmark, readBenchmark, removeBenchmark, selectBenchmarks } from './benchmarks'
 
@@ -383,6 +384,7 @@ export function registerIpc(getAppInfo: () => ReturnType<HiveRequests['app:info'
     // Each takes the workspace's folder and lifetime before awaiting anything (benchContext): work whose workspace closes
     // or switches meanwhile (a dialog left open, a slow read) is refused, never written into the next one.
     'watch:cancel': (projectPath, agentId) => cancelWatch(workspaceOf(projectPath), projectPath, agentId),
+    'session:cancelMessages': (projectPath, agentId) => cancelMessages(projectPath, agentId, 'the user'),
     'benchmarks:list': (scope) => listBenchmarks(benchContext(currentWorkspace()), scope),
     'benchmarks:import': async (scope, answer) => {
       const ctx = benchContext(currentWorkspace())

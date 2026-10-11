@@ -11,6 +11,7 @@
 // branches land in different places (tests/e2esuites.test.ts checks).
 export const SUITES = [
   { name: 'about' },
+  { name: 'agentmessage' },
   { name: 'agents' },
   { name: 'agents-ui' },
   { name: 'agentstable' },
@@ -86,6 +87,7 @@ export const SUITES = [
   { name: 'installdir' },
   { name: 'isolation' },
   { name: 'keys' },
+  { name: 'lanewatch' },
   { name: 'launchrace' },
   { name: 'leftovers' },
   { name: 'leftovers-claude', needs: ['claude'], claudeHome: 'test' },
@@ -134,6 +136,7 @@ export const SUITES = [
   { name: 'resume' },
   { name: 'resumeall' },
   { name: 'review' },
+  { name: 'scenarioteardown' },
   { name: 'searchclear' },
   { name: 'sessionname' },
   { name: 'sessionorigin' },

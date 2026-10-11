@@ -212,11 +212,11 @@ async function copyFor(m: Move, apply: boolean): Promise<PathDataCopy[]> {
   const out: PathDataCopy[] = []
   for (const p of allProviders()) {
     if (!p.copyPathData) continue
-    const r = await p.copyPathData(m.from, m.to, apply).catch((e) => {
+    const rs = await p.copyPathData(m.from, m.to, apply).catch((e): PathDataCopy[] => {
       log.warn(`copying ${p.id}'s data for ${userText(m.to)}`, e)
-      return { provider: p.id, from: m.from, to: m.to, copy: 0, kept: [], failed: [String(e instanceof Error ? e.message : e)] }
+      return [{ provider: p.id, from: m.from, to: m.to, copy: 0, kept: [], failed: [String(e instanceof Error ? e.message : e)] }]
     })
-    if (r) out.push({ ...r, of: m.of })
+    for (const r of rs) out.push({ ...r, of: m.of })
   }
   return out
 }

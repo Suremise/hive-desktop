@@ -74,8 +74,13 @@ const check = (name, ok, extra = '') => {
   check('the Board shows six columns', !!(await until(async () => (await page.locator('.board-column').count()) === 6, 5000)))
   const dialog = page.locator('.dialog', { hasText: 'New Card' })
   await page.getByRole('button', { name: 'New Card', exact: true }).click()
-  check('a new card’s title takes the keyboard', !!(await until(() => page.evaluate(() => !!document.activeElement?.classList.contains('task-title-input')), 5000)))
-  check('Escape closes the new card dialog', await escapeCloses(dialog))
+  // Escape as soon as the title has the keyboard (polled often): the first New Card's first render answered Escape with
+  // a view made before its fields opened, asking to discard an empty card, unless something else drew it again (#548).
+  check('a new card’s title takes the keyboard', !!(await lib.until(() => page.evaluate(() => !!document.activeElement?.classList.contains('task-title-input')), 5000, 20)))
+  const escaped = await escapeCloses(dialog)
+  const escapeState = escaped ? '' : await page.evaluate(() => JSON.stringify({ dialogs: [...document.querySelectorAll('.dialog')].map((d) => d.querySelector('.dialog-header')?.textContent?.trim()), active: `${document.activeElement?.tagName}.${document.activeElement?.className}` }))
+  if (!escaped) await page.screenshot({ path: path.join(lib.WORK, 'board-escape.png') })
+  check('Escape closes the new card dialog', escaped, escapeState)
   // That focus comes on a short timer, which a busy window runs late (#229): hold the dialog's short timers until the
   // description has the keyboard, then run them just before the text arrives. It still lands in the description.
   await page.evaluate(() => {
@@ -224,6 +229,8 @@ const check = (name, ok, extra = '') => {
   await inv('tasks:update', extra[0].number, { column: 'done' })
   await inv('tasks:update', extra[1].number, { blocked: 'Needs a decision' })
   const bg = (n) => tile(n).evaluate((e) => getComputedStyle(e).backgroundColor)
+  /** Whether the window shows that theme (settings reach it as an event, after settings:update returns). */
+  const themeIs = async (theme) => (await page.evaluate(() => document.documentElement.getAttribute('data-theme'))) === theme
   const edge = (n) => tile(n).evaluate((e) => getComputedStyle(e).borderLeftColor)
   check('cards are tinted by their column', !!(await until(async () => (await tile(extra[0].number).count()) === 1 && new Set([await bg(1), await bg(2), await bg(extra[0].number), await bg(extra[1].number)]).size === 4, 5000)), JSON.stringify([await bg(1), await bg(2)]))
   const heading = (name) => column(name).locator('.board-column-label').evaluate((e) => getComputedStyle(e).color)
@@ -252,14 +259,13 @@ const check = (name, ok, extra = '') => {
   }
   await readable('dark, coloured columns')
   await tile(2).hover()
-  await lib.sleep(200)
+  await until(() => tile(2).evaluate((el) => el.matches(':hover')).catch(() => false), 5000)
   await readable('dark, coloured, hovered')
   check('the state edges stay over the tint', (await edge(1)) !== (await edge(extra[1].number)) && (await edge(2)) === 'rgba(0, 0, 0, 0)', JSON.stringify([await edge(1), await edge(extra[1].number), await edge(2)]))
   await page.screenshot({ path: path.join(lib.WORK, 'board-colours-dark.png') })
   await inv('settings:update', { appearance: { theme: 'light' } })
-  await lib.sleep(600)
+  check('the tint follows the theme', !!(await until(async () => (await themeIs('light')) && (await bg(1)) !== doingBg, 5000)))
   await page.screenshot({ path: path.join(lib.WORK, 'board-colours-light.png') })
-  check('the tint follows the theme', (await bg(1)) !== doingBg)
   await readable('light, coloured columns')
   await inv('settings:update', { appearance: { theme: 'dark' } })
   await inv('settings:update', { board: { colors: { doing: '#ff0000' } } })
@@ -273,7 +279,7 @@ const check = (name, ok, extra = '') => {
   check('Colour columns off: no tint', !!(await until(async () => !((await page.locator('.board').first().getAttribute('class')) ?? '').includes('colored') && (await bg(1)) === (await bg(2)), 5000)))
   await readable('dark, plain')
   await inv('settings:update', { appearance: { theme: 'light' } })
-  await lib.sleep(600)
+  await until(() => themeIs('light'), 5000)
   await readable('light, plain')
   await inv('settings:update', { appearance: { theme: 'dark' } })
   await inv('settings:update', { board: { columnColors: true, colors: { doing: '#3b82f6' } } })
@@ -303,16 +309,15 @@ const check = (name, ok, extra = '') => {
     })
   for (const theme of ['dark', 'light']) {
     await inv('settings:update', { appearance: { theme } })
-    await lib.sleep(400)
+    await until(() => themeIs(theme), 5000)
     await tile(long.number).scrollIntoViewIfNeeded()
     const g = await shape()
     check(`${theme}: a long blocked reason wraps inside the card, clamped to 3 lines; nothing reaches past the card`, g.cardFits && g.past.length === 0 && g.noteFits && g.lines === 3 && g.clamped, JSON.stringify(g))
     check(`${theme}: a long label ends in "…" inside the card`, g.labelCut, JSON.stringify(g))
     await page.screenshot({ path: path.join(lib.WORK, `board-long-${theme}.png`) })
   }
-  await tile(long.number).locator('.task-blocked').hover()
-  await lib.sleep(900)
-  const longTip = await page.locator('.tip').last().evaluate((el) => ({ text: el.textContent, fits: el.scrollWidth <= el.clientWidth }))
+  await lib.hoverTip(page, tile(long.number).locator('.task-blocked'), (t) => t.startsWith('Blocked:'))
+  const longTip = await page.locator('.tip:visible').last().evaluate((el) => ({ text: el.textContent, fits: el.scrollWidth <= el.clientWidth }))
   check('hovering it shows the whole reason, inside the tooltip', longTip.text === `Blocked: ${reason}` && longTip.fits, JSON.stringify(longTip))
   await page.mouse.move(5, 5)
   await tile(long.number).locator('.task-title').click()
@@ -406,7 +411,9 @@ const check = (name, ok, extra = '') => {
   const names = async () => (await inv('workspace:get')).projects.map((p) => p.name)
   check('Hide takes the project out of Hive', !!(await until(async () => !(await names()).includes('delta'), 8000)))
   check('its folder stays', fs.existsSync(path.join(ws, 'delta')))
-  check('and its cards are archived', (await cards()).find((c) => c.project === 'delta')?.archivedFor === 'project-hidden')
+  const deltaCards = (await cards()).filter((c) => c.project === 'delta')
+  // Evidence for #548: missing (a read that failed) or there but not archived (Hide missed it).
+  check('and its cards are archived', deltaCards[0]?.archivedFor === 'project-hidden', JSON.stringify(deltaCards.map((c) => ({ n: c.number, archived: c.archived, archivedFor: c.archivedFor }))))
   await page.getByRole('button', { name: 'Settings' }).click()
   // Settings → Board: the switch and a picker per column (Doing was changed and put back, so no reset shows).
   await page.locator('.settings-nav .row').filter({ has: page.getByText('Board', { exact: true }) }).click()

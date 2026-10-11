@@ -54,6 +54,8 @@ const until = async (fn, ms = 10000) => {
     await inv('pty:write', key, '\r')
     await until(async () => (await live())?.status === 'finished', 10000)
   }
+  /** Whether the window shows that theme yet (settings reach it as an event, after settings:update returns). */
+  const themeIs = (theme) => async () => (await page.evaluate(() => document.documentElement.getAttribute('data-theme'))) === theme
   const footer = page.locator('.pane-footer-bar').first()
   const ctxItem = footer.locator('.pane-foot-item', { has: page.locator('.codicon-dashboard') })
   const text = () => ctxItem.innerText().catch(() => '')
@@ -78,7 +80,7 @@ const until = async (fn, ms = 10000) => {
   check("…breaking it down: the last turn's input + its output (thinking included), which add up to the figure", !!parts && num(parts[1]) + num(parts[2]) === tokens && num(parts[2]) > 0, JSON.stringify(lines))
   await page.screenshot({ path: path.join(lib.WORK, 'ctxpercent-tip-dark.png') })
   await inv('settings:update', { appearance: { theme: 'light' } })
-  await lib.sleep(300)
+  await until(themeIs('light'))
   await page.screenshot({ path: path.join(lib.WORK, 'ctxpercent-tip-light.png') })
   await inv('settings:update', { appearance: { theme: 'dark' } })
   await page.mouse.move(5, 5)
@@ -140,7 +142,7 @@ const until = async (fn, ms = 10000) => {
   check('…in the session as read at launch', JSON.stringify((await live())?.autoCompact) === JSON.stringify({ window: 150000, source: "autoCompactWindow in the project's .claude/settings.local.json" }), JSON.stringify((await live())?.autoCompact))
   await page.screenshot({ path: path.join(lib.WORK, 'ctxpercent-autocompact-dark.png') })
   await inv('settings:update', { appearance: { theme: 'light' } })
-  await lib.sleep(300)
+  await until(themeIs('light'))
   await page.screenshot({ path: path.join(lib.WORK, 'ctxpercent-autocompact-light.png') })
   await inv('settings:update', { appearance: { theme: 'dark' } })
   fs.rmSync(localSettings, { force: true })

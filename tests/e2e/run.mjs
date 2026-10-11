@@ -51,6 +51,7 @@ const root = join(here, '..', '..')
 const lib = createRequire(import.meta.url)('./lib.cjs')
 const runContext = createRequire(import.meta.url)('./runContext.cjs')
 const { claimedByRuns, clearDir, evidenceFor, findBoard, finishSuiteDir, freshFolder, recordKept, releaseKept } = createRequire(import.meta.url)('./evidence.cjs')
+const { stopProcessesIn } = createRequire(import.meta.url)('./folderProcesses.cjs')
 
 const args = process.argv.slice(2)
 const opts = parseArgs(args, SUITES.map((s) => s.name))
@@ -244,6 +245,10 @@ const run = (name, port) =>
     child.on('exit', (code) => {
       clearTimeout(timer)
       const outcome = { ...suiteOutcome({ code, out }), clis: suiteClis(dir) }
+      // What a suite's agents left running from its folder (a command through hive-progress, a server: #542) would hold
+      // the folder and outlive the run: stopped, by command line (its folder, started since the suite did), never by name.
+      const stopped = dir ? stopProcessesIn(dir, started) : 0
+      if (stopped) out += `\n(${stopped} process(es) still running from its folder after it ended were stopped, #542)\n`
       // --keep-files: a passed suite's own files (screenshots, reports) go into the run's log folder before its folder
       // does, as a failed one's do at the end (#304): a new place every run, pruned with the logs.
       if (opts.keepFiles && dir && outcome.ok) {

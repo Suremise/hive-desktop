@@ -185,3 +185,9 @@ export function initDecisionWakes(): void {
 
 /** Checks now (what a settled change does): for tests. */
 export const tellNow = (ws: WorkspaceService, projectPath: string, agentId: string): Promise<void> => tell(ws, projectPath, agentId)
+
+/** For tests: nothing is left to do for an agent (no line being typed, put off, or waiting for its settle to try again). */
+export function settledFor(projectPath: string, agentId: string): boolean {
+  const key = keyOf(projectPath, agentId)
+  return !telling.has(key) && !pending.has(key) && !settling.has(`agent:${key}`)
+}

@@ -29,12 +29,12 @@ Read the whole change, and the code around it where needed. In order of importan
 1. **Bugs**: wrong logic, missed edge cases (empty, missing, very large, concurrent), broken error handling, leaks.
 2. **Missed requirements**: asked for but not done, or done differently.
 3. **Risk**: security (injection, secrets, unsafe paths, access checks), data loss, breaking formats or APIs, performance traps.
-4. **Tests**: new behaviour without tests, or tests that don't test it.
+4. **Tests**: new behaviour without tests, or tests that don't test it. A new or changed test that sleeps and then checks, reads state once just after an action, depends on another test's leftovers, or raises a timeout with no stated reason is a blocking finding: it fails on a loaded or slower machine. The project's test notes may say more.
 5. **Clarity**: only where it will cause real trouble later.
 
 Run the checks that matter (tests, typecheck, a repro of a suspected bug) without committing or changing files; scratch files (probe scripts, screenshots, test profiles) go in your own scratchpad or temp folder, never in the project or a shared test folder. Note what you ran.
 
-**Don't repeat the builder's run.** When the builder posted a run record (which checks ran on exactly which code, with results and logs), check it is for the code you are reviewing, and trust it for those checks. Rerun the quick ones (typecheck, lint, unit tests) and the one or two closest to the riskiest change, and spend the rest of your time on what the builder didn't test: your own probes find what a repeated run doesn't. Rerun more when there's no record, it is for other code, or something in it looks wrong (a flaky check, a pass that doesn't fit the change). The project's notes may say how to check a record.
+**Don't repeat the builder's run.** When the builder posted a run record (which checks ran on exactly which code, with results and logs), check the record instead of repeating it: it is for the code you are reviewing (its fingerprint or commit), recent, the checks the change needs ran, and every failure in it is explained. Then run only the quick checks (typecheck, lint), the tests the change affects (not the whole suite: the project's notes may give a command that picks them), and your own probes of the riskiest parts: they find what a repeated run doesn't. Run a whole suite or set again only when there's no record, it is for other or older code, something in it looks wrong (a flaky check, a pass that doesn't fit the change), or the change is to shared test infrastructure (the test runner, helpers or config), and say in your verdict which and why. The project's notes may say how to check a record.
 
 ## 4. Report
 
@@ -52,7 +52,7 @@ Say how sure you are when you aren't certain. Then give the verdict, with what y
 
 For a card, end your review with `hive_update_task`:
 
-- `review: "passed"` or `"failed"`, with the report as `comment`.
+- `review: "passed"` or `"failed"`, with the report as `comment`. Its **first line is the verdict in one line**: "Round 1: PASSED" (with the gist), or "Round 1: FAILED: 2 findings: <their titles>". The findings and the evidence follow below it.
 - **Passed**: move it to `passed` in the same change (`column: "passed"`): reviewed, waiting to be merged. Not to `done`, which means merged.
 - **Failed**: it stays in Review. Leave its fixes to whoever the user asks to make them.
 

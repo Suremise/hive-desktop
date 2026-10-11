@@ -91,14 +91,16 @@ const until = async (fn, ms = 10000) => {
   // --- Asking for input is told at once, on its own, while a finish is still being collected.
   clearNotes()
   await send(beta, three, 'go work 1')
-  await send(alpha, one, 'ask work 4')
+  // One asks, then works on until the test releases it: its finish can't join Three's, however slow the machine (#518).
+  await send(alpha, one, 'ask holduntil bursts-one-go')
   const asked = await until(async () => (await notes()).find((n) => /needs your input/.test(n.title)), 2500)
   check('a question is told at once', !!asked, JSON.stringify(await notes()))
   check('on its own', !!asked && !/finished/.test(asked.title) && /One/.test(asked.title), JSON.stringify(asked))
   await until(async () => (await notes()).some((n) => /finished/.test(n.title)), 8000)
   const fin = (await notes()).filter((n) => /finished/.test(n.title))
   check('and the finish that came meanwhile is told after, alone', fin.length === 1 && /Three finished|beta/.test(fin[0].title), JSON.stringify(fin))
-  await until(async () => (await live(alpha, one))?.status === 'finished', 10000)
+  fs.writeFileSync(path.join(claudeHome, 'bursts-one-go'), '')
+  check('One finishes once released', !!(await until(async () => (await live(alpha, one))?.status === 'finished', 10000)))
 
   for (const [p, a] of agents) await inv('session:stop', p, a.id).catch(() => undefined)
   await app.close()

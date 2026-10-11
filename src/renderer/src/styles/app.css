@@ -4074,7 +4074,8 @@ body.pane-resizing .monaco-editor {
   color: var(--accent-ink);
 }
 /* Processes a stopped agent left running (#507): a click ends or keeps them. */
-.agent-leftovers {
+.agent-leftovers,
+.agent-messages {
   display: inline-flex;
   align-items: center;
   gap: 3px;
@@ -4091,6 +4092,13 @@ body.pane-resizing .monaco-editor {
 }
 .agent-leftovers:hover {
   background: color-mix(in srgb, var(--warning) 14%, transparent);
+}
+/* Messages left for it, waiting to be typed (#530). */
+.agent-messages {
+  color: var(--accent-ink);
+}
+.agent-messages:hover {
+  background: color-mix(in srgb, var(--accent-ink) 14%, transparent);
 }
 /* A worktree agent's unmerged commits on its tab. */
 .agent-unmerged {
@@ -7995,7 +8003,8 @@ button.progress-run-show:focus-visible {
   flex-shrink: 0;
   font-variant-numeric: tabular-nums;
 }
-.progress-lane-state.paused {
+.progress-lane-state.paused,
+.progress-lane-state.stalled {
   color: var(--warning);
 }
 .progress-lane-state.abandoned {

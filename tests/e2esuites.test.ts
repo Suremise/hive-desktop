@@ -1015,6 +1015,64 @@ describe("answering Claude Code's trust question (lib.acceptClaudeTrust, #188)",
   })
 })
 
+describe("a restart's trust question (lib.acceptRelaunchTrust, #341)", () => {
+  type Relaunch = (inv: (ch: string, ...a: unknown[]) => Promise<unknown>, proj: string, agentId: string, spawned: () => boolean, o?: { spawnMs?: number; timeoutMs?: number }) => Promise<{ spawned: boolean; trusted: boolean }>
+  const { acceptRelaunchTrust } = createRequire(import.meta.url)('./e2e/lib.cjs') as { acceptRelaunchTrust: Relaunch }
+  // The old process's screen still asks to trust the folder; a Down moves its menu to Yes.
+  const terminal = () => {
+    const calls: string[] = []
+    const writes: string[] = []
+    const inv = async (ch: string, ...a: unknown[]) => {
+      calls.push(ch)
+      if (ch === 'pty:buffer') return `Is this a project you trust? ${writes.length ? ' ' : '>'} No, exit ${writes.length ? '>' : ' '} Yes, I trust this folder`
+      if (ch === 'session:live') return []
+      writes.push(String(a[1]))
+      return undefined
+    }
+    return { calls, writes, inv }
+  }
+
+  it('a restart that never spawns: not spawned, and nothing is read from or typed into the old terminal', async () => {
+    const t = terminal()
+    expect(await acceptRelaunchTrust(t.inv, 'c:\\p', 'a1', () => false, { spawnMs: 300, timeoutMs: 2000 })).toEqual({ spawned: false, trusted: false })
+    expect(t.calls).toEqual([])
+    expect(t.writes).toEqual([])
+  })
+
+  it("once the new process is seen, its trust question is answered", async () => {
+    const t = terminal()
+    let polls = 0
+    expect(await acceptRelaunchTrust(t.inv, 'c:\\p', 'a1', () => ++polls > 2, { spawnMs: 5000, timeoutMs: 4000 })).toEqual({ spawned: true, trusted: true })
+    expect(t.writes).toEqual(['\x1b[B', '\r'])
+  })
+})
+
+describe('whether a process still runs (lib.processRunning, #339)', () => {
+  const { processRunning } = createRequire(import.meta.url)('./e2e/lib.cjs') as { processRunning: (pid: number) => boolean }
+  const failing = (code: string) => () => {
+    throw Object.assign(new Error(`kill ${code}`), { code })
+  }
+
+  it('runs: true; no such process (ESRCH): false', () => {
+    expect(processRunning(process.pid)).toBe(true)
+    const kill = vi.spyOn(process, 'kill').mockImplementation(failing('ESRCH'))
+    try {
+      expect(processRunning(1234)).toBe(false)
+    } finally {
+      kill.mockRestore()
+    }
+  })
+
+  it("any other error (EPERM) is thrown, never read as exited: its state is unknown", () => {
+    const kill = vi.spyOn(process, 'kill').mockImplementation(failing('EPERM'))
+    try {
+      expect(() => processRunning(1234)).toThrow(/Can't tell whether process 1234 runs: EPERM/)
+    } finally {
+      kill.mockRestore()
+    }
+  })
+})
+
 describe('sending a prompt to a CLI until it takes it (lib.sendPrompt, #190)', () => {
   type Send = (inv: (ch: string, ...a: unknown[]) => Promise<unknown>, key: string, text: string, o: { submitted: () => Promise<boolean>; tries?: number; waitMs?: number }) => Promise<number>
   const { sendPrompt } = createRequire(import.meta.url)('./e2e/lib.cjs') as { sendPrompt: Send }
@@ -1803,13 +1861,14 @@ describe('heavy runs: at most a few at once on the machine, the rest queue in or
     const first = await waitForSlot(dir2, { slots: 1, owner: 101, alive, now })
     const seen: number[] = []
     const second = waitForSlot(dir2, { slots: 1, owner: 102, alive, now, pollMs: 30, onWait: (r: { holders: { pid: number }[] }) => seen.push(r.holders[0].pid) })
-    await new Promise((r) => setTimeout(r, 150))
-    expect(seen.length).toBeGreaterThan(1)
+    // At least two looks while the slot is held, however slow the machine is.
+    await vi.waitFor(() => expect(seen.length).toBeGreaterThan(1), { timeout: 10000 })
     expect(new Set(seen)).toEqual(new Set([101]))
     first.release()
     const got = await second
     expect(got.slot).toBe(0)
-    expect(got.waitedMs).toBeGreaterThan(100)
+    // It waited through those looks and says how long.
+    expect(got.waitedMs).toBeGreaterThan(0)
     got.release()
     expect(readdirSync(dir2).filter((f) => f.endsWith('.json'))).toEqual([])
   })

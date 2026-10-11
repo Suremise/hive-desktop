@@ -9,6 +9,7 @@ import type { MergeSlotInfo, TaskCard, TaskColumn, TaskDecision } from './types'
 import { holderText, minutes, slotLine } from './mergeSlot'
 import { columnLabel } from './tasks'
 import { shortDuration } from './progress'
+import { LANE_DEFAULT_EVENTS, type LaneEvent } from './laneWatch'
 
 /** A card as the Agent API shows it: with what its agent is doing now, and why it is stalled. */
 export interface TaskView extends Omit<TaskCard, 'agent' | 'decisions'> {
@@ -286,8 +287,14 @@ export interface WaitChange {
  * card, where it is now, who changed it, the latest comment's author and first line), or no change; with `since` for the
  * next wait. Short: the full comment is hive_read_task with latestComment.
  */
-export function taskWaitText(r: { done?: string; watching?: string; limitAt?: string; already?: WaitChange; changes?: WaitChange[]; timedOut?: boolean; since?: string }): string {
+export function taskWaitText(r: { done?: string; watching?: string; limitAt?: string; already?: WaitChange; changes?: WaitChange[]; timedOut?: boolean; since?: string; events?: string[]; replaced?: string }): string {
   if (r.done) return r.done
+  // A lane watch (#531): what it counts, and the watch it replaced.
+  // The events only when they aren't the default (lean: the agent asked for them, or knows the default).
+  if (r.watching && r.events) {
+    const own = r.events.length !== LANE_DEFAULT_EVENTS.length || r.events.some((e) => !LANE_DEFAULT_EVENTS.includes(e as LaneEvent))
+    return `${r.watching}${own ? ` (${r.events.join(', ')})` : ''}. End your turn now: Hive types a line into this session on a lane event, or at ${r.limitAt ?? 'the limit'} if none comes.${r.replaced ? ` It replaces your watch (${r.replaced.replace(/^Waiting/, 'waiting')}).` : ''}`
+  }
   const line = (c: WaitChange): string =>
     `#${c.number} ${c.changes === 'gone' ? (c.archived ? 'was archived' : 'was archived or deleted') : `is in ${c.column[0].toUpperCase()}${c.column.slice(1)} (${c.changes.join(', ')}${c.by ? `, by ${c.by}` : ''})`}${c.comment ? `; latest comment by ${c.comment.by}: "${c.comment.firstLine}"` : ''}`
   if (r.watching) return `${r.watching}. End your turn now: Hive types a line into this session when it changes, or at ${r.limitAt ?? 'the limit'} if nothing does. Nothing runs meanwhile.`

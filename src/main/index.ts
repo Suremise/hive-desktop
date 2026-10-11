@@ -1,6 +1,7 @@
 import { initWatches, onWatchedCardsMoved, watchKeepsQuitWaiting } from './watches'
 import { initLoopWakes } from './loopWakes'
 import { initLoopCheck } from './loopCheck'
+import { initAgentMessages } from './agentMessages'
 import { initDecisionWakes } from './decisionWakes'
 import { initAssistantModes } from './assistantMode'
 import { app, BrowserWindow, dialog, Menu, nativeTheme, Notification, protocol, screen, session, shell } from 'electron'
@@ -738,6 +739,7 @@ app.whenReady().then(async () => {
   initWatches()
   initLoopWakes()
   initLoopCheck()
+  initAgentMessages()
   initDecisionWakes()
   initAssistantModes()
   // A watcher stops keeping a pending quit waiting when the card it waits on leaves another agent's work (no wake comes).

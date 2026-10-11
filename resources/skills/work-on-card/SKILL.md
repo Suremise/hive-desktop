@@ -22,13 +22,14 @@ The card is the brief, and the board is how the user, the Hive Assistant and oth
 - Comment when something is worth knowing later: a choice you made and why, a finding that changes the plan, a partial result. Not a running log. A decision the user tells you about the card goes on it as a decision (`hive_update_task` with `decision`), not only as a comment.
 - A reply that says your card has a new decision: finish the step you're on, then read the card (`hive_read_task`) and bring the work in line with it.
 - A line from Hive while you wait for the user, saying your card has new decisions: that is their answer. Read the card's decisions, clear `blocked` if it was your question, then carry on from where you asked.
+- **Tests you write or change wait for what they expect to see, never for a length of time**: poll the condition (with a generous bound for a hung run) rather than sleep and then check, or read state once just after an action. Raising a timeout isn't a fix. Each test cleans up its own state, and passes under load, not only alone. Follow the project's test notes where it has them.
 - Work you find but weren't asked to do goes on a new card (`hive_create_task`, described well enough to start from cold), not into this one.
 - If you can't go on, set `blocked` with the reason; an empty `blocked` clears it.
 
 ## Finish
 
 1. **Check the work**: run the project's checks that matter for this change. Note what you ran, the result, and what you didn't run, as a **run record** a reviewer can trust instead of repeating it: the checks, the exact code they ran on (the commit, and whether there were uncommitted changes; the project's notes may give a command that prints a fingerprint), each result, and where the logs are. Run long commands through `hive-progress` as Hive's session guidance says, so the Progress panel shows how far along they are.
-2. **Read the card again, then move it to `review`.** First `hive_read_task`: decisions may have been recorded while you worked, so check the work against each one and fix what doesn't match. Then move it to `review` with a comment saying what you did: what changed, how to check it, the checks and their results, and anything left open. Also when it was in Passed or Done before.
+2. **Read the card again, then move it to `review`.** First `hive_read_task`: decisions may have been recorded while you worked, so check the work against each one and fix what doesn't match. Then move it to `review` with a comment saying what you did. Its **first line is a one-sentence summary** ("Round 2 ready: <what changed, in a sentence>"): readers who need only the gist read that line alone. Below it: what changed, how to check it, the checks and their results, and anything left open, with the evidence (paths, fingerprints, run records). Also when it was in Passed or Done before.
 3. **Passed and Done aren't yours.** A reviewer moves a card that passes to `passed`. `done` means merged: move your card there once its work is merged (merge-ready), or when the user asks.
 
 ## Priorities

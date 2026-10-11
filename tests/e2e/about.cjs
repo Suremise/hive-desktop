@@ -17,6 +17,10 @@ fs.writeFileSync(path.join(userData, 'logs', 'hive.log'), [
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms))
 let pass = 0, fail = 0
 const check = (name, ok, extra = '') => { if (ok) pass++; else fail++; console.log(ok ? 'PASS' : 'FAIL', name, extra) }
+// The longest a check waits for its condition: a bound for a hung run, never how long the step should take.
+const HUNG_MS = 10000
+/** Whether fn() comes true (checked until it does, up to HUNG_MS). */
+const becomes = async (fn) => !!(await lib.until(fn, HUNG_MS))
 ;(async () => {
   const env = lib.hiveEnv({ HIVE_USER_DATA: userData })
   const app = await _electron.launch({ executablePath: lib.ELECTRON, args: [lib.ROOT], cwd: lib.ROOT, env })
@@ -27,15 +31,16 @@ const check = (name, ok, extra = '') => { if (ok) pass++; else fail++; console.l
   // Setup dialog may show on a fresh profile; close any modal first.
   await page.keyboard.press('Escape'); await sleep(300)
   await page.evaluate(() => window.hive.invoke('app:info')) // warm
-  await page.keyboard.press('F1'); await sleep(600)
-  await page.locator('.split-list .row', { hasText: 'About Hive' }).click(); await sleep(500)
-  check('About shows MIT link', await page.locator('.about-licence a', { hasText: 'MIT License' }).isVisible())
+  await page.keyboard.press('F1')
+  await page.locator('.split-list .row', { hasText: 'About Hive' }).click()
+  check('About shows MIT link', await becomes(() => page.locator('.about-licence a', { hasText: 'MIT License' }).isVisible()))
   await page.screenshot({ path: path.join(scratch, 'about-1.png') })
-  await page.locator('.about-licence a', { hasText: 'MIT License' }).click(); await sleep(600)
-  check('License page opens', (await page.locator('.scroll-page').innerText()).includes('Permission is hereby granted'))
-  await page.locator('.scroll-page a', { hasText: 'third-party notices' }).click(); await sleep(800)
-  const text = await page.locator('.scroll-page').innerText()
-  check('Notices page opens via link', text.includes('Third-party notices') && text.includes('monaco-editor') && text.includes('@xterm/xterm'))
+  await page.locator('.about-licence a', { hasText: 'MIT License' }).click()
+  const pageText = () => page.locator('.scroll-page').innerText({ timeout: 1000 }).catch(() => '')
+  check('License page opens', await becomes(async () => (await pageText()).includes('Permission is hereby granted')))
+  await page.locator('.scroll-page a', { hasText: 'third-party notices' }).click()
+  const notices = (t) => t.includes('Third-party notices') && t.includes('monaco-editor') && t.includes('@xterm/xterm')
+  check('Notices page opens via link', await becomes(async () => notices(await pageText())))
   await page.screenshot({ path: path.join(scratch, 'about-2-notices.png') })
   // Not clicked: it would open the file in the real browser. The file it opens is next to electron.exe.
   check('Chromium licence file exists next to the exe', fs.existsSync(path.join(lib.ROOT, 'node_modules/electron/dist/LICENSES.chromium.html')))
@@ -53,9 +58,9 @@ const check = (name, ok, extra = '') => { if (ok) pass++; else fail++; console.l
   check('with the secret and home folder taken out', !shown.includes('SECRETVALUE123') && shown.includes('token=<redacted>') && !shown.toLowerCase().includes(require('os').homedir().toLowerCase()))
   check("and the older version's card title", !shown.includes('takeover') && shown.includes('[tasks] <message left out: logged by an older version of Hive>'))
   await page.screenshot({ path: path.join(scratch, 'about-3-diagnostics.png') })
-  await dialog.getByRole('button', { name: 'Copy' }).click(); await sleep(400)
-  check('Copy copies exactly what was shown', ((await page.evaluate(() => window.__copied)) || '').trim() === shown.trim())
-  check('and closes the dialog', (await dialog.count()) === 0)
+  await dialog.getByRole('button', { name: 'Copy' }).click()
+  check('Copy copies exactly what was shown', await becomes(async () => ((await page.evaluate(() => window.__copied)) || '').trim() === shown.trim()))
+  check('and closes the dialog', await becomes(async () => (await dialog.count()) === 0))
   check('Codex reports its Windows sandbox', /- \*\*Codex\*\*[^]*?\n {2}- Windows sandbox: (not set up|default \(admin\)|non-admin|not used on this system|[\w-]+)\n/.test(shown), shown.slice(shown.indexOf('**Codex**'), shown.indexOf('**Codex**') + 300))
 
   // Review finding: card text and the workspaces opened before stayed in the log. A card in one workspace,
