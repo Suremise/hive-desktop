@@ -1290,12 +1290,17 @@ async function deliver(store: Store, rec: WatchRecord): Promise<void> {
 export async function confirmTaken(projectPath: string, agentId: string, before: { runId: string; count: number }, line: string): Promise<boolean> {
   // Nothing more is typed into it while this runs, however long (#430): released when it ends (taken, or marked).
   const release = sessions.holdForConfirm(projectPath, agentId, before.runId)
+  confirmsRunning++
   try {
     return await confirming(projectPath, agentId, before, line)
   } finally {
+    confirmsRunning--
     release?.()
   }
 }
+let confirmsRunning = 0
+/** How many typed wakes are being checked for being taken now: tests wait for none, after which no Enter comes. */
+export const confirmsInFlight = (): number => confirmsRunning
 
 async function confirming(projectPath: string, agentId: string, before: { runId: string; count: number }, line: string): Promise<boolean> {
   const t0 = Date.now()
