@@ -1,6 +1,6 @@
 // A process that fails to start is reported with its code (#599): what a Windows exit code means (windowsExits.cjs),
-// the e2e runner's record of it, and the rule that keeps such a process from waiting behind an error dialog: test
-// tooling starts nothing through the shell, so every child inherits Node's error mode.
+// the e2e runner's record of it, and the rule that test tooling starts nothing through the shell, so every child keeps
+// Node's error mode (which keeps away the dialogs it governs; not every dialog under real load: windowsExits.cjs).
 import { execFileSync } from 'child_process'
 import { readFileSync } from 'fs'
 import { createRequire } from 'module'
@@ -68,8 +68,8 @@ describe("the run record names a failed suite's Windows codes (#599)", () => {
 })
 
 describe('test tooling starts nothing through the shell (#599)', () => {
-  it('so every process it starts inherits Node’s error mode and fails at once, never behind an error dialog', () => {
-    // ShellExecute starts a program with the default error mode: one that then fails to start shows Windows' dialog and
+  it('so every process it starts directly keeps Node’s error mode', () => {
+    // ShellExecute starts a program with the default error mode, under which a startup failure shows Windows' dialog and
     // waits for someone to click OK. child_process (and node-pty) start it directly, with the parent's mode.
     const shellLaunch = [/Start-Process/i, /Invoke-Item/i, /\bshell\.open(Path|External)\s*\(/, /['"]\/c['"],\s*['"]start['"]/i, /cmd(\.exe)?\s+\/c\s+start\b/i, /\bstart\s+""/i]
     const files = execFileSync('git', ['ls-files', '-co', '--exclude-standard', 'tests', 'scripts'], { cwd: root, encoding: 'utf8' })

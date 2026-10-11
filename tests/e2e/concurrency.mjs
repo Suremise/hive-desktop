@@ -201,7 +201,8 @@ async function heavyRound(k, worktrees) {
     // The stand-in gives each run the id r<n>, n its place among the requests.
     const row = reports.findIndex((x) => x.method === 'POST' && x.url === '/v1/progress' && x.body.title === 'e2e: waiting for a test slot')
     const id = `r${row + 1}`
-    const named = reports.some((x) => x.method === 'PATCH' && x.url === `/v1/progress/${id}` && /waiting for a test slot: .*e2e: 2 suites × 2/.test(x.body.stepName ?? ''))
+    // What it waits for is the run's `waiting` (#549), set as it starts and updated while it waits.
+    const named = reports.some((x) => ((x.method === 'POST' && reports.indexOf(x) === row) || (x.method === 'PATCH' && x.url === `/v1/progress/${id}`)) && /waiting for a test slot: .*e2e: 2 suites × 2/.test(x.body.waiting ?? ''))
     const ended = reports.some((x) => x.url === `/v1/progress/${id}/finish` && x.body.ok === true && /got a test slot after/.test(x.body.summary ?? ''))
     check('…and showed in the Progress panel as waiting, naming who held the slots, until it got one', row >= 0 && named && ended, JSON.stringify(reports.filter((x) => /waiting|slot/.test(JSON.stringify(x.body))).slice(0, 4)))
     check('every slot is let go at the end', slots() === 0 && waiting() === 0, readdirSync(pool).join(', '))

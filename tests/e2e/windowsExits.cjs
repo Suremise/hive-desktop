@@ -2,14 +2,15 @@
 // ends with an NTSTATUS code (0xc0000142…), which Node reports as a bare 3221225794. The runners say it with a line of
 // meaning, so the agent can react (rerun with fewer runs at once) instead of guessing at a number.
 //
-// That it ends at once, rather than waiting behind Windows' "Application Error" dialog until someone clicks OK, is the
-// error mode's doing: a process started with SEM_FAILCRITICALERRORS (SetErrorMode) gets no such dialog, and a child
-// inherits its parent's mode when it is started directly (CreateProcess). Node sets it for itself as it starts (libuv:
-// SEM_FAILCRITICALERRORS | SEM_NOGPFAULTERRORBOX | SEM_NOOPENFILEERRORBOX) and Electron keeps SEM_FAILCRITICALERRORS,
-// so everything the runners, the suites, the unit test workers and the test copies of Hive start with child_process
-// (or node-pty) has it, however deep. What doesn't: a process started through the shell (ShellExecute: PowerShell's
-// Start-Process, `start`, opening a file by its association), which starts with the default mode. So test tooling never
-// starts anything that way (tests/windowsExits.test.ts checks), and nothing machine-wide is changed.
+// The error mode, and what it doesn't promise: Node sets SEM_FAILCRITICALERRORS | SEM_NOGPFAULTERRORBOX |
+// SEM_NOOPENFILEERRORBOX for itself as it starts (libuv), Electron keeps SEM_FAILCRITICALERRORS, and a child started
+// directly (child_process, node-pty) inherits its parent's mode, however deep; one started through the shell
+// (ShellExecute: PowerShell's Start-Process, `start`, a file opened by its association) starts with the default mode
+// instead. So test tooling never starts anything that way (tests/windowsExits.test.ts checks). That keeps away the
+// dialogs the mode governs, but not every one: under real load the desktop heap running out still showed Windows'
+// "Application Error" dialog for processes that had the mode (#599), and such a process waits behind it until someone
+// clicks OK. Fewer heavy runs at once (a full unit run takes a test slot: tests/unitSlot.ts) makes that rarer; only a
+// machine-wide setting, left to the machine's owner, would stop it. Nothing machine-wide is changed here.
 
 /** The codes worth a sentence: what happened, and what to do when it isn't the code's fault. */
 const STATUS = {
