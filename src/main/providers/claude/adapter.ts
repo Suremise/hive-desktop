@@ -1,14 +1,14 @@
 import { homedir } from 'os'
 import { join, basename } from 'path'
-import { mkdir, readdir, stat, writeFile } from 'original-fs/promises'
-import { existsSync, readFileSync } from 'original-fs'
+import { mkdir, open, readdir, stat, writeFile } from 'original-fs/promises'
+import { existsSync, readFileSync, realpathSync } from 'original-fs'
 import type { AgentInstallInfo, AutoCompactSetting, McpServerDef, MemorySource, PathDataCopy, PlanLimit, PlanUsage, ReadinessIssue, SubSession } from '../../../shared/types'
 import { HIVE_DIR, assertSessionId, isSessionId } from '../../../shared/defaults'
 import { CLAUDE_CODE, CLAUDE_DESCRIPTOR, baseModel, canSwitchLive, footerMode, hookMode } from '../../../shared/claude'
 import { providerSettings } from '../../../shared/providers'
 import { samePath } from '../../../shared/movePaths'
 import { config } from '../../config'
-import { claudeFileAllowed, contentHash, ContentTooLarge, copyMissing, copySkillTree, sourceProblem, tooBigToDeliver, isDir, linksNotCopied, readJson, removePath, writeJsonAtomic } from '../../fsutil'
+import { claudeFileAllowed, contentHash, ContentTooLarge, copyMissing, copySkillTree, sourceProblem, tooBigToDeliver, isDir, linksNotCopied, placeMatcher, readJson, realPath, removePath, writeJsonAtomic, type PlannedCopies } from '../../fsutil'
 import { createLogger, userText } from '../../logger'
 import { EDITOR_EXTENSION_PATH, EDITOR_ROOTS, compareVersions, hookForwardCommand, readFirstLine, run, runsThroughCmd, taskArgs, toSpawnable } from '../common'
 import type { StartHint } from '../../../shared/startFailure'
@@ -23,6 +23,10 @@ import { ClaudeUsageParser, encodeProjectPath, parseTranscript, transcriptSubSes
 const log = createLogger('claude-code')
 /** Transcripts whose sub-agent check is remembered (by path and mtime). */
 const SUB_CACHE = 2000
+/** A ~/.claude/projects folder name that may hold an 8.3 short name: `~1` is encoded `-1`. */
+const MAY_BE_SHORT = /-\d+(-|$)/
+/** How much of a transcript is read for the cwd it records (its first lines carry none). */
+const CWD_HEAD = 64 * 1024
 
 export const HOOK_EVENTS = ['SessionStart', 'UserPromptSubmit', 'PreToolUse', 'PostToolUse', 'Notification', 'Stop', 'StopFailure', 'PreCompact', 'PostCompact', 'SessionEnd'] as const
 
@@ -37,6 +41,36 @@ const PROMPT_SNAPSHOT_SINCE = '2.1.267'
 
 export function claudeHome(): string {
   return process.env.CLAUDE_CONFIG_DIR || join(homedir(), '.claude')
+}
+
+/**
+ * How Claude Code spells a folder it was started in, for its transcripts' folder name (#493): Node's realpath (the JS
+ * one, not `.native`), which follows junctions and symlinks but keeps 8.3 short names (checked with 2.1.296). A folder
+ * that can't be resolved is spelt as given.
+ */
+export function claudeSpelling(folder: string): string {
+  try {
+    return realpathSync(folder)
+  } catch {
+    return folder
+  }
+}
+
+/** The cwd a Claude Code transcript records (in the first of its lines that has one), or null. */
+async function headCwd(path: string): Promise<string | null> {
+  try {
+    const fh = await open(path, 'r')
+    try {
+      const buf = Buffer.alloc(CWD_HEAD)
+      const { bytesRead } = await fh.read(buf, 0, buf.length, 0)
+      const m = /"cwd":("(?:[^"\\]|\\.)*")/.exec(buf.toString('utf8', 0, bytesRead))
+      return m ? (JSON.parse(m[1]) as string) : null
+    } finally {
+      await fh.close()
+    }
+  } catch {
+    return null
+  }
 }
 
 /** Subscription limits from Claude Code's status line (rate_limits.five_hour / seven_day); null for API-key accounts. */
@@ -460,50 +494,108 @@ export class ClaudeCodeAdapter implements ProviderAdapter {
   // Transcripts
   // -------------------------------------------------------------------------
 
-  async transcriptDir(folder: string): Promise<string | null> {
+  /**
+   * The folders of ~/.claude/projects holding a folder's transcripts, where Claude Code files them first (#493): it
+   * names the folder by Node's realpath of its cwd (`claudeSpelling`), so a session started through a junction is under
+   * the real path's name; then Hive's spelling and the real, long path (one started by another name, or an older CLI's).
+   * Last, those named by an 8.3 short spelling of the folder, which no other spelling of it gives: found by the cwd
+   * their transcripts record (`shortNamed`).
+   */
+  private async transcriptDirs(folder: string): Promise<string[]> {
     const root = join(claudeHome(), 'projects')
-    const encoded = encodeProjectPath(folder).toLowerCase()
+    let names: string[]
     try {
-      const match = (await readdir(root)).find((d) => d.toLowerCase() === encoded)
-      return match ? join(root, match) : null
+      names = await readdir(root)
     } catch {
-      return null
+      return []
     }
+    const byName = new Map(names.map((d) => [d.toLowerCase(), d]))
+    const wanted = new Set([claudeSpelling(folder), folder, realPath(folder)].map((p) => encodeProjectPath(p).toLowerCase()))
+    const exact = [...wanted].flatMap((w) => (byName.has(w) ? [join(root, byName.get(w)!)] : []))
+    return [...exact, ...(await this.shortNamed(root, names.filter((n) => !wanted.has(n.toLowerCase())), folder))]
+  }
+
+  /**
+   * Of `names` (folders of ~/.claude/projects), those whose transcripts record an 8.3 short spelling of `folder` as their
+   * cwd. Only names that may hold one (on the folder's drive, with an encoded `~n`) are looked in, and each one's cwd is
+   * read once while the folder is unchanged.
+   */
+  private async shortNamed(root: string, names: string[], folder: string): Promise<string[]> {
+    const drive = encodeProjectPath(realPath(folder)).slice(0, 3).toLowerCase()
+    const here = placeMatcher(folder)
+    const out: string[] = []
+    for (const n of names) {
+      if (!n.toLowerCase().startsWith(drive) || !MAY_BE_SHORT.test(n)) continue
+      const cwd = await this.recordedCwd(join(root, n))
+      if (cwd?.includes('~') && here(cwd)) out.push(join(root, n))
+    }
+    return out
+  }
+
+  /**
+   * The cwd the transcripts in a folder of ~/.claude/projects record (the first found). One found is kept: the folder is
+   * named after it. None found is kept only while the transcripts looked in are the same (names, sizes and times): a
+   * transcript's first lines carry no cwd, and a line added to it doesn't change the folder's time.
+   */
+  private cwds = new Map<string, { cwd: string } | { files: string }>()
+  private async recordedCwd(dir: string): Promise<string | null> {
+    const c = this.cwds.get(dir)
+    if (c && 'cwd' in c) return c.cwd
+    const names = (await readdir(dir).catch(() => [] as string[])).filter((x) => x.endsWith('.jsonl')).slice(0, 3)
+    const stats = await Promise.all(names.map((f) => stat(join(dir, f)).catch(() => null)))
+    const files = names.map((f, i) => `${f}:${stats[i]?.size}:${stats[i]?.mtimeMs}`).join('|')
+    if (c && c.files === files) return null
+    let cwd: string | null = null
+    for (const f of names) if ((cwd = await headCwd(join(dir, f)))) break
+    this.cwds.delete(dir)
+    this.cwds.set(dir, cwd ? { cwd } : { files })
+    if (this.cwds.size > SUB_CACHE) this.cwds.delete(this.cwds.keys().next().value!)
+    return cwd
+  }
+
+  async transcriptDir(folder: string): Promise<string | null> {
+    return (await this.transcriptDirs(folder))[0] ?? null
   }
 
   async transcriptPath(folder: string, sessionId: string): Promise<string | null> {
-    const dir = await this.transcriptDir(folder)
-    if (!dir) return null
-    const p = join(dir, `${assertSessionId(sessionId)}.jsonl`)
-    return existsSync(p) ? p : null
+    const file = `${assertSessionId(sessionId)}.jsonl`
+    for (const dir of await this.transcriptDirs(folder)) if (existsSync(join(dir, file))) return join(dir, file)
+    return null
   }
 
-  /** Where a transcript would be written for a folder that has none yet. */
+  /** Where a transcript would be written for a folder that has none yet: where Claude Code looks for it on resume. */
   restorePath(folder: string, sessionId: string): string {
-    return join(claudeHome(), 'projects', encodeProjectPath(folder), `${assertSessionId(sessionId)}.jsonl`)
+    return join(claudeHome(), 'projects', encodeProjectPath(claudeSpelling(folder)), `${assertSessionId(sessionId)}.jsonl`)
   }
 
-  /** A moved folder's transcripts and auto memory (memory/), copied to the folder named for its new path (#146). */
-  async copyPathData(from: string, to: string, apply: boolean): Promise<PathDataCopy | null> {
-    const src = await this.transcriptDir(from)
-    if (!src) return null
-    const dest = (await this.transcriptDir(to)) ?? join(claudeHome(), 'projects', encodeProjectPath(to))
-    if (samePath(src, dest)) return null
-    const r = await copyMissing(src, dest, apply)
-    return { provider: this.id, from: src, to: dest, copy: r.copy, kept: r.kept, ...(r.failed.length ? { failed: r.failed } : {}) }
+  /**
+   * A moved folder's transcripts and auto memory (memory/), copied to the folder named for its new path (#146): from
+   * each folder they are kept under (`transcriptDirs`, #493), in that order, so what the first has wins and a file of a
+   * later one that differs is kept and listed, without apply too.
+   */
+  async copyPathData(from: string, to: string, apply: boolean): Promise<PathDataCopy[]> {
+    const dest = (await this.transcriptDir(to)) ?? join(claudeHome(), 'projects', encodeProjectPath(claudeSpelling(to)))
+    const planned: PlannedCopies = new Map()
+    const out: PathDataCopy[] = []
+    for (const src of await this.transcriptDirs(from)) {
+      if (samePath(src, dest)) continue
+      const r = await copyMissing(src, dest, apply, planned)
+      out.push({ provider: this.id, from: src, to: dest, copy: r.copy, kept: r.kept, ...(r.failed.length ? { failed: r.failed } : {}) })
+    }
+    return out
   }
 
   async listSessions(folder: string): Promise<ExternalSession[]> {
-    const dir = await this.transcriptDir(folder)
-    if (!dir) return []
     const out: ExternalSession[] = []
-    for (const f of await readdir(dir)) {
+    const seen = new Set<string>()
+    for (const dir of await this.transcriptDirs(folder)) for (const f of await readdir(dir).catch(() => [])) {
       if (!f.endsWith('.jsonl') || !isSessionId(basename(f, '.jsonl'))) continue
       const p = join(dir, f)
       try {
         const s = await stat(p)
-        if (!s.isFile() || s.size === 0) continue
         const id = basename(f, '.jsonl')
+        if (!s.isFile() || s.size === 0 || seen.has(id.toLowerCase())) continue
+        seen.add(id.toLowerCase())
         const sub = await this.subSession(p, id, s.mtimeMs)
         out.push({ id, transcriptPath: p, modified: s.mtime.toISOString(), ...(sub ? { sub } : {}) })
       } catch {

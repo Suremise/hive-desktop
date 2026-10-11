@@ -11,6 +11,7 @@ import type { StartHint } from '../../../shared/startFailure'
 import { CODEX, CODEX_DESCRIPTOR, CODEX_MODE_FLAGS, CODEX_PERMISSION_MODES } from '../../../shared/codex'
 import { providerSettings } from '../../../shared/providers'
 import { config } from '../../config'
+import { placeMatcher } from '../../fsutil'
 import { createLogger, userText } from '../../logger'
 import { findSecretWarnings } from '../../mcpSecrets'
 import { AGENTS_SKILLS, EDITOR_EXTENSION_PATH, EDITOR_ROOTS, agentsSkillCopyPath, compareVersions, hookForwardCommand, readFirstLine, run, syncAgentsSkills, taskArgs, toSpawnable } from '../common'
@@ -756,11 +757,12 @@ export class CodexAdapter implements ProviderAdapter {
   }
 
   async listSessions(folder: string): Promise<ExternalSession[]> {
-    const want = resolve(folder).toLowerCase()
+    // Codex records the cwd as it was given; Hive may spell the folder another way now (a junction, an 8.3 name, #493).
+    const here = placeMatcher(folder)
     const out: ExternalSession[] = []
     for (const p of await this.rollouts()) {
       const m = await this.meta(p)
-      if (!m || !isSessionId(m.id) || resolve(m.cwd).toLowerCase() !== want) continue
+      if (!m || !isSessionId(m.id) || !here(m.cwd)) continue
       const s = await stat(p).catch(() => null)
       if (s && s.size > 0) out.push({ id: m.id, transcriptPath: p, modified: s.mtime.toISOString(), ...(m.sub ? { sub: m.sub } : {}) })
     }

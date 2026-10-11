@@ -1,11 +1,13 @@
 // Test housekeeping (#253, tests/e2e/clean.mjs and evidence.cjs): what goes from %LOCALAPPDATA%\hive-test and what
 // always stays, whichever deletes it: the clean-up, the e2e runner (suite folders, log pruning) or the scenario runner.
 import { createRequire } from 'module'
-import { existsSync, lstatSync, mkdirSync, readdirSync, readFileSync, rmSync, symlinkSync, utimesSync, writeFileSync } from 'fs'
+import { appendFileSync, cpSync, existsSync, lstatSync, mkdirSync, readdirSync, readFileSync, renameSync, rmSync, symlinkSync, utimesSync, writeFileSync } from 'fs'
 import { join, resolve } from 'path'
 import { afterAll, describe, expect, it } from 'vitest'
 // @ts-expect-error: plain .mjs modules without types
-import { clean, holdLane, plan } from './e2e/clean.mjs'
+import { clean, codexPlan, holdLane, plan } from './e2e/clean.mjs'
+// @ts-expect-error: plain .mjs modules without types
+import { acquireCodexHome } from './e2e/codexHomeLock.mjs'
 // @ts-expect-error: plain .mjs modules without types
 import { claimLane } from './e2e/lanes.mjs'
 // @ts-expect-error: plain .mjs modules without types
@@ -281,6 +283,196 @@ describe('the clean-up (clean.mjs)', () => {
     expect(why('charts-132')).toMatch(/days old/)
     expect(why('short tmp')).toBe('newer than 3 days')
     expect(why('codex')).toBe(undefined)
+  })
+})
+
+describe('the Codex test home (#404): old rollouts, package copies and unfinished downloads go, never its sign-in or sandbox', () => {
+  /** A Codex test home with something of each kind, as Codex 0.162 leaves it. */
+  function codexMachine() {
+    const root = temp('hive-clean-codex-')
+    tree(root, {
+      'codex/auth.json': 30,
+      'codex/config.toml': 30,
+      'codex/cap_sid': 30,
+      'codex/.sandbox/setup.json': 30,
+      'codex/.sandbox-bin/codex.exe': 30,
+      'codex/logs_2.sqlite': 30,
+      'codex/state_5.sqlite': 30,
+      'codex/session_index.jsonl': 30,
+      'codex/history.jsonl': 30,
+      'codex/plugins/cache/p.json': 30,
+      'codex/skills/s/SKILL.md': 30,
+      'codex/sessions/2026/09/01/rollout-2026-09-01T00-00-00-a.jsonl': 40,
+      'codex/sessions/2026/09/02/rollout-2026-09-02T00-00-00-b.jsonl': 39,
+      'codex/sessions/2026/10/05/rollout-2026-10-05T00-00-00-c.jsonl': 6,
+      'codex/sessions/2026/10/10/rollout-2026-10-10T00-00-00-d.jsonl': 5,
+      'codex/sessions/2026/10/10/rollout-2026-10-10T09-00-00-e.jsonl': 0,
+      'codex/sessions/2026/10/11/rollout-2026-10-11T00-00-00-f.jsonl': 0,
+      'codex/packages/app-server-daemon/auto-update-version': 10,
+      'codex/packages/app-server-daemon/releases/0.159.0-x86_64-pc-windows-msvc/codex.exe': 20,
+      'codex/packages/app-server-daemon/releases/0.160.0-x86_64-pc-windows-msvc/codex.exe': 10,
+      'codex/packages/app-server-daemon/releases/0.160.1-x86_64-pc-windows-msvc/codex.exe': 10,
+      'codex/packages/unknown/releases/1.0/x': 30,
+      'codex/cache/remote_plugin_catalog/6216f936f7b7ca60.json': 0,
+      'codex/cache/remote_plugin_catalog/.tmpOld': 10,
+      'codex/cache/remote_plugin_catalog/.tmpNew': 0
+    })
+    const pkg = join(root, 'codex', 'packages', 'app-server-daemon')
+    writeFileSync(join(pkg, 'auto-update-version'), '0.160.1-x86_64-pc-windows-msvc')
+    // Codex's `current` link names the copy it runs; the version file names the one it updates to.
+    symlinkSync(join(pkg, 'releases', '0.160.0-x86_64-pc-windows-msvc'), join(pkg, 'current'), 'junction')
+    return { root, lanesDir: join(root, 'e2e-lanes') }
+  }
+  const run = (m: { root: string; lanesDir: string }, o: Record<string, unknown> = {}) => clean({ root: m.root, lanesDir: m.lanesDir, ev: rules(m.root, []), alive: () => true, owner: 777, ...o })
+  const there = (root: string, p: string) => existsSync(join(root, 'codex', p))
+
+  it('removes only rollouts older than the age, package copies Codex no longer runs and old unfinished downloads', async () => {
+    const m = codexMachine()
+    const r = await run(m)
+    expect(r.removed.map((x: { rel: string }) => x.rel).sort()).toEqual([
+      'codex/cache/remote_plugin_catalog/.tmpOld',
+      'codex/packages/app-server-daemon/releases/0.159.0-x86_64-pc-windows-msvc',
+      'codex/sessions/2026/09',
+      'codex/sessions/2026/10/05',
+      'codex/sessions/2026/10/10/rollout-2026-10-10T00-00-00-d.jsonl'
+    ])
+    // The sign-in, config, sandbox setup, databases, plugins, skills and history stay, and so do new rollouts, the copy
+    // Codex runs and the one it updates to, a package with neither named, and the cache itself.
+    for (const p of ['auth.json', 'config.toml', 'cap_sid', '.sandbox/setup.json', '.sandbox-bin/codex.exe', 'logs_2.sqlite', 'state_5.sqlite', 'session_index.jsonl', 'history.jsonl', 'plugins/cache/p.json', 'skills/s/SKILL.md', 'sessions/2026/10/10/rollout-2026-10-10T09-00-00-e.jsonl', 'sessions/2026/10/11', 'packages/app-server-daemon/current/codex.exe', 'packages/app-server-daemon/releases/0.160.1-x86_64-pc-windows-msvc', 'packages/unknown/releases/1.0/x', 'cache/remote_plugin_catalog/6216f936f7b7ca60.json', 'cache/remote_plugin_catalog/.tmpNew'])
+      expect(there(m.root, p), p).toBe(true)
+    // The lease it took is let go.
+    expect(readdirSync(join(m.root, 'codex-home-locks')).flatMap((d) => readdirSync(join(m.root, 'codex-home-locks', d)))).toEqual([])
+  })
+
+  it('a dry run lists them, saying why, and removes nothing', async () => {
+    const m = codexMachine()
+    const r = await run(m, { dryRun: true })
+    const why = (rel: string) => r.items.find((i: { rel: string }) => i.rel === rel)?.why
+    expect(why('codex/sessions/2026/09')).toBe('rollouts all older than 3 days')
+    expect(why('codex/packages/app-server-daemon/releases/0.159.0-x86_64-pc-windows-msvc')).toMatch(/no longer runs \(it runs 0\.160\.0-x86_64-pc-windows-msvc, 0\.160\.1-x86_64-pc-windows-msvc\)/)
+    expect(why('codex/cache/remote_plugin_catalog/.tmpOld')).toMatch(/unfinished download/)
+    expect(r.removed).toEqual([])
+    expect(there(m.root, 'sessions/2026/09/01')).toBe(true)
+  })
+
+  it('removes nothing in it while a run holds the Codex test home, and keeps what a card cites', async () => {
+    const m = codexMachine()
+    // A real Codex suite's lease on the home (codexHomeLock.mjs), held by a live process.
+    const lease = await acquireCodexHome(join(m.root, 'codex'), { poolRoot: join(m.root, 'codex-home-locks'), wait: false, owner: 4242, alive: () => true })
+    expect(lease.release).toBeTypeOf('function')
+    const held = await run(m)
+    expect(held.removed).toEqual([])
+    expect(held.failed.map((f: { error: string }) => f.error)).toEqual(Array(5).fill('a run is using the Codex test home'))
+    lease.release()
+    // A card naming the home and its folders, as cards about Codex do, keeps nothing (they're places, like a lane);
+    // one citing a rollout keeps it.
+    const cards = [
+      card(404, 'the rollout: hive-test\\codex\\sessions\\2026\\10\\05\\rollout-2026-10-05T00-00-00-c.jsonl'),
+      card(405, 'the home %LOCALAPPDATA%\\hive-test\\codex, its codex\\sessions and codex\\sessions\\2026, codex\\packages\\app-server-daemon\\releases and codex\\cache\\remote_plugin_catalog')
+    ]
+    const cited = await run(m, { ev: rules(m.root, cards) })
+    expect(there(m.root, 'sessions/2026/10/05/rollout-2026-10-05T00-00-00-c.jsonl')).toBe(true)
+    expect(cited.items.find((i: { rel: string }) => i.rel === 'codex/sessions/2026/10/05').why).toBe('cited by #404')
+    for (const p of ['sessions/2026/09', 'packages/app-server-daemon/releases/0.159.0-x86_64-pc-windows-msvc', 'cache/remote_plugin_catalog/.tmpOld']) expect(there(m.root, p), p).toBe(false)
+  })
+
+  const PKG = 'codex/packages/app-server-daemon'
+  const OLD = '0.159.0-x86_64-pc-windows-msvc'
+  const removedRels = (r: { removed: { rel: string }[] }) => r.removed.map((x) => x.rel).sort()
+
+  it('never deletes through a link: a package, cache or sessions folder that is a junction into the sandbox, config or outside', async () => {
+    const m = codexMachine()
+    const outside = temp('hive-clean-codex-outside-')
+    tree(outside, { 'cache/.tmpOutside': 30, 'sessions/2026/01/01/rollout-2026-01-01T00-00-00-z.jsonl': 30 })
+    // releases → .sandbox-bin, with the marker naming another release: its codex.exe would look like an unused one.
+    tree(m.root, { 'codex/packages/linked/auto-update-version': 30, 'codex/.sandbox-bin/1.0/': 30 })
+    writeFileSync(join(m.root, 'codex/packages/linked/auto-update-version'), '1.0')
+    symlinkSync(join(m.root, 'codex', '.sandbox-bin'), join(m.root, 'codex/packages/linked/releases'), 'junction')
+    // A cache folder and a year of sessions that are links out of the home.
+    symlinkSync(join(outside, 'cache'), join(m.root, 'codex/cache/linked'), 'junction')
+    symlinkSync(join(outside, 'sessions', '2026'), join(m.root, 'codex/sessions/2025'), 'junction')
+    const r = await run(m)
+    expect(removedRels(r)).toEqual(['codex/cache/remote_plugin_catalog/.tmpOld', `${PKG}/releases/${OLD}`, 'codex/sessions/2026/09', 'codex/sessions/2026/10/05', 'codex/sessions/2026/10/10/rollout-2026-10-10T00-00-00-d.jsonl'])
+    expect(there(m.root, '.sandbox-bin/codex.exe')).toBe(true)
+    expect(existsSync(join(outside, 'cache/.tmpOutside'))).toBe(true)
+    expect(existsSync(join(outside, 'sessions/2026/01/01/rollout-2026-01-01T00-00-00-z.jsonl'))).toBe(true)
+  })
+
+  it('an item a link appears on the way to after the plan stays (its check says so)', () => {
+    const m = codexMachine()
+    const item = codexPlan({ root: m.root, ev: rules(m.root, []) }).find((i: { rel: string }) => i.rel === `${PKG}/releases/${OLD}`)
+    expect(item.check()).toBe(null)
+    // The releases folder swapped for a junction to a copy of it elsewhere: the same path now leads somewhere else.
+    const elsewhere = temp('hive-clean-codex-swap-')
+    cpSync(join(m.root, PKG, 'releases'), elsewhere, { recursive: true })
+    renameSync(join(m.root, PKG, 'releases'), join(m.root, PKG, 'releases-moved'))
+    symlinkSync(elsewhere, join(m.root, PKG, 'releases'), 'junction')
+    expect(item.check()).toBe('a link is on its way')
+  })
+
+  it('plans the home again under its lease: a release Codex took up, or rollouts refreshed, before the lease stay', async () => {
+    const m = codexMachine()
+    const rollout = join(m.root, 'codex/sessions/2026/10/05/rollout-2026-10-05T00-00-00-c.jsonl')
+    // Between the first look and the lease: Codex updates to the old release, and appends to an old rollout.
+    const acquire = (...a: unknown[]) => {
+      writeFileSync(join(m.root, PKG, 'auto-update-version'), OLD)
+      appendFileSync(rollout, 'more')
+      return acquireCodexHome(...a)
+    }
+    const first = plan({ root: m.root, ev: rules(m.root, []) })
+    expect(first.filter((i: { remove: boolean }) => i.remove).map((i: { rel: string }) => i.rel)).toContain(`${PKG}/releases/${OLD}`)
+    const r = await run(m, { acquire })
+    // 0.160.1, which the marker named before, is the one no longer in use now.
+    expect(removedRels(r)).toEqual(['codex/cache/remote_plugin_catalog/.tmpOld', `${PKG}/releases/0.160.1-x86_64-pc-windows-msvc`, 'codex/sessions/2026/09', 'codex/sessions/2026/10/10/rollout-2026-10-10T00-00-00-d.jsonl'])
+    expect(there(m.root, `packages/app-server-daemon/releases/${OLD}`)).toBe(true)
+    expect(existsSync(rollout)).toBe(true)
+  })
+
+  it('each item is checked again just before it goes: a release now in use, a refreshed rollout or download stays', () => {
+    const m = codexMachine()
+    const items = codexPlan({ root: m.root, ev: rules(m.root, []) })
+    const item = (rel: string) => items.find((i: { rel: string }) => i.rel === rel)
+    for (const i of items) expect(i.check(), i.rel).toBe(null)
+    writeFileSync(join(m.root, PKG, 'auto-update-version'), OLD)
+    expect(item(`${PKG}/releases/${OLD}`).check()).toMatch(/runs it now/)
+    const t = new Date()
+    utimesSync(join(m.root, 'codex/sessions/2026/09/01/rollout-2026-09-01T00-00-00-a.jsonl'), t, t)
+    expect(item('codex/sessions/2026/09').check()).toBe('it changed since the plan')
+    utimesSync(join(m.root, 'codex/cache/remote_plugin_catalog/.tmpOld'), t, t)
+    expect(item('codex/cache/remote_plugin_catalog/.tmpOld').check()).toBe('it changed since the plan')
+  })
+
+  it("keeps every release of a package when which it runs can't be told: a blank, malformed or missing marker or link", () => {
+    const cases: [string, (pkg: string) => void][] = [
+      ['a blank marker, no link', (pkg) => writeFileSync(join(pkg, 'auto-update-version'), '  \n')],
+      ['a malformed marker', (pkg) => writeFileSync(join(pkg, 'auto-update-version'), '..\\..\\.sandbox-bin')],
+      ['a marker naming no release there', (pkg) => writeFileSync(join(pkg, 'auto-update-version'), '9.9.9')],
+      ['a good marker but a link out of releases', (pkg) => {
+        writeFileSync(join(pkg, 'auto-update-version'), '2.0')
+        symlinkSync(join(pkg, '..', '..', '.sandbox-bin'), join(pkg, 'current'), 'junction')
+      }],
+      ['a good link but a blank marker', (pkg) => {
+        writeFileSync(join(pkg, 'auto-update-version'), '')
+        symlinkSync(join(pkg, 'releases', '2.0'), join(pkg, 'current'), 'junction')
+      }]
+    ]
+    for (const [what, make] of cases) {
+      const root = temp('hive-clean-codex-markers-')
+      tree(root, { 'codex/auth.json': 30, 'codex/.sandbox-bin/codex.exe': 30, 'codex/packages/p/releases/1.0/x': 30, 'codex/packages/p/releases/2.0/x': 30 })
+      make(join(root, 'codex/packages/p'))
+      expect(codexPlan({ root, ev: rules(root, []) }), what).toEqual([])
+    }
+    // Both told and agreeing with what is there: the others go.
+    const root = temp('hive-clean-codex-markers-')
+    tree(root, { 'codex/packages/p/releases/1.0/x': 30, 'codex/packages/p/releases/2.0/x': 30, 'codex/packages/p/releases/3.0/x': 30 })
+    writeFileSync(join(root, 'codex/packages/p/auto-update-version'), '3.0')
+    symlinkSync(join(root, 'codex/packages/p/releases/2.0'), join(root, 'codex/packages/p/current'), 'junction')
+    expect(codexPlan({ root, ev: rules(root, []) }).map((i: { rel: string }) => i.rel)).toEqual(['codex/packages/p/releases/1.0'])
+  })
+
+  it("never looks in a user's own ~/.codex", () => {
+    const home = join(process.env.USERPROFILE ?? '', '.codex')
+    expect(codexPlan({ root: join(home, '..'), home, days: 0, ev: rules(temp('hive-clean-codex-user-'), []) })).toEqual([])
   })
 })
 

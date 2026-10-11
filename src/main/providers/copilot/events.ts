@@ -1,8 +1,9 @@
 import { readdir, readFile, stat } from 'original-fs/promises'
-import { join, resolve } from 'path'
+import { join } from 'path'
 import type { DayUsage, SessionUsage, TranscriptItem, TranscriptTool, UsageTokens } from '../../../shared/types'
 import { emptyDay, localDay } from '../../../shared/usageDays'
 import { isSessionId } from '../../../shared/defaults'
+import { placeMatcher } from '../../fsutil'
 import { COPILOT } from '../../../shared/copilot'
 import { formatToolInput } from '../claude/conversation'
 import { firstLine, shortPath, type NewItem } from '../conversation'
@@ -589,7 +590,8 @@ export async function readWorkspace(home: string, sessionId: string): Promise<Co
  * (an events.jsonl with something in it; the CLI makes a folder for every launch, also one that ends before a prompt).
  */
 export async function listCopilotSessions(home: string, folder: string): Promise<ExternalSession[]> {
-  const want = resolve(folder).toLowerCase()
+  // Copilot records the cwd as it was given; Hive may spell the folder another way now (a junction, an 8.3 name, #493).
+  const here = placeMatcher(folder)
   let ids: string[]
   try {
     ids = (await readdir(join(home, 'session-state'), { withFileTypes: true })).filter((e) => e.isDirectory() && isSessionId(e.name)).map((e) => e.name)
@@ -599,7 +601,7 @@ export async function listCopilotSessions(home: string, folder: string): Promise
   const out: ExternalSession[] = []
   for (const id of ids) {
     const ws = await readWorkspace(home, id)
-    if (!ws || resolve(ws.cwd).toLowerCase() !== want) continue
+    if (!ws || !here(ws.cwd)) continue
     const path = copilotEventsPath(home, id)
     const s = await stat(path).catch(() => null)
     if (s && s.size > 0) out.push({ id, transcriptPath: path, modified: s.mtime.toISOString() })
