@@ -65,9 +65,19 @@ const check = (name, ok, extra = '') => {
   const script = (agent, lines) => fs.writeFileSync(path.join(claudeHome, `fake-wakes-${agent}.txt`), lines.join('\n') + '\n')
   /** The fake drops the next n Enters that would send a line from Hive ("[Hive]…"), as Codex did once (#376). */
   const dropEnters = (agent, n) => fs.writeFileSync(path.join(claudeHome, `fake-drop-enters-${agent}.txt`), String(n))
-  const start = async (id) => {
+  /** What an agent is doing, for a failed check: its state, its terminal's last lines and the log's (#539). */
+  const why = async (id) => {
+    const l = await live(id)
+    const state = l ? `${l.status}${l.notWatching ? `, not watching ${JSON.stringify(l.notWatching)}` : ''}` : 'no session'
+    const term = lib.plainText(await inv('pty:buffer', lib.ptyKey(alpha, id)).catch(() => '')).trim().slice(-600)
+    return `${state}; terminal: ${term || '(empty)'}; hive.log: ${hiveLog().split(/\r?\n/).filter(Boolean).slice(-25).join(' | ')}`
+  }
+  /** Starts an agent: whether it is ready for a line, a failed check saying why when it isn't (#539). */
+  const start = async (id, name) => {
     await inv('session:start', alpha, { agentId: id })
-    return until(async () => (await live(id))?.status === 'ready')
+    const ok = !!(await until(async () => (await live(id))?.status === 'ready'))
+    check(`${name} starts`, ok, ok ? '' : await why(id))
+    return ok
   }
   const say = async (id, text) => {
     await inv('pty:write', lib.ptyKey(alpha, id), text)
@@ -82,14 +92,17 @@ const check = (name, ok, extra = '') => {
   await page.getByText('alpha', { exact: true }).first().click()
   const builder = await lib.addAgent(inv, alpha, { name: 'Builder' })
   const reviewer = await lib.addAgent(inv, alpha, { name: 'Reviewer' })
-  await start(reviewer.id)
-  await start(builder.id)
+  // Every check below types to them: an agent that isn't running would fail them all, saying nothing of why (#539).
+  if (!(await start(reviewer.id, 'the reviewer')) || !(await start(builder.id, 'the builder'))) {
+    await app.close()
+    process.exit(1)
+  }
 
   // --- 1. A wake whose first Enter is dropped: Hive presses Enter again and the line is taken; no stall.
   const c1 = (await inv('tasks:create', { title: 'Dropped Enter', project: 'alpha', agent: builder.id, column: 'doing' })).number
   script('Reviewer', [`boardreview ${c1} start then ${wait(c1, { column: 'review', fresh: true })}`])
   await say(reviewer.id, wait(c1, { column: 'review' }))
-  check('the reviewer watches #1', !!(await until(async () => (await live(reviewer.id))?.status === 'watching')))
+  check('the reviewer watches #1', !!(await until(async () => (await live(reviewer.id))?.status === 'watching')), await why(reviewer.id))
   dropEnters('Reviewer', 1)
   await inv('tasks:update', c1, { column: 'review' })
   check('its wake is taken after Enter is pressed again', !!(await until(async () => wakes('Reviewer').length === 1, 20000)), JSON.stringify(wakes('Reviewer')))
@@ -125,13 +138,17 @@ const check = (name, ok, extra = '') => {
   // project's agent's any more. Cancelling the reviewer's watch leaves it idle with no watch, so #1 is flagged first.
   await inv('watch:cancel', alpha, reviewer.id)
   check('a cancelled watch: after the grace the card it left is flagged', !!(await until(async () => ((await stalledOf(c1)) ?? '').startsWith("Reviewer isn't watching #"), 15000)), String(await stalledOf(c1)))
+  // Its watch gone, the reviewer gets Hive's loop wake for #1, in Review since section 2 (#405): taken, the reviewer is
+  // idle again before anything else is typed to it, or the next line lands while it works and is lost (#571).
+  const loopWake = `[Hive] #${c1} (Builder's card) is in Review. You review this card in its loop`
+  check("…and Hive's loop wake for it reaches the reviewer, which is idle again", !!(await until(async () => wakes('Reviewer').some((w) => w.text.startsWith(loopWake)) && ['ready', 'finished'].includes((await live(reviewer.id))?.status), 15000)), `${JSON.stringify(wakes('Reviewer').map((w) => w.text.slice(0, 60)))} ${await why(reviewer.id)}`)
   await inv('tasks:update', c1, { project: 'beta' })
   check('moved to another project: no longer stalled, and the mark leaves the agent', !!(await until(async () => !(await stalledOf(c1)) && !(await live(reviewer.id))?.notWatching, 8000)), JSON.stringify({ stalled: await stalledOf(c1), mark: (await live(reviewer.id))?.notWatching }))
 
   // --- 2c. Moved to another project within the grace: never flagged.
   const c4 = (await inv('tasks:create', { title: 'Moved in the grace', project: 'alpha', agent: builder.id, column: 'review' })).number
   await say(reviewer.id, wait(c4, { changes: ['comment'] }))
-  check('the reviewer watches #4', !!(await until(async () => (await live(reviewer.id))?.status === 'watching')))
+  check('the reviewer watches #4', !!(await until(async () => (await live(reviewer.id))?.status === 'watching')), await why(reviewer.id))
   await inv('watch:cancel', alpha, reviewer.id)
   await inv('tasks:update', c4, { project: 'beta' })
   await lib.sleep(4500) // on purpose: longer than the grace, to see no flag comes
@@ -142,7 +159,7 @@ const check = (name, ok, extra = '') => {
   const c2 = (await inv('tasks:create', { title: 'No watch after', project: 'alpha', agent: builder.id, column: 'review' })).number
   script('Builder', [`boardcomment ${c2}`])
   await say(builder.id, wait(c2, { changes: ['comment'] }))
-  check('the builder watches #2', !!(await until(async () => (await live(builder.id))?.status === 'watching')))
+  check('the builder watches #2', !!(await until(async () => (await live(builder.id))?.status === 'watching')), await why(builder.id))
   await inv('tasks:comment', c2, 'Round 1: failed. 1. Fix the greeting.')
   check('…is woken, comments and ends its turn with no watch', !!(await until(async () => wakes('Builder').length === 1 && ['ready', 'finished'].includes((await live(builder.id))?.status), 15000)))
   check('after the grace its card is stalled: Builder isn\'t watching it', !!(await until(async () => ((await stalledOf(c2)) ?? '').startsWith("Builder isn't watching #"), 15000)), String(await stalledOf(c2)))
