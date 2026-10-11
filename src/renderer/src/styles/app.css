@@ -824,6 +824,63 @@ kbd {
 .rail-tip strong {
   display: block;
 }
+/* A project's agents as a table (#529): wider than a plain tooltip, never scrolling inside; long cells cut to one line.
+   Styled as the Load template dialog's table (.table, #511), tighter. Each column may take at most its share of the room
+   the tooltip has (--agents-room: its width less padding, the dots and the cells' padding), so all four always fit, at
+   any window width and zoom; below that a column is as wide as its longest cell. */
+.tip.agents-tip {
+  --agents-room: calc(min(760px, 100vw - 16px) - 120px);
+  max-width: min(760px, calc(100vw - 16px));
+}
+.rail-tip .agents-table {
+  margin-top: 6px;
+}
+.table.agents-table {
+  width: auto;
+  font-size: 12px;
+}
+.table.agents-table th {
+  padding: 2px 8px 3px;
+  font-size: 10.5px;
+}
+.table.agents-table td {
+  padding: 3px 8px;
+  white-space: nowrap;
+}
+.table.agents-table th:first-child,
+.table.agents-table td:first-child {
+  padding-left: 0;
+}
+.table.agents-table tr:hover td {
+  background: none;
+}
+.table.agents-table tbody tr:last-child td {
+  border-bottom: none;
+}
+.agents-table-name {
+  font-weight: 600;
+  color: var(--fg-strong);
+}
+.agents-table-name .dot {
+  display: inline-block;
+  margin-right: 6px;
+  vertical-align: middle;
+}
+.agents-table tr.off td {
+  color: var(--fg-muted);
+}
+.agents-table-cut > span {
+  display: block;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  max-width: min(220px, calc(var(--agents-room) * 0.24));
+}
+.agents-table-name > span {
+  max-width: min(160px, calc(var(--agents-room) * 0.16));
+}
+.agents-table-card > span {
+  max-width: min(300px, calc(var(--agents-room) * 0.36));
+}
 
 /* ---------- Status dots ---------- */
 .dot {

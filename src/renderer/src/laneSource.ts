@@ -35,18 +35,19 @@ const folderName = (p: string): string => p.split(/[\\/]/).filter(Boolean).pop()
 
 /**
  * This window's lanes, loaded when its workspace changes (events keep them current), in the workspace's projects, in the
- * panel's order (running first, panelOrder).
+ * panel's order (running first, panelOrder). `load: false` only reads what the Progress panel and the sidebar loaded
+ * (a tooltip's table, shown for a moment).
  */
-export function useLanes(): Lane[] {
+export function useLanes(load = true): Lane[] {
   const ws = useStore((s) => s.workspace?.path)
   useEffect(() => {
-    if (!ws) return
+    if (!ws || !load) return
     let current = true
     void call('lanes:list').then((lanes) => current && set({ lanes }))
     return () => {
       current = false
     }
-  }, [ws])
+  }, [ws, load])
   const raw = useStore((s) => s.lanes ?? NO_INFO)
   const projects = useStore((s) => s.workspace?.projects)
   return useMemo(() => {

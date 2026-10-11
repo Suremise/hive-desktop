@@ -196,7 +196,7 @@ A project's tabs (Session, Overview, Performance, Tasks and the rest) shrink to 
 
 The coding agents' own transcripts (in `~/.claude` and `~/.codex`) are never touched. **Settings → Workspace** lists the hidden and removed projects, with **Restore**, which brings each back with its cards (and, for a removed one, its handovers). If a removed project's folder has left the workspace, **Forget** stops listing it.
 
-**Compact project list.** To give the terminals more room while keeping an eye on every project, collapse the Projects sidebar to a narrow rail of status dots: click the **‹** chevron at the top of the list, press **Ctrl+Alt+B**, or drag the sidebar's edge almost all the way left. Each project shows as a tile with its initials and status dot; hover it for the name, status and agents, click to open it, right-click for the usual menu. Click **›** at the top of the rail (or press Ctrl+Alt+B again, or drag the edge out) to get the full list back. Shared Notes, Skills and MCP Servers always open at full width.
+**Compact project list.** To give the terminals more room while keeping an eye on every project, collapse the Projects sidebar to a narrow rail of status dots: click the **‹** chevron at the top of the list, press **Ctrl+Alt+B**, or drag the sidebar's edge almost all the way left. Each project shows as a tile with its initials and status dot; hover it for the name, status and a table of its agents (each one's state, its card and what it waits for, a builder beside its reviewer), click to open it, right-click for the usual menu. Click **›** at the top of the rail (or press Ctrl+Alt+B again, or drag the edge out) to get the full list back. Shared Notes, Skills and MCP Servers always open at full width.
 
 ## Sessions
 

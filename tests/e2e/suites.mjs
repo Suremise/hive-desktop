@@ -13,6 +13,7 @@ export const SUITES = [
   { name: 'about' },
   { name: 'agents' },
   { name: 'agents-ui' },
+  { name: 'agentstable' },
   { name: 'agentview', needs: ['claude'], claudeHome: 'own' },
   { name: 'agentwatch' },
   { name: 'antivirus' },
