@@ -1,6 +1,6 @@
 # Release Notes
 
-## Unreleased
+## 0.6.0 — 11 October 2026
 
 ### MCP servers
 - **Add MCP Server from File.** The MCP view adds a server from a `.json` definition or a `.zip` of a server's folder (its code and a `hive-mcp.json` definition), as the Skills view adds a skill from a file. Hive shows the name and what the server runs (its command and arguments or address, and its environment variables by name) before adding it, asks before replacing a server of the same name, and adds it turned off. Enabling any server now shows what it runs and asks first, and a server's view shows it too. Zips are unpacked safely: nothing in them runs, and paths outside the server's folder, links and oversized archives are refused.
