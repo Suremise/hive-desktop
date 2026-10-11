@@ -371,3 +371,28 @@ describe("the scenarios' simulated wake", () => {
     expect(helpers.LANES_RUNNING_TAIL).toBe(LANES_RUNNING_TAIL)
   })
 })
+
+// A decision put to the user counts without a "?" (#566): Codex once ended a plan with "Please choose the export target".
+describe('mode-*-plans: a decision put to the user', () => {
+  const sc = SCENARIOS.find((x) => x.id === 'mode-coordinator-plans')!
+  const ctx = { ws: 'no-such-workspace' }
+  const outcome = (finalReply: string, descriptions: string[] = []) => ({
+    hiveCalls: descriptions.map((description) => ({ tool: 'hive_create_task', ok: true, args: JSON.stringify({ title: 'Export', description }) })),
+    finalReply
+  })
+  const check = (o: unknown, name: string) => sc.expect(o, ctx).find(([n]) => n.startsWith(name))![1]
+  const CODEX = 'Please choose the export target and contents above. I recommend all unarchived cards with ID, title, column, agent, labels and blockers. No cards or agents have been started.'
+
+  it('a request to choose, with no cards, is asking first and surfaces the decision', () => {
+    expect(check(outcome(CODEX), 'wrote cards for alpha, or asked first')).toBe(true)
+    expect(check(outcome(CODEX), 'surfaced a decision')).toBe(true)
+    expect(check(outcome('Let me know which columns you want in the file.'), 'surfaced a decision')).toBe(true)
+    expect(check(outcome('Done.', ['Export the board. Open: I need your decision on the delimiter before this starts.']), 'surfaced a decision')).toBe(true)
+  })
+
+  it('a question still counts; a reply that puts nothing to the user does not', () => {
+    expect(check(outcome('Which format should the export use?'), 'surfaced a decision')).toBe(true)
+    expect(check(outcome('No cards or agents have been started.'), 'wrote cards for alpha, or asked first')).toBe(false)
+    expect(check(outcome('Planned it. Let me know if you need anything else.'), 'surfaced a decision')).toBe(false)
+  })
+})

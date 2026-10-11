@@ -36,6 +36,17 @@ Codex run.
 
 Every scenario ran once per provider. Models vary from run to run, so a single result is a sample, not a rate.
 
+## A decision put to the user without a "?" counts: fakes, Codex rescored, fixtures v52, 11 October 2026
+
+#566: every **mode-*-plans**' "wrote cards for alpha, or asked first" and "surfaced a decision for the user" looked only
+for a `?`. A request to choose now counts too ("Please choose…", "Let me know which…", "I need your decision on…"); a
+closing "Let me know if you need anything" doesn't. Fixtures v52.
+- **Fakes**: the four mode-*-plans pass as before (`2026-10-11T10-14-53-fake`); both checks are skipped for the fakes,
+  which act nothing out there.
+- **Codex rescored, no new trial**: the one model trial of these on record (`2026-10-10T23-50-39-codex`,
+  mode-coordinator-plans) ended "Please choose the export target and contents above…" with no cards. It failed both
+  checks under v51 and passes them under v52. It was the only saved trial whose result changes.
+
 ## Reports and verdicts lead with a one-line summary: fakes, Codex (its default model), fixtures v46–v47, 11 October 2026
 
 #532: work-on-card has a report to Review start with a one-sentence summary, review-agent-work a verdict with one line
