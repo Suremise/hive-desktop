@@ -8,6 +8,8 @@ const lib = require('./lib.cjs')
 const { _electron } = require('playwright-core')
 const fs = require('fs')
 const path = require('path')
+// The longest a wait here waits for what it waits on: a bound for a hung run, never how long it should take (#570).
+const HUNG_MS = 20000
 
 const userData = path.join(lib.WORK, 'assistantend-profile')
 const ws = path.join(lib.WORK, 'assistantend-ws')
@@ -68,18 +70,18 @@ const check = (name, ok, extra = '') => {
   }
   /** Says one prompt, so the conversation is kept. */
   const converse = async () => {
-    await until(async () => (await live())?.status === 'ready')
+    await until(async () => (await live())?.status === 'ready', HUNG_MS)
     await inv('pty:write', lib.ptyKey(home, 'assistant'), 'hello')
     await lib.sleep(300)
     await inv('pty:write', lib.ptyKey(home, 'assistant'), '\r')
-    return !!(await until(async () => (await live())?.status === 'finished'))
+    return !!(await until(async () => (await live())?.status === 'finished', HUNG_MS))
   }
   const stopFromHeader = async () => {
     await header.getByRole('button', { name: 'Stop', exact: true }).click()
     // It asks first while the conversation is going.
     const ask = page.locator('.dialog', { hasText: 'Stop session?' })
-    if (await until(async () => (await ask.count()) === 1, 1500)) await ask.getByRole('button', { name: 'Stop', exact: true }).click()
-    return !!(await until(async () => !(await live()) && (await ended.count()) === 1))
+    if (await until(async () => (await ask.count()) === 1, HUNG_MS)) await ask.getByRole('button', { name: 'Stop', exact: true }).click()
+    return !!(await until(async () => !(await live()) && (await ended.count()) === 1, HUNG_MS))
   }
 
   // --- No conversation yet: Start, and no Resume.
@@ -100,16 +102,16 @@ const check = (name, ok, extra = '') => {
   await page.screenshot({ path: path.join(lib.WORK, 'assistantend-1-ended-light.png') })
   await inv('settings:update', { appearance: { theme: 'dark' } }).catch(() => undefined)
   await pointAndClick(ended.getByRole('button', { name: 'Resume' }), 'ended bar Resume')
-  check('the ended bar Resume reopens the same conversation', !!(await until(async () => (await live())?.sessionId === first)), (await live())?.sessionId)
+  check('the ended bar Resume reopens the same conversation', !!(await until(async () => (await live())?.sessionId === first, HUNG_MS)), (await live())?.sessionId)
 
   // --- New, with the real pointer: a fresh conversation.
-  await until(async () => (await live())?.status === 'ready')
+  await until(async () => (await live())?.status === 'ready', HUNG_MS)
   check('stopped again', await stopFromHeader())
   await pointAndClick(ended.getByRole('button', { name: 'New' }), 'ended bar New')
   const fresh = await until(async () => {
     const l = await live()
     return l && l.sessionId && l.sessionId !== first && l.sessionId
-  })
+  }, HUNG_MS)
   check('the ended bar New opens a fresh conversation', !!fresh, String(fresh))
   check('which answers', await converse())
 
@@ -117,15 +119,15 @@ const check = (name, ok, extra = '') => {
   check('stopped once more', await stopFromHeader())
   await ended.getByRole('button', { name: 'Resume' }).focus()
   await page.keyboard.press('Enter')
-  check('Enter on the focused Resume resumes it', !!(await until(async () => (await live())?.sessionId === fresh)))
-  await until(async () => (await live())?.status === 'ready')
+  check('Enter on the focused Resume resumes it', !!(await until(async () => (await live())?.sessionId === fresh, HUNG_MS)))
+  await until(async () => (await live())?.status === 'ready', HUNG_MS)
   check('and stops', await stopFromHeader())
   await ended.getByRole('button', { name: 'New' }).focus()
   await page.keyboard.press('Space')
   const third = await until(async () => {
     const l = await live()
     return l && l.sessionId && l.sessionId !== fresh && l.sessionId
-  })
+  }, HUNG_MS)
   check('Space on the focused New starts a fresh one', !!third)
   check('which answers too', await converse())
 
@@ -135,10 +137,10 @@ const check = (name, ok, extra = '') => {
   check('the header shows Resume', !!(await until(async () => (await headerResume.count()) === 1, 5000)))
   check('with the |▷ icon', (await headerResume.locator('.codicon-debug-continue').count()) === 1)
   await pointAndClick(headerResume, 'header Resume')
-  check('the header Resume reopens the same conversation', !!(await until(async () => (await live())?.sessionId === third)))
+  check('the header Resume reopens the same conversation', !!(await until(async () => (await live())?.sessionId === third, HUNG_MS)))
 
   // --- A narrow panel, in the light theme: Resume is still in the header.
-  await until(async () => (await live())?.status === 'ready')
+  await until(async () => (await live())?.status === 'ready', HUNG_MS)
   check('stopped for the narrow panel', await stopFromHeader())
   await inv('settings:update', { appearance: { theme: 'light' } }).catch(() => undefined)
   await page.evaluate(() => window.hive.invoke('ui:setPane', 'assistant', 300))
@@ -147,10 +149,10 @@ const check = (name, ok, extra = '') => {
   check('narrow: Resume is still in the header', !!(await until(async () => (await header.getByRole('button', { name: 'Resume', exact: true }).count()) === 1, 5000)), String((await header.boundingBox())?.width))
   await page.screenshot({ path: path.join(lib.WORK, 'assistantend-2-narrow-light.png') })
   await pointAndClick(header.getByRole('button', { name: 'Resume', exact: true }), 'narrow header Resume')
-  check('and it resumes', !!(await until(async () => (await live())?.sessionId === third)))
+  check('and it resumes', !!(await until(async () => (await live())?.sessionId === third, HUNG_MS)))
 
   // --- Nothing it can resume: an Assistant now on Codex can't go back to a Claude Code conversation.
-  await until(async () => (await live())?.status === 'ready')
+  await until(async () => (await live())?.status === 'ready', HUNG_MS)
   // Wide again, where Stop is a header button.
   await page.evaluate(() => window.hive.invoke('ui:setPane', 'assistant', 430))
   await page.reload()

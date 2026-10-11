@@ -7,6 +7,8 @@ const lib = require('./lib.cjs')
 const { _electron } = require('playwright-core')
 const fs = require('fs')
 const path = require('path')
+// The longest a wait here waits for what it waits on: a bound for a hung run, never how long it should take (#570).
+const HUNG_MS = 10000
 
 const userData = path.join(lib.WORK, 'startfail-profile')
 const ws = path.join(lib.WORK, 'startfail-ws')
@@ -55,7 +57,7 @@ const check = (name, ok, extra = '') => {
 
   // --- It fails at start, on screen.
   await inv('session:start', alpha, { agentId: agent.id })
-  check('the failure shows under the terminal', !!(await until(async () => (await bar.count()) === 1)))
+  check('the failure shows under the terminal', !!(await until(async () => (await bar.count()) === 1, HUNG_MS)))
   const said = await text(bar)
   check("it gives the CLI's error", /Couldn't start: error: option '--model <model>' argument 'fail-start' is invalid\./.test(said), said)
   check('with a hint for the fix', /choose another in Agent Settings/.test(said), said)
@@ -80,7 +82,7 @@ const check = (name, ok, extra = '') => {
   await page.locator('.tab', { hasText: 'Files' }).click()
   await inv('session:start', alpha, { agentId: agent.id })
   const toast = page.locator('.toast', { hasText: "Starter couldn't start" })
-  check('off screen, a toast says so', !!(await until(async () => (await toast.count()) === 1)))
+  check('off screen, a toast says so', !!(await until(async () => (await toast.count()) === 1, HUNG_MS)))
   check('the toast has the hint and Show', /choose another in Agent Settings/.test(await text(toast)) && (await toast.getByRole('button', { name: 'Show' }).count()) === 1)
   await page.screenshot({ path: path.join(lib.WORK, 'startfail-2-toast.png') })
   await toast.getByRole('button', { name: 'Show' }).click()
@@ -91,13 +93,13 @@ const check = (name, ok, extra = '') => {
   await inv('agents:update', alpha, agent.id, { model: '' })
   await bar.getByRole('button', { name: 'Retry' }).click()
   check('Retry starts it again', !!(await until(async () => (await live())?.status === 'ready', 15000)))
-  check('the failure is gone once it starts', !!(await until(async () => (await bar.count()) === 0 && !/Failed to start/.test(await text(header)) && (await tab.locator('.dot.error').count()) === 0)))
+  check('the failure is gone once it starts', !!(await until(async () => (await bar.count()) === 0 && !/Failed to start/.test(await text(header)) && (await tab.locator('.dot.error').count()) === 0, HUNG_MS)))
 
   // --- A stop isn't a failed start.
   await inv('session:stop', alpha, agent.id)
   await until(async () => !(await live()), 8000)
   // The pane says the session ended once the stop reaches it; a failure would show by then, in place of that.
-  check('a stop shows no failure', !!(await until(async () => (await pane.locator('.session-ended:not(.start-failed)').count()) === 1)) && (await bar.count()) === 0)
+  check('a stop shows no failure', !!(await until(async () => (await pane.locator('.session-ended:not(.start-failed)').count()) === 1, HUNG_MS)) && (await bar.count()) === 0)
   await page.screenshot({ path: path.join(lib.WORK, 'startfail-3-stopped.png') })
 
   // --- A bare "--" in extra arguments (#523): Hive passes the task after its own, so Project Settings refuses one, and
@@ -118,7 +120,7 @@ const check = (name, ok, extra = '') => {
   // Started from the window, the refusal shows as a notification.
   await header.getByRole('button', { name: 'New Session' }).click()
   const notice = page.locator('.toast', { hasText: refused })
-  check('the window shows why', !!(await until(async () => (await notice.count()) === 1)), JSON.stringify(await page.locator('.toast').allInnerTexts()))
+  check('the window shows why', !!(await until(async () => (await notice.count()) === 1, HUNG_MS)), JSON.stringify(await page.locator('.toast').allInnerTexts()))
   await page.screenshot({ path: path.join(lib.WORK, 'startfail-4-dashes.png') })
 
   await app.close()

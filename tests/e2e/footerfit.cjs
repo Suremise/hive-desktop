@@ -9,6 +9,8 @@ const lib = require('./lib.cjs')
 const { _electron } = require('playwright-core')
 const fs = require('fs')
 const path = require('path')
+// The longest a wait here waits for what it waits on: a bound for a hung run, never how long it should take (#570).
+const HUNG_MS = 10000
 
 const userData = path.join(lib.WORK, 'footerfit-profile')
 const ws = path.join(lib.WORK, 'footerfit-ws')
@@ -178,7 +180,7 @@ function problems(states, { hasSize, hasCtx, hasCost }) {
   // The window's zoom is in its device pixel ratio once it has applied (the ratio at 100% is the screen's own).
   const ratio = () => page.evaluate(() => window.devicePixelRatio)
   const atFull = await ratio()
-  const zoomed = (zoom) => until(async () => Math.abs((await ratio()) - atFull * zoom) < 0.01)
+  const zoomed = (zoom) => until(async () => Math.abs((await ratio()) - atFull * zoom) < 0.01, HUNG_MS)
 
   for (const zoom of [1, 1.25]) {
     await app.evaluate(({ BrowserWindow }, z) => BrowserWindow.getAllWindows()[0].webContents.setZoomFactor(z), zoom)
@@ -224,7 +226,7 @@ function problems(states, { hasSize, hasCtx, hasCost }) {
   const wants = shots.map(([, pred]) => all.find(pred))
   for (const theme of ['dark', 'light']) {
     await inv('settings:update', { appearance: { theme } })
-    await until(async () => (await page.evaluate(() => document.documentElement.getAttribute('data-theme'))) === theme)
+    await until(async () => (await page.evaluate(() => document.documentElement.getAttribute('data-theme'))) === theme, HUNG_MS)
     for (let i = 0; i < shots.length; i++) {
       const want = wants[i]
       if (!want) continue

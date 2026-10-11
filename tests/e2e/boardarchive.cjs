@@ -8,6 +8,8 @@ const lib = require('./lib.cjs')
 const { _electron } = require('playwright-core')
 const fs = require('fs')
 const path = require('path')
+// The longest a wait here waits for what it waits on: a bound for a hung run, never how long it should take (#570).
+const HUNG_MS = 10000
 
 const userData = path.join(lib.WORK, 'boardarchive-profile')
 const ws = path.join(lib.WORK, 'boardarchive-ws')
@@ -43,12 +45,12 @@ const check = (name, ok, extra = '') => {
   const live = (await inv('tasks:create', { title: 'Still on the board', project: 'alpha' })).number
 
   await page.getByRole('button', { name: 'Task Board' }).click()
-  await until(async () => (await page.locator(`.task-card[data-task="${live}"]`).count()) === 1)
+  await until(async () => (await page.locator(`.task-card[data-task="${live}"]`).count()) === 1, HUNG_MS)
   await page.locator('.board-toolbar label', { hasText: 'Archived (35)' }).click()
   const table = page.locator('.archived-cards')
   const rows = table.locator('tbody tr.clickable')
   const numbers = () => rows.evaluateAll((trs) => trs.map((tr) => Number(tr.querySelector('.task-number')?.textContent?.replace('#', ''))))
-  check('Archived shows the archived cards as a table', !!(await until(async () => (await rows.count()) > 0)))
+  check('Archived shows the archived cards as a table', !!(await until(async () => (await rows.count()) > 0, HUNG_MS)))
   const headers = await table.locator('thead tr').first().locator('th').allInnerTexts()
   check('with its columns: number, title, project, labels, agent, from, archived, created', JSON.stringify(headers.map((h) => h.trim().toUpperCase())) === JSON.stringify(['', '#', 'TITLE', 'PROJECT', 'LABELS', 'AGENT', 'FROM', 'ARCHIVED', 'CREATED', '']), JSON.stringify(headers))
   check('a page of 20, newest archived first', (await rows.count()) === 20 && (await numbers())[0] === made[34].number && (await numbers())[1] === made[33].number, JSON.stringify(await numbers()))
@@ -61,38 +63,38 @@ const check = (name, ok, extra = '') => {
 
   // Sorting by number, both ways.
   await table.getByRole('button', { name: '#', exact: true }).click()
-  check('sorts by number (highest first)', !!(await until(async () => (await numbers())[0] === made[34].number && (await numbers())[1] === made[33].number - 0, 3000)))
+  check('sorts by number (highest first)', !!(await until(async () => (await numbers())[0] === made[34].number && (await numbers())[1] === made[33].number - 0, HUNG_MS)))
   await table.getByRole('button', { name: '#', exact: true }).click()
-  check('…and the other way', !!(await until(async () => (await numbers())[0] === made[0].number, 3000)), JSON.stringify(await numbers()))
+  check('…and the other way', !!(await until(async () => (await numbers())[0] === made[0].number, HUNG_MS)), JSON.stringify(await numbers()))
 
   // Filters: title text, the project, a label, the column it was archived from; the number and agent are text too.
   const filter = (name) => table.getByLabel(`Filter ${name}`)
   await filter('Title').fill('login')
-  check('a text filter on the title', !!(await until(async () => (await numbers()).length === 5 && (await rows.allInnerTexts()).every((t) => /Login/.test(t)), 3000)), JSON.stringify(await numbers()))
+  check('a text filter on the title', !!(await until(async () => (await numbers()).length === 5 && (await rows.allInnerTexts()).every((t) => /Login/.test(t)), HUNG_MS)), JSON.stringify(await numbers()))
   await filter('Title').fill('')
   await filter('Project').selectOption('beta')
-  check('a choice of project', !!(await until(async () => (await numbers()).length === 17, 3000)), JSON.stringify(await numbers()))
+  check('a choice of project', !!(await until(async () => (await numbers()).length === 17, HUNG_MS)), JSON.stringify(await numbers()))
   await filter('Project').selectOption('')
   const labelChoices = await filter('Labels').locator('option').allInnerTexts()
   check('labels offer each label once', JSON.stringify(labelChoices) === JSON.stringify(['All', 'bug', 'docs', 'ui']), JSON.stringify(labelChoices))
   await filter('Labels').selectOption('ui')
-  check('a card shows for any of its labels', !!(await until(async () => (await numbers()).length === 7, 3000)), JSON.stringify(await numbers()))
+  check('a card shows for any of its labels', !!(await until(async () => (await numbers()).length === 7, HUNG_MS)), JSON.stringify(await numbers()))
   await filter('Labels').selectOption('')
   await filter('From').selectOption({ label: 'Passed' })
-  check('a choice of the column it was archived from, by its name', !!(await until(async () => (await numbers()).length === 6 && (await rows.allInnerTexts()).every((t) => t.includes('Passed')), 3000)), JSON.stringify(await numbers()))
+  check('a choice of the column it was archived from, by its name', !!(await until(async () => (await numbers()).length === 6 && (await rows.allInnerTexts()).every((t) => t.includes('Passed')), HUNG_MS)), JSON.stringify(await numbers()))
   await filter('From').selectOption('')
   await filter('#').fill('#1')
-  check('a text filter on the number', !!(await until(async () => (await numbers()).every((n) => String(n).startsWith('1')), 3000)))
+  check('a text filter on the number', !!(await until(async () => (await numbers()).every((n) => String(n).startsWith('1')), HUNG_MS)))
   await filter('#').fill('')
 
   // The board's search narrows the table too.
   await page.locator('.board-search input').fill('number 3')
-  check("the board's search narrows the rows", !!(await until(async () => (await numbers()).length === 7, 3000)), JSON.stringify(await numbers()))
+  check("the board's search narrows the rows", !!(await until(async () => (await numbers()).length === 7, HUNG_MS)), JSON.stringify(await numbers()))
   await page.locator('.board-search input').fill('')
 
   // Rows per page, remembered.
   await table.locator('.table-page-size select').selectOption('50')
-  check('rows per page shows them all', !!(await until(async () => (await rows.count()) === 35, 3000)))
+  check('rows per page shows them all', !!(await until(async () => (await rows.count()) === 35, HUNG_MS)))
 
   // A row opens its card (archived: read-only, with Bring Back). The table is sorted by number, lowest first, now.
   const firstShown = (await numbers())[0]
@@ -110,7 +112,7 @@ const check = (name, ok, extra = '') => {
     return !c.archived && c
   }, 5000)
   check('Unarchive brings a card back to the column it was archived from', !!back && back.column === one.column, JSON.stringify(back && { column: back.column, was: one.column }))
-  check('…and it leaves the table', !!(await until(async () => (await rows.count()) === 34, 3000)))
+  check('…and it leaves the table', !!(await until(async () => (await rows.count()) === 34, HUNG_MS)))
 
   // From the keyboard (#267): Enter and Space on a row open its card; Enter on its Unarchive button unarchives it and
   // doesn't open it.
@@ -127,7 +129,7 @@ const check = (name, ok, extra = '') => {
   await (await keyRow()).getByRole('button', { name: 'Unarchive' }).focus()
   await page.keyboard.press('Enter')
   check('Enter on a row’s Unarchive unarchives the card', !!(await until(async () => !(await inv('tasks:list')).find((x) => x.number === keyCard.number).archived, 5000)))
-  check('…without opening it', (await keyDialog.count()) === 0 && !!(await until(async () => (await rows.count()) === 33, 3000)), String(await rows.count()))
+  check('…without opening it', (await keyDialog.count()) === 0 && !!(await until(async () => (await rows.count()) === 33, HUNG_MS)), String(await rows.count()))
 
   // Select several, Unarchive Selected.
   const picks = [made[1], made[2], made[3]]
@@ -140,7 +142,7 @@ const check = (name, ok, extra = '') => {
     return picks.every((p) => list.find((x) => x.number === p.number && !x.archived && x.column === p.column)) && list
   }, 8000)
   check('Unarchive Selected brings each back to its own column', !!allBack)
-  check('the table and its selection follow', !!(await until(async () => (await rows.count()) === 30, 3000)) && (await page.locator('.task-archive-actions button').innerText()).trim().endsWith('Unarchive Selected'))
+  check('the table and its selection follow', !!(await until(async () => (await rows.count()) === 30, HUNG_MS)) && (await page.locator('.task-archive-actions button').innerText()).trim().endsWith('Unarchive Selected'))
 
   // Select all that match a filter (on every page), then bring them back.
   await table.locator('.table-page-size select').selectOption('10')
@@ -157,7 +159,7 @@ const check = (name, ok, extra = '') => {
   await lib.appReady(page)
   await page.getByRole('button', { name: 'Task Board' }).click().catch(() => undefined)
   await page.locator('.board-toolbar label', { hasText: 'Archived (' }).click()
-  await until(async () => (await rows.count()) > 0)
+  await until(async () => (await rows.count()) > 0, HUNG_MS)
   check('rows per page is kept', (await table.locator('.table-page-size select').inputValue()) === '10' && (await rows.count()) === 10, await table.locator('.table-page-size select').inputValue())
 
   await app.close()

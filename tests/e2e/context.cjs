@@ -6,6 +6,8 @@ const lib = require('./lib.cjs')
 const { _electron } = require('playwright-core')
 const fs = require('fs')
 const path = require('path')
+// The longest a wait here waits for what it waits on: a bound for a hung run, never how long it should take (#570).
+const HUNG_MS = 20000
 
 const userData = path.join(lib.WORK, 'context-profile')
 const ws = path.join(lib.WORK, 'context-ws')
@@ -95,26 +97,26 @@ const shot = (page, name) => page.screenshot({ path: path.join(lib.WORK, `contex
   // A launch with it: the variable set, and "[1m]" dropped (Claude Code rejects it with 1M off).
   await inv('agents:update', proj, small.id, { model: 'opus[1m]' })
   await inv('session:start', proj, { agentId: small.id })
-  await until(async () => ['waiting', 'ready'].includes((await live(small.id))?.status))
+  await until(async () => ['waiting', 'ready'].includes((await live(small.id))?.status), HUNG_MS)
   if ((await live(small.id))?.status === 'waiting') await inv('pty:write', lib.ptyKey(proj, small.id), '\r')
-  await until(async () => (await live(small.id))?.status === 'ready')
+  await until(async () => (await live(small.id))?.status === 'ready', HUNG_MS)
   let last = launches().at(-1)
   check('launch sets CLAUDE_CODE_DISABLE_1M_CONTEXT=1', last?.env?.CLAUDE_CODE_DISABLE_1M_CONTEXT === '1', JSON.stringify(last))
   check('launch runs the model without [1m]', last?.opts?.['--model'] === 'opus', last?.opts?.['--model'])
 
   // Turning it off for the running agent asks for a restart; the next launch has 1M and keeps the model as chosen.
   await inv('agents:update', proj, small.id, { use200kContext: false })
-  const flagged = await until(async () => (await project()).agents.find((a) => a.id === small.id)?.restartNeeded)
+  const flagged = await until(async () => (await project()).agents.find((a) => a.id === small.id)?.restartNeeded, HUNG_MS)
   check('a change marks the running agent for restart', !!flagged)
   await inv('session:stop', proj, small.id)
-  await until(async () => !(await live(small.id)))
+  await until(async () => !(await live(small.id)), HUNG_MS)
   await inv('session:start', proj, { agentId: small.id })
-  await until(async () => (await live(small.id))?.status === 'ready')
+  await until(async () => (await live(small.id))?.status === 'ready', HUNG_MS)
   last = launches().at(-1)
   check('off: no variable', last && last.env.CLAUDE_CODE_DISABLE_1M_CONTEXT === undefined, JSON.stringify(last?.env))
   check('off: the model as chosen', last?.opts?.['--model'] === 'opus[1m]', last?.opts?.['--model'])
   await inv('session:stop', proj, small.id)
-  await until(async () => !(await live(small.id)))
+  await until(async () => !(await live(small.id)), HUNG_MS)
 
   // null clears the agent's choice: it follows the project, whose On wins over the global Off.
   await inv('agents:update', proj, small.id, { use200kContext: null })
@@ -122,10 +124,10 @@ const shot = (page, name) => page.screenshot({ path: path.join(lib.WORK, `contex
   check('null clears the choice', small.use200kContext === undefined, JSON.stringify(small))
   await inv('project:updateProvider', proj, 'claude-code', { use200kContext: 'on' })
   await inv('session:start', proj, { agentId: small.id })
-  await until(async () => (await live(small.id))?.status === 'ready')
+  await until(async () => (await live(small.id))?.status === 'ready', HUNG_MS)
   check("the project's On applies", launches().at(-1)?.env?.CLAUDE_CODE_DISABLE_1M_CONTEXT === '1')
   await inv('session:stop', proj, small.id)
-  await until(async () => !(await live(small.id)))
+  await until(async () => !(await live(small.id)), HUNG_MS)
 
   // Project settings show the project's choice; Agent Settings shows the agent's.
   await page.locator('.tab', { hasText: 'Settings' }).first().click()
@@ -157,9 +159,9 @@ const shot = (page, name) => page.screenshot({ path: path.join(lib.WORK, `contex
   const home = (await inv('workspace:refresh')).assistant.path
   const assistantLive = async () => (await inv('session:live')).find((s) => s.projectPath.toLowerCase() === home.toLowerCase())
   await inv('session:start', home, { agentId: 'assistant' })
-  await until(async () => ['waiting', 'ready'].includes((await assistantLive())?.status))
+  await until(async () => ['waiting', 'ready'].includes((await assistantLive())?.status), HUNG_MS)
   if ((await assistantLive())?.status === 'waiting') await inv('pty:write', lib.ptyKey(home, 'assistant'), '\r')
-  await until(async () => (await assistantLive())?.status === 'ready')
+  await until(async () => (await assistantLive())?.status === 'ready', HUNG_MS)
   last = launches().at(-1)
   check("the Assistant's launch has 200K", last?.cwd?.toLowerCase() === ws.toLowerCase() && last?.env?.CLAUDE_CODE_DISABLE_1M_CONTEXT === '1', JSON.stringify(last && { cwd: last.cwd, env: last.env }))
 

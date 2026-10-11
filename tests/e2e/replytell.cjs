@@ -7,6 +7,8 @@ const lib = require('./lib.cjs')
 const { _electron } = require('playwright-core')
 const fs = require('fs')
 const path = require('path')
+// The longest a wait here waits for what it waits on: a bound for a hung run, never how long it should take (#570).
+const HUNG_MS = 30000
 
 const userData = path.join(lib.WORK, 'replytell-profile')
 const ws = path.join(lib.WORK, 'replytell-ws')
@@ -68,7 +70,7 @@ const check = (name, ok, extra = '') => {
   await inv('tasks:update', card, { column: 'doing', agent: builder.id })
   await inv('session:start', alpha, { agentId: builder.id })
   await inv('session:start', home, { agentId: 'assistant' })
-  check('both start', !!(await until(async () => (await idle(alpha, builder.id)) && (await idle(home, 'assistant')))))
+  check('both start', !!(await until(async () => (await idle(alpha, builder.id)) && (await idle(home, 'assistant')), HUNG_MS)))
   const watchCard = async () => {
     await type(home, 'assistant', `hive hive_wait_for_tasks {"cards":[${card}],"column":"review","wake":true}`)
     return until(async () => (await live(home, 'assistant'))?.status === 'watching', 15000)

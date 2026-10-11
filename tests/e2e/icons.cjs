@@ -8,6 +8,8 @@ const lib = require('./lib.cjs')
 const { _electron } = require('playwright-core')
 const fs = require('fs')
 const path = require('path')
+// The longest a wait here waits for what it waits on: a bound for a hung run, never how long it should take (#570).
+const HUNG_MS = 15000
 
 const ws = path.join(lib.WORK, 'icons-ws')
 const demo = path.join(ws, 'demo')
@@ -89,17 +91,17 @@ async function away(page) {
     preview: async (page) => {
       await page.locator('.tabs .tab', { hasText: 'Files' }).click()
       await page.locator('.file-row[data-rel="README.md"]').click()
-      return until(async () => (await page.locator('.md-preview code[data-colorized]').count()) === 1)
+      return until(async () => (await page.locator('.md-preview code[data-colorized]').count()) === 1, HUNG_MS)
     },
     diff: async (page) => {
       await page.locator('.tabs .tab', { hasText: 'Changes' }).click()
       await page.locator('.split-list .row', { hasText: 'code.ts' }).first().click()
-      return until(async () => (await page.locator('.monaco-diff-editor').count()) > 0)
+      return until(async () => (await page.locator('.monaco-diff-editor').count()) > 0, HUNG_MS)
     },
     editor: async (page) => {
       await page.locator('.tabs .tab', { hasText: 'Files' }).click()
       await page.locator('.file-row[data-rel="code.ts"]').click()
-      return until(async () => (await page.locator('.split-main .monaco-editor').count()) > 0)
+      return until(async () => (await page.locator('.split-main .monaco-editor').count()) > 0, HUNG_MS)
     }
   }
 
@@ -119,7 +121,7 @@ async function away(page) {
       // Monaco's own icons: the find widget's are 16px (its base size).
       await page.locator('.tabs .tab', { hasText: 'Files' }).click()
       await page.locator('.file-row[data-rel="code.ts"]').click()
-      await until(async () => (await page.locator('.split-main .monaco-editor').count()) > 0)
+      await until(async () => (await page.locator('.split-main .monaco-editor').count()) > 0, HUNG_MS)
       await page.locator('.split-main .monaco-editor .view-lines').click()
       await page.keyboard.press('Control+F')
       const findIcon = page.locator('.monaco-editor .find-widget .codicon').first()

@@ -8,6 +8,8 @@ import { join } from 'path'
 import { afterAll, beforeEach, describe, expect, it, vi } from 'vitest'
 import type { GitResult } from '../src/main/git'
 import { tempDir } from './tempDir'
+// The longest a wait here waits for what it waits on: a bound for a hung run, never how long it should take (#570).
+const HUNG_MS = 10000
 
 /** check-ignore results to give instead of running it, in order; empty: run it. */
 const failNext: Partial<GitResult>[] = []
@@ -78,7 +80,7 @@ describe('Files tab: a failed git check-ignore (#222)', () => {
     for (let i = 0; i < files.IGNORE_TRIES; i++) failNext.push(BUSY)
     expect(await dimmed()).toEqual(['dist'])
     expect(checkIgnoreCalls).toBe(1 + files.IGNORE_TRIES)
-    await vi.waitFor(() => expect(r.seen).toEqual([['']]), { timeout: 3000 })
+    await vi.waitFor(() => expect(r.seen).toEqual([['']]), { timeout: HUNG_MS })
     // Failing on every re-list: at most RELIST_MAX of them in a row.
     for (let k = 0; k < files.RELIST_MAX + 2; k++) {
       for (let i = 0; i < files.IGNORE_TRIES; i++) failNext.push(BUSY)
@@ -90,7 +92,7 @@ describe('Files tab: a failed git check-ignore (#222)', () => {
     expect(await dimmed()).toEqual(['dist'])
     for (let i = 0; i < files.IGNORE_TRIES; i++) failNext.push(BUSY)
     await dimmed()
-    await vi.waitFor(() => expect(r.seen.length).toBe(files.RELIST_MAX + 1), { timeout: 3000 })
+    await vi.waitFor(() => expect(r.seen.length).toBe(files.RELIST_MAX + 1), { timeout: HUNG_MS })
     r.off()
   })
 
@@ -100,7 +102,7 @@ describe('Files tab: a failed git check-ignore (#222)', () => {
     expect(await dimmed('src')).toEqual([])
     // Not a busy index: not tried again.
     expect(checkIgnoreCalls).toBe(1)
-    await vi.waitFor(() => expect(r.seen).toEqual([['src']]), { timeout: 3000 })
+    await vi.waitFor(() => expect(r.seen).toEqual([['src']]), { timeout: HUNG_MS })
     r.off()
   })
 

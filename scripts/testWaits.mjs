@@ -1,12 +1,16 @@
 // Tests wait for conditions, never for time (tests/README.md, #524): finds fixed sleeps in the tests that a check follows
-// within a few lines, with no comment saying why the sleep is meant (on its line or the line above).
-//   npm run test:waits             the sleeps this branch adds or changes since main (uncommitted and new files too);
-//                                  exits 1 when there is one
-//   npm run test:waits -- --all    every one in the tests, the backlog #524's audit ranks (lists only, exits 0)
+// within a few lines, with no comment saying why the sleep is meant (on its line or the line above); and waits that
+// state no bound of their own (#570): a `vi.waitFor`, `expect.poll` or `until` left to its default (Vitest's 1 s,
+// until's 10 s), or bounded by a number under 5 s, which is a time budget, not a bound for a hung run.
+//   npm run test:waits             the sleeps this branch adds or changes since main (uncommitted and new files too),
+//                                  and every wait in the tests with no bound; exits 1 when there is one
+//   npm run test:waits -- --all    every such sleep in the tests, the backlog #524's audit ranks, and the waits with no
+//                                  bound (lists only, exits 0)
 //   --base <ref>                   compare with another ref than main
 // It exits 2 when it can't compare (no such ref, git fails): nothing was checked. What it can't see: a single read
 // with no sleep before it, a sleep more than three lines before its check, and a wait under another helper's name.
-// A comment beside or above a sleep counts as its reason; the reviewer judges the reason (tests/README.md).
+// A comment beside or above a sleep, or a short bound, counts as its reason; the reviewer judges the reason
+// (tests/README.md).
 import { execFileSync } from 'node:child_process'
 import { existsSync, readdirSync, readFileSync, statSync } from 'node:fs'
 import { join, relative } from 'node:path'
@@ -106,6 +110,142 @@ export function findWaits(text) {
   return out
 }
 
+/** A bound under this (ms) is a time budget, not a bound for a hung run: it needs a comment saying why it is short. */
+export const MIN_BOUND_MS = 5000
+
+/** Whether a slash after `before` (the code so far) starts a regex literal: after an operator, bracket or keyword. */
+function regexAllowed(before) {
+  const t = before.replace(/\s+$/, '')
+  return !t || /[(,=:[!&|?{};+\-*%<>~^]$/.test(t) || /\b(?:return|typeof|case|do|else|in|of|void|yield|await)$/.test(t)
+}
+
+/**
+ * The text with its comments, strings and regex literals blanked (newlines kept): code only. A template literal's text
+ * is blanked and its `${…}` expressions kept, since they are code (round 1 finding: a wait inside one was missed).
+ */
+export function codeOnly(text) {
+  const n = text.length
+  const out = []
+  const blankTo = (from, to) => {
+    for (let k = from; k < to; k++) out.push(text[k] === '\n' ? '\n' : ' ')
+  }
+  /** Code from i; inside a template's `${`, up to its closing brace (returned, not consumed). */
+  const scan = (i, inExpression) => {
+    let depth = 0
+    while (i < n) {
+      const c = text[i]
+      const d = text[i + 1]
+      if (c === '/' && (d === '/' || d === '*')) {
+        const e = d === '/' ? text.indexOf('\n', i) : text.indexOf('*/', i + 2)
+        const end = e < 0 ? n : d === '/' ? e : e + 2
+        blankTo(i, end)
+        i = end
+      } else if (c === '/' && regexAllowed(out.slice(-40).join(''))) {
+        let j = i + 1
+        for (let cls = false; j < n && text[j] !== '\n'; j++) {
+          if (text[j] === '\\') j++
+          else if (text[j] === '[') cls = true
+          else if (text[j] === ']') cls = false
+          else if (text[j] === '/' && !cls) break
+        }
+        out.push('/')
+        blankTo(i + 1, Math.min(j, n))
+        if (j < n) out.push('/')
+        i = j + 1
+      } else if (c === "'" || c === '"') {
+        let j = i + 1
+        for (; j < n && text[j] !== c && text[j] !== '\n'; j++) if (text[j] === '\\') j++
+        out.push(c)
+        blankTo(i + 1, Math.min(j, n))
+        if (j < n && text[j] === c) {
+          out.push(c)
+          j++
+        }
+        i = j
+      } else if (c === '`') {
+        out.push('`')
+        i++
+        while (i < n && text[i] !== '`') {
+          if (text[i] === '\\') {
+            blankTo(i, Math.min(i + 2, n))
+            i += 2
+          } else if (text[i] === '$' && text[i + 1] === '{') {
+            out.push('$', '{')
+            i = scan(i + 2, true)
+            if (i < n) out.push('}')
+            i++
+          } else {
+            blankTo(i, i + 1)
+            i++
+          }
+        }
+        if (i < n) out.push('`')
+        i++
+      } else if (inExpression && c === '}' && depth === 0) {
+        return i
+      } else {
+        if (c === '{') depth++
+        else if (c === '}') depth--
+        out.push(c)
+        i++
+      }
+    }
+    return i
+  }
+  scan(0, false)
+  return out.join('')
+}
+
+const WAIT_CALL = /(?<![\w.$])(?:lib\.)?until\s*\(|\bvi\.waitFor\s*\(|\bexpect\.poll\s*\(/g
+
+/**
+ * The waits in a file's text that state no bound of their own (#570): `until(fn)` with no ms, `vi.waitFor(fn)` and
+ * `expect.poll(fn)` with no options or options with no timeout, and any of them bounded by a number under
+ * MIN_BOUND_MS: { line (1-based), code, commented }. A bound given by a name (HUNG_MS, a constant) counts as stated.
+ * The arguments are read as code: a timeout only in a comment or a string isn't one. Only a short bound can have a
+ * reason (`commented`: a retry's pace, a quiet period); a wait with no bound never has one, so it is never commented.
+ */
+export function findUnbounded(text) {
+  const src = codeOnly(text)
+  const lines = text.split(/\r?\n/)
+  const out = []
+  for (const m of src.matchAll(WAIT_CALL)) {
+    // A helper's own definition (`function until(fn, ms)`, `until = async (fn, ms = 10000) => {`) isn't a wait.
+    if (/function\s*\*?\s*$/.test(src.slice(Math.max(0, m.index - 20), m.index))) continue
+    const args = []
+    let depth = 0
+    let start = m.index + m[0].length
+    let j = start
+    for (; j < src.length; j++) {
+      const c = src[j]
+      if ('([{'.includes(c)) depth++
+      else if (')]}'.includes(c)) {
+        if (depth === 0) break
+        depth--
+      } else if (c === ',' && depth === 0) {
+        args.push(src.slice(start, j).trim())
+        start = j + 1
+      }
+    }
+    args.push(src.slice(start, j).trim())
+    if (/^\s*(=>|\{|:)/.test(src.slice(j + 1, j + 10))) continue
+    const bound = args.filter(Boolean)[1]
+    const number = (v) => /^[\d_]+$/.test(v)
+    const short = (v) => number(v) && Number(v.replace(/_/g, '')) < MIN_BOUND_MS
+    let given = !!bound
+    let tooShort = false
+    if (bound && !/until\s*\($/.test(m[0]) && bound.startsWith('{')) {
+      const t = /(?:^|[{,\s])timeout\s*:\s*([^,}\s]+)/.exec(bound)
+      given = !!t
+      tooShort = !!t && short(t[1])
+    } else if (bound) tooShort = short(bound)
+    if (given && !tooShort) continue
+    const i = src.slice(0, m.index).split('\n').length - 1
+    out.push({ line: i + 1, code: lines[i].trim(), commented: given && commented(lines, i) })
+  }
+  return out
+}
+
 /** The line numbers each test file has added since `base` (working tree included), and the new untracked files. */
 function changedLines(base) {
   // No GIT_DIR or other GIT_* from the shell: this checkout's own repository.
@@ -140,6 +280,15 @@ if (process.argv[1] && import.meta.filename === process.argv[1]) {
   const all = args.includes('--all')
   const base = args.includes('--base') ? args[args.indexOf('--base') + 1] : 'main'
   let found = 0
+  // Waits with no bound of their own (#570), in every test file: there is no backlog of them to keep.
+  let unbounded = 0
+  for (const f of allFiles(join(ROOT, 'tests'))) {
+    for (const w of findUnbounded(readFileSync(f, 'utf8')).filter((x) => !x.commented)) {
+      unbounded++
+      console.log(`${relative(ROOT, f)}:${w.line}  ${w.code.slice(0, 140)}`)
+    }
+  }
+  if (unbounded) console.log(`\n${unbounded} wait(s) with no bound of their own, or one under ${MIN_BOUND_MS / 1000} s with no comment saying why: give each a named bound for a hung run (HUNG_MS, 10–30 s; tests/README.md).\n`)
   if (all) {
     for (const f of allFiles(join(ROOT, 'tests'))) {
       for (const w of findWaits(readFileSync(f, 'utf8')).filter((x) => !x.commented)) {
@@ -168,5 +317,6 @@ if (process.argv[1] && import.meta.filename === process.argv[1]) {
     }
   }
   console.log(found ? `\n${found} new or changed sleep(s) followed by a check: wait for the condition instead, or say in a comment why the sleep is meant (tests/README.md).` : `No new sleep followed by a check since ${base}.`)
-  process.exit(found ? 1 : 0)
+  if (!unbounded) console.log('Every wait states its bound.')
+  process.exit(found || unbounded ? 1 : 0)
 }

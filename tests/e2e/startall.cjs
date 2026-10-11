@@ -10,6 +10,8 @@ const lib = require('./lib.cjs')
 const { _electron } = require('playwright-core')
 const fs = require('fs')
 const path = require('path')
+// The longest a wait here waits for what it waits on: a bound for a hung run, never how long it should take (#570).
+const HUNG_MS = 20000
 
 const userData = path.join(lib.WORK, 'startall-profile')
 const ws = path.join(lib.WORK, 'startall-ws')
@@ -55,11 +57,11 @@ const check = (name, ok, extra = '') => {
   // Starts an agent (trusting its folder) and has one exchange, so it has a conversation.
   const run = async (id) => {
     await inv('session:start', alpha, { agentId: id })
-    await until(async () => ['waiting', 'ready'].includes((await live(id))?.status))
+    await until(async () => ['waiting', 'ready'].includes((await live(id))?.status), HUNG_MS)
     if ((await live(id))?.status === 'waiting') await inv('pty:write', lib.ptyKey(alpha, id), '\r')
-    await until(async () => (await live(id))?.status === 'ready')
+    await until(async () => (await live(id))?.status === 'ready', HUNG_MS)
     await type(id, 'hello')
-    return until(async () => (await live(id))?.status === 'finished')
+    return until(async () => (await live(id))?.status === 'finished', HUNG_MS)
   }
   const sessions = async () => inv('session:list', alpha)
 
@@ -69,9 +71,9 @@ const check = (name, ok, extra = '') => {
   const s = await lib.addAgent(inv, alpha, { name: 'Stopped' })
   for (const a of [w, i, s]) check(`${a.name} ran once`, !!(await run(a.id)))
   await inv('session:stop', alpha, s.id)
-  check('Stopped stopped', !!(await until(async () => !(await live(s.id)))))
+  check('Stopped stopped', !!(await until(async () => !(await live(s.id)), HUNG_MS)))
   await type(w.id, 'work 120')
-  check('Worker is working', !!(await until(async () => (await live(w.id))?.status === 'working')))
+  check('Worker is working', !!(await until(async () => (await live(w.id))?.status === 'working', HUNG_MS)))
   const before = { w: (await live(w.id)).sessionId, i: (await live(i.id)).sessionId }
   await inv('workspace:refresh')
 
@@ -245,13 +247,13 @@ const check = (name, ok, extra = '') => {
   // --- Archive and Start New (All): each agent's session archived, fresh ones started.
   for (const a of [w, i, s]) {
     if ((await live(a.id))?.status === 'waiting') await inv('pty:write', lib.ptyKey(alpha, a.id), '\r')
-    await until(async () => (await live(a.id))?.status === 'ready')
+    await until(async () => (await live(a.id))?.status === 'ready', HUNG_MS)
     await type(a.id, 'hello')
-    await until(async () => (await live(a.id))?.status === 'finished')
+    await until(async () => (await live(a.id))?.status === 'finished', HUNG_MS)
   }
   const current = Object.fromEntries(await Promise.all([w, i, s].map(async (a) => [a.id, (await live(a.id)).sessionId])))
   await type(w.id, 'work 120')
-  await until(async () => (await live(w.id))?.status === 'working')
+  await until(async () => (await live(w.id))?.status === 'working', HUNG_MS)
   const archiveDialog = page.locator('.dialog', { hasText: 'Archive and start new for all agents?' })
   await header.getByRole('button', { name: 'Archive and Start New (3)' }).click()
   await archiveDialog.waitFor({ timeout: 5000 })
@@ -272,11 +274,11 @@ const check = (name, ok, extra = '') => {
   // --- The counts follow the agents (#275): Idle and Stopped stop (after an exchange, so each has a session to resume).
   for (const a of [i, s]) {
     if ((await live(a.id))?.status === 'waiting') await inv('pty:write', lib.ptyKey(alpha, a.id), '\r')
-    await until(async () => (await live(a.id))?.status === 'ready')
+    await until(async () => (await live(a.id))?.status === 'ready', HUNG_MS)
     await type(a.id, 'hello')
-    await until(async () => (await live(a.id))?.status === 'finished')
+    await until(async () => (await live(a.id))?.status === 'finished', HUNG_MS)
     await inv('session:stop', alpha, a.id)
-    await until(async () => !(await live(a.id)))
+    await until(async () => !(await live(a.id)), HUNG_MS)
   }
   await inv('workspace:refresh')
   check('one running, two to resume: Resume All Agents (2), Stop Agent, Start New (3), Archive and Start New (3)', !!(await until(async () => JSON.stringify(await labels()) === JSON.stringify(['Resume All Agents (2)', 'Stop Agent', 'Start New (3)', 'Archive and Start New (3)', 'Remove All (3)']), 10000)), JSON.stringify(await labels()))

@@ -12,6 +12,8 @@ const { _electron } = require('playwright-core')
 const { spawn } = require('child_process')
 const fs = require('fs')
 const path = require('path')
+// The longest a wait here waits for what it waits on: a bound for a hung run, never how long it should take (#570).
+const HUNG_MS = 10000
 
 const userData = path.join(lib.WORK, 'sessiontree-profile')
 const ws = path.join(lib.WORK, 'sessiontree-ws')
@@ -165,7 +167,7 @@ const rolloutFile = (sid, h) => path.join(codexHome, 'sessions', '2026', '10', '
 
   // --- Folding is remembered for the project.
   await branch('Codex').first().click()
-  await lib.until(async () => !(await names()).includes('Codex work'), 3000)
+  await lib.until(async () => !(await names()).includes('Codex work'), HUNG_MS)
   check('a provider folds', !(await names()).includes('Codex work'))
   await page.locator('.tab', { hasText: 'Files' }).click()
   await page.locator('.tab', { hasText: 'Sessions' }).click()
@@ -185,12 +187,12 @@ const rolloutFile = (sid, h) => path.join(codexHome, 'sessions', '2026', '10', '
   // A branch folded with its session shown stays folded when the list refreshes.
   await row('Old notes').click()
   await branch('Claude').first().click()
-  await lib.until(async () => !(await names()).includes('Old notes'), 3000)
+  await lib.until(async () => !(await names()).includes('Old notes'), HUNG_MS)
   await page.locator('.sessions-list .pane-header [aria-label="Refresh"]').click()
   await lib.sleep(700)
   check('a folded branch stays folded when the list refreshes, though its session is shown', !(await names()).includes('Old notes') && /Old notes/.test(await page.locator('.transcript-toolbar strong').first().innerText().catch(() => '')))
   await branch('Claude').first().click()
-  await lib.until(async () => (await names()).includes('Old notes'), 3000)
+  await lib.until(async () => (await names()).includes('Old notes'), HUNG_MS)
 
   // --- Search filters the tree and opens what matches.
   const search = page.locator('.sessions-list .files-filter input')
@@ -218,16 +220,16 @@ const rolloutFile = (sid, h) => path.join(codexHome, 'sessions', '2026', '10', '
   await page.keyboard.press('ArrowLeft')
   check('← goes to the branch above', (await at_()) === 'Claude', await at_())
   await page.keyboard.press('ArrowLeft')
-  await lib.until(async () => !(await names()).includes(firstSession), 3000)
+  await lib.until(async () => !(await names()).includes(firstSession), HUNG_MS)
   check('← again folds it', !(await names()).includes(firstSession))
   await page.keyboard.press('ArrowRight')
-  await lib.until(async () => (await names()).includes(firstSession), 3000)
+  await lib.until(async () => (await names()).includes(firstSession), HUNG_MS)
   check('→ opens it', (await names()).includes(firstSession))
   await page.keyboard.press('Enter')
-  await lib.until(async () => !(await names()).includes(firstSession), 3000)
+  await lib.until(async () => !(await names()).includes(firstSession), HUNG_MS)
   check('Enter on a branch folds it', !(await names()).includes(firstSession))
   await page.keyboard.press('Enter')
-  await lib.until(async () => (await names()).includes(firstSession), 3000)
+  await lib.until(async () => (await names()).includes(firstSession), HUNG_MS)
 
   // --- Sessions that can't be resumed: a marker, and Resume disabled with the reason.
   await row('Gone session').click()
@@ -294,12 +296,12 @@ const rolloutFile = (sid, h) => path.join(codexHome, 'sessions', '2026', '10', '
   check('a backup is held open by another program', held)
   await branch('Claude').first().click({ button: 'right' })
   const menu = page.locator('.menu').last()
-  await lib.until(async () => (await menu.count()) > 0, 3000)
+  await lib.until(async () => (await menu.count()) > 0, HUNG_MS)
   const delAll = menu.locator('.menu-item', { hasText: /^Delete All… \(4\)/ })
   check('the branch menu offers Delete All with its count', (await delAll.count()) === 1, await menu.innerText().catch(() => ''))
   await delAll.click()
   const dialog = page.locator('.dialog')
-  await lib.until(async () => (await dialog.count()) > 0, 3000)
+  await lib.until(async () => (await dialog.count()) > 0, HUNG_MS)
   check('one confirmation names the count and branch', /Delete 4 sessions under Claude \(Claude Code\)/.test(await dialog.innerText().catch(() => '')), await dialog.innerText().catch(() => ''))
   await page.screenshot({ path: path.join(lib.WORK, 'sessiontree-3-confirm.png') })
   await page.locator('.dialog-footer button', { hasText: /^Delete All$/ }).click()
@@ -321,7 +323,7 @@ const rolloutFile = (sid, h) => path.join(codexHome, 'sessions', '2026', '10', '
   await row('Codex work').click()
   await lib.until(async () => /Codex work/.test(await page.locator('.transcript-toolbar strong').first().innerText().catch(() => '')), 5000)
   await branch('Codex').first().click({ button: 'right' })
-  await lib.until(async () => (await menu.count()) > 0, 3000)
+  await lib.until(async () => (await menu.count()) > 0, HUNG_MS)
   await menu.locator('.menu-item', { hasText: /^Archive All… \(3\)/ }).click()
   await page.locator('.dialog-footer button', { hasText: /^Archive All$/ }).click()
   await lib.until(async () => !(await names()).includes('Codex work'), 8000)

@@ -13,6 +13,8 @@ const { _electron } = require('playwright-core')
 const fs = require('fs')
 const path = require('path')
 const { startFakeCopilotApi, copilotTestEnv, copilotInstalled } = require('./fake-copilot-api.cjs')
+// The longest a wait here waits for what it waits on: a bound for a hung run, never how long it should take (#570).
+const HUNG_MS = 10000
 
 const userData = path.join(lib.WORK, 'copilotsize-profile')
 const ws = path.join(lib.WORK, 'copilotsize-ws')
@@ -140,7 +142,7 @@ const check = (name, ok, extra = '') => {
     const badge = page.locator('.mode-badge', { hasText: 'Accept edits' }).first()
     await badge.hover()
     const tip = page.locator('.tip').last()
-    const tipText = await lib.until(async () => ((await tip.count()) > 0 && (await tip.isVisible()) ? (await tip.innerText()).trim() || null : null), 3000)
+    const tipText = await lib.until(async () => ((await tip.count()) > 0 && (await tip.isVisible()) ? (await tip.innerText()).trim() || null : null), HUNG_MS)
     await page.mouse.move(5, 5)
     check('Accept edits: the mode badge explains Copilot’s “Manual Approval” label', /Manual Approval/.test(tipText ?? ''), tipText ?? 'no tooltip')
 

@@ -15,6 +15,8 @@ const { _electron } = require('playwright-core')
 const { execFileSync } = require('child_process')
 const fs = require('fs')
 const path = require('path')
+// The longest a wait here waits for what it waits on: a bound for a hung run, never how long it should take (#570).
+const HUNG_MS = 10000
 
 const userData = path.join(lib.WORK, 'decisions-profile')
 const ws = path.join(lib.WORK, 'decisions-ws')
@@ -65,7 +67,7 @@ const check = (name, ok, extra = '') => {
   await inv('tasks:comment', n, 'Started looking at the form.')
   await page.getByRole('button', { name: 'Task Board' }).click()
   const tile = page.locator(`.task-card[data-task="${n}"]`)
-  await until(async () => (await tile.count()) === 1)
+  await until(async () => (await tile.count()) === 1, HUNG_MS)
   check('a card without decisions shows no marker', (await tile.locator('.task-decision-count').count()) === 0)
 
   // The user records one in the dialog.
@@ -100,7 +102,7 @@ const check = (name, ok, extra = '') => {
   check('GET /v1/tasks/{n} lists the decisions first, without ids', JSON.stringify(Object.keys(read.body).slice(0, 3)) === JSON.stringify(['number', 'title', 'decisions']) && read.body.decisions.length === 2 && read.body.decisions.every((d) => !('id' in d) && d.decidedBy === 'user') && read.body.decisions[1].recordedBy === 'Agent API', JSON.stringify(Object.keys(read.body).slice(0, 4)))
   check('the tile counts them', !!(await until(async () => (await tile.locator('.task-decision-count').innerText().catch(() => '')).trim() === '2', 5000)))
   await tile.locator('.task-decision-count').hover()
-  check('…with a tooltip that lists them', !!(await until(async () => /Decisions: 2\. Keep the form/.test(await page.locator('.tip').innerText().catch(() => '')), 3000)))
+  check('…with a tooltip that lists them', !!(await until(async () => /Decisions: 2\. Keep the form/.test(await page.locator('.tip').innerText().catch(() => '')), HUNG_MS)))
 
   await tile.click()
   await until(async () => (await dialog.count()) === 1, 5000)

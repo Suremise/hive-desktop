@@ -5,6 +5,8 @@ import { createServer, type IncomingMessage, type Server } from 'http'
 import type { AddressInfo } from 'net'
 import { afterEach, describe, expect, it } from 'vitest'
 import { agentApiCall } from '../src/main/mcp/agentApiCall'
+// The longest a wait here waits for what it waits on: a bound for a hung run, never how long it should take (#570).
+const HUNG_MS = 10000
 
 let server: Server | null = null
 afterEach(async () => {
@@ -50,7 +52,7 @@ describe('agentApiCall (#371)', () => {
   it('a reply later than its deadline fails, saying so, and the request ends (the server sees it go)', async () => {
     const s = await slowServer(3000)
     await expect(agentApiCall(`${s.url}/v1/agents/wait`, 'POST', {}, '{}', 300)).rejects.toThrow("Hive didn't reply within 1 s")
-    await expect.poll(() => s.closed.length, { timeout: 2000 }).toBe(1)
+    await expect.poll(() => s.closed.length, { timeout: HUNG_MS }).toBe(1)
   })
 
   it('an error status comes back as the status and text (api() turns it into its error), and a GET has no body', async () => {

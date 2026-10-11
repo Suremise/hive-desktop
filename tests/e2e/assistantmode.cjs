@@ -10,6 +10,8 @@ const lib = require('./lib.cjs')
 const { _electron } = require('playwright-core')
 const fs = require('fs')
 const path = require('path')
+// The longest a wait here waits for what it waits on: a bound for a hung run, never how long it should take (#570).
+const HUNG_MS = 10000
 
 const userData = path.join(lib.WORK, 'assistantmode-profile')
 const ws = path.join(lib.WORK, 'assistantmode-ws')
@@ -71,7 +73,7 @@ const check = (name, ok, extra = '') => {
   const record = (id) => JSON.parse(fs.readFileSync(path.join(home, '.hive', 'sessions.json'), 'utf8')).sessions.find((s) => s.id === id) ?? {}
   const modeMenu = async () => {
     await panel.locator('.assistant-persona').click()
-    await lib.until(async () => (await page.locator('.menu .menu-item').count()) > 0, 3000)
+    await lib.until(async () => (await page.locator('.menu .menu-item').count()) > 0, HUNG_MS)
   }
   const pick = async (label) => {
     await modeMenu()

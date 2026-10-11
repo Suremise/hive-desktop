@@ -10,6 +10,8 @@ const lib = require('./lib.cjs')
 const { _electron } = require('playwright-core')
 const fs = require('fs')
 const path = require('path')
+// The longest a wait here waits for what it waits on: a bound for a hung run, never how long it should take (#570).
+const HUNG_MS = 10000
 
 const userData = path.join(lib.WORK, 'termsize-profile')
 const ws = path.join(lib.WORK, 'termsize-ws')
@@ -78,6 +80,7 @@ function sizes(home) {
       await inv('pty:write', g.key, `turn ${i}`)
       await lib.sleep(100)
       await inv('pty:write', g.key, '\r')
+      // The turn starting may be over before it is seen (a fast turn): up to 3 s for it, then the wait for its end.
       await lib.until(async () => (await live(g.a.id))?.status !== 'finished', 3000)
       await lib.until(async () => (await live(g.a.id))?.status === 'finished', 10000)
     }
@@ -168,7 +171,7 @@ function sizes(home) {
   const writer = agents[0]
   await page.locator(`.terminal-host[data-pty=${JSON.stringify(writer.key)}]`).hover()
   await page.mouse.wheel(0, -120)
-  await lib.until(async () => !atBottom(await state(writer.key)), 3000)
+  await lib.until(async () => !atBottom(await state(writer.key)), HUNG_MS)
   const reading = await state(writer.key)
   check('reader: Claude Code scrolled up', !atBottom(reading), JSON.stringify(reading))
   await settingsBtn.click()
@@ -179,7 +182,7 @@ function sizes(home) {
   check('reader: still on the same line after Settings', back.viewportY === reading.viewportY && back.baseY === reading.baseY, JSON.stringify({ reading, back }))
   await page.locator(`.terminal-host[data-pty=${JSON.stringify(writer.key)}]`).hover()
   for (let i = 0; i < 10 && !atBottom(await state(writer.key)); i++) await page.mouse.wheel(0, 120)
-  check('reader: scrolled back down to the bottom', !!(await lib.until(async () => atBottom(await state(writer.key)), 3000)), JSON.stringify(await state(writer.key)))
+  check('reader: scrolled back down to the bottom', !!(await lib.until(async () => atBottom(await state(writer.key)), HUNG_MS)), JSON.stringify(await state(writer.key)))
   await roundTrip('Settings after scrolling back down', () => settingsBtn.click(), () => projectsBtn.click())
   await page.screenshot({ path: path.join(lib.WORK, 'termsize-end.png') })
 

@@ -5,6 +5,8 @@ const lib = require('./lib.cjs')
 const { _electron } = require('playwright-core')
 const fs = require('fs')
 const path = require('path')
+// The longest a wait here waits for what it waits on: a bound for a hung run, never how long it should take (#570).
+const HUNG_MS = 10000
 
 const userData = path.join(lib.WORK, 'changes-profile')
 const ws = path.join(lib.WORK, 'changes-ws')
@@ -47,7 +49,7 @@ const check = (name, ok, extra = '') => {
   check('Retry loads the changes', !!(await until(async () => (await row('a.ts').count()) === 1 && (await row('b.ts').count()) === 1, 8000)))
 
   // a.ts is selected and its diff is slow (3 s); b.ts answers at once and must stay shown after a.ts's late answer.
-  check('the first file waits for its diff', !!(await until(async () => /Loading the diff/.test(await page.locator('.split-main').innerText()), 2000)))
+  check('the first file waits for its diff', !!(await until(async () => /Loading the diff/.test(await page.locator('.split-main').innerText()), HUNG_MS)))
   await row('b.ts').click()
   const shown = () => page.locator('.split-main .editor-toolbar strong').innerText().catch(() => '')
   check("the selected file's diff shows", !!(await until(async () => (await shown()) === 'b.ts', 5000)), await shown())

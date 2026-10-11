@@ -5,6 +5,8 @@ const lib = require('./lib.cjs')
 const { _electron } = require('playwright-core')
 const fs = require('fs')
 const path = require('path')
+// The longest a wait here waits for what it waits on: a bound for a hung run, never how long it should take (#570).
+const HUNG_MS = 10000
 
 const userData = path.join(lib.WORK, 'tips-profile')
 const ws = path.join(lib.WORK, 'tips-ws')
@@ -51,17 +53,17 @@ const check = (name, ok, extra = '') => {
   check('it is not a dialog: the window works around it', (await page.locator('[role="dialog"]').count()) === 0)
   await page.screenshot({ path: path.join(lib.WORK, 'tips-1-card.png') })
   await card.getByRole('button', { name: 'Next tip' }).click()
-  check('Next tip shows the next one', !!(await until(async () => (await title()) === 'A long conversation? Hand it over to itself', 3000)), await title())
+  check('Next tip shows the next one', !!(await until(async () => (await title()) === 'A long conversation? Hand it over to itself', HUNG_MS)), await title())
 
   // --- Learn more: the user guide at the tip's heading.
   await card.getByRole('button', { name: 'Learn more' }).click()
   const target = page.locator('.docs-target')
-  check('Learn more opens the user guide at its heading', !!(await until(async () => (await target.count()) === 1 && (await target.innerText()).trim() === 'Long conversations', 3000)))
+  check('Learn more opens the user guide at its heading', !!(await until(async () => (await target.count()) === 1 && (await target.innerText()).trim() === 'Long conversations', HUNG_MS)))
   check('and the card stays beside it', (await card.count()) === 1)
   await page.keyboard.press('Control+Shift+E')
   await card.getByRole('button', { name: 'Close' }).click()
-  check('✕ closes the card', !!(await until(async () => (await card.count()) === 0, 2000)))
-  await until(async () => (saved().seen ?? []).length >= 2, 3000)
+  check('✕ closes the card', !!(await until(async () => (await card.count()) === 0, HUNG_MS)))
+  await until(async () => (saved().seen ?? []).length >= 2, HUNG_MS)
   const s1 = saved()
   check('what was shown is remembered', s1.seen?.includes('compact-focus') && s1.seen.includes('handover-self') && /^\d{4}-\d\d-\d\d$/.test(s1.shownOn ?? ''), JSON.stringify(s1))
 
@@ -85,7 +87,7 @@ const check = (name, ok, extra = '') => {
   await page.locator('.menubar-item', { hasText: 'Help' }).first().click()
   await page.locator('.menu .menu-item', { hasText: 'Tips…' }).click()
   const dialog = page.getByRole('dialog', { name: 'Tips' })
-  check('Help → Tips… lists them by group', !!(await until(async () => (await dialog.count()) === 1, 3000)) && (await dialog.locator('h3').count()) >= 5 && (await dialog.locator('.tips-item').count()) >= 25)
+  check('Help → Tips… lists them by group', !!(await until(async () => (await dialog.count()) === 1, HUNG_MS)) && (await dialog.locator('h3').count()) >= 5 && (await dialog.locator('.tips-item').count()) >= 25)
   // Narrows them: some, not all (a number fixed here would break with each new tip that mentions worktrees).
   const all = await dialog.locator('.tips-item').count()
   await dialog.getByPlaceholder('Search tips').fill('worktree')
@@ -94,16 +96,16 @@ const check = (name, ok, extra = '') => {
   await page.screenshot({ path: path.join(lib.WORK, 'tips-3-dialog.png') })
   await dialog.getByPlaceholder('Search tips').fill('task board')
   await dialog.locator('.tips-item', { hasText: 'Plan work on the task board' }).getByRole('button', { name: 'Try it' }).click()
-  check('Try it runs the command (the board opens) and closes the list', !!(await until(async () => (await dialog.count()) === 0 && (await page.locator('h1', { hasText: 'Task Board' }).count()) === 1, 3000)))
+  check('Try it runs the command (the board opens) and closes the list', !!(await until(async () => (await dialog.count()) === 0 && (await page.locator('h1', { hasText: 'Task Board' }).count()) === 1, HUNG_MS)))
 
   // --- Learn more from the list: the list closes, and the guide at the heading is in front and usable.
   await page.locator('.menubar-item', { hasText: 'Help' }).first().click()
   await page.locator('.menu .menu-item', { hasText: 'Tips…' }).click()
-  await until(async () => (await dialog.count()) === 1, 3000)
+  await until(async () => (await dialog.count()) === 1, HUNG_MS)
   await dialog.getByPlaceholder('Search tips').fill('quit')
   await dialog.locator('.tips-item', { hasText: 'Quit when agents finish' }).getByRole('button', { name: 'Learn more' }).click()
-  check('Learn more closes the list', !!(await until(async () => (await dialog.count()) === 0 && (await page.locator('.overlay').count()) === 0, 3000)))
-  check('and shows the guide at its heading', !!(await until(async () => (await target.count()) === 1 && (await target.innerText()).trim() === 'Quitting' && (await target.isVisible()), 3000)))
+  check('Learn more closes the list', !!(await until(async () => (await dialog.count()) === 0 && (await page.locator('.overlay').count()) === 0, HUNG_MS)))
+  check('and shows the guide at its heading', !!(await until(async () => (await target.count()) === 1 && (await target.innerText()).trim() === 'Quitting' && (await target.isVisible()), HUNG_MS)))
   // Nothing covers it: what's under the heading's middle is the heading.
   const onTop = (await target.count()) === 1 && (await target.evaluate((el) => {
     const r = el.getBoundingClientRect()
@@ -138,8 +140,8 @@ const check = (name, ok, extra = '') => {
   await page.reload()
   check('the next day, a tip again', !!(await until(async () => (await card.count()) === 1, 10000)))
   await card.getByRole('button', { name: "Don't show tips" }).click()
-  check("Don't show tips closes it and says where they are", !!(await until(async () => (await card.count()) === 0 && (await page.locator('.toast', { hasText: 'Tips are off' }).count()) === 1, 3000)))
-  check('and turns the setting off', !!(await until(async () => JSON.parse(fs.readFileSync(cfgFile, 'utf8')).settings.general.showTips === false, 3000)))
+  check("Don't show tips closes it and says where they are", !!(await until(async () => (await card.count()) === 0 && (await page.locator('.toast', { hasText: 'Tips are off' }).count()) === 1, HUNG_MS)))
+  check('and turns the setting off', !!(await until(async () => JSON.parse(fs.readFileSync(cfgFile, 'utf8')).settings.general.showTips === false, HUNG_MS)))
   await inv('ui:changeTips', { shownOn: '2000-01-01' })
   await page.reload()
   await lib.sleep(6000) // A fixed wait on purpose: this checks that no tip shows on start (one would within 4 s of loading), which no condition can show.

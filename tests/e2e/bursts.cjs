@@ -6,6 +6,8 @@ const lib = require('./lib.cjs')
 const { _electron } = require('playwright-core')
 const fs = require('fs')
 const path = require('path')
+// The longest a wait here waits for what it waits on: a bound for a hung run, never how long it should take (#570).
+const HUNG_MS = 10000
 
 const userData = path.join(lib.WORK, 'bursts-profile')
 const ws = path.join(lib.WORK, 'bursts-ws')
@@ -93,7 +95,7 @@ const until = async (fn, ms = 10000) => {
   await send(beta, three, 'go work 1')
   // One asks, then works on until the test releases it: its finish can't join Three's, however slow the machine (#518).
   await send(alpha, one, 'ask holduntil bursts-one-go')
-  const asked = await until(async () => (await notes()).find((n) => /needs your input/.test(n.title)), 2500)
+  const asked = await until(async () => (await notes()).find((n) => /needs your input/.test(n.title)), HUNG_MS)
   check('a question is told at once', !!asked, JSON.stringify(await notes()))
   check('on its own', !!asked && !/finished/.test(asked.title) && /One/.test(asked.title), JSON.stringify(asked))
   await until(async () => (await notes()).some((n) => /finished/.test(n.title)), 8000)

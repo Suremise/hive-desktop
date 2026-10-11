@@ -8,6 +8,8 @@ const lib = require('./lib.cjs')
 const { _electron } = require('playwright-core')
 const fs = require('fs')
 const path = require('path')
+// The longest a wait here waits for what it waits on: a bound for a hung run, never how long it should take (#570).
+const HUNG_MS = 20000
 
 const userData = path.join(lib.WORK, 'skilldelivery-profile')
 const ws = path.join(lib.WORK, 'skilldelivery-ws')
@@ -67,7 +69,7 @@ const BOTH = ['handover', 'pick-up', 'split-work', 'workspace-note']
     const s = await live(p, id)
     if (s?.status === 'waiting') await inv('pty:write', lib.ptyKey(p, id), '\r')
     return ['ready', 'finished'].includes(s?.status)
-  })
+  }, HUNG_MS)
   const copies = (dir) => (fs.existsSync(dir) ? fs.readdirSync(dir).filter((f) => f.startsWith('hive-')).map((f) => f.slice(5)).sort() : [])
   const codexLaunch = (cwd) => fs.readFileSync(path.join(codexHome, 'fake-launches.jsonl'), 'utf8').trim().split('\n').map((l) => JSON.parse(l)).filter((l) => l.cwd.toLowerCase() === cwd.toLowerCase() && !['--version', 'login', 'app-server'].includes(l.args[0])).at(-1)
   const developer = (launch) => {
@@ -106,7 +108,7 @@ const BOTH = ['handover', 'pick-up', 'split-work', 'workspace-note']
   fs.writeFileSync(path.join(ws, '.hive', 'skills', 'work-on-card', 'references', 'board.md'), 'A reference.\n')
   check('a running agent is marked to restart for it', !!(await until(async () => (await inv('workspace:refresh')).projects.find((p) => p.name === 'alpha').agents.find((a) => a.id === codex.id)?.restartNeeded, 10000)))
   await inv('session:stop', proj, codex.id)
-  await until(async () => !(await live(proj, codex.id)))
+  await until(async () => !(await live(proj, codex.id)), HUNG_MS)
   await inv('session:start', proj, { agentId: codex.id })
   await ready(proj, codex.id)
   const copy = path.join(codexDir, 'hive-work-on-card')

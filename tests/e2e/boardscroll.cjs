@@ -7,6 +7,8 @@ const lib = require('./lib.cjs')
 const { _electron } = require('playwright-core')
 const fs = require('fs')
 const path = require('path')
+// The longest a wait here waits for what it waits on: a bound for a hung run, never how long it should take (#570).
+const HUNG_MS = 10000
 
 const userData = path.join(lib.WORK, 'boardscroll-profile')
 const ws = path.join(lib.WORK, 'boardscroll-ws')
@@ -47,7 +49,7 @@ const check = (name, ok, extra = '') => {
   const column = (label) => page.locator('.board-column', { has: page.locator('.board-column-header', { hasText: label }) })
   const body = (label) => column(label).locator('.board-column-body')
   const tile = (n) => page.locator(`.task-card[data-task="${n}"]`)
-  await until(async () => (await tile(todo[29]).count()) === 1)
+  await until(async () => (await tile(todo[29]).count()) === 1, HUNG_MS)
   const scroll = (label) => body(label).evaluate((el) => ({ top: el.scrollTop, max: el.scrollHeight - el.clientHeight }))
   const scrollTo = (label, top) => body(label).evaluate((el, t) => (el.scrollTop = t === 'end' ? el.scrollHeight : t), top)
   check('the columns are taller than the window', (await scroll('Todo')).max > 400 && (await scroll('Doing')).max > 400, JSON.stringify(await scroll('Todo')))
@@ -115,7 +117,7 @@ const check = (name, ok, extra = '') => {
     const s = await scroll('Todo')
     return s.top >= s.max - 1
   }, 8000)))
-  check('the marker is at the end', !!(await until(async () => (await marker('Todo')) === 'end', 2000)), String(await marker('Todo')))
+  check('the marker is at the end', !!(await until(async () => (await marker('Todo')) === 'end', HUNG_MS)), String(await marker('Todo')))
   await release()
   check('dropped at the very bottom', !!(await until(async () => (await saved('todo')).at(-1) === first, 5000)), (await saved('todo')).slice(-3).join(','))
 
@@ -134,11 +136,11 @@ const check = (name, ok, extra = '') => {
     el.scrollTop += r.top + r.height / 4 - y
     return el.scrollTop
   }, [doing[5], held.y])
-  check('scrolled under a still pointer, the marker follows', sixth > 50 && !!(await until(async () => (await marker('Doing')) === doing[5], 2000)), `${sixth}: ${await marker('Doing')}`)
+  check('scrolled under a still pointer, the marker follows', sixth > 50 && !!(await until(async () => (await marker('Doing')) === doing[5], HUNG_MS)), `${sixth}: ${await marker('Doing')}`)
   await holdAt(doingBox.x + doingBox.width / 2, doingBox.y + 6)
   check('over Doing, Doing scrolls to its top', !!(await until(async () => (await scroll('Doing')).top === 0, 8000)))
   check("Todo doesn't scroll meanwhile", (await scroll('Todo')).top === 0)
-  check('the marker is before Doing\'s first card', !!(await until(async () => (await marker('Doing')) === doing[0], 2000)), String(await marker('Doing')))
+  check('the marker is before Doing\'s first card', !!(await until(async () => (await marker('Doing')) === doing[0], HUNG_MS)), String(await marker('Doing')))
   await release()
   // Into Doing from another column asks who works on it (Move to Doing): the card has no agent, so Nobody yet.
   const ask = page.locator('.dialog', { hasText: `Move #${moved} to Doing` })
@@ -168,11 +170,11 @@ const check = (name, ok, extra = '') => {
   const box = await body('Doing').boundingBox()
   await page.mouse.move(box.x + box.width / 2, box.y + box.height / 2)
   await page.mouse.wheel(0, -400)
-  check('the column scrolls normally afterwards', !!(await until(async () => (await scroll('Doing')).top < b1, 3000)))
+  check('the column scrolls normally afterwards', !!(await until(async () => (await scroll('Doing')).top < b1, HUNG_MS)))
 
   // --- A click still opens a card.
   await tile(todo[5]).click()
-  check('a click opens the card', !!(await until(async () => (await page.locator('.dialog').count()) === 1, 3000)))
+  check('a click opens the card', !!(await until(async () => (await page.locator('.dialog').count()) === 1, HUNG_MS)))
   await page.keyboard.press('Escape')
 
   await app.close()

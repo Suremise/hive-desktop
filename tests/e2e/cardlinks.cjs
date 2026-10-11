@@ -7,6 +7,8 @@ const lib = require('./lib.cjs')
 const { _electron } = require('playwright-core')
 const fs = require('fs')
 const path = require('path')
+// The longest a wait here waits for what it waits on: a bound for a hung run, never how long it should take (#570).
+const HUNG_MS = 10000
 
 const userData = path.join(lib.WORK, 'cardlinks-profile')
 const ws = path.join(lib.WORK, 'cardlinks-ws')
@@ -57,7 +59,7 @@ const check = (name, ok, extra = '') => {
   }
   const closeDialog = async () => {
     await page.keyboard.press('Escape')
-    await until(async () => (await dialog.count()) === 0, 3000)
+    await until(async () => (await dialog.count()) === 0, HUNG_MS)
   }
   /** Prints a prompt in a fake session (it echoes it back) and waits for it to finish. */
   const say = async (proj, id, prompt) => {
@@ -78,7 +80,7 @@ const check = (name, ok, extra = '') => {
     await page.mouse.move(at.x - 40, at.y - 40)
     await lib.sleep(150)
     await page.mouse.move(at.x + 4, at.y)
-    await until(async () => (await hostTitle()) !== '', 1500)
+    await until(async () => (await hostTitle()) !== '', HUNG_MS)
     return { at, title: await hostTitle() }
   }
 

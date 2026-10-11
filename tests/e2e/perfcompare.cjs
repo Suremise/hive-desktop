@@ -6,6 +6,8 @@
 const lib = require('./lib.cjs')
 const fs = require('fs')
 const path = require('path')
+// The longest a wait here waits for what it waits on: a bound for a hung run, never how long it should take (#570).
+const HUNG_MS = 10000
 
 const userData = path.join(lib.WORK, 'perfcompare-profile')
 const ws = path.join(lib.WORK, 'perfcompare-ws')
@@ -46,11 +48,11 @@ const check = (name, ok, extra = '') => {
 
   await page.locator('.activitybar button[aria-label="Performance"]').click()
   await page.locator(`${pageSel} .segmented button`, { hasText: 'Compare' }).click()
-  check('Compare starts empty and says how to begin', !!(await until(async () => (await page.locator(`${pageSel} .perf-compare .empty-state`, { hasText: 'Nothing to compare yet' }).count()) === 1)))
+  check('Compare starts empty and says how to begin', !!(await until(async () => (await page.locator(`${pageSel} .perf-compare .empty-state`, { hasText: 'Nothing to compare yet' }).count()) === 1, HUNG_MS)))
 
   await importFile(path.join(FIX, 'baseline.json'))
   await importFile(path.join(FIX, 'smaller-wrong.json'))
-  check('two imports: the newest is the run, the one before it the baseline', !!(await until(async () => (await page.locator(`${pageSel} .perf-scenarios`).count()) === 1)))
+  check('two imports: the newest is the run, the one before it the baseline', !!(await until(async () => (await page.locator(`${pageSel} .perf-scenarios`).count()) === 1, HUNG_MS)))
   check('comparable: the same scenarios, provider and setup', (await page.locator(`${pageSel} .banner.success`, { hasText: 'Comparable' }).count()) === 1)
   // The Hive context column's tip names the Assistant's working mode as the Performance page does (#358).
   await page.locator(`${pageSel} .perf-scenarios th`, { hasText: 'Hive context' }).first().locator('.info-icon').hover()
@@ -61,7 +63,7 @@ const check = (name, ok, extra = '') => {
   check('…and leads the table', (await page.locator(`${pageSel} .perf-scenarios tbody tr`).first().innerText()).includes('card-detail'))
   check('the summary counts it', /1 smaller but failing/.test(await page.locator(`${pageSel} .perf-summary`).innerText()))
   await page.locator(`${pageSel} .perf-scenarios tbody tr`, { hasText: 'card-detail' }).first().click()
-  check('a scenario opens to every measure, with notes', !!(await until(async () => (await page.locator(`${pageSel} .perf-detail-body`, { hasText: 'Tool replies' }).count()) === 1)) && /One sample/.test(await page.locator(`${pageSel} .perf-detail-body`).innerText()))
+  check('a scenario opens to every measure, with notes', !!(await until(async () => (await page.locator(`${pageSel} .perf-detail-body`, { hasText: 'Tool replies' }).count()) === 1, HUNG_MS)) && /One sample/.test(await page.locator(`${pageSel} .perf-detail-body`).innerText()))
   // A scenario row is a button: Space and Enter open and close it, and Space doesn't scroll the page (#250).
   const cardRow = page.locator(`${pageSel} .perf-scenarios tbody tr`, { hasText: 'card-detail' }).first()
   const expanded = async () => cardRow.getAttribute('aria-expanded')
@@ -91,7 +93,7 @@ const check = (name, ok, extra = '') => {
   await importFile(path.join(FIX, 'smaller.json'))
   await page.locator(`${pageSel} select[aria-label="Baseline"]`).selectOption({ label: 'fake, fixtures v5 (baseline)' })
   await page.locator(`${pageSel} select[aria-label="Run"]`).selectOption({ label: 'fake, fixtures v5 (smaller replies)' })
-  check('the intentional reduction: "smaller, still correct"', !!(await until(async () => (await statusOf('card-detail')) === 'Smaller, still correct')), await statusOf('card-detail'))
+  check('the intentional reduction: "smaller, still correct"', !!(await until(async () => (await statusOf('card-detail')) === 'Smaller, still correct', HUNG_MS)), await statusOf('card-detail'))
   await shot('better-dark')
 
   // A pair switched while a slow read is out: the new pair is what shows.
@@ -113,9 +115,9 @@ const check = (name, ok, extra = '') => {
 
   // The workspace's own work is its own scope: the whole workspace's benchmarks aren't shown as its own.
   await page.locator(`${pageSel} select[aria-label="Scope"]`).selectOption({ label: 'Workspace’s own work' })
-  check("the workspace's own work lists none of the whole workspace's", !!(await until(async () => (await page.locator(`${pageSel} .perf-compare .empty-state`).count()) === 1 && (await page.locator(`${pageSel} .perf-scenarios`).count()) === 0)))
+  check("the workspace's own work lists none of the whole workspace's", !!(await until(async () => (await page.locator(`${pageSel} .perf-compare .empty-state`).count()) === 1 && (await page.locator(`${pageSel} .perf-scenarios`).count()) === 0, HUNG_MS)))
   await importFile(path.join(FIX, 'baseline.json'))
-  check('…and refuses a scenario benchmark there, saying why', !!(await until(async () => (await page.locator('.toast', { hasText: 'not the workspace’s own work' }).count()) >= 1)))
+  check('…and refuses a scenario benchmark there, saying why', !!(await until(async () => (await page.locator('.toast', { hasText: 'not the workspace’s own work' }).count()) >= 1, HUNG_MS)))
   const ownExport = (file, requests, chars, hoursAgo) => {
     const to = new Date(Date.now() - hoursAgo * 3_600_000).toISOString()
     const from = new Date(Date.parse(to) - 86_400_000).toISOString()
@@ -126,7 +128,7 @@ const check = (name, ok, extra = '') => {
   await importFile(ownExport(path.join(lib.WORK, 'perfcompare-own-before.json'), 10, 1000, 30))
   await importFile(ownExport(path.join(lib.WORK, 'perfcompare-own-after.json'), 30, 900, 2))
   const measures = page.locator(`${pageSel} .perf-comparison .data-table`)
-  check('two own-work exports compare, measure by measure', !!(await until(async () => (await measures.locator('tbody tr').count()) > 3)))
+  check('two own-work exports compare, measure by measure', !!(await until(async () => (await measures.locator('tbody tr').count()) > 3, HUNG_MS)))
   const changes = async () => (await measures.locator('tbody tr td:last-child').allInnerTexts()).map((t) => { const m = /\(([+-]?[\d.]+)%\)/.exec(t); return m ? Number(m[1]) : null })
   await measures.locator('th button', { hasText: 'Change' }).click()
   const sortedChanges = (await changes()).filter((x) => x !== null)
@@ -138,7 +140,7 @@ const check = (name, ok, extra = '') => {
   await page.locator(`${pageSel} select[aria-label="Scope"]`).selectOption({ label: 'Whole workspace' })
   await page.locator(`${pageSel} select[aria-label="Scope"]`).selectOption({ label: 'Workspace’s own work' })
   const kept = page.locator(`${pageSel} .perf-kept`)
-  await until(async () => /\(11\)/.test(await kept.locator('summary').innerText().catch(() => '')))
+  await until(async () => /\(11\)/.test(await kept.locator('summary').innerText().catch(() => '')), HUNG_MS)
   await kept.locator('summary').click()
   const keptPaging = async () => ((await kept.locator('.table-paging').innerText().catch(() => '')) ?? '').replace(/\s+/g, ' ')
   check('the kept list: eleven, ten a page', /1–10 of 11/.test(await keptPaging()), await keptPaging())
@@ -155,7 +157,7 @@ const check = (name, ok, extra = '') => {
   await kept.locator('th button', { hasText: 'When' }).click()
   await kept.locator('summary').click()
   await page.locator(`${pageSel} select[aria-label="Scope"]`).selectOption({ label: 'Whole workspace' })
-  await until(async () => (await page.locator(`${pageSel} .perf-scenarios`).count()) === 1)
+  await until(async () => (await page.locator(`${pageSel} .perf-scenarios`).count()) === 1, HUNG_MS)
 
   // A Performance export against a scenario benchmark: not comparable, and why.
   await page.locator(`${pageSel} .segmented button`, { hasText: 'Now' }).click()
@@ -165,23 +167,23 @@ const check = (name, ok, extra = '') => {
   await page.locator('.dialog .btn.primary').click()
   await lib.sleep(800)
   await page.locator(`${pageSel} select[aria-label="Run"]`).selectOption({ label: 'Today, whole workspace' })
-  check('an export against a benchmark is not comparable, and says why', !!(await until(async () => /measure different things/.test(await page.locator(`${pageSel} .banner.warn`).innerText().catch(() => '')))))
+  check('an export against a benchmark is not comparable, and says why', !!(await until(async () => /measure different things/.test(await page.locator(`${pageSel} .banner.warn`).innerText().catch(() => '')), HUNG_MS)))
 
   // A project's page: a scenario benchmark is refused; its own kept views compare.
   await page.locator('.activitybar button[aria-label="Projects"]').click()
   await page.locator('.sidebar .row', { hasText: 'alpha' }).first().click()
   await page.locator('.tab', { hasText: 'Performance' }).click()
   await page.locator(`${pageSel} .segmented button`, { hasText: 'Compare' }).click()
-  check("a project's Compare lists none of the workspace's", !!(await until(async () => (await page.locator(`${pageSel} .perf-compare .empty-state`).count()) === 1)))
+  check("a project's Compare lists none of the workspace's", !!(await until(async () => (await page.locator(`${pageSel} .perf-compare .empty-state`).count()) === 1, HUNG_MS)))
   await importFile(path.join(FIX, 'baseline.json'))
-  check('…and refuses a scenario benchmark, saying where it belongs', !!(await until(async () => (await page.locator('.toast, .notification', { hasText: 'not one of your projects' }).count()) >= 1)))
+  check('…and refuses a scenario benchmark, saying where it belongs', !!(await until(async () => (await page.locator('.toast, .notification', { hasText: 'not one of your projects' }).count()) >= 1, HUNG_MS)))
   for (const label of ['Before', 'After']) {
     await page.locator(`${pageSel} button`, { hasText: 'Keep current view' }).click()
     await page.locator('.dialog input.input').first().fill(label)
     await page.locator('.dialog .btn.primary').click()
     await lib.sleep(800)
   }
-  check("…its own kept views compare, per hour recorded", !!(await until(async () => (await page.locator(`${pageSel} .perf-comparison table`).count()) === 1)))
+  check("…its own kept views compare, per hour recorded", !!(await until(async () => (await page.locator(`${pageSel} .perf-comparison table`).count()) === 1, HUNG_MS)))
   const alphaList = await inv('benchmarks:list', { kind: 'project', project: 'alpha' })
   check('…kept for alpha only', alphaList.entries.length === 2 && alphaList.entries.every((e) => e.scope.kind === 'project'), JSON.stringify(alphaList.entries.map((e) => e.scope)))
   await shot('project-dark')
@@ -191,7 +193,7 @@ const check = (name, ok, extra = '') => {
   await page.locator(`${pageSel} select[aria-label="Run"]`).selectOption({ label: 'fake, fixtures v5 (smaller but wrong)' })
   // The scenarios table sorts by a header (#250); its default is worst first.
   const scenarioIds = async () => (await page.locator(`${pageSel} .perf-scenarios tbody tr:not(.table-detail) td:first-child`).allInnerTexts()).map((x) => x.trim())
-  await until(async () => (await scenarioIds()).length > 1)
+  await until(async () => (await scenarioIds()).length > 1, HUNG_MS)
   await page.locator(`${pageSel} .perf-scenarios th button`, { hasText: 'Scenario' }).click()
   const byName = await scenarioIds()
   check('the scenarios sort by name', byName.length > 1 && byName.every((x, i) => !i || byName[i - 1].localeCompare(x) <= 0), byName.join())

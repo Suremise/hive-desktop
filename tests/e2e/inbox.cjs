@@ -7,6 +7,8 @@ const lib = require('./lib.cjs')
 const { _electron } = require('playwright-core')
 const fs = require('fs')
 const path = require('path')
+// The longest a wait here waits for what it waits on: a bound for a hung run, never how long it should take (#570).
+const HUNG_MS = 10000
 
 const userData = path.join(lib.WORK, 'inbox-profile')
 const ws = path.join(lib.WORK, 'inbox-ws')
@@ -136,21 +138,21 @@ const shot = (page, name) => page.screenshot({ path: path.join(lib.WORK, `inbox-
   // The compact sidebar: a count on each project's square.
   await page.keyboard.press('Control+Alt+B')
   const railCounts = () => page.locator('.rail-project .project-need-count').allInnerTexts()
-  check('the compact sidebar shows the counts too', !!(await until(async () => JSON.stringify(await railCounts()) === '["1","1"]')), JSON.stringify(await railCounts()))
+  check('the compact sidebar shows the counts too', !!(await until(async () => JSON.stringify(await railCounts()) === '["1","1"]', HUNG_MS)), JSON.stringify(await railCounts()))
   await shot(page, '0-rail')
   await page.keyboard.press('Control+Alt+B')
-  await until(async () => (await page.locator('.rail-project').count()) === 0)
+  await until(async () => (await page.locator('.rail-project').count()) === 0, HUNG_MS)
 
   await item.click()
-  check('the popover lists them oldest first', !!(await until(async () => JSON.stringify(await rowNames()) === JSON.stringify(['beta · Three', 'alpha · One']))), JSON.stringify(await rowNames()))
+  check('the popover lists them oldest first', !!(await until(async () => JSON.stringify(await rowNames()) === JSON.stringify(['beta · Three', 'alpha · One']), HUNG_MS)), JSON.stringify(await rowNames()))
   check('…saying what each is doing', (await rows.nth(0).locator('.inbox-state').innerText()).startsWith('Needs input') && (await rows.nth(1).locator('.inbox-state').innerText()) === 'Finished')
   check('…and how long ago', (await rows.nth(1).locator('.inbox-time').innerText()) === 'just now')
   await shot(page, '1-popover')
 
   // A click goes to the agent, which is then seen.
   await rows.nth(1).click()
-  check('the popover closes', !!(await until(async () => (await page.locator('.inbox-panel').count()) === 0)))
-  check('alpha is shown', !!(await until(async () => (await page.locator('.project-row.selected', { hasText: 'alpha' }).count()) === 1)))
+  check('the popover closes', !!(await until(async () => (await page.locator('.inbox-panel').count()) === 0, HUNG_MS)))
+  check('alpha is shown', !!(await until(async () => (await page.locator('.project-row.selected', { hasText: 'alpha' }).count()) === 1, HUNG_MS)))
   check('One is seen once shown', !!(await until(async () => (await live(alpha, one.id))?.unseen === false, 5000)))
   check('one left: Three, still waiting', !!(await until(async () => (await itemText()) === '1 needs you', 5000)), await itemText())
 
@@ -181,7 +183,7 @@ const shot = (page, name) => page.screenshot({ path: path.join(lib.WORK, `inbox-
   check('…not counted', (await itemText()) === '1 needs you', await itemText())
   await shot(page, '2-review')
   await review.getByRole('button', { name: 'Changes' }).click()
-  check('Changes opens the Changes tab', !!(await until(async () => (await page.locator('.tab.active', { hasText: 'Changes' }).count()) === 1)))
+  check('Changes opens the Changes tab', !!(await until(async () => (await page.locator('.tab.active', { hasText: 'Changes' }).count()) === 1, HUNG_MS)))
 
   // Answering Three: nothing needs you, and the status bar says what is left to review.
   await lib.acceptClaudeTrust(inv, beta, three.id)

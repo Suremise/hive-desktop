@@ -9,6 +9,8 @@ const lib = require('./lib.cjs')
 const { _electron } = require('playwright-core')
 const fs = require('fs')
 const path = require('path')
+// The longest a wait here waits for what it waits on: a bound for a hung run, never how long it should take (#570).
+const HUNG_MS = 30000
 
 const userData = path.join(lib.WORK, 'loopwatch-profile')
 const ws = path.join(lib.WORK, 'loopwatch-ws')
@@ -75,7 +77,7 @@ const check = (name, ok, extra = '') => {
   /** Starts an agent: whether it is ready for a line, a failed check saying why when it isn't (#539). */
   const start = async (id, name) => {
     await inv('session:start', alpha, { agentId: id })
-    const ok = !!(await until(async () => (await live(id))?.status === 'ready'))
+    const ok = !!(await until(async () => (await live(id))?.status === 'ready', HUNG_MS))
     check(`${name} starts`, ok, ok ? '' : await why(id))
     return ok
   }
@@ -102,7 +104,7 @@ const check = (name, ok, extra = '') => {
   const c1 = (await inv('tasks:create', { title: 'Dropped Enter', project: 'alpha', agent: builder.id, column: 'doing' })).number
   script('Reviewer', [`boardreview ${c1} start then ${wait(c1, { column: 'review', fresh: true })}`])
   await say(reviewer.id, wait(c1, { column: 'review' }))
-  check('the reviewer watches #1', !!(await until(async () => (await live(reviewer.id))?.status === 'watching')), await why(reviewer.id))
+  check('the reviewer watches #1', !!(await until(async () => (await live(reviewer.id))?.status === 'watching', HUNG_MS)), await why(reviewer.id))
   dropEnters('Reviewer', 1)
   await inv('tasks:update', c1, { column: 'review' })
   check('its wake is taken after Enter is pressed again', !!(await until(async () => wakes('Reviewer').length === 1, 20000)), JSON.stringify(wakes('Reviewer')))
@@ -148,7 +150,7 @@ const check = (name, ok, extra = '') => {
   // --- 2c. Moved to another project within the grace: never flagged.
   const c4 = (await inv('tasks:create', { title: 'Moved in the grace', project: 'alpha', agent: builder.id, column: 'review' })).number
   await say(reviewer.id, wait(c4, { changes: ['comment'] }))
-  check('the reviewer watches #4', !!(await until(async () => (await live(reviewer.id))?.status === 'watching')), await why(reviewer.id))
+  check('the reviewer watches #4', !!(await until(async () => (await live(reviewer.id))?.status === 'watching', HUNG_MS)), await why(reviewer.id))
   await inv('watch:cancel', alpha, reviewer.id)
   await inv('tasks:update', c4, { project: 'beta' })
   await lib.sleep(4500) // on purpose: longer than the grace, to see no flag comes
@@ -159,7 +161,7 @@ const check = (name, ok, extra = '') => {
   const c2 = (await inv('tasks:create', { title: 'No watch after', project: 'alpha', agent: builder.id, column: 'review' })).number
   script('Builder', [`boardcomment ${c2}`])
   await say(builder.id, wait(c2, { changes: ['comment'] }))
-  check('the builder watches #2', !!(await until(async () => (await live(builder.id))?.status === 'watching')), await why(builder.id))
+  check('the builder watches #2', !!(await until(async () => (await live(builder.id))?.status === 'watching', HUNG_MS)), await why(builder.id))
   await inv('tasks:comment', c2, 'Round 1: failed. 1. Fix the greeting.')
   check('…is woken, comments and ends its turn with no watch', !!(await until(async () => wakes('Builder').length === 1 && ['ready', 'finished'].includes((await live(builder.id))?.status), 15000)))
   check('after the grace its card is stalled: Builder isn\'t watching it', !!(await until(async () => ((await stalledOf(c2)) ?? '').startsWith("Builder isn't watching #"), 15000)), String(await stalledOf(c2)))

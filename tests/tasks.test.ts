@@ -801,7 +801,7 @@ describe('card decisions', () => {
       }
       await decisionWakes.tellNow(w, alpha, 'a1')
       expect(mine('a1')).toEqual([])
-      await expect.poll(() => mine('a1').length, { timeout: 3000 }).toBe(1)
+      await expect.poll(() => mine('a1').length, { timeout: HUNG_MS }).toBe(1)
 
       // Given to another agent as the line is typed: the old one isn't told (now or on a retry), nor counted as told; the
       // new one is. Given back, the first hears of it after all.
@@ -832,7 +832,7 @@ describe('card decisions', () => {
       await expect.poll(() => refusedTyping, { timeout: 10000 }).toBeGreaterThan(60)
       expect(mine('a1')).toHaveLength(2)
       typing = false
-      await expect.poll(() => mine('a1').length, { timeout: 3000 }).toBe(3)
+      await expect.poll(() => mine('a1').length, { timeout: HUNG_MS }).toBe(3)
       await expect.poll(() => decisionWakes.settledFor(alpha, 'a1'), { timeout: HUNG_MS }).toBe(true)
       expect(mine('a1')).toHaveLength(3)
       decisionWakes.testHooks.settleMs = 30
@@ -1312,6 +1312,9 @@ describe('removal and board under faults', () => {
     handover(wsPath, '2026-10-01-foo-bar-theirs.md', 'foo-bar')
     handover(wsPath, '2026-10-01-foo-bar-mine.md', 'foo_bar')
     await w.refresh()
+    // The ids as they are now: a read in the second after the last one sees the projects as they were then (the
+    // workspace's cache), which may be before these two were made (#570: handovers [] under load).
+    await w.projectIds({ fresh: true })
     const info = await run(() => removal.removalInfo(join(wsPath, 'foo_bar')))
     expect(info.handovers).toEqual(['handovers/2026-10-01-foo-bar-mine.md'])
     const theirs = await run(() => removal.removalInfo(join(wsPath, 'foo-bar')))
@@ -1323,6 +1326,7 @@ describe('removal and board under faults', () => {
     const p = project(wsPath, 'baz_qux')
     handover(wsPath, '2026-10-01-baz-qux-old-plan.md', 'baz-qux')
     await w.refresh()
+    await w.projectIds({ fresh: true })
     expect((await run(() => removal.removalInfo(p))).handovers).toEqual([])
     await run(() => removal.removeProject(p, 'delete'))
     expect(existsSync(join(wsPath, '.hive', 'shared', 'handovers', '2026-10-01-baz-qux-old-plan.md'))).toBe(true)

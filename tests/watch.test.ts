@@ -326,6 +326,15 @@ describe('watches (main/watches.ts)', async () => {
   const watches = await import('../src/main/watches')
   // Typed at once here; the settle (changes landing together told together, #224) has tests of its own.
   watches.testHooks.settleMs = 0
+  /**
+   * Checks the watches and waits until what that started has finished (#570): a comment's board change can start a
+   * delivery in the background, which evaluateWatches doesn't wait for (it skips a watch already delivering). So a check
+   * after it reads the outcome, not a moment.
+   */
+  const evaluated = async (w: Parameters<typeof watches.evaluateWatches>[0]): Promise<void> => {
+    await watches.evaluateWatches(w)
+    await watches.settled()
+  }
   const { sessions } = await import('../src/main/sessions')
   const user = { kind: 'user' } as const
   let n = 0
@@ -387,11 +396,11 @@ describe('watches (main/watches.ts)', async () => {
       const c = await inWorkspace(w, () => tasks.createTask({ title: 'Dropped Enter', project: 'alpha' }, user))
       await watches.registerWatch(w, alpha, 'a1', { cards: [c.number], changes: ['comment'] })
       await inWorkspace(w, () => tasks.commentTask(c.number, 'news', user))
-      await watches.evaluateWatches(w)
+      await evaluated(w)
       // Typed by this evaluation, or by one the comment started meanwhile (which this one then leaves to it).
       await vi.waitFor(() => expect(st.typed).toHaveLength(1), { timeout: HUNG_MS })
       // Not taken: Enter once more after the wait, and it is taken then.
-      await vi.waitFor(() => expect(cli.enters).toBe(1), { timeout: 2000 })
+      await vi.waitFor(() => expect(cli.enters).toBe(1), { timeout: HUNG_MS })
       // Taken then: no Enter after its check has ended.
       await vi.waitFor(() => expect(watches.confirmsInFlight()).toBe(0), { timeout: HUNG_MS })
       expect(cli.enters).toBe(1)
@@ -400,8 +409,8 @@ describe('watches (main/watches.ts)', async () => {
       st.status = 'watching'
       await watches.registerWatch(w, alpha, 'a1', { cards: [c.number], changes: ['comment'] })
       await inWorkspace(w, () => tasks.commentTask(c.number, 'more news', user))
-      await watches.evaluateWatches(w)
-      await vi.waitFor(() => expect(cli.enters).toBe(2), { timeout: 2000 })
+      await evaluated(w)
+      await vi.waitFor(() => expect(cli.enters).toBe(2), { timeout: HUNG_MS })
       await vi.waitFor(() => expect(watches.confirmsInFlight()).toBe(0), { timeout: HUNG_MS })
       expect(cli.enters).toBe(2)
       // Still not taken: marked once, with the line (#430); the next wake waits while it is, then goes in.
@@ -411,7 +420,7 @@ describe('watches (main/watches.ts)', async () => {
       st.status = 'watching'
       await watches.registerWatch(w, alpha, 'a1', { cards: [c.number], changes: ['comment'] })
       await inWorkspace(w, () => tasks.commentTask(c.number, 'while marked', user))
-      await watches.evaluateWatches(w)
+      await evaluated(w)
       await watches.tick()
       expect(st.typed).toHaveLength(2)
       cli.takeOnType = true
@@ -422,7 +431,7 @@ describe('watches (main/watches.ts)', async () => {
       st.status = 'watching'
       await watches.registerWatch(w, alpha, 'a1', { cards: [c.number], changes: ['comment'] })
       await inWorkspace(w, () => tasks.commentTask(c.number, 'last news', user))
-      await watches.evaluateWatches(w)
+      await evaluated(w)
       await vi.waitFor(() => expect(st.typed).toHaveLength(4), { timeout: HUNG_MS })
       expect(marks).toHaveLength(1)
       await vi.waitFor(() => expect(watches.confirmsInFlight()).toBe(0), { timeout: HUNG_MS })
@@ -437,6 +446,67 @@ describe('watches (main/watches.ts)', async () => {
     await disposeWorkspaceService(w)
   })
 
+  it('settled() waits for a wake typed again while it is being typed (#570 round 1): a cleared line\'s retype, its agent ready', async () => {
+    const { w, alpha } = await open()
+    const st = fake(alpha)
+    const prior = { ...sessions } as Record<string, unknown>
+    let release = (): void => undefined
+    const held = new Promise<void>((r) => (release = r))
+    let calls = 0
+    let count = 0
+    let holds = 0
+    let allowed = true
+    // The agent ready throughout; the second send (the retype) is held until released.
+    Object.assign(sessions, {
+      liveFor: () => ({ projectPath: alpha, agentId: 'a1', status: 'ready', runId: 'r1' }) as never,
+      promptsTaken: () => ({ runId: 'r1', count }),
+      holdForConfirm: () => {
+        holds++
+        return () => undefined
+      },
+      lineWaiting: () => false,
+      userTypedOverLine: () => false,
+      clearTyped: () => true,
+      sendPrompt: async (_p: string, _id: string, text: string, guard?: () => void) => {
+        guard?.()
+        st.typed.push(text)
+        if (++calls === 2) {
+          await held
+          count++
+        }
+      }
+    })
+    watches.testHooks.takeMs = 10
+    try {
+      // A line with a message riding it, whose sender may no longer send it once it is typed: cleared, and the wake it
+      // rode typed again at once (the agent is ready).
+      expect(await watches.typeLine(alpha, 'a1', 'wake with a message', () => true, { ride: { still: () => allowed, withdrawn: () => undefined, instead: 'wake alone' } })).toBe(true)
+      allowed = false
+      let done = false
+      const settling = watches.settled().then(() => (done = true))
+      await vi.waitFor(() => expect(calls).toBe(2), { timeout: HUNG_MS })
+      // The retype is being typed (its send held): in flight, so settled() can't have resolved.
+      expect(watches.inFlightNow()).toBe(true)
+      expect(done).toBe(false)
+      release()
+      await settling
+      // Resolved only once the retype was typed and its confirmation (taken at once) had ended.
+      expect(st.typed).toEqual(['wake with a message', 'wake alone'])
+      expect(count).toBe(1)
+      expect(holds).toBe(2)
+      expect(watches.confirmsInFlight()).toBe(0)
+    } finally {
+      release()
+      await watches.settled()
+      watches.testHooks.takeMs = undefined
+      for (const key of ['liveFor', 'promptsTaken', 'holdForConfirm', 'lineWaiting', 'userTypedOverLine', 'clearTyped', 'sendPrompt']) {
+        if (Object.hasOwn(prior, key)) (sessions as unknown as Record<string, unknown>)[key] = prior[key]
+        else delete (sessions as unknown as Record<string, unknown>)[key]
+      }
+      await disposeWorkspaceService(w)
+    }
+  })
+
   it('fires once when a watched card changes, waking an idle agent; a column already reached answers at once', async () => {
     const { w, alpha } = await open()
     const st = fake(alpha)
@@ -446,16 +516,16 @@ describe('watches (main/watches.ts)', async () => {
     expect(watches.watchFor(alpha, 'a1')?.cards).toEqual([c.number])
     // Something that doesn't count: nothing.
     await inWorkspace(w, () => tasks.updateTask(c.number, { column: 'doing' }, user))
-    await watches.evaluateWatches(w)
+    await evaluated(w)
     expect(st.typed).toEqual([])
     await inWorkspace(w, () => tasks.commentTask(c.number, 'Round 1: FAILED\nDetails', { kind: 'agent', name: 'Codex (hive)' }))
-    await watches.evaluateWatches(w)
+    await evaluated(w)
     expect(st.typed).toHaveLength(1)
     expect(st.typed[0]).toMatch(new RegExp(`^\\[Hive\\] #${c.number} is in Doing; latest comment by Codex \\(hive\\): "Round 1: FAILED"`))
     expect(watches.watchFor(alpha, 'a1')).toBeNull()
     // Once: another change wakes nothing.
     await inWorkspace(w, () => tasks.commentTask(c.number, 'again', user))
-    await watches.evaluateWatches(w)
+    await evaluated(w)
     expect(st.typed).toHaveLength(1)
     // Already in the column asked for: answered at once, no watch.
     const r2 = await watches.registerWatch(w, alpha, 'a1', { cards: [c.number], changes: ['column'], column: 'doing' })
@@ -486,7 +556,7 @@ describe('watches (main/watches.ts)', async () => {
     // Before, the move was saved and announced, then the comment: the first announcement showed Done with the builder's comment.
     expect(seen).toEqual([{ column: 'done', latest: 'Passed review, round 1.' }])
     expect(said).toEqual(['Review passed', 'Moved to Done'])
-    await watches.evaluateWatches(w)
+    await evaluated(w)
     expect(st.typed).toHaveLength(1)
     // The builder's own card: no owner, but the reviewer's verdict.
     expect(st.typed[0]).toContain(`#${c.number} is in Done: Reviewer (alpha) passed it; latest comment by Reviewer (alpha): "Passed review, round 1."`)
@@ -504,7 +574,7 @@ describe('watches (main/watches.ts)', async () => {
     await watches.registerWatch(w, alpha, 'a1', { cards: [c.number], changes: ['comment'] })
     st.status = 'working'
     await inWorkspace(w, () => tasks.commentTask(c.number, 'x', user))
-    await watches.evaluateWatches(w)
+    await evaluated(w)
     expect(st.typed).toEqual([])
     expect(watches.watchFor(alpha, 'a1')).not.toBeNull()
     st.status = 'watching'
@@ -551,7 +621,7 @@ describe('watches (main/watches.ts)', async () => {
     await new Promise((res) => setTimeout(res, 5))
     await inWorkspace(w, () => tasks.updateTask(c.number, { column: 'doing' }, user))
     await inWorkspace(w, () => tasks.updateTask(c.number, { column: 'review' }, user))
-    await watches.evaluateWatches(w)
+    await evaluated(w)
     expect(st.typed).toHaveLength(1)
     expect(st.typed[0]).toMatch(/is in Review/)
     await disposeWorkspaceService(w)
@@ -585,10 +655,10 @@ describe('watches (main/watches.ts)', async () => {
     // A card in Review alone waits for its verdict or move.
     const waiting = await watches.registerWatch(w, alpha, 'a1', { cards: [inReview.number], ...verdictOrPassed })
     expect('watching' in waiting).toBe(true)
-    await watches.evaluateWatches(w)
+    await evaluated(w)
     expect(st.typed).toEqual([])
     await inWorkspace(w, () => tasks.updateTask(inReview.number, { column: 'passed' }, user))
-    await watches.evaluateWatches(w)
+    await evaluated(w)
     expect(st.typed).toHaveLength(1)
     expect(st.typed[0]).toMatch(/is in Passed/)
     await disposeWorkspaceService(w)
@@ -608,17 +678,17 @@ describe('watches (main/watches.ts)', async () => {
     const back = { cards: [c.number], changes: ['column' as const], column: 'review' as const, moveInto: true as const, fresh: true as const }
     expect('watching' in (await watches.registerWatch(w, alpha, 'a1', back))).toBe(true)
     await inWorkspace(w, () => tasks.updateTask(c.number, { review: 'failed' }, rev, { comment: 'Round 1: FAILED' }))
-    await watches.evaluateWatches(w)
+    await evaluated(w)
     expect(st.typed).toEqual([])
     expect('watching' in (await watches.registerWatch(w, alpha, 'a1', back))).toBe(true)
     await new Promise((res) => setTimeout(res, 5))
     // A move in place by anyone else, or a comment: no wake.
     await inWorkspace(w, () => tasks.updateTask(c.number, { column: 'review' }, { kind: 'assistant' }))
     await inWorkspace(w, () => tasks.commentTask(c.number, 'Working on it', builder))
-    await watches.evaluateWatches(w)
+    await evaluated(w)
     expect(st.typed).toEqual([])
     await inWorkspace(w, () => tasks.updateTask(c.number, { column: 'review' }, builder, { comment: 'Fixed both findings' }))
-    await watches.evaluateWatches(w)
+    await evaluated(w)
     expect(st.typed).toHaveLength(1)
     expect(st.typed[0]).toMatch(new RegExp(`^\\[Hive\\] #${c.number} \\(Reviewer's card\\) was returned for review \\(round 2\\); latest comment by Reviewer \\(alpha\\): "Fixed both findings"\\. Your card watch has ended`))
     await disposeWorkspaceService(w)
@@ -672,7 +742,7 @@ describe('watches (main/watches.ts)', async () => {
       const [a, b] = await twoInReview(w)
       await watches.registerWatch(w, alpha, 'a1', { cards: [a, b], ...verdictOrDone })
       await verdict(w, a, 'passed')
-      await watches.evaluateWatches(w)
+      await evaluated(w)
       expect(st.typed).toHaveLength(1)
       expect(st.typed[0]).toContain(`#${a} is in Review: Reviewer (alpha) passed it`)
       // #b fails a moment after the wake, before the builder watches again (what deadlocked #119/#217).
@@ -681,18 +751,18 @@ describe('watches (main/watches.ts)', async () => {
       st.status = 'watching'
       const r = await watches.registerWatch(w, alpha, 'a1', { cards: [b], ...verdictOrDone })
       expect('watching' in r).toBe(true)
-      await vi.waitFor(() => expect(st.typed).toHaveLength(2), { timeout: 3000 })
+      await vi.waitFor(() => expect(st.typed).toHaveLength(2), { timeout: HUNG_MS })
       expect(st.typed[1]).toMatch(new RegExp(`^\\[Hive\\] #${b} is in Review: Reviewer \\(alpha\\) failed it`))
       // After that wake, the builder's own work (a comment, a move to Doing and back) isn't news to its next watch…
       st.status = 'watching'
       await inWorkspace(w, () => tasks.updateTask(b, { column: 'doing' }, builder, { comment: 'Fixing' }))
       await inWorkspace(w, () => tasks.updateTask(b, { column: 'review' }, builder, { comment: 'Fixed' }))
       await watches.registerWatch(w, alpha, 'a1', { cards: [b], changes: ['comment', 'column', 'verdict', 'agent'] })
-      await watches.evaluateWatches(w)
+      await evaluated(w)
       expect(st.typed).toHaveLength(2)
       // …the reviewer's is.
       await inWorkspace(w, () => tasks.commentTask(b, 'Looking at it', rev))
-      await watches.evaluateWatches(w)
+      await evaluated(w)
       expect(st.typed).toHaveLength(3)
       expect(st.typed[2]).toContain('latest comment by Reviewer (alpha): "Looking at it"')
       await disposeWorkspaceService(w)
@@ -707,12 +777,12 @@ describe('watches (main/watches.ts)', async () => {
       vi.useFakeTimers({ toFake: ['Date'], now: Date.now() + 60_000 })
       try {
         await verdict(w, a, 'passed')
-        await watches.evaluateWatches(w)
+        await evaluated(w)
         expect(st.typed).toHaveLength(1)
         await verdict(w, b, 'failed')
         st.status = 'watching'
         await watches.registerWatch(w, alpha, 'a1', { cards: [b], ...verdictOrDone })
-        await vi.waitFor(() => expect(st.typed).toHaveLength(2), { timeout: 3000 })
+        await vi.waitFor(() => expect(st.typed).toHaveLength(2), { timeout: HUNG_MS })
         expect(st.typed[1]).toContain(`#${b} is in Review: Reviewer (alpha) failed it`)
       } finally {
         vi.useRealTimers()
@@ -729,7 +799,7 @@ describe('watches (main/watches.ts)', async () => {
       try {
         await verdict(w, a, 'passed')
         await verdict(w, b, 'failed')
-        await watches.evaluateWatches(w)
+        await evaluated(w)
         expect(st.typed).toHaveLength(1)
         expect(st.typed[0]).toMatch(new RegExp(`#${a} is in Review: Reviewer \\(alpha\\) passed it.*#${b} is in Review: Reviewer \\(alpha\\) failed it`))
         // Reviewed again and failed again, word for word, in the same millisecond as the first failure.
@@ -737,12 +807,12 @@ describe('watches (main/watches.ts)', async () => {
         await verdict(w, b, 'failed')
         st.status = 'watching'
         await watches.registerWatch(w, alpha, 'a1', { cards: [b], ...verdictOrDone })
-        await vi.waitFor(() => expect(st.typed).toHaveLength(2), { timeout: 3000 })
+        await vi.waitFor(() => expect(st.typed).toHaveLength(2), { timeout: HUNG_MS })
         expect(st.typed[1]).toContain(`#${b} is in Review: Reviewer (alpha) failed it`)
         // The failure the wake told isn't told again: watching once more without a new change, nothing comes.
         st.status = 'watching'
         await watches.registerWatch(w, alpha, 'a1', { cards: [b], ...verdictOrDone })
-        await watches.evaluateWatches(w)
+        await evaluated(w)
         expect(st.typed).toHaveLength(2)
       } finally {
         vi.useRealTimers()
@@ -757,20 +827,20 @@ describe('watches (main/watches.ts)', async () => {
       const c = (await inWorkspace(w, () => tasks.createTask({ title: 'C', project: 'alpha', agent: 'a1', column: 'review' }, user))).number
       await watches.registerWatch(w, alpha, 'a1', { cards: [a, b, c], changes: ['agent', 'verdict'] })
       await verdict(w, a, 'passed')
-      await watches.evaluateWatches(w)
+      await evaluated(w)
       expect(st.typed).toHaveLength(1)
       await new Promise((r) => setTimeout(r, 5))
       await inWorkspace(w, () => tasks.updateTask(b, { agent: 'a2' }, user))
       st.status = 'watching'
       await watches.registerWatch(w, alpha, 'a1', { cards: [b], changes: ['agent'] })
-      await vi.waitFor(() => expect(st.typed).toHaveLength(2), { timeout: 3000 })
+      await vi.waitFor(() => expect(st.typed).toHaveLength(2), { timeout: HUNG_MS })
       expect(st.typed[1]).toMatch(new RegExp(`^\\[Hive\\] #${b} \\(Reviewer's card\\) is in Review`))
       // Archived between watches: told as gone.
       await inWorkspace(w, () => tasks.archiveTask(c, true))
       st.status = 'watching'
       // The previous wake told #b only; #c was in the watch before it, so it starts from what that wake told of it.
       await watches.registerWatch(w, alpha, 'a1', { cards: [b, c], changes: ['agent', 'verdict'] })
-      await vi.waitFor(() => expect(st.typed).toHaveLength(3), { timeout: 3000 })
+      await vi.waitFor(() => expect(st.typed).toHaveLength(3), { timeout: HUNG_MS })
       expect(st.typed[2]).toContain(`#${c} was archived (off the board`)
       await disposeWorkspaceService(w)
     })
@@ -784,10 +854,10 @@ describe('watches (main/watches.ts)', async () => {
     if (typeof cond === 'string') throw new Error(cond)
     await watches.registerWatch(w, alpha, 'a1', cond)
     await inWorkspace(w, () => tasks.commentTask(c.number, 'Still building', user))
-    await watches.evaluateWatches(w)
+    await evaluated(w)
     expect(st.typed).toEqual([])
     await inWorkspace(w, () => tasks.updateTask(c.number, { column: 'review' }, user))
-    await watches.evaluateWatches(w)
+    await evaluated(w)
     expect(st.typed).toHaveLength(1)
     expect(st.typed[0]).toMatch(/is in Review/)
     await disposeWorkspaceService(w)
@@ -819,7 +889,7 @@ describe('watches (main/watches.ts)', async () => {
     watches.forgetWatches(w)
     await inWorkspace(w, () => tasks.updateTask(c.number, { project: 'beta' }, user))
     await inWorkspace(w, () => tasks.commentTask(c.number, 'Private beta information', user))
-    await watches.evaluateWatches(w)
+    await evaluated(w)
     expect(st.typed).toHaveLength(1)
     expect(st.typed[0]).toMatch(/is gone from your board/)
     expect(st.typed[0]).not.toMatch(/Private|beta/)
@@ -837,7 +907,7 @@ describe('watches (main/watches.ts)', async () => {
     await watches.registerWatch(w, alpha, 'a1', { cards: [c.number], changes: ['comment'] })
     st.status = 'working'
     await inWorkspace(w, () => tasks.commentTask(c.number, 'Ready for you', user))
-    await watches.evaluateWatches(w)
+    await evaluated(w)
     expect(st.typed).toEqual([])
     await inWorkspace(w, () => tasks.updateTask(c.number, { project: 'beta' }, user))
     st.status = 'watching'
@@ -914,7 +984,7 @@ describe('watches (main/watches.ts)', async () => {
     const c = await inWorkspace(w, () => tasks.createTask({ title: 'A', project: 'alpha' }, user))
     await watches.registerWatch(w, alpha, 'a1', { cards: [c.number], changes: ['comment'] })
     await inWorkspace(w, () => tasks.commentTask(c.number, 'Ready', user))
-    await watches.evaluateWatches(w)
+    await evaluated(w)
     expect(watches.watchFor(alpha, 'a1')).not.toBeNull()
     expect(await watches.cancelWatch(w, alpha, 'a1')).toBe(true)
     const st = fake(alpha)
@@ -945,7 +1015,7 @@ describe('watches (main/watches.ts)', async () => {
       release()
       await registering
       await checking
-      await watches.evaluateWatches(w)
+      await evaluated(w)
       expect(st.typed).toHaveLength(1)
       expect(st.typed[0]).toMatch(/is in Review/)
     } finally {
@@ -1038,7 +1108,7 @@ describe('watches (main/watches.ts)', async () => {
     expect(after.watches.map((x: { projectPath: string; projectId?: string }) => [x.projectPath, x.projectId])).toEqual([[alpha, id]])
     expect(after.invalid ?? []).toEqual([])
     await inWorkspace(w, () => tasks.commentTask(c.number, 'Ready', user))
-    await watches.evaluateWatches(w)
+    await evaluated(w)
     expect(st.typed).toEqual([expect.stringContaining('Ready')])
     await disposeWorkspaceService(w)
   })
@@ -1058,7 +1128,7 @@ describe('watches (main/watches.ts)', async () => {
     fake(gamma)
     const w2 = createWorkspaceService()
     await w2.open(path)
-    await watches.evaluateWatches(w2)
+    await evaluated(w2)
     expect(watches.watchFor(gamma, 'a1')?.cards).toEqual([c.number])
     // A watch from before ids gets its project's id.
     const saved = JSON.parse(readFileSync(file, 'utf8'))
@@ -1066,7 +1136,7 @@ describe('watches (main/watches.ts)', async () => {
     saved.watches[0].projectPath = gamma
     writeFileSync(file, JSON.stringify(saved))
     watches.forgetWatches(w2)
-    await watches.evaluateWatches(w2)
+    await evaluated(w2)
     await watches.registerWatch(w2, gamma, 'a2', { cards: [c.number], changes: ['column'] })
     expect(JSON.parse(readFileSync(file, 'utf8')).watches.map((x: { projectPath: string; projectId?: string }) => [x.projectPath, x.projectId])).toEqual([
       [gamma, id],
@@ -1090,7 +1160,7 @@ describe('watches (main/watches.ts)', async () => {
     fake(alpha)
     const w2 = createWorkspaceService()
     await w2.open(path)
-    await watches.evaluateWatches(w2)
+    await evaluated(w2)
     expect(watches.watchFor(alpha, 'a1')).toBeNull()
     await watches.stampWatchProjects(w2)
     const saved = JSON.parse(readFileSync(file, 'utf8'))
@@ -1147,7 +1217,7 @@ describe('watches (main/watches.ts)', async () => {
     expect(watches.watchFor(w2.assistantHome, 'assistant')?.cards).toEqual([c.number])
     expect(JSON.parse(readFileSync(join(to, '.hive', 'watches.json'), 'utf8')).watches.map((x: { projectPath: string }) => x.projectPath)).toEqual([gamma, w2.assistantHome])
     await inWorkspace(w2, () => tasks.commentTask(c.number, 'Moved and ready', user))
-    await watches.evaluateWatches(w2)
+    await evaluated(w2)
     expect(st.typed).toEqual([expect.stringContaining('Moved and ready')])
     await disposeWorkspaceService(w2)
   })
@@ -1162,7 +1232,7 @@ describe('watches (main/watches.ts)', async () => {
     const st = fake(gamma)
     await new Promise((r) => setTimeout(r, 1100))
     await inWorkspace(w, () => tasks.commentTask(c.number, 'Ready', user))
-    await watches.evaluateWatches(w)
+    await evaluated(w)
     expect(st.typed).toEqual([expect.stringContaining(`#${c.number}`)])
     expect(st.typed[0]).toContain('Ready')
     await disposeWorkspaceService(w)
@@ -1346,14 +1416,14 @@ describe('watches (main/watches.ts)', async () => {
     }
     try {
       await inWorkspace(w, () => tasks.commentTask(c.number, 'Ready', user))
-      await watches.evaluateWatches(w)
+      await evaluated(w)
       expect(st.typed).toHaveLength(1)
       // The file still has the watch, marked as being typed: read back, it counts as delivered.
       const file = join(path, '.hive', 'watches.json')
       expect(JSON.parse(readFileSync(file, 'utf8')).watches[0].fired.sending).toBeTruthy()
       watches.forgetWatches(w)
       st.status = 'watching'
-      await watches.evaluateWatches(w)
+      await evaluated(w)
       await watches.tick()
       expect(st.typed).toHaveLength(1)
       expect(watches.watchFor(alpha, 'a1')).toBeNull()
@@ -1380,7 +1450,7 @@ describe('watches (main/watches.ts)', async () => {
     }
     try {
       st.status = 'working'
-      await watches.evaluateWatches(w)
+      await evaluated(w)
       fail = true
       st.status = 'watching'
       await watches.tick()
@@ -1417,7 +1487,7 @@ describe('watches (main/watches.ts)', async () => {
     expect(aside).toHaveLength(1)
     expect(JSON.parse(readFileSync(join(path, '.hive', aside[0]), 'utf8')).invalid).toEqual(seed.invalid)
     await inWorkspace(w, () => tasks.commentTask(c.number, 'Ready', user))
-    await watches.evaluateWatches(w)
+    await evaluated(w)
     expect(st.typed).toHaveLength(1)
     expect(watches.watchFor(alpha, 'a1')).toBeNull()
     // And its limit, the same way.
@@ -1455,20 +1525,17 @@ describe('watches (main/watches.ts)', async () => {
     }) as typeof JSON.stringify
     const reads: number[] = []
     watches.testHooks.cardRead = (c) => reads.push(c)
-    let refusedMs = 0
     try {
-      const t0 = performance.now()
       await expect(watches.registerWatch(w, alpha, 'zzzz', { cards, changes: ['comment'] })).rejects.toThrow(/Too many card watches/)
-      refusedMs = performance.now() - t0
-      await watches.evaluateWatches(w)
+      await evaluated(w)
     } finally {
       JSON.stringify = stringify
       delete watches.testHooks.cardRead
     }
+    // The work counted, not timed (#570): before #321 this refusal took 2.3–2.5 s idle because it measured the watches
+    // again and again (JSON.stringify) and read each card once for every watch on it. A time limit failed on a loaded
+    // machine with the fix in (2.6 s); the bytes measured and the reads below count that work on any machine.
     expect(written).toBeLessThan(8 * 1024 * 1024)
-    // Under 2 s: before #321 this refusal took 2.3–2.5 s on an idle machine (B3H's measure), so the old code fails it
-    // even idle; it now takes a few hundred ms at most idle, leaving room for a loaded machine.
-    expect(refusedMs, `refused in ${Math.round(refusedMs)} ms`).toBeLessThan(2000)
     // A few reads a card (the registration, each check of the watches), not one for each of the 400 watches on it.
     for (const c of cards) expect(reads.filter((x) => x === c).length, `#${c} read`).toBeLessThanOrEqual(6)
     // The file itself is rewritten without them by the tick.
@@ -1616,7 +1683,7 @@ describe('watches (main/watches.ts)', async () => {
     const st = { projectPath: alpha, agentId: 'a1', status: 'watching', watch: watches.watchFor(alpha, 'a1') } as never
     const keeps = async (patch: Parameters<typeof tasks.updateTask>[1]) => {
       await inWorkspace(w, () => tasks.updateTask(c.number, patch, user))
-      await watches.evaluateWatches(w)
+      await evaluated(w)
       return watches.watchKeepsQuitWaiting(st)
     }
     expect(await keeps({ column: 'todo' })).toBeNull()

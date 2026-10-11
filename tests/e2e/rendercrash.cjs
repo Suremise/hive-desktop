@@ -7,6 +7,8 @@ const lib = require('./lib.cjs')
 const { _electron } = require('playwright-core')
 const fs = require('fs')
 const path = require('path')
+// The longest a wait here waits for what it waits on: a bound for a hung run, never how long it should take (#570).
+const HUNG_MS = 10000
 
 const userData = path.join(lib.WORK, 'rendercrash-profile')
 const ws = path.join(lib.WORK, 'rendercrash-ws')
@@ -119,7 +121,7 @@ process.on('uncaughtException', (e) => {
   await app.evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows()[0].emit('unresponsive'))
   check('a hang offers Wait and Reload after a few seconds', !!(await until(async () => (await boxes()).some((b) => /isn't responding/.test(b.message) && b.buttons === 'Wait,Reload'), 9000)))
   await app.evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows()[0].emit('responsive'))
-  check('it goes away when the page responds again', !!(await until(async () => (await boxes())[0]?.aborted, 3000)))
+  check('it goes away when the page responds again', !!(await until(async () => (await boxes())[0]?.aborted, HUNG_MS)))
 
   // --- A hang, then Reload: the page is reloaded without a crash note.
   await app.evaluate(() => {

@@ -550,7 +550,7 @@ describe("Hive's own test runners (tests/progressReport.mts)", () => {
     const { slotWaitProgress } = await import('./progressReport.mts')
     const own = slotWaitProgress('e2e', 'npm run e2e -- --all', [])
     own.waiting('B4 (hb4)')
-    await vi.waitFor(() => expect(calls.length).toBe(1))
+    await vi.waitFor(() => expect(calls.length).toBe(1), { timeout: HUNG_MS })
     expect(calls[0].body).toEqual({ title: 'e2e: waiting for a test slot', command: 'npm run e2e -- --all', waiting: 'waiting for a test slot: B4 (hb4)', pid: process.pid })
     await own.finish('got a test slot after 3 s')
     expect(calls.at(-1)).toMatchObject({ path: '/v1/progress/run-1/finish', body: { ok: true, summary: 'got a test slot after 3 s' } })

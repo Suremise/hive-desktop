@@ -10,6 +10,8 @@ const lib = require('./lib.cjs')
 const { _electron } = require('playwright-core')
 const fs = require('fs')
 const path = require('path')
+// The longest a wait here waits for what it waits on: a bound for a hung run, never how long it should take (#570).
+const HUNG_MS = 30000
 
 const userData = path.join(lib.WORK, 'assistantbatch-profile')
 const ws = path.join(lib.WORK, 'assistantbatch-ws')
@@ -109,7 +111,7 @@ const check = (name, ok, extra = '') => {
   const panel = page.locator('.assistant-panel')
   await until(async () => (await panel.count()) === 1, 5000)
   await panel.locator('.assistant-header').getByRole('button', { name: 'Start', exact: true }).click()
-  check('the Assistant runs', !!(await until(async () => (await liveOf(home, 'assistant'))?.status === 'ready')))
+  check('the Assistant runs', !!(await until(async () => (await liveOf(home, 'assistant'))?.status === 'ready', HUNG_MS)))
   // Drawing with WebGL; kept, to tell a re-mount or a lost context later.
   await until(async () => (await state()).webgl, 10000)
   await remember()
@@ -183,7 +185,7 @@ const check = (name, ok, extra = '') => {
   await inv('session:stop', home, 'assistant')
   await until(async () => !(await liveOf(home, 'assistant')), 15000)
   await inv('session:start', home, { agentId: 'assistant' })
-  await until(async () => (await liveOf(home, 'assistant'))?.status === 'ready')
+  await until(async () => (await liveOf(home, 'assistant'))?.status === 'ready', HUNG_MS)
   const fresh =
     (await until(async () => {
       const t = await state()
