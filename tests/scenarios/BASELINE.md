@@ -36,6 +36,18 @@ Codex run.
 
 Every scenario ran once per provider. Models vary from run to run, so a single result is a sample, not a rate.
 
+## A decision put to the user without a "?" counts: fakes, Codex rescored, fixtures v53, 11 October 2026
+
+#566: every **mode-*-plans**' "wrote cards for alpha, or asked first" and "surfaced a decision for the user" looked only
+for a `?`. A request to choose now counts too ("Please choose…", "Let me know which…", "I need your decision on…"); a
+polite closing ("Please let me know if you need anything else", "Tell me if anything is unclear") doesn't. Fixtures v53
+(v52 on the lane's branch, before #374's v52 merged).
+- **Fakes**: the four mode-*-plans pass as before (`2026-10-11T10-14-53-fake`); both checks are skipped for the fakes,
+  which act nothing out there.
+- **Codex rescored, no new trial**: the one model trial of these on record (`2026-10-10T23-50-39-codex`,
+  mode-coordinator-plans) ended "Please choose the export target and contents above…" with no cards. It failed both
+  checks before and passes them now. It was the only saved trial whose result changes.
+
 ## Merging through the merge slot: fakes, Codex (its default model, `gpt-5.6-luna`), fixtures v51 (v52 once merged with main), 11 October 2026
 
 #374 checks that merge-ready's merge slot is used, from what ran rather than mentions. The evidence:
