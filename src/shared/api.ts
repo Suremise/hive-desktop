@@ -45,6 +45,8 @@ import type {
   GitStatus,
   HiveEvent,
   LiveSessionState,
+  McpFileServer,
+  McpShown,
   McpServerInfo,
   MergeResult,
   MergeSlotInfo,
@@ -202,6 +204,8 @@ export interface HiveRequests {
   /** Clears the recent workspaces, keeping those open in a window now (#144). */
   'workspace:clearRecent': () => RecentWorkspace[]
   'workspace:refresh': () => WorkspaceInfo | null
+  /** Settings → Workspace → Card loop rounds and wait (#412): the values given change, the rest stay. */
+  'workspace:setLoops': (patch: { rounds?: number; waitHours?: number }) => WorkspaceInfo | null
   /** What Repair… would do for a moved workspace or project (#146), with the user's choices; null when nothing moved. */
   'workspace:movePlan': (opts?: MoveOptions) => MovePlan | null
   /** Repairs it (refused while agents run): worktrees, session folders, the CLIs' per-path data (copied), Open Recent. */
@@ -422,7 +426,8 @@ export interface HiveRequests {
   'skills:openFolder': () => void
 
   'mcp:list': () => McpServerInfo[]
-  'mcp:setGlobal': (name: string, enabled: boolean) => void
+  /** Turning it on with `expected` (the server the user was shown): refused if it has been replaced or edited since. */
+  'mcp:setGlobal': (name: string, enabled: boolean, expected?: McpShown) => void
   'mcp:setProject': (projectPath: string, name: string, enabled: boolean) => void
   'mcp:create': (name: string) => McpServerInfo
   'mcp:read': (name: string) => string
@@ -431,6 +436,12 @@ export interface HiveRequests {
   'mcp:delete': (name: string) => void
   'mcp:importFromProject': (projectPath: string, names: string[]) => string[]
   'mcp:openFolder': () => void
+  /** Add MCP Server from File (#550): the file the user picks (.json or .zip), or null. */
+  'mcp:pickFile': () => string | null
+  /** What adding the file would add: its name, what it runs, whether the name is taken. Adds nothing. */
+  'mcp:previewFile': (file: string) => McpFileServer
+  /** Adds it as `name`, turned off; a name in use is refused unless `replace` (the old one goes to the Recycle Bin). */
+  'mcp:addFromFile': (file: string, name: string, replace: boolean) => McpServerInfo
 
   'notes:tree': () => NoteFile[]
   'notes:create': (relPath: string, isDir: boolean) => string

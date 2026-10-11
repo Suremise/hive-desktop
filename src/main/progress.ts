@@ -48,7 +48,8 @@ export class ProgressError extends Error {
 export interface ProgressHistory {
   /** The workspace's kept file as it was saved, or null when there is none (or it can't be read). */
   load: (workspacePath: string) => Promise<unknown>
-  save: (workspacePath: string, runs: ProgressRun[]) => Promise<void>
+  /** `renames`: the last project rename its runs follow (#514), saved with them. */
+  save: (workspacePath: string, runs: ProgressRun[], renames?: number) => Promise<void>
   /** Forgets every workspace's kept runs (Settings → General → Progress panel turned off). */
   forget: () => Promise<void>
 }
@@ -165,6 +166,8 @@ export class ProgressStore {
   private loaded = new Set<string>()
   /** Saves waiting to run, a timer per workspace, by its path. */
   private saves = new Map<string, { timer: NodeJS.Timeout; path: string }>()
+  /** Each workspace's last project rename its runs follow (#514), as saved with them. */
+  private renamesApplied = new Map<string, number>()
   /** Changes each time a workspace's runs are forgotten: a load that began before lands nowhere. */
   private epochs = new Map<string, number>()
   /** Every read and write of the kept files, one at a time, in order. */
@@ -193,6 +196,8 @@ export class ProgressStore {
       (saved) => {
         if (!current()) return
         this.loaded.add(k)
+        const r = saved && typeof saved === 'object' ? (saved as { renames?: unknown }).renames : undefined
+        if (Number.isSafeInteger(r) && (r as number) > (this.renamesApplied.get(k) ?? 0)) this.renamesApplied.set(k, r as number)
         const kept = keptRuns(saved, workspacePath)
         if (!kept.length) return
         this.runs.set(k, mergeRuns(this.runs.get(k) ?? [], kept))
@@ -398,6 +403,7 @@ export class ProgressStore {
       this.epochs.set(k, (this.epochs.get(k) ?? 0) + 1)
       this.loads.delete(k)
       this.loaded.delete(k)
+      this.renamesApplied.delete(k)
       const had = this.runs.delete(k)
       this.unseenFailure.delete(k)
       if (had) this.deps.changed(p, [])
@@ -415,6 +421,25 @@ export class ProgressStore {
     this.loaded.clear()
     const history = this.deps.history
     if (history) void this.queue(() => history.forget()).catch(() => undefined)
+  }
+
+  /**
+   * Projects renamed or moved within the workspace together (#514, one batch of projectNames.ts's renames by folder,
+   * `seq` its last): their runs, open and kept (once the kept ones are read), are each project's at its folder now, all
+   * at once (two that swapped folders keep their own). Applied once (the number is saved with the runs); the window
+   * hears and the history is saved.
+   */
+  async applyRenames(workspacePath: string, batch: { from: string; to: string }[], seq: number): Promise<void> {
+    await this.loadHistory(workspacePath).catch(() => undefined)
+    const k = key(workspacePath)
+    if (seq <= (this.renamesApplied.get(k) ?? 0)) return
+    const to = new Map(batch.map((r) => [key(r.from), r.to]))
+    for (const r of this.runs.get(k) ?? []) {
+      const next = r.projectPath ? to.get(key(r.projectPath)) : undefined
+      if (next) r.projectPath = next
+    }
+    this.renamesApplied.set(k, seq)
+    this.ended(workspacePath)
   }
 
   /** Whether a caller may change a run: its own agent, the Assistant its own, a script any in its workspace. */
@@ -459,7 +484,8 @@ export class ProgressStore {
     const k = key(workspacePath)
     const runs = capEnded((this.runs.get(k) ?? []).filter((r) => r.finishedAt !== null))
     const merge = !this.loaded.has(k)
-    void this.queue(async () => history.save(workspacePath, merge ? mergeRuns(runs, keptRuns(await history.load(workspacePath), workspacePath)) : runs)).catch(() => undefined)
+    const renames = this.renamesApplied.get(k)
+    void this.queue(async () => history.save(workspacePath, merge ? mergeRuns(runs, keptRuns(await history.load(workspacePath), workspacePath)) : runs, renames)).catch(() => undefined)
   }
 
   /** Runs one read or write of the kept files after the ones before it; one that fails doesn't stop the next. */

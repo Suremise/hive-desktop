@@ -10,7 +10,7 @@ import { afterAll, describe, expect, it, vi } from 'vitest'
 // @ts-expect-error: plain .mjs modules without types
 import { SUITES } from './e2e/suites.mjs'
 // @ts-expect-error: plain .mjs modules without types
-import { AREAS, EVERYTHING, REAL_TIER, affectedSuites, under } from './e2e/affected.mjs'
+import { AREAS, EVERYTHING, REAL_TIER, UNIT_ONLY, affectedSuites, under, unitTest } from './e2e/affected.mjs'
 // @ts-expect-error: plain .mjs modules without types
 import { fingerprint } from './e2e/record.mjs'
 // @ts-expect-error: plain .mjs modules without types
@@ -50,7 +50,7 @@ describe('the e2e suite list', () => {
 
   it('names suites that exist, and every suite file is listed', () => {
     for (const n of names) expect(existsSync(join(dir, `${n}.cjs`)), n).toBe(true)
-    const helpers = ['lib', 'fake-bridge', 'fake-copilot-api', 'runContext', 'evidence', 'codexDiagnostics']
+    const helpers = ['lib', 'fake-bridge', 'fake-copilot-api', 'runContext', 'evidence', 'codexDiagnostics', 'folderProcesses']
     const files = execFileSync('git', ['ls-files', 'tests/e2e/*.cjs'], { cwd: root, encoding: 'utf8' })
       .split(/\r?\n/)
       .filter(Boolean)
@@ -112,17 +112,39 @@ describe('the suites a change needs (affected.mjs)', () => {
   it('maps runtime resources and every user of a shared test helper (review round 1)', () => {
     expect(affectedSuites(['resources/skills/card-loop/SKILL.md'], names).suites).toEqual(expect.arrayContaining(['skills', 'skillaudience', 'skilldelivery', 'cardloop']))
     expect(affectedSuites(['resources/personas/planner.md'], names).suites).toEqual(expect.arrayContaining(['assistant', 'assistant-control']))
-    expect(affectedSuites(['tests/e2e/fake-codex/fake-codex.cjs'], names).suites).toEqual(['attention', 'defaultprovider', 'footerfit', 'freshpath', 'models', 'sessiontree', 'skilldelivery', 'termsize'])
+    expect(affectedSuites(['tests/e2e/fake-codex/fake-codex.cjs'], names).suites).toEqual(['attention', 'codexfolder', 'defaultprovider', 'footerfit', 'freshpath', 'models', 'providerdetect', 'sessiontree', 'skilldelivery', 'termsize'])
     expect(affectedSuites(['tests/e2e/fake-bridge.cjs'], names).all).toBe(true)
     expect(affectedSuites(['resources/tray.png'], names).all).toBe(true)
-    expect(affectedSuites(['scripts/release.mjs'], names).all).toBe(true)
+    expect(affectedSuites(['scripts/build-icons.mjs'], names).all).toBe(true)
+    expect(affectedSuites(['scripts/release.mjs'], names).suites).toEqual(['testedclis'])
     expect(affectedSuites(['docs/SPEC.md'], names).suites).toEqual(['about'])
     expect(affectedSuites(['tests/progress.test.ts', 'AGENTS.md'], names).suites).toEqual([])
+    expect(affectedSuites(['scripts/notices/winshell.txt'], names, realNames)).toEqual({ suites: ['about'], why: ['scripts/notices/winshell.txt: about'] })
     // The skills for developing Hive are notes for agents, neither shipped nor read by the app (#197).
     expect(affectedSuites(['.claude/skills/verify-hive-ui/SKILL.md', '.agents/skills/verify-hive-ui/SKILL.md'], names, realNames)).toEqual({ suites: [], why: [] })
     // Every suite file that uses the fake Codex is selected by it.
     const users = names.filter((n) => readFileSync(join(dir, `${n}.cjs`), 'utf8').includes('fake-codex'))
     expect(affectedSuites(['tests/e2e/fake-codex/fake-codex.cjs'], names).suites).toEqual(expect.arrayContaining(users))
+  })
+
+  it('what only the unit tests use selects no suite, real or fake (#390)', () => {
+    const tracked = (...paths: string[]) => execFileSync('git', ['ls-files', ...paths], { cwd: root, encoding: 'utf8' }).split(/\r?\n/).filter(Boolean)
+    const helpers = tracked('tests').filter((f) => /^tests\/[^/]+\.ts$/.test(f) && !f.endsWith('.test.ts'))
+    expect(helpers).toEqual(expect.arrayContaining(['tests/electron-stub.ts', 'tests/tempDir.ts', 'tests/noGlobalGit.ts', 'tests/pathAliases.ts', 'tests/watchRealPaths.ts']))
+    for (const f of [...helpers, ...(UNIT_ONLY as string[])]) {
+      expect(unitTest(f), f).toBe(true)
+      expect(affectedSuites([f], names, realNames), f).toEqual({ suites: [], why: [] })
+    }
+    expect(affectedSuites(['vitest.config.ts', 'tests/tempDir.ts', 'tests/licenses.test.ts'], names, realNames)).toEqual({ suites: [], why: [] })
+    // The runners' progress reporter isn't the unit tests' alone.
+    expect(unitTest('tests/progressReport.mts')).toBe(false)
+    expect(affectedSuites(['tests/progressReport.mts'], names).all).toBe(true)
+    // Which holds only while no suite, harness or scenario loads one of those helpers.
+    const loads = (base: string) => new RegExp(`[/\\\\]${base}(\\.ts)?['"\`]`)
+    for (const f of tracked('tests/e2e', 'tests/scenarios').filter((p) => /\.(c|m)?[jt]s$/.test(p))) {
+      const text = readFileSync(join(root, f), 'utf8')
+      for (const h of helpers) expect(loads(h.slice('tests/'.length, -'.ts'.length)).test(text), `${f} loads ${h}: give it an area in affected.mjs`).toBe(false)
+    }
   })
 
   it('errs towards more: shared files and unknown code mean every suite', () => {

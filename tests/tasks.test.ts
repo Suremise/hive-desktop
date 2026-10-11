@@ -215,7 +215,8 @@ describe('task board', () => {
   it("refuses a project agent moving another agent's card in Doing on to Review or Done; its own, and everyone else, may", async () => {
     const projectJson = join(wsPath, 'alpha', '.hive', 'project.json')
     const saved = readFileSync(projectJson, 'utf8')
-    writeFileSync(projectJson, JSON.stringify({ version: 2, agents: [{ id: 'a1', name: 'Agent 1' }, { id: 'a2', name: 'Agent 2' }] }))
+    // Its id kept (#508): Hive never drops it, and without it the project's cards would be no project's.
+    writeFileSync(projectJson, JSON.stringify({ version: 2, id: JSON.parse(saved).id, agents: [{ id: 'a1', name: 'Agent 1' }, { id: 'a2', name: 'Agent 2' }] }))
     const a1 = { kind: 'agent', name: 'Agent 1 (alpha)', self: { project: 'alpha', agentId: 'a1' }, scope: 'alpha' } as const
     const a2 = { kind: 'agent', name: 'Agent 2 (alpha)', self: { project: 'alpha', agentId: 'a2' }, scope: 'alpha' } as const
     const doing = () => run(() => tasks.createTask({ title: 'In progress', project: 'alpha', column: 'doing', agent: 'a1' }, user))
@@ -288,7 +289,8 @@ describe('task board', () => {
     // Another agent's card, out of Doing (so nobody was working on it): taken, from each column, and said so.
     const projectJson = join(wsPath, 'alpha', '.hive', 'project.json')
     const saved = readFileSync(projectJson, 'utf8')
-    writeFileSync(projectJson, JSON.stringify({ version: 2, agents: [{ id: 'a1', name: 'Agent 1' }, { id: 'a2', name: 'Agent 2' }] }))
+    // Its id kept (#508): Hive never drops it, and without it the project's cards would be no project's.
+    writeFileSync(projectJson, JSON.stringify({ version: 2, id: JSON.parse(saved).id, agents: [{ id: 'a1', name: 'Agent 1' }, { id: 'a2', name: 'Agent 2' }] }))
     try {
       const other = { kind: 'agent', name: 'Agent 2 (alpha)', self: { project: 'alpha', agentId: 'a2' } } as const
       for (const column of ['todo', 'review', 'done'] as const) {
@@ -1009,8 +1011,9 @@ describe("a project agent's board", () => {
     const { withFileLock } = await import('../src/main/fsutil')
     const file = (x: number): string => join(wsPath, '.hive', 'tasks', `${x}.json`)
     // Someone (the user, the Assistant) moves the card to beta while the agent's write waits for the card.
+    // Written as another copy of Hive from before project ids would (#508): without the id, which it doesn't keep.
     const toBeta = (x: number): void => {
-      const c = JSON.parse(readFileSync(file(x), 'utf8'))
+      const { projectId: _id, ...c } = JSON.parse(readFileSync(file(x), 'utf8'))
       writeFileSync(file(x), JSON.stringify({ ...c, project: 'beta', agent: null }))
     }
     const c1 = (await run(() => tasks.createTask({ title: 'C1', project: 'alpha' }, user))).number

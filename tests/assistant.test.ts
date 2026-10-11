@@ -134,6 +134,10 @@ describe('control', () => {
   it('gives each control level its tools', () => {
     expect(assistantTools('look')).not.toContain('hive_add_agent')
     expect(assistantTools('look')).toContain('hive_agent_activity')
+    // Lanes are listed at every level (#500); the board's changes need Control agents.
+    expect(assistantTools('look')).toContain('hive_lane')
+    expect(assistantTools('look')).not.toContain('hive_update_task')
+    expect(assistantTools('agents').filter((t) => t === 'hive_lane')).toHaveLength(1)
     expect(assistantTools('agents')).toContain('hive_prompt_agent')
     expect(assistantTools('agents')).not.toContain('hive_create_project')
     expect(assistantTools('projects')).toContain('hive_create_project')

@@ -100,6 +100,7 @@ export function Dialogs() {
       <Modal
         title={dialog.title}
         icon={dialog.danger ? 'warning' : 'question'}
+        wide={dialog.wide}
         onClose={() => close(false)}
         busy={!!action.busy}
         error={action.error}
@@ -128,7 +129,7 @@ export function Dialogs() {
       >
         <div>{dialog.message}</div>
         {dialog.list && dialog.list.length > 0 && <DialogList items={dialog.list} />}
-        {dialog.detail && <div className={cx('detail', dialog.scrollDetail && 'scroll')}>{dialog.detail}</div>}
+        {dialog.content ? <div className={cx('detail rich', dialog.scrollDetail && 'scroll')}>{dialog.content}</div> : dialog.detail && <div className={cx('detail', dialog.scrollDetail && 'scroll')}>{dialog.detail}</div>}
         {dialog.check && (
           <label className="flex dialog-check">
             <input type="checkbox" checked={checked} disabled={!!action.busy} onChange={(e) => setChecked(e.target.checked)} /> {dialog.check.label}
@@ -159,6 +160,8 @@ export function Dialogs() {
       }
     >
       {dialog.message && <p style={{ marginTop: 0 }} className="muted">{dialog.message}</p>}
+      {dialog.list && dialog.list.length > 0 && <DialogList items={dialog.list} />}
+      {dialog.detail && <div className="detail" style={{ marginBottom: 10 }}>{dialog.detail}</div>}
       <input
         ref={inputRef}
         className={cx('input', error && 'invalid')}

@@ -2,7 +2,7 @@
 // turned on and installed, a default the user chose wins, and a project with no agents warns only about a provider
 // the user chose, or when nothing is installed.
 import { afterEach, describe, expect, it } from 'vitest'
-import { AUTO_PROVIDER, agentProvider, autoProvider, chosenDefaultProvider, defaultProviderLabel, defaultProviderWarning, projectDefaultProvider, providerWarnings, providersInUse, setInstalledCheck } from '../src/shared/providers'
+import { AUTO_PROVIDER, agentProvider, autoProvider, autoProviderPending, chosenDefaultProvider, defaultProviderPending, defaultProviderLabel, defaultProviderWarning, projectDefaultProvider, providerWarnings, providersInUse, setInstalledCheck } from '../src/shared/providers'
 import { DEFAULT_APP_CONFIG, DEFAULT_SETTINGS, mergeDefaults, migrateConfig } from '../src/shared/defaults'
 import type { AppSettings, ProviderId } from '../src/shared/types'
 
@@ -56,6 +56,56 @@ describe('Automatic', () => {
     expect(defaultProviderLabel(settings(ALL))).toBe('Automatic (GitHub Copilot)')
     expect(defaultProviderLabel(settings([]))).toBe('Automatic')
     expect(defaultProviderLabel(settings(ALL, 'codex'))).toBe('Codex')
+  })
+
+  it('never resolves from partial detection: Codex found before Claude Code has answered (#506)', () => {
+    // Detection as Hive hears it: found, missing, or null while still looking.
+    const heard: Partial<Record<ProviderId, boolean | null>> = { 'claude-code': null, codex: true, copilot: null }
+    setInstalledCheck((id) => heard[id] ?? null)
+    expect(autoProviderPending(settings(ALL))).toBe(true)
+    expect(defaultProviderPending(INHERIT, settings(ALL))).toBe(true)
+    // Its best guess meanwhile is Claude Code (not yet known missing), never Codex.
+    expect(autoProvider(settings(ALL))).toBe('claude-code')
+    expect(defaultProviderLabel(settings(ALL))).toBe('Automatic (checking…)')
+    // A chosen default doesn't wait.
+    expect(defaultProviderPending(INHERIT, settings(ALL, 'codex'))).toBe(false)
+    // Claude Code answers found, Copilot hasn't answered: still pending (every turned-on provider must answer).
+    heard['claude-code'] = true
+    expect(autoProviderPending(settings(ALL))).toBe(true)
+    expect(defaultProviderLabel(settings(ALL))).toBe('Automatic (checking…)')
+    // A provider turned off doesn't count.
+    expect(autoProviderPending(settings(['claude-code', 'codex']))).toBe(false)
+    heard.copilot = false
+    expect(autoProviderPending(settings(ALL))).toBe(false)
+    expect(autoProvider(settings(ALL))).toBe('claude-code')
+    expect(defaultProviderLabel(settings(ALL))).toBe('Automatic (Claude Code)')
+  })
+
+  it('settles the same whatever order the CLIs answer in (#506)', () => {
+    const answers: [ProviderId, boolean][] = [['claude-code', true], ['codex', true], ['copilot', false]]
+    const orders = [[0, 1, 2], [0, 2, 1], [1, 0, 2], [1, 2, 0], [2, 0, 1], [2, 1, 0]]
+    for (const order of orders) {
+      const heard: Partial<Record<ProviderId, boolean | null>> = {}
+      setInstalledCheck((id) => heard[id] ?? null)
+      for (const [n, k] of order.entries()) {
+        expect(autoProviderPending(settings(ALL)), `order ${order}, before answer ${n + 1}`).toBe(true)
+        // Meanwhile never a provider listed after one not yet ruled out.
+        expect(autoProvider(settings(ALL)), `order ${order}`).toBe('claude-code')
+        heard[answers[k][0]] = answers[k][1]
+      }
+      expect(autoProviderPending(settings(ALL))).toBe(false)
+      expect(autoProvider(settings(ALL))).toBe('claude-code')
+    }
+    // Claude Code missing: Codex, once all have answered, in either order.
+    for (const first of ['claude-code', 'codex'] as ProviderId[]) {
+      const heard: Partial<Record<ProviderId, boolean | null>> = { copilot: false }
+      setInstalledCheck((id) => heard[id] ?? null)
+      heard[first] = first === 'codex'
+      expect(autoProviderPending(settings(ALL))).toBe(true)
+      heard[first === 'codex' ? 'claude-code' : 'codex'] = first !== 'codex'
+      expect(autoProviderPending(settings(ALL))).toBe(false)
+      expect(autoProvider(settings(ALL))).toBe('codex')
+    }
   })
 })
 

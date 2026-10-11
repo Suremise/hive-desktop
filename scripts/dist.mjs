@@ -8,6 +8,7 @@
 // --build` stamps it (tests/e2e/build.mjs, under the worktree's build lock), so the packaged checks run straight after
 // it (npm run e2e -- packaged packaged-mcp packaged-progress --record) find out/ from this source (#274).
 import { spawnSync } from 'child_process'
+import { existsSync, readFileSync } from 'fs'
 import { dirname, join } from 'path'
 import { fileURLToPath } from 'url'
 import { makeDist } from './distCopy.mjs'
@@ -24,7 +25,13 @@ const run = (cmd) => {
   const r = spawnSync(cmd, { cwd: root, stdio: 'inherit', shell: true })
   if (r.status !== 0) process.exit(r.status ?? 1)
 }
+// Its build regenerates THIRD_PARTY_NOTICES.md (npm run licenses): a change it makes is reported, not left unnoticed in
+// the checkout (#386).
+const noticesFile = join(root, 'THIRD_PARTY_NOTICES.md')
+const notices = () => (existsSync(noticesFile) ? readFileSync(noticesFile, 'utf8') : null)
+const noticesBefore = notices()
 // An earlier build's records go first, so a build that fails part way leaves nothing vouching for its installer and
 // dist/win-unpacked, and the e2e runner's packaged checks say so (tests/e2e/runner.mjs packagedStatus): makeDist.
 const lines = makeDist({ root, here: args.includes('--here'), replace: args.includes('--replace'), run, buildStamped })
+if (notices() !== noticesBefore) lines.push('THIRD_PARTY_NOTICES.md changed: the build regenerated it for changed dependencies. Commit it (the unit tests fail until it is).')
 console.log(`\n${lines.join('\n')}`)

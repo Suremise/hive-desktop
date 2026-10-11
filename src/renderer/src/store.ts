@@ -1,6 +1,6 @@
 import { DEFAULT_PERF_FILTERS, type PerfFilters } from '@shared/metricsView'
 import { create } from 'zustand'
-import { useMemo } from 'react'
+import { useMemo, type ReactNode } from 'react'
 import type { Period } from '@shared/usageTotals'
 import type { StartFailure } from '@shared/startFailure'
 import type { AgentLeftovers } from '@shared/agentProcesses'
@@ -11,9 +11,9 @@ import { setDateStyle } from '@shared/dates'
 import { chooseFocus, deferredFocus } from './deferredFocus'
 import type { ProjectTab } from '@shared/projectTabs'
 import type { ProgressFilter } from '@shared/progress'
-import type { TemplateAgent } from '@shared/templates'
+import type { TemplateAgent, TemplateRef } from '@shared/templates'
 import type { GitTool } from '@shared/gitTool'
-import type { AgentBranchStatus, AssistantPanelSide, BoardFold, QuitScope, TaskCard, TaskColumn, UpdateState, WorkspaceUsage, RecentWorkspace } from '@shared/types'
+import type { AgentBranchStatus, AssistantPanelSide, BoardFold, PageLayout, QuitScope, TaskCard, TaskColumn, UpdateState, WorkspaceUsage, RecentWorkspace } from '@shared/types'
 import type {
   AgentApiInfo,
   AgentInfo,
@@ -44,6 +44,18 @@ export type { ProjectTab } from '@shared/projectTabs'
  * agents (names to keep unique, roles to suggest), the project whose settings an empty choice shows (a project's
  * Templates tab; none in the Templates view), and where the answer goes (the agent as saved, or null: cancelled).
  */
+/** A template being edited (#510): its revision and content as saved (what a save expects there), and the draft. */
+export type TemplateDraft = { name: string; description: string; layout: PageLayout; agents: TemplateAgent[] }
+export interface TemplateEdit {
+  /** The template (where it is kept). */
+  ref: TemplateRef
+  savedAt: string | null
+  /** The revision this editor's last save replaced: the list shows it until it reads the template again. */
+  was?: string | null
+  saved: TemplateDraft
+  draft: TemplateDraft
+}
+
 export interface TemplateAgentRequest {
   key: number
   template: string
@@ -76,6 +88,9 @@ export interface ConfirmRequest {
   detail?: string
   /** A long detail scrolls in its own box, the dialog's buttons staying in view (a template's agents, #268). */
   scrollDetail?: boolean
+  /** Shown in the detail's place, rendered (a template's plan as a table, #511), in a wider dialog with `wide`. */
+  content?: ReactNode
+  wide?: boolean
   confirmLabel?: string
   cancelLabel?: string
   danger?: boolean
@@ -98,6 +113,10 @@ export interface PromptRequest {
   initial?: string
   confirmLabel?: string
   validate?: (value: string) => string | null
+  /** Items under the message, one per line, with a Copy button (what an MCP server runs, #550). */
+  list?: readonly string[]
+  /** Under the list: what else to know (warnings). */
+  detail?: string
   /** A tick box under the field; `set` gets the user's choice before the dialog resolves. */
   check?: { label: string; initial: boolean; set: (checked: boolean) => void }
   resolve: (value: string | null) => void
@@ -270,6 +289,12 @@ interface State {
   agentSettingsFor: AgentRef | null
   /** The Agent Settings dialog for a template's agent (#271): open while set; it answers the template editor. */
   templateAgentFor: TemplateAgentRequest | null
+  /**
+   * Template editors open in this window (#510), by workspace and template (templateEditKey): the template as saved and
+   * the draft. Kept while the window is open, so leaving the editor (another template, another view) loses nothing: it
+   * opens again with its changes, and the list marks a template with changes not saved.
+   */
+  templateEdits: Record<string, TemplateEdit>
   /** Worktree agent whose Merge dialog is open. */
   mergeFor: AgentRef | null
   /** The agent whose work "Hand Over to…" hands to another agent. */
@@ -424,6 +449,7 @@ export const useStore = create<State>(() => ({
   addAgentPreset: null,
   agentSettingsFor: null,
   templateAgentFor: null,
+  templateEdits: {},
   mergeFor: null,
   handOverFor: null,
   overviewJump: null,
@@ -462,8 +488,11 @@ export const useStore = create<State>(() => ({
   sessionEpoch: {}
 }))
 
-// Automatic's default provider (#474) follows what Hive found, as this window last heard.
-setInstalledCheck((id) => !!useStore.getState().providers[id]?.found)
+// Automatic's default provider (#474) follows what Hive found, as this window last heard: unknown until it has said (#506).
+setInstalledCheck((id) => {
+  const i = useStore.getState().providers[id]
+  return !i ? null : i.found ? true : i.checking ? null : false
+})
 
 export const set = useStore.setState
 export const get = useStore.getState

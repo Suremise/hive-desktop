@@ -216,7 +216,9 @@ same code while every required check still runs:
 them, or when the change is to Hive's side of every CLI (`REAL_TIER` in `affected.mjs`: `sessions.ts`, the providers,
 `providerService`, the terminal host, hook status, transcripts, `lib.cjs`) or to code no area names; a provider's own
 adapter (`src/main/providers/claude/`, `codex/`) picks only its real suites. Add an area to `affected.mjs` when you add a
-suite or a source file; `tests/e2esuites.test.ts` checks every suite and source file is covered.
+suite or a source file; `tests/e2esuites.test.ts` checks every suite and source file is covered. What only the unit
+tests use (`tests/*.test.ts` and their helpers in `tests/`, `vitest.config.ts`, CI's workflow: `UNIT_ONLY`) selects no
+suite, so an e2e suite or scenario must never load a `.ts` helper from `tests/` (the unit test fails if one does).
 
 **Progress in Hive.** Run from an agent's session in Hive, the runner shows in that Hive's Progress panel: **e2e: N
 suites**, a step per suite, and the time left from how long each suite took before (kept in
@@ -385,7 +387,7 @@ Start from an existing suite and use `lib.cjs`:
 - in a real-CLI suite, `cliStep(name, { session }, fn)` around each step that waits on the CLI answering, with
   `checked(ok)` in the suite's `check` (above: how an environment failure there becomes a SKIP).
 
-**Slow or failing calls** (unpackaged builds only): `HIVE_TEST_SLOW_IPC="tasks:start=2000,git:diff=3000*1"` delays those IPC calls (`*n`: only the first n) and `HIVE_TEST_FAIL_IPC="git:status*1"` makes them fail. Hive reads them again when they change, so a suite can set them in the main process while it runs (`app.evaluate(() => { process.env.HIVE_TEST_SLOW_IPC = '…' })`). `busy`, `changes` and `loadfail` use them.
+**Slow or failing calls** (unpackaged builds only): `HIVE_TEST_SLOW_IPC="tasks:start=2000,git:diff=3000*1"` delays those IPC calls (`*n`: only the first n) and `HIVE_TEST_FAIL_IPC="git:status*1"` makes them fail. Hive reads them again when they change, so a suite can set them in the main process while it runs (`app.evaluate(() => { process.env.HIVE_TEST_SLOW_IPC = '…' })`). `busy`, `changes` and `loadfail` use them. `HIVE_TEST_SLOW_DETECT="claude-code=12000"` holds that provider's detection at start, so another answers first, and `HIVE_TEST_DETECT_WAIT_MS` shortens how long a launch waits for detection before it is refused (`providerdetect`, #506); a test launch that holds one can't use `lib.launch`, whose `appReady` waits for every provider.
 
 **The registry's PATH** (unpackaged builds only, #472): Hive adds the folders of the PATH Windows gives new programs to its own before it looks for the CLIs. A test copy (a test profile) never reads the machine's: `HIVE_TEST_REGISTRY_PATH` (`;`-separated folders, none when unset) stands in for it, and a suite can change it while Hive runs, as an installer would (`freshpath`). So a suite's PATH without a CLI (or git, `gitmissing`) stays without it.
 

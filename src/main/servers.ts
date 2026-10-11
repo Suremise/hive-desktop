@@ -6,7 +6,7 @@ import { basename, dirname, join, relative, resolve as resolvePath } from 'path'
 import { stat } from 'original-fs/promises'
 import type { AgentApiInfo, AssistantControl, EffortLevel, HiveEvent, LiveSessionState, PermissionMode, ProviderId, SkillInfo, TaskCard, TaskColumn, TaskPatch, TaskStartTarget, ToastLevel } from '../shared/types'
 import { DEFAULT_API_PORT, HIVE_DIR, projectAgents, stopAsksUser, transcriptWarnLimit } from '../shared/defaults'
-import { PROVIDERS, agentProvider, isKnownProvider, isProviderEnabled, offeredModes, projectDefaultProvider, providerName } from '../shared/providers'
+import { PROVIDERS, agentProvider, defaultProviderPending, isKnownProvider, isProviderEnabled, offeredModes, projectDefaultProvider, providerName } from '../shared/providers'
 import { fallbackEfforts, modelGroups } from '../shared/models'
 import { ASSISTANT_AGENT_ID, ASSISTANT_DIR, ASSISTANT_NAME } from '../shared/assistant'
 import { timeLeft } from '../shared/progress'
@@ -30,7 +30,7 @@ import { GUIDANCE_REVISION, skillRevisions } from './guidance'
 import agentApiDoc from '../../docs/AGENT_API.md?raw'
 import { createLogger } from './logger'
 import { listMcp } from './mcp'
-import { assertInShared, createHandover, NoteConflict, notesTree, readNote, writeNote } from './notes'
+import { assertInShared, createHandover, handoversFor, NoteConflict, notesTree, readNote, writeNote } from './notes'
 import { mergeSlots } from './mergeSlotHost'
 import * as lanes from './lanes'
 import { laneCards, laneName, laneNumber } from '../shared/lanes'
@@ -626,6 +626,8 @@ route('POST', '/v1/projects/:name/handover', async ({ params, body }) => {
 
 /** The providers agents can run: whether each is on and installed, and its models, effort levels and modes. */
 route('GET', '/v1/providers', async () => {
+  // Which is the default is only known once Hive has looked for the CLIs (#506).
+  const known = await providerService.detected()
   const s = config.settings
   return PROVIDERS.map((p) => {
     const info = providerService.info(p.id)
@@ -639,7 +641,7 @@ route('GET', '/v1/providers', async () => {
       tested: info.tested ? { version: info.tested.version, installed: info.found ? info.tested.installed : 'not installed' } : null,
       problem: info.readiness?.find((r) => r.level === 'error')?.message ?? null,
       // What new agents use now: Automatic's pick when no provider was chosen (#474).
-      isDefault: projectDefaultProvider(null, s) === p.id,
+      isDefault: (known || !defaultProviderPending(null, s)) && projectDefaultProvider(null, s) === p.id,
       defaultModel: info.defaultModel ?? null,
       // What the pickers offer: the CLI's own models, else the fallback list in Settings (#125).
       models: modelGroups(p.id, info, s).filter((g) => !g.unavailable).flatMap((g) => g.models.map((m) => ({ value: m.value, label: m.label }))),
@@ -796,7 +798,9 @@ route('POST', '/v1/projects/:name/agents', async ({ params, body }) => {
   const project = basename(p)
   return assistantChange('agents', `add an agent to ${project}`, async () => {
     const set = agentSettings(body)
-    const provider = set.provider ?? projectDefaultProvider((await workspace.projectConfig(p)), config.settings)
+    const cfg = await workspace.projectConfig(p)
+    if (!set.provider && defaultProviderPending(cfg, config.settings)) await providerService.settle()
+    const provider = set.provider ?? projectDefaultProvider(cfg, config.settings)
     if (!isProviderEnabled(config.settings, provider)) throw new HttpError(409, `${PROVIDERS.find((x) => x.id === provider)?.name ?? provider} is turned off in Settings → Providers.`)
     const def = await addAgent(p, {
       name: body?.name ? String(body.name) : undefined,
@@ -1208,7 +1212,12 @@ route('POST', '/v1/lanes', async ({ body }) =>
     if (!assistantCaller()) return start()
     return assistantChange('agents', `start a lane in ${basename(p)}`, async () => {
       const r = await start()
-      return { done: `Lane ${r.lane.id} ${r.did} in ${basename(p)}: ${r.lane.builder.name} / ${r.lane.reviewer?.name ?? 'no reviewer'}, ${r.lane.cards.map((c) => `#${c.number}`).join(', ')}`, result: r }
+      // #402: a lane the Assistant starts but doesn't watch goes unfollowed ("they'll tell you"): its reply says so.
+      const last = r.lane.cards[r.lane.cards.length - 1]?.number
+      const watched = sessions.watchFor(ws.assistantHome, ASSISTANT_AGENT_ID)?.cards ?? []
+      const nudge = last !== undefined && !watched.includes(last) ? `No card watch of yours covers #${last}, the lane's last card: watch it (hive_wait_for_tasks, wake) to follow the lane to its end.` : ''
+      const result = nudge ? { ...r, note: [r.note, nudge].filter(Boolean).join(' ') } : r
+      return { done: `Lane ${r.lane.id} ${r.did} in ${basename(p)}: ${r.lane.builder.name} / ${r.lane.reviewer?.name ?? 'no reviewer'}, ${r.lane.cards.map((c) => `#${c.number}`).join(', ')}`, result }
     })
   })
 )
@@ -1248,6 +1257,16 @@ route('POST', '/v1/lanes/:id/end', async ({ params, body }) =>
 )
 
 route('GET', '/v1/shared', async () => inWorkspace(requireWorkspace(), () => notesTree()))
+
+// A project's handovers, newest first (under its earlier folder names too, #514); no project: every one. Their paths
+// as /v1/shared/file takes them. What hive_read_latest_handover and the session guidance find.
+route('GET', '/v1/shared/handovers', async ({ query }) => {
+  const name = query.get('project')
+  const project = name ? projectByName(name) : null
+  const ws = project ? workspaceOf(project) : requireWorkspace()
+  const list = await inWorkspace(ws, () => handoversFor(ws, project ? basename(project) : undefined))
+  return list.map((f) => ({ path: f.relPath, ...(f.modified ? { modified: f.modified } : {}) }))
+})
 
 route('GET', '/v1/shared/file', async ({ query }) => {
   const rel = query.get('path')

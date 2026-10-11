@@ -2,11 +2,11 @@
 // hook steps, and the watches themselves (main/watches.ts): a watch is kept in the workspace, fires once when a watched
 // card changes or its limit passes, wakes its agent only when it is idle and the user isn't typing (else later), and
 // ends on wake or cancel. The sessions are stand-ins here (the e2e cardloop suite runs real ones).
-import { existsSync, mkdirSync, readdirSync, readFileSync, rmSync, writeFileSync } from 'fs'
-import { join } from 'path'
+import { existsSync, mkdirSync, readdirSync, readFileSync, renameSync, rmSync, writeFileSync } from 'fs'
+import { basename, join } from 'path'
 import { afterAll, describe, expect, it, vi } from 'vitest'
 import * as electron from 'electron'
-import { alreadyThere, changesBetween, decodeSince, encodeSince, limitLine, markOf, movedIntoSince, readCondition, returnRound, WAKE_MAX_BYTES, wakeAbout, wakeLine, wakeLines, carriedOver, changesSince, seenOf, watchLabel, cardChange } from '../src/shared/watch'
+import { alreadyThere, changesBetween, decodeSince, encodeSince, limitLine, markOf, movedIntoSince, readCondition, returnRound, WAKE_MAX_BYTES, wakeAbout, wakeLine, wakeLines, carriedOver, changesSince, seenOf, watchLabel, cardChange, LANES_RUNNING_TAIL, withLanesTail } from '../src/shared/watch'
 import { taskWaitText } from '../src/shared/toolReplies'
 import { hookStep } from '../src/main/hookStatus'
 import type { TaskCard } from '../src/shared/types'
@@ -983,21 +983,149 @@ describe('watches (main/watches.ts)', async () => {
     const file = join(path, '.hive', 'watches.json')
     const saved = JSON.parse(readFileSync(file, 'utf8'))
     const bad = { id: 'bad', projectPath: alpha, agentId: 'a2', cond: { cards: [c.number], changes: ['column'] }, limitAt: new Date(Date.now() + 100000).toISOString() }
-    const elsewhere = { ...saved.watches[0], id: 'far', agentId: 'a3', projectPath: join(path, '..', 'not-here', 'alpha') }
-    writeFileSync(file, JSON.stringify({ version: 1, watches: [bad, elsewhere, ...saved.watches] }))
+    // In another folder, saved before ids or with an id no project of this workspace has (#508: one with alpha's id is alpha's).
+    const { projectId: _id, ...legacy } = saved.watches[0]
+    const elsewhere = { ...legacy, id: 'far', agentId: 'a3', projectPath: join(path, '..', 'not-here', 'alpha') }
+    const stranger = { ...saved.watches[0], id: 'stranger', agentId: 'a4', projectId: 'p-000000000000', projectPath: join(path, '..', 'not-here', 'alpha') }
+    writeFileSync(file, JSON.stringify({ version: 1, watches: [bad, elsewhere, stranger, ...saved.watches] }))
     watches.forgetWatches(w)
     await inWorkspace(w, () => tasks.commentTask(c.number, 'Ready', user))
     await expect(watches.evaluateWatches(w)).resolves.toBeUndefined()
     expect(st.typed).toHaveLength(1)
     // The entries that aren't valid are still in the file, as they were.
     const after = JSON.parse(readFileSync(file, 'utf8'))
-    expect(after.invalid).toEqual([bad, elsewhere])
+    expect(after.invalid).toEqual([bad, elsewhere, stranger])
     expect(after.watches).toEqual([])
     // A file that isn't JSON is renamed, not overwritten.
     writeFileSync(file, '{ not json')
     watches.forgetWatches(w)
     await watches.registerWatch(w, alpha, 'a1', { cards: [c.number], changes: ['comment'] })
     expect(readdirSync(join(path, '.hive')).some((f) => f.startsWith('watches.json.damaged-'))).toBe(true)
+    await disposeWorkspaceService(w)
+  })
+
+  it("a saved watch follows its project's id to the folder's new name (#508); one from before gets the id", async () => {
+    const { w, path, alpha } = await open()
+    fake(alpha)
+    const c = await inWorkspace(w, () => tasks.createTask({ title: 'A', project: 'alpha' }, user))
+    await watches.registerWatch(w, alpha, 'a1', { cards: [c.number], changes: ['comment'] })
+    const file = join(path, '.hive', 'watches.json')
+    const id = JSON.parse(readFileSync(join(alpha, '.hive', 'project.json'), 'utf8')).id
+    expect(JSON.parse(readFileSync(file, 'utf8')).watches[0].projectId).toBe(id)
+    // Renamed while Hive was closed: read back, the watch is the project's under its new name.
+    await disposeWorkspaceService(w)
+    const gamma = join(path, 'gamma')
+    renameSync(alpha, gamma)
+    fake(gamma)
+    const w2 = createWorkspaceService()
+    await w2.open(path)
+    await watches.evaluateWatches(w2)
+    expect(watches.watchFor(gamma, 'a1')?.cards).toEqual([c.number])
+    // A watch from before ids gets its project's id.
+    const saved = JSON.parse(readFileSync(file, 'utf8'))
+    delete saved.watches[0].projectId
+    saved.watches[0].projectPath = gamma
+    writeFileSync(file, JSON.stringify(saved))
+    watches.forgetWatches(w2)
+    await watches.evaluateWatches(w2)
+    await watches.registerWatch(w2, gamma, 'a2', { cards: [c.number], changes: ['column'] })
+    expect(JSON.parse(readFileSync(file, 'utf8')).watches.map((x: { projectPath: string; projectId?: string }) => [x.projectPath, x.projectId])).toEqual([
+      [gamma, id],
+      [gamma, id]
+    ])
+    await disposeWorkspaceService(w2)
+  })
+
+  it("a watch whose project is gone while another project has its folder is set aside, never the new project's (#508)", async () => {
+    const { w, path, alpha } = await open()
+    fake(alpha)
+    const c = await inWorkspace(w, () => tasks.createTask({ title: 'A', project: 'alpha' }, user))
+    await watches.registerWatch(w, alpha, 'a1', { cards: [c.number], changes: ['comment'] })
+    const file = join(path, '.hive', 'watches.json')
+    const before = readFileSync(file, 'utf8')
+    await disposeWorkspaceService(w)
+    // alpha leaves the workspace, and a new alpha comes, with an agent of the same id.
+    renameSync(alpha, join(path, '..', `${basename(path)}-alpha-elsewhere`))
+    mkdirSync(join(alpha, '.hive'), { recursive: true })
+    writeFileSync(join(alpha, '.hive', 'project.json'), JSON.stringify({ version: 2, agents: [{ id: 'a1', name: 'Someone else' }] }))
+    fake(alpha)
+    const w2 = createWorkspaceService()
+    await w2.open(path)
+    await watches.evaluateWatches(w2)
+    expect(watches.watchFor(alpha, 'a1')).toBeNull()
+    await watches.stampWatchProjects(w2)
+    const saved = JSON.parse(readFileSync(file, 'utf8'))
+    expect(saved.invalid).toEqual([JSON.parse(before).watches[0]])
+    expect(readFileSync(`${file}.before-ids.bak`, 'utf8')).toBe(before)
+    await disposeWorkspaceService(w2)
+  })
+
+  it('Repair gives a watch saved before ids in a renamed project\'s old folder to the project (#508)', async () => {
+    const { w, path, alpha } = await open()
+    fake(alpha)
+    const c = await inWorkspace(w, () => tasks.createTask({ title: 'A', project: 'alpha' }, user))
+    await watches.registerWatch(w, alpha, 'a1', { cards: [c.number], changes: ['comment'] })
+    const file = join(path, '.hive', 'watches.json')
+    const saved = JSON.parse(readFileSync(file, 'utf8'))
+    delete saved.watches[0].projectId
+    writeFileSync(file, JSON.stringify(saved))
+    await disposeWorkspaceService(w)
+    const gamma = join(path, 'gamma')
+    renameSync(alpha, gamma)
+    fake(gamma)
+    const w2 = createWorkspaceService()
+    await w2.open(path)
+    const { movePlan, repairMove } = await import('../src/main/workspaceMove')
+    const plan = await movePlan(w2)
+    expect(plan?.cards).toEqual([expect.objectContaining({ from: 'alpha', to: 'gamma', watches: 1 })])
+    const report = await repairMove(w2)
+    expect(report.failed).toEqual([])
+    expect(watches.watchFor(gamma, 'a1')?.cards).toEqual([c.number])
+    const id = JSON.parse(readFileSync(join(gamma, '.hive', 'project.json'), 'utf8')).id
+    expect(JSON.parse(readFileSync(file, 'utf8')).watches[0]).toMatchObject({ projectPath: gamma, projectId: id })
+    await disposeWorkspaceService(w2)
+  })
+
+  it('the whole workspace moved while Hive was closed: its watches come with it, by their ids, and still wake their agents (#508 round 3)', async () => {
+    // A workspace with no record of where it was (lastPath, #146): the watches with ids say where.
+    const { w, path, alpha } = await open()
+    fake(alpha)
+    const c = await inWorkspace(w, () => tasks.createTask({ title: 'A', project: 'alpha' }, user))
+    await watches.registerWatch(w, alpha, 'a1', { cards: [c.number], changes: ['comment'] })
+    // One saved before ids too, by the Assistant's folder.
+    const file = join(path, '.hive', 'watches.json')
+    await watches.registerWatch(w, w.assistantHome, 'assistant', { cards: [c.number], changes: ['comment'] })
+    expect(JSON.parse(readFileSync(file, 'utf8')).watches.map((x: { projectId?: string }) => !!x.projectId)).toEqual([true, false])
+    await disposeWorkspaceService(w)
+    const to = `${path}-moved`
+    renameSync(path, to)
+    const gamma = join(to, 'alpha')
+    const st = fake(gamma)
+    const w2 = createWorkspaceService()
+    await w2.open(to)
+    await watches.stampWatchProjects(w2)
+    expect(watches.watchFor(gamma, 'a1')?.cards).toEqual([c.number])
+    expect(watches.watchFor(w2.assistantHome, 'assistant')?.cards).toEqual([c.number])
+    expect(JSON.parse(readFileSync(join(to, '.hive', 'watches.json'), 'utf8')).watches.map((x: { projectPath: string }) => x.projectPath)).toEqual([gamma, w2.assistantHome])
+    await inWorkspace(w2, () => tasks.commentTask(c.number, 'Moved and ready', user))
+    await watches.evaluateWatches(w2)
+    expect(st.typed).toEqual([expect.stringContaining('Moved and ready')])
+    await disposeWorkspaceService(w2)
+  })
+
+  it('a project renamed while Hive runs keeps its watches: a change to the card still wakes its agent (#508)', async () => {
+    const { w, path, alpha } = await open()
+    fake(alpha)
+    const c = await inWorkspace(w, () => tasks.createTask({ title: 'A', project: 'alpha' }, user))
+    await watches.registerWatch(w, alpha, 'a1', { cards: [c.number], changes: ['comment'] })
+    const gamma = join(path, 'gamma')
+    renameSync(alpha, gamma)
+    const st = fake(gamma)
+    await new Promise((r) => setTimeout(r, 1100))
+    await inWorkspace(w, () => tasks.commentTask(c.number, 'Ready', user))
+    await watches.evaluateWatches(w)
+    expect(st.typed).toEqual([expect.stringContaining(`#${c.number}`)])
+    expect(st.typed[0]).toContain('Ready')
     await disposeWorkspaceService(w)
   })
 
@@ -1461,5 +1589,21 @@ describe('watches (main/watches.ts)', async () => {
     // Not watching: never.
     expect(watches.watchKeepsQuitWaiting({ ...(st as object), status: 'finished' } as never)).toBeNull()
     await disposeWorkspaceService(w)
+  })
+})
+
+// The Assistant woken from a card watch while lanes run (#402): the line says to watch them all again, kept whole.
+describe("the lanes-running tail of the Assistant's wake", () => {
+  const bytes = (x: string) => Buffer.byteLength(JSON.stringify(x))
+  it('is added once, after the line', () => {
+    const line = '[Hive] #1 is in Doing. Your card watch has ended: carry on.'
+    expect(withLanesTail(line)).toBe(line + LANES_RUNNING_TAIL)
+    expect(withLanesTail(withLanesTail(line))).toBe(line + LANES_RUNNING_TAIL)
+    expect(LANES_RUNNING_TAIL).toMatch(/each lane by its last card \(run-lanes\)/)
+  })
+  it('a long line is cut to make room: the tail is always whole, and the line fits', () => {
+    const out = withLanesTail('[Hive] ' + 'x'.repeat(2000))
+    expect(out.endsWith('…' + LANES_RUNNING_TAIL)).toBe(true)
+    expect(bytes(out)).toBeLessThanOrEqual(WAKE_MAX_BYTES)
   })
 })
