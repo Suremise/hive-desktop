@@ -74,8 +74,13 @@ const check = (name, ok, extra = '') => {
   check('the Board shows six columns', !!(await until(async () => (await page.locator('.board-column').count()) === 6, 5000)))
   const dialog = page.locator('.dialog', { hasText: 'New Card' })
   await page.getByRole('button', { name: 'New Card', exact: true }).click()
-  check('a new card’s title takes the keyboard', !!(await until(() => page.evaluate(() => !!document.activeElement?.classList.contains('task-title-input')), 5000)))
-  check('Escape closes the new card dialog', await escapeCloses(dialog))
+  // Escape as soon as the title has the keyboard (polled often): the first New Card's first render answered Escape with
+  // a view made before its fields opened, asking to discard an empty card, unless something else drew it again (#548).
+  check('a new card’s title takes the keyboard', !!(await lib.until(() => page.evaluate(() => !!document.activeElement?.classList.contains('task-title-input')), 5000, 20)))
+  const escaped = await escapeCloses(dialog)
+  const escapeState = escaped ? '' : await page.evaluate(() => JSON.stringify({ dialogs: [...document.querySelectorAll('.dialog')].map((d) => d.querySelector('.dialog-header')?.textContent?.trim()), active: `${document.activeElement?.tagName}.${document.activeElement?.className}` }))
+  if (!escaped) await page.screenshot({ path: path.join(lib.WORK, 'board-escape.png') })
+  check('Escape closes the new card dialog', escaped, escapeState)
   // That focus comes on a short timer, which a busy window runs late (#229): hold the dialog's short timers until the
   // description has the keyboard, then run them just before the text arrives. It still lands in the description.
   await page.evaluate(() => {
@@ -406,7 +411,9 @@ const check = (name, ok, extra = '') => {
   const names = async () => (await inv('workspace:get')).projects.map((p) => p.name)
   check('Hide takes the project out of Hive', !!(await until(async () => !(await names()).includes('delta'), 8000)))
   check('its folder stays', fs.existsSync(path.join(ws, 'delta')))
-  check('and its cards are archived', (await cards()).find((c) => c.project === 'delta')?.archivedFor === 'project-hidden')
+  const deltaCards = (await cards()).filter((c) => c.project === 'delta')
+  // Evidence for #548: missing (a read that failed) or there but not archived (Hide missed it).
+  check('and its cards are archived', deltaCards[0]?.archivedFor === 'project-hidden', JSON.stringify(deltaCards.map((c) => ({ n: c.number, archived: c.archived, archivedFor: c.archivedFor }))))
   await page.getByRole('button', { name: 'Settings' }).click()
   // Settings → Board: the switch and a picker per column (Doing was changed and put back, so no reset shows).
   await page.locator('.settings-nav .row').filter({ has: page.getByText('Board', { exact: true }) }).click()

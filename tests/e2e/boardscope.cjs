@@ -63,8 +63,28 @@ const until = async (fn, ms = 10000) => {
   await inv('tasks:update', n.A2, { links: [n.B1] })
 
   // The agent's token: the one its hive tools read (from --mcp-config), and the one in its environment.
-  const launch = fs.readFileSync(path.join(claudeHome, 'fake-launches.jsonl'), 'utf8').trim().split('\n').map((l) => JSON.parse(l)).at(-1)
-  const mcpEnv = JSON.parse(fs.readFileSync(launch.opts['--mcp-config'], 'utf8')).mcpServers.hive.env
+  // Its own launch line (by its session id), not the file's last: another launch of the fake can be written after it.
+  const sessionId = (await live())?.sessionId
+  // The fake appends one JSON line per launch: only complete lines (ended by a newline) are read, so a read while the
+  // next launch is half written waits for the rest; a complete line that isn't JSON fails, with the line.
+  const launchesFile = path.join(claudeHome, 'fake-launches.jsonl')
+  const launches = () => {
+    const text = fs.existsSync(launchesFile) ? fs.readFileSync(launchesFile, 'utf8') : ''
+    return text.slice(0, text.lastIndexOf('\n') + 1).split(/\r?\n/).filter(Boolean).map((l) => {
+      try {
+        return JSON.parse(l)
+      } catch (e) {
+        throw new Error(`fake-launches.jsonl has a complete line that isn't JSON (${e.message}): ${l.slice(0, 200)}`, { cause: e })
+      }
+    })
+  }
+  // How long its launch line may take to appear once Hive shows it ready: generous, for a loaded machine.
+  const LAUNCH_RECORD_MS = 20000
+  const launch = await until(() => launches().find((l) => l.sessionId === sessionId && l.opts['--mcp-config']), LAUNCH_RECORD_MS)
+  const mcpServers = launch ? JSON.parse(fs.readFileSync(launch.opts['--mcp-config'], 'utf8')).mcpServers : {}
+  check('the agent launched with the hive MCP server', !!mcpServers.hive, JSON.stringify({ sessionId, launch: !!launch, servers: Object.keys(mcpServers), api: await inv('api:info').then((i) => ({ enabled: i.enabled, running: i.running, url: i.url, error: i.error })) }))
+  if (!mcpServers.hive) throw new Error('no hive server in the launch: the rest needs its token')
+  const mcpEnv = mcpServers.hive.env
   const agentToken = JSON.parse(fs.readFileSync(mcpEnv.HIVE_API_TOKEN_FILE, 'utf8')).token
   const workspaceToken = JSON.parse(fs.readFileSync(path.join(userData, 'agent-api.json'), 'utf8')).token
   check('the agent has a token of its own', !!agentToken && agentToken !== workspaceToken)
