@@ -79,10 +79,26 @@ const check = (name, ok, extra = '') => {
     check(`${name} starts`, ok, ok ? '' : await why(id))
     return ok
   }
+  /** How many times the agent's transcript has `text` as a prompt it took. */
+  const said = async (id, text) => {
+    const sessionId = (await live(id))?.sessionId
+    const items = sessionId ? ((await inv('transcript:read', alpha, sessionId).catch(() => null))?.items ?? []) : []
+    return items.filter((x) => x.kind === 'user' && String(x.text ?? '').trim() === text).length
+  }
+  /**
+   * Types a line to an agent and checks its CLI took it (#564). Under load a line can reach the fake late, after the end
+   * of a turn Hive already shows, and be dropped while it is still busy (as a line typed during a turn is): typed again.
+   */
   const say = async (id, text) => {
-    await inv('pty:write', lib.ptyKey(alpha, id), text)
-    await lib.sleep(300)
-    await inv('pty:write', lib.ptyKey(alpha, id), '\r')
+    const key = lib.ptyKey(alpha, id)
+    const before = await said(id, text)
+    for (let attempt = 0; attempt < 3; attempt++) {
+      // A retry clears what is left on the line first (Ctrl+U); the first try leaves a line Hive typed alone.
+      await inv('pty:write', key, attempt ? `\x15${text}` : text)
+      await until(async () => lib.plainText(await inv('pty:buffer', key).catch(() => '')).trimEnd().endsWith(text), 5000)
+      await inv('pty:write', key, '\r')
+      if (await until(async () => (await said(id, text)) > before, 10000)) return
+    }
   }
   const wait = (n, extra) => `hive hive_wait_for_tasks ${JSON.stringify({ cards: [n], ...extra, wake: true })}`
   const stalledOf = async (n) => (await api('GET', `/v1/tasks/${n}`)).body?.stalled ?? null
