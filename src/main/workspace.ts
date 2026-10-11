@@ -105,9 +105,16 @@ export class WorkspaceService {
   /**
    * Where each project id was last seen while this workspace is open, kept when a read misses it: a read part way through
    * a rename (the folder listed, gone when its project.json is read), or a folder out of the workspace for a while, would
-   * otherwise make its next folder look like a new project, and the board would never hear it was renamed (#555).
+   * otherwise make its next folder look like a new project, and the board would never hear it was renamed (#555). Every
+   * project read now is kept, and of those a read missed only the `absentIdsKept` missed most recently; all go on close.
    */
   private lastAt = new Map<string, string>()
+  /** How many ids a read missed `lastAt` keeps (tests make it small). */
+  static absentIdsKept = 64
+  /** How many ids `lastAt` holds now (for tests). */
+  lastSeenCount(): number {
+    return this.lastAt.size
+  }
   private idsRead: { key: string; run: Promise<ProjectIdIndex> } | null = null
 
   setLiveProvider(p: LiveProvider): void {
@@ -484,7 +491,18 @@ export class WorkspaceService {
     // A project renamed or moved (an id at another folder now): the cards, lanes and watches that name it read differently,
     // so the window and the services that follow the board look again (#508).
     const moved = [...byId].some(([id, p]) => { const before = this.lastAt.get(id); return !!before && before.toLowerCase() !== p.toLowerCase() })
-    for (const [id, p] of byId) this.lastAt.set(id, p)
+    // Each id read now goes last, so those first in the map are the ones missed longest ago: dropped past the bound.
+    for (const [id, p] of byId) {
+      this.lastAt.delete(id)
+      this.lastAt.set(id, p)
+    }
+    let absent = this.lastAt.size - byId.size
+    for (const id of this.lastAt.keys()) {
+      if (absent <= WorkspaceService.absentIdsKept) break
+      if (byId.has(id)) continue
+      this.lastAt.delete(id)
+      absent--
+    }
     if (moved && this.path) this.emit({ type: 'tasks-changed', workspacePath: this.path })
     return index
   }

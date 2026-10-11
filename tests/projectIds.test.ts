@@ -406,6 +406,49 @@ describe('a project seen missing between reads, then at another folder, tells th
   })
 })
 
+describe('what the workspace remembers of projects a read missed is bounded (#555)', () => {
+  it('keeps every project read now and only the most recently missed of the others; a close forgets them all', async () => {
+    const wsPath = join(base, 'ws-bound')
+    project(wsPath, 'keep')
+    const { WorkspaceService } = await import('../src/main/workspace')
+    const kept = WorkspaceService.absentIdsKept
+    WorkspaceService.absentIdsKept = 2
+    const w = createWorkspaceService()
+    await w.open(wsPath)
+    const { onHiveEvent } = await import('../src/main/events')
+    const seen: string[] = []
+    const off = onHiveEvent((e) => {
+      if (e.type === 'tasks-changed') seen.push(e.workspacePath)
+    })
+    try {
+      // Four projects, each read and then out of the workspace: the two missed last are remembered.
+      for (let i = 1; i <= 4; i++) {
+        project(wsPath, `p${i}`)
+        await w.projectIds({ fresh: true })
+        await moveFolder(join(wsPath, `p${i}`), join(base, `ws-bound-out${i}`))
+        await w.projectIds({ fresh: true })
+      }
+      expect(w.lastSeenCount()).toBe(1 + 2)
+      // p1, missed longest ago, is forgotten: back under another name it is a project Hive hasn't seen.
+      seen.length = 0
+      await moveFolder(join(base, 'ws-bound-out1'), join(wsPath, 'p1-back'))
+      await w.projectIds({ fresh: true })
+      expect(seen).toEqual([])
+      // p4 is remembered: back under another name, the board hears of the rename.
+      await moveFolder(join(base, 'ws-bound-out4'), join(wsPath, 'p4-back'))
+      await w.projectIds({ fresh: true })
+      expect(seen).toContain(wsPath)
+      expect(w.lastSeenCount()).toBeLessThanOrEqual(3 + 2)
+      await w.close()
+      expect(w.lastSeenCount()).toBe(0)
+    } finally {
+      off()
+      WorkspaceService.absentIdsKept = kept
+      await disposeWorkspaceService(w)
+    }
+  })
+})
+
 describe('merge holds Hive closed under are told in their project now (#508 round 3)', () => {
   const holdsFile = async (ws: string): Promise<string> => {
     const { hashText } = await import('../src/main/fsutil')
