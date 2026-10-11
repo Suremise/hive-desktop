@@ -63,6 +63,8 @@ import { hiveSkills, parseSkillFrontmatter, skillFor } from './skills'
 import { GUIDANCE_REVISION, launchParts, launchRecord } from './guidance'
 import { notificationIcon } from './paths'
 import { reportPlanUsage } from './planUsage'
+import { devConsole, sessionSourceId } from './devConsole'
+import { hookSummary, statusLineSummary, transcriptEvent } from './devConsoleWords'
 import { revisionOf } from './revisions'
 import { metricsHandle, recordLaunch } from './metrics'
 import { headerOf } from './revisions'
@@ -1216,6 +1218,15 @@ class SessionManager {
     const size = startSize(key)
     const screen = l.adapter.footerMode || l.adapter.modeMenuKeys ? new TerminalScreen(size.cols, size.rows) : null
     l.screen = screen
+    // The developer console (#636): how it was started. Only the command line's switches: their values can hold a prompt.
+    devConsole.capture([sessionSourceId(projectPath, agent.id)], () => ({
+      kind: 'launch',
+      name: 'launch',
+      provider: adapter.id,
+      raw: { file: basename(cmd.file), switches: cmd.args.filter((a) => a.startsWith('-')), cwd, version: info.version },
+      made: { status: state.status, permissionMode: state.permissionMode, modelId: state.modelId, effort: state.effort, resumed: !!l.resumed },
+      summary: `${adapter.descriptor.name} ${info.version ?? ''} started${l.resumed ? ' (resumed)' : ''}; ${state.status}`
+    }))
     spawnPty(key, {
       ...size,
       file: cmd.file,
@@ -1452,6 +1463,7 @@ class SessionManager {
     const asks = l.titleAttention(title)
     if (asks === !!l.titleRead) return
     l.titleRead = asks
+    devConsole.capture([sessionSourceId(l.state.projectPath, l.state.agentId)], () => ({ kind: 'terminal', name: 'title', provider: l.state.provider, raw: { title }, made: { asksYou: asks }, summary: `terminal title: ${asks ? 'asks you' : 'asks nobody'}` }))
     // After the hooks that came before it: they are answered at once and handled one at a time, so a slow one (the
     // first records the session) holds back a prompt and an ask that came before the title (#254).
     const runId = l.state.runId
@@ -1472,6 +1484,7 @@ class SessionManager {
     const text = l.modeTail.replace(/\s+/g, ' ')
     const asked = l.adapter.startupQuestion?.exec(text)
     if (l.state.status === 'starting' && asked) {
+      devConsole.capture([sessionSourceId(l.state.projectPath, l.state.agentId)], () => ({ kind: 'terminal', name: 'startup question', provider: l.state.provider, raw: { screen: asked[0] }, made: { status: 'waiting', trust: asked[0].includes('trust') }, summary: 'terminal: asks something before it starts; waiting' }))
       l.askedAtStart = true
       l.modeTail = ''
       l.state.status = 'waiting'
@@ -1480,6 +1493,7 @@ class SessionManager {
       this.notify(l.state.projectPath, `${this.label(l.state)} needs your input`, l.state.statusMessage, 'waiting', undefined, l.state.agentId)
       this.emitState(l.state)
     } else if (l.adapter.readyOutput?.test(text)) {
+      devConsole.capture([sessionSourceId(l.state.projectPath, l.state.agentId)], () => ({ kind: 'terminal', name: 'ready', provider: l.state.provider, raw: { screen: text.slice(-200) }, made: { status: 'ready' }, summary: 'terminal: its prompt shows; ready' }))
       this.startupAnswered(l)
       l.state.status = 'ready'
       this.emitState(l.state)
@@ -1498,6 +1512,7 @@ class SessionManager {
     if (this.live.get(liveId(l.state.projectPath, l.state.agentId)) !== l || !l.adapter.footerMode) return
     const mode = l.adapter.footerMode(screen.text(), l.launchMode)
     if (mode && (mode !== l.state.permissionMode || mode !== l.state.modeObserved)) {
+      devConsole.capture([sessionSourceId(l.state.projectPath, l.state.agentId)], () => ({ kind: 'terminal', name: 'footer mode', provider: l.state.provider, raw: { footer: mode }, made: { permissionMode: mode, was: l.state.permissionMode }, summary: `terminal footer: mode ${mode}` }))
       l.state.permissionMode = l.state.modeObserved = mode
       this.emitState(l.state)
     }
@@ -1806,6 +1821,7 @@ class SessionManager {
       // Waiting to be taken from here (#430), for whatever Hive types next: recorded once this call is done with it (its
       // own Enter again below is no line over it; nothing else types meanwhile, it holds `delivering`).
       sent = { at: Date.now(), prompts: before }
+      devConsole.capture([sessionSourceId(projectPath, agentId)], () => ({ kind: 'input', name: 'Hive typed a line', provider: l?.state.provider, raw: { text: line }, made: { bracketedPaste: !!l?.screen?.bracketedPaste(), confirm: !!opts.confirm }, summary: `Hive typed a line (${line.length} chars) and Enter` }))
       // confirm: until the CLI reports the prompt submitted. One just resumed and still drawing its conversation can
       // drop the Enter, or take it as a new line (#334): Enter again, which an empty prompt ignores. Still not
       // reported (a CLI that doesn't report prompts), it counts as sent: typing it again could send it twice.
@@ -2098,6 +2114,7 @@ class SessionManager {
       }
     }
     emit({ type: 'session-exit', projectPath, agentId, sessionId, exitCode: code, ...(failure ? { failure } : {}) })
+    devConsole.capture([sessionSourceId(projectPath, agentId)], () => ({ kind: 'exit', name: 'exit', provider: l?.state.provider, raw: { exitCode: code }, made: { failedStart: !!failure, stopRequested: !!l?.stopRequested }, summary: `exited with code ${code}${failure ? ' before it started' : ''}` }))
     this.exitWaiters.get(id)?.()
     this.exitWaiters.delete(id)
     emit({
@@ -2336,7 +2353,10 @@ class SessionManager {
       const end = text.lastIndexOf('\n')
       if (end < 0) return
       l.detailsOffset = start + Buffer.byteLength(text.slice(0, end + 1))
-      this.applyDetails(l, l.adapter.transcriptDetails(text.slice(0, end + 1), (l.detailsMemo ??= {})), hooks)
+      const chunk = text.slice(0, end + 1)
+      const d = l.adapter.transcriptDetails(chunk, (l.detailsMemo ??= {}))
+      devConsole.capture([sessionSourceId(l.state.projectPath, l.state.agentId)], () => transcriptEvent(l.state.provider, chunk, d))
+      this.applyDetails(l, d, hooks)
     } finally {
       await fh.close()
     }
@@ -2606,7 +2626,9 @@ class SessionManager {
     const found = this.findLaunch(runId, body.session_id)
     if (!found?.[1].adapter.statusLine) return
     const l = found[1]
-    this.applyDetails(l, l.adapter.statusLine!(body))
+    const d = l.adapter.statusLine!(body)
+    devConsole.capture([sessionSourceId(l.state.projectPath, l.state.agentId)], () => ({ kind: 'statusline', name: 'status line', provider: l.state.provider, raw: body, made: d, summary: statusLineSummary(d) }))
+    this.applyDetails(l, d)
   }
 
   /** `hooks`: details read from the transcript, as it was when the launch had had that many hooks (readDetails). */
@@ -2843,14 +2865,14 @@ class SessionManager {
    * Handles a hook call from an agent's CLI (already answered; see preToolUse). One launch's hooks run in
    * order: an older one that awaits (recording the session) must not land after a newer one's status.
    */
-  handleHook(runId: string | null, body: Record<string, any>): Promise<void> {
+  handleHook(runId: string | null, body: Record<string, any>, reply: unknown = null): Promise<void> {
     // A turn's end releases only the locks claimed before it arrived: PreToolUse claims them at once, outside this queue.
     const arrived = this.lockSeq
     const launch = this.findLaunch(runId, body.session_id)?.[1]
     // The launch's hooks before this one: what the old conversation had seen, if this one switches conversations.
     const before = launch?.hooksSeen ?? 0
     if (launch) launch.hooksSeen = before + 1
-    return this.inHookOrder(runId ?? `session:${String(body.session_id ?? '')}`, () => this.handleHookNow(runId, body, arrived, before))
+    return this.inHookOrder(runId ?? `session:${String(body.session_id ?? '')}`, () => this.handleHookNow(runId, body, arrived, before, reply))
   }
 
   /** Runs `fn` after what is queued for the launch (its hooks, its title), in the order they came. */
@@ -2864,7 +2886,7 @@ class SessionManager {
     return run
   }
 
-  private async handleHookNow(runId: string | null, body: Record<string, any>, arrived: number, hooksBefore: number): Promise<void> {
+  private async handleHookNow(runId: string | null, body: Record<string, any>, arrived: number, hooksBefore: number, reply: unknown = null): Promise<void> {
     const found = this.findLaunch(runId, body.session_id)
     if (!found) return
     const [id, l] = found
@@ -2900,7 +2922,14 @@ class SessionManager {
       this.sweepTasks(l)
       if (ev.lastMessage) l.lastReply = ev.lastMessage.slice(0, 2000)
     }
-    this.carryOut(id, l, hookStep(ev, this.statusInput(l)), String(body.hook_event_name ?? ''), ev, arrived)
+    const step = hookStep(ev, this.statusInput(l))
+    this.carryOut(id, l, step, String(body.hook_event_name ?? ''), ev, arrived)
+    // The developer console (#636): the hook as it came, next to what Hive made of it.
+    devConsole.capture([sessionSourceId(st.projectPath, st.agentId)], () => {
+      const name = String(body.hook_event_name ?? '(unnamed)')
+      const made = { event: ev, status: st.status, actions: step.actions, ...(reply ? { reply } : {}) }
+      return { kind: 'hook', name, provider: st.provider, raw: body, made, summary: hookSummary(name, body.tool_name, ev.kind, st.status, step.actions, !!reply) }
+    })
   }
 
   /** What the status rules need to know of a running agent. */

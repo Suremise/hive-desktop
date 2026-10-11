@@ -70,6 +70,7 @@ export const SUITES = [
   { name: 'decisions' },
   { name: 'decisionwake' },
   { name: 'defaultprovider' },
+  { name: 'devconsole' },
   { name: 'dialogs' },
   { name: 'doingmove' },
   { name: 'donemove' },

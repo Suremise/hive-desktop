@@ -305,6 +305,14 @@ const APP_ROWS: Row[] = [
     danger: true,
     confirmOn: { title: 'Allow API input to sessions?', message: 'Any program with the API token will be able to type commands into running sessions.' }
   },
+  {
+    section: 'agentApi',
+    key: 'devConsole',
+    title: 'Let agents read the developer console',
+    desc: 'Give agents and the Hive Assistant a read-only hive tool for the developer console: what their CLI sends Hive, next to what Hive made of it.',
+    tip: "Each agent reads only its own sessions; the Assistant reads its workspace's agents and Hive's own events. Capture runs only while one reads (it stops 30 minutes after its last read) or the console is open, and is redacted: no prompt or reply text, tokens or sign-in details. Running sessions get the tool after a restart.",
+    type: 'boolean'
+  },
   { section: 'agentApi', key: 'token', title: 'Access token', desc: 'Bearer token required by the Agent API.', tip: 'Stored in %APPDATA%\\Hive\\agent-api.json. Sessions receive it automatically as HIVE_API_TOKEN.', type: 'custom' },
   {
     section: 'agentApi',
@@ -584,7 +592,7 @@ const READ_ONLY: [RegExp, string][] = [[/^keybindings\./, 'Shortcuts are read-on
 
 const RESTART: [RegExp, NonNullable<SettingEntry['restart']>][] = [
   [/^(project\.)?[\w-]+\.(executablePath|defaultModel|defaultEffort|model|effort|extraArgs|use200kContext|allowBackgroundSessions|defaultPermissionMode|permissionMode)$/, 'sessions'],
-  [/^general\.progressCommands$|^agentApi\.provideHiveMcp$/, 'sessions'],
+  [/^general\.progressCommands$|^agentApi\.(provideHiveMcp|devConsole)$/, 'sessions'],
   [/^assistant\.(control|changeSettings|provider|persona)$|^assistant\.provider:|^assistant\.[\w-]+\.\w+$/, 'assistant']
 ]
 

@@ -3,6 +3,8 @@ import { initLoopWakes } from './loopWakes'
 import { initLoopCheck } from './loopCheck'
 import { initAgentMessages } from './agentMessages'
 import { initDecisionWakes } from './decisionWakes'
+import { initDevConsole } from './devConsoleSources'
+import { devConsole } from './devConsole'
 import { initAssistantModes } from './assistantMode'
 import { app, BrowserWindow, dialog, Menu, nativeTheme, Notification, protocol, screen, session, shell } from 'electron'
 import { execFile } from 'child_process'
@@ -600,6 +602,8 @@ function wireSettingsEffects(): void {
     const refreshAll = (): void => {
       for (const w of openWorkspaces()) w.scheduleRefresh()
     }
+    // Agents may no longer read the developer console: what they were capturing stops now, not when their leases end.
+    if (prev.agentApi.devConsole && !s.agentApi.devConsole) devConsole.endReaders()
     if (JSON.stringify(s.agentApi) !== JSON.stringify(prev.agentApi)) void startApiServer().then(refreshAll)
     // Session settings changed: refresh "restart to apply", and offer to switch running agents to a new permission mode.
     else if (JSON.stringify(s.providers) !== JSON.stringify(prev.providers) || s.defaultProvider !== prev.defaultProvider || JSON.stringify(s.assistant) !== JSON.stringify(prev.assistant)) refreshAll()
@@ -712,6 +716,8 @@ app.whenReady().then(async () => {
           HIVE_ASSISTANT_CONTROL: config.settings.assistant?.control ?? 'projects',
           // Its settings tool (hive_update_setting) is offered only with Change settings on: a change restarts it.
           HIVE_ASSISTANT_SETTINGS: config.settings.assistant?.changeSettings === true ? '1' : '0',
+          // The developer console's tool (hive_console) is offered only while Settings → Agent API lets agents read it.
+          HIVE_DEV_CONSOLE: config.settings.agentApi.devConsole === true ? '1' : '0',
           ...testMcpLog()
         }
       }
@@ -734,6 +740,7 @@ app.whenReady().then(async () => {
         ...(agentId ? { HIVE_AGENT_ID: agentId } : {}),
         // Whether its instructions tell it to run long commands through hive-progress unasked.
         HIVE_PROGRESS_COMMANDS: wrapsLongCommands(config.settings.general) ? '1' : '0',
+        HIVE_DEV_CONSOLE: s.devConsole === true ? '1' : '0',
         ...testMcpLog()
       }
     }
@@ -744,6 +751,7 @@ app.whenReady().then(async () => {
   initLoopCheck()
   initAgentMessages()
   initDecisionWakes()
+  initDevConsole()
   initAssistantModes()
   // A watcher stops keeping a pending quit waiting when the card it waits on leaves another agent's work (no wake comes).
   onWatchedCardsMoved(() => checkPendingQuit())

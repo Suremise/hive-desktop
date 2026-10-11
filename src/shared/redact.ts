@@ -45,6 +45,12 @@ export function redact(text: string, ctx: RedactContext): string {
   for (const n of [...ctx.names].filter((x) => x.name.trim().length > 1).sort((a, b) => b.name.length - a.name.length)) {
     out = out.replace(new RegExp(String.raw`(?<![\w-])${escape(n.name.trim())}(?![\w-])`, 'gi'), n.as)
   }
+  return maskSecrets(out)
+}
+
+/** Masks only what looks like a secret (tokens, keys, authorization headers, emails), leaving names and paths. */
+export function maskSecrets(text: string): string {
+  let out = text
   for (const [re, by] of SECRETS) out = out.replace(re, by)
   return out
 }

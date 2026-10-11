@@ -865,6 +865,14 @@ To make one, open **Settings → Agent API → Viewer tokens**, type a name for 
 
 The app finds a running Hive by itself: while the Agent API is on, Hive keeps its address (never a token) in `%APPDATA%\Hive\agent-api-discovery.json`, and removes it when the API is turned off or Hive quits.
 
+### Agents reading the developer console
+
+Hive's developer console shows what each coding agent's CLI sends Hive (its hooks, status line, transcript records, the terminal signs Hive reacts to) next to what Hive made of each: the status it set, the details it read. **Settings → Agent API → Let agents read the developer console** gives agents and the Hive Assistant a read-only tool for it (`hive_console`), so they can see what their CLI does while they build and debug. It is off unless you turn it on, and running sessions get the tool when they next start.
+
+- Each agent reads **only its own sessions**. The Assistant reads its workspace's agents, its own session, and Hive's own events there (Agent API calls, merge slots, watches waking agents, Progress runs).
+- Nothing is captured until something reads it: a read starts capture, which ends 30 minutes after the last read. Hive keeps the newest 500 events of each agent, in memory only.
+- What it captures is **redacted**: no prompt or reply text, commands, tokens or sign-in details. Names of tools and files, session ids and the numbers (usage, plan limits, costs) stay.
+
 ## Updating Hive
 
 Hive keeps itself up to date from its GitHub releases. By default it checks shortly after starting and every six hours, downloads a new version in the background, and installs it the next time you quit Hive — it never restarts on its own, so your agents are never interrupted.

@@ -93,6 +93,7 @@ import type { ProjectPref, ProjectPrefValue } from './uiPrefs'
 import type { TipsChange, TipsState } from './tips'
 import type { GitTool } from './gitTool'
 import type { BoardFoldChange } from './tasks'
+import type { ConsoleEvent, ConsoleSource } from './devConsole'
 
 type DeepPartial<T> = { [K in keyof T]?: T[K] extends object ? DeepPartial<T[K]> : T[K] }
 export type SettingsPatch = DeepPartial<AppSettings>
@@ -481,6 +482,16 @@ export interface HiveRequests {
   'progress:openLog': (id: string) => void
   /** Shows the log a run reported in its folder. */
   'progress:showLog': (id: string) => void
+  /** The developer console's sources in this window's workspace (#636): its agents, its Assistant and Hive itself. */
+  'console:sources': () => ConsoleSource[]
+  /**
+   * What this window watches in the developer console: replaces its list ([] ends it) and returns each source's events
+   * so far. Capture runs while a window or reader watches; live events come as `console-events`. `includeText` keeps
+   * prompt and reply text in what this window is sent (secrets stay masked); off by default.
+   */
+  'console:subscribe': (sources: string[], opts?: { includeText?: boolean }) => Record<string, ConsoleEvent[]>
+  /** A watched source's events after `since` (a seq), oldest first. */
+  'console:snapshot': (source: string, since?: number) => ConsoleEvent[]
   'personas:list': () => PersonaInfo[]
   'personas:create': (name: string) => PersonaInfo
   /** Moves the persona's file to the Recycle Bin. */

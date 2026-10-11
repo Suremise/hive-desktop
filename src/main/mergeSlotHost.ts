@@ -14,6 +14,7 @@ import { workspace, workspaceFor, workspaceOf, type WorkspaceService } from './w
 import { keepBeforeIds } from './beforeIds'
 import { rebase, samePath } from '../shared/movePaths'
 import { NO_PROJECT_IDS, type ProjectIdIndex } from '../shared/projectIds'
+import { devConsole, hiveSourceId, sessionSourceId } from './devConsole'
 
 const log = createLogger('mergeSlots')
 
@@ -57,6 +58,13 @@ function changed(projectPath: string): void {
   emit({ type: 'merge-slots-changed', workspacePath: ws, slots: workspaceSlots(ws) })
   void save(ws).catch((e) => log.warn('saving the merge slots', e))
   testLog(ws)
+  // The developer console (#636): who holds the project's slots and who waits, as they change.
+  devConsole.capture([hiveSourceId(ws)], () => {
+    const slots = workspaceSlots(ws).filter((s) => s.project.toLowerCase() === basename(projectPath).toLowerCase())
+    const made = slots.map((s) => ({ branch: s.branch, holder: s.holder && { agentId: s.holder.agentId ?? null, name: s.holder.name, cards: s.holder.cards }, waiting: s.waiting.map((w) => w.name) }))
+    const line = slots.map((s) => `${s.branch}: ${s.holder ? `held by ${s.holder.name}` : 'free'}${s.waiting.length ? `, ${s.waiting.length} waiting` : ''}`).join('; ')
+    return { kind: 'merge-slot', name: 'slots changed', raw: { project: basename(projectPath) }, made, summary: `merge slot ${basename(projectPath)} → ${line || 'free'}` }
+  })
 }
 
 /**
@@ -69,12 +77,16 @@ function testLog(workspacePath: string): void {
 }
 
 /**
- * Test builds only (the same log): an agent's claim or release as it ended, with the branch it resolved to (a call
- * naming none takes the project folder's) and what it did: held or in line; released, left the line, or nothing to
- * release (#374). A scenario tells the agent's own release from a hold that ended otherwise (its session's end, the user).
+ * An agent's claim or release as it ended, with the branch it resolved to (a call naming none takes the project folder's)
+ * and what it did: held or in line; released, left the line, or nothing to release. Test builds log it (the same log,
+ * #374), so a scenario tells the agent's own release from a hold that ended otherwise (its session's end, the user); the
+ * developer console shows it (#636).
  */
 export function slotTestEvent(agent: SlotAgent, projectPath: string, branch: string, result: ClaimResult | ReleaseResult): void {
   const outcome = 'held' in result ? (result.held ? 'held' : 'in line') : 'released' in result ? 'released' : 'left' in result ? 'left' : 'none'
+  const ws = workspacePathOf(projectPath)
+  const event = 'held' in result ? 'claim' : 'release'
+  devConsole.capture([ws && hiveSourceId(ws), sessionSourceId(projectPath, agent.agentId)], () => ({ kind: 'merge-slot', name: event, raw: { project: basename(projectPath), branch, agent: agent.agentName }, made: { outcome }, summary: `merge slot ${event} by ${agent.agentName} on ${branch} → ${outcome}` }))
   writeTestLog({ at: new Date().toISOString(), event: 'held' in result ? 'claim' : 'release', project: projectPath, branch, agentId: agent.agentId, agent: agent.agentName, outcome })
 }
 

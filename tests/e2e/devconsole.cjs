@@ -1,0 +1,155 @@
+// The developer console's capture (#636): nothing is captured until someone watches; a watched agent's launch, hooks
+// and status line arrive live, each next to what Hive made of it (the status it set), redacted (the prompt's text never
+// reaches the console); an agent reads its own session over the Agent API and no other source (refused as unknown), the
+// workspace token reads Hive's own events (an agent's API call), the setting off refuses every read and ends agents'
+// captures, and capture stops when the last watcher goes. Fake Claude Code; dev build, throwaway profile, workspace and CLAUDE_CONFIG_DIR.
+const lib = require('./lib.cjs')
+const { _electron } = require('playwright-core')
+const fs = require('fs')
+const path = require('path')
+// The longest a wait here waits for what it waits on: a bound for a hung run, never how long it should take (#570).
+const HUNG_MS = 30000
+
+const userData = path.join(lib.WORK, 'devconsole-profile')
+const ws = path.join(lib.WORK, 'devconsole-ws')
+const claudeHome = path.join(lib.WORK, 'devconsole-claude-home')
+const alpha = path.join(ws, 'alpha')
+const PORT = Number(lib.port(47871))
+const BASE = `http://127.0.0.1:${PORT}`
+// What the prompt says that must never reach the console.
+const PRIVATE = 'zebra-umbrella-quartz'
+let failed = 0
+const check = (name, ok, extra = '') => {
+  if (!ok) failed++
+  console.log(`${ok ? 'PASS' : 'FAIL'} ${name}${ok || !extra ? '' : ` (${extra})`}`)
+}
+
+;(async () => {
+  for (const d of [userData, ws]) fs.rmSync(d, { recursive: true, force: true })
+  lib.gitProject(alpha)
+  const claudeEnv = lib.fakeClaude(userData, claudeHome, [alpha, ws])
+  const cfgFile = path.join(userData, 'config.json')
+  const cfg = JSON.parse(fs.readFileSync(cfgFile, 'utf8'))
+  cfg.settings.general = { ...cfg.settings.general, confirmOnQuit: 'never' }
+  cfg.settings.agentApi = { ...cfg.settings.agentApi, enabled: true, devConsole: true }
+  fs.writeFileSync(cfgFile, JSON.stringify(cfg, null, 2))
+
+  const env = lib.hiveEnv({ HIVE_USER_DATA: userData, HIVE_API_PORT: String(PORT), ...claudeEnv })
+  const app = await _electron.launch({ executablePath: lib.ELECTRON, args: [lib.ROOT], cwd: lib.ROOT, env })
+  try {
+    const page = await app.firstWindow()
+    page.on('pageerror', (e) => check('no page errors', false, e.message))
+    await lib.fitWindow(app, page, { width: 1400, height: 850 })
+    await lib.appReady(page)
+    const inv = (ch, ...a) => page.evaluate(([c, x]) => window.hive.invoke(c, ...x), [ch, a])
+    await lib.openWorkspace(inv, page, ws)
+    await lib.waitForProvider(inv)
+    const apiToken = JSON.parse(fs.readFileSync(path.join(userData, 'agent-api.json'), 'utf8')).token
+    const api = async (method, route, token = apiToken) => {
+      const r = await fetch(`${BASE}${route}`, { method, headers: { Authorization: `Bearer ${token}` } })
+      return { status: r.status, body: await r.json().catch(() => null) }
+    }
+
+    const b1 = await lib.addAgent(inv, alpha, { name: 'B1' })
+    const b2 = await lib.addAgent(inv, alpha, { name: 'B2' })
+    const sources = await lib.until(async () => {
+      const list = await inv('console:sources')
+      return list.some((s) => s.agentId === b1.id) && list.some((s) => s.agentId === b2.id) ? list : null
+    }, HUNG_MS)
+    const b1Source = sources?.find((s) => s.agentId === b1.id)
+    check("the window lists the workspace's agents, its Assistant and Hive as sources", !!b1Source && sources.some((s) => s.kind === 'assistant') && sources.some((s) => s.kind === 'hive'), JSON.stringify(sources))
+    check('…none of them captured while nobody watches', sources?.every((s) => !s.capturing && s.events === 0), JSON.stringify(sources))
+
+    // --- The window watches B1 before it starts: its launch, hooks and status line arrive live, with what Hive made of each.
+    await page.evaluate(() => {
+      window.__console = []
+      window.hive.onEvent((e) => {
+        if (e.type === 'console-events') window.__console.push(...e.events)
+      })
+    })
+    const snapshot = await inv('console:subscribe', [b1Source.id])
+    check('subscribing starts its capture, empty so far', Array.isArray(snapshot[b1Source.id]) && snapshot[b1Source.id].length === 0, JSON.stringify(snapshot))
+    const live = () => page.evaluate(() => window.__console)
+    const seen = (pred) => lib.until(async () => (await live()).find(pred), HUNG_MS)
+
+    await inv('session:start', alpha, { agentId: b1.id })
+    const launched = await seen((e) => e.kind === 'launch')
+    check("its launch: the CLI's switches and version, not its arguments", launched?.raw?.switches?.every((a) => a.startsWith('-')) && launched?.made?.status !== undefined, JSON.stringify(launched))
+    const started = await seen((e) => e.kind === 'hook' && e.name === 'SessionStart')
+    check('SessionStart arrives next to what Hive made of it', started?.made?.event?.kind === 'start' && typeof started.made.status === 'string' && started.summary.startsWith('SessionStart → start;'), JSON.stringify(started))
+    check('…from the provider that sent it', started?.provider === 'claude-code')
+    await lib.until(async () => (await inv('session:live')).find((s) => s.agentId === b1.id)?.status === 'ready', HUNG_MS)
+
+    const key = lib.ptyKey(alpha, b1.id)
+    const sent = await lib.sendPrompt(inv, key, `edit a.ts window 150000 ${PRIVATE}`, { submitted: async () => !!(await live()).find((e) => e.name === 'UserPromptSubmit') })
+    check('the prompt is taken', sent > 0)
+    const prompt = await seen((e) => e.name === 'UserPromptSubmit')
+    check('UserPromptSubmit: Hive took it for a prompt and set the agent working', prompt?.made?.event?.kind === 'prompt' && prompt.made.status === 'working', JSON.stringify(prompt?.made))
+    check('…its text hidden, only its length kept', /^<text: \d+ chars>$/.test(prompt?.raw?.prompt ?? ''), JSON.stringify(prompt?.raw))
+    const pre = await seen((e) => e.name === 'PreToolUse')
+    check('PreToolUse (Edit): its tool and file kept, its edit hidden', pre?.raw?.tool_name === 'Edit' && (pre.raw.tool_input?.file_path ?? '').endsWith('a.ts') && (pre.raw.tool_input?.old_string ?? '').startsWith('<text'), JSON.stringify(pre?.raw))
+    const stop = await seen((e) => e.name === 'Stop')
+    check('Stop: Hive ended the turn', stop?.made?.event?.kind === 'stop' && stop.made.actions?.includes('turnEnded'), JSON.stringify(stop?.made))
+    const statusLine = await seen((e) => e.kind === 'statusline')
+    check('the status line: next to the context window Hive read from it', statusLine?.made?.contextWindow === 150000 && /window 150000/.test(statusLine.summary), JSON.stringify(statusLine))
+    const all = JSON.stringify(await live())
+    check('the prompt\'s words reach no event (raw, made or summary)', !all.includes(PRIVATE))
+    const snap = await inv('console:snapshot', b1Source.id, 0)
+    check("the window's snapshot is the same events", snap.length >= 4 && snap.every((e) => e.source === b1Source.id), String(snap.length))
+
+    // --- B1 reads its own session over the Agent API (its own token), and no other source.
+    const tokenDir = path.join(userData, 'agent-api')
+    const b1Token = JSON.parse(fs.readFileSync(path.join(tokenDir, fs.readdirSync(tokenDir).find((f) => f.endsWith('.json'))), 'utf8')).token
+    const own = await api('GET', '/v1/console/events', b1Token)
+    check('an agent reads its own session: rows, not payloads', own.status === 200 && own.body.events.some((e) => e.name === 'UserPromptSubmit') && own.body.events.every((e) => e.raw === undefined), JSON.stringify(own.body).slice(0, 400))
+    const full = await api('GET', `/v1/console/events?seq=${prompt.seq}`, b1Token)
+    check('…and one in full on request, still redacted', full.status === 200 && full.body.events[0]?.raw?.prompt?.startsWith('<text:') && !JSON.stringify(full.body).includes(PRIVATE), JSON.stringify(full.body).slice(0, 300))
+    for (const [what, q] of [
+      ['another agent of its project', `agent=B2`],
+      ["Hive's own events", 'source=hive'],
+      ["the Assistant's", 'source=assistant'],
+      ['an agent that does not exist', 'agent=Nobody']
+    ]) {
+      const r = await api('GET', `/v1/console/events?${q}`, b1Token)
+      check(`…not ${what}: refused as unknown`, r.status === 404 && r.body?.error === 'Not a developer console source you can read', `${r.status} ${JSON.stringify(r.body)}`)
+    }
+    const listed = await api('GET', '/v1/console/sources', b1Token)
+    check('…and lists only its own session', listed.status === 200 && listed.body.length === 1 && listed.body[0].agent === 'B1' && listed.body[0].reading === true, JSON.stringify(listed.body))
+
+    // --- The workspace token reads Hive's own events: B1's API call shows there and in B1's session.
+    const hiveFirst = await api('GET', '/v1/console/events?source=hive')
+    check('reading Hive starts its capture', hiveFirst.status === 200 && hiveFirst.body.started === true, JSON.stringify(hiveFirst.body))
+    await api('GET', '/v1/status', b1Token)
+    const hiveEvents = await lib.until(async () => {
+      const r = await api('GET', `/v1/console/events?source=hive&since=${hiveFirst.body.newest}`)
+      return r.body?.events?.find((e) => e.kind === 'api' && e.name === 'GET /v1/status') ? r.body : null
+    }, HUNG_MS)
+    check("an agent's API call is in Hive's events, who made it and how it went", /by agent .* → 200 ok/.test(hiveEvents?.events.find((e) => e.name === 'GET /v1/status')?.summary ?? ''), JSON.stringify(hiveEvents))
+    check('…and in its own session', (await inv('console:snapshot', b1Source.id, 0)).some((e) => e.kind === 'api' && e.name === 'GET /v1/status'))
+    check("…but the console's own reads aren't", !(await inv('console:snapshot', b1Source.id, 0)).some((e) => e.name.includes('/v1/console')))
+
+    // --- Off in Settings: every read is refused.
+    await inv('settings:update', { agentApi: { devConsole: false } })
+    const off = await api('GET', '/v1/console/events', b1Token)
+    check('with the setting off, reading is refused', off.status === 403 && /Settings → Agent API/.test(off.body?.error ?? ''), JSON.stringify(off))
+    await inv('settings:update', { agentApi: { devConsole: true } })
+    const again = await api('GET', '/v1/console/events', b1Token)
+    check("…and turning it off ended the agent's capture: its next read starts it again", again.status === 200 && again.body.started === true, JSON.stringify(again.body).slice(0, 300))
+
+    // --- Capture stops once the last watcher goes: the window, B1's lease, the workspace token's.
+    await inv('console:subscribe', [])
+    const stillB1 = (await inv('console:sources')).find((s) => s.id === b1Source.id)
+    check("the window leaving keeps B1's own capture (its lease)", stillB1?.capturing === true, JSON.stringify(stillB1))
+    const stopped = await api('DELETE', '/v1/console/capture', b1Token)
+    check('B1 stops its capture', stopped.status === 200 && stopped.body.stopped === 1, JSON.stringify(stopped))
+    await api('DELETE', '/v1/console/capture')
+    const after = await inv('console:sources')
+    check('…and with nobody watching, nothing is captured or kept', after.every((s) => !s.capturing && s.events === 0), JSON.stringify(after))
+  } catch (e) {
+    check('the suite ran to its end', false, e.stack)
+  } finally {
+    await app.close().catch(() => undefined)
+  }
+  console.log(failed ? `${failed} FAILED` : 'ALL PASSED')
+  process.exit(failed ? 1 : 0)
+})()

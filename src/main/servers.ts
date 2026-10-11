@@ -58,6 +58,9 @@ import { clearDiscovery, writeDiscovery } from './apiDiscovery'
 import { createViewerToken, loadViewerTokens, revokeViewerToken, viewerForToken, viewerTokens } from './viewerTokens'
 import { hookTokenMatches } from './hookTokens'
 import { unusedWorktreeCounts } from './unusedWorktrees'
+import { LEASE_MS, devConsole, hiveSourceId, sessionSourceId } from './devConsole'
+import { consoleSources } from './devConsoleSources'
+import { CONSOLE_KINDS, mayRead, type ConsoleEvent, type ConsoleKind, type ConsoleReader } from '../shared/devConsole'
 
 const log = createLogger('servers')
 const MAX_BODY = 2 * 1024 * 1024
@@ -117,7 +120,11 @@ export async function startHookServer(): Promise<string> {
     const query = new URL(req.url, 'http://127.0.0.1').searchParams
     const run = query.get('run')
     // Only the launch's own token, while it runs (#345).
-    if (!hookTokenMatches(run, req.headers.authorization)) return send(res, 401, { error: 'unauthorized' })
+    if (!hookTokenMatches(run, req.headers.authorization)) {
+      // The developer console (#636): a hook refused (an ended launch's, or a wrong token), in every workspace watched.
+      devConsole.capture(devConsole.capturedLike('hive:'), () => ({ kind: 'hook-server', name: 'refused', raw: { statusline: query.has('statusline'), run: !!run }, made: { status: 401 }, summary: `hook refused (${run ? "not this launch's token, or it has ended" : 'no launch named'})` }))
+      return send(res, 401, { error: 'unauthorized' })
+    }
     try {
       const body = JSON.parse((await readBody(req)) || '{}')
       if (query.has('statusline')) {
@@ -131,7 +138,7 @@ export async function startHookServer(): Promise<string> {
       const reply = body.hook_event_name === 'PreToolUse' ? sessions.preToolUse(run, body) : null
       res.writeHead(200, { 'Content-Type': 'application/json' })
       res.end(JSON.stringify(reply ?? {}))
-      await sessions.handleHook(run, body)
+      await sessions.handleHook(run, body, reply)
     } catch (e) {
       log.warn('hook error', e)
       if (!res.headersSent) send(res, 400, { error: 'bad request' })
@@ -199,6 +206,8 @@ interface ApiRequest {
   /** Not counted as API traffic: the bridge's own metrics reports, event streams (counted as streams), the health check. */
   skip: boolean
   authenticated: boolean
+  /** The request's workspace, as far as it was known (the developer console's Hive events). */
+  ws: string | null
 }
 const apiRequests = new WeakMap<ServerResponse, ApiRequest>()
 
@@ -2006,6 +2015,134 @@ async function progressCall<T>(ignored: T, change: (caller: ProgressCaller) => T
 // The Progress panel's runs (#620), newest first, as the panel lists them (Recent from before a restart included), in
 // their public form (publicRun: no command line or reporter's text): the request's workspace's, or for a project agent
 // its project's. Empty with the panel turned off.
+// ---------------------------------------------------------------------------
+// Developer console (#636): read-only and redacted, while Settings → Agent API lets agents read it. A project agent reads
+// its own sessions, the Assistant its workspace's; reading starts capture for the reader, for LEASE_MS after its last read.
+// ---------------------------------------------------------------------------
+
+/** Events a read gives at most, and the events whose payloads one read gives in full. */
+const CONSOLE_ROWS = 30
+const CONSOLE_ROWS_MAX = 100
+const CONSOLE_DETAIL_MAX = 3
+const NOT_READABLE = 'Not a developer console source you can read'
+
+function consoleReader(): ConsoleReader {
+  const a = agentCaller()
+  if (a) return { kind: 'agent', projectPath: a.projectPath, agentId: a.agentId }
+  const own = assistantCaller()
+  return own ? { kind: 'assistant', workspace: own } : { kind: 'all' }
+}
+
+/** Whose capture a read keeps going: one per agent, per Assistant, per viewer, and one for the workspace token. */
+function consoleOwner(): string {
+  const a = agentCaller()
+  if (a) return `agent:${sessionSourceId(a.projectPath, a.agentId)}`
+  const own = assistantCaller()
+  if (own) return `assistant:${own}`
+  const v = viewerCaller()
+  return v ? `viewer:${v.id}` : 'api'
+}
+
+function consoleAllowed(): void {
+  if (config.settings.agentApi.devConsole !== true) throw new HttpError(403, 'Reading the developer console is off: the user can turn it on in Settings → Agent API → Let agents read the developer console')
+}
+
+const consoleWorkspaceOf = (projectPath: string): string | null => workspaceFor(projectPath)?.path ?? null
+
+/**
+ * The source a console request names: source=hive or source=assistant (the request's workspace), or an agent (agent,
+ * and project unless it is the caller's own); a project agent naming none reads its own session. Anything the caller
+ * may not read is refused as if it didn't exist (404), and so is anything an agent names that doesn't.
+ */
+async function consoleSource(query: URLSearchParams): Promise<string> {
+  const which = query.get('source')
+  const project = query.get('project')
+  const agent = query.get('agent')
+  const me = agentCaller()
+  let id: string
+  try {
+    if (which === 'hive') id = hiveSourceId(requireWorkspace().path!)
+    else if (which === 'assistant') id = sessionSourceId(requireWorkspace().assistantHome, ASSISTANT_AGENT_ID)
+    else if (which) throw new HttpError(400, 'source is hive or assistant; name an agent with agent (and project)')
+    else if (!project && !agent) {
+      if (!me) throw new HttpError(400, 'Say which source: agent (and project), source=assistant or source=hive')
+      id = sessionSourceId(me.projectPath, me.agentId)
+    } else {
+      const p = project ? projectByName(project) : me?.projectPath
+      if (!p) throw new HttpError(400, 'project is required with agent')
+      id = sessionSourceId(p, await agentParam(p, agent ?? undefined))
+    }
+  } catch (e) {
+    // An agent learns nothing of what it can't read: an unknown project or agent is refused as one it may not read.
+    if (me && !(e instanceof HttpError && e.status === 400)) throw new HttpError(404, NOT_READABLE)
+    throw e
+  }
+  if (!mayRead(consoleReader(), id, consoleWorkspaceOf)) throw new HttpError(404, NOT_READABLE)
+  return id
+}
+
+/** A source as a reply names it, from its workspace's list (its label, provider, and whether it is being captured). */
+function consoleRow(id: string, reading: string[]) {
+  const ws = contextWorkspace()
+  const r = ws ? consoleSources(ws).find((x) => x.id === id) : undefined
+  return { id, label: r?.label ?? id, kind: r?.kind ?? (id.startsWith('hive:') ? 'hive' : 'session'), ...(r?.project ? { project: r.project } : {}), ...(r?.agent ? { agent: r.agent } : {}), ...(r?.provider ? { provider: r.provider } : {}), capturing: devConsole.capturing(id), events: devConsole.count(id), reading: reading.includes(id) }
+}
+
+const consoleRowOf = (e: ConsoleEvent) => ({ seq: e.seq, at: e.at, kind: e.kind, name: e.name, summary: e.summary, ...(e.truncated ? { truncated: true } : {}) })
+
+route('GET', '/v1/console/sources', async () => {
+  consoleAllowed()
+  const reader = consoleReader()
+  const reading = devConsole.sourcesOf(consoleOwner())
+  return consoleSources(requireWorkspace())
+    .filter((s) => mayRead(reader, s.id, consoleWorkspaceOf))
+    .map((s) => consoleRow(s.id, reading))
+})
+
+route('GET', '/v1/console/events', async ({ query }) => {
+  consoleAllowed()
+  const id = await consoleSource(query)
+  const owner = consoleOwner()
+  const started = !devConsole.sourcesOf(owner).includes(id)
+  // Reading starts the reader's capture of the source, or renews it.
+  try {
+    devConsole.watch(owner, [id], { leaseMs: LEASE_MS })
+  } catch (e) {
+    throw new HttpError(429, (e as Error).message)
+  }
+  const leaseEnds = new Date(devConsole.leaseEnd(owner) ?? Date.now()).toISOString()
+  const source = consoleRow(id, devConsole.sourcesOf(owner))
+  const seqs = (query.get('seq') ?? '').split(',').map((x) => Number(x.trim())).filter((n) => Number.isInteger(n) && n > 0)
+  if (seqs.length) {
+    if (seqs.length > CONSOLE_DETAIL_MAX) throw new HttpError(400, `At most ${CONSOLE_DETAIL_MAX} events in full at a time`)
+    const events = seqs.map((n) => devConsole.event(id, n)).filter((e): e is ConsoleEvent => !!e)
+    return { source, started, leaseEnds, events, missing: seqs.filter((n) => !events.some((e) => e.seq === n)) }
+  }
+  const kinds = (query.get('kinds') ?? '').split(',').map((k) => k.trim()).filter(Boolean)
+  const unknown = kinds.filter((k) => !(CONSOLE_KINDS as readonly string[]).includes(k))
+  if (unknown.length) throw new HttpError(400, `Unknown event kinds: ${unknown.join(', ')} (kinds are ${CONSOLE_KINDS.join(', ')})`)
+  const since = Math.max(0, Number(query.get('since')) || 0)
+  const limit = Math.min(CONSOLE_ROWS_MAX, Math.max(1, Number(query.get('limit')) || CONSOLE_ROWS))
+  const after = devConsole.events(id, since).filter((e) => !kinds.length || kinds.includes(e.kind as ConsoleKind))
+  // The first read gives the newest; a read with since carries on from there, oldest first, so paging misses none.
+  const events = since ? after.slice(0, limit) : after.slice(-limit)
+  const rest = after.length - events.length
+  return { source, started, leaseEnds, events: events.map(consoleRowOf), ...(rest ? (since ? { newer: rest } : { older: rest }) : {}), newest: events.length ? events[events.length - 1].seq : since }
+})
+
+route('DELETE', '/v1/console/capture', async ({ query }) => {
+  const owner = consoleOwner()
+  const named = query.get('source') || query.get('agent') || query.get('project')
+  const had = devConsole.sourcesOf(owner)
+  if (!named) {
+    devConsole.unsubscribe(owner)
+    return { stopped: had.length }
+  }
+  const id = await consoleSource(query)
+  devConsole.unsubscribe(owner, [id])
+  return { stopped: had.includes(id) ? 1 : 0 }
+})
+
 route('GET', '/v1/progress', async () => {
   const ws = requireWorkspace()
   const workspacePath = ws.path!
@@ -2037,13 +2174,15 @@ async function handleApi(req: IncomingMessage, res: ServerResponse): Promise<voi
   // Measured from here to the response's end (or the client going away): latency on the monotonic clock, bodies'
   // UTF-8 bytes, outcome. Recorded once it ends, never in the way of the request.
   const started = metricsClock.mono()
-  const m: ApiRequest = { route: '(no route)', handle: null, project: null, role: 'unknown', requestBytes: 0, responseBytes: 0, skip: false, authenticated: false }
+  const m: ApiRequest = { route: '(no route)', handle: null, project: null, role: 'unknown', requestBytes: 0, responseBytes: 0, skip: false, authenticated: false, ws: null }
   apiRequests.set(res, m)
   appMetrics.requestStarted()
+  let who: Caller | null = null
   res.once('close', () => {
     appMetrics.requestEnded()
     if (!m.authenticated) appMetrics.unauthenticated()
     else if (!m.skip && m.handle) recordApi(m.handle, m.project, { route: m.route, method: req.method ?? '', role: m.role, outcome: outcomeOf(res), requestBytes: m.requestBytes, responseBytes: m.responseBytes, ms: metricsClock.mono() - started })
+    if (m.authenticated && !m.skip && !m.route.startsWith('/v1/console')) captureApiCall(req, res, url, m, who, metricsClock.mono() - started)
   })
   const url = new URL(req.url ?? '/', 'http://127.0.0.1')
   // Browsers must not be able to drive the API from a web page.
@@ -2071,6 +2210,7 @@ async function handleApi(req: IncomingMessage, res: ServerResponse): Promise<voi
   if (!caller) return send(res, enabled ? 401 : 403, { error: enabled ? 'Missing or invalid bearer token' : 'The Agent API is turned off in Settings → Agent API' })
   m.authenticated = true
   m.role = caller.kind
+  who = caller
   // An agent's work is its project's; the Assistant's and scripts' are the workspace's own (not spread over projects).
   if (caller.kind === 'agent') m.project = basename(caller.projectPath)
   return callerStore.run(caller, () => serveApi(req, res, url))
@@ -2107,7 +2247,9 @@ async function serveApi(req: IncomingMessage, res: ServerResponse, url: URL): Pr
   // Whose request it is, for metrics, known before the body is read: an unknown route or a client that goes away while
   // sending its body is still counted for the workspace. (The request's own errors come below, in their usual order.)
   try {
-    m.handle = metricsHandle(requestWorkspace(req, url))
+    const w = requestWorkspace(req, url)
+    m.handle = metricsHandle(w)
+    m.ws = w?.path ?? null
   } catch {
     m.handle = null
   }
@@ -2150,6 +2292,26 @@ async function serveApi(req: IncomingMessage, res: ServerResponse, url: URL): Pr
     if (status === 500) log.error(`API ${req.method} ${url.pathname}`, e)
     send(res, status, { error: (e as Error).message, ...(e instanceof HttpError ? e.extra : undefined) })
   }
+}
+
+/**
+ * The developer console (#636): an Agent API call as it ended, in its workspace's Hive events and in the calling agent's
+ * (or Assistant's) own session. Its route and how it went, never its body or the reply: the query's names only.
+ */
+function captureApiCall(req: IncomingMessage, res: ServerResponse, url: URL, m: ApiRequest, who: Caller | null, ms: number): void {
+  const own = who?.kind === 'agent' ? sessionSourceId(who.projectPath, who.agentId) : who?.kind === 'assistant' ? sessionSourceId(join(who.workspace, HIVE_DIR, ASSISTANT_DIR), ASSISTANT_AGENT_ID) : null
+  devConsole.capture([m.ws && hiveSourceId(m.ws), own], () => {
+    const name = `${req.method ?? ''} ${m.route}`
+    const outcome = outcomeOf(res)
+    const by = who?.kind === 'agent' ? `agent ${who.agentId}` : who?.kind ?? 'unknown'
+    return {
+      kind: 'api',
+      name,
+      raw: { method: req.method, route: m.route, query: [...url.searchParams.keys()], role: m.role, project: m.project, requestBytes: m.requestBytes },
+      made: { status: res.statusCode, outcome, ms: Math.round(ms), responseBytes: m.responseBytes },
+      summary: `${name} by ${by}${m.project ? ` (${m.project})` : ''} → ${res.statusCode} ${outcome} in ${Math.round(ms)} ms`
+    }
+  })
 }
 
 /** A project agent's cards with decisions new to it (#357), now; null for other callers. Never fails the call. */
