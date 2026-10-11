@@ -1016,6 +1016,33 @@ describe('watches (main/watches.ts)', async () => {
     await disposeWorkspaceService(w)
   })
 
+  it("a watch saved under another folder with an id this workspace has is that project's: the id decides, not the saved folder (#536)", async () => {
+    // The other side of the boundary (the test above): saved under a folder outside the workspace with no id, or an id
+    // no project here has, it stays set aside.
+    const { w, path, alpha } = await open()
+    const st = fake(alpha)
+    const c = await inWorkspace(w, () => tasks.createTask({ title: 'A', project: 'alpha' }, user))
+    await watches.registerWatch(w, alpha, 'a1', { cards: [c.number], changes: ['comment'] })
+    const file = join(path, '.hive', 'watches.json')
+    const saved = JSON.parse(readFileSync(file, 'utf8'))
+    const id = JSON.parse(readFileSync(join(alpha, '.hive', 'project.json'), 'utf8')).id
+    expect(saved.watches[0].projectId).toBe(id)
+    const foreign = join(path, '..', 'not-here', 'alpha')
+    writeFileSync(file, JSON.stringify({ version: 1, watches: [{ ...saved.watches[0], projectPath: foreign }] }))
+    watches.forgetWatches(w)
+    await watches.stampWatchProjects(w)
+    // alpha's, at alpha's folder: it sees alpha's cards and wakes alpha's agent, nothing of the foreign folder's.
+    expect(watches.watchFor(alpha, 'a1')?.cards).toEqual([c.number])
+    expect(watches.watchFor(foreign, 'a1')).toBeNull()
+    const after = JSON.parse(readFileSync(file, 'utf8'))
+    expect(after.watches.map((x: { projectPath: string; projectId?: string }) => [x.projectPath, x.projectId])).toEqual([[alpha, id]])
+    expect(after.invalid ?? []).toEqual([])
+    await inWorkspace(w, () => tasks.commentTask(c.number, 'Ready', user))
+    await watches.evaluateWatches(w)
+    expect(st.typed).toEqual([expect.stringContaining('Ready')])
+    await disposeWorkspaceService(w)
+  })
+
   it("a saved watch follows its project's id to the folder's new name (#508); one from before gets the id", async () => {
     const { w, path, alpha } = await open()
     fake(alpha)

@@ -104,10 +104,12 @@ const check = (name, ok, extra = '') => {
   const recorded = async () => JSON.parse(fs.readFileSync(path.join(alpha, '.hive', 'sessions.json'), 'utf8')).sessions.find((s) => s.id === sessionId)?.cards ?? []
   check('the session records its cards', !!(await until(async () => (await recorded()).length === 2, 8000)), JSON.stringify(await recorded()))
 
-  // The sidebar's tooltip for the project.
-  const listsCard = (t) => t.includes(`Coder: `) && t.includes(`#${card.number} Attention inbox +1`)
-  const tipText = await lib.hoverTip(page, page.locator('.project-row', { hasText: 'alpha' }).locator('.project-status'), listsCard)
-  check("the project's tooltip lists the agent's card", listsCard(tipText), tipText)
+  // The sidebar's tooltip for the project: its agents as a table (#529), the agent's row with its card. Shown (hoverTip:
+  // pointer away, then hovered until the tip says it), then its row read.
+  await lib.hoverTip(page, page.locator('.project-row', { hasText: 'alpha' }).locator('.project-status'), (t) => t.includes(`#${card.number} Attention inbox +1`))
+  const coderCard = page.locator('.tip.agents-tip tr[data-agent="Coder"] .agents-table-card')
+  const tipText = (await until(async () => (await coderCard.count()) === 1 && (await coderCard.innerText()), 10000)) || ''
+  check("the project's tooltip lists the agent's card", tipText.includes(`#${card.number} Attention inbox +1`), tipText)
 
   // The Workspace Overview's running list.
   await page.keyboard.press('Control+Shift+O')

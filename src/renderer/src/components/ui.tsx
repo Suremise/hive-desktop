@@ -20,9 +20,9 @@ const TipParent = createContext<((inner: boolean) => void) | null>(null)
  * Hover tooltip rendered in a portal so it is never clipped by scroll containers. It is measured hidden first, then
  * placed by its real size next to its anchor (placeTip), so one near the window's edge stays beside its button. One
  * inside another's (an icon in an agent tab) hides the outer one while it shows. `focus`: also shown while what it
- * wraps has the keyboard focus.
+ * wraps has the keyboard focus. `className` styles the tooltip itself (the agents table's is wider, #529).
  */
-export function Tooltip({ content, children, delay = 350, block, side, focus }: { content: ReactNode; children: ReactNode; delay?: number; block?: boolean; side?: 'right'; focus?: boolean }) {
+export function Tooltip({ content, children, delay = 350, block, side, focus, className }: { content: ReactNode; children: ReactNode; delay?: number; block?: boolean; side?: 'right'; focus?: boolean; className?: string }) {
   const ref = useRef<HTMLSpanElement>(null)
   const tipRef = useRef<HTMLDivElement>(null)
   const [anchor, setAnchor] = useState<Box | null>(null)
@@ -84,7 +84,7 @@ export function Tooltip({ content, children, delay = 350, block, side, focus }: 
       {anchor &&
         !inner &&
         createPortal(
-          <div ref={tipRef} className={cx('tip', fit !== 'normal' && 'wide', fit === 'clipped' && 'clipped')} style={placed ?? { left: 0, top: 0, visibility: 'hidden' }}>
+          <div ref={tipRef} className={cx('tip', className, fit !== 'normal' && 'wide', fit === 'clipped' && 'clipped')} style={placed ?? { left: 0, top: 0, visibility: 'hidden' }}>
             {content}
           </div>,
           document.body

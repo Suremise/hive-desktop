@@ -2,13 +2,13 @@
 // test runners (main/progressReporters/report.mts), against a stand-in for #136's Agent API: output and exit codes pass
 // through; Hive reachable, unreachable or absent; step lines; estimates after one run; updates coalesced.
 import { spawnSync } from 'child_process'
-import { existsSync, rmSync, statSync, writeFileSync } from 'fs'
+import { existsSync, readFileSync, rmSync, statSync, writeFileSync } from 'fs'
 import { createServer, type Server } from 'http'
 import { join } from 'path'
 import { pathToFileURL } from 'url'
 import { afterAll, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest'
 import { estimateFor, ProgressRun, progressTarget, recordTiming, wrappedLines } from '../src/main/progressReporters/report.mts'
-import { cmdEscapeArgument, commandEnv, commandLabel, parseArgs, runWrapped, spawnSpec, StepFilter, stepLine, timingKey } from '../src/main/progressReporters/wrapper'
+import { cmdEscapeArgument, commandEnv, commandLabel, parseArgs, runWrapped, spawnSpec, StepFilter, stepLine, timingKey, wasInterrupted } from '../src/main/progressReporters/wrapper'
 import { installShims, shimFiles, withBinOnPath } from '../src/main/progressReporters/shims'
 import { hiveInstructions, progressRule, wrapsLongCommands } from '../src/shared/hiveGuidance'
 import { launchParts } from '../src/main/guidance'
@@ -94,6 +94,11 @@ describe('the hive-progress command line', () => {
     expect(parseArgs(['--colour', 'x'])).toHaveProperty('error')
   })
 
+  it('reads wait lines: what it waits for (the rest of the line), or nothing when it waits no more (#549)', () => {
+    expect(stepLine('##hive-progress wait=waiting for a test slot: held by B4 (hb4)\n')).toEqual({ wait: 'waiting for a test slot: held by B4 (hb4)' })
+    expect(stepLine('##hive-progress wait=\r\n')).toEqual({ wait: '' })
+  })
+
   it('reads step lines; anything else is not one', () => {
     expect(stepLine('##hive-progress step=4 total=12 name=carddialog\n')).toEqual({ step: 4, total: 12, name: 'carddialog' })
     expect(stepLine('##hive-progress step=2 name=unit tests: tips\r\n')).toEqual({ step: 2, name: 'unit tests: tips' })
@@ -133,6 +138,41 @@ describe('the hive-progress command line', () => {
   })
 })
 
+describe.runIf(process.platform === 'win32')('stopping a command on Windows (#549 round 2)', () => {
+  it("ends what the command started too: a .cmd launcher's server is gone, and the run ends stopped", async () => {
+    // serve.cmd runs a Node server, as npm.cmd or a project's script does: cmd, then node under it.
+    const pidFile = join(dir, 'server.pid')
+    rmSync(pidFile, { force: true })
+    const serverJs = join(dir, 'server.js')
+    writeFileSync(serverJs, `require('fs').writeFileSync(${JSON.stringify(pidFile)}, String(process.pid)); setInterval(() => {}, 1000)\n`)
+    const serve = join(dir, 'serve.cmd')
+    writeFileSync(serve, `@echo off\r\n"${node}" "${serverJs}"\r\n`)
+    const stop: NodeJS.Signals = 'SIGUSR2'
+    const going = runWrapped(['--', serve], { env: env(), cwd: dir, stdout: { write: () => true }, stderr: { write: () => true }, stdin: 'ignore', minIntervalMs: 100, startWaitMs: 0, signals: [stop] })
+    await vi.waitFor(() => expect(existsSync(pidFile) && calls.length > 0).toBe(true), { timeout: 15_000 })
+    const pid = Number(readFileSync(pidFile, 'utf8'))
+    const alive = (p: number): boolean => {
+      try {
+        process.kill(p, 0)
+        return true
+      } catch (e) {
+        return (e as NodeJS.ErrnoException).code === 'EPERM'
+      }
+    }
+    expect(alive(pid)).toBe(true)
+    try {
+      // Stopped twice: ended at once, with the server under cmd.
+      process.emit(stop)
+      process.emit(stop)
+      expect(await going).not.toBe(0)
+      await vi.waitFor(() => expect(alive(pid)).toBe(false), { timeout: 10_000 })
+      expect(calls.at(-1)).toMatchObject({ path: '/v1/progress/run-1/finish', body: { ok: false, stopped: true, summary: 'interrupted' } })
+    } finally {
+      if (alive(pid)) process.kill(pid)
+    }
+  })
+})
+
 describe.runIf(process.platform === 'win32')('starting a command on Windows', () => {
   it('runs an .exe directly, and anything else through cmd with each argument arriving as given', () => {
     expect(spawnSpec([node, '-v'], process.env, dir)).toMatchObject({ file: node, verbatim: false })
@@ -154,7 +194,8 @@ describe('reporting a run', () => {
     expect(r).toEqual({ code: 3, out: 'one\n', err: 'warn\n' })
     // The first step line gives the total, so the run starts with it: step 1 of 2 starting is 0 finished.
     expect(calls[0]).toMatchObject({ method: 'POST', path: '/v1/progress', auth: 'Bearer agent-token' })
-    expect(calls[0].body).toEqual({ title: 'Build', total: 2, step: 0, stepName: 'first', command: expect.stringContaining('-e') })
+    // With its process (#549: once it is gone without a finish, Hive says the run ended without a report).
+    expect(calls[0].body).toEqual({ title: 'Build', total: 2, step: 0, stepName: 'first', command: expect.stringContaining('-e'), pid: process.pid })
     const patches = calls.filter((c) => c.method === 'PATCH')
     expect(patches.every((c) => c.path === '/v1/progress/run-1')).toBe(true)
     expect(Object.assign({}, ...patches.map((c) => c.body))).toEqual({ step: 1, stepName: 'second' })
@@ -219,6 +260,51 @@ describe('reporting a run', () => {
     expect(calls.at(-1)).toMatchObject({ path: '/v1/progress/run-1/finish', body: { ok: false } })
   })
 
+  it('a wait (#549): the run starts waiting at once, says what for and when it waits no more; then its steps', async () => {
+    const script = `console.log('##hive-progress wait=waiting for a test slot: held by B4'); seen((c) => c.some((x) => x.body.waiting)).then(() => { console.log('##hive-progress wait='); console.log('##hive-progress step=1 total=2 name=first'); return seen((c) => c.some((x) => x.body.stepName === 'first')) })`
+    const r = await wrap(['--title', 'Queued', '--', ...seenNode, '-e', script], env())
+    expect(r.code).toBe(0)
+    expect(calls[0]).toMatchObject({ method: 'POST', body: { title: 'Queued', waiting: 'waiting for a test slot: held by B4', pid: process.pid } })
+    const patches = calls.filter((c) => c.method === 'PATCH').map((c) => c.body)
+    expect(Object.assign({}, ...patches)).toMatchObject({ waiting: '', total: 2, step: 0, stepName: 'first' })
+    expect(r.out).toBe('')
+  })
+
+  it('stopped (#549): a command ended by Ctrl+C (its exit code), or hive-progress told to stop, is reported as stopped, not failed', async () => {
+    expect([wasInterrupted(0xc000013a, null, false), wasInterrupted(-1073741510, null, false), wasInterrupted(130, null, false), wasInterrupted(1, 'SIGINT', false), wasInterrupted(1, null, true)]).toEqual([true, true, true, true, true])
+    expect([wasInterrupted(1, null, false), wasInterrupted(3, null, false)]).toEqual([false, false])
+    // Its exit code says Ctrl+C ended it.
+    const r = await wrap(['--', node, '-e', 'process.exit(-1073741510)'], env(), 0)
+    expect([3221225786, -1073741510]).toContain(r.code)
+    expect(calls.at(-1)).toMatchObject({ path: '/v1/progress/run-1/finish', body: { ok: false, stopped: true, summary: 'interrupted' } })
+    // Told to stop (a stop signal, here one of the test's own): the command gets a moment, then is ended; the run is stopped.
+    calls.length = 0
+    const stop: NodeJS.Signals = 'SIGUSR2'
+    const going = runWrapped(['--', ...seenNode, '-e', `seen((c) => c.length > 0).then(() => setInterval(() => {}, 1000))`], { env: env(), cwd: dir, stdout: { write: () => true }, stderr: { write: () => true }, stdin: 'ignore', minIntervalMs: 100, startWaitMs: 0, signals: [stop] })
+    await vi.waitFor(() => expect(calls.length).toBeGreaterThan(0), { timeout: 10_000 })
+    // The first stop gives it a moment; a second ends it at once.
+    process.emit(stop)
+    process.emit(stop)
+    expect(await going).not.toBe(0)
+    expect(calls.at(-1)).toMatchObject({ body: { ok: false, stopped: true, summary: 'interrupted' } })
+    expect(process.listenerCount(stop)).toBe(0)
+  })
+
+  it('told to stop, a command that then shuts down cleanly (exit 0) is still stopped, its exit code kept, and never timed (#549 round 2)', async () => {
+    const stopFile = join(dir, 'graceful-stop')
+    rmSync(stopFile, { force: true })
+    // A server that shuts down by itself, cleanly, once told (here: its stop file), as one handling Ctrl+C does.
+    const cmd = [...seenNode, '-e', `seen((c) => c.length > 0).then(() => setInterval(() => require('fs').existsSync(${JSON.stringify(stopFile)}) && process.exit(0), 20))`]
+    const stop: NodeJS.Signals = 'SIGUSR2'
+    const going = runWrapped(['--', ...cmd], { env: env(), cwd: dir, stdout: { write: () => true }, stderr: { write: () => true }, stdin: 'ignore', minIntervalMs: 100, startWaitMs: 0, signals: [stop] })
+    await vi.waitFor(() => expect(calls.length).toBeGreaterThan(0), { timeout: 10_000 })
+    process.emit(stop)
+    writeFileSync(stopFile, '')
+    expect(await going).toBe(0)
+    expect(calls.at(-1)).toMatchObject({ path: '/v1/progress/run-1/finish', body: { ok: false, stopped: true, summary: 'interrupted', exitCode: 0 } })
+    expect(estimateFor(join(dir, 'data', 'timings.json'), timingKey(dir, cmd))).toBeUndefined()
+  })
+
   it('coalesces quick updates: the latest state wins, in order, and the finish comes last', async () => {
     const lines = Array.from({ length: 200 }, (_, i) => `##hive-progress step=${i + 1} total=200 name=s${i + 1}`).join('\\n')
     await wrap(['--', ...seenNode, '-e', `console.log('${lines}'); seen((c) => c.some((x) => x.body.stepName === 's200'))`], env())
@@ -248,7 +334,7 @@ describe('the shared reporter and timings', () => {
     expect(await r.reporting()).toBe(true)
     await r.finish(true)
     // The API's limit for titles is 120 characters; a step can't go past the total.
-    expect(calls[0].body).toEqual({ title: expect.stringMatching(/^x{119}…$/), total: 3 })
+    expect(calls[0].body).toEqual({ title: expect.stringMatching(/^x{119}…$/), total: 3, pid: process.pid })
     calls.length = 0
     const capped = new ProgressRun({ url, token: 't', workspace: '' }, { title: 'y', total: 2 }, { minIntervalMs: 10 })
     capped.update({ step: 9 })
@@ -272,7 +358,7 @@ describe('the shared reporter and timings', () => {
     await vi.waitFor(() => expect(calls.filter((c) => c.method === 'PATCH')).toHaveLength(2), { timeout: HUNG_MS })
     await quick.finish(true)
     expect(calls.filter((c) => c.method === 'PATCH').map((c) => c.body)).toEqual([{ total: 4, step: 4, stepName: 'setup' }, { total: 3, step: 3 }])
-    expect(calls.filter((c) => c.method === 'POST' && c.path === '/v1/progress').map((c) => c.body)).toEqual([{ title: 'late' }, { title: 'late, then a step' }])
+    expect(calls.filter((c) => c.method === 'POST' && c.path === '/v1/progress').map((c) => c.body)).toEqual([{ title: 'late', pid: process.pid }, { title: 'late, then a step', pid: process.pid }])
     calls.length = 2
     const none = new ProgressRun(null, { title: 'x' })
     none.update({ step: 1 })
@@ -306,7 +392,7 @@ describe('the shared reporter and timings', () => {
       r.update({ total: 4, step: 2, stepName: 'late' })
       await r.finish(ok, ok ? undefined : 'exit code 1')
       expect(calls.map((c) => [c.method, c.path.replace(/run-\d+/, 'run'), c.body])).toEqual([
-        ['POST', '/v1/progress', { title: `late ${ok}` }],
+        ['POST', '/v1/progress', { title: `late ${ok}`, pid: process.pid }],
         ['PATCH', '/v1/progress/run', { step: 1 }],
         ['PATCH', '/v1/progress/run', { total: 4, step: 2, stepName: 'late' }],
         ['POST', '/v1/progress/run/finish', ok ? { ok } : { ok, summary: 'exit code 1' }]
@@ -460,6 +546,31 @@ describe("Hive's own test runners (tests/progressReport.mts)", () => {
     Object.assign(process.env, saved)
   })
 
+  it('waiting for a test slot (#549): its own row starts waiting; under hive-progress, wait lines for the wrapper, and one saying the wait is over', async () => {
+    const { slotWaitProgress } = await import('./progressReport.mts')
+    const own = slotWaitProgress('e2e', 'npm run e2e -- --all', [])
+    own.waiting('B4 (hb4)')
+    await vi.waitFor(() => expect(calls.length).toBe(1))
+    expect(calls[0].body).toEqual({ title: 'e2e: waiting for a test slot', command: 'npm run e2e -- --all', waiting: 'waiting for a test slot: B4 (hb4)', pid: process.pid })
+    await own.finish('got a test slot after 3 s')
+    expect(calls.at(-1)).toMatchObject({ path: '/v1/progress/run-1/finish', body: { ok: true, summary: 'got a test slot after 3 s' } })
+    calls.length = 0
+    process.env.HIVE_PROGRESS_WRAPPED = '1'
+    const lines: string[] = []
+    const write = vi.spyOn(process.stdout, 'write').mockImplementation((s) => (lines.push(String(s)), true))
+    try {
+      const wrapped = slotWaitProgress('e2e', 'npm run e2e -- --all', [])
+      wrapped.waiting('B4 (hb4)')
+      wrapped.waiting('B5 (hb5)')
+      await wrapped.finish('got a test slot after 3 s')
+    } finally {
+      write.mockRestore()
+      delete process.env.HIVE_PROGRESS_WRAPPED
+    }
+    expect(lines).toEqual(['##hive-progress wait=waiting for a test slot: B4 (hb4)\n', '##hive-progress wait=waiting for a test slot: B5 (hb5)\n', '##hive-progress wait=\n'])
+    expect(calls).toEqual([])
+  })
+
   it('e2e: one step per suite, an estimate from the suites timed before (unknown ones as their average); off with --no-progress', async () => {
     const { e2eProgress } = await import('./progressReport.mts')
     const first = e2eProgress(['a', 'b'], [])
@@ -470,7 +581,7 @@ describe("Hive's own test runners (tests/progressReport.mts)", () => {
     // (A finish drops an update not sent yet: finished once the last one has arrived.)
     await vi.waitFor(() => expect(calls.filter((c) => c.method === 'PATCH').at(-1)?.body).toEqual({ step: 1, stepName: 'b' }), { timeout: HUNG_MS })
     await first.finish(false, '1 passed, 1 failed')
-    expect(calls[0].body).toEqual({ title: 'e2e: 2 suites', total: 2, step: 0, command: 'npm run e2e -- a b' })
+    expect(calls[0].body).toEqual({ title: 'e2e: 2 suites', total: 2, step: 0, command: 'npm run e2e -- a b', pid: process.pid })
     // Each update counts the suites finished and names the one starting.
     expect(calls.filter((c) => c.method === 'PATCH').at(-1)?.body).toEqual({ step: 1, stepName: 'b' })
     expect(calls.at(-1)).toMatchObject({ path: '/v1/progress/run-1/finish', body: { ok: false, summary: '1 passed, 1 failed' } })
@@ -497,7 +608,7 @@ describe("Hive's own test runners (tests/progressReport.mts)", () => {
     // (A finish drops an update not sent yet: finished once it has arrived.)
     await vi.waitFor(() => expect(Object.assign({}, ...calls.filter((c) => c.method === 'PATCH').map((c) => c.body))).toEqual({ step: 2 }), { timeout: HUNG_MS })
     await v.onTestRunEnd([], [], 'failed')
-    expect(calls[0].body).toEqual({ title: 'unit: 2 files', total: 2, step: 0, command: 'npm test' })
+    expect(calls[0].body).toEqual({ title: 'unit: 2 files', total: 2, step: 0, command: 'npm test', pid: process.pid })
     expect(Object.assign({}, ...calls.filter((c) => c.method === 'PATCH').map((c) => c.body))).toEqual({ step: 2 })
     expect(calls.at(-1)?.body).toEqual({ ok: false, summary: '1 passed, 1 failed' })
   })

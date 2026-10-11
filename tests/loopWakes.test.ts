@@ -5,9 +5,6 @@ import * as electron from 'electron'
 import { cardChange, loopWakeLine, readCondition, wakeAbout, type WatchCondition } from '../src/shared/watch'
 import { tempDir } from './tempDir'
 
-// The longest a test waits for what it is waiting on: a bound for a hung run, never how long it should take.
-const HUNG_MS = 10000
-
 describe('loop wake lines (#405)', () => {
   const card = { number: 12, title: 'T', description: '', project: 'alpha', agent: 'b1', agentName: 'B1', column: 'review' as const, order: 1, labels: [], blocked: null, blockedBy: [], links: [], comments: [{ at: '2026-10-10T00:00:00.000Z', by: 'R1 (alpha)', text: 'Round 1: FAILED. 1. No delay.' }], history: [{ at: '2026-10-10T00:00:00.000Z', by: 'R1 (alpha)', what: 'Review failed' }], archived: false, createdAt: '2026-10-10T00:00:00.000Z', createdBy: 'You', updatedAt: '2026-10-10T00:00:00.000Z' }
   it("words a reviewer's and a builder's wake as a watch's line, with what to do", () => {
@@ -65,11 +62,29 @@ describe('loop wakes (main/loopWakes.ts, #405)', async () => {
   const agent = (id: string, name: string) => ({ kind: 'agent', name: `${name} (alpha)`, self: { project: 'alpha', agentId: id }, scope: 'alpha' }) as const
   const b1 = agent('b1', 'B1')
   const r1 = agent('r1', 'R1')
-  /** Settles what a change queued (its handoff runs after the change), then tries every waiting wake. */
+  // What a change queues comes later (its handoff runs after the change), and a wake tried while another board change
+  // lands is kept for later (#560): so a check waits for the outcome, trying the waiting wakes as it polls, never reads
+  // once after a try. Waiting gives up after 10 s, not vi.waitFor's 1 s, which four unit suites at once outran (#560):
+  // the bound only says when one has hung.
+  const HANG = { timeout: 10_000 }
+  /** Waits until `count` lines in all were typed, trying the waiting wakes meanwhile. */
+  const typedUntil = async (st: { typed: unknown[] }, count: number) =>
+    vi.waitFor(async () => {
+      await loopWakes.tryLoopWakes()
+      expect(st.typed).toHaveLength(count)
+    }, HANG)
+  /** Waits until a change has queued a wake, then tries the waiting wakes once (for a wake that must not be typed yet). */
   const settle = async (want: number) => {
-    await vi.waitFor(() => expect(loopWakes.pendingLoopWakes().length).toBeGreaterThanOrEqual(want), { timeout: HUNG_MS })
+    await vi.waitFor(() => expect(loopWakes.pendingLoopWakes().length).toBeGreaterThanOrEqual(want), HANG)
     await loopWakes.tryLoopWakes()
   }
+  /** Waits until no wake is left waiting (each typed or dropped), trying them meanwhile. */
+  const drained = async () =>
+    vi.waitFor(async () => {
+      await loopWakes.tryLoopWakes()
+      expect(loopWakes.pendingLoopWakes()).toEqual([])
+    }, HANG)
+  /** A moment for a wake that mustn't come to come anyway (the point of the check: nothing happens), then a try. */
   const quiet = async () => {
     await new Promise((r) => setTimeout(r, 300))
     await loopWakes.tryLoopWakes()
@@ -84,25 +99,25 @@ describe('loop wakes (main/loopWakes.ts, #405)', async () => {
     const c = await newCard(w)
     await lanes.startLane(w, { project: 'alpha', builder: 'b1', reviewer: 'r1', cards: [c], by: 'B1 (alpha)' })
     await inWorkspace(w, () => tasks.updateTask(c, { column: 'review' }, b1))
-    await settle(1)
+    await typedUntil(st, 1)
     expect(st.typed).toEqual([{ agent: 'r1', text: `[Hive] #${c} (B1's card) is in Review. You review this card in its loop: carry on with it (hive_read_task with latestComment for the comment in full).` }])
-    await vi.waitFor(async () => expect(await history(w, c)).toContain('Hive: Woke R1 (alpha) to review it (a loop wake)'), { timeout: HUNG_MS })
+    await vi.waitFor(async () => expect(await history(w, c)).toContain('Hive: Woke R1 (alpha) to review it (a loop wake)'), HANG)
     // Failed: the builder is woken with the verdict.
     st.status.set('r1', 'working')
     await inWorkspace(w, () => tasks.updateTask(c, { review: 'start' }, r1))
     await inWorkspace(w, () => tasks.updateTask(c, { review: 'failed' }, r1, { comment: 'Round 1: FAILED. 1. No delay.' }))
-    await settle(1)
+    await typedUntil(st, 2)
     expect(st.typed.at(-1)).toEqual({ agent: 'b1', text: `[Hive] #${c} is in Review: R1 (alpha) failed it; latest comment by R1 (alpha): "Round 1: FAILED. 1. No delay.". This is your card in its loop: carry on (hive_read_task with latestComment for the comment in full).` })
-    await vi.waitFor(async () => expect(await history(w, c)).toContain('Hive: Woke B1 (alpha) with its verdict (a loop wake)'), { timeout: HUNG_MS })
+    await vi.waitFor(async () => expect(await history(w, c)).toContain('Hive: Woke B1 (alpha) with its verdict (a loop wake)'), HANG)
     // Returned for round 2 by the builder: the reviewer again; passed: the builder again.
     st.status.set('r1', 'ready')
     await inWorkspace(w, () => tasks.updateTask(c, { column: 'review' }, b1))
-    await settle(1)
+    await typedUntil(st, 3)
     expect(st.typed.at(-1)).toEqual({ agent: 'r1', text: `[Hive] #${c} (B1's card) was returned for review (round 2); latest comment by R1 (alpha): "Round 1: FAILED. 1. No delay.". You review this card in its loop: carry on with it (hive_read_task with latestComment for the comment in full).` })
     st.status.set('b1', 'ready')
     await inWorkspace(w, () => tasks.updateTask(c, { review: 'start' }, r1))
     await inWorkspace(w, () => tasks.updateTask(c, { review: 'passed', column: 'passed' }, r1, { comment: 'Round 2: PASSED.' }))
-    await settle(1)
+    await typedUntil(st, 4)
     expect(st.typed.at(-1)?.agent).toBe('b1')
     expect(st.typed.at(-1)?.text).toMatch(new RegExp(`^\\[Hive\\] #${c} is in Passed: R1 \\(alpha\\) passed it; latest comment by R1 \\(alpha\\): "Round 2: PASSED."\\. This is your card in its loop`))
     expect(st.typed).toHaveLength(4)
@@ -121,7 +136,7 @@ describe('loop wakes (main/loopWakes.ts, #405)', async () => {
     await quiet()
     expect(st.typed).toEqual([])
     st.status.set('r1', 'finished')
-    await loopWakes.tryLoopWakes()
+    await typedUntil(st, 1)
     expect(st.typed.map((t) => t.agent)).toEqual(['r1'])
     await quiet()
     expect(st.typed).toHaveLength(1)
@@ -141,11 +156,11 @@ describe('loop wakes (main/loopWakes.ts, #405)', async () => {
     // R1 reviews it and fails it (B1 woken); B1 returns it itself: R1, its last reviewer, is woken; B1 isn't.
     await inWorkspace(w, () => tasks.updateTask(c, { review: 'start' }, r1))
     await inWorkspace(w, () => tasks.updateTask(c, { review: 'failed' }, r1, { comment: 'Round 1: FAILED.' }))
-    await settle(1)
+    await typedUntil(st, 1)
     expect(st.typed.map((t) => t.agent)).toEqual(['b1'])
     st.status.set('b1', 'ready')
     await inWorkspace(w, () => tasks.updateTask(c, { column: 'review' }, b1))
-    await settle(1)
+    await typedUntil(st, 2)
     expect(st.typed.map((t) => t.agent)).toEqual(['b1', 'r1'])
     // A reviewer that moves a card into Review itself isn't woken by its own move.
     const d = (await inWorkspace(w, () => tasks.createTask({ title: 'Docs', project: 'alpha', agent: 'b1' }, user))).number
@@ -165,11 +180,19 @@ describe('loop wakes (main/loopWakes.ts, #405)', async () => {
     await lanes.startLane(w, { project: 'alpha', builder: 'b1', reviewer: 'r1', cards: [c], by: 'B1 (alpha)' })
     st.status.set('r1', 'watching')
     await watches.registerWatch(w, alpha, 'r1', { cards: [c], changes: ['column'], column: 'review' })
-    await inWorkspace(w, () => tasks.updateTask(c, { column: 'review' }, b1))
-    await watches.evaluateWatches(w)
-    await vi.waitFor(() => expect(st.typed).toHaveLength(1), { timeout: HUNG_MS })
+    // A fired watch covers the card until its line is typed after Hive's settle, which this file sets to 0: a handoff
+    // later than that found no watch and queued a second line (#560, under load). Here the settle is Hive's own, as when
+    // it runs, so the handoff meets the fired watch.
+    watches.testHooks.settleMs = undefined
+    try {
+      await inWorkspace(w, () => tasks.updateTask(c, { column: 'review' }, b1))
+      await watches.evaluateWatches(w)
+      await vi.waitFor(() => expect(st.typed).toHaveLength(1), HANG)
+    } finally {
+      watches.testHooks.settleMs = 0
+    }
+    await drained()
     await quiet()
-    expect(loopWakes.pendingLoopWakes()).toEqual([])
     expect(st.typed).toHaveLength(1)
     expect(st.typed[0].text).toMatch(/Your card watch has ended/)
     await disposeWorkspaceService(w)
@@ -183,12 +206,11 @@ describe('loop wakes (main/loopWakes.ts, #405)', async () => {
     await lanes.startLane(w, { project: 'alpha', builder: 'b1', reviewer: 'r1', cards: [c], by: 'B1 (alpha)' })
     st.status.set('r1', 'working')
     await inWorkspace(w, () => tasks.updateTask(c, { column: 'review' }, b1))
-    await vi.waitFor(() => expect(loopWakes.pendingLoopWakes()).toEqual([{ agentId: 'r1', n: c, kind: 'review' }]), { timeout: HUNG_MS })
+    await vi.waitFor(() => expect(loopWakes.pendingLoopWakes()).toEqual([{ agentId: 'r1', n: c, kind: 'review' }]), HANG)
     // The lane's reviewer is now O1: R1, idle again, gets nothing; O1 gets it.
     await lanes.startLane(w, { project: 'alpha', builder: 'b1', reviewer: 'o1', cards: [c], by: 'B1 (alpha)' })
     st.status.set('r1', 'ready')
-    await loopWakes.tryLoopWakes()
-    await loopWakes.tryLoopWakes()
+    await typedUntil(st, 1)
     expect(st.typed.map((t) => t.agent)).toEqual(['o1'])
     expect(st.typed[0].text).toMatch(/You review this card in its loop/)
     // Taken off the lane while O1 works (no reviewer, none before): its wake is dropped, nobody is woken.
@@ -196,12 +218,11 @@ describe('loop wakes (main/loopWakes.ts, #405)', async () => {
     await lanes.startLane(w, { project: 'alpha', builder: 'b1', reviewer: 'o1', cards: [c, d], by: 'B1 (alpha)' })
     st.status.set('o1', 'working')
     await inWorkspace(w, () => tasks.updateTask(d, { column: 'review' }, b1))
-    await vi.waitFor(() => expect(loopWakes.pendingLoopWakes()).toEqual([{ agentId: 'o1', n: d, kind: 'review' }]), { timeout: HUNG_MS })
+    await vi.waitFor(() => expect(loopWakes.pendingLoopWakes()).toEqual([{ agentId: 'o1', n: d, kind: 'review' }]), HANG)
     await lanes.startLane(w, { project: 'alpha', builder: 'b1', reviewer: null, cards: [c, d], by: 'B1 (alpha)' })
     st.status.set('o1', 'ready')
-    await loopWakes.tryLoopWakes()
+    await drained()
     expect(st.typed.map((t) => t.agent)).toEqual(['o1'])
-    expect(loopWakes.pendingLoopWakes()).toEqual([])
     await disposeWorkspaceService(w)
   })
 
@@ -212,7 +233,7 @@ describe('loop wakes (main/loopWakes.ts, #405)', async () => {
     const c = await newCard(w)
     await lanes.startLane(w, { project: 'alpha', builder: 'b1', reviewer: 'r1', cards: [c], by: 'B1 (alpha)' })
     await inWorkspace(w, () => tasks.updateTask(c, { column: 'review' }, b1))
-    await settle(1)
+    await typedUntil(st, 1)
     expect(st.typed.map((t) => t.agent)).toEqual(['r1'])
     st.status.set('b1', 'watching')
     await watches.registerWatch(w, alpha, 'b1', readCondition({ cards: [c], column: 'passed' }) as WatchCondition)
@@ -220,7 +241,7 @@ describe('loop wakes (main/loopWakes.ts, #405)', async () => {
     await inWorkspace(w, () => tasks.updateTask(c, { review: 'start' }, r1))
     await inWorkspace(w, () => tasks.updateTask(c, { review: 'failed' }, r1, { comment: 'Round 1: FAILED.' }))
     await watches.evaluateWatches(w)
-    await settle(1)
+    await typedUntil(st, 2)
     expect(st.typed.map((t) => t.agent)).toEqual(['r1', 'b1'])
     expect(st.typed[1].text).toMatch(/failed it; .*This is your card in its loop/)
     // Its watch still waits for Passed. Returned and passed: the watch tells it, and Hive doesn't too.
@@ -230,7 +251,7 @@ describe('loop wakes (main/loopWakes.ts, #405)', async () => {
     await inWorkspace(w, () => tasks.updateTask(c, { review: 'start' }, r1))
     await inWorkspace(w, () => tasks.updateTask(c, { review: 'passed', column: 'passed' }, r1, { comment: 'Round 2: PASSED.' }))
     await watches.evaluateWatches(w)
-    await vi.waitFor(() => expect(st.typed.filter((t) => t.agent === 'b1')).toHaveLength(2), { timeout: HUNG_MS })
+    await vi.waitFor(() => expect(st.typed.filter((t) => t.agent === 'b1')).toHaveLength(2), HANG)
     await quiet()
     const toBuilder = st.typed.filter((t) => t.agent === 'b1')
     expect(toBuilder).toHaveLength(2)
@@ -247,19 +268,18 @@ describe('loop wakes (main/loopWakes.ts, #405)', async () => {
     await lanes.startLane(w, { project: 'alpha', builder: 'b1', reviewer: 'r1', cards: [c], by: 'B1 (alpha)' })
     st.status.set('r1', 'working')
     await inWorkspace(w, () => tasks.updateTask(c, { column: 'review' }, b1))
-    await vi.waitFor(() => expect(loopWakes.pendingLoopWakes()).toEqual([{ agentId: 'r1', n: c, kind: 'review' }]), { timeout: HUNG_MS })
+    await vi.waitFor(() => expect(loopWakes.pendingLoopWakes()).toEqual([{ agentId: 'r1', n: c, kind: 'review' }]), HANG)
     // Still working (it had the user's prompt to review it), R1 reviews and fails it: the arrival is told.
     await inWorkspace(w, () => tasks.updateTask(c, { review: 'start' }, r1))
     await inWorkspace(w, () => tasks.updateTask(c, { review: 'failed' }, r1, { comment: 'Round 1: FAILED.' }))
     st.status.set('r1', 'ready')
-    await vi.waitFor(() => expect(loopWakes.pendingLoopWakes()).toContainEqual({ agentId: 'b1', n: c, kind: 'verdict' }), { timeout: HUNG_MS })
-    await loopWakes.tryLoopWakes()
+    await typedUntil(st, 1)
+    await drained()
     expect(st.typed.map((t) => t.agent)).toEqual(['b1'])
-    expect(loopWakes.pendingLoopWakes()).toEqual([])
     // The builder returns it: that new round wakes the reviewer.
     st.status.set('b1', 'ready')
     await inWorkspace(w, () => tasks.updateTask(c, { column: 'review' }, b1))
-    await settle(1)
+    await typedUntil(st, 2)
     expect(st.typed.map((t) => t.agent)).toEqual(['b1', 'r1'])
     expect(st.typed[1].text).toMatch(/was returned for review \(round 2\)/)
     await disposeWorkspaceService(w)

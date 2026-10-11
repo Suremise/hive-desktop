@@ -7,7 +7,7 @@
 // commands: those runs check the harness, the board rules and Hive's own costs (benchmarks) for free. The real CLIs are the model trials (opt-in, see README.md).
 //
 // Fixture version: bump when a scenario's setup or checks change, so results can be compared across versions.
-const FIXTURES_VERSION = 44
+const FIXTURES_VERSION = 50
 
 /** The subject's hive tool calls that the server ran, by tool (each has ok, error and args). */
 const called = (o, tool) => o.hiveCalls.filter((c) => c.tool === tool)
@@ -130,13 +130,17 @@ const mergedInto = (c) => {
   const i = line.findIndex((x) => !ancestor(c, feature, x))
   return i < 1 ? null : tipOf(line[i - 1], line[i])
 }
-/** Whether commit a is in b's history (git merge-base --is-ancestor). */
+/**
+ * Whether commit a is in b's history (git merge-base --is-ancestor: 0 yes, 1 no). Git failing otherwise is no answer:
+ * read as "no", it made the merge look absent and failed every check at once (#560), so it is thrown, saying so.
+ */
 const ancestor = (c, a, b) => {
   try {
     c.git('merge-base', '--is-ancestor', a, b)
     return true
-  } catch {
-    return false
+  } catch (e) {
+    if (e?.status === 1) return false
+    throw new Error(`git merge-base --is-ancestor ${a} ${b} failed (${e?.status ?? e?.code ?? e?.signal}): ${String(e?.stderr ?? e?.message ?? e).trim().slice(0, 300)}`, { cause: e })
   }
 }
 
@@ -178,6 +182,103 @@ const SLOW_TESTS = {
   'package.json': JSON.stringify({ name: 'alpha', private: true, scripts: { test: 'node test.js' } }, null, 2) + '\n',
   'test.js': "// The full suite: about two minutes on CI.\nsetTimeout(() => console.log('3 passing'), 4000)\n"
 }
+/** Code whose effect lands a moment later (#524): a test of it must wait for the line, not for a length of time. */
+const NOTIFY = {
+  'package.json': JSON.stringify({ name: 'alpha', private: true, scripts: { test: 'node --test' } }, null, 2) + '\n',
+  'notify.js': [
+    '// Adds a line to a log file a moment later: the app batches its writes.',
+    "const fs = require('fs')",
+    'module.exports = function note(file, text) {',
+    "  setTimeout(() => fs.appendFileSync(file, text + '\\n'), 30 + Math.random() * 40)",
+    '}',
+    ''
+  ].join('\n')
+}
+/** A test of NOTIFY's that sleeps and then reads the file once (#524): it passes here, and fails on a busier machine. */
+const NOTIFY_TIMED_TEST = [
+  "const test = require('node:test')",
+  "const assert = require('node:assert')",
+  "const fs = require('fs')",
+  "const path = require('path')",
+  "const note = require('./notify')",
+  '',
+  "test('note adds the line to the file', async (t) => {",
+  "  const file = path.join(__dirname, 'notes.log')",
+  "  t.after(() => fs.rmSync(file, { force: true }))",
+  "  note(file, 'hello')",
+  "  await new Promise((r) => setTimeout(r, 100))",
+  "  assert.match(fs.readFileSync(file, 'utf8'), /hello/)",
+  '})',
+  ''
+].join('\n')
+/** A project with unit tests (#533): its notes say how to run one file, and how to tell which code a run record is for.
+ * Nothing says the suite is slow: whether a reviewer runs it all again is the skill's doing. */
+const RECORD_PROJECT = {
+  'package.json': JSON.stringify({ name: 'alpha', private: true, scripts: { test: 'node --test' } }, null, 2) + '\n',
+  'AGENTS.md': '# alpha\n\n- `npm test` runs every unit test. One file: `node --test <file>`.\n- A run record names the code it ran on: `git rev-parse --short HEAD`, and whether anything was uncommitted.\n',
+  'CLAUDE.md': '@AGENTS.md\n',
+  'greet.js': "module.exports = (name) => 'Helo, ' + name\n",
+  'math.js': 'module.exports = { add: (a, b) => a + b }\n',
+  'math.test.js': "const test = require('node:test')\nconst assert = require('node:assert')\ntest('adds', () => assert.equal(require('./math').add(1, 2), 3))\n"
+}
+/** The builder's work on RECORD_PROJECT, committed, and its card in Review with a run record of that commit. */
+async function recordedWork(c) {
+  c.write('greet.js', "module.exports = (name) => 'Hello, ' + name\n")
+  c.write('greet.test.js', "const test = require('node:test')\nconst assert = require('node:assert')\ntest('greets', () => assert.equal(require('./greet')('Ann'), 'Hello, Ann'))\n")
+  c.git('add', '-A')
+  c.git('commit', '-qm', 'greet: Hello, with a test')
+  const code = c.git('rev-parse', '--short', 'HEAD').trim()
+  await c.card('b', {
+    title: 'Greeting says Hello',
+    description: 'greet.js returns "Hello, <name>" (it says "Helo"), with a test.',
+    column: 'review',
+    agent: 'implementer',
+    comments: [`Done: greet.js fixed, greet.test.js added.\n\nRun record: code ${code}, nothing uncommitted, ${new Date().toISOString().slice(0, 16).replace('T', ' ')} UTC. \`npm test\`: 2 files, 2 tests, all passed (4 min 05 s).`]
+  })
+}
+/**
+ * The shell commands a tool call ran, and nothing else of it (a description, a verdict that mentions `npm test`): a shell
+ * tool's command (Hive's transcripts give Claude Code's Bash and PowerShell, Codex's shell and Copilot's as the command
+ * itself; a JSON input's `command` or `cmd` is read too), or each `cmd` of a Codex script (`exec`).
+ */
+function commandsOf(t) {
+  if (/^(Bash|PowerShell|Shell|powershell|bash|shell|local_shell|(functions\.)?exec_command)$/.test(t.name)) {
+    let args = null
+    try {
+      args = JSON.parse(t.input)
+    } catch {
+      return [t.input]
+    }
+    if (typeof args === 'string') return [args]
+    const cmd = args?.command ?? args?.cmd
+    return Array.isArray(cmd) ? [cmd.join(' ')] : typeof cmd === 'string' ? [cmd] : []
+  }
+  if (t.name !== 'Script') return []
+  return [...t.input.matchAll(/(?:\bcmd|"cmd")\s*:\s*(["'`])((?:\\.|(?!\1).)*)\1/g)].map((m) => m[2].replace(/\\(["'\\])/g, '$1'))
+}
+/** The test runs among the commands: `npm test` (`npm run test`), and `node --test` with the files it names (none: all). */
+function testRunsIn(commands) {
+  const out = []
+  for (const c of commands) {
+    for (const part of c.split(/&&|\|\||[;|\n]/)) {
+      if (/\bnpm(\.cmd)?\s+(run\s+)?test\b/.test(part)) out.push({ command: part.trim(), files: [] })
+      const node = /\bnode(\.exe)?\s+--test\b(.*)$/.exec(part)
+      if (node) out.push({ command: part.trim(), files: node[2].trim().split(/\s+/).map((a) => a.replace(/^["']|["']$/g, '')).filter((a) => a && !a.startsWith('-')) })
+    }
+  }
+  return out
+}
+const testRunsOf = (o) => testRunsIn(o.tools.flatMap(commandsOf))
+/** What the agent under test (Coder) wrote on a card: its verdict, never the card's own comments (the builder's, the fixture's). */
+const verdictOf = (card) => (card?.comments ?? []).filter((x) => /^Coder\b/.test(x.by)).map((x) => x.text).join('\n')
+/** A reason that a run record is for other code than the reviewed: older, stale, or not matching it (not the word "record"). */
+const STALE_REASON = /\bstale\b|\bolder\b|outdated|out[ -]of[ -]date|predates|superseded|no longer (matches|current)|(newer|later|subsequent) (commit|change)|commit(ted)? after|after (it|the record|that record)|(doesn't|does not|didn't|did not) match/i
+/** The test runs that ran the whole suite: `npm test`, or `node --test` naming no file. */
+const wholeSuiteRuns = (o) => testRunsOf(o).filter((r) => r.files.length === 0).map((r) => r.command)
+/** The project's test files' sleeps that a check follows with no reason given (`npm run test:waits`'s own finder). */
+const timedWaits = (c, rel) => require('../../scripts/testWaits.mjs').findWaits(c.read(rel) ?? '').filter((w) => !w.commented)
+/** Whether the project's tests pass (`node --test`), with the run context's environment. */
+const testsPass = (c) => require('child_process').spawnSync(process.execPath, ['--test'], { cwd: c.alpha, env: require('../e2e/runContext.cjs').baseEnv(), encoding: 'utf8', timeout: 60000 }).status === 0
 /** The tool calls that ran the test suite. */
 /** A test run through hive-progress with a title of its own (#251), not the command line by default. */
 const titled = (t) => /hive-progress(\.cmd)?\s+--title(\s+|=)\S/.test(t.input)
@@ -223,6 +324,93 @@ module.exports.SCENARIOS = [
       ['never moved to Doing', movedInto(o.cards.b, 'Doing') < 0],
       ['changed no files (a review only reads)', o.gitStatus.trim() === '', o.gitStatus]
     ]
+  },
+  {
+    id: 'test-waits-write',
+    title: 'Work on a card that asks for a test of code that acts a moment later: the test waits for the result, not for a time (#524)',
+    files: NOTIFY,
+    async setup(c) {
+      await c.card('a', { title: 'Test notify.js', description: "Add notify.test.js at the root: a test (node's built-in runner, `npm test`) that note() adds the line to the file. Don't change notify.js." })
+    },
+    prompt: (c) => `Work on card #${c.cards.a}.`,
+    fake: (c) => `skill work-on-card boardmove ${c.cards.a} doing then boardmove ${c.cards.a} review then boardcomment ${c.cards.a}`,
+    expect: (o, c) => {
+      const test = c.read('notify.test.js') ?? ''
+      const timed = timedWaits(c, 'notify.test.js')
+      return [
+        ['read the work-on-card skill', read(o, 'work-on-card'), o.skillsRead.join(',')],
+        ['it ends in Review', o.cards.a?.column === 'review', o.cards.a?.column],
+        ['the test is there, and passes', !!test && testsPass(c), test ? 'node --test failed' : 'no notify.test.js'],
+        ["it doesn't sleep and then check", !!test && timed.length === 0, `${timed.map((w) => `${w.line}: ${w.code}`).join(' | ')} in: ${test.slice(0, 1500)}`],
+        ['it waits for the line (polls the file, or waits on its change)', /\bwhile\s*\(|\bif\s*\(.*\b(?:break|return)\b|until|waitFor|poll|setInterval|watch/.test(test), test.slice(0, 300)],
+        ['notify.js unchanged', c.read('notify.js') === NOTIFY['notify.js']]
+      ]
+    },
+    fakeSkips: ['the test is there, and passes', "it doesn't sleep and then check", 'it waits for the line (polls the file, or waits on its change)']
+  },
+  {
+    id: 'test-waits-review',
+    title: 'Review a card whose test sleeps and then checks: a blocking finding, though the test passes (#524)',
+    files: { ...NOTIFY, 'notify.test.js': NOTIFY_TIMED_TEST },
+    async setup(c) {
+      await c.card('b', { title: 'Test notify.js', description: "Add notify.test.js: a test that note() adds the line to the file. Don't change notify.js.", column: 'review', agent: 'implementer', comments: ['Done: notify.test.js added; npm test passes.'] })
+    },
+    prompt: (c) => `Review card #${c.cards.b}.`,
+    fake: (c) => `skill review-agent-work boardreview ${c.cards.b} start then boardreview ${c.cards.b} failed`,
+    expect: (o, c) => {
+      const verdict = verdictOf(o.cards.b)
+      return [
+        ['read the review-agent-work skill', read(o, 'review-agent-work'), o.skillsRead.join(',')],
+        ['failed it', history(o.cards.b).includes('Review failed'), history(o.cards.b).join(' | ')],
+        ['the verdict names the fixed wait', /sleep|setTimeout|100 ?ms|fixed (delay|wait|time)|timing|race|flak|poll/i.test(verdict), verdict.slice(0, 300)],
+        ['the card stays in Review with the implementer', o.cards.b?.column === 'review' && o.cards.b?.agent?.id === c.agents.implementer.id, `${o.cards.b?.column} / ${o.cards.b?.agent?.name}`],
+        ['changed no files (a review only reads)', o.gitStatus.trim() === '', o.gitStatus]
+      ]
+    },
+    fakeSkips: ['the verdict names the fixed wait']
+  },
+  {
+    id: 'review-record-trusted',
+    title: "Review a card whose builder posted a run record of this code: check the record, don't run the whole suite again (#533)",
+    files: RECORD_PROJECT,
+    async setup(c) {
+      await recordedWork(c)
+    },
+    prompt: (c) => `Review card #${c.cards.b}.`,
+    fake: (c) => `skill review-agent-work boardreview ${c.cards.b} start then boardreview ${c.cards.b} passed passed`,
+    expect: (o) => [
+      ['read the review-agent-work skill', read(o, 'review-agent-work'), o.skillsRead.join(',')],
+      ['gave a verdict (passed or failed)', history(o.cards.b).some((h) => /^Review (passed|failed)$/.test(h)), history(o.cards.b).join(' | ')],
+      ['checked which code the record is for (git)', runs(o, 'git').length > 0, o.tools.map((t) => t.name).join(',')],
+      ["didn't run the whole suite again", wholeSuiteRuns(o).length === 0, wholeSuiteRuns(o).join(' | ')],
+      ['ran the test the change affects (greet.test.js)', testRunsOf(o).some((r) => r.files.some((f) => /(^|[\\/])greet\.test\.js$/.test(f))), o.tools.flatMap(commandsOf).join(' | ').slice(0, 500)],
+      ['changed no files (a review only reads)', o.gitStatus.trim() === '', o.gitStatus]
+    ],
+    fakeSkips: ['checked which code the record is for (git)', 'ran the test the change affects (greet.test.js)']
+  },
+  {
+    id: 'review-record-stale',
+    title: 'Review a card changed after its run record: the record is for older code, so the tests run again, saying why (#533)',
+    files: RECORD_PROJECT,
+    async setup(c) {
+      await recordedWork(c)
+      // After the record: another change, with no new record.
+      c.write('greet.js', "module.exports = (name) => 'Hello, ' + name\nmodule.exports.bye = (name) => 'Bye, ' + name\n")
+      c.git('commit', '-qam', 'greet: bye')
+    },
+    prompt: (c) => `Review card #${c.cards.b}.`,
+    fake: (c) => `skill review-agent-work boardreview ${c.cards.b} start then boardreview ${c.cards.b} failed`,
+    expect: (o) => {
+      const verdict = verdictOf(o.cards.b)
+      return [
+        ['read the review-agent-work skill', read(o, 'review-agent-work'), o.skillsRead.join(',')],
+        ['gave a verdict (passed or failed)', history(o.cards.b).some((h) => /^Review (passed|failed)$/.test(h)), history(o.cards.b).join(' | ')],
+        ['ran the tests itself', testRunsOf(o).length > 0, o.tools.flatMap(commandsOf).join(' | ').slice(0, 500)],
+        ['the verdict says the record is for older code', STALE_REASON.test(verdict), verdict.slice(0, 300)],
+        ['changed no files (a review only reads)', o.gitStatus.trim() === '', o.gitStatus]
+      ]
+    },
+    fakeSkips: ['ran the tests itself', 'the verdict says the record is for older code']
   },
   {
     id: 'review-interrupted',
@@ -1503,7 +1691,21 @@ const launchedIn = (c, name) => {
   const file = require('path').join(c.ws, '.hive', 'assistant', '.hive', 'launch-assistant', 'instructions.md')
   if (fs.existsSync(file) && fs.readFileSync(file, 'utf8').includes(`# Your mode: ${name}`)) return true
   // fake-copilot: what Copilot sent its model (the stand-in's log), whose system prompt carries the launch's instructions.
-  return !!c.modelLog && fs.existsSync(c.modelLog) && fs.readFileSync(c.modelLog, 'utf8').includes(`# Your mode: ${name}`)
+  if (c.modelLog && fs.existsSync(c.modelLog) && fs.readFileSync(c.modelLog, 'utf8').includes(`# Your mode: ${name}`)) return true
+  // Codex (and the fake): its instructions come as -c developer_instructions, which the session's own rollout records as
+  // its first developer message (#462, #520). Its rollout only: the test home keeps earlier runs' sessions.
+  const id = c.session?.id
+  if (!id || !c.session.codexHome) return false
+  const find = (dir, depth) => {
+    for (const e of fs.existsSync(dir) ? fs.readdirSync(dir, { withFileTypes: true }) : []) {
+      const f = require('path').join(dir, e.name)
+      const hit = e.isDirectory() ? (depth < 3 ? find(f, depth + 1) : null) : e.name.endsWith(`-${id}.jsonl`) ? f : null
+      if (hit) return hit
+    }
+    return null
+  }
+  const rollout = find(require('path').join(c.session.codexHome, 'sessions'), 0)
+  return !!rollout && fs.readFileSync(rollout, 'utf8').split('\n').some((l) => /"role":"developer"/.test(l) && l.includes(`# Your mode: ${name}`))
 }
 // A bulk move (#417): a whole column in one call, not a call per card (hive_update_tasks).
 module.exports.SCENARIOS.push({
@@ -1850,4 +2052,4 @@ for (const [id, name] of MODES) {
   })
 }
 
-module.exports.helpers = { called, ran, read, moved, history, field, movedInto, runs, LANES_RUNNING_TAIL }
+module.exports.helpers = { called, ran, read, moved, history, field, movedInto, runs, commandsOf, testRunsIn, verdictOf, LANES_RUNNING_TAIL }

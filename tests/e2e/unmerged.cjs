@@ -65,8 +65,10 @@ const git = (cwd, ...a) => lib.git(cwd, a)
     await until(async () => (await live(two.id))?.status === 'finished', 15000)
   }
   const merge = page.locator('.pane-header-bar').getByRole('button', { name: 'Merge…' })
-  const count = async () => ((await merge.locator('.btn-count').count()) ? await merge.locator('.btn-count').innerText() : '')
-  const tabBadge = async () => ((await page.locator('.agent-tab .agent-unmerged').count()) ? await page.locator('.agent-tab .agent-unmerged').innerText() : '')
+  // Read in one step, '' when it's gone: a badge going away between a count() and an innerText() left innerText()
+  // waiting for it, and the suite threw (#554).
+  const count = async () => (await merge.locator('.btn-count').allInnerTexts()).join('')
+  const tabBadge = async () => (await page.locator('.agent-tab .agent-unmerged').allInnerTexts()).join('')
   const highlighted = async () => /\bsuggest\b/.test((await merge.getAttribute('class')) ?? '')
 
   await turn()

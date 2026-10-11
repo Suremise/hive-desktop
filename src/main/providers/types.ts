@@ -330,10 +330,11 @@ export interface ProviderAdapter {
   /**
    * What the CLI keeps by a folder's path rather than in it (Claude Code: ~/.claude/projects/<path as name>/, its
    * transcripts and auto memory), for a folder that moved (#146). With apply, copied to the new path's name: never moved
-   * or deleted, and a file already there with other content is kept. Null when it has nothing for `from`. Providers that
-   * keep sessions by id (Codex) have none.
+   * or deleted, and a file already there with other content is kept. One copy per folder the CLI keeps `from`'s data in
+   * (Claude Code may have several, #493); none when it has nothing for `from`. Providers that keep sessions by id (Codex)
+   * have none.
    */
-  copyPathData?(from: string, to: string, apply: boolean): Promise<PathDataCopy | null>
+  copyPathData?(from: string, to: string, apply: boolean): Promise<PathDataCopy[]>
   /** Output that means the CLI is asking the user something before it starts (e.g. whether to trust the folder). */
   readonly startupQuestion?: RegExp
   /**

@@ -688,6 +688,9 @@ describe('agent watches (main/watches.ts)', async () => {
     const st = fake(alpha)
     const user = { kind: 'user' } as const
     const card = async (title: string) => (await inWorkspace(w, () => tasks.createTask({ title, project: 'alpha', agent: 'a2', column: 'doing' }, user))).number
+    // Waiting gives up after 10 s, not vi.waitFor's 1 s: four unit suites at once outran that writing the card's history
+    // (#560). The bound only says when one has hung.
+    const HANG = { timeout: 10_000 }
     for (const [i, change] of [['reassigned', { agent: 'a3' }], ['blocked', { blocked: 'Waiting for a decision' }]] as const) {
       // Builder (a1) awaits Reviewer's card in Review; it works, so the arrival waits to be typed; then the card changes.
       st.status = 'watching'
@@ -700,7 +703,7 @@ describe('agent watches (main/watches.ts)', async () => {
       st.status = 'watching'
       const before = st.typed.length
       await watches.tick()
-      await vi.waitFor(() => expect(st.typed).toHaveLength(before + 1), { timeout: HUNG_MS })
+      await vi.waitFor(() => expect(st.typed).toHaveLength(before + 1), HANG)
       const line = st.typed.at(-1)!
       if (i === 'blocked') {
         // Blocked meanwhile: it stays (#481), so its arrival is told as it was.
@@ -709,7 +712,7 @@ describe('agent watches (main/watches.ts)', async () => {
       }
       expect(line).toMatch(new RegExp(`^\\[Hive\\] #${c} was reassigned to Second \\(your watch on it ended\\)\\. Your card watch has ended: drop it`))
       expect(line).not.toMatch(/is in Review/)
-      await vi.waitFor(async () => expect((await inWorkspace(w, () => tasks.getTask(c, w))).history.some((h) => h.by === 'Hive' && h.what.startsWith("Ended Builder (alpha)'s watch on it"))).toBe(true), { timeout: HUNG_MS })
+      await vi.waitFor(async () => expect((await inWorkspace(w, () => tasks.getTask(c, w))).history.some((h) => h.by === 'Hive' && h.what.startsWith("Ended Builder (alpha)'s watch on it"))).toBe(true), HANG)
     }
     // Two cards: one reassigned leaves quietly; the other never changes; the limit tells both.
     st.status = 'watching'
@@ -720,7 +723,7 @@ describe('agent watches (main/watches.ts)', async () => {
     await watches.evaluateWatches(w)
     const before = st.typed.length
     await watches.tick(Date.now() + 31 * 60_000)
-    await vi.waitFor(() => expect(st.typed).toHaveLength(before + 1), { timeout: HUNG_MS })
+    await vi.waitFor(() => expect(st.typed).toHaveLength(before + 1), HANG)
     expect(st.typed.at(-1)).toBe(`[Hive] #${c1} was reassigned to Second (your watch on it ended). No change on #${c2} in 30 min: your card watch has ended. Drop the first from your list; for the rest, tell the user (hive_notify) and ask what to do.`)
     await disposeWorkspaceService(w)
   })

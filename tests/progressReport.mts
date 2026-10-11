@@ -62,18 +62,22 @@ export function e2eProgress(names: string[], argv: string[] = process.argv): { s
 /**
  * A heavy run waiting for a test slot (tests/e2e/slots.mjs): a row of its own in the Progress panel ("e2e: waiting for
  * a test slot", naming who holds the slots) from the first time it has to wait until it gets one, so it shows as
- * waiting, not hung. Under hive-progress, the wrapper's row names the wait instead. Nothing until waiting(), and nothing
- * with --no-progress.
+ * waiting, not hung. Under hive-progress, the wrapper's row names the wait instead (wait lines). Either way the run is
+ * waiting (#549): no time left, a waiting bar, and the wait not counted against the wrapper's estimate. Nothing until
+ * waiting(), and nothing with --no-progress.
  */
 export function slotWaitProgress(kind: string, command: string, argv: string[] = process.argv, resource = 'a test slot'): { waiting(holders: string): void; finish(summary: string): Promise<void> } {
   if (!progressWanted(argv)) return { waiting() {}, finish: async () => {} }
   let run: ProgressRun | null = null
   return {
     waiting(holders: string) {
-      run ??= new ProgressRun(progressTarget(), { title: `${kind}: waiting for ${resource}`, command }, { lines: wrappedLines() })
-      run.update({ stepName: `waiting for ${resource}: ${holders}` })
+      const waiting = `waiting for ${resource}: ${holders}`
+      if (!run) run = new ProgressRun(progressTarget(), { title: `${kind}: waiting for ${resource}`, command, waiting }, { lines: wrappedLines() })
+      else run.update({ waiting })
     },
     finish: async (summary: string) => {
+      // Under hive-progress the wrapper's run goes on: it waits no more.
+      run?.update({ waiting: '' })
       await run?.finish(true, summary)
     }
   }
