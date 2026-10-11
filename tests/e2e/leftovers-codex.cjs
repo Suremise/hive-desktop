@@ -47,10 +47,17 @@ const pidOf = (tag) => {
   cfg.settings.sessions = { ...cfg.settings.sessions, confirmStop: false }
   fs.writeFileSync(cfgFile, JSON.stringify(cfg, null, 2))
   const env = lib.hiveEnv({ HIVE_USER_DATA: userData, HIVE_API_PORT: lib.port(47867), CODEX_HOME: lib.CODEX_HOME })
-  // Codex runs commands in PowerShell 7 where there is one. The Microsoft Store's (an alias in WindowsApps) is a packaged
-  // app, and what it starts breaks away from every job: Hive doesn't list it, and Codex doesn't end it as it exits (SPEC
-  // §6.2 Leftover processes, #515). Hidden here, so commands run in Windows PowerShell, which Codex's are tracked through.
-  for (const k of Object.keys(env).filter((n) => n.toUpperCase() === 'PATH')) env[k] = env[k].split(';').filter((d) => !/\\WindowsApps\\?$/i.test(d)).join(';')
+  // Codex runs commands in PowerShell 7 where there is one: kept on PATH, the Microsoft Store's too (an alias in
+  // WindowsApps). That one is a packaged app whose children start outside every job, and Codex doesn't end them as it
+  // exits: Hive's process tracker takes them in (#543, SPEC §6.2 Leftover processes), so they are listed and ended.
+  const storePwsh = (() => {
+    try {
+      return !!fs.lstatSync(path.join(process.env.LOCALAPPDATA ?? '', 'Microsoft', 'WindowsApps', 'pwsh.exe'))
+    } catch {
+      return false
+    }
+  })()
+  console.log(`INFO the Store's PowerShell 7 is ${storePwsh ? '' : 'not '}installed: Codex's commands run in ${storePwsh ? 'it' : 'another shell'}`)
   const app = await _electron.launch({ executablePath: lib.ELECTRON, args: [lib.ROOT], cwd: lib.ROOT, env })
   const page = await app.firstWindow()
   page.on('pageerror', (e) => check('no page errors', false, e.message))
