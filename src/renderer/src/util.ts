@@ -5,11 +5,7 @@ export function basename(p: string): string {
   return p.split(/[\\/]/).filter(Boolean).pop() ?? p
 }
 
-export function formatTokens(n: number): string {
-  if (n >= 1_000_000) return `${(n / 1_000_000).toFixed(n >= 10_000_000 ? 0 : 1)}M`
-  if (n >= 1_000) return `${(n / 1_000).toFixed(n >= 100_000 ? 0 : 1)}k`
-  return String(n)
-}
+export { formatBytes, formatTokens } from '@shared/units'
 
 export function formatNumber(n: number): string {
   return n.toLocaleString()
@@ -69,12 +65,6 @@ export const HIVE_FILES_MIME = 'application/x-hive-files'
 
 export function carriesFiles(dt: DataTransfer | null): boolean {
   return !!dt && (dt.types.includes('Files') || dt.types.includes(HIVE_FILES_MIME))
-}
-
-export function formatBytes(n: number): string {
-  if (n < 1024) return `${n} B`
-  if (n < 1024 * 1024) return `${(n / 1024).toFixed(n < 10240 ? 1 : 0)} KB`
-  return `${(n / 1024 / 1024).toFixed(1)} MB`
 }
 
 /** URL the renderer can load a workspace image from (served by the main process). */
