@@ -147,9 +147,8 @@ async function runScenario(sc, providerKey, opts = {}) {
   const mcpLog = path.join(root, 'mcp-calls.jsonl')
   // Each change to the merge slots, with its time (HIVE_TEST_MERGE_SLOT_LOG, #374): who held one and who waited, when.
   const slotLog = path.join(root, 'merge-slots.jsonl')
-  // The stand-in model for fake-copilot, on a port of its own; closed when the run ends.
+  // What fake-copilot's stand-in model was sent (it starts just before the launch, below).
   const modelLog = path.join(root, 'copilot-api.jsonl')
-  const standIn = p.standIn ? await startFakeCopilotApi({ log: modelLog }) : null
   if (!opts.evidence) fs.rmSync(root, { recursive: true, force: true })
   fs.mkdirSync(fakeHome, { recursive: true })
   if (providerKey === 'fake-codex') {
@@ -192,18 +191,27 @@ async function runScenario(sc, providerKey, opts = {}) {
 
   const port = opts.port ?? 47930
   const started = Date.now()
-  // Each CLI's home is a test one: the fake's per run, the real Claude Code's and Codex's signed-in test homes.
-  const env = {
-    HIVE_API_PORT: String(port),
-    HIVE_TEST_TIPS: 'off',
-    HIVE_TEST_MCP_LOG: mcpLog,
-    HIVE_TEST_MERGE_SLOT_LOG: slotLog,
-    CLAUDE_CONFIG_DIR: providerKey === 'claude-code' ? CLAUDE_TEST_HOME : fakeHome,
-    CODEX_HOME: providerKey === 'fake-codex' ? fakeCodexHome : lib.CODEX_HOME,
-    // Copilot in the run's own home, its profile folder faked and the GitHub CLI's login hidden (fake-copilot-api.cjs).
-    ...(standIn ? copilotTestEnv(standIn, root) : {})
+  // The stand-in model for fake-copilot, on a port of its own: closed when the run ends, or at once if Copilot's
+  // environment or the launch fails before the run begins (#464), and that failure is the one thrown.
+  const standIn = p.standIn ? await startFakeCopilotApi({ log: modelLog }) : null
+  let app, inv, env
+  try {
+    // Each CLI's home is a test one: the fake's per run, the real Claude Code's and Codex's signed-in test homes.
+    env = {
+      HIVE_API_PORT: String(port),
+      HIVE_TEST_TIPS: 'off',
+      HIVE_TEST_MCP_LOG: mcpLog,
+      HIVE_TEST_MERGE_SLOT_LOG: slotLog,
+      CLAUDE_CONFIG_DIR: providerKey === 'claude-code' ? CLAUDE_TEST_HOME : fakeHome,
+      CODEX_HOME: providerKey === 'fake-codex' ? fakeCodexHome : lib.CODEX_HOME,
+      // Copilot in the run's own home, its profile folder faked and the GitHub CLI's login hidden (fake-copilot-api.cjs).
+      ...(standIn ? copilotTestEnv(standIn, root) : {})
+    }
+    ;({ app, inv } = await lib.launch({ userData, env }))
+  } catch (e) {
+    await standIn?.close().catch(() => undefined)
+    throw e
   }
-  const { app, inv } = await lib.launch({ userData, env })
   const result = { scenario: sc.id, title: sc.title, provider: providerKey, model: opts.model ?? '(default)', role: sc.role ?? 'agent', control: sc.role === 'assistant' ? (sc.control ?? 'projects') : undefined, cliVersion: null, guidance: null, checks: [], observed: null, usage: null, measures: null, metricsOverheadMs: 0, seconds: 0, error: null }
   try {
     const info = await lib.waitForProvider(inv, p.provider, 60000)

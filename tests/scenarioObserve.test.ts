@@ -615,3 +615,33 @@ describe("the scenarios' simulated wake", () => {
     expect(helpers.LANES_RUNNING_TAIL).toBe(LANES_RUNNING_TAIL)
   })
 })
+
+// fake-copilot's stand-in model starts just before Hive's launch; a launch that fails (or Copilot's environment before
+// it) closes it at once, and the launch's own failure is what the run throws (#464).
+describe("Copilot's stand-in model when a scenario's launch fails (#464)", () => {
+  it('is closed: nothing listens on its port after, and the launch failure is the one thrown', async () => {
+    const fs = require('fs') as typeof import('fs')
+    const lib = require('./e2e/lib.cjs') as { launch: (o: { env: Record<string, string> }) => Promise<unknown> }
+    const { runScenario } = require('./scenarios/harness.cjs') as { runScenario: (sc: object, provider: string, opts: object) => Promise<unknown> }
+    const launch = lib.launch
+    const work = tempDir('hive-standin-launch-')
+    let url = ''
+    let answered = 0
+    // The launch fails once the stand-in is up: it answers then, as Copilot would reach it.
+    lib.launch = async ({ env }) => {
+      url = env.COPILOT_PROVIDER_BASE_URL
+      answered = (await fetch(`${url}/models`)).status
+      throw new Error('injected: the launch failed')
+    }
+    try {
+      await expect(runScenario({ id: 'standin-close', title: 'A launch that fails', prompt: 'nothing' }, 'fake-copilot', { workRoot: work })).rejects.toThrow('injected: the launch failed')
+      expect(url).toMatch(/^http:\/\/127\.0\.0\.1:\d+/)
+      expect(answered).toBe(200)
+      // Closed: a request is refused, not answered or left waiting.
+      await expect(fetch(`${url}/models`, { signal: AbortSignal.timeout(5000) })).rejects.toMatchObject({ cause: { code: 'ECONNREFUSED' } })
+    } finally {
+      lib.launch = launch
+      fs.rmSync(work, { recursive: true, force: true })
+    }
+  })
+})

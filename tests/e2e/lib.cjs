@@ -238,13 +238,23 @@ async function openWorkspace(inv, page, ws, ms = 20000) {
   if (!ok) throw new Error(`The window didn't show the workspace ${name} within ${ms / 1000} s`)
 }
 
-/** Starts the dev build with a test profile. Returns { app, page, inv } (inv calls an IPC channel). */
-async function launch({ userData, env = {}, viewport = { width: 1400, height: 850 } }) {
+/**
+ * Starts the dev build with a test profile. Returns { app, page, inv } (inv calls an IPC channel). readyMs bounds the
+ * wait for its window to be ready; one that isn't is closed and the failure thrown.
+ */
+async function launch({ userData, env = {}, viewport = { width: 1400, height: 850 }, readyMs = 90000 }) {
   // The run context's environment (quiet, tips off, the suite's port) with the profile and the suite's own variables.
   const app = await _electron.launch({ executablePath: ELECTRON, args: [ROOT], cwd: ROOT, env: hiveEnv({ HIVE_USER_DATA: userData, ...env }) })
-  const page = await app.firstWindow()
-  await fitWindow(app, page, viewport)
-  await appReady(page)
+  let page
+  try {
+    page = await app.firstWindow()
+    await fitWindow(app, page, viewport)
+    await appReady(page, readyMs)
+  } catch (e) {
+    // Started but never ready: it closes here, as no caller gets it to close (#464); its own failure is the one thrown.
+    await app.close().catch(() => undefined)
+    throw e
+  }
   const inv = (ch, ...a) => page.evaluate(([c, args]) => window.hive.invoke(c, ...args), [ch, a])
   return { app, page, inv }
 }
