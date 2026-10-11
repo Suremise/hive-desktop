@@ -221,10 +221,12 @@ export const placesKept = (life: AbortSignal): boolean => knownPlaces.has(life)
  */
 export async function boardPlaces(ws: WorkspaceService): Promise<CardPlace[]> {
   if (!ws.path) return []
+  // The board and its workspace's lifetime, together before anything is awaited: closed (or switched) meanwhile, what this
+  // read finds is never kept, not even under the next lifetime.
   const dir = tasksDir(ws)
+  const life = ws.lifetime
   const names = await readdir(dir).catch(() => [] as string[])
   const numbers = names.flatMap((f) => (/^(\d+)\.json$/.test(f) ? [Number(f.slice(0, -5))] : []))
-  const life = ws.lifetime
   const ids = await ws.projectIds()
   const was = knownPlaces.get(life)
   const now = new Map<number, KnownPlace>()

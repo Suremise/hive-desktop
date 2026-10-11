@@ -11,8 +11,8 @@ import type { TaskCard } from '../src/shared/types'
 import { tempDir } from './tempDir'
 
 // The card files read (fs/promises' readFile of <n>.json in a tasks folder), counted; reading the file named `busy` fails,
-// as when another program holds it, and `during` runs (once) as a card file is read.
-const reads = vi.hoisted(() => ({ cards: 0, busy: null as string | null, during: null as null | (() => Promise<void>) }))
+// as when another program holds it, `during` runs (once) as a card file is read, and `listing` as a tasks folder is listed.
+const reads = vi.hoisted(() => ({ cards: 0, busy: null as string | null, during: null as null | (() => Promise<void>), listing: null as null | (() => Promise<void>) }))
 vi.mock('fs/promises', async (original) => {
   const real = await original<typeof import('fs/promises')>()
   return {
@@ -26,7 +26,15 @@ vi.mock('fs/promises', async (original) => {
       }
       if (reads.busy && String(path).endsWith(reads.busy)) return Promise.reject(Object.assign(new Error(`EBUSY: resource busy or locked, open '${String(path)}'`), { code: 'EBUSY' }))
       return (real.readFile as (...a: unknown[]) => Promise<unknown>)(path, ...rest)
-    }) as typeof real.readFile
+    }) as typeof real.readFile,
+    readdir: (async (path: Parameters<typeof real.readdir>[0], ...rest: unknown[]) => {
+      if (/[\\/]tasks$/.test(String(path))) {
+        const listing = reads.listing
+        reads.listing = null
+        await listing?.()
+      }
+      return (real.readdir as (...a: unknown[]) => Promise<unknown>)(path, ...rest)
+    }) as typeof real.readdir
   }
 })
 
@@ -128,6 +136,17 @@ describe('placing a card on a big board (#458)', () => {
     expect((await run(() => tasks.boardPlaces(closing))).some((c) => c.number === 12)).toBe(true)
     expect(reads.during).toBeNull()
     expect(tasks.placesKept(life)).toBe(false)
+    // Closed while the tasks folder is listed (before anything else is read): nothing is kept, under the lifetime it
+    // began in or the one the service has after closing.
+    w = createWorkspaceService()
+    await w.open(wsPath)
+    const listing = w
+    const listed = listing.lifetime
+    reads.listing = () => disposeWorkspaceService(listing)
+    await run(() => tasks.boardPlaces(listing)).catch(() => [])
+    expect(reads.listing).toBeNull()
+    expect(tasks.placesKept(listed)).toBe(false)
+    expect(tasks.placesKept(listing.lifetime)).toBe(false)
     w = createWorkspaceService()
     await w.open(wsPath)
     expect((await run(() => tasks.createTask({ title: 'Reopened', project: 'p', column: 'hold' }, user))).order).toBe(503)
