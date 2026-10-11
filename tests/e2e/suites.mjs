@@ -170,6 +170,7 @@ export const SUITES = [
   { name: 'unsaved' },
   { name: 'unusedwt' },
   { name: 'update' },
+  { name: 'wakepaste' },
   { name: 'wakeuntaken' },
   { name: 'watchrelease' },
   { name: 'welcomefit' },

@@ -164,7 +164,9 @@ was kept with `--keep`. Two started from the same worktree share its build, so i
 
 **Heavy runs queue** (`slots.mjs`, #204). Several agents each running full sets on one machine slowed each other until
 tests that pass alone timed out. So at most **two heavy runs** go at once across every worktree
-(`HIVE_TEST_HEAVY_SLOTS` changes it): an e2e run of more than five suites (`--all`, `--real`, a big `--affected`) or
+(`HIVE_TEST_HEAVY_SLOTS` changes it: set it as a user environment variable and restart Hive, whose sessions keep it
+while dropping Hive's other `HIVE_` variables (`SESSION_SETTINGS` in `src/main/ptyHost.ts`, #567), so the runs agents
+start use it): an e2e run of more than five suites (`--all`, `--real`, a big `--affected`) or
 any `--repeat`, and a scenario run of more than five scenarios or with `--repeat`. A run of a few suites, a single
 scenario, or a runner started inside a suite never waits: e2e or scenarios (`needsSlot`, #211), since its parent's run
 holds a slot and waiting behind it would never end. It still keeps apart from its parent (a nested e2e runner in the
@@ -172,11 +174,21 @@ parent's `nested` folder with ports above the parent's, a nested scenario run in
 before it builds, in the order runs asked. It prints `Waiting for a test slot …: held by e2e: 68 suites in <worktree>
 (process …, 12 min)` and shows in the Progress panel as **e2e: waiting for a test slot** (or **scenarios: …**), naming
 who holds them, until it gets one (`Got a test slot after N s`). So a run that seems stuck is usually waiting: that line
-says for whom. `--no-wait` fails at once instead (exit 2, saying who holds them). Slots are files in
+says for whom. `--no-wait` fails at once instead (exit 2, saying who holds them).
+**A pre-merge run goes first** (#558): one started in the session of the agent that holds its project's merge slot
+(the runner asks Hive's Agent API, with the session's `HIVE_API_URL`, token, `HIVE_PROJECT` and `HIVE_AGENT`, at its
+first look and every 30 s while it waits), or one with `--pre-merge` (either runner; for a merge's checks started
+outside an agent's session). It takes the next free slot before runs that asked earlier for other reasons, behind only
+pre-merge runs that asked before it, and says `…, pre-merge, next in line: held by …`; it never stops a run that holds a
+slot, and no slot is kept back for it. So a merge, which every other merge waits behind, doesn't wait behind flake-proof
+repeats. The merge-ready skill claims the merge slot before its checks, so its runs need no flag. Slots are files in
 `%LOCALAPPDATA%\hive-test\heavy-slots` (`slot-<k>.json` held, `wait-<pid>.json` waiting, each with its runner's
-process id, under the same claims lock as lanes); a crashed or killed run's slot expires at once (its process is gone).
+process id, and `first` for a pre-merge run, under the same claims lock as lanes); a crashed or killed run's slot, or
+place in the queue, expires at once (its process is gone).
 `npm run e2e:concurrency -- --heavy` checks it: three heavy runs from three worktrees with two slots (in a pool of their
-own, `HIVE_TEST_HEAVY_DIR`), one waiting visibly, `--no-wait`, and a killed run's slot.
+own, `HIVE_TEST_HEAVY_DIR`), one waiting visibly, `--no-wait`, a killed run's slot, a pre-merge run taking the slot
+before two that asked earlier (the stand-in Agent API says its agent holds the merge slot), and a killed pre-merge run's
+place.
 
 **How many heavy runs at once** (#544). The default is two (`DEFAULT_SLOTS` in `slots.mjs`). A machine with more
 cores and memory, or with nothing else running, may take more; a slower one fewer. To change it, set
@@ -248,6 +260,27 @@ passed to them), and it never changes the output or the results. Turn it off wit
 
 `packaged-progress` checks the `hive-progress` wrapper as installed (`dist/win-unpacked`), against a stand-in for the
 Agent API; `HIVE_PROGRESS_CHECK_DEV=1 node tests/e2e/packaged-progress.cjs` checks the dev build's copy.
+
+### The installer on a clean machine: the Sandbox checks
+
+The e2e suites test the app on this machine. The **Sandbox checks** (the mcp repo's
+`servers/windows-sandbox/scenarios/hive-checks.js`, #538) test the **installer** on a clean Windows in Windows Sandbox:
+a fresh install and first launch, the first run with no CLIs (#474), a CLI appearing while Hive runs (#472), an upgrade
+from the previous release with its settings kept, uninstall, and a new workspace. Two throwaway Sandboxes, about 3
+minutes, the network off and Hive's fake CLIs only: no real CLI, sign-in or credential goes in. It writes `report.md`
+(pass or fail per check, with screenshots) and passes only with every check run.
+
+- **When:** on each release candidate, once it is built and before the user installs it (RELEASING.md step 1, the
+  release-hive skill), with the verdict and report folder commented on the release card.
+- **How:** `node "<mcp repo>\servers\windows-sandbox\scenarios\hive-checks.js" --installer "<the RC's installer>"
+  --hive "<the main checkout>" --report "$env:LOCALAPPDATA\hive-test\sandbox-reports\<version>-rc<n>"`. It starts its
+  own copy of the Sandbox server, so it needs no MCP registration.
+- **One Sandbox at a time** on the machine: when another is running it says NOT RUN (exit 2); wait, or pass
+  `--wait-min 30`. It never stops a Sandbox it didn't start.
+- **By hand** (an agent working in a Sandbox through the `windows-sandbox` MCP tools): Hive turns MCP servers on per
+  project, not per agent, so until it can give a server to chosen agents only (#537), the server is on only in a
+  release-testing project that holds just the release-testing agent (the mcp repo's
+  `servers/windows-sandbox/RELEASE-TESTING.md`).
 
 ## What they need
 

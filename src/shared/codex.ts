@@ -87,7 +87,8 @@ export const CODEX_DESCRIPTOR: ProviderDescriptor = {
     backgroundSessions: false,
     // Codex isn't told when a background terminal ends: it finds out only by checking during a turn.
     backgroundWakes: false,
-    startupSizeRefresh: false
+    startupSizeRefresh: false,
+    bracketedPaste: false
   },
   // Ctrl+T opens Codex's transcript view; Ctrl+G its external editor.
   reservedKeys: ['MOD+T', 'MOD+G'],

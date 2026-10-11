@@ -4,11 +4,12 @@
 // (recorded as they are written, worked out once for older ones from what they say), and what keeps a project by its
 // folder's name or path follows each rename once (each place saves the last rename it followed with its data, so a
 // failure or a stop part way is finished later, never done twice).
-import { cpSync, existsSync, mkdirSync, readFileSync, renameSync, rmSync, writeFileSync } from 'fs'
+import { cpSync, existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from 'fs'
 import { join } from 'path'
 import { afterAll, afterEach, beforeAll, describe, expect, it, vi } from 'vitest'
 import * as electron from 'electron'
 import type { NameJournal } from '../src/main/projectNames'
+import { moveFolder as move } from './moveFolder'
 import { tempDir } from './tempDir'
 
 const base = tempDir('hive-projectrename-')
@@ -20,7 +21,7 @@ const notes = await import('../src/main/notes')
 const names = await import('../src/main/projectNames')
 const fsutil = await import('../src/main/fsutil')
 const { repairMove } = await import('../src/main/workspaceMove')
-const { followNames, testHooks } = await import('../src/main/projectRename')
+const { followNames, followingNames, testHooks } = await import('../src/main/projectRename')
 testHooks.retryMs = 50
 const { config } = await import('../src/main/config')
 const { progress } = await import('../src/main/progressService')
@@ -49,9 +50,11 @@ function oldHandover(ws: string, file: string, projectName: string, session?: st
   mkdirSync(join(ws, '.hive', 'shared', 'handovers'), { recursive: true })
   writeFileSync(join(ws, '.hive', 'shared', 'handovers', file), `# Handover\n\n- **Project:** ${projectName}\n${session ? `- **Session:** ${session}\n` : ''}- **Date:** 2026-10-01 10:00 (2026-10-01T10:00:00Z)\n\nWhere things stand.\n`)
 }
-/** Until `want` holds (up to 15 s, for a loaded machine): the ids read again (each read is followed in the background). */
+/** Bounds a wait for the projects' names to be followed (in the background, after each read): only a hung run takes this long. */
+const HUNG_MS = 15_000
+/** Until `want` holds (up to HUNG_MS): the ids read again (each read is followed in the background). */
 async function until(w: WS, want: () => boolean | Promise<boolean>): Promise<boolean> {
-  for (const end = Date.now() + 15_000; Date.now() < end; ) {
+  for (const end = Date.now() + HUNG_MS; Date.now() < end; ) {
     if (await want()) return true
     await w.projectIds({ fresh: true })
     await new Promise((r) => setTimeout(r, 20))
@@ -66,17 +69,6 @@ async function keepFor(w: WS, p: string): Promise<string> {
   return (await kept.keepReport(kept.benchContext(w), report, '0.6.0', `${p}'s`)).id
 }
 const comparisons = async (w: WS, p: string): Promise<string[]> => (await kept.listBenchmarks(kept.benchContext(w), { kind: 'project', project: p })).entries.map((e) => e.id)
-/** A folder renamed, tried again while something (Hive's own readers) has it open for a moment, as Windows refuses then. */
-async function move(from: string, to: string): Promise<void> {
-  for (let i = 0; ; i++) {
-    try {
-      return renameSync(from, to)
-    } catch (e) {
-      if (i >= 40 || !['EPERM', 'EBUSY', 'EACCES'].includes((e as NodeJS.ErrnoException).code ?? '')) throw e
-      await new Promise((r) => setTimeout(r, 50))
-    }
-  }
-}
 let n = 0
 const newWs = (): string => join(base, `ws-${++n}`)
 async function open(ws: string): Promise<WS> {
@@ -286,6 +278,53 @@ describe('what keeps a project by name or path follows a rename, once (#514)', (
     expect(measured(w, 'gamma') + measured(w, 'alpha')).toBe(0)
     progress.clear(ws)
     await disposeWorkspaceService(w)
+  })
+
+  it('a retry follows the newest read, never the one that failed: no rename back that never happened (#555)', async () => {
+    const ws = newWs()
+    const alpha = project(ws, 'alpha')
+    const w = await open(ws)
+    expect(await until(w, () => existsSync(join(ws, '.hive', 'project-names.json')))).toBe(true)
+    const id = (await w.projectIds()).byPath.get(alpha.toLowerCase())!
+    config.update((c) => {
+      c.ui.skillsProvider = { ...c.ui.skillsProvider, [alpha.toLowerCase()]: 'codex' }
+    })
+    // Progress fails once; its retry is held, to be let go once a later read has been followed.
+    const real = progress.applyRenames.bind(progress)
+    let fails = 1
+    vi.spyOn(progress, 'applyRenames').mockImplementation(async (...a) => {
+      if (fails-- > 0) throw new Error('disk full')
+      return real(...a)
+    })
+    const RETRY = 4321
+    const was = testHooks.retryMs
+    testHooks.retryMs = RETRY
+    let retry: (() => void) | null = null
+    const schedule = globalThis.setTimeout
+    vi.spyOn(globalThis, 'setTimeout').mockImplementation(((fn: () => void, ms?: number) => {
+      if (ms === RETRY && !retry) {
+        retry = fn
+        return { unref: () => undefined }
+      }
+      return schedule(fn, ms)
+    }) as unknown as typeof setTimeout)
+    try {
+      const run = progress.start({ source: 'agent', workspacePath: ws, projectPath: alpha, agentId: 'x', agentName: 'X', provider: 'claude-code' }, { title: 'tests' })
+      await move(alpha, join(ws, 'gamma'))
+      expect(await until(w, () => retry !== null && !followingNames(w))).toBe(true)
+      // Renamed again, and that read followed, before the retry comes.
+      await move(join(ws, 'gamma'), join(ws, 'delta'))
+      expect(await until(w, () => progress.list(ws).find((r) => r.id === run.id)?.projectPath === join(ws, 'delta') && !followingNames(w))).toBe(true)
+      retry!()
+      await vi.waitFor(() => expect(followingNames(w)).toBe(false), { timeout: HUNG_MS })
+      expect(journal(ws).renames.map((r) => [r.id, r.from, r.to])).toEqual([[id, 'alpha', 'gamma'], [id, 'gamma', 'delta']])
+      expect(progress.list(ws).find((r) => r.id === run.id)?.projectPath).toBe(join(ws, 'delta'))
+      expect(prefs(ws, 'delta')).toBe('codex')
+      progress.clear(ws)
+    } finally {
+      testHooks.retryMs = was
+      await disposeWorkspaceService(w)
+    }
   })
 })
 

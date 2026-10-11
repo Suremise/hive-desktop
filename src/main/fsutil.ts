@@ -469,6 +469,7 @@ function copyRangeSync(src: string, dest: string, flags: 'r+' | 'w', from: numbe
 }
 
 const fileLocks = new Map<string, Promise<unknown>>()
+const fileLockCalls = new Map<string, number>()
 
 /**
  * Runs fn with the file locked against other withFileLock calls for the same path, so a
@@ -480,11 +481,18 @@ export function withFileLock<T>(path: string, fn: () => Promise<T>): Promise<T> 
   const run = prev.then(fn, fn)
   const tail = run.catch(() => undefined)
   fileLocks.set(key, tail)
+  fileLockCalls.set(key, (fileLockCalls.get(key) ?? 0) + 1)
   void tail.then(() => {
     if (fileLocks.get(key) === tail) fileLocks.delete(key)
+    const left = (fileLockCalls.get(key) ?? 1) - 1
+    if (left) fileLockCalls.set(key, left)
+    else fileLockCalls.delete(key)
   })
   return run
 }
+
+/** How many withFileLock calls for path are running or waiting: tests wait on it for a write to be queued. */
+export const fileLockDepth = (path: string): number => fileLockCalls.get(path.toLowerCase()) ?? 0
 
 export async function isDir(path: string): Promise<boolean> {
   try {

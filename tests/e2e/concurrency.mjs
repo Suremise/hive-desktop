@@ -19,9 +19,10 @@
 // worktrees with two slots. Checked: two run and the third waits, saying so (and in the Progress panel, through a
 // stand-in for Hive's Agent API), then starts when a slot is let go; no more than two hold slots at any moment; all
 // pass; a run with --no-wait while the slots are taken fails at once, saying who holds them; the slot of a run that
-// is killed is taken by the next run without waiting; and with the only slot held by a parent run, a heavy scenario run
-// started inside its suite runs without asking for one (even with --no-wait), while the same run at the top level is
-// refused (#211).
+// is killed is taken by the next run without waiting; a pre-merge run (its agent holds the merge slot, as the stand-in
+// says) takes the only slot before two runs that asked earlier, and a killed pre-merge run's place expires (#558); and
+// with the only slot held by a parent run, a heavy scenario run started inside its suite runs without asking for one
+// (even with --no-wait), while the same run at the top level is refused (#211).
 import { execFileSync, spawn, spawnSync } from 'child_process'
 import { existsSync, mkdirSync, readdirSync, readFileSync, rmSync, writeFileSync } from 'fs'
 import http from 'http'
@@ -164,7 +165,7 @@ async function heavyRound(k, worktrees) {
   console.log(`\n--- Round ${k} of ${repeat} (heavy runs)`)
   const pool = join(RUN, 'heavy-slots')
   rmSync(pool, { recursive: true, force: true })
-  // A stand-in for Hive's Agent API: the runs report their progress to it.
+  // A stand-in for Hive's Agent API: the runs report their progress to it, and ask it who holds the merge slot (HB).
   const reports = []
   const api = http.createServer((req, res) => {
     let body = ''
@@ -172,7 +173,9 @@ async function heavyRound(k, worktrees) {
     req.on('end', () => {
       reports.push({ method: req.method, url: req.url, body: body ? JSON.parse(body) : {} })
       res.setHeader('Content-Type', 'application/json')
-      res.end(req.method === 'POST' && req.url === '/v1/progress' ? JSON.stringify({ id: `r${reports.length}` }) : '{}')
+      if (req.method === 'POST' && req.url === '/v1/progress') res.end(JSON.stringify({ id: `r${reports.length}` }))
+      else if (req.method === 'GET' && req.url === '/v1/projects/hive/merge-slot') res.end(JSON.stringify({ project: 'hive', branch: 'main', holder: { kind: 'agent', name: 'HB', cards: [] }, waiting: [] }))
+      else res.end('{}')
     })
   })
   await new Promise((r) => api.listen(0, '127.0.0.1', r))
@@ -211,6 +214,40 @@ async function heavyRound(k, worktrees) {
     await killed
     const next = await start({ name: 'after a killed run', cwd: root, script: 'tests/e2e/run.mjs', args, env: { ...env, HIVE_TEST_HEAVY_SLOTS: '1' } })
     check("a killed run's slot is taken by the next run without waiting", held && next.code === 0 && !/Waiting for a test slot/.test(next.out), `held ${held}, exit ${next.code}`)
+
+    // The merge slot holder's run goes first (#558). The only slot is this checker's; two runs wait for it, then the
+    // run of the agent that holds the merge slot (HB, says the stand-in) asks last and takes it when it is let go.
+    const single = { ...env, HIVE_TEST_HEAVY_SLOTS: '1', HIVE_PROJECT: 'hive' }
+    const run = (i, agent, started) => start({ name: `${agent}, worktree ${i + 1}`, cwd: worktrees[i], script: 'tests/e2e/run.mjs', args, env: { ...single, HIVE_AGENT: agent }, started })
+    const slotFile = () => readdirSync(pool).find((f) => /^slot-\d+\.json$/.test(f))
+    let gate = await trySlot(pool, { slots: 1, what: 'the checker', root })
+    const earlier = [run(0, 'B1')]
+    let lined = await until(() => waiting() === 1, 60_000)
+    earlier.push(run(1, 'B2'))
+    lined = lined && (await until(() => waiting() === 2, 60_000))
+    let merger
+    const merging = run(2, 'HB', (p) => (merger = p))
+    lined = lined && (await until(() => waiting() === 3, 60_000))
+    rmSync(join(pool, `slot-${gate.slot}.json`), { force: true })
+    const taken = await until(() => slots() === 1, 60_000)
+    const holder = taken ? JSON.parse(readFileSync(join(pool, slotFile()), 'utf8')) : null
+    check('a pre-merge run (its agent holds the merge slot) takes the slot before two runs that asked earlier', lined && holder?.pid === merger.pid && holder.first === true, `queued ${lined}, slot held by ${JSON.stringify(holder)}, pre-merge run ${merger?.pid}`)
+    const all = await Promise.all([merging, ...earlier])
+    check('…having said it was next in line, and all three pass', /^Waiting for a test slot \(1 heavy runs at once.*\), pre-merge, next in line: held by the checker/m.test(all[0].out) && all.every((r) => r.code === 0), all.map((r) => `${r.name}: exit ${r.code}, ${r.out.split('\n').filter((l) => /test slot/.test(l)).join(' / ')}`).join(' | '))
+
+    // A pre-merge run killed while it waits: its place expires, and the run that asked before it takes the slot.
+    gate = await trySlot(pool, { slots: 1, what: 'the checker', root })
+    const ordinary = run(0, 'B1')
+    let doomed
+    lined = await until(() => waiting() === 1, 60_000)
+    const killedMerge = run(2, 'HB', (p) => (doomed = p))
+    lined = lined && (await until(() => waiting() === 2 && existsSync(join(pool, `wait-${doomed.pid}.json`)), 60_000))
+    spawnSync('taskkill', ['/pid', String(doomed.pid), '/T', '/F'], { stdio: 'ignore', env: runContext.baseEnv() })
+    await killedMerge
+    rmSync(join(pool, `slot-${gate.slot}.json`), { force: true })
+    const after = await ordinary
+    check("a killed pre-merge run's place expires: the run that asked before it takes the slot", lined && after.code === 0 && /^Got a test slot after \d+ s/m.test(after.out), `queued ${lined}, exit ${after.code}: ${after.out.split('\n').filter((l) => /test slot/.test(l)).join(' / ')}`)
+    check('…and every slot and place is let go', slots() === 0 && waiting() === 0, readdirSync(pool).join(', '))
 
     // A heavy scenario run inside a suite (#211): its parent (this checker, standing in for an e2e run) holds the only slot.
     const parent = await trySlot(pool, { slots: 1, what: 'the parent e2e run', root })
