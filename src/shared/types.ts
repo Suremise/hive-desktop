@@ -242,6 +242,8 @@ export interface AssistantAction {
   setting?: AssistantSettingChange
   /** The user reverted that change (this action's id): the list marks the change as reverted. */
   revertOf?: string
+  /** The line without what it quotes (a prompt, a message): what the Agent API's event stream gives (#620). */
+  brief?: string
 }
 
 /** A setting the Hive Assistant changed, as its activity list shows it and Revert undoes it. */
@@ -1893,6 +1895,18 @@ export interface AgentApiInfo {
   url: string | null
   token: string
   error?: string
+  /** The read-only viewer tokens the user made (#620), oldest first. */
+  viewers: ViewerToken[]
+}
+
+/** A read-only Agent API token for an app that shows Hive (Apiary): it reads and follows the workspace, never changes it. */
+export interface ViewerToken {
+  id: string
+  /** What the user called it ("Apiary"). */
+  name: string
+  token: string
+  /** ISO time. */
+  createdAt: string
 }
 
 /** Events pushed from main to renderer. */
@@ -1941,7 +1955,8 @@ export type HiveEvent =
   | { type: 'window-state'; maximized: boolean; focused: boolean; alwaysOnTop: boolean }
   /** A window opened or closed: how many there are now (File → Exit says it closes them all). */
   | { type: 'windows-changed'; count: number }
-  | { type: 'notice'; notice: Notice }
+  /** `windows`: told as a Windows notification, so no window shows it; only in-process listeners (the Agent API's stream) hear of it. */
+  | { type: 'notice'; notice: Notice; windows?: true }
   /** The agent no longer waits for you: its waiting banner closes, in whichever window shows it. */
   | { type: 'notice-resolved'; projectPath: string; agentId: string }
   | { type: 'update-state'; state: UpdateState }
@@ -2073,4 +2088,9 @@ export interface ProgressRun {
   exitCode: number | null
   /** A log or run record the reporter named (a path). */
   logPath: string | null
+  /**
+   * Its title is its command line (hive-progress without --title), as its reporter said (#620): the Agent API names it by
+   * its program alone, since a command's arguments can hold a token or a prompt.
+   */
+  titleFromCommand?: true
 }

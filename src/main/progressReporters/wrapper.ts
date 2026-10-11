@@ -225,7 +225,7 @@ class WrappedRun {
   private waitStart = 0
   private waitedBefore = 0
   constructor(
-    private readonly start: () => { title: string; command: string; estimateMs?: number; started: number },
+    private readonly start: () => { title: string; command: string; titleFromCommand: boolean; estimateMs?: number; started: number },
     private readonly opts: { fetch?: Fetch; minIntervalMs?: number; target: NonNullable<ReturnType<typeof progressTarget>> },
     waitMs: number
   ) {
@@ -238,7 +238,7 @@ class WrappedRun {
     this.timer = null
     const s = this.start()
     const left = s.estimateMs === undefined ? undefined : Math.max(0, s.estimateMs - (Date.now() - s.started))
-    this.run = new ProgressRun(this.opts.target, { title: s.title, command: s.command, total: this.total, step: this.step, stepName: this.name, estimateMs: left, ...(this.waiting ? { waiting: this.waiting } : {}) }, { fetch: this.opts.fetch, minIntervalMs: this.opts.minIntervalMs })
+    this.run = new ProgressRun(this.opts.target, { title: s.title, command: s.command, titleFromCommand: s.titleFromCommand, total: this.total, step: this.step, stepName: this.name, estimateMs: left, ...(this.waiting ? { waiting: this.waiting } : {}) }, { fetch: this.opts.fetch, minIntervalMs: this.opts.minIntervalMs })
   }
 
   /** How long the command has waited in all (its wait lines), so far. */
@@ -365,7 +365,7 @@ export async function runWrapped(argv: string[], io: WrapperIo): Promise<number>
   const timings = io.env.HIVE_PROGRESS_DATA ? join(io.env.HIVE_PROGRESS_DATA, 'timings.json') : null
   const key = timingKey(io.cwd, parsed.command)
   const report = new WrappedRun(
-    () => ({ title: parsed.title?.trim() || label, command: label, estimateMs: timings ? estimateFor(timings, key) : undefined, started }),
+    () => ({ title: parsed.title?.trim() || label, command: label, titleFromCommand: !parsed.title?.trim(), estimateMs: timings ? estimateFor(timings, key) : undefined, started }),
     { target, fetch: io.fetch, minIntervalMs: io.minIntervalMs },
     io.startWaitMs ?? 2000
   )

@@ -53,6 +53,9 @@ import { appMetrics, clock as metricsClock, knownRoute, metricsHandle, recordApi
 import { metricsReport } from './metricsUsage'
 import type { MetricOutcome, MetricsQuery } from '../shared/metrics'
 import { agentForToken, agentToken, agentTokenFile, type AgentIdentity } from './agentTokens'
+import { API_EVENTS, apiEventFor, publicRun } from './apiEvents'
+import { clearDiscovery, writeDiscovery } from './apiDiscovery'
+import { createViewerToken, loadViewerTokens, revokeViewerToken, viewerForToken, viewerTokens } from './viewerTokens'
 import { hookTokenMatches } from './hookTokens'
 import { unusedWorktreeCounts } from './unusedWorktrees'
 
@@ -155,8 +158,14 @@ let apiToken = ''
  */
 /** Who is calling: a script with the workspace token, the Assistant, or a project agent (by its own token). */
 /** An Assistant caller keeps the token it came with: one launch's, which its later work is checked against (#186). */
-type Caller = { kind: 'api' } | { kind: 'assistant'; workspace: string; token: string } | ({ kind: 'agent' } & AgentIdentity)
+/** A viewer (#620) reads and follows like the workspace token and changes nothing: every request but a GET is refused. */
+type Caller = { kind: 'api' } | { kind: 'viewer'; id: string; name: string } | { kind: 'assistant'; workspace: string; token: string } | ({ kind: 'agent' } & AgentIdentity)
 const callerStore = new AsyncLocalStorage<Caller>()
+
+function viewerCaller(): { id: string; name: string } | null {
+  const c = callerStore.getStore()
+  return c?.kind === 'viewer' ? c : null
+}
 
 /** The project agent making the call (known by its token), or null. */
 function agentCaller(): AgentIdentity | null {
@@ -175,8 +184,8 @@ function assistantCallerToken(): string | null {
   return c?.kind === 'assistant' ? c.token : null
 }
 let apiError: string | undefined
-/** Event-stream clients, with the project agent each is (null: a script, which gets every event). */
-const sseClients = new Map<ServerResponse, AgentIdentity | null>()
+/** Event-stream clients: the project agent each is (null: a script or a viewer, which gets every event), and the viewer token it came with. */
+const sseClients = new Map<ServerResponse, { agent: AgentIdentity | null; viewer: string | null }>()
 
 /** What an Agent API request is measured as (metrics.ts), filled in as it is handled and recorded when it ends. */
 interface ApiRequest {
@@ -184,7 +193,7 @@ interface ApiRequest {
   /** The workspace's metrics as they were when the request came in: recorded there, or not at all if it has closed. */
   handle: MetricsHandle | null
   project: string | null
-  role: 'agent' | 'assistant' | 'api' | 'unknown'
+  role: 'agent' | 'assistant' | 'api' | 'viewer' | 'unknown'
   requestBytes: number
   responseBytes: number
   /** Not counted as API traffic: the bridge's own metrics reports, event streams (counted as streams), the health check. */
@@ -233,7 +242,8 @@ export function apiInfo(): AgentApiInfo {
     running,
     url: running ? `http://127.0.0.1:${apiPort()}` : null,
     token: apiToken,
-    error: apiError
+    error: apiError,
+    viewers: viewerTokens()
   }
 }
 
@@ -411,14 +421,15 @@ async function asRefused<T>(fn: () => Promise<T>): Promise<T> {
  * recorded (its panel's list and hive.log). `fn` gets the boundary's guard, to run again as each write is made. Other
  * callers can't make these changes through the API.
  */
-async function assistantChange<T>(need: AssistantControl, what: string, fn: (guard: () => void) => Promise<{ done: string; result: T }>): Promise<T> {
+async function assistantChange<T>(need: AssistantControl, what: string, fn: (guard: () => void) => Promise<{ done: string; said?: string; result: T }>): Promise<T> {
   const ws = assistantCaller()
   if (!ws) throw new HttpError(403, `Only the Hive Assistant can ${what} through the Agent API.`)
   const line = what.charAt(0).toUpperCase() + what.slice(1)
   const guard = await asRefused(async () => assistant.admit(ws, assistantCallerToken() ?? '', need, what))
   try {
-    const { done, result } = await fn(guard)
-    assistant.record(ws, done)
+    // `said`: what the line quotes (a prompt, a message), which the Agent API's event stream leaves out.
+    const { done, said, result } = await fn(guard)
+    assistant.record(ws, done + (said ?? ''), undefined, said ? { brief: done } : {})
     return result
   } catch (e) {
     assistant.record(ws, line, (e as Error).message)
@@ -446,7 +457,7 @@ function route(method: string, path: string, handler: Handler): void {
 }
 
 /** The Agent API's contract version: goes up when a route or field changes in a way a client would notice. */
-export const API_VERSION = 2
+export const API_VERSION = 3
 
 /** Who Hive takes a request's caller for, and what it may reach (GET /v1/status). */
 async function callerInfo(): Promise<Record<string, unknown>> {
@@ -460,6 +471,8 @@ async function callerInfo(): Promise<Record<string, unknown>> {
       .catch(() => undefined)
     return { role: 'agent', project: basename(a.projectPath), agent: def?.name ?? a.agentId, scope: 'project' }
   }
+  const v = viewerCaller()
+  if (v) return { role: 'viewer', name: v.name, scope: 'workspace', readOnly: true }
   return { role: 'api', scope: 'workspace' }
 }
 
@@ -735,7 +748,8 @@ async function settingsChange(e: SettingEntry, value: unknown, projectPath: stri
     const { oldText, newText } = settingChangeTexts(e, r.old, r.new, r.removed)
     const changed = JSON.stringify(r.old) !== JSON.stringify(r.new) || !!r.removed
     if (changed) {
-      assistant.record(ws, `Changed ${path}${where}: ${oldText} → ${newText}`, undefined, { setting: { id: e.id, ...(projectPath ? { project: projectPath } : {}), path, old: r.old, new: r.new, ...(r.removed ? { removed: r.removed } : {}), oldText, newText } })
+      // The event stream says which setting, not its values (`brief`).
+      assistant.record(ws, `Changed ${path}${where}: ${oldText} → ${newText}`, undefined, { brief: `Changed ${path}${where}`, setting: { id: e.id, ...(projectPath ? { project: projectPath } : {}), path, old: r.old, new: r.new, ...(r.removed ? { removed: r.removed } : {}), oldText, newText } })
     }
     const restart = restartText(e)
     return { id: e.id, title: e.title, path, ...(projectPath ? { project: basename(projectPath) } : {}), changed, old: oldText, new: newText, ...(restart ? { restart } : {}) }
@@ -830,13 +844,14 @@ route('POST', '/v1/projects/:name/agents', async ({ params, body }) => {
     if (body?.start || prompt) {
       try {
         await sessions.start(p, { agentId: def.id, prompt: prompt || undefined })
-        started = prompt ? ` and started it on: ${clip(prompt.replace(/\s+/g, ' '), 80)}` : ' and started it'
+        started = ' and started it'
       } catch (e) {
         started = ` (it didn't start: ${(e as Error).message})`
       }
     }
     const reuse = def.reuse ? reuseNote(def.reuse) : ''
-    return { done: `Added ${def.name} to ${project}${def.worktree ? ` (worktree, branch ${def.worktree.branch}${reuse ? `: ${reuse}` : ''})` : ''}${started}`, result: { agent: def, project: await projectSummary(p), ...(reuse ? { reuse } : {}) } }
+    const said = prompt && started === ' and started it' ? ` on: ${clip(prompt.replace(/\s+/g, ' '), 80)}` : undefined
+    return { done: `Added ${def.name} to ${project}${def.worktree ? ` (worktree, branch ${def.worktree.branch}${reuse ? `: ${reuse}` : ''})` : ''}${started}`, said, result: { agent: def, project: await projectSummary(p), ...(reuse ? { reuse } : {}) } }
   })
 })
 
@@ -865,7 +880,7 @@ route('POST', '/v1/projects/:name/agents/:agent/start', async ({ params, body })
     }
     const prompt = typeof body?.prompt === 'string' ? body.prompt.trim() : ''
     const st = await sessions.start(p, { agentId, resumeId, prompt: prompt || undefined })
-    return { done: `${resumeId ? 'Resumed' : 'Started'} ${a.name} in ${basename(p)}${prompt ? ` on: ${clip(prompt.replace(/\s+/g, ' '), 80)}` : ''}`, result: st }
+    return { done: `${resumeId ? 'Resumed' : 'Started'} ${a.name} in ${basename(p)}`, said: prompt ? ` on: ${clip(prompt.replace(/\s+/g, ' '), 80)}` : undefined, result: st }
   })
 })
 
@@ -932,10 +947,10 @@ route('POST', '/v1/projects/:name/agents/:agent/prompt', async ({ params, body }
         }
         throw new HttpError(409, `${a.name} wasn't given the task in a new conversation: ${e.message}${stopped ? ' It is stopped now (its conversation is kept): start it with the task (hive_start_agent with prompt).' : ''}`)
       })
-      return { done: `Gave ${a.name} in ${basename(p)} a task in a new conversation: ${clip(text.replace(/\s+/g, ' '), 80)}`, result: { ok: true, newConversation: true } }
+      return { done: `Gave ${a.name} in ${basename(p)} a task in a new conversation`, said: `: ${clip(text.replace(/\s+/g, ' '), 80)}`, result: { ok: true, newConversation: true } }
     }
     await sessions.sendPrompt(p, agentId, text)
-    return { done: `Gave ${a.name} in ${basename(p)} a task: ${clip(text.replace(/\s+/g, ' '), 80)}`, result: { ok: true } }
+    return { done: `Gave ${a.name} in ${basename(p)} a task`, said: `: ${clip(text.replace(/\s+/g, ' '), 80)}`, result: { ok: true } }
   })
 })
 
@@ -971,7 +986,7 @@ route('POST', '/v1/projects/:name/agents/:agent/message', async ({ params, body 
     })
     if (r.fate === 'cancelled' || r.fate === 'dropped' || r.fate === 'refused') throw new HttpError(409, `The message wasn't typed into ${a.name}: ${r.fate === 'cancelled' ? `${r.detail ?? 'the user'} cancelled it` : r.fate === 'refused' ? `refused, ${r.detail}` : `dropped, ${r.detail}`}.`)
     const typed = r.fate === 'delivered'
-    return { done: `${typed ? 'Gave' : 'Left'} ${a.name} in ${basename(p)} a message${typed ? '' : ' (queued)'}: ${clip(text.replace(/\s+/g, ' '), 80)}`, result: { typed, queued: r.queued, status: typed ? (sessions.liveFor(p, agentId)?.status ?? 'stopped') : st.status } }
+    return { done: `${typed ? 'Gave' : 'Left'} ${a.name} in ${basename(p)} a message${typed ? '' : ' (queued)'}`, said: `: ${clip(text.replace(/\s+/g, ' '), 80)}`, result: { typed, queued: r.queued, status: typed ? (sessions.liveFor(p, agentId)?.status ?? 'stopped') : st.status } }
   })
 })
 
@@ -1988,6 +2003,18 @@ async function progressCall<T>(ignored: T, change: (caller: ProgressCaller) => T
   }
 }
 
+// The Progress panel's runs (#620), newest first, as the panel lists them (Recent from before a restart included), in
+// their public form (publicRun: no command line or reporter's text): the request's workspace's, or for a project agent
+// its project's. Empty with the panel turned off.
+route('GET', '/v1/progress', async () => {
+  const ws = requireWorkspace()
+  const workspacePath = ws.path!
+  await progress.loadHistory(workspacePath)
+  const me = agentCaller()
+  const runs = progress.list(workspacePath).filter((r) => !me || (r.projectPath !== null && samePlace(r.projectPath, me.projectPath)))
+  return { workspacePath, enabled: progressGate.on(), runs: runs.map(publicRun) }
+})
+
 route('POST', '/v1/progress', async ({ body }) =>
   progressCall<{ id: string; ignored?: true }>({ id: `ignored-${randomBytes(6).toString('hex')}`, ignored: true }, (caller) => ({ id: progress.start(caller, bodyObject(body)).id }))
 )
@@ -2029,15 +2056,18 @@ async function handleApi(req: IncomingMessage, res: ServerResponse): Promise<voi
   }
   const bearer = (req.headers.authorization ?? '').replace(/^Bearer\s+/i, '')
   const ownWorkspace = bearer ? assistant.assistantForToken(bearer) : null
-  // A project agent's own token works while the Agent API is on, as the workspace token does.
+  // A project agent's own token and a viewer token work while the Agent API is on, as the workspace token does.
   const agent = enabled && bearer && !ownWorkspace ? agentForToken(bearer) : null
+  const viewer = enabled && bearer && !ownWorkspace && !agent ? viewerForToken(bearer) : null
   const caller: Caller | null = ownWorkspace
     ? { kind: 'assistant', workspace: ownWorkspace, token: bearer }
     : agent
       ? { kind: 'agent', ...agent }
-      : enabled && tokenMatches(req.headers.authorization, apiToken)
-        ? { kind: 'api' }
-        : null
+      : viewer
+        ? { kind: 'viewer', id: viewer.id, name: viewer.name }
+        : enabled && tokenMatches(req.headers.authorization, apiToken)
+          ? { kind: 'api' }
+          : null
   if (!caller) return send(res, enabled ? 401 : 403, { error: enabled ? 'Missing or invalid bearer token' : 'The Agent API is turned off in Settings → Agent API' })
   m.authenticated = true
   m.role = caller.kind
@@ -2053,12 +2083,16 @@ async function serveApi(req: IncomingMessage, res: ServerResponse, url: URL): Pr
     return send(res, 200, { ok: true, app: 'Hive', version: app.getVersion() })
   }
 
+  // A viewer changes nothing: whatever the route (a wait that holds a watch, a report), only a GET is served. Refused
+  // before its body is read or its route looked up, so no write is ever reached.
+  if (viewerCaller() && req.method !== 'GET') return send(res, 403, { error: 'A viewer token is read-only: it can read Hive (GET) and follow its events (GET /v1/events), not change anything' })
+
   if (req.method === 'GET' && url.pathname === '/v1/events') {
     // Events are about every open workspace: not for an Assistant, which sees only its own (it has hive_wait_for_agents).
     if (assistantCaller()) return send(res, 403, { error: 'The event stream is for Agent API callers. Use hive_wait_for_agents to follow agents.' })
     res.writeHead(200, { 'Content-Type': 'text/event-stream', 'Cache-Control': 'no-cache', Connection: 'keep-alive' })
     res.write(': connected\n\n')
-    sseClients.set(res, agentCaller())
+    sseClients.set(res, { agent: agentCaller(), viewer: viewerCaller()?.id ?? null })
     // A stream is counted as one (connections, events, bytes, how long it stayed open), not as a request's latency.
     m.skip = true
     const opened = metricsClock.mono()
@@ -2156,17 +2190,19 @@ function statusFor(e: Error): number {
 }
 
 function broadcast(event: HiveEvent): void {
-  if (!sseClients.size) return
-  const allowed: HiveEvent['type'][] = ['session-status', 'session-exit', 'workspace-changed', 'notes-changed', 'skills-changed', 'tasks-changed', 'lanes-changed']
-  if (!allowed.includes(event.type)) return
-  // A lanes change names the workspace only: its lanes (card titles) are read with GET /v1/lanes, a project agent's own.
-  const payload = event.type === 'workspace-changed' ? { type: event.type, workspace: event.workspace?.path ?? null } : event.type === 'lanes-changed' ? { type: event.type, workspacePath: event.workspacePath } : event
-  const line = `event: ${event.type}\ndata: ${JSON.stringify(payload)}\n\n`
-  // A project agent hears about its own project's sessions only: another project's (their names, what they are
-  // doing) can tell it about that project's cards. The other events carry no more than a path.
-  const about = event.type === 'session-status' ? event.state.projectPath : event.type === 'session-exit' ? event.projectPath : null
-  for (const [c, agent] of sseClients) {
-    if (agent && about !== null && resolvePath(about).toLowerCase() !== resolvePath(agent.projectPath).toLowerCase()) continue
+  if (!sseClients.size || !(API_EVENTS as readonly string[]).includes(event.type)) return
+  // What each client gets (apiEvents.ts): every event for the workspace token and viewers, a project agent its project's.
+  const lines = new Map<AgentIdentity | null, string | null>()
+  const lineFor = (agent: AgentIdentity | null): string | null => {
+    if (!lines.has(agent)) {
+      const payload = apiEventFor(event, agent)
+      lines.set(agent, payload ? `event: ${event.type}\ndata: ${JSON.stringify(payload)}\n\n` : null)
+    }
+    return lines.get(agent)!
+  }
+  for (const [c, { agent }] of sseClients) {
+    const line = lineFor(agent)
+    if (line === null) continue
     // A client that stopped reading would make Hive hold every event for it: it is disconnected instead.
     if (c.writableLength > SSE_MAX_BUFFERED) {
       sseClients.delete(c)
@@ -2194,6 +2230,7 @@ async function startApiServerNow(): Promise<AgentApiInfo> {
   await stopApiServer()
   apiError = undefined
   if (!apiToken) apiToken = await loadToken()
+  await loadViewerTokens()
   // Runs with the Agent API off too, for the Hive Assistant's token alone (see handleApi).
   apiServer = http.createServer((req, res) => void handleApi(req, res))
   try {
@@ -2210,7 +2247,11 @@ async function startApiServerNow(): Promise<AgentApiInfo> {
     log.warn(`Agent API failed to start: ${apiError}`)
     apiServer = null
   }
-  return apiInfo()
+  // Another app finds a running Hive's API by the discovery file (#620): there while the Agent API listens.
+  const info = apiInfo()
+  if (info.running && info.url) await writeDiscovery({ url: info.url, port: apiPort(), version: app.getVersion(), api: API_VERSION })
+  else await clearDiscovery()
+  return info
 }
 
 export async function stopApiServer(): Promise<void> {
@@ -2218,6 +2259,23 @@ export async function stopApiServer(): Promise<void> {
   sseClients.clear()
   if (apiServer) await new Promise<void>((resolve) => apiServer!.close(() => resolve()))
   apiServer = null
+}
+
+/** A new viewer token (Settings → Agent API → Viewer tokens). */
+export async function createViewer(name: string): Promise<AgentApiInfo> {
+  await createViewerToken(name)
+  return apiInfo()
+}
+
+/** Revokes a viewer token: its requests are refused from now on, and its open event streams end. */
+export async function revokeViewer(id: string): Promise<AgentApiInfo> {
+  await revokeViewerToken(id)
+  for (const [c, client] of sseClients) {
+    if (client.viewer !== id) continue
+    sseClients.delete(c)
+    c.end()
+  }
+  return apiInfo()
 }
 
 onHiveEvent(broadcast)

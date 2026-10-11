@@ -220,7 +220,8 @@ export async function revertSetting(workspacePath: string, actionId: string): Pr
       if (change.removed && e.provider && JSON.stringify(removedPrices(e.provider)) !== JSON.stringify(change.removed.new)) throw new Error(`${change.path} has changed since (its removed models differ): change it there.`)
     }
     await applySetting(e, change.old, change.project ?? null, guard, change.removed?.old)
-    assistant.record(workspacePath, `You reverted ${change.path}${change.project ? ` in ${basename(change.project)}` : ''}: ${change.newText} → ${change.oldText}`, undefined, { revertOf: actionId })
+    const what = `You reverted ${change.path}${change.project ? ` in ${basename(change.project)}` : ''}`
+    assistant.record(workspacePath, `${what}: ${change.newText} → ${change.oldText}`, undefined, { revertOf: actionId, brief: what })
   } finally {
     reverting.delete(actionId)
   }

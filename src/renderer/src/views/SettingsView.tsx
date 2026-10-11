@@ -22,7 +22,7 @@ import { HiddenProjectsList } from '../components/ProjectRemoval'
 import { WorkspaceStorageList } from '../components/Storage'
 import { AntivirusPanel } from '../components/Antivirus'
 import { choose, confirm, get, notify, set, useStore } from '../store'
-import { cx } from '../util'
+import { cx, timeAgo } from '../util'
 
 /** A settings section: a group of AppSettings, "providers" (turning them on), one provider's page ("provider:<id>"), or "advanced". */
 type Section = SettingsSection
@@ -54,6 +54,7 @@ const CONTROLS: Record<string, () => React.ReactNode> = {
   ...Object.fromEntries(PROVIDERS.map((p) => [`assistant.provider:${p.id}`, () => <AssistantProviderDefaults provider={p.id} />])),
   'agentApi.status': () => <ApiStatus />,
   'agentApi.token': () => <ApiToken />,
+  'agentApi.viewers': () => <ViewerTokens />,
   'advanced.logs': () => (
     <button className="btn subtle" onClick={() => void call('app:openLogs')}>
       <Icon name="output" /> Open logs
@@ -739,6 +740,85 @@ function ApiToken() {
           set({ api: await call('api:regenerateToken') })
         }}
       />
+    </div>
+  )
+}
+
+/** Settings → Agent API → Viewer tokens (#620): read-only tokens for apps that show Hive, made and revoked here. */
+function ViewerTokens() {
+  const api = useStore((s) => s.api)
+  const [name, setName] = useState('')
+  const [shown, setShown] = useState<string | null>(null)
+  if (!api) return null
+  const create = async (): Promise<void> => {
+    const n = name.trim()
+    if (!n) return
+    try {
+      const info = await call('api:createViewer', n)
+      set({ api: info })
+      setName('')
+      // The new one shows, ready to copy into its app.
+      setShown(info.viewers.find((v) => v.name === n)?.id ?? null)
+      notify('success', `Viewer token "${n}" made`, 'Copy it into the app it is for.')
+    } catch (e) {
+      notify('error', 'Could not make the viewer token', errorMessage(e))
+    }
+  }
+  const revoke = async (id: string, label: string): Promise<void> => {
+    if (!(await confirm({ title: `Revoke "${label}"?`, message: 'The app using it can no longer read Hive, and its event stream ends now.', confirmLabel: 'Revoke', danger: true }))) return
+    try {
+      set({ api: await call('api:revokeViewer', id) })
+    } catch (e) {
+      notify('error', 'Could not revoke the viewer token', errorMessage(e))
+    }
+  }
+  return (
+    <div className="viewer-tokens">
+      {api.viewers.length > 0 && (
+        <table className="table">
+          <thead>
+            <tr>
+              <th>Name</th>
+              <th>Token</th>
+              <th>Made</th>
+              <th />
+            </tr>
+          </thead>
+          <tbody>
+            {api.viewers.map((v) => (
+              <tr key={v.id}>
+                <td>{v.name}</td>
+                <td>
+                  <div className="token-box">
+                    <input className="input" readOnly aria-label={`${v.name}'s token`} value={shown === v.id ? v.token : '•'.repeat(24)} />
+                    <IconButton icon={shown === v.id ? 'eye-closed' : 'eye'} title={shown === v.id ? 'Hide' : 'Show'} onClick={() => setShown(shown === v.id ? null : v.id)} />
+                    <IconButton
+                      icon="copy"
+                      title="Copy"
+                      onClick={() => {
+                        void navigator.clipboard.writeText(v.token)
+                        notify('success', 'Token copied')
+                      }}
+                    />
+                  </div>
+                </td>
+                <td className="faint">{timeAgo(v.createdAt)}</td>
+                <td className="row-actions">
+                  <button className="btn small subtle" onClick={() => void revoke(v.id, v.name)}>
+                    Revoke
+                  </button>
+                </td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      )}
+      <div className="fallback-actions">
+        <input className="input" placeholder="Name, e.g. Apiary" aria-label="New viewer token's name" maxLength={40} value={name} onChange={(e) => setName(e.target.value)} onKeyDown={(e) => e.key === 'Enter' && void create()} />
+        <button className="btn subtle" disabled={!name.trim()} onClick={() => void create()}>
+          <Icon name="add" /> Make viewer token
+        </button>
+      </div>
     </div>
   )
 }

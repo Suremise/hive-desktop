@@ -805,6 +805,18 @@ describe('progress history (#352): Recent kept across restarts', () => {
     expect(kept(h).map((r) => r.title)).toEqual(['last one'])
   })
 
+  it('keeps that a title is its command line (#620): from the reporter, and in the kept history', () => {
+    const s = store()
+    const auto = s.start(alfie, { title: 'cmd /c echo x', command: 'cmd /c echo x', titleFromCommand: true })
+    const own = s.start(alfie, { title: 'unit tests', command: 'npm test', titleFromCommand: false })
+    expect(auto.titleFromCommand).toBe(true)
+    expect(own).not.toHaveProperty('titleFromCommand')
+    expect(() => s.start(alfie, { title: 'x', titleFromCommand: 'yes' })).toThrow(/titleFromCommand/)
+    const good = { id: 'g', title: 'cmd /c echo x', command: 'cmd /c echo x', state: 'passed', source: 'agent', agentName: 'Alfie', agentId: 'a-1', projectPath: 'C:\\ws\\alpha', startedAt: 1, finishedAt: 2 }
+    expect(keptRuns({ runs: [{ ...good, titleFromCommand: true }] }, WS)[0].titleFromCommand).toBe(true)
+    expect(keptRuns({ runs: [{ ...good, titleFromCommand: 'x' }] }, WS)[0]).not.toHaveProperty('titleFromCommand')
+  })
+
   it('a damaged or edited file gives only well-formed runs, cut to their limits, each once, at most RECENT_KEPT', () => {
     expect(keptRuns(null, WS)).toEqual([])
     expect(keptRuns('nonsense', WS)).toEqual([])

@@ -56,6 +56,8 @@ export interface ProgressStart {
   estimateMs?: number
   /** The command line, as a label. */
   command?: string
+  /** The title is the command line (no title of its own): the Agent API shows the program alone (#620). */
+  titleFromCommand?: boolean
   /** What it waits for before it can begin (#549): no time left is shown meanwhile. */
   waiting?: string
 }
@@ -134,6 +136,7 @@ export class ProgressRun {
       ...(start.stepName ? { stepName: clip(start.stepName, MAX_TITLE) } : {}),
       ...(estimateMs !== undefined ? { estimateMs } : {}),
       ...(start.command ? { command: clip(start.command, MAX_COMMAND) } : {}),
+      ...(start.titleFromCommand ? { titleFromCommand: true } : {}),
       ...(start.waiting ? { waiting: clip(start.waiting, MAX_TITLE) } : {}),
       // Its process (#549): once it is gone without a finish, Hive says the run ended without a report.
       pid: process.pid

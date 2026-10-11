@@ -306,6 +306,15 @@ const APP_ROWS: Row[] = [
     confirmOn: { title: 'Allow API input to sessions?', message: 'Any program with the API token will be able to type commands into running sessions.' }
   },
   { section: 'agentApi', key: 'token', title: 'Access token', desc: 'Bearer token required by the Agent API.', tip: 'Stored in %APPDATA%\\Hive\\agent-api.json. Sessions receive it automatically as HIVE_API_TOKEN.', type: 'custom' },
+  {
+    section: 'agentApi',
+    key: 'viewers',
+    title: 'Viewer tokens',
+    desc: 'Read-only tokens for apps that show Hive, such as Apiary: they can read everything and follow its events, and change nothing.',
+    tip: 'Name each one for its app. Stored in %APPDATA%\\Hive\\agent-api-viewers.json. Revoking one cuts its app off at once. Apps find a running Hive by %APPDATA%\\Hive\\agent-api-discovery.json (the address, no token).',
+    type: 'custom',
+    wide: true
+  },
   // Advanced
   { section: 'advanced', key: 'logs', title: 'Logs', desc: 'Open the folder containing Hive\'s log files.', tip: 'Useful when reporting a problem.', type: 'custom' },
   { section: 'advanced', key: 'data', title: 'Settings file', desc: 'Hive keeps its settings in %APPDATA%\\Hive\\config.json.', tip: 'Project settings live in each project\'s .hive folder; workspace settings in the workspace .hive folder.', type: 'custom' },
@@ -515,6 +524,7 @@ const ACTIONS = new Set([
   'workspace.antivirus',
   'agentApi.status',
   'agentApi.token',
+  'agentApi.viewers',
   'advanced.logs',
   'advanced.data',
   'advanced.reset',

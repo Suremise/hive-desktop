@@ -41,7 +41,7 @@ import { priceUsage } from '../shared/usageDays'
 import type { Ask, HookEvent, LaunchContext, LaunchSkill, ProviderAdapter, SkillDelivery, UsageParser } from './providers/types'
 import { providerService } from './providerService'
 import { config } from './config'
-import { emit, emitTo, toast } from './events'
+import { emit, emitTo, tellListeners, toast } from './events'
 import { presentWindow, showOsNotification, testNotifyLog, testQuiet } from './testQuiet'
 import { hashText, heldOpen, isInUse, readJson, placeRelative, removePath, samePlace, treeSignature, syncCopy, syncCopyLocked, syncCopyNow, trashAllOrNothing, withFileLock, writeJsonAtomic } from './fsutil'
 import { createLogger, userText } from './logger'
@@ -3081,10 +3081,15 @@ class SessionManager {
   /** A banner in the focused window, or a Windows notification, as route() says now. */
   private deliver(projectPath: string, title: string, body: string, kind: 'finished' | 'waiting' | 'notice', agentId?: string): void {
     const route = this.route(projectPath, kind)
-    if (route === 'windows') return this.showNotification(projectPath, title, body)
+    const notice = { id: randomUUID(), kind, title, body, projectPath, ...(agentId ? { agentId } : {}) }
+    if (route === 'windows') {
+      // The Agent API's stream hears of every notice Hive tells, as a banner or a Windows notification (#620).
+      tellListeners({ type: 'notice', notice, windows: true })
+      return this.showNotification(projectPath, title, body)
+    }
     const at = this.focusedHive()
     if (route !== 'banner' || !at) return
-    emitTo(at.win, { type: 'notice', notice: { id: randomUUID(), kind, title, body, projectPath, ...(agentId ? { agentId } : {}) } })
+    emitTo(at.win, { type: 'notice', notice })
   }
 
   /**

@@ -37,6 +37,11 @@ export function emitTo(win: BrowserWindow, event: HiveEvent): void {
   for (const l of listeners) l(event)
 }
 
+/** Tells in-process listeners only (the Agent API's event stream), no window: a notice shown as a Windows notification. */
+export function tellListeners(event: HiveEvent): void {
+  for (const l of listeners) l(event)
+}
+
 export function onHiveEvent(listener: (e: HiveEvent) => void): () => void {
   listeners.add(listener)
   return () => listeners.delete(listener)

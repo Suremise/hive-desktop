@@ -66,7 +66,7 @@ describe('reportPlanUsage', () => {
 // A warning is kept in the Notifications panel and told as other notices are (#157): never an unconditional toast.
 describe('a plan usage warning', () => {
   const g = globalThis as { __osSupported?: boolean; __osShown?: string[] }
-  const seen: { type: string; toast?: { quiet?: boolean; title: string }; notice?: { title: string } }[] = []
+  const seen: { type: string; toast?: { quiet?: boolean; title: string }; notice?: { title: string }; windows?: true }[] = []
   let off: () => void
   beforeEach(() => {
     g.__osSupported = true
@@ -91,25 +91,27 @@ describe('a plan usage warning', () => {
     return {
       kept: toasts.length === 1 && toasts[0].quiet === true && /96% of your Claude Code 5-hour limit/.test(toasts[0].title),
       visibleToasts: toasts.filter((t) => !t.quiet).length,
-      banners: seen.filter((e) => e.type === 'notice').length,
-      windows: g.__osShown!.length
+      banners: seen.filter((e) => e.type === 'notice' && !e.windows).length,
+      windows: g.__osShown!.length,
+      // A Windows notification is told to in-process listeners too (the Agent API's stream, #620), marked as such.
+      told: seen.filter((e) => e.type === 'notice' && e.windows).length
     }
   }
 
   it('Hive in the background: a Windows notification, kept in the panel, no toast', () => {
-    expect(warn()).toEqual({ kept: true, visibleToasts: 0, banners: 0, windows: 1 })
+    expect(warn()).toEqual({ kept: true, visibleToasts: 0, banners: 0, windows: 1, told: 1 })
   })
   it('a Hive window focused: a banner in it, kept in the panel, no toast, no Windows notification', () => {
     focus()
-    expect(warn()).toEqual({ kept: true, visibleToasts: 0, banners: 1, windows: 0 })
+    expect(warn()).toEqual({ kept: true, visibleToasts: 0, banners: 1, windows: 0, told: 0 })
   })
   it('focused and Show nothing: only kept in the panel', () => {
     focus()
     config.settings.notifications.whileFocused = 'nothing'
-    expect(warn()).toEqual({ kept: true, visibleToasts: 0, banners: 0, windows: 0 })
+    expect(warn()).toEqual({ kept: true, visibleToasts: 0, banners: 0, windows: 0, told: 0 })
   })
   it('notifications off: only kept in the panel, focused or not', () => {
     config.settings.notifications.desktopNotifications = false
-    expect(warn()).toEqual({ kept: true, visibleToasts: 0, banners: 0, windows: 0 })
+    expect(warn()).toEqual({ kept: true, visibleToasts: 0, banners: 0, windows: 0, told: 0 })
   })
 })

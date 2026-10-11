@@ -14,7 +14,7 @@ export const PERF_RANGES: { value: PerfRange; label: string; ms: number }[] = [
 ]
 
 /** Who did the work: project agents, the Assistant, scripts (the workspace token), or everyone. */
-export type PerfRole = 'all' | 'agent' | 'assistant' | 'api'
+export type PerfRole = 'all' | 'agent' | 'assistant' | 'api' | 'viewer'
 
 export interface PerfFilters {
   range: PerfRange

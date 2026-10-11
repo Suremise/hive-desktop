@@ -23,7 +23,7 @@ export type MetricOutcome = 'ok' | 'client-error' | 'denied' | 'server-error' | 
 export interface ApiSeries extends Timed {
   route: string
   method: string
-  role: 'agent' | 'assistant' | 'api' | 'unknown'
+  role: 'agent' | 'assistant' | 'api' | 'viewer' | 'unknown'
   outcome: MetricOutcome
   /** Request body and response body, UTF-8 bytes (JSON as sent; headers and transport not included). */
   requestBytes: number
@@ -175,8 +175,8 @@ export interface TrendPoint {
 /** What a query is about: the whole workspace (with an optional project filter) or one project only. */
 export type MetricsScope = { kind: 'workspace' } | { kind: 'project'; project: string }
 
-/** Who did the work: project agents, the Assistant, or scripts (the workspace token). */
-export type MetricsRole = 'agent' | 'assistant' | 'api'
+/** Who did the work: project agents, the Assistant, scripts (the workspace token), or viewer apps (viewer tokens). */
+export type MetricsRole = 'agent' | 'assistant' | 'api' | 'viewer'
 
 export interface MetricsQuery {
   scope: MetricsScope

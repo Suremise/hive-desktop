@@ -3,7 +3,7 @@ import type { BrowserWindow } from 'electron'
 import { noticeRoute, type FocusedHive, type NoticeRoute } from '../shared/bursts'
 import { asksYou } from '../shared/inbox'
 import { config } from './config'
-import { emit, emitTo, onHiveEvent } from './events'
+import { emit, emitTo, onHiveEvent, tellListeners } from './events'
 
 /** The Hive window the user is using (visible, not minimised, focused), or none while Hive is in the background. */
 let focused: () => (FocusedHive & { win: BrowserWindow }) | null = () => null
@@ -24,8 +24,12 @@ export function focusedHive(): (FocusedHive & { win: BrowserWindow }) | null {
 export function routeAppNotice(title: string, body: string, showWindows: () => void): NoticeRoute {
   const at = focusedHive()
   const route = noticeRoute(config.settings.notifications, 'notice', at, { workspacePath: null, projectPath: null })
-  if (route === 'windows') showWindows()
-  else if (route === 'banner' && at) emitTo(at.win, { type: 'notice', notice: { id: randomUUID(), kind: 'notice', title, body, projectPath: null } })
+  const notice = { id: randomUUID(), kind: 'notice' as const, title, body, projectPath: null }
+  if (route === 'windows') {
+    // The Agent API's stream hears of it either way (#620).
+    tellListeners({ type: 'notice', notice, windows: true })
+    showWindows()
+  } else if (route === 'banner' && at) emitTo(at.win, { type: 'notice', notice })
   return route
 }
 

@@ -136,7 +136,7 @@ export function knownRoute(template: string): void {
 const TOOLS = new Set<string>(HIVE_TOOLS)
 const PROVIDER_IDS = new Set<string>(PROVIDERS.map((p) => p.id))
 const METHODS = new Set(['GET', 'POST', 'PUT', 'PATCH', 'DELETE'])
-const ROLES = new Set(['agent', 'assistant', 'api', 'unknown'])
+const ROLES = new Set(['agent', 'assistant', 'api', 'viewer', 'unknown'])
 const OUTCOMES = new Set(['ok', 'client-error', 'denied', 'server-error', 'cancelled'])
 const OTHER = '(other)'
 const inSet = (set: Set<string>, v: unknown): string => (typeof v === 'string' && set.has(v) ? v : OTHER)
@@ -939,7 +939,7 @@ function trendOf(inRange: Bucket[], from: number, to: number, parts: (b: Bucket)
   return { trend: points, trendStep: step === HOUR ? 'hour' : 'day' }
 }
 
-const QUERY_ROLES = new Set<string>(['agent', 'assistant', 'api'])
+const QUERY_ROLES = new Set<string>(['agent', 'assistant', 'api', 'viewer'])
 
 /**
  * The workspace's metrics for a scope, range and filters, by the clock now (what has expired is gone before anything is
@@ -953,7 +953,7 @@ export function queryMetrics(w: WorkspaceService, q: MetricsQuery): Omit<Metrics
   const to = q.to ? Date.parse(q.to) : now
   const from = q.from ? Date.parse(q.from) : to - DAY
   if (!Number.isFinite(from) || !Number.isFinite(to) || from > to) throw new Error('from and to must be ISO times, from before to')
-  if (q.role !== undefined && !QUERY_ROLES.has(q.role)) throw new Error('role must be agent, assistant or api')
+  if (q.role !== undefined && !QUERY_ROLES.has(q.role)) throw new Error('role must be agent, assistant, api or viewer')
   if (q.provider !== undefined && (typeof q.provider !== 'string' || q.provider.length > 64)) throw new Error('provider must be a provider id')
   const h = metricsHandle(w)
   if (h) {
