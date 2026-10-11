@@ -2,8 +2,8 @@
 // (detached, through a process that has exited since), and only the job's processes are ever listed or ended. The real
 // job host (PowerShell) on Windows; the labels shown for them anywhere.
 import { createRequire } from 'module'
-import { spawn, type ChildProcess } from 'child_process'
-import { readFileSync, writeFileSync, existsSync } from 'fs'
+import { execFileSync, spawn, type ChildProcess } from 'child_process'
+import { existsSync, lstatSync, readFileSync, writeFileSync } from 'fs'
 import { join } from 'path'
 import { afterAll, describe, expect, it, vi } from 'vitest'
 import { leftoversSummary, processLabel } from '../src/shared/agentProcesses'
@@ -66,6 +66,18 @@ describe.runIf(process.platform === 'win32')('the processes a launch leaves runn
 const [role, out] = process.argv.slice(2)
 const start = (r) => spawn(process.execPath, [__filename, r, out], { detached: true, stdio: 'ignore', windowsHide: true }).unref()
 if (role === 'cli') process.stdin.once('data', () => { start('child'); setTimeout(() => process.exit(0), 800) })
+// What the Store's PowerShell does (#543): its children start outside every job. Stood in for by starting the child
+// before this CLI joins its job: the child's parent is in the job, the child in none.
+else if (role === 'escaper') { start('child'); process.stdin.once('data', () => process.exit(0)) }
+// The real Store PowerShell (where it is installed), as Codex runs a background command: on "go", it runs a process
+// that keeps running, and this CLI exits once that has started.
+else if (role === 'storepwsh') process.stdin.once('data', () => {
+  const ps = spawn(process.env.STORE_PWSH, ['-NoProfile', '-Command', '& $env:LONE_NODE $env:LONE_SCRIPT lone $env:LONE_OUT'], { stdio: 'ignore', windowsHide: true, env: { ...process.env, LONE_NODE: process.execPath, LONE_SCRIPT: __filename, LONE_OUT: out } })
+  // Windows may refuse to start it (#585): said, for the test to tell from a tracking failure.
+  ps.on('error', (e) => { fs.appendFileSync(out, 'pwsh-error ' + JSON.stringify(e.message) + '\\n'); process.exit(3) })
+  ps.on('exit', (code) => { fs.appendFileSync(out, 'pwsh-exit ' + code + '\\n'); process.exit(4) })
+  const started = setInterval(() => { if (fs.existsSync(out) && fs.readFileSync(out, 'utf8').includes('lone ')) { clearInterval(started); process.exit(0) } }, 100)
+})
 else {
   fs.appendFileSync(out, role + ' ' + process.pid + '\\n')
   if (role === 'child') start('grandchild')
@@ -149,6 +161,126 @@ else {
     expect(await until(() => !alive(child) && !alive(grandchild), 5000)).toBe(true)
     expect(leftoversOf(dir, 'a1').processes).toHaveLength(0)
   }, 60000)
+
+  it('adopts what escaped the job (#543): a child outside every job whose parent is in it, and its own child, listed and ended', async () => {
+    const { launchEnded, leftoversOf, settleLeftovers, trackLaunch } = await import('../src/main/agentProcesses')
+    const out = join(dir, 'run5.txt')
+    const cli = spawn(process.execPath, [script, 'escaper', out], { stdio: ['pipe', 'ignore', 'ignore'], windowsHide: true })
+    // Both started before the CLI joins its job: neither is in it.
+    expect(await until(() => Object.keys(pidsIn(out)).length === 2, 10000)).toBe(true)
+    const { child, grandchild } = pidsIn(out)
+    expect(await trackLaunch({ runId: 'run5', projectPath: dir, agentId: 'a5', agentName: 'Escaper' }, cli.pid!)).toEqual({ tracked: true })
+    // The CLI exits at once: they are adopted as it ends (its id held meanwhile), not left to a later look.
+    cli.stdin!.write('go\n')
+    await new Promise((r) => cli.once('exit', r))
+    const left = await launchEnded('run5')
+    expect(left?.processes.map((p) => p.pid).sort()).toEqual([child, grandchild].sort())
+    expect(await settleLeftovers(dir, 'a5', 'end')).toBe(2)
+    expect(await until(() => !alive(child) && !alive(grandchild), 5000)).toBe(true)
+    expect(leftoversOf(dir, 'a5').processes).toHaveLength(0)
+  }, 60000)
+
+  // The Store's PowerShell 7 is a packaged app: what it starts leaves every job (#543). Only where it is installed.
+  const storePwsh = join(process.env.LOCALAPPDATA ?? '', 'Microsoft', 'WindowsApps', 'pwsh.exe')
+  // An app execution alias: lstat, which stat (existsSync) can't follow.
+  const hasStorePwsh = ((): boolean => {
+    try {
+      return !!lstatSync(storePwsh)
+    } catch {
+      return false
+    }
+  })()
+  it.runIf(hasStorePwsh)("adopts the Store's PowerShell and what it runs, left running by a CLI that has exited", async (ctx) => {
+    const { launchEnded, settleLeftovers, trackLaunch } = await import('../src/main/agentProcesses')
+    const out = join(dir, 'run6.txt')
+    const cli = spawn(process.execPath, [script, 'storepwsh', out], { stdio: ['pipe', 'ignore', 'ignore'], windowsHide: true, env: { ...process.env, STORE_PWSH: storePwsh } })
+    expect(await trackLaunch({ runId: 'run6', projectPath: dir, agentId: 'a6', agentName: 'Store shell' }, cli.pid!)).toEqual({ tracked: true })
+    cli.stdin!.write('go\n')
+    const code = await new Promise<number | null>((r) => cli.once('exit', r))
+    const said = existsSync(out) ? readFileSync(out, 'utf8') : ''
+    // The Store's PowerShell didn't start, or ended before what it runs had: Windows', not the tracker's (#585).
+    if (code !== 0) {
+      await launchEnded('run6')
+      ctx.skip(`the Store's PowerShell didn't run its command (exit ${code}): ${said.trim()}`)
+    }
+    const { lone } = pidsIn(out)
+    const left = await launchEnded('run6')
+    // What was running then, if it wasn't listed: the shell and the process it ran, with their parents.
+    const seen = (): string => (left ? '' : String(execFileSync('powershell', ['-NoProfile', '-Command', `Get-CimInstance Win32_Process | Where-Object { $_.ProcessId -eq ${lone} -or $_.Name -eq 'pwsh.exe' } | ForEach-Object { "$($_.ProcessId) <- $($_.ParentProcessId) $($_.Name)" }`], { windowsHide: true })))
+    expect(left?.processes.map((p) => p.pid) ?? [], `CLI ${cli.pid}, lone ${lone}: ${seen()}`).toContain(lone)
+    expect(left?.processes.some((p) => /^pwsh/i.test(p.label))).toBe(true)
+    expect(await settleLeftovers(dir, 'a6', 'end')).toBe(2)
+    expect(await until(() => !alive(lone), 5000)).toBe(true)
+  }, 60000)
+
+  // The host's C# driven directly, in a PowerShell of the test's own, with identities a late snapshot or a late port
+  // notification could carry (#543): an id that names another process by now is never taken in, and a followed
+  // process Windows won't end keeps End failing, and listed, until it is ended.
+  it('never takes in a process by a stale id, and End fails while a followed process it could not end runs', async () => {
+    const { HOST_SOURCE } = await import('../src/main/agentProcesses')
+    const src = join(dir, 'host.cs')
+    writeFileSync(src, HOST_SOURCE)
+    const probe = join(dir, 'stale.ps1')
+    writeFileSync(
+      probe,
+      `param($src, $node)
+$ErrorActionPreference = 'Stop'
+Add-Type -ReferencedAssemblies System.Management -TypeDefinition (Get-Content -Raw $src)
+$sleeper = { Start-Process -FilePath $node -ArgumentList '-e', 'setTimeout(() => {}, 60000)' -PassThru -WindowStyle Hidden }
+$r = [ordered]@{}
+$m = & $sleeper
+$r.added = [HiveJobs]::Add('t', $m.Id)
+# The port holds the member it reports.
+for ($i = 0; $i -lt 100 -and -not [HiveJobs]::IsHeld($m.Id); $i++) { Start-Sleep -Milliseconds 50 }
+$r.memberHeld = [HiveJobs]::IsHeld($m.Id)
+$before = [DateTime]::UtcNow.ToFileTimeUtc()
+# Windows stamps a process's creation from a clock that moves in ticks of about 15.6 ms: one created within a tick of
+# $before can carry an earlier time. Started once the clock is past that, the stamp is surely later.
+while ([DateTime]::UtcNow.ToFileTimeUtc() - $before -lt 500000) { }
+# Started after "the snapshot", by this shell: no child of the member's, whatever a stale snapshot said.
+$u = & $sleeper
+$after = [DateTime]::UtcNow.ToFileTimeUtc()
+$r.unrelatedHeld = [HiveJobs]::Hold('t', $u.Id)
+$r.staleTaken = [HiveJobs]::Take('t', $u.Id, $m.Id, $before)
+# The same pair, from a snapshot taken after it started, is taken: it is the snapshot's time that refuses it above.
+$r.freshTaken = [HiveJobs]::Take('t', $u.Id, $m.Id, $after)
+# Followed: one through a handle that can't end it, one that can.
+$v = & $sleeper
+$w = & $sleeper
+$r.followed = [HiveJobs]::Follow('t', $v.Id, 0) -and [HiveJobs]::Follow('t', $w.Id, 1)
+$r.kill = [HiveJobs]::Kill('t')
+$r.endedOne = $w.WaitForExit(10000)
+$r.survivorRuns = -not $v.HasExited
+$r.survivorFollowed = [HiveJobs]::IsFollowed($v.Id)
+$r.survivorListed = [HiveJobs]::Members('t') -contains $v.Id
+$r.followedAgain = [HiveJobs]::Follow('t', $v.Id, 1)
+$r.killAgain = [HiveJobs]::Kill('t')
+$r.survivorEnded = $v.WaitForExit(10000)
+$r.othersEnded = $m.WaitForExit(10000) -and $u.WaitForExit(10000)
+foreach ($p in @($m, $u, $v, $w)) { if (-not $p.HasExited) { Stop-Process -Id $p.Id -Force } }
+$r | ConvertTo-Json -Compress
+`
+    )
+    const out = execFileSync(join(process.env.SystemRoot ?? 'C:\\Windows', 'System32', 'WindowsPowerShell', 'v1.0', 'powershell.exe'), ['-NoProfile', '-NonInteractive', '-ExecutionPolicy', 'Bypass', '-File', probe, src, process.execPath], { windowsHide: true, timeout: 120000 })
+    const r = JSON.parse(String(out).trim().split(/\r?\n/).at(-1)!)
+    expect(r).toEqual({
+      added: 'ok',
+      memberHeld: true,
+      unrelatedHeld: false,
+      staleTaken: false,
+      freshTaken: true,
+      followed: true,
+      kill: false,
+      endedOne: true,
+      survivorRuns: true,
+      survivorFollowed: true,
+      survivorListed: true,
+      followedAgain: true,
+      killAgain: true,
+      survivorEnded: true,
+      othersEnded: true
+    })
+  }, 150000)
 
   it('lists nothing for a launch that left nothing running, nor for one it never tracked', async () => {
     const { launchEnded, trackLaunch } = await import('../src/main/agentProcesses')

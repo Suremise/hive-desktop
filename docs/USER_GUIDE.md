@@ -229,14 +229,14 @@ An agent's header and the **Session** menu let you:
 
 An agent can start programs that keep running in the background: a preview server (`npm run serve`), a `tail -f` on a log, a shell. Stopping the agent ends its terminal, but not always what it started, and those can go on holding the project's folder (Windows then won't rename or delete it: "in use") or a port long after the agent has stopped.
 
-Hive keeps track of every process an agent's session starts, however it was started, and when the agent stops it looks at what is still running:
+Hive keeps track of every process an agent's session starts, however it was started (also through the Microsoft Store's PowerShell 7, whose processes Windows starts outside the session's tracking: Hive takes them back in), and when the agent stops it looks at what is still running:
 
 - **Ask** (the default): a notification lists them (*site left 2 processes running: node serve.js, tail -f capture-1.log*) with **End Them** and **Keep Running**, and the agent's pane header shows **⚠ 2 left running** until you decide or they end by themselves. Hover it for the list; click it to end them or keep them. **Keep Running** leaves them running and stops listing them.
 - **End them**: Hive ends them as the agent stops, without asking.
 
 Choose in **Settings → Agents → Processes left running**. When you quit Hive with some still listed, it asks once whether to end them or leave them running (a quit with no window shown, or to install an update, leaves them running).
 
-Hive only ever ends processes the agent's session started: never one you started yourself in the same folder. If Windows doesn't let Hive end them, they stay listed in the pane header, so you can try again or keep them. On a PC where Hive can't keep track of agents' processes (PowerShell blocked by a company policy, for example), agents start as usual, Hive tells you once, and Help → Copy Diagnostics says why; what they leave running then isn't listed. Processes the agent's CLI already ends with its terminal (those attached to it) are never listed. Programs started through PowerShell 7 installed from the Microsoft Store aren't tracked either (Windows lets them out of Hive's reach), which matters for Codex: it runs its commands in PowerShell 7 when you have it.
+Hive only ever ends processes the agent's session started: never one you started yourself in the same folder. If Windows doesn't let Hive end them, they stay listed in the pane header, so you can try again or keep them. On a PC where Hive can't keep track of agents' processes (PowerShell blocked by a company policy, for example), agents start as usual, Hive tells you once, and Help → Copy Diagnostics says why; what they leave running then isn't listed. Processes the agent's CLI already ends with its terminal (those attached to it) are never listed. One gap remains with PowerShell 7 installed from the Microsoft Store (Codex runs its commands in PowerShell 7 when you have it): a program it starts and leaves running as it exits within about a second, before Hive has seen it (`Start-Process` returning at once), isn't tracked. Commands Codex leaves running in the background keep their PowerShell open, so they are.
 
 ### Reading past sessions
 

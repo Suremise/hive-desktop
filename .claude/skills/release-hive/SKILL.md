@@ -22,6 +22,10 @@ Each of these is a separate decision of the user's. Do one only when asked:
 ## Before the version changes
 
 - The release candidate comes first (RELEASING step 1): an installer at the current version, built from main, that the user has installed and tested. Until they have, don't change `version`; ask.
+- **The Sandbox checks on the RC**, once it is built and before the user installs it: `node "<mcp repo>\servers\windows-sandbox\scenarios\hive-checks.js" --installer "<the RC's Hive-Setup-<version>.exe>" --hive "<Hive repo: the main checkout>" --report "$env:LOCALAPPDATA\hive-test\sandbox-reports\<version>-rc<n>"` (about 3 minutes; network off, fake CLIs only; the upgrade check starts from the newest other installer in the main checkout's `dist`, or `--previous`).
+  - Comment the verdict and any failed checks on the release card, with the report folder.
+  - A failed check is a release finding, like a failing e2e suite. The "same version" and "No Git" notes are expected for an RC.
+  - If another Sandbox is running it says NOT RUN (exit 2): wait, or pass `--wait-min 30`. It never stops one it didn't start.
 - Push and CI (RELEASING step 2): the user pushes the candidate; check that `.github/workflows/ci.yml` passed on the pushed commit before the bump.
 
 ## Before the real tier
