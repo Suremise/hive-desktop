@@ -112,6 +112,12 @@ function trialEnvironment({ status = null, replies = [], screen = '' } = {}) {
   return lib.environmentProblem([...replies, screen].join('\n'))
 }
 
+/**
+ * The CLI's own notices in a transcript's items (#342): not a background task's summary or a command's output (a
+ * notice `from` them), which may discuss a sign-in or a limit without the CLI having one.
+ */
+const cliNotices = (items) => (items ?? []).filter((x) => x.kind === 'notice' && !x.from).map((x) => x.text)
+
 /** What to do about an environment skip, said once for the trials it stops (never a sign-in from here). */
 function environmentAdvice(why, providerKey) {
   if (PROVIDERS[providerKey]?.fake) return 'run them without --signed-out (the fake was started signed out)'
@@ -337,7 +343,7 @@ async function runScenario(sc, providerKey, opts = {}) {
       // The CLI's own notes in the transcript (an API error, "Login expired · Please run /login", a usage limit: notices,
       // never the prompt or the model's replies), or Hive waiting for a sign-in: skipped for the environment at once,
       // rather than waiting out the limit and failing every check (#302).
-      const notices = s?.sessionId ? ((await inv('transcript:read', host, s.sessionId).catch(() => null))?.items ?? []).filter((x) => x.kind === 'notice').map((x) => x.text) : []
+      const notices = s?.sessionId ? cliNotices((await inv('transcript:read', host, s.sessionId).catch(() => null))?.items) : []
       const stopped = trialEnvironment({ status, replies: notices })
       if (stopped) return skipFor(stopped)
       if (['working', 'background', 'starting'].includes(status)) {
@@ -465,4 +471,4 @@ async function runScenario(sc, providerKey, opts = {}) {
   return result
 }
 
-module.exports = { runScenario, observeTranscript, readMcpLog, sourceFingerprint, metricsTotals, measuresOf, trialEnvironment, environmentAdvice, PROVIDERS, CLAUDE_TEST_HOME, claudeSignedIn }
+module.exports = { runScenario, observeTranscript, readMcpLog, sourceFingerprint, metricsTotals, measuresOf, trialEnvironment, cliNotices, environmentAdvice, PROVIDERS, CLAUDE_TEST_HOME, claudeSignedIn }

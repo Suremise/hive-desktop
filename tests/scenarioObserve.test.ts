@@ -298,6 +298,42 @@ describe('a trial the environment stops (trialEnvironment)', () => {
     expect(trialEnvironment({ status: 'working', replies: ['Interrupted by you'] })).toBeNull()
     expect(trialEnvironment({})).toBeNull()
   })
+
+  // Claude Code's transcript read as Hive reads it (its parser), then the notices the harness takes as the CLI's (#342):
+  // a background task's summary or a command's output may talk about an expired sign-in or a limit without one.
+  describe("the CLI's own notices, not what it relays (cliNotices, #342)", () => {
+    const { cliNotices } = require('./scenarios/harness.cjs') as { cliNotices: (items: unknown) => string[] }
+    const line = (o: object) => JSON.stringify({ sessionId: 's', cwd: 'C:\\p', ...o })
+    const user = (content: string) => line({ type: 'user', timestamp: 't1', message: { role: 'user', content } })
+    const synthetic = (text: string) => line({ type: 'assistant', timestamp: 't2', message: { model: '<synthetic>', content: [{ type: 'text', text }] } })
+    const TASK = 'Background task finished: documented how to fix OAuth token has expired errors.'
+    const COMMAND = "Notes: when you've hit your usage limit, wait for the reset."
+    const relayed = [user(`<task-notification>\n<task-id>b1</task-id>\n<status>completed</status>\n<summary>${TASK}</summary>\n</task-notification>`), user(`<local-command-stdout>${COMMAND}</local-command-stdout>`)]
+    const notices = async (lines: string[]) => {
+      const { ConversationParser } = await import('../src/main/providers/claude/conversation')
+      const p = new ConversationParser('C:\\p')
+      p.feed(Buffer.from(lines.join('\n') + '\n'))
+      return { items: p.items, cli: cliNotices(p.items) }
+    }
+
+    it('a background task or a command that only discusses a sign-in or a limit is no skip', async () => {
+      const { items, cli } = await notices(relayed)
+      // Both are notices, and each alone would read as an environment failure: what they are is what keeps them out.
+      expect(items).toMatchObject([{ kind: 'notice', text: TASK, from: 'task' }, { kind: 'notice', text: COMMAND, from: 'command' }])
+      expect(trialEnvironment({ replies: [TASK] })).toMatch(/^not signed in/)
+      expect(trialEnvironment({ replies: [COMMAND] })).toMatch(/^usage or rate limit/)
+      expect(cli).toEqual([])
+      expect(trialEnvironment({ status: 'working', replies: cli })).toBeNull()
+    })
+
+    it("beside them, the CLI's own expired sign-in and usage limit are still skips, at once", async () => {
+      const login = await notices([...relayed, synthetic('Login expired · Please run /login')])
+      expect(login.cli).toEqual(['Login expired · Please run /login'])
+      expect(trialEnvironment({ status: 'finished', replies: login.cli })).toMatch(/^not signed in: /)
+      const limit = await notices([...relayed, synthetic("You've hit your usage limit · resets 5pm (Europe/London)")])
+      expect(trialEnvironment({ status: 'finished', replies: limit.cli })).toMatch(/^usage or rate limit: /)
+    })
+  })
 })
 
 // A coordinator's watch is scored as it ended its turn (#402): a new watch replaces the last, so a combined one followed

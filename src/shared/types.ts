@@ -1598,7 +1598,11 @@ export type TranscriptItem = TranscriptItemBase &
     | { kind: 'tool'; tool: TranscriptTool }
     | { kind: 'compaction'; trigger: string; preTokens: number; postTokens: number; nextRequestTokens: number | null; summary: string | null }
     | { kind: 'command'; name: string; args: string; output: string }
-    | { kind: 'notice'; text: string; level: 'info' | 'error' }
+    /**
+     * A note in the conversation: the CLI's own (an API error, a sign-in or usage limit, an interruption), or what it
+     * relays (`from`): a background task's summary, or a command's output with no command (#342).
+     */
+    | { kind: 'notice'; text: string; level: 'info' | 'error'; from?: 'task' | 'command' }
   )
 
 export interface Transcript {
