@@ -222,15 +222,56 @@ const check = (name, ok, extra = '') => {
   check('agents kept running: a reminder once the spacing has passed, nothing restarted', !!(await lib.until(async () => (await reminder.count()) === 1, REMIND + 10000)) && Date.now() - offeredAt >= REMIND - 1000 && (await live()) === 2, `${Date.now() - offeredAt} ms, ${await live()} running`)
   check('…saying so, with Review… and Don’t Ask Again', /A reminder/.test(await reminder.innerText()) && /at most once a day/.test(await reminder.innerText()) && (await reminder.getByRole('button', { name: 'Review…' }).count()) === 1, await reminder.innerText())
   await shot('reminder-dark')
-  const remindedAt = Date.now()
   await closeToast(reminder)
   await lib.until(async () => (await reminder.count()) === 0, 5000)
-  // The reason goes and comes back before the next reminder is due: none at once, and that one when it is due.
+  // The reason goes and comes back before the next reminder is due: none at once, and that one when it is due. Main
+  // dates a reminder from the last one (offered.lastAt in config.json) plus the fixture's spacing, read each time the
+  // window asks: the window asks as the reason comes back, and again when main says the reminder is due. So while the
+  // agents stop and start, the spacing is rewritten every moment to make the reminder due DUE_AFTER_BACK_MS after now;
+  // whenever the window asks on their return, it is due that long after, however long stopping and starting took
+  // (#561: under load they used up a fixed 12 s). Once both are back, it is fixed at that long after they came back.
+  const lastOffered = () => { try { return JSON.parse(fs.readFileSync(path.join(userData, 'config.json'), 'utf8')).antivirus?.offered?.[ws.toLowerCase()] ?? null } catch { return null } }
+  // How long config.json may take to be saved with the reminder's offer (it is written a moment after a change).
+  const OFFER_SAVED_MS = 10000
+  const lastOffer = await lib.until(() => (lastOffered()?.count ?? 0) >= 2 && lastOffered(), OFFER_SAVED_MS)
+  check('the reminder is remembered (offered.lastAt)', !!lastOffer, JSON.stringify(lastOffered()))
+  const DUE_AFTER_BACK_MS = REMIND
+  const lastAt = Date.parse(lastOffer?.lastAt ?? '')
+  const dueFrom = (t) => ({ probe: probe({ volumes: [{ drive, fs: 'NTFS' }] }), elevated: {}, remindMs: t + DUE_AFTER_BACK_MS - lastAt })
+  // Replaced whole (a temp file renamed over it), so main never reads half a fixture; a rename Windows refuses while
+  // main has the file open is tried again.
+  const setFixtureWhole = async (f) => {
+    const tmp = `${fixture}.tmp`
+    fs.writeFileSync(tmp, JSON.stringify(f))
+    for (let i = 0; ; i++) {
+      try {
+        return fs.renameSync(tmp, fixture)
+      } catch (e) {
+        if (i >= 50) throw e
+        await lib.sleep(20)
+      }
+    }
+  }
+  const arming = { on: true }
+  const armer = (async () => {
+    while (arming.on) {
+      await setFixtureWhole(dueFrom(Date.now()))
+      await lib.sleep(100)
+    }
+  })()
   await stopBoth()
   await startBoth()
-  const back = Date.now() - remindedAt
-  check('agents back before the next reminder is due: none at once', back < REMIND - 2000 && (await reminder.count()) === 0, `back after ${back} ms`)
-  check('…the reminder when it is due, without anything restarting', !!(await lib.until(async () => (await reminder.count()) === 1, REMIND + 10000)) && Date.now() - remindedAt >= REMIND - 1000, `${Date.now() - remindedAt} ms`)
+  const back = Date.now()
+  arming.on = false
+  await armer
+  await setFixtureWhole(dueFrom(back))
+  const dueAt = back + DUE_AFTER_BACK_MS
+  // None as they come back, nor until it is due (a second's leeway for when the window saw them back).
+  const early = await lib.until(async () => (await reminder.count()) > 0, dueAt - 1000 - Date.now(), 200)
+  check('agents back before the next reminder is due: none at once, nor before it is due', !early && (await live()) === 2, `${early ? `a reminder ${dueAt - Date.now()} ms before it was due` : ''} ${await live()} running`)
+  // How late a due reminder may show on a loaded machine.
+  const DUE_SHOWN_MS = 10000
+  check('…the reminder when it is due, without anything restarting', !!(await lib.until(async () => (await reminder.count()) === 1, dueAt + DUE_SHOWN_MS - Date.now())) && Date.now() >= dueAt - 1000 && (await live()) === 2, `${Date.now() - dueAt} ms after it was due`)
   await reminder.getByRole('button', { name: 'Don’t Ask Again' }).click()
   await stopBoth()
   check('after Don’t Ask Again: no reminder, however long it has been', (await inv('antivirus:suggestion')).offer === null)
