@@ -19,8 +19,10 @@ Anyone who clones the repository must get the same results, on any machine and u
   timeout isn't a fix: a change that raises one says why, in the code and on the card.
 - **No test depends on another's leftovers.** Each test sets up and removes its own state: folders, git worktrees,
   processes, settings, environment variables. It passes alone, in any order, and when run twice.
-- **Tests pass under load.** The full suites run beside other runs (up to two heavy runs on a machine, the e2e
-  runner's test slots, several unit suites at once). Before calling a test done, run it under that load, not only alone.
+- **Tests pass under load.** The full suites run beside other runs (up to two heavy runs on a machine by default, the
+  e2e runner's test slots, several unit suites at once). Before calling a test done, run it under that load, not only
+  alone. A machine can be set to take more or fewer heavy runs with `HIVE_TEST_HEAVY_SLOTS` ([e2e](e2e/README.md), "How
+  many heavy runs at once"); a test must pass with any number of them.
 
 A sleep that is the point of the test is fine: checking that something does *not* happen within a period, pacing
 keystrokes, a fake standing in for a slow CLI. Say so in a comment beside it. Something that is truly waited for with
