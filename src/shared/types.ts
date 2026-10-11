@@ -850,7 +850,42 @@ export interface AddAgentOptions {
   permissionMode?: PermissionMode
   use200kContext?: boolean
   role?: string
+  /**
+   * #456: new-worktree, work in the project's unused worktree on that branch instead when it is merged into the base and
+   * clean, brought up to the base; existing-worktree, bring the one chosen up to the base when it is merged and clean.
+   * The Add Agent dialog and the Agent API ask for it; templates reuse their own way (#289).
+   */
+  reuseWorktree?: boolean
 }
+
+/**
+ * The project's unused worktree on the branch a new worktree would get (#456), checked against the base: `reusable`
+ * when merged into it (a squash merge counting) and clean, else `why` not (commits not merged, uncommitted files, or git
+ * couldn't say).
+ */
+export interface WorktreeMatch {
+  path: string
+  branch: string
+  base: string
+  reusable: boolean
+  why?: string
+}
+
+/**
+ * What adding an agent did about a worktree it could reuse (#456): `reused` it (`upTo`: brought up to the base, at that
+ * commit; without, it was there already or kept its work), or made a new one because it held work (`notReused`).
+ */
+export interface WorktreeReuse {
+  branch: string
+  reused: boolean
+  base: string
+  upTo?: string
+  keptWork?: boolean
+  notReused?: string
+}
+
+/** An agent just added, with what happened to a worktree it could reuse (#456). */
+export type AddedAgent = AgentDef & { reuse?: WorktreeReuse }
 
 export interface ProjectGitInfo {
   isRepo: boolean

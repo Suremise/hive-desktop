@@ -25,7 +25,9 @@ import { emit, onHiveEvent, toast } from './events'
 import { cancelWatch, encodeSince, registerAgentWatch, registerWatch, scopedCard } from './watches'
 import { agentBusy, AGENT_WATCH_MAX_AGENTS, type AgentNow, type WatchedAgent } from '../shared/agentWatch'
 import { alreadyThere, cardChange, changesBetween, decodeSince, markOf, movedIntoSince, readCondition, AGENT_WAIT_MAX_SECONDS, WAIT_MAX_SECONDS, WATCH_DEFAULT_LIMIT_MINUTES, WATCH_MAX_LIMIT_MINUTES, type CardChange, type CardMark } from '../shared/watch'
-import { insideReal, readCapped, readJson, writeJsonAtomic } from './fsutil'
+import { insideReal, readCapped, readJson, samePlace, writeJsonAtomic } from './fsutil'
+import { listWorktrees } from './worktrees'
+import { reuseNote } from '../shared/unusedWorktrees'
 import { GUIDANCE_REVISION, skillRevisions } from './guidance'
 import agentApiDoc from '../../docs/AGENT_API.md?raw'
 import { createLogger } from './logger'
@@ -802,11 +804,17 @@ route('POST', '/v1/projects/:name/agents', async ({ params, body }) => {
     if (!set.provider && defaultProviderPending(cfg, config.settings)) await providerService.settle()
     const provider = set.provider ?? projectDefaultProvider(cfg, config.settings)
     if (!isProviderEnabled(config.settings, provider)) throw new HttpError(409, `${PROVIDERS.find((x) => x.id === provider)?.name ?? provider} is turned off in Settings → Providers.`)
+    // An unused worktree, by its folder or branch (#456): checked as the dialog's Existing worktree is.
+    const existing = typeof body?.existingWorktree === 'string' ? body.existingWorktree.trim() : ''
+    const tree = existing ? (await listWorktrees(p)).find((w) => !samePlace(w.path, p) && (w.branch === existing || samePlace(w.path, existing))) : undefined
+    if (existing && !tree) throw new HttpError(404, `${project} has no worktree at or on "${existing}".`)
     const def = await addAgent(p, {
       name: body?.name ? String(body.name) : undefined,
-      location: body?.worktree ? 'new-worktree' : 'project',
+      location: tree ? 'existing-worktree' : body?.worktree ? 'new-worktree' : 'project',
+      ...(tree ? { worktreePath: tree.path } : {}),
       branch: body?.branch ? String(body.branch) : undefined,
       base: body?.base ? String(body.base) : undefined,
+      reuseWorktree: true,
       ...set,
       use200kContext: set.use200kContext ?? undefined,
       provider
@@ -823,7 +831,8 @@ route('POST', '/v1/projects/:name/agents', async ({ params, body }) => {
         started = ` (it didn't start: ${(e as Error).message})`
       }
     }
-    return { done: `Added ${def.name} to ${project}${def.worktree ? ` (worktree, branch ${def.worktree.branch})` : ''}${started}`, result: { agent: def, project: await projectSummary(p) } }
+    const reuse = def.reuse ? reuseNote(def.reuse) : ''
+    return { done: `Added ${def.name} to ${project}${def.worktree ? ` (worktree, branch ${def.worktree.branch}${reuse ? `: ${reuse}` : ''})` : ''}${started}`, result: { agent: def, project: await projectSummary(p), ...(reuse ? { reuse } : {}) } }
   })
 })
 

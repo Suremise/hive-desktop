@@ -8,6 +8,7 @@ import type {
   BoardFold,
   UpdateState,
   WorktreeGone,
+  WorktreeMatch,
   WorktreeCheck,
   UnusedWorktrees,
   UnusedWorktreeRemoval,
@@ -19,6 +20,7 @@ import type {
   ProgressRun,
   PermissionMode,
   AddAgentOptions,
+  AddedAgent,
   AssistantAction,
   AssistantQuestion,
   AgentApiInfo,
@@ -321,8 +323,8 @@ export interface HiveRequests {
   /** Saves the clipboard image (or copies sourceFile) into .hive/images/<sessionId>; null if the clipboard has no image. */
   'session:saveImage': (projectPath: string, sourceFile?: string, agentId?: string) => string | null
 
-  /** Adds an agent to the project (up to twelve), creating its worktree if asked. */
-  'agents:add': (projectPath: string, opts: AddAgentOptions) => AgentDef
+  /** Adds an agent to the project (up to twelve), creating its worktree if asked, or reusing one (#456: `reuse` says how). */
+  'agents:add': (projectPath: string, opts: AddAgentOptions) => AddedAgent
   /** Changing provider clears the agent's model, effort and mode, and its session to resume (conversations can't move between providers). */
   /** Changes an agent's name and settings; for the Hive Assistant's home, its settings for this workspace (persona too). */
   'agents:update': (projectPath: string, agentId: string, patch: AgentPatch) => AgentDef
@@ -373,6 +375,8 @@ export interface HiveRequests {
   'templates:import': (path: string, to: TemplateDest, onClash?: 'replace' | 'keep') => { imported: TemplateEntry } | { clash: string }
   /** Branches and worktrees, for the Add Agent dialog. */
   'agents:gitInfo': (projectPath: string) => ProjectGitInfo
+  /** The unused worktree a new one on `branch` from `base` would reuse (#456), checked: null when there is none. */
+  'agents:worktreeMatch': (projectPath: string, branch: string, base: string) => WorktreeMatch | null
   'agents:branchStatus': (projectPath: string, agentId: string) => AgentBranchStatus
   /** Every worktree agent's unmerged work known so far (then `branch-status` events as it changes). */
   'agents:branchStatuses': () => { projectPath: string; agentId: string; status: AgentBranchStatus | null }[]

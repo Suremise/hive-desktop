@@ -172,5 +172,6 @@ export const SUITES = [
   { name: 'windows' },
   { name: 'wsmove' },
   { name: 'wsoverview' },
-  { name: 'wtrecreate' }
+  { name: 'wtrecreate' },
+  { name: 'wtreuse' }
 ]
