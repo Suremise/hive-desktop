@@ -256,7 +256,7 @@ const tools: Tool[] = [
   {
     name: 'hive_add_agent',
     description:
-      "Add an agent to a project. It works in the project folder, or with worktree in its own git worktree and branch (only if the user asked for one or agreed). With prompt it starts at once on that task; with start and no prompt it starts idle. Replies with its name, id, provider, folder and status.",
+      "Add an agent to a project. It works in the project folder, or with worktree in its own git worktree and branch (only if the user asked for one or agreed): an unused worktree already on that branch is reused when merged and clean (brought up to the base), else a new one is made. existingWorktree gives it an unused worktree instead (its folder or branch; one merged and clean is brought up to the base, otherwise it keeps its work). With prompt it starts at once on that task; with start and no prompt it starts idle. Replies with its name, id, provider, folder and status.",
     inputSchema: {
       type: 'object',
       properties: {
@@ -266,19 +266,21 @@ const tools: Tool[] = [
         worktree: { type: 'boolean' },
         branch: { type: 'string', description: 'Worktree branch (default hive/<name>).' },
         base: { type: 'string', description: 'Branch the worktree starts from (default the current one).' },
+        existingWorktree: { type: 'string', description: 'An unused worktree to work in: its folder or branch.' },
         start: { type: 'boolean' },
         prompt: { type: 'string', description: 'The first task, in full: it reads nothing else from you.' }
       },
       required: ['project']
     },
     run: async (a) => {
-      const r = (await api('POST', `/v1/projects/${proj(a)}/agents`, { name: a.name, provider: a.provider, model: a.model, effort: a.effort, mode: a.mode, context200k: a.context200k, worktree: a.worktree, branch: a.branch, base: a.base, start: a.start, prompt: a.prompt })) as {
+      const r = (await api('POST', `/v1/projects/${proj(a)}/agents`, { name: a.name, provider: a.provider, model: a.model, effort: a.effort, mode: a.mode, context200k: a.context200k, worktree: a.worktree, existingWorktree: a.existingWorktree, branch: a.branch, base: a.base, start: a.start, prompt: a.prompt })) as {
         agent: { id: string; name: string; worktree?: { path: string; branch: string } | null }
         project: { name: string; agents: { id: string; provider: string; status: string }[] }
+        reuse?: string
       }
       const now = r.project.agents.find((x) => x.id === r.agent.id)
       const where = r.agent.worktree ? `its worktree ${r.agent.worktree.path} (branch ${r.agent.worktree.branch})` : 'the project folder'
-      return `Added ${r.agent.name} (id ${r.agent.id}) to ${r.project.name}: ${now?.provider ?? 'its provider'}, in ${where}, ${now?.status ?? 'stopped'}.`
+      return `Added ${r.agent.name} (id ${r.agent.id}) to ${r.project.name}: ${now?.provider ?? 'its provider'}, in ${where}, ${now?.status ?? 'stopped'}.${r.reuse ? ` Hive ${r.reuse}.` : ''}`
     }
   },
   {
