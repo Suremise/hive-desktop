@@ -1,11 +1,13 @@
+import { randomBytes } from 'crypto'
 import { basename, join, resolve, sep } from 'path'
-import { mkdir, readdir, readFile, writeFile } from 'original-fs/promises'
+import { mkdir, readdir, readFile, stat, writeFile } from 'original-fs/promises'
 import { existsSync, statSync, watch, type FSWatcher as RootWatcher } from 'original-fs'
 import { AsyncLocalStorage } from 'async_hooks'
 import type { BrowserWindow } from 'electron'
 import chokidar, { type FSWatcher } from 'chokidar'
 import { ASSISTANT_DIR, ASSISTANT_NAME, PERSONAS_DIR, assistantProjectConfig } from '../shared/assistant'
 import { DEFAULT_PROJECT_CONFIG, DEFAULT_WORKSPACE_CONFIG, HIVE_DIR, mergeDefaults, migrateProjectConfig, projectAgents, withLegacyProjectFields, withoutSkillSwitches } from '../shared/defaults'
+import { LANE_MAX_ROUNDS, LOOP_WAIT_MAX_HOURS } from '../shared/lanes'
 import type { AgentDef, AgentInfo, HiddenProject, HiveEvent, KeptUsage, LiveSessionState, ProjectConfig, ProjectInfo, RemovedData, SessionRecord, WorkspaceConfig, WorkspaceInfo, WorkspaceMoved } from '../shared/types'
 import { config } from './config'
 import { emit, emitTo } from './events'
@@ -15,6 +17,7 @@ import { allProviders } from './providers'
 import { worktreesRoot } from './worktrees'
 import { ensureHiveExcluded, gitDirOf, hiveVcs } from './hiveVcs'
 import { gitProblem } from './gitTool'
+import { NO_PROJECT_IDS, isProjectId, settleProjectIds, type ProjectIdEntry, type ProjectIdIndex } from '../shared/projectIds'
 
 const log = createLogger('workspace')
 
@@ -47,6 +50,18 @@ export interface SessionsFile {
 
 type LiveProvider = (projectPath: string, cfg: ProjectConfig) => Promise<{ live: LiveSessionState | null; restartNeeded: boolean; agents: AgentInfo[] }>
 
+/**
+ * What a read of the projects' ids saw of each one (#514): its folder, its id, where it was last opened (project.json's
+ * lastPath, #146) and whether it is a copy just given an id of its own. projectNames.ts keeps the workspace's record of
+ * their names by id from it.
+ */
+export interface ProjectSeen {
+  path: string
+  id: string
+  lastPath?: string
+  copy: boolean
+}
+
 export class WorkspaceService {
   path: string | null = null
   private wsConfig: WorkspaceConfig = structuredClone(DEFAULT_WORKSPACE_CONFIG)
@@ -56,6 +71,8 @@ export class WorkspaceService {
   private static liveProvider: LiveProvider = async (_p, cfg) => ({ live: null, restartNeeded: false, agents: projectAgents(cfg).map((a) => ({ ...a, live: null, restartNeeded: false, resume: null })) })
   /** Called each time a workspace opens, in its context; `fresh` when Hive set the folder up just now (it had no .hive). */
   static onOpened: ((fresh: boolean) => Promise<unknown>) | null = null
+  /** Each read of the projects' ids (#514): the workspace's record of their names follows it (projectNames.ts). Never awaited. */
+  static onIdsRead: ((ws: WorkspaceService, seen: ProjectSeen[]) => void) | null = null
   /** Told when a workspace starts closing (its path still set), so services drop what they keep for it. */
   static readonly closingListeners = new Set<(path: string) => void>()
   /** The window showing this workspace: its events go there. */
@@ -77,6 +94,15 @@ export class WorkspaceService {
   repairingMove = false
   /** Moved since last opened, with something to repair (#146, workspaceMove.ts); the window's banner offers Repair…. */
   private moved: WorkspaceMoved | null = null
+  /** The projects' ids (#508) as last read, for the folder list they were read for (`key`), and a read under way. */
+  /**
+   * Where the workspace was before it moved here (#146: workspace.json's lastPath as it opened), or null: records saved
+   * there by path (card watches, merge holds, #508) come to their folders here by it. Repair updating lastPath meanwhile
+   * doesn't change it.
+   */
+  movedFrom: string | null = null
+  private ids: (ProjectIdIndex & { key: string; at: number }) | null = null
+  private idsRead: { key: string; run: Promise<ProjectIdIndex> } | null = null
 
   setLiveProvider(p: LiveProvider): void {
     WorkspaceService.liveProvider = p
@@ -157,6 +183,8 @@ export class WorkspaceService {
     const fresh = !existsSync(join(abs, HIVE_DIR))
     await this.ensureWorkspaceStructure()
     this.wsConfig = mergeDefaults(structuredClone(DEFAULT_WORKSPACE_CONFIG), withoutSkillSwitches(await readKeptJson(join(this.hiveDir, 'workspace.json'), {})))
+    const last = this.wsConfig.lastPath
+    this.movedFrom = last && resolve(last).toLowerCase() !== abs.toLowerCase() ? resolve(last) : null
     config.update((c) => {
       c.lastWorkspace = abs
       c.recentWorkspaces = [abs, ...c.recentWorkspaces.filter((p) => p.toLowerCase() !== abs.toLowerCase())].slice(0, 12)
@@ -165,6 +193,8 @@ export class WorkspaceService {
     // Every window's recent list: this one first, and open here (#144).
     emit({ type: 'recent-changed' })
     for (const p of await this.listProjectPaths()) await this.ensureProject(p).catch((e) => log.warn(`ensureProject ${userText(p)}`, e))
+    // Every project has its id (#508) before the board, lanes and watches are read by it.
+    await this.projectIds().catch((e) => log.warn('reading the project ids', e))
     try {
       await this.ensureProject(this.assistantHome)
       // The Assistant's conversations and backups are this machine's: kept out of git if the workspace is a repository.
@@ -194,6 +224,8 @@ export class WorkspaceService {
     }
     if (this.refreshTimer) clearTimeout(this.refreshTimer)
     this.refreshTimer = null
+    if (this.idsTimer) clearTimeout(this.idsTimer)
+    this.idsTimer = null
     this.rootWatcher?.close()
     this.rootWatcher = null
     await this.watcher?.close()
@@ -201,6 +233,9 @@ export class WorkspaceService {
     this.path = null
     this.cached = null
     this.moved = null
+    this.movedFrom = null
+    this.ids = null
+    this.idsRead = null
     // The closed workspace's agent worktrees and settings must not route to (or be allowed by) the next one.
     this.roots.clear()
     this.unusedRoots.clear()
@@ -237,6 +272,32 @@ export class WorkspaceService {
     return run
   }
 
+  /**
+   * Saves workspace.json with a change (worked out from the settings as they are when it is written) that takes effect
+   * only once it is saved: a save that fails leaves the settings as they were, so whatever it marks done (#514's
+   * renamesApplied) is done again next time.
+   */
+  saveWorkspaceConfigWith(change: (c: WorkspaceConfig) => Partial<WorkspaceConfig>): Promise<void> {
+    const file = join(this.hiveDir, 'workspace.json')
+    const data = this.wsConfig
+    this.configSaves++
+    let text: string | null = null
+    const run = this.savingConfig
+      .then(async () => {
+        const next = { ...data, ...change(data) }
+        text = JSON.stringify(next, null, 2) + '\n'
+        await writeKeptJson(file, next)
+        // Worked out again: the settings may have changed in memory while it was written (their own save is after this one).
+        Object.assign(data, change(data))
+      })
+      .finally(() => {
+        this.configSaves--
+        if (text !== null) this.configWritten = text
+      })
+    this.savingConfig = run.catch(() => undefined)
+    return run
+  }
+
   private startWatching(): void {
     if (!this.path) return
     // Watch only the workspace root (projects appearing/disappearing) and the .hive folder. The root is watched without
@@ -244,17 +305,29 @@ export class WorkspaceService {
     // an .asar file (#246). A folder appearing, going or renamed there reads the project list again (a project's own
     // folder changing reports 'change').
     try {
-      this.rootWatcher = watch(this.path, (evt) => evt === 'rename' && this.scheduleRefresh())
+      this.rootWatcher = watch(this.path, (evt) => {
+        if (evt !== 'rename') return
+        // A folder renamed, added or gone: the projects' ids are read again, and a project renamed tells the board (#508).
+        if (this.ids) this.ids.at = 0
+        this.scheduleRefresh()
+        this.scheduleIdsCheck()
+      })
       this.rootWatcher.on('error', (e) => log.warn('workspace root watcher error', e))
     } catch (e) {
       log.warn('watching the workspace root', e)
     }
     const assistantHome = this.assistantHome.toLowerCase()
+    const mcpDir = this.mcpDir.toLowerCase() + sep
     this.watcher = chokidar.watch(this.hiveDir, {
       depth: 5,
       ignoreInitial: true,
-      // The Assistant's home changes with every launch; nothing in it is shown from the file system.
-      ignored: (p: string) => resolve(p).toLowerCase() === assistantHome
+      // The Assistant's home changes with every launch; nothing in it is shown from the file system. In .hive/mcp only
+      // the definitions (<name>.json) are: a server's own folder (added from a .zip, #550) isn't watched, since a watched
+      // folder inside it would stop Windows moving the folder (Replace, Delete).
+      ignored: (p: string) => {
+        const at = resolve(p).toLowerCase()
+        return at === assistantHome || (at.startsWith(mcpDir) && (at.slice(mcpDir.length).includes(sep) || !at.endsWith('.json')))
+      }
     })
     this.watcher.on('all', (evt, p) => {
       const rel = this.path ? p.slice(this.path.length + 1).replace(/\\/g, '/') : ''
@@ -290,6 +363,17 @@ export class WorkspaceService {
     else emit(event)
   }
 
+  private idsTimer: NodeJS.Timeout | null = null
+
+  /** The projects' ids read again shortly (#508): a folder renamed or moved in the workspace root tells the board. */
+  private scheduleIdsCheck(): void {
+    if (this.idsTimer) clearTimeout(this.idsTimer)
+    this.idsTimer = setTimeout(() => {
+      this.idsTimer = null
+      if (this.path) void this.projectIds({ fresh: true }).catch((e) => log.warn('reading the project ids', e))
+    }, 250)
+  }
+
   scheduleRefresh(): void {
     if (this.refreshTimer) clearTimeout(this.refreshTimer)
     // A window closed meanwhile (its agents stopping afterwards) has nothing to refresh.
@@ -298,19 +382,123 @@ export class WorkspaceService {
 
   /** The workspace's project folders, without the ones hidden or removed from Hive (hidden: true lists only those). */
   async listProjectPaths(opts: { hidden?: boolean } = {}): Promise<string[]> {
-    if (!this.path) return []
-    const entries = await readdir(this.path, { withFileTypes: true })
+    // Its folder as the call began: one closing meanwhile still lists that folder's, never a null path.
+    const path = this.path
+    if (!path) return []
+    const entries = await readdir(path, { withFileTypes: true })
     const hidden = new Set((this.wsConfig.hiddenProjects ?? []).map((h) => h.name.toLowerCase()))
     return entries
       .filter((e) => e.isDirectory() && !e.name.startsWith('.') && !e.name.startsWith('$') && hidden.has(e.name.toLowerCase()) === !!opts.hidden)
-      .map((e) => join(this.path!, e.name))
+      .map((e) => join(path, e.name))
       .sort((a, b) => basename(a).localeCompare(basename(b), undefined, { sensitivity: 'base' }))
+  }
+
+  /**
+   * Each project's stable id (#508), hidden projects' too, read again whenever the folders in the workspace change (a
+   * rename shows as one going and one coming). A project without one is given one now, and so is a copy of a folder that
+   * brought its project.json along (settleProjectIds says which keeps the id). Folders without Hive's files have none.
+   */
+  async projectIds(opts: { fresh?: boolean } = {}): Promise<ProjectIdIndex> {
+    if (!this.path) return NO_PROJECT_IDS
+    // Listed again at most once a second (a board read checks many cards, each by its project's id), or now with
+    // `fresh`: what is read in the second after that sees the same projects.
+    if (this.ids && !opts.fresh && Date.now() - this.ids.at < 1000) return this.ids
+    const paths = [...(await this.listProjectPaths()), ...(await this.listProjectPaths({ hidden: true }))]
+    // Each folder with its project.json's identity and time: a folder replaced by another of the same name, or two
+    // projects that swapped names, read again too.
+    const key = (
+      await Promise.all(
+        paths.map(async (p) => {
+          const st = await stat(join(p, HIVE_DIR, 'project.json')).catch(() => null)
+          return `${p.toLowerCase()}:${st ? `${st.ino}:${st.mtimeMs}` : '-'}`
+        })
+      )
+    )
+      .sort()
+      .join('|')
+    if (this.ids?.key === key) {
+      this.ids.at = Date.now()
+      return this.ids
+    }
+    if (this.idsRead?.key === key) return this.idsRead.run
+    const run = this.readProjectIds(paths, key).finally(() => {
+      if (this.idsRead?.run === run) this.idsRead = null
+    })
+    this.idsRead = { key, run }
+    return run
+  }
+
+  /** The projects' ids as last read (projectIds), for code that can't wait: a folder not read yet has none. */
+  projectIdsNow(): ProjectIdIndex {
+    return this.ids ?? NO_PROJECT_IDS
+  }
+
+  private async readProjectIds(paths: string[], key: string): Promise<ProjectIdIndex> {
+    const gen = this.generation
+    const entries: ProjectIdEntry[] = []
+    const cfgs = new Map<string, ProjectConfig>()
+    for (const p of paths) {
+      if (!existsSync(join(p, HIVE_DIR, 'project.json'))) continue
+      const cfg = await this.projectConfig(p).catch(() => null)
+      if (!cfg) continue
+      entries.push({ path: p, id: cfg.id, lastPath: cfg.lastPath })
+      cfgs.set(p.toLowerCase(), cfg)
+    }
+    const { keep, fresh } = settleProjectIds(entries)
+    for (const p of fresh) {
+      if (gen !== this.generation) break
+      // In project.json's lock, against the file as it is then: an id of its own given meanwhile stays.
+      const taken = new Set(keep.values())
+      const cfg = await this.mutateProjectConfig(p, (c) => (isProjectId(c.id) && !taken.has(c.id) ? {} : { id: `p-${randomBytes(6).toString('hex')}` })).catch((e) => {
+        log.warn(`giving ${userText(basename(p))} its project id`, e)
+        return null
+      })
+      if (cfg?.id) keep.set(p.toLowerCase(), cfg.id)
+    }
+    const byPath = new Map<string, string>()
+    const byId = new Map<string, string>()
+    for (const p of paths) {
+      const id = keep.get(p.toLowerCase())
+      if (!id) continue
+      byPath.set(p.toLowerCase(), id)
+      byId.set(id, p)
+    }
+    const index = { key, byPath, byId, at: Date.now() }
+    if (gen !== this.generation) return index
+    const was = this.ids
+    this.ids = index
+    // Each project by its id, as this read saw it (#514): the record of their names, and what follows a rename, go from it.
+    const copies = new Set(fresh.map((p) => p.toLowerCase()))
+    const seen: ProjectSeen[] = []
+    for (const [lower, id] of byPath) {
+      const cfg = cfgs.get(lower)
+      seen.push({ path: byId.get(id)!, id, ...(cfg?.lastPath ? { lastPath: cfg.lastPath } : {}), copy: copies.has(lower) && isProjectId(cfg?.id) })
+    }
+    WorkspaceService.onIdsRead?.(this, seen)
+    // A project renamed or moved (an id at another folder now): the cards, lanes and watches that name it read differently,
+    // so the window and the services that follow the board look again (#508).
+    if (was && [...byId].some(([id, p]) => { const before = was.byId.get(id); return !!before && before.toLowerCase() !== p.toLowerCase() }) && this.path) this.emit({ type: 'tasks-changed', workspacePath: this.path })
+    return index
   }
 
   /** Projects Hive leaves out (Hide, Remove from Hive), and whether each folder is still in the workspace. */
   hiddenProjects(): (HiddenProject & { present: boolean })[] {
     if (!this.path) return []
     return (this.wsConfig.hiddenProjects ?? []).map((h) => ({ ...h, present: existsSync(join(this.path!, h.name)) }))
+  }
+
+  /**
+   * Sets the workspace's card-loop rounds and wait in hours (#412, Settings → Workspace): a value given replaces its own,
+   * one left out stays. Saved in workspace.json; the window hears of it as a workspace change.
+   */
+  async setLoops(patch: { rounds?: number; waitHours?: number }): Promise<void> {
+    if (!this.path) throw new Error('No workspace is open')
+    const whole = (v: unknown, max: number): boolean => v === undefined || (typeof v === 'number' && Number.isInteger(v) && v >= 1 && v <= max)
+    if (!whole(patch.rounds, LANE_MAX_ROUNDS)) throw new Error(`Card loop rounds take a whole number from 1 to ${LANE_MAX_ROUNDS}.`)
+    if (!whole(patch.waitHours, LOOP_WAIT_MAX_HOURS)) throw new Error(`Card loop wait takes a whole number of hours from 1 to ${LOOP_WAIT_MAX_HOURS}.`)
+    this.wsConfig.loops = { ...this.wsConfig.loops, ...(patch.rounds !== undefined ? { rounds: patch.rounds } : {}), ...(patch.waitHours !== undefined ? { waitHours: patch.waitHours } : {}) }
+    await this.saveWorkspaceConfig()
+    this.scheduleRefresh()
   }
 
   /** Leaves a project folder out of the workspace (mode says how), or takes it back (null). */

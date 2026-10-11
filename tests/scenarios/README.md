@@ -45,17 +45,33 @@ The checks are positive and negative:
 - **No git worktree of its own** (#476, #482): asked to keep the folder as it is while it tries a change (not asked
   for a worktree), the agent makes none on its own initiative and leaves the folder as it was (Hive sets its folder; an
   agent with its own worktree is the user's to add, and a worktree the user asks for is theirs).
+- **Scratch outside the project** (#509): a reviewer asked for a probe script and a log of its output leaves the
+  project as it was, makes no `.codex` folder in it and adds nothing beside it.
 - **Card loops**: at the round limit the builder asks the user. A finding that comes back is another round: the builder
   fixes it without asking, and the reviewer fails it marked as recurring. A finding the builder disputes stops the reviewer
   to ask. A builder fixing a failed card brings it back into Review for round two (also without it leaving Review), so the
   waiting reviewer is woken. A builder woken by one card passing while the other failed at the same moment acts on the
   failed one too. A builder starting a loop registers its lane (the cards in order, its reviewer, rounds and wait) before
   its first card's review; a reviewer joins its builder's lane by name, starting none of its own (#483).
+  A reviewer whose card its builder blocks while it waits (to ask the user) keeps watching it rather than moving on, and
+  reviews it when Hive wakes it once the card is unblocked and back in Review (#481).
+  A reviewer woken by Hive's own loop wake, with no watch of its own, reviews the card and waits for the next (#405).
+  A builder told no rounds or wait gets the workspace's Card loop settings for its lane and its wait; one told its own keeps them (#412).
+  The Assistant at Look and advise lists the running lanes when asked, and changes none (#500).
 - **With `work-on-card` deleted**, the board rules still hold, and **an edited skill** is the one followed.
 - **The Assistant**:
   - at Look and advise, changes nothing;
   - at Control agents, starts a card (which worked), waits for it, and the card gets done;
   - with full control, plans as cards without starting them.
+  - in Coordinator mode with a team (#402): reads run-lanes, briefs each builder and reviewer with the card-loop skill,
+    their cards and partner, and ends its turn with one live watch on every lane's last card (scored on the watch it
+    ends with, which replaces any before it, and on any move of those cards); woken by a failed review or an agent's
+    question, it reads the card, sweeps the board, watches every lane again (not only the card that woke it) and leaves
+    the fix (or the answer) to the loop (or the user); moves a card between running lanes; places a follow-up in the lane
+    that owns its files; and follows two lanes through Hive's real wakes as each ends, re-watching what is left, until
+    both have ended (the fake Claude Code acts out the Assistant's wakes from its `fake-wakes-Assistant.txt`);
+  - in every mode (#325, #402): cards it plans are complete (80+ characters each), an open design question reaches the
+    user, and one card on one agent loads no run-lanes and starts no lane.
 
 ## Running
 
@@ -74,6 +90,13 @@ node tests/scenarios/measure.cjs              # what sessions are given about Hi
 The scenarios run the dev build in `out/`. A run first checks it is built from the source as it is now (the e2e
 runner's build stamp, `tests/e2e/build.mjs`) and rebuilds it if not, so a run or a baseline never measures other code.
 Hive's test copies run quiet (`src/main/testQuiet.ts`): no window on screen, no focus taken, no notifications.
+After each scenario, once Hive has closed, the harness stops what of it still runs (a command an agent started can
+outlive its session: #542): what the scenario's Hive started (its process tree, taken before it closes, each by pid and
+start time), and what names the scenario's folder on its command line (the folder itself, never a sibling whose name
+starts the same) and started after the scenario did (`tests/e2e/folderProcesses.cjs`; the result's `leftOver` says how
+many). A folder it still can't remove is kept and named in the result (`kept`) rather than ending the run. Setup helpers
+that start an agent for the fixture (a builder working, an agent idle) fail the scenario (`setup: …`, with the
+environment problem when the screen shows one) when it doesn't get there, rather than run on a fixture it didn't get.
 
 - **The fakes** (`fake`, the default, `fake-codex` and `fake-copilot`) act each scenario out with their scripted commands (`skill NAME`, `boardmove`,
   `boardreview`, `boardcomment`). It checks the harness itself and the board rules Hive enforces, at no cost. Checks

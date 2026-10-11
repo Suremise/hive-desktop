@@ -29,7 +29,13 @@ export const ASSISTANT_READ_TOOLS = [
 export const ASSISTANT_AGENT_TOOLS = ['hive_activate_project', 'hive_add_agent', 'hive_update_agent', 'hive_start_agent', 'hive_stop_agent', 'hive_prompt_agent', 'hive_hand_over', 'hive_start_task']
 
 /** Changing the task board: every agent has these; the Assistant at the control level that runs agents. */
-export const TASK_TOOLS = ['hive_create_task', 'hive_update_task', 'hive_update_tasks', 'hive_reorder_tasks', 'hive_lane']
+export const TASK_TOOLS = ['hive_create_task', 'hive_update_task', 'hive_update_tasks', 'hive_reorder_tasks']
+
+/**
+ * Lanes (#483): every Assistant lists them (a read, #500: "which lanes are running?" at Look too); starting, joining and
+ * ending one need Control agents, which the Agent API checks (assistantChange), and the tool's description says.
+ */
+export const ASSISTANT_LANE_TOOLS = ['hive_lane']
 
 /** Creating projects. */
 export const ASSISTANT_PROJECT_TOOLS = ['hive_create_project']
@@ -52,7 +58,7 @@ export function controlAllows(level: AssistantControlLevel | string | undefined,
 
 /** The tools an Assistant with this control level (and Change settings on or off) may use without asking. */
 export function assistantTools(level: AssistantControlLevel | string | undefined, changeSettings = false): string[] {
-  return [...ASSISTANT_READ_TOOLS, ...(controlAllows(level, 'agents') ? [...ASSISTANT_AGENT_TOOLS, ...TASK_TOOLS] : []), ...(controlAllows(level, 'projects') ? ASSISTANT_PROJECT_TOOLS : []), ...(changeSettings ? ASSISTANT_SETTINGS_TOOLS : [])]
+  return [...ASSISTANT_READ_TOOLS, ...ASSISTANT_LANE_TOOLS, ...(controlAllows(level, 'agents') ? [...ASSISTANT_AGENT_TOOLS, ...TASK_TOOLS] : []), ...(controlAllows(level, 'projects') ? ASSISTANT_PROJECT_TOOLS : []), ...(changeSettings ? ASSISTANT_SETTINGS_TOOLS : [])]
 }
 
 /** Every tool the hive MCP server has (a test checks it against hive-mcp.ts): the only tool names metrics record. */

@@ -10,7 +10,7 @@ import { tempDir } from './tempDir'
 
 const require = createRequire(import.meta.url)
 const { observeTranscript } = require('./scenarios/harness.cjs') as { observeTranscript: (items: unknown[], skills: string[]) => { skillsRead: string[]; hiveMentions: string[]; finalReply: string } }
-const { SCENARIOS } = require('./scenarios/scenarios.cjs') as { SCENARIOS: { id: string; expect: (o: unknown, c: unknown) => [string, boolean, string?][] }[] }
+const { SCENARIOS, helpers } = require('./scenarios/scenarios.cjs') as { SCENARIOS: { id: string; expect: (o: unknown, c: unknown) => [string, boolean, string?][] }[]; helpers: { LANES_RUNNING_TAIL: string } }
 
 const tool = (name: string, input: unknown, result = '', isError = false) => ({ kind: 'tool', tool: { name, summary: '', input: typeof input === 'string' ? input : JSON.stringify(input), result, isError } })
 const SKILLS = ['work-on-card', 'review-agent-work', 'handover']
@@ -278,5 +278,77 @@ describe("every logged hive call reported (allCallsReported)", () => {
   it("leaves out a fake's direct board change, which no bridge reports", () => {
     expect(allCallsReported([call('hive_update_task', true)], metrics(0))).toBe(true)
     expect(allCallsReported([call('hive_update_task', true), call('hive_read_task')], metrics(0))).toBe(false)
+  })
+})
+
+// A coordinator's watch is scored as it ended its turn (#402): a new watch replaces the last, so a combined one followed
+// by a narrower one leaves only the narrower, and earlier calls prove nothing.
+describe("the Assistant's live watch (coordinator scenarios)", () => {
+  const sc = SCENARIOS.find((x) => x.id === 'coordinator-wake-question')!
+  const call = (cards: number[]) => ({ tool: 'hive_wait_for_tasks', ok: true, args: JSON.stringify({ cards, wake: true }) })
+  const outcome = (watch: unknown) => ({
+    hiveCalls: [call([2, 3]), call([1])],
+    status: 'watching',
+    watch,
+    cards: { a: { decisions: [] } },
+    finalReply: 'Coder asks about an empty name.',
+    skillsRead: [],
+    allCards: [],
+    lanes: []
+  })
+  const ctx = { cards: { a: 1, b: 2, c: 3 } }
+  const ANY = ['column', 'comment', 'verdict', 'agent']
+  const check = (o: unknown) => sc.expect(o, ctx).find(([name]) => name.startsWith('ended its turn watching again'))![1]
+
+  it('a combined watch replaced by one on the asking card fails, whatever was called before', () => {
+    expect(check(outcome({ cards: [1], changes: ANY, label: '', since: '', limitAt: '' }))).toBe(false)
+  })
+
+  it("one live watch over both lanes' ends, waking on anything, passes; one waiting for a single column does not", () => {
+    expect(check(outcome({ cards: [1, 2, 3], changes: ANY, label: '', since: '', limitAt: '' }))).toBe(true)
+    expect(check(outcome({ cards: [1, 2, 3], changes: ['column'], column: 'done', label: '', since: '', limitAt: '' }))).toBe(false)
+    expect(check({ ...outcome({ cards: [2, 3], changes: ANY }), status: 'finished' })).toBe(false)
+  })
+
+  it('a narrowed watch fails: column moves only miss a question in a comment and a failed verdict left in Review', () => {
+    expect(check(outcome({ cards: [1, 2, 3], changes: ['column'] }))).toBe(false)
+    expect(check(outcome({ cards: [1, 2, 3], changes: ['column', 'comment'] }))).toBe(false)
+    expect(check(outcome({ cards: [1, 2, 3], changes: ['column', 'verdict'] }))).toBe(false)
+    expect(check(outcome({ cards: [1, 2, 3], changes: ['column', 'comment', 'verdict'] }))).toBe(true)
+    expect(check(outcome({ cards: [1, 2, 3], changes: ANY, agents: ['coder'] }))).toBe(false)
+  })
+})
+
+// Following lanes to the end (#402): every watch checked for what it wakes on, and the sweep is one a wake started.
+describe('coordinator-lanes-to-end scoring', () => {
+  const sc = SCENARIOS.find((x) => x.id === 'coordinator-lanes-to-end')!
+  const ANY = ['column', 'comment', 'verdict', 'agent']
+  const call = (name: string, args: unknown = {}) => ({ tool: name, ok: true, args: JSON.stringify(args) })
+  const watch = (cards: number[], changes = ANY) => ({ cards, changes })
+  const run = (calls: ReturnType<typeof call>[], first = watch([2, 3]), second = watch([2])) => {
+    const o = { hiveCalls: calls, status: 'finished', watch: null, finalReply: 'Both lanes are done.', lanes: [], cards: {}, allCards: [], skillsRead: [] }
+    const checks = sc.expect(o, { cards: { a: 1, b: 2, c: 3 }, wakes: 2, firstWatch: first, secondWatch: second })
+    return (start: string) => checks.find(([name]) => name.startsWith(start))![1]
+  }
+  const wake = (cards: number[]) => call('hive_wait_for_tasks', { cards, wake: true })
+
+  it('a sweep only before its first watch is not a sweep on a wake', () => {
+    expect(run([call('hive_list_tasks'), wake([2, 3])])('swept the board')).toBe(false)
+    expect(run([wake([2, 3]), call('hive_list_tasks'), wake([2])])('swept the board')).toBe(true)
+  })
+
+  it('a column-only watch, first or after the wake, fails', () => {
+    const calls = [wake([2, 3]), call('hive_lane', { action: 'list' }), wake([2])]
+    expect(run(calls)('first watched')).toBe(true)
+    expect(run(calls, watch([2, 3], ['column']))('first watched')).toBe(false)
+    expect(run(calls, watch([2, 3]), watch([2], ['column']))('woken by')).toBe(false)
+  })
+})
+
+// The coordinator scenarios' simulated wakes end as Hive's real one to the Assistant does while lanes run (#402).
+describe("the scenarios' simulated wake", () => {
+  it("ends with Hive's own lanes-running tail", async () => {
+    const { LANES_RUNNING_TAIL } = await import('../src/shared/watch')
+    expect(helpers.LANES_RUNNING_TAIL).toBe(LANES_RUNNING_TAIL)
   })
 })

@@ -2,12 +2,12 @@
 // and agent watches in main/watches.ts: one fires once when a watched agent finishes its turn, waits for the user or
 // stops, wakes its watcher only when it is idle and the user isn't typing (else later), and ends on wake or cancel. The
 // sessions are stand-ins here (the e2e agentwatch suite runs real ones).
-import { mkdirSync, rmSync, writeFileSync } from 'fs'
-import { join } from 'path'
+import { mkdirSync, readFileSync, renameSync, rmSync, writeFileSync } from 'fs'
+import { basename, join } from 'path'
 import { afterAll, describe, expect, it, vi } from 'vitest'
 import * as electron from 'electron'
 import { agentBusy, agentEvent, agentLimitLine, agentPart, agentWakeLine, agentWatchLabel, readSavedAgentCondition, type AgentNow } from '../src/shared/agentWatch'
-import { WAKE_MAX_BYTES, cardChange, cardWakeLine, userNameOf, wakeAbout } from '../src/shared/watch'
+import { WAKE_MAX_BYTES, cardChange, cardWakeLine, readCondition, userNameOf, wakeAbout, type WatchCondition } from '../src/shared/watch'
 import { agentWatchText } from '../src/shared/toolReplies'
 import { tempDir } from './tempDir'
 
@@ -209,6 +209,94 @@ describe('agent watches (main/watches.ts)', async () => {
     st.status = 'watching'
     await watches.tick()
     expect(st.typed).toEqual(['[Hive] Reviewer (alpha) finished: "First done." (working again now); Second (alpha) finished: "Second done.". Your agent watch has ended: carry on (hive_agent_activity for more).'])
+    await disposeWorkspaceService(w)
+  })
+
+  it("a project renamed while Hive runs: an agent watch follows both its watcher and the agents it watches (#508)", async () => {
+    const { w, path, alpha } = await open()
+    const st = fake(alpha)
+    move(st, alpha, 'a2', nowOf())
+    await watches.registerAgentWatch(w, alpha, 'a1', { agents: [reviewer(alpha)], ignoreBackground: false })
+    const file = join(path, '.hive', 'watches.json')
+    const id = JSON.parse(readFileSync(join(alpha, '.hive', 'project.json'), 'utf8')).id
+    expect(JSON.parse(readFileSync(file, 'utf8')).watches[0].agents.agents[0].projectId).toBe(id)
+    const gamma = join(path, 'gamma')
+    renameSync(alpha, gamma)
+    const st2 = fake(gamma)
+    st2.agents.set('a2', nowOf())
+    await w.projectIds({ fresh: true })
+    await watches.evaluateAgentWatches(w)
+    expect(st2.typed).toEqual([])
+    const saved = JSON.parse(readFileSync(file, 'utf8')).watches[0]
+    expect(saved).toMatchObject({ projectPath: gamma, projectId: id })
+    expect(saved.agents.agents[0]).toMatchObject({ projectPath: gamma, project: 'gamma', projectId: id })
+    expect(Object.keys(saved.agentMarks)).toEqual([`${gamma.toLowerCase()}#a2`])
+    // Its reviewer finishes: the watcher is told, under the project's name now.
+    move(st2, gamma, 'a2', nowOf({ status: 'finished', reply: 'Done.' }))
+    await watches.evaluateAgentWatches(w)
+    expect(st2.typed).toEqual([expect.stringMatching(/^\[Hive\] Reviewer \(gamma\) finished: "Done\."/)])
+    await disposeWorkspaceService(w)
+  })
+
+  it('the whole workspace moved while Hive was closed: an agent watch comes with its watcher, its agents and their marks, and is delivered (#508 round 3)', async () => {
+    const { w, path, alpha, beta } = await open()
+    const st = fake(alpha)
+    move(st, alpha, 'a2', nowOf())
+    const { checkMoved } = await import('../src/main/workspaceMove')
+    await checkMoved(w)
+    await w.projectIds({ fresh: true })
+    // beta's b1 works too, wherever beta is.
+    const busyB1 = () => {
+      const agentNow = sessions.agentNow
+      Object.assign(sessions, { agentNow: (p: string, id: string) => (id === 'b1' && basename(p) === 'beta' ? { ...nowOf(), statusMessage: null, backgroundTasks: 0, reply: null } : agentNow(p, id)) })
+    }
+    busyB1()
+    expect('watching' in (await watches.registerAgentWatch(w, alpha, 'a1', { agents: [reviewer(alpha), { projectPath: beta, agentId: 'b1', name: 'Other', project: 'beta' }], ignoreBackground: false }))).toBe(true)
+    await disposeWorkspaceService(w)
+    const to = `${path}-moved`
+    renameSync(path, to)
+    const [alpha2, beta2] = [join(to, 'alpha'), join(to, 'beta')]
+    const st2 = fake(alpha2)
+    busyB1()
+    st2.agents.set('a2', nowOf())
+    const w2 = createWorkspaceService()
+    await w2.open(to)
+    await watches.stampWatchProjects(w2)
+    const saved = JSON.parse(readFileSync(join(to, '.hive', 'watches.json'), 'utf8')).watches[0]
+    expect(saved.projectPath).toBe(alpha2)
+    expect(saved.agents.agents.map((a: { projectPath: string }) => a.projectPath)).toEqual([alpha2, beta2])
+    expect(Object.keys(saved.agentMarks).sort()).toEqual([`${alpha2.toLowerCase()}#a2`, `${beta2.toLowerCase()}#b1`].sort())
+    move(st2, alpha2, 'a2', nowOf({ status: 'finished', reply: 'Moved, done.' }))
+    await watches.evaluateAgentWatches(w2)
+    expect(st2.typed).toEqual([expect.stringMatching(/^\[Hive\] Reviewer \(alpha\) finished: "Moved, done\."/)])
+    await disposeWorkspaceService(w2)
+  })
+
+  it("a watched agent whose project is gone while another project has its folder (a copied project.json, the same agent id) is told as stopped, never as that one's (#508 round 3)", async () => {
+    const { w, path, alpha, beta } = await open()
+    const st = fake(alpha)
+    // The new beta's agent b1 is "finished", with a reply: neither is the watched one's.
+    const agentNow = sessions.agentNow
+    const other = (p: string, id: string) => (p.toLowerCase() === beta.toLowerCase() && id === 'b1' ? { status: 'working', runId: 'r1', prompts: 1, pending: false, statusMessage: null, backgroundTasks: 0, reply: null } : agentNow(p, id))
+    Object.assign(sessions, { agentNow: other })
+    await w.projectIds({ fresh: true })
+    await watches.registerAgentWatch(w, alpha, 'a1', { agents: [{ projectPath: beta, agentId: 'b1', name: 'Other', project: 'beta' }], ignoreBackground: false })
+    const file = join(path, '.hive', 'watches.json')
+    const before = JSON.parse(readFileSync(file, 'utf8'))
+    // Replaced: another project at beta's folder, with b1 too.
+    writeFileSync(join(beta, '.hive', 'project.json'), JSON.stringify({ version: 2, id: 'p-ffffffffffff', agents: [{ id: 'b1', name: 'Other' }] }))
+    Object.assign(sessions, { agentNow: (p: string, id: string) => (p.toLowerCase() === beta.toLowerCase() && id === 'b1' ? { status: 'finished', runId: 'r9', prompts: 3, pending: false, statusMessage: null, backgroundTasks: 0, reply: 'NEW PROJECT REPLY' } : agentNow(p, id)) })
+    watches.noteAgentStatus({ projectPath: beta, agentId: 'b1', status: 'finished', runId: 'r9' } as never)
+    // Read back from the file first (Hive reopened), then checked.
+    watches.forgetWatches(w)
+    await w.projectIds({ fresh: true })
+    await watches.stampWatchProjects(w)
+    expect(JSON.parse(readFileSync(file, 'utf8')).watches[0].agents.agents[0]).toMatchObject({ projectId: before.watches[0].agents.agents[0].projectId, gone: true })
+    await watches.evaluateAgentWatches(w)
+    await watches.tick()
+    expect(st.typed).toEqual([expect.stringMatching(/^\[Hive\] Other \(beta\) stopped\./)])
+    expect(st.typed[0]).not.toContain('NEW PROJECT REPLY')
+    Object.assign(sessions, { agentNow })
     await disposeWorkspaceService(w)
   })
 
@@ -537,7 +625,7 @@ describe('agent watches (main/watches.ts)', async () => {
     await disposeWorkspaceService(w)
   })
 
-  it("a card reassigned or blocked leaves the watch of the agent whose part in it ended: woken once when it was the only card, else told with the next line; never the new agent's, never the Assistant's (#420)", async () => {
+  it("a card reassigned leaves the watch of the agent whose part in it ended: woken once when it was the only card, else told with the next line; a blocked card stays (#481); never the new agent's, never the Assistant's (#420)", async () => {
     const { w, alpha } = await open()
     const st = fake(alpha)
     const user = { kind: 'user' } as const
@@ -551,7 +639,7 @@ describe('agent watches (main/watches.ts)', async () => {
     expect(st.typed[0]).toBe(`[Hive] #${c1} was reassigned to Second (your watch on it ended). Your card watch has ended: drop it from your list and carry on with your next card.`)
     expect(watches.watchFor(alpha, 'a1')).toBeNull()
     await vi.waitFor(async () => expect((await inWorkspace(w, () => tasks.getTask(c1, w))).history.map((h) => h.what)).toContain('Ended Builder (alpha)\'s watch on it: reassigned to Second'))
-    // Two cards: one blocked leaves quietly; the other's change later tells both.
+    // Two cards: one blocked stays, paused (#481); the other's arrival is told alone.
     st.status = 'watching'
     const c2 = await card('Two', 'a2')
     const c3 = await card('Three', 'a2')
@@ -560,27 +648,27 @@ describe('agent watches (main/watches.ts)', async () => {
     await watches.evaluateWatches(w)
     await watches.tick()
     expect(st.typed).toHaveLength(1)
-    expect(watches.watchFor(alpha, 'a1')?.cards).toEqual([c3])
+    expect(watches.watchFor(alpha, 'a1')?.cards).toEqual([c2, c3])
     await inWorkspace(w, () => tasks.updateTask(c3, { column: 'review' }, user))
     await watches.evaluateWatches(w)
     await vi.waitFor(() => expect(st.typed).toHaveLength(2))
-    expect(st.typed[1]).toMatch(new RegExp(`^\\[Hive\\] #${c2} is blocked: "Waiting for the user to pick an icon" \\(your watch on it ended\\); #${c3} \\(Reviewer's card\\) is in Review`))
-    // Its own card, blocked by itself (it asked the user): released all the same, so its loop moves on (round 1 finding).
+    expect(st.typed[1]).toMatch(new RegExp(`^\\[Hive\\] #${c3} \\(Reviewer's card\\) is in Review`))
+    expect(st.typed[1]).not.toMatch(/is blocked|your watch on it ended/)
+    // Its own card, blocked by itself (it asked the user): kept too, nothing typed (#481: paused, not gone).
     st.status = 'watching'
     const mine = await card('Mine', 'a1')
     await watches.registerWatch(w, alpha, 'a1', { cards: [mine], changes: ['verdict', 'column'], column: 'passed' })
     await inWorkspace(w, () => tasks.updateTask(mine, { blocked: 'Asked the user' }, { kind: 'agent', name: 'Builder (alpha)', self: { project: 'alpha', agentId: 'a1' }, scope: 'alpha' }))
     await watches.evaluateWatches(w)
-    await vi.waitFor(() => expect(st.typed).toHaveLength(3))
-    expect(st.typed[2]).toMatch(new RegExp(`^\\[Hive\\] #${mine} is blocked: "Asked the user" \\(your watch on it ended\\)`))
-    // Unblocked and watched again, then given to another agent: told.
-    st.status = 'watching'
+    await watches.tick()
+    expect(st.typed).toHaveLength(2)
+    expect(watches.watchFor(alpha, 'a1')?.cards).toEqual([mine])
+    // Unblocked, then given to another agent: told.
     await inWorkspace(w, () => tasks.updateTask(mine, { blocked: '' }, user))
-    await watches.registerWatch(w, alpha, 'a1', { cards: [mine], changes: ['verdict', 'column'], column: 'passed' })
     await inWorkspace(w, () => tasks.updateTask(mine, { agent: 'a2' }, user))
     await watches.evaluateWatches(w)
-    await vi.waitFor(() => expect(st.typed).toHaveLength(4))
-    expect(st.typed[3]).toMatch(new RegExp(`^\\[Hive\\] #${mine} was reassigned to Reviewer`))
+    await vi.waitFor(() => expect(st.typed).toHaveLength(3))
+    expect(st.typed[2]).toMatch(new RegExp(`^\\[Hive\\] #${mine} was reassigned to Reviewer`))
     // The new agent's watch on it (Reviewer now has it) and the Assistant's are left alone by a later change of hands.
     const home = w.assistantHome
     mkdirSync(home, { recursive: true })
@@ -611,21 +699,26 @@ describe('agent watches (main/watches.ts)', async () => {
       await watches.tick()
       await vi.waitFor(() => expect(st.typed).toHaveLength(before + 1))
       const line = st.typed.at(-1)!
-      expect(line).toMatch(i === 'reassigned' ? new RegExp(`^\\[Hive\\] #${c} was reassigned to Second \\(your watch on it ended\\)\\. Your card watch has ended: drop it`) : new RegExp(`^\\[Hive\\] #${c} is blocked: "Waiting for a decision" \\(your watch on it ended\\)\\. Your card watch has ended: drop it`))
+      if (i === 'blocked') {
+        // Blocked meanwhile: it stays (#481), so its arrival is told as it was.
+        expect(line).toMatch(new RegExp(`^\\[Hive\\] #${c} \\(Reviewer's card\\) is in Review`))
+        continue
+      }
+      expect(line).toMatch(new RegExp(`^\\[Hive\\] #${c} was reassigned to Second \\(your watch on it ended\\)\\. Your card watch has ended: drop it`))
       expect(line).not.toMatch(/is in Review/)
       await vi.waitFor(async () => expect((await inWorkspace(w, () => tasks.getTask(c, w))).history.some((h) => h.by === 'Hive' && h.what.startsWith("Ended Builder (alpha)'s watch on it"))).toBe(true))
     }
-    // Two cards: one blocked leaves quietly; the other never changes; the limit tells both.
+    // Two cards: one reassigned leaves quietly; the other never changes; the limit tells both.
     st.status = 'watching'
     const c1 = await card('One')
     const c2 = await card('Two')
     await watches.registerWatch(w, alpha, 'a1', { cards: [c1, c2], changes: ['column'], column: 'review' }, 30)
-    await inWorkspace(w, () => tasks.updateTask(c1, { blocked: 'Pick a colour' }, user))
+    await inWorkspace(w, () => tasks.updateTask(c1, { agent: 'a3' }, user))
     await watches.evaluateWatches(w)
     const before = st.typed.length
     await watches.tick(Date.now() + 31 * 60_000)
     await vi.waitFor(() => expect(st.typed).toHaveLength(before + 1))
-    expect(st.typed.at(-1)).toBe(`[Hive] #${c1} is blocked: "Pick a colour" (your watch on it ended). No change on #${c2} in 30 min: your card watch has ended. Drop the first from your list; for the rest, tell the user (hive_notify) and ask what to do.`)
+    expect(st.typed.at(-1)).toBe(`[Hive] #${c1} was reassigned to Second (your watch on it ended). No change on #${c2} in 30 min: your card watch has ended. Drop the first from your list; for the rest, tell the user (hive_notify) and ask what to do.`)
     await disposeWorkspaceService(w)
   })
 
@@ -634,7 +727,7 @@ describe('agent watches (main/watches.ts)', async () => {
     const st = fake(alpha)
     const user = { kind: 'user' } as const
     const card = async (title: string) => (await inWorkspace(w, () => tasks.createTask({ title, project: 'alpha', agent: 'a2', column: 'doing' }, user))).number
-    for (const [i, change] of [['reassigned', { agent: 'a3' }], ['blocked', { blocked: 'Decide first' }]] as const) {
+    for (const [i, change] of [['reassigned', { agent: 'a3' }]] as const) {
       st.status = 'watching'
       const c1 = await card(`One ${i}`)
       const c2 = await card(`Two ${i}`)
@@ -653,7 +746,7 @@ describe('agent watches (main/watches.ts)', async () => {
       await inWorkspace(w, () => tasks.updateTask(c2, { column: 'review' }, user))
       await watches.evaluateWatches(w)
       await vi.waitFor(() => expect(st.typed).toHaveLength(before + 1))
-      expect(st.typed.at(-1)).toMatch(new RegExp(`^\\[Hive\\] #${c1} ${i === 'reassigned' ? 'was reassigned to Second' : 'is blocked: "Decide first"'} \\(your watch on it ended\\); #${c2} \\(Reviewer's card\\) is in Review`))
+      expect(st.typed.at(-1)).toMatch(new RegExp(`^\\[Hive\\] #${c1} was reassigned to Second \\(your watch on it ended\\); #${c2} \\(Reviewer's card\\) is in Review`))
       await watches.tick()
       expect(st.typed).toHaveLength(before + 1)
     }
@@ -679,6 +772,31 @@ describe('agent watches (main/watches.ts)', async () => {
     await inWorkspace(w, () => tasks.endReviews('alpha', 'a1', 'its session ended', w))
     await watches.evaluateWatches(w)
     await vi.waitFor(() => expect(st.typed.at(-1)).toMatch(new RegExp(`^\\[Hive\\] #${c4}'s review was taken from you \\(your watch on it ended\\)`)))
+    await disposeWorkspaceService(w)
+  })
+
+  it('a reviewer waiting for a failed card it keeps across a block: blocked, unblocked and back in Review, it is woken to review it (#481)', async () => {
+    const { w, alpha } = await open()
+    const st = fake(alpha)
+    // a1 reviews a2's card: fails round 1, then waits for its next round.
+    const rev = { kind: 'agent', name: 'Builder (alpha)', self: { project: 'alpha', agentId: 'a1' }, scope: 'alpha' } as const
+    const builder = { kind: 'agent', name: 'Reviewer (alpha)', self: { project: 'alpha', agentId: 'a2' }, scope: 'alpha' } as const
+    const c = (await inWorkspace(w, () => tasks.createTask({ title: 'Asks a question', project: 'alpha', agent: 'a2', column: 'review' }, { kind: 'user' }))).number
+    await inWorkspace(w, () => tasks.updateTask(c, { review: 'start' }, rev))
+    await watches.registerWatch(w, alpha, 'a1', readCondition({ cards: [c], column: 'review', fresh: true }) as WatchCondition)
+    await inWorkspace(w, () => tasks.updateTask(c, { review: 'failed' }, rev, { comment: 'Round 1: FAILED' }))
+    // The builder takes it back, blocks it to ask the user, then (answered) unblocks it and returns it to Review.
+    await inWorkspace(w, () => tasks.updateTask(c, { column: 'doing' }, builder))
+    await inWorkspace(w, () => tasks.updateTask(c, { blocked: 'Which icon?' }, builder))
+    await watches.evaluateWatches(w)
+    await watches.tick()
+    expect(st.typed).toHaveLength(0)
+    expect(watches.watchFor(alpha, 'a1')?.cards).toEqual([c])
+    await inWorkspace(w, () => tasks.updateTask(c, { blocked: '' }, builder))
+    await inWorkspace(w, () => tasks.updateTask(c, { column: 'review' }, builder))
+    await watches.evaluateWatches(w)
+    await vi.waitFor(() => expect(st.typed).toHaveLength(1))
+    expect(st.typed[0]).toMatch(new RegExp(`^\\[Hive\\] #${c} \\(Reviewer's card\\) is in Review`))
     await disposeWorkspaceService(w)
   })
 

@@ -1,5 +1,5 @@
 import { currentCard, laneCardState } from './laneBar'
-import type { LaneCard, LaneInfo, LaneState, TaskCard } from './types'
+import type { LaneCard, LaneInfo, LaneState, ProjectConfig, TaskCard, WorkspaceConfig } from './types'
 
 /**
  * Lanes (#483): a builder and a reviewer taking a project's cards in order, as the card-loop skill registers them. What
@@ -39,13 +39,27 @@ export interface LaneRecord {
   frozen?: LaneCard[]
 }
 
-/** The card-loop skill's own defaults, used when a lane is started without them. */
-export const DEFAULT_LANE_ROUNDS = 5
-export const DEFAULT_LANE_WAIT_MINUTES = 120
 /** At most this many cards in a lane, rounds per card, and minutes of wait (a day, as a card watch's longest). */
 export const LANE_MAX_CARDS = 50
 export const LANE_MAX_ROUNDS = 50
 export const LANE_MAX_WAIT_MINUTES = 24 * 60
+
+/** Card loops' rounds and wait when nothing says otherwise (#412: Darren's Rounds 10, Wait 6h). */
+export const LOOP_ROUNDS = 10
+export const LOOP_WAIT_HOURS = 6
+/** The wait settings' range, in hours (a lane's wait is at most a day). */
+export const LOOP_WAIT_MAX_HOURS = LANE_MAX_WAIT_MINUTES / 60
+
+/**
+ * A card loop's rounds and wait when its request doesn't say (#412): the project's (Project Settings → Card loops),
+ * else the workspace's (Settings → Workspace → Card loops), else LOOP_ROUNDS and LOOP_WAIT_HOURS. A prompt's own values
+ * win over all of them; lanes started without them get these.
+ */
+export function loopDefaults(ws?: Pick<WorkspaceConfig, 'loops'> | null, project?: Partial<Pick<ProjectConfig, 'loopRounds' | 'loopWaitHours'>> | null): { rounds: number; waitHours: number } {
+  const ok = (v: unknown, max: number): v is number => typeof v === 'number' && Number.isInteger(v) && v >= 1 && v <= max
+  const pick = (own: unknown, shared: unknown, def: number, max: number): number => (ok(own, max) ? own : ok(shared, max) ? shared : def)
+  return { rounds: pick(project?.loopRounds, ws?.loops?.rounds, LOOP_ROUNDS, LANE_MAX_ROUNDS), waitHours: pick(project?.loopWaitHours, ws?.loops?.waitHours, LOOP_WAIT_HOURS, LOOP_WAIT_MAX_HOURS) }
+}
 /** A lane's name, at most. */
 export const LANE_NAME_MAX = 80
 /** An ended lane stays listed this long (unless its builder starts another), and is kept in the file this long. */

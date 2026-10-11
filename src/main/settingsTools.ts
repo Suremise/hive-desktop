@@ -107,7 +107,7 @@ export function settingRows(opts: { query?: string; scope?: SettingScope; projec
       return words.every((w) => text.includes(w))
     })
     .map((e) => {
-      const value = settingValue(e, config.settings, opts.project?.config)
+      const value = settingValue(e, config.settings, opts.project?.config, workspace.config)
       const def = settingDefault(e)
       const changed = JSON.stringify(value) !== JSON.stringify(def)
       return { id: e.id, title: e.title, value: settingValueText(e, value), ...(changed ? { default: settingValueText(e, def) } : {}), desc: firstSentence(e.desc), ...(e.readOnly ? { readOnly: true as const } : {}) }
@@ -124,7 +124,7 @@ export function settingDetail(e: SettingEntry, project: { name: string; config: 
     path: settingPath(e),
     scope: e.scope,
     ...(project && e.scope === 'project' ? { project: project.name } : {}),
-    value: settingValueText(e, settingValue(e, config.settings, cfg), true),
+    value: settingValueText(e, settingValue(e, config.settings, cfg, workspace.config), true),
     default: settingValueText(e, settingDefault(e), true),
     takes: takesText(e, cfg),
     desc: e.desc,
@@ -177,6 +177,13 @@ export async function applySetting(
       return change.project(cfg)
     })
     return { old, new: settingValue(e, config.settings, next) }
+  }
+  if ('workspace' in change) {
+    // The workspace's own (workspace.json), with nothing awaited between the guard and the change.
+    const old = settingValue(e, config.settings, null, workspace.config)
+    guard?.(old)
+    await workspace.setLoops(change.workspace)
+    return { old, new: settingValue(e, config.settings, null, workspace.config) }
   }
   // Hive's own settings change at once, with nothing awaited between the guard and the change.
   const old = settingValue(e, config.settings)

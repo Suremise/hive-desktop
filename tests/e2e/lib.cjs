@@ -681,6 +681,9 @@ function codexHook(runId) {
   return token && url ? { token, url } : null
 }
 
+// What still runs from a test's own folder after its Hive closed (#542): folderProcesses.cjs.
+const { processTree, stopProcessesIn } = require('./folderProcesses.cjs')
+
 const codexSignedIn = () => fs.existsSync(path.join(CODEX_HOME, 'auth.json'))
 
 /** A real PNG (a w×h gradient) for image previews, pastes and drops. */
@@ -763,4 +766,4 @@ async function haikuAutoCaveat(page, autoOffered, timeoutMs = 10000) {
   return [ok, JSON.stringify(await caveat())]
 }
 
-module.exports = { ROOT, ELECTRON, WORK, CODEX_HOME, CLAUDE_TEST_HOME, TRASH, trashed, tidyUp, ownClaudeHome, probeDir, hiveEnv, childEnv, baseEnv, git, GIT_LOCKED, plainText, trustChoice, haikuAutoMode, haikuAutoCaveat, sleep, port, until, hoverTip, quitWatch, appReady, openWorkspace, hadEstimate, fitWindow, enableProviders, fakeClaude, launch, waitForProvider, addAgent, soloAgent, ptyKey, acceptClaudeTrust, withFileLock, trustForCodex, gitProject, codexSignedIn, launchDir, launchHook, codexHook, samplePng, environmentProblem, environmentProblems, stepVerdict, checked, cliStep, sendPrompt, skip }
+module.exports = { ROOT, ELECTRON, WORK, CODEX_HOME, CLAUDE_TEST_HOME, TRASH, trashed, tidyUp, ownClaudeHome, probeDir, hiveEnv, childEnv, baseEnv, git, GIT_LOCKED, plainText, trustChoice, haikuAutoMode, haikuAutoCaveat, sleep, port, until, hoverTip, quitWatch, appReady, openWorkspace, hadEstimate, fitWindow, enableProviders, fakeClaude, launch, waitForProvider, addAgent, soloAgent, ptyKey, acceptClaudeTrust, withFileLock, trustForCodex, gitProject, codexSignedIn, launchDir, launchHook, codexHook, processTree, stopProcessesIn, samplePng, environmentProblem, environmentProblems, stepVerdict, checked, cliStep, sendPrompt, skip }

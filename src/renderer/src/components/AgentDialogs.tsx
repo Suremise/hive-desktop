@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState, type ReactNode } from 'react'
 import { DEFAULT_PROJECT_CONFIG, MAX_AGENTS, ROLE_MAX, effectiveModelLabel, formatBytes, mergeBlocked, projectAgents, slugify, transcriptWarnLimit } from '@shared/defaults'
-import { PROVIDERS, agentProvider, chosenDefaultProvider, isProviderEnabled, modeCaveat, offeredModes, permissionLabel, projectDefaultProvider, projectProviderConfig, projectUse200k, providerDescriptor, providerName, providerSettings } from '@shared/providers'
+import { PROVIDERS, agentProvider, chosenDefaultProvider, defaultProviderPending, isProviderEnabled, modeCaveat, offeredModes, permissionLabel, projectDefaultProvider, projectProviderConfig, projectUse200k, providerDescriptor, providerName, providerSettings } from '@shared/providers'
 import type { AddAgentOptions, AgentBranchStatus, EffortLevel, MergeResult, PermissionMode, ProjectGitInfo, ProjectInfo, ProviderId } from '@shared/types'
 import type { TemplateAgent } from '@shared/templates'
 import { gitFixText, gitProblemText } from '@shared/gitTool'
@@ -172,6 +172,9 @@ export function AddAgentDialog() {
   const [permission, setPermission] = useState('')
   const [context, setContext] = useState<ContextChoice>('')
   const [provider, setProvider] = useState<ProviderId>('')
+  // The provider is still the project's default (not one the user picked), and whether that waits on detection (#506).
+  const [followDefault, setFollowDefault] = useState(true)
+  const defaultPending = useStore((s) => !!s.addAgentFor && defaultProviderPending(s.workspace?.projects.find((p) => p.path === s.addAgentFor)?.config, s.settings))
   const [startNow, setStartNow] = useState(true)
   const [busy, setBusy] = useState(false)
 
@@ -191,6 +194,7 @@ export function AddAgentDialog() {
     // when it is off, and the dialog says so (Add waits until it is on, or another is chosen), as quick add does.
     const s = useStore.getState().settings
     setProvider(projectDefaultProvider(project.config, s))
+    setFollowDefault(true)
     setStartNow(true)
     setBusy(false)
     setGit(null)
@@ -212,16 +216,24 @@ export function AddAgentDialog() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [path])
 
+  // Opened while Hive was still looking for the CLIs: Automatic's pick, once it is known (#506).
+  useEffect(() => {
+    const p = useStore.getState().workspace?.projects.find((x) => x.path === path)
+    if (p && followDefault && !defaultPending) setProvider(projectDefaultProvider(p.config, useStore.getState().settings))
+  }, [path, followDefault, defaultPending])
+
   if (!path || !project || !settings) return null
   const close = (): void => set({ addAgentFor: null })
   const full = project.agents.length >= MAX_AGENTS
   const free = git?.worktrees.filter((w) => !w.used) ?? []
   const copy = project.config.worktreeCopy ?? settings.agents.worktreeCopy
   const setup = project.config.worktreeSetup.trim()
-  const valid = !!name.trim() && !full && isProviderEnabled(settings, provider) && (location !== 'new-worktree' || (!!branch.trim() && !!base)) && (location !== 'existing-worktree' || !!existing)
+  const checking = followDefault && defaultPending
+  const valid = !!name.trim() && !full && !checking && isProviderEnabled(settings, provider) && (location !== 'new-worktree' || (!!branch.trim() && !!base)) && (location !== 'existing-worktree' || !!existing)
   const chooseProvider = (v: ProviderId): void => {
     // Model, effort, mode and context are the provider's own: another provider starts from the project's.
     if (v === provider) return
+    setFollowDefault(false)
     setProvider(v)
     setModel('')
     setEffort('')
@@ -293,6 +305,12 @@ export function AddAgentDialog() {
       </div>
       <h3 className="agent-dialog-h">Coding agent</h3>
       <ProviderChoice value={provider} onChange={chooseProvider} />
+      {checking && (
+        <div className="banner info" data-provider-checking>
+          <Icon name="loading" spin />
+          <span>Checking which coding agents are installed, for the default provider (Automatic)…</span>
+        </div>
+      )}
       {!isProviderEnabled(settings, provider) && (
         <div className="banner warn" data-provider-off={provider}>
           <Icon name="warning" />
@@ -584,8 +602,8 @@ export function AgentSettingsDialog() {
 }
 
 /**
- * The same dialog for a template's agent (#271), from the template editor: what it saves goes back to the editor (the
- * template is saved there). An empty choice stays empty in the template (it follows the project it is loaded into).
+ * The same dialog for a template's agent (#271), from the template editor: what it saves goes back to the editor (which
+ * saves the template with it, #510). An empty choice stays empty in the template (it follows the project it is loaded into).
  */
 export function TemplateAgentDialog() {
   const req = useStore((s) => s.templateAgentFor)
@@ -610,7 +628,7 @@ export function TemplateAgentDialog() {
       config={project ?? { config: DEFAULT_PROJECT_CONFIG }}
       roles={roleSuggestions(req.others)}
       works="choice"
-      note={`For the template "${req.template}": saved when you save the template. Settings left as "Project's" follow the project it is loaded into.`}
+      note={`For the template "${req.template}": Save saves it in the template. Settings left as "Project's" follow the project it is loaded into.`}
       nameProblem={(n) => (req.others.some((o) => o.name.toLowerCase() === n.toLowerCase()) ? `Another agent of the template is called "${n}".` : null)}
       confirmSave={async (f) => !(f.permission && f.permission !== a?.permissionMode && !(await confirmDangerousMode(f.provider, f.permission, f.name.trim())))}
       save={async (f) => {

@@ -1,7 +1,7 @@
 // A card leaving the watch of an agent whose part in it ended (#420), on fake Claude Code agents (fake-claude/): a
 // reviewer waiting for a card to arrive in Review is woken once when the card is given to another agent, and no longer
-// waits; a watch on two cards drops one that gets blocked and keeps the other, told together when that one changes; the
-// card's new agent keeps its own watch; the card's history says whose watch ended. Dev build, throwaway profile,
+// waits; a watch on two cards keeps one that gets blocked (#481: paused, not gone), and wakes when it is unblocked and
+// back in Review; the card's new agent keeps its own watch; the card's history says whose watch ended. Dev build, throwaway profile,
 // workspace and CLAUDE_CONFIG_DIR.
 const lib = require('./lib.cjs')
 const { _electron } = require('playwright-core')
@@ -94,17 +94,18 @@ const check = (name, ok, extra = '') => {
   check("the card's new agent keeps its watch through a review", (await live(other.id))?.status === 'watching' && (await live(other.id))?.watch?.cards?.[0] === c1 && wakes('Other').length === 0, JSON.stringify({ status: (await live(other.id))?.status, wakes: wakes('Other') }))
   await until(() => idle(reviewer.id), 15000)
 
-  // Two cards: one blocked leaves the watch quietly; the other's arrival tells both.
+  // Two cards: one blocked stays in the watch, paused (#481), with no wake; unblocked and in Review, it wakes the reviewer.
   const c2 = await newCard('Second')
   const c3 = await newCard('Third')
   await say(reviewer.id, watch([c2, c3], { column: 'review' }))
   await until(async () => (await live(reviewer.id))?.status === 'watching', 15000)
   await inv('tasks:update', c2, { blocked: 'Waiting for the user to choose' })
-  check('a blocked card leaves a watch on two', !!(await until(async () => JSON.stringify((await live(reviewer.id))?.watch?.cards) === JSON.stringify([c3]), 15000)), JSON.stringify((await live(reviewer.id))?.watch))
-  await lib.sleep(2000) // A fixed wait on purpose: this checks that the other card's watch isn't woken yet.
-  check('…without a wake while the other card is still watched', wakes('Reviewer').length === 1, JSON.stringify(wakes('Reviewer').slice(1)))
-  await inv('tasks:update', c3, { column: 'review' })
-  check('the other card arriving tells both', !!(await until(async () => wakes('Reviewer').length === 2, 20000)) && wakes('Reviewer')[1].startsWith(`[Hive] #${c2} is blocked: "Waiting for the user to choose" (your watch on it ended); #${c3} (Builder's card) is in Review`), JSON.stringify(wakes('Reviewer').slice(1)))
+  await lib.sleep(2000) // A fixed wait on purpose: this checks that the block neither wakes nor drops anything.
+  check('a blocked card stays in a watch on two, with no wake', JSON.stringify((await live(reviewer.id))?.watch?.cards) === JSON.stringify([c2, c3]) && wakes('Reviewer').length === 1, JSON.stringify({ watch: (await live(reviewer.id))?.watch, wakes: wakes('Reviewer').slice(1) }))
+  await inv('tasks:update', c2, { blocked: '' })
+  await inv('tasks:update', c2, { column: 'review' })
+  check('unblocked and back in Review, it wakes the reviewer', !!(await until(async () => wakes('Reviewer').length === 2, 20000)) && wakes('Reviewer')[1].startsWith(`[Hive] #${c2} (Builder's card) is in Review`), JSON.stringify(wakes('Reviewer').slice(1)))
+  check("…and its history ends nobody's watch", !(await card(c2)).history.some((h) => /^Ended .*'s watch on it/.test(h.what)), JSON.stringify((await card(c2)).history))
 
   await app.close()
   console.log(failed ? `\n${failed} FAILED` : '\nALL PASSED')

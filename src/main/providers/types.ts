@@ -262,6 +262,8 @@ export interface ProviderAdapter {
   buildCommand(executable: string, ctx: LaunchContext): CommandSpec
   /** Something the user should know about this launch (a mode the CLI can't fully give there), shown once per agent while Hive runs. */
   launchNotice?(ctx: LaunchContext): { title: string; message: string } | null
+  /** Something in a folder agents work in (any provider's) that stops this CLI working there (#509: a stray .codex), or null. */
+  folderWarning?(folder: string): { title: string; message: string } | null
 
   // Hooks and live details
   normalizeHook(body: Record<string, any>): NormalizedHook

@@ -88,7 +88,7 @@ export const AREAS = [
   { paths: ['src/main/testedClis.ts', 'src/shared/testedClis.ts', 'resources/tested-clis.json', 'scripts/testedClis.mjs', 'scripts/tested-clis.mjs', 'scripts/release.mjs'], suites: ['testedclis'] },
   // Unused worktrees (#353): the Overview's section, the Changes notice, Storage's line and the hints.
   { paths: ['src/main/unusedWorktrees.ts', 'src/shared/unusedWorktrees.ts', 'src/shared/recentCache.ts', 'src/renderer/src/components/UnusedWorktrees.tsx'], suites: ['unusedwt', 'changespicker'] },
-  { paths: ['src/main/workspaceMove.ts', 'src/shared/movePaths.ts', 'src/renderer/src/components/MoveRepair.tsx', 'src/main/agentWorktree.ts'], suites: ['wsmove', 'wtrecreate'] },
+  { paths: ['src/main/workspaceMove.ts', 'src/shared/movePaths.ts', 'src/renderer/src/components/MoveRepair.tsx', 'src/main/agentWorktree.ts', 'src/shared/projectIds.ts', 'src/main/beforeIds.ts', 'src/main/projectRename.ts', 'src/main/projectNames.ts'], suites: ['wsmove', 'wtrecreate', 'projectrename'] },
   { paths: ['src/main/bundled.ts', 'src/main/bundledHistory.json', 'src/main/skills.ts', 'src/main/revisions.ts', 'src/renderer/src/components/Skills.tsx'], suites: ['skills', 'skillaudience', 'skilldelivery'] },
   { paths: ['src/main/guidance.ts', 'src/shared/hiveGuidance.ts', 'src/shared/toolReplies.ts', 'src/main/mcp/'], suites: ['skilldelivery', 'replysize', 'mcp', 'bridgereport', 'cardloop'] },
   { paths: ['src/main/cardSessions.ts', 'src/renderer/src/components/CardChip.tsx'], suites: ['cardchip', 'sessionorigin'] },
@@ -98,7 +98,7 @@ export const AREAS = [
   { paths: ['src/main/hookStatus.ts', 'src/main/terminalTitle.ts', 'src/shared/terminalInput.ts'], suites: ['background', 'attention', 'mode', 'busy', 'codex', 'codex-background', 'signin'] },
   // The rendered screen Hive reads Claude Code's footer (the live permission mode) from.
   { paths: ['src/main/terminalScreen.ts'], suites: ['mode', 'assistant'] },
-  { paths: ['src/main/mcp.ts', 'src/main/mcpSecrets.ts'], suites: ['drafts', 'mcp'] },
+  { paths: ['src/main/mcp.ts', 'src/main/mcpSecrets.ts'], suites: ['drafts', 'mcp', 'mcpfile'] },
   { paths: ['src/main/notes.ts'], suites: ['drafts', 'codex-handover'] },
   { paths: ['src/main/planUsage.ts', 'src/renderer/src/components/ModelPicker.tsx', 'src/shared/claude.ts', 'src/shared/codex.ts', 'src/shared/prices.ts'], suites: ['plan', 'providers', 'codex-setup', 'context', 'unpricedcost', 'models'] },
   // Models and capabilities from the CLIs, and their fallbacks (#125).
@@ -116,7 +116,7 @@ export const AREAS = [
   { paths: ['src/main/projectRemoval.ts', 'src/renderer/src/components/ProjectRemoval.tsx'], suites: ['board', 'storage'] },
   // Hive's one way to the Recycle Bin (a test copy's trash folder, #414): the suites that delete something.
   { paths: ['src/main/trash.ts'], suites: ['board', 'files', 'storage', 'sessiontree', 'templateshare', 'unusedwt', 'skills', 'transcript', 'unsaved', 'assistantimages'] },
-  { paths: ['src/main/providerService.ts', 'src/main/taskKeys.ts'], suites: ['providers', 'codex-setup', 'startfail', 'models', 'testedclis', 'freshpath'] },
+  { paths: ['src/main/providerService.ts', 'src/main/taskKeys.ts'], suites: ['providers', 'codex-setup', 'startfail', 'models', 'testedclis', 'freshpath', 'providerdetect'] },
   { paths: ['src/main/keySteps.ts'], suites: ['codex', 'codex-setup'] },
   { paths: ['src/main/rendererWatch.ts'], suites: ['rendercrash'] },
   // .hive kept out of version control, and its notice (#345).
@@ -128,11 +128,13 @@ export const AREAS = [
   { paths: ['src/shared/tipPlacement.ts'], suites: ['tooltips'] },
   { paths: ['src/shared/uiPrefs.ts', 'src/renderer/src/projectPrefs.ts'], suites: ['skillprefs', 'skills', 'sessiontree'] },
   { paths: ['src/renderer/src/components/Board.tsx', 'src/renderer/src/components/Overlays.tsx', 'src/renderer/src/components/Tips.tsx', 'src/renderer/src/views/SettingsView.tsx'], suites: ['searchclear'] },
-  { paths: ['src/main/taskStart.ts', 'src/main/tasks.ts', 'src/shared/tasks.ts', 'src/renderer/src/components/Board.tsx', 'src/shared/edgeScroll.ts', 'src/main/cardBusy.ts', 'src/main/decisionNotices.ts', 'src/main/decisionWakes.ts', 'src/renderer/src/boardBatches.ts'], suites: ['board', 'boardarchive', 'boardbulk', 'boardfold', 'boardscope', 'boardscroll', 'review', 'donemove', 'doingmove', 'carddialog', 'cardchip', 'taskoverview', 'busy', 'dialogs', 'decisions', 'decisionwake', 'replysize'] },
-  { paths: ['src/main/watches.ts', 'src/shared/watch.ts', 'src/shared/agentWatch.ts', 'src/main/loopCheck.ts'], suites: ['agentwatch', 'cardloop', 'decisionwake', 'loopwatch', 'quitwait', 'replysize', 'replytell', 'wakeuntaken', 'watchrelease'] },
+  { paths: ['src/main/taskStart.ts', 'src/main/tasks.ts', 'src/shared/tasks.ts', 'src/renderer/src/components/Board.tsx', 'src/shared/edgeScroll.ts', 'src/main/cardBusy.ts', 'src/main/decisionNotices.ts', 'src/main/decisionWakes.ts', 'src/renderer/src/boardBatches.ts'], suites: ['projectrename', 'board', 'boardarchive', 'boardbulk', 'boardfold', 'boardscope', 'boardscroll', 'review', 'donemove', 'doingmove', 'carddialog', 'cardchip', 'taskoverview', 'busy', 'dialogs', 'decisions', 'decisionwake', 'replysize'] },
+  { paths: ['src/main/watches.ts', 'src/shared/watch.ts', 'src/shared/agentWatch.ts', 'src/main/loopCheck.ts'], suites: ['agentwatch', 'cardloop', 'decisionwake', 'loopwakes', 'loopwatch', 'quitwait', 'replysize', 'replytell', 'wakeuntaken', 'watchrelease'] },
   { paths: ['src/main/taskbar.ts', 'src/shared/taskbar.ts'], suites: ['taskbar', 'progress'] },
   { paths: ['src/main/titleBar.ts', 'src/shared/titleBar.ts'], suites: ['carddialog'] },
   { paths: ['src/main/transcripts.ts', 'src/main/transcriptReads.ts', 'src/renderer/src/views/SessionsTab.tsx', 'src/shared/sessionOrigin.ts', 'src/shared/sessionResume.ts', 'src/shared/sessionTree.ts'], suites: ['transcript', 'sessionorigin', 'sessiontree', 'loadfail', 'sessionname', 'packaged-transcript'] },
+  // Hive's loop wakes (#405).
+  { paths: ['src/main/loopWakes.ts', 'src/main/lanes.ts'], suites: ['loopwakes'] },
   { paths: ['src/main/tray.ts', 'src/renderer/src/chime.ts', 'src/shared/bursts.ts'], suites: ['bursts', 'bell', 'banners'] },
   { paths: ['src/main/notices.ts', 'src/renderer/src/components/NoticeBanners.tsx', 'src/main/planUsage.ts'], suites: ['banners'] },
   { paths: ['src/main/updater.ts', 'src/renderer/src/components/Updates.tsx'], suites: ['update', 'about'] },
@@ -170,20 +172,20 @@ export const AREAS = [
   { paths: ['src/shared/projectTabs.ts'], suites: ['tabstrip', 'startall'] },
   { paths: ['src/shared/startAll.ts'], suites: ['startall', 'removeall'] },
   { paths: ['src/shared/startFailure.ts'], suites: ['startfail'] },
-  { paths: ['src/main/templates.ts', 'src/shared/templates.ts', 'src/shared/templateLoad.ts'], suites: ['templates', 'templateshare'] },
+  { paths: ['src/main/templates.ts', 'src/shared/templates.ts', 'src/shared/templateLoad.ts', 'src/renderer/src/components/TemplatePlan.tsx'], suites: ['templates', 'templateshare'] },
   { paths: ['src/renderer/src/stripMenus.ts'], suites: ['templates'] },
   { paths: ['src/renderer/src/components/Templates.tsx'], suites: ['templateshare'] },
   { paths: ['src/renderer/src/assets/'], suites: ['about', 'providers'] },
   // The providers' adapters are under src/main/providers/ (every suite, above); these say which suites each mainly drives.
   { paths: ['src/main/providers/claude/'], suites: ['agents', 'agentview', 'launchrace', 'restart', 'resume', 'mode', 'compact', 'image', 'plan', 'claude-real', 'claudehome', 'claudesettings', 'assistantmode', 'assistantresume'] },
-  { paths: ['src/main/providers/codex/'], suites: ['codex', 'codex-background', 'codex-extra', 'codex-handover', 'codex-setup', 'attention', 'skilldelivery', 'sessiontree'] },
+  { paths: ['src/main/providers/codex/'], suites: ['codex', 'codex-background', 'codex-extra', 'codex-handover', 'codex-setup', 'attention', 'skilldelivery', 'sessiontree', 'codexfolder'] },
   // Copilot's offline suite (the real CLI against the stand-in model), the provider pages and the skill copies it shares with Codex.
   { paths: ['src/main/providers/copilot/', 'src/shared/copilot.ts'], suites: ['copilot', 'copilotsize', 'providers', 'skilldelivery', 'models'] },
   { paths: ['tests/e2e/fake-copilot-api.cjs'], suites: ['copilot', 'copilotsize'] },
   // The run context: every suite (above); isolation checks what it gives a test Hive and the children a suite starts.
   { paths: ['tests/e2e/runContext.cjs', 'src/main/testQuiet.ts'], suites: ['isolation'] },
   // The fake Codex CLI: every suite that runs it.
-  { paths: ['tests/e2e/fake-codex/'], suites: ['attention', 'footerfit', 'skilldelivery', 'models', 'sessiontree', 'termsize', 'freshpath', 'defaultprovider'] },
+  { paths: ['tests/e2e/fake-codex/'], suites: ['attention', 'footerfit', 'skilldelivery', 'models', 'sessiontree', 'termsize', 'freshpath', 'defaultprovider', 'providerdetect', 'codexfolder'] },
   // Hive's bundled skills and personas, read at runtime (not documentation).
   { paths: ['resources/skills/', 'src/main/bundledHistory.json'], suites: ['skills', 'skillaudience', 'skilldelivery', 'cardloop', 'replysize'] },
   { paths: ['resources/personas/', 'src/main/assistantMode.ts'], suites: ['assistant', 'assistant-control', 'assistantend', 'assistantmode', 'assistantresume'] },

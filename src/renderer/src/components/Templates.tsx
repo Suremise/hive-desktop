@@ -6,9 +6,10 @@ import type { PageLayout, ProjectInfo } from '@shared/types'
 import * as actions from '../actions'
 import { call } from '../api'
 import { useScopedLoad } from '../scopedLoad'
-import { choose, confirm, findProject, get, notify, prompt, set, showView, useStore } from '../store'
+import { choose, confirm, findProject, get, notify, prompt, set, showView, useStore, type TemplateDraft, type TemplateEdit } from '../store'
 import { templateWorktreesHint } from '@shared/unusedWorktrees'
 import { cx, timeAgo } from '../util'
+import { clearEditorDraft, editorDraft, onEditorDrafts, setEditorDraft } from '../editorDrafts'
 import { PaneResizer, usePaneSize } from './Resizer'
 import { BusyButton, Icon, IconButton, InfoTip, LoadFailed, StaleNote, Tooltip, useBusy } from './ui'
 
@@ -23,6 +24,50 @@ export const TEMPLATES_TIP =
 
 /** A template's key, to select it (scope, project and file). */
 export const templateKey = (t: TemplateRef): string => `${t.scope}|${(t.project ?? '').toLowerCase()}|${t.file}`
+/** The key of a template's open editor (#510): the workspace's folder and the template. */
+const editKey = (t: TemplateRef): string => `${(get().workspace?.path ?? '').toLowerCase()}|${templateKey(t)}`
+const draftOf = (t: TemplateEntry): TemplateDraft => ({ name: t.name, description: t.description ?? '', layout: t.layout, agents: t.agents.map((a) => ({ ...a })) })
+const changed = (e: TemplateEdit | undefined): boolean => !!e && JSON.stringify(e.draft) !== JSON.stringify(e.saved)
+const putEdit = (key: string, e: TemplateEdit | null): void => {
+  set((s) => {
+    const next = { ...s.templateEdits }
+    if (e) next[key] = e
+    else delete next[key]
+    return { templateEdits: next }
+  })
+  mirrorEdit(key, e)
+}
+const templateFile = (t: TemplateRef): string => `${t.scope === 'project' ? t.project : (get().workspace?.path ?? '')}\\.hive\\templates\\${t.file}`
+const draftKey = (key: string): string => `template:${key}`
+
+/**
+ * A template draft with changes is one of the window's unsaved edits too (#510, editorDrafts): quitting, closing or
+ * reloading the window and switching the workspace ask about it (Save All saves it, as Save Template does; Discard
+ * drops it), as they do for files.
+ */
+function mirrorEdit(key: string, e: TemplateEdit | null): void {
+  if (!e || !changed(e)) return clearEditorDraft(draftKey(key))
+  setEditorDraft({ key: draftKey(key), label: `Template "${e.saved.name}"`, abs: templateFile(e.ref), text: JSON.stringify(e.draft), base: JSON.stringify(e.saved), save: async (text) => JSON.stringify(draftOf(await saveEdit(key, JSON.parse(text) as TemplateDraft))) })
+}
+// Discarded from outside the editor (the quit dialog's Discard, a removed project): the editor's draft goes too.
+onEditorDrafts(() => {
+  const edits = get().templateEdits
+  for (const [key, e] of Object.entries(edits)) if (changed(e) && !editorDraft(draftKey(key))) putEdit(key, null)
+})
+
+/**
+ * Saves a template's draft `d` (as it is in the window's store when the save starts), expecting the revision the editor
+ * has: what was saved becomes what it compares with; a draft changed while it was saving stays, unsaved, over it.
+ */
+async function saveEdit(key: string, d: TemplateDraft): Promise<TemplateEntry> {
+  const now = get().templateEdits[key]
+  if (!now) throw new Error('That template is no longer being edited')
+  const saved = await call('templates:update', now.ref, { name: d.name, description: d.description.trim() || undefined, layout: d.layout, agents: d.agents }, now.savedAt ?? null)
+  const after = get().templateEdits[key] ?? now
+  putEdit(key, { ...after, savedAt: saved.savedAt, was: now.savedAt ?? null, saved: draftOf(saved), draft: JSON.stringify(after.draft) === JSON.stringify(d) ? draftOf(saved) : after.draft })
+  bump()
+  return saved
+}
 const refOf = (t: TemplateEntry): TemplateRef => (t.scope === 'project' ? { scope: 'project', project: t.project, file: t.file } : { scope: 'workspace', file: t.file })
 export const layoutText = (l: PageLayout): string => (l === 'auto' ? 'Automatic' : (SESSION_LAYOUTS.find((x) => x.value === l)?.label ?? l))
 const agentsText = (n: number): string => `${n} ${n === 1 ? 'agent' : 'agents'}`
@@ -135,6 +180,7 @@ function ScopeBadge({ t }: { t: TemplateEntry }) {
 
 function TemplateRow({ t, selected, onSelect, showScope }: { t: TemplateEntry; selected: boolean; onSelect: () => void; showScope?: boolean }) {
   const unknown = unknownProviders(t.agents)
+  const unsaved = useStore((s) => changed(s.templateEdits[`${(s.workspace?.path ?? '').toLowerCase()}|${templateKey(t)}`]))
   return (
     <div className={cx('row tall template-row', selected && 'selected')} role="button" tabIndex={0} aria-label={t.name} onClick={onSelect} onKeyDown={(e) => (e.key === 'Enter' || e.key === ' ') && (e.preventDefault(), onSelect())}>
       <Icon name="library" />
@@ -142,6 +188,11 @@ function TemplateRow({ t, selected, onSelect, showScope }: { t: TemplateEntry; s
         <div className="label">
           {t.name}
           {showScope && <ScopeBadge t={t} />}
+          {unsaved && (
+            <Tooltip content="It is open in the editor with changes not saved yet">
+              <span className="badge warn template-unsaved">Not saved</span>
+            </Tooltip>
+          )}
           {(t.problem || unknown.length > 0) && (
             <Tooltip content={t.problem ?? unknownText(unknown)}>
               <span className="badge warn">{t.problem ? "Can't be used" : 'Unknown agent'}</span>
@@ -170,27 +221,49 @@ function editTemplateAgent(template: string, agent: TemplateAgent | null, others
   return new Promise((resolve) => set({ templateAgentFor: { key: ++agentRequests, template, agent, suggestedName: uniqueName('Agent', taken), others, project, resolve } }))
 }
 
-type Draft = { name: string; description: string; layout: PageLayout; agents: TemplateAgent[] }
-
 /**
  * Editing a template where it is kept (#271): its name, description and layout, and its agents (add, copy, remove,
  * reorder; each in the Agent Settings dialog). Saved whole, checked as an import is; refused if the template changed
- * meanwhile. A project loaded from it earlier is never touched.
+ * meanwhile. A project loaded from it earlier is never touched. An agent's Save in its dialog saves the template too
+ * (#510: Save means save), with the editor's other changes; the editor stays open. Its draft is kept in the window
+ * (templateEdits) until it is saved or discarded, so leaving it some other way loses nothing.
  */
 function TemplateEditor({ t, project, onDone }: { t: TemplateEntry; project?: ProjectInfo; onDone: () => void }) {
-  // The template as the editor opened it, kept whatever the list shows later: what the draft is compared with, and the
-  // revision a save expects (a newer one there refuses it, so a save made meanwhile is never overwritten).
-  const [opened] = useState(() => ({ savedAt: t.savedAt, draft: { name: t.name, description: t.description ?? '', layout: t.layout, agents: t.agents.map((a) => ({ ...a })) } as Draft }))
-  const [draft, setDraft] = useState<Draft>(opened.draft)
+  const key = editKey(t)
+  // The template as the editor opened it (or last saved it), kept whatever the list shows later: what the draft is
+  // compared with, and the revision a save expects (a newer one there refuses it, so a save made meanwhile is never
+  // overwritten).
+  const kept = useStore((s) => s.templateEdits[key])
+  const [first] = useState<TemplateEdit>(() => kept ?? { ref: refOf(t), savedAt: t.savedAt, saved: draftOf(t), draft: draftOf(t) })
+  const edit0 = kept ?? first
+  useEffect(() => {
+    if (!get().templateEdits[key]) putEdit(key, first)
+    // Left with nothing changed: nothing to keep.
+    return () => {
+      const e = get().templateEdits[key]
+      if (e && !changed(e)) putEdit(key, null)
+    }
+  }, [key, first])
+  const draft = edit0.draft
   const action = useBusy()
-  const dirty = JSON.stringify(draft) !== JSON.stringify(opened.draft)
+  const dirty = changed(edit0)
   // Saved again since it was opened (from a project, or another window): this draft would overwrite it, so it can't be saved.
-  const stale = (t.savedAt ?? null) !== (opened.savedAt ?? null)
-  const put = (patch: Partial<Draft>): void => setDraft((d) => ({ ...d, ...patch }))
+  const staleFor = (e: TemplateEdit): boolean => (t.savedAt ?? null) !== (e.savedAt ?? null) && (e.was === undefined || (t.savedAt ?? null) !== e.was)
+  const stale = staleFor(edit0)
+  const setDraft = (f: (d: TemplateDraft) => TemplateDraft): void => {
+    const now = get().templateEdits[key] ?? edit0
+    putEdit(key, { ...now, draft: f(now.draft) })
+  }
+  const put = (patch: Partial<TemplateDraft>): void => setDraft((d) => ({ ...d, ...patch }))
   const agents = draft.agents
   const full = agents.length >= MAX_AGENTS
-  const problem = !draft.name.trim() ? 'Enter a name for the template.' : !agents.length ? 'A template needs at least one agent.' : null
+  const problemOf = (d: TemplateDraft): string | null => (!d.name.trim() ? 'Enter a name for the template.' : !d.agents.length ? 'A template needs at least one agent.' : null)
+  const problem = problemOf(draft)
   const where = project?.path ?? (t.scope === 'project' ? t.project : undefined)
+  /** Saves the draft as it is now (in the window's store). */
+  const store = (): Promise<TemplateEntry> => saveEdit(key, (get().templateEdits[key] ?? edit0).draft)
+  // While a save runs nothing can change (#510): every change made is one a save took, or one still marked not saved.
+  const busy = !!action.busy
   const edit = async (i: number | null, copy = false): Promise<void> => {
     const base = i === null ? null : agents[i]
     const seed = copy && base ? { ...base, name: uniqueName(base.name, agents.map((a) => a.name)) } : base
@@ -203,6 +276,13 @@ function TemplateEditor({ t, project, onDone }: { t: TemplateEntry; project?: Pr
       else next[i] = got
       return { ...d, agents: next }
     })
+    // Save means save (#510): the template is saved with it, unless it can't be yet (the draft says why).
+    const now = get().templateEdits[key]
+    if (!now || problemOf(now.draft) || staleFor(now)) return
+    await action.run('save', async () => {
+      const saved = await store()
+      notify('success', 'Template saved', `"${saved.name}": ${got.name} saved in it.`)
+    })
   }
   const move = (i: number, by: number): void =>
     setDraft((d) => {
@@ -212,18 +292,22 @@ function TemplateEditor({ t, project, onDone }: { t: TemplateEntry; project?: Pr
       return { ...d, agents: next }
     })
   const remove = (i: number): void => setDraft((d) => ({ ...d, agents: d.agents.filter((_, j) => j !== i) }))
-  const cancel = async (): Promise<void> => {
-    if (dirty && !(await confirm({ title: 'Discard your changes?', message: `Your changes to "${opened.draft.name}" aren't saved.`, confirmLabel: 'Discard', danger: true }))) return
+  const close = (): void => {
+    putEdit(key, null)
     onDone()
+  }
+  const cancel = async (): Promise<void> => {
+    if (dirty && !(await confirm({ title: 'Discard your changes?', message: `Your changes to "${edit0.saved.name}" aren't saved.`, confirmLabel: 'Discard', danger: true }))) return
+    close()
   }
   const save = async (): Promise<void> => {
     if (problem) return
     const ok = await action.run('save', async () => {
-      const saved = await call('templates:update', refOf(t), { name: draft.name, description: draft.description.trim() || undefined, layout: draft.layout, agents: draft.agents }, opened.savedAt)
-      bump()
+      const saved = await store()
       notify('success', 'Template saved', `"${saved.name}": ${agentsText(saved.agents.length)}, ${layoutText(saved.layout).toLowerCase()} layout.`)
     })
-    if (ok) onDone()
+    // Closed only when what is open is what was saved: anything newer stays, marked not saved.
+    if (ok && !changed(get().templateEdits[key])) close()
   }
   return (
     <div className="template-detail template-editor">
@@ -234,8 +318,9 @@ function TemplateEditor({ t, project, onDone }: { t: TemplateEntry; project?: Pr
           <ScopeBadge t={t} />
         </div>
         <div className="template-detail-actions">
+          {dirty && <span className="template-unsaved-note">Changes not saved</span>}
           <button className="btn small subtle" disabled={!!action.busy} onClick={() => void cancel()}>
-            Cancel
+            {dirty ? 'Cancel' : 'Close'}
           </button>
           <BusyButton className="small primary" disabled={!!problem || !dirty} busy={action.busy === 'save'} busyLabel="Saving…" onClick={() => void save()}>
             <Icon name="save" /> Save Template
@@ -246,7 +331,7 @@ function TemplateEditor({ t, project, onDone }: { t: TemplateEntry; project?: Pr
         {stale && (
           <p className="template-problem template-stale" role="alert">
             <Icon name="warning" /> "{t.name}" was saved again since you started editing it, so these changes can't be saved over it.
-            <button className="btn small subtle" onClick={() => void cancel()}>
+            <button className="btn small subtle" disabled={busy} onClick={() => void cancel()}>
               Discard and Reload
             </button>
           </p>
@@ -258,11 +343,11 @@ function TemplateEditor({ t, project, onDone }: { t: TemplateEntry; project?: Pr
         )}
         <div className="agent-form template-fields">
           <label htmlFor="template-name">Name</label>
-          <input id="template-name" className="input" value={draft.name} maxLength={TEMPLATE_NAME_MAX} onChange={(e) => put({ name: e.target.value })} />
+          <input id="template-name" className="input" disabled={busy} value={draft.name} maxLength={TEMPLATE_NAME_MAX} onChange={(e) => put({ name: e.target.value })} />
           <label htmlFor="template-description">Description</label>
-          <textarea id="template-description" className="input" rows={2} value={draft.description} maxLength={TEMPLATE_DESCRIPTION_MAX} placeholder="Optional: what it is for" onChange={(e) => put({ description: e.target.value })} />
+          <textarea id="template-description" className="input" disabled={busy} rows={2} value={draft.description} maxLength={TEMPLATE_DESCRIPTION_MAX} placeholder="Optional: what it is for" onChange={(e) => put({ description: e.target.value })} />
           <label htmlFor="template-layout">Layout</label>
-          <select id="template-layout" className="select" value={draft.layout} onChange={(e) => put({ layout: e.target.value as PageLayout })}>
+          <select id="template-layout" className="select" disabled={busy} value={draft.layout} onChange={(e) => put({ layout: e.target.value as PageLayout })}>
             <option value="auto">Automatic (shows all the agents, up to six)</option>
             {SESSION_LAYOUTS.map((l) => (
               <option key={l.value} value={l.value}>
@@ -276,7 +361,7 @@ function TemplateEditor({ t, project, onDone }: { t: TemplateEntry; project?: Pr
             Agents <span className="count">{agents.length}</span>
           </h3>
           <Tooltip content={full ? `A template can have up to ${MAX_AGENTS} agents` : 'Add an agent, in the Agent Settings dialog'}>
-            <button className="btn small subtle" disabled={full} onClick={() => void edit(null)}>
+            <button className="btn small subtle" disabled={full || busy} onClick={() => void edit(null)}>
               <Icon name="add" /> Add Agent…
             </button>
           </Tooltip>
@@ -308,18 +393,18 @@ function TemplateEditor({ t, project, onDone }: { t: TemplateEntry; project?: Pr
                   <td>{settingText(a, 'permissionMode')}</td>
                   <td>{a.worktree ? 'Its own worktree' : 'The project folder'}</td>
                   <td className="template-agent-actions">
-                    <IconButton icon="edit" title={known ? `Edit ${a.name}…` : "This Hive doesn't know its coding agent: it can be moved or removed, not edited"} disabled={!known} onClick={() => void edit(i)} />
-                    <IconButton icon="copy" title={`Copy ${a.name}`} disabled={!known || full} onClick={() => void edit(i, true)} />
-                    <IconButton icon="arrow-up" title={`Move ${a.name} up`} disabled={i === 0} onClick={() => move(i, -1)} />
-                    <IconButton icon="arrow-down" title={`Move ${a.name} down`} disabled={i === agents.length - 1} onClick={() => move(i, 1)} />
-                    <IconButton icon="trash" title={`Remove ${a.name}`} onClick={() => remove(i)} />
+                    <IconButton icon="edit" title={known ? `Edit ${a.name}…` : "This Hive doesn't know its coding agent: it can be moved or removed, not edited"} disabled={!known || busy} onClick={() => void edit(i)} />
+                    <IconButton icon="copy" title={`Copy ${a.name}`} disabled={!known || full || busy} onClick={() => void edit(i, true)} />
+                    <IconButton icon="arrow-up" title={`Move ${a.name} up`} disabled={i === 0 || busy} onClick={() => move(i, -1)} />
+                    <IconButton icon="arrow-down" title={`Move ${a.name} down`} disabled={i === agents.length - 1 || busy} onClick={() => move(i, 1)} />
+                    <IconButton icon="trash" title={`Remove ${a.name}`} disabled={busy} onClick={() => remove(i)} />
                   </td>
                 </tr>
               )
             })}
           </tbody>
         </table>
-        <p className="hint">The order is the order of the agents in a project: the layout's pages hold them in turn. Saving changes this template only, never a project loaded from it earlier.</p>
+        <p className="hint">The order is the order of the agents in a project: the layout's pages hold them in turn. Saving an agent saves the template too; other changes are saved with <strong>Save Template</strong>. Saving changes this template only, never a project loaded from it earlier.</p>
       </div>
     </div>
   )
@@ -330,7 +415,8 @@ function TemplateEditor({ t, project, onDone }: { t: TemplateEntry; project?: Pr
  * into this project (a project's Templates tab); without it, Load into Project… asks which.
  */
 export function TemplateDetail({ t, project, onGone, onSelect }: { t: TemplateEntry; project?: ProjectInfo; onGone: () => void; onSelect: (t: TemplateEntry) => void }) {
-  const [editing, setEditing] = useState(false)
+  // An editor left open with its draft (#510) opens again.
+  const [editing, setEditing] = useState(() => changed(get().templateEdits[editKey(t)]))
   const selectedProject = useStore((s) => s.selectedProject)
   // Duplicate offers the other place first: a project's into the workspace, the workspace's into a project.
   const otherPlace = t.scope === 'project' ? '' : (project?.path ?? selectedProject ?? projectsNow()[0]?.path ?? '')

@@ -100,6 +100,31 @@ describe('Codex: when a person must act', () => {
       rmSync(home, { recursive: true, force: true })
     }
   })
+
+  it('passes the first task after "--", so extra arguments ending in --image keep it (#523)', async () => {
+    const { rmSync } = await import('fs')
+    const home = tempDir('hive-codex-home-')
+    const before = process.env.CODEX_HOME
+    process.env.CODEX_HOME = home
+    try {
+      const { codex } = await import('../src/main/providers/codex/adapter')
+      const ctx = {
+        projectPath: home, agentId: 'a-1', executable: 'C:\\bin\\codex.exe', cwd: home, workspacePath: home, runId: 'r', sessionId: '00000000-0000-4000-8000-000000000000',
+        resume: false, name: '', skills: [], mcpServers: {}, model: null, effort: null, permissionMode: null, extraArgs: ['--image', 'a.png', 'b.png'], hookUrl: 'http://127.0.0.1:1/hook?run=r', hookAuthFile: 'C:/hive/hook-auth/r.txt', privateDir: 'C:/hive/launches/r', guidance: '', env: {}, allowBackgroundSessions: false, use200kContext: false,
+        initialPrompt: 'Work on card #12'
+      }
+      // Codex 0.162 reads a plain argument after "--image a.png" as another image; after "--" it is the prompt.
+      expect(codex.buildCommand(ctx.executable, ctx).args.slice(-5)).toEqual(['--image', 'a.png', 'b.png', '--', 'Work on card #12'])
+      const resumed = codex.buildCommand(ctx.executable, { ...ctx, resume: true }).args
+      expect(resumed.slice(0, 2)).toEqual(['resume', ctx.sessionId])
+      expect(resumed.slice(-2)).toEqual(['--', 'Work on card #12'])
+      expect(codex.buildCommand(ctx.executable, { ...ctx, initialPrompt: undefined }).args).not.toContain('--')
+    } finally {
+      if (before === undefined) delete process.env.CODEX_HOME
+      else process.env.CODEX_HOME = before
+      rmSync(home, { recursive: true, force: true })
+    }
+  })
 })
 
 describe('Codex settings as TOML', () => {
