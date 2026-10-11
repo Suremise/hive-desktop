@@ -1015,6 +1015,32 @@ describe("answering Claude Code's trust question (lib.acceptClaudeTrust, #188)",
   })
 })
 
+describe('whether a process still runs (lib.processRunning, #339)', () => {
+  const { processRunning } = createRequire(import.meta.url)('./e2e/lib.cjs') as { processRunning: (pid: number) => boolean }
+  const failing = (code: string) => () => {
+    throw Object.assign(new Error(`kill ${code}`), { code })
+  }
+
+  it('runs: true; no such process (ESRCH): false', () => {
+    expect(processRunning(process.pid)).toBe(true)
+    const kill = vi.spyOn(process, 'kill').mockImplementation(failing('ESRCH'))
+    try {
+      expect(processRunning(1234)).toBe(false)
+    } finally {
+      kill.mockRestore()
+    }
+  })
+
+  it("any other error (EPERM) is thrown, never read as exited: its state is unknown", () => {
+    const kill = vi.spyOn(process, 'kill').mockImplementation(failing('EPERM'))
+    try {
+      expect(() => processRunning(1234)).toThrow(/Can't tell whether process 1234 runs: EPERM/)
+    } finally {
+      kill.mockRestore()
+    }
+  })
+})
+
 describe('sending a prompt to a CLI until it takes it (lib.sendPrompt, #190)', () => {
   type Send = (inv: (ch: string, ...a: unknown[]) => Promise<unknown>, key: string, text: string, o: { submitted: () => Promise<boolean>; tries?: number; waitMs?: number }) => Promise<number>
   const { sendPrompt } = createRequire(import.meta.url)('./e2e/lib.cjs') as { sendPrompt: Send }
