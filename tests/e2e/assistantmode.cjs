@@ -109,7 +109,7 @@ const check = (name, ok, extra = '') => {
   check('switching to Planner tells it at once, in its conversation', !!(await lib.until(async () => (await buffer()).includes('[Hive] Mode: Planner (chosen by the user). Lead with the open design questions'), 10000)), (await buffer()).slice(-400))
   check('…ending with Hive\'s own sentence', !!(await lib.until(async () => (await buffer()).includes('Your tools and permissions are unchanged.'), 10000)), JSON.stringify((await buffer()).slice(-600)))
   check('…without a restart: the same session', (await live())?.sessionId === session, `${session} → ${(await live())?.sessionId}`)
-  check('…saved for the workspace, and the header shows it', agentFile().persona === 'planner' && (await panel.locator('.assistant-persona').innerText()).includes('Planner'), JSON.stringify(agentFile()))
+  check('…saved for the workspace, and the header shows it', !!(await lib.until(async () => agentFile().persona === 'planner' && (await panel.locator('.assistant-persona').innerText()).includes('Planner'), 10000)), `${JSON.stringify(agentFile())}; header: ${await panel.locator('.assistant-persona').innerText()}`)
   check('…and recorded as the mode its conversation was last given', !!(await lib.until(async () => record(session).persona === 'planner', 5000)), JSON.stringify(record(session)))
   await lib.until(async () => (await live())?.status === 'finished', 15000)
 
