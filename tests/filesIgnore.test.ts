@@ -14,6 +14,8 @@ const failNext: Partial<GitResult>[] = []
 let checkIgnoreCalls = 0
 /** Real check-ignores that failed (neither 0 nor 1), for the stress test's report. */
 let realFailures = 0
+/** Real check-ignores of dist/ that git answered (0 or 1) without naming it: what git said, for the stress test's report. */
+const unnamed: Partial<GitResult>[] = []
 vi.mock('../src/main/git', async (original) => {
   const real = await original<typeof import('../src/main/git')>()
   return {
@@ -25,6 +27,7 @@ vi.mock('../src/main/git', async (original) => {
       if (f) return { out: '', ok: false, buf: Buffer.alloc(0), err: '', code: 128, ...f }
       const r = await real.git(cwd, args, max)
       if (r.code !== 0 && r.code !== 1) realFailures++
+      else if (args.includes('dist/') && !/^dist\/?$/m.test(r.out)) unnamed.push({ code: r.code, ok: r.ok, out: r.out.slice(0, 200), err: r.err.slice(0, 300) })
       return r
     }
   }
@@ -136,6 +139,8 @@ describe('Files tab: a failed git check-ignore (#222)', () => {
     await Promise.all([writer(), writer(), writer(), reader(), reader(), reader()])
     console.log(`#222 stress: ${listings} listings, ${realFailures} check-ignore failures absorbed`)
     expect(listings).toBeGreaterThan(20)
-    expect(undimmed).toEqual([])
+    // Once under four unit suites at once (#560), never since: if it comes back, what git answered says whether it's git
+    // or Hive (#222's handling).
+    expect(undimmed, `listings showing dist undimmed; git's answers without it: ${JSON.stringify(unnamed.slice(0, 5))}`).toEqual([])
   }, 600000)
 })

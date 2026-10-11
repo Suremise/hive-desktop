@@ -7,7 +7,7 @@
 // commands: those runs check the harness, the board rules and Hive's own costs (benchmarks) for free. The real CLIs are the model trials (opt-in, see README.md).
 //
 // Fixture version: bump when a scenario's setup or checks change, so results can be compared across versions.
-const FIXTURES_VERSION = 49
+const FIXTURES_VERSION = 50
 
 /** The subject's hive tool calls that the server ran, by tool (each has ok, error and args). */
 const called = (o, tool) => o.hiveCalls.filter((c) => c.tool === tool)
@@ -132,13 +132,17 @@ const mergedInto = (c) => {
   const i = line.findIndex((x) => !ancestor(c, feature, x))
   return i < 1 ? null : tipOf(line[i - 1], line[i])
 }
-/** Whether commit a is in b's history (git merge-base --is-ancestor). */
+/**
+ * Whether commit a is in b's history (git merge-base --is-ancestor: 0 yes, 1 no). Git failing otherwise is no answer:
+ * read as "no", it made the merge look absent and failed every check at once (#560), so it is thrown, saying so.
+ */
 const ancestor = (c, a, b) => {
   try {
     c.git('merge-base', '--is-ancestor', a, b)
     return true
-  } catch {
-    return false
+  } catch (e) {
+    if (e?.status === 1) return false
+    throw new Error(`git merge-base --is-ancestor ${a} ${b} failed (${e?.status ?? e?.code ?? e?.signal}): ${String(e?.stderr ?? e?.message ?? e).trim().slice(0, 300)}`, { cause: e })
   }
 }
 
