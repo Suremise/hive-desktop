@@ -2,11 +2,12 @@
 // in its own project.json. The pure rules (which copy keeps an id, whose cards are left under an old name), then a
 // workspace: ids given once, cards stamped once, a rename followed, a copied folder given a new id, and Repair giving
 // cards saved before ids (under a project's old name) to the project they belong to now.
-import { cpSync, existsSync, mkdirSync, readFileSync, renameSync, writeFileSync } from 'fs'
+import { cpSync, existsSync, mkdirSync, readFileSync, writeFileSync } from 'fs'
 import { join } from 'path'
 import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest'
 import * as electron from 'electron'
 import { goneProject, isProjectId, orphanNames, projectNow, savedProjectName, settleProjectIds } from '../src/shared/projectIds'
+import { moveFolder } from './moveFolder'
 import { tempDir } from './tempDir'
 
 const base = tempDir('hive-projectids-')
@@ -18,12 +19,14 @@ const lanes = await import('../src/main/lanes')
 const { movePlan, repairMove } = await import('../src/main/workspaceMove')
 
 vi.setConfig({ testTimeout: 30_000 })
+/** Bounds a wait for Hive's folder watcher: only a hung watcher takes this long. */
+const HUNG_MS = 15_000
 
 const user = { kind: 'user' } as const
 const readCard = (ws: string, n: number): Record<string, unknown> => JSON.parse(readFileSync(join(ws, '.hive', 'tasks', `${n}.json`), 'utf8'))
 const projectJson = (p: string): Record<string, unknown> => JSON.parse(readFileSync(join(p, '.hive', 'project.json'), 'utf8'))
-/** Past the workspace's one-second reuse of the ids it read, so a folder renamed just now is seen. */
-const settle = (): Promise<void> => new Promise((r) => setTimeout(r, 1100))
+/** The ids read again now (the workspace reuses what it read for a second), so a folder renamed just now is seen. */
+const reread = async (w: { projectIds: (o: { fresh: true }) => Promise<unknown> }): Promise<void> => void (await w.projectIds({ fresh: true }))
 
 function project(ws: string, name: string, extra: Record<string, unknown> = {}, sessions: { agentId: string }[] = []): string {
   const p = join(ws, name)
@@ -141,8 +144,7 @@ describe('a workspace', () => {
     expect(new Set([...ids.byId.keys()]).size).toBe(3)
     // Read again: the same ids, nothing written.
     const before = readFileSync(join(wsPath, 'alpha', '.hive', 'project.json'), 'utf8')
-    await settle()
-    expect((await w.projectIds()).byId.get(alpha as string)).toBe(join(wsPath, 'alpha'))
+    expect((await w.projectIds({ fresh: true })).byId.get(alpha as string)).toBe(join(wsPath, 'alpha'))
     expect(readFileSync(join(wsPath, 'alpha', '.hive', 'project.json'), 'utf8')).toBe(before)
   })
 
@@ -168,8 +170,8 @@ describe('a workspace', () => {
     await run(() => tasks.archiveTask(archived.number, true))
     await lanes.startLane(w, { project: 'alpha', builder: 'a1', reviewer: 'r1', cards: [live.number], by: 'A1 (alpha)' })
     const id = projectJson(join(wsPath, 'alpha')).id
-    renameSync(join(wsPath, 'alpha'), join(wsPath, 'gamma'))
-    await settle()
+    await moveFolder(join(wsPath, 'alpha'), join(wsPath, 'gamma'))
+    await reread(w)
     // Read back by the id: the new name at once, before anything is rewritten.
     expect((await run(() => tasks.getTask(live.number))).project).toBe('gamma')
     const all = await run(() => tasks.allTasks())
@@ -192,8 +194,7 @@ describe('a workspace', () => {
     const id = projectJson(join(wsPath, 'beta')).id
     // beta was opened where it is (its lastPath), so the copy is the one that changes.
     cpSync(join(wsPath, 'beta'), join(wsPath, 'beta-copy'), { recursive: true })
-    await settle()
-    await w.projectIds()
+    await reread(w)
     const copyId = projectJson(join(wsPath, 'beta-copy')).id
     expect(isProjectId(copyId)).toBe(true)
     expect(copyId).not.toBe(id)
@@ -226,7 +227,7 @@ describe('a workspace', () => {
     config.update((c) => {
       c.activeProjects[wsPath] = ['old-delta', 'beta']
     })
-    await settle()
+    await reread(w)
     const plan = await movePlan(w)
     expect(plan?.projects).toEqual(['delta'])
     expect(plan?.cards).toEqual([{ from: 'old-delta', to: 'delta', cards: [90] }])
@@ -254,6 +255,9 @@ describe('a saved id decides; nothing is lost on the way (#508 round 2)', () => 
     project(wsPath, 'alpha', { agents: [{ id: 'a1', name: 'A1', provider: 'claude-code' }] })
     project(wsPath, 'beta', { agents: [{ id: 'b1', name: 'B1', provider: 'claude-code' }] })
     project(wsPath, 'site', {}, [{ agentId: 'a-old' }])
+    // Each test that renames a folder has its own (#579), so one that fails leaves the next ones theirs.
+    project(wsPath, 'kappa')
+    project(wsPath, 'rho')
     mkdirSync(tasksDir, { recursive: true })
     legacy(1, 'alpha', { custom: { kept: true } })
     legacy(2, 'beta')
@@ -313,9 +317,10 @@ describe('a saved id decides; nothing is lost on the way (#508 round 2)', () => 
   it('a new project with the old name never takes a renamed project’s cards; stamping never gives them its id', async () => {
     const c = await run(() => tasks.createTask({ title: 'Alpha’s', project: 'alpha', agent: 'A1' }, user))
     const id = projectJson(join(wsPath, 'alpha')).id
-    renameSync(join(wsPath, 'alpha'), join(wsPath, 'gamma'))
+    await lanes.stampLaneProjects(w)
+    await moveFolder(join(wsPath, 'alpha'), join(wsPath, 'gamma'))
     project(wsPath, 'alpha', { agents: [{ id: 'x1', name: 'X', provider: 'claude-code' }] })
-    await settle()
+    await reread(w)
     expect((await run(() => tasks.getTask(c.number))).project).toBe('gamma')
     // The new alpha's agent doesn't see it.
     await expect(run(() => tasks.readTask(c.number, alphaAgent))).rejects.toThrow(/Unknown task/)
@@ -325,32 +330,33 @@ describe('a saved id decides; nothing is lost on the way (#508 round 2)', () => 
   })
 
   it('a project gone, its name taken by another: its cards show as gone, are no one’s, and keep their saved id and name', async () => {
-    const id = projectJson(join(wsPath, 'gamma')).id
-    const c = (await run(() => tasks.allTasks())).find((x) => x.project === 'gamma')!
-    // gamma leaves the workspace; another gamma comes.
-    renameSync(join(wsPath, 'gamma'), join(base, 'gamma-elsewhere'))
-    project(wsPath, 'gamma', { agents: [{ id: 'g1', name: 'G1', provider: 'claude-code' }] })
-    await settle()
+    const id = projectJson(join(wsPath, 'kappa')).id
+    const c = await run(() => tasks.createTask({ title: 'Kappa’s', project: 'kappa' }, user))
+    await tasks.stampCardProjects(w)
+    // kappa leaves the workspace; another kappa comes.
+    await moveFolder(join(wsPath, 'kappa'), join(base, 'kappa-elsewhere'))
+    project(wsPath, 'kappa', { agents: [{ id: 'k1', name: 'K1', provider: 'claude-code' }] })
+    await reread(w)
     const shown = await run(() => tasks.getTask(c.number))
-    expect(shown.project).toBe('gamma: gone')
-    const gammaAgent = { kind: 'agent', name: 'G1 (gamma)', scope: 'gamma', self: { project: 'gamma', agentId: 'g1' } } as const
-    await expect(run(() => tasks.readTask(c.number, gammaAgent))).rejects.toThrow(/Unknown task/)
+    expect(shown.project).toBe('kappa: gone')
+    const kappaAgent = { kind: 'agent', name: 'K1 (kappa)', scope: 'kappa', self: { project: 'kappa', agentId: 'k1' } } as const
+    await expect(run(() => tasks.readTask(c.number, kappaAgent))).rejects.toThrow(/Unknown task/)
     expect(await tasks.stampCardProjects(w)).toBe(0)
     await run(() => tasks.commentTask(c.number, 'still mine', user))
-    expect(readCard(wsPath, c.number)).toMatchObject({ project: 'gamma', projectId: id })
+    expect(readCard(wsPath, c.number)).toMatchObject({ project: 'kappa', projectId: id })
     // Back in the workspace under another name: the card is its again.
-    renameSync(join(base, 'gamma-elsewhere'), join(wsPath, 'omega'))
-    await settle()
+    await moveFolder(join(base, 'kappa-elsewhere'), join(wsPath, 'omega'))
+    await reread(w)
     expect((await run(() => tasks.getTask(c.number))).project).toBe('omega')
   })
 
   it('two projects that swap names keep their own cards', async () => {
     const forBeta = await run(() => tasks.createTask({ title: 'Beta’s', project: 'beta' }, user))
     const forSite = await run(() => tasks.createTask({ title: 'Site’s', project: 'site' }, user))
-    renameSync(join(wsPath, 'beta'), join(wsPath, 'swap'))
-    renameSync(join(wsPath, 'site'), join(wsPath, 'beta'))
-    renameSync(join(wsPath, 'swap'), join(wsPath, 'site'))
-    await settle()
+    await moveFolder(join(wsPath, 'beta'), join(wsPath, 'swap'))
+    await moveFolder(join(wsPath, 'site'), join(wsPath, 'beta'))
+    await moveFolder(join(wsPath, 'swap'), join(wsPath, 'site'))
+    await reread(w)
     expect((await run(() => tasks.getTask(forBeta.number))).project).toBe('site')
     expect((await run(() => tasks.getTask(forSite.number))).project).toBe('beta')
   })
@@ -365,10 +371,8 @@ describe('a saved id decides; nothing is lost on the way (#508 round 2)', () => 
       await w.projectIds({ fresh: true })
       seen.length = 0
       // Nothing but the rename: the workspace's folder watcher sees it and reads the ids again.
-      renameSync(join(wsPath, 'omega'), join(wsPath, 'omega2'))
-      const t = Date.now()
-      while (!seen.includes(wsPath) && Date.now() - t < 5000) await new Promise((r) => setTimeout(r, 50))
-      expect(seen).toContain(wsPath)
+      await moveFolder(join(wsPath, 'rho'), join(wsPath, 'rho2'))
+      await vi.waitFor(() => expect(seen).toContain(wsPath), { timeout: HUNG_MS })
     } finally {
       off()
     }
@@ -452,7 +456,7 @@ describe('merge holds Hive closed under are told in their project now (#508 roun
     const file = await writeHolds(from, [hold(alpha, { projectId: id }), hold(alpha, { runId: 'legacy-run', branch: 'hive/old' })])
     const before = readFileSync(file, 'utf8')
     const to = `${from}-moved`
-    renameSync(from, to)
+    await moveFolder(from, to)
     const w2 = createWorkspaceService()
     await w2.open(to)
     try {

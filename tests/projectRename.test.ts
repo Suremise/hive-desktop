@@ -4,11 +4,12 @@
 // (recorded as they are written, worked out once for older ones from what they say), and what keeps a project by its
 // folder's name or path follows each rename once (each place saves the last rename it followed with its data, so a
 // failure or a stop part way is finished later, never done twice).
-import { cpSync, existsSync, mkdirSync, readFileSync, renameSync, rmSync, writeFileSync } from 'fs'
+import { cpSync, existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from 'fs'
 import { join } from 'path'
 import { afterAll, afterEach, beforeAll, describe, expect, it, vi } from 'vitest'
 import * as electron from 'electron'
 import type { NameJournal } from '../src/main/projectNames'
+import { moveFolder as move } from './moveFolder'
 import { tempDir } from './tempDir'
 
 const base = tempDir('hive-projectrename-')
@@ -66,17 +67,6 @@ async function keepFor(w: WS, p: string): Promise<string> {
   return (await kept.keepReport(kept.benchContext(w), report, '0.6.0', `${p}'s`)).id
 }
 const comparisons = async (w: WS, p: string): Promise<string[]> => (await kept.listBenchmarks(kept.benchContext(w), { kind: 'project', project: p })).entries.map((e) => e.id)
-/** A folder renamed, tried again while something (Hive's own readers) has it open for a moment, as Windows refuses then. */
-async function move(from: string, to: string): Promise<void> {
-  for (let i = 0; ; i++) {
-    try {
-      return renameSync(from, to)
-    } catch (e) {
-      if (i >= 40 || !['EPERM', 'EBUSY', 'EACCES'].includes((e as NodeJS.ErrnoException).code ?? '')) throw e
-      await new Promise((r) => setTimeout(r, 50))
-    }
-  }
-}
 let n = 0
 const newWs = (): string => join(base, `ws-${++n}`)
 async function open(ws: string): Promise<WS> {
