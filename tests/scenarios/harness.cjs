@@ -145,6 +145,8 @@ async function runScenario(sc, providerKey, opts = {}) {
   const fakeHome = path.join(root, 'claude-home')
   const fakeCodexHome = path.join(root, 'codex-home')
   const mcpLog = path.join(root, 'mcp-calls.jsonl')
+  // Each change to the merge slots, with its time (HIVE_TEST_MERGE_SLOT_LOG, #374): who held one and who waited, when.
+  const slotLog = path.join(root, 'merge-slots.jsonl')
   // The stand-in model for fake-copilot, on a port of its own; closed when the run ends.
   const modelLog = path.join(root, 'copilot-api.jsonl')
   const standIn = p.standIn ? await startFakeCopilotApi({ log: modelLog }) : null
@@ -195,6 +197,7 @@ async function runScenario(sc, providerKey, opts = {}) {
     HIVE_API_PORT: String(port),
     HIVE_TEST_TIPS: 'off',
     HIVE_TEST_MCP_LOG: mcpLog,
+    HIVE_TEST_MERGE_SLOT_LOG: slotLog,
     CLAUDE_CONFIG_DIR: providerKey === 'claude-code' ? CLAUDE_TEST_HOME : fakeHome,
     CODEX_HOME: providerKey === 'fake-codex' ? fakeCodexHome : lib.CODEX_HOME,
     // Copilot in the run's own home, its profile folder faked and the GitHub CLI's login hidden (fake-copilot-api.cjs).
@@ -251,7 +254,27 @@ async function runScenario(sc, providerKey, opts = {}) {
       note: (rel, content) => api('PUT', `/v1/shared/file?path=${encodeURIComponent(rel)}`, { content }),
       write: (rel, text) => fs.writeFileSync(path.join(alpha, rel), text),
       read: (rel) => (fs.existsSync(path.join(alpha, rel)) ? fs.readFileSync(path.join(alpha, rel), 'utf8') : null),
-      git: (...a) => execFileSync('git', a, { cwd: alpha, encoding: 'utf8', env: lib.baseEnv() })
+      git: (...a) => execFileSync('git', a, { cwd: alpha, encoding: 'utf8', env: lib.baseEnv() }),
+      /** Starts another of alpha's agents ('implementer'), with no prompt: running, so it can hold the merge slot. */
+      startAgent: async (key) => {
+        await inv('session:start', alpha, { agentId: ctx.agents[key].id })
+        const up = await lib.until(async () => (await inv('session:live')).some((x) => x.projectPath.toLowerCase() === alpha.toLowerCase() && x.agentId === ctx.agents[key].id), 30000)
+        if (!up) throw new Error(`${key} didn't start within 30 s`)
+      },
+      /**
+       * alpha's merge slot as another of its running agents ('implementer') uses it: claim or release with that agent's
+       * own Agent API token (each agent's in the profile's agent-api folder, as its hive tools read it).
+       */
+      slot: async (key, action, body = {}) => {
+        const file = path.join(userData, 'agent-api', `${require('crypto').createHash('sha256').update(`${alpha.toLowerCase()}#${ctx.agents[key].id}`).digest('hex').slice(0, 16)}.json`)
+        const token = JSON.parse(fs.readFileSync(file, 'utf8')).token
+        const res = await fetch(`http://127.0.0.1:${port}/v1/projects/alpha/merge-slot/${action}`, { method: 'POST', headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' }, body: JSON.stringify(body) })
+        const reply = await res.json().catch(() => null)
+        if (res.status !== 200) throw new Error(`${key}'s merge slot ${action}: ${res.status} ${JSON.stringify(reply)}`)
+        return reply
+      },
+      /** alpha's merge slot now, as a script reads it. */
+      slotNow: async () => (await api('GET', '/v1/projects/alpha/merge-slot')).body
     }
     if (sc.setup) await sc.setup(ctx)
     // What the fake Claude Code does when Hive wakes it (fake-wakes-<agent>.txt, a line per wake): a scenario's next steps,
@@ -401,6 +424,8 @@ async function runScenario(sc, providerKey, opts = {}) {
     // What the hive servers ran: the subject's own calls, and everyone's (an agent the Assistant started).
     observed.allHiveCalls = readMcpLog(mcpLog)
     observed.hiveCalls = observed.allHiveCalls.filter((c) => (sc.role === 'assistant' ? c.role === 'assistant' : c.agent === coder.id))
+    // Each change to the merge slots (JSON lines, as the MCP log): { at, slots: [{ project, branch, holder, waiting }] }.
+    observed.slotLog = readMcpLog(slotLog)
     // Any Agent API token (the workspace's, or an agent's for this launch) in what the session printed or said.
     const tokensIn = (dir) => (fs.existsSync(dir) ? fs.readdirSync(dir).map((f) => JSON.parse(fs.readFileSync(path.join(dir, f), 'utf8')).token) : [])
     const tokens = [apiToken, ...tokensIn(path.join(userData, 'agent-api')), ...tokensIn(path.join(userData, 'assistant-api'))].filter((t) => typeof t === 'string' && t.length >= 16)

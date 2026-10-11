@@ -4,13 +4,13 @@
 // - hive tool calls are the ones the server ran (its test log), while names in a transcript or a script (which may
 //   not have run) are only mentions.
 // The fixtures' checks fail when nothing was done, a call failed, or the steps came in the wrong order.
-import { describe, expect, it } from 'vitest'
+import { afterAll, describe, expect, it } from 'vitest'
 import { createRequire } from 'module'
 import { tempDir } from './tempDir'
 
 const require = createRequire(import.meta.url)
 const { observeTranscript } = require('./scenarios/harness.cjs') as { observeTranscript: (items: unknown[], skills: string[]) => { skillsRead: string[]; hiveMentions: string[]; finalReply: string } }
-const { SCENARIOS, helpers } = require('./scenarios/scenarios.cjs') as { SCENARIOS: { id: string; expect: (o: unknown, c: unknown) => [string, boolean, string?][] }[]; helpers: { LANES_RUNNING_TAIL: string } }
+const { SCENARIOS, helpers } = require('./scenarios/scenarios.cjs') as { SCENARIOS: { id: string; expect: (o: unknown, c: unknown) => [string, boolean, string?][] }[]; helpers: { LANES_RUNNING_TAIL: string; checkRunsOf: (c: unknown) => { start: number; end: number | null; ok: boolean | null }[]; mergedInto: (c: unknown) => { at: { from: number; to: number } | null } | null } }
 
 const tool = (name: string, input: unknown, result = '', isError = false) => ({ kind: 'tool', tool: { name, summary: '', input: typeof input === 'string' ? input : JSON.stringify(input), result, isError } })
 const SKILLS = ['work-on-card', 'review-agent-work', 'handover']
@@ -130,6 +130,9 @@ describe('the fixtures fail when nothing was done', () => {
       git('-c', 'user.email=t@t', '-c', 'user.name=t', 'commit', '-q', '--allow-empty', '-m', 'init')
       const sc = scenario('merge-main-moved') as unknown as { setup: (c: unknown) => Promise<void>; expect: (o: unknown, c: unknown) => [string, boolean, string?][] }
       await sc.setup(ctx)
+      // This test judges the commits only (the slot checks and the merge's timing have a test of their own below): without
+      // the ref-timing hook its many git steps stay quick.
+      fs.unlinkSync(path.join(repo, '.git', 'hooks', 'reference-transaction'))
       const into = ctx.merge!.base
       const o = { ...base, skillsRead: ['merge-ready'] }
       const MERGED = 'the branch is merged into the base'
@@ -152,22 +155,24 @@ describe('the fixtures fail when nothing was done', () => {
         git('checkout', '-q', into)
         git('merge', '-q', ff ? '--ff-only' : '--no-ff', '--no-edit', 'feature')
       }
+      // The git checks (the slot checks have their own test below).
+      const gitFailed = () => failed(sc.expect(o, ctx)).filter((n) => !/slot|holding it/.test(n))
       // Nothing done.
-      expect(failed(sc.expect(o, ctx))).toEqual([MERGED, REMERGED, CHECKED])
+      expect(gitFailed()).toEqual([MERGED, REMERGED, CHECKED])
       // Merged as it was checked: the moved base never went through the checks with it.
       merge()
-      expect(failed(sc.expect(o, ctx))).toEqual([REMERGED, CHECKED])
+      expect(gitFailed()).toEqual([REMERGED, CHECKED])
       // The base merged into the branch again, but not checked again.
       reset()
       remerge()
       merge()
-      expect(failed(sc.expect(o, ctx))).toEqual([CHECKED])
+      expect(gitFailed()).toEqual([CHECKED])
       // Checked only after the merge, on the base (round 1's false pass) or on the branch: not what was merged, then.
       check()
       git('checkout', '-q', 'feature')
       check()
       git('checkout', '-q', into)
-      expect(failed(sc.expect(o, ctx))).toEqual([CHECKED])
+      expect(gitFailed()).toEqual([CHECKED])
       // Checked, then another commit on the branch, and merged: that commit was never checked.
       reset()
       remerge()
@@ -176,7 +181,7 @@ describe('the fixtures fail when nothing was done', () => {
       git('add', '-A')
       git('commit', '-qm', 'late')
       merge()
-      expect(failed(sc.expect(o, ctx))).toEqual([CHECKED])
+      expect(gitFailed()).toEqual([CHECKED])
       // Checked, then the base moved again before the merge: checked against an older base.
       reset()
       remerge()
@@ -186,21 +191,224 @@ describe('the fixtures fail when nothing was done', () => {
       git('add', '-A')
       git('commit', '-qm', 'again')
       merge()
-      expect(failed(sc.expect(o, ctx))).toEqual([CHECKED])
+      expect(gitFailed()).toEqual([CHECKED])
       // Right: the moved base merged in, the exact tip checked, then merged (a merge commit, or a fast-forward).
       for (const ff of [false, true]) {
         reset()
         remerge()
         check()
         merge(ff)
-        expect(failed(sc.expect(o, ctx)), ff ? 'fast-forward' : 'merge commit').toEqual([])
+        expect(gitFailed(), ff ? 'fast-forward' : 'merge commit').toEqual([])
       }
     } finally {
       fs.rmSync(repo, { recursive: true, force: true })
     }
   })
 
+  describe('the merge slot (#374): claimed for the base, held through the checks that went in and the merge, released after; queued and failing merges too', () => {
+    const fs = require('fs') as typeof import('fs')
+    const path = require('path') as typeof import('path')
+    const { execFileSync } = require('child_process') as typeof import('child_process')
+    type Sc = { setup: (c: unknown) => Promise<void>; expect: (o: unknown, c: unknown) => [string, boolean, string?][] }
+    /** A scenario's repository, set up as the run does (the other agent's start and claim stand-ins). */
+    const repoFor = async (id: string) => {
+      const repo = tempDir(`hive-merge-slot-${id}-`)
+      const git = (...a: string[]) => execFileSync('git', a, { cwd: repo, encoding: 'utf8' })
+      const ctx: Record<string, unknown> & { merge?: { base: string } } = {
+        git,
+        write: (rel: string, text: string) => fs.writeFileSync(path.join(repo, rel), text),
+        read: (rel: string) => (fs.existsSync(path.join(repo, rel)) ? fs.readFileSync(path.join(repo, rel), 'utf8') : null),
+        startAgent: async () => undefined,
+        slot: async () => ({ held: true })
+      }
+      git('init', '-q')
+      git('-c', 'user.email=t@t', '-c', 'user.name=t', 'commit', '-q', '--allow-empty', '-m', 'init')
+      await (scenario(id) as unknown as Sc).setup(ctx)
+      const into = ctx.merge!.base
+      /** What the agent does: the base into the branch, the checks (true when they pass), and the merge if asked. */
+      const work = (mergeIt: boolean) => {
+        git('checkout', '-q', 'feature')
+        git('merge', '-q', '--no-edit', into)
+        let passed = true
+        try {
+          execFileSync(process.execPath, ['check.js'], { cwd: repo, stdio: 'ignore' })
+        } catch {
+          passed = false
+        }
+        git('checkout', '-q', into)
+        if (mergeIt) git('merge', '-q', '--no-ff', '--no-edit', 'feature')
+        return passed
+      }
+      /**
+       * The other way: the branch's merge staged in the base (--no-commit), the checks there, then commit it or abort.
+       * `lateEdit`: feature.js changed and staged after the checks passed, and committed with the merge (unchecked).
+       */
+      const workStaged = (lateEdit?: string) => {
+        git('merge', '-q', '--no-commit', '--no-ff', 'feature')
+        let passed = true
+        try {
+          execFileSync(process.execPath, ['check.js'], { cwd: repo, stdio: 'ignore' })
+        } catch {
+          passed = false
+        }
+        if (passed && lateEdit !== undefined) {
+          fs.writeFileSync(path.join(repo, 'feature.js'), lateEdit)
+          git('add', 'feature.js')
+        }
+        if (passed) git('commit', '-q', '--no-edit')
+        else git('merge', '--abort')
+        return passed
+      }
+      /** The last run of the checks and the merge's moment, as the scenario reads them (check-runs.txt, ref-times). */
+      const timed = () => {
+        const run = helpers.checkRunsOf(ctx).at(-1)!
+        const merged = ctx.merge && 'feature' in ctx.merge ? helpers.mergedInto(ctx) : null
+        return { run, merge: merged?.at ?? null }
+      }
+      /** Rewrites the last run in check-runs.txt: its start, and its end with its result, or none (a run that hasn't ended). */
+      const setRun = (start: number, end: number | null, result: 'pass' | 'fail') => {
+        const lines = fs.readFileSync(path.join(repo, 'check-runs.txt'), 'utf8').split(/\r?\n/).filter(Boolean)
+        const s = lines.findLastIndex((l) => l.startsWith('start '))
+        const runId = lines[s].split(' ')[1]
+        lines[s] = lines[s].split(' ').slice(0, 6).concat(new Date(start).toISOString()).join(' ')
+        const out = lines.filter((l) => !l.startsWith(`end ${runId} `)).concat(end === null ? [] : [`end ${runId} ${result} ${new Date(end).toISOString()}`])
+        fs.writeFileSync(path.join(repo, 'check-runs.txt'), out.join('\n') + '\n')
+      }
+      return { repo, git, into, work, workStaged, timed, setRun, checks: (o: unknown) => failed((scenario(id) as unknown as Sc).expect({ ...base, skillsRead: ['merge-ready'], ...(o as object) }, ctx)) }
+    }
+    const CLAIMED = (b: string) => `claimed the merge slot for ${b} and got it (hive_merge_slot claim)`
+    const HELD = 'held the slot while the checks that went in ran, start to end'
+    const MERGED_HOLDING = 'merged while still holding it, after the checks'
+    const RELEASED = 'released the slot itself after merging'
+    const CHECKED = 'the exact tip it merged was checked before merging, against the base as it was then'
+    /** Implementer holds the base's slot, Coder waits in line from t0 and holds it from `handed`, and releases it at `to`. */
+    const queuedLog = (into: string, t0: number, handed: number, to: number) => [
+      slotEntry(t0 - 1000, into, 'Implementer'),
+      slotEntry(t0, into, 'Implementer', ['Coder']),
+      slotEvent(t0, 'claim', 'in line', into),
+      slotEntry(handed, into, 'Coder'),
+      slotEvent(handed, 'claim', 'held', into),
+      slotEntry(to, into, null),
+      slotEvent(to, 'release', 'released', into)
+    ]
+    const repos: string[] = []
+    afterAll(() => {
+      for (const d of repos) fs.rmSync(d, { recursive: true, force: true })
+    })
+    it('merge-main-moved: the slot checks beside its git ones', async () => {
+      const r = await repoFor('merge-main-moved')
+      repos.push(r.repo)
+      expect(r.work(true)).toBe(true)
+      const { run, merge } = r.timed()
+      // The hook timed the merge to the millisecond, after the checks ended.
+      expect(merge && run.end! + 1 < merge.from && merge.from <= merge.to).toBe(true)
+      const [from, to] = [run.start - 5, merge!.to + 5]
+      expect(r.checks(hold(r.into, from, to))).toEqual([])
+      // Nothing done with the slot: every slot check fails, the git ones pass.
+      expect(r.checks({})).toEqual([CLAIMED(r.into), HELD, MERGED_HOLDING, RELEASED])
+      // Held, merged, but never released.
+      expect(r.checks(hold(r.into, from, null))).toEqual([RELEASED])
+      // The hold ended with no release of its own (its session's end, the user): not released by the agent.
+      expect(r.checks(hold(r.into, from, to, 'cleanup'))).toEqual([RELEASED])
+      // Its release call did nothing for this slot: resolved to another branch (the folder's, #586), or nothing to release.
+      expect(r.checks(hold(r.into, from, to, { other: 'feature' }))).toEqual([RELEASED])
+      expect(r.checks(hold(r.into, from, to, 'none'))).toEqual([RELEASED])
+      // Released between the checks' end and the merge, within the same second (HR5's case): merged unprotected.
+      expect(r.checks(hold(r.into, from, run.end! + 1))).toEqual([MERGED_HOLDING, RELEASED])
+      // Another branch's slot: the base's was never claimed or held.
+      expect(r.checks(hold('other', from, to))).toEqual([CLAIMED(r.into), HELD, MERGED_HOLDING, RELEASED])
+      // Held only from after the checks: they ran unprotected.
+      expect(r.checks(hold(r.into, run.end! + 1, to))).toEqual([HELD, MERGED_HOLDING])
+      // A turn that came but wasn't taken (not told it holds it; its claim still in line) is no hold.
+      expect(r.checks({ slotLog: [slotEntry(from, r.into, 'Coder', [], false), slotEvent(from, 'claim', 'in line', r.into), slotEntry(to, r.into, null)] })).toEqual([CLAIMED(r.into), HELD, MERGED_HOLDING, RELEASED])
+      // Released while the checks still ran (they took a second here): they ended unprotected.
+      r.setRun(merge!.from - 1000, merge!.from - 10, 'pass')
+      expect(r.checks(hold(r.into, merge!.from - 1001, merge!.from - 500))).toEqual([HELD, MERGED_HOLDING, RELEASED])
+      // A run that never ended: nothing went in that passed (the git check fails too).
+      r.setRun(merge!.from - 1000, null, 'pass')
+      expect(r.checks(hold(r.into, from, to))).toEqual([CHECKED, HELD, MERGED_HOLDING])
+    })
+    it('merge-slot-queued: it waited behind Implementer, and held the slot only after it', async () => {
+      const r = await repoFor('merge-slot-queued')
+      repos.push(r.repo)
+      const t0 = Date.now() - 4000
+      const handed = Date.now() - 2000
+      expect(r.work(true)).toBe(true)
+      const to = r.timed().merge!.to + 5
+      const queued = queuedLog(r.into, t0, handed, to)
+      expect(r.checks({ slotLog: queued })).toEqual([])
+      // Never in line: the slot was free when it claimed.
+      expect(r.checks(hold(r.into, handed, to))).toEqual(['waited in line while Implementer held the slot', 'it held the slot only after Implementer released it'])
+      // Its merge staged in the base and checked there, then committed: what went in is what was checked.
+      const staged = await repoFor('merge-slot-queued')
+      repos.push(staged.repo)
+      const sFrom = Date.now() - 5
+      expect(staged.workStaged()).toBe(true)
+      expect(staged.checks({ slotLog: queuedLog(staged.into, sFrom - 2000, sFrom, staged.timed().merge!.to + 5) })).toEqual([])
+    })
+    it("merge-slot-queued: a staged merge changed after its checks passed, then committed: what went in wasn't checked", async () => {
+      // HR5's repro: the merge staged and checked (passing), then feature.js changed, staged and committed with it.
+      const r = await repoFor('merge-slot-queued')
+      repos.push(r.repo)
+      const from = Date.now() - 5
+      expect(r.workStaged("module.exports = 'broken after check'\n")).toBe(true)
+      const log = queuedLog(r.into, from - 2000, from, r.timed().merge!.to + 5)
+      expect(r.checks({ slotLog: log })).toEqual(['its checks ran on the tip it merged, against the base as it was then', HELD, MERGED_HOLDING])
+      // Its checks on the merged base fail now, as the scenario says.
+      expect(() => execFileSync(process.execPath, ['check.js'], { cwd: r.repo, stdio: 'ignore' })).toThrow()
+    })
+    it('merge-checks-fail: it releases the slot after failing checks, and merges nothing', async () => {
+      const r = await repoFor('merge-checks-fail')
+      repos.push(r.repo)
+      expect(r.work(false)).toBe(false)
+      const { run } = r.timed()
+      expect(run.ok).toBe(false)
+      const [from, to] = [run.start - 5, run.end! + 5]
+      const RAN = 'its checks ran on the branch and failed, while it held the slot, start to end'
+      const RELEASED_FAIL = 'released the slot itself after the checks failed'
+      expect(r.checks(hold(r.into, from, to))).toEqual([])
+      expect(r.checks({})).toEqual([CLAIMED(r.into), RAN, RELEASED_FAIL])
+      // Still holding it at the end, or the hold ended by itself, or a release for another branch.
+      expect(r.checks(hold(r.into, from, null))).toEqual([RELEASED_FAIL])
+      expect(r.checks(hold(r.into, from, to, 'cleanup'))).toEqual([RELEASED_FAIL])
+      expect(r.checks(hold(r.into, from, to, { other: 'feature' }))).toEqual([RELEASED_FAIL])
+      // Released while the checks still ran: they ended, failing, unprotected.
+      r.setRun(run.start, run.start + 1000, 'fail')
+      expect(r.checks(hold(r.into, from, run.start + 500))).toEqual([RAN, RELEASED_FAIL])
+      // A run that never ended (it may yet pass): no failure to release after.
+      r.setRun(run.start, null, 'fail')
+      expect(r.checks(hold(r.into, from, to))).toEqual([RAN, RELEASED_FAIL])
+      // Its merge staged in the base, checked there (failing) and aborted, as a model did: the same evidence.
+      const staged = await repoFor('merge-checks-fail')
+      repos.push(staged.repo)
+      const sFrom = Date.now() - 5
+      expect(staged.workStaged()).toBe(false)
+      expect(staged.checks(hold(staged.into, sFrom, staged.timed().run.end! + 5))).toEqual([])
+      // Merged anyway.
+      r.setRun(run.start, run.end!, 'fail')
+      r.git('merge', '-q', '--no-ff', '--no-edit', 'feature')
+      expect(r.checks(hold(r.into, from, to))).toEqual(['merged nothing: the branch is not in the base'])
+    })
+  })
+
   const base = { skillsRead: [] as string[], hiveCalls: [] as unknown[], hiveMentions: [], tools: [] as { name: string; input: string; result: string; isError: boolean }[], replies: [], finalReply: '', cards: {}, allCards: [], notes: [], gitStatus: '', live: [], tokenLeak: false }
+  // The merge slot as Hive's slot log records it (#374): a line per change to the slots, and a line per claim or release
+  // as Hive resolved it (the branch it was for, what it did), written just after the change it made.
+  const slotEntry = (at: number, branch: string, holder: string | null, waiting: string[] = [], taken = true) => ({ at: new Date(at).toISOString(), slots: holder || waiting.length ? [{ project: 'C:\\ws\\alpha', branch, holder: holder ? { agentId: holder, name: holder, cards: [], taken } : null, waiting }] : [] })
+  const slotEvent = (at: number, event: 'claim' | 'release', outcome: string, branch: string, agent = 'Coder') => ({ at: new Date(at).toISOString(), event, project: 'C:\\ws\\alpha', branch, agentId: agent, agent, outcome })
+  /**
+   * Coder's hold of `branch`'s slot from `from` (its claim held) to `to` (null: still held), ended by: its own release
+   * ('released'), a release that did nothing for this slot ('none', or one resolved to `other`), or nothing of its own
+   * (its session's end, the user).
+   */
+  const hold = (branch: string, from: number, to: number | null, end: 'released' | 'none' | 'cleanup' | { other: string } = 'released') => ({
+    slotLog: [
+      slotEntry(from, branch, 'Coder'),
+      slotEvent(from, 'claim', 'held', branch),
+      ...(to === null ? [] : [slotEntry(to, branch, null)]),
+      ...(to === null || end === 'cleanup' ? [] : typeof end === 'object' ? [slotEvent(to, 'release', 'none', end.other)] : [slotEvent(to, 'release', end, branch)])
+    ]
+  })
   const scenario = (id: string) => SCENARIOS.find((s) => s.id === id)!
   const failed = (checks: [string, boolean, string?][]) => checks.filter(([, ok]) => !ok).map(([n]) => n)
 
