@@ -157,6 +157,9 @@ function parseAuthStatus(out) {
   }
 }
 
+/** Where a CLI's screen (plain text, one line) says something failed: from that word on. */
+const FAILURE_WORDS = /\b(?:error|errors|failed|failure|invalid|cannot|can't|unknown|not found|exception|refused|denied)\b.*$/i
+
 /**
  * A CLI that exited before its session started (#577): skipped for the environment when what it last showed, the
  * reason Hive gives, or (when Hive gives none) its sign-in status says so (an OAuth session it couldn't refresh prints
@@ -164,11 +167,14 @@ function parseAuthStatus(out) {
  * trial's limits.
  */
 function launchEnded({ screen = '', reason = '', auth = null } = {}) {
-  // Its auth status only stands in for a reason Hive didn't get: a concrete one (an argument it rejects) stays an error
-  // even when the test home is signed out too, so a broken launch isn't hidden as the environment.
-  const why = trialEnvironment({ screen: [screen, reason].join('\n') }) ?? (!reason.trim() && auth?.loggedIn === false ? "not signed in: its auth status says it isn't logged in" : null)
-  if (why) return { environment: why }
-  const said = (reason || screen.slice(-200)).trim()
+  const env = trialEnvironment({ screen: [screen, reason].join('\n') })
+  if (env) return { environment: env }
+  // Its auth status only stands in for a failure nobody saw: a concrete one, in Hive's reason or on its screen (an
+  // argument it rejects), stays an error even when the test home is signed out too, so a broken launch isn't hidden as
+  // the environment. A screen with no error on it (its banner) is no failure.
+  const failure = reason.trim() || (FAILURE_WORDS.exec(screen)?.[0] ?? '').slice(0, 200).trim()
+  if (!failure && auth?.loggedIn === false) return { environment: "not signed in: its auth status says it isn't logged in" }
+  const said = failure || screen.slice(-200).trim()
   return { error: `the session ended at launch${said ? `: ${said}` : ''}` }
 }
 

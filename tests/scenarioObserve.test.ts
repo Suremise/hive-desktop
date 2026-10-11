@@ -323,8 +323,11 @@ describe('a trial the environment stops (trialEnvironment)', () => {
       expect(launchEnded({ screen: 'Claude Code', auth: { loggedIn: false } }).environment).toMatch(/^not signed in: its auth status/)
     })
 
-    it('a concrete launch failure stays an error even when the test home is signed out too', () => {
-      expect(launchEnded({ reason: "error: option '--model <model>' argument 'x' is invalid.", auth: { loggedIn: false } })).toEqual({ error: "the session ended at launch: error: option '--model <model>' argument 'x' is invalid." })
+    it('a concrete launch failure stays an error even when the test home is signed out too, from Hive or the screen', () => {
+      const bad = "error: option '--model <model>' argument 'x' is invalid."
+      expect(launchEnded({ reason: bad, auth: { loggedIn: false } })).toEqual({ error: `the session ended at launch: ${bad}` })
+      expect(launchEnded({ screen: `Claude Code ${bad}`, auth: { loggedIn: false } })).toEqual({ error: `the session ended at launch: ${bad}` })
+      expect(launchEnded({ screen: 'Claude Code Cannot find module node:sqlite', auth: { loggedIn: true } })).toEqual({ error: 'the session ended at launch: Cannot find module node:sqlite' })
     })
 
     it("reads auth status as Claude Code prints it: indented JSON, signed in or not", () => {
