@@ -306,6 +306,16 @@ async function acceptClaudeTrust(inv, proj, agentId, timeoutMs = 15000) {
   return false
 }
 
+/**
+ * After a restart: answers the relaunch's trust question (acceptClaudeTrust), but only once `spawned()` says its new
+ * process runs (within spawnMs): until then the terminal still holds the previous process's screen, its question too,
+ * so nothing is read or typed there (#341). { spawned, trusted }: spawned false when the new process wasn't seen.
+ */
+async function acceptRelaunchTrust(inv, proj, agentId, spawned, { spawnMs = 20000, timeoutMs = 30000 } = {}) {
+  if (!(await until(spawned, spawnMs))) return { spawned: false, trusted: false }
+  return { spawned: true, trusted: await acceptClaudeTrust(inv, proj, agentId, timeoutMs) }
+}
+
 /** The trust question's choice the terminal shows selected last ('No, exit' or 'Yes, …'), or null. */
 function trustChoice(text) {
   const marks = [...plainText(text).matchAll(/[>❯›]\s*(?:\d\.\s*)?(No, exit|Yes, I trust this folder)/g)]
@@ -758,4 +768,4 @@ async function haikuAutoCaveat(page, autoOffered) {
   return [ok, JSON.stringify(caveat)]
 }
 
-module.exports = { ROOT, ELECTRON, WORK, CODEX_HOME, CLAUDE_TEST_HOME, TRASH, trashed, tidyUp, ownClaudeHome, probeDir, hiveEnv, childEnv, baseEnv, git, GIT_LOCKED, plainText, trustChoice, haikuAutoMode, haikuAutoCaveat, sleep, port, until, quitWatch, appReady, openWorkspace, hadEstimate, fitWindow, enableProviders, fakeClaude, launch, waitForProvider, addAgent, soloAgent, ptyKey, acceptClaudeTrust, withFileLock, trustForCodex, gitProject, codexSignedIn, launchDir, launchHook, codexHook, processTree, stopProcessesIn, processRunning, samplePng, environmentProblem, environmentProblems, stepVerdict, checked, cliStep, sendPrompt, skip }
+module.exports = { ROOT, ELECTRON, WORK, CODEX_HOME, CLAUDE_TEST_HOME, TRASH, trashed, tidyUp, ownClaudeHome, probeDir, hiveEnv, childEnv, baseEnv, git, GIT_LOCKED, plainText, trustChoice, haikuAutoMode, haikuAutoCaveat, sleep, port, until, quitWatch, appReady, openWorkspace, hadEstimate, fitWindow, enableProviders, fakeClaude, launch, waitForProvider, addAgent, soloAgent, ptyKey, acceptClaudeTrust, acceptRelaunchTrust, withFileLock, trustForCodex, gitProject, codexSignedIn, launchDir, launchHook, codexHook, processTree, stopProcessesIn, processRunning, samplePng, environmentProblem, environmentProblems, stepVerdict, checked, cliStep, sendPrompt, skip }
