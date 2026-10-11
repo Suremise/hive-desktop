@@ -224,6 +224,49 @@ describe('the fixtures fail when nothing was done', () => {
     expect(run([{ tool: 'hive_start_task', ok: true }, { tool: 'hive_wait_for_tasks', ok: true, args: '{"cards":[7],"wake":true}' }])).toEqual(['the agent did it: the card is in Review and the file is there'])
     expect(run([{ tool: 'hive_start_task', ok: true }, { tool: 'hive_wait_for_tasks', ok: true, args: '{"cards":[8],"wake":true}' }])).toContain(waited)
   })
+
+  it('review-record-trusted (#533): the commands that ran are what count, in every form a tool call has; a review that runs no test fails', () => {
+    const sc = scenario('review-record-trusted')
+    const whole = "didn't run the whole suite again"
+    const affected = 'ran the test the change affects (greet.test.js)'
+    const run = (...calls: [string, string][]) => {
+      const checks = sc.expect({ ...base, skillsRead: ['review-agent-work'], tools: calls.map(([name, input]) => ({ name, input, result: '', isError: false })) }, {})
+      return checks.filter(([n]) => n === whole || n === affected).filter(([, ok]) => !ok).map(([n]) => n)
+    }
+    // As Hive's transcripts give them: Claude Code's Bash and Codex's shell as the command itself; a Codex script's cmd.
+    expect(run(['Bash', 'node --test "greet.test.js"'])).toEqual([])
+    expect(run(['Shell', 'node --test .\\greet.test.js'])).toEqual([])
+    expect(run(['Script', 'text(await tools.exec_command({cmd:"git rev-parse --short HEAD; node --test greet.test.js"}))'])).toEqual([])
+    expect(run(['Script', 'text(await tools.exec_command({"cmd":"node --test \\"greet.test.js\\""}))'])).toEqual([])
+    // And as JSON, should a tool's input come that way: its command only, never its description.
+    expect(run(['Bash', JSON.stringify({ command: 'git status --short', description: 'Check the npm test record' })], ['Bash', JSON.stringify({ command: 'node --test "greet.test.js"' })])).toEqual([])
+    // The whole suite, however it is run, fails; text that only mentions it (a verdict in a script, a description) doesn't.
+    expect(run(['functions.exec_command', JSON.stringify({ cmd: 'npm test' })], ['Bash', 'node --test greet.test.js'])).toEqual([whole])
+    expect(run(['Bash', 'hive-progress --title "Tests" -- npm test'], ['Bash', 'node --test greet.test.js'])).toEqual([whole])
+    expect(run(['PowerShell', 'node --test'], ['Bash', 'node --test greet.test.js'])).toEqual([whole])
+    expect(run(['Script', 'text(await tools.exec_command({cmd:"npm run test"}))'], ['Bash', 'node --test greet.test.js'])).toEqual([whole])
+    expect(run(['Script', 'text(await tools.mcp__hive__hive_update_task({number:1,review:"passed",comment:"Trusted the npm test record"}))'], ['Bash', 'node --test greet.test.js'])).toEqual([])
+    // No test run at all: the affected test wasn't run.
+    expect(run(['Bash', 'git status --short'])).toEqual([affected])
+    expect(run()).toEqual([affected])
+  })
+
+  it("review-record-stale (#533): only the reviewer's own verdict counts, and it must say the record is for other code", () => {
+    const why = 'the verdict says the record is for older code'
+    const builder = { by: 'Agent API', text: 'Done: greet.js fixed.\n\nRun record: code 1a2b3c4, nothing uncommitted. `npm test`: 2 files, all passed.' }
+    const reason = (...comments: { by: string; text: string }[]) => {
+      const checks = scenario('review-record-stale').expect({ ...base, cards: { b: { comments } } }, {})
+      return checks.find(([n]) => n === why)![1]
+    }
+    // The builder's comment (it says "Run record") is the card's, not a verdict.
+    expect(reason(builder)).toBe(false)
+    // A verdict that gives no reason, or only mentions the record, fails.
+    expect(reason(builder, { by: 'Coder (alpha)', text: 'Passed: no findings. npm test passed; checked the run record.' })).toBe(false)
+    // One that says why the record doesn't count passes.
+    expect(reason(builder, { by: 'Coder (alpha)', text: "Passed. The builder's record names 1a2b3c4, so it is stale for HEAD 5d6e7f8; I reran npm test." })).toBe(true)
+    expect(reason(builder, { by: 'Coder (alpha)', text: 'Passed. The run record was made before a later commit (greet: bye), so I ran the tests again.' })).toBe(true)
+    expect(reason(builder, { by: 'Coder (alpha)', text: "Failed: the record's code doesn't match HEAD." })).toBe(true)
+  })
 })
 
 // A model trial the environment stops is skipped at once (#302): Hive waiting for a sign-in, or the CLI's own notes

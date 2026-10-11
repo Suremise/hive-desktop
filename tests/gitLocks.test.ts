@@ -13,9 +13,10 @@ afterAll(() => rmSync(base, { recursive: true, force: true }))
 let n = 0
 
 // A read by git in the instant the user's commit writes the branch, or their add replaces the index, can see the branch
-// with no commits yet or the index not open (#381). Such a read is repeated once the write has landed (each try waits
-// for the next), and is not a failure: the user's own add and commit are what must never fail, and they are still counted.
-const RACING = /does not have any commits yet|index file open failed/
+// with no commits yet, the branch broken (its ref read while the commit replaces it, #519) or the index not open (#381).
+// Such a read is repeated once the write has landed (each try waits for the next), and is not a failure: the user's own
+// add and commit are what must never fail, and they are still counted.
+const RACING = /does not have any commits yet|current branch appears to be broken|index file open failed/
 async function landed(call: () => Promise<unknown>): Promise<unknown> {
   for (let attempt = 0; ; attempt++) {
     try {
@@ -104,28 +105,42 @@ describe("Hive's git calls and the index (#212)", () => {
       }
       return k
     }
-    const refreshers = [() => gitStatus(dir), () => gitStatus(dir, 'main'), () => git(dir, ['diff', '--shortstat', 'main']), () => gitStatus(dir)].map(loop)
+    // Each one's failure is caught as it happens (no unhandled rejection), and reported with the others at the end.
+    const refreshers = [() => gitStatus(dir), () => gitStatus(dir, 'main'), () => git(dir, ['diff', '--shortstat', 'main']), () => gitStatus(dir)].map((call) =>
+      loop(call).then(
+        (k) => ({ k, error: null as string | null }),
+        (e) => ({ k: 0, error: String(e) })
+      )
+    )
     const failures: string[] = []
     const until = Date.now() + 3000
     const touch = (f: string) => {
       const now = new Date(Date.now() + 1000)
       utimesSync(join(dir, f), now, now)
     }
-    for (let i = 0; Date.now() < until; i++) {
-      writeFileSync(join(dir, 'a.txt'), `a${i}\n`)
-      try {
-        run('add', '-A')
-        run('commit', '-qm', `c${i}`)
-      } catch (e) {
-        failures.push(String((e as { stderr?: string }).stderr ?? e).slice(0, 200))
+    let results: Awaited<(typeof refreshers)[number]>[] = []
+    try {
+      for (let i = 0; Date.now() < until; i++) {
+        writeFileSync(join(dir, 'a.txt'), `a${i}\n`)
+        try {
+          run('add', '-A')
+          run('commit', '-qm', `c${i}`)
+        } catch (e) {
+          failures.push(String((e as { stderr?: string }).stderr ?? e).slice(0, 200))
+        }
+        // Touched, not changed: what makes a refresh write the index, until the next add.
+        touch('b.txt')
+        touch('c.txt')
+        await new Promise((r) => setTimeout(r, 5))
       }
-      // Touched, not changed: what makes a refresh write the index, until the next add.
-      touch('b.txt')
-      touch('c.txt')
-      await new Promise((r) => setTimeout(r, 5))
+    } finally {
+      // The refreshers stop and finish however this ends, a write here throwing too, so none is left running git in the
+      // folder afterAll removes (#519). They never reject (each failure is caught above), so the writer's error stays.
+      running.on = false
+      results = await Promise.all(refreshers)
     }
-    running.on = false
-    for (const k of await Promise.all(refreshers)) expect(k).toBeGreaterThan(0)
+    expect(results.map((r) => r.error).filter(Boolean)).toEqual([])
+    for (const r of results) expect(r.k).toBeGreaterThan(0)
     expect(failures).toEqual([])
   }, 20000)
 })

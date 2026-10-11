@@ -17,7 +17,7 @@ const { copilot } = await import('../src/main/providers/copilot/adapter')
 
 const wsPath = join(base, 'ws')
 const p = join(wsPath, 'alpha')
-type State = { runId: string; agentId: string; status: string; statusMessage?: string | null }
+type State = { runId: string; agentId: string; sessionId: string; status: string; statusMessage?: string | null }
 const s = sessions as unknown as {
   live: Map<string, { state: State }>
   runs: Map<string, string>
@@ -48,7 +48,8 @@ function agent(agentId: string): { st: State; l: unknown; events: string } {
   s.runs.set(st.runId, `${p.toLowerCase()}#${agentId}`)
   return { st, l, events }
 }
-const hook = (st: State, body: Record<string, unknown>) => run(() => sessions.handleHook(st.runId, { session_id: 'x', cwd: p, ...body }))
+// The agent's own session id: another one in a prompt is the user moving to another conversation (a session switch).
+const hook = (st: State, body: Record<string, unknown>) => run(() => sessions.handleHook(st.runId, { session_id: st.sessionId, cwd: p, ...body }))
 /** Until what is queued for the launch (its hooks, and an interrupt read from its events) has run. */
 const settled = async (st: State): Promise<void> => {
   for (let q = s.hookQueues.get(st.runId); q; q = s.hookQueues.get(st.runId)) await q

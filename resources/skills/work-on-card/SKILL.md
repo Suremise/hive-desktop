@@ -22,6 +22,7 @@ The card is the brief, and the board is how the user, the Hive Assistant and oth
 - Comment when something is worth knowing later: a choice you made and why, a finding that changes the plan, a partial result. Not a running log. A decision the user tells you about the card goes on it as a decision (`hive_update_task` with `decision`), not only as a comment.
 - A reply that says your card has a new decision: finish the step you're on, then read the card (`hive_read_task`) and bring the work in line with it.
 - A line from Hive while you wait for the user, saying your card has new decisions: that is their answer. Read the card's decisions, clear `blocked` if it was your question, then carry on from where you asked.
+- **Tests you write or change wait for what they expect to see, never for a length of time**: poll the condition (with a generous bound for a hung run) rather than sleep and then check, or read state once just after an action. Raising a timeout isn't a fix. Each test cleans up its own state, and passes under load, not only alone. Follow the project's test notes where it has them.
 - Work you find but weren't asked to do goes on a new card (`hive_create_task`, described well enough to start from cold), not into this one.
 - If you can't go on, set `blocked` with the reason; an empty `blocked` clears it.
 

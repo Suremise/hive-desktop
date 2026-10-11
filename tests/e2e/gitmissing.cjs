@@ -70,7 +70,7 @@ function pathWithoutGit() {
   await shot('setup-light')
   await theme('dark')
   await page.keyboard.press('Escape')
-  await lib.until(async () => (await setup.count()) === 0, 3000)
+  check('Escape closes Agent Setup', !!(await lib.until(async () => (await setup.count()) === 0, 3000)))
 
   // --- Add Agent: New worktree is off, and says why.
   const info = await inv('agents:gitInfo', repo)
@@ -81,8 +81,10 @@ function pathWithoutGit() {
   const add = page.locator('.dialog', { hasText: 'Add an agent' })
   await lib.until(async () => (await add.count()) === 1, 5000)
   const worktree = add.locator('.choice', { hasText: 'New worktree' })
+  // The dialog asks for the project's git info once it opens: until that answers, the choice shows its usual text (#466).
+  const told = await lib.until(async () => (await worktree.innerText().catch(() => '')).includes(MISSING), 10000)
   const wtText = await worktree.innerText().catch(() => '')
-  check('Add Agent: New worktree disabled, saying git is missing', (await worktree.locator('input:disabled').count()) === 1 && wtText.includes(MISSING) && !wtText.includes('Needs a git repository'), wtText)
+  check('Add Agent: New worktree disabled, saying git is missing', !!told && (await worktree.locator('input:disabled').count()) === 1 && wtText.includes(MISSING) && !wtText.includes('Needs a git repository'), wtText)
   await shot('addagent')
   await page.keyboard.press('Escape')
   await lib.until(async () => (await add.count()) === 0, 3000)

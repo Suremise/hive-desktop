@@ -80,12 +80,17 @@ function filesHolding(dir, text) {
   await lib.cliStep('the status line reaches Hive', { session: key }, async () => {
     // The status line runs as Claude Code draws its prompt, before any request: Hive learns the model (and the context
     // window) from it alone here, since no turn has written a transcript.
-    const ok = await lib.until(async () => !!(await live())?.modelName, 30000, 500)
+    // The context window comes only from the status line (a transcript doesn't carry it).
+    const ok = await lib.until(async () => !!(await live())?.modelName && !!(await live())?.contextWindow, 30000, 500)
     const l = await live()
-    // No transcript yet: what Hive knows of the model came from the status line.
-    const transcripts = fs.existsSync(path.join(home, 'projects')) ? fs.readdirSync(path.join(home, 'projects'), { recursive: true }).filter((f) => String(f).endsWith('.jsonl')) : []
-    check('the status line, the same curl command, reached Hive (the model it reports, with no transcript yet)', !!ok && transcripts.length === 0, JSON.stringify({ model: l?.modelName, contextWindow: l?.contextWindow, transcripts }))
-    console.log(`(reported by the status line: ${JSON.stringify({ model: l?.modelName, modelId: l?.modelId, contextWindow: l?.contextWindow, effort: l?.effort })})`)
+    // No turn yet: what Hive knows of the model came from the status line. Claude Code may already have written a
+    // transcript of its startup (the SessionStart hook's result, the title, the mode: no model), sooner or later than
+    // the status line runs (#477), so the check is that no transcript holds a reply, not that there is no file.
+    const projects = path.join(home, 'projects')
+    const transcripts = fs.existsSync(projects) ? fs.readdirSync(projects, { recursive: true }).filter((f) => String(f).endsWith('.jsonl')) : []
+    const turns = transcripts.filter((f) => fs.readFileSync(path.join(projects, f), 'utf8').split('\n').some((line) => /"type":"assistant"|"model":/.test(line)))
+    check('the status line, the same curl command, reached Hive (the model it reports, with no turn in a transcript yet)', !!ok && turns.length === 0, JSON.stringify({ model: l?.modelName, contextWindow: l?.contextWindow, transcripts, turns }))
+    console.log(`(reported by the status line: ${JSON.stringify({ model: l?.modelName, modelId: l?.modelId, contextWindow: l?.contextWindow, effort: l?.effort })}; transcripts of the startup so far: ${transcripts.length})`)
   })
 
   // The session ends: its private folder goes, and its token is refused.
