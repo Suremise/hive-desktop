@@ -164,7 +164,9 @@ was kept with `--keep`. Two started from the same worktree share its build, so i
 
 **Heavy runs queue** (`slots.mjs`, #204). Several agents each running full sets on one machine slowed each other until
 tests that pass alone timed out. So at most **two heavy runs** go at once across every worktree
-(`HIVE_TEST_HEAVY_SLOTS` changes it): an e2e run of more than five suites (`--all`, `--real`, a big `--affected`) or
+(`HIVE_TEST_HEAVY_SLOTS` changes it: set it as a user environment variable and restart Hive, whose sessions keep it
+while dropping Hive's other `HIVE_` variables (`SESSION_SETTINGS` in `src/main/ptyHost.ts`, #567), so the runs agents
+start use it): an e2e run of more than five suites (`--all`, `--real`, a big `--affected`) or
 any `--repeat`, and a scenario run of more than five scenarios or with `--repeat`. A run of a few suites, a single
 scenario, or a runner started inside a suite never waits: e2e or scenarios (`needsSlot`, #211), since its parent's run
 holds a slot and waiting behind it would never end. It still keeps apart from its parent (a nested e2e runner in the

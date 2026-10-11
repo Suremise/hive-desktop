@@ -115,6 +115,13 @@ const PID_POLL_MS = 10
 /** Output of processes that exited quietly, for the process that continues in their terminal. */
 const carried = new Map<string, string[]>()
 
+/**
+ * HIVE_ variables that are the user's own settings for what runs in sessions, kept when the others are dropped: how
+ * many heavy test runs go at once on the machine (tests/e2e/slots.mjs, #567). Only named ones: the other HIVE_TEST_
+ * variables configure a test copy of Hive itself, and would reach the copies its agents start.
+ */
+export const SESSION_SETTINGS = new Set(['HIVE_TEST_HEAVY_SLOTS'])
+
 /** Builds a child environment from Hive's own, minus variables that would change how child Electron apps behave. */
 export function childEnv(extra: Record<string, string> = {}): Record<string, string> {
   const env: Record<string, string> = {}
@@ -122,9 +129,9 @@ export function childEnv(extra: Record<string, string> = {}): Record<string, str
   delete env.ELECTRON_RUN_AS_NODE
   delete env.ELECTRON_NO_ATTACH_CONSOLE
   // If Hive itself was started from inside an agent's session, don't leak that session's identity
-  // (each provider lists its variables). User configuration is kept.
+  // (each provider lists its variables), nor Hive's own HIVE_ variables. User configuration is kept.
   const sessionVars = new Set(allProviders().flatMap((p) => p.envToStrip))
-  for (const k of Object.keys(env)) if (sessionVars.has(k) || k.startsWith('HIVE_')) delete env[k]
+  for (const k of Object.keys(env)) if (sessionVars.has(k) || (k.startsWith('HIVE_') && !SESSION_SETTINGS.has(k))) delete env[k]
   env.TERM_PROGRAM = 'Hive'
   env.COLORTERM = 'truecolor'
   return { ...env, ...extra }
