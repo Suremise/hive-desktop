@@ -6,12 +6,14 @@
 //   npm run scenarios -- --provider claude-code --model haiku --budget 2      # model trials (opt-in, cost tokens)
 //   npm run scenarios -- --provider codex --model gpt-5.6-luna --only work-on-card,review-card
 //   npm run scenarios -- --only work-on-card --signed-out   # the fake signed out: the trial is skipped for the environment
+//   npm run scenarios -- --only work-on-card --signed-out=launch   # its OAuth expired: it exits at launch, skipped too
 //
 // A trial that Hive shows waiting for a sign-in, or whose CLI says it hit a limit or can't reach its API, is skipped for
 // the environment at once (no checks failed, no cost), and so are the provider's other trials, said once (#302).
 //
 // More than five scenarios, or --repeat, waits for a test slot (tests/e2e/slots.mjs; --no-wait fails at once instead),
-// unless started inside an e2e suite, whose run holds one.
+// unless started inside an e2e suite, whose run holds one. A pre-merge run goes first in that queue (#558): --pre-merge,
+// or one started by the agent holding its project's merge slot.
 // --budget N (USD, API-equivalent, above 0, default 2) stops a model run once the scenarios so far cost that much, or
 // as soon as a trial reports no cost (the spend can't be checked then; --allow-unknown-cost goes on anyway); --only runs
 // some; --keep leaves each scenario's profile and workspace; --repeat N runs each N times (samples, for spread);
@@ -31,7 +33,7 @@ import { readFileSync, writeFileSync } from 'fs'
 import { join } from 'path'
 import { devBuild, ensureBuild } from '../e2e/build.mjs'
 import { LANES, claimLane, laneWork } from '../e2e/lanes.mjs'
-import { describeClaim, heavySlots, needsSlot, waitForSlot } from '../e2e/slots.mjs'
+import { describeClaim, heavySlots, needsSlot, preMerge, waitForSlot, waitLine } from '../e2e/slots.mjs'
 import { waitForCodexHome } from '../e2e/codexHomeLock.mjs'
 import { autoClean } from '../e2e/clean.mjs'
 import { slotWaitProgress } from '../progressReport.mts'
@@ -79,7 +81,8 @@ if (!PROVIDERS[provider]) {
   process.exit(2)
 }
 // The fake Claude Code acting out an expired sign-in: to check that a trial the environment stops is skipped (#302).
-const signedOut = argv.includes('--signed-out')
+// --signed-out=launch: its OAuth session can't be refreshed, so it exits before its session starts (#577).
+const signedOut = argv.includes('--signed-out=launch') ? 'launch' : argv.includes('--signed-out')
 if (signedOut && provider !== 'fake') {
   console.error('--signed-out is for the fake Claude Code (--provider fake) only: a real CLI is never signed out from here.')
   process.exit(2)
@@ -109,9 +112,10 @@ if (needsSlot({ count: chosen.length, repeat: repeats })) {
     what: `scenarios: ${chosen.length} (${provider})${repeats > 1 ? ` × ${repeats}` : ''}`,
     root: lib.ROOT,
     wait: !argv.includes('--no-wait'),
-    onWait: ({ holders, ahead }) => {
-      const who = holders.map((c) => describeClaim(c)).join('; ')
-      const line = `Waiting for a test slot (${heavySlots()} heavy runs at once on this machine, HIVE_TEST_HEAVY_SLOTS)${ahead ? `, ${ahead} ahead of this one` : ''}: held by ${who || 'runs just finishing'}.`
+    first: preMerge(argv.includes('--pre-merge')),
+    onWait: (look) => {
+      const who = look.holders.map((c) => describeClaim(c)).join('; ')
+      const line = waitLine(look)
       if (line !== said) console.log(line)
       said = line
       queue.waiting(who)

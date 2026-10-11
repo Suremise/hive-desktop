@@ -2,12 +2,15 @@
 // repeats, scenario runs) slowed each other until tests timed out: the flakes were the load, not the code. So at most
 // a few heavy runs go at once across every worktree (HIVE_TEST_HEAVY_SLOTS, default 2); a heavy run started while
 // they are all taken waits for one, in the order the runs asked, saying who holds them (and in Hive's Progress panel).
+// A pre-merge run goes first (#558): one started by the agent holding its project's merge slot (holdsMergeSlot), or
+// with --pre-merge. It takes the next free slot before runs that asked earlier for other reasons (a merge shouldn't wait
+// behind flake-proof repeats while every other merge waits behind it), but never stops a run that holds one.
 // A run that isn't heavy (a few suites, a single scenario) never waits, nor does a runner started inside a suite, e2e or
 // scenarios (needsSlot): its parent's run holds a slot, and waiting behind it would never end (#211).
 //
 // Claims are files in a folder of the run context (runContext.HEAVY_DIR), as lanes are (lanes.mjs): `slot-<k>.json`
-// for a run holding a slot and `wait-<pid>.json` for one waiting (when it asked), each with its runner's process id,
-// changed only under the claims lock. A crashed run's claim expires: its process is gone (or it is a day old).
+// for a run holding a slot and `wait-<pid>.json` for one waiting (when it asked; `first` for a pre-merge run), each
+// with its runner's process id, changed only under the claims lock. A crashed run's claim expires: its process is gone (or it is a day old).
 import { mkdirSync, readdirSync, readFileSync, rmSync, writeFileSync } from 'fs'
 import { join } from 'path'
 import { processAlive } from './logs.mjs'
@@ -41,6 +44,54 @@ export function needsSlot({ count, repeat = 1 }, env = process.env) {
   return isHeavy({ count, repeat }) && !parentSuite(env)
 }
 
+/**
+ * Whether this run is the merge slot holder's (#558): started in the session of the agent that holds its project's
+ * merge slot (the default branch's), asked through Hive's Agent API with the session's own variables, which the runners
+ * read from the shell they were started in, as their progress reporting does. False when no Hive agent runs it or the
+ * API doesn't answer in time: an ordinary run then.
+ */
+export async function holdsMergeSlot(env = process.env, { fetch = globalThis.fetch, timeoutMs = 3000 } = {}) {
+  const url = env.HIVE_API_URL?.replace(/\/+$/, '')
+  if (!url || !env.HIVE_PROJECT || !env.HIVE_AGENT) return false
+  let token = env.HIVE_API_TOKEN && !env.HIVE_API_TOKEN.includes('${') ? env.HIVE_API_TOKEN : ''
+  if (!token && env.HIVE_API_TOKEN_FILE) {
+    try {
+      token = String(JSON.parse(readFileSync(env.HIVE_API_TOKEN_FILE, 'utf8')).token ?? '')
+    } catch {
+      token = ''
+    }
+  }
+  if (!token) return false
+  try {
+    const res = await fetch(`${url}/v1/projects/${encodeURIComponent(env.HIVE_PROJECT)}/merge-slot`, {
+      headers: { Authorization: `Bearer ${token}`, ...(env.HIVE_WORKSPACE ? { 'X-Hive-Workspace': encodeURIComponent(env.HIVE_WORKSPACE) } : {}) },
+      signal: AbortSignal.timeout(timeoutMs)
+    })
+    if (!res.ok) return false
+    const holder = (await res.json())?.holder
+    return holder?.kind === 'agent' && holder.name === env.HIVE_AGENT
+  } catch {
+    return false
+  }
+}
+
+/**
+ * Whether a run goes first in the queue, for waitForSlot's `first`: --pre-merge (flag), or its agent holds the merge
+ * slot, asked again at most every askMs while the run waits (the agent may take the merge slot meanwhile, or let it go).
+ */
+export function preMerge(flag, { env = process.env, askMs = 30_000, holds = holdsMergeSlot, now = () => Date.now() } = {}) {
+  let asked = null
+  let last = false
+  return async () => {
+    if (flag) return true
+    if (asked === null || now() - asked >= askMs) {
+      asked = now()
+      last = await holds(env)
+    }
+    return last
+  }
+}
+
 /** The claims in dir whose names start with prefix: [{ file, claim }] (an unreadable one is { claim: null }). */
 function claims(dir, prefix) {
   return readdirSync(dir)
@@ -55,12 +106,12 @@ function claims(dir, prefix) {
 }
 
 /**
- * One look, under the claims lock: takes a slot if one is free and no run that asked earlier is still waiting for it.
- * Returns { slot } (its number), or { holders, ahead }: the claims holding the slots, and how many runs wait ahead of
+ * One look, under the claims lock: takes a slot if one is free and no run ahead of this one is still waiting for it:
+ * pre-merge runs (first) are ahead of the others, and among each, those that asked earlier. Returns { slot } (its number), or { holders, ahead }: the claims holding the slots, and how many runs wait ahead of
  * this one. Waiting (wait: true), this run's place in the queue is kept (wait-<pid>.json, with when it first asked);
  * otherwise it leaves no trace. Claims whose runner is gone are removed.
  */
-export async function trySlot(dir, { slots = heavySlots(), owner = process.pid, what = '', root = '', wait = true, alive = processAlive, now = () => Date.now() } = {}) {
+export async function trySlot(dir, { slots = heavySlots(), owner = process.pid, what = '', root = '', first = false, wait = true, alive = processAlive, now = () => Date.now() } = {}) {
   mkdirSync(dir, { recursive: true })
   return withLock(dir, async () => {
     const t = now()
@@ -73,15 +124,15 @@ export async function trySlot(dir, { slots = heavySlots(), owner = process.pid, 
     const held = live('slot-').map((c) => c.claim)
     const mine = join(dir, `wait-${owner}.json`)
     const waiting = live('wait-').map((c) => c.claim)
-    const me = waiting.find((c) => c.pid === owner) ?? { pid: owner, at: t, root, what }
-    const queue = [...waiting.filter((c) => c.pid !== owner), me].sort((a, b) => a.at - b.at || a.pid - b.pid)
+    const me = { ...(waiting.find((c) => c.pid === owner) ?? { pid: owner, at: t, root, what }), first: !!first }
+    const queue = [...waiting.filter((c) => c.pid !== owner), me].sort((a, b) => Number(!!b.first) - Number(!!a.first) || a.at - b.at || a.pid - b.pid)
     const ahead = queue.indexOf(me)
     const free = slots - held.length
     if (ahead < free) {
       const used = new Set(held.map((c) => c.slot))
       let k = 0
       while (used.has(k)) k++
-      writeFileSync(join(dir, `slot-${k}.json`), JSON.stringify({ pid: owner, at: t, slot: k, root, what }))
+      writeFileSync(join(dir, `slot-${k}.json`), JSON.stringify({ pid: owner, at: t, slot: k, root, what, ...(first ? { first: true } : {}) }))
       rmSync(mine, { force: true })
       return { slot: k }
     }
@@ -94,17 +145,24 @@ export async function trySlot(dir, { slots = heavySlots(), owner = process.pid, 
 /** A claim, for a person: what it runs and where, its process and for how long. */
 export function describeClaim(c, now = Date.now()) {
   const min = Math.max(0, Math.round((now - c.at) / 60_000))
-  return `${c.what || 'a heavy run'} in ${c.root || 'another worktree'} (process ${c.pid}, ${min} min)`
+  return `${c.what || 'a heavy run'}${c.first ? ' (pre-merge)' : ''} in ${c.root || 'another worktree'} (process ${c.pid}, ${min} min)`
+}
+
+/** What a waiting run prints at a look that finds no slot (both runners): how many go at once, its place, the holders. */
+export function waitLine({ holders, ahead, first = false }, slots = heavySlots()) {
+  const place = first ? `, pre-merge, ${ahead ? `${ahead} pre-merge ahead of this one` : 'next in line'}` : ahead ? `, ${ahead} ahead of this one` : ''
+  return `Waiting for a test slot (${slots} heavy runs at once on this machine, HIVE_TEST_HEAVY_SLOTS)${place}: held by ${holders.map((c) => describeClaim(c)).join('; ') || 'runs just finishing'}.`
 }
 
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms))
 
 /**
  * Waits for a slot (wait: false, only one look): { slot, waitedMs, release() }, or { refused: { holders, ahead } }.
- * onWait({ holders, ahead }) is called at each look that finds none, every pollMs. release() lets the slot go (only if
+ * first: whether it is a pre-merge run, or a function saying so at each look (preMerge). onWait({ holders, ahead, first })
+ * is called at each look that finds none, every pollMs. release() lets the slot go (only if
  * it is still this run's); it is also let go when the process exits, and expires if it crashes.
  */
-export async function waitForSlot(dir, { wait = true, pollMs = 2000, onWait = () => {}, ...opts } = {}) {
+export async function waitForSlot(dir, { wait = true, pollMs = 2000, onWait = () => {}, first = false, ...opts } = {}) {
   const started = Date.now()
   const owner = opts.owner ?? process.pid
   const queued = join(dir, `wait-${owner}.json`)
@@ -112,7 +170,8 @@ export async function waitForSlot(dir, { wait = true, pollMs = 2000, onWait = ()
   process.on('exit', leaveQueue)
   try {
     for (;;) {
-      const r = await trySlot(dir, { ...opts, owner, wait })
+      const goesFirst = typeof first === 'function' ? await first() : !!first
+      const r = await trySlot(dir, { ...opts, owner, wait, first: goesFirst })
       if (r.slot !== undefined) {
         const file = join(dir, `slot-${r.slot}.json`)
         const release = () => {
@@ -126,7 +185,7 @@ export async function waitForSlot(dir, { wait = true, pollMs = 2000, onWait = ()
         return { slot: r.slot, waitedMs: Date.now() - started, release }
       }
       if (!wait) return { refused: r }
-      onWait(r)
+      onWait({ ...r, first: goesFirst })
       await sleep(pollMs)
     }
   } finally {

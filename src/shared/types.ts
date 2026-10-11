@@ -318,6 +318,11 @@ export interface ProviderSettings {
   allowBackgroundSessions: boolean
   /** Run sessions with a 200K context window instead of the model's 1M one (capabilities.contextLimit). */
   use200kContext: boolean
+  /**
+   * Where a session's cost comes from when the provider reports one (capabilities.reportsCost, #436): the CLI's own
+   * report (the truth, from its own price table: Hive never recomputes it), or Hive's estimate from the price table.
+   */
+  costSource: 'reported' | 'prices'
   /** The user's price overrides by model id; missing models use the prices Hive ships. */
   prices: Record<string, ModelPrice>
   /** Shipped prices the user removed from the table (a model of their own in `prices` wins). */
@@ -850,7 +855,42 @@ export interface AddAgentOptions {
   permissionMode?: PermissionMode
   use200kContext?: boolean
   role?: string
+  /**
+   * #456: new-worktree, work in the project's unused worktree on that branch instead when it is merged into the base and
+   * clean, brought up to the base; existing-worktree, bring the one chosen up to the base when it is merged and clean.
+   * The Add Agent dialog and the Agent API ask for it; templates reuse their own way (#289).
+   */
+  reuseWorktree?: boolean
 }
+
+/**
+ * The project's unused worktree on the branch a new worktree would get (#456), checked against the base: `reusable`
+ * when merged into it (a squash merge counting) and clean, else `why` not (commits not merged, uncommitted files, or git
+ * couldn't say).
+ */
+export interface WorktreeMatch {
+  path: string
+  branch: string
+  base: string
+  reusable: boolean
+  why?: string
+}
+
+/**
+ * What adding an agent did about a worktree it could reuse (#456): `reused` it (`upTo`: brought up to the base, at that
+ * commit; without, it was there already or kept its work), or made a new one because it held work (`notReused`).
+ */
+export interface WorktreeReuse {
+  branch: string
+  reused: boolean
+  base: string
+  upTo?: string
+  keptWork?: boolean
+  notReused?: string
+}
+
+/** An agent just added, with what happened to a worktree it could reuse (#456). */
+export type AddedAgent = AgentDef & { reuse?: WorktreeReuse }
 
 export interface ProjectGitInfo {
   isRepo: boolean
@@ -1612,7 +1652,11 @@ export type TranscriptItem = TranscriptItemBase &
     | { kind: 'tool'; tool: TranscriptTool }
     | { kind: 'compaction'; trigger: string; preTokens: number; postTokens: number; nextRequestTokens: number | null; summary: string | null }
     | { kind: 'command'; name: string; args: string; output: string }
-    | { kind: 'notice'; text: string; level: 'info' | 'error' }
+    /**
+     * A note in the conversation: the CLI's own (an API error, a sign-in or usage limit, an interruption), or what it
+     * relays (`from`): a background task's summary, or a command's output with no command (#342).
+     */
+    | { kind: 'notice'; text: string; level: 'info' | 'error'; from?: 'task' | 'command' }
   )
 
 export interface Transcript {

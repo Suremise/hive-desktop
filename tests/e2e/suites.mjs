@@ -169,11 +169,13 @@ export const SUITES = [
   { name: 'unsaved' },
   { name: 'unusedwt' },
   { name: 'update' },
+  { name: 'wakepaste' },
   { name: 'wakeuntaken' },
   { name: 'watchrelease' },
   { name: 'welcomefit' },
   { name: 'windows' },
   { name: 'wsmove' },
   { name: 'wsoverview' },
-  { name: 'wtrecreate' }
+  { name: 'wtrecreate' },
+  { name: 'wtreuse' }
 ]

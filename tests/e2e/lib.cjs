@@ -251,13 +251,23 @@ async function openWorkspace(inv, page, ws, ms = 20000) {
   if (!ok) throw new Error(`The window didn't show the workspace ${name} within ${ms / 1000} s`)
 }
 
-/** Starts the dev build with a test profile. Returns { app, page, inv } (inv calls an IPC channel). */
-async function launch({ userData, env = {}, viewport = { width: 1400, height: 850 } }) {
+/**
+ * Starts the dev build with a test profile. Returns { app, page, inv } (inv calls an IPC channel). readyMs bounds the
+ * wait for its window to be ready; one that isn't is closed and the failure thrown.
+ */
+async function launch({ userData, env = {}, viewport = { width: 1400, height: 850 }, readyMs = 90000 }) {
   // The run context's environment (quiet, tips off, the suite's port) with the profile and the suite's own variables.
   const app = await _electron.launch({ executablePath: ELECTRON, args: [ROOT], cwd: ROOT, env: hiveEnv({ HIVE_USER_DATA: userData, ...env }) })
-  const page = await app.firstWindow()
-  await fitWindow(app, page, viewport)
-  await appReady(page)
+  let page
+  try {
+    page = await app.firstWindow()
+    await fitWindow(app, page, viewport)
+    await appReady(page, readyMs)
+  } catch (e) {
+    // Started but never ready: it closes here, as no caller gets it to close (#464); its own failure is the one thrown.
+    await app.close().catch(() => undefined)
+    throw e
+  }
   const inv = (ch, ...a) => page.evaluate(([c, args]) => window.hive.invoke(c, ...args), [ch, a])
   return { app, page, inv }
 }
@@ -317,6 +327,16 @@ async function acceptClaudeTrust(inv, proj, agentId, timeoutMs = 15000) {
     await sleep(500)
   }
   return false
+}
+
+/**
+ * After a restart: answers the relaunch's trust question (acceptClaudeTrust), but only once `spawned()` says its new
+ * process runs (within spawnMs): until then the terminal still holds the previous process's screen, its question too,
+ * so nothing is read or typed there (#341). { spawned, trusted }: spawned false when the new process wasn't seen.
+ */
+async function acceptRelaunchTrust(inv, proj, agentId, spawned, { spawnMs = 20000, timeoutMs = 30000 } = {}) {
+  if (!(await until(spawned, spawnMs))) return { spawned: false, trusted: false }
+  return { spawned: true, trusted: await acceptClaudeTrust(inv, proj, agentId, timeoutMs) }
 }
 
 /** The trust question's choice the terminal shows selected last ('No, exit' or 'Yes, …'), or null. */
@@ -427,7 +447,7 @@ function trustForCodex(folder, home = CODEX_HOME) {
 const ENVIRONMENT = [
   { why: 'usage or rate limit', re: /(?:usage|5-hour|weekly|session|opus|sonnet) limit reached|hit your (?:usage )?limit|rate_limit_error|rate limit(?:ed| exceeded)|too many requests|API Error: 429/i },
   { why: 'the API is overloaded', re: /overloaded_error|API Error: 529/i },
-  { why: 'not signed in', re: /select login method|please run \/login|not logged in|invalid api key|oauth token (?:has )?expired|authentication_error|sign in with chatgpt|run `?codex login/i },
+  { why: 'not signed in', re: /select login method|please run \/login|not logged in|invalid api key|oauth token (?:has )?expired|oauth session expired|authentication_error|sign in with chatgpt|run `?codex login/i },
   { why: 'network', re: /API Error: (?:Connection error|Request timed out)|unable to connect to (?:the )?(?:Anthropic )?API|stream disconnected before completion|error sending request for url \(https:\/\/[\w.]*(?:openai|chatgpt)|ENOTFOUND [\w.]*(?:anthropic|openai|chatgpt)/i }
 ]
 /** Terminal text as plain words: control sequences become spaces, runs of space one. */
@@ -685,6 +705,20 @@ function codexHook(runId) {
 // What still runs from a test's own folder after its Hive closed (#542): folderProcesses.cjs.
 const { processTree, stopProcessesIn } = require('./folderProcesses.cjs')
 
+/**
+ * Whether process `pid` still runs: false only when Windows says there is no such process (ESRCH). Any other error
+ * (EPERM…) leaves its state unknown, so it is thrown rather than read as "it exited" (#339).
+ */
+function processRunning(pid) {
+  try {
+    process.kill(pid, 0)
+    return true
+  } catch (e) {
+    if (e?.code === 'ESRCH') return false
+    throw new Error(`Can't tell whether process ${pid} runs: ${e?.code ?? e?.message ?? e}`, { cause: e })
+  }
+}
+
 const codexSignedIn = () => fs.existsSync(path.join(CODEX_HOME, 'auth.json'))
 
 /** A real PNG (a w×h gradient) for image previews, pastes and drops. */
@@ -767,4 +801,4 @@ async function haikuAutoCaveat(page, autoOffered, timeoutMs = 10000) {
   return [ok, JSON.stringify(await caveat())]
 }
 
-module.exports = { ROOT, ELECTRON, WORK, CODEX_HOME, CLAUDE_TEST_HOME, TRASH, trashed, tidyUp, ownClaudeHome, probeDir, hiveEnv, childEnv, baseEnv, git, GIT_LOCKED, plainText, trustChoice, haikuAutoMode, haikuAutoCaveat, sleep, port, until, hoverTip, quitWatch, appReady, openWorkspace, hadEstimate, fitWindow, enableProviders, fakeClaude, launch, waitForProvider, addAgent, soloAgent, ptyKey, acceptClaudeTrust, withFileLock, trustForCodex, gitProject, codexSignedIn, launchDir, launchHook, codexHook, processTree, stopProcessesIn, samplePng, environmentProblem, environmentProblems, stepVerdict, checked, cliStep, sendPrompt, skip }
+module.exports = { ROOT, ELECTRON, WORK, CODEX_HOME, CLAUDE_TEST_HOME, TRASH, trashed, tidyUp, ownClaudeHome, probeDir, hiveEnv, childEnv, baseEnv, git, GIT_LOCKED, plainText, trustChoice, haikuAutoMode, haikuAutoCaveat, sleep, port, until, hoverTip, quitWatch, appReady, openWorkspace, hadEstimate, fitWindow, enableProviders, fakeClaude, launch, waitForProvider, addAgent, soloAgent, ptyKey, acceptClaudeTrust, acceptRelaunchTrust, withFileLock, trustForCodex, gitProject, codexSignedIn, launchDir, launchHook, codexHook, processTree, stopProcessesIn, processRunning, samplePng, environmentProblem, environmentProblems, stepVerdict, checked, cliStep, sendPrompt, skip }

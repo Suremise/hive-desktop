@@ -1,0 +1,118 @@
+// A wake typed into a CLI that is busy for a moment (#597), on fake Claude Code sessions (fake-claude/): an agent and
+// the Assistant. While fake-slow-input is there the fake reads no input, so Hive's Ctrl+U, the line and its Enter reach
+// it in one read, as they reached a busy Claude Code, which took such a read as a paste with those keys in it as text
+// and sent the line neither on Enter nor on Enter again (the fake acts that out). Hive puts the line in as a bracketed
+// paste, which is text however it arrives: the wake is taken at its first Enter, and the log says so. A wake typed
+// while the CLI reads its input as usual is taken too. Dev build, throwaway profile, workspace and CLAUDE_CONFIG_DIR.
+const lib = require('./lib.cjs')
+const { _electron } = require('playwright-core')
+const fs = require('fs')
+const path = require('path')
+
+const userData = path.join(lib.WORK, 'wakepaste-profile')
+const ws = path.join(lib.WORK, 'wakepaste-ws')
+const claudeHome = path.join(lib.WORK, 'wakepaste-claude-home')
+const alpha = path.join(ws, 'alpha')
+let failed = 0
+const check = (name, ok, extra = '') => {
+  lib.checked(ok)
+  if (!ok) failed++
+  console.log(`${ok ? 'PASS' : 'FAIL'} ${name}${ok || !extra ? '' : ` (${extra})`}`)
+}
+
+;(async () => {
+  for (const d of [userData, ws, claudeHome]) fs.rmSync(d, { recursive: true, force: true })
+  fs.mkdirSync(claudeHome, { recursive: true })
+  lib.gitProject(alpha)
+  fs.writeFileSync(path.join(claudeHome, 'fake-trusted.json'), JSON.stringify([ws.toLowerCase(), alpha.toLowerCase(), path.join(ws, '.hive', 'assistant').toLowerCase()]))
+  lib.enableProviders(userData)
+  const cfgFile = path.join(userData, 'config.json')
+  const cfg = JSON.parse(fs.readFileSync(cfgFile, 'utf8'))
+  cfg.settings.providers['claude-code'].executablePath = path.join(__dirname, 'fake-claude', 'fake-claude.cmd')
+  cfg.settings.general = { ...cfg.settings.general, confirmOnQuit: 'never' }
+  cfg.settings.agentApi = { ...cfg.settings.agentApi, enabled: true }
+  fs.writeFileSync(cfgFile, JSON.stringify(cfg, null, 2))
+
+  // A short wait for a wake to be taken (10 s in Hive): a wake that isn't taken shows soon.
+  const env = lib.hiveEnv({ HIVE_USER_DATA: userData, HIVE_API_PORT: lib.port(47833), CLAUDE_CONFIG_DIR: claudeHome, HIVE_TEST_TIPS: 'off', HIVE_TEST_WAKE_TAKE_MS: '3000' })
+  const app = await _electron.launch({ executablePath: lib.ELECTRON, args: [lib.ROOT], cwd: lib.ROOT, env })
+  const page = await app.firstWindow()
+  page.on('pageerror', (e) => check('no page errors', false, e.message))
+  await lib.fitWindow(app, page, { width: 1400, height: 900 })
+  await lib.appReady(page)
+  const inv = (ch, ...a) => page.evaluate(([c, x]) => window.hive.invoke(c, ...x), [ch, a])
+  await lib.openWorkspace(inv, page, ws)
+  const home = (await inv('workspace:refresh')).assistant.path
+
+  const live = async (p, id) => (await inv('session:live')).find((s) => s.projectPath.toLowerCase() === p.toLowerCase() && s.agentId === id)
+  const wakes = () => {
+    const f = path.join(claudeHome, 'fake-wakes.jsonl')
+    return fs.existsSync(f) ? fs.readFileSync(f, 'utf8').trim().split('\n').filter(Boolean).map((l) => JSON.parse(l)) : []
+  }
+  const hiveLog = () => {
+    const f = path.join(userData, 'logs', 'hive.log')
+    return fs.existsSync(f) ? fs.readFileSync(f, 'utf8') : ''
+  }
+  /** Hive's log lines about wakes typed into agent `id`. */
+  const wakeLines = (id) => hiveLog().split('\n').filter((l) => l.includes(id) && /\[watches\] (Woke|The wake typed into)/.test(l))
+  const say = async (p, id, text) => {
+    await inv('pty:write', lib.ptyKey(p, id), text)
+    await lib.sleep(300) // on purpose: the fake reads a typed line before its Enter, as a CLI does
+    await inv('pty:write', lib.ptyKey(p, id), '\r')
+  }
+  const idle = async (p, id) => ['ready', 'finished'].includes((await live(p, id))?.status)
+
+  await page.getByText('alpha', { exact: true }).first().click()
+  const agent = await lib.addAgent(inv, alpha, { name: 'Watcher' })
+  const card = (await inv('tasks:create', { title: 'Watched', project: 'alpha' })).number
+  await inv('session:start', alpha, { agentId: agent.id })
+  check('the agent starts', !!(await lib.until(() => idle(alpha, agent.id), 30000)))
+  await inv('session:start', home, { agentId: 'assistant' })
+  check('the Assistant starts', !!(await lib.until(() => idle(home, 'assistant'), 30000)))
+
+  for (const [who, p, id] of [
+    ['an agent', alpha, agent.id],
+    ['the Assistant', home, 'assistant']
+  ]) {
+    const watch = async () => {
+      await say(p, id, `hive hive_wait_for_tasks {"cards":[${card}],"changes":["comment"],"wake":true}`)
+      return lib.until(async () => (await live(p, id))?.status === 'watching', 15000)
+    }
+    const mine = () => wakes().filter((w) => w.text.includes(`#${card}`) && w.agent === name)
+    let name = null
+
+    // Read as usual: taken at its first Enter.
+    check(`${who} watches the card`, !!(await watch()))
+    const before = wakes().length
+    await inv('tasks:comment', card, `Read as usual, for ${who}`)
+    const first = await lib.until(() => wakes().length > before && wakes().at(-1), 20000)
+    name = first?.agent
+    check(`${who}: a wake typed while the CLI reads as usual is taken`, !!first && first.text.includes(`Read as usual, for ${who}`), JSON.stringify(first))
+    check(`${who}: …at its first Enter`, !!(await lib.until(() => wakeLines(id).some((l) => /was taken after \d+ ms/.test(l)), 10000)) && !wakeLines(id).some((l) => /wasn't taken/.test(l)), wakeLines(id).join(' | '))
+    await lib.until(() => idle(p, id), 20000)
+
+    // Busy for a moment: Hive's Ctrl+U, the line and its Enter reach it in one read.
+    check(`${who} watches again`, !!(await watch()))
+    const knob = path.join(claudeHome, `fake-slow-input-${String(name).replace(/[^\w-]/g, '_')}.txt`)
+    fs.writeFileSync(knob, '')
+    check(`${who}: its CLI stops reading its input`, !!(await lib.until(() => fs.existsSync(knob.replace(/\.txt$/, '.paused')), 10000)))
+    const typed = wakeLines(id).filter((l) => / Woke /.test(l)).length
+    const taken = mine().length
+    await inv('tasks:comment', card, `Read in one go, for ${who}`)
+    // Hive has typed it and pressed Enter (its log says Woke once the Enter is in).
+    check(`${who}: Hive types the wake meanwhile`, !!(await lib.until(() => wakeLines(id).filter((l) => / Woke /.test(l)).length > typed, 20000)), wakeLines(id).join(' | '))
+    fs.rmSync(knob, { force: true })
+    const got = await lib.until(() => mine().length > taken && mine().at(-1), 20000)
+    check(`${who}: the wake its CLI read in one go is taken`, !!got && got.text.includes(`Read in one go, for ${who}`), JSON.stringify(mine()))
+    check(`${who}: …at its first Enter: Hive never presses Enter again`, !!(await lib.until(() => wakeLines(id).filter((l) => /was taken after \d+ ms/.test(l)).length >= 2, 10000)) && !wakeLines(id).some((l) => /wasn't taken/.test(l)), wakeLines(id).join(' | '))
+    check(`${who}: nothing marked as not taken`, !(await live(p, id))?.untakenLine)
+    await lib.until(() => idle(p, id), 20000)
+  }
+
+  await app.close()
+  console.log(failed ? `\n${failed} FAILED` : '\nALL PASSED')
+  process.exit(failed ? 1 : 0)
+})().catch((e) => {
+  console.error(e)
+  process.exit(1)
+})

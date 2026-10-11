@@ -136,6 +136,7 @@ export const COPILOT_DESCRIPTOR: ProviderDescriptor = {
   cliName: 'copilot',
   icon: 'copilot',
   setupUrl: 'https://docs.github.com/copilot/how-tos/copilot-cli',
+  pricingUrl: 'https://docs.github.com/copilot/reference/ai-models/supported-models',
   permissionModes: COPILOT_PERMISSION_MODES,
   // Ask, with edits in the agent's folder approved (#468).
   defaultPermissionMode: 'accept-edits',
@@ -170,7 +171,8 @@ export const COPILOT_DESCRIPTOR: ProviderDescriptor = {
     backgroundSessions: false,
     backgroundWakes: false,
     // Its interface fills the screen: drawn while its terminal changed size, it can stay at the old width (#486).
-    startupSizeRefresh: true
+    startupSizeRefresh: true,
+    bracketedPaste: false
   },
   reservedKeys: [],
   instructionsFile: 'AGENTS.md',

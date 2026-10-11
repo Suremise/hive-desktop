@@ -1,7 +1,8 @@
 import { useEffect, useRef, useState, type ReactNode } from 'react'
 import { DEFAULT_PROJECT_CONFIG, MAX_AGENTS, ROLE_MAX, effectiveModelLabel, formatBytes, mergeBlocked, projectAgents, slugify, transcriptWarnLimit } from '@shared/defaults'
 import { PROVIDERS, agentProvider, chosenDefaultProvider, defaultProviderPending, isProviderEnabled, modeCaveat, offeredModes, permissionLabel, projectDefaultProvider, projectProviderConfig, projectUse200k, providerDescriptor, providerName, providerSettings } from '@shared/providers'
-import type { AddAgentOptions, AgentBranchStatus, EffortLevel, MergeResult, PermissionMode, ProjectGitInfo, ProjectInfo, ProviderId } from '@shared/types'
+import type { AddAgentOptions, AgentBranchStatus, EffortLevel, MergeResult, PermissionMode, ProjectGitInfo, ProjectInfo, ProviderId, WorktreeMatch } from '@shared/types'
+import { reuseNote } from '@shared/unusedWorktrees'
 import type { TemplateAgent } from '@shared/templates'
 import { gitFixText, gitProblemText } from '@shared/gitTool'
 import * as actions from '../actions'
@@ -167,6 +168,8 @@ export function AddAgentDialog() {
   const [branchEdited, setBranchEdited] = useState(false)
   const [base, setBase] = useState('')
   const [existing, setExisting] = useState('')
+  // The unused worktree a new one on that branch would reuse (#456), as last checked; null: none.
+  const [match, setMatch] = useState<WorktreeMatch | null>(null)
   const [model, setModel] = useState('')
   const [effort, setEffort] = useState('')
   const [permission, setPermission] = useState('')
@@ -216,6 +219,23 @@ export function AddAgentDialog() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [path])
 
+  // New worktree: whether an unused worktree is already on that branch (#456), looked at once the typing pauses.
+  useEffect(() => {
+    setMatch(null)
+    const b = branch.trim()
+    if (!path || location !== 'new-worktree' || !b || !base || !git?.worktrees.some((w) => !w.used && w.branch === b)) return
+    let live = true
+    const t = setTimeout(() => {
+      void call('agents:worktreeMatch', path, b, base)
+        .then((m) => live && setMatch(m))
+        .catch(() => undefined)
+    }, 300)
+    return () => {
+      live = false
+      clearTimeout(t)
+    }
+  }, [path, location, branch, base, git])
+
   // Opened while Hive was still looking for the CLIs: Automatic's pick, once it is known (#506).
   useEffect(() => {
     const p = useStore.getState().workspace?.projects.find((x) => x.path === path)
@@ -252,6 +272,7 @@ export function AddAgentDialog() {
         branch: location === 'new-worktree' ? branch.trim() : undefined,
         base: location === 'new-worktree' ? base : undefined,
         worktreePath: location === 'existing-worktree' ? existing : undefined,
+        reuseWorktree: true,
         model: model || undefined,
         effort: (effort || undefined) as EffortLevel | undefined,
         permissionMode: (permission || undefined) as PermissionMode | undefined,
@@ -259,6 +280,11 @@ export function AddAgentDialog() {
       })
       await actions.refreshWorkspace()
       close()
+      // What happened to an unused worktree it could reuse (#456): "Reused hive/b4, brought up to main at 66ce11b".
+      if (def.reuse) {
+        const note = reuseNote(def.reuse)
+        notify('info', `${def.name}: ${def.reuse.reused ? 'worktree reused' : 'new worktree'}`, note.charAt(0).toUpperCase() + note.slice(1))
+      }
       actions.noteManyAgents(project.path)
       const p = useStore.getState().workspace?.projects.find((x) => x.path === project.path)
       // Show the new agent in a pane: a single-pane layout switches to it.
@@ -353,6 +379,36 @@ export function AddAgentDialog() {
                     </option>
                   ))}
                 </select>
+                {match && !match.reusable && (
+                  <div className="banner info span2" data-worktree-match="held">
+                    <Icon name="info" />
+                    <span>
+                      <code>{match.branch}</code> already has an unused worktree with work in it ({match.why}). Hive makes a new one, or{' '}
+                      <a
+                        onClick={(e) => {
+                          // Inside the New worktree choice's label: its click would choose New worktree again.
+                          e.preventDefault()
+                          setExisting(match.path)
+                          setLocation('existing-worktree')
+                        }}
+                      >
+                        reuse it (it keeps its work)
+                      </a>
+                      .
+                    </span>
+                  </div>
+                )}
+                {match?.reusable ? (
+                  <div className="faint span2" data-worktree-match="reuse">
+                    Reuses <code>{match.path}</code>, the unused worktree already on <code>{match.branch}</code>: it is merged into {match.base} and clean, so Hive brings it up to {match.base}.
+                    {setup ? (
+                      <>
+                        {' '}
+                        <code>{setup}</code> runs again only if a lockfile changed.
+                      </>
+                    ) : null}
+                  </div>
+                ) : (
                 <div className="faint span2">
                   Created in <code>{git?.worktreesRoot}\{slugify(name)}</code>
                   {copy.trim() ? (
@@ -369,6 +425,7 @@ export function AddAgentDialog() {
                     ' Set a setup command (e.g. npm install) in Project Settings → Agents.'
                   )}
                 </div>
+                )}
               </div>
             )}
           </div>
@@ -388,6 +445,7 @@ export function AddAgentDialog() {
                     </option>
                   ))}
                 </select>
+                <div className="faint span2">One merged into {git?.current ?? 'the current branch'} and clean is brought up to it first; any other keeps its work as it is.</div>
               </div>
             )}
           </div>

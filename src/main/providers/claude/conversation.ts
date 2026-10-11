@@ -229,11 +229,11 @@ export class ConversationParser implements ConversationParserLike {
     if (out.length) {
       const text = stripAnsi(out.join('\n')).trim()
       if (this.lastCommand) this.lastCommand.output = [this.lastCommand.output, text].filter(Boolean).join('\n')
-      else if (text) this.push({ kind: 'notice', timestamp: ts, text, level: 'info' })
+      else if (text) this.push({ kind: 'notice', timestamp: ts, text, level: 'info', from: 'command' })
       return true
     }
     if (t.startsWith('<task-notification>')) {
-      this.push({ kind: 'notice', timestamp: ts, text: (tag(t, 'summary') ?? 'A background task finished').trim(), level: 'info' })
+      this.push({ kind: 'notice', timestamp: ts, text: (tag(t, 'summary') ?? 'A background task finished').trim(), level: 'info', from: 'task' })
       return true
     }
     return t.startsWith('<local-command-caveat>') || t.startsWith('<system-reminder>')

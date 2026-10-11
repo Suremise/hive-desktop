@@ -2,7 +2,7 @@ import http, { type IncomingMessage, type ServerResponse } from 'http'
 import { AsyncLocalStorage } from 'async_hooks'
 import { randomBytes, timingSafeEqual } from 'crypto'
 import { app } from 'electron'
-import { basename, dirname, join, relative, resolve as resolvePath } from 'path'
+import { basename, dirname, join, resolve as resolvePath } from 'path'
 import { stat } from 'original-fs/promises'
 import type { AgentApiInfo, AssistantControl, EffortLevel, HiveEvent, LiveSessionState, PermissionMode, ProviderId, SkillInfo, TaskCard, TaskColumn, TaskPatch, TaskStartTarget, ToastLevel } from '../shared/types'
 import { DEFAULT_API_PORT, HIVE_DIR, projectAgents, stopAsksUser, transcriptWarnLimit } from '../shared/defaults'
@@ -26,13 +26,15 @@ import { cancelWatch, encodeSince, registerAgentWatch, registerLaneWatch, regist
 import { readLaneCondition } from '../shared/laneWatch'
 import { agentBusy, AGENT_WATCH_MAX_AGENTS, type AgentNow, type WatchedAgent } from '../shared/agentWatch'
 import { alreadyThere, cardChange, changesBetween, decodeSince, markOf, movedIntoSince, readCondition, AGENT_WAIT_MAX_SECONDS, WAIT_MAX_SECONDS, WATCH_DEFAULT_LIMIT_MINUTES, WATCH_MAX_LIMIT_MINUTES, type CardChange, type CardMark } from '../shared/watch'
-import { insideReal, readCapped, readJson, writeJsonAtomic } from './fsutil'
+import { insideReal, placeMatcher, placeRelative, readCapped, readJson, samePlace, writeJsonAtomic } from './fsutil'
+import { listWorktrees } from './worktrees'
+import { reuseNote } from '../shared/unusedWorktrees'
 import { GUIDANCE_REVISION, skillRevisions } from './guidance'
 import agentApiDoc from '../../docs/AGENT_API.md?raw'
 import { createLogger } from './logger'
 import { listMcp } from './mcp'
 import { assertInShared, createHandover, handoversFor, NoteConflict, notesTree, readNote, writeNote } from './notes'
-import { mergeSlots } from './mergeSlotHost'
+import { mergeSlots, slotTestEvent } from './mergeSlotHost'
 import * as lanes from './lanes'
 import { laneCards, laneName, laneNumber } from '../shared/lanes'
 import { DEFAULT_WAIT_MS, MAX_WAIT_MS, MergeSlotError, slotBranch, slotCards, type SlotAgent } from './mergeSlots'
@@ -254,8 +256,9 @@ export function apiEnv(projectPath: string, agentId: string): Record<string, str
 /** An open workspace by its folder path or its name. A name two open workspaces share is refused (409): use the path. */
 export function findWorkspace(want: string): WorkspaceService | null {
   const v = want.toLowerCase()
-  const byPath = /[\\/]/.test(want) ? resolvePath(want).toLowerCase() : null
-  const hits = openWorkspaces().filter((w) => (byPath ? w.path!.toLowerCase() === byPath : basename(w.path!).toLowerCase() === v))
+  // By path, the same place by any other name: a junction, an 8.3 short name (#494).
+  const at = /[\\/]/.test(want) ? placeMatcher(resolvePath(want)) : null
+  const hits = openWorkspaces().filter((w) => (at ? at(w.path!) : basename(w.path!).toLowerCase() === v))
   if (hits.length > 1) {
     throw new HttpError(409, `Several open workspaces are named "${want}" (${hits.map((w) => w.path).join(', ')}): say which by its full path in the X-Hive-Workspace header or ?workspace=`)
   }
@@ -805,11 +808,17 @@ route('POST', '/v1/projects/:name/agents', async ({ params, body }) => {
     if (!set.provider && defaultProviderPending(cfg, config.settings)) await providerService.settle()
     const provider = set.provider ?? projectDefaultProvider(cfg, config.settings)
     if (!isProviderEnabled(config.settings, provider)) throw new HttpError(409, `${PROVIDERS.find((x) => x.id === provider)?.name ?? provider} is turned off in Settings → Providers.`)
+    // An unused worktree, by its folder or branch (#456): checked as the dialog's Existing worktree is.
+    const existing = typeof body?.existingWorktree === 'string' ? body.existingWorktree.trim() : ''
+    const tree = existing ? (await listWorktrees(p)).find((w) => !samePlace(w.path, p) && (w.branch === existing || samePlace(w.path, existing))) : undefined
+    if (existing && !tree) throw new HttpError(404, `${project} has no worktree at or on "${existing}".`)
     const def = await addAgent(p, {
       name: body?.name ? String(body.name) : undefined,
-      location: body?.worktree ? 'new-worktree' : 'project',
+      location: tree ? 'existing-worktree' : body?.worktree ? 'new-worktree' : 'project',
+      ...(tree ? { worktreePath: tree.path } : {}),
       branch: body?.branch ? String(body.branch) : undefined,
       base: body?.base ? String(body.base) : undefined,
+      reuseWorktree: true,
       ...set,
       use200kContext: set.use200kContext ?? undefined,
       provider
@@ -826,7 +835,8 @@ route('POST', '/v1/projects/:name/agents', async ({ params, body }) => {
         started = ` (it didn't start: ${(e as Error).message})`
       }
     }
-    return { done: `Added ${def.name} to ${project}${def.worktree ? ` (worktree, branch ${def.worktree.branch})` : ''}${started}`, result: { agent: def, project: await projectSummary(p) } }
+    const reuse = def.reuse ? reuseNote(def.reuse) : ''
+    return { done: `Added ${def.name} to ${project}${def.worktree ? ` (worktree, branch ${def.worktree.branch}${reuse ? `: ${reuse}` : ''})` : ''}${started}`, result: { agent: def, project: await projectSummary(p), ...(reuse ? { reuse } : {}) } }
   })
 })
 
@@ -1030,7 +1040,7 @@ async function agentActivity(p: string, agentId: string, detail = false) {
     toolCalls,
     recentTools,
     ...(Object.keys(clipped).length ? { clipped } : {}),
-    lockedFiles: sessions.locksFor(p, agentId).map((f) => relative(folder, f) || f),
+    lockedFiles: sessions.locksFor(p, agentId).map((f) => placeRelative(folder, f) || f),
     userTypedSecondsAgo: typed ? Math.round((Date.now() - typed) / 1000) : null,
     ...(msgs.queued.length ? { messagesWaiting: msgs.queued.map((m) => ({ from: m.from, at: m.at, text: clip(m.text.replace(/\s+/g, ' '), 80) })) } : {}),
     ...(msgs.last ? { lastMessages: msgs.last } : {})
@@ -1156,7 +1166,9 @@ route('POST', '/v1/projects/:name/merge-slot/claim', async ({ params, body, sign
     const t = body?.timeoutSeconds
     if (t !== undefined && (typeof t !== 'number' || !Number.isFinite(t) || t < 0)) throw new HttpError(400, 'timeoutSeconds must be a number of seconds')
     const waitMs = t === undefined ? DEFAULT_WAIT_MS : Math.min(MAX_WAIT_MS, t * 1000)
-    return { ...(await mergeSlots.claim(agent, p, branch, cards, waitMs, signal)), slot: mergeSlots.status(p, branch) }
+    const result = await mergeSlots.claim(agent, p, branch, cards, waitMs, signal)
+    slotTestEvent(agent, p, branch, result)
+    return { ...result, slot: mergeSlots.status(p, branch) }
   })
 )
 
@@ -1164,7 +1176,10 @@ route('POST', '/v1/projects/:name/merge-slot/release', async ({ params, body }) 
   slotCall(async () => {
     const p = projectByName(params[0])
     const agent = await slotAgent(p)
-    return mergeSlots.release(agent, p, await slotBranchFor(p, body?.branch))
+    const branch = await slotBranchFor(p, body?.branch)
+    const result = mergeSlots.release(agent, p, branch)
+    slotTestEvent(agent, p, branch, result)
+    return result
   })
 )
 

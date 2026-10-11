@@ -29,7 +29,11 @@
 //   Hive's performance metrics as a real call is), written to the transcript as that MCP call and its reply. A line
 //   Hive types to wake it ("[Hive] #12 is in Review…", a card watch) is logged in fake-wakes.jsonl and answered with
 //   the next line of fake-wakes-<agent>.txt (a test's script of what this agent does next); with a number N in
-//   fake-drop-enters-<agent>.txt, it drops the next N Enters after such a line, which stays typed (#376). "skill NAME" reads a skill
+//   fake-drop-enters-<agent>.txt, it drops the next N Enters after such a line, which stays typed (#376). It turns on
+//   bracketed paste, as Claude Code does. While fake-slow-input-<agent>.txt is in its home it reads no input, as a busy
+//   Claude Code (#597; fake-slow-input-<agent>.paused says it has stopped): what arrived meanwhile comes in one read,
+//   taken as Claude Code 2.1.296 takes one that isn't a bracketed paste: a paste, in which a Ctrl+U or an Enter is
+//   kept as text (not sent), and after which the next Enter is lost too. "skill NAME" reads a skill
 //   as Claude Code's Skill tool does: a Skill call in the transcript ("hive:NAME"), answered with the skill's SKILL.md
 //   from the launch's plugin folder (an error when it has none).
 // - "/compact [focus]" compacts as Claude Code does: PreCompact, a compaction boundary in the transcript after 1 s (N
@@ -45,9 +49,11 @@
 // - Ctrl+C twice, or "/exit", ends it with SessionEnd.
 // - With fake-signin.json in CLAUDE_CONFIG_DIR saying { "expired": true } (read each time; one test home, so one sign-in
 //   for all its agents, #309), it acts out an expired sign-in as Claude Code 2.1.291 does: `auth status --json` says
-//   it isn't logged in, and each prompt's turn ends at once with "Login expired · Please run /login" and a StopFailure
+//   it isn't logged in (indented JSON, exit 1, as 2.1.296 does), and each prompt's turn ends at once with "Login expired · Please run /login" and a StopFailure
 //   hook (error authentication_failed) instead of Stop. "/login" typed in it signs in (the file says expired: false)
 //   and carries the failed turn on by itself, as Claude Code did: a tool call (PostToolUse), then the reply and Stop.
+//   With "atLaunch": true as well, it stops before its session starts, as Claude Code 2.1.296 did with an OAuth session
+//   it couldn't refresh: "Failed to authenticate: OAuth session expired and could not be refreshed", exit 1 (#577).
 // - `--model fail-start` makes it refuse to start, printing an error and exiting with 1, as Claude Code does for an
 //   argument it rejects.
 // - `-p --input-format stream-json` answers the Agent SDK's initialize control request with Claude Code 2.1.289's
@@ -75,9 +81,21 @@ function signedOut() {
     return false
   }
 }
+/** The expired sign-in stops it at launch (fake-signin.json { "expired": true, "atLaunch": true }, #577). */
+function expiredAtLaunch() {
+  try {
+    const s = JSON.parse(fs.readFileSync(path.join(process.env.CLAUDE_CONFIG_DIR || '', 'fake-signin.json'), 'utf8'))
+    return s.expired === true && s.atLaunch === true
+  } catch {
+    return false
+  }
+}
+// As Claude Code prints it: indented JSON, and exit 1 when it isn't logged in (#577).
 if (args[0] === 'auth') {
-  console.log(JSON.stringify(signedOut() ? { loggedIn: false, authMethod: 'none' } : { loggedIn: true, authMethod: 'claude.ai' }))
-  process.exit(0)
+  const out = signedOut()
+  console.log(JSON.stringify(out ? { loggedIn: false, authMethod: 'none' } : { loggedIn: true, authMethod: 'claude.ai' }, null, 2))
+  process.stdout.write('', () => process.exit(out ? 1 : 0))
+  return
 }
 /** fake-models.json in the test home ({ haikuAuto }), or null (#234). */
 function fakeModels() {
@@ -164,7 +182,23 @@ function runMode() {
 // What it was started with, for suites that check the launch: the options, Claude Code's own variables and the
 // Agent API token Hive gave it.
 const launchEnv = Object.fromEntries(Object.entries(process.env).filter(([k]) => k.startsWith('CLAUDE_CODE_') || k.startsWith('HIVE_API_TOKEN')))
-fs.appendFileSync(path.join(home, 'fake-launches.jsonl'), JSON.stringify({ cwd: process.cwd(), sessionId, opts, env: launchEnv }) + '\n')
+fs.appendFileSync(path.join(home, 'fake-launches.jsonl'), JSON.stringify({ cwd: process.cwd(), sessionId, pid: process.pid, parent: process.ppid, opts, env: launchEnv }) + '\n')
+// How it ended, in fake-exits.jsonl in its home (#551): its own exit with the code, or an error it didn't catch (then
+// exit 1, as Node would). A launch with no line there was ended by Ctrl+C, its console closing or a kill.
+const exitLog = (entry) => {
+  try {
+    fs.appendFileSync(path.join(home, 'fake-exits.jsonl'), JSON.stringify({ at: new Date().toISOString(), pid: process.pid, sessionId, ...entry }) + '\n')
+  } catch {
+    // Its home gone: nothing to tell.
+  }
+}
+process.on('exit', (code) => exitLog({ code }))
+for (const event of ['uncaughtException', 'unhandledRejection'])
+  process.on(event, (e) => {
+    exitLog({ [event]: String(e?.stack ?? e) })
+    process.stderr.write(`${e?.stack ?? e}\n`)
+    process.exit(1)
+  })
 /**
  * The terminal's size, recorded in fake-sizes.jsonl in its home at the start and at each change (#247): what Hive tells
  * the CLI. Polled as well as on 'resize', which a ConPTY child doesn't always get.
@@ -494,6 +528,29 @@ function dropEnter() {
   }
 }
 
+/**
+ * fake-slow-input-<agent>.txt in its home: while it is there, no input is read (#597), as a busy Claude Code doesn't;
+ * fake-slow-input-<agent>.paused says the reading has stopped. Once it goes, the next read is what came meanwhile.
+ */
+let slowRead = false
+let lostEnters = 0
+if (home && process.stdin.isTTY) {
+  const agent = String(process.env.HIVE_AGENT || 'agent').replace(/[^\w-]/g, '_')
+  const knob = path.join(home, `fake-slow-input-${agent}.txt`)
+  const paused = path.join(home, `fake-slow-input-${agent}.paused`)
+  setInterval(() => {
+    const slow = fs.existsSync(knob)
+    if (slow && !process.stdin.isPaused()) {
+      process.stdin.pause()
+      fs.writeFileSync(paused, '')
+    } else if (!slow && fs.existsSync(paused)) {
+      fs.rmSync(paused, { force: true })
+      slowRead = true
+      process.stdin.resume()
+    }
+  }, 100) // kept, not unref'd: with its input paused, it is what keeps the fake running
+}
+
 // What arrives from the terminal: a line, Enter, Ctrl+U, Ctrl+C.
 let line = ''
 let onEnter = null
@@ -512,7 +569,14 @@ process.stdin.on('data', (data) => {
       trustMenu.on = trustMenu.on === 'No' ? 'Yes' : 'No'
       drawTrust()
     }
-  for (const ch of data.replace(/\x1b\[[0-9;?]*[ -/]*[@-~]/g, '')) {
+  const chars = data.replace(/\x1b\[[0-9;?]*[ -/]*[@-~]/g, '')
+  // The read after a slow spell (#597): several characters, not a bracketed paste, are a paste, as in Claude Code.
+  const pasted = slowRead && chars.length > 1 && !data.includes('\x1b[200~')
+  slowRead = false
+  if (pasted && /[\x15\r]/.test(chars)) lostEnters++
+  for (const ch of chars) {
+    // A Ctrl+U or an Enter in a paste is text: nothing is cleared or sent.
+    if (pasted && (ch === '\x15' || ch === '\r')) continue
     if (ch === '\x03') {
       if (++ctrlC >= 2) void quit()
       continue
@@ -529,6 +593,11 @@ process.stdin.on('data', (data) => {
       // A CLI that doesn't take the Enter after a line Hive typed (#376: Codex once left a wake in its prompt): the line
       // stays, as typed, for the next Enter.
       if (line.startsWith('[Hive]') && dropEnter()) continue
+      // The Enter after such a paste is lost too (#597).
+      if (lostEnters > 0 && line) {
+        lostEnters--
+        continue
+      }
       const text = line.trim()
       if (line) out('\r\n')
       line = ''
@@ -571,7 +640,8 @@ async function main() {
   // fake-linger-at-start.txt (N) in its home: N lingering processes the moment it starts, before anything else (#507).
   const atStart = path.join(home, 'fake-linger-at-start.txt')
   if (fs.existsSync(atStart)) leaveRunning(Number(fs.readFileSync(atStart, 'utf8')) || 1)
-  out('Claude Code (fake, for Hive tests)\r\n')
+  // Bracketed paste on, as Claude Code turns it on.
+  out('\x1b[?2004hClaude Code (fake, for Hive tests)\r\n')
   const trustFile = path.join(home, 'fake-trusted.json')
   const trusted = fs.existsSync(trustFile) ? JSON.parse(fs.readFileSync(trustFile, 'utf8')) : []
   if (!trusted.includes(cwd.toLowerCase())) {
@@ -583,6 +653,13 @@ async function main() {
     trustMenu = null
     if (!yes) process.exit(1)
     fs.writeFileSync(trustFile, JSON.stringify([...trusted, cwd.toLowerCase()]))
+  }
+  // An OAuth session that expired and can't be refreshed: Claude Code says so and exits with 1 before its session
+  // starts (#577, as 2.1.296 did).
+  if (expiredAtLaunch()) {
+    out('Failed to authenticate: OAuth session expired and could not be refreshed\r\n')
+    process.stdout.write('', () => process.exit(1))
+    return
   }
   // --name: Claude Code keeps it as the session's name (a custom title, as /rename does).
   if (opts['--name']) write({ type: 'custom-title', customTitle: opts['--name'] })

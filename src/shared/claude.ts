@@ -137,6 +137,7 @@ export const CLAUDE_DESCRIPTOR: ProviderDescriptor = {
   cliName: 'claude',
   icon: 'claude',
   setupUrl: 'https://code.claude.com/docs/en/setup',
+  pricingUrl: 'https://platform.claude.com/docs/en/about-claude/pricing',
   permissionModes: CLAUDE_PERMISSION_MODES,
   defaultPermissionMode: 'auto',
   // Plan mode would block the hive tools.
@@ -164,7 +165,8 @@ export const CLAUDE_DESCRIPTOR: ProviderDescriptor = {
     lockAsk: true,
     backgroundSessions: true,
     backgroundWakes: true,
-    startupSizeRefresh: false
+    startupSizeRefresh: false,
+    bracketedPaste: true
   },
   reservedKeys: ['MOD+B', 'MOD+K', 'MOD+O', 'MOD+R', 'MOD+T', 'MOD+G'],
   instructionsFile: 'CLAUDE.md',

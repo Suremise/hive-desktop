@@ -3,7 +3,7 @@ import { AssistantMark } from '../components/AssistantMark'
 import { CardChip } from '../components/CardChip'
 import { KeybindingsEditor } from '../components/Keybindings'
 import type { CompactionEvent, GitDiff, GitStatus, McpServerInfo, MemorySource, PlanLimit, ProjectConfig, ProjectInfo, ProviderId, SessionListItem, SessionUsage, SkillInfo, UnusedWorktree } from '@shared/types'
-import { unpricedModel, unpricedText } from '@shared/prices'
+import { unpricedModel, unpricedText, usesOwnPrices } from '@shared/prices'
 import { formatDateTime } from '@shared/dates'
 import { gitFixText } from '@shared/gitTool'
 import { UnusedHeading, UnusedWorkNotice, UnusedWorktreesLine, UnusedWorktreesSection, useUnusedWorktrees } from '../components/UnusedWorktrees'
@@ -222,7 +222,7 @@ export function OverviewTab({ project }: { project: ProjectInfo }) {
               </h2>
               <div className="cards">
                 <Card title="Tokens" value={formatTokens(tokens(t))} sub={`${formatTokens(t.output)} output`} />
-                <Card title="API-equivalent cost" value={costText(t)} sub={t.unpriced ? `${t.unpriced} without a price` : !t.estimated ? 'as reported' : p.capabilities.reportsCost ? 'partly estimated' : 'estimated'} tip={costTip} />
+                <Card title="API-equivalent cost" value={costText(t)} sub={t.unpriced ? `${t.unpriced} without a price` : !t.estimated ? 'as reported' : p.capabilities.reportsCost && !usesOwnPrices(p.id, settings) ? 'partly estimated' : 'estimated'} tip={costTip} />
                 <Card title="Sessions" value={t.sessions} sub={`${formatNumber(t.prompts)} prompts`} />
               </div>
               <PlanLimits provider={p.id} />

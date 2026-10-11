@@ -57,6 +57,7 @@ export const CODEX_DESCRIPTOR: ProviderDescriptor = {
   cliName: 'codex',
   icon: 'codex',
   setupUrl: 'https://developers.openai.com/codex/cli',
+  pricingUrl: 'https://openai.com/api/pricing/',
   permissionModes: CODEX_PERMISSION_MODES,
   defaultPermissionMode: 'approve-for-me',
   assistantMode: 'approve-for-me',
@@ -86,7 +87,8 @@ export const CODEX_DESCRIPTOR: ProviderDescriptor = {
     backgroundSessions: false,
     // Codex isn't told when a background terminal ends: it finds out only by checking during a turn.
     backgroundWakes: false,
-    startupSizeRefresh: false
+    startupSizeRefresh: false,
+    bracketedPaste: false
   },
   // Ctrl+T opens Codex's transcript view; Ctrl+G its external editor.
   reservedKeys: ['MOD+T', 'MOD+G'],

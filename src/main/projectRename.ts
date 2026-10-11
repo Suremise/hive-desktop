@@ -22,16 +22,19 @@ const log = createLogger('projectRename')
  * step knows what it has done.
  */
 export function followNames(ws: WorkspaceService, seen: ProjectSeen[]): void {
+  newest.set(ws, seen)
+  followSeen(ws, seen)
+}
+
+function followSeen(ws: WorkspaceService, seen: ProjectSeen[]): void {
   latest.set(ws, seen)
   if (running.has(ws)) return
   running.add(ws)
   const life = ws.lifetime
   void (async () => {
-    let last = seen
     try {
       for (let s = latest.get(ws); s; s = latest.get(ws)) {
         latest.delete(ws)
-        last = s
         await follow(ws, s)
       }
       failures.delete(ws)
@@ -40,8 +43,11 @@ export function followNames(ws: WorkspaceService, seen: ProjectSeen[]): void {
       failures.set(ws, n)
       const wait = Math.min(testHooks.retryMs * 2 ** (n - 1), 600_000)
       log.warn(`following the projects' names (tried again in ${Math.round(wait / 1000)} s)`, e)
+      // Tried again with the newest read, never the one that failed: a read since may have been followed meanwhile, and
+      // following an older one after it records a rename back that never happened (#555).
       setTimeout(() => {
-        if (!life.aborted && ws.lifetime === life) followNames(ws, latest.get(ws) ?? last)
+        const s = newest.get(ws)
+        if (s && !life.aborted && ws.lifetime === life) followSeen(ws, s)
       }, wait).unref?.()
     } finally {
       running.delete(ws)
@@ -49,12 +55,17 @@ export function followNames(ws: WorkspaceService, seen: ProjectSeen[]): void {
   })()
 }
 
+/** Whether the workspace's names are being followed now (tests wait for a run to end). */
+export const followingNames = (ws: WorkspaceService): boolean => running.has(ws)
+
 /** How soon a run that failed is tried again, at first (tests make it short). */
 export const testHooks = { retryMs: 5000 }
 const failures = new WeakMap<WorkspaceService, number>()
 
 const running = new WeakSet<WorkspaceService>()
 const latest = new WeakMap<WorkspaceService, ProjectSeen[]>()
+/** Each workspace's newest read of its projects, followed or not: what a retry follows. */
+const newest = new WeakMap<WorkspaceService, ProjectSeen[]>()
 /** What a workspace's lifetime has done: the renames followed (all through `seq`), and whether its records were adopted. */
 const done = new WeakMap<WorkspaceService, { life: AbortSignal; seq: number; adopted: NameJournal | null }>()
 

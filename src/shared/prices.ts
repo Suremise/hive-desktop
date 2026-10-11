@@ -1,14 +1,16 @@
-import type { AppSettings, ModelPrice, ProviderId, SessionUsage } from './types'
+import type { AppSettings, ModelCatalog, ModelPrice, ProviderId, SessionUsage } from './types'
 import { CLAUDE_CODE, baseModel } from './claude'
 import { CODEX } from './codex'
 import { COPILOT } from './copilot'
+import { providerDescriptor, providerSettings } from './providers'
 
 /**
  * API prices Hive ships, in USD per million tokens, for estimating what a session would have cost at
  * API rates (the Overview's "≈ cost"). They are editable defaults, never fetched (#125): in Settings → <provider> → API
  * prices the user can change, add and remove models, and Reset to defaults; only their changes are stored, so a later
  * Hive's prices still reach models they never edited. Claude Code reports its own cost, so its table is only a fallback
- * for sessions without one.
+ * for sessions without one, unless the user chooses their prices over the report (`costSource`, #436). Each table also
+ * lists the models the CLI has (its model list), priced or not, so a model a CLI update adds shows without a Hive release.
  *
  * Sources (checked 30 Sep 2026): Anthropic's model table (Claude API docs; cache writes 1.25× input and
  * cache reads 0.1× input unless listed) and OpenAI's API pricing page (standard tier).
@@ -77,14 +79,49 @@ export function modelPrice(provider: ProviderId, model: string | null | undefine
   return own[key] ?? own[model] ?? (removed.includes(key) ? null : (SHIPPED_PRICES[provider]?.[key] ?? null))
 }
 
-/** A provider's price table as Settings shows it: the shipped models not removed, then the user's own, each with its price. */
-export function priceRows(provider: ProviderId, settings?: Pick<AppSettings, 'providers'> | null): { model: string; price: ModelPrice; shipped: boolean; edited: boolean }[] {
+/** The models a CLI lists (#436), as its price table names them (an alias by the id it stands for); null without a list. */
+export function listedPriceModels(provider: ProviderId, catalog: Pick<ModelCatalog, 'models'> | null | undefined): string[] | null {
+  if (!catalog?.models.length) return null
+  return [...new Set(catalog.models.map((m) => priceKey(provider, m.resolved ?? m.value)).filter(Boolean))]
+}
+
+export interface PriceRow {
+  model: string
+  /** Null: no price yet ("No price: enter one"), a model only the CLI's list has. */
+  price: ModelPrice | null
+  shipped: boolean
+  edited: boolean
+  /** Whether the CLI lists it; null when there is no list to tell (the CLI couldn't be asked). */
+  listed: boolean | null
+}
+
+/**
+ * A provider's price table as Settings shows it: the shipped models not removed, then the user's own, then the models
+ * the CLI lists (`listed`, from listedPriceModels) that have no price, each with its price. A priced model the CLI no
+ * longer lists stays (for older sessions), marked.
+ */
+export function priceRows(provider: ProviderId, settings?: Pick<AppSettings, 'providers'> | null, listed?: readonly string[] | null): PriceRow[] {
   const ps = settings?.providers?.[provider]
   const own = ps?.prices ?? {}
   const removed = new Set(ps?.pricesRemoved ?? [])
   const shipped = SHIPPED_PRICES[provider] ?? {}
   const models = [...Object.keys(shipped).filter((m) => !removed.has(m) || own[m]), ...Object.keys(own).filter((m) => !shipped[m])]
-  return models.map((m) => ({ model: m, price: own[m] ?? shipped[m], shipped: !!shipped[m], edited: !!own[m] }))
+  const known = new Set(models.map((m) => priceKey(provider, m)))
+  const unpriced = (listed ?? []).filter((m) => !known.has(m) && !modelPrice(provider, m, settings))
+  const inList = listed ? new Set(listed) : null
+  return [
+    ...models.map((m) => ({ model: m, price: own[m] ?? shipped[m], shipped: !!shipped[m], edited: !!own[m], listed: inList ? inList.has(priceKey(provider, m)) : null })),
+    ...unpriced.map((m) => ({ model: m, price: null, shipped: false, edited: false, listed: true }))
+  ]
+}
+
+/**
+ * Whether a provider's session costs come from Hive's price table rather than the CLI's own report (#436): only for a
+ * provider that reports one (capabilities.reportsCost), when the user chose their prices. Hive never recomputes a
+ * reported cost otherwise, even when the CLI's own price table lags a price change (#442).
+ */
+export function usesOwnPrices(provider: ProviderId, settings?: Pick<AppSettings, 'providers'> | null): boolean {
+  return providerDescriptor(provider).capabilities.reportsCost && providerSettings(settings, provider).costSource === 'prices'
 }
 
 /**

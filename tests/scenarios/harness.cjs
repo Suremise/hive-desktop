@@ -125,6 +125,77 @@ function trialEnvironment({ status = null, replies = [], screen = '' } = {}) {
   return lib.environmentProblem([...replies, screen].join('\n'))
 }
 
+/** The lines of Hive's log (a test profile's), or none. */
+const logLines = (file) => {
+  try {
+    return fs.readFileSync(file, 'utf8').split(/\r?\n/)
+  } catch {
+    return []
+  }
+}
+/** Whether Hive's log says this agent's terminal exited (its process ended). */
+const ptyExitedIn = (file, agentId) => logLines(file).some((l) => /\[pty\] exit /.test(l) && l.includes(`#${agentId}⁩`))
+/**
+ * Why Hive says a CLI exited before its session started (sessions.ts failedStart), or '': the latest such line, which
+ * names the agent by its label, not its id (a scenario's session under test starts first).
+ */
+function startFailureIn(file) {
+  const line = logLines(file).filter((l) => /exited with code -?\d+ before it started: /.test(l)).pop() ?? ''
+  return /before it started: ⁨([^⁩]*)⁩/.exec(line)?.[1].trim() ?? ''
+}
+/**
+ * What Claude Code's own `auth status --json` says of its home now, through the executable Hive started this agent
+ * with (its log's spawn line), or null if it can't be asked. A test home only: `env` names it.
+ */
+function claudeAuthStatus(file, agentId, env) {
+  const spawned = logLines(file).filter((l) => /\[pty\] spawn /.test(l) && l.includes(`#${agentId}⁩`)).pop() ?? ''
+  const exe = /⁩: (.+?) \[/.exec(spawned)?.[1]
+  if (!exe || !env.CLAUDE_CONFIG_DIR) return null
+  let out = ''
+  try {
+    out = execFileSync(process.env.ComSpec || 'cmd.exe', ['/d', '/s', '/c', `"${exe}" auth status --json`], { env: lib.childEnv({ CLAUDE_CONFIG_DIR: env.CLAUDE_CONFIG_DIR }), encoding: 'utf8', timeout: 30000, windowsHide: true, windowsVerbatimArguments: true, stdio: ['ignore', 'pipe', 'ignore'] })
+  } catch (e) {
+    // Signed out, it exits with 1, still printing its answer.
+    out = typeof e?.stdout === 'string' ? e.stdout : ''
+  }
+  return parseAuthStatus(out)
+}
+/** `auth status --json`'s answer (indented JSON over several lines), or null when it printed none. */
+function parseAuthStatus(out) {
+  try {
+    const j = JSON.parse(String(out ?? '').trim())
+    return j && typeof j === 'object' ? j : null
+  } catch {
+    return null
+  }
+}
+
+/** Where a CLI's screen (plain text, one line) says something failed: from that word on. */
+const FAILURE_WORDS = /\b(?:error|errors|failed|failure|invalid|cannot|can't|unknown|not found|exception|refused|denied)\b.*$/i
+
+/**
+ * A CLI that exited before its session started (#577): skipped for the environment when what it last showed, the
+ * reason Hive gives, or (when Hive gives none) its sign-in status says so (an OAuth session it couldn't refresh prints
+ * its error and exits at once, often before a poll sees the screen); otherwise an error, at once rather than after the
+ * trial's limits.
+ */
+function launchEnded({ screen = '', reason = '', auth = null } = {}) {
+  const env = trialEnvironment({ screen: [screen, reason].join('\n') })
+  if (env) return { environment: env }
+  // Its auth status only stands in for a failure nobody saw: a concrete one, in Hive's reason or on its screen (an
+  // argument it rejects), stays an error even when the test home is signed out too, so a broken launch isn't hidden as
+  // the environment. A screen with no error on it (its banner) is no failure.
+  const failure = reason.trim() || (FAILURE_WORDS.exec(screen)?.[0] ?? '').slice(0, 200).trim()
+  if (!failure && auth?.loggedIn === false) return { environment: "not signed in: its auth status says it isn't logged in" }
+  const said = failure || screen.slice(-200).trim()
+  return { error: `the session ended at launch${said ? `: ${said}` : ''}` }
+}
+/**
+ * The CLI's own notices in a transcript's items (#342): not a background task's summary or a command's output (a
+ * notice `from` them), which may discuss a sign-in or a limit without the CLI having one.
+ */
+const cliNotices = (items) => (items ?? []).filter((x) => x.kind === 'notice' && !x.from).map((x) => x.text)
+
 /** What to do about an environment skip, said once for the trials it stops (never a sign-in from here). */
 function environmentAdvice(why, providerKey) {
   if (PROVIDERS[providerKey]?.fake) return 'run them without --signed-out (the fake was started signed out)'
@@ -136,7 +207,8 @@ function environmentAdvice(why, providerKey) {
 
 /**
  * Runs `sc` with `providerKey` (fake, claude-code or codex). `opts`: { model, effort, timeoutMs, port, keep, workRoot,
- * signedOut (a fake only: it acts out an expired sign-in, for checking the environment skip) }.
+ * signedOut (a fake only: it acts out an expired sign-in, for checking the environment skip; 'launch': one that stops it
+ * at launch) }.
  * Returns { scenario, provider, model, cliVersion, guidance, observed, checks, usage, seconds, error }.
  */
 async function runScenario(sc, providerKey, opts = {}) {
@@ -152,7 +224,9 @@ async function runScenario(sc, providerKey, opts = {}) {
   const fakeHome = path.join(root, 'claude-home')
   const fakeCodexHome = path.join(root, 'codex-home')
   const mcpLog = path.join(root, 'mcp-calls.jsonl')
-  // The stand-in model for fake-copilot, on a port of its own; closed when the run ends.
+  // Each change to the merge slots, with its time (HIVE_TEST_MERGE_SLOT_LOG, #374): who held one and who waited, when.
+  const slotLog = path.join(root, 'merge-slots.jsonl')
+  // What fake-copilot's stand-in model was sent (it starts just before the launch, below).
   const modelLog = path.join(root, 'copilot-api.jsonl')
   // Emptied first (with no evidence store: a caller of its own, like an e2e suite). Still in use (something an earlier
   // run left running holds it, #542): this scenario fails, saying so, and the run goes on.
@@ -163,7 +237,6 @@ async function runScenario(sc, providerKey, opts = {}) {
       return { scenario: sc.id, title: sc.title, provider: providerKey, model: opts.model ?? '(default)', role: sc.role ?? 'agent', checks: [], observed: null, usage: null, measures: null, seconds: 0, error: `its folder ${root} is still in use from an earlier run (${e.code ?? e.message}): something left running holds it` }
     }
   }
-  const standIn = p.standIn ? await startFakeCopilotApi({ log: modelLog }) : null
   fs.mkdirSync(fakeHome, { recursive: true })
   if (providerKey === 'fake-codex') {
     fs.mkdirSync(fakeCodexHome, { recursive: true })
@@ -174,7 +247,7 @@ async function runScenario(sc, providerKey, opts = {}) {
   // The fake trusts these folders; the real Claude Code asks (answered below); Codex reads its test home's trust list.
   fs.writeFileSync(path.join(fakeHome, 'fake-trusted.json'), JSON.stringify([alpha.toLowerCase(), ws.toLowerCase()]))
   // A fake that acts out an expired sign-in: each prompt's turn ends with "Login expired · Please run /login".
-  if (opts.signedOut && p.fake) fs.writeFileSync(path.join(fakeHome, 'fake-signin.json'), JSON.stringify({ expired: true }))
+  if (opts.signedOut && p.fake) fs.writeFileSync(path.join(fakeHome, 'fake-signin.json'), JSON.stringify({ expired: true, ...(opts.signedOut === 'launch' ? { atLaunch: true } : {}) }))
   if (providerKey === 'codex') {
     lib.trustForCodex(alpha)
     lib.trustForCodex(ws)
@@ -205,17 +278,27 @@ async function runScenario(sc, providerKey, opts = {}) {
 
   const port = opts.port ?? 47930
   const started = Date.now()
-  // Each CLI's home is a test one: the fake's per run, the real Claude Code's and Codex's signed-in test homes.
-  const env = {
-    HIVE_API_PORT: String(port),
-    HIVE_TEST_TIPS: 'off',
-    HIVE_TEST_MCP_LOG: mcpLog,
-    CLAUDE_CONFIG_DIR: providerKey === 'claude-code' ? CLAUDE_TEST_HOME : fakeHome,
-    CODEX_HOME: providerKey === 'fake-codex' ? fakeCodexHome : lib.CODEX_HOME,
-    // Copilot in the run's own home, its profile folder faked and the GitHub CLI's login hidden (fake-copilot-api.cjs).
-    ...(standIn ? copilotTestEnv(standIn, root) : {})
+  // The stand-in model for fake-copilot, on a port of its own: closed when the run ends, or at once if Copilot's
+  // environment or the launch fails before the run begins (#464), and that failure is the one thrown.
+  const standIn = p.standIn ? await startFakeCopilotApi({ log: modelLog }) : null
+  let app, inv, env
+  try {
+    // Each CLI's home is a test one: the fake's per run, the real Claude Code's and Codex's signed-in test homes.
+    env = {
+      HIVE_API_PORT: String(port),
+      HIVE_TEST_TIPS: 'off',
+      HIVE_TEST_MCP_LOG: mcpLog,
+      HIVE_TEST_MERGE_SLOT_LOG: slotLog,
+      CLAUDE_CONFIG_DIR: providerKey === 'claude-code' ? CLAUDE_TEST_HOME : fakeHome,
+      CODEX_HOME: providerKey === 'fake-codex' ? fakeCodexHome : lib.CODEX_HOME,
+      // Copilot in the run's own home, its profile folder faked and the GitHub CLI's login hidden (fake-copilot-api.cjs).
+      ...(standIn ? copilotTestEnv(standIn, root) : {})
+    }
+    ;({ app, inv } = await lib.launch({ userData, env }))
+  } catch (e) {
+    await standIn?.close().catch(() => undefined)
+    throw e
   }
-  const { app, inv } = await lib.launch({ userData, env })
   const result = { scenario: sc.id, title: sc.title, provider: providerKey, model: opts.model ?? '(default)', role: sc.role ?? 'agent', control: sc.role === 'assistant' ? (sc.control ?? 'projects') : undefined, cliVersion: null, guidance: null, checks: [], observed: null, usage: null, measures: null, metricsOverheadMs: 0, seconds: 0, error: null }
   try {
     const info = await lib.waitForProvider(inv, p.provider, 60000)
@@ -275,7 +358,27 @@ async function runScenario(sc, providerKey, opts = {}) {
       note: (rel, content) => api('PUT', `/v1/shared/file?path=${encodeURIComponent(rel)}`, { content }),
       write: (rel, text) => fs.writeFileSync(path.join(alpha, rel), text),
       read: (rel) => (fs.existsSync(path.join(alpha, rel)) ? fs.readFileSync(path.join(alpha, rel), 'utf8') : null),
-      git: (...a) => execFileSync('git', a, { cwd: alpha, encoding: 'utf8', env: lib.baseEnv() })
+      git: (...a) => execFileSync('git', a, { cwd: alpha, encoding: 'utf8', env: lib.baseEnv() }),
+      /** Starts another of alpha's agents ('implementer'), with no prompt: running, so it can hold the merge slot. */
+      startAgent: async (key) => {
+        await inv('session:start', alpha, { agentId: ctx.agents[key].id })
+        const up = await lib.until(async () => (await inv('session:live')).some((x) => x.projectPath.toLowerCase() === alpha.toLowerCase() && x.agentId === ctx.agents[key].id), 30000)
+        if (!up) throw new Error(`${key} didn't start within 30 s`)
+      },
+      /**
+       * alpha's merge slot as another of its running agents ('implementer') uses it: claim or release with that agent's
+       * own Agent API token (each agent's in the profile's agent-api folder, as its hive tools read it).
+       */
+      slot: async (key, action, body = {}) => {
+        const file = path.join(userData, 'agent-api', `${require('crypto').createHash('sha256').update(`${alpha.toLowerCase()}#${ctx.agents[key].id}`).digest('hex').slice(0, 16)}.json`)
+        const token = JSON.parse(fs.readFileSync(file, 'utf8')).token
+        const res = await fetch(`http://127.0.0.1:${port}/v1/projects/alpha/merge-slot/${action}`, { method: 'POST', headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' }, body: JSON.stringify(body) })
+        const reply = await res.json().catch(() => null)
+        if (res.status !== 200) throw new Error(`${key}'s merge slot ${action}: ${res.status} ${JSON.stringify(reply)}`)
+        return reply
+      },
+      /** alpha's merge slot now, as a script reads it. */
+      slotNow: async () => (await api('GET', '/v1/projects/alpha/merge-slot')).body
     }
     if (sc.setup) await sc.setup(ctx)
     // What the fake Claude Code does when Hive wakes it (fake-wakes-<agent>.txt, a line per wake): a scenario's next steps,
@@ -311,11 +414,25 @@ async function runScenario(sc, providerKey, opts = {}) {
     // A trust question answered: the session goes on to its prompt (asked again if it doesn't).
     const answered = () => lib.until(async () => ['ready', 'finished'].includes((await live())?.status), HUNG_MS)
     const readyBy = Date.now() + 90000
+    // The CLI's last screen while it starts: Hive drops a terminal's buffer when its process exits (#577).
+    let lastScreen = ''
+    let seen = false
+    let endedAtLaunch = null
     while (Date.now() < readyBy) {
       const s = await live()
       if (s?.status === 'ready' || s?.status === 'finished') break
+      const screen = plain(await inv('pty:buffer', key).catch(() => ''))
+      if (screen) lastScreen = screen
+      // Exited before its session started (an OAuth session it couldn't refresh, #577): no prompt can reach it.
+      const hiveLog = path.join(userData, 'logs', 'hive.log')
+      if (s) seen = true
+      else if (seen || ptyExitedIn(hiveLog, agentId)) {
+        endedAtLaunch = launchEnded({ screen: lastScreen, reason: startFailureIn(hiveLog), auth: p.provider === 'claude-code' ? claudeAuthStatus(hiveLog, agentId, env) : null })
+        if (endedAtLaunch.environment) return skipFor(endedAtLaunch.environment)
+        break
+      }
       // Nothing typed yet: what the terminal shows is the CLI's own (a sign-in screen, a limit).
-      const before = trialEnvironment({ status: s?.status, screen: plain(await inv('pty:buffer', key).catch(() => '')) })
+      const before = trialEnvironment({ status: s?.status, screen })
       if (before) return skipFor(before)
       // Copilot asks "Do you trust the files in this folder?", Yes first.
       if (/Do you trust the files in this folder/i.test(plain(await inv('pty:buffer', key).catch(() => '')))) {
@@ -343,12 +460,13 @@ async function runScenario(sc, providerKey, opts = {}) {
       const items = s?.sessionId ? ((await inv('transcript:read', host, s.sessionId).catch(() => null))?.items ?? []) : []
       return items.some((x) => x.kind === 'user' && x.text.includes(text.slice(0, 40)))
     }
-    await lib.sendPrompt(inv, key, text, { submitted, waitMs: 20000 })
+    if (!endedAtLaunch) await lib.sendPrompt(inv, key, text, { submitted, waitMs: 20000 })
     const sentAt = Date.now()
 
     // Wait for the turn to end: working (or background) first, then finished/ready for a few seconds. `during` sees the
     // board while it works, for scenarios that change things under it.
-    const limit = Date.now() + (opts.timeoutMs ?? 300000)
+    // A session that ended at launch has no turn to wait for.
+    const limit = endedAtLaunch ? Date.now() : Date.now() + (opts.timeoutMs ?? 300000)
     let sawWork = false
     let quietSince = 0
     const trustAnswered = new Set()
@@ -358,7 +476,7 @@ async function runScenario(sc, providerKey, opts = {}) {
       // The CLI's own notes in the transcript (an API error, "Login expired · Please run /login", a usage limit: notices,
       // never the prompt or the model's replies), or Hive waiting for a sign-in: skipped for the environment at once,
       // rather than waiting out the limit and failing every check (#302).
-      const notices = s?.sessionId ? ((await inv('transcript:read', host, s.sessionId).catch(() => null))?.items ?? []).filter((x) => x.kind === 'notice').map((x) => x.text) : []
+      const notices = s?.sessionId ? cliNotices((await inv('transcript:read', host, s.sessionId).catch(() => null))?.items) : []
       const stopped = trialEnvironment({ status, replies: notices })
       if (stopped) return skipFor(stopped)
       if (['working', 'background', 'starting'].includes(status)) {
@@ -393,7 +511,8 @@ async function runScenario(sc, providerKey, opts = {}) {
       await sleep(1000)
     }
     const s = await live()
-    if (!s || Date.now() >= limit) result.error = s ? 'timed out' : 'the session ended'
+    if (endedAtLaunch) result.error = endedAtLaunch.error
+    else if (!s || Date.now() >= limit) result.error = s ? 'timed out' : 'the session ended'
     // The bridges report their calls to Hive a batch at a time (every 2 s, or as their CLI closes input): read the
     // metrics once they count every call the bridges logged (allCallsReported). Not all within the bound (a report
     // dropped): the last read, shown as partial.
@@ -423,6 +542,8 @@ async function runScenario(sc, providerKey, opts = {}) {
     // What the hive servers ran: the subject's own calls, and everyone's (an agent the Assistant started).
     observed.allHiveCalls = readMcpLog(mcpLog)
     observed.hiveCalls = observed.allHiveCalls.filter((c) => (sc.role === 'assistant' ? c.role === 'assistant' : c.agent === coder.id))
+    // Each change to the merge slots (JSON lines, as the MCP log): { at, slots: [{ project, branch, holder, waiting }] }.
+    observed.slotLog = readMcpLog(slotLog)
     // Any Agent API token (the workspace's, or an agent's for this launch) in what the session printed or said.
     const tokensIn = (dir) => (fs.existsSync(dir) ? fs.readdirSync(dir).map((f) => JSON.parse(fs.readFileSync(path.join(dir, f), 'utf8')).token) : [])
     const tokens = [apiToken, ...tokensIn(path.join(userData, 'agent-api')), ...tokensIn(path.join(userData, 'assistant-api'))].filter((t) => typeof t === 'string' && t.length >= 16)
@@ -495,4 +616,4 @@ async function runScenario(sc, providerKey, opts = {}) {
   return result
 }
 
-module.exports = { runScenario, observeTranscript, readMcpLog, allCallsReported, sourceFingerprint, metricsTotals, measuresOf, trialEnvironment, environmentAdvice, PROVIDERS, CLAUDE_TEST_HOME, claudeSignedIn }
+module.exports = { runScenario, observeTranscript, readMcpLog, allCallsReported, sourceFingerprint, metricsTotals, measuresOf, trialEnvironment, cliNotices, launchEnded, startFailureIn, claudeAuthStatus, parseAuthStatus, environmentAdvice, PROVIDERS, CLAUDE_TEST_HOME, claudeSignedIn }

@@ -4,7 +4,7 @@ import { execFileSync } from 'child_process'
 import { chmodSync, existsSync, mkdirSync, readdirSync, readFileSync, rmSync, writeFileSync } from 'fs'
 import { rm } from 'fs/promises'
 import { join } from 'path'
-import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import * as electron from 'electron'
 import { tempDir } from './tempDir'
 
@@ -50,15 +50,23 @@ async function open(path: string): Promise<WS> {
   return w
 }
 
+let workspaces = 0
+/**
+ * A new workspace folder for each test (#573): no test reads the cards, numbers, order, batches or handovers another
+ * left, so they pass in any order (`--sequence.shuffle`).
+ */
+const newWorkspacePath = (name: string): string => join(base, `${name}-${++workspaces}`)
+
 describe('task board', () => {
   let w: WS
-  const wsPath = join(base, 'ws')
-  beforeAll(async () => {
+  let wsPath = ''
+  beforeEach(async () => {
+    wsPath = newWorkspacePath('ws')
     project(wsPath, 'alpha', [{ id: 'a1', name: 'Agent 1' }])
     project(wsPath, 'beta')
     w = await open(wsPath)
   })
-  afterAll(async () => disposeWorkspaceService(w))
+  afterEach(async () => disposeWorkspaceService(w))
   const run = <T>(fn: () => Promise<T>): Promise<T> => inWorkspace(w, fn)
 
   it('numbers cards and never reuses a number', async () => {
@@ -74,6 +82,7 @@ describe('task board', () => {
   })
 
   it('checks projects, agents and card references', async () => {
+    expect((await run(() => tasks.createTask({ title: 'First', project: 'alpha' }, user))).number).toBe(1)
     await expect(run(() => tasks.createTask({ title: 'x', project: 'nope' }, user))).rejects.toThrow(/Unknown project/)
     await expect(run(() => tasks.createTask({ title: 'x', project: 'beta', agent: 'Agent 1' }, user))).rejects.toThrow(/Unknown agent/)
     await expect(run(() => tasks.createTask({ title: ' ' }, user))).rejects.toThrow(/title/)
@@ -184,12 +193,13 @@ describe('task board', () => {
       const cards = await make(['1', '2', '3', '4', '5'])
       const ns = cards.map((c) => c.number)
       const [c1, c2, c3, c4, c5] = ns
-      const list = await run(() => tasks.reorderTasks('todo', [c4, `#${c2}`, c1], agent))
-      expect(list.filter((c) => ns.includes(c.number)).map((c) => c.title)).toEqual(['4', '2', '1', '3', '5'])
+      expect(await titles('todo', ns)).toEqual(['1', '2', '3', '4', '5'])
+      const list = await run(() => tasks.reorderTasks('todo', [c4, `#${c1}`, c2], agent))
+      expect(list.filter((c) => ns.includes(c.number)).map((c) => c.title)).toEqual(['4', '1', '2', '3', '5'])
       expect(list[0].number).toBe(c4)
       expect(await last(c4)).toBe('Moved to the top of Todo')
-      expect(await last(c2)).toBe('Placed 2nd in Todo')
-      expect(await last(c1)).toBe('Placed 3rd in Todo')
+      expect(await last(c1)).toBe('Placed 2nd in Todo')
+      expect(await last(c2)).toBe('Placed 3rd in Todo')
       // Not moved: no line.
       expect(await last(c3)).toBe('Created in Todo')
       const b = await run(() => tasks.createTask({ title: 'B', column: 'review' }, user))
@@ -198,7 +208,7 @@ describe('task board', () => {
       await expect(run(() => tasks.reorderTasks('todo', [], agent))).rejects.toThrow('cards:')
       await expect(run(() => tasks.reorderTasks('done', [c5], assistant))).rejects.toThrow(tasks.TaskPermissionError)
       // A failed list changes nothing.
-      expect(await titles('todo', ns)).toEqual(['4', '2', '1', '3', '5'])
+      expect(await titles('todo', ns)).toEqual(['4', '1', '2', '3', '5'])
       for (const n of [...ns, b.number]) await run(() => tasks.deleteTask(n))
     })
   })
@@ -350,6 +360,8 @@ describe('task board', () => {
   })
 
   it('reads damaged card files safely', async () => {
+    // Cards #1 to #3, so the reference to #3 is to a card that is there.
+    for (const title of ['One', 'Two', 'Three']) await run(() => tasks.createTask({ title }, user))
     writeFileSync(join(wsPath, '.hive', 'tasks', '500.json'), JSON.stringify({ title: 7, column: 'sideways', labels: 'x', blockedBy: ['a', 3] }))
     writeFileSync(join(wsPath, '.hive', 'tasks', '501.json'), '{ not json')
     const c = await run(() => tasks.getTask(500))
@@ -425,28 +437,34 @@ describe('task board', () => {
     // Edited lately, but in Done for long: its edits don't count.
     const edited = await make('Edited', [{ at: at(15), what: 'Moved to Done' }, { at: at(0), what: 'Changed the description' }])
 
-    config.settings.board.archiveDoneDays = 0
-    expect(await tasks.archiveOldDone(w, now)).toEqual([])
-    config.settings.board.archiveDoneDays = 14
-    expect((await tasks.archiveOldDone(w, now)).sort((a, b) => a - b)).toEqual([old, edited])
-    const card = await run(() => tasks.getTask(old))
-    expect([card.archived, card.archivedFor, card.history.at(-1)?.what]).toEqual([true, 'done', 'Archived after 14 days in Done'])
-    for (const n of [recent, back, review]) expect((await run(() => tasks.getTask(n))).archived).toBe(false)
-    // Already archived: left as it is.
-    expect(await tasks.archiveOldDone(w, now)).toEqual([])
+    const days = config.settings.board.archiveDoneDays
+    try {
+      config.settings.board.archiveDoneDays = 0
+      expect(await tasks.archiveOldDone(w, now)).toEqual([])
+      config.settings.board.archiveDoneDays = 14
+      expect((await tasks.archiveOldDone(w, now)).sort((a, b) => a - b)).toEqual([old, edited])
+      const card = await run(() => tasks.getTask(old))
+      expect([card.archived, card.archivedFor, card.history.at(-1)?.what]).toEqual([true, 'done', 'Archived after 14 days in Done'])
+      for (const n of [recent, back, review]) expect((await run(() => tasks.getTask(n))).archived).toBe(false)
+      // Already archived: left as it is.
+      expect(await tasks.archiveOldDone(w, now)).toEqual([])
+    } finally {
+      config.settings.board.archiveDoneDays = days
+    }
   })
 })
 
 // Bulk archiving (#351): Archive All in a column and Archive All Cards, as batches that come back where they were.
 describe('archiving in batches', () => {
   let w: WS
-  const wsPath = join(base, 'ws-batch')
-  beforeAll(async () => {
+  let wsPath = ''
+  beforeEach(async () => {
+    wsPath = newWorkspacePath('ws-batch')
     project(wsPath, 'alpha', [{ id: 'a1', name: 'Agent 1' }])
     project(wsPath, 'beta')
     w = await open(wsPath)
   })
-  afterAll(async () => disposeWorkspaceService(w))
+  afterEach(async () => disposeWorkspaceService(w))
   const run = <T>(fn: () => Promise<T>): Promise<T> => inWorkspace(w, fn)
   const make = async (title: string, column: 'todo' | 'done' | 'review' = 'todo'): Promise<number> => (await run(() => tasks.createTask({ title, project: 'alpha', column }, user))).number
   const column = async (col: 'todo' | 'done'): Promise<string[]> => (await run(() => tasks.listTasks({ column: col }))).map((c) => c.title)
@@ -577,20 +595,21 @@ describe('archiving in batches', () => {
 // card's lock and in its history; the flag an agent's reply gets when one is new to it.
 describe('card decisions', () => {
   let w: WS
-  const wsPath = join(base, 'ws-decisions')
-  const alpha = join(wsPath, 'alpha')
+  let wsPath = ''
+  let alpha = ''
   const coder = { kind: 'agent', name: 'Coder (alpha)', self: { project: 'alpha', agentId: 'a1' }, scope: 'alpha' } as const
   const reviewer = { kind: 'agent', name: 'Reviewer (alpha)', self: { project: 'alpha', agentId: 'r1' }, scope: 'alpha' } as const
   const betaAgent = { kind: 'agent', name: 'B (beta)', self: { project: 'beta', agentId: 'b1' }, scope: 'beta' } as const
-  beforeAll(async () => {
-    project(wsPath, 'alpha', [
+  beforeEach(async () => {
+    wsPath = newWorkspacePath('ws-decisions')
+    alpha = project(wsPath, 'alpha', [
       { id: 'a1', name: 'Coder' },
       { id: 'r1', name: 'Reviewer' }
     ])
     project(wsPath, 'beta', [{ id: 'b1', name: 'B' }])
     w = await open(wsPath)
   })
-  afterAll(async () => disposeWorkspaceService(w))
+  afterEach(async () => disposeWorkspaceService(w))
   const run = <T>(fn: () => Promise<T>): Promise<T> => inWorkspace(w, fn)
   const make = async (title: string): Promise<number> => (await run(() => tasks.createTask({ title, project: 'alpha' }, user))).number
 
@@ -746,7 +765,7 @@ describe('card decisions', () => {
       waiting = true
       await tell()
       expect(sent).toEqual([])
-      // Its turn ended and nothing in the way: one line for both (cards of the tests before have their own parts).
+      // Its turn ended and nothing in the way: one line for both.
       waiting = false
       await tell()
       expect(sent).toHaveLength(1)
@@ -854,7 +873,7 @@ describe('card decisions', () => {
   it("a reviewer's next round: a decision recorded since its last read is flagged on the card back in Review, also after it starts the review", async () => {
     const rev = { projectPath: alpha, agentId: 'r1' }
     const n = (await run(() => tasks.createTask({ title: 'Round two', project: 'alpha', column: 'doing', agent: 'a1' }, user))).number
-    // This card's part of the flag (cards of the tests before may have their own).
+    // This card's part of the flag.
     const notice = async (): Promise<string | null> => ((await decisionNotice(w, rev, 'Reviewer (alpha)')) ?? '').match(new RegExp(`#${n} has \\d+ new decisions?`))?.[0] ?? null
     await run(() => tasks.updateTask(n, { decision: 'Keep it short.' }, user))
     await run(() => tasks.updateTask(n, { column: 'review' }, coder))
@@ -913,11 +932,12 @@ describe('where a batch comes back (restoreOrders)', () => {
 // see the whole board.
 describe("a project agent's board", () => {
   let w: WS
-  const wsPath = join(base, 'ws-scope')
+  let wsPath = ''
   const alphaAgent = { kind: 'agent', name: 'Agent 1 (alpha)', self: { project: 'alpha', agentId: 'a1' }, scope: 'alpha' } as const
   const script = { kind: 'agent', name: 'Agent API' } as const
   const n: Record<string, number> = {}
-  beforeAll(async () => {
+  beforeEach(async () => {
+    wsPath = newWorkspacePath('ws-scope')
     project(wsPath, 'alpha', [{ id: 'a1', name: 'Agent 1' }])
     project(wsPath, 'beta', [{ id: 'b1', name: 'Agent B' }])
     w = await open(wsPath)
@@ -927,7 +947,7 @@ describe("a project agent's board", () => {
     }
     await inWorkspace(w, () => tasks.archiveTask(n.Bx, true))
   })
-  afterAll(async () => disposeWorkspaceService(w))
+  afterEach(async () => disposeWorkspaceService(w))
   const run = <T>(fn: () => Promise<T>): Promise<T> => inWorkspace(w, fn)
   const titles = (cards: { title: string }[]): string[] => cards.map((c) => c.title)
   const betaOrders = async (): Promise<number[]> => (await run(() => tasks.listTasks({ project: 'beta' }))).map((c) => c.order)
@@ -1016,7 +1036,7 @@ describe("a project agent's board", () => {
   })
 
   it('authorises every write on the card as it is under its lock (a project change while a write waits)', async () => {
-    const { withFileLock } = await import('../src/main/fsutil')
+    const { fileLockDepth, withFileLock } = await import('../src/main/fsutil')
     const file = (x: number): string => join(wsPath, '.hive', 'tasks', `${x}.json`)
     // Someone (the user, the Assistant) moves the card to beta while the agent's write waits for the card.
     // Written as another copy of Hive from before project ids would (#508): without the id, which it doesn't keep.
@@ -1031,31 +1051,37 @@ describe("a project agent's board", () => {
     let reorder!: Promise<unknown>
     await withFileLock(file(c2), async () => {
       reorder = run(() => tasks.reorderTasks('todo', [c1, c2], alphaAgent))
-      await new Promise((r) => setTimeout(r, 150))
+      // Its checks passed and its write to c2 waits behind this lock (the first card is written meanwhile).
+      await expect.poll(() => fileLockDepth(file(c2)), { timeout: HUNG_MS }).toBe(2)
       toBeta(c2)
     })
     await expect(reorder).rejects.toThrow(`Unknown task #${c2}`)
     const after2 = await run(() => tasks.getTask(c2))
     expect(after2.order).toBe(before2.order)
     expect(after2.history).toEqual(before2.history)
-    // The first card in a reorder, an update and a comment, likewise.
-    const before1 = await run(() => tasks.getTask(c1))
-    // Each outcome is caught as it happens: they are refused together, once the card is free.
-    let pending: Promise<unknown>[] = []
-    await withFileLock(file(c1), async () => {
-      pending = [
-        run(() => tasks.reorderTasks('todo', [c1], alphaAgent)),
-        run(() => tasks.updateTask(c1, { column: 'review', blocked: 'mine' }, alphaAgent)),
-        run(() => tasks.commentTask(c1, 'mine', alphaAgent))
-      ].map((p) => p.then(() => 'written', (e: Error) => e.message))
-      await new Promise((r) => setTimeout(r, 150))
-      toBeta(c1)
-    })
-    expect(await Promise.all(pending)).toEqual(Array(3).fill(`Unknown task #${c1}`))
-    const after1 = await run(() => tasks.getTask(c1))
-    expect([after1.column, after1.blocked, after1.comments.length, after1.order]).toEqual(['todo', null, 0, before1.order])
-    expect(after1.history).toEqual(before1.history)
-    for (const x of [c1, c2]) await run(() => tasks.deleteTask(x))
+    // The first card in a reorder, an update and a comment, likewise: each on a card of its own, since a reorder and an
+    // update also take the board's lock (an update queued behind the reorder would only reach the card after the move).
+    const writes: [string, (x: number) => Promise<unknown>][] = [
+      ['reorder', (x) => run(() => tasks.reorderTasks('todo', [x], alphaAgent))],
+      ['update', (x) => run(() => tasks.updateTask(x, { column: 'review', blocked: 'mine' }, alphaAgent))],
+      ['comment', (x) => run(() => tasks.commentTask(x, 'mine', alphaAgent))]
+    ]
+    for (const [what, write] of writes) {
+      const x = (await run(() => tasks.createTask({ title: what, project: 'alpha' }, user))).number
+      const before = await run(() => tasks.getTask(x))
+      let outcome!: Promise<string>
+      await withFileLock(file(x), async () => {
+        // Caught as it happens: it is refused once the card is free.
+        outcome = write(x).then(() => 'written', (e: Error) => e.message)
+        // Its checks passed and its write waits behind this lock.
+        await expect.poll(() => fileLockDepth(file(x)), { timeout: HUNG_MS }).toBe(2)
+        toBeta(x)
+      })
+      expect([what, await outcome]).toEqual([what, `Unknown task #${x}`])
+      const after = await run(() => tasks.getTask(x))
+      expect([after.column, after.blocked, after.comments.length, after.order]).toEqual(['todo', null, 0, before.order])
+      expect(after.history).toEqual(before.history)
+    }
   })
 
   it('reads only the latest comment, as far as it may read the card', async () => {
@@ -1075,6 +1101,7 @@ describe("a project agent's board", () => {
     writeFileSync(f, JSON.stringify({ ...c, comments: c.comments.map((x: { text: string }) => ({ ...x, at: '2026-10-02T10:00:00.000Z' })) }))
     expect((await run(() => tasks.latestComment(l, alphaAgent))).comment?.by).toBe('Agent 1 (alpha)')
     // Another project's card, the workspace's or a missing one: unknown to the agent, readable for the others.
+    await run(() => tasks.commentTask(n.B1, 'from the Assistant', assistant))
     for (const x of [n.B1, n.W, 999]) await expect(run(() => tasks.latestComment(x, alphaAgent))).rejects.toThrow(`Unknown task #${x}`)
     expect((await run(() => tasks.latestComment(n.B1, assistant))).comment?.text).toBe('from the Assistant')
     expect(await run(() => tasks.latestComment(n.W, script))).toEqual({ number: n.W, comment: null })
@@ -1084,8 +1111,9 @@ describe("a project agent's board", () => {
 
 describe('removing projects', () => {
   let w: WS
-  const wsPath = join(base, 'ws2')
-  beforeAll(async () => {
+  let wsPath = ''
+  beforeEach(async () => {
+    wsPath = newWorkspacePath('ws2')
     project(wsPath, 'keep')
     project(wsPath, 'hide-me')
     project(wsPath, 'remove-me')
@@ -1093,7 +1121,7 @@ describe('removing projects', () => {
     project(wsPath, 'delete-me')
     w = await open(wsPath)
   })
-  afterAll(async () => disposeWorkspaceService(w))
+  afterEach(async () => disposeWorkspaceService(w))
   const run = <T>(fn: () => Promise<T>): Promise<T> => inWorkspace(w, fn)
   const names = async (): Promise<string[]> => (await w.listProjectPaths()).map((p) => p.split(/[\\/]/).pop()!)
 
@@ -1143,11 +1171,12 @@ describe('removing projects', () => {
   })
 
   it('takes a removed project into another workspace, with new card numbers', async () => {
+    handover(wsPath, '2026-10-01-remove-me-too-other.md', 'remove-me-too')
     const a = await run(() => tasks.createTask({ title: 'First', project: 'remove-me-too' }, user))
     await run(() => tasks.createTask({ title: 'Second', project: 'remove-me-too', blockedBy: [a.number] }, user))
     await run(() => removal.removeProject(join(wsPath, 'remove-me-too'), 'remove'))
     // The folder moves to another workspace, whose board already has cards.
-    const other = join(base, 'ws3')
+    const other = newWorkspacePath('ws3')
     mkdirSync(other, { recursive: true })
     execFileSync(process.platform === 'win32' ? 'cmd' : 'mv', process.platform === 'win32' ? ['/c', 'move', join(wsPath, 'remove-me-too'), other] : [join(wsPath, 'remove-me-too'), other])
     expect(w.hiddenProjects().find((h) => h.name === 'remove-me-too')?.present).toBe(false)
@@ -1190,7 +1219,7 @@ describe('removing projects', () => {
     writeFileSync(join(p, 'a.txt'), 'a')
     git(p, 'add', 'a.txt')
     git(p, 'commit', '-q', '-m', 'a')
-    const tree = join(base, 'ws2.worktrees', 'gitproj', 'agent-2')
+    const tree = join(`${wsPath}.worktrees`, 'gitproj', 'agent-2')
     git(p, 'worktree', 'add', '-q', '-b', 'hive/agent-2', tree, 'main')
     writeFileSync(join(tree, 'b.txt'), 'b')
     git(tree, 'add', 'b.txt')
@@ -1213,7 +1242,7 @@ describe('removing projects', () => {
 // Faults the code review found: each test sets up the fault and checks nothing is lost.
 describe('removal and board under faults', () => {
   let w: WS
-  const wsPath = join(base, 'ws-faults')
+  let wsPath = ''
   const git = (cwd: string, ...args: string[]): string => execFileSync('git', ['-c', 'user.name=t', '-c', 'user.email=t@example.com', ...args], { cwd, encoding: 'utf8' })
   /** A git project with one worktree agent (Agent 2), committed and merged: nothing to lose yet. */
   function withWorktree(name: string): { p: string; tree: string } {
@@ -1222,16 +1251,17 @@ describe('removal and board under faults', () => {
     writeFileSync(join(p, 'a.txt'), 'a')
     git(p, 'add', 'a.txt')
     git(p, 'commit', '-q', '-m', 'a')
-    const tree = join(base, 'ws-faults.worktrees', name, 'agent-2')
+    const tree = join(`${wsPath}.worktrees`, name, 'agent-2')
     git(p, 'worktree', 'add', '-q', '-b', 'hive/agent-2', tree, 'main')
     writeFileSync(join(p, '.hive', 'project.json'), JSON.stringify({ version: 2, agents: [{ id: 'a2', name: 'Agent 2', worktree: { path: tree, branch: 'hive/agent-2', base: 'main' } }] }))
     return { p, tree }
   }
-  beforeAll(async () => {
+  beforeEach(async () => {
+    wsPath = newWorkspacePath('ws-faults')
     mkdirSync(join(wsPath, '.hive', 'shared', 'handovers'), { recursive: true })
     w = await open(wsPath)
   })
-  afterAll(async () => disposeWorkspaceService(w))
+  afterEach(async () => disposeWorkspaceService(w))
   const run = <T>(fn: () => Promise<T>): Promise<T> => inWorkspace(w, fn)
   const names = async (): Promise<string[]> => (await w.listProjectPaths()).map((p) => p.split(/[\\/]/).pop()!)
 
@@ -1273,7 +1303,7 @@ describe('removal and board under faults', () => {
 
   it("never deletes a folder project.json calls a worktree when git says it isn't one", async () => {
     const p = project(wsPath, 'bogus')
-    const unrelated = join(base, 'unrelated-folder')
+    const unrelated = `${wsPath}-unrelated-folder`
     mkdirSync(unrelated, { recursive: true })
     writeFileSync(join(unrelated, 'keep.txt'), 'not yours')
     writeFileSync(join(p, '.hive', 'project.json'), JSON.stringify({ version: 2, agents: [{ id: 'a9', name: 'Odd', worktree: { path: unrelated, branch: 'x', base: 'main' } }] }))
@@ -1364,16 +1394,21 @@ describe('removal and board under faults', () => {
     const s = sessions as unknown as { start: (...a: unknown[]) => Promise<unknown> }
     const original = s.start
     let launches = 0
+    // The launch fails once the second Start has been refused: the first is still starting until then.
+    let fail: () => void = () => undefined
+    const failing = new Promise<void>((r) => (fail = r))
     s.start = async () => {
       launches++
-      await new Promise((r) => setTimeout(r, 50))
+      await failing
       throw new Error('Claude Code is required to run Agent 1.')
     }
     try {
       const first = run(() => startTask(c.number, { kind: 'new-agent', worktree: false }, user))
       await expect(run(() => startTask(c.number, { kind: 'new-agent', worktree: false }, user))).rejects.toThrow(/already being started/)
+      fail()
       await expect(first).rejects.toThrow(/required/)
     } finally {
+      fail()
       s.start = original
     }
     expect(launches).toBe(1)
@@ -1396,7 +1431,7 @@ describe('removal and board under faults', () => {
         const starting = run(() => startTask(c.number, { kind: 'agent', agentId: 'd1' }, user))
         const handled = expect(starting).rejects.toThrow(/launch failed/)
         // Taken (Doing, the agent's) before the launch; the user decides meanwhile; then the launch fails.
-        for (let i = 0; i < 50 && (await run(() => tasks.getTask(c.number))).column !== 'doing'; i++) await new Promise((r) => setTimeout(r, 20))
+        await expect.poll(async () => (await run(() => tasks.getTask(c.number))).column, { timeout: HUNG_MS }).toBe('doing')
         await run(() => tasks.updateTask(c.number, { column: decision }, user))
         release()
         await handled
@@ -1607,7 +1642,7 @@ describe('removal and board under faults', () => {
       const a = await run(() => tasks.createTask({ title: 'First card', project: 'oneatatime' }, user))
       const b = await run(() => tasks.createTask({ title: 'Second card', project: 'oneatatime' }, user))
       const first = run(() => startTask(a.number, { kind: 'agent', agentId: 'o1' }, user))
-      for (let i = 0; i < 50 && !prompts.length; i++) await new Promise((r) => setTimeout(r, 20))
+      await expect.poll(() => prompts.length, { timeout: HUNG_MS }).toBe(1)
       await expect(run(() => startTask(b.number, { kind: 'agent', agentId: 'o1' }, user))).rejects.toThrow(/being given another card/)
       release()
       await first
@@ -1666,34 +1701,44 @@ describe('column colours', () => {
 
 describe("an agent's cards on its session", () => {
   let w: WS
-  const wsPath = join(base, 'ws-cards')
+  let wsPath = ''
   let alpha = ''
-  beforeAll(async () => {
+  beforeEach(async () => {
+    wsPath = newWorkspacePath('ws-cards')
     alpha = project(wsPath, 'alpha', [
       { id: 'a1', name: 'Agent 1' },
       { id: 'a2', name: 'Agent 2' }
     ])
     w = await open(wsPath)
   })
-  afterAll(async () => disposeWorkspaceService(w))
+  afterEach(async () => disposeWorkspaceService(w))
   const run = <T>(fn: () => Promise<T>): Promise<T> => inWorkspace(w, fn)
-
-  it('shows only the Doing cards given to the agent, in board order', async () => {
-    const { agentDoingCards } = await import('../src/shared/tasks')
+  /** Agent 1's Doing cards: Inbox (#1) and Snippets (#2), with one of its in Todo and Agent 2's in Doing. */
+  const board = async (): Promise<number[]> => {
     const a = await run(() => tasks.createTask({ title: 'Inbox', project: 'alpha', agent: 'a1', column: 'doing' }, user))
     const b = await run(() => tasks.createTask({ title: 'Snippets', project: 'alpha', agent: 'a1', column: 'doing' }, user))
     await run(() => tasks.createTask({ title: 'Later', project: 'alpha', agent: 'a1', column: 'todo' }, user))
     await run(() => tasks.createTask({ title: 'Theirs', project: 'alpha', agent: 'a2', column: 'doing' }, user))
+    return [a.number, b.number]
+  }
+
+  it('shows only the Doing cards given to the agent, in board order', async () => {
+    const { agentDoingCards } = await import('../src/shared/tasks')
+    const [a, b] = await board()
     const all = await run(() => tasks.allTasks(w))
-    expect(agentDoingCards(all, 'ALPHA', 'a1').map((c) => c.number)).toEqual([a.number, b.number])
-    await run(() => tasks.updateTask(a.number, { column: 'review' }, user))
-    expect(agentDoingCards(await run(() => tasks.allTasks(w)), 'alpha', 'a1').map((c) => c.number)).toEqual([b.number])
+    expect(agentDoingCards(all, 'ALPHA', 'a1').map((c) => c.number)).toEqual([a, b])
+    await run(() => tasks.updateTask(a, { column: 'review' }, user))
+    expect(agentDoingCards(await run(() => tasks.allTasks(w)), 'alpha', 'a1').map((c) => c.number)).toEqual([b])
     // Back in Doing, it goes to the end.
-    await run(() => tasks.updateTask(a.number, { column: 'doing' }, user))
+    await run(() => tasks.updateTask(a, { column: 'doing' }, user))
+    expect(agentDoingCards(await run(() => tasks.allTasks(w)), 'alpha', 'a1').map((c) => c.number)).toEqual([b, a])
   })
 
   it("records each Doing card on the agent's running session once, in order, with its title then", async () => {
     const { recordCards, recordLiveCards } = await import('../src/main/cardSessions')
+    // Snippets above Inbox in Doing.
+    const [inbox] = await board()
+    await run(() => tasks.updateTask(inbox, { column: 'doing', position: 'bottom' }, user))
     await w.upsertSession(alpha, { id: 's1', agentId: 'a1' })
     await recordCards(w, alpha, 'a1', 's1')
     const rec = async () => (await w.sessionsFile(alpha)).sessions.find((s) => s.id === 's1')

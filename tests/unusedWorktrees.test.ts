@@ -38,6 +38,11 @@ const templates = await import('../src/main/templates')
 // Paths compared as places: git lists the long names of folders Hive may know by short (8.3) ones, as on CI (#389).
 const { placeKey, withFileLock } = await import('../src/main/fsutil')
 
+// Real git work, not a wait (#555): a test here runs 20 to 70 git commands, about 35 ms each alone, about 0.3 s each and
+// up to 1.3 s under a full unit run beside other runs (measured: 12 s for one test, against 2 s alone), and more under
+// heavier load. So each test is bounded by GIT_HUNG_MS rather than the suite's 20 s: only a hung git takes a minute.
+const GIT_HUNG_MS = 60_000
+vi.setConfig({ testTimeout: GIT_HUNG_MS })
 const git = (cwd: string, ...a: string[]): string => execFileSync('git', ['-c', 'user.email=t@t', '-c', 'user.name=t', '-c', 'core.autocrlf=false', ...a], { cwd, encoding: 'utf8' })
 const wsPath = join(base, 'ws')
 const proj = join(wsPath, 'proj')
