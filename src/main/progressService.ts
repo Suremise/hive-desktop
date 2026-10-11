@@ -35,6 +35,7 @@ export const progress = new ProgressStore({
     const agent = run.source === 'assistant' ? ASSISTANT_AGENT_ID : run.agentId
     return !!path && !!agent && sessions.liveFor(path, agent) !== null
   },
+  processAlive,
   history: {
     load: (workspacePath) => readJson<unknown>(historyFile(workspacePath), null),
     save: (workspacePath, runs, renames) =>
@@ -42,6 +43,19 @@ export const progress = new ProgressStore({
     forget: () => removePath(historyDir()).catch((e) => log.warn('could not forget Recent', e))
   }
 })
+
+/**
+ * Whether a process is there (#549): signal 0 only asks. EPERM means it is, but not ours to signal; anything else (ESRCH)
+ * that it is gone. A reused pid reads as there: the run then goes stale as before, never ends wrongly.
+ */
+export function processAlive(pid: number): boolean {
+  try {
+    process.kill(pid, 0)
+    return true
+  } catch (e) {
+    return (e as NodeJS.ErrnoException).code === 'EPERM'
+  }
+}
 
 /** The window showing a workspace gets that workspace's combined progress on its taskbar button. */
 function showTaskbar(workspacePath: string, runs: ProgressRun[]): void {

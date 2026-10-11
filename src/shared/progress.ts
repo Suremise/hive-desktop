@@ -13,6 +13,8 @@ export const STALE_NO_ESTIMATE_MS = 10 * 60_000
 export const STALE_GRACE_MS = 2 * 60_000
 /** A passed run stays in the panel's list this long before it fades into Recent. */
 export const PASSED_SHOWN_MS = 10_000
+/** A running run past its estimate says "finishing" this long, then "longer than expected" (#549: never "0 s left"). */
+export const FINISHING_MS = 60_000
 
 /** Open runs one agent (or the Assistant, or scripts in a workspace) may have at once. */
 export const MAX_OPEN_PER_OWNER = 5
@@ -32,12 +34,12 @@ export const MAX_ESTIMATE_MS = 7 * 24 * 3_600_000
 
 /**
  * Whether a run is in the panel's list (else under Recent): a running one; a failed or stale one until the user has
- * seen it, and a few seconds more (as a passed one); a passed one for a few seconds. A dismissed one never.
+ * seen it, and a few seconds more (as a passed one); a passed or stopped one for a few seconds. A dismissed one never.
  */
 export function isListed(r: Pick<ProgressRun, 'state' | 'dismissed' | 'finishedAt' | 'seenAt'>, now: number): boolean {
   if (r.dismissed) return false
   if (r.state === 'running') return true
-  if (r.state === 'passed') return r.finishedAt !== null && now - r.finishedAt < PASSED_SHOWN_MS
+  if (r.state === 'passed' || r.state === 'stopped') return r.finishedAt !== null && now - r.finishedAt < PASSED_SHOWN_MS
   return r.seenAt === null || now - r.seenAt < PASSED_SHOWN_MS
 }
 
@@ -66,9 +68,11 @@ export function timeLeft(run: Pick<ProgressRun, 'estimateMs' | 'updatedAt'>, now
 
 /**
  * Whether a running run has gone quiet for longer than expected: with steps and an estimate, a step's share of the
- * time left plus a grace; with an estimate only, the estimate plus the grace; with neither, ten minutes.
+ * time left plus a grace; with an estimate only, the estimate plus the grace; with neither, ten minutes. A waiting one
+ * never is (#549: a queue can take long; a run whose process is gone ends instead).
  */
-export function isOverdue(run: Pick<ProgressRun, 'estimateMs' | 'updatedAt' | 'total' | 'step'>, now: number): boolean {
+export function isOverdue(run: Pick<ProgressRun, 'estimateMs' | 'updatedAt' | 'total' | 'step' | 'waiting'>, now: number): boolean {
+  if (run.waiting) return false
   const quiet = now - run.updatedAt
   if (run.estimateMs === null) return quiet > STALE_NO_ESTIMATE_MS
   const stepsLeft = run.total !== null ? Math.max(1, run.total - (run.step ?? 0)) : 1
@@ -107,7 +111,39 @@ export function taskbarProgress(runs: readonly ProgressRun[], failureUnseen: boo
 export const STRIP_BARS = 6
 
 /** A run's state in a sentence. */
-export const RUN_STATE_WORDS: Record<ProgressRun['state'], string> = { running: 'running', failed: 'failed', stale: 'stopped reporting', passed: 'passed' }
+export const RUN_STATE_WORDS: Record<ProgressRun['state'], string> = { running: 'running', failed: 'failed', stale: 'stopped reporting', passed: 'passed', stopped: 'stopped' }
+
+/** A run's state in a few words, by why where it matters: a stopped run whose process went without a report says so. */
+export const runStateWord = (r: Pick<ProgressRun, 'state' | 'stopReason'>): string => (r.state === 'stopped' && r.stopReason === 'gone' ? 'ended without a report' : RUN_STATE_WORDS[r.state])
+
+/**
+ * A run's state in a line (#549): how long it took (passed, failed, stopped: interrupted, or ended without a report); a
+ * waiting one how long it has waited, never a time left; a running one how long it has been going and about how long is
+ * left, or, past its estimate, "finishing" and then "longer than expected", never "0 s left"; why a stale one is.
+ */
+export function runStatusLine(r: ProgressRun, now: number): string {
+  const took = shortDuration((r.finishedAt ?? now) - r.startedAt)
+  if (r.state === 'passed') return `Passed in ${took}`
+  if (r.state === 'failed') return `Failed after ${took}`
+  if (r.state === 'stopped') return r.stopReason === 'gone' ? `Ended without a report after ${took}` : `Stopped after ${took}`
+  if (r.state === 'stale') return r.staleReason === 'agent-stopped' ? 'Its agent stopped before it finished' : `Stopped reporting ${shortDuration(now - r.updatedAt)} ago`
+  if (r.waiting) {
+    const since = r.waitingSince ?? r.startedAt
+    // How long it ran before it began to wait, when that was more than a moment.
+    return `${since - r.startedAt >= 5000 ? `${took} · ` : ''}waiting ${shortDuration(now - since)}`
+  }
+  if (r.estimateMs === null) return took
+  const left = r.updatedAt + r.estimateMs - now
+  if (left >= 1000) return `${took} · about ${shortDuration(left)} left`
+  return `${took} · ${-left < FINISHING_MS ? 'finishing' : 'longer than expected'}`
+}
+
+/** How a run's bar looks: filled to its steps, moving (running with no steps), still and hatched (waiting), or full. */
+export function barLook(r: Pick<ProgressRun, 'state' | 'total' | 'step' | 'waiting'>): 'steps' | 'moving' | 'waiting' | 'full' {
+  if (r.state === 'running' && r.waiting) return 'waiting'
+  if (fractionDone(r) !== null) return 'steps'
+  return r.state === 'running' ? 'moving' : 'full'
+}
 
 export interface StripRuns {
   /** The runs with a bar, newest first. */
@@ -149,9 +185,9 @@ export function agentOpenRun(runs: readonly ProgressRun[], projectPath: string, 
 }
 
 /** A run in a few words for a status line: "e2e: 12 suites 4/12", or "build" without steps; a stale one says so. */
-export function runWords(r: Pick<ProgressRun, 'title' | 'total' | 'step' | 'state'>): string {
+export function runWords(r: Pick<ProgressRun, 'title' | 'total' | 'step' | 'state'> & { waiting?: string | null }): string {
   const steps = r.total !== null ? ` ${Math.min(r.step ?? 0, r.total)}/${r.total}` : ''
-  return `${r.title}${steps}${r.state === 'stale' ? ` · ${RUN_STATE_WORDS.stale}` : ''}`
+  return `${r.title}${steps}${r.state === 'stale' ? ` · ${RUN_STATE_WORDS.stale}` : r.waiting ? ' · waiting' : ''}`
 }
 
 /** One line of a run's details (#251): its label, its text, and whether it is a command or a path (shown as code). */
@@ -169,10 +205,17 @@ export interface RunDetail {
 export function runDetails(r: ProgressRun, project: string | null, now: number): RunDetail[] {
   const took = (r.finishedAt ?? now) - r.startedAt
   const steps = r.total !== null ? `${Math.min(r.step ?? 0, r.total)} of ${r.total} done${r.stepName ? ` · last: ${r.stepName}` : ''}` : r.stepName ? `Last: ${r.stepName}` : null
+  const word = runStateWord(r)
   const state =
     r.state === 'stale'
       ? `Stopped reporting: ${r.staleReason === 'agent-stopped' ? 'its agent stopped before it finished' : `no report for ${shortDuration(now - r.updatedAt)}`}`
-      : `${RUN_STATE_WORDS[r.state][0].toUpperCase()}${RUN_STATE_WORDS[r.state].slice(1)}${r.dismissed ? ' (dismissed)' : ''}`
+      : r.state === 'stopped'
+        ? r.stopReason === 'gone'
+          ? 'Ended without a report: its process ended before it said how it went'
+          : 'Stopped: its command was interrupted'
+        : r.waiting
+          ? `Waiting since ${formatDateTime(r.waitingSince ?? r.startedAt)}: ${r.waiting}`
+          : `${word[0].toUpperCase()}${word.slice(1)}${r.dismissed ? ' (dismissed)' : ''}`
   const out: RunDetail[] = [{ label: 'Run', text: r.title }]
   if (r.command) out.push({ label: 'Command', text: r.command, code: true })
   out.push({ label: 'Agent', text: `${r.agentName}${project ? ` · ${project}` : ''}` })
