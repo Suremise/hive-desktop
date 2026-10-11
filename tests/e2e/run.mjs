@@ -3,9 +3,11 @@
 //                   CLI run one at a time in a lane of their own beside the others; those marked serial in suites.mjs
 //                   (and the installer's) run last, alone.
 //   --affected [B]  the suites the changes since branch B (default main) need, uncommitted ones included
-//                   (affected.mjs), plus any suites named. B is taken only if it isn't a suite name.
-//   --all           the full set before a merge to main (not with --affected): every suite that starts no real CLI (the
-//                   fake tier). The real-CLI suites (needs claude/codex in suites.mjs) are listed as not run.
+//                   (affected.mjs), plus any suites named. B is taken only if it isn't a suite name. The run before
+//                   a merge to main (#628): it picks every suite itself for shared code, test tooling or unknown files.
+//   --all           the full set, at checkpoints (each RC and release, on request; not with --affected): every suite
+//                   that starts no real CLI (the fake tier). The real-CLI suites (needs claude/codex in suites.mjs)
+//                   are listed as not run.
 //   --real          the real tier too: every suite that starts the real Claude Code or Codex (--all --real: everything).
 //   --only-real     only the real tier (with --affected, only the real suites the changes need). A step of a real suite
 //                   that waits on the CLI (lib.cliStep) and fails because of the machine (usage or rate limit, sign-in,
@@ -36,8 +38,8 @@ import { fileURLToPath } from 'url'
 import { createRequire } from 'module'
 import { e2eProgress, slotWaitProgress } from '../progressReport.mts'
 import { SUITES } from './suites.mjs'
-import { affectedSuites, changedFiles } from './affected.mjs'
-import { CLI_LOG, fingerprint, readCliLog, realCliHomes, realCliVersions, recordJson, recordMarkdown } from './record.mjs'
+import { affectedSuites, changedFiles, mergeBase } from './affected.mjs'
+import { CLI_LOG, fingerprint, readCliLog, realCliHomes, realCliVersions, recordJson, recordMarkdown, selectionOf } from './record.mjs'
 import { isRealCli, needsDevBuild, packagedStatus, parentSuite, parseArgs, portBase, realNotRun, repeatStatus, resultLines, selectSuites, suiteOutcome } from './runner.mjs'
 import { devBuild, ensureBuild } from './build.mjs'
 import { FAILED_KEEP_MS, finishRunDirs, keepSuiteFiles, logsRootFor, markRunFailed, newRunDir, omittedLine, pruneRunDirsReleasing } from './logs.mjs'
@@ -93,13 +95,17 @@ if (!evidence.ok) {
 
 // --- Which suites.
 let affected = null
+let changed = []
 if (opts.affected) {
-  affected = affectedSuites(changedFiles(opts.affected, root), SUITES.map((s) => s.name), SUITES.filter(isRealCli).map((s) => s.name))
+  changed = changedFiles(opts.affected, root)
+  affected = affectedSuites(changed, SUITES.map((s) => s.name), SUITES.filter(isRealCli).map((s) => s.name))
   if (affected.all) console.log(`Affected since ${opts.affected}: every fake suite (${affected.why[0]})${affected.real.length ? `, and the real tier's ${affected.real.join(', ')}` : ''}`)
   else console.log(`Affected since ${opts.affected}: ${affected.suites.length ? affected.suites.join(', ') : 'none'}`)
   for (const w of affected.all ? affected.why.slice(1) : affected.why) console.log(`  ${w}`)
 }
 const chosen = selectSuites(SUITES, opts, affected)
+// How they were picked, for the record (#628): the full set, or what --affected selected and why.
+const selection = selectionOf({ all: opts.all, named: opts.named, affected, base: opts.affected, mergeBase: opts.affected ? mergeBase(opts.affected, root) : null, files: changed.length })
 // The real tier left out of a full or affected run: said, so it is never silent (and in the record).
 const notRun = opts.named.length && !opts.all && !opts.affected ? [] : realNotRun(SUITES, chosen)
 if (notRun.length) console.log(`Not run: the real tier (add --real): ${notRun.map((s) => s.name).join(', ')}\n`)
@@ -472,8 +478,8 @@ if (opts.record) {
   const when = new Date().toISOString().slice(0, 16).replace('T', ' ')
   // The real CLIs the real suites ran, as their Hive selected them (#365: the release's tested-with manifest).
   const clis = realCliVersions(lastRun.results, SUITES)
-  const md = `${recordMarkdown({ code: codeBefore, when, jobs, results: lastRun.results, logDir: lastRun.logDir, summary, problems, notRun: notRun.map((s) => s.name), runs: repeat > 1 ? Object.assign(runs, { repeat }) : null, clis, homes }).trimEnd()}\n\n${binLine}\n`
-  const json = `${JSON.stringify(recordJson({ code: codeBefore, when, results: lastRun.results, problems, notRun: notRun.map((s) => s.name), clis }), null, 2)}
+  const md = `${recordMarkdown({ code: codeBefore, when, jobs, results: lastRun.results, logDir: lastRun.logDir, summary, problems, notRun: notRun.map((s) => s.name), runs: repeat > 1 ? Object.assign(runs, { repeat }) : null, clis, homes, selection }).trimEnd()}\n\n${binLine}\n`
+  const json = `${JSON.stringify(recordJson({ code: codeBefore, when, results: lastRun.results, problems, notRun: notRun.map((s) => s.name), clis, selection }), null, 2)}
 `
   for (const r of runs) {
     writeFileSync(join(r.logDir, 'run-record.md'), md)

@@ -1,10 +1,10 @@
-// Which e2e suites a change needs (npm run e2e -- --affected [base]): for review rounds that fixed a few things,
-// rather than the whole set. Errs towards more, never fewer: the files every part of Hive goes through, and any file
-// that isn't in an area or known to need no suite (DOCS_ONLY), mean every suite. The final round before Done still runs every suite
-// the card names, and the full set runs before a merge to main (tests/e2e/README.md). Suites that start a real CLI
-// (the real tier) are picked only when a change touches what they cover (an area naming them, or REAL_TIER), which is
-// when a merge also needs the real tier. tests/e2esuites.test.ts checks that every suite is in an area and every
-// source file is covered.
+// Which e2e suites a change needs (npm run e2e -- --affected [base]): for review rounds that fixed a few things, and
+// for the run before a merge to main (#628), rather than the whole set. Errs towards more, never fewer: the files every
+// part of Hive goes through, the test tooling, and any file that isn't in an area or known to need no suite (DOCS_ONLY,
+// the unit tests'), mean every suite. The full set itself runs at checkpoints (each RC and release, on request:
+// tests/e2e/README.md). Suites that start a real CLI (the real tier) are picked only when a change touches what they
+// cover (an area naming them, or REAL_TIER), which is when a merge also needs the real tier. tests/e2esuites.test.ts
+// checks that every suite is in an area, every source file is covered, and what no area names falls back to every suite.
 import { execFileSync } from 'child_process'
 import { createRequire } from 'module'
 
@@ -63,6 +63,12 @@ export const EVERYTHING = [
   'tests/e2e/clean.mjs',
   'tests/e2e/evidence.cjs',
   'tests/e2e/windowsExits.cjs',
+  'tests/e2e/recycleBin.mjs',
+  // The concurrency checker and the scenario harness: shared test tooling (#628), checked with the full set.
+  'tests/e2e/concurrency.mjs',
+  'tests/e2e/tempWorktrees.mjs',
+  'tests/scenarios/harness.cjs',
+  'tests/scenarios/run.mjs',
   'tests/progressReport.mts',
   'package.json',
   'package-lock.json',
@@ -223,7 +229,7 @@ export function under(file, paths) {
  * .agents/skills, are neither shipped nor read by the app; Hive's own copies there are git-ignored), and the unit tests
  * (npm test runs those).
  */
-export const DOCS_ONLY = ['README.md', 'AGENTS.md', 'CLAUDE.md', 'RELEASING.md', 'tests/e2e/README.md', 'tests/scenarios/', 'reference/', '.gitattributes', '.gitignore', '.claude/skills/', '.agents/skills/']
+export const DOCS_ONLY = ['README.md', 'AGENTS.md', 'CLAUDE.md', 'RELEASING.md', 'tests/README.md', 'tests/e2e/README.md', 'tests/scenarios/', 'reference/', '.gitattributes', '.gitignore', '.claude/skills/', '.agents/skills/']
 
 /** Fixtures the fake CLIs answer with too (#125): a change to one needs the suites its area names, not only npm test. */
 const FAKE_FIXTURES = ['tests/fixtures/claude-initialize.json', 'tests/fixtures/codex-debug-models.json']
@@ -231,9 +237,10 @@ const FAKE_FIXTURES = ['tests/fixtures/claude-initialize.json', 'tests/fixtures/
 /**
  * What only the unit tests use (#390): Vitest's config, CI's workflow (it runs npm test, lint and typecheck, never an e2e
  * suite) and the unit tests' helpers in tests/ (electron-stub.ts, tempDir.ts…; no e2e suite or scenario loads a .ts
- * file from there, which tests/e2esuites.test.ts checks). tests/progressReport.mts is the runners' and in EVERYTHING.
+ * file from there, which tests/e2esuites.test.ts checks), and the sleeps checker (npm run test:waits: its unit test
+ * and a scenario use it, no e2e suite). tests/progressReport.mts is the runners' and in EVERYTHING.
  */
-export const UNIT_ONLY = ['vitest.config.ts', '.github/workflows/ci.yml']
+export const UNIT_ONLY = ['vitest.config.ts', '.github/workflows/ci.yml', 'scripts/testWaits.mjs']
 
 /** Whether a file is a unit test (tests/*.test.ts, their helpers and fixtures, UNIT_ONLY): npm test covers it, no e2e suite. */
 export const unitTest = (f) => /^tests\/[^/]+\.ts$/i.test(f) || under(f, UNIT_ONLY) || (/^tests\/fixtures\//i.test(f) && !FAKE_FIXTURES.includes(f))
@@ -298,9 +305,12 @@ export function affectedSuites(files, suiteNames, realNames = []) {
   return { suites: suiteNames.filter((n) => picked.has(n) || (allReal && realNames.includes(n))), why: [...why, ...(allReal ? [allReal] : [])] }
 }
 
+const gitLines = (cwd, ...a) => execFileSync('git', a, { cwd, encoding: 'utf8', env: runContext.baseEnv() }).split(/\r?\n/).filter(Boolean)
+
+/** The commit a base's changes are counted from: where HEAD left the base (default main). */
+export const mergeBase = (base = 'main', cwd = process.cwd()) => gitLines(cwd, 'merge-base', base, 'HEAD')[0]
+
 /** The files changed against a base (default main): committed since the merge base, uncommitted and untracked. */
 export function changedFiles(base = 'main', cwd = process.cwd()) {
-  const git = (...a) => execFileSync('git', a, { cwd, encoding: 'utf8', env: runContext.baseEnv() }).split(/\r?\n/).filter(Boolean)
-  const mergeBase = git('merge-base', base, 'HEAD')[0]
-  return [...new Set([...git('diff', '--name-only', mergeBase), ...git('ls-files', '--others', '--exclude-standard')])]
+  return [...new Set([...gitLines(cwd, 'diff', '--name-only', mergeBase(base, cwd)), ...gitLines(cwd, 'ls-files', '--others', '--exclude-standard')])]
 }
