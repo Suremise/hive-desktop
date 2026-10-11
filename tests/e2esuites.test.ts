@@ -103,7 +103,7 @@ describe('the suites a change needs (affected.mjs)', () => {
   })
 
   it('picks an area’s suites, a suite’s own file, and about for docs the app bundles', () => {
-    expect(affectedSuites(['src/renderer/src/components/Progress.tsx'], names).suites).toEqual(['progress', 'progresslanes', 'progressreport', 'replysize'])
+    expect(affectedSuites(['src/renderer/src/components/Progress.tsx'], names).suites).toEqual(['progress', 'progresslanes', 'progressreport', 'progressstates', 'replysize'])
     expect(affectedSuites(['tests/e2e/carddialog.cjs', 'docs/SPEC.md', 'CHANGELOG.md'], names).suites).toEqual(['about', 'carddialog'])
     expect(affectedSuites(['docs/USER_GUIDE.md'], names).suites).toEqual(['about', 'tipcorner', 'tips'])
     expect(affectedSuites(['README.md'], names).suites).toEqual([])

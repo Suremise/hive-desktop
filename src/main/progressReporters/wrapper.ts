@@ -1,7 +1,7 @@
 // hive-progress: runs a command with its output passed through and its exit code returned, and reports it to the Hive
 // that launched the agent (report.mts) as a run with an estimate and, when the command prints step lines, steps.
 // Outside Hive, or with Hive unreachable, it just runs the command. Node built-ins only (it runs outside the asar).
-import { spawn, type ChildProcess } from 'node:child_process'
+import { spawn, spawnSync, type ChildProcess } from 'node:child_process'
 import { createHash } from 'node:crypto'
 import { existsSync, statSync } from 'node:fs'
 import { delimiter, extname, isAbsolute, join } from 'node:path'
@@ -13,8 +13,12 @@ Runs the command, passing its output through and returning its exit code, and sh
 with the time it usually takes. A line the command prints like
   ##hive-progress step=4 total=12 name=carddialog
 says step 4 of 12 (carddialog) is starting, and isn't shown. The first total given is the run's: give it within the
-first 2 seconds for a bar with steps from the start, or later for one from then on. Outside Hive it just runs the
-command. HIVE_PROGRESS=0 turns reporting off.`
+first 2 seconds for a bar with steps from the start, or later for one from then on.
+  ##hive-progress wait=a test slot (held by B4)
+says the command waits (for a queue, a lock) and for what: no time left is shown meanwhile, and the wait doesn't count
+against the usual time; "##hive-progress wait=" says it waits no more. A command interrupted by Ctrl+C shows as
+stopped, and one whose hive-progress is killed as ended without a report. Outside Hive it just runs the command.
+HIVE_PROGRESS=0 turns reporting off.`
 
 export type WrapperArgs = { title?: string; command: string[] } | { help: true } | { error: string }
 
@@ -43,9 +47,11 @@ export interface StepLine {
   name?: string
   /** "##hive-progress log=<path>": a log or run record (the rest of the line), for the run's details. */
   log?: string
+  /** "##hive-progress wait=<what>": it waits for that (the rest of the line, #549); '' when it waits no more. */
+  wait?: string
 }
 
-/** A step line ("##hive-progress step=4 total=12 name=carddialog": name is the rest of the line), or null. */
+/** A step line ("##hive-progress step=4 total=12 name=carddialog": name, log and wait are the rest of the line), or null. */
 export function stepLine(line: string): StepLine | null {
   const m = /^##hive-progress(?:[ \t]+(.*?))?[ \t]*\r?\n?$/.exec(line)
   if (!m) return null
@@ -55,7 +61,7 @@ export function stepLine(line: string): StepLine | null {
     const kv = /^(\w+)=(\S*)[ \t]*/.exec(rest)
     if (!kv) break
     const [all, key, value] = kv
-    if (key === 'name' || key === 'log') {
+    if (key === 'name' || key === 'log' || key === 'wait') {
       u[key] = rest.slice(key.length + 1).trim()
       break
     }
@@ -197,6 +203,8 @@ export interface WrapperIo {
   startWaitMs?: number
   /** Whether hive-progress runs in Hive's executable as Node (default: whether it does); tests set it. */
   viaElectron?: boolean
+  /** The stop signals it listens for (default STOP_SIGNALS); tests pass none, or their own. */
+  signals?: NodeJS.Signals[]
 }
 
 /**
@@ -212,6 +220,10 @@ class WrappedRun {
   private step: number | undefined
   private name: string | undefined
   private log: string | undefined
+  /** What it waits for now, and since when; how long it waited before (#549). */
+  private waiting = ''
+  private waitStart = 0
+  private waitedBefore = 0
   constructor(
     private readonly start: () => { title: string; command: string; estimateMs?: number; started: number },
     private readonly opts: { fetch?: Fetch; minIntervalMs?: number; target: NonNullable<ReturnType<typeof progressTarget>> },
@@ -226,11 +238,25 @@ class WrappedRun {
     this.timer = null
     const s = this.start()
     const left = s.estimateMs === undefined ? undefined : Math.max(0, s.estimateMs - (Date.now() - s.started))
-    this.run = new ProgressRun(this.opts.target, { title: s.title, command: s.command, total: this.total, step: this.step, stepName: this.name, estimateMs: left }, { fetch: this.opts.fetch, minIntervalMs: this.opts.minIntervalMs })
+    this.run = new ProgressRun(this.opts.target, { title: s.title, command: s.command, total: this.total, step: this.step, stepName: this.name, estimateMs: left, ...(this.waiting ? { waiting: this.waiting } : {}) }, { fetch: this.opts.fetch, minIntervalMs: this.opts.minIntervalMs })
+  }
+
+  /** How long the command has waited in all (its wait lines), so far. */
+  waitedMs(now = Date.now()): number {
+    return this.waitedBefore + (this.waiting ? now - this.waitStart : 0)
   }
 
   onStep(u: StepLine): void {
     if (u.log) this.log = u.log
+    if (u.wait !== undefined) {
+      const now = Date.now()
+      if (u.wait && !this.waiting) this.waitStart = now
+      if (!u.wait && this.waiting) this.waitedBefore += now - this.waitStart
+      this.waiting = u.wait
+      // A wait shows at once (not after the start's wait for a total): the run starts waiting.
+      if (!this.run) this.begin()
+      else this.run.update({ waiting: u.wait })
+    }
     if (u.step === undefined && u.total === undefined && u.name === undefined) return
     if (u.step !== undefined) this.step = Math.max(0, u.step - 1)
     if (u.name !== undefined) this.name = u.name
@@ -246,9 +272,9 @@ class WrappedRun {
     this.run.update({ ...(late !== undefined ? { total: late, step: this.step ?? 0 } : {}), ...(u.step !== undefined ? { step: this.step } : {}), ...(u.name !== undefined ? { stepName: u.name } : {}) })
   }
 
-  async finish(ok: boolean, summary: string | undefined, exitCode: number): Promise<void> {
+  async finish(ok: boolean, summary: string | undefined, exitCode: number, stopped = false): Promise<void> {
     this.begin()
-    await this.run!.finish(ok, summary, undefined, { exitCode, ...(this.log ? { logPath: this.log } : {}) })
+    await this.run!.finish(ok, summary, undefined, { exitCode, ...(this.log ? { logPath: this.log } : {}), ...(stopped ? { stopped: true } : {}) })
   }
 }
 
@@ -268,7 +294,54 @@ export function commandEnv(env: Record<string, string | undefined>, viaElectron:
   return out
 }
 
-/** Runs hive-progress with these arguments; resolves to the exit code to end with (the command's own). */
+/**
+ * Whether the command ended by an interrupt (#549): Windows' STATUS_CONTROL_C_EXIT (0xC000013A, what a console program
+ * Ctrl+C ends exits with), a shell's 130 (128 + SIGINT), or a signal; or hive-progress itself was sent one.
+ */
+export function wasInterrupted(code: number, signal: NodeJS.Signals | null, signalled: boolean): boolean {
+  return signalled || signal === 'SIGINT' || signal === 'SIGTERM' || signal === 'SIGBREAK' || code === 0xc000013a || code === -1073741510 || code === 130
+}
+
+/** The signals that mean "stop" (Ctrl+C, Ctrl+Break, the console closing, a polite kill), where the wrapper gets them. */
+const STOP_SIGNALS: NodeJS.Signals[] = ['SIGINT', 'SIGBREAK', 'SIGHUP', 'SIGTERM']
+/** How long the command gets to end by itself after hive-progress is told to stop, before it is ended. */
+const STOP_GRACE_MS = 5000
+/** Once the command has been ended, how long its output may stay open (a descendant that got away) before the run ends anyway. */
+const CLOSE_AFTER_KILL_MS = 2000
+
+/**
+ * Ends the command and everything it started (#549). On Windows a command that isn't an .exe runs through cmd.exe (npm,
+ * a .cmd server): ending cmd alone would leave the server running, holding its port, its folder and the output pipes,
+ * so the whole tree goes (taskkill /T /F). If taskkill can't run, the command itself is ended.
+ */
+export function endTree(child: ChildProcess, platform = process.platform): void {
+  if (child.exitCode !== null || child.signalCode !== null) return
+  if (platform === 'win32' && child.pid) {
+    try {
+      const r = spawnSync('taskkill', ['/PID', String(child.pid), '/T', '/F'], { windowsHide: true, stdio: 'ignore', timeout: 10_000 })
+      if (r.status === 0) return
+    } catch {
+      // ended below
+    }
+  }
+  try {
+    child.kill()
+  } catch {
+    // already gone
+  }
+}
+
+/**
+ * Runs hive-progress with these arguments; resolves to the exit code to end with (the command's own).
+ *
+ * Stopping (#549), as Windows lets it be seen: run by Hive's shims, hive-progress is Electron run as Node, a program with
+ * no console, and its command gets a hidden console of its own, so a Ctrl+C typed in the agent's terminal reaches
+ * neither; an agent (or the user) stopping the command ends the whole process tree at once, which no process can see.
+ * That run is told by Hive, from its pid being gone: "ended without a report". Where hive-progress does get a stop
+ * signal (run by Node in a console: Ctrl+C, Ctrl+Break, the console closing), it doesn't die at once: the command
+ * (which got the same Ctrl+C) has a moment to end, is ended if it doesn't, and the run is reported as stopped. A command
+ * that ended by an interrupt itself (STATUS_CONTROL_C_EXIT, 130) is reported as stopped too, not failed.
+ */
 export async function runWrapped(argv: string[], io: WrapperIo): Promise<number> {
   const parsed = parseArgs(argv)
   if ('help' in parsed) {
@@ -296,13 +369,50 @@ export async function runWrapped(argv: string[], io: WrapperIo): Promise<number>
     { target, fetch: io.fetch, minIntervalMs: io.minIntervalMs },
     io.startWaitMs ?? 2000
   )
-  const code = await run(spec, env, io, (u) => report.onStep(u))
-  if (code === 0 && timings) recordTiming(timings, key, Date.now() - started)
-  await report.finish(code === 0, code === 0 ? undefined : `exit code ${code}`, code)
+  let signalled = false
+  let child: ChildProcess | null = null
+  const forced = { at: 0 }
+  const end = (): void => {
+    if (!child) return
+    forced.at = Date.now()
+    endTree(child)
+  }
+  const onSignal = (): void => {
+    // A second stop ends the command (and what it started) at once; the first gives it a moment (it got the same Ctrl+C).
+    if (signalled) return end()
+    signalled = true
+    setTimeout(end, STOP_GRACE_MS).unref()
+  }
+  const signals = (io.signals ?? STOP_SIGNALS).filter((s) => {
+    try {
+      process.on(s, onSignal)
+      return true
+    } catch {
+      return false
+    }
+  })
+  const ended = { signal: null as NodeJS.Signals | null }
+  const code = await run(spec, env, io, (u) => report.onStep(u), (c) => (child = c), ended, forced)
+  for (const s of signals) process.off(s, onSignal)
+  // Told to stop, it is stopped however it then ended (a server shutting down cleanly exits 0); a command that ended by
+  // an interrupt of its own is stopped too. Its exit code is passed on as it was.
+  const stopped = signalled || (code !== 0 && wasInterrupted(code, ended.signal, false))
+  const passed = code === 0 && !stopped
+  // The time it usually takes: from runs that passed only, leaving out the time it waited (a queue, a lock).
+  if (passed && timings) recordTiming(timings, key, Math.max(0, Date.now() - started - report.waitedMs()))
+  await report.finish(passed, passed ? undefined : stopped ? 'interrupted' : `exit code ${code}`, code, stopped)
   return code
 }
 
-function run(spec: { file: string; args: string[]; verbatim: boolean }, env: Record<string, string | undefined>, io: WrapperIo, onStep: ((u: StepLine) => void) | null): Promise<number> {
+function run(
+  spec: { file: string; args: string[]; verbatim: boolean },
+  env: Record<string, string | undefined>,
+  io: WrapperIo,
+  onStep: ((u: StepLine) => void) | null,
+  onChild?: (c: ChildProcess) => void,
+  ended?: { signal: NodeJS.Signals | null },
+  forced?: { at: number }
+): Promise<number> {
   return new Promise((resolve) => {
     let child: ChildProcess
     try {
@@ -320,6 +430,7 @@ function run(spec: { file: string; args: string[]; verbatim: boolean }, env: Rec
       io.stderr.write(`hive-progress: ${(e as Error).message}\n`)
       return resolve(127)
     }
+    onChild?.(child)
     const filters: StepFilter[] = []
     if (onStep) {
       for (const [stream, to] of [
@@ -338,11 +449,17 @@ function run(spec: { file: string; args: string[]; verbatim: boolean }, env: Rec
       io.stderr.write(`hive-progress: ${e.code === 'ENOENT' ? `${spec.file}: command not found` : e.message}\n`)
       resolve(e.code === 'ENOENT' ? 127 : 1)
     })
-    child.on('close', (code, signal) => {
+    const done = (code: number | null, signal: NodeJS.Signals | null): void => {
       if (settled) return
       settled = true
       for (const f of filters) f.end()
+      if (ended) ended.signal = signal
       resolve(code ?? (signal ? 1 : 0))
+    }
+    child.on('close', done)
+    // Ended by hive-progress: its output may be held open by something that got away; the run ends a moment after it.
+    child.on('exit', (code, signal) => {
+      if (forced?.at) setTimeout(() => done(code, signal), CLOSE_AFTER_KILL_MS).unref()
     })
   })
 }

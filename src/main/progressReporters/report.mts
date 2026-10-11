@@ -56,12 +56,16 @@ export interface ProgressStart {
   estimateMs?: number
   /** The command line, as a label. */
   command?: string
+  /** What it waits for before it can begin (#549): no time left is shown meanwhile. */
+  waiting?: string
 }
 
-/** What a finish may add: the command's exit code, and a log or run record it wrote. */
+/** What a finish may add: the command's exit code, a log or run record it wrote, and that it was interrupted. */
 export interface ProgressFinishMore {
   exitCode?: number
   logPath?: string
+  /** Interrupted (Ctrl+C), neither passed nor failed (#549): shown as stopped. */
+  stopped?: boolean
 }
 
 export interface ProgressUpdate {
@@ -73,6 +77,8 @@ export interface ProgressUpdate {
   stepName?: string
   /** Time left from now. */
   estimateMs?: number
+  /** What it waits for now (#549: no time left while it waits, and it doesn't count against the estimate); '' when it waits no more. */
+  waiting?: string
 }
 
 /** The fetch it calls (tests pass their own). */
@@ -127,7 +133,10 @@ export class ProgressRun {
       ...(step !== undefined ? { step } : {}),
       ...(start.stepName ? { stepName: clip(start.stepName, MAX_TITLE) } : {}),
       ...(estimateMs !== undefined ? { estimateMs } : {}),
-      ...(start.command ? { command: clip(start.command, MAX_COMMAND) } : {})
+      ...(start.command ? { command: clip(start.command, MAX_COMMAND) } : {}),
+      ...(start.waiting ? { waiting: clip(start.waiting, MAX_TITLE) } : {}),
+      // Its process (#549): once it is gone without a finish, Hive says the run ended without a report.
+      pid: process.pid
     }
     this.id = target
       ? this.send('POST', '/v1/progress', body, 3000).then((r) => (r && typeof (r as { id?: unknown }).id === 'string' ? (r as { id: string }).id : null))
@@ -135,6 +144,7 @@ export class ProgressRun {
     this.chain = this.id
     this.lines = target ? undefined : opts.lines
     if (this.lines && total !== undefined) this.line(step ?? 0, start.stepName, total)
+    if (this.lines && start.waiting) this.lines(`##hive-progress wait=${clip(start.waiting, MAX_TITLE)}`)
   }
 
   /** A step line: `step` counts the steps finished (the API's terms); the line names the one starting, from 1. */
@@ -157,6 +167,7 @@ export class ProgressRun {
       this.maxStep = total
     }
     if (this.lines && !this.finished) {
+      if (u.waiting !== undefined) this.lines(`##hive-progress wait=${clip(u.waiting, MAX_TITLE)}`.trimEnd())
       const step = count(u.step, this.maxStep)
       if (step !== undefined || u.stepName !== undefined || total !== undefined) this.line(step ?? Math.max(0, this.lineStep - 1), u.stepName, total)
       return
@@ -171,6 +182,7 @@ export class ProgressRun {
     if (count(u.step, this.maxStep) !== undefined) next.step = count(u.step, this.maxStep)
     if (count(u.estimateMs, MAX_ESTIMATE_MS) !== undefined) next.estimateMs = count(u.estimateMs, MAX_ESTIMATE_MS)
     if (u.stepName !== undefined) next.stepName = clip(u.stepName, MAX_TITLE)
+    if (u.waiting !== undefined) next.waiting = clip(u.waiting, MAX_TITLE)
     this.pending = next
     if (this.timer) return
     const wait = Math.max(0, this.lastSent + this.minIntervalMs - Date.now())
@@ -204,7 +216,7 @@ export class ProgressRun {
     if (late) this.chain = this.chain.then(() => this.id).then((id) => (id ? this.send('PATCH', `/v1/progress/${encodeURIComponent(id)}`, late, Math.min(2000, finishWaitMs / 2)) : null))
     const done = this.chain
       .then(() => this.id)
-      .then((id) => (id ? this.send('POST', `/v1/progress/${encodeURIComponent(id)}/finish`, { ok, ...(summary ? { summary: clip(summary, MAX_SUMMARY) } : {}), ...(Number.isSafeInteger(more.exitCode) ? { exitCode: more.exitCode } : {}), ...(more.logPath ? { logPath: clip(more.logPath, MAX_LOG_PATH) } : {}) }, finishWaitMs) : null))
+      .then((id) => (id ? this.send('POST', `/v1/progress/${encodeURIComponent(id)}/finish`, { ok, ...(more.stopped ? { stopped: true } : {}), ...(summary ? { summary: clip(summary, MAX_SUMMARY) } : {}), ...(Number.isSafeInteger(more.exitCode) ? { exitCode: more.exitCode } : {}), ...(more.logPath ? { logPath: clip(more.logPath, MAX_LOG_PATH) } : {}) }, finishWaitMs) : null))
     let timer: ReturnType<typeof setTimeout> | undefined
     await Promise.race([done, new Promise((r) => (timer = setTimeout(r, finishWaitMs + 250)))])
     clearTimeout(timer)

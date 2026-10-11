@@ -2,7 +2,7 @@
 // updates; stale runs; the taskbar's combined bar; time left.
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { ProgressError, ProgressStore, admitReport, keptRuns, type ProgressCaller, type ProgressHistory } from '../src/main/progress'
-import { MAX_OPEN_PER_OWNER, MAX_OPEN_PER_WORKSPACE, PASSED_SHOWN_MS, RECENT_KEPT, STRIP_BARS, ALL_PROJECTS, agentOpenRun, runWords, NO_PROJECT, SHOW_ALL, activeFilter, agentChoices, filterChoices, filterRuns, inStrip, isListed, isOverdue, isRecent, runDetailsText, stripRuns, taskbarProgress, timeLeft, unseenTrouble } from '../src/shared/progress'
+import { FINISHING_MS, MAX_OPEN_PER_OWNER, MAX_OPEN_PER_WORKSPACE, PASSED_SHOWN_MS, RECENT_KEPT, STRIP_BARS, ALL_PROJECTS, agentOpenRun, barLook, runStateWord, runStatusLine, runWords, NO_PROJECT, SHOW_ALL, activeFilter, agentChoices, filterChoices, filterRuns, inStrip, isListed, isOpenRun, isOverdue, isRecent, runDetailsText, stripRuns, taskbarProgress, timeLeft, unseenTrouble } from '../src/shared/progress'
 import type { ProgressRun } from '../src/shared/types'
 import { setDateStyle } from '../src/shared/dates'
 
@@ -18,8 +18,10 @@ const assistant: ProgressCaller = { source: 'assistant', workspacePath: WS, agen
 let now = 1_000_000
 let changes: { ws: string; runs: ProgressRun[] }[] = []
 let running = true
+/** The reporters' processes still there (#549), by pid. */
+let alivePids = new Set<number>()
 const store = (): ProgressStore =>
-  new ProgressStore({ now: () => now, changed: (ws, runs) => changes.push({ ws, runs }), ownerRunning: () => running, emitEveryMs: 250 })
+  new ProgressStore({ now: () => now, changed: (ws, runs) => changes.push({ ws, runs }), ownerRunning: () => running, processAlive: (pid) => alivePids.has(pid), emitEveryMs: 250 })
 
 const status = (fn: () => unknown): number | null => {
   try {
@@ -34,6 +36,7 @@ beforeEach(() => {
   now = 1_000_000
   changes = []
   running = true
+  alivePids = new Set()
   vi.useFakeTimers()
 })
 afterEach(() => vi.useRealTimers())
@@ -234,6 +237,89 @@ describe('progress runs', () => {
     running = false
     s.sweep()
     expect(s.list(WS).find((r) => r.id === sc.id)!.state).toBe('running')
+  })
+
+  it('waiting (#549): no time left while it waits, never stale meanwhile; what was left comes back from when it stops waiting', () => {
+    const s = store()
+    // Waiting from the start, with an estimate: it is held, not counted down.
+    const q = s.start(alfie, { title: 'e2e', estimateMs: 10 * 60_000, waiting: 'waiting for a test slot: held by B4' })
+    expect(q).toMatchObject({ waiting: 'waiting for a test slot: held by B4', waitingSince: now, estimateMs: null, heldEstimateMs: 10 * 60_000, expectedMs: 10 * 60_000 })
+    expect(timeLeft(q, now + 60_000)).toBeNull()
+    // Quiet for 46 minutes while it waits: still running.
+    now += 46 * 60_000
+    s.sweep()
+    expect(s.list(WS)[0]).toMatchObject({ state: 'running', staleReason: null })
+    // Who it waits for changes: still waiting since then, the estimate still held.
+    s.update(alfie, q.id, { waiting: 'waiting for a test slot: held by B5' })
+    expect(s.list(WS)[0]).toMatchObject({ waiting: 'waiting for a test slot: held by B5', waitingSince: 1_000_000, estimateMs: null, heldEstimateMs: 10 * 60_000 })
+    // The wait ends: the ten minutes count from now, as if it had just started.
+    s.update(alfie, q.id, { waiting: '', total: 3, step: 0 })
+    expect(s.list(WS)[0]).toMatchObject({ waiting: null, waitingSince: null, heldEstimateMs: null, estimateMs: 10 * 60_000, updatedAt: now })
+    expect(timeLeft(s.list(WS)[0], now + 60_000)).toBe(9 * 60_000)
+    // A running run that begins to wait keeps what was left then; an estimate sent while waiting is held too.
+    now += 2 * 60_000
+    s.update(alfie, q.id, { waiting: 'waiting for the merge slot' })
+    expect(s.list(WS)[0]).toMatchObject({ estimateMs: null, heldEstimateMs: 8 * 60_000 })
+    s.update(alfie, q.id, { estimateMs: 5 * 60_000 })
+    expect(s.list(WS)[0]).toMatchObject({ estimateMs: null, heldEstimateMs: 5 * 60_000 })
+    s.update(alfie, q.id, { waiting: '' })
+    expect(s.list(WS)[0].estimateMs).toBe(5 * 60_000)
+    // A finish ends the wait, whenever it comes.
+    s.update(alfie, q.id, { waiting: 'again' })
+    s.finish(alfie, q.id, { ok: true })
+    expect(s.list(WS)[0]).toMatchObject({ state: 'passed', waiting: null, waitingSince: null })
+    expect(status(() => s.update(alfie, s.start(alfie, { title: 'x' }).id, { waiting: 5 }))).toBe(400)
+  })
+
+  it('stopped (#549): an interrupted finish is neither passed nor failed, and no failure to see', () => {
+    const s = store()
+    const r = s.start(alfie, { title: 'server', total: 4, step: 1 })
+    expect(status(() => s.finish(alfie, r.id, { ok: false, stopped: 'yes' }))).toBe(400)
+    s.finish(alfie, r.id, { ok: false, stopped: true, summary: 'interrupted', exitCode: 3221225786 })
+    const done = s.list(WS)[0]
+    expect(done).toMatchObject({ state: 'stopped', stopReason: 'interrupted', step: 1, summary: 'interrupted', exitCode: 3221225786, finishedAt: now })
+    expect(s.failureUnseen(WS)).toBe(false)
+    expect([unseenTrouble(done), isOpenRun(done)]).toEqual([false, false])
+    // Listed a few seconds, as a passed run, then under Recent.
+    expect([isListed(done, now + PASSED_SHOWN_MS - 1), isRecent(done, now + PASSED_SHOWN_MS)]).toEqual([true, true])
+    expect(runStateWord(done)).toBe('stopped')
+  })
+
+  it("ended without a report (#549): an open run whose reporter's process is gone ends as stopped (gone), stale or not", () => {
+    const s = store()
+    alivePids = new Set([11, 12, 13])
+    const a = s.start(alfie, { title: 'server', pid: 11 })
+    const b = s.start(betty, { title: 'quiet', pid: 12 })
+    const c = s.start(script, { title: 'alive', pid: 13 })
+    const d = s.start(assistant, { title: 'no pid' })
+    expect(a.pid).toBe(11)
+    expect(status(() => s.start(alfie, { title: 'bad', pid: -4 }))).toBe(400)
+    // b has gone quiet first: stale, as before.
+    now += 11 * 60_000
+    s.update(alfie, a.id, { step: 0 })
+    s.update(script, c.id, { step: 0 })
+    s.update(assistant, d.id, { step: 0 })
+    s.sweep()
+    expect(s.list(WS).find((r) => r.id === b.id)).toMatchObject({ state: 'stale', staleReason: 'quiet' })
+    // Then a's and b's processes are gone: both end, without a report; c (alive) and d (no pid) go on.
+    alivePids = new Set([13])
+    changes = []
+    s.sweep()
+    for (const id of [a.id, b.id]) expect(s.list(WS).find((r) => r.id === id)).toMatchObject({ state: 'stopped', stopReason: 'gone', staleReason: null, finishedAt: now, summary: null })
+    expect(s.list(WS).find((r) => r.id === c.id)!.state).toBe('running')
+    expect(s.list(WS).find((r) => r.id === d.id)!.state).toBe('running')
+    expect(changes).toHaveLength(1)
+    expect(s.failureUnseen(WS)).toBe(false)
+    const gone = s.list(WS).find((r) => r.id === a.id)!
+    expect(runStateWord(gone)).toBe('ended without a report')
+    expect(isOpenRun(gone)).toBe(false)
+    // An ended run takes no more reports.
+    expect(status(() => s.update(alfie, a.id, { step: 1 }))).toBe(409)
+    // Without a way to check processes, a pid is never looked at.
+    const plain = new ProgressStore({ now: () => now, changed: () => undefined, ownerRunning: () => true })
+    plain.start(alfie, { title: 'x', pid: 99 })
+    plain.sweep()
+    expect(plain.list(WS)[0].state).toBe('running')
   })
 
   it('merges rapid updates into at most one window event per interval, with the latest state', () => {
@@ -496,6 +582,11 @@ describe('progress rules', () => {
     finishedAt: null,
     state: 'running',
     staleReason: null,
+    stopReason: null,
+    waiting: null,
+    waitingSince: null,
+    heldEstimateMs: null,
+    pid: null,
     summary: null,
     dismissed: false,
     seenAt: null,
@@ -526,7 +617,30 @@ describe('progress rules', () => {
     expect(timeLeft(run({}), 5)).toBeNull()
   })
 
-  it('overdue: ten minutes without an estimate; the estimate plus two minutes; a step share with steps', () => {
+  it('the status line (#549): a waiting run how long it has waited, never a time left; past its estimate "finishing", then "longer than expected", never "0 s left"', () => {
+    // Waiting from the start, then waiting after running a while.
+    expect(runStatusLine(run({ waiting: 'waiting for a test slot: B4', waitingSince: 0 }), 46 * 60_000)).toBe('waiting 46 min')
+    expect(runStatusLine(run({ waiting: 'x', waitingSince: 90_000 }), 150_000)).toBe('3 min · waiting 1 min')
+    expect(barLook(run({ waiting: 'x', total: 10, step: 3 }))).toBe('waiting')
+    expect([barLook(run({ total: 10, step: 3 })), barLook(run({})), barLook(run({ state: 'passed' })), barLook(run({ state: 'stopped', waiting: 'x' }))]).toEqual(['steps', 'moving', 'full', 'full'])
+    // Running with an estimate, every second up to two minutes past it: a time left while there is one, then
+    // "finishing" for a minute, then "longer than expected"; never "0 s left".
+    const r = run({ estimateMs: 30_000, updatedAt: 0 })
+    for (let t = 0; t <= 150_000; t += 250) {
+      const line = runStatusLine(r, t)
+      expect(line).not.toMatch(/\b0 s left/)
+      if (30_000 - t >= 1000) expect(line).toMatch(/about \d+ s left$/)
+      else expect(line).toMatch(t - 30_000 < FINISHING_MS ? /· finishing$/ : /· longer than expected$/)
+    }
+    expect(runStatusLine(run({}), 65_000)).toBe('1 min')
+    expect(runStatusLine(run({ state: 'stopped', stopReason: 'interrupted', finishedAt: 125_000 }), 1e9)).toBe('Stopped after 2 min')
+    expect(runStatusLine(run({ state: 'stopped', stopReason: 'gone', finishedAt: 125_000 }), 1e9)).toBe('Ended without a report after 2 min')
+    expect(runStatusLine(run({ state: 'stale', staleReason: 'quiet', updatedAt: 0 }), 120_000)).toBe('Stopped reporting 2 min ago')
+    expect(runWords({ ...run({ waiting: 'x' }), title: 'e2e' })).toBe('e2e · waiting')
+  })
+
+  it('overdue: ten minutes without an estimate; the estimate plus two minutes; a step share with steps; never while waiting', () => {
+    expect(isOverdue(run({ waiting: 'a test slot' }), 10 * 3_600_000)).toBe(false)
     expect(isOverdue(run({}), 10 * 60_000)).toBe(false)
     expect(isOverdue(run({}), 10 * 60_000 + 1)).toBe(true)
     expect(isOverdue(run({ estimateMs: 60_000 }), 3 * 60_000 + 1)).toBe(true)
