@@ -174,11 +174,21 @@ parent's `nested` folder with ports above the parent's, a nested scenario run in
 before it builds, in the order runs asked. It prints `Waiting for a test slot …: held by e2e: 68 suites in <worktree>
 (process …, 12 min)` and shows in the Progress panel as **e2e: waiting for a test slot** (or **scenarios: …**), naming
 who holds them, until it gets one (`Got a test slot after N s`). So a run that seems stuck is usually waiting: that line
-says for whom. `--no-wait` fails at once instead (exit 2, saying who holds them). Slots are files in
+says for whom. `--no-wait` fails at once instead (exit 2, saying who holds them).
+**A pre-merge run goes first** (#558): one started in the session of the agent that holds its project's merge slot
+(the runner asks Hive's Agent API, with the session's `HIVE_API_URL`, token, `HIVE_PROJECT` and `HIVE_AGENT`, at its
+first look and every 30 s while it waits), or one with `--pre-merge` (either runner; for a merge's checks started
+outside an agent's session). It takes the next free slot before runs that asked earlier for other reasons, behind only
+pre-merge runs that asked before it, and says `…, pre-merge, next in line: held by …`; it never stops a run that holds a
+slot, and no slot is kept back for it. So a merge, which every other merge waits behind, doesn't wait behind flake-proof
+repeats. The merge-ready skill claims the merge slot before its checks, so its runs need no flag. Slots are files in
 `%LOCALAPPDATA%\hive-test\heavy-slots` (`slot-<k>.json` held, `wait-<pid>.json` waiting, each with its runner's
-process id, under the same claims lock as lanes); a crashed or killed run's slot expires at once (its process is gone).
+process id, and `first` for a pre-merge run, under the same claims lock as lanes); a crashed or killed run's slot, or
+place in the queue, expires at once (its process is gone).
 `npm run e2e:concurrency -- --heavy` checks it: three heavy runs from three worktrees with two slots (in a pool of their
-own, `HIVE_TEST_HEAVY_DIR`), one waiting visibly, `--no-wait`, and a killed run's slot.
+own, `HIVE_TEST_HEAVY_DIR`), one waiting visibly, `--no-wait`, a killed run's slot, a pre-merge run taking the slot
+before two that asked earlier (the stand-in Agent API says its agent holds the merge slot), and a killed pre-merge run's
+place.
 
 **Unit tests under load.** `npm test` uses half the cores (`maxWorkers: '50%'` in `vitest.config.ts`) and allows 20 s
 a test and 30 s a hook, so a full run beside an e2e set doesn't hit Vitest's 5 s default. A test that needs longer says

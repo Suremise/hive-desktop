@@ -21,6 +21,8 @@
 //   --packaged      include the installer's suites (need npm run dist); --no-progress: don't report to Hive.
 //   --no-wait       a heavy run (more than 5 suites, or --repeat) fails at once when every test slot on this machine is
 //                   taken, instead of waiting for one (slots.mjs; HIVE_TEST_HEAVY_SLOTS, default 2).
+//   --pre-merge     a heavy run checking a merge goes first in the queue for a test slot (#558). Not needed in the
+//                   session of an agent holding the merge slot: such a run goes first anyway (slots.mjs holdsMergeSlot).
 // Needs a dev build. A suite fails when it exits non-zero or prints a line starting with FAIL. Each suite gets its own
 // Agent API port (HIVE_E2E_PORT, read through lib.port()), so suites can run side by side; each runner claims a lane
 // (lanes.mjs: ports and suite folders of its own), so runners in different worktrees can run at the same time.
@@ -40,7 +42,7 @@ import { isRealCli, needsDevBuild, packagedStatus, parentSuite, parseArgs, portB
 import { devBuild, ensureBuild } from './build.mjs'
 import { FAILED_KEEP_MS, finishRunDirs, keepSuiteFiles, logsRootFor, markRunFailed, newRunDir, omittedLine, pruneRunDirsReleasing } from './logs.mjs'
 import { LANES, claimLane, laneWork } from './lanes.mjs'
-import { describeClaim, heavySlots, needsSlot, waitForSlot } from './slots.mjs'
+import { describeClaim, heavySlots, needsSlot, preMerge, waitForSlot, waitLine } from './slots.mjs'
 import { usesCodexHome, waitForCodexHome } from './codexHomeLock.mjs'
 import { autoClean, holdLane } from './clean.mjs'
 import { recycleBinCount, recycleBinLine } from './recycleBin.mjs'
@@ -106,7 +108,7 @@ if (!chosen.length) {
 
 // --- A heavy run (more than a few suites, or a repeat) waits for a test slot: at most a few go at once on this machine,
 // across every worktree (slots.mjs), so runs don't slow each other until tests time out. A runner started inside a
-// suite never waits (its parent holds one: needsSlot). --no-wait: fail at once instead.
+// suite never waits (its parent holds one: needsSlot). --no-wait: fail at once instead. A pre-merge run goes first.
 const nested = !!parentSuite()
 if (needsSlot({ count: chosen.length, repeat: opts.repeat })) {
   const what = `e2e: ${chosen.length} suites${opts.repeat > 1 ? ` × ${opts.repeat}` : ''}`
@@ -116,9 +118,10 @@ if (needsSlot({ count: chosen.length, repeat: opts.repeat })) {
     what,
     root,
     wait: !opts.noWait,
-    onWait: ({ holders, ahead }) => {
-      const who = holders.map((c) => describeClaim(c)).join('; ')
-      const line = `Waiting for a test slot (${heavySlots()} heavy runs at once on this machine, HIVE_TEST_HEAVY_SLOTS)${ahead ? `, ${ahead} ahead of this one` : ''}: held by ${who || 'runs just finishing'}.`
+    first: preMerge(opts.preMerge),
+    onWait: (look) => {
+      const who = look.holders.map((c) => describeClaim(c)).join('; ')
+      const line = waitLine(look)
       if (line !== said) console.log(line)
       said = line
       queue.waiting(who)
