@@ -21,7 +21,7 @@ const notes = await import('../src/main/notes')
 const names = await import('../src/main/projectNames')
 const fsutil = await import('../src/main/fsutil')
 const { repairMove } = await import('../src/main/workspaceMove')
-const { followNames, testHooks } = await import('../src/main/projectRename')
+const { followNames, followingNames, testHooks } = await import('../src/main/projectRename')
 testHooks.retryMs = 50
 const { config } = await import('../src/main/config')
 const { progress } = await import('../src/main/progressService')
@@ -276,6 +276,53 @@ describe('what keeps a project by name or path follows a rename, once (#514)', (
     expect(measured(w, 'gamma') + measured(w, 'alpha')).toBe(0)
     progress.clear(ws)
     await disposeWorkspaceService(w)
+  })
+
+  it('a retry follows the newest read, never the one that failed: no rename back that never happened (#555)', async () => {
+    const ws = newWs()
+    const alpha = project(ws, 'alpha')
+    const w = await open(ws)
+    expect(await until(w, () => existsSync(join(ws, '.hive', 'project-names.json')))).toBe(true)
+    const id = (await w.projectIds()).byPath.get(alpha.toLowerCase())!
+    config.update((c) => {
+      c.ui.skillsProvider = { ...c.ui.skillsProvider, [alpha.toLowerCase()]: 'codex' }
+    })
+    // Progress fails once; its retry is held, to be let go once a later read has been followed.
+    const real = progress.applyRenames.bind(progress)
+    let fails = 1
+    vi.spyOn(progress, 'applyRenames').mockImplementation(async (...a) => {
+      if (fails-- > 0) throw new Error('disk full')
+      return real(...a)
+    })
+    const RETRY = 4321
+    const was = testHooks.retryMs
+    testHooks.retryMs = RETRY
+    let retry: (() => void) | null = null
+    const schedule = globalThis.setTimeout
+    vi.spyOn(globalThis, 'setTimeout').mockImplementation(((fn: () => void, ms?: number) => {
+      if (ms === RETRY && !retry) {
+        retry = fn
+        return { unref: () => undefined }
+      }
+      return schedule(fn, ms)
+    }) as unknown as typeof setTimeout)
+    try {
+      const run = progress.start({ source: 'agent', workspacePath: ws, projectPath: alpha, agentId: 'x', agentName: 'X', provider: 'claude-code' }, { title: 'tests' })
+      await move(alpha, join(ws, 'gamma'))
+      expect(await until(w, () => retry !== null && !followingNames(w))).toBe(true)
+      // Renamed again, and that read followed, before the retry comes.
+      await move(join(ws, 'gamma'), join(ws, 'delta'))
+      expect(await until(w, () => progress.list(ws).find((r) => r.id === run.id)?.projectPath === join(ws, 'delta') && !followingNames(w))).toBe(true)
+      retry!()
+      await vi.waitFor(() => expect(followingNames(w)).toBe(false), { timeout: 15_000 })
+      expect(journal(ws).renames.map((r) => [r.id, r.from, r.to])).toEqual([[id, 'alpha', 'gamma'], [id, 'gamma', 'delta']])
+      expect(progress.list(ws).find((r) => r.id === run.id)?.projectPath).toBe(join(ws, 'delta'))
+      expect(prefs(ws, 'delta')).toBe('codex')
+      progress.clear(ws)
+    } finally {
+      testHooks.retryMs = was
+      await disposeWorkspaceService(w)
+    }
   })
 })
 
