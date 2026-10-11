@@ -1,5 +1,7 @@
 import type { TranscriptItem, TranscriptSearchHit } from '../../shared/types'
+import { isAbsolute } from 'path'
 import { formatDateTime } from '../../shared/dates'
+import { relativeInside } from '../fsutil'
 
 /**
  * The provider-neutral side of transcripts: the viewer's items are the same for every provider, so
@@ -15,12 +17,26 @@ export function toolLabel(name: string): string {
   return m ? `${m[1]} · ${m[2]}` : name
 }
 
-/** A path relative to the project, when it is inside it. */
+/** A path relative to the project, when it is inside it (also by another name for its folder: #494). */
 export function shortPath(p: unknown, root: string | null): string {
   if (typeof p !== 'string') return ''
   if (root && p.toLowerCase().startsWith(root.toLowerCase() + '\\')) return p.slice(root.length + 1).replace(/\\/g, '/')
   if (root && p.toLowerCase().startsWith(root.toLowerCase().replace(/\\/g, '/') + '/')) return p.slice(root.length + 1)
-  return p
+  if (!root || !isAbsolute(p)) return p
+  return realInside(root, p) || p
+}
+
+/** Whether paths outside the project as spelt are inside it by real location, each resolved once (bounded). */
+const realInsideSeen = new Map<string, string | null>()
+function realInside(root: string, p: string): string | null {
+  const k = `${root}|${p}`.toLowerCase()
+  let rel = realInsideSeen.get(k)
+  if (rel === undefined) {
+    if (realInsideSeen.size >= 1000) realInsideSeen.clear()
+    rel = relativeInside(root, p)?.replace(/\\/g, '/') ?? null
+    realInsideSeen.set(k, rel)
+  }
+  return rel
 }
 
 export const firstLine = (s: unknown): string => (typeof s === 'string' ? s.trim().split('\n')[0] : '')
