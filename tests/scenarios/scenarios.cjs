@@ -7,7 +7,7 @@
 // commands: those runs check the harness, the board rules and Hive's own costs (benchmarks) for free. The real CLIs are the model trials (opt-in, see README.md).
 //
 // Fixture version: bump when a scenario's setup or checks change, so results can be compared across versions.
-const FIXTURES_VERSION = 46
+const FIXTURES_VERSION = 47
 
 /** The subject's hive tool calls that the server ran, by tool (each has ok, error and args). */
 const called = (o, tool) => o.hiveCalls.filter((c) => c.tool === tool)
@@ -190,6 +190,17 @@ const worktreeCount = (c) => c.git('worktree', 'list', '--porcelain').split(/\r?
 const contractWas = (o, on) => o.measures?.coreChars === require('../../src/shared/hiveGuidance.ts').hiveInstructions('alpha', 'agent', on).length
 
 module.exports.FIXTURES_VERSION = FIXTURES_VERSION
+/**
+ * The latest comment by `who` (a name in its author) on a card, and its first line that isn't blank (#532: reports and
+ * verdicts lead with a one-line summary). Null when it has none.
+ */
+const leadLine = (card, who) => {
+  const c = (card?.comments ?? []).filter((x) => who.test(x.by)).at(-1)
+  return c ? { line: c.text.split('\n').map((l) => l.trim()).find(Boolean) ?? '', text: c.text } : null
+}
+/** A first line that reads as a summary: a sentence or so, not a heading alone or the whole report on one line. */
+const summaryLine = (l) => !!l && l.line.length >= 10 && l.line.length <= 300
+
 module.exports.SCENARIOS = [
   {
     id: 'work-on-card',
@@ -198,11 +209,12 @@ module.exports.SCENARIOS = [
       await c.card('a', { title: 'Add CONTRIBUTING.md', description: 'Add a CONTRIBUTING.md at the root with one line: "Be kind."' })
     },
     prompt: (c) => `Work on card #${c.cards.a}.`,
-    fake: (c) => `skill work-on-card boardmove ${c.cards.a} doing then boardmove ${c.cards.a} review then boardcomment ${c.cards.a}`,
+    fake: (c) => `skill work-on-card boardmove ${c.cards.a} doing then hive hive_update_task {"number":${c.cards.a},"column":"review","comment":"Ready for review: CONTRIBUTING.md added with its one line.\\n\\nWhat changed: CONTRIBUTING.md at the root. Checks: none needed for a text file."}`,
     expect: (o, c) => [
       ['read the work-on-card skill', read(o, 'work-on-card'), o.skillsRead.join(',')],
       ['moved it to Doing before Review', movedInto(o.cards.a, 'Doing') >= 0 && movedInto(o.cards.a, 'Doing') < movedInto(o.cards.a, 'Review', true), history(o.cards.a).join(' | ')],
       ['it ends in Review, with a comment of the agent', o.cards.a?.column === 'review' && (o.cards.a?.comments ?? []).some((x) => /Coder/.test(x.by)), o.cards.a?.column],
+      ['its report leads with a one-line summary (#532)', summaryLine(leadLine(o.cards.a, /Coder/)), JSON.stringify(leadLine(o.cards.a, /Coder/)?.line ?? null)],
       ['not Done (the user decides)', o.cards.a?.column !== 'done'],
       ['the work is there', /Be kind/.test(c.read('CONTRIBUTING.md') ?? ''), 'no CONTRIBUTING.md']
     ],
@@ -216,11 +228,12 @@ module.exports.SCENARIOS = [
       await c.card('b', { title: 'Greeting helper', description: 'greet.js returns "Hello, <name>".', column: 'review', agent: 'implementer', comments: ['Done: greet.js added.'] })
     },
     prompt: (c) => `Review card #${c.cards.b}.`,
-    fake: (c) => `skill review-agent-work boardreview ${c.cards.b} start then boardreview ${c.cards.b} failed`,
+    fake: (c) => `skill review-agent-work boardreview ${c.cards.b} start then hive hive_update_task {"number":${c.cards.b},"review":"failed","comment":"Round 1: FAILED: 1 finding: greet() says Helo.\\n\\n1. greet.js returns \\"Helo, <name>\\": make it \\"Hello, <name>\\"."}`,
     expect: (o, c) => [
       ['read the review-agent-work skill', read(o, 'review-agent-work'), o.skillsRead.join(',')],
       ['marked itself as reviewer (review start)', ran(o, 'hive_update_task').some((x) => field(x.args, 'review', 'start')) && history(o.cards.b).includes('Started reviewing')],
       ['gave a verdict (passed or failed)', history(o.cards.b).some((h) => /^Review (passed|failed)$/.test(h)), history(o.cards.b).join(' | ')],
+      ['its verdict leads with one line saying it (#532)', summaryLine(leadLine(o.cards.b, /Coder/)) && /pass|fail/i.test(leadLine(o.cards.b, /Coder/).line), JSON.stringify(leadLine(o.cards.b, /Coder/)?.line ?? null)],
       ['the card stays in Review with the implementer', o.cards.b?.column === 'review' && o.cards.b?.agent?.id === c.agents.implementer.id, `${o.cards.b?.column} / ${o.cards.b?.agent?.name}`],
       ['never moved to Doing', movedInto(o.cards.b, 'Doing') < 0],
       ['changed no files (a review only reads)', o.gitStatus.trim() === '', o.gitStatus]

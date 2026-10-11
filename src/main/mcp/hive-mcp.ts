@@ -438,21 +438,22 @@ const tools: Tool[] = [
   {
     name: 'hive_read_task',
     description:
-      "One card as JSON: its decisions first (what the user decided: they win over the description), then description, comments, links, agent and reviewer. comments=n gives only its newest n comments (commentsOmitted counts the others); latestComment=true only the newest (comment null if none); history=true adds who changed what and when (historyEntries says how many entries there are).",
+      "One card as JSON: its decisions first (what the user decided: they win over the description), then description, comments, links, agent and reviewer. comments=n gives only its newest n comments (commentsOmitted counts the others); latestComment=true only the newest (comment null if none); summary=true gives each comment as its first line, its summary (length: the whole comment's, when there is more: read it without summary when you need the detail); history=true adds who changed what and when (historyEntries says how many entries there are).",
     inputSchema: {
       type: 'object',
       properties: {
         number: { type: 'number', description: 'The card number (#12 is 12).' },
         comments: { type: 'number', description: 'Only the newest n comments.' },
         latestComment: { type: 'boolean', description: 'Only the newest comment.' },
+        summary: { type: 'boolean', description: 'Each comment as its first line only.' },
         history: { type: 'boolean' }
       },
       required: ['number']
     },
     run: (a) => {
       const n = enc(String(a.number))
-      if (a.latestComment) return api('GET', `/v1/tasks/${n}/comments/latest`)
-      const q = [a.history ? '' : 'history=false', Number(a.comments) > 0 ? `comments=${Math.floor(Number(a.comments))}` : ''].filter(Boolean).join('&')
+      if (a.latestComment) return api('GET', `/v1/tasks/${n}/comments/latest${a.summary ? '?summary=true' : ''}`)
+      const q = [a.history ? '' : 'history=false', Number(a.comments) > 0 ? `comments=${Math.floor(Number(a.comments))}` : '', a.summary ? 'summary=true' : ''].filter(Boolean).join('&')
       return api('GET', `/v1/tasks/${n}${q ? `?${q}` : ''}`)
     }
   },

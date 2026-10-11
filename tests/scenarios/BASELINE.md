@@ -36,6 +36,22 @@ Codex run.
 
 Every scenario ran once per provider. Models vary from run to run, so a single result is a sample, not a rate.
 
+## Reports and verdicts lead with a one-line summary: fakes, Codex (its default model), fixtures v46–v47, 11 October 2026
+
+#532: work-on-card has a report to Review start with a one-sentence summary, review-agent-work a verdict with one line
+("Round 1: FAILED: 2 findings: …"); `hive_read_task` with `summary: true` gives each comment as its first line, and
+card-loop and run-lanes read wakes that way when the gist is enough. Fixtures v47 add a check to **work-on-card** (its
+report leads with a summary line, 10–300 characters) and **review-card** (its verdict's first line, the same, says
+passed or failed); their fakes post that comment through `hive_update_task`.
+- **Fakes**: before `hb1-532-before` (v46 on 4d7a16a, `2026-10-11T07-33-37-fake`) 76 of 76; after (v47,
+  `hb1-532-after`, `2026-10-11T08-02-47-fake`) 76 of 76. Hive's cost changed only in the two scenarios whose fakes now
+  comment through a hive tool (0 → 91 characters, 1 call each); every other scenario is unchanged.
+- **Codex: 4 of 4 pass** (`2026-10-11T08-27-42-codex`, $0.221): work-on-card and review-card pass their new checks
+  (the report and the verdict lead with a summary line); card-loop-rounds and coordinator-wake-failed pass. It didn't
+  read with `summary: true` in these runs (coordinator-wake-failed read the latest comment in full): the reports here
+  are short, and the skills offer it when the gist is enough.
+- **Claude Code**: not run: its test home isn't signed in.
+
 ## The Assistant watches whole lanes: fakes, Codex (its default model), fixtures v46, 11 October 2026
 
 #531: `hive_wait_for_tasks` with `lanes` (ids, or `["all"]`) is a lane watch: every running lane, followed as it goes on,

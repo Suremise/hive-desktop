@@ -12,7 +12,7 @@ import { ASSISTANT_AGENT_ID, ASSISTANT_DIR, ASSISTANT_NAME } from '../shared/ass
 import { timeLeft } from '../shared/progress'
 import { ProgressError, admitReport, type ProgressCaller } from './progress'
 import { progress, progressGate } from './progressService'
-import { COLUMN_CHOICES, columnLabel, isTaskColumn, reviewStalled } from '../shared/tasks'
+import { COLUMN_CHOICES, columnLabel, commentSummary, isTaskColumn, reviewStalled } from '../shared/tasks'
 import type { HandoverAuthor } from '../shared/hiveGuidance'
 import { newestComments, progressLabel, taskRow, withoutHistory, type ProjectRow, type SkillRow, type TaskChange, type TaskReorder, type TaskView } from '../shared/toolReplies'
 import * as assistant from './assistantControl'
@@ -1522,7 +1522,9 @@ route('GET', '/v1/tasks/:n', async ({ params, query }) => {
   const n = raw === null ? null : Number(raw)
   if (n !== null && (!Number.isInteger(n) || n < 1)) throw new HttpError(400, `comments must be a whole number from 1: "${raw}"`)
   const lean = n === null ? view : newestComments(view, n)
-  return query.get('history') === 'false' ? withoutHistory(lean) : lean
+  // summary=true (#532): each comment as its first line, with the whole comment's length when there is more.
+  const told = query.get('summary') === 'true' ? { ...lean, comments: lean.comments.map(commentSummary) } : lean
+  return query.get('history') === 'false' ? withoutHistory(told) : told
 })
 
 route('POST', '/v1/tasks', async ({ body }) => {
@@ -1633,9 +1635,11 @@ route('POST', '/v1/tasks/reorder', async ({ body }) => {
 
 // Only a card's newest comment (its author, time and whole text), for "check the latest comment": the card's
 // description, earlier comments and history stay out of the reply. A card without comments gives comment null.
-route('GET', '/v1/tasks/:n/comments/latest', async ({ params }) => {
+route('GET', '/v1/tasks/:n/comments/latest', async ({ params, query }) => {
   requireWorkspace()
-  return tasks.latestComment(taskNumber(params[0]), await taskActor())
+  const r = await tasks.latestComment(taskNumber(params[0]), await taskActor())
+  // summary=true (#532): its first line, with its whole length when there is more.
+  return query.get('summary') === 'true' && r.comment ? { ...r, comment: commentSummary(r.comment) } : r
 })
 
 route('POST', '/v1/tasks/:n/comments', async ({ params, body }) => {

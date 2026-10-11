@@ -108,6 +108,20 @@ export function notWatchingReason(card: Pick<TaskCard, 'number' | 'column' | 'ar
   return a ? `${a.name} isn't watching #${card.number}: its turn ended with no card watch.` : null
 }
 
+/** The longest a comment's summary line runs before it is cut (#532). */
+export const COMMENT_SUMMARY_MAX = 300
+
+/**
+ * A comment as its summary (#532): its first line that isn't blank, cut to COMMENT_SUMMARY_MAX, and how long the whole
+ * comment is (characters) when that line isn't all of it. Round reports and verdicts start with a one-line summary
+ * ("Round 2 ready: …", "Round 1: FAILED: 2 findings: …"), so a reader that needs only the gist reads that.
+ */
+export function commentSummary<T extends { text: string }>(c: T): Omit<T, 'text'> & { text: string; length?: number } {
+  const line = c.text.split('\n').map((l) => l.trim()).find(Boolean) ?? ''
+  const first = line.length > COMMENT_SUMMARY_MAX ? `${line.slice(0, COMMENT_SUMMARY_MAX - 1)}…` : line
+  return first === c.text.trim() ? { ...c, text: first } : { ...c, text: first, length: c.text.length }
+}
+
 /** How long a card may wait in Review, unreviewed, while an agent watches it, before it shows as stalled (#521). */
 export const REVIEW_WAIT_STALL_MS = 15 * 60_000
 

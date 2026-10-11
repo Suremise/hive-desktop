@@ -316,6 +316,8 @@ An agent runs as the user, so it could read the workspace token from disk: this 
 
 `GET /v1/tasks/{n}/comments/latest` — only the card's newest comment, for "check the latest comment" without the whole card: `{ "number": 12, "comment": { "at": "…", "by": "Codex (web)", "text": "…the whole comment…" } }`, or `"comment": null` when it has none. The newest is the last one added (comments are kept in the order they were added, so equal times don't matter). The description, earlier comments and history are left out. Who may read it is as for the card (`404` for a card a project agent can't see, as for a missing one). The hive tools' `hive_read_task` gives it with `latestComment: true`.
 
+`?summary=true` (#532), on this and on `GET /v1/tasks/{n}`: each comment as its **summary**, its first line that isn't blank (at most 300 characters), with `"length"`, the whole comment's in characters, when there is more: `{ "at": "…", "by": "HR1 (hive)", "text": "Round 1: FAILED: 2 findings: …", "length": 4210 }`. Reports and verdicts lead with a one-line summary, so a reader that needs only the gist reads that and asks for the whole when it acts on it. `hive_read_task` gives it with `summary: true`.
+
 `POST /v1/tasks` — add a card. `title` is required; `description`, `project`, `agent` (name or id, in that project), `column` (not `done`; not `hold` for a project agent), `labels`, `blocked` (a reason), `blockedBy` and `links` (card numbers) are optional. Created in `doing` by an agent without `agent`, it is given to that agent.
 
 ```json
@@ -519,7 +521,7 @@ When **Provide Hive tools to sessions** is on (the default), Hive adds an MCP se
 | `hive_notify` | `POST /v1/notify` |
 | `hive_list_skills` | `GET /v1/skills`, a line per skill (the session's project's, for an agent) |
 | `hive_list_tasks` | `GET /v1/tasks?view=short`, a line per card by column (at most 200 a reply, `offset` for the next; `details: true` for whole cards) |
-| `hive_read_task` | `GET /v1/tasks/{n}?history=false` (`history: true` for its history, `comments: n` for its newest n comments; `latestComment: true`: `/comments/latest`) |
+| `hive_read_task` | `GET /v1/tasks/{n}?history=false` (`history: true` for its history, `comments: n` for its newest n comments; `latestComment: true`: `/comments/latest`; `summary: true`: `?summary=true`) |
 | `hive_create_task` | `POST /v1/tasks` (the session's project by default), short reply |
 | `hive_update_task` | `PATCH /v1/tasks/{n}` (with `comment`), short reply |
 | `hive_reorder_tasks` | `POST /v1/tasks/reorder`, short reply |

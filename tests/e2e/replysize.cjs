@@ -188,6 +188,12 @@ const prose = (seed, n) => {
   check('history=true adds it', JSON.parse(tool('hive_read_task', { number: target, history: true }).text).history.length >= 1)
   const latest = JSON.parse(measure('hive_read_task (latestComment)', tool('hive_read_task', { number: target, latestComment: true }), 1500))
   check('latestComment=true: the newest comment only', latest.number === target && latest.comment?.text === read.comments.at(-1).text && JSON.stringify(Object.keys(latest)) === '["number","comment"]', JSON.stringify(latest).slice(0, 200))
+  // Summaries (#532): each comment as its first line, with the whole comment's length when there is more.
+  const summary = JSON.parse(measure('hive_read_task (latestComment, summary)', tool('hive_read_task', { number: target, latestComment: true, summary: true }), 500))
+  const fullLatest = read.comments.at(-1).text
+  check('summary=true: the latest comment as its first line, with its whole length', summary.comment?.text === fullLatest.split('\n').map((l) => l.trim()).find(Boolean).slice(0, 300) && (summary.comment.text === fullLatest.trim() || summary.comment.length === fullLatest.length), JSON.stringify(summary).slice(0, 300))
+  const allSummary = JSON.parse(tool('hive_read_task', { number: target, summary: true }).text)
+  check('…and every comment of a card read with it', allSummary.comments.length === read.comments.length && allSummary.comments.every((x, i) => x.text.length <= 300 && read.comments[i].text.includes(x.text.replace(/…$/, '').slice(0, 20))), JSON.stringify(allSummary.comments).slice(0, 300))
   const created = measure('hive_create_task', tool('hive_create_task', { title: 'Measured card', description: prose(500, 1800), labels: ['bug'] }), 400)
   check('a new card: its number and place', /^#\d+ created in Todo \(51st of 51\) for alpha: Measured card$/.test(created), created)
   const commented = measure('hive_update_task (comment)', tool('hive_update_task', { number: target, comment: 'Looked at it.' }), 400)
