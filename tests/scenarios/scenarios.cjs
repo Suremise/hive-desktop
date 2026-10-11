@@ -7,7 +7,7 @@
 // commands: those runs check the harness, the board rules and Hive's own costs (benchmarks) for free. The real CLIs are the model trials (opt-in, see README.md).
 //
 // Fixture version: bump when a scenario's setup or checks change, so results can be compared across versions.
-const FIXTURES_VERSION = 45
+const FIXTURES_VERSION = 46
 
 /** The subject's hive tool calls that the server ran, by tool (each has ok, error and args). */
 const called = (o, tool) => o.hiveCalls.filter((c) => c.tool === tool)
@@ -1587,7 +1587,7 @@ async function twoLanes(c, { d = false, aColumn = 'todo' } = {}) {
   }
 }
 /** What Hive's card wake to the Assistant ends with while lanes run (src/shared/watch.ts, the same: a unit test checks). */
-const LANES_RUNNING_TAIL = ' Lanes are still running (hive_lane list): before you end your turn, watch them all again in one watch, each lane by its last card (run-lanes).'
+const LANES_RUNNING_TAIL = ' Lanes are still running (hive_lane list): before you end your turn, watch them again in one lane watch (hive_wait_for_tasks with lanes ["all"], wake; run-lanes).'
 /** The Assistant's card watches that worked and wake it (with wake: true), each with its cards. */
 const cardWatches = (o) => ran(o, 'hive_wait_for_tasks').filter((x) => argsOf(x).wake === true && !argsOf(x).cancel)
 /**
@@ -1595,8 +1595,11 @@ const cardWatches = (o) => ran(o, 'hive_wait_for_tasks').filter((x) => argsOf(x)
  * and a failed verdict, which leaves its card in Review.
  */
 const TEAM_WAKES = ['column', 'comment', 'verdict']
-/** A card watch (not an agent watch, no single column) over every one of `cards` that wakes on all of TEAM_WAKES. */
-const watchCovers = (w, cards) => !!w && !w.agents && !w.column && TEAM_WAKES.every((k) => (w.changes ?? []).includes(k)) && cards.every((n) => (w.cards ?? []).includes(n))
+/**
+ * A lane watch on every running lane (#531: it follows each lane's cards as the lane goes on), or a card watch (not an
+ * agent watch, no single column) over every one of `cards` that wakes on all of TEAM_WAKES.
+ */
+const watchCovers = (w, cards) => !!w && ((w.lanes ?? []).includes('all') || (!w.agents && !w.lanes && !w.column && TEAM_WAKES.every((k) => (w.changes ?? []).includes(k)) && cards.every((n) => (w.cards ?? []).includes(n))))
 /**
  * The watch it ended its turn with (the live one: a new watch replaces the last, so an earlier call proves nothing) covers
  * every one of `cards`, waking it on whatever happens to them (watchCovers).
@@ -1641,7 +1644,7 @@ module.exports.SCENARIOS.push(
         brief('Implementer', `Reviewer in a card-loop lane: cards #${c.cards.a}, #${c.cards.b}; your builder is Coder.`),
         brief('Builder2', `Builder in a card-loop lane: card #${c.cards.c}; your reviewer is Reviewer2.`),
         brief('Reviewer2', `Reviewer in a card-loop lane: card #${c.cards.c}; your builder is Builder2.`),
-        `hive hive_wait_for_tasks {"cards":[${c.cards.b},${c.cards.c}],"wake":true,"limitMinutes":360}`
+        `hive hive_wait_for_tasks {"lanes":["all"],"wake":true,"limitMinutes":360}`
       ].join(' then ')
     },
     expect: (o, c) => {
@@ -1671,7 +1674,7 @@ module.exports.SCENARIOS.push(
     },
     prompt: (c) =>
       `[Hive] #${c.cards.a} (Coder's card) is in Review: Implementer failed it; latest comment by Implementer: "Round 1: FAILED. 1. greet.js doesn't trim the name before greeting." Your card watch has ended: carry on (hive_read_task with latestComment for the comment in full).${LANES_RUNNING_TAIL}`,
-    fake: (c) => `hive hive_read_task {"number":${c.cards.a},"latestComment":true} then hive hive_list_tasks {"project":"alpha"} then hive hive_wait_for_tasks {"cards":[${c.cards.a},${c.cards.b},${c.cards.c}],"wake":true,"limitMinutes":360}`,
+    fake: (c) => `hive hive_read_task {"number":${c.cards.a},"latestComment":true} then hive hive_list_tasks {"project":"alpha"} then hive hive_wait_for_tasks {"lanes":["all"],"wake":true,"limitMinutes":360}`,
     expect: (o, c) => {
       const { a, b } = c.cards
       const cc = c.cards.c
@@ -1703,7 +1706,7 @@ module.exports.SCENARIOS.push(
     },
     prompt: (c) =>
       `[Hive] #${c.cards.a} (Coder's card) is in Doing; latest comment by Coder: "Question for the user: should greet() throw on an empty name (A) or return "Hi" (B)?" Your card watch has ended: carry on (hive_read_task with latestComment for the comment in full).${LANES_RUNNING_TAIL}`,
-    fake: (c) => `hive hive_read_task {"number":${c.cards.a},"latestComment":true} then hive hive_wait_for_tasks {"cards":[${c.cards.a},${c.cards.b},${c.cards.c}],"wake":true,"limitMinutes":360}`,
+    fake: (c) => `hive hive_read_task {"number":${c.cards.a},"latestComment":true} then hive hive_wait_for_tasks {"lanes":["all"],"wake":true,"limitMinutes":360}`,
     expect: (o, c) => {
       const { b } = c.cards
       const cc = c.cards.c
@@ -1730,7 +1733,7 @@ module.exports.SCENARIOS.push(
         `hive hive_update_task {"number":${c.cards.d},"agent":"Coder"}`,
         `hive hive_lane {"action":"start","project":"alpha","builder":"Coder","reviewer":"Implementer","cards":[${c.cards.a},${c.cards.b},${c.cards.d}]}`,
         `hive hive_lane {"action":"start","project":"alpha","builder":"Builder2","reviewer":"Reviewer2","cards":[${c.cards.c}]}`,
-        `hive hive_wait_for_tasks {"cards":[${c.cards.c},${c.cards.d}],"wake":true,"limitMinutes":360}`
+        `hive hive_wait_for_tasks {"lanes":["all"],"wake":true,"limitMinutes":360}`
       ].join(' then '),
     expect: (o, c) => {
       const lanes = (o.lanes ?? []).filter((l) => l.state === 'active' || l.state === 'paused')
@@ -1789,9 +1792,9 @@ module.exports.SCENARIOS.push(
     },
     prompt: (c) =>
       `Two card loops are running in alpha: Coder builds #${c.cards.a}, then #${c.cards.b} (Implementer reviews), and Builder2 builds #${c.cards.c} (Reviewer2 reviews). Follow both lanes to the end and tell me when they're done.`,
-    fake: (c) => `skill coordinate-agents then skill run-lanes then hive hive_wait_for_tasks {"cards":[${c.cards.b},${c.cards.c}],"wake":true,"limitMinutes":360}`,
+    fake: () => `skill coordinate-agents then skill run-lanes then hive hive_wait_for_tasks {"lanes":["all"],"wake":true,"limitMinutes":360}`,
     // Its next steps when Hive wakes it: Builder2's lane is done (sweep, watch Coder's), then Coder's (both done).
-    fakeWakes: (c) => [`hive hive_list_tasks {} then hive hive_wait_for_tasks {"cards":[${c.cards.b}],"wake":true,"limitMinutes":360}`, 'hive hive_lane {"action":"list"}'],
+    fakeWakes: () => [`hive hive_list_tasks {} then hive hive_wait_for_tasks {"lanes":["all"],"wake":true,"limitMinutes":360}`, 'hive hive_lane {"action":"list"}'],
     // The lanes finish while it watches: Builder2's card goes to Done (Hive wakes it), then, once it watches again (a new
     // watch: another `since`), Coder's two. A wake is Hive's real one, typed in when a watched card changes; a turn that
     // ends with no watch, or the last wake's turn ending, closes the scenario.
@@ -1831,7 +1834,7 @@ module.exports.SCENARIOS.push(
       return [
         ["first watched both lanes' last cards (waking on moves, comments and verdicts)", covers(c.firstWatch, [b, cc]), JSON.stringify(c.firstWatch)],
         ["woken by Builder2's lane ending, it watched Coder's lane's end again", c.wakes >= 1 && covers(c.secondWatch, [b]), JSON.stringify({ wakes: c.wakes, watch: c.secondWatch })],
-        ["Hive's first wake said lanes are still running, to watch them all again", /Lanes are still running/.test(o.wakeLines?.[0] ?? ''), (o.wakeLines ?? []).join(' | ').slice(0, 300)],
+        ["Hive's first wake said lanes are still running, to watch them all again", /Lanes are still running|watch the lanes again/.test(o.wakeLines?.[0] ?? ''), (o.wakeLines ?? []).join(' | ').slice(0, 300)],
         ['swept the board on a wake (cards, lanes or agents, after its first watch)', sweeps >= 1, o.hiveCalls.map((x) => x.tool).join(',')],
         ["woken again by Coder's lane ending", c.wakes >= 2, String(c.wakes)],
         ['both lanes ended', ours.length === 2 && ours.every((l) => l.state === 'ended'), JSON.stringify(ours.map((l) => [l.builder?.name, l.state]))],

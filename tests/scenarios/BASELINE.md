@@ -36,6 +36,29 @@ Codex run.
 
 Every scenario ran once per provider. Models vary from run to run, so a single result is a sample, not a rate.
 
+## The Assistant watches whole lanes: fakes, Codex (its default model), fixtures v46, 11 October 2026
+
+#531: `hive_wait_for_tasks` with `lanes` (ids, or `["all"]`) is a lane watch: every running lane, followed as it goes on,
+no card limit, woken only for a failed review, a blocked or stalled card, a lane due to merge, ended or abandoned.
+run-lanes and coordinate-agents now say to watch the lanes that way, and the lanes-running tail and `hive_lane start`'s
+nudge point at it. Fixtures v46: the coordinator scenarios' fakes watch `lanes: ["all"]`, and a lane watch on all
+lanes counts as covering every lane's cards (`watchCovers`); coordinator-lanes-to-end's first-wake check also takes a
+lane watch's own line.
+
+**Before and after** (Performance → Compare calls v45 against v46 not comparable, so per scenario here):
+- **Fakes**: before `hb1-531-before` (v45 on a7b9e6e, results `2026-10-11T05-42-20-fake`): 76 of 76. After (v46,
+  `2026-10-11T06-16-02-fake`, baseline `hb1-531-after2`): 76 of 76. Hive's cost changed only in the coordinator
+  scenarios, whose fakes now watch lanes: after round 2 trimmed the lane watch's reply (the events only when not the
+  default), each is smaller than before (`2026-10-11T06-47-53-fake`): coordinator-team-lanes 640 → 624 characters,
+  wake-failed 554 → 534, wake-question 336 → 316, reassign 735 → 721, lanes-to-end 762 → 734; the same calls and
+  requests, the same guidance.
+- **Codex, 4 of 4 both times**: before (a7b9e6e, v45 fixtures, `2026-10-11T06-09-37-codex`, $0.252) it watched cards
+  (`{"cards":[2,3,1],…}`, the lanes' cards listed); after (v46, `2026-10-11T06-41-15-codex`, $0.235) every last watch
+  was `{"lanes":["all"],"wake":true}`. Hive's cost: team-lanes 6,304 → 4,349 characters (17 → 18 requests), wake-failed
+  3,285 → 4,518 (10 → 9), wake-question 1,460 → 1,495 (7 → 7), reassign 6,501 → 5,782 (27 → 21); one sample each.
+  Round 1's after run (`2026-10-11T05-01-03-codex`, $0.255) was also 4 of 4 with lane watches.
+- **Claude Code**: not run: its test home isn't signed in.
+
 ## The Assistant leaves a message for a busy agent: fakes, Codex (its default model), fixtures v44–v45, 11 October 2026
 
 #530: `hive_message_agent` leaves a watching or busy agent a message (typed at once into an idle or watching agent, its

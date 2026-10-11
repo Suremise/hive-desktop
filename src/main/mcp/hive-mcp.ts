@@ -15,6 +15,7 @@ import { hiveInstructions, withLatestHandover } from '../../shared/hiveGuidance'
 import { AGENT_ONLY_TOOLS, ASSISTANT_ONLY_TOOLS, assistantTools, controlAllows } from '../../shared/assistantTools'
 import { COLUMN_IDS } from '../../shared/tasks'
 import { AGENT_WAIT_MAX_SECONDS, WAIT_MAX_SECONDS } from '../../shared/watch'
+import { LANE_EVENTS } from '../../shared/laneWatch'
 import { CLAIM_WAIT_MAX_SECONDS, CLAIM_WAIT_SECONDS } from '../../shared/mergeSlot'
 import { agentApiCall } from './agentApiCall'
 import { MAX_ROWS, agentWatchText, batchText, changedText, claimText, createdText, mergeSlotText, noteText, notesListText, noteWrittenText, projectListText, releaseText, reorderText, settingChangedText, settingListText, settingText, skillListText, taskListText, taskWaitText, type NoteEntry, type ProjectRow, type SettingDetail, type SettingRow, type SkillRow, type TaskBatch, type TaskChange, type TaskReorder, type TaskRow } from '../../shared/toolReplies'
@@ -350,7 +351,7 @@ const tools: Tool[] = [
   {
     name: 'hive_wait_for_tasks',
     description:
-      `Wait for cards to change: a column move, a new comment, a review verdict or a new agent (changes narrows it). column alone: only until one is in that column (at once if it already is; nothing else counts); column with changes including "column": until one moves into it, or another change listed. Either way a card already in that column answers at once; fresh=true (with column) waits only for the next move into it: a card there must leave and come back, or be returned for review. wake=true: Hive types one line into this session when one changes, naming every watched card that changed${ASSISTANT ? " (and when the user sends a watched card's agent or reviewer a prompt from its pane, with its first line)" : ''}, or after limitMinutes with none (default 120); a watch started after a wake also counts what others changed since that wake: end your turn after calling it; nothing runs, and no other work is given to you, meanwhile. Without wake, it waits here up to timeoutSeconds (default 300, at most 840) and replies with each change (column, by whom, the latest comment's first line) or no change, with since: pass it back to the next wait so nothing between them is missed. cancel=true ends your watch. Your project's cards only.`,
+      `Wait for cards to change: a column move, a new comment, a review verdict or a new agent (changes narrows it). column alone: only until one is in that column (at once if it already is; nothing else counts); column with changes including "column": until one moves into it, or another change listed. Either way a card already in that column answers at once; fresh=true (with column) waits only for the next move into it: a card there must leave and come back, or be returned for review. wake=true: Hive types one line into this session when one changes, naming every watched card that changed${ASSISTANT ? " (and when the user sends a watched card's agent or reviewer a prompt from its pane, with its first line)" : ''}, or after limitMinutes with none (default 120); a watch started after a wake also counts what others changed since that wake: end your turn after calling it; nothing runs, and no other work is given to you, meanwhile. Without wake, it waits here up to timeoutSeconds (default 300, at most 840) and replies with each change (column, by whom, the latest comment's first line) or no change, with since: pass it back to the next wait so nothing between them is missed. cancel=true ends your watch. Your project's cards only. lanes (with wake, instead of cards): a lane watch on whole card loops (hive_lane list gives their ids), or ["all"] for every running lane${ASSISTANT ? '' : ' of your project'}, started later too: each lane's cards are followed as it goes on, with no card limit, and it wakes you only for events (default: a failed review, a card blocked or stalled, a lane whose cards have all passed so its merge is due, a lane ended or abandoned; add passed or moved to count those), one line naming each lane and card.`,
     inputSchema: {
       type: 'object',
       properties: {
@@ -362,13 +363,15 @@ const tools: Tool[] = [
         limitMinutes: { type: 'number' },
         timeoutSeconds: { type: 'number' },
         since: { type: 'string' },
-        cancel: { type: 'boolean' }
+        cancel: { type: 'boolean' },
+        lanes: { type: 'array', items: { type: 'string' }, description: 'Lane ids, or ["all"]: a lane watch (with wake) instead of cards.' },
+        events: { type: 'array', items: { type: 'string', enum: [...LANE_EVENTS] }, description: 'What a lane watch counts (default: failed, blocked, stalled, merge-due, ended, abandoned).' }
       }
     },
     run: async (a) =>
       taskWaitText(
         (await api('POST', '/v1/tasks/wait', {
-          ...(a.cancel ? { cancel: true } : { cards: a.cards, changes: a.changes, column: a.column, fresh: a.fresh, wake: a.wake === true, limitMinutes: a.limitMinutes, timeoutSeconds: a.timeoutSeconds, since: a.since })
+          ...(a.cancel ? { cancel: true } : a.lanes !== undefined ? { lanes: a.lanes, events: a.events, wake: a.wake === true, limitMinutes: a.limitMinutes } : { cards: a.cards, changes: a.changes, column: a.column, fresh: a.fresh, wake: a.wake === true, limitMinutes: a.limitMinutes, timeoutSeconds: a.timeoutSeconds, since: a.since })
         }, a.cancel || a.wake === true ? undefined : waitReplyMs(a.timeoutSeconds, 300, WAIT_MAX_SECONDS))) as Parameters<typeof taskWaitText>[0]
       )
   },

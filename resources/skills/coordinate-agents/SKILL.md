@@ -41,7 +41,7 @@ The task board is the shared list of work. For work that needs more than one ste
 ## Leave agents alone when
 
 - An agent is working, starting, waiting on its background tasks, or watching (`watching`: it waits on a card or another agent, and Hive wakes it when that changes): give it no new task. Only the user can cancel a watch. To tell it something about the work it has (the user's answer, a re-brief, a card added to its lane), leave it a message with `hive_message_agent`: a watching agent gets it at once and keeps watching, a busy one as soon as its turn ends. Don't ask the user to paste it into its pane.
-- An agent is asking the user a question: tell the user, and record their answer on the card as a decision. Never answer for them. Other work carries on meanwhile: before you end your turn, start your watch again over it (Follow the work), each running lane by its last card (run-lanes).
+- An agent is asking the user a question: tell the user, and record their answer on the card as a decision. Never answer for them. Other work carries on meanwhile: before you end your turn, start your watch again over it (Follow the work): one lane watch over all running lanes (run-lanes).
 - The user has just typed in an agent's terminal: wait for them.
 - An agent asks to trust its folder: that's for the user, so tell them.
 

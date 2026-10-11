@@ -86,6 +86,7 @@ export const SUITES = [
   { name: 'installdir' },
   { name: 'isolation' },
   { name: 'keys' },
+  { name: 'lanewatch' },
   { name: 'launchrace' },
   { name: 'leftovers' },
   { name: 'loadfail' },

@@ -1046,6 +1046,8 @@ export interface TaskWatchInfo {
   column?: TaskColumn
   /** An agent watch's agents, by name (#416: its cards are none). */
   agents?: string[]
+  /** A lane watch's lanes, by id, or ["all"] (#531: its cards are none). */
+  lanes?: string[]
   /** "Waiting for #12 → Review", "Waiting for B6 to finish". */
   label: string
   since: string
