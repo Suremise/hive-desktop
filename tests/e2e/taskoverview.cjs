@@ -6,6 +6,8 @@ const lib = require('./lib.cjs')
 const { _electron } = require('playwright-core')
 const fs = require('fs')
 const path = require('path')
+// The longest a wait here waits for what it waits on: a bound for a hung run, never how long it should take (#570).
+const HUNG_MS = 10000
 
 const userData = path.join(lib.WORK, 'taskoverview-profile')
 const ws = path.join(lib.WORK, 'taskoverview-ws')
@@ -77,12 +79,12 @@ const until = async (fn, ms = 8000) => {
 
   // --- The Workspace Overview: every card.
   await page.getByRole('button', { name: 'Workspace Overview' }).click()
-  check('the Workspace Overview counts every card', !!(await until(is({ Todo: 4, Doing: 1, 'Waiting for review': 1, Done: 2, Blocked: 1 }))), JSON.stringify(await read()))
+  check('the Workspace Overview counts every card', !!(await until(is({ Todo: 4, Doing: 1, 'Waiting for review': 1, Done: 2, Blocked: 1 }), HUNG_MS)), JSON.stringify(await read()))
 
   // --- alpha's Overview: its cards only.
   await page.getByRole('button', { name: 'Projects' }).click()
   await showOverview('alpha')
-  check("alpha's Overview counts only alpha's cards", !!(await until(is({ Todo: 2, Doing: 1, 'Waiting for review': 1, Done: 0, Blocked: 0 }))), JSON.stringify(await read()))
+  check("alpha's Overview counts only alpha's cards", !!(await until(is({ Todo: 2, Doing: 1, 'Waiting for review': 1, Done: 0, Blocked: 0 }), HUNG_MS)), JSON.stringify(await read()))
   check('the strip is for alpha', (await strip.first().getAttribute('data-project')) === 'alpha')
 
   // --- Switching to beta never shows alpha's counts, not even for a moment.
@@ -98,42 +100,42 @@ const until = async (fn, ms = 8000) => {
   })()
   await showOverview('beta')
   await watching
-  check("beta's Overview counts only beta's cards", !!(await until(is({ Todo: 1, Doing: 0, 'Waiting for review': 0, Done: 2, Blocked: 1 }))), JSON.stringify(await read()))
+  check("beta's Overview counts only beta's cards", !!(await until(is({ Todo: 1, Doing: 0, 'Waiting for review': 0, Done: 2, Blocked: 1 }), HUNG_MS)), JSON.stringify(await read()))
   check("after the switch, beta's strip never shows alpha's counts", seen.filter((x) => x.p === 'beta').every((x) => x.r.Todo === 1 && x.r.Done === 2), JSON.stringify(seen.slice(-3)))
 
   // --- gamma: no cards, a clear empty state.
   await showOverview('gamma')
-  check('a project without cards says so', !!(await until(async () => /No cards for this project/.test((await read())?.text ?? ''))), JSON.stringify(await read()))
+  check('a project without cards says so', !!(await until(async () => /No cards for this project/.test((await read())?.text ?? ''), HUNG_MS)), JSON.stringify(await read()))
 
   // --- Live updates on beta's Overview: create, move, edit (block), delete, move to another project.
   await showOverview('beta')
-  await until(is({ Todo: 1, Done: 2 }))
+  await until(is({ Todo: 1, Done: 2 }), HUNG_MS)
   const b4 = await make('B4', 'beta', 'todo')
-  check('a new card counts at once', !!(await until(is({ Todo: 2 }))), JSON.stringify(await read()))
+  check('a new card counts at once', !!(await until(is({ Todo: 2 }), HUNG_MS)), JSON.stringify(await read()))
   await inv('tasks:update', b4, { column: 'review' })
-  check('a moved card moves in the counts', !!(await until(is({ Todo: 1, 'Waiting for review': 1 }))), JSON.stringify(await read()))
+  check('a moved card moves in the counts', !!(await until(is({ Todo: 1, 'Waiting for review': 1 }), HUNG_MS)), JSON.stringify(await read()))
   await inv('tasks:update', b4, { blocked: 'Needs input' })
-  check('an edit (blocked) counts', !!(await until(is({ Blocked: 2 }))), JSON.stringify(await read()))
+  check('an edit (blocked) counts', !!(await until(is({ Blocked: 2 }), HUNG_MS)), JSON.stringify(await read()))
   await inv('tasks:update', b4, { project: 'alpha' })
-  check('a card moved to another project leaves the counts', !!(await until(is({ 'Waiting for review': 0, Blocked: 1 }))), JSON.stringify(await read()))
+  check('a card moved to another project leaves the counts', !!(await until(is({ 'Waiting for review': 0, Blocked: 1 }), HUNG_MS)), JSON.stringify(await read()))
   await inv('tasks:delete', b1)
-  check('a deleted card leaves the counts', !!(await until(is({ Todo: 0, Blocked: 0, Done: 2 }))), JSON.stringify(await read()))
+  check('a deleted card leaves the counts', !!(await until(is({ Todo: 0, Blocked: 0, Done: 2 }), HUNG_MS)), JSON.stringify(await read()))
   await showOverview('alpha')
-  check('the moved card counts on its new project', !!(await until(is({ Todo: 2, 'Waiting for review': 2 }))), JSON.stringify(await read()))
+  check('the moved card counts on its new project', !!(await until(is({ Todo: 2, 'Waiting for review': 2 }), HUNG_MS)), JSON.stringify(await read()))
   await page.screenshot({ path: path.join(lib.WORK, 'taskoverview.png') })
 
   // --- A number opens the project's Tasks tab, scoped to it.
   await strip.first().locator('.board-strip-item', { hasText: 'Todo' }).click()
-  check('a number opens the Tasks tab', !!(await until(async () => (await page.locator('.tabs .tab.active').innerText()).includes('Tasks'))))
+  check('a number opens the Tasks tab', !!(await until(async () => (await page.locator('.tabs .tab.active').innerText()).includes('Tasks'), HUNG_MS)))
   const titles = await until(async () => {
     const t = await page.locator('.board-view.in-tab .task-title').allInnerTexts()
     return t.length ? t : null
-  })
+  }, HUNG_MS)
   check("…showing alpha's cards only", !!titles && titles.every((t) => /^A\d|^B4$/.test(t.trim())) && titles.includes('A1') && !titles.includes('W') && !titles.includes('B2'), JSON.stringify(titles))
   await inv('tasks:delete', a1)
   await showOverview('gamma')
   await strip.first().locator('.board-strip-item', { hasText: 'Open Tasks' }).click()
-  check("the empty state's Open Tasks opens gamma's Tasks tab", !!(await until(async () => (await page.locator('.tabs .tab.active').innerText()).includes('Tasks'))))
+  check("the empty state's Open Tasks opens gamma's Tasks tab", !!(await until(async () => (await page.locator('.tabs .tab.active').innerText()).includes('Tasks'), HUNG_MS)))
 
   await app.close()
   console.log(failed ? `${failed} check(s) failed` : 'all checks passed')

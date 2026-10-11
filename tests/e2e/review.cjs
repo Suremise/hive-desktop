@@ -10,6 +10,8 @@ const { _electron } = require('playwright-core')
 const { spawn } = require('child_process')
 const fs = require('fs')
 const path = require('path')
+// The longest a wait here waits for what it waits on: a bound for a hung run, never how long it should take (#570).
+const HUNG_MS = 20000
 
 const userData = path.join(lib.WORK, 'review-profile')
 const ws = path.join(lib.WORK, 'review-ws')
@@ -79,19 +81,19 @@ function mcp(config, msgs) {
   const say = async (id, text) => {
     if (!(await live(id))) {
       await inv('session:start', alpha, { agentId: id })
-      await until(async () => (await live(id))?.status === 'ready')
+      await until(async () => (await live(id))?.status === 'ready', HUNG_MS)
     }
-    await until(async () => ['ready', 'finished'].includes((await live(id))?.status))
+    await until(async () => ['ready', 'finished'].includes((await live(id))?.status), HUNG_MS)
     const before = calls().length
     await inv('pty:write', lib.ptyKey(alpha, id), text)
     await lib.sleep(300)
     await inv('pty:write', lib.ptyKey(alpha, id), '\r')
-    await until(async () => calls().length > before && (await live(id))?.status === 'finished')
+    await until(async () => calls().length > before && (await live(id))?.status === 'finished', HUNG_MS)
     return calls().at(-1)
   }
   const stop = async (id) => {
     await inv('session:stop', alpha, id)
-    return !!(await until(async () => !(await live(id))))
+    return !!(await until(async () => !(await live(id)), HUNG_MS))
   }
 
   await page.getByText('alpha', { exact: true }).first().click()

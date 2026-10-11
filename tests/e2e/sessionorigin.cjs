@@ -8,6 +8,8 @@ const lib = require('./lib.cjs')
 const { _electron } = require('playwright-core')
 const fs = require('fs')
 const path = require('path')
+// The longest a wait here waits for what it waits on: a bound for a hung run, never how long it should take (#570).
+const HUNG_MS = 20000
 
 const userData = path.join(lib.WORK, 'sessionorigin-profile')
 const ws = path.join(lib.WORK, 'sessionorigin-ws')
@@ -49,13 +51,13 @@ const check = (name, ok, extra = '') => {
   /** Starts an agent and has it answer one prompt, so Hive keeps its session. */
   const runOnce = async (id) => {
     await inv('session:start', alpha, { agentId: id })
-    await until(async () => ['waiting', 'ready'].includes((await live(id))?.status))
+    await until(async () => ['waiting', 'ready'].includes((await live(id))?.status), HUNG_MS)
     if ((await live(id))?.status === 'waiting') await inv('pty:write', lib.ptyKey(alpha, id), '\r')
-    await until(async () => (await live(id))?.status === 'ready')
+    await until(async () => (await live(id))?.status === 'ready', HUNG_MS)
     await inv('pty:write', lib.ptyKey(alpha, id), 'hello')
     await lib.sleep(300)
     await inv('pty:write', lib.ptyKey(alpha, id), '\r')
-    return !!(await until(async () => (await live(id))?.status === 'finished'))
+    return !!(await until(async () => (await live(id))?.status === 'finished', HUNG_MS))
   }
   const sessionsFile = path.join(alpha, '.hive', 'sessions.json')
   const records = () => JSON.parse(fs.readFileSync(sessionsFile, 'utf8')).sessions
@@ -71,7 +73,7 @@ const check = (name, ok, extra = '') => {
 
   // --- Coder is removed, and a new agent takes the name.
   await inv('session:stop', alpha, coder.id)
-  await until(async () => !(await live(coder.id)))
+  await until(async () => !(await live(coder.id)), HUNG_MS)
   await inv('agents:remove', alpha, coder.id, { deleteWorktree: false })
   const newCoder = await lib.addAgent(inv, alpha, { name: 'Coder' })
   const helper = await lib.addAgent(inv, alpha, { name: 'Helper' })
@@ -135,7 +137,7 @@ const check = (name, ok, extra = '') => {
   check('Resume names the agent that resumes it now', /Resume in Coder/.test(await resume.innerText().catch(() => '')), await resume.innerText().catch(() => ''))
   await resume.getByRole('button', { name: 'Resume in another agent' }).click()
   const menu = page.locator('.menu').last()
-  await until(async () => (await menu.count()) > 0, 3000)
+  await until(async () => (await menu.count()) > 0, HUNG_MS)
   const menuText = await menu.innerText().catch(() => '')
   check('the menu gives each agent its location', /Coder\s*project folder/.test(menuText) && /Helper\s*project folder · running, its current session stops first/.test(menuText), menuText)
   await page.screenshot({ path: path.join(lib.WORK, 'sessionorigin-2-header.png') })

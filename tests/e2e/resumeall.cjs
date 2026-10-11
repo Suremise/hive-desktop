@@ -5,6 +5,8 @@ const lib = require('./lib.cjs')
 const { _electron } = require('playwright-core')
 const fs = require('fs')
 const path = require('path')
+// The longest a wait here waits for what it waits on: a bound for a hung run, never how long it should take (#570).
+const HUNG_MS = 20000
 
 const userData = path.join(lib.WORK, 'resumeall-profile')
 const ws = path.join(lib.WORK, 'resumeall-ws')
@@ -45,13 +47,13 @@ const check = (name, ok, extra = '') => {
   // Starts an agent, trusts its folder and has one exchange, so it has a conversation to resume.
   const run = async (id) => {
     await inv('session:start', alpha, { agentId: id })
-    await until(async () => ['waiting', 'ready'].includes((await live(id))?.status))
+    await until(async () => ['waiting', 'ready'].includes((await live(id))?.status), HUNG_MS)
     if ((await live(id))?.status === 'waiting') await inv('pty:write', lib.ptyKey(alpha, id), '\r')
-    await until(async () => (await live(id))?.status === 'ready')
+    await until(async () => (await live(id))?.status === 'ready', HUNG_MS)
     await inv('pty:write', lib.ptyKey(alpha, id), 'hello')
     await lib.sleep(300)
     await inv('pty:write', lib.ptyKey(alpha, id), '\r')
-    return until(async () => (await live(id))?.status === 'finished')
+    return until(async () => (await live(id))?.status === 'finished', HUNG_MS)
   }
 
   await page.getByText('alpha', { exact: true }).first().click()
@@ -63,7 +65,7 @@ const check = (name, ok, extra = '') => {
 
   await inv('session:stop', alpha, two.id)
   await inv('session:stop', alpha, tree.id)
-  check('Two and Tree stopped', !!(await until(async () => !(await live(two.id)) && !(await live(tree.id)))))
+  check('Two and Tree stopped', !!(await until(async () => !(await live(two.id)) && !(await live(tree.id)), HUNG_MS)))
   // Tree's worktree folder goes, so it can't resume.
   const gone = await until(async () => {
     try {
@@ -100,7 +102,7 @@ const check = (name, ok, extra = '') => {
   await page.mouse.move(0, 0)
   await button.click()
 
-  check('Two resumed', !!(await until(async () => !!(await live(two.id)))))
+  check('Two resumed', !!(await until(async () => !!(await live(two.id)), HUNG_MS)))
   const toast = page.locator('.toast.error', { hasText: 'Tree' })
   check('the failure names the agent and why', !!(await until(async () => (await toast.count()) === 1, 10000)) && /worktree folder is missing/.test(await toast.innerText()), await toast.innerText().catch(() => ''))
   check('the failure says which agents did resume', /Resumed: Two/.test(await toast.innerText().catch(() => '')))

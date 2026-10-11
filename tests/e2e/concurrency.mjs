@@ -199,6 +199,7 @@ async function heavyRound(k, worktrees) {
     const waited = done.filter((r) => /^Waiting for a test slot \(2 heavy runs at once/m.test(r.out))
     check('one run waited, saying who held the slots, and started once one was let go', waited.length === 1 && /held by .*e2e: 2 suites × 2 in /.test(waited[0].out) && /^Got a test slot after \d+ s/m.test(waited[0].out), done.map((r) => r.out.split('\n').filter((l) => /test slot/.test(l)).join(' / ')).join(' | '))
     // The stand-in gives each run the id r<n>, n its place among the requests.
+    // The wait is the run's `waiting` (#549: what it waits for, not a step's name).
     const row = reports.findIndex((x) => x.method === 'POST' && x.url === '/v1/progress' && x.body.title === 'e2e: waiting for a test slot')
     const id = `r${row + 1}`
     // What it waits for is the run's `waiting` (#549), set as it starts and updated while it waits.

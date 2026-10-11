@@ -12,6 +12,8 @@ const { execFileSync } = require('child_process')
 const { createHash } = require('crypto')
 const fs = require('fs')
 const path = require('path')
+// The longest a wait here waits for what it waits on: a bound for a hung run, never how long it should take (#570).
+const HUNG_MS = 30000
 
 const userData = path.join(lib.WORK, 'agentmessage-profile')
 const ws = path.join(lib.WORK, 'agentmessage-ws')
@@ -68,12 +70,12 @@ const check = (name, ok, extra = '') => {
   const reviewer = await lib.addAgent(inv, alpha, { name: 'Reviewer' })
   fs.writeFileSync(path.join(claudeHome, 'fake-trusted.json'), JSON.stringify([alpha.toLowerCase()]))
   for (const a of [builder, reviewer]) await inv('session:start', alpha, { agentId: a.id })
-  check('the agents start', !!(await until(async () => (await idle(builder.id)) && (await idle(reviewer.id)))))
+  check('the agents start', !!(await until(async () => (await idle(builder.id)) && (await idle(reviewer.id)), HUNG_MS)))
 
   // The Assistant, for its own token: its tools go through hive-mcp.js as it calls them.
   const home = (await inv('workspace:refresh')).assistant.path
   await inv('session:start', home, { agentId: 'assistant' })
-  await until(async () => (await live(home, 'assistant'))?.status === 'ready')
+  await until(async () => (await live(home, 'assistant'))?.status === 'ready', HUNG_MS)
   const asTokenFile = path.join(userData, 'assistant-api', `${createHash('sha256').update(ws.toLowerCase()).digest('hex').slice(0, 16)}.json`)
   const tool = (name, args) => {
     const out = execFileSync(process.execPath, [path.join(lib.ROOT, 'out', 'main', 'hive-mcp.js')], {

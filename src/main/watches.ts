@@ -3,7 +3,7 @@ import { app } from 'electron'
 import { link, mkdir, readFile, rename, rm, writeFile } from 'original-fs/promises'
 import { basename, dirname, join, resolve } from 'path'
 import { projectAgents } from '../shared/defaults'
-import { cardChange, carriedOver, changesBetween, changesSince, ENTRY_KEY, limitLine, markOf, movedIntoSince, seenOf, readMark, readSavedCondition, WAKE_MAX_BYTES, wakeAbout, watchLabel, cardWakeLine, userNameOf, releasedLine, withLanesTail, type Released, type ReplyNote, alreadyThere, encodeSince, WATCH_DEFAULT_LIMIT_MINUTES, WATCH_MAX_CARDS, WATCH_MAX_LIMIT_MINUTES, type Baseline, type CardChange, type CardMark, type Seen, type WatchChange, type WatchCondition } from '../shared/watch'
+import { cardChange, carriedOver, changesBetween, changesSince, entryWithin, ENTRY_KEY, limitLine, markOf, movedIntoSince, seenOf, readMark, readSavedCondition, WAKE_MAX_BYTES, wakeAbout, watchLabel, cardWakeLine, userNameOf, releasedLine, withLanesTail, type Released, type ReplyNote, alreadyThere, encodeSince, WATCH_DEFAULT_LIMIT_MINUTES, WATCH_MAX_CARDS, WATCH_MAX_LIMIT_MINUTES, type Baseline, type CardChange, type CardMark, type Seen, type WatchChange, type WatchCondition } from '../shared/watch'
 import { agentBusy, agentEvent, agentLimitLine, agentMarkOf, agentPart, agentWakeLine, agentWatchLabel, readSavedAgentCondition, readSavedAgentMark, replyFirstLine, type AgentEvent, type AgentMark, type AgentNow, type AgentWatchCondition, type WatchedAgent } from '../shared/agentWatch'
 import { isProjectId, type ProjectIdIndex } from '../shared/projectIds'
 import { rebase } from '../shared/movePaths'
@@ -155,7 +155,7 @@ interface Store {
    */
   wokeLanes: Map<string, { at: string; marks: Map<string, LaneMark> }>
   /** A lane check is due (debounced: status changes come in bursts). */
-  laneCheck?: ReturnType<typeof setTimeout>
+  laneCheck?: true
   /** When the tick last checked lane watches (stalls come with time). */
   laneTickAt?: number
   /** The latest of the user's replies (#418) each watcher's wakes told it about: its next card watch starts there. */
@@ -173,6 +173,39 @@ function takeMs(): number {
 }
 /** The most cards whose last wake an agent's next watch can start from: the latest told. */
 const WOKE_CARDS = 100
+
+/**
+ * What watches are doing in the background (#570): the checks the board's events start, deliveries and the settle
+ * before each, lane checks, the confirmations that a typed wake was taken, notes on cards. `settled()` resolves once none
+ * is left, what one starts meanwhile included, so a test (and Hive's loop wakes, #578) waits for the outcome rather than
+ * for a quiet spell or a read straight after a call. A wake typed again after its line was cleared (#530) counts while
+ * it is being typed (and then confirmed), not while it waits for its agent to be ready: that is the agent's, not Hive's.
+ */
+const inFlight = new Set<Promise<unknown>>()
+/** Counts work as in flight until it ends, and returns it (its result or failure as it was). */
+function counted<T>(work: Promise<T>): Promise<T> {
+  const p = work.then(
+    () => undefined,
+    () => undefined
+  )
+  inFlight.add(p)
+  void p.finally(() => inFlight.delete(p))
+  return work
+}
+/** Runs work in the background, counted until it ends; a failure is logged as `what`. */
+function inBackground(what: string, work: Promise<unknown>): void {
+  void counted(work.catch((e) => log.warn(what, e)))
+}
+/** Runs work after `ms`, counted from now until it ends. */
+function inBackgroundAfter(ms: number, what: string, work: () => Promise<unknown>): void {
+  inBackground(what, new Promise<void>((done, fail) => setTimeout(() => work().then(() => done(), fail), ms).unref?.()))
+}
+/** Resolves once watches have nothing in flight (#570): what was started in the background has ended. */
+export async function settled(): Promise<void> {
+  while (inFlight.size) await Promise.allSettled([...inFlight])
+}
+/** Whether watches have something in flight now (loop wakes' settled() waits for both). */
+export const inFlightNow = (): boolean => inFlight.size > 0
 
 /**
  * Seams for unit tests: pauses that make races happen (after a watch's cards are read; after a watches file is read), and
@@ -335,7 +368,7 @@ function load(ws: WorkspaceService): Promise<Store> {
     // Agents already running learn their watch now.
     for (const r of list) sessions.watchChanged(r.projectPath, r.agentId)
     // Cards can change while Hive is closed (a pull of .hive/tasks, a hand edit): check them now, not at the next change.
-    if (list.length) setTimeout(() => void evaluate(ws).catch((e) => log.warn('checking watches', e)), 0)
+    if (list.length) inBackgroundAfter(0, 'checking watches', () => evaluate(ws))
     return store
   })().finally(() => {
     if (loading.get(k) === p) loading.delete(k)
@@ -679,7 +712,7 @@ export function watchFor(projectPath: string, agentId: string): TaskWatchInfo | 
   if (!ws?.path) return null
   const store = storeFor(projectPath)
   if (!store) {
-    void load(ws).catch((e) => log.warn('loading watches', e))
+    inBackground('loading watches', load(ws))
     return null
   }
   const r = recordOf(store, projectPath, agentId)
@@ -787,7 +820,7 @@ export async function registerWatch(ws: WorkspaceService, projectPath: string, a
   sessions.watchChanged(projectPath, agentId)
   // It waits on cards: an agent in a card loop, checked when its turn ends with no watch (#376).
   noteLoopWatch(projectPath, agentId, cond.cards)
-  if ('watching' in result) void evaluate(ws).catch((e) => log.warn('checking watches', e))
+  if ('watching' in result) inBackground('checking watches', evaluate(ws))
   return result
 }
 
@@ -900,8 +933,8 @@ export function noteUserReply(projectPath: string, agentId: string, agentName: s
   if (replies.length > REPLIES_KEPT) replies.shift()
   const store = storeFor(projectPath)
   if (!store) return
-  void evaluateAgents(store).catch((e) => log.warn('checking agent watches', e))
-  void evaluate(store.ws).catch((e) => log.warn('checking watches', e))
+  inBackground('checking agent watches', evaluateAgents(store))
+  inBackground('checking watches', evaluate(store.ws))
 }
 /** The latest reply of the user's to an agent after `from`, for the Assistant's watch (null scope) only. */
 const tellReplies = (): boolean => config.settings.assistant?.tellReplies !== false
@@ -938,8 +971,8 @@ export async function revokeReplies(): Promise<void> {
       for (const rec of store.list) if (rec.fired?.replies && !rec.fired.sending) delete rec.fired
       await saveQuietly(store)
     }).catch((e) => log.warn('withdrawing replies from watches', e))
-    void evaluate(store.ws).catch((e) => log.warn('checking watches', e))
-    void evaluateAgents(store).catch((e) => log.warn('checking agent watches', e))
+    inBackground('checking watches', evaluate(store.ws))
+    inBackground('checking agent watches', evaluateAgents(store))
   }
 }
 
@@ -1055,7 +1088,7 @@ export async function registerAgentWatch(ws: WorkspaceService, projectPath: stri
   })
   sessions.watchChanged(projectPath, agentId)
   // Checked again once in place: an agent that finished while it was being set up isn't missed.
-  if ('watching' in result) void evaluateAgents(store).catch((e) => log.warn('checking agent watches', e))
+  if ('watching' in result) inBackground('checking agent watches', evaluateAgents(store))
   return result
 }
 
@@ -1083,11 +1116,11 @@ const LANE_TICK_MS = 30_000
 /** Checks a workspace's lane watches soon: once for a burst of status changes. */
 function laneCheckSoon(store: Store): void {
   if (store.laneCheck || !store.list.some((r) => r.lanes && !r.fired)) return
-  store.laneCheck = setTimeout(() => {
+  store.laneCheck = true
+  inBackgroundAfter(1000, 'checking lane watches', () => {
     store.laneCheck = undefined
-    void evaluateLanes(store).catch((e) => log.warn('checking lane watches', e))
-  }, 1000)
-  store.laneCheck.unref?.()
+    return evaluateLanes(store)
+  })
 }
 
 /**
@@ -1234,7 +1267,7 @@ export async function registerLaneWatch(ws: WorkspaceService, projectPath: strin
   })
   sessions.watchChanged(projectPath, agentId)
   // Checked once in place: an event since a wake, or while it was being set up, isn't missed.
-  void evaluateLanes(store).catch((e) => log.warn('checking lane watches', e))
+  inBackground('checking lane watches', evaluateLanes(store))
   return result
 }
 
@@ -1274,6 +1307,36 @@ export function watchCovers(projectPath: string, agentId: string, n: number, kin
   const into = (c: TaskColumn): boolean => rec.cond.changes.includes('column') && (!rec.cond.column || rec.cond.column === c)
   if (kind === 'verdict') return rec.cond.changes.includes('verdict') || (column !== 'review' && into(column))
   return into('review')
+}
+
+/**
+ * What a watch's typed line last told each agent about each card (#578): the last history entry the line had read of the
+ * card (its `seen` boundary), by agent key and card. A loop wake for a change whose history entry is within that boundary
+ * is one the watch already told, so it is dropped, even once the watch itself has ended; a change after it (the next
+ * round's arrival, at any time, the same millisecond too) is news. In memory, as loop wakes are, and kept a day (a loop
+ * wake waits at most that long).
+ */
+const toldByWatch = new Map<string, Map<number, { h: string | null; at: number }>>()
+const TOLD_KEEP_MS = 24 * 60 * 60_000
+function noteToldByWatch(projectPath: string, agentId: string, told: Record<string, Baseline>): void {
+  const cards = Object.entries(told)
+  if (!cards.length) return
+  const key = agentKey(projectPath, agentId)
+  const known = toldByWatch.get(key) ?? new Map<number, { h: string | null; at: number }>()
+  for (const [n, b] of cards) {
+    known.delete(Number(n))
+    known.set(Number(n), { h: b.seen.h, at: Date.now() })
+  }
+  while (known.size > WOKE_CARDS) known.delete(known.keys().next().value!)
+  toldByWatch.delete(key)
+  toldByWatch.set(key, known)
+  while (toldByWatch.size > MAX_WATCHES) toldByWatch.delete(toldByWatch.keys().next().value!)
+}
+
+/** Whether a watch's line typed into the agent has told it of card `card`'s history entry `entry` (#578). */
+export function watchTold(projectPath: string, agentId: string, card: TaskCard, entry: TaskCard['history'][number]): boolean {
+  const t = toldByWatch.get(agentKey(projectPath, agentId))?.get(card.number)
+  return !!t && Date.now() - t.at < TOLD_KEEP_MS && entryWithin(card.history, entry, t.h)
 }
 
 /**
@@ -1323,7 +1386,7 @@ export async function typeLine(projectPath: string, agentId: string, line: strin
     log.info(`Woke ${userText(agentId)}: ${userText(text.slice(0, 80))}`)
     // Kept to what rode it (#530) until the CLI takes it: its own check (a message's line), or its rider's.
     const ride = opts.ride ?? (rider ? { still: rider.allowed, withdrawn: rider.withdrawn, instead: line } : undefined)
-    if (before) void confirmTaken(projectPath, agentId, before, text, ride).catch((e) => log.warn('checking a wake was taken', e))
+    if (before) inBackground('checking a wake was taken', confirmTaken(projectPath, agentId, before, text, ride))
     return true
   } catch (e) {
     log.info(`Wake for ${userText(agentId)} put off: ${(e as Error).message}`)
@@ -1348,10 +1411,10 @@ async function deliver(store: Store, rec: WatchRecord): Promise<void> {
   if ((rec.fired.cards.length || rec.fired.agents?.length || rec.fired.lanes) && Date.now() < due) {
     if (!settling.has(rec.id)) {
       settling.add(rec.id)
-      setTimeout(() => {
+      inBackgroundAfter(due - Date.now() + 10, 'waking an agent', () => {
         settling.delete(rec.id)
-        void deliver(store, rec).catch((e) => log.warn('waking an agent', e))
-      }, due - Date.now() + 10).unref?.()
+        return deliver(store, rec)
+      })
     }
     return
   }
@@ -1379,6 +1442,8 @@ async function deliver(store: Store, rec: WatchRecord): Promise<void> {
     let laneTold: Record<string, LaneMark> | null = null
     // When the line was made from them: the fire, or when it was made again just now.
     let laneToldAt = rec.fired.at
+    // What the line tells of each card it names, as read for it (#578: what loop wakes then leave alone).
+    let toldOfCards: Record<string, Baseline> = {}
     // Cards released as it is delivered (#420), noted in their history once it is typed.
     const endedAt: { n: number; what: string }[] = []
     for (const n of rec.cond.cards) {
@@ -1408,7 +1473,7 @@ async function deliver(store: Store, rec: WatchRecord): Promise<void> {
       } else if (r.released.length && !r.hits.length && !r.replies.length) {
         // What fired it was a card since released, and the rest haven't changed: not typed; the watch waits on for the
         // rest, and tells the release with its next line (#420).
-        for (const x of endedAt) void noteOnCard(x.n, x.what, store.ws).catch((e) => log.warn(`noting on #${x.n} that a watch ended`, e))
+        for (const x of endedAt) inBackground(`noting on #${x.n} that a watch ended`, noteOnCard(x.n, x.what, store.ws))
         await withdraw(store, rec, current)
         sessions.watchChanged(rec.projectPath, rec.agentId)
         return
@@ -1416,6 +1481,8 @@ async function deliver(store: Store, rec: WatchRecord): Promise<void> {
         const made = cardWakeLine(r.hits, r.replies.map((x) => x.note), rec.released ?? [], userName())
         line = fitLine(made.line)
         telling = r.replies.length > 0
+        // Each card the line tells a change of, as read for it.
+        toldOfCards = Object.fromEntries(r.hits.filter((h) => h.changes !== 'gone' && r.told[h.number]).map((h) => [h.number, r.told[h.number]]))
         if (r.hits.length) told = r.told
         // Only replies the line names are told (#418).
         if (made.repliesTold) toldReply = Math.max(rec.replySeq ?? 0, ...r.replies.map((x) => x.seq))
@@ -1490,15 +1557,16 @@ async function deliver(store: Store, rec: WatchRecord): Promise<void> {
         await saveQuietly(store)
       }).catch(() => undefined)
       if (revoked) {
-        void evaluate(store.ws).catch((err) => log.warn('checking watches', err))
-        void evaluateAgents(store).catch((err) => log.warn('checking agent watches', err))
+        inBackground('checking watches', evaluate(store.ws))
+        inBackground('checking agent watches', evaluateAgents(store))
       }
       throw e
     }
     rider?.taken()
     log.info(`Woke ${userText(rec.agentId)}: ${userText(typedLine.slice(0, 80))}`)
-    for (const x of endedAt) void noteOnCard(x.n, x.what, store.ws).catch((e) => log.warn(`noting on #${x.n} that a watch ended`, e))
-    if (before) void confirmTaken(rec.projectPath, rec.agentId, before, typedLine, rider ? { still: rider.allowed, withdrawn: rider.withdrawn, instead: line } : undefined).catch((e) => log.warn('checking a wake was taken', e))
+    noteToldByWatch(rec.projectPath, rec.agentId, toldOfCards)
+    for (const x of endedAt) inBackground(`noting on #${x.n} that a watch ended`, noteOnCard(x.n, x.what, store.ws))
+    if (before) inBackground('checking a wake was taken', confirmTaken(rec.projectPath, rec.agentId, before, typedLine, rider ? { still: rider.allowed, withdrawn: rider.withdrawn, instead: line } : undefined))
     // What earlier wakes told about cards this one didn't stays: it is still all the agent was told about them.
     const known = new Map(store.woke.get(key))
     for (const [n, b] of Object.entries(told)) {
@@ -1585,7 +1653,8 @@ async function retype(projectPath: string, agentId: string, runId: string, line:
   for (const end = Date.now() + 30 * 60_000; Date.now() < end; ) {
     if (sessions.liveFor(projectPath, agentId)?.runId !== runId) return
     const taken = sessions.promptsTaken(projectPath, agentId)
-    if ((afterTaken === null || (!!taken && taken.runId === runId && taken.count > afterTaken)) && (await typeLine(projectPath, agentId, line, () => true))) return
+    // Each try is counted while it types (settled() waits for it, #570); the wait between tries isn't.
+    if ((afterTaken === null || (!!taken && taken.runId === runId && taken.count > afterTaken)) && (await counted(typeLine(projectPath, agentId, line, () => true)))) return
     await new Promise((r) => setTimeout(r, 1000))
   }
   log.warn(`A wake for ${userText(agentId)} couldn't be typed again after its line was cleared`)
@@ -1927,7 +1996,7 @@ async function evaluate(ws: WorkspaceService): Promise<void> {
     }
     if (changed) await saveQuietly(store)
   })
-  for (const x of ended) void noteOnCard(x.n, x.what, store.ws).catch((e) => log.warn(`noting on #${x.n} that a watch ended`, e))
+  for (const x of ended) inBackground(`noting on #${x.n} that a watch ended`, noteOnCard(x.n, x.what, store.ws))
   for (const rec of narrowed) sessions.watchChanged(rec.projectPath, rec.agentId)
   if (moved && alive(store)) watchedCardsMoved?.()
   for (const rec of store.list.filter((r) => r.fired)) await deliver(store, rec)
@@ -1995,12 +2064,12 @@ export function initWatches(): void {
   sessions.watchFor = watchFor
   sessions.userReplied = noteUserReply
   config.onSettingsChanged((s, prev) => {
-    if (prev.assistant?.tellReplies !== false && s.assistant?.tellReplies === false) void revokeReplies().catch((e) => log.warn('withdrawing replies', e))
+    if (prev.assistant?.tellReplies !== false && s.assistant?.tellReplies === false) inBackground('withdrawing replies', revokeReplies())
   })
   onHiveEvent((e) => {
     if (e.type === 'tasks-changed') {
       const ws = openWorkspaces().find((w) => w.path && same(w.path, e.workspacePath))
-      if (ws) void evaluate(ws).catch((err) => log.warn('checking watches', err))
+      if (ws) inBackground('checking watches', evaluate(ws))
     } else if (e.type === 'lanes-changed') {
       const store = [...stores.values()].find((x) => same(x.path, e.workspacePath))
       if (store) laneCheckSoon(store)
@@ -2013,13 +2082,13 @@ export function initWatches(): void {
       // An agent someone watches changed status (#416).
       const { projectPath, agentId } = e.state
       if (store.list.some((x) => x.agents && !x.fired && x.agents.agents.some((a) => same(a.projectPath, projectPath) && a.agentId === agentId)))
-        void evaluateAgents(store).catch((err) => log.warn('checking agent watches', err))
+        inBackground('checking agent watches', evaluateAgents(store))
       if (!idle(e.state)) return
       const rec = store.list.find((x) => x.fired && same(x.projectPath, projectPath) && x.agentId === agentId)
-      if (rec) setTimeout(() => void deliver(store, rec).catch((err) => log.warn('waking an agent', err)), 500)
+      if (rec) inBackgroundAfter(500, 'waking an agent', () => deliver(store, rec))
     }
   })
-  const timer = setInterval(() => void tick().catch((e) => log.warn('watch tick', e)), 5000)
+  const timer = setInterval(() => inBackground('watch tick', tick()), 5000)
   timer.unref?.()
 }
 

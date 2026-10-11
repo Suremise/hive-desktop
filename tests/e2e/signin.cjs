@@ -8,6 +8,8 @@ const lib = require('./lib.cjs')
 const { _electron } = require('playwright-core')
 const fs = require('fs')
 const path = require('path')
+// The longest a wait here waits for what it waits on: a bound for a hung run, never how long it should take (#570).
+const HUNG_MS = 10000
 
 const userData = path.join(lib.WORK, 'signin-profile')
 const ws = path.join(lib.WORK, 'signin-ws')
@@ -90,7 +92,7 @@ const until = async (fn, ms = 10000) => {
   await page.screenshot({ path: path.join(shots, 'signin-1-needs-sign-in.png') })
   // Another turn refused in the same expiry is shown, never told again.
   await send(agents[0], 'try once more')
-  await until(async () => (await live(agents[0]))?.status === 'working', 3000)
+  await until(async () => (await live(agents[0]))?.status === 'working', HUNG_MS)
   await until(async () => (await live(agents[0]))?.status === 'signin', 10000)
   await lib.sleep(4000) // A fixed wait on purpose: a second notification would arrive within the gathering window.
   check('a later refusal in the same expiry is not told again', signInNotes().length === 1, JSON.stringify(signInNotes()))

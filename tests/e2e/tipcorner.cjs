@@ -7,6 +7,8 @@ const lib = require('./lib.cjs')
 const { _electron } = require('playwright-core')
 const fs = require('fs')
 const path = require('path')
+// The longest a wait here waits for what it waits on: a bound for a hung run, never how long it should take (#570).
+const HUNG_MS = 20000
 
 const userData = path.join(lib.WORK, 'tipcorner-profile')
 const ws = path.join(lib.WORK, 'tipcorner-ws')
@@ -67,14 +69,14 @@ const check = (name, ok, extra = '') => {
   /** Starts an agent (or the Assistant), has it answer once, and stops it. */
   const runAndStop = async (p, id) => {
     await inv('session:start', p, { agentId: id })
-    await until(async () => (await live(p, id))?.status === 'ready')
+    await until(async () => (await live(p, id))?.status === 'ready', HUNG_MS)
     await inv('pty:write', lib.ptyKey(p, id), 'hello')
     await lib.sleep(300)
     await inv('pty:write', lib.ptyKey(p, id), '\r')
-    await until(async () => (await live(p, id))?.status === 'finished')
+    await until(async () => (await live(p, id))?.status === 'finished', HUNG_MS)
     const sid = (await live(p, id)).sessionId
     await inv('session:stop', p, id)
-    await until(async () => !(await live(p, id)))
+    await until(async () => !(await live(p, id)), HUNG_MS)
     return sid
   }
 
@@ -92,17 +94,17 @@ const check = (name, ok, extra = '') => {
   check('with the Assistant open, the card sits left of its panel', c1 && p1 && c1.x + c1.width <= p1.x, JSON.stringify({ card: c1, panelLeft: p1?.x }))
   await page.screenshot({ path: path.join(lib.WORK, 'tipcorner-1-assistant.png') })
   await pointAndClick(ended.getByRole('button', { name: 'Resume' }), "the Assistant's Resume")
-  check('and Resume reopens its conversation', !!(await until(async () => (await live(home, 'assistant'))?.sessionId === first)))
-  await until(async () => (await live(home, 'assistant'))?.status === 'ready')
+  check('and Resume reopens its conversation', !!(await until(async () => (await live(home, 'assistant'))?.sessionId === first, HUNG_MS)))
+  await until(async () => (await live(home, 'assistant'))?.status === 'ready', HUNG_MS)
   await inv('session:stop', home, 'assistant')
-  await until(async () => !(await live(home, 'assistant')))
+  await until(async () => !(await live(home, 'assistant')), HUNG_MS)
   await until(async () => (await ended.getByRole('button', { name: 'New' }).count()) === 1, 10000)
   await pointAndClick(ended.getByRole('button', { name: 'New' }), "the Assistant's New")
   check('and New starts a fresh one', !!(await until(async () => {
     const l = await live(home, 'assistant')
     return l && l.sessionId && l.sessionId !== first
-  })))
-  await until(async () => (await live(home, 'assistant'))?.status === 'ready')
+  }, HUNG_MS)))
+  await until(async () => (await live(home, 'assistant'))?.status === 'ready', HUNG_MS)
   await inv('session:stop', home, 'assistant')
 
   // --- The Assistant hidden, an agent's session ended: the card is in the window's corner, above the pane's bar.
@@ -123,15 +125,15 @@ const check = (name, ok, extra = '') => {
   const paneResume = bar.getByRole('button', { name: 'Resume', exact: true })
   await until(async () => (await paneResume.count()) === 1 && (await paneResume.isEnabled()), 10000)
   await pointAndClick(paneResume, "the pane's Resume")
-  check("and the pane's Resume reopens its session", !!(await until(async () => (await live(alpha, coder.id))?.sessionId === done)))
-  await until(async () => (await live(alpha, coder.id))?.status === 'ready')
+  check("and the pane's Resume reopens its session", !!(await until(async () => (await live(alpha, coder.id))?.sessionId === done, HUNG_MS)))
+  await until(async () => (await live(alpha, coder.id))?.status === 'ready', HUNG_MS)
   await inv('session:stop', alpha, coder.id)
   await until(async () => (await bar.count()) === 1, 10000)
 
   // --- A toast, stacked above the card: also clear of the bar.
   // The terminal had the focus (the card steps aside over a focused terminal): take it away, and the card is back.
   await page.evaluate(() => document.activeElement?.blur())
-  await until(async () => !(await card.getAttribute('class')).includes('stepped-aside'), 3000)
+  await until(async () => !(await card.getAttribute('class')).includes('stepped-aside'), HUNG_MS)
   await page.screenshot({ path: path.join(lib.WORK, 'tipcorner-3-lifted.png') })
   await card.getByRole('button', { name: "Don't show tips" }).click()
   const toast = page.locator('.toast', { hasText: 'Tips are off' })
@@ -144,7 +146,7 @@ const check = (name, ok, extra = '') => {
   check('and New Session starts a fresh one', !!(await until(async () => {
     const l = await live(alpha, coder.id)
     return l && l.sessionId && l.sessionId !== done
-  })))
+  }, HUNG_MS)))
 
   await app.close()
   console.log(failed ? `${failed} check(s) failed` : 'All checks passed')

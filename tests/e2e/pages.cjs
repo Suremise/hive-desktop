@@ -7,6 +7,8 @@ const lib = require('./lib.cjs')
 const { _electron } = require('playwright-core')
 const fs = require('fs')
 const path = require('path')
+// The longest a wait here waits for what it waits on: a bound for a hung run, never how long it should take (#570).
+const HUNG_MS = 10000
 
 const userData = path.join(lib.WORK, 'pages-profile')
 const ws = path.join(lib.WORK, 'pages-ws')
@@ -76,7 +78,7 @@ const check = (name, ok, extra = '') => {
   await page.mouse.move(0, 0)
   await page.locator('.page-switch button[aria-label="Agent page 2"]').hover()
   const tipText = async () => (await page.locator('.tip').first().textContent({ timeout: 500 }).catch(() => '')) ?? ''
-  check('the page button names its agents', !!(await lib.until(async () => (await tipText()).startsWith('Page 2: agents 5–6'), 3000)), await tipText())
+  check('the page button names its agents', !!(await lib.until(async () => (await tipText()).startsWith('Page 2: agents 5–6'), HUNG_MS)), await tipText())
   await page.mouse.move(0, 0)
   // One at a time: no page buttons, the focused agent shown; clicking a tab shows that agent.
   await choose('One at a time')

@@ -6,6 +6,8 @@ const lib = require('./lib.cjs')
 const { _electron } = require('playwright-core')
 const fs = require('fs')
 const path = require('path')
+// The longest a wait here waits for what it waits on: a bound for a hung run, never how long it should take (#570).
+const HUNG_MS = 10000
 
 const userData = path.join(lib.WORK, 'sessionname-profile')
 const ws = path.join(lib.WORK, 'sessionname-ws')
@@ -117,7 +119,7 @@ const check = (name, ok, extra = '') => {
   await page.locator('.menu .menu-item', { hasText: 'Rename…' }).click()
   const dialog = page.locator('[role=dialog]', { hasText: 'Rename session' })
   // The dialog fills in the current name just after it opens: typing before that would add to it.
-  await until(async () => (await dialog.count()) === 1 && (await dialog.locator('input').inputValue()) !== '', 3000)
+  await until(async () => (await dialog.count()) === 1 && (await dialog.locator('input').inputValue()) !== '', HUNG_MS)
   await dialog.locator('input').fill('Docs pass')
   await dialog.getByRole('button', { name: 'Rename' }).click()
   check('renamed from the footer', !!(await until(async () => (await text()) === 'Docs pass', 5000)), await text())

@@ -14,6 +14,8 @@ const lib = require('./lib.cjs')
 const { _electron } = require('playwright-core')
 const fs = require('fs')
 const path = require('path')
+// The longest a wait here waits for what it waits on: a bound for a hung run, never how long it should take (#570).
+const HUNG_MS = 10000
 
 const NATIVE = process.env.HIVE_E2E_NATIVE === '1'
 const userData = path.join(lib.WORK, 'carddialog-profile')
@@ -103,17 +105,17 @@ const LIGHT = { color: '#f3f3f3', dim: '#868686', dim2: '#4a4a4a' }
   }
   /** The colour the window's buttons were last given (null: never changed since recording began). */
   const buttons = (id = firstId) => app.evaluate((_e, i) => globalThis.__tb.get(i)?.at(-1) ?? null, id)
-  const buttonsAre = (want, id) => until(async () => (await buttons(id)) === want, 3000)
+  const buttonsAre = (want, id) => until(async () => (await buttons(id)) === want, HUNG_MS)
 
   await inv('tasks:create', { title: 'Move me around', description: 'Some words', project: 'alpha' })
   await page.keyboard.press('Control+Shift+J')
   const tile = page.locator('.task-card', { hasText: 'Move me around' })
-  await until(async () => (await tile.count()) === 1)
+  await until(async () => (await tile.count()) === 1, HUNG_MS)
   const dialog = page.locator('.dialog[role="dialog"]').first()
   const header = dialog.locator('.dialog-header')
   const open = async () => {
     await tile.click()
-    await until(async () => (await dialog.count()) === 1)
+    await until(async () => (await dialog.count()) === 1, HUNG_MS)
   }
   const box = (l = dialog) => l.boundingBox()
   /** Backdrops on the page now: each darkens what is under it (the title bar too) once more. */
@@ -188,10 +190,10 @@ const LIGHT = { color: '#f3f3f3', dim: '#868686', dim2: '#4a4a4a' }
   // Unsaved edits: closing asks first, over the moved card; keeping editing leaves it where it was.
   await close.click()
   const question = page.locator('.dialog[role="dialog"]', { hasText: 'Discard unsaved changes?' })
-  check('closing with an edit asks first', !!(await until(async () => (await question.count()) === 1)))
+  check('closing with an edit asks first', !!(await until(async () => (await question.count()) === 1, HUNG_MS)))
   check('the question over the card: two backdrops, the window buttons dimmed twice like the page', !!(await buttonsAre(DARK.dim2)) && (await layers()) === 2, `${await buttons()} · ${await layers()} backdrops`)
   await question.getByRole('button', { name: 'Keep Editing' }).click()
-  await until(async () => (await question.count()) === 0)
+  await until(async () => (await question.count()) === 0, HUNG_MS)
   const kept = await box()
   check('keeping editing: the card is still open, still where it was put', (await dialog.count()) === 1 && Math.abs(kept.x - placed2.x) <= 1 && Math.abs(kept.y - placed2.y) <= 1)
   check('and the window buttons are dimmed once again (the card is still up)', !!(await buttonsAre(DARK.dim)) && (await layers()) === 1, `${await buttons()} · ${await layers()} backdrops`)
@@ -226,7 +228,7 @@ const LIGHT = { color: '#f3f3f3', dim: '#868686', dim2: '#4a4a4a' }
     if ((await question.count()) === 1) {
       check(`${what} during a drag ended it: Escape asks before closing the edited card`, true)
       await question.getByRole('button', { name: 'Keep Editing' }).click()
-      await until(async () => (await question.count()) === 0)
+      await until(async () => (await question.count()) === 0, HUNG_MS)
     }
     check(`${what} during a drag, then Escape: the card stays open, its header in the window`, (await dialog.count()) === 1 && (await layers()) === 1 && (await inWindow()), JSON.stringify(await box(header)))
     const xNow = await box(close)
@@ -250,7 +252,7 @@ const LIGHT = { color: '#f3f3f3', dim: '#868686', dim2: '#4a4a4a' }
 
   // Discarding closes it: the buttons are the theme's again. The question over it in light: dimmed twice.
   await close.click()
-  await until(async () => (await question.count()) === 1)
+  await until(async () => (await question.count()) === 1, HUNG_MS)
   check('light: the question over the card dims the window buttons twice, like the page', !!(await buttonsAre(LIGHT.dim2)) && (await layers()) === 2, `${await buttons()} · ${await layers()} backdrops`)
   await question.getByRole('button', { name: 'Discard' }).click()
   check('the last dialog closed: the window buttons are bright again', !!(await buttonsAre(LIGHT.color)), await buttons())
@@ -276,35 +278,35 @@ const LIGHT = { color: '#f3f3f3', dim: '#868686', dim2: '#4a4a4a' }
 
   // A new card is movable too.
   await page.keyboard.press('Escape')
-  check('a card without edits closes with Escape, the buttons bright', !!(await until(async () => (await dialog.count()) === 0)) && !!(await buttonsAre(DARK.color)), await buttons())
+  check('a card without edits closes with Escape, the buttons bright', !!(await until(async () => (await dialog.count()) === 0, HUNG_MS)) && !!(await buttonsAre(DARK.color)), await buttons())
   await page.evaluate(() => document.querySelector('.board-column .pane-header button[aria-label="New card"], button[aria-label="New card"]')?.click())
   const fresh = page.locator('.dialog[role="dialog"]', { hasText: 'New Card' })
-  if (await until(async () => (await fresh.count()) === 1)) {
+  if (await until(async () => (await fresh.count()) === 1, HUNG_MS)) {
     const n0 = await box(fresh)
     await dragBy(100, 50)
     const n1 = await box(fresh)
     check('a new card can be moved too', Math.abs(n1.x - n0.x - 100) <= 2 && Math.abs(n1.y - n0.y - 50) <= 2)
     await page.keyboard.press('Escape')
-    await until(async () => (await fresh.count()) === 0)
+    await until(async () => (await fresh.count()) === 0, HUNG_MS)
   } else check('a new card can be moved too', false, 'no New card button found')
 
   // --- The command palette is a backdrop too, and over a card two.
   await page.keyboard.press('Control+Shift+P')
-  check('the command palette dims the window buttons', !!(await until(async () => (await page.locator('.palette').count()) === 1)) && !!(await buttonsAre(DARK.dim)), await buttons())
+  check('the command palette dims the window buttons', !!(await until(async () => (await page.locator('.palette').count()) === 1, HUNG_MS)) && !!(await buttonsAre(DARK.dim)), await buttons())
   await page.keyboard.press('Escape')
   check('closing it brightens them', !!(await buttonsAre(DARK.color)), await buttons())
   await open()
   await buttonsAre(DARK.dim)
   await page.keyboard.press('Control+Shift+P')
-  const palette = await until(async () => (await page.locator('.palette').count()) === 1, 2000)
+  const palette = await until(async () => (await page.locator('.palette').count()) === 1, HUNG_MS)
   if (palette) {
     check('the palette over a card: dimmed twice, like the page', !!(await buttonsAre(DARK.dim2)) && (await layers()) === 2, `${await buttons()} · ${await layers()} backdrops`)
     await page.keyboard.press('Escape')
-    await until(async () => (await page.locator('.palette').count()) === 0, 2000)
+    await until(async () => (await page.locator('.palette').count()) === 0, HUNG_MS)
     check('Escape closes the palette, not the card under it: dimmed once again', (await page.locator('.palette').count()) === 0 && (await dialog.count()) === 1 && (await layers()) === 1 && !!(await buttonsAre(DARK.dim)), `${await buttons()} · ${await layers()} backdrops · ${await dialog.count()} dialogs`)
   } else check("the palette over a card: it doesn't open there, and the buttons stay dimmed once", (await layers()) === 1 && (await buttons()) === DARK.dim, `${await buttons()} · ${await layers()} backdrops`)
   if ((await dialog.count()) === 1) await page.keyboard.press('Escape')
-  check('all closed: bright again', !!(await until(async () => (await layers()) === 0)) && !!(await buttonsAre(DARK.color)), `${await buttons()} · ${await layers()} backdrops · ${await dialog.count()} dialogs · history ${await app.evaluate((_e, i) => globalThis.__tb.get(i).slice(-6).join(' '), firstId)}`)
+  check('all closed: bright again', !!(await until(async () => (await layers()) === 0, HUNG_MS)) && !!(await buttonsAre(DARK.color)), `${await buttons()} · ${await layers()} backdrops · ${await dialog.count()} dialogs · history ${await app.evaluate((_e, i) => globalThis.__tb.get(i).slice(-6).join(' '), firstId)}`)
 
   // --- A reload with a card open doesn't leave them dimmed.
   await open()

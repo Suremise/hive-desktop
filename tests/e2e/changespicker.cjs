@@ -14,6 +14,8 @@
 const lib = require('./lib.cjs')
 const fs = require('fs')
 const path = require('path')
+// The longest a wait here waits for what it waits on: a bound for a hung run, never how long it should take (#570).
+const HUNG_MS = 10000
 
 const userData = path.join(lib.WORK, 'changespicker-profile')
 const ws = path.join(lib.WORK, 'changespicker-ws')
@@ -129,13 +131,13 @@ function inUse(project, name) {
   await lib.sleep(300)
   await page.locator('.tab', { hasText: 'Changes' }).click()
   const refreshing = page.locator('[data-unused-refreshing]')
-  check('coming back shows the last list at once, while it checks them again', !!(await lib.until(async () => (await rows.count()) === 2 && (await refreshing.count()) === 1, 2000)) && (await loadingPage.count()) === 0, await page.locator('.split-main').innerText().catch(() => ''))
+  check('coming back shows the last list at once, while it checks them again', !!(await lib.until(async () => (await rows.count()) === 2 && (await refreshing.count()) === 1, HUNG_MS)) && (await loadingPage.count()) === 0, await page.locator('.split-main').innerText().catch(() => ''))
   await shots('refreshing')
   check('…until the check is done', !!(await lib.until(async () => (await refreshing.count()) === 0, 15000)))
   // Refresh looks again.
   await slow('worktrees:unused=1500')
   await page.locator('.split-list .pane-header [aria-label^="Refresh"]').click()
-  check('Refresh looks again (the list stays)', !!(await lib.until(async () => (await refreshing.count()) === 1, 3000)) && (await rows.count()) === 2)
+  check('Refresh looks again (the list stays)', !!(await lib.until(async () => (await refreshing.count()) === 1, HUNG_MS)) && (await rows.count()) === 2)
   check('…and finishes', !!(await lib.until(async () => (await refreshing.count()) === 0, 10000)))
   await slow('')
   // A Refresh that fails keeps the list, and says so with Retry.

@@ -9,6 +9,8 @@
 const lib = require('./lib.cjs')
 const fs = require('fs')
 const path = require('path')
+// The longest a wait here waits for what it waits on: a bound for a hung run, never how long it should take (#570).
+const HUNG_MS = 10000
 
 const userData = path.join(lib.WORK, 'contrast-profile')
 const ws = path.join(lib.WORK, 'contrast-ws')
@@ -128,7 +130,7 @@ function measure([selector, parts]) {
     const active = await page.evaluate(measure, ['.menu .probe-detail', parts])
     check(`${theme}: chosen from the keyboard, every part reaches 4.5:1`, !!active && Object.entries(active).every(([k, v]) => k === 'background' || v === null || v >= 4.5), JSON.stringify(active))
     await page.keyboard.press('Escape')
-    await lib.until(async () => (await menu.count()) === 0, 3000)
+    await lib.until(async () => (await menu.count()) === 0, HUNG_MS)
 
     // The command palette's chosen row: its label, category and shortcut, a command with one chosen (#446: the key on
     // its own fill).
@@ -136,7 +138,7 @@ function measure([selector, parts]) {
     const row = page.locator('.palette-item.active')
     check(`${theme}: the palette opens with a chosen row`, !!(await lib.until(async () => (await row.count()) === 1, 5000)))
     await page.locator('.palette input').fill('Show Task Board')
-    await lib.until(async () => (await row.locator('kbd').count()) === 1, 3000)
+    await lib.until(async () => (await row.locator('kbd').count()) === 1, HUNG_MS)
     const pal = await page.evaluate(measure, ['.palette-item.active', ['', '.cat', 'kbd']])
     check(`${theme}: the palette's chosen row reaches 4.5:1 (label, category, shortcut)`, !!pal && pal.kbd !== null && Object.entries(pal).every(([k, v]) => k === 'background' || v === null || v >= 4.5), JSON.stringify(pal))
     await shot(`${theme}-palette`)

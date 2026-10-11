@@ -9,6 +9,8 @@ const lib = require('./lib.cjs')
 const { _electron } = require('playwright-core')
 const fs = require('fs')
 const path = require('path')
+// The longest a wait here waits for what it waits on: a bound for a hung run, never how long it should take (#570).
+const HUNG_MS = 20000
 
 const userData = path.join(lib.WORK, 'removeall-profile')
 const ws = path.join(lib.WORK, 'removeall-ws')
@@ -69,11 +71,11 @@ const check = (name, ok, extra = '') => {
     lib.git(unmerged.worktree.path, ['add', '-A'])
     lib.git(unmerged.worktree.path, ['-c', 'user.email=t@t', '-c', 'user.name=t', 'commit', '-qm', 'unmerged work'])
     await inv('session:start', proj, { agentId: worker.id })
-    await until(async () => ['waiting', 'ready'].includes((await live(proj, worker.id))?.status))
+    await until(async () => ['waiting', 'ready'].includes((await live(proj, worker.id))?.status), HUNG_MS)
     if ((await live(proj, worker.id))?.status === 'waiting') await inv('pty:write', lib.ptyKey(proj, worker.id), '\r')
-    await until(async () => (await live(proj, worker.id))?.status === 'ready')
+    await until(async () => (await live(proj, worker.id))?.status === 'ready', HUNG_MS)
     await type(proj, worker.id, 'work 120')
-    check(`${path.basename(proj)}: Worker is working`, !!(await until(async () => (await live(proj, worker.id))?.status === 'working')))
+    check(`${path.basename(proj)}: Worker is working`, !!(await until(async () => (await live(proj, worker.id))?.status === 'working', HUNG_MS)))
     await inv('workspace:refresh')
     return { worker, merged, unmerged }
   }

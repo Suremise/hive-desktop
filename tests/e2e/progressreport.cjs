@@ -6,6 +6,8 @@ const lib = require('./lib.cjs')
 const { _electron } = require('playwright-core')
 const fs = require('fs')
 const path = require('path')
+// The longest a wait here waits for what it waits on: a bound for a hung run, never how long it should take (#570).
+const HUNG_MS = 30000
 
 const userData = path.join(lib.WORK, 'progressreport-profile')
 const ws = path.join(lib.WORK, 'progressreport-ws')
@@ -69,7 +71,7 @@ const check = (name, ok, extra = '') => {
   await page.getByText('alpha', { exact: true }).first().click()
   const builder = await lib.addAgent(inv, alpha, { name: 'Builder' })
   await inv('session:start', alpha, { agentId: builder.id })
-  check('the agent starts', !!(await until(async () => (await live(builder.id))?.status === 'ready')))
+  check('the agent starts', !!(await until(async () => (await live(builder.id))?.status === 'ready', HUNG_MS)))
 
   const bin = path.join(userData, 'bin')
   const where = await shell(builder.id, 'where hive-progress')
@@ -101,7 +103,7 @@ const check = (name, ok, extra = '') => {
   await page.locator('.xterm').first().click().catch(() => undefined)
   await page.keyboard.press('Control+Alt+P')
   const panel = page.locator('.progress-panel')
-  check('the Progress panel opens', !!(await until(async () => (await panel.count()) === 1)))
+  check('the Progress panel opens', !!(await until(async () => (await panel.count()) === 1, HUNG_MS)))
   let known = (await runs()).map((r) => r.id)
   const stepped = await startShell(builder.id, `hive-progress --title "Stepped demo" -- node -e "console.log('##hive-progress step=1 total=3 name=alpha'); setTimeout(() => console.log('##hive-progress step=2 name=beta'), 2500); setTimeout(() => process.exit(0), 6000)"`)
   const live1 = await newRun(known, (r) => r.title === 'Stepped demo')

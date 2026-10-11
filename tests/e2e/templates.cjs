@@ -9,6 +9,8 @@ const lib = require('./lib.cjs')
 const { _electron } = require('playwright-core')
 const fs = require('fs')
 const path = require('path')
+// The longest a wait here waits for what it waits on: a bound for a hung run, never how long it should take (#570).
+const HUNG_MS = 10000
 
 const userData = path.join(lib.WORK, 'templates-profile')
 const ws = path.join(lib.WORK, 'templates-ws')
@@ -167,7 +169,7 @@ const check = (name, ok, extra = '') => {
   check("…and the new worktree's branch, its folder in this project on hover", builderPlace.text === 'own worktree hive/builder' && builderPlace.path.toLowerCase() === treePath.toLowerCase() && (await placeOf(treesWarn, 'Helper')).text === 'project folder', JSON.stringify(builderPlace))
   await planRow(treesWarn, 'Builder').locator('.template-plan-place').hover()
   const tip = page.locator('.tip', { hasText: 'A new worktree in' })
-  check('…the full folder in its tooltip', !!(await lib.until(async () => (await tip.count()) === 1 && (await tip.innerText()).toLowerCase().includes(treePath.toLowerCase()), 3000)), await tip.innerText().catch(() => ''))
+  check('…the full folder in its tooltip', !!(await lib.until(async () => (await tip.count()) === 1 && (await tip.innerText()).toLowerCase().includes(treePath.toLowerCase()), HUNG_MS)), await tip.innerText().catch(() => ''))
   await page.mouse.move(0, 0)
   check('…and the setup command it runs', tw.includes("Each new worktree runs the project's setup command (npm install) before its agent first starts."), tw)
   const planBox = treesWarn.locator('.detail.rich')
@@ -224,7 +226,7 @@ const check = (name, ok, extra = '') => {
   await lib.sleep(500)
   check('…without adding an agent', projectCfg(beta).agents.length === 3, JSON.stringify(projectCfg(beta).agents.map((a) => a.name)))
   await page.keyboard.press('Escape')
-  await lib.until(async () => (await addDialog.count()) === 0, 3000)
+  await lib.until(async () => (await addDialog.count()) === 0, HUNG_MS)
 
   // The keyboard: Enter on ▾ opens the menu on its first entry, ↓ moves, → opens Add Agent from Template, Enter adds.
   const active = () => page.locator('.menu .menu-item.active').innerText().then((t) => t.split('\n')[0].trim(), () => '')

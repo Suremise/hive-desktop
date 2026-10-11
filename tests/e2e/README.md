@@ -164,9 +164,7 @@ was kept with `--keep`. Two started from the same worktree share its build, so i
 
 **Heavy runs queue** (`slots.mjs`, #204). Several agents each running full sets on one machine slowed each other until
 tests that pass alone timed out. So at most **two heavy runs** go at once across every worktree
-(`HIVE_TEST_HEAVY_SLOTS` changes it: set it as a user environment variable and restart Hive, whose sessions keep it
-while dropping Hive's other `HIVE_` variables (`SESSION_SETTINGS` in `src/main/ptyHost.ts`, #567), so the runs agents
-start use it): an e2e run of more than five suites (`--all`, `--real`, a big `--affected`) or
+(`heavySlots` in `%LOCALAPPDATA%\hive-test\config.json` changes it: "How many heavy runs at once", below): an e2e run of more than five suites (`--all`, `--real`, a big `--affected`) or
 any `--repeat`, a scenario run of more than five scenarios or with `--repeat`, and a **full unit run** (`npm test`, a
 `vitest run` of the whole set: `tests/unitSlot.ts`, `isFullUnitRun`, #599; its workers and what its tests start, beside
 e2e runs, were what ran Windows short of desktop heap: 0xc0000142, below). A run of a few suites, a single
@@ -193,18 +191,18 @@ own, `HIVE_TEST_HEAVY_DIR`), one waiting visibly, `--no-wait`, a killed run's sl
 before two that asked earlier (the stand-in Agent API says its agent holds the merge slot), and a killed pre-merge run's
 place.
 
-**How many heavy runs at once** (#544). The default is two (`DEFAULT_SLOTS` in `slots.mjs`). A machine with more
-cores and memory, or with nothing else running, may take more; a slower one fewer. To change it, set
-`HIVE_TEST_HEAVY_SLOTS` to a whole number, 1 or more (anything else means 2). Set it as a Windows user environment
-variable, so that every run on the machine gets the same number: each run counts the slots with its own value, so a run
-started with a higher number than the others can take a slot they are waiting for. A variable set in Windows reaches
-only programs started afterwards: restart Hive (and open terminals) after changing it. Agents' sessions get it once
-#567 is merged; until then Hive leaves the `HIVE_*` variables out of a session's environment, so a run an agent starts
-uses two whatever is set, and only a terminal outside Hive gets the setting. Before raising it, measure on that
-machine: start several full sets at once with the higher number and check that they still pass and how long each takes,
-with nothing else testing meanwhile (#544 has a script that does this). A pool of its own
-(`HIVE_TEST_HEAVY_DIR`) with a count of its own is for checking the queue itself (`npm run e2e:concurrency -- --heavy`),
-never for getting round it.
+**How many heavy runs at once** (#544, #589). The default is two (`DEFAULT_SLOTS` in `slots.mjs`). A machine with more
+cores and memory, or with nothing else running, may take more; a slower one fewer. To change it, write the number into
+the shared test folder's settings file, `%LOCALAPPDATA%\hive-test\config.json`: `{ "heavySlots": 3 }`, a whole number,
+1 or more. It is machine-wide, as the slots are: every worktree's runs, an agent's or a terminal's, read the same file,
+so they all count the same slots. It is read each time a run asks for a slot, so an edit counts from the next run, with
+no restart of Hive or a terminal. A missing or unreadable file, or a value that isn't a whole number from 1, means two,
+and the run says so in one line (`Test slots: …`). `HIVE_TEST_HEAVY_SLOTS`, a whole number, overrides the file for one
+run (the concurrency checker uses it); Hive doesn't pass it on to its sessions (it drops its `HIVE_` variables), and a
+run started with a higher number than the others can take a slot they are waiting for, so use the file for the
+machine's setting. If runs start failing after raising it, go back down. A pool of its own (`HIVE_TEST_HEAVY_DIR`) with
+a count of its own is for checking the queue itself (`npm run e2e:concurrency -- --heavy`), never for getting round
+it.
 
 **Unit tests under load.** `npm test` uses half the cores (`maxWorkers: '50%'` in `vitest.config.ts`) and allows 20 s
 a test and 30 s a hook, so a full run beside an e2e set doesn't hit Vitest's 5 s default. A test that needs longer says
@@ -422,7 +420,7 @@ kept and why, without removing anything; `--days N` sets the age, default 3).
   prunes its own logs), plugins, skills or history. What stays is about 0.8 GB, most of it the copy of Codex it runs
   (430 MB) and the sandbox's (320 MB). The Claude Code test home is small (about 80 MB) and isn't opened.
 - **Stays:** the CLI test homes' sign-ins, config and sandbox setup (`codex`, but for the above; `claude`, never opened), scenario results and baselines, the
-  claims and locks, the concurrency checker's folders (it removes its own), the Progress panel's timings; logs (the
+  claims and locks, the concurrency checker's folders (it removes its own), the Progress panel's timings, the machine's test settings (`config.json`: `heavySlots`, #589); logs (the
   runner keeps the newest ten runs); a lane a runner holds.
 - **Evidence stays, whoever deletes** (`evidence.cjs`): anything a card that isn't Done cites is kept by the clean-up,
   by the runners' own deletions (a suite's or scenario's earlier folder, a passed suite's folders, log pruning,

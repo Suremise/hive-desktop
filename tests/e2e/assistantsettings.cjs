@@ -10,6 +10,8 @@ const lib = require('./lib.cjs')
 const { _electron } = require('playwright-core')
 const fs = require('fs')
 const path = require('path')
+// The longest a wait here waits for what it waits on: a bound for a hung run, never how long it should take (#570).
+const HUNG_MS = 10000
 
 const userData = path.join(lib.WORK, 'assistantsettings-profile')
 const ws = path.join(lib.WORK, 'assistantsettings-ws')
@@ -108,8 +110,8 @@ const check = (name, ok, extra = '') => {
   // --- Revert: back to 20, listed, and the change marked reverted.
   await revert.click()
   check('Revert puts it back to 20 MB', !!(await lib.until(async () => (await settings()).sessions.transcriptWarnMB === 20, 5000)))
-  check('…which Settings shows', !!(await lib.until(async () => (await warn.locator('input[type=number]').inputValue()) === '20', 3000)))
-  check('…and the panel lists, the change marked reverted', !!(await lib.until(async () => (await panel.locator('.assistant-action', { hasText: 'You reverted Settings → Sessions → Warn when a transcript is over: 50 → 20' }).count()) === 1 && (await action.locator('text=reverted').count()) === 1, 3000)))
+  check('…which Settings shows', !!(await lib.until(async () => (await warn.locator('input[type=number]').inputValue()) === '20', HUNG_MS)))
+  check('…and the panel lists, the change marked reverted', !!(await lib.until(async () => (await panel.locator('.assistant-action', { hasText: 'You reverted Settings → Sessions → Warn when a transcript is over: 50 → 20' }).count()) === 1 && (await action.locator('text=reverted').count()) === 1, HUNG_MS)))
   await page.screenshot({ path: path.join(lib.WORK, 'assistantsettings-reverted.png') })
 
   // --- A project's setting: Project Settings has it.

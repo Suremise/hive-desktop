@@ -5,6 +5,8 @@
 const lib = require('./lib.cjs')
 const fs = require('fs')
 const path = require('path')
+// The longest a wait here waits for what it waits on: a bound for a hung run, never how long it should take (#570).
+const HUNG_MS = 10000
 
 const userData = path.join(lib.WORK, 'wsoverview-profile')
 const ws = path.join(lib.WORK, 'wsoverview-ws')
@@ -60,9 +62,9 @@ const check = (name, ok, extra = '') => {
 
   await page.keyboard.press('Control+Shift+O')
   const head = page.locator('h1', { hasText: 'Workspace Overview' })
-  check('Ctrl+Shift+O opens the Workspace Overview', !!(await until(async () => (await head.count()) === 1)))
+  check('Ctrl+Shift+O opens the Workspace Overview', !!(await until(async () => (await head.count()) === 1, HUNG_MS)))
   const rows = page.locator('.ws-projects tbody tr')
-  check('it lists each project and not the hidden one', !!(await until(async () => (await rows.count()) === 3)), String(await rows.count()))
+  check('it lists each project and not the hidden one', !!(await until(async () => (await rows.count()) === 3, HUNG_MS)), String(await rows.count()))
   const names = async () => (await rows.locator('td:first-child').allInnerTexts()).map((s) => s.trim())
   check('7 days is the default, biggest first', JSON.stringify(await names()) === JSON.stringify(['alpha', 'beta', 'gamma']), JSON.stringify(await names()))
   const tokens = page.locator('.card', { hasText: 'Tokens' }).first().locator('.value')
@@ -78,8 +80,8 @@ const check = (name, ok, extra = '') => {
   await page.screenshot({ path: path.join(lib.WORK, 'wsoverview.png') })
 
   await page.locator('.segmented button', { hasText: 'All time' }).click()
-  check('All time counts older work too', !!(await until(async () => (await tokens.innerText()) === '9.6k', 3000)), await tokens.innerText())
-  check('and re-sorts the table', !!(await until(async () => (await names())[0] === 'gamma', 3000)), JSON.stringify(await names()))
+  check('All time counts older work too', !!(await until(async () => (await tokens.innerText()) === '9.6k', HUNG_MS)), await tokens.innerText())
+  check('and re-sorts the table', !!(await until(async () => (await names())[0] === 'gamma', HUNG_MS)), JSON.stringify(await names()))
   await page.locator('.ws-projects th button', { hasText: 'Project' }).click()
   check('a column header sorts by it', JSON.stringify(await names()) === JSON.stringify(['alpha', 'beta', 'gamma']), JSON.stringify(await names()))
 
@@ -111,7 +113,7 @@ const check = (name, ok, extra = '') => {
   const setAssistant = async (side) => {
     if (side) await inv('settings:update', { assistant: { panelSide: side } })
     if (!!side !== (await assistantOpen())) await page.keyboard.press('Control+Alt+I')
-    await until(async () => !!side === (await assistantOpen()), 3000)
+    await until(async () => !!side === (await assistantOpen()), HUNG_MS)
   }
   for (const [width, zoom, theme, side] of [[620, 1, 'dark', null], [760, 1.25, 'dark', null], [620, 1.25, 'dark', null], [620, 1.25, 'light', null], [820, 1, 'dark', 'right'], [820, 1, 'light', 'left']]) {
     await inv('settings:update', { appearance: { theme } })
@@ -122,14 +124,14 @@ const check = (name, ok, extra = '') => {
     const f = await until(async () => {
       const x = await fits()
       return x.page && x.buttons && !x.clipped.length ? x : null
-    }, 3000)
+    }, HUNG_MS)
     check(`${label}: the page doesn't scroll sideways, its period buttons inside it, no label clipped`, !!f, JSON.stringify(await fits()))
     check(`${label}: …the table keeps its own scroll`, (await fits()).table)
     await page.screenshot({ path: path.join(lib.WORK, `wsoverview-${width}-${zoom * 100}${side ? `-${side}` : ''}-${theme}.png`) })
     if (side === 'left') {
       // In under 50 px, a period is still chosen with its button.
       await page.locator('.overview-head .segmented button', { hasText: '30 days' }).click()
-      check(`${label}: a period button still works`, !!(await until(async () => (await page.locator('.overview-head .segmented button.active').innerText()).trim() === '30 days', 3000)))
+      check(`${label}: a period button still works`, !!(await until(async () => (await page.locator('.overview-head .segmented button.active').innerText()).trim() === '30 days', HUNG_MS)))
       await page.locator('.overview-head .segmented button', { hasText: 'All time' }).click()
     }
   }
@@ -185,7 +187,7 @@ const check = (name, ok, extra = '') => {
       const x = await projectFits()
       // Too narrow for the table (under 300 px of page here), so it scrolls: in its own box, to its end.
       return x.page && x.own && x.whole && x.scrolls && x.reached && x.buttons ? x : null
-    }, 3000)
+    }, HUNG_MS)
     check(`${label}: the page doesn't scroll sideways; the session details keep their labels whole and scroll in their own box, to the end; the period buttons fit`, !!f, JSON.stringify(await projectFits()))
     await page.evaluate(() => document.querySelector('.session-meta').scrollIntoView({ block: 'center' }))
     await page.screenshot({ path: path.join(lib.WORK, `wsoverview-project-${width}-${zoom * 100}${side ? `-${side}` : ''}-${theme}.png`) })

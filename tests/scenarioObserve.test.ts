@@ -114,12 +114,20 @@ describe("a run's source fingerprint", () => {
 })
 
 describe('the fixtures fail when nothing was done', () => {
-  it('merge-main-moved (#306): merging without taking the moved base in, or without checking it again, fails', async () => {
+  // Real git work, not a wait (#596): the merge fixtures' tests below start 30 to 120 git and node processes each, and with
+  // the scenario's reference-transaction hook every branch update (checkout, commit, merge) starts sh as well. Measured:
+  // 5 to 7 s a test alone; 10 to 20 s under a full unit run beside other runs (a git read 35 ms, a commit 0.8 s, a merge
+  // 1 s); 23 to 32 s under heavier load. So each is bounded by GIT_HUNG_MS, about three times the slowest seen, rather than
+  // the suite's 20 s. The processes run synchronously, which no test timeout interrupts, so each has PROCESS_HUNG_MS too:
+  // only a hung git or node takes that long, and it fails the test instead of holding its worker.
+  const GIT_HUNG_MS = 90_000
+  const PROCESS_HUNG_MS = 30_000
+  it('merge-main-moved (#306): merging without taking the moved base in, or without checking it again, fails', { timeout: GIT_HUNG_MS }, async () => {
     const fs = require('fs') as typeof import('fs')
     const path = require('path') as typeof import('path')
     const { execFileSync } = require('child_process') as typeof import('child_process')
     const repo = tempDir('hive-merge-moved-')
-    const git = (...a: string[]) => execFileSync('git', a, { cwd: repo, encoding: 'utf8' })
+    const git = (...a: string[]) => execFileSync('git', a, { cwd: repo, encoding: 'utf8', timeout: PROCESS_HUNG_MS })
     const ctx: Record<string, unknown> & { merge?: { base: string; moved: string } } = {
       git,
       write: (rel: string, text: string) => fs.writeFileSync(path.join(repo, rel), text),
@@ -138,7 +146,7 @@ describe('the fixtures fail when nothing was done', () => {
       const MERGED = 'the branch is merged into the base'
       const REMERGED = 'it merged the moved base into the branch first'
       const CHECKED = 'the exact tip it merged was checked before merging, against the base as it was then'
-      const check = () => execFileSync(process.execPath, ['check.js'], { cwd: repo })
+      const check = () => execFileSync(process.execPath, ['check.js'], { cwd: repo, timeout: PROCESS_HUNG_MS })
       const start = { base: git('rev-parse', into).trim(), feature: git('rev-parse', 'feature').trim(), runs: fs.readFileSync(path.join(repo, 'check-runs.txt'), 'utf8') }
       /** Back to the scenario's start: the base moved, feature as checked, only the old check run. */
       const reset = () => {
@@ -205,7 +213,7 @@ describe('the fixtures fail when nothing was done', () => {
     }
   })
 
-  describe('the merge slot (#374): claimed for the base, held through the checks that went in and the merge, released after; queued and failing merges too', () => {
+  describe('the merge slot (#374): claimed for the base, held through the checks that went in and the merge, released after; queued and failing merges too', { timeout: GIT_HUNG_MS }, () => {
     const fs = require('fs') as typeof import('fs')
     const path = require('path') as typeof import('path')
     const { execFileSync } = require('child_process') as typeof import('child_process')
@@ -213,7 +221,7 @@ describe('the fixtures fail when nothing was done', () => {
     /** A scenario's repository, set up as the run does (the other agent's start and claim stand-ins). */
     const repoFor = async (id: string) => {
       const repo = tempDir(`hive-merge-slot-${id}-`)
-      const git = (...a: string[]) => execFileSync('git', a, { cwd: repo, encoding: 'utf8' })
+      const git = (...a: string[]) => execFileSync('git', a, { cwd: repo, encoding: 'utf8', timeout: PROCESS_HUNG_MS })
       const ctx: Record<string, unknown> & { merge?: { base: string } } = {
         git,
         write: (rel: string, text: string) => fs.writeFileSync(path.join(repo, rel), text),
@@ -231,7 +239,7 @@ describe('the fixtures fail when nothing was done', () => {
         git('merge', '-q', '--no-edit', into)
         let passed = true
         try {
-          execFileSync(process.execPath, ['check.js'], { cwd: repo, stdio: 'ignore' })
+          execFileSync(process.execPath, ['check.js'], { cwd: repo, stdio: 'ignore', timeout: PROCESS_HUNG_MS })
         } catch {
           passed = false
         }
@@ -247,7 +255,7 @@ describe('the fixtures fail when nothing was done', () => {
         git('merge', '-q', '--no-commit', '--no-ff', 'feature')
         let passed = true
         try {
-          execFileSync(process.execPath, ['check.js'], { cwd: repo, stdio: 'ignore' })
+          execFileSync(process.execPath, ['check.js'], { cwd: repo, stdio: 'ignore', timeout: PROCESS_HUNG_MS })
         } catch {
           passed = false
         }
@@ -355,7 +363,7 @@ describe('the fixtures fail when nothing was done', () => {
       const log = queuedLog(r.into, from - 2000, from, r.timed().merge!.to + 5)
       expect(r.checks({ slotLog: log })).toEqual(['its checks ran on the tip it merged, against the base as it was then', HELD, MERGED_HOLDING])
       // Its checks on the merged base fail now, as the scenario says.
-      expect(() => execFileSync(process.execPath, ['check.js'], { cwd: r.repo, stdio: 'ignore' })).toThrow()
+      expect(() => execFileSync(process.execPath, ['check.js'], { cwd: r.repo, stdio: 'ignore', timeout: PROCESS_HUNG_MS })).toThrow(/Command failed/)
     })
     it('merge-checks-fail: it releases the slot after failing checks, and merges nothing', async () => {
       const r = await repoFor('merge-checks-fail')

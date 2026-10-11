@@ -5,6 +5,8 @@
 const lib = require('./lib.cjs')
 const fs = require('fs')
 const path = require('path')
+// The longest a wait here waits for what it waits on: a bound for a hung run, never how long it should take (#570).
+const HUNG_MS = 10000
 
 const userData = path.join(lib.WORK, 'gitmissing-profile')
 const ws = path.join(lib.WORK, 'gitmissing-ws')
@@ -70,7 +72,7 @@ function pathWithoutGit() {
   await shot('setup-light')
   await theme('dark')
   await page.keyboard.press('Escape')
-  check('Escape closes Agent Setup', !!(await lib.until(async () => (await setup.count()) === 0, 3000)))
+  check('Escape closes Agent Setup', !!(await lib.until(async () => (await setup.count()) === 0, HUNG_MS)))
 
   // --- Add Agent: New worktree is off, and says why.
   const info = await inv('agents:gitInfo', repo)
@@ -87,7 +89,7 @@ function pathWithoutGit() {
   check('Add Agent: New worktree disabled, saying git is missing', !!told && (await worktree.locator('input:disabled').count()) === 1 && wtText.includes(MISSING) && !wtText.includes('Needs a git repository'), wtText)
   await shot('addagent')
   await page.keyboard.press('Escape')
-  await lib.until(async () => (await add.count()) === 0, 3000)
+  await lib.until(async () => (await add.count()) === 0, HUNG_MS)
   const refused = await inv('agents:add', repo, { name: 'Nope', provider: 'claude-code', location: 'new-worktree' }).then(() => null, (e) => String(e?.message ?? e))
   check('adding a worktree agent anyway is refused, saying git is missing', !!refused && refused.includes(MISSING), refused ?? 'added')
 
@@ -112,7 +114,7 @@ function pathWithoutGit() {
   check('…and nothing can be merged', (await merge.locator('.btn.primary', { hasText: 'Merge' }).isDisabled().catch(() => false)) && (await merge.getByText('There is nothing to merge').count()) === 0)
   await shot('merge')
   await page.keyboard.press('Escape')
-  await lib.until(async () => (await merge.count()) === 0, 3000)
+  await lib.until(async () => (await merge.count()) === 0, HUNG_MS)
 
   // --- Remove All's checks and its opt-in deletion keep the worktree.
   const checks = await inv('agents:worktreeChecks', repo)

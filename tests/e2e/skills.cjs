@@ -157,7 +157,7 @@ const check = (name, ok, extra = '') => {
   await providerToggle.click()
   check('the provider’s skills open: Local, User', (await providerToggle.getAttribute('aria-expanded')) === 'true' && (await page.locator('.skill-provider .skill-group', { hasText: 'Local (User Managed)' }).count()) === 1 && (await page.locator('.skill-provider .skill-group', { hasText: /^\s*User\s*$/i }).count()) === 1, JSON.stringify(await page.locator('.skill-provider .skill-group').allInnerTexts()))
   await pick.selectOption('codex')
-  await lib.until(async () => (await pick.inputValue()) === 'codex', 3000)
+  await lib.until(async () => (await pick.inputValue()) === 'codex', HUNG_MS)
   check("project tab: Codex's skills, where Hive's Codex copy isn't a local skill", (await page.locator('.skill-provider').count()) === 1 && (await page.locator('.skill-provider .skill-row', { hasText: 'handover' }).count()) === 0)
   await pick.selectOption('claude-code')
   await page.locator('.skill-provider').first().locator('.skill-group', { hasText: 'Local' }).locator('button[aria-label^="New local skill"]').click()
@@ -196,7 +196,7 @@ const check = (name, ok, extra = '') => {
 
   // "Edit in workspace" on a Hive skill opens it in the Skills view, in the editor. Hive's group unfolded first.
   await hiveToggle.click()
-  check('the Hive group unfolds', (await hiveToggle.getAttribute('aria-expanded')) === 'true' && !!(await lib.until(async () => (await page.locator('.split-list .skill-row', { hasText: 'workspace-note' }).count()) === 1, 3000)))
+  check('the Hive group unfolds', (await hiveToggle.getAttribute('aria-expanded')) === 'true' && !!(await lib.until(async () => (await page.locator('.split-list .skill-row', { hasText: 'workspace-note' }).count()) === 1, HUNG_MS)))
   const hiveRow = page.locator('.skill-row', { hasText: 'workspace-note' }).first()
   await hiveRow.click()
   await lib.until(async () => (await page.locator('.split .editor-toolbar', { hasText: 'workspace-note' }).count()) === 1, 5000)
@@ -224,7 +224,7 @@ const check = (name, ok, extra = '') => {
   await page.screenshot({ path: path.join(lib.WORK, 'skills-edit-light.png') })
   await inv('settings:update', { appearance: { theme: 'dark' } })
   await page.locator('.split button[aria-label="Preview"]').click()
-  await lib.until(async () => (await page.locator('.split .skills-warning').count()) === 0, 3000)
+  await lib.until(async () => (await page.locator('.split .skills-warning').count()) === 0, HUNG_MS)
   check('…and gone in preview', (await page.locator('.split .skills-warning').count()) === 0)
 
   await app.close()

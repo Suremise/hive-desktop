@@ -10,6 +10,8 @@ const lib = require('./lib.cjs')
 const { _electron } = require('playwright-core')
 const fs = require('fs')
 const path = require('path')
+// The longest a wait here waits for what it waits on: a bound for a hung run, never how long it should take (#570).
+const HUNG_MS = 10000
 
 const userData = path.join(lib.WORK, 'models-profile')
 const ws = path.join(lib.WORK, 'models-ws')
@@ -132,7 +134,7 @@ const check = (name, ok, extra = '') => {
   check('an agent set to Opus shows the model it runs: Opus 5.5', !!(await lib.until(async () => (await modelText('Writer')) === 'Opus 5.5', 8000)), await modelText('Writer'))
   check('an agent on the default shows Opus 5.5 (default)', (await modelText('Plain')) === 'Opus 5.5 (default)', await modelText('Plain'))
   await modelOf('Writer').hover()
-  check('…and the tooltip says it was chosen as Opus', !!(await lib.until(async () => (await page.locator('.tip', { hasText: 'Opus 5.5 · chosen as Opus' }).count()) > 0, 3000)))
+  check('…and the tooltip says it was chosen as Opus', !!(await lib.until(async () => (await page.locator('.tip', { hasText: 'Opus 5.5 · chosen as Opus' }).count()) > 0, HUNG_MS)))
   await update({ assistant: { providers: { 'claude-code': { model: 'opus' } } } })
   if ((await page.locator('.assistant-panel').count()) === 0) await page.locator('.assistant-rail').click()
   const assistantModel = async () => (await page.locator('.assistant-footer .foot-model').innerText().catch(() => '')).split(' · ')[0].trim()
@@ -159,7 +161,7 @@ const check = (name, ok, extra = '') => {
   await modelsRow.locator('.fallback-toggle').click()
   await modelsRow.getByLabel("New model id").fill('claude-test-9')
   await modelsRow.getByRole('button', { name: 'Add' }).click()
-  await lib.until(async () => ((await update({})).providers['claude-code'].modelFallback ?? []).some((m) => m.value === 'claude-test-9'), 3000)
+  await lib.until(async () => ((await update({})).providers['claude-code'].modelFallback ?? []).some((m) => m.value === 'claude-test-9'), HUNG_MS)
   const edited = (await update({})).providers['claude-code'].modelFallback ?? []
   check('adding a model stores the list as yours (the shipped ones and yours)', edited.at(-1)?.value === 'claude-test-9' && edited.some((m) => m.value === 'opus'), JSON.stringify(edited.map((m) => m.value)))
   // The CLI can't be asked: one that gives its version but answers nothing else (a missing path would have Hive look
@@ -178,7 +180,7 @@ const check = (name, ok, extra = '') => {
   await modelsRow.locator('.fallback-source').scrollIntoViewIfNeeded()
   await light('models-fallback-light.png')
   await modelsRow.getByRole('button', { name: 'Reset to defaults' }).click()
-  await lib.until(async () => !(await update({})).providers['claude-code'].modelFallback, 3000)
+  await lib.until(async () => !(await update({})).providers['claude-code'].modelFallback, HUNG_MS)
   const shipped = await page.locator('.model-picker select').first().locator('optgroup').evaluateAll((gs) => gs.map((g) => g.label))
   check("Reset to defaults: Hive's own list again", !(await update({})).providers['claude-code'].modelFallback && shipped[0] === 'Latest (follows new releases)', JSON.stringify(shipped))
   // The effort fallback: renamed levels name the pickers' options.
@@ -186,10 +188,10 @@ const check = (name, ok, extra = '') => {
   if (await effortsRow.locator('.fallback-toggle').count()) await effortsRow.locator('.fallback-toggle').click()
   await effortsRow.getByLabel('Name 1').fill('Quick')
   await effortsRow.getByLabel('Name 1').blur()
-  await lib.until(async () => ((await update({})).providers['claude-code'].effortFallback ?? [])[0]?.label === 'Quick', 3000)
+  await lib.until(async () => ((await update({})).providers['claude-code'].effortFallback ?? [])[0]?.label === 'Quick', HUNG_MS)
   check('a renamed effort level names the effort picker option', (await options(effortSelect)).some((o) => o.value === 'low' && o.label === 'Quick'), JSON.stringify(await options(effortSelect)))
   await effortsRow.getByRole('button', { name: 'Reset to defaults' }).click()
-  await lib.until(async () => !(await update({})).providers['claude-code'].effortFallback, 3000)
+  await lib.until(async () => !(await update({})).providers['claude-code'].effortFallback, HUNG_MS)
   check('…and Reset to defaults names it Low again', (await options(effortSelect)).some((o) => o.value === 'low' && o.label === 'Low'))
 
   // --- Prices: add, remove, reset.
@@ -197,13 +199,13 @@ const check = (name, ok, extra = '') => {
   check('the price table says when its prices were checked', (await prices.locator('.fallback-source', { hasText: /checked \d{4}-\d{2}-\d{2}/ }).count()) === 1)
   await prices.getByLabel("New model's ID").fill('claude-test-9')
   await prices.getByRole('button', { name: 'Add model' }).click()
-  await lib.until(async () => !!(await update({})).providers['claude-code'].prices['claude-test-9'], 3000)
+  await lib.until(async () => !!(await update({})).providers['claude-code'].prices['claude-test-9'], HUNG_MS)
   await prices.locator('tr', { hasText: 'claude-haiku-4-5' }).getByRole('button', { name: 'Remove from the table' }).click()
-  await lib.until(async () => ((await update({})).providers['claude-code'].pricesRemoved ?? []).includes('claude-haiku-4-5'), 3000)
+  await lib.until(async () => ((await update({})).providers['claude-code'].pricesRemoved ?? []).includes('claude-haiku-4-5'), HUNG_MS)
   const afterEdit = await update({})
   check('a model added and a shipped one removed', !!afterEdit.providers['claude-code'].prices['claude-test-9'] && afterEdit.providers['claude-code'].pricesRemoved?.includes('claude-haiku-4-5') && (await prices.locator('tr', { hasText: 'claude-haiku-4-5' }).count()) === 0)
   await prices.getByRole('button', { name: 'Reset to defaults' }).click()
-  await lib.until(async () => !Object.keys((await update({})).providers['claude-code'].prices).length, 3000)
+  await lib.until(async () => !Object.keys((await update({})).providers['claude-code'].prices).length, HUNG_MS)
   const afterReset = await update({})
   check("Reset to defaults: Hive's prices again", !Object.keys(afterReset.providers['claude-code'].prices).length && !afterReset.providers['claude-code'].pricesRemoved && (await prices.locator('tr', { hasText: 'claude-haiku-4-5' }).count()) === 1)
 
@@ -220,29 +222,29 @@ const check = (name, ok, extra = '') => {
   // A listed model with no price (its shipped price removed): a row asking for one, with no Remove.
   await row('claude-opus-4-6').getByRole('button', { name: 'Remove from the table' }).click()
   const noPrice = row('claude-opus-4-6').locator('.badge', { hasText: 'No price: enter one' })
-  check('a model Claude Code lists without a price asks for one', !!(await lib.until(async () => (await noPrice.count()) === 1, 3000)) && (await row('claude-opus-4-6').getByRole('button', { name: 'Remove from the table' }).count()) === 0)
+  check('a model Claude Code lists without a price asks for one', !!(await lib.until(async () => (await noPrice.count()) === 1, HUNG_MS)) && (await row('claude-opus-4-6').getByRole('button', { name: 'Remove from the table' }).count()) === 0)
   await page.screenshot({ path: path.join(lib.WORK, 'models-prices-claude.png') })
   await row('claude-opus-4-6').getByLabel('claude-opus-4-6 Input').fill('3')
   await row('claude-opus-4-6').getByLabel('claude-opus-4-6 Input').blur()
-  check('…and entering one saves it as yours', !!(await lib.until(async () => (await update({})).providers['claude-code'].prices['claude-opus-4-6']?.input === 3, 3000)) && !!(await lib.until(async () => (await noPrice.count()) === 0, 3000)))
+  check('…and entering one saves it as yours', !!(await lib.until(async () => (await update({})).providers['claude-code'].prices['claude-opus-4-6']?.input === 3, HUNG_MS)) && !!(await lib.until(async () => (await noPrice.count()) === 0, HUNG_MS)))
   await prices.getByRole('button', { name: 'Reset to defaults' }).click()
-  await lib.until(async () => !Object.keys((await update({})).providers['claude-code'].prices).length, 3000)
+  await lib.until(async () => !Object.keys((await update({})).providers['claude-code'].prices).length, HUNG_MS)
 
   // Claude Code reports its cost: Session costs chooses its report (the default) or my prices.
   const costRow = page.locator('.setting', { has: page.locator('.s-title', { hasText: 'Session costs' }) })
   const costSelect = costRow.locator('select')
   check("Claude Code: Session costs, its reported cost by default", (await costSelect.inputValue()) === 'reported' && (await costSelect.locator('option').allTextContents()).join('|') === "Claude Code's reported cost|My prices (the table below)", await costSelect.inputValue())
   await costSelect.selectOption('prices')
-  check('…and choosing my prices is saved', !!(await lib.until(async () => (await update({})).providers['claude-code'].costSource === 'prices', 3000)))
+  check('…and choosing my prices is saved', !!(await lib.until(async () => (await update({})).providers['claude-code'].costSource === 'prices', HUNG_MS)))
   check('Claude Code shows no "doesn\'t report costs" note', (await page.locator('.price-note').count()) === 0)
   await costSelect.selectOption('reported')
-  await lib.until(async () => (await update({})).providers['claude-code'].costSource === 'reported', 3000)
+  await lib.until(async () => (await update({})).providers['claude-code'].costSource === 'reported', HUNG_MS)
 
   // Codex reports no cost: no choice, a note with its pricing link, and its own list's models.
   await openSection('Codex')
   check('Codex: no Session costs choice', (await costRow.count()) === 0)
   const note = page.locator('.price-note')
-  check("…but a note that it doesn't report costs, with OpenAI's pricing link", !!(await lib.until(async () => (await note.count()) === 1, 3000)) && /Codex doesn't report costs, so Hive estimates them from these prices/.test(await note.innerText()) && (await note.locator('a', { hasText: "OpenAI's pricing" }).count()) === 1)
+  check("…but a note that it doesn't report costs, with OpenAI's pricing link", !!(await lib.until(async () => (await note.count()) === 1, HUNG_MS)) && /Codex doesn't report costs, so Hive estimates them from these prices/.test(await note.innerText()) && (await note.locator('a', { hasText: "OpenAI's pricing" }).count()) === 1)
   check('…and a shipped model Codex no longer lists (gpt-5.3-codex) greyed', (await row('gpt-5.3-codex').locator('.badge', { hasText: "not in Codex's list" }).count()) === 1)
   await page.screenshot({ path: path.join(lib.WORK, 'models-prices-codex.png') })
 

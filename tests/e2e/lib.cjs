@@ -367,6 +367,7 @@ async function chooseTrust(inv, key, timeoutMs = 20000) {
       return true
     }
     await inv('pty:write', key, '\x1b[B')
+    // A try's pace, not a bound: not on "Yes" within 2 s, Down is pressed again (timeoutMs bounds the whole).
     await until(async () => (await choice()) === 'Yes, I trust this folder', 2000, 150)
   }
   return false

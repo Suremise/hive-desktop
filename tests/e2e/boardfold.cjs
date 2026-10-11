@@ -8,6 +8,8 @@ const lib = require('./lib.cjs')
 const { _electron } = require('playwright-core')
 const fs = require('fs')
 const path = require('path')
+// The longest a wait here waits for what it waits on: a bound for a hung run, never how long it should take (#570).
+const HUNG_MS = 10000
 
 const userData = path.join(lib.WORK, 'boardfold-profile')
 const ws = path.join(lib.WORK, 'boardfold-ws')
@@ -59,7 +61,7 @@ const LABELS = ['On Hold', 'Todo', 'Doing', 'Review', 'Passed', 'Done']
 
   await page.getByRole('button', { name: 'Task Board' }).click()
   const columns = page.locator('.board-column')
-  check('the board shows six columns in order', !!(await until(async () => (await columns.count()) === 6)) && JSON.stringify(await page.locator('.board-column-label').allInnerTexts()) === JSON.stringify(LABELS.map((l) => l.toUpperCase())), JSON.stringify(await page.locator('.board-column-label').allInnerTexts()))
+  check('the board shows six columns in order', !!(await until(async () => (await columns.count()) === 6, HUNG_MS)) && JSON.stringify(await page.locator('.board-column-label').allInnerTexts()) === JSON.stringify(LABELS.map((l) => l.toUpperCase())), JSON.stringify(await page.locator('.board-column-label').allInnerTexts()))
   const column = (label) => page.locator(`.board-column[data-column="${{ 'On Hold': 'hold', Todo: 'todo', Doing: 'doing', Review: 'review', Passed: 'passed', Done: 'done' }[label]}"]`)
   const tile = (x) => page.locator(`.task-card[data-task="${x}"]`)
   check('each card is in its column', (await column('On Hold').locator(tile(n.hold)).count()) === 1 && (await column('Passed').locator(tile(n.passed)).count()) === 1)
@@ -162,6 +164,7 @@ const LABELS = ['On Hold', 'Todo', 'Doing', 'Review', 'Passed', 'Done']
   for (const after of ['a microtask', 'a timer']) {
     await page.reload()
     await lib.appReady(page)
+    // Not shown within 3 s, the board is opened by its button; then the wait for its card, bounded.
     if (!(await until(async () => (await tile(n.t1).count()) === 1, 3000))) await page.getByRole('button', { name: 'Task Board' }).click()
     await until(async () => (await tile(n.t1).count()) === 1, 10000)
     await tile(n.t1).evaluate(async (el, timer) => {
@@ -169,7 +172,7 @@ const LABELS = ['On Hold', 'Todo', 'Doing', 'Review', 'Passed', 'Done']
       await (timer ? new Promise((r) => setTimeout(r, 0)) : Promise.resolve())
       window.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true }))
     }, after === 'a timer')
-    const closed = await until(async () => (await page.locator('.dialog').count()) === 0 || (await discard.count()) === 1, 3000)
+    const closed = await until(async () => (await page.locator('.dialog').count()) === 0 || (await discard.count()) === 1, HUNG_MS)
     check(`Escape ${after} after a card opens closes it, asking nothing`, !!closed && (await discard.count()) === 0, `discard asked: ${await discard.count()}`)
     if (await discard.count()) await discard.getByRole('button', { name: 'Discard' }).click()
   }
