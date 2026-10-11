@@ -2,11 +2,16 @@
 // once, with Diagnostics saying why. A helper that starts but never says it is ready is given up on in bounded time;
 // one that dies after starting loses what it held: said at once, kept for Diagnostics, its leftovers no longer listed
 // and nothing ended. The real helper (PowerShell); each test with the module fresh.
-import { spawn } from 'child_process'
+import { createRequire } from 'module'
+import { spawn, type ChildProcess } from 'child_process'
 import { existsSync, readFileSync, writeFileSync } from 'fs'
 import { join } from 'path'
 import { afterAll, afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { tempDir } from './tempDir'
+// What the test started that is still running: stopped by its command line (it names the test's folder) and start,
+// never by a pid remembered from earlier, which Windows may have given another process since: under load that could
+// be a concurrent run's Vitest worker (#547: a likely cause of one exiting with code 1, not reproduced).
+const { stopProcessesIn } = createRequire(import.meta.url)('./e2e/folderProcesses.cjs') as { stopProcessesIn: (folder: string, since?: number) => number }
 
 const events: { type: string; leftovers?: { processes: unknown[] } }[] = []
 const toasts: { title: string; message?: string }[] = []
@@ -31,7 +36,8 @@ async function until(fn: () => boolean, ms: number): Promise<boolean> {
 
 describe.runIf(process.platform === 'win32')("when the process tracker fails", () => {
   const dir = tempDir('hive-tracker-')
-  const pids: number[] = []
+  const since = Date.now()
+  const children: ChildProcess[] = []
   let mod: typeof import('../src/main/agentProcesses') | null = null
   beforeEach(() => {
     vi.resetModules()
@@ -44,7 +50,9 @@ describe.runIf(process.platform === 'win32')("when the process tracker fails", (
     delete process.env.HIVE_TEST_TRACKER_WAIT_MS
   })
   afterAll(() => {
-    for (const pid of pids) if (alive(pid)) process.kill(pid)
+    // Its own children, through their handles (not a pid Windows may have reused).
+    for (const c of children) if (c.exitCode === null && c.signalCode === null) c.kill()
+    stopProcessesIn(dir, since)
   })
 
   it("gives up on a helper that never says it is ready, in bounded time, and says why", async () => {
@@ -75,7 +83,6 @@ describe.runIf(process.platform === 'win32')("when the process tracker fails", (
     await new Promise((r) => proc.once('exit', r))
     expect(await until(() => existsSync(out), 10_000)).toBe(true)
     const server = Number(readFileSync(out, 'utf8'))
-    pids.push(server)
     expect((await mod.launchEnded('lost1'))?.processes.map((p) => p.pid)).toEqual([server])
     expect(mod.trackingLost()).toBeNull()
 
@@ -90,7 +97,7 @@ describe.runIf(process.platform === 'win32')("when the process tracker fails", (
 
     // A new helper tracks later launches; Diagnostics still says what was lost.
     const next = spawn(process.execPath, ['-e', 'setTimeout(() => {}, 30000)'], { stdio: 'ignore', windowsHide: true })
-    pids.push(next.pid!)
+    children.push(next)
     expect(await mod.trackLaunch({ runId: 'lost2', projectPath: dir, agentId: 'a2', agentName: 'Next' }, next.pid!)).toEqual({ tracked: true })
     expect(mod.trackingProblem()).toBeNull()
     expect(mod.trackingLost()).toMatch(/process tracker stopped/)

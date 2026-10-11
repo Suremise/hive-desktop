@@ -16,6 +16,17 @@ import { tempDir } from './tempDir'
 
 const dir = tempDir('hive-progress-')
 afterAll(() => rmSync(dir, { recursive: true, force: true }))
+// Nothing under test may end the test's own process (#547: a worker once exited mid-file, dropping 19 tests): a call
+// to process.exit fails the test that made it, with where it came from.
+const realExit = process.exit
+beforeAll(() => {
+  process.exit = ((code?: number) => {
+    throw new Error(`process.exit(${code ?? ''}) in the test's own process`)
+  }) as typeof process.exit
+})
+afterAll(() => {
+  process.exit = realExit
+})
 
 /**
  * The stand-in Agent API: records each call; `refuse` answers the start with 401. Each call is also written to `seenFile`

@@ -15,6 +15,9 @@ import { TEMPLATE_VERSION, exportFileName, readTemplate, templateFile, templateF
 import type { AgentDef } from '../src/shared/types'
 import { tempDir } from './tempDir'
 
+// The longest a test waits for what it is waiting on: a bound for a hung run, never how long it should take.
+const HUNG_MS = 10000
+
 const base = tempDir('hive-templates-')
 ;(electron.app as unknown as { getPath: () => string }).getPath = () => join(base, 'profile')
 
@@ -273,14 +276,14 @@ describe('saving and loading templates', () => {
     const ids = (): string[] => cfgOf(beta).agents.map((a: AgentDef) => a.id)
     // A start that began before the load and hasn't finished (reserved, not live yet).
     const slow = run(() => sessions.start(beta, { agentId: ids()[0] })).catch((e: Error) => e.message)
-    await vi.waitFor(() => expect(sessions.startingFor(beta, ids()[0])).toBe(true))
+    await vi.waitFor(() => expect(sessions.startingFor(beta, ids()[0])).toBe(true), { timeout: HUNG_MS })
     expect((await run(() => templates.templatePlan(beta, 'workspace', 'pair.json'))).blocked).toEqual([expect.stringMatching(/Builder is running or starting/)])
     await expect(run(() => templates.loadTemplate(beta, 'workspace', 'pair.json', ids()))).rejects.toThrow(/can't be loaded yet/)
     held.shift()!()
     expect(await slow).toBe('released')
     // The failed load lifted its fence: a start goes ahead.
     const next = run(() => sessions.start(beta, { agentId: ids()[0] })).catch((e: Error) => e.message)
-    await vi.waitFor(() => expect(sessions.startingFor(beta, ids()[0])).toBe(true))
+    await vi.waitFor(() => expect(sessions.startingFor(beta, ids()[0])).toBe(true), { timeout: HUNG_MS })
     held.shift()!()
     expect(await next).toBe('released')
     // During a load, the project's agents can't start (old or new); after it, they can.
@@ -293,7 +296,7 @@ describe('saving and loading templates', () => {
     expect(refused.length).toBeGreaterThan(0)
     expect(new Set(refused)).toEqual(new Set(["A template is being loaded into this project, so its agents can't start now."]))
     const after = run(() => sessions.start(beta, { agentId: ids()[0] })).catch((e: Error) => e.message)
-    await vi.waitFor(() => expect(sessions.startingFor(beta, ids()[0])).toBe(true))
+    await vi.waitFor(() => expect(sessions.startingFor(beta, ids()[0])).toBe(true), { timeout: HUNG_MS })
     held.shift()!()
     expect(await after).toBe('released')
   })
