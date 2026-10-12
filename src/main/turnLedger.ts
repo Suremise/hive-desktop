@@ -162,9 +162,11 @@ export function admit(ledger: TurnLedger, ev: HookEvent, ids: HookIds, opts: { h
         addCall(a, ids.call)
         return { verdict: 'apply', event: ev }
       }
-      reopen(ledger, a?.id ?? null)
+      // No ids and no turn known yet: nothing to carry on, so as before the ledger (a tool start alone changes nothing).
+      if (!a) return { verdict: 'apply', event: ev }
+      reopen(ledger, a.id)
       addCall(ledger.active!, ids.call)
-      return { verdict: 'apply', event: { ...ev, resumes: true }, note: a ? 'its turn goes on after it ended' : 'a turn Hive saw no prompt for' }
+      return { verdict: 'apply', event: { ...ev, resumes: true }, note: 'its turn goes on after it ended' }
     }
     case 'toolEnd': {
       if (turn) {

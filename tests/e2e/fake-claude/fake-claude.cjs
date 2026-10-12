@@ -249,7 +249,12 @@ const cwd = process.cwd()
 const transcript = path.join(home, 'projects', cwd.replace(/[^a-zA-Z0-9]/g, '-'), `${sessionId}.jsonl`)
 fs.mkdirSync(path.dirname(transcript), { recursive: true })
 
-const out = (s) => process.stdout.write(s)
+/** Writes to its screen; counts the writes, so a busy line can be taken back only if nothing came after it. */
+let writes = 0
+const out = (s) => {
+  writes++
+  return process.stdout.write(s)
+}
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms))
 const now = () => new Date().toISOString()
 const write = (entry) => fs.appendFileSync(transcript, JSON.stringify({ sessionId, cwd, timestamp: now(), ...entry }) + '\n')
@@ -322,9 +327,10 @@ async function runPrompt(text) {
   busy = true
   promptId = randomUUID()
   turnStarted = Date.now()
-  // Its spinner above its input while it works, as Claude Code 2.1.296 draws them.
-  out(`\r\n> ${text}\r\n\r\n✻ Brewing… (esc to interrupt)\r\n`)
-  promptLine()
+  out(`\r\n> ${text}\r\n`)
+  // Its spinner above its input while it works, as Claude Code 2.1.296 draws them, taken back when the turn ends.
+  out(BUSY)
+  busyDrawn = writes
   write({ type: 'user', message: { role: 'user', content: text } })
   await hook('UserPromptSubmit', { prompt: text })
   if (signedOut()) {
@@ -479,6 +485,8 @@ async function login() {
  */
 async function endTurn(answer, inputTokens = 20, lostStop = false, { late = null, carryOn = false } = {}) {
   write({ type: 'assistant', requestId: `req_${randomUUID().slice(0, 8)}`, message: { model: 'claude-fake', content: [{ type: 'text', text: answer }], usage: { input_tokens: inputTokens, output_tokens: 10 } } })
+  // The spinner and input drawn while it worked go, as Claude Code redraws them (when nothing was written since).
+  if (busyDrawn === writes) out(`\x1b[${BUSY_LINES}A\r\x1b[J`)
   out(`\r\n${answer}\r\n`)
   // "loststop": the turn ends, but its Stop never reaches Hive (#612).
   if (!lostStop) await hook('Stop', { last_assistant_message: answer, stop_hook_active: false })
@@ -493,7 +501,7 @@ async function endTurn(answer, inputTokens = 20, lostStop = false, { late = null
     await hook('Stop', { last_assistant_message: 'Carried on past the Stop.', stop_hook_active: true })
   }
   const d = new Date()
-  out(`\r\n✻ Worked for ${Math.max(0, Math.round((Date.now() - turnStarted) / 1000))}s · done ${d.getHours()}:${String(d.getMinutes()).padStart(2, '0')}\r\n`)
+  out(`✻ Worked for ${Math.max(0, Math.round((Date.now() - turnStarted) / 1000))}s · done ${d.getHours()}:${String(d.getMinutes()).padStart(2, '0')}\r\n`)
   busy = false
   promptLine()
   idleNotice()
@@ -573,8 +581,13 @@ async function startBackgroundTask(secs) {
   }, secs * 1000)
 }
 
-// Its input between two rules, and its footer, as Claude Code 2.1.296 draws them.
-const promptLine = () => out(`\r\n${'─'.repeat(40)}\r\n❯ \r\n${'─'.repeat(40)}\r\n  ? for shortcuts\r\n`)
+// Its input and its footer, as Claude Code 2.1.296 marks them (no taller than the fake's prompt before #648).
+const promptLine = () => out('\r\n❯ \r\n  ? for shortcuts\r\n')
+/** While it works: its spinner, then its input and footer below (BUSY_LINES lines down from where it starts). */
+const BUSY = '\r\n✻ Brewing… (esc to interrupt)\r\n❯ \r\n  ? for shortcuts\r\n'
+const BUSY_LINES = 4
+/** The write after which the busy lines were drawn (taken back at the turn's end only if nothing came since). */
+let busyDrawn = -1
 
 /** "/compact [focus]", as Claude Code runs it. */
 async function compact(focus) {
