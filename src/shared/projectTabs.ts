@@ -9,7 +9,8 @@ export const PROJECT_TABS = [
   { id: 'tasks', label: 'Tasks', icon: 'project' },
   { id: 'sessions', label: 'Sessions', icon: 'history' },
   { id: 'files', label: 'Files', icon: 'files' },
-  { id: 'images', label: 'Images', icon: 'file-media' },
+  // Attachments (#387): its id is from when it showed only images, kept so tab settings and shortcuts carry over.
+  { id: 'images', label: 'Attachments', icon: 'attach' },
   { id: 'changes', label: 'Changes', icon: 'git-compare' },
   { id: 'memory', label: 'Memory', icon: 'book' },
   { id: 'skills', label: 'Skills', icon: 'sparkle' },

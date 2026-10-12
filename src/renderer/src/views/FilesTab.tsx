@@ -1,9 +1,12 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
-import type { FileEntry, ProjectInfo, SessionImage, SessionImageGroup } from '@shared/types'
+import type { AttachmentContent, FileEntry, ProjectInfo, SessionAttachment, SessionAttachmentGroup } from '@shared/types'
+import { ATTACHMENT_KIND_ICON, ATTACHMENT_KINDS, attachmentLabel, type AttachmentKind } from '@shared/attachments'
+import { providerDescriptor } from '@shared/providers'
 import { formatDateTime, formatTime } from '@shared/dates'
 import * as actions from '../actions'
-import { call } from '../api'
-import { discardDrafts, draftsUnder, FileView, hasDraft, moveDrafts, useDraftVersion } from '../components/FileView'
+import { call, errorMessage } from '../api'
+import { attachFiles } from '../attach'
+import { discardDrafts, draftsUnder, FileView, hasDraft, moveDrafts, previewsFromDisk, ReadOnlyPreview, useDraftVersion } from '../components/FileView'
 import { PaneResizer, usePaneSize } from '../components/Resizer'
 import { pasteIntoTerminal } from '../components/TerminalView'
 import { Icon, IconButton, InfoTip, LoadFailed, Modal, SearchInput, StaleNote, Tooltip, useContextMenu, type MenuEntry } from '../components/ui'
@@ -34,25 +37,19 @@ function useFileEvents(projectPath: string, onChange: (dirs: string[]) => void):
 }
 
 /**
- * Pastes paths into the project's running session and switches to it. Images from outside
- * .hive/images are copied there first, like images dropped on the terminal.
+ * Attaches files to the project's running session (#387), as dropping them on its terminal does, and switches to it.
  */
 async function insertIntoSession(project: ProjectInfo, paths: string[]): Promise<void> {
   const t = sessionTarget(project)
   const agentId = t.agentId
   if (!project.live || !agentId) return
-  const out: string[] = []
-  for (const p of paths) {
-    const keep = IMAGE_EXT.test(p) && !/[\\/]\.hive[\\/]images[\\/]/i.test(p)
-    const saved = keep ? await actions.attempt('Could not add image', () => call('session:saveImage', t.path, p, agentId)) : null
-    out.push(quotePath(saved || p))
-  }
-  const text = out.join(' ') + ' '
+  const key = projectKey(t.path, agentId)
+  const text = await attachFiles(t.path, agentId, paths, key)
+  if (!text) return
   setProjectTab(t.path, 'session')
   const owner = get().workspace?.projects.find((x) => x.path === t.path)
   if (owner) showAgent(owner, agentId)
   // A real paste, so Claude Code attaches image paths instead of treating them as typed text.
-  const key = projectKey(t.path, agentId)
   if (!pasteIntoTerminal(key, text)) await call('pty:write', key, text)
 }
 
@@ -828,69 +825,87 @@ function FileDetails({
 }
 
 // ---------------------------------------------------------------------------
-// Images
+// Attachments (#387)
 // ---------------------------------------------------------------------------
 
-const imageTime = (img: SessionImage): string => formatDateTime(img.modified)
+const attachmentTime = (a: SessionAttachment): string => formatDateTime(a.modified)
 
 /**
- * A project's Images tab, and the Hive Assistant's Images (`assistant`: its home's .hive/images, grouped by
- * conversation). Clicking a group's name opens that session's transcript.
+ * A project's Attachments tab, and the Hive Assistant's Attachments (`assistant`: its home's .hive/attachments, grouped by
+ * conversation): what was pasted or dropped into sessions, with filters by kind. Clicking a group's name opens that
+ * session's transcript.
  */
-export function ImagesTab({ project: owner, assistant = false }: { project: ProjectInfo; assistant?: boolean }) {
+export function AttachmentsTab({ project: owner, assistant = false }: { project: ProjectInfo; assistant?: boolean }) {
   useStore((s) => s.focusedAgent[owner.path])
   useDateStyle()
   const project = projectView(owner)
   const noun = assistant ? 'conversation' : 'session'
-  // This project's images only. A failed read: said in place of the images (or over this project's last ones), not
-  // "No images yet".
-  const loaded = useScopedLoad<SessionImageGroup[]>(project.path)
-  const groups = loaded.data
+  // This project's attachments only. A failed read: said in place of them (or over this project's last ones), not
+  // "No attachments yet".
+  const loaded = useScopedLoad<SessionAttachmentGroup[]>(project.path)
+  const all = loaded.data
   const error = loaded.error
-  const [viewing, setViewing] = useState<SessionImage | null>(null)
-  // An image open in the viewer is the last project's.
-  useEffect(() => setViewing(null), [project.path])
+  const [viewing, setViewing] = useState<SessionAttachment | null>(null)
+  const [filter, setFilter] = useState<AttachmentKind | null>(null)
+  // What is open in the viewer, and the filter, are the last project's.
+  useEffect(() => {
+    setViewing(null)
+    setFilter(null)
+  }, [project.path])
   const menu = useContextMenu()
 
   const { load: loadScoped } = loaded
   const load = useCallback(() => {
     const path = project.path
-    loadScoped(path, () => call('images:list', path))
+    loadScoped(path, () => call('attachments:list', path))
   }, [project.path, loadScoped])
   useEffect(load, [load])
   useFileEvents(project.path, (dirs) => {
-    if (dirs.some((d) => d === '.hive' || d.startsWith('.hive/images'))) load()
+    if (dirs.some((d) => d === '.hive' || d.startsWith('.hive/attachments'))) load()
   })
 
+  // How many of each kind there are: a filter is offered for each kind present.
+  const counts = useMemo(() => {
+    const c = new Map<AttachmentKind, number>()
+    for (const g of all ?? []) for (const a of g.attachments) c.set(a.kind, (c.get(a.kind) ?? 0) + 1)
+    return c
+  }, [all])
+  // A filter whose kind is all gone shows everything again.
+  const shownKind = filter && counts.get(filter) ? filter : null
+  const groups = useMemo(
+    () => (all ?? []).map((g) => ({ ...g, attachments: g.attachments.filter((a) => !shownKind || a.kind === shownKind) })).filter((g) => g.attachments.length),
+    [all, shownKind]
+  )
   // Same order as on screen: current sessions first, archived last.
-  const all = useMemo(() => [...(groups ?? []).filter((g) => !g.archived), ...(groups ?? []).filter((g) => g.archived)].flatMap((g) => g.images), [groups])
+  const flat = useMemo(() => [...groups.filter((g) => !g.archived), ...groups.filter((g) => g.archived)].flatMap((g) => g.attachments), [groups])
+  const total = useMemo(() => (all ?? []).reduce((n, g) => n + g.attachments.length, 0), [all])
 
-  const remove = async (img: SessionImage): Promise<void> => {
-    const ok = await confirm({ title: 'Move to Recycle Bin?', message: `Move "${img.name}" to the Recycle Bin?`, detail: 'The transcript will still mention its path.', confirmLabel: 'Move to Recycle Bin', danger: true })
+  const remove = async (a: SessionAttachment): Promise<void> => {
+    const ok = await confirm({ title: 'Move to Recycle Bin?', message: `Move "${a.name}" to the Recycle Bin?`, detail: 'The transcript will still mention its path.', confirmLabel: 'Move to Recycle Bin', danger: true })
     if (!ok) return
-    await actions.attempt('Could not delete image', () => call('images:trash', project.path, img.path))
-    if (viewing?.path === img.path) {
-      const i = all.findIndex((x) => x.path === img.path)
-      setViewing(all[i + 1] ?? all[i - 1] ?? null)
+    await actions.attempt('Could not delete the attachment', () => call('attachments:trash', project.path, a.path))
+    if (viewing?.path === a.path) {
+      const i = flat.findIndex((x) => x.path === a.path)
+      setViewing(flat[i + 1] ?? flat[i - 1] ?? null)
     }
     load()
   }
 
-  /** All of a session's images, after asking; none go if one can't (another program has it open), and none while it runs. */
-  const removeGroup = async (g: SessionImageGroup): Promise<void> => {
-    const n = g.images.length
+  /** All of a session's attachments, after asking; none go if one can't (another program has it open), and none while it runs. */
+  const removeGroup = async (g: SessionAttachmentGroup): Promise<void> => {
+    const n = (all ?? []).find((x) => x.sessionId === g.sessionId)?.attachments.length ?? g.attachments.length
     const ok = await confirm({
-      title: `Move ${n} image${n === 1 ? '' : 's'} to the Recycle Bin?`,
-      message: `Move the ${n === 1 ? 'image' : `${n} images`} of "${g.name ?? g.sessionId.slice(0, 8)}" to the Recycle Bin?`,
-      detail: `The ${noun} keeps its transcript, which still mentions their paths. You can restore them from the Recycle Bin.`,
+      title: `Move ${n} attachment${n === 1 ? '' : 's'} to the Recycle Bin?`,
+      message: `Move ${n === 1 ? 'the attachment' : `all ${n} attachments`} of "${g.name ?? g.sessionId.slice(0, 8)}" to the Recycle Bin?`,
+      detail: `${shownKind ? 'All of its attachments go, whatever the filter shows. ' : ''}The ${noun} keeps its transcript, which still mentions their paths. You can restore them from the Recycle Bin.`,
       confirmLabel: 'Move to Recycle Bin',
       danger: true
     })
     if (!ok) return
-    const done = await actions.attempt('Could not delete the images', () => call('images:trashGroup', project.path, g.sessionId))
+    const done = await actions.attempt('Could not delete the attachments', () => call('attachments:trashGroup', project.path, g.sessionId))
     if (done !== undefined) {
-      if (viewing && g.images.some((i) => i.path === viewing.path)) setViewing(null)
-      notify('success', `Moved ${done} image${done === 1 ? '' : 's'} to the Recycle Bin.`)
+      if (viewing && g.attachments.some((i) => i.path === viewing.path)) setViewing(null)
+      notify('success', `Moved ${done} attachment${done === 1 ? '' : 's'} to the Recycle Bin.`)
     }
     load()
   }
@@ -900,38 +915,39 @@ export function ImagesTab({ project: owner, assistant = false }: { project: Proj
     else openInSessionsTab(owner.path, sessionId)
   }
 
-  /** The image's session (its folder) is running. */
-  const running = (img: SessionImage): boolean => {
-    const id = img.path.split(/[\\/]/).slice(-2)[0]
-    return owner.agents.some((a) => a.live?.sessionId === id)
+  /** The attachment's session (its folder) is running. */
+  const running = (a: SessionAttachment): boolean => {
+    const id = a.path.split(/[\\/]/).slice(-2)[0]
+    return owner.agents.some((x) => x.live?.sessionId === id)
   }
-  const menuFor = (img: SessionImage): MenuEntry[] => [
-    { label: 'View', icon: 'eye', onClick: () => setViewing(img) },
-    ...(project.live ? [{ label: 'Insert into Session', icon: 'terminal', onClick: () => void insertIntoSession(project, [img.path]) }] : []),
+  const menuFor = (a: SessionAttachment): MenuEntry[] => [
+    { label: 'View', icon: 'eye', onClick: () => setViewing(a) },
+    ...(project.live ? [{ label: 'Insert into Session', icon: 'terminal', onClick: () => void insertIntoSession(project, [a.path]) }] : []),
     { separator: true },
-    { label: 'Copy Image', icon: 'copy', onClick: () => void actions.attempt('Could not copy image', () => call('images:copy', img.path)) },
-    { label: 'Copy Path', icon: 'blank', onClick: () => copyText(img.path) },
-    { label: 'Open', icon: 'link-external', onClick: () => void call('app:openPath', img.path) },
-    { label: 'Reveal in File Explorer', icon: 'folder-opened', onClick: () => void call('app:showInFolder', img.path) },
+    ...(a.kind === 'image' ? [{ label: 'Copy Image', icon: 'copy', onClick: () => void actions.attempt('Could not copy image', () => call('attachments:copyImage', a.path)) }] : []),
+    { label: 'Copy Path', icon: a.kind === 'image' ? 'blank' : 'copy', onClick: () => copyText(a.path) },
+    // Opened in its program only when it can't be one that runs (#387: nothing attached is ever run): images and PDFs.
+    ...(a.kind === 'image' || a.kind === 'pdf' ? [{ label: 'Open', icon: 'link-external', onClick: () => void call('app:openPath', a.path) }] : []),
+    { label: 'Reveal in File Explorer', icon: 'folder-opened', onClick: () => void call('app:showInFolder', a.path) },
     { separator: true },
     // Not while its session runs (it may paste more): main refuses it too.
-    running(img) ? { label: 'Delete', icon: 'trash', disabled: true, detail: `Its ${noun} is running` } : { label: 'Delete', icon: 'trash', danger: true, onClick: () => void remove(img) }
+    running(a) ? { label: 'Delete', icon: 'trash', disabled: true, detail: `Its ${noun} is running` } : { label: 'Delete', icon: 'trash', danger: true, onClick: () => void remove(a) }
   ]
 
-  if (!groups) return error ? <LoadFailed what="the images" error={error} onRetry={load} /> : <div className="empty-state"><Icon name="loading" spin />Loading…</div>
-  if (!groups.length && !error) {
+  if (!all) return error ? <LoadFailed what="the attachments" error={error} onRetry={load} /> : <div className="empty-state"><Icon name="loading" spin />Loading…</div>
+  if (!all.length && !error) {
     return (
       <div className="empty-state" style={{ paddingTop: '15vh' }}>
-        <Icon name="file-media" />
-        No images yet
+        <Icon name="attach" />
+        No attachments yet
         <p className="hint">
           {assistant ? (
             <>
-              Paste a screenshot into the Assistant's panel with <kbd>Ctrl+V</kbd>, or drag an image onto it. Hive keeps a copy of each one here, grouped by conversation.
+              Paste a screenshot into the Assistant's panel with <kbd>Ctrl+V</kbd>, or drag files onto it: images, PDFs, logs, any file. Hive keeps a copy of each one here, grouped by conversation.
             </>
           ) : (
             <>
-              Paste a screenshot into a session with <kbd>Ctrl+V</kbd>, or drag an image onto the terminal. Hive keeps a copy of each one here, grouped by session.
+              Paste a screenshot into a session with <kbd>Ctrl+V</kbd>, or drag files onto the terminal: images, PDFs, logs, any file. Hive keeps a copy of each one here, grouped by session.
             </>
           )}
         </p>
@@ -941,66 +957,92 @@ export function ImagesTab({ project: owner, assistant = false }: { project: Proj
 
   const current = groups.filter((g) => !g.archived)
   const archived = groups.filter((g) => g.archived)
-  const renderGroup = (g: SessionImageGroup): React.ReactNode => (
-    <section key={g.sessionId} className="image-group">
-      <div className="image-group-head">
-        <Icon name="comment-discussion" />
-        <Tooltip content={`Open this ${noun}'s transcript`}>
-          <button className="image-group-name" onClick={() => openTranscript(g.sessionId)}>
-            {g.name ?? `${assistant ? 'Conversation' : 'Session'} ${g.sessionId.slice(0, 8)}`}
-          </button>
-        </Tooltip>
-        {owner.agents.some((a) => a.live?.sessionId === g.sessionId) && <span className="badge accent">Running</span>}
-        {g.archived && <span className="badge">archived</span>}
-        <span className="faint">
-          {g.images.length} image{g.images.length === 1 ? '' : 's'} · last {timeAgo(g.images[0].modified)}
-        </span>
-        <IconButton icon="trash" title={`Delete This ${assistant ? 'Conversation' : 'Session'}'s Images…`} disabled={owner.agents.some((a) => a.live?.sessionId === g.sessionId)} onClick={() => void removeGroup(g)} />
-      </div>
-      <div className="image-grid">
-        {g.images.map((img) => (
-          <Tooltip key={img.path} content={`${imageTime(img)} · ${formatBytes(img.size)}`}>
-            <div
-              className="thumb"
-              draggable
-              onClick={() => setViewing(img)}
-              onContextMenu={(e) => menu.open(e, menuFor(img))}
-              onDragStart={(e) => {
-                e.dataTransfer.setData(HIVE_FILES_MIME, JSON.stringify({ project: project.path, paths: [img.path] }))
-                e.dataTransfer.setData('text/plain', quotePath(img.path))
-                e.dataTransfer.effectAllowed = 'copy'
-              }}
-            >
-              <img src={imageUrl(img.path)} loading="lazy" alt={img.name} draggable={false} />
-              <span className="thumb-caption">{formatTime(img.modified)}</span>
-            </div>
+  const renderGroup = (g: SessionAttachmentGroup): React.ReactNode => {
+    const n = (all.find((x) => x.sessionId === g.sessionId)?.attachments ?? g.attachments).length
+    return (
+      <section key={g.sessionId} className="image-group">
+        <div className="image-group-head">
+          <Icon name="comment-discussion" />
+          <Tooltip content={`Open this ${noun}'s transcript`}>
+            <button className="image-group-name" onClick={() => openTranscript(g.sessionId)}>
+              {g.name ?? `${assistant ? 'Conversation' : 'Session'} ${g.sessionId.slice(0, 8)}`}
+            </button>
           </Tooltip>
-        ))}
-      </div>
-    </section>
-  )
+          {owner.agents.some((a) => a.live?.sessionId === g.sessionId) && <span className="badge accent">Running</span>}
+          {g.archived && <span className="badge">archived</span>}
+          <span className="faint">
+            {n} attachment{n === 1 ? '' : 's'} · last {timeAgo(g.attachments[0].modified)}
+          </span>
+          <IconButton icon="trash" title={`Delete This ${assistant ? 'Conversation' : 'Session'}'s Attachments…`} disabled={owner.agents.some((a) => a.live?.sessionId === g.sessionId)} onClick={() => void removeGroup(g)} />
+        </div>
+        <div className="image-grid">
+          {g.attachments.map((a) => {
+            const label = g.provider ? attachmentLabel(a.kind, providerDescriptor(g.provider).capabilities.attachments, providerDescriptor(g.provider).name) : null
+            return (
+              <Tooltip key={a.path} content={`${a.name} · ${attachmentTime(a)} · ${formatBytes(a.size)}${label ? `\n${label.detail}` : ''}`}>
+                <div
+                  className={cx('thumb', a.kind !== 'image' && 'file')}
+                  data-kind={a.kind}
+                  draggable
+                  onClick={() => setViewing(a)}
+                  onContextMenu={(e) => menu.open(e, menuFor(a))}
+                  onDragStart={(e) => {
+                    e.dataTransfer.setData(HIVE_FILES_MIME, JSON.stringify({ project: project.path, paths: [a.path] }))
+                    e.dataTransfer.setData('text/plain', quotePath(a.path))
+                    e.dataTransfer.effectAllowed = 'copy'
+                  }}
+                >
+                  {a.kind === 'image' ? (
+                    <img src={imageUrl(a.path)} loading="lazy" alt={a.name} draggable={false} />
+                  ) : (
+                    <>
+                      <Icon name={ATTACHMENT_KIND_ICON[a.kind]} />
+                      <span className="thumb-name">{shownName(a.name)}</span>
+                    </>
+                  )}
+                  <span className="thumb-caption">{formatTime(a.modified)}</span>
+                </div>
+              </Tooltip>
+            )
+          })}
+        </div>
+      </section>
+    )
+  }
 
   return (
     <div className="scroll-page images-page">
       <div className="images-toolbar">
-        <h2>Images</h2>
+        <h2>Attachments</h2>
         <InfoTip
           text={
             assistant
-              ? "Kept in the Assistant's home, .hive/images. Click a conversation's name to read it."
-              : "Kept in the project's .hive/images. Drag one onto the Session tab to send it again; click a session's name to read it."
+              ? "Kept in the Assistant's home, .hive/attachments. Click a conversation's name to read it."
+              : "Kept in the project's .hive/attachments. Drag one onto the Session tab to send it again; click a session's name to read it."
           }
         />
         <span className="faint">
-          {all.length} in {groups.length} {noun}
-          {groups.length === 1 ? '' : 's'}
+          {total} in {all.length} {noun}
+          {all.length === 1 ? '' : 's'}
         </span>
         <div className="grow" />
         <IconButton icon="refresh" title="Refresh" onClick={load} />
-        <IconButton icon="folder-opened" title="Open Images Folder" onClick={() => void call('app:openPath', `${project.path}\\.hive\\images`)} />
+        <IconButton icon="folder-opened" title="Open Attachments Folder" onClick={() => void call('app:openPath', `${project.path}\\.hive\\attachments`)} />
       </div>
-      <p className="hint images-desc">{assistant ? 'Images pasted or dropped into the Assistant, by conversation.' : "Images pasted or dropped into this project's agents' sessions, by session."}</p>
-      {error && <StaleNote what="the images" error={error} at={loaded.at} onRetry={load} />}
+      <p className="hint images-desc">{assistant ? 'Files pasted or dropped into the Assistant, by conversation.' : "Files pasted or dropped into this project's agents' sessions, by session."}</p>
+      {counts.size > 1 && (
+        <div className="attachment-filters" role="group" aria-label="Show">
+          <button className={cx('attachment-filter', !shownKind && 'selected')} aria-pressed={!shownKind} onClick={() => setFilter(null)}>
+            All <span className="faint">{total}</span>
+          </button>
+          {ATTACHMENT_KINDS.filter((k) => counts.get(k)).map((k) => (
+            <button key={k} className={cx('attachment-filter', shownKind === k && 'selected')} aria-pressed={shownKind === k} data-kind={k} onClick={() => setFilter(shownKind === k ? null : k)}>
+              <Icon name={ATTACHMENT_KIND_ICON[k]} /> {ATTACHMENT_FILTER_LABEL[k]} <span className="faint">{counts.get(k)}</span>
+            </button>
+          ))}
+        </div>
+      )}
+      {error && <StaleNote what="the attachments" error={error} at={loaded.at} onRetry={load} />}
       {current.map(renderGroup)}
       {archived.length > 0 && (
         <>
@@ -1011,19 +1053,20 @@ export function ImagesTab({ project: owner, assistant = false }: { project: Proj
         </>
       )}
       {viewing && (
-        <ImageViewer
-          image={viewing}
-          images={all}
+        <AttachmentViewer
+          host={project.path}
+          attachment={viewing}
+          attachments={flat}
           live={!!project.live}
-          // Worked out for the image shown, so it follows navigation and its session starting or stopping (main refuses too).
+          // Worked out for the one shown, so it follows navigation and its session starting or stopping (main refuses too).
           deleteBlocked={running(viewing) ? `Its ${noun} is running` : null}
           onNavigate={setViewing}
           onClose={() => setViewing(null)}
-          onInsert={(img) => {
+          onInsert={(a) => {
             setViewing(null)
-            void insertIntoSession(project, [img.path])
+            void insertIntoSession(project, [a.path])
           }}
-          onDelete={(img) => void remove(img)}
+          onDelete={(a) => void remove(a)}
         />
       )}
       {menu.element}
@@ -1031,9 +1074,16 @@ export function ImagesTab({ project: owner, assistant = false }: { project: Proj
   )
 }
 
-function ImageViewer({
-  image,
-  images,
+/** The filters' names, plural. */
+const ATTACHMENT_FILTER_LABEL: Record<AttachmentKind, string> = { image: 'Images', pdf: 'PDFs', text: 'Text', file: 'Other' }
+
+/** A kept attachment's own name, without the time Hive put in front of it ("2026-10-12_09-30-00_report.pdf" is "report.pdf"). */
+const shownName = (name: string): string => name.replace(/^\d{4}-\d{2}-\d{2}_\d{2}-\d{2}-\d{2}_/, '')
+
+function AttachmentViewer({
+  host,
+  attachment,
+  attachments,
   live,
   deleteBlocked,
   onNavigate,
@@ -1041,20 +1091,22 @@ function ImageViewer({
   onInsert,
   onDelete
 }: {
-  image: SessionImage
-  images: SessionImage[]
+  /** The session host whose attachment it is. */
+  host: string
+  attachment: SessionAttachment
+  attachments: SessionAttachment[]
   live: boolean
-  /** Why this image can't be deleted now (its session is running), or null. */
+  /** Why this one can't be deleted now (its session is running), or null. */
   deleteBlocked: string | null
-  onNavigate: (img: SessionImage) => void
+  onNavigate: (a: SessionAttachment) => void
   onClose: () => void
-  onInsert: (img: SessionImage) => void
-  onDelete: (img: SessionImage) => void
+  onInsert: (a: SessionAttachment) => void
+  onDelete: (a: SessionAttachment) => void
 }) {
-  const i = images.findIndex((x) => x.path === image.path)
-  // The list is newest first, so "previous" (left) is the newer image.
-  const prev = images[i - 1]
-  const next = images[i + 1]
+  const i = attachments.findIndex((x) => x.path === attachment.path)
+  // The list is newest first, so "previous" (left) is the newer one.
+  const prev = attachments[i - 1]
+  const next = attachments[i + 1]
   useEffect(() => {
     const onKey = (e: KeyboardEvent): void => {
       if (e.key === 'ArrowLeft' && prev) onNavigate(prev)
@@ -1065,35 +1117,38 @@ function ImageViewer({
     window.addEventListener('keydown', onKey)
     return () => window.removeEventListener('keydown', onKey)
   }, [prev, next, onNavigate])
+  const image = attachment.kind === 'image'
   return (
     <Modal
-      title={`${imageTime(image)} · ${image.name}`}
-      icon="file-media"
+      title={`${attachmentTime(attachment)} · ${shownName(attachment.name)}`}
+      icon={ATTACHMENT_KIND_ICON[attachment.kind]}
       onClose={onClose}
       wide
-      // Sized to the image, with its own controls: it stays put (#133).
+      // Sized to what it shows, with its own controls: it stays put (#133).
       movable={false}
       footer={
         <>
           <span className="faint" style={{ marginRight: 'auto' }}>
-            {i + 1} of {images.length} · {formatBytes(image.size)}
+            {i + 1} of {attachments.length} · {formatBytes(attachment.size)}
           </span>
           <Tooltip content={deleteBlocked}>
-            <button className="btn subtle danger-text" disabled={!!deleteBlocked} aria-description={deleteBlocked ?? undefined} onClick={() => onDelete(image)}>
+            <button className="btn subtle danger-text" disabled={!!deleteBlocked} aria-description={deleteBlocked ?? undefined} onClick={() => onDelete(attachment)}>
               <Icon name="trash" /> Delete
             </button>
           </Tooltip>
-          <button className="btn subtle" onClick={() => void call('app:showInFolder', image.path)}>
+          <button className="btn subtle" onClick={() => void call('app:showInFolder', attachment.path)}>
             <Icon name="folder-opened" /> Reveal
           </button>
-          <button className="btn subtle" onClick={() => copyText(image.path)}>
+          <button className="btn subtle" onClick={() => copyText(attachment.path)}>
             Copy Path
           </button>
-          <button className="btn subtle" onClick={() => void actions.attempt('Could not copy image', () => call('images:copy', image.path))}>
-            <Icon name="copy" /> Copy Image
-          </button>
+          {image && (
+            <button className="btn subtle" onClick={() => void actions.attempt('Could not copy image', () => call('attachments:copyImage', attachment.path))}>
+              <Icon name="copy" /> Copy Image
+            </button>
+          )}
           {live && (
-            <button className="btn primary" onClick={() => onInsert(image)}>
+            <button className="btn primary" onClick={() => onInsert(attachment)}>
               <Icon name="terminal" /> Insert into Session
             </button>
           )}
@@ -1102,11 +1157,53 @@ function ImageViewer({
     >
       <div className="image-viewer">
         <IconButton icon="chevron-left" title="Newer (←)" disabled={!prev} onClick={() => prev && onNavigate(prev)} />
-        <div className="image-frame">
-          <img src={imageUrl(image.path)} alt={image.name} />
-        </div>
+        {image ? (
+          <div className="image-frame">
+            <img src={imageUrl(attachment.path)} alt={attachment.name} />
+          </div>
+        ) : (
+          <AttachmentFrame host={host} attachment={attachment} />
+        )}
         <IconButton icon="chevron-right" title="Older (→)" disabled={!next} onClick={() => next && onNavigate(next)} />
       </div>
     </Modal>
+  )
+}
+
+/** An attachment that isn't an image, previewed as the Files tab would (a PDF, Markdown, a CSV's table) or as text. */
+function AttachmentFrame({ host, attachment }: { host: string; attachment: SessionAttachment }) {
+  const fromDisk = previewsFromDisk(attachment.name)
+  const [content, setContent] = useState<AttachmentContent | null>(null)
+  const [failed, setFailed] = useState<string | null>(null)
+  useEffect(() => {
+    setContent(null)
+    setFailed(null)
+    if (fromDisk || attachment.kind === 'file') return
+    let live = true
+    call('attachments:read', host, attachment.path).then(
+      (c) => live && setContent(c),
+      (e) => live && setFailed(errorMessage(e))
+    )
+    return () => {
+      live = false
+    }
+  }, [host, attachment.path, attachment.kind, fromDisk])
+  const none = (icon: string, text: string): React.ReactNode => (
+    <div className="attachment-none">
+      <Icon name={icon} />
+      {text}
+    </div>
+  )
+  let body: React.ReactNode
+  if (fromDisk) body = <ReadOnlyPreview root={host} abs={attachment.path} name={attachment.name} text={null} />
+  else if (failed) body = none('warning', `Couldn't read it: ${failed}`)
+  else if (attachment.kind === 'file' || content?.kind === 'binary') body = none(ATTACHMENT_KIND_ICON[attachment.kind], 'No preview for this kind of file. Reveal it, or insert it into a session.')
+  else if (content?.kind === 'too-large') body = none(ATTACHMENT_KIND_ICON[attachment.kind], 'Too large to preview here. Reveal it to open it in another program.')
+  else if (content) body = <ReadOnlyPreview root={host} abs={attachment.path} name={attachment.name} text={content.text} />
+  else body = none('loading', 'Loading…')
+  return (
+    <div className="attachment-frame">
+      {body}
+    </div>
   )
 }

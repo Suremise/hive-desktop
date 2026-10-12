@@ -1,4 +1,4 @@
-// Files and Images tabs, driven end to end in a throwaway profile. Never touches the system clipboard.
+// Files and Attachments tabs, driven end to end in a throwaway profile. Never touches the system clipboard.
 const lib = require('./lib.cjs')
 const { _electron } = require('playwright-core')
 const fs = require('fs')
@@ -24,7 +24,8 @@ w('dist/out.js', 'x')
 execSync('git init -q && git add -A && git -c user.email=t@t -c user.name=t commit -qm init', { cwd: proj })
 w('src/app.ts', 'export const a = 2\n') // modified
 w('src/new.ts', 'new\n') // untracked
-// Fake session images: one live-ish group, one archived.
+// Fake session attachments: one live-ish group, one archived. Written where Hive kept them before #387, .hive/images,
+// which Hive moves to .hive/attachments; the first group also has a log and a PDF.
 const png = lib.samplePng(400, 200)
 const ids = ['11111111-aaaa-bbbb-cccc-000000000001', '22222222-aaaa-bbbb-cccc-000000000002']
 for (const [i, id] of ids.entries()) {
@@ -33,6 +34,10 @@ for (const [i, id] of ids.entries()) {
   fs.writeFileSync(path.join(d, `2026-09-29_10-0${i}-00.png`), png)
   fs.writeFileSync(path.join(d, `2026-09-29_10-0${i}-30.png`), png)
 }
+fs.writeFileSync(path.join(proj, '.hive', 'images', ids[0], '2026-09-29_09-59-10_build.log'), 'line one\nline two\n')
+fs.writeFileSync(path.join(proj, '.hive', 'images', ids[0], '2026-09-29_09-59-00_notes.md'), '# Notes\n\nSome *notes*.\n')
+fs.writeFileSync(path.join(proj, '.hive', 'images', ids[0], '2026-09-29_09-58-50_table.csv'), 'name,size\nalpha,1\nbeta,2\n')
+fs.writeFileSync(path.join(proj, '.hive', 'images', ids[0], '2026-09-29_09-59-20_report.pdf'), '%PDF-1.4\n1 0 obj<</Type/Catalog/Pages 2 0 R>>endobj 2 0 obj<</Type/Pages/Kids[3 0 R]/Count 1>>endobj 3 0 obj<</Type/Page/Parent 2 0 R/MediaBox[0 0 300 144]>>endobj\ntrailer<</Root 1 0 R>>\n%%EOF\n')
 fs.writeFileSync(
   path.join(proj, '.hive', 'sessions.json'),
   JSON.stringify({ version: 1, sessions: [
@@ -188,17 +193,51 @@ const check = (name, ok, extra = '') => {
   await sleep(300)
   await page.screenshot({ path: path.join(shots, '3-details.png') })
 
-  // Images tab.
-  await page.locator('.tab', { hasText: 'Images' }).click()
-  await lib.until(async () => (await page.locator('.thumb').count()) === 4, 10000)
-  await page.screenshot({ path: path.join(shots, '4-images.png') })
-  check('images: 4 thumbnails', (await page.locator('.thumb').count()) === 4)
+  // Attachments tab (#387): the old .hive/images moved into .hive/attachments, every kind listed, filters by kind.
+  await page.locator('.tab', { hasText: 'Attachments' }).click()
+  await lib.until(async () => (await page.locator('.thumb').count()) === 8, 10000)
+  await page.screenshot({ path: path.join(shots, '4-attachments.png') })
+  check('attachments: 8, the log, Markdown, CSV and PDF too', (await page.locator('.thumb').count()) === 8)
+  check('attachments: the old images folder moved to .hive/attachments', !fs.existsSync(path.join(proj, '.hive', 'images')) && fs.readdirSync(path.join(proj, '.hive', 'attachments', ids[0])).length === 6, String(fs.existsSync(path.join(proj, '.hive', 'images'))))
   const desc = await page.locator('.images-desc').innerText().catch(() => '')
-  check('images: a line says what the tab holds', desc === "Images pasted or dropped into this project's agents' sessions, by session.", desc)
-  check('images: thumbnails load', await page.locator('.thumb img').first().evaluate((i) => i.complete && i.naturalWidth > 0))
-  check('images: archived heading', (await page.locator('.images-archived').count()) === 1)
+  check('attachments: a line says what the tab holds', desc === "Files pasted or dropped into this project's agents' sessions, by session.", desc)
+  check('attachments: thumbnails load', await page.locator('.thumb img').first().evaluate((i) => i.complete && i.naturalWidth > 0))
+  check('attachments: archived heading', (await page.locator('.images-archived').count()) === 1)
+  const filters = await page.locator('.attachment-filter').allInnerTexts()
+  check('attachments: a filter for each kind there is', JSON.stringify(filters.map((f) => f.replace(/\s+/g, ' ').trim())) === JSON.stringify(['All 8', 'Images 4', 'PDFs 1', 'Text 3']), JSON.stringify(filters))
+  await page.locator('.attachment-filter[data-kind="pdf"]').click()
+  check('attachments: PDFs shows the PDF only', !!(await lib.until(async () => (await page.locator('.thumb').count()) === 1 && (await page.locator('.thumb[data-kind="pdf"]').count()) === 1, HUNG_MS)))
+  await page.locator('.attachment-filter', { hasText: 'All' }).click()
+  await lib.until(async () => (await page.locator('.thumb').count()) === 8, HUNG_MS)
+  // The log opens as text in the viewer, the PDF in the PDF viewer, Markdown and CSV in their previews: each inside the
+  // viewer's frame, not placed against the window.
+  const inFrame = (sel) => page.evaluate((s) => {
+    const el = document.querySelector(`.attachment-frame ${s}`)
+    const frame = el?.closest('.attachment-frame')
+    if (!el || !frame) return null
+    const a = el.getBoundingClientRect()
+    const b = frame.getBoundingClientRect()
+    return a.width > 0 && a.height > 0 && a.left >= b.left - 1 && a.top >= b.top - 1 && a.right <= b.right + 1 && a.bottom <= b.bottom + 1
+  }, sel)
+  await page.locator('.thumb[data-kind="text"]').first().click()
+  check('viewer: a log shows its text', !!(await lib.until(async () => /line one/.test(await page.locator('.attachment-text').innerText({ timeout: 1000 }).catch(() => '')), HUNG_MS)))
+  await page.screenshot({ path: path.join(shots, '5-viewer-text.png') })
+  await page.keyboard.press('ArrowLeft')
+  check('viewer: the PDF shows in the PDF viewer, inside the frame', !!(await lib.until(async () => (await inFrame('.pdf-preview')) === true, HUNG_MS)))
+  // One key at a time: each waits for the viewer to show the next.
+  const title = () => page.locator('.dialog-header h2').innerText({ timeout: 1000 }).catch(() => '')
+  await page.keyboard.press('ArrowRight')
+  await lib.until(async () => (await title()).endsWith('build.log'), HUNG_MS)
+  await page.keyboard.press('ArrowRight')
+  check('viewer: Markdown shows in its preview, inside the frame', !!(await lib.until(async () => (await inFrame('.md-preview')) === true && /Some notes/.test(await page.locator('.attachment-frame .md-preview').innerText().catch(() => '')), HUNG_MS)))
+  await page.screenshot({ path: path.join(shots, '5-viewer-md.png') })
+  await page.keyboard.press('ArrowRight')
+  check('viewer: a CSV shows as its table, inside the frame', !!(await lib.until(async () => (await inFrame('.csv-preview')) === true && (await page.locator('.attachment-frame .csv-preview td', { hasText: 'beta' }).count()) === 1, HUNG_MS)))
+  await page.screenshot({ path: path.join(shots, '5-viewer-csv.png') })
+  await page.keyboard.press('Escape')
+  await lib.until(async () => (await page.locator('.image-viewer').count()) === 0, HUNG_MS)
   await page.locator('.thumb').first().click()
-  await sleep(600)
+  await lib.until(async () => (await page.locator('.image-viewer img').count()) === 1, HUNG_MS)
   await page.screenshot({ path: path.join(shots, '5-viewer.png') })
   await page.keyboard.press('ArrowRight')
   check('viewer navigates', !!(await lib.until(async () => (await page.locator('.dialog-header h2').innerText({ timeout: 1000 }).catch(() => '')).includes('10-00-00'), HUNG_MS)))

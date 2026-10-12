@@ -1,0 +1,31 @@
+{
+  "about": "What each CLI does with an attachment's path (#387), checked on 12 Oct 2026 in test homes only. A kind is 'native' when the CLI's own file tool returns it as what it is; every other kind goes as a path the agent opens with its tools. The probe: a folder with report.pdf (one page, the word PELICAN, uncompressed), shot.png (1x1) and notes.log, and a prompt asking the agent to read each.",
+  "claude-code": {
+    "version": "2.1.296",
+    "how": "claude -p in the signed-in test home (CLAUDE_CONFIG_DIR=%LOCALAPPDATA%\\hive-test\\claude), Haiku, --allowedTools Read, stream-json",
+    "native": ["image", "pdf", "text"],
+    "evidence": {
+      "pdf": "Read's tool_result: [{type: 'text', text: 'PDF file read: …report.pdf (581 bytes)'}, {type: 'document', source: {type: 'base64', media_type: 'application/pdf'}}]; the reply: PELICAN",
+      "image": "a pasted image path becomes [Image #n]; Read returns an image block"
+    }
+  },
+  "codex": {
+    "version": "0.162.1",
+    "how": "codex exec in the signed-in test home (CODEX_HOME=%LOCALAPPDATA%\\hive-test\\codex), --sandbox read-only, --json",
+    "native": ["image", "text"],
+    "evidence": {
+      "pdf": "no file tool for PDFs: it ran PowerShell Get-Content -Raw report.pdf and read the raw bytes (readable only because the probe's PDF is uncompressed)",
+      "image": "a pasted image path becomes [Image #n] (src/shared/codex.ts); it also has view_image"
+    }
+  },
+  "copilot": {
+    "version": "1.0.95",
+    "how": "copilot -p offline (COPILOT_OFFLINE=true, a stand-in model API, a test COPILOT_HOME, gh hidden), the stand-in calling its view tool on each file",
+    "native": ["image", "text"],
+    "evidence": {
+      "view tool": "View files, images, or directories. * Images return base64 data and MIME type. * Text files return their content.",
+      "pdf": "view's result was the PDF's raw bytes as text (%PDF-1.4 …)",
+      "image": "view's result: 'Viewed image file successfully.', the image sent to the model"
+    }
+  }
+}

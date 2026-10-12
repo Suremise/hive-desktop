@@ -1,6 +1,6 @@
 // A project holding .asar files (an Electron app's build output, dist/win-unpacked/resources/app.asar) stays a set of
 // plain files to Hive (#246): Electron's own fs opens an .asar it stats as an archive and keeps it open until the app
-// quits, so `npm run dist` couldn't replace it. Storage, the Files tab (listing, watch, find, read), Changes, Images and
+// quits, so `npm run dist` couldn't replace it. Storage, the Files tab (listing, watch, find, read), Changes, Attachments and
 // image previews (a path inside an archive is refused; a real folder named art.asar is just a folder, #261) go over a project and an agent's worktree with .asar files in
 // them, then each file is deleted from outside Hive.
 // The workspace watcher still notices projects coming and going and .hive changes. Dev build, throwaway profile and
@@ -108,7 +108,7 @@ const deleteFromOutside = (file) => {
     inside
   )
   check('an image path inside an .asar is refused, not opened', shown === 'refused', shown)
-  // A real folder whose name ends in .asar is just a folder (#261): its images show and its files open, as do others.
+  // A real folder whose name ends in .asar is just a folder (#261): its attachments show and its files open, as do others.
   const artDir = path.join(alpha, 'art.asar')
   fs.mkdirSync(artDir, { recursive: true })
   fs.writeFileSync(path.join(artDir, 'icon.png'), PNG)
@@ -137,11 +137,11 @@ const deleteFromOutside = (file) => {
   check('… and Files lists the folder', artListed.some((e) => e.name === 'icon.png'), JSON.stringify(artListed))
   // Copy Image on a path inside one fails before Electron's image reader (also asar-aware) opens the archive. The file
   // doesn't exist, so the clipboard is never written, even if this regressed.
-  const copied = await inv('images:copy', path.join(projectRootAsar, 'missing.png')).then(() => 'copied', (e) => String(e))
+  const copied = await inv('attachments:copyImage', path.join(projectRootAsar, 'missing.png')).then(() => 'copied', (e) => String(e))
   check('Copy Image refuses a path inside an .asar', /inside \.asar archives/.test(copied), copied)
   await inv('git:status', alpha)
   await inv('git:status', treePath)
-  await inv('images:list', alpha)
+  await inv('attachments:list', alpha)
   // The Files tab's watcher sees a change beside them.
   fs.writeFileSync(path.join(alpha, 'dist', 'win-unpacked', 'resources', 'touch.txt'), 'x')
   const seen = await lib.until(() => page.evaluate(() => window.__events.some((e) => e.type === 'files-changed')), 10000)

@@ -13,7 +13,9 @@ import { fileLinkProvider } from '../fileLinks'
 import { useStore } from '../store'
 import { offerTip } from '../tips'
 import type { ProviderId } from '@shared/types'
-import { carriesFiles, cx, HIVE_FILES_MIME, IMAGE_EXT, quotePath } from '../util'
+import { carriesFiles, cx, HIVE_FILES_MIME, quotePath } from '../util'
+import { addChips, attachFiles, clearChips } from '../attach'
+import { AttachmentChips } from './AttachmentChips'
 
 type Listener = (data: string) => void
 const dataListeners = new Map<string, Set<Listener>>()
@@ -210,7 +212,7 @@ export function TerminalView({
   visible: boolean
   onExit?: (code: number) => void
   autoFocus?: boolean
-  /** Set for session terminals: pasted and dropped images are saved into the project's .hive folder. */
+  /** Set for session terminals: pasted and dropped files are attached, kept in the session host's .hive/attachments. */
   projectPath?: string
   /** The agent whose session this is. */
   agentId?: string
@@ -292,11 +294,13 @@ export function TerminalView({
         void navigator.clipboard.readText().then(async (t) => {
           if (t) term.paste(t)
           else if (pathRef.current) {
-            // A screenshot: save it and paste its path, which the agent's CLI attaches as an image.
+            // A screenshot: save it as an attachment and paste its path, which the agent's CLI attaches as an image.
             const p = pathRef.current
-            const saved = await attempt('Could not paste image', () => call('session:saveImage', p, undefined, agentRef.current))
+            const saved = await attempt('Could not paste image', () => call('session:pasteImage', p, agentRef.current))
             if (saved) {
-              term.paste(quotePath(saved))
+              // A space after it, as after dropped paths: a next attachment doesn't run into it.
+              term.paste(quotePath(saved) + ' ')
+              addChips(ptyKey, [{ path: saved, name: saved.split(/[\\/]/).pop() ?? saved, kind: 'image' }])
               offerTip('image-pasted')
             }
           }
@@ -328,8 +332,8 @@ export function TerminalView({
       } else void navigator.clipboard.readText().then((t) => t && term.paste(t))
     }, { signal })
 
-    // Files dropped from Explorer or Hive's Files/Images tabs are pasted as paths. Images are first
-    // copied into .hive/images, unless they are already there.
+    // Files dropped from Explorer or Hive's Files/Attachments tabs are attached (#387): their paths are pasted, each copied
+    // into the session's .hive/attachments first when it comes from outside the session's folder or is an image.
     host.current!.addEventListener('dragover', (e) => {
       if (!carriesFiles(e.dataTransfer)) return
       e.preventDefault()
@@ -342,21 +346,19 @@ export function TerminalView({
       const internal = dt!.getData(HIVE_FILES_MIME)
       const sources = internal ? (JSON.parse(internal) as { paths: string[] }).paths : [...dt!.files].map((f) => window.hive.pathForFile(f))
       void (async () => {
-        const paths: string[] = []
-        for (const p of sources) {
-          if (!p) continue
-          const project = pathRef.current
-          const keep = project && IMAGE_EXT.test(p) && !/[\\/]\.hive[\\/]images[\\/]/i.test(p)
-          const saved = keep ? await attempt('Could not add image', () => call('session:saveImage', project, p, agentRef.current)) : null
-          if (saved) offerTip('image-pasted')
-          paths.push(quotePath(saved || p))
-        }
-        if (paths.length) term.paste(paths.join(' ') + ' ')
+        const files = sources.filter(Boolean)
+        const project = pathRef.current
+        const text = !files.length ? null : project ? await attachFiles(project, agentRef.current, files, ptyKey) : files.map(quotePath).join(' ') + ' '
+        if (text) term.paste(text)
         term.focus()
       })()
     }, { signal })
 
-    const disposeInput = term.onData((d) => void call('pty:write', ptyKey, d))
+    const disposeInput = term.onData((d) => {
+      // Enter sends the prompt, and with it what was attached: its chips go.
+      if (d === '\r') clearChips(ptyKey)
+      void call('pty:write', ptyKey, d)
+    })
     // IPC keeps event order, so anything received before the buffer reply is already in the buffer.
     let replayed = false
     const unsubData = subscribe(dataListeners, ptyKey, (d: string) => {
@@ -535,6 +537,7 @@ export function TerminalView({
       ref={host}
     >
       <div className="terminal-mount" ref={mount} />
+      {projectPath && <AttachmentChips ptyKey={ptyKey} provider={provider} />}
     </div>
   )
 }
