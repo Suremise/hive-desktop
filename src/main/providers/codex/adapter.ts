@@ -21,7 +21,7 @@ import { codexSafeguards } from './safeguards'
 import type { SafeguardEvent } from '../../../shared/safeguards'
 import { CodexConversationParser, CodexUsageParser, codexImageData, parseRollout, patchPaths, rolloutDetails, rolloutSubSession } from './rollout'
 import { parseCodexModels } from './models'
-import { PERMISSIONS_MENU_LABELS, permissionsMenuNumber } from './permissionsMenu'
+import { permissionsMenuLabel, permissionsMenuNumber } from './permissionsMenu'
 import { strayCodexWarning } from './strayFolder'
 import { advanced } from '../../advanced'
 
@@ -90,7 +90,7 @@ const TURN_SCREEN_SINCE = '0.162.1'
  * its placeholder ("Ask Codex to do anything"), with nothing queued; else null (a draft, a dialog, a menu: not sure).
  */
 export function codexTurnScreen(screen: string): 'idle' | 'working' | null {
-  if (/esc to interrupt|\bWorking \(/i.test(screen)) return 'working'
+  if (advanced.pattern('codex.turnScreen.working').test(screen)) return 'working'
   if (codexHoldsInput(screen)) return null
   const input = screen
     .split('\n')
@@ -116,7 +116,7 @@ export function codexHoldsInput(screen: string): boolean {
     .map((l) => l.trim())
     .filter(Boolean)
     .at(-1)
-  return last !== undefined && /^tab to queue message\b/i.test(last)
+  return last !== undefined && advanced.pattern('codex.queue.hint').test(last)
 }
 /**
  * Whether Codex's input still holds `command`, unrun (#363): the input is the last line Codex marks with "›", and holds
@@ -713,7 +713,7 @@ export class CodexAdapter implements ProviderAdapter {
       { keys: '/permissions', waitMs: 200 },
       // Enter again while Codex's input still holds the command, once it is free (#363); never a second /permissions.
       { keys: '\r', waitMs: 200, heldOn: (screen) => inputHolds(screen, '/permissions') },
-      { pick: (screen) => permissionsMenuNumber(screen, target), what: `"${PERMISSIONS_MENU_LABELS[target] ?? target}" in Codex's /permissions menu`, waitMs: 300 }
+      { pick: (screen) => permissionsMenuNumber(screen, target), what: `"${permissionsMenuLabel(target) ?? target}" in Codex's /permissions menu`, waitMs: 300 }
     ]
   }
 
