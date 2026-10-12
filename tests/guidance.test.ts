@@ -59,9 +59,10 @@ describe('the session contract', () => {
   it('stays short: the procedures are in the skills', () => {
     // Measured for #102 (2,007 characters before): a guard against procedure creeping back in, not a target. #167's
     // hive-progress line added about 180, #170's On Hold, Passed and Done-means-merged about 80, #476's worktree
-    // boundary about 160, #509's scratch rule about 220, #613's stop-what-you-start line about 260.
-    expect(withLatestHandover(agent, 'handovers/2026-10-03-web-auth-refactor.md').length).toBeLessThan(2350)
-    expect(assistant.length).toBeLessThan(400)
+    // boundary about 160, #509's scratch rule about 220, #613's stop-what-you-start line about 260, #650's inbox line
+    // about 280 (and 160 for the Assistant's).
+    expect(withLatestHandover(agent, 'handovers/2026-10-03-web-auth-refactor.md').length).toBeLessThan(2650)
+    expect(assistant.length).toBeLessThan(600)
     for (const level of ['look', 'agents', 'projects'] as const) expect(controlRules(level).length).toBeLessThan(1200)
     const card = { number: 7, title: 'T', description: 'D', blockedBy: [], comments: [] } as unknown as TaskCard
     expect(taskPrompt(card, true).length - taskPrompt(card, false).length).toBeLessThan(40)

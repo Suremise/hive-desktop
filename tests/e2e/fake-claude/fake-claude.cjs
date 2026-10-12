@@ -56,6 +56,12 @@
 //   done H:MM" above its input once done. "latetool": a Read whose PostToolUse reaches Hive after the turn's Stop.
 //   "stopcontinue": after its Stop, once the test makes fake-continue-<agent>, it goes on as when another Stop hook
 //   blocks: a tool call in the same turn (held until fake-continue-done-<agent>), then Stop with stop_hook_active.
+// - Notices (#650), as Claude Code 2.1.296 takes them: context in a PostToolUse or Stop reply reaches "the model", and a
+//   Stop answered with context (or a block) carries the turn on to another Stop with stop_hook_active. Each notice
+//   ("[Hive] …") is logged in fake-notices.jsonl (agent, where, text). With fake-follow-notices.txt in its home (any
+//   agent) or fake-follow-notices-<agent>.txt, it acts on one as a model that follows Hive's notices: hive_inbox, then
+//   hive_inbox with ack for the ids it listed. "checkpoint" as a step is a tool call (a Bash, PreToolUse and PostToolUse)
+//   whose PostToolUse reply it reads.
 // - `--name` and "/rename <name>" set the session's name in the transcript (a custom title), as Claude Code does.
 // - Its system prompt (the --append-system-prompt-file's text) is recorded on a conversation's first request and that
 //   record used on every later one and every resume, as Claude Code does since 2.1.267, until it compacts;
@@ -280,6 +286,38 @@ async function hook(event, extra = {}) {
   }
 }
 
+/** Hive's notice in a hook's reply (#650: context, or a block's reason), logged in fake-notices.jsonl; null when none. */
+function noticeIn(reply, at) {
+  const text = reply?.hookSpecificOutput?.additionalContext ?? (reply?.decision === 'block' ? reply.reason : null)
+  if (typeof text !== 'string' || !text.startsWith('[Hive]')) return null
+  const agent = String(process.env.HIVE_AGENT || 'agent').replace(/[^\w-]/g, '_')
+  fs.appendFileSync(path.join(home, 'fake-notices.jsonl'), JSON.stringify({ agent, at, text, when: new Date().toISOString() }) + '\n')
+  return text
+}
+
+/** Whether this agent follows Hive's notices (fake-follow-notices.txt, or its own fake-follow-notices-<agent>.txt). */
+function followsNotices() {
+  const agent = String(process.env.HIVE_AGENT || 'agent').replace(/[^\w-]/g, '_')
+  return fs.existsSync(path.join(home, 'fake-follow-notices.txt')) || fs.existsSync(path.join(home, `fake-follow-notices-${agent}.txt`))
+}
+
+/** Acts on a notice as a model that follows them: reads its inbox (hive_inbox), then acks the ids it listed. */
+async function readInbox() {
+  const listed = await hiveCall('hive_inbox', {})
+  const ids = [...new Set([...String(listed?.text ?? '').matchAll(/\bm\d+\b/g)].map((m) => m[0]))]
+  if (ids.length) await hiveCall('hive_inbox', { ack: ids })
+}
+
+/** A tool call of its own (a Bash), whose PostToolUse reply may carry a notice (#650: "checkpoint" as a step). */
+async function checkpoint() {
+  const id = `toolu_${randomUUID().slice(0, 8)}`
+  const call = { tool_name: 'Bash', tool_input: { command: 'echo checkpoint' }, tool_use_id: id }
+  await hook('PreToolUse', call)
+  write({ type: 'assistant', requestId: `req_${id}`, message: { model: 'claude-fake', content: [{ type: 'tool_use', id, name: 'Bash', input: call.tool_input }], usage: { input_tokens: 10, output_tokens: 5 } } })
+  write({ type: 'user', message: { role: 'user', content: [{ type: 'tool_result', tool_use_id: id, content: 'checkpoint' }] } })
+  if (noticeIn(await hook('PostToolUse', call), 'checkpoint') && followsNotices()) await readInbox()
+}
+
 /**
  * A wake from Hive (a line starting "[Hive]", typed when a watched card changed): recorded in fake-wakes.jsonl (agent,
  * line, time), and answered with the next line of fake-wakes-<agent>.txt in its home, which a test writes: the steps
@@ -387,6 +425,7 @@ async function runPrompt(text) {
     if (comment) await boardPatch(Number(comment[1]), { comment: 'Fake: done, see the files.' })
     const call = parseHiveStep(step)
     if (call) await hiveCall(call.tool, call.args)
+    if (/\bcheckpoint\b/i.test(step)) await checkpoint()
     // "shell: <command line>": runs it in cmd with the session's environment (PATH, HIVE_*), as an agent's shell
     // would; the agent, command, exit code and output go to fake-shell.jsonl in its home.
     const sh = /\bshell:\s*(.+)$/i.exec(step)
@@ -445,6 +484,7 @@ async function hiveCall(tool, input) {
     r = { text: String(e), isError: true }
   }
   write({ type: 'user', message: { role: 'user', content: [{ type: 'tool_result', tool_use_id: id, content: r.text, is_error: r.isError }] } })
+  return r
 }
 
 /** Changes card n as hive_update_task does: the hive tools' API, with this agent's token; the call is in the transcript. */
@@ -501,7 +541,14 @@ async function endTurn(answer, inputTokens = 20, lostStop = false, { late = null
   if (busyDrawn === writes) out(`\x1b[${BUSY_LINES}A\r\x1b[J`)
   out(`\r\n${answer}\r\n`)
   // "loststop": the turn ends, but its Stop never reaches Hive (#612).
-  if (!lostStop) await hook('Stop', { last_assistant_message: answer, stop_hook_active: false })
+  if (!lostStop) {
+    const reply = await hook('Stop', { last_assistant_message: answer, stop_hook_active: false })
+    // Carried on (#650: Hive's drain, or any Stop hook's block): one more call to the model, then Stop again.
+    if (reply?.decision === 'block' || reply?.hookSpecificOutput?.additionalContext) {
+      if (noticeIn(reply, 'drain') && followsNotices()) await readInbox()
+      await hook('Stop', { last_assistant_message: answer, stop_hook_active: true })
+    }
+  }
   if (late) await hook('PostToolUse', late)
   if (carryOn) {
     for (const end = Date.now() + 120_000; !take('fake-continue') && Date.now() < end; ) await sleep(100)

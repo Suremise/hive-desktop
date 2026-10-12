@@ -242,6 +242,9 @@ async function runScenario(sc, providerKey, opts = {}) {
     fs.mkdirSync(fakeCodexHome, { recursive: true })
     fs.writeFileSync(path.join(fakeCodexHome, 'config.toml'), '[windows]\nsandbox = "unelevated"\n')
   }
+  // The fakes follow Hive's notices as a model does (#650): told of something in their inbox, they read it and ack it.
+  fs.writeFileSync(path.join(fakeHome, 'fake-follow-notices.txt'), '')
+  if (providerKey === 'fake-codex') fs.writeFileSync(path.join(fakeCodexHome, 'fake-follow-notices.txt'), '')
   lib.gitProject(alpha, { 'README.md': '# alpha\n\nA small project for Hive scenarios.\n', 'math.js': 'module.exports = {}\n', ...sc.files })
   for (const other of sc.projects ?? []) lib.gitProject(path.join(ws, other), { 'README.md': `# ${other}\n` })
   // The fake trusts these folders; the real Claude Code asks (answered below); Codex reads its test home's trust list.
@@ -262,11 +265,12 @@ async function runScenario(sc, providerKey, opts = {}) {
   cfg.settings.general = { ...cfg.settings.general, confirmOnQuit: 'never', ...sc.general }
   cfg.settings.notifications = { ...cfg.settings.notifications, desktopNotifications: false }
   cfg.settings.agentApi = { ...cfg.settings.agentApi, enabled: true }
-  if (sc.role === 'assistant') {
+  // The Assistant runs on the provider under test: the subject, or (sc.assistantMessages) the sender of messages to it.
+  if (sc.role === 'assistant' || sc.assistantMessages) {
     cfg.settings.assistant = {
       ...cfg.settings.assistant,
       provider: p.provider,
-      control: sc.control ?? 'projects',
+      control: sc.control ?? (sc.role === 'assistant' ? 'projects' : 'agents'),
       // Settings → Assistant → Control → Change settings (#186): off unless the scenario turns it on.
       changeSettings: sc.changeSettings === true,
       // Its mode (#259): the scenario's, else Hive's default.
@@ -378,7 +382,43 @@ async function runScenario(sc, providerKey, opts = {}) {
         return reply
       },
       /** alpha's merge slot now, as a script reads it. */
-      slotNow: async () => (await api('GET', '/v1/projects/alpha/merge-slot')).body
+      slotNow: async () => (await api('GET', '/v1/projects/alpha/merge-slot')).body,
+      /**
+       * The Assistant started and ready (sc.assistantMessages, #650), with no prompt: nothing is sent to its model. Its
+       * trust question answered.
+       */
+      startAssistant: async () => {
+        const home = (await inv('workspace:refresh')).assistant.path
+        const up = async () => (await inv('session:live')).find((x) => x.projectPath.toLowerCase() === home.toLowerCase() && x.agentId === 'assistant')
+        if (!(await up())) await inv('session:start', home, { agentId: 'assistant' })
+        const k = lib.ptyKey(home, 'assistant')
+        for (let t = Date.now(); Date.now() - t < 90000 && !['ready', 'finished', 'working'].includes((await up())?.status); ) {
+          const screen = plain(await inv('pty:buffer', k).catch(() => ''))
+          if (/Do you trust the files in this folder/i.test(screen)) await inv('pty:write', k, '\r')
+          else if (/trust this folder/i.test(screen)) {
+            if (p.provider === 'codex') await inv('pty:write', k, '\r')
+            else await lib.acceptClaudeTrust(inv, home, 'assistant', 3000)
+          }
+          await sleep(500)
+        }
+        if (!['ready', 'finished', 'working'].includes((await up())?.status)) throw new Error(`setup: the Assistant didn't get ready (${(await up())?.status ?? 'not running'})`)
+      },
+      /**
+       * Leaves one of alpha's agents ('coder') a message as the Assistant does (#650): hive_message_agent through the real
+       * hive MCP server with the Assistant's own token (the Assistant started first if it isn't). Its reply's text.
+       */
+      assistantMessage: async (key, text) => {
+        await ctx.startAssistant()
+        const tokenFile = path.join(userData, 'assistant-api', `${require('crypto').createHash('sha256').update(ws.toLowerCase()).digest('hex').slice(0, 16)}.json`)
+        const out = execFileSync(process.execPath, [path.join(lib.ROOT, 'out', 'main', 'hive-mcp.js')], {
+          input: JSON.stringify({ jsonrpc: '2.0', id: 1, method: 'tools/call', params: { name: 'hive_message_agent', arguments: { project: 'alpha', agent: ctx.agents[key].name, text } } }) + '\n',
+          env: lib.childEnv({ HIVE_API_URL: `http://127.0.0.1:${port}`, HIVE_WORKSPACE: ws, HIVE_ROLE: 'assistant', HIVE_ASSISTANT_CONTROL: 'agents', HIVE_API_TOKEN_FILE: tokenFile, HIVE_API_TOKEN: '', HIVE_PROJECT: '' }),
+          timeout: 60000
+        }).toString()
+        return JSON.parse(out.split('\n')[0]).result?.content?.[0]?.text ?? ''
+      },
+      /** An agent's deliveries (#647) as the Agent API gives them, newest last. */
+      deliveries: async (key) => (await api('GET', `/v1/projects/alpha/agents/${encodeURIComponent(ctx.agents[key].name)}/deliveries?limit=50`)).body?.deliveries ?? []
     }
     if (sc.setup) await sc.setup(ctx)
     // What the fake Claude Code does when Hive wakes it (fake-wakes-<agent>.txt, a line per wake): a scenario's next steps,

@@ -50,10 +50,11 @@ import { presentWindow, showOsNotification, testNotifyLog, testQuiet } from './t
 import { hashText, heldOpen, insideReal, isInUse, readJson, placeRelative, removePath, samePlace, treeSignature, syncCopy, syncCopyLocked, syncCopyNow, trashAllOrNothing, withFileLock, writeJsonAtomic } from './fsutil'
 import { createLogger, hookJournal, userText } from './logger'
 import { applyStep, compactionOver, expireTasks, hookStep, idleAfter, markedIdle, titleStep, type HookStatusInput, type HookStep } from './hookStatus'
-import { admit, describe as describeTurn, endRunning, heard, newLedger, openCalls, reconciles, silentFor, unheardStop, type ScreenReading, type TurnLedger } from './turnLedger'
+import { admit, describe as describeTurn, endRunning, expectInjected, heard, newLedger, openCalls, reconciles, silentFor, unheardStop, type ScreenReading, type TurnLedger } from './turnLedger'
 import { Compaction } from './compaction'
 import { lastTitle } from './terminalTitle'
 import { asksYou } from '../shared/inbox'
+import { NOTICE_PREFIX } from '../shared/doorbell'
 import { FinishBatcher, finishedNotice, noticeRoute, type FocusedHive, type NoticeRoute } from '../shared/bursts'
 import { recordCards } from './cardSessions'
 import { listMcp, toLaunchDef } from './mcp'
@@ -2981,27 +2982,51 @@ class SessionManager {
   private hookQueues = new Map<string, Promise<void>>()
 
   /**
-   * Answers a launch's Stop: a reply that carries the turn on (in the provider's format), or null to let it end. Set by
-   * what has something for the agent before it stops (Messaging 4's drain); none yet. The turn ledger counts a turn's
-   * end only from a Stop answered with nothing, as continuations fire no prompt (#648).
+   * The notice for what the agent has unread (#650, inboxNotices.ts): Hive's fixed text, or null when there is nothing
+   * to tell. At a checkpoint (a tool call of the agent's own ended) or its turn's end (the drain: a reply that carries
+   * the turn on). The turn ledger counts a turn's end only from a Stop answered with nothing, as continuations fire no
+   * prompt (#648).
    */
-  stopReplier: ((state: LiveSessionState, body: Record<string, any>) => Record<string, unknown> | null) | null = null
+  inboxNotice: ((state: LiveSessionState, at: 'checkpoint' | 'drain') => Promise<string | null> | string | null) | null = null
 
   /**
    * What Hive answers a hook call with, before handling it (the hook server sends it, then calls handleHook with it): a
-   * PreToolUse's file-lock decision, a Stop's continuation (stopReplier), else nothing.
+   * PreToolUse's file-lock decision (made at once, before anything is awaited: it claims locks in the order hooks came),
+   * a notice after a tool call, a Stop's drain, else nothing. A notice goes only to the agent's own turn (not a
+   * sub-agent's, whose context isn't the agent's), and the drain at most once a turn: not to a Stop that follows a
+   * continuation (stop_hook_active), nor one of a turn Hive carried on already.
    */
-  hookReply(runId: string | null, body: Record<string, any>): Record<string, unknown> | null {
-    if (body.hook_event_name === 'PreToolUse') return this.preToolUse(runId, body)
-    if (!this.stopReplier) return null
+  async hookReply(runId: string | null, body: Record<string, any>): Promise<Record<string, unknown> | null> {
+    const lock = body.hook_event_name === 'PreToolUse' ? this.preToolUse(runId, body) : null
+    if (lock || !this.inboxNotice) return lock
     const l = this.findLaunch(runId, body.session_id)?.[1]
-    const ev = l?.adapter.normalizeHook(body).event
-    return l && ev?.kind === 'stop' && !ev.failed ? this.stopReplier(l.state, body) : null
+    if (!l) return null
+    const hook = l.adapter.normalizeHook(body)
+    const ev = hook.event
+    if (hook.ids.sub) return null
+    let at: 'checkpoint' | 'drain'
+    if (ev.kind === 'toolEnd') at = 'checkpoint'
+    else if (ev.kind === 'stop' && !ev.failed && !hook.ids.continued && !l.ledger?.active?.continued) at = 'drain'
+    else return null
+    const event = String(body.hook_event_name ?? '')
+    // An event this CLI can't carry a notice on is never asked about (nothing is marked as told).
+    if (!l.adapter.noticeReply(event, NOTICE_PREFIX)) return null
+    try {
+      const text = await this.inboxNotice(l.state, at)
+      const reply = text ? l.adapter.noticeReply(event, text) : null
+      // A CLI that takes the drain as a new prompt: that prompt is Hive's own, in the turn it carries on.
+      if (reply && at === 'drain' && l.adapter.drainIsPrompt) expectInjected((l.ledger ??= newLedger()), text!)
+      return reply
+    } catch (e) {
+      log.warn(`${userText(this.label(l.state))}: no inbox notice`, e)
+      return null
+    }
   }
 
   /**
-   * Handles a hook call from an agent's CLI (already answered with `reply`: hookReply). One launch's hooks run in
-   * order: an older one that awaits (recording the session) must not land after a newer one's status.
+   * Handles a hook call from an agent's CLI, answered with `reply` (hookReply's, which may still be on its way: it is
+   * waited for in the launch's order). One launch's hooks run in order: an older one that awaits (recording the
+   * session) must not land after a newer one's status.
    */
   handleHook(runId: string | null, body: Record<string, any>, reply: unknown = null): Promise<void> {
     // A turn's end releases only the locks claimed before it arrived: PreToolUse claims them at once, outside this queue.
@@ -3026,7 +3051,8 @@ class SessionManager {
     return run
   }
 
-  private async handleHookNow(runId: string | null, body: Record<string, any>, arrived: number, hooksBefore: number, reply: unknown = null, at = Date.now()): Promise<void> {
+  private async handleHookNow(runId: string | null, body: Record<string, any>, arrived: number, hooksBefore: number, replying: unknown = null, at = Date.now()): Promise<void> {
+    const reply = await Promise.resolve(replying).catch(() => null)
     const found = this.findLaunch(runId, body.session_id)
     if (!found) return
     const [id, l] = found

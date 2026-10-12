@@ -214,12 +214,13 @@ export function admit(ledger: TurnLedger, ev: HookEvent, ids: HookIds, opts: { h
   // From here the hook names the latest turn, or none (a CLI whose hooks name none).
   switch (ev.kind) {
     case 'prompt': {
-      if (turn && running) {
-        const i = ev.text ? ledger.injected.indexOf(flat(ev.text)) : -1
-        if (i < 0) return { verdict: 'apply', event: ev, note: 'a prompt in the running turn' }
+      // Hive's own text in the running turn (a CLI that names no turn too: Copilot takes a drain as a new prompt).
+      const i = running && ev.text ? ledger.injected.indexOf(flat(ev.text)) : -1
+      if (i >= 0) {
         ledger.injected.splice(i, 1)
         return { verdict: 'apply', event: { ...ev, injected: true }, note: "Hive's own message in the running turn" }
       }
+      if (turn && running) return { verdict: 'apply', event: ev, note: 'a prompt in the running turn' }
       if (turn) return { verdict: 'stale', why: 'a prompt of a turn that is over' }
       begin(ledger, null, now)
       return { verdict: 'apply', event: ev }

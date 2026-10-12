@@ -307,6 +307,17 @@ export interface ProviderAdapter {
    */
   titleAttention?(version: string | null): ((title: string) => boolean) | null
   lockReply(decision: LockDecision): Record<string, unknown>
+  /**
+   * The reply that puts Hive's fixed notice text before the model at this hook (#650: the CLI's own event name, as the
+   * hook sent it), in the CLI's format: a checkpoint after a tool call (PostToolUse), or carrying the turn on at its Stop
+   * (the drain; stopContinues says it does). Null for an event that can't carry one on this CLI, or one not verified to.
+   */
+  noticeReply(event: string, text: string): Record<string, unknown> | null
+  /**
+   * Whether the turn a drain carries on comes back to Hive as a new prompt hook, with the notice as its prompt (Copilot):
+   * the turn ledger then takes it as Hive's own in the running turn, not a new one.
+   */
+  readonly drainIsPrompt?: boolean
   /** Whether Hive's reply to a Stop hook makes the CLI carry the turn on (a block, or context it acts on, #648). */
   stopContinues(reply: Record<string, any>): boolean
   /**

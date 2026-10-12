@@ -166,7 +166,8 @@ export const AREAS = [
   // Messages left for agents (#530).
   { paths: ['src/main/agentMessages.ts'], suites: ['agentmessage', 'deliveries', 'replysize'] },
   // Deliveries and hive_inbox (#647).
-  { paths: ['src/main/deliveries.ts', 'src/shared/deliveries.ts'], suites: ['deliveries', 'agentmessage', 'viewer', 'replysize', 'loopwakes', 'agentwatch', 'wakeuntaken'] },
+  { paths: ['src/main/deliveries.ts', 'src/shared/deliveries.ts'], suites: ['deliveries', 'agentmessage', 'viewer', 'replysize', 'loopwakes', 'agentwatch', 'wakeuntaken', 'inboxnotices'] },
+  { paths: ['src/main/inboxNotices.ts', 'src/shared/doorbell.ts', 'tests/e2e/fake-claude/fake-claude.cjs'], suites: ['inboxnotices', 'deliveries', 'agentmessage', 'turnledger'] },
   // Hive's loop wakes (#405).
   { paths: ['src/main/loopWakes.ts', 'src/main/lanes.ts'], suites: ['loopwakes'] },
   { paths: ['src/main/tray.ts', 'src/renderer/src/chime.ts', 'src/shared/bursts.ts'], suites: ['bursts', 'bell', 'banners'] },
