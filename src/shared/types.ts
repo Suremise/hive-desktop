@@ -9,7 +9,7 @@ import type { KeepAwakeSetting } from './keepAwake'
 import type { DateFormat, TimeFormat } from './dates'
 import type { ProjectPref } from './uiPrefs'
 import type { GitTool } from './gitTool'
-import type { ConsoleEvent } from './devConsole'
+import type { ConsoleEvent, ConsoleRecordingInfo } from './devConsole'
 import type { AgentLeftovers, LeftoverProcessMode } from './agentProcesses'
 import type { UsageTimeline } from './usageTimeline'
 
@@ -1116,6 +1116,18 @@ export interface SessionBulkResult {
  */
 export type SessionStatus = 'stopped' | 'starting' | 'ready' | 'working' | 'waiting' | 'background' | 'watching' | 'finished' | 'error' | 'signin'
 
+/** Facts of an agent's runtime (#648), each set at its source (LiveSessionState.runtime). */
+export interface RuntimeFacts {
+  /** The CLI's process: starting (not at its prompt yet), running, stopped by a refused sign-in, or stopped. */
+  lifecycle: 'starting' | 'running' | 'signin' | 'stopped'
+  /** Work that isn't a turn's own: compacting its conversation (by itself, mid-turn or idle, or Hive's Compact). */
+  maintenance: 'compacting' | null
+  /** A person is asked: the agent waits for them, or a question waits beside its work. */
+  attention: 'waiting' | 'question' | null
+  /** Its input: held by a line Hive is typing, has just typed or is confirming, or one it didn't take; else free. */
+  composer: 'held' | 'free'
+}
+
 /** An agent's wake-on-change watch, as its state shows it: the cards and condition, since when, and its overall limit. */
 export interface TaskWatchInfo {
   cards: number[]
@@ -1176,10 +1188,22 @@ export interface LiveSessionState {
    * given this launch's startedAt), which names it until it has a name, as in the Sessions tab (#630).
    */
   sessionCreatedAt?: string
+  /** What the agent is doing, in one word: a projection of its runtime's fields (agentRuntime) and Hive's policy (watching). */
   status: SessionStatus
   /** When the status last changed (ISO): how long an agent has been waiting or finished. */
   statusSince?: string
   statusMessage?: string
+  /**
+   * Its CLI's latest turn as Hive's turn ledger knows it (#648): running, over, or unknown, when a running turn has been
+   * silent for a while (`silentSince`) with no sign of its end. Unknown isn't idle: nothing is typed into it, and the user
+   * can Mark idle. `id`: the CLI's own turn id, when it names turns.
+   */
+  turn?: { state: 'running' | 'over' | 'unknown'; id?: string; silentSince?: string }
+  /**
+   * Facts of its runtime besides its turn and background tasks, each set where Hive learns it, never read back from the
+   * status word (#648; shared/runtime.ts agentRuntime() gathers them all, and the labels are projected from them).
+   */
+  runtime?: RuntimeFacts
   /** Its place at the merge slot (#350): waiting for it ("Waiting for the merge slot (B4 is merging #305)") or holding it. */
   mergeSlot?: string
   /** An action under the CLI's automatic review (Codex's Approve for me), as asked ("Codex asks to run …"): shown beside the status, never as it. */
@@ -2052,6 +2076,8 @@ export type HiveEvent =
   /** A workspace's lanes changed, or one of their cards did (the lanes it lists, as lanes:list gives them). */
   | { type: 'lanes-changed'; workspacePath: string; lanes: LaneInfo[] }
   /** The developer console's new events for the sources this window watches (#636): sent to that window only. */
+  /** A window's developer console recording got further, or stopped (#638). */
+  | { type: 'console-recording'; recording: ConsoleRecordingInfo }
   | { type: 'console-events'; events: ConsoleEvent[]; /** Events that didn't fit the window's queue since the last batch (it fell behind). */ dropped?: number }
 
 /**

@@ -97,11 +97,25 @@ export class DevConsole {
     return new Map([...wanted].map((s) => [s, this.rings.get(s)!.all()]))
   }
 
-  /** Ends a subscription. Capture stops for sources nobody else watches. */
-  unsubscribe(id: string): void {
+  /**
+   * Ends a subscription. Capture stops for sources nobody else watches. `drain`: what is queued for it is delivered first,
+   * at once (a recording's last events before its end line); nothing captured after this joins it.
+   */
+  unsubscribe(id: string, opts: { drain?: boolean } = {}): void {
     const sub = this.subs.get(id)
     if (!sub) return
     this.subs.delete(id)
+    if (opts.drain && (sub.queue.length || sub.dropped)) {
+      const batch = sub.queue.splice(0)
+      const dropped = sub.dropped
+      sub.queueBytes = 0
+      sub.dropped = 0
+      try {
+        sub.deliver?.(batch, dropped)
+      } catch {
+        // What it delivers to has gone.
+      }
+    }
     for (const s of sub.sources) {
       if (sub.includeText) this.untext(s)
       this.dropIfUnwatched(s)

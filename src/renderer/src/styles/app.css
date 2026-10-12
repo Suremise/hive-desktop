@@ -7514,6 +7514,32 @@ textarea.input.task-blocked-input {
   padding: 0 6px;
   font-size: 11px;
 }
+/* An agent whose state is unknown (#648): how long it has been silent, and Mark idle, which keeps its size. */
+.pane-header-bar .pane-status.unknown-state {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  flex-shrink: 8;
+  min-width: 80px;
+  overflow: visible;
+}
+.pane-status.unknown-state > .tip-wrap {
+  display: inline-flex;
+  flex: 0 1 auto;
+  min-width: 14px;
+  overflow: hidden;
+}
+.pane-status.unknown-state .pane-status {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.pane-status.unknown-state .mark-idle {
+  flex-shrink: 0;
+  height: 20px;
+  padding: 0 6px;
+  font-size: 11px;
+}
 
 /* ---------- Progress panel (long runs agents report), beside the Assistant's ---------- */
 .progress-panel {

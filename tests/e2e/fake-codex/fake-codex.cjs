@@ -18,6 +18,10 @@
 //   The scenarios' steps, as the fake Claude Code takes them: "skill NAME" (a shell read of its SKILL.md),
 //   "boardmove", "boardreview", "boardcomment" and "hive TOOL {json}" (through the launch's real hive MCP server),
 //   "work N". Anything else: a short turn.
+//   The turn ledger's cases (#648): "latetool" (a command whose PostToolUse reaches Hive after the turn's Stop),
+//   "loststop" (no Stop reaches Hive; its rollout records the turn's end, task_complete) and "silent" (neither).
+// - Each prompt is a turn with its own id, which its hooks carry (turn_id) and its rollout records (task_started,
+//   task_complete after Stop), as Codex 0.162.1 does.
 // - A first prompt as its last plain argument (after "resume <id>" too) is its first turn, as Codex starts on one.
 // - Ctrl+C twice ends it with SessionEnd.
 const fs = require('fs')
@@ -136,14 +140,20 @@ const out = (s) => process.stdout.write(s)
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms))
 const setTitle = (t) => out(`\x1b]0;${t}\x07`)
 
+/** The turn under way: each prompt's own id, which its hooks carry (turn_id), as Codex 0.162.1's do. */
+let turnId = null
+
 async function hook(event, extra = {}) {
   if (!hookUrl) return
   await fetch(hookUrl, {
     method: 'POST',
     headers: { Authorization: authHeader(), 'Content-Type': 'application/json' },
-    body: JSON.stringify({ hook_event_name: event, session_id: sessionId, transcript_path: rollout, cwd: process.cwd(), model: 'gpt-fake', permission_mode: 'default', turn_id: 't', ...extra })
+    body: JSON.stringify({ hook_event_name: event, session_id: sessionId, transcript_path: rollout, cwd: process.cwd(), model: 'gpt-fake', permission_mode: 'default', ...(turnId && event !== 'SessionStart' && event !== 'SessionEnd' ? { turn_id: turnId } : {}), ...extra })
   }).catch(() => undefined)
 }
+
+/** Codex's own record of a turn starting or ending (task_started, task_complete), by its turn id. */
+const turnRecord = (type) => fs.appendFileSync(rollout, JSON.stringify({ timestamp: new Date().toISOString(), type: 'event_msg', payload: { type, turn_id: turnId } }) + '\n')
 
 /** How many things a person is asked now: one title for them all, "[ ! ] Action Required" blinking as Codex's does. */
 let asking = 0
@@ -277,12 +287,20 @@ async function runPrompt(text) {
     rollout = rolloutPath()
     await hook('SessionStart', { source: resuming ? 'resume' : 'startup' })
   }
+  turnId = randomUUID()
+  turnRecord('task_started')
   fs.appendFileSync(rollout, JSON.stringify({ timestamp: new Date().toISOString(), type: 'response_item', payload: { type: 'message', role: 'user', content: [{ type: 'input_text', text }] } }) + '\n')
   await hook('UserPromptSubmit', { prompt: text })
   let questions = 0
   let scriptedSteps = false
+  // "latetool": a command whose PostToolUse reaches Hive only after the turn's Stop (#648).
+  let late = null
   for (const step of text.split(' then ')) {
-    if (step === 'review allow' || step === 'review deny') await review(step === 'review allow')
+    if (step === 'latetool') {
+      late = { ...bash('npm test'), tool_use_id: `exec-${randomUUID()}` }
+      await hook('PreToolUse', late)
+      await sleep(1000)
+    } else if (step === 'review allow' || step === 'review deny') await review(step === 'review allow')
     else if (step === 'review long') await review(true, LONG, 4000)
     else if (step === 'question' || step === 'late question') {
       await question(step === 'late question')
@@ -311,7 +329,10 @@ async function runPrompt(text) {
     await hook('PostToolUse', bash('Start-Sleep 30'))
   }
   out(`\r\nDone: ${text}\r\n`)
-  await hook('Stop', { last_assistant_message: `Done: ${text}` })
+  // "loststop": its Stop never reaches Hive, though Codex records the turn's end; "silent": neither (#648).
+  if (!/\b(loststop|silent)\b/.test(text)) await hook('Stop', { last_assistant_message: `Done: ${text}`, stop_hook_active: false })
+  if (!/\bsilent\b/.test(text)) turnRecord('task_complete')
+  if (late) await hook('PostToolUse', late)
   busy = false
   promptLine()
 }

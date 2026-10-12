@@ -1,0 +1,40 @@
+  /model - choose what model and reasoning effort to use
+  /review - review any changes and find issues
+ 
+ 
+› Reply with just the word ONE.
+
+
+• ONE
+
+  Worked for 2s • 02:36                                                                                                 
+
+                                                                                                                        
+› Reply with just the word TWO.
+
+
+• TWO                                                                                                                   
+
+  Worked for 2s • 02:36                                                                                                 
+                                                                                                                        
+                                                                                                                        
+› Reply with just the word THREE.
+
+
+• THREE                                                                                                                 
+
+  Worked for 2s • 02:36                                                                                                 
+                                                                                                                        
+                                                                                                                        
+› Run the shell command `Start-Sleep -Seconds 10; echo slept` and then reply with one short sentence.
+
+
+• I’ll run the command and wait for it to finish.                                                                       
+
+• Working (5s • esc to interrupt) · 1 background terminal running · /ps to view · /stop to close                        
+
+
+› my unsent draft words
+
+  GPT-6.1-Sol low · ~/work/alpha · Reply with ONE
+  tab to queue message

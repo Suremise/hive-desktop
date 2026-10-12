@@ -1,0 +1,663 @@
+{
+  "format": 1,
+  "provider": "copilot",
+  "cli": "1.0.95",
+  "hive": "0.6.0",
+  "recordedAt": "2026-10-12T12:52:04.418Z",
+  "events": [
+    {
+      "kind": "launch",
+      "name": "launch",
+      "raw": {
+        "file": "copilot.exe",
+        "switches": [
+          "--session-id",
+          "--name",
+          "--plugin-dir",
+          "--additional-mcp-config",
+          "--allow-all-mcp-server-instructions",
+          "--disable-builtin-mcps",
+          "--no-auto-update"
+        ],
+        "otherArgs": 6,
+        "cwd": "<path>",
+        "version": "1.0.95"
+      },
+      "made": {
+        "status": "starting",
+        "permissionMode": "accept-edits",
+        "resumed": false
+      }
+    },
+    {
+      "kind": "terminal",
+      "name": "ready",
+      "raw": {
+        "screen": "<text: 200 chars>"
+      },
+      "made": {
+        "status": "ready"
+      }
+    },
+    {
+      "kind": "terminal",
+      "name": "prompt shown",
+      "made": {
+        "recognised": "prompt"
+      }
+    },
+    {
+      "kind": "terminal",
+      "name": "footer seen",
+      "raw": {
+        "footer": "accept-edits"
+      },
+      "made": {
+        "recognised": "footer",
+        "permissionMode": "accept-edits"
+      }
+    },
+    {
+      "kind": "terminal",
+      "name": "footer mode",
+      "raw": {
+        "footer": "accept-edits"
+      },
+      "made": {
+        "permissionMode": "accept-edits",
+        "was": "accept-edits"
+      }
+    },
+    {
+      "kind": "hook",
+      "name": "UserPromptSubmit",
+      "raw": {
+        "hook_event_name": "UserPromptSubmit",
+        "session_id": "7c99f8a3-f402-459e-aff2-ef4cd2cc274d",
+        "timestamp": "2026-10-12T12:52:07.931Z",
+        "cwd": "<path>",
+        "prompt": "<text: 24 chars>"
+      },
+      "made": {
+        "event": {
+          "kind": "prompt",
+          "text": "<text: 24 chars>"
+        },
+        "status": "working",
+        "actions": [
+          "answered",
+          "prompted"
+        ]
+      }
+    },
+    {
+      "kind": "hook",
+      "name": "SessionStart",
+      "raw": {
+        "hook_event_name": "SessionStart",
+        "session_id": "7c99f8a3-f402-459e-aff2-ef4cd2cc274d",
+        "timestamp": "2026-10-12T12:52:07.949Z",
+        "cwd": "<path>",
+        "source": "new",
+        "initial_prompt": "<text: 24 chars>"
+      },
+      "made": {
+        "event": {
+          "kind": "start",
+          "source": "new"
+        },
+        "status": "working",
+        "actions": [
+          "answered"
+        ]
+      }
+    },
+    {
+      "kind": "hook",
+      "name": "PreToolUse",
+      "raw": {
+        "hook_event_name": "PreToolUse",
+        "session_id": "7c99f8a3-f402-459e-aff2-ef4cd2cc274d",
+        "timestamp": "2026-10-12T12:52:08.023Z",
+        "cwd": "<path>",
+        "tool_name": "Read",
+        "tool_input": {
+          "path": "a.ts"
+        }
+      },
+      "made": {
+        "event": {
+          "kind": "toolStart"
+        },
+        "status": "working",
+        "actions": []
+      }
+    },
+    {
+      "kind": "hook",
+      "name": "PostToolUse",
+      "raw": {
+        "hook_event_name": "PostToolUse",
+        "session_id": "7c99f8a3-f402-459e-aff2-ef4cd2cc274d",
+        "timestamp": "2026-10-12T12:52:08.028Z",
+        "cwd": "<path>",
+        "tool_name": "Read",
+        "tool_input": {
+          "path": "a.ts"
+        },
+        "tool_result": {
+          "result_type": "<text: 7 chars>",
+          "text_result_for_llm": "<text: 6 chars>"
+        }
+      },
+      "made": {
+        "event": {
+          "kind": "toolEnd"
+        },
+        "status": "working",
+        "actions": []
+      }
+    },
+    {
+      "kind": "hook",
+      "name": "Stop",
+      "raw": {
+        "hook_event_name": "Stop",
+        "session_id": "7c99f8a3-f402-459e-aff2-ef4cd2cc274d",
+        "timestamp": "2026-10-12T12:52:09.581Z",
+        "cwd": "<path>",
+        "transcript_path": "<path>",
+        "stop_reason": "<text: 8 chars>",
+        "stop_hook_active": false
+      },
+      "made": {
+        "event": {
+          "kind": "stop",
+          "lastMessage": null
+        },
+        "status": "finished",
+        "actions": [
+          "releaseLocks",
+          "notifyFinished",
+          "turnEnded"
+        ]
+      }
+    },
+    {
+      "kind": "transcript",
+      "name": "transcript",
+      "raw": {
+        "records": 19,
+        "newest": [
+          {
+            "type": "session.usage_record",
+            "data": {
+              "usage": {
+                "model": "<text: 7 chars>",
+                "modelDisplayName": "<text: 7 chars>",
+                "inputTokens": 1200,
+                "outputTokens": 40,
+                "cacheReadTokens": 1000,
+                "cacheWriteTokens": 0,
+                "cost": 0,
+                "duration": 8,
+                "timeToFirstTokenMs": "<redacted>",
+                "outputTtftMs": 6.7152,
+                "interTokenLatencyMs": "<redacted>",
+                "initiator": "<text: 4 chars>",
+                "interactionType": "<text: 18 chars>",
+                "isByok": true,
+                "byokKind": "<text: 10 chars>",
+                "modelProvider": "<text: 5 chars>",
+                "isAuto": false,
+                "maxPromptTokens": 64000,
+                "maxOutputTokens": 16384,
+                "transport": "<text: 4 chars>",
+                "requestBodyBytes": 81427,
+                "apiCallId": "<text: 5 chars>",
+                "rte": false,
+                "apiEndpoint": "<text: 17 chars>",
+                "accounting": {
+                  "sourceSessionId": "<text: 36 chars>",
+                  "sequence": 1,
+                  "usageId": "<text: 5 chars>"
+                },
+                "aiCreditsStatus": "<text: 11 chars>",
+                "availableToolCount": 38,
+                "toolTokenCount": "<redacted>",
+                "frontierSource": "<text: 9 chars>",
+                "cacheDetailsReported": true,
+                "numToolCalls": 1,
+                "toolCounts": {
+                  "view": 1
+                },
+                "finishReason": "<text: 10 chars>",
+                "contentFilterTriggered": false
+              }
+            },
+            "id": "<text: 36 chars>",
+            "timestamp": "2026-10-12T12:52:07.980Z",
+            "parentId": "<text: 36 chars>"
+          },
+          {
+            "type": "assistant.message",
+            "data": {
+              "messageId": "<text: 36 chars>",
+              "originatingMessageId": "<text: 36 chars>",
+              "model": "<text: 7 chars>",
+              "content": "",
+              "toolRequests": [
+                {
+                  "toolCallId": "<text: 10 chars>",
+                  "name": "<text: 4 chars>",
+                  "arguments": "<object>",
+                  "type": "<text: 8 chars>",
+                  "intentionSummary": "<text: 22 chars>",
+                  "toolTitle": "<text: 12 chars>"
+                }
+              ],
+              "interactionId": "<text: 36 chars>",
+              "turnId": "<text: 1 chars>",
+              "rte": false,
+              "apiCallId": "<text: 5 chars>"
+            },
+            "id": "<text: 36 chars>",
+            "timestamp": "2026-10-12T12:52:08.021Z",
+            "parentId": "<text: 36 chars>"
+          },
+          {
+            "type": "tool.execution_start",
+            "data": {
+              "toolCallId": "<text: 10 chars>",
+              "toolName": "<text: 4 chars>",
+              "arguments": {
+                "path": "<text: 4 chars>"
+              },
+              "turnId": "<text: 1 chars>",
+              "model": "<text: 7 chars>",
+              "toolTitle": "<text: 12 chars>"
+            },
+            "id": "<text: 36 chars>",
+            "timestamp": "2026-10-12T12:52:08.022Z",
+            "parentId": "<text: 36 chars>"
+          },
+          {
+            "type": "hook.start",
+            "data": {
+              "hookInvocationId": "<text: 36 chars>",
+              "hookType": "<text: 10 chars>",
+              "input": {
+                "sessionId": "<text: 36 chars>",
+                "cwd": "<text: 95 chars>",
+                "toolCalls": [
+                  "<object>"
+                ]
+              }
+            },
+            "id": "<text: 36 chars>",
+            "timestamp": "2026-10-12T12:52:08.023Z",
+            "parentId": "<text: 36 chars>"
+          },
+          {
+            "type": "hook.end",
+            "data": {
+              "hookInvocationId": "<text: 36 chars>",
+              "hookType": "<text: 10 chars>",
+              "success": true
+            },
+            "id": "<text: 36 chars>",
+            "timestamp": "2026-10-12T12:52:08.025Z",
+            "parentId": "<text: 36 chars>"
+          },
+          {
+            "type": "hook.start",
+            "data": {
+              "hookInvocationId": "<text: 36 chars>",
+              "hookType": "<text: 11 chars>",
+              "input": {
+                "sessionId": "<text: 36 chars>",
+                "timestamp": 1791809528028,
+                "cwd": "<text: 95 chars>",
+                "toolName": "<text: 4 chars>",
+                "toolArgs": {
+                  "path": "<text: 4 chars>"
+                },
+                "toolResult": {
+                  "resultType": "<text: 7 chars>",
+                  "textResultForLlm": "<text: 6 chars>",
+                  "toolTelemetry": "<object>",
+                  "sessionLog": "<text: 137 chars>",
+                  "skipLargeOutputProcessing": true
+                }
+              }
+            },
+            "id": "<text: 36 chars>",
+            "timestamp": "2026-10-12T12:52:08.028Z",
+            "parentId": "<text: 36 chars>"
+          },
+          {
+            "type": "hook.end",
+            "data": {
+              "hookInvocationId": "<text: 36 chars>",
+              "hookType": "<text: 11 chars>",
+              "success": true
+            },
+            "id": "<text: 36 chars>",
+            "timestamp": "2026-10-12T12:52:08.029Z",
+            "parentId": "<text: 36 chars>"
+          },
+          {
+            "type": "tool.execution_complete",
+            "data": {
+              "toolCallId": "<text: 10 chars>",
+              "model": "<text: 7 chars>",
+              "interactionId": "<text: 36 chars>",
+              "turnId": "<text: 1 chars>",
+              "rte": false,
+              "success": true,
+              "result": {
+                "content": "<text: 6 chars>",
+                "detailedContent": "<text: 487 chars>"
+              },
+              "toolTelemetry": {
+                "properties": {
+                  "command": "<text: 4 chars>",
+                  "options": "<text: 57 chars>",
+                  "inputs": "<text: 18 chars>",
+                  "resolvedPathAgainstCwd": "<text: 4 chars>",
+                  "fileExtension": "<text: 7 chars>",
+                  "viewType": "<text: 4 chars>"
+                },
+                "restrictedProperties": {},
+                "metrics": {
+                  "resultLength": 6,
+                  "resultForLlmLength": 6,
+                  "result_token_count": "<redacted>"
+                }
+              }
+            },
+            "id": "<text: 36 chars>",
+            "timestamp": "2026-10-12T12:52:08.031Z",
+            "parentId": "<text: 36 chars>"
+          },
+          {
+            "type": "assistant.turn_end",
+            "data": {
+              "turnId": "<text: 1 chars>"
+            },
+            "id": "<text: 36 chars>",
+            "timestamp": "2026-10-12T12:52:08.035Z",
+            "parentId": "<text: 36 chars>"
+          },
+          {
+            "type": "assistant.turn_start",
+            "data": {
+              "turnId": "<text: 1 chars>",
+              "interactionId": "<text: 36 chars>"
+            },
+            "id": "<text: 36 chars>",
+            "timestamp": "2026-10-12T12:52:08.035Z",
+            "parentId": "<text: 36 chars>"
+          }
+        ]
+      },
+      "made": {
+        "modelId": "gpt-4.1",
+        "modelName": "gpt-4.1"
+      }
+    },
+    {
+      "kind": "hook",
+      "name": "SessionEnd",
+      "raw": {
+        "hook_event_name": "SessionEnd",
+        "session_id": "7c99f8a3-f402-459e-aff2-ef4cd2cc274d",
+        "timestamp": "2026-10-12T12:52:10.097Z",
+        "cwd": "<path>",
+        "reason": "<text: 9 chars>"
+      },
+      "made": {
+        "event": {
+          "kind": "end"
+        },
+        "status": "stopped",
+        "actions": [
+          "releaseAllLocks",
+          "clearTasks"
+        ]
+      }
+    },
+    {
+      "kind": "transcript",
+      "name": "transcript",
+      "raw": {
+        "records": 8,
+        "newest": [
+          {
+            "type": "session.usage_record",
+            "data": {
+              "usage": {
+                "model": "<text: 7 chars>",
+                "modelDisplayName": "<text: 7 chars>",
+                "inputTokens": 1200,
+                "outputTokens": 40,
+                "cacheReadTokens": 1000,
+                "cacheWriteTokens": 0,
+                "cost": 0,
+                "duration": 1517,
+                "timeToFirstTokenMs": "<redacted>",
+                "outputTtftMs": 1516.2358000000002,
+                "interTokenLatencyMs": "<redacted>",
+                "initiator": "<text: 5 chars>",
+                "interactionType": "<text: 18 chars>",
+                "isByok": true,
+                "byokKind": "<text: 10 chars>",
+                "modelProvider": "<text: 5 chars>",
+                "isAuto": false,
+                "maxPromptTokens": 64000,
+                "maxOutputTokens": 16384,
+                "transport": "<text: 4 chars>",
+                "requestBodyBytes": 81656,
+                "apiCallId": "<text: 5 chars>",
+                "rte": false,
+                "apiEndpoint": "<text: 17 chars>",
+                "accounting": {
+                  "sourceSessionId": "<text: 36 chars>",
+                  "sequence": 2,
+                  "usageId": "<text: 5 chars>"
+                },
+                "aiCreditsStatus": "<text: 11 chars>",
+                "availableToolCount": 38,
+                "toolTokenCount": "<redacted>",
+                "frontierSource": "<text: 9 chars>",
+                "cacheDetailsReported": true,
+                "numToolCalls": 0,
+                "toolCounts": {},
+                "finishReason": "<text: 4 chars>",
+                "contentFilterTriggered": false
+              }
+            },
+            "id": "<text: 36 chars>",
+            "timestamp": "2026-10-12T12:52:09.567Z",
+            "parentId": "<text: 36 chars>"
+          },
+          {
+            "type": "assistant.message",
+            "data": {
+              "messageId": "<text: 36 chars>",
+              "originatingMessageId": "<text: 36 chars>",
+              "model": "<text: 7 chars>",
+              "content": "<text: 5 chars>",
+              "toolRequests": [],
+              "interactionId": "<text: 36 chars>",
+              "turnId": "<text: 1 chars>",
+              "rte": false,
+              "apiCallId": "<text: 5 chars>"
+            },
+            "id": "<text: 36 chars>",
+            "timestamp": "2026-10-12T12:52:09.577Z",
+            "parentId": "<text: 36 chars>"
+          },
+          {
+            "type": "assistant.turn_end",
+            "data": {
+              "turnId": "<text: 1 chars>"
+            },
+            "id": "<text: 36 chars>",
+            "timestamp": "2026-10-12T12:52:09.580Z",
+            "parentId": "<text: 36 chars>"
+          },
+          {
+            "type": "hook.start",
+            "data": {
+              "hookInvocationId": "<text: 36 chars>",
+              "hookType": "<text: 9 chars>",
+              "input": {
+                "sessionId": "<text: 36 chars>",
+                "transcriptPath": "<text: 168 chars>",
+                "stopReason": "<text: 8 chars>",
+                "stop_hook_active": false,
+                "timestamp": 1791809529581,
+                "cwd": "<text: 95 chars>"
+              }
+            },
+            "id": "<text: 36 chars>",
+            "timestamp": "2026-10-12T12:52:09.581Z",
+            "parentId": "<text: 36 chars>"
+          },
+          {
+            "type": "hook.end",
+            "data": {
+              "hookInvocationId": "<text: 36 chars>",
+              "hookType": "<text: 9 chars>",
+              "success": true,
+              "output": {}
+            },
+            "id": "<text: 36 chars>",
+            "timestamp": "2026-10-12T12:52:09.582Z",
+            "parentId": "<text: 36 chars>"
+          },
+          {
+            "type": "hook.start",
+            "data": {
+              "hookInvocationId": "<text: 36 chars>",
+              "hookType": "<text: 10 chars>",
+              "input": {
+                "reason": "<text: 9 chars>",
+                "sessionId": "<text: 36 chars>",
+                "timestamp": 1791809530097,
+                "cwd": "<text: 95 chars>"
+              }
+            },
+            "id": "<text: 36 chars>",
+            "timestamp": "2026-10-12T12:52:10.097Z",
+            "parentId": "<text: 36 chars>"
+          },
+          {
+            "type": "hook.end",
+            "data": {
+              "hookInvocationId": "<text: 36 chars>",
+              "hookType": "<text: 10 chars>",
+              "success": true
+            },
+            "id": "<text: 36 chars>",
+            "timestamp": "2026-10-12T12:52:10.098Z",
+            "parentId": "<text: 36 chars>"
+          },
+          {
+            "type": "session.shutdown",
+            "data": {
+              "accountingSnapshot": {
+                "totalPremiumRequestCost": 0,
+                "totalUserRequests": 1,
+                "totalNanoAiu": 0,
+                "aiCreditsStatus": "<text: 11 chars>",
+                "totalApiDurationMs": 1525,
+                "sessionStartTime": "<text: 24 chars>",
+                "codeChanges": {
+                  "linesAdded": 0,
+                  "linesRemoved": 0,
+                  "filesModifiedCount": 0,
+                  "filesModified": "<0 items>"
+                },
+                "modelMetrics": {
+                  "gpt-4.1": "<object>"
+                },
+                "agentMetrics": {
+                  "main": "<object>"
+                },
+                "providerModelMetrics": [
+                  "<object>"
+                ],
+                "currentModel": "<text: 7 chars>",
+                "lastCallInputTokens": 1200,
+                "lastCallOutputTokens": 40
+              },
+              "providerModelMetrics": [
+                {
+                  "provider": null,
+                  "modelId": "<text: 7 chars>",
+                  "metrics": "<object>",
+                  "modelDisplayName": "<text: 7 chars>"
+                }
+              ],
+              "usageAccountingWatermarks": {
+                "7c99f8a3-f402-459e-aff2-ef4cd2cc274d": 2
+              },
+              "shutdownType": "<text: 7 chars>",
+              "totalPremiumRequests": 0,
+              "totalNanoAiu": 0,
+              "totalApiDurationMs": 1525,
+              "sessionStartTime": 1791809527048,
+              "eventsFileSizeBytes": 75071,
+              "codeChanges": {
+                "linesAdded": 0,
+                "linesRemoved": 0,
+                "filesModified": []
+              },
+              "modelMetrics": {
+                "gpt-4.1": {
+                  "requests": "<object>",
+                  "usage": "<object>",
+                  "totalNanoAiu": 0
+                }
+              },
+              "agentMetrics": {
+                "main": {
+                  "totalApiDurationMs": 1525,
+                  "totalNanoAiu": 0,
+                  "modelMetrics": "<object>"
+                }
+              },
+              "currentModel": "<text: 7 chars>",
+              "currentTokens": 18006,
+              "systemTokens": 6888,
+              "conversationTokens": 127,
+              "toolDefinitionsTokens": 10988
+            },
+            "id": "<text: 36 chars>",
+            "timestamp": "2026-10-12T12:52:10.110Z",
+            "parentId": "<text: 36 chars>"
+          }
+        ]
+      },
+      "made": {
+        "modelId": "gpt-4.1",
+        "modelName": "gpt-4.1",
+        "costUsd": 0,
+        "premiumRequests": 0
+      }
+    },
+    {
+      "kind": "exit",
+      "name": "exit",
+      "raw": {
+        "exitCode": 0
+      },
+      "made": {
+        "failedStart": false,
+        "stopRequested": true
+      }
+    }
+  ]
+}

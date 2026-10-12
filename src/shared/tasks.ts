@@ -139,9 +139,11 @@ export function inReviewSince(card: Pick<TaskCard, 'history'>): string | null {
 /**
  * Why a card waiting in Review is stuck on its reviewer's side (#521): nobody has started reviewing it for
  * REVIEW_WAIT_STALL_MS, though an agent other than its own is watching it (on 10 Oct three reviewers sat "watching"
- * cards already in Review for five hours). `watchers`: the agents with a card watch, and its cards. Null otherwise.
+ * cards already in Review for five hours). `watchers`: the agents with a card watch, and its cards, and how each is now
+ * (its status, and how long it has been silent when its state is unknown, #648: #642's reviewer showed working, silent
+ * for 37 min, and was said to be watching). Null otherwise.
  */
-export function reviewWaitReason(card: Pick<TaskCard, 'number' | 'column' | 'archived' | 'project' | 'agent' | 'review' | 'blocked' | 'history'>, watchers: { name: string; project: string; agentId: string; cards: number[] }[], now = Date.now()): string | null {
+export function reviewWaitReason(card: Pick<TaskCard, 'number' | 'column' | 'archived' | 'project' | 'agent' | 'review' | 'blocked' | 'history'>, watchers: { name: string; project: string; agentId: string; cards: number[]; status?: string; silentMinutes?: number }[], now = Date.now()): string | null {
   if (card.archived || card.column !== 'review' || card.review || card.blocked) return null
   const since = inReviewSince(card)
   const ms = since ? now - Date.parse(since) : NaN
@@ -150,7 +152,8 @@ export function reviewWaitReason(card: Pick<TaskCard, 'number' | 'column' | 'arc
   if (!w) return null
   const min = Math.round(ms / 60_000)
   const dur = min < 60 ? `${min} min` : `${Math.floor(min / 60)} h${min % 60 ? ` ${min % 60} min` : ''}`
-  return `${w.name} is watching #${card.number} but hasn't started reviewing it: in Review for ${dur}.`
+  const state = w.silentMinutes !== undefined ? ` (it shows working, but has been silent for ${w.silentMinutes} min: state unknown)` : w.status === 'working' ? ' (it is working on something else)' : ''
+  return `${w.name} is watching #${card.number} but hasn't started reviewing it${state}: in Review for ${dur}.`
 }
 
 /**
