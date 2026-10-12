@@ -22,6 +22,23 @@ function namesFolder(commandLine, folder) {
 }
 
 /**
+ * Whether a process in `list` names the file `name` (no folder) on its command line as a whole name, not the end of a
+ * longer one: `bg-done-x.txt` is never `other-bg-done-x.txt`. With a name of the run's own, another suite's never counts.
+ */
+function namesFile(list, name) {
+  const want = String(name).toLowerCase()
+  return list.some((p) => {
+    const cmd = String(p.commandLine ?? '').toLowerCase()
+    for (let i = cmd.indexOf(want); i >= 0; i = cmd.indexOf(want, i + 1)) {
+      const before = cmd[i - 1]
+      const after = cmd[i + want.length]
+      if ((before === undefined || /[\s"'\\/=:]/.test(before)) && (after === undefined || /[\s"';|]/.test(after))) return true
+    }
+    return false
+  })
+}
+
+/**
  * The processes `list` ({ pid, commandLine, started (ms) }) that are the test's own: they name `folder` and started at
  * or after `since` (ms; 0 for any). Never `self`.
  */
@@ -185,4 +202,4 @@ function endChildTree(child) {
   return now ? endTreeExactly({ pid: now.pid, started: now.started }, list) : 0
 }
 
-module.exports = { namesFolder, ownedBy, descendantsIn, stillRunning, processTree, processes, endExactly, childrenFirst, stopProcessesIn, identify, stillSame, endTreeExactly, endChildTree }
+module.exports = { namesFolder, namesFile, ownedBy, descendantsIn, stillRunning, processTree, processes, endExactly, childrenFirst, stopProcessesIn, identify, stillSame, endTreeExactly, endChildTree }
