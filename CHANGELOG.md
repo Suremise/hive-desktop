@@ -2,6 +2,9 @@
 
 ## Unreleased
 
+### Agents
+- **An idle agent no longer stays "Working…".** When Hive missed how a Claude Code agent's turn ended, the agent could show **Working…** at an empty prompt for good, and the Hive Assistant couldn't give it a task. Hive now takes Claude Code's own "waiting for your input" signal, a minute after a turn, and shows the agent idle again. Claude Code's compaction while idle and its recaps leave an idle agent idle.
+
 ### Git
 - **The Git view.** A project's **Changes** tab is now **Git**, with three sections: **Changes** (as before), **History** (the last 20 commits and the tags) and **Branches & remotes** (the branch, or a detached HEAD or a merge or rebase in progress; the remotes and their URLs; the branch it tracks and how far ahead and behind it is; the other worktrees; and who commits are made as, this repository's and your global identity, with a warning when commits would fail or would show a personal email on GitHub). From there you can switch or create a branch, fetch, pull, push, tag, add a remote or change its URL, and set this repository's identity: these are yours alone, never an agent's. Hive never fetches by itself: ahead and behind are as of your last **Fetch**, with its time. Switching branch or pulling waits while an agent works in the project folder or a merge holds its merge slot, and says why; agents' worktrees are shown read-only. The status bar shows the selected project's git, such as **main · origin · ↑2 ↓0**: click it for Branches & remotes. A project without git says so, with how to set it up.
 
