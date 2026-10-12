@@ -1,12 +1,26 @@
+import { readFileSync } from 'fs'
+import { join } from 'path'
 import { describe, expect, it } from 'vitest'
 import { claudeSafeguards } from '../src/main/providers/claude/safeguards'
 import { codexSafeguards } from '../src/main/providers/codex/safeguards'
 import { claudeCode } from '../src/main/providers/claude/adapter'
 import type { Ask } from '../src/main/providers/types'
-import { SAFEGUARD_DEFAULTS, countSafeguards, memoTurn, noteSafeguard, safeguardCodes, safeguardPattern, safeguardText, seenInTurn, withScreenStops, type SafeguardEvent, type SafeguardNote } from '../src/shared/safeguards'
+import { advanced } from '../src/main/advanced'
+import { tempDir } from './tempDir'
+import { SAFEGUARD_DEFAULTS, countSafeguards, memoTurn, noteSafeguard, safeguardText, seenInTurn, withScreenStops, type SafeguardEvent, type SafeguardNote } from '../src/shared/safeguards'
 
 const lines = (...o: unknown[]): string => o.map((x) => JSON.stringify(x)).join('\n') + '\n'
 const at = (iso: string): number => Date.parse(iso)
+/** Runs `fn` with Settings → Advanced's store in a folder of its own, its overrides removed after. */
+async function withAdvanced(fn: () => Promise<void>): Promise<void> {
+  advanced.load(tempDir('hive-safeguards-advanced-'))
+  try {
+    await fn()
+  } finally {
+    await advanced.resetAll()
+    advanced.stop()
+  }
+}
 
 // Shapes as Claude Code 2.1.296 wrote them when Opus 5.5's safeguards stopped one of HB3's responses (11 Oct), with the
 // content cut down: a tool call, the stopped response, the note, the notice for the model (the entry right after it, in
@@ -148,11 +162,13 @@ describe('Claude Code safeguards', () => {
     expect(out).toEqual([])
   })
 
-  it('takes the note pattern and the record kinds from an override, and keeps the default when the override does not compile', () => {
-    expect(claudeSafeguards(lines({ ...NOTE, content: 'Guardrails halted the reply' }), {}, { claudeNote: 'guardrails halted' })).toHaveLength(1)
-    expect(claudeSafeguards(lines(NOTE), {}, { claudeNote: '(' })).toHaveLength(1)
-    expect(claudeSafeguards(lines({ ...fallback(T1, 'req_1', 'session'), subtype: 'model_flag_fallback' }), {}, { claudeRecords: ['model_flag_fallback'] })).toHaveLength(2)
-  })
+  it('takes the note pattern from its advanced setting (#685); a pattern that does not compile is refused', () =>
+    withAdvanced(async () => {
+      await advanced.set('claude-code.safeguard.note', 'guardrails halted')
+      expect(claudeSafeguards(lines({ ...NOTE, content: 'Guardrails halted the reply' }), {})).toHaveLength(1)
+      await expect(advanced.set('claude-code.safeguard.note', '(')).rejects.toThrow(/valid regular expression/)
+      expect(claudeSafeguards(lines({ ...NOTE, content: 'Guardrails halted the reply' }), {})).toHaveLength(1)
+    }))
 
   it('skips lines it cannot parse', () => {
     expect(claudeSafeguards('{"type":"system", broken\n\n' + lines(NOTE), {})).toHaveLength(1)
@@ -201,10 +217,6 @@ describe('Codex safeguards', () => {
     expect(codexSafeguards(lines(...turn('t1', T1), ...turn('t2', secondsAfter(T1, 2))), {})).toHaveLength(2)
     expect(codexSafeguards(lines(...turn(null, T1), ...turn(null, secondsAfter(T1, 2))), {})).toHaveLength(2)
   })
-
-  it('takes its codes from an override', () => {
-    expect(codexSafeguards(lines(rec(T1, 'event_msg', { type: 'error', codex_error_info: { new_policy: {} } })), {}, { codexStop: ['new_policy'] })).toHaveLength(1)
-  })
 })
 
 describe('the named defaults', () => {
@@ -213,8 +225,6 @@ describe('the named defaults', () => {
       if (typeof v === 'string') expect(() => new RegExp(v), name).not.toThrow()
       else expect(v.length, name).toBeGreaterThan(0)
     }
-    expect(safeguardCodes('codexStop', { codexStop: [] })).toEqual(SAFEGUARD_DEFAULTS.codexStop)
-    expect(safeguardPattern('claudePrompt', { claudePrompt: 'Model switch' }).test('☐ Model switch')).toBe(true)
   })
 })
 
@@ -386,22 +396,9 @@ describe('usage', () => {
 
 describe("Claude Code's prompt about a stop, told by its screen", () => {
   const ask = (message: string): Ask => ({ kind: 'permission', blocking: true, message })
-  // Its question dialog as 2.1.296 draws it (an AskUserQuestion it puts through its permission check).
-  const dialog = [
-    ' ☐ Model switch',
-    '',
-    " Opus 5.5's safeguards flagged this message. This sometimes happens with safe, normal conversations. Switch to Opus",
-    ' 4.8 and keep going whenever this happens? You can change this later in /config.',
-    '',
-    ' ❯ 1. Switch automatically',
-    '      Continue on Opus 4.8 now, and switch without asking from now on',
-    '   2. Stay on Opus 5.5',
-    '      Stop here without switching, and ask me each time a message is flagged',
-    '   3. Type something.',
-    '   4. Chat about this',
-    '',
-    ' Enter to select · ↑/↓ to navigate · Esc to cancel'
-  ]
+  // Its question dialog as 2.1.296 draws it (an AskUserQuestion it puts through its permission check), recorded for the
+  // advanced setting that tells it (claude-code.safeguard.prompt).
+  const dialog = readFileSync(join(__dirname, 'fixtures/advanced/safeguard-prompt-claude-2.1.296.txt'), 'utf8').replace(/\r?\n$/, '').split(/\r?\n/)
   const screen = (...rows: string[]): string => rows.join('\n')
   const rows = (text: string, n: number): string[] => Array<string>(n).fill(text)
   const generic = ask('Claude needs your permission')

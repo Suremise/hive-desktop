@@ -72,6 +72,7 @@ public static class HiveJobs {
   [DllImport("kernel32.dll", SetLastError=true)] static extern IntPtr CreateToolhelp32Snapshot(uint flags, int pid);
   [DllImport("kernel32.dll")] static extern void GetSystemTimeAsFileTime(out long now);
   [DllImport("kernel32.dll", SetLastError=true)] static extern uint WaitForSingleObject(IntPtr h, uint ms);
+  [DllImport("kernel32.dll", CharSet=CharSet.Unicode)] static extern int GetPackageFullName(IntPtr proc, ref int len, StringBuilder name);
   [DllImport("kernel32.dll", SetLastError=true, CharSet=CharSet.Unicode)] static extern bool Process32FirstW(IntPtr snap, ref ProcessEntry e);
   [DllImport("kernel32.dll", SetLastError=true, CharSet=CharSet.Unicode)] static extern bool Process32NextW(IntPtr snap, ref ProcessEntry e);
   [StructLayout(LayoutKind.Sequential, CharSet=CharSet.Unicode)] struct ProcessEntry {
@@ -100,16 +101,17 @@ public static class HiveJobs {
   static Dictionary<int, Held> held = new Dictionary<int, Held>();
   /**
    * Escaped processes that aren't put in their parent's job, being in a job already (the Store's PowerShell is in its
-   * package's, #659): followed instead, held open, listed and ended with the job, and their own escaped children taken
-   * in as they are found.
+   * package's, #659) or a packaged app's, which Windows puts in its package's job as it starts (#678): followed instead,
+   * held open, listed and ended with the job, and their own escaped children taken in as they are found.
    */
   static Dictionary<int, Held> followed = new Dictionary<int, Held>();
   /**
    * Adopts what escaped the jobs (#543): a packaged app's process (the Microsoft Store's PowerShell 7) starts its
    * children outside every job, so they would neither be listed nor ended. Each live process whose parent is in a job
-   * (running, or held as it ends), that is itself not in that job, joins it if it is in no job (its own children join by
-   * themselves from then on), or is followed (Take); those it started before are found in the same sweep. The parent
-   * must have started before the child: a parent id not held could name a later process that took a dead parent's id.
+   * (running, or held as it ends), that is itself not in that job, joins it if it is in no job and isn't a packaged
+   * app's (its own children join by themselves from then on), or is followed (Take); those it started before are found
+   * in the same sweep. The parent must have started before the child: a parent id not held could name a later process
+   * that took a dead parent's id.
    * Swept as each process of a job ends (so a shell that starts something and exits at once is caught), before listing
    * or ending a job, and every ${SWEEP_MS} ms (for an escaped child's own children).
    */
@@ -177,14 +179,22 @@ public static class HiveJobs {
         if (!Started(parent, at, out pc) || pc > cc) return false;
         // Only a process in no job joins: one in another job is followed (#659). Windows would nest the jobs: the Store's
         // PowerShell's is its package's, which every Store PowerShell started later joins, and when it had no parent it
-        // became this launch's, so the next ones (any agent's or app's) were listed and ended with this launch.
+        // became this launch's, so the next ones (any agent's or app's) were listed and ended with this launch. A packaged
+        // app's process is followed even in no job: Windows puts it in its package's job only once it has started (a few
+        // ms, more under load), and one assigned before then nests that job in this one just the same (#678).
         if (!IsProcessInJob(c, IntPtr.Zero, out inAny)) return false;
-        if (!inAny && AssignProcessToJobObject(job, c)) return true;
+        if (!inAny && !Packaged(c) && AssignProcessToJobObject(job, c)) return true;
         followed[pid] = new Held { job = id, h = c, created = cc };
         keep = true;
         return true;
       } finally { if (!keep) CloseHandle(c); }
     }
+  }
+  /** Whether a process is a packaged app's (has a package identity); one that can't be told counts as packaged. */
+  static bool Packaged(IntPtr proc) {
+    int len = 0;
+    // APPMODEL_ERROR_NO_PACKAGE
+    return GetPackageFullName(proc, ref len, null) != 15700;
   }
   /** When a job's process started: held (its id kept), or looked up now, if created before "at". */
   static bool Started(int pid, long at, out long created) {

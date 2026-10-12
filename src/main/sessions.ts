@@ -363,6 +363,19 @@ const maxUsageResults = (): number => Math.min(50000, Math.max(100, Number(confi
 const USAGE_CHUNK = 4 * 1024 * 1024
 
 /**
+ * A transcript's size for the Sessions list (#671): a stat, never a read, taken each time the list is (the window keeps
+ * the list, and reloads it when it opens or a session changes). Null when it is missing or can't be read.
+ */
+async function transcriptSize(path: string | null | undefined): Promise<number | null> {
+  if (!path) return null
+  try {
+    return (await stat(path)).size
+  } catch {
+    return null
+  }
+}
+
+/**
  * usage-cache.json in the profile: each transcript's result (before costs) with the size and modified time it
  * had, so after a restart an unchanged transcript isn't read again. Derived and disposable: a missing, damaged or
  * older version's file is ignored (each Hive version starts afresh, as parsers change), and a transcript that
@@ -4103,12 +4116,13 @@ class SessionManager {
     const found = new Map<string, SubSession>()
     for (const rec of file.sessions) {
       const provider = recordProvider(rec)
-      let hasTranscript = false
+      let transcript: string | null = null
       try {
-        hasTranscript = !!(await providerAdapter(provider).transcriptPath(rec.cwd ?? projectPath, rec.id, rec.transcriptPath))
+        transcript = await providerAdapter(provider).transcriptPath(rec.cwd ?? projectPath, rec.id, rec.transcriptPath)
       } catch {
         // A provider this version doesn't know.
       }
+      const hasTranscript = !!transcript
       const hasBackup = existsSync(this.backupPath(projectPath, rec.id)) || existsSync(this.backupPath(projectPath, rec.id, true))
       const usage = await this.usage(projectPath, rec.id, ctx)
       const { keptUsage: _kept, ...fields } = rec
@@ -4123,6 +4137,7 @@ class SessionManager {
         lastActivity: usage?.lastActivity ?? rec.lastActiveAt,
         hasTranscript,
         hasBackup,
+        transcriptBytes: await transcriptSize(transcript),
         usage,
         recache: usage && providerDescriptor(provider).capabilities.promptCacheTtl ? recacheEstimate(usage, ttl) : null
       })
@@ -4146,6 +4161,7 @@ class SessionManager {
             lastActivity: usage.lastActivity ?? ext.modified,
             hasTranscript: true,
             hasBackup: false,
+            transcriptBytes: await transcriptSize(ext.transcriptPath),
             usage,
             recache: adapter.descriptor.capabilities.promptCacheTtl ? recacheEstimate(usage, ttl) : null,
             ...(ext.sub ? { sub: ext.sub } : {})

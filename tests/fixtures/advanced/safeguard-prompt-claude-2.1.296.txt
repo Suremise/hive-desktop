@@ -1,0 +1,13 @@
+ ☐ Model switch
+
+ Opus 5.5's safeguards flagged this message. This sometimes happens with safe, normal conversations. Switch to Opus
+ 4.8 and keep going whenever this happens? You can change this later in /config.
+
+ ❯ 1. Switch automatically
+      Continue on Opus 4.8 now, and switch without asking from now on
+   2. Stay on Opus 5.5
+      Stop here without switching, and ask me each time a message is flagged
+   3. Type something.
+   4. Chat about this
+
+ Enter to select · ↑/↓ to navigate · Esc to cancel

@@ -153,6 +153,7 @@ export const SUITES = [
   { name: 'searchclear' },
   { name: 'sessionname' },
   { name: 'sessionorigin' },
+  { name: 'sessionsize' },
   { name: 'sessiontree' },
   { name: 'signin' },
   { name: 'skillaudience' },

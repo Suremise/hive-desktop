@@ -14,7 +14,8 @@ import { tempDir } from './tempDir'
 
 const ROOT = join(__dirname, '..')
 const def = (id: string): AdvancedDef => advancedDef(id)!
-const fixtureText = (from: string): string => readFileSync(join(ROOT, from), 'utf8')
+// With LF line ends whatever the checkout's: a sample can span lines (a dialog's two choices).
+const fixtureText = (from: string): string => readFileSync(join(ROOT, from), 'utf8').replace(/\r\n/g, '\n')
 
 /** Every JSON object in a fixture (a JSON file, or JSON lines), however deep. */
 function objectsIn(text: string): Record<string, unknown>[] {
@@ -413,6 +414,21 @@ describe('the adapters and the hive MCP server use them', () => {
     expect(copilot.normalizeHook({ hook_event_name: 'ErrorOccurred', sessionId: 's', error: { message: error.message } }).event).toEqual({ kind: 'signIn', message: error.message })
     const codexError = objectsIn(screen('signin-codex-0.160.0.jsonl')).find((o) => typeof o.message === 'string' && (o.message as string).startsWith('unexpected status 401'))!
     expect(codexSignIn({ message: codexError.message })).toBe(codexError.message)
+    // #685: the turn screens, Codex's queue hint and /permissions labels, and the safeguard note and question.
+    const { claudeTurnScreen } = await import('../src/main/providers/claude/adapter')
+    const { codexHoldsInput } = await import('../src/main/providers/codex/adapter')
+    const { permissionsMenuNumber } = await import('../src/main/providers/codex/permissionsMenu')
+    const { claudeSafeguards } = await import('../src/main/providers/claude/safeguards')
+    expect(claudeTurnScreen(screen('screen-claude-2.1.296-idle.txt'))).toBe('idle')
+    expect(codexTurnScreen(screen('screen-codex-0.162.1-working.txt'))).toBe('working')
+    expect(codexHoldsInput(screen('screen-codex-0.162.1-working.txt'))).toBe(true)
+    expect(codexHoldsInput(screen('screen-codex-0.162.1-idle.txt'))).toBe(false)
+    expect((['read-only', 'ask', 'approve-for-me', 'full-access'] as const).map((m) => permissionsMenuNumber(screen('codex-0.161-permissions-ask.txt'), m))).toEqual(['4', '1', '2', '3'])
+    const stops = claudeSafeguards(screen('advanced/safeguards-claude-2.1.296.jsonl'), {})
+    expect(stops).toEqual([expect.objectContaining({ kind: 'stop', id: 'u-note' })])
+    const ask = { kind: 'permission', blocking: true, message: 'Claude needs your permission' } as const
+    expect(claudeCode.safeguardAsk!(ask, screen('advanced/safeguard-prompt-claude-2.1.296.txt'))).toBe(true)
+    expect(claudeCode.safeguardAsk!(ask, screen('screen-claude-2.1.296-idle.txt'))).toBe(false)
   })
 
   it("reads Codex's plan limits under renamed fields once the overrides name them (the recorded token_count, renamed)", async () => {
@@ -468,6 +484,24 @@ describe('the adapters and the hive MCP server use them', () => {
     expect(codexTurnScreen('header\n› Ask Codex to do anything\n')).toBeNull()
     await advanced.set('claude-code.signIn.stopError', 'auth_failed')
     expect(claudeCode.normalizeHook({ hook_event_name: 'StopFailure', session_id: 's', error: 'auth_failed' }).event).toEqual({ kind: 'signIn', message: null })
+    // #685: the turn screens, the queue hint, a /permissions label, the safeguard question.
+    const { claudeTurnScreen } = await import('../src/main/providers/claude/adapter')
+    const { codexHoldsInput } = await import('../src/main/providers/codex/adapter')
+    const { permissionsMenuNumber } = await import('../src/main/providers/codex/permissionsMenu')
+    const done = '✻ Worked for 12s · finished 16:52\n\n❯ \n'
+    expect(claudeTurnScreen(done)).toBeNull()
+    await advanced.set('claude-code.turnScreen.done', String.raw`for \d+s · finished \d+:\d+`)
+    expect(claudeTurnScreen(done)).toBe('idle')
+    await advanced.set('codex.turnScreen.working', String.raw`\bBusy \(`)
+    expect(codexTurnScreen('• Busy (3s • ctrl+c to stop)\n')).toBe('working')
+    expect(codexTurnScreen('• Working (3s • esc to interrupt)\n› Ask Codex (anything)\n')).toBe('idle')
+    await advanced.set('codex.queue.hint', '^tab queues')
+    expect(codexHoldsInput('› draft\n  tab queues it\n')).toBe(true)
+    expect(codexHoldsInput('› draft\n  tab to queue message\n')).toBe(false)
+    await advanced.set('codex.permissions.readOnly', 'Read only access')
+    expect(permissionsMenuNumber('  1. Ask for approval   …\n› 2. Read only access (current)  Read workspace files\n', 'read-only')).toBe('2')
+    await advanced.set('claude-code.safeguard.prompt', String.raw`\bModel switch\b`)
+    expect(claudeCode.safeguardAsk!({ kind: 'permission', blocking: true, message: 'Claude needs your permission' }, ' ☐ Model switch\n')).toBe(true)
     await advanced.set('copilot.hooks.timeoutSeconds', 15)
     await advanced.set('copilot.hooks.preToolUseTimeoutSeconds', 30)
     const hooks = (copilotHooks('http://127.0.0.1:1/hook', 't') as { hooks: Record<string, { timeoutSec: number }[]> }).hooks

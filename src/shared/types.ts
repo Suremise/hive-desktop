@@ -1703,6 +1703,8 @@ export interface SessionListItem extends Partial<SessionRecord> {
   lastActivity: string | null
   hasTranscript: boolean
   hasBackup: boolean
+  /** The CLI's transcript's size on disk, from a stat when the list is read (#671); null when it is missing or can't be read. */
+  transcriptBytes?: number | null
   /** A deleted session kept only for its usage (session:keptUsage), never in lists. */
   deleted?: boolean
   usage: SessionUsage | null
