@@ -47,14 +47,40 @@ const check = (name, ok, extra = '') => {
   const key = lib.ptyKey(home, 'assistant')
   const live = async () => (await inv('session:live')).find((s) => s.projectPath.toLowerCase() === home.toLowerCase() && s.agentId === 'assistant')
   const settings = async () => inv('settings:get')
-  /** Has the Assistant run one prompt (fake commands), and waits for its turn to end. */
-  const say = async (text) => {
-    await lib.until(async () => ['ready', 'finished'].includes((await live())?.status), 20000)
+  // The fake takes a prompt only once its last turn is over on its side: Hive has the turn finished at its Stop hook, but
+  // the fake ends it after the hook's reply, drawing "✻ Worked for" and its input line. An Enter in between is dropped
+  // (#672). So its screen, not only the status, says when it takes the next one: no spinner drawn since that line.
+  const screen = async () => (await inv('pty:buffer', key)) ?? ''
+  const takesPrompts = async () => {
+    const s = await screen()
+    return ['ready', 'finished'].includes((await live())?.status) && s.lastIndexOf('✻ Worked for') >= s.lastIndexOf('(esc to interrupt)')
+  }
+  const typeLine = async (text) => {
+    const t = Date.now()
+    let looks = 0
+    if (!(await lib.until(async () => (looks++, await takesPrompts()), 20000))) console.log(`DIAGNOSTIC typed while it doesn't take prompts: ${JSON.stringify((await live())?.status)}, its screen ends ${JSON.stringify((await screen()).slice(-300))}`)
+    else if (looks > 1) console.log(`  (it took prompts again ${Date.now() - t} ms after "${text.slice(0, 50)}" was due)`)
+    const before = (await live())?.turn?.id
     await inv('pty:write', key, text)
     await lib.sleep(300) // on purpose: the fake reads a typed line before its Enter, as a CLI does
     await inv('pty:write', key, '\r')
-    await lib.until(async () => (await live())?.status === 'working', 5000)
-    const finished = !!(await lib.until(async () => (await live())?.status === 'finished', 30000))
+    return before
+  }
+  /**
+   * Has the Assistant run one prompt (fake commands), and waits for that prompt's own turn to end: a new turn id,
+   * finished (#672: under load the fake took the prompt 10 s after it was typed, and "finished" read meanwhile was still
+   * the last turn's, so the suite went on before its call was made). A prompt taken late is logged with how late.
+   */
+  const say = async (text) => {
+    const before = await typeLine(text)
+    const t = Date.now()
+    const turn = async () => (await live())?.turn?.id
+    const started = await lib.until(async () => ((await turn()) && (await turn()) !== before ? await turn() : null), HUNG_MS)
+    if (Date.now() - t > 2000) console.log(`  (the prompt "${text.slice(0, 50)}" ${started ? 'was taken' : 'was not taken'} after ${Date.now() - t} ms)`)
+    const finished = !!started && !!(await lib.until(async () => {
+      const s = await live()
+      return s?.turn?.id === started && s.status === 'finished'
+    }, 30000))
     if (!finished) await whyNotFinished(text)
     return finished
   }
@@ -66,9 +92,27 @@ const check = (name, ok, extra = '') => {
   const whyNotFinished = async (text) => {
     const read = (f) => (fs.existsSync(f) ? fs.readFileSync(f, 'utf8').trim().split(/\r?\n/) : [])
     console.log(`DIAGNOSTIC the turn "${text.slice(0, 60)}" didn't finish; the session: ${JSON.stringify((await live()) ?? null)}`)
+    console.log(`DIAGNOSTIC its screen ends ${JSON.stringify((await screen()).slice(-400))}`)
     for (const l of read(path.join(claudeHome, 'fake-exits.jsonl'))) console.log(`DIAGNOSTIC fake exit: ${l.slice(0, 600)}`)
     for (const l of read(path.join(claudeHome, 'fake-launches.jsonl'))) console.log(`DIAGNOSTIC fake launch: session ${JSON.parse(l).sessionId}`)
     for (const l of read(path.join(userData, 'logs', 'hive.log')).filter((line) => /\[(pty|assistant|sessions?|agents?|processes)\]|WARN|ERROR/.test(line)).slice(-40)) console.log(`DIAGNOSTIC ${l.slice(0, 400)}`)
+  }
+  // The window draws what it's asked for once it has it: the panel lists an action when main's event reaches it, which
+  // can be after the turn that made it has ended (#672), and a settings page after its click. So what it shows is waited
+  // for, bounded only for a hung run; one not there at the first look is logged with how long it took.
+  const shows = async (what, fn) => {
+    const t = Date.now()
+    let looks = 0
+    const v = await lib.until(async () => (looks++, await fn()), HUNG_MS)
+    if (looks > 1) console.log(`  (${what}: ${v ? 'shown' : 'not shown'} after ${Date.now() - t} ms)`)
+    return v
+  }
+  const textOf = (loc) => loc.innerText().catch(() => '')
+  /** Waits for `loc`'s text to match `re`; returns the text it showed last. */
+  const showsText = async (what, loc, re) => {
+    let text = ''
+    await shows(what, async () => re.test((text = await textOf(loc))))
+    return text
   }
 
   // --- Change settings: under Control, off by default.
@@ -76,16 +120,17 @@ const check = (name, ok, extra = '') => {
   await page.keyboard.press('Control+,')
   await page.locator('.settings-nav .row', { hasText: 'Assistant' }).click()
   const row = page.locator('.setting', { has: page.locator('.s-title', { hasText: 'Change settings' }) })
-  check('Settings → Assistant shows Change settings, after Control', (await row.count()) === 1 && (await page.locator('.settings-content .setting .s-title').allInnerTexts()).findIndex((t) => t.startsWith('Change settings')) === (await page.locator('.settings-content .setting .s-title').allInnerTexts()).findIndex((t) => t.startsWith('Control')) + 1)
+  const titles = () => page.locator('.settings-content .setting .s-title').allInnerTexts()
+  check('Settings → Assistant shows Change settings, after Control', !!(await shows('Settings → Assistant', async () => (await row.count()) === 1)) && (await titles()).findIndex((t) => t.startsWith('Change settings')) === (await titles()).findIndex((t) => t.startsWith('Control')) + 1, JSON.stringify(await titles()))
   await row.locator('.switch, [role="switch"], input[type="checkbox"]').first().click()
-  check('…and turns on', !!(await lib.until(async () => (await settings()).assistant.changeSettings === true, 5000)))
+  check('…and turns on', !!(await lib.until(async () => (await settings()).assistant.changeSettings === true, HUNG_MS)))
   await page.keyboard.press('Escape')
 
   // --- The Assistant, started with it on.
   await page.evaluate(() => document.activeElement?.blur())
   await page.keyboard.press('Control+Alt+I')
   const panel = page.locator('.assistant-panel')
-  await lib.until(async () => (await panel.locator('.assistant-header').count()) === 1, 5000)
+  await lib.until(async () => (await panel.locator('.assistant-header').count()) === 1, HUNG_MS)
   await panel.locator('.assistant-header').getByRole('button', { name: 'Start', exact: true }).click()
   check('the Assistant runs', !!(await lib.until(async () => (await live())?.status === 'ready', 20000)))
 
@@ -93,13 +138,16 @@ const check = (name, ok, extra = '') => {
   check('it changes a setting', await say('skill tune-settings then hive hive_update_setting {"id":"sessions.transcriptWarnMB","value":50}'))
   check('…which is now 50 MB', (await settings()).sessions.transcriptWarnMB === 50, String((await settings()).sessions.transcriptWarnMB))
   const action = panel.locator('.assistant-action', { hasText: 'Warn when a transcript is over' }).first()
-  check('its panel lists the change, old → new', /Changed Settings → Sessions → Warn when a transcript is over: 20 → 50/.test((await action.innerText().catch(() => '')) || ''), await action.innerText().catch(() => ''))
+  const changed = /Changed Settings → Sessions → Warn when a transcript is over: 20 → 50/
+  const changedText = await showsText('the change', action, changed)
+  check('its panel lists the change, old → new', changed.test(changedText), changedText)
   const revert = action.getByRole('button', { name: /^Revert Settings → Sessions → Warn when a transcript is over to 20/ })
-  check('…with a Revert button', (await revert.count()) === 1)
+  check('…with a Revert button', !!(await shows('its Revert', async () => (await revert.count()) === 1)))
   await page.keyboard.press('Control+,')
   await page.locator('.settings-nav .row', { hasText: 'Sessions' }).first().click()
   const warn = page.locator('.setting', { has: page.locator('.s-title', { hasText: 'Warn when a transcript is over' }) })
-  check('Settings → Sessions shows 50, modified', (await warn.locator('input[type=number]').inputValue()) === '50' && (await warn.locator('.modified').count()) === 1)
+  const warnValue = () => warn.locator('input[type=number]').inputValue().catch(() => '')
+  check('Settings → Sessions shows 50, modified', !!(await shows('Settings → Sessions', async () => (await warnValue()) === '50' && (await warn.locator('.modified').count()) === 1)), await warnValue())
   for (const theme of ['dark', 'light']) {
     await inv('settings:update', { appearance: { theme } })
     await lib.sleep(300) // on purpose: the theme's colours settle
@@ -109,7 +157,7 @@ const check = (name, ok, extra = '') => {
 
   // --- Revert: back to 20, listed, and the change marked reverted.
   await revert.click()
-  check('Revert puts it back to 20 MB', !!(await lib.until(async () => (await settings()).sessions.transcriptWarnMB === 20, 5000)))
+  check('Revert puts it back to 20 MB', !!(await lib.until(async () => (await settings()).sessions.transcriptWarnMB === 20, HUNG_MS)))
   check('…which Settings shows', !!(await lib.until(async () => (await warn.locator('input[type=number]').inputValue()) === '20', HUNG_MS)))
   check('…and the panel lists, the change marked reverted', !!(await lib.until(async () => (await panel.locator('.assistant-action', { hasText: 'You reverted Settings → Sessions → Warn when a transcript is over: 50 → 20' }).count()) === 1 && (await action.locator('text=reverted').count()) === 1, HUNG_MS)))
   await page.screenshot({ path: path.join(lib.WORK, 'assistantsettings-reverted.png') })
@@ -136,7 +184,7 @@ const check = (name, ok, extra = '') => {
         return original(...args)
       }
     }, projectFile)
-  const held = () => lib.until(() => app.evaluate(() => global.__hiveTestGate.entered), 5000)
+  const held = () => lib.until(() => app.evaluate(() => global.__hiveTestGate.entered), HUNG_MS)
   const release = () => app.evaluate(() => global.__hiveTestGate.release())
   // A change queued for the project's lock (#423): withFileLock (fsutil.ts) queues a call behind the one holding a file's
   // lock by setting the file's key (its path in lower case) in its map of locks, in the same step as the call. While the
@@ -183,7 +231,7 @@ const check = (name, ok, extra = '') => {
   check('the queued change, its permission withdrawn meanwhile, changed nothing', (await alphaCfg()).compactSuggestTokens === 400000, String((await alphaCfg()).compactSuggestTokens))
   // Refused where it waited (under the lock), not by the up-front check a call that arrives after the switch meets.
   const turnedOff = (await inv('assistant:actions')).filter((a) => !a.ok).at(-1)
-  check('…listed as not done: Change settings was turned off', (await panel.locator('.assistant-action.failed', { hasText: 'Change Project Settings → Sessions → Suggest compacting above in alpha' }).count()) >= 1 && /was turned off before the change was made/.test(turnedOff?.error ?? ''), JSON.stringify(turnedOff))
+  check('…listed as not done: Change settings was turned off', !!(await shows('the refused project change', async () => (await panel.locator('.assistant-action.failed', { hasText: 'Change Project Settings → Sessions → Suggest compacting above in alpha' }).count()) >= 1)) && /was turned off before the change was made/.test(turnedOff?.error ?? ''), JSON.stringify(turnedOff))
 
   // The Assistant restarted while its change waits for the lock: the new session doesn't carry out the old one's change.
   await inv('settings:update', { assistant: { changeSettings: true } })
@@ -193,9 +241,7 @@ const check = (name, ok, extra = '') => {
   const refusedBefore = (await inv('assistant:actions')).filter((a) => !a.ok).length
   await watchLockQueue()
   // Typed, not said: its turn never ends (the session is stopped under it).
-  await inv('pty:write', key, 'hive hive_update_setting {"id":"project.compactSuggestTokens","value":500000,"project":"alpha"}')
-  await lib.sleep(300) // on purpose: the fake reads a typed line before its Enter, as a CLI does
-  await inv('pty:write', key, '\r')
+  await typeLine('hive hive_update_setting {"id":"project.compactSuggestTokens","value":500000,"project":"alpha"}')
   check("the old session's change waits behind the user's write", await queuedForLock())
   await inv('session:stop', home, 'assistant')
   await lib.until(async () => !(await live()), 15000)
@@ -227,15 +273,19 @@ const check = (name, ok, extra = '') => {
   check('it changes a column colour', await say('hive hive_update_setting {"id":"board.colors","value":{"doing":"#ff0000"}}'))
   check('…Doing is red, the others as they were', (await settings()).board.colors.doing === '#ff0000' && (await settings()).board.colors.todo !== '#ff0000')
   const colours = panel.locator('.assistant-action', { hasText: 'Column colours' }).first()
-  check('…listed as the colour it changed, not the table\'s size', /Column colours: doing: #[0-9a-f]{6} → doing: #ff0000/.test(await colours.innerText()), await colours.innerText())
+  const colourChange = /Column colours: doing: #[0-9a-f]{6} → doing: #ff0000/
+  const coloursText = await showsText('the colour change', colours, colourChange)
+  check('…listed as the colour it changed, not the table\'s size', colourChange.test(coloursText), coloursText)
   await colours.getByRole('button', { name: /^Revert / }).click()
-  check('…and Revert puts the colours back', !!(await lib.until(async () => (await settings()).board.colors.doing !== '#ff0000', 5000)))
+  check('…and Revert puts the colours back', !!(await lib.until(async () => (await settings()).board.colors.doing !== '#ff0000', HUNG_MS)))
 
   // --- A fallback list: a label-only change is listed by that entry, old and new (#317).
   await inv('settings:setProviderFallback', 'claude-code', 'models', [{ value: 'opus', label: 'Opus' }, { value: 'sonnet', label: 'Sonnet' }])
   check('it renames a fallback model', await say('hive hive_update_setting {"id":"claude-code.modelFallback","value":[{"value":"opus","label":"Opus (big)"},{"value":"sonnet","label":"Sonnet"}]}'))
   const renamed = panel.locator('.assistant-action', { hasText: 'Models (fallback)' }).first()
-  check('…listed as the label that changed', /opus: Opus → opus: Opus \(big\)/.test(await renamed.innerText()), await renamed.innerText())
+  const relabel = /opus: Opus → opus: Opus \(big\)/
+  const renamedText = await showsText('the renamed model', renamed, relabel)
+  check('…listed as the label that changed', relabel.test(renamedText), renamedText)
 
   // --- A provider's prices: null puts back Hive's, a shipped model removed from the table too (#315); Revert removes it again.
   const removedNow = async () => JSON.stringify((await settings()).providers['claude-code'].pricesRemoved ?? [])
@@ -243,14 +293,17 @@ const check = (name, ok, extra = '') => {
   check('it resets the API prices', await say('hive hive_update_setting {"id":"claude-code.prices","value":null}'))
   check("…and the removed model has Hive's price again", (await removedNow()) === '[]', await removedNow())
   const reset = panel.locator('.assistant-action', { hasText: 'API prices' }).first()
-  check('…listed as the model put back', /claude-opus-4-8: removed → claude-opus-4-8: Hive's price/.test(await reset.innerText()), await reset.innerText())
+  const putBack = /claude-opus-4-8: removed → claude-opus-4-8: Hive's price/
+  const resetText = await showsText('the prices reset', reset, putBack)
+  check('…listed as the model put back', putBack.test(resetText), resetText)
   await reset.getByRole('button', { name: /^Revert / }).click()
-  check('…and Revert removes it again', !!(await lib.until(async () => (await removedNow()) === '["claude-opus-4-8"]', 5000)), await removedNow())
+  check('…and Revert removes it again', !!(await lib.until(async () => (await removedNow()) === '["claude-opus-4-8"]', HUNG_MS)), await removedNow())
 
   // --- Refused: its own Control, and what Hive runs.
   check('it tries to raise its own Control', await say('hive hive_update_setting {"id":"assistant.control","value":"look"}'))
   check('…which stays as it was', (await settings()).assistant.control === 'projects')
-  check('…listed as not done', (await panel.locator('.assistant-action.failed', { hasText: 'Change Settings → Assistant → Control' }).count()) === 1)
+  const controlRefused = panel.locator('.assistant-action.failed', { hasText: 'Change Settings → Assistant → Control' })
+  check('…listed as not done', !!(await shows('the refused Control change', async () => (await controlRefused.count()) === 1)), `${await controlRefused.count()} rows`)
   check('it tries to change a CLI path', await say('hive hive_update_setting {"id":"claude-code.executablePath","value":"C:\\\\evil.exe"}'))
   check("…which stays as it was", (await settings()).providers['claude-code'].executablePath.endsWith('fake-claude.cmd'))
 
@@ -258,7 +311,7 @@ const check = (name, ok, extra = '') => {
   await inv('settings:update', { assistant: { changeSettings: false } })
   check('with Change settings off, it tries again', await say('hive hive_update_setting {"id":"sessions.transcriptWarnMB","value":60}'))
   check('…and nothing changes', (await settings()).sessions.transcriptWarnMB === 20)
-  check('…listed as not done, saying why', (await panel.locator('.assistant-action.failed', { hasText: 'Change Settings → Sessions → Warn when a transcript is over' }).count()) >= 1)
+  check('…listed as not done, saying why', !!(await shows('the refused change', async () => (await panel.locator('.assistant-action.failed', { hasText: 'Change Settings → Sessions → Warn when a transcript is over' }).count()) >= 1)))
 
   await app.close()
   console.log(failed ? `${failed} check(s) failed` : 'all checks passed')
