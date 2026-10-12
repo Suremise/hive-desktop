@@ -3,7 +3,7 @@ import type { CleanupItem, CleanupOptions } from './types'
 
 const DAY = 24 * 60 * 60 * 1000
 
-export const DEFAULT_CLEANUP: CleanupOptions = { archivedImagesDays: 90, orphanImages: false, archivedBackupsDays: null, goneBackups: false }
+export const DEFAULT_CLEANUP: CleanupOptions = { archivedAttachmentsDays: 90, orphanAttachments: false, archivedBackupsDays: null, goneBackups: false }
 
 /** A size for Storage: "820 KB", "6.1 MB", "2.4 GB". */
 export function formatSize(n: number): string {
@@ -30,15 +30,15 @@ export interface CleanupSession {
 
 export interface CleanupFacts {
   sessions: CleanupSession[]
-  /** The folders in .hive/images: a session id, or run-<launch> for a launch that had no id yet. */
-  imageFolders: { name: string; path: string; bytes: number }[]
+  /** The folders in .hive/attachments: a session id, or run-<launch> for a launch that had no id yet. */
+  attachmentFolders: { name: string; path: string; bytes: number }[]
   /** Session ids and run-<launch> names of what is running now. */
   liveNames: Set<string>
   now: number
 }
 
 /**
- * What Clean Up removes with these options: images of archived sessions last active more than N days ago, images of
+ * What Clean Up removes with these options: attachments of archived sessions last active more than N days ago, attachments of
  * sessions Hive no longer has (deleted, or launches that never got an id), Hive's backups of archived sessions older
  * than N days that the CLI still has, and the backups of archived sessions the CLI no longer has (which deletes them).
  * Running and non-archived sessions are never in it.
@@ -48,12 +48,12 @@ export function planCleanup(facts: CleanupFacts, opts: CleanupOptions): CleanupI
   const old = (s: CleanupSession, days: number): boolean => facts.now - Date.parse(s.lastActiveAt) > days * DAY
   const byId = new Map(facts.sessions.map((s) => [s.id.toLowerCase(), s]))
   const label = (s: CleanupSession): string => s.name || s.id.slice(0, 8)
-  for (const f of facts.imageFolders) {
+  for (const f of facts.attachmentFolders) {
     if (facts.liveNames.has(f.name.toLowerCase())) continue
     const s = byId.get(f.name.toLowerCase())
     if (s) {
-      if (!s.running && s.archived && opts.archivedImagesDays !== null && old(s, opts.archivedImagesDays)) items.push({ kind: 'archived-images', path: f.path, bytes: f.bytes, sessionId: s.id, label: label(s) })
-    } else if (opts.orphanImages) items.push({ kind: 'orphan-images', path: f.path, bytes: f.bytes, label: /^run-/i.test(f.name) ? 'A launch that never got a session' : `Deleted session ${f.name.slice(0, 8)}` })
+      if (!s.running && s.archived && opts.archivedAttachmentsDays !== null && old(s, opts.archivedAttachmentsDays)) items.push({ kind: 'archived-attachments', path: f.path, bytes: f.bytes, sessionId: s.id, label: label(s) })
+    } else if (opts.orphanAttachments) items.push({ kind: 'orphan-attachments', path: f.path, bytes: f.bytes, label: /^run-/i.test(f.name) ? 'A launch that never got a session' : `Deleted session ${f.name.slice(0, 8)}` })
   }
   for (const s of facts.sessions) {
     if (s.running || !s.archived || !s.backups.length) continue

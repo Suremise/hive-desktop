@@ -18,6 +18,8 @@ export interface GitResult {
   code: number
   /** Git couldn't be started: not installed, or not on Hive's PATH (#346). Never an answer about the repository. */
   missing?: boolean
+  /** Stopped at its `timeout` (GitRunOptions). */
+  timedOut?: boolean
 }
 
 /**
@@ -29,9 +31,15 @@ export interface GitResult {
  */
 export const GIT_PREFIX = ['--no-optional-locks', '-c', 'diff.autoRefreshIndex=false', '-c', 'core.quotepath=off'] as const
 
-export function git(cwd: string, args: string[], maxBuffer = 16 * 1024 * 1024, input?: string): Promise<GitResult> {
+/** A command that may take a while or reach a remote (the Git view's fetch, pull, push): its own environment and a time limit. */
+export interface GitRunOptions {
+  env?: NodeJS.ProcessEnv
+  timeout?: number
+}
+
+export function git(cwd: string, args: string[], maxBuffer = 16 * 1024 * 1024, input?: string, opts: GitRunOptions = {}): Promise<GitResult> {
   return new Promise((res) => {
-    const child = execFile('git', [...GIT_PREFIX, ...args], { cwd, windowsHide: true, maxBuffer, encoding: 'buffer' }, (err, stdout, stderr) => {
+    const child = execFile('git', [...GIT_PREFIX, ...args], { cwd, windowsHide: true, maxBuffer, encoding: 'buffer', ...(opts.env ? { env: opts.env } : {}), ...(opts.timeout ? { timeout: opts.timeout } : {}) }, (err, stdout, stderr) => {
       const buf = (stdout as unknown as Buffer) ?? Buffer.alloc(0)
       const errCode = (err as { code?: unknown } | null)?.code
       // Git didn't start. Node says ENOENT for a missing working folder too: that one is a failure, not a missing git.
@@ -40,7 +48,7 @@ export function git(cwd: string, args: string[], maxBuffer = 16 * 1024 * 1024, i
       if (missing) noteGitMissing()
       // Git ran (whatever it answered): not one that didn't start for another reason (no working folder, output too big).
       else if (!err || typeof errCode === 'number') noteGitRan()
-      res({ out: buf.toString('utf8'), ok: !err, buf, err: ((stderr as unknown as Buffer) ?? Buffer.alloc(0)).toString('utf8').trim(), code, ...(missing ? { missing } : {}) })
+      res({ out: buf.toString('utf8'), ok: !err, buf, err: ((stderr as unknown as Buffer) ?? Buffer.alloc(0)).toString('utf8').trim(), code, ...(missing ? { missing } : {}), ...((err as { killed?: boolean } | null)?.killed && opts.timeout ? { timedOut: true } : {}) })
     })
     // What the command reads (update-ref --stdin's transaction).
     if (input !== undefined) child.stdin?.end(input)

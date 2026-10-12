@@ -70,7 +70,10 @@ import type {
   QuitSession,
   SessionBulkAction,
   SessionBulkResult,
-  SessionImageGroup,
+  SessionAttachmentGroup,
+  AttachmentPlan,
+  Attached,
+  AttachmentContent,
   SessionListItem,
   WorkspaceUsage,
   WorkspaceStorage,
@@ -92,6 +95,7 @@ import type { AgentTemplate, TemplateDeleted, TemplateDest, TemplateEntry, Templ
 import type { ProjectPref, ProjectPrefValue } from './uiPrefs'
 import type { TipsChange, TipsState } from './tips'
 import type { GitTool } from './gitTool'
+import type { GitHistory, GitRepoInfo, GitRepoSummary } from './gitRepo'
 import type { BoardFoldChange } from './tasks'
 
 type DeepPartial<T> = { [K in keyof T]?: T[K] extends object ? DeepPartial<T[K]> : T[K] }
@@ -322,8 +326,12 @@ export interface HiveRequests {
   'session:restartInMode': (projectPath: string, agentId: string, mode: PermissionMode) => void
   /** Switches running agents whose settings now say a different mode (after "Switch now"). */
   'session:applyModes': () => { switched: string[]; skipped: string[] }
-  /** Saves the clipboard image (or copies sourceFile) into .hive/images/<sessionId>; null if the clipboard has no image. */
-  'session:saveImage': (projectPath: string, sourceFile?: string, agentId?: string) => string | null
+  /** Saves the clipboard image into .hive/attachments/<sessionId> and gives its path; null if the clipboard has no image. */
+  'session:pasteImage': (projectPath: string, agentId?: string) => string | null
+  /** How each file would be attached to the agent's session (#387): copied or by path, its size and kind. Nothing changes. */
+  'session:planAttach': (projectPath: string, sources: string[], agentId?: string) => AttachmentPlan[]
+  /** Attaches files to the agent's running session: copies those planAttach says into .hive/attachments/<sessionId>; the paths to paste. */
+  'session:attach': (projectPath: string, sources: string[], agentId?: string) => Attached[]
 
   /** Adds an agent to the project (up to twelve), creating its worktree if asked, or reusing one (#456: `reuse` says how). */
   'agents:add': (projectPath: string, opts: AddAgentOptions) => AddedAgent
@@ -521,11 +529,14 @@ export interface HiveRequests {
   'files:setUnsaved': (paths: string[]) => void
   'files:unwatch': (projectPath: string) => void
 
-  'images:list': (projectPath: string) => SessionImageGroup[]
-  'images:trash': (projectPath: string, path: string) => void
-  /** Moves all of a session's images to the Recycle Bin, all or none (not while it runs): how many went. */
-  'images:trashGroup': (projectPath: string, sessionId: string) => number
-  'images:copy': (path: string) => void
+  'attachments:list': (projectPath: string) => SessionAttachmentGroup[]
+  /** A kept attachment's text, for the viewer's previews. */
+  'attachments:read': (projectPath: string, path: string) => AttachmentContent
+  'attachments:trash': (projectPath: string, path: string) => void
+  /** Moves all of a session's attachments to the Recycle Bin, all or none (not while it runs): how many went. */
+  'attachments:trashGroup': (projectPath: string, sessionId: string) => number
+  /** Copies an image attachment to the clipboard. */
+  'attachments:copyImage': (path: string) => void
 
   /** root is a project or one of its agents' worktrees. With base, lists everything changed since the branch left base. */
   'git:status': (root: string, base?: string) => GitStatus
@@ -534,6 +545,22 @@ export interface HiveRequests {
   'changes:openFile': (root: string, file: string) => void
   /** Whether git itself runs (#346): as last checked, or checked again with `recheck`. */
   'git:tool': (recheck?: boolean) => GitTool
+  /** The Git view (#607), the project folder's only (agents' worktrees change through the merge flow). The user's: no agent tool reaches these. */
+  'git:summary': (projectPath: string) => GitRepoSummary
+  'git:info': (projectPath: string) => GitRepoInfo
+  'git:history': (projectPath: string) => GitHistory
+  /** Each action replies with what it did, in a sentence. Switching (and creating a branch to switch to) or pulling is refused while an agent works in the folder or its merge slot is held (`folderBusy`). */
+  'git:switch': (projectPath: string, branch: string) => string
+  'git:createBranch': (projectPath: string, name: string, stay?: boolean) => string
+  'git:addRemote': (projectPath: string, name: string, url: string) => string
+  'git:setRemoteUrl': (projectPath: string, name: string, url: string) => string
+  'git:fetch': (projectPath: string) => string
+  'git:pull': (projectPath: string) => string
+  /** To the upstream, or to `remote` (setting it as the upstream) when the branch has none. Never forced. */
+  'git:push': (projectPath: string, remote?: string) => string
+  'git:createTag': (projectPath: string, name: string, message: string, pushTo?: string) => string
+  /** This repository's own user.name and user.email; empty removes it (the global one applies). */
+  'git:setIdentity': (projectPath: string, name: string, email: string) => string
 
   /** Each provider's installed CLI, by provider. */
   'provider:info': () => Record<ProviderId, AgentInstallInfo>

@@ -102,7 +102,7 @@ describe('trash (src/main/trash.ts)', () => {
     await expect(trash(file)).resolves.toBeUndefined()
     expect(existsSync(file)).toBe(false)
     expect(readdirSync(dir).filter((n) => n.endsWith('-gone.md'))).toHaveLength(1)
-    // A group's delete (trashAllOrNothing, the Images tab's) goes through whole: nothing put back, nothing lost.
+    // A group's delete (trashAllOrNothing, the Attachments tab's) goes through whole: nothing put back, nothing lost.
     const group = ['a.png', 'b.png'].map((n) => join(base, n))
     for (const f of group) writeFileSync(f, f)
     await trashAllOrNothing(group, trash)

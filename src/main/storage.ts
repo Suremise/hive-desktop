@@ -1,4 +1,4 @@
-// Project Settings → Storage: what Hive keeps per project (backups, archive, images, worktrees), measured in the
+// Project Settings → Storage: what Hive keeps per project (backups, archive, attachments, worktrees), measured in the
 // background, and Clean Up…, which moves what its preview listed to the Recycle Bin.
 import { basename, join, resolve, sep } from 'path'
 import { lstat, opendir, readdir } from 'original-fs/promises'
@@ -11,6 +11,7 @@ import { sessions, type ListContext } from './sessions'
 import { workspace } from './workspace'
 import { unusedWorktreeFolders } from './unusedWorktrees'
 import { trash } from './trash'
+import { attachmentsDir } from './attachmentsFolder'
 
 const log = createLogger('storage')
 
@@ -21,7 +22,7 @@ interface DirSize {
   dirs: string[]
 }
 
-/** Folders whose files don't change in place (worktrees are walked again only where a folder changed; images are written once). */
+/** Folders whose files don't change in place (worktrees are walked again only where a folder changed; attachments are written once). */
 const dirCache = new Map<string, DirSize>()
 const MAX_CACHED_DIRS = 200_000
 
@@ -193,7 +194,7 @@ async function measure(projectPath: string, refresh: boolean, signal: AbortSigna
   // Backups grow in place, so they are always measured afresh (a few files).
   const backups = await folderSize(join(hive, 'sessions'), 'none', signal)
   const archive = await folderSize(join(hive, 'archive'), 'none', signal)
-  const images = await folderSize(join(hive, 'images'), cache, signal)
+  const attachments = await folderSize(await attachmentsDir(projectPath), cache, signal)
   const worktrees: ProjectStorage['worktrees'] = []
   if (!assistant) {
     for (const a of projectAgents(await workspace.projectConfig(projectPath))) {
@@ -209,10 +210,10 @@ async function measure(projectPath: string, refresh: boolean, signal: AbortSigna
     ...(assistant ? { assistant: true } : {}),
     sessions: backups,
     archive,
-    images,
+    attachments,
     worktrees,
     ...(unused.length ? { unusedWorktrees: unused } : {}),
-    total: backups + archive + images + [...worktrees, ...unused].reduce((n, w) => n + w.bytes, 0),
+    total: backups + archive + attachments + [...worktrees, ...unused].reduce((n, w) => n + w.bytes, 0),
     computedAt: new Date().toISOString()
   }
   results.set(projectPath.toLowerCase(), result)
@@ -237,7 +238,7 @@ export function workspaceStorage(refresh = false, request?: string, window?: num
   })
 }
 
-/** What Clean Up needs to know about a project's sessions and images. */
+/** What Clean Up needs to know about a project's sessions and attachments. */
 async function cleanupFacts(projectPath: string): Promise<CleanupFacts> {
   const file = await workspace.sessionsFile(projectPath)
   const ctx: ListContext = { records: file.sessions, cfg: await workspace.projectConfig(projectPath) }
@@ -251,14 +252,14 @@ async function cleanupFacts(projectPath: string): Promise<CleanupFacts> {
     const inCli = rec.archived && backups.length ? !!(await sessions.providerTranscript(projectPath, rec.id, ctx).catch(() => null)) : false
     list.push({ id: rec.id, name: rec.name, archived: rec.archived, lastActiveAt: rec.lastActiveAt, running: live.some((s) => s.sessionId === rec.id), inCli, backups })
   }
-  const imagesDir = join(projectPath, HIVE_DIR, 'images')
-  const imageFolders: CleanupFacts['imageFolders'] = []
-  for (const e of await readdir(imagesDir, { withFileTypes: true }).catch(() => [])) {
+  const dir = await attachmentsDir(projectPath)
+  const attachmentFolders: CleanupFacts['attachmentFolders'] = []
+  for (const e of await readdir(dir, { withFileTypes: true }).catch(() => [])) {
     if (!e.isDirectory()) continue
-    const path = join(imagesDir, e.name)
-    imageFolders.push({ name: e.name, path, bytes: await folderSize(path, 'use') })
+    const path = join(dir, e.name)
+    attachmentFolders.push({ name: e.name, path, bytes: await folderSize(path, 'use') })
   }
-  return { sessions: list, imageFolders, liveNames, now: Date.now() }
+  return { sessions: list, attachmentFolders, liveNames, now: Date.now() }
 }
 
 /** What Clean Up… would remove with these options (nothing is changed). */
@@ -268,15 +269,15 @@ export async function cleanupPreview(projectPath: string, opts: CleanupOptions):
 }
 
 /**
- * Moves an image folder to the Recycle Bin, checked again just before: its session wasn't unarchived, resumed or (for
+ * Moves a session's attachments folder to the Recycle Bin, checked again just before: its session wasn't unarchived, resumed or (for
  * an orphan) recorded since, and it can't be resumed while it goes (whileCleaning).
  */
-async function trashImages(projectPath: string, i: CleanupItem): Promise<void> {
+async function trashAttachments(projectPath: string, i: CleanupItem): Promise<void> {
   const name = basename(i.path).toLowerCase()
   await sessions.whileCleaning(projectPath, name, async () => {
     const rec = (await workspace.sessionsFile(projectPath)).sessions.find((s) => s.id.toLowerCase() === name)
-    if (i.kind === 'archived-images' && !rec?.archived) throw new Error('The session is no longer archived.')
-    if (i.kind === 'orphan-images' && rec) throw new Error('The folder belongs to a session again.')
+    if (i.kind === 'archived-attachments' && !rec?.archived) throw new Error('The session is no longer archived.')
+    if (i.kind === 'orphan-attachments' && rec) throw new Error('The folder belongs to a session again.')
     // After the read above: nothing is awaited between this check and the removal.
     if (sessions.projectStates(projectPath).some((s) => s.sessionId.toLowerCase() === name || `run-${s.runId}`.toLowerCase() === name)) throw new Error('The session is running.')
     await trash(i.path)
@@ -295,17 +296,17 @@ export async function cleanup(projectPath: string, opts: CleanupOptions, listed:
   const items = now.filter((i) => want.has(i.path.toLowerCase()))
   const qualifying = new Set(items.map((i) => i.path.toLowerCase()))
   const skipped = listed.filter((p) => !qualifying.has(p.toLowerCase())).map((p) => `${p}: no longer qualifies`)
-  const imagesRoot = resolve(projectPath, HIVE_DIR, 'images').toLowerCase() + sep
+  const attachmentsRoot = resolve(await attachmentsDir(projectPath)).toLowerCase() + sep
   let removed = 0
   let bytes = 0
   const done = (i: CleanupItem): void => {
     removed++
     bytes += i.bytes
   }
-  for (const i of items.filter((x) => x.kind === 'archived-images' || x.kind === 'orphan-images')) {
-    if (!resolve(i.path).toLowerCase().startsWith(imagesRoot)) continue
+  for (const i of items.filter((x) => x.kind === 'archived-attachments' || x.kind === 'orphan-attachments')) {
+    if (!resolve(i.path).toLowerCase().startsWith(attachmentsRoot)) continue
     try {
-      await trashImages(projectPath, i)
+      await trashAttachments(projectPath, i)
       done(i)
     } catch (e) {
       skipped.push(`${i.path}: ${(e as Error).message}`)

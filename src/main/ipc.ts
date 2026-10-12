@@ -20,6 +20,7 @@ import { setPinned } from './pin'
 import { presentWindow } from './testQuiet'
 import { insideArchive, insideReal, isFile, samePlace, writeTextAtomic, writeTextUnlessChanged } from './fsutil'
 import { gitDiff, gitStatus } from './git'
+import { addRemote, createBranch, createTag, fetchAll, pull, push, repoHistory, repoInfo, repoSummary, setIdentity, setRemoteUrl, switchBranch } from './gitRepo'
 import { checkGit, gitTool } from './gitTool'
 import { refreshPath } from './freshPath'
 import { mergeUnused, removalPreview, removeUnusedWorktree, unusedBranchStatus, unusedWorktrees } from './unusedWorktrees'
@@ -534,7 +535,9 @@ export function registerIpc(getAppInfo: () => ReturnType<HiveRequests['app:info'
     'session:allowLockedEdit': (p, agentId, path) => sessions.allowLockedEdit(p, agentId, path),
     'session:applyModes': () => sessions.applyModeSettings(),
     'session:compact': (p, focus, agentId) => sessions.compact(p, focus, agentId),
-    'session:saveImage': (p, sourceFile, agentId) => sessions.saveImage(p, sourceFile, agentId),
+    'session:pasteImage': (p, agentId) => sessions.pasteImage(p, agentId),
+    'session:planAttach': (p, sources, agentId) => sessions.planAttach(p, sources, agentId),
+    'session:attach': (p, sources, agentId) => sessions.attach(p, sources, agentId),
 
     'agents:add': (p, opts) => projectAgents.addAgent(p, opts),
     'agents:update': (p, id, patch) => projectAgents.updateAgent(p, id, patch),
@@ -626,9 +629,10 @@ export function registerIpc(getAppInfo: () => ReturnType<HiveRequests['app:info'
     'files:setUnsaved': (paths) => quitControl.setUnsaved(win(), Array.isArray(paths) ? paths.filter((p) => typeof p === 'string') : []),
     'files:unwatch': (p) => files.unwatchProject(p),
 
-    'images:list': (p) => files.listImages(p),
-    'images:trash': (p, path) => files.trashImage(p, path),
-    'images:trashGroup': (p, id) => files.trashImageGroup(p, id),
+    'attachments:list': (p) => files.listAttachments(p),
+    'attachments:read': (p, path) => files.readAttachment(p, path),
+    'attachments:trash': (p, path) => files.trashAttachment(p, path),
+    'attachments:trashGroup': (p, id) => files.trashAttachmentGroup(p, id),
     'transcript:read': (p, id, opts) => transcripts.read(p, id, opts ?? {}),
     'transcript:tool': (p, id, itemId) => transcripts.tool(p, id, itemId),
     'transcript:image': (p, id, imageId) => transcripts.image(p, id, imageId),
@@ -646,7 +650,7 @@ export function registerIpc(getAppInfo: () => ReturnType<HiveRequests['app:info'
       await writeTextAtomic(r.filePath, await transcripts.markdown(p, id, title))
       return r.filePath
     },
-    'images:copy': async (path) => {
+    'attachments:copyImage': async (path) => {
       // From its bytes: nativeImage reading a path itself is asar-aware (#246).
       const img = nativeImage.createFromBuffer(await readFile(guardFile(path)))
       if (img.isEmpty()) throw new Error('Not an image')
@@ -846,6 +850,19 @@ export function registerIpc(getAppInfo: () => ReturnType<HiveRequests['app:info'
       void shell.openPath(file)
     },
     'git:tool': (recheck) => (recheck ? checkGit() : gitTool()),
+    // The Git view (#607): the project folder only, read and changed by the user from the window (never an agent tool).
+    'git:summary': (p) => repoSummary(workspace.assertProject(p)),
+    'git:info': (p) => repoInfo(workspace.assertProject(p)),
+    'git:history': (p) => repoHistory(workspace.assertProject(p)),
+    'git:switch': (p, branch) => switchBranch(p, String(branch ?? '')),
+    'git:createBranch': (p, name, stay) => createBranch(p, String(name ?? ''), !!stay),
+    'git:addRemote': (p, name, url) => addRemote(p, String(name ?? ''), String(url ?? '')),
+    'git:setRemoteUrl': (p, name, url) => setRemoteUrl(p, String(name ?? ''), String(url ?? '')),
+    'git:fetch': (p) => fetchAll(p),
+    'git:pull': (p) => pull(p),
+    'git:push': (p, remote) => push(p, remote ? String(remote) : undefined),
+    'git:createTag': (p, name, message, pushTo) => createTag(p, String(name ?? ''), String(message ?? ''), pushTo ? String(pushTo) : undefined),
+    'git:setIdentity': (p, name, email) => setIdentity(p, String(name ?? ''), String(email ?? '')),
 
     'provider:info': () => providerService.all(),
     'provider:refresh': async (id) => {
