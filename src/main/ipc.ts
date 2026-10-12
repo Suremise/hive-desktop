@@ -1,5 +1,7 @@
 import { BrowserWindow, ClipboardItem, app, clipboard, dialog, ipcMain, nativeImage, shell } from 'electron'
 import { spawn } from 'child_process'
+import { AsyncLocalStorage } from 'async_hooks'
+import type { WebContents } from 'electron'
 import { existsSync } from 'original-fs'
 import { basename, dirname, isAbsolute, join, resolve } from 'path'
 import { readFile } from 'original-fs/promises'
@@ -32,6 +34,7 @@ import { mergeSlots, recoverMergeSlots, workspaceSlots } from './mergeSlotHost'
 import { followNames } from './projectRename'
 import { slotBranch } from './mergeSlots'
 import { endLane, listLanes, stampLaneProjects } from './lanes'
+import { cardCosts, laneCosts } from './cardCosts'
 import { badgeDescription } from '../shared/taskbar'
 import * as files from './files'
 import * as mcp from './mcp'
@@ -69,7 +72,15 @@ import { metricsExport, metricsReport } from './metricsUsage'
 import { cancelWatch, stampWatchProjects } from './watches'
 import { cancelMessages } from './agentMessages'
 import { cardBusy } from './cardBusy'
+import { devConsole } from './devConsole'
+import { consoleSources } from './devConsoleSources'
+import { mayRead, type ConsoleEvent } from '../shared/devConsole'
 import { benchContext, importBenchmark, keepReport, listBenchmarks, pinBenchmark, readBenchmark, removeBenchmark, selectBenchmarks } from './benchmarks'
+
+/** The window an IPC call came from, for calls that keep something per window (the developer console's subscription). */
+const senderStore = new AsyncLocalStorage<WebContents>()
+/** Windows subscribed to the developer console, each ending its subscription when it closes. */
+const consoleWindows = new Set<string>()
 
 /** The instruction files of the given providers in a project, with their content. */
 async function projectInstructions(project: string, ids: ProviderId[]): Promise<InstructionsFile[]> {
@@ -786,6 +797,13 @@ export function registerIpc(getAppInfo: () => ReturnType<HiveRequests['app:info'
       if (typeof id !== 'string' || !id) throw new Error('Which lane to end is required')
       return endLane(currentWorkspace(), id, { abandoned: abandoned === true })
     },
+    'costs:cards': (q) => {
+      if (!workspace.path) return []
+      const numbers = Array.isArray(q?.numbers) ? q.numbers.filter((n) => Number.isInteger(n) && n > 0).slice(0, 1000) : undefined
+      const time = (v: unknown): number | undefined => (typeof v === 'number' && Number.isFinite(v) ? v : undefined)
+      return cardCosts(currentWorkspace(), { numbers, project: typeof q?.project === 'string' ? q.project : null, from: time(q?.from), to: time(q?.to) })
+    },
+    'costs:lanes': (ids) => (workspace.path ? laneCosts(currentWorkspace(), Array.isArray(ids) ? ids.filter((x): x is string => typeof x === 'string') : undefined) : []),
     'progress:list': async () => {
       const ws = workspace.path
       if (!ws) return []
@@ -806,6 +824,36 @@ export function registerIpc(getAppInfo: () => ReturnType<HiveRequests['app:info'
       if (failed) throw new Error(failed)
     },
     'progress:showLog': async (id) => shell.showItemInFolder(await runLog(id)),
+    // The developer console (#636): this window's workspace's sources, and what it watches of them.
+    'console:sources': () => consoleSources(currentWorkspace()),
+    'console:subscribe': (sources, opts) => {
+      const wc = senderStore.getStore()
+      if (!wc) throw new Error('Not allowed')
+      const ws = currentWorkspace().path
+      if (!Array.isArray(sources)) throw new Error('sources must be a list')
+      const ids = sources.filter((s): s is string => typeof s === 'string' && !!ws && mayRead({ kind: 'assistant', workspace: ws }, s, (p) => workspaceFor(p)?.path ?? null))
+      const id = `window:${wc.id}`
+      if (!ids.length) {
+        devConsole.unsubscribe(id)
+        return {}
+      }
+      if (!consoleWindows.has(id)) {
+        consoleWindows.add(id)
+        wc.once('destroyed', () => {
+          consoleWindows.delete(id)
+          devConsole.unsubscribe(id)
+        })
+      }
+      const deliver = (events: ConsoleEvent[], dropped: number): void => {
+        if (!wc.isDestroyed()) wc.send('hive:event', { type: 'console-events', events, ...(dropped ? { dropped } : {}) })
+      }
+      return Object.fromEntries(devConsole.subscribe(id, ids, { deliver, includeText: opts?.includeText === true }))
+    },
+    'console:snapshot': (source, since) => {
+      const wc = senderStore.getStore()
+      if (!wc || !devConsole.sourcesOf(`window:${wc.id}`).includes(String(source))) return []
+      return devConsole.events(String(source), Number(since) || 0)
+    },
     'personas:list': () => personas.listPersonas(),
     'personas:create': async (name) => {
       const p = await personas.createPersona(name)
@@ -922,8 +970,8 @@ export function registerIpc(getAppInfo: () => ReturnType<HiveRequests['app:info'
       const delay = take(slow, channel)
       if (delay?.ms) await new Promise((r) => setTimeout(r, delay.ms))
       if (take(failing, channel)) throw new Error(`${channel} failed (HIVE_TEST_FAIL_IPC)`)
-      // Everything the call does is for that window's workspace.
-      return inWorkspace(w.ws, () => (fn as (...a: unknown[]) => unknown)(...args))
+      // Everything the call does is for that window's workspace (and from that window: the console's subscriptions).
+      return senderStore.run(e.sender, () => inWorkspace(w.ws, () => (fn as (...a: unknown[]) => unknown)(...args)))
     })
   }
 }

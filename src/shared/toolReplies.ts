@@ -12,7 +12,7 @@ import { shortDuration } from './progress'
 import { LANE_DEFAULT_EVENTS, type LaneEvent } from './laneWatch'
 
 /** A card as the Agent API shows it: with what its agent is doing now, and why it is stalled. */
-export interface TaskView extends Omit<TaskCard, 'agent' | 'decisions'> {
+export interface TaskView extends Omit<TaskCard, 'agent' | 'decisions' | 'held'> {
   /** The user's decisions, first (#357); without their ids. Absent when there are none. */
   decisions?: Omit<TaskDecision, 'id'>[]
   agent: { id: string; name: string; status: string; backgroundTasks: number } | null
@@ -412,4 +412,61 @@ export function releaseText(r: { branch: string; released?: boolean; next?: stri
 /** A slot's status in a line: who holds it, for how long, and who waits. */
 export function mergeSlotText(s: MergeSlotInfo, now: number): string {
   return `Merge slot for ${s.branch}: ${slotLine(s, now)}${s.waiting.length ? `; waiting: ${s.waiting.map((w) => w.name).join(', ')}` : ''}.`
+}
+
+/** A developer console source as GET /v1/console/sources and /v1/console/events give it (#636). */
+export interface ConsoleSourceRow {
+  /** For display only: cut and masked. */
+  label: string
+  kind: string
+  /** How a read names it, exactly: { source } for Hive or the Assistant, { agent: <its id>, project: <its project's name> } for an agent. */
+  select?: { source?: string; agent?: string; project?: string }
+  provider?: string
+  /** An open developer console is capturing it now. */
+  capturing: boolean
+  events: number
+}
+
+/** The arguments hive_console takes for a source, exactly as the listing gives them (JSON strings, so any name reads back). */
+const consoleArgs = (r: ConsoleSourceRow): string =>
+  Object.entries(r.select ?? {})
+    .map(([k, v]) => `${k}=${JSON.stringify(v)}`)
+    .join(' ')
+
+/** A page of the sources a caller can read (GET /v1/console/sources), a line each, and where the next page starts. */
+export function consoleSourcesText(page: { total: number; offset: number; sources: ConsoleSourceRow[] }): string {
+  if (!page.total) return 'No developer console sources you can read.'
+  const rows = page.sources.map((r) => `${r.label}${r.provider ? ` (${r.provider})` : ''}: ${r.capturing ? `captured, ${r.events} events` : 'not captured'} [${consoleArgs(r)}]`)
+  const end = page.offset + page.sources.length
+  const more = end < page.total ? `\nSources ${page.offset + 1}–${end} of ${page.total}: offset=${end} for more.` : ''
+  return `${rows.join('\n')}${more}`
+}
+
+/** An event in a read: a row, or in full (seq) with its raw payload and what Hive made of it. */
+export interface ConsoleEventRow {
+  seq: number
+  at: string
+  kind: string
+  name: string
+  summary: string
+  truncated?: boolean
+  raw?: unknown
+  made?: unknown
+}
+
+/** What a read says when no open console captures the source: there is nothing to read, and why. */
+export const CONSOLE_NOT_CAPTURED = "not captured: the developer console isn't open on it (Hive captures only while the user has it open), so there is nothing to read."
+
+/** One read of a source (times in UTC): its rows, or the events asked for in full, and how to go on. */
+export function consoleEventsText(r: { source: ConsoleSourceRow; events: ConsoleEventRow[]; older?: number; newer?: number; newest?: number; missing?: number[] }): string {
+  const label = r.source.label
+  if (r.missing) {
+    const gone = r.missing.length ? `\nNot in its buffer now: ${r.missing.map((n) => `#${n}`).join(', ')}.` : ''
+    return `${label}:\n${r.events.map((e) => JSON.stringify(e)).join('\n')}${gone}`
+  }
+  if (!r.source.capturing) return `${label}: ${CONSOLE_NOT_CAPTURED}`
+  if (!r.events.length) return `${label}: captured by the open console; no events${r.newest ? ` after #${r.newest}` : ' yet'}.`
+  const rows = r.events.map((e) => `#${e.seq} ${e.at.slice(11, 19)} ${e.kind} ${e.summary}${e.truncated ? ' [cut]' : ''}`)
+  const more = r.newer ? `\n${r.newer} more after these.` : r.older ? `\n${r.older} earlier not shown.` : ''
+  return `${label}:\n${rows.join('\n')}${more}\nNext: since=${r.newest}. seq=[n] gives an event's raw payload and what Hive made of it.`
 }
