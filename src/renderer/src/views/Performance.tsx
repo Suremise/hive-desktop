@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef } from 'react'
 import type { ProjectInfo } from '@shared/types'
-import { providerName } from '@shared/providers'
-import { LATENCY_BOUNDS_MS, percentile, type GuidanceSeries, type MetricsReport, type MetricsScope, type ProviderUsageSummary, type TrendPoint } from '@shared/metrics'
+import { providerDescriptor, providerName } from '@shared/providers'
+import { LATENCY_BOUNDS_MS, percentile, type GuidanceSeries, type MetricsReport, type MetricsScope, type ProviderUsageSummary, type SafeguardCount, type TrendPoint } from '@shared/metrics'
 import { DEFAULT_PERF_FILTERS, PERF_RANGES, WORKSPACE_OWN, byRoute, byTool, isEmpty, latencyOrder, pageQuery, providersIn, select, totals, type PerfFilters, type PerfRole, type PerfSelection, type RouteRow, type ToolRow } from '@shared/metricsView'
 import { compareScopeKey, compareScopeOf } from '@shared/benchmark'
 import { money } from '@shared/usageTotals'
@@ -516,6 +516,7 @@ function ByProvider({ report, sel, rangeLabel, provider, setProvider }: { report
         <>
           <GuidanceTable sel={sel} unmeasured={totals(sel).skillsUnmeasured} />
           <ProvidersTable sel={sel} note={report.providersNote} unreadable={report.providersUnreadable} hosts={report.providersHosts} />
+          <SafeguardsTable sel={sel} />
         </>
       )}
     </section>
@@ -617,6 +618,8 @@ const PROVIDER_COLUMNS: DataColumn<ProviderUsageSummary>[] = [
     sortValue: (p) => (p.contextSessions ? p.contextAvgTokens : null)
   },
   { key: 'compactions', header: 'Compactions', num: true, descFirst: true, cell: (p) => (allUnknown(p) ? 'unknown' : num(p.compactions)), sortValue: (p) => (allUnknown(p) ? null : p.compactions) },
+  // Where the CLI's transcript can't say (Copilot, #606): not detected, never zero.
+  { key: 'safeguards', header: 'Safeguard stops', num: true, descFirst: true, cell: (p) => (providerDescriptor(p.provider).safeguardHelp === null ? 'not detected' : allUnknown(p) ? 'unknown' : num(p.safeguardStops)), sortValue: (p) => (providerDescriptor(p.provider).safeguardHelp === null || allUnknown(p) ? null : p.safeguardStops) },
   {
     key: 'cost',
     header: 'Cost',
@@ -632,6 +635,26 @@ const PROVIDER_COLUMNS: DataColumn<ProviderUsageSummary>[] = [
     sortValue: (p) => (p.costUnknown === p.sessions ? null : p.costUsd)
   }
 ]
+
+const SAFEGUARD_COLUMNS: DataColumn<SafeguardCount>[] = [
+  { key: 'agent', header: 'Agent', cell: (g) => <CellLines main={g.agent} sub={g.project} />, sortValue: (g) => `${g.project} ${g.agent}` },
+  { key: 'model', header: 'Model', cell: (g) => (g.model ? providerDescriptor(g.provider).modelLabel(g.model) : 'unknown'), sortValue: (g) => g.model },
+  { key: 'stops', header: 'Stops', num: true, descFirst: true, cell: (g) => num(g.stops), sortValue: (g) => g.stops }
+]
+
+/** Safeguard stops (#606) per agent and model, in the sessions active in the range: only when there were any. */
+function SafeguardsTable({ sel }: { sel: PerfSelection }) {
+  if (!sel.safeguards.length) return null
+  return (
+    <>
+      <h2 className="section">
+        Safeguard stops{' '}
+        <InfoTip text="Responses a CLI's safety classifier stopped, in the sessions active in the range (each session's whole count), per agent and the model each was on. Copilot's sessions don't record them, so they aren't counted." />
+      </h2>
+      <DataTable id="perf-safeguards" rows={sel.safeguards} columns={SAFEGUARD_COLUMNS} rowKey={(g) => `${g.project} ${g.agent} ${g.provider} ${g.model}`} empty="No safeguard stops." />
+    </>
+  )
+}
 
 function GuidanceTable({ sel, unmeasured }: { sel: PerfSelection; unmeasured: number }) {
   if (!sel.guidance.length) return null

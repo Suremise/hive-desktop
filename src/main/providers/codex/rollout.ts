@@ -6,6 +6,8 @@ import { isSessionId } from '../../../shared/defaults'
 import { firstLine, shortPath, toolLabel, type NewItem } from '../conversation'
 import type { ConversationParserLike, ImageLocation, LiveDetails } from '../types'
 import { advanced } from '../../advanced'
+import { countSafeguards } from '../../../shared/safeguards'
+import { codexSafeguards } from './safeguards'
 
 /**
  * Codex's rollout files (~/.codex/sessions/YYYY/MM/DD/rollout-<time>-<id>.jsonl): one JSON record per
@@ -168,6 +170,9 @@ export class CodexUsageParser {
   private timeline = new TimelineBuilder()
   /** The last running totals seen, to count each day's increase. */
   private last: UsageTokens = { inputTokens: 0, outputTokens: 0, cacheWriteTokens: 0, cacheReadTokens: 0 }
+  /** Safeguard stops by the model they stopped (#606), and the detection's own memo. */
+  private safeguards: Record<string, number> = {}
+  private safeguardMemo: Record<string, unknown> = {}
 
   constructor(sessionId: string) {
     this.usage = {
@@ -203,6 +208,7 @@ export class CodexUsageParser {
   /** Reads whole lines of the rollout (the next part of it). */
   feed(text: string): void {
     const usage = this.usage
+    countSafeguards(this.safeguards, codexSafeguards(text, this.safeguardMemo))
     for (const line of text.split('\n')) {
       const r = parseLine(line)
       if (!r) continue
@@ -276,7 +282,7 @@ export class CodexUsageParser {
   result(title: string | null = null): SessionUsage {
     const days: Record<string, DayUsage> = {}
     for (const [k, d] of Object.entries(this.days)) days[k] = { ...d }
-    return { ...this.usage, title, customTitle: title, compactions: this.usage.compactions.map((c) => ({ ...c })), days, timeline: this.timeline.timeline() }
+    return { ...this.usage, title, customTitle: title, compactions: this.usage.compactions.map((c) => ({ ...c })), days, timeline: this.timeline.timeline(), ...(Object.keys(this.safeguards).length ? { safeguards: { ...this.safeguards } } : {}) }
   }
 }
 

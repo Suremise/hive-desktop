@@ -10,6 +10,7 @@ import type { DateFormat, TimeFormat } from './dates'
 import type { ProjectPref } from './uiPrefs'
 import type { GitTool } from './gitTool'
 import type { ConsoleEvent, ConsoleRecordingInfo } from './devConsole'
+import type { SafeguardNote, ScreenStop } from './safeguards'
 import type { AgentLeftovers, LeftoverProcessMode } from './agentProcesses'
 import type { UsageTimeline } from './usageTimeline'
 
@@ -1070,6 +1071,11 @@ export interface SessionRecord {
    * counting it once the CLI's copy is gone too.
    */
   keptUsage?: SessionUsage
+  /**
+   * Safeguard stops Hive saw only on the CLI's screen (its prompt about one, #606), so Performance counts them (usage()
+   * adds the unmatched ones to SessionUsage.safeguards): the transcript may never record them.
+   */
+  screenStops?: ScreenStop[]
   /** A session the CLI started for another one (e.g. a Codex guardian review), kept when it was adopted. */
   sub?: SubSession
   /**
@@ -1248,6 +1254,12 @@ export interface LiveSessionState {
    * message and when. Status `signin` until the CLI is signed in again, then `ready`; Resume (n) carries it on.
    */
   signIn?: { message: string; since: string }
+  /**
+   * Its CLI's safety classifier stopped a response this launch, or its model changed after one (#606): when, the model,
+   * the names of its last tool calls before it (never their input nor what was stopped), and whether it waits on the
+   * CLI's prompt about it, is idle after it, or runs on another model since. Absent when none.
+   */
+  safeguard?: SafeguardNote
   /** Reported by the provider once the session has started. */
   effort?: string
   modelName?: string
@@ -1584,6 +1596,16 @@ export interface SessionUsage {
    * parser's result and removed before pricing, so it never travels with the session's usage.
    */
   timeline?: UsageTimeline
+  /**
+   * Responses the CLI's safety classifier stopped (#606), by the model each was on ('' when the CLI didn't say): absent
+   * when none, or for a CLI Hive can't detect them in (shared/safeguards.ts).
+   */
+  safeguards?: Record<string, number>
+  /**
+   * Of those, the CLI's records of stops it may have asked about first (SafeguardEvent.asked), per turn (its prompt's id):
+   * a stop Hive saw on screen in that turn (SessionRecord.screenStops) is one of them, not another (withScreenStops).
+   */
+  safeguardsAsked?: Record<string, number>
 }
 
 export interface UsageTokens {
@@ -1615,6 +1637,8 @@ export interface KeptUsage {
   id: string
   provider: ProviderId
   agentId?: string
+  /** That agent's name when the session was deleted (SessionRecord.agentName), for totals by agent once it is gone. */
+  agentName?: string
   cwd?: string
   name: string
   usage: SessionUsage

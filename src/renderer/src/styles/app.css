@@ -469,6 +469,27 @@ kbd {
   margin-top: 2px;
   word-break: break-word;
 }
+/* A safeguard stop or the model fallback after one, beside an agent's status (SafeguardMark, #606). */
+.safeguard-mark {
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+  flex: none;
+  min-width: 0;
+  color: var(--fg-muted);
+  font-size: 12px;
+}
+.safeguard-mark.alert {
+  color: var(--warning);
+}
+.safeguard-mark .codicon {
+  font-size: 13px;
+}
+.safeguard-model {
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
 .activity-btn.active::before {
   content: '';
   position: absolute;
