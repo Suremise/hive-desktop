@@ -334,14 +334,22 @@ describe('limits', () => {
   it("a bundled skill made too big is the user's edit: shown as changed, and kept when the workspace opens again", async () => {
     const ws = join(base, 'toobig-bundled')
     const w = await open(ws)
-    const big = join(ws, '.hive', 'skills', 'pick-up', 'big.bin')
-    writeFileSync(big, Buffer.alloc(65 * 1024 * 1024, 1))
-    const pick = (await inWorkspace(w, () => skillRevisions())).find((s) => s.name === 'pick-up')!
-    expect([pick.bundled, pick.problem]).toEqual(['changed', 'too big to check: it is over 64 MB'])
-    await w.open(ws)
-    await inWorkspace(w, () => syncBundled())
-    expect(existsSync(big)).toBe(true)
-    await disposeWorkspaceService(w)
+    // The byte limit lowered for this test (1 MB): the same outcome over a file just above it, rather than writing 65 MB
+    // into the scanned temp folder and reading up to 64 MB of it at each check, which took over 20 s under load (#666).
+    const limits = { ...HASH_LIMITS }
+    Object.assign(HASH_LIMITS, { bytes: 1024 * 1024 })
+    try {
+      const big = join(ws, '.hive', 'skills', 'pick-up', 'big.bin')
+      writeFileSync(big, Buffer.alloc(HASH_LIMITS.bytes + 1024, 1))
+      const pick = (await inWorkspace(w, () => skillRevisions())).find((s) => s.name === 'pick-up')!
+      expect([pick.bundled, pick.problem]).toEqual(['changed', 'too big to check: it is over 1 MB'])
+      await w.open(ws)
+      await inWorkspace(w, () => syncBundled())
+      expect(existsSync(big)).toBe(true)
+    } finally {
+      Object.assign(HASH_LIMITS, limits)
+      await disposeWorkspaceService(w)
+    }
   })
 
   it("an over-limit skill shows why it has no revision; a link isn't followed", async () => {
