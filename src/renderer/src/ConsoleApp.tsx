@@ -1,0 +1,324 @@
+import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
+import type { ConsoleEvent, ConsoleSource } from '@shared/devConsole'
+import { clockTime, filterChoices, filterEvents, mergeEvents, sourceGroups, sourceOption, startsOpen } from '@shared/consoleView'
+import type { AppSettings, HiveEvent } from '@shared/types'
+import { providerName } from '@shared/providers'
+import { call, errorMessage } from './api'
+import { Icon, IconButton } from './components/ui'
+import { cx } from './util'
+import './styles/console.css'
+
+/**
+ * The developer console window (#366, #637): pick a source (an agent's session, the Assistant or Hive itself) and watch
+ * what comes in next to what Hive made of it. Capture runs while this window watches a source (#636); pause stops the
+ * list moving (capture goes on, and resuming fills in from the ring), clear hides what came before.
+ */
+
+function applyTheme(s: AppSettings | null): void {
+  if (!s) return
+  const t = s.appearance.theme === 'system' ? (window.matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light') : s.appearance.theme
+  document.documentElement.dataset.theme = t
+  document.documentElement.style.setProperty('--ui-font-size', `${s.appearance.uiFontSize}px`)
+}
+
+const NO_SOURCES: ConsoleSource[] = []
+
+export function ConsoleApp() {
+  const [sources, setSources] = useState<ConsoleSource[]>(NO_SOURCES)
+  const [source, setSource] = useState('')
+  const [events, setEvents] = useState<ConsoleEvent[]>([])
+  const [paused, setPaused] = useState(false)
+  const [waiting, setWaiting] = useState(0)
+  const [dropped, setDropped] = useState(0)
+  const [afterSeq, setAfterSeq] = useState(0)
+  const [provider, setProvider] = useState('')
+  const [hiddenKinds, setHiddenKinds] = useState<ReadonlySet<string>>(() => new Set())
+  const [search, setSearch] = useState('')
+  const [picked, setPicked] = useState<number | null>(null)
+  const [error, setError] = useState('')
+  const pausedRef = useRef(false)
+  const sourceRef = useRef('')
+  const listRef = useRef<HTMLDivElement>(null)
+  const stick = useRef(true)
+  const searchRef = useRef<HTMLInputElement>(null)
+  const eventsRef = useRef(events)
+  eventsRef.current = events
+
+  useEffect(() => {
+    let settings: AppSettings | null = null
+    void call('settings:get').then((s) => {
+      settings = s
+      applyTheme(s)
+    })
+    const mq = window.matchMedia('(prefers-color-scheme: dark)')
+    const onScheme = (): void => applyTheme(settings)
+    mq.addEventListener('change', onScheme)
+    const off = window.hive.onEvent((e: HiveEvent) => {
+      if (e.type === 'settings-changed') {
+        settings = e.settings
+        applyTheme(e.settings)
+      } else if (e.type === 'console-events') {
+        const mine = e.events.filter((x) => x.source === sourceRef.current)
+        if (e.dropped) setDropped((n) => n + e.dropped!)
+        if (!mine.length) return
+        if (pausedRef.current) setWaiting((n) => n + mine.length)
+        else setEvents((list) => mergeEvents(list, mine))
+      }
+    })
+    return () => {
+      off()
+      mq.removeEventListener('change', onScheme)
+    }
+  }, [])
+
+  const loadSources = useCallback(() => {
+    call('console:sources').then(
+      (list) => {
+        setSources(list)
+        setError('')
+      },
+      (e) => setError(errorMessage(e))
+    )
+  }, [])
+
+  useEffect(() => {
+    loadSources()
+    window.addEventListener('focus', loadSources)
+    return () => window.removeEventListener('focus', loadSources)
+  }, [loadSources])
+
+  // Watching a source starts its capture; another source replaces it, none ends it.
+  useEffect(() => {
+    sourceRef.current = source
+    setEvents([])
+    setPicked(null)
+    setWaiting(0)
+    setDropped(0)
+    setAfterSeq(0)
+    stick.current = true
+    if (!source) {
+      void call('console:subscribe', []).catch(() => undefined)
+      return
+    }
+    let stale = false
+    call('console:subscribe', [source]).then(
+      (got) => {
+        if (stale) return
+        setEvents((list) => mergeEvents(list, got[source] ?? []))
+        loadSources()
+      },
+      (e) => !stale && setError(errorMessage(e))
+    )
+    return () => {
+      stale = true
+    }
+  }, [source, loadSources])
+
+  const resume = useCallback(() => {
+    pausedRef.current = false
+    setPaused(false)
+    setWaiting(0)
+    const from = sourceRef.current
+    if (!from) return
+    // What came while paused is still in the source's ring.
+    const list = eventsRef.current
+    const since = list.length ? list[list.length - 1].seq : 0
+    void call('console:snapshot', from, since).then((got) => sourceRef.current === from && setEvents((l) => mergeEvents(l, got)))
+  }, [])
+
+  const pause = useCallback(() => {
+    pausedRef.current = true
+    setPaused(true)
+  }, [])
+
+  const clear = useCallback(() => {
+    const list = eventsRef.current
+    if (list.length) setAfterSeq(list[list.length - 1].seq)
+    setPicked(null)
+    setDropped(0)
+  }, [])
+
+  const choices = useMemo(() => filterChoices(events), [events])
+  const shown = useMemo(() => filterEvents(events, { provider, hiddenKinds, search, afterSeq }), [events, provider, hiddenKinds, search, afterSeq])
+  const current = picked === null ? null : (shown.find((e) => e.seq === picked) ?? events.find((e) => e.seq === picked) ?? null)
+  const groups = useMemo(() => sourceGroups(sources), [sources])
+  const watched = sources.find((s) => s.id === source)
+
+  // The list follows new events while it is scrolled to the bottom.
+  useLayoutEffect(() => {
+    const el = listRef.current
+    if (el && stick.current) el.scrollTop = el.scrollHeight
+  }, [shown])
+
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent): void => {
+      if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'f') {
+        e.preventDefault()
+        searchRef.current?.focus()
+        searchRef.current?.select()
+      } else if (e.key === 'Escape' && document.activeElement !== searchRef.current) setPicked(null)
+    }
+    window.addEventListener('keydown', onKey)
+    return () => window.removeEventListener('keydown', onKey)
+  }, [])
+
+  const toggleKind = (k: string): void =>
+    setHiddenKinds((h) => {
+      const next = new Set(h)
+      if (next.has(k)) next.delete(k)
+      else next.add(k)
+      return next
+    })
+
+  return (
+    <div className="dc">
+      <div className="dc-toolbar">
+        <select className="dc-source" value={source} onChange={(e) => setSource(e.target.value)} aria-label="Source">
+          <option value="">Pick a source…</option>
+          {groups.map((g) => (
+            <optgroup key={g.label} label={g.label}>
+              {g.sources.map((s) => (
+                <option key={s.id} value={s.id}>
+                  {sourceOption(s)}
+                </option>
+              ))}
+            </optgroup>
+          ))}
+        </select>
+        <IconButton icon="refresh" title="Refresh the sources" onClick={loadSources} />
+        <span className={cx('dc-live', !source ? 'off' : paused ? 'paused' : 'live')} role="status">
+          <Icon name={!source ? 'circle-large-outline' : paused ? 'debug-pause' : 'circle-filled'} />
+          {!source ? 'Not watching' : paused ? `Paused${waiting ? ` (${waiting} new)` : ''}` : 'Live'}
+        </span>
+        <IconButton icon={paused ? 'debug-start' : 'debug-pause'} title={paused ? 'Resume' : 'Pause'} onClick={paused ? resume : pause} disabled={!source} className="dc-pause" />
+        <IconButton icon="clear-all" title="Clear" onClick={clear} disabled={!events.length} className="dc-clear" />
+        <span className="dc-sep" />
+        <div className="dc-search">
+          <Icon name="search" />
+          <input ref={searchRef} value={search} onChange={(e) => setSearch(e.target.value)} placeholder="Search events (Ctrl+F)" aria-label="Search events" spellCheck={false} />
+          {search && <IconButton icon="close" title="Clear the search" onClick={() => setSearch('')} />}
+        </div>
+        <select className="dc-provider" value={provider} onChange={(e) => setProvider(e.target.value)} aria-label="Provider">
+          <option value="">All providers</option>
+          {choices.providers.map((p) => (
+            <option key={p} value={p}>
+              {providerName(p as never) || p}
+            </option>
+          ))}
+        </select>
+      </div>
+      {choices.kinds.length > 0 && (
+        <div className="dc-kinds" role="group" aria-label="Event types">
+          {choices.kinds.map((k) => (
+            <button key={k} className={cx('dc-kind', !hiddenKinds.has(k) && 'on')} aria-pressed={!hiddenKinds.has(k)} onClick={() => toggleKind(k)} data-kind={k}>
+              {k}
+            </button>
+          ))}
+        </div>
+      )}
+      {error && <div className="dc-error">{error}</div>}
+      <div className={cx('dc-body', current && 'with-detail')}>
+        <div
+          className="dc-list"
+          ref={listRef}
+          role="list"
+          onScroll={(e) => {
+            const el = e.currentTarget
+            stick.current = el.scrollHeight - el.scrollTop - el.clientHeight < 24
+          }}
+        >
+          {!source && <div className="dc-empty">Pick a source to watch. Hive captures a source only while this window watches it, and what it captures is redacted: no prompt or reply text, commands, tokens or sign-in details.</div>}
+          {source && !shown.length && <div className="dc-empty">{events.length ? 'No events match.' : 'Waiting for events…'}</div>}
+          {shown.map((e) => (
+            <div key={e.seq} role="listitem" className={cx('dc-row', picked === e.seq && 'picked')} data-kind={e.kind} onClick={() => setPicked(picked === e.seq ? null : e.seq)}>
+              <span className="dc-time">{clockTime(e.at)}</span>
+              <span className="dc-kind-tag">{e.kind}</span>
+              <span className="dc-name">{e.name}</span>
+              <span className="dc-summary" title={e.summary}>
+                {e.summary}
+              </span>
+              {e.truncated && <Icon name="fold" title="Cut down to its outline (too large)" />}
+            </div>
+          ))}
+        </div>
+        {current && (
+          <div className="dc-detail">
+            <div className="dc-detail-head">
+              <span className="dc-name">{current.name}</span>
+              <span className="dc-kind-tag">{current.kind}</span>
+              {current.provider && <span className="dc-meta">{providerName(current.provider)}</span>}
+              <span className="dc-meta">{clockTime(current.at)}</span>
+              <span className="dc-meta">{current.bytes.toLocaleString()} bytes</span>
+              {current.truncated && <span className="dc-meta">cut down to its outline</span>}
+              <span className="dc-sep" />
+              <IconButton icon="close" title="Close (Esc)" onClick={() => setPicked(null)} />
+            </div>
+            <div className="dc-summary-full">{current.summary}</div>
+            <div className="dc-sides">
+              <section className="dc-side dc-raw">
+                <h3>Raw</h3>
+                <Payload value={current.raw} />
+              </section>
+              <section className="dc-side dc-made">
+                <h3>What Hive made of it</h3>
+                <Payload value={current.made} />
+              </section>
+            </div>
+          </div>
+        )}
+      </div>
+      <div className="dc-status">
+        <span>
+          {shown.length === events.length ? `${events.length} events` : `${shown.length} of ${events.length} events`}
+          {afterSeq ? ' (cleared)' : ''}
+        </span>
+        {dropped > 0 && <span className="dc-dropped">{dropped} not delivered (too many at once)</span>}
+        {watched && <span>{watched.capturing ? 'Capturing' : 'Not capturing'}</span>}
+        <span className="dc-sep" />
+        <span>Redacted: no prompt or reply text, commands, tokens or sign-ins</span>
+      </div>
+    </div>
+  )
+}
+
+/** A payload as a tree; a large node starts collapsed below the top level. */
+function Payload({ value }: { value: unknown }) {
+  if (value === undefined) return <div className="dc-none">Nothing</div>
+  return (
+    <div className="dc-tree">
+      <Node value={value} depth={0} />
+    </div>
+  )
+}
+
+function Node({ name, value, depth }: { name?: string; value: unknown; depth: number }) {
+  const [open, setOpen] = useState(() => startsOpen(value, depth))
+  const label = name !== undefined && <span className="dc-key">{name}: </span>
+  if (value === null || typeof value !== 'object') {
+    return (
+      <div className="dc-leaf">
+        {label}
+        <span className={cx('dc-val', `dc-${value === null ? 'null' : typeof value}`)}>{typeof value === 'string' ? JSON.stringify(value) : String(value)}</span>
+      </div>
+    )
+  }
+  const list = Array.isArray(value)
+  const entries: [string, unknown][] = list ? value.map((v, i) => [String(i), v]) : Object.entries(value as Record<string, unknown>)
+  const count = list ? `[${entries.length}]` : `{${entries.length}}`
+  return (
+    <div className="dc-branch">
+      <div className="dc-toggle" onClick={() => setOpen(!open)} role="button" aria-expanded={open}>
+        <Icon name={open ? 'chevron-down' : 'chevron-right'} />
+        {label}
+        <span className="dc-count">{count}</span>
+      </div>
+      {open && (
+        <div className="dc-children">
+          {entries.map(([k, v]) => (
+            <Node key={k} name={k} value={v} depth={depth + 1} />
+          ))}
+        </div>
+      )}
+    </div>
+  )
+}

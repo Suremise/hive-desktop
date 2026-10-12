@@ -74,6 +74,7 @@ import { cancelMessages } from './agentMessages'
 import { cardBusy } from './cardBusy'
 import { devConsole } from './devConsole'
 import { consoleSources } from './devConsoleSources'
+import { CONSOLE_WINDOW_CHANNELS, consoleOwner, openConsoleWindow } from './consoleWindow'
 import { mayRead, type ConsoleEvent } from '../shared/devConsole'
 import { benchContext, importBenchmark, keepReport, listBenchmarks, pinBenchmark, readBenchmark, removeBenchmark, selectBenchmarks } from './benchmarks'
 
@@ -825,6 +826,13 @@ export function registerIpc(getAppInfo: () => ReturnType<HiveRequests['app:info'
     },
     'progress:showLog': async (id) => shell.showItemInFolder(await runLog(id)),
     // The developer console (#636): this window's workspace's sources, and what it watches of them.
+    'console:open': () => {
+      const wc = senderStore.getStore()
+      const owner = wc ? windowOf(wc) : null
+      if (!owner) throw new Error('Not allowed')
+      if (!config.settings.advanced.showDeveloperFeatures) throw new Error('The developer console is hidden: turn on Settings → Advanced → Show developer features.')
+      openConsoleWindow(owner)
+    },
     'console:sources': () => consoleSources(currentWorkspace()),
     'console:subscribe': (sources, opts) => {
       const wc = senderStore.getStore()
@@ -962,8 +970,9 @@ export function registerIpc(getAppInfo: () => ReturnType<HiveRequests['app:info'
   }
   for (const [channel, fn] of Object.entries(impl)) {
     ipcMain.handle(channel, async (e, ...args: unknown[]) => {
-      // Only Hive's own pages may call: not another window, and not a frame inside one (e.g. an HTML preview).
-      const w = windowOf(e.sender)
+      // Only Hive's own pages may call: not another window, and not a frame inside one (e.g. an HTML preview). A developer
+      // console's page calls only the console's channels, in the workspace of the window it belongs to (#637).
+      const w = windowOf(e.sender) ?? (CONSOLE_WINDOW_CHANNELS.has(channel) ? consoleOwner(e.sender) : null)
       if (!w || e.senderFrame?.parent) throw new Error('Not allowed')
       slow = testCalls('HIVE_TEST_SLOW_IPC', slow)
       failing = testCalls('HIVE_TEST_FAIL_IPC', failing)
