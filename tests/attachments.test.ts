@@ -1,7 +1,7 @@
 // Attachments (#387): which kind a file is and how each CLI's chip labels it; old .hive/images paths leading to the moved
 // files; the move of a host's .hive/images into .hive/attachments; and what attaching a file does (copied into the
 // session's folder, or by path), with the viewer's read of a kept attachment.
-import { existsSync, mkdirSync, readdirSync, readFileSync, symlinkSync, writeFileSync } from 'fs'
+import { existsSync, mkdirSync, readdirSync, readFileSync, rmSync, symlinkSync, writeFileSync } from 'fs'
 import { join } from 'path'
 import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it } from 'vitest'
 import * as electron from 'electron'
@@ -56,7 +56,7 @@ process.env.CODEX_HOME = join(base, 'codex-home')
 const { createWorkspaceService, disposeWorkspaceService, inWorkspace } = await import('../src/main/workspace')
 const files = await import('../src/main/files')
 const { sessions } = await import('../src/main/sessions')
-const { attachmentsDir, forgetMoves } = await import('../src/main/attachmentsFolder')
+const { attachmentsDir, forgetMoves, movedAttachment } = await import('../src/main/attachmentsFolder')
 const { projectStorage } = await import('../src/main/storage')
 
 describe.runIf(process.platform === 'win32')('attachments on disk', () => {
@@ -122,6 +122,73 @@ describe.runIf(process.platform === 'win32')('attachments on disk', () => {
     await attachmentsDir(proj)
     expect(existsSync(join(proj, '.hive', 'attachments'))).toBe(false)
     expect(readFileSync(join(outside, 'mine', 'personal.png'), 'utf8')).toBe('mine')
+  })
+
+  /** A folder outside every host, new for each case, with a junction to it at `at`. */
+  const linkAway = (at: string): string => {
+    const away = join(base, 'away', `${n}-${readdirSync(join(base)).length}-${Math.random().toString(36).slice(2, 8)}`)
+    mkdirSync(away, { recursive: true })
+    mkdirSync(join(at, '..'), { recursive: true })
+    symlinkSync(away, at, 'junction')
+    return away
+  }
+
+  it('never moves an old file through a linked session folder, out of the host', async () => {
+    const secret = write(join(proj, '.hive', 'images', sid, 'secret.png'), 'mine')
+    write(join(proj, '.hive', 'attachments', 'other', 'x.png'))
+    const away = linkAway(join(proj, '.hive', 'attachments', sid))
+    await run(() => files.listAttachments(proj))
+    expect(readdirSync(away)).toEqual([])
+    expect(readFileSync(secret, 'utf8')).toBe('mine')
+  })
+
+  it("an old link to a file the move renamed opens that file, not the one that kept its name, after a restart too", async () => {
+    write(join(proj, '.hive', 'attachments', sid, 'a.png'), 'new')
+    write(join(proj, '.hive', 'images', sid, 'a.png'), 'old')
+    await attachmentsDir(proj)
+    for (const restarted of [false, true]) {
+      if (restarted) forgetMoves()
+      const [oldLink, newLink] = await run(() => files.linkFiles(proj, [`.hive/images/${sid}/A.png`, `.hive/attachments/${sid}/a.png`]))
+      expect(readFileSync(join(proj, ...oldLink!.split('/')), 'utf8')).toBe('old')
+      expect(readFileSync(join(proj, ...newLink!.split('/')), 'utf8')).toBe('new')
+      expect(readFileSync((await movedAttachment(join(proj, '.hive', 'images', sid, 'a.png')))!, 'utf8')).toBe('old')
+    }
+  })
+
+  for (const where of ['session folder', 'attachments folder', '.hive folder'] as const) {
+    it(`never writes an attachment through a linked ${where}`, async () => {
+      if (where === '.hive folder') rmSync(join(proj, '.hive'), { recursive: true, force: true })
+      const at = where === 'session folder' ? join(proj, '.hive', 'attachments', sid) : where === 'attachments folder' ? join(proj, '.hive', 'attachments') : join(proj, '.hive')
+      const away = linkAway(at)
+      running()
+      await expect(run(() => sessions.attach(proj, [write(join(outside, `ext-${n}.log`))], 'a1'))).rejects.toThrow(/link or not a folder/)
+      expect(readdirSync(away, { recursive: true })).toEqual([])
+    })
+  }
+
+  it("nor through the Assistant's linked session folder", async () => {
+    const home = join(wsPath, '.hive', 'assistant')
+    const conv = '00000000-0000-4000-8000-0000000003a8'
+    const away = linkAway(join(home, '.hive', 'attachments', conv))
+    s.live.set(`${home.toLowerCase()}#assistant`, { state: { provider: 'claude-code', runId: 'r2', projectPath: home, agentId: 'assistant', cwd: wsPath, sessionId: conv, status: 'ready' } })
+    await expect(run(() => sessions.attach(home, [write(join(outside, 'for-assistant.log'))], 'assistant'))).rejects.toThrow(/link or not a folder/)
+    expect(readdirSync(away)).toEqual([])
+  })
+
+  it("a launch's early attachments move to its session's only between the host's own folders", async () => {
+    const early = sessions as unknown as { moveEarlyAttachments: (p: string, launch: string, id: string) => Promise<void> }
+    // A linked launch folder: what it leads to stays there.
+    const away = linkAway(join(proj, '.hive', 'attachments', 'run-r1'))
+    write(join(away, 'early.png'), 'mine')
+    await run(() => early.moveEarlyAttachments(proj, 'run-r1', sid))
+    expect(readdirSync(away)).toEqual(['early.png'])
+    expect(existsSync(join(proj, '.hive', 'attachments', sid))).toBe(false)
+    // A linked session folder: the launch's files stay in the host.
+    write(join(proj, '.hive', 'attachments', 'run-r2', 'early.png'), 'kept')
+    const away2 = linkAway(join(proj, '.hive', 'attachments', 'b0000000-0000-4000-8000-0000000003a9'))
+    await expect(run(() => early.moveEarlyAttachments(proj, 'run-r2', 'b0000000-0000-4000-8000-0000000003a9'))).rejects.toThrow(/link or not a folder/)
+    expect(readdirSync(away2)).toEqual([])
+    expect(readFileSync(join(proj, '.hive', 'attachments', 'run-r2', 'early.png'), 'utf8')).toBe('kept')
   })
 
   it('a file from outside the session folder is copied; one inside goes by its path, and so does a folder', async () => {

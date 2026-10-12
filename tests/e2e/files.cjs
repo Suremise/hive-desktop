@@ -35,6 +35,8 @@ for (const [i, id] of ids.entries()) {
   fs.writeFileSync(path.join(d, `2026-09-29_10-0${i}-30.png`), png)
 }
 fs.writeFileSync(path.join(proj, '.hive', 'images', ids[0], '2026-09-29_09-59-10_build.log'), 'line one\nline two\n')
+fs.writeFileSync(path.join(proj, '.hive', 'images', ids[0], '2026-09-29_09-59-00_notes.md'), '# Notes\n\nSome *notes*.\n')
+fs.writeFileSync(path.join(proj, '.hive', 'images', ids[0], '2026-09-29_09-58-50_table.csv'), 'name,size\nalpha,1\nbeta,2\n')
 fs.writeFileSync(path.join(proj, '.hive', 'images', ids[0], '2026-09-29_09-59-20_report.pdf'), '%PDF-1.4\n1 0 obj<</Type/Catalog/Pages 2 0 R>>endobj 2 0 obj<</Type/Pages/Kids[3 0 R]/Count 1>>endobj 3 0 obj<</Type/Page/Parent 2 0 R/MediaBox[0 0 300 144]>>endobj\ntrailer<</Root 1 0 R>>\n%%EOF\n')
 fs.writeFileSync(
   path.join(proj, '.hive', 'sessions.json'),
@@ -181,26 +183,45 @@ const check = (name, ok) => {
 
   // Attachments tab (#387): the old .hive/images moved into .hive/attachments, every kind listed, filters by kind.
   await page.locator('.tab', { hasText: 'Attachments' }).click()
-  await lib.until(async () => (await page.locator('.thumb').count()) === 6, 10000)
+  await lib.until(async () => (await page.locator('.thumb').count()) === 8, 10000)
   await page.screenshot({ path: path.join(shots, '4-attachments.png') })
-  check('attachments: 6, the log and the PDF too', (await page.locator('.thumb').count()) === 6)
-  check('attachments: the old images folder moved to .hive/attachments', !fs.existsSync(path.join(proj, '.hive', 'images')) && fs.readdirSync(path.join(proj, '.hive', 'attachments', ids[0])).length === 4, String(fs.existsSync(path.join(proj, '.hive', 'images'))))
+  check('attachments: 8, the log, Markdown, CSV and PDF too', (await page.locator('.thumb').count()) === 8)
+  check('attachments: the old images folder moved to .hive/attachments', !fs.existsSync(path.join(proj, '.hive', 'images')) && fs.readdirSync(path.join(proj, '.hive', 'attachments', ids[0])).length === 6, String(fs.existsSync(path.join(proj, '.hive', 'images'))))
   const desc = await page.locator('.images-desc').innerText().catch(() => '')
   check('attachments: a line says what the tab holds', desc === "Files pasted or dropped into this project's agents' sessions, by session.", desc)
   check('attachments: thumbnails load', await page.locator('.thumb img').first().evaluate((i) => i.complete && i.naturalWidth > 0))
   check('attachments: archived heading', (await page.locator('.images-archived').count()) === 1)
   const filters = await page.locator('.attachment-filter').allInnerTexts()
-  check('attachments: a filter for each kind there is', JSON.stringify(filters.map((f) => f.replace(/\s+/g, ' ').trim())) === JSON.stringify(['All 6', 'Images 4', 'PDFs 1', 'Text 1']), JSON.stringify(filters))
+  check('attachments: a filter for each kind there is', JSON.stringify(filters.map((f) => f.replace(/\s+/g, ' ').trim())) === JSON.stringify(['All 8', 'Images 4', 'PDFs 1', 'Text 3']), JSON.stringify(filters))
   await page.locator('.attachment-filter[data-kind="pdf"]').click()
   check('attachments: PDFs shows the PDF only', !!(await lib.until(async () => (await page.locator('.thumb').count()) === 1 && (await page.locator('.thumb[data-kind="pdf"]').count()) === 1, HUNG_MS)))
   await page.locator('.attachment-filter', { hasText: 'All' }).click()
-  await lib.until(async () => (await page.locator('.thumb').count()) === 6, HUNG_MS)
-  // The log opens as text in the viewer, the PDF in the PDF viewer.
-  await page.locator('.thumb[data-kind="text"]').click()
+  await lib.until(async () => (await page.locator('.thumb').count()) === 8, HUNG_MS)
+  // The log opens as text in the viewer, the PDF in the PDF viewer, Markdown and CSV in their previews: each inside the
+  // viewer's frame, not placed against the window.
+  const inFrame = (sel) => page.evaluate((s) => {
+    const el = document.querySelector(`.attachment-frame ${s}`)
+    const frame = el?.closest('.attachment-frame')
+    if (!el || !frame) return null
+    const a = el.getBoundingClientRect()
+    const b = frame.getBoundingClientRect()
+    return a.width > 0 && a.height > 0 && a.left >= b.left - 1 && a.top >= b.top - 1 && a.right <= b.right + 1 && a.bottom <= b.bottom + 1
+  }, sel)
+  await page.locator('.thumb[data-kind="text"]').first().click()
   check('viewer: a log shows its text', !!(await lib.until(async () => /line one/.test(await page.locator('.attachment-text').innerText({ timeout: 1000 }).catch(() => '')), HUNG_MS)))
   await page.screenshot({ path: path.join(shots, '5-viewer-text.png') })
   await page.keyboard.press('ArrowLeft')
-  check('viewer: the PDF shows in the PDF viewer', !!(await lib.until(async () => (await page.locator('.attachment-frame .pdf-preview').count()) === 1, HUNG_MS)))
+  check('viewer: the PDF shows in the PDF viewer, inside the frame', !!(await lib.until(async () => (await inFrame('.pdf-preview')) === true, HUNG_MS)))
+  // One key at a time: each waits for the viewer to show the next.
+  const title = () => page.locator('.dialog-header h2').innerText({ timeout: 1000 }).catch(() => '')
+  await page.keyboard.press('ArrowRight')
+  await lib.until(async () => (await title()).endsWith('build.log'), HUNG_MS)
+  await page.keyboard.press('ArrowRight')
+  check('viewer: Markdown shows in its preview, inside the frame', !!(await lib.until(async () => (await inFrame('.md-preview')) === true && /Some notes/.test(await page.locator('.attachment-frame .md-preview').innerText().catch(() => '')), HUNG_MS)))
+  await page.screenshot({ path: path.join(shots, '5-viewer-md.png') })
+  await page.keyboard.press('ArrowRight')
+  check('viewer: a CSV shows as its table, inside the frame', !!(await lib.until(async () => (await inFrame('.csv-preview')) === true && (await page.locator('.attachment-frame .csv-preview td', { hasText: 'beta' }).count()) === 1, HUNG_MS)))
+  await page.screenshot({ path: path.join(shots, '5-viewer-csv.png') })
   await page.keyboard.press('Escape')
   await lib.until(async () => (await page.locator('.image-viewer').count()) === 0, HUNG_MS)
   await page.locator('.thumb').first().click()

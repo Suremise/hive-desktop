@@ -3127,20 +3127,21 @@ p.hint {
   border-color: var(--accent);
   background: color-mix(in srgb, var(--accent) 16%, var(--bg-elevated));
 }
+/* The containing block of the Files tab's previews it reuses, which fill their parent (position: absolute; inset: 0). */
 .attachment-frame {
+  position: relative;
   flex: 1;
   min-width: 0;
-  height: 72vh;
+  /* The dialog's body is at most 76vh less its header and footer (about 100px), and pads 10px above and below. */
+  height: calc(76vh - 124px);
+  min-height: 200px;
   display: flex;
   flex-direction: column;
   border-radius: 4px;
   background: var(--bg-sidebar);
   overflow: auto;
 }
-.attachment-frame > .pdf-preview,
-.attachment-frame > .html-preview {
-  flex: 1;
-  width: 100%;
+.attachment-frame > .pdf-preview {
   border: none;
 }
 .attachment-text {

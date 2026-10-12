@@ -23,7 +23,7 @@ import { PROVIDERS, dangerModes, labelList, projectProviderConfig, providerSetti
 import { projectAgents } from '../shared/defaults'
 import { setDateStyle } from '../shared/dates'
 import { SERVABLE_EXT, servableType, unwatchAll } from './files'
-import { movedAttachmentPath } from '../shared/attachments'
+import { movedAttachment } from './attachmentsFolder'
 import { config } from './config'
 import { archiveOldDone, endReviews } from './tasks'
 import { emit, emitTo, onHiveEvent, toast } from './events'
@@ -674,7 +674,7 @@ app.whenReady().then(async () => {
     // Read with original-fs, never Electron's file: loader, which would open an archive on the path and keep it (#246, #261).
     let st = await stat(p).catch(() => null)
     // A path into the old .hive/images serves the file where it is now, in .hive/attachments (#387).
-    const moved = st ? null : movedAttachmentPath(p)
+    const moved = st ? null : await movedAttachment(p)
     if (moved && workspace.isAllowedPath(moved)) {
       st = await stat(moved).catch(() => null)
       p = moved

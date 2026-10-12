@@ -3,8 +3,8 @@ import { cp, lstat, mkdir, readdir, readFile, rename, rmdir, stat, writeFile } f
 import { basename, dirname, extname, join, relative, resolve, sep } from 'path'
 import { HIVE_DIR, assertSessionId } from '../shared/defaults'
 import type { AttachmentContent, FileContent, FileEntry, SessionAttachment, SessionAttachmentGroup } from '../shared/types'
-import { attachmentKind, movedAttachmentPath } from '../shared/attachments'
-import { attachmentsDir } from './attachmentsFolder'
+import { attachmentKind } from '../shared/attachments'
+import { attachmentsDir, movedAttachment } from './attachmentsFolder'
 import { emit } from './events'
 import { heldOpen, insideReal, isInUse, trashAllOrNothing, withFileLock } from './fsutil'
 import { INDEX_BUSY, git } from './git'
@@ -280,7 +280,8 @@ export async function linkFiles(projectPath: string, rels: string[]): Promise<(s
         if (typeof rel !== 'string') return null
         if (await isFile(rel)) return await spelledOnDisk(projectPath, rel)
         // A path into the old .hive/images leads to the file where it is now, in .hive/attachments (#387).
-        const moved = movedAttachmentPath(`/${rel}`)?.slice(1)
+        const to = await movedAttachment(join(projectPath, rel))
+        const moved = to ? toRel(projectPath, to) : null
         return moved && (await isFile(moved)) ? await spelledOnDisk(projectPath, moved) : null
       } catch {
         return null

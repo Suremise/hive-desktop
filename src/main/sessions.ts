@@ -1,7 +1,7 @@
 import { randomUUID, randomBytes } from 'crypto'
 import { basename, dirname, extname, isAbsolute, join, resolve } from 'path'
-import { copyFile, mkdir, open, readdir, rename, rm, stat, writeFile } from 'original-fs/promises'
-import { existsSync, realpathSync } from 'original-fs'
+import { copyFile, lstat, mkdir, open, readdir, rename, rm, rmdir, stat, writeFile } from 'original-fs/promises'
+import { constants as fsConstants, existsSync, realpathSync } from 'original-fs'
 import { typedText } from '../shared/terminalInput'
 import { failedStart, type StartFailure } from '../shared/startFailure'
 import { BrowserWindow, Notification, app, clipboard } from 'electron'
@@ -74,7 +74,7 @@ import { endAgentToken, newAgentToken } from './agentTokens'
 import { endHookToken, newHookToken } from './hookTokens'
 import { beingRead, viewingWindows } from './transcriptReads'
 import { trash } from './trash'
-import { attachmentsDir } from './attachmentsFolder'
+import { attachmentsDir, freeName, ownAttachmentsFolder } from './attachmentsFolder'
 import { attachmentKind } from '../shared/attachments'
 
 const log = createLogger('sessions')
@@ -1268,15 +1268,9 @@ class SessionManager {
   private async recordSession(projectPath: string, agent: Pick<AgentDef, 'id' | 'name' | 'worktree'>, l: LiveSession): Promise<void> {
     const { state } = l
     const sessionId = state.sessionId
-    // Attachments pasted before the provider named the session wait in the launch's folder: move them to the session's.
-    const attachments = await attachmentsDir(projectPath)
-    const early = join(attachments, `run-${state.runId}`)
-    if (existsSync(early)) {
-      const dest = join(attachments, sessionId)
-      await mkdir(dest, { recursive: true }).catch(() => undefined)
-      for (const f of await readdir(early).catch(() => [] as string[])) await rename(join(early, f), join(dest, f)).catch((e) => log.warn(`Could not move ${userText(f)}`, e))
-      await rm(early, { recursive: true, force: true }).catch(() => undefined)
-    }
+    // Attachments pasted before the provider named the session wait in the launch's folder: move them to the session's,
+    // only between folders of the host's own (never through a link) and never over a file there.
+    await this.moveEarlyAttachments(projectPath, `run-${state.runId}`, sessionId).catch((e) => log.warn("Could not move the launch's attachments to its session's", e))
     await workspace.upsertSession(projectPath, {
       id: sessionId,
       agent: state.provider,
@@ -3255,7 +3249,8 @@ class SessionManager {
     if (!item) return null
     const png = Buffer.from(await ((await item.getType('image/png')) as Blob).arrayBuffer())
     const dest = await this.attachmentFile(projectPath, l, null)
-    await writeFile(dest, png)
+    // A new file only (wx): never one already there, or a link left in its place.
+    await writeFile(dest, png, { flag: 'wx' })
     return dest
   }
 
@@ -3297,7 +3292,7 @@ class SessionManager {
         continue
       }
       const dest = await this.attachmentFile(projectPath, l, p.name)
-      await copyFile(p.source, dest)
+      await copyFile(p.source, dest, fsConstants.COPYFILE_EXCL)
       out.push({ source: p.source, path: dest, name: p.name, kind: p.kind, copied: true })
     }
     return out
@@ -3317,8 +3312,8 @@ class SessionManager {
    * the session id, they go in a folder named after the launch.
    */
   private async attachmentFile(projectPath: string, l: LiveSession, name: string | null): Promise<string> {
-    const dir = join(await attachmentsDir(projectPath), l.state.sessionId || `run-${l.state.runId}`)
-    await mkdir(dir, { recursive: true })
+    // A folder of the host's own all the way down, or it throws: an attachment is never written through a link.
+    const dir = await ownAttachmentsFolder(projectPath, l.state.sessionId || `run-${l.state.runId}`)
     const d = new Date()
     const pad = (n: number): string => String(n).padStart(2, '0')
     const stamp = `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}_${pad(d.getHours())}-${pad(d.getMinutes())}-${pad(d.getSeconds())}`
@@ -3326,9 +3321,23 @@ class SessionManager {
     const own = name ? name.replace(/[<>:"/\\|?*\x00-\x1f]/g, '_').replace(/[. ]+$/, '').slice(-100) : ''
     const ext = own ? extname(own) : '.png'
     const base = own ? `${stamp}_${own.slice(0, own.length - ext.length)}` : stamp
-    let dest = join(dir, `${base}${ext}`)
-    for (let i = 2; existsSync(dest); i++) dest = join(dir, `${base}-${i}${ext}`)
-    return dest
+    return freeName(dir, `${base}${ext}`, (i) => `-${i + 1}`)
+  }
+
+  /** Moves a launch's early attachments folder into its session's, when both are folders of the host's own. */
+  private async moveEarlyAttachments(projectPath: string, launchFolder: string, sessionId: string): Promise<void> {
+    const early = join(await attachmentsDir(projectPath), launchFolder)
+    const st = await lstat(early).catch(() => null)
+    if (!st) return
+    if (st.isSymbolicLink() || !st.isDirectory() || !insideReal(early, [projectPath])) return log.warn(`${userText(early)} is a link or not a folder: its attachments stay`)
+    const dest = await ownAttachmentsFolder(projectPath, sessionId)
+    for (const f of await readdir(early).catch(() => [] as string[])) {
+      const fst = await lstat(join(early, f)).catch(() => null)
+      if (!fst || fst.isSymbolicLink() || !fst.isFile()) continue
+      await rename(join(early, f), await freeName(dest, f, (i) => `-${i + 1}`)).catch((e) => log.warn(`Could not move ${userText(f)}`, e))
+    }
+    // Only once empty: what couldn't move stays.
+    await rmdir(early).catch(() => undefined)
   }
 
   /** The provider's transcript, or Hive's backup (active or archived) when the provider no longer has it. */
