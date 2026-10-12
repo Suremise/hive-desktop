@@ -5,7 +5,8 @@
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { sessions } from '../src/main/sessions'
 import * as pty from '../src/main/ptyHost'
-import * as watches from '../src/main/watches'
+// The writer of Hive's lines and their confirmation (#649: lineWriter.ts, which the delivery service types with).
+import * as writer from '../src/main/lineWriter'
 
 const project = 'C:/fake-ws/alpha'
 const id = 'a1'
@@ -67,7 +68,7 @@ describe('a wake being confirmed holds its input the whole time (#430 round 2)',
     // Just typed (prompts 0), busy (Enter again unsafe while working).
     const e: Entry = { state: { projectPath: project, agentId: id, agentName: 'Watcher', runId: 'run1', status: 'working' }, prompts: 0, typed: { at: Date.now(), prompts: 0 } }
     live.set(key, e)
-    const done = watches.confirmTaken(project, id, { runId: 'run1', count: 0 }, 'WAKE')
+    const done = writer.confirmTaken(project, id, { runId: 'run1', count: 0 }, 'WAKE')
     await vi.advanceTimersByTimeAsync(31_000)
     expect(sessions.lineWaiting(project, id)).toBe(true)
     await expect(sessions.sendPrompt(project, id, 'A TASK')).rejects.toThrow(/hasn't taken/)
@@ -88,12 +89,12 @@ describe('a wake being confirmed holds its input the whole time (#430 round 2)',
 
 describe("a wake's Enter again (#430)", () => {
   afterEach(() => {
-    watches.testHooks.takeMs = undefined
+    writer.testHooks.takeMs = undefined
     vi.restoreAllMocks()
   })
 
   it("pressed once it can be when it can't be at once, never a third time; if it never can, the line is marked, saying Enter wasn't pressed again", async () => {
-    watches.testHooks.takeMs = 200
+    writer.testHooks.takeMs = 200
     const before = { runId: 'run1', count: 0 }
     vi.spyOn(sessions, 'promptsTaken').mockReturnValue(before)
     const marks: { line: string; retried: boolean }[] = []
@@ -102,18 +103,18 @@ describe("a wake's Enter again (#430)", () => {
     let tries = 0
     let enters = 0
     vi.spyOn(sessions, 'submitAgain').mockImplementation(() => (++tries > 3 ? (enters++, true) : false))
-    expect(await watches.confirmTaken(project, id, before, 'WAKE')).toBe(false)
+    expect(await writer.confirmTaken(project, id, before, 'WAKE')).toBe(false)
     expect(enters).toBe(1)
     expect(marks).toEqual([{ line: 'WAKE', retried: true }])
     // Never safe within the wait: no Enter again, and the mark says so.
     marks.length = 0
     vi.spyOn(sessions, 'submitAgain').mockReturnValue(false)
-    expect(await watches.confirmTaken(project, id, before, 'WAKE 2')).toBe(false)
+    expect(await writer.confirmTaken(project, id, before, 'WAKE 2')).toBe(false)
     expect(marks).toEqual([{ line: 'WAKE 2', retried: false }])
   })
 
   it('taken late, while it waited to press Enter again: nothing more', async () => {
-    watches.testHooks.takeMs = 50
+    writer.testHooks.takeMs = 50
     let count = 0
     vi.spyOn(sessions, 'promptsTaken').mockImplementation(() => ({ runId: 'run1', count }))
     const marks: string[] = []
@@ -122,7 +123,7 @@ describe("a wake's Enter again (#430)", () => {
       count = 1
       return false
     })
-    expect(await watches.confirmTaken(project, id, { runId: 'run1', count: 0 }, 'WAKE')).toBe(true)
+    expect(await writer.confirmTaken(project, id, { runId: 'run1', count: 0 }, 'WAKE')).toBe(true)
     expect(submit).toHaveBeenCalledTimes(1)
     expect(marks).toEqual([])
   })

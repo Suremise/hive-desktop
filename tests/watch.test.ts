@@ -343,6 +343,9 @@ describe('watches (main/watches.ts)', async () => {
   const { createWorkspaceService, disposeWorkspaceService, inWorkspace } = await import('../src/main/workspace')
   const tasks = await import('../src/main/tasks')
   const watches = await import('../src/main/watches')
+  const writer = await import('../src/main/lineWriter')
+  const deliveries = await import('../src/main/deliveries')
+  const messages = await import('../src/main/agentMessages')
   // Typed at once here; the settle (changes landing together told together, #224) has tests of its own.
   watches.testHooks.settleMs = 0
   /**
@@ -366,15 +369,20 @@ describe('watches (main/watches.ts)', async () => {
     await w.open(path)
     return { w, path, alpha }
   }
-  /** Stand-in sessions: an agent's status, whether the user is typing, and what Hive typed. */
+  /**
+   * Stand-in sessions: an agent's status, whether the user is typing, what Hive typed, and the prompts its CLI took
+   * (#649: a wake is received, and its watch ends, once its line is taken).
+   */
   const fake = (alpha: string) => {
-    const state = { status: 'watching' as string, typing: false, typed: [] as string[] }
+    const state = { status: 'watching' as string, typing: false, typed: [] as string[], prompts: 0 }
     Object.assign(sessions, {
-      liveFor: (p: string, id: string) => (p.toLowerCase() === alpha.toLowerCase() && id === 'a1' ? ({ projectPath: alpha, agentId: 'a1', status: state.status } as never) : null),
+      liveFor: (p: string, id: string) => (p.toLowerCase() === alpha.toLowerCase() && id === 'a1' ? ({ projectPath: alpha, agentId: 'a1', status: state.status, runId: 'run-1', sessionId: 's1' } as never) : null),
+      promptsTaken: (p: string, id: string) => (p.toLowerCase() === alpha.toLowerCase() && id === 'a1' ? { runId: 'run-1', count: state.prompts } : null),
       userMayBeTyping: () => state.typing,
       sendPrompt: async (_p: string, _id: string, text: string, guard?: () => void) => {
         guard?.()
         state.typed.push(text)
+        state.prompts++
         state.status = 'working'
       },
       watchChanged: () => undefined
@@ -382,14 +390,15 @@ describe('watches (main/watches.ts)', async () => {
     return state
   }
 
-  it("a watch's wake whose rider is saved slowly while the user's own prompt is taken: its confirmation counts from this line's Enter, not before (#647)", async () => {
+  it("a watch's wake with a message waiting, whose offer is saved slowly while the user's own prompt is taken: one line, the message first; its confirmation counts from this line's Enter (#647, #649)", async () => {
     const { w, alpha } = await open()
     const st = fake(alpha)
     const cli = { count: 0, enters: 0 }
     let release = (): void => undefined
     const held = new Promise<void>((r) => (release = r))
     let waiting = false
-    const confirming: { runId: string; count: number }[] = []
+    let saves = 0
+    let holdAt = -1
     Object.assign(sessions, {
       promptsTaken: () => ({ runId: 'run-1', count: cli.count }),
       lineNotTaken: () => undefined,
@@ -404,24 +413,22 @@ describe('watches (main/watches.ts)', async () => {
         return true
       }
     })
-    // A message rides the wake; its save (ready) is held while the user's prompt is taken and its turn ends.
-    watches.onWakeRider(() => ({
-      text: '[Hive] Message: hello (m1).',
-      ready: (async () => {
-        waiting = true
-        await held
-      })(),
-      still: () => true,
-      taken: () => undefined,
-      allowed: () => true,
-      withdrawn: () => undefined,
-      confirming: (before) => confirming.push(before),
-      settled: () => undefined
-    }))
-    watches.testHooks.takeMs = 150
+    // The offer's save (its deliveries saved as offered, before the first key) is held while the user's prompt is taken.
+    deliveries.setBeforeSaveForTests(async () => {
+      if (++saves !== holdAt) return
+      waiting = true
+      await held
+    })
+    writer.testHooks.takeMs = 150
     try {
-      const c = await inWorkspace(w, () => tasks.createTask({ title: 'Slow rider', project: 'alpha' }, user))
+      const c = await inWorkspace(w, () => tasks.createTask({ title: 'Slow offer', project: 'alpha' }, user))
       await watches.registerWatch(w, alpha, 'a1', { cards: [c.number], changes: ['comment'] })
+      // A message left while it works waits for its next line.
+      st.status = 'working'
+      expect((await messages.leaveMessage(alpha, 'a1', 'Builder', { kind: 'hive', name: 'Hive' }, 'hello')).fate).toBe('queued')
+      st.status = 'watching'
+      // The saves from here: the wake handed over (1), then the offer of the message and the wake together (2), held.
+      holdAt = saves + 2
       await inWorkspace(w, () => tasks.commentTask(c.number, 'news', user))
       // The evaluation types the wake, so it waits for the held save: not awaited until that is released.
       const evaluating = evaluated(w)
@@ -430,15 +437,18 @@ describe('watches (main/watches.ts)', async () => {
       release()
       await evaluating
       await vi.waitFor(() => expect(st.typed).toHaveLength(1), { timeout: HUNG_MS })
-      expect(st.typed[0]).toMatch(/^\[Hive\] Message: hello \(m1\)\. \[Hive\] #\d+ /)
-      // Counted from just before its Enter (the user's prompt already in), so its lost Enter is pressed again.
-      expect(confirming).toEqual([{ runId: 'run-1', count: 1 }])
+      expect(st.typed[0]).toMatch(/^\[Hive\] Message from Hive: hello \(Its id: m1\. .*\) \[Hive\] #\d+ /)
+      // Counted from just before its Enter (the user's prompt already in), so its lost Enter is pressed again; taken
+      // then, both are received and the watch ends.
       await vi.waitFor(() => expect(cli.enters).toBe(1), { timeout: HUNG_MS })
-      await vi.waitFor(() => expect(watches.confirmsInFlight()).toBe(0), { timeout: HUNG_MS })
+      await vi.waitFor(() => expect(writer.confirmsInFlight()).toBe(0), { timeout: HUNG_MS })
+      await watches.settled()
+      expect((await deliveries.deliveriesOf(alpha, 'a1')).map((r) => `${r.id} ${r.state} ${r.receivedVia ?? ''}`)).toEqual(['m1 received typed', 'm2 received typed'])
+      expect(watches.watchFor(alpha, 'a1')).toBeNull()
     } finally {
       release()
-      watches.onWakeRider(() => null)
-      watches.testHooks.takeMs = undefined
+      deliveries.setBeforeSaveForTests(null)
+      writer.testHooks.takeMs = undefined
       for (const k of ['promptsTaken', 'submitAgain', 'lineNotTaken']) delete (sessions as unknown as Record<string, unknown>)[k]
     }
     await disposeWorkspaceService(w)
@@ -472,7 +482,7 @@ describe('watches (main/watches.ts)', async () => {
         return true
       }
     })
-    watches.testHooks.takeMs = 150
+    writer.testHooks.takeMs = 150
     try {
       const c = await inWorkspace(w, () => tasks.createTask({ title: 'Dropped Enter', project: 'alpha' }, user))
       await watches.registerWatch(w, alpha, 'a1', { cards: [c.number], changes: ['comment'] })
@@ -483,7 +493,7 @@ describe('watches (main/watches.ts)', async () => {
       // Not taken: Enter once more after the wait, and it is taken then.
       await vi.waitFor(() => expect(cli.enters).toBe(1), { timeout: HUNG_MS })
       // Taken then: no Enter after its check has ended.
-      await vi.waitFor(() => expect(watches.confirmsInFlight()).toBe(0), { timeout: HUNG_MS })
+      await vi.waitFor(() => expect(writer.confirmsInFlight()).toBe(0), { timeout: HUNG_MS })
       expect(cli.enters).toBe(1)
       // Never taken: Enter once more only, never a third time.
       cli.takeOnEnter = false
@@ -492,7 +502,7 @@ describe('watches (main/watches.ts)', async () => {
       await inWorkspace(w, () => tasks.commentTask(c.number, 'more news', user))
       await evaluated(w)
       await vi.waitFor(() => expect(cli.enters).toBe(2), { timeout: HUNG_MS })
-      await vi.waitFor(() => expect(watches.confirmsInFlight()).toBe(0), { timeout: HUNG_MS })
+      await vi.waitFor(() => expect(writer.confirmsInFlight()).toBe(0), { timeout: HUNG_MS })
       expect(cli.enters).toBe(2)
       // Still not taken: marked once, with the line (#430); the next wake waits while it is, then goes in.
       expect(marks).toHaveLength(1)
@@ -515,10 +525,10 @@ describe('watches (main/watches.ts)', async () => {
       await evaluated(w)
       await vi.waitFor(() => expect(st.typed).toHaveLength(4), { timeout: HUNG_MS })
       expect(marks).toHaveLength(1)
-      await vi.waitFor(() => expect(watches.confirmsInFlight()).toBe(0), { timeout: HUNG_MS })
+      await vi.waitFor(() => expect(writer.confirmsInFlight()).toBe(0), { timeout: HUNG_MS })
       expect(cli.enters).toBe(2)
     } finally {
-      watches.testHooks.takeMs = undefined
+      writer.testHooks.takeMs = undefined
       delete (sessions as unknown as Record<string, unknown>).promptsTaken
       delete (sessions as unknown as Record<string, unknown>).submitAgain
       delete (sessions as unknown as Record<string, unknown>).lineNotTaken
@@ -527,63 +537,43 @@ describe('watches (main/watches.ts)', async () => {
     await disposeWorkspaceService(w)
   })
 
-  it('settled() waits for a wake typed again while it is being typed (#570 round 1): a cleared line\'s retype, its agent ready', async () => {
+  it("settled() waits for a wake's line while the delivery service types it, and for its receipt (#570, #649)", async () => {
     const { w, alpha } = await open()
     const st = fake(alpha)
-    const prior = { ...sessions } as Record<string, unknown>
     let release = (): void => undefined
     const held = new Promise<void>((r) => (release = r))
-    let calls = 0
-    let count = 0
-    let holds = 0
-    let allowed = true
-    // The agent ready throughout; the second send (the retype) is held until released.
+    let sending = false
     Object.assign(sessions, {
-      liveFor: () => ({ projectPath: alpha, agentId: 'a1', status: 'ready', runId: 'r1' }) as never,
-      promptsTaken: () => ({ runId: 'r1', count }),
-      holdForConfirm: () => {
-        holds++
-        return () => undefined
-      },
-      lineWaiting: () => false,
-      userTypedOverLine: () => false,
-      clearTyped: () => true,
       sendPrompt: async (_p: string, _id: string, text: string, guard?: () => void) => {
         guard?.()
+        sending = true
+        await held
         st.typed.push(text)
-        if (++calls === 2) {
-          await held
-          count++
-        }
+        st.prompts++
+        st.status = 'working'
       }
     })
-    watches.testHooks.takeMs = 10
     try {
-      // A line with a message riding it, whose sender may no longer send it once it is typed: cleared, and the wake it
-      // rode typed again at once (the agent is ready).
-      expect(await watches.typeLine(alpha, 'a1', 'wake with a message', () => true, { ride: { still: () => allowed, withdrawn: () => undefined, instead: 'wake alone' } })).toBe(true)
-      allowed = false
+      const c = await inWorkspace(w, () => tasks.createTask({ title: 'Held', project: 'alpha' }, user))
+      await watches.registerWatch(w, alpha, 'a1', { cards: [c.number], changes: ['comment'] })
+      await inWorkspace(w, () => tasks.commentTask(c.number, 'news', user))
+      const evaluating = watches.evaluateWatches(w)
+      await vi.waitFor(() => expect(sending).toBe(true), { timeout: HUNG_MS })
       let done = false
       const settling = watches.settled().then(() => (done = true))
-      await vi.waitFor(() => expect(calls).toBe(2), { timeout: HUNG_MS })
-      // The retype is being typed (its send held): in flight, so settled() can't have resolved.
+      // Being typed (its send held): in flight, so settled() can't have resolved.
       expect(watches.inFlightNow()).toBe(true)
       expect(done).toBe(false)
       release()
+      await evaluating
       await settling
-      // Resolved only once the retype was typed and its confirmation (taken at once) had ended.
-      expect(st.typed).toEqual(['wake with a message', 'wake alone'])
-      expect(count).toBe(1)
-      expect(holds).toBe(2)
-      expect(watches.confirmsInFlight()).toBe(0)
+      // Resolved only once it was typed, taken, received and the watch had ended.
+      expect(st.typed).toHaveLength(1)
+      expect(watches.watchFor(alpha, 'a1')).toBeNull()
+      expect(writer.confirmsInFlight()).toBe(0)
     } finally {
       release()
       await watches.settled()
-      watches.testHooks.takeMs = undefined
-      for (const key of ['liveFor', 'promptsTaken', 'holdForConfirm', 'lineWaiting', 'userTypedOverLine', 'clearTyped', 'sendPrompt']) {
-        if (Object.hasOwn(prior, key)) (sessions as unknown as Record<string, unknown>)[key] = prior[key]
-        else delete (sessions as unknown as Record<string, unknown>)[key]
-      }
       await disposeWorkspaceService(w)
     }
   })
@@ -1136,6 +1126,51 @@ describe('watches (main/watches.ts)', async () => {
     }
   })
 
+  it('a wake being offered when Hive stopped (its CLI never took it) is offered once more after the restart, saying it may repeat; its watch ends once that is received (#649)', async () => {
+    const { w, alpha } = await open()
+    const st = fake(alpha)
+    const takes = sessions.sendPrompt
+    // Typed, but its CLI never takes it (no Enter again lands either).
+    Object.assign(sessions, {
+      sendPrompt: async (_p: string, _id: string, text: string, guard?: () => void) => {
+        guard?.()
+        st.typed.push(text)
+        st.status = 'finished'
+      }
+    })
+    writer.testHooks.takeMs = 20
+    try {
+      const c = await inWorkspace(w, () => tasks.createTask({ title: 'Lost Enter', project: 'alpha' }, user))
+      await watches.registerWatch(w, alpha, 'a1', { cards: [c.number], changes: ['comment'] })
+      await inWorkspace(w, () => tasks.commentTask(c.number, 'news', user))
+      await evaluated(w)
+      expect(st.typed).toHaveLength(1)
+      expect((await deliveries.deliveriesOf(alpha, 'a1')).map((r) => r.state)).toEqual(['offered'])
+      expect(watches.watchFor(alpha, 'a1')).not.toBeNull()
+      // Hive stops (memory forgotten, the files read again), and the CLI takes what is typed after the restart.
+      await deliveries.forgetDeliveriesForTests()
+      watches.forgetWatches(w)
+      Object.assign(sessions, { sendPrompt: takes })
+      st.status = 'watching'
+      await vi.waitFor(() => expect(watches.watchFor(alpha, 'a1')).not.toBeNull(), { timeout: HUNG_MS })
+      await watches.settled()
+      expect((await deliveries.deliveriesOf(alpha, 'a1')).map((r) => `${r.state}: ${r.detail}`)).toEqual(['uncertain: may not have reached it: Hive stopped while offering it'])
+      await deliveries.offerAllForTests()
+      expect(st.typed).toEqual([st.typed[0], `${st.typed[0]} (m1 again: Hive restarted while offering it, so it may repeat.)`])
+      await watches.settled()
+      expect((await deliveries.deliveriesOf(alpha, 'a1')).map((r) => r.state)).toEqual(['received'])
+      expect(watches.watchFor(alpha, 'a1')).toBeNull()
+      // Offered once more only: nothing typed a third time.
+      await deliveries.offerAllForTests()
+      expect(st.typed).toHaveLength(2)
+    } finally {
+      Object.assign(sessions, { sendPrompt: takes })
+      writer.testHooks.takeMs = undefined
+      await writer.settled()
+      await disposeWorkspaceService(w)
+    }
+  })
+
   it('a saved watch that is not valid is kept aside and never stops the others; a damaged file is set aside', async () => {
     const { w, path, alpha } = await open()
     const st = fake(alpha)
@@ -1154,6 +1189,7 @@ describe('watches (main/watches.ts)', async () => {
     await vi.waitFor(() => expect(watches.watchFor(alpha, 'a1')).not.toBeNull(), { timeout: HUNG_MS })
     await inWorkspace(w, () => tasks.commentTask(c.number, 'Ready', user))
     await expect(watches.evaluateWatches(w)).resolves.toBeUndefined()
+    await watches.settled()
     expect(st.typed).toHaveLength(1)
     // The entries that aren't valid are still in the file, as they were.
     const after = JSON.parse(readFileSync(file, 'utf8'))
@@ -1478,7 +1514,7 @@ describe('watches (main/watches.ts)', async () => {
     await disposeWorkspaceService(w)
   })
 
-  it('a wake typed once is never typed again, even when saving its end fails (the tick saves it later)', async () => {
+  it('a wake typed and received is never typed again, even when saving its end fails (the tick saves it later; read back, its delivery says it was received)', async () => {
     const { w, path, alpha } = await open()
     const st = fake(alpha)
     const c = await inWorkspace(w, () => tasks.createTask({ title: 'A', project: 'alpha' }, user))
@@ -1488,6 +1524,7 @@ describe('watches (main/watches.ts)', async () => {
     ;(sessions as unknown as { sendPrompt: unknown }).sendPrompt = async (_p: string, _id: string, text: string, guard?: () => void) => {
       guard?.()
       st.typed.push(text)
+      st.prompts++
       st.status = 'working'
       failing = true
     }
@@ -1499,11 +1536,13 @@ describe('watches (main/watches.ts)', async () => {
       await inWorkspace(w, () => tasks.commentTask(c.number, 'Ready', user))
       await evaluated(w)
       expect(st.typed).toHaveLength(1)
-      // The file still has the watch, marked as being typed: read back, it counts as delivered.
+      // The file still has the watch, with the delivery it was handed over as: received, so read back it has ended.
       const file = join(path, '.hive', 'watches.json')
-      expect(JSON.parse(readFileSync(file, 'utf8')).watches[0].fired.sending).toBeTruthy()
+      expect(JSON.parse(readFileSync(file, 'utf8')).watches[0].fired.delivery).toBe('m1')
+      expect((await deliveries.deliveriesOf(alpha, 'a1')).map((r) => r.state)).toEqual(['received'])
       watches.forgetWatches(w)
       st.status = 'watching'
+      await vi.waitFor(() => expect(watches.watchFor(alpha, 'a1')).toBeNull(), { timeout: HUNG_MS })
       await evaluated(w)
       await watches.tick()
       expect(st.typed).toHaveLength(1)
@@ -1518,7 +1557,7 @@ describe('watches (main/watches.ts)', async () => {
     }
   })
 
-  it("a wake isn't typed if Hive can't first save that it is typing it; it is tried again", async () => {
+  it("a wake isn't typed if Hive can't first save the delivery it is handed over as; it is tried again", async () => {
     const { w, alpha } = await open()
     const st = fake(alpha)
     const c = await inWorkspace(w, () => tasks.createTask({ title: 'A', project: 'alpha' }, user))
@@ -1526,7 +1565,7 @@ describe('watches (main/watches.ts)', async () => {
     await inWorkspace(w, () => tasks.commentTask(c.number, 'Ready', user))
     let fail = false
     watches.testHooks.write = async (p, t) => {
-      if (fail && t.includes('"sending"')) throw new Error('disk write failed')
+      if (fail && t.includes('"delivery"')) throw new Error('disk write failed')
       writeFileSync(p, t)
     }
     try {

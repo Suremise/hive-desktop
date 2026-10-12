@@ -27,6 +27,8 @@ const base = tempDir('hive-goahead-')
 
 const { createWorkspaceService, disposeWorkspaceService, inWorkspace } = await import('../src/main/workspace')
 const { sessions } = await import('../src/main/sessions')
+// The delivery service gives the go-ahead (#649): it sets itself into sessions as it loads.
+await import('../src/main/deliveries')
 const { config } = await import('../src/main/config')
 const { codex } = await import('../src/main/providers/codex/adapter')
 

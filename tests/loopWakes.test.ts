@@ -47,10 +47,11 @@ describe('loop wakes (main/loopWakes.ts, #405)', async () => {
   const fake = (alpha: string) => {
     const state = { status: new Map<string, string>([['b1', 'ready'], ['r1', 'ready'], ['o1', 'ready']]), typed: [] as { agent: string; text: string }[] }
     Object.assign(sessions, {
-      liveFor: (p: string, id: string) => (p.toLowerCase() === alpha.toLowerCase() && state.status.has(id) ? ({ projectPath: alpha, agentId: id, status: state.status.get(id) } as never) : null),
+      liveFor: (p: string, id: string) => (p.toLowerCase() === alpha.toLowerCase() && state.status.has(id) ? ({ projectPath: alpha, agentId: id, status: state.status.get(id), runId: `run-${id}` } as never) : null),
       userMayBeTyping: () => false,
       lineWaiting: () => false,
-      promptsTaken: () => null,
+      // Each line typed is taken (#649: a wake is received then, and noted on its card).
+      promptsTaken: (p: string, id: string) => (p.toLowerCase() === alpha.toLowerCase() && state.status.has(id) ? { runId: `run-${id}`, count: state.typed.filter((t) => t.agent === id).length } : null),
       sendPrompt: async (_p: string, id: string, text: string, guard?: () => void) => {
         guard?.()
         state.typed.push({ agent: id, text })
@@ -94,7 +95,7 @@ describe('loop wakes (main/loopWakes.ts, #405)', async () => {
   const history = async (w: Awaited<ReturnType<typeof open>>['w'], c: number) => (await inWorkspace(w, () => tasks.getTask(c, w))).history.map((h) => `${h.by}: ${h.what}`)
 
   it("wakes a lane's reviewer when the card arrives in Review, and its builder on each verdict, with no watches; noted on the card", async () => {
-    loopWakes.clearLoopWakes()
+    await loopWakes.clearLoopWakes()
     const { w, alpha } = await open()
     const st = fake(alpha)
     const c = await newCard(w)
@@ -126,7 +127,7 @@ describe('loop wakes (main/loopWakes.ts, #405)', async () => {
   })
 
   it('never types into a working agent: the wake waits for it to be idle, once, the latest per card', async () => {
-    loopWakes.clearLoopWakes()
+    await loopWakes.clearLoopWakes()
     const { w, alpha } = await open()
     const st = fake(alpha)
     const c = await newCard(w)
@@ -145,7 +146,7 @@ describe('loop wakes (main/loopWakes.ts, #405)', async () => {
   })
 
   it('a card nobody reviews wakes no one; its own change wakes no agent; the last reviewer is its reviewer without a lane', async () => {
-    loopWakes.clearLoopWakes()
+    await loopWakes.clearLoopWakes()
     const { w, alpha } = await open()
     const st = fake(alpha)
     const c = await newCard(w)
@@ -173,7 +174,7 @@ describe('loop wakes (main/loopWakes.ts, #405)', async () => {
   })
 
   it("leaves it to the agent's own watch: one line, not two", async () => {
-    loopWakes.clearLoopWakes()
+    await loopWakes.clearLoopWakes()
     const { w, alpha } = await open()
     const st = fake(alpha)
     const c = await newCard(w)
@@ -199,7 +200,7 @@ describe('loop wakes (main/loopWakes.ts, #405)', async () => {
   })
 
   it('a handoff slower than the watch that told the same arrival types nothing more (#578)', async () => {
-    loopWakes.clearLoopWakes()
+    await loopWakes.clearLoopWakes()
     const { w, alpha } = await open()
     const st = fake(alpha)
     const c = await newCard(w)
@@ -249,7 +250,7 @@ describe('loop wakes (main/loopWakes.ts, #405)', async () => {
   })
 
   it("goes to whoever reviews it when it is typed: the lane's reviewer changed or taken off while it waited (round 1 finding 1)", async () => {
-    loopWakes.clearLoopWakes()
+    await loopWakes.clearLoopWakes()
     const { w, alpha } = await open()
     const st = fake(alpha)
     const c = await newCard(w)
@@ -277,7 +278,7 @@ describe('loop wakes (main/loopWakes.ts, #405)', async () => {
   })
 
   it('a lane changed while its wake is being typed stops it at once, not when the lanes event comes (#578 round 2)', async () => {
-    loopWakes.clearLoopWakes()
+    await loopWakes.clearLoopWakes()
     const { w, alpha } = await open()
     const st = fake(alpha)
     const c = await newCard(w)
@@ -305,7 +306,7 @@ describe('loop wakes (main/loopWakes.ts, #405)', async () => {
   })
 
   it("a builder's watch for Passed alone doesn't stand in for a failed verdict, which leaves the card in Review; it does for a passing one (round 1 finding 2)", async () => {
-    loopWakes.clearLoopWakes()
+    await loopWakes.clearLoopWakes()
     const { w, alpha } = await open()
     const st = fake(alpha)
     const c = await newCard(w)
@@ -339,7 +340,7 @@ describe('loop wakes (main/loopWakes.ts, #405)', async () => {
   })
 
   it('a waiting arrival is dropped once that round is reviewed: a review started and failed before the reviewer was idle (round 2 finding)', async () => {
-    loopWakes.clearLoopWakes()
+    await loopWakes.clearLoopWakes()
     const { w, alpha } = await open()
     const st = fake(alpha)
     const c = await newCard(w)
@@ -364,7 +365,7 @@ describe('loop wakes (main/loopWakes.ts, #405)', async () => {
   })
 
   it('is off for a project that turned it off (Project Settings → Card loops)', async () => {
-    loopWakes.clearLoopWakes()
+    await loopWakes.clearLoopWakes()
     const { w, alpha } = await open({ loopWakes: false })
     const st = fake(alpha)
     const c = await newCard(w)

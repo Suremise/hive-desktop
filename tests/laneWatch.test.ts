@@ -92,7 +92,8 @@ describe('lane watches (main/watches.ts, #531)', async () => {
       liveStates: () => [],
       userMayBeTyping: () => false,
       lineWaiting: () => false,
-      promptsTaken: () => null,
+      // Each line typed into the Assistant is taken (#649: its wake is received, and its watch ends, then).
+      promptsTaken: (p: string, id: string) => (p.toLowerCase() === home.toLowerCase() && id === 'assistant' ? { runId: 'a1', count: st.typed.length } : null),
       sendPrompt: async (_p: string, _id: string, text: string, guard?: () => void) => {
         guard?.()
         st.typed.push(text)

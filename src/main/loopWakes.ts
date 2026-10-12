@@ -6,7 +6,9 @@ import { onHiveEvent } from './events'
 import { listLanes, onLanesWritten } from './lanes'
 import { createLogger, userText } from './logger'
 import { getTask, noteOnCard, onLoopEvent, type LoopEvent, type TaskActor } from './tasks'
-import { inFlightNow as watchesInFlight, settled as watchesSettled, typeLine, watchCovers, watchTold } from './watches'
+import { inFlightNow as watchesInFlight, settled as watchesSettled, watchCovers, watchTold } from './watches'
+import { cancelFromSource, createDelivery, everyFromSource, offerNow, registerSource } from './deliveries'
+import { isWaiting, type DeliveryRecord } from '../shared/deliveries'
 import { workspaceFor, type WorkspaceService } from './workspace'
 
 /**
@@ -16,35 +18,22 @@ import { workspaceFor, type WorkspaceService } from './workspace'
  * sees one; never for the agent that made the change; left to the agent's own watch when one tells it of the change; and
  * off for a project whose Project Settings → Card loops → Wake reviewers and builders is off.
  *
- * Typed as a wake is (watches.typeLine): only while the agent is idle and nobody types there, checked to be taken. Until
- * then it waits, in memory, the latest per agent and card (a restart forgets it), at most a day. Each one typed is noted
- * in the card's history, as Hive.
+ * A delivery (#649, deliveries.ts: a card event, the latest per agent and card, at most a day), offered as a wake is: only
+ * while the agent is idle and nobody types there, checked to be taken. Made again just before it is offered, from the
+ * card and the lane as they are then: one no longer due is cancelled. Each one received (its line taken by its CLI) is
+ * noted in the card's history, as Hive.
  */
 
 const log = createLogger('loopWakes')
 
-interface Pending {
-  ws: WorkspaceService
-  projectPath: string
-  agentId: string
-  /** The agent's name on the board, for the card's history. */
-  agentName: string
-  n: number
-  kind: LoopEvent['kind']
-  /** The card's last history entry as the handoff left it: what came after is what was done about it since. */
-  since: TaskHistoryEntry | null
-  at: number
-}
+/** Hive's own deliveries come from it. */
+const HIVE = { kind: 'hive', name: 'Hive' } as const
 
-/** Pending wakes by agent and card: a newer handoff of the same card replaces the older one. */
-const pending = new Map<string, Pending>()
 const keyOf = (projectPath: string, agentId: string, n: number): string => `${projectPath.toLowerCase()}#${agentId}#${n}`
 /** How long a wake waits for its agent to be idle (its session running) before it is dropped. */
 const KEEP_MS = 24 * 60 * 60_000
 /** A handoff's wake waits this long first, so a comment or move landing with it is in its line (a watch's settle). */
 const SETTLE_MS = 1500
-/** At most this many wakes wait at once (the oldest go first). */
-const MAX_PENDING = 200
 
 /**
  * For unit tests: the settle before a handoff's wake is first tried (SETTLE_MS; 0 tries it at once), and a pause before
@@ -53,9 +42,9 @@ const MAX_PENDING = 200
 export const testHooks: { settleMs?: number; beforeHandoff?: () => Promise<void> } = {}
 
 /**
- * What loop wakes are doing in the background (#570): handoffs being worked out, the settle before each wake's first
- * try, and tries. `settled()` resolves once none is left, nor any of the watches' work they lead to. A wake kept waiting
- * for its agent to be idle isn't in flight: it is in `pendingLoopWakes()`.
+ * What loop wakes are doing in the background (#570): handoffs being worked out, the settle before each wake is made, and
+ * tries. `settled()` resolves once none is left, nor any of the watches' work they lead to. A wake waiting for its agent
+ * to be idle isn't in flight: it is a delivery waiting (`pendingLoopWakes()`).
  */
 const inFlight = new Set<Promise<unknown>>()
 function inBackground(what: string, work: Promise<unknown>): void {
@@ -67,7 +56,7 @@ function inBackgroundAfter(ms: number, what: string, work: () => Promise<unknown
   inBackground(what, new Promise<void>((done, fail) => setTimeout(() => work().then(() => done(), fail), ms).unref?.()))
 }
 
-/** Resolves once loop wakes and watches have nothing in flight: every handoff so far is typed, kept or dropped. */
+/** Resolves once loop wakes and watches have nothing in flight: every handoff so far is made, kept or dropped. */
 export async function settled(): Promise<void> {
   while (inFlight.size || watchesInFlight()) {
     await Promise.allSettled([...inFlight])
@@ -109,14 +98,33 @@ async function targetOf(ws: WorkspaceService, projectPath: string, card: TaskCar
   return agent ? { id: agent.id, name: `${agent.name} (${card.project})` } : null
 }
 
-/** Queues a wake for an agent (the latest per agent and card), unless its own watch tells it; tried after a settle. */
+/** A loop wake as its delivery says it: the card, whose wake (review or verdict), the agent's board name, the handoff. */
+interface Wake {
+  n: number
+  kind: LoopEvent['kind']
+  agentName: string
+  since: TaskHistoryEntry | null
+}
+const wakeOf = (r: DeliveryRecord): Wake | null => {
+  const m = r.meta ?? {}
+  if (typeof m.n !== 'number' || (m.kind !== 'review' && m.kind !== 'verdict') || typeof m.agentName !== 'string') return null
+  const since = typeof m.sinceAt === 'string' && m.sinceAt ? ({ at: m.sinceAt, ...(typeof m.sinceId === 'string' && m.sinceId ? { id: m.sinceId } : {}) } as TaskHistoryEntry) : null
+  return { n: m.n, kind: m.kind, agentName: m.agentName, since }
+}
+
+/**
+ * Queues a wake for an agent (the latest per agent and card: a newer handoff of the same card replaces one still
+ * waiting), unless its own watch tells it; made after a settle, and offered.
+ */
 function enqueue(ws: WorkspaceService, projectPath: string, card: TaskCard, kind: LoopEvent['kind'], to: { id: string; name: string }, since: TaskHistoryEntry | null): void {
   if (watchCovers(projectPath, to.id, card.number, kind, card.column)) return
-  const key = keyOf(projectPath, to.id, card.number)
-  pending.delete(key)
-  pending.set(key, { ws, projectPath, agentId: to.id, agentName: to.name, n: card.number, kind, since, at: Date.now() })
-  while (pending.size > MAX_PENDING) pending.delete(pending.keys().next().value!)
-  inBackgroundAfter(testHooks.settleMs ?? SETTLE_MS, 'a loop wake', () => attempt(key))
+  inBackgroundAfter(testHooks.settleMs ?? SETTLE_MS, 'a loop wake', async () => {
+    if (!ws.path || !ws.isProjectPath(projectPath)) return
+    const kinds: ('column' | 'verdict')[] = kind === 'review' ? ['column'] : ['verdict']
+    const meta = { n: card.number, kind, agentName: to.name, sinceAt: since?.at ?? '', sinceId: since?.id ?? '' }
+    await createDelivery(projectPath, { agentId: to.id, agentName: to.name, kind: 'card-event', from: HIVE, card: card.number, body: loopWakeLine({ ...cardChange(card.number, card, kinds), about: wakeAbout(card, kinds, to.id) }, kind), expiresMs: KEEP_MS, source: 'loop', ref: `#${card.number}`, replace: true, meta })
+    await offerNow(projectPath, to.id)
+  })
 }
 
 /** A handoff saved (tasks.ts): whose wake it is, if anyone's, queued and tried after a settle. */
@@ -146,7 +154,7 @@ function historySince(card: TaskCard, since: TaskHistoryEntry | null): TaskHisto
  * is still its own and, since the verdict, neither it acted on the card nor another round started. A later arrival
  * queues a wake of its own.
  */
-function stillDue(p: Pending, card: TaskCard | null): boolean {
+function stillDue(p: Wake & { agentId: string }, card: TaskCard | null): boolean {
   if (!card || card.archived) return false
   const since = historySince(card, p.since)
   if (p.kind === 'review') return card.column === 'review' && !card.review && !since.some((h) => /^(Started reviewing|Review (passed|failed))$/.test(h.what))
@@ -157,62 +165,60 @@ function stillDue(p: Pending, card: TaskCard | null): boolean {
 /** Counts the board's and lanes' changes: a wake checked or typed while one lands is stopped and worked out again. */
 let rolesSeq = 0
 
-/** Wakes being tried now, by key: a second try of one waits for that one. */
-const trying = new Map<string, Promise<void>>()
+/** What each wake was made again from just before it was offered (by delivery id): the roles' count, the card's column. */
+const madeFrom = new Map<string, { seq: number; column: TaskCard['column'] }>()
 
-/** Tries one waiting wake: typed (and noted on its card), dropped (no longer due, or its watch tells it), or kept. */
-function attempt(key: string): Promise<void> {
-  const running = trying.get(key)
-  if (running) return running
-  const run = attemptNow(key).finally(() => trying.delete(key))
-  trying.set(key, run)
-  return run
-}
-
-async function attemptNow(key: string): Promise<void> {
-  const p = pending.get(key)
-  if (!p) return
-  // Its workspace closed, or switched to another folder: dropped.
-  if (!p.ws.path || !p.ws.isProjectPath(p.projectPath) || Date.now() - p.at > KEEP_MS) {
-    pending.delete(key)
-    return
+/**
+ * The loop wakes' part in their deliveries (#649): made again just before each offer (the line from the card as it is
+ * now; dropped if no longer due, its watch tells it, or it is someone else's wake now, who gets it instead); offered only
+ * while the board and lanes haven't changed since (else made again at the next try) and its watch doesn't tell it;
+ * received, noted on the card.
+ */
+registerSource('loop', {
+  refresh: async (r, host) => {
+    const p = wakeOf(r)
+    const ws = workspaceFor(host)
+    if (!p) return { cancel: 'not a loop wake Hive can read' }
+    // Its workspace closed, or switched to another folder: dropped.
+    if (!ws?.path || !ws.isProjectPath(host)) return { cancel: 'its project is no longer open' }
+    // Roles can change while it is checked or typed (the lane's reviewer, the card's agent): then it is worked out again.
+    const seq = rolesSeq
+    const card = await getTask(p.n, ws).catch(() => null)
+    // Its own watch told it already (#578): a watch whose line had read this handoff's own history entry, even one that
+    // has ended since (a handoff slower than the watch's settle and typing found no watch to leave it to).
+    const told = !!card && !!p.since && watchTold(host, r.agentId, card, p.since)
+    if (!card || !stillDue({ ...p, agentId: r.agentId }, card) || watchCovers(host, r.agentId, p.n, p.kind, card.column) || told || !(await wakesOn(ws, host))) return { cancel: 'no longer due' }
+    // Only to whose wake it is now: another reviewer given the lane meanwhile gets it instead (#405 round 1 finding).
+    const to = await targetOf(ws, host, card, p.kind)
+    if (to?.id !== r.agentId) {
+      if (to) enqueue(ws, host, card, p.kind, to, p.since)
+      return { cancel: 'it is another agent\'s wake now' }
+    }
+    madeFrom.set(r.id, { seq, column: card.column })
+    if (madeFrom.size > 1000) madeFrom.delete(madeFrom.keys().next().value!)
+    const kinds: ('column' | 'verdict')[] = p.kind === 'review' ? ['column'] : ['verdict']
+    return { body: loopWakeLine({ ...cardChange(p.n, card, kinds), about: wakeAbout(card, kinds, r.agentId) }, p.kind) }
+  },
+  holds: (r, host) => {
+    const p = wakeOf(r)
+    const m = madeFrom.get(r.id)
+    return !!p && !!m && m.seq === rolesSeq && !watchCovers(host, r.agentId, p.n, p.kind, m.column)
+  },
+  received: (r, host) => {
+    madeFrom.delete(r.id)
+    const p = wakeOf(r)
+    const ws = workspaceFor(host)
+    if (!p || !ws) return
+    inBackground(`noting a loop wake on #${p.n}`, noteOnCard(p.n, `Woke ${p.agentName} ${p.kind === 'review' ? 'to review it' : 'with its verdict'} (a loop wake)`, ws))
+    log.info(`Loop wake: #${p.n} to ${userText(p.agentName)}`)
+  },
+  ended: (r) => {
+    madeFrom.delete(r.id)
   }
-  // Roles can change while it is checked or typed (the lane's reviewer, the card's agent): then it is worked out again.
-  const seq = rolesSeq
-  const card = await getTask(p.n, p.ws).catch(() => null)
-  const drop = (): void => {
-    if (pending.get(key) === p) pending.delete(key)
-  }
-  // Its own watch told it already (#578): a watch whose line had read this handoff's own history entry, even one that has
-  // ended since (a handoff slower than the watch's settle and typing found no watch to leave it to).
-  const told = !!card && !!p.since && watchTold(p.projectPath, p.agentId, card, p.since)
-  if (!card || !stillDue(p, card) || watchCovers(p.projectPath, p.agentId, p.n, p.kind, card.column) || told || !(await wakesOn(p.ws, p.projectPath))) return drop()
-  // Only to whose wake it is now: another reviewer given the lane meanwhile gets it instead (#405 round 1 finding).
-  const to = await targetOf(p.ws, p.projectPath, card, p.kind)
-  if (to?.id !== p.agentId) {
-    drop()
-    if (to) enqueue(p.ws, p.projectPath, card, p.kind, to, p.since)
-    return
-  }
-  const kinds: ('column' | 'verdict')[] = p.kind === 'review' ? ['column'] : ['verdict']
-  const line = loopWakeLine({ ...cardChange(p.n, card, kinds), about: wakeAbout(card, kinds, p.agentId) }, p.kind)
-  const typed = await typeLine(p.projectPath, p.agentId, line, () => pending.get(key) === p && rolesSeq === seq && !watchCovers(p.projectPath, p.agentId, p.n, p.kind, card.column))
-  if (!typed) return
-  if (pending.get(key) === p) pending.delete(key)
-  await noteOnCard(p.n, `Woke ${p.agentName} ${p.kind === 'review' ? 'to review it' : 'with its verdict'} (a loop wake)`, p.ws).catch((e) => log.warn(`noting a loop wake on #${p.n}`, e))
-  log.info(`Loop wake: #${p.n} to ${userText(p.agentName)}`)
-}
-
-/** Tries the waiting wakes, all of them or one agent's (its status changed). */
-function tryPending(projectPath?: string, agentId?: string): void {
-  for (const [key, p] of pending) {
-    if (projectPath && !(same(p.projectPath, projectPath) && p.agentId === agentId)) continue
-    inBackground('a loop wake', attempt(key))
-  }
-}
+})
 
 let started = false
-/** Wires loop wakes into the board's handoffs and the sessions' statuses (once, at start). */
+/** Wires loop wakes into the board's handoffs (once, at start); the delivery service offers them. */
 export function initLoopWakes(): void {
   if (started) return
   started = true
@@ -221,19 +227,22 @@ export function initLoopWakes(): void {
   onLanesWritten(() => rolesSeq++)
   onHiveEvent((e) => {
     if (e.type === 'tasks-changed' || e.type === 'lanes-changed') rolesSeq++
-    if (e.type !== 'session-status') return
-    const s = e.state.status
-    if (s === 'ready' || s === 'finished' || s === 'watching') inBackgroundAfter(500, 'a loop wake', async () => tryPending(e.state.projectPath, e.state.agentId))
   })
-  const timer = setInterval(() => tryPending(), 5000)
-  timer.unref?.()
 }
 
 /** The wakes waiting now (agent and card), for tests. */
-export const pendingLoopWakes = (): { agentId: string; n: number; kind: LoopEvent['kind'] }[] => [...pending.values()].map((p) => ({ agentId: p.agentId, n: p.n, kind: p.kind }))
-/** Tries every waiting wake now (what the tick does), for tests. */
+export const pendingLoopWakes = (): { agentId: string; n: number; kind: LoopEvent['kind'] }[] =>
+  everyFromSource('loop')
+    .filter(({ r }) => isWaiting(r))
+    .flatMap(({ r }) => {
+      const p = wakeOf(r)
+      return p ? [{ agentId: r.agentId, n: p.n, kind: p.kind }] : []
+    })
+/** Tries every waiting wake now (what the delivery service's tick does), for tests. */
 export const tryLoopWakes = async (): Promise<void> => {
-  await Promise.all([...pending.keys()].map((k) => attempt(k)))
+  await Promise.all([...new Map(everyFromSource('loop').filter(({ r }) => isWaiting(r)).map(({ host, r }) => [keyOf(host, r.agentId, 0), { host, agentId: r.agentId }])).values()].map((x) => offerNow(x.host, x.agentId)))
 }
 /** Forgets every waiting wake, for tests. */
-export const clearLoopWakes = (): void => pending.clear()
+export const clearLoopWakes = async (): Promise<void> => {
+  for (const host of new Set(everyFromSource('loop').map((x) => x.host))) await cancelFromSource(host, 'loop', null, 'cleared by a test')
+}

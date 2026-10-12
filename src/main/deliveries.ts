@@ -8,15 +8,18 @@ import {
   DELIVERY_EXPIRY_HOURS,
   OVERDUE_MINUTES,
   deliveryRow,
+  goesAlone,
   inboxItems,
   inboxSummary,
   isLive,
   isUnread,
   isWaiting,
   moved,
+  needsAck,
   offerLine,
   readDelivery,
   type DeliveryKind,
+  type DeliveryNeed,
   type DeliveryRecord,
   type DeliveryRow,
   type DeliverySender,
@@ -26,27 +29,38 @@ import {
 import * as assistant from './assistantControl'
 import { onHiveEvent } from './events'
 import { readCapped, renameRetrying } from './fsutil'
+import { canTypeLine, typeLine, whyNoLine } from './lineWriter'
 import { createLogger, userText } from './logger'
+import { readyFor } from './readiness'
 import { sessions } from './sessions'
-import { canTypeLine, onWakeRider, typeLine, type Rider } from './watches'
 
 /**
  * The delivery service (#647, plans/2026-10-12-messaging-redesign.md §3.1). Everything Hive has for an agent to read is a
  * delivery record (shared/deliveries.ts), saved in its session host's .hive/deliveries.json (a project's, or the
- * Assistant's home's) with atomic writes, and restored when Hive starts: one offered when Hive stopped is uncertain then,
- * and one whose sender may no longer send it is refused, and shown. This service alone offers them: today by typing the
- * line a message always was (watches.typeLine, or first in a wake's line), until Messaging 4 switches the channel. A typed
- * line makes a delivery offered, never received: **received means fetched through hive_inbox, and nothing else** (§3.1,
- * #645: received is automatic on fetch). The agent acks it with hive_inbox once it has acted on it (from offered too, as
- * the body is still typed until #650); one not acked OVERDUE_MINUTES after it was made is overdue. One offered when Hive
- * stopped stays offered after it (it is never typed again) until the agent fetches or acks it.
+ * Assistant's home's) with atomic writes, and restored when Hive starts. Every way into an agent makes one (#649): a
+ * message, a task, a watch's or a loop's wake, the user's decisions, a mode notice, a lock's go-ahead, the carry-on after
+ * a sign-in, a handover. This service alone offers them: today by typing the line each always was (lineWriter.typeLine),
+ * until Messaging 4 switches the channel; producers neither type nor keep their own cursors.
+ *
+ * **Receipts.** A typed line makes a delivery offered. It is received when the agent fetches it with hive_inbox, or
+ * (#649, until #650's doorbell) when the CLI takes the line that carried its whole text: the prompt count rises in the
+ * launch it was typed into, after that line's Enter (receivedVia 'typed'); never because it was typed. A card event or a
+ * control notice is done then; a message, a task, a handover or the user's answer waits for the agent's ack (hive_inbox),
+ * and one not acked OVERDUE_MINUTES after it was made is overdue. One offered when Hive stopped, or when its agent's launch
+ * ended before its CLI took it, is uncertain: it may not have reached the agent, so it is offered once more, saying it may
+ * repeat, and stays uncertain (shown) if that one isn't received either.
+ *
+ * **Sources.** What made a delivery (`source`: a watch, a loop wake…) registers itself here: it can make its line again
+ * just before it is offered, from things as they are then (`refresh`; null: no longer due, and it is cancelled), say
+ * whether it still holds before each key (`holds`), and is told when it is received (its cursor moves on then, never on
+ * "typed") or ends. A live delivery's source and `ref` name it: the same one is never made twice.
  *
  * **Transactions.** Each host's records change one transaction at a time (`transact`, under the host's lock): planned on
  * a copy of what is published, with its checks (below), saved by one atomic write, and only then published, so nothing (a
- * read, a wake's rider, the pane) ever sees a change that isn't on disk. An operation takes effect at that save: a
- * permission change that lands while it is saved applies to the next operation, not this one (it was decided before). A
- * save that fails changes nothing, on disk or in memory (NotSaved): the rename never happened. The offer's writer checks
- * again before each piece of the line, its Enter, and the confirmation's Enter again (`offerHolds`).
+ * read, the pane) ever sees a change that isn't on disk. An operation takes effect at that save: a permission change that
+ * lands while it is saved applies to the next operation, not this one (it was decided before). A save that fails changes
+ * nothing, on disk or in memory (NotSaved): the rename never happened. The offer's writer checks again before each piece
+ * of the line, its Enter, and the confirmation's Enter again (`offerHolds`).
  *
  * **Authority.** A sender's permission is worked out again at every step, from the sender saved with it and the settings
  * now (never a closure or token): the Assistant's needs Settings → Assistant → Control at Control agents and the launch
@@ -84,6 +98,10 @@ export const overdueMs = (): number => {
   return Number.isFinite(t) && t > 0 ? t : OVERDUE_MINUTES * 60_000
 }
 
+/** Why a delivery may repeat when it is offered once more (#649). */
+const AGAIN_RESTART = 'Hive restarted while offering it'
+const AGAIN_LAUNCH = 'its session ended or restarted before its CLI took the line'
+
 interface Store {
   host: string
   /** What is published: saved, and what every read sees. Never changed in place: a transaction replaces it. */
@@ -95,8 +113,22 @@ interface Store {
   lock: Promise<unknown>
   /** The ids a line being typed now offers: cancelled meanwhile, its typing stops. */
   offering: Set<string>
-  /** The ids a typed line offers while Hive checks its CLI took it: the launch and its prompt count when it was typed. */
+  /**
+   * The ids a typed line offers, by the launch and its prompt count just before the line's Enter: taken (received) once
+   * the count rises in that launch; until then a cancel can still end it. Kept until it leaves offered.
+   */
   confirming: Map<string, { runId: string; count: number }>
+  /**
+   * Agents whose line Hive left in their prompt, not submitted (#530: the user typed over it, or it couldn't be cleared):
+   * nothing more is typed into one until that prompt is submitted (its CLI's count passes this), so a draft is never
+   * typed over.
+   */
+  leftUntil: Map<string, { runId: string; count: number }>
+  /**
+   * What the producer of a delivery gave with it (#649, in memory only: one that can't outlive its launch, such as a lock's
+   * go-ahead): its own check, asked with offerHolds, and what to do once it is received or ends without that.
+   */
+  hooks: Map<string, DeliveryHooks>
 }
 
 /** A transaction's working copy: planned on, saved, then published. */
@@ -105,7 +137,7 @@ interface Draft {
   next: number
   invalid: unknown[]
   dirty: boolean
-  /** What to do once it is published (log lines, the Assistant's activity list): nothing for a plan that isn't. */
+  /** What to do once it is published (log lines, the Assistant's activity list, sources told): nothing for a plan that isn't. */
   after: (() => void)[]
 }
 
@@ -121,6 +153,33 @@ export class NotSaved extends Error {}
 export class TooManyWaiting extends Error {}
 /** A delivery refused because its project's deliveries are full (MAX_LIVE_PER_HOST, or the file's budget). */
 export class DeliveriesFull extends Error {}
+/** A delivery wanted now (deliverNow) that couldn't be given: why. It was cancelled. */
+export class NotGiven extends Error {}
+
+/**
+ * A producer's part in its deliveries (#649), registered once by name (`source` on the delivery): made again just before
+ * it is offered (`refresh`: the line from things as they are now, or null if it is no longer due: it is cancelled then,
+ * with `why`); checked before each piece and Enter of its line (`holds`); told when it is received (`received`: its
+ * cursor moves on) or ends without that (`ended`). Called outside the host's lock.
+ */
+export interface DeliverySource {
+  refresh?: (r: DeliveryRecord, host: string) => Promise<{ body: string } | { cancel: string } | null>
+  holds?: (r: DeliveryRecord, host: string) => boolean
+  received?: (r: DeliveryRecord, host: string) => void
+  ended?: (r: DeliveryRecord, host: string) => void
+}
+const sources = new Map<string, DeliverySource>()
+
+/** A producer's own part in one delivery, given when it is made (in memory only): see Store.hooks. */
+export interface DeliveryHooks {
+  holds?: () => boolean
+  received?: () => void
+  ended?: () => void
+}
+/** Registers a producer's part (once per name; again replaces it). */
+export function registerSource(name: string, s: DeliverySource): void {
+  sources.set(name, s)
+}
 
 /** Runs fn after the host's transactions before it (and before later ones). */
 function locked<T>(store: Store, fn: () => Promise<T>): Promise<T> {
@@ -135,6 +194,7 @@ function locked<T>(store: Store, fn: () => Promise<T>): Promise<T> {
  * that throws, or a save that fails (NotSaved), leaves the deliveries file and what is published as they were.
  */
 function transact<T>(store: Store, plan: (d: Draft) => T): Promise<T> {
+  running++
   return locked(store, async () => {
     const d: Draft = { records: [...store.records], next: store.next, invalid: [...store.invalid], dirty: false, after: [] }
     const planned = plan(d)
@@ -149,7 +209,20 @@ function transact<T>(store: Store, plan: (d: Draft) => T): Promise<T> {
     store.invalid = d.invalid
     for (const f of d.after) f()
     return planned
-  })
+  }).finally(() => running--)
+}
+
+/** Transactions not finished yet (also those nothing waits for): what settled() waits for. */
+let running = 0
+/** Whether the service has a change in flight (watches' and loop wakes' settled() wait for it, #570). */
+export const inFlightNow = (): boolean => running > 0 || trying.size > 0
+/** Resolves once no change or offer is in flight, and what sources were told of them has run. */
+export async function settled(): Promise<void> {
+  while (inFlightNow()) {
+    await Promise.allSettled([...stores.values()].map((s) => s.lock))
+    await Promise.allSettled([...trying.values()])
+    await new Promise((r) => setImmediate(r))
+  }
 }
 
 /** A transaction nothing waits for (one that follows what happened); a failure is logged. */
@@ -159,7 +232,10 @@ function transactSoon(store: Store, what: string, plan: (d: Draft) => unknown): 
     .catch((e) => log.warn(what, e))
 }
 
-/** A host's deliveries, loaded once and restored (each one not received yet checked again: refused, expired). */
+/**
+ * A host's deliveries, loaded once and restored: each one not received yet checked again (refused, expired), and one
+ * offered when Hive stopped uncertain (it may not have reached its agent: offered once more, #649).
+ */
 export function load(host: string): Promise<Store> {
   const k = keyOf(host)
   const had = stores.get(k)
@@ -169,10 +245,12 @@ export function load(host: string): Promise<Store> {
   const p = (async () => {
     const read = await readFileOf(host)
     if (stores.has(k)) return stores.get(k)!
-    const store: Store = { host, records: read.records, next: read.next, invalid: read.invalid, lock: Promise.resolve(), offering: new Set(), confirming: new Map() }
+    const store: Store = { host, records: read.records, next: read.next, invalid: read.invalid, lock: Promise.resolve(), offering: new Set(), confirming: new Map(), leftUntil: new Map(), hooks: new Map() }
     // Restored before anything else sees it (a second load waits for this one).
-    // One offered when Hive stopped stays offered: never typed again, received only once the agent fetches it.
-    await transact(store, (d) => recheck(store, d)).catch((e) => log.warn('restoring deliveries', e))
+    await transact(store, (d) => {
+      for (const r of [...d.records]) if (r.state === 'offered') set(store, d, r, 'uncertain', 'may not have reached it: Hive stopped while offering it', undefined, { again: AGAIN_RESTART })
+      recheck(store, d)
+    }).catch((e) => log.warn('restoring deliveries', e))
     if (stores.has(k)) return stores.get(k)!
     stores.set(k, store)
     showAll(store)
@@ -249,7 +327,7 @@ export const setBeforeSaveForTests = (fn: (() => Promise<void> | void) | null): 
 /** Saves a draft as the host's deliveries file: atomic (a temp file beside it, then a rename), so a failure leaves it as it was. */
 async function save(store: Store, d: Draft): Promise<void> {
   await beforeSave?.()
-  prune(d)
+  prune(store, d)
   const file = fileOf(store.host)
   await mkdir(join(store.host, HIVE_DIR), { recursive: true })
   // Entries kept aside that would push it over: moved to a file of their own (never lost), not kept in this one.
@@ -279,16 +357,16 @@ export const setBeforeRenameForTests = (fn: (() => Promise<void> | void) | null)
 }
 
 /** Ended deliveries beyond what is kept (per agent, by age) go; received ones never acked expire after a week. */
-function prune(d: Draft): void {
+function prune(store: Store, d: Draft): void {
   const now = Date.now()
-  for (const r of [...d.records]) if (r.state === 'received' && now - Date.parse(r.received ?? r.created) > KEEP_RECEIVED_MS) set(d, r, 'expired', 'received, never acked')
+  for (const r of [...d.records]) if (r.state === 'received' && needsAck(r.kind) && now - Date.parse(r.received ?? r.created) > KEEP_RECEIVED_MS) set(store, d, r, 'expired', 'received, never acked')
   const ended = new Map<string, DeliveryRecord[]>()
   for (const r of d.records) if (!isLive(r)) ended.set(r.agentId, [...(ended.get(r.agentId) ?? []), r])
   const drop = new Set<DeliveryRecord>()
   for (const list of ended.values()) {
     list.sort((a, b) => b.seq - a.seq)
     list.forEach((r, i) => {
-      if (i >= KEEP_ENDED || now - Date.parse(r.ended ?? r.acked ?? r.created) > KEEP_ENDED_MS) drop.add(r)
+      if (i >= KEEP_ENDED || now - Date.parse(r.ended ?? r.acked ?? r.received ?? r.created) > KEEP_ENDED_MS) drop.add(r)
     })
   }
   if (drop.size) d.records = d.records.filter((r) => !drop.has(r))
@@ -302,18 +380,38 @@ function put(d: Draft, from: DeliveryRecord, to: DeliveryRecord): void {
   d.dirty = true
 }
 
+/** Tells a delivery's source what became of it, once published and outside the lock. */
+function tell(store: Store, d: Draft, r: DeliveryRecord, what: 'received' | 'ended'): void {
+  const fn = r.source ? sources.get(r.source)?.[what] : undefined
+  const hook = store.hooks.get(r.id)?.[what]
+  if (!fn && !hook) return
+  d.after.push(() =>
+    queueMicrotask(() => {
+      try {
+        fn?.(r, store.host)
+        hook?.()
+      } catch (e) {
+        log.warn(`telling ${r.source ?? 'its producer'} that ${r.id} was ${what}`, e)
+      }
+    })
+  )
+}
+
 /** Moves a delivery in a draft (with `extra` fields); false when that move isn't allowed. */
-function set(d: Draft, r: DeliveryRecord, to: DeliveryState, detail?: string, via?: 'inbox', extra: Partial<DeliveryRecord> = {}): boolean {
+function set(store: Store, d: Draft, r: DeliveryRecord, to: DeliveryState, detail?: string, via?: 'inbox' | 'typed', extra: Partial<DeliveryRecord> = {}): boolean {
   if (!d.records.includes(r)) return false
   const next = moved(r, to, nowIso(), detail)
   if (!next) return false
   if (via && (to === 'received' || (to === 'acked' && !r.received))) next.receivedVia = via
-  put(d, r, { ...next, ...extra })
+  const out = { ...next, ...extra }
+  put(d, r, out)
   if (to === 'refused' && r.from.kind === 'assistant') {
     const ws = r.from.workspace
     d.after.push(() => assistant.record(ws, `A message for ${r.agentName ?? r.agentId} (${r.id}) was refused`, detail ?? 'its sender may no longer send it'))
   }
   if (to === 'refused' || to === 'expired' || to === 'cancelled' || to === 'uncertain') d.after.push(() => log.info(`Delivery ${r.id} for ${userText(r.agentName ?? r.agentId)} ${to}${detail ? `: ${userText(detail)}` : ''}`))
+  if ((to === 'received' || to === 'acked') && !r.received) tell(store, d, out, 'received')
+  else if (to === 'refused' || to === 'expired' || to === 'cancelled') tell(store, d, out, 'ended')
   return true
 }
 
@@ -344,17 +442,37 @@ function whyNot(store: Store, r: DeliveryRecord): { to: 'refused' | 'expired'; w
   if (why) return { to: 'refused', why }
   if (Date.parse(r.expires) <= clock()) return { to: 'expired', why: 'not received in time' }
   const live = sessions.liveFor(store.host, r.agentId)
+  if (r.forRun && live?.runId !== r.forRun) return { to: 'expired', why: 'the session it was for has ended' }
   if (r.conversation && live?.sessionId && live.sessionId !== r.conversation) return { to: 'expired', why: 'its agent is in another conversation now' }
   return null
 }
 
-/** Ends, in a draft, what may no longer be given to its agent (only what isn't received yet). */
+/**
+ * Follows, in a draft, what happened to deliveries not received yet: one that may no longer be given to its agent ends;
+ * one whose typed line its CLI has taken since is received (#649); one offered into a launch that has ended (or another
+ * one) before that is uncertain, and offered once more.
+ */
 function recheck(store: Store, d: Draft, agentId?: string): void {
   for (const r of [...d.records]) {
     if (!isUnread(r) || (agentId && r.agentId !== agentId)) continue
+    if (r.state === 'offered' && !store.offering.has(r.id)) {
+      const base = store.confirming.get(r.id)
+      const now = sessions.promptsTaken(store.host, r.agentId)
+      if (base && now && now.runId === base.runId && r.offerRun === base.runId && now.count > base.count) {
+        set(store, d, r, 'received', undefined, 'typed')
+        continue
+      }
+      if (r.offerRun && sessions.liveFor(store.host, r.agentId)?.runId !== r.offerRun) {
+        set(store, d, r, 'uncertain', `may not have reached it: ${AGAIN_LAUNCH}`, undefined, { again: AGAIN_LAUNCH })
+        continue
+      }
+    }
     const no = whyNot(store, r)
-    if (no) set(d, r, no.to, no.why)
+    if (no) set(store, d, r, no.to, no.why)
   }
+  // What has left offered keeps no check of its line's receipt.
+  for (const id of [...store.confirming.keys()]) if (byId(d.records, id)?.state !== 'offered') store.confirming.delete(id)
+  for (const id of [...store.hooks.keys()]) if (!isUnread(byId(d.records, id) ?? { state: 'cancelled' })) store.hooks.delete(id)
 }
 
 /** Shows an agent's unread and overdue deliveries in its pane (only while it runs). */
@@ -377,17 +495,36 @@ export interface NewDelivery {
   expiresMs?: number
   /** At most this many of its kind waiting for the agent (counted with it, when it is made): more is refused. */
   maxWaiting?: number
+  /** What made it (a registered source) and its key there: one waiting with the same is that one (`replace`: made again from this). */
+  source?: string
+  ref?: string
+  replace?: boolean
+  meta?: Record<string, string | number | boolean>
+  /** What its agent must be doing to be offered it (default idle). */
+  need?: DeliveryNeed
+  /** Only for this launch of its agent (a mode notice, a lock's go-ahead): it expires when that launch ends. */
+  forRun?: string
 }
 
 /** How many of an agent's deliveries of a kind wait to be offered. */
 export const waitingCount = (host: string, agentId: string, kind: DeliveryKind): number => stores.get(keyOf(host))?.records.filter((r) => r.agentId === agentId && r.kind === kind && isWaiting(r)).length ?? 0
 
-/** Makes a delivery for an agent of a host, saved before this returns. Refused (an Error) when its sender may not send it. */
-export async function createDelivery(host: string, nd: NewDelivery): Promise<DeliveryRecord> {
+/**
+ * Makes a delivery for an agent of a host, saved before this returns. Refused (an Error) when its sender may not send it.
+ * One already waiting with the same source and ref is returned instead (made again from this one with `replace`).
+ */
+export async function createDelivery(host: string, nd: NewDelivery, hooks?: DeliveryHooks): Promise<DeliveryRecord> {
   const store = await load(host)
   const r = await transact(store, (d) => {
     const why = senderRefusal(nd.from)
     if (why) throw new Error(`Not sent: ${why}.`)
+    const had = nd.source && nd.ref !== undefined ? d.records.find((x) => x.source === nd.source && x.ref === nd.ref && x.agentId === nd.agentId && isWaiting(x)) : undefined
+    if (had) {
+      if (!nd.replace) return had
+      const again: DeliveryRecord = { ...had, body: nd.body, ...(nd.card ? { card: nd.card } : {}), ...(nd.meta ? { meta: nd.meta } : {}), ...(nd.forRun ? { forRun: nd.forRun } : {}), expires: new Date(Date.now() + (nd.expiresMs ?? DELIVERY_EXPIRY_HOURS * 60 * 60_000)).toISOString() }
+      put(d, had, again)
+      return again
+    }
     if (nd.maxWaiting !== undefined && d.records.filter((x) => x.agentId === nd.agentId && x.kind === nd.kind && isWaiting(x)).length >= nd.maxWaiting) throw new TooManyWaiting(`${nd.maxWaiting} already wait`)
     if (d.records.filter(isLive).length >= MAX_LIVE_PER_HOST) throw new DeliveriesFull(`This project already has ${MAX_LIVE_PER_HOST} deliveries waiting or not acked, the most Hive keeps.`)
     const seq = d.next++
@@ -403,7 +540,11 @@ export async function createDelivery(host: string, nd: NewDelivery): Promise<Del
       body: nd.body,
       state: 'queued',
       created: nowIso(),
-      expires: new Date(Date.now() + (nd.expiresMs ?? DELIVERY_EXPIRY_HOURS * 60 * 60_000)).toISOString()
+      expires: new Date(Date.now() + (nd.expiresMs ?? DELIVERY_EXPIRY_HOURS * 60 * 60_000)).toISOString(),
+      ...(nd.source ? { source: nd.source, ...(nd.ref !== undefined ? { ref: nd.ref } : {}) } : {}),
+      ...(nd.meta ? { meta: nd.meta } : {}),
+      ...(nd.need && nd.need !== 'idle' ? { need: nd.need } : {}),
+      ...(nd.forRun ? { forRun: nd.forRun } : {})
     }
     d.records.push(rec)
     d.dirty = true
@@ -412,11 +553,13 @@ export async function createDelivery(host: string, nd: NewDelivery): Promise<Del
     d.after.push(() => log.info(`Delivery ${rec.id} (${rec.kind}) for ${userText(nd.agentName ?? nd.agentId)} queued`))
     return rec
   })
+  // Its producer's own part (also for one made again from this: the newest producer's).
+  if (hooks && isUnread(r)) store.hooks.set(r.id, hooks)
   show(store, nd.agentId)
   return r
 }
 
-/** A delivery as it is now (null when it is gone). */
+/** A delivery as it is now (null when it is gone, or its host isn't loaded). */
 export const deliveryNow = (host: string, id: string): DeliveryRecord | null => byId(stores.get(keyOf(host))?.records ?? [], id) ?? null
 
 /** An agent's deliveries, oldest first (loaded if need be). */
@@ -424,6 +567,11 @@ export async function deliveriesOf(host: string, agentId: string): Promise<Deliv
   const store = await load(host)
   return store.records.filter((r) => r.agentId === agentId).sort((a, b) => a.seq - b.seq)
 }
+
+/** A host's deliveries from a source, oldest first (only what is loaded). */
+export const fromSource = (host: string, source: string): DeliveryRecord[] => (stores.get(keyOf(host))?.records ?? []).filter((r) => r.source === source).sort((a, b) => a.seq - b.seq)
+/** Every loaded host's deliveries from a source, with their hosts. */
+export const everyFromSource = (source: string): { host: string; r: DeliveryRecord }[] => [...stores.values()].flatMap((s) => s.records.filter((r) => r.source === source).map((r) => ({ host: s.host, r })))
 
 /** An agent's deliveries as the Agent API shows them: unread and overdue counts, and the rows (the newest `limit`). */
 export async function deliveryView(host: string, agentId: string, limit: number, textChars = 80): Promise<{ unread: number; overdue: number; deliveries: DeliveryRow[]; more?: number }> {
@@ -434,22 +582,44 @@ export async function deliveryView(host: string, agentId: string, limit: number,
   return { unread: list.filter(isUnread).length, overdue: rows.filter((r) => r.overdue).length, deliveries: shown, ...(rows.length > shown.length ? { more: rows.length - shown.length } : {}) }
 }
 
+/** Whether a delivery can still be cancelled: waiting, or offered and being typed, or typed and not taken by its CLI yet. */
+const cancellable = (store: Store, r: DeliveryRecord): boolean => isWaiting(r) || (r.state === 'offered' && (store.offering.has(r.id) || untaken(store, r))) || (r.state === 'uncertain' && !isWaiting(r))
+
 /**
  * Cancels an agent's deliveries waiting to be offered (and one being typed now, whose typing stops, or typed and not
  * taken by its CLI yet, whose confirmation then clears the line rather than pressing Enter again), all of them or those
- * of `kinds`; by: who cancelled. How many.
+ * of `kinds` (or those `match` picks); by: who cancelled. How many.
  */
-export async function cancelDeliveries(host: string, agentId: string, by: string, kinds?: readonly DeliveryKind[]): Promise<number> {
+export async function cancelDeliveries(host: string, agentId: string, by: string, kinds?: readonly DeliveryKind[], match?: (r: DeliveryRecord) => boolean): Promise<number> {
   const store = await load(host)
   const n = await transact(store, (d) => {
     let count = 0
     for (const r of [...d.records]) {
-      if (r.agentId !== agentId || (kinds && !kinds.includes(r.kind))) continue
-      if ((isWaiting(r) || (r.state === 'offered' && (store.offering.has(r.id) || untaken(store, r)))) && set(d, r, 'cancelled', `cancelled by ${by}`)) count++
+      if (r.agentId !== agentId || (kinds && !kinds.includes(r.kind)) || (match && !match(r))) continue
+      if (cancellable(store, r) && set(store, d, r, 'cancelled', `cancelled by ${by}`)) count++
     }
     return count
   })
   show(store, agentId)
+  return n
+}
+
+/** Cancels a host's deliveries from a source (`ref`: only that one) not received yet, as cancelDeliveries does (`why`: the reason given). How many. */
+export async function cancelFromSource(host: string, source: string, ref: string | null, why: string): Promise<number> {
+  const store = stores.get(keyOf(host)) ?? (await load(host))
+  const agents = new Set<string>()
+  const n = await transact(store, (d) => {
+    let count = 0
+    for (const r of [...d.records]) {
+      if (r.source !== source || (ref !== null && r.ref !== ref) || !cancellable(store, r)) continue
+      if (set(store, d, r, 'cancelled', why)) {
+        count++
+        agents.add(r.agentId)
+      }
+    }
+    return count
+  })
+  for (const a of agents) show(store, a)
   return n
 }
 
@@ -462,15 +632,16 @@ function untaken(store: Store, r: DeliveryRecord): boolean {
 
 /**
  * hive_inbox for an agent: its deliveries not received yet (a card's events coalesced), now received; and those received
- * before and not acked. What may no longer be given out is refused or expired instead, checked in the same transaction.
+ * before and not acked (of the kinds it acks). What may no longer be given out is refused or expired instead, checked in
+ * the same transaction.
  */
 export async function readInbox(host: string, agentId: string): Promise<{ items: InboxItem[]; unacked: string[] }> {
   const store = await load(host)
   const r = await transact(store, (d) => {
     recheck(store, d, agentId)
     const mine = d.records.filter((x) => x.agentId === agentId)
-    const out = { items: inboxItems(mine), unacked: mine.filter((x) => x.state === 'received').map((x) => x.id) }
-    for (const x of mine.filter(isUnread)) set(d, x, 'received', undefined, 'inbox')
+    const out = { items: inboxItems(mine), unacked: mine.filter((x) => x.state === 'received' && needsAck(x.kind)).map((x) => x.id) }
+    for (const x of mine.filter(isUnread)) set(store, d, x, 'received', undefined, 'inbox')
     return out
   })
   show(store, agentId)
@@ -491,7 +662,7 @@ export async function ackDeliveries(host: string, agentId: string, ids: readonly
       if (!x || x.agentId !== agentId) unknown.push(id)
       else if (x.state === 'acked') acked.push(id)
       // Ended without being received (cancelled, refused, expired): not for it to act on.
-      else if (isLive(x) && set(d, x, 'acked', undefined, 'inbox')) acked.push(id)
+      else if ((isLive(x) || x.state === 'received') && set(store, d, x, 'acked', undefined, 'inbox')) acked.push(id)
       else unknown.push(id)
     }
     return { acked, unknown }
@@ -507,30 +678,53 @@ interface Offer {
   line: string
   runId: string
   sessionId: string
+  need: DeliveryNeed
+}
+
+/** What an agent must be doing to be offered these together: the one they share, else free (which every need takes). */
+const needOf = (items: readonly DeliveryRecord[]): DeliveryNeed => {
+  const needs = new Set(items.map((r) => r.need ?? 'idle'))
+  return needs.size === 1 ? [...needs][0] : 'free'
 }
 
 /**
- * Plans an offer of an agent's waiting deliveries (those that may still be given out) in a draft: offered, into this
- * launch (`offerRun`), with the line that will be typed (`lineFor`: its text, and the whole line when it goes in front of
- * a wake's). Null when none waits.
+ * Which of an agent's waiting deliveries go in its next line (those that may still be given out and that it can take,
+ * as it is now): `only` that one; else a task or handover alone (the oldest), or all the others together.
  */
-function planOffer(store: Store, d: Draft, agentId: string, target: { runId: string; sessionId: string }, lineFor: (items: DeliveryRecord[]) => { text: string; full: string }): (Offer & { text: string }) | null {
-  recheck(store, d, agentId)
-  const items = d.records.filter((r) => r.agentId === agentId && isWaiting(r)).sort((a, b) => a.seq - b.seq)
-  if (!items.length) return null
-  const { text, full } = lineFor(items)
-  const was = new Map(items.map((r) => [r.id, r]))
-  for (const r of items) set(d, r, 'offered', undefined, undefined, { offerRun: target.runId })
-  return { ids: items.map((r) => r.id), was, line: full, text, runId: target.runId, sessionId: target.sessionId }
+function pickOffer(store: Store, records: readonly DeliveryRecord[], agentId: string, only?: string): DeliveryRecord[] {
+  const live = sessions.liveFor(store.host, agentId)
+  const can = records.filter((r) => r.agentId === agentId && isWaiting(r) && !whyNot(store, r) && readyFor(live, r.need ?? 'idle')).sort((a, b) => a.seq - b.seq)
+  if (only) return can.filter((r) => r.id === only)
+  const alone = can.find((r) => goesAlone(r.kind))
+  return alone ? [alone] : can.filter((r) => !goesAlone(r.kind))
 }
 
-/** Whether an offer still holds: each still offered by it and allowed, and its agent in the same launch and conversation. */
+/**
+ * Plans an offer of an agent's waiting deliveries (`items`, as picked) in a draft: offered, into this launch
+ * (`offerRun`), with the line that will be typed. Null when none of them still waits.
+ */
+function planOffer(store: Store, d: Draft, items: readonly DeliveryRecord[], target: { runId: string; sessionId: string }, label: string | null): Offer | null {
+  const now = items.map((r) => byId(d.records, r.id)).filter((r): r is DeliveryRecord => !!r && isWaiting(r) && !whyNot(store, r))
+  if (!now.length) return null
+  // A watching agent is told its watch carries on, unless the line is its own watch's wake (whose receipt ends it).
+  const line = offerLine(now, now.some((r) => r.source === 'watch') ? null : label)
+  const was = new Map(now.map((r) => [r.id, r]))
+  for (const r of now) set(store, d, r, 'offered', undefined, undefined, { offerRun: target.runId })
+  return { ids: now.map((r) => r.id), was, line, runId: target.runId, sessionId: target.sessionId, need: needOf(now) }
+}
+
+/**
+ * Whether an offer still holds: each still offered by it, allowed and still wanted by its source (and by its caller), and
+ * its agent in the same launch and conversation.
+ */
 function offerHolds(store: Store, o: Offer, records: readonly DeliveryRecord[] = store.records): boolean {
   const live = sessions.liveFor(store.host, o.ids.length ? byId(records, o.ids[0])!.agentId : '')
   if (!live || live.runId !== o.runId || (o.sessionId && live.sessionId && live.sessionId !== o.sessionId)) return false
   return o.ids.every((id) => {
     const r = byId(records, id)
-    return r?.state === 'offered' && r.offerRun === o.runId && !senderRefusal(r.from) && Date.parse(r.expires) > clock() && !(r.conversation && live.sessionId && live.sessionId !== r.conversation)
+    if (r?.state !== 'offered' || r.offerRun !== o.runId || senderRefusal(r.from) || Date.parse(r.expires) <= clock() || (r.conversation && live.sessionId && live.sessionId !== r.conversation)) return false
+    const s = r.source ? sources.get(r.source) : undefined
+    return (s?.holds?.(r, store.host) ?? true) && (store.hooks.get(id)?.holds?.() ?? true)
   })
 }
 
@@ -554,132 +748,138 @@ function unoffer(store: Store, o: Offer): Promise<void> {
  * The line they were in won't be submitted by Hive (#530: the confirmation found the offer no longer holds before its
  * Enter again, and cleared the line or left the user's draft): each still offered by it ends as what is true now, refused
  * (its sender may no longer send it) or expired (too old, its agent in another conversation); one that would still hold
- * for another line (its agent started again) is put back to wait.
+ * for another line (its agent started again, or only another of the line stopped holding) is put back to wait.
  */
-function withdrawn(store: Store, o: Offer): void {
-  transactSoon(store, 'withdrawing deliveries', (d) => {
+function withdrawn(store: Store, o: Offer, left: boolean): void {
+  // What still holds goes in a line again soon (the wake a message rode, typed alone), but not over a line left in the
+  // prompt: only once that prompt has been submitted.
+  const agentId = byId(store.records, o.ids[0])?.agentId
+  const base = store.confirming.get(o.ids[0])
+  if (left && agentId && base) store.leftUntil.set(agentId, base)
+  transact(store, (d) => {
     for (const id of o.ids) {
       const r = byId(d.records, id)
       if (r?.state !== 'offered' || r.offerRun !== o.runId) continue
       const no = whyNot(store, r)
-      if (no) set(d, r, no.to, no.why)
+      if (no) set(store, d, r, no.to, no.why)
       else {
         const was = o.was.get(id)
         if (was) put(d, r, was)
       }
     }
   })
+    .then(() => {
+      showAll(store)
+      if (agentId) retrySoon(store.host, agentId)
+    })
+    .catch((e) => log.warn('withdrawing deliveries', e))
 }
 
-/**
- * What rides a wake typed into the agent (watches.onWakeRider), first in its line: its deliveries waiting that may still be
- * given out. Their offer is saved by `ready`, which the writer waits for before the line's first key; taken back to
- * waiting if the line isn't typed after all.
- */
-function riderFor(projectPath: string, agentId: string, wakeLine: string): Rider | null {
-  const store = stores.get(keyOf(projectPath))
-  const live = sessions.liveFor(projectPath, agentId)
-  if (!store || !live) return null
-  // One that may no longer be given out doesn't ride it, and is ended now (refused, expired), not at the next tick.
-  if (store.records.some((r) => r.agentId === agentId && isWaiting(r) && whyNot(store, r))) transactSoon(store, 'checking deliveries', (d) => recheck(store, d, agentId))
-  const items = store.records.filter((r) => r.agentId === agentId && isWaiting(r) && !whyNot(store, r)).sort((a, b) => a.seq - b.seq)
-  if (!items.length) return null
-  const text = offerLine(items, null)
-  let offer: Offer | null = null
-  const ready = (async () => {
-    offer = await transact(store, (d) => {
-      const o = planOffer(store, d, agentId, { runId: live.runId, sessionId: live.sessionId }, (now) => {
-        // What waits changed since the rider was made (one cancelled, refused, added): not this line.
-        if (now.map((r) => r.id).join() !== items.map((r) => r.id).join()) throw new Error('The deliveries riding it changed.')
-        return { text, full: `${text} ${wakeLine}` }
-      })
-      if (!o) throw new Error('No deliveries ride it now.')
-      return o
-    })
-    for (const id of offer.ids) store.offering.add(id)
-    show(store, agentId)
-  })()
-  ready.catch(() => undefined)
-  return {
-    text,
-    ready,
-    still: () => !!offer && offerHolds(store, offer) && offer.ids.every((id) => store.offering.has(id)),
-    taken: () => {
-      if (!offer) return
-      for (const id of offer.ids) store.offering.delete(id)
-      log.info(`Deliveries ${offer.ids.join(', ')} for ${userText(agentId)} offered with a wake`)
-    },
-    notTaken: () => {
-      if (offer) void unoffer(store, offer)
-    },
-    // Before the confirmation's Enter again: the same check as before each key of the line.
-    allowed: () => !!offer && offerHolds(store, offer),
-    withdrawn: () => {
-      if (offer) withdrawn(store, offer)
-    },
-    confirming: (before) => {
-      if (offer) confirming(store, offer, before)
-    },
-    settled: () => {
-      if (offer) settled(store, offer)
+/** The launch the line was typed into ended (or another began) before its CLI took it: what it carried is uncertain now. */
+function lost(store: Store): void {
+  transactSoon(store, 'checking deliveries', (d) => recheck(store, d))
+}
+
+/** The line was taken by its CLI (its confirmation saw the prompt count rise in its launch): what it carried is received (#649). */
+function taken(store: Store, o: Offer): void {
+  transactSoon(store, 'receiving deliveries', (d) => {
+    for (const id of o.ids) {
+      const r = byId(d.records, id)
+      if (r?.state === 'offered' && r.offerRun === o.runId) set(store, d, r, 'received', undefined, 'typed')
     }
-  }
+  })
 }
 
 /** While the confirmation checks its CLI took the line: until then a cancel can still end it (and no Enter comes). */
 function confirming(store: Store, o: Offer, before: { runId: string; count: number }): void {
   for (const id of o.ids) store.confirming.set(id, before)
 }
-function settled(store: Store, o: Offer): void {
-  for (const id of o.ids) if (store.confirming.get(id)?.runId === o.runId) store.confirming.delete(id)
+
+/** Each source's line made again for what is about to be offered (from things as they are now): its body, or why it is cancelled. */
+async function refreshAll(store: Store, items: readonly DeliveryRecord[]): Promise<Map<string, { body: string } | { cancel: string }>> {
+  const out = new Map<string, { body: string } | { cancel: string }>()
+  for (const r of items) {
+    const fn = r.source ? sources.get(r.source)?.refresh : undefined
+    if (!fn) continue
+    try {
+      const got = await fn(r, store.host)
+      if (got) out.set(r.id, got)
+    } catch (e) {
+      log.warn(`making delivery ${r.id} again`, e)
+    }
+  }
+  return out
 }
 
-const trying = new Map<string, Promise<void>>()
+const trying = new Map<string, Promise<boolean>>()
 
-/** Offers an agent's waiting deliveries now if it can take a line (one try at a time per agent). */
-export function offerNow(host: string, agentId: string): Promise<void> {
+/** Offers an agent's waiting deliveries now if it can take a line (one try at a time per agent); `only`: that one alone. Whether a line was typed. */
+export function offerNow(host: string, agentId: string, only?: string): Promise<boolean> {
   const k = `${keyOf(host)}#${agentId}`
-  const running = trying.get(k)
-  if (running) return running
-  const run = offerOnce(host, agentId).finally(() => trying.delete(k))
+  const going = trying.get(k)
+  if (going) return going.then(() => false)
+  const run = offerOnce(host, agentId, only).finally(() => trying.delete(k))
   trying.set(k, run)
   return run
 }
 
-async function offerOnce(host: string, agentId: string): Promise<void> {
+async function offerOnce(host: string, agentId: string, only?: string): Promise<boolean> {
   const store = await load(host)
   const st = sessions.liveFor(host, agentId)
-  if (!st) return
-  if (!store.records.some((r) => r.agentId === agentId && isWaiting(r)) || !canTypeLine(host, agentId)) return
+  if (!st) return false
+  // A line of Hive's left in its prompt (the user's draft in it): nothing more until that prompt is submitted.
+  const left = store.leftUntil.get(agentId)
+  if (left) {
+    const now = sessions.promptsTaken(host, agentId)
+    if (now && now.runId === left.runId && now.count <= left.count) return false
+    store.leftUntil.delete(agentId)
+  }
+  // What may no longer be given out (its sender's permission gone, too old, another conversation) ends now, not later.
+  if (store.records.some((r) => r.agentId === agentId && isUnread(r) && whyNot(store, r))) await transact(store, (d) => recheck(store, d, agentId)).catch((e) => log.warn('checking deliveries', e))
+  let items = pickOffer(store, store.records, agentId, only)
+  if (!items.length) return false
+  if (!canTypeLine(host, agentId, needOf(items))) {
+    // The user may still be writing there: nothing says when they stop, so it is tried again in a moment.
+    if (sessions.userMayBeTyping(host, agentId)) retrySoon(host, agentId)
+    return false
+  }
+  // Each source's line made again from things as they are now: one no longer due is cancelled (and not offered), as is
+  // one its producer no longer wants (its own check, given with it).
+  const fresh = await refreshAll(store, items)
+  for (const r of items) if (!fresh.has(r.id) && store.hooks.get(r.id)?.holds?.() === false) fresh.set(r.id, { cancel: 'cancelled: no longer wanted' })
   const label = st.status === 'watching' && st.watch ? st.watch.label : null
   // Saved as offered before the first key (checked as it is planned), and checked again before each key: if Hive stops
-  // in between it stays offered, never "delivered". Not saved, or no longer to be given out: nothing is typed.
+  // in between it is uncertain, never "delivered". Not saved, or no longer to be given out: nothing is typed.
   let offer: Offer | null
   try {
-    offer = await transact(store, (d) =>
-      planOffer(store, d, agentId, { runId: st.runId, sessionId: st.sessionId }, (items) => {
-        const line = offerLine(items, label)
-        return { text: line, full: line }
-      })
-    )
+    offer = await transact(store, (d) => {
+      for (const [id, f] of fresh) {
+        const r = byId(d.records, id)
+        if (!r || !isWaiting(r)) continue
+        if ('cancel' in f) set(store, d, r, 'cancelled', f.cancel)
+        else if (f.body !== r.body) put(d, r, { ...r, body: f.body })
+      }
+      items = pickOffer(store, d.records, agentId, only).filter((r) => items.some((x) => x.id === r.id))
+      return planOffer(store, d, items, { runId: st.runId, sessionId: st.sessionId }, label)
+    })
   } catch (e) {
     log.warn(`Deliveries for ${userText(agentId)} not offered: ${(e as Error).message}`)
     show(store, agentId)
-    return
+    return false
   }
   show(store, agentId)
   if (!offer || !offerHolds(store, offer)) {
     if (offer) await unoffer(store, offer)
-    return
+    return false
   }
   const o = offer
   for (const id of o.ids) store.offering.add(id)
   let typed = false
   try {
     typed = await typeLine(host, agentId, o.line, () => offerHolds(store, o) && o.ids.every((id) => store.offering.has(id)), {
-      rider: false,
+      need: o.need,
       // Before the confirmation's Enter again: the same check as before each key of the line.
-      ride: { still: () => offerHolds(store, o), withdrawn: () => withdrawn(store, o), instead: null, confirming: (before) => confirming(store, o, before), settled: () => settled(store, o) }
+      ride: { still: () => offerHolds(store, o), withdrawn: (inPrompt) => withdrawn(store, o, inPrompt), confirming: (before) => confirming(store, o, before), taken: () => taken(store, o), lost: () => lost(store) }
     })
   } finally {
     for (const id of o.ids) store.offering.delete(id)
@@ -688,13 +888,107 @@ async function offerOnce(host: string, agentId: string): Promise<void> {
     else await unoffer(store, o)
     show(store, agentId)
   }
+  // Put off part-way (the user began typing there, what it was made from changed): tried again by itself, soon.
+  if (!typed) retrySoon(host, agentId)
+  return typed
 }
 
-/** Tries every loaded host's agents that have deliveries waiting, and refreshes what their panes show (overdue). */
+/** Agents whose line was put off part-way, tried again in a moment (one timer each; the tick and statuses try too). */
+const retrying = new Map<string, ReturnType<typeof setTimeout>>()
+const RETRY_MS = 1000
+function retrySoon(host: string, agentId: string): void {
+  const k = `${keyOf(host)}#${agentId}`
+  if (retrying.has(k)) return
+  const t = setTimeout(() => {
+    retrying.delete(k)
+    void offerNow(host, agentId).catch((e) => log.warn('offering deliveries', e))
+  }, RETRY_MS)
+  t.unref?.()
+  retrying.set(k, t)
+}
+
+/**
+ * Makes a delivery its caller wants given now, or not at all (#649: a task, a handover's step, which are never queued):
+ * offered at once, alone; else cancelled, and NotGiven says why. `holds`: the caller's own check, asked with each key.
+ */
+export async function deliverNow(host: string, nd: NewDelivery, holds?: () => boolean, hooks: Omit<DeliveryHooks, 'holds'> = {}): Promise<DeliveryRecord> {
+  const rec = await createDelivery(host, nd, { ...hooks, ...(holds ? { holds } : {}) })
+  const store = await load(host)
+  let why: string | null = null
+  try {
+    // Another try for the agent may be running (the tick's): once it is done, this one's own.
+    for (let i = 0; i < 3; i++) {
+      const now = deliveryNow(host, rec.id)
+      if (!now || !isWaiting(now)) break
+      why = whyNoLine(host, nd.agentId, nd.need ?? 'idle') ?? (holds && !holds() ? 'what it was for changed meanwhile' : null)
+      if (why) break
+      if (await offerNow(host, nd.agentId, rec.id)) break
+    }
+  } finally {
+    const now = deliveryNow(host, rec.id)
+    if (now && isWaiting(now)) {
+      why ??= whyNoLine(host, nd.agentId, nd.need ?? 'idle') ?? 'Hive could not type it'
+      await transact(store, (d) => {
+        const r = byId(d.records, rec.id)
+        if (r && isWaiting(r)) set(store, d, r, 'cancelled', `not given: ${why}`)
+      }).catch(() => undefined)
+      show(store, nd.agentId)
+    }
+  }
+  const out = deliveryNow(host, rec.id) ?? rec
+  if (out.state === 'cancelled' || out.state === 'refused' || out.state === 'expired') {
+    store.hooks.delete(rec.id)
+    throw new NotGiven(out.detail?.replace(/^not given: /, '') ?? why ?? out.state)
+  }
+  return out
+}
+
+/**
+ * Makes a delivery that a launch carries (#649: the task an agent is started with, its prompt on the command line):
+ * `start` launches the agent with its line (its text, with its id to ack), and it is offered into that launch, received
+ * once the launch's CLI takes its first prompt. `start` failing cancels it, and the error stands.
+ */
+export async function launchWith<T extends { runId: string }>(host: string, nd: NewDelivery, start: (line: string) => Promise<T>, hooks?: DeliveryHooks): Promise<{ record: DeliveryRecord; launched: T }> {
+  const rec = await createDelivery(host, nd, hooks)
+  const store = await load(host)
+  let run: T
+  try {
+    run = await start(offerLine([rec], null))
+  } catch (e) {
+    await transact(store, (d) => {
+      const r = byId(d.records, rec.id)
+      if (r && isWaiting(r)) set(store, d, r, 'cancelled', `not given: ${(e as Error).message}`)
+    }).catch(() => undefined)
+    show(store, nd.agentId)
+    throw e
+  }
+  await transact(store, (d) => {
+    const r = byId(d.records, rec.id)
+    if (r && isWaiting(r)) set(store, d, r, 'offered', undefined, undefined, run?.runId ? { offerRun: run.runId } : {})
+  }).catch((e) => log.warn('offering a launch\'s task', e))
+  // Received once the launch's CLI takes its first prompt (a launch that names no run is followed by the inbox alone).
+  if (run?.runId) store.confirming.set(rec.id, { runId: run.runId, count: 0 })
+  show(store, nd.agentId)
+  return { record: deliveryNow(host, rec.id) ?? rec, launched: run }
+}
+
+/**
+ * For a producer about to start from what an agent was told (a new watch, #649): its typed lines taken since are
+ * received now, and their sources told, before this returns.
+ */
+export async function followAgent(host: string, agentId: string): Promise<void> {
+  const store = stores.get(keyOf(host))
+  if (!store?.records.some((r) => r.agentId === agentId && r.state === 'offered')) return
+  await transact(store, (d) => recheck(store, d, agentId)).catch((e) => log.warn('checking deliveries', e))
+  // Its sources are told in microtasks queued as it was published: they have run once this has.
+  await new Promise((r) => setImmediate(r))
+  show(store, agentId)
+}
+
+/** Follows each loaded host's deliveries (received, uncertain, ended), offers what waits, and refreshes the panes (overdue). */
 function tick(): void {
   for (const store of stores.values()) {
-    // Also for agents not running: what has expired, or whose sender may no longer send it, ends now, not at their next start.
-    if (store.records.some((r) => isUnread(r) && whyNot(store, r))) transactSoon(store, 'checking deliveries', (d) => recheck(store, d))
+    if (store.records.some((r) => isUnread(r) && (whyNot(store, r) || r.state === 'offered'))) transactSoon(store, 'checking deliveries', (d) => recheck(store, d))
     const agents = new Set(store.records.filter(isLive).map((r) => r.agentId))
     for (const a of agents) {
       show(store, a)
@@ -704,11 +998,10 @@ function tick(): void {
 }
 
 let started = false
-/** Wires the service in (once, at start): wakes take deliveries along, statuses and a tick offer them, workspaces restore them. */
+/** Wires the service in (once, at start): statuses and a tick offer and follow deliveries, workspaces restore them. */
 export function initDeliveries(): void {
   if (started) return
   started = true
-  onWakeRider(riderFor)
   onHiveEvent((e) => {
     if (e.type === 'workspace-changed') {
       // Restored as a workspace opens: its projects' and its Assistant's (refusals shown, panes filled in).
@@ -720,8 +1013,10 @@ export function initDeliveries(): void {
     const { projectPath, agentId, status } = e.state
     void load(projectPath)
       .then((store) => {
+        // A prompt taken, a launch ended: what was offered is received, or uncertain.
+        if (store.records.some((r) => r.agentId === agentId && r.state === 'offered')) transactSoon(store, 'checking deliveries', (d) => recheck(store, d, agentId))
         show(store, agentId)
-        if (status === 'ready' || status === 'finished' || status === 'watching') setTimeout(() => void offerNow(projectPath, agentId).catch((err) => log.warn('offering deliveries', err)), 500).unref?.()
+        if (readyFor(e.state, 'stalled') || status === 'watching') setTimeout(() => void offerNow(projectPath, agentId).catch((err) => log.warn('offering deliveries', err)), 500).unref?.()
       })
       .catch((err) => log.warn('loading deliveries', err))
   })
@@ -730,14 +1025,28 @@ export function initDeliveries(): void {
   timer.unref?.()
 }
 
+// Sessions give their own lines through the service (#649: a lock's go-ahead, the carry-on after a sign-in, a handover's
+// steps): it is set as this loads.
+sessions.deliveries = {
+  give: async (host, nd, hooks) => {
+    const r = await createDelivery(host, nd, hooks)
+    await offerNow(host, nd.agentId)
+    return r
+  },
+  now: (host, nd, holds) => deliverNow(host, nd, holds),
+  cancel: cancelFromSource
+}
+
 /** For tests: every loaded host's agents offered now (what the tick does), awaited. */
 export async function offerAllForTests(): Promise<void> {
-  const runs: Promise<void>[] = []
+  const runs: Promise<boolean>[] = []
   for (const store of stores.values()) for (const a of new Set(store.records.filter(isWaiting).map((r) => r.agentId))) runs.push(offerNow(store.host, a))
   await Promise.all(runs)
 }
-/** For tests: wires the wake rider in without the events. */
-export const useRiderForTests = (): void => onWakeRider(riderFor)
+/** For tests: what the tick follows (received, uncertain, ended), now, awaited. */
+export async function followAllForTests(): Promise<void> {
+  await Promise.all([...stores.values()].map((store) => transact(store, (d) => recheck(store, d)).then(() => showAll(store))))
+}
 /** For tests: transactions still running finish. */
 export async function settledForTests(): Promise<void> {
   for (let i = 0; i < 5; i++) await Promise.all([...stores.values()].map((s) => s.lock))
@@ -745,6 +1054,8 @@ export async function settledForTests(): Promise<void> {
 /** For tests: forgets every host in memory, as a restart of Hive does (transactions finish first); what is on disk stays. */
 export async function forgetDeliveriesForTests(): Promise<void> {
   await settledForTests()
+  for (const t of retrying.values()) clearTimeout(t)
+  retrying.clear()
   stores.clear()
   trying.clear()
 }

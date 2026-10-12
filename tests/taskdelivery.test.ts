@@ -49,6 +49,9 @@ describe('a Start typed into a running agent', () => {
     writeFileSync(join(p, '.hive', 'project.json'), JSON.stringify({ version: 2, agents: ['d1', 'd2', 'd3', 'd4'].map((id, i) => ({ id, name: `Agent ${i + 1}` })) }))
     w = createWorkspaceService()
     await w.open(wsPath)
+    // The Assistant that starts cards here is running: a task it gives is refused once its session has ended (#645, #649).
+    const home = w.assistantHome
+    s.live.set(`${home.toLowerCase()}#assistant`, { state: { provider: 'claude', runId: 'run-assistant', projectPath: home, agentId: 'assistant', cwd: home, sessionId: '', status: 'working', startedAt: '', launchSignature: '', unseen: false }, adapter: claudeCode, transcriptMtime: '', defaultModel: false, modeTail: '', launchMode: null, configuredMode: null })
   })
   afterAll(async () => {
     s.live.clear()

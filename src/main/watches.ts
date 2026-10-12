@@ -1,5 +1,4 @@
 import { randomBytes } from 'crypto'
-import { app } from 'electron'
 import { link, mkdir, readFile, rename, rm, writeFile } from 'original-fs/promises'
 import { basename, dirname, join, resolve } from 'path'
 import { projectAgents } from '../shared/defaults'
@@ -22,6 +21,10 @@ import { sessions } from './sessions'
 import { allTasks, getTask, inScope, noteOnCard, unknownTask } from './tasks'
 import { openWorkspaces, workspaceFor, type WorkspaceService } from './workspace'
 import { devConsole, hiveSourceId, sessionSourceId } from './devConsole'
+import { isUnread, type DeliveryRecord } from '../shared/deliveries'
+import { cancelFromSource, createDelivery, deliveryNow, followAgent, inFlightNow as deliveriesInFlight, load as loadDeliveries, offerNow, registerSource, settled as deliveriesSettled } from './deliveries'
+import { inFlightNow as writerInFlight, onLineComing, settled as writerSettled } from './lineWriter'
+import { readyFor } from './readiness'
 
 /**
  * Wake-on-change watches (#128): an agent registers what it waits for on the board (hive_wait_for_tasks with wake), ends
@@ -113,12 +116,13 @@ interface WatchRecord {
   limitMinutes: number
   limitAt: string
   /**
-   * It fired: the line to type when the agent is idle (kept until it is typed), and the cards whose state it tells.
-   * `sending`: Hive began typing it (saved before the first key): a watch read back with it was delivered, or was being
-   * delivered when Hive stopped, and is never typed again (at most once). `agents`: an agent watch's agents it tells about
-   * (by agentKey; none for its limit).
+   * It fired: the line for the agent (made again when it is handed over), and the cards whose state it tells.
+   * `delivery`: the delivery it was handed over as (#649, deliveries.ts), saved before the delivery service types it: the
+   * watch ends once that is received (its line taken by its CLI, or fetched), and a watch read back with one follows it.
+   * `sending`: from before #649 (Hive began typing it): read back, it counts as delivered. `agents`: an agent watch's
+   * agents it tells about (by agentKey; none for its limit).
    */
-  fired?: { line: string; at: string; cards: number[]; agents?: string[]; lanes?: true; replies?: true; sending?: string }
+  fired?: { line: string; at: string; cards: number[]; agents?: string[]; lanes?: true; replies?: true; delivery?: string; sending?: string }
 }
 
 interface Store {
@@ -165,13 +169,6 @@ interface Store {
 
 /** How long a fired watch waits before its line is typed, so changes landing together are told together (#224). */
 const SETTLE_MS = 1500
-/** How long a typed wake has to be taken (the CLI starts a turn) before Enter is pressed again, once (#376). */
-const TAKE_MS = 10_000
-/** TAKE_MS, or a unit test's, or an unpackaged test build's (HIVE_TEST_WAKE_TAKE_MS). */
-function takeMs(): number {
-  const v = !app.isPackaged ? Number(process.env.HIVE_TEST_WAKE_TAKE_MS) : NaN
-  return testHooks.takeMs ?? (Number.isFinite(v) && v >= 0 ? v : TAKE_MS)
-}
 /** The most cards whose last wake an agent's next watch can start from: the latest told. */
 const WOKE_CARDS = 100
 
@@ -201,12 +198,16 @@ function inBackground(what: string, work: Promise<unknown>): void {
 function inBackgroundAfter(ms: number, what: string, work: () => Promise<unknown>): void {
   inBackground(what, new Promise<void>((done, fail) => setTimeout(() => work().then(() => done(), fail), ms).unref?.()))
 }
-/** Resolves once watches have nothing in flight (#570): what was started in the background has ended. */
+/** Resolves once watches have nothing in flight (#570): what was started in the background has ended, its lines' confirmations too. */
 export async function settled(): Promise<void> {
-  while (inFlight.size) await Promise.allSettled([...inFlight])
+  while (inFlight.size || writerInFlight() || deliveriesInFlight()) {
+    await Promise.allSettled([...inFlight])
+    await writerSettled()
+    await deliveriesSettled()
+  }
 }
-/** Whether watches have something in flight now (loop wakes' settled() waits for both). */
-export const inFlightNow = (): boolean => inFlight.size > 0
+/** Whether watches have something in flight now (loop wakes' settled() waits for both), their wakes' lines included. */
+export const inFlightNow = (): boolean => inFlight.size > 0 || writerInFlight() || deliveriesInFlight()
 
 /**
  * Seams for unit tests: pauses that make races happen (after a watch's cards are read; after a watches file is read), and
@@ -221,8 +222,6 @@ export const testHooks: {
   backupRename?: (from: string, to: string) => Promise<void>
   /** The settle before a fired line is typed (SETTLE_MS): 0 types it at once. */
   settleMs?: number
-  /** How long a typed wake has to be taken (TAKE_MS). */
-  takeMs?: number
   /** Told each time a check reads a card from disk (#321: each card once a check). */
   cardRead?: (n: number) => void
 } = {}
@@ -311,8 +310,8 @@ function load(ws: WorkspaceService): Promise<Store> {
     const read = await readFileOf(path, open)
     await testHooks.afterLoad?.()
     if (!open()) throw closedError()
-    // Only this workspace's agents, each with the view of the board its own token gives it. A watch that was being
-    // typed when Hive stopped counts as delivered: it is never typed twice.
+    // Only this workspace's agents, each with the view of the board its own token gives it. A watch handed over as a
+    // delivery follows it (below); one from before #649 that was being typed when Hive stopped counts as delivered.
     const list: WatchRecord[] = []
     const invalid = read.invalid
     let delivered = false
@@ -368,6 +367,8 @@ function load(ws: WorkspaceService): Promise<Store> {
     )
     // Agents already running learn their watch now.
     for (const r of list) sessions.watchChanged(r.projectPath, r.agentId)
+    // Those handed over as deliveries follow what became of them while Hive was closed (#649).
+    if (list.some((r) => r.fired?.delivery)) inBackground('following wakes', followDelivered(store))
     // Cards can change while Hive is closed (a pull of .hive/tasks, a hand edit): check them now, not at the next change.
     if (list.length) inBackgroundAfter(0, 'checking watches', () => evaluate(ws))
     return store
@@ -482,9 +483,9 @@ function readRecord(v: unknown): WatchRecord | null {
   if (r.fired !== undefined) {
     const f = r.fired as Record<string, unknown> | null
     const cards = Array.isArray(f?.cards) ? f.cards.filter((n): n is number => cond.cards.includes(n as number)) : null
-    if (!f || typeof f.line !== 'string' || jsonBytes(f.line) > MAX_LINE_BYTES || !f.line.startsWith('[Hive] ') || !time(f.at) || !cards || (f.sending !== undefined && !time(f.sending))) return null
+    if (!f || typeof f.line !== 'string' || jsonBytes(f.line) > MAX_LINE_BYTES || !f.line.startsWith('[Hive] ') || !time(f.at) || !cards || (f.sending !== undefined && !time(f.sending)) || (f.delivery !== undefined && !(typeof f.delivery === 'string' && /^m\d{1,15}$/.test(f.delivery)))) return null
     const told = Array.isArray(f.agents) && agentMarks ? f.agents.filter((k): k is string => typeof k === 'string' && k in agentMarks!) : undefined
-    fired = { line: f.line, at: f.at, cards, ...(told?.length ? { agents: told } : {}), ...(f.lanes === true && lanes ? { lanes: true as const } : {}), ...(f.replies === true ? { replies: true as const } : {}), ...(f.sending ? { sending: f.sending as string } : {}) }
+    fired = { line: f.line, at: f.at, cards, ...(told?.length ? { agents: told } : {}), ...(f.lanes === true && lanes ? { lanes: true as const } : {}), ...(f.replies === true ? { replies: true as const } : {}), ...(f.delivery ? { delivery: f.delivery as string } : {}), ...(f.sending ? { sending: f.sending as string } : {}) }
   }
   // Where its view of each card ended (every card, or none from before #224), and whose own changes aren't news.
   let seen: Record<string, Seen> | undefined
@@ -538,7 +539,7 @@ const fileText = (store: Store, list: WatchRecord[], invalid = store.invalid): s
 
 /** The longest a watch's saved form can grow to: fired with the longest line, being typed. */
 const AT = new Date(0).toISOString()
-const atMost = (r: WatchRecord): WatchRecord => ({ ...r, fired: { line: 'x'.repeat(MAX_LINE_BYTES - 2), at: AT, cards: r.cond.cards, ...(r.agentMarks ? { agents: Object.keys(r.agentMarks) } : {}), sending: AT } })
+const atMost = (r: WatchRecord): WatchRecord => ({ ...r, fired: { line: 'x'.repeat(MAX_LINE_BYTES - 2), at: AT, cards: r.cond.cards, ...(r.agentMarks ? { agents: Object.keys(r.agentMarks) } : {}), delivery: 'm999999999999999', sending: AT } })
 /**
  * The bytes one watch takes in the file (#321): its own JSON as fileText writes it, an entry of the "watches" array, so
  * each of its lines indented by four more spaces.
@@ -743,10 +744,14 @@ async function cardIn(store: Store, n: number, scope: string | null, cards?: Car
  */
 type CardReads = Map<number, Promise<TaskCard | null>>
 
-/** Ends a watch being typed: the typing stops before Enter. */
-const stopDelivery = (store: Store, rec: WatchRecord | undefined): void => {
+/**
+ * Ends a watch's wake (the watch was cancelled or replaced): the line being made isn't handed over, and the delivery it
+ * was handed over as is cancelled (its typing stops before Enter; a line its CLI hasn't taken is cleared, #647).
+ */
+const stopDelivery = (store: Store, rec: WatchRecord | undefined, why = 'its watch was replaced'): void => {
   const d = rec && store.delivering.get(rec.id)
   if (d) d.cancelled = true
+  if (rec?.fired?.delivery) inBackground('cancelling a wake', cancelFromSource(rec.projectPath, 'watch', wakeRef(rec), `cancelled: ${why}`))
 }
 
 export type WatchResult = { watching: TaskWatchInfo } | { already: CardChange }
@@ -759,6 +764,8 @@ export type WatchResult = { watching: TaskWatchInfo } | { already: CardChange }
  */
 export async function registerWatch(ws: WorkspaceService, projectPath: string, agentId: string, cond: WatchCondition, limitMinutes = WATCH_DEFAULT_LIMIT_MINUTES): Promise<WatchResult> {
   const store = await load(ws)
+  // A wake whose line its CLI has taken is received first, so this watch starts from what it told (#649).
+  await followAgent(projectPath, agentId)
   if (!hostedIn(ws, store.path, projectPath)) throw new Error(`Not a project of this workspace: ${projectPath}`)
   const scope = scopeFor(ws, projectPath)
   const self = await boardName(ws, projectPath, agentId)
@@ -839,7 +846,7 @@ export async function cancelWatch(ws: WorkspaceService, projectPath: string, age
       store.list = before
       throw new Error(`Could not cancel the watch: ${(e as Error).message}`, { cause: e })
     }
-    stopDelivery(store, rec)
+    stopDelivery(store, rec, 'its watch was cancelled')
     return true
   })
   if (had) sessions.watchChanged(projectPath, agentId)
@@ -966,10 +973,14 @@ const replyTo = (scope: string | null, projectPath: string, agentId: string, fro
  */
 export async function revokeReplies(): Promise<void> {
   dropReplies()
+  // A wake handed over as a delivery that tells one is cancelled now (its typing stops; a line its CLI hasn't taken is
+  // cleared): its watch fires again, made without the reply (#649).
+  for (const [id, h] of handed) if (h.told.replies) inBackground('withdrawing a reply', cancelFromSource(h.rec.projectPath, 'watch', wakeRef(h.rec), "cancelled: the user's replies are no longer told").then(() => handed.delete(id)))
   for (const store of [...stores.values()]) {
-    if (!alive(store) || !store.list.some((r) => r.fired?.replies && !r.fired.sending)) continue
+    // One handed over as a delivery is cancelled by its source's check (watchSource.refresh), and fires again.
+    if (!alive(store) || !store.list.some((r) => r.fired?.replies && !r.fired.sending && !r.fired.delivery)) continue
     await locked(store, async () => {
-      for (const rec of store.list) if (rec.fired?.replies && !rec.fired.sending) delete rec.fired
+      for (const rec of store.list) if (rec.fired?.replies && !rec.fired.sending && !rec.fired.delivery) delete rec.fired
       await saveQuietly(store)
     }).catch((e) => log.warn('withdrawing replies from watches', e))
     inBackground('checking watches', evaluate(store.ws))
@@ -1035,6 +1046,8 @@ export type AgentWatchResult = { watching: TaskWatchInfo; replaced?: string } | 
  * column): the agent's earlier watch ends and each one's state is told. Only agents it may watch (mayWatch); not itself.
  */
 export async function registerAgentWatch(ws: WorkspaceService, projectPath: string, agentId: string, cond: AgentWatchCondition, limitMinutes = WATCH_DEFAULT_LIMIT_MINUTES): Promise<AgentWatchResult> {
+  // A wake whose line its CLI has taken is received first, so this watch starts from what it told (#649).
+  await followAgent(projectPath, agentId)
   const store = await load(ws)
   if (!hostedIn(ws, store.path, projectPath)) throw new Error(`Not a project of this workspace: ${projectPath}`)
   for (const a of cond.agents) {
@@ -1224,6 +1237,7 @@ export type LaneWatchResult = { watching: TaskWatchInfo; replaced?: string }
  * agent's one watch: a card or agent watch it had ends (said in the reply).
  */
 export async function registerLaneWatch(ws: WorkspaceService, projectPath: string, agentId: string, cond: LaneWatchCondition, limitMinutes = WATCH_DEFAULT_LIMIT_MINUTES): Promise<LaneWatchResult> {
+  await followAgent(projectPath, agentId)
   const store = await load(ws)
   if (!hostedIn(ws, store.path, projectPath)) throw new Error(`Not a project of this workspace: ${projectPath}`)
   const scope = scopeFor(ws, projectPath)
@@ -1282,16 +1296,14 @@ class RepliesRevoked extends Error {
 /** A fired watch that has nothing left to tell (#418: a reply no longer told) goes back to waiting, as if it hadn't fired. */
 async function withdraw(store: Store, rec: WatchRecord, current: () => boolean): Promise<void> {
   await locked(store, async () => {
-    if (!current() || !rec.fired || rec.fired.sending) return
+    if (!current() || !rec.fired || rec.fired.sending || rec.fired.delivery) return
     delete rec.fired
     await saveQuietly(store)
   }).catch(() => undefined)
 }
 
-/** Agents Hive is waking now (one at a time each), and fired watches waiting out the settle before theirs is typed. */
-const waking = new Set<string>()
+/** Fired watches waiting out the settle before theirs is handed over. */
 const settling = new Set<string>()
-const idle = (st: LiveSessionState | null): boolean => !!st && (st.status === 'watching' || st.status === 'ready' || st.status === 'finished')
 
 /**
  * Whether an agent's own card watch tells it of this change to card n (#405: Hive's loop wakes leave it to the watch),
@@ -1340,96 +1352,173 @@ export function watchTold(projectPath: string, agentId: string, card: TaskCard, 
   return !!t && Date.now() - t.at < TOLD_KEEP_MS && entryWithin(card.history, entry, t.h)
 }
 
-/**
- * What rides a wake typed into an agent (#530: the messages left for it, agentMessages.ts): its text, put first in the
- * line; `still` asked before each piece and before Enter (false stops the typing: the wake is typed again later, with
- * what rides it then); `taken` once the line is in.
- */
-export interface Rider {
-  text: string
-  still: () => boolean
-  taken: () => void
-  /** Whether its sender may still send it, for the confirmation's Enter again; `withdrawn` when the line was cleared. */
-  allowed: () => boolean
-  withdrawn: () => void
-  /** The line it was in wasn't typed after all (#647: its deliveries go back to waiting). */
-  notTaken?: () => void
-  /** RideCheck's: while its confirmation checks the line was taken, and once that has ended. */
-  confirming?: (before: { runId: string; count: number }) => void
-  settled?: () => void
-  /** Its deliveries saved as offered (#647): waited for before the line's first key; nothing is typed if it fails. */
-  ready?: Promise<void>
-}
-let wakeRider: ((projectPath: string, agentId: string, line: string) => Rider | null) | null = null
-/** Registers what rides agents' wakes (deliveries.ts, at start): given the wake's own line, so its offer knows the whole line typed. */
-export function onWakeRider(fn: (projectPath: string, agentId: string, line: string) => Rider | null): void {
-  wakeRider = fn
+/** Hive's own deliveries come from it. */
+const HIVE = { kind: 'hive', name: 'Hive' } as const
+
+/** A watch's wake's key among its deliveries: the watch and when it fired (a restart finds the one it made). */
+const wakeRef = (rec: WatchRecord): string => `${rec.id}@${rec.fired?.at ?? ''}`
+
+/** What a wake's line tells, as it was made: where the agent's next watch starts once that line is received (#224, #649). */
+interface Told {
+  /** Each card, as read for the line (else the watch's own start: nothing the line doesn't tell is taken as known). */
+  cards: Record<string, Baseline>
+  /** An agent watch's: each agent's latest event the line tells (else where the watch began). */
+  agents: Map<string, number>
+  /** A card watch's: the latest reply of the user's the line tells (#418), else where it began. */
+  reply: number | undefined
+  /** A lane watch's: when the line was made from the lanes (#531). */
+  laneAt: string
+  /** What the line tells of each card it names, as read for it (#578: what loop wakes then leave alone). */
+  ofCards: Record<string, Baseline>
+  /** Cards released as it was made (#420), noted in their history once it is received. */
+  endedAt: { n: number; what: string }[]
+  /** Whether it tells a reply of the user's (#418), and the replies' generation then: revoked since, it isn't given. */
+  replies: boolean
+  generation: number
+
 }
 
-/**
- * Whether a line of Hive's could be typed into an agent now (typeLine's own conditions, before it asks what is wanted): it
- * is idle, nobody types there, no earlier line is waiting there, no wake is being typed and no watch of its own has a line
- * to type. The delivery service asks it before it saves deliveries as offered (#647).
- */
-export function canTypeLine(projectPath: string, agentId: string): boolean {
-  if (waking.has(agentKey(projectPath, agentId)) || !idle(sessions.liveFor(projectPath, agentId)) || sessions.userMayBeTyping(projectPath, agentId) || sessions.lineWaiting(projectPath, agentId)) return false
-  const store = storeFor(projectPath)
-  return !store?.list.some((x) => x.fired && same(x.projectPath, projectPath) && x.agentId === agentId)
+/** Wakes handed over and not received yet, by delivery id: their watch and what their line tells (in memory, as `woke`). */
+const handed = new Map<string, { store: Store; rec: WatchRecord; told: Told }>()
+const MAX_HANDED = 2000
+
+/** The watch a wake's delivery was handed over by (its workspace's watches loaded), or null. */
+function watchOf(host: string, r: DeliveryRecord): { store: Store; rec: WatchRecord } | null {
+  const h = handed.get(r.id)
+  const store = storeFor(host)
+  // The workspace's watches as they are now (a store read again since is the one that counts).
+  if (h && h.store === store && h.store.list.includes(h.rec) && h.rec.fired?.delivery === r.id) return h
+  const rec = store?.list.find((x) => x.fired?.delivery === r.id && same(x.projectPath, host) && x.agentId === r.agentId)
+  return store && rec ? { store, rec } : null
 }
 
+/** Whether a wake's line still tells a reply the user still lets be told (#418). */
+const repliesHold = (told: Told | undefined): boolean => !told?.replies || (tellReplies() && replyGeneration === told.generation)
+
 /**
- * Types a line of Hive's that isn't a watch's (#405: a loop wake) into an agent, as a wake is typed: only while it is
- * idle, nobody types there, no earlier line is waiting there and no watch of its own has a line to type (that goes
- * first); one wake at a time per agent; checked to be taken (#376). `wanted` is asked again before every piece and
- * before Enter. Whether it was typed (false: try again later).
+ * The watches' part in their wakes' deliveries (#649): a wake is offered only while its watch still has it (not
+ * cancelled or replaced) and what it tells may still be told; received, the watch ends and what its line told is where
+ * the agent's next watch starts; ended without that (expired, cancelled by its check), the watch fires again.
  */
-export async function typeLine(projectPath: string, agentId: string, line: string, wanted: () => boolean, opts: { rider?: boolean; ride?: RideCheck } = {}): Promise<boolean> {
-  const key = agentKey(projectPath, agentId)
-  if (!canTypeLine(projectPath, agentId) || !wanted()) return false
-  waking.add(key)
-  let rider: Rider | null = null
-  try {
-    // What the CLI had taken just before this line's Enter (#376): sampled by the writer's last check, after what rides it
-    // was saved (#647: a prompt of the user's taken while that save was slow isn't this line's), so a confirmation
-    // never takes an earlier prompt for this one.
-    let before: { runId: string; count: number } | null = null
-    // Messages left for the agent ride the wake, first (#530); a line of their own takes none.
-    rider = opts.rider === false ? null : (wakeRider?.(projectPath, agentId, line) ?? null)
-    const text = rider ? `${rider.text} ${line}` : line
-    await rider?.ready
-    await sessions.sendPrompt(projectPath, agentId, text, () => {
-      if (!wanted()) throw new Error('It is no longer wanted.')
-      if (rider && !rider.still()) throw new Error('The messages riding it changed.')
-      if (!idle(sessions.liveFor(projectPath, agentId))) throw new Error('The agent got busy.')
-      if (sessions.userMayBeTyping(projectPath, agentId)) throw new Error('The user is typing there.')
-      before = sessions.promptsTaken(projectPath, agentId)
-    })
-    rider?.taken()
-    log.info(`Woke ${userText(agentId)}: ${userText(text.slice(0, 80))}`)
-    // Kept to what rode it (#530) until the CLI takes it: its own check (a message's line), or its rider's.
-    const ride = opts.ride ?? (rider ? rideOf(rider, line) : undefined)
-    if (before) inBackground('checking a wake was taken', confirmTaken(projectPath, agentId, before, text, ride))
-    return true
-  } catch (e) {
-    rider?.notTaken?.()
-    log.info(`Wake for ${userText(agentId)} put off: ${(e as Error).message}`)
-    return false
-  } finally {
-    waking.delete(key)
+registerSource('watch', {
+  refresh: async (r, host) => {
+    const w = watchOf(host, r)
+    // Its workspace's watches not loaded yet: decided once they are (it isn't typed meanwhile).
+    if (!w) return storeFor(host) ? { cancel: 'its watch has ended' } : null
+    if (!repliesHold(handed.get(r.id)?.told)) return { cancel: "the user's replies are no longer told" }
+    return null
+  },
+  holds: (r, host) => !!watchOf(host, r) && repliesHold(handed.get(r.id)?.told),
+  received: (r, host) => {
+    const w = watchOf(host, r)
+    const told = handed.get(r.id)?.told
+    handed.delete(r.id)
+    if (!w) return
+    const { store, rec } = w
+    if (told) toldBy(store, rec, told)
+    log.info(`The wake for ${userText(rec.agentId)} (${r.id}) was received: its watch has ended`)
+    // The watch has ended (unless it was replaced meanwhile, which stays).
+    inBackground(
+      'ending a watch',
+      locked(store, async () => {
+        if (!store.list.includes(rec) || rec.fired?.delivery !== r.id) return
+        store.list = store.list.filter((x) => x !== rec)
+        await saveQuietly(store)
+      }).then(() => sessions.watchChanged(rec.projectPath, rec.agentId))
+    )
+  },
+  ended: (r, host) => {
+    const w = watchOf(host, r)
+    handed.delete(r.id)
+    if (!w) return
+    const { store, rec } = w
+    // Not given (too old, or what it told may no longer be told): the watch goes back to waiting, and fires again on
+    // what is still news to it.
+    inBackground(
+      'a wake not given',
+      locked(store, async () => {
+        if (!store.list.includes(rec) || rec.fired?.delivery !== r.id) return
+        delete rec.fired
+        await saveQuietly(store)
+      }).then(() => {
+        inBackground('checking watches', evaluate(store.ws))
+        inBackground('checking agent watches', evaluateAgents(store))
+      })
+    )
+  }
+})
+
+// A fired watch's line goes first: nothing else of Hive's is typed into its agent until it is handed over.
+onLineComing((projectPath, agentId) => !!storeFor(projectPath)?.list.some((x) => x.fired && !x.fired.delivery && same(x.projectPath, projectPath) && x.agentId === agentId))
+
+/** What a received wake told: the agent's next watch starts there (#224, #416, #418, #531, #578). */
+function toldBy(store: Store, rec: WatchRecord, told: Told): void {
+  const key = agentKey(rec.projectPath, rec.agentId)
+  // The developer console (#636): the wake as it was received (its line is in the agent's own events, as input).
+  devConsole.capture([store.ws.path && hiveSourceId(store.ws.path), sessionSourceId(rec.projectPath, rec.agentId)], () => {
+    const what = rec.agents ? `${rec.agents.agents.length} agent(s)` : rec.lanes ? 'lanes' : rec.cond.cards.map((n) => `#${n}`).join(', ')
+    return { kind: 'watch', name: 'wake', raw: { cards: rec.cond.cards, agents: rec.agents?.agents.length ?? 0, lanes: !!rec.lanes, firedAt: rec.fired?.at ?? null }, made: { typed: true, replies: told.replies }, safe: { raw: { firedAt: true } }, summary: `watch woke ${rec.agentId} (${what})` }
+  })
+  noteToldByWatch(rec.projectPath, rec.agentId, told.ofCards)
+  for (const x of told.endedAt) inBackground(`noting on #${x.n} that a watch ended`, noteOnCard(x.n, x.what, store.ws))
+  // What earlier wakes told about cards this one didn't stays: it is still all the agent was told about them.
+  const known = new Map(store.woke.get(key))
+  for (const [n, b] of Object.entries(told.cards)) {
+    known.delete(n)
+    known.set(n, b)
+  }
+  while (known.size > WOKE_CARDS) known.delete(known.keys().next().value!)
+  store.woke.delete(key)
+  store.woke.set(key, known)
+  if (store.woke.size > MAX_WATCHES) store.woke.delete(store.woke.keys().next().value!)
+  if (rec.agents) noteToldAgents(store, key, told.agents)
+  // A lane watch's: each lane as its line told it (#531), where the agent's next lane watch starts.
+  if (rec.lanes && rec.laneMarks) {
+    store.wokeLanes.delete(key)
+    store.wokeLanes.set(key, { at: told.laneAt, marks: new Map(Object.entries(rec.laneMarks)) })
+    if (store.wokeLanes.size > MAX_WATCHES) store.wokeLanes.delete(store.wokeLanes.keys().next().value!)
+  }
+  if (told.reply !== undefined) {
+    store.wokeReplies.delete(key)
+    store.wokeReplies.set(key, told.reply)
+    if (store.wokeReplies.size > MAX_WATCHES) store.wokeReplies.delete(store.wokeReplies.keys().next().value!)
   }
 }
 
 /**
- * Types a fired watch's line into its agent, if it is idle and the user isn't typing there; otherwise later (its next
- * idle status, or the tick). The watch stays (the agent shows watching and takes no other work) until the line is in:
- * then it ends. Cancelled or replaced meanwhile, the typing stops before Enter; refused (the agent got busy, the user
- * typed), it is tried again later. A card its line tells about is checked again first: one that has left the agent's
- * view is told as gone.
+ * Watches read back handed over as deliveries (#649): one whose delivery was received while Hive was closed has ended;
+ * one whose delivery ended without that (or is gone) fires again; one still to be received waits for it (offered once
+ * more if it was being offered when Hive stopped).
+ */
+async function followDelivered(store: Store): Promise<void> {
+  for (const rec of store.list.filter((r) => r.fired?.delivery)) {
+    const id = rec.fired!.delivery!
+    await loadDeliveries(rec.projectPath).catch((e) => log.warn('loading deliveries', e))
+    const d = deliveryNow(rec.projectPath, id)
+    if (d && isUnread(d)) continue
+    const received = !!d && (d.state === 'received' || d.state === 'acked')
+    await locked(store, async () => {
+      if (!store.list.includes(rec) || rec.fired?.delivery !== id) return
+      if (received) store.list = store.list.filter((x) => x !== rec)
+      else delete rec.fired
+      await saveQuietly(store)
+    }).catch((e) => log.warn('following a wake', e))
+    sessions.watchChanged(rec.projectPath, rec.agentId)
+  }
+  if (alive(store)) inBackground('checking watches', evaluate(store.ws))
+}
+
+/**
+ * Hands a fired watch's line to the delivery service (#649), which types it: once its agent can take a line (ready,
+ * finished or watching, nobody typing there, no line of Hive's waiting), so the line is made from the cards as they are
+ * then. The watch stays (the agent shows watching and takes no other work) until that delivery is received (its line
+ * taken by its CLI, or fetched with hive_inbox): then it ends, and what its line told is where the agent's next watch
+ * starts, never on "typed". Cancelled or replaced meanwhile, its delivery is cancelled too. A card its line tells about
+ * is checked again first: one that has left the agent's view is told as gone.
  */
 async function deliver(store: Store, rec: WatchRecord): Promise<void> {
-  if (!rec.fired || store.delivering.has(rec.id) || !alive(store)) return
-  const key = agentKey(rec.projectPath, rec.agentId)
-  // Changes landing together are told together: a watch fired by a change waits a moment before its line is typed (#224).
+  if (!rec.fired || rec.fired.delivery || store.delivering.has(rec.id) || !alive(store)) return
+  // Changes landing together are told together: a watch fired by a change waits a moment before its line is made (#224).
   const due = Date.parse(rec.fired.at) + (testHooks.settleMs ?? SETTLE_MS)
   if ((rec.fired.cards.length || rec.fired.agents?.length || rec.fired.lanes) && Date.now() < due) {
     if (!settling.has(rec.id)) {
@@ -1442,32 +1531,25 @@ async function deliver(store: Store, rec: WatchRecord): Promise<void> {
     return
   }
   // Not over a line it hasn't taken (#430): its next wake waits until it takes that one, or the user presses Enter there.
-  if (waking.has(key) || !idle(sessions.liveFor(rec.projectPath, rec.agentId)) || sessions.userMayBeTyping(rec.projectPath, rec.agentId) || sessions.lineWaiting(rec.projectPath, rec.agentId)) return
+  if (!readyFor(sessions.liveFor(rec.projectPath, rec.agentId)) || sessions.userMayBeTyping(rec.projectPath, rec.agentId) || sessions.lineWaiting(rec.projectPath, rec.agentId)) return
   const token = { cancelled: false }
   store.delivering.set(rec.id, token)
-  waking.add(key)
   const current = (): boolean => !token.cancelled && alive(store) && store.list.includes(rec)
   try {
     let line = rec.fired.line
-    // Whether the line typed tells a reply of the user's (#418): then the setting is checked again before every piece
-    // and before Enter, and turned off, nothing more is typed.
+    // Whether the line tells a reply of the user's (#418): then the setting is checked again before every piece and
+    // before Enter, and turned off, it isn't given.
     let telling = !!rec.fired.replies
     const generation = replyGeneration
     // What the line tells the agent about each card, where its next watch starts from (#224): the cards as read for the
     // line; otherwise (a line about the limit, or one not made again) the watch's own starting point, so nothing that
     // the line doesn't tell is taken as known.
     let told: Record<string, Baseline> = {}
-    // An agent watch's: each agent's latest event the line tells (else where the watch began: nothing new was told).
     const toldAgents = new Map(Object.entries(rec.agentMarks ?? {}).map(([k, m]) => [k, m.seq]))
-    // A card watch's: the latest reply of the user's the line tells (#418), else where it began.
     let toldReply = rec.replySeq
-    // A lane watch's: each lane as the line tells it (#531).
     let laneTold: Record<string, LaneMark> | null = null
-    // When the line was made from them: the fire, or when it was made again just now.
     let laneToldAt = rec.fired.at
-    // What the line tells of each card it names, as read for it (#578: what loop wakes then leave alone).
     let toldOfCards: Record<string, Baseline> = {}
-    // Cards released as it is delivered (#420), noted in their history once it is typed.
     const endedAt: { n: number; what: string }[] = []
     for (const n of rec.cond.cards) {
       const s = rec.seen?.[n]
@@ -1477,12 +1559,12 @@ async function deliver(store: Store, rec: WatchRecord): Promise<void> {
       // Told as the cards are now, every change since the watch began (#224): one that landed after the line was made
       // is in it too, and a card that has left the agent's view is told as gone.
       const r = await check(store, rec)
-      // A card released since the line was made (#420: reassigned before it was typed) is told as released,
-      // not as the change that fired it.
+      // A card released since the line was made (#420: reassigned before it was handed over) is told as released, not
+      // as the change that fired it.
       let left = rec.cond.cards.length
       if (r.released.length) {
         const ok = await locked(store, async () => {
-          if (!current() || !rec.fired || rec.fired.sending) return false
+          if (!current() || !rec.fired || rec.fired.sending || rec.fired.delivery) return false
           left = applyRelease(rec, r.released, endedAt)
           await saveQuietly(store)
           return true
@@ -1494,7 +1576,7 @@ async function deliver(store: Store, rec: WatchRecord): Promise<void> {
         line = fitLine(releasedLine(rec.released!))
         telling = false
       } else if (r.released.length && !r.hits.length && !r.replies.length) {
-        // What fired it was a card since released, and the rest haven't changed: not typed; the watch waits on for the
+        // What fired it was a card since released, and the rest haven't changed: not given; the watch waits on for the
         // rest, and tells the release with its next line (#420).
         for (const x of endedAt) inBackground(`noting on #${x.n} that a watch ended`, noteOnCard(x.n, x.what, store.ws))
         await withdraw(store, rec, current)
@@ -1504,19 +1586,18 @@ async function deliver(store: Store, rec: WatchRecord): Promise<void> {
         const made = cardWakeLine(r.hits, r.replies.map((x) => x.note), rec.released ?? [], userName())
         line = fitLine(made.line)
         telling = r.replies.length > 0
-        // Each card the line tells a change of, as read for it.
         toldOfCards = Object.fromEntries(r.hits.filter((h) => h.changes !== 'gone' && r.told[h.number]).map((h) => [h.number, r.told[h.number]]))
         if (r.hits.length) told = r.told
         // Only replies the line names are told (#418).
         if (made.repliesTold) toldReply = Math.max(rec.replySeq ?? 0, ...r.replies.map((x) => x.seq))
       } else if (rec.fired.replies) {
-        // It told only replies, which may no longer be told (the setting turned off): not typed, the watch waits on.
+        // It told only replies, which may no longer be told (the setting turned off): not given, the watch waits on.
         await withdraw(store, rec, current)
         return
       }
     } else if (rec.fired.lanes && rec.lanes) {
       // Every lane's events since the watch's marks (#531): ones that landed after it fired are in the same line, and
-      // the marks it is typed with are what the wake told.
+      // the marks it is handed over with are what the wake told.
       const r = await laneRound(store, rec).catch(() => null)
       if (r?.hits.length) {
         line = fitLine(laneWakeLine(r.hits))
@@ -1536,232 +1617,51 @@ async function deliver(store: Store, rec: WatchRecord): Promise<void> {
         return
       }
     }
+    if (telling && (!tellReplies() || replyGeneration !== generation)) throw new RepliesRevoked()
     // The Assistant woken from a card watch while lanes run (#402): its watch has ended, so the line says to watch them
     // all again (a model that reads no skill on a wake otherwise ends its turn watching nothing).
     if (rec.agentId === ASSISTANT_AGENT_ID && !rec.agents && rec.cond.cards.length && (await listLanes(store.ws).catch(() => [])).some((l) => l.state === 'active' || l.state === 'paused')) line = withLanesTail(line, MAX_LINE_BYTES)
-    // Saved as being typed before the first key: if Hive stops before the watch's end is saved, it is never typed again.
-    // Not saved, nothing is typed (tried again later).
-    const marked = await locked(store, async () => {
-      if (!current() || !rec.fired) return false
+    // Handed over as a delivery, saved as the watch's before the service can type it: a restart follows that delivery
+    // rather than making another (the same watch and fire make the same one). Not saved: not handed over (tried again).
+    const given = await locked(store, async () => {
+      if (!current() || !rec.fired || rec.fired.delivery) return null
+      const d = await createDelivery(rec.projectPath, { agentId: rec.agentId, kind: 'card-event', from: HIVE, body: line, ...(rec.fired.cards.length ? { card: rec.fired.cards[0] } : {}), source: 'watch', ref: wakeRef(rec), replace: true })
+      const wasLanes = rec.laneMarks
       rec.fired.line = line
+      rec.fired.delivery = d.id
       if (laneTold) rec.laneMarks = laneTold
-      rec.fired.sending = new Date().toISOString()
       try {
         await save(store)
       } catch (e) {
-        delete rec.fired.sending
+        delete rec.fired.delivery
+        rec.laneMarks = wasLanes
+        await cancelFromSource(rec.projectPath, 'watch', wakeRef(rec), "cancelled: its watch couldn't be saved").catch(() => undefined)
         throw e
       }
-      return true
+      handed.set(d.id, { store, rec, told: { cards: told, agents: toldAgents, reply: toldReply, laneAt: laneToldAt, ofCards: toldOfCards, endedAt, replies: telling, generation } })
+      while (handed.size > MAX_HANDED) handed.delete(handed.keys().next().value!)
+      return d
     })
-    if (!marked) return
-    // What the CLI had taken just before the line's Enter: it is taken once that goes up (#376). Sampled by the writer's
-    // last check, after what rides it was saved (#647), as typeLine does.
-    let before: { runId: string; count: number } | null = null
-    // Messages left for the agent ride its wake, first (#530), so it has them before it acts on the wake.
-    const rider = wakeRider?.(rec.projectPath, rec.agentId, line) ?? null
-    const typedLine = rider ? `${rider.text} ${line}` : line
-    try {
-      await rider?.ready
-      await sessions.sendPrompt(rec.projectPath, rec.agentId, typedLine, () => {
-        if (!current()) throw new Error('The watch was cancelled.')
-        if (rider && !rider.still()) throw new Error('The messages riding it changed.')
-        if (!idle(sessions.liveFor(rec.projectPath, rec.agentId))) throw new Error('The agent got busy.')
-        if (sessions.userMayBeTyping(rec.projectPath, rec.agentId)) throw new Error('The user is typing there.')
-        if (telling && (!tellReplies() || replyGeneration !== generation)) throw new RepliesRevoked()
-        before = sessions.promptsTaken(rec.projectPath, rec.agentId)
-      })
-    } catch (e) {
-      rider?.notTaken?.()
-      // Not typed (what was typed is cleared again): ready for the next try (a watch cancelled or replaced meanwhile is
-      // already gone). A line telling a reply the user no longer lets be told is dropped, not kept for the next try: the
-      // watch waits on, and fires again on whatever else changed, made without the reply.
-      const revoked = e instanceof RepliesRevoked
+    if (!given) return
+    log.info(`The wake for ${userText(rec.agentId)} was handed over as ${given.id}`)
+    // Offered now (typed if it can be), as the wake always was when its watch was delivered.
+    await offerNow(rec.projectPath, rec.agentId)
+  } catch (e) {
+    // A line telling a reply the user no longer lets be told is dropped: the watch waits on, and fires again on whatever
+    // else changed, made without the reply.
+    if (e instanceof RepliesRevoked) {
       await locked(store, async () => {
-        if (!store.list.includes(rec) || !rec.fired) return
-        if (revoked) delete rec.fired
-        else delete rec.fired.sending
+        if (!store.list.includes(rec) || !rec.fired || rec.fired.delivery) return
+        delete rec.fired
         await saveQuietly(store)
       }).catch(() => undefined)
-      if (revoked) {
-        inBackground('checking watches', evaluate(store.ws))
-        inBackground('checking agent watches', evaluateAgents(store))
-      }
-      throw e
+      inBackground('checking watches', evaluate(store.ws))
+      inBackground('checking agent watches', evaluateAgents(store))
     }
-    rider?.taken()
-    log.info(`Woke ${userText(rec.agentId)}: ${userText(typedLine.slice(0, 80))}`)
-    // The developer console (#636): the wake as Hive typed it (its line is in the agent's own events, as input).
-    devConsole.capture([store.ws.path && hiveSourceId(store.ws.path), sessionSourceId(rec.projectPath, rec.agentId)], () => {
-      const what = rec.agents ? `${rec.agents.agents.length} agent(s)` : rec.lanes ? 'lanes' : rec.cond.cards.map((n) => `#${n}`).join(', ')
-      return { kind: 'watch', name: 'wake', raw: { cards: rec.cond.cards, agents: rec.agents?.agents.length ?? 0, lanes: !!rec.lanes, firedAt: rec.fired?.at ?? null }, made: { typed: true, riders: !!rider, replies: telling }, safe: { raw: { firedAt: true } }, summary: `watch woke ${rec.agentId} (${what})${rider ? ' with messages' : ''}` }
-    })
-    noteToldByWatch(rec.projectPath, rec.agentId, toldOfCards)
-    for (const x of endedAt) inBackground(`noting on #${x.n} that a watch ended`, noteOnCard(x.n, x.what, store.ws))
-    if (before) inBackground('checking a wake was taken', confirmTaken(rec.projectPath, rec.agentId, before, typedLine, rider ? rideOf(rider, line) : undefined))
-    // What earlier wakes told about cards this one didn't stays: it is still all the agent was told about them.
-    const known = new Map(store.woke.get(key))
-    for (const [n, b] of Object.entries(told)) {
-      known.delete(n)
-      known.set(n, b)
-    }
-    while (known.size > WOKE_CARDS) known.delete(known.keys().next().value!)
-    store.woke.delete(key)
-    store.woke.set(key, known)
-    if (store.woke.size > MAX_WATCHES) store.woke.delete(store.woke.keys().next().value!)
-    if (rec.agents) noteToldAgents(store, key, toldAgents)
-    // A lane watch's: each lane as its line told it (#531), where the agent's next lane watch starts.
-    if (rec.lanes && rec.laneMarks) {
-      store.wokeLanes.delete(key)
-      store.wokeLanes.set(key, { at: laneToldAt, marks: new Map(Object.entries(rec.laneMarks)) })
-      if (store.wokeLanes.size > MAX_WATCHES) store.wokeLanes.delete(store.wokeLanes.keys().next().value!)
-    }
-    if (toldReply !== undefined) {
-      store.wokeReplies.delete(key)
-      store.wokeReplies.set(key, toldReply)
-      if (store.wokeReplies.size > MAX_WATCHES) store.wokeReplies.delete(store.wokeReplies.keys().next().value!)
-    }
-    // Typed: the watch has ended (unless it was replaced meanwhile, which stays). If that can't be saved, the file still
-    // says it was being typed, which reads back as delivered; the tick saves again.
-    await locked(store, async () => {
-      if (!store.list.includes(rec)) return
-      store.list = store.list.filter((x) => x !== rec)
-      await saveQuietly(store)
-    }).catch(() => undefined)
-    sessions.watchChanged(rec.projectPath, rec.agentId)
-  } catch (e) {
     log.info(`Wake for ${userText(rec.agentId)} put off: ${(e as Error).message}`)
   } finally {
     store.delivering.delete(rec.id)
-    waking.delete(key)
   }
-}
-
-/**
- * Whether a typed wake was taken (#376): the CLI started a turn for it (UserPromptSubmit). On 7 Oct a Codex reviewer's
- * wake stayed in its prompt, unsent, for hours, while its watch had ended. Not taken in time, Enter is pressed again,
- * once; still not taken, it is logged, and the agent's cards show as stalled when its loop is checked (loopCheck.ts).
- */
-export async function confirmTaken(projectPath: string, agentId: string, before: { runId: string; count: number }, line: string, ride?: RideCheck): Promise<boolean> {
-  // Nothing more is typed into it while this runs, however long (#430): released when it ends (taken, or marked).
-  const release = sessions.holdForConfirm(projectPath, agentId, before.runId)
-  ride?.confirming?.(before)
-  confirmsRunning++
-  let instead: { line: string; afterTaken: number | null } | null = null
-  try {
-    const r = await confirming(projectPath, agentId, before, line, ride)
-    if (r === 'withdrawn' || r === 'kept') {
-      // Cleared: typed again at once. Left as it is (the user's draft is in it): only once that prompt is submitted.
-      if (ride?.instead) instead = { line: ride.instead, afterTaken: r === 'kept' ? before.count : null }
-      return false
-    }
-    return r
-  } finally {
-    confirmsRunning--
-    ride?.settled?.()
-    release?.()
-    if (instead) void retype(projectPath, agentId, before.runId, instead.line, instead.afterTaken).catch((e) => log.warn('typing a wake again', e))
-  }
-}
-let confirmsRunning = 0
-/** How many typed wakes are being checked for being taken now: tests wait for none, after which no Enter comes. */
-export const confirmsInFlight = (): number => confirmsRunning
-
-/**
- * What rode a typed line (#530: messages left for the agent), for its confirmation: `still`, whether its sender may still
- * send it, asked before Enter is pressed again; `withdrawn` when it may not and the line was cleared instead; `instead`,
- * the line to type in its place (the wake it rode), or null (a message's own line).
- */
-export interface RideCheck {
-  still: () => boolean
-  withdrawn: () => void
-  instead: string | null
-  /** Told the launch and prompt count it was typed at while the confirmation runs (#647: cancellable until taken), and when it ends. */
-  confirming?: (before: { runId: string; count: number }) => void
-  settled?: () => void
-}
-
-/** A wake's rider as its line's RideCheck: typed again alone (`line`) if what rode it is withdrawn. */
-const rideOf = (rider: Rider, line: string): RideCheck => ({ still: rider.allowed, withdrawn: rider.withdrawn, instead: line, confirming: rider.confirming, settled: rider.settled })
-
-/**
- * Types a wake again after the line it was in was withdrawn (#530), as soon as it can be typed, while the launch lasts;
- * with `afterTaken` (the CLI's prompt count when that line was typed), only once its prompt has been submitted since, so
- * a draft of the user's still in it is never typed over.
- */
-async function retype(projectPath: string, agentId: string, runId: string, line: string, afterTaken: number | null = null): Promise<void> {
-  for (const end = Date.now() + 30 * 60_000; Date.now() < end; ) {
-    if (sessions.liveFor(projectPath, agentId)?.runId !== runId) return
-    const taken = sessions.promptsTaken(projectPath, agentId)
-    // Each try is counted while it types (settled() waits for it, #570); the wait between tries isn't.
-    if ((afterTaken === null || (!!taken && taken.runId === runId && taken.count > afterTaken)) && (await counted(typeLine(projectPath, agentId, line, () => true)))) return
-    await new Promise((r) => setTimeout(r, 1000))
-  }
-  log.warn(`A wake for ${userText(agentId)} couldn't be typed again after its line was cleared`)
-}
-
-async function confirming(projectPath: string, agentId: string, before: { runId: string; count: number }, line: string, ride?: RideCheck): Promise<boolean | 'withdrawn' | 'kept'> {
-  const t0 = Date.now()
-  const taken = (): boolean => {
-    const now = sessions.promptsTaken(projectPath, agentId)
-    const yes = !now || now.runId !== before.runId || now.count > before.count
-    // Each wake's outcome in the log (#430): typed (Woke …), taken and how soon, Enter again, not taken.
-    if (yes && now && now.runId === before.runId) log.info(`The wake typed into ${userText(agentId)} was taken after ${Date.now() - t0} ms`)
-    return yes
-  }
-  const waitTaken = async (): Promise<boolean> => {
-    const end = Date.now() + takeMs()
-    while (Date.now() < end) {
-      if (taken()) return true
-      await new Promise((r) => setTimeout(r, 250))
-    }
-    return taken()
-  }
-  if (await waitTaken()) return true
-  // Enter again, once, when that is safe (the same launch, idle, nobody typing there, Hive not typing): waited for a
-  // while rather than given up at once (#430). Never a third Enter.
-  let retried = false
-  let withheld = false
-  for (const end = Date.now() + 6 * takeMs(); ; ) {
-    if (taken()) return true
-    // What rode the line may no longer be sent (#530: its sender's Control turned down, its session ended): never
-    // submitted by this Enter. The line is cleared when that is safe (as an Enter would be), and its wake typed again.
-    if (ride && !ride.still()) {
-      withheld = true
-      // The user has typed into it since (round 3 finding): their draft, not Hive's line to clear or offer for Enter.
-      if (sessions.userTypedOverLine(projectPath, agentId)) {
-        ride.withdrawn()
-        log.info(`Left the line typed into ${userText(agentId)} as it is: what rode it may no longer be sent, and the user has typed there since`)
-        return 'kept'
-      }
-      if (sessions.clearTyped(projectPath, agentId, before.runId)) {
-        ride.withdrawn()
-        log.info(`Cleared the line typed into ${userText(agentId)}: what rode it may no longer be sent`)
-        return 'withdrawn'
-      }
-    } else if (sessions.submitAgain(projectPath, agentId, before.runId)) {
-      retried = true
-      break
-    }
-    // Another launch: what was typed has gone with the old one.
-    if (sessions.promptsTaken(projectPath, agentId)?.runId !== before.runId) return true
-    if (Date.now() >= end) break
-    await new Promise((r) => setTimeout(r, 250))
-  }
-  if (retried) {
-    log.warn(`The wake typed into ${userText(agentId)} wasn't taken: pressed Enter again`)
-    if (await waitTaken()) return true
-    log.warn(`The wake typed into ${userText(agentId)} still wasn't taken: it may be waiting in its prompt`)
-  } else log.warn(`The wake typed into ${userText(agentId)} wasn't taken, and Enter couldn't be pressed again (${withheld ? 'what rode it may no longer be sent, and the line could not be cleared' : 'busy, or the user typing there'})`)
-  // What rode it may no longer be sent and it couldn't be cleared: never offered for Enter (the user isn't asked to
-  // send it); its wake comes again once the prompt is next submitted.
-  if (withheld) {
-    ride!.withdrawn()
-    return 'kept'
-  }
-  // Shown in its pane, the user told once, and nothing more typed into it until it is taken (#430).
-  sessions.lineNotTaken(projectPath, agentId, before.runId, line, retried)
-  return false
 }
 
 /** Checks one watch against the board: whether it fires now. Its cards are read as its scope sees them. */
@@ -2123,8 +2023,8 @@ export function initWatches(): void {
       const { projectPath, agentId } = e.state
       if (store.list.some((x) => x.agents && !x.fired && x.agents.agents.some((a) => same(a.projectPath, projectPath) && a.agentId === agentId)))
         inBackground('checking agent watches', evaluateAgents(store))
-      if (!idle(e.state)) return
-      const rec = store.list.find((x) => x.fired && same(x.projectPath, projectPath) && x.agentId === agentId)
+      if (!readyFor(e.state)) return
+      const rec = store.list.find((x) => x.fired && !x.fired.delivery && same(x.projectPath, projectPath) && x.agentId === agentId)
       if (rec) inBackgroundAfter(500, 'waking an agent', () => deliver(store, rec))
     }
   })

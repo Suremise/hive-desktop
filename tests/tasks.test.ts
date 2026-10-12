@@ -749,10 +749,11 @@ describe('card decisions', () => {
     })
     const spies = [
       send,
-      vi.spyOn(sessions, 'liveFor').mockImplementation((p, id) => (p === alpha && id === 'a1' ? ({ projectPath: alpha, agentId: 'a1', status } as never) : null)),
+      vi.spyOn(sessions, 'liveFor').mockImplementation((p, id) => (p === alpha && id === 'a1' ? ({ projectPath: alpha, agentId: 'a1', status, runId: 'run-a1' } as never) : null)),
       vi.spyOn(sessions, 'userMayBeTyping').mockImplementation(() => typing),
       vi.spyOn(sessions, 'lineWaiting').mockImplementation(() => waiting),
-      vi.spyOn(sessions, 'promptsTaken').mockImplementation(() => null)
+      // Each line typed is taken (#649: its decisions are told, and noted on the card, once it is received).
+      vi.spyOn(sessions, 'promptsTaken').mockImplementation((p, id) => (p === alpha && id === 'a1' ? { runId: 'run-a1', count: sent.length } : null))
     ]
     try {
       const tell = (): Promise<void> => decisionWakes.tellNow(w, alpha, 'a1')
@@ -798,10 +799,11 @@ describe('card decisions', () => {
     const sent: { to: string; text: string }[] = []
     decisionWakes.testHooks.settleMs = 30
     const spies = [
-      vi.spyOn(sessions, 'liveFor').mockImplementation((p, id) => (p === alpha ? ({ projectPath: alpha, agentId: id, status: 'finished' } as never) : null)),
+      vi.spyOn(sessions, 'liveFor').mockImplementation((p, id) => (p === alpha ? ({ projectPath: alpha, agentId: id, status: 'finished', runId: `run-${id}` } as never) : null)),
       vi.spyOn(sessions, 'userMayBeTyping').mockImplementation(() => (typing && refusedTyping++, typing)),
       vi.spyOn(sessions, 'lineWaiting').mockImplementation(() => false),
-      vi.spyOn(sessions, 'promptsTaken').mockImplementation(() => null),
+      // Each line typed is taken (#649: its decisions are told once it is received).
+      vi.spyOn(sessions, 'promptsTaken').mockImplementation((p, id) => (p === alpha ? { runId: `run-${id}`, count: sent.filter((s) => s.to === id).length } : null)),
       vi.spyOn(sessions, 'sendPrompt').mockImplementation(async (_p, id, text, guard) => {
         const m = meanwhile
         meanwhile = null
@@ -848,7 +850,8 @@ describe('card decisions', () => {
       typing = true
       refusedTyping = 0
       await decisionWakes.tellNow(w, alpha, 'a1')
-      await expect.poll(() => refusedTyping, { timeout: 10000 }).toBeGreaterThan(60)
+      // Asked again and again while the user types (the delivery service tries it again in a moment each time, #649).
+      await expect.poll(() => refusedTyping, { timeout: 10000 }).toBeGreaterThan(3)
       expect(mine('a1')).toHaveLength(2)
       typing = false
       await expect.poll(() => mine('a1').length, { timeout: HUNG_MS }).toBe(3)
@@ -1451,14 +1454,18 @@ describe('removal and board under faults', () => {
     const prompts: string[] = []
     s.start = async (_p, o) => void prompts.push(o.prompt)
     const r1 = { kind: 'agent', name: 'Agent 1 (resumer)', self: { project: 'resumer', agentId: 'r1' }, scope: 'resumer' } as const
+    // The Assistant that starts it is running: a task it gives is refused once its session has ended (#645, #649).
+    const liveFor = sessions.liveFor.bind(sessions)
+    const running = vi.spyOn(sessions, 'liveFor').mockImplementation((p, id) => (id === 'assistant' ? ({ projectPath: p, agentId: 'assistant', status: 'working', runId: 'run-assistant' } as never) : liveFor(p, id)))
     try {
       for (const from of ['review', 'done'] as const) {
         const c = await run(() => tasks.createTask({ title: `Back from ${from}`, project: 'resumer', agent: 'r1', column: from }, user))
         const started = await run(() => startTask(c.number, { kind: 'agent', agentId: 'r1' }, assistant, '  Address the latest review comment.  '))
         expect([started.card.column, started.card.agent]).toEqual(['doing', 'r1'])
         expect(started.card.history.at(-1)).toMatchObject({ by: 'Assistant', what: 'Moved to Doing' })
-        expect(prompts.at(-1)).toBe(
-          `Work on task #${c.number} from the Hive task board: Back from ${from}\n\nIt was in ${from === 'review' ? 'Review' : 'Done'} and is back in Doing for more work.\n\nAddress the latest review comment.`
+        // The task, with its delivery's id to ack (#649).
+        expect(prompts.at(-1)).toMatch(
+          new RegExp(`^Work on task #${c.number} from the Hive task board: Back from ${from}\n\nIt was in ${from === 'review' ? 'Review' : 'Done'} and is back in Doing for more work\\.\n\nAddress the latest review comment\\. \\(Its id: m\\d+\\. Once you've acted on it, ack it with hive_inbox\\.\\)$`)
         )
         // Its agent finishes: Review, whatever it came from.
         const finished = await run(() => tasks.updateTask(c.number, { column: 'review' }, r1))
@@ -1477,6 +1484,7 @@ describe('removal and board under faults', () => {
       await expect(run(() => startTask(c.number, { kind: 'agent', agentId: 'r1' }, assistant, 'x'.repeat(4001)))).rejects.toThrow(/too long/)
     } finally {
       s.start = original
+      running.mockRestore()
     }
   })
 
