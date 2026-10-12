@@ -52,10 +52,14 @@ describe('messages left for agents (#530, #647)', async () => {
   const leave = (text: string) => messages.leaveMessage(alpha, 'b1', 'HR2', asst, text)
   const states = async (agentId = 'b1') => (await deliveries.deliveriesOf(alpha, agentId)).map((r) => `${r.id} ${r.state}${r.detail ? `: ${r.detail}` : ''}`)
   const tryAll = () => deliveries.offerAllForTests()
+  /** The prompts the stand-in CLI took, as its transcript has them (null: what Hive typed). */
+  let prompts: string[] | null = null
+  deliveries.setPromptReaderForTests(async () => prompts ?? st.typed)
   beforeEach(async () => {
     // Each test its own project, so ids start at m1.
     alpha = join(base, `alpha${++n}`)
     why = null
+    prompts = null
     Object.assign(st, { status: 'working', runId: 'r1', sessionId: 's1', watch: null, typing: false, shown: undefined, typed: [], running: true, during: null })
   })
 
@@ -92,7 +96,7 @@ describe('messages left for agents (#530, #647)', async () => {
     expect(st.typed).toHaveLength(1)
   })
 
-  it('received once its CLI takes the line (its prompt count goes up in the same launch), not before', async () => {
+  it('received once its CLI takes the line: its prompt count goes up in the same launch, and that prompt is the line (its ids in the transcript)', async () => {
     const cli = { count: 0 }
     Object.assign(sessions, { promptsTaken: () => ({ runId: 'r1', count: cli.count }), holdForConfirm: () => () => undefined })
     watches.testHooks.takeMs = 5000
@@ -104,11 +108,76 @@ describe('messages left for agents (#530, #647)', async () => {
       await vi.waitFor(async () => expect(await states()).toEqual(['m1 received']), { timeout: HUNG_MS })
       expect((await deliveries.deliveriesOf(alpha, 'b1'))[0].receivedVia).toBe('line')
       await vi.waitFor(() => expect(st.shown).toBeUndefined(), { timeout: HUNG_MS })
+      await vi.waitFor(() => expect(watches.confirmsInFlight()).toBe(0), { timeout: HUNG_MS })
+
+      // Hive's Enter is dropped and the user submits a prompt of their own instead (or a late, unrelated prompt event
+      // comes): the count goes up, but the prompt taken isn't the line, so it isn't received. It stays offered.
+      prompts = ['Human: an unrelated prompt of my own']
+      st.status = 'ready'
+      expect((await leave('Then #520.')).fate).toBe('typed')
+      cli.count++
+      await vi.waitFor(() => expect(watches.confirmsInFlight()).toBe(0), { timeout: HUNG_MS })
+      expect((await states()).at(-1)).toBe('m2 offered')
+      // Still offered: what the agent says next settles it (its inbox, or an ack).
+      expect(await deliveries.ackDeliveries(alpha, 'b1', ['m2'])).toEqual({ acked: ['m2'], unknown: [] })
     } finally {
       watches.testHooks.takeMs = undefined
       for (const k of ['holdForConfirm']) delete (sessions as unknown as Record<string, unknown>)[k]
       Object.assign(sessions, { promptsTaken: () => null })
       await vi.waitFor(() => expect(watches.confirmsInFlight()).toBe(0), { timeout: HUNG_MS })
+    }
+  })
+
+  it('offered only once saved: a save that fails types nothing, and a wake waits for the save of what rides it', async () => {
+    // A save that fails: the message isn't made (nothing claims it is saved).
+    deliveries.setBeforeSaveForTests(() => {
+      throw new Error('EACCES: permission denied')
+    })
+    try {
+      st.status = 'working'
+      await expect(leave('Never saved.')).rejects.toThrow(/couldn't save the deliveries \(EACCES/)
+      // Not made: nothing in memory either (its id isn't used again).
+      expect(await states()).toEqual([])
+    } finally {
+      deliveries.setBeforeSaveForTests(null)
+    }
+    // Saved while queued; offering it can't be saved: nothing is typed, and it still waits.
+    await leave('Saved, then not offered.')
+    deliveries.setBeforeSaveForTests(() => {
+      throw new Error('EACCES: permission denied')
+    })
+    try {
+      st.status = 'ready'
+      await tryAll()
+      expect(st.typed).toEqual([])
+      expect(await states()).toEqual(['m2 queued'])
+      // A wake it would ride: typed alone? No: the wake waits for the save, which fails, so the line isn't typed and the
+      // message waits again.
+      expect(await watches.typeLine(alpha, 'b1', '[Hive] #3 is in Review.', () => true)).toBe(false)
+      expect(st.typed).toEqual([])
+      expect(await states()).toEqual(['m2 queued'])
+    } finally {
+      deliveries.setBeforeSaveForTests(null)
+    }
+    // A save that is slow: the wake's first key waits for it.
+    let release = (): void => undefined
+    const held = new Promise<void>((r) => (release = r))
+    let saving = false
+    deliveries.setBeforeSaveForTests(async () => {
+      saving = true
+      await held
+    })
+    try {
+      st.status = 'finished'
+      const typing = watches.typeLine(alpha, 'b1', '[Hive] #4 is in Review.', () => true)
+      await vi.waitFor(() => expect(saving).toBe(true), { timeout: HUNG_MS })
+      expect(st.typed).toEqual([])
+      release()
+      expect(await typing).toBe(true)
+      expect(st.typed).toEqual(["[Hive] Message from the Assistant: Saved, then not offered. (Its id: m2. Once you've acted on it, ack it with hive_inbox.) [Hive] #4 is in Review."])
+    } finally {
+      release()
+      deliveries.setBeforeSaveForTests(null)
     }
   })
 

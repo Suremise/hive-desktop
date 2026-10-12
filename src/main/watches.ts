@@ -1353,7 +1353,9 @@ export interface Rider {
   withdrawn: () => void
   /** The line it was in wasn't typed after all (#647: its deliveries go back to waiting). */
   notTaken?: () => void
-  /** Its CLI took the line it was in (its prompt count went up in the same launch): its deliveries are received. */
+  /** Its deliveries saved as offered (#647): waited for before the line's first key; nothing is typed if it fails. */
+  ready?: Promise<void>
+  /** Its CLI took a prompt after the line (its prompt count went up in the same launch): its deliveries check it was theirs. */
   received?: () => void
 }
 let wakeRider: ((projectPath: string, agentId: string) => Rider | null) | null = null
@@ -1389,6 +1391,7 @@ export async function typeLine(projectPath: string, agentId: string, line: strin
     // Messages left for the agent ride the wake, first (#530); a line of their own takes none.
     rider = opts.rider === false ? null : (wakeRider?.(projectPath, agentId) ?? null)
     const text = rider ? `${rider.text} ${line}` : line
+    await rider?.ready
     await sessions.sendPrompt(projectPath, agentId, text, () => {
       if (!wanted()) throw new Error('It is no longer wanted.')
       if (rider && !rider.still()) throw new Error('The messages riding it changed.')
@@ -1561,6 +1564,7 @@ async function deliver(store: Store, rec: WatchRecord): Promise<void> {
     const rider = wakeRider?.(rec.projectPath, rec.agentId) ?? null
     const typedLine = rider ? `${rider.text} ${line}` : line
     try {
+      await rider?.ready
       await sessions.sendPrompt(rec.projectPath, rec.agentId, typedLine, () => {
         if (!current()) throw new Error('The watch was cancelled.')
         if (rider && !rider.still()) throw new Error('The messages riding it changed.')

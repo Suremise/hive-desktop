@@ -166,6 +166,13 @@ export function offerLine(records: readonly DeliveryRecord[], watchLabel: string
   return `[Hive] ${parts.join(' ')}${ack}${tail}`
 }
 
+/** The delivery ids an offered line names ("(Its id: m4." or "(Their ids: m4, m5."), as a prompt the CLI took shows them. */
+export function lineIds(text: string): string[] {
+  const out: string[] = []
+  for (const m of text.matchAll(/\((?:Its id|Their ids): (m\d+(?:, m\d+)*)\. Once you've acted on/g)) out.push(...m[1].split(', '))
+  return out
+}
+
 /** hive_inbox's reply: what is new (now received), and what was received before and isn't acked yet. */
 export function inboxText(items: readonly InboxItem[], unacked: readonly string[]): string {
   const older = unacked.length ? `Received before, not acked yet: ${idList(unacked)}.` : ''

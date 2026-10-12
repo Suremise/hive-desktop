@@ -102,6 +102,9 @@ describe('the delivery service (#647)', async () => {
   // The Assistant's launch that is running now, and whether Control lets it run agents (as senderRefusal works them out).
   const now = { launch: 'a1', control: true }
   deliveries.setSenderCheckForTests((from) => (from.kind !== 'assistant' ? null : !now.control ? 'the user turned Settings → Assistant → Control down' : from.launch !== now.launch ? "the Assistant's session that left it ended" : null))
+  /** The prompts the agent's CLI took, as its transcript has them (none unless a test says). */
+  let prompts: string[] = []
+  deliveries.setPromptReaderForTests(async () => prompts)
   const ws = join(base, 'ws')
   const asst = (launch = 'a1'): DeliverySender => ({ kind: 'assistant', name: 'the Assistant', workspace: ws, launch })
   const hive: DeliverySender = { kind: 'hive', name: 'Hive' }
@@ -118,6 +121,8 @@ describe('the delivery service (#647)', async () => {
     alpha = join(base, `alpha${++n}`)
     Object.assign(st, { status: 'working', runId: 'r1', sessionId: 's1', running: true, typed: [] })
     Object.assign(now, { launch: 'a1', control: true })
+    prompts = []
+    deliveries.setFileBudgetForTests(4 * 1024 * 1024)
   })
 
   it('saved as made, with short ids that go on across a restart', async () => {
@@ -260,5 +265,71 @@ describe('the delivery service (#647)', async () => {
     expect(v.deliveries[1].text.length).toBeLessThanOrEqual(80)
     expect(v.deliveries[0].received).toBeTruthy()
     expect(existsSync(join(alpha, '.hive', 'deliveries.json'))).toBe(true)
+  })
+
+  it('ack checks what is unread as an offer would, in the same step: refused, expired or for another conversation is not acked; one received still is', async () => {
+    await make({ body: 'Revoked before the ack.' })
+    now.control = false
+    expect(await deliveries.ackDeliveries(alpha, 'b1', ['m1'])).toEqual({ acked: [], unknown: ['m1'] })
+    expect(await states()).toEqual(['m1 refused: the user turned Settings → Assistant → Control down'])
+    now.control = true
+    await make({ body: 'Past its expiry.', expiresMs: -1000 })
+    expect(await deliveries.ackDeliveries(alpha, 'b1', ['m2'])).toEqual({ acked: [], unknown: ['m2'] })
+    expect((await states()).at(-1)).toBe('m2 expired: not received in time')
+    await make({ body: 'For the old conversation.' })
+    st.sessionId = 's2'
+    expect(await deliveries.ackDeliveries(alpha, 'b1', ['m3'])).toEqual({ acked: [], unknown: ['m3'] })
+    expect((await states()).at(-1)).toBe('m3 expired: its agent is in another conversation now')
+    // Received: the agent has it, so it may still say it acted on it after its sender's permission went.
+    await make({ body: 'Received first.', conversation: 's2' })
+    await deliveries.readInbox(alpha, 'b1')
+    now.control = false
+    expect(await deliveries.ackDeliveries(alpha, 'b1', ['m4'])).toEqual({ acked: ['m4'], unknown: [] })
+  })
+
+  it('within its byte budget: refused when full (history makes room first), and a file it wrote always reads back whole', async () => {
+    deliveries.setFileBudgetForTests(40_000)
+    // Multibyte text, at the longest a message may be.
+    const big = 'é✓'.repeat(2000)
+    let made = 0
+    for (;;) {
+      try {
+        await make({ agentId: `a${made}`, body: big })
+        made++
+      } catch (e) {
+        expect((e as Error).message).toMatch(/deliveries are full/)
+        break
+      }
+    }
+    expect(made).toBeGreaterThan(1)
+    expect(readFileSync(join(alpha, '.hive', 'deliveries.json')).length).toBeLessThanOrEqual(40_000)
+    // Ended ones' history makes room: one cancelled lets a new one in.
+    await deliveries.cancelDeliveries(alpha, 'a0', 'the user')
+    await make({ agentId: 'late', body: big })
+    // Read back after a restart: every one of them, nothing set aside, and the ids go on.
+    await restart()
+    expect(readdirSync(join(alpha, '.hive')).filter((f) => f.startsWith('deliveries.json.'))).toEqual([])
+    const all = file().deliveries
+    expect(all.filter((r) => r.state === 'queued').length).toBe(made)
+    deliveries.setFileBudgetForTests(4 * 1024 * 1024)
+    // (The one refused for room used an id: ids are never used twice.)
+    expect((await make({ body: 'After.' })).id).toBe(`m${made + 3}`)
+  })
+
+  it('uncertain after a restart, but its line is in the conversation the CLI kept: received, not offered again', async () => {
+    await make({ from: hive, kind: 'card-event', card: 7, body: 'is in Review' })
+    st.status = 'ready'
+    await deliveries.offerNow(alpha, 'b1')
+    const typed = st.typed[0]
+    await restart()
+    expect(await states()).toEqual(['m1 uncertain: Hive stopped before it knew whether this reached the agent'])
+    // Resumed in the same conversation: its transcript has the line as a prompt it took.
+    prompts = [typed]
+    st.status = 'ready'
+    st.typed = []
+    await deliveries.offerNow(alpha, 'b1')
+    expect(st.typed).toEqual([])
+    expect(await states()).toEqual(['m1 received'])
+    expect((await deliveries.deliveriesOf(alpha, 'b1'))[0].receivedVia).toBe('line')
   })
 })
