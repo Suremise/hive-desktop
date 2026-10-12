@@ -6,6 +6,7 @@ import type { LiveSessionState, SessionStatus } from '@shared/types'
 import { actClass, cx, type SessionAction } from '../util'
 import { call, errorMessage } from '../api'
 import { formatWhen } from '@shared/dates'
+import { runtimeLabel, unknownStateText } from '@shared/runtime'
 import { providerDescriptor, providerName } from '@shared/providers'
 import { placeTip, type Box } from '@shared/tipPlacement'
 
@@ -267,9 +268,15 @@ export const STATUS_TEXT: Record<SessionStatus | 'idle', string> = {
 
 const tasks = (n: number): string => `${n} background task${n === 1 ? '' : 's'}`
 
-/** What an agent is doing, in words: its status message, else its status with any background tasks it is running. */
-export function statusText(live: Pick<LiveSessionState, 'status' | 'statusMessage' | 'mergeSlot' | 'backgroundTasks' | 'question' | 'watch'>): string {
+/**
+ * What an agent is doing, in words: projected from its runtime's facts (#648: asking, compacting, silent with its state
+ * unknown, working…); when no turn runs, Hive's policy words: what its watch waits for, its status message, finished or
+ * ready, with any background tasks it is running.
+ */
+export function statusText(live: Pick<LiveSessionState, 'status' | 'statusMessage' | 'mergeSlot' | 'backgroundTasks' | 'question' | 'watch' | 'turn' | 'runtime'>): string {
   const text = ((): string => {
+    const projected = live.runtime ? runtimeLabel(live) : unknownStateText(live)
+    if (projected) return projected
     // Waiting on cards: what for ("Waiting for #12 → Review").
     if (live.status === 'watching' && live.watch) return live.watch.label
     if (live.statusMessage) return live.statusMessage

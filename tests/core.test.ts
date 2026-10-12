@@ -395,7 +395,9 @@ describe('Claude Code hooks', () => {
     const { claudeCode } = await import('../src/main/providers/claude/adapter')
     const h = (body: Record<string, unknown>) => claudeCode.normalizeHook(body)
     expect(h({ hook_event_name: 'SessionStart', session_id: 's1', source: 'resume' })).toMatchObject({ event: { kind: 'start', source: 'resume' }, sessionId: 's1' })
-    expect(h({ hook_event_name: 'PreToolUse', tool_input: { file_path: 'a.ts' }, permission_mode: 'default' })).toMatchObject({ event: { kind: 'toolStart' }, editedPaths: ['a.ts'], mode: 'manual' })
+    expect(h({ hook_event_name: 'PreToolUse', tool_name: 'Edit', tool_input: { file_path: 'a.ts' }, permission_mode: 'default' })).toMatchObject({ event: { kind: 'toolStart' }, editedPaths: ['a.ts'], mode: 'manual' })
+    // Every tool's start reaches Hive (#648: the turn ledger), but only an edit is checked against the locks.
+    expect(h({ hook_event_name: 'PreToolUse', tool_name: 'Read', tool_input: { file_path: 'a.ts' } })).toMatchObject({ event: { kind: 'toolStart' }, editedPaths: [] })
     expect(h({ hook_event_name: 'Notification', notification_type: 'permission_prompt', message: 'Claude needs your permission' }).event).toEqual({ kind: 'ask', ask: { kind: 'permission', blocking: true, message: 'Claude needs your permission' } })
     expect(h({ hook_event_name: 'Notification', notification_type: 'idle_prompt', message: 'Claude is waiting for your input' }).event).toEqual({ kind: 'idle' })
     expect(h({ hook_event_name: 'Stop', last_assistant_message: 'done' }).event).toEqual({ kind: 'stop', lastMessage: 'done' })

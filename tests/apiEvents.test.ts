@@ -73,13 +73,13 @@ describe('apiEventFor', () => {
     const state = {
       provider: 'codex', runId: 'r', projectPath: alpha, agentId: 'a1', agentName: 'B1', cwd: alpha, sessionId: 's', status: 'waiting', statusSince: 't', startedAt: 't', unseen: false, launchSignature: 'SECRET-launch',
       statusMessage: 'SECRET-cli-message', review: 'Codex asks to run SECRET-command', question: { text: 'SECRET-question', since: 'q' }, signIn: { message: 'SECRET-signin', since: 's1' },
-      untakenLine: { since: 'u', text: 'SECRET-typed' }, queuedMessages: [{ from: 'the Assistant', text: 'SECRET-queued', at: 'm' }], titleAtRename: 'SECRET-title',
+      untakenLine: { since: 'u', text: 'SECRET-typed' }, inbox: { unread: [{ id: 'm1', from: 'the Assistant', text: 'SECRET-queued', at: 'm', state: 'queued' }], overdue: 1 }, titleAtRename: 'SECRET-title',
       mergeSlot: 'Waiting for the merge slot (B4 is merging #305)', watch: { cards: [12], changes: ['column'], label: 'Waiting for #12 → Review', since: 'w', limitAt: 'l' }, costUsd: 1.5, modelName: 'GPT', backgroundTasks: 2,
       futureField: 'SECRET-future'
     } as unknown as LiveSessionState
     const sent = apiEventFor({ type: 'session-status', state }, null)
     expect(JSON.stringify(sent)).not.toContain('SECRET')
-    expect(sent!.state).toMatchObject({ status: 'waiting', agentName: 'B1', question: { since: 'q' }, reviewing: true, signIn: { since: 's1' }, untakenLine: { since: 'u' }, queuedMessages: [{ from: 'the Assistant', at: 'm' }], mergeSlot: state.mergeSlot, watch: { cards: [12], label: 'Waiting for #12 → Review' }, costUsd: 1.5, backgroundTasks: 2 })
+    expect(sent!.state).toMatchObject({ status: 'waiting', agentName: 'B1', question: { since: 'q' }, reviewing: true, signIn: { since: 's1' }, untakenLine: { since: 'u' }, inbox: { unread: [{ id: 'm1', from: 'the Assistant', at: 'm', state: 'queued' }], overdue: 1 }, mergeSlot: state.mergeSlot, watch: { cards: [12], label: 'Waiting for #12 → Review' }, costUsd: 1.5, backgroundTasks: 2 })
     expect(publicSessionState({ ...state, question: undefined, review: undefined })).not.toHaveProperty('reviewing')
     // A launch that failed: that it did, not the CLI's output.
     const exit = apiEventFor({ type: 'session-exit', projectPath: alpha, agentId: 'a1', sessionId: 's', exitCode: 1, failure: { reason: 'SECRET-output', exitCode: 1, resumed: false, at: 't' } }, null)

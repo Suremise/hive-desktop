@@ -1352,11 +1352,29 @@ export interface Rider {
   /** Whether its sender may still send it, for the confirmation's Enter again; `withdrawn` when the line was cleared. */
   allowed: () => boolean
   withdrawn: () => void
+  /** The line it was in wasn't typed after all (#647: its deliveries go back to waiting). */
+  notTaken?: () => void
+  /** RideCheck's: while its confirmation checks the line was taken, and once that has ended. */
+  confirming?: (before: { runId: string; count: number }) => void
+  settled?: () => void
+  /** Its deliveries saved as offered (#647): waited for before the line's first key; nothing is typed if it fails. */
+  ready?: Promise<void>
 }
-let wakeRider: ((projectPath: string, agentId: string) => Rider | null) | null = null
-/** Registers what rides agents' wakes (agentMessages.ts, at start). */
-export function onWakeRider(fn: (projectPath: string, agentId: string) => Rider | null): void {
+let wakeRider: ((projectPath: string, agentId: string, line: string) => Rider | null) | null = null
+/** Registers what rides agents' wakes (deliveries.ts, at start): given the wake's own line, so its offer knows the whole line typed. */
+export function onWakeRider(fn: (projectPath: string, agentId: string, line: string) => Rider | null): void {
   wakeRider = fn
+}
+
+/**
+ * Whether a line of Hive's could be typed into an agent now (typeLine's own conditions, before it asks what is wanted): it
+ * is idle, nobody types there, no earlier line is waiting there, no wake is being typed and no watch of its own has a line
+ * to type. The delivery service asks it before it saves deliveries as offered (#647).
+ */
+export function canTypeLine(projectPath: string, agentId: string): boolean {
+  if (waking.has(agentKey(projectPath, agentId)) || !idle(sessions.liveFor(projectPath, agentId)) || sessions.userMayBeTyping(projectPath, agentId) || sessions.lineWaiting(projectPath, agentId)) return false
+  const store = storeFor(projectPath)
+  return !store?.list.some((x) => x.fired && same(x.projectPath, projectPath) && x.agentId === agentId)
 }
 
 /**
@@ -1367,29 +1385,33 @@ export function onWakeRider(fn: (projectPath: string, agentId: string) => Rider 
  */
 export async function typeLine(projectPath: string, agentId: string, line: string, wanted: () => boolean, opts: { rider?: boolean; ride?: RideCheck } = {}): Promise<boolean> {
   const key = agentKey(projectPath, agentId)
-  const busy = (): boolean => !idle(sessions.liveFor(projectPath, agentId)) || sessions.userMayBeTyping(projectPath, agentId)
-  if (waking.has(key) || busy() || sessions.lineWaiting(projectPath, agentId) || !wanted()) return false
-  const store = storeFor(projectPath)
-  if (store?.list.some((x) => x.fired && same(x.projectPath, projectPath) && x.agentId === agentId)) return false
+  if (!canTypeLine(projectPath, agentId) || !wanted()) return false
   waking.add(key)
+  let rider: Rider | null = null
   try {
-    const before = sessions.promptsTaken(projectPath, agentId)
+    // What the CLI had taken just before this line's Enter (#376): sampled by the writer's last check, after what rides it
+    // was saved (#647: a prompt of the user's taken while that save was slow isn't this line's), so a confirmation
+    // never takes an earlier prompt for this one.
+    let before: { runId: string; count: number } | null = null
     // Messages left for the agent ride the wake, first (#530); a line of their own takes none.
-    const rider = opts.rider === false ? null : (wakeRider?.(projectPath, agentId) ?? null)
+    rider = opts.rider === false ? null : (wakeRider?.(projectPath, agentId, line) ?? null)
     const text = rider ? `${rider.text} ${line}` : line
+    await rider?.ready
     await sessions.sendPrompt(projectPath, agentId, text, () => {
       if (!wanted()) throw new Error('It is no longer wanted.')
       if (rider && !rider.still()) throw new Error('The messages riding it changed.')
       if (!idle(sessions.liveFor(projectPath, agentId))) throw new Error('The agent got busy.')
       if (sessions.userMayBeTyping(projectPath, agentId)) throw new Error('The user is typing there.')
+      before = sessions.promptsTaken(projectPath, agentId)
     })
     rider?.taken()
     log.info(`Woke ${userText(agentId)}: ${userText(text.slice(0, 80))}`)
     // Kept to what rode it (#530) until the CLI takes it: its own check (a message's line), or its rider's.
-    const ride = opts.ride ?? (rider ? { still: rider.allowed, withdrawn: rider.withdrawn, instead: line } : undefined)
+    const ride = opts.ride ?? (rider ? rideOf(rider, line) : undefined)
     if (before) inBackground('checking a wake was taken', confirmTaken(projectPath, agentId, before, text, ride))
     return true
   } catch (e) {
+    rider?.notTaken?.()
     log.info(`Wake for ${userText(agentId)} put off: ${(e as Error).message}`)
     return false
   } finally {
@@ -1533,20 +1555,24 @@ async function deliver(store: Store, rec: WatchRecord): Promise<void> {
       return true
     })
     if (!marked) return
-    // What the CLI had taken before the line: it is taken once that goes up (#376).
-    const before = sessions.promptsTaken(rec.projectPath, rec.agentId)
+    // What the CLI had taken just before the line's Enter: it is taken once that goes up (#376). Sampled by the writer's
+    // last check, after what rides it was saved (#647), as typeLine does.
+    let before: { runId: string; count: number } | null = null
     // Messages left for the agent ride its wake, first (#530), so it has them before it acts on the wake.
-    const rider = wakeRider?.(rec.projectPath, rec.agentId) ?? null
+    const rider = wakeRider?.(rec.projectPath, rec.agentId, line) ?? null
     const typedLine = rider ? `${rider.text} ${line}` : line
     try {
+      await rider?.ready
       await sessions.sendPrompt(rec.projectPath, rec.agentId, typedLine, () => {
         if (!current()) throw new Error('The watch was cancelled.')
         if (rider && !rider.still()) throw new Error('The messages riding it changed.')
         if (!idle(sessions.liveFor(rec.projectPath, rec.agentId))) throw new Error('The agent got busy.')
         if (sessions.userMayBeTyping(rec.projectPath, rec.agentId)) throw new Error('The user is typing there.')
         if (telling && (!tellReplies() || replyGeneration !== generation)) throw new RepliesRevoked()
+        before = sessions.promptsTaken(rec.projectPath, rec.agentId)
       })
     } catch (e) {
+      rider?.notTaken?.()
       // Not typed (what was typed is cleared again): ready for the next try (a watch cancelled or replaced meanwhile is
       // already gone). A line telling a reply the user no longer lets be told is dropped, not kept for the next try: the
       // watch waits on, and fires again on whatever else changed, made without the reply.
@@ -1572,7 +1598,7 @@ async function deliver(store: Store, rec: WatchRecord): Promise<void> {
     })
     noteToldByWatch(rec.projectPath, rec.agentId, toldOfCards)
     for (const x of endedAt) inBackground(`noting on #${x.n} that a watch ended`, noteOnCard(x.n, x.what, store.ws))
-    if (before) inBackground('checking a wake was taken', confirmTaken(rec.projectPath, rec.agentId, before, typedLine, rider ? { still: rider.allowed, withdrawn: rider.withdrawn, instead: line } : undefined))
+    if (before) inBackground('checking a wake was taken', confirmTaken(rec.projectPath, rec.agentId, before, typedLine, rider ? rideOf(rider, line) : undefined))
     // What earlier wakes told about cards this one didn't stays: it is still all the agent was told about them.
     const known = new Map(store.woke.get(key))
     for (const [n, b] of Object.entries(told)) {
@@ -1619,6 +1645,7 @@ async function deliver(store: Store, rec: WatchRecord): Promise<void> {
 export async function confirmTaken(projectPath: string, agentId: string, before: { runId: string; count: number }, line: string, ride?: RideCheck): Promise<boolean> {
   // Nothing more is typed into it while this runs, however long (#430): released when it ends (taken, or marked).
   const release = sessions.holdForConfirm(projectPath, agentId, before.runId)
+  ride?.confirming?.(before)
   confirmsRunning++
   let instead: { line: string; afterTaken: number | null } | null = null
   try {
@@ -1631,6 +1658,7 @@ export async function confirmTaken(projectPath: string, agentId: string, before:
     return r
   } finally {
     confirmsRunning--
+    ride?.settled?.()
     release?.()
     if (instead) void retype(projectPath, agentId, before.runId, instead.line, instead.afterTaken).catch((e) => log.warn('typing a wake again', e))
   }
@@ -1648,7 +1676,13 @@ export interface RideCheck {
   still: () => boolean
   withdrawn: () => void
   instead: string | null
+  /** Told the launch and prompt count it was typed at while the confirmation runs (#647: cancellable until taken), and when it ends. */
+  confirming?: (before: { runId: string; count: number }) => void
+  settled?: () => void
 }
+
+/** A wake's rider as its line's RideCheck: typed again alone (`line`) if what rode it is withdrawn. */
+const rideOf = (rider: Rider, line: string): RideCheck => ({ still: rider.allowed, withdrawn: rider.withdrawn, instead: line, confirming: rider.confirming, settled: rider.settled })
 
 /**
  * Types a wake again after the line it was in was withdrawn (#530), as soon as it can be typed, while the launch lasts;

@@ -8,7 +8,7 @@ import { BrowserWindow, Notification, app, clipboard } from 'electron'
 import { ASSISTANT_DIR, ASSISTANT_NAME } from '../shared/assistant'
 import { formatDateTime } from '../shared/dates'
 import { assistantTools } from '../shared/assistantTools'
-import { COMPACTING_MESSAGE, HIVE_DIR, agentPtyKey, assertSessionId, cliRename, formatBytes, isSessionId, projectAgents, resumeRecord, transcriptWarnLimit } from '../shared/defaults'
+import { COMPACTING_MESSAGE, HIVE_DIR, isCompacting, agentPtyKey, assertSessionId, cliRename, formatBytes, isSessionId, projectAgents, resumeRecord, transcriptWarnLimit } from '../shared/defaults'
 import { agentLaunchSettings, defaultProviderPending, extraArgsProblem, isProviderEnabled, modeAllowed, permissionLabel, providerDescriptor, providerSettings, splitArgs, tasksWillWake } from '../shared/providers'
 import { resolvedModel } from '../shared/models'
 import type {
@@ -19,11 +19,12 @@ import type {
   FileLockMode,
   KeptUsage,
   LiveSessionState,
+  RuntimeFacts,
   McpServerDef,
   PermissionMode,
   ProjectConfig,
   ProviderId,
-  QueuedMessage,
+  InboxSummary,
   SessionBulkAction,
   SessionBulkResult,
   Attached,
@@ -47,8 +48,9 @@ import { config } from './config'
 import { emit, emitTo, tellListeners, toast } from './events'
 import { presentWindow, showOsNotification, testNotifyLog, testQuiet } from './testQuiet'
 import { hashText, heldOpen, insideReal, isInUse, readJson, placeRelative, removePath, samePlace, treeSignature, syncCopy, syncCopyLocked, syncCopyNow, trashAllOrNothing, withFileLock, writeJsonAtomic } from './fsutil'
-import { createLogger, userText } from './logger'
-import { applyStep, compactionOver, expireTasks, hookStep, idleAfter, titleStep, type HookStatusInput, type HookStep } from './hookStatus'
+import { createLogger, hookJournal, userText } from './logger'
+import { applyStep, compactionOver, expireTasks, hookStep, idleAfter, markedIdle, titleStep, type HookStatusInput, type HookStep } from './hookStatus'
+import { admit, describe as describeTurn, endRunning, heard, newLedger, openCalls, reconciles, silentFor, unheardStop, type ScreenReading, type TurnLedger } from './turnLedger'
 import { Compaction } from './compaction'
 import { lastTitle } from './terminalTitle'
 import { asksYou } from '../shared/inbox'
@@ -102,6 +104,18 @@ const BACKUP_INTERVAL_MS = 60_000
 const COST_INTERVAL_MS = 30_000
 /** How many of a launch's latest hooks are kept for the log (LiveSession.recentHooks). */
 const RECENT_HOOKS = 8
+/**
+ * How long a turn may run with nothing heard of it (no hook, no transcript growth, no tool call under way) before Hive
+ * looks for its end on the CLI's screen, and failing that says its state is unknown (#648). Never an end in itself.
+ * Unpackaged test builds can shorten it (HIVE_TEST_SILENT_MS).
+ */
+const silentMs = (): number => (!app.isPackaged && Number(process.env.HIVE_TEST_SILENT_MS) > 0 ? Number(process.env.HIVE_TEST_SILENT_MS) : 5 * 60_000)
+/** How many times silentMs a running turn with a tool call open may be silent before its state is unknown (a long test run). */
+const OPEN_CALL_SILENCE = 12
+/** How many of the CLI's Stop answers (LiveDetails.stopsAnswered) a launch keeps: a turn has few. */
+const STOPS_KEPT = 64
+/** "40 s", "23 min": a silence, for the log. */
+const howLong = (ms: number): string => (ms < 120_000 ? `${Math.round(ms / 1000)} s` : `${Math.round(ms / 60_000)} min`)
 /** How long after a CLI starts or is ready its size refresh comes (refreshSize). */
 const SIZE_REFRESH_DELAY_MS = 500
 
@@ -204,6 +218,16 @@ interface LiveSession {
   lastReply?: string
   /** Its latest hooks (what they were, when, and the status they left), for the log when the CLI turns out idle (#612). */
   recentHooks?: { kind: HookEvent['kind']; at: number; status: SessionStatus }[]
+  /** Its CLI's turns as Hive knows them (#648): which runs and which are over, by the CLI's ids, and when it was last heard. */
+  ledger?: TurnLedger
+  /** The CLI's own latest record of a turn's end read from its transcript (LiveDetails.turnEnded). */
+  turnRecord?: { turn: string; at: string } | null
+  /** When the CLI answered its Stops this launch, as it recorded them (LiveDetails.stopsAnswered, ms; the latest STOPS_KEPT). */
+  stopsAnswered?: number[]
+  /** Its screen's reading of the CLI's turn (idle, working, not sure), for this launch's CLI version (ProviderAdapter.turnScreen). */
+  turnScreen?: (screen: string) => 'idle' | 'working' | null
+  /** Its transcript says its background task ended, which starts a turn of the CLI's own (backgroundWakes), not begun yet in the ledger. */
+  woke?: boolean
   /**
    * A typed wake being confirmed (#430: watches' confirmTaken, from its typing until it is taken, marked not taken, or the
    * launch ends): nothing more is typed into it meanwhile, however long that takes. A token, so only its own release
@@ -580,11 +604,11 @@ class SessionManager {
     this.emitState(l.state)
   }
 
-  /** Shows (or clears) the messages left for an agent that wait to be typed (#530, agentMessages.ts). */
-  setQueuedMessages(projectPath: string, agentId: string, items: QueuedMessage[] | null): void {
+  /** Shows (or clears) an agent's deliveries not received yet and those overdue (#647, deliveries.ts); nothing sent when unchanged. */
+  setInbox(projectPath: string, agentId: string, inbox: InboxSummary | undefined): void {
     const l = this.live.get(liveId(projectPath, agentId))
-    if (!l) return
-    l.state.queuedMessages = items?.length ? items.map((m) => ({ ...m })) : undefined
+    if (!l || JSON.stringify(l.state.inbox) === JSON.stringify(inbox)) return
+    l.state.inbox = inbox ? { unread: inbox.unread.map((m) => ({ ...m })), overdue: inbox.overdue } : undefined
     this.emitState(l.state)
   }
 
@@ -999,6 +1023,7 @@ class SessionManager {
       sessionName,
       titleAtRename: adopted ?? (existing ? existing.titleAtRename : opts.name?.trim() ? null : undefined),
       status: 'starting',
+      runtime: { lifecycle: 'starting', maintenance: null, attention: null, composer: 'free' },
       startedAt: new Date().toISOString(),
       sessionCreatedAt: existing?.createdAt,
       launchSignature: '',
@@ -1040,7 +1065,7 @@ class SessionManager {
       await this.launch(projectPath, agent, { sessionId, name: sessionName, resume: !!opts.resumeId })
     } catch (e) {
       this.forget(id)
-      emit({ type: 'session-status', state: { ...state, status: 'stopped' } })
+      emit({ type: 'session-status', state: { ...state, status: 'stopped', runtime: { ...state.runtime!, lifecycle: 'stopped' } } })
       throw e
     }
     return state
@@ -1075,7 +1100,7 @@ class SessionManager {
     if (code !== 0 || !agent || l.stopRequested) {
       void this.afterLaunch(l.state.runId, this.label(l.state))
       this.forget(id)
-      emit({ type: 'session-status', state: { ...l.state, status: 'stopped', settingUp: false } })
+      emit({ type: 'session-status', state: { ...l.state, status: 'stopped', settingUp: false, runtime: { ...l.state.runtime!, lifecycle: 'stopped' } } })
       if (agent && !l.stopRequested) toast('error', `${basename(projectPath)} · ${agent.name}: setup failed`, `The setup command exited with code ${code}. Its output is in the agent's terminal. Fix it and start the agent again, or start it without setup.`, undefined, projectPath)
       workspaceOf(projectPath).scheduleRefresh()
       return
@@ -1088,7 +1113,7 @@ class SessionManager {
     } catch (e) {
       void this.afterLaunch(l.state.runId, this.label(l.state))
       this.forget(id)
-      emit({ type: 'session-status', state: { ...l.state, status: 'stopped' } })
+      emit({ type: 'session-status', state: { ...l.state, status: 'stopped', runtime: { ...l.state.runtime!, lifecycle: 'stopped' } } })
       toast('error', `Could not start ${agent.name}`, (e as Error).message, undefined, projectPath)
     }
   }
@@ -1209,6 +1234,8 @@ class SessionManager {
     l.autoCompactFor = adapter.autoCompact ? (running) => adapter.autoCompact!(ctx, cmd, modelsFor(running)) : undefined
     state.autoCompact = l.autoCompactFor?.()
     l.titleAttention = adapter.titleAttention?.(info.version) ?? undefined
+    l.turnScreen = adapter.turnScreen?.(info.version) ?? undefined
+    l.ledger = newLedger()
     // What it was given: Hive's guidance revision and each skill as delivered (the Agent API's project status shows
     // them). A skill not delivered as asked (kept old copy, failed copy) leaves it needing a restart.
     const notGiven = Object.fromEntries(Object.entries(eff.skillProblems).map(([name, why]) => [name, { revision: null, problem: `nobody gets it: ${why}`, lasting: true as const }]))
@@ -1236,7 +1263,7 @@ class SessionManager {
     // menu, whose entries Hive picks by what they say (#396).
     const key = this.key(projectPath, agent.id)
     const size = startSize(key)
-    const screen = l.adapter.footerMode || l.adapter.modeMenuKeys ? new TerminalScreen(size.cols, size.rows) : null
+    const screen = l.adapter.footerMode || l.adapter.modeMenuKeys || l.turnScreen ? new TerminalScreen(size.cols, size.rows) : null
     l.screen = screen
     // The developer console (#636): how it was started (launchEvent: never its arguments).
     devConsole.capture([sessionSourceId(projectPath, agent.id)], () => launchEvent({ provider: adapter.id, name: adapter.descriptor.name, file: cmd.file, args: cmd.args, cwd, version: info.version, state, resumed: !!l.resumed }))
@@ -1273,7 +1300,12 @@ class SessionManager {
     })
     l.initialPrompt = undefined
     l.startAllowed = undefined
-    l.backupTimer = setInterval(() => void this.backup(projectPath, agent.id), 5000)
+    // After each look at the transcript, the silence check: what the CLI recorded (a turn's end) comes first (#648).
+    l.backupTimer = setInterval(() => {
+      void this.backup(projectPath, agent.id)
+        .catch((e) => log.warn('transcript look failed', e))
+        .then(() => this.checkSilence(projectPath, agent.id))
+    }, 5000)
     // The process runs now: failing to record it (a full disk) must not leave it untracked.
     if (state.sessionId) await this.recordSession(projectPath, agent, l).catch((e) => log.warn(`${userText(this.label(state))}: could not record session ${state.sessionId}`, e))
     if (resume && state.sessionId && assistantText?.personaId) this.onAssistantResumed(projectPath, state.runId, state.sessionId, assistantText.personaId)
@@ -1426,14 +1458,18 @@ class SessionManager {
       if (l.compacting !== c) return
       l.compacting = undefined
       // A session that has exited stays stopped.
-      if (this.live.get(id) === l && applyStep(l.state, compactionOver(l.state, this.idleStatus(l, 'ready')))) this.emitState(l.state)
+      if (this.live.get(id) !== l) return
+      const ended = this.fact(l.state, { maintenance: null })
+      if (applyStep(l.state, compactionOver(l.state, this.idleStatus(l, 'ready'))) || ended) this.emitState(l.state)
     }
     const c: Compaction = new Compaction(before, l.adapter.compactFailure, release)
     l.compacting = c
+    this.fact(l.state, { maintenance: 'compacting' })
     l.state.status = 'working'
     l.state.statusMessage = COMPACTING_MESSAGE
-    this.emitState(l.state)
     this.delivering.add(key)
+    this.fact(l.state, { composer: 'held' })
+    this.emitState(l.state)
     const runId = l.state.runId
     // The agent stopped or restarted meanwhile: the rest mustn't reach the new process.
     const same = (): boolean => this.live.get(id) === l && l.state.runId === runId && l.compacting === c
@@ -1459,6 +1495,7 @@ class SessionManager {
       throw e
     } finally {
       this.delivering.delete(key)
+      this.noteComposer(this.live.get(id), key)
     }
   }
 
@@ -1499,6 +1536,7 @@ class SessionManager {
       devConsole.capture([sessionSourceId(l.state.projectPath, l.state.agentId)], () => ({ kind: 'terminal', name: 'startup question', provider: l.state.provider, raw: { screen: asked[0] }, made: { status: 'waiting', trust: asked[0].includes('trust') }, summary: 'terminal: asks something before it starts; waiting' }))
       l.askedAtStart = true
       l.modeTail = ''
+      this.fact(l.state, { attention: 'waiting' })
       l.state.status = 'waiting'
       l.state.unseen = true
       l.state.statusMessage = asked[0].includes('trust') ? 'Asks whether to trust this folder' : 'Asks something before it starts'
@@ -1507,6 +1545,7 @@ class SessionManager {
     } else if (l.adapter.readyOutput?.test(text)) {
       devConsole.capture([sessionSourceId(l.state.projectPath, l.state.agentId)], () => ({ kind: 'terminal', name: 'ready', provider: l.state.provider, raw: { screen: text.slice(-200) }, made: { status: 'ready' }, summary: 'terminal: its prompt shows; ready' }))
       this.startupAnswered(l)
+      this.fact(l.state, { lifecycle: 'running' })
       l.state.status = 'ready'
       this.emitState(l.state)
     }
@@ -1517,6 +1556,40 @@ class SessionManager {
     if (!l.askedAtStart) return
     l.askedAtStart = false
     l.state.statusMessage = undefined
+    this.fact(l.state, { attention: null })
+  }
+
+  /**
+   * Sets facts of an agent's runtime where Hive learns them (LiveSessionState.runtime, #648), never from its status word.
+   * True when one changed (the state needs sending; the caller sends it).
+   */
+  private fact(st: LiveSessionState, patch: Partial<RuntimeFacts>): boolean {
+    const f = (st.runtime ??= { lifecycle: 'starting', maintenance: null, attention: null, composer: 'free' })
+    let changed = false
+    for (const k of Object.keys(patch) as (keyof RuntimeFacts)[]) {
+      if (patch[k] === undefined || f[k] === patch[k]) continue
+      Object.assign(f, { [k]: patch[k] })
+      changed = true
+    }
+    return changed
+  }
+
+  /** Whether Hive holds an agent's input (RuntimeFacts.composer): typing into it, or a line it typed not taken yet. */
+  private composerOf(l: LiveSession, key = this.key(l.state.projectPath, l.state.agentId)): RuntimeFacts['composer'] {
+    return this.delivering.has(key) || this.lineBlocked(l) ? 'held' : 'free'
+  }
+
+  /**
+   * The agent's input may be held or freed now (Hive typing, confirming, a line taken or given up): sent when it changed.
+   * Only a report: it never stops what Hive is typing (`key`: the terminal's, when the caller has it).
+   */
+  private noteComposer(l: LiveSession | undefined, key?: string): void {
+    if (!l) return
+    try {
+      if (this.fact(l.state, { composer: this.composerOf(l, key) })) this.emitState(l.state)
+    } catch (e) {
+      log.warn('could not report whether Hive holds an input', e)
+    }
   }
 
   /** Reads the mode from the CLI's footer on its screen as it redraws, so a mode change in the terminal shows in Hive at once. */
@@ -1704,8 +1777,12 @@ class SessionManager {
     if (!l || l.state.runId !== runId) return null
     const token = Symbol('confirming')
     l.confirming = token
+    const key = this.key(projectPath, agentId)
+    this.noteComposer(l, key)
     return () => {
-      if (l.confirming === token) l.confirming = undefined
+      if (l.confirming !== token) return
+      l.confirming = undefined
+      this.noteComposer(l, key)
     }
   }
 
@@ -1805,6 +1882,7 @@ class SessionManager {
     }
     waiting()
     this.delivering.add(key)
+    this.noteComposer(l, key)
     const same = (): boolean => !!runId && this.live.get(liveId(projectPath, agentId))?.state.runId === runId
     const check = (): void => {
       if (!same()) throw new Error('The agent stopped before the prompt was sent.')
@@ -1861,6 +1939,9 @@ class SessionManager {
     } finally {
       if (sent && l) l.typed = sent
       this.delivering.delete(key)
+      // Its input is held while the line waits to be taken, at most PENDING_MS: free again then, if not taken sooner.
+      this.noteComposer(this.live.get(liveId(projectPath, agentId)), key)
+      if (sent) setTimeout(() => this.noteComposer(this.live.get(liveId(projectPath, agentId)), key), PENDING_MS + 100).unref?.()
     }
   }
 
@@ -2131,7 +2212,7 @@ class SessionManager {
     this.exitWaiters.delete(id)
     emit({
       type: 'session-status',
-      state: { provider: l?.state.provider ?? '', runId, projectPath, agentId, cwd: l?.state.cwd ?? projectPath, sessionId, status: 'stopped', startedAt: l?.state.startedAt ?? '', launchSignature: '', unseen: false }
+      state: { provider: l?.state.provider ?? '', runId, projectPath, agentId, cwd: l?.state.cwd ?? projectPath, sessionId, status: 'stopped', runtime: { lifecycle: 'stopped', maintenance: null, attention: null, composer: 'free' }, startedAt: l?.state.startedAt ?? '', launchSignature: '', unseen: false }
     })
     workspaceOf(projectPath).scheduleRefresh()
   }
@@ -2280,8 +2361,14 @@ class SessionManager {
     const sessionId = l.state.sessionId
     // Fallback if hooks never arrive: a transcript means the session is up.
     if (l.state.status === 'starting') {
+      this.fact(l.state, { lifecycle: 'running' })
       l.state.status = 'ready'
       this.emitState(l.state)
+    }
+    // The CLI is heard from: a turn whose state was unknown for its silence isn't silent any more (#648).
+    if (l.ledger) {
+      heard(l.ledger)
+      if (l.state.turn?.state === 'unknown') this.noteTurn(l)
     }
     emit({ type: 'usage-changed', projectPath, sessionId })
     await this.readDetails(l, src, size, hooks)
@@ -2450,7 +2537,10 @@ class SessionManager {
     let changed = before !== st.backgroundTasks
     if (l.adapter.descriptor.capabilities.backgroundWakes) {
       if (st.status === 'background' && !l.tasks?.size) {
-        if (woke) st.status = 'working'
+        if (woke) {
+          st.status = 'working'
+          l.woke = true
+        }
         else {
           st.status = 'finished'
           st.statusMessage = dropped ? `Stopped counting its background tasks after ${taskMinutes()} minutes` : undefined
@@ -2503,6 +2593,9 @@ class SessionManager {
   }
 
   private emitState(state: LiveSessionState): void {
+    // Its input as Hive holds it now (#648): a line typed or given up since the last report.
+    const l = state.projectPath ? this.live.get(liveId(state.projectPath, state.agentId)) : undefined
+    if (l?.state === state) this.fact(state, { composer: this.composerOf(l) })
     // A wake-on-change watch (#128): an agent whose turn has ended waits on its cards (watching), never idle; without
     // the watch, it is just finished again (not newly: nothing to look at, nothing to notify).
     const watch = this.watchFor(state.projectPath, state.agentId)
@@ -2589,6 +2682,7 @@ class SessionManager {
     if (!checked) void providerService.refresh(provider, false).catch(() => undefined)
     const stopped = this.liveStates().filter((s) => s.provider === provider && s.status === 'signin')
     for (const st of stopped) {
+      this.fact(st, { lifecycle: 'running', attention: null })
       st.status = 'ready'
       st.statusMessage = SIGNED_IN_AGAIN
       this.emitState(st)
@@ -2653,7 +2747,10 @@ class SessionManager {
     if (refused) {
       const id = liveId(l.state.projectPath, l.state.agentId)
       void this.inHookOrder(l.state.runId, () => {
-        if (this.live.get(id) === l && (hooks === undefined || (l.hooksSeen ?? 0) === hooks)) this.carryOut(id, l, hookStep({ kind: 'signIn', message: refused }, this.statusInput(l)), 'transcript', { kind: 'signIn', message: refused })
+        if (this.live.get(id) !== l || (hooks !== undefined && (l.hooksSeen ?? 0) !== hooks)) return
+        if (l.ledger) endRunning(l.ledger, 'signIn')
+        this.carryOut(id, l, hookStep({ kind: 'signIn', message: refused }, this.statusInput(l)), 'transcript', { kind: 'signIn', message: refused })
+        this.noteTurn(l)
       })
     }
     // A turn interrupted without a hook (Copilot): as the interrupt hook would, once per recorded interrupt of this launch.
@@ -2663,9 +2760,19 @@ class SessionManager {
       l.interruptedAt = interrupted
       const id = liveId(l.state.projectPath, l.state.agentId)
       void this.inHookOrder(l.state.runId, () => {
-        if (this.live.get(id) === l && (hooks === undefined || (l.hooksSeen ?? 0) === hooks)) this.carryOut(id, l, hookStep({ kind: 'interrupt' }, this.statusInput(l)), 'transcript', { kind: 'interrupt' })
+        if (this.live.get(id) !== l || (hooks !== undefined && (l.hooksSeen ?? 0) !== hooks)) return
+        if (l.ledger) endRunning(l.ledger, 'interrupt')
+        this.carryOut(id, l, hookStep({ kind: 'interrupt' }, this.statusInput(l)), 'transcript', { kind: 'interrupt' })
+        this.noteTurn(l)
       })
     }
+    // The CLI's own record that its latest turn is over (#648): kept, and acted on if Hive missed that turn's Stop. And,
+    // for a CLI whose records don't name turns, when its Stops were answered (this launch's only, the latest kept).
+    if (d.turnEnded !== undefined) l.turnRecord = d.turnEnded
+    const started = Date.parse(l.state.startedAt)
+    const answered = (d.stopsAnswered ?? []).map(Date.parse).filter((t) => t >= started)
+    if (answered.length) l.stopsAnswered = [...(l.stopsAnswered ?? []), ...answered].slice(-STOPS_KEPT)
+    if (d.turnEnded || answered.length) this.reconcileTurn(l)
     if (d.planUsage) reportPlanUsage(l.state.provider, d.planUsage)
     const learn = l.defaultEffort
     const learnModel = d.modelId ?? learn?.model
@@ -2874,17 +2981,38 @@ class SessionManager {
   private hookQueues = new Map<string, Promise<void>>()
 
   /**
-   * Handles a hook call from an agent's CLI (already answered; see preToolUse). One launch's hooks run in
+   * Answers a launch's Stop: a reply that carries the turn on (in the provider's format), or null to let it end. Set by
+   * what has something for the agent before it stops (Messaging 4's drain); none yet. The turn ledger counts a turn's
+   * end only from a Stop answered with nothing, as continuations fire no prompt (#648).
+   */
+  stopReplier: ((state: LiveSessionState, body: Record<string, any>) => Record<string, unknown> | null) | null = null
+
+  /**
+   * What Hive answers a hook call with, before handling it (the hook server sends it, then calls handleHook with it): a
+   * PreToolUse's file-lock decision, a Stop's continuation (stopReplier), else nothing.
+   */
+  hookReply(runId: string | null, body: Record<string, any>): Record<string, unknown> | null {
+    if (body.hook_event_name === 'PreToolUse') return this.preToolUse(runId, body)
+    if (!this.stopReplier) return null
+    const l = this.findLaunch(runId, body.session_id)?.[1]
+    const ev = l?.adapter.normalizeHook(body).event
+    return l && ev?.kind === 'stop' && !ev.failed ? this.stopReplier(l.state, body) : null
+  }
+
+  /**
+   * Handles a hook call from an agent's CLI (already answered with `reply`: hookReply). One launch's hooks run in
    * order: an older one that awaits (recording the session) must not land after a newer one's status.
    */
   handleHook(runId: string | null, body: Record<string, any>, reply: unknown = null): Promise<void> {
     // A turn's end releases only the locks claimed before it arrived: PreToolUse claims them at once, outside this queue.
     const arrived = this.lockSeq
+    // When it reached Hive, before it waits its turn: a turn begins then, for comparing with the CLI's records (#648).
+    const at = Date.now()
     const launch = this.findLaunch(runId, body.session_id)?.[1]
     // The launch's hooks before this one: what the old conversation had seen, if this one switches conversations.
     const before = launch?.hooksSeen ?? 0
     if (launch) launch.hooksSeen = before + 1
-    return this.inHookOrder(runId ?? `session:${String(body.session_id ?? '')}`, () => this.handleHookNow(runId, body, arrived, before, reply))
+    return this.inHookOrder(runId ?? `session:${String(body.session_id ?? '')}`, () => this.handleHookNow(runId, body, arrived, before, reply, at))
   }
 
   /** Runs `fn` after what is queued for the launch (its hooks, its title), in the order they came. */
@@ -2898,7 +3026,7 @@ class SessionManager {
     return run
   }
 
-  private async handleHookNow(runId: string | null, body: Record<string, any>, arrived: number, hooksBefore: number, reply: unknown = null): Promise<void> {
+  private async handleHookNow(runId: string | null, body: Record<string, any>, arrived: number, hooksBefore: number, reply: unknown = null, at = Date.now()): Promise<void> {
     const found = this.findLaunch(runId, body.session_id)
     if (!found) return
     const [id, l] = found
@@ -2926,24 +3054,160 @@ class SessionManager {
       st.permissionMode = st.modeObserved = hook.mode
       this.emitState(st)
     }
-    const ev = hook.event
-    // Hooks are handled in order, so the next one waits for this read: a turn's end counts the tasks it started.
-    if (ev.kind === 'stop') {
-      this.checkFolder(st.projectPath, st.cwd)
-      await this.refreshBackground(l)
-      this.sweepTasks(l)
-      if (ev.lastMessage) l.lastReply = ev.lastMessage.slice(0, 2000)
+    // The turn ledger first (#648): a hook about a turn that is over is old news, and a Stop Hive carried on isn't an end.
+    const ledger = (l.ledger ??= newLedger())
+    const ids = hook.ids
+    const continued = hook.event.kind === 'stop' && !hook.event.failed && !!reply && typeof reply === 'object' && l.adapter.stopContinues(reply as Record<string, unknown>)
+    const before = st.status
+    // A CLI that wakes when its background tasks end begins that turn itself: while its transcript says one just ended
+    // (never merely because one runs), a tool call it never saw may open that turn should its prompt hook be lost
+    // (turnLedger rule 1).
+    const woke = l.adapter.descriptor.capabilities.backgroundWakes && !!l.woke
+    const was = ledger.active
+    const took = admit(ledger, hook.event, ids, { hiveContinued: continued, woke, now: at })
+    if (ledger.active !== was) l.woke = false
+    let actions: readonly string[] = [took.verdict === 'stale' ? 'stale' : 'continued']
+    if (took.verdict === 'apply') {
+      const ev = took.event
+      // Hooks are handled in order, so the next one waits for this read: a turn's end counts the tasks it started.
+      if (ev.kind === 'stop') await this.beforeTurnEnd(l, ev.lastMessage)
+      const step = hookStep(ev, this.statusInput(l))
+      this.carryOut(id, l, step, String(body.hook_event_name ?? ''), ev, arrived)
+      actions = step.actions
+      if (ev.kind !== 'ignore') (l.recentHooks ??= []).push({ kind: ev.kind, at: Date.now(), status: st.status })
+      if ((l.recentHooks?.length ?? 0) > RECENT_HOOKS) l.recentHooks!.shift()
     }
-    const step = hookStep(ev, this.statusInput(l))
-    this.carryOut(id, l, step, String(body.hook_event_name ?? ''), ev, arrived)
-    // The developer console (#636): the hook as it came, next to what Hive made of it.
+    // The developer console (#636): the hook as it came, next to what Hive made of it (with the turn ledger's verdict).
+    const made = took.verdict === 'apply' ? took.event : hook.event
     devConsole.capture([sessionSourceId(st.projectPath, st.agentId)], () => {
       const name = safeWord(body.hook_event_name) || '(unnamed)'
-      const made = { event: ev, status: st.status, actions: step.actions, ...(reply ? { reply } : {}) }
-      return { kind: 'hook', name, provider: st.provider, raw: body, made, safe: { raw: HOOK_FIELDS, made: HOOK_MADE_FIELDS }, summary: hookSummary(name, body.tool_name, ev.kind, st.status, step.actions, !!reply) }
+      return { kind: 'hook', name, provider: st.provider, raw: body, made: { event: made, status: st.status, actions, ...(reply ? { reply } : {}) }, safe: { raw: HOOK_FIELDS, made: HOOK_MADE_FIELDS }, summary: hookSummary(name, body.tool_name, made.kind, st.status, [...actions], !!reply) }
     })
-    if (ev.kind !== 'ignore') (l.recentHooks ??= []).push({ kind: ev.kind, at: Date.now(), status: st.status })
-    if ((l.recentHooks?.length ?? 0) > RECENT_HOOKS) l.recentHooks!.shift()
+    this.noteTurn(l)
+    if (hook.event.kind !== 'ignore' || ids.turn) {
+      const verdict = took.verdict === 'apply' ? (took.note ?? '') : took.verdict === 'stale' ? `stale: ${took.why}` : 'carried on by Hive'
+      hookJournal(`run=${st.runId} seq=${ledger.seq} ${String(body.hook_event_name ?? '?').slice(0, 40)} turn=${ids.turn ?? '-'} call=${ids.call ?? '-'}${ids.sub ? ` sub=${ids.sub}` : ''}${ids.continued ? ' continued' : ''} ${before}→${st.status}${verdict ? ` (${verdict})` : ''}`)
+    }
+  }
+
+  /** What a turn's end reads first (its Stop, or the CLI's own record of it): the folder, its background tasks, its reply. */
+  private async beforeTurnEnd(l: LiveSession, lastMessage: string | null): Promise<void> {
+    this.checkFolder(l.state.projectPath, l.state.cwd)
+    await this.refreshBackground(l)
+    this.sweepTasks(l)
+    if (lastMessage) l.lastReply = lastMessage.slice(0, 2000)
+  }
+
+  /** The agent's turn as its ledger has it (LiveSessionState.turn), sent when it changed. `unknown`: its state is unknown. */
+  private noteTurn(l: LiveSession, unknown?: { since: number }): void {
+    const st = l.state
+    const a = l.ledger?.active
+    const turn: LiveSessionState['turn'] = !a ? undefined : unknown ? { state: 'unknown', ...(a.id ? { id: a.id } : {}), silentSince: new Date(unknown.since).toISOString() } : { state: a.state === 'running' ? 'running' : 'over', ...(a.id ? { id: a.id } : {}) }
+    if (JSON.stringify(turn) === JSON.stringify(st.turn)) return
+    st.turn = turn
+    this.emitState(st)
+  }
+
+  /**
+   * What the CLI's own records say ended the turn Hive has running (#648), for the log; null when they don't: its record
+   * of that turn by id (Codex), or of a Stop of it Hive never got (Copilot, by when its Stops were answered).
+   */
+  private recordEnds(l: LiveSession): string | null {
+    if (!l.ledger) return null
+    const rec = l.turnRecord
+    if (rec && reconciles(l.ledger, rec.turn)) return `${l.adapter.descriptor.name} recorded the end of turn ${rec.turn} at ${rec.at}`
+    if (unheardStop(l.ledger, l.stopsAnswered ?? [])) return `${l.adapter.descriptor.name} recorded a Stop of its running turn answered at ${new Date(l.stopsAnswered!.at(-1)!).toISOString()} that never reached Hive`
+    return null
+  }
+
+  /** The CLI recorded the end of the turn Hive has running, whose Stop never came (#642): over, as that Stop would end it, in order with the hooks. */
+  private reconcileTurn(l: LiveSession): void {
+    const id = liveId(l.state.projectPath, l.state.agentId)
+    void this.inHookOrder(l.state.runId, async () => {
+      const why = this.live.get(id) === l ? this.recordEnds(l) : null
+      if (why) await this.endTurnFrom(id, l, 'transcript', why)
+    })
+  }
+
+  /** Ends the running turn on other evidence than its Stop (the CLI's record, its screen), as that Stop would; logged with what Hive saw before. */
+  private async endTurnFrom(id: string, l: LiveSession, by: 'transcript' | 'screen', why: string): Promise<void> {
+    const st = l.state
+    const before = st.status
+    const turn = describeTurn(l.ledger!)
+    endRunning(l.ledger!, by)
+    const ev: HookEvent = { kind: 'stop', lastMessage: null }
+    await this.beforeTurnEnd(l, null)
+    this.carryOut(id, l, hookStep(ev, this.statusInput(l)), by, ev)
+    this.noteTurn(l)
+    const seen = (l.recentHooks ?? []).map((h) => `${h.kind} ${new Date(h.at).toISOString().slice(11, 19)} → ${h.status}`).join(', ')
+    log.info(`${userText(this.label(st))}: ${why}, and Hive saw no Stop: its turn is over (${turn}; ${before} → ${st.status}; hooks before: ${seen || 'none'})`)
+    hookJournal(`run=${st.runId} seq=${l.ledger!.seq} (no hook) turn over by ${by} ${before}→${st.status}`)
+  }
+
+  /** What the launch's CLI shows of its turn on screen (ProviderAdapter.turnScreen), null when it isn't read or isn't sure. */
+  private screenTurn(l: LiveSession): ScreenReading {
+    const screen = l.turnScreen ? l.screen?.text() : null
+    return screen ? l.turnScreen!(screen) : null
+  }
+
+  /**
+   * A running turn Hive has heard nothing of for a while (silentMs): its end, if the CLI's record or its screen shows it,
+   * open tool calls or not (their ends may be lost too); else, after the longer silence an open call allows (a test run
+   * can take long), its state is unknown (#648). Unknown isn't idle: nothing is typed into it, and the user can Mark
+   * idle. Never a turn's end on the time alone.
+   */
+  private checkSilence(projectPath: string, agentId: string): void {
+    const id = liveId(projectPath, agentId)
+    const l = this.live.get(id)
+    if (!l?.ledger) return
+    const quiet = (): boolean => {
+      const st = l.state
+      const silent = silentFor(l.ledger!)
+      return silent !== null && silent >= silentMs() && st.status === 'working' && !l.compacting && !isCompacting(st)
+    }
+    if (!quiet()) return
+    void this.inHookOrder(l.state.runId, async () => {
+      if (this.live.get(id) !== l || !quiet()) return
+      const st = l.state
+      const recorded = this.recordEnds(l)
+      if (recorded) return this.endTurnFrom(id, l, 'transcript', recorded)
+      const shown = this.screenTurn(l)
+      if (shown === 'idle') return this.endTurnFrom(id, l, 'screen', `${l.adapter.descriptor.name} is idle at its prompt on screen after ${howLong(silentFor(l.ledger!)!)} of silence${openCalls(l.ledger!) ? ' (a tool call still open)' : ''}`)
+      // Visibly at work (a long reply, a long think, a tool running): heard, so not silent.
+      if (shown === 'working') {
+        heard(l.ledger!)
+        if (st.turn?.state === 'unknown') this.noteTurn(l)
+        return
+      }
+      if (st.turn?.state === 'unknown') return
+      // A tool call still open may really be running long; only a longer silence makes its state unknown.
+      if (openCalls(l.ledger!) && silentFor(l.ledger!)! < silentMs() * OPEN_CALL_SILENCE) return
+      this.noteTurn(l, { since: l.ledger!.heard })
+      const seen = (l.recentHooks ?? []).map((h) => `${h.kind} ${new Date(h.at).toISOString().slice(11, 19)} → ${h.status}`).join(', ')
+      log.info(`${userText(this.label(st))}: silent for ${howLong(silentFor(l.ledger!)!)} with no sign of its turn's end: state unknown (${describeTurn(l.ledger!)}; hooks before: ${seen || 'none'})`)
+    })
+  }
+
+  /**
+   * The user says an agent whose state is unknown is idle (Mark idle, #648): its turn is over. Only while its state is
+   * unknown; anything Hive hears of it in the meantime says more.
+   */
+  markIdle(projectPath: string, agentId: string): Promise<void> {
+    const id = liveId(projectPath, agentId)
+    const l = this.live.get(id)
+    if (!l || l.state.turn?.state !== 'unknown') return Promise.resolve()
+    return this.inHookOrder(l.state.runId, () => {
+      if (this.live.get(id) !== l || l.state.turn?.state !== 'unknown' || !l.ledger) return
+      const before = l.state.status
+      // The user's word supersedes what Hive thought runs (their ends may be lost too): the turn and its open tool calls
+      // (the ledger's), a compaction (markedIdle ends Hive's own), a person asked.
+      endRunning(l.ledger, 'user')
+      this.fact(l.state, { maintenance: null, attention: null })
+      this.carryOut(id, l, markedIdle(this.statusInput(l)), 'Mark idle')
+      this.noteTurn(l)
+      log.info(`${userText(this.label(l.state))}: marked idle by the user (${before} → ${l.state.status})`)
+      hookJournal(`run=${l.state.runId} seq=${l.ledger.seq} (no hook) marked idle by the user ${before}→${l.state.status}`)
+    })
   }
 
   /** What the status rules need to know of a running agent. */
@@ -3047,8 +3311,9 @@ class SessionManager {
     const carriedOn = !!st.signIn && worked
     if (carriedOn) st.signIn = undefined
     const needed = asksYou(st)
+    const facts = this.fact(st, this.factsOf(l, step, ev, carriedOn))
     // A turn's end is reported even when the status stays (its background task count may have changed).
-    if (applyStep(st, step) || step.actions.includes('turnEnded') || carriedOn) this.emitState(st)
+    if (applyStep(st, step) || step.actions.includes('turnEnded') || carriedOn || facts) this.emitState(st)
     // The CLI is signed in again, for its other agents too (this one's status is already set).
     if (worked) this.signedInAgain(st.provider)
     // A turn's end types the go-ahead for an Allow given during it; an interrupt (the user stopping it) drops it.
@@ -3057,6 +3322,30 @@ class SessionManager {
     // Why you were told an agent needs you, and when it no longer does (Help → Copy Diagnostics): never what was asked.
     const told = step.actions.includes('notifyWaiting') ? 'waits for you' : step.actions.includes('notifyQuestion') ? 'asks a question' : needed && !asksYou(st) ? 'no longer needs you' : null
     if (told) log.debug(`${userText(label)}: ${told} (${cause})`)
+  }
+
+  /**
+   * The runtime facts a hook (or the title, or the user) tells and a status step decides (#648), each from its own
+   * source: the CLI is up once it reports anything; it compacts from PreCompact (mid-turn too) until PostCompact, the
+   * turn's end or a prompt starting a new turn; a person is asked when the step makes it wait (until a step moves it on),
+   * or a question waits beside its work; a refused sign-in until a request of its own works; stopped at SessionEnd.
+   */
+  private factsOf(l: LiveSession, step: HookStep, ev: HookEvent | null, carriedOn: boolean): Partial<RuntimeFacts> {
+    const st = l.state
+    const now = st.runtime ?? { lifecycle: 'starting', maintenance: null, attention: null, composer: 'free' }
+    const out: Partial<RuntimeFacts> = {}
+    if (ev?.kind === 'end') out.lifecycle = 'stopped'
+    else if (step.actions.includes('signedOut')) out.lifecycle = 'signin'
+    else if (carriedOn || (now.lifecycle === 'starting' && ev && ev.kind !== 'ignore' && !l.askedAtStart)) out.lifecycle = 'running'
+    if (ev?.kind === 'compactStart') out.maintenance = 'compacting'
+    else if (ev && (ev.kind === 'compactEnd' || ev.kind === 'stop' || ev.kind === 'interrupt' || ev.kind === 'idle' || ev.kind === 'signIn' || ev.kind === 'end')) out.maintenance = null
+    // A prompt starts a turn once a compaction has begun; before Hive's own begins, it may be the /compact Hive typed.
+    else if (ev?.kind === 'prompt' && !ev.injected && !(l.compacting && !l.compacting.started)) out.maintenance = null
+    if (step.actions.includes('compactEnded')) out.maintenance = null
+    const waits = step.next === 'waiting' ? true : step.next ? false : now.attention === 'waiting'
+    const question = step.question !== undefined ? step.question !== null : !!st.question
+    out.attention = waits ? 'waiting' : question ? 'question' : null
+    return out
   }
 
   /**
@@ -3082,6 +3371,9 @@ class SessionManager {
       l.transcriptMtime = ''
       l.detailsOffset = 0
       l.detailsMemo = undefined
+      // What the old conversation's records said of its turns is no record of the new one's (#648).
+      l.turnRecord = undefined
+      l.stopsAnswered = undefined
       st.transcriptBytes = undefined
       this.clearTasks(l)
       l.lastBackupAt = undefined

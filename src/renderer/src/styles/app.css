@@ -4259,9 +4259,12 @@ body.pane-resizing .monaco-editor {
 .agent-leftovers:hover {
   background: color-mix(in srgb, var(--warning) 14%, transparent);
 }
-/* Messages left for it, waiting to be typed (#530). */
+/* What was left for it and isn't received yet (#530, #647); not acked in time, it is overdue. */
 .agent-messages {
   color: var(--accent-ink);
+}
+.agent-messages.overdue {
+  color: var(--warning);
 }
 .agent-messages:hover {
   background: color-mix(in srgb, var(--accent-ink) 14%, transparent);
@@ -7507,6 +7510,32 @@ textarea.input.task-blocked-input {
   font-size: 12px;
 }
 .pane-status.watching .btn {
+  height: 20px;
+  padding: 0 6px;
+  font-size: 11px;
+}
+/* An agent whose state is unknown (#648): how long it has been silent, and Mark idle, which keeps its size. */
+.pane-header-bar .pane-status.unknown-state {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  flex-shrink: 8;
+  min-width: 80px;
+  overflow: visible;
+}
+.pane-status.unknown-state > .tip-wrap {
+  display: inline-flex;
+  flex: 0 1 auto;
+  min-width: 14px;
+  overflow: hidden;
+}
+.pane-status.unknown-state .pane-status {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.pane-status.unknown-state .mark-idle {
+  flex-shrink: 0;
   height: 20px;
   padding: 0 6px;
   font-size: 11px;

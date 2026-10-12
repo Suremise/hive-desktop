@@ -5,32 +5,48 @@ import { join } from 'path'
 type Level = 'debug' | 'info' | 'warn' | 'error'
 
 const MAX_BYTES = 5 * 1024 * 1024
-let logFile: string | null = null
+const logFiles = new Map<string, string>()
 
 export function logsDir(): string {
   return join(app.getPath('userData'), 'logs')
 }
 
-function file(): string {
-  if (!logFile) {
+function file(name: string): string {
+  let f = logFiles.get(name)
+  if (!f) {
     const dir = logsDir()
     mkdirSync(dir, { recursive: true })
-    logFile = join(dir, 'hive.log')
+    f = join(dir, name)
+    logFiles.set(name, f)
   }
-  return logFile
+  return f
+}
+
+/** Adds a line to a log file in the logs folder, which is kept to MAX_BYTES and one older copy (<name>.1.log). */
+function append(name: string, line: string): void {
+  try {
+    const f = file(name)
+    if (existsSync(f) && statSync(f).size > MAX_BYTES) renameSync(f, f.replace(/\.log$/, '.1.log'))
+    appendFileSync(f, line)
+  } catch {
+    // Logging must never crash the app.
+  }
 }
 
 function write(level: Level, scope: string, message: string, extra?: unknown): void {
   const detail = extra instanceof Error ? ` ${extra.stack ?? extra.message}` : extra !== undefined ? ` ${safeJson(extra)}` : ''
   const line = `${new Date().toISOString()} [${level.toUpperCase()}] [${scope}] ${message}${detail}\n`
   if (!app.isPackaged) (level === 'error' ? console.error : console.log)(line.trimEnd())
-  try {
-    const f = file()
-    if (existsSync(f) && statSync(f).size > MAX_BYTES) renameSync(f, f.replace(/\.log$/, '.1.log'))
-    appendFileSync(f, line)
-  } catch {
-    // Logging must never crash the app.
-  }
+  append('hive.log', line)
+}
+
+/**
+ * A line of the hook journal (logs/hooks.log, #648): each hook an agent's CLI sent, with its launch, ids and receive
+ * order, and the status before and after, so a status that went wrong can be traced afterwards (#642's couldn't be).
+ * Apart from hive.log, which it would crowd out. Ids, event names and statuses only: never the user's text.
+ */
+export function hookJournal(line: string): void {
+  append('hooks.log', `${new Date().toISOString()} ${line}\n`)
 }
 
 function safeJson(v: unknown): string {
