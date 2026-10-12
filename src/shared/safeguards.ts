@@ -7,9 +7,10 @@
  */
 
 /**
- * What Hive spots safeguards by, as named defaults in one place (data, not code), so Settings → Advanced (#367) can make
- * each overridable without changing the detection. Patterns are a case-insensitive regular expression's source; lists
- * are the CLI's own codes. Each adapter reads the ones for its CLI (safeguardPattern, safeguardCodes).
+ * What Hive spots safeguards by, as named defaults in one place (data, not code). The note and the question are
+ * Settings → Advanced's (#685: claude-code.safeguard.note, .prompt in ADVANCED_DEFS), which the detection reads through
+ * `advanced`, so an override changes them; the lists join them once a real session of one is recorded (#697). Patterns
+ * are a case-insensitive regular expression's source; lists are the CLI's own codes.
  */
 export const SAFEGUARD_DEFAULTS = {
   /**
@@ -35,31 +36,6 @@ export const SAFEGUARD_DEFAULTS = {
   /** Codex's error kinds (codex_error_info) for a turn its usage policy stopped. */
   codexStop: ['cyber_policy', 'bio_policy']
 } as const
-
-export type SafeguardPatternName = { [K in keyof typeof SAFEGUARD_DEFAULTS]: (typeof SAFEGUARD_DEFAULTS)[K] extends string ? K : never }[keyof typeof SAFEGUARD_DEFAULTS]
-export type SafeguardCodesName = Exclude<keyof typeof SAFEGUARD_DEFAULTS, SafeguardPatternName>
-
-/** Overrides of the defaults (#367's Advanced settings, once they exist): a pattern's source, or a list of codes. */
-export type SafeguardOverrides = Partial<Record<SafeguardPatternName, string> & Record<SafeguardCodesName, string[]>>
-
-/** A named pattern as a regular expression: the override when it compiles, else the default. */
-export function safeguardPattern(name: SafeguardPatternName, overrides?: SafeguardOverrides): RegExp {
-  const own = overrides?.[name]
-  if (typeof own === 'string' && own.trim()) {
-    try {
-      return new RegExp(own, 'i')
-    } catch {
-      // A broken override never stops detection: the default stands.
-    }
-  }
-  return new RegExp(SAFEGUARD_DEFAULTS[name], 'i')
-}
-
-/** A named list of codes: the override when it has any, else the default. */
-export function safeguardCodes(name: SafeguardCodesName, overrides?: SafeguardOverrides): readonly string[] {
-  const own = overrides?.[name]
-  return Array.isArray(own) && own.some((c) => typeof c === 'string' && c) ? own.filter((c) => typeof c === 'string' && c) : SAFEGUARD_DEFAULTS[name]
-}
 
 /** How many of the agent's last tool calls (their names) a stop keeps. */
 export const SAFEGUARD_TOOLS = 5

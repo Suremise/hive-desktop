@@ -17,7 +17,7 @@ import { autoCompactOf, settingsScopes } from './autoCompact'
 import { mergeLaunchSettings, userSettings, withoutSettingsArgs } from './launchSettings'
 import { claudeBackgroundTasks } from './background'
 import { claudeSafeguards } from './safeguards'
-import { safeguardPattern, type SafeguardEvent } from '../../../shared/safeguards'
+import type { SafeguardEvent } from '../../../shared/safeguards'
 import { ConversationParser, claudeImageData } from './conversation'
 import { readClaudeModels } from './models'
 import { ClaudeUsageParser, encodeProjectPath, parseTranscript, transcriptSubSession } from './usage'
@@ -64,7 +64,8 @@ export function claudeTurnScreen(screen: string): 'idle' | 'working' | null {
   const status = lines.slice(0, input).findLastIndex((l) => /^[✻✶✳✢✽·*]\s+\S/.test(l))
   if (status < 0) return null
   if (lines.slice(status).some((l) => /esc to interrupt/i.test(l))) return 'working'
-  if (/\bfor (?:\d+[hms]\s*)+· done \d{1,2}:\d{2}\b/.test(lines[status])) return 'idle'
+  // Its past tense (an advanced setting, #685).
+  if (advanced.pattern('claude-code.turnScreen.done').test(lines[status])) return 'idle'
   return /^\S+\s+\S+…/.test(lines[status]) ? 'working' : null
 }
 
@@ -430,14 +431,14 @@ export class ClaudeCodeAdapter implements ProviderAdapter {
   /**
    * Claude Code's prompt after a safeguard stop (whether to switch models, a question it puts through its permission
    * check) is a Notification with no tool named (a tool's permission prompt says "…permission to use Bash"). Its open
-   * dialog is told on the screen, in the lines written last, by the named pattern (SAFEGUARD_DEFAULTS.claudePrompt: its
+   * dialog is told on the screen, in the lines written last, by the advanced setting claude-code.safeguard.prompt (its
    * numbered choices), never by the words "safeguards" or "safety classifier" in other text.
    */
   safeguardAsk(ask: Ask, screen: string): boolean {
     if (/\bto use\b/i.test(ask.message)) return false
     // The lines written last: on a screen cleared for the prompt it is at the top, with blank rows below.
     const bottom = screen.trimEnd().split('\n').slice(-SAFEGUARD_PROMPT_LINES).join('\n')
-    return safeguardPattern('claudePrompt').test(bottom)
+    return advanced.pattern('claude-code.safeguard.prompt').test(bottom)
   }
 
   startHint(text: string): StartHint | null {

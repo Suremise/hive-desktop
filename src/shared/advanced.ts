@@ -14,6 +14,7 @@
  *
  * Pure data and helpers: no React, no Node (Settings, the main process and the Assistant's settings tools share it).
  */
+import { SAFEGUARD_DEFAULTS } from './safeguards'
 import type { ProviderId } from './types'
 
 /** What a value is: a regular expression's source (its flags are fixed), a piece of text, a field name, a list of names, a whole number, on or off. */
@@ -233,6 +234,41 @@ export const ADVANCED_DEFS: readonly AdvancedDef[] = [
     applies: 'sessions',
     samples: [HOOKS_TAKEN['claude-code']]
   },
+  {
+    id: 'claude-code.turnScreen.done',
+    group: 'claude-code',
+    title: 'Screen: turn done',
+    desc: "Claude Code's line above its input when the last turn is done (\"✻ Worked for 12s · done 16:52\"). When Hive missed a turn's end, it takes this on screen to mean the agent is idle; wrong, it leaves such an agent's status unknown, with Mark idle.",
+    kind: 'pattern',
+    default: String.raw`\bfor (?:\d+[hms]\s*)+· done \d{1,2}:\d{2}\b`,
+    applies: 'now',
+    samples: [{ from: `${FIX}/screen-claude-2.1.296-idle.txt`, version: '2.1.296', text: '✻ Worked for 0s · done 2:19' }]
+  },
+  {
+    id: 'claude-code.safeguard.note',
+    group: 'claude-code',
+    title: 'Safeguard stop: transcript note',
+    desc: "Claude Code's note in its transcript when its safety classifier stops a response, and the notice it adds for the model (#606). Wrong, Hive misses such stops: no shield on the agent's pane, and Performance doesn't count them.",
+    kind: 'pattern',
+    default: SAFEGUARD_DEFAULTS.claudeNote,
+    flags: 'i',
+    applies: 'now',
+    samples: [
+      { from: `${FIX}/advanced/safeguards-claude-2.1.296.jsonl`, version: '2.1.296', text: "Opus 5.5's safeguards stopped the response above · continuing once with that noted" },
+      { from: `${FIX}/advanced/safeguards-claude-2.1.296.jsonl`, version: '2.1.296', text: 'Your response above was stopped by a safety classifier' }
+    ]
+  },
+  {
+    id: 'claude-code.safeguard.prompt',
+    group: 'claude-code',
+    title: 'Safeguard stop: question',
+    desc: "Claude Code's question after a safeguard stop, whether to switch models, told by its open dialog's choices in the lines it wrote last. Hive shows the agent waiting for you, and why, while it is open; wrong, the agent shows only \"Claude needs your permission\".",
+    kind: 'pattern',
+    default: SAFEGUARD_DEFAULTS.claudePrompt,
+    flags: 'i',
+    applies: 'now',
+    samples: [{ from: `${FIX}/advanced/safeguard-prompt-claude-2.1.296.txt`, version: '2.1.296', text: ' ❯ 1. Switch automatically\n      Continue on Opus 4.8 now, and switch without asking from now on\n   2. Stay on Opus 5.5' }]
+  },
   // Codex
   {
     id: 'codex.trust.prompt',
@@ -345,6 +381,47 @@ export const ADVANCED_DEFS: readonly AdvancedDef[] = [
     applies: 'sessions',
     samples: [{ from: `${FIX}/advanced/mcp-list-codex-0.162.1.json`, version: '0.162.1', text: '"tool_timeout_sec": 900.0', shows: "Codex reading the hive server's tool_timeout_sec from Hive's -c override (codex mcp list --json)" }]
   },
+  {
+    id: 'codex.turnScreen.working',
+    group: 'codex',
+    title: 'Screen: working',
+    desc: "Codex's Working line, drawn only while a turn runs. When Hive missed a turn's start or end, it takes this on screen to mean the agent is working; wrong, it can take a working agent for idle.",
+    kind: 'pattern',
+    default: String.raw`esc to interrupt|\bWorking \(`,
+    flags: 'i',
+    applies: 'now',
+    samples: [{ from: `${FIX}/screen-codex-0.162.1-working.txt`, version: '0.162.1', text: '• Working (5s • esc to interrupt)' }]
+  },
+  {
+    id: 'codex.queue.hint',
+    group: 'codex',
+    title: 'Screen: holding what was typed',
+    desc: "Codex's hint on the last line it draws while it is busy and queues what is typed. Hive waits for it to go before typing into Codex (a message, its /permissions menu at setup); wrong, what Hive types can be queued rather than run.",
+    kind: 'pattern',
+    default: String.raw`^tab to queue message\b`,
+    flags: 'i',
+    applies: 'now',
+    samples: [{ from: `${FIX}/screen-codex-0.162.1-working.txt`, version: '0.162.1', text: 'tab to queue message' }]
+  },
+  ...(
+    [
+      ['readOnly', 'Read Only', 'read-only'],
+      ['ask', 'Ask for approval', 'ask'],
+      ['approveForMe', 'Approve for me', 'approve-for-me'],
+      ['fullAccess', 'Full Access', 'full-access']
+    ] as const
+  ).map(
+    ([key, label, mode]): AdvancedDef => ({
+      id: `codex.permissions.${key}`,
+      group: 'codex',
+      title: `/permissions menu: ${label}`,
+      desc: `The label Codex's /permissions menu shows for its ${label} preset. Hive types the number beside it to give an agent the ${mode} mode; wrong, Hive can't find it, and says so rather than choosing another.`,
+      kind: 'text',
+      default: label,
+      applies: 'now',
+      samples: [{ from: `${FIX}/codex-0.161-permissions-ask.txt`, version: '0.161', text: label }]
+    })
+  ),
   // GitHub Copilot
   {
     id: 'copilot.trust.prompt',

@@ -1,4 +1,4 @@
-import { SAFEGUARD_TOOLS, newStop, safeguardCodes, type SafeguardEvent, type SafeguardOverrides } from '../../../shared/safeguards'
+import { SAFEGUARD_DEFAULTS, SAFEGUARD_TOOLS, newStop, type SafeguardEvent } from '../../../shared/safeguards'
 
 /** What the reading keeps between reads (the launch's memo): the model the agent runs on, its last tool calls, the turn, the stops seen. */
 interface Memo {
@@ -29,10 +29,10 @@ function errorKind(info: unknown): string | null {
  * turn (a policy's error and the turn's end report the same one; a reroute is one per turn and models), however close
  * two turns' stops are.
  */
-export function codexSafeguards(appended: string, memo: Record<string, unknown>, overrides?: SafeguardOverrides): SafeguardEvent[] {
+export function codexSafeguards(appended: string, memo: Record<string, unknown>): SafeguardEvent[] {
   const m = memo as Memo
-  const reroute = safeguardCodes('codexReroute', overrides)
-  const stops = safeguardCodes('codexStop', overrides)
+  const reroute: readonly string[] = SAFEGUARD_DEFAULTS.codexReroute
+  const stops: readonly string[] = SAFEGUARD_DEFAULTS.codexStop
   const out: SafeguardEvent[] = []
   const stop = (at: number, id: string, model = m.model): void => {
     if (!newStop(m, id)) return
