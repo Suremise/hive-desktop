@@ -400,6 +400,12 @@ export function formatBytes(n: number): string {
   return `${mb < 10 ? mb.toFixed(1) : Math.round(mb)} MB`
 }
 
+/** A session's transcript size in the Sessions list (#671), as the footer shows it: "—" with no file to measure; long once past limitMB (0 never). */
+export function transcriptSizeInfo(bytes: number | null | undefined, limitMB: number): { text: string; long: boolean } {
+  if (typeof bytes !== 'number' || !(bytes >= 0)) return { text: '—', long: false }
+  return { text: bytes === 0 ? '0 KB' : formatBytes(bytes), long: limitMB > 0 && bytes >= limitMB * 1024 * 1024 }
+}
+
 /** Claude Code's plan limits as 0.1 stored them. */
 const V1_LIMITS: Record<string, Pick<PlanLimit, 'id' | 'label' | 'windowMinutes'>> = {
   fiveHour: { id: 'five_hour', label: '5-hour', windowMinutes: 300 },
