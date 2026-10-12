@@ -95,7 +95,7 @@ describe.runIf(process.platform === 'win32')("when the process tracker fails", (
     expect(mod.trackingLost()).toBeNull()
 
     // The helper dies (as a crash would): what was listed stays listed, and kept, by pid and start time (#614).
-    process.kill(mod.trackerPid()!)
+    process.kill(mod.trackerPid()!) // its handle is held (the module's helper, running): the pid can't be another's
     expect(await until(() => toasts.length === 1, 10_000)).toBe(true)
     expect(toasts[0].message).toMatch(/process tracker stopped/)
     expect(toasts[0].message).not.toMatch(/listed as left running/)

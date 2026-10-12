@@ -55,7 +55,7 @@ const root = join(here, '..', '..')
 const lib = createRequire(import.meta.url)('./lib.cjs')
 const runContext = createRequire(import.meta.url)('./runContext.cjs')
 const { claimedByRuns, clearDir, evidenceFor, findBoard, finishSuiteDir, freshFolder, recordKept, releaseKept } = createRequire(import.meta.url)('./evidence.cjs')
-const { stopProcessesIn } = createRequire(import.meta.url)('./folderProcesses.cjs')
+const { stopProcessesIn, endTreeExactly } = createRequire(import.meta.url)('./folderProcesses.cjs')
 const { describeExit, windowsCodesIn } = createRequire(import.meta.url)('./windowsExits.cjs')
 
 const args = process.argv.slice(2)
@@ -249,8 +249,8 @@ const run = (name, port) =>
     // holding the lane's port, and the lane's next suites can't start their Agent API.
     const timer = setTimeout(() => {
       out += '\nFAIL timed out after 10 minutes: the suite and the processes it started were stopped\n'
-      if (process.platform === 'win32') spawnSync('taskkill', ['/pid', String(child.pid), '/T', '/F'], { stdio: 'ignore', env: runContext.baseEnv() })
-      else child.kill()
+      // Each as the process it is now, children first (#603): never taskkill /T, which follows parent ids that may be stale.
+      if (process.platform !== 'win32' || !endTreeExactly(child.pid)) child.kill()
     }, 10 * 60_000)
     child.on('exit', (code) => {
       clearTimeout(timer)

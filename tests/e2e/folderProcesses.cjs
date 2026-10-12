@@ -143,4 +143,32 @@ function stopProcessesIn(folder, since = 0, tree = []) {
   return ended
 }
 
-module.exports = { namesFolder, ownedBy, descendantsIn, stillRunning, processTree, processes, endExactly, childrenFirst, stopProcessesIn }
+/**
+ * The identities ({ pid, started }) of the processes `pids` names now: taken while they are known to be the test's own
+ * (just after they reported their pid), so a later check or ending (stillSame, endExactly) never takes a process that
+ * got one of those pids since (#603: a remembered pid killed after its process ended could be a Vitest worker's, which
+ * then exits with code 1). [] off Windows.
+ */
+function identify(pids) {
+  if (process.platform !== 'win32' || !pids.length) return []
+  const list = processes()
+  return pids.map((pid) => list.find((p) => p.pid === pid)).filter(Boolean).map((p) => ({ pid: p.pid, started: p.started }))
+}
+
+/** Which of `ids` (identify's) still run as the same processes: their pids. */
+const stillSame = (ids) => (process.platform !== 'win32' || !ids.length ? [] : stillRunning(processes(), ids))
+
+/**
+ * Ends a running process and what it started (each started after its parent: a child whose parent id was reused isn't
+ * one), each as the process it is now, children first (#603): never `taskkill /T` on a pid, which follows parent ids
+ * that may be stale. Returns how many were ended.
+ */
+function endTreeExactly(pid) {
+  if (process.platform !== 'win32' || !pid) return 0
+  const list = processes()
+  const root = list.find((p) => p.pid === pid)
+  if (!root) return 0
+  return endExactly(childrenFirst(list, [{ pid: root.pid, started: root.started }, ...descendantsIn(list, pid)]))
+}
+
+module.exports = { namesFolder, ownedBy, descendantsIn, stillRunning, processTree, processes, endExactly, childrenFirst, stopProcessesIn, identify, stillSame, endTreeExactly }

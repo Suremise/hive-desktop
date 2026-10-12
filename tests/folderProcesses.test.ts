@@ -1,6 +1,6 @@
 import { spawn, type ChildProcess } from 'child_process'
 import { createRequire } from 'module'
-import { existsSync, mkdirSync, readFileSync, rmSync } from 'fs'
+import { existsSync, mkdirSync, readdirSync, readFileSync, rmSync } from 'fs'
 import { join } from 'path'
 import { afterAll, describe, expect, it, vi } from 'vitest'
 import { tempDir } from './tempDir'
@@ -145,4 +145,29 @@ describe("a scenario's leftover processes (#542, #402)", () => {
       if (parent.exitCode === null && parent.signalCode === null) parent.kill()
     }
   }, 60000)
+})
+
+// #603: a remembered pid ended after its process had gone can be another's by then (a concurrent run's Vitest worker,
+// which exits with code 1); taskkill /T follows parent ids that may be stale. Test tooling ends processes by identity
+// (folderProcesses.cjs: identify, stillSame, endExactly, endTreeExactly, stopProcessesIn) or through a handle it holds
+// (a ChildProcess's kill()). A line that must use a pid says why, with "its handle is held".
+describe('test tooling ends processes by identity, never by a remembered pid (#603)', () => {
+  const root = join(__dirname, '..')
+  const files = (dir: string): string[] =>
+    readdirSync(join(root, dir), { withFileTypes: true }).flatMap((e) =>
+      e.isDirectory() ? (['node_modules', 'fixtures'].includes(e.name) ? [] : files(join(dir, e.name))) : /\.(c|m)?[jt]s$/.test(e.name) ? [join(dir, e.name)] : []
+    )
+  it('no process.kill on a pid (other than signal 0) and no taskkill, in tests or scripts', () => {
+    const found: string[] = []
+    for (const f of [...files('tests'), ...files('scripts')]) {
+      readFileSync(join(root, f), 'utf8')
+        .split(/\r?\n/)
+        .forEach((line, i) => {
+          const code = line.replace(/\/\/.*$/, '')
+          if (/^\s*\*/.test(line) || /its handle is held/.test(line)) return
+          if (/process\.kill\((?![^)]*,\s*0\))/.test(code) || /['"`]taskkill/.test(code)) found.push(`${f}:${i + 1}: ${line.trim()}`)
+        })
+    }
+    expect(found).toEqual([])
+  })
 })
