@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
-import type { ConsoleEvent, ConsoleSource } from '@shared/devConsole'
+import type { ConsoleEvent, ConsoleRecordingInfo, ConsoleSource } from '@shared/devConsole'
 import { clockTime, filterChoices, filterEvents, mergeEvents, sourceGroups, sourceOption, startsOpen } from '@shared/consoleView'
 import type { AppSettings, HiveEvent } from '@shared/types'
 import { providerName } from '@shared/providers'
@@ -11,7 +11,8 @@ import './styles/console.css'
 /**
  * The developer console window (#366, #637): pick a source (an agent's session, the Assistant or Hive itself) and watch
  * what comes in next to what Hive made of it. Capture runs while this window watches a source (#636); pause stops the
- * list moving (capture goes on, and resuming fills in from the ring), clear hides what came before.
+ * list moving (capture goes on, and resuming fills in from the ring), clear hides what came before. Record writes the
+ * source's events from then on to a file in main (#638), redacted unless the user ticks text for that recording.
  */
 
 function applyTheme(s: AppSettings | null): void {
@@ -36,6 +37,12 @@ export function ConsoleApp() {
   const [search, setSearch] = useState('')
   const [picked, setPicked] = useState<number | null>(null)
   const [error, setError] = useState('')
+  // This window's recording: going on, or the last one it stopped (#638). Text is asked for each time.
+  const [recording, setRecording] = useState<ConsoleRecordingInfo | null>(null)
+  const [recordMenu, setRecordMenu] = useState(false)
+  const [withText, setWithText] = useState(false)
+  const recordingRef = useRef(false)
+  recordingRef.current = !!recording?.recording
   const pausedRef = useRef(false)
   const sourceRef = useRef('')
   const listRef = useRef<HTMLDivElement>(null)
@@ -61,6 +68,8 @@ export function ConsoleApp() {
       if (e.type === 'settings-changed') {
         settings = e.settings
         applyTheme(e.settings)
+      } else if (e.type === 'console-recording') {
+        setRecording(e.recording)
       } else if (e.type === 'console-events') {
         const mine = e.events.filter((x) => x.source === sourceRef.current && x.seq > clearedRef.current)
         if (e.dropped) setDropped((n) => n + e.dropped!)
@@ -95,6 +104,9 @@ export function ConsoleApp() {
   // Watching a source starts its capture; another source replaces it, none ends it.
   useEffect(() => {
     sourceRef.current = source
+    // A recording is of one source: picking another stops it.
+    if (recordingRef.current) void call('console:stopRecording').then((r) => r && setRecording(r), () => undefined)
+    setRecordMenu(false)
     setEvents([])
     setPicked(null)
     setWaiting(0)
@@ -157,6 +169,15 @@ export function ConsoleApp() {
     setDropped(0)
   }, [])
 
+  const startRecording = (): void => {
+    const from = sourceRef.current
+    if (!from) return
+    setRecordMenu(false)
+    call('console:record', from, { includeText: withText }).then(setRecording, (e) => setError(errorMessage(e)))
+    setWithText(false)
+  }
+  const stopRecording = (): void => void call('console:stopRecording').then((r) => r && setRecording(r), (e) => setError(errorMessage(e)))
+
   const choices = useMemo(() => filterChoices(events), [events])
   const shown = useMemo(() => filterEvents(events, { provider, hiddenKinds, search, afterSeq }), [events, provider, hiddenKinds, search, afterSeq])
   const current = picked === null ? null : (shown.find((e) => e.seq === picked) ?? events.find((e) => e.seq === picked) ?? null)
@@ -211,6 +232,31 @@ export function ConsoleApp() {
         </span>
         <IconButton icon={paused ? 'debug-start' : 'debug-pause'} title={paused ? 'Resume' : 'Pause'} onClick={paused ? resume : pause} disabled={!source} className="dc-pause" />
         <IconButton icon="clear-all" title="Clear" onClick={clear} disabled={!events.length && !waiting} className="dc-clear" />
+        {recording?.recording ? (
+          <button className="btn small dc-record-stop" onClick={stopRecording}>
+            <Icon name="debug-stop" /> Stop recording
+          </button>
+        ) : (
+          <span className="dc-record-wrap">
+            <IconButton icon="record" title="Record to a file" onClick={() => setRecordMenu(!recordMenu)} disabled={!source} className="dc-record" expanded={recordMenu} />
+            {recordMenu && (
+              <div className="dc-record-menu" role="dialog" aria-label="Record">
+                <div>Record {watched ? sourceOption({ ...watched, events: 0 }) : 'this source'} to a file, from now until you stop. Redacted like the console: no prompt or reply text, commands, tokens or sign-ins.</div>
+                <label className="flex dialog-check">
+                  <input type="checkbox" className="checkbox" checked={withText} onChange={(e) => setWithText(e.target.checked)} /> Include prompt and reply text in this recording (tokens and sign-ins stay masked)
+                </label>
+                <div className="dc-record-actions">
+                  <button className="btn small subtle" onClick={() => setRecordMenu(false)}>
+                    Cancel
+                  </button>
+                  <button className="btn small primary dc-record-start" onClick={startRecording}>
+                    Start recording
+                  </button>
+                </div>
+              </div>
+            )}
+          </span>
+        )}
         <span className="dc-sep" />
         <div className="dc-search">
           <Icon name="search" />
@@ -292,6 +338,33 @@ export function ConsoleApp() {
         </span>
         {dropped > 0 && <span className="dc-dropped">{dropped} not delivered (too many at once)</span>}
         {watched && <span>{watched.capturing ? 'Capturing' : 'Not capturing'}</span>}
+        {recording && (
+          <span className={cx('dc-recording', recording.recording && 'on')}>
+            {recording.recording ? (
+              <>
+                <Icon name="record" /> Recording {recording.events} events to {recording.name}
+                {recording.includeText ? ' (with text)' : ''}
+              </>
+            ) : (
+              <>
+                {recording.reason === 'failed' ? (
+                  <span className="dc-recording-failed">
+                    <Icon name="error" /> Recording failed after {recording.events} events in {recording.name}: {recording.error ?? 'it could not be written'}
+                  </span>
+                ) : (
+                  <>
+                    Saved {recording.events} events to {recording.name}
+                    {recording.reason === 'limit' ? ' (it reached its size limit)' : ''}
+                  </>
+                )}
+                {' · '}
+                <a className="dc-show-recording" onClick={() => void call('console:showRecording', recording.name).catch((e) => setError(errorMessage(e)))}>
+                  Show in folder
+                </a>
+              </>
+            )}
+          </span>
+        )}
         <span className="dc-sep" />
         <span>Redacted: no prompt or reply text, commands, tokens or sign-ins</span>
       </div>

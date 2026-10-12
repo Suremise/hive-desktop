@@ -147,12 +147,19 @@ const check = (name, ok, extra = '') => {
   // While the question is open, the slot changes hands: Bob releases and claims again (a new hold).
   const shown = (await slotNow())?.holder?.id
   await idle(alpha, bob.id)
+  const sent = Date.now()
   await say(alpha, bob.id, `${slot({ action: 'release' })} then ${slot({ action: 'claim', cards: [6] })}`)
-  const newHold = await until(async () => { const h = (await slotNow())?.holder; return h && h.id !== shown && h.name === 'Bob' ? h : null }, 10000)
+  // Once that turn has ended (idle again, changed since it was asked), not after a fixed time: under load the claim
+  // came after 10 s, and the answer below was then given with no newer hold (#669).
+  const newHold = await until(async () => {
+    const b = await live(alpha, bob.id)
+    const h = (await slotNow())?.holder
+    return ['ready', 'finished'].includes(b?.status) && Date.parse(b?.statusSince ?? '') > sent && h && h.id !== shown && h.name === 'Bob' ? h : null
+  }, 60000)
   await page.locator('.dialog .btn', { hasText: 'Release' }).click()
   const refused = await until(async () => (await page.locator('.toast').allInnerTexts()).some((t) => /changed hands meanwhile, so nothing was released/.test(t)), 5000)
   const after = (await slotNow())?.holder
-  check("an answer to an older question doesn't release the newer hold: refused, said, and it keeps it", !!newHold && !!refused && after?.id === newHold.id && after?.cards.join() === '6', JSON.stringify({ shown, newHold, after }))
+  check("an answer to an older question doesn't release the newer hold: refused, said, and it keeps it", !!newHold && !!refused && after?.id === newHold.id && after?.cards.join() === '6', JSON.stringify({ shown, newHold, after, bob: (await live(alpha, bob.id))?.status }))
   await page.screenshot({ path: path.join(lib.WORK, 'mergeslot-release-refused.png') })
   check('asked again, Release frees the slot', !!(await askRelease()))
   await page.locator('.dialog .btn', { hasText: 'Release' }).click()

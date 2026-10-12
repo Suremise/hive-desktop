@@ -17,6 +17,8 @@ import { GUIDANCE_REVISION } from './guidance'
 import { hiveSkills } from './skills'
 import { inWorkspace } from './workspace'
 import { trackingLost, trackingProblem } from './agentProcesses'
+import { diagnosticRecording } from '../shared/consoleFixtures.mts'
+import { latestRecording, readRecordingText } from './consoleRecorder'
 
 /** How much of Hive's log a report carries. */
 const LOG_LINES = 50
@@ -55,9 +57,10 @@ const yesNo = (v: boolean | null | undefined): string => (v === true ? 'yes' : v
 /**
  * Help → Copy Diagnostics: versions, each coding agent's state, counts, the settings that change how Hive
  * behaves and the end of its log, as Markdown for a bug report. Redacted (shared/redact.ts): no folder,
- * workspace, project or agent names, prompts or secrets.
+ * workspace, project or agent names, prompts or secrets. `recording`: the newest developer console recording's newest
+ * events too (#638), only a redacted one, redacted again like the log.
  */
-export async function diagnostics(): Promise<string> {
+export async function diagnostics(opts: { recording?: boolean } = {}): Promise<string> {
   const s = config.settings
   const windows = hiveWindows()
   const workspaces = windows.map((w) => w.ws.info()).filter((w) => !!w)
@@ -146,5 +149,15 @@ export async function diagnostics(): Promise<string> {
   // Names are only taken out of the log: the summary above has none, and a project called "Hive" would take Hive's own name with it.
   // The whole tail is redacted first: which run of Hive a line is from depends on the start lines before it.
   const log = redactLog((await logTail()).join('\n'), ctx).split('\n').slice(-LOG_LINES).join('\n')
-  return `${redact(header, { ...ctx, names: [] })}\n\n### Log (last ${LOG_LINES} lines)\n\n\`\`\`\n${log}\n\`\`\`\n`
+  return `${redact(header, { ...ctx, names: [] })}\n\n### Log (last ${LOG_LINES} lines)\n\n\`\`\`\n${log}\n\`\`\`\n${opts.recording ? await recordingSection(ctx) : ''}`
+}
+
+/** The newest developer console recording, if it is redacted: a line about it and its newest events, redacted again. */
+async function recordingSection(ctx: RedactContext): Promise<string> {
+  const latest = await latestRecording()
+  if (!latest) return '\n### Developer console recording\n\nNone.\n'
+  if (latest.includeText) return '\n### Developer console recording\n\nThe newest recording includes prompt and reply text, so it is not attached.\n'
+  const part = diagnosticRecording(await readRecordingText(latest.file), (s) => redact(s, ctx))
+  if (!part) return ''
+  return `\n### Developer console recording\n\n${part.summary}\n\n\`\`\`jsonl\n${part.lines.join('\n')}\n\`\`\`\n`
 }
