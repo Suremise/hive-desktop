@@ -51,6 +51,18 @@ const check = (name, ok, extra = '') => {
     while (!(v = await fn()) && Date.now() - t < ms) await lib.sleep(250)
     return v
   }
+  // The question comes once main has checked each worktree agent's branch (git, per worktree: agents:worktreeChecks),
+  // which a loaded machine makes take longer than the 5 s the suite allowed (#670). Waited for as it shows, bounded only
+  // for a hung run; a slow one is logged with how long it took, and one that never came throws with what showed instead.
+  const shown = async (d, what) => {
+    const t = Date.now()
+    const ok = await until(() => d.isVisible(), HUNG_MS)
+    if (Date.now() - t > 2000) console.log(`  (${what} took ${Date.now() - t} ms)`)
+    if (!ok) {
+      const texts = async (sel) => JSON.stringify(await page.locator(sel).allInnerTexts().catch(() => []))
+      throw new Error(`${what} didn't show; the window: ${await page.locator('.project-header h1').innerText().catch(() => '?')}, dialogs ${await texts('.dialog')}, toasts ${await texts('.toast')}, menus ${await texts('.menu')}, palette ${await texts('.palette')}`)
+    }
+  }
   const type = async (proj, id, text) => {
     await inv('pty:write', lib.ptyKey(proj, id), text)
     await lib.sleep(300)
@@ -86,7 +98,7 @@ const check = (name, ok, extra = '') => {
   const cardU = await inv('tasks:create', { title: 'Unmerged card', project: 'alpha', agent: a.unmerged.id })
   const header = page.locator('.project-header .actions')
   const removeButton = header.getByRole('button', { name: 'Remove All (4)', exact: true })
-  check('the header shows Remove All (4), after the other batch actions', !!(await until(async () => (await removeButton.count()) === 1, 5000)) && (await header.locator('button').allInnerTexts()).map((t) => t.trim()).filter(Boolean).at(-1) === 'Remove All (4)', JSON.stringify(await header.locator('button').allInnerTexts()))
+  check('the header shows Remove All (4), after the other batch actions', !!(await until(async () => (await removeButton.count()) === 1, HUNG_MS)) && (await header.locator('button').allInnerTexts()).map((t) => t.trim()).filter(Boolean).at(-1) === 'Remove All (4)', JSON.stringify(await header.locator('button').allInnerTexts()))
   for (const theme of ['dark', 'light']) {
     await inv('settings:update', { appearance: { theme } })
     await lib.sleep(300)
@@ -95,28 +107,34 @@ const check = (name, ok, extra = '') => {
   await inv('settings:update', { appearance: { theme: 'dark' } })
   // Narrow: an icon with its count; tighter, at the top of ⋯ (the rarest action goes first).
   const headerWidth = () => page.locator('.project-header').evaluate((el) => Math.round(el.getBoundingClientRect().width))
+  // Each state below is waited for as the window settles into it (#670), never read once after a fixed pause.
+  const iconOnly = async () => (await removeButton.count()) === 1 && (await removeButton.innerText().catch(() => '')).trim() === '4'
   await lib.fitWindow(app, page, { width: 1200, height: 900 })
-  await lib.sleep(500)
-  check('narrow: an icon keeping its count', (await removeButton.count()) === 1 && (await removeButton.innerText()).trim() === '4', `${await headerWidth()} px: ${await removeButton.innerText().catch(() => '')}`)
+  check('narrow: an icon keeping its count', !!(await until(iconOnly, HUNG_MS)), `${await headerWidth()} px: ${await removeButton.innerText().catch(() => '')}`)
   await lib.fitWindow(app, page, { width: 900, height: 900 })
-  await lib.sleep(500)
-  await page.locator('.project-header').getByRole('button', { name: 'More actions' }).click()
-  const more = (await page.locator('.menu .menu-item').allInnerTexts()).map((t) => t.trim())
+  const moreButton = page.locator('.project-header').getByRole('button', { name: 'More actions' })
+  await until(async () => (await removeButton.count()) === 0 && (await moreButton.count()) === 1, HUNG_MS)
+  await moreButton.click()
+  const menuItems = async (sel = '.menu .menu-item') => (await page.locator(sel).allInnerTexts()).map((t) => t.trim())
+  const more = (await until(async () => {
+    const m = await menuItems()
+    return m.length ? m : null
+  }, HUNG_MS)) ?? []
   await page.keyboard.press('Escape')
   check('tight: in ⋯ instead, first, with its count', (await removeButton.count()) === 0 && more[0] === 'Remove All (4)…', `${await headerWidth()} px: ${JSON.stringify(more)}`)
   await lib.fitWindow(app, page, { width: 1500, height: 900 })
-  await lib.sleep(400)
+  await until(async () => (await removeButton.count()) === 1 && (await removeButton.innerText().catch(() => '')).trim() === 'Remove All (4)', HUNG_MS)
 
   await page.locator('.menubar .menubar-item', { hasText: 'Session' }).click()
-  await lib.sleep(250)
-  const session = (await page.locator('.menu .menu-item > span:not(.menu-key)').allInnerTexts()).map((t) => t.trim())
+  let session = []
+  await until(async () => (session = await menuItems('.menu .menu-item > span:not(.menu-key)')).includes('Remove All Agents (4)…'), HUNG_MS)
   await page.keyboard.press('Escape')
   check('the Session menu has Remove All Agents (4)…', session.includes('Remove All Agents (4)…'), JSON.stringify(session))
   await page.evaluate(() => document.activeElement?.blur())
   await page.keyboard.press('Control+Shift+P')
   await page.locator('.palette input').fill('Remove All')
-  await lib.sleep(300)
-  const found = await page.locator('.palette-item').allInnerTexts()
+  let found = []
+  await until(async () => (found = await page.locator('.palette-item').allInnerTexts()).some((t) => t.includes('Remove All Agents (4)…')), HUNG_MS)
   // The palette's first Escape clears what was typed (#433), the next closes it.
   await page.keyboard.press('Escape')
   if (await page.locator('.palette').count()) await page.keyboard.press('Escape')
@@ -124,7 +142,7 @@ const check = (name, ok, extra = '') => {
 
   const dialog = page.locator('.dialog', { hasText: 'Remove all 4 agents?' })
   await removeButton.click()
-  await dialog.waitFor({ timeout: 5000 })
+  await shown(dialog, 'the question')
   const text = await dialog.innerText()
   check('one question lists all four, flagging the working one', /Worker — Working.*\(will be interrupted\)/.test(text) && /Idle — not running/.test(text) && /Merged — not running · worktree hive\/merged: merged and clean/.test(text) && /Unmerged — not running · worktree hive\/unmerged: always kept \(1 commit not merged into (main|master)\)/.test(text), text)
   check('it says running agents stop first and sessions stay', /Running agents are stopped first\./.test(text) && /sessions stay in the Sessions tab/.test(text), text)
@@ -143,15 +161,15 @@ const check = (name, ok, extra = '') => {
   const workerSession = (await live(alpha, a.worker.id)).sessionId
 
   await removeButton.click()
-  await dialog.waitFor({ timeout: 5000 })
+  await shown(dialog, 'the question again')
   await dialog.getByRole('button', { name: 'Remove 4 agents' }).click()
   const cards = page.locator('.dialog', { hasText: 'The 4 agents have 2 open cards' })
-  check('their cards are asked about once, together', !!(await until(async () => (await cards.count()) === 1, 5000)), await page.locator('.dialog').allInnerTexts().then((t) => t.join(' | ')))
+  check('their cards are asked about once, together', !!(await until(async () => (await cards.count()) === 1, HUNG_MS)), await page.locator('.dialog').allInnerTexts().then((t) => t.join(' | ')))
   await cards.getByRole('button', { name: 'Move them back' }).click()
   const spinning = await until(async () => {
     const n = await page.locator('.agent-tab .codicon-loading').count()
     return n >= 2 ? n : 0
-  }, 5000)
+  }, HUNG_MS)
   check('the tabs show the removing spinner', !!spinning, String(spinning))
   check('every agent goes', !!(await until(async () => (await agentsOf(alpha)).length === 0, 30000)), JSON.stringify(await agentsOf(alpha)))
   check('the working one was stopped first', !(await live(alpha, a.worker.id)))
@@ -170,14 +188,14 @@ const check = (name, ok, extra = '') => {
   })
   const betaDialog = page.locator('.dialog', { hasText: 'Remove all 4 agents?' })
   await header.getByRole('button', { name: 'Remove All (4)', exact: true }).click()
-  await betaDialog.waitFor({ timeout: 5000 })
+  await shown(betaDialog, "beta's question")
   await betaDialog.locator('.dialog-check input').check()
   await betaDialog.getByRole('button', { name: 'Remove 4 agents' }).click()
   check('the others go', !!(await until(async () => JSON.stringify(await agentsOf(beta)) === JSON.stringify(['Worker']), 30000)), JSON.stringify(await agentsOf(beta)))
-  check('the merged, clean worktree and its branch are deleted', !!(await until(async () => !fs.existsSync(b.merged.worktree.path), 5000)) && !branches(beta).includes('hive/merged'), JSON.stringify(branches(beta)))
+  check('the merged, clean worktree and its branch are deleted', !!(await until(async () => !fs.existsSync(b.merged.worktree.path), HUNG_MS)) && !branches(beta).includes('hive/merged'), JSON.stringify(branches(beta)))
   check('the unmerged one is kept, ticked or not', fs.existsSync(b.unmerged.worktree.path) && branches(beta).includes('hive/unmerged'))
   const notice = page.locator('.toast', { hasText: '1 of 4 agents could not be removed' })
-  check('one notice says which could not be removed, why, and what happened to the worktrees', !!(await until(async () => (await notice.count()) === 1, 5000)) && /Worker:/.test(await notice.innerText()) && /Worktrees deleted: hive\/merged/.test(await notice.innerText()) && /Worktrees kept: hive\/unmerged \(1 commit not merged into (main|master)\)/.test(await notice.innerText()), await notice.innerText().catch(() => ''))
+  check('one notice says which could not be removed, why, and what happened to the worktrees', !!(await until(async () => (await notice.count()) === 1, HUNG_MS)) && /Worker:/.test(await notice.innerText()) && /Worktrees deleted: hive\/merged/.test(await notice.innerText()) && /Worktrees kept: hive\/unmerged \(1 commit not merged into (main|master)\)/.test(await notice.innerText()), await notice.innerText().catch(() => ''))
   await page.screenshot({ path: path.join(lib.WORK, 'removeall-result.png') })
   check('with one agent left the button is Remove Agent', (await header.getByRole('button', { name: 'Remove Agent', exact: true }).count()) === 1)
   check('the stopped agent that failed was stopped', !(await live(beta, b.worker.id)))

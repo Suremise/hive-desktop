@@ -115,6 +115,17 @@ export interface StreamSeries {
   openMs: number
 }
 
+/** Safeguard stops (#606) of one agent's sessions on one model: whose (project and agent, as named then), and how many. */
+export interface SafeguardCount {
+  project: string
+  agent: string
+  provider: string
+  role: 'agent' | 'assistant'
+  /** The model the stopped responses were on ('' when the CLI didn't say). */
+  model: string
+  stops: number
+}
+
 /**
  * Provider-reported usage (from the session transcripts' usage, as the Overview shows it), per provider and whose
  * sessions they were: project agents' or the Assistant's. Scripts have no sessions, so no usage.
@@ -136,6 +147,8 @@ export interface ProviderUsageSummary {
   /** Provider requests, and compactions, the sessions reported. */
   requests: number
   compactions: number
+  /** Responses the CLIs' safety classifiers stopped (#606), where Hive can detect them (not Copilot). */
+  safeguardStops: number
   /** API-equivalent cost (USD) of the sessions with one: reported by the provider, or Hive's estimate (`costEstimated` of them). Not a bill: a subscription isn't charged per request. */
   costUsd: number
   costEstimated: number
@@ -256,6 +269,8 @@ export interface MetricsReport {
   providersUnreadable?: number
   /** How many session hosts the scope has (projects, the Assistant), to say how partial. */
   providersHosts?: number
+  /** Safeguard stops in the sessions active in the range, per agent and model (#606), most first; absent when none. */
+  safeguards?: SafeguardCount[]
   /** With `trend` asked for: the scope's totals per hour or day, oldest first, every slot of the range present. */
   trend?: TrendPoint[]
   trendStep?: 'hour' | 'day'

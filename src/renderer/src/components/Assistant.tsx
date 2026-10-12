@@ -717,7 +717,7 @@ function WorkspaceOverview() {
           <Icon name={i.kind === 'finished' ? 'check' : 'bell-dot'} />
           <span>
             <strong>{p.name}</strong>
-            {p.agents.length > 1 ? ` · ${a.name}` : ''} {i.kind === 'waiting' ? 'is waiting for you' : i.kind === 'question' ? 'has a question for you' : 'has finished'}
+            {p.agents.length > 1 ? ` · ${a.name}` : ''} {i.kind === 'waiting' ? 'is waiting for you' : i.kind === 'question' ? 'has a question for you' : i.kind === 'safeguard' ? 'changed models after a safeguard stop' : 'has finished'}
             {i.message ? `: ${i.message}` : ''}
           </span>
         </div>

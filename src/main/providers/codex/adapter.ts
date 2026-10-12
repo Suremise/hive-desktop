@@ -17,6 +17,8 @@ import { findSecretWarnings } from '../../mcpSecrets'
 import { AGENTS_SKILLS, EDITOR_EXTENSION_PATH, EDITOR_ROOTS, agentsSkillCopyPath, compareVersions, hookForwardCommand, hookIds, readFirstLine, run, syncAgentsSkills, taskArgs, toSpawnable } from '../common'
 import type { BackgroundTaskEvent, CatalogRead, CommandSpec, ExternalSession, KeySteps, LaunchContext, LiveDetails, LockDecision, NormalizedHook, ProviderAdapter, SkillDelivery, SkillRoots, UsageParser } from '../types'
 import { codexBackgroundMemo, codexBackgroundTasks, type CodexBackgroundMemo } from './background'
+import { codexSafeguards } from './safeguards'
+import type { SafeguardEvent } from '../../../shared/safeguards'
 import { CodexConversationParser, CodexUsageParser, codexImageData, parseRollout, patchPaths, rolloutDetails, rolloutSubSession } from './rollout'
 import { parseCodexModels } from './models'
 import { PERMISSIONS_MENU_LABELS, permissionsMenuNumber } from './permissionsMenu'
@@ -677,6 +679,10 @@ export class CodexAdapter implements ProviderAdapter {
 
   backgroundTasks(appended: string, memo: Record<string, unknown>): BackgroundTaskEvent[] {
     return codexBackgroundTasks(appended, (memo.codex ??= codexBackgroundMemo()) as CodexBackgroundMemo)
+  }
+
+  safeguards(appended: string, memo: Record<string, unknown>): SafeguardEvent[] {
+    return codexSafeguards(appended, memo)
   }
 
   /**

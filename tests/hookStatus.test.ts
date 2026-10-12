@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { applyStep, compactionOver, hookStep, titleStep, type HookAction, type HookStatusInput, type HookStep } from '../src/main/hookStatus'
+import { applyStep, compactionOver, hookStep, safeguardAnswered, SAFEGUARD_IDLE_MESSAGE, titleStep, type HookAction, type HookStatusInput, type HookStep } from '../src/main/hookStatus'
 import { COMPACTING_MESSAGE } from '../src/shared/defaults'
 import type { Ask, ProviderAdapter } from '../src/main/providers/types'
 import type { SessionStatus } from '../src/shared/types'
@@ -22,12 +22,13 @@ interface Agent {
   titleAsks: boolean
   open: Ask[]
   waitingOn: Ask | null
+  safeguardPrompt?: boolean
   actions: HookAction[]
 }
 
 const agent = (status: SessionStatus, extra: Partial<Agent> = {}): Agent => ({ status, askedAtStart: false, compacting: null, tasks: 0, attention: 'hooks', reviewed: false, titleAsks: false, open: [], waitingOn: null, actions: [], ...extra })
 
-const input = (a: Agent, backgroundWakes = false): HookStatusInput => ({ ...a, question: !!a.question, reviewing: !!a.review, backgroundWakes })
+const input = (a: Agent, backgroundWakes = false): HookStatusInput => ({ ...a, question: !!a.question, reviewing: !!a.review, safeguardPrompt: !!a.safeguardPrompt, backgroundWakes })
 
 /** What SessionManager.carryOut does with a step: the actions (recorded here), the open asks and the wait, the status. */
 function apply(a: Agent, step: HookStep): Agent {
@@ -620,6 +621,38 @@ describe('background tasks at a turn end', () => {
     expect(a.status).toBe('finished')
     expect(a.actions).toContain('notifyFinished')
     expect(send(codexAdapter, agent('working', { tasks: 1 }), { hook_event_name: 'Interrupt' }).status).toBe('ready')
+  })
+})
+
+describe("Claude Code's prompt about a safeguard stop, answered (#606)", () => {
+  const idle = { hook_event_name: 'Notification', notification_type: 'idle_prompt', message: 'Claude is waiting for your input' }
+  const asked = { hook_event_name: 'Notification', notification_type: 'permission_prompt', message: 'Claude needs your permission' }
+
+  it('waits on the prompt until its idle notice, then is idle, ready for a nudge, with nothing open', async () => {
+    const [[, claude, h]] = await providers()
+    // HB3, 11 Oct: its turn ended, then Claude Code asked whether to switch models; answered, no hook said so.
+    const a = send(claude, agent('working'), h.stop, asked)
+    expect(a.status).toBe('waiting')
+    a.safeguardPrompt = true
+    send(claude, a, idle)
+    expect([a.status, a.statusMessage, a.waitingOn]).toEqual(['ready', SAFEGUARD_IDLE_MESSAGE, null])
+    expect(a.actions).toContain('releaseLocks')
+  })
+
+  it('the prompt gone from its screen answers it too; with background tasks it is on them, with no nudge asked for', () => {
+    const a = agent('waiting', { safeguardPrompt: true })
+    expect(apply(a, safeguardAnswered(input(a)))).toMatchObject({ status: 'ready', statusMessage: SAFEGUARD_IDLE_MESSAGE })
+    const b = agent('waiting', { safeguardPrompt: true, tasks: 1 })
+    apply(b, safeguardAnswered(input(b, true)))
+    expect([b.status, b.statusMessage]).toEqual(['background', undefined])
+  })
+
+  it('changes nothing while it waits on another prompt, or no longer waits', async () => {
+    const [[, claude]] = await providers()
+    // A tool's permission prompt is answered by its call: the idle notice leaves it waiting, as before.
+    expect(send(claude, agent('waiting'), idle).status).toBe('waiting')
+    for (const status of ['working', 'ready', 'finished'] as SessionStatus[]) expect(safeguardAnswered(input(agent(status, { safeguardPrompt: true }))).next).toBeNull()
+    expect(safeguardAnswered(input(agent('waiting'))).next).toBeNull()
   })
 })
 

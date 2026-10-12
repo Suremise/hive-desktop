@@ -49,7 +49,8 @@ import { emit, emitTo, tellListeners, toast } from './events'
 import { presentWindow, showOsNotification, testNotifyLog, testQuiet } from './testQuiet'
 import { hashText, heldOpen, insideReal, isInUse, readJson, placeRelative, removePath, samePlace, treeSignature, syncCopy, syncCopyLocked, syncCopyNow, trashAllOrNothing, withFileLock, writeJsonAtomic } from './fsutil'
 import { createLogger, hookJournal, userText } from './logger'
-import { applyStep, compactionOver, expireTasks, hookStep, idleAfter, markedIdle, titleStep, type HookStatusInput, type HookStep } from './hookStatus'
+import { applyStep, compactionOver, expireTasks, hookStep, idleAfter, markedIdle, safeguardAnswered, SAFEGUARD_IDLE_MESSAGE, titleStep, type HookStatusInput, type HookStep } from './hookStatus'
+import { memoModel, memoTools, memoTurn, noteSafeguard, safeguardText, seenInTurn, withScreenStops, type GuardTurns, type SafeguardEvent, type ScreenStop } from '../shared/safeguards'
 import { admit, describe as describeTurn, endRunning, heard, newLedger, openCalls, reconciles, silentFor, unheardStop, type ScreenReading, type TurnLedger } from './turnLedger'
 import { Compaction } from './compaction'
 import { lastTitle } from './terminalTitle'
@@ -57,7 +58,7 @@ import { asksYou } from '../shared/inbox'
 import type { DeliveryHooks, NewDelivery } from './deliveries'
 import { readyFor } from './readiness'
 import { FinishBatcher, finishedNotice, noticeRoute, type FocusedHive, type NoticeRoute } from '../shared/bursts'
-import { recordCards } from './cardSessions'
+import { commentOnDoingCards, recordCards } from './cardSessions'
 import { listMcp, toLaunchDef } from './mcp'
 import { agentGetsMcp } from '../shared/agentMcp'
 import { launchEnded, leftoversOf, noteUntracked, settleLeftovers, trackingProblem, trackingReady, trackLaunch, type TrackResult } from './agentProcesses'
@@ -74,6 +75,7 @@ import { reportPlanUsage } from './planUsage'
 import { devConsole, sessionSourceId } from './devConsole'
 import { DETAILS_FIELDS, HOOK_FIELDS, HOOK_MADE_FIELDS, STATUSLINE_FIELDS, safeWord } from '../shared/devConsole'
 import { hookSummary, launchEvent, statusLineSummary, transcriptEvent } from './devConsoleWords'
+import { ScreenRecognition } from './screenRecognition'
 import { revisionOf } from './revisions'
 import { metricsHandle, recordLaunch } from './metrics'
 import { headerOf } from './revisions'
@@ -106,6 +108,10 @@ const BACKUP_INTERVAL_MS = 60_000
 const COST_INTERVAL_MS = 30_000
 /** How many of a launch's latest hooks are kept for the log (LiveSession.recentHooks). */
 const RECENT_HOOKS = 8
+/** How long after an ask its CLI's screen may take to show it is a safeguard prompt (LiveSession.guardAsk, #606). */
+const GUARD_ASK_MS = 10_000
+/** How many stops seen only on screen a session's record keeps (SessionRecord.screenStops). */
+const MAX_SCREEN_STOPS = 200
 /**
  * How long a turn may run with nothing heard of it (no hook, no transcript growth, no tool call under way) before Hive
  * looks for its end on the CLI's screen, and failing that says its state is unknown (#648). Never an end in itself.
@@ -154,6 +160,8 @@ interface LiveSession {
   ending?: boolean
   /** Terminal output tail, to see the CLI ready or asking something at the start. */
   modeTail: string
+  /** What Hive recognised on its screen this launch, whatever its status (the developer console's contract markers, #638). */
+  recognition: ScreenRecognition
   /** The mode it was launched in. */
   launchMode: PermissionMode | null
   /** The mode the settings asked for when it launched, or when the user last applied a settings change to it. */
@@ -206,6 +214,23 @@ interface LiveSession {
   tasksOffset?: number
   /** What the adapter keeps between those reads (a call whose output comes later). */
   tasksMemo?: Record<string, unknown>
+  /** Bytes of the transcript already read for safeguard stops (#606), and what the adapter keeps between reads (its model, its last tool calls). */
+  guardOffset?: number
+  guardMemo?: Record<string, unknown>
+  /** A blocking ask naming no tool, from a CLI that tells a safeguard prompt by its screen, until the screen says whether it is one (#606). `applied`: the status rules took it (else the turn ledger found it stale). */
+  guardAsk?: { ask: Ask; at: number; applied: boolean }
+  /** When it began waiting on a safeguard prompt (#606): typed into since, or the prompt gone from its screen, it may be answered. */
+  guardPromptAt?: number
+  /**
+   * This launch's safeguard stops per turn (SafeguardEvent.turn) from its prompts on screen and from the CLI's records of
+   * stops it asked about (SafeguardEvent.asked): in a turn, one of each is the same stop, whichever comes first, so the
+   * agent's note counts it once (Performance matches them the same way from the session's record: withScreenStops).
+   */
+  guardTurns?: GuardTurns
+  /** The safeguard read under way (readSafeguards: one at a time). */
+  guardReading?: Promise<void>
+  /** A screen check for the safeguard prompt is queued (one at a time, however much the CLI draws meanwhile). */
+  guardChecking?: boolean
   /** The conversation already warned about for its transcript's size (once each). */
   sizeWarned?: string
   /** This launch resumes a conversation (a failed start's Retry resumes it again). */
@@ -1045,7 +1070,7 @@ class SessionManager {
       launchSignature: '',
       unseen: false
     }
-    this.live.set(id, { state, adapter, transcriptMtime: '', defaultModel: false, modeTail: '', launchMode: null, configuredMode: null, modeOverride: opts.permissionMode, name: sessionName, transcriptPath: existing?.transcriptPath, initialPrompt: opts.prompt?.trim() || undefined, startAllowed: opts.allowed, resumed: !!opts.resumeId })
+    this.live.set(id, { state, adapter, transcriptMtime: '', defaultModel: false, modeTail: '', recognition: new ScreenRecognition(adapter), launchMode: null, configuredMode: null, modeOverride: opts.permissionMode, name: sessionName, transcriptPath: existing?.transcriptPath, initialPrompt: opts.prompt?.trim() || undefined, startAllowed: opts.allowed, resumed: !!opts.resumeId })
     this.runs.set(runId, id)
 
     const setup = cfg.worktreeSetup.trim()
@@ -1295,9 +1320,13 @@ class SessionManager {
         if (l.switchTail !== undefined) l.switchTail = (l.switchTail + data.replace(/\x1b\[[0-9;?]*[ -/]*[@-~]/g, ' ').replace(/\x1b\][^\x07]*\x07/g, ' ')).replace(/\s+/g, ' ').slice(-2000)
         // The CLI refusing or failing a compaction Hive asked for sends no hook ("Not enough messages to compact.").
         this.live.get(id)?.compacting?.terminal(data)
-        screen?.write(data, () => this.readFooterMode(l, screen))
+        screen?.write(data, () => {
+          this.readFooterMode(l, screen)
+          this.screenDrawn(id, l)
+        })
         this.watchTitle(id, data)
         this.watchReadyOutput(id, data)
+        this.recognisePrompt(l, data)
       },
       onResize: (cols, rows) => screen?.resize(cols, rows),
       // Everything it starts is tracked, to offer to end what it leaves running (#507): it starts once it is.
@@ -1549,7 +1578,7 @@ class SessionManager {
     const text = l.modeTail.replace(/\s+/g, ' ')
     const asked = l.adapter.startupQuestion?.exec(text)
     if (l.state.status === 'starting' && asked) {
-      devConsole.capture([sessionSourceId(l.state.projectPath, l.state.agentId)], () => ({ kind: 'terminal', name: 'startup question', provider: l.state.provider, raw: { screen: asked[0] }, made: { status: 'waiting', trust: asked[0].includes('trust') }, summary: 'terminal: asks something before it starts; waiting' }))
+      devConsole.capture([sessionSourceId(l.state.projectPath, l.state.agentId)], () => ({ kind: 'terminal', name: 'startup question', provider: l.state.provider, raw: { screen: asked[0] }, made: { status: 'waiting', trust: asked[0].includes('trust') }, safe: { made: { status: true } }, summary: 'terminal: asks something before it starts; waiting' }))
       l.askedAtStart = true
       l.modeTail = ''
       this.fact(l.state, { attention: 'waiting' })
@@ -1559,12 +1588,21 @@ class SessionManager {
       this.notify(l.state.projectPath, `${this.label(l.state)} needs your input`, l.state.statusMessage, 'waiting', undefined, l.state.agentId)
       this.emitState(l.state)
     } else if (l.adapter.readyOutput?.test(text)) {
-      devConsole.capture([sessionSourceId(l.state.projectPath, l.state.agentId)], () => ({ kind: 'terminal', name: 'ready', provider: l.state.provider, raw: { screen: text.slice(-200) }, made: { status: 'ready' }, summary: 'terminal: its prompt shows; ready' }))
+      devConsole.capture([sessionSourceId(l.state.projectPath, l.state.agentId)], () => ({ kind: 'terminal', name: 'ready', provider: l.state.provider, raw: { screen: text.slice(-200) }, made: { status: 'ready' }, safe: { made: { status: true } }, summary: 'terminal: its prompt shows; ready' }))
       this.startupAnswered(l)
       this.fact(l.state, { lifecycle: 'running' })
       l.state.status = 'ready'
       this.emitState(l.state)
     }
+  }
+
+  /**
+   * The developer console's record that the CLI's prompt was recognised on its screen (#638), once a launch and whatever
+   * the status: a CLI whose prompt changed never gets one (the contract tests' pattern check).
+   */
+  private recognisePrompt(l: LiveSession, data: string): void {
+    if (!l.recognition.output(data)) return
+    devConsole.capture([sessionSourceId(l.state.projectPath, l.state.agentId)], () => ({ kind: 'terminal', name: 'prompt shown', provider: l.state.provider, made: { recognised: 'prompt' }, safe: { made: { recognised: true } }, summary: 'terminal: its prompt recognised' }))
   }
 
   /** The question before the start was answered: the agent is starting again. */
@@ -1611,7 +1649,11 @@ class SessionManager {
   /** Reads the mode from the CLI's footer on its screen as it redraws, so a mode change in the terminal shows in Hive at once. */
   private readFooterMode(l: LiveSession, screen: TerminalScreen): void {
     if (this.live.get(liveId(l.state.projectPath, l.state.agentId)) !== l || !l.adapter.footerMode) return
-    const mode = l.adapter.footerMode(screen.text(), l.launchMode)
+    const text = screen.text()
+    // The first footer recognised this launch, whatever the mode was before (#638's contract marker).
+    const first = l.recognition.footerOf(text, l.launchMode)
+    if (first) devConsole.capture([sessionSourceId(l.state.projectPath, l.state.agentId)], () => ({ kind: 'terminal', name: 'footer seen', provider: l.state.provider, raw: { footer: first }, made: { recognised: 'footer', permissionMode: first }, safe: { raw: { footer: true }, made: { recognised: true, permissionMode: true } }, summary: `terminal footer recognised: mode ${first}` }))
+    const mode = l.adapter.footerMode(text, l.launchMode)
     if (mode && (mode !== l.state.permissionMode || mode !== l.state.modeObserved)) {
       devConsole.capture([sessionSourceId(l.state.projectPath, l.state.agentId)], () => ({ kind: 'terminal', name: 'footer mode', provider: l.state.provider, raw: { footer: mode }, made: { permissionMode: mode, was: l.state.permissionMode }, safe: { raw: { footer: true }, made: { permissionMode: true, was: true } }, summary: `terminal footer: mode ${mode}` }))
       l.state.permissionMode = l.state.modeObserved = mode
@@ -2414,6 +2456,7 @@ class SessionManager {
     emit({ type: 'usage-changed', projectPath, sessionId })
     await this.readDetails(l, src, size, hooks)
     this.settleBackground(l, await this.readBackground(l, src, size))
+    await this.readSafeguards(l, src)
     if (l.compacting) {
       // Fallback if the compaction hooks never arrive: a new compaction in the transcript.
       const u = await this.usageFor(src, sessionId, l.state.provider)
@@ -2544,6 +2587,184 @@ class SessionManager {
       if (ended.size > 500) ended.delete(ended.values().next().value!)
     }
     return woke
+  }
+
+  /**
+   * Safeguard stops and model switches in what the transcript gained since the last look (#606), this launch's only:
+   * noted on the agent's state (LiveSessionState.safeguard), and a switch told (a notice, a note on its Doing cards).
+   */
+  private readSafeguards(l: LiveSession, path: string): Promise<void> {
+    // One read at a time (the transcript growing, and a prompt about a stop), so no line is read twice.
+    const run = (l.guardReading ?? Promise.resolve()).then(() => this.readSafeguardsNow(l, path))
+    l.guardReading = run.catch(() => undefined)
+    return run
+  }
+
+  private async readSafeguardsNow(l: LiveSession, path: string): Promise<void> {
+    if (!l.adapter.safeguards) return
+    const size = (await stat(path).catch(() => null))?.size
+    if (size === undefined) return
+    const from = l.guardOffset ?? 0
+    if (size <= from) {
+      if (size < from) {
+        l.guardOffset = 0
+        l.guardMemo = undefined
+      }
+      return
+    }
+    // The tail is enough: a stop keeps only the last few tool calls before it.
+    const start = Math.max(from, size - 4 * 1024 * 1024)
+    const fh = await open(path, 'r')
+    let text: string
+    try {
+      const buf = Buffer.alloc(size - start)
+      const { bytesRead } = await fh.read(buf, 0, buf.length, start)
+      text = buf.toString('utf8', 0, bytesRead)
+    } finally {
+      await fh.close()
+    }
+    const end = text.lastIndexOf('\n')
+    if (end < 0) return
+    l.guardOffset = start + Buffer.byteLength(text.slice(0, end + 1))
+    const since = Date.parse(l.state.startedAt) - 5000
+    for (const ev of l.adapter.safeguards(text.slice(0, end + 1), (l.guardMemo ??= {}))) if (ev.at >= since) this.noteSafeguard(l, ev)
+  }
+
+  /** A safeguard event on the agent's state (noteSafeguard); a switch to another model is told: Hive's own notice, and a note on its Doing cards. */
+  private noteSafeguard(l: LiveSession, ev: SafeguardEvent): void {
+    const st = l.state
+    if (ev.kind === 'stop' && ev.asked && ev.turn && this.guardSeen(l, ev.turn, 'asked')) {
+      // The CLI's record of a stop its prompt showed in this turn: counted then, so only the model it adds.
+      if (ev.model && st.safeguard && !st.safeguard.model) {
+        st.safeguard = { ...st.safeguard, model: ev.model }
+        this.emitState(st)
+      }
+      return
+    }
+    const before = st.safeguard
+    const next = noteSafeguard(before, ev)
+    if (!next) return
+    st.safeguard = next
+    this.emitState(st)
+    if (ev.kind !== 'switch' || !next.switched || next.switched.to === before?.switched?.to) return
+    const d = l.adapter.descriptor
+    const label = this.label(st)
+    const { from, to } = next.switched
+    const said = safeguardText(next, d.modelLabel)
+    this.notify(st.projectPath, `${label} now runs on ${d.modelLabel(to)}`, said, 'notice', undefined, st.agentId)
+    log.info(`${userText(label)}: its model changed after a safeguard stop (${from} → ${to})`)
+    // On the card it works on too, so whoever reads the card knows (only the event and tool names, never what was stopped).
+    if (!workspace.isAssistantHome(st.projectPath))
+      void commentOnDoingCards(workspaceOf(st.projectPath), st.projectPath, st.agentId, `**${st.agentName}, after a safeguard stop:** ${said}${d.safeguardHelp ? ` ${d.safeguardHelp}` : ''}`).catch((e) => log.warn('safeguard: could not note the switch on its cards', e))
+  }
+
+  /**
+   * Whether the CLI's screen shows its prompt about a safeguard stop now (ProviderAdapter.safeguardAsk), for `ask` (the one
+   * it waits on, or any blocking ask naming no tool). False when Hive doesn't read its screen.
+   */
+  private guardShown(l: LiveSession, ask: Ask = { kind: 'question', blocking: true, message: '' }): boolean {
+    const screen = l.adapter.safeguardAsk ? l.screen?.text() : null
+    return !!screen && l.adapter.safeguardAsk!(ask, screen)
+  }
+
+  /**
+   * It waits on a safeguard prompt that may have been answered (#606): typed into since it began, or no longer on its
+   * screen. Its CLI sends no hook for the answer; its idle notice, or the screen, then ends the wait (safeguardAnswered).
+   */
+  private guardAnswerable(l: LiveSession): boolean {
+    const st = l.state
+    if (!st.safeguard?.prompt || st.status !== 'waiting') return false
+    return this.userTypedAt(st.projectPath, st.agentId) >= (l.guardPromptAt ?? 0) || !this.guardShown(l, l.waitingOn ?? undefined)
+  }
+
+  /** A blocking ask naming no tool, from a CLI that tells a safeguard prompt by its screen (a permission request its own reviewer decides is none). */
+  private guardCandidate(l: LiveSession, ev: HookEvent): ev is Extract<HookEvent, { kind: 'ask' }> {
+    if (ev.kind !== 'ask' || !ev.ask.blocking || !l.adapter.safeguardAsk) return false
+    return !(ev.ask.kind === 'permission' && l.adapter.descriptor.permissionModes.find((m) => m.value === l.state.permissionMode)?.reviewed)
+  }
+
+  /**
+   * The agent waits on its CLI's prompt about a safeguard stop (#606): the stop noted (with the last tool calls its
+   * transcript showed: the stop that asked HB3 had no record of its own), and the ask in words that say why, for its
+   * status and the notification. Only the event and the tool names.
+   */
+  private async safeguardPrompt(l: LiveSession, ask: Ask, at: number): Promise<Ask> {
+    const st = l.state
+    // Its last tool calls as its transcript has them now (the read as it grows may not have come yet).
+    const src = await this.liveTranscript(l).catch(() => null)
+    if (src) await this.readSafeguards(l, src).catch((e) => log.warn('safeguard: transcript read failed', e))
+    const memo = l.guardMemo
+    // The prompt it already waits on, told again (its hook, then the screen): the same stop, not another.
+    let noted = st.safeguard
+    if (!noted?.prompt) {
+      const model = memoModel(memo)
+      const turn = memoTurn(memo)
+      // Counted unless the CLI's record of it in this turn was read first.
+      if (!turn || !this.guardSeen(l, turn, 'screen')) noted = noteSafeguard(noted, { kind: 'stop', at, model, tools: memoTools(memo) }) ?? noted
+      // Kept on the session's record with its turn, so Performance counts it though the transcript may never record it
+      // (HB3's didn't), and once if it does (withScreenStops), whenever Hive reads it.
+      if (st.sessionId) {
+        const stop: ScreenStop = { at: new Date(at).toISOString(), ...(model ? { model } : {}), ...(turn ? { turn } : {}) }
+        await this.keepScreenStop(st.projectPath, st.sessionId, stop).catch((e) => log.warn('safeguard: could not keep the stop seen on screen', e))
+      }
+    }
+    const { idle: _i, ...rest } = noted!
+    st.safeguard = { ...rest, prompt: true }
+    l.guardPromptAt = at
+    const tools = st.safeguard.tools
+    this.emitState(st)
+    return { ...ask, message: `A safety classifier stopped a response: ${l.adapter.descriptor.name} asks what to do${tools.length ? ` (its last tool calls: ${tools.join(', ')})` : ''}` }
+  }
+
+  /** A stop seen only on screen, added to its session's record (SessionRecord.screenStops) for Performance. */
+  private async keepScreenStop(projectPath: string, sessionId: string, stop: ScreenStop): Promise<void> {
+    await workspace.mutateSessions(projectPath, (f) => {
+      const rec = f.sessions.find((s) => s.id === sessionId)
+      if (rec) rec.screenStops = [...(rec.screenStops ?? []), stop].slice(-MAX_SCREEN_STOPS)
+    })
+  }
+
+  /** A stop in `turn` from its prompt on screen or the CLI's record (seenInTurn): true when it was counted already this launch. */
+  private guardSeen(l: LiveSession, turn: string, from: 'screen' | 'asked'): boolean {
+    return seenInTurn((l.guardTurns ??= new Map()), turn, from)
+  }
+
+  /**
+   * The CLI's screen was drawn: a safeguard prompt it asked about shows now (the screen drawn after its hook), or the
+   * one it waits on is gone after the user typed (#606). In order with the hooks, one check at a time.
+   */
+  private screenDrawn(id: string, l: LiveSession): void {
+    if (l.guardChecking || !(l.guardAsk || (l.state.safeguard?.prompt && l.state.status === 'waiting'))) return
+    l.guardChecking = true
+    void this.inHookOrder(l.state.runId, async () => {
+      l.guardChecking = false
+      if (this.live.get(id) !== l) return
+      const st = l.state
+      const g = l.guardAsk
+      if (g) {
+        // The screen says within moments; an ask it never shows as a safeguard's is an ordinary one.
+        if (Date.now() - g.at > GUARD_ASK_MS) l.guardAsk = undefined
+        else if (this.guardShown(l, g.ask)) {
+          l.guardAsk = undefined
+          if (!g.applied) {
+            // The ledger found it stale (asked after its turn's Stop): it is put to the user now, saying why.
+            const ev: HookEvent = { kind: 'ask', ask: await this.safeguardPrompt(l, g.ask, g.at) }
+            this.carryOut(id, l, hookStep(ev, this.statusInput(l)), 'screen', ev)
+          } else if (st.status === 'waiting' && l.waitingOn === g.ask) {
+            // Already told it waits: told again, now saying why (a notice, without a second chime).
+            const ask = await this.safeguardPrompt(l, g.ask, g.at)
+            l.waitingOn = ask
+            st.statusMessage = ask.message
+            this.emitState(st)
+            this.notify(st.projectPath, `${this.label(st)} needs your input`, ask.message, 'notice', undefined, st.agentId)
+          }
+        }
+      }
+      if (this.guardAnswerable(l) && this.userTypedAt(st.projectPath, st.agentId) >= (l.guardPromptAt ?? 0) && !this.guardShown(l, l.waitingOn ?? undefined)) {
+        this.carryOut(id, l, safeguardAnswered(this.statusInput(l)), 'screen')
+        log.info(`${userText(this.label(st))}: its safeguard prompt was answered (gone from its screen)`)
+      }
+    }).catch((e) => log.warn('safeguard: screen check failed', e))
   }
 
   /** Reads the transcript for background tasks now (at a turn's end, before choosing between finished and background). */
@@ -3093,8 +3314,14 @@ class SessionManager {
     const took = admit(ledger, hook.event, ids, { hiveContinued: continued, woke, now: at })
     if (ledger.active !== was) l.woke = false
     let actions: readonly string[] = [took.verdict === 'stale' ? 'stale' : 'continued']
+    // A prompt about a safeguard stop says why (#606): told so now if the screen shows it, else when it draws it.
+    const guard = this.guardCandidate(l, hook.event)
     if (took.verdict === 'apply') {
-      const ev = took.event
+      let ev = took.event
+      if (guard && ev.kind === 'ask') {
+        if (this.guardShown(l, ev.ask)) ev = { ...ev, ask: await this.safeguardPrompt(l, ev.ask, at) }
+        else l.guardAsk = { ask: ev.ask, at, applied: true }
+      }
       // Hooks are handled in order, so the next one waits for this read: a turn's end counts the tasks it started.
       if (ev.kind === 'stop') await this.beforeTurnEnd(l, ev.lastMessage)
       const step = hookStep(ev, this.statusInput(l))
@@ -3102,6 +3329,16 @@ class SessionManager {
       actions = step.actions
       if (ev.kind !== 'ignore') (l.recentHooks ??= []).push({ kind: ev.kind, at: Date.now(), status: st.status })
       if ((l.recentHooks?.length ?? 0) > RECENT_HOOKS) l.recentHooks!.shift()
+    } else if (guard && hook.event.kind === 'ask') {
+      // Claude Code asks about a safeguard stop after its turn's Stop (HB3, 11 Oct), which the ledger finds stale: it is
+      // put to the user anyway once its screen shows it is that prompt (at once, or as the screen draws it).
+      const ask = hook.event.ask
+      if (this.guardShown(l, ask)) {
+        const ev: HookEvent = { kind: 'ask', ask: await this.safeguardPrompt(l, ask, at) }
+        const step = hookStep(ev, this.statusInput(l))
+        this.carryOut(id, l, step, String(body.hook_event_name ?? ''), ev, arrived)
+        actions = step.actions
+      } else l.guardAsk = { ask, at, applied: false }
     }
     // The developer console (#636): the hook as it came, next to what Hive made of it (with the turn ledger's verdict).
     const made = took.verdict === 'apply' ? took.event : hook.event
@@ -3252,7 +3489,8 @@ class SessionManager {
       open: l.open ?? [],
       waitingOn: l.waitingOn ?? null,
       question: !!st.question,
-      reviewing: !!st.review
+      reviewing: !!st.review,
+      safeguardPrompt: this.guardAnswerable(l)
     }
   }
 
@@ -3338,8 +3576,10 @@ class SessionManager {
     if (carriedOn) st.signIn = undefined
     const needed = asksYou(st)
     const facts = this.fact(st, this.factsOf(l, step, ev, carriedOn))
+    const stepped = applyStep(st, step)
+    const guarded = this.settleSafeguard(l)
     // A turn's end is reported even when the status stays (its background task count may have changed).
-    if (applyStep(st, step) || step.actions.includes('turnEnded') || carriedOn || facts) this.emitState(st)
+    if (stepped || step.actions.includes('turnEnded') || carriedOn || facts || guarded) this.emitState(st)
     // The CLI is signed in again, for its other agents too (this one's status is already set).
     if (worked) this.signedInAgain(st.provider)
     // A turn's end types the go-ahead for an Allow given during it; an interrupt (the user stopping it) drops it.
@@ -3348,6 +3588,23 @@ class SessionManager {
     // Why you were told an agent needs you, and when it no longer does (Help → Copy Diagnostics): never what was asked.
     const told = step.actions.includes('notifyWaiting') ? 'waits for you' : step.actions.includes('notifyQuestion') ? 'asks a question' : needed && !asksYou(st) ? 'no longer needs you' : null
     if (told) log.debug(`${userText(label)}: ${told} (${cause})`)
+  }
+
+  /**
+   * A safeguard prompt is over once the agent no longer waits (#606): answered (idle, ready for a nudge, until it is given
+   * something to do) or carried on. True when the note changed.
+   */
+  private settleSafeguard(l: LiveSession): boolean {
+    const st = l.state
+    const n = st.safeguard
+    if (!n || (!n.prompt && !n.idle)) return false
+    const prompt = !!n.prompt && st.status === 'waiting'
+    const idle = !prompt && st.status === 'ready' && st.statusMessage === SAFEGUARD_IDLE_MESSAGE
+    if (!!n.prompt === prompt && !!n.idle === idle) return false
+    const { prompt: _p, idle: _i, ...rest } = n
+    st.safeguard = { ...rest, ...(prompt ? { prompt } : {}), ...(idle ? { idle } : {}) }
+    if (!prompt) l.guardPromptAt = undefined
+    return true
   }
 
   /**
@@ -3397,6 +3654,10 @@ class SessionManager {
       l.transcriptMtime = ''
       l.detailsOffset = 0
       l.detailsMemo = undefined
+      l.guardOffset = 0
+      l.guardMemo = undefined
+      l.guardAsk = undefined
+      l.guardTurns = undefined
       // What the old conversation's records said of its turns is no record of the new one's (#648).
       l.turnRecord = undefined
       l.stopsAnswered = undefined
@@ -3494,10 +3755,16 @@ class SessionManager {
   /** The window showed these agents (all of the project's when none are named). */
   markSeen(projectPath: string, agentIds?: string[]): void {
     for (const st of this.projectStates(projectPath)) {
-      if (st.unseen && (!agentIds || agentIds.includes(st.agentId))) {
-        st.unseen = false
-        this.emitState(st)
+      if (agentIds && !agentIds.includes(st.agentId)) continue
+      // A model switch after a safeguard stop (#606) leaves the attention inbox once its pane was seen too.
+      const guard = st.safeguard?.unseen
+      if (!st.unseen && !guard) continue
+      st.unseen = false
+      if (guard) {
+        const { unseen: _u, ...rest } = st.safeguard!
+        st.safeguard = rest
       }
+      this.emitState(st)
     }
   }
 
@@ -3744,7 +4011,13 @@ class SessionManager {
     const p = await this.anyTranscript(projectPath, sessionId, ctx)
     // No transcript left: what it used when Clean Up removed Hive's backup.
     if (!p) return (ctx?.records ?? (await workspace.sessionsFile(projectPath)).sessions).find((s) => s.id === sessionId)?.keptUsage ?? null
-    const usage = await this.usageFor(p, sessionId, await this.sessionProvider(projectPath, sessionId, ctx))
+    let usage = await this.usageFor(p, sessionId, await this.sessionProvider(projectPath, sessionId, ctx))
+    // Safeguard stops seen only on screen (#606), kept on its record: the transcript's count doesn't have them.
+    const screen = (ctx?.records ?? (await workspace.sessionsFile(projectPath)).sessions).find((s) => s.id === sessionId)?.screenStops
+    if (usage) {
+      const safeguards = withScreenStops(usage.safeguards, screen, usage.safeguardsAsked)
+      if (safeguards !== usage.safeguards) usage = { ...usage, safeguards }
+    }
     // A transcript without the context window (Claude Code's): the running session's status line has it.
     if (usage && !usage.contextWindow) {
       const window = [...this.live.values()].find((l) => l.state.sessionId === sessionId)?.state.contextWindow
@@ -4164,7 +4437,7 @@ class SessionManager {
         const usage = used && { ...used, lastPrompt: null, costUnreported: undefined }
         if (rec && usage) await workspace.upsertSession(projectPath, { id: sessionId, keptUsage: usage })
         if (expected) await this.assertCleanable(projectPath, sessionId, expected)
-        const kept: KeptUsage | null = rec && usage ? { id: sessionId, provider: recordProvider(rec), agentId: rec.agentId, cwd: rec.cwd, name: rec.name, usage } : null
+        const kept: KeptUsage | null = rec && usage ? { id: sessionId, provider: recordProvider(rec), agentId: rec.agentId, ...(rec.agentName ? { agentName: rec.agentName } : {}), cwd: rec.cwd, name: rec.name, usage } : null
         this.assertNotLive(sessionId, 'delete')
         const files = this.backupFiles(projectPath, sessionId)
         await inUseOnFail(() =>
@@ -4195,14 +4468,18 @@ class SessionManager {
     projectPath = workspace.assertSessionHost(projectPath)
     const file = await workspace.sessionsFile(projectPath)
     const ctx: ListContext = { records: file.sessions, cfg: await workspace.projectConfig(projectPath) }
+    // Whose each was, by the agent's name now (its name then once it is gone): Performance's totals by agent (#606).
+    const named = new Map(projectAgents(ctx.cfg).map((a) => [a.id, a.name]))
     const items: SessionListItem[] = []
     for (const rec of file.sessions) {
       const usage = await this.usage(projectPath, rec.id, ctx).catch(() => null)
+      const agentName = (rec.agentId && named.get(rec.agentId)) || rec.agentName
       items.push({
         id: rec.id,
         provider: recordProvider(rec),
         source: 'hive',
         agentId: rec.agentId,
+        ...(agentName ? { agentName } : {}),
         cwd: rec.cwd,
         archived: rec.archived,
         title: null,
@@ -4213,7 +4490,10 @@ class SessionManager {
         recache: null
       })
     }
-    return [...items, ...(await this.keptUsage(projectPath))]
+    return [...items, ...(await this.keptUsage(projectPath)).map((k) => {
+      const agentName = (k.agentId && named.get(k.agentId)) || k.agentName
+      return agentName ? { ...k, agentName } : k
+    })]
   }
 
   /** Deleted sessions' usage, as list items for totals (never shown in the session lists). */
@@ -4224,6 +4504,7 @@ class SessionManager {
       provider: k.provider,
       source: 'hive' as const,
       agentId: k.agentId,
+      ...(k.agentName ? { agentName: k.agentName } : {}),
       cwd: k.cwd,
       name: k.name,
       archived: true,

@@ -23,7 +23,7 @@ interface Agent {
 
 const agent = (status: SessionStatus = 'ready'): Agent => ({ status, ledger: newLedger(0), stale: [] })
 
-const input = (a: Agent): HookStatusInput => ({ status: a.status, statusMessage: a.statusMessage, askedAtStart: false, compacting: null, backgroundWakes: false, tasks: 0, attention: 'hooks', reviewed: false, titleAsks: false, open: [], waitingOn: null, question: false, reviewing: false })
+const input = (a: Agent): HookStatusInput => ({ status: a.status, statusMessage: a.statusMessage, askedAtStart: false, compacting: null, backgroundWakes: false, tasks: 0, attention: 'hooks', reviewed: false, titleAsks: false, open: [], waitingOn: null, question: false, reviewing: false, safeguardPrompt: false })
 
 /** One hook through the ledger and the status rules; `continued`: Hive answered this Stop with a continuation. */
 function feed(a: Agent, ev: HookEvent, i: HookIds, continued = false): Agent {

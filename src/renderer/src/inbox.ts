@@ -42,7 +42,11 @@ export function markOnScreenSeen(): void {
   const s = get()
   for (const [path, ids] of agentsOnScreen(s)) {
     const host = findProject(s, path)
-    const unseen = ids.filter((id) => host?.agents.find((a) => a.id === id)?.live?.unseen && !marking.has(projectKey(path, id)))
+    // A switch after a safeguard stop (#606) is seen as a finish is.
+    const unseen = ids.filter((id) => {
+      const live = host?.agents.find((a) => a.id === id)?.live
+      return (live?.unseen || live?.safeguard?.unseen) && !marking.has(projectKey(path, id))
+    })
     if (!unseen.length) continue
     for (const id of unseen) marking.add(projectKey(path, id))
     void call('session:markSeen', path, unseen)

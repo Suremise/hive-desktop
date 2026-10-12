@@ -1,9 +1,10 @@
 import type { AgentBranchStatus, LiveSessionState, ProjectInfo } from './types'
 import type { StartFailure } from './startFailure'
+import { providerDescriptor } from './providers'
 
 /**
- * The attention inbox: the agents that need you (waiting for input, with a question pending, finished since you
- * last had their pane on screen, or failed to start), oldest first, and below them worktree agents with work to review (not counted). One list for the status
+ * The attention inbox: the agents that need you (waiting for input, with a question pending, on another model after a
+ * safeguard stop (#606), finished since you last had their pane on screen, or failed to start), oldest first, and below them worktree agents with work to review (not counted). One list for the status
  * bar's popover, the tray menu, the Projects badge and the project list's counts.
  */
 export interface InboxItem {
@@ -13,7 +14,8 @@ export interface InboxItem {
   agentName: string
   /** The Hive Assistant's agent: it opens the Assistant's panel. */
   assistant: boolean
-  kind: 'waiting' | 'question' | 'finished' | 'failed' | 'review'
+  /** safeguard: its model changed after its CLI's safety classifier stopped a response, not looked at since (#606). */
+  kind: 'waiting' | 'question' | 'safeguard' | 'finished' | 'failed' | 'review'
   /** When it got to this state (ISO), '' when not known. */
   since: string
   message?: string
@@ -80,6 +82,10 @@ export function inbox(
       if (failure) needYou.push({ ...item('failed'), since: failure.at, message: failure.reason.split('\n')[0] })
       else if (live?.status === 'waiting') needYou.push(item('waiting'))
       else if (live?.question) needYou.push({ ...item('question'), since: live.question.since, ...(live.question.text ? { message: live.question.text } : {}) })
+      else if (live?.safeguard?.switched && live.safeguard.unseen) {
+        const label = providerDescriptor(live.provider).modelLabel
+        needYou.push({ ...item('safeguard'), since: live.safeguard.switched.at, message: `Now runs on ${label(live.safeguard.switched.to)} instead of ${label(live.safeguard.switched.from)}` })
+      }
       else if (needsYou(live)) needYou.push(item('finished'))
       else if (hasWork(branch) && idle(live)) toReview.push(item('review'))
     }
@@ -109,10 +115,11 @@ export function branchSummary(b: AgentBranchStatus): string {
   return parts.join(' · ')
 }
 
-/** "Needs input: <its question>", "Asks: <its question>", "Couldn't start: <why>", "Finished", "To review" */
+/** "Needs input: <its question>", "Asks: <its question>", "After a safeguard stop: <model>", "Couldn't start: <why>", "Finished", "To review" */
 export function inboxStateText(i: InboxItem): string {
   if (i.kind === 'waiting') return i.message ? `Needs input: ${i.message}` : 'Needs input'
   if (i.kind === 'question') return i.message ? `Asks: ${i.message}` : 'Asks you something'
   if (i.kind === 'failed') return i.message ? `Couldn't start: ${i.message}` : "Couldn't start"
+  if (i.kind === 'safeguard') return `After a safeguard stop${i.message ? `: ${i.message}` : ''}`
   return i.kind === 'finished' ? 'Finished' : 'To review'
 }

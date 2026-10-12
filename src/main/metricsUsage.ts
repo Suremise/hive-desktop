@@ -1,5 +1,5 @@
 import { basename } from 'path'
-import type { MetricsQuery, MetricsReport, MetricsRole, ProviderUsageSummary } from '../shared/metrics'
+import type { MetricsQuery, MetricsReport, MetricsRole, ProviderUsageSummary, SafeguardCount } from '../shared/metrics'
 import { queryMetrics } from './metrics'
 import { METRICS_EXPORT_SCHEMA } from '../shared/benchmark'
 import type { SessionListItem } from '../shared/types'
@@ -22,7 +22,7 @@ export interface UsageFilter {
  * reads every project and the Assistant once each (its own work: the Assistant only), so nothing is counted twice.
  * Scripts have no sessions: their usage is none, and the note says so.
  */
-export async function providerUsage(w: WorkspaceService, f: UsageFilter, from: number, to: number): Promise<{ providers: ProviderUsageSummary[]; note?: string; unreadable?: number; hosts?: number }> {
+export async function providerUsage(w: WorkspaceService, f: UsageFilter, from: number, to: number): Promise<{ providers: ProviderUsageSummary[]; safeguards?: SafeguardCount[]; note?: string; unreadable?: number; hosts?: number }> {
   if (f.role === 'api') return { providers: [], note: 'Scripts start no sessions, so they have no provider usage.' }
   if (f.project && f.role === 'assistant') return { providers: [], note: 'The Assistant’s sessions are the workspace’s, not a project’s.' }
   // The workspace as it is now: if it closes (or its window opens another) while this reads, the answer is refused
@@ -38,6 +38,8 @@ export async function providerUsage(w: WorkspaceService, f: UsageFilter, from: n
       ? all.filter((p) => basename(p).toLowerCase() === f.project!.toLowerCase()).map((path) => ({ path, role: 'agent' as const }))
       : [...(f.own || f.role === 'assistant' ? [] : all.map((path) => ({ path, role: 'agent' as const }))), ...(f.role === 'agent' ? [] : [{ path: w.assistantHome, role: 'assistant' as const }])]
     const by = new Map<string, ProviderUsageSummary & { contextSum: number }>()
+    // Safeguard stops per agent and model (#606): whose, by the names the sessions recorded.
+    const guards = new Map<string, SafeguardCount>()
     // Hosts whose history couldn't be read: counted (never named), so the totals say they are partial.
     let unreadable = 0
     for (const { path, role } of hosts) {
@@ -54,7 +56,7 @@ export async function providerUsage(w: WorkspaceService, f: UsageFilter, from: n
         const t = at ? Date.parse(at) : NaN
         if (!Number.isFinite(t) || t < from || t >= to) continue
         const key = `${it.provider} ${role}`
-        const s = by.get(key) ?? { provider: it.provider, role, sessions: 0, running: 0, inputTokens: 0, outputTokens: 0, cacheReadTokens: 0, cacheWriteTokens: 0, reasoningTokens: 0, unknown: 0, requests: 0, compactions: 0, costUsd: 0, costEstimated: 0, costUnknown: 0, contextSessions: 0, contextAvgTokens: 0, contextMaxTokens: 0, contextWindow: null, contextSum: 0 }
+        const s = by.get(key) ?? { provider: it.provider, role, sessions: 0, running: 0, inputTokens: 0, outputTokens: 0, cacheReadTokens: 0, cacheWriteTokens: 0, reasoningTokens: 0, unknown: 0, requests: 0, compactions: 0, safeguardStops: 0, costUsd: 0, costEstimated: 0, costUnknown: 0, contextSessions: 0, contextAvgTokens: 0, contextMaxTokens: 0, contextWindow: null, contextSum: 0 }
         by.set(key, s)
         s.sessions++
         if (running.has(it.id)) s.running++
@@ -72,6 +74,16 @@ export async function providerUsage(w: WorkspaceService, f: UsageFilter, from: n
         s.reasoningTokens += u.reasoningTokens
         s.requests += u.requests
         s.compactions += u.compactions.length
+        for (const [model, stops] of Object.entries(u.safeguards ?? {})) {
+          if (!(stops > 0)) continue
+          s.safeguardStops += stops
+          const project = role === 'assistant' ? 'Hive Assistant' : basename(path)
+          const agent = role === 'assistant' ? 'Assistant' : (it.agentName ?? it.agentId ?? 'unknown agent')
+          const k = JSON.stringify([project, agent, it.provider, model])
+          const g = guards.get(k) ?? { project, agent, provider: it.provider, role, model, stops: 0 }
+          g.stops += stops
+          guards.set(k, g)
+        }
         if (u.costUsd === null) s.costUnknown++
         else {
           s.costUsd += u.costUsd
@@ -85,7 +97,8 @@ export async function providerUsage(w: WorkspaceService, f: UsageFilter, from: n
         if (u.contextWindow) s.contextWindow = Math.max(s.contextWindow ?? 0, u.contextWindow)
       }
     }
-    return { providers: [...by.values()].map(({ contextSum, ...s }) => ({ ...s, contextAvgTokens: s.contextSessions ? Math.round(contextSum / s.contextSessions) : 0 })), ...(unreadable ? { unreadable, hosts: hosts.length } : {}) }
+    const safeguards = [...guards.values()].sort((a, b) => b.stops - a.stops || a.project.localeCompare(b.project) || a.agent.localeCompare(b.agent) || a.model.localeCompare(b.model))
+    return { providers: [...by.values()].map(({ contextSum, ...s }) => ({ ...s, contextAvgTokens: s.contextSessions ? Math.round(contextSum / s.contextSessions) : 0 })), ...(safeguards.length ? { safeguards } : {}), ...(unreadable ? { unreadable, hosts: hosts.length } : {}) }
   })
 }
 
@@ -93,7 +106,18 @@ export async function providerUsage(w: WorkspaceService, f: UsageFilter, from: n
 export async function metricsReport(w: WorkspaceService, q: MetricsQuery): Promise<MetricsReport> {
   const r = queryMetrics(w, q)
   const usage = await providerUsage(w, { project: r.scope.kind === 'project' ? r.scope.project : null, own: r.filters.own, role: r.filters.role, provider: r.filters.provider }, Date.parse(r.from), Date.parse(r.to))
-  return { ...r, providers: usage.providers, ...(usage.note ? { providersNote: usage.note } : {}), ...(usage.unreadable ? { providersUnreadable: usage.unreadable, providersHosts: usage.hosts } : {}) }
+  return { ...r, providers: usage.providers, ...(usage.safeguards ? { safeguards: usage.safeguards } : {}), ...(usage.note ? { providersNote: usage.note } : {}), ...(usage.unreadable ? { providersUnreadable: usage.unreadable, providersHosts: usage.hosts } : {}) }
+}
+
+/** Safeguard counts with their project and agent names replaced (an export's sanitize). */
+function sanitizeAgents(rows: SafeguardCount[], project: (name: string) => string): SafeguardCount[] {
+  const agents = new Map<string, string>()
+  const agent = (name: string): string => {
+    const k = name.toLowerCase()
+    if (!agents.has(k)) agents.set(k, `agent-${agents.size + 1}`)
+    return agents.get(k)!
+  }
+  return rows.map((g) => ({ ...g, project: g.role === 'assistant' ? g.project : project(g.project), agent: g.role === 'assistant' ? g.agent : agent(g.agent) }))
 }
 
 /** The export's format (shared/benchmark.ts reads it back): a version a reader can check. */
@@ -125,7 +149,9 @@ export function metricsExport(r: MetricsReport, appVersion: string, sanitize: bo
       ...r,
       workspacePath: '',
       scope: r.scope.kind === 'project' ? { kind: 'project', project: alias(r.scope.project) } : r.scope,
-      projects: Object.fromEntries(Object.entries(r.projects).map(([name, part]) => [alias(name), part]))
+      projects: Object.fromEntries(Object.entries(r.projects).map(([name, part]) => [alias(name), part])),
+      // Agents' names are the user's too: agent-1, agent-2… (the same name the same number).
+      ...(r.safeguards ? { safeguards: sanitizeAgents(r.safeguards, alias) } : {})
     }
   }
   return { schema: METRICS_EXPORT_SCHEMA, app: { name: 'Hive', version: appVersion }, exportedAt: new Date().toISOString(), sanitized: sanitize, units, range: { from: r.from, to: r.to }, filters: r.filters, coverage: r.coverage, report }
