@@ -1388,7 +1388,10 @@ export async function typeLine(projectPath: string, agentId: string, line: strin
   waking.add(key)
   let rider: Rider | null = null
   try {
-    const before = sessions.promptsTaken(projectPath, agentId)
+    // What the CLI had taken just before this line's Enter (#376): sampled by the writer's last check, after what rides it
+    // was saved (#647: a prompt of the user's taken while that save was slow isn't this line's), so a confirmation
+    // never takes an earlier prompt for this one.
+    let before: { runId: string; count: number } | null = null
     // Messages left for the agent ride the wake, first (#530); a line of their own takes none.
     rider = opts.rider === false ? null : (wakeRider?.(projectPath, agentId, line) ?? null)
     const text = rider ? `${rider.text} ${line}` : line
@@ -1398,6 +1401,7 @@ export async function typeLine(projectPath: string, agentId: string, line: strin
       if (rider && !rider.still()) throw new Error('The messages riding it changed.')
       if (!idle(sessions.liveFor(projectPath, agentId))) throw new Error('The agent got busy.')
       if (sessions.userMayBeTyping(projectPath, agentId)) throw new Error('The user is typing there.')
+      before = sessions.promptsTaken(projectPath, agentId)
     })
     rider?.taken()
     log.info(`Woke ${userText(agentId)}: ${userText(text.slice(0, 80))}`)
@@ -1550,8 +1554,9 @@ async function deliver(store: Store, rec: WatchRecord): Promise<void> {
       return true
     })
     if (!marked) return
-    // What the CLI had taken before the line: it is taken once that goes up (#376).
-    const before = sessions.promptsTaken(rec.projectPath, rec.agentId)
+    // What the CLI had taken just before the line's Enter: it is taken once that goes up (#376). Sampled by the writer's
+    // last check, after what rides it was saved (#647), as typeLine does.
+    let before: { runId: string; count: number } | null = null
     // Messages left for the agent ride its wake, first (#530), so it has them before it acts on the wake.
     const rider = wakeRider?.(rec.projectPath, rec.agentId, line) ?? null
     const typedLine = rider ? `${rider.text} ${line}` : line
@@ -1563,6 +1568,7 @@ async function deliver(store: Store, rec: WatchRecord): Promise<void> {
         if (!idle(sessions.liveFor(rec.projectPath, rec.agentId))) throw new Error('The agent got busy.')
         if (sessions.userMayBeTyping(rec.projectPath, rec.agentId)) throw new Error('The user is typing there.')
         if (telling && (!tellReplies() || replyGeneration !== generation)) throw new RepliesRevoked()
+        before = sessions.promptsTaken(rec.projectPath, rec.agentId)
       })
     } catch (e) {
       rider?.notTaken?.()

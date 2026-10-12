@@ -510,6 +510,70 @@ describe('messages left for agents (#530, #647)', async () => {
     }
   })
 
+  it("a wake whose rider's save is slow while a prompt of the user's is taken: its confirmation waits for this line, a cancel still ends it, and no Enter again", async () => {
+    const cli = { count: 0, enters: 0, clears: 0, entersAtClear: -1 }
+    const before = { ...sessions } as Record<string, unknown>
+    Object.assign(sessions, {
+      promptsTaken: () => ({ runId: st.runId, count: cli.count }),
+      holdForConfirm: () => () => undefined,
+      lineNotTaken: () => undefined,
+      submitAgain: () => {
+        cli.enters++
+        cli.count++
+        return true
+      },
+      clearTyped: () => {
+        cli.clears++
+        cli.entersAtClear = cli.enters
+        return true
+      },
+      sendPrompt: async (_p: string, _id: string, text: string, guard?: () => void) => {
+        guard?.()
+        st.typed.push(text)
+        st.status = 'finished'
+      }
+    })
+    // Long enough for the cancel to land before the Enter again would come.
+    watches.testHooks.takeMs = 2000
+    let release = (): void => undefined
+    try {
+      st.status = 'working'
+      await leave('Rides a slow save.')
+      // The rider's save of "offered" is held; meanwhile the user's own prompt is taken and its turn ends.
+      const held = new Promise<void>((r) => (release = r))
+      let holding = false
+      deliveries.setBeforeSaveForTests(async () => {
+        if (holding) return
+        holding = true
+        await held
+      })
+      st.status = 'finished'
+      const typing = watches.typeLine(alpha, 'b1', '[Hive] #6 is in Review.', () => true)
+      await vi.waitFor(() => expect(holding).toBe(true), { timeout: HUNG_MS })
+      cli.count++
+      release()
+      deliveries.setBeforeSaveForTests(null)
+      expect(await typing).toBe(true)
+      expect(st.typed).toEqual(["[Hive] Message from the Assistant: Rides a slow save. (Its id: m1. Once you've acted on it, ack it with hive_inbox.) [Hive] #6 is in Review."])
+      // Its Enter was lost (the count is still the user's prompt's): not taken, so still the user's to cancel.
+      expect(watches.confirmsInFlight()).toBe(1)
+      expect(await messages.cancelMessages(alpha, 'b1', 'the user')).toBe(1)
+      await vi.waitFor(() => expect(cli.clears).toBe(1), { timeout: HUNG_MS })
+      expect(cli.entersAtClear).toBe(0)
+      expect(await states()).toEqual(['m1 cancelled: cancelled by the user'])
+      // The wake it rode is typed again alone.
+      await vi.waitFor(() => expect(st.typed.at(-1)).toBe('[Hive] #6 is in Review.'), { timeout: HUNG_MS })
+      expect(st.typed.filter((t) => t.includes('Rides a slow save'))).toHaveLength(1)
+    } finally {
+      release()
+      deliveries.setBeforeSaveForTests(null)
+      watches.testHooks.takeMs = undefined
+      for (const k of ['promptsTaken', 'holdForConfirm', 'lineNotTaken', 'submitAgain', 'clearTyped']) delete (sessions as unknown as Record<string, unknown>)[k]
+      Object.assign(sessions, { sendPrompt: before.sendPrompt, promptsTaken: () => null })
+      await vi.waitFor(() => expect(watches.confirmsInFlight()).toBe(0), { timeout: HUNG_MS })
+    }
+  })
+
   it('bounded: at most 5 waiting, 4000 characters each; refused for an agent not running', async () => {
     for (let i = 0; i < messages.MAX_QUEUED; i++) await leave(`Note ${i}`)
     await expect(leave('One too many')).rejects.toThrow(/already has 5 messages waiting/)
