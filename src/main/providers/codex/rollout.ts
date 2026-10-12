@@ -116,7 +116,8 @@ export function rolloutDetails(text: string): LiveDetails {
     // A turn that ended because the sign-in was refused; a turn after it (started or ended) is the agent carrying on.
     if (r.type === 'event_msg' && (p.type === 'task_complete' || p.type === 'task_started')) {
       // Codex's own record of a turn's end, by the turn id its hooks carry (#648: the turn ledger's evidence of a Stop missed).
-      out.turnEnded = p.type === 'task_complete' ? { turn: typeof p.turn_id === 'string' ? p.turn_id : null, at: typeof r.timestamp === 'string' ? r.timestamp : new Date().toISOString() } : null
+      if (p.type === 'task_started') out.turnEnded = null
+      else if (typeof p.turn_id === 'string') out.turnEnded = { turn: p.turn_id, at: typeof r.timestamp === 'string' ? r.timestamp : new Date().toISOString() }
       const refused = p.type === 'task_complete' ? signInRefused(p.error) : null
       if (refused) {
         out.signIn = refused

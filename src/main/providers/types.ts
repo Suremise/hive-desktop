@@ -201,11 +201,16 @@ export interface LiveDetails {
    */
   interruptedAt?: string
   /**
-   * The CLI's own record says its latest turn is over, with nothing started since (Codex's task_complete, Copilot's
-   * agentStop answered, #648): `turn` its id as the hooks name turns (null when they name none), `at` when (ISO). Null:
-   * a turn began after the last one ended; absent: the lines read say neither.
+   * The CLI's own record says its latest turn is over, with nothing started since (Codex's task_complete, #648): `turn`
+   * its id as the hooks name turns, `at` when (ISO). Null: a turn began after the last one ended; absent: the lines read
+   * say neither.
    */
-  turnEnded?: { turn: string | null; at: string } | null
+  turnEnded?: { turn: string; at: string } | null
+  /**
+   * For CLIs whose records don't name turns as their hooks do (Copilot): when each of its Stop hooks was answered, as it
+   * recorded them (its agentStop hook.end), in the lines read (ISO). Hive compares them with the Stops it got (#648).
+   */
+  stopsAnswered?: string[]
 }
 
 /**

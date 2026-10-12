@@ -62,7 +62,7 @@ export const copilotDetailsMemo = (): CopilotDetailsMemo => ({ denied: false })
 
 /**
  * Session details from appended events: model, effort, the credits used so far and the premium requests (running
- * totals), a refused sign-in, whether the latest turn is over (its agentStop hook answered), and when the user last interrupted a turn (`interruptedAt`), for which no hook fires: an
+ * totals), a refused sign-in, when its Stop hooks were answered, and when the user last interrupted a turn (`interruptedAt`), for which no hook fires: an
  * abort (Esc on a command's dialog, or while it works), or a turn that ends on the user's refusal of a path prompt
  * (Esc on "Path permission needed": permission.completed denied interactively, then assistant.turn_end, and neither
  * an abort nor agentStop; #475). An interrupt the user's next prompt follows in the same events is history: that
@@ -130,19 +130,17 @@ export function eventsDetails(text: string, memo: CopilotDetailsMemo = copilotDe
       case 'assistant.turn_start':
         memo.denied = false
         refusedEnd = null
-        out.turnEnded = null
         break
       case 'hook.start':
         if (d.hookType === 'agentStop') refusedEnd = null
         else if (d.hookType === 'userPromptSubmitted') prompted()
         break
       case 'hook.end':
-        // Its Stop hook answered: the CLI's own record that the turn is over, unless it goes on (a turn_start follows), #648.
-        if (d.hookType === 'agentStop') out.turnEnded = { turn: null, at: typeof r.timestamp === 'string' ? r.timestamp : new Date().toISOString() }
+        // Its Stop hook answered, when (#648): Hive counts them against the Stops it got (unheardStop).
+        if (d.hookType === 'agentStop' && typeof r.timestamp === 'string') (out.stopsAnswered ??= []).push(r.timestamp)
         break
       case 'user.message':
         prompted()
-        out.turnEnded = null
         break
       case 'session.error': {
         const refused = signInRefused(d)

@@ -1,7 +1,7 @@
 import { readFileSync } from 'fs'
 import { join } from 'path'
 import { describe, expect, it } from 'vitest'
-import { admit, endRunning, expectInjected, heard, newLedger, reconciles, silentFor, type TurnLedger } from '../src/main/turnLedger'
+import { admit, endRunning, expectInjected, heard, newLedger, openCalls, reconciles, silentFor, unheardStop, type ScreenReading, type TurnLedger } from '../src/main/turnLedger'
 import { applyStep, hookStep, type HookStatusInput } from '../src/main/hookStatus'
 import type { HookEvent, HookIds, ProviderAdapter } from '../src/main/providers/types'
 import type { SessionStatus } from '../src/shared/types'
@@ -24,9 +24,9 @@ const agent = (status: SessionStatus = 'ready'): Agent => ({ status, ledger: new
 
 const input = (a: Agent): HookStatusInput => ({ status: a.status, statusMessage: a.statusMessage, askedAtStart: false, compacting: null, backgroundWakes: false, tasks: 0, attention: 'hooks', reviewed: false, titleAsks: false, open: [], waitingOn: null, question: false, reviewing: false })
 
-/** One hook through the ledger and the status rules; `continued`: Hive answered this Stop with a continuation. */
-function feed(a: Agent, ev: HookEvent, i: HookIds, continued = false): Agent {
-  const took = admit(a.ledger, ev, i, { hiveContinued: continued, now: 0 })
+/** One hook through the ledger and the status rules; `continued`: Hive answered this Stop with a continuation; `screen`: what the CLI's screen shows. */
+function feed(a: Agent, ev: HookEvent, i: HookIds, continued = false, screen: ScreenReading = null): Agent {
+  const took = admit(a.ledger, ev, i, { hiveContinued: continued, screen: () => screen, now: a.ledger.seq })
   if (took.verdict === 'apply') applyStep(a, hookStep(took.event, input(a)))
   else a.stale.push(took.verdict === 'stale' ? took.why : 'continued')
   return a
@@ -60,55 +60,80 @@ describe('the turn ledger', () => {
     expect(a.stale).toEqual(['a tool end of a turn that is over'])
   })
 
-  it('without turn ids (Copilot), a tool end after the turn ended with no tool start since is old news too', () => {
+  it("a tool's late start after its turn's Stop is old news too, unless the CLI's screen shows the turn going on", () => {
+    for (const screen of [null, 'idle'] as ScreenReading[]) {
+      const a = agent()
+      feed(a, { kind: 'prompt' }, ids('t1'))
+      feed(a, { kind: 'stop', lastMessage: null }, ids('t1'))
+      feed(a, { kind: 'toolStart' }, ids('t1', { call: 'c1' }), false, screen)
+      expect([a.status, a.ledger.active?.state], String(screen)).toEqual(['finished', 'over'])
+      expect(a.stale).toEqual(['a tool start after its turn ended, with nothing showing it goes on'])
+    }
+    // Another Stop hook carried it on (the user's): the screen shows it working, and the turn goes on to its next Stop.
+    const a = agent()
+    feed(a, { kind: 'prompt' }, ids('t1'))
+    feed(a, { kind: 'stop', lastMessage: null }, ids('t1'))
+    feed(a, { kind: 'toolStart' }, ids('t1', { call: 'c1' }), false, 'working')
+    expect([a.status, a.ledger.active?.state]).toEqual(['working', 'running'])
+    feed(a, { kind: 'toolEnd' }, ids('t1', { call: 'c1' }))
+    feed(a, { kind: 'stop', lastMessage: null }, ids('t1', { continued: true }))
+    expect(a.status).toBe('finished')
+  })
+
+  it('without turn ids (Copilot), a tool end after the turn ended with no tool start since is old news; a start only with the screen working', () => {
     const a = agent()
     feed(a, { kind: 'prompt' }, ids(null))
     feed(a, { kind: 'toolStart' }, ids(null))
     feed(a, { kind: 'stop', lastMessage: null }, ids(null))
     feed(a, { kind: 'toolEnd' }, ids(null))
-    expect(a.status).toBe('finished')
-    // A tool that starts after the Stop carries the turn on (another Stop hook made the CLI go on), and its end counts.
     feed(a, { kind: 'toolStart' }, ids(null))
-    expect(a.status).toBe('working')
-    feed(a, { kind: 'toolEnd' }, ids(null))
-    feed(a, { kind: 'stop', lastMessage: null }, ids(null))
     expect(a.status).toBe('finished')
+    expect(a.stale).toEqual(['a tool end after its turn ended, with no tool start since', 'a tool start after its turn ended, with nothing showing it goes on'])
+    // No turn known at all: a tool start alone changes nothing (as before the ledger).
+    const fresh = feed(agent('ready'), { kind: 'toolStart' }, ids(null))
+    expect([fresh.status, fresh.ledger.active]).toEqual(['ready', null])
   })
 
-  it("an earlier turn's late hook while a later turn runs changes nothing", () => {
+  it("an earlier turn's late news while a later turn runs changes nothing, and never makes the earlier one active", () => {
     const a = agent()
     feed(a, { kind: 'prompt' }, ids('t1'))
     feed(a, { kind: 'toolStart' }, ids('t1', { call: 'c1' }))
     feed(a, { kind: 'stop', lastMessage: null }, ids('t1'))
     feed(a, { kind: 'prompt' }, ids('t2'))
     feed(a, { kind: 'toolEnd' }, ids('t1', { call: 'c1' }))
+    feed(a, { kind: 'toolStart' }, ids('t1', { call: 'c2' }), false, 'working')
+    feed(a, { kind: 'prompt', text: 'late' }, ids('t1'))
+    feed(a, { kind: 'ask', ask: { kind: 'permission', blocking: true, message: 'May I?' } }, ids('t1'))
     feed(a, { kind: 'stop', lastMessage: null }, ids('t1'))
     expect(a.status).toBe('working')
     expect(a.ledger.active).toMatchObject({ id: 't2', state: 'running' })
-    expect(a.stale).toEqual(['a tool end of a turn that is over', "an earlier turn's Stop while a later one runs"])
+    expect(a.stale).toEqual(['a tool end of a turn that is over', 'a tool start of an earlier turn', 'a prompt of a turn that is over', 'a question of a turn that is over', "an earlier turn's Stop"])
   })
 
-  it('a Stop Hive answered with a continuation is not the turn\'s end: the Stop answered with nothing is', () => {
+  it('remembers every turn of the launch: a late hook from many turns ago is still old news', () => {
+    const a = agent()
+    for (let n = 0; n < 40; n++) {
+      feed(a, { kind: 'prompt' }, ids(`t${n}`))
+      feed(a, { kind: 'stop', lastMessage: null }, ids(`t${n}`))
+    }
+    feed(a, { kind: 'toolEnd' }, ids('t0', { call: 'c' }))
+    feed(a, { kind: 'toolStart' }, ids('t0', { call: 'c' }), false, 'working')
+    expect([a.status, a.ledger.active?.id, a.ledger.active?.state]).toEqual(['finished', 't39', 'over'])
+    // A tool end of a turn never seen isn't a new turn either: its start would have said so.
+    feed(a, { kind: 'toolEnd' }, ids('t-never', { call: 'c' }))
+    expect(a.status).toBe('finished')
+    expect(a.stale).toEqual(['a tool end of a turn that is over', 'a tool start of an earlier turn', 'a tool end of a turn Hive never saw begin'])
+  })
+
+  it("a Stop Hive answered with a continuation is not the turn's end: the Stop answered with nothing is", () => {
     const a = agent()
     feed(a, { kind: 'prompt' }, ids('t1'))
     feed(a, { kind: 'stop', lastMessage: null }, ids('t1'), true)
     expect(a.status).toBe('working')
-    expect(a.ledger.active).toMatchObject({ state: 'running', continued: 1 })
+    expect(a.ledger.active).toMatchObject({ state: 'running', continued: 1, stops: 1 })
     // Continuations fire no prompt: the next hooks are the same turn's.
     feed(a, { kind: 'toolStart' }, ids('t1', { call: 'c2', continued: true }))
     feed(a, { kind: 'toolEnd' }, ids('t1', { call: 'c2' }))
-    feed(a, { kind: 'stop', lastMessage: null }, ids('t1', { continued: true }))
-    expect(a.status).toBe('finished')
-  })
-
-  it('a turn another Stop hook carried on (not Hive) works again at its next tool, and ends at its next Stop', () => {
-    const a = agent()
-    feed(a, { kind: 'prompt' }, ids('t1'))
-    feed(a, { kind: 'stop', lastMessage: null }, ids('t1'))
-    expect(a.status).toBe('finished')
-    feed(a, { kind: 'toolStart' }, ids('t1', { call: 'c1' }))
-    expect(a.status).toBe('working')
-    feed(a, { kind: 'toolEnd' }, ids('t1', { call: 'c1' }))
     feed(a, { kind: 'stop', lastMessage: null }, ids('t1', { continued: true }))
     expect(a.status).toBe('finished')
   })
@@ -129,7 +154,7 @@ describe('the turn ledger', () => {
     expect(a.stale).toEqual([])
     feed(a, { kind: 'toolEnd' }, ids('t1', { sub: 'agent-1', call: 's1' }))
     feed(a, { kind: 'stop', lastMessage: null }, ids('t1'))
-    feed(a, { kind: 'toolStart' }, ids('t1', { sub: 'agent-1', call: 's2' }))
+    feed(a, { kind: 'toolStart' }, ids('t1', { sub: 'agent-1', call: 's2' }), false, 'working')
     feed(a, { kind: 'stop', lastMessage: null }, ids('t1', { sub: 'agent-1' }))
     expect(a.status).toBe('finished')
     expect(a.stale).toEqual(["a sub-agent's tool outside the running turn", "a sub-agent's Stop"])
@@ -159,36 +184,47 @@ describe('the turn ledger', () => {
     }
   })
 
-  it('silence: only a running turn with no tool under way, from when the CLI was last heard; never an end by itself', () => {
+  it('silence: of a running turn, from when the CLI was last heard, open tool calls or not (their ends can be lost); never an end by itself', () => {
     const l = newLedger(0)
     expect(silentFor(l, 1000)).toBeNull()
     admit(l, { kind: 'prompt' }, ids('t1'), { now: 0 })
     expect(silentFor(l, 60_000)).toBe(60_000)
     admit(l, { kind: 'toolStart' }, ids('t1', { call: 'c' }), { now: 60_000 })
-    expect(silentFor(l, 10 * 60_000)).toBeNull()
+    expect([silentFor(l, 6 * 3600_000), openCalls(l)]).toEqual([6 * 3600_000 - 60_000, 1])
     admit(l, { kind: 'toolEnd' }, ids('t1', { call: 'c' }), { now: 70_000 })
     heard(l, 100_000)
-    expect(silentFor(l, 400_000)).toBe(300_000)
+    expect([silentFor(l, 400_000), openCalls(l)]).toEqual([300_000, 0])
     expect(l.active?.state).toBe('running')
   })
 
-  it("the CLI's record of a turn's end reconciles only the turn it names; one naming none, only if Hive didn't carry it on", () => {
+  it("the CLI's record of a turn's end by id reconciles only the turn Hive has running under that id", () => {
     const l = newLedger(0)
     admit(l, { kind: 'prompt' }, ids('t2'))
-    expect(reconciles(l, 't1', true)).toBe(false)
-    expect(reconciles(l, 't2', false)).toBe(true)
+    expect(reconciles(l, 't1')).toBe(false)
+    expect(reconciles(l, 't2')).toBe(true)
     endRunning(l, 'transcript')
-    expect(reconciles(l, 't2', true)).toBe(false)
+    expect(reconciles(l, 't2')).toBe(false)
+    // A running turn whose prompt hook named none can't be told to be the record's.
     const c = newLedger(0)
     admit(c, { kind: 'prompt' }, ids(null))
-    expect(reconciles(c, null, true)).toBe(true)
-    // A hook since the read (the next prompt): the record may be of the turn before.
-    expect(reconciles(c, null, false)).toBe(false)
-    // A record naming a turn, while the running one has no id (a prompt hook without one): only with no hook since.
-    expect(reconciles(c, 't1', false)).toBe(false)
-    expect(reconciles(c, 't1', true)).toBe(true)
-    admit(c, { kind: 'stop', lastMessage: null }, ids(null), { hiveContinued: true })
-    expect(reconciles(c, null, true)).toBe(false)
+    expect(reconciles(c, 't1')).toBe(false)
+  })
+
+  it("records naming no turn (Copilot): a Stop answered since the turn began that Hive never got ends it; earlier ones don't", () => {
+    // An earlier turn's Stop answered at 900 (in the tail read with the new prompt): not this turn's.
+    const c = newLedger(0)
+    admit(c, { kind: 'prompt' }, ids(null), { now: 1000 })
+    expect(unheardStop(c, [900])).toBe(false)
+    // Carried on by Hive once, then its final Stop missed: the second answer is one Hive never got.
+    const e = newLedger(0)
+    admit(e, { kind: 'prompt' }, ids(null), { now: 1000 })
+    admit(e, { kind: 'stop', lastMessage: null }, ids(null), { hiveContinued: true, now: 1100 })
+    expect(unheardStop(e, [900, 1101])).toBe(false)
+    expect(unheardStop(e, [900, 1101, 1500])).toBe(true)
+    // A CLI whose records name turns isn't read this way.
+    const f = newLedger(0)
+    admit(f, { kind: 'prompt' }, ids('t1'), { now: 1000 })
+    expect(unheardStop(f, [1500])).toBe(false)
   })
 })
 
@@ -241,17 +277,19 @@ describe("the CLIs' own records of a turn's end", () => {
     expect(rolloutDetails(line('event_msg', { type: 'token_count' })).turnEnded).toBeUndefined()
   })
 
-  it("Copilot: its agentStop hook answered (hook.end), until a turn or prompt follows", async () => {
+  it('Copilot: when each of its Stop hooks was answered (agentStop hook.end), whatever follows', async () => {
     const { eventsDetails } = await import('../src/main/providers/copilot/events')
     const ev = (type: string, data: Record<string, unknown>, timestamp = '2026-10-12T00:00:00.000Z') => JSON.stringify({ type, data, timestamp }) + '\n'
     const ended = ev('user.message', { content: 'go' }) + ev('assistant.turn_start', { turnId: '0' }) + ev('assistant.turn_end', { turnId: '0' }) + ev('hook.start', { hookType: 'agentStop' }) + ev('hook.end', { hookType: 'agentStop' }, '2026-10-12T00:00:09.000Z')
-    expect(eventsDetails(ended).turnEnded).toEqual({ turn: null, at: '2026-10-12T00:00:09.000Z' })
-    // Its Stop hook asked to carry on: another model call follows.
-    expect(eventsDetails(ended + ev('assistant.turn_start', { turnId: '1' })).turnEnded).toBeNull()
-    expect(eventsDetails(ev('user.message', { content: 'go' })).turnEnded).toBeNull()
-    // The real 1.0.93 session's events end on a turn whose Stop was answered (tests/fixtures/copilot).
+    expect(eventsDetails(ended).stopsAnswered).toEqual(['2026-10-12T00:00:09.000Z'])
+    // The next prompt's hook in the same lines (#648 round 1: a tail read with it): the answer is still the earlier one's.
+    const next = ended + ev('hook.start', { hookType: 'userPromptSubmitted' }, '2026-10-12T00:00:20.000Z')
+    expect(eventsDetails(next).stopsAnswered).toEqual(['2026-10-12T00:00:09.000Z'])
+    expect(eventsDetails(ev('user.message', { content: 'go' })).stopsAnswered).toBeUndefined()
+    expect(eventsDetails(ended).turnEnded).toBeUndefined()
+    // The real 1.0.93 session's events: three Stops answered (tests/fixtures/copilot).
     const real = readFileSync(join(__dirname, 'fixtures', 'copilot', 'session-state', '5cb5a219-ee72-49a3-b871-cc0c05d27269', 'events.jsonl'), 'utf8')
-    expect(eventsDetails(real).turnEnded).toMatchObject({ turn: null })
+    expect(eventsDetails(real).stopsAnswered).toHaveLength(3)
   })
 })
 

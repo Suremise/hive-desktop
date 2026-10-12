@@ -494,9 +494,15 @@ async function endTurn(answer, inputTokens = 20, lostStop = false, { late = null
   if (carryOn) {
     for (const end = Date.now() + 120_000; !take('fake-continue') && Date.now() < end; ) await sleep(100)
     const call = { tool_name: 'Bash', tool_input: { command: 'echo again' }, tool_use_id: `toolu_${randomUUID().slice(0, 8)}` }
+    // Its spinner shows it working again, as Claude Code's does (Hive takes a tool after a Stop only with that, #648).
+    out(BUSY)
+    busyDrawn = writes
+    // As Claude Code's model call does, a moment passes between its spinner and the tool (Hive draws its screen meanwhile).
+    await sleep(500)
     await hook('PreToolUse', call)
     for (const end = Date.now() + 120_000; !take('fake-continue-done') && Date.now() < end; ) await sleep(100)
     await hook('PostToolUse', call)
+    if (busyDrawn === writes) out(`\x1b[${BUSY_LINES}A\r\x1b[J`)
     out('\r\nCarried on past the Stop.\r\n')
     await hook('Stop', { last_assistant_message: 'Carried on past the Stop.', stop_hook_active: true })
   }

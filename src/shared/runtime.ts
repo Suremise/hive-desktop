@@ -1,40 +1,37 @@
-import { isCompacting } from './defaults'
-import type { LiveSessionState } from './types'
+import { COMPACTING_MESSAGE } from './defaults'
+import type { LiveSessionState, RuntimeFacts } from './types'
 
 /**
- * An agent's runtime as separate facts (#648), rather than one word standing for several: its status is a projection of
- * these, with Hive's policy on top (a watch makes an idle agent "watching"; assigned work is the board's). Unknown is
- * its own value, never idle: a running turn Hive has heard nothing of for a while, with no sign of its end.
+ * An agent's runtime as separate facts (#648), rather than one word standing for several. Each is stored where Hive
+ * learns it (LiveSessionState.runtime, .turn and .backgroundTasks), never read back from the status word: the labels
+ * are projected from them (runtimeLabel), with Hive's policy on top (a watch makes an idle agent "watching"; how its
+ * last turn ended and assigned work are the board's and the status word's). Unknown is its own value, never idle: a
+ * running turn Hive has heard nothing of for a while, with no sign of its end.
  */
-export interface AgentRuntime {
-  /** The CLI's process: starting, running, stopped by a refused sign-in, or stopped. */
-  lifecycle: 'starting' | 'running' | 'signin' | 'stopped'
+export interface AgentRuntime extends RuntimeFacts {
   /** Its latest turn: running, over, unknown, or none yet. */
   turn: 'running' | 'over' | 'unknown' | 'none'
-  /** Work that isn't a turn's: compacting its conversation. */
-  maintenance: 'compacting' | null
-  /** A person is asked: it waits for them, or a question waits beside its work. */
-  attention: 'waiting' | 'question' | null
-  /** Its input: holding a line Hive typed that the CLI hasn't taken, or free as far as Hive knows. */
-  composer: 'held' | 'free'
+  /** The CLI's id for that turn, when it names turns. */
+  turnId?: string
   /** Its background tasks still running. */
   backgroundTasks: number
   /** Minutes its running turn has been silent, while its state is unknown. */
   silentMinutes?: number
 }
 
+/** Before an agent's facts are known (a state from before them): starting, nothing else known. */
+const NO_FACTS: RuntimeFacts = { lifecycle: 'starting', maintenance: null, attention: null, composer: 'free' }
+
 /** Minutes since an ISO time, at least 1. */
 const minutesSince = (iso: string, now: number): number => Math.max(1, Math.round((now - Date.parse(iso)) / 60_000))
 
-export function agentRuntime(st: LiveSessionState, now = Date.now()): AgentRuntime {
-  const lifecycle = st.status === 'stopped' || st.status === 'error' ? 'stopped' : st.status === 'starting' ? 'starting' : st.status === 'signin' ? 'signin' : 'running'
+/** The agent's runtime: its stored facts, gathered. */
+export function agentRuntime(st: Pick<LiveSessionState, 'runtime' | 'turn' | 'backgroundTasks'>, now = Date.now()): AgentRuntime {
   const turn = st.turn?.state ?? 'none'
   return {
-    lifecycle,
+    ...(st.runtime ?? NO_FACTS),
     turn,
-    maintenance: isCompacting(st) ? 'compacting' : null,
-    attention: st.status === 'waiting' ? 'waiting' : st.question ? 'question' : null,
-    composer: st.untakenLine ? 'held' : 'free',
+    ...(st.turn?.id ? { turnId: st.turn.id } : {}),
     backgroundTasks: st.backgroundTasks ?? 0,
     ...(turn === 'unknown' && st.turn?.silentSince ? { silentMinutes: minutesSince(st.turn.silentSince, now) } : {})
   }
@@ -44,4 +41,22 @@ export function agentRuntime(st: LiveSessionState, now = Date.now()): AgentRunti
 export function unknownStateText(st: Pick<LiveSessionState, 'turn'> | null | undefined, now = Date.now()): string | null {
   if (st?.turn?.state !== 'unknown') return null
   return `Silent ${st.turn.silentSince ? minutesSince(st.turn.silentSince, now) : '?'} min · state unknown`
+}
+
+/**
+ * What an agent is doing, in words, projected from its runtime facts: stopped, starting, signed out, asking, compacting,
+ * silent with its state unknown, working; its status message where it has one (what it is asked, what it waits for).
+ * Null when its facts say no turn runs: then Hive's policy words apply (watching, finished, ready, its background tasks:
+ * ui.statusText).
+ */
+export function runtimeLabel(st: Pick<LiveSessionState, 'runtime' | 'turn' | 'backgroundTasks' | 'statusMessage' | 'mergeSlot'>, now = Date.now()): string | null {
+  const rt = agentRuntime(st, now)
+  if (rt.lifecycle === 'stopped') return 'Stopped'
+  if (rt.attention === 'waiting') return st.statusMessage || 'Needs your input'
+  if (rt.lifecycle === 'starting') return st.statusMessage || 'Starting…'
+  if (rt.lifecycle === 'signin') return 'Needs sign-in'
+  if (rt.maintenance === 'compacting') return COMPACTING_MESSAGE
+  if (rt.turn === 'unknown') return unknownStateText(st, now)
+  if (rt.turn === 'running') return st.statusMessage || st.mergeSlot || 'Working…'
+  return null
 }
