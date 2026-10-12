@@ -164,12 +164,14 @@ describe.runIf(process.platform === 'win32')('stopping a command on Windows (#54
       process.emit(stop)
       process.emit(stop)
       expect(await going).not.toBe(0)
-      await vi.waitFor(() => expect(alive()).toBe(false), { timeout: 10_000 })
+      await vi.waitFor(() => expect(alive()).toBe(false), { timeout: 30_000 })
       expect(calls.at(-1)).toMatchObject({ path: '/v1/progress/run-1/finish', body: { ok: false, stopped: true, summary: 'interrupted' } })
     } finally {
       endExactly(serverId)
     }
-  })
+    // Bounds for a hung run, not waits: the test and the stop start PowerShell five times or more in a row (identify,
+    // each alive(), the stop's list and end), and under a full e2e set one start took up to 21 s (#616).
+  }, 90_000)
 })
 
 describe('which processes stopping a command ends (#655)', () => {
