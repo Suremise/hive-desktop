@@ -43,7 +43,9 @@ export interface RecordingEnd {
   at: string
   events: number
   dropped: number
-  reason: 'stopped' | 'closed' | 'workspace' | 'limit'
+  reason: 'stopped' | 'closed' | 'workspace' | 'limit' | 'failed'
+  /** Why a failed recording failed. */
+  error?: string
 }
 
 export interface Recording {
@@ -140,10 +142,18 @@ export interface ContractFinding {
 
 /**
  * The kinds whose arrival is part of the contract, for a scripted run: a hook, status line, launch or exit that stops
- * arriving, or a terminal marker Hive no longer recognises (the CLI's screen changed), is a change. A transcript read
- * holds whichever records were newest at that moment, so only a new one is flagged.
+ * arriving is a change. A transcript read holds whichever records were newest at that moment, so only a new one is
+ * flagged.
  */
-export const CONTRACT_KINDS: readonly string[] = ['hook', 'statusline', 'launch', 'exit', 'terminal']
+export const CONTRACT_KINDS: readonly string[] = ['hook', 'statusline', 'launch', 'exit']
+/**
+ * The terminal markers that say only whether Hive recognised the CLI's screen (once a launch, whatever its status:
+ * screenRecognition.ts): one that stops arriving means the CLI's prompt or footer changed. The others (ready, footer
+ * mode, title, startup question) are what Hive did with the screen at the time, so they come and go with timing: their
+ * readings are compared where both runs have them, and they are never required.
+ */
+export const RECOGNITION_MARKERS: readonly string[] = ['prompt shown', 'footer seen']
+const required = (e: FixtureEvent): boolean => CONTRACT_KINDS.includes(e.kind) || (e.kind === 'terminal' && RECOGNITION_MARKERS.includes(e.name))
 /** The kinds whose fields are part of it: a field gone or retyped is a change. A terminal marker's are Hive's own. */
 export const SHAPE_KINDS: readonly string[] = ['hook', 'statusline', 'launch', 'exit']
 /** The kinds whose reading is part of it: what Hive made of the event (its kind, status, actions and the like). */
@@ -199,10 +209,11 @@ const parentOf = (path: string): string => path.replace(/(?:^|\.)[^.[\]]+$|\[\]$
 
 /**
  * Compares what a CLI sends now (`live`, a fixture made from a new recording of the same scripted run) with a recorded
- * fixture. Per event (its kind and name), these are changes: one that no longer arrives (CONTRACT_KINDS), a field gone
- * or of another type (SHAPE_KINDS), and a reading of the fixture's that Hive no longer makes (READING_KINDS: another
- * event kind, status, actions or mode). A new event, field or reading is flagged as new. A field gone with a new one
- * beside it, of the same type, is named as a possible rename.
+ * fixture. Per event (its kind and name), these are changes: one that no longer arrives (CONTRACT_KINDS, and the
+ * terminal's RECOGNITION_MARKERS), a field gone or of another type (SHAPE_KINDS), and a reading of the fixture's that
+ * Hive no longer makes where both runs have the event (READING_KINDS: another event kind, status, actions or mode). A
+ * new event, field or reading is flagged as new. A field gone with a new one beside it, of the same type, is named as a
+ * possible rename.
  */
 export function compareContract(fixture: ConsoleFixture, live: ConsoleFixture): ContractFinding[] {
   const findings: ContractFinding[] = []
@@ -212,7 +223,7 @@ export function compareContract(fixture: ConsoleFixture, live: ConsoleFixture): 
     const kind = was[0].kind
     const is = now.get(event)
     if (!is) {
-      if (CONTRACT_KINDS.includes(kind)) findings.push({ level: 'change', event, what: kind === 'terminal' ? 'Hive no longer recognises it on the screen' : 'no longer arrives' })
+      if (required(was[0])) findings.push({ level: 'change', event, what: kind === 'terminal' ? 'Hive no longer recognises it on the screen' : 'no longer arrives' })
       continue
     }
     if (SHAPE_KINDS.includes(kind)) {

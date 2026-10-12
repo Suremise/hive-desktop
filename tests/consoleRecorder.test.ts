@@ -15,16 +15,36 @@ vi.mock('electron', async () => {
   const profile = tempDir('hive-recorder-')
   return { app: { getPath: () => profile, getVersion: () => '0.7.0-test' } }
 })
-// A file open can be made to fail once (a recordings folder Hive can't write to).
+// A file open can be made to fail once (a recordings folder Hive can't write to), and a recording's writes can fail (a
+// full disk) or take only part of what they're given, chosen by what is being written.
 const openFails = vi.hoisted(() => ({ next: false }))
+const writeFaults = vi.hoisted(() => ({ rules: [] as { when: (text: string) => boolean; fault: 'enospc' | number; times: number }[] }))
 vi.mock('fs/promises', async (original) => {
   const fsp = await original<typeof import('fs/promises')>()
+  const faulty = (fh: import('fs/promises').FileHandle) =>
+    new Proxy(fh, {
+      get(target, key) {
+        if (key === 'write')
+          return async (buf: Buffer, offset = 0, length = buf.length - offset, position: number | null = null) => {
+            const text = buf.subarray(offset, offset + length).toString('utf8')
+            const rule = writeFaults.rules.find((r) => r.times > 0 && r.when(text))
+            if (rule) {
+              rule.times--
+              if (rule.fault === 'enospc') throw Object.assign(new Error('ENOSPC: no space left on device, write'), { code: 'ENOSPC' })
+              return target.write(buf, offset, Math.min(rule.fault, length), position)
+            }
+            return target.write(buf, offset, length, position)
+          }
+        const v = Reflect.get(target, key) as unknown
+        return typeof v === 'function' ? (v as (...a: unknown[]) => unknown).bind(target) : v
+      }
+    })
   return {
     ...fsp,
-    open: (...args: Parameters<typeof fsp.open>) => {
-      if (!openFails.next) return fsp.open(...args)
+    open: async (...args: Parameters<typeof fsp.open>) => {
+      if (!openFails.next) return faulty(await fsp.open(...args))
       openFails.next = false
-      return Promise.reject(Object.assign(new Error('EACCES: denied'), { code: 'EACCES' }))
+      throw Object.assign(new Error('EACCES: denied'), { code: 'EACCES' })
     }
   }
 })
@@ -68,6 +88,7 @@ const page = (): ReturnType<typeof fakePage> => {
 }
 
 afterEach(async () => {
+  writeFaults.rules = []
   for (const p of pages.splice(0)) if (!p.isDestroyed()) p.close()
   await vi.waitFor(() => expect(recordingSubs()).toBe(0), { timeout: HUNG_MS })
 })
@@ -172,6 +193,73 @@ describe('stopping', () => {
     wc.close()
     await vi.waitFor(() => expect(lines(info.file).end?.reason).toBe('closed'), { timeout: HUNG_MS })
     expect(lines(info.file).events.map((e) => e.name)).toEqual(['Stop'])
+  })
+})
+
+describe('a file that cannot be written', () => {
+  const isEvent = (t: string): boolean => t.startsWith('{"type":"event"')
+  const isHeader = (t: string): boolean => t.startsWith('{"type":"recording"')
+  const isEnd = (t: string): boolean => t.startsWith('{"type":"end"')
+  const raw = (file: string): string => readFileSync(file, 'utf8')
+  const last = (wc: ReturnType<typeof fakePage>) => (wc.sent.at(-1) as { recording: { recording: boolean; reason?: string; error?: string; events: number } }).recording
+
+  it('a write that takes only part of its text is finished, the file whole and its count right', async () => {
+    writeFaults.rules.push({ when: isHeader, fault: 15, times: 1 }, { when: isEvent, fault: 15, times: 2 }, { when: isEnd, fault: 7, times: 1 })
+    const wc = page()
+    const info = await startRecording(wc, source, 'c:\\work', false, () => true)
+    devConsole.capture([A1], hook('Stop'))
+    const done = await stopRecording(wc.id, 'stopped')
+    const r = lines(info.file)
+    expect(r.bad).toBe(0)
+    expect(r.events.map((e) => e.name)).toEqual(['Stop'])
+    expect(r.end).toMatchObject({ events: 1, reason: 'stopped' })
+    expect(done).toMatchObject({ events: 1, reason: 'stopped', bytes: Buffer.byteLength(raw(info.file)) })
+  })
+
+  it('a full disk while recording: failed, with why, counting only what is in the file; never "saved"', async () => {
+    writeFaults.rules.push({ when: isEvent, fault: 'enospc', times: 1 })
+    const wc = page()
+    const info = await startRecording(wc, source, 'c:\\work', false, () => true)
+    devConsole.capture([A1], hook('Stop'))
+    // Its last word comes once its file is finished (it is no longer the window's recording a little before).
+    await vi.waitFor(() => expect(last(wc).recording).toBe(false), { timeout: HUNG_MS })
+    expect(recordingOf(wc.id)).toBeNull()
+    const r = lines(info.file)
+    expect(r.events).toEqual([])
+    expect(r.end).toMatchObject({ events: 0, reason: 'failed', error: expect.stringMatching(/ENOSPC/) })
+    expect(last(wc)).toMatchObject({ recording: false, reason: 'failed', events: 0, error: expect.stringMatching(/ENOSPC/) })
+    expect(wc.sent.some((e) => (e as { recording: { recording: boolean; reason?: string } }).recording.recording === false && (e as { recording: { reason?: string } }).recording.reason !== 'failed')).toBe(false)
+  })
+
+  it("an end line or header that can't be written: failed, the file kept as it is", async () => {
+    writeFaults.rules.push({ when: isEnd, fault: 'enospc', times: 1 })
+    const wc = page()
+    const info = await startRecording(wc, source, 'c:\\work', false, () => true)
+    devConsole.capture([A1], hook('Stop'))
+    const done = await stopRecording(wc.id, 'stopped')
+    expect(done).toMatchObject({ recording: false, reason: 'failed', events: 1, error: expect.stringMatching(/ENOSPC/) })
+    expect(lines(info.file).events.map((e) => e.name)).toEqual(['Stop'])
+    expect(lines(info.file).end).toBeNull()
+
+    writeFaults.rules.push({ when: isHeader, fault: 'enospc', times: 1 })
+    const other = page()
+    await expect(startRecording(other, source, 'c:\\work', false, () => true)).rejects.toThrow(/ENOSPC/)
+    expect(recordingOf(other.id)).toBeNull()
+    expect(devConsole.sourcesOf(`record:${other.id}`)).toEqual([])
+  })
+
+  it("an old recording's failure never stops the newer one that replaced it", async () => {
+    const wc = page()
+    const old = await startRecording(wc, source, 'c:\\work', false, () => true)
+    writeFaults.rules.push({ when: isEvent, fault: 'enospc', times: 1 })
+    devConsole.capture([A1], hook('Stop'))
+    const newer = await startRecording(wc, source, 'c:\\work', true, () => true)
+    expect(lines(old.file).end).toMatchObject({ reason: 'failed', events: 0 })
+    devConsole.capture([A1], hook('SessionEnd'))
+    await vi.waitFor(() => expect(recordingOf(wc.id)?.events).toBe(1), { timeout: HUNG_MS })
+    expect(recordingOf(wc.id)).toMatchObject({ name: newer.name, recording: true, includeText: true })
+    await stopRecording(wc.id, 'stopped')
+    expect(lines(newer.file).events.map((e) => e.name)).toEqual(['SessionEnd'])
   })
 })
 

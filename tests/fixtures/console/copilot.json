@@ -3,7 +3,7 @@
   "provider": "copilot",
   "cli": "1.0.95",
   "hive": "0.6.0",
-  "recordedAt": "2026-10-12T12:21:11.086Z",
+  "recordedAt": "2026-10-12T12:52:04.418Z",
   "events": [
     {
       "kind": "launch",
@@ -41,6 +41,24 @@
     },
     {
       "kind": "terminal",
+      "name": "prompt shown",
+      "made": {
+        "recognised": "prompt"
+      }
+    },
+    {
+      "kind": "terminal",
+      "name": "footer seen",
+      "raw": {
+        "footer": "accept-edits"
+      },
+      "made": {
+        "recognised": "footer",
+        "permissionMode": "accept-edits"
+      }
+    },
+    {
+      "kind": "terminal",
       "name": "footer mode",
       "raw": {
         "footer": "accept-edits"
@@ -55,8 +73,8 @@
       "name": "UserPromptSubmit",
       "raw": {
         "hook_event_name": "UserPromptSubmit",
-        "session_id": "c1d3962b-c8c2-4b50-b882-1736623af449",
-        "timestamp": "2026-10-12T12:21:14.798Z",
+        "session_id": "7c99f8a3-f402-459e-aff2-ef4cd2cc274d",
+        "timestamp": "2026-10-12T12:52:07.931Z",
         "cwd": "<path>",
         "prompt": "<text: 24 chars>"
       },
@@ -77,8 +95,8 @@
       "name": "SessionStart",
       "raw": {
         "hook_event_name": "SessionStart",
-        "session_id": "c1d3962b-c8c2-4b50-b882-1736623af449",
-        "timestamp": "2026-10-12T12:21:14.816Z",
+        "session_id": "7c99f8a3-f402-459e-aff2-ef4cd2cc274d",
+        "timestamp": "2026-10-12T12:52:07.949Z",
         "cwd": "<path>",
         "source": "new",
         "initial_prompt": "<text: 24 chars>"
@@ -99,8 +117,8 @@
       "name": "PreToolUse",
       "raw": {
         "hook_event_name": "PreToolUse",
-        "session_id": "c1d3962b-c8c2-4b50-b882-1736623af449",
-        "timestamp": "2026-10-12T12:21:14.951Z",
+        "session_id": "7c99f8a3-f402-459e-aff2-ef4cd2cc274d",
+        "timestamp": "2026-10-12T12:52:08.023Z",
         "cwd": "<path>",
         "tool_name": "Read",
         "tool_input": {
@@ -120,8 +138,8 @@
       "name": "PostToolUse",
       "raw": {
         "hook_event_name": "PostToolUse",
-        "session_id": "c1d3962b-c8c2-4b50-b882-1736623af449",
-        "timestamp": "2026-10-12T12:21:14.956Z",
+        "session_id": "7c99f8a3-f402-459e-aff2-ef4cd2cc274d",
+        "timestamp": "2026-10-12T12:52:08.028Z",
         "cwd": "<path>",
         "tool_name": "Read",
         "tool_input": {
@@ -145,8 +163,8 @@
       "name": "Stop",
       "raw": {
         "hook_event_name": "Stop",
-        "session_id": "c1d3962b-c8c2-4b50-b882-1736623af449",
-        "timestamp": "2026-10-12T12:21:16.604Z",
+        "session_id": "7c99f8a3-f402-459e-aff2-ef4cd2cc274d",
+        "timestamp": "2026-10-12T12:52:09.581Z",
         "cwd": "<path>",
         "transcript_path": "<path>",
         "stop_reason": "<text: 8 chars>",
@@ -184,7 +202,7 @@
                 "cost": 0,
                 "duration": 8,
                 "timeToFirstTokenMs": "<redacted>",
-                "outputTtftMs": 7.031499999999999,
+                "outputTtftMs": 6.7152,
                 "interTokenLatencyMs": "<redacted>",
                 "initiator": "<text: 4 chars>",
                 "interactionType": "<text: 18 chars>",
@@ -195,7 +213,7 @@
                 "maxPromptTokens": 64000,
                 "maxOutputTokens": 16384,
                 "transport": "<text: 4 chars>",
-                "requestBodyBytes": 81421,
+                "requestBodyBytes": 81427,
                 "apiCallId": "<text: 5 chars>",
                 "rte": false,
                 "apiEndpoint": "<text: 17 chars>",
@@ -218,7 +236,7 @@
               }
             },
             "id": "<text: 36 chars>",
-            "timestamp": "2026-10-12T12:21:14.854Z",
+            "timestamp": "2026-10-12T12:52:07.980Z",
             "parentId": "<text: 36 chars>"
           },
           {
@@ -244,7 +262,7 @@
               "apiCallId": "<text: 5 chars>"
             },
             "id": "<text: 36 chars>",
-            "timestamp": "2026-10-12T12:21:14.945Z",
+            "timestamp": "2026-10-12T12:52:08.021Z",
             "parentId": "<text: 36 chars>"
           },
           {
@@ -260,7 +278,7 @@
               "toolTitle": "<text: 12 chars>"
             },
             "id": "<text: 36 chars>",
-            "timestamp": "2026-10-12T12:21:14.949Z",
+            "timestamp": "2026-10-12T12:52:08.022Z",
             "parentId": "<text: 36 chars>"
           },
           {
@@ -270,14 +288,14 @@
               "hookType": "<text: 10 chars>",
               "input": {
                 "sessionId": "<text: 36 chars>",
-                "cwd": "<text: 93 chars>",
+                "cwd": "<text: 95 chars>",
                 "toolCalls": [
                   "<object>"
                 ]
               }
             },
             "id": "<text: 36 chars>",
-            "timestamp": "2026-10-12T12:21:14.951Z",
+            "timestamp": "2026-10-12T12:52:08.023Z",
             "parentId": "<text: 36 chars>"
           },
           {
@@ -288,7 +306,7 @@
               "success": true
             },
             "id": "<text: 36 chars>",
-            "timestamp": "2026-10-12T12:21:14.953Z",
+            "timestamp": "2026-10-12T12:52:08.025Z",
             "parentId": "<text: 36 chars>"
           },
           {
@@ -298,8 +316,8 @@
               "hookType": "<text: 11 chars>",
               "input": {
                 "sessionId": "<text: 36 chars>",
-                "timestamp": 1791807674956,
-                "cwd": "<text: 93 chars>",
+                "timestamp": 1791809528028,
+                "cwd": "<text: 95 chars>",
                 "toolName": "<text: 4 chars>",
                 "toolArgs": {
                   "path": "<text: 4 chars>"
@@ -314,7 +332,7 @@
               }
             },
             "id": "<text: 36 chars>",
-            "timestamp": "2026-10-12T12:21:14.956Z",
+            "timestamp": "2026-10-12T12:52:08.028Z",
             "parentId": "<text: 36 chars>"
           },
           {
@@ -325,7 +343,7 @@
               "success": true
             },
             "id": "<text: 36 chars>",
-            "timestamp": "2026-10-12T12:21:14.958Z",
+            "timestamp": "2026-10-12T12:52:08.029Z",
             "parentId": "<text: 36 chars>"
           },
           {
@@ -339,7 +357,7 @@
               "success": true,
               "result": {
                 "content": "<text: 6 chars>",
-                "detailedContent": "<text: 479 chars>"
+                "detailedContent": "<text: 487 chars>"
               },
               "toolTelemetry": {
                 "properties": {
@@ -359,7 +377,7 @@
               }
             },
             "id": "<text: 36 chars>",
-            "timestamp": "2026-10-12T12:21:14.960Z",
+            "timestamp": "2026-10-12T12:52:08.031Z",
             "parentId": "<text: 36 chars>"
           },
           {
@@ -368,7 +386,7 @@
               "turnId": "<text: 1 chars>"
             },
             "id": "<text: 36 chars>",
-            "timestamp": "2026-10-12T12:21:14.966Z",
+            "timestamp": "2026-10-12T12:52:08.035Z",
             "parentId": "<text: 36 chars>"
           },
           {
@@ -378,7 +396,7 @@
               "interactionId": "<text: 36 chars>"
             },
             "id": "<text: 36 chars>",
-            "timestamp": "2026-10-12T12:21:14.966Z",
+            "timestamp": "2026-10-12T12:52:08.035Z",
             "parentId": "<text: 36 chars>"
           }
         ]
@@ -389,10 +407,31 @@
       }
     },
     {
+      "kind": "hook",
+      "name": "SessionEnd",
+      "raw": {
+        "hook_event_name": "SessionEnd",
+        "session_id": "7c99f8a3-f402-459e-aff2-ef4cd2cc274d",
+        "timestamp": "2026-10-12T12:52:10.097Z",
+        "cwd": "<path>",
+        "reason": "<text: 9 chars>"
+      },
+      "made": {
+        "event": {
+          "kind": "end"
+        },
+        "status": "stopped",
+        "actions": [
+          "releaseAllLocks",
+          "clearTasks"
+        ]
+      }
+    },
+    {
       "kind": "transcript",
       "name": "transcript",
       "raw": {
-        "records": 5,
+        "records": 8,
         "newest": [
           {
             "type": "session.usage_record",
@@ -405,9 +444,9 @@
                 "cacheReadTokens": 1000,
                 "cacheWriteTokens": 0,
                 "cost": 0,
-                "duration": 1507,
+                "duration": 1517,
                 "timeToFirstTokenMs": "<redacted>",
-                "outputTtftMs": 1505.6877,
+                "outputTtftMs": 1516.2358000000002,
                 "interTokenLatencyMs": "<redacted>",
                 "initiator": "<text: 5 chars>",
                 "interactionType": "<text: 18 chars>",
@@ -418,7 +457,7 @@
                 "maxPromptTokens": 64000,
                 "maxOutputTokens": 16384,
                 "transport": "<text: 4 chars>",
-                "requestBodyBytes": 81650,
+                "requestBodyBytes": 81656,
                 "apiCallId": "<text: 5 chars>",
                 "rte": false,
                 "apiEndpoint": "<text: 17 chars>",
@@ -439,7 +478,7 @@
               }
             },
             "id": "<text: 36 chars>",
-            "timestamp": "2026-10-12T12:21:16.523Z",
+            "timestamp": "2026-10-12T12:52:09.567Z",
             "parentId": "<text: 36 chars>"
           },
           {
@@ -456,7 +495,7 @@
               "apiCallId": "<text: 5 chars>"
             },
             "id": "<text: 36 chars>",
-            "timestamp": "2026-10-12T12:21:16.545Z",
+            "timestamp": "2026-10-12T12:52:09.577Z",
             "parentId": "<text: 36 chars>"
           },
           {
@@ -465,7 +504,7 @@
               "turnId": "<text: 1 chars>"
             },
             "id": "<text: 36 chars>",
-            "timestamp": "2026-10-12T12:21:16.603Z",
+            "timestamp": "2026-10-12T12:52:09.580Z",
             "parentId": "<text: 36 chars>"
           },
           {
@@ -475,15 +514,15 @@
               "hookType": "<text: 9 chars>",
               "input": {
                 "sessionId": "<text: 36 chars>",
-                "transcriptPath": "<text: 166 chars>",
+                "transcriptPath": "<text: 168 chars>",
                 "stopReason": "<text: 8 chars>",
                 "stop_hook_active": false,
-                "timestamp": 1791807676604,
-                "cwd": "<text: 93 chars>"
+                "timestamp": 1791809529581,
+                "cwd": "<text: 95 chars>"
               }
             },
             "id": "<text: 36 chars>",
-            "timestamp": "2026-10-12T12:21:16.604Z",
+            "timestamp": "2026-10-12T12:52:09.581Z",
             "parentId": "<text: 36 chars>"
           },
           {
@@ -495,43 +534,9 @@
               "output": {}
             },
             "id": "<text: 36 chars>",
-            "timestamp": "2026-10-12T12:21:16.606Z",
+            "timestamp": "2026-10-12T12:52:09.582Z",
             "parentId": "<text: 36 chars>"
-          }
-        ]
-      },
-      "made": {
-        "modelId": "gpt-4.1",
-        "modelName": "gpt-4.1"
-      }
-    },
-    {
-      "kind": "hook",
-      "name": "SessionEnd",
-      "raw": {
-        "hook_event_name": "SessionEnd",
-        "session_id": "c1d3962b-c8c2-4b50-b882-1736623af449",
-        "timestamp": "2026-10-12T12:21:17.164Z",
-        "cwd": "<path>",
-        "reason": "<text: 9 chars>"
-      },
-      "made": {
-        "event": {
-          "kind": "end"
-        },
-        "status": "stopped",
-        "actions": [
-          "releaseAllLocks",
-          "clearTasks"
-        ]
-      }
-    },
-    {
-      "kind": "transcript",
-      "name": "transcript",
-      "raw": {
-        "records": 3,
-        "newest": [
+          },
           {
             "type": "hook.start",
             "data": {
@@ -540,12 +545,12 @@
               "input": {
                 "reason": "<text: 9 chars>",
                 "sessionId": "<text: 36 chars>",
-                "timestamp": 1791807677164,
-                "cwd": "<text: 93 chars>"
+                "timestamp": 1791809530097,
+                "cwd": "<text: 95 chars>"
               }
             },
             "id": "<text: 36 chars>",
-            "timestamp": "2026-10-12T12:21:17.164Z",
+            "timestamp": "2026-10-12T12:52:10.097Z",
             "parentId": "<text: 36 chars>"
           },
           {
@@ -556,7 +561,7 @@
               "success": true
             },
             "id": "<text: 36 chars>",
-            "timestamp": "2026-10-12T12:21:17.166Z",
+            "timestamp": "2026-10-12T12:52:10.098Z",
             "parentId": "<text: 36 chars>"
           },
           {
@@ -567,7 +572,7 @@
                 "totalUserRequests": 1,
                 "totalNanoAiu": 0,
                 "aiCreditsStatus": "<text: 11 chars>",
-                "totalApiDurationMs": 1515,
+                "totalApiDurationMs": 1525,
                 "sessionStartTime": "<text: 24 chars>",
                 "codeChanges": {
                   "linesAdded": 0,
@@ -597,14 +602,14 @@
                 }
               ],
               "usageAccountingWatermarks": {
-                "c1d3962b-c8c2-4b50-b882-1736623af449": 2
+                "7c99f8a3-f402-459e-aff2-ef4cd2cc274d": 2
               },
               "shutdownType": "<text: 7 chars>",
               "totalPremiumRequests": 0,
               "totalNanoAiu": 0,
-              "totalApiDurationMs": 1515,
-              "sessionStartTime": 1791807673194,
-              "eventsFileSizeBytes": 75041,
+              "totalApiDurationMs": 1525,
+              "sessionStartTime": 1791809527048,
+              "eventsFileSizeBytes": 75071,
               "codeChanges": {
                 "linesAdded": 0,
                 "linesRemoved": 0,
@@ -619,24 +624,26 @@
               },
               "agentMetrics": {
                 "main": {
-                  "totalApiDurationMs": 1515,
+                  "totalApiDurationMs": 1525,
                   "totalNanoAiu": 0,
                   "modelMetrics": "<object>"
                 }
               },
               "currentModel": "<text: 7 chars>",
-              "currentTokens": 17999,
-              "systemTokens": 6881,
+              "currentTokens": 18006,
+              "systemTokens": 6888,
               "conversationTokens": 127,
               "toolDefinitionsTokens": 10988
             },
             "id": "<text: 36 chars>",
-            "timestamp": "2026-10-12T12:21:17.178Z",
+            "timestamp": "2026-10-12T12:52:10.110Z",
             "parentId": "<text: 36 chars>"
           }
         ]
       },
       "made": {
+        "modelId": "gpt-4.1",
+        "modelName": "gpt-4.1",
         "costUsd": 0,
         "premiumRequests": 0
       }

@@ -34,11 +34,15 @@ changed.
 
 `compareContract` in `src/shared/consoleFixtures.mts`, per event (its kind and name):
 
-- **A change** (the suite fails): a hook, status line, launch, exit or terminal marker that no longer arrives (for a
-  marker: Hive no longer recognises the CLI's screen); a field of a hook, status line, launch or exit that is gone or of
+- **A change** (the suite fails): a hook, status line, launch or exit that no longer arrives; a recognition marker that
+  no longer arrives (`prompt shown`, `footer seen`: noted once a launch the first time Hive recognises the CLI's prompt or
+  footer, whatever the agent's status, so one missing means the CLI's screen changed; the suite waits for each the
+  fixture has before its turn); a field of a hook, status line, launch or exit that is gone or of
   another type (a field gone beside a new one of the same type is named as a likely rename); a reading in the fixture
-  that Hive no longer makes: a hook's event kind, status and actions, a marker's, launch's or exit's status, mode and
-  flags (`readingOf`; text and what varies between runs are left out).
+  that Hive no longer makes where both runs have the event: a hook's event kind, status and actions, a marker's,
+  launch's or exit's status, mode and flags (`readingOf`; text and what varies between runs are left out).
+- Hive's status markers (`ready`, `footer mode`, `title`, `startup question`) are what Hive did with the screen at that
+  moment: a transcript can make an agent ready before its prompt draws, so they are never required.
 - **New** (flagged in the log, `FLAG …`, the suite passes): an event, a field or a reading that isn't in the fixture.
 - Transcript reads hold whichever records were newest at that moment, so only their arrival as something new is flagged.
 

@@ -347,8 +347,16 @@ export function ConsoleApp() {
               </>
             ) : (
               <>
-                Saved {recording.events} events to {recording.name}
-                {recording.reason === 'limit' ? ' (it reached its size limit)' : ''}
+                {recording.reason === 'failed' ? (
+                  <span className="dc-recording-failed">
+                    <Icon name="error" /> Recording failed after {recording.events} events in {recording.name}: {recording.error ?? 'it could not be written'}
+                  </span>
+                ) : (
+                  <>
+                    Saved {recording.events} events to {recording.name}
+                    {recording.reason === 'limit' ? ' (it reached its size limit)' : ''}
+                  </>
+                )}
                 {' · '}
                 <a className="dc-show-recording" onClick={() => void call('console:showRecording', recording.name).catch((e) => setError(errorMessage(e)))}>
                   Show in folder

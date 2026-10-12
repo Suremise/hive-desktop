@@ -70,6 +70,7 @@ import { reportPlanUsage } from './planUsage'
 import { devConsole, sessionSourceId } from './devConsole'
 import { DETAILS_FIELDS, HOOK_FIELDS, HOOK_MADE_FIELDS, STATUSLINE_FIELDS, safeWord } from '../shared/devConsole'
 import { hookSummary, launchEvent, statusLineSummary, transcriptEvent } from './devConsoleWords'
+import { ScreenRecognition } from './screenRecognition'
 import { revisionOf } from './revisions'
 import { metricsHandle, recordLaunch } from './metrics'
 import { headerOf } from './revisions'
@@ -138,6 +139,8 @@ interface LiveSession {
   ending?: boolean
   /** Terminal output tail, to see the CLI ready or asking something at the start. */
   modeTail: string
+  /** What Hive recognised on its screen this launch, whatever its status (the developer console's contract markers, #638). */
+  recognition: ScreenRecognition
   /** The mode it was launched in. */
   launchMode: PermissionMode | null
   /** The mode the settings asked for when it launched, or when the user last applied a settings change to it. */
@@ -1004,7 +1007,7 @@ class SessionManager {
       launchSignature: '',
       unseen: false
     }
-    this.live.set(id, { state, adapter, transcriptMtime: '', defaultModel: false, modeTail: '', launchMode: null, configuredMode: null, modeOverride: opts.permissionMode, name: sessionName, transcriptPath: existing?.transcriptPath, initialPrompt: opts.prompt?.trim() || undefined, startAllowed: opts.allowed, resumed: !!opts.resumeId })
+    this.live.set(id, { state, adapter, transcriptMtime: '', defaultModel: false, modeTail: '', recognition: new ScreenRecognition(adapter), launchMode: null, configuredMode: null, modeOverride: opts.permissionMode, name: sessionName, transcriptPath: existing?.transcriptPath, initialPrompt: opts.prompt?.trim() || undefined, startAllowed: opts.allowed, resumed: !!opts.resumeId })
     this.runs.set(runId, id)
 
     const setup = cfg.worktreeSetup.trim()
@@ -1255,6 +1258,7 @@ class SessionManager {
         screen?.write(data, () => this.readFooterMode(l, screen))
         this.watchTitle(id, data)
         this.watchReadyOutput(id, data)
+        this.recognisePrompt(l, data)
       },
       onResize: (cols, rows) => screen?.resize(cols, rows),
       // Everything it starts is tracked, to offer to end what it leaves running (#507): it starts once it is.
@@ -1512,6 +1516,15 @@ class SessionManager {
     }
   }
 
+  /**
+   * The developer console's record that the CLI's prompt was recognised on its screen (#638), once a launch and whatever
+   * the status: a CLI whose prompt changed never gets one (the contract tests' pattern check).
+   */
+  private recognisePrompt(l: LiveSession, data: string): void {
+    if (!l.recognition.output(data)) return
+    devConsole.capture([sessionSourceId(l.state.projectPath, l.state.agentId)], () => ({ kind: 'terminal', name: 'prompt shown', provider: l.state.provider, made: { recognised: 'prompt' }, safe: { made: { recognised: true } }, summary: 'terminal: its prompt recognised' }))
+  }
+
   /** The question before the start was answered: the agent is starting again. */
   private startupAnswered(l: LiveSession): void {
     if (!l.askedAtStart) return
@@ -1522,7 +1535,11 @@ class SessionManager {
   /** Reads the mode from the CLI's footer on its screen as it redraws, so a mode change in the terminal shows in Hive at once. */
   private readFooterMode(l: LiveSession, screen: TerminalScreen): void {
     if (this.live.get(liveId(l.state.projectPath, l.state.agentId)) !== l || !l.adapter.footerMode) return
-    const mode = l.adapter.footerMode(screen.text(), l.launchMode)
+    const text = screen.text()
+    // The first footer recognised this launch, whatever the mode was before (#638's contract marker).
+    const first = l.recognition.footerOf(text, l.launchMode)
+    if (first) devConsole.capture([sessionSourceId(l.state.projectPath, l.state.agentId)], () => ({ kind: 'terminal', name: 'footer seen', provider: l.state.provider, raw: { footer: first }, made: { recognised: 'footer', permissionMode: first }, safe: { raw: { footer: true }, made: { recognised: true, permissionMode: true } }, summary: `terminal footer recognised: mode ${first}` }))
+    const mode = l.adapter.footerMode(text, l.launchMode)
     if (mode && (mode !== l.state.permissionMode || mode !== l.state.modeObserved)) {
       devConsole.capture([sessionSourceId(l.state.projectPath, l.state.agentId)], () => ({ kind: 'terminal', name: 'footer mode', provider: l.state.provider, raw: { footer: mode }, made: { permissionMode: mode, was: l.state.permissionMode }, safe: { raw: { footer: true }, made: { permissionMode: true, was: true } }, summary: `terminal footer: mode ${mode}` }))
       l.state.permissionMode = l.state.modeObserved = mode

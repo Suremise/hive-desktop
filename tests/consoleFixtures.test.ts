@@ -122,11 +122,18 @@ describe('compareContract', () => {
     ])
   })
 
-  it('flags a status line that stops arriving, and a screen Hive no longer recognises or reads differently', () => {
+  it('flags a status line that stops arriving, and a screen Hive no longer recognises or reads differently, never a status marker that timing hid', () => {
     const noLine = fixture([pre({ hook_event_name: 'PreToolUse', tool_name: 'Edit', tool_input: { file_path: '<path>' } }), stop(), ready()])
     expect(compareContract(base, noLine)).toEqual([{ level: 'change', event: 'statusline statusline', what: 'no longer arrives' }])
+    // Hive's ready marker comes and goes with timing (a transcript can make the agent ready first): never required.
     const noReady = fixture([pre({ hook_event_name: 'PreToolUse', tool_name: 'Edit', tool_input: { file_path: '<path>' } }), stop(), line])
-    expect(compareContract(base, noReady)).toEqual([{ level: 'change', event: 'terminal ready', what: 'Hive no longer recognises it on the screen' }])
+    expect(compareContract(base, noReady)).toEqual([])
+    // What Hive recognised on the screen is: a prompt or footer no longer recognised is a change.
+    const shown: ConsoleFixture['events'][number] = { kind: 'terminal', name: 'prompt shown', made: { recognised: 'prompt' } }
+    const seen: ConsoleFixture['events'][number] = { kind: 'terminal', name: 'footer seen', raw: { footer: 'accept-edits' }, made: { recognised: 'footer', permissionMode: 'accept-edits' } }
+    const withScreen = fixture([...base.events, shown, seen])
+    expect(compareContract(withScreen, fixture([...base.events, seen]))).toEqual([{ level: 'change', event: 'terminal prompt shown', what: 'Hive no longer recognises it on the screen' }])
+    expect(compareContract(withScreen, fixture([...base.events, shown, { ...seen, made: { recognised: 'footer', permissionMode: 'plan' } }]))).toEqual([{ level: 'change', event: 'terminal footer seen', what: "Hive's reading changed: it was permissionMode=accept-edits recognised=footer; now permissionMode=plan recognised=footer" }])
     const waiting = fixture([pre({ hook_event_name: 'PreToolUse', tool_name: 'Edit', tool_input: { file_path: '<path>' } }), stop(), ready('waiting'), line])
     expect(compareContract(base, waiting)).toEqual([{ level: 'change', event: 'terminal ready', what: "Hive's reading changed: it was status=ready; now status=waiting" }])
   })

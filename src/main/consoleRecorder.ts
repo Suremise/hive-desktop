@@ -39,8 +39,12 @@ interface Recording {
   writes: Promise<void>
   /** Its end line is written (or being written): nothing more joins it. */
   closed: boolean
-  /** A write failed: it is being stopped. */
+  /** A write failed: it is being stopped, as failed. */
   failed: boolean
+  /** Why, for the user. */
+  error?: string
+  /** Bytes delivered and not yet written. */
+  pending: number
   sentAt: number
   timer: ReturnType<typeof setTimeout> | null
 }
@@ -96,29 +100,57 @@ function report(r: Recording, now = false): void {
   if (now) {
     if (r.timer) clearTimeout(r.timer)
     send()
-  } else if (!r.timer) r.timer = setTimeout(send, Math.max(0, PROGRESS_MS - (Date.now() - r.sentAt)))
+  } else if (!r.timer && !r.closed)
+    r.timer = setTimeout(() => {
+      // Progress only while it records: its ending sends the last word itself, after its file is finished.
+      if (r.closed) r.timer = null
+      else send()
+    }, Math.max(0, PROGRESS_MS - (Date.now() - r.sentAt)))
+}
+
+/** Writes all of a text, however many writes it takes (a write may take only part of it). */
+export async function writeAll(fh: FileHandle, text: string): Promise<number> {
+  const buf = Buffer.from(text, 'utf8')
+  let at = 0
+  while (at < buf.length) {
+    const { bytesWritten } = await fh.write(buf, at, buf.length - at, null)
+    if (bytesWritten <= 0) throw new Error('The recording file took nothing more')
+    at += bytesWritten
+  }
+  return buf.length
+}
+
+/** A recording that couldn't be written: stopped as failed, with the reason the user sees; its file is kept as it is. */
+function writeFailed(slot: Slot, r: Recording, e: unknown): void {
+  if (r.failed) return
+  r.failed = true
+  r.error = e instanceof Error ? e.message : String(e)
+  log.warn(`developer console recording ${userText(r.info.name)} failed`, e)
+  void stopThis(slot, r, 'failed')
 }
 
 /** Appends delivered events to this recording (and no other), stopping it at its bound or when a write fails. */
 function append(slot: Slot, r: Recording, events: ConsoleEvent[], dropped: number): void {
   if (r.closed) return
   const text = events.map((e) => `${JSON.stringify({ type: 'event', ...e })}\n`).join('')
-  r.info.events += events.length
-  r.info.bytes += Buffer.byteLength(text)
   r.info.dropped += dropped
+  const size = Buffer.byteLength(text)
+  r.pending += size
   r.writes = r.writes.then(async () => {
-    if (!text || r.failed) return
     try {
-      await r.fh.write(text)
+      if (!text || r.failed) return
+      // Counted once in the file, never before.
+      r.info.bytes += await writeAll(r.fh, text)
+      r.info.events += events.length
+      report(r)
     } catch (e) {
-      // The first failed write stops it, once.
-      r.failed = true
-      log.warn(`developer console recording ${userText(r.info.name)} failed`, e)
-      void stopThis(slot, r, 'stopped')
+      writeFailed(slot, r, e)
+    } finally {
+      r.pending -= size
     }
   })
-  if (r.info.bytes >= RECORD_MAX_BYTES || r.info.events >= RECORD_MAX_EVENTS) void stopThis(slot, r, 'limit')
-  else report(r)
+  // Its bound counts what is on its way too, so it never runs past it.
+  if (r.info.bytes + r.pending >= RECORD_MAX_BYTES || r.info.events + events.length >= RECORD_MAX_EVENTS) void stopThis(slot, r, 'limit')
 }
 
 /** Stops this recording if it is still the window's: never one started after it. */
@@ -139,14 +171,28 @@ async function finish(slot: Slot, reason: RecordingEnd['reason']): Promise<Conso
   // What was captured up to now is delivered to it first (if a stop or close hasn't already); after this, nothing joins it.
   detach(r)
   r.closed = true
-  const endedAt = new Date().toISOString()
-  const end: RecordingEnd = { type: 'end', at: endedAt, events: r.info.events, dropped: r.info.dropped, reason }
-  const line = `${JSON.stringify(end)}\n`
-  Object.assign(r.info, { recording: false, endedAt, reason, bytes: r.info.bytes + Buffer.byteLength(line) })
+  if (r.timer) clearTimeout(r.timer)
+  r.timer = null
   await r.writes
-  await r.fh.write(line).catch(() => undefined)
-  await r.fh.close().catch(() => undefined)
-  log.info(`developer console: recording ${r.info.name} ended (${reason}, ${r.info.events} events)`)
+  // A write that failed makes it a failed recording, whatever stopped it; so does an end line or close that fails.
+  let ended = r.failed ? 'failed' : reason
+  const endedAt = new Date().toISOString()
+  try {
+    const end: RecordingEnd = { type: 'end', at: endedAt, events: r.info.events, dropped: r.info.dropped, reason: ended, ...(r.error ? { error: r.error } : {}) }
+    r.info.bytes += await writeAll(r.fh, `${JSON.stringify(end)}\n`)
+  } catch (e) {
+    ended = 'failed'
+    r.error ??= e instanceof Error ? e.message : String(e)
+  }
+  try {
+    await r.fh.close()
+  } catch (e) {
+    ended = 'failed'
+    r.error ??= e instanceof Error ? e.message : String(e)
+  }
+  Object.assign(r.info, { recording: false, endedAt, reason: ended, ...(r.error ? { error: r.error } : {}) })
+  if (ended === 'failed') log.warn(`developer console: recording ${userText(r.info.name)} failed after ${r.info.events} events: ${userText(r.error)}`)
+  else log.info(`developer console: recording ${r.info.name} ended (${ended}, ${r.info.events} events)`)
   report(r, true)
   return { ...r.info }
 }
@@ -195,20 +241,21 @@ export function startRecording(wc: WebContents, source: ConsoleSource, workspace
     }
     const head = `${JSON.stringify(header)}\n`
     try {
-      await fh.write(head)
+      await writeAll(fh, head)
     } catch (e) {
+      // The file is kept as it is (part of a header at most); the start fails and says why.
       await fh.close().catch(() => undefined)
       throw e
     }
     if (!wanted()) {
       // Overtaken while its file was made: it ends at once, empty, and records nothing.
       const end: RecordingEnd = { type: 'end', at: new Date().toISOString(), events: 0, dropped: 0, reason: 'closed' }
-      await fh.write(`${JSON.stringify(end)}\n`).catch(() => undefined)
+      await writeAll(fh, `${JSON.stringify(end)}\n`).catch(() => undefined)
       await fh.close().catch(() => undefined)
       throw cancelled()
     }
     const info: ConsoleRecordingInfo = { name, file: join(dir, name), label: source.label, kind: source.kind, ...(source.provider ? { provider: source.provider } : {}), includeText, startedAt: header.startedAt, events: 0, bytes: Buffer.byteLength(head), dropped: 0, recording: true }
-    const r: Recording = { info, wc, wcId: wc.id, source: source.id, workspace, fh, writes: Promise.resolve(), closed: false, failed: false, sentAt: 0, timer: null }
+    const r: Recording = { info, wc, wcId: wc.id, source: source.id, workspace, fh, writes: Promise.resolve(), closed: false, failed: false, pending: 0, sentAt: 0, timer: null }
     slot.rec = r
     devConsole.subscribe(subscriberId(wc.id), [source.id], { includeText, deliver: (events, dropped) => append(slot, r, events, dropped) })
     log.info(`developer console: recording ${source.kind} to ${name}${includeText ? ' (with text)' : ''}`)

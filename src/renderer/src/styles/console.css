@@ -338,3 +338,7 @@
   cursor: pointer;
   color: var(--info);
 }
+
+.dc-recording-failed {
+  color: var(--error);
+}

@@ -78,7 +78,9 @@ export interface ConsoleRecordingInfo {
   dropped: number
   /** Still being written. */
   recording: boolean
-  reason?: 'stopped' | 'closed' | 'workspace' | 'limit'
+  reason?: 'stopped' | 'closed' | 'workspace' | 'limit' | 'failed'
+  /** Why a failed recording failed (its file is kept as it was written). */
+  error?: string
 }
 
 /** What a capture point gives: the rest is filled in as it is kept. */

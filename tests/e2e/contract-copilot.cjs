@@ -34,7 +34,8 @@ const check = (name, ok, extra = '') => {
 
 ;(async () => {
   if (!copilotInstalled()) lib.skip("environment: the GitHub Copilot CLI isn't installed (copilot)")
-  const { compareContract, recordingToFixture, parseRecording } = await import('../../src/shared/consoleFixtures.mts')
+  const { compareContract, recordingToFixture, parseRecording, RECOGNITION_MARKERS } = await import('../../src/shared/consoleFixtures.mts')
+  const fixture = fs.existsSync(FIXTURE) ? JSON.parse(fs.readFileSync(FIXTURE, 'utf8')) : null
   for (const d of [userData, ws, copilotDir]) fs.rmSync(d, { recursive: true, force: true })
   fs.rmSync(apiLog, { force: true })
   lib.gitProject(proj, { 'a.ts': 'probe\n' })
@@ -74,6 +75,10 @@ const check = (name, ok, extra = '') => {
     const seen = (pred) => lib.until(async () => (await ring()).find(pred) ?? null, HUNG_MS)
     await inv('session:start', proj, { agentId: a.id })
     await lib.until(async () => (await inv('session:live')).find((l) => l.agentId === a.id)?.status === 'ready', HUNG_MS)
+    // What Hive recognises on the screen (its prompt, its footer) is noted as the screen draws, whatever the status, and
+    // can come after the agent is ready: the turn waits for each the fixture has. A CLI whose screen changed never shows
+    // one; the comparison below says which.
+    for (const name of new Set((fixture?.events ?? []).filter((e) => e.kind === 'terminal' && RECOGNITION_MARKERS.includes(e.name)).map((e) => e.name))) await seen((e) => e.kind === 'terminal' && e.name === name)
     const key = lib.ptyKey(proj, a.id)
     await lib.sendPrompt(inv, key, TURN, { submitted: async () => !!(await ring()).find((e) => e.name === 'UserPromptSubmit') })
     check('the turn ends (its Stop hook)', !!(await seen((e) => e.kind === 'hook' && e.name === 'Stop')))
@@ -92,10 +97,9 @@ const check = (name, ok, extra = '') => {
     // --- The contract: what Copilot sends now against the recorded fixture.
     const live = recordingToFixture(text)
     fs.writeFileSync(path.join(lib.WORK, 'contract-copilot-live.json'), `${JSON.stringify(live, null, 2)}\n`)
-    if (!fs.existsSync(FIXTURE)) {
+    if (!fixture) {
       check(`a recorded fixture to compare with (${path.relative(lib.ROOT, FIXTURE)})`, false, 'none: record one (tests/fixtures/console/README.md)')
     } else {
-      const fixture = JSON.parse(fs.readFileSync(FIXTURE, 'utf8'))
       const findings = compareContract(fixture, live)
       for (const f of findings.filter((x) => x.level === 'new')) console.log(`FLAG ${f.event}: ${f.what} (Copilot ${live.cli ?? '?'}; the fixture is ${fixture.cli ?? '?'})`)
       const changes = findings.filter((x) => x.level === 'change')
