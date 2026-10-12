@@ -138,13 +138,18 @@ export interface ContractFinding {
   what: string
 }
 
-/** The kinds whose arrival is part of the contract: a hook that stops arriving is a change. The others vary with timing. */
-export const CONTRACT_KINDS: readonly string[] = ['hook']
 /**
- * The kinds whose fields are part of it: a hook's or status line's field gone or retyped is a change. A transcript read
- * holds whichever records were newest then, and a terminal marker is Hive's own reading of the screen, so theirs vary.
+ * The kinds whose arrival is part of the contract, for a scripted run: a hook, status line, launch or exit that stops
+ * arriving, or a terminal marker Hive no longer recognises (the CLI's screen changed), is a change. A transcript read
+ * holds whichever records were newest at that moment, so only a new one is flagged.
  */
+export const CONTRACT_KINDS: readonly string[] = ['hook', 'statusline', 'launch', 'exit', 'terminal']
+/** The kinds whose fields are part of it: a field gone or retyped is a change. A terminal marker's are Hive's own. */
 export const SHAPE_KINDS: readonly string[] = ['hook', 'statusline', 'launch', 'exit']
+/** The kinds whose reading is part of it: what Hive made of the event (its kind, status, actions and the like). */
+export const READING_KINDS: readonly string[] = ['hook', 'terminal', 'launch', 'exit']
+/** Parts of what Hive made of an event that vary from run to run, or are the CLI's text, never its reading. */
+const VARYING = new Set(['text', 'lastMessage', 'was', 'at', 'seq'])
 
 const typeOf = (v: unknown): string => (v === null ? 'null' : Array.isArray(v) ? 'array' : typeof v)
 
@@ -161,14 +166,23 @@ export function shapeOf(values: unknown[]): Map<string, Set<string>> {
   return out
 }
 
-/** How Hive read each event of a group: a hook's event kind ("toolStart"), the status it set. */
-function readings(events: FixtureEvent[]): Set<string> {
-  const out = new Set<string>()
-  for (const e of events) {
-    const kind = (e.made as { event?: { kind?: unknown } } | undefined)?.event?.kind
-    if (typeof kind === 'string') out.add(kind)
+/**
+ * What Hive made of an event, as one line: its plain fields (a status, a mode, a flag), a hook's event kind and its
+ * actions (in order), leaving out text, hidden values and what varies between runs. "kind=stop status=finished
+ * actions=releaseLocks,notifyFinished,turnEnded".
+ */
+export function readingOf(made: unknown): string {
+  if (!made || typeof made !== 'object') return ''
+  const parts: string[] = []
+  for (const [k, v] of Object.entries(made as Record<string, unknown>).sort(([a], [b]) => a.localeCompare(b))) {
+    if (VARYING.has(k)) continue
+    if (k === 'event' && v && typeof v === 'object') {
+      const kind = (v as { kind?: unknown }).kind
+      if (typeof kind === 'string') parts.push(`kind=${kind}`)
+    } else if (k === 'actions' && Array.isArray(v)) parts.push(`actions=${v.filter((x) => typeof x === 'string').join(',')}`)
+    else if (typeof v === 'boolean' || (typeof v === 'string' && !v.startsWith('<'))) parts.push(`${k}=${v}`)
   }
-  return out
+  return parts.sort().join(' ')
 }
 
 const groupBy = (events: FixtureEvent[]): Map<string, FixtureEvent[]> => {
@@ -184,52 +198,88 @@ const groupBy = (events: FixtureEvent[]): Map<string, FixtureEvent[]> => {
 const parentOf = (path: string): string => path.replace(/(?:^|\.)[^.[\]]+$|\[\]$/, '')
 
 /**
- * Compares what a CLI sends now (`live`, a fixture made from a new recording) with a recorded fixture. Per event (its
- * kind and name): a hook that no longer arrives (CONTRACT_KINDS), a field gone or of another type (SHAPE_KINDS), or Hive
- * reading it as something else is a change; a new event or field is flagged as new. A field gone with a new one beside
- * it, of the same type, is named as a possible rename.
+ * Compares what a CLI sends now (`live`, a fixture made from a new recording of the same scripted run) with a recorded
+ * fixture. Per event (its kind and name), these are changes: one that no longer arrives (CONTRACT_KINDS), a field gone
+ * or of another type (SHAPE_KINDS), and a reading of the fixture's that Hive no longer makes (READING_KINDS: another
+ * event kind, status, actions or mode). A new event, field or reading is flagged as new. A field gone with a new one
+ * beside it, of the same type, is named as a possible rename.
  */
 export function compareContract(fixture: ConsoleFixture, live: ConsoleFixture): ContractFinding[] {
   const findings: ContractFinding[] = []
   const before = groupBy(fixture.events)
   const now = groupBy(live.events)
   for (const [event, was] of before) {
+    const kind = was[0].kind
     const is = now.get(event)
     if (!is) {
-      if (CONTRACT_KINDS.includes(was[0].kind)) findings.push({ level: 'change', event, what: 'no longer arrives' })
+      if (CONTRACT_KINDS.includes(kind)) findings.push({ level: 'change', event, what: kind === 'terminal' ? 'Hive no longer recognises it on the screen' : 'no longer arrives' })
       continue
     }
-    if (!SHAPE_KINDS.includes(was[0].kind)) continue
-    const a = shapeOf(was.map((e) => e.raw))
-    const b = shapeOf(is.map((e) => e.raw))
-    const gone = [...a.keys()].filter((p) => !b.has(p))
-    const added = [...b.keys()].filter((p) => !a.has(p))
-    for (const p of gone) {
-      const twin = added.find((q) => parentOf(q) === parentOf(p) && [...a.get(p)!].join() === [...b.get(q)!].join())
-      findings.push({ level: 'change', event, what: `field ${p} is gone${twin ? ` (renamed to ${twin}?)` : ''}` })
+    if (SHAPE_KINDS.includes(kind)) {
+      const a = shapeOf(was.map((e) => e.raw))
+      const b = shapeOf(is.map((e) => e.raw))
+      const gone = [...a.keys()].filter((p) => !b.has(p))
+      const added = [...b.keys()].filter((p) => !a.has(p))
+      for (const p of gone) {
+        const twin = added.find((q) => parentOf(q) === parentOf(p) && [...a.get(p)!].join() === [...b.get(q)!].join())
+        findings.push({ level: 'change', event, what: `field ${p} is gone${twin ? ` (renamed to ${twin}?)` : ''}` })
+      }
+      for (const p of added) findings.push({ level: 'new', event, what: `field ${p} is new` })
+      for (const [p, types] of a) {
+        const t = b.get(p)
+        if (!t) continue
+        const lost = [...types].filter((x) => !t.has(x))
+        // A field that was always null or absent and now has a value is new information, not a break.
+        if (lost.length && !(lost.length === 1 && lost[0] === 'null')) findings.push({ level: 'change', event, what: `field ${p} was ${[...types].join(' or ')}, now ${[...t].join(' or ')}` })
+      }
     }
-    for (const p of added) findings.push({ level: 'new', event, what: `field ${p} is new` })
-    for (const [p, types] of a) {
-      const t = b.get(p)
-      if (!t) continue
-      const lost = [...types].filter((x) => !t.has(x))
-      // A field that was always null or absent and now has a value is new information, not a break.
-      if (lost.length && !(lost.length === 1 && lost[0] === 'null')) findings.push({ level: 'change', event, what: `field ${p} was ${[...types].join(' or ')}, now ${[...t].join(' or ')}` })
+    if (READING_KINDS.includes(kind)) {
+      const ra = new Set(was.map((e) => readingOf(e.made)).filter(Boolean))
+      const rb = new Set(is.map((e) => readingOf(e.made)).filter(Boolean))
+      const lost = [...ra].filter((x) => !rb.has(x))
+      const gained = [...rb].filter((x) => !ra.has(x))
+      if (lost.length) findings.push({ level: 'change', event, what: `Hive's reading changed: it was ${lost.join(' | ')}; now ${[...rb].join(' | ') || 'none'}` })
+      else if (gained.length) findings.push({ level: 'new', event, what: `Hive also reads it as ${gained.join(' | ')}` })
     }
-    const ra = readings(was)
-    const rb = readings(is)
-    const unread = [...ra].filter((x) => !rb.has(x))
-    if (unread.length) findings.push({ level: 'change', event, what: `Hive reads it as ${[...rb].join(' or ') || 'nothing'} now, not ${[...ra].join(' or ')}` })
   }
   for (const [event] of now) if (!before.has(event)) findings.push({ level: 'new', event, what: 'arrives now, and is not in the fixture' })
   return findings
 }
 
+// --- Recording files
+
+/** A recording's file name: when it started, to the millisecond, a number when another took that millisecond, its kind. */
+export function recordingName(at: Date, n: number, kind: string): string {
+  const p = (x: number, w = 2): string => String(x).padStart(w, '0')
+  const stamp = `${at.getFullYear()}${p(at.getMonth() + 1)}${p(at.getDate())}-${p(at.getHours())}${p(at.getMinutes())}${p(at.getSeconds())}-${p(at.getMilliseconds(), 3)}`
+  return `console-${stamp}${n > 1 ? `-${n}` : ''}-${kind.replace(/[^a-z]/g, '') || 'source'}.jsonl`
+}
+
+const RECORDING_NAME = /^console-(\d{8})-(\d{6})-(\d{3})(?:-(\d+))?-[a-z]+\.jsonl$/
+
+/** Whether a file name is one of Hive's recordings. */
+export const isRecordingName = (name: string): boolean => RECORDING_NAME.test(name)
+
+/** Recordings' file names, newest first: by the time each started, then by its number within that millisecond. */
+export function newestRecordingsFirst(names: string[]): string[] {
+  const key = (name: string): [string, number] => {
+    const m = RECORDING_NAME.exec(name)
+    return m ? [`${m[1]}${m[2]}${m[3]}`, Number(m[4] ?? 1)] : ['', 0]
+  }
+  return names
+    .filter(isRecordingName)
+    .map((name) => ({ name, k: key(name) }))
+    .sort((a, b) => (a.k[0] === b.k[0] ? b.k[1] - a.k[1] : a.k[0] < b.k[0] ? 1 : -1))
+    .map((x) => x.name)
+}
+
 // --- Copy Diagnostics
 
-/** At most this much of a recording goes into Copy Diagnostics: its newest events. */
+/** At most this much of a recording goes into Copy Diagnostics: its newest events, in UTF-8 bytes with their line ends. */
 export const DIAGNOSTIC_LINES = 200
 export const DIAGNOSTIC_BYTES = 64 * 1024
+
+const utf8 = new TextEncoder()
 
 function mapStrings(v: unknown, fn: (s: string) => string): unknown {
   if (typeof v === 'string') return fn(v)
@@ -239,9 +289,9 @@ function mapStrings(v: unknown, fn: (s: string) => string): unknown {
 }
 
 /**
- * The part of a recording Copy Diagnostics attaches: a line about it and its newest events (within DIAGNOSTIC_LINES and
- * DIAGNOSTIC_BYTES), every string passed through `redact` (paths, names, secrets). Null for a recording with text, which
- * is never attached.
+ * The part of a recording Copy Diagnostics attaches: a line about it and its newest events (within DIAGNOSTIC_LINES, and
+ * DIAGNOSTIC_BYTES of UTF-8 with a line end each), every string passed through `redact` (paths, names, secrets). Null for
+ * a recording with text, which is never attached.
  */
 export function diagnosticRecording(text: string, redact: (s: string) => string): { summary: string; lines: string[] } | null {
   const r = parseRecording(text)
@@ -250,8 +300,9 @@ export function diagnosticRecording(text: string, redact: (s: string) => string)
   let bytes = 0
   for (let i = r.events.length - 1; i >= 0 && lines.length < DIAGNOSTIC_LINES; i--) {
     const line = JSON.stringify(mapStrings(r.events[i], redact))
-    if (bytes + line.length > DIAGNOSTIC_BYTES) break
-    bytes += line.length
+    const size = utf8.encode(line).length + 1
+    if (bytes + size > DIAGNOSTIC_BYTES) break
+    bytes += size
     lines.unshift(line)
   }
   const h = r.header

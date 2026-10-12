@@ -97,7 +97,7 @@ onHiveEvent((e) => {
     devConsole.unsubscribe(id)
   }
   // A recording ends with the workspace it recorded in too (#638).
-  stopRecordingsWhere((wc, recordedIn) => consoleWorkspace(wc) !== recordedIn, 'workspace')
+  stopRecordingsWhere((wc, recordedIn) => !!recordedIn && consoleWorkspace(wc) !== recordedIn, 'workspace')
 })
 /** Whether this window's workspace may read a console source (its own agents, its Assistant and Hive there). */
 const windowMayRead = (source: string): boolean => {
@@ -862,6 +862,8 @@ export function registerIpc(getAppInfo: () => ReturnType<HiveRequests['app:info'
       if (!Array.isArray(sources)) throw new Error('sources must be a list')
       const ids = sources.filter((s): s is string => typeof s === 'string' && windowMayRead(s))
       const id = `window:${wc.id}`
+      // A recording is of a source the window watches: watching another ends it, with what it captured until now.
+      stopRecordingsWhere((w, _ws, recorded) => w === wc && !!recorded && !ids.includes(recorded), 'stopped')
       if (!ids.length) {
         consoleWindows.delete(id)
         devConsole.unsubscribe(id)
@@ -892,7 +894,11 @@ export function registerIpc(getAppInfo: () => ReturnType<HiveRequests['app:info'
       const id = String(source)
       const row = wc && windowMayRead(id) ? consoleSources(currentWorkspace()).find((s) => s.id === id) : undefined
       if (!wc || !row) throw new Error('Not a developer console source this window can record')
-      return startRecording(wc, row, consoleWorkspace(wc), opts?.includeText === true)
+      const shown = consoleWorkspace(wc)
+      // Only while the window still watches that source in this workspace: a start overtaken by a close, another
+      // source or another workspace records nothing.
+      const stillWanted = (): boolean => consoleWorkspace(wc) === shown && devConsole.sourcesOf(`window:${wc.id}`).includes(id)
+      return startRecording(wc, row, shown, opts?.includeText === true, stillWanted)
     },
     'console:stopRecording': async () => {
       const wc = senderStore.getStore()

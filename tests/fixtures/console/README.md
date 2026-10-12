@@ -34,8 +34,13 @@ changed.
 
 `compareContract` in `src/shared/consoleFixtures.mts`, per event (its kind and name):
 
-- **A change** (the suite fails): a hook that no longer arrives; a field of a hook, status line, launch or exit that is
-  gone or of another type (a field gone beside a new one of the same type is named as a likely rename); Hive reading a
-  hook as another event than before.
-- **New** (flagged in the log, `FLAG …`, the suite passes): an event or a field that isn't in the fixture.
-- Transcript reads and terminal markers vary with timing, so only their arrival as something new is flagged.
+- **A change** (the suite fails): a hook, status line, launch, exit or terminal marker that no longer arrives (for a
+  marker: Hive no longer recognises the CLI's screen); a field of a hook, status line, launch or exit that is gone or of
+  another type (a field gone beside a new one of the same type is named as a likely rename); a reading in the fixture
+  that Hive no longer makes: a hook's event kind, status and actions, a marker's, launch's or exit's status, mode and
+  flags (`readingOf`; text and what varies between runs are left out).
+- **New** (flagged in the log, `FLAG …`, the suite passes): an event, a field or a reading that isn't in the fixture.
+- Transcript reads hold whichever records were newest at that moment, so only their arrival as something new is flagged.
+
+The run is scripted, so what arrives is the same each time: a contract that fails on a run that changed nothing is a
+bug in the suite (a step that depends on timing), not something to record again.

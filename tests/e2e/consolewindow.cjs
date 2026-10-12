@@ -266,6 +266,16 @@ const check = (name, ok, extra = '') => {
     check('a recording with text is never offered', (await page.locator('.diagnostics-recording input').count()) === 0 && /includes prompt and reply text, so it can't be attached/.test(await page.locator('.diagnostics-recording').textContent()))
     await page.keyboard.press('Escape')
     await lib.until(async () => (await page.locator('.diagnostics-preview').count()) === 0, HUNG_MS)
+    // Picking another source ends a recording, with what it had captured.
+    await dc.locator('.dc-record').click()
+    await dc.locator('.dc-record-start').click()
+    const switched = await lib.until(async () => (await recordingText()).trim().match(/^Recording \d+ events to (console-\S+\.jsonl)/)?.[1] ?? null, HUNG_MS)
+    const hiveOption = (await dc.locator('.dc-source option').evaluateAll((els) => els.map((e) => e.value))).find((v) => v.startsWith('hive:'))
+    await dc.locator('.dc-source').selectOption(hiveOption)
+    const switchedEnd = await lib.until(() => readRecording(switched).find((l) => l.type === 'end') ?? null, HUNG_MS)
+    check('picking another source ends the recording', switchedEnd?.reason === 'stopped' && /^Saved \d+ events/.test((await recordingText()).trim()), JSON.stringify(switchedEnd))
+    await dc.locator('.dc-source').selectOption(b1Option)
+    await lib.until(async () => (await inv('console:sources')).find((s) => s.agentId === b1.id)?.capturing, HUNG_MS)
 
     // --- Size remembered; the shortcut brings the open window forward rather than opening another.
     await app.evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows().find((w) => w.getTitle().startsWith('Developer Console'))?.setSize(900, 600))
@@ -278,8 +288,23 @@ const check = (name, ok, extra = '') => {
     await inv('console:open')
     check('…the shortcut and Help open the same window, not another', consoles().length === 1)
 
+    // --- Closing it while a recording's start is still on its way (#638 round 2): nothing records, nothing captures.
+    const hiveLog = path.join(userData, 'logs', 'hive.log')
+    const notStarted = () => (fs.readFileSync(hiveLog, 'utf8').match(/recording not started/g) ?? []).length
+    const refusedBefore = notStarted()
+    const filesBefore = new Set(fs.readdirSync(recordingsDir))
+    await app.evaluate(() => {
+      process.env.HIVE_TEST_SLOW_IPC = 'console:record=1500*1'
+    })
+    await dc.locator('.dc-record').click()
+    await dc.locator('.dc-record-start').click()
+
     // --- Closing it ends capture; it opens again at its size.
     await dc.close()
+    // The start, held back until after the close, is refused (Hive logs it), and makes no recording.
+    await lib.until(() => notStarted() > refusedBefore, HUNG_MS)
+    const madeSince = fs.readdirSync(recordingsDir).filter((n) => !filesBefore.has(n))
+    check('a recording started just as its console closes never records', madeSince.length === 0 && !(await inv('console:recordings')).latest?.recording, JSON.stringify(madeSince))
     await lib.until(async () => (await inv('console:sources')).every((s) => !s.capturing && s.events === 0), HUNG_MS)
     check('closing it ends capture and keeps nothing', (await inv('console:sources')).every((s) => !s.capturing && s.events === 0))
     await page.keyboard.press('Control+Alt+J')

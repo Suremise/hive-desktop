@@ -3,7 +3,7 @@
   "provider": "copilot",
   "cli": "1.0.95",
   "hive": "0.6.0",
-  "recordedAt": "2026-10-12T10:46:28.740Z",
+  "recordedAt": "2026-10-12T12:21:11.086Z",
   "events": [
     {
       "kind": "launch",
@@ -36,7 +36,7 @@
         "screen": "<text: 200 chars>"
       },
       "made": {
-        "status": "<text: 5 chars>"
+        "status": "ready"
       }
     },
     {
@@ -55,8 +55,8 @@
       "name": "UserPromptSubmit",
       "raw": {
         "hook_event_name": "UserPromptSubmit",
-        "session_id": "cb31092c-94f6-4901-a1d3-536a809ed291",
-        "timestamp": "2026-10-12T10:46:33.542Z",
+        "session_id": "c1d3962b-c8c2-4b50-b882-1736623af449",
+        "timestamp": "2026-10-12T12:21:14.798Z",
         "cwd": "<path>",
         "prompt": "<text: 24 chars>"
       },
@@ -77,8 +77,8 @@
       "name": "SessionStart",
       "raw": {
         "hook_event_name": "SessionStart",
-        "session_id": "cb31092c-94f6-4901-a1d3-536a809ed291",
-        "timestamp": "2026-10-12T10:46:33.567Z",
+        "session_id": "c1d3962b-c8c2-4b50-b882-1736623af449",
+        "timestamp": "2026-10-12T12:21:14.816Z",
         "cwd": "<path>",
         "source": "new",
         "initial_prompt": "<text: 24 chars>"
@@ -99,8 +99,8 @@
       "name": "PreToolUse",
       "raw": {
         "hook_event_name": "PreToolUse",
-        "session_id": "cb31092c-94f6-4901-a1d3-536a809ed291",
-        "timestamp": "2026-10-12T10:46:33.678Z",
+        "session_id": "c1d3962b-c8c2-4b50-b882-1736623af449",
+        "timestamp": "2026-10-12T12:21:14.951Z",
         "cwd": "<path>",
         "tool_name": "Read",
         "tool_input": {
@@ -120,8 +120,8 @@
       "name": "PostToolUse",
       "raw": {
         "hook_event_name": "PostToolUse",
-        "session_id": "cb31092c-94f6-4901-a1d3-536a809ed291",
-        "timestamp": "2026-10-12T10:46:33.685Z",
+        "session_id": "c1d3962b-c8c2-4b50-b882-1736623af449",
+        "timestamp": "2026-10-12T12:21:14.956Z",
         "cwd": "<path>",
         "tool_name": "Read",
         "tool_input": {
@@ -141,6 +141,31 @@
       }
     },
     {
+      "kind": "hook",
+      "name": "Stop",
+      "raw": {
+        "hook_event_name": "Stop",
+        "session_id": "c1d3962b-c8c2-4b50-b882-1736623af449",
+        "timestamp": "2026-10-12T12:21:16.604Z",
+        "cwd": "<path>",
+        "transcript_path": "<path>",
+        "stop_reason": "<text: 8 chars>",
+        "stop_hook_active": false
+      },
+      "made": {
+        "event": {
+          "kind": "stop",
+          "lastMessage": null
+        },
+        "status": "finished",
+        "actions": [
+          "releaseLocks",
+          "notifyFinished",
+          "turnEnded"
+        ]
+      }
+    },
+    {
       "kind": "transcript",
       "name": "transcript",
       "raw": {
@@ -157,9 +182,9 @@
                 "cacheReadTokens": 1000,
                 "cacheWriteTokens": 0,
                 "cost": 0,
-                "duration": 9,
+                "duration": 8,
                 "timeToFirstTokenMs": "<redacted>",
-                "outputTtftMs": 8.1426,
+                "outputTtftMs": 7.031499999999999,
                 "interTokenLatencyMs": "<redacted>",
                 "initiator": "<text: 4 chars>",
                 "interactionType": "<text: 18 chars>",
@@ -193,7 +218,7 @@
               }
             },
             "id": "<text: 36 chars>",
-            "timestamp": "2026-10-12T10:46:33.592Z",
+            "timestamp": "2026-10-12T12:21:14.854Z",
             "parentId": "<text: 36 chars>"
           },
           {
@@ -219,7 +244,7 @@
               "apiCallId": "<text: 5 chars>"
             },
             "id": "<text: 36 chars>",
-            "timestamp": "2026-10-12T10:46:33.667Z",
+            "timestamp": "2026-10-12T12:21:14.945Z",
             "parentId": "<text: 36 chars>"
           },
           {
@@ -235,7 +260,7 @@
               "toolTitle": "<text: 12 chars>"
             },
             "id": "<text: 36 chars>",
-            "timestamp": "2026-10-12T10:46:33.677Z",
+            "timestamp": "2026-10-12T12:21:14.949Z",
             "parentId": "<text: 36 chars>"
           },
           {
@@ -252,7 +277,7 @@
               }
             },
             "id": "<text: 36 chars>",
-            "timestamp": "2026-10-12T10:46:33.678Z",
+            "timestamp": "2026-10-12T12:21:14.951Z",
             "parentId": "<text: 36 chars>"
           },
           {
@@ -263,7 +288,7 @@
               "success": true
             },
             "id": "<text: 36 chars>",
-            "timestamp": "2026-10-12T10:46:33.681Z",
+            "timestamp": "2026-10-12T12:21:14.953Z",
             "parentId": "<text: 36 chars>"
           },
           {
@@ -273,7 +298,7 @@
               "hookType": "<text: 11 chars>",
               "input": {
                 "sessionId": "<text: 36 chars>",
-                "timestamp": 1791801993685,
+                "timestamp": 1791807674956,
                 "cwd": "<text: 93 chars>",
                 "toolName": "<text: 4 chars>",
                 "toolArgs": {
@@ -289,7 +314,7 @@
               }
             },
             "id": "<text: 36 chars>",
-            "timestamp": "2026-10-12T10:46:33.685Z",
+            "timestamp": "2026-10-12T12:21:14.956Z",
             "parentId": "<text: 36 chars>"
           },
           {
@@ -300,7 +325,7 @@
               "success": true
             },
             "id": "<text: 36 chars>",
-            "timestamp": "2026-10-12T10:46:33.688Z",
+            "timestamp": "2026-10-12T12:21:14.958Z",
             "parentId": "<text: 36 chars>"
           },
           {
@@ -334,7 +359,7 @@
               }
             },
             "id": "<text: 36 chars>",
-            "timestamp": "2026-10-12T10:46:33.690Z",
+            "timestamp": "2026-10-12T12:21:14.960Z",
             "parentId": "<text: 36 chars>"
           },
           {
@@ -343,7 +368,7 @@
               "turnId": "<text: 1 chars>"
             },
             "id": "<text: 36 chars>",
-            "timestamp": "2026-10-12T10:46:33.697Z",
+            "timestamp": "2026-10-12T12:21:14.966Z",
             "parentId": "<text: 36 chars>"
           },
           {
@@ -353,7 +378,7 @@
               "interactionId": "<text: 36 chars>"
             },
             "id": "<text: 36 chars>",
-            "timestamp": "2026-10-12T10:46:33.698Z",
+            "timestamp": "2026-10-12T12:21:14.966Z",
             "parentId": "<text: 36 chars>"
           }
         ]
@@ -364,56 +389,10 @@
       }
     },
     {
-      "kind": "hook",
-      "name": "Stop",
-      "raw": {
-        "hook_event_name": "Stop",
-        "session_id": "cb31092c-94f6-4901-a1d3-536a809ed291",
-        "timestamp": "2026-10-12T10:46:35.255Z",
-        "cwd": "<path>",
-        "transcript_path": "<path>",
-        "stop_reason": "<text: 8 chars>",
-        "stop_hook_active": false
-      },
-      "made": {
-        "event": {
-          "kind": "stop",
-          "lastMessage": null
-        },
-        "status": "finished",
-        "actions": [
-          "releaseLocks",
-          "notifyFinished",
-          "turnEnded"
-        ]
-      }
-    },
-    {
-      "kind": "hook",
-      "name": "SessionEnd",
-      "raw": {
-        "hook_event_name": "SessionEnd",
-        "session_id": "cb31092c-94f6-4901-a1d3-536a809ed291",
-        "timestamp": "2026-10-12T10:46:35.694Z",
-        "cwd": "<path>",
-        "reason": "<text: 9 chars>"
-      },
-      "made": {
-        "event": {
-          "kind": "end"
-        },
-        "status": "stopped",
-        "actions": [
-          "releaseAllLocks",
-          "clearTasks"
-        ]
-      }
-    },
-    {
       "kind": "transcript",
       "name": "transcript",
       "raw": {
-        "records": 8,
+        "records": 5,
         "newest": [
           {
             "type": "session.usage_record",
@@ -426,9 +405,9 @@
                 "cacheReadTokens": 1000,
                 "cacheWriteTokens": 0,
                 "cost": 0,
-                "duration": 1508,
+                "duration": 1507,
                 "timeToFirstTokenMs": "<redacted>",
-                "outputTtftMs": 1507.3649,
+                "outputTtftMs": 1505.6877,
                 "interTokenLatencyMs": "<redacted>",
                 "initiator": "<text: 5 chars>",
                 "interactionType": "<text: 18 chars>",
@@ -460,7 +439,7 @@
               }
             },
             "id": "<text: 36 chars>",
-            "timestamp": "2026-10-12T10:46:35.225Z",
+            "timestamp": "2026-10-12T12:21:16.523Z",
             "parentId": "<text: 36 chars>"
           },
           {
@@ -477,7 +456,7 @@
               "apiCallId": "<text: 5 chars>"
             },
             "id": "<text: 36 chars>",
-            "timestamp": "2026-10-12T10:46:35.244Z",
+            "timestamp": "2026-10-12T12:21:16.545Z",
             "parentId": "<text: 36 chars>"
           },
           {
@@ -486,7 +465,7 @@
               "turnId": "<text: 1 chars>"
             },
             "id": "<text: 36 chars>",
-            "timestamp": "2026-10-12T10:46:35.253Z",
+            "timestamp": "2026-10-12T12:21:16.603Z",
             "parentId": "<text: 36 chars>"
           },
           {
@@ -499,12 +478,12 @@
                 "transcriptPath": "<text: 166 chars>",
                 "stopReason": "<text: 8 chars>",
                 "stop_hook_active": false,
-                "timestamp": 1791801995255,
+                "timestamp": 1791807676604,
                 "cwd": "<text: 93 chars>"
               }
             },
             "id": "<text: 36 chars>",
-            "timestamp": "2026-10-12T10:46:35.255Z",
+            "timestamp": "2026-10-12T12:21:16.604Z",
             "parentId": "<text: 36 chars>"
           },
           {
@@ -516,9 +495,43 @@
               "output": {}
             },
             "id": "<text: 36 chars>",
-            "timestamp": "2026-10-12T10:46:35.256Z",
+            "timestamp": "2026-10-12T12:21:16.606Z",
             "parentId": "<text: 36 chars>"
-          },
+          }
+        ]
+      },
+      "made": {
+        "modelId": "gpt-4.1",
+        "modelName": "gpt-4.1"
+      }
+    },
+    {
+      "kind": "hook",
+      "name": "SessionEnd",
+      "raw": {
+        "hook_event_name": "SessionEnd",
+        "session_id": "c1d3962b-c8c2-4b50-b882-1736623af449",
+        "timestamp": "2026-10-12T12:21:17.164Z",
+        "cwd": "<path>",
+        "reason": "<text: 9 chars>"
+      },
+      "made": {
+        "event": {
+          "kind": "end"
+        },
+        "status": "stopped",
+        "actions": [
+          "releaseAllLocks",
+          "clearTasks"
+        ]
+      }
+    },
+    {
+      "kind": "transcript",
+      "name": "transcript",
+      "raw": {
+        "records": 3,
+        "newest": [
           {
             "type": "hook.start",
             "data": {
@@ -527,12 +540,12 @@
               "input": {
                 "reason": "<text: 9 chars>",
                 "sessionId": "<text: 36 chars>",
-                "timestamp": 1791801995694,
+                "timestamp": 1791807677164,
                 "cwd": "<text: 93 chars>"
               }
             },
             "id": "<text: 36 chars>",
-            "timestamp": "2026-10-12T10:46:35.694Z",
+            "timestamp": "2026-10-12T12:21:17.164Z",
             "parentId": "<text: 36 chars>"
           },
           {
@@ -543,7 +556,7 @@
               "success": true
             },
             "id": "<text: 36 chars>",
-            "timestamp": "2026-10-12T10:46:35.712Z",
+            "timestamp": "2026-10-12T12:21:17.166Z",
             "parentId": "<text: 36 chars>"
           },
           {
@@ -554,7 +567,7 @@
                 "totalUserRequests": 1,
                 "totalNanoAiu": 0,
                 "aiCreditsStatus": "<text: 11 chars>",
-                "totalApiDurationMs": 1517,
+                "totalApiDurationMs": 1515,
                 "sessionStartTime": "<text: 24 chars>",
                 "codeChanges": {
                   "linesAdded": 0,
@@ -584,14 +597,14 @@
                 }
               ],
               "usageAccountingWatermarks": {
-                "cb31092c-94f6-4901-a1d3-536a809ed291": 2
+                "c1d3962b-c8c2-4b50-b882-1736623af449": 2
               },
               "shutdownType": "<text: 7 chars>",
               "totalPremiumRequests": 0,
               "totalNanoAiu": 0,
-              "totalApiDurationMs": 1517,
-              "sessionStartTime": 1791801992131,
-              "eventsFileSizeBytes": 75029,
+              "totalApiDurationMs": 1515,
+              "sessionStartTime": 1791807673194,
+              "eventsFileSizeBytes": 75041,
               "codeChanges": {
                 "linesAdded": 0,
                 "linesRemoved": 0,
@@ -606,7 +619,7 @@
               },
               "agentMetrics": {
                 "main": {
-                  "totalApiDurationMs": 1517,
+                  "totalApiDurationMs": 1515,
                   "totalNanoAiu": 0,
                   "modelMetrics": "<object>"
                 }
@@ -618,14 +631,12 @@
               "toolDefinitionsTokens": 10988
             },
             "id": "<text: 36 chars>",
-            "timestamp": "2026-10-12T10:46:35.724Z",
+            "timestamp": "2026-10-12T12:21:17.178Z",
             "parentId": "<text: 36 chars>"
           }
         ]
       },
       "made": {
-        "modelId": "gpt-4.1",
-        "modelName": "gpt-4.1",
         "costUsd": 0,
         "premiumRequests": 0
       }

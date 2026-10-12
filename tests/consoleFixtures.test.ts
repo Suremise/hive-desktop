@@ -2,7 +2,7 @@ import { describe, expect, it, vi } from 'vitest'
 import { join } from 'path'
 import { HOOK_FIELDS, HOOK_MADE_FIELDS, sessionSourceId, type ConsoleEvent } from '../src/shared/devConsole'
 import { DevConsole } from '../src/main/devConsole'
-import { compareContract, diagnosticRecording, DIAGNOSTIC_LINES, parseRecording, recordingToFixture, shapeOf, type ConsoleFixture, type RecordingHeader } from '../src/shared/consoleFixtures.mts'
+import { compareContract, diagnosticRecording, DIAGNOSTIC_BYTES, DIAGNOSTIC_LINES, newestRecordingsFirst, parseRecording, readingOf, recordingName, recordingToFixture, shapeOf, type ConsoleFixture, type RecordingHeader } from '../src/shared/consoleFixtures.mts'
 
 // Developer console recordings as files (#638): a recording written as the recorder writes it (header, events as a
 // subscription delivers them, end) stays redacted unless it opted in to text; fixtures are made only from redacted
@@ -95,41 +95,71 @@ describe('recordingToFixture', () => {
 
 describe('compareContract', () => {
   const fixture = (events: ConsoleFixture['events']): ConsoleFixture => ({ format: 1, provider: 'claude-code', cli: '2.1.296', hive: '0.7.0', recordedAt: '', events })
-  const pre = (raw: Record<string, unknown>, kind = 'toolStart'): ConsoleFixture['events'][number] => ({ kind: 'hook', name: 'PreToolUse', raw, made: { event: { kind }, status: 'working' } })
-  const base = fixture([pre({ hook_event_name: 'PreToolUse', tool_name: 'Edit', tool_input: { file_path: '<path>' } }), { kind: 'hook', name: 'Stop', raw: { hook_event_name: 'Stop' }, made: { event: { kind: 'stop' } } }, { kind: 'terminal', name: 'ready', made: { status: 'ready' } }])
+  const pre = (raw: Record<string, unknown>, kind = 'toolStart'): ConsoleFixture['events'][number] => ({ kind: 'hook', name: 'PreToolUse', raw, made: { event: { kind }, status: 'working', actions: [] } })
+  const stop = (status = 'finished', actions = ['releaseLocks', 'turnEnded']): ConsoleFixture['events'][number] => ({ kind: 'hook', name: 'Stop', raw: { hook_event_name: 'Stop' }, made: { event: { kind: 'stop', lastMessage: null }, status, actions } })
+  const ready = (status = 'ready'): ConsoleFixture['events'][number] => ({ kind: 'terminal', name: 'ready', raw: { screen: '<text: 200 chars>' }, made: { status } })
+  const line: ConsoleFixture['events'][number] = { kind: 'statusline', name: 'statusline', raw: { model: { id: 'claude-opus-5-5' }, context_window: { used: 3 } }, made: { contextWindow: 150000 } }
+  const base = fixture([pre({ hook_event_name: 'PreToolUse', tool_name: 'Edit', tool_input: { file_path: '<path>' } }), stop(), ready(), line])
 
   it('finds nothing when the CLI sends the same', () => {
     expect(compareContract(base, base)).toEqual([])
   })
 
   it('flags a hook no longer sent, a field gone (a likely rename) or retyped, and a new reading as changes', () => {
-    const live = fixture([pre({ hook_event_name: 'PreToolUse', toolName: 'Edit', tool_input: { file_path: 3 } }, 'ignore'), { kind: 'terminal', name: 'ready', made: { status: 'ready' } }])
+    const live = fixture([pre({ hook_event_name: 'PreToolUse', toolName: 'Edit', tool_input: { file_path: 3 } }, 'ignore'), ready(), line])
     expect(compareContract(base, live)).toEqual([
       { level: 'change', event: 'hook PreToolUse', what: 'field tool_name is gone (renamed to toolName?)' },
       { level: 'new', event: 'hook PreToolUse', what: 'field toolName is new' },
       { level: 'change', event: 'hook PreToolUse', what: 'field tool_input.file_path was string, now number' },
-      { level: 'change', event: 'hook PreToolUse', what: 'Hive reads it as ignore now, not toolStart' },
+      { level: 'change', event: 'hook PreToolUse', what: "Hive's reading changed: it was actions= kind=toolStart status=working; now actions= kind=ignore status=working" },
       { level: 'change', event: 'hook Stop', what: 'no longer arrives' }
     ])
   })
 
-  it('only flags what is new: a new hook, a new field, a value where there was none; markers that vary with timing are not required', () => {
-    const live = fixture([pre({ hook_event_name: 'PreToolUse', tool_name: 'Edit', tool_input: { file_path: '<path>' }, effort: 'high' }), { kind: 'hook', name: 'Stop', raw: { hook_event_name: 'Stop' }, made: { event: { kind: 'stop' } } }, { kind: 'hook', name: 'Notification', raw: { hook_event_name: 'Notification' } }])
+  it("flags Hive no longer ending the turn the same way: the same fields and event kind, another status or actions", () => {
+    expect(compareContract(base, fixture([pre({ hook_event_name: 'PreToolUse', tool_name: 'Edit', tool_input: { file_path: '<path>' } }), stop('working', []), ready(), line]))).toEqual([
+      { level: 'change', event: 'hook Stop', what: "Hive's reading changed: it was actions=releaseLocks,turnEnded kind=stop status=finished; now actions= kind=stop status=working" }
+    ])
+  })
+
+  it('flags a status line that stops arriving, and a screen Hive no longer recognises or reads differently', () => {
+    const noLine = fixture([pre({ hook_event_name: 'PreToolUse', tool_name: 'Edit', tool_input: { file_path: '<path>' } }), stop(), ready()])
+    expect(compareContract(base, noLine)).toEqual([{ level: 'change', event: 'statusline statusline', what: 'no longer arrives' }])
+    const noReady = fixture([pre({ hook_event_name: 'PreToolUse', tool_name: 'Edit', tool_input: { file_path: '<path>' } }), stop(), line])
+    expect(compareContract(base, noReady)).toEqual([{ level: 'change', event: 'terminal ready', what: 'Hive no longer recognises it on the screen' }])
+    const waiting = fixture([pre({ hook_event_name: 'PreToolUse', tool_name: 'Edit', tool_input: { file_path: '<path>' } }), stop(), ready('waiting'), line])
+    expect(compareContract(base, waiting)).toEqual([{ level: 'change', event: 'terminal ready', what: "Hive's reading changed: it was status=ready; now status=waiting" }])
+  })
+
+  it('only flags what is new: a new hook, a new field, a value where there was none, a further reading', () => {
+    const live = fixture([pre({ hook_event_name: 'PreToolUse', tool_name: 'Edit', tool_input: { file_path: '<path>' }, effort: 'high' }), stop(), stop('finished', ['releaseLocks', 'turnEnded', 'notifyFinished']), ready(), line, { kind: 'hook', name: 'Notification', raw: { hook_event_name: 'Notification' } }])
     expect(compareContract(base, live)).toEqual([
       { level: 'new', event: 'hook PreToolUse', what: 'field effort is new' },
+      { level: 'new', event: 'hook Stop', what: 'Hive also reads it as actions=releaseLocks,turnEnded,notifyFinished kind=stop status=finished' },
       { level: 'new', event: 'hook Notification', what: 'arrives now, and is not in the fixture' }
     ])
     const wasNull = fixture([pre({ hook_event_name: 'PreToolUse', model: null })])
     expect(compareContract(wasNull, fixture([pre({ hook_event_name: 'PreToolUse', model: 'opus' })]))).toEqual([])
   })
 
-  it("doesn't hold a transcript read's records or a terminal marker's reading to the fixture: they vary with timing", () => {
+  it("doesn't hold a transcript read's records, or what varies in a reading, to the fixture", () => {
     const read = (newest: unknown[]): ConsoleFixture['events'][number] => ({ kind: 'transcript', name: 'transcript', raw: { records: newest.length, newest } })
     expect(compareContract(fixture([read([{ type: 'user', data: { text: '<text: 3 chars>' } }])]), fixture([read([{ type: 'session.usage_record', data: { usage: { inputTokens: 1 } } }])]))).toEqual([])
+    expect(readingOf({ event: { kind: 'prompt', text: '<text: 9 chars>' }, status: 'working', was: 'ask', note: '<text: 4 chars>', actions: ['prompted'] })).toBe('actions=prompted kind=prompt status=working')
   })
 
   it("merges a field's types over a list's items", () => {
     expect(Object.fromEntries([...shapeOf([{ a: [{ b: 1 }, { b: 'x' }] }])].map(([k, v]) => [k, [...v]]))).toEqual({ a: ['array'], 'a[]': ['object'], 'a[].b': ['number', 'string'] })
+  })
+})
+
+describe('recording names', () => {
+  it('order by when each started, to the millisecond, then by their number within it, newest first', () => {
+    const at = new Date(2026, 9, 12, 12, 0, 0, 5)
+    const names = [recordingName(at, 1, 'session'), recordingName(at, 2, 'hive'), recordingName(at, 10, 'session'), recordingName(new Date(at.getTime() + 1), 1, 'assistant'), recordingName(new Date(at.getTime() - 1000), 3, 'session'), 'notes.txt']
+    expect(names[0]).toBe('console-20261012-120000-005-session.jsonl')
+    expect(names[2]).toBe('console-20261012-120000-005-10-session.jsonl')
+    expect(newestRecordingsFirst(names)).toEqual([names[3], names[2], names[1], names[0], names[4]])
   })
 })
 
@@ -142,11 +172,23 @@ describe('diagnosticRecording', () => {
     expect(part?.lines.join('\n')).toContain('<folder>')
   })
 
-  it('never takes a recording with text, and keeps to its bound', async () => {
+  it('never takes a recording with text, and keeps to its count', async () => {
     expect(diagnosticRecording(await record(true), (s) => s)).toBeNull()
     const many = [header(), ...Array.from({ length: DIAGNOSTIC_LINES + 50 }, (_, i) => ({ type: 'event', seq: i + 1, at: '', kind: 'hook', name: 'Stop', summary: '' }))].map((l) => JSON.stringify(l)).join('\n')
     const part = diagnosticRecording(many, (s) => s)
     expect(part?.lines).toHaveLength(DIAGNOSTIC_LINES)
     expect(JSON.parse(part!.lines.at(-1)!).seq).toBe(DIAGNOSTIC_LINES + 50)
+  })
+
+  it('keeps to its bound in UTF-8 bytes, line ends included, whatever the characters', () => {
+    const utf8 = (s: string): number => new TextEncoder().encode(s).length
+    for (const ch of ['文', '😀', 'é']) {
+      const big = [header(), ...Array.from({ length: 40 }, (_, i) => ({ type: 'event', seq: i + 1, at: '', kind: 'hook', name: 'Stop', summary: ch.repeat(1800) }))].map((l) => JSON.stringify(l)).join('\n')
+      const part = diagnosticRecording(big, (s) => s)!
+      const size = part.lines.reduce((n, l) => n + utf8(l) + 1, 0)
+      expect(size).toBeLessThanOrEqual(DIAGNOSTIC_BYTES)
+      // As many as fit: one more would not.
+      expect(size + utf8(part.lines[0]) + 1).toBeGreaterThan(DIAGNOSTIC_BYTES)
+    }
   })
 })
