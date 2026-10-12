@@ -105,7 +105,7 @@ export function ConsoleApp() {
   useEffect(() => {
     sourceRef.current = source
     // A recording is of one source: picking another stops it.
-    if (recordingRef.current) void call('console:stopRecording').then(setRecording, () => undefined)
+    if (recordingRef.current) void call('console:stopRecording').then((r) => r && setRecording(r), () => undefined)
     setRecordMenu(false)
     setEvents([])
     setPicked(null)
