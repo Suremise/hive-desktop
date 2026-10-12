@@ -5,6 +5,8 @@ export interface AgentProcess {
   name: string
   /** What it runs, short: the executable without .exe and its arguments, paths cut to their last part (node serve.js --port 8080). */
   label: string
+  /** When it started (a Windows FILETIME, as text): with its pid, which process it is, kept across Hive's restart (#614). */
+  created?: string
 }
 
 /** What an agent's stopped launches left running. No processes: nothing (any more). */

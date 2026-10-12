@@ -2,7 +2,9 @@ import { watch, existsSync, type FSWatcher } from 'original-fs'
 import { cp, lstat, mkdir, readdir, readFile, rename, rmdir, stat, writeFile } from 'original-fs/promises'
 import { basename, dirname, extname, join, relative, resolve, sep } from 'path'
 import { HIVE_DIR, assertSessionId } from '../shared/defaults'
-import type { FileContent, FileEntry, SessionImage, SessionImageGroup } from '../shared/types'
+import type { AttachmentContent, FileContent, FileEntry, SessionAttachment, SessionAttachmentGroup } from '../shared/types'
+import { attachmentKind } from '../shared/attachments'
+import { attachmentsDir, movedAttachment } from './attachmentsFolder'
 import { emit } from './events'
 import { heldOpen, insideReal, isInUse, trashAllOrNothing, withFileLock } from './fsutil'
 import { INDEX_BUSY, git } from './git'
@@ -14,7 +16,6 @@ import { trash as toTrash } from './trash'
 const log = createLogger('files')
 
 const HIDDEN = new Set(['.git'])
-export const IMAGE_EXT = /\.(png|jpe?g|gif|webp|bmp)$/i
 /** Files the hive-img: protocol may serve to the renderer (image and PDF previews). */
 export const SERVABLE_EXT = /\.(png|jpe?g|gif|webp|bmp|ico|pdf)$/i
 const SERVABLE_TYPES: Record<string, string> = { png: 'image/png', jpg: 'image/jpeg', jpeg: 'image/jpeg', gif: 'image/gif', webp: 'image/webp', bmp: 'image/bmp', ico: 'image/x-icon', pdf: 'application/pdf' }
@@ -274,9 +275,14 @@ export async function linkFiles(projectPath: string, rels: string[]): Promise<(s
   projectPath = workspace.assertRoot(projectPath)
   return Promise.all(
     (Array.isArray(rels) ? rels : []).slice(0, 100).map(async (rel) => {
+      const isFile = (r: string): Promise<boolean> => stat(inProject(projectPath, r)).then((s) => s.isFile(), () => false)
       try {
-        if (typeof rel !== 'string' || !(await stat(inProject(projectPath, rel))).isFile()) return null
-        return await spelledOnDisk(projectPath, rel)
+        if (typeof rel !== 'string') return null
+        if (await isFile(rel)) return await spelledOnDisk(projectPath, rel)
+        // A path into the old .hive/images leads to the file where it is now, in .hive/attachments (#387).
+        const to = await movedAttachment(join(projectPath, rel))
+        const moved = to ? toRel(projectPath, to) : null
+        return moved && (await isFile(moved)) ? await spelledOnDisk(projectPath, moved) : null
       } catch {
         return null
       }
@@ -352,13 +358,13 @@ export async function find(projectPath: string, query: string, limit = 500): Pro
 }
 
 // ---------------------------------------------------------------------------
-// Live updates: one recursive watcher per project while a Files or Images tab is open.
+// Live updates: one recursive watcher per project while a Files or Attachments tab is open.
 // ---------------------------------------------------------------------------
 
 const watchers = new Map<string, { w: FSWatcher; refs: number; dirs: Set<string>; timer?: NodeJS.Timeout }>()
 
 export function watchProject(projectPath: string): void {
-  // A project or worktree, or the Assistant's home (its Images: .hive/images there).
+  // A project or worktree, or the Assistant's home (its Attachments: .hive/attachments there).
   projectPath = workspace.isAssistantHome(projectPath) ? workspace.assertSessionHost(projectPath) : workspace.assertRoot(projectPath)
   const key = projectPath.toLowerCase()
   const existing = watchers.get(key)
@@ -429,15 +435,16 @@ export function unwatchAll(): void {
 }
 
 // ---------------------------------------------------------------------------
-// Session images
+// Session attachments (#387)
 // ---------------------------------------------------------------------------
 
 /**
- * A session host's images folder (.hive/images), when it is a real folder of the host's own: never one linked from
- * elsewhere (a junction or symbolic link), which Hive neither lists nor deletes through. Null when there is none.
+ * A session host's attachments folder (.hive/attachments, moved from .hive/images first), when it is a real folder of
+ * the host's own: never one linked from elsewhere (a junction or symbolic link), which Hive neither lists nor deletes
+ * through. Null when there is none.
  */
-async function imagesRoot(host: string): Promise<string | null> {
-  const root = join(host, HIVE_DIR, 'images')
+async function attachmentsRoot(host: string): Promise<string | null> {
+  const root = await attachmentsDir(host)
   const st = await lstat(root).catch(() => null)
   if (!st) return null
   if (st.isSymbolicLink() || !st.isDirectory() || !insideReal(root, [host])) {
@@ -447,83 +454,102 @@ async function imagesRoot(host: string): Promise<string | null> {
   return root
 }
 
-/** Throws unless p is a real folder or file (not a link) inside the images root, as Hive keeps them. */
-async function assertOwnImage(root: string, p: string, kind: 'dir' | 'file'): Promise<void> {
+/** Throws unless p is a real folder or file (not a link) inside the attachments root, as Hive keeps them. */
+async function assertOwnAttachment(root: string, p: string, kind: 'dir' | 'file'): Promise<void> {
   const st = await lstat(p).catch(() => null)
-  if (!st || st.isSymbolicLink() || (kind === 'dir' ? !st.isDirectory() : !st.isFile()) || !insideReal(p, [root])) throw new Error('Not one of the session images Hive keeps.')
+  if (!st || st.isSymbolicLink() || (kind === 'dir' ? !st.isDirectory() : !st.isFile()) || !insideReal(p, [root])) throw new Error('Not one of the session attachments Hive keeps.')
 }
 
-/** A project's session images, or the Hive Assistant's (its home is a session host: `.hive/assistant/.hive/images`). */
-export async function listImages(projectPath: string): Promise<SessionImageGroup[]> {
+/** The attachments root and the session folder of a path in it (`<root>\<session>\<file>`); throws for anything else. */
+async function attachmentAt(projectPath: string, path: string): Promise<{ root: string; sessionId: string; abs: string }> {
+  const root = await attachmentsRoot(projectPath)
+  const abs = resolve(path)
+  const parts = root ? relative(root, abs).split(sep) : []
+  if (!root || parts.length !== 2 || parts[0] === '..') throw new Error('Not a session attachment')
+  return { root, sessionId: assertSessionId(parts[0]), abs }
+}
+
+/** A project's session attachments, or the Hive Assistant's (its home is a session host: `.hive/assistant/.hive/attachments`). */
+export async function listAttachments(projectPath: string): Promise<SessionAttachmentGroup[]> {
   projectPath = workspace.assertSessionHost(projectPath)
-  const root = await imagesRoot(projectPath)
+  const root = await attachmentsRoot(projectPath)
   if (!root) return []
   const records = new Map((await workspace.sessionsFile(projectPath)).sessions.map((s) => [s.id, s]))
-  const groups: SessionImageGroup[] = []
+  const groups: SessionAttachmentGroup[] = []
   for (const d of await readdir(root, { withFileTypes: true }).catch(() => [])) {
     if (!d.isDirectory()) continue
-    const images: SessionImage[] = []
+    const attachments: SessionAttachment[] = []
     for (const f of await readdir(join(root, d.name), { withFileTypes: true }).catch(() => [])) {
-      if (!f.isFile() || !IMAGE_EXT.test(f.name)) continue
+      if (!f.isFile()) continue
       const p = join(root, d.name, f.name)
       const s = await stat(p).catch(() => null)
-      if (s) images.push({ path: p, name: f.name, size: s.size, modified: s.mtime.toISOString() })
+      if (s) attachments.push({ path: p, name: f.name, size: s.size, modified: s.mtime.toISOString(), kind: attachmentKind(f.name) })
     }
-    if (!images.length) continue
-    // Names are timestamps (see sessions.saveImage), so they order reliably even after copying.
-    images.sort((a, b) => b.name.localeCompare(a.name) || b.modified.localeCompare(a.modified))
+    if (!attachments.length) continue
+    // Names start with the time (see sessions.attachmentFile), so they order reliably even after copying.
+    attachments.sort((a, b) => b.name.localeCompare(a.name) || b.modified.localeCompare(a.modified))
     const rec = records.get(d.name)
-    groups.push({ sessionId: d.name, name: rec?.name ?? null, archived: rec?.archived ?? false, images })
+    groups.push({ sessionId: d.name, name: rec?.name ?? null, archived: rec?.archived ?? false, provider: rec ? rec.agent || 'claude-code' : null, attachments })
   }
-  return groups.sort((a, b) => b.images[0].name.localeCompare(a.images[0].name))
+  return groups.sort((a, b) => b.attachments[0].name.localeCompare(a.attachments[0].name))
+}
+
+const MAX_ATTACHMENT_TEXT = 2 * 1024 * 1024
+
+/** A kept attachment's text for the viewer's previews (text, CSV, Markdown, code): 'binary' or 'too-large' otherwise. */
+export async function readAttachment(projectPath: string, path: string): Promise<AttachmentContent> {
+  projectPath = workspace.assertSessionHost(projectPath)
+  const { root, abs } = await attachmentAt(projectPath, path)
+  await assertOwnAttachment(root, abs, 'file')
+  if ((await stat(abs)).size > MAX_ATTACHMENT_TEXT) return { kind: 'too-large', text: '' }
+  const buf = await readFile(abs)
+  for (let i = 0; i < Math.min(buf.length, 8000); i++) if (buf[i] === 0) return { kind: 'binary', text: '' }
+  const bom = buf.length >= 3 && buf[0] === 0xef && buf[1] === 0xbb && buf[2] === 0xbf
+  return { kind: 'text', text: buf.toString('utf8', bom ? 3 : 0) }
 }
 
 /**
- * Moves a session image to the Recycle Bin (a project's or the Assistant's), with the checks of deleting sessions
- * (#239): with its session reserved and not running (whileStopped: it can't resume and paste meanwhile), only an image
- * Hive keeps (no link out of .hive/images), and not one another program has open.
+ * Moves a session attachment to the Recycle Bin (a project's or the Assistant's), with the checks of deleting sessions
+ * (#239): with its session reserved and not running (whileStopped: it can't resume and paste meanwhile), only a file
+ * Hive keeps (no link out of .hive/attachments), and not one another program has open.
  */
-export async function trashImage(projectPath: string, path: string): Promise<void> {
+export async function trashAttachment(projectPath: string, path: string): Promise<void> {
   projectPath = workspace.assertSessionHost(projectPath)
-  const root = await imagesRoot(projectPath)
-  const abs = resolve(path)
-  const parts = root ? relative(root, abs).split(sep) : []
-  if (!root || parts.length !== 2 || parts[0] === '..' || !IMAGE_EXT.test(abs)) throw new Error('Not a session image')
-  const sessionId = assertSessionId(parts[0])
+  const { root, sessionId, abs } = await attachmentAt(projectPath, path)
   await sessions.whileStopped(projectPath, sessionId, async () => {
-    await assertOwnImage(root, join(root, sessionId), 'dir')
-    await assertOwnImage(root, abs, 'file')
-    if (await heldOpen(abs)) throw new Error('Another program has this image open. Close it, then try again.')
+    await assertOwnAttachment(root, join(root, sessionId), 'dir')
+    await assertOwnAttachment(root, abs, 'file')
+    if (await heldOpen(abs)) throw new Error('Another program has this file open. Close it, then try again.')
     await toTrash(abs)
   })
 }
 
 /**
- * Moves the images of one session (a group of the Images tab) to the Recycle Bin, all or none, with the checks of
- * deleting sessions (#239): not while the session runs (it may paste more), and none if another program has one open
+ * Moves the attachments of one session (a group of the Attachments tab) to the Recycle Bin, all or none, with the checks
+ * of deleting sessions (#239): not while the session runs (it may paste more), and none if another program has one open
  * (trashAllOrNothing puts back any already gone). How many went.
  */
-export async function trashImageGroup(projectPath: string, sessionId: string): Promise<number> {
+export async function trashAttachmentGroup(projectPath: string, sessionId: string): Promise<number> {
   projectPath = workspace.assertSessionHost(projectPath)
   assertSessionId(sessionId)
-  const root = await imagesRoot(projectPath)
-  if (!root) throw new Error('Not one of the session images Hive keeps.')
+  const root = await attachmentsRoot(projectPath)
+  if (!root) throw new Error('Not one of the session attachments Hive keeps.')
   const dir = join(root, sessionId)
-  // Reserved and not running from here to the end: it can't resume (and paste) while its images go.
+  // Reserved and not running from here to the end: it can't resume (and paste) while its attachments go.
   const n = await sessions.whileStopped(projectPath, sessionId, async () => {
-    await assertOwnImage(root, dir, 'dir')
-    const files = (await readdir(dir, { withFileTypes: true })).filter((f) => f.isFile() && IMAGE_EXT.test(f.name)).map((f) => join(dir, f.name))
-    for (const f of files) await assertOwnImage(root, f, 'file')
+    await assertOwnAttachment(root, dir, 'dir')
+    const files = (await readdir(dir, { withFileTypes: true })).filter((f) => f.isFile()).map((f) => join(dir, f.name))
+    for (const f of files) await assertOwnAttachment(root, f, 'file')
     try {
       await trashAllOrNothing(files, (f) => toTrash(f))
     } catch (e) {
-      if (isInUse(e)) throw new Error('Another program has one of these images open. Close it, then try again.', { cause: e })
+      if (isInUse(e)) throw new Error('Another program has one of these files open. Close it, then try again.', { cause: e })
       throw e
     }
-    // The folder goes too once empty (Hive makes it again for the next image).
+    // The folder goes too once empty (Hive makes it again for the next attachment).
     await rmdir(dir).catch(() => undefined)
     return files.length
   })
-  log.info(`Moved ${n} images of session ${sessionId} in ${userText(projectPath)} to the Recycle Bin`)
+  log.info(`Moved ${n} attachments of session ${sessionId} in ${userText(projectPath)} to the Recycle Bin`)
   return n
 }

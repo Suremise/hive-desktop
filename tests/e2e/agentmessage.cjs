@@ -147,17 +147,30 @@ const check = (name, ok, extra = '') => {
   await until(() => idle(reviewer.id), 15000)
   check('…and only once', wakes('Reviewer').filter((t) => t.includes('Use the revised review scope.')).length === 1 && activity('Reviewer').lastMessages?.outcome === 'delivered', JSON.stringify(wakes('Reviewer').slice(before4)))
 
-  // --- 5. The same with an agent watch: the builder waits for the reviewer to finish, is busy, and gets a message.
-  await until(() => idle(builder.id), 15000)
-  await say(reviewer.id, 'work 6')
-  await until(async () => (await live(alpha, reviewer.id))?.status === 'working', 10000)
+  // --- 5. The same with an agent watch: the builder waits for the reviewer to finish, is busy, and gets a message. The
+  // order is held, not raced (#598): the reviewer works until the message is queued and the builder until its watch has
+  // fired (each turn ends when the test makes its file, holduntil), so the wake waits for the builder and the message rides it.
+  const firedFor = (agentId) => {
+    try {
+      return JSON.parse(fs.readFileSync(path.join(ws, '.hive', 'watches.json'), 'utf8')).watches.some((w) => w.agentId === agentId && w.agents && w.fired)
+    } catch {
+      return false
+    }
+  }
+  await until(() => idle(builder.id), HUNG_MS)
+  await say(reviewer.id, 'holduntil agentmessage-reviewer-go')
+  await until(async () => (await live(alpha, reviewer.id))?.status === 'working', HUNG_MS)
   await say(builder.id, `hive hive_wait_for_agents ${JSON.stringify({ agents: [{ project: 'alpha', agent: 'Reviewer' }], wake: true })}`)
-  check('the builder watches the reviewer (an agent watch)', !!(await until(async () => (await live(alpha, builder.id))?.status === 'watching', 15000)))
-  await say(builder.id, 'work 14')
-  await until(async () => (await live(alpha, builder.id))?.status === 'working', 10000)
+  check('the builder watches the reviewer (an agent watch)', !!(await until(async () => (await live(alpha, builder.id))?.status === 'watching', HUNG_MS)))
+  await say(builder.id, 'holduntil agentmessage-builder-go')
+  await until(async () => (await live(alpha, builder.id))?.status === 'working', HUNG_MS)
   const before5 = wakes('Builder').length
   tool('hive_message_agent', { project: 'alpha', agent: 'Builder', text: 'Merge main before your next card.' })
-  check('its agent watch wake carries the message, first, in one line', !!(await until(async () => wakes('Builder').length > before5, 40000)) && wakes('Builder')[before5].startsWith('[Hive] Message from the Assistant: Merge main before your next card. [Hive] Reviewer (alpha) finished'), JSON.stringify(wakes('Builder').slice(before5)))
+  fs.writeFileSync(path.join(claudeHome, 'agentmessage-reviewer-go'), '')
+  check("the reviewer finishing fires the busy builder's agent watch", !!(await until(() => firedFor(builder.id), HUNG_MS)))
+  check('…and nothing is typed into the builder while it works', wakes('Builder').length === before5, JSON.stringify(wakes('Builder').slice(before5)))
+  fs.writeFileSync(path.join(claudeHome, 'agentmessage-builder-go'), '')
+  check('its agent watch wake carries the message, first, in one line', !!(await until(async () => wakes('Builder').length > before5, HUNG_MS)) && wakes('Builder')[before5].startsWith('[Hive] Message from the Assistant: Merge main before your next card. [Hive] Reviewer (alpha) finished'), JSON.stringify(wakes('Builder').slice(before5)))
 
   // --- 6. Settings → Assistant → Control turned down while a message waits: refused, never typed.
   await until(() => idle(builder.id), 15000)

@@ -479,10 +479,74 @@ interface AgentFields {
   context: ContextChoice
   /** A template's agent: its own worktree (true) or the project folder. */
   worktree: boolean
+  /** Only these of the project's MCP servers (#537); null: all of them. */
+  mcp: string[] | null
 }
 
 /**
- * The Agent Settings dialog (#126, #271): name, role, where it works, coding agent, model, effort, mode and context.
+ * The MCP servers an agent can be given (#537): those on in the workspace and not turned off in `disabled` (a project's;
+ * null for a template's agent, which may be loaded anywhere). Null until they are read.
+ */
+function useMcpOffered(disabled: readonly string[] | null): string[] | null {
+  const version = useStore((s) => s.skillsVersion)
+  const [list, setList] = useState<string[] | null>(null)
+  const off = disabled?.join('|') ?? ''
+  useEffect(() => {
+    let live = true
+    const skip = new Set(off ? off.split('|') : [])
+    call('mcp:list')
+      .then((l) => live && setList(l.filter((m) => m.globallyEnabled && m.def && !skip.has(m.name)).map((m) => m.name)))
+      .catch(() => live && setList([]))
+    return () => {
+      live = false
+    }
+  }, [version, off])
+  return list
+}
+
+/**
+ * Which of the project's MCP servers the agent gets (#537): all of them (the default) or only those ticked. Choosing
+ * Only these starts with every server offered ticked, so nothing changes until one is unticked. A name chosen that isn't
+ * offered here stays listed, ticked, so saving keeps it.
+ */
+function McpChoice({ value, offered, where, onChange }: { value: string[] | null; offered: string[] | null; where: string; onChange: (v: string[] | null) => void }) {
+  const names = [...(offered ?? []), ...(value ?? []).filter((n) => !offered?.includes(n))]
+  return (
+    <div className="mcp-choice">
+      <div className="segmented works-in" role="radiogroup" aria-label="MCP servers">
+        <button type="button" role="radio" aria-checked={value === null} className={cx(value === null && 'active')} onClick={() => onChange(null)}>
+          All of the project's
+        </button>
+        <button type="button" role="radio" aria-checked={value !== null} className={cx(value !== null && 'active')} disabled={value === null && offered === null} onClick={() => value === null && offered && onChange(offered)}>
+          Only these
+        </button>
+      </div>
+      {value !== null &&
+        (offered === null ? (
+          <p className="hint">
+            <Icon name="loading" spin /> Loading…
+          </p>
+        ) : names.length === 0 ? (
+          <p className="hint">No MCP servers are on {where}: it gets none.</p>
+        ) : (
+          <div className="choice-list" role="group" aria-label="Its MCP servers">
+            {names.map((n) => (
+              <label key={n} className="flex">
+                <input type="checkbox" className="checkbox" checked={value.includes(n)} onChange={(e) => onChange(e.target.checked ? [...value, n] : value.filter((x) => x !== n))} /> {n}
+                {!offered.includes(n) && <span className="faint">not on {where}</span>}
+              </label>
+            ))}
+          </div>
+        ))}
+      <div className="faint">The built-in hive server is always given. A server enabled later reaches it only with All.</div>
+    </div>
+  )
+}
+
+/**
+ * The Agent Settings dialog (#126, #271): name, role, where it works, coding agent, model, effort, mode, context and
+ * MCP servers (#537: those on in the workspace and not in `mcpDisabled`, a project's or null for a template's agent;
+ * `mcpWhere` says where they are on, in words).
  * `works`: what the agent works in, shown (a project's agent), or `choice` to pick it (a template's: its own worktree or
  * the project folder). `providerLocked`: why the coding agent can't change now (a running agent). `config`: whose
  * settings an empty choice follows. `nameProblem`: why a name can't be used. `confirmSave`: asked first (false keeps it
@@ -495,6 +559,8 @@ function AgentSettingsModal({
   config,
   roles,
   works,
+  mcpDisabled,
+  mcpWhere,
   providerLocked,
   note,
   nameProblem,
@@ -508,6 +574,8 @@ function AgentSettingsModal({
   config: Pick<ProjectInfo, 'config'>
   roles: string[]
   works: ReactNode | 'choice'
+  mcpDisabled: readonly string[] | null
+  mcpWhere: string
   providerLocked?: ReactNode
   note?: ReactNode
   nameProblem?: (name: string) => string | null
@@ -517,6 +585,8 @@ function AgentSettingsModal({
 }) {
   const [f, setF] = useState<AgentFields>(initial)
   const action = useBusy()
+  // Read as the dialog opens (the dialogs stay mounted while closed, and the workspace may have changed).
+  const mcpOffered = useMcpOffered(mcpDisabled)
   useEffect(() => {
     action.setError(null)
     setF(initial)
@@ -591,6 +661,8 @@ function AgentSettingsModal({
         onPermission={(permission) => put({ permission })}
         onContext={(context) => put({ context })}
       />
+      <h3 className="agent-dialog-h">MCP servers</h3>
+      <McpChoice value={f.mcp} offered={mcpOffered} where={mcpWhere} onChange={(mcp) => put({ mcp })} />
       {note && <div className="detail">{note}</div>}
     </Modal>
   )
@@ -604,7 +676,7 @@ export function AgentSettingsDialog() {
   if (!target || !project || !agent) return null
   const current = agent.live?.provider ?? agentProvider(agent, project.config, settings)
   const close = (): void => set({ agentSettingsFor: null })
-  const initial: AgentFields = { name: agent.name, role: agent.role ?? '', provider: current, model: agent.model ?? '', effort: agent.effort ?? '', permission: agent.permissionMode ?? '', context: contextChoice(agent.use200kContext), worktree: !!agent.worktree }
+  const initial: AgentFields = { name: agent.name, role: agent.role ?? '', provider: current, model: agent.model ?? '', effort: agent.effort ?? '', permission: agent.permissionMode ?? '', context: contextChoice(agent.use200kContext), worktree: !!agent.worktree, mcp: agent.mcpServers ? [...agent.mcpServers] : null }
   return (
     <AgentSettingsModal
       title={`${agent.name} settings`}
@@ -612,6 +684,8 @@ export function AgentSettingsDialog() {
       initial={initial}
       config={project}
       roles={roleSuggestions(project.agents)}
+      mcpDisabled={project.config.mcp.disabled}
+      mcpWhere="in this project"
       works={
         agent.worktree ? (
           <>
@@ -650,7 +724,8 @@ export function AgentSettingsDialog() {
           model: f.model || undefined,
           effort: (f.effort || undefined) as EffortLevel | undefined,
           permissionMode: (f.permission || undefined) as PermissionMode | undefined,
-          use200kContext: contextValue(f.context)
+          use200kContext: contextValue(f.context),
+          mcpServers: f.mcp
         })
         await actions.refreshWorkspace()
       }}
@@ -677,7 +752,7 @@ export function TemplateAgentDialog() {
     result.current = null
   }
   const provider = a?.provider ?? projectDefaultProvider(project?.config ?? DEFAULT_PROJECT_CONFIG, settings)
-  const initial: AgentFields = { name: a?.name ?? req.suggestedName, role: a?.role ?? '', provider, model: a?.model ?? '', effort: a?.effort ?? '', permission: a?.permissionMode ?? '', context: contextChoice(a?.use200kContext), worktree: a?.worktree ?? false }
+  const initial: AgentFields = { name: a?.name ?? req.suggestedName, role: a?.role ?? '', provider, model: a?.model ?? '', effort: a?.effort ?? '', permission: a?.permissionMode ?? '', context: contextChoice(a?.use200kContext), worktree: a?.worktree ?? false, mcp: a?.mcpServers ? [...a.mcpServers] : null }
   return (
     <AgentSettingsModal
       title={a ? `${a.name} settings (template)` : 'New agent (template)'}
@@ -686,6 +761,8 @@ export function TemplateAgentDialog() {
       config={project ?? { config: DEFAULT_PROJECT_CONFIG }}
       roles={roleSuggestions(req.others)}
       works="choice"
+      mcpDisabled={null}
+      mcpWhere="in this workspace"
       note={`For the template "${req.template}": Save saves it in the template. Settings left as "Project's" follow the project it is loaded into.`}
       nameProblem={(n) => (req.others.some((o) => o.name.toLowerCase() === n.toLowerCase()) ? `Another agent of the template is called "${n}".` : null)}
       confirmSave={async (f) => !(f.permission && f.permission !== a?.permissionMode && !(await confirmDangerousMode(f.provider, f.permission, f.name.trim())))}
@@ -700,6 +777,7 @@ export function TemplateAgentDialog() {
           ...(f.effort ? { effort: f.effort as EffortLevel } : {}),
           ...(f.permission ? { permissionMode: f.permission as PermissionMode } : {}),
           ...(ctx !== null ? { use200kContext: ctx } : {}),
+          ...(f.mcp ? { mcpServers: f.mcp } : {}),
           worktree: f.worktree
         }
       }}

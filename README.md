@@ -25,7 +25,7 @@ Hive Desktop (Hive for short) looks and feels like a streamlined VS Code, but it
 - **Worktrees and one merge at a time** — give an agent its own worktree and branch, review what it changed, then merge it back, keeping its commits or squashing them. Agents take turns at the merge slot, and the Progress panel shows who is merging, who is waiting and how far each long run has got.
 - **Several windows** — open another workspace in its own window, each with its own projects and agents.
 - **Transcript viewer** — read every session in full, including what came before each compaction, search across sessions, export as Markdown and resume.
-- **Files** — a file browser with an editor and previews for Markdown, CSV, HTML, SVG, images and PDFs; an Images tab for everything sent to the agents.
+- **Files** — a file browser with an editor and previews for Markdown, CSV, HTML, SVG, images and PDFs; an Attachments tab for every file sent to the agents.
 - **Review** — git changes with side-by-side diffs; edit `CLAUDE.md`, `AGENTS.md` and Claude Code's auto memory, or share one `AGENTS.md` between providers.
 
 <table>

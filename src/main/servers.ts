@@ -7,6 +7,7 @@ import { stat } from 'original-fs/promises'
 import type { AgentApiInfo, AssistantControl, EffortLevel, HiveEvent, LiveSessionState, PermissionMode, ProviderId, SkillInfo, TaskCard, TaskColumn, TaskPatch, TaskStartTarget, ToastLevel } from '../shared/types'
 import { DEFAULT_API_PORT, HIVE_DIR, projectAgents, stopAsksUser, transcriptWarnLimit } from '../shared/defaults'
 import { PROVIDERS, agentProvider, defaultProviderPending, isKnownProvider, isProviderEnabled, offeredModes, projectDefaultProvider, providerName } from '../shared/providers'
+import { agentChoosesMcp, agentGetsMcp, cleanMcpServers } from '../shared/agentMcp'
 import { fallbackEfforts, modelGroups } from '../shared/models'
 import { ASSISTANT_AGENT_ID, ASSISTANT_DIR, ASSISTANT_NAME } from '../shared/assistant'
 import { timeLeft } from '../shared/progress'
@@ -367,6 +368,9 @@ const statusMessageOf = (live: LiveSessionState | null | undefined): string | nu
 
 async function projectSummary(p: string) {
   const info = await workspace.projectInfo(p)
+  // The workspace's servers this project has on: each agent gets them all, or those of them it was given (#537).
+  const off = new Set(info.config.mcp.disabled)
+  const mcpOn = (await inWorkspace(workspaceOf(p), () => listMcp()).catch(() => [])).filter((m) => m.globallyEnabled && m.def && !off.has(m.name)).map((m) => m.name)
   return {
     name: info.name,
     path: info.path,
@@ -391,6 +395,9 @@ async function projectSummary(p: string) {
       // An action under the CLI's automatic review (as asked); never a question for the user.
       reviewing: a.live?.review ?? null,
       backgroundTasks: a.live?.backgroundTasks ?? 0,
+      // The project's MCP servers it gets (the built-in hive server besides): all of them, or only those it was given.
+      mcpServers: mcpOn.filter((n) => agentGetsMcp(a, n)),
+      mcpChoice: agentChoosesMcp(a) ? 'only' : 'all',
       // The guidance and skill revisions it launched with (compare with GET /v1/status's to spot an old launch).
       launched: a.live?.launched ?? null
     })),
@@ -802,9 +809,12 @@ async function agentDefOf(p: string, agentId: string) {
   return a
 }
 
-/** Settings from a request body: an agent's provider, model, effort, mode and 200K context (empty clears an override). */
-function agentSettings(body: any): { provider?: ProviderId; model?: string; effort?: EffortLevel; permissionMode?: PermissionMode; use200kContext?: boolean | null } {
-  const out: { provider?: ProviderId; model?: string; effort?: EffortLevel; permissionMode?: PermissionMode; use200kContext?: boolean | null } = {}
+/**
+ * Settings from a request body: an agent's provider, model, effort, mode, 200K context and MCP servers (empty clears an
+ * override; for MCP servers, "*" or null: all of the project's again).
+ */
+function agentSettings(body: any): { provider?: ProviderId; model?: string; effort?: EffortLevel; permissionMode?: PermissionMode; use200kContext?: boolean | null; mcpServers?: string[] | null } {
+  const out: { provider?: ProviderId; model?: string; effort?: EffortLevel; permissionMode?: PermissionMode; use200kContext?: boolean | null; mcpServers?: string[] | null } = {}
   if (body?.provider !== undefined) {
     if (!isKnownProvider(String(body.provider))) throw new HttpError(400, `Unknown provider "${body.provider}". hive_list_providers lists them.`)
     out.provider = String(body.provider) as ProviderId
@@ -818,6 +828,15 @@ function agentSettings(body: any): { provider?: ProviderId; model?: string; effo
     else if (c === false || c === 'off') out.use200kContext = false
     else if (c === null || c === '') out.use200kContext = null
     else throw new HttpError(400, 'context200k is "on", "off" or "" (follow the project).')
+  }
+  const m = body?.mcpServers
+  if (m !== undefined) {
+    const all = m === null || m === '' || m === '*' || (Array.isArray(m) && m.length === 1 && m[0] === '*')
+    try {
+      out.mcpServers = all ? null : cleanMcpServers(m)!
+    } catch (e) {
+      throw new HttpError(400, `${(e as Error).message} mcpServers is a list of the project's server names, [] for none, or ["*"] for all of them.`)
+    }
   }
   return out
 }
@@ -844,6 +863,7 @@ route('POST', '/v1/projects/:name/agents', async ({ params, body }) => {
       reuseWorktree: true,
       ...set,
       use200kContext: set.use200kContext ?? undefined,
+      mcpServers: set.mcpServers ?? undefined,
       provider
     })
     // The view stays where the user has it; the new agent is marked for them.
@@ -1452,8 +1472,9 @@ async function taskView(c: TaskCard, agents = new Map<string, Promise<ReturnType
   }
   // Nobody working on a Doing card: the Assistant reports these and suggests who could take them.
   // Entry ids are the card watches' (#224): left out, so replies stay as lean as before.
-  // Its decisions first (#357): what the user decided, which agents follow over the description.
-  const { number, title, decisions, ...rest } = c
+  // Its decisions first (#357): what the user decided, which agents follow over the description. Its holds (#602) are
+  // for its cost in Hive's window: left out.
+  const { number, title, decisions, held: _held, ...rest } = c
   const view: TaskView = {
     number,
     title,

@@ -1,4 +1,5 @@
 import type { AgentDef, AppSettings, AutoCompactSetting, EffortLevel, PermissionMode, ProjectConfig, ProjectProviderConfig, ProviderId, ProviderSettings } from './types'
+import type { AttachmentKind } from './attachments'
 import { CLAUDE_CODE, CLAUDE_DESCRIPTOR } from './claude'
 import { CODEX_DESCRIPTOR } from './codex'
 import { COPILOT_DESCRIPTOR } from './copilot'
@@ -59,6 +60,12 @@ export interface ProviderCapabilities {
   autoCompactReserve: number | null
   /** A pasted image path is attached as an image. */
   imagePaste: boolean
+  /**
+   * The kinds of attachment (#387) the CLI reads as what they are when the agent opens its path: an image it sees, a PDF
+   * it reads. Every attachment goes as a path in the prompt; other kinds are labelled "by path" (the agent opens them
+   * with its tools). Checked against the installed CLIs in test homes (fixtures in tests/fixtures/attachments).
+   */
+  attachments: AttachmentKind[]
   /** Hooks can hand an edit to the CLI's own approval prompt (the "Ask me" file lock). Without it, Hive asks the user itself. */
   lockAsk: boolean
   /**

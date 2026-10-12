@@ -1,6 +1,7 @@
 // Types shared by the main process, preload bridge and renderer.
 
 import type { AvOffer } from './antivirus'
+import type { AttachmentKind } from './attachments'
 import type { StartFailure } from './startFailure'
 import type { TipsState } from './tips'
 import type { TemplateAgent, TemplateScope } from './templates'
@@ -10,6 +11,7 @@ import type { ProjectPref } from './uiPrefs'
 import type { GitTool } from './gitTool'
 import type { ConsoleEvent } from './devConsole'
 import type { AgentLeftovers, LeftoverProcessMode } from './agentProcesses'
+import type { UsageTimeline } from './usageTimeline'
 
 export type ThemeSetting = 'dark' | 'light' | 'system'
 /** A coding-agent CLI Hive can run ("claude-code", "codex"). See src/shared/providers.ts. */
@@ -560,6 +562,8 @@ export interface TaskCard {
   history: TaskHistoryEntry[]
   /** Hidden from the board, kept and searchable. */
   archived: boolean
+  /** Who held it when (#602): its agent while in Doing, its reviewer while reviewing. What its cost is worked out from. */
+  held?: TaskHold[]
   /**
    * Who archived it: the user, Hive after its days in Done (Settings → Board), or its project being hidden or
    * removed (restoring the project brings those back).
@@ -631,6 +635,21 @@ export interface TaskDecision {
   at: string
   /** When the user last changed its words. */
   editedAt?: string
+}
+
+/**
+ * An agent holding a card for a while (TaskCard.held): its builder (its agent, while the card is in Doing) or its
+ * reviewer (from its review's start to its verdict). Kept by Hive as the card changes (cardCosts.ts trackHolds); a
+ * card from before has them worked out from its history once, by the agents' names.
+ */
+export interface TaskHold {
+  /** The agent's id in the card's project; absent when worked out from history by a name that wasn't the card's agent's. */
+  agent?: string
+  name: string
+  role: 'build' | 'review'
+  from: string
+  /** Absent while it still holds it. */
+  to?: string
 }
 
 /** An agent reviewing a card (TaskCard.review). */
@@ -784,10 +803,15 @@ export interface AgentDef {
   persona?: string
   /** What the agent is for ("builder", "reviewer"; free text, #126): saved in templates; empty, its name is its role. */
   role?: string
+  /**
+   * Only these of the project's MCP servers (#537, shared/agentMcp.ts), saved in templates; absent: all of them. The
+   * built-in hive server is given whatever this says.
+   */
+  mcpServers?: string[]
 }
 
-/** A change to an agent's settings: empty values (null for use200kContext) clear an override so it follows the project. */
-export type AgentPatch = Partial<Pick<AgentDef, 'name' | 'provider' | 'model' | 'effort' | 'permissionMode' | 'persona' | 'role'>> & { use200kContext?: boolean | null }
+/** A change to an agent's settings: empty values (null for use200kContext and mcpServers) clear an override so it follows the project. */
+export type AgentPatch = Partial<Pick<AgentDef, 'name' | 'provider' | 'model' | 'effort' | 'permissionMode' | 'persona' | 'role'>> & { use200kContext?: boolean | null; mcpServers?: string[] | null }
 
 /** What loading a template into a project would do (#126), and what stops it now. */
 /**
@@ -860,6 +884,8 @@ export interface AddAgentOptions {
   permissionMode?: PermissionMode
   use200kContext?: boolean
   role?: string
+  /** Only these of the project's MCP servers (#537); absent: all of them. */
+  mcpServers?: string[]
   /**
    * #456: new-worktree, work in the project's unused worktree on that branch instead when it is merged into the base and
    * clean, brought up to the base; existing-worktree, bring the one chosen up to the base when it is merged and clean.
@@ -1507,6 +1533,11 @@ export interface SessionUsage {
   days?: Record<string, DayUsage>
   /** From the parser: each cost report's increase and the tokens it covered by day. Hive turns them into day costs and removes them. */
   costReports?: { costUsd: number; days: Record<string, UsageTokens> }[]
+  /**
+   * From the parser: the usage over time (usageTimeline.ts), for cost per card (#602). Kept in usage-cache.json with the
+   * parser's result and removed before pricing, so it never travels with the session's usage.
+   */
+  timeline?: UsageTimeline
 }
 
 export interface UsageTokens {
@@ -1552,8 +1583,8 @@ export interface ProjectStorage {
   sessions: number
   /** Archived sessions' backups (.hive/archive). */
   archive: number
-  /** Images pasted or dropped into sessions (.hive/images). */
-  images: number
+  /** Files pasted or dropped into sessions (.hive/attachments). */
+  attachments: number
   /** The agents' worktree folders. */
   worktrees: { agent: string; path: string; bytes: number }[]
   /** Worktrees no agent works in (#353), counted in the total. */
@@ -1570,9 +1601,9 @@ export interface WorkspaceStorage {
 
 /** What Clean Up… removes; a days value of null leaves that kind out. */
 export interface CleanupOptions {
-  archivedImagesDays: number | null
-  /** Images of deleted sessions, and of launches that never got a session id. */
-  orphanImages: boolean
+  archivedAttachmentsDays: number | null
+  /** Attachments of deleted sessions, and of launches that never got a session id. */
+  orphanAttachments: boolean
   /** Hive's backups of archived sessions the CLI still has. */
   archivedBackupsDays: number | null
   /** Backups of archived sessions the CLI no longer has: the session is deleted (its usage still counts). */
@@ -1580,7 +1611,7 @@ export interface CleanupOptions {
 }
 
 export interface CleanupItem {
-  kind: 'archived-images' | 'orphan-images' | 'archived-backup' | 'gone-backup'
+  kind: 'archived-attachments' | 'orphan-attachments' | 'archived-backup' | 'gone-backup'
   path: string
   bytes: number
   sessionId?: string
@@ -1808,19 +1839,50 @@ export interface FileContent {
   bom: boolean
 }
 
-export interface SessionImage {
+/** A file pasted or dropped into a session (#387), kept in its host's .hive/attachments/<sessionId>. */
+export interface SessionAttachment {
   path: string
   name: string
   size: number
   modified: string
+  kind: AttachmentKind
 }
 
-/** Images pasted or dropped into one session, from <project>/.hive/images/<sessionId>. */
-export interface SessionImageGroup {
+/** What was pasted or dropped into one session, from <project>/.hive/attachments/<sessionId>, newest first. */
+export interface SessionAttachmentGroup {
   sessionId: string
   name: string | null
   archived: boolean
-  images: SessionImage[]
+  /** The provider the session ran in, when Hive has its record: how its attachments are labelled. */
+  provider: ProviderId | null
+  attachments: SessionAttachment[]
+}
+
+/** One file to attach (#387), as the session would get it: copied into its attachments folder, or as it is by path. */
+export interface AttachmentPlan {
+  source: string
+  name: string
+  size: number
+  kind: AttachmentKind
+  /** Copied into the session's attachments folder: from outside its folder, or an image (kept with the session). */
+  copy: boolean
+  /** A folder: its path is pasted as it is. */
+  folder: boolean
+}
+
+/** One attached file: the path pasted into the prompt. */
+export interface Attached {
+  source: string
+  path: string
+  name: string
+  kind: AttachmentKind
+  copied: boolean
+}
+
+/** A kept attachment's content for the Attachments tab's viewer: text (shown with Hive's previewers), or not text. */
+export interface AttachmentContent {
+  kind: 'text' | 'binary' | 'too-large'
+  text: string
 }
 
 export interface NoteFile {

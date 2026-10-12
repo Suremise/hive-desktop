@@ -9,8 +9,10 @@ export const PROJECT_TABS = [
   { id: 'tasks', label: 'Tasks', icon: 'project' },
   { id: 'sessions', label: 'Sessions', icon: 'history' },
   { id: 'files', label: 'Files', icon: 'files' },
-  { id: 'images', label: 'Images', icon: 'file-media' },
-  { id: 'changes', label: 'Changes', icon: 'git-compare' },
+  // Attachments (#387): its id is from when it showed only images, kept so tab settings and shortcuts carry over.
+  { id: 'images', label: 'Attachments', icon: 'attach' },
+  // The Git view (#607): Changes, History, Branches & remotes. Its id stays `changes` (saved tabs, `project.tab.changes`).
+  { id: 'changes', label: 'Git', icon: 'source-control' },
   { id: 'memory', label: 'Memory', icon: 'book' },
   { id: 'skills', label: 'Skills', icon: 'sparkle' },
   { id: 'templates', label: 'Templates', icon: 'library' },

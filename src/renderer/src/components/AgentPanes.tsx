@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useLayoutEffect, useRef, useState, type CSSProperties, type ReactNode } from 'react'
 import { CardChip, useAgentCards, useAgentReviews } from './CardChip'
 import { modelCaps } from '@shared/models'
+import { agentChoosesMcp, agentMcpText } from '@shared/agentMcp'
 import { MAX_AGENTS, SESSION_LAYOUTS, agentPageCount, agentsPerPage, dropIndex, pageEndIndex, compactThreshold, contextPercent, agentModelShown, effortLabel, formatBytes, isCompacting, layoutPanes, mergeBlocked, mostUrgent, pageAgents, projectLayout, sessionInAgentFolder, transcriptWarnLimit, unmergedWork } from '@shared/defaults'
 import type { AgentInfo, LiveSessionState, PageLayout, ProjectInfo, SessionLayout, SessionListItem, SessionUsage } from '@shared/types'
 import { TEMPLATE_SCOPES, type TemplateEntry, type TemplateScope } from '@shared/templates'
@@ -9,7 +10,7 @@ import { processCount } from '@shared/agentProcesses'
 import { formatDateTime, formatWhen } from '@shared/dates'
 import * as actions from '../actions'
 import { call, errorMessage } from '../api'
-import { NO_IDS, NO_PROJECTS, agentPage, agentProviderOf, clearStartFailure, focusAgent, focusedAgentId, isAssistantPath, notify, openInSessionsTab, paneAssignment, projectKey, prompt, revealAgent, seenAgents, set, setProjectTab, showAgent, showInOverview, showPage, useDateStyle, useStore } from '../store'
+import { NO_IDS, NO_PROJECTS, agentPage, agentProviderOf, clearStartFailure, focusAgent, focusedAgentId, isAssistantPath, notify, openInSessionsTab, paneAssignment, projectKey, prompt, revealAgent, seenAgents, set, setProjectTab, showAgent, showGit, showInOverview, showPage, useDateStyle, useStore } from '../store'
 import { useLiveUsage, useLiveUsageState } from '../usage'
 import { commandKeybinding } from '../commands'
 import { cx, formatKeybinding, formatTokens, sessionLabel, timeAgo } from '../util'
@@ -431,7 +432,7 @@ export function AddAgentButton({ project, className, label = 'Add Agent', strip 
 
 function reviewChanges(project: ProjectInfo, a: AgentInfo): void {
   set((s) => ({ changesRoot: { ...s.changesRoot, [project.path]: a.id } }))
-  setProjectTab(project.path, 'changes')
+  showGit(project.path, 'changes')
 }
 
 /** A worktree agent's work not merged into the project folder yet (null: not a worktree agent, or not checked yet). */
@@ -651,6 +652,8 @@ function AgentTabTip({ project, a }: { project: ProjectInfo; a: AgentInfo }) {
   const signIn = signInNote(live)
   if (signIn) lines.push(signIn)
   if (a.role) lines.push(`Role: ${a.role}`)
+  // Only shown when it has a choice of its own (#537): the default, all of the project's servers, goes without saying.
+  if (agentChoosesMcp(a)) lines.push(`MCP servers: ${agentMcpText(a)}`)
   for (const c of cards) lines.push(`Working on #${c.number} ${c.title}`)
   for (const c of reviewing) lines.push(`Reviewing #${c.number} ${c.title}`)
   if (live) lines.push(`Session: ${liveSessionLabel(project, live, usage)}`)

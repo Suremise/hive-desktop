@@ -12,7 +12,7 @@ import { shortDuration } from './progress'
 import { LANE_DEFAULT_EVENTS, type LaneEvent } from './laneWatch'
 
 /** A card as the Agent API shows it: with what its agent is doing now, and why it is stalled. */
-export interface TaskView extends Omit<TaskCard, 'agent' | 'decisions'> {
+export interface TaskView extends Omit<TaskCard, 'agent' | 'decisions' | 'held'> {
   /** The user's decisions, first (#357); without their ids. Absent when there are none. */
   decisions?: Omit<TaskDecision, 'id'>[]
   agent: { id: string; name: string; status: string; backgroundTasks: number } | null

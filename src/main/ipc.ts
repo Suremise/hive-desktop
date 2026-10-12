@@ -22,6 +22,7 @@ import { setPinned } from './pin'
 import { presentWindow } from './testQuiet'
 import { insideArchive, insideReal, isFile, samePlace, writeTextAtomic, writeTextUnlessChanged } from './fsutil'
 import { gitDiff, gitStatus } from './git'
+import { addRemote, createBranch, createTag, fetchAll, pull, push, repoHistory, repoInfo, repoSummary, setIdentity, setRemoteUrl, switchBranch } from './gitRepo'
 import { checkGit, gitTool } from './gitTool'
 import { refreshPath } from './freshPath'
 import { mergeUnused, removalPreview, removeUnusedWorktree, unusedBranchStatus, unusedWorktrees } from './unusedWorktrees'
@@ -33,6 +34,7 @@ import { mergeSlots, recoverMergeSlots, workspaceSlots } from './mergeSlotHost'
 import { followNames } from './projectRename'
 import { slotBranch } from './mergeSlots'
 import { endLane, listLanes, stampLaneProjects } from './lanes'
+import { cardCosts, laneCosts } from './cardCosts'
 import { badgeDescription } from '../shared/taskbar'
 import * as files from './files'
 import * as mcp from './mcp'
@@ -59,7 +61,7 @@ import { transcripts } from './transcripts'
 import * as skills from './skills'
 import * as storage from './storage'
 import { antivirusStatus, antivirusSuggestion, applyAntivirus, dismissAntivirus, prepareAntivirus } from './antivirus'
-import { allLeftovers, settleLeftovers } from './agentProcesses'
+import { allLeftovers, leftoversSettled, settleLeftovers } from './agentProcesses'
 import { contextWorkspace, currentWorkspace, inWorkspace, workspace, workspaceFor, workspaceOf, WorkspaceService } from './workspace'
 import { ensureHiveExcluded, trackedHiveFiles, untrackHive, vcsOf } from './hiveVcs'
 import { hiveWindows, windowForPath, windowOf, windowShowing } from './windows'
@@ -537,14 +539,20 @@ export function registerIpc(getAppInfo: () => ReturnType<HiveRequests['app:info'
     'session:setMode': (p, agentId, mode) => sessions.setPermissionMode(p, agentId, mode),
     'session:restartInMode': (p, agentId, mode) => sessions.restartInMode(p, agentId, mode),
     'session:setPlanMode': (p, agentId, on) => sessions.setPlanMode(p, agentId, on),
-    'session:leftovers': () => allLeftovers((p) => workspaceFor(p) === currentWorkspace()),
+    'session:leftovers': async (settled) => {
+      const ws = currentWorkspace()
+      if (settled === true) await leftoversSettled()
+      return allLeftovers((p) => workspaceFor(p) === ws)
+    },
     'session:settleLeftovers': (p, agentId, how) => settleLeftovers(workspace.assertSessionHost(p), agentId, how === 'end' ? 'end' : 'keep'),
     'session:stopBackgroundAndResume': (p, agentId, jobId, sessionId) => sessions.stopBackgroundAndResume(p, agentId, jobId, sessionId),
     'session:handOver': (p, from, to, opts) => sessions.handOver(p, from, to, opts),
     'session:allowLockedEdit': (p, agentId, path) => sessions.allowLockedEdit(p, agentId, path),
     'session:applyModes': () => sessions.applyModeSettings(),
     'session:compact': (p, focus, agentId) => sessions.compact(p, focus, agentId),
-    'session:saveImage': (p, sourceFile, agentId) => sessions.saveImage(p, sourceFile, agentId),
+    'session:pasteImage': (p, agentId) => sessions.pasteImage(p, agentId),
+    'session:planAttach': (p, sources, agentId) => sessions.planAttach(p, sources, agentId),
+    'session:attach': (p, sources, agentId) => sessions.attach(p, sources, agentId),
 
     'agents:add': (p, opts) => projectAgents.addAgent(p, opts),
     'agents:update': (p, id, patch) => projectAgents.updateAgent(p, id, patch),
@@ -636,9 +644,10 @@ export function registerIpc(getAppInfo: () => ReturnType<HiveRequests['app:info'
     'files:setUnsaved': (paths) => quitControl.setUnsaved(win(), Array.isArray(paths) ? paths.filter((p) => typeof p === 'string') : []),
     'files:unwatch': (p) => files.unwatchProject(p),
 
-    'images:list': (p) => files.listImages(p),
-    'images:trash': (p, path) => files.trashImage(p, path),
-    'images:trashGroup': (p, id) => files.trashImageGroup(p, id),
+    'attachments:list': (p) => files.listAttachments(p),
+    'attachments:read': (p, path) => files.readAttachment(p, path),
+    'attachments:trash': (p, path) => files.trashAttachment(p, path),
+    'attachments:trashGroup': (p, id) => files.trashAttachmentGroup(p, id),
     'transcript:read': (p, id, opts) => transcripts.read(p, id, opts ?? {}),
     'transcript:tool': (p, id, itemId) => transcripts.tool(p, id, itemId),
     'transcript:image': (p, id, imageId) => transcripts.image(p, id, imageId),
@@ -656,7 +665,7 @@ export function registerIpc(getAppInfo: () => ReturnType<HiveRequests['app:info'
       await writeTextAtomic(r.filePath, await transcripts.markdown(p, id, title))
       return r.filePath
     },
-    'images:copy': async (path) => {
+    'attachments:copyImage': async (path) => {
       // From its bytes: nativeImage reading a path itself is asar-aware (#246).
       const img = nativeImage.createFromBuffer(await readFile(guardFile(path)))
       if (img.isEmpty()) throw new Error('Not an image')
@@ -788,6 +797,13 @@ export function registerIpc(getAppInfo: () => ReturnType<HiveRequests['app:info'
       if (typeof id !== 'string' || !id) throw new Error('Which lane to end is required')
       return endLane(currentWorkspace(), id, { abandoned: abandoned === true })
     },
+    'costs:cards': (q) => {
+      if (!workspace.path) return []
+      const numbers = Array.isArray(q?.numbers) ? q.numbers.filter((n) => Number.isInteger(n) && n > 0).slice(0, 1000) : undefined
+      const time = (v: unknown): number | undefined => (typeof v === 'number' && Number.isFinite(v) ? v : undefined)
+      return cardCosts(currentWorkspace(), { numbers, project: typeof q?.project === 'string' ? q.project : null, from: time(q?.from), to: time(q?.to) })
+    },
+    'costs:lanes': (ids) => (workspace.path ? laneCosts(currentWorkspace(), Array.isArray(ids) ? ids.filter((x): x is string => typeof x === 'string') : undefined) : []),
     'progress:list': async () => {
       const ws = workspace.path
       if (!ws) return []
@@ -886,6 +902,19 @@ export function registerIpc(getAppInfo: () => ReturnType<HiveRequests['app:info'
       void shell.openPath(file)
     },
     'git:tool': (recheck) => (recheck ? checkGit() : gitTool()),
+    // The Git view (#607): the project folder only, read and changed by the user from the window (never an agent tool).
+    'git:summary': (p) => repoSummary(workspace.assertProject(p)),
+    'git:info': (p) => repoInfo(workspace.assertProject(p)),
+    'git:history': (p) => repoHistory(workspace.assertProject(p)),
+    'git:switch': (p, branch) => switchBranch(p, String(branch ?? '')),
+    'git:createBranch': (p, name, stay) => createBranch(p, String(name ?? ''), !!stay),
+    'git:addRemote': (p, name, url) => addRemote(p, String(name ?? ''), String(url ?? '')),
+    'git:setRemoteUrl': (p, name, url) => setRemoteUrl(p, String(name ?? ''), String(url ?? '')),
+    'git:fetch': (p) => fetchAll(p),
+    'git:pull': (p) => pull(p),
+    'git:push': (p, remote) => push(p, remote ? String(remote) : undefined),
+    'git:createTag': (p, name, message, pushTo) => createTag(p, String(name ?? ''), String(message ?? ''), pushTo ? String(pushTo) : undefined),
+    'git:setIdentity': (p, name, email) => setIdentity(p, String(name ?? ''), String(email ?? '')),
 
     'provider:info': () => providerService.all(),
     'provider:refresh': async (id) => {

@@ -623,6 +623,44 @@ describe('background tasks at a turn end', () => {
   })
 })
 
+describe("the CLI says it is idle at its prompt (Claude Code's idle_prompt, #612)", () => {
+  const idle = { hook_event_name: 'Notification', notification_type: 'idle_prompt', message: 'Claude is waiting for your input' }
+
+  it("an agent Hive still shows working (its turn's end missed) is idle again, its claims released, and the log told", async () => {
+    const [[, claude]] = await providers()
+    const a = send(claude, agent('working'), idle)
+    expect(a.status).toBe('ready')
+    expect(a.actions).toEqual(['releaseLocks', 'idleAgain'])
+    // A stale "Compacting…" (a compaction whose end never came) goes too.
+    expect(send(claude, agent('working', { statusMessage: COMPACTING_MESSAGE }), idle)).toMatchObject({ status: 'ready', statusMessage: undefined })
+    // Background tasks it is told about still count.
+    expect(hookStep({ kind: 'idle' }, input(agent('working', { tasks: 1 }), true)).next).toBe('background')
+  })
+
+  it('changes nothing else: an idle, waiting or background agent, or one Hive is compacting', async () => {
+    const [[, claude]] = await providers()
+    for (const status of ['ready', 'finished', 'watching', 'waiting', 'background', 'signin'] as SessionStatus[]) {
+      const a = send(claude, agent(status), idle)
+      expect([a.status, a.actions]).toEqual([status, []])
+    }
+    for (const compacting of ['requested', 'started'] as const) expect(hookStep({ kind: 'idle' }, input(agent('working', { compacting, statusMessage: COMPACTING_MESSAGE }))).next).toBeNull()
+  })
+
+  it("an idle compaction and its recap, as Claude Code 2.1.296 sends them, leave an idle agent idle", async () => {
+    const [[, claude, h]] = await providers()
+    const a = send(claude, agent('working'), h.stop)
+    expect(a.status).toBe('finished')
+    // The compaction: PreCompact (auto), SessionStart (compact), PostCompact; Hive's hooks have no SubagentStop.
+    send(claude, a, { hook_event_name: 'PreCompact', trigger: 'auto' })
+    expect([a.status, a.statusMessage]).toEqual(['working', COMPACTING_MESSAGE])
+    send(claude, a, { hook_event_name: 'SessionStart', source: 'compact' }, { hook_event_name: 'PostCompact', trigger: 'auto' })
+    expect([a.status, a.statusMessage]).toEqual(['ready', undefined])
+    // The recap sends no hook of Hive's; the idle notification a minute after the turn changes nothing either.
+    send(claude, a, idle)
+    expect(a.status).toBe('ready')
+  })
+})
+
 describe('background tasks: their time limit', () => {
   it('drops tasks past their own expiry quietly, and those past the limit by name', async () => {
     const { expireTasks } = await import('../src/main/hookStatus')

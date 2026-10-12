@@ -33,7 +33,9 @@ Start from an existing suite and its `lib.cjs` helpers (`launch`, `fitWindow`, `
 
 ## Cleaning up
 
-Stop only what you started: test Electron processes are found by their test profile in the command line (`hive-test\e2e\lanes\<k>\<suite>\<suite>-profile`, or `hive-test\e2e\<suite>-profile` for a suite run on its own) or Playwright's `--remote-debugging-port=0`. Never kill `Hive.exe` or `electron.exe` by name: the installed Hive hosting this session is one of them.
+Close every copy you start, in a `finally` (`app.close()`), so a probe that fails or is interrupted doesn't leave it running: a copy left from an e2e run stayed on the taskbar for a day (#614). Look at a change through a suite or a `lib.launch()` copy, which runs quiet in a test profile, rather than `npm run dev` or `electron .`; if you do start one of those, close it before the card goes to Review.
+
+Stop only what you started: test Electron processes are found by their test profile in the command line (the main process's `--hive-test-profile=…`, Chromium's `--user-data-dir=…`: `hive-test\e2e\lanes\<k>\<suite>\<suite>-profile`, or `hive-test\e2e\<suite>-profile` for a suite run on its own) or Playwright's `--remote-debugging-port=0`; the runner stops what names a suite's folder once the suite ends. Never kill `Hive.exe` or `electron.exe` by name: the installed Hive hosting this session is one of them.
 
 ## Report
 

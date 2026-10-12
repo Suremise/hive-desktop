@@ -217,7 +217,7 @@ const APP_ROWS: Row[] = [
     section: 'workspace',
     key: 'storage',
     title: 'Storage',
-    desc: "What Hive keeps for each of the workspace's projects (the biggest first) and the Hive Assistant: transcript backups, archived sessions, images and worktrees. Storage opens a project's page, with Clean Up….",
+    desc: "What Hive keeps for each of the workspace's projects (the biggest first) and the Hive Assistant: transcript backups, archived sessions, attachments and worktrees. Storage opens a project's page, with Clean Up….",
     tip: "Measured in the background, a project at a time. The coding agents' own transcripts (in ~/.claude and ~/.codex) aren't counted. Hidden projects aren't included.",
     type: 'custom',
     wide: true
@@ -452,7 +452,7 @@ export const PROJECT_SETTINGS_SECTIONS: { id: string; label: string; desc: strin
   ...PROVIDERS.map((p) => ({ id: `provider:${p.id}`, label: p.name, provider: p.id, desc: `Model, effort and permissions for this project’s ${p.name} agents. Agents can override these for themselves.` })),
   { id: 'sessions', label: 'Sessions', desc: 'Compacting and notifications for this project.' },
   { id: 'loops', label: 'Card loops', desc: 'How Hive helps agents that work through cards as builder and reviewer in this project.' },
-  { id: 'storage', label: 'Storage', desc: 'What Hive keeps for this project: transcript backups, archived sessions, images and the agents’ worktrees. Clean Up… moves old backups and images to the Recycle Bin.' },
+  { id: 'storage', label: 'Storage', desc: 'What Hive keeps for this project: transcript backups, archived sessions, attachments and the agents’ worktrees. Clean Up… moves old backups and attachments to the Recycle Bin.' },
   { id: 'keys', label: 'Keyboard Shortcuts', desc: 'Shortcuts for project and session commands while this project is selected, over the global ones.' },
   { id: 'advanced', label: 'Advanced', desc: 'Where the settings are stored, and resetting them.' }
 ]

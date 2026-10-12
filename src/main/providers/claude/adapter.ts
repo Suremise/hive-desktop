@@ -437,7 +437,10 @@ export class ClaudeCodeAdapter implements ProviderAdapter {
       case 'Notification': {
         const kind: string = body.notification_type ?? body.type ?? ''
         const message: string = body.message ?? ''
-        if (kind !== 'idle_prompt' && (kind === 'permission_prompt' || /permission|approve|waiting for your input/i.test(message))) {
+        // "Claude is waiting for your input" (idle_prompt): sent once, a minute after a turn ends, only while no turn
+        // runs and no dialog is open (2.1.296): the CLI is idle at its prompt.
+        if (kind === 'idle_prompt') out.event = { kind: 'idle' }
+        else if (kind === 'permission_prompt' || /permission|approve|waiting for your input/i.test(message)) {
           // Claude Code sends this when it shows the user a prompt, so none of its modes is `reviewed`.
           out.event = { kind: 'ask', ask: { kind: kind === 'permission_prompt' ? 'permission' : 'question', blocking: true, message: message || 'Waiting for your input' } }
         }

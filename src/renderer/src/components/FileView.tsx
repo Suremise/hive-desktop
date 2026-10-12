@@ -50,6 +50,21 @@ const PREVIEWERS: Previewer[] = [
 
 const previewerFor = (name: string): Previewer | undefined => PREVIEWERS.find((p) => p.match.test(name))
 
+/** Whether a previewer shows the file from disk, without its text (images, PDF). */
+export const previewsFromDisk = (name: string): boolean => previewerFor(name)?.needsText === false
+
+/**
+ * A file shown read-only with the previewers above (the Attachments tab's viewer, #387): the view the Files tab opens
+ * it in by default (Markdown, a CSV's table, an image, a PDF), or else its text. `text` is null for a file whose text
+ * isn't needed (previewsFromDisk) or can't be shown; `root` is the folder its relative links start from.
+ */
+export function ReadOnlyPreview({ root, abs, name, text }: { root: string; abs: string; name: string; text: string | null }) {
+  const pv = previewerFor(name)
+  const rel = abs.slice(root.length + 1).replace(/\\/g, '/')
+  if (pv && (pv.preferred || !pv.needsText) && (!pv.needsText || text !== null)) return <>{pv.render({ text: text ?? '', root, abs, rel, onOpenRel: () => undefined })}</>
+  return <pre className="attachment-text">{text}</pre>
+}
+
 type Mode = 'edit' | 'preview' | 'split'
 
 // Unsaved edits survive switching files, tabs and projects while Hive is open.
