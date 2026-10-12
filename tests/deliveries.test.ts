@@ -378,6 +378,77 @@ describe('the delivery service (#647)', async () => {
     expect(await states()).toEqual(['m1 queued', 'm2 queued'])
   })
 
+  it("a launch's task survives the status its own save sends (#649 round 3): a running agent started on a new conversation, its pane updated as the intent is saved (setInbox, which emits its status: the service rechecks then), a slow start, then its run's save failing: still offered into the new run, never uncertain, never typed again", async () => {
+    const shown = sessions.setInbox
+    // As in Hive: showing an agent's inbox sends its status when it changed, on which the service follows its deliveries.
+    let last = ''
+    Object.assign(sessions, {
+      setInbox: (_p: string, _id: string, inbox: unknown) => {
+        if (JSON.stringify(inbox) === last) return
+        last = JSON.stringify(inbox)
+        void deliveries.followAllForTests()
+      }
+    })
+    try {
+      // An agent already running (launch r1), started again on a new conversation (launch r9).
+      st.status = 'ready'
+      let release = (): void => undefined
+      const held = new Promise<void>((r) => (release = r))
+      let starting = false
+      const launching = deliveries.launchWith(alpha, { agentId: 'b1', agentName: 'B1', kind: 'task', from: hive, body: 'A new conversation on #8.' }, async () => {
+        starting = true
+        await held
+        return { runId: 'r9' }
+      })
+      await vi.waitFor(() => expect(starting).toBe(true), { timeout: HUNG_MS })
+      await deliveries.followAllForTests()
+      await deliveries.offerAllForTests()
+      expect(await states()).toEqual(['m1 offered'])
+      expect(st.typed).toEqual([])
+      // Started; saving its run fails: still followed in memory as offered into r9.
+      deliveries.setBeforeSaveForTests(() => {
+        throw new Error('EIO: i/o error')
+      })
+      st.runId = 'r9'
+      release()
+      try {
+        await launching
+        await deliveries.followAllForTests()
+      } finally {
+        deliveries.setBeforeSaveForTests(null)
+      }
+      await deliveries.followAllForTests()
+      await deliveries.offerAllForTests()
+      expect(await states()).toEqual(['m1 offered'])
+      expect(st.typed).toEqual([])
+    } finally {
+      Object.assign(sessions, { setInbox: shown })
+    }
+  })
+
+  it("hive_inbox gives out only what its source still holds (#649 round 3): made again (its text as it is now, or cancelled when no longer due), and an ack of something unread is checked the same way; something already received can still be acked", async () => {
+    const holding = { on: true }
+    deliveries.registerSource('test-source', {
+      refresh: async (r) => (r.body.startsWith('Gone') ? { cancel: 'cancelled: no longer due' } : r.body.startsWith('Old') ? { body: 'New text.' } : null),
+      holds: () => holding.on
+    })
+    st.status = 'working'
+    const ev = (body: string) => deliveries.createDelivery(alpha, { agentId: 'b1', kind: 'card-event', from: hive, body, source: 'test-source', ref: body })
+    await ev('Gone by now.')
+    await ev('Old text.')
+    await ev('Held.')
+    expect((await deliveries.readInbox(alpha, 'b1')).items.map((i) => `${i.ids.join()} ${i.text}`)).toEqual(['m2 New text.', 'm3 Held.'])
+    expect(await states()).toEqual(['m1 cancelled: cancelled: no longer due', 'm2 received', 'm3 received'])
+    // Its source holds none now: nothing given out, nothing acked from unread; what was received can still be acked.
+    holding.on = false
+    await ev('Not now.')
+    expect(await deliveries.readInbox(alpha, 'b1')).toEqual({ items: [], unacked: [] })
+    expect(await deliveries.ackDeliveries(alpha, 'b1', ['m4', 'm2'])).toEqual({ acked: ['m2'], unknown: ['m4'] })
+    expect((await states()).slice(2)).toEqual(['m3 received', 'm4 queued'])
+    holding.on = true
+    expect((await deliveries.readInbox(alpha, 'b1')).items.map((i) => i.ids.join())).toEqual(['m4'])
+  })
+
   it('the Agent API view: unread, overdue, the newest rows with their times', async () => {
     await make()
     await make({ body: 'Second.' })

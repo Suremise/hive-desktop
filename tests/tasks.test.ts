@@ -835,6 +835,47 @@ describe('card decisions', () => {
     }
   })
 
+  it("hive_inbox gives out a decision line only while its decisions are still new to that agent: its card given to another meanwhile, it isn't (#649 round 3)", async () => {
+    const deliveries = await import('../src/main/deliveries')
+    const writer = await import('../src/main/lineWriter')
+    const n = (await run(() => tasks.createTask({ title: 'Asked, then given away', project: 'alpha', column: 'doing', agent: 'a1' }, user))).number
+    await laterMs()
+    await run(() => tasks.updateTask(n, { decision: 'Red.' }, assistant))
+    const sent: string[] = []
+    let once = true
+    let status = 'finished'
+    const spies = [
+      vi.spyOn(sessions, 'liveFor').mockImplementation((p, id) => (p === alpha && id === 'a1' ? ({ projectPath: alpha, agentId: 'a1', status, runId: 'run-a1' } as never) : null)),
+      vi.spyOn(sessions, 'userMayBeTyping').mockImplementation(() => false),
+      vi.spyOn(sessions, 'lineWaiting').mockImplementation(() => false),
+      vi.spyOn(sessions, 'promptsTaken').mockImplementation((p, id) => (p === alpha && id === 'a1' ? { runId: 'run-a1', count: sent.length } : null)),
+      vi.spyOn(sessions, 'sendPrompt').mockImplementation(async (_p, _id, text, guard) => {
+        // It gets busy as the line is about to be typed: the line waits.
+        if (once) {
+          once = false
+          status = 'working'
+          throw new Error('The agent got busy.')
+        }
+        guard?.()
+        sent.push(text)
+      })
+    ]
+    writer.testHooks.takeMs = 20
+    try {
+      await decisionWakes.tellNow(w, alpha, 'a1')
+      expect(sent).toEqual([])
+      expect((await deliveries.deliveriesOf(alpha, 'a1')).map((r) => r.state)).toEqual(['queued'])
+      // Given to another agent: nothing new to A1 now, so its inbox doesn't hand the line out.
+      await run(() => tasks.updateTask(n, { agent: 'r1' }, user))
+      expect((await deliveries.readInbox(alpha, 'a1')).items).toEqual([])
+      expect((await deliveries.deliveriesOf(alpha, 'a1')).map((r) => `${r.state}: ${r.detail}`)).toEqual(['cancelled: nothing new to tell'])
+    } finally {
+      writer.testHooks.takeMs = undefined
+      for (const s of spies) s.mockRestore()
+      await writer.settled()
+    }
+  })
+
   it('a decision line stopped as it is typed is tried again by itself, and only while it is still true (#401)', async () => {
     const n = (await run(() => tasks.createTask({ title: 'Stopped lines', project: 'alpha', column: 'doing', agent: 'a1' }, user))).number
     await laterMs()

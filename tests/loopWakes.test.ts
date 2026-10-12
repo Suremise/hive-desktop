@@ -277,6 +277,26 @@ describe('loop wakes (main/loopWakes.ts, #405)', async () => {
     await disposeWorkspaceService(w)
   })
 
+  it("hive_inbox gives out a loop wake only while it is still its agent's: the lane's reviewer changed while it waited, it isn't handed out to the old one (#649 round 3)", async () => {
+    await loopWakes.clearLoopWakes()
+    const deliveries = await import('../src/main/deliveries')
+    const { w, alpha } = await open()
+    const st = fake(alpha)
+    const c = await newCard(w)
+    await lanes.startLane(w, { project: 'alpha', builder: 'b1', reviewer: 'r1', cards: [c], by: 'B1 (alpha)' })
+    // The reviewer works: its wake waits.
+    st.status.set('r1', 'working')
+    st.status.set('o1', 'working')
+    await inWorkspace(w, () => tasks.updateTask(c, { column: 'review' }, b1))
+    await vi.waitFor(() => expect(loopWakes.pendingLoopWakes()).toEqual([{ agentId: 'r1', n: c, kind: 'review' }]), HANG)
+    // The lane's reviewer is O1 now; R1 fetches its inbox.
+    await lanes.startLane(w, { project: 'alpha', builder: 'b1', reviewer: 'o1', cards: [c], by: 'B1 (alpha)' })
+    expect((await deliveries.readInbox(alpha, 'r1')).items).toEqual([])
+    expect((await deliveries.deliveriesOf(alpha, 'r1')).map((r) => `${r.state}: ${r.detail}`)).toEqual(["cancelled: it is another agent's wake now"])
+    await settled()
+    await disposeWorkspaceService(w)
+  })
+
   it('a lane changed while its wake is being typed stops it at once, not when the lanes event comes (#578 round 2)', async () => {
     await loopWakes.clearLoopWakes()
     const { w, alpha } = await open()

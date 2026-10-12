@@ -544,6 +544,52 @@ describe('agent watches (main/watches.ts)', async () => {
     await disposeWorkspaceService(w)
   })
 
+  it("hive_inbox gives out a wake telling the user's reply only while the user lets replies be told: the setting turned off (and nothing else), it isn't handed out, and is cancelled (#649 round 3)", async () => {
+    const { config } = await import('../src/main/config')
+    const deliveries = await import('../src/main/deliveries')
+    const { w, alpha } = await open()
+    const st = fake(alpha)
+    const home = w.assistantHome
+    mkdirSync(home, { recursive: true })
+    const { a, restore } = assistantOf(home)
+    // The Assistant gets busy as its wake is about to be typed: the wake waits, queued.
+    const typing = sessions.sendPrompt
+    let once = true
+    sessions.sendPrompt = async (p: string, id: string, text: string, guard?: () => void) => {
+      if (id === 'assistant' && once) {
+        once = false
+        a.status = 'working'
+        throw new Error('The Assistant got busy.')
+      }
+      return typing(p, id, text, guard)
+    }
+    try {
+      const c = await inWorkspace(w, () => tasks.createTask({ title: 'Icon', project: 'alpha', agent: 'a2', column: 'doing' }, { kind: 'user' }))
+      move(st, alpha, 'a2', nowOf())
+      await watches.registerWatch(w, home, 'assistant', { cards: [c.number], changes: ['comment'] })
+      watches.noteUserReply(alpha, 'a2', 'Reviewer', 'PRIVATE choice')
+      await watches.evaluateWatches(w)
+      await watches.settled()
+      expect(a.typed).toEqual([])
+      const waiting = await deliveries.deliveriesOf(home, 'assistant')
+      expect(waiting.map((r) => r.state)).toEqual(['queued'])
+      expect(waiting[0].body).toMatch(/PRIVATE choice/)
+      // The setting alone is turned off (no withdrawal ran): the watch's own check says so, and the inbox listens.
+      config.settings.assistant.tellReplies = false
+      try {
+        expect((await deliveries.readInbox(home, 'assistant')).items).toEqual([])
+        expect((await deliveries.deliveriesOf(home, 'assistant')).map((r) => `${r.state}: ${r.detail}`)).toEqual(["cancelled: the user's replies are no longer told"])
+      } finally {
+        config.settings.assistant.tellReplies = true
+      }
+    } finally {
+      sessions.sendPrompt = typing
+      restore()
+      await watches.settled()
+      await disposeWorkspaceService(w)
+    }
+  })
+
   it('turned off (and on again) while a wake telling a reply is being typed, nothing more is typed; what else changed comes again without it (rounds 2 and 3 findings)', async () => {
     const { w, alpha } = await open()
     const { config } = await import('../src/main/config')

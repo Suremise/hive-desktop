@@ -473,6 +473,9 @@ function recheck(store: Store, d: Draft, agentId?: string): void {
         set(store, d, r, 'received', undefined, 'typed', run !== r.offerRun ? { offerRun: run } : {})
         continue
       }
+      // A launch still starting (its run not attached yet) is in progress, never a run that has gone: only a restart
+      // (load) finds one left like that, and makes it uncertain.
+      if (run === LAUNCHING) continue
       if (run && sessions.liveFor(store.host, r.agentId)?.runId !== run) {
         set(store, d, r, 'uncertain', `may not have reached it: ${AGAIN_LAUNCH}`, undefined, { again: AGAIN_LAUNCH })
         continue
@@ -661,11 +664,17 @@ function untaken(store: Store, r: DeliveryRecord): boolean {
  */
 export async function readInbox(host: string, agentId: string): Promise<{ items: InboxItem[]; unacked: string[] }> {
   const store = await load(host)
+  // Its sources' say first (#649), as for an offer: each made again from things as they are now.
+  const fresh = await refreshAll(store, store.records.filter((x) => x.agentId === agentId && isUnread(x)))
   const r = await transact(store, (d) => {
     recheck(store, d, agentId)
+    applyFresh(store, d, fresh)
     const mine = d.records.filter((x) => x.agentId === agentId)
-    const out = { items: inboxItems(mine), unacked: mine.filter((x) => x.state === 'received' && needsAck(x.kind)).map((x) => x.id) }
-    for (const x of mine.filter(isUnread)) set(store, d, x, 'received', undefined, 'inbox')
+    // Only what may still be given out: what its source and producer still hold (a reply the user no longer lets be
+    // told, a watch that has ended, a wake that is someone else's now, isn't handed out).
+    const give = mine.filter((x) => isUnread(x) && stillWanted(store, x))
+    const out = { items: inboxItems(give), unacked: mine.filter((x) => x.state === 'received' && needsAck(x.kind)).map((x) => x.id) }
+    for (const x of give) set(store, d, x, 'received', undefined, 'inbox')
     return out
   })
   show(store, agentId)
@@ -675,10 +684,14 @@ export async function readInbox(host: string, agentId: string): Promise<{ items:
 /** hive_inbox ack: marks an agent's deliveries acked. Ids that aren't its own, or don't exist, are unknown (nothing said of them). */
 export async function ackDeliveries(host: string, agentId: string, ids: readonly string[]): Promise<{ acked: string[]; unknown: string[] }> {
   const store = await load(host)
+  const asked = new Set(ids)
+  const fresh = await refreshAll(store, store.records.filter((x) => x.agentId === agentId && asked.has(x.id) && isUnread(x)))
   const r = await transact(store, (d) => {
     // One not received yet is checked as it would be before it is given out (its sender's permission, its expiry, the
-    // agent's conversation): one that may no longer be delivered is refused or expired, not acked.
+    // agent's conversation, and its source's say): one that may no longer be delivered is refused, expired or
+    // cancelled, not acked; one its source doesn't hold now is unknown.
     recheck(store, d, agentId)
+    applyFresh(store, d, fresh)
     const acked: string[] = []
     const unknown: string[] = []
     for (const id of [...new Set(ids)]) {
@@ -686,6 +699,7 @@ export async function ackDeliveries(host: string, agentId: string, ids: readonly
       if (!x || x.agentId !== agentId) unknown.push(id)
       else if (x.state === 'acked') acked.push(id)
       // Ended without being received (cancelled, refused, expired): not for it to act on.
+      else if (isUnread(x) && !stillWanted(store, x)) unknown.push(id)
       else if ((isLive(x) || x.state === 'received') && set(store, d, x, 'acked', undefined, 'inbox')) acked.push(id)
       else unknown.push(id)
     }
@@ -694,6 +708,20 @@ export async function ackDeliveries(host: string, agentId: string, ids: readonly
   show(store, agentId)
   return { acked: r.acked, unknown: r.unknown }
 }
+
+/** Applies, in a draft, what sources said as their deliveries were made again: cancelled, or their text as it is now. */
+function applyFresh(store: Store, d: Draft, fresh: Map<string, { body: string } | { cancel: string }>): void {
+  for (const [id, f] of fresh) {
+    const r = byId(d.records, id)
+    if (!r || !isUnread(r)) continue
+    if ('cancel' in f) set(store, d, r, 'cancelled', f.cancel)
+    else if (f.body.length > DELIVERY_BODY_MAX_CHARS) set(store, d, r, 'cancelled', 'cancelled: made again, it was too long to keep')
+    else if (f.body !== r.body) put(d, r, { ...r, body: f.body })
+  }
+}
+
+/** Whether a delivery's source and producer still hold it (what an offer's writer asks before each key). */
+const stillWanted = (store: Store, r: DeliveryRecord): boolean => (r.source ? sources.get(r.source)?.holds?.(r, store.host) : undefined) !== false && store.hooks.get(r.id)?.holds?.() !== false
 
 /** An offer: its deliveries (as they were before it, to put back), the line, the launch and conversation it is for. */
 interface Offer {
@@ -877,13 +905,7 @@ async function offerOnce(host: string, agentId: string, only?: string): Promise<
   let offer: Offer | null
   try {
     offer = await transact(store, (d) => {
-      for (const [id, f] of fresh) {
-        const r = byId(d.records, id)
-        if (!r || !isWaiting(r)) continue
-        if ('cancel' in f) set(store, d, r, 'cancelled', f.cancel)
-        else if (f.body.length > DELIVERY_BODY_MAX_CHARS) set(store, d, r, 'cancelled', 'cancelled: made again, it was too long to keep')
-        else if (f.body !== r.body) put(d, r, { ...r, body: f.body })
-      }
+      applyFresh(store, d, fresh)
       items = pickOffer(store, d.records, agentId, only).filter((r) => items.some((x) => x.id === r.id))
       return planOffer(store, d, items, { runId: st.runId, sessionId: st.sessionId }, label)
     })
