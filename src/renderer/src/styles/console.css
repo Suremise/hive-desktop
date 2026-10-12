@@ -291,3 +291,50 @@
 .dc-dropped {
   color: var(--warning);
 }
+
+/* Recording (#638). */
+
+.dc-record-wrap {
+  position: relative;
+  display: inline-flex;
+}
+
+.dc-record .codicon,
+.dc-recording.on .codicon {
+  color: var(--error);
+}
+
+.dc-record-stop .codicon {
+  color: var(--error);
+}
+
+.dc-record-menu {
+  position: absolute;
+  top: calc(100% + 4px);
+  left: 0;
+  z-index: 10;
+  width: 340px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 10px 12px;
+  background: var(--bg-elevated);
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  box-shadow: var(--shadow);
+}
+
+.dc-record-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 6px;
+}
+
+.dc-recording.on {
+  color: var(--fg);
+}
+
+.dc-show-recording {
+  cursor: pointer;
+  color: var(--info);
+}

@@ -98,7 +98,7 @@ import type { GitTool } from './gitTool'
 import type { GitHistory, GitRepoInfo, GitRepoSummary } from './gitRepo'
 import type { BoardFoldChange } from './tasks'
 import type { CardCost, LaneCost } from './cardCosts'
-import type { ConsoleEvent, ConsoleSource } from './devConsole'
+import type { ConsoleEvent, ConsoleRecordingInfo, ConsoleSource } from './devConsole'
 
 type DeepPartial<T> = { [K in keyof T]?: T[K] extends object ? DeepPartial<T[K]> : T[K] }
 export type SettingsPatch = DeepPartial<AppSettings>
@@ -121,7 +121,8 @@ export interface HiveRequests {
   'app:showInFolder': (path: string) => void
   'app:openLogs': () => void
   /** Help → Copy Diagnostics: versions, coding agents, counts, key settings and the end of the log, redacted, as Markdown. */
-  'app:diagnostics': () => string
+  /** Copy Diagnostics' text; `recording` attaches the newest redacted developer console recording (#638). */
+  'app:diagnostics': (opts?: { recording?: boolean }) => string
   /** How many working agents keep the PC awake now (0: none, or the setting doesn't). */
   'app:keepAwake': () => number
   'update:state': () => UpdateState
@@ -510,6 +511,18 @@ export interface HiveRequests {
   'console:subscribe': (sources: string[], opts?: { includeText?: boolean }) => Record<string, ConsoleEvent[]>
   /** A watched source's events after `since` (a seq), oldest first. */
   'console:snapshot': (source: string, since?: number) => ConsoleEvent[]
+  /**
+   * Records a source this window may read to a file in Hive's console-recordings folder (#638), from now until stopped,
+   * the window closes or leaves its workspace: redacted, or with prompt and reply text when `includeText` (secrets stay
+   * masked). Replaces this window's recording; progress comes as `console-recording`.
+   */
+  'console:record': (source: string, opts?: { includeText?: boolean }) => ConsoleRecordingInfo
+  /** Stops this window's recording; null if it wasn't recording. */
+  'console:stopRecording': () => ConsoleRecordingInfo | null
+  /** This window's recording going on, and the newest one in Hive's folder (Copy Diagnostics offers it). */
+  'console:recordings': () => { active: ConsoleRecordingInfo | null; latest: ConsoleRecordingInfo | null }
+  /** Shows one of Hive's recordings (by its file name) in its folder. */
+  'console:showRecording': (name: string) => void
   'personas:list': () => PersonaInfo[]
   'personas:create': (name: string) => PersonaInfo
   /** Moves the persona's file to the Recycle Bin. */

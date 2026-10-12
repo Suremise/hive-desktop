@@ -75,6 +75,7 @@ import { cardBusy } from './cardBusy'
 import { devConsole } from './devConsole'
 import { consoleSources } from './devConsoleSources'
 import { CONSOLE_WINDOW_CHANNELS, consoleOwner, openConsoleWindow } from './consoleWindow'
+import { isRecordingName, latestRecording, recordingOf, recordingsDir, startRecording, stopRecording, stopRecordingsWhere } from './consoleRecorder'
 import { mayRead, type ConsoleEvent } from '../shared/devConsole'
 import { benchContext, importBenchmark, keepReport, listBenchmarks, pinBenchmark, readBenchmark, removeBenchmark, selectBenchmarks } from './benchmarks'
 
@@ -95,6 +96,8 @@ onHiveEvent((e) => {
     consoleWindows.delete(id)
     devConsole.unsubscribe(id)
   }
+  // A recording ends with the workspace it recorded in too (#638).
+  stopRecordingsWhere((wc, recordedIn) => consoleWorkspace(wc) !== recordedIn, 'workspace')
 })
 /** Whether this window's workspace may read a console source (its own agents, its Assistant and Hive there). */
 const windowMayRead = (source: string): boolean => {
@@ -245,7 +248,7 @@ export function registerIpc(getAppInfo: () => ReturnType<HiveRequests['app:info'
     'app:openPath': (p) => void shell.openPath(guardFile(p)),
     'app:showInFolder': (p) => shell.showItemInFolder(guardFile(p)),
     'app:openLogs': () => void shell.openPath(logsDir()),
-    'app:diagnostics': () => diagnostics(),
+    'app:diagnostics': (opts) => diagnostics({ recording: opts?.recording === true }),
     'app:keepAwake': () => keepAwakeCount(),
     'update:state': () => updater.updateState(),
     'update:check': () => updater.check(true),
@@ -882,6 +885,27 @@ export function registerIpc(getAppInfo: () => ReturnType<HiveRequests['app:info'
       // Only what this window watches, and may read in the workspace it shows now.
       if (!wc || !windowMayRead(String(source)) || !devConsole.sourcesOf(`window:${wc.id}`).includes(String(source))) return []
       return devConsole.events(String(source), Number(since) || 0)
+    },
+    // Recording a source this window may read to a file (#638).
+    'console:record': async (source, opts) => {
+      const wc = senderStore.getStore()
+      const id = String(source)
+      const row = wc && windowMayRead(id) ? consoleSources(currentWorkspace()).find((s) => s.id === id) : undefined
+      if (!wc || !row) throw new Error('Not a developer console source this window can record')
+      return startRecording(wc, row, consoleWorkspace(wc), opts?.includeText === true)
+    },
+    'console:stopRecording': async () => {
+      const wc = senderStore.getStore()
+      return wc ? stopRecording(wc.id, 'stopped') : null
+    },
+    'console:recordings': async () => {
+      const wc = senderStore.getStore()
+      return { active: wc ? recordingOf(wc.id) : null, latest: await latestRecording() }
+    },
+    'console:showRecording': (name) => {
+      // Only Hive's own recordings, by name, in its folder: never a path the page gives.
+      if (typeof name !== 'string' || !isRecordingName(name)) throw new Error('Not a developer console recording')
+      shell.showItemInFolder(join(recordingsDir(), name))
     },
     'personas:list': () => personas.listPersonas(),
     'personas:create': async (name) => {

@@ -272,6 +272,18 @@ passed to them), and it never changes the output or the results. Turn it off wit
 `packaged-progress` checks the `hive-progress` wrapper as installed (`dist/win-unpacked`), against a stand-in for the
 Agent API; `HIVE_PROGRESS_CHECK_DEV=1 node tests/e2e/packaged-progress.cjs` checks the dev build's copy.
 
+### Contract tests: what a CLI sends Hive
+
+A **contract suite** (`contract-copilot`, #638) runs a CLI through a scripted turn in a test copy, records what it
+sends through the developer console's own recording, and compares it with a fixture recorded before
+(`tests/fixtures/console/`, which says how to make one): a hook that stops arriving, a hook's field gone or of another
+type, or Hive reading a hook differently fails it; a new hook or field is flagged in its log (`FLAG …`) without failing.
+They are real-tier suites: they run with `--real` (before a release, and after a CLI update), and when `--affected`
+selects them (a change to the console's capture or recording, or to that provider's adapter). A failure after a CLI
+update is the point: read what changed, fix Hive's side (or #367's advanced defaults), and when the new behaviour is
+right, record the fixture again. `contract-copilot` needs no sign-in: the real Copilot CLI runs offline against the
+scripted stand-in model.
+
 ### The installer on a clean machine: the Sandbox checks
 
 The e2e suites test the app on this machine. The **Sandbox checks** (the mcp repo's

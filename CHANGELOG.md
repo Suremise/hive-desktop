@@ -24,6 +24,7 @@
 
 ### Developer features
 - **The developer console.** Turn on **Settings → Advanced → Show developer features**, then **Help → Developer Console** (Ctrl+Alt+J) opens a window of its own, like a browser's developer tools: pick an agent, the Hive Assistant or Hive itself and watch each hook, status line, launch and API call arrive beside what Hive made of it, redacted. Filter by event type or provider, search, pause and clear; Hive captures a source only while the console is open on it.
+- **Record what a CLI sends.** The developer console's **Record** writes a source's events to a file, redacted unless you tick prompt and reply text for that recording, with the versions of Hive and your coding agents' CLIs. **Copy Diagnostics** can attach the newest redacted recording to a bug report.
 ### Files
 - **A late paste no longer takes your selection.** In the Files tab, a paste, rename or new file that took a moment (a big folder, a slow disk) selected what it made when it finished, even if you had clicked another row meanwhile, so Ctrl+X or Ctrl+C then acted on the wrong file. The row you clicked now keeps the selection.
 

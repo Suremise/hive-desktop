@@ -941,6 +941,8 @@ The developer console shows what each coding agent's CLI sends Hive (its hooks, 
 - Each row is one event: its time, its type, its name and a one-line summary. **Click a row** to see the event as it came in (**Raw**) beside **What Hive made of it**. Large payloads start folded: click a node to open it.
 - **Filter** by event type (click a type to hide or show it) or by provider, and **search** (Ctrl+F) the events' names, summaries and payloads. **Pause** stops the list moving while you read (Hive goes on capturing, and the indicator counts what came); **Resume** fills it in. **Clear** empties the list, including anything that came while paused.
 - What it shows is **redacted**: no prompt or reply text, commands, tokens or sign-in details. Hive keeps the newest 500 events of each source in memory only, and nothing once the console closes.
+- **Record** (the red dot) writes the source's events from then on to a file, until you click **Stop recording**, pick another source or close the console. Recordings are redacted like the console; tick **Include prompt and reply text in this recording** to keep the text in that one recording (tokens and sign-ins are still masked; the box starts unticked each time). Each file starts with the versions of Hive and of your coding agents' CLIs (and the versions this Hive was tested with). The bar at the bottom names the file; **Show in folder** opens Hive's `console-recordings` folder.
+- **Help → Copy Diagnostics…** offers to attach the newest recording to a bug report: tick it to add its newest events, with folders and names taken out as from the log. A recording that includes text is never attached.
 
 ### Agents reading the developer console
 

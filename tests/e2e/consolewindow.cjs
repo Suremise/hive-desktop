@@ -5,7 +5,9 @@
 // holds it (new events counted) and resume fills it in; clear empties it; the shortcut brings the open window forward;
 // it remembers its size; closing it ends capture; Clear while paused drops what was held for good; a console belongs to
 // its window's workspace (switching or closing it there closes the console and ends its capture, another window's
-// console carrying on); and turning the setting off closes it.
+// console carrying on); recording writes a file, redacted unless text is ticked for that recording, with the CLIs' versions
+// in its header, ending with the window or its workspace; Copy Diagnostics attaches the newest recording when asked, only
+// a redacted one; and turning the setting off closes it.
 // Fake Claude Code; dev build, throwaway profile, workspace and CLAUDE_CONFIG_DIR.
 const lib = require('./lib.cjs')
 const { _electron } = require('playwright-core')
@@ -24,6 +26,8 @@ const ws3 = path.join(lib.WORK, 'consolewindow-ws3')
 const PORT = Number(lib.port(47872))
 // What the prompt says that must never reach the window.
 const PRIVATE = 'walrus-lantern-pebble'
+// What a recording that opted in to text keeps, and every other one leaves out.
+const SPOKEN = 'heron-copper-meadow'
 let failed = 0
 const check = (name, ok, extra = '') => {
   if (!ok) failed++
@@ -196,6 +200,73 @@ const check = (name, ok, extra = '') => {
     check('…resume brings none of the cleared turn back; the next turn shows', afterClear.filter((r) => r.name === 'UserPromptSubmit').length === 1 && afterClear.filter((r) => r.name === 'Stop').length === 1 && afterClear.every((r) => r.seq > heldMax), JSON.stringify(afterClear))
     await lib.until(async () => (await inv('session:live')).find((s) => s.agentId === b1.id)?.status === 'ready', HUNG_MS)
 
+    // --- Recording to a file (#638): redacted by default, text only when ticked for that recording.
+    const recordingsDir = path.join(userData, 'console-recordings')
+    const readRecording = (name) => fs.readFileSync(path.join(recordingsDir, name), 'utf8').split('\n').filter(Boolean).map((l) => JSON.parse(l))
+    const recordingText = async () => (await dc.locator('.dc-status .dc-recording').textContent().catch(() => '')) ?? ''
+    const bReady = () => lib.until(async () => (await inv('session:live')).find((s) => s.agentId === b1.id)?.status === 'ready', HUNG_MS)
+    /** Records one turn of B1 ("text": with the box ticked), stops, and returns the file's lines and what the bar said. */
+    let menuShot = false
+    const recordTurn = async (turn, text) => {
+      await dc.locator('.dc-record').click()
+      if (!menuShot) {
+        menuShot = true
+        await dc.screenshot({ path: path.join(lib.WORK, 'consolewindow-record.png') })
+      }
+      const box = dc.locator('.dc-record-menu input[type="checkbox"]')
+      const ticked = await box.isChecked()
+      if (text) await box.check()
+      await dc.locator('.dc-record-start').click()
+      await lib.until(async () => /^Recording \d+ events to console-/.test((await recordingText()).trim()), HUNG_MS)
+      await lib.sendPrompt(inv, key, turn, { submitted: async () => /^Recording [1-9]\d* events/.test((await recordingText()).trim()) })
+      await bReady()
+      await lib.until(async () => Number((await recordingText()).match(/Recording (\d+) events/)?.[1] ?? 0) >= 2, HUNG_MS)
+      await dc.locator('.dc-record-stop').click()
+      const saved = await lib.until(async () => {
+        const t = (await recordingText()).trim()
+        return /^Saved \d+ events to console-.*\.jsonl/.test(t) ? t : null
+      }, HUNG_MS)
+      const name = saved?.match(/(console-\S+\.jsonl)/)?.[1]
+      return { ticked, saved, lines: name ? readRecording(name) : [] }
+    }
+    const plain = await recordTurn(`edit a.ts ${SPOKEN}`, false)
+    check('Record writes the source to a file, and the bar says where', !!plain.saved && plain.lines.length > 2, String(plain.saved))
+    const plainHead = plain.lines[0]
+    check("…its header: Hive's version, the CLIs' installed and tested-with versions, no text", plainHead?.type === 'recording' && plainHead.text === false && plainHead.source?.kind === 'session' && plainHead.clis?.some((c) => c.provider === 'claude-code' && c.version), JSON.stringify(plainHead))
+    check('…its events, the prompt among them, and its end', plain.lines.some((l) => l.type === 'event' && l.name === 'UserPromptSubmit') && plain.lines.at(-1)?.type === 'end' && plain.lines.at(-1).reason === 'stopped')
+    check('…redacted: the prompt\'s words are not in it', !JSON.stringify(plain.lines).includes(SPOKEN))
+    const spoken = await recordTurn(`edit a.ts ${SPOKEN}`, true)
+    check('ticking text for a recording keeps the prompt in that one', spoken.lines[0]?.text === true && JSON.stringify(spoken.lines).includes(SPOKEN), JSON.stringify(spoken.lines[0]))
+    const again2 = await recordTurn('work 1', false)
+    check('…and the box starts unticked for the next one', again2.ticked === false && again2.lines[0]?.text === false && spoken.ticked === false)
+
+    // --- Copy Diagnostics attaches the newest recording only when asked, and only a redacted one.
+    const openDiagnostics = async () => {
+      await page.locator('.menubar-item', { hasText: 'Help' }).click()
+      await page.locator('.menu .menu-item', { hasText: 'Copy Diagnostics' }).click()
+      await lib.until(async () => !/Collecting/.test((await page.locator('.diagnostics-preview').textContent().catch(() => 'Collecting')) ?? 'Collecting'), HUNG_MS)
+    }
+    await openDiagnostics()
+    const offer = page.locator('.diagnostics-recording')
+    check('Copy Diagnostics offers the newest recording, unticked', (await offer.count()) === 1 && !(await offer.locator('input').isChecked()) && !(await page.locator('.diagnostics-preview').textContent()).includes('Developer console recording'))
+    await offer.locator('input').check()
+    const attached = await lib.until(async () => {
+      const t = (await page.locator('.diagnostics-preview').textContent()) ?? ''
+      return t.includes('### Developer console recording') ? t : null
+    }, HUNG_MS)
+    await page.screenshot({ path: path.join(lib.WORK, 'consolewindow-diagnostics.png') })
+    const section = attached?.slice(attached.indexOf('### Developer console recording')) ?? ''
+    check('…ticked, the preview has its newest events', /session source \(claude-code\).*redacted; the newest \d+/.test(section) && section.includes('"name":"Stop"'), section.slice(0, 300))
+    check("…with the workspace's folder and the agent's name taken out", !section.toLowerCase().includes(ws.toLowerCase().replace(/\\/g, '\\\\')) && !section.toLowerCase().includes(ws.toLowerCase()) && !section.includes('alpha · B1'), section.slice(0, 600))
+    await page.keyboard.press('Escape')
+    await lib.until(async () => (await page.locator('.diagnostics-preview').count()) === 0, HUNG_MS)
+    // The newest recording with text: never attached.
+    await recordTurn(`edit a.ts ${SPOKEN}`, true)
+    await openDiagnostics()
+    check('a recording with text is never offered', (await page.locator('.diagnostics-recording input').count()) === 0 && /includes prompt and reply text, so it can't be attached/.test(await page.locator('.diagnostics-recording').textContent()))
+    await page.keyboard.press('Escape')
+    await lib.until(async () => (await page.locator('.diagnostics-preview').count()) === 0, HUNG_MS)
+
     // --- Size remembered; the shortcut brings the open window forward rather than opening another.
     await app.evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows().find((w) => w.getTitle().startsWith('Developer Console'))?.setSize(900, 600))
     const saved = await lib.until(async () => {
@@ -220,6 +291,10 @@ const check = (name, ok, extra = '') => {
     // console and ends its capture, while another window's console carries on.
     await again.locator('.dc-source').selectOption(b1Option)
     await lib.until(async () => (await inv('console:sources')).find((s) => s.agentId === b1.id)?.capturing, HUNG_MS)
+    // A recording going on when the window leaves its workspace ends with it.
+    await again.locator('.dc-record').click()
+    await again.locator('.dc-record-start').click()
+    const leftRecording = await lib.until(async () => (await again.locator('.dc-status .dc-recording').textContent().catch(() => ''))?.match(/(console-\S+\.jsonl)/)?.[1] ?? null, HUNG_MS)
     const nextWindow = app.waitForEvent('window')
     await inv('window:new')
     const page2 = await nextWindow
@@ -250,6 +325,8 @@ const check = (name, ok, extra = '') => {
     await lib.openWorkspace(inv, page, ws3)
     await lib.until(() => !consoles().includes(again), HUNG_MS)
     check('another workspace opened in its window closes its console', !consoles().includes(again))
+    const leftEnd = await lib.until(() => readRecording(leftRecording).find((l) => l.type === 'end') ?? null, HUNG_MS)
+    check('…ending its recording', ['closed', 'workspace'].includes(leftEnd?.reason), JSON.stringify(leftEnd))
     check("…and the other window's console carries on", consoles().includes(dc2) && (await hive2Live()))
     await inv('console:open')
     const dc3 = await consoleOn('consolewindow-ws3')

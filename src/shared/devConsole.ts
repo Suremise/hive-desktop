@@ -59,6 +59,28 @@ export interface ConsoleEvent {
   truncated?: true
 }
 
+/** A recording of one source to a file (#638): one going on in a window, or the newest in Hive's recordings folder. */
+export interface ConsoleRecordingInfo {
+  /** The file's name in the recordings folder ("console-20261012-091503-session.jsonl"). */
+  name: string
+  file: string
+  /** The source's label ("alpha · B1"), kind and provider. */
+  label: string
+  kind: string
+  provider?: string
+  /** Prompt and reply text kept: the user's opt-in for this recording. */
+  includeText: boolean
+  startedAt: string
+  endedAt?: string
+  events: number
+  bytes: number
+  /** Events the recording lost (a burst past its queue). */
+  dropped: number
+  /** Still being written. */
+  recording: boolean
+  reason?: 'stopped' | 'closed' | 'workspace' | 'limit'
+}
+
 /** What a capture point gives: the rest is filled in as it is kept. */
 export interface CapturedEvent {
   kind: ConsoleKind
