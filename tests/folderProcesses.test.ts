@@ -8,11 +8,12 @@ import { tempDir } from './tempDir'
 type Proc = { pid: number; parent?: number; commandLine: string; started: number }
 type Tree = { pid: number; started: number }[]
 const req = createRequire(import.meta.url)
-const { namesFolder, ownedBy, descendantsIn, stillRunning, processes, endExactly, childrenFirst, stopProcessesIn, identify, stillSame, endTreeExactly, endChildTree } = req('./e2e/folderProcesses.cjs') as {
+const { namesFolder, namesFile, ownedBy, descendantsIn, stillRunning, processes, endExactly, childrenFirst, stopProcessesIn, identify, stillSame, endTreeExactly, endChildTree } = req('./e2e/folderProcesses.cjs') as {
   processes: () => Proc[]
   endExactly: (targets: Tree) => number
   childrenFirst: (list: Proc[], targets: Tree) => Tree
   namesFolder: (cmd: string, folder: string) => boolean
+  namesFile: (list: Proc[], name: string) => boolean
   ownedBy: (list: Proc[], folder: string, since?: number, self?: number) => number[]
   descendantsIn: (list: Proc[], root: number) => Tree
   stillRunning: (list: Proc[], tree: Tree) => number[]
@@ -37,6 +38,18 @@ describe("a scenario's leftover processes (#542, #402)", () => {
     expect(namesFolder(`node x "${dir}-2"`, dir)).toBe(false)
     expect(namesFolder(`node x ${dir}s`, dir)).toBe(false)
     expect(namesFolder('node x C:\\hive-test\\scenarios\\lanes\\1', dir)).toBe(false)
+  })
+  it("a command naming the run's own file, as a whole name: another suite's file never counts (#658)", () => {
+    const own = 'bg-done-4242-mfx1.txt'
+    const proc = (commandLine: string) => ({ pid: 10, started: 1, commandLine })
+    const ps = (file: string) => `pwsh.exe -Command "try { [Console]::OutputEncoding=[System.Text.Encoding]::UTF8 } catch {}\nStart-Sleep -Seconds 40; Set-Content -Path ${file} -Value done"`
+    // Its own command, in either case and by a path too.
+    expect(namesFile([proc(ps(own))], own)).toBe(true)
+    expect(namesFile([proc(ps(`C:\\demo\\${own.toUpperCase()}`))], own)).toBe(true)
+    // The own command never started, while another suite's runs: the run's own name isn't in theirs, nor at the end of a longer one.
+    const others = [proc(ps('bg-done.txt')), proc(ps('bg-done-1111-abcd.txt')), proc(`node -e x other-suite-${own}`), proc(ps(`${own}.bak`)), proc('')]
+    expect(namesFile(others, own)).toBe(false)
+    expect(namesFile([], own)).toBe(false)
   })
   it('only processes started since the scenario did, and never this one', () => {
     const list: Proc[] = [

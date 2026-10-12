@@ -478,6 +478,53 @@ function environmentProblems(text) {
 /** Why this CLI output shows a failure of the environment, or null (the first one). */
 const environmentProblem = (text) => environmentProblems(text)[0]?.why ?? null
 
+/**
+ * Codex's Windows sandbox can't start the Microsoft Store's PowerShell 7 while any other process of that package runs
+ * on the machine, sandboxed or not (#499, #658): an agent's PowerShell command, a pwsh terminal. A launch it refused,
+ * only as Codex's transcript records the command's end (its terminal cuts the command off; a message quoting the
+ * error, or a command's output, is no launch): an `item_completed` event of a CommandExecution that failed with exit
+ * code -1, whose executable (command[0], and the cmd= its output names) is the Store's pwsh, by its WindowsApps alias
+ * or the package's own path, and whose output is the refusal, error 5 or 0xC0070005. Any other record, code or shell
+ * (Windows PowerShell, cmd, an installed PowerShell 7) is not this, and stays a FAIL. As Codex 0.162 writes it.
+ */
+const STORE_PWSH_REFUSED = /^Failed to create unified exec process: CreateProcessAsUserW failed: (5 \(Access is denied\.\)|-1073283067)(?![\d.]) \| cwd=[^|]*\| cmd=(?:"([^"]+)"|(\S+))/
+const STORE_PWSH = [/\\Microsoft\\WindowsApps\\pwsh\.exe$/i, /\\WindowsApps\\Microsoft\.PowerShell_[^\\]+\\pwsh\.exe$/i]
+
+/** The Store PowerShell launches Codex's sandbox refused in this transcript (a rollout's JSON lines): [{ why, at }]. */
+function storePwshRefusals(jsonl) {
+  const found = []
+  const seen = new Set()
+  String(jsonl ?? '')
+    .split(/\r?\n/)
+    .forEach((line, i) => {
+      if (!line.includes('CreateProcessAsUserW')) return
+      let record
+      try {
+        record = JSON.parse(line)
+      } catch {
+        return
+      }
+      const item = record?.type === 'event_msg' && record.payload?.type === 'item_completed' ? record.payload.item : null
+      if (item?.type !== 'CommandExecution' || item.status !== 'failed' || item.exit_code !== -1 || typeof item.aggregated_output !== 'string') return
+      const exe = Array.isArray(item.command) && typeof item.command[0] === 'string' ? item.command[0] : ''
+      const m = STORE_PWSH_REFUSED.exec(item.aggregated_output)
+      if (!m || (m[2] ?? m[3]).toLowerCase() !== exe.toLowerCase() || !STORE_PWSH.some((re) => re.test(exe))) return
+      if (item.id && seen.has(item.id)) return
+      seen.add(item.id)
+      found.push({ why: `Codex's sandbox couldn't start the Store PowerShell 7 while another of its processes ran (#499, #585): ${m[1]}, ${exe}`, at: i })
+    })
+  return found
+}
+
+/** A transcript's text, or '' (none yet, or unreadable). */
+function transcriptText(file) {
+  try {
+    return file ? fs.readFileSync(file, 'utf8') : ''
+  } catch {
+    return ''
+  }
+}
+
 // Every Hive a suite starts, whether through launch() or Playwright's _electron.launch directly (most suites do that):
 // require('playwright-core') is one module, so suites get this _electron. cliStep reads their sessions. Each must have
 // the run context's environment (hiveEnv): without one, Playwright would pass on the suite's own.
@@ -503,7 +550,10 @@ _electron.launch = async (...args) => {
   return app
 }
 
-/** The environment failures in each session of the running test Hives: Map<pty key, problems> (terminal and status). */
+/**
+ * The environment failures in each session of the running test Hives: Map<pty key, problems> (its terminal and status,
+ * and the launches Codex's sandbox refused as its running session's transcript records them).
+ */
 async function sessionProblems() {
   const out = new Map()
   for (const app of apps)
@@ -512,16 +562,22 @@ async function sessionProblems() {
         .evaluate(async () => {
           const ws = await window.hive.invoke('workspace:get')
           const hosts = ws ? [...ws.projects, ...(ws.assistant ? [ws.assistant] : [])] : []
+          const live = await window.hive.invoke('session:live').catch(() => [])
           const found = []
-          for (const h of hosts)
+          for (const h of hosts) {
+            let records = null
             for (const a of h.agents ?? []) {
               const key = `session:${h.path.toLowerCase()}#${a.id}`
-              found.push([key, `${await window.hive.invoke('pty:buffer', key).catch(() => '')}\n${a.live?.statusMessage ?? ''}`])
+              const sessionId = live.find((s) => s.projectPath.toLowerCase() === h.path.toLowerCase() && s.agentId === a.id)?.sessionId
+              if (sessionId) records ??= await window.hive.invoke('session:list', h.path).catch(() => [])
+              const transcript = (sessionId && records?.find((r) => r.id === sessionId)?.transcriptPath) || null
+              found.push([key, `${await window.hive.invoke('pty:buffer', key).catch(() => '')}\n${a.live?.statusMessage ?? ''}`, transcript])
             }
+          }
           return found
         })
         .catch(() => [])
-      for (const [key, text] of texts) out.set(key, environmentProblems(text))
+      for (const [key, text, transcript] of texts) out.set(key, [...environmentProblems(text), ...storePwshRefusals(transcriptText(transcript))])
     }
   return out
 }
@@ -812,4 +868,4 @@ async function haikuAutoCaveat(page, autoOffered, timeoutMs = 10000) {
   return [ok, JSON.stringify(await caveat())]
 }
 
-module.exports = { ROOT, ELECTRON, WORK, CODEX_HOME, CLAUDE_TEST_HOME, TRASH, trashed, tidyUp, ownClaudeHome, probeDir, hiveEnv, childEnv, baseEnv, git, GIT_LOCKED, plainText, trustChoice, haikuAutoMode, haikuAutoCaveat, sleep, port, until, hoverTip, quitWatch, appReady, openWorkspace, hadEstimate, fitWindow, enableProviders, fakeClaude, launch, waitForProvider, addAgent, soloAgent, ptyKey, acceptClaudeTrust, acceptRelaunchTrust, withFileLock, trustForCodex, gitProject, codexSignedIn, launchDir, launchHook, codexHook, processTree, stopProcessesIn, identify, stillSame, endExactly, endTreeExactly, endChildTree, processRunning, samplePng, environmentProblem, environmentProblems, stepVerdict, checked, cliStep, sendPrompt, skip }
+module.exports = { ROOT, ELECTRON, WORK, CODEX_HOME, CLAUDE_TEST_HOME, TRASH, trashed, tidyUp, ownClaudeHome, probeDir, hiveEnv, childEnv, baseEnv, git, GIT_LOCKED, plainText, trustChoice, haikuAutoMode, haikuAutoCaveat, sleep, port, until, hoverTip, quitWatch, appReady, openWorkspace, hadEstimate, fitWindow, enableProviders, fakeClaude, launch, waitForProvider, addAgent, soloAgent, ptyKey, acceptClaudeTrust, acceptRelaunchTrust, withFileLock, trustForCodex, gitProject, codexSignedIn, launchDir, launchHook, codexHook, processTree, stopProcessesIn, identify, stillSame, endExactly, endTreeExactly, endChildTree, processRunning, samplePng, environmentProblem, environmentProblems, storePwshRefusals, stepVerdict, checked, cliStep, sendPrompt, skip }
