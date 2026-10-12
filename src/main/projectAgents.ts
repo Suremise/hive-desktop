@@ -367,12 +367,19 @@ export async function updateAgent(projectPath: string, agentId: string, patch: A
       Object.assign(clean, { model: patch.model || undefined, effort: patch.effort || undefined, permissionMode: patch.permissionMode || undefined, use200kContext: typeof use200kContext === 'boolean' ? use200kContext : undefined, lastSessionId: undefined })
     }
   }
-  // A new name: free across the workspace (#702), checked with the write. Its own name again is no change (an agent
-  // sharing its name from before names were unique keeps it while its other settings change). The Assistant's agent is
-  // never renamed.
+  // A name: free across the workspace (#702), checked holding the names lock against the agent as saved then, just
+  // before the write (every change of a name takes that lock, so none comes between). Its own name again is no change:
+  // an agent sharing its name from before names were unique keeps it while its other settings change, but only while it
+  // still has that name. The Assistant's agent is never renamed.
   const name = patch.name
-  const was = agents.find((a) => a.id === agentId)
-  const def = name !== undefined && !(was && sameAgentName(was.name, name)) ? await withAgentNames(projectPath, async () => (await assertNameFree(projectPath, name, { self: agentId }), workspace.updateAgent(projectPath, agentId, clean))) : await workspace.updateAgent(projectPath, agentId, clean)
+  const def =
+    name !== undefined
+      ? await withAgentNames(projectPath, async () => {
+          const now = projectAgents(await workspace.projectConfig(projectPath)).find((a) => a.id === agentId)
+          if (!now || !sameAgentName(now.name, name)) await assertNameFree(projectPath, name, { self: agentId })
+          return workspace.updateAgent(projectPath, agentId, clean)
+        })
+      : await workspace.updateAgent(projectPath, agentId, clean)
   const live = sessions.liveFor(projectPath, agentId)
   if (live && patch.name) live.agentName = patch.name
   await workspaceOf(projectPath).refresh()

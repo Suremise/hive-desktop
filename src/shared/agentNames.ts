@@ -31,21 +31,31 @@ export function projectPrefix(project: string): string {
 /** A short code (B1, R2, QA, b1): a prefix joins it, in capitals (AMB1); a word gets the project in brackets. */
 const isCode = (name: string): boolean => /^([A-Z0-9]{1,6}|[A-Za-z]{1,4}\d{1,3})$/.test(name)
 
+/** `base` cut short so that it and `suffix` fit in a name (AGENT_NAME_MAX), then `suffix`. */
+const fit = (base: string, suffix: string): string => `${base.slice(0, Math.max(1, AGENT_NAME_MAX - suffix.length)).trimEnd()}${suffix}`
+
 /**
  * A free name for an agent called `name` in `project` (#702): the project's prefix in front of a short code (B1 in
- * amberlight: AB1, then AMB1, AMBB1…), a word with the project after it ("Builder (amberlight)"), else numbered.
+ * amberlight: AB1, then AMB1, AMBB1…), a word with the project after it ("Builder (amberlight)"), else numbered. Every
+ * name tried fits AGENT_NAME_MAX (a long name is cut short, never refused), and the numbers end: each one differs, and
+ * at most `taken.length` of them are taken.
  */
 export function suggestAgentName(name: string, project: string, taken: readonly string[]): string {
   const used = new Set(taken.map(key))
-  const free = (n: string): boolean => !used.has(key(n)) && n.length <= AGENT_NAME_MAX
-  const clean = name.replace(/\s+/g, ' ').trim()
+  const free = (n: string): boolean => !used.has(key(n))
+  const clean = name.replace(/\s+/g, ' ').trim() || 'Agent'
   const word = project.replace(/[^A-Za-z0-9]+/g, '').toUpperCase()
   const prefixes = [projectPrefix(project), ...Array.from({ length: Math.max(0, word.length - 1) }, (_, i) => word.slice(0, i + 2))]
-  const tries = isCode(clean) ? prefixes.map((p) => `${p}${clean.toUpperCase()}`) : [`${clean} (${project})`]
+  const code = isCode(clean)
+  // A word keeps the project whole (its first 20 characters) and gives way itself.
+  const tail = code ? '' : ` (${project.slice(0, 20).trim()})`
+  const tries = code ? prefixes.map((p) => fit(p, clean.toUpperCase())) : [fit(clean, tail)]
   const found = tries.find(free)
   if (found) return found
-  const stem = tries[0]
-  for (let n = 2; ; n++) if (free(`${stem} ${n}`)) return `${stem} ${n}`
+  for (let n = 2; ; n++) {
+    const numbered = code ? fit(tries[0], ` ${n}`) : fit(clean, `${tail} ${n}`)
+    if (free(numbered)) return numbered
+  }
 }
 
 /** "There is already an agent called "B1" in amberlight…": the refusal, with a free name to use instead. */

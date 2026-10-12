@@ -5,7 +5,7 @@
 import { execFileSync } from 'child_process'
 import { mkdirSync, readFileSync, writeFileSync } from 'fs'
 import { join } from 'path'
-import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'vitest'
+import { afterAll, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest'
 import * as electron from 'electron'
 import { duplicateAgentNames, nameTaken, projectPrefix, suggestAgentName } from '../src/shared/agentNames'
 import type { AgentDef, HiveEvent } from '../src/shared/types'
@@ -20,6 +20,10 @@ const { config } = await import('../src/main/config')
 const { providerService } = await import('../src/main/providerService')
 const { addAgent, updateAgent } = await import('../src/main/projectAgents')
 const { onHiveEvent } = await import('../src/main/events')
+const { withAgentNames } = await import('../src/main/agentNames')
+
+// The longest a test waits for what it is waiting on: a bound for a hung run, never how long it should take.
+const HUNG_MS = 10000
 
 describe('the name rules', () => {
   it("a project's prefix is its initials", () => {
@@ -33,6 +37,24 @@ describe('the name rules', () => {
     expect(suggestAgentName('Builder', 'beta', ['Builder'])).toBe('Builder (beta)')
     expect(suggestAgentName('Builder', 'beta', ['Builder', 'builder (BETA)'])).toBe('Builder (beta) 2')
     expect(suggestAgentName('X', 'x', ['X', 'XX'])).toBe('XX 2')
+  })
+
+  it('a long name or project still gets a name that fits, never none (#702 round 2: it never returned)', () => {
+    // Each suggestion taken in turn, as agents are added one after another: every next one is new and fits.
+    const long = 'A'.repeat(60)
+    const taken = [long]
+    for (let i = 0; i < 30; i++) {
+      const s = suggestAgentName(long, 'beta', taken)
+      expect(s.length).toBeLessThanOrEqual(60)
+      expect(taken.map((t) => t.toLowerCase())).not.toContain(s.toLowerCase())
+      taken.push(s)
+    }
+    expect(taken.slice(1, 3)).toEqual([`${'A'.repeat(53)} (beta)`, `${'A'.repeat(51)} (beta) 2`])
+    const project = `beta-${'p'.repeat(80)}`
+    expect(suggestAgentName('Builder', project, ['Builder'])).toBe(`Builder (beta-${'p'.repeat(15)})`)
+    expect(suggestAgentName('B1', project, ['B1'])).toBe('BPB1')
+    const words = ['Builder', 'Builder (beta)', ...Array.from({ length: 49 }, (_, i) => `Builder (beta) ${i + 2}`)]
+    expect(suggestAgentName('Builder', 'beta', words)).toBe('Builder (beta) 51')
   })
 
   it('finds a name taken (case and spacing aside), not by the agent being renamed; lists duplicates by project', () => {
@@ -100,6 +122,36 @@ describe('Hive keeps agent names unique across the workspace', () => {
     await run(() => w.mutateProjectConfig(beta, (c) => ({ agents: c.agents.map((a) => (a.id === oldId ? { ...a, name: 'B1' } : a)) })))
     expect((await run(() => updateAgent(beta, oldId, { name: 'B1', role: 'builder' }))).role).toBe('builder')
     await run(() => updateAgent(beta, oldId, { name: 'Old' }))
+  })
+
+  it('a save under its own name that waited while it was renamed and the name taken elsewhere is refused (#702 round 2)', async () => {
+    // alpha's R1 saves {name: R1, role}; before it gets the names lock, R1 is renamed R9 and beta takes R1 (done here
+    // holding the lock, as those changes would). Its own name is checked as saved then: R9, so R1 is beta's and refused.
+    const reads = vi.spyOn(w, 'projectConfig')
+    let release!: () => void
+    const gate = new Promise<void>((r) => (release = r))
+    let held!: () => void
+    const holding = new Promise<void>((r) => (held = r))
+    const lock = run(() =>
+      withAgentNames(alpha, async () => {
+        held()
+        await gate
+      })
+    )
+    await holding
+    const save = outcome(run(() => updateAgent(alpha, 'a2', { name: 'R1', role: 'reviewer' })))
+    // The save has read alpha's config (R1 its own name) and waits for the lock.
+    await vi.waitFor(() => expect(reads.mock.calls.some((c) => c[0] === alpha)).toBe(true), { timeout: HUNG_MS })
+    await run(() => w.mutateProjectConfig(alpha, (c) => ({ agents: c.agents.map((a) => (a.id === 'a2' ? { ...a, name: 'R9' } : a)) })))
+    await run(() => w.mutateProjectConfig(beta, (c) => ({ agents: [...c.agents, { id: 'taker', name: 'R1', provider: 'claude-code' }] })))
+    release()
+    await lock
+    expect(await save).toMatch(/already an agent called "R1" in beta/)
+    expect([names(alpha).filter((n) => n === 'R1'), names(beta).filter((n) => n === 'R1')]).toEqual([[], ['R1']])
+    reads.mockRestore()
+    // Put back for the tests after.
+    await run(() => w.mutateProjectConfig(beta, (c) => ({ agents: c.agents.filter((a) => a.id !== 'taker') })))
+    await run(() => w.mutateProjectConfig(alpha, (c) => ({ agents: c.agents.map((a) => (a.id === 'a2' ? { ...a, name: 'R1' } : a)) })))
   })
 
   it('adds and renames in two projects at once: only one gets the name', async () => {

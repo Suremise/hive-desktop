@@ -32,13 +32,18 @@ export function TemplateLoadNames({ path, scope, file, from, initial, onChange }
     const owner = nameTaken(n, others)
     return owner ? `${owner.project} has an agent called ${owner.name}.` : null
   })
+  // Names the plan can't be made for (empty, too long, used twice): marked here, never asked about.
+  const unusable = names.some((n, i) => !!agentNameProblem(n) || names.findIndex((m) => sameAgentName(m, n)) !== i)
   const blocked = problems.some(Boolean) ? 'Agent names are unique across the workspace: change the marked names first.' : planError
   const key = names.join('\n')
   useEffect(() => onChange(key.split('\n')), [key, onChange])
   useEffect(() => set({ dialogBlocked: blocked }), [blocked])
   useEffect(() => () => set({ dialogBlocked: null }), [])
   useEffect(() => {
+    // Names changed: a refusal of the names before them no longer holds (the plan asked for these says its own).
+    setPlanError(null)
     if (key === initial.create.map((a) => a.name).join('\n')) return setPlan(initial)
+    if (unusable) return
     let live = true
     const t = setTimeout(() => {
       void call('templates:plan', path, scope, file, from, key.split('\n'))
@@ -49,7 +54,7 @@ export function TemplateLoadNames({ path, scope, file, from, initial, onChange }
       live = false
       clearTimeout(t)
     }
-  }, [key, path, scope, file, from, initial])
+  }, [key, unusable, path, scope, file, from, initial])
   if (!project) return null
   const view = templateLoadView(plan, project.config, settings, (id) => providers[id])
   return (
