@@ -17,7 +17,7 @@ import { COLUMN_IDS } from '../../shared/tasks'
 import { AGENT_WAIT_MAX_SECONDS, WAIT_MAX_SECONDS } from '../../shared/watch'
 import { LANE_EVENTS } from '../../shared/laneWatch'
 import { CLAIM_WAIT_MAX_SECONDS, CLAIM_WAIT_SECONDS } from '../../shared/mergeSlot'
-import { agentApiCall } from './agentApiCall'
+import { REPLY_MS, agentApiCall } from './agentApiCall'
 import { MAX_ROWS, agentWatchText, batchText, consoleEventsText, consoleSourcesText, changedText, claimText, createdText, mergeSlotText, noteText, notesListText, noteWrittenText, projectListText, releaseText, reorderText, settingChangedText, settingListText, settingText, skillListText, taskListText, taskWaitText, type NoteEntry, type ProjectRow, type SettingDetail, type SettingRow, type SkillRow, type TaskBatch, type TaskChange, type TaskReorder, type TaskRow } from '../../shared/toolReplies'
 import type { LaneInfo, MergeSlotInfo } from '../../shared/types'
 import { laneChangeText, laneEndText, lanesText, type LaneChange } from '../../shared/lanes'
@@ -35,6 +35,16 @@ const CONTROL = process.env.HIVE_ASSISTANT_CONTROL || 'projects'
 const CHANGE_SETTINGS = process.env.HIVE_ASSISTANT_SETTINGS === '1'
 /** Settings → Agent API → Let agents read the developer console: hive_console is offered only then (#636). */
 const DEV_CONSOLE = process.env.HIVE_DEV_CONSOLE === '1'
+
+/** Seconds from Hive's environment for this server: a whole number above 0, else the default. */
+const envSeconds = (name: string, fallback: number): number => {
+  const n = Number(process.env[name])
+  return Number.isInteger(n) && n > 0 ? n : fallback
+}
+/** Settings → Advanced (#367), as Hive gave them at launch: how long a call's reply may take, and the longest waits. */
+const REPLY_SECONDS = envSeconds('HIVE_REPLY_SECONDS', REPLY_MS / 1000)
+const CARD_WAIT_MAX = envSeconds('HIVE_WAIT_MAX_SECONDS', WAIT_MAX_SECONDS)
+const AGENT_WAIT_MAX = envSeconds('HIVE_AGENT_WAIT_MAX_SECONDS', AGENT_WAIT_MAX_SECONDS)
 
 function token(): string {
   const t = process.env.HIVE_API_TOKEN
@@ -59,7 +69,7 @@ const notices = new AsyncLocalStorage<Set<string>>()
  */
 async function api(method: string, path: string, body?: unknown, replyMs?: number): Promise<unknown> {
   const headers = { Authorization: `Bearer ${token()}`, 'Content-Type': 'application/json', ...(WORKSPACE ? { 'X-Hive-Workspace': encodeURIComponent(WORKSPACE) } : {}) }
-  const res = await agentApiCall(API + path, method, headers, body === undefined ? undefined : JSON.stringify(body), replyMs)
+  const res = await agentApiCall(API + path, method, headers, body === undefined ? undefined : JSON.stringify(body), replyMs ?? REPLY_SECONDS * 1000)
   if (res.notice) {
     try {
       notices.getStore()?.add(decodeURIComponent(res.notice))
@@ -235,7 +245,7 @@ const tools: Tool[] = [
   {
     name: 'hive_wait_for_agents',
     description:
-      `Wait until agents stop working (finished, idle, waiting for the user or stopped); without agents, every busy agent in the workspace. Background tasks an agent started (status background) count as working unless ignoreBackground=true; an agent watching cards (status watching) doesn't. wake=true (an agent watch, rather than waiting call after call): replies at once, then Hive types one line into this session when one finishes its turn, waits for the user or stops, with the start of its reply${ASSISTANT ? " (and when the user sends one a prompt from its pane, with its first line)" : ''}, or after limitMinutes (default 120) if none does; agents not working now are the reply instead. End your turn after it: nothing runs, and no other work is given to you, meanwhile. It is your one watch (a card watch replaces it, and it one); cancel=true ends it. Without wake it waits here up to timeoutSeconds (default 50, at most 600) and replies with each one's status and whether it timed out: call again to keep waiting.`,
+      `Wait until agents stop working (finished, idle, waiting for the user or stopped); without agents, every busy agent in the workspace. Background tasks an agent started (status background) count as working unless ignoreBackground=true; an agent watching cards (status watching) doesn't. wake=true (an agent watch, rather than waiting call after call): replies at once, then Hive types one line into this session when one finishes its turn, waits for the user or stops, with the start of its reply${ASSISTANT ? " (and when the user sends one a prompt from its pane, with its first line)" : ''}, or after limitMinutes (default 120) if none does; agents not working now are the reply instead. End your turn after it: nothing runs, and no other work is given to you, meanwhile. It is your one watch (a card watch replaces it, and it one); cancel=true ends it. Without wake it waits here up to timeoutSeconds (default 50, at most ${AGENT_WAIT_MAX}) and replies with each one's status and whether it timed out: call again to keep waiting.`,
     inputSchema: {
       type: 'object',
       properties: {
@@ -249,7 +259,7 @@ const tools: Tool[] = [
     },
     run: async (a) => {
       if (a.cancel || a.wake === true) return agentWatchText((await api('POST', '/v1/agents/wait', a.cancel ? { cancel: true } : { agents: a.agents, ignoreBackground: a.ignoreBackground === true, wake: true, limitMinutes: a.limitMinutes })) as Parameters<typeof agentWatchText>[0])
-      return api('POST', '/v1/agents/wait', { agents: a.agents, timeoutSeconds: a.timeoutSeconds ?? 50, ignoreBackground: a.ignoreBackground === true }, waitReplyMs(a.timeoutSeconds, 50, AGENT_WAIT_MAX_SECONDS))
+      return api('POST', '/v1/agents/wait', { agents: a.agents, timeoutSeconds: a.timeoutSeconds ?? 50, ignoreBackground: a.ignoreBackground === true }, waitReplyMs(a.timeoutSeconds, 50, AGENT_WAIT_MAX))
     }
   },
   {
@@ -370,7 +380,7 @@ const tools: Tool[] = [
   {
     name: 'hive_wait_for_tasks',
     description:
-      `Wait for cards to change: a column move, a new comment, a review verdict or a new agent (changes narrows it). column alone: only until one is in that column (at once if it already is; nothing else counts); column with changes including "column": until one moves into it, or another change listed. Either way a card already in that column answers at once; fresh=true (with column) waits only for the next move into it: a card there must leave and come back, or be returned for review. wake=true: Hive types one line into this session when one changes, naming every watched card that changed${ASSISTANT ? " (and when the user sends a watched card's agent or reviewer a prompt from its pane, with its first line)" : ''}, or after limitMinutes with none (default 120); a watch started after a wake also counts what others changed since that wake: end your turn after calling it; nothing runs, and no other work is given to you, meanwhile. Without wake, it waits here up to timeoutSeconds (default 300, at most 840) and replies with each change (column, by whom, the latest comment's first line) or no change, with since: pass it back to the next wait so nothing between them is missed. cancel=true ends your watch. Your project's cards only. lanes (with wake, instead of cards): a lane watch on whole card loops (hive_lane list gives their ids), or ["all"] for every running lane${ASSISTANT ? '' : ' of your project'}, started later too: each lane's cards are followed as it goes on, with no card limit, and it wakes you only for events (default: a failed review, a card blocked or stalled, a lane whose cards have all passed so its merge is due, a lane ended or abandoned; add passed or moved to count those), one line naming each lane and card.`,
+      `Wait for cards to change: a column move, a new comment, a review verdict or a new agent (changes narrows it). column alone: only until one is in that column (at once if it already is; nothing else counts); column with changes including "column": until one moves into it, or another change listed. Either way a card already in that column answers at once; fresh=true (with column) waits only for the next move into it: a card there must leave and come back, or be returned for review. wake=true: Hive types one line into this session when one changes, naming every watched card that changed${ASSISTANT ? " (and when the user sends a watched card's agent or reviewer a prompt from its pane, with its first line)" : ''}, or after limitMinutes with none (default 120); a watch started after a wake also counts what others changed since that wake: end your turn after calling it; nothing runs, and no other work is given to you, meanwhile. Without wake, it waits here up to timeoutSeconds (default 300, at most ${CARD_WAIT_MAX}) and replies with each change (column, by whom, the latest comment's first line) or no change, with since: pass it back to the next wait so nothing between them is missed. cancel=true ends your watch. Your project's cards only. lanes (with wake, instead of cards): a lane watch on whole card loops (hive_lane list gives their ids), or ["all"] for every running lane${ASSISTANT ? '' : ' of your project'}, started later too: each lane's cards are followed as it goes on, with no card limit, and it wakes you only for events (default: a failed review, a card blocked or stalled, a lane whose cards have all passed so its merge is due, a lane ended or abandoned; add passed or moved to count those), one line naming each lane and card.`,
     inputSchema: {
       type: 'object',
       properties: {
@@ -391,7 +401,7 @@ const tools: Tool[] = [
       taskWaitText(
         (await api('POST', '/v1/tasks/wait', {
           ...(a.cancel ? { cancel: true } : a.lanes !== undefined ? { lanes: a.lanes, events: a.events, wake: a.wake === true, limitMinutes: a.limitMinutes } : { cards: a.cards, changes: a.changes, column: a.column, fresh: a.fresh, wake: a.wake === true, limitMinutes: a.limitMinutes, timeoutSeconds: a.timeoutSeconds, since: a.since })
-        }, a.cancel || a.wake === true ? undefined : waitReplyMs(a.timeoutSeconds, 300, WAIT_MAX_SECONDS))) as Parameters<typeof taskWaitText>[0]
+        }, a.cancel || a.wake === true ? undefined : waitReplyMs(a.timeoutSeconds, 300, CARD_WAIT_MAX))) as Parameters<typeof taskWaitText>[0]
       )
   },
   {

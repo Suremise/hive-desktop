@@ -1,10 +1,11 @@
 import { useLayoutEffect, useRef, useState } from 'react'
-import { DEFAULT_LANE_ROWS, RUNS_KEEP_PX, draggedLaneRows, fitSegments, frozenSegment, keyedLaneRows, laneCards, laneRowsNow, laneSummary, segmentsThatFit, type LaneSegment } from '@shared/laneBar'
+import { RUNS_KEEP_PX, draggedLaneRows, fitSegments, frozenSegment, keyedLaneRows, laneCards, laneRowsNow, laneSummary, segmentsThatFit, type LaneSegment } from '@shared/laneBar'
 import { call } from '../api'
 import { NO_PROJECTS, get, set, useStore } from '../store'
 import type { Lane } from '../laneSource'
 import { useNow } from '../usage'
 import { cx } from '../util'
+import { useAdvancedValue } from '../advanced'
 import { cardStalled } from './Board'
 import { usePanelFold } from './ProgressMerge'
 import { Icon, Tooltip } from './ui'
@@ -12,7 +13,8 @@ import { LaneCostTip, useLaneCost } from './CardCost'
 
 /**
  * The bottom of the Progress panel (#484): the lanes (a builder and its reviewer working through cards in order), one
- * row each, pinned to the bottom and growing upward, running ones first; up to four show, then the list scrolls (#569).
+ * row each, pinned to the bottom and growing upward, running ones first; up to four show (Settings → Advanced, #367),
+ * then the list scrolls (#569).
  * The section's top edge is a handle: drag it (or focus it and press Up and Down) for more or fewer, in whole lanes,
  * double-click for the default; the choice is kept per workspace, and a panel too short for it shows the whole lanes
  * that fit while the runs keep their room (measured as the panel changes: a resize, zoom, a merge card). A row is a header (the pair, the lane, the card being
@@ -38,6 +40,8 @@ export function LanesSection({ lanes, width }: { lanes: Lane[]; width: number })
   const [folded, toggle] = usePanelFold(ws ? foldKey(ws) : null)
   const key = ws ? rowsKey(ws) : null
   const kept = useStore((s) => (key ? s.panes[key] : undefined))
+  // The lanes shown until the edge is dragged: Settings → Advanced's, or the workspace's own (#367).
+  const fallback = useAdvancedValue<number>('hive.progress.lanesShown')
   const list = useRef<HTMLDivElement>(null)
   // Measured as the panel changes (a resize, zoom, a merge card, lanes coming and going): a lane's height with its
   // margin, so the list shows whole lanes, and the room the lanes could have: the list and the runs above share the
@@ -66,10 +70,10 @@ export function LanesSection({ lanes, width }: { lanes: Lane[]; width: number })
     return () => watch.disconnect()
   }, [open, lanes, width])
   if (!lanes.length) return null
-  const { chosen, shown, max } = laneRowsNow(kept, lanes.length, room, pitch)
+  const { chosen, shown, max } = laneRowsNow(kept, lanes.length, room, pitch, fallback)
   return (
     <div className={cx('progress-lanes', folded && 'folded')} role="region" aria-label="Lanes">
-      {!folded && key && <LanesEdge rowsKey={key} chosen={chosen} shown={shown} max={max} count={lanes.length} pitch={pitch} />}
+      {!folded && key && <LanesEdge rowsKey={key} chosen={chosen} shown={shown} max={max} count={lanes.length} pitch={pitch} fallback={fallback} />}
       <button type="button" className="progress-lanes-bar" aria-expanded={!folded} onClick={toggle} title={folded ? 'Show the lanes' : 'Fold the lanes'}>
         <Icon name={folded ? 'chevron-up' : 'chevron-down'} />
         <span>Lanes</span>
@@ -93,7 +97,7 @@ export function LanesSection({ lanes, width }: { lanes: Lane[]; width: number })
  * shows; a double-click goes back to the default; focused, Up and Down change it by a lane, Home and End to one and to
  * all that fit. A drag or key sets the choice to what it shows, also where a short panel had shown fewer than chosen.
  */
-function LanesEdge({ rowsKey: key, chosen, shown, max, count, pitch }: { rowsKey: string; chosen: number; shown: number; max: number; count: number; pitch: number }) {
+function LanesEdge({ rowsKey: key, chosen, shown, max, count, pitch, fallback }: { rowsKey: string; chosen: number; shown: number; max: number; count: number; pitch: number; fallback: number }) {
   const [dragging, setDragging] = useState(false)
   const put = (rows: number | null): void => {
     set((s) => {
@@ -146,7 +150,7 @@ function LanesEdge({ rowsKey: key, chosen, shown, max, count, pitch }: { rowsKey
       aria-valuenow={shown}
       aria-valuetext={`${shown} of ${count} ${count === 1 ? 'lane' : 'lanes'} shown`}
       tabIndex={0}
-      title={`Drag to show more or fewer lanes; double-click for ${DEFAULT_LANE_ROWS}`}
+      title={`Drag to show more or fewer lanes; double-click for ${fallback}`}
       onPointerDown={start}
       onDoubleClick={reset}
       onKeyDown={(e) => {

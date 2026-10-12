@@ -956,6 +956,21 @@ Hive's developer console shows what each coding agent's CLI sends Hive (its hook
 - Hive captures only while you have the developer console open on an agent: an agent reading starts nothing, and is told when nothing is captured. Hive keeps the newest 500 events of each, in memory only, and nothing once the console stops watching it.
 - What it captures is **redacted**: no prompt or reply text, commands, tokens or sign-in details. Names of tools and files, session ids and the numbers (usage, plan limits, costs) stay.
 
+### Advanced settings
+
+**Settings → Advanced** lists details Hive relies on that a coding agent's CLI update can break, and timeouts and limits for power users: the question each CLI asks before trusting a folder, the text that means it's ready, the messages that mean its sign-in was refused, the fields it sends plan limits in, the timeouts Hive gives its hooks and the `hive` tools, the longest an agent's wait lasts, and how many lanes the Progress panel shows. Hive's defaults work with the CLI versions it was tested with; change one only when something stops working after a CLI update, or Hive's notes say to.
+
+- The list is grouped (Hive, Claude Code, Codex, GitHub Copilot). **Filter** it, or tick **Modified only**; Settings' own search and Modified only find them too. **Show developer features** is first: it is in `advanced.json` too, as `hive.showDeveloperFeatures`.
+- Each value shows its name (as `advanced.json` has it) and what it is for. Change it in its box: a changed one is marked, with its **default** beside it and **Reset** to put it back. A value Hive can't use (a regular expression that doesn't compile, a number out of range) is refused; the box says why.
+- A value for a CLI also says when it no longer finds what that CLI was recorded showing ("It doesn't find what Claude Code 2.1.296 showed"): fine when the CLI changed, which is usually why you changed it.
+- A value for a CLI (what Hive reads from it, or a timeout Hive gives it) records the CLI version it was made for, also when you edit `advanced.json` by hand. After that CLI updates, the value is flagged (**Made for Claude Code 2.1.296; 2.1.300 is installed now**): check it still works, then click **Keep for 2.1.300**, or **Reset** it if the new version no longer needs it.
+- Some values a workspace can set for itself (**This workspace**), such as the lanes the Progress panel shows; empty uses the list's.
+- **Settings → Advanced → Reset all settings** puts these back to their defaults too (a workspace's own values stay).
+- Hive keeps them in **advanced.json** in its profile folder (`%APPDATA%\Hive`): **Open advanced.json** opens it in your editor. Hive reads it again whenever it changes. A value in it that Hive can't use is listed as **not valid**, and Hive uses the default meanwhile; if the file itself can't be read (a missing comma), Hive keeps what it read before and says so, and the list can't change values until the file is fixed.
+- Timeouts and hook settings apply to sessions started afterwards (restart a running agent); the patterns apply at once.
+- **Help → Copy Diagnostics** lists which values you changed (their names, not what you changed them to).
+- The Hive Assistant can explain them and, if you let it change settings, change them when you ask.
+
 ## Updating Hive
 
 Hive keeps itself up to date from its GitHub releases. By default it checks shortly after starting and every six hours, downloads a new version in the background, and installs it the next time you quit Hive — it never restarts on its own, so your agents are never interrupted.
