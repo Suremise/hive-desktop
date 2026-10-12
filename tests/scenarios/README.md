@@ -56,6 +56,10 @@ The checks are positive and negative:
 - **No git worktree of its own** (#476, #482): asked to keep the folder as it is while it tries a change (not asked
   for a worktree), the agent makes none on its own initiative and leaves the folder as it was (Hive sets its folder; an
   agent with its own worktree is the user's to add, and a worktree the user asks for is theirs).
+- **Stop what you start** (#613): asked to watch a card's minute-long run for failures as it goes, the agent leaves
+  nothing running once the card is in Review. A scenario with `leftovers: true` has the harness stop the session after
+  its turn and read what Hive then lists as left running (`session:leftovers` once settled, #507): the processes its
+  launch started and left.
 - **Scratch outside the project** (#509): a reviewer asked for a probe script and a log of its output leaves the
   project as it was, makes no `.codex` folder in it and adds nothing beside it.
 - **Card loops**: at the round limit the builder asks the user. A finding that comes back is another round: the builder
@@ -122,8 +126,9 @@ environment problem when the screen shows one) when it doesn't get there, rather
     ```powershell
     New-Item -ItemType Directory -Force "$env:LOCALAPPDATA\hive-test\claude" | Out-Null; $env:CLAUDE_CONFIG_DIR="$env:LOCALAPPDATA\hive-test\claude"; claude
     ```
-    Then `/login` in it. It runs in Accept edits, with `mcp__hive`, `Bash`, `PowerShell` and `Skill` allowed on the
-    command line, so it never asks and never needs bypass mode.
+    Then `/login` in it. It runs in Accept edits, with `mcp__hive`, `Bash`, `PowerShell`, `Skill` and `Monitor` (a
+    shell command whose output it follows, #613) allowed on the command line, so it never asks and never needs bypass
+    mode.
   - **Codex** uses its test home (`%LOCALAPPDATA%\hive-test\codex`, signed in once as tests/e2e/README.md says), in
     Full access.
   - **Without a sign-in**, a trial prints `SKIP all scenarios: … isn't signed in to its test home` and does nothing. It

@@ -13,6 +13,7 @@ import { InboxStatusItem } from './Inbox'
 import { keepAwakeText } from '@shared/keepAwake'
 import { GIT_MIN, gitFixText, gitProblemText } from '@shared/gitTool'
 import { useInbox } from '../inbox'
+import { GitStatusBarItem } from '../views/GitTab'
 
 const ACTIVITIES: { id: Activity; icon: string; label: string; command: string }[] = [
   { id: 'projects', icon: 'files', label: 'Projects', command: 'view.projects' },
@@ -98,13 +99,7 @@ export function StatusBar() {
           <Icon name="root-folder" /> {workspace.name}
         </div>
       </Tooltip>
-      {project?.branch && (
-        <Tooltip content="Git branch of the selected project">
-          <div className="status-item" onClick={() => runCommand('project.tab.changes')}>
-            <Icon name="git-branch" /> {project.branch}
-          </div>
-        </Tooltip>
-      )}
+      {project && <GitStatusBarItem project={project} />}
       <Tooltip content={`${live.length} running session(s): ${working} working, ${background ? `${background} waiting on background tasks, ` : ''}${waiting} waiting for you`}>
         <div className="status-item" onClick={() => runCommand('view.projects')}>
           <Icon name="pulse" /> {live.length}

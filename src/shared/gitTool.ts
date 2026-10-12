@@ -68,7 +68,7 @@ export function gitFixText(t: GitTool | null | undefined): string {
 
 /** What doesn't work with an old git that still runs, for Agent Setup. */
 export function gitOldText(version: string): string {
-  if (compareGitVersions(version, GIT_REQUIRED) < 0) return `Hive's git commands fail with Git ${version}: worktrees, merging, the Changes tab and the unmerged counts don't work.`
+  if (compareGitVersions(version, GIT_REQUIRED) < 0) return `Hive's git commands fail with Git ${version}: worktrees, merging, the Git tab and the unmerged counts don't work.`
   const lost = [
     'merging can\'t check for conflicts before it starts (the merge still stops at one)',
     'squash-merged branches still count as unmerged, so Remove All and loading a template keep their worktrees',

@@ -15,6 +15,13 @@ const { stopProcessesIn } = createRequire(import.meta.url)('./e2e/folderProcesse
 
 const events: unknown[] = []
 vi.mock('../src/main/events', () => ({ emit: (e: unknown) => events.push(e) }))
+// Hive's profile, where what is listed is kept across a restart (#614): this file's own, never the shared test root.
+const profile = vi.hoisted(() => ({ dir: '' }))
+vi.mock('electron', async (importOriginal) => {
+  const stub = await importOriginal<typeof import('./electron-stub')>()
+  return { ...stub, app: { ...stub.app, getPath: () => profile.dir } }
+})
+profile.dir = tempDir('hive-agentproc-profile-')
 
 describe('a process as the user recognises it', () => {
   it('drops the executable path and cuts paths in arguments to their last part', () => {
@@ -88,10 +95,10 @@ else {
   const since = Date.now()
   const pidsIn = (file: string): Record<string, number> => (existsSync(file) ? Object.fromEntries(readFileSync(file, 'utf8').trim().split('\n').filter(Boolean).map((l) => [l.split(' ')[0], Number(l.split(' ')[1])])) : {})
 
-  async function launch(runId: string, out: string): Promise<ChildProcess> {
+  async function launch(runId: string, out: string, agentId = 'a1'): Promise<ChildProcess> {
     const { trackLaunch } = await import('../src/main/agentProcesses')
     const cli = spawn(process.execPath, [script, 'cli', out], { stdio: ['pipe', 'ignore', 'ignore'], windowsHide: true })
-    expect(await trackLaunch({ runId, projectPath: dir, agentId: 'a1', agentName: 'Website' }, cli.pid!)).toEqual({ tracked: true })
+    expect(await trackLaunch({ runId, projectPath: dir, agentId, agentName: 'Website' }, cli.pid!)).toEqual({ tracked: true })
     cli.stdin!.write('go\n')
     await new Promise((r) => cli.once('exit', r))
     expect(await until(() => Object.keys(pidsIn(out)).length === 2, 10000)).toBe(true)
@@ -290,4 +297,69 @@ $r | ConvertTo-Json -Compress
     expect(await launchEnded('run3')).toBeNull()
     expect(await launchEnded('never')).toBeNull()
   }, 30000)
+
+  it('keeps what is listed across a restart, by pid and start time, and ends exactly those processes (#614)', async () => {
+    const kept = join(profile.dir, 'leftovers.json')
+    const before = await import('../src/main/agentProcesses')
+    const out = join(dir, 'run7.txt')
+    await launch('run7', out, 'a7')
+    const { child, grandchild } = pidsIn(out)
+    const left = await before.launchEnded('run7')
+    expect(left?.processes.map((p) => p.pid).sort()).toEqual([child, grandchild].sort())
+    expect(left?.processes.every((p) => /^\d+$/.test(p.created ?? ''))).toBe(true)
+    await before.leftoversSaved()
+    const saved = JSON.parse(readFileSync(kept, 'utf8'))
+    expect(saved.launches).toHaveLength(1)
+    expect(saved.launches[0]).toMatchObject({ runId: 'run7', projectPath: dir, agentId: 'a7', agentName: 'Website' })
+    expect(saved.launches[0].processes.map((p: { pid: number }) => p.pid).sort()).toEqual([child, grandchild].sort())
+
+    // Someone else's process, which a kept record names by its pid with another start time: as if the pid were reused.
+    const other = join(dir, 'other7.txt')
+    spawn(process.execPath, [script, 'stranger', other], { detached: true, stdio: 'ignore', windowsHide: true }).unref()
+    expect(await until(() => !!pidsIn(other).stranger, 10000)).toBe(true)
+    const stranger = pidsIn(other).stranger
+    saved.launches[0].processes.push({ pid: stranger, name: 'node.exe', label: 'node old.js', created: '116444736000000000' })
+    // An older launch's record of the child's pid with another start time (a process the pid named before): two
+    // records share the pid, and only the one that is the same process is listed.
+    const [first] = saved.launches[0].processes
+    const older = String(BigInt(saved.launches[0].processes.find((p: { pid: number }) => p.pid === child).created) - 10_000_000n)
+    saved.launches.unshift({ runId: 'run-old', projectPath: dir, agentId: 'a8', agentName: 'Old', since: saved.launches[0].since, processes: [{ ...first, pid: child, created: older }] })
+    // More launches for one agent than Hive keeps (5 an agent): the newest are kept, however often Hive restarts.
+    for (let i = 1; i <= 7; i++) saved.launches.push({ runId: `many${i}`, projectPath: dir, agentId: 'a9', agentName: 'Many', since: saved.launches[1].since, processes: saved.launches[1].processes.filter((p: { pid: number }) => p.pid === grandchild) })
+    writeFileSync(kept, JSON.stringify(saved))
+
+    // Hive restarts: its tracker and its memory go (the processes keep running), the kept list stays.
+    const restart = async (mod: typeof before): Promise<typeof before> => {
+      mod.closeProcessTracking()
+      vi.resetModules()
+      return import('../src/main/agentProcesses')
+    }
+    let after = await restart(before)
+    expect(after.leftoversOf(dir, 'a7').processes).toHaveLength(0)
+    const found = await after.restoreLeftovers()
+    expect(found.map((l) => l.agentId).sort()).toEqual(['a7', 'a9'])
+    expect(after.leftoversOf(dir, 'a7').processes.map((p) => p.pid).sort()).toEqual([child, grandchild].sort())
+    expect(after.leftoversOf(dir, 'a8').processes).toHaveLength(0)
+    const keptNow = async (): Promise<{ runId: string; agentId: string }[]> => {
+      await after.leftoversSaved()
+      return JSON.parse(readFileSync(kept, 'utf8')).launches
+    }
+    const many = async (): Promise<string[]> => (await keptNow()).filter((l) => l.agentId === 'a9').map((l) => l.runId)
+    expect(after.leftoversOf(dir, 'a9').processes).toHaveLength(5)
+    expect(await many()).toEqual(['restored:many3', 'restored:many4', 'restored:many5', 'restored:many6', 'restored:many7'])
+    // Again: still the same five, not more.
+    after = await restart(after)
+    await after.restoreLeftovers()
+    expect(after.leftoversOf(dir, 'a9').processes).toHaveLength(5)
+    expect(await many()).toEqual(['restored:many3', 'restored:many4', 'restored:many5', 'restored:many6', 'restored:many7'])
+    expect((await keptNow()).some((l) => l.agentId === 'a8')).toBe(false)
+
+    expect(await after.settleLeftovers(dir, 'a9', 'keep')).toBe(5)
+    expect(await after.settleLeftovers(dir, 'a7', 'end')).toBe(2)
+    expect(await until(() => !alive(child) && !alive(grandchild), 5000)).toBe(true)
+    expect(alive(stranger)).toBe(true)
+    expect(after.leftoversOf(dir, 'a7').processes).toHaveLength(0)
+    expect(await keptNow()).toEqual([])
+    after.closeProcessTracking()
+  }, 90000)
 })

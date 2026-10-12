@@ -70,6 +70,8 @@ export type HookAction =
   | 'turnEnded'
   /** The CLI's sign-in was refused: the agent needs it renewed (told once per CLI and expiry, not per agent). */
   | 'signedOut'
+  /** The CLI said it is idle while Hive showed it working: logged with the hooks Hive saw before, to find out why. */
+  | 'idleAgain'
 
 export interface HookStep {
   /** The new status, or null to keep it. */
@@ -200,6 +202,13 @@ export function hookStep(ev: HookEvent, s: HookStatusInput): HookStep {
     case 'interrupt':
       // Interrupted turns end without Stop: the agent is idle again, and its claims go.
       return { next: idleAfter(s, 'ready'), message: null, review: null, ...RESOLVED, actions: ['releaseLocks'] }
+    case 'idle':
+      // The CLI says it is idle at its prompt while Hive still shows it working (#612: HB3 stayed "Working…" after its
+      // turn ended, and prompts to it were refused): no turn runs, so it is idle again and its claims go. Anything
+      // else stands: one waiting for a person or on its background tasks says so itself, and Hive's own Compact has
+      // its own limits.
+      if (s.status !== 'working' || s.compacting) return { next: null, actions: [] }
+      return { next: idleAfter(s, 'ready'), message: null, review: null, ...RESOLVED, actions: ['releaseLocks', 'idleAgain'] }
     case 'compactStart': {
       const actions: HookAction[] = s.compacting === 'requested' ? ['compactBegan'] : s.compacting ? [] : ['autoCompact']
       return s.status === 'working' ? { next: null, actions } : { next: 'working', message: COMPACTING_MESSAGE, actions }

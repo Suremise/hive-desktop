@@ -56,7 +56,7 @@ Hive runs the **GitHub Copilot CLI** (the `copilot` command), not Copilot in VS 
 
 ### Git
 
-Worktree agents, merging, the **Changes** tab, the unmerged counts on agent tabs, agent templates with worktrees and **Remove All**'s clean-up all use **git**. Install **Git for Windows**, version **2.38 or later** (git-scm.com). **Help → Agent Setup…** shows a **Git** row under every tab: the version Hive found and where, or **Git not found** with how to fix it and a **Git for Windows** button. With an older git, the row says what doesn't work (for example, squash-merged branches still count as unmerged, so their worktrees are kept).
+Worktree agents, merging, the **Git** tab, the unmerged counts on agent tabs, agent templates with worktrees and **Remove All**'s clean-up all use **git**. Install **Git for Windows**, version **2.38 or later** (git-scm.com). **Help → Agent Setup…** shows a **Git** row under every tab: the version Hive found and where, or **Git not found** with how to fix it and a **Git for Windows** button. With an older git, the row says what doesn't work (for example, squash-merged branches still count as unmerged, so their worktrees are kept).
 
 Hive uses the git on its own PATH, together with the PATH Windows gives new programs. If you install git while Hive is open, or add its folder to your PATH, click **Check again**: no need to restart Hive. While git is missing, the status bar shows **Git** in red, and the screens that need it say *"Git isn't installed (or isn't on Hive's PATH)"* rather than that the project isn't a git repository. Hive never deletes a worktree or branch it can't check with git: they're kept, and it says why. Claude Code also uses Git for Windows' Bash for its commands when it's installed (else PowerShell).
 
@@ -183,7 +183,7 @@ Status dots:
 
 A pulsing dot changes shade rather than fading, so it stays easy to see. Hive's grey text (timestamps, counts, hints) and its orange text and icons are drawn to be readable in both the light and dark themes, on hovered and selected rows too (they meet the WCAG AA contrast level).
 
-The sidebar and the lists in the Sessions, Files, Changes and Memory tabs can be made wider or narrower by dragging their right-hand edge, as can the two halves of a split view in the Files tab. Double-click the edge to reset it. Hive remembers the sizes.
+The sidebar and the lists in the Sessions, Files, Git (Changes) and Memory tabs can be made wider or narrower by dragging their right-hand edge, as can the two halves of a split view in the Files tab. Double-click the edge to reset it. Hive remembers the sizes.
 
 A project's tabs (Session, Overview, Performance, Tasks and the rest) shrink to **icons** when their names don't fit, as in a narrow window or with the sidebar and panels open; the tab you're on keeps its name. Hover a tab for its name and shortcut. They get their names back once there's room. In a very narrow window the tabs scroll sideways, keeping the one you're on in view.
 
@@ -234,7 +234,9 @@ Hive keeps track of every process an agent's session starts, however it was star
 - **Ask** (the default): a notification lists them (*site left 2 processes running: node serve.js, tail -f capture-1.log*) with **End Them** and **Keep Running**, and the agent's pane header shows **⚠ 2 left running** until you decide or they end by themselves. Hover it for the list; click it to end them or keep them. **Keep Running** leaves them running and stops listing them.
 - **End them**: Hive ends them as the agent stops, without asking.
 
-Choose in **Settings → Agents → Processes left running**. When you quit Hive with some still listed, it asks once whether to end them or leave them running (a quit with no window shown, or to install an update, leaves them running).
+Choose in **Settings → Agents → Processes left running**. When you quit Hive with some still listed, it asks once whether to end them or leave them running (a quit with no window shown, or to install an update, leaves them running). Those Hive didn't ask about stay listed: when Hive next starts, it lists again the ones still running and offers to end them, checking that each is still the same process.
+
+Agents are also told to stop what they start: to watch a test run with something that ends with it (`hive-progress`, or their CLI's notice that a background command ended) rather than a `tail -f`, and to end the watchers, servers and app copies they started before their card goes to Review, unless the card or you need them running.
 
 Hive only ever ends processes the agent's session started: never one you started yourself in the same folder. If Windows doesn't let Hive end them, they stay listed in the pane header, so you can try again or keep them. On a PC where Hive can't keep track of agents' processes (PowerShell blocked by a company policy, for example), agents start as usual, Hive tells you once, and Help → Copy Diagnostics says why; what they leave running then isn't listed. Processes the agent's CLI already ends with its terminal (those attached to it) are never listed. One gap remains with PowerShell 7 installed from the Microsoft Store (Codex runs its commands in PowerShell 7 when you have it): a program it starts and leaves running as it exits within about a second, before Hive has seen it (`Start-Process` returning at once), isn't tracked. Commands Codex leaves running in the background keep their PowerShell open, so they are.
 
@@ -300,9 +302,9 @@ The sidebar keeps one status dot per project, showing the most urgent agent (nee
 
 **File locks.** Agents sharing the project folder could otherwise edit the same file at the same time. When an agent edits a file, Hive notes that it is working on it; if another agent then tries to edit that file, Hive tells it to wait or work on something else, and it carries on with other work. The claim ends when the first agent finishes its task. The files an agent holds show as a lock with a count on its tab, named by their path in the agent's folder, even when the folder is reached by another name (a junction, or a short name such as `C:\Users\RUNNER~1\…`). **Settings → Agents & Worktrees → File locks** (or per project) chooses what happens: **Block** (default), **Ask me** (you approve the edit; Codex can't show its own approval for this, so Hive holds the edit back and shows a notification with **Allow**, and Codex waits until you allow it; Hive tells it to go ahead as soon as it has finished replying and you aren't typing in its terminal), **Warn** (the edit goes ahead, the agent is told), or **Off**. Locks cover the agents' file edits, not shell commands (formatters, `npm install`, `git checkout`), and not files agents share outside the project such as the CLIs' own settings or memory — keep that in mind when several agents work in one folder. Agents in their own worktrees never get in each other's way.
 
-If git can't read the changes, the **Changes** tab says why, with **Retry**. The same goes for every list and search: if one can't be read, Hive says so with **Retry** rather than showing nothing, and if a refresh fails the last results stay, with a note saying when they're from. They are always the same project's (or workspace's): switching to another project never shows the last one's.
+If git can't read the changes, the **Git** tab's **Changes** says why, with **Retry**. The same goes for every list and search: if one can't be read, Hive says so with **Retry** rather than showing nothing, and if a refresh fails the last results stay, with a note saying when they're from. They are always the same project's (or workspace's): switching to another project never shows the last one's.
 
-**Reviewing and merging a worktree agent's work.** In the **Changes** and **Files** tabs, the selector at the top switches between the project folder and each agent's worktree. For a worktree, Changes lists everything the agent changed since its branch started (its commits and uncommitted edits). **Open file**, above a diff, opens that folder's copy of the file: the worktree's, not the project's. When it is done, choose **Merge** (pane header, agent menu or Changes tab):
+**Reviewing and merging a worktree agent's work.** In the **Git** tab's **Changes** and the **Files** tab, the selector at the top switches between the project folder and each agent's worktree. For a worktree, Changes lists everything the agent changed since its branch started (its commits and uncommitted edits). **Open file**, above a diff, opens that folder's copy of the file: the worktree's, not the project's. When it is done, choose **Merge** (pane header, agent menu or Changes tab):
 
 - Uncommitted changes are committed on the agent's branch first, with the message you enter.
 - The branch is merged into the branch checked out in the project folder: **Merge** (the default; keeps the agent's commits and their messages, plus a merge commit) or **Squash** (one commit, with the message you enter). Change the default in **Settings → Agents & Worktrees → Default merge style**.
@@ -327,13 +329,13 @@ If git can't read the changes, the **Changes** tab says why, with **Retry**. The
 
 ### Unused worktrees
 
-A worktree you keep when you remove its agent (**Keep worktree and branch**, or **Remove All** without its tick box) stays on disk with its branch: Hive says so in a notice with **Review unused worktrees**. They live in the **Changes** tab, with every other worktree. Its picker starts with **Unused worktrees (n)**, for worktrees no agent of the project uses right now (for example ones from another template, or ones an agent made itself with `git worktree add`), then lists the worktrees agents work in, then the project folder. **Unused worktrees** lists them, each with its branch, who made it (**was B4**, the Hive agent that last worked there; **made by Hive**; or **not made by Hive**), its last commit and its size, and whether it is **merged into main and clean** or what it holds that is nowhere else ("3 commits not on main · 2 changed files"):
+A worktree you keep when you remove its agent (**Keep worktree and branch**, or **Remove All** without its tick box) stays on disk with its branch: Hive says so in a notice with **Review unused worktrees**. They live in the **Git** tab's **Changes**, with every other worktree. Its picker starts with **Unused worktrees (n)**, for worktrees no agent of the project uses right now (for example ones from another template, or ones an agent made itself with `git worktree add`), then lists the worktrees agents work in, then the project folder. **Unused worktrees** lists them, each with its branch, who made it (**was B4**, the Hive agent that last worked there; **made by Hive**; or **not made by Hive**), its last commit and its size, and whether it is **merged into main and clean** or what it holds that is nowhere else ("3 commits not on main · 2 changed files"):
 
 - **Remove** deletes a merged, clean worktree and its branch. **Remove all merged (n)…** does them all after one question. Hive checks each again first: one that changed since (a new commit, a file written) is kept, and the notice says why.
 - **Open** (or picking it by name in the folder picker) shows its changes since main, file by file, as an agent's worktree does. If it holds work, **Merge** opens the usual Merge dialog, which waits its turn like an agent's merge; tick **Remove the worktree and branch afterwards** to tidy it once its work is on main.
 - A worktree that holds work has no plain Remove. **Give to an agent…** opens Add Agent with **Existing worktree** and that worktree chosen. **Remove anyway…** checks the worktree and asks first, naming exactly what goes (its unmerged commits, or for a worktree not on a branch the commits only it has, its uncommitted files and the files git ignores in it, such as build output). If anything in it changes before you confirm (a file added, renamed or edited, ignored ones included, or another branch checked out), nothing is removed: Hive checks it again and asks you again, saying what changed and showing what it holds now, so you confirm what would really go. The same goes for a question left open more than 15 minutes. If Hive can't check what a worktree holds, it doesn't offer to remove it anyway.
 
-The project's **Overview** shows one line, such as "7 unused worktrees (7 merged) — Review in Changes". The **Changes** tab's project folder says when an unused worktree has work that isn't on main, with **Review**. **Project Settings → Storage** has a line for unused worktrees with their total size, linking to Changes. Deleting a template never touches worktrees, but if its worktree agents left worktrees that no agent uses now, Hive says how many, once. The Hive Assistant can see how many unused worktrees a project has and mention them; only you can remove them. Without git (see [Git](#git)), nothing is listed or removed.
+The project's **Overview** shows one line, such as "7 unused worktrees (7 merged) — Review in Changes". **Changes**' project folder says when an unused worktree has work that isn't on main, with **Review**. **Project Settings → Storage** has a line for unused worktrees with their total size, linking to Changes. Deleting a template never touches worktrees, but if its worktree agents left worktrees that no agent uses now, Hive says how many, once. The Hive Assistant can see how many unused worktrees a project has and mention them; only you can remove them. Without git (see [Git](#git)), nothing is listed or removed.
 
 ### Agent templates
 
@@ -451,6 +453,17 @@ It's on by default: **Settings → Sessions → Record performance metrics** tur
 - for the whole workspace, the skill service's scans and cache, and Hive-wide event streams.
 
 It refreshes every minute while you look at it (and **Refresh** at once); reading it doesn't add to the numbers. A note says when measurements were dropped because a limit was full, and **What isn't measured** lists what it can't see. **Export** saves what the page shows (its scope, range and filters) as a JSON file with its units, coverage and Hive's version; **Shift+click** Export to replace project names with project-1, project-2… and leave out the workspace's path, before sharing it.
+
+### Cost per card
+
+Hive works out what each card cost from who held it when and what their sessions used then:
+
+- **What counts.** A card's **builder** (its agent) while it is in **Doing**, and its **reviewer** from the start of each review to its verdict. Usage is each provider's own report: Hive's estimates (where a provider reports no cost, or you chose your own prices) are marked **≈**, and what Hive can't know, such as an agent with no session Hive knows of or a model with no price, shows as **Unknown** or **+ ?**, never as $0.
+- **On the card.** The bottom of a card's panel says, for example, **cost: ≈ $1.84 · 2 rounds**. Hover it for the builder's and the reviewer's parts and their tokens (input, output, cache writes and reads, requests).
+- **In Performance.** A **Cards** table lists the cards worked on in the range, with their cost, the builder's and reviewer's parts, their review rounds and when they were last held. Sort by any column (unknown costs go last); click a row to open the card. In a project's Performance tab, only that project's cards.
+- **On a lane.** In the Progress panel, hover a lane's top line (the pair and its count) for what the lane cost since it started, split into **on cards** and **overhead**: what its builder and reviewer used while holding no card, such as merging, watching for a verdict and compacting. It also says the cost per finished card.
+
+Time an agent spends between cards, such as reading a card it was just woken for before taking it, is overhead, not the card's. While an agent holds several cards at once, what it uses then is shared between them equally. A reported charge is split only between the requests it covered, so a card's cost never changes because of work done later; where a card took only some of a charge's requests, its share is marked ≈. Copilot reports its tokens only when a session ends: until then a Copilot card's tokens show as unknown, and then Hive spreads them over that session's requests, marked ≈ (its cost comes from Copilot's own charges). Cards worked on before Hive kept this have it worked out from their history, by the agents' names.
 
 ### Comparing before and after
 
@@ -700,6 +713,16 @@ A server can be a program Hive starts (`command`, `args`, `env`, as above) or on
 
 A server you add or change is used by sessions started afterwards; restart a running session to give it the change.
 
+### Giving a server to some agents only
+
+By default every agent in a project gets all of the project's servers. To keep a server's tools away from agents that don't need it (each server's tools take up room in an agent's context), open the agent's settings (right-click its tab → **Agent Settings…**) and under **MCP servers** choose **Only these**, then untick the servers it shouldn't have. For example, a release-testing agent can have a sandbox server that the builders don't. Choosing **Only these** starts with every server ticked, so nothing changes until you untick one; **All of the project's** puts it back.
+
+- Hive's own `hive` server is always given, whatever you choose.
+- An agent with **Only these** doesn't get a server enabled later: tick it in its settings. One with **All** gets it.
+- A running agent takes the change when it restarts.
+- Templates keep the choice, so an agent loaded from a template gets the same servers, where they're on.
+- The agent's tooltip shows its choice, and once any agent has one, the project's **MCP** tab says under each server which agents get it.
+
 ### Adding a server from a file
 
 **Add MCP Server from File** (the file icon in the MCP view's header) adds a server someone gave you, as **Add Skill from File** does for skills:
@@ -781,15 +804,40 @@ The **Attachments** tab shows everything pasted or dropped into the project's se
 
 This tab was called **Images**, and the folder `.hive/images`, before attachments could be any file. Hive moves the old folder's files into `.hive/attachments` the first time it needs them, and links to the old paths (in a transcript, or printed in a terminal) still open the moved files in Hive. An agent given an old path in an earlier conversation won't find it there any more: give it the file again.
 
-## Changes
+## Git view
 
-The **Changes** tab lists files changed in the project's git working tree and shows each one as a side-by-side diff against the last commit — a quick way to review what the agent did.
+A project's **Git** tab (**Alt+6**) has three sections: **Changes**, where it opens, **History** and **Branches & remotes**. The status bar shows the selected project's git in one item, such as **main · origin · ↑2 ↓0**: its branch, the remote its branch tracks, and how many commits are to push (↑) and to pull (↓). Click it for **Branches & remotes**. It says **no upstream** for a branch that tracks no remote branch yet, and **detached at abc1234** or **rebasing** when git is in that state.
+
+Everything here is yours: agents have no tool for any of it, and only the project folder changes here. Agents' worktrees are shown, read-only: their work comes into the project folder through **Merge**.
+
+### Changes
+
+**Changes** lists files changed in the project's git working tree and shows each one as a side-by-side diff against the last commit — a quick way to review what the agent did.
 
 Its picker chooses whose changes you see, in this order: **Unused worktrees** (worktrees no agent works in now, and each of them), the **worktrees in use** by agents, and the **project folder** last (where agents without a worktree, and you, make changes). A project with worktrees opens on Unused worktrees; one without opens on its folder. A sentence at the top of each page says what it shows. Listing unused worktrees asks git about each of them, which can take a few seconds: the first time, the page shows a spinner while Hive looks; after that, the last list shows at once while Hive checks it again. **Refresh** (↻) looks again.
 
-Without git, the tab says so, with the fix (see [Git](#git)).
-
 Hive checks your projects' git status in the background (this tab, branch status, the Files tab's dimmed entries) without writing to the repository's index, so your own `git add` or `git commit`, or an agent's, never fails with *"index.lock: File exists"* because of it. Hive's own git actions, such as **Merge**, still update it as git does. If git is busy when the Files tab lists a folder, ignored entries keep their dimming and the folder is listed again a moment later.
+
+### History
+
+**History** lists the project folder's last 20 commits, newest first, with their branches and tags, and the repository's tags below them. **Create tag…** tags the commit the folder has checked out: give it a name, and a message for an annotated tag, and choose a remote to push it to if you like.
+
+### Branches & remotes
+
+- **Branch**: the branch the project folder is on (or its detached HEAD, and a merge or rebase git has in progress, which you finish in a terminal), the branch it tracks, and ↑ / ↓. These counts are as of the last fetch, whose time is shown: **Hive never fetches by itself**. **Fetch** fetches every remote. **Pull** fetches the branch it tracks and brings yours up to it when that needs no merge; when both have new commits, it says so and changes nothing (merge or rebase in a terminal, or ask an agent). **Push** pushes to the branch it tracks, or, for a branch that tracks none, to the remote you choose, which it then tracks. A push is never forced: when the remote has commits yours hasn't, it says to pull first. **New branch…** makes a branch at the folder's commit and switches to it.
+- **Branches**: each local branch, with what it tracks and ↑ / ↓, its last commit, and **Switch**. Uncommitted changes come along when they don't clash with the other branch; when they do, git refuses and nothing changes. A branch checked out in an agent's worktree can't be switched to (a branch is in one folder at a time). **Remote branches** lists those you have no local branch for: **Switch** makes one that tracks it.
+- **Switching branch or pulling waits for your agents.** It moves the ground under an agent working in the project folder and under a merge into its branch, so while an agent there is working, asking you something or waiting on its background tasks, or the project's merge slot is held or waited for, **Switch**, **New branch…**'s switch and **Pull** are greyed out, and hovering one says why ("B1 is working in the project folder: switch branches once it has finished"). An agent whose session is idle in the folder finds the new branch on its next turn: the confirmation says so.
+- **Remotes**: each with its URL (a password or token in a URL shows as •••, in git's error messages too; to change such a URL, type it whole), **Add remote…** and ✎ to change a URL.
+- **Worktrees**: the repository's other worktrees, whose agent works in each, and **Changes** to review it. Read-only.
+- **Commit identity**: the name and email commits are made with, agents' too: this repository's own setting, your global one, and the one git uses. It warns when commits would fail (no name or email), and when a repository with a GitHub remote commits with a personal address, which anyone can read on GitHub; GitHub's no-reply address (*…@users.noreply.github.com*, in GitHub's email settings) keeps it private. **Set for this repository…** sets this repository's own (`git config --local`); leave both empty to use your global one.
+
+A project inside another repository (say, a workspace you keep in git) shows that repository here, read-only: Hive changes only a project's own repository.
+
+Fetch, pull and push use your git's own sign-in (Git Credential Manager may open its window); they never wait on a prompt in a terminal you can't see, and give up after five minutes.
+
+### Without git
+
+A project that isn't a git repository keeps working in its project folder, without worktrees, merging or a Git view: its **Git** tab says so and how to start (`git init` in the project folder, or ask an agent, and commit; then add a remote to push it). Without git itself, the tab says so, with the fix (see [Git](#git)).
 
 ## Project settings
 
@@ -882,6 +930,14 @@ An app that only shows what Hive is doing, such as **Apiary** (the office view),
 To make one, open **Settings → Agent API → Viewer tokens**, type a name for the app (say *Apiary*) and click **Make viewer token**. The new token shows in its row: copy it and paste it into the app once. **Revoke** cuts that app off at once (it is refused from its next call, and stops receiving events), without touching anything else that uses the API. Hive keeps viewer tokens in its own folder (`%APPDATA%\Hive\agent-api-viewers.json`), never in a project.
 
 The app finds a running Hive by itself: while the Agent API is on, Hive keeps its address (never a token) in `%APPDATA%\Hive\agent-api-discovery.json`, and removes it when the API is turned off or Hive quits.
+
+### Agents reading the developer console
+
+Hive's developer console shows what each coding agent's CLI sends Hive (its hooks, status line, transcript records, the terminal signs Hive reacts to) next to what Hive made of each: the status it set, the details it read. **Settings → Agent API → Let agents read the developer console** gives agents and the Hive Assistant a read-only tool for it (`hive_console`), so they can see what their CLI does while they build and debug. It is off unless you turn it on, and running sessions get the tool when they next start.
+
+- Each agent reads **only its own sessions**. The Assistant reads its workspace's agents, its own session, and Hive's own events there (Agent API calls, merge slots, watches waking agents, Progress runs).
+- Hive captures only while you have the developer console open on an agent: an agent reading starts nothing, and is told when nothing is captured. Hive keeps the newest 500 events of each, in memory only, and nothing once the console stops watching it.
+- What it captures is **redacted**: no prompt or reply text, commands, tokens or sign-in details. Names of tools and files, session ids and the numbers (usage, plan limits, costs) stay.
 
 ## Updating Hive
 
@@ -984,7 +1040,7 @@ Tick **Don't ask again** to stop the question about sessions, or change it any t
 | Next / previous agent page | Ctrl+Alt+PageDown / Ctrl+Alt+PageUp |
 | Focus the session terminal | Ctrl+` |
 | Next / previous project | Ctrl+PageDown / Ctrl+PageUp |
-| Project tabs | Alt+1 … Alt+9, Alt+0 (Session, Overview, Sessions, Files, Attachments, Changes, Memory, Skills, MCP, Settings; Tasks has none, but you can give it one); Ctrl+Tab / Ctrl+Shift+Tab for the next / previous tab |
+| Project tabs | Alt+1 … Alt+9, Alt+0 (Session, Overview, Sessions, Files, Attachments, Git, Memory, Skills, MCP, Settings; Tasks has none, but you can give it one); Ctrl+Tab / Ctrl+Shift+Tab for the next / previous tab |
 | Task board / new card | Ctrl+Shift+J / Ctrl+Alt+T |
 | Workspace Overview | Ctrl+Shift+O |
 | Toggle sidebar | Ctrl+B (outside the terminal) |
@@ -1016,7 +1072,7 @@ In the terminal, Ctrl+C copies when text is selected (otherwise it interrupts th
 - **Agents show Needs sign-in** — their CLI's sign-in has expired: see [When a sign-in expires](#when-a-sign-in-expires).
 - **Codex asks before every command** — its Windows sandbox isn't set up: **Help → Agent Setup… → Codex → Set up**.
 - **An agent couldn't start** — when its CLI quits before it has started (a setting it refuses, a broken install), the bar under its terminal turns red with **Couldn't start:** and what the CLI said, a hint where Hive recognises the problem, **Retry** and **Agent Settings…** (or **Agent Setup…**). Its tab and header turn red, the attention inbox lists it, and if its pane isn't on screen a notification says so. Fix the setting, then Retry; the terminal above keeps everything the CLI printed.
-- **Status dots don't change** — status comes from the CLI's hooks. A Codex agent shows **Ready** once its prompt appears, and reports its session with your first message. Restart the session; if it persists, check **Help → Open Logs Folder**.
+- **Status dots don't change** — status comes from the CLI's hooks. A Codex agent shows **Ready** once its prompt appears, and reports its session with your first message. A Claude Code agent shown **Working…** at an empty prompt is idle again a minute after its turn, when Claude Code says it is waiting for input; while Claude Code compacts by itself between turns, the agent shows **Compacting the conversation…** and then **Ready**. Restart the session; if it persists, check **Help → Open Logs Folder**.
 - **Agent API port in use** — change the port in Settings → Agent API.
 - **Hive doesn't open, or says "Hive can't start"** — Hive's windows run sandboxed. If the folder Hive is installed in has a permission entry for a Windows app package but none for **ALL APPLICATION PACKAGES**, Windows won't let them read it, and Hive can't open. The installer and updates add that entry, and Hive adds it at start when it can. When it can't (a folder you don't own), Hive shows the command to run, with **Copy Command**: run it in PowerShell (as an administrator if needed), then start Hive again. For the usual install folder, in PowerShell: `icacls "$env:LOCALAPPDATA\Programs\Hive" /grant '*S-1-15-2-1:(OI)(CI)(RX)'`.
 - **"Hive's window stopped and was reloaded"** — the window's page crashed (memory, a graphics driver, a bug). Your agents run outside it, so they kept going: Hive reloaded the window, which reconnects to their terminals as **View → Reload** does. Unsaved edits in the Files tab are lost, and the note says how many. If it crashes again within a minute, Hive asks instead: **Reload**, **Open Logs** or **Quit Hive**. If the window stops responding, after a few seconds Hive offers **Wait** or **Reload**, and the question goes away if the window recovers.

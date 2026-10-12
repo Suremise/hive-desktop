@@ -3,6 +3,7 @@ import { initLoopWakes } from './loopWakes'
 import { initLoopCheck } from './loopCheck'
 import { initDeliveries } from './deliveries'
 import { initDecisionWakes } from './decisionWakes'
+import { initDevConsole } from './devConsoleSources'
 import { initAssistantModes } from './assistantMode'
 import { app, BrowserWindow, dialog, Menu, nativeTheme, Notification, protocol, screen, session, shell } from 'electron'
 import { execFile } from 'child_process'
@@ -36,7 +37,7 @@ import { setTitleBarColors, trackTitleBar } from './titleBar'
 import { startBranchWatch } from './branchWatch'
 import { createLogger, userText, logsDir } from './logger'
 import { killAll } from './ptyHost'
-import { allLeftovers, closeProcessTracking, leftoversSettled, settleAllLeftovers } from './agentProcesses'
+import { allLeftovers, closeProcessTracking, leftoversSaved, leftoversSettled, restoreLeftovers, settleAllLeftovers, settleLeftovers } from './agentProcesses'
 import { leftoversSummary, processCount } from '../shared/agentProcesses'
 import { installShims } from './progressReporters/shims'
 import { insideArchive, onCorruptFile } from './fsutil'
@@ -551,7 +552,8 @@ async function quitNow(tellUser: boolean): Promise<void> {
 /**
  * Hive quitting: what agents left running (#507), the sessions just stopped included, is ended as Settings → Agents
  * says, or after asking in a window still shown; otherwise (a quit with no window shown, or to install an update) it
- * keeps running. Test copies ask only with HIVE_TEST_ASK_LEFTOVERS=1.
+ * keeps running, and stays listed in Hive's profile for the next start to offer again (#614). Test copies ask only with
+ * HIVE_TEST_ASK_LEFTOVERS=1.
  */
 async function quitLeftovers(): Promise<void> {
   await Promise.race([leftoversSettled(), new Promise((r) => setTimeout(r, 5000))])
@@ -560,7 +562,8 @@ async function quitLeftovers(): Promise<void> {
     let end = config.settings.agents.leftoverProcesses === 'end'
     // A quiet test copy asks only when its suite says so: a native dialog no suite answers would hold its quit.
     const shown = !testQuiet() || process.env.HIVE_TEST_ASK_LEFTOVERS === '1' ? hiveWindows().find((e) => e.win.isVisible()) : undefined
-    if (!end && shown && !installOnQuit) {
+    const asking = !end && !!shown && !installOnQuit
+    if (asking && shown) {
       const n = left.reduce((sum, l) => sum + l.processes.length + l.more, 0)
       const { response } = await dialog.showMessageBox(shown.win, {
         type: 'question',
@@ -574,9 +577,32 @@ async function quitLeftovers(): Promise<void> {
       })
       end = response === 0
     }
-    await settleAllLeftovers(end ? 'end' : 'keep')
+    // Not asked: left running, and still listed for the next start (#614).
+    if (end || asking) await settleAllLeftovers(end ? 'end' : 'keep')
   }
+  await leftoversSaved()
   closeProcessTracking()
+}
+
+/**
+ * What agents left running before Hive last closed without asking, or crashed (#614): those still running as the same
+ * processes are listed again and offered as when an agent stops, or ended, with Settings → Agents → End them.
+ */
+async function offerRestoredLeftovers(): Promise<void> {
+  for (const l of await restoreLeftovers()) {
+    if (config.settings.agents.leftoverProcesses === 'end' && (await settleLeftovers(l.projectPath, l.agentId, 'end').then(() => true, () => false))) continue
+    const n = l.processes.length + l.more
+    toast(
+      'warning',
+      `${l.agentName || basename(l.projectPath)} left ${processCount(n)} running`,
+      `${leftoversSummary(l)}. ${n === 1 ? 'It was' : 'They were'} started by the agent before Hive last closed, and may hold the project's folder or ports.`,
+      [
+        { label: 'End Them', command: 'session.settleLeftovers', args: [l.projectPath, l.agentId, 'end'] },
+        { label: 'Keep Running', command: 'session.settleLeftovers', args: [l.projectPath, l.agentId, 'keep'] }
+      ],
+      l.projectPath
+    )
+  }
 }
 
 /** Archives Done cards past Settings → Board's days in every open workspace (also on open: ipc.ts). */
@@ -719,6 +745,8 @@ app.whenReady().then(async () => {
           HIVE_ASSISTANT_CONTROL: config.settings.assistant?.control ?? 'projects',
           // Its settings tool (hive_update_setting) is offered only with Change settings on: a change restarts it.
           HIVE_ASSISTANT_SETTINGS: config.settings.assistant?.changeSettings === true ? '1' : '0',
+          // The developer console's tool (hive_console) is offered only while Settings → Agent API lets agents read it.
+          HIVE_DEV_CONSOLE: config.settings.agentApi.devConsole === true ? '1' : '0',
           ...testMcpLog()
         }
       }
@@ -741,6 +769,7 @@ app.whenReady().then(async () => {
         ...(agentId ? { HIVE_AGENT_ID: agentId } : {}),
         // Whether its instructions tell it to run long commands through hive-progress unasked.
         HIVE_PROGRESS_COMMANDS: wrapsLongCommands(config.settings.general) ? '1' : '0',
+        HIVE_DEV_CONSOLE: s.devConsole === true ? '1' : '0',
         ...testMcpLog()
       }
     }
@@ -751,6 +780,7 @@ app.whenReady().then(async () => {
   initLoopCheck()
   initDeliveries()
   initDecisionWakes()
+  initDevConsole()
   initAssistantModes()
   // A watcher stops keeping a pending quit waiting when the card it waits on leaves another agent's work (no wake comes).
   onWatchedCardsMoved(() => checkPendingQuit())
@@ -851,8 +881,10 @@ app.whenReady().then(async () => {
     setTimeout(() => {
       reportsReady = true
       for (const r of corruptReports.splice(0)) showCorrupt(...r)
+      void offerRestoredLeftovers().catch((e) => log.warn('offering what agents left running before Hive restarted', e))
     }, 1500)
   })
+  if (!first) void offerRestoredLeftovers().catch((e) => log.warn('offering what agents left running before Hive restarted', e))
   createTray(() => lastFocused()?.win ?? null, {
     quit: () => void requestQuit(),
     quitNow: () => void quitNow(true),

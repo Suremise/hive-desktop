@@ -95,7 +95,10 @@ import type { AgentTemplate, TemplateDeleted, TemplateDest, TemplateEntry, Templ
 import type { ProjectPref, ProjectPrefValue } from './uiPrefs'
 import type { TipsChange, TipsState } from './tips'
 import type { GitTool } from './gitTool'
+import type { GitHistory, GitRepoInfo, GitRepoSummary } from './gitRepo'
 import type { BoardFoldChange } from './tasks'
+import type { CardCost, LaneCost } from './cardCosts'
+import type { ConsoleEvent, ConsoleSource } from './devConsole'
 
 type DeepPartial<T> = { [K in keyof T]?: T[K] extends object ? DeepPartial<T[K]> : T[K] }
 export type SettingsPatch = DeepPartial<AppSettings>
@@ -270,8 +273,8 @@ export interface HiveRequests {
   /** Stops the CLI's background job holding a conversation, then resumes it in the agent. */
   'session:stopBackgroundAndResume': (projectPath: string, agentId: string, jobId: string, sessionId: string) => void
   'session:stop': (projectPath: string, agentId?: string) => void
-  /** What this window's agents left running when they stopped (#507). */
-  'session:leftovers': () => AgentLeftovers[]
+  /** What this window's agents left running when they stopped (#507); `settled`: once every launch that has exited has been looked at (#613). */
+  'session:leftovers': (settled?: boolean) => AgentLeftovers[]
   /** Ends what the agent's stopped launches left running (only processes they started), or keeps it running and stops listing it. Returns how many. */
   'session:settleLeftovers': (projectPath: string, agentId: string, how: 'end' | 'keep') => number
   /** Types a short "carry on" into a running agent whose turn a refused sign-in stopped (Resume (n), #309). */
@@ -478,6 +481,13 @@ export interface HiveRequests {
   'lanes:list': () => LaneInfo[]
   /** The user ends a lane (abandoned: unmerged); returns it as it is now. */
   'lanes:end': (laneId: string, abandoned?: boolean) => LaneInfo
+  /**
+   * Cost per card (#602): the cards named, or every card (a project's, by its folder name) held at some time in [from, to)
+   * (ms since the epoch).
+   */
+  'costs:cards': (q: { numbers?: number[]; project?: string | null; from?: number; to?: number }) => CardCost[]
+  /** Cost per lane (#602): the lanes named, or every lane listed. */
+  'costs:lanes': (laneIds?: string[]) => LaneCost[]
   /** This window's workspace's progress runs, newest first. */
   'progress:list': () => ProgressRun[]
   /** Moves a finished or stale run to Recent. */
@@ -488,6 +498,16 @@ export interface HiveRequests {
   'progress:openLog': (id: string) => void
   /** Shows the log a run reported in its folder. */
   'progress:showLog': (id: string) => void
+  /** The developer console's sources in this window's workspace (#636): its agents, its Assistant and Hive itself. */
+  'console:sources': () => ConsoleSource[]
+  /**
+   * What this window watches in the developer console: replaces its list ([] ends it) and returns each source's events
+   * so far. Capture runs only while a window watches a source; live events come as `console-events`. `includeText` keeps
+   * prompt and reply text in what this window is sent (secrets stay masked); off by default.
+   */
+  'console:subscribe': (sources: string[], opts?: { includeText?: boolean }) => Record<string, ConsoleEvent[]>
+  /** A watched source's events after `since` (a seq), oldest first. */
+  'console:snapshot': (source: string, since?: number) => ConsoleEvent[]
   'personas:list': () => PersonaInfo[]
   'personas:create': (name: string) => PersonaInfo
   /** Moves the persona's file to the Recycle Bin. */
@@ -544,6 +564,22 @@ export interface HiveRequests {
   'changes:openFile': (root: string, file: string) => void
   /** Whether git itself runs (#346): as last checked, or checked again with `recheck`. */
   'git:tool': (recheck?: boolean) => GitTool
+  /** The Git view (#607), the project folder's only (agents' worktrees change through the merge flow). The user's: no agent tool reaches these. */
+  'git:summary': (projectPath: string) => GitRepoSummary
+  'git:info': (projectPath: string) => GitRepoInfo
+  'git:history': (projectPath: string) => GitHistory
+  /** Each action replies with what it did, in a sentence. Switching (and creating a branch to switch to) or pulling is refused while an agent works in the folder or its merge slot is held (`folderBusy`). */
+  'git:switch': (projectPath: string, branch: string) => string
+  'git:createBranch': (projectPath: string, name: string, stay?: boolean) => string
+  'git:addRemote': (projectPath: string, name: string, url: string) => string
+  'git:setRemoteUrl': (projectPath: string, name: string, url: string) => string
+  'git:fetch': (projectPath: string) => string
+  'git:pull': (projectPath: string) => string
+  /** To the upstream, or to `remote` (setting it as the upstream) when the branch has none. Never forced. */
+  'git:push': (projectPath: string, remote?: string) => string
+  'git:createTag': (projectPath: string, name: string, message: string, pushTo?: string) => string
+  /** This repository's own user.name and user.email; empty removes it (the global one applies). */
+  'git:setIdentity': (projectPath: string, name: string, email: string) => string
 
   /** Each provider's installed CLI, by provider. */
   'provider:info': () => Record<ProviderId, AgentInstallInfo>

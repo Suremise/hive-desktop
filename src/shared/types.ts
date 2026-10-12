@@ -9,7 +9,9 @@ import type { KeepAwakeSetting } from './keepAwake'
 import type { DateFormat, TimeFormat } from './dates'
 import type { ProjectPref } from './uiPrefs'
 import type { GitTool } from './gitTool'
+import type { ConsoleEvent } from './devConsole'
 import type { AgentLeftovers, LeftoverProcessMode } from './agentProcesses'
+import type { UsageTimeline } from './usageTimeline'
 
 export type ThemeSetting = 'dark' | 'light' | 'system'
 /** A coding-agent CLI Hive can run ("claude-code", "codex"). See src/shared/providers.ts. */
@@ -165,6 +167,8 @@ export interface AppSettings {
     port: number
     provideHiveMcp: boolean
     allowSessionInput: boolean
+    /** Agents and the Hive Assistant may read the developer console through the hive tools (#636): their own sessions; the Assistant its workspace's. */
+    devConsole: boolean
   }
   /** The Hive Assistant's defaults (each workspace's Assistant Settings can override them). */
   assistant: AssistantSettings
@@ -558,6 +562,8 @@ export interface TaskCard {
   history: TaskHistoryEntry[]
   /** Hidden from the board, kept and searchable. */
   archived: boolean
+  /** Who held it when (#602): its agent while in Doing, its reviewer while reviewing. What its cost is worked out from. */
+  held?: TaskHold[]
   /**
    * Who archived it: the user, Hive after its days in Done (Settings → Board), or its project being hidden or
    * removed (restoring the project brings those back).
@@ -629,6 +635,21 @@ export interface TaskDecision {
   at: string
   /** When the user last changed its words. */
   editedAt?: string
+}
+
+/**
+ * An agent holding a card for a while (TaskCard.held): its builder (its agent, while the card is in Doing) or its
+ * reviewer (from its review's start to its verdict). Kept by Hive as the card changes (cardCosts.ts trackHolds); a
+ * card from before has them worked out from its history once, by the agents' names.
+ */
+export interface TaskHold {
+  /** The agent's id in the card's project; absent when worked out from history by a name that wasn't the card's agent's. */
+  agent?: string
+  name: string
+  role: 'build' | 'review'
+  from: string
+  /** Absent while it still holds it. */
+  to?: string
 }
 
 /** An agent reviewing a card (TaskCard.review). */
@@ -782,10 +803,15 @@ export interface AgentDef {
   persona?: string
   /** What the agent is for ("builder", "reviewer"; free text, #126): saved in templates; empty, its name is its role. */
   role?: string
+  /**
+   * Only these of the project's MCP servers (#537, shared/agentMcp.ts), saved in templates; absent: all of them. The
+   * built-in hive server is given whatever this says.
+   */
+  mcpServers?: string[]
 }
 
-/** A change to an agent's settings: empty values (null for use200kContext) clear an override so it follows the project. */
-export type AgentPatch = Partial<Pick<AgentDef, 'name' | 'provider' | 'model' | 'effort' | 'permissionMode' | 'persona' | 'role'>> & { use200kContext?: boolean | null }
+/** A change to an agent's settings: empty values (null for use200kContext and mcpServers) clear an override so it follows the project. */
+export type AgentPatch = Partial<Pick<AgentDef, 'name' | 'provider' | 'model' | 'effort' | 'permissionMode' | 'persona' | 'role'>> & { use200kContext?: boolean | null; mcpServers?: string[] | null }
 
 /** What loading a template into a project would do (#126), and what stops it now. */
 /**
@@ -858,6 +884,8 @@ export interface AddAgentOptions {
   permissionMode?: PermissionMode
   use200kContext?: boolean
   role?: string
+  /** Only these of the project's MCP servers (#537); absent: all of them. */
+  mcpServers?: string[]
   /**
    * #456: new-worktree, work in the project's unused worktree on that branch instead when it is merged into the base and
    * clean, brought up to the base; existing-worktree, bring the one chosen up to the base when it is merged and clean.
@@ -1514,6 +1542,11 @@ export interface SessionUsage {
   days?: Record<string, DayUsage>
   /** From the parser: each cost report's increase and the tokens it covered by day. Hive turns them into day costs and removes them. */
   costReports?: { costUsd: number; days: Record<string, UsageTokens> }[]
+  /**
+   * From the parser: the usage over time (usageTimeline.ts), for cost per card (#602). Kept in usage-cache.json with the
+   * parser's result and removed before pricing, so it never travels with the session's usage.
+   */
+  timeline?: UsageTimeline
 }
 
 export interface UsageTokens {
@@ -2007,6 +2040,8 @@ export type HiveEvent =
   | { type: 'merge-slots-changed'; workspacePath: string; slots: MergeSlotInfo[] }
   /** A workspace's lanes changed, or one of their cards did (the lanes it lists, as lanes:list gives them). */
   | { type: 'lanes-changed'; workspacePath: string; lanes: LaneInfo[] }
+  /** The developer console's new events for the sources this window watches (#636): sent to that window only. */
+  | { type: 'console-events'; events: ConsoleEvent[]; /** Events that didn't fit the window's queue since the last batch (it fell behind). */ dropped?: number }
 
 /**
  * A lane (#483): a builder and a reviewer taking a project's cards in order (the card-loop skill), as Hive keeps it.

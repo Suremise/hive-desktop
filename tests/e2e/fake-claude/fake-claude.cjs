@@ -22,6 +22,9 @@
 //   its home, it leaves N the moment it starts, before anything else. "progress-linger" leaves a command running
 //   through the session's hive-progress shim, as a Codex agent once did (#542): cmd → hive-progress → a lingering node
 //   (linger.cjs; its pid in fake-progress-linger.jsonl in its home), and ends its turn without waiting for it.
+//   "devapp" leaves a dev copy of an Electron app running, as an agent's dev launch of Hive did (#614): Electron's
+//   executable with Playwright's --inspect=0 --remote-debugging-port=0 and a copy of devapp in its home (a hidden window; quits after two
+//   minutes, in case), started through a detached node that exits at once (linger.cjs); its pid in fake-devapp.jsonl.
 //   "boardmove N COLUMN" moves card N as hive_update_task does (the hive tools' API, token and agent, from
 //   --mcp-config) and records the answer in fake-calls.jsonl; "boardreview N ACTION [COLUMN]" reviews it the same way
 //   (review: start, passed or failed; a column with the verdict), and "boardcomment N" comments on it. All are written to the transcript as the hive tool
@@ -40,6 +43,14 @@
 // - "/compact [focus]" compacts as Claude Code does: PreCompact, a compaction boundary in the transcript after 1 s (N
 //   seconds when the focus has "hold N"), then PostCompact. With no messages yet it says "Not enough messages to compact."
 //   and sends no hook; with "compactfail" in the focus it fails after PreCompact with "Error during compaction".
+// - Idle, as Claude Code 2.1.296 is (#612): with fake-idle-notify.txt (N) in its home, N ms after a turn ends with no
+//   input since, it sends the Notification "Claude is waiting for your input" (idle_prompt) once, as Claude Code does a
+//   minute after a turn. A prompt with "loststop" ends its turn without a Stop reaching Hive, as one of HB3's did. When
+//   the test makes fake-idle-compact-<agent> in its home, it compacts while idle as Claude Code does before the prompt
+//   cache expires: PreCompact (auto), a compaction boundary, and once the test makes fake-idle-compact-done-<agent>,
+//   SessionStart (compact), PostCompact (auto) and "Compacted while idle, before the prompt cache expired";
+//   fake-recap-<agent> makes it write a recap (an away_summary), which sends no hook of Hive's. Each file is taken
+//   (removed) when acted on.
 // - `--name` and "/rename <name>" set the session's name in the transcript (a custom title), as Claude Code does.
 // - Its system prompt (the --append-system-prompt-file's text) is recorded on a conversation's first request and that
 //   record used on every later one and every resume, as Claude Code does since 2.1.267, until it compacts;
@@ -370,6 +381,7 @@ async function runPrompt(text) {
   const linger = /(?<!-)\blinger\s+(\d+)/i.exec(text)
   if (linger) leaveRunning(Number(linger[1]))
   if (/\bprogress-linger\b/i.test(text)) leaveProgressRunning()
+  if (/\bdevapp\b/i.test(text)) leaveAppRunning()
   const secs = Number(/\bwork\s+(\d+)/i.exec(text)?.[1] ?? 1)
   await sleep(secs * 1000)
   // "holduntil NAME": the turn goes on until the test makes NAME in its home, so it ends after what the test waits for
@@ -380,7 +392,7 @@ async function runPrompt(text) {
     for (const end = Date.now() + 120_000; !fs.existsSync(go) && Date.now() < end; ) await sleep(100)
   }
   const mode = /\bwhatmode\b/i.test(text) ? ` (system prompt mode: ${/^# Your mode: (.+)$/m.exec(prompt)?.[1]?.trim() ?? 'none'})` : ''
-  await endTurn(`Done: ${text}${mode}`, Number(/\bcontext\s+(\d+)/i.exec(text)?.[1] ?? 20))
+  await endTurn(`Done: ${text}${mode}`, Number(/\bcontext\s+(\d+)/i.exec(text)?.[1] ?? 20), /\bloststop\b/i.test(text))
   // "window N": the status line reports a context window of N tokens, as Claude Code's does.
   const contextWindow = /\bwindow\s+(\d+)/i.exec(text)
   if (contextWindow && hookUrl) {
@@ -456,10 +468,58 @@ async function login() {
   await endTurn(`Done: ${text}`)
 }
 
-async function endTurn(answer, inputTokens = 20) {
+async function endTurn(answer, inputTokens = 20, lostStop = false) {
   write({ type: 'assistant', requestId: `req_${randomUUID().slice(0, 8)}`, message: { model: 'claude-fake', content: [{ type: 'text', text: answer }], usage: { input_tokens: inputTokens, output_tokens: 10 } } })
   out(`\r\n${answer}\r\n`)
-  await hook('Stop', { last_assistant_message: answer })
+  // "loststop": the turn ends, but its Stop never reaches Hive (#612).
+  if (!lostStop) await hook('Stop', { last_assistant_message: answer })
+  busy = false
+  promptLine()
+  idleNotice()
+}
+
+/** Turns ended, and when input last came: the idle notification goes once per turn, and only with no input since. */
+let turnsEnded = 0
+let lastInput = 0
+/** Claude Code's "Claude is waiting for your input" (idle_prompt), N ms after a turn ends: fake-idle-notify.txt (N). */
+function idleNotice() {
+  const file = path.join(home, 'fake-idle-notify.txt')
+  if (!fs.existsSync(file)) return
+  const turn = ++turnsEnded
+  const since = Date.now()
+  setTimeout(() => {
+    if (turn === turnsEnded && !busy && lastInput <= since) void hook('Notification', { notification_type: 'idle_prompt', message: 'Claude is waiting for your input' })
+  }, Number(fs.readFileSync(file, 'utf8')) || 0)
+}
+
+/** Takes a file the test made in its home for this agent (NAME-<agent>): true once, when it was there. */
+function take(name) {
+  try {
+    fs.rmSync(path.join(home, `${name}-${String(process.env.HIVE_AGENT || 'agent').replace(/[^\w-]/g, '_')}`))
+    return true
+  } catch {
+    return false
+  }
+}
+
+/** What Claude Code does by itself while idle (#612): a compaction before the prompt cache expires, and a recap. */
+async function whileIdle() {
+  if (busy) return
+  if (take('fake-recap')) {
+    write({ type: 'system', subtype: 'away_summary', content: 'The fake did its turns. (disable recaps in /config)', isMeta: false })
+    out('\r\n※ recap: the fake did its turns.\r\n')
+  }
+  if (!take('fake-idle-compact')) return
+  busy = true
+  await hook('PreCompact', { trigger: 'auto', custom_instructions: null })
+  out('\r\nCompacting conversation…\r\n')
+  write({ type: 'system', subtype: 'compact_boundary', content: 'Conversation compacted', compactMetadata: { trigger: 'auto', preTokens: 30, postTokens: 10 } })
+  // Until the test has seen it under way (two minutes at most, in case the test died).
+  for (const end = Date.now() + 120_000; !take('fake-idle-compact-done') && Date.now() < end; ) await sleep(100)
+  await hook('SessionStart', { source: 'compact' })
+  await hook('PostCompact', { trigger: 'auto' })
+  write({ type: 'system', subtype: 'informational', content: 'Compacted while idle, before the prompt cache expired', level: 'notice', isMeta: false })
+  out('\r\nCompacted while idle, before the prompt cache expired\r\n')
   busy = false
   promptLine()
 }
@@ -571,6 +631,7 @@ let ctrlC = 0
 if (process.stdin.isTTY) process.stdin.setRawMode(true)
 process.stdin.setEncoding('utf8')
 process.stdin.on('data', (data) => {
+  lastInput = Date.now()
   // Down or Up in the trust menu moves its choice (two choices).
   if (trustMenu)
     for (const _ of data.matchAll(/\x1b\[[AB]/g)) {
@@ -637,6 +698,14 @@ function leaveRunning(n) {
   for (let i = 0; i < n; i++) spawn(process.execPath, [path.join(__dirname, 'linger.cjs'), 'starter', path.join(home, 'fake-linger.jsonl'), process.env.HIVE_AGENT || 'agent'], { detached: true, stdio: 'ignore', windowsHide: true }).unref()
 }
 
+/** "devapp": a dev copy of an Electron app left running (devapp/main.js), started through one that exits at once (#614). */
+function leaveAppRunning() {
+  // In its home, so its command line names the test's folder (and its profile stays there: devapp/main.js).
+  const app = path.join(home, 'devapp')
+  fs.cpSync(path.join(__dirname, 'devapp'), app, { recursive: true })
+  spawn(process.execPath, [path.join(__dirname, 'linger.cjs'), 'app-starter', path.join(home, 'fake-devapp.jsonl'), process.env.HIVE_AGENT || 'agent', app], { detached: true, stdio: 'ignore', windowsHide: true }).unref()
+}
+
 /** "progress-linger": a command left running through the session's hive-progress shim (on its PATH), not waited for (#542). */
 function leaveProgressRunning() {
   const q = (x) => `"${x}"`
@@ -673,6 +742,7 @@ async function main() {
   if (opts['--name']) write({ type: 'custom-title', customTitle: opts['--name'] })
   await hook('SessionStart', { source: opts['--resume'] ? 'resume' : 'startup' })
   promptLine()
+  setInterval(() => void whileIdle(), 200)
   if (firstPrompt) await runPrompt(firstPrompt)
 }
 void main()

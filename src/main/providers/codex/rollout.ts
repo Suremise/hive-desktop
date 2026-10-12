@@ -1,5 +1,6 @@
 import type { CompactionEvent, DayUsage, PlanLimit, PlanUsage, SessionUsage, SubSession, TranscriptImageRef, TranscriptItem, TranscriptTool, UsageTokens } from '../../../shared/types'
 import { emptyDay, localDay } from '../../../shared/usageDays'
+import { TimelineBuilder } from '../../../shared/usageTimeline'
 import { CODEX } from '../../../shared/codex'
 import { isSessionId } from '../../../shared/defaults'
 import { firstLine, shortPath, toolLabel, type NewItem } from '../conversation'
@@ -155,6 +156,8 @@ export class CodexUsageParser {
   private pending: CompactionEvent | null = null
   private turnHasPrompt = false
   private days: Record<string, DayUsage> = {}
+  /** The same increases over time (usageTimeline.ts). */
+  private timeline = new TimelineBuilder()
   /** The last running totals seen, to count each day's increase. */
   private last: UsageTokens = { inputTokens: 0, outputTokens: 0, cacheWriteTokens: 0, cacheReadTokens: 0 }
 
@@ -217,15 +220,17 @@ export class CodexUsageParser {
         usage.reasoningTokens = total.reasoning_output_tokens ?? 0
         // The day's share: what the running totals grew by (a lower total, e.g. after a reset, starts again).
         const d = this.day(ts)
+        const grew = (now: number, before: number): number => (now >= before ? now - before : now)
+        const step = { inputTokens: grew(usage.inputTokens, this.last.inputTokens), cacheReadTokens: grew(usage.cacheReadTokens, this.last.cacheReadTokens), outputTokens: grew(usage.outputTokens, this.last.outputTokens) }
         if (d) {
-          const grew = (now: number, before: number): number => (now >= before ? now - before : now)
-          d.inputTokens += grew(usage.inputTokens, this.last.inputTokens)
-          d.cacheReadTokens += grew(usage.cacheReadTokens, this.last.cacheReadTokens)
-          d.outputTokens += grew(usage.outputTokens, this.last.outputTokens)
+          d.inputTokens += step.inputTokens
+          d.cacheReadTokens += step.cacheReadTokens
+          d.outputTokens += step.outputTokens
         }
         this.last = { inputTokens: usage.inputTokens, outputTokens: usage.outputTokens, cacheWriteTokens: 0, cacheReadTokens: usage.cacheReadTokens }
         if (typeof p.info.model_context_window === 'number') usage.contextWindow = p.info.model_context_window
         const lastTokens = (last.input_tokens ?? 0) + (last.output_tokens ?? 0)
+        this.timeline.add(ts || usage.lastActivity, step, lastTokens > 0 ? 1 : 0)
         // Codex repeats the totals with an empty last request (e.g. right after compacting): not a request.
         if (lastTokens > 0) {
           usage.contextTokens = lastTokens
@@ -263,7 +268,7 @@ export class CodexUsageParser {
   result(title: string | null = null): SessionUsage {
     const days: Record<string, DayUsage> = {}
     for (const [k, d] of Object.entries(this.days)) days[k] = { ...d }
-    return { ...this.usage, title, customTitle: title, compactions: this.usage.compactions.map((c) => ({ ...c })), days }
+    return { ...this.usage, title, customTitle: title, compactions: this.usage.compactions.map((c) => ({ ...c })), days, timeline: this.timeline.timeline() }
   }
 }
 

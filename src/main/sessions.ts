@@ -40,6 +40,7 @@ import { provider as providerAdapter, allProviders } from './providers'
 import { recacheEstimate } from './providers/common'
 import { usesOwnPrices } from '../shared/prices'
 import { priceUsage } from '../shared/usageDays'
+import { readTimeline, type UsageTimeline } from '../shared/usageTimeline'
 import type { Ask, HookEvent, LaunchContext, LaunchSkill, ProviderAdapter, SkillDelivery, UsageParser } from './providers/types'
 import { providerService } from './providerService'
 import { config } from './config'
@@ -54,6 +55,7 @@ import { asksYou } from '../shared/inbox'
 import { FinishBatcher, finishedNotice, noticeRoute, type FocusedHive, type NoticeRoute } from '../shared/bursts'
 import { recordCards } from './cardSessions'
 import { listMcp, toLaunchDef } from './mcp'
+import { agentGetsMcp } from '../shared/agentMcp'
 import { launchEnded, leftoversOf, noteUntracked, settleLeftovers, trackingProblem, trackingReady, trackLaunch, type TrackResult } from './agentProcesses'
 import type { GateWord } from './launchGate'
 import { leftoversSummary, processCount } from '../shared/agentProcesses'
@@ -65,6 +67,9 @@ import { hiveSkills, parseSkillFrontmatter, skillFor } from './skills'
 import { GUIDANCE_REVISION, launchParts, launchRecord } from './guidance'
 import { notificationIcon } from './paths'
 import { reportPlanUsage } from './planUsage'
+import { devConsole, sessionSourceId } from './devConsole'
+import { DETAILS_FIELDS, HOOK_FIELDS, HOOK_MADE_FIELDS, STATUSLINE_FIELDS, safeWord } from '../shared/devConsole'
+import { hookSummary, launchEvent, statusLineSummary, transcriptEvent } from './devConsoleWords'
 import { revisionOf } from './revisions'
 import { metricsHandle, recordLaunch } from './metrics'
 import { headerOf } from './revisions'
@@ -95,6 +100,8 @@ export interface HiveMcpProvider {
 const BACKUP_INTERVAL_MS = 60_000
 /** Minimum time between cost estimates while a turn is running (each parses the whole transcript). */
 const COST_INTERVAL_MS = 30_000
+/** How many of a launch's latest hooks are kept for the log (LiveSession.recentHooks). */
+const RECENT_HOOKS = 8
 /** How long after a CLI starts or is ready its size refresh comes (refreshSize). */
 const SIZE_REFRESH_DELAY_MS = 500
 
@@ -195,6 +202,8 @@ interface LiveSession {
   typed?: { at: number; prompts: number }
   /** The start of its latest reply, as its last turn's end reported it (an agent watch's line, #416). */
   lastReply?: string
+  /** Its latest hooks (what they were, when, and the status they left), for the log when the CLI turns out idle (#612). */
+  recentHooks?: { kind: HookEvent['kind']; at: number; status: SessionStatus }[]
   /**
    * A typed wake being confirmed (#430: watches' confirmTaken, from its typing until it is taken, marked not taken, or the
    * launch ends): nothing more is typed into it meanwhile, however long that takes. A token, so only its own release
@@ -706,16 +715,18 @@ class SessionManager {
       }
     }
     const mcpDisabled = new Set(pc.mcp.disabled)
+    // The agent's own choice narrows the project's servers (#537): all of them unless it names some.
+    const forAgent = agent ?? projectAgents(pc)[0]
     const mcpServers: Record<string, McpServerDef> = {}
     for (const m of await listMcp()) {
-      if (m.globallyEnabled && !mcpDisabled.has(m.name) && m.def) mcpServers[m.name] = toLaunchDef(m.def, workspace.mcpDir)
+      if (m.globallyEnabled && !mcpDisabled.has(m.name) && m.def && agentGetsMcp(forAgent, m.name)) mcpServers[m.name] = toLaunchDef(m.def, workspace.mcpDir)
     }
     const hive = this.hiveMcp(projectPath, agent?.id)
     if (hive) mcpServers.hive = hive
     // The Assistant looks after the workspace with Hive's own tools, not the projects' MCP servers.
     if (assistant) for (const k of Object.keys(mcpServers)) if (k !== 'hive') delete mcpServers[k]
 
-    const l = agentLaunchSettings(agent ?? projectAgents(pc)[0], pc, s)
+    const l = agentLaunchSettings(forAgent, pc, s)
     const extraArgs = l.extraArgs.flatMap((a) => splitArgs(a))
     const chime = pc.chime === 'inherit' ? s.notifications.chimeEnabled : pc.chime === 'on'
     return { provider: l.provider, skills, skillHashes, skillProblems, mcpServers, model: l.model, effort: l.effort, permissionMode: l.permissionMode, extraArgs, use200kContext: l.use200kContext, chime }
@@ -785,6 +796,8 @@ class SessionManager {
       if (!file || file.version !== app.getVersion() || !Array.isArray(file.entries)) return
       for (const e of file.entries) {
         if (!e || typeof e.path !== 'string' || !e.usage || usageCache.has(e.path)) continue
+        // Without a timeline (cost per card, #602: saved before it, or damaged), read again in full when next asked.
+        if (!readTimeline(e.usage.timeline)) continue
         usageCache.set(e.path, { parser: null, sessionId: e.sessionId, provider: e.provider, offset: e.size, size: e.size, mtime: e.mtime, raw: e.usage, usage: null })
       }
       trimUsageCache()
@@ -807,9 +820,13 @@ class SessionManager {
     await writeJsonAtomic(usageCacheFile(), { version: app.getVersion(), entries } satisfies UsageCacheFile).catch((e) => log.warn('usage cache: could not save it', e))
   }
 
-  /** A result with costs from the current prices: the provider's report, else (or on top) Hive's estimate, and each day's share. */
+  /**
+   * A result with costs from the current prices: the provider's report, else (or on top) Hive's estimate, and each day's
+   * share. Without its timeline (usageTimeline has it): it stays in the cache, never in the usage passed on.
+   */
   private priced(raw: SessionUsage): SessionUsage {
-    return priceUsage(raw, config.settings)
+    const { timeline: _timeline, ...usage } = raw
+    return priceUsage(usage, config.settings)
   }
 
   /**
@@ -1220,6 +1237,8 @@ class SessionManager {
     const size = startSize(key)
     const screen = l.adapter.footerMode || l.adapter.modeMenuKeys ? new TerminalScreen(size.cols, size.rows) : null
     l.screen = screen
+    // The developer console (#636): how it was started (launchEvent: never its arguments).
+    devConsole.capture([sessionSourceId(projectPath, agent.id)], () => launchEvent({ provider: adapter.id, name: adapter.descriptor.name, file: cmd.file, args: cmd.args, cwd, version: info.version, state, resumed: !!l.resumed }))
     spawnPty(key, {
       ...size,
       file: cmd.file,
@@ -1451,6 +1470,7 @@ class SessionManager {
     const asks = l.titleAttention(title)
     if (asks === !!l.titleRead) return
     l.titleRead = asks
+    devConsole.capture([sessionSourceId(l.state.projectPath, l.state.agentId)], () => ({ kind: 'terminal', name: 'title', provider: l.state.provider, raw: { title }, made: { asksYou: asks }, summary: `terminal title: ${asks ? 'asks you' : 'asks nobody'}` }))
     // After the hooks that came before it: they are answered at once and handled one at a time, so a slow one (the
     // first records the session) holds back a prompt and an ask that came before the title (#254).
     const runId = l.state.runId
@@ -1471,6 +1491,7 @@ class SessionManager {
     const text = l.modeTail.replace(/\s+/g, ' ')
     const asked = l.adapter.startupQuestion?.exec(text)
     if (l.state.status === 'starting' && asked) {
+      devConsole.capture([sessionSourceId(l.state.projectPath, l.state.agentId)], () => ({ kind: 'terminal', name: 'startup question', provider: l.state.provider, raw: { screen: asked[0] }, made: { status: 'waiting', trust: asked[0].includes('trust') }, summary: 'terminal: asks something before it starts; waiting' }))
       l.askedAtStart = true
       l.modeTail = ''
       l.state.status = 'waiting'
@@ -1479,6 +1500,7 @@ class SessionManager {
       this.notify(l.state.projectPath, `${this.label(l.state)} needs your input`, l.state.statusMessage, 'waiting', undefined, l.state.agentId)
       this.emitState(l.state)
     } else if (l.adapter.readyOutput?.test(text)) {
+      devConsole.capture([sessionSourceId(l.state.projectPath, l.state.agentId)], () => ({ kind: 'terminal', name: 'ready', provider: l.state.provider, raw: { screen: text.slice(-200) }, made: { status: 'ready' }, summary: 'terminal: its prompt shows; ready' }))
       this.startupAnswered(l)
       l.state.status = 'ready'
       this.emitState(l.state)
@@ -1497,6 +1519,7 @@ class SessionManager {
     if (this.live.get(liveId(l.state.projectPath, l.state.agentId)) !== l || !l.adapter.footerMode) return
     const mode = l.adapter.footerMode(screen.text(), l.launchMode)
     if (mode && (mode !== l.state.permissionMode || mode !== l.state.modeObserved)) {
+      devConsole.capture([sessionSourceId(l.state.projectPath, l.state.agentId)], () => ({ kind: 'terminal', name: 'footer mode', provider: l.state.provider, raw: { footer: mode }, made: { permissionMode: mode, was: l.state.permissionMode }, safe: { raw: { footer: true }, made: { permissionMode: true, was: true } }, summary: `terminal footer: mode ${mode}` }))
       l.state.permissionMode = l.state.modeObserved = mode
       this.emitState(l.state)
     }
@@ -1805,6 +1828,7 @@ class SessionManager {
       // Waiting to be taken from here (#430), for whatever Hive types next: recorded once this call is done with it (its
       // own Enter again below is no line over it; nothing else types meanwhile, it holds `delivering`).
       sent = { at: Date.now(), prompts: before }
+      devConsole.capture([sessionSourceId(projectPath, agentId)], () => ({ kind: 'input', name: 'Hive typed a line', provider: l?.state.provider, raw: { text: line }, made: { bracketedPaste: !!l?.screen?.bracketedPaste(), confirm: !!opts.confirm }, summary: `Hive typed a line (${line.length} chars) and Enter` }))
       // confirm: until the CLI reports the prompt submitted. One just resumed and still drawing its conversation can
       // drop the Enter, or take it as a new line (#334): Enter again, which an empty prompt ignores. Still not
       // reported (a CLI that doesn't report prompts), it counts as sent: typing it again could send it twice.
@@ -2097,6 +2121,7 @@ class SessionManager {
       }
     }
     emit({ type: 'session-exit', projectPath, agentId, sessionId, exitCode: code, ...(failure ? { failure } : {}) })
+    devConsole.capture([sessionSourceId(projectPath, agentId)], () => ({ kind: 'exit', name: 'exit', provider: l?.state.provider, raw: { exitCode: code }, made: { failedStart: !!failure, stopRequested: !!l?.stopRequested }, summary: `exited with code ${code}${failure ? ' before it started' : ''}` }))
     this.exitWaiters.get(id)?.()
     this.exitWaiters.delete(id)
     emit({
@@ -2335,7 +2360,10 @@ class SessionManager {
       const end = text.lastIndexOf('\n')
       if (end < 0) return
       l.detailsOffset = start + Buffer.byteLength(text.slice(0, end + 1))
-      this.applyDetails(l, l.adapter.transcriptDetails(text.slice(0, end + 1), (l.detailsMemo ??= {})), hooks)
+      const chunk = text.slice(0, end + 1)
+      const d = l.adapter.transcriptDetails(chunk, (l.detailsMemo ??= {}))
+      devConsole.capture([sessionSourceId(l.state.projectPath, l.state.agentId)], () => transcriptEvent(l.state.provider, chunk, d))
+      this.applyDetails(l, d, hooks)
     } finally {
       await fh.close()
     }
@@ -2605,7 +2633,9 @@ class SessionManager {
     const found = this.findLaunch(runId, body.session_id)
     if (!found?.[1].adapter.statusLine) return
     const l = found[1]
-    this.applyDetails(l, l.adapter.statusLine!(body))
+    const d = l.adapter.statusLine!(body)
+    devConsole.capture([sessionSourceId(l.state.projectPath, l.state.agentId)], () => ({ kind: 'statusline', name: 'status line', provider: l.state.provider, raw: body, made: d, safe: { raw: STATUSLINE_FIELDS, made: DETAILS_FIELDS }, summary: statusLineSummary(d) }))
+    this.applyDetails(l, d)
   }
 
   /** `hooks`: details read from the transcript, as it was when the launch had had that many hooks (readDetails). */
@@ -2842,14 +2872,14 @@ class SessionManager {
    * Handles a hook call from an agent's CLI (already answered; see preToolUse). One launch's hooks run in
    * order: an older one that awaits (recording the session) must not land after a newer one's status.
    */
-  handleHook(runId: string | null, body: Record<string, any>): Promise<void> {
+  handleHook(runId: string | null, body: Record<string, any>, reply: unknown = null): Promise<void> {
     // A turn's end releases only the locks claimed before it arrived: PreToolUse claims them at once, outside this queue.
     const arrived = this.lockSeq
     const launch = this.findLaunch(runId, body.session_id)?.[1]
     // The launch's hooks before this one: what the old conversation had seen, if this one switches conversations.
     const before = launch?.hooksSeen ?? 0
     if (launch) launch.hooksSeen = before + 1
-    return this.inHookOrder(runId ?? `session:${String(body.session_id ?? '')}`, () => this.handleHookNow(runId, body, arrived, before))
+    return this.inHookOrder(runId ?? `session:${String(body.session_id ?? '')}`, () => this.handleHookNow(runId, body, arrived, before, reply))
   }
 
   /** Runs `fn` after what is queued for the launch (its hooks, its title), in the order they came. */
@@ -2863,7 +2893,7 @@ class SessionManager {
     return run
   }
 
-  private async handleHookNow(runId: string | null, body: Record<string, any>, arrived: number, hooksBefore: number): Promise<void> {
+  private async handleHookNow(runId: string | null, body: Record<string, any>, arrived: number, hooksBefore: number, reply: unknown = null): Promise<void> {
     const found = this.findLaunch(runId, body.session_id)
     if (!found) return
     const [id, l] = found
@@ -2899,7 +2929,16 @@ class SessionManager {
       this.sweepTasks(l)
       if (ev.lastMessage) l.lastReply = ev.lastMessage.slice(0, 2000)
     }
-    this.carryOut(id, l, hookStep(ev, this.statusInput(l)), String(body.hook_event_name ?? ''), ev, arrived)
+    const step = hookStep(ev, this.statusInput(l))
+    this.carryOut(id, l, step, String(body.hook_event_name ?? ''), ev, arrived)
+    // The developer console (#636): the hook as it came, next to what Hive made of it.
+    devConsole.capture([sessionSourceId(st.projectPath, st.agentId)], () => {
+      const name = safeWord(body.hook_event_name) || '(unnamed)'
+      const made = { event: ev, status: st.status, actions: step.actions, ...(reply ? { reply } : {}) }
+      return { kind: 'hook', name, provider: st.provider, raw: body, made, safe: { raw: HOOK_FIELDS, made: HOOK_MADE_FIELDS }, summary: hookSummary(name, body.tool_name, ev.kind, st.status, step.actions, !!reply) }
+    })
+    if (ev.kind !== 'ignore') (l.recentHooks ??= []).push({ kind: ev.kind, at: Date.now(), status: st.status })
+    if ((l.recentHooks?.length ?? 0) > RECENT_HOOKS) l.recentHooks!.shift()
   }
 
   /** What the status rules need to know of a running agent. */
@@ -2980,6 +3019,13 @@ class SessionManager {
         case 'clearTasks':
           this.clearTasks(l)
           break
+        case 'idleAgain': {
+          // Hive missed how its last turn ended (#612): what it saw before, so the next time says why. Hook kinds and
+          // statuses only, no user text.
+          const seen = (l.recentHooks ?? []).map((h) => `${h.kind} ${new Date(h.at).toISOString().slice(11, 19)} → ${h.status}`).join(', ')
+          log.info(`${userText(label)}: ${l.adapter.descriptor.name} is idle at its prompt while Hive showed it working; idle again (hooks before: ${seen || 'none'})`)
+          break
+        }
         case 'signedOut':
           st.signIn = { message: (ev?.kind === 'signIn' && ev.message?.slice(0, 500)) || `${l.adapter.descriptor.name} isn't signed in.`, since: new Date().toISOString() }
           this.signInLost(st.provider)
@@ -3381,6 +3427,21 @@ class SessionManager {
       if (window) return { ...usage, contextWindow: window }
     }
     return usage
+  }
+
+  /**
+   * A session's usage with its timeline (cost per card, #602): a null timeline when there is none to read (a deleted
+   * session's kept usage).
+   */
+  async usageTimeline(projectPath: string, sessionId: string, ctx?: ListContext): Promise<{ usage: SessionUsage; timeline: UsageTimeline | null } | null> {
+    assertSessionId(sessionId)
+    const p = await this.anyTranscript(projectPath, sessionId, ctx)
+    if (!p) {
+      const kept = (ctx?.records ?? (await workspace.sessionsFile(projectPath)).sessions).find((s) => s.id === sessionId)?.keptUsage
+      return kept ? { usage: kept, timeline: null } : null
+    }
+    const usage = await this.usageFor(p, sessionId, await this.sessionProvider(projectPath, sessionId, ctx))
+    return usage && { usage, timeline: usageCache.get(p)?.raw?.timeline ?? null }
   }
 
   async list(projectPath: string): Promise<SessionListItem[]> {
