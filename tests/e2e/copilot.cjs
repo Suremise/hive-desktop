@@ -218,7 +218,11 @@ const check = (name, ok, extra = '') => {
     if (await lib.until(async () => /Do you trust the files in this folder/.test(lib.plainText(await inv('pty:buffer', keyC).catch(() => ''))), 30000, 300)) await inv('pty:write', keyC, '\r')
     check('C: ready in paren(1)', !!(await reachC(['ready'])), await statusC())
     check('C: in Accept edits, Copilot’s default', (await liveC())?.permissionMode === 'accept-edits', (await liveC())?.permissionMode)
-    const told = await lib.until(async () => (await page.getByText('Copilot will ask before each edit').count()) > 0, 15000, 300)
+    // Told at launch, as a toast that closes after 6 s and stays in the Notifications panel: read it there, since C can
+    // take longer than that to be ready under load (#660).
+    await page.locator('.activitybar button[aria-label="Notifications"]').click()
+    const told = await lib.until(async () => (await page.locator('.notif-panel .toast-title', { hasText: 'Copilot will ask before each edit' }).count()) > 0, 15000, 300)
+    await page.locator('.notif-panel button[aria-label="Close"]').click()
     check('C: Hive says Copilot will ask before each edit there', !!told)
     await page.screenshot({ path: path.join(lib.WORK, 'copilot-4-parentheses.png') })
     await sendC('edit p.txt probe probed-by-c')
