@@ -1,7 +1,7 @@
 import { initWatches, onWatchedCardsMoved, watchKeepsQuitWaiting } from './watches'
 import { initLoopWakes } from './loopWakes'
 import { initLoopCheck } from './loopCheck'
-import { initAgentMessages } from './agentMessages'
+import { initDeliveries } from './deliveries'
 import { initDecisionWakes } from './decisionWakes'
 import { initDevConsole } from './devConsoleSources'
 import { initAssistantModes } from './assistantMode'
@@ -782,7 +782,7 @@ app.whenReady().then(async () => {
   initWatches()
   initLoopWakes()
   initLoopCheck()
-  initAgentMessages()
+  initDeliveries()
   initDecisionWakes()
   initDevConsole()
   initAssistantModes()

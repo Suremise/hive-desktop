@@ -52,7 +52,10 @@ const check = (name, ok, extra = '') => {
   const menuItems = async () => (await page.locator('.menu .menu-item').allInnerTexts()).map((t) => t.split('\n')[0].trim())
   // A menu item by its label exactly (its detail line aside).
   const item = (label) => page.locator('.menu .menu-item').filter({ has: page.getByText(label, { exact: true }) }).first()
-  const menuOpen = () => lib.until(async () => (await page.locator('.menu .menu-item').count()) > 0, 5000)
+  // A menu its button opened, waited for and checked (#663): one that never opened throws instead of the next step failing.
+  const menuOpen = async () => {
+    if (!(await lib.until(async () => (await page.locator('.menu .menu-item').count()) > 0, HUNG_MS))) throw new Error(`the menu didn't open; the window: ${await page.locator('.project-header h1').innerText().catch(() => '?')}`)
+  }
   // Template ▾: Save Template…, a separator, then the templates to load.
   const templateMenu = async () => {
     await strip.getByRole('button', { name: 'Template', exact: true }).click()
@@ -62,9 +65,19 @@ const check = (name, ok, extra = '') => {
     await templateMenu()
     await item('Save Template…').click()
   }
+  // A dialog that follows a click (a load's confirmation comes once the template's plan, git included, is read):
+  // waited for as it shows, bounded only for a hung run (#663). A slow one is logged with how long it took; one that
+  // never came throws with what the window showed instead.
+  const shown = async (d, what) => {
+    const t = Date.now()
+    const ok = await lib.until(() => d.isVisible(), HUNG_MS)
+    if (Date.now() - t > 2000) console.log(`  (${what} took ${Date.now() - t} ms)`)
+    if (!ok) throw new Error(`${what} didn't show; the window: ${await page.locator('.project-header h1').innerText().catch(() => '?')}, dialogs ${JSON.stringify(await page.locator('.dialog').allInnerTexts())}, menu ${JSON.stringify(await menuItems())}`)
+  }
   const select = async (name) => {
     await page.locator('.project-row', { hasText: name }).first().click()
-    await lib.until(async () => (await page.locator('.project-header h1').innerText().catch(() => '')) === name, 5000)
+    const shows = async () => page.locator('.project-header h1').innerText().catch(() => '')
+    if (!(await lib.until(async () => (await shows()) === name, HUNG_MS))) throw new Error(`${name} wasn't selected; the window shows ${await shows()}`)
   }
 
   // --- alpha: Builder (role builder) and Reviewer, two columns. Save Template…, for the workspace.
@@ -74,7 +87,7 @@ const check = (name, ok, extra = '') => {
   await inv('project:updateConfig', alpha, { layout: 'columns3' })
   await inv('workspace:refresh')
   await saveTemplate()
-  await dialog.waitFor({ timeout: 5000 })
+  await shown(dialog, 'dialog')
   await dialog.locator('input.input').fill('Pair')
   await dialog.locator('input[type="checkbox"]').check()
   await page.screenshot({ path: path.join(lib.WORK, 'templates-1-save.png') })
@@ -108,7 +121,7 @@ const check = (name, ok, extra = '') => {
   check('…after Save Template… and a separator', shape[0] === 'menu-item:Save Template…' && shape[1] === 'menu-sep:' && shape[2] === 'menu-header:Workspace templates', JSON.stringify(shape))
   await item('pair').click()
   const blocked = page.locator('.dialog', { hasText: "Can't load" })
-  await blocked.waitFor({ timeout: 5000 })
+  await shown(blocked, 'blocked')
   const why = await blocked.innerText()
   check('refused while Old runs and Tree has uncommitted work', /Old is running or starting: stop it first/.test(why) && /Tree has uncommitted work/.test(why), why)
   await page.screenshot({ path: path.join(lib.WORK, 'templates-2-blocked.png') })
@@ -120,7 +133,7 @@ const check = (name, ok, extra = '') => {
   fs.writeFileSync(path.join(ws, '.hive', 'templates', 'codex-pair.json'), JSON.stringify({ version: 1, name: 'Codex pair', savedAt: new Date().toISOString(), layout: 'auto', agents: [{ name: 'Coder', provider: 'codex', worktree: false }] }))
   await loadMenu()
   await item('Codex pair').click()
-  await blocked.waitFor({ timeout: 5000 })
+  await shown(blocked, 'blocked')
   check('refused while a provider it needs is off, saying which', /Codex is turned off.*needed by Coder/.test(await blocked.innerText()), await blocked.innerText())
   await blocked.getByRole('button', { name: 'OK' }).click()
 
@@ -132,7 +145,7 @@ const check = (name, ok, extra = '') => {
   await loadMenu()
   await item('pair').click()
   const warn = page.locator('.dialog', { hasText: 'Load "pair"?' })
-  await warn.waitFor({ timeout: 5000 })
+  await shown(warn, 'warn')
   // The plan as a table (#511): a removed agent's line, a created agent's row and its cells, by column.
   const removedLine = async (d, name) => (await d.locator(`.template-plan-removed li[data-agent="${name}"]`).innerText().catch(() => '')).replace(/\s+/g, ' ')
   const planRow = (d, name) => d.locator(`.template-plan-table tbody tr[data-agent="${name}"]`)
@@ -157,7 +170,7 @@ const check = (name, ok, extra = '') => {
   await loadMenu()
   await item('Trees').click()
   const treesWarn = page.locator('.dialog', { hasText: 'Load "Trees"?' })
-  await treesWarn.waitFor({ timeout: 5000 })
+  await shown(treesWarn, 'treesWarn')
   const tw = await treesWarn.innerText()
   const treePath = path.join(`${ws}.worktrees`, 'beta', 'builder')
   check('the warning marks Builder, replaced by a new agent of the same name', /replaced by a new agent with the same name/.test(await removedLine(treesWarn, 'Builder')) && !/replaced/.test(await removedLine(treesWarn, 'Reviewer')), tw)
@@ -192,7 +205,7 @@ const check = (name, ok, extra = '') => {
   await loadMenu()
   await item('Twelve').click()
   const twelveWarn = page.locator('.dialog', { hasText: 'Load "Twelve"?' })
-  await twelveWarn.waitFor({ timeout: 5000 })
+  await shown(twelveWarn, 'twelveWarn')
   check('twelve agents: a row each, in the order of the template', (await created(twelveWarn)).join() === twelve.join(), JSON.stringify(await created(twelveWarn)))
   check('…builders in their own worktrees, reviewers in the project folder', (await placeOf(twelveWarn, 'HB1')).text === 'own worktree hive/hb1' && (await placeOf(twelveWarn, 'HR6')).text === 'project folder')
   const twelveBox = twelveWarn.locator('.detail.rich')
@@ -328,7 +341,7 @@ const check = (name, ok, extra = '') => {
   const srcTree = await lib.addAgent(inv, alpha, { name: 'Tree', location: 'new-worktree' })
   await inv('workspace:refresh')
   await saveTemplate()
-  await dialog.waitFor({ timeout: 5000 })
+  await shown(dialog, 'dialog')
   await dialog.locator('input.input').fill('Alpha trees')
   await dialog.getByRole('button', { name: 'Save', exact: true }).click()
   const alphaTrees = path.join(alpha, '.hive', 'templates', 'alpha-trees.json')
@@ -345,7 +358,7 @@ const check = (name, ok, extra = '') => {
   await dialog.locator('select').selectOption({ label: 'beta' })
   await dialog.getByRole('button', { name: 'Continue' }).click()
   const crossLoad = page.locator('.dialog', { hasText: 'Load "Alpha trees"?' })
-  await crossLoad.waitFor({ timeout: 5000 })
+  await shown(crossLoad, 'crossLoad')
   const cl = await placeOf(crossLoad, 'Tree')
   check("the confirmation gives Tree's new worktree in beta: hive/tree-2 in …worktrees\\beta\\tree-2", cl.text.startsWith('own worktree hive/tree-2') && cl.path.toLowerCase() === want.toLowerCase(), `${want}\n${JSON.stringify(cl)}`)
   check('…not the kept hive/tree, saying why (#289)', cl.text.includes('new: hive/tree has 1 uncommitted file'), cl.text)
@@ -370,7 +383,7 @@ const check = (name, ok, extra = '') => {
   await loadMenu()
   await item('pair').click()
   const toPair = page.locator('.dialog', { hasText: 'Load "pair"?' })
-  await toPair.waitFor({ timeout: 5000 })
+  await shown(toPair, 'toPair')
   check('replaced by "pair", Tree\'s worktree stays', /its worktree and branch hive\/tree-2, merged into \w+ and clean, stay unless you tick below/i.test(await removedLine(toPair, 'Tree')), await removedLine(toPair, 'Tree'))
   await toPair.getByRole('button', { name: 'Load template' }).click()
   await lib.until(async () => JSON.stringify(projectCfg(beta).agents.map((a) => a.name)) === '["Builder","Reviewer"]', 15000)
@@ -379,7 +392,7 @@ const check = (name, ok, extra = '') => {
   await tplDetail.getByRole('button', { name: 'Load into Project…' }).click()
   await dialog.locator('select').selectOption({ label: 'beta' })
   await dialog.getByRole('button', { name: 'Continue' }).click()
-  await crossLoad.waitFor({ timeout: 5000 })
+  await shown(crossLoad, 'crossLoad')
   const back = await placeOf(crossLoad, 'Tree')
   check('back to "Alpha trees": the confirmation says Tree reuses its clean worktree on hive/tree', back.text === 'reuses hive/tree' && back.path.toLowerCase() === oldTree.toLowerCase(), JSON.stringify(back))
   await page.screenshot({ path: path.join(lib.WORK, 'templates-8-reuse.png') })
@@ -394,7 +407,7 @@ const check = (name, ok, extra = '') => {
   await select('beta')
   await loadMenu()
   await item('pair').click()
-  await toPair.waitFor({ timeout: 5000 })
+  await shown(toPair, 'toPair')
   const tick = toPair.locator('.dialog-check input[type="checkbox"]')
   const tickLabel = (await toPair.locator('.dialog-check').innerText().catch(() => '')).trim()
   check('the dialog offers to remove the merged, clean old worktree, unticked', /^Also remove the old worktree and its branch \(merged into \w+ and clean\): hive\/tree$/.test(tickLabel) && !(await tick.isChecked()), tickLabel)

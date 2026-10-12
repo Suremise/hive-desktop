@@ -63,6 +63,12 @@ describe('a card in Review its watching reviewer has not started on (#521)', () 
     // Returned for review counts as coming into it.
     expect(reviewWaitReason(inReview({ history: [{ at: '2026-10-10T07:39:57.143Z', by: 'HB2 (alpha)', what: 'Returned for review, round 2' }] }), watchers, t0 + REVIEW_WAIT_STALL_MS)).toMatch(/^HR2 is watching #506/)
   })
+  it('names the reviewer\'s real state: working on something else, or silent with its state unknown (#642, #648)', () => {
+    const at = t0 + 37 * 60_000
+    expect(reviewWaitReason(inReview(), [{ ...watchers[0], status: 'watching' }], at)).toBe("HR2 is watching #506 but hasn't started reviewing it: in Review for 37 min.")
+    expect(reviewWaitReason(inReview(), [{ ...watchers[0], status: 'working' }], at)).toBe("HR2 is watching #506 but hasn't started reviewing it (it is working on something else): in Review for 37 min.")
+    expect(reviewWaitReason(inReview(), [{ ...watchers[0], status: 'working', silentMinutes: 23 }], at)).toBe("HR2 is watching #506 but hasn't started reviewing it (it shows working, but has been silent for 23 min: state unknown): in Review for 37 min.")
+  })
   it("not while it is reviewed, blocked, elsewhere, archived, watched by none or only by its own agent, or another project's", () => {
     const late = t0 + 3600_000
     expect(reviewWaitReason(inReview({ review: { agent: 'r2', agentName: 'HR2', since: '' } as never }), watchers, late)).toBeNull()

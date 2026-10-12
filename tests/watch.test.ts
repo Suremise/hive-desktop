@@ -382,6 +382,68 @@ describe('watches (main/watches.ts)', async () => {
     return state
   }
 
+  it("a watch's wake whose rider is saved slowly while the user's own prompt is taken: its confirmation counts from this line's Enter, not before (#647)", async () => {
+    const { w, alpha } = await open()
+    const st = fake(alpha)
+    const cli = { count: 0, enters: 0 }
+    let release = (): void => undefined
+    const held = new Promise<void>((r) => (release = r))
+    let waiting = false
+    const confirming: { runId: string; count: number }[] = []
+    Object.assign(sessions, {
+      promptsTaken: () => ({ runId: 'run-1', count: cli.count }),
+      lineNotTaken: () => undefined,
+      sendPrompt: async (_p: string, _id: string, text: string, guard?: () => void) => {
+        guard?.()
+        st.typed.push(text)
+        st.status = 'finished'
+      },
+      submitAgain: () => {
+        cli.enters++
+        cli.count++
+        return true
+      }
+    })
+    // A message rides the wake; its save (ready) is held while the user's prompt is taken and its turn ends.
+    watches.onWakeRider(() => ({
+      text: '[Hive] Message: hello (m1).',
+      ready: (async () => {
+        waiting = true
+        await held
+      })(),
+      still: () => true,
+      taken: () => undefined,
+      allowed: () => true,
+      withdrawn: () => undefined,
+      confirming: (before) => confirming.push(before),
+      settled: () => undefined
+    }))
+    watches.testHooks.takeMs = 150
+    try {
+      const c = await inWorkspace(w, () => tasks.createTask({ title: 'Slow rider', project: 'alpha' }, user))
+      await watches.registerWatch(w, alpha, 'a1', { cards: [c.number], changes: ['comment'] })
+      await inWorkspace(w, () => tasks.commentTask(c.number, 'news', user))
+      // The evaluation types the wake, so it waits for the held save: not awaited until that is released.
+      const evaluating = evaluated(w)
+      await vi.waitFor(() => expect(waiting).toBe(true), { timeout: HUNG_MS })
+      cli.count++
+      release()
+      await evaluating
+      await vi.waitFor(() => expect(st.typed).toHaveLength(1), { timeout: HUNG_MS })
+      expect(st.typed[0]).toMatch(/^\[Hive\] Message: hello \(m1\)\. \[Hive\] #\d+ /)
+      // Counted from just before its Enter (the user's prompt already in), so its lost Enter is pressed again.
+      expect(confirming).toEqual([{ runId: 'run-1', count: 1 }])
+      await vi.waitFor(() => expect(cli.enters).toBe(1), { timeout: HUNG_MS })
+      await vi.waitFor(() => expect(watches.confirmsInFlight()).toBe(0), { timeout: HUNG_MS })
+    } finally {
+      release()
+      watches.onWakeRider(() => null)
+      watches.testHooks.takeMs = undefined
+      for (const k of ['promptsTaken', 'submitAgain', 'lineNotTaken']) delete (sessions as unknown as Record<string, unknown>)[k]
+    }
+    await disposeWorkspaceService(w)
+  })
+
   it("a typed wake the CLI doesn't take (#376) gets Enter again, once; one it takes gets nothing more", async () => {
     const { w, alpha } = await open()
     const st = fake(alpha)

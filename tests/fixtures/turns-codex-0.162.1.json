@@ -1,0 +1,71 @@
+{
+ "about": "Codex 0.162.1 hooks for two turns, recorded in a signed-in test home (#645 spike, AB1, 12 Oct 2026). T1 runs one shell command; its Stop is answered with a block once, so it goes on under the same turn_id with no new prompt. T2 has no tool call. Paths replaced; long texts cut.",
+ "hooks": [
+  {
+   "hook_event_name": "SessionStart",
+   "session_id": "01a12dba-41d3-7e23-8db6-b7e49e98bd8d",
+   "source": "startup",
+   "permission_mode": "default"
+  },
+  {
+   "hook_event_name": "UserPromptSubmit",
+   "session_id": "01a12dba-41d3-7e23-8db6-b7e49e98bd8d",
+   "turn_id": "01a12dba-47ef-7a31-b6c4-cbc68c26b00c",
+   "prompt": "Use one shell command to print the contents of a.txt, then answer in one short s…",
+   "permission_mode": "default"
+  },
+  {
+   "hook_event_name": "PreToolUse",
+   "session_id": "01a12dba-41d3-7e23-8db6-b7e49e98bd8d",
+   "turn_id": "01a12dba-47ef-7a31-b6c4-cbc68c26b00c",
+   "tool_name": "Bash",
+   "tool_input": {
+    "command": "Get-Content -LiteralPath a.txt"
+   },
+   "tool_use_id": "exec-7ed20135-dafb-47d6-8c26-9a590c4d09d0",
+   "permission_mode": "default"
+  },
+  {
+   "hook_event_name": "PostToolUse",
+   "session_id": "01a12dba-41d3-7e23-8db6-b7e49e98bd8d",
+   "turn_id": "01a12dba-47ef-7a31-b6c4-cbc68c26b00c",
+   "tool_name": "Bash",
+   "tool_input": {
+    "command": "Get-Content -LiteralPath a.txt"
+   },
+   "tool_use_id": "exec-7ed20135-dafb-47d6-8c26-9a590c4d09d0",
+   "permission_mode": "default"
+  },
+  {
+   "hook_event_name": "Stop",
+   "session_id": "01a12dba-41d3-7e23-8db6-b7e49e98bd8d",
+   "turn_id": "01a12dba-47ef-7a31-b6c4-cbc68c26b00c",
+   "stop_hook_active": false,
+   "last_assistant_message": "a.txt contains “apples.”",
+   "permission_mode": "default"
+  },
+  {
+   "hook_event_name": "Stop",
+   "session_id": "01a12dba-41d3-7e23-8db6-b7e49e98bd8d",
+   "turn_id": "01a12dba-47ef-7a31-b6c4-cbc68c26b00c",
+   "stop_hook_active": true,
+   "last_assistant_message": "CONTINUED",
+   "permission_mode": "default"
+  },
+  {
+   "hook_event_name": "UserPromptSubmit",
+   "session_id": "01a12dba-41d3-7e23-8db6-b7e49e98bd8d",
+   "turn_id": "01a12dba-86c6-7b11-8fb5-75b6816e5b1d",
+   "prompt": "Without using any tools: list every token starting with NONCE- that appears anyw…",
+   "permission_mode": "default"
+  },
+  {
+   "hook_event_name": "Stop",
+   "session_id": "01a12dba-41d3-7e23-8db6-b7e49e98bd8d",
+   "turn_id": "01a12dba-86c6-7b11-8fb5-75b6816e5b1d",
+   "stop_hook_active": false,
+   "last_assistant_message": "NONCE-STOP-FAC8B8 — user message",
+   "permission_mode": "default"
+  }
+ ]
+}

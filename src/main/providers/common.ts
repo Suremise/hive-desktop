@@ -5,7 +5,7 @@ import { basename, delimiter, dirname, isAbsolute, join, resolve as resolvePath 
 import type { RecacheEstimate, SessionUsage } from '../../shared/types'
 import { cleanSwaps, contentHash, ContentTooLarge, COPY_MARKER, CopyFailed, LinkNotCopied, removePath, sourceProblem, swapIn, tooBigToDeliver, withFileLock } from '../fsutil'
 import { createLogger, userText } from '../logger'
-import type { LaunchContext, SkillDelivery } from './types'
+import type { HookIds, LaunchContext, SkillDelivery } from './types'
 
 const log = createLogger('providers')
 
@@ -188,6 +188,15 @@ export function taskArgs(executable: string, text: string): string[] {
 export function hookForwardCommand(hookUrl: string, authFile: string): string {
   const curl = process.platform === 'win32' ? 'curl.exe' : 'curl'
   return `${curl} -s -m 5 -X POST -H "@${authFile.split('\\').join('/')}" -H "Content-Type: application/json" --data-binary "@-" "${hookUrl}"`
+}
+
+/**
+ * A hook's own ids (#648), read from the fields that hold them in this CLI's hooks (`turn`: the field naming its turn).
+ * Only plain, short strings: an id is never the user's text.
+ */
+export function hookIds(body: Record<string, any>, fields: { turn: string; call: string; sub?: string }): HookIds {
+  const id = (v: unknown): string | null => (typeof v === 'string' && /^[\w.:-]{1,128}$/.test(v) ? v : null)
+  return { turn: id(body[fields.turn]), call: id(body[fields.call]), sub: fields.sub ? id(body[fields.sub]) : null, continued: body.stop_hook_active === true }
 }
 
 /** Estimates how many tokens resuming a session will write to the prompt cache (providers with a cache TTL). */

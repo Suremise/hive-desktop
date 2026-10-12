@@ -1,5 +1,6 @@
 import { basename, join } from 'path'
 import { appendFile, mkdir, rename } from 'original-fs/promises'
+import { existsSync } from 'original-fs'
 import { app, shell } from 'electron'
 import { createLogger, userText } from './logger'
 
@@ -23,9 +24,32 @@ export function testTrashDir(env: NodeJS.ProcessEnv = process.env, packaged = ap
 let moved = 0
 
 /**
+ * Pauses between tries of a move Windows refuses for a moment (#668): an antivirus scan, the search indexer or a program
+ * closing a file in it holds a handle briefly, and moving a folder fails while anything in it is open. Tried again after
+ * each pause (about 1.5 s in all); a program that keeps it open is still refused, and the caller says so.
+ */
+const HELD_RETRY_MS = [50, 100, 200, 400, 800]
+const HELD_CODES = new Set(['EPERM', 'EBUSY', 'EACCES'])
+
+/** move(), tried again while held(error) says what stopped it may pass; then its last error stands. */
+async function whileHeld(path: string, move: () => Promise<void>, held: (e: unknown) => boolean): Promise<void> {
+  for (let tried = 0; ; tried++) {
+    try {
+      await move()
+      if (tried) log.info(`Moved ${userText(path)} to the Recycle Bin on try ${tried + 1}: it was in use for a moment`)
+      return
+    } catch (e) {
+      if (tried >= HELD_RETRY_MS.length || !held(e)) throw e
+    }
+    await new Promise((r) => setTimeout(r, HELD_RETRY_MS[tried]))
+  }
+}
+
+/**
  * Moves a file or folder to the Recycle Bin (or a test copy's trash folder). It resolves once the item has gone, and
  * rejects only when it hasn't, changing nothing (callers rely on that: Delete Project says "Nothing was deleted", a
- * group's delete puts back what had gone).
+ * group's delete puts back what had gone). A move Windows refuses because something has the item open is tried again
+ * for a moment first (`whileHeld`, #668).
  *
  * In a test copy the move is one rename, whole or not at all: an item on another drive than the trash folder is refused
  * (a copy and remove could fail halfway, leaving parts of it in both places). Noting the move in `trash.jsonl` comes
@@ -34,12 +58,13 @@ let moved = 0
  */
 export async function trash(path: string): Promise<void> {
   const dir = testTrashDir()
-  if (!dir) return shell.trashItem(path)
+  // The Recycle Bin's failures carry no code: tried again while the item is still there to move.
+  if (!dir) return whileHeld(path, () => shell.trashItem(path), () => existsSync(path))
   await mkdir(dir, { recursive: true })
   // A name of its own: the same name can be deleted twice in a run.
   const to = join(dir, `${Date.now()}-${process.pid}-${++moved}-${basename(path)}`)
   try {
-    await rename(path, to)
+    await whileHeld(path, () => rename(path, to), (e) => HELD_CODES.has((e as NodeJS.ErrnoException).code ?? ''))
   } catch (e) {
     if ((e as NodeJS.ErrnoException).code !== 'EXDEV') throw e
     throw new Error(`${path} is on another drive than the test trash folder (${dir}): a test copy of Hive only moves within a drive, so nothing is half deleted. Nothing was changed.`, { cause: e })
