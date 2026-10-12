@@ -102,9 +102,9 @@ describe('the delivery service (#647)', async () => {
   // The Assistant's launch that is running now, and whether Control lets it run agents (as senderRefusal works them out).
   const now = { launch: 'a1', control: true }
   deliveries.setSenderCheckForTests((from) => (from.kind !== 'assistant' ? null : !now.control ? 'the user turned Settings → Assistant → Control down' : from.launch !== now.launch ? "the Assistant's session that left it ended" : null))
-  /** The prompts the agent's CLI took, as its transcript has them (none unless a test says). */
+  /** The prompts the agent's CLI took, in order, as its transcript has them (one item each; none unless a test says). */
   let prompts: string[] = []
-  deliveries.setPromptReaderForTests(async () => prompts)
+  deliveries.setPromptReaderForTests(async () => ({ total: prompts.length, prompts: prompts.map((text, item) => ({ item, text })) }))
   const ws = join(base, 'ws')
   const asst = (launch = 'a1'): DeliverySender => ({ kind: 'assistant', name: 'the Assistant', workspace: ws, launch })
   const hive: DeliverySender = { kind: 'hive', name: 'Hive' }
@@ -312,8 +312,8 @@ describe('the delivery service (#647)', async () => {
     const all = file().deliveries
     expect(all.filter((r) => r.state === 'queued').length).toBe(made)
     deliveries.setFileBudgetForTests(4 * 1024 * 1024)
-    // (The one refused for room used an id: ids are never used twice.)
-    expect((await make({ body: 'After.' })).id).toBe(`m${made + 3}`)
+    // (The one refused for room was never made: its id is free.)
+    expect((await make({ body: 'After.' })).id).toBe(`m${made + 2}`)
   })
 
   it('uncertain after a restart, but its line is in the conversation the CLI kept: received, not offered again', async () => {

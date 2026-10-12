@@ -1358,9 +1358,9 @@ export interface Rider {
   /** Its CLI took a prompt after the line (its prompt count went up in the same launch): its deliveries check it was theirs. */
   received?: () => void
 }
-let wakeRider: ((projectPath: string, agentId: string) => Rider | null) | null = null
-/** Registers what rides agents' wakes (agentMessages.ts, at start). */
-export function onWakeRider(fn: (projectPath: string, agentId: string) => Rider | null): void {
+let wakeRider: ((projectPath: string, agentId: string, line: string) => Rider | null) | null = null
+/** Registers what rides agents' wakes (deliveries.ts, at start): given the wake's own line, so its offer knows the whole line typed. */
+export function onWakeRider(fn: (projectPath: string, agentId: string, line: string) => Rider | null): void {
   wakeRider = fn
 }
 
@@ -1389,7 +1389,7 @@ export async function typeLine(projectPath: string, agentId: string, line: strin
   try {
     const before = sessions.promptsTaken(projectPath, agentId)
     // Messages left for the agent ride the wake, first (#530); a line of their own takes none.
-    rider = opts.rider === false ? null : (wakeRider?.(projectPath, agentId) ?? null)
+    rider = opts.rider === false ? null : (wakeRider?.(projectPath, agentId, line) ?? null)
     const text = rider ? `${rider.text} ${line}` : line
     await rider?.ready
     await sessions.sendPrompt(projectPath, agentId, text, () => {
@@ -1561,7 +1561,7 @@ async function deliver(store: Store, rec: WatchRecord): Promise<void> {
     // What the CLI had taken before the line: it is taken once that goes up (#376).
     const before = sessions.promptsTaken(rec.projectPath, rec.agentId)
     // Messages left for the agent ride its wake, first (#530), so it has them before it acts on the wake.
-    const rider = wakeRider?.(rec.projectPath, rec.agentId) ?? null
+    const rider = wakeRider?.(rec.projectPath, rec.agentId, line) ?? null
     const typedLine = rider ? `${rider.text} ${line}` : line
     try {
       await rider?.ready

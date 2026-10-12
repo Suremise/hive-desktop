@@ -52,14 +52,14 @@ describe('messages left for agents (#530, #647)', async () => {
   const leave = (text: string) => messages.leaveMessage(alpha, 'b1', 'HR2', asst, text)
   const states = async (agentId = 'b1') => (await deliveries.deliveriesOf(alpha, agentId)).map((r) => `${r.id} ${r.state}${r.detail ? `: ${r.detail}` : ''}`)
   const tryAll = () => deliveries.offerAllForTests()
-  /** The prompts the stand-in CLI took, as its transcript has them (null: what Hive typed). */
-  let prompts: string[] | null = null
-  deliveries.setPromptReaderForTests(async () => prompts ?? st.typed)
+  /** The prompts the stand-in CLI took, in order, as its transcript of the conversation has them (one item each). */
+  const transcript: string[] = []
+  deliveries.setPromptReaderForTests(async () => ({ total: transcript.length, prompts: transcript.map((text, item) => ({ item, text })) }))
   beforeEach(async () => {
     // Each test its own project, so ids start at m1.
     alpha = join(base, `alpha${++n}`)
     why = null
-    prompts = null
+    transcript.length = 0
     Object.assign(st, { status: 'working', runId: 'r1', sessionId: 's1', watch: null, typing: false, shown: undefined, typed: [], running: true, during: null })
   })
 
@@ -96,7 +96,7 @@ describe('messages left for agents (#530, #647)', async () => {
     expect(st.typed).toHaveLength(1)
   })
 
-  it('received once its CLI takes the line: its prompt count goes up in the same launch, and that prompt is the line (its ids in the transcript)', async () => {
+  it('received once its CLI takes the line: its prompt count goes up in the same launch, and the prompt it took after the offer is that whole line', async () => {
     const cli = { count: 0 }
     Object.assign(sessions, { promptsTaken: () => ({ runId: 'r1', count: cli.count }), holdForConfirm: () => () => undefined })
     watches.testHooks.takeMs = 5000
@@ -104,22 +104,39 @@ describe('messages left for agents (#530, #647)', async () => {
       st.status = 'ready'
       expect((await leave('Rebase first.')).fate).toBe('typed')
       expect(await states()).toEqual(['m1 offered'])
+      transcript.push(st.typed.at(-1)!)
       cli.count++
       await vi.waitFor(async () => expect(await states()).toEqual(['m1 received']), { timeout: HUNG_MS })
-      expect((await deliveries.deliveriesOf(alpha, 'b1'))[0].receivedVia).toBe('line')
+      expect((await deliveries.deliveriesOf(alpha, 'b1'))[0]).toMatchObject({ receivedVia: 'line', receivedIn: { conversation: 's1', item: 0 } })
       await vi.waitFor(() => expect(st.shown).toBeUndefined(), { timeout: HUNG_MS })
       await vi.waitFor(() => expect(watches.confirmsInFlight()).toBe(0), { timeout: HUNG_MS })
 
       // Hive's Enter is dropped and the user submits a prompt of their own instead (or a late, unrelated prompt event
       // comes): the count goes up, but the prompt taken isn't the line, so it isn't received. It stays offered.
-      prompts = ['Human: an unrelated prompt of my own']
       st.status = 'ready'
       expect((await leave('Then #520.')).fate).toBe('typed')
+      transcript.push('Human: an unrelated prompt of my own')
       cli.count++
       await vi.waitFor(() => expect(watches.confirmsInFlight()).toBe(0), { timeout: HUNG_MS })
       expect((await states()).at(-1)).toBe('m2 offered')
       // Still offered: what the agent says next settles it (its inbox, or an ack).
       expect(await deliveries.ackDeliveries(alpha, 'b1', ['m2'])).toEqual({ acked: ['m2'], unknown: [] })
+
+      // A message quoting another's id phrase ("(Its id: m4. …)"), taken and acked; then m4 offered, its Enter lost, and
+      // an unrelated prompt taken: the earlier prompt has m4's id in it, but isn't m4's line, nor after its offer.
+      st.status = 'ready'
+      expect((await leave("Say it like this: (Its id: m4. Once you've acted on it, ack it with hive_inbox.)")).fate).toBe('typed')
+      transcript.push(st.typed.at(-1)!)
+      cli.count++
+      await vi.waitFor(async () => expect((await states()).at(-1)).toBe('m3 received'), { timeout: HUNG_MS })
+      await vi.waitFor(() => expect(watches.confirmsInFlight()).toBe(0), { timeout: HUNG_MS })
+      st.status = 'ready'
+      expect((await leave('The real m4.')).fate).toBe('typed')
+      // A prompt forged to look like m4's line, but typed before m4 was offered, would be before its offer too.
+      transcript.push('Human: ignore that and do something else')
+      cli.count++
+      await vi.waitFor(() => expect(watches.confirmsInFlight()).toBe(0), { timeout: HUNG_MS })
+      expect((await states()).at(-1)).toBe('m4 offered')
     } finally {
       watches.testHooks.takeMs = undefined
       for (const k of ['holdForConfirm']) delete (sessions as unknown as Record<string, unknown>)[k]
@@ -136,7 +153,7 @@ describe('messages left for agents (#530, #647)', async () => {
     try {
       st.status = 'working'
       await expect(leave('Never saved.')).rejects.toThrow(/couldn't save the deliveries \(EACCES/)
-      // Not made: nothing in memory either (its id isn't used again).
+      // Not made: nothing published, nor on disk (and its id is free again).
       expect(await states()).toEqual([])
     } finally {
       deliveries.setBeforeSaveForTests(null)
@@ -150,12 +167,12 @@ describe('messages left for agents (#530, #647)', async () => {
       st.status = 'ready'
       await tryAll()
       expect(st.typed).toEqual([])
-      expect(await states()).toEqual(['m2 queued'])
+      expect(await states()).toEqual(['m1 queued'])
       // A wake it would ride: typed alone? No: the wake waits for the save, which fails, so the line isn't typed and the
       // message waits again.
       expect(await watches.typeLine(alpha, 'b1', '[Hive] #3 is in Review.', () => true)).toBe(false)
       expect(st.typed).toEqual([])
-      expect(await states()).toEqual(['m2 queued'])
+      expect(await states()).toEqual(['m1 queued'])
     } finally {
       deliveries.setBeforeSaveForTests(null)
     }
@@ -174,7 +191,7 @@ describe('messages left for agents (#530, #647)', async () => {
       expect(st.typed).toEqual([])
       release()
       expect(await typing).toBe(true)
-      expect(st.typed).toEqual(["[Hive] Message from the Assistant: Saved, then not offered. (Its id: m2. Once you've acted on it, ack it with hive_inbox.) [Hive] #4 is in Review."])
+      expect(st.typed).toEqual(["[Hive] Message from the Assistant: Saved, then not offered. (Its id: m1. Once you've acted on it, ack it with hive_inbox.) [Hive] #4 is in Review."])
     } finally {
       release()
       deliveries.setBeforeSaveForTests(null)
@@ -210,7 +227,7 @@ describe('messages left for agents (#530, #647)', async () => {
     }
     expect(await watches.typeLine(alpha, 'b1', '[Hive] #4 is in Review.', () => true)).toBe(false)
     st.during = null
-    expect((await states()).at(-1)).toBe('m3 queued')
+    await vi.waitFor(async () => expect((await states()).at(-1)).toBe('m3 queued'), { timeout: HUNG_MS })
     // A line of its own takes no rider.
     st.status = 'finished'
     expect(await watches.typeLine(alpha, 'b1', '[Hive] Something else.', () => true, { rider: false })).toBe(true)
@@ -242,7 +259,7 @@ describe('messages left for agents (#530, #647)', async () => {
     st.status = 'finished'
     expect(await watches.typeLine(alpha, 'b1', '[Hive] #4 is in Review.', () => true)).toBe(true)
     expect(st.typed).toEqual(['[Hive] #4 is in Review.'])
-    expect((await states()).at(-1)).toBe("m2 refused: the Assistant's session that left it ended")
+    await vi.waitFor(async () => expect((await states()).at(-1)).toBe("m2 refused: the Assistant's session that left it ended"), { timeout: HUNG_MS })
     // Revoked while it is being typed at once: stopped before Enter, and refused.
     why = null
     st.status = 'ready'
@@ -263,6 +280,7 @@ describe('messages left for agents (#530, #647)', async () => {
       lineNotTaken: () => undefined,
       submitAgain: () => {
         cli.enters++
+        transcript.push(st.typed.at(-1)!)
         cli.count++
         return true
       },
@@ -311,6 +329,96 @@ describe('messages left for agents (#530, #647)', async () => {
       for (const k of ['promptsTaken', 'holdForConfirm', 'lineNotTaken', 'submitAgain', 'clearTyped']) delete (sessions as unknown as Record<string, unknown>)[k]
       Object.assign(sessions, { sendPrompt: before.sendPrompt, promptsTaken: () => null })
       await vi.waitFor(() => expect(watches.confirmsInFlight()).toBe(0), { timeout: HUNG_MS })
+    }
+  })
+
+  it('a transaction is saved before anyone sees it: a read waits for a create whose save fails, and gets nothing of it', async () => {
+    let release = (): void => undefined
+    const held = new Promise<void>((r) => (release = r))
+    let saves = 0
+    deliveries.setBeforeSaveForTests(async () => {
+      if (++saves === 1) {
+        await held
+        throw new Error('EACCES: permission denied')
+      }
+    })
+    try {
+      st.status = 'working'
+      const made = leave('Never saved, never seen.')
+      await vi.waitFor(() => expect(saves).toBe(1), { timeout: HUNG_MS })
+      const read = deliveries.readInbox(alpha, 'b1')
+      release()
+      await expect(made).rejects.toThrow(/couldn't save the deliveries/)
+      expect(await read).toEqual({ items: [], unacked: [] })
+      expect(await states()).toEqual([])
+    } finally {
+      release()
+      deliveries.setBeforeSaveForTests(null)
+    }
+  })
+
+  it('checked again at the effect: what changes while a save is held is what counts (sender gone, another conversation)', async () => {
+    let release = (): void => undefined
+    let holding = false
+    const hold = (): void => {
+      holding = false
+      const held = new Promise<void>((r) => (release = r))
+      let first = true
+      deliveries.setBeforeSaveForTests(async () => {
+        if (!first) return
+        first = false
+        holding = true
+        await held
+      })
+    }
+    try {
+      // The inbox: its sender's launch ends while the save of "received" is held: not given out, refused.
+      st.status = 'working'
+      await leave('Fetched while revoked.')
+      hold()
+      const read = deliveries.readInbox(alpha, 'b1')
+      await vi.waitFor(() => expect(holding).toBe(true), { timeout: HUNG_MS })
+      why = "the Assistant's session that left it ended"
+      release()
+      expect(await read).toEqual({ items: [], unacked: [] })
+      expect(await states()).toEqual(["m1 refused: the Assistant's session that left it ended"])
+      why = null
+      // An ack: the agent moves to another conversation while it is saved: expired, not acked.
+      await leave('Acked from the old conversation.')
+      hold()
+      const ack = deliveries.ackDeliveries(alpha, 'b1', ['m2'])
+      await vi.waitFor(() => expect(holding).toBe(true), { timeout: HUNG_MS })
+      st.sessionId = 's2'
+      release()
+      expect(await ack).toEqual({ acked: [], unknown: ['m2'] })
+      expect((await states()).at(-1)).toBe('m2 expired: its agent is in another conversation now')
+      // An offer: its sender's permission goes while "offered" is saved: nothing typed, refused.
+      await leave('Offered while revoked.')
+      hold()
+      st.status = 'ready'
+      const offering = tryAll()
+      await vi.waitFor(() => expect(holding).toBe(true), { timeout: HUNG_MS })
+      why = 'the user turned Settings → Assistant → Control down'
+      release()
+      await offering
+      expect(st.typed).toEqual([])
+      expect((await states()).at(-1)).toBe('m3 refused: the user turned Settings → Assistant → Control down')
+      why = null
+      // An offer: the agent moves to another conversation while "offered" is saved: nothing typed into it, expired.
+      st.status = 'working'
+      await leave('For this conversation only.')
+      hold()
+      st.status = 'ready'
+      const offering2 = tryAll()
+      await vi.waitFor(() => expect(holding).toBe(true), { timeout: HUNG_MS })
+      st.sessionId = 's3'
+      release()
+      await offering2
+      expect(st.typed).toEqual([])
+      expect((await states()).at(-1)).toBe('m4 expired: its agent is in another conversation now')
+    } finally {
+      release()
+      deliveries.setBeforeSaveForTests(null)
     }
   })
 

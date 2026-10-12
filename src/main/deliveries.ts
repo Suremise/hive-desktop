@@ -1,6 +1,6 @@
 import { join } from 'path'
 import { mkdir, rename, rm, writeFile } from 'original-fs/promises'
-import { randomBytes } from 'crypto'
+import { createHash, randomBytes } from 'crypto'
 import { app } from 'electron'
 import { ASSISTANT_AGENT_ID } from '../shared/assistant'
 import { HIVE_DIR } from '../shared/defaults'
@@ -13,9 +13,9 @@ import {
   isLive,
   isUnread,
   isWaiting,
-  lineIds,
   moved,
   offerLine,
+  promptKey,
   readDelivery,
   type DeliveryKind,
   type DeliveryRecord,
@@ -39,17 +39,24 @@ import { inWorkspace, workspaceOf } from './workspace'
  * Assistant's home's) with atomic writes, and restored when Hive starts: one offered when Hive stopped is uncertain then,
  * and one whose sender may no longer send it is refused, and shown. This service alone offers them: today by typing the
  * line a message always was (watches.typeLine, or first in a wake's line), until Messaging 4 switches the channel. The
- * agent receives them when its CLI takes that line, or by fetching them with hive_inbox, and acks them with hive_inbox
- * once it has acted on them; one not acked OVERDUE_MINUTES after it was made is overdue.
+ * agent receives them when its CLI takes that very line, or by fetching them with hive_inbox, and acks them with
+ * hive_inbox once it has acted on them; one not acked OVERDUE_MINUTES after it was made is overdue.
  *
- * A sender's permission is worked out again at every step, from the sender saved with it and the settings now (never a
- * closure or token): the Assistant's needs Settings → Assistant → Control at Control agents and the launch that sent it
- * still running (#645: a launch that has ended sends nothing more; its waiting messages are refused, and the refusal is in
- * the Assistant's activity list and the agent's). One is for its agent's conversation when that was known: another
- * conversation doesn't get it (expired). An agent's waiting deliveries survive its stops and Hive's restarts.
+ * **Transactions.** Each host's records change one transaction at a time (`transact`, under the host's lock): planned on
+ * a copy of what is published, saved, and only then published, so nothing (a read, a wake's rider, the pane) ever sees a
+ * change that isn't on disk, and a save that fails changes nothing (NotSaved). What a transaction hands out or acts on is
+ * checked again once its save is done (`verify`): changed meanwhile (its sender's permission gone, past its expiry, its
+ * agent in another conversation or launch), it is planned again from what is published, so the outcome recorded is the
+ * one that is true when it takes effect. The offer's writer checks the same before each piece and Enter.
  *
- * In memory each host's records are the truth, changed synchronously (so a wake's line can take them at once); every
- * change is saved after the ones before it, and what must be on disk first (offered, before typing) is awaited.
+ * **Authority.** A sender's permission is worked out again at every step, from the sender saved with it and the settings
+ * now (never a closure or token): the Assistant's needs Settings → Assistant → Control at Control agents and the launch
+ * that sent it still running (#645: a launch that has ended sends nothing more; its waiting messages are refused, and the
+ * refusal is in the Assistant's activity list and the agent's). One is for its agent's conversation when that was known.
+ *
+ * **Receipts.** An offer saves the hash of the exact line it types, how long the conversation's transcript was then, and
+ * the launch: received by line only when a prompt after that point in the CLI's own transcript is that whole line (never
+ * an id quoted in some text, nor another prompt that came after a dropped Enter); where it was is kept (receivedIn).
  */
 
 const log = createLogger('deliveries')
@@ -65,11 +72,13 @@ export const MAX_LIVE_PER_HOST = 500
 const MAX_FILE_BYTES = 8 * 1024 * 1024
 let fileBudget = 4 * 1024 * 1024
 /** Room kept for each live delivery to grow to its end (its times, receipt, a reason it ended). */
-const GROWTH_PER_LIVE = 700
+const GROWTH_PER_LIVE = 800
 /** For tests: a smaller budget for the file. */
 export const setFileBudgetForTests = (bytes: number): void => {
   fileBudget = bytes
 }
+/** A transaction whose checks keep failing after its save is planned again at most this many times. */
+const MAX_PLANS = 3
 
 /** How long until a delivery is overdue: OVERDUE_MINUTES, or an unpackaged test build's (HIVE_TEST_DELIVERY_OVERDUE_MS). */
 export const overdueMs = (): number => {
@@ -79,14 +88,25 @@ export const overdueMs = (): number => {
 
 interface Store {
   host: string
+  /** What is published: saved, and what every read sees. Never changed in place: a transaction replaces it. */
+  records: readonly DeliveryRecord[]
+  next: number
+  /** Saved entries that aren't deliveries (a hand edit, a newer build's): kept aside in the file as they were, not used. */
+  invalid: readonly unknown[]
+  /** Transactions, one after another. */
+  lock: Promise<unknown>
+  /** The ids a line being typed now offers: cancelled meanwhile, its typing stops. */
+  offering: Set<string>
+}
+
+/** A transaction's working copy: planned on, saved, then published. */
+interface Draft {
   records: DeliveryRecord[]
   next: number
-  /** Saves, one after another. */
-  queue: Promise<void>
-  /** The ids being offered by a line being typed now: cancelled meanwhile, its typing stops. */
-  offering: Set<string>
-  /** Saved entries that aren't deliveries (a hand edit, a newer build's): kept aside in the file as they were, not used. */
   invalid: unknown[]
+  dirty: boolean
+  /** What to do once it is published (log lines, the Assistant's activity list): nothing for a plan that isn't. */
+  after: (() => void)[]
 }
 
 const stores = new Map<string, Store>()
@@ -95,7 +115,67 @@ const keyOf = (host: string): string => host.toLowerCase()
 const fileOf = (host: string): string => join(host, HIVE_DIR, 'deliveries.json')
 const nowIso = (): string => new Date().toISOString()
 
-/** A host's deliveries, loaded once (and restored: see the top). */
+/** Hive couldn't save a change, so it wasn't made. */
+export class NotSaved extends Error {}
+/** A delivery refused because too many of its kind wait already for its agent (NewDelivery.maxWaiting). */
+export class TooManyWaiting extends Error {}
+/** A delivery refused because its project's deliveries are full (MAX_LIVE_PER_HOST, or the file's budget). */
+export class DeliveriesFull extends Error {}
+
+/** Runs fn after the host's transactions before it (and before later ones). */
+function locked<T>(store: Store, fn: () => Promise<T>): Promise<T> {
+  const run = store.lock.then(fn)
+  store.lock = run.catch(() => undefined)
+  return run
+}
+
+/**
+ * A transaction (see the top): `plan` changes a copy of what is published (synchronously); a copy it changed is saved and
+ * then published. `verify`, asked once the save is done, says whether what was planned still holds; if not, it is planned
+ * again from what is published (which nothing else changed meanwhile: the host's lock is held) and saved again, up to
+ * MAX_PLANS times. A plan that throws changes nothing; a save that fails throws NotSaved and publishes nothing.
+ */
+function transact<T>(store: Store, plan: (d: Draft) => T, verify?: (d: Draft, planned: T) => boolean): Promise<T> {
+  return locked(store, async () => {
+    let saved = false
+    for (let n = 1; ; n++) {
+      const d: Draft = { records: [...store.records], next: store.next, invalid: [...store.invalid], dirty: false, after: [] }
+      let planned: T
+      try {
+        planned = plan(d)
+      } catch (e) {
+        // Planned again after a save and refused now: what is on disk goes back to what is published.
+        if (saved) await write(store, { records: [...store.records], next: store.next, invalid: [...store.invalid], dirty: true, after: [] }).catch((err) => log.warn('restoring deliveries', err))
+        throw e
+      }
+      if (d.dirty) {
+        try {
+          await write(store, d)
+          saved = true
+        } catch (e) {
+          throw new NotSaved(`Hive couldn't save the deliveries (${(e as Error).message}): nothing changed.`, { cause: e })
+        }
+      }
+      if (verify && n < MAX_PLANS && !verify(d, planned)) continue
+      if (d.dirty) {
+        store.records = d.records
+        store.next = d.next
+        store.invalid = d.invalid
+        for (const f of d.after) f()
+      }
+      return planned
+    }
+  })
+}
+
+/** A transaction nothing waits for (one that follows what happened); a failure is logged. */
+function transactSoon(store: Store, what: string, plan: (d: Draft) => unknown): void {
+  transact(store, plan)
+    .then(() => showAll(store))
+    .catch((e) => log.warn(what, e))
+}
+
+/** A host's deliveries, loaded once and restored (offered when Hive stopped → uncertain; each checked again). */
 export function load(host: string): Promise<Store> {
   const k = keyOf(host)
   const had = stores.get(k)
@@ -104,15 +184,16 @@ export function load(host: string): Promise<Store> {
   if (going) return going
   const p = (async () => {
     const read = await readFileOf(host)
-    const store: Store = { host, records: read.records, next: read.next, queue: Promise.resolve(), offering: new Set(), invalid: read.invalid }
+    if (stores.has(k)) return stores.get(k)!
+    const store: Store = { host, records: read.records, next: read.next, invalid: read.invalid, lock: Promise.resolve(), offering: new Set() }
+    // Restored before anything else sees it (a second load waits for this one).
+    await transact(store, (d) => {
+      for (const r of [...d.records]) if (r.state === 'offered') set(d, r, 'uncertain', 'Hive stopped before it knew whether this reached the agent')
+      recheck(store, d)
+    }).catch((e) => log.warn('restoring deliveries', e))
     if (stores.has(k)) return stores.get(k)!
     stores.set(k, store)
-    // Offered when Hive stopped: whether it arrived isn't known.
-    let changed = false
-    for (const r of store.records) if (r.state === 'offered') changed = set(store, r, 'uncertain', 'Hive stopped before it knew whether this reached the agent') || changed
-    changed = recheck(store) || changed
-    if (changed) saveSoon(store)
-    for (const id of new Set(store.records.map((r) => r.agentId))) show(store, id)
+    showAll(store)
     return store
   })().finally(() => {
     if (loading.get(k) === p) loading.delete(k)
@@ -130,7 +211,7 @@ async function readFileOf(host: string): Promise<{ records: DeliveryRecord[]; ne
     if ((e as NodeJS.ErrnoException).code === 'ENOENT') return { records: [], next: 1, invalid: [] }
     throw new Error(`Could not read the deliveries (${(e as Error).message})`, { cause: e })
   }
-  let data: { next?: unknown; deliveries?: unknown } | null = null
+  let data: { next?: unknown; deliveries?: unknown; invalid?: unknown } | null = null
   try {
     if (!got.more) data = JSON.parse(got.data.toString('utf8'))
   } catch {
@@ -145,7 +226,7 @@ async function readFileOf(host: string): Promise<{ records: DeliveryRecord[]; ne
   }
   const raw = Array.isArray(data.deliveries) ? data.deliveries : []
   const records: DeliveryRecord[] = []
-  const invalid: unknown[] = Array.isArray((data as { invalid?: unknown }).invalid) ? [...((data as { invalid: unknown[] }).invalid)] : []
+  const invalid: unknown[] = Array.isArray(data.invalid) ? [...data.invalid] : []
   for (const v of raw) {
     const r = readDelivery(v)
     if (r && !records.some((x) => x.id === r.id)) records.push(r)
@@ -157,64 +238,22 @@ async function readFileOf(host: string): Promise<{ records: DeliveryRecord[]; ne
   return { records, next, invalid }
 }
 
-/**
- * Saves a host's deliveries after the saves before it (its records as they are when it runs). Rejects when this save
- * failed: what needs it on disk first (a delivery made, offered before typing, received from the inbox, acked) waits for
- * it and fails with it (durably); the next save is tried all the same.
- */
-function commit(store: Store): Promise<void> {
-  const run = store.queue.then(() => save(store))
-  store.queue = run.catch(() => undefined)
-  return run
-}
-
-/** Saves after a change nothing waits for (one that only follows what happened: received by a line, refused, put back). */
-function saveSoon(store: Store): void {
-  commit(store).catch((e) => log.warn('saving deliveries', e))
-}
-
-/** Hive couldn't save a change, so it wasn't made. */
-export class NotSaved extends Error {}
+/** The file's text for a draft. */
+const fileText = (d: Pick<Draft, 'records' | 'next' | 'invalid'>): string => JSON.stringify({ version: 1, next: d.next, deliveries: d.records, ...(d.invalid.length ? { invalid: d.invalid } : {}) }, null, 2) + '\n'
 
 /**
- * Makes a change (synchronously, in memory) and waits until it is saved. Not saved: each record it changed is put back
- * as it was (unless changed again since), and this fails, so nothing claims what isn't on disk.
+ * Whether a draft fits the file's budget, with room for each live delivery to grow to its end (times, a reason): what
+ * Hive writes stays well under what it reads back (MAX_FILE_BYTES), so a file it wrote is never set aside as too big.
  */
-async function durably<T>(store: Store, change: () => T): Promise<T> {
-  const before = new Map(store.records.map((r) => [r.id, r]))
-  const result = change()
-  const mine = store.records.filter((r) => before.get(r.id) !== r)
-  try {
-    await commit(store)
-  } catch (e) {
-    for (const r of mine) {
-      const i = store.records.indexOf(r)
-      if (i < 0) continue
-      const was = before.get(r.id)
-      if (was) store.records[i] = was
-      else store.records.splice(i, 1)
-    }
-    for (const a of new Set(mine.map((r) => r.agentId))) show(store, a)
-    throw new NotSaved(`Hive couldn't save the deliveries (${(e as Error).message}): nothing changed.`, { cause: e })
-  }
-  return result
-}
-
-/** The file's text for a host's deliveries. */
-const fileText = (store: Store): string => JSON.stringify({ version: 1, next: store.next, deliveries: store.records, ...(store.invalid.length ? { invalid: store.invalid } : {}) }, null, 2) + '\n'
-
-/**
- * Whether a host's deliveries fit the file's budget, with room for each live one to grow to its end (times, a reason):
- * what Hive writes stays well under what it reads back (MAX_FILE_BYTES), so a file it wrote is never set aside as too big.
- */
-const fits = (store: Store): boolean => Buffer.byteLength(fileText(store)) + store.records.filter(isLive).length * GROWTH_PER_LIVE <= fileBudget
+const fits = (d: Draft): boolean => Buffer.byteLength(fileText(d)) + d.records.filter(isLive).length * GROWTH_PER_LIVE <= fileBudget
 
 /** Makes room in the budget by dropping the oldest ended deliveries (their history), if need be. False if it still doesn't fit. */
-function makeRoom(store: Store): boolean {
-  while (!fits(store)) {
-    const oldest = store.records.filter((r) => !isLive(r)).sort((a, b) => a.seq - b.seq)[0]
+function makeRoom(d: Draft): boolean {
+  while (!fits(d)) {
+    const oldest = d.records.filter((r) => !isLive(r)).sort((a, b) => a.seq - b.seq)[0]
     if (!oldest) return false
-    store.records = store.records.filter((r) => r !== oldest)
+    d.records = d.records.filter((r) => r !== oldest)
+    d.dirty = true
   }
   return true
 }
@@ -225,19 +264,20 @@ export const setBeforeSaveForTests = (fn: (() => Promise<void> | void) | null): 
   beforeSave = fn
 }
 
-async function save(store: Store): Promise<void> {
+/** Writes a draft to the host's file (atomic: a temp file, then a rename). */
+async function write(store: Store, d: Draft): Promise<void> {
   await beforeSave?.()
-  prune(store)
+  prune(d)
   const file = fileOf(store.host)
   await mkdir(join(store.host, HIVE_DIR), { recursive: true })
   // Entries kept aside that would push it over: moved to a file of their own (never lost), not kept in this one.
-  if (!makeRoom(store) && store.invalid.length) {
+  if (!makeRoom(d) && d.invalid.length) {
     const aside = `${file}.kept-aside-${Date.now()}-${randomBytes(3).toString('hex')}`
-    await writeFile(aside, JSON.stringify({ version: 1, invalid: store.invalid }, null, 2) + '\n', { encoding: 'utf8', flag: 'wx' })
-    log.warn(`Saved deliveries that aren't valid moved to ${userText(aside)}, to keep the file small enough`)
-    store.invalid = []
+    await writeFile(aside, JSON.stringify({ version: 1, invalid: d.invalid }, null, 2) + '\n', { encoding: 'utf8', flag: 'wx' })
+    d.after.push(() => log.warn(`Saved deliveries that aren't valid moved to ${userText(aside)}, to keep the file small enough`))
+    d.invalid = []
   }
-  const text = fileText(store)
+  const text = fileText(d)
   if (Buffer.byteLength(text) > MAX_FILE_BYTES) throw new Error('too many deliveries to keep in this project')
   const tmp = `${file}.${process.pid}-${randomBytes(4).toString('hex')}.tmp`
   try {
@@ -250,11 +290,11 @@ async function save(store: Store): Promise<void> {
 }
 
 /** Ended deliveries beyond what is kept (per agent, by age) go; received ones never acked expire after a week. */
-function prune(store: Store): void {
+function prune(d: Draft): void {
   const now = Date.now()
-  for (const r of store.records) if (r.state === 'received' && now - Date.parse(r.received ?? r.created) > KEEP_RECEIVED_MS) set(store, r, 'expired', 'received, never acked')
+  for (const r of [...d.records]) if (r.state === 'received' && now - Date.parse(r.received ?? r.created) > KEEP_RECEIVED_MS) set(d, r, 'expired', 'received, never acked')
   const ended = new Map<string, DeliveryRecord[]>()
-  for (const r of store.records) if (!isLive(r)) ended.set(r.agentId, [...(ended.get(r.agentId) ?? []), r])
+  for (const r of d.records) if (!isLive(r)) ended.set(r.agentId, [...(ended.get(r.agentId) ?? []), r])
   const drop = new Set<DeliveryRecord>()
   for (const list of ended.values()) {
     list.sort((a, b) => b.seq - a.seq)
@@ -262,27 +302,33 @@ function prune(store: Store): void {
       if (i >= KEEP_ENDED || now - Date.parse(r.ended ?? r.acked ?? r.created) > KEEP_ENDED_MS) drop.add(r)
     })
   }
-  if (drop.size) store.records = store.records.filter((r) => !drop.has(r))
+  if (drop.size) d.records = d.records.filter((r) => !drop.has(r))
 }
 
-/** Moves a delivery (in the store, in memory); false when that move isn't allowed. Saving is the caller's (commit). */
-function set(store: Store, r: DeliveryRecord, to: DeliveryState, detail?: string, via?: 'line' | 'inbox'): boolean {
-  const i = store.records.indexOf(r)
-  if (i < 0) return false
+/** Replaces a record in a draft. */
+function put(d: Draft, from: DeliveryRecord, to: DeliveryRecord): void {
+  const i = d.records.indexOf(from)
+  if (i < 0) return
+  d.records[i] = to
+  d.dirty = true
+}
+
+/** Moves a delivery in a draft (with `extra` fields); false when that move isn't allowed. */
+function set(d: Draft, r: DeliveryRecord, to: DeliveryState, detail?: string, via?: 'line' | 'inbox', extra: Partial<DeliveryRecord> = {}): boolean {
+  if (!d.records.includes(r)) return false
   const next = moved(r, to, nowIso(), detail)
   if (!next) return false
-  if (to === 'received' && via) next.receivedVia = via
-  if (to === 'acked' && !r.received && via) next.receivedVia = via
-  store.records[i] = next
+  if (via && (to === 'received' || (to === 'acked' && !r.received))) next.receivedVia = via
+  put(d, r, { ...next, ...extra })
   if (to === 'refused' && r.from.kind === 'assistant') {
-    assistant.record(r.from.workspace, `A message for ${r.agentName ?? r.agentId} (${r.id}) was refused`, detail ?? 'its sender may no longer send it')
+    const ws = r.from.workspace
+    d.after.push(() => assistant.record(ws, `A message for ${r.agentName ?? r.agentId} (${r.id}) was refused`, detail ?? 'its sender may no longer send it'))
   }
-  if (to === 'refused' || to === 'expired' || to === 'cancelled' || to === 'uncertain') log.info(`Delivery ${r.id} for ${userText(r.agentName ?? r.agentId)} ${to}${detail ? `: ${userText(detail)}` : ''}`)
+  if (to === 'refused' || to === 'expired' || to === 'cancelled' || to === 'uncertain') d.after.push(() => log.info(`Delivery ${r.id} for ${userText(r.agentName ?? r.agentId)} ${to}${detail ? `: ${userText(detail)}` : ''}`))
   return true
 }
 
-/** Finds a record by id now (records are replaced as they move). */
-const byId = (store: Store, id: string): DeliveryRecord | undefined => store.records.find((r) => r.id === id)
+const byId = (records: readonly DeliveryRecord[], id: string): DeliveryRecord | undefined => records.find((r) => r.id === id)
 
 /** Why this sender may no longer send what it left (null: it may). Asked at every step: before it is offered, before each piece and Enter. */
 let senderRefusal = (from: DeliverySender): string | null => {
@@ -296,29 +342,31 @@ export const setSenderCheckForTests = (fn: (from: DeliverySender) => string | nu
   senderRefusal = fn
 }
 
-/**
- * Ends what may no longer be delivered: past its expiry, its sender no longer allowed, its agent in another conversation
- * (running now with a known one). Only those not received yet. True when one changed.
- */
-function recheck(store: Store, agentId?: string): boolean {
-  const now = Date.now()
-  let changed = false
-  for (const r of [...store.records]) {
+/** Why a delivery not received yet may no longer be given to its agent (null: it may), and what it becomes then. */
+function whyNot(store: Store, r: DeliveryRecord): { to: 'refused' | 'expired'; why: string } | null {
+  const why = senderRefusal(r.from)
+  if (why) return { to: 'refused', why }
+  if (Date.parse(r.expires) <= Date.now()) return { to: 'expired', why: 'not received in time' }
+  const live = sessions.liveFor(store.host, r.agentId)
+  if (r.conversation && live?.sessionId && live.sessionId !== r.conversation) return { to: 'expired', why: 'its agent is in another conversation now' }
+  return null
+}
+
+/** Ends, in a draft, what may no longer be given to its agent (only what isn't received yet). */
+function recheck(store: Store, d: Draft, agentId?: string): void {
+  for (const r of [...d.records]) {
     if (!isUnread(r) || (agentId && r.agentId !== agentId)) continue
-    const why = senderRefusal(r.from)
-    if (why) changed = set(store, r, 'refused', why) || changed
-    else if (Date.parse(r.expires) <= now) changed = set(store, r, 'expired', 'not received in time') || changed
-    else {
-      const live = sessions.liveFor(store.host, r.agentId)
-      if (r.conversation && live?.sessionId && live.sessionId !== r.conversation) changed = set(store, r, 'expired', 'its agent is in another conversation now') || changed
-    }
+    const no = whyNot(store, r)
+    if (no) set(d, r, no.to, no.why)
   }
-  return changed
 }
 
 /** Shows an agent's unread and overdue deliveries in its pane (only while it runs). */
 function show(store: Store, agentId: string): void {
   sessions.setInbox(store.host, agentId, inboxSummary(store.records.filter((r) => r.agentId === agentId), Date.now(), overdueMs()))
+}
+function showAll(store: Store): void {
+  for (const id of new Set(store.records.map((r) => r.agentId))) show(store, id)
 }
 
 export interface NewDelivery {
@@ -335,50 +383,45 @@ export interface NewDelivery {
   maxWaiting?: number
 }
 
-/** A delivery refused because too many of its kind wait already (NewDelivery.maxWaiting). */
-export class TooManyWaiting extends Error {}
-
 /** How many of an agent's deliveries of a kind wait to be offered. */
 export const waitingCount = (host: string, agentId: string, kind: DeliveryKind): number => stores.get(keyOf(host))?.records.filter((r) => r.agentId === agentId && r.kind === kind && isWaiting(r)).length ?? 0
 
 /** Makes a delivery for an agent of a host, saved before this returns. Refused (an Error) when its sender may not send it. */
-export async function createDelivery(host: string, d: NewDelivery): Promise<DeliveryRecord> {
+export async function createDelivery(host: string, nd: NewDelivery): Promise<DeliveryRecord> {
   const store = await load(host)
-  const why = senderRefusal(d.from)
-  if (why) throw new Error(`Not sent: ${why}.`)
-  if (d.maxWaiting !== undefined && waitingCount(host, d.agentId, d.kind) >= d.maxWaiting) throw new TooManyWaiting(`${d.maxWaiting} already wait`)
-  if (store.records.filter(isLive).length >= MAX_LIVE_PER_HOST) throw new Error(`This project already has ${MAX_LIVE_PER_HOST} deliveries waiting or not acked, the most Hive keeps.`)
-  const seq = store.next++
-  const created = nowIso()
-  const r: DeliveryRecord = {
-    id: `m${seq}`,
-    seq,
-    agentId: d.agentId,
-    ...(d.agentName ? { agentName: d.agentName } : {}),
-    conversation: d.conversation || null,
-    kind: d.kind,
-    from: d.from,
-    ...(d.card ? { card: d.card } : {}),
-    body: d.body,
-    state: 'queued',
-    created,
-    expires: new Date(Date.now() + (d.expiresMs ?? DELIVERY_EXPIRY_HOURS * 60 * 60_000)).toISOString()
-  }
-  await durably(store, () => {
-    store.records.push(r)
-    // Within the file's budget (ended ones' history makes room first), or not made at all.
-    if (!makeRoom(store)) {
-      store.records = store.records.filter((x) => x !== r)
-      throw new TooManyWaiting(`This project's deliveries are full (what waits for its agents and isn't acked): wait until they are received and acked, or cancel some.`)
+  const r = await transact(store, (d) => {
+    const why = senderRefusal(nd.from)
+    if (why) throw new Error(`Not sent: ${why}.`)
+    if (nd.maxWaiting !== undefined && d.records.filter((x) => x.agentId === nd.agentId && x.kind === nd.kind && isWaiting(x)).length >= nd.maxWaiting) throw new TooManyWaiting(`${nd.maxWaiting} already wait`)
+    if (d.records.filter(isLive).length >= MAX_LIVE_PER_HOST) throw new DeliveriesFull(`This project already has ${MAX_LIVE_PER_HOST} deliveries waiting or not acked, the most Hive keeps.`)
+    const seq = d.next++
+    const rec: DeliveryRecord = {
+      id: `m${seq}`,
+      seq,
+      agentId: nd.agentId,
+      ...(nd.agentName ? { agentName: nd.agentName } : {}),
+      conversation: nd.conversation || null,
+      kind: nd.kind,
+      from: nd.from,
+      ...(nd.card ? { card: nd.card } : {}),
+      body: nd.body,
+      state: 'queued',
+      created: nowIso(),
+      expires: new Date(Date.now() + (nd.expiresMs ?? DELIVERY_EXPIRY_HOURS * 60 * 60_000)).toISOString()
     }
+    d.records.push(rec)
+    d.dirty = true
+    // Within the file's budget (ended ones' history makes room first), or not made at all.
+    if (!makeRoom(d)) throw new DeliveriesFull("This project's deliveries are full (what waits for its agents and isn't acked): wait until they are received and acked, or cancel some.")
+    d.after.push(() => log.info(`Delivery ${rec.id} (${rec.kind}) for ${userText(nd.agentName ?? nd.agentId)} queued`))
+    return rec
   })
-  show(store, d.agentId)
-  log.info(`Delivery ${r.id} (${r.kind}) for ${userText(d.agentName ?? d.agentId)} queued`)
+  show(store, nd.agentId)
   return r
 }
 
 /** A delivery as it is now (null when it is gone). */
-export const deliveryNow = (host: string, id: string): DeliveryRecord | null => (stores.get(keyOf(host)) ? (byId(stores.get(keyOf(host))!, id) ?? null) : null)
+export const deliveryNow = (host: string, id: string): DeliveryRecord | null => byId(stores.get(keyOf(host))?.records ?? [], id) ?? null
 
 /** An agent's deliveries, oldest first (loaded if need be). */
 export async function deliveriesOf(host: string, agentId: string): Promise<DeliveryRecord[]> {
@@ -401,11 +444,11 @@ export async function deliveryView(host: string, agentId: string, limit: number,
  */
 export async function cancelDeliveries(host: string, agentId: string, by: string, kinds?: readonly DeliveryKind[]): Promise<number> {
   const store = await load(host)
-  const n = await durably(store, () => {
+  const n = await transact(store, (d) => {
     let count = 0
-    for (const r of [...store.records]) {
+    for (const r of [...d.records]) {
       if (r.agentId !== agentId || (kinds && !kinds.includes(r.kind))) continue
-      if ((isWaiting(r) || (r.state === 'offered' && store.offering.has(r.id))) && set(store, r, 'cancelled', `cancelled by ${by}`)) count++
+      if ((isWaiting(r) || (r.state === 'offered' && store.offering.has(r.id))) && set(d, r, 'cancelled', `cancelled by ${by}`)) count++
     }
     return count
   })
@@ -415,197 +458,252 @@ export async function cancelDeliveries(host: string, agentId: string, by: string
 
 /**
  * hive_inbox for an agent: its deliveries not received yet (a card's events coalesced), now received; and those received
- * before and not acked.
+ * before and not acked. What may no longer be given out is refused or expired instead, checked as it is planned and again
+ * once it is saved, just before the bodies are given out.
  */
 export async function readInbox(host: string, agentId: string): Promise<{ items: InboxItem[]; unacked: string[] }> {
   const store = await load(host)
-  // What may no longer be delivered ends first, in the same step, so it is never given out.
-  const r = await durably(store, () => {
-    recheck(store, agentId)
-    const mine = store.records.filter((x) => x.agentId === agentId)
-    const unacked = mine.filter((x) => x.state === 'received').map((x) => x.id)
-    const items = inboxItems(mine)
-    for (const x of mine.filter(isUnread)) set(store, x, 'received', undefined, 'inbox')
-    return { items, unacked }
-  })
+  const r = await transact(
+    store,
+    (d) => {
+      recheck(store, d, agentId)
+      const mine = d.records.filter((x) => x.agentId === agentId)
+      const unread = mine.filter(isUnread)
+      const out = { items: inboxItems(mine), unacked: mine.filter((x) => x.state === 'received').map((x) => x.id), ids: unread.map((x) => x.id) }
+      for (const x of unread) set(d, x, 'received', undefined, 'inbox')
+      return out
+    },
+    (_d, p) => stillValidNow(store, p.ids)
+  )
   show(store, agentId)
-  return r
+  return { items: r.items, unacked: r.unacked }
 }
+
+/** Whether what was unread (and is published so) may still be given out now: the check after a transaction's save. */
+const stillValidNow = (store: Store, ids: readonly string[]): boolean => ids.every((id) => {
+  const r = byId(store.records, id)
+  return !r || !isUnread(r) || !whyNot(store, r)
+})
 
 /** hive_inbox ack: marks an agent's deliveries acked. Ids that aren't its own, or don't exist, are unknown (nothing said of them). */
 export async function ackDeliveries(host: string, agentId: string, ids: readonly string[]): Promise<{ acked: string[]; unknown: string[] }> {
   const store = await load(host)
-  const r = await durably(store, () => {
-    // One not received yet is checked as it would be before it is given out (its sender's permission, its expiry, the
-    // agent's conversation), in the same step: one that may no longer be delivered is refused or expired, not acked.
-    recheck(store, agentId)
-    const acked: string[] = []
-    const unknown: string[] = []
-    for (const id of [...new Set(ids)]) {
-      const x = byId(store, id)
-      if (!x || x.agentId !== agentId) unknown.push(id)
-      else if (x.state === 'acked') acked.push(id)
-      // Ended without being received (cancelled, refused, expired): not for it to act on.
-      else if (isLive(x) && set(store, x, 'acked', undefined, 'inbox')) acked.push(id)
-      else unknown.push(id)
-    }
-    return { acked, unknown }
-  })
+  const r = await transact(
+    store,
+    (d) => {
+      // One not received yet is checked as it would be before it is given out (its sender's permission, its expiry, the
+      // agent's conversation): one that may no longer be delivered is refused or expired, not acked.
+      recheck(store, d, agentId)
+      const acked: string[] = []
+      const unknown: string[] = []
+      const unread: string[] = []
+      for (const id of [...new Set(ids)]) {
+        const x = byId(d.records, id)
+        if (!x || x.agentId !== agentId) unknown.push(id)
+        else if (x.state === 'acked') acked.push(id)
+        // Ended without being received (cancelled, refused, expired): not for it to act on.
+        else if (isLive(x)) {
+          if (isUnread(x)) unread.push(id)
+          if (set(d, x, 'acked', undefined, 'inbox')) acked.push(id)
+          else unknown.push(id)
+        } else unknown.push(id)
+      }
+      return { acked, unknown, unread }
+    },
+    (_d, p) => stillValidNow(store, p.unread)
+  )
   show(store, agentId)
-  return r
+  return { acked: r.acked, unknown: r.unknown }
 }
 
-/** An agent's deliveries waiting to be offered, as they are now (oldest first), once those that can't be are ended. */
-function waitingFor(store: Store, agentId: string): DeliveryRecord[] {
-  if (recheck(store, agentId)) {
-    saveSoon(store)
-    show(store, agentId)
-  }
-  return store.records.filter((r) => r.agentId === agentId && isWaiting(r)).sort((a, b) => a.seq - b.seq)
-}
-
-/** Takes these (as they were when offered) back to waiting: the line they were in wasn't typed. */
-function unoffer(store: Store, ids: readonly string[], was: Map<string, DeliveryState>): void {
-  for (const id of ids) {
-    store.offering.delete(id)
-    const r = byId(store, id)
-    if (r?.state !== 'offered') continue
-    if (was.get(id) === 'uncertain') {
-      // Its first offer's outcome still isn't known: uncertain again, not queued.
-      const i = store.records.indexOf(r)
-      store.records[i] = { ...r, state: 'uncertain', offers: Math.max(0, (r.offers ?? 1) - 1) }
-    } else set(store, r, 'queued')
-  }
-}
-
-/** Marks these offered (in memory), remembering what each was. */
-function offer(store: Store, items: readonly DeliveryRecord[]): { ids: string[]; was: Map<string, DeliveryState> } {
-  const was = new Map(items.map((r) => [r.id, r.state]))
-  for (const r of items) {
-    set(store, r, 'offered')
-    store.offering.add(r.id)
-  }
-  return { ids: items.map((r) => r.id), was }
-}
-
-/** Whether all of these are still offered by this line (none cancelled meanwhile) and their senders may still send them. */
-const stillOffered = (store: Store, ids: readonly string[]): boolean => ids.every((id) => byId(store, id)?.state === 'offered' && store.offering.has(id))
-const allowedAll = (store: Store, ids: readonly string[]): boolean => ids.every((id) => {
-  const r = byId(store, id)
-  return !!r && !senderRefusal(r.from)
-})
-
-/** The line they were in was cleared before its CLI took it (#530): their sender may no longer send them, so refused. */
-function withdrawn(store: Store, ids: readonly string[]): void {
-  for (const id of ids) {
-    const r = byId(store, id)
-    if (r?.state === 'offered') set(store, r, 'refused', senderRefusal(r.from) ?? 'its sender may no longer send it')
-  }
-  saveSoon(store)
-  const agents = new Set(ids.map((id) => byId(store, id)?.agentId).filter(Boolean) as string[])
-  for (const a of agents) show(store, a)
-}
+/** The hash of a line as a CLI would keep it (promptKey): what a receipt by line is matched against. */
+const lineHash = (line: string): string => createHash('sha256').update(promptKey(line)).digest('hex').slice(0, 32)
 
 /**
- * The ids of the deliveries whose lines are in an agent's conversation as prompts its CLI took (its transcript's user
- * messages): the CLI's own record that the line reached it. A line names its ids ("(Its id: m4." / "(Their ids: m4, m5."),
- * which are never used again, so another prompt (the user's own, typed over a line Hive's Enter didn't send) is never
- * taken for one.
+ * The prompts an agent's CLI took, from its own transcript of the conversation (its user messages, each with its item's
+ * place), and how many items the transcript has. Not readable (none yet, the workspace closed): none.
  */
-let promptsOf = async (host: string, sessionId: string): Promise<string[]> => {
+let promptsOf = async (host: string, sessionId: string): Promise<{ total: number; prompts: { item: number; text: string }[] }> => {
   try {
     const t = await inWorkspace(workspaceOf(host), () => transcripts.read(host, sessionId))
-    return (t?.items ?? []).flatMap((x) => (x.kind === 'user' ? [x.text] : []))
+    if (!t) return { total: 0, prompts: [] }
+    return { total: t.total, prompts: t.items.flatMap((x, i) => (x.kind === 'user' ? [{ item: t.from + i, text: x.text }] : [])) }
   } catch {
-    // Not readable now (no transcript yet, the workspace closed): nothing found, so nothing is taken for received.
-    return []
+    return { total: 0, prompts: [] }
   }
 }
 /** For tests: how the prompts an agent's CLI took are read. */
-export const setPromptReaderForTests = (fn: (host: string, sessionId: string) => Promise<string[]>): void => {
+export const setPromptReaderForTests = (fn: (host: string, sessionId: string) => Promise<{ total: number; prompts: { item: number; text: string }[] }>): void => {
   promptsOf = fn
 }
 
-async function idsTaken(host: string, sessionId: string): Promise<Set<string>> {
-  const out = new Set<string>()
-  for (const text of await promptsOf(host, sessionId)) for (const id of lineIds(text)) out.add(id)
-  return out
+/**
+ * The prompt that is this offer's line, if the CLI took it: one after the transcript's length when it was typed, in the
+ * same conversation, whose whole text is the line. Null when there is none.
+ */
+function receiptOf(r: DeliveryRecord, sessionId: string, seen: { prompts: { item: number; text: string }[] }): { conversation: string; item: number } | null {
+  if (!r.offerHash || r.offerAt === undefined || (r.conversation && r.conversation !== sessionId)) return null
+  const p = seen.prompts.find((x) => x.item >= r.offerAt! && lineHash(x.text) === r.offerHash)
+  return p ? { conversation: sessionId, item: p.item } : null
 }
 
 /** How long Hive looks for a taken line in the agent's transcript (it is written as the CLI takes it). */
 const RECEIPT_WAIT_MS = 15_000
 
 /**
- * Its CLI took a prompt after the line was typed: received, once that prompt is found to be this line (its ids in the
- * conversation's transcript). One that isn't found stays offered: the agent's inbox fetch or ack says when it has it.
+ * Its CLI took a prompt after the line was typed (in the same launch): received, once the conversation's transcript shows
+ * that prompt is the line. One that isn't found stays offered: the agent's inbox fetch or ack says when it has it.
  */
-async function receivedByLine(store: Store, agentId: string, ids: readonly string[]): Promise<void> {
+async function receivedByLine(store: Store, agentId: string, ids: readonly string[], runId: string): Promise<void> {
   const sessionId = sessions.liveFor(store.host, agentId)?.sessionId
   if (!sessionId) return
   for (const end = Date.now() + RECEIPT_WAIT_MS; ; ) {
-    const taken = await idsTaken(store.host, sessionId)
-    let any = false
-    for (const id of ids) {
-      const r = byId(store, id)
-      if (r?.state === 'offered' && taken.has(id)) any = set(store, r, 'received', undefined, 'line') || any
-    }
-    if (any) {
-      saveSoon(store)
-      show(store, agentId)
-    }
-    if (ids.every((id) => byId(store, id)?.state !== 'offered') || Date.now() >= end) return
+    const seen = await promptsOf(store.host, sessionId)
+    await transact(store, (d) => {
+      for (const id of ids) {
+        const r = byId(d.records, id)
+        const at = r?.state === 'offered' && r.offerRun === runId ? receiptOf(r, sessionId, seen) : null
+        if (r && at) set(d, r, 'received', undefined, 'line', { receivedIn: at })
+      }
+    })
+    show(store, agentId)
+    if (ids.every((id) => byId(store.records, id)?.state !== 'offered') || Date.now() >= end) return
     await new Promise((r) => setTimeout(r, 500))
   }
 }
 
 /** Uncertain ones (Hive stopped while offering them) whose line the agent's CLI did take: received now, not offered again. */
-async function reconcile(store: Store, agentId: string): Promise<void> {
-  const sessionId = sessions.liveFor(store.host, agentId)?.sessionId
-  const unsure = store.records.filter((r) => r.agentId === agentId && r.state === 'uncertain' && (!r.conversation || r.conversation === sessionId))
-  if (!sessionId || !unsure.length) return
-  const taken = await idsTaken(store.host, sessionId)
-  let any = false
-  for (const id of unsure.map((r) => r.id)) {
-    const r = byId(store, id)
-    if (r?.state === 'uncertain' && taken.has(id)) any = set(store, r, 'received', undefined, 'line') || any
-  }
-  if (any) {
-    saveSoon(store)
-    show(store, agentId)
-  }
+async function reconcile(store: Store, agentId: string, sessionId: string): Promise<void> {
+  if (!sessionId || !store.records.some((r) => r.agentId === agentId && r.state === 'uncertain' && r.offerHash)) return
+  const seen = await promptsOf(store.host, sessionId)
+  await transact(store, (d) => {
+    for (const r of [...d.records]) {
+      const at = r.agentId === agentId && r.state === 'uncertain' ? receiptOf(r, sessionId, seen) : null
+      if (at) set(d, r, 'received', undefined, 'line', { receivedIn: at })
+    }
+  })
+}
+
+/** An offer: its deliveries (as they were before it, to put back), the line, the launch and conversation it is for. */
+interface Offer {
+  ids: string[]
+  was: Map<string, DeliveryRecord>
+  line: string
+  runId: string
+  sessionId: string
 }
 
 /**
- * What rides a wake typed into the agent (watches.onWakeRider), first in its line: its deliveries waiting, offered now
- * (saved as such before the line's Enter); taken back to waiting if the line isn't typed after all.
+ * Plans an offer of an agent's waiting deliveries (those that may still be given out) in a draft: offered, with the hash
+ * of the line that will be typed (`full(text)`: the text, or a wake's line it goes in front of) and the transcript's
+ * length now. Null when none waits.
  */
-function riderFor(projectPath: string, agentId: string): Rider | null {
+function planOffer(store: Store, d: Draft, agentId: string, target: { runId: string; sessionId: string; total: number }, lineFor: (items: DeliveryRecord[]) => { text: string; full: string }): (Offer & { text: string }) | null {
+  recheck(store, d, agentId)
+  const items = d.records.filter((r) => r.agentId === agentId && isWaiting(r)).sort((a, b) => a.seq - b.seq)
+  if (!items.length) return null
+  const { text, full } = lineFor(items)
+  const hash = lineHash(full)
+  const was = new Map(items.map((r) => [r.id, r]))
+  for (const r of items) set(d, r, 'offered', undefined, undefined, { offerHash: hash, offerAt: target.total, offerRun: target.runId })
+  return { ids: items.map((r) => r.id), was, line: full, text, runId: target.runId, sessionId: target.sessionId }
+}
+
+/** Whether an offer still holds: each still offered by it and allowed, and its agent in the same launch and conversation. */
+function offerHolds(store: Store, o: Offer, records: readonly DeliveryRecord[] = store.records): boolean {
+  const live = sessions.liveFor(store.host, o.ids.length ? byId(records, o.ids[0])!.agentId : '')
+  if (!live || live.runId !== o.runId || (o.sessionId && live.sessionId && live.sessionId !== o.sessionId)) return false
+  return o.ids.every((id) => {
+    const r = byId(records, id)
+    return r?.state === 'offered' && r.offerRun === o.runId && !senderRefusal(r.from) && Date.parse(r.expires) > Date.now() && !(r.conversation && live.sessionId && live.sessionId !== r.conversation)
+  })
+}
+
+/** Puts an offer's deliveries back as they were (the line wasn't typed), those it still has as offered. */
+function unoffer(store: Store, o: Offer): Promise<void> {
+  for (const id of o.ids) store.offering.delete(id)
+  return transact(store, (d) => {
+    for (const id of o.ids) {
+      const r = byId(d.records, id)
+      const was = o.was.get(id)
+      if (r?.state === 'offered' && r.offerRun === o.runId && r.offerHash && was) put(d, r, was)
+    }
+    // One that may no longer be given out is ended now, not at the next try.
+    recheck(store, d, byId(d.records, o.ids[0])?.agentId)
+  })
+    .then(() => showAll(store))
+    .catch((e) => log.warn('putting deliveries back', e))
+}
+
+/** The line they were in was cleared before its CLI took it (#530): their sender may no longer send them, so refused. */
+function withdrawn(store: Store, o: Offer): void {
+  transactSoon(store, 'refusing deliveries', (d) => {
+    for (const id of o.ids) {
+      const r = byId(d.records, id)
+      if (r?.state === 'offered' && r.offerRun === o.runId) set(d, r, 'refused', senderRefusal(r.from) ?? 'its sender may no longer send it')
+    }
+  })
+}
+
+/** Whether an offer's deliveries may still all be sent (the confirmation's check before Enter again). */
+const allowedAll = (store: Store, o: Offer): boolean => o.ids.every((id) => {
+  const r = byId(store.records, id)
+  return !!r && !senderRefusal(r.from)
+})
+
+/**
+ * What rides a wake typed into the agent (watches.onWakeRider), first in its line: its deliveries waiting that may still be
+ * given out. Their offer (offered, with the hash of the whole line, the wake's included) is saved by `ready`, which the
+ * writer waits for before the line's first key; taken back to waiting if the line isn't typed after all.
+ */
+function riderFor(projectPath: string, agentId: string, wakeLine: string): Rider | null {
   const store = stores.get(keyOf(projectPath))
-  if (!store || !sessions.liveFor(projectPath, agentId)) return null
-  const items = waitingFor(store, agentId)
+  const live = sessions.liveFor(projectPath, agentId)
+  if (!store || !live) return null
+  // One that may no longer be given out doesn't ride it, and is ended now (refused, expired), not at the next tick.
+  if (store.records.some((r) => r.agentId === agentId && isWaiting(r) && whyNot(store, r))) transactSoon(store, 'checking deliveries', (d) => recheck(store, d, agentId))
+  const items = store.records.filter((r) => r.agentId === agentId && isWaiting(r) && !whyNot(store, r)).sort((a, b) => a.seq - b.seq)
   if (!items.length) return null
   const text = offerLine(items, null)
-  const { ids, was } = offer(store, items)
-  // Saved as offered before the line's first key: the writer waits for this (and doesn't type if it fails).
-  const ready = commit(store)
+  let offer: Offer | null = null
+  const ready = (async () => {
+    const seen = await promptsOf(projectPath, live.sessionId)
+    offer = await transact(
+      store,
+      (d) => {
+        const o = planOffer(store, d, agentId, { runId: live.runId, sessionId: live.sessionId, total: seen.total }, (now) => {
+          // What waits changed since the rider was made (one cancelled, refused, added): not this line.
+          if (now.map((r) => r.id).join() !== items.map((r) => r.id).join()) throw new Error('The deliveries riding it changed.')
+          return { text, full: `${text} ${wakeLine}` }
+        })
+        if (!o) throw new Error('No deliveries ride it now.')
+        return o
+      },
+      (d, o) => offerHolds(store, o, d.records)
+    )
+    for (const id of offer.ids) store.offering.add(id)
+    show(store, agentId)
+  })()
   ready.catch(() => undefined)
-  show(store, agentId)
   return {
     text,
     ready,
-    still: () => stillOffered(store, ids),
+    still: () => !!offer && offerHolds(store, offer) && offer.ids.every((id) => store.offering.has(id)),
     taken: () => {
-      for (const id of ids) store.offering.delete(id)
-      log.info(`Deliveries ${ids.join(', ')} for ${userText(agentId)} offered with a wake`)
+      if (!offer) return
+      for (const id of offer.ids) store.offering.delete(id)
+      log.info(`Deliveries ${offer.ids.join(', ')} for ${userText(agentId)} offered with a wake`)
     },
     notTaken: () => {
-      unoffer(store, ids, was)
-      saveSoon(store)
-      show(store, agentId)
+      if (offer) void unoffer(store, offer)
     },
-    allowed: () => allowedAll(store, ids),
-    withdrawn: () => withdrawn(store, ids),
-    received: () => void receivedByLine(store, agentId, ids).catch((e) => log.warn('checking a delivery was received', e))
+    allowed: () => !!offer && allowedAll(store, offer),
+    withdrawn: () => {
+      if (offer) withdrawn(store, offer)
+    },
+    received: () => {
+      if (offer) void receivedByLine(store, agentId, offer.ids, offer.runId).catch((e) => log.warn('checking a delivery was received', e))
+    }
   }
 }
 
@@ -625,40 +723,49 @@ async function offerOnce(host: string, agentId: string): Promise<void> {
   const store = await load(host)
   const st = sessions.liveFor(host, agentId)
   if (!st) return
-  await reconcile(store, agentId)
-  const items = waitingFor(store, agentId)
-  if (!items.length || !canTypeLine(host, agentId)) return
-  const line = offerLine(items, st.status === 'watching' && st.watch ? st.watch.label : null)
-  // Saved as offered before the first key: if Hive stops before it knows the line arrived, it is uncertain, never
-  // "delivered" (and never typed twice without saying so). Not saved: nothing is typed.
-  let ids: string[] = []
-  let was = new Map<string, DeliveryState>()
+  await reconcile(store, agentId, st.sessionId)
+  if (!store.records.some((r) => r.agentId === agentId && isWaiting(r)) || !canTypeLine(host, agentId)) return
+  const seen = await promptsOf(host, st.sessionId)
+  const label = st.status === 'watching' && st.watch ? st.watch.label : null
+  // Saved as offered before the first key, then checked again: if Hive stops before it knows the line arrived, it is
+  // uncertain, never "delivered". Not saved, or no longer to be given out: nothing is typed.
+  let offer: Offer | null
   try {
-    ;({ ids, was } = await durably(store, () => offer(store, items)))
+    offer = await transact(
+      store,
+      (d) => {
+        const o = planOffer(store, d, agentId, { runId: st.runId, sessionId: st.sessionId, total: seen.total }, (items) => {
+          const line = offerLine(items, label)
+          return { text: line, full: line }
+        })
+        return o
+      },
+      (d, o) => !o || offerHolds(store, o, d.records)
+    )
   } catch (e) {
-    for (const r of items) store.offering.delete(r.id)
-    show(store, agentId)
     log.warn(`Deliveries for ${userText(agentId)} not offered: ${(e as Error).message}`)
+    show(store, agentId)
     return
   }
   show(store, agentId)
+  if (!offer || !offerHolds(store, offer)) {
+    if (offer) await unoffer(store, offer)
+    return
+  }
+  const o = offer
+  for (const id of o.ids) store.offering.add(id)
   let typed = false
   try {
-    typed = await typeLine(host, agentId, line, () => stillOffered(store, ids) && allowedAll(store, ids), {
+    typed = await typeLine(host, agentId, o.line, () => offerHolds(store, o) && o.ids.every((id) => store.offering.has(id)), {
       rider: false,
-      ride: { still: () => allowedAll(store, ids), withdrawn: () => withdrawn(store, ids), instead: null },
-      received: () => void receivedByLine(store, agentId, ids).catch((e) => log.warn('checking a delivery was received', e))
+      ride: { still: () => allowedAll(store, o), withdrawn: () => withdrawn(store, o), instead: null },
+      received: () => void receivedByLine(store, agentId, o.ids, o.runId).catch((e) => log.warn('checking a delivery was received', e))
     })
   } finally {
-    if (typed) {
-      for (const id of ids) store.offering.delete(id)
-      log.info(`Deliveries ${ids.join(', ')} for ${userText(agentId)} offered`)
-    } else {
-      // Not typed: back to waiting; one refused meanwhile is ended now, not at the next try.
-      unoffer(store, ids, was)
-      recheck(store, agentId)
-    }
-    saveSoon(store)
+    for (const id of o.ids) store.offering.delete(id)
+    // Not typed: put back (and ended, if it may no longer be given out) before this returns, so a reply says so.
+    if (typed) log.info(`Deliveries ${o.ids.join(', ')} for ${userText(agentId)} offered`)
+    else await unoffer(store, o)
     show(store, agentId)
   }
 }
@@ -667,7 +774,7 @@ async function offerOnce(host: string, agentId: string): Promise<void> {
 function tick(): void {
   for (const store of stores.values()) {
     // Also for agents not running: what has expired, or whose sender may no longer send it, ends now, not at their next start.
-    if (recheck(store)) saveSoon(store)
+    if (store.records.some((r) => isUnread(r) && whyNot(store, r))) transactSoon(store, 'checking deliveries', (d) => recheck(store, d))
     const agents = new Set(store.records.filter(isLive).map((r) => r.agentId))
     for (const a of agents) {
       show(store, a)
@@ -711,13 +818,13 @@ export async function offerAllForTests(): Promise<void> {
 }
 /** For tests: wires the wake rider in without the events. */
 export const useRiderForTests = (): void => onWakeRider(riderFor)
-/** For tests: forgets every host in memory, as a restart of Hive does (saves finish first); what is on disk stays. */
+/** For tests: transactions still running finish. */
+export async function settledForTests(): Promise<void> {
+  for (let i = 0; i < 5; i++) await Promise.all([...stores.values()].map((s) => s.lock))
+}
+/** For tests: forgets every host in memory, as a restart of Hive does (transactions finish first); what is on disk stays. */
 export async function forgetDeliveriesForTests(): Promise<void> {
-  await Promise.all([...stores.values()].map((s) => s.queue))
+  await settledForTests()
   stores.clear()
   trying.clear()
-}
-/** For tests: saves still running finish. */
-export const settledForTests = async (): Promise<void> => {
-  await Promise.all([...stores.values()].map((s) => s.queue))
 }

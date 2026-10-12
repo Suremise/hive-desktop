@@ -50,6 +50,16 @@ export interface DeliveryRecord {
   received?: string
   /** How it was received: its CLI took the line it was in, or the agent fetched it. */
   receivedVia?: 'line' | 'inbox'
+  /**
+   * The offer that is (or was last) in front of the agent: the hash of the exact line typed (promptKey, then sha256), how
+   * many items the conversation's transcript had before it was typed, and the launch it was typed into. A receipt by line
+   * is a prompt after that point whose whole text is that line, nothing less.
+   */
+  offerHash?: string
+  offerAt?: number
+  offerRun?: string
+  /** Where it was received by line: the conversation and the transcript item of the prompt that was its line. */
+  receivedIn?: { conversation: string; item: number }
   acked?: string
   /** When it was cancelled, refused or expired. */
   ended?: string
@@ -166,12 +176,16 @@ export function offerLine(records: readonly DeliveryRecord[], watchLabel: string
   return `[Hive] ${parts.join(' ')}${ack}${tail}`
 }
 
-/** The delivery ids an offered line names ("(Its id: m4." or "(Their ids: m4, m5."), as a prompt the CLI took shows them. */
-export function lineIds(text: string): string[] {
-  const out: string[] = []
-  for (const m of text.matchAll(/\((?:Its id|Their ids): (m\d+(?:, m\d+)*)\. Once you've acted on/g)) out.push(...m[1].split(', '))
-  return out
-}
+/**
+ * A prompt as Hive types it and as a CLI keeps it, for comparing the two: whitespace runs as one space, control
+ * characters gone (sessions.sendPrompt flattens a line and strips them from a paste), trimmed.
+ */
+export const promptKey = (text: string): string =>
+  text
+    .replace(/\s+/g, ' ')
+    .replace(/[\x00-\x1f\x7f-\x9f]/g, '')
+    .replace(/\s+/g, ' ')
+    .trim()
 
 /** hive_inbox's reply: what is new (now received), and what was received before and isn't acked yet. */
 export function inboxText(items: readonly InboxItem[], unacked: readonly string[]): string {
@@ -266,11 +280,20 @@ export function readDelivery(v: unknown): DeliveryRecord | null {
   if (r.receivedVia !== undefined && r.receivedVia !== 'line' && r.receivedVia !== 'inbox') return null
   if (r.detail !== undefined && !str(r.detail, 500)) return null
   if (r.agentName !== undefined && !str(r.agentName, 300)) return null
+  if (r.offerHash !== undefined && !(str(r.offerHash, 64) && /^[0-9a-f]+$/.test(r.offerHash))) return null
+  if (r.offerAt !== undefined && !(Number.isInteger(r.offerAt) && (r.offerAt as number) >= 0)) return null
+  if (r.offerRun !== undefined && !str(r.offerRun, 200)) return null
+  const at = r.receivedIn as { conversation?: unknown; item?: unknown } | undefined
+  if (at !== undefined && !(at && str(at.conversation, 200) && at.conversation && Number.isInteger(at.item) && (at.item as number) >= 0)) return null
   const out: DeliveryRecord = { id: r.id, seq: r.seq as number, agentId: r.agentId, conversation: (r.conversation as string | null) || null, kind: r.kind as DeliveryKind, from, body: r.body, state: r.state as DeliveryState, created: r.created, expires: r.expires }
   if (r.agentName) out.agentName = r.agentName as string
   if (r.card) out.card = r.card as number
   for (const k of ['offered', 'received', 'acked', 'ended', 'detail'] as const) if (r[k]) out[k] = r[k] as string
   if (r.offers) out.offers = r.offers as number
   if (r.receivedVia) out.receivedVia = r.receivedVia as 'line' | 'inbox'
+  if (r.offerHash) out.offerHash = r.offerHash as string
+  if (r.offerAt !== undefined) out.offerAt = r.offerAt as number
+  if (r.offerRun) out.offerRun = r.offerRun as string
+  if (at) out.receivedIn = { conversation: at.conversation as string, item: at.item as number }
   return out
 }
