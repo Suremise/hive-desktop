@@ -30,9 +30,12 @@
 //   (review: start, passed or failed; a column with the verdict), and "boardcomment N" comments on it. All are written to the transcript as the hive tool
 //   call they stand for (mcp__hive__hive_update_task), as Claude Code writes an MCP call. "hive TOOL {json}" calls a
 //   hive tool through the real hive MCP server of the launch's --mcp-config (fake-bridge.cjs: logged and measured by
-//   Hive's performance metrics as a real call is), written to the transcript as that MCP call and its reply. A line
-//   Hive types to wake it ("[Hive] #12 is in Review…", a card watch) is logged in fake-wakes.jsonl and answered with
-//   the next line of fake-wakes-<agent>.txt (a test's script of what this agent does next); with a number N in
+//   Hive's performance metrics as a real call is), written to the transcript as that MCP call and its reply. Hive's
+//   doorbell ("[Hive] New in your inbox: …", #650) it follows as a model does: it reads its inbox with hive_inbox (and
+//   acks it too when it follows notices, below). New work (a task, a handover) it read is its prompt; what else it read
+//   (a card watch's wake, "[Hive] #12 is in Review…", a message), like a line Hive types to wake it, is logged in
+//   fake-wakes.jsonl and answered with the next line of fake-wakes-<agent>.txt (a test's script of what this agent does
+//   next); with a number N in
 //   fake-drop-enters-<agent>.txt, it drops the next N Enters after such a line, which stays typed (#376). It turns on
 //   bracketed paste, as Claude Code does. While fake-slow-input-<agent>.txt is in its home it reads no input, as a busy
 //   Claude Code (#597; fake-slow-input-<agent>.paused says it has stopped): what arrived meanwhile comes in one read,
@@ -99,7 +102,7 @@ const fs = require('fs')
 const path = require('path')
 const { randomUUID } = require('crypto')
 const { spawn } = require('child_process')
-const { callHiveTool, parseHiveStep } = require('../fake-bridge.cjs')
+const { callHiveTool, parseHiveStep, isDoorbell, doorbellIsWork, inboxRows } = require('../fake-bridge.cjs')
 
 const args = process.argv.slice(2)
 if (args[0] === '--version') {
@@ -321,6 +324,20 @@ async function readInbox() {
   if (ids.length) await hiveCall('hive_inbox', { ack: ids })
 }
 
+/**
+ * Hive's doorbell (#650): it reads its inbox (hive_inbox, through the hive MCP server, a call in its transcript), as a
+ * model does; one that follows Hive's notices acks what it read too. What it read: its items' texts in one line, or null
+ * when it has no hive server to ask.
+ */
+async function followDoorbell() {
+  if (!opts['--mcp-config']) return null
+  const r = await hiveCall('hive_inbox', {})
+  if (r.isError) return null
+  const rows = inboxRows(r.text)
+  if (rows.length && followsNotices()) await hiveCall('hive_inbox', { ack: rows.flatMap((x) => x.ids) })
+  return rows.map((x) => x.text).join(' ')
+}
+
 /** A tool call of its own (a Bash), whose PostToolUse reply may carry a notice (#650: "checkpoint" as a step). */
 async function checkpoint() {
   const id = `toolu_${randomUUID().slice(0, 8)}`
@@ -350,10 +367,10 @@ function shell(cmd) {
   })
 }
 
-function wakeScript(text) {
-  if (!text.startsWith('[Hive]') || !home) return null
+function wakeScript(text, doorbell = null) {
+  if ((!doorbell && !text.startsWith('[Hive]')) || !home) return null
   const agent = String(process.env.HIVE_AGENT || 'agent').replace(/[^\w-]/g, '_')
-  fs.appendFileSync(path.join(home, 'fake-wakes.jsonl'), JSON.stringify({ agent, text, at: new Date().toISOString() }) + '\n')
+  fs.appendFileSync(path.join(home, 'fake-wakes.jsonl'), JSON.stringify({ agent, text, ...(doorbell ? { doorbell } : {}), at: new Date().toISOString() }) + '\n')
   const file = path.join(home, `fake-wakes-${agent}.txt`)
   if (!fs.existsSync(file)) return null
   const lines = fs.readFileSync(file, 'utf8').split('\n').filter((l) => l.trim())
@@ -399,8 +416,12 @@ async function runPrompt(text) {
     return
   }
   const prompt = systemPrompt()
-  // A line Hive typed to wake it (a card watch): logged, and answered with the next line of its wake script.
-  const woken = wakeScript(text)
+  // Hive's doorbell (#650): what it reads in its inbox is what it acts on. New work (a task, a handover) is its prompt;
+  // anything else (a card watch's wake, a message) is logged, and answered with the next line of its wake script, as a
+  // line Hive typed to wake it is.
+  const doorbell = isDoorbell(text) ? text : null
+  if (doorbell) text = (await followDoorbell()) ?? text
+  const woken = doorbell && doorbellIsWork(doorbell) ? null : wakeScript(text, doorbell)
   if (woken !== null) text = woken
   const edit = /\bedit\s+(\S+)/i.exec(text)
   if (edit) {

@@ -4,6 +4,7 @@ import { afterAll, describe, expect, it, vi } from 'vitest'
 import * as electron from 'electron'
 import { cardChange, loopWakeLine, readCondition, wakeAbout, type WatchCondition } from '../src/shared/watch'
 import { tempDir } from './tempDir'
+import { follow } from './doorbell'
 
 describe('loop wake lines (#405)', () => {
   const card = { number: 12, title: 'T', description: '', project: 'alpha', agent: 'b1', agentName: 'B1', column: 'review' as const, order: 1, labels: [], blocked: null, blockedBy: [], links: [], comments: [{ at: '2026-10-10T00:00:00.000Z', by: 'R1 (alpha)', text: 'Round 1: FAILED. 1. No delay.' }], history: [{ at: '2026-10-10T00:00:00.000Z', by: 'R1 (alpha)', what: 'Review failed' }], archived: false, createdAt: '2026-10-10T00:00:00.000Z', createdBy: 'You', updatedAt: '2026-10-10T00:00:00.000Z' }
@@ -43,19 +44,23 @@ describe('loop wakes (main/loopWakes.ts, #405)', async () => {
     await w.open(path)
     return { w, alpha }
   }
-  /** Stand-in sessions: every agent of alpha running, its status, and what Hive typed into each. */
+  /**
+   * Stand-in sessions: every agent of alpha running, its status, and what each was told: #650, it follows Hive's doorbell
+   * with hive_inbox, as a model does, and `text` is what it read.
+   */
   const fake = (alpha: string) => {
     const state = { status: new Map<string, string>([['b1', 'ready'], ['r1', 'ready'], ['o1', 'ready']]), typed: [] as { agent: string; text: string }[] }
     Object.assign(sessions, {
       liveFor: (p: string, id: string) => (p.toLowerCase() === alpha.toLowerCase() && state.status.has(id) ? ({ projectPath: alpha, agentId: id, status: state.status.get(id), runId: `run-${id}` } as never) : null),
       userMayBeTyping: () => false,
       lineWaiting: () => false,
-      // Each line typed is taken (#649: a wake is received then, and noted on its card).
+      // Each line typed is taken, and read (#650: a wake is received then, and noted on its card).
       promptsTaken: (p: string, id: string) => (p.toLowerCase() === alpha.toLowerCase() && state.status.has(id) ? { runId: `run-${id}`, count: state.typed.filter((t) => t.agent === id).length } : null),
       sendPrompt: async (_p: string, id: string, text: string, guard?: () => void) => {
         guard?.()
         state.typed.push({ agent: id, text })
         state.status.set(id, 'working')
+        state.typed[state.typed.length - 1].text = await follow(alpha, id, text)
       },
       watchChanged: () => undefined
     })

@@ -1,7 +1,7 @@
 import { isUnread, type DeliveryRecord } from '../shared/deliveries'
 import { inboxNotice, type NoticeItem } from '../shared/doorbell'
 import type { LiveSessionState } from '../shared/types'
-import { deliveriesOf } from './deliveries'
+import { agentReadsInbox, deliveriesOf } from './deliveries'
 import { sessions } from './sessions'
 
 /**
@@ -30,6 +30,8 @@ const item = (r: DeliveryRecord): NoticeItem => ({ id: r.id, kind: r.kind, ...(r
 
 /** The notice for a launch at a checkpoint or its turn's end; null when there is nothing (new) to tell. */
 export async function noticeFor(st: LiveSessionState, at: 'checkpoint' | 'drain'): Promise<string | null> {
+  // One that can't read an inbox (its hive tools off) is typed what it is given in full instead: nothing to tell it here.
+  if (!agentReadsInbox(st.projectPath, st.agentId)) return null
   const unread = await unreadFor(st)
   if (!unread.length) return null
   const seen = told.get(st) ?? new Set<string>()

@@ -45,7 +45,8 @@ import { writePty } from './ptyHost'
 import { sessions } from './sessions'
 import { cardStall } from './cardStall'
 import { cancelMessages, leaveMessage, MESSAGE_MAX_CHARS } from './agentMessages'
-import { ackDeliveries, deliverNow, deliveryView, launchWith, NotGiven, readInbox } from './deliveries'
+import { ackDeliveries, deliveriesOf, deliverNow, deliveryView, launchWith, NotGiven, readInbox } from './deliveries'
+import { isDoorbell } from '../shared/doorbell'
 import type { DeliverySender } from '../shared/deliveries'
 import * as tasks from './tasks'
 import * as taskBatch from './taskBatch'
@@ -1114,8 +1115,11 @@ async function agentActivity(p: string, agentId: string, detail = false) {
     const lastUser = items.map((x) => x.kind).lastIndexOf('user')
     const task = lastUser >= 0 ? items[lastUser] : null
     if (task?.kind === 'user') {
-      currentTask = clip(task.text, lim.task)
-      if (task.text.length > lim.task) clipped.currentTask = task.text.length
+      // Its last prompt Hive's doorbell (#650: ids only): the task it was last given is the newest one (or handover) delivered.
+      const given = isDoorbell(task.text) ? (await deliveriesOf(p, agentId)).findLast((r) => r.kind === 'task' || r.kind === 'handover')?.body : undefined
+      const text = given ?? task.text
+      currentTask = clip(text, lim.task)
+      if (text.length > lim.task) clipped.currentTask = text.length
     }
     const reply = [...items].reverse().find((x) => x.kind === 'assistant')
     if (reply?.kind === 'assistant') {

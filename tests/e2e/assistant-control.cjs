@@ -110,7 +110,7 @@ const check = (name, ok, extra = '') => {
   const waited = await api('POST', '/v1/agents/wait', { agents: [{ project: 'alpha', agent: 'Builder' }], timeoutSeconds: 30 })
   check('waiting returns when it finishes', waited.body?.timedOut === false && waited.body.agents[0].status === 'finished', JSON.stringify(waited.body))
   const act = (await api('GET', '/v1/projects/alpha/agents/Builder/activity')).body
-  check('its activity: the task and the reply', /^work 3 \(Its id: m\d+\. Once you've acted on it, ack it with hive_inbox\.\)$/.test(act?.currentTask ?? '') && act.latestReply === `Done: ${act.currentTask}`, JSON.stringify(act))
+  check('its activity: the task (#650: read from its inbox) and the reply', /^work 3$/.test(act?.currentTask ?? '') && act.latestReply === `Done: ${act.currentTask}`, JSON.stringify(act))
   const typed = await api('POST', '/v1/projects/alpha/agents/Builder/prompt', { text: 'next' })
   check("no task where the user typed in the last minute", typed.status === 409 && /typed/.test(typed.body?.error), JSON.stringify(typed.body))
   const typedFresh = await api('POST', '/v1/projects/alpha/agents/Builder/prompt', { text: 'next', newConversation: true })
@@ -129,7 +129,7 @@ const check = (name, ok, extra = '') => {
   check('it runs as a new launch with a new session', !!old?.sessionId && !!renewed && renewed.runId !== old.runId, JSON.stringify({ old: old?.sessionId, now: renewed?.sessionId }))
   await api('POST', '/v1/agents/wait', { agents: [{ project: 'alpha', agent: 'Builder' }], timeoutSeconds: 30 })
   const freshAct = (await api('GET', '/v1/projects/alpha/agents/Builder/activity')).body
-  check('on the task, with no handover', /^work 1 \(Its id: m\d+\. Once you've acted on it, ack it with hive_inbox\.\)$/.test(freshAct?.currentTask ?? '') && freshAct.latestReply === `Done: ${freshAct.currentTask}`, JSON.stringify(freshAct && { task: freshAct.currentTask, reply: freshAct.latestReply }))
+  check('on the task, with no handover', /^work 1$/.test(freshAct?.currentTask ?? '') && freshAct.latestReply === `Done: ${freshAct.currentTask}`, JSON.stringify(freshAct && { task: freshAct.currentTask, reply: freshAct.latestReply }))
   const history = (await inv('session:list', alpha)).map((s) => s.id)
   check('the old conversation stays in the Sessions history', history.includes(old?.sessionId) && history.includes(renewed?.sessionId), JSON.stringify(history))
   check('it is listed in Done by the Assistant', (await inv('assistant:actions')).some((x) => x.ok && x.text.startsWith('Gave Builder in alpha a task in a new conversation')))

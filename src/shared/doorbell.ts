@@ -31,6 +31,9 @@ const ORDER: readonly DeliveryKind[] = ['task', 'handover', 'answer', 'rebrief',
 /** Hive's notices begin with this, as its other lines do. */
 export const NOTICE_PREFIX = '[Hive] '
 
+/** Whether a prompt is the doorbell (typed into an idle agent): it names what waits by id. */
+export const isDoorbell = (text: string): boolean => text.startsWith(`${NOTICE_PREFIX}New in your inbox: `)
+
 /** "1 message and 2 card events (#12, #14)": counts by kind, in a fixed order, with the cards they are about. */
 export function noticeCounts(items: readonly NoticeItem[]): string {
   const parts: string[] = []

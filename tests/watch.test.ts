@@ -11,6 +11,7 @@ import { taskWaitText } from '../src/shared/toolReplies'
 import { hookStep } from '../src/main/hookStatus'
 import type { TaskCard } from '../src/shared/types'
 import { tempDir } from './tempDir'
+import { follow, toldOf } from './doorbell'
 
 // The longest a test waits for what it is waiting on: a bound for a hung run, never how long it should take.
 const HUNG_MS = 10000
@@ -370,11 +371,12 @@ describe('watches (main/watches.ts)', async () => {
     return { w, path, alpha }
   }
   /**
-   * Stand-in sessions: an agent's status, whether the user is typing, what Hive typed, and the prompts its CLI took
-   * (#649: a wake is received, and its watch ends, once its line is taken).
+   * Stand-in sessions: an agent's status, whether the user is typing, what Hive typed, the prompts its CLI took, and what
+   * it read (#650: it follows Hive's doorbell with hive_inbox, as a model does: a wake is received, and its watch ends,
+   * once it is read).
    */
   const fake = (alpha: string) => {
-    const state = { status: 'watching' as string, typing: false, typed: [] as string[], prompts: 0 }
+    const state = { status: 'watching' as string, typing: false, typed: [] as string[], told: [] as string[], prompts: 0 }
     Object.assign(sessions, {
       liveFor: (p: string, id: string) => (p.toLowerCase() === alpha.toLowerCase() && id === 'a1' ? ({ projectPath: alpha, agentId: 'a1', status: state.status, runId: 'run-1', sessionId: 's1' } as never) : null),
       promptsTaken: (p: string, id: string) => (p.toLowerCase() === alpha.toLowerCase() && id === 'a1' ? { runId: 'run-1', count: state.prompts } : null),
@@ -384,6 +386,7 @@ describe('watches (main/watches.ts)', async () => {
         state.typed.push(text)
         state.prompts++
         state.status = 'working'
+        state.told.push(await follow(alpha, 'a1', text))
       },
       watchChanged: () => undefined
     })
@@ -410,6 +413,7 @@ describe('watches (main/watches.ts)', async () => {
       submitAgain: () => {
         cli.enters++
         cli.count++
+        st.status = 'working'
         return true
       }
     })
@@ -437,13 +441,14 @@ describe('watches (main/watches.ts)', async () => {
       release()
       await evaluating
       await vi.waitFor(() => expect(st.typed).toHaveLength(1), { timeout: HUNG_MS })
-      expect(st.typed[0]).toMatch(/^\[Hive\] Message from Hive: hello \(Its id: m1\. .*\) \[Hive\] #\d+ /)
+      expect(st.typed[0]).toMatch(/^\[Hive\] New in your inbox: 1 message and 1 card event \(#\d+\) \(m1, m2\)\. /)
       // Counted from just before its Enter (the user's prompt already in), so its lost Enter is pressed again; taken
-      // then, both are received and the watch ends.
+      // then, the agent reads both (#650: received then, not when taken), the message first, and the watch ends.
       await vi.waitFor(() => expect(cli.enters).toBe(1), { timeout: HUNG_MS })
       await vi.waitFor(() => expect(writer.confirmsInFlight()).toBe(0), { timeout: HUNG_MS })
+      expect(toldOf((await deliveries.readInbox(alpha, 'a1')).items)).toMatch(/^hello \[Hive\] #\d+ /)
       await watches.settled()
-      expect((await deliveries.deliveriesOf(alpha, 'a1')).map((r) => `${r.id} ${r.state} ${r.receivedVia ?? ''}`)).toEqual(['m1 received typed', 'm2 received typed'])
+      expect((await deliveries.deliveriesOf(alpha, 'a1')).map((r) => `${r.id} ${r.state} ${r.receivedVia ?? ''}`)).toEqual(['m1 received inbox', 'm2 received inbox'])
       expect(watches.watchFor(alpha, 'a1')).toBeNull()
     } finally {
       release()
@@ -472,13 +477,18 @@ describe('watches (main/watches.ts)', async () => {
       sendPrompt: async (_p: string, _id: string, text: string, guard?: () => void) => {
         guard?.()
         st.typed.push(text)
-        if (cli.takeOnType) cli.count++
-        else st.status = 'finished'
+        if (cli.takeOnType) {
+          cli.count++
+          st.status = 'working'
+        } else st.status = 'finished'
       },
       submitAgain: (_p: string, _id: string, runId: string) => {
         expect(runId).toBe('run-1')
         cli.enters++
-        if (cli.takeOnEnter) cli.count++
+        if (cli.takeOnEnter) {
+          cli.count++
+          st.status = 'working'
+        }
         return true
       }
     })
@@ -506,7 +516,7 @@ describe('watches (main/watches.ts)', async () => {
       expect(cli.enters).toBe(2)
       // Still not taken: marked once, with the line (#430); the next wake waits while it is, then goes in.
       expect(marks).toHaveLength(1)
-      expect(marks[0]).toMatch(/^\[Hive\] #\d+ is in Todo; latest comment by You: "more news"/)
+      expect(marks[0]).toMatch(/^\[Hive\] New in your inbox: 1 card event \(#\d+\) \(m\d+\)\. Call hive_inbox to read it\.$/)
       untaken = true
       st.status = 'watching'
       await watches.registerWatch(w, alpha, 'a1', { cards: [c.number], changes: ['comment'] })
@@ -551,6 +561,7 @@ describe('watches (main/watches.ts)', async () => {
         st.typed.push(text)
         st.prompts++
         st.status = 'working'
+        st.told.push(await follow(alpha, 'a1', text))
       }
     })
     try {
@@ -567,7 +578,7 @@ describe('watches (main/watches.ts)', async () => {
       release()
       await evaluating
       await settling
-      // Resolved only once it was typed, taken, received and the watch had ended.
+      // Resolved only once it was typed, taken, read (received) and the watch had ended.
       expect(st.typed).toHaveLength(1)
       expect(watches.watchFor(alpha, 'a1')).toBeNull()
       expect(writer.confirmsInFlight()).toBe(0)
@@ -592,7 +603,7 @@ describe('watches (main/watches.ts)', async () => {
     await inWorkspace(w, () => tasks.commentTask(c.number, 'Round 1: FAILED\nDetails', { kind: 'agent', name: 'Codex (hive)' }))
     await evaluated(w)
     expect(st.typed).toHaveLength(1)
-    expect(st.typed[0]).toMatch(new RegExp(`^\\[Hive\\] #${c.number} is in Doing; latest comment by Codex \\(hive\\): "Round 1: FAILED"`))
+    expect(st.told[0]).toMatch(new RegExp(`^\\[Hive\\] #${c.number} is in Doing; latest comment by Codex \\(hive\\): "Round 1: FAILED"`))
     expect(watches.watchFor(alpha, 'a1')).toBeNull()
     // Once: another change wakes nothing.
     await inWorkspace(w, () => tasks.commentTask(c.number, 'again', user))
@@ -630,7 +641,7 @@ describe('watches (main/watches.ts)', async () => {
     await evaluated(w)
     expect(st.typed).toHaveLength(1)
     // The builder's own card: no owner, but the reviewer's verdict.
-    expect(st.typed[0]).toContain(`#${c.number} is in Done: Reviewer (alpha) passed it; latest comment by Reviewer (alpha): "Passed review, round 1."`)
+    expect(st.told[0]).toContain(`#${c.number} is in Done: Reviewer (alpha) passed it; latest comment by Reviewer (alpha): "Passed review, round 1."`)
     // A comment that can't be saved stops the whole change: nothing moves without it.
     const d = await inWorkspace(w, () => tasks.createTask({ title: 'B', project: 'alpha', column: 'review' }, user))
     await expect(inWorkspace(w, () => tasks.updateTask(d.number, { column: 'done' }, user, { comment: '   ' }))).rejects.toThrow('The comment is empty.')
@@ -673,7 +684,7 @@ describe('watches (main/watches.ts)', async () => {
     expect(st.typed).toEqual([])
     await watches.tick(Date.now() + 31 * 60_000)
     expect(st.typed).toHaveLength(1)
-    expect(st.typed[0]).toMatch(/No change on #\d+ in 30 min/)
+    expect(st.told[0]).toMatch(/No change on #\d+ in 30 min/)
     // Cancel.
     await watches.registerWatch(w, alpha, 'a1', { cards: [c.number], changes: ['verdict'] })
     expect(await watches.cancelWatch(w, alpha, 'a1')).toBe(true)
@@ -694,7 +705,7 @@ describe('watches (main/watches.ts)', async () => {
     await inWorkspace(w, () => tasks.updateTask(c.number, { column: 'review' }, user))
     await evaluated(w)
     expect(st.typed).toHaveLength(1)
-    expect(st.typed[0]).toMatch(/is in Review/)
+    expect(st.told[0]).toMatch(/is in Review/)
     await disposeWorkspaceService(w)
   })
   it('a watch for a move into a column the card is already in answers at once, for anyone and after a failed review; one for a card elsewhere waits (#434)', async () => {
@@ -731,7 +742,7 @@ describe('watches (main/watches.ts)', async () => {
     await inWorkspace(w, () => tasks.updateTask(inReview.number, { column: 'passed' }, user))
     await evaluated(w)
     expect(st.typed).toHaveLength(1)
-    expect(st.typed[0]).toMatch(/is in Passed/)
+    expect(st.told[0]).toMatch(/is in Passed/)
     await disposeWorkspaceService(w)
   })
 
@@ -761,7 +772,7 @@ describe('watches (main/watches.ts)', async () => {
     await inWorkspace(w, () => tasks.updateTask(c.number, { column: 'review' }, builder, { comment: 'Fixed both findings' }))
     await evaluated(w)
     expect(st.typed).toHaveLength(1)
-    expect(st.typed[0]).toMatch(new RegExp(`^\\[Hive\\] #${c.number} \\(Reviewer's card\\) was returned for review \\(round 2\\); latest comment by Reviewer \\(alpha\\): "Fixed both findings"\\. Your card watch has ended`))
+    expect(st.told[0]).toMatch(new RegExp(`^\\[Hive\\] #${c.number} \\(Reviewer's card\\) was returned for review \\(round 2\\); latest comment by Reviewer \\(alpha\\): "Fixed both findings"\\. Your card watch has ended`))
     await disposeWorkspaceService(w)
   })
 
@@ -803,7 +814,7 @@ describe('watches (main/watches.ts)', async () => {
         vi.useRealTimers()
         watches.testHooks.settleMs = 0
       }
-      expect(st.typed[0]).toMatch(new RegExp(`^\\[Hive\\] #${a} is in Review: Reviewer \\(alpha\\) passed it \\(latest comment by Reviewer \\(alpha\\): "Round 1: PASSED"\\); #${b} is in Review: Reviewer \\(alpha\\) failed it \\(latest comment by Reviewer \\(alpha\\): "Round 1: FAILED"\\)\\. Your card watch has ended`))
+      expect(st.told[0]).toMatch(new RegExp(`^\\[Hive\\] #${a} is in Review: Reviewer \\(alpha\\) passed it \\(latest comment by Reviewer \\(alpha\\): "Round 1: PASSED"\\); #${b} is in Review: Reviewer \\(alpha\\) failed it \\(latest comment by Reviewer \\(alpha\\): "Round 1: FAILED"\\)\\. Your card watch has ended`))
       await disposeWorkspaceService(w)
     })
 
@@ -815,15 +826,15 @@ describe('watches (main/watches.ts)', async () => {
       await verdict(w, a, 'passed')
       await evaluated(w)
       expect(st.typed).toHaveLength(1)
-      expect(st.typed[0]).toContain(`#${a} is in Review: Reviewer (alpha) passed it`)
+      expect(st.told[0]).toContain(`#${a} is in Review: Reviewer (alpha) passed it`)
       // #b fails a moment after the wake, before the builder watches again (what deadlocked #119/#217).
       await new Promise((r) => setTimeout(r, 5))
       await verdict(w, b, 'failed')
       st.status = 'watching'
       const r = await watches.registerWatch(w, alpha, 'a1', { cards: [b], ...verdictOrDone })
       expect('watching' in r).toBe(true)
-      await vi.waitFor(() => expect(st.typed).toHaveLength(2), { timeout: HUNG_MS })
-      expect(st.typed[1]).toMatch(new RegExp(`^\\[Hive\\] #${b} is in Review: Reviewer \\(alpha\\) failed it`))
+      await vi.waitFor(() => expect(st.told).toHaveLength(2), { timeout: HUNG_MS })
+      expect(st.told[1]).toMatch(new RegExp(`^\\[Hive\\] #${b} is in Review: Reviewer \\(alpha\\) failed it`))
       // After that wake, the builder's own work (a comment, a move to Doing and back) isn't news to its next watch…
       st.status = 'watching'
       await inWorkspace(w, () => tasks.updateTask(b, { column: 'doing' }, builder, { comment: 'Fixing' }))
@@ -835,7 +846,7 @@ describe('watches (main/watches.ts)', async () => {
       await inWorkspace(w, () => tasks.commentTask(b, 'Looking at it', rev))
       await evaluated(w)
       expect(st.typed).toHaveLength(3)
-      expect(st.typed[2]).toContain('latest comment by Reviewer (alpha): "Looking at it"')
+      expect(st.told[2]).toContain('latest comment by Reviewer (alpha): "Looking at it"')
       await disposeWorkspaceService(w)
     })
 
@@ -853,8 +864,8 @@ describe('watches (main/watches.ts)', async () => {
         await verdict(w, b, 'failed')
         st.status = 'watching'
         await watches.registerWatch(w, alpha, 'a1', { cards: [b], ...verdictOrDone })
-        await vi.waitFor(() => expect(st.typed).toHaveLength(2), { timeout: HUNG_MS })
-        expect(st.typed[1]).toContain(`#${b} is in Review: Reviewer (alpha) failed it`)
+        await vi.waitFor(() => expect(st.told).toHaveLength(2), { timeout: HUNG_MS })
+        expect(st.told[1]).toContain(`#${b} is in Review: Reviewer (alpha) failed it`)
       } finally {
         vi.useRealTimers()
       }
@@ -872,14 +883,14 @@ describe('watches (main/watches.ts)', async () => {
         await verdict(w, b, 'failed')
         await evaluated(w)
         expect(st.typed).toHaveLength(1)
-        expect(st.typed[0]).toMatch(new RegExp(`#${a} is in Review: Reviewer \\(alpha\\) passed it.*#${b} is in Review: Reviewer \\(alpha\\) failed it`))
+        expect(st.told[0]).toMatch(new RegExp(`#${a} is in Review: Reviewer \\(alpha\\) passed it.*#${b} is in Review: Reviewer \\(alpha\\) failed it`))
         // Reviewed again and failed again, word for word, in the same millisecond as the first failure.
         await inWorkspace(w, () => tasks.updateTask(b, { review: 'start' }, rev))
         await verdict(w, b, 'failed')
         st.status = 'watching'
         await watches.registerWatch(w, alpha, 'a1', { cards: [b], ...verdictOrDone })
-        await vi.waitFor(() => expect(st.typed).toHaveLength(2), { timeout: HUNG_MS })
-        expect(st.typed[1]).toContain(`#${b} is in Review: Reviewer (alpha) failed it`)
+        await vi.waitFor(() => expect(st.told).toHaveLength(2), { timeout: HUNG_MS })
+        expect(st.told[1]).toContain(`#${b} is in Review: Reviewer (alpha) failed it`)
         // The failure the wake told isn't told again: watching once more without a new change, nothing comes.
         st.status = 'watching'
         await watches.registerWatch(w, alpha, 'a1', { cards: [b], ...verdictOrDone })
@@ -904,15 +915,15 @@ describe('watches (main/watches.ts)', async () => {
       await inWorkspace(w, () => tasks.updateTask(b, { agent: 'a2' }, user))
       st.status = 'watching'
       await watches.registerWatch(w, alpha, 'a1', { cards: [b], changes: ['agent'] })
-      await vi.waitFor(() => expect(st.typed).toHaveLength(2), { timeout: HUNG_MS })
-      expect(st.typed[1]).toMatch(new RegExp(`^\\[Hive\\] #${b} \\(Reviewer's card\\) is in Review`))
+      await vi.waitFor(() => expect(st.told).toHaveLength(2), { timeout: HUNG_MS })
+      expect(st.told[1]).toMatch(new RegExp(`^\\[Hive\\] #${b} \\(Reviewer's card\\) is in Review`))
       // Archived between watches: told as gone.
       await inWorkspace(w, () => tasks.archiveTask(c, true))
       st.status = 'watching'
       // The previous wake told #b only; #c was in the watch before it, so it starts from what that wake told of it.
       await watches.registerWatch(w, alpha, 'a1', { cards: [b, c], changes: ['agent', 'verdict'] })
-      await vi.waitFor(() => expect(st.typed).toHaveLength(3), { timeout: HUNG_MS })
-      expect(st.typed[2]).toContain(`#${c} was archived (off the board`)
+      await vi.waitFor(() => expect(st.told).toHaveLength(3), { timeout: HUNG_MS })
+      expect(st.told[2]).toContain(`#${c} was archived (off the board`)
       await disposeWorkspaceService(w)
     })
   })
@@ -930,7 +941,7 @@ describe('watches (main/watches.ts)', async () => {
     await inWorkspace(w, () => tasks.updateTask(c.number, { column: 'review' }, user))
     await evaluated(w)
     expect(st.typed).toHaveLength(1)
-    expect(st.typed[0]).toMatch(/is in Review/)
+    expect(st.told[0]).toMatch(/is in Review/)
     await disposeWorkspaceService(w)
   })
 
@@ -962,8 +973,8 @@ describe('watches (main/watches.ts)', async () => {
     await inWorkspace(w, () => tasks.commentTask(c.number, 'Private beta information', user))
     await evaluated(w)
     expect(st.typed).toHaveLength(1)
-    expect(st.typed[0]).toMatch(/is gone from your board/)
-    expect(st.typed[0]).not.toMatch(/Private|beta/)
+    expect(st.told[0]).toMatch(/is gone from your board/)
+    expect(st.told[0]).not.toMatch(/Private|beta/)
     // A card outside the agent's view can't be watched at all.
     await expect(watches.registerWatch(w, alpha, 'a1', { cards: [c.number], changes: ['comment'] })).rejects.toThrow(/Unknown task/)
     await disposeWorkspaceService(w)
@@ -984,8 +995,8 @@ describe('watches (main/watches.ts)', async () => {
     st.status = 'watching'
     await watches.tick()
     expect(st.typed).toHaveLength(1)
-    expect(st.typed[0]).toMatch(/is gone from your board/)
-    expect(st.typed[0]).not.toMatch(/Ready for you/)
+    expect(st.told[0]).toMatch(/is gone from your board/)
+    expect(st.told[0]).not.toMatch(/Ready for you/)
     await disposeWorkspaceService(w)
   })
 
@@ -1088,7 +1099,7 @@ describe('watches (main/watches.ts)', async () => {
       await checking
       await evaluated(w)
       expect(st.typed).toHaveLength(1)
-      expect(st.typed[0]).toMatch(/is in Review/)
+      expect(st.told[0]).toMatch(/is in Review/)
     } finally {
       release()
       watches.testHooks.afterRead = undefined
@@ -1203,15 +1214,17 @@ describe('watches (main/watches.ts)', async () => {
       expect(st.typed).toHaveLength(2)
       expect((await deliveries.deliveriesOf(alpha, 'a1')).map((r) => r.id)).toEqual(['m1'])
       expect((await deliveries.deliveriesOf(beta, 'b1')).map((r) => r.id)).toEqual(['m1'])
-      // Alpha's line is taken: only alpha's watch ends.
+      // Alpha's agent takes its doorbell and reads its inbox (#650: the receipt): only alpha's watch ends.
       st.taken.set('a1', 1)
-      await deliveries.followAllForTests()
+      st.status.set('a1', 'working')
+      expect((await deliveries.readInbox(alpha, 'a1')).items.map((i) => i.ids.join())).toEqual(['m1'])
       await watches.settled()
       expect(watches.watchFor(alpha, 'a1')).toBeNull()
       expect(watches.watchFor(beta, 'b1')?.cards).toEqual([cb.number])
       // Beta's then.
       st.taken.set('b1', 1)
-      await deliveries.followAllForTests()
+      st.status.set('b1', 'working')
+      await deliveries.readInbox(beta, 'b1')
       await watches.settled()
       expect(watches.watchFor(beta, 'b1')).toBeNull()
     } finally {
@@ -1250,7 +1263,7 @@ describe('watches (main/watches.ts)', async () => {
       await deliveries.cancelFromSource(alpha, 'watch', null, 'cancelled: a test')
       await watches.settled()
       await vi.waitFor(() => expect(st.typed).toHaveLength(2), { timeout: HUNG_MS })
-      expect(st.typed[1]).toBe(st.typed[0])
+      expect(st.typed[1]).toBe(st.typed[0].replace('(m1)', '(m2)'))
       // Read back after a restart before its receipt: still pending, and the watch's marks still as they were.
       await deliveries.forgetDeliveriesForTests()
       watches.forgetWatches(w)
@@ -1283,12 +1296,12 @@ describe('watches (main/watches.ts)', async () => {
     await vi.waitFor(() => expect(st.typed).toHaveLength(1), { timeout: HUNG_MS })
     await watches.settled()
     expect(st.typed[0]).toMatch(/ \(m1 again: Hive restarted while typing it, so it may repeat\.\)$/)
-    // Received (its CLI took it): the watch ends.
+    // Received (its agent read it): the watch ends.
     expect(watches.watchFor(alpha, 'a1')).toBeNull()
     await disposeWorkspaceService(w)
   })
 
-  it("a watch whose wake its CLI never took (marked) isn't shown as waiting on cards: nothing will wake its agent, so its loop is checked as one with no watch; taken, its watch ends as received (#649 round 3)", async () => {
+  it("a watch whose wake its CLI never took (marked) isn't shown as waiting on cards: nothing will wake its agent, so its loop is checked as one with no watch; taken and read, its watch ends as received (#649 round 3, #650)", async () => {
     const { w, alpha } = await open()
     const st = fake(alpha)
     let untaken = false
@@ -1312,10 +1325,11 @@ describe('watches (main/watches.ts)', async () => {
       // Marked not taken: not shown as waiting on cards (its status is finished, with no watch).
       untaken = true
       expect(watches.watchFor(alpha, 'a1')).toBeNull()
-      // Taken after all (the user pressed Enter): received, and the watch has ended.
+      // Taken after all (the user pressed Enter), and read: received, and the watch has ended.
       untaken = false
       st.prompts++
-      await deliveries.followAllForTests()
+      st.status = 'working'
+      await deliveries.readInbox(alpha, 'a1')
       await watches.settled()
       expect((await deliveries.deliveriesOf(alpha, 'a1')).map((r) => r.state)).toEqual(['received'])
       expect(watches.watchFor(alpha, 'a1')).toBeNull()
@@ -1382,7 +1396,7 @@ describe('watches (main/watches.ts)', async () => {
     expect(after.invalid ?? []).toEqual([])
     await inWorkspace(w, () => tasks.commentTask(c.number, 'Ready', user))
     await evaluated(w)
-    expect(st.typed).toEqual([expect.stringContaining('Ready')])
+    expect(st.told).toEqual([expect.stringContaining('Ready')])
     await disposeWorkspaceService(w)
   })
 
@@ -1491,7 +1505,7 @@ describe('watches (main/watches.ts)', async () => {
     expect(JSON.parse(readFileSync(join(to, '.hive', 'watches.json'), 'utf8')).watches.map((x: { projectPath: string }) => x.projectPath)).toEqual([gamma, w2.assistantHome])
     await inWorkspace(w2, () => tasks.commentTask(c.number, 'Moved and ready', user))
     await evaluated(w2)
-    expect(st.typed).toEqual([expect.stringContaining('Moved and ready')])
+    expect(st.told).toEqual([expect.stringContaining('Moved and ready')])
     await disposeWorkspaceService(w2)
   })
 
@@ -1506,8 +1520,8 @@ describe('watches (main/watches.ts)', async () => {
     await new Promise((r) => setTimeout(r, 1100))
     await inWorkspace(w, () => tasks.commentTask(c.number, 'Ready', user))
     await evaluated(w)
-    expect(st.typed).toEqual([expect.stringContaining(`#${c.number}`)])
-    expect(st.typed[0]).toContain('Ready')
+    expect(st.told).toEqual([expect.stringContaining(`#${c.number}`)])
+    expect(st.told[0]).toContain('Ready')
     await disposeWorkspaceService(w)
   })
 
@@ -1682,6 +1696,7 @@ describe('watches (main/watches.ts)', async () => {
       st.typed.push(text)
       st.prompts++
       st.status = 'working'
+      st.told.push(await follow(alpha, 'a1', text))
       failing = true
     }
     watches.testHooks.write = async (p, t) => {
@@ -1771,7 +1786,7 @@ describe('watches (main/watches.ts)', async () => {
     await watches.registerWatch(w, alpha, 'a1', { cards: [c.number], changes: ['verdict'] })
     await watches.tick(Date.now() + 121 * 60_000)
     expect(st.typed).toHaveLength(2)
-    expect(st.typed[1]).toMatch(/No change/)
+    expect(st.told[1]).toMatch(/No change/)
     await disposeWorkspaceService(w)
   })
 

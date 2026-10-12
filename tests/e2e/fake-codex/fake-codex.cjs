@@ -23,7 +23,9 @@
 //   Notices (#650), as Codex 0.162.1 takes them: context in a PostToolUse reply reaches "the model", and a Stop blocked
 //   carries the same turn on to another Stop with stop_hook_active. Each ("[Hive] …") is logged in fake-notices.jsonl in
 //   CODEX_HOME; with fake-follow-notices.txt (or fake-follow-notices-<agent>.txt) there, it reads its inbox (hive_inbox)
-//   and acks what it listed. "checkpoint": a command (PreToolUse, PostToolUse) whose reply it reads.
+//   and acks what it listed. "checkpoint": a command (PreToolUse, PostToolUse) whose reply it reads. Hive's doorbell
+//   ("[Hive] New in your inbox: …") it follows as a model does: it reads its inbox; new work it read (a task, a
+//   handover) is its prompt, anything else (a wake, a message) is logged in fake-wakes.jsonl in CODEX_HOME.
 // - Each prompt is a turn with its own id, which its hooks carry (turn_id) and its rollout records (task_started,
 //   task_complete after Stop), as Codex 0.162.1 does.
 // - A first prompt as its last plain argument (after "resume <id>" too) is its first turn, as Codex starts on one.
@@ -31,7 +33,7 @@
 const fs = require('fs')
 const path = require('path')
 const { randomUUID } = require('crypto')
-const { callHiveTool, fromCodexTable, parseHiveStep } = require('../fake-bridge.cjs')
+const { callHiveTool, fromCodexTable, parseHiveStep, isDoorbell, doorbellIsWork, inboxRows } = require('../fake-bridge.cjs')
 
 const args = process.argv.slice(2)
 if (args[0] === '--version') {
@@ -328,6 +330,17 @@ async function runPrompt(text) {
   turnRecord('task_started')
   fs.appendFileSync(rollout, JSON.stringify({ timestamp: new Date().toISOString(), type: 'response_item', payload: { type: 'message', role: 'user', content: [{ type: 'input_text', text }] } }) + '\n')
   await hook('UserPromptSubmit', { prompt: text })
+  // Hive's doorbell (#650): it reads its inbox (hive_inbox), as a model does, and acts on what it read (one that follows
+  // notices acks it too); what else it read (a wake, a message) is logged in fake-wakes.jsonl in CODEX_HOME.
+  if (isDoorbell(text)) {
+    const work = doorbellIsWork(text)
+    const r = await hiveCall('hive_inbox', {})
+    const rows = r.isError ? [] : inboxRows(r.text)
+    if (rows.length && followsNotices()) await hiveCall('hive_inbox', { ack: rows.flatMap((x) => x.ids) })
+    const read = rows.map((x) => x.text).join(' ')
+    if (!work && process.env.CODEX_HOME) fs.appendFileSync(path.join(process.env.CODEX_HOME, 'fake-wakes.jsonl'), JSON.stringify({ agent: String(process.env.HIVE_AGENT || 'agent').replace(/[^\w-]/g, '_'), text: read, at: new Date().toISOString() }) + '\n')
+    if (rows.length) text = work ? read : ''
+  }
   let questions = 0
   let scriptedSteps = false
   // "latetool": a command whose PostToolUse reaches Hive only after the turn's Stop (#648).

@@ -168,6 +168,20 @@ describe('notices in the hook replies (#650)', () => {
     expect(st.status).toBe('finished')
   })
 
+  it("nothing for an agent that can't read an inbox (the Agent API or its hive server off): it is typed what it is given in full instead", async () => {
+    const st = agent()
+    await hook(st, { hook_event_name: 'UserPromptSubmit', prompt_id: 'p1', prompt: 'go' })
+    await leave(st)
+    deliveries.setReadsInboxForTests(() => false)
+    try {
+      expect(await hook(st, tool('p1', 'c1'))).toBeNull()
+      expect(await hook(st, { hook_event_name: 'Stop', prompt_id: 'p1', stop_hook_active: false })).toBeNull()
+      expect(st.status).toBe('finished')
+    } finally {
+      deliveries.setReadsInboxForTests(null)
+    }
+  })
+
   it("never in a sub-agent's hooks (its context isn't the agent's)", async () => {
     const st = agent()
     await hook(st, { hook_event_name: 'UserPromptSubmit', prompt_id: 'p1', prompt: 'go' })

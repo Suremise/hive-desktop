@@ -68,10 +68,13 @@ async function start() {
 
   let { app, page, inv, live } = await start()
   const until = (fn, ms) => lib.until(fn, ms, 250)
-  const wakes = () => {
+  // What the builder read when Hive's doorbell rang (#650: fake Claude Code reads its inbox then), and the doorbells.
+  const wakeLog = () => {
     const f = path.join(claudeHome, 'fake-wakes.jsonl')
-    return (fs.existsSync(f) ? fs.readFileSync(f, 'utf8').trim().split('\n').filter(Boolean).map((l) => JSON.parse(l)) : []).filter((w) => w.agent === 'Builder').map((w) => w.text)
+    return (fs.existsSync(f) ? fs.readFileSync(f, 'utf8').trim().split('\n').filter(Boolean).map((l) => JSON.parse(l)) : []).filter((w) => w.agent === 'Builder')
   }
+  const wakes = () => wakeLog().map((w) => w.text)
+  const bells = () => wakeLog().map((w) => w.doorbell ?? '')
   const say = async (id, text) => {
     await inv('pty:write', lib.ptyKey(alpha, id), text)
     await lib.sleep(300)
@@ -133,12 +136,13 @@ async function start() {
   check('…and the pane no longer counts it unread', !!(await until(async () => !/unread/.test(await paneText()), HUNG_MS)), await paneText())
   fs.writeFileSync(path.join(claudeHome, 'deliveries-go2'), '')
   check('the builder is idle again', !!(await until(() => idle(builder.id), HUNG_MS)))
-  // A message left now is typed at once; had m1 been typed after it was received, it would be there first.
+  // A message left now is told at once; had m1 been offered after it was received, its doorbell would name it too.
   const second = tool('hive_message_agent', { project: 'alpha', agent: 'Builder', text: 'Then take #2.' })
-  check('a message for the idle builder is typed at once', !second.isError && second.text === 'Typed into Builder now (m2).', second.text)
-  check('…as its own line, with its id to ack', !!(await until(() => wakes().some((t) => t === "[Hive] Message from the Assistant: Then take #2. (Its id: m2. Once you've acted on it, ack it with hive_inbox.)"), HUNG_MS)), JSON.stringify(wakes()))
-  check('…and the message it had fetched is never typed', !wakes().some((t) => t.includes('Rebase on main')), JSON.stringify(wakes()))
-  check('…offered (typed), and received once its CLI took the line (#649)', !!(await until(async () => wakes().length > 0 && delivery('m2')?.state === 'received' && (await idle(builder.id)), HUNG_MS)) && delivery('m2')?.receivedVia === 'typed' && !!delivery('m2')?.offered, JSON.stringify(delivery('m2')))
+  check('a message for the idle builder is told at once', !second.isError && second.text === 'Told Builder now (m2): it reads it with hive_inbox.', second.text)
+  check('…its doorbell names it by id, never its text (#650)', !!(await until(() => bells().includes('[Hive] New in your inbox: 1 message (m2). Call hive_inbox to read it.'), HUNG_MS)), JSON.stringify(bells()))
+  check('…and the builder reads it in its inbox', !!(await until(() => wakes().includes('Then take #2.'), HUNG_MS)), JSON.stringify(wakes()))
+  check('…the message it had fetched is never offered again', !wakes().some((t) => t.includes('Rebase on main')) && !bells().some((t) => /\bm1\b/.test(t)), JSON.stringify(wakeLog()))
+  check('…offered (its doorbell typed), and received once it read it', !!(await until(async () => wakes().length > 0 && delivery('m2')?.state === 'received' && (await idle(builder.id)), HUNG_MS)) && delivery('m2')?.receivedVia === 'inbox' && !!delivery('m2')?.offered, JSON.stringify(delivery('m2')))
 
   // --- 3. Acked: the agent says it acted on m1; m2 isn't, and becomes overdue.
   await until(() => idle(builder.id), HUNG_MS)
@@ -182,9 +186,10 @@ async function start() {
   check('…and the card event is restored as uncertain: it may not have reached the builder', !!(await until(() => saved().find((d) => d.id === eventId)?.state === 'uncertain', HUNG_MS)) && saved().find((d) => d.id === eventId)?.detail === 'may not have reached it: Hive stopped while offering it', JSON.stringify(saved().find((d) => d.id === eventId)))
   await inv('session:start', alpha, { agentId: builder.id, resumeId: sessionId })
   check('the builder is resumed in the same conversation', !!(await until(async () => (await idle(builder.id)) && (await live(alpha, builder.id))?.sessionId === sessionId, HUNG_MS)))
-  check('…and gets the card event once more, saying it may repeat', !!(await until(() => wakes().some((t) => t === `[Hive] #7 is back in Review, round 2. (${eventId} again: Hive restarted while offering it, so it may repeat.)`), HUNG_MS)), JSON.stringify(wakes().slice(-2)))
+  check('…and is rung for the card event once more, saying it may repeat', !!(await until(() => bells().includes(`[Hive] New in your inbox: 1 card event (#7) (${eventId}). Call hive_inbox to read it. (${eventId} again: Hive restarted while offering it, so it may repeat.)`), HUNG_MS)), JSON.stringify(bells().slice(-2)))
+  check('…which it reads', !!(await until(() => wakes().includes('[Hive] #7 is back in Review, round 2.'), HUNG_MS)), JSON.stringify(wakes().slice(-2)))
   check('…never the refused message', !wakes().some((t) => t.includes('From the launch that ends.')), JSON.stringify(wakes()))
-  check('…received once its CLI takes it, saved as such (a card event needs no ack)', !!(await until(() => saved().find((d) => d.id === eventId)?.state === 'received', HUNG_MS)) && saved().find((d) => d.id === eventId)?.receivedVia === 'typed', JSON.stringify(saved().find((d) => d.id === eventId)))
+  check('…received as it read it, saved as such (a card event needs no ack)', !!(await until(() => saved().find((d) => d.id === eventId)?.state === 'received', HUNG_MS)) && saved().find((d) => d.id === eventId)?.receivedVia === 'inbox', JSON.stringify(saved().find((d) => d.id === eventId)))
   await until(() => idle(builder.id), HUNG_MS)
   check('…offered once more only', wakes().filter((t) => t.includes('is back in Review, round 2')).length === 1, JSON.stringify(wakes()))
   home = await startAssistant()

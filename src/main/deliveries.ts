@@ -28,6 +28,7 @@ import {
   type InboxItem
 } from '../shared/deliveries'
 import * as assistant from './assistantControl'
+import { config } from './config'
 import { onHiveEvent } from './events'
 import { readCapped, renameRetrying } from './fsutil'
 import { canTypeLine, typeLine, whyNoLine } from './lineWriter'
@@ -40,16 +41,20 @@ import { sessions } from './sessions'
  * delivery record (shared/deliveries.ts), saved in its session host's .hive/deliveries.json (a project's, or the
  * Assistant's home's) with atomic writes, and restored when Hive starts. Every way into an agent makes one (#649): a
  * message, a task, a watch's or a loop's wake, the user's decisions, a mode notice, a lock's go-ahead, the carry-on after
- * a sign-in, a handover. This service alone offers them: today by typing the line each always was (lineWriter.typeLine),
- * until Messaging 4 switches the channel; producers neither type nor keep their own cursors.
+ * a sign-in, a handover. This service alone offers them, to an idle agent by typing the doorbell (#650: Hive's fixed
+ * words with counts and ids, shared/doorbell.ts, through lineWriter.typeLine); a busy one is told in its hooks' replies
+ * instead (inboxNotices.ts). Producers neither type nor keep their own cursors.
  *
- * **Receipts.** A typed line makes a delivery offered. It is received when the agent fetches it with hive_inbox, or
- * (#649, until #650's doorbell) when the CLI takes the line that carried its whole text: the prompt count rises in the
- * launch it was typed into, after that line's Enter (receivedVia 'typed'); never because it was typed. A card event or a
- * control notice is done then; a message, a task, a handover or the user's answer waits for the agent's ack (hive_inbox),
- * and one not acked OVERDUE_MINUTES after it was made is overdue. One offered when Hive stopped, or when its agent's launch
- * ended before its CLI took it, is uncertain: it may not have reached the agent, so it is offered once more, saying it may
- * repeat, and stays uncertain (shown) if that one isn't received either.
+ * **Receipts.** A typed doorbell makes what it names offered. It is received only when the agent fetches it with
+ * hive_inbox (#650: the doorbell carries no text, so its CLI taking the line is no receipt); never because it was typed.
+ * A card event or a control notice is done then; a message, a task, a handover or the user's answer waits for the agent's
+ * ack (hive_inbox), and one not acked OVERDUE_MINUTES after it was made is overdue. A doorbell its CLI took whose agent is
+ * idle again without having read it rings once more (#650: its turn's Stop drain asked it first), never a third time; it
+ * stays offered, unread in the pane, until it is read. One offered when Hive stopped, or when its agent's launch ended
+ * before it was read, is uncertain: it may not have reached the agent, so it is offered once more, saying it may repeat,
+ * and stays uncertain (shown) if that one isn't received either. An agent that can't read an inbox (`readsInbox`: a
+ * project agent while the Agent API or its hive server is off) is typed their text instead, as #649 did, and its CLI
+ * taking that line is their receipt (receivedVia 'typed'); it is told nothing in its hooks.
  *
  * **Sources.** What made a delivery (`source`: a watch, a loop wake…) registers itself here: it can make its line again
  * just before it is offered, from things as they are then (`refresh`; null: no longer due, and it is cancelled), say
@@ -104,7 +109,7 @@ const LAUNCHING = 'launching'
 
 /** Why a delivery may repeat when it is offered once more (#649). */
 const AGAIN_RESTART = 'Hive restarted while offering it'
-const AGAIN_LAUNCH = 'its session ended or restarted before its CLI took the line'
+const AGAIN_LAUNCH = 'its session ended or restarted before it was read'
 
 interface Store {
   host: string
@@ -118,10 +123,14 @@ interface Store {
   /** The ids a line being typed now offers: cancelled meanwhile, its typing stops. */
   offering: Set<string>
   /**
-   * The ids a typed line offers, by the launch and its prompt count just before the line's Enter: taken (received) once
-   * the count rises in that launch; until then a cancel can still end it. Kept until it leaves offered.
+   * The ids a typed doorbell offers, by the launch and its prompt count just before the line's Enter: taken once the count
+   * rises in that launch (rung once more if its agent is idle again without reading it). Kept until it leaves offered.
    */
   confirming: Map<string, { runId: string; count: number }>
+  /** Deliveries whose doorbell has rung a second time (#650): never a third. In memory: a restart offers once more anyway. */
+  rungAgain: Set<string>
+  /** Deliveries typed with their text, to an agent that can't read an inbox: taking that line is their receipt. */
+  typedFull: Set<string>
   /** Deliveries launched into a run whose saving may have failed (launchWith): the run they went into, by id. */
   launches: Map<string, string>
   /**
@@ -254,7 +263,7 @@ export function load(host: string): Promise<Store> {
   const p = (async () => {
     const read = await readFileOf(host)
     if (stores.has(k)) return stores.get(k)!
-    const store: Store = { host, records: read.records, next: read.next, invalid: read.invalid, lock: Promise.resolve(), offering: new Set(), confirming: new Map(), launches: new Map(), leftUntil: new Map(), hooks: new Map() }
+    const store: Store = { host, records: read.records, next: read.next, invalid: read.invalid, lock: Promise.resolve(), offering: new Set(), confirming: new Map(), rungAgain: new Set(), typedFull: new Set(), launches: new Map(), leftUntil: new Map(), hooks: new Map() }
     // Restored before anything else sees it (a second load waits for this one).
     await transact(store, (d) => {
       for (const r of [...d.records]) if (r.state === 'offered') set(store, d, r, 'uncertain', 'may not have reached it: Hive stopped while offering it', undefined, { again: AGAIN_RESTART })
@@ -443,6 +452,17 @@ let senderRefusal = (from: DeliverySender): string | null => {
   if (sessions.liveFor(assistant.assistantHome(from.workspace), ASSISTANT_AGENT_ID)?.runId !== from.launch) return "the Assistant's session that left it ended"
   return null
 }
+/**
+ * Whether an agent can read its inbox (#650): the Assistant always (its own tools); a project agent through its hive
+ * tools, which it has only while the Agent API and the built-in hive server are on. One that can't is typed what it is
+ * given in full.
+ */
+let readsInbox = (_host: string, agentId: string): boolean => agentId === ASSISTANT_AGENT_ID || (config.settings.agentApi.enabled && config.settings.agentApi.provideHiveMcp)
+export const agentReadsInbox = (host: string, agentId: string): boolean => readsInbox(host, agentId)
+/** For tests: whether agents can read their inbox (null: as the settings say). */
+export const setReadsInboxForTests = (fn: ((host: string, agentId: string) => boolean) | null): void => {
+  readsInbox = fn ?? ((_host, agentId) => agentId === ASSISTANT_AGENT_ID || (config.settings.agentApi.enabled && config.settings.agentApi.provideHiveMcp))
+}
 /** For tests: how a sender's permission is worked out. */
 export const setSenderCheckForTests = (fn: (from: DeliverySender) => string | null): void => {
   senderRefusal = fn
@@ -461,8 +481,8 @@ function whyNot(store: Store, r: DeliveryRecord): { to: 'refused' | 'expired'; w
 
 /**
  * Follows, in a draft, what happened to deliveries not received yet: one that may no longer be given to its agent ends;
- * one whose typed line its CLI has taken since is received (#649); one offered into a launch that has ended (or another
- * one) before that is uncertain, and offered once more.
+ * one whose doorbell its CLI took, with its agent idle again since without reading it, waits to ring once more (#650);
+ * one offered into a launch that has ended (or another one) before it was read is uncertain, and offered once more.
  */
 function recheck(store: Store, d: Draft, agentId?: string): void {
   for (const r of [...d.records]) {
@@ -473,7 +493,14 @@ function recheck(store: Store, d: Draft, agentId?: string): void {
       // The launch it went into: as saved, or (a launch's save that failed) as followed in memory.
       const run = store.launches.get(r.id) ?? r.offerRun
       if (base && now && now.runId === base.runId && run === base.runId && now.count > base.count) {
-        set(store, d, r, 'received', undefined, 'typed', run !== r.offerRun ? { offerRun: run } : {})
+        // Typed with its text (an agent that can't read an inbox): taking it is its receipt.
+        if (store.typedFull.has(r.id)) {
+          set(store, d, r, 'received', undefined, 'typed', run !== r.offerRun ? { offerRun: run } : {})
+          continue
+        }
+        // Its doorbell was taken: received only once it is read (hive_inbox). Its agent idle again without that (its
+        // turn ended, the Stop drain's notice let pass), it rings once more.
+        if (!store.rungAgain.has(r.id) && readyFor(sessions.liveFor(store.host, r.agentId), r.need ?? 'idle') && set(store, d, r, 'queued')) store.rungAgain.add(r.id)
         continue
       }
       // A launch still starting (its run not attached yet) is in progress, never a run that has gone: only a restart
@@ -490,6 +517,8 @@ function recheck(store: Store, d: Draft, agentId?: string): void {
   // What has left offered keeps no check of its line's receipt.
   for (const id of [...store.confirming.keys()]) if (byId(d.records, id)?.state !== 'offered') store.confirming.delete(id)
   for (const id of [...store.launches.keys()]) if (byId(d.records, id)?.state !== 'offered') store.launches.delete(id)
+  for (const id of [...store.rungAgain]) if (!isUnread(byId(d.records, id) ?? { state: 'cancelled' })) store.rungAgain.delete(id)
+  for (const id of [...store.typedFull]) if (byId(d.records, id)?.state !== 'offered') store.typedFull.delete(id)
   for (const id of [...store.hooks.keys()]) if (!isUnread(byId(d.records, id) ?? { state: 'cancelled' })) store.hooks.delete(id)
 }
 
@@ -612,13 +641,24 @@ export async function deliveryView(host: string, agentId: string, limit: number,
   return { unread: list.filter(isUnread).length, overdue: rows.filter((r) => r.overdue).length, deliveries: shown, ...(rows.length > shown.length ? { more: rows.length - shown.length } : {}) }
 }
 
-/** Whether a delivery can still be cancelled: waiting, or offered and being typed, or typed and not taken by its CLI yet. */
-const cancellable = (store: Store, r: DeliveryRecord): boolean => isWaiting(r) || (r.state === 'offered' && (store.offering.has(r.id) || untaken(store, r))) || (r.state === 'uncertain' && !isWaiting(r))
+/**
+ * Whether a delivery can still be cancelled: not read yet (#650: a doorbell names it without its text, so until the agent
+ * reads it, it can be taken back; one being typed stops, and a doorbell not taken yet gets no Enter again). One typed
+ * with its text, once its CLI has taken that line, is the agent's.
+ */
+const cancellable = (store: Store, r: DeliveryRecord): boolean => isUnread(r) && !(store.typedFull.has(r.id) && taken(store, r))
+
+/** Whether an offered delivery's line has been taken by its CLI (its prompt count rose in that launch after the line's Enter). */
+function taken(store: Store, r: DeliveryRecord): boolean {
+  const c = store.confirming.get(r.id)
+  const now = c && sessions.promptsTaken(store.host, r.agentId)
+  return !!c && !!now && now.runId === c.runId && r.offerRun === c.runId && now.count > c.count
+}
 
 /**
- * Cancels an agent's deliveries waiting to be offered (and one being typed now, whose typing stops, or typed and not
- * taken by its CLI yet, whose confirmation then clears the line rather than pressing Enter again), all of them or those
- * of `kinds` (or those `match` picks); by: who cancelled. How many.
+ * Cancels an agent's deliveries not read yet (one being typed now stops, and a doorbell not taken yet is cleared rather
+ * than given Enter again; its hive_inbox no longer lists them), all of them or those of `kinds` (or those `match` picks);
+ * by: who cancelled. How many.
  */
 export async function cancelDeliveries(host: string, agentId: string, by: string, kinds?: readonly DeliveryKind[], match?: (r: DeliveryRecord) => boolean): Promise<number> {
   const store = await load(host)
@@ -651,13 +691,6 @@ export async function cancelFromSource(host: string, source: string, ref: string
   })
   for (const a of agents) show(store, a)
   return n
-}
-
-/** Whether an offered delivery's line is typed and its CLI hasn't taken it yet (the confirmation then gives it no Enter). */
-function untaken(store: Store, r: DeliveryRecord): boolean {
-  const c = store.confirming.get(r.id)
-  const now = c && sessions.promptsTaken(store.host, r.agentId)
-  return !!c && !!now && now.runId === c.runId && r.offerRun === c.runId && now.count <= c.count
 }
 
 /**
@@ -712,15 +745,17 @@ export async function ackDeliveries(host: string, agentId: string, ids: readonly
 
 /**
  * Applies, in a draft, what sources said as their deliveries were made again: cancelled, or their text and context as
- * they are now (that version, saved with it). One already offered keeps the version it was offered as (what was typed,
- * and what its receipt covers): a later refresh can cancel it, never rewrite it.
+ * they are now (that version, saved with it). One already offered keeps the version it was offered as while that still
+ * holds; one that no longer does is made again (#650: its doorbell named it by id, never its text, so it can be, rather
+ * than never given at all). Its receipt, in the same transaction as the read, covers exactly the version read.
  */
 function applyFresh(store: Store, d: Draft, fresh: Map<string, Fresh>): void {
   for (const [id, f] of fresh) {
     const r = byId(d.records, id)
     if (!r || !isUnread(r)) continue
     if ('cancel' in f) set(store, d, r, 'cancelled', f.cancel)
-    else if (r.state === 'offered') continue
+    // Typed with its text (an agent that can't read an inbox): what was typed is what its receipt covers, never rewritten.
+    else if (r.state === 'offered' && (store.typedFull.has(r.id) || eligible(store, r))) continue
     else if (f.body.length > DELIVERY_BODY_MAX_CHARS) set(store, d, r, 'cancelled', 'cancelled: made again, it was too long to keep')
     else if (f.body !== r.body || (f.meta && JSON.stringify(f.meta) !== JSON.stringify(r.meta))) put(d, r, { ...r, body: f.body, ...(f.meta ? { meta: f.meta } : {}) })
   }
@@ -732,7 +767,14 @@ function applyFresh(store: Store, d: Draft, fresh: Map<string, Fresh>): void {
  * the gate (mayGive) and the writer before each key (offerHolds) both ask.
  */
 const eligible = (store: Store, r: DeliveryRecord): boolean =>
-  !whyNot(store, r) && (r.source ? sources.get(r.source)?.holds?.(r, store.host) : undefined) !== false && store.hooks.get(r.id)?.holds?.() !== false
+  !whyNot(store, r) && (r.source ? sources.get(r.source)?.holds?.(r, store.host) : undefined) !== false && producerHolds(store, r)
+
+/**
+ * Whether a delivery's producer still wants it given (its DeliveryHooks.holds: a task while its agent is free, the
+ * carry-on while the agent is stopped by its sign-in), asked before it is offered and as its line is typed. Once its
+ * doorbell has been taken (#650), the agent is reading what it was rung for, at work by then: not asked again.
+ */
+const producerHolds = (store: Store, r: DeliveryRecord): boolean => (r.state === 'offered' && taken(store, r)) || store.hooks.get(r.id)?.holds?.() !== false
 
 /**
  * The one gate every hand-out goes through (#649): an offer (and so the typing), hive_inbox's read and an ack of something
@@ -743,7 +785,7 @@ const eligible = (store: Store, r: DeliveryRecord): boolean =>
  */
 async function mayGive(store: Store, records: readonly DeliveryRecord[]): Promise<(d: Draft) => (r: DeliveryRecord) => boolean> {
   const fresh = await refreshAll(store, records)
-  for (const r of records) if (!fresh.has(r.id) && store.hooks.get(r.id)?.holds?.() === false) fresh.set(r.id, { cancel: 'cancelled: no longer wanted' })
+  for (const r of records) if (!fresh.has(r.id) && !producerHolds(store, r)) fresh.set(r.id, { cancel: 'cancelled: no longer wanted' })
   return (d) => {
     applyFresh(store, d, fresh)
     return (r) => isUnread(r) && eligible(store, r)
@@ -758,6 +800,8 @@ interface Offer {
   runId: string
   sessionId: string
   need: DeliveryNeed
+  /** Typed with their text (an agent that can't read an inbox). */
+  full: boolean
 }
 
 /** What an agent must be doing to be offered these together: the one they share, else free (which every need takes). */
@@ -786,10 +830,11 @@ function planOffer(store: Store, d: Draft, items: readonly DeliveryRecord[], tar
   const now = items.map((r) => byId(d.records, r.id)).filter((r): r is DeliveryRecord => !!r && isWaiting(r) && !whyNot(store, r))
   if (!now.length) return null
   // A watching agent is told its watch carries on, unless the line is its own watch's wake (whose receipt ends it).
-  const line = offerLine(now, now.some((r) => r.source === 'watch') ? null : label)
+  const full = !readsInbox(store.host, now[0].agentId)
+  const line = offerLine(now, now.some((r) => r.source === 'watch') ? null : label, !full)
   const was = new Map(now.map((r) => [r.id, r]))
   for (const r of now) set(store, d, r, 'offered', undefined, undefined, { offerRun: target.runId })
-  return { ids: now.map((r) => r.id), was, line, runId: target.runId, sessionId: target.sessionId, need: needOf(now) }
+  return { ids: now.map((r) => r.id), was, line, runId: target.runId, sessionId: target.sessionId, need: needOf(now), full }
 }
 
 /**
@@ -857,19 +902,12 @@ function lost(store: Store): void {
   transactSoon(store, 'checking deliveries', (d) => recheck(store, d))
 }
 
-/** The line was taken by its CLI (its confirmation saw the prompt count rise in its launch): what it carried is received (#649). */
-function taken(store: Store, o: Offer): void {
-  transactSoon(store, 'receiving deliveries', (d) => {
-    for (const id of o.ids) {
-      const r = byId(d.records, id)
-      if (r?.state === 'offered' && r.offerRun === o.runId) set(store, d, r, 'received', undefined, 'typed')
-    }
-  })
-}
-
 /** While the confirmation checks its CLI took the line: until then a cancel can still end it (and no Enter comes). */
 function confirming(store: Store, o: Offer, before: { runId: string; count: number }): void {
-  for (const id of o.ids) store.confirming.set(id, before)
+  for (const id of o.ids) {
+    store.confirming.set(id, before)
+    if (o.full) store.typedFull.add(id)
+  }
 }
 
 /** Each source's line made again for what is about to be offered (from things as they are now): its body, or why it is cancelled. */
@@ -950,7 +988,7 @@ async function offerOnce(host: string, agentId: string, only?: string): Promise<
     typed = await typeLine(host, agentId, o.line, () => offerHolds(store, o) && o.ids.every((id) => store.offering.has(id)), {
       need: o.need,
       // Before the confirmation's Enter again: the same check as before each key of the line.
-      ride: { still: () => offerHolds(store, o), withdrawn: (inPrompt) => withdrawn(store, o, inPrompt), confirming: (before) => confirming(store, o, before), taken: () => taken(store, o), lost: () => lost(store) }
+      ride: { still: () => offerHolds(store, o), withdrawn: (inPrompt) => withdrawn(store, o, inPrompt), confirming: (before) => confirming(store, o, before), lost: () => lost(store) }
     })
   } finally {
     for (const id of o.ids) store.offering.delete(id)
@@ -1037,8 +1075,8 @@ export async function deliverNow(host: string, nd: NewDelivery, holds?: () => bo
 
 /**
  * Makes a delivery that a launch carries (#649: the task an agent is started with, its prompt on the command line):
- * `start` launches the agent with its line (its text, with its id to ack), and it is offered into that launch, received
- * once the launch's CLI takes its first prompt. `start` failing cancels it, and the error stands.
+ * `start` launches the agent with its doorbell (#650: its id, never its text), and it is offered into that launch,
+ * received once the agent reads it with hive_inbox. `start` failing cancels it, and the error stands.
  */
 export async function launchWith<T extends { runId: string }>(host: string, nd: NewDelivery, start: (line: string) => Promise<T>, hooks?: DeliveryHooks): Promise<{ record: DeliveryRecord; launched: T }> {
   // Saved as offered before anything is launched (persist before the effect, #647): not saved, nothing starts. From
@@ -1049,7 +1087,7 @@ export async function launchWith<T extends { runId: string }>(host: string, nd: 
   store.offering.add(rec.id)
   let run: T
   try {
-    run = await start(offerLine([rec], null))
+    run = await start(offerLine([rec], null, readsInbox(host, nd.agentId)))
   } catch (e) {
     store.offering.delete(rec.id)
     await transact(store, (d) => {
@@ -1063,6 +1101,7 @@ export async function launchWith<T extends { runId: string }>(host: string, nd: 
   if (run?.runId) {
     store.launches.set(rec.id, run.runId)
     store.confirming.set(rec.id, { runId: run.runId, count: 0 })
+    if (!readsInbox(host, nd.agentId)) store.typedFull.add(rec.id)
   }
   try {
     await transact(store, (d) => {
@@ -1080,8 +1119,8 @@ export async function launchWith<T extends { runId: string }>(host: string, nd: 
 }
 
 /**
- * For a producer about to start from what an agent was told (a new watch, #649): its typed lines taken since are
- * received now, and their sources told, before this returns.
+ * For a producer about to start from what an agent was told (a new watch, #649): what became of its offered deliveries
+ * (rung again, uncertain, ended) is followed now, and their sources told, before this returns.
  */
 export async function followAgent(host: string, agentId: string): Promise<void> {
   const store = stores.get(keyOf(host))
@@ -1120,7 +1159,7 @@ export function initDeliveries(): void {
     const { projectPath, agentId, status } = e.state
     void load(projectPath)
       .then((store) => {
-        // A prompt taken, a launch ended: what was offered is received, or uncertain.
+        // A doorbell let pass, a launch ended: what was offered rings once more, or is uncertain.
         if (store.records.some((r) => r.agentId === agentId && r.state === 'offered')) transactSoon(store, 'checking deliveries', (d) => recheck(store, d, agentId))
         show(store, agentId)
         if (readyFor(e.state, 'stalled') || status === 'watching') setTimeout(() => void offerNow(projectPath, agentId).catch((err) => log.warn('offering deliveries', err)), 500).unref?.()
