@@ -173,9 +173,12 @@ export function ResumeButton({ project, a, className, label = 'Resume' }: { proj
   )
 }
 
-/** A running session's name (see sessionLabel): the latest rename, else its title, else when it started. */
+/**
+ * A running session's name (see sessionLabel): the latest rename, else its title, else when the conversation began (its
+ * record's time, as in the Sessions tab: a resumed one's isn't this launch's).
+ */
 function liveSessionLabel(project: ProjectInfo, live: LiveSessionState, usage: SessionUsage | null | undefined): string {
-  return sessionLabel({ id: live.sessionId, name: live.sessionName, title: usage?.title, customTitle: usage?.customTitle, titleAtRename: live.titleAtRename, startedAt: live.startedAt }, project.name)
+  return sessionLabel({ id: live.sessionId, name: live.sessionName, title: usage?.title, customTitle: usage?.customTitle, titleAtRename: live.titleAtRename, startedAt: live.sessionCreatedAt || live.startedAt }, project.name)
 }
 
 async function renameSession(project: ProjectInfo, sessionId: string, current: string): Promise<void> {

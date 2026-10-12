@@ -173,6 +173,26 @@ const check = (name, ok, extra = '') => {
   })
   check('drop from Explorer copies into the project', !!(await lib.until(async () => exists('from explorer.txt') && (await selected('from explorer.txt')), HUNG_MS)))
 
+  // A paste that ends late leaves alone a row clicked meanwhile (#641). Every folder listing takes 5 s, so the paste's
+  // reload of dist is still under way when .gitignore is clicked; it goes out before the live watch's (debounced), so
+  // once the copy's row is in the tree the paste has done what it does after that reload.
+  await page.keyboard.press('Control+C')
+  await row('dist').click()
+  await app.evaluate(() => { process.env.HIVE_TEST_SLOW_IPC = 'files:list=5000' })
+  await page.keyboard.press('Control+V')
+  await lib.until(() => exists('dist/from explorer.txt'), HUNG_MS)
+  // Checked and clicked in one go in the window: was the paste still reloading dist at the click?
+  const early = await page.evaluate(() => {
+    const listed = !!document.querySelector('.file-row[data-rel="dist/from explorer.txt"]')
+    document.querySelector('.file-row[data-rel=".gitignore"]').click()
+    return !listed
+  })
+  check('…a click while a paste reloads its folder comes before the paste ends', early)
+  const pastedRow = await lib.until(async () => (await row('dist/from explorer.txt').count()) === 1, HUNG_MS)
+  const kept = await page.locator('.file-row.selected').evaluateAll((els) => els.map((e) => e.getAttribute('data-rel')))
+  check('…and the clicked row keeps the selection once the paste ends', !!pastedRow && JSON.stringify(kept) === JSON.stringify(['.gitignore']), JSON.stringify({ pastedRow: !!pastedRow, kept }))
+  await app.evaluate(() => { process.env.HIVE_TEST_SLOW_IPC = '' })
+
   // Live update from outside Hive.
   w('made-outside.txt', 'hi')
   await lib.until(async () => (await row('made-outside.txt').count()) === 1, 10000)
