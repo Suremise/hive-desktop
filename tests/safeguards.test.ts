@@ -3,7 +3,7 @@ import { claudeSafeguards } from '../src/main/providers/claude/safeguards'
 import { codexSafeguards } from '../src/main/providers/codex/safeguards'
 import { claudeCode } from '../src/main/providers/claude/adapter'
 import type { Ask } from '../src/main/providers/types'
-import { SAFEGUARD_DEFAULTS, noteSafeguard, safeguardCodes, safeguardPattern, safeguardText, seenInTurn, withScreenStops, type SafeguardEvent, type SafeguardNote } from '../src/shared/safeguards'
+import { SAFEGUARD_DEFAULTS, countSafeguards, memoTurn, noteSafeguard, safeguardCodes, safeguardPattern, safeguardText, seenInTurn, withScreenStops, type SafeguardEvent, type SafeguardNote } from '../src/shared/safeguards'
 
 const lines = (...o: unknown[]): string => o.map((x) => JSON.stringify(x)).join('\n') + '\n'
 const at = (iso: string): number => Date.parse(iso)
@@ -302,9 +302,48 @@ describe('usage', () => {
     const memo = {}
     claudeSafeguards(lines(prompt(T0, 'p1', 'fix it')), memo)
     expect(claudeSafeguards(lines(fallback(T1, 'req_1', 'session'), prompt(T2, 'p2', 'carry on')), memo).find((e) => e.kind === 'stop')).toMatchObject({ asked: true, turn: 'p1' })
-    // Hive's own lines, tool results and Claude Code's meta entries aren't a new turn; a prompt with no uuid is one by its time.
-    const own = claudeSafeguards(lines(prompt(T0, 'p1', 'fix it'), { type: 'user', timestamp: T0, message: { role: 'user', content: [{ type: 'tool_result', tool_use_id: 'x', content: 'ok' }] } }, { type: 'user', isMeta: true, timestamp: T0, message: { role: 'user', content: 'caveat' } }, fallback(T1, 'req_2', 'local'), { type: 'user', timestamp: T2, message: { role: 'user', content: 'next' } }, fallback(T3, 'req_3', 'local')), {})
+    // Tool results, Claude Code's meta entries and a compaction's summary aren't a new turn; a prompt with no uuid is one by its time.
+    const own = claudeSafeguards(
+      lines(
+        prompt(T0, 'p1', 'fix it'),
+        { type: 'user', timestamp: T0, message: { role: 'user', content: [{ type: 'tool_result', tool_use_id: 'x', content: 'ok' }] } },
+        { type: 'user', isMeta: true, timestamp: T0, uuid: 'm1', message: { role: 'user', content: '<local-command-caveat>caveat</local-command-caveat>' } },
+        { type: 'user', isCompactSummary: true, timestamp: T0, uuid: 'c1', message: { role: 'user', content: 'This session is being continued…' } },
+        fallback(T1, 'req_2', 'local'),
+        { type: 'user', timestamp: T2, message: { role: 'user', content: 'next' } },
+        fallback(T3, 'req_3', 'local')
+      ),
+      {}
+    )
     expect(own.map((e) => e.kind === 'stop' && e.turn)).toEqual(['p1', `prompt ${T2}`])
+  })
+
+  it("starts a new turn at every prompt the person sent, markup and all, or images alone, so a new task's stop stays its own", () => {
+    const image = { type: 'image', source: { type: 'base64', media_type: 'image/png', data: 'iVBORw0KGgo=' } }
+    const prompts: [string, unknown][] = [
+      ['tagged text', '<task>Continue with this task</task>'],
+      ['a tagged text block', [{ type: 'text', text: '<task>Continue with this task</task>' }]],
+      ['images alone', [image]],
+      ['a command', '<command-name>/review</command-name>\n<command-args></command-args>'],
+      ["Hive's typed line", '[Hive] #12 is in Review: HR5 failed it']
+    ]
+    for (const [what, content] of prompts) {
+      // Turn p1: a stop Claude Code recorded by itself (no prompt shown). Turn p2: the person's next prompt, then a stop
+      // only its screen showed (HB3's), noted with the turn the detector is in.
+      const memo: Record<string, unknown> = {}
+      const read = claudeSafeguards(lines({ type: 'user', timestamp: T0, uuid: 'p1', message: { role: 'user', content: 'First task' } }, assistant(T0, 'claude-opus-5-5', []), fallback(T1, 'req_1', 'session', { fallbackModel: 'claude-sonnet-5-5' }), { type: 'user', timestamp: T2, uuid: 'p2', message: { role: 'user', content } }, assistant(T2, 'claude-sonnet-5-5', [])), memo)
+      expect([what, memoTurn(memo)]).toEqual([what, 'p2'])
+      const asked: Record<string, number> = {}
+      const by: Record<string, number> = {}
+      countSafeguards(by, read, asked)
+      const screen = [{ at: T3, model: 'claude-sonnet-5-5', turn: memoTurn(memo) }]
+      // Performance: the two stops, each its own.
+      expect([what, withScreenStops(by, screen, asked)]).toEqual([what, { 'claude-opus-5-5': 1, 'claude-sonnet-5-5': 1 }])
+      // The pane's count in the launch: the screen stop isn't taken for the record of p1.
+      const turns = new Map()
+      for (const e of read) if (e.kind === 'stop' && e.turn) seenInTurn(turns, e.turn, 'asked')
+      expect([what, seenInTurn(turns, memoTurn(memo)!, 'screen')]).toEqual([what, false])
+    }
   })
 
   it("counts a stop its prompt showed and the CLI recorded once in a launch, whichever is read first", () => {

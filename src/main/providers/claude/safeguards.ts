@@ -20,12 +20,18 @@ interface Memo {
 
 const str = (v: unknown): string | undefined => (typeof v === 'string' && v ? v : undefined)
 
-/** A prompt the person typed (a new turn): not Claude Code's own (meta, a compaction's summary, a command) nor a tool's result. */
+/**
+ * Something the person (or Hive for them) sent, a new turn: any text, markup and all ("<task>…</task>", a command), or
+ * images alone. Not Claude Code's own entries, told by their fields: meta entries (its notices, caveats and reminders),
+ * a compaction's summary, and tool results. Over-counting turns is safe: nothing is written between Claude Code's prompt
+ * about a stop and its record of it, so they always share a turn; too few would merge two tasks' stops.
+ */
 function isPrompt(o: Record<string, any>): boolean {
   if (o.isMeta || o.isCompactSummary || o.toolUseResult !== undefined) return false
   const c = o.message?.content
-  if (typeof c === 'string') return !!c.trim() && !c.trimStart().startsWith('<')
-  return Array.isArray(c) && c.length > 0 && c.every((b) => b?.type === 'text' || b?.type === 'image') && c.some((b) => b?.type === 'text' && typeof b.text === 'string' && !b.text.trimStart().startsWith('<'))
+  if (typeof c === 'string') return !!c.trim()
+  if (!Array.isArray(c) || c.some((b) => b?.type === 'tool_result')) return false
+  return c.some((b) => b?.type === 'image' || (b?.type === 'text' && typeof b.text === 'string' && !!b.text.trim()))
 }
 
 /**
