@@ -250,6 +250,51 @@ describe('notices in the hook replies (#650)', () => {
     expect(cx.status).toBe('finished')
   })
 
+  it('a late prompt of an earlier turn begins nothing (round 2 finding): its late Stop gets no notice, and the current turn keeps its own checkpoint and one drain', async () => {
+    const st = agent()
+    await hook(st, { hook_event_name: 'UserPromptSubmit', prompt_id: 'p1', prompt: 'go' })
+    expect(await hook(st, { hook_event_name: 'Stop', prompt_id: 'p1', stop_hook_active: false })).toBeNull()
+    await hook(st, { hook_event_name: 'UserPromptSubmit', prompt_id: 'p2', prompt: 'again' })
+    const m = await leave(st)
+    // p1's prompt again, late (the turn ledger finds it stale): nothing moves back to p1.
+    await hook(st, { hook_event_name: 'UserPromptSubmit', prompt_id: 'p1', prompt: 'go' })
+    expect(await hook(st, { hook_event_name: 'Stop', prompt_id: 'p1', stop_hook_active: false })).toBeNull()
+    expect(context(await hook(st, tool('p2', 'c1')))).toBe(`[Hive] New in your inbox: 1 message (${m.id}). Call hive_inbox now to read it, then carry on.`)
+    expect(context(await hook(st, { hook_event_name: 'Stop', prompt_id: 'p2', stop_hook_active: false }))).toMatch(/^\[Hive\] Before you finish: /)
+    expect(await hook(st, { hook_event_name: 'Stop', prompt_id: 'p2', stop_hook_active: false })).toBeNull()
+  })
+
+  it('Copilot (no turn ids): a new prompt while an older Stop is worked out makes it the old turn\'s: no continuation, nothing taken as Hive\'s own, and the new prompt keeps its own drain (round 2 finding)', async () => {
+    const cp = agent(copilot)
+    const full = (body: Record<string, unknown>) => ({ session_id: cp.sessionId, cwd: p, ...body })
+    const stop = full({ hook_event_name: 'Stop', stop_reason: 'end_turn', stop_hook_active: false })
+    await hook(cp, { hook_event_name: 'UserPromptSubmit', prompt: 'first' })
+    await leave(cp)
+    const real = sessions.inboxNotice!
+    let release = (): void => undefined
+    const gate = new Promise<void>((r) => (release = r))
+    sessions.inboxNotice = async (state, at) => {
+      await gate
+      return real(state, at)
+    }
+    try {
+      const old = await run(async () => {
+        const r = sessions.hookReply(cp.runId, stop)
+        await sessions.hookReply(cp.runId, full({ hook_event_name: 'UserPromptSubmit', prompt: 'second' }))
+        release()
+        return r
+      })
+      expect(old).toBeNull()
+      expect(s.live.get(`${p.toLowerCase()}#${cp.agentId}`)?.ledger.injected).toEqual([])
+    } finally {
+      release()
+      sessions.inboxNotice = real
+    }
+    // The new prompt's Stop: drained, once.
+    expect(await run(() => sessions.hookReply(cp.runId, stop))).toMatchObject({ decision: 'block', reason: expect.stringMatching(/^\[Hive\] Before you finish: /) })
+    expect(await run(() => sessions.hookReply(cp.runId, stop))).toBeNull()
+  })
+
   it("Copilot: the drain comes back as a prompt (its hooks name no turn), taken as Hive's own in the turn it carries on", async () => {
     const cp = agent(copilot)
     await hook(cp, { hook_event_name: 'UserPromptSubmit', prompt: 'go' })
