@@ -294,7 +294,7 @@ A project can have up to twelve agents working at once, for example one building
 
 **Arranging agents.** Drag an agent (its tab, or its pane by the header) onto another agent's pane to **swap** them, running or not; onto an empty pane to move it there. Drag a tab along the strip to move it between others, like browser tabs (a bar shows where it will land). To swap with an agent on another page, hold the dragged agent over that page's button for a moment: the page shows, and you drop it on a pane there. Drop it on a page button itself to move it to that page's last place. The panes always show the agents in their order, so what you see is what's saved. Or use **Move Left** / **Move Right** in the agent's menu, or **Ctrl+Alt+Shift+Left / Right** for the focused agent. The order is saved with the project; nothing is stopped or restarted.
 
-**Which conversation each agent has.** Each agent's footer shows the session it is running as an icon, on the right before the context: hover for its name and when it started, click to read it in the Sessions tab, right-click to rename it. Until a session has a name, it is named by when it started, e.g. *2026-10-04 14:05* (in your date and time format: **Settings → General → Date format** and **Time format**). You can rename a session in Hive (the footer or the Sessions tab) or in Claude Code with `/rename`: whichever you did last is the name Hive shows, and resuming the session keeps it. A conversation can only be open in one agent at a time. **Resume** reopens the agent's own last session and is greyed out when it has none. Its **▾** lists the recent sessions from the agent's folder: pick one to continue it in this agent, including a paused conversation another agent in the same folder started. Sessions that are open in another agent are greyed out; clicking one takes you to that agent. Agents in their own worktree only see that worktree's sessions.
+**Which conversation each agent has.** Each agent's footer shows the session it is running as an icon, on the right before the context: hover for its name and when it started, click to read it in the Sessions tab, right-click to rename it. Until a session has a name, it is named by when it started, e.g. *2026-10-04 14:05*, and keeps that name when you resume it (in your date and time format: **Settings → General → Date format** and **Time format**). You can rename a session in Hive (the footer or the Sessions tab) or in Claude Code with `/rename`: whichever you did last is the name Hive shows, and resuming the session keeps it. A conversation can only be open in one agent at a time. **Resume** reopens the agent's own last session and is greyed out when it has none. Its **▾** lists the recent sessions from the agent's folder: pick one to continue it in this agent, including a paused conversation another agent in the same folder started. Sessions that are open in another agent are greyed out; clicking one takes you to that agent. Agents in their own worktree only see that worktree's sessions.
 
 The sidebar keeps one status dot per project, showing the most urgent agent (needs input, then working…), with the number of running agents next to the name. The project header's status says how many agents are in that state (for example *Working · 1 of 2 agents*); hover it for each agent's state. Notifications name the agent, e.g. "hive · Agent 2 finished".
 
@@ -535,6 +535,8 @@ Any command can show in the panel by running it with **`hive-progress`** in fron
 
 A command shows real steps when it prints lines like `##hive-progress step=4 total=12 name=carddialog`; any project's test runner can print them (see the Agent API reference). A total printed after a slow start still counts: the bar moves without steps until then, and shows them from then on. `hive-progress` is on the path of every session Hive starts, in Claude Code's and Codex's shells. A command that reports its own progress, such as Hive's own test runners, still shows as one row when an agent wraps it.
 
+Stopping a `hive-progress` command (Ctrl+C where it gets one) gives it 5 seconds to end by itself, then ends it with everything it started, such as the server under an `npm` or `.cmd` command. Hive checks when each of those processes started, so a process that only looks like the command's (an older one whose own parent had the same process number before it ended) is left running. If Windows won't list the processes, only the command itself is ended.
+
 ## Task board
 
 The **Task Board** (in the activity bar, or **Ctrl+Shift+J**) is the workspace's list of work, as cards in six columns: **On Hold**, **Todo**, **Doing**, **Review**, **Passed** and **Done**. You, the Hive Assistant and the agents all use it, so it's where you can see at a glance what is planned, what is being worked on and what is waiting for you.
@@ -761,7 +763,7 @@ The **Files** tab is a file browser for the project folder.
 
 - **Create:** the New File and New Folder buttons (or right-click a folder) add an entry inside the selected folder; type the name in place. A name like `docs/notes.md` creates the folders in between.
 - **Rename** with F2, **delete** with Del. Deleted files go to the **Recycle Bin**, so they can be restored.
-- **Cut, copy and paste** with Ctrl+X, Ctrl+C and Ctrl+V, or from the right-click menu, which also has **Duplicate**, **Copy Path** and **Copy Relative Path**. Pasting into another project always copies.
+- **Cut, copy and paste** with Ctrl+X, Ctrl+C and Ctrl+V, or from the right-click menu, which also has **Duplicate**, **Copy Path** and **Copy Relative Path**. Pasting into another project always copies. A paste, a rename or a new file selects what it made once it's done; if you click another row before then (in a big folder or on a slow disk), your row stays selected, so the next key acts on it.
 - **Drag and drop:** drag entries onto a folder to move them (hold Ctrl to copy). Drag files in from Explorer to copy them into the project. Drag files onto the **Session** tab to paste their paths into the running session.
 - **Open elsewhere:** the buttons above the editor (and the right-click menu) open a file in its default app or reveal it in File Explorer.
 - **Find:** the box at the top searches the whole project by name or path (git-ignored files are left out).
@@ -931,6 +933,16 @@ To make one, open **Settings → Agent API → Viewer tokens**, type a name for 
 
 The app finds a running Hive by itself: while the Agent API is on, Hive keeps its address (never a token) in `%APPDATA%\Hive\agent-api-discovery.json`, and removes it when the API is turned off or Hive quits.
 
+### The developer console
+
+The developer console shows what each coding agent's CLI sends Hive (its hooks, status line, transcript records, the terminal signs Hive reacts to, its launch and exit) next to what Hive made of each: the status it set, the details it read. It also shows Hive's own work in the workspace: Agent API calls, the merge slot, watches waking agents and Progress runs. It's for power users and for developing Hive, so it is hidden until you turn on **Settings → Advanced → Show developer features**. Then open it from **Help → Developer Console** or with **Ctrl+Alt+J**.
+
+- It opens in a **window of its own**, like a browser's developer tools, so you can put it on a second screen. Hive remembers its size and position. Each Hive window has its own console, on that window's workspace. It closes with that window, or when the window opens another workspace or closes this one; open it again for the new workspace.
+- **Pick a source** at the top: **Hive** or the **Hive Assistant**, or one of a project's agents. Hive starts capturing that source when you pick it and stops when you pick another or close the console. An agent you pick before it starts shows its launch too.
+- Each row is one event: its time, its type, its name and a one-line summary. **Click a row** to see the event as it came in (**Raw**) beside **What Hive made of it**. Large payloads start folded: click a node to open it.
+- **Filter** by event type (click a type to hide or show it) or by provider, and **search** (Ctrl+F) the events' names, summaries and payloads. **Pause** stops the list moving while you read (Hive goes on capturing, and the indicator counts what came); **Resume** fills it in. **Clear** empties the list, including anything that came while paused.
+- What it shows is **redacted**: no prompt or reply text, commands, tokens or sign-in details. Hive keeps the newest 500 events of each source in memory only, and nothing once the console closes.
+
 ### Agents reading the developer console
 
 Hive's developer console shows what each coding agent's CLI sends Hive (its hooks, status line, transcript records, the terminal signs Hive reacts to) next to what Hive made of each: the status it set, the details it read. **Settings → Agent API → Let agents read the developer console** gives agents and the Hive Assistant a read-only tool for it (`hive_console`), so they can see what their CLI does while they build and debug. It is off unless you turn it on, and running sessions get the tool when they next start.
@@ -1048,6 +1060,7 @@ Tick **Don't ask again** to stop the question about sessions, or change it any t
 | Notifications | Ctrl+Alt+U |
 | Show / hide the Hive Assistant | Ctrl+Alt+I |
 | Show / fold the Progress panel | Ctrl+Alt+P |
+| Developer console (with Show developer features on) | Ctrl+Alt+J |
 | External terminal in the project | Ctrl+Shift+` |
 | Documentation | F1 |
 

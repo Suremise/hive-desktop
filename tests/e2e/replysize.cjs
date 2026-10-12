@@ -295,7 +295,7 @@ const prose = (seed, n) => {
   // added the workspace's Card loop rounds and wait (about 100 characters); 7,400 since #636 added Let agents read the
   // developer console (about 70 characters).
   const settingsList = measure('hive_list_settings', tool('hive_list_settings', {}, 'assistant'), 7400)
-  check('settings: a line each, id = value, read-only ones marked', /^sessions\.compactSuggestTokens = 200000 · Suggest compacting above$/m.test(settingsList) && /^agentApi\.port = \d+ \[read-only\] · /m.test(settingsList) && !/^advanced\./m.test(settingsList), settingsList.slice(0, 300))
+  check('settings: a line each, id = value, read-only ones marked', /^sessions\.compactSuggestTokens = 200000 · Suggest compacting above$/m.test(settingsList) && /^agentApi\.port = \d+ \[read-only\] · /m.test(settingsList) && /^advanced\.showDeveloperFeatures = off · /m.test(settingsList) && !/^advanced\.(logs|data|reset) /m.test(settingsList), settingsList.slice(0, 300))
   const compactList = measure('hive_list_settings (query)', tool('hive_list_settings', { query: 'compact' }, 'assistant'), 1500)
   check('query narrows it, saying what each does', compactList.split('\n').length < 10 && /^assistant\.compactSuggestTokens = 500000 · Highlight Compact over: Context size/m.test(compactList), compactList)
   const projectList = measure('hive_list_settings (a project)', tool('hive_list_settings', { project: 'alpha', scope: 'project' }, 'assistant'), 3000)

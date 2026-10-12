@@ -192,6 +192,10 @@ export interface AppSettings {
     /** The columns' colours (#rrggbb). */
     colors: Record<TaskColumn, string>
   }
+  advanced: {
+    /** Help → Developer Console and its shortcut (#366, #637): hidden until this is on. */
+    showDeveloperFeatures: boolean
+  }
 }
 
 export type AssistantPanelSide = 'right' | 'left'
@@ -408,6 +412,8 @@ export interface AppConfig {
   activeProjects: Record<string, string[]>
   /** The last focused window's size and place, for a new window. */
   window: WindowState
+  /** The developer console window's size and place (#637). */
+  consoleWindow?: WindowState
   /** The windows open when Hive last quit, each with its workspace (null: the welcome page), reopened at start. */
   windows?: (WindowState & { workspace: string | null })[]
   /** Per workspace (lowercased path): the last project rename (#514, `.hive/project-names.json`'s number) its view preferences and Working on follow. */
@@ -1165,6 +1171,11 @@ export interface LiveSessionState {
   sessionName?: string
   /** See SessionRecord.titleAtRename. */
   titleAtRename?: string | null
+  /**
+   * When the conversation began: its record's createdAt (a resumed one began before this launch; a new one's record is
+   * given this launch's startedAt), which names it until it has a name, as in the Sessions tab (#630).
+   */
+  sessionCreatedAt?: string
   status: SessionStatus
   /** When the status last changed (ISO): how long an agent has been waiting or finished. */
   statusSince?: string

@@ -1000,6 +1000,7 @@ class SessionManager {
       titleAtRename: adopted ?? (existing ? existing.titleAtRename : opts.name?.trim() ? null : undefined),
       status: 'starting',
       startedAt: new Date().toISOString(),
+      sessionCreatedAt: existing?.createdAt,
       launchSignature: '',
       unseen: false
     }
@@ -1287,10 +1288,13 @@ class SessionManager {
   private async recordSession(projectPath: string, agent: Pick<AgentDef, 'id' | 'name' | 'worktree'>, l: LiveSession): Promise<void> {
     const { state } = l
     const sessionId = state.sessionId
+    // A new conversation began with this launch, or (one the CLI switched to) now: its record says so, and the footer
+    // names it by the record's time, as the Sessions tab does (#630: a minute apart when recorded after a minute's turn).
+    state.sessionCreatedAt ??= state.startedAt
     // Attachments pasted before the provider named the session wait in the launch's folder: move them to the session's,
     // only between folders of the host's own (never through a link) and never over a file there.
     await this.moveEarlyAttachments(projectPath, `run-${state.runId}`, sessionId).catch((e) => log.warn("Could not move the launch's attachments to its session's", e))
-    await workspace.upsertSession(projectPath, {
+    const rec = await workspace.upsertSession(projectPath, {
       id: sessionId,
       agent: state.provider,
       name: l.name,
@@ -1306,7 +1310,8 @@ class SessionManager {
       // Where it ran, when not the project folder (a worktree, or the Assistant's workspace folder).
       ...(state.cwd.toLowerCase() !== projectPath.toLowerCase() ? { cwd: state.cwd } : {}),
       ...(agent.worktree ? { branch: agent.worktree.branch } : {})
-    })
+    }, { createdAt: state.sessionCreatedAt })
+    state.sessionCreatedAt = rec.createdAt
     await workspace.updateAgent(projectPath, agent.id, { lastSessionId: sessionId }).catch(() => undefined)
     // The card it was started on (or already has in Doing).
     await recordCards(workspaceOf(projectPath), projectPath, agent.id, sessionId).catch((e) => log.warn(`Could not record the cards of session ${sessionId}`, e))
@@ -3072,6 +3077,7 @@ class SessionManager {
       l.name = existing?.name || autoName(st.projectPath, agent, count)
       st.sessionName = l.name
       st.titleAtRename = existing?.titleAtRename
+      st.sessionCreatedAt = existing?.createdAt ?? new Date().toISOString()
       l.transcriptPath = transcriptPath ?? existing?.transcriptPath
       l.transcriptMtime = ''
       l.detailsOffset = 0

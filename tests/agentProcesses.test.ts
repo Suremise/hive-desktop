@@ -233,27 +233,28 @@ else {
       `param($src, $node)
 $ErrorActionPreference = 'Stop'
 Add-Type -ReferencedAssemblies System.Management -TypeDefinition (Get-Content -Raw $src)
-$sleeper = { $s = [System.Diagnostics.ProcessStartInfo]::new($node, '-e "setTimeout(() => {}, 60000)"'); $s.UseShellExecute = $false; $s.CreateNoWindow = $true; [System.Diagnostics.Process]::Start($s) }
+$sleeper = { $s = [System.Diagnostics.ProcessStartInfo]::new($node, '-e "console.log(''up''); setTimeout(() => {}, 60000)"'); $s.UseShellExecute = $false; $s.CreateNoWindow = $true; $s.RedirectStandardOutput = $true; [System.Diagnostics.Process]::Start($s) }
 $r = [ordered]@{}
 $m = & $sleeper
 $r.added = [HiveJobs]::Add('t', $m.Id)
 # The port holds the member it reports.
 for ($i = 0; $i -lt 100 -and -not [HiveJobs]::IsHeld($m.Id); $i++) { Start-Sleep -Milliseconds 50 }
 $r.memberHeld = [HiveJobs]::IsHeld($m.Id)
-$before = [DateTime]::UtcNow.ToFileTimeUtc()
-# Windows stamps a process's creation from a clock that moves in ticks of about 15.6 ms: one created within a tick of
-# $before can carry an earlier time. Started once the clock is past that, the stamp is surely later.
-while ([DateTime]::UtcNow.ToFileTimeUtc() - $before -lt 500000) { }
 # Started after "the snapshot", by this shell: no child of the member's, whatever a stale snapshot said.
 $u = & $sleeper
-$after = [DateTime]::UtcNow.ToFileTimeUtc()
 $r.unrelatedHeld = [HiveJobs]::Hold('t', $u.Id)
-$r.staleTaken = [HiveJobs]::Take('t', $u.Id, $m.Id, $before)
-# The same pair, from a snapshot taken after it started, is taken: it is the snapshot's time that refuses it above.
-$r.freshTaken = [HiveJobs]::Take('t', $u.Id, $m.Id, $after)
+# Snapshot times from its exact creation stamp, not a clock read (#616): DateTime.UtcNow is the coarse system clock,
+# which can still be before the stamp of a process started before it was read.
+$created = [HiveJobs]::CreatedOf($u.Id)
+$r.staleTaken = [HiveJobs]::Take('t', $u.Id, $m.Id, $created - 1)
+# The same pair, from a snapshot taken as it started, is taken: it is the snapshot's time that refuses it above.
+$r.freshTaken = [HiveJobs]::Take('t', $u.Id, $m.Id, $created)
 # Followed: one through a handle that can't end it, one that can.
 $v = & $sleeper
 $w = & $sleeper
+# Running its script, so past starting up (#616): Kill ends the console host it was given (adopted, as its child), and
+# a process whose console host ends while it starts fails to start (0xC0000142), which is not End's to prevent.
+$r.survivorStarted = $v.StandardOutput.ReadLine() -eq 'up'
 $r.followed = [HiveJobs]::Follow('t', $v.Id, 0) -and [HiveJobs]::Follow('t', $w.Id, 1)
 $r.kill = [HiveJobs]::Kill('t')
 $r.endedOne = $w.WaitForExit(10000)
@@ -276,6 +277,7 @@ $r | ConvertTo-Json -Compress
       unrelatedHeld: false,
       staleTaken: false,
       freshTaken: true,
+      survivorStarted: true,
       followed: true,
       kill: false,
       endedOne: true,

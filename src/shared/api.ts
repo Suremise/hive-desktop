@@ -498,6 +498,8 @@ export interface HiveRequests {
   'progress:openLog': (id: string) => void
   /** Shows the log a run reported in its folder. */
   'progress:showLog': (id: string) => void
+  /** Opens this window's developer console (#637), or brings it forward; refused unless Show developer features is on. */
+  'console:open': () => void
   /** The developer console's sources in this window's workspace (#636): its agents, its Assistant and Hive itself. */
   'console:sources': () => ConsoleSource[]
   /**

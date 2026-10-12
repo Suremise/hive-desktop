@@ -87,9 +87,10 @@ const check = (name, ok, extra = '') => {
   check('the run was reported as the agent, and failed with its exit code', demo?.agentName === 'Builder' && demo?.state === 'failed' && demo?.summary === 'exit code 3', JSON.stringify(demo))
 
   // --- An Electron app run through either shim starts as an app (the shims run hive-progress with Hive's executable as
-  // Node; that setting isn't passed on to the command).
+  // Node; that setting isn't passed on to the command). The app quits rather than exits: app.exit() as soon as it's
+  // ready sometimes crashes Electron under load (0x80000003, exit code 3 in bash; 0xC0000005), app.quit() never (#656).
   const electronApp = path.join(lib.WORK, 'progressreport-electron-app.cjs')
-  fs.writeFileSync(electronApp, "let app = null\ntry { app = require('electron').app } catch {}\nif (!app) { console.log('BROKEN: running as Node'); process.exit(23) }\napp.whenReady().then(() => { console.log('OK: Electron app'); app.exit(0) })\n")
+  fs.writeFileSync(electronApp, "let app = null\ntry { app = require('electron').app } catch {}\nif (!app) { console.log('BROKEN: running as Node'); process.exit(23) }\napp.whenReady().then(() => { console.log('OK: Electron app'); app.quit() })\n")
   const viaCmd = await shell(builder.id, `hive-progress -- "${lib.ELECTRON}" "${electronApp}"`)
   check('an Electron app through hive-progress (cmd, the .cmd shim) starts as an app', viaCmd?.code === 0 && viaCmd?.stdout.trim() === 'OK: Electron app', JSON.stringify(viaCmd))
   const gitBash = 'C:\\Program Files\\Git\\bin\\bash.exe'

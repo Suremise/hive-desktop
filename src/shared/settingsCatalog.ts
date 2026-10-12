@@ -324,6 +324,14 @@ const APP_ROWS: Row[] = [
     wide: true
   },
   // Advanced
+  {
+    section: 'advanced',
+    key: 'showDeveloperFeatures',
+    title: 'Show developer features',
+    desc: 'Show Help → Developer Console (Ctrl+Alt+J): what each CLI sends Hive, next to what Hive made of it.',
+    tip: 'For power users and for developing Hive. The console opens in a window of its own; Hive captures a source only while it is open on it, redacted. Turning this off closes it.',
+    type: 'boolean'
+  },
   { section: 'advanced', key: 'logs', title: 'Logs', desc: 'Open the folder containing Hive\'s log files.', tip: 'Useful when reporting a problem.', type: 'custom' },
   { section: 'advanced', key: 'data', title: 'Settings file', desc: 'Hive keeps its settings in %APPDATA%\\Hive\\config.json.', tip: 'Project settings live in each project\'s .hive folder; workspace settings in the workspace .hive folder.', type: 'custom' },
   { section: 'advanced', key: 'reset', title: 'Reset all settings', desc: 'Restore every setting on this page to its default. Workspaces and projects are not affected.', tip: 'Recent workspaces and window position are kept.', type: 'custom', danger: true }

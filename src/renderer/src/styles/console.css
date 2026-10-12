@@ -1,0 +1,293 @@
+/* The developer console window (#637, ConsoleApp.tsx). Uses the main window's theme variables (app.css). */
+
+.dc {
+  display: flex;
+  flex-direction: column;
+  height: 100vh;
+  background: var(--bg);
+  color: var(--fg);
+  font-size: var(--ui-font-size, 13px);
+}
+
+.dc-toolbar,
+.dc-kinds,
+.dc-status,
+.dc-detail-head {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 4px 8px;
+  flex-wrap: wrap;
+}
+
+.dc-toolbar {
+  border-bottom: 1px solid var(--border-subtle);
+  background: var(--bg-sidebar);
+}
+
+.dc-toolbar select,
+.dc-search input {
+  background: var(--bg-input);
+  color: var(--fg);
+  border: 1px solid var(--border-subtle);
+  border-radius: 3px;
+  padding: 3px 6px;
+  font: inherit;
+}
+
+.dc-source {
+  min-width: 220px;
+  max-width: 40vw;
+}
+
+.dc-sep {
+  flex: 1;
+}
+
+.dc-live {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 1px 8px;
+  border-radius: 10px;
+  font-size: 0.92em;
+  color: var(--fg-muted);
+}
+
+.dc-live.live {
+  color: var(--success);
+}
+
+.dc-live.paused {
+  color: var(--warning);
+}
+
+.dc-live .codicon {
+  font-size: 10px;
+}
+
+.dc-live.paused .codicon {
+  font-size: 12px;
+}
+
+.dc-search {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  position: relative;
+}
+
+.dc-search input {
+  width: 240px;
+}
+
+.dc-kinds {
+  border-bottom: 1px solid var(--border-subtle);
+  gap: 4px;
+}
+
+.dc-kind {
+  background: transparent;
+  color: var(--fg-faint);
+  border: 1px solid var(--border-subtle);
+  border-radius: 10px;
+  padding: 0 8px;
+  font: inherit;
+  font-size: 0.9em;
+  cursor: pointer;
+}
+
+.dc-kind.on {
+  color: var(--fg-strong);
+  background: var(--accent-soft);
+  border-color: var(--accent);
+}
+
+.dc-error {
+  padding: 4px 8px;
+  color: var(--error);
+}
+
+.dc-body {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+}
+
+.dc-list {
+  flex: 1;
+  min-height: 0;
+  overflow: auto;
+  font-family: var(--mono, Consolas, monospace);
+  font-size: 0.92em;
+}
+
+.dc-body.with-detail .dc-list {
+  flex: 0 0 38%;
+  border-bottom: 1px solid var(--border);
+}
+
+.dc-empty {
+  padding: 16px;
+  color: var(--fg-muted);
+  font-family: var(--font, inherit);
+  max-width: 640px;
+}
+
+.dc-row {
+  display: flex;
+  gap: 10px;
+  padding: 1px 8px;
+  white-space: nowrap;
+  cursor: default;
+  border-bottom: 1px solid var(--border-subtle);
+}
+
+.dc-row:hover {
+  background: var(--bg-hover);
+}
+
+.dc-row.picked {
+  background: var(--bg-active);
+}
+
+.dc-time {
+  color: var(--fg-faint);
+  flex: none;
+}
+
+.dc-kind-tag {
+  flex: none;
+  min-width: 78px;
+  color: var(--info);
+}
+
+.dc-row[data-kind='hook'] .dc-kind-tag {
+  color: var(--accent-ink);
+}
+
+.dc-row[data-kind='api'] .dc-kind-tag,
+.dc-row[data-kind='hook-server'] .dc-kind-tag {
+  color: var(--merge-ink);
+}
+
+.dc-row[data-kind='exit'] .dc-kind-tag {
+  color: var(--error);
+}
+
+.dc-name {
+  flex: none;
+  color: var(--fg-strong);
+}
+
+.dc-summary {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  color: var(--fg-muted);
+}
+
+.dc-detail {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+}
+
+.dc-detail-head {
+  border-bottom: 1px solid var(--border-subtle);
+  background: var(--bg-sidebar);
+}
+
+.dc-meta {
+  color: var(--fg-faint);
+}
+
+.dc-summary-full {
+  padding: 4px 8px;
+  color: var(--fg-muted);
+  border-bottom: 1px solid var(--border-subtle);
+}
+
+.dc-sides {
+  flex: 1;
+  min-height: 0;
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+}
+
+.dc-side {
+  min-width: 0;
+  overflow: auto;
+  padding: 4px 8px;
+}
+
+.dc-side + .dc-side {
+  border-left: 1px solid var(--border-subtle);
+}
+
+.dc-side h3 {
+  margin: 2px 0 6px;
+  font-size: 0.85em;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: var(--fg-faint);
+}
+
+.dc-tree {
+  font-family: var(--mono, Consolas, monospace);
+  font-size: 0.92em;
+  line-height: 1.5;
+}
+
+.dc-children {
+  padding-left: 16px;
+}
+
+.dc-leaf {
+  padding-left: 16px;
+  word-break: break-all;
+}
+
+.dc-toggle {
+  display: flex;
+  align-items: center;
+  cursor: pointer;
+}
+
+.dc-toggle .codicon {
+  font-size: 12px;
+  width: 16px;
+}
+
+.dc-key {
+  color: var(--info);
+}
+
+.dc-count,
+.dc-null,
+.dc-none {
+  color: var(--fg-faint);
+}
+
+.dc-string {
+  color: var(--success);
+}
+
+.dc-number,
+.dc-boolean {
+  color: var(--accent-ink);
+}
+
+.dc-status {
+  border-top: 1px solid var(--border-subtle);
+  background: var(--bg-sidebar);
+  color: var(--fg-faint);
+  font-size: 0.9em;
+  gap: 14px;
+}
+
+.dc-dropped {
+  color: var(--warning);
+}
