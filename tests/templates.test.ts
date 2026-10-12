@@ -166,6 +166,8 @@ describe('saving and loading templates', () => {
   const cfgOf = (p: string) => JSON.parse(readFileSync(join(p, '.hive', 'project.json'), 'utf8'))
   const names = (p: string) => cfgOf(p).agents.map((a: AgentDef) => a.name)
   const run = <T>(fn: () => Promise<T>): Promise<T> => inWorkspace(w, fn)
+  // Pair's agents loaded into beta: alpha has Builder and Reviewer, and names are unique across the workspace (#702).
+  const B = ['BBuilder', 'BReviewer']
   const live = new Set<string>()
   /** Starts held part-way (reserved, not yet live) until released. */
   const held: (() => void)[] = []
@@ -233,11 +235,17 @@ describe('saving and loading templates', () => {
     expect(plan.blocked).toEqual([])
     expect(plan.remove.map((a) => a.name)).toEqual(['Old'])
     expect(plan.create.map((a) => a.name)).toEqual(['Builder', 'Reviewer'])
-    const r = await run(() => templates.loadTemplate(beta, 'workspace', 'pair-2.json', ['b1']))
-    expect(r).toEqual({ created: ['Builder', 'Reviewer'], removed: ['Old'], oldWorktrees: [] })
+    // Its names are alpha's agents' (#702): said by the plan, and the load refused until they are renamed.
+    expect(plan.taken).toEqual([{ name: 'Builder', project: 'alpha' }, { name: 'Reviewer', project: 'alpha' }])
+    await expect(run(() => templates.loadTemplate(beta, 'workspace', 'pair-2.json', ['b1']))).rejects.toThrow(/Builder, Reviewer are already agents in alpha: agent names are unique across the workspace/)
+    expect(names(beta)).toEqual(['Old'])
+    const renamed = await run(() => templates.templatePlan(beta, 'workspace', 'pair-2.json', undefined, B))
+    expect([renamed.create.map((a) => a.name), renamed.templateNames, renamed.taken]).toEqual([B, ['Builder', 'Reviewer'], []])
+    const r = await run(() => templates.loadTemplate(beta, 'workspace', 'pair-2.json', ['b1'], undefined, undefined, B))
+    expect(r).toEqual({ created: B, removed: ['Old'], oldWorktrees: [] })
     const cfg = cfgOf(beta)
     expect(cfg.layout).toBe('columns2')
-    expect(cfg.agents.map((a: AgentDef) => [a.name, a.role, a.model, a.provider])).toEqual([['Builder', 'builder', 'opus', 'claude-code'], ['Reviewer', undefined, undefined, 'claude-code']])
+    expect(cfg.agents.map((a: AgentDef) => [a.name, a.role, a.model, a.provider])).toEqual([['BBuilder', 'builder', 'opus', 'claude-code'], ['BReviewer', undefined, undefined, 'claude-code']])
     expect(cfg.agents.some((a: AgentDef) => a.id === 'b1')).toBe(false)
     const card = (await run(() => tasks.allTasks())).find((c) => c.title === 'Old work')!
     expect([card.agent, card.column]).toEqual([null, 'todo'])
@@ -309,7 +317,7 @@ describe('saving and loading templates', () => {
     templates.testHooks.staged = async () => {
       for (const id of before) refused.push(await run(() => sessions.start(beta, { agentId: id })).then(() => 'started', (e: Error) => e.message))
     }
-    await run(() => templates.loadTemplate(beta, 'workspace', 'pair.json', before))
+    await run(() => templates.loadTemplate(beta, 'workspace', 'pair.json', before, undefined, undefined, B))
     expect(refused.length).toBeGreaterThan(0)
     expect(new Set(refused)).toEqual(new Set(["A template is being loaded into this project, so its agents can't start now."]))
     const after = run(() => sessions.start(beta, { agentId: ids()[0] })).catch((e: Error) => e.message)
@@ -453,8 +461,8 @@ describe('saving and loading templates', () => {
   })
 
   gitIt("a project's template loads into another project (from the Templates view), its worktrees new ones in that project only (#268)", async () => {
-    // alpha has its own worktree agent "Tree A" (on alpha's hive/tree-a); beta already has a hive/tree-b branch, and a setup command.
-    const source = await run(() => addAgent(alpha, { name: 'Tree A', location: 'new-worktree' }))
+    // alpha has a worktree agent of its own on alpha's hive/tree-a; beta already has a hive/tree-b branch, and a setup command.
+    const source = await run(() => addAgent(alpha, { name: 'Alpha tree', location: 'new-worktree', branch: 'hive/tree-a' }))
     git(beta, 'branch', 'hive/tree-b')
     writeFileSync(join(beta, '.hive', 'project.json'), JSON.stringify({ ...cfgOf(beta), worktreeSetup: 'npm install' }))
     const ids = cfgOf(beta).agents.map((a: AgentDef) => a.id)
@@ -574,7 +582,7 @@ describe('saving and loading templates', () => {
     const ids = cfgOf(beta).agents.map((a: AgentDef) => a.id)
     branchStaysFor = branchy.worktree!.branch
     try {
-      const r = await run(() => templates.loadTemplate(beta, 'workspace', 'pair.json', ids, undefined, { paths: [branchy.worktree!.path], mergedInto: 'main' }))
+      const r = await run(() => templates.loadTemplate(beta, 'workspace', 'pair.json', ids, undefined, { paths: [branchy.worktree!.path], mergedInto: 'main' }, B))
       expect(r.oldWorktrees).toEqual([{ branch: 'hive/branchy', removed: true, branchKept: true, why: 'main changed since it was checked' }])
     } finally {
       branchStaysFor = null
@@ -757,7 +765,7 @@ describe('a template loaded again into the worktrees it made (#289)', () => {
     writeFileSync(join(unmerged.path, 'own.txt'), 'work')
     git(unmerged.path, 'add', '.')
     git(unmerged.path, 'commit', '-qm', 'own work')
-    const orphan = (await run(() => addAgent(alpha, { name: 'Tree A', location: 'new-worktree' }))).worktree!.path
+    const orphan = (await run(() => addAgent(alpha, { name: 'Alpha tree', location: 'new-worktree' }))).worktree!.path
     const plan = await run(() => templates.templatePlan(beta, 'workspace', 'pair.json'))
     expect(plan.mergedInto).toBe('main')
     // Tree B's worktree is merged and clean too, but isn't asked for below.

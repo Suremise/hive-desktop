@@ -7,11 +7,12 @@ import { agentsToResume, resumeAll, stalledOnSignIn } from '@shared/resumeAll'
 import { batchLine, eachAgent, removeLine, sessionsToArchive, type BatchResult } from '@shared/startAll'
 import type { McpServerInfo, OldWorktreeOutcome, ProjectInfo, ProjectProviderConfig, ProviderId, SessionLayout, SessionListItem, ToastAction } from '@shared/types'
 import { TEMPLATE_NAME_MAX, type TemplateEntry, type TemplateScope } from '@shared/templates'
-import { oldWorktreesNotice, templateLoadDetail, templateLoadView } from '@shared/templateLoad'
+import { oldWorktreesNotice, templateLoadDetail } from '@shared/templateLoad'
+import { prefixedNames, projectPrefix } from '@shared/agentNames'
 import { formatTokens, type SessionAction } from './util'
 import { statusText } from './components/ui'
 import { createElement } from 'react'
-import { TemplatePlan } from './components/TemplatePlan'
+import { TemplateLoadNames, type LoadNames } from './components/TemplateLoad'
 import { clearEditorDraft, clearEditorDraftsUnder } from './editorDrafts'
 
 /** Runs an async action and shows a toast if it fails. */
@@ -863,7 +864,7 @@ export async function loadTemplate(path: string, entry: Pick<TemplateEntry, 'sco
     const off = plan.missing.some((m) => /turned off/.test(m.reason))
     const choice = await choose({
       title: `Can't load "${plan.name}" yet`,
-      message: 'It would replace every agent of this project, which isn’t safe or possible yet:',
+      message: `It can't be loaded into ${project(path)?.name ?? 'this project'} yet:`,
       detail: plan.blocked.map((b) => `• ${b}`).join('\n'),
       choices: [...(fix ? [{ label: 'Open Agent Setup', value: 'setup' }] : []), { label: 'OK', value: 'ok' }]
     })
@@ -872,26 +873,33 @@ export async function loadTemplate(path: string, entry: Pick<TemplateEntry, 'sco
     return
   }
   const p = project(path)
-  const expected = (p?.agents ?? []).map((a) => a.id)
-  const removable = plan.oldWorktrees.filter((w) => w.removable)
+  if (!p) return
+  const expected = p.agents.map((a) => a.id)
+  // Names other projects' agents have (#702): the project's prefix filled in, to change in the dialog.
+  const prefix = plan.taken.length ? projectPrefix(p.name) : ''
+  const shown = prefix ? await attempt('Could not read the template', () => call('templates:plan', path, entry.scope, entry.file, from, prefixedNames(prefix, plan.templateNames))) : plan
+  if (!shown) return
+  let names: LoadNames = { names: shown.create.map((a) => a.name), problem: null }
+  const removable = shown.oldWorktrees.filter((w) => w.removable)
   let removeOld = false
   let result: { oldWorktrees: OldWorktreeOutcome[] } | undefined
   const ok = await confirm({
     title: `Load "${plan.name}"?`,
-    message: plan.remove.length ? `It replaces every agent of ${p?.name ?? 'this project'}.` : `It adds its agents to ${p?.name ?? 'this project'}.`,
+    message: plan.remove.length ? `It replaces every agent of ${p.name}.` : `It adds its agents to ${p.name}.`,
     // Who goes and who comes: each new agent's settings, and its new worktree's branch and folder in this project (#268),
-    // as a table (#511).
-    detail: p ? templateLoadDetail(plan, p.config, get().settings, (id) => get().providers[id]) : undefined,
-    content: p ? createElement(TemplatePlan, { view: templateLoadView(plan, p.config, get().settings, (id) => get().providers[id]) }) : undefined,
+    // as a table (#511), with their names to choose (#702).
+    detail: templateLoadDetail(shown, p.config, get().settings, (id) => get().providers[id]),
+    content: createElement(TemplateLoadNames, { path, scope: entry.scope, file: entry.file, from, initial: shown, initialPrefix: prefix, onChange: (now: LoadNames) => void (names = now) }),
     wide: true,
     scrollDetail: true,
     confirmLabel: 'Load template',
     busyLabel: 'Loading…',
     danger: plan.remove.length > 0,
     // The removed agents' worktrees that are merged and clean can go with the load, if ticked (off by default, #289).
-    check: removable.length ? { label: removeOldLabel(removable.map((w) => w.branch), plan.mergedInto), initial: false, set: (v) => (removeOld = v) } : undefined,
+    check: removable.length ? { label: removeOldLabel(removable.map((w) => w.branch), shown.mergedInto), initial: false, set: (v) => (removeOld = v) } : undefined,
     run: async () => {
-      result = await call('templates:load', path, entry.scope, entry.file, expected, from, removeOld ? { paths: removable.map((w) => w.path), mergedInto: plan.mergedInto } : undefined)
+      if (names.problem) throw new Error(names.problem)
+      result = await call('templates:load', path, entry.scope, entry.file, expected, from, removeOld ? { paths: removable.map((w) => w.path), mergedInto: shown.mergedInto } : undefined, names.names)
     }
   })
   if (!ok) return

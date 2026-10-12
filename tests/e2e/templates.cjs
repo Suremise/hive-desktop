@@ -3,7 +3,10 @@
 // an agent runs, while a worktree agent has uncommitted work, and while a provider the template needs is off), the layout
 // and roles recreated, the removed worktree kept, Add Agent ▾ → Add Agent from Template (a taken name numbered), with the
 // mouse, the keyboard and the palette, and the strip's controls at narrow widths in both themes, every one reachable,
-// in the order Template ▾, pages, layouts (#292), with one page and with two. Agents run the fake Claude Code (fake-claude/). Dev build, throwaway profile,
+// in the order Template ▾, pages, layouts (#292), with one page and with two. #702: agent names unique across the
+// workspace: Add Agent refuses another project's agent's name, offering one, and shows what hive/ in a branch means; a
+// template whose names another project's agents have opens with this project's prefix filled in, each name editable, a
+// clashing one marked and refused. Agents run the fake Claude Code (fake-claude/). Dev build, throwaway profile,
 // workspace and CLAUDE_CONFIG_DIR; a quiet test copy.
 const lib = require('./lib.cjs')
 const { _electron } = require('playwright-core')
@@ -105,6 +108,8 @@ const check = (name, ok, extra = '') => {
   await replace.getByRole('button', { name: 'Replace' }).click()
   await lib.until(async () => JSON.parse(fs.readFileSync(file, 'utf8')).name === 'pair', 5000)
   check('…and replaces it', JSON.parse(fs.readFileSync(file, 'utf8')).name === 'pair')
+  // alpha's agents renamed (names are unique across the workspace, #702), so pair's Builder and Reviewer are free in beta.
+  for (const a of projectCfg(alpha).agents) await inv('agents:update', alpha, a.id, { name: `Alpha ${a.name.toLowerCase()}` })
 
   // --- beta: Old (running) and Tree (a worktree agent with uncommitted work). Loading is refused until both are dealt with.
   await select('beta')
@@ -149,7 +154,8 @@ const check = (name, ok, extra = '') => {
   // The plan as a table (#511): a removed agent's line, a created agent's row and its cells, by column.
   const removedLine = async (d, name) => (await d.locator(`.template-plan-removed li[data-agent="${name}"]`).innerText().catch(() => '')).replace(/\s+/g, ' ')
   const planRow = (d, name) => d.locator(`.template-plan-table tbody tr[data-agent="${name}"]`)
-  const cells = async (d, name) => (await planRow(d, name).locator('td').allInnerTexts()).map((t) => t.replace(/\s+/g, ' ').trim())
+  // (An agent's name is a field to edit, #702: its value, then the cell's text.)
+  const cells = (d, name) => planRow(d, name).locator('td').evaluateAll((tds) => tds.map((td) => `${td.querySelector('input')?.value ?? ''} ${td.innerText}`.replace(/\s+/g, ' ').trim()))
   const placeOf = async (d, name) => ({ text: (await planRow(d, name).locator('td').last().innerText()).replace(/\s+/g, ' ').trim(), path: (await planRow(d, name).locator('.template-plan-place').getAttribute('data-path').catch(() => null)) ?? '' })
   const created = (d) => d.locator('.template-plan-table tbody tr').evaluateAll((rows) => rows.map((r) => r.dataset.agent))
   check('the warning lists who goes and who comes', (await warn.locator('.template-plan-removed li').evaluateAll((l) => l.map((x) => x.dataset.agent))).join() === 'Old,Tree' && /its worktree and branch hive\/tree, merged into \w+ and clean, stay unless you tick below/i.test(await removedLine(warn, 'Tree')) && (await created(warn)).join() === 'Builder,Reviewer' && /^Builder builder$/.test((await cells(warn, 'Builder'))[0]), JSON.stringify([await removedLine(warn, 'Tree'), await created(warn), await cells(warn, 'Builder')]))
@@ -238,6 +244,19 @@ const check = (name, ok, extra = '') => {
   check("Add Agent's main click opens the Add Agent dialog", !!(await lib.until(async () => (await addDialog.count()) === 1, 5000)))
   await lib.sleep(500)
   check('…without adding an agent', projectCfg(beta).agents.length === 3, JSON.stringify(projectCfg(beta).agents.map((a) => a.name)))
+  // #702: another project's agent's name is refused, saying whose, with a free one to use.
+  const nameField = addDialog.locator('.agent-form input.input').first()
+  await nameField.fill('alpha builder')
+  const taken = addDialog.locator('[data-name-taken]')
+  check("Add Agent refuses another project's agent's name, saying whose", !!(await lib.until(async () => /alpha already has an agent called Alpha builder: agent names are unique across the workspace\. Use alpha builder \(beta\)/.test(await taken.innerText().catch(() => '')), HUNG_MS)) && (await addDialog.getByRole('button', { name: 'Add Agent' }).isDisabled()), await taken.innerText().catch(() => ''))
+  await page.screenshot({ path: path.join(lib.WORK, 'templates-11-name-taken.png') })
+  await taken.locator('a').click()
+  check('…and its suggestion fills the name in', (await nameField.inputValue()) === 'alpha builder (beta)' && (await taken.count()) === 0 && (await addDialog.getByRole('button', { name: 'Add Agent' }).isEnabled()), await nameField.inputValue())
+  // New worktree: what hive/ in its branch means.
+  await addDialog.locator('label.choice', { hasText: 'New worktree' }).locator('input[type="radio"]').check()
+  const hint = addDialog.locator('[data-branch-hint]')
+  check('Add Agent says what hive/ in a branch means', !!(await lib.until(async () => (await hint.innerText().catch(() => '')) === 'hive/ marks branches Hive made, so it can reuse and tidy them up.', HUNG_MS)), await hint.innerText().catch(() => ''))
+  await page.screenshot({ path: path.join(lib.WORK, 'templates-12-branch-hint.png') })
   await page.keyboard.press('Escape')
   await lib.until(async () => (await addDialog.count()) === 0, HUNG_MS)
 
@@ -346,6 +365,8 @@ const check = (name, ok, extra = '') => {
   await dialog.getByRole('button', { name: 'Save', exact: true }).click()
   const alphaTrees = path.join(alpha, '.hive', 'templates', 'alpha-trees.json')
   check("alpha's own template saved, with its worktree agent (and no path or branch)", !!(await lib.until(async () => fs.existsSync(alphaTrees), 5000)) && /"name": "Tree",[\s\S]*"worktree": true/.test(fs.readFileSync(alphaTrees, 'utf8')) && !/hive\/tree|worktrees/.test(fs.readFileSync(alphaTrees, 'utf8')))
+  // alpha's Tree renamed after saving (its worktree stays), so the template's Tree is free in beta; its other two aren't.
+  await inv('agents:update', alpha, srcTree.id, { name: 'Alpha tree' })
   const srcCfg = JSON.stringify(projectCfg(alpha).agents.find((a) => a.id === srcTree.id).worktree)
   const want = path.join(`${ws}.worktrees`, 'beta', 'tree-2')
   const oldTree = path.join(`${ws}.worktrees`, 'beta', 'tree')
@@ -359,12 +380,32 @@ const check = (name, ok, extra = '') => {
   await dialog.getByRole('button', { name: 'Continue' }).click()
   const crossLoad = page.locator('.dialog', { hasText: 'Load "Alpha trees"?' })
   await shown(crossLoad, 'crossLoad')
+  // #702: its names are alpha's agents': beta's prefix (B) is filled in for them all, each name editable.
+  const nameInputs = crossLoad.locator('.template-plan-name-input')
+  const namesNow = () => nameInputs.evaluateAll((l) => l.map((x) => x.value))
+  check("names alpha's agents have: beta's prefix filled in", (await crossLoad.locator('#template-prefix').inputValue()) === 'B' && JSON.stringify(await namesNow()) === '["BAlpha builder","BAlpha reviewer","BTree"]', JSON.stringify(await namesNow()))
+  await page.screenshot({ path: path.join(lib.WORK, 'templates-13-prefix.png') })
+  // Another prefix renames them all; a name alpha has is marked, and the load refused (the dialog stays, saying why).
+  await crossLoad.locator('#template-prefix').fill('Beta ')
+  check('…another prefix renames them all', JSON.stringify(await namesNow()) === '["Beta Alpha builder","Beta Alpha reviewer","Beta Tree"]', JSON.stringify(await namesNow()))
+  await nameInputs.nth(0).fill('Alpha builder')
+  check("…a name alpha's agent has is marked", /alpha has an agent called Alpha builder/.test(await crossLoad.locator('.template-plan-table .field-error').first().innerText().catch(() => '')))
+  await crossLoad.getByRole('button', { name: 'Load template' }).click()
+  check('…and refused, saying why', !!(await lib.until(async () => /Agent names are unique across the workspace/.test(await crossLoad.innerText()), HUNG_MS)) && JSON.stringify(projectCfg(beta).agents.map((a) => a.name)) === '["Builder","Reviewer","Builder 2","Reviewer 2"]', await crossLoad.innerText())
+  await page.screenshot({ path: path.join(lib.WORK, 'templates-14-name-refused.png') })
+  // Each name its own: Tree keeps its name, so its worktree is found by it.
+  await nameInputs.nth(0).fill('BAB')
+  await nameInputs.nth(1).fill('BAR')
+  await nameInputs.nth(2).fill('Tree')
+  const placeSettled = async (name, wanted) => lib.until(async () => wanted.test((await placeOf(crossLoad, name).catch(() => ({ text: '' }))).text), HUNG_MS)
+  await placeSettled('Tree', /^own worktree hive\/tree-2/)
   const cl = await placeOf(crossLoad, 'Tree')
   check("the confirmation gives Tree's new worktree in beta: hive/tree-2 in …worktrees\\beta\\tree-2", cl.text.startsWith('own worktree hive/tree-2') && cl.path.toLowerCase() === want.toLowerCase(), `${want}\n${JSON.stringify(cl)}`)
   check('…not the kept hive/tree, saying why (#289)', cl.text.includes('new: hive/tree has 1 uncommitted file'), cl.text)
   await page.screenshot({ path: path.join(lib.WORK, 'templates-7-cross-project.png') })
-  await crossLoad.getByRole('button', { name: 'Load template' }).click()
-  check("loaded into beta: alpha's agents", !!(await lib.until(async () => JSON.stringify(projectCfg(beta).agents.map((a) => a.name)) === JSON.stringify(projectCfg(alpha).agents.map((a) => a.name)), 15000)), JSON.stringify(projectCfg(beta).agents.map((a) => a.name)))
+  // (Refused once above, its button says Try Again.)
+  await crossLoad.getByRole('button', { name: 'Try Again' }).click()
+  check("loaded into beta: alpha's agents, with the names chosen", !!(await lib.until(async () => JSON.stringify(projectCfg(beta).agents.map((a) => a.name)) === '["BAB","BAR","Tree"]', 15000)), JSON.stringify(projectCfg(beta).agents.map((a) => a.name)))
   const made = projectCfg(beta).agents.find((a) => a.name === 'Tree')?.worktree
   check("beta's Tree is where the confirmation said: hive/tree-2 in …worktrees\\beta\\tree-2", made?.branch === 'hive/tree-2' && made.path.toLowerCase() === want.toLowerCase(), JSON.stringify(made))
   const norm = (p) => p.toLowerCase().replace(/\\/g, '/')
@@ -393,6 +434,8 @@ const check = (name, ok, extra = '') => {
   await dialog.locator('select').selectOption({ label: 'beta' })
   await dialog.getByRole('button', { name: 'Continue' }).click()
   await shown(crossLoad, 'crossLoad')
+  await nameInputs.nth(2).fill('Tree')
+  await placeSettled('Tree', /^reuses /)
   const back = await placeOf(crossLoad, 'Tree')
   check('back to "Alpha trees": the confirmation says Tree reuses its clean worktree on hive/tree', back.text === 'reuses hive/tree' && back.path.toLowerCase() === oldTree.toLowerCase(), JSON.stringify(back))
   await page.screenshot({ path: path.join(lib.WORK, 'templates-8-reuse.png') })

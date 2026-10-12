@@ -21,6 +21,8 @@ import { workspace, workspaceOf } from './workspace'
 import * as wt from './worktrees'
 import { gitProblem } from './gitTool'
 import { providerService } from './providerService'
+import { assertNameFree, withAgentNames, workspaceAgents } from './agentNames'
+import { sameAgentName } from '../shared/agentNames'
 
 const log = createLogger('agents')
 
@@ -115,26 +117,32 @@ export async function addAgent(projectPath: string, opts: AddAgentOptions): Prom
   const cfg = await workspace.projectConfig(projectPath)
   const agents = projectAgents(cfg)
   if (agents.length >= MAX_AGENTS) throw new Error(`A project can have up to ${MAX_AGENTS} agents.`)
+  // Unique across the workspace (#702): the default "Agent n" too, numbered past the other projects' names.
+  const everyone = await workspaceAgents(projectPath)
   let n = agents.length + 1
-  while (agents.some((a) => a.name === `Agent ${n}`)) n++
+  while (everyone.some((a) => sameAgentName(a.name, `Agent ${n}`))) n++
   const name = opts.name?.trim() || `Agent ${n}`
-  if (agents.some((a) => a.name.toLowerCase() === name.toLowerCase())) throw new Error(`There is already an agent called "${name}".`)
+  // Before a worktree is made for it, then again with the write (below).
+  await assertNameFree(projectPath, name)
   // Before the worktrees are looked at: a removal since then refuses the claim (#289).
   const mark = claimMark()
   const { def, discard, reuse } = await prepareAgent(projectPath, cfg, opts, name, agents)
   try {
-    await workspace.mutateProjectConfig(projectPath, (now) => {
-      const list = projectAgents(now)
-      // Checked again under the lock: another add (the UI and the Assistant at once) may have come first.
-      if (list.length >= MAX_AGENTS) throw new Error(`A project can have up to ${MAX_AGENTS} agents.`)
-      if (list.some((a) => a.name.toLowerCase() === name.toLowerCase())) throw new Error(`There is already an agent called "${name}".`)
-      const wtPath = def.worktree && placeKey(def.worktree.path)
-      if (wtPath && list.some((a) => a.worktree && placeKey(a.worktree.path) === wtPath)) throw new Error('Another agent already works in that worktree.')
-      if (def.worktree && (removedSince(def.worktree.path, mark) || !existsSync(def.worktree.path))) throw new Error('That worktree is being removed, or was just removed.')
-      // An existing worktree whose setup never ran runs it first (#289), one reused for a new one too (#456).
-      const pending = opts.location === 'existing-worktree' || reuse?.reused ? takePendingSetup(now, def) : null
-      // An automatic layout follows the agents, so the new one shows; with one chosen by hand, a full page sends it to the next (#134).
-      return { agents: [...list, def], ...pending }
+    await withAgentNames(projectPath, async () => {
+      // Checked again with the write: another add or rename (the UI and the Assistant at once, another project) may have come first.
+      await assertNameFree(projectPath, name)
+      await workspace.mutateProjectConfig(projectPath, (now) => {
+        const list = projectAgents(now)
+        if (list.length >= MAX_AGENTS) throw new Error(`A project can have up to ${MAX_AGENTS} agents.`)
+        if (list.some((a) => sameAgentName(a.name, name))) throw new Error(`There is already an agent called "${name}".`)
+        const wtPath = def.worktree && placeKey(def.worktree.path)
+        if (wtPath && list.some((a) => a.worktree && placeKey(a.worktree.path) === wtPath)) throw new Error('Another agent already works in that worktree.')
+        if (def.worktree && (removedSince(def.worktree.path, mark) || !existsSync(def.worktree.path))) throw new Error('That worktree is being removed, or was just removed.')
+        // An existing worktree whose setup never ran runs it first (#289), one reused for a new one too (#456).
+        const pending = opts.location === 'existing-worktree' || reuse?.reused ? takePendingSetup(now, def) : null
+        // An automatic layout follows the agents, so the new one shows; with one chosen by hand, a full page sends it to the next (#134).
+        return { agents: [...list, def], ...pending }
+      })
     })
   } catch (e) {
     await discard()
@@ -341,7 +349,6 @@ export async function updateAgent(projectPath: string, agentId: string, patch: A
   if (patch.name !== undefined) {
     patch.name = patch.name.trim()
     if (!patch.name) throw new Error('Enter a name.')
-    if (agents.some((a) => a.id !== agentId && a.name.toLowerCase() === patch.name!.toLowerCase())) throw new Error(`There is already an agent called "${patch.name}".`)
   }
   // Empty values clear an override so the agent follows the project again (and an empty role: its name is its role).
   const { use200kContext, mcpServers, ...rest } = patch
@@ -360,7 +367,12 @@ export async function updateAgent(projectPath: string, agentId: string, patch: A
       Object.assign(clean, { model: patch.model || undefined, effort: patch.effort || undefined, permissionMode: patch.permissionMode || undefined, use200kContext: typeof use200kContext === 'boolean' ? use200kContext : undefined, lastSessionId: undefined })
     }
   }
-  const def = await workspace.updateAgent(projectPath, agentId, clean)
+  // A new name: free across the workspace (#702), checked with the write. Its own name again is no change (an agent
+  // sharing its name from before names were unique keeps it while its other settings change). The Assistant's agent is
+  // never renamed.
+  const name = patch.name
+  const was = agents.find((a) => a.id === agentId)
+  const def = name !== undefined && !(was && sameAgentName(was.name, name)) ? await withAgentNames(projectPath, async () => (await assertNameFree(projectPath, name, { self: agentId }), workspace.updateAgent(projectPath, agentId, clean))) : await workspace.updateAgent(projectPath, agentId, clean)
   const live = sessions.liveFor(projectPath, agentId)
   if (live && patch.name) live.agentName = patch.name
   await workspaceOf(projectPath).refresh()

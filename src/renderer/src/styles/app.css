@@ -1985,6 +1985,18 @@ p.hint {
 .template-plan-place {
   cursor: default;
 }
+/* The Load template dialog's names (#702): a prefix for them all, then each agent's name in the table. */
+.template-load-prefix {
+  display: grid;
+  grid-template-columns: auto 120px 1fr;
+  align-items: center;
+  gap: 4px 8px;
+  margin-bottom: 6px;
+}
+.template-plan-name-input {
+  width: 140px;
+  font-weight: 600;
+}
 .template-plan-note {
   margin: 8px 0 0;
   color: var(--fg-muted);

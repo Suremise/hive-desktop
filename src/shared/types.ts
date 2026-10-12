@@ -497,6 +497,8 @@ export interface WorkspaceConfig {
   hiddenProjects?: HiddenProject[]
   /** Card loops' rounds and wait in hours when a request doesn't say (#412, Settings → Workspace); absent: 10 and 6. */
   loops?: { rounds?: number; waitHours?: number }
+  /** Agent names two projects share from before names were unique (#702), lower case: each said once, while it lasts. */
+  flaggedAgentNames?: string[]
 }
 
 /** A project folder Hive leaves out of the workspace, until it's restored in Settings → Workspace. */
@@ -839,7 +841,12 @@ export interface TemplateLoadPlan {
   layout: PageLayout
   /** The project's agents, all removed: running ones and uncommitted worktree work block the load. */
   remove: { id: string; name: string; running: boolean; dirty: number; worktree?: { path: string; branch: string } }[]
+  /** The agents it creates, with the names chosen in the dialog (#702) when it gave some. */
   create: TemplateAgent[]
+  /** The template's own names for them, by `create`'s order: what a prefix goes in front of (#702). */
+  templateNames: string[]
+  /** Created names another project's agent has (#702): the load is refused until they are renamed. */
+  taken: { name: string; project: string }[]
   /**
    * Where each created agent's worktree is (#268), by `create`'s order: a branch in this project's repository and a folder
    * in its worktree location; null for an agent in the project folder. `reuse`: a clean worktree of that name it works in
