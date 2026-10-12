@@ -1,0 +1,40 @@
+
+                                                                                                                        
+● Ran 1 stop hook
+  ⎿  Stop hook error: STOP-REASON-T1-2 (from the Stop hook)
+
+● plain answer (T1, request 4)
+                                                                                                                        
+● Ran 1 stop hook
+  ⎿  Stop hook error: STOP-REASON-T1-3 (from the Stop hook)                                                             
+ 
+● plain answer (T1, request 5)
+
+✻ Cogitated for 0s · done 2:19
+
+❯ T2 no tool, just answer                                                                                               
+
+● plain answer (T2, request 6)
+
+● Ran 1 stop hook
+  ⎿  Stop hook error: STOP-REASON-T2 (from the Stop hook)
+                                                                                                                        
+● plain answer (T2, request 7)
+
+✻ Baked for 0s · done 2:19
+
+❯ T3 no tool again, Stop gives additionalContext only                                                                   
+                                                                                                                        
+● plain answer (T3, request 8)
+
+● Ran 1 stop hook
+  ⎿  Stop hook feedback: CTX-STOP-T3 (Stop hook additionalContext, no block)
+                                                                                                                        
+● plain answer (T3, request 9)
+
+✻ Worked for 0s · done 2:19
+
+────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+❯  
+────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+  ⏸ manual mode on · ? for shortcuts · ← for agents

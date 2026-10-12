@@ -52,6 +52,18 @@ const lines = (n, tag) => Array.from({ length: n }, (_, i) => `// ${tag} line ${
   }
   const live = async (proj, id) => (await inv('session:live')).find((s) => s.projectPath.toLowerCase() === proj.toLowerCase() && s.agentId === id)
   const textAt = (key, text) => page.evaluate(([k, t]) => window.__hiveTerminalTextAt(k, t), [key, text])
+  // Where `text` is drawn once the turn of `prompt` has ended on screen (its "Done:" line with the input drawn below it),
+  // read in one go in the window, so the position is the one drawn with that end: the fake Claude Code's screen changes
+  // as a turn ends (its working lines go), which can move the lines under the mouse.
+  const drawnAt = async (k, text, prompt) => {
+    const at = await until(() => page.evaluate(([termKey, t, done]) => {
+      const drawn = window.__hiveTerminalLines(termKey) ?? []
+      const end = drawn.findIndex((l) => l.includes(done))
+      return end >= 0 && drawn.slice(end + 1).some((l) => l.includes('? for shortcuts')) ? window.__hiveTerminalTextAt(termKey, t) : null
+    }, [k, text, `Done: ${prompt}`]), 15000)
+    check(`"${text}" is drawn, its turn's end below it`, !!at)
+    return at ?? { x: 0, y: 0 }
+  }
   const fileTree = page.locator('.file-tree')
   const selectedRow = () => page.locator('.file-row.selected').getAttribute('data-rel').catch(() => null)
   const activeLine = () => page.locator('.monaco .active-line-number').first().innerText().catch(() => '')
@@ -74,17 +86,21 @@ const lines = (n, tag) => Array.from({ length: n }, (_, i) => `// ${tag} line ${
   check('the agents start', !!(await until(async () => (await live(alpha, one.id))?.status === 'ready' && (await live(alpha, two.id))?.status === 'ready', 20000)))
 
   const key = lib.ptyKey(alpha, one.id)
-  await inv('pty:write', key, 'look at src/app.ts:25:4 then ../beta/lib/util.js:3 not src/nope.ts')
+  // Short enough that its turn's "Done:" line holds all three paths on one row in a pane half the window wide.
+  const first = 'see src/app.ts:25:4 ../beta/lib/util.js:3 src/nope.ts'
+  await inv('pty:write', key, first)
   await lib.sleep(200)
   await inv('pty:write', key, '\r')
   check('the paths are printed', !!(await until(() => textAt(key, 'src/nope.ts'), 10000)))
+  check('its turn ends', !!(await until(async () => (await live(alpha, one.id))?.status === 'finished', 15000)))
   const linkTitle = () => page.locator('.terminal-host[title="Open in Files · Ctrl+click"]').count()
 
   // --- A missing file isn't linked; an existing one is.
-  await page.mouse.move((await textAt(key, 'src/nope.ts')).x + 4, (await textAt(key, 'src/nope.ts')).y)
+  const nope = await drawnAt(key, 'src/nope.ts', first)
+  await page.mouse.move(nope.x + 4, nope.y)
   await lib.sleep(700)
   check("a file that doesn't exist isn't linked", (await linkTitle()) === 0)
-  const app1 = await textAt(key, 'src/app.ts:25:4')
+  const app1 = await drawnAt(key, 'src/app.ts:25:4', first)
   await page.mouse.move(app1.x + 4, app1.y)
   check('an existing file is linked, with a tooltip', !!(await until(async () => (await linkTitle()) === 1, HUNG_MS)))
   await page.screenshot({ path: path.join(lib.WORK, 'filelinks-1-hover.png') })
@@ -104,7 +120,7 @@ const lines = (n, tag) => Array.from({ length: n }, (_, i) => `// ${tag} line ${
 
   // --- A path into another workspace project opens there.
   await backToSession()
-  const util = await textAt(key, '../beta/lib/util.js:3')
+  const util = await drawnAt(key, '../beta/lib/util.js:3', first)
   await ctrlClick({ x: util.x + 4, y: util.y })
   check('a path into another project opens in that project', !!(await until(async () => /beta/.test(await page.locator('h1').first().innerText().catch(() => '')) && (await selectedRow()) === 'lib/util.js', 5000)), String(await selectedRow()))
   check('at its line too', !!(await until(async () => (await activeLine()) === '3', 10000)), await activeLine())
@@ -117,7 +133,8 @@ const lines = (n, tag) => Array.from({ length: n }, (_, i) => `// ${tag} line ${
   await lib.sleep(200)
   await inv('pty:write', key2, '\r')
   check("the worktree agent's path is printed", !!(await until(() => textAt(key2, 'src/app.ts:7'), 10000)))
-  const wt = await textAt(key2, 'src/app.ts:7')
+  check('its turn ends too', !!(await until(async () => (await live(alpha, two.id))?.status === 'finished', 15000)))
+  const wt = await drawnAt(key2, 'src/app.ts:7', 'see src/app.ts:7')
   await page.mouse.move(wt.x + 4, wt.y)
   await lib.sleep(500)
   await ctrlClick({ x: wt.x + 4, y: wt.y })
@@ -137,11 +154,12 @@ const lines = (n, tag) => Array.from({ length: n }, (_, i) => `// ${tag} line ${
   }
   check('the paths are printed', !!(await until(() => textAt(key2, 'SRC/APP.TS:9'), 10000)) && !!(await textAt(key2, 'my notes.ts:6')))
   // A quoted path that isn't a file: README.md inside it exists in the worktree, but isn't linked on its own.
-  const inQuote = await textAt(key2, 'README.md":2')
+  const last = 'not "docs/missing README.md":2'
+  const inQuote = await drawnAt(key2, 'README.md":2', last)
   await page.mouse.move(inQuote.x + 4, inQuote.y)
   await lib.sleep(700)
   check("a piece of a quoted path that isn't a file isn't linked", (await linkTitle()) === 0)
-  const upper = await textAt(key2, 'SRC/APP.TS:9')
+  const upper = await drawnAt(key2, 'SRC/APP.TS:9', last)
   await page.mouse.move(upper.x + 4, upper.y)
   await lib.sleep(500)
   await ctrlClick({ x: upper.x + 4, y: upper.y })
@@ -150,7 +168,7 @@ const lines = (n, tag) => Array.from({ length: n }, (_, i) => `// ${tag} line ${
   for (const [printed, line] of [['my notes.ts":4', '4'], ['my notes.ts:6', '6']]) {
     await backToSession()
     // On the path's last name: the link is the whole path, spaces and all.
-    const at = await textAt(key2, printed)
+    const at = await drawnAt(key2, printed, last)
     await page.mouse.move(at.x + 4, at.y)
     await lib.sleep(500)
     await ctrlClick({ x: at.x + 4, y: at.y })
