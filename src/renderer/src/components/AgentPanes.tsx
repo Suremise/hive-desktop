@@ -499,10 +499,10 @@ function AgentInbox({ project, a, live }: { project: ProjectInfo; a: AgentInfo; 
   const waiting = inbox.unread.filter((m) => m.state === 'queued' || m.state === 'uncertain').length
   const cancel = () => void actions.attempt('Could not cancel the messages', () => call('session:cancelMessages', project.path, a.id))
   const label = [n ? `${n} unread` : '', inbox.overdue ? `${inbox.overdue} overdue` : ''].filter(Boolean).join(' · ')
-  const state = (s: string): string => (s === 'queued' ? 'waiting' : s === 'offered' ? 'typed, not taken yet' : 'Hive stopped while offering it')
+  const state = (s: string): string => (s === 'queued' ? 'waiting' : s === 'offered' ? 'typed, not fetched or acked yet' : 'its offer not confirmed')
   const lines = inbox.unread.map((m) => `${m.id} from ${m.from} (${state(m.state)}): ${m.text}`)
   const tip = [
-    n ? `${n === 1 ? 'A message' : `${n} messages`} for ${a.name} that it hasn't received yet: offered as its next line once it is idle, or read with hive_inbox.\n${lines.join('\n')}` : '',
+    n ? `${n === 1 ? 'A message' : `${n} messages`} for ${a.name} that it hasn't fetched or acked yet: offered as its next line once it is idle, or read with hive_inbox.\n${lines.join('\n')}` : '',
     inbox.overdue ? `${inbox.overdue === 1 ? 'One delivery was' : `${inbox.overdue} deliveries were`} not acked in time: the agent hasn't said it acted on ${inbox.overdue === 1 ? 'it' : 'them'}.` : '',
     waiting ? `Click to cancel ${waiting === 1 ? 'the one waiting' : `the ${waiting} waiting`}.` : ''
   ]

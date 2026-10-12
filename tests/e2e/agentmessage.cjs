@@ -2,8 +2,9 @@
 // (fake-claude/), through hive_message_agent as the Assistant calls it (hive-mcp.js with the Assistant's token): a
 // watching reviewer is woken by it at once and keeps its watch (hive_prompt_agent is refused and points to the tool); a
 // working builder gets it queued (a delivery, #647, with its id), its pane shows "1 unread", and it is typed as its next
-// line once the builder is idle, with its id to ack; hive_agent_activity says what waits and that it was received (its CLI
-// took the line); the user cancels one from the pane, and it is
+// line once the builder is idle, with its id to ack; hive_agent_activity says what waits and that it was offered (typed;
+// received only when fetched with hive_inbox), and the pane shows it until the builder acks it with hive_inbox; the user
+// cancels one from the pane, and it is
 // never typed; a message queued for an agent whose card or agent watch fires meanwhile rides that wake, first, in one
 // line; one whose sender may no longer send it (Control turned down) is refused, never typed. Dev build, throwaway
 // profile, workspace and CLAUDE_CONFIG_DIR.
@@ -119,9 +120,12 @@ const check = (name, ok, extra = '') => {
   check('its activity lists the message waiting', waiting.inbox?.unread === 1 && waiting.inbox.deliveries.at(-1)?.id === 'm2' && waiting.inbox.deliveries.at(-1)?.from === 'the Assistant' && waiting.inbox.deliveries.at(-1)?.state === 'queued', JSON.stringify(waiting))
   check('…not typed while it works', !wakes('Builder').length)
   check('once idle, it is typed as its next line', !!(await until(async () => wakes('Builder').some((t) => t === `[Hive] Message from the Assistant: Add #${c1}'s follow-up to your lane after it. ${ACK('m2')}`), 30000)), JSON.stringify(wakes('Builder')))
-  check('…the pane no longer shows it', !!(await until(async () => (await pane.count()) === 0, 10000)))
+  check("…the pane still shows it as typed, until the builder acks it", !!(await until(async () => /1 unread/.test((await pane.innerText().catch(() => '')) ?? ''), 10000)))
   const done = activity('Builder')
-  check('…and its activity says it was received, when its CLI took the line', done.inbox?.unread === 0 && done.inbox.deliveries.at(-1)?.state === 'received' && done.inbox.deliveries.at(-1)?.receivedVia === 'line' && !!done.inbox.deliveries.at(-1)?.offered, JSON.stringify(done))
+  check('…and its activity says it was offered (typed), not received', done.inbox?.unread === 1 && done.inbox.deliveries.at(-1)?.state === 'offered' && !!done.inbox.deliveries.at(-1)?.offered && !done.inbox.deliveries.at(-1)?.received, JSON.stringify(done))
+  await until(() => idle(builder.id), 15000)
+  await say(builder.id, 'hive hive_inbox {"ack":["m2"]}')
+  check('the builder acks it (hive_inbox): acked, and the pane no longer shows it', !!(await until(async () => lastDelivery('Builder')?.state === 'acked' && (await pane.count()) === 0, 15000)), JSON.stringify(lastDelivery('Builder')))
 
   // --- 3. Cancelled by the user from the pane: never typed.
   await until(() => idle(builder.id), 15000)
@@ -149,7 +153,7 @@ const check = (name, ok, extra = '') => {
   await inv('tasks:update', c2, { column: 'review' })
   check('its watch wake carries the message, first, in one line', !!(await until(async () => wakes('Reviewer').length > before4, 30000)) && /^\[Hive\] Message from the Assistant: Use the revised review scope\. \(Its id: m\d+\. Once you've acted on it, ack it with hive_inbox\.\) \[Hive\] #\d+ \(Builder's card\) is in Review/.test(wakes('Reviewer')[before4]), JSON.stringify(wakes('Reviewer').slice(before4)))
   await until(() => idle(reviewer.id), 15000)
-  check('…and only once', wakes('Reviewer').filter((t) => t.includes('Use the revised review scope.')).length === 1 && lastDelivery('Reviewer')?.state === 'received', JSON.stringify(wakes('Reviewer').slice(before4)))
+  check('…and only once', wakes('Reviewer').filter((t) => t.includes('Use the revised review scope.')).length === 1 && lastDelivery('Reviewer')?.state === 'offered', JSON.stringify(wakes('Reviewer').slice(before4)))
 
   // --- 5. The same with an agent watch: the builder waits for the reviewer to finish, is busy, and gets a message. The
   // order is held, not raced (#598): the reviewer works until the message is queued and the builder until its watch has

@@ -1,6 +1,6 @@
 import { join } from 'path'
 import { mkdir, rename, rm, writeFile } from 'original-fs/promises'
-import { createHash, randomBytes } from 'crypto'
+import { randomBytes } from 'crypto'
 import { app } from 'electron'
 import { ASSISTANT_AGENT_ID } from '../shared/assistant'
 import { HIVE_DIR } from '../shared/defaults'
@@ -15,7 +15,6 @@ import {
   isWaiting,
   moved,
   offerLine,
-  promptKey,
   readDelivery,
   type DeliveryKind,
   type DeliveryRecord,
@@ -29,18 +28,18 @@ import { onHiveEvent } from './events'
 import { readCapped, renameRetrying } from './fsutil'
 import { createLogger, userText } from './logger'
 import { sessions } from './sessions'
-import { transcripts } from './transcripts'
 import { canTypeLine, onWakeRider, typeLine, type Rider } from './watches'
-import { inWorkspace, workspaceOf } from './workspace'
 
 /**
  * The delivery service (#647, plans/2026-10-12-messaging-redesign.md §3.1). Everything Hive has for an agent to read is a
  * delivery record (shared/deliveries.ts), saved in its session host's .hive/deliveries.json (a project's, or the
  * Assistant's home's) with atomic writes, and restored when Hive starts: one offered when Hive stopped is uncertain then,
  * and one whose sender may no longer send it is refused, and shown. This service alone offers them: today by typing the
- * line a message always was (watches.typeLine, or first in a wake's line), until Messaging 4 switches the channel. The
- * agent receives them when its CLI takes that very line, or by fetching them with hive_inbox, and acks them with
- * hive_inbox once it has acted on them; one not acked OVERDUE_MINUTES after it was made is overdue.
+ * line a message always was (watches.typeLine, or first in a wake's line), until Messaging 4 switches the channel. A typed
+ * line makes a delivery offered, never received: **received means fetched through hive_inbox, and nothing else** (§3.1,
+ * #645: received is automatic on fetch). The agent acks it with hive_inbox once it has acted on it (from offered too, as
+ * the body is still typed until #650); one not acked OVERDUE_MINUTES after it was made is overdue. One offered when Hive
+ * stopped stays offered after it (it is never typed again) until the agent fetches or acks it.
  *
  * **Transactions.** Each host's records change one transaction at a time (`transact`, under the host's lock): planned on
  * a copy of what is published, saved, and only then published, so nothing (a read, a wake's rider, the pane) ever sees a
@@ -54,9 +53,10 @@ import { inWorkspace, workspaceOf } from './workspace'
  * that sent it still running (#645: a launch that has ended sends nothing more; its waiting messages are refused, and the
  * refusal is in the Assistant's activity list and the agent's). One is for its agent's conversation when that was known.
  *
- * **Receipts.** An offer saves the hash of the exact line it types, how long the conversation's transcript was then, and
- * the launch: received by line only when a prompt after that point in the CLI's own transcript is that whole line (never
- * an id quoted in some text, nor another prompt that came after a dropped Enter); where it was is kept (receivedIn).
+ * The rules, for every operation (create, offer, readInbox, ack, cancel): **one async lock per host**, inside it copy,
+ * change the copy, save atomically, then publish; and **check at the effect, inside that lock**: sender permission,
+ * expiry and the target conversation are checked right before a body is returned, an ack is recorded or a line is typed
+ * (after the save, the last wait before the effect; for a line, before each piece and Enter).
  */
 
 const log = createLogger('deliveries')
@@ -175,7 +175,7 @@ function transactSoon(store: Store, what: string, plan: (d: Draft) => unknown): 
     .catch((e) => log.warn(what, e))
 }
 
-/** A host's deliveries, loaded once and restored (offered when Hive stopped → uncertain; each checked again). */
+/** A host's deliveries, loaded once and restored (each one not received yet checked again: refused, expired). */
 export function load(host: string): Promise<Store> {
   const k = keyOf(host)
   const had = stores.get(k)
@@ -187,10 +187,8 @@ export function load(host: string): Promise<Store> {
     if (stores.has(k)) return stores.get(k)!
     const store: Store = { host, records: read.records, next: read.next, invalid: read.invalid, lock: Promise.resolve(), offering: new Set() }
     // Restored before anything else sees it (a second load waits for this one).
-    await transact(store, (d) => {
-      for (const r of [...d.records]) if (r.state === 'offered') set(d, r, 'uncertain', 'Hive stopped before it knew whether this reached the agent')
-      recheck(store, d)
-    }).catch((e) => log.warn('restoring deliveries', e))
+    // One offered when Hive stopped stays offered: never typed again, received only once the agent fetches it.
+    await transact(store, (d) => recheck(store, d)).catch((e) => log.warn('restoring deliveries', e))
     if (stores.has(k)) return stores.get(k)!
     stores.set(k, store)
     showAll(store)
@@ -314,7 +312,7 @@ function put(d: Draft, from: DeliveryRecord, to: DeliveryRecord): void {
 }
 
 /** Moves a delivery in a draft (with `extra` fields); false when that move isn't allowed. */
-function set(d: Draft, r: DeliveryRecord, to: DeliveryState, detail?: string, via?: 'line' | 'inbox', extra: Partial<DeliveryRecord> = {}): boolean {
+function set(d: Draft, r: DeliveryRecord, to: DeliveryState, detail?: string, via?: 'inbox', extra: Partial<DeliveryRecord> = {}): boolean {
   if (!d.records.includes(r)) return false
   const next = moved(r, to, nowIso(), detail)
   if (!next) return false
@@ -516,74 +514,6 @@ export async function ackDeliveries(host: string, agentId: string, ids: readonly
   return { acked: r.acked, unknown: r.unknown }
 }
 
-/** The hash of a line as a CLI would keep it (promptKey): what a receipt by line is matched against. */
-const lineHash = (line: string): string => createHash('sha256').update(promptKey(line)).digest('hex').slice(0, 32)
-
-/**
- * The prompts an agent's CLI took, from its own transcript of the conversation (its user messages, each with its item's
- * place), and how many items the transcript has. Not readable (none yet, the workspace closed): none.
- */
-let promptsOf = async (host: string, sessionId: string): Promise<{ total: number; prompts: { item: number; text: string }[] }> => {
-  try {
-    const t = await inWorkspace(workspaceOf(host), () => transcripts.read(host, sessionId))
-    if (!t) return { total: 0, prompts: [] }
-    return { total: t.total, prompts: t.items.flatMap((x, i) => (x.kind === 'user' ? [{ item: t.from + i, text: x.text }] : [])) }
-  } catch {
-    return { total: 0, prompts: [] }
-  }
-}
-/** For tests: how the prompts an agent's CLI took are read. */
-export const setPromptReaderForTests = (fn: (host: string, sessionId: string) => Promise<{ total: number; prompts: { item: number; text: string }[] }>): void => {
-  promptsOf = fn
-}
-
-/**
- * The prompt that is this offer's line, if the CLI took it: one after the transcript's length when it was typed, in the
- * same conversation, whose whole text is the line. Null when there is none.
- */
-function receiptOf(r: DeliveryRecord, sessionId: string, seen: { prompts: { item: number; text: string }[] }): { conversation: string; item: number } | null {
-  if (!r.offerHash || r.offerAt === undefined || (r.conversation && r.conversation !== sessionId)) return null
-  const p = seen.prompts.find((x) => x.item >= r.offerAt! && lineHash(x.text) === r.offerHash)
-  return p ? { conversation: sessionId, item: p.item } : null
-}
-
-/** How long Hive looks for a taken line in the agent's transcript (it is written as the CLI takes it). */
-const RECEIPT_WAIT_MS = 15_000
-
-/**
- * Its CLI took a prompt after the line was typed (in the same launch): received, once the conversation's transcript shows
- * that prompt is the line. One that isn't found stays offered: the agent's inbox fetch or ack says when it has it.
- */
-async function receivedByLine(store: Store, agentId: string, ids: readonly string[], runId: string): Promise<void> {
-  const sessionId = sessions.liveFor(store.host, agentId)?.sessionId
-  if (!sessionId) return
-  for (const end = Date.now() + RECEIPT_WAIT_MS; ; ) {
-    const seen = await promptsOf(store.host, sessionId)
-    await transact(store, (d) => {
-      for (const id of ids) {
-        const r = byId(d.records, id)
-        const at = r?.state === 'offered' && r.offerRun === runId ? receiptOf(r, sessionId, seen) : null
-        if (r && at) set(d, r, 'received', undefined, 'line', { receivedIn: at })
-      }
-    })
-    show(store, agentId)
-    if (ids.every((id) => byId(store.records, id)?.state !== 'offered') || Date.now() >= end) return
-    await new Promise((r) => setTimeout(r, 500))
-  }
-}
-
-/** Uncertain ones (Hive stopped while offering them) whose line the agent's CLI did take: received now, not offered again. */
-async function reconcile(store: Store, agentId: string, sessionId: string): Promise<void> {
-  if (!sessionId || !store.records.some((r) => r.agentId === agentId && r.state === 'uncertain' && r.offerHash)) return
-  const seen = await promptsOf(store.host, sessionId)
-  await transact(store, (d) => {
-    for (const r of [...d.records]) {
-      const at = r.agentId === agentId && r.state === 'uncertain' ? receiptOf(r, sessionId, seen) : null
-      if (at) set(d, r, 'received', undefined, 'line', { receivedIn: at })
-    }
-  })
-}
-
 /** An offer: its deliveries (as they were before it, to put back), the line, the launch and conversation it is for. */
 interface Offer {
   ids: string[]
@@ -594,18 +524,17 @@ interface Offer {
 }
 
 /**
- * Plans an offer of an agent's waiting deliveries (those that may still be given out) in a draft: offered, with the hash
- * of the line that will be typed (`full(text)`: the text, or a wake's line it goes in front of) and the transcript's
- * length now. Null when none waits.
+ * Plans an offer of an agent's waiting deliveries (those that may still be given out) in a draft: offered, into this
+ * launch (`offerRun`), with the line that will be typed (`lineFor`: its text, and the whole line when it goes in front of
+ * a wake's). Null when none waits.
  */
-function planOffer(store: Store, d: Draft, agentId: string, target: { runId: string; sessionId: string; total: number }, lineFor: (items: DeliveryRecord[]) => { text: string; full: string }): (Offer & { text: string }) | null {
+function planOffer(store: Store, d: Draft, agentId: string, target: { runId: string; sessionId: string }, lineFor: (items: DeliveryRecord[]) => { text: string; full: string }): (Offer & { text: string }) | null {
   recheck(store, d, agentId)
   const items = d.records.filter((r) => r.agentId === agentId && isWaiting(r)).sort((a, b) => a.seq - b.seq)
   if (!items.length) return null
   const { text, full } = lineFor(items)
-  const hash = lineHash(full)
   const was = new Map(items.map((r) => [r.id, r]))
-  for (const r of items) set(d, r, 'offered', undefined, undefined, { offerHash: hash, offerAt: target.total, offerRun: target.runId })
+  for (const r of items) set(d, r, 'offered', undefined, undefined, { offerRun: target.runId })
   return { ids: items.map((r) => r.id), was, line: full, text, runId: target.runId, sessionId: target.sessionId }
 }
 
@@ -626,7 +555,7 @@ function unoffer(store: Store, o: Offer): Promise<void> {
     for (const id of o.ids) {
       const r = byId(d.records, id)
       const was = o.was.get(id)
-      if (r?.state === 'offered' && r.offerRun === o.runId && r.offerHash && was) put(d, r, was)
+      if (r?.state === 'offered' && r.offerRun === o.runId && was) put(d, r, was)
     }
     // One that may no longer be given out is ended now, not at the next try.
     recheck(store, d, byId(d.records, o.ids[0])?.agentId)
@@ -653,8 +582,8 @@ const allowedAll = (store: Store, o: Offer): boolean => o.ids.every((id) => {
 
 /**
  * What rides a wake typed into the agent (watches.onWakeRider), first in its line: its deliveries waiting that may still be
- * given out. Their offer (offered, with the hash of the whole line, the wake's included) is saved by `ready`, which the
- * writer waits for before the line's first key; taken back to waiting if the line isn't typed after all.
+ * given out. Their offer is saved by `ready`, which the writer waits for before the line's first key; taken back to
+ * waiting if the line isn't typed after all.
  */
 function riderFor(projectPath: string, agentId: string, wakeLine: string): Rider | null {
   const store = stores.get(keyOf(projectPath))
@@ -667,11 +596,10 @@ function riderFor(projectPath: string, agentId: string, wakeLine: string): Rider
   const text = offerLine(items, null)
   let offer: Offer | null = null
   const ready = (async () => {
-    const seen = await promptsOf(projectPath, live.sessionId)
     offer = await transact(
       store,
       (d) => {
-        const o = planOffer(store, d, agentId, { runId: live.runId, sessionId: live.sessionId, total: seen.total }, (now) => {
+        const o = planOffer(store, d, agentId, { runId: live.runId, sessionId: live.sessionId }, (now) => {
           // What waits changed since the rider was made (one cancelled, refused, added): not this line.
           if (now.map((r) => r.id).join() !== items.map((r) => r.id).join()) throw new Error('The deliveries riding it changed.')
           return { text, full: `${text} ${wakeLine}` }
@@ -700,9 +628,6 @@ function riderFor(projectPath: string, agentId: string, wakeLine: string): Rider
     allowed: () => !!offer && allowedAll(store, offer),
     withdrawn: () => {
       if (offer) withdrawn(store, offer)
-    },
-    received: () => {
-      if (offer) void receivedByLine(store, agentId, offer.ids, offer.runId).catch((e) => log.warn('checking a delivery was received', e))
     }
   }
 }
@@ -723,9 +648,7 @@ async function offerOnce(host: string, agentId: string): Promise<void> {
   const store = await load(host)
   const st = sessions.liveFor(host, agentId)
   if (!st) return
-  await reconcile(store, agentId, st.sessionId)
   if (!store.records.some((r) => r.agentId === agentId && isWaiting(r)) || !canTypeLine(host, agentId)) return
-  const seen = await promptsOf(host, st.sessionId)
   const label = st.status === 'watching' && st.watch ? st.watch.label : null
   // Saved as offered before the first key, then checked again: if Hive stops before it knows the line arrived, it is
   // uncertain, never "delivered". Not saved, or no longer to be given out: nothing is typed.
@@ -734,7 +657,7 @@ async function offerOnce(host: string, agentId: string): Promise<void> {
     offer = await transact(
       store,
       (d) => {
-        const o = planOffer(store, d, agentId, { runId: st.runId, sessionId: st.sessionId, total: seen.total }, (items) => {
+        const o = planOffer(store, d, agentId, { runId: st.runId, sessionId: st.sessionId }, (items) => {
           const line = offerLine(items, label)
           return { text: line, full: line }
         })
@@ -758,8 +681,7 @@ async function offerOnce(host: string, agentId: string): Promise<void> {
   try {
     typed = await typeLine(host, agentId, o.line, () => offerHolds(store, o) && o.ids.every((id) => store.offering.has(id)), {
       rider: false,
-      ride: { still: () => allowedAll(store, o), withdrawn: () => withdrawn(store, o), instead: null },
-      received: () => void receivedByLine(store, agentId, o.ids, o.runId).catch((e) => log.warn('checking a delivery was received', e))
+      ride: { still: () => allowedAll(store, o), withdrawn: () => withdrawn(store, o), instead: null }
     })
   } finally {
     for (const id of o.ids) store.offering.delete(id)

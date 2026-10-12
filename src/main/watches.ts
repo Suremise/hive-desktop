@@ -1355,8 +1355,6 @@ export interface Rider {
   notTaken?: () => void
   /** Its deliveries saved as offered (#647): waited for before the line's first key; nothing is typed if it fails. */
   ready?: Promise<void>
-  /** Its CLI took a prompt after the line (its prompt count went up in the same launch): its deliveries check it was theirs. */
-  received?: () => void
 }
 let wakeRider: ((projectPath: string, agentId: string, line: string) => Rider | null) | null = null
 /** Registers what rides agents' wakes (deliveries.ts, at start): given the wake's own line, so its offer knows the whole line typed. */
@@ -1379,9 +1377,9 @@ export function canTypeLine(projectPath: string, agentId: string): boolean {
  * Types a line of Hive's that isn't a watch's (#405: a loop wake) into an agent, as a wake is typed: only while it is
  * idle, nobody types there, no earlier line is waiting there and no watch of its own has a line to type (that goes
  * first); one wake at a time per agent; checked to be taken (#376). `wanted` is asked again before every piece and
- * before Enter. Whether it was typed (false: try again later). `received` is called once its CLI takes it (#647).
+ * before Enter. Whether it was typed (false: try again later).
  */
-export async function typeLine(projectPath: string, agentId: string, line: string, wanted: () => boolean, opts: { rider?: boolean; ride?: RideCheck; received?: () => void } = {}): Promise<boolean> {
+export async function typeLine(projectPath: string, agentId: string, line: string, wanted: () => boolean, opts: { rider?: boolean; ride?: RideCheck } = {}): Promise<boolean> {
   const key = agentKey(projectPath, agentId)
   if (!canTypeLine(projectPath, agentId) || !wanted()) return false
   waking.add(key)
@@ -1402,16 +1400,7 @@ export async function typeLine(projectPath: string, agentId: string, line: strin
     log.info(`Woke ${userText(agentId)}: ${userText(text.slice(0, 80))}`)
     // Kept to what rode it (#530) until the CLI takes it: its own check (a message's line), or its rider's.
     const ride = opts.ride ?? (rider ? { still: rider.allowed, withdrawn: rider.withdrawn, instead: line } : undefined)
-    // Taken in the same launch (its prompt count went up): what rode it, and what it carried, are received (#647).
-    const got = [rider?.received, opts.received].filter((f): f is () => void => !!f)
-    if (before)
-      inBackground(
-        'checking a wake was taken',
-        confirmTaken(projectPath, agentId, before, text, ride).then((ok) => {
-          const now = sessions.promptsTaken(projectPath, agentId)
-          if (ok && now?.runId === before.runId && now.count > before.count) for (const f of got) f()
-        })
-      )
+    if (before) inBackground('checking a wake was taken', confirmTaken(projectPath, agentId, before, text, ride))
     return true
   } catch (e) {
     rider?.notTaken?.()
@@ -1594,15 +1583,7 @@ async function deliver(store: Store, rec: WatchRecord): Promise<void> {
     log.info(`Woke ${userText(rec.agentId)}: ${userText(typedLine.slice(0, 80))}`)
     noteToldByWatch(rec.projectPath, rec.agentId, toldOfCards)
     for (const x of endedAt) inBackground(`noting on #${x.n} that a watch ended`, noteOnCard(x.n, x.what, store.ws))
-    if (before)
-      inBackground(
-        'checking a wake was taken',
-        confirmTaken(rec.projectPath, rec.agentId, before, typedLine, rider ? { still: rider.allowed, withdrawn: rider.withdrawn, instead: line } : undefined).then((ok) => {
-          // Taken in the same launch: the deliveries that rode it are received (#647).
-          const now = sessions.promptsTaken(rec.projectPath, rec.agentId)
-          if (ok && now?.runId === before.runId && now.count > before.count) rider?.received?.()
-        })
-      )
+    if (before) inBackground('checking a wake was taken', confirmTaken(rec.projectPath, rec.agentId, before, typedLine, rider ? { still: rider.allowed, withdrawn: rider.withdrawn, instead: line } : undefined))
     // What earlier wakes told about cards this one didn't stays: it is still all the agent was told about them.
     const known = new Map(store.woke.get(key))
     for (const [n, b] of Object.entries(told)) {

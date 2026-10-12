@@ -1,12 +1,11 @@
 // Deliveries (#647): what the Assistant leaves for an agent is a saved record with an id and a state, on fake Claude Code
 // agents (fake-claude/) and the Assistant's hive tools (hive-mcp.js with its token). A message for a working agent is
 // queued and saved in the project's .hive/deliveries.json, its pane shows "✉ 1 unread"; the agent fetches it mid-turn with
-// hive_inbox (received, so it isn't typed after) and acks it (acked); one typed into it is received when its CLI takes the
-// line; one not acked in time shows as overdue; hive_agent_activity gives each one's state and times, so the Assistant
+// hive_inbox (received, so it isn't typed after) and acks it (acked); one typed into it is offered, never received for
+// that, and acked from there; one not acked in time shows as overdue; hive_agent_activity gives each one's state and times, so the Assistant
 // sees them. A stop of the agent keeps what waits for it; once the Assistant's launch ends, its message still waiting is
 // refused (#645) and shown in the Assistant's activity list. Then Hive restarts: what was refused stays so; a card event
-// Hive saved (as Messaging 3's board events will be) is restored, offered to the agent once it is resumed, received and
-// acked (the restore itself, offered → uncertain and a refusal at load, is in tests/deliveries.test.ts). Dev build, throwaway profile, workspace and CLAUDE_CONFIG_DIR.
+// Hive saved (as Messaging 3's board events will be) is restored, offered to the agent once it is resumed, and acked (the restore itself, offered → uncertain and a refusal at load, is in tests/deliveries.test.ts). Dev build, throwaway profile, workspace and CLAUDE_CONFIG_DIR.
 const lib = require('./lib.cjs')
 const { _electron } = require('playwright-core')
 const { execFileSync } = require('child_process')
@@ -137,7 +136,7 @@ async function start() {
   check('a message for the idle builder is typed at once', !second.isError && second.text === 'Typed into Builder now (m2).', second.text)
   check('…as its own line, with its id to ack', !!(await until(() => wakes().some((t) => t === "[Hive] Message from the Assistant: Then take #2. (Its id: m2. Once you've acted on it, ack it with hive_inbox.)"), HUNG_MS)), JSON.stringify(wakes()))
   check('…and the message it had fetched is never typed', !wakes().some((t) => t.includes('Rebase on main')), JSON.stringify(wakes()))
-  check('…received once its CLI took the line', !!(await until(() => delivery('m2')?.state === 'received', HUNG_MS)) && delivery('m2')?.receivedVia === 'line', JSON.stringify(delivery('m2')))
+  check('…offered (typed), and not received for that, though its CLI took the line', !!(await until(async () => wakes().length > 0 && delivery('m2')?.state === 'offered' && (await idle(builder.id)), HUNG_MS)) && !delivery('m2')?.received, JSON.stringify(delivery('m2')))
 
   // --- 3. Acked: the agent says it acted on m1; m2 isn't, and becomes overdue.
   await until(() => idle(builder.id), HUNG_MS)
@@ -181,7 +180,7 @@ async function start() {
   check('the builder is resumed in the same conversation', !!(await until(async () => (await idle(builder.id)) && (await live(alpha, builder.id))?.sessionId === sessionId, HUNG_MS)))
   check('…and gets the card event, with its id', !!(await until(() => wakes().some((t) => t === `[Hive] #7: is back in Review, round 2 (Its id: ${eventId}. Once you've acted on it, ack it with hive_inbox.)`), HUNG_MS)), JSON.stringify(wakes().slice(-2)))
   check('…never the refused message', !wakes().some((t) => t.includes('From the launch that ends.')), JSON.stringify(wakes()))
-  check('…received once its CLI took it', !!(await until(() => saved().find((d) => d.id === eventId)?.state === 'received', HUNG_MS)), JSON.stringify(saved().find((d) => d.id === eventId)))
+  check('…offered, saved as such', saved().find((d) => d.id === eventId)?.state === 'offered', JSON.stringify(saved().find((d) => d.id === eventId)))
   await until(() => idle(builder.id), HUNG_MS)
   await say(builder.id, `hive hive_inbox {"ack":["${eventId}"]}`)
   check('…and acked after the restart', !!(await until(() => saved().find((d) => d.id === eventId)?.state === 'acked', HUNG_MS)), JSON.stringify(saved().find((d) => d.id === eventId)))

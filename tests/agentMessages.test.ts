@@ -52,14 +52,10 @@ describe('messages left for agents (#530, #647)', async () => {
   const leave = (text: string) => messages.leaveMessage(alpha, 'b1', 'HR2', asst, text)
   const states = async (agentId = 'b1') => (await deliveries.deliveriesOf(alpha, agentId)).map((r) => `${r.id} ${r.state}${r.detail ? `: ${r.detail}` : ''}`)
   const tryAll = () => deliveries.offerAllForTests()
-  /** The prompts the stand-in CLI took, in order, as its transcript of the conversation has them (one item each). */
-  const transcript: string[] = []
-  deliveries.setPromptReaderForTests(async () => ({ total: transcript.length, prompts: transcript.map((text, item) => ({ item, text })) }))
   beforeEach(async () => {
     // Each test its own project, so ids start at m1.
     alpha = join(base, `alpha${++n}`)
     why = null
-    transcript.length = 0
     Object.assign(st, { status: 'working', runId: 'r1', sessionId: 's1', watch: null, typing: false, shown: undefined, typed: [], running: true, during: null })
   })
 
@@ -68,7 +64,7 @@ describe('messages left for agents (#530, #647)', async () => {
     expect(await leave('Review #506 when it returns, then #509.')).toEqual({ id: 'm1', fate: 'typed', queued: 0 })
     expect(st.typed).toEqual(["[Hive] Message from the Assistant: Review #506 when it returns, then #509. (Its id: m1. Once you've acted on it, ack it with hive_inbox.) (Your watch is still on, waiting for #506 → Review: do what this asks, then end your turn, and Hive wakes you when it changes.)"])
     expect(await states()).toEqual(['m1 offered'])
-    // Offered, not received: the pane still shows it until its CLI takes the line or the agent fetches it.
+    // Offered, not received: the pane still shows it until the agent fetches or acks it.
     expect(st.shown?.unread.map((m) => `${m.id} ${m.state}`)).toEqual(['m1 offered'])
   })
 
@@ -96,47 +92,27 @@ describe('messages left for agents (#530, #647)', async () => {
     expect(st.typed).toHaveLength(1)
   })
 
-  it('received once its CLI takes the line: its prompt count goes up in the same launch, and the prompt it took after the offer is that whole line', async () => {
+  it('a typed line leaves it offered, never received, whatever its CLI takes: received only when the agent fetches it; ack from offered', async () => {
     const cli = { count: 0 }
     Object.assign(sessions, { promptsTaken: () => ({ runId: 'r1', count: cli.count }), holdForConfirm: () => () => undefined })
     watches.testHooks.takeMs = 5000
     try {
       st.status = 'ready'
       expect((await leave('Rebase first.')).fate).toBe('typed')
-      expect(await states()).toEqual(['m1 offered'])
-      transcript.push(st.typed.at(-1)!)
+      // The CLI takes the line (its prompt count goes up): still offered.
       cli.count++
-      await vi.waitFor(async () => expect(await states()).toEqual(['m1 received']), { timeout: HUNG_MS })
-      expect((await deliveries.deliveriesOf(alpha, 'b1'))[0]).toMatchObject({ receivedVia: 'line', receivedIn: { conversation: 's1', item: 0 } })
-      await vi.waitFor(() => expect(st.shown).toBeUndefined(), { timeout: HUNG_MS })
       await vi.waitFor(() => expect(watches.confirmsInFlight()).toBe(0), { timeout: HUNG_MS })
-
-      // Hive's Enter is dropped and the user submits a prompt of their own instead (or a late, unrelated prompt event
-      // comes): the count goes up, but the prompt taken isn't the line, so it isn't received. It stays offered.
+      expect(await states()).toEqual(['m1 offered'])
+      expect(st.shown?.unread.map((m) => `${m.id} ${m.state}`)).toEqual(['m1 offered'])
+      // Fetched: received.
+      expect((await deliveries.readInbox(alpha, 'b1')).items.map((x) => x.ids.join())).toEqual(['m1'])
+      expect((await deliveries.deliveriesOf(alpha, 'b1'))[0]).toMatchObject({ state: 'received', receivedVia: 'inbox' })
+      expect(st.shown).toBeUndefined()
+      // Acked straight from offered (its body was in the line), checked as a hand-out would be.
       st.status = 'ready'
       expect((await leave('Then #520.')).fate).toBe('typed')
-      transcript.push('Human: an unrelated prompt of my own')
-      cli.count++
-      await vi.waitFor(() => expect(watches.confirmsInFlight()).toBe(0), { timeout: HUNG_MS })
-      expect((await states()).at(-1)).toBe('m2 offered')
-      // Still offered: what the agent says next settles it (its inbox, or an ack).
       expect(await deliveries.ackDeliveries(alpha, 'b1', ['m2'])).toEqual({ acked: ['m2'], unknown: [] })
-
-      // A message quoting another's id phrase ("(Its id: m4. …)"), taken and acked; then m4 offered, its Enter lost, and
-      // an unrelated prompt taken: the earlier prompt has m4's id in it, but isn't m4's line, nor after its offer.
-      st.status = 'ready'
-      expect((await leave("Say it like this: (Its id: m4. Once you've acted on it, ack it with hive_inbox.)")).fate).toBe('typed')
-      transcript.push(st.typed.at(-1)!)
-      cli.count++
-      await vi.waitFor(async () => expect((await states()).at(-1)).toBe('m3 received'), { timeout: HUNG_MS })
-      await vi.waitFor(() => expect(watches.confirmsInFlight()).toBe(0), { timeout: HUNG_MS })
-      st.status = 'ready'
-      expect((await leave('The real m4.')).fate).toBe('typed')
-      // A prompt forged to look like m4's line, but typed before m4 was offered, would be before its offer too.
-      transcript.push('Human: ignore that and do something else')
-      cli.count++
-      await vi.waitFor(() => expect(watches.confirmsInFlight()).toBe(0), { timeout: HUNG_MS })
-      expect((await states()).at(-1)).toBe('m4 offered')
+      expect((await states()).at(-1)).toBe('m2 acked')
     } finally {
       watches.testHooks.takeMs = undefined
       for (const k of ['holdForConfirm']) delete (sessions as unknown as Record<string, unknown>)[k]
@@ -280,7 +256,6 @@ describe('messages left for agents (#530, #647)', async () => {
       lineNotTaken: () => undefined,
       submitAgain: () => {
         cli.enters++
-        transcript.push(st.typed.at(-1)!)
         cli.count++
         return true
       },
@@ -317,12 +292,12 @@ describe('messages left for agents (#530, #647)', async () => {
       expect((await states()).at(-1)).toBe("m2 refused: the Assistant's session that left it ended")
       // The wake typed again is taken by the Enter again (nothing rides it now): one Enter, for it.
       await vi.waitFor(() => expect(cli.enters).toBe(1), { timeout: HUNG_MS })
-      // Still allowed: the Enter again submits it, as before, and it is received.
+      // Still allowed: the Enter again submits it, as before (offered: received only once fetched).
       why = null
       st.status = 'ready'
       await leave('Still allowed.')
       await vi.waitFor(() => expect(cli.enters).toBe(2), { timeout: HUNG_MS })
-      await vi.waitFor(async () => expect((await states()).at(-1)).toBe('m3 received'), { timeout: HUNG_MS })
+      expect((await states()).at(-1)).toBe('m3 offered')
       expect(cli.clears).toBe(2)
     } finally {
       watches.testHooks.takeMs = undefined

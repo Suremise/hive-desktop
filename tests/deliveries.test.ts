@@ -102,9 +102,6 @@ describe('the delivery service (#647)', async () => {
   // The Assistant's launch that is running now, and whether Control lets it run agents (as senderRefusal works them out).
   const now = { launch: 'a1', control: true }
   deliveries.setSenderCheckForTests((from) => (from.kind !== 'assistant' ? null : !now.control ? 'the user turned Settings → Assistant → Control down' : from.launch !== now.launch ? "the Assistant's session that left it ended" : null))
-  /** The prompts the agent's CLI took, in order, as its transcript has them (one item each; none unless a test says). */
-  let prompts: string[] = []
-  deliveries.setPromptReaderForTests(async () => ({ total: prompts.length, prompts: prompts.map((text, item) => ({ item, text })) }))
   const ws = join(base, 'ws')
   const asst = (launch = 'a1'): DeliverySender => ({ kind: 'assistant', name: 'the Assistant', workspace: ws, launch })
   const hive: DeliverySender = { kind: 'hive', name: 'Hive' }
@@ -121,7 +118,6 @@ describe('the delivery service (#647)', async () => {
     alpha = join(base, `alpha${++n}`)
     Object.assign(st, { status: 'working', runId: 'r1', sessionId: 's1', running: true, typed: [] })
     Object.assign(now, { launch: 'a1', control: true })
-    prompts = []
     deliveries.setFileBudgetForTests(4 * 1024 * 1024)
   })
 
@@ -135,31 +131,31 @@ describe('the delivery service (#647)', async () => {
     expect((await make({ from: hive, kind: 'card-event', card: 7, body: 'is in Review' })).id).toBe('m3')
   })
 
-  it("after a restart: one offered is uncertain; the Assistant's from a launch that has ended is refused, and in its activity list; Hive's waits and is offered", async () => {
+  it("after a restart: one offered stays offered (never typed again) until it is fetched; the Assistant's from a launch that has ended is refused, and in its activity list; Hive's waits and is offered", async () => {
     await make({ body: 'From the old launch.' })
     await make({ from: hive, kind: 'card-event', card: 7, body: 'is in Review' })
     st.status = 'ready'
-    // Offered (typed), then Hive stops before it knows whether it arrived.
+    // Offered (typed), then Hive stops.
     await deliveries.offerNow(alpha, 'b1')
     expect(await states()).toEqual(['m1 offered', 'm2 offered'])
-    // The Assistant starts again (a new launch) after Hive restarts.
+    // The Assistant starts again (a new launch) after Hive restarts: what was offered isn't received, so its permission
+    // counts: refused. Hive's own stays offered.
     now.launch = 'a2'
     const listed = assistant.actions(ws).length
     await restart()
-    expect(await states()).toEqual(["m1 refused: the Assistant's session that left it ended", 'm2 uncertain: Hive stopped before it knew whether this reached the agent'])
+    expect(await states()).toEqual(["m1 refused: the Assistant's session that left it ended", 'm2 offered'])
     expect(assistant.actions(ws).slice(listed).map((a) => `${a.text} | ${a.error}`)).toEqual(["A message for B1 (m1) was refused | the Assistant's session that left it ended"])
-    // What is uncertain is offered again once the agent is idle (an event about a card is safe to give twice).
+    // Not typed again once the agent is idle; received once it fetches it.
     st.status = 'ready'
     st.typed = []
     await deliveries.offerNow(alpha, 'b1')
-    expect(st.typed).toEqual(["[Hive] #7: is in Review (Its id: m2. Once you've acted on it, ack it with hive_inbox.)"])
-    expect((await deliveries.deliveriesOf(alpha, 'b1'))[1]).toMatchObject({ state: 'offered', offers: 2 })
-    expect(await deliveries.ackDeliveries(alpha, 'b1', ['m2'])).toEqual({ acked: ['m2'], unknown: [] })
+    expect(st.typed).toEqual([])
+    expect((await deliveries.readInbox(alpha, 'b1')).items.map((x) => `${x.ids.join()} ${x.text}`)).toEqual(['m2 is in Review'])
+    expect(await states()).toEqual(["m1 refused: the Assistant's session that left it ended", 'm2 received'])
     // Queued and never offered: waits across the restart, and is offered after it.
     await make({ from: hive, kind: 'card-event', card: 8, body: 'is in Passed' })
     await restart()
     st.status = 'ready'
-    st.typed = []
     await deliveries.offerNow(alpha, 'b1')
     expect(st.typed).toEqual(["[Hive] #8: is in Passed (Its id: m3. Once you've acted on it, ack it with hive_inbox.)"])
   })
@@ -314,22 +310,5 @@ describe('the delivery service (#647)', async () => {
     deliveries.setFileBudgetForTests(4 * 1024 * 1024)
     // (The one refused for room was never made: its id is free.)
     expect((await make({ body: 'After.' })).id).toBe(`m${made + 2}`)
-  })
-
-  it('uncertain after a restart, but its line is in the conversation the CLI kept: received, not offered again', async () => {
-    await make({ from: hive, kind: 'card-event', card: 7, body: 'is in Review' })
-    st.status = 'ready'
-    await deliveries.offerNow(alpha, 'b1')
-    const typed = st.typed[0]
-    await restart()
-    expect(await states()).toEqual(['m1 uncertain: Hive stopped before it knew whether this reached the agent'])
-    // Resumed in the same conversation: its transcript has the line as a prompt it took.
-    prompts = [typed]
-    st.status = 'ready'
-    st.typed = []
-    await deliveries.offerNow(alpha, 'b1')
-    expect(st.typed).toEqual([])
-    expect(await states()).toEqual(['m1 received'])
-    expect((await deliveries.deliveriesOf(alpha, 'b1'))[0].receivedVia).toBe('line')
   })
 })

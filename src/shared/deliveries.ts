@@ -12,10 +12,11 @@ export const DELIVERY_KINDS = ['task', 'rebrief', 'card-event', 'answer', 'hando
 export type DeliveryKind = (typeof DELIVERY_KINDS)[number]
 
 /**
- * queued: waiting to be offered; offered: Hive has put it in front of the agent (today, typed into its terminal); received:
- * the agent has it (its CLI took the line it was in, or it fetched it with hive_inbox); acked: the agent says it has acted
- * on it. Ended without that: cancelled (by whom), refused (its sender may no longer send it), expired (too old, or its
- * agent is in another conversation now). uncertain: Hive stopped between offering it and knowing it arrived.
+ * queued: waiting to be offered; offered: Hive has put it in front of the agent (today, typed into its terminal: never
+ * "received" for that); received: the agent fetched it with hive_inbox (#645: received is automatic on fetch, and
+ * nothing else); acked: the agent says it has acted on it. Ended without that: cancelled (by whom), refused (its sender
+ * may no longer send it), expired (too old, or its agent is in another conversation now). uncertain: kept for the
+ * channels of Messaging 4 (a delivery whose offer can't be confirmed); nothing makes it yet.
  */
 export const DELIVERY_STATES = ['queued', 'offered', 'received', 'acked', 'cancelled', 'refused', 'expired', 'uncertain'] as const
 export type DeliveryState = (typeof DELIVERY_STATES)[number]
@@ -48,18 +49,10 @@ export interface DeliveryRecord {
   /** How many times it was offered (again after Hive stopped while offering it). */
   offers?: number
   received?: string
-  /** How it was received: its CLI took the line it was in, or the agent fetched it. */
-  receivedVia?: 'line' | 'inbox'
-  /**
-   * The offer that is (or was last) in front of the agent: the hash of the exact line typed (promptKey, then sha256), how
-   * many items the conversation's transcript had before it was typed, and the launch it was typed into. A receipt by line
-   * is a prompt after that point whose whole text is that line, nothing less.
-   */
-  offerHash?: string
-  offerAt?: number
+  /** How it was received: fetched with hive_inbox (the only way). */
+  receivedVia?: 'inbox'
+  /** The launch its offer was typed into (an offer holds only while that launch runs). */
   offerRun?: string
-  /** Where it was received by line: the conversation and the transcript item of the prompt that was its line. */
-  receivedIn?: { conversation: string; item: number }
   acked?: string
   /** When it was cancelled, refused or expired. */
   ended?: string
@@ -176,17 +169,6 @@ export function offerLine(records: readonly DeliveryRecord[], watchLabel: string
   return `[Hive] ${parts.join(' ')}${ack}${tail}`
 }
 
-/**
- * A prompt as Hive types it and as a CLI keeps it, for comparing the two: whitespace runs as one space, control
- * characters gone (sessions.sendPrompt flattens a line and strips them from a paste), trimmed.
- */
-export const promptKey = (text: string): string =>
-  text
-    .replace(/\s+/g, ' ')
-    .replace(/[\x00-\x1f\x7f-\x9f]/g, '')
-    .replace(/\s+/g, ' ')
-    .trim()
-
 /** hive_inbox's reply: what is new (now received), and what was received before and isn't acked yet. */
 export function inboxText(items: readonly InboxItem[], unacked: readonly string[]): string {
   const older = unacked.length ? `Received before, not acked yet: ${idList(unacked)}.` : ''
@@ -227,7 +209,7 @@ export interface DeliveryRow {
   created: string
   offered?: string
   received?: string
-  receivedVia?: 'line' | 'inbox'
+  receivedVia?: 'inbox'
   acked?: string
   ended?: string
   detail?: string
@@ -277,23 +259,16 @@ export function readDelivery(v: unknown): DeliveryRecord | null {
   if (r.card !== undefined && !(Number.isInteger(r.card) && (r.card as number) > 0)) return null
   if (![r.offered, r.received, r.acked, r.ended].every(optTime)) return null
   if (r.offers !== undefined && !(Number.isInteger(r.offers) && (r.offers as number) >= 0)) return null
-  if (r.receivedVia !== undefined && r.receivedVia !== 'line' && r.receivedVia !== 'inbox') return null
+  if (r.receivedVia !== undefined && r.receivedVia !== 'inbox') return null
   if (r.detail !== undefined && !str(r.detail, 500)) return null
   if (r.agentName !== undefined && !str(r.agentName, 300)) return null
-  if (r.offerHash !== undefined && !(str(r.offerHash, 64) && /^[0-9a-f]+$/.test(r.offerHash))) return null
-  if (r.offerAt !== undefined && !(Number.isInteger(r.offerAt) && (r.offerAt as number) >= 0)) return null
   if (r.offerRun !== undefined && !str(r.offerRun, 200)) return null
-  const at = r.receivedIn as { conversation?: unknown; item?: unknown } | undefined
-  if (at !== undefined && !(at && str(at.conversation, 200) && at.conversation && Number.isInteger(at.item) && (at.item as number) >= 0)) return null
   const out: DeliveryRecord = { id: r.id, seq: r.seq as number, agentId: r.agentId, conversation: (r.conversation as string | null) || null, kind: r.kind as DeliveryKind, from, body: r.body, state: r.state as DeliveryState, created: r.created, expires: r.expires }
   if (r.agentName) out.agentName = r.agentName as string
   if (r.card) out.card = r.card as number
   for (const k of ['offered', 'received', 'acked', 'ended', 'detail'] as const) if (r[k]) out[k] = r[k] as string
   if (r.offers) out.offers = r.offers as number
-  if (r.receivedVia) out.receivedVia = r.receivedVia as 'line' | 'inbox'
-  if (r.offerHash) out.offerHash = r.offerHash as string
-  if (r.offerAt !== undefined) out.offerAt = r.offerAt as number
+  if (r.receivedVia) out.receivedVia = 'inbox'
   if (r.offerRun) out.offerRun = r.offerRun as string
-  if (at) out.receivedIn = { conversation: at.conversation as string, item: at.item as number }
   return out
 }
