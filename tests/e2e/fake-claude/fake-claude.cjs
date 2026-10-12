@@ -21,6 +21,9 @@
 //   its home, it leaves N the moment it starts, before anything else. "progress-linger" leaves a command running
 //   through the session's hive-progress shim, as a Codex agent once did (#542): cmd → hive-progress → a lingering node
 //   (linger.cjs; its pid in fake-progress-linger.jsonl in its home), and ends its turn without waiting for it.
+//   "devapp" leaves a dev copy of an Electron app running, as an agent's dev launch of Hive did (#614): Electron's
+//   executable with Playwright's --inspect=0 --remote-debugging-port=0 and a copy of devapp in its home (a hidden window; quits after two
+//   minutes, in case), started through a detached node that exits at once (linger.cjs); its pid in fake-devapp.jsonl.
 //   "boardmove N COLUMN" moves card N as hive_update_task does (the hive tools' API, token and agent, from
 //   --mcp-config) and records the answer in fake-calls.jsonl; "boardreview N ACTION [COLUMN]" reviews it the same way
 //   (review: start, passed or failed; a column with the verdict), and "boardcomment N" comments on it. All are written to the transcript as the hive tool
@@ -388,6 +391,7 @@ async function runPrompt(text) {
   const linger = /(?<!-)\blinger\s+(\d+)/i.exec(text)
   if (linger) leaveRunning(Number(linger[1]))
   if (/\bprogress-linger\b/i.test(text)) leaveProgressRunning()
+  if (/\bdevapp\b/i.test(text)) leaveAppRunning()
   const secs = Number(/\bwork\s+(\d+)/i.exec(text)?.[1] ?? 1)
   await sleep(secs * 1000)
   // "holduntil NAME": the turn goes on until the test makes NAME in its home, so it ends after what the test waits for
@@ -749,6 +753,14 @@ process.stdin.on('data', (data) => {
 /** "linger N": N processes left running after it ends (linger.cjs), started through one that exits at once. */
 function leaveRunning(n) {
   for (let i = 0; i < n; i++) spawn(process.execPath, [path.join(__dirname, 'linger.cjs'), 'starter', path.join(home, 'fake-linger.jsonl'), process.env.HIVE_AGENT || 'agent'], { detached: true, stdio: 'ignore', windowsHide: true }).unref()
+}
+
+/** "devapp": a dev copy of an Electron app left running (devapp/main.js), started through one that exits at once (#614). */
+function leaveAppRunning() {
+  // In its home, so its command line names the test's folder (and its profile stays there: devapp/main.js).
+  const app = path.join(home, 'devapp')
+  fs.cpSync(path.join(__dirname, 'devapp'), app, { recursive: true })
+  spawn(process.execPath, [path.join(__dirname, 'linger.cjs'), 'app-starter', path.join(home, 'fake-devapp.jsonl'), process.env.HIVE_AGENT || 'agent', app], { detached: true, stdio: 'ignore', windowsHide: true }).unref()
 }
 
 /** "progress-linger": a command left running through the session's hive-progress shim (on its PATH), not waited for (#542). */

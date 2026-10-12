@@ -1,7 +1,7 @@
 import { randomUUID, randomBytes } from 'crypto'
 import { basename, dirname, extname, isAbsolute, join, resolve } from 'path'
-import { copyFile, mkdir, open, readdir, rename, rm, stat, writeFile } from 'original-fs/promises'
-import { existsSync, realpathSync } from 'original-fs'
+import { copyFile, lstat, mkdir, open, readdir, rename, rm, rmdir, stat, writeFile } from 'original-fs/promises'
+import { constants as fsConstants, existsSync, realpathSync } from 'original-fs'
 import { typedText } from '../shared/terminalInput'
 import { failedStart, type StartFailure } from '../shared/startFailure'
 import { BrowserWindow, Notification, app, clipboard } from 'electron'
@@ -27,6 +27,8 @@ import type {
   QueuedMessage,
   SessionBulkAction,
   SessionBulkResult,
+  Attached,
+  AttachmentPlan,
   SessionListItem,
   SessionRecord,
   SessionSkipReason,
@@ -39,12 +41,13 @@ import { provider as providerAdapter, allProviders } from './providers'
 import { recacheEstimate } from './providers/common'
 import { usesOwnPrices } from '../shared/prices'
 import { priceUsage } from '../shared/usageDays'
+import { readTimeline, type UsageTimeline } from '../shared/usageTimeline'
 import type { Ask, HookEvent, LaunchContext, LaunchSkill, ProviderAdapter, SkillDelivery, UsageParser } from './providers/types'
 import { providerService } from './providerService'
 import { config } from './config'
 import { emit, emitTo, tellListeners, toast } from './events'
 import { presentWindow, showOsNotification, testNotifyLog, testQuiet } from './testQuiet'
-import { hashText, heldOpen, isInUse, readJson, placeRelative, removePath, samePlace, treeSignature, syncCopy, syncCopyLocked, syncCopyNow, trashAllOrNothing, withFileLock, writeJsonAtomic } from './fsutil'
+import { hashText, heldOpen, insideReal, isInUse, readJson, placeRelative, removePath, samePlace, treeSignature, syncCopy, syncCopyLocked, syncCopyNow, trashAllOrNothing, withFileLock, writeJsonAtomic } from './fsutil'
 import { createLogger, hookJournal, userText } from './logger'
 import { applyStep, compactionOver, expireTasks, hookStep, idleAfter, markedIdle, titleStep, type HookStatusInput, type HookStep } from './hookStatus'
 import { admit, describe as describeTurn, endRunning, heard, newLedger, openCalls, reconciles, silentFor, unheardStop, type ScreenReading, type TurnLedger } from './turnLedger'
@@ -54,6 +57,7 @@ import { asksYou } from '../shared/inbox'
 import { FinishBatcher, finishedNotice, noticeRoute, type FocusedHive, type NoticeRoute } from '../shared/bursts'
 import { recordCards } from './cardSessions'
 import { listMcp, toLaunchDef } from './mcp'
+import { agentGetsMcp } from '../shared/agentMcp'
 import { launchEnded, leftoversOf, noteUntracked, settleLeftovers, trackingProblem, trackingReady, trackLaunch, type TrackResult } from './agentProcesses'
 import type { GateWord } from './launchGate'
 import { leftoversSummary, processCount } from '../shared/agentProcesses'
@@ -65,6 +69,9 @@ import { hiveSkills, parseSkillFrontmatter, skillFor } from './skills'
 import { GUIDANCE_REVISION, launchParts, launchRecord } from './guidance'
 import { notificationIcon } from './paths'
 import { reportPlanUsage } from './planUsage'
+import { devConsole, sessionSourceId } from './devConsole'
+import { DETAILS_FIELDS, HOOK_FIELDS, HOOK_MADE_FIELDS, STATUSLINE_FIELDS, safeWord } from '../shared/devConsole'
+import { hookSummary, launchEvent, statusLineSummary, transcriptEvent } from './devConsoleWords'
 import { revisionOf } from './revisions'
 import { metricsHandle, recordLaunch } from './metrics'
 import { headerOf } from './revisions'
@@ -74,6 +81,8 @@ import { endAgentToken, newAgentToken } from './agentTokens'
 import { endHookToken, newHookToken } from './hookTokens'
 import { beingRead, viewingWindows } from './transcriptReads'
 import { trash } from './trash'
+import { attachmentsDir, freeName, ownAttachmentsFolder } from './attachmentsFolder'
+import { attachmentKind } from '../shared/attachments'
 
 const log = createLogger('sessions')
 
@@ -730,16 +739,18 @@ class SessionManager {
       }
     }
     const mcpDisabled = new Set(pc.mcp.disabled)
+    // The agent's own choice narrows the project's servers (#537): all of them unless it names some.
+    const forAgent = agent ?? projectAgents(pc)[0]
     const mcpServers: Record<string, McpServerDef> = {}
     for (const m of await listMcp()) {
-      if (m.globallyEnabled && !mcpDisabled.has(m.name) && m.def) mcpServers[m.name] = toLaunchDef(m.def, workspace.mcpDir)
+      if (m.globallyEnabled && !mcpDisabled.has(m.name) && m.def && agentGetsMcp(forAgent, m.name)) mcpServers[m.name] = toLaunchDef(m.def, workspace.mcpDir)
     }
     const hive = this.hiveMcp(projectPath, agent?.id)
     if (hive) mcpServers.hive = hive
     // The Assistant looks after the workspace with Hive's own tools, not the projects' MCP servers.
     if (assistant) for (const k of Object.keys(mcpServers)) if (k !== 'hive') delete mcpServers[k]
 
-    const l = agentLaunchSettings(agent ?? projectAgents(pc)[0], pc, s)
+    const l = agentLaunchSettings(forAgent, pc, s)
     const extraArgs = l.extraArgs.flatMap((a) => splitArgs(a))
     const chime = pc.chime === 'inherit' ? s.notifications.chimeEnabled : pc.chime === 'on'
     return { provider: l.provider, skills, skillHashes, skillProblems, mcpServers, model: l.model, effort: l.effort, permissionMode: l.permissionMode, extraArgs, use200kContext: l.use200kContext, chime }
@@ -809,6 +820,8 @@ class SessionManager {
       if (!file || file.version !== app.getVersion() || !Array.isArray(file.entries)) return
       for (const e of file.entries) {
         if (!e || typeof e.path !== 'string' || !e.usage || usageCache.has(e.path)) continue
+        // Without a timeline (cost per card, #602: saved before it, or damaged), read again in full when next asked.
+        if (!readTimeline(e.usage.timeline)) continue
         usageCache.set(e.path, { parser: null, sessionId: e.sessionId, provider: e.provider, offset: e.size, size: e.size, mtime: e.mtime, raw: e.usage, usage: null })
       }
       trimUsageCache()
@@ -831,9 +844,13 @@ class SessionManager {
     await writeJsonAtomic(usageCacheFile(), { version: app.getVersion(), entries } satisfies UsageCacheFile).catch((e) => log.warn('usage cache: could not save it', e))
   }
 
-  /** A result with costs from the current prices: the provider's report, else (or on top) Hive's estimate, and each day's share. */
+  /**
+   * A result with costs from the current prices: the provider's report, else (or on top) Hive's estimate, and each day's
+   * share. Without its timeline (usageTimeline has it): it stays in the cache, never in the usage passed on.
+   */
   private priced(raw: SessionUsage): SessionUsage {
-    return priceUsage(raw, config.settings)
+    const { timeline: _timeline, ...usage } = raw
+    return priceUsage(usage, config.settings)
   }
 
   /**
@@ -1008,6 +1025,7 @@ class SessionManager {
       status: 'starting',
       runtime: { lifecycle: 'starting', maintenance: null, attention: null, composer: 'free' },
       startedAt: new Date().toISOString(),
+      sessionCreatedAt: existing?.createdAt,
       launchSignature: '',
       unseen: false
     }
@@ -1247,6 +1265,8 @@ class SessionManager {
     const size = startSize(key)
     const screen = l.adapter.footerMode || l.adapter.modeMenuKeys || l.turnScreen ? new TerminalScreen(size.cols, size.rows) : null
     l.screen = screen
+    // The developer console (#636): how it was started (launchEvent: never its arguments).
+    devConsole.capture([sessionSourceId(projectPath, agent.id)], () => launchEvent({ provider: adapter.id, name: adapter.descriptor.name, file: cmd.file, args: cmd.args, cwd, version: info.version, state, resumed: !!l.resumed }))
     spawnPty(key, {
       ...size,
       file: cmd.file,
@@ -1300,15 +1320,13 @@ class SessionManager {
   private async recordSession(projectPath: string, agent: Pick<AgentDef, 'id' | 'name' | 'worktree'>, l: LiveSession): Promise<void> {
     const { state } = l
     const sessionId = state.sessionId
-    // Images pasted before the provider named the session wait in the launch's folder: move them to the session's.
-    const early = join(projectPath, HIVE_DIR, 'images', `run-${state.runId}`)
-    if (existsSync(early)) {
-      const dest = join(projectPath, HIVE_DIR, 'images', sessionId)
-      await mkdir(dest, { recursive: true }).catch(() => undefined)
-      for (const f of await readdir(early).catch(() => [] as string[])) await rename(join(early, f), join(dest, f)).catch((e) => log.warn(`Could not move ${userText(f)}`, e))
-      await rm(early, { recursive: true, force: true }).catch(() => undefined)
-    }
-    await workspace.upsertSession(projectPath, {
+    // A new conversation began with this launch, or (one the CLI switched to) now: its record says so, and the footer
+    // names it by the record's time, as the Sessions tab does (#630: a minute apart when recorded after a minute's turn).
+    state.sessionCreatedAt ??= state.startedAt
+    // Attachments pasted before the provider named the session wait in the launch's folder: move them to the session's,
+    // only between folders of the host's own (never through a link) and never over a file there.
+    await this.moveEarlyAttachments(projectPath, `run-${state.runId}`, sessionId).catch((e) => log.warn("Could not move the launch's attachments to its session's", e))
+    const rec = await workspace.upsertSession(projectPath, {
       id: sessionId,
       agent: state.provider,
       name: l.name,
@@ -1324,7 +1342,8 @@ class SessionManager {
       // Where it ran, when not the project folder (a worktree, or the Assistant's workspace folder).
       ...(state.cwd.toLowerCase() !== projectPath.toLowerCase() ? { cwd: state.cwd } : {}),
       ...(agent.worktree ? { branch: agent.worktree.branch } : {})
-    })
+    }, { createdAt: state.sessionCreatedAt })
+    state.sessionCreatedAt = rec.createdAt
     await workspace.updateAgent(projectPath, agent.id, { lastSessionId: sessionId }).catch(() => undefined)
     // The card it was started on (or already has in Doing).
     await recordCards(workspaceOf(projectPath), projectPath, agent.id, sessionId).catch((e) => log.warn(`Could not record the cards of session ${sessionId}`, e))
@@ -1493,6 +1512,7 @@ class SessionManager {
     const asks = l.titleAttention(title)
     if (asks === !!l.titleRead) return
     l.titleRead = asks
+    devConsole.capture([sessionSourceId(l.state.projectPath, l.state.agentId)], () => ({ kind: 'terminal', name: 'title', provider: l.state.provider, raw: { title }, made: { asksYou: asks }, summary: `terminal title: ${asks ? 'asks you' : 'asks nobody'}` }))
     // After the hooks that came before it: they are answered at once and handled one at a time, so a slow one (the
     // first records the session) holds back a prompt and an ask that came before the title (#254).
     const runId = l.state.runId
@@ -1513,6 +1533,7 @@ class SessionManager {
     const text = l.modeTail.replace(/\s+/g, ' ')
     const asked = l.adapter.startupQuestion?.exec(text)
     if (l.state.status === 'starting' && asked) {
+      devConsole.capture([sessionSourceId(l.state.projectPath, l.state.agentId)], () => ({ kind: 'terminal', name: 'startup question', provider: l.state.provider, raw: { screen: asked[0] }, made: { status: 'waiting', trust: asked[0].includes('trust') }, summary: 'terminal: asks something before it starts; waiting' }))
       l.askedAtStart = true
       l.modeTail = ''
       this.fact(l.state, { attention: 'waiting' })
@@ -1522,6 +1543,7 @@ class SessionManager {
       this.notify(l.state.projectPath, `${this.label(l.state)} needs your input`, l.state.statusMessage, 'waiting', undefined, l.state.agentId)
       this.emitState(l.state)
     } else if (l.adapter.readyOutput?.test(text)) {
+      devConsole.capture([sessionSourceId(l.state.projectPath, l.state.agentId)], () => ({ kind: 'terminal', name: 'ready', provider: l.state.provider, raw: { screen: text.slice(-200) }, made: { status: 'ready' }, summary: 'terminal: its prompt shows; ready' }))
       this.startupAnswered(l)
       this.fact(l.state, { lifecycle: 'running' })
       l.state.status = 'ready'
@@ -1575,6 +1597,7 @@ class SessionManager {
     if (this.live.get(liveId(l.state.projectPath, l.state.agentId)) !== l || !l.adapter.footerMode) return
     const mode = l.adapter.footerMode(screen.text(), l.launchMode)
     if (mode && (mode !== l.state.permissionMode || mode !== l.state.modeObserved)) {
+      devConsole.capture([sessionSourceId(l.state.projectPath, l.state.agentId)], () => ({ kind: 'terminal', name: 'footer mode', provider: l.state.provider, raw: { footer: mode }, made: { permissionMode: mode, was: l.state.permissionMode }, safe: { raw: { footer: true }, made: { permissionMode: true, was: true } }, summary: `terminal footer: mode ${mode}` }))
       l.state.permissionMode = l.state.modeObserved = mode
       this.emitState(l.state)
     }
@@ -1888,6 +1911,7 @@ class SessionManager {
       // Waiting to be taken from here (#430), for whatever Hive types next: recorded once this call is done with it (its
       // own Enter again below is no line over it; nothing else types meanwhile, it holds `delivering`).
       sent = { at: Date.now(), prompts: before }
+      devConsole.capture([sessionSourceId(projectPath, agentId)], () => ({ kind: 'input', name: 'Hive typed a line', provider: l?.state.provider, raw: { text: line }, made: { bracketedPaste: !!l?.screen?.bracketedPaste(), confirm: !!opts.confirm }, summary: `Hive typed a line (${line.length} chars) and Enter` }))
       // confirm: until the CLI reports the prompt submitted. One just resumed and still drawing its conversation can
       // drop the Enter, or take it as a new line (#334): Enter again, which an empty prompt ignores. Still not
       // reported (a CLI that doesn't report prompts), it counts as sent: typing it again could send it twice.
@@ -2183,6 +2207,7 @@ class SessionManager {
       }
     }
     emit({ type: 'session-exit', projectPath, agentId, sessionId, exitCode: code, ...(failure ? { failure } : {}) })
+    devConsole.capture([sessionSourceId(projectPath, agentId)], () => ({ kind: 'exit', name: 'exit', provider: l?.state.provider, raw: { exitCode: code }, made: { failedStart: !!failure, stopRequested: !!l?.stopRequested }, summary: `exited with code ${code}${failure ? ' before it started' : ''}` }))
     this.exitWaiters.get(id)?.()
     this.exitWaiters.delete(id)
     emit({
@@ -2427,7 +2452,10 @@ class SessionManager {
       const end = text.lastIndexOf('\n')
       if (end < 0) return
       l.detailsOffset = start + Buffer.byteLength(text.slice(0, end + 1))
-      this.applyDetails(l, l.adapter.transcriptDetails(text.slice(0, end + 1), (l.detailsMemo ??= {})), hooks)
+      const chunk = text.slice(0, end + 1)
+      const d = l.adapter.transcriptDetails(chunk, (l.detailsMemo ??= {}))
+      devConsole.capture([sessionSourceId(l.state.projectPath, l.state.agentId)], () => transcriptEvent(l.state.provider, chunk, d))
+      this.applyDetails(l, d, hooks)
     } finally {
       await fh.close()
     }
@@ -2704,7 +2732,9 @@ class SessionManager {
     const found = this.findLaunch(runId, body.session_id)
     if (!found?.[1].adapter.statusLine) return
     const l = found[1]
-    this.applyDetails(l, l.adapter.statusLine!(body))
+    const d = l.adapter.statusLine!(body)
+    devConsole.capture([sessionSourceId(l.state.projectPath, l.state.agentId)], () => ({ kind: 'statusline', name: 'status line', provider: l.state.provider, raw: body, made: d, safe: { raw: STATUSLINE_FIELDS, made: DETAILS_FIELDS }, summary: statusLineSummary(d) }))
+    this.applyDetails(l, d)
   }
 
   /** `hooks`: details read from the transcript, as it was when the launch had had that many hooks (readDetails). */
@@ -2973,7 +3003,7 @@ class SessionManager {
    * Handles a hook call from an agent's CLI (already answered with `reply`: hookReply). One launch's hooks run in
    * order: an older one that awaits (recording the session) must not land after a newer one's status.
    */
-  handleHook(runId: string | null, body: Record<string, any>, reply: Record<string, unknown> | null = null): Promise<void> {
+  handleHook(runId: string | null, body: Record<string, any>, reply: unknown = null): Promise<void> {
     // A turn's end releases only the locks claimed before it arrived: PreToolUse claims them at once, outside this queue.
     const arrived = this.lockSeq
     // When it reached Hive, before it waits its turn: a turn begins then, for comparing with the CLI's records (#648).
@@ -2996,7 +3026,7 @@ class SessionManager {
     return run
   }
 
-  private async handleHookNow(runId: string | null, body: Record<string, any>, arrived: number, hooksBefore: number, reply: Record<string, unknown> | null = null, at = Date.now()): Promise<void> {
+  private async handleHookNow(runId: string | null, body: Record<string, any>, arrived: number, hooksBefore: number, reply: unknown = null, at = Date.now()): Promise<void> {
     const found = this.findLaunch(runId, body.session_id)
     if (!found) return
     const [id, l] = found
@@ -3027,7 +3057,7 @@ class SessionManager {
     // The turn ledger first (#648): a hook about a turn that is over is old news, and a Stop Hive carried on isn't an end.
     const ledger = (l.ledger ??= newLedger())
     const ids = hook.ids
-    const continued = hook.event.kind === 'stop' && !hook.event.failed && !!reply && l.adapter.stopContinues(reply)
+    const continued = hook.event.kind === 'stop' && !hook.event.failed && !!reply && typeof reply === 'object' && l.adapter.stopContinues(reply as Record<string, unknown>)
     const before = st.status
     // A CLI that wakes when its background tasks end begins that turn itself: while its transcript says one just ended
     // (never merely because one runs), a tool call it never saw may open that turn should its prompt hook be lost
@@ -3036,14 +3066,23 @@ class SessionManager {
     const was = ledger.active
     const took = admit(ledger, hook.event, ids, { hiveContinued: continued, woke, now: at })
     if (ledger.active !== was) l.woke = false
+    let actions: readonly string[] = [took.verdict === 'stale' ? 'stale' : 'continued']
     if (took.verdict === 'apply') {
       const ev = took.event
       // Hooks are handled in order, so the next one waits for this read: a turn's end counts the tasks it started.
       if (ev.kind === 'stop') await this.beforeTurnEnd(l, ev.lastMessage)
-      this.carryOut(id, l, hookStep(ev, this.statusInput(l)), String(body.hook_event_name ?? ''), ev, arrived)
+      const step = hookStep(ev, this.statusInput(l))
+      this.carryOut(id, l, step, String(body.hook_event_name ?? ''), ev, arrived)
+      actions = step.actions
       if (ev.kind !== 'ignore') (l.recentHooks ??= []).push({ kind: ev.kind, at: Date.now(), status: st.status })
       if ((l.recentHooks?.length ?? 0) > RECENT_HOOKS) l.recentHooks!.shift()
     }
+    // The developer console (#636): the hook as it came, next to what Hive made of it (with the turn ledger's verdict).
+    const made = took.verdict === 'apply' ? took.event : hook.event
+    devConsole.capture([sessionSourceId(st.projectPath, st.agentId)], () => {
+      const name = safeWord(body.hook_event_name) || '(unnamed)'
+      return { kind: 'hook', name, provider: st.provider, raw: body, made: { event: made, status: st.status, actions, ...(reply ? { reply } : {}) }, safe: { raw: HOOK_FIELDS, made: HOOK_MADE_FIELDS }, summary: hookSummary(name, body.tool_name, made.kind, st.status, [...actions], !!reply) }
+    })
     this.noteTurn(l)
     if (hook.event.kind !== 'ignore' || ids.turn) {
       const verdict = took.verdict === 'apply' ? (took.note ?? '') : took.verdict === 'stale' ? `stale: ${took.why}` : 'carried on by Hive'
@@ -3327,6 +3366,7 @@ class SessionManager {
       l.name = existing?.name || autoName(st.projectPath, agent, count)
       st.sessionName = l.name
       st.titleAtRename = existing?.titleAtRename
+      st.sessionCreatedAt = existing?.createdAt ?? new Date().toISOString()
       l.transcriptPath = transcriptPath ?? existing?.transcriptPath
       l.transcriptMtime = ''
       l.detailsOffset = 0
@@ -3542,35 +3582,106 @@ class SessionManager {
   }
 
   /**
-   * Saves an image for the running session under <project>/.hive/images/<sessionId> and returns
-   * its path, which is pasted into the terminal so the transcript records which image was sent.
-   * Takes the clipboard image when no source file is given; returns null if there is none.
+   * Saves the clipboard's image for the running session in its attachments folder (<host>/.hive/attachments/<sessionId>)
+   * and returns its path, which is pasted into the terminal so the transcript records which image was sent; null when the
+   * clipboard holds no image.
    */
-  async saveImage(projectPath: string, sourceFile?: string, agentId?: string): Promise<string | null> {
+  async pasteImage(projectPath: string, agentId?: string): Promise<string | null> {
     projectPath = workspace.assertSessionHost(projectPath)
+    const l = await this.attachTarget(projectPath, agentId)
+    const item = (await clipboard.read()).find((i) => i.types.includes('image/png'))
+    if (!item) return null
+    const png = Buffer.from(await ((await item.getType('image/png')) as Blob).arrayBuffer())
+    const dest = await this.attachmentFile(projectPath, l, null)
+    // A new file only (wx): never one already there, or a link left in its place.
+    await writeFile(dest, png, { flag: 'wx' })
+    return dest
+  }
+
+  /**
+   * How each file would be attached to the agent's running session (#387), changing nothing: a file from outside the
+   * session's folder is copied into its attachments folder, and so is an image (kept with the session, for the
+   * Attachments tab); a file in the session's folder, or already attached, goes as it is, by its path, as does a folder.
+   */
+  async planAttach(projectPath: string, sources: string[], agentId?: string): Promise<AttachmentPlan[]> {
+    projectPath = workspace.assertSessionHost(projectPath)
+    const l = await this.attachTarget(projectPath, agentId)
+    const attachments = await attachmentsDir(projectPath)
+    const out: AttachmentPlan[] = []
+    for (const raw of (Array.isArray(sources) ? sources : []).slice(0, 100)) {
+      if (typeof raw !== 'string' || !raw || !isAbsolute(raw)) continue
+      const source = resolve(raw)
+      const name = basename(source)
+      const st = await stat(source).catch(() => null)
+      const kind = attachmentKind(name)
+      if (!st || st.isDirectory()) {
+        out.push({ source, name, size: 0, kind, copy: false, folder: !!st })
+        continue
+      }
+      const kept = existsSync(attachments) && insideReal(source, [attachments])
+      const copy = !kept && st.isFile() && (kind === 'image' || !insideReal(source, [l.state.cwd]))
+      out.push({ source, name, size: st.size, kind, copy, folder: false })
+    }
+    return out
+  }
+
+  /** Attaches files to the agent's running session as planAttach says: the copies made, and the paths to paste. */
+  async attach(projectPath: string, sources: string[], agentId?: string): Promise<Attached[]> {
+    projectPath = workspace.assertSessionHost(projectPath)
+    const l = await this.attachTarget(projectPath, agentId)
+    const out: Attached[] = []
+    for (const p of await this.planAttach(projectPath, sources, agentId)) {
+      if (!p.copy) {
+        out.push({ source: p.source, path: p.source, name: p.name, kind: p.kind, copied: false })
+        continue
+      }
+      const dest = await this.attachmentFile(projectPath, l, p.name)
+      await copyFile(p.source, dest, fsConstants.COPYFILE_EXCL)
+      out.push({ source: p.source, path: dest, name: p.name, kind: p.kind, copied: true })
+    }
+    return out
+  }
+
+  /** The agent's running session, which attachments go to (the sole agent when none is named). */
+  private async attachTarget(projectPath: string, agentId?: string): Promise<LiveSession> {
     agentId ||= await this.soleAgent(projectPath)
     const l = this.live.get(liveId(projectPath, agentId))
     if (!l) throw new Error('No session is running for this agent.')
-    let png: Buffer | null = null
-    // A file given by the window (a drop, Insert into Session) must be an image, from the workspace or pasted/dropped from outside it.
-    if (sourceFile && !/\.(png|jpe?g|gif|webp|bmp)$/i.test(sourceFile)) throw new Error('Only images can be added to a session this way.')
-    if (!sourceFile) {
-      const item = (await clipboard.read()).find((i) => i.types.includes('image/png'))
-      if (!item) return null
-      png = Buffer.from(await ((await item.getType('image/png')) as Blob).arrayBuffer())
-    }
-    // Until the provider reports the session id, images go in a folder named after the launch.
-    const dir = join(projectPath, HIVE_DIR, 'images', l.state.sessionId || `run-${l.state.runId}`)
-    await mkdir(dir, { recursive: true })
+    return l
+  }
+
+  /**
+   * A new file's path in the session's attachments folder: named by the time, then the file's own name (a clipboard
+   * image has none), so they list in the order they came and the agent sees what each is. Until the provider reports
+   * the session id, they go in a folder named after the launch.
+   */
+  private async attachmentFile(projectPath: string, l: LiveSession, name: string | null): Promise<string> {
+    // A folder of the host's own all the way down, or it throws: an attachment is never written through a link.
+    const dir = await ownAttachmentsFolder(projectPath, l.state.sessionId || `run-${l.state.runId}`)
     const d = new Date()
     const pad = (n: number): string => String(n).padStart(2, '0')
     const stamp = `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}_${pad(d.getHours())}-${pad(d.getMinutes())}-${pad(d.getSeconds())}`
-    const ext = sourceFile ? extname(sourceFile).toLowerCase() : '.png'
-    let dest = join(dir, `${stamp}${ext}`)
-    for (let i = 2; existsSync(dest); i++) dest = join(dir, `${stamp}-${i}${ext}`)
-    if (png) await writeFile(dest, png)
-    else await copyFile(sourceFile!, dest)
-    return dest
+    // Characters Windows refuses in a name, and control characters, become "_"; a long name keeps its end (the extension).
+    const own = name ? name.replace(/[<>:"/\\|?*\x00-\x1f]/g, '_').replace(/[. ]+$/, '').slice(-100) : ''
+    const ext = own ? extname(own) : '.png'
+    const base = own ? `${stamp}_${own.slice(0, own.length - ext.length)}` : stamp
+    return freeName(dir, `${base}${ext}`, (i) => `-${i + 1}`)
+  }
+
+  /** Moves a launch's early attachments folder into its session's, when both are folders of the host's own. */
+  private async moveEarlyAttachments(projectPath: string, launchFolder: string, sessionId: string): Promise<void> {
+    const early = join(await attachmentsDir(projectPath), launchFolder)
+    const st = await lstat(early).catch(() => null)
+    if (!st) return
+    if (st.isSymbolicLink() || !st.isDirectory() || !insideReal(early, [projectPath])) return log.warn(`${userText(early)} is a link or not a folder: its attachments stay`)
+    const dest = await ownAttachmentsFolder(projectPath, sessionId)
+    for (const f of await readdir(early).catch(() => [] as string[])) {
+      const fst = await lstat(join(early, f)).catch(() => null)
+      if (!fst || fst.isSymbolicLink() || !fst.isFile()) continue
+      await rename(join(early, f), await freeName(dest, f, (i) => `-${i + 1}`)).catch((e) => log.warn(`Could not move ${userText(f)}`, e))
+    }
+    // Only once empty: what couldn't move stays.
+    await rmdir(early).catch(() => undefined)
   }
 
   /** The provider's transcript, or Hive's backup (active or archived) when the provider no longer has it. */
@@ -3614,6 +3725,21 @@ class SessionManager {
       if (window) return { ...usage, contextWindow: window }
     }
     return usage
+  }
+
+  /**
+   * A session's usage with its timeline (cost per card, #602): a null timeline when there is none to read (a deleted
+   * session's kept usage).
+   */
+  async usageTimeline(projectPath: string, sessionId: string, ctx?: ListContext): Promise<{ usage: SessionUsage; timeline: UsageTimeline | null } | null> {
+    assertSessionId(sessionId)
+    const p = await this.anyTranscript(projectPath, sessionId, ctx)
+    if (!p) {
+      const kept = (ctx?.records ?? (await workspace.sessionsFile(projectPath)).sessions).find((s) => s.id === sessionId)?.keptUsage
+      return kept ? { usage: kept, timeline: null } : null
+    }
+    const usage = await this.usageFor(p, sessionId, await this.sessionProvider(projectPath, sessionId, ctx))
+    return usage && { usage, timeline: usageCache.get(p)?.raw?.timeline ?? null }
   }
 
   async list(projectPath: string): Promise<SessionListItem[]> {
@@ -3914,12 +4040,12 @@ class SessionManager {
   }
 
   /**
-   * Runs fn with the session reserved and not running (in any window): removing its images. Nothing resumes it, or
-   * archives or deletes it, until fn is done, so it can't start pasting while its images go.
+   * Runs fn with the session reserved and not running (in any window): removing its attachments. Nothing resumes it, or
+   * archives or deletes it, until fn is done, so it can't start pasting while its attachments go.
    */
   whileStopped<T>(projectPath: string, sessionId: string, fn: () => Promise<T>): Promise<T> {
     return this.whileReserved(projectPath, sessionId, async () => {
-      if (this.liveAnywhere(sessionId)) throw new SessionInUse('live', 'It is running, and may paste more images. Stop it first.')
+      if (this.liveAnywhere(sessionId)) throw new SessionInUse('live', 'It is running, and may attach more files. Stop it first.')
       return fn()
     })
   }

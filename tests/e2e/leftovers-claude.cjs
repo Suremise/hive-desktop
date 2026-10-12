@@ -25,19 +25,14 @@ const check = (name, ok, extra = '') => {
   if (!ok) failed++
   console.log(`${ok ? 'PASS' : 'FAIL'} ${name}${ok || !extra ? '' : ` (${extra})`}`)
 }
-const alive = (pid) => {
-  try {
-    process.kill(pid, 0)
-    return true
-  } catch {
-    return false
-  }
-}
-const started = new Set()
+// Each linger.js by its identity (pid and start time) once its pid is read: a check or the clean-up never takes a
+// process that got the pid after it ended (#603: a remembered pid killed here could be a concurrent run's Vitest worker).
+const ids = new Map()
+const alive = (pid) => ids.has(pid) && lib.stillSame([ids.get(pid)]).length === 1
 const pidOf = (tag) => {
   const f = path.join(proj, `linger-${tag}.pid`)
   const pid = fs.existsSync(f) ? Number(fs.readFileSync(f, 'utf8').trim()) : 0
-  if (pid) started.add(pid)
+  if (pid && !ids.has(pid)) for (const id of lib.identify([pid])) ids.set(id.pid, id)
   return pid
 }
 
@@ -123,12 +118,12 @@ if (!signedIn) lib.skip(`environment: Claude Code isn't signed in to its test ho
     else await page.screenshot({ path: path.join(lib.WORK, 'leftovers-claude-exit.png') })
   } finally {
     await app.close().catch(() => undefined)
-    for (const p of started) if (alive(p)) process.kill(p)
+    lib.endExactly([...ids.values()])
   }
   console.log(failed ? `\n${failed} check(s) FAILED` : '\nALL PASSED')
   process.exit(failed ? 1 : 0)
 })().catch((e) => {
   console.log('FAIL', e.message)
-  for (const p of started) if (alive(p)) process.kill(p)
+  lib.endExactly([...ids.values()])
   process.exit(1)
 })

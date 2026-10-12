@@ -56,7 +56,7 @@ Hive runs the **GitHub Copilot CLI** (the `copilot` command), not Copilot in VS 
 
 ### Git
 
-Worktree agents, merging, the **Changes** tab, the unmerged counts on agent tabs, agent templates with worktrees and **Remove All**'s clean-up all use **git**. Install **Git for Windows**, version **2.38 or later** (git-scm.com). **Help → Agent Setup…** shows a **Git** row under every tab: the version Hive found and where, or **Git not found** with how to fix it and a **Git for Windows** button. With an older git, the row says what doesn't work (for example, squash-merged branches still count as unmerged, so their worktrees are kept).
+Worktree agents, merging, the **Git** tab, the unmerged counts on agent tabs, agent templates with worktrees and **Remove All**'s clean-up all use **git**. Install **Git for Windows**, version **2.38 or later** (git-scm.com). **Help → Agent Setup…** shows a **Git** row under every tab: the version Hive found and where, or **Git not found** with how to fix it and a **Git for Windows** button. With an older git, the row says what doesn't work (for example, squash-merged branches still count as unmerged, so their worktrees are kept).
 
 Hive uses the git on its own PATH, together with the PATH Windows gives new programs. If you install git while Hive is open, or add its folder to your PATH, click **Check again**: no need to restart Hive. While git is missing, the status bar shows **Git** in red, and the screens that need it say *"Git isn't installed (or isn't on Hive's PATH)"* rather than that the project isn't a git repository. Hive never deletes a worktree or branch it can't check with git: they're kept, and it says why. Claude Code also uses Git for Windows' Bash for its commands when it's installed (else PowerShell).
 
@@ -104,7 +104,7 @@ Each **project** (every subfolder except dot-folders) gets its own `.hive` folde
 
 ### What Hive keeps in a project
 
-A project's `.hive` folder is this computer's, not the project's: its settings, the session list, transcript backups and archive, pasted images, and each agent's launch folder (the skills, MCP servers and hooks it started with). None of it belongs in commits or shared copies. What could hold a secret isn't kept there at all: the key the hooks use to report an agent's status, and each session's settings and MCP server configuration (which may carry your servers' keys or a `--settings` file's `env`), go in Hive's own data folder instead, for as long as that session runs.
+A project's `.hive` folder is this computer's, not the project's: its settings, the session list, transcript backups and archive, attachments (files pasted or dropped into sessions), and each agent's launch folder (the skills, MCP servers and hooks it started with). None of it belongs in commits or shared copies. What could hold a secret isn't kept there at all: the key the hooks use to report an agent's status, and each session's settings and MCP server configuration (which may carry your servers' keys or a `--settings` file's `env`), go in Hive's own data folder instead, for as long as that session runs.
 
 Hive keeps `.hive` out of git by adding it to the repository's `.git/info/exclude`, never your `.gitignore`. It checks again whenever it refreshes the project and before every agent starts, so a repository you create later (`git init`), or one in a folder above the project (a workspace kept in git), is covered too.
 
@@ -183,7 +183,7 @@ Status dots:
 
 A pulsing dot changes shade rather than fading, so it stays easy to see. Hive's grey text (timestamps, counts, hints) and its orange text and icons are drawn to be readable in both the light and dark themes, on hovered and selected rows too (they meet the WCAG AA contrast level).
 
-The sidebar and the lists in the Sessions, Files, Changes and Memory tabs can be made wider or narrower by dragging their right-hand edge, as can the two halves of a split view in the Files tab. Double-click the edge to reset it. Hive remembers the sizes.
+The sidebar and the lists in the Sessions, Files, Git (Changes) and Memory tabs can be made wider or narrower by dragging their right-hand edge, as can the two halves of a split view in the Files tab. Double-click the edge to reset it. Hive remembers the sizes.
 
 A project's tabs (Session, Overview, Performance, Tasks and the rest) shrink to **icons** when their names don't fit, as in a narrow window or with the sidebar and panels open; the tab you're on keeps its name. Hover a tab for its name and shortcut. They get their names back once there's room. In a very narrow window the tabs scroll sideways, keeping the one you're on in view.
 
@@ -235,7 +235,9 @@ Hive keeps track of every process an agent's session starts, however it was star
 - **Ask** (the default): a notification lists them (*site left 2 processes running: node serve.js, tail -f capture-1.log*) with **End Them** and **Keep Running**, and the agent's pane header shows **⚠ 2 left running** until you decide or they end by themselves. Hover it for the list; click it to end them or keep them. **Keep Running** leaves them running and stops listing them.
 - **End them**: Hive ends them as the agent stops, without asking.
 
-Choose in **Settings → Agents → Processes left running**. When you quit Hive with some still listed, it asks once whether to end them or leave them running (a quit with no window shown, or to install an update, leaves them running).
+Choose in **Settings → Agents → Processes left running**. When you quit Hive with some still listed, it asks once whether to end them or leave them running (a quit with no window shown, or to install an update, leaves them running). Those Hive didn't ask about stay listed: when Hive next starts, it lists again the ones still running and offers to end them, checking that each is still the same process.
+
+Agents are also told to stop what they start: to watch a test run with something that ends with it (`hive-progress`, or their CLI's notice that a background command ended) rather than a `tail -f`, and to end the watchers, servers and app copies they started before their card goes to Review, unless the card or you need them running.
 
 Hive only ever ends processes the agent's session started: never one you started yourself in the same folder. If Windows doesn't let Hive end them, they stay listed in the pane header, so you can try again or keep them. On a PC where Hive can't keep track of agents' processes (PowerShell blocked by a company policy, for example), agents start as usual, Hive tells you once, and Help → Copy Diagnostics says why; what they leave running then isn't listed. Processes the agent's CLI already ends with its terminal (those attached to it) are never listed. One gap remains with PowerShell 7 installed from the Microsoft Store (Codex runs its commands in PowerShell 7 when you have it): a program it starts and leaves running as it exits within about a second, before Hive has seen it (`Start-Process` returning at once), isn't tracked. Commands Codex leaves running in the background keep their PowerShell open, so they are.
 
@@ -293,7 +295,7 @@ A project can have up to twelve agents working at once, for example one building
 
 **Arranging agents.** Drag an agent (its tab, or its pane by the header) onto another agent's pane to **swap** them, running or not; onto an empty pane to move it there. Drag a tab along the strip to move it between others, like browser tabs (a bar shows where it will land). To swap with an agent on another page, hold the dragged agent over that page's button for a moment: the page shows, and you drop it on a pane there. Drop it on a page button itself to move it to that page's last place. The panes always show the agents in their order, so what you see is what's saved. Or use **Move Left** / **Move Right** in the agent's menu, or **Ctrl+Alt+Shift+Left / Right** for the focused agent. The order is saved with the project; nothing is stopped or restarted.
 
-**Which conversation each agent has.** Each agent's footer shows the session it is running as an icon, on the right before the context: hover for its name and when it started, click to read it in the Sessions tab, right-click to rename it. Until a session has a name, it is named by when it started, e.g. *2026-10-04 14:05* (in your date and time format: **Settings → General → Date format** and **Time format**). You can rename a session in Hive (the footer or the Sessions tab) or in Claude Code with `/rename`: whichever you did last is the name Hive shows, and resuming the session keeps it. A conversation can only be open in one agent at a time. **Resume** reopens the agent's own last session and is greyed out when it has none. Its **▾** lists the recent sessions from the agent's folder: pick one to continue it in this agent, including a paused conversation another agent in the same folder started. Sessions that are open in another agent are greyed out; clicking one takes you to that agent. Agents in their own worktree only see that worktree's sessions.
+**Which conversation each agent has.** Each agent's footer shows the session it is running as an icon, on the right before the context: hover for its name and when it started, click to read it in the Sessions tab, right-click to rename it. Until a session has a name, it is named by when it started, e.g. *2026-10-04 14:05*, and keeps that name when you resume it (in your date and time format: **Settings → General → Date format** and **Time format**). You can rename a session in Hive (the footer or the Sessions tab) or in Claude Code with `/rename`: whichever you did last is the name Hive shows, and resuming the session keeps it. A conversation can only be open in one agent at a time. **Resume** reopens the agent's own last session and is greyed out when it has none. Its **▾** lists the recent sessions from the agent's folder: pick one to continue it in this agent, including a paused conversation another agent in the same folder started. Sessions that are open in another agent are greyed out; clicking one takes you to that agent. Agents in their own worktree only see that worktree's sessions.
 
 The sidebar keeps one status dot per project, showing the most urgent agent (needs input, then working…), with the number of running agents next to the name. The project header's status says how many agents are in that state (for example *Working · 1 of 2 agents*); hover it for each agent's state. Notifications name the agent, e.g. "hive · Agent 2 finished".
 
@@ -301,9 +303,9 @@ The sidebar keeps one status dot per project, showing the most urgent agent (nee
 
 **File locks.** Agents sharing the project folder could otherwise edit the same file at the same time. When an agent edits a file, Hive notes that it is working on it; if another agent then tries to edit that file, Hive tells it to wait or work on something else, and it carries on with other work. The claim ends when the first agent finishes its task. The files an agent holds show as a lock with a count on its tab, named by their path in the agent's folder, even when the folder is reached by another name (a junction, or a short name such as `C:\Users\RUNNER~1\…`). **Settings → Agents & Worktrees → File locks** (or per project) chooses what happens: **Block** (default), **Ask me** (you approve the edit; Codex can't show its own approval for this, so Hive holds the edit back and shows a notification with **Allow**, and Codex waits until you allow it; Hive tells it to go ahead as soon as it has finished replying and you aren't typing in its terminal), **Warn** (the edit goes ahead, the agent is told), or **Off**. Locks cover the agents' file edits, not shell commands (formatters, `npm install`, `git checkout`), and not files agents share outside the project such as the CLIs' own settings or memory — keep that in mind when several agents work in one folder. Agents in their own worktrees never get in each other's way.
 
-If git can't read the changes, the **Changes** tab says why, with **Retry**. The same goes for every list and search: if one can't be read, Hive says so with **Retry** rather than showing nothing, and if a refresh fails the last results stay, with a note saying when they're from. They are always the same project's (or workspace's): switching to another project never shows the last one's.
+If git can't read the changes, the **Git** tab's **Changes** says why, with **Retry**. The same goes for every list and search: if one can't be read, Hive says so with **Retry** rather than showing nothing, and if a refresh fails the last results stay, with a note saying when they're from. They are always the same project's (or workspace's): switching to another project never shows the last one's.
 
-**Reviewing and merging a worktree agent's work.** In the **Changes** and **Files** tabs, the selector at the top switches between the project folder and each agent's worktree. For a worktree, Changes lists everything the agent changed since its branch started (its commits and uncommitted edits). **Open file**, above a diff, opens that folder's copy of the file: the worktree's, not the project's. When it is done, choose **Merge** (pane header, agent menu or Changes tab):
+**Reviewing and merging a worktree agent's work.** In the **Git** tab's **Changes** and the **Files** tab, the selector at the top switches between the project folder and each agent's worktree. For a worktree, Changes lists everything the agent changed since its branch started (its commits and uncommitted edits). **Open file**, above a diff, opens that folder's copy of the file: the worktree's, not the project's. When it is done, choose **Merge** (pane header, agent menu or Changes tab):
 
 - Uncommitted changes are committed on the agent's branch first, with the message you enter.
 - The branch is merged into the branch checked out in the project folder: **Merge** (the default; keeps the agent's commits and their messages, plus a merge commit) or **Squash** (one commit, with the message you enter). Change the default in **Settings → Agents & Worktrees → Default merge style**.
@@ -328,13 +330,13 @@ If git can't read the changes, the **Changes** tab says why, with **Retry**. The
 
 ### Unused worktrees
 
-A worktree you keep when you remove its agent (**Keep worktree and branch**, or **Remove All** without its tick box) stays on disk with its branch: Hive says so in a notice with **Review unused worktrees**. They live in the **Changes** tab, with every other worktree. Its picker starts with **Unused worktrees (n)**, for worktrees no agent of the project uses right now (for example ones from another template, or ones an agent made itself with `git worktree add`), then lists the worktrees agents work in, then the project folder. **Unused worktrees** lists them, each with its branch, who made it (**was B4**, the Hive agent that last worked there; **made by Hive**; or **not made by Hive**), its last commit and its size, and whether it is **merged into main and clean** or what it holds that is nowhere else ("3 commits not on main · 2 changed files"):
+A worktree you keep when you remove its agent (**Keep worktree and branch**, or **Remove All** without its tick box) stays on disk with its branch: Hive says so in a notice with **Review unused worktrees**. They live in the **Git** tab's **Changes**, with every other worktree. Its picker starts with **Unused worktrees (n)**, for worktrees no agent of the project uses right now (for example ones from another template, or ones an agent made itself with `git worktree add`), then lists the worktrees agents work in, then the project folder. **Unused worktrees** lists them, each with its branch, who made it (**was B4**, the Hive agent that last worked there; **made by Hive**; or **not made by Hive**), its last commit and its size, and whether it is **merged into main and clean** or what it holds that is nowhere else ("3 commits not on main · 2 changed files"):
 
 - **Remove** deletes a merged, clean worktree and its branch. **Remove all merged (n)…** does them all after one question. Hive checks each again first: one that changed since (a new commit, a file written) is kept, and the notice says why.
 - **Open** (or picking it by name in the folder picker) shows its changes since main, file by file, as an agent's worktree does. If it holds work, **Merge** opens the usual Merge dialog, which waits its turn like an agent's merge; tick **Remove the worktree and branch afterwards** to tidy it once its work is on main.
 - A worktree that holds work has no plain Remove. **Give to an agent…** opens Add Agent with **Existing worktree** and that worktree chosen. **Remove anyway…** checks the worktree and asks first, naming exactly what goes (its unmerged commits, or for a worktree not on a branch the commits only it has, its uncommitted files and the files git ignores in it, such as build output). If anything in it changes before you confirm (a file added, renamed or edited, ignored ones included, or another branch checked out), nothing is removed: Hive checks it again and asks you again, saying what changed and showing what it holds now, so you confirm what would really go. The same goes for a question left open more than 15 minutes. If Hive can't check what a worktree holds, it doesn't offer to remove it anyway.
 
-The project's **Overview** shows one line, such as "7 unused worktrees (7 merged) — Review in Changes". The **Changes** tab's project folder says when an unused worktree has work that isn't on main, with **Review**. **Project Settings → Storage** has a line for unused worktrees with their total size, linking to Changes. Deleting a template never touches worktrees, but if its worktree agents left worktrees that no agent uses now, Hive says how many, once. The Hive Assistant can see how many unused worktrees a project has and mention them; only you can remove them. Without git (see [Git](#git)), nothing is listed or removed.
+The project's **Overview** shows one line, such as "7 unused worktrees (7 merged) — Review in Changes". **Changes**' project folder says when an unused worktree has work that isn't on main, with **Review**. **Project Settings → Storage** has a line for unused worktrees with their total size, linking to Changes. Deleting a template never touches worktrees, but if its worktree agents left worktrees that no agent uses now, Hive says how many, once. The Hive Assistant can see how many unused worktrees a project has and mention them; only you can remove them. Without git (see [Git](#git)), nothing is listed or removed.
 
 ### Agent templates
 
@@ -369,14 +371,14 @@ Select a template to see what it holds: each agent's name, role, coding agent, m
 
 ### Archiving and backups
 
-Claude Code and Codex delete old transcripts after a while. Hive keeps a copy of every session transcript in the project's `.hive/sessions` folder, and archived sessions in `.hive/archive`. Images you paste or drop into a session are kept in `.hive/images`. Hive only deletes them when you ask (deleting a session sends its transcript copies to the Recycle Bin; its images stay). If the CLI has removed a transcript, Hive restores it from the backup when you resume.
+Claude Code and Codex delete old transcripts after a while. Hive keeps a copy of every session transcript in the project's `.hive/sessions` folder, and archived sessions in `.hive/archive`. Files you paste or drop into a session are kept in `.hive/attachments`. Hive only deletes them when you ask (deleting a session sends its transcript copies to the Recycle Bin; its attachments stay). If the CLI has removed a transcript, Hive restores it from the backup when you resume.
 
-**Storage.** **Project Settings → Storage** (or **Project Storage and Clean Up…** in the command palette) shows how much space Hive keeps for the project: transcript backups (`.hive/sessions`), the archive (`.hive/archive`), images (`.hive/images`) and each agent's worktree. It's measured in the background, so a large worktree never holds up the window, and leaving the page stops measuring; **Refresh** measures again. The coding agents' own transcripts (in `~/.claude` and `~/.codex`) aren't counted. **Settings → Workspace → Storage** shows the workspace's total and every project, the Hive Assistant included, biggest first; **Storage** next to one opens its page.
+**Storage.** **Project Settings → Storage** (or **Project Storage and Clean Up…** in the command palette) shows how much space Hive keeps for the project: transcript backups (`.hive/sessions`), the archive (`.hive/archive`), attachments (`.hive/attachments`) and each agent's worktree. It's measured in the background, so a large worktree never holds up the window, and leaving the page stops measuring; **Refresh** measures again. The coding agents' own transcripts (in `~/.claude` and `~/.codex`) aren't counted. **Settings → Workspace → Storage** shows the workspace's total and every project, the Hive Assistant included, biggest first; **Storage** next to one opens its page.
 
 **Clean Up…** on that page moves old files to the Recycle Bin. Nothing is cleaned up automatically. Choose what goes:
 
-- **Images of archived sessions** last active more than 90 days ago (or the number of days you set). This is the only option on at first.
-- **Images of deleted sessions**, and of launches that never got a session (folders named `run-…`).
+- **Attachments of archived sessions** last active more than 90 days ago (or the number of days you set). This is the only option on at first.
+- **Attachments of deleted sessions**, and of launches that never got a session (folders named `run-…`).
 - **Hive's backups of archived sessions** last active more than a number of days ago, only where Claude Code or Codex still has the transcript. The session stays: you can still resume and read it, from the CLI's copy, for as long as the CLI keeps it.
 - **Backups of archived sessions the CLI no longer has.** Hive's copy is the last one, so these sessions are deleted, as **Delete Session** does: they can't be resumed or read afterwards. The dialog warns you when this is on.
 
@@ -453,6 +455,17 @@ It's on by default: **Settings → Sessions → Record performance metrics** tur
 
 It refreshes every minute while you look at it (and **Refresh** at once); reading it doesn't add to the numbers. A note says when measurements were dropped because a limit was full, and **What isn't measured** lists what it can't see. **Export** saves what the page shows (its scope, range and filters) as a JSON file with its units, coverage and Hive's version; **Shift+click** Export to replace project names with project-1, project-2… and leave out the workspace's path, before sharing it.
 
+### Cost per card
+
+Hive works out what each card cost from who held it when and what their sessions used then:
+
+- **What counts.** A card's **builder** (its agent) while it is in **Doing**, and its **reviewer** from the start of each review to its verdict. Usage is each provider's own report: Hive's estimates (where a provider reports no cost, or you chose your own prices) are marked **≈**, and what Hive can't know, such as an agent with no session Hive knows of or a model with no price, shows as **Unknown** or **+ ?**, never as $0.
+- **On the card.** The bottom of a card's panel says, for example, **cost: ≈ $1.84 · 2 rounds**. Hover it for the builder's and the reviewer's parts and their tokens (input, output, cache writes and reads, requests).
+- **In Performance.** A **Cards** table lists the cards worked on in the range, with their cost, the builder's and reviewer's parts, their review rounds and when they were last held. Sort by any column (unknown costs go last); click a row to open the card. In a project's Performance tab, only that project's cards.
+- **On a lane.** In the Progress panel, hover a lane's top line (the pair and its count) for what the lane cost since it started, split into **on cards** and **overhead**: what its builder and reviewer used while holding no card, such as merging, watching for a verdict and compacting. It also says the cost per finished card.
+
+Time an agent spends between cards, such as reading a card it was just woken for before taking it, is overhead, not the card's. While an agent holds several cards at once, what it uses then is shared between them equally. A reported charge is split only between the requests it covered, so a card's cost never changes because of work done later; where a card took only some of a charge's requests, its share is marked ≈. Copilot reports its tokens only when a session ends: until then a Copilot card's tokens show as unknown, and then Hive spreads them over that session's requests, marked ≈ (its cost comes from Copilot's own charges). Cards worked on before Hive kept this have it worked out from their history, by the agents' names.
+
 ### Comparing before and after
 
 **Compare** (at the top of the Performance page) puts a baseline next to a run, to see whether a change made Hive's
@@ -522,6 +535,8 @@ With no lanes and no merge going on, the panel is just the runs, as before.
 Any command can show in the panel by running it with **`hive-progress`** in front, for example `hive-progress -- npm test`. Agents do this by themselves for tests, builds and other commands they expect to take more than about 30 seconds, in the background too, so you see them without asking. To have them do it only when you ask, turn off **Settings → General → Agents show long commands in the Progress panel** (agents started or restarted afterwards follow it; with the Progress panel off, they don't use it either). The panel shows the command under the agent's name with the time it has taken and, from the second time, about how long is left (from how long the same command took before). The command's output and result are unchanged, and outside Hive it simply runs the command.
 
 A command shows real steps when it prints lines like `##hive-progress step=4 total=12 name=carddialog`; any project's test runner can print them (see the Agent API reference). A total printed after a slow start still counts: the bar moves without steps until then, and shows them from then on. `hive-progress` is on the path of every session Hive starts, in Claude Code's and Codex's shells. A command that reports its own progress, such as Hive's own test runners, still shows as one row when an agent wraps it.
+
+Stopping a `hive-progress` command (Ctrl+C where it gets one) gives it 5 seconds to end by itself, then ends it with everything it started, such as the server under an `npm` or `.cmd` command. Hive checks when each of those processes started, so a process that only looks like the command's (an older one whose own parent had the same process number before it ended) is left running. If Windows won't list the processes, only the command itself is ended.
 
 ## Task board
 
@@ -610,9 +625,9 @@ The **Hive Assistant** button in the activity bar (the robot) opens everything e
 
 - **Modes** lists its modes (below).
 - **All Conversations** shows every conversation you've had with it, in the same tree as a project's **Sessions** tab (by provider, with any sessions a conversation started under it). Search them, read any in full, export, rename, archive, delete or resume one, or archive or delete a whole branch. **Show** on the running conversation opens the panel.
-- **All Images** shows the screenshots and images you've pasted or dropped into its conversations, grouped by conversation, newest first, like a project's **Images** tab. Click one to view it, or right-click it to copy, open or reveal it. Click a conversation's name to read it. The bin next to it moves all of that conversation's images to the Recycle Bin (none if another program has one open). Images of a conversation that is running can't be deleted until it stops.
+- **All Attachments** shows the screenshots and files you've pasted or dropped into its conversations, grouped by conversation, newest first, like a project's [Attachments](#attachments) tab. Click one to view it, or right-click it to copy or reveal it. Click a conversation's name to read it. The bin next to it moves all of that conversation's attachments to the Recycle Bin (none if another program has one open). Attachments of a conversation that is running can't be deleted until it stops.
 
-The panel's **⋯** menu opens the same view with **All Conversations…** or **Manage Modes…**; the command palette has **Show Assistant Conversations**, **Show Assistant Modes** and **Show Assistant Images**.
+The panel's **⋯** menu opens the same view with **All Conversations…** or **Manage Modes…**; the command palette has **Show Assistant Conversations**, **Show Assistant Modes** and **Show Assistant Attachments**.
 
 ### Modes
 
@@ -700,6 +715,16 @@ A server can be a program Hive starts (`command`, `args`, `env`, as above) or on
 
 A server you add or change is used by sessions started afterwards; restart a running session to give it the change.
 
+### Giving a server to some agents only
+
+By default every agent in a project gets all of the project's servers. To keep a server's tools away from agents that don't need it (each server's tools take up room in an agent's context), open the agent's settings (right-click its tab → **Agent Settings…**) and under **MCP servers** choose **Only these**, then untick the servers it shouldn't have. For example, a release-testing agent can have a sandbox server that the builders don't. Choosing **Only these** starts with every server ticked, so nothing changes until you untick one; **All of the project's** puts it back.
+
+- Hive's own `hive` server is always given, whatever you choose.
+- An agent with **Only these** doesn't get a server enabled later: tick it in its settings. One with **All** gets it.
+- A running agent takes the change when it restarts.
+- Templates keep the choice, so an agent loaded from a template gets the same servers, where they're on.
+- The agent's tooltip shows its choice, and once any agent has one, the project's **MCP** tab says under each server which agents get it.
+
 ### Adding a server from a file
 
 **Add MCP Server from File** (the file icon in the MCP view's header) adds a server someone gave you, as **Add Skill from File** does for skills:
@@ -738,7 +763,7 @@ The **Files** tab is a file browser for the project folder.
 
 - **Create:** the New File and New Folder buttons (or right-click a folder) add an entry inside the selected folder; type the name in place. A name like `docs/notes.md` creates the folders in between.
 - **Rename** with F2, **delete** with Del. Deleted files go to the **Recycle Bin**, so they can be restored.
-- **Cut, copy and paste** with Ctrl+X, Ctrl+C and Ctrl+V, or from the right-click menu, which also has **Duplicate**, **Copy Path** and **Copy Relative Path**. Pasting into another project always copies.
+- **Cut, copy and paste** with Ctrl+X, Ctrl+C and Ctrl+V, or from the right-click menu, which also has **Duplicate**, **Copy Path** and **Copy Relative Path**. Pasting into another project always copies. A paste, a rename or a new file selects what it made once it's done; if you click another row before then (in a big folder or on a slow disk), your row stays selected, so the next key acts on it.
 - **Drag and drop:** drag entries onto a folder to move them (hold Ctrl to copy). Drag files in from Explorer to copy them into the project. Drag files onto the **Session** tab to paste their paths into the running session.
 - **Open elsewhere:** the buttons above the editor (and the right-click menu) open a file in its default app or reveal it in File Explorer.
 - **Find:** the box at the top searches the whole project by name or path (git-ignored files are left out).
@@ -760,19 +785,61 @@ Select a file and it opens on the right, ready to edit, with syntax highlighting
 
 Files with unsaved changes get a ● in the tree. The edits are kept while you look at other files or tabs, and follow a file you rename or move in the Files tab. Deleting a file with unsaved changes warns you first. When you quit, Hive lists the files with unsaved changes and saves them or discards them, as you choose; reloading the window or switching workspace offers to save them first. Unsaved changes are not kept if Hive crashes, so save often. If a file changes on disk while you have unsaved edits, for example because the agent edited it, Hive tells you and lets you **Reload** it or **Overwrite with mine**. A file without edits simply updates. Binary files and files over 5 MB aren't opened; use **Open in Default App** for those.
 
-## Images
+## Attachments
 
-The **Images** tab shows every screenshot and image pasted or dropped into the project's sessions, grouped by session (newest first), with archived sessions at the bottom. Click one to view it large and use ← / → to move between them. From the viewer or the right-click menu you can **Insert into Session**, **Copy Image**, **Copy Path**, **Reveal** it, or **Delete** it (to the Recycle Bin). Click a session's name to read its transcript, or its bin to move all of its images to the Recycle Bin at once. A running session's images can't be deleted until it stops: **Delete** is greyed out (in the viewer too; hover it to see why). You can also drag a thumbnail onto the **Session** tab.
+You can attach any file to an agent's or the Assistant's prompt: paste a screenshot with **Ctrl+V**, or drag files from Explorer (or from the Files or Attachments tab) onto its terminal. Each file reaches the agent as its path in the prompt:
 
-## Changes
+- A file from **outside the agent's folder** (its project or worktree; for the Assistant, the workspace) is copied into the session's attachments folder, `.hive/attachments`, and the copy's path is pasted. So is every **image**, wherever it comes from, so the Attachments tab keeps what you showed the agent.
+- A file **inside the agent's folder** goes as it is, by its path, so the agent works on the real file. So does a folder.
+- Files over **20 MB** are asked about first: an agent may not manage a file that large (its CLI can refuse it, or reading it can fill much of its context).
+- Hive never runs what you attach: it only copies it and pastes its path.
 
-The **Changes** tab lists files changed in the project's git working tree and shows each one as a side-by-side diff against the last commit — a quick way to review what the agent did.
+While you write the prompt, a **chip** for each attachment shows over the top right of the terminal, with the kind of file. The agent's CLI reads some kinds itself and the rest **by path**: the agent opens them with its own tools (a zip it might unpack, a PDF it might convert). Hover a chip for its path and which. **×** dismisses a chip (the path stays in the prompt); sending the prompt clears them.
+
+| | Images | PDFs | Text, logs, code | Other files |
+|---|---|---|---|---|
+| Claude Code | read itself | read itself | read itself | by path |
+| Codex | read itself | by path | read itself | by path |
+| GitHub Copilot | read itself | by path | read itself | by path |
+
+The **Attachments** tab shows everything pasted or dropped into the project's sessions, grouped by session (newest first), with archived sessions at the bottom. Images show as thumbnails, other files by their kind's icon and name. When there's more than one kind, the filters above (**All**, **Images**, **PDFs**, **Text**, **Other**) show just one kind. Click one to view it large and use ← / → to move between them: images, PDFs, Markdown, CSV tables and text are previewed as in the Files tab, and other files say there's no preview. From the viewer or the right-click menu you can **Insert into Session**, **Copy Path**, **Reveal** it, **Copy Image** (images), **Open** it in its program (images and PDFs only, never anything that could run), or **Delete** it (to the Recycle Bin). Click a session's name to read its transcript, or its bin to move all of its attachments to the Recycle Bin at once. A running session's attachments can't be deleted until it stops: **Delete** is greyed out (in the viewer too; hover it to see why). You can also drag one onto the **Session** tab.
+
+This tab was called **Images**, and the folder `.hive/images`, before attachments could be any file. Hive moves the old folder's files into `.hive/attachments` the first time it needs them, and links to the old paths (in a transcript, or printed in a terminal) still open the moved files in Hive. An agent given an old path in an earlier conversation won't find it there any more: give it the file again.
+
+## Git view
+
+A project's **Git** tab (**Alt+6**) has three sections: **Changes**, where it opens, **History** and **Branches & remotes**. The status bar shows the selected project's git in one item, such as **main · origin · ↑2 ↓0**: its branch, the remote its branch tracks, and how many commits are to push (↑) and to pull (↓). Click it for **Branches & remotes**. It says **no upstream** for a branch that tracks no remote branch yet, and **detached at abc1234** or **rebasing** when git is in that state.
+
+Everything here is yours: agents have no tool for any of it, and only the project folder changes here. Agents' worktrees are shown, read-only: their work comes into the project folder through **Merge**.
+
+### Changes
+
+**Changes** lists files changed in the project's git working tree and shows each one as a side-by-side diff against the last commit — a quick way to review what the agent did.
 
 Its picker chooses whose changes you see, in this order: **Unused worktrees** (worktrees no agent works in now, and each of them), the **worktrees in use** by agents, and the **project folder** last (where agents without a worktree, and you, make changes). A project with worktrees opens on Unused worktrees; one without opens on its folder. A sentence at the top of each page says what it shows. Listing unused worktrees asks git about each of them, which can take a few seconds: the first time, the page shows a spinner while Hive looks; after that, the last list shows at once while Hive checks it again. **Refresh** (↻) looks again.
 
-Without git, the tab says so, with the fix (see [Git](#git)).
-
 Hive checks your projects' git status in the background (this tab, branch status, the Files tab's dimmed entries) without writing to the repository's index, so your own `git add` or `git commit`, or an agent's, never fails with *"index.lock: File exists"* because of it. Hive's own git actions, such as **Merge**, still update it as git does. If git is busy when the Files tab lists a folder, ignored entries keep their dimming and the folder is listed again a moment later.
+
+### History
+
+**History** lists the project folder's last 20 commits, newest first, with their branches and tags, and the repository's tags below them. **Create tag…** tags the commit the folder has checked out: give it a name, and a message for an annotated tag, and choose a remote to push it to if you like.
+
+### Branches & remotes
+
+- **Branch**: the branch the project folder is on (or its detached HEAD, and a merge or rebase git has in progress, which you finish in a terminal), the branch it tracks, and ↑ / ↓. These counts are as of the last fetch, whose time is shown: **Hive never fetches by itself**. **Fetch** fetches every remote. **Pull** fetches the branch it tracks and brings yours up to it when that needs no merge; when both have new commits, it says so and changes nothing (merge or rebase in a terminal, or ask an agent). **Push** pushes to the branch it tracks, or, for a branch that tracks none, to the remote you choose, which it then tracks. A push is never forced: when the remote has commits yours hasn't, it says to pull first. **New branch…** makes a branch at the folder's commit and switches to it.
+- **Branches**: each local branch, with what it tracks and ↑ / ↓, its last commit, and **Switch**. Uncommitted changes come along when they don't clash with the other branch; when they do, git refuses and nothing changes. A branch checked out in an agent's worktree can't be switched to (a branch is in one folder at a time). **Remote branches** lists those you have no local branch for: **Switch** makes one that tracks it.
+- **Switching branch or pulling waits for your agents.** It moves the ground under an agent working in the project folder and under a merge into its branch, so while an agent there is working, asking you something or waiting on its background tasks, or the project's merge slot is held or waited for, **Switch**, **New branch…**'s switch and **Pull** are greyed out, and hovering one says why ("B1 is working in the project folder: switch branches once it has finished"). An agent whose session is idle in the folder finds the new branch on its next turn: the confirmation says so.
+- **Remotes**: each with its URL (a password or token in a URL shows as •••, in git's error messages too; to change such a URL, type it whole), **Add remote…** and ✎ to change a URL.
+- **Worktrees**: the repository's other worktrees, whose agent works in each, and **Changes** to review it. Read-only.
+- **Commit identity**: the name and email commits are made with, agents' too: this repository's own setting, your global one, and the one git uses. It warns when commits would fail (no name or email), and when a repository with a GitHub remote commits with a personal address, which anyone can read on GitHub; GitHub's no-reply address (*…@users.noreply.github.com*, in GitHub's email settings) keeps it private. **Set for this repository…** sets this repository's own (`git config --local`); leave both empty to use your global one.
+
+A project inside another repository (say, a workspace you keep in git) shows that repository here, read-only: Hive changes only a project's own repository.
+
+Fetch, pull and push use your git's own sign-in (Git Credential Manager may open its window); they never wait on a prompt in a terminal you can't see, and give up after five minutes.
+
+### Without git
+
+A project that isn't a git repository keeps working in its project folder, without worktrees, merging or a Git view: its **Git** tab says so and how to start (`git init` in the project folder, or ask an agent, and commit; then add a remote to push it). Without git itself, the tab says so, with the fix (see [Git](#git)).
 
 ## Project settings
 
@@ -865,6 +932,24 @@ An app that only shows what Hive is doing, such as **Apiary** (the office view),
 To make one, open **Settings → Agent API → Viewer tokens**, type a name for the app (say *Apiary*) and click **Make viewer token**. The new token shows in its row: copy it and paste it into the app once. **Revoke** cuts that app off at once (it is refused from its next call, and stops receiving events), without touching anything else that uses the API. Hive keeps viewer tokens in its own folder (`%APPDATA%\Hive\agent-api-viewers.json`), never in a project.
 
 The app finds a running Hive by itself: while the Agent API is on, Hive keeps its address (never a token) in `%APPDATA%\Hive\agent-api-discovery.json`, and removes it when the API is turned off or Hive quits.
+
+### The developer console
+
+The developer console shows what each coding agent's CLI sends Hive (its hooks, status line, transcript records, the terminal signs Hive reacts to, its launch and exit) next to what Hive made of each: the status it set, the details it read. It also shows Hive's own work in the workspace: Agent API calls, the merge slot, watches waking agents and Progress runs. It's for power users and for developing Hive, so it is hidden until you turn on **Settings → Advanced → Show developer features**. Then open it from **Help → Developer Console** or with **Ctrl+Alt+J**.
+
+- It opens in a **window of its own**, like a browser's developer tools, so you can put it on a second screen. Hive remembers its size and position. Each Hive window has its own console, on that window's workspace. It closes with that window, or when the window opens another workspace or closes this one; open it again for the new workspace.
+- **Pick a source** at the top: **Hive** or the **Hive Assistant**, or one of a project's agents. Hive starts capturing that source when you pick it and stops when you pick another or close the console. An agent you pick before it starts shows its launch too.
+- Each row is one event: its time, its type, its name and a one-line summary. **Click a row** to see the event as it came in (**Raw**) beside **What Hive made of it**. Large payloads start folded: click a node to open it.
+- **Filter** by event type (click a type to hide or show it) or by provider, and **search** (Ctrl+F) the events' names, summaries and payloads. **Pause** stops the list moving while you read (Hive goes on capturing, and the indicator counts what came); **Resume** fills it in. **Clear** empties the list, including anything that came while paused.
+- What it shows is **redacted**: no prompt or reply text, commands, tokens or sign-in details. Hive keeps the newest 500 events of each source in memory only, and nothing once the console closes.
+
+### Agents reading the developer console
+
+Hive's developer console shows what each coding agent's CLI sends Hive (its hooks, status line, transcript records, the terminal signs Hive reacts to) next to what Hive made of each: the status it set, the details it read. **Settings → Agent API → Let agents read the developer console** gives agents and the Hive Assistant a read-only tool for it (`hive_console`), so they can see what their CLI does while they build and debug. It is off unless you turn it on, and running sessions get the tool when they next start.
+
+- Each agent reads **only its own sessions**. The Assistant reads its workspace's agents, its own session, and Hive's own events there (Agent API calls, merge slots, watches waking agents, Progress runs).
+- Hive captures only while you have the developer console open on an agent: an agent reading starts nothing, and is told when nothing is captured. Hive keeps the newest 500 events of each, in memory only, and nothing once the console stops watching it.
+- What it captures is **redacted**: no prompt or reply text, commands, tokens or sign-in details. Names of tools and files, session ids and the numbers (usage, plan limits, costs) stay.
 
 ## Updating Hive
 
@@ -967,7 +1052,7 @@ Tick **Don't ask again** to stop the question about sessions, or change it any t
 | Next / previous agent page | Ctrl+Alt+PageDown / Ctrl+Alt+PageUp |
 | Focus the session terminal | Ctrl+` |
 | Next / previous project | Ctrl+PageDown / Ctrl+PageUp |
-| Project tabs | Alt+1 … Alt+9, Alt+0 (Session, Overview, Sessions, Files, Images, Changes, Memory, Skills, MCP, Settings; Tasks has none, but you can give it one); Ctrl+Tab / Ctrl+Shift+Tab for the next / previous tab |
+| Project tabs | Alt+1 … Alt+9, Alt+0 (Session, Overview, Sessions, Files, Attachments, Git, Memory, Skills, MCP, Settings; Tasks has none, but you can give it one); Ctrl+Tab / Ctrl+Shift+Tab for the next / previous tab |
 | Task board / new card | Ctrl+Shift+J / Ctrl+Alt+T |
 | Workspace Overview | Ctrl+Shift+O |
 | Toggle sidebar | Ctrl+B (outside the terminal) |
@@ -975,6 +1060,7 @@ Tick **Don't ask again** to stop the question about sessions, or change it any t
 | Notifications | Ctrl+Alt+U |
 | Show / hide the Hive Assistant | Ctrl+Alt+I |
 | Show / fold the Progress panel | Ctrl+Alt+P |
+| Developer console (with Show developer features on) | Ctrl+Alt+J |
 | External terminal in the project | Ctrl+Shift+` |
 | Documentation | F1 |
 
@@ -988,7 +1074,7 @@ In the terminal, Ctrl+C copies when text is selected (otherwise it interrupts th
 
 **Terminals out of sight.** While an agent's terminal isn't shown (Settings is open, or you're on another tab, project or page), it keeps its size: the agent goes on drawing for the width you last saw. When you come back, the terminal fits its pane again once the window has settled, and the agent redraws only if the pane's size changed meanwhile. If you were following the output at the bottom, you're still at the bottom; if you had scrolled up to read, you're still on the same line.
 
-**Screenshots and files.** With a screenshot on the clipboard (for example from Win+Shift+S), press **Ctrl+V** in a session: Hive saves the image in the project's `.hive/images` folder and pastes its path, and Claude Code attaches it as `[Image #1]`. You can also **drag files** from Explorer onto the terminal to paste their paths; images are copied into `.hive/images` first. The images are kept per session, so you can always see what was sent (see [Images](#images)).
+**Screenshots and files.** With a screenshot on the clipboard (for example from Win+Shift+S), press **Ctrl+V** in a session: Hive saves the image in the session's `.hive/attachments` folder and pastes its path, and Claude Code attaches it as `[Image #1]`. You can also **drag files** from Explorer onto the terminal: any kind of file, its path pasted, copied into `.hive/attachments` first when it comes from outside the agent's folder or is an image. They're kept per session, so you can always see what was sent (see [Attachments](#attachments)).
 
 ## Troubleshooting
 

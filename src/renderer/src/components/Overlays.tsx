@@ -241,7 +241,7 @@ export function CommandPalette() {
 
   const items = useMemo(() => {
     const cmdItems = mode === 'projects' ? [] : commands
-      .filter((c) => !c.internal && (!c.when || c.when()))
+      .filter((c) => !c.internal && !c.hidden?.() && (!c.when || c.when()))
       .map((c) => ({ id: c.id, label: `${c.category}: ${commandLabel(c)}`, keybinding: commandKeybinding(c.id), run: () => runCommand(c.id), icon: 'symbol-event', checked: c.checked }))
     const projectItems = projects.map((p) => ({
       id: `project:${p.path}`,
@@ -636,7 +636,7 @@ function GitSetupRow() {
         <Icon name="pass-filled" />
         <div className="grow">
           <div>
-            <strong>Git {git.version}</strong> <span className="muted">— for worktrees, merging and the Changes tab</span>
+            <strong>Git {git.version}</strong> <span className="muted">— for worktrees, merging and the Git tab</span>
           </div>
           {git.path && <div className="muted mono" style={{ fontSize: 11 }}>{git.path}</div>}
         </div>
@@ -648,8 +648,8 @@ function GitSetupRow() {
     git.state === 'old' && !problem
       ? `${gitOldText(git.version!)} Update Git for Windows to ${GIT_MIN} or later, then Check again.`
       : git.state === 'unknown'
-        ? `${git.error}. Hive needs Git ${GIT_MIN} or later for worktrees, merging and the Changes tab.`
-        : `${problem}: worktree agents, merging, the Changes tab and the unmerged counts don't work. ${gitFixText(git)}`
+        ? `${git.error}. Hive needs Git ${GIT_MIN} or later for worktrees, merging and the Git tab.`
+        : `${problem}: worktree agents, merging, the Git tab and the unmerged counts don't work. ${gitFixText(git)}`
   return (
     <div className="setup-status setup-git" data-git={git.state}>
       <Icon name="warning" />

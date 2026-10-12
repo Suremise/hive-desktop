@@ -12,7 +12,7 @@ In Hive an agent often works in its own git worktree on its own branch. The user
 ## Steps
 
 1. **Where you are.** `git branch --show-current` and `git worktree list`. This prepares a separate branch. On the project's main branch there is nothing to merge: say so, and do what the user asked (commit there only if they asked you to).
-2. **Finish loose work.** `git status`. Commit the work that belongs to this task, with clear messages, and only that. Leave out build output, logs, local config and secrets. List anything you left uncommitted, and why.
+2. **Finish loose work.** `git status`. Commit the work that belongs to this task, with clear messages, and only that. Leave out build output, logs, local config and secrets. List anything you left uncommitted, and why. End what you started that still runs (log watchers, servers, app copies): left running, they hold the worktree's files and ports.
 3. **Run the checks.** Use the project's own commands (package scripts, a Makefile, the README, CI config): tests, typecheck, lint, and whatever else the change needs. Fix failures this branch caused. Report failures that were there before, without fixing unrelated code.
 4. **Compare with the base** (usually `main` or `master`):
    - `git log --oneline <base>..HEAD` and `git diff --stat <base>...HEAD`. Look for files changed by accident, debug code, commented-out code and leftover TODOs.

@@ -7,6 +7,7 @@ import { stat } from 'original-fs/promises'
 import type { AgentApiInfo, AssistantControl, EffortLevel, HiveEvent, LiveSessionState, PermissionMode, ProviderId, SkillInfo, TaskCard, TaskColumn, TaskPatch, TaskStartTarget, ToastLevel } from '../shared/types'
 import { DEFAULT_API_PORT, HIVE_DIR, projectAgents, stopAsksUser, transcriptWarnLimit } from '../shared/defaults'
 import { PROVIDERS, agentProvider, defaultProviderPending, isKnownProvider, isProviderEnabled, offeredModes, projectDefaultProvider, providerName } from '../shared/providers'
+import { agentChoosesMcp, agentGetsMcp, cleanMcpServers } from '../shared/agentMcp'
 import { fallbackEfforts, modelGroups } from '../shared/models'
 import { agentRuntime, unknownStateText } from '../shared/runtime'
 import { ASSISTANT_AGENT_ID, ASSISTANT_DIR, ASSISTANT_NAME } from '../shared/assistant'
@@ -59,6 +60,9 @@ import { clearDiscovery, writeDiscovery } from './apiDiscovery'
 import { createViewerToken, loadViewerTokens, revokeViewerToken, viewerForToken, viewerTokens } from './viewerTokens'
 import { hookTokenMatches } from './hookTokens'
 import { unusedWorktreeCounts } from './unusedWorktrees'
+import { devConsole, hiveSourceId, sessionSourceId } from './devConsole'
+import { consoleSources } from './devConsoleSources'
+import { CONSOLE_KINDS, hiveName, mayRead, type ConsoleEvent, type ConsoleKind, type ConsoleReader, type ConsoleSource } from '../shared/devConsole'
 
 const log = createLogger('servers')
 const MAX_BODY = 2 * 1024 * 1024
@@ -118,7 +122,11 @@ export async function startHookServer(): Promise<string> {
     const query = new URL(req.url, 'http://127.0.0.1').searchParams
     const run = query.get('run')
     // Only the launch's own token, while it runs (#345).
-    if (!hookTokenMatches(run, req.headers.authorization)) return send(res, 401, { error: 'unauthorized' })
+    if (!hookTokenMatches(run, req.headers.authorization)) {
+      // The developer console (#636): a hook refused (an ended launch's, or a wrong token), in every workspace watched.
+      devConsole.capture(devConsole.capturedLike('hive:'), () => ({ kind: 'hook-server', name: 'refused', raw: { statusline: query.has('statusline'), run: !!run }, made: { status: 401 }, summary: `hook refused (${run ? "not this launch's token, or it has ended" : 'no launch named'})` }))
+      return send(res, 401, { error: 'unauthorized' })
+    }
     try {
       const body = JSON.parse((await readBody(req)) || '{}')
       if (query.has('statusline')) {
@@ -201,6 +209,8 @@ interface ApiRequest {
   /** Not counted as API traffic: the bridge's own metrics reports, event streams (counted as streams), the health check. */
   skip: boolean
   authenticated: boolean
+  /** The request's workspace, as far as it was known (the developer console's Hive events). */
+  ws: string | null
 }
 const apiRequests = new WeakMap<ServerResponse, ApiRequest>()
 
@@ -362,6 +372,9 @@ const statusMessageOf = (live: LiveSessionState | null | undefined): string | nu
 
 async function projectSummary(p: string) {
   const info = await workspace.projectInfo(p)
+  // The workspace's servers this project has on: each agent gets them all, or those of them it was given (#537).
+  const off = new Set(info.config.mcp.disabled)
+  const mcpOn = (await inWorkspace(workspaceOf(p), () => listMcp()).catch(() => [])).filter((m) => m.globallyEnabled && m.def && !off.has(m.name)).map((m) => m.name)
   return {
     name: info.name,
     path: info.path,
@@ -386,6 +399,9 @@ async function projectSummary(p: string) {
       // An action under the CLI's automatic review (as asked); never a question for the user.
       reviewing: a.live?.review ?? null,
       backgroundTasks: a.live?.backgroundTasks ?? 0,
+      // The project's MCP servers it gets (the built-in hive server besides): all of them, or only those it was given.
+      mcpServers: mcpOn.filter((n) => agentGetsMcp(a, n)),
+      mcpChoice: agentChoosesMcp(a) ? 'only' : 'all',
       // The guidance and skill revisions it launched with (compare with GET /v1/status's to spot an old launch).
       launched: a.live?.launched ?? null
     })),
@@ -797,9 +813,12 @@ async function agentDefOf(p: string, agentId: string) {
   return a
 }
 
-/** Settings from a request body: an agent's provider, model, effort, mode and 200K context (empty clears an override). */
-function agentSettings(body: any): { provider?: ProviderId; model?: string; effort?: EffortLevel; permissionMode?: PermissionMode; use200kContext?: boolean | null } {
-  const out: { provider?: ProviderId; model?: string; effort?: EffortLevel; permissionMode?: PermissionMode; use200kContext?: boolean | null } = {}
+/**
+ * Settings from a request body: an agent's provider, model, effort, mode, 200K context and MCP servers (empty clears an
+ * override; for MCP servers, "*" or null: all of the project's again).
+ */
+function agentSettings(body: any): { provider?: ProviderId; model?: string; effort?: EffortLevel; permissionMode?: PermissionMode; use200kContext?: boolean | null; mcpServers?: string[] | null } {
+  const out: { provider?: ProviderId; model?: string; effort?: EffortLevel; permissionMode?: PermissionMode; use200kContext?: boolean | null; mcpServers?: string[] | null } = {}
   if (body?.provider !== undefined) {
     if (!isKnownProvider(String(body.provider))) throw new HttpError(400, `Unknown provider "${body.provider}". hive_list_providers lists them.`)
     out.provider = String(body.provider) as ProviderId
@@ -813,6 +832,15 @@ function agentSettings(body: any): { provider?: ProviderId; model?: string; effo
     else if (c === false || c === 'off') out.use200kContext = false
     else if (c === null || c === '') out.use200kContext = null
     else throw new HttpError(400, 'context200k is "on", "off" or "" (follow the project).')
+  }
+  const m = body?.mcpServers
+  if (m !== undefined) {
+    const all = m === null || m === '' || m === '*' || (Array.isArray(m) && m.length === 1 && m[0] === '*')
+    try {
+      out.mcpServers = all ? null : cleanMcpServers(m)!
+    } catch (e) {
+      throw new HttpError(400, `${(e as Error).message} mcpServers is a list of the project's server names, [] for none, or ["*"] for all of them.`)
+    }
   }
   return out
 }
@@ -839,6 +867,7 @@ route('POST', '/v1/projects/:name/agents', async ({ params, body }) => {
       reuseWorktree: true,
       ...set,
       use200kContext: set.use200kContext ?? undefined,
+      mcpServers: set.mcpServers ?? undefined,
       provider
     })
     // The view stays where the user has it; the new agent is marked for them.
@@ -1449,8 +1478,9 @@ async function taskView(c: TaskCard, agents = new Map<string, Promise<ReturnType
   }
   // Nobody working on a Doing card: the Assistant reports these and suggests who could take them.
   // Entry ids are the card watches' (#224): left out, so replies stay as lean as before.
-  // Its decisions first (#357): what the user decided, which agents follow over the description.
-  const { number, title, decisions, ...rest } = c
+  // Its decisions first (#357): what the user decided, which agents follow over the description. Its holds (#602) are
+  // for its cost in Hive's window: left out.
+  const { number, title, decisions, held: _held, ...rest } = c
   const view: TaskView = {
     number,
     title,
@@ -2012,6 +2042,114 @@ async function progressCall<T>(ignored: T, change: (caller: ProgressCaller) => T
 // The Progress panel's runs (#620), newest first, as the panel lists them (Recent from before a restart included), in
 // their public form (publicRun: no command line or reporter's text): the request's workspace's, or for a project agent
 // its project's. Empty with the panel turned off.
+// ---------------------------------------------------------------------------
+// Developer console (#636): read-only and redacted, while Settings → Agent API lets agents read it. A project agent reads
+// its own sessions, the Assistant its workspace's. Reading starts nothing (#366 decision 4: capture is off unless the
+// console is open): it gives what an open console is capturing, and says when nothing is.
+// ---------------------------------------------------------------------------
+
+/** Events a read gives at most, the events one read gives in full, and the sources a page lists. */
+const CONSOLE_ROWS = 30
+const CONSOLE_ROWS_MAX = 100
+const CONSOLE_DETAIL_MAX = 3
+const CONSOLE_SOURCES = 50
+const CONSOLE_SOURCES_MAX = 100
+const NOT_READABLE = 'Not a developer console source you can read'
+
+function consoleReader(): ConsoleReader {
+  const a = agentCaller()
+  if (a) return { kind: 'agent', projectPath: a.projectPath, agentId: a.agentId }
+  const own = assistantCaller()
+  return own ? { kind: 'assistant', workspace: own } : { kind: 'all' }
+}
+
+function consoleAllowed(): void {
+  if (config.settings.agentApi.devConsole !== true) throw new HttpError(403, 'Reading the developer console is off: the user can turn it on in Settings → Agent API → Let agents read the developer console')
+}
+
+const consoleWorkspaceOf = (projectPath: string): string | null => workspaceFor(projectPath)?.path ?? null
+
+/**
+ * The source a console request names: source=hive or source=assistant (the request's workspace), or an agent (agent,
+ * and project unless it is the caller's own); a project agent naming none reads its own session. Anything the caller
+ * may not read is refused as if it didn't exist (404), and so is anything an agent names that doesn't.
+ */
+async function consoleSource(query: URLSearchParams): Promise<string> {
+  const which = query.get('source')
+  const project = query.get('project')
+  const agent = query.get('agent')
+  const me = agentCaller()
+  let id: string
+  try {
+    if (which === 'hive') id = hiveSourceId(requireWorkspace().path!)
+    else if (which === 'assistant') id = sessionSourceId(requireWorkspace().assistantHome, ASSISTANT_AGENT_ID)
+    else if (which) throw new HttpError(400, 'source is hive or assistant; name an agent with agent (and project)')
+    else if (!project && !agent) {
+      if (!me) throw new HttpError(400, 'Say which source: agent (and project), source=assistant or source=hive')
+      id = sessionSourceId(me.projectPath, me.agentId)
+    } else {
+      const p = project ? projectByName(project) : me?.projectPath
+      if (!p) throw new HttpError(400, 'project is required with agent')
+      id = sessionSourceId(p, await agentParam(p, agent ?? undefined))
+    }
+  } catch (e) {
+    // An agent learns nothing of what it can't read: an unknown project or agent is refused as one it may not read.
+    if (me && !(e instanceof HttpError && e.status === 400)) throw new HttpError(404, NOT_READABLE)
+    throw e
+  }
+  if (!mayRead(consoleReader(), id, consoleWorkspaceOf)) throw new HttpError(404, NOT_READABLE)
+  return id
+}
+
+/** A source as a reply names it (bounded names; whether an open console is capturing it, and how many events it holds). */
+function consoleRow(s: ConsoleSource | undefined, id: string) {
+  const kind = s?.kind ?? (id.startsWith('hive:') ? 'hive' : 'session')
+  // `select` names it exactly as a read takes it (the agent's id and its project's own name), apart from the display
+  // label, which is cut and masked: following a listing always reads the source it lists.
+  const select = kind === 'hive' ? { source: 'hive' } : kind === 'assistant' ? { source: 'assistant' } : s?.agentId && s.project ? { agent: s.agentId, project: s.project } : undefined
+  return { label: hiveName(s?.label ?? (kind === 'hive' ? 'Hive' : 'an agent'), 80), kind, ...(select ? { select } : {}), ...(s?.provider ? { provider: s.provider } : {}), capturing: devConsole.capturing(id), events: devConsole.count(id) }
+}
+
+const consoleRowOf = (e: ConsoleEvent) => ({ seq: e.seq, at: e.at, kind: e.kind, name: e.name, summary: e.summary, ...(e.truncated ? { truncated: true } : {}) })
+
+/** A whole number from the query between `min` and `max`, else `fallback`. */
+function intParam(query: URLSearchParams, name: string, fallback: number, min: number, max: number): number {
+  const n = Number(query.get(name))
+  return query.has(name) && Number.isFinite(n) ? Math.min(max, Math.max(min, Math.floor(n))) : fallback
+}
+
+route('GET', '/v1/console/sources', async ({ query }) => {
+  consoleAllowed()
+  const reader = consoleReader()
+  const all = consoleSources(requireWorkspace()).filter((s) => mayRead(reader, s.id, consoleWorkspaceOf))
+  const offset = intParam(query, 'offset', 0, 0, all.length)
+  const limit = intParam(query, 'limit', CONSOLE_SOURCES, 1, CONSOLE_SOURCES_MAX)
+  return { total: all.length, offset, sources: all.slice(offset, offset + limit).map((s) => consoleRow(s, s.id)) }
+})
+
+route('GET', '/v1/console/events', async ({ query }) => {
+  consoleAllowed()
+  const id = await consoleSource(query)
+  const ws = contextWorkspace()
+  const source = consoleRow(ws ? consoleSources(ws).find((x) => x.id === id) : undefined, id)
+  const seqs = (query.get('seq') ?? '').split(',').map((x) => Number(x.trim())).filter((n) => Number.isInteger(n) && n > 0)
+  if (seqs.length) {
+    if (seqs.length > CONSOLE_DETAIL_MAX) throw new HttpError(400, `At most ${CONSOLE_DETAIL_MAX} events in full at a time`)
+    const events = seqs.map((n) => devConsole.event(id, n)).filter((e): e is ConsoleEvent => !!e)
+    return { source, events, missing: seqs.filter((n) => !events.some((e) => e.seq === n)) }
+  }
+  const kinds = (query.get('kinds') ?? '').split(',').map((k) => k.trim()).filter(Boolean)
+  const unknown = kinds.filter((k) => !(CONSOLE_KINDS as readonly string[]).includes(k))
+  if (unknown.length) throw new HttpError(400, `Unknown event kinds: ${unknown.slice(0, 5).map((k) => k.slice(0, 30)).join(', ')} (kinds are ${CONSOLE_KINDS.join(', ')})`)
+  const since = intParam(query, 'since', 0, 0, Number.MAX_SAFE_INTEGER)
+  const limit = intParam(query, 'limit', CONSOLE_ROWS, 1, CONSOLE_ROWS_MAX)
+  const after = devConsole.events(id, since).filter((e) => !kinds.length || kinds.includes(e.kind as ConsoleKind))
+  // The first read gives the newest; a read with since carries on from there, oldest first, so paging misses none.
+  const events = since ? after.slice(0, limit) : after.slice(-limit)
+  const rest = after.length - events.length
+  return { source, events: events.map(consoleRowOf), ...(rest ? (since ? { newer: rest } : { older: rest }) : {}), newest: events.length ? events[events.length - 1].seq : since }
+})
+
 route('GET', '/v1/progress', async () => {
   const ws = requireWorkspace()
   const workspacePath = ws.path!
@@ -2043,13 +2181,15 @@ async function handleApi(req: IncomingMessage, res: ServerResponse): Promise<voi
   // Measured from here to the response's end (or the client going away): latency on the monotonic clock, bodies'
   // UTF-8 bytes, outcome. Recorded once it ends, never in the way of the request.
   const started = metricsClock.mono()
-  const m: ApiRequest = { route: '(no route)', handle: null, project: null, role: 'unknown', requestBytes: 0, responseBytes: 0, skip: false, authenticated: false }
+  const m: ApiRequest = { route: '(no route)', handle: null, project: null, role: 'unknown', requestBytes: 0, responseBytes: 0, skip: false, authenticated: false, ws: null }
   apiRequests.set(res, m)
   appMetrics.requestStarted()
+  let who: Caller | null = null
   res.once('close', () => {
     appMetrics.requestEnded()
     if (!m.authenticated) appMetrics.unauthenticated()
     else if (!m.skip && m.handle) recordApi(m.handle, m.project, { route: m.route, method: req.method ?? '', role: m.role, outcome: outcomeOf(res), requestBytes: m.requestBytes, responseBytes: m.responseBytes, ms: metricsClock.mono() - started })
+    if (m.authenticated && !m.skip && !m.route.startsWith('/v1/console')) captureApiCall(req, res, url, m, who, metricsClock.mono() - started)
   })
   const url = new URL(req.url ?? '/', 'http://127.0.0.1')
   // Browsers must not be able to drive the API from a web page.
@@ -2077,6 +2217,7 @@ async function handleApi(req: IncomingMessage, res: ServerResponse): Promise<voi
   if (!caller) return send(res, enabled ? 401 : 403, { error: enabled ? 'Missing or invalid bearer token' : 'The Agent API is turned off in Settings → Agent API' })
   m.authenticated = true
   m.role = caller.kind
+  who = caller
   // An agent's work is its project's; the Assistant's and scripts' are the workspace's own (not spread over projects).
   if (caller.kind === 'agent') m.project = basename(caller.projectPath)
   return callerStore.run(caller, () => serveApi(req, res, url))
@@ -2113,7 +2254,9 @@ async function serveApi(req: IncomingMessage, res: ServerResponse, url: URL): Pr
   // Whose request it is, for metrics, known before the body is read: an unknown route or a client that goes away while
   // sending its body is still counted for the workspace. (The request's own errors come below, in their usual order.)
   try {
-    m.handle = metricsHandle(requestWorkspace(req, url))
+    const w = requestWorkspace(req, url)
+    m.handle = metricsHandle(w)
+    m.ws = w?.path ?? null
   } catch {
     m.handle = null
   }
@@ -2156,6 +2299,28 @@ async function serveApi(req: IncomingMessage, res: ServerResponse, url: URL): Pr
     if (status === 500) log.error(`API ${req.method} ${url.pathname}`, e)
     send(res, status, { error: (e as Error).message, ...(e instanceof HttpError ? e.extra : undefined) })
   }
+}
+
+/**
+ * The developer console (#636): an Agent API call as it ended, in its workspace's Hive events and in the calling agent's
+ * (or Assistant's) own session. Its route and how it went, never its body or the reply: the query's names only.
+ */
+function captureApiCall(req: IncomingMessage, res: ServerResponse, url: URL, m: ApiRequest, who: Caller | null, ms: number): void {
+  const own = who?.kind === 'agent' ? sessionSourceId(who.projectPath, who.agentId) : who?.kind === 'assistant' ? sessionSourceId(join(who.workspace, HIVE_DIR, ASSISTANT_DIR), ASSISTANT_AGENT_ID) : null
+  devConsole.capture([m.ws && hiveSourceId(m.ws), own], () => {
+    const name = `${req.method ?? ''} ${m.route}`
+    const outcome = outcomeOf(res)
+    const by = who?.kind === 'agent' ? `agent ${who.agentId}` : who?.kind ?? 'unknown'
+    return {
+      kind: 'api',
+      name,
+      raw: { method: req.method, route: m.route, params: [...new Set(url.searchParams.keys())].slice(0, 20), role: m.role, project: m.project, requestBytes: m.requestBytes },
+      made: { status: res.statusCode, outcome, ms: Math.round(ms), responseBytes: m.responseBytes },
+      // The query's parameter names are kept (identifiers only, never their values).
+      safe: { raw: { method: true, route: true, params: true, role: true, project: true }, made: { outcome: true } },
+      summary: `${name} by ${by}${m.project ? ` (${m.project})` : ''} → ${res.statusCode} ${outcome} in ${Math.round(ms)} ms`
+    }
+  })
 }
 
 /** A project agent's cards with decisions new to it (#357), now; null for other callers. Never fails the call. */

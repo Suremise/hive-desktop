@@ -1,5 +1,6 @@
 import type { CompactionEvent, DayUsage, SessionUsage, SubSession, UsageTokens } from '../../../shared/types'
 import { addTokens, emptyDay, localDay } from '../../../shared/usageDays'
+import { TimelineBuilder } from '../../../shared/usageTimeline'
 import { CLAUDE_CODE } from '../../../shared/claude'
 import { isSessionId } from '../../../shared/defaults'
 
@@ -45,10 +46,11 @@ interface UsageBlock {
   cache_creation?: { ephemeral_1h_input_tokens?: number; ephemeral_5m_input_tokens?: number }
 }
 
-/** A request's usage and the local day it ran on. */
+/** A request's usage, the local day it ran on and when (its place in the timeline: usageTimeline.ts). */
 interface Request {
   u: UsageBlock
   day: string
+  at: string | undefined
 }
 
 const tokensOf = (u: UsageBlock): UsageTokens => ({
@@ -133,7 +135,7 @@ export class ClaudeUsageParser {
           if (!u) break
           const key = o.requestId ?? msg.id ?? o.uuid ?? String(this.byRequest.size)
           const known = this.byRequest.get(key)
-          this.byRequest.set(key, { u, day: known?.day || day })
+          this.byRequest.set(key, { u, day: known?.day || day, at: known?.at ?? (ts || usage.lastActivity || undefined) })
           if (!known) this.uncovered.add(key)
           if (!side) {
             // The output (thinking included) stays in the context: what Claude Code compacts on is input + output.
@@ -197,13 +199,26 @@ export class ClaudeUsageParser {
     const usage: SessionUsage = { ...this.usage, compactions: [...this.usage.compactions] }
     const days: Record<string, DayUsage> = {}
     const dayOf = (d: string): DayUsage => (days[d] ??= emptyDay())
-    for (const r of this.byRequest.values()) {
+    // Each cost report's increase, and which report covers each request (for the timeline: a report's charge is split
+    // only between its own requests).
+    const reportOf = new Map<string, number>()
+    let before = 0
+    const charges = this.reports.map((rep, i) => {
+      for (const key of rep.keys) reportOf.set(key, i)
+      const costUsd = Math.max(0, rep.total - before)
+      before = rep.total
+      return costUsd
+    })
+    const timeline = new TimelineBuilder()
+    for (const [key, r] of this.byRequest) {
       const t = tokensOf(r.u)
       addTokens(usage, t)
       const d = dayOf(r.day)
       addTokens(d, t)
       d.requests++
+      timeline.add(r.at, t, 1, reportOf.get(key) ?? -1)
     }
+    usage.timeline = timeline.timeline(charges)
     for (const [day, n] of this.prompts) dayOf(day).prompts += n
     for (const day of this.compactionDays) dayOf(day).compactions++
     delete days['']
@@ -215,17 +230,14 @@ export class ClaudeUsageParser {
         if (r) addTokens(unreported, tokensOf(r.u))
       }
       if (Object.values(unreported).some((n) => n > 0)) usage.costUnreported = unreported
-      let before = 0
-      usage.costReports = this.reports.map((rep) => {
+      usage.costReports = this.reports.map((rep, i) => {
         const byDay: Record<string, UsageTokens> = {}
         for (const key of rep.keys) {
           const r = this.byRequest.get(key)
           if (!r) continue
           addTokens((byDay[r.day] ??= { inputTokens: 0, outputTokens: 0, cacheWriteTokens: 0, cacheReadTokens: 0 }), tokensOf(r.u))
         }
-        const costUsd = Math.max(0, rep.total - before)
-        before = rep.total
-        return { costUsd, days: byDay }
+        return { costUsd: charges[i], days: byDay }
       })
     }
     usage.requests = this.byRequest.size

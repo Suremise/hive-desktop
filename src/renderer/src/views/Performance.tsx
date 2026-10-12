@@ -15,6 +15,7 @@ import { cx, formatBytes, formatTokens, timeAgo } from '../util'
 import { ComparePanel } from './PerformanceCompare'
 import { AntivirusLine } from '../components/Antivirus'
 import { Card } from './WorkspaceOverview'
+import { CardsTable } from './PerformanceCards'
 
 /**
  * Performance: what Hive's own parts cost (shared/metrics.ts, recorded by main/metrics.ts), for the whole workspace (the
@@ -292,6 +293,17 @@ function PerformancePage({ workspacePath, scope, filters, setFilters, projects, 
               </>
             )}
             </section>
+            {/* Cost per card (#602): agents' work only, every provider's, so outside Who's box; the workspace's own work has none. */}
+            {!own && (
+              <CardsTable
+                workspacePath={workspacePath}
+                project={scope.kind === 'project' ? scope.project : filters.project || null}
+                from={Date.parse(report.from)}
+                to={Date.parse(report.to)}
+                rangeLabel={range.label}
+                refreshAt={loaded.at}
+              />
+            )}
             {!isTab && report.skills && <SkillService report={report} filtered={filters.role !== 'all'} />}
             {!isTab && report.app && <AppWide report={report} />}
             <details className="perf-limits">

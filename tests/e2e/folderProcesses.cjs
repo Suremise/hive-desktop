@@ -143,4 +143,46 @@ function stopProcessesIn(folder, since = 0, tree = []) {
   return ended
 }
 
-module.exports = { namesFolder, ownedBy, descendantsIn, stillRunning, processTree, processes, endExactly, childrenFirst, stopProcessesIn }
+/**
+ * The identities ({ pid, started }) of the processes `pids` names now: taken while they are known to be the test's own
+ * (just after they reported their pid), so a later check or ending (stillSame, endExactly) never takes a process that
+ * got one of those pids since (#603: a remembered pid killed after its process ended could be a Vitest worker's, which
+ * then exits with code 1). [] off Windows.
+ */
+function identify(pids) {
+  if (process.platform !== 'win32' || !pids.length) return []
+  const list = processes()
+  return pids.map((pid) => list.find((p) => p.pid === pid)).filter(Boolean).map((p) => ({ pid: p.pid, started: p.started }))
+}
+
+/** Which of `ids` (identify's) still run as the same processes: their pids. */
+const stillSame = (ids) => (process.platform !== 'win32' || !ids.length ? [] : stillRunning(processes(), ids))
+
+/**
+ * Ends `root` and what it started (each started after its parent: a child whose parent id was reused isn't one), each
+ * through a handle checked against its start time, children first. `root` is an identity ({ pid, started }) taken while
+ * the process was known to be the test's own (identify): only while that pid still names that process is anything
+ * ended, so a root that has gone, or whose pid names another process by now, ends nothing (#603: never take a process
+ * from a pid at ending time, nor `taskkill /T`, which follows parent ids that may be stale). `list`: the processes now
+ * (processes()). Returns how many were ended.
+ */
+function endTreeExactly(root, list) {
+  if (process.platform !== 'win32' || !root?.pid || !root.started) return 0
+  list ??= processes()
+  const now = list.find((p) => p.pid === root.pid)
+  if (!now || Math.abs(now.started - root.started) > 1) return 0
+  return endExactly(childrenFirst(list, [{ pid: now.pid, started: now.started }, ...descendantsIn(list, now.pid)]))
+}
+
+/**
+ * Ends a ChildProcess the test started and still holds, with what it started. While it hasn't exited, Node holds its
+ * handle, so its pid can't name another process: its identity is read now. Once it has exited, nothing is ended.
+ */
+function endChildTree(child) {
+  if (process.platform !== 'win32' || !child?.pid || child.exitCode !== null || child.signalCode !== null) return 0
+  const list = processes()
+  const now = list.find((p) => p.pid === child.pid)
+  return now ? endTreeExactly({ pid: now.pid, started: now.started }, list) : 0
+}
+
+module.exports = { namesFolder, ownedBy, descendantsIn, stillRunning, processTree, processes, endExactly, childrenFirst, stopProcessesIn, identify, stillSame, endTreeExactly, endChildTree }

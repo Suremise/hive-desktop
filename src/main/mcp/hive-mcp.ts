@@ -18,7 +18,7 @@ import { AGENT_WAIT_MAX_SECONDS, WAIT_MAX_SECONDS } from '../../shared/watch'
 import { LANE_EVENTS } from '../../shared/laneWatch'
 import { CLAIM_WAIT_MAX_SECONDS, CLAIM_WAIT_SECONDS } from '../../shared/mergeSlot'
 import { agentApiCall } from './agentApiCall'
-import { MAX_ROWS, agentWatchText, batchText, changedText, claimText, createdText, mergeSlotText, noteText, notesListText, noteWrittenText, projectListText, releaseText, reorderText, settingChangedText, settingListText, settingText, skillListText, taskListText, taskWaitText, type NoteEntry, type ProjectRow, type SettingDetail, type SettingRow, type SkillRow, type TaskBatch, type TaskChange, type TaskReorder, type TaskRow } from '../../shared/toolReplies'
+import { MAX_ROWS, agentWatchText, batchText, consoleEventsText, consoleSourcesText, changedText, claimText, createdText, mergeSlotText, noteText, notesListText, noteWrittenText, projectListText, releaseText, reorderText, settingChangedText, settingListText, settingText, skillListText, taskListText, taskWaitText, type NoteEntry, type ProjectRow, type SettingDetail, type SettingRow, type SkillRow, type TaskBatch, type TaskChange, type TaskReorder, type TaskRow } from '../../shared/toolReplies'
 import type { LaneInfo, MergeSlotInfo } from '../../shared/types'
 import { laneChangeText, laneEndText, lanesText, type LaneChange } from '../../shared/lanes'
 
@@ -32,6 +32,8 @@ const ASSISTANT = process.env.HIVE_ROLE === 'assistant'
 const CONTROL = process.env.HIVE_ASSISTANT_CONTROL || 'projects'
 /** Settings → Assistant → Control → Change settings: hive_update_setting is offered only then. */
 const CHANGE_SETTINGS = process.env.HIVE_ASSISTANT_SETTINGS === '1'
+/** Settings → Agent API → Let agents read the developer console: hive_console is offered only then (#636). */
+const DEV_CONSOLE = process.env.HIVE_DEV_CONSOLE === '1'
 
 function token(): string {
   const t = process.env.HIVE_API_TOKEN
@@ -88,7 +90,8 @@ const settingsArgs = {
   model: { type: 'string', description: 'Model (hive_list_providers). Empty follows the project.' },
   effort: { type: 'string', description: 'Effort level (hive_list_providers). Empty follows the project.' },
   mode: { type: 'string', description: 'Permission mode (hive_list_providers). Empty follows the project.' },
-  context200k: { type: 'string', enum: ['on', 'off', ''], description: "Use a 200K context window instead of the model's 1M one, for providers with context200k (hive_list_providers). Empty follows the project." }
+  context200k: { type: 'string', enum: ['on', 'off', ''], description: "Use a 200K context window instead of the model's 1M one, for providers with context200k (hive_list_providers). Empty follows the project." },
+  mcpServers: { type: 'array', items: { type: 'string' }, description: "Only these of the project's MCP servers (names), [] none, [\"*\"] all (the default). The hive server is always given." }
 }
 const agentPath = (a: Record<string, any>): string => `/v1/projects/${proj(a)}/agents/${enc(a.agent || '')}`
 /** Which agent is changing a card, for its history (Hive fills in the name). */
@@ -273,7 +276,7 @@ const tools: Tool[] = [
       required: ['project']
     },
     run: async (a) => {
-      const r = (await api('POST', `/v1/projects/${proj(a)}/agents`, { name: a.name, provider: a.provider, model: a.model, effort: a.effort, mode: a.mode, context200k: a.context200k, worktree: a.worktree, existingWorktree: a.existingWorktree, branch: a.branch, base: a.base, start: a.start, prompt: a.prompt })) as {
+      const r = (await api('POST', `/v1/projects/${proj(a)}/agents`, { name: a.name, provider: a.provider, model: a.model, effort: a.effort, mode: a.mode, context200k: a.context200k, mcpServers: a.mcpServers, worktree: a.worktree, existingWorktree: a.existingWorktree, branch: a.branch, base: a.base, start: a.start, prompt: a.prompt })) as {
         agent: { id: string; name: string; worktree?: { path: string; branch: string } | null }
         project: { name: string; agents: { id: string; provider: string; status: string }[] }
         reuse?: string
@@ -285,9 +288,9 @@ const tools: Tool[] = [
   },
   {
     name: 'hive_update_agent',
-    description: "Change an agent's name, provider, model, effort, permission mode or 200K context. A running agent takes the change when restarted; its provider changes only while it is stopped.",
+    description: "Change an agent's name, provider, model, effort, permission mode, 200K context or MCP servers. A running agent takes the change when restarted; its provider changes only while it is stopped.",
     inputSchema: { type: 'object', properties: { project: projectArg, agent: agentArg, name: { type: 'string' }, ...settingsArgs }, required: ['project', 'agent'] },
-    run: (a) => api('PATCH', agentPath(a), { name: a.name, provider: a.provider, model: a.model, effort: a.effort, mode: a.mode, context200k: a.context200k })
+    run: (a) => api('PATCH', agentPath(a), { name: a.name, provider: a.provider, model: a.model, effort: a.effort, mode: a.mode, context200k: a.context200k, mcpServers: a.mcpServers })
   },
   {
     name: 'hive_start_agent',
@@ -606,12 +609,36 @@ const tools: Tool[] = [
       required: ['id', 'value']
     },
     run: async (a) => settingChangedText((await api('PATCH', `/v1/settings/${enc(a.id)}`, { value: a.value, project: a.project })) as Parameters<typeof settingChangedText>[0])
+  },
+  {
+    name: 'hive_console',
+    description: `Hive's developer console, read-only: what a CLI sent Hive (hooks, status lines, transcript records, terminal markers, lines Hive typed, its launch and exit, its hive tool calls), each next to what Hive made of it, redacted (no prompt or reply text, commands, tokens or sign-in details). ${ASSISTANT ? "You read any agent of your workspace (agent, project), your own session (source=assistant) and Hive's own events (source=hive: Agent API calls, merge slots, watches, Progress, refused hooks)." : 'You read your own session.'} Hive captures only while the user has the developer console open on a source; reading starts nothing, and the reply says when nothing is captured. read (default): a line per event, the newest 30 the first time, then since=<newest> carries on; kinds narrows them; seq gives up to 3 events in full (raw payload and what Hive made of it). sources lists what you can read, whether it is captured and the exact arguments that read it (50 a page, offset for more).`,
+    inputSchema: {
+      type: 'object',
+      properties: {
+        action: { type: 'string', enum: ['read', 'sources'] },
+        agent: { type: 'string', description: ASSISTANT ? "An agent's name or id (with project)." : 'Your own name; leave it out.' },
+        project: { type: 'string' },
+        source: { type: 'string', enum: ['assistant', 'hive'] },
+        since: { type: 'number', description: 'Only events after this one (the previous reply\'s "since").' },
+        limit: { type: 'number', description: 'At most this many lines (default 30, at most 100).' },
+        offset: { type: 'number', description: 'sources: skip this many (the reply says where to carry on).' },
+        kinds: { type: 'array', items: { type: 'string', enum: ['hook', 'statusline', 'transcript', 'terminal', 'input', 'launch', 'exit', 'api', 'hook-server', 'watch', 'merge-slot', 'progress'] } },
+        seq: cardsArg('Events to give in full (their numbers, at most 3).')
+      }
+    },
+    run: async (a) => {
+      if (a.action === 'sources') return consoleSourcesText((await api('GET', `/v1/console/sources${a.offset ? `?offset=${Number(a.offset)}` : ''}`)) as Parameters<typeof consoleSourcesText>[0])
+      const q = [a.source ? `source=${enc(a.source)}` : '', a.agent ? `agent=${enc(a.agent)}` : '', a.project || (a.agent && PROJECT) ? `project=${enc(a.project || PROJECT)}` : '']
+      q.push(a.since ? `since=${Number(a.since)}` : '', a.limit ? `limit=${Number(a.limit)}` : '', Array.isArray(a.kinds) && a.kinds.length ? `kinds=${enc(a.kinds.join(','))}` : '', Array.isArray(a.seq) && a.seq.length ? `seq=${a.seq.map(Number).join(',')}` : '')
+      return consoleEventsText((await api('GET', `/v1/console/events?${q.filter(Boolean).join('&')}`)) as Parameters<typeof consoleEventsText>[0])
+    }
   }
 ]
 
 /** Agents get Hive's common tools; the Assistant also those its control level allows. */
 const allowed = new Set(assistantTools(CONTROL, CHANGE_SETTINGS))
-const offered = tools.filter((t) => (ASSISTANT ? (!ASSISTANT_ONLY_TOOLS.includes(t.name) || allowed.has(t.name)) && !AGENT_ONLY_TOOLS.includes(t.name) : !ASSISTANT_ONLY_TOOLS.includes(t.name)))
+const offered = tools.filter((t) => (t.name !== 'hive_console' || DEV_CONSOLE) && (ASSISTANT ? (!ASSISTANT_ONLY_TOOLS.includes(t.name) || allowed.has(t.name)) && !AGENT_ONLY_TOOLS.includes(t.name) : !ASSISTANT_ONLY_TOOLS.includes(t.name)))
 
 const INSTRUCTIONS = hiveInstructions(PROJECT, ASSISTANT ? 'assistant' : 'agent', process.env.HIVE_PROGRESS_COMMANDS !== '0')
 

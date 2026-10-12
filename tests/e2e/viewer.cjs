@@ -86,7 +86,8 @@ function stream(token) {
   const cfg = JSON.parse(fs.readFileSync(cfgFile, 'utf8'))
   cfg.settings.providers['claude-code'].executablePath = path.join(__dirname, 'fake-claude', 'fake-claude.cmd')
   cfg.settings.general = { ...cfg.settings.general, confirmOnQuit: 'never' }
-  cfg.settings.agentApi = { ...cfg.settings.agentApi, enabled: true }
+  // The developer console's routes too (#636): they answer only while agents may read it.
+  cfg.settings.agentApi = { ...cfg.settings.agentApi, enabled: true, devConsole: true }
   fs.writeFileSync(cfgFile, JSON.stringify(cfg, null, 2))
 
   const env = lib.hiveEnv({ HIVE_USER_DATA: userData, HIVE_API_PORT: String(PORT), CLAUDE_CONFIG_DIR: claudeHome, HIVE_TEST_NOTIFY_LOG: notifyLog })

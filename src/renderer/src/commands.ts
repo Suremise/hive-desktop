@@ -29,6 +29,8 @@ export interface Command {
   liveLabel?: () => string
   /** What it does, on hover in the menus. */
   tip?: () => string
+  /** Left out of the menus, the palette and Tips, and not run, while this says so (developer features, #637). */
+  hidden?: () => boolean
 }
 
 /** A command's label in the menus and the palette. */
@@ -175,8 +177,8 @@ export const commands: Command[] = [
   { id: 'project.tab.tasks', label: 'Go to Tasks', category: 'Project', when: hasProject, run: tab('tasks') },
   { id: 'project.tab.sessions', label: 'Go to Sessions', category: 'Project', keybinding: 'Alt+3', when: hasProject, run: tab('sessions') },
   { id: 'project.tab.files', label: 'Go to Files', category: 'Project', keybinding: 'Alt+4', when: hasProject, run: tab('files') },
-  { id: 'project.tab.images', label: 'Go to Images', category: 'Project', keybinding: 'Alt+5', when: hasProject, run: tab('images') },
-  { id: 'project.tab.changes', label: 'Go to Changes', category: 'Project', keybinding: 'Alt+6', when: hasProject, run: tab('changes') },
+  { id: 'project.tab.images', label: 'Go to Attachments', category: 'Project', keybinding: 'Alt+5', when: hasProject, run: tab('images') },
+  { id: 'project.tab.changes', label: 'Go to Git', category: 'Project', keybinding: 'Alt+6', when: hasProject, run: tab('changes') },
   { id: 'project.tab.memory', label: 'Go to Memory', category: 'Project', keybinding: 'Alt+7', when: hasProject, run: tab('memory') },
   { id: 'project.tab.skills', label: 'Go to Skills', category: 'Project', keybinding: 'Alt+8', when: hasProject, run: tab('skills') },
   { id: 'project.tab.templates', label: 'Go to Templates', category: 'Project', when: hasProject, run: tab('templates') },
@@ -367,7 +369,7 @@ export const commands: Command[] = [
   { id: 'view.assistant', label: 'Show Hive Assistant View', category: 'View', run: () => setActivity('assistant') },
   { id: 'view.assistantConversations', label: 'Show Assistant Conversations', category: 'View', run: () => showAssistantView('conversations') },
   { id: 'view.personas', label: 'Show Assistant Modes', category: 'View', run: () => showAssistantView('personas') },
-  { id: 'view.assistantImages', label: 'Show Assistant Images', category: 'View', run: () => showAssistantView('images') },
+  { id: 'view.assistantImages', label: 'Show Assistant Attachments', category: 'View', run: () => showAssistantView('images') },
   { id: 'assistant.toggle', label: 'Toggle Hive Assistant', category: 'Assistant', keybinding: 'Mod+Alt+I', when: hasWorkspace, run: () => setAssistantOpen(!get().assistantOpen) },
   { id: 'assistant.settings', label: 'Assistant Settings…', category: 'Assistant', when: hasWorkspace, run: () => set({ assistantSettingsOpen: true }) },
   {
@@ -407,6 +409,7 @@ export const commands: Command[] = [
   { id: 'view.fullScreen', label: 'Toggle Full Screen', category: 'View', keybinding: 'F11', run: () => call('window:toggleFullScreen') },
   { id: 'view.alwaysOnTop', label: 'Always on Top', category: 'View', keybinding: 'Mod+Alt+O', checked: () => get().alwaysOnTop, run: () => toggleAlwaysOnTop() },
   { id: 'view.devTools', label: 'Toggle Developer Tools', category: 'Developer', keybinding: 'Mod+Shift+I', run: () => call('window:toggleDevTools') },
+  { id: 'help.devConsole', label: 'Developer Console', category: 'Developer', keybinding: 'Mod+Alt+J', when: hasWorkspace, hidden: () => !get().settings?.advanced.showDeveloperFeatures, tip: () => 'What each CLI sends Hive, next to what Hive made of it, in a window of its own', run: () => call('console:open') },
   { id: 'view.reload', label: 'Reload Window', category: 'Developer', run: () => void actions.saveUnsavedFirst('reload the window').then((ok) => ok && location.reload()) },
   { id: 'notes.open', label: 'Open Shared Note', category: 'Notes', internal: true, run: (path: string) => { showView('notes'); set({ selectedNote: path }) } },
   { id: 'mcp.import', label: 'Copy Project MCP Servers to Workspace', category: 'MCP', internal: true, run: (path: string, names: string[]) => actions.importProjectMcp(path, names) },
@@ -439,7 +442,7 @@ export const commands: Command[] = [
 
 export function runCommand(id: string, ...args: unknown[]): void {
   const c = commands.find((x) => x.id === id)
-  if (!c) return
+  if (!c || c.hidden?.()) return
   if (c.when && !c.when()) return
   // Tips skip what the user already does.
   noteCommandUsed(id)

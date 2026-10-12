@@ -1,5 +1,7 @@
 import { BrowserWindow, ClipboardItem, app, clipboard, dialog, ipcMain, nativeImage, shell } from 'electron'
 import { spawn } from 'child_process'
+import { AsyncLocalStorage } from 'async_hooks'
+import type { WebContents } from 'electron'
 import { existsSync } from 'original-fs'
 import { basename, dirname, isAbsolute, join, resolve } from 'path'
 import { readFile } from 'original-fs/promises'
@@ -15,11 +17,12 @@ import { allProviders } from './providers'
 import { providerService } from './providerService'
 import { config } from './config'
 import { clearRecent, recentChanged, recentFor, removeRecent } from './recentWorkspaces'
-import { emit, emitTo } from './events'
+import { emit, emitTo, onHiveEvent } from './events'
 import { setPinned } from './pin'
 import { presentWindow } from './testQuiet'
 import { insideArchive, insideReal, isFile, samePlace, writeTextAtomic, writeTextUnlessChanged } from './fsutil'
 import { gitDiff, gitStatus } from './git'
+import { addRemote, createBranch, createTag, fetchAll, pull, push, repoHistory, repoInfo, repoSummary, setIdentity, setRemoteUrl, switchBranch } from './gitRepo'
 import { checkGit, gitTool } from './gitTool'
 import { refreshPath } from './freshPath'
 import { mergeUnused, removalPreview, removeUnusedWorktree, unusedBranchStatus, unusedWorktrees } from './unusedWorktrees'
@@ -31,6 +34,7 @@ import { mergeSlots, recoverMergeSlots, workspaceSlots } from './mergeSlotHost'
 import { followNames } from './projectRename'
 import { slotBranch } from './mergeSlots'
 import { endLane, listLanes, stampLaneProjects } from './lanes'
+import { cardCosts, laneCosts } from './cardCosts'
 import { badgeDescription } from '../shared/taskbar'
 import * as files from './files'
 import * as mcp from './mcp'
@@ -57,7 +61,7 @@ import { transcripts } from './transcripts'
 import * as skills from './skills'
 import * as storage from './storage'
 import { antivirusStatus, antivirusSuggestion, applyAntivirus, dismissAntivirus, prepareAntivirus } from './antivirus'
-import { allLeftovers, settleLeftovers } from './agentProcesses'
+import { allLeftovers, leftoversSettled, settleLeftovers } from './agentProcesses'
 import { contextWorkspace, currentWorkspace, inWorkspace, workspace, workspaceFor, workspaceOf, WorkspaceService } from './workspace'
 import { ensureHiveExcluded, trackedHiveFiles, untrackHive, vcsOf } from './hiveVcs'
 import { hiveWindows, windowForPath, windowOf, windowShowing } from './windows'
@@ -68,7 +72,35 @@ import { metricsExport, metricsReport } from './metricsUsage'
 import { cancelWatch, stampWatchProjects } from './watches'
 import { cancelMessages } from './agentMessages'
 import { cardBusy } from './cardBusy'
+import { devConsole } from './devConsole'
+import { consoleSources } from './devConsoleSources'
+import { CONSOLE_WINDOW_CHANNELS, consoleOwner, openConsoleWindow } from './consoleWindow'
+import { mayRead, type ConsoleEvent } from '../shared/devConsole'
 import { benchContext, importBenchmark, keepReport, listBenchmarks, pinBenchmark, readBenchmark, removeBenchmark, selectBenchmarks } from './benchmarks'
+
+/** The window an IPC call came from, for calls that keep something per window (the developer console's subscription). */
+const senderStore = new AsyncLocalStorage<WebContents>()
+/**
+ * Windows subscribed to the developer console, each with the workspace (lower case) it subscribed in: a subscription ends
+ * when its window closes or leaves that workspace (#637), so no capture outlives the workspace it was for.
+ */
+const consoleWindows = new Map<string, { wc: WebContents; workspace: string }>()
+/** Pages whose subscription already ends when they close. */
+const consolePages = new WeakSet<WebContents>()
+const consoleWorkspace = (wc: WebContents): string => ((windowOf(wc) ?? consoleOwner(wc))?.ws.path ?? '').toLowerCase()
+onHiveEvent((e) => {
+  if (e.type !== 'workspace-changed') return
+  for (const [id, sub] of consoleWindows) {
+    if (!sub.wc.isDestroyed() && consoleWorkspace(sub.wc) === sub.workspace) continue
+    consoleWindows.delete(id)
+    devConsole.unsubscribe(id)
+  }
+})
+/** Whether this window's workspace may read a console source (its own agents, its Assistant and Hive there). */
+const windowMayRead = (source: string): boolean => {
+  const ws = currentWorkspace().path
+  return !!ws && mayRead({ kind: 'assistant', workspace: ws }, source, (p) => workspaceFor(p)?.path ?? null)
+}
 
 /** The instruction files of the given providers in a project, with their content. */
 async function projectInstructions(project: string, ids: ProviderId[]): Promise<InstructionsFile[]> {
@@ -528,14 +560,20 @@ export function registerIpc(getAppInfo: () => ReturnType<HiveRequests['app:info'
     'session:setMode': (p, agentId, mode) => sessions.setPermissionMode(p, agentId, mode),
     'session:restartInMode': (p, agentId, mode) => sessions.restartInMode(p, agentId, mode),
     'session:setPlanMode': (p, agentId, on) => sessions.setPlanMode(p, agentId, on),
-    'session:leftovers': () => allLeftovers((p) => workspaceFor(p) === currentWorkspace()),
+    'session:leftovers': async (settled) => {
+      const ws = currentWorkspace()
+      if (settled === true) await leftoversSettled()
+      return allLeftovers((p) => workspaceFor(p) === ws)
+    },
     'session:settleLeftovers': (p, agentId, how) => settleLeftovers(workspace.assertSessionHost(p), agentId, how === 'end' ? 'end' : 'keep'),
     'session:stopBackgroundAndResume': (p, agentId, jobId, sessionId) => sessions.stopBackgroundAndResume(p, agentId, jobId, sessionId),
     'session:handOver': (p, from, to, opts) => sessions.handOver(p, from, to, opts),
     'session:allowLockedEdit': (p, agentId, path) => sessions.allowLockedEdit(p, agentId, path),
     'session:applyModes': () => sessions.applyModeSettings(),
     'session:compact': (p, focus, agentId) => sessions.compact(p, focus, agentId),
-    'session:saveImage': (p, sourceFile, agentId) => sessions.saveImage(p, sourceFile, agentId),
+    'session:pasteImage': (p, agentId) => sessions.pasteImage(p, agentId),
+    'session:planAttach': (p, sources, agentId) => sessions.planAttach(p, sources, agentId),
+    'session:attach': (p, sources, agentId) => sessions.attach(p, sources, agentId),
 
     'agents:add': (p, opts) => projectAgents.addAgent(p, opts),
     'agents:update': (p, id, patch) => projectAgents.updateAgent(p, id, patch),
@@ -627,9 +665,10 @@ export function registerIpc(getAppInfo: () => ReturnType<HiveRequests['app:info'
     'files:setUnsaved': (paths) => quitControl.setUnsaved(win(), Array.isArray(paths) ? paths.filter((p) => typeof p === 'string') : []),
     'files:unwatch': (p) => files.unwatchProject(p),
 
-    'images:list': (p) => files.listImages(p),
-    'images:trash': (p, path) => files.trashImage(p, path),
-    'images:trashGroup': (p, id) => files.trashImageGroup(p, id),
+    'attachments:list': (p) => files.listAttachments(p),
+    'attachments:read': (p, path) => files.readAttachment(p, path),
+    'attachments:trash': (p, path) => files.trashAttachment(p, path),
+    'attachments:trashGroup': (p, id) => files.trashAttachmentGroup(p, id),
     'transcript:read': (p, id, opts) => transcripts.read(p, id, opts ?? {}),
     'transcript:tool': (p, id, itemId) => transcripts.tool(p, id, itemId),
     'transcript:image': (p, id, imageId) => transcripts.image(p, id, imageId),
@@ -647,7 +686,7 @@ export function registerIpc(getAppInfo: () => ReturnType<HiveRequests['app:info'
       await writeTextAtomic(r.filePath, await transcripts.markdown(p, id, title))
       return r.filePath
     },
-    'images:copy': async (path) => {
+    'attachments:copyImage': async (path) => {
       // From its bytes: nativeImage reading a path itself is asar-aware (#246).
       const img = nativeImage.createFromBuffer(await readFile(guardFile(path)))
       if (img.isEmpty()) throw new Error('Not an image')
@@ -779,6 +818,13 @@ export function registerIpc(getAppInfo: () => ReturnType<HiveRequests['app:info'
       if (typeof id !== 'string' || !id) throw new Error('Which lane to end is required')
       return endLane(currentWorkspace(), id, { abandoned: abandoned === true })
     },
+    'costs:cards': (q) => {
+      if (!workspace.path) return []
+      const numbers = Array.isArray(q?.numbers) ? q.numbers.filter((n) => Number.isInteger(n) && n > 0).slice(0, 1000) : undefined
+      const time = (v: unknown): number | undefined => (typeof v === 'number' && Number.isFinite(v) ? v : undefined)
+      return cardCosts(currentWorkspace(), { numbers, project: typeof q?.project === 'string' ? q.project : null, from: time(q?.from), to: time(q?.to) })
+    },
+    'costs:lanes': (ids) => (workspace.path ? laneCosts(currentWorkspace(), Array.isArray(ids) ? ids.filter((x): x is string => typeof x === 'string') : undefined) : []),
     'progress:list': async () => {
       const ws = workspace.path
       if (!ws) return []
@@ -799,6 +845,45 @@ export function registerIpc(getAppInfo: () => ReturnType<HiveRequests['app:info'
       if (failed) throw new Error(failed)
     },
     'progress:showLog': async (id) => shell.showItemInFolder(await runLog(id)),
+    // The developer console (#636): this window's workspace's sources, and what it watches of them.
+    'console:open': () => {
+      const wc = senderStore.getStore()
+      const owner = wc ? windowOf(wc) : null
+      if (!owner) throw new Error('Not allowed')
+      if (!config.settings.advanced.showDeveloperFeatures) throw new Error('The developer console is hidden: turn on Settings → Advanced → Show developer features.')
+      openConsoleWindow(owner)
+    },
+    'console:sources': () => consoleSources(currentWorkspace()),
+    'console:subscribe': (sources, opts) => {
+      const wc = senderStore.getStore()
+      if (!wc) throw new Error('Not allowed')
+      if (!Array.isArray(sources)) throw new Error('sources must be a list')
+      const ids = sources.filter((s): s is string => typeof s === 'string' && windowMayRead(s))
+      const id = `window:${wc.id}`
+      if (!ids.length) {
+        consoleWindows.delete(id)
+        devConsole.unsubscribe(id)
+        return {}
+      }
+      consoleWindows.set(id, { wc, workspace: consoleWorkspace(wc) })
+      if (!consolePages.has(wc)) {
+        consolePages.add(wc)
+        wc.once('destroyed', () => {
+          consoleWindows.delete(id)
+          devConsole.unsubscribe(id)
+        })
+      }
+      const deliver = (events: ConsoleEvent[], dropped: number): void => {
+        if (!wc.isDestroyed()) wc.send('hive:event', { type: 'console-events', events, ...(dropped ? { dropped } : {}) })
+      }
+      return Object.fromEntries(devConsole.subscribe(id, ids, { deliver, includeText: opts?.includeText === true }))
+    },
+    'console:snapshot': (source, since) => {
+      const wc = senderStore.getStore()
+      // Only what this window watches, and may read in the workspace it shows now.
+      if (!wc || !windowMayRead(String(source)) || !devConsole.sourcesOf(`window:${wc.id}`).includes(String(source))) return []
+      return devConsole.events(String(source), Number(since) || 0)
+    },
     'personas:list': () => personas.listPersonas(),
     'personas:create': async (name) => {
       const p = await personas.createPersona(name)
@@ -847,6 +932,19 @@ export function registerIpc(getAppInfo: () => ReturnType<HiveRequests['app:info'
       void shell.openPath(file)
     },
     'git:tool': (recheck) => (recheck ? checkGit() : gitTool()),
+    // The Git view (#607): the project folder only, read and changed by the user from the window (never an agent tool).
+    'git:summary': (p) => repoSummary(workspace.assertProject(p)),
+    'git:info': (p) => repoInfo(workspace.assertProject(p)),
+    'git:history': (p) => repoHistory(workspace.assertProject(p)),
+    'git:switch': (p, branch) => switchBranch(p, String(branch ?? '')),
+    'git:createBranch': (p, name, stay) => createBranch(p, String(name ?? ''), !!stay),
+    'git:addRemote': (p, name, url) => addRemote(p, String(name ?? ''), String(url ?? '')),
+    'git:setRemoteUrl': (p, name, url) => setRemoteUrl(p, String(name ?? ''), String(url ?? '')),
+    'git:fetch': (p) => fetchAll(p),
+    'git:pull': (p) => pull(p),
+    'git:push': (p, remote) => push(p, remote ? String(remote) : undefined),
+    'git:createTag': (p, name, message, pushTo) => createTag(p, String(name ?? ''), String(message ?? ''), pushTo ? String(pushTo) : undefined),
+    'git:setIdentity': (p, name, email) => setIdentity(p, String(name ?? ''), String(email ?? '')),
 
     'provider:info': () => providerService.all(),
     'provider:refresh': async (id) => {
@@ -894,16 +992,17 @@ export function registerIpc(getAppInfo: () => ReturnType<HiveRequests['app:info'
   }
   for (const [channel, fn] of Object.entries(impl)) {
     ipcMain.handle(channel, async (e, ...args: unknown[]) => {
-      // Only Hive's own pages may call: not another window, and not a frame inside one (e.g. an HTML preview).
-      const w = windowOf(e.sender)
+      // Only Hive's own pages may call: not another window, and not a frame inside one (e.g. an HTML preview). A developer
+      // console's page calls only the console's channels, in the workspace of the window it belongs to (#637).
+      const w = windowOf(e.sender) ?? (CONSOLE_WINDOW_CHANNELS.has(channel) ? consoleOwner(e.sender) : null)
       if (!w || e.senderFrame?.parent) throw new Error('Not allowed')
       slow = testCalls('HIVE_TEST_SLOW_IPC', slow)
       failing = testCalls('HIVE_TEST_FAIL_IPC', failing)
       const delay = take(slow, channel)
       if (delay?.ms) await new Promise((r) => setTimeout(r, delay.ms))
       if (take(failing, channel)) throw new Error(`${channel} failed (HIVE_TEST_FAIL_IPC)`)
-      // Everything the call does is for that window's workspace.
-      return inWorkspace(w.ws, () => (fn as (...a: unknown[]) => unknown)(...args))
+      // Everything the call does is for that window's workspace (and from that window: the console's subscriptions).
+      return senderStore.run(e.sender, () => inWorkspace(w.ws, () => (fn as (...a: unknown[]) => unknown)(...args)))
     })
   }
 }

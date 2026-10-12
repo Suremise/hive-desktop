@@ -70,7 +70,7 @@ const MENUS: MenuDef[] = [
   { label: 'Session', items: ['session.new', 'session.resume', 'session.stop', '-', 'session.compact', 'session.archive', '-', 'session.startNewAll', 'session.archiveAll', 'session.removeAll', '-', 'project.tab.sessions'] },
   {
     label: 'Help',
-    items: ['help.docs', 'help.api', 'help.shortcuts', 'help.tips', 'help.releaseNotes', '-', 'help.agentSetup', 'help.checkProviders', '-', 'view.devTools', 'view.reload', 'help.logs', 'help.diagnostics', '-', 'help.checkUpdates', 'help.about']
+    items: ['help.docs', 'help.api', 'help.shortcuts', 'help.tips', 'help.releaseNotes', '-', 'help.agentSetup', 'help.checkProviders', '-', 'view.devTools', 'help.devConsole', 'view.reload', 'help.logs', 'help.diagnostics', '-', 'help.checkUpdates', 'help.about']
   }
 ]
 
@@ -249,7 +249,7 @@ export function TitleBar() {
                 )
               }
               const c = commands.find((x) => x.id === item)
-              if (!c) return null
+              if (!c || c.hidden?.()) return null
               const enabled = !c.when || c.when()
               const kb = commandKeybinding(item)
               return (

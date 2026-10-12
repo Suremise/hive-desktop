@@ -17,6 +17,7 @@ import { DialogList } from './Overlays'
 import { reportArchived, unarchiveBatch } from '../boardBatches'
 import { useNow } from '../usage'
 import { ProviderIcon } from './ProviderIcon'
+import { CardCostLine } from './CardCost'
 
 const NO_TASKS: TaskCard[] = []
 const NO_FOLD: BoardFold = {}
@@ -1608,6 +1609,7 @@ export function TaskDialog() {
               ))}
             </div>
           )}
+          <CardCostLine card={card} />
           <div className="faint task-created">
             Added by {card.createdBy || 'unknown'} {timeAgo(card.createdAt)} · changed {timeAgo(card.updatedAt)}
           </div>
