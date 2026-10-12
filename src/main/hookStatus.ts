@@ -150,11 +150,12 @@ export function compactionOver(s: Pick<HookStatusInput, 'status' | 'statusMessag
 
 /**
  * The user says an agent whose state is unknown is idle (Mark idle, #648): Hive heard nothing of its turn for a while and
- * found no sign of its end. Its turn is over: idle (or on its background tasks), its claims released. Not told as
+ * found no sign of its end. Its turn is over: idle (or on its background tasks), its claims released, and whatever Hive
+ * thought ran with it is over too (a compaction, a person asked, its open tool calls: the ledger's). Not told as
  * finished: the user is looking at it.
  */
 export function markedIdle(s: HookStatusInput): HookStep {
-  return { next: idleAfter(s, 'ready'), message: null, review: null, ...RESOLVED, actions: ['releaseLocks'] }
+  return { next: idleAfter(s, 'ready'), message: null, review: null, ...RESOLVED, actions: ['releaseLocks', ...(s.compacting ? (['compactEnded'] as const) : [])] }
 }
 
 export function hookStep(ev: HookEvent, s: HookStatusInput): HookStep {

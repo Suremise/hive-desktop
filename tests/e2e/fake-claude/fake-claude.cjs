@@ -494,8 +494,8 @@ async function endTurn(answer, inputTokens = 20, lostStop = false, { late = null
   if (carryOn) {
     for (const end = Date.now() + 120_000; !take('fake-continue') && Date.now() < end; ) await sleep(100)
     const call = { tool_name: 'Bash', tool_input: { command: 'echo again' }, tool_use_id: `toolu_${randomUUID().slice(0, 8)}` }
-    // Its spinner shows it working again, as Claude Code's does (#648: whether Hive draws it before the hook comes or after,
-    // the turn goes on: confirmed by the screen, or tentatively until it shows).
+    // Its spinner shows it working again, as Claude Code's does (#648: the turn goes on from its ids alone, a tool call it
+    // never started, whether Hive draws the spinner before the hook comes or after).
     out(BUSY)
     busyDrawn = writes
     await hook('PreToolUse', call)

@@ -78,6 +78,10 @@ const lines = (n, tag) => Array.from({ length: n }, (_, i) => `// ${tag} line ${
   await lib.sleep(200)
   await inv('pty:write', key, '\r')
   check('the paths are printed', !!(await until(() => textAt(key, 'src/nope.ts'), 10000)))
+  // Its turn ends before anything is pointed at: the fake Claude Code's screen changes as it ends (its working lines go),
+  // which can move the lines under the mouse.
+  const turnEnds = (k, id, prompt) => until(async () => String(await inv('pty:buffer', k)).includes(`Done: ${prompt}`) && (await live(alpha, id))?.status === 'finished', 15000)
+  check('its turn ends', !!(await turnEnds(key, one.id, 'look at src/app.ts:25:4')))
   const linkTitle = () => page.locator('.terminal-host[title="Open in Files · Ctrl+click"]').count()
 
   // --- A missing file isn't linked; an existing one is.
@@ -117,6 +121,7 @@ const lines = (n, tag) => Array.from({ length: n }, (_, i) => `// ${tag} line ${
   await lib.sleep(200)
   await inv('pty:write', key2, '\r')
   check("the worktree agent's path is printed", !!(await until(() => textAt(key2, 'src/app.ts:7'), 10000)))
+  check('its turn ends too', !!(await turnEnds(key2, two.id, 'see src/app.ts:7')))
   const wt = await textAt(key2, 'src/app.ts:7')
   await page.mouse.move(wt.x + 4, wt.y)
   await lib.sleep(500)

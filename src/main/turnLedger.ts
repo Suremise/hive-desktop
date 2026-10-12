@@ -7,24 +7,26 @@ import type { HookEvent, HookIds } from './providers/types'
  * Pure, so each rule is unit-tested; SessionManager keeps one per launch and puts each hook through `admit` before the
  * status rules (hookStatus).
  *
- * The turn ids the launch has seen are remembered (`seen`, up to MAX_SEEN), so news of an earlier turn is told apart
- * from a new turn. Past that bound an id not remembered may be a forgotten one (`forgot`): it is then never taken as a
- * new turn on its own word.
- * - Every hook that names a turn is that turn's news: news naming an earlier turn (a prompt, a question, a tool, a Stop,
- *   an interrupt, the CLI idle, a refused sign-in) is stale, and never makes that turn active over a newer one. Hooks
- *   that name no turn (launch-wide: SessionStart, SessionEnd, compaction; or a CLI whose hooks name none) are the
- *   latest turn's.
- * - A prompt begins a turn, except one in the turn that runs (the same turn id): a prompt the CLI takes mid-turn. One Hive
- *   put there itself (`expectInjected`, a message delivered into the running turn) isn't a new prompt at all.
- * - A tool starting under a turn id never seen starts that turn (a turn the CLI began by itself): the agent works again.
- *   One under the latest turn after its Stop carries that turn on: confirmed when the CLI's screen shows it working
- *   (`screen`, version-tested); tentative otherwise (the hook may have come before the CLI redrew, or be a delayed one):
- *   the agent counts as working, never idle, until its screen shows it at work (confirmed) or the short silence of a
- *   tentative turn makes Hive look again (SessionManager: its screen idle ends it, unreadable makes it unknown).
- * - A tool ending in a turn that is over, or one never seen, is late news: stale. Without turn ids (Copilot), a tool end
- *   after the turn's end with no tool start since is too: a call can't end unstarted.
- * - A Stop ends its turn, unless Hive's own reply carried it on (`hiveContinued`: continuations fire no prompt, so only
- *   the Stop Hive answered with nothing ends it).
+ * The rules (the Assistant's, for #648):
+ * 1. **Only a start opens or reopens a turn.** A prompt opens one. After its Stop, a turn reopens only on a start of it:
+ *    a tool start with a call id not seen in it before (or none: a CLI whose hooks name no calls), or Hive's own
+ *    continuation of a Stop (`hiveContinued`). End news (a tool end, an interrupt, the CLI idle, a refused sign-in, a
+ *    Stop) never reopens one. Any hook naming a turn that is neither the open nor the latest one is stale, with no effect
+ *    on status, and **an id Hive doesn't remember is stale, never new**: the bound on the ids kept (`seen`) can't make an
+ *    old one a new turn. A prompt alone opens a turn under an id never seen (the CLI awaits its hook before the turn, so
+ *    a prompt hook is never late). Hooks naming no turn are launch-wide (SessionStart, SessionEnd, compaction) or from a
+ *    CLI whose hooks name none (Copilot), and are the latest turn's.
+ * 2. **No screen timing decides a continuation**: rule 1 decides it from the ids alone, so a hook reaching Hive before the
+ *    CLI redraws changes nothing.
+ *    One exception: a CLI that starts a turn by itself when its background tasks end (Claude Code: no prompt hook) does
+ *    so only while Hive knows a task of it runs or has just ended (`wake`, from its transcript): the next id Hive hasn't
+ *    seen, with no turn running, is that turn.
+ * 3. **Times are when a hook reached Hive** (`now`, taken before it waits its turn in the launch's queue), not when it
+ *    was handled: the CLI's records are compared with them.
+ * - A prompt in the running turn (its id) is one the CLI takes mid-turn; one Hive put there itself (`expectInjected`, a
+ *   message delivered into the running turn) isn't a new prompt at all.
+ * - A Stop ends its turn, unless Hive's own reply carried it on (continuations fire no prompt, so only the Stop Hive
+ *   answered with nothing ends it).
  *
  * A timer never ends a turn: silence (`silentFor`) only makes Hive look for the CLI's own record of the turn's end
  * (`reconciles` by id, `unheardStop` by its Stops' times) or read its screen, and failing those, say the state is unknown.
@@ -41,23 +43,21 @@ export interface Turn {
   /** Its tool calls started and not ended: their ids, or a count of those without one. */
   calls: Set<string>
   unnamedCalls: number
+  /** The ids of every tool call it started: a start of one again after its Stop is no start of the turn. */
+  callsSeen: Set<string>
   /** Stops of it Hive received (each one Hive answered with a continuation, and the one that ended it). */
   stops: number
   /** Stops of it that Hive answered with a continuation. */
   continued: number
-  /** It went on after its Stop on a tool start alone, which its screen hasn't shown yet (see admit). */
-  tentative?: true
   /** How it ended (for the log): 'stop', 'interrupt', 'idle', 'transcript', 'screen', 'user'… */
   endedBy?: string
 }
 
 export interface TurnLedger {
   active: Turn | null
-  /** Turn ids the launch has seen, in order (the latest `maxSeen`). */
+  /** Turn ids the launch has seen, in order (the latest `maxSeen`): only to say why a hook is stale. */
   seen: Set<string>
   maxSeen: number
-  /** Some ids have been forgotten (more turns than maxSeen): an id not in `seen` may be an old one. */
-  forgot: boolean
   /** Hooks received for the launch, in order (the receive sequence the log gives each). */
   seq: number
   /** When Hive last heard from the CLI (a hook, the transcript growing, its screen showing it at work), ms. */
@@ -66,7 +66,7 @@ export interface TurnLedger {
   injected: string[]
 }
 
-/** What the CLI's screen shows of its turn, read when a hook needs it (ProviderAdapter.turnScreen): null when not sure. */
+/** What the CLI's screen shows of its turn (ProviderAdapter.turnScreen), read after a silence: null when not sure. */
 export type ScreenReading = 'idle' | 'working' | null
 
 export type Admitted =
@@ -77,13 +77,13 @@ export type Admitted =
   /** A Stop Hive answered with a continuation: the turn goes on. */
   | { verdict: 'continued' }
 
-/** At most this many turn ids are remembered: far more than a launch has turns. */
+/** At most this many turn ids are remembered (for the log's reasons; one not remembered is stale either way). */
 const MAX_SEEN = 10_000
 /** At most this many injected prompts are waited for. */
 const MAX_INJECTED = 8
 
 export function newLedger(now = Date.now(), opts: { maxSeen?: number } = {}): TurnLedger {
-  return { active: null, seen: new Set(), maxSeen: opts.maxSeen ?? MAX_SEEN, forgot: false, seq: 0, heard: now, injected: [] }
+  return { active: null, seen: new Set(), maxSeen: opts.maxSeen ?? MAX_SEEN, seq: 0, heard: now, injected: [] }
 }
 
 const flat = (text: string): string => text.replace(/\s+/g, ' ').trim()
@@ -100,7 +100,6 @@ function end(ledger: TurnLedger, by: string): void {
   if (!a || a.state === 'over') return
   a.state = 'over'
   a.endedBy = by
-  a.tentative = undefined
   a.calls.clear()
   a.unnamedCalls = 0
 }
@@ -109,25 +108,23 @@ function end(ledger: TurnLedger, by: string): void {
 function begin(ledger: TurnLedger, id: string | null, now: number): Turn {
   if (id) {
     ledger.seen.add(id)
-    if (ledger.seen.size > ledger.maxSeen) {
-      ledger.seen.delete(ledger.seen.values().next().value!)
-      ledger.forgot = true
-    }
+    if (ledger.seen.size > ledger.maxSeen) ledger.seen.delete(ledger.seen.values().next().value!)
   }
-  ledger.active = { id, state: 'running', startedAt: now, calls: new Set(), unnamedCalls: 0, stops: 0, continued: 0 }
+  ledger.active = { id, state: 'running', startedAt: now, calls: new Set(), unnamedCalls: 0, callsSeen: new Set(), stops: 0, continued: 0 }
   return ledger.active
 }
 
-/** The latest turn, over, goes on. */
-function reopen(t: Turn, unsure: boolean): void {
+/** The latest turn, over, goes on (a start of it: rule 1). */
+function reopen(t: Turn): void {
   t.state = 'running'
   t.endedBy = undefined
-  if (unsure) t.tentative = true
 }
 
 function addCall(t: Turn, call: string | null): void {
-  if (call) t.calls.add(call)
-  else t.unnamedCalls++
+  if (call) {
+    t.calls.add(call)
+    t.callsSeen.add(call)
+  } else t.unnamedCalls++
 }
 
 function endCall(t: Turn, call: string | null): void {
@@ -135,59 +132,62 @@ function endCall(t: Turn, call: string | null): void {
   if (t.unnamedCalls > 0) t.unnamedCalls--
 }
 
+/** A hook's kind, for the log's reasons. */
+function what(ev: HookEvent): string {
+  return ev.kind === 'toolStart' ? 'a tool start' : ev.kind === 'toolEnd' ? 'a tool end' : ev.kind === 'prompt' ? 'a prompt' : ev.kind === 'ask' ? 'a question' : ev.kind === 'stop' ? 'a Stop' : `${ev.kind} news`
+}
+
 /**
  * Takes a hook in: what the status rules should make of it. `hiveContinued`: Hive answered this Stop with a
- * continuation. `screen`: reads the CLI's screen, for a tool start after the turn's Stop. `now`: when the hook reached
- * Hive (before it waited its turn in the launch's queue). Counts it (seq) and that the CLI was heard.
+ * continuation. `wake`: the CLI is due to start a turn by itself (a background task of it runs or just ended). `now`:
+ * when the hook reached Hive (before it waited its turn in the launch's queue). Counts it (seq) and that the CLI was heard.
  */
-export function admit(ledger: TurnLedger, ev: HookEvent, ids: HookIds, opts: { hiveContinued?: boolean; screen?: () => ScreenReading; now?: number } = {}): Admitted {
+export function admit(ledger: TurnLedger, ev: HookEvent, ids: HookIds, opts: { hiveContinued?: boolean; wake?: boolean; now?: number } = {}): Admitted {
   const now = opts.now ?? Date.now()
   ledger.seq++
   ledger.heard = Math.max(ledger.heard, now)
   const a = ledger.active
   const running = a?.state === 'running'
   const turn = ids.turn
-  // This hook names the latest turn, an earlier one, or one never seen (which, once ids were forgotten, may be old).
-  const latest = !!turn && a?.id === turn
-  const earlier = !!turn && !latest && ledger.seen.has(turn)
-  const unseen = !!turn && !latest && !earlier
-  const isNew = unseen && !ledger.forgot
   // Launch-wide hooks name no turn; the CLI's session ending is the launch's.
   if (ev.kind === 'start' || ev.kind === 'end' || ev.kind === 'compactStart' || ev.kind === 'compactEnd' || ev.kind === 'ignore') {
     if (ev.kind === 'end') end(ledger, 'end')
     return { verdict: 'apply', event: ev }
   }
-  if (earlier) return { verdict: 'stale', why: `${ev.kind === 'toolStart' ? 'a tool start' : ev.kind === 'toolEnd' ? 'a tool end' : ev.kind === 'prompt' ? 'a prompt' : ev.kind === 'ask' ? 'a question' : ev.kind === 'stop' ? 'a Stop' : `${ev.kind} news`} of an earlier turn` }
+  // A hook naming a turn that is neither the open nor the latest one: an earlier turn's, or one not remembered. Stale
+  // (rule 1), but for a prompt under an id never seen, which opens a turn, and the turn a background task's wake began.
+  if (turn && a?.id !== turn) {
+    const earlier = ledger.seen.has(turn)
+    if (ev.kind === 'prompt' && !earlier) {
+      begin(ledger, turn, now)
+      return { verdict: 'apply', event: ev }
+    }
+    if (earlier || !opts.wake || running || ids.sub) return { verdict: 'stale', why: `${what(ev)} ${earlier ? 'of an earlier turn' : 'of a turn Hive saw no prompt for'}` }
+    begin(ledger, turn, now)
+    const r = admit(ledger, ev, ids, { ...opts, now })
+    ledger.seq--
+    if (r.verdict !== 'apply') return r
+    return { verdict: 'apply', event: r.event.kind === 'toolStart' ? { ...r.event, resumes: true } : r.event, note: "a turn the CLI began by itself: its background task's wake" }
+  }
+  // From here the hook names the latest turn, or none (a CLI whose hooks name none).
   switch (ev.kind) {
     case 'prompt': {
-      if (latest && running) {
+      if (turn && running) {
         const i = ev.text ? ledger.injected.indexOf(flat(ev.text)) : -1
         if (i < 0) return { verdict: 'apply', event: ev, note: 'a prompt in the running turn' }
         ledger.injected.splice(i, 1)
         return { verdict: 'apply', event: { ...ev, injected: true }, note: "Hive's own message in the running turn" }
       }
-      if (latest) return { verdict: 'stale', why: 'a prompt of a turn that is over' }
-      // A prompt hook is awaited by the CLI before the turn it begins: never a late one, so new even past `forgot`.
-      begin(ledger, turn, now)
+      if (turn) return { verdict: 'stale', why: 'a prompt of a turn that is over' }
+      begin(ledger, null, now)
       return { verdict: 'apply', event: ev }
     }
     case 'toolStart': {
       if (ids.sub) {
         // A sub-agent works inside its parent's turn: news of that turn while it runs; after it, a background agent's.
-        if (!running || unseen) return { verdict: 'stale', why: "a sub-agent's tool outside the running turn" }
+        if (!running) return { verdict: 'stale', why: "a sub-agent's tool outside the running turn" }
         addCall(a, ids.call)
         return { verdict: 'apply', event: ev }
-      }
-      if (isNew) {
-        // A turn id never seen: a turn the CLI began by itself.
-        addCall(begin(ledger, turn, now), ids.call)
-        return { verdict: 'apply', event: { ...ev, resumes: true }, note: 'a turn Hive saw no prompt for' }
-      }
-      if (unseen) {
-        // Not remembered, past the ids kept: maybe a forgotten turn's late start. A new turn only if its screen shows work.
-        if (opts.screen?.() !== 'working') return { verdict: 'stale', why: 'a tool start of a turn not remembered, with nothing showing a turn runs' }
-        addCall(begin(ledger, turn, now), ids.call)
-        return { verdict: 'apply', event: { ...ev, resumes: true }, note: 'a turn Hive saw no prompt for: its screen shows it working' }
       }
       if (running) {
         addCall(a, ids.call)
@@ -195,40 +195,32 @@ export function admit(ledger: TurnLedger, ev: HookEvent, ids: HookIds, opts: { h
       }
       // No ids and no turn known yet: nothing to carry on (a tool start alone changes nothing, as before the ledger).
       if (!a) return { verdict: 'apply', event: ev }
-      // The latest turn, over, goes on: confirmed by its screen, or tentatively (never idle) until something shows.
-      const shown = opts.screen?.() === 'working'
-      reopen(a, !shown)
+      // The latest turn, over: a call it never started is a start of it, and it goes on; one it started is no start.
+      if (ids.call && a.callsSeen.has(ids.call)) return { verdict: 'stale', why: 'a tool start of a call its turn started before it ended' }
+      reopen(a)
       addCall(a, ids.call)
-      return { verdict: 'apply', event: { ...ev, resumes: true }, note: shown ? 'its turn goes on after it ended: its screen shows it working' : 'its turn may go on after it ended: tentative until its screen shows it' }
+      return { verdict: 'apply', event: { ...ev, resumes: true }, note: 'a new tool call after its Stop: its turn goes on' }
     }
     case 'toolEnd': {
-      if (turn) {
-        if (latest && running) {
-          endCall(a, ids.call)
-          return { verdict: 'apply', event: ev }
-        }
-        return { verdict: 'stale', why: latest ? 'a tool end of a turn that is over' : 'a tool end of a turn Hive never saw begin' }
-      }
       if (running) {
         endCall(a, ids.call)
         return { verdict: 'apply', event: ev }
       }
-      if (a) return { verdict: 'stale', why: 'a tool end after its turn ended, with no tool start since' }
+      if (a) return { verdict: 'stale', why: turn ? 'a tool end of a turn that is over' : 'a tool end after its turn ended, with no tool start since' }
       return { verdict: 'apply', event: ev }
     }
     case 'ask':
-      if (unseen || (latest && !running)) return { verdict: 'stale', why: 'a question of a turn that is over or not known' }
+      if (turn && !running) return { verdict: 'stale', why: 'a question of a turn that is over' }
       return { verdict: 'apply', event: ev }
     case 'stop': {
       if (ids.sub) return { verdict: 'stale', why: "a sub-agent's Stop" }
-      if (unseen && (running || !isNew)) return { verdict: 'stale', why: running ? "another turn's Stop while one runs" : 'a Stop of a turn not remembered' }
-      // A turn never seen that ended at once (begun by the CLI, no tool); or one with no ids and none known.
-      if (unseen || !a) begin(ledger, turn, now)
+      // No ids and no turn known: a turn that ended at once.
+      if (!a) begin(ledger, null, now)
       const t = ledger.active!
       t.stops++
       if (opts.hiveContinued) {
-        if (t.state === 'over') reopen(t, false)
-        t.tentative = undefined
+        // Hive's own continuation is a start of it (rule 1).
+        if (t.state === 'over') reopen(t)
         t.continued++
         return { verdict: 'continued' }
       }
@@ -238,8 +230,7 @@ export function admit(ledger: TurnLedger, ev: HookEvent, ids: HookIds, opts: { h
     case 'interrupt':
     case 'signIn':
     case 'idle':
-      // Of the latest turn, or naming none (launch-wide); a turn never seen is no news of the running one.
-      if (unseen) return { verdict: 'stale', why: `${ev.kind} news of a turn Hive never saw` }
+      // Of the latest turn, or naming none (launch-wide). An end: it never reopens one.
       end(ledger, ev.kind)
       return { verdict: 'apply', event: ev }
     default:
@@ -252,26 +243,16 @@ export function heard(ledger: TurnLedger, now = Date.now()): void {
   ledger.heard = Math.max(ledger.heard, now)
 }
 
-/** The running turn goes on for sure: its screen showed it at work. */
-export function confirm(ledger: TurnLedger): void {
-  if (ledger.active?.state === 'running') ledger.active.tentative = undefined
-}
-
-/** Whether the running turn went on after its Stop on a tool start alone, unconfirmed yet. */
-export function tentative(ledger: TurnLedger): boolean {
-  return ledger.active?.state === 'running' && !!ledger.active.tentative
-}
-
 /** How long the running turn has been silent (ms: nothing heard), whether or not a tool call is open; null when none runs. */
 export function silentFor(ledger: TurnLedger, now = Date.now()): number | null {
   const a = ledger.active
   return a && a.state === 'running' ? now - ledger.heard : null
 }
 
-/** Tool calls of the running turn started and not ended (one may be running long: a test run); none for a tentative one. */
+/** Tool calls of the running turn started and not ended (one may be running long: a test run). */
 export function openCalls(ledger: TurnLedger): number {
   const a = ledger.active
-  return a && a.state === 'running' && !a.tentative ? a.calls.size + a.unnamedCalls : 0
+  return a && a.state === 'running' ? a.calls.size + a.unnamedCalls : 0
 }
 
 /** Whether the CLI's own record that turn `turn` is over (its id as its hooks name turns) is about the turn Hive has running. */
@@ -302,5 +283,5 @@ export function describe(ledger: TurnLedger): string {
   const a = ledger.active
   if (!a) return 'no turn'
   const calls = a.calls.size + a.unnamedCalls
-  return `turn ${a.id ?? '?'} ${a.state === 'running' ? (a.tentative ? 'running (tentative)' : 'running') : `over (${a.endedBy ?? '?'})`}${calls ? `, ${calls} call${calls === 1 ? '' : 's'} open` : ''}`
+  return `turn ${a.id ?? '?'} ${a.state === 'running' ? 'running' : `over (${a.endedBy ?? '?'})`}${calls ? `, ${calls} call${calls === 1 ? '' : 's'} open` : ''}`
 }

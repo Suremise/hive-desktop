@@ -15,7 +15,7 @@ const { createWorkspaceService, disposeWorkspaceService, inWorkspace } = await i
 const { sessions } = await import('../src/main/sessions')
 const { providerService } = await import('../src/main/providerService')
 const { codex, codexTurnScreen } = await import('../src/main/providers/codex/adapter')
-const { newLedger } = await import('../src/main/turnLedger')
+const { newLedger, openCalls } = await import('../src/main/turnLedger')
 const { agentRuntime, runtimeLabel } = await import('../src/shared/runtime')
 
 /** The longest a wait here waits for what it waits on: a bound for a hung run, never how long it should take. */
@@ -243,30 +243,28 @@ describe('the turn ledger in a session', () => {
     expect(composer()).toBe('free')
   })
 
-  it("a tool start that reaches Hive before the CLI has redrawn: the turn goes on tentatively, confirmed once its screen shows work", async () => {
-    process.env.HIVE_TEST_SILENT_MS = '1000'
+  it("a continuation's tool start that reaches Hive before the CLI has redrawn: the turn goes on from its ids alone", async () => {
     const { st, l } = agent('redraw')
-    let frame = '• Done.\n\n› Ask Codex to do anything'
+    // The screen still shows the idle frame throughout: it decides nothing here.
     l.turnScreen = codexTurnScreen
-    l.screen = { text: () => frame }
+    l.screen = { text: () => '• Done.\n\n› Ask Codex to do anything' }
     await hook(st, { hook_event_name: 'UserPromptSubmit', turn_id: 't1', prompt: 'go' })
+    await hook(st, pre('t1', 'exec-5'))
+    await hook(st, post('t1', 'exec-5'))
     await hook(st, { hook_event_name: 'Stop', turn_id: 't1', stop_hook_active: false })
     expect(st.status).toBe('finished')
-    // Another Stop hook carries the turn on; its tool's PreToolUse comes while the screen still shows the idle frame.
+    // Another Stop hook carries the turn on: its next tool call, one the turn never started, is a start of it.
     await hook(st, pre('t1', 'exec-6'))
     expect([st.status, st.turn?.state]).toEqual(['working', 'running'])
-    // The CLI redraws: working. The next look confirms it, and its own Stop ends it.
-    frame = '• Working (3s • esc to interrupt)\n\n› Ask Codex to do anything'
-    l.ledger.heard = Date.now() - 5000
-    s.checkSilence(p, st.agentId)
-    await settled(st)
-    expect([st.status, st.turn?.state, (l.ledger as unknown as { active: { tentative?: boolean } }).active.tentative]).toEqual(['working', 'running', undefined])
+    // A repeat of a call it started before its Stop is no start of it; the continuation's own Stop ends it.
+    await hook(st, pre('t1', 'exec-5'))
     await hook(st, post('t1', 'exec-6'))
+    expect([st.status, st.turn?.state]).toEqual(['working', 'running'])
     await hook(st, { hook_event_name: 'Stop', turn_id: 't1', stop_hook_active: true })
     expect([st.status, st.turn?.state]).toEqual(['finished', 'over'])
   })
 
-  it("a late tool start after the turn's Stop (nothing goes on): working only until the short look finds its screen idle", async () => {
+  it("a late tool start after the turn's Stop (nothing goes on): working only until a look after the silence finds its screen idle", async () => {
     process.env.HIVE_TEST_SILENT_MS = '1000'
     const { st, l } = agent('latestart')
     l.turnScreen = codexTurnScreen
@@ -315,19 +313,51 @@ describe('the turn ledger in a session', () => {
     }
   })
 
-  it('Mark idle after a mid-turn compaction whose end was lost too: no compaction is left behind', async () => {
+  it('Mark idle after a tool call and a mid-turn compaction whose ends were lost too: no open call or compaction is left behind', async () => {
     process.env.HIVE_TEST_SILENT_MS = '1000'
     const { st, l } = agent('markcompact')
     await hook(st, { hook_event_name: 'UserPromptSubmit', turn_id: 't1', prompt: 'go' })
+    await hook(st, pre('t1', 'exec-1'))
     await hook(st, { hook_event_name: 'PreCompact', turn_id: 't1', trigger: 'auto' })
-    expect(agentRuntime(st as never).maintenance).toBe('compacting')
-    // PostCompact and the Stop never come; the screen isn't read: unknown, then the user marks it idle.
-    l.ledger.heard = Date.now() - 5000
+    expect([agentRuntime(st as never).maintenance, openCalls(l.ledger as never)]).toEqual(['compacting', 1])
+    // PostToolUse, PostCompact and the Stop never come; the screen isn't read: unknown (past an open call's longer
+    // silence), then the user marks it idle.
+    l.ledger.heard = Date.now() - 13_000
     s.checkSilence(p, st.agentId)
     await settled(st)
     expect(st.turn?.state).toBe('unknown')
     await run(() => sessions.markIdle(p, st.agentId))
-    expect([st.status, agentRuntime(st as never).maintenance, agentRuntime(st as never).attention, runtimeLabel(st as never)]).toEqual(['ready', null, null, null])
+    expect([st.status, agentRuntime(st as never).maintenance, agentRuntime(st as never).attention, runtimeLabel(st as never), openCalls(l.ledger as never)]).toEqual(['ready', null, null, null, 0])
+  })
+
+  it("a Claude Code turn its background task's end began (no prompt hook) is taken, whether its hooks or its transcript come first", async () => {
+    const { claudeCode } = await import('../src/main/providers/claude/adapter')
+    const claude = (st: State, body: Record<string, unknown>) => hook(st, { transcript_path: undefined, ...body })
+    for (const first of ['hooks', 'transcript'] as const) {
+      const { st, l } = agent(`wake-${first}`)
+      const launch = l as unknown as { adapter: unknown; tasks?: Map<string, { at: number; expiresAt?: number }>; woke?: boolean }
+      launch.adapter = claudeCode
+      await claude(st, { hook_event_name: 'UserPromptSubmit', prompt_id: 'p1', prompt: 'run the tests in the background' })
+      // Its turn ends with a task running: background.
+      launch.tasks = new Map([['b1', { at: Date.now() }]])
+      await claude(st, { hook_event_name: 'Stop', prompt_id: 'p1', stop_hook_active: false })
+      expect(st.status, first).toBe('background')
+      if (first === 'transcript') {
+        // Its transcript shows the task ended (the CLI wakes) before any hook of the new turn.
+        launch.tasks.clear()
+        launch.woke = true
+      }
+      await claude(st, { hook_event_name: 'PreToolUse', prompt_id: 'p2', tool_name: 'Read', tool_input: { file_path: 'a.txt' }, tool_use_id: 'toolu_1' })
+      expect([st.status, st.turn], first).toEqual(['working', { state: 'running', id: 'p2' }])
+      expect(launch.woke, first).toBe(false)
+      launch.tasks.clear()
+      await claude(st, { hook_event_name: 'PostToolUse', prompt_id: 'p2', tool_name: 'Read', tool_input: { file_path: 'a.txt' }, tool_use_id: 'toolu_1' })
+      await claude(st, { hook_event_name: 'Stop', prompt_id: 'p2', stop_hook_active: false })
+      expect([st.status, st.turn], first).toEqual(['finished', { state: 'over', id: 'p2' }])
+      // With nothing due to wake it, a hook of a turn Hive saw no prompt for is stale.
+      await claude(st, { hook_event_name: 'PreToolUse', prompt_id: 'p3', tool_name: 'Read', tool_input: { file_path: 'a.txt' }, tool_use_id: 'toolu_2' })
+      expect([st.status, st.turn], first).toEqual(['finished', { state: 'over', id: 'p2' }])
+    }
   })
 
   it('never ends a turn on silence alone: a short silence is left as it is', async () => {
