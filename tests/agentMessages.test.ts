@@ -277,7 +277,8 @@ describe('messages left for agents (#530, #647)', async () => {
       why = 'the user turned Settings → Assistant → Control down'
       await vi.waitFor(() => expect(cli.clears).toBe(1), { timeout: HUNG_MS })
       expect(cli.enters).toBe(0)
-      expect(await states()).toEqual(['m1 refused: the user turned Settings → Assistant → Control down'])
+      // Its refusal is saved after the line is cleared.
+      await vi.waitFor(async () => expect(await states()).toEqual(['m1 refused: the user turned Settings → Assistant → Control down']), { timeout: HUNG_MS })
       // Riding a wake: the same, and the wake is typed again alone, and taken.
       why = null
       st.status = 'working'
@@ -289,7 +290,7 @@ describe('messages left for agents (#530, #647)', async () => {
       await vi.waitFor(() => expect(cli.clears).toBe(2), { timeout: HUNG_MS })
       await vi.waitFor(() => expect(st.typed.at(-1)).toBe('[Hive] #5 is in Review.'), { timeout: 5000 })
       expect(st.typed.filter((t) => t.includes('Riding, revoked'))).toHaveLength(1)
-      expect((await states()).at(-1)).toBe("m2 refused: the Assistant's session that left it ended")
+      await vi.waitFor(async () => expect((await states()).at(-1)).toBe("m2 refused: the Assistant's session that left it ended"), { timeout: HUNG_MS })
       // The wake typed again is taken by the Enter again (nothing rides it now): one Enter, for it.
       await vi.waitFor(() => expect(cli.enters).toBe(1), { timeout: HUNG_MS })
       // Still allowed: the Enter again submits it, as before (offered: received only once fetched).
