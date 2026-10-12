@@ -16,6 +16,7 @@ import { copilotEnv, copilotHome } from './home'
 import { CopilotConversationParser, CopilotUsageParser, copilotDetailsMemo, copilotEventsPath, copilotImageData, eventsDetails, listCopilotSessions, parseEvents, workspaceInfo, type CopilotDetailsMemo } from './events'
 import { readCopilotModels } from './models'
 import { copilotInstallCommand, copilotLatestVersion, copilotLoginCommand, copilotReadiness, copilotUpdateCommand, locateCopilot } from './install'
+import { advanced } from '../../advanced'
 
 const log = createLogger('copilot')
 
@@ -36,7 +37,8 @@ export function copilotHooks(hookUrl: string, token: string): Record<string, unk
   const hooks: Record<string, unknown[]> = {}
   for (const ev of HOOK_EVENTS) {
     // PreToolUse answers with a file-lock decision, so it gets longer; if Hive doesn't answer in time, the call goes ahead.
-    hooks[ev] = [{ type: 'http', url: hookUrl, headers: { Authorization: `Bearer ${token}` }, timeoutSec: ev === 'PreToolUse' ? 10 : 5 }]
+    // Both are advanced settings (#367).
+    hooks[ev] = [{ type: 'http', url: hookUrl, headers: { Authorization: `Bearer ${token}` }, timeoutSec: advanced.number(ev === 'PreToolUse' ? 'copilot.hooks.preToolUseTimeoutSeconds' : 'copilot.hooks.timeoutSeconds') }]
   }
   return { version: 1, hooks }
 }
@@ -105,10 +107,15 @@ export class CopilotAdapter implements ProviderAdapter {
    */
   readonly envToStrip: string[] = []
   readonly compactFailure = null
-  // SessionStart only comes with the first prompt: its footer ("… · / commands · …") means it is up.
-  readonly readyOutput = /· \/ commands ·/
+  // SessionStart only comes with the first prompt: its footer ("… · / commands · …") means it is up. Both patterns are
+  // advanced settings (#367).
+  get readyOutput(): RegExp {
+    return advanced.pattern('copilot.ready.footer')
+  }
   // In a folder it doesn't trust yet: "Confirm folder trust … Do you trust the files in this folder?".
-  readonly startupQuestion = /Do you trust the files in this folder\?/
+  get startupQuestion(): RegExp {
+    return advanced.pattern('copilot.trust.prompt')
+  }
   // Copilot writes a session's token totals (session.shutdown) only as it exits by itself (#465). Ctrl+C cancels what
   // runs (a turn, a dialog), and twice in a row exits ("ctrl+c again to exit"); three cover a turn or dialog first.
   readonly exitKeys = { keys: ['\x03', '\x03', '\x03'], gapMs: 400, graceMs: 2500 }
@@ -325,7 +332,7 @@ export class CopilotAdapter implements ProviderAdapter {
         const err = body.error && typeof body.error === 'object' ? body.error : {}
         const message = typeof err.message === 'string' ? err.message : typeof body.error === 'string' ? body.error : null
         const recoverable = body.recoverable ?? body.is_recoverable
-        if (message && /\b401\b|unauthori[sz]ed|bad credentials|not (logged|signed) in|\/login|token (has )?expired/i.test(message)) out.event = { kind: 'signIn', message }
+        if (message && advanced.pattern('copilot.signIn.hookMessage').test(message)) out.event = { kind: 'signIn', message }
         else if (recoverable === false) out.event = { kind: 'stop', lastMessage: message, failed: true }
         break
       }

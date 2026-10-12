@@ -749,10 +749,11 @@ describe('card decisions', () => {
     })
     const spies = [
       send,
-      vi.spyOn(sessions, 'liveFor').mockImplementation((p, id) => (p === alpha && id === 'a1' ? ({ projectPath: alpha, agentId: 'a1', status } as never) : null)),
+      vi.spyOn(sessions, 'liveFor').mockImplementation((p, id) => (p === alpha && id === 'a1' ? ({ projectPath: alpha, agentId: 'a1', status, runId: 'run-a1' } as never) : null)),
       vi.spyOn(sessions, 'userMayBeTyping').mockImplementation(() => typing),
       vi.spyOn(sessions, 'lineWaiting').mockImplementation(() => waiting),
-      vi.spyOn(sessions, 'promptsTaken').mockImplementation(() => null)
+      // Each line typed is taken (#649: its decisions are told, and noted on the card, once it is received).
+      vi.spyOn(sessions, 'promptsTaken').mockImplementation((p, id) => (p === alpha && id === 'a1' ? { runId: 'run-a1', count: sent.length } : null))
     ]
     try {
       const tell = (): Promise<void> => decisionWakes.tellNow(w, alpha, 'a1')
@@ -787,6 +788,159 @@ describe('card decisions', () => {
     }
   })
 
+  it("two projects' decision lines with the same delivery id (each project's m1) are each told and noted on their own card, never the other's (#649 round 2)", async () => {
+    const writer = await import('../src/main/lineWriter')
+    const deliveries = await import('../src/main/deliveries')
+    const beta = join(wsPath, 'beta')
+    const na = (await run(() => tasks.createTask({ title: 'Alpha asks', project: 'alpha', column: 'doing', agent: 'a1' }, user))).number
+    const nb = (await run(() => tasks.createTask({ title: 'Beta asks', project: 'beta', column: 'doing', agent: 'b1' }, user))).number
+    await laterMs()
+    await run(() => tasks.updateTask(na, { decision: 'Alpha: blue.' }, assistant))
+    await run(() => tasks.updateTask(nb, { decision: 'Beta: green.' }, assistant))
+    const sent: { to: string; text: string }[] = []
+    // Neither CLI takes its line until the test says so.
+    const taken = new Map<string, number>([['a1', 0], ['b1', 0]])
+    const who = (p: string, id: string): boolean => (p === alpha && id === 'a1') || (p === beta && id === 'b1')
+    const spies = [
+      vi.spyOn(sessions, 'liveFor').mockImplementation((p, id) => (id && who(p, id) ? ({ projectPath: p, agentId: id, status: 'finished', runId: `run-${id}` } as never) : null)),
+      vi.spyOn(sessions, 'userMayBeTyping').mockImplementation(() => false),
+      vi.spyOn(sessions, 'lineWaiting').mockImplementation(() => false),
+      vi.spyOn(sessions, 'promptsTaken').mockImplementation((p, id) => (who(p, id) ? { runId: `run-${id}`, count: taken.get(id)! } : null)),
+      vi.spyOn(sessions, 'sendPrompt').mockImplementation(async (_p, id, text, guard) => {
+        guard?.()
+        sent.push({ to: id, text })
+      })
+    ]
+    writer.testHooks.takeMs = 20
+    try {
+      await decisionWakes.tellNow(w, alpha, 'a1')
+      await decisionWakes.tellNow(w, beta, 'b1')
+      expect(sent.map((s) => s.to)).toEqual(['a1', 'b1'])
+      // Each project's own first delivery.
+      expect(sent.every((s) => s.text.includes('(Its id: m1.'))).toBe(true)
+      // Alpha's is taken: told and noted on alpha's card only.
+      taken.set('a1', 1)
+      await deliveries.followAllForTests()
+      await vi.waitFor(async () => expect((await run(() => tasks.getTask(na))).history.some((h) => h.what === 'Told Coder (alpha) of 1 new decision')).toBe(true), { timeout: HUNG_MS })
+      expect((await run(() => tasks.getTask(nb))).history.some((h) => h.what.startsWith('Told '))).toBe(false)
+      expect((await deliveries.deliveriesOf(beta, 'b1')).map((r) => r.state)).toEqual(['offered'])
+      // Beta's then: noted on its own card, as itself.
+      taken.set('b1', 1)
+      await deliveries.followAllForTests()
+      await vi.waitFor(async () => expect((await run(() => tasks.getTask(nb))).history.some((h) => h.what === 'Told B (beta) of 1 new decision')).toBe(true), { timeout: HUNG_MS })
+    } finally {
+      writer.testHooks.takeMs = undefined
+      for (const s of spies) s.mockRestore()
+      await writer.settled()
+    }
+  })
+
+  it("hive_inbox gives out a decision line only while its decisions are still new to that agent: its card given to another meanwhile, it isn't (#649 round 3)", async () => {
+    const deliveries = await import('../src/main/deliveries')
+    const writer = await import('../src/main/lineWriter')
+    const n = (await run(() => tasks.createTask({ title: 'Asked, then given away', project: 'alpha', column: 'doing', agent: 'a1' }, user))).number
+    await laterMs()
+    await run(() => tasks.updateTask(n, { decision: 'Red.' }, assistant))
+    const sent: string[] = []
+    let once = true
+    let status = 'finished'
+    const spies = [
+      vi.spyOn(sessions, 'liveFor').mockImplementation((p, id) => (p === alpha && id === 'a1' ? ({ projectPath: alpha, agentId: 'a1', status, runId: 'run-a1' } as never) : null)),
+      vi.spyOn(sessions, 'userMayBeTyping').mockImplementation(() => false),
+      vi.spyOn(sessions, 'lineWaiting').mockImplementation(() => false),
+      vi.spyOn(sessions, 'promptsTaken').mockImplementation((p, id) => (p === alpha && id === 'a1' ? { runId: 'run-a1', count: sent.length } : null)),
+      vi.spyOn(sessions, 'sendPrompt').mockImplementation(async (_p, _id, text, guard) => {
+        // It gets busy as the line is about to be typed: the line waits.
+        if (once) {
+          once = false
+          status = 'working'
+          throw new Error('The agent got busy.')
+        }
+        guard?.()
+        sent.push(text)
+      })
+    ]
+    writer.testHooks.takeMs = 20
+    try {
+      await decisionWakes.tellNow(w, alpha, 'a1')
+      expect(sent).toEqual([])
+      expect((await deliveries.deliveriesOf(alpha, 'a1')).map((r) => r.state)).toEqual(['queued'])
+      // Given to another agent: nothing new to A1 now, so its inbox doesn't hand the line out.
+      await run(() => tasks.updateTask(n, { agent: 'r1' }, user))
+      expect((await deliveries.readInbox(alpha, 'a1')).items).toEqual([])
+      expect((await deliveries.deliveriesOf(alpha, 'a1')).map((r) => `${r.state}: ${r.detail}`)).toEqual(['cancelled: nothing new to tell'])
+    } finally {
+      writer.testHooks.takeMs = undefined
+      for (const s of spies) s.mockRestore()
+      await writer.settled()
+    }
+  })
+
+  it("a decision line's receipt covers only the decisions of the version received: a newer decision made ready by a fetch or an ack while that receipt is saved stays to be told (#649 round 4)", async () => {
+    const deliveries = await import('../src/main/deliveries')
+    const writer = await import('../src/main/lineWriter')
+    const n = (await run(() => tasks.createTask({ title: 'Receipt and a newer decision', project: 'alpha', column: 'doing', agent: 'a1' }, user))).number
+    await laterMs()
+    await run(() => tasks.updateTask(n, { decision: 'Red.' }, assistant))
+    const sent: string[] = []
+    let taken = 0
+    const spies = [
+      vi.spyOn(sessions, 'liveFor').mockImplementation((p, id) => (p === alpha && id === 'a1' ? ({ projectPath: alpha, agentId: 'a1', status: 'finished', runId: 'run-a1' } as never) : null)),
+      vi.spyOn(sessions, 'userMayBeTyping').mockImplementation(() => false),
+      vi.spyOn(sessions, 'lineWaiting').mockImplementation(() => false),
+      vi.spyOn(sessions, 'promptsTaken').mockImplementation((p, id) => (p === alpha && id === 'a1' ? { runId: 'run-a1', count: taken } : null)),
+      vi.spyOn(sessions, 'sendPrompt').mockImplementation(async (_p, _id, text, guard) => {
+        guard?.()
+        sent.push(text)
+      })
+    ]
+    writer.testHooks.takeMs = 5000
+    let release = (): void => undefined
+    const notes = async (): Promise<string[]> => (await run(() => tasks.getTask(n))).history.filter((h) => h.by === 'Hive' && h.what.startsWith('Told ')).map((h) => h.what)
+    try {
+      // Typed: one decision.
+      await decisionWakes.tellNow(w, alpha, 'a1')
+      expect(sent).toHaveLength(1)
+      expect(sent[0]).toMatch(new RegExp(`#${n} has 1 new decision from the user`))
+      // A newer decision; its CLI takes the line, and that receipt's save is held.
+      await laterMs()
+      await run(() => tasks.updateTask(n, { decision: 'Blue, not red.' }, assistant))
+      const held = new Promise<void>((r) => (release = r))
+      let holding = false
+      deliveries.setBeforeSaveForTests(async () => {
+        if (holding) return
+        holding = true
+        await held
+      })
+      taken = 1
+      const receipt = deliveries.followAllForTests()
+      await vi.waitFor(() => expect(holding).toBe(true), { timeout: HUNG_MS })
+      // Meanwhile the agent fetches its inbox and acks that line: the newer decision is made ready by them, behind the receipt.
+      const fetched = deliveries.readInbox(alpha, 'a1')
+      const ack = deliveries.ackDeliveries(alpha, 'a1', ['m1'])
+      release()
+      deliveries.setBeforeSaveForTests(null)
+      await receipt
+      expect((await fetched).items).toEqual([])
+      expect(await ack).toEqual({ acked: ['m1'], unknown: [] })
+      // Its receipt covered the decision it said, not the newer one.
+      await vi.waitFor(async () => expect(await notes()).toEqual(['Told Coder (alpha) of 1 new decision']), { timeout: HUNG_MS })
+      // The newer decision is still to be told: the next line says it.
+      await decisionWakes.tellNow(w, alpha, 'a1')
+      expect(sent).toHaveLength(2)
+      expect(sent[1]).toMatch(new RegExp(`#${n} has 1 new decision from the user`))
+      taken = 2
+      await deliveries.followAllForTests()
+      await vi.waitFor(async () => expect(await notes()).toEqual(['Told Coder (alpha) of 1 new decision', 'Told Coder (alpha) of 1 new decision']), { timeout: HUNG_MS })
+    } finally {
+      release()
+      deliveries.setBeforeSaveForTests(null)
+      writer.testHooks.takeMs = undefined
+      for (const s of spies) s.mockRestore()
+      await writer.settled()
+    }
+  })
+
   it('a decision line stopped as it is typed is tried again by itself, and only while it is still true (#401)', async () => {
     const n = (await run(() => tasks.createTask({ title: 'Stopped lines', project: 'alpha', column: 'doing', agent: 'a1' }, user))).number
     await laterMs()
@@ -798,10 +952,11 @@ describe('card decisions', () => {
     const sent: { to: string; text: string }[] = []
     decisionWakes.testHooks.settleMs = 30
     const spies = [
-      vi.spyOn(sessions, 'liveFor').mockImplementation((p, id) => (p === alpha ? ({ projectPath: alpha, agentId: id, status: 'finished' } as never) : null)),
+      vi.spyOn(sessions, 'liveFor').mockImplementation((p, id) => (p === alpha ? ({ projectPath: alpha, agentId: id, status: 'finished', runId: `run-${id}` } as never) : null)),
       vi.spyOn(sessions, 'userMayBeTyping').mockImplementation(() => (typing && refusedTyping++, typing)),
       vi.spyOn(sessions, 'lineWaiting').mockImplementation(() => false),
-      vi.spyOn(sessions, 'promptsTaken').mockImplementation(() => null),
+      // Each line typed is taken (#649: its decisions are told once it is received).
+      vi.spyOn(sessions, 'promptsTaken').mockImplementation((p, id) => (p === alpha ? { runId: `run-${id}`, count: sent.filter((s) => s.to === id).length } : null)),
       vi.spyOn(sessions, 'sendPrompt').mockImplementation(async (_p, id, text, guard) => {
         const m = meanwhile
         meanwhile = null
@@ -848,7 +1003,8 @@ describe('card decisions', () => {
       typing = true
       refusedTyping = 0
       await decisionWakes.tellNow(w, alpha, 'a1')
-      await expect.poll(() => refusedTyping, { timeout: 10000 }).toBeGreaterThan(60)
+      // Asked again and again while the user types (the delivery service tries it again in a moment each time, #649).
+      await expect.poll(() => refusedTyping, { timeout: 10000 }).toBeGreaterThan(3)
       expect(mine('a1')).toHaveLength(2)
       typing = false
       await expect.poll(() => mine('a1').length, { timeout: HUNG_MS }).toBe(3)
@@ -1477,14 +1633,18 @@ describe('removal and board under faults', () => {
     const prompts: string[] = []
     s.start = async (_p, o) => void prompts.push(o.prompt)
     const r1 = { kind: 'agent', name: 'Agent 1 (resumer)', self: { project: 'resumer', agentId: 'r1' }, scope: 'resumer' } as const
+    // The Assistant that starts it is running: a task it gives is refused once its session has ended (#645, #649).
+    const liveFor = sessions.liveFor.bind(sessions)
+    const running = vi.spyOn(sessions, 'liveFor').mockImplementation((p, id) => (id === 'assistant' ? ({ projectPath: p, agentId: 'assistant', status: 'working', runId: 'run-assistant' } as never) : liveFor(p, id)))
     try {
       for (const from of ['review', 'done'] as const) {
         const c = await run(() => tasks.createTask({ title: `Back from ${from}`, project: 'resumer', agent: 'r1', column: from }, user))
         const started = await run(() => startTask(c.number, { kind: 'agent', agentId: 'r1' }, assistant, '  Address the latest review comment.  '))
         expect([started.card.column, started.card.agent]).toEqual(['doing', 'r1'])
         expect(started.card.history.at(-1)).toMatchObject({ by: 'Assistant', what: 'Moved to Doing' })
-        expect(prompts.at(-1)).toBe(
-          `Work on task #${c.number} from the Hive task board: Back from ${from}\n\nIt was in ${from === 'review' ? 'Review' : 'Done'} and is back in Doing for more work.\n\nAddress the latest review comment.`
+        // The task, with its delivery's id to ack (#649).
+        expect(prompts.at(-1)).toMatch(
+          new RegExp(`^Work on task #${c.number} from the Hive task board: Back from ${from}\n\nIt was in ${from === 'review' ? 'Review' : 'Done'} and is back in Doing for more work\\.\n\nAddress the latest review comment\\. \\(Its id: m\\d+\\. Once you've acted on it, ack it with hive_inbox\\.\\)$`)
         )
         // Its agent finishes: Review, whatever it came from.
         const finished = await run(() => tasks.updateTask(c.number, { column: 'review' }, r1))
@@ -1503,6 +1663,7 @@ describe('removal and board under faults', () => {
       await expect(run(() => startTask(c.number, { kind: 'agent', agentId: 'r1' }, assistant, 'x'.repeat(4001)))).rejects.toThrow(/too long/)
     } finally {
       s.start = original
+      running.mockRestore()
     }
   })
 

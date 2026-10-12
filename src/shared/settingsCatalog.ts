@@ -11,6 +11,7 @@ import type { AppSettings, ProjectConfig, ProviderId, WorkspaceConfig } from './
 import { LANE_MAX_ROUNDS, LOOP_ROUNDS, LOOP_WAIT_HOURS, LOOP_WAIT_MAX_HOURS, loopDefaults } from './lanes'
 import { DEFAULT_PROJECT_CONFIG, DEFAULT_SETTINGS, FILE_LOCK_MODES } from './defaults'
 import { PRICES_CHECKED } from './prices'
+import { ADVANCED_DEFS, advancedDef, advancedTakes, advancedText, checkAdvanced, cliFacing, groupName } from './advanced'
 import { AUTO_PROVIDER, PROVIDERS, dangerModes, defaultProviderSettings, labelList, permissionLabel, projectProviderConfig, providerDescriptor, providerSettings, type ProviderDescriptor } from './providers'
 
 /** Where a setting lives: Hive's own (Settings), a provider's page in Settings, the open workspace, or one project (Project Settings). */
@@ -47,8 +48,21 @@ interface Row {
   disabledBy?: (s: AppSettings) => string | null
   /** One field of the Assistant's settings with a provider (settings.assistant.providers[<id>]). */
   assistantProvider?: ProviderId
-  /** Not a row of its own in Settings: drawn as part of another (the Assistant's "With <provider>"). */
+  /** Not a row of its own in Settings: drawn as part of another (the Assistant's "With <provider>", Advanced's list). */
   hidden?: boolean
+  /** An advanced value (#367, shared/advanced.ts): its id there, and whether this entry is advanced.json's or the workspace's own. */
+  advanced?: { id: string; scope: 'app' | 'workspace' }
+}
+
+/** Advanced's values (#367) as catalog rows, drawn by Settings → Advanced's list: one each, and a workspace's own where it takes one. */
+function advancedRows(): Row[] {
+  // One of Hive's settings (Show developer features) keeps its own entry, under its settings key.
+  return ADVANCED_DEFS.filter((d) => !d.setting).flatMap((d): Row[] => {
+    const title = `${groupName(d.group)}: ${d.title}`
+    const tip = `${advancedTakes(d)} null (or Reset) goes back to Hive's default.${cliFacing(d) ? ` It is ${groupName(d.group)}'s: an override records the version it was made for, and is flagged when another version is installed.${d.kind === 'number' || d.kind === 'list' ? '' : " Hive tries it on what the CLI was recorded sending, and says when it doesn't find that."}` : ''}`
+    const base: Row = { section: 'advanced', key: d.id, title, desc: d.desc, tip, type: d.kind === 'number' ? 'number' : 'text', ...(d.kind === 'number' ? { min: d.min, max: d.max, step: 1 } : {}), hidden: true, advanced: { id: d.id, scope: 'app' } }
+    return d.workspace ? [base, { ...base, section: 'workspace', key: `advanced.${d.id}`, title: `${title} (this workspace)`, desc: `This workspace's own value; empty uses Settings → Advanced's. ${d.desc}`, advanced: { id: d.id, scope: 'workspace' } }] : [base]
+  })
 }
 
 /** The Assistant's model, effort, mode, context and arguments with one provider, a field each (Settings → Assistant → With <provider>). */
@@ -103,7 +117,7 @@ export const SETTINGS_SECTIONS: { id: SettingsSection; label: string; desc: stri
   { id: 'agents', label: 'Agents & Worktrees', desc: 'Defaults for projects running several agents: file locks, new worktrees and merging (projects can override them), and how long background tasks count.' },
   { id: 'keybindings', label: 'Keyboard Shortcuts', desc: 'Change, remove or add shortcuts for any command. Projects can set their own for project and session commands (Project Settings → Keyboard Shortcuts).' },
   { id: 'agentApi', label: 'Agent API', desc: 'Local API and built-in MCP server that let agents interact with Hive.' },
-  { id: 'advanced', label: 'Advanced', desc: 'Logs, data and resetting Hive.' }
+  { id: 'advanced', label: 'Advanced', desc: 'Developer features, the details Hive relies on that a CLI update can break (advanced.json), logs, data and resetting Hive.' }
 ]
 
 const APP_ROWS: Row[] = [
@@ -327,14 +341,28 @@ const APP_ROWS: Row[] = [
   {
     section: 'advanced',
     key: 'showDeveloperFeatures',
-    title: 'Show developer features',
-    desc: 'Show Help → Developer Console (Ctrl+Alt+J): what each CLI sends Hive, next to what Hive made of it.',
+    // Its text is its advanced value's (it is kept in advanced.json too, #367).
+    title: advancedDef('hive.showDeveloperFeatures')!.title,
+    desc: advancedDef('hive.showDeveloperFeatures')!.desc,
     tip: 'For power users and for developing Hive. The console opens in a window of its own; Hive captures a source only while it is open on it, redacted. Turning this off closes it.',
-    type: 'boolean'
+    type: 'boolean',
+    // Drawn in the list below, first among Hive's own (#367): kept in Hive's settings under this key, and in
+    // advanced.json as hive.showDeveloperFeatures (the two are one value).
+    hidden: true
   },
+  {
+    section: 'advanced',
+    key: 'values',
+    title: 'Advanced settings',
+    desc: "Details Hive relies on that a CLI update can break (the text of its prompts, the fields it sends), and timeouts and limits for power users. Change one only when something doesn't work, or Hive's notes on a CLI update say to.",
+    tip: 'Each shows its default beside it once changed, and Reset puts the default back. A value that isn\'t valid is ignored, with a warning, and the default used. They are kept in advanced.json in your Hive profile, which you can also edit by hand (Open advanced.json): Hive reads it again when it changes. A value for a CLI records the CLI version it was made for, and is flagged when another version is installed. Some take a workspace\'s own value too.',
+    type: 'custom',
+    wide: true
+  },
+  ...advancedRows(),
   { section: 'advanced', key: 'logs', title: 'Logs', desc: 'Open the folder containing Hive\'s log files.', tip: 'Useful when reporting a problem.', type: 'custom' },
   { section: 'advanced', key: 'data', title: 'Settings file', desc: 'Hive keeps its settings in %APPDATA%\\Hive\\config.json.', tip: 'Project settings live in each project\'s .hive folder; workspace settings in the workspace .hive folder.', type: 'custom' },
-  { section: 'advanced', key: 'reset', title: 'Reset all settings', desc: 'Restore every setting on this page to its default. Workspaces and projects are not affected.', tip: 'Recent workspaces and window position are kept.', type: 'custom', danger: true }
+  { section: 'advanced', key: 'reset', title: 'Reset all settings', desc: "Restore every setting in Settings to its default, the advanced settings in advanced.json too. Workspaces and projects, and a workspace's own advanced values, are not affected.", tip: 'Recent workspaces and window position are kept.', type: 'custom', danger: true }
 ]
 
 /** The settings on one provider's page, from its descriptor. */
@@ -541,6 +569,7 @@ const ACTIONS = new Set([
   'agentApi.status',
   'agentApi.token',
   'agentApi.viewers',
+  'advanced.values',
   'advanced.logs',
   'advanced.data',
   'advanced.reset',
@@ -683,19 +712,19 @@ function entry(row: Row, id: string, scope: SettingScope, docs: string): Setting
   const readOnly = READ_ONLY.find(([re]) => re.test(id))
   const action = ACTIONS.has(id)
   const value = row.type === 'custom' ? CUSTOM_VALUES[id] : undefined
-  const restart = RESTART.find(([re]) => re.test(id))?.[1]
+  const restart = row.advanced ? (advancedDef(row.advanced.id)?.applies === 'sessions' ? 'sessions' : undefined) : RESTART.find(([re]) => re.test(id))?.[1]
   return {
     ...row,
     id,
     scope,
     tip: row.tip ?? '',
-    docs: DOCS_BY_ID[id] ?? docs,
+    docs: row.advanced || id === 'advanced.values' ? 'Advanced settings' : (DOCS_BY_ID[id] ?? docs),
     ...(HELPS[id] ? { helps: HELPS[id] } : {}),
     ...(action ? { action: true } : {}),
     ...(value ? { value } : {}),
     ...(sensitive && !action ? { sensitive: true, readOnly: `${sensitive[1]}: only the user can change it, in ${settingPathOf(row, scope)}.` } : readOnly ? { readOnly: `${readOnly[1]}: the user changes them in ${settingPathOf(row, scope)}.` } : {}),
     ...(restart ? { restart } : {}),
-    ...(scope === 'project' && !action && row.key !== 'worktreeSetup' && row.key !== 'loopWakes' ? { inherits: true } : {})
+    ...((scope === 'project' && !action && row.key !== 'worktreeSetup' && row.key !== 'loopWakes') || row.advanced?.scope === 'workspace' ? { inherits: true } : {})
   }
 }
 
@@ -721,9 +750,14 @@ export function settingEntry(id: string): SettingEntry | undefined {
 // Values: where each entry's value lives, its default, checking a new one, and the change that sets it.
 // ---------------------------------------------------------------------------
 
-/** A setting's value now: in Hive's settings, or in a project's config ('inherit' or null for one that inherits). */
-export function settingValue(e: SettingEntry, settings: AppSettings, project?: ProjectConfig | null, ws?: Pick<WorkspaceConfig, 'loops'> | null): unknown {
+/**
+ * A setting's value now: in Hive's settings, or in a project's config ('inherit' or null for one that inherits). An
+ * advanced value (#367) is advanced.json's override (`advanced`: its values) or the default, or the workspace's own (null:
+ * Settings → Advanced's).
+ */
+export function settingValue(e: SettingEntry, settings: AppSettings, project?: ProjectConfig | null, ws?: Pick<WorkspaceConfig, 'loops' | 'advanced'> | null, advanced?: Record<string, unknown> | null): unknown {
   if (e.action) return undefined
+  if (e.advanced) return e.advanced.scope === 'workspace' ? (ws?.advanced?.[e.advanced.id] ?? null) : (advanced?.[e.advanced.id] ?? advancedDef(e.advanced.id)?.default)
   // A workspace's own (workspace.json): its card loops' rounds and wait (#412).
   if (e.scope === 'workspace') return loopDefaults(ws)[e.key === 'loopRounds' ? 'rounds' : 'waitHours']
   if (e.scope === 'project') {
@@ -744,6 +778,7 @@ export function settingValue(e: SettingEntry, settings: AppSettings, project?: P
 /** A setting's default: Hive's, or for a project's, Inherit. */
 export function settingDefault(e: SettingEntry): unknown {
   if (e.action) return undefined
+  if (e.advanced) return e.advanced.scope === 'workspace' ? null : advancedDef(e.advanced.id)?.default
   if (e.scope === 'workspace') return e.key === 'loopRounds' ? LOOP_ROUNDS : LOOP_WAIT_HOURS
   if (e.scope === 'project') return e.provider ? 'inherit' : (DEFAULT_PROJECT_CONFIG as unknown as Record<string, unknown>)[e.key]
   if (e.assistantProvider) return ''
@@ -836,6 +871,12 @@ function checkTable(e: SettingEntry, raw: unknown): { value: unknown } | { error
 export function checkSettingValue(e: SettingEntry, raw: unknown, ctx: SettingContext = {}): { value: unknown } | { error: string } {
   const kind = settingKind(e)
   if (!kind) return { error: `${e.title} isn't a value that can be set this way (${e.action ? 'it is a button, a status or a list' : e.readOnly}): change it in ${settingPath(e)}.` }
+  // An advanced value: as advanced.json takes it; null puts the default back (a workspace's: Settings → Advanced's).
+  if (e.advanced) {
+    if (raw === null || (e.advanced.scope === 'workspace' && raw === 'inherit')) return { value: null }
+    const def = advancedDef(e.advanced.id)
+    return def ? checkAdvanced(def, raw) : { error: `${e.title} isn't known.` }
+  }
   const inheritable = e.scope === 'project' && !!e.inherits
   if (inheritable && (raw === null || raw === 'inherit') && (kind === 'number' || kind === 'effort' || e.key === 'worktreeCopy')) return { value: kind === 'effort' ? 'inherit' : null }
   switch (kind) {
@@ -896,7 +937,8 @@ export function effortTakes(e: SettingEntry, levels: { value: string }[]): strin
 export function settingPatch(
   e: SettingEntry,
   value: unknown
-): { settings: Record<string, unknown> } | { project: (cfg: ProjectConfig) => Partial<ProjectConfig> } | { workspace: { rounds?: number; waitHours?: number } } | { prices: { provider: ProviderId; value: Record<string, unknown> } } | { fallback: { provider: ProviderId; kind: 'models' | 'efforts'; list: unknown[] | null } } {
+): { settings: Record<string, unknown> } | { project: (cfg: ProjectConfig) => Partial<ProjectConfig> } | { workspace: { rounds?: number; waitHours?: number } } | { advanced: { id: string; scope: 'app' | 'workspace'; value: unknown } } | { prices: { provider: ProviderId; value: Record<string, unknown> } } | { fallback: { provider: ProviderId; kind: 'models' | 'efforts'; list: unknown[] | null } } {
+  if (e.advanced) return { advanced: { ...e.advanced, value } }
   if (e.scope === 'project') {
     const provider = e.provider
     if (provider) return { project: (cfg) => ({ providers: { ...cfg.providers, [provider]: { ...projectProviderConfig(cfg, provider), [e.key]: value } } }) }
@@ -917,6 +959,7 @@ export function settingPatch(
  */
 export function settingValueText(e: SettingEntry, v: unknown, full = false): string {
   if (v === undefined) return '—'
+  if (e.advanced && v !== null) return advancedText(advancedDef(e.advanced.id)!, v)
   if (v === null || v === 'inherit') return 'inherit'
   if (typeof v === 'boolean') return v ? 'on' : 'off'
   if (typeof v === 'number') return v === 0 && e.off ? `0 (${e.off})` : String(v)

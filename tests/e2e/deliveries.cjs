@@ -1,11 +1,13 @@
 // Deliveries (#647): what the Assistant leaves for an agent is a saved record with an id and a state, on fake Claude Code
 // agents (fake-claude/) and the Assistant's hive tools (hive-mcp.js with its token). A message for a working agent is
 // queued and saved in the project's .hive/deliveries.json, its pane shows "✉ 1 unread"; the agent fetches it mid-turn with
-// hive_inbox (received, so it isn't typed after) and acks it (acked); one typed into it is offered, never received for
-// that, and acked from there; one not acked in time shows as overdue; hive_agent_activity gives each one's state and times, so the Assistant
-// sees them. A stop of the agent keeps what waits for it; once the Assistant's launch ends, its message still waiting is
-// refused (#645) and shown in the Assistant's activity list. Then Hive restarts: what was refused stays so; a card event
-// Hive saved (as Messaging 3's board events will be) is restored, offered to the agent once it is resumed, and acked (the restore itself, offered → uncertain and a refusal at load, is in tests/deliveries.test.ts). Dev build, throwaway profile, workspace and CLAUDE_CONFIG_DIR.
+// hive_inbox (received, so it isn't typed after) and acks it (acked); one typed into it is offered, and received once its
+// CLI takes the line (#649), then acked; one not acked in time shows as overdue; hive_agent_activity gives each one's state
+// and times, so the Assistant sees them. A stop of the agent keeps what waits for it; once the Assistant's launch ends,
+// its message still waiting is refused (#645) and shown in the Assistant's activity list. Then Hive restarts: what was
+// refused stays so; a card event Hive was offering when it stopped (as a watch's wake is, #649) is restored as uncertain,
+// offered once more to the agent once it is resumed, saying it may repeat, and received once its CLI takes it. Dev build,
+// throwaway profile, workspace and CLAUDE_CONFIG_DIR.
 const lib = require('./lib.cjs')
 const { _electron } = require('playwright-core')
 const { execFileSync } = require('child_process')
@@ -136,7 +138,7 @@ async function start() {
   check('a message for the idle builder is typed at once', !second.isError && second.text === 'Typed into Builder now (m2).', second.text)
   check('…as its own line, with its id to ack', !!(await until(() => wakes().some((t) => t === "[Hive] Message from the Assistant: Then take #2. (Its id: m2. Once you've acted on it, ack it with hive_inbox.)"), HUNG_MS)), JSON.stringify(wakes()))
   check('…and the message it had fetched is never typed', !wakes().some((t) => t.includes('Rebase on main')), JSON.stringify(wakes()))
-  check('…offered (typed), and not received for that, though its CLI took the line', !!(await until(async () => wakes().length > 0 && delivery('m2')?.state === 'offered' && (await idle(builder.id)), HUNG_MS)) && !delivery('m2')?.received, JSON.stringify(delivery('m2')))
+  check('…offered (typed), and received once its CLI took the line (#649)', !!(await until(async () => wakes().length > 0 && delivery('m2')?.state === 'received' && (await idle(builder.id)), HUNG_MS)) && delivery('m2')?.receivedVia === 'typed' && !!delivery('m2')?.offered, JSON.stringify(delivery('m2')))
 
   // --- 3. Acked: the agent says it acted on m1; m2 isn't, and becomes overdue.
   await until(() => idle(builder.id), HUNG_MS)
@@ -165,9 +167,11 @@ async function start() {
   check("…and the refusal is in the Assistant's activity list", !!(await until(async () => (await inv('assistant:actions')).some((a) => a.text === 'A message for Builder (m3) was refused' && a.error === "the Assistant's session that left it ended"), HUNG_MS)), JSON.stringify((await inv('assistant:actions')).slice(-3)))
   await until(async () => (await inv('session:live')).length === 0, HUNG_MS)
   await app.close()
-  // A card event Hive saved for the builder (as Messaging 3's board events will be): it survives the restart.
+  // A card event Hive was offering the builder when it stopped (a watch's wake, #649): typed into a launch that is gone, its
+  // CLI never took it.
   const data = JSON.parse(fs.readFileSync(file, 'utf8'))
-  data.deliveries.push({ id: `m${data.next}`, seq: data.next, agentId: builder.id, agentName: 'Builder', conversation: sessionId, kind: 'card-event', from: { kind: 'hive', name: 'Hive' }, card: 7, body: 'is back in Review, round 2', state: 'queued', created: new Date().toISOString(), expires: new Date(Date.now() + 3600_000).toISOString() })
+  const at = new Date().toISOString()
+  data.deliveries.push({ id: `m${data.next}`, seq: data.next, agentId: builder.id, agentName: 'Builder', conversation: sessionId, kind: 'card-event', from: { kind: 'hive', name: 'Hive' }, card: 7, body: '[Hive] #7 is back in Review, round 2.', state: 'offered', created: at, offered: at, offers: 1, offerRun: 'a-launch-that-ended', expires: new Date(Date.now() + 3600_000).toISOString() })
   const eventId = `m${data.next}`
   data.next++
   fs.writeFileSync(file, JSON.stringify(data, null, 2))
@@ -175,19 +179,18 @@ async function start() {
   ;({ app, page, inv, live } = await start())
   await page.getByText('alpha', { exact: true }).first().click()
   check('after the restart, the refused message stays refused', saved().find((d) => d.id === 'm3')?.state === 'refused', JSON.stringify(saved().find((d) => d.id === 'm3')))
-  check('…and the card event is restored, waiting', saved().find((d) => d.id === eventId)?.state === 'queued')
+  check('…and the card event is restored as uncertain: it may not have reached the builder', !!(await until(() => saved().find((d) => d.id === eventId)?.state === 'uncertain', HUNG_MS)) && saved().find((d) => d.id === eventId)?.detail === 'may not have reached it: Hive stopped while offering it', JSON.stringify(saved().find((d) => d.id === eventId)))
   await inv('session:start', alpha, { agentId: builder.id, resumeId: sessionId })
   check('the builder is resumed in the same conversation', !!(await until(async () => (await idle(builder.id)) && (await live(alpha, builder.id))?.sessionId === sessionId, HUNG_MS)))
-  check('…and gets the card event, with its id', !!(await until(() => wakes().some((t) => t === `[Hive] #7: is back in Review, round 2 (Its id: ${eventId}. Once you've acted on it, ack it with hive_inbox.)`), HUNG_MS)), JSON.stringify(wakes().slice(-2)))
+  check('…and gets the card event once more, saying it may repeat', !!(await until(() => wakes().some((t) => t === `[Hive] #7 is back in Review, round 2. (${eventId} again: Hive restarted while offering it, so it may repeat.)`), HUNG_MS)), JSON.stringify(wakes().slice(-2)))
   check('…never the refused message', !wakes().some((t) => t.includes('From the launch that ends.')), JSON.stringify(wakes()))
-  check('…offered, saved as such', saved().find((d) => d.id === eventId)?.state === 'offered', JSON.stringify(saved().find((d) => d.id === eventId)))
+  check('…received once its CLI takes it, saved as such (a card event needs no ack)', !!(await until(() => saved().find((d) => d.id === eventId)?.state === 'received', HUNG_MS)) && saved().find((d) => d.id === eventId)?.receivedVia === 'typed', JSON.stringify(saved().find((d) => d.id === eventId)))
   await until(() => idle(builder.id), HUNG_MS)
-  await say(builder.id, `hive hive_inbox {"ack":["${eventId}"]}`)
-  check('…and acked after the restart', !!(await until(() => saved().find((d) => d.id === eventId)?.state === 'acked', HUNG_MS)), JSON.stringify(saved().find((d) => d.id === eventId)))
+  check('…offered once more only', wakes().filter((t) => t.includes('is back in Review, round 2')).length === 1, JSON.stringify(wakes()))
   home = await startAssistant()
   check("the new Assistant launch sees each one's state", (() => {
     const r = JSON.parse(tool('hive_agent_activity', { project: 'alpha', agent: 'Builder', detail: true }).text).inbox?.deliveries ?? []
-    return ['m1 acked', 'm2 acked', 'm3 refused', `${eventId} acked`].every((x) => r.some((d) => `${d.id} ${d.state}` === x))
+    return ['m1 acked', 'm2 acked', 'm3 refused', `${eventId} received`].every((x) => r.some((d) => `${d.id} ${d.state}` === x))
   })())
 
   await until(() => idle(builder.id), HUNG_MS)

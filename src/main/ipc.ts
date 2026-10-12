@@ -44,6 +44,8 @@ import * as tasks from './tasks'
 import { startTask } from './taskStart'
 import * as assistantControl from './assistantControl'
 import { revertSetting } from './settingsTools'
+import { advanced, updateSettingsChecked } from './advanced'
+import type { AdvancedState } from '../shared/advanced'
 import { switchMode } from './assistantMode'
 import * as personas from './personas'
 import { syncBundled } from './bundled'
@@ -78,6 +80,9 @@ import { CONSOLE_WINDOW_CHANNELS, consoleOwner, openConsoleWindow } from './cons
 import { isRecordingName, latestRecording, recordingOf, recordingsDir, startRecording, stopRecording, stopRecordingsWhere } from './consoleRecorder'
 import { mayRead, type ConsoleEvent } from '../shared/devConsole'
 import { benchContext, importBenchmark, keepReport, listBenchmarks, pinBenchmark, readBenchmark, removeBenchmark, selectBenchmarks } from './benchmarks'
+
+/** Settings → Advanced's state for the calling window: advanced.json's overrides and its workspace's own values (#367). */
+const advancedState = (): AdvancedState => advanced.state(workspace.path ? (workspace.config.advanced ?? {}) : null)
 
 /** The window an IPC call came from, for calls that keep something per window (the developer console's subscription). */
 const senderStore = new AsyncLocalStorage<WebContents>()
@@ -303,11 +308,30 @@ export function registerIpc(getAppInfo: () => ReturnType<HiveRequests['app:info'
     'window:setBackdrops': (count) => setTitleBarBackdrops(win(), count),
 
     'settings:get': () => config.settings,
-    'settings:update': (patch) => config.updateSettings(patch),
+    // Show developer features is kept in advanced.json too: written there first, or refused (#367).
+    'settings:update': (patch) => updateSettingsChecked(patch, (p) => config.updateSettings(p)),
     'settings:setKeybinding': (id, key) => config.setKeybinding(id, key),
     'settings:setProviderPrices': (provider, prices, removed) => config.setProviderPrices(knownProvider(provider), prices, removed),
     'settings:setProviderFallback': (provider, kind, list) => config.setProviderFallback(knownProvider(provider), kind === 'efforts' ? 'efforts' : 'models', list),
-    'settings:reset': (section) => config.resetSettings(section),
+    'settings:reset': async (section) => {
+      // All of them: advanced.json's overrides too (#367), first, as it can refuse (a file it can't read).
+      if (!section) await advanced.resetAll()
+      return config.resetSettings(section)
+    },
+    // Advanced settings (#367): the overrides in advanced.json, and this window's workspace's own values.
+    'advanced:state': () => advancedState(),
+    'advanced:set': async (id, value, scope) => {
+      if (scope === 'workspace') {
+        await workspace.setAdvanced(String(id), value)
+        emit({ type: 'advanced-changed' })
+      } else await advanced.set(String(id), value)
+      return advancedState()
+    },
+    'advanced:keep': async (id) => {
+      await advanced.keep(String(id))
+      return advancedState()
+    },
+    'advanced:open': () => advanced.open(),
     'ui:get': () => config.get().ui,
     // Not the per-project maps nor the tips: a window's copy of them is stale for other windows' changes (ui:setProjectPref, #245; ui:changeTips, #266).
     'ui:set': (ui) => config.update((c) => Object.assign(c.ui, Object.fromEntries(Object.entries(ui ?? {}).filter(([k]) => !isProjectPref(k) && k !== 'tips')))),

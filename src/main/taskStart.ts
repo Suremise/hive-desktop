@@ -1,5 +1,8 @@
 import { join } from 'path'
+import { ASSISTANT_AGENT_ID } from '../shared/assistant'
+import type { DeliverySender } from '../shared/deliveries'
 import { projectAgents } from '../shared/defaults'
+import { deliverNow, launchWith, NotGiven } from './deliveries'
 import { columnLabel, taskPrompt } from '../shared/tasks'
 import type { TaskCard, TaskStartTarget } from '../shared/types'
 import { emit } from './events'
@@ -64,6 +67,13 @@ function availability(p: string, agentId: string, agentName: string, actor: Task
   if (st && STATUS_WORDS[st.status]) throw new Error(`${agentName} ${STATUS_WORDS[st.status]}. Start the task once it's idle, or give it to another agent.`)
   if (st && actor.kind !== 'user' && sessions.userMayBeTyping(p, agentId)) throw new Error(`The user has just typed in ${agentName}'s terminal and may still be writing there. Ask the user first.`)
   return { live: !!st }
+}
+
+/** Who a Start's task is from (#649): the Assistant's launch (its permission worked out again at every step), an agent, or the user. */
+function senderOf(actor: TaskActor): DeliverySender {
+  if (actor.kind === 'assistant') return { kind: 'assistant', name: 'the Assistant', workspace: workspace.path!, launch: sessions.liveFor(workspace.assistantHome, ASSISTANT_AGENT_ID)?.runId ?? '' }
+  if (actor.kind === 'agent') return { kind: 'hive', name: actor.name }
+  return { kind: 'user', name: 'the user' }
 }
 
 function startable(card: TaskCard): void {
@@ -155,12 +165,21 @@ async function giveCard(
     const prompt = taskPrompt(card, !!sessions.hiveMcp(p), { from: before.column, note })
     // Again now: the agent may have started work, or the user typed in it, while the card was taken.
     live = availability(p, agentId, agentName, actor).live
-    // And while it is typed: an agent that starts work or that the user types in meanwhile doesn't get the rest.
+    // A task delivery (#649), given now or not at all: typed into a running agent (and while it is typed, an agent that
+    // starts work or that the user types in meanwhile doesn't get the rest), or the prompt it is started with.
+    const nd = { agentId, agentName, kind: 'task' as const, from: senderOf(actor), card: n, body: prompt, need: 'free' as const }
+    const holds = (): boolean => {
+      try {
+        return availability(p, agentId, agentName, actor).live
+      } catch {
+        return false
+      }
+    }
     if (live)
-      await sessions.sendPrompt(p, agentId, prompt, () => {
-        if (!availability(p, agentId, agentName, actor).live) throw new Error(`${agentName} stopped before the task was sent.`)
+      await deliverNow(p, { ...nd, conversation: sessions.liveFor(p, agentId)?.sessionId || null }, holds).catch((e: Error) => {
+        throw e instanceof NotGiven ? new Error(`${agentName} wasn't given #${n}: ${e.message}.`) : e
       })
-    else await sessions.start(p, { agentId, prompt })
+    else await launchWith(p, nd, (line) => sessions.start(p, { agentId, prompt: line }))
   } catch (e) {
     await back(before.agent)
       .catch(() => back(null))

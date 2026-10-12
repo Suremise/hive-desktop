@@ -97,6 +97,9 @@ export const AREAS = [
   { paths: ['src/main/consoleWindow.ts', 'src/renderer/src/ConsoleApp.tsx', 'src/renderer/src/styles/console.css', 'src/renderer/src/main.tsx', 'src/shared/consoleView.ts', 'src/shared/devConsole.ts', 'src/main/devConsole.ts', 'src/main/devConsoleSources.ts', 'src/renderer/src/components/TitleBar.tsx', 'tests/e2e/consolewindow.cjs'], suites: ['consolewindow'] },
   { paths: ['src/main/consoleRecorder.ts', 'src/shared/consoleFixtures.mts', 'src/shared/devConsole.ts', 'src/main/devConsole.ts', 'src/main/providers/copilot/adapter.ts', 'src/main/providers/copilot/events.ts', 'src/main/screenRecognition.ts', 'tests/fixtures/console/copilot.json', 'scripts/consoleFixture.mjs', 'tests/e2e/contract-copilot.cjs'], suites: ['contract-copilot', 'devconsole'] },
   { paths: ['src/main/consoleRecorder.ts', 'src/main/diagnostics.ts'], suites: ['consolewindow'] },
+  // Advanced settings (#367): the list, advanced.json, the workspace's own values, and what uses them (the hive MCP server's waits).
+  { paths: ['src/main/advanced.ts', 'src/shared/advanced.ts', 'src/renderer/src/advanced.ts', 'src/renderer/src/components/AdvancedSettings.tsx', 'src/main/diagnostics.ts', 'src/shared/settingsCatalog.ts', 'tests/fixtures/advanced/', 'tests/e2e/advanced.cjs'], suites: ['advanced'] },
+  { paths: ['src/main/advanced.ts'], suites: ['replysize', 'assistantsettings'] },
   { paths: ['src/main/agentTokens.ts'], suites: ['boardscope', 'review', 'progress', 'progressreport', 'cardloop', 'replysize'] },
   { paths: ['src/main/assistantControl.ts', 'src/main/taskBatch.ts', 'src/shared/assistant.ts', 'src/shared/assistantTools.ts', 'src/main/personas.ts', 'src/renderer/src/components/Assistant.tsx', 'src/renderer/src/components/AssistantMark.tsx', 'src/renderer/src/components/AssistantView.tsx', 'src/renderer/src/components/Personas.tsx'], suites: ['assistantside', 'assistant', 'assistant-control', 'assistantend', 'assistantimages', 'tipcorner', 'replysize', 'claude-real', 'assistantoverview', 'assistantbatch', 'assistantcompact', 'assistantsettings', 'assistantmode', 'cardchip', 'assistantpanel'] },
   { paths: ['src/main/installDir.ts'], suites: ['installdir'] },
@@ -169,7 +172,8 @@ export const AREAS = [
   // Messages left for agents (#530).
   { paths: ['src/main/agentMessages.ts'], suites: ['agentmessage', 'deliveries', 'replysize'] },
   // Deliveries and hive_inbox (#647).
-  { paths: ['src/main/deliveries.ts', 'src/shared/deliveries.ts'], suites: ['deliveries', 'agentmessage', 'viewer', 'replysize', 'loopwakes', 'agentwatch', 'wakeuntaken'] },
+  // The delivery service, its writer and readiness (#647, #649): every way into an agent goes through them.
+  { paths: ['src/main/deliveries.ts', 'src/shared/deliveries.ts', 'src/main/lineWriter.ts', 'src/main/readiness.ts'], suites: ['deliveries', 'agentmessage', 'viewer', 'replysize', 'loopwakes', 'agentwatch', 'wakeuntaken', 'wakepaste', 'cardloop', 'decisionwake', 'loopwatch', 'lanewatch', 'assistantmode', 'assistant-control', 'signin', 'watchrelease'] },
   // Hive's loop wakes (#405).
   { paths: ['src/main/loopWakes.ts', 'src/main/lanes.ts'], suites: ['loopwakes'] },
   { paths: ['src/main/tray.ts', 'src/renderer/src/chime.ts', 'src/shared/bursts.ts'], suites: ['bursts', 'bell', 'banners'] },

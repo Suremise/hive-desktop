@@ -34,6 +34,7 @@ import { InboxPopover } from './components/Inbox'
 import { MoveRepairDialog, MovedBanner } from './components/MoveRepair'
 import { NoticeBanners, addNotice, resolveNotices } from './components/NoticeBanners'
 import { chimeAllowed } from '@shared/bursts'
+import { loadAdvanced } from './advanced'
 import { applyProjectPref } from './projectPrefs'
 
 function applyTheme(): void {
@@ -80,6 +81,7 @@ function handleEvent(e: HiveEvent): void {
       const other = ws?.path !== get().workspace?.path
       if (other) set({ assistantOpen: assistantWasOpen(ws?.path), tasks: [], boardProject: null, taskOpen: null, taskStartFor: null, taskDoing: null })
       if (other) void loadLeftovers()
+      if (other) void loadAdvanced()
       // Drop warnings about projects that belong to a workspace that is no longer open.
       set((s) => ({ workspace: ws, toasts: s.toasts.filter((t) => !t.id.startsWith('mcp-') || !!ws?.projects.some((p) => t.id === `mcp-${p.path}`)) }))
       if (ws && (!sel || !ws.projects.some((p) => p.path === sel))) set({ selectedProject: (ws.projects.find((p) => p.active) ?? ws.projects[0])?.path ?? null })
@@ -157,6 +159,9 @@ function handleEvent(e: HiveEvent): void {
       break
     case 'tips-changed':
       applyTipsState(tipsState(e.tips))
+      break
+    case 'advanced-changed':
+      void loadAdvanced()
       break
     case 'settings-changed':
       set({ settings: e.settings })
@@ -306,6 +311,7 @@ export function App() {
       for (const l of live) applyLiveState(l)
       void loadLeftovers()
       void loadTasks()
+      void loadAdvanced()
       void call('git:tool').then((g) => {
         if (early.active()) set((st) => ({ gitTool: st.gitTool ?? g }))
       })

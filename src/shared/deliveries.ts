@@ -1,8 +1,8 @@
 /**
  * Deliveries (#647, plans/2026-10-12-messaging-redesign.md §3.1): everything Hive has for an agent to read is a record
  * with an id, its target, kind, sender, card, body and state, saved in its project's .hive/deliveries.json and offered
- * by one scheduler (main/deliveries.ts). The agent collects them with hive_inbox (received) and acknowledges them once it
- * has acted on them (acked). This file is the pure part: the states and their moves, coalescing, the typed line and the
+ * by one scheduler (main/deliveries.ts): every way into an agent makes one (#649). The agent collects them with
+ * hive_inbox (received) and acknowledges them once it has acted on them (acked). This file is the pure part: the states and their moves, coalescing, the typed line and the
  * inbox's reply. No imports beyond shared types: hive-mcp.js runs outside the app bundle.
  */
 import type { InboxBrief, InboxSummary } from './types'
@@ -12,11 +12,27 @@ export const DELIVERY_KINDS = ['task', 'rebrief', 'card-event', 'answer', 'hando
 export type DeliveryKind = (typeof DELIVERY_KINDS)[number]
 
 /**
- * queued: waiting to be offered; offered: Hive has put it in front of the agent (today, typed into its terminal: never
- * "received" for that); received: the agent fetched it with hive_inbox (#645: received is automatic on fetch, and
- * nothing else); acked: the agent says it has acted on it. Ended without that: cancelled (by whom), refused (its sender
- * may no longer send it), expired (too old, or its agent is in another conversation now). uncertain: kept for the
- * channels of Messaging 4 (a delivery whose offer can't be confirmed); nothing makes it yet.
+ * Kinds the agent acks once it has acted on them (#649): a message, a task, a handover, the user's answer. A card event
+ * or a control notice is done once received: never overdue, never waiting for an ack.
+ */
+export const needsAck = (kind: DeliveryKind): boolean => kind !== 'card-event' && kind !== 'control'
+/** Kinds offered in a line of their own (a task, a handover), never with other deliveries. */
+export const goesAlone = (kind: DeliveryKind): boolean => kind === 'task' || kind === 'handover'
+/**
+ * What an agent must be doing to be offered a delivery: idle (ready, finished or watching: a watching agent takes a
+ * message or a wake, and its watch carries on), free (ready or finished: not watching, which takes no new work), or
+ * stalled (free, or stopped by a refused sign-in: the carry-on after signing in again).
+ */
+export type DeliveryNeed = 'idle' | 'free' | 'stalled'
+
+/**
+ * queued: waiting to be offered; offered: Hive has put it in front of the agent (today, typed into its terminal);
+ * received: the agent fetched it with hive_inbox (#645: received is automatic on fetch), or (#649, until #650's doorbell)
+ * the line that carried its whole text was taken by its CLI: the prompt count rose in the launch it was typed into, after
+ * that line's Enter (receivedVia 'typed'); acked: the agent says it has acted on it. Ended without that: cancelled (by
+ * whom), refused (its sender may no longer send it), expired (too old, or its agent is in another conversation now).
+ * uncertain: offered when Hive stopped or its agent's launch ended, before it was received: it may not have reached the
+ * agent, so it is offered once more, saying it may repeat (`again`), and stays uncertain if that one isn't received.
  */
 export const DELIVERY_STATES = ['queued', 'offered', 'received', 'acked', 'cancelled', 'refused', 'expired', 'uncertain'] as const
 export type DeliveryState = (typeof DELIVERY_STATES)[number]
@@ -49,8 +65,8 @@ export interface DeliveryRecord {
   /** How many times it was offered (again after Hive stopped while offering it). */
   offers?: number
   received?: string
-  /** How it was received: fetched with hive_inbox (the only way). */
-  receivedVia?: 'inbox'
+  /** How it was received: fetched with hive_inbox, or its line taken by its CLI ('typed', #649). */
+  receivedVia?: 'inbox' | 'typed'
   /** The launch its offer was typed into (an offer holds only while that launch runs). */
   offerRun?: string
   acked?: string
@@ -58,7 +74,29 @@ export interface DeliveryRecord {
   ended?: string
   /** Why it ended, or why it is uncertain. */
   detail?: string
+  /** Why it may repeat (#649: it was offered when Hive stopped or its launch ended): said when it is offered once more. */
+  again?: string
+  /**
+   * What made it (#649: a watch, a loop wake…), told when it is received or ends, and its key there (`ref`): a live
+   * delivery with the same source and ref is that one, never made twice.
+   */
+  source?: string
+  ref?: string
+  /** Its source's own few facts (what it was made from), for when it is made again or checked. */
+  meta?: Record<string, string | number | boolean>
+  /** What its agent must be doing to be offered it (default idle). */
+  need?: 'free' | 'stalled'
+  /** Only for this launch of its agent (a mode notice, a lock's go-ahead): it expires once that launch has ended. */
+  forRun?: string
 }
+
+/**
+ * The longest a delivery's text may be (#649: a task's prompt, a card's description and the user's note in it, is the
+ * longest a producer makes): refused when it is made, and the same as what is read back, so whatever is saved restores.
+ */
+export const DELIVERY_BODY_MAX_CHARS = 100_000
+/** The longest a reason it ended (or may repeat) is kept: longer ones are cut when they are set, never refused on reading back. */
+export const DELIVERY_DETAIL_MAX_CHARS = 500
 
 /** Unacked this long after it was made, a delivery is overdue: shown as such to the user and the Assistant. */
 export const OVERDUE_MINUTES = 30
@@ -78,12 +116,12 @@ const NEXT: Record<DeliveryState, readonly DeliveryState[]> = {
 }
 
 export const canMove = (from: DeliveryState, to: DeliveryState): boolean => NEXT[from].includes(to)
-/** Not ended: still for the agent to receive or ack. */
-export const isLive = (r: Pick<DeliveryRecord, 'state'>): boolean => r.state === 'queued' || r.state === 'offered' || r.state === 'uncertain' || r.state === 'received'
+/** Not ended: still for the agent to receive, or (a kind it acks) to ack. */
+export const isLive = (r: Pick<DeliveryRecord, 'state' | 'kind'>): boolean => r.state === 'queued' || r.state === 'offered' || r.state === 'uncertain' || (r.state === 'received' && needsAck(r.kind))
 /** Not received yet: what hive_inbox lists and the pane counts. */
 export const isUnread = (r: Pick<DeliveryRecord, 'state'>): boolean => r.state === 'queued' || r.state === 'offered' || r.state === 'uncertain'
-/** Waiting to be offered (again): what the scheduler offers. */
-export const isWaiting = (r: Pick<DeliveryRecord, 'state'>): boolean => r.state === 'queued' || r.state === 'uncertain'
+/** Waiting to be offered: queued, or uncertain and not offered again yet (offered once more, #649). */
+export const isWaiting = (r: Pick<DeliveryRecord, 'state' | 'offers'>): boolean => r.state === 'queued' || (r.state === 'uncertain' && (r.offers ?? 0) < 2)
 
 /** A delivery moved to another state at `at` (ISO), its times filled in; null when that move isn't allowed. */
 export function moved(r: DeliveryRecord, to: DeliveryState, at: string, detail?: string): DeliveryRecord | null {
@@ -105,12 +143,12 @@ export function moved(r: DeliveryRecord, to: DeliveryState, at: string, detail?:
     next.acked = at
     next.received ??= at
   } else if (to !== 'uncertain') next.ended = at
-  if (detail) next.detail = detail
+  if (detail) next.detail = detail.length > DELIVERY_DETAIL_MAX_CHARS ? `${detail.slice(0, DELIVERY_DETAIL_MAX_CHARS - 1)}…` : detail
   return next
 }
 
-/** Whether a live delivery hasn't been acked OVERDUE_MINUTES (or `overdueMs`) after it was made. */
-export const isOverdue = (r: DeliveryRecord, now: number, overdueMs = OVERDUE_MINUTES * 60_000): boolean => isLive(r) && now - Date.parse(r.created) >= overdueMs
+/** Whether a live delivery of a kind the agent acks hasn't been acked OVERDUE_MINUTES (or `overdueMs`) after it was made. */
+export const isOverdue = (r: DeliveryRecord, now: number, overdueMs = OVERDUE_MINUTES * 60_000): boolean => isLive(r) && needsAck(r.kind) && now - Date.parse(r.created) >= overdueMs
 
 /** One item of the inbox: a delivery, or a card's events coalesced ("#607: 3 changes, read the card"). */
 export interface InboxItem {
@@ -149,24 +187,31 @@ export function inboxItems(records: readonly DeliveryRecord[]): InboxItem[] {
 const idList = (ids: readonly string[]): string => ids.join(', ')
 
 /**
- * The line that offers deliveries by typing (today's transport, until Messaging 4 switches channels): their texts, the
- * ids to ack, and the watch that carries on if the agent is watching. One line: the CLI's prompt.
+ * The line that offers deliveries by typing (today's transport, until Messaging 4 switches channels), one line: the CLI's
+ * prompt. Messages first, together, with their ids to ack; then each other delivery's own line (a wake, a notice, a
+ * task), as its producer made it, with its id to ack for a kind the agent acks; one that may repeat says so; and the
+ * watch that carries on if the agent is watching.
  */
 export function offerLine(records: readonly DeliveryRecord[], watchLabel: string | null): string {
-  const items = inboxItems(records.map((r) => ({ ...r, state: 'queued' as const })))
-  const messages = items.filter((i) => i.kind !== 'card-event')
-  const events = items.filter((i) => i.kind === 'card-event')
+  const sorted = [...records].sort((a, b) => a.seq - b.seq)
+  const messages = inboxItems(sorted.filter((r) => r.kind === 'rebrief').map((r) => ({ ...r, state: 'queued' as const })))
   const parts: string[] = []
   if (messages.length) {
     const from = [...new Set(messages.map((m) => m.from))].join(' and ')
-    parts.push(messages.length === 1 ? `Message from ${from}: ${messages[0].text}` : `${messages.length} messages from ${from}: ${messages.map((m, i) => `(${i + 1}) ${m.text}`).join(' ')}`)
+    const body = messages.length === 1 ? `Message from ${from}: ${messages[0].text}` : `${messages.length} messages from ${from}: ${messages.map((m, i) => `(${i + 1}) ${m.text}`).join(' ')}`
+    parts.push(`[Hive] ${body}${ackTail(messages.flatMap((m) => m.ids))}`)
   }
-  for (const e of events) parts.push(`#${e.card}: ${e.text}`)
-  const ids = items.flatMap((i) => i.ids)
-  const one = ids.length === 1
-  const ack = ` (${one ? 'Its id' : 'Their ids'}: ${idList(ids)}. Once you've acted on ${one ? 'it' : 'them'}, ack ${one ? 'it' : 'them'} with hive_inbox.)`
+  for (const r of sorted) if (r.kind !== 'rebrief') parts.push(`${r.body}${needsAck(r.kind) ? ackTail([r.id]) : ''}`)
+  const again = sorted.filter((r) => r.again)
+  const repeat = again.length ? ` (${idList(again.map((r) => r.id))} again: ${[...new Set(again.map((r) => r.again))].join('; ')}, so ${again.length === 1 ? 'it' : 'they'} may repeat.)` : ''
   const tail = watchLabel ? ` (Your watch is still on, ${watchLabel.charAt(0).toLowerCase()}${watchLabel.slice(1)}: do what this asks, then end your turn, and Hive wakes you when it changes.)` : ''
-  return `[Hive] ${parts.join(' ')}${ack}${tail}`
+  return `${parts.join(' ')}${repeat}${tail}`
+}
+
+/** The ids to ack, after what they are for. */
+function ackTail(ids: readonly string[]): string {
+  const one = ids.length === 1
+  return ` (${one ? 'Its id' : 'Their ids'}: ${idList(ids)}. Once you've acted on ${one ? 'it' : 'them'}, ack ${one ? 'it' : 'them'} with hive_inbox.)`
 }
 
 /** hive_inbox's reply: what is new (now received), and what was received before and isn't acked yet. */
@@ -209,7 +254,7 @@ export interface DeliveryRow {
   created: string
   offered?: string
   received?: string
-  receivedVia?: 'inbox'
+  receivedVia?: 'inbox' | 'typed'
   acked?: string
   ended?: string
   detail?: string
@@ -254,13 +299,19 @@ export function readDelivery(v: unknown): DeliveryRecord | null {
   if (!str(r.id, 32) || !/^m\d+$/.test(r.id) || !Number.isInteger(r.seq) || (r.seq as number) < 1 || !str(r.agentId, 128) || !r.agentId) return null
   if (!(DELIVERY_KINDS as readonly unknown[]).includes(r.kind) || !(DELIVERY_STATES as readonly unknown[]).includes(r.state)) return null
   const from = readSender(r.from)
-  if (!from || !str(r.body, 8000) || !time(r.created) || !time(r.expires)) return null
+  if (!from || !str(r.body, DELIVERY_BODY_MAX_CHARS) || !time(r.created) || !time(r.expires)) return null
   if (!(r.conversation === null || str(r.conversation, 200))) return null
   if (r.card !== undefined && !(Number.isInteger(r.card) && (r.card as number) > 0)) return null
   if (![r.offered, r.received, r.acked, r.ended].every(optTime)) return null
   if (r.offers !== undefined && !(Number.isInteger(r.offers) && (r.offers as number) >= 0)) return null
-  if (r.receivedVia !== undefined && r.receivedVia !== 'inbox') return null
-  if (r.detail !== undefined && !str(r.detail, 500)) return null
+  if (r.receivedVia !== undefined && r.receivedVia !== 'inbox' && r.receivedVia !== 'typed') return null
+  if (r.again !== undefined && !str(r.again, DELIVERY_DETAIL_MAX_CHARS)) return null
+  if (r.source !== undefined && !(str(r.source, 40) && /^[a-z-]+$/.test(r.source))) return null
+  if (r.ref !== undefined && !str(r.ref, 300)) return null
+  if (r.need !== undefined && r.need !== 'free' && r.need !== 'stalled') return null
+  if (r.forRun !== undefined && !str(r.forRun, 200)) return null
+  if (r.meta !== undefined && !readMeta(r.meta)) return null
+  if (r.detail !== undefined && !str(r.detail, DELIVERY_DETAIL_MAX_CHARS)) return null
   if (r.agentName !== undefined && !str(r.agentName, 300)) return null
   if (r.offerRun !== undefined && !str(r.offerRun, 200)) return null
   const out: DeliveryRecord = { id: r.id, seq: r.seq as number, agentId: r.agentId, conversation: (r.conversation as string | null) || null, kind: r.kind as DeliveryKind, from, body: r.body, state: r.state as DeliveryState, created: r.created, expires: r.expires }
@@ -268,7 +319,17 @@ export function readDelivery(v: unknown): DeliveryRecord | null {
   if (r.card) out.card = r.card as number
   for (const k of ['offered', 'received', 'acked', 'ended', 'detail'] as const) if (r[k]) out[k] = r[k] as string
   if (r.offers) out.offers = r.offers as number
-  if (r.receivedVia) out.receivedVia = 'inbox'
+  if (r.receivedVia) out.receivedVia = r.receivedVia as 'inbox' | 'typed'
   if (r.offerRun) out.offerRun = r.offerRun as string
+  for (const k of ['again', 'source', 'ref', 'forRun'] as const) if (r[k]) out[k] = r[k] as string
+  if (r.need) out.need = r.need as 'free' | 'stalled'
+  if (r.meta) out.meta = { ...(r.meta as Record<string, string | number | boolean>) }
   return out
+}
+
+/** A source's facts as saved: a few short values. */
+function readMeta(v: unknown): boolean {
+  if (!v || typeof v !== 'object' || Array.isArray(v)) return false
+  const e = Object.entries(v as Record<string, unknown>)
+  return e.length <= 20 && e.every(([k, x]) => k.length <= 40 && ((typeof x === 'string' && x.length <= 500) || (typeof x === 'number' && Number.isFinite(x)) || typeof x === 'boolean'))
 }
