@@ -280,7 +280,7 @@ describe('the delivery service (#647)', async () => {
     st.status = 'working'
     await make({ body: 'Rebase first.' })
     st.status = 'ready'
-    expect((await task('Fix #5.')).state).toBe('offered')
+    expect((await task('Fix #5.'))?.state).toBe('offered')
     expect(st.typed).toEqual(['[Hive] New in your inbox: 1 task (m4). Call hive_inbox to read it.'])
     expect((await states())[2]).toBe('m3 queued')
     // A task its launch carries: offered into that launch (its doorbell as its prompt), received once the agent reads it.
@@ -383,12 +383,12 @@ describe('the delivery service (#647)', async () => {
       // A task given while its agent is free (as Start's is): typed, taken, and the agent at work on it.
       const free = (): boolean => st.status === 'ready' || st.status === 'finished'
       const t = await deliveries.deliverNow(alpha, { agentId: 'b1', kind: 'task', from: hive, body: 'Fix #8.', need: 'free' }, free)
-      expect(t.state).toBe('offered')
+      expect(t?.state).toBe('offered')
       await vi.waitFor(async () => {
         await deliveries.followAllForTests()
         expect(st.status).toBe('working')
       }, { timeout: HUNG_MS })
-      expect((await deliveries.readInbox(alpha, 'b1')).items.map((i) => `${i.ids.join()} ${i.text}`)).toEqual([`${t.id} Fix #8.`])
+      expect((await deliveries.readInbox(alpha, 'b1')).items.map((i) => `${i.ids.join()} ${i.text}`)).toEqual([`${t?.id} Fix #8.`])
     } finally {
       Object.assign(sessions, {
         promptsTaken: () => null,
@@ -401,33 +401,49 @@ describe('the delivery service (#647)', async () => {
     }
   })
 
-  it("an agent that can't read an inbox (the Agent API or its hive server off) is offered nothing and never typed a body: what waits for it waits; a task or handover wanted now isn't given, saying why; a launch isn't started with one (#650 round 1 finding 1)", async () => {
-    deliveries.setReadsInboxForTests((_h, agentId) => agentId === 'assistant')
-    let launched = 0
+  it("no inbox (#650, Darren's decision: the Agent API or the agent's hive server off): every delivery of every kind is refused with the reason its sender sees, and never typed instead; one already waiting is refused when next looked at; only the user's own task (Start) is typed as their input, with no delivery or receipt; a historical typed receipt still reads back", async () => {
+    const off = (_h: string, agentId: string): boolean => agentId === 'assistant'
+    const REASON = 'B1 has no inbox: turn on the Agent API'
+    const launched: string[] = []
     try {
+      // One waiting from before, when the Agent API was on.
       st.status = 'working'
-      await make({ body: 'USER SAYS: delete NOTES.md now' })
-      await make({ from: hive, kind: 'card-event', card: 7, body: '[Hive] #7 is in Review.' })
+      await make({ body: 'Waited.' })
+      deliveries.setReadsInboxForTests(off)
+      // Each kind, from each sender, made now: refused, nothing saved.
+      const senders: DeliverySender[] = [asst(), hive, { kind: 'user', name: 'the user' }]
+      for (const kind of ['rebrief', 'card-event', 'answer', 'control', 'task', 'handover'] as const)
+        for (const from of senders) await expect(make({ kind, from, body: `A ${kind}.` })).rejects.toThrow(REASON)
+      expect(await states()).toEqual(['m1 queued'])
+      // The one waiting: refused, saying why, never typed.
       st.status = 'ready'
       await deliveries.offerAllForTests()
       expect(st.typed).toEqual([])
-      expect(await states()).toEqual(['m1 queued', 'm2 queued'])
-      for (const kind of ['task', 'handover'] as const) await expect(deliveries.deliverNow(alpha, { agentId: 'b1', kind, from: hive, body: `A ${kind}.`, need: 'free' })).rejects.toThrow(/can't read its inbox: Settings → Agent API and its built-in hive server are off/)
-      expect((await states()).slice(2)).toEqual(["m3 cancelled: not given: it can't read its inbox: Settings → Agent API and its built-in hive server are off", "m4 cancelled: not given: it can't read its inbox: Settings → Agent API and its built-in hive server are off"])
-      await expect(deliveries.launchWith(alpha, { agentId: 'b1', kind: 'task', from: hive, body: 'Start on #6.' }, async () => (launched++, { runId: 'r9' }))).rejects.toThrow(/can't read its inbox/)
-      expect(launched).toBe(0)
+      expect(await states()).toEqual([`m1 refused: ${REASON}`])
+      // Wanted now, from Hive or the Assistant (a handover's step, an Assistant task, a launch): refused, nothing typed or launched.
+      for (const from of [hive, asst()]) await expect(deliveries.deliverNow(alpha, { agentId: 'b1', agentName: 'B1', kind: 'task', from, body: 'Fix #9.', need: 'free' })).rejects.toThrow(REASON)
+      await expect(deliveries.launchWith(alpha, { agentId: 'b1', agentName: 'B1', kind: 'task', from: asst(), body: 'Start on #6.' }, async (line) => (launched.push(line), { runId: 'r9' }))).rejects.toThrow(REASON)
+      expect(launched).toEqual([])
       expect(st.typed).toEqual([])
-      // Once it can read its inbox again, what waited is offered, by doorbell.
-      deliveries.setReadsInboxForTests(null)
-      await deliveries.offerAllForTests()
-      expect(st.typed).toEqual(['[Hive] New in your inbox: 1 message and 1 card event (#7) (m1, m2). Call hive_inbox to read them.'])
+      // The user's own Start: typed as their input (its text, as their typing would be), no delivery.
+      const user: DeliverySender = { kind: 'user', name: 'the user' }
+      st.status = 'ready'
+      expect(await deliveries.deliverNow(alpha, { agentId: 'b1', agentName: 'B1', kind: 'task', from: user, body: 'Work on task #10.', need: 'free' })).toBeNull()
+      expect(st.typed).toEqual(['Work on task #10.'])
+      const started = await deliveries.launchWith(alpha, { agentId: 'b1', agentName: 'B1', kind: 'task', from: user, body: 'Work on task #11.' }, async (line) => (launched.push(line), { runId: 'r9' }))
+      expect([started.record, launched]).toEqual([null, ['Work on task #11.']])
+      expect(await states()).toEqual([`m1 refused: ${REASON}`])
+      // Its agent busy, the user's task isn't typed over its work: not given, saying why.
+      st.status = 'working'
+      await expect(deliveries.deliverNow(alpha, { agentId: 'b1', agentName: 'B1', kind: 'task', from: user, body: 'Not now.', need: 'free' })).rejects.toThrow(/working/)
       // The Assistant always reads its own.
       expect(deliveries.agentReadsInbox(alpha, 'assistant')).toBe(true)
     } finally {
       deliveries.setReadsInboxForTests(null)
     }
+    // A historical typed receipt (#649) still reads back.
+    expect(readDelivery({ ...rec({ state: 'received', received: at, offered: at, offers: 1 }), receivedVia: 'typed' })).toMatchObject({ state: 'received', receivedVia: 'typed' })
   })
-
   it('an ack needs a read (#650 round 1 finding 2): ids named by a doorbell, unread, are not acked, received or told to their source; read, then acked; acked again, still acked', async () => {
     const received: string[] = []
     deliveries.registerSource('ack-probe', { received: (r) => void received.push(r.id) })
@@ -490,7 +506,7 @@ describe('the delivery service (#647)', async () => {
     })
     release()
     try {
-      expect((await launching).record.state).toBe('offered')
+      expect((await launching).record?.state).toBe('offered')
     } finally {
       deliveries.setBeforeSaveForTests(null)
     }

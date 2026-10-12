@@ -1000,7 +1000,7 @@ route('POST', '/v1/projects/:name/agents/:agent/prompt', async ({ params, body }
       if (e instanceof NotGiven) throw new HttpError(409, `${a.name} wasn't given the task: ${e.message}.`)
       throw e
     })
-    return { done: `Gave ${a.name} in ${basename(p)} a task (${r.id})`, said: `: ${clip(text.replace(/\s+/g, ' '), 80)}`, result: { ok: true, id: r.id } }
+    return { done: `Gave ${a.name} in ${basename(p)} a task${r ? ` (${r.id})` : ''}`, said: `: ${clip(text.replace(/\s+/g, ' '), 80)}`, result: { ok: true, ...(r ? { id: r.id } : {}) } }
   })
 })
 

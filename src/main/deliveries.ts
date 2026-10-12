@@ -52,9 +52,13 @@ import { sessions } from './sessions'
  * idle again without having read it rings once more (#650: its turn's Stop drain asked it first), never a third time; it
  * stays offered, unread in the pane, until it is read. One offered when Hive stopped, or when its agent's launch ended
  * before it was read, is uncertain: it may not have reached the agent, so it is offered once more, saying it may repeat,
- * and stays uncertain (shown) if that one isn't received either. Nothing is offered to an agent that can't read an inbox
- * (`readsInbox`: a project agent while the Agent API or its hive server is off): what waits for it waits, shown, until
- * it can; one wanted now (a task, a handover's step) isn't given, saying why (NO_INBOX). Its bodies are never typed.
+ * and stays uncertain (shown) if that one isn't received either.
+ *
+ * **No inbox** (Darren's decision on #650): an agent that can't read an inbox (`readsInbox`: a project agent while the
+ * Agent API or its hive server is off) is given no delivery, and its bodies are never typed instead: each is refused with
+ * the reason its sender sees (`noInbox`: made, NoInbox; one already waiting, refused when next looked at). Only the
+ * user's own action, a task they give it from Hive (Start), is typed as their input, as their typing in its pane is: no
+ * delivery, no receipt.
  *
  * **Sources.** What made a delivery (`source`: a watch, a loop wake…) registers itself here: it can make its line again
  * just before it is offered, from things as they are then (`refresh`; null: no longer due, and it is cancelled), say
@@ -452,13 +456,14 @@ let senderRefusal = (from: DeliverySender): string | null => {
 }
 /**
  * Whether an agent can read its inbox (#650): the Assistant always (its own tools); a project agent through its hive
- * tools, which it has only while the Agent API and the built-in hive server are on. Nothing is offered to one that
- * can't (its bodies are never typed instead).
+ * tools, which it has only while the Agent API and the built-in hive server are on.
  */
 let readsInbox = (_host: string, agentId: string): boolean => agentId === ASSISTANT_AGENT_ID || (config.settings.agentApi.enabled && config.settings.agentApi.provideHiveMcp)
 export const agentReadsInbox = (host: string, agentId: string): boolean => readsInbox(host, agentId)
-/** Why a delivery wanted now isn't given to an agent that can't read its inbox. */
-const NO_INBOX = "it can't read its inbox: Settings → Agent API and its built-in hive server are off"
+/** Why an agent that can't read an inbox is given no delivery (#650's decision), as its sender sees it. */
+const noInbox = (name: string): string => `${name} has no inbox: turn on the Agent API`
+/** A delivery refused because its agent can't read an inbox: the message says so, and what to do. */
+export class NoInbox extends Error {}
 /** For tests: whether agents can read their inbox (null: as the settings say). */
 export const setReadsInboxForTests = (fn: ((host: string, agentId: string) => boolean) | null): void => {
   readsInbox = fn ?? ((_host, agentId) => agentId === ASSISTANT_AGENT_ID || (config.settings.agentApi.enabled && config.settings.agentApi.provideHiveMcp))
@@ -472,6 +477,8 @@ export const setSenderCheckForTests = (fn: (from: DeliverySender) => string | nu
 function whyNot(store: Store, r: DeliveryRecord): { to: 'refused' | 'expired'; why: string } | null {
   const why = senderRefusal(r.from)
   if (why) return { to: 'refused', why }
+  // Its agent can't read an inbox (the Agent API turned off since it was made): refused, never typed instead.
+  if (!readsInbox(store.host, r.agentId)) return { to: 'refused', why: noInbox(r.agentName ?? r.agentId) }
   if (Date.parse(r.expires) <= clock()) return { to: 'expired', why: 'not received in time' }
   const live = sessions.liveFor(store.host, r.agentId)
   if (r.forRun && live?.runId !== r.forRun) return { to: 'expired', why: 'the session it was for has ended' }
@@ -564,6 +571,8 @@ export async function createDelivery(host: string, nd: NewDelivery, hooks?: Deli
   if ((nd.ref?.length ?? 0) > 300 || (nd.source?.length ?? 0) > 40) throw new Error('Not a delivery Hive can keep: its source or key is too long.')
   const meta = nd.meta && Object.fromEntries(Object.entries(nd.meta).slice(0, 20).map(([k, v]) => [k.slice(0, 40), typeof v === 'string' ? v.slice(0, 500) : v]))
   const agentName = nd.agentName?.slice(0, 300)
+  // An agent that can't read an inbox is given none (#650's decision): refused now, with the reason its sender sees.
+  if (!readsInbox(host, nd.agentId)) throw new NoInbox(noInbox(agentName ?? nd.agentId))
   const store = await load(host)
   const r = await transact(store, (d) => {
     const why = senderRefusal(nd.from)
@@ -806,8 +815,6 @@ const needOf = (items: readonly DeliveryRecord[]): DeliveryNeed => {
  * as it is now): `only` that one; else a task or handover alone (the oldest), or all the others together.
  */
 function pickOffer(store: Store, records: readonly DeliveryRecord[], agentId: string, only?: string): DeliveryRecord[] {
-  // One that can't read an inbox is offered nothing (#650): what waits for it waits until it can.
-  if (!readsInbox(store.host, agentId)) return []
   const live = sessions.liveFor(store.host, agentId)
   const can = records.filter((r) => r.agentId === agentId && isWaiting(r) && !whyNot(store, r) && readyFor(live, r.need ?? 'idle')).sort((a, b) => a.seq - b.seq)
   if (only) return can.filter((r) => r.id === only)
@@ -1030,7 +1037,12 @@ function retrySoon(host: string, agentId: string): void {
  * Makes a delivery its caller wants given now, or not at all (#649: a task, a handover's step, which are never queued):
  * offered at once, alone; else cancelled, and NotGiven says why. `holds`: the caller's own check, asked with each key.
  */
-export async function deliverNow(host: string, nd: NewDelivery, holds?: () => boolean, hooks: Omit<DeliveryHooks, 'holds'> = {}): Promise<DeliveryRecord> {
+export async function deliverNow(host: string, nd: NewDelivery, holds?: () => boolean, hooks: Omit<DeliveryHooks, 'holds'> = {}): Promise<DeliveryRecord | null> {
+  // The user's own task for an agent that can't read an inbox (#650's decision): typed as their input, no delivery.
+  if (!readsInbox(host, nd.agentId) && nd.from.kind === 'user') {
+    if (await typeLine(host, nd.agentId, nd.body, () => !holds || holds(), { need: nd.need ?? 'idle' })) return null
+    throw new NotGiven(whyNoLine(host, nd.agentId, nd.need ?? 'idle') ?? (holds && !holds() ? 'what it was for changed meanwhile' : 'Hive could not type it'))
+  }
   const rec = await createDelivery(host, nd, { ...hooks, ...(holds ? { holds } : {}) })
   const store = await load(host)
   let why: string | null = null
@@ -1039,14 +1051,14 @@ export async function deliverNow(host: string, nd: NewDelivery, holds?: () => bo
     for (let i = 0; i < 3; i++) {
       const now = deliveryNow(host, rec.id)
       if (!now || !isWaiting(now)) break
-      why = (readsInbox(host, nd.agentId) ? null : NO_INBOX) ?? whyNoLine(host, nd.agentId, nd.need ?? 'idle') ?? (holds && !holds() ? 'what it was for changed meanwhile' : null)
+      why = whyNoLine(host, nd.agentId, nd.need ?? 'idle') ?? (holds && !holds() ? 'what it was for changed meanwhile' : null)
       if (why) break
       if (await offerNow(host, nd.agentId, rec.id)) break
     }
   } finally {
     const now = deliveryNow(host, rec.id)
     if (now && isWaiting(now)) {
-      why ??= (readsInbox(host, nd.agentId) ? null : NO_INBOX) ?? whyNoLine(host, nd.agentId, nd.need ?? 'idle') ?? 'Hive could not type it'
+      why ??= whyNoLine(host, nd.agentId, nd.need ?? 'idle') ?? 'Hive could not type it'
       await transact(store, (d) => {
         const r = byId(d.records, rec.id)
         if (r && isWaiting(r)) set(store, d, r, 'cancelled', `not given: ${why}`)
@@ -1067,12 +1079,13 @@ export async function deliverNow(host: string, nd: NewDelivery, holds?: () => bo
  * `start` launches the agent with its doorbell (#650: its id, never its text), and it is offered into that launch,
  * received once the agent reads it with hive_inbox. `start` failing cancels it, and the error stands.
  */
-export async function launchWith<T extends { runId: string }>(host: string, nd: NewDelivery, start: (line: string) => Promise<T>, hooks?: DeliveryHooks): Promise<{ record: DeliveryRecord; launched: T }> {
+export async function launchWith<T extends { runId: string }>(host: string, nd: NewDelivery, start: (line: string) => Promise<T>, hooks?: DeliveryHooks): Promise<{ record: DeliveryRecord | null; launched: T }> {
+  // The user's own task for an agent that can't read an inbox (#650's decision): its launch's prompt, as their input,
+  // no delivery. Anyone else's is refused (createDelivery, below) before anything is launched.
+  if (!readsInbox(host, nd.agentId) && nd.from.kind === 'user') return { record: null, launched: await start(nd.body) }
   // Saved as offered before anything is launched (persist before the effect, #647): not saved, nothing starts. From
   // here a crash leaves it offered, so it is uncertain after the restart, never queued and typed again as if new. The
   // scheduler never offers it (it isn't waiting), and the checks leave it alone while the launch starts.
-  // One that can't read an inbox couldn't read the task its launch names (#650): nothing is launched with it.
-  if (!readsInbox(host, nd.agentId)) throw new NotGiven(NO_INBOX)
   const rec = await createDelivery(host, { ...nd, launching: true }, hooks)
   const store = await load(host)
   store.offering.add(rec.id)
