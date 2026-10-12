@@ -14,7 +14,7 @@ import { config } from '../../config'
 import { placeMatcher } from '../../fsutil'
 import { createLogger, userText } from '../../logger'
 import { findSecretWarnings } from '../../mcpSecrets'
-import { AGENTS_SKILLS, EDITOR_EXTENSION_PATH, EDITOR_ROOTS, agentsSkillCopyPath, compareVersions, hookForwardCommand, readFirstLine, run, syncAgentsSkills, taskArgs, toSpawnable } from '../common'
+import { AGENTS_SKILLS, EDITOR_EXTENSION_PATH, EDITOR_ROOTS, agentsSkillCopyPath, compareVersions, hookForwardCommand, hookIds, readFirstLine, run, syncAgentsSkills, taskArgs, toSpawnable } from '../common'
 import type { BackgroundTaskEvent, CatalogRead, CommandSpec, ExternalSession, KeySteps, LaunchContext, LiveDetails, LockDecision, NormalizedHook, ProviderAdapter, SkillDelivery, SkillRoots, UsageParser } from '../types'
 import { codexBackgroundMemo, codexBackgroundTasks, type CodexBackgroundMemo } from './background'
 import { codexSafeguards } from './safeguards'
@@ -81,6 +81,22 @@ function toolCall(tool: string, input: Record<string, unknown>): string {
 
 /** The first Codex version seen to title its terminal "Action Required" while a person must act (titleAttention). */
 const ACTION_REQUIRED_SINCE = '0.160.0'
+/** The version whose screens codexTurnScreen was checked against (#648, recorded in #645's spike). */
+const TURN_SCREEN_SINCE = '0.162.1'
+/**
+ * What Codex's screen shows of its turn (0.162.1, #648): 'working' while its Working line says so ("• Working (5s • esc
+ * to interrupt)", only drawn while a turn runs); 'idle' when its input, the last line it marks with "›", is empty, showing
+ * its placeholder ("Ask Codex to do anything"), with nothing queued; else null (a draft, a dialog, a menu: not sure).
+ */
+export function codexTurnScreen(screen: string): 'idle' | 'working' | null {
+  if (/esc to interrupt|\bWorking \(/i.test(screen)) return 'working'
+  if (codexHoldsInput(screen)) return null
+  const input = screen
+    .split('\n')
+    .map((l) => l.trim())
+    .findLast((l) => l.startsWith('›'))
+  return input && /^›\s*Ask Codex to do anything\s*$/.test(input) ? 'idle' : null
+}
 /**
  * Codex has loaded: its session header names the folder (`~\…`, `C:\…`, `\\server\…`) where it said "loading". The
  * setup task's keys wait for it: its prompt ("› Ask Codex to do anything") is drawn while it is still loading, and its
@@ -578,7 +594,9 @@ export class CodexAdapter implements ProviderAdapter {
       transcriptPath: typeof body.transcript_path === 'string' ? body.transcript_path : null,
       // Codex's permission_mode doesn't follow its presets or Plan mode; the rollout says (transcriptDetails).
       mode: null,
-      editedPaths: []
+      editedPaths: [],
+      // Its turn (turn_id, kept through a Stop hook's continuation) and the call (tool_use_id), as 0.162.1 sends them.
+      ids: hookIds(body, { turn: 'turn_id', call: 'tool_use_id' })
     }
     const tool = String(body.tool_name ?? '')
     const input = body.tool_input ?? {}
@@ -632,6 +650,17 @@ export class CodexAdapter implements ProviderAdapter {
   lockReply(d: LockDecision): Record<string, unknown> {
     if (d.kind === 'warn') return { hookSpecificOutput: { hookEventName: 'PreToolUse', additionalContext: d.context } }
     return { hookSpecificOutput: { hookEventName: 'PreToolUse', permissionDecision: d.kind, permissionDecisionReason: d.reason } }
+  }
+
+  /** A Stop blocked carries the turn on, its reason as a new prompt (Codex's hooks reference; 0.162.1, #645's spike). */
+  stopContinues(reply: Record<string, any>): boolean {
+    return reply.decision === 'block'
+  }
+
+  /** What Codex's screen shows of its turn (codexTurnScreen), for the versions it was checked with (#648). */
+  turnScreen(version: string | null): ((screen: string) => 'idle' | 'working' | null) | null {
+    if (!version || compareVersions(version, TURN_SCREEN_SINCE) < 0) return null
+    return codexTurnScreen
   }
 
   /**

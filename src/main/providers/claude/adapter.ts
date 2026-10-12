@@ -10,7 +10,7 @@ import { samePath } from '../../../shared/movePaths'
 import { config } from '../../config'
 import { claudeFileAllowed, contentHash, ContentTooLarge, copyMissing, copySkillTree, sourceProblem, tooBigToDeliver, isDir, linksNotCopied, placeMatcher, readJson, realPath, removePath, writeJsonAtomic, type PlannedCopies } from '../../fsutil'
 import { createLogger, userText } from '../../logger'
-import { EDITOR_EXTENSION_PATH, EDITOR_ROOTS, compareVersions, hookForwardCommand, readFirstLine, run, runsThroughCmd, taskArgs, toSpawnable } from '../common'
+import { EDITOR_EXTENSION_PATH, EDITOR_ROOTS, compareVersions, hookForwardCommand, hookIds, readFirstLine, run, runsThroughCmd, taskArgs, toSpawnable } from '../common'
 import type { StartHint } from '../../../shared/startFailure'
 import type { Ask, BackgroundTaskEvent, CatalogRead, CommandSpec, ExternalSession, LaunchContext, LiveDetails, LockDecision, NormalizedHook, ProviderAdapter, SkillDelivery, SkillRoots } from '../types'
 import { autoCompactOf, settingsScopes } from './autoCompact'
@@ -36,12 +36,33 @@ export const HOOK_EVENTS = ['SessionStart', 'UserPromptSubmit', 'PreToolUse', 'P
 
 /** Tools that edit files: PreToolUse checks them against other agents' file locks. */
 export const EDIT_TOOLS = 'Edit|Write|MultiEdit|NotebookEdit'
+const EDIT_TOOL = new RegExp(`^(?:${EDIT_TOOLS})$`)
 
 /**
  * Since 2.1.267 Claude Code records a conversation's system prompt on its first request and sends that record on every
  * resume, whatever a later launch appends, until it compacts; `--system-prompt-snapshot off` renders it fresh (#334).
  */
 const PROMPT_SNAPSHOT_SINCE = '2.1.267'
+
+/** The version whose screens claudeTurnScreen was checked against (#648, screens recorded in #645's spike and in Hive). */
+const TURN_SCREEN_SINCE = '2.1.296'
+
+/**
+ * What Claude Code's screen shows of its turn (2.1.296), from the status line above its input line ("❯", or ">" as it
+ * draws it in Hive's terminals): 'idle' when it says the last turn is done ("✻ Worked for 12s · done 16:52", the
+ * spinner's past tense) and nothing below offers to interrupt; 'working' while its spinner runs ("✢ Embellishing…", or
+ * "esc to interrupt"); else null (a dialog, a recap, no input line: not sure). Earlier turns' lines above are history.
+ */
+export function claudeTurnScreen(screen: string): 'idle' | 'working' | null {
+  const lines = screen.split('\n').map((l) => l.trim())
+  const input = lines.findLastIndex((l) => l.startsWith('❯') || l.startsWith('>'))
+  if (input < 0) return null
+  const status = lines.slice(0, input).findLastIndex((l) => /^[✻✶✳✢✽·*]\s+\S/.test(l))
+  if (status < 0) return null
+  if (lines.slice(status).some((l) => /esc to interrupt/i.test(l))) return 'working'
+  if (/\bfor (?:\d+[hms]\s*)+· done \d{1,2}:\d{2}\b/.test(lines[status])) return 'idle'
+  return /^\S+\s+\S+…/.test(lines[status]) ? 'working' : null
+}
 
 export function claudeHome(): string {
   return process.env.CLAUDE_CONFIG_DIR || join(homedir(), '.claude')
@@ -329,8 +350,10 @@ export class ClaudeCodeAdapter implements ProviderAdapter {
         hooks[ev] = [{ hooks: [{ type: 'command', command: hookForwardCommand(ctx.hookUrl, ctx.hookAuthFile), timeout: 5 }] }]
         continue
       }
-      // PreToolUse answers with a lock decision, so it gets a longer timeout; if Hive doesn't answer, the edit goes ahead.
-      if (ev === 'PreToolUse') hooks[ev] = [{ matcher: EDIT_TOOLS, hooks: [{ ...hook, timeout: 10 }] }]
+      // Every tool's start and end, so the turn ledger sees each call begin (#648: a tool after a turn's Stop carries it on,
+      // a tool end with no start since is late news). PreToolUse answers an edit with a lock decision, so it gets a longer
+      // timeout; if Hive doesn't answer, the edit goes ahead. Any other tool is answered at once.
+      if (ev === 'PreToolUse') hooks[ev] = [{ matcher: '*', hooks: [{ ...hook, timeout: 10 }] }]
       else hooks[ev] = [ev === 'PostToolUse' ? { matcher: '*', hooks: [hook] } : { hooks: [hook] }]
     }
     // The status line forwards Claude Code's status JSON (model, effort, cost, plan limits) to Hive and
@@ -434,7 +457,9 @@ export class ClaudeCodeAdapter implements ProviderAdapter {
       sessionId: typeof body.session_id === 'string' ? body.session_id : null,
       transcriptPath: typeof body.transcript_path === 'string' ? body.transcript_path : null,
       mode: hookMode(body.permission_mode),
-      editedPaths: []
+      editedPaths: [],
+      // Its turn is the prompt's (prompt_id, kept through a Stop hook's continuation); a sub-agent's hooks name it (agent_id).
+      ids: hookIds(body, { turn: 'prompt_id', call: 'tool_use_id', sub: 'agent_id' })
     }
     switch (event) {
       case 'SessionStart':
@@ -447,7 +472,8 @@ export class ClaudeCodeAdapter implements ProviderAdapter {
         out.event = { kind: 'toolStart' }
         const input = body.tool_input ?? {}
         const file: unknown = input.file_path ?? input.notebook_path
-        if (typeof file === 'string' && file) out.editedPaths = [file]
+        // Only the tools that edit files are checked against the locks (a Read names a file too).
+        if (typeof file === 'string' && file && EDIT_TOOL.test(String(body.tool_name ?? ''))) out.editedPaths = [file]
         break
       }
       case 'PostToolUse':
@@ -492,6 +518,17 @@ export class ClaudeCodeAdapter implements ProviderAdapter {
   lockReply(d: LockDecision): Record<string, unknown> {
     if (d.kind === 'warn') return { hookSpecificOutput: { hookEventName: 'PreToolUse', additionalContext: d.context } }
     return { hookSpecificOutput: { hookEventName: 'PreToolUse', permissionDecision: d.kind, permissionDecisionReason: d.reason } }
+  }
+
+  /** A Stop blocked, or given context, carries the turn on (2.1.296, #645's spike: both reach the model and it goes on). */
+  stopContinues(reply: Record<string, any>): boolean {
+    return reply.decision === 'block' || !!reply.hookSpecificOutput?.additionalContext
+  }
+
+  /** What Claude Code's screen shows of its turn (claudeTurnScreen), for the versions it was checked with (#648). */
+  turnScreen(version: string | null): ((screen: string) => 'idle' | 'working' | null) | null {
+    if (!version || compareVersions(version, TURN_SCREEN_SINCE) < 0) return null
+    return claudeTurnScreen
   }
 
   /** Claude Code's status-line JSON: the session's model, effort, cost and context window, and the plan's limits. */

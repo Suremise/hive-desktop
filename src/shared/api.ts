@@ -196,7 +196,7 @@ export interface HiveRequests {
   'metrics:export': (q: MetricsQuery, sanitize: boolean) => string | null
   /** Ends an agent's card watch (#128: the Cancel in its header). Whether it had one. */
   'watch:cancel': (projectPath: string, agentId: string) => boolean
-  /** Cancels the messages waiting to be typed into an agent (#530): how many there were. */
+  /** Cancels the messages waiting to be offered to an agent (#530, #647): how many there were. */
   'session:cancelMessages': (projectPath: string, agentId: string) => number
   /** Kept comparisons (Performance → Compare), for a scope only: a project's page sees its own project's. */
   'benchmarks:list': (scope: CompareScope) => { entries: KeptEntry[]; base: string | null; run: string | null; notice?: string }
@@ -279,6 +279,8 @@ export interface HiveRequests {
   'session:settleLeftovers': (projectPath: string, agentId: string, how: 'end' | 'keep') => number
   /** Types a short "carry on" into a running agent whose turn a refused sign-in stopped (Resume (n), #309). */
   'session:carryOn': (projectPath: string, agentId: string) => void
+  /** The user says an agent whose state is unknown (silent, no sign of its turn's end) is idle (#648). */
+  'session:markIdle': (projectPath: string, agentId: string) => void
   'session:archive': (projectPath: string, sessionId: string, archived: boolean) => void
   'session:rename': (projectPath: string, sessionId: string, name: string) => void
   /** Deletes a session that isn't running from Hive (its record and backups; the CLI's transcript stays). */

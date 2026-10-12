@@ -23,6 +23,7 @@ export const ASSISTANT_READ_TOOLS = [
   'hive_list_tasks',
   'hive_read_task',
   'hive_wait_for_tasks',
+  'hive_inbox',
   // Offered only while Settings → Agent API lets agents read the developer console (#636).
   'hive_console'
 ]
@@ -69,5 +70,5 @@ export const HIVE_TOOLS: readonly string[] = [
   'hive_read_latest_handover', 'hive_create_handover', 'hive_notify', 'hive_list_providers', 'hive_agent_activity', 'hive_wait_for_agents',
   'hive_create_project', 'hive_activate_project', 'hive_add_agent', 'hive_update_agent', 'hive_start_agent', 'hive_stop_agent', 'hive_prompt_agent',
   'hive_message_agent', 'hive_hand_over', 'hive_list_tasks', 'hive_read_task', 'hive_create_task', 'hive_update_task', 'hive_update_tasks', 'hive_reorder_tasks', 'hive_start_task', 'hive_list_skills', 'hive_wait_for_tasks',
-  'hive_list_settings', 'hive_read_setting', 'hive_update_setting', 'hive_merge_slot', 'hive_lane', 'hive_console'
+  'hive_list_settings', 'hive_read_setting', 'hive_update_setting', 'hive_merge_slot', 'hive_lane', 'hive_inbox', 'hive_console'
 ]
