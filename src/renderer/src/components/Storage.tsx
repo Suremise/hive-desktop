@@ -92,7 +92,7 @@ export function StorageView({ path }: { path: string }) {
     ? [
         { label: 'Transcript backups', where: '.hive/sessions', bytes: data.sessions },
         { label: 'Archive', where: '.hive/archive', bytes: data.archive },
-        { label: 'Images', where: '.hive/images', bytes: data.images },
+        { label: 'Attachments', where: '.hive/attachments', bytes: data.attachments },
         ...data.worktrees.map((w) => ({ label: `${w.agent}'s worktree`, where: w.path, bytes: w.bytes })),
         // The worktrees no agent works in (#353), on one line: the Overview lists and tidies them.
         ...(data.unusedWorktrees?.length
@@ -162,8 +162,8 @@ const CLEANUP_COLUMNS: DataColumn<CleanupItem>[] = [
 ]
 
 const KIND_LABEL: Record<CleanupItem['kind'], string> = {
-  'archived-images': 'Images of archived sessions',
-  'orphan-images': 'Images of deleted sessions',
+  'archived-attachments': 'Attachments of archived sessions',
+  'orphan-attachments': 'Attachments of deleted sessions',
   'archived-backup': "Backups of archived sessions (the CLI still has them)",
   'gone-backup': 'Last copies of archived sessions (deletes them)'
 }
@@ -192,16 +192,16 @@ function DaysInput({ value, disabled, onChange, label }: { value: number; disabl
 
 /** Clean Up…: choose what goes, see exactly which files and how much, then move them to the Recycle Bin. */
 export function CleanupDialog({ path, name, onClose, onDone }: { path: string; name: string; onClose: () => void; onDone: () => void }) {
-  const [imagesOn, setImagesOn] = useState(DEFAULT_CLEANUP.archivedImagesDays !== null)
-  const [imageDays, setImageDays] = useState(DEFAULT_CLEANUP.archivedImagesDays ?? 90)
-  const [orphans, setOrphans] = useState(DEFAULT_CLEANUP.orphanImages)
+  const [attachmentsOn, setAttachmentsOn] = useState(DEFAULT_CLEANUP.archivedAttachmentsDays !== null)
+  const [attachmentDays, setAttachmentDays] = useState(DEFAULT_CLEANUP.archivedAttachmentsDays ?? 90)
+  const [orphans, setOrphans] = useState(DEFAULT_CLEANUP.orphanAttachments)
   const [backupsOn, setBackupsOn] = useState(DEFAULT_CLEANUP.archivedBackupsDays !== null)
   const [backupDays, setBackupDays] = useState(DEFAULT_CLEANUP.archivedBackupsDays ?? 90)
   const [gone, setGone] = useState(DEFAULT_CLEANUP.goneBackups)
   const [items, setItems] = useState<CleanupItem[] | null>(null)
   const [previewError, setPreviewError] = useState<string | null>(null)
   const action = useBusy()
-  const opts: CleanupOptions = { archivedImagesDays: imagesOn ? imageDays : null, orphanImages: orphans, archivedBackupsDays: backupsOn ? backupDays : null, goneBackups: gone }
+  const opts: CleanupOptions = { archivedAttachmentsDays: attachmentsOn ? attachmentDays : null, orphanAttachments: orphans, archivedBackupsDays: backupsOn ? backupDays : null, goneBackups: gone }
   const key = JSON.stringify(opts)
 
   // The preview follows the options (a moment after the last change).
@@ -267,14 +267,14 @@ export function CleanupDialog({ path, name, onClose, onDone }: { path: string; n
       </p>
       <div className="choice-list cleanup-options">
         {option(
-          imagesOn,
-          setImagesOn,
+          attachmentsOn,
+          setAttachmentsOn,
           <>
-            Images of archived sessions last active more than <DaysInput label="Image age in days" value={imageDays} disabled={busy || !imagesOn} onChange={setImageDays} /> days ago
+            Attachments of archived sessions last active more than <DaysInput label="Attachment age in days" value={attachmentDays} disabled={busy || !attachmentsOn} onChange={setAttachmentDays} /> days ago
           </>,
-          'Images pasted or dropped into those sessions (.hive/images).'
+          'Files pasted or dropped into those sessions (.hive/attachments).'
         )}
-        {option(orphans, setOrphans, 'Images of deleted sessions', "Images whose session was deleted, or whose launch never got a session (folders named run-…).")}
+        {option(orphans, setOrphans, 'Attachments of deleted sessions', "Attachments whose session was deleted, or whose launch never got a session (folders named run-…).")}
         {option(
           backupsOn,
           setBackupsOn,

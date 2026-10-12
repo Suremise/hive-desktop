@@ -23,6 +23,7 @@ import { PROVIDERS, dangerModes, labelList, projectProviderConfig, providerSetti
 import { projectAgents } from '../shared/defaults'
 import { setDateStyle } from '../shared/dates'
 import { SERVABLE_EXT, servableType, unwatchAll } from './files'
+import { movedAttachment } from './attachmentsFolder'
 import { config } from './config'
 import { archiveOldDone, endReviews } from './tasks'
 import { emit, emitTo, onHiveEvent, toast } from './events'
@@ -115,7 +116,7 @@ function registerDevAppId(): void {
   execFile('reg', ['add', key, '/v', 'IconUri', '/d', icon, '/f'], { windowsHide: true }, () => undefined)
 }
 
-// hive-img://img/<encoded absolute path> serves images inside the workspace to the renderer (Images tab thumbnails).
+// hive-img://img/<encoded absolute path> serves images inside the workspace to the renderer (Attachments tab thumbnails, image and PDF previews).
 protocol.registerSchemesAsPrivileged([{ scheme: 'hive-img', privileges: { standard: true, secure: true, supportFetchAPI: true } }])
 
 /** A script a plain Node process runs (hive-mcp.js, hive-progress.js): unpacked from the asar (electron-builder.yml). */
@@ -693,10 +694,16 @@ app.whenReady().then(async () => {
   session.defaultSession.setPermissionRequestHandler((_wc, permission, done) => done(ALLOWED_PERMISSIONS.has(permission)))
   session.defaultSession.setPermissionCheckHandler((_wc, permission) => ALLOWED_PERMISSIONS.has(permission))
   protocol.handle('hive-img', async (req) => {
-    const p = resolve(decodeURIComponent(new URL(req.url).pathname.slice(1)))
+    let p = resolve(decodeURIComponent(new URL(req.url).pathname.slice(1)))
     if (!SERVABLE_EXT.test(p) || insideArchive(p) || !workspace.isAllowedPath(p)) return new Response('Not found', { status: 404 })
     // Read with original-fs, never Electron's file: loader, which would open an archive on the path and keep it (#246, #261).
-    const st = await stat(p).catch(() => null)
+    let st = await stat(p).catch(() => null)
+    // A path into the old .hive/images serves the file where it is now, in .hive/attachments (#387).
+    const moved = st ? null : await movedAttachment(p)
+    if (moved && workspace.isAllowedPath(moved)) {
+      st = await stat(moved).catch(() => null)
+      p = moved
+    }
     if (!st?.isFile()) return new Response('Not found', { status: 404 })
     return new Response(Readable.toWeb(createReadStream(p)) as ReadableStream, { headers: { 'Content-Type': servableType(p), 'Content-Length': String(st.size) } })
   })

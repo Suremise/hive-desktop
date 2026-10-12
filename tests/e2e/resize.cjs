@@ -31,7 +31,7 @@ const check = (name, ok, extra = '') => { if (ok) pass++; else fail++; console.l
   }
   const width = (sel) => page.locator(sel).first().evaluate((e) => Math.round(e.getBoundingClientRect().width))
 
-  for (const [tab, key, def] of [['Sessions', 'sessions', 320], ['Files', 'files', 360], ['Changes', 'changes', 280], ['Memory', 'memory', 280]]) {
+  for (const [tab, key, def] of [['Sessions', 'sessions', 320], ['Files', 'files', 360], ['Git', 'changes', 280], ['Memory', 'memory', 280]]) {
     await page.locator('.tabs .tab', { hasText: tab }).first().click(); await sleep(600)
     const list = '.tab-body:visible .split-list'
     const w0 = await width(list)
@@ -72,11 +72,11 @@ const check = (name, ok, extra = '') => { if (ok) pass++; else fail++; console.l
     }
   }
   // Persistence across a reload
-  await page.locator('.tabs .tab', { hasText: 'Changes' }).first().click(); await sleep(400)
+  await page.locator('.tabs .tab', { hasText: 'Git' }).first().click(); await sleep(400)
   await drag(page.locator('.tab-body:visible .split-list > .pane-resizer').first(), 60)
   await page.reload(); await lib.appReady(page)
   await page.getByText('demo', { exact: true }).first().click(); await sleep(400)
-  await page.locator('.tabs .tab', { hasText: 'Changes' }).first().click(); await sleep(600)
+  await page.locator('.tabs .tab', { hasText: 'Git' }).first().click(); await lib.until(async () => (await page.locator('.tab-body:visible .split-list').count()) > 0, 10000)
   check('width kept after reload', Math.abs((await width('.tab-body:visible .split-list')) - 340) <= 3)
   await page.screenshot({ path: path.join(scratch, 'resize-changes.png') })
   // Docs view

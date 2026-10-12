@@ -41,14 +41,14 @@ const write = (file: string, text: string): void => {
 }
 const archived = (id: string): string => join(p, '.hive', 'archive', `${id}.jsonl`)
 const active = (id: string): string => join(p, '.hive', 'sessions', `${id}.jsonl`)
-const images = (id: string): string => join(p, '.hive', 'images', id)
+const attachments = (id: string): string => join(p, '.hive', 'attachments', id)
 
-/** An archived session 200 days old with a backup and images; `inCli`: the CLI still has its transcript. */
+/** An archived session 200 days old with a backup and attachments; `inCli`: the CLI still has its transcript. */
 async function oldSession(inCli: boolean): Promise<string> {
   const id = newId()
   await run(() => workspace.upsertSession(p, { id, agent: 'claude-code', name: id, archived: true, lastActiveAt: ago(200) }))
   write(archived(id), transcript(id))
-  write(join(images(id), 'a.png'), 'png')
+  write(join(attachments(id), 'a.png'), 'png')
   if (inCli) write(join(cli, `${id}.jsonl`), transcript(id))
   return id
 }
@@ -93,7 +93,7 @@ describe('Clean Up while sessions change', () => {
   })
   // Each test starts from no sessions, so what Clean Up does is only to the test's own.
   beforeEach(async () => {
-    for (const d of ['archive', 'sessions', 'images']) rmSync(join(p, '.hive', d), { recursive: true, force: true })
+    for (const d of ['archive', 'sessions', 'attachments']) rmSync(join(p, '.hive', d), { recursive: true, force: true })
     await w.mutateSessions(p, (f) => {
       f.sessions = []
       f.deleted = []
@@ -109,27 +109,27 @@ describe('Clean Up while sessions change', () => {
     await disposeWorkspaceService(w)
   })
 
-  it('a session unarchived meanwhile keeps its backup (now the active one) and images', async () => {
+  it('a session unarchived meanwhile keeps its backup (now the active one) and attachments', async () => {
     const id = await oldSession(true)
     const { listed, result } = await cleanupWith(id, { ...DEFAULT_CLEANUP, archivedBackupsDays: 90 }, () => run(() => sessions.archive(p, id, false)))
     expect(listed.some((l) => l.toLowerCase() === archived(id).toLowerCase())).toBe(true)
     expect(existsSync(active(id))).toBe(true)
-    expect(existsSync(join(images(id), 'a.png'))).toBe(true)
+    expect(existsSync(join(attachments(id), 'a.png'))).toBe(true)
     expect(result.skipped.join('\n')).toMatch(/no longer archived/)
   })
 
-  it('a session resumed meanwhile keeps its backup and images', async () => {
+  it('a session resumed meanwhile keeps its backup and attachments', async () => {
     const id = await oldSession(true)
     const { result } = await cleanupWith(id, { ...DEFAULT_CLEANUP, archivedBackupsDays: 90 }, async () => {
       s.live.set(`${p.toLowerCase()}#c1`, { state: { provider: 'claude-code', runId: 'run-x', projectPath: p, agentId: 'c1', sessionId: id, status: 'ready' } })
     })
-    expect([existsSync(archived(id)), existsSync(join(images(id), 'a.png'))]).toEqual([true, true])
+    expect([existsSync(archived(id)), existsSync(join(attachments(id), 'a.png'))]).toEqual([true, true])
     expect(result.skipped.join('\n')).toMatch(/running/)
   })
 
   it('a copy published meanwhile that the preview did not list: the session keeps both', async () => {
     const id = await oldSession(true)
-    const { result } = await cleanupWith(id, { ...DEFAULT_CLEANUP, archivedImagesDays: null, archivedBackupsDays: 90 }, async () => write(active(id), transcript(id)))
+    const { result } = await cleanupWith(id, { ...DEFAULT_CLEANUP, archivedAttachmentsDays: null, archivedBackupsDays: 90 }, async () => write(active(id), transcript(id)))
     expect([existsSync(archived(id)), existsSync(active(id))]).toEqual([true, true])
     expect(result.skipped.join('\n')).toMatch(/copies changed/)
   })
@@ -138,7 +138,7 @@ describe('Clean Up while sessions change', () => {
     const id = await oldSession(true)
     const before = await totalTokens(id)
     const usage = failUsage(id, async () => null)
-    const { result } = await cleanupWith(id, { ...DEFAULT_CLEANUP, archivedImagesDays: null, archivedBackupsDays: 90 }, async () => undefined)
+    const { result } = await cleanupWith(id, { ...DEFAULT_CLEANUP, archivedAttachmentsDays: null, archivedBackupsDays: 90 }, async () => undefined)
     usage.mockRestore()
     expect(result.skipped.join('\n')).toMatch(/couldn't read what the session used/)
     expect(existsSync(archived(id))).toBe(true)
@@ -152,7 +152,7 @@ describe('Clean Up while sessions change', () => {
     const usage = failUsage(id, async () => {
       throw new Error('EBUSY')
     })
-    const { result } = await cleanupWith(id, { ...DEFAULT_CLEANUP, archivedImagesDays: null, goneBackups: true }, async () => undefined)
+    const { result } = await cleanupWith(id, { ...DEFAULT_CLEANUP, archivedAttachmentsDays: null, goneBackups: true }, async () => undefined)
     usage.mockRestore()
     expect(result.skipped.join('\n')).toMatch(/couldn't read what the session used/)
     expect(existsSync(archived(id))).toBe(true)
@@ -166,7 +166,7 @@ describe('Clean Up while sessions change', () => {
     const { listed, result } = await cleanupWith(kept, { ...DEFAULT_CLEANUP, archivedBackupsDays: 90, goneBackups: true }, async () => undefined)
     expect(result.skipped).toEqual([])
     expect(result.removed).toBe(listed.length)
-    expect([existsSync(archived(kept)), existsSync(archived(gone)), existsSync(images(kept))]).toEqual([false, false, false])
+    expect([existsSync(archived(kept)), existsSync(archived(gone)), existsSync(attachments(kept))]).toEqual([false, false, false])
     rmSync(join(cli, `${kept}.jsonl`))
     const file = await run(() => workspace.sessionsFile(p))
     expect(file.deletedUsage?.some((k) => k.id === gone)).toBe(true)
@@ -186,7 +186,7 @@ describe('Clean Up while sessions change', () => {
       s.live.clear()
       const id = await oldSession(inCli)
       const usage = resumeDuringUsage(id)
-      const { result } = await cleanupWith(id, { ...DEFAULT_CLEANUP, archivedImagesDays: null, archivedBackupsDays: 90, goneBackups: true }, async () => undefined)
+      const { result } = await cleanupWith(id, { ...DEFAULT_CLEANUP, archivedAttachmentsDays: null, archivedBackupsDays: 90, goneBackups: true }, async () => undefined)
       usage.mockRestore()
       expect(existsSync(archived(id))).toBe(true)
       expect(result.skipped.join('\n')).toMatch(/running/)
@@ -212,7 +212,7 @@ describe('Clean Up while sessions change', () => {
     const before = await totalTokens(id)
     const real = w.mutateSessions.bind(w)
     vi.spyOn(w, 'mutateSessions').mockImplementation(() => Promise.reject(new Error('EIO')))
-    const { result } = await cleanupWith(id, { ...DEFAULT_CLEANUP, archivedImagesDays: null, goneBackups: true }, async () => undefined)
+    const { result } = await cleanupWith(id, { ...DEFAULT_CLEANUP, archivedAttachmentsDays: null, goneBackups: true }, async () => undefined)
     vi.mocked(w.mutateSessions).mockImplementation(real)
     expect(result.skipped.join('\n')).toMatch(/EIO/)
     expect(existsSync(archived(id))).toBe(true)
@@ -226,7 +226,7 @@ describe('Clean Up while sessions change', () => {
     let calls = 0
     // The first write (what it used, on its record) works; the last (deleting the record) fails.
     vi.spyOn(w, 'mutateSessions').mockImplementation((pp, fn) => (++calls === 2 ? Promise.reject(new Error('EIO')) : real(pp, fn)))
-    const { result } = await cleanupWith(id, { ...DEFAULT_CLEANUP, archivedImagesDays: null, goneBackups: true }, async () => undefined)
+    const { result } = await cleanupWith(id, { ...DEFAULT_CLEANUP, archivedAttachmentsDays: null, goneBackups: true }, async () => undefined)
     vi.mocked(w.mutateSessions).mockImplementation(real)
     expect(result.skipped.join('\n')).toMatch(/EIO/)
     expect(existsSync(archived(id))).toBe(true)

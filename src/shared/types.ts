@@ -1,6 +1,7 @@
 // Types shared by the main process, preload bridge and renderer.
 
 import type { AvOffer } from './antivirus'
+import type { AttachmentKind } from './attachments'
 import type { StartFailure } from './startFailure'
 import type { TipsState } from './tips'
 import type { TemplateAgent, TemplateScope } from './templates'
@@ -1549,8 +1550,8 @@ export interface ProjectStorage {
   sessions: number
   /** Archived sessions' backups (.hive/archive). */
   archive: number
-  /** Images pasted or dropped into sessions (.hive/images). */
-  images: number
+  /** Files pasted or dropped into sessions (.hive/attachments). */
+  attachments: number
   /** The agents' worktree folders. */
   worktrees: { agent: string; path: string; bytes: number }[]
   /** Worktrees no agent works in (#353), counted in the total. */
@@ -1567,9 +1568,9 @@ export interface WorkspaceStorage {
 
 /** What Clean Up… removes; a days value of null leaves that kind out. */
 export interface CleanupOptions {
-  archivedImagesDays: number | null
-  /** Images of deleted sessions, and of launches that never got a session id. */
-  orphanImages: boolean
+  archivedAttachmentsDays: number | null
+  /** Attachments of deleted sessions, and of launches that never got a session id. */
+  orphanAttachments: boolean
   /** Hive's backups of archived sessions the CLI still has. */
   archivedBackupsDays: number | null
   /** Backups of archived sessions the CLI no longer has: the session is deleted (its usage still counts). */
@@ -1577,7 +1578,7 @@ export interface CleanupOptions {
 }
 
 export interface CleanupItem {
-  kind: 'archived-images' | 'orphan-images' | 'archived-backup' | 'gone-backup'
+  kind: 'archived-attachments' | 'orphan-attachments' | 'archived-backup' | 'gone-backup'
   path: string
   bytes: number
   sessionId?: string
@@ -1805,19 +1806,50 @@ export interface FileContent {
   bom: boolean
 }
 
-export interface SessionImage {
+/** A file pasted or dropped into a session (#387), kept in its host's .hive/attachments/<sessionId>. */
+export interface SessionAttachment {
   path: string
   name: string
   size: number
   modified: string
+  kind: AttachmentKind
 }
 
-/** Images pasted or dropped into one session, from <project>/.hive/images/<sessionId>. */
-export interface SessionImageGroup {
+/** What was pasted or dropped into one session, from <project>/.hive/attachments/<sessionId>, newest first. */
+export interface SessionAttachmentGroup {
   sessionId: string
   name: string | null
   archived: boolean
-  images: SessionImage[]
+  /** The provider the session ran in, when Hive has its record: how its attachments are labelled. */
+  provider: ProviderId | null
+  attachments: SessionAttachment[]
+}
+
+/** One file to attach (#387), as the session would get it: copied into its attachments folder, or as it is by path. */
+export interface AttachmentPlan {
+  source: string
+  name: string
+  size: number
+  kind: AttachmentKind
+  /** Copied into the session's attachments folder: from outside its folder, or an image (kept with the session). */
+  copy: boolean
+  /** A folder: its path is pasted as it is. */
+  folder: boolean
+}
+
+/** One attached file: the path pasted into the prompt. */
+export interface Attached {
+  source: string
+  path: string
+  name: string
+  kind: AttachmentKind
+  copied: boolean
+}
+
+/** A kept attachment's content for the Attachments tab's viewer: text (shown with Hive's previewers), or not text. */
+export interface AttachmentContent {
+  kind: 'text' | 'binary' | 'too-large'
+  text: string
 }
 
 export interface NoteFile {
