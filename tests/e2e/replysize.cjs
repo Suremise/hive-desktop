@@ -43,7 +43,7 @@ const prose = (seed, n) => {
   const cfg = JSON.parse(fs.readFileSync(cfgFile, 'utf8'))
   cfg.settings.providers['claude-code'].executablePath = path.join(__dirname, 'fake-claude', 'fake-claude.cmd')
   cfg.settings.general = { ...cfg.settings.general, confirmOnQuit: 'never' }
-  cfg.settings.agentApi = { ...cfg.settings.agentApi, enabled: true, allowSessionInput: true }
+  cfg.settings.agentApi = { ...cfg.settings.agentApi, enabled: true, allowSessionInput: true, devConsole: true }
   fs.writeFileSync(cfgFile, JSON.stringify(cfg, null, 2))
 
   const env = lib.hiveEnv({ HIVE_USER_DATA: userData, HIVE_API_PORT: String(PORT), CLAUDE_CONFIG_DIR: claudeHome })
@@ -109,7 +109,7 @@ const prose = (seed, n) => {
 
   /** One hive tool call through hive-mcp.js: the text the agent gets (role 'assistant+settings': with Change settings on). */
   const tool = (name, args, role = 'agent') => {
-    const extra = role.startsWith('assistant') ? { HIVE_ROLE: 'assistant', HIVE_ASSISTANT_CONTROL: 'projects', HIVE_ASSISTANT_SETTINGS: role === 'assistant+settings' ? '1' : '0', HIVE_API_TOKEN_FILE: asTokenFile, HIVE_API_TOKEN: '', HIVE_PROJECT: '' } : { HIVE_API_TOKEN: apiToken, HIVE_PROJECT: 'alpha', HIVE_AGENT_ID: coder.id }
+    const extra = { HIVE_DEV_CONSOLE: '1', ...(role.startsWith('assistant') ? { HIVE_ROLE: 'assistant', HIVE_ASSISTANT_CONTROL: 'projects', HIVE_ASSISTANT_SETTINGS: role === 'assistant+settings' ? '1' : '0', HIVE_API_TOKEN_FILE: asTokenFile, HIVE_API_TOKEN: '', HIVE_PROJECT: '' } : { HIVE_API_TOKEN: apiToken, HIVE_PROJECT: 'alpha', HIVE_AGENT_ID: coder.id }) }
     const out = execFileSync(process.execPath, [path.join(lib.ROOT, 'out', 'main', 'hive-mcp.js')], {
       input: JSON.stringify({ jsonrpc: '2.0', id: 1, method: 'tools/call', params: { name, arguments: args } }) + '\n',
       env: lib.childEnv({ HIVE_API_URL: API, HIVE_WORKSPACE: ws, ...extra }),
@@ -120,7 +120,7 @@ const prose = (seed, n) => {
   }
   /** A tool's description as the agent (or the Assistant) is given it. */
   const toolDescription = (name, role = 'agent') => {
-    const extra = role === 'assistant' ? { HIVE_ROLE: 'assistant', HIVE_ASSISTANT_CONTROL: 'projects', HIVE_API_TOKEN_FILE: asTokenFile, HIVE_API_TOKEN: '', HIVE_PROJECT: '' } : { HIVE_API_TOKEN: apiToken, HIVE_PROJECT: 'alpha', HIVE_AGENT_ID: coder.id }
+    const extra = { HIVE_DEV_CONSOLE: '1', ...(role === 'assistant' ? { HIVE_ROLE: 'assistant', HIVE_ASSISTANT_CONTROL: 'projects', HIVE_API_TOKEN_FILE: asTokenFile, HIVE_API_TOKEN: '', HIVE_PROJECT: '' } : { HIVE_API_TOKEN: apiToken, HIVE_PROJECT: 'alpha', HIVE_AGENT_ID: coder.id }) }
     const out = execFileSync(process.execPath, [path.join(lib.ROOT, 'out', 'main', 'hive-mcp.js')], {
       input: JSON.stringify({ jsonrpc: '2.0', id: 1, method: 'tools/list', params: {} }) + '\n',
       env: lib.childEnv({ HIVE_API_URL: API, HIVE_WORKSPACE: ws, ...extra }),
@@ -249,14 +249,50 @@ const prose = (seed, n) => {
   const page2 = measure('hive_list_tasks (offset 70)', tool('hive_list_tasks', { offset: 70 }), 10 * 200)
   check('offset carries on where a page stopped', /^Cards 71–\d+ of \d+\.$/m.test(page2) && page2.split('\n').filter((l) => l.startsWith('#')).length === all.split('\n').filter((l) => l.startsWith('#')).length + 1 - 70, page2.slice(0, 200))
 
+  // The developer console (#636; offered while Settings → Agent API lets agents read it): with no console open a read
+  // starts nothing and says so; with the window watching Coder, a turn reads as a line an event (its prompt hidden), one
+  // event in full, the sources (a page at a time) and Hive's events as the Assistant.
+  const consoleClosed = measure('hive_console (no console open)', tool('hive_console', { agent: 'Coder' }), 300)
+  check('with no console open a read says nothing is captured', consoleClosed.startsWith("alpha · Coder: not captured: the developer console isn't open on it"), consoleClosed)
+  const coderSource = (await inv('console:sources')).find((s) => s.agentId === coder.id)
+  await inv('console:subscribe', [coderSource.id])
+  await lib.sendPrompt(inv, lib.ptyKey(alpha, coder.id), 'turn 5 console', { submitted: async () => String(await inv('pty:buffer', lib.ptyKey(alpha, coder.id))).includes('Done: turn 5 console') })
+  const consoleTurn = await until(async () => {
+    const t = tool('hive_console', { agent: 'Coder' }).text
+    return /hook Stop → stop/.test(t) ? t : null
+  }, HUNG_MS)
+  measure('hive_console (a turn)', consoleTurn ?? '', 2500)
+  check('a turn: a line an event, its prompt hidden', /^#\d+ \d\d:\d\d:\d\d hook UserPromptSubmit → prompt; working/m.test(consoleTurn ?? '') && !(consoleTurn ?? '').includes('turn 5 console'), consoleTurn)
+  const promptSeq = Number(/^#(\d+) .*UserPromptSubmit/m.exec(consoleTurn ?? '')?.[1])
+  const consoleOne = measure('hive_console (an event in full)', tool('hive_console', { agent: 'Coder', seq: [promptSeq] }), 3000)
+  check('…one in full: the raw hook and what Hive made of it, its prompt still hidden', consoleOne.includes('"raw"') && consoleOne.includes('"made"') && /"prompt":"<text: \d+ chars>"/.test(consoleOne), consoleOne)
+  const consoleList = measure('hive_console (sources, as the Assistant)', tool('hive_console', { action: 'sources' }, 'assistant'), 1200)
+  check('the sources: a line each, with how to name it', /^alpha · Coder \(claude-code\): captured, \d+ events \[agent="a-[\w-]+" project="alpha"\]$/m.test(consoleList) && /^Hive: not captured \[source="hive"\]$/m.test(consoleList), consoleList)
+  // On a connection of its own (agent: false): after the slow tool calls above, fetch's kept-alive socket can be the one
+  // Hive's server is closing for idleness, which reset this request once under load.
+  const sourcePage = await new Promise((resolve, reject) => {
+    require('http')
+      .get(`${API}/v1/console/sources?limit=2`, { agent: false, headers: { Authorization: `Bearer ${apiToken}` } }, (res) => {
+        let text = ''
+        res.setEncoding('utf8')
+        res.on('data', (d) => (text += d))
+        res.on('end', () => resolve({ status: res.statusCode, text, body: JSON.parse(text) }))
+      })
+      .on('error', reject)
+  })
+  check('sources come a page at a time, with the total', sourcePage.status === 200 && sourcePage.body.sources.length === 2 && sourcePage.body.total > 2 && sourcePage.body.offset === 0, sourcePage.text.slice(0, 300))
+  measure("hive_console (Hive's events, as the Assistant)", tool('hive_console', { source: 'hive' }, 'assistant'), 300)
+  await inv('console:subscribe', [])
+
   console.log('\n--- hive tools (as the Assistant)')
   measure('hive_list_providers', tool('hive_list_providers', {}, 'assistant'))
   // Hive's settings (#186): a listing (all, narrowed, a project's), one in full, and a change with Change settings on.
   // A line a setting (about 85 characters with its title): 6,200 since #418 added Tell the Assistant when I reply to an agent;
   // 7,000 since #450 added GitHub Copilot, a third provider with its own settings (about 730 characters); 7,200 since #412
-  // added the workspace's Card loop rounds and wait (about 100 characters).
-  const settingsList = measure('hive_list_settings', tool('hive_list_settings', {}, 'assistant'), 7200)
-  check('settings: a line each, id = value, read-only ones marked', /^sessions\.compactSuggestTokens = 200000 · Suggest compacting above$/m.test(settingsList) && /^agentApi\.port = \d+ \[read-only\] · /m.test(settingsList) && !/^advanced\./m.test(settingsList), settingsList.slice(0, 300))
+  // added the workspace's Card loop rounds and wait (about 100 characters); 7,400 since #636 added Let agents read the
+  // developer console (about 70 characters).
+  const settingsList = measure('hive_list_settings', tool('hive_list_settings', {}, 'assistant'), 7400)
+  check('settings: a line each, id = value, read-only ones marked', /^sessions\.compactSuggestTokens = 200000 · Suggest compacting above$/m.test(settingsList) && /^agentApi\.port = \d+ \[read-only\] · /m.test(settingsList) && /^advanced\.showDeveloperFeatures = off · /m.test(settingsList) && !/^advanced\.(logs|data|reset) /m.test(settingsList), settingsList.slice(0, 300))
   const compactList = measure('hive_list_settings (query)', tool('hive_list_settings', { query: 'compact' }, 'assistant'), 1500)
   check('query narrows it, saying what each does', compactList.split('\n').length < 10 && /^assistant\.compactSuggestTokens = 500000 · Highlight Compact over: Context size/m.test(compactList), compactList)
   const projectList = measure('hive_list_settings (a project)', tool('hive_list_settings', { project: 'alpha', scope: 'project' }, 'assistant'), 3000)

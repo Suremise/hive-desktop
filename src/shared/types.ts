@@ -9,6 +9,7 @@ import type { KeepAwakeSetting } from './keepAwake'
 import type { DateFormat, TimeFormat } from './dates'
 import type { ProjectPref } from './uiPrefs'
 import type { GitTool } from './gitTool'
+import type { ConsoleEvent } from './devConsole'
 import type { AgentLeftovers, LeftoverProcessMode } from './agentProcesses'
 import type { UsageTimeline } from './usageTimeline'
 
@@ -166,6 +167,8 @@ export interface AppSettings {
     port: number
     provideHiveMcp: boolean
     allowSessionInput: boolean
+    /** Agents and the Hive Assistant may read the developer console through the hive tools (#636): their own sessions; the Assistant its workspace's. */
+    devConsole: boolean
   }
   /** The Hive Assistant's defaults (each workspace's Assistant Settings can override them). */
   assistant: AssistantSettings
@@ -188,6 +191,10 @@ export interface AppSettings {
     columnColors: boolean
     /** The columns' colours (#rrggbb). */
     colors: Record<TaskColumn, string>
+  }
+  advanced: {
+    /** Help → Developer Console and its shortcut (#366, #637): hidden until this is on. */
+    showDeveloperFeatures: boolean
   }
 }
 
@@ -405,6 +412,8 @@ export interface AppConfig {
   activeProjects: Record<string, string[]>
   /** The last focused window's size and place, for a new window. */
   window: WindowState
+  /** The developer console window's size and place (#637). */
+  consoleWindow?: WindowState
   /** The windows open when Hive last quit, each with its workspace (null: the welcome page), reopened at start. */
   windows?: (WindowState & { workspace: string | null })[]
   /** Per workspace (lowercased path): the last project rename (#514, `.hive/project-names.json`'s number) its view preferences and Working on follow. */
@@ -1153,6 +1162,11 @@ export interface LiveSessionState {
   sessionName?: string
   /** See SessionRecord.titleAtRename. */
   titleAtRename?: string | null
+  /**
+   * When the conversation began: its record's createdAt (a resumed one began before this launch; a new one's record is
+   * given this launch's startedAt), which names it until it has a name, as in the Sessions tab (#630).
+   */
+  sessionCreatedAt?: string
   status: SessionStatus
   /** When the status last changed (ISO): how long an agent has been waiting or finished. */
   statusSince?: string
@@ -2028,6 +2042,8 @@ export type HiveEvent =
   | { type: 'merge-slots-changed'; workspacePath: string; slots: MergeSlotInfo[] }
   /** A workspace's lanes changed, or one of their cards did (the lanes it lists, as lanes:list gives them). */
   | { type: 'lanes-changed'; workspacePath: string; lanes: LaneInfo[] }
+  /** The developer console's new events for the sources this window watches (#636): sent to that window only. */
+  | { type: 'console-events'; events: ConsoleEvent[]; /** Events that didn't fit the window's queue since the last batch (it fell behind). */ dropped?: number }
 
 /**
  * A lane (#483): a builder and a reviewer taking a project's cards in order (the card-loop skill), as Hive keeps it.

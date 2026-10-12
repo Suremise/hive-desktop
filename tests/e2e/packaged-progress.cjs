@@ -75,9 +75,10 @@ const wrap = (args, apiUrl) =>
 
   // An Electron app run through hive-progress (itself run by Hive's executable as Node) starts as an app, exactly as
   // when run directly: ELECTRON_RUN_AS_NODE, the shims' setting for the wrapper, isn't passed on. Reporting on,
-  // off and unavailable.
+  // off and unavailable. The app quits rather than exits: app.exit() as soon as it's ready sometimes crashes Electron
+  // under load, app.quit() never (#656).
   const app = path.join(lib.WORK, 'packaged-progress-electron-app.cjs')
-  fs.writeFileSync(app, "let app = null\ntry { app = require('electron').app } catch {}\nif (!app) { console.log('BROKEN: running as Node'); process.exit(23) }\napp.whenReady().then(() => { console.log('OK: Electron app'); app.exit(0) })\n")
+  fs.writeFileSync(app, "let app = null\ntry { app = require('electron').app } catch {}\nif (!app) { console.log('BROKEN: running as Node'); process.exit(23) }\napp.whenReady().then(() => { console.log('OK: Electron app'); app.quit() })\n")
   const direct = await new Promise((resolve) => {
     const p = spawn(lib.ELECTRON, [app], { env: lib.childEnv() })
     let out = ''

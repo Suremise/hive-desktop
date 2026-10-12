@@ -16,7 +16,7 @@ import { Icon, IconButton, Modal, SearchInput, Switch } from './ui'
 /** A tip's command, when it can run now (Try it). */
 const runnable = (tip: Tip): boolean => {
   const c = tip.command ? commands.find((x) => x.id === tip.command) : undefined
-  return !!c && (!c.when || c.when())
+  return !!c && !c.hidden?.() && (!c.when || c.when())
 }
 
 /** A tip's text with its shortcuts as they are now: {key:<command>} shows the user's shortcut for it. */

@@ -305,6 +305,14 @@ const APP_ROWS: Row[] = [
     danger: true,
     confirmOn: { title: 'Allow API input to sessions?', message: 'Any program with the API token will be able to type commands into running sessions.' }
   },
+  {
+    section: 'agentApi',
+    key: 'devConsole',
+    title: 'Let agents read the developer console',
+    desc: 'Give agents and the Hive Assistant a read-only hive tool for the developer console: what their CLI sends Hive, next to what Hive made of it.',
+    tip: "Each agent reads only its own sessions; the Assistant reads its workspace's agents and Hive's own events. Hive captures only while the developer console is open on a source (reading starts nothing), and what it captures is redacted: no prompt or reply text, commands, tokens or sign-in details. Running sessions get the tool after a restart.",
+    type: 'boolean'
+  },
   { section: 'agentApi', key: 'token', title: 'Access token', desc: 'Bearer token required by the Agent API.', tip: 'Stored in %APPDATA%\\Hive\\agent-api.json. Sessions receive it automatically as HIVE_API_TOKEN.', type: 'custom' },
   {
     section: 'agentApi',
@@ -316,6 +324,14 @@ const APP_ROWS: Row[] = [
     wide: true
   },
   // Advanced
+  {
+    section: 'advanced',
+    key: 'showDeveloperFeatures',
+    title: 'Show developer features',
+    desc: 'Show Help → Developer Console (Ctrl+Alt+J): what each CLI sends Hive, next to what Hive made of it.',
+    tip: 'For power users and for developing Hive. The console opens in a window of its own; Hive captures a source only while it is open on it, redacted. Turning this off closes it.',
+    type: 'boolean'
+  },
   { section: 'advanced', key: 'logs', title: 'Logs', desc: 'Open the folder containing Hive\'s log files.', tip: 'Useful when reporting a problem.', type: 'custom' },
   { section: 'advanced', key: 'data', title: 'Settings file', desc: 'Hive keeps its settings in %APPDATA%\\Hive\\config.json.', tip: 'Project settings live in each project\'s .hive folder; workspace settings in the workspace .hive folder.', type: 'custom' },
   { section: 'advanced', key: 'reset', title: 'Reset all settings', desc: 'Restore every setting on this page to its default. Workspaces and projects are not affected.', tip: 'Recent workspaces and window position are kept.', type: 'custom', danger: true }
@@ -584,7 +600,7 @@ const READ_ONLY: [RegExp, string][] = [[/^keybindings\./, 'Shortcuts are read-on
 
 const RESTART: [RegExp, NonNullable<SettingEntry['restart']>][] = [
   [/^(project\.)?[\w-]+\.(executablePath|defaultModel|defaultEffort|model|effort|extraArgs|use200kContext|allowBackgroundSessions|defaultPermissionMode|permissionMode)$/, 'sessions'],
-  [/^general\.progressCommands$|^agentApi\.provideHiveMcp$/, 'sessions'],
+  [/^general\.progressCommands$|^agentApi\.(provideHiveMcp|devConsole)$/, 'sessions'],
   [/^assistant\.(control|changeSettings|provider|persona)$|^assistant\.provider:|^assistant\.[\w-]+\.\w+$/, 'assistant']
 ]
 

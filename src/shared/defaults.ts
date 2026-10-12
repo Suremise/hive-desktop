@@ -87,7 +87,8 @@ export const DEFAULT_SETTINGS: AppSettings = {
     enabled: true,
     port: DEFAULT_API_PORT,
     provideHiveMcp: true,
-    allowSessionInput: false
+    allowSessionInput: false,
+    devConsole: false
   },
   // The agents' model and effort (empty): a lighter choice saves tokens but makes the Assistant careless.
   assistant: {
@@ -113,6 +114,9 @@ export const DEFAULT_SETTINGS: AppSettings = {
     archiveDoneDays: 14,
     columnColors: true,
     colors: { ...DEFAULT_COLUMN_COLORS }
+  },
+  advanced: {
+    showDeveloperFeatures: false
   }
 }
 

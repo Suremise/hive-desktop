@@ -3,6 +3,7 @@ import { initLoopWakes } from './loopWakes'
 import { initLoopCheck } from './loopCheck'
 import { initAgentMessages } from './agentMessages'
 import { initDecisionWakes } from './decisionWakes'
+import { initDevConsole } from './devConsoleSources'
 import { initAssistantModes } from './assistantMode'
 import { app, BrowserWindow, dialog, Menu, nativeTheme, Notification, protocol, screen, session, shell } from 'electron'
 import { execFile } from 'child_process'
@@ -25,6 +26,7 @@ import { setDateStyle } from '../shared/dates'
 import { SERVABLE_EXT, servableType, unwatchAll } from './files'
 import { movedAttachment } from './attachmentsFolder'
 import { config } from './config'
+import { closeConsoleWindows, sendToConsoles } from './consoleWindow'
 import { archiveOldDone, endReviews } from './tasks'
 import { emit, emitTo, onHiveEvent, toast } from './events'
 import { recordLiveCards } from './cardSessions'
@@ -612,6 +614,9 @@ function archiveOldDoneEverywhere(): void {
 function wireSettingsEffects(): void {
   config.onSettingsChanged((s, prev) => {
     emit({ type: 'settings-changed', settings: s })
+    // The developer console's windows follow the theme, and close when developer features are turned off (#637).
+    sendToConsoles({ type: 'settings-changed', settings: s })
+    if (prev.advanced.showDeveloperFeatures && !s.advanced.showDeveloperFeatures) closeConsoleWindows()
     setDateStyle({ date: s.general.dateFormat, time: s.general.timeFormat })
     if (s.board.archiveDoneDays !== prev.board.archiveDoneDays) archiveOldDoneEverywhere()
     if (s.general.launchAtLogin !== prev.general.launchAtLogin) {
@@ -744,6 +749,8 @@ app.whenReady().then(async () => {
           HIVE_ASSISTANT_CONTROL: config.settings.assistant?.control ?? 'projects',
           // Its settings tool (hive_update_setting) is offered only with Change settings on: a change restarts it.
           HIVE_ASSISTANT_SETTINGS: config.settings.assistant?.changeSettings === true ? '1' : '0',
+          // The developer console's tool (hive_console) is offered only while Settings → Agent API lets agents read it.
+          HIVE_DEV_CONSOLE: config.settings.agentApi.devConsole === true ? '1' : '0',
           ...testMcpLog()
         }
       }
@@ -766,6 +773,7 @@ app.whenReady().then(async () => {
         ...(agentId ? { HIVE_AGENT_ID: agentId } : {}),
         // Whether its instructions tell it to run long commands through hive-progress unasked.
         HIVE_PROGRESS_COMMANDS: wrapsLongCommands(config.settings.general) ? '1' : '0',
+        HIVE_DEV_CONSOLE: s.devConsole === true ? '1' : '0',
         ...testMcpLog()
       }
     }
@@ -776,6 +784,7 @@ app.whenReady().then(async () => {
   initLoopCheck()
   initAgentMessages()
   initDecisionWakes()
+  initDevConsole()
   initAssistantModes()
   // A watcher stops keeping a pending quit waiting when the card it waits on leaves another agent's work (no wake comes).
   onWatchedCardsMoved(() => checkPendingQuit())
