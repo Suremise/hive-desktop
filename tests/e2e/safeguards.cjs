@@ -26,8 +26,9 @@ const PORT = Number(lib.port(47876))
 const API = `http://127.0.0.1:${PORT}`
 const IDLE_MESSAGE = 'Idle after a safeguard stop: give it a nudge'
 let failed = 0
-// What Performance counted before the restart, by model.
+// What Performance counted before the restart, by model, and the agent's session.
 let expected = null
+let sessionId = null
 const check = (name, ok, extra = '') => {
   if (!ok) failed++
   console.log(`${ok ? 'PASS' : 'FAIL'} ${name}${ok || !extra ? '' : ` (${extra})`}`)
@@ -194,13 +195,31 @@ const check = (name, ok, extra = '') => {
     check('and Performance counts that stop once (prompt and record)', await countedIs({ 'claude-fake': 1, 'claude-opus-4-8': 4 }), JSON.stringify(await counted()))
     const record = JSON.parse(fs.readFileSync(path.join(alpha, '.hive', 'sessions.json'), 'utf8')).sessions.find((s) => s.agentId === id)
     const screenStops = record?.screenStops ?? []
-    check('the session keeps both stops seen on screen, the second matched to its record', screenStops.length === 2 && !screenStops[0].matched && (screenStops[1].matched ?? '').startsWith('req_'), JSON.stringify(screenStops))
+    check('the session keeps both stops seen on screen, each with its turn', screenStops.length === 2 && screenStops.every((s) => s.turn) && screenStops[0].turn !== screenStops[1].turn, JSON.stringify(screenStops))
+
+    // One more prompt, left waiting when Hive quits: Claude Code records that stop while Hive is down (below).
+    const last = await api('POST', '/v1/projects/alpha/agents/Tester/prompt', { text: 'safeguardprompt' })
+    const left = await until(async () => {
+      const s = await live(alpha, id)
+      return s?.status === 'waiting' && s.safeguard?.prompt && s
+    }, HUNG_MS)
+    check('it waits on a last prompt', last.status === 200 && !!left, JSON.stringify((await live(alpha, id))?.safeguard))
+    check('which Performance counts', await countedIs({ 'claude-fake': 1, 'claude-opus-4-8': 4, 'claude-sonnet-5-5': 1 }), JSON.stringify(await counted()))
+    sessionId = left?.sessionId
     expected = await counted()
   } finally {
     await app.close()
   }
 
-  // After a restart, Performance still counts them all (the stops seen only on screen are kept on the session's record).
+  // While Hive is down, Claude Code records the stop its last prompt showed (answered "Switch automatically" then): in
+  // the same turn of its transcript, so it is that stop, not another, though Hive never saw the two together.
+  const find = (dir) => fs.readdirSync(dir, { withFileTypes: true }).flatMap((e) => (e.isDirectory() ? find(path.join(dir, e.name)) : e.name === `${sessionId}.jsonl` ? [path.join(dir, e.name)] : []))
+  const transcript = sessionId ? find(path.join(claudeHome, 'projects'))[0] : undefined
+  check('its transcript is found', !!transcript, String(sessionId))
+  if (transcript) fs.appendFileSync(transcript, JSON.stringify({ type: 'system', subtype: 'model_refusal_fallback', direction: 'retry', scope: 'session', content: "Opus 5.5's safeguards flagged this message. Switched to Opus 4.8.", level: 'warning', trigger: 'refusal', originalModel: 'claude-sonnet-5-5', fallbackModel: 'claude-opus-4-8', requestId: 'req_while_down', apiRefusalCategory: 'cyber', isMeta: false, timestamp: new Date().toISOString(), uuid: 'record-while-down', sessionId }) + '\n')
+
+  // After a restart, Performance counts the same: the stops seen only on screen are kept on the session's record, and the
+  // one recorded while Hive was down is matched to its prompt by their turn (#606 round 3).
   const again = await _electron.launch({ executablePath: lib.ELECTRON, args: [lib.ROOT], cwd: lib.ROOT, env })
   try {
     const page = await again.firstWindow()

@@ -348,7 +348,7 @@ async function runPrompt(text) {
   // Its spinner above its input while it works, as Claude Code 2.1.296 draws them, taken back when the turn ends.
   out(BUSY)
   busyDrawn = writes
-  write({ type: 'user', message: { role: 'user', content: text } })
+  write({ type: 'user', uuid: randomUUID(), message: { role: 'user', content: text } })
   await hook('UserPromptSubmit', { prompt: text })
   if (signedOut()) {
     const said = 'Login expired · Please run /login'

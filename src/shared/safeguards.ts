@@ -86,6 +86,11 @@ export function memoModel(memo: Record<string, unknown> | undefined): string | u
   return typeof memo?.model === 'string' && memo.model ? memo.model : undefined
 }
 
+/** The turn a detector's memo is in (each that tells turns keeps it as `turn`: SafeguardEvent.turn), when it knows it. */
+export function memoTurn(memo: Record<string, unknown> | undefined): string | undefined {
+  return typeof memo?.turn === 'string' && memo.turn ? memo.turn : undefined
+}
+
 /**
  * What a provider's transcript says of its safeguards, read as the transcript grows (ProviderAdapter.safeguards):
  * a response stopped (`model`: the one it ran on; `tools`: the names of the agent's last calls before it), or the
@@ -93,9 +98,10 @@ export function memoModel(memo: Record<string, unknown> | undefined): string | u
  * reroute does). `at`: when the CLI wrote it (ms). A stop's `id` is what the CLI identifies the stopped request by,
  * when it does: each detector counts a stop once by it, however close two stops are. `asked`: the CLI's record of a
  * stop it may have asked the user about first (Claude Code's `model_refusal_fallback`), so a stop Hive saw on screen
- * (the prompt) and this record of it count once.
+ * (the prompt) and this record of it count once: matched by `turn`, the turn both came in (the CLI's id for the user's
+ * prompt that started it), read from the transcript's own order, so neither when Hive reads them nor a restart matters.
  */
-export type SafeguardEvent = { kind: 'stop'; at: number; model?: string; tools: string[]; id?: string; asked?: boolean } | { kind: 'switch'; at: number; from: string; to: string; flagged?: boolean }
+export type SafeguardEvent = { kind: 'stop'; at: number; model?: string; tools: string[]; id?: string; asked?: boolean; turn?: string } | { kind: 'switch'; at: number; from: string; to: string; flagged?: boolean }
 
 /** An agent's safeguard stops this launch, as its state shows them (LiveSessionState.safeguard). */
 export interface SafeguardNote {
@@ -174,25 +180,59 @@ export function safeguardText(note: SafeguardNote, label: (model: string) => str
   return parts.join(' ')
 }
 
-/** Adds a read's stops to a session's count by model (SessionUsage.safeguards; '' when the CLI didn't say the model). */
-export function countSafeguards(by: Record<string, number>, events: readonly SafeguardEvent[]): void {
-  for (const ev of events) if (ev.kind === 'stop') by[ev.model ?? ''] = (by[ev.model ?? ''] ?? 0) + 1
+/**
+ * Adds a read's stops to a session's count by model (SessionUsage.safeguards; '' when the CLI didn't say the model), and
+ * its records of stops it may have asked about to their turns (`asked`: SessionUsage.safeguardsAsked).
+ */
+export function countSafeguards(by: Record<string, number>, events: readonly SafeguardEvent[], asked?: Record<string, number>): void {
+  for (const ev of events) {
+    if (ev.kind !== 'stop') continue
+    by[ev.model ?? ''] = (by[ev.model ?? ''] ?? 0) + 1
+    if (asked && ev.asked && ev.turn) asked[ev.turn] = (asked[ev.turn] ?? 0) + 1
+  }
 }
 
 /**
- * A stop Hive saw only on the CLI's screen (its prompt about one), kept on the session's record so Performance counts it
- * (SessionRecord.screenStops): HB3's left no transcript entry. `matched`: the transcript recorded it after all (by this
- * identity), so the transcript's count has it.
+ * A stop Hive saw on the CLI's screen (its prompt about one), kept on the session's record so Performance counts it
+ * (SessionRecord.screenStops): HB3's left no transcript entry. `turn`: the turn it came in (SafeguardEvent.turn), when
+ * the transcript said, so the CLI's record of it, if it writes one, is told from another stop (withScreenStops).
  */
 export interface ScreenStop {
   at: string
   model?: string
-  matched?: string
+  turn?: string
 }
 
-/** A session's stops by model with those seen only on screen added (SessionUsage.safeguards). */
-export function withScreenStops(by: Record<string, number> | undefined, screen: readonly ScreenStop[] | undefined): Record<string, number> | undefined {
-  const own = (screen ?? []).filter((s) => !s.matched)
+/** A launch's safeguard stops per turn, from each source (seenInTurn). */
+export type GuardTurns = Map<string, { screen: number; asked: number }>
+
+/**
+ * A stop in `turn` seen from one source, its prompt on screen or the CLI's record of a stop it asked about: true when the
+ * other source gave it already (in a turn, one of each is the same stop, whichever comes first), so it isn't counted
+ * again. Counts it either way.
+ */
+export function seenInTurn(turns: GuardTurns, turn: string, from: 'screen' | 'asked'): boolean {
+  const t = turns.get(turn) ?? { screen: 0, asked: 0 }
+  const same = (from === 'screen' ? t.asked : t.screen) > t[from]
+  t[from]++
+  turns.set(turn, t)
+  return same
+}
+
+/**
+ * A session's stops by model with those seen only on screen added (SessionUsage.safeguards). In a turn, each of the
+ * CLI's records of a stop it may have asked about (`asked`: per turn, SessionUsage.safeguardsAsked) is one of the stops
+ * its screen showed, already in the transcript's count; the screen's stops beyond those are added. A screen stop with no
+ * turn known is added.
+ */
+export function withScreenStops(by: Record<string, number> | undefined, screen: readonly ScreenStop[] | undefined, asked?: Readonly<Record<string, number>>): Record<string, number> | undefined {
+  const recorded = new Map(Object.entries(asked ?? {}))
+  const own: ScreenStop[] = []
+  for (const s of screen ?? []) {
+    const left = s.turn ? (recorded.get(s.turn) ?? 0) : 0
+    if (left > 0) recorded.set(s.turn!, left - 1)
+    else own.push(s)
+  }
   if (!own.length) return by
   const out: Record<string, number> = { ...by }
   for (const s of own) out[s.model ?? ''] = (out[s.model ?? ''] ?? 0) + 1

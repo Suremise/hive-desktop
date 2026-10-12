@@ -1,9 +1,11 @@
 import { SAFEGUARD_TOOLS, newStop, safeguardCodes, safeguardPattern, type SafeguardEvent, type SafeguardOverrides } from '../../../shared/safeguards'
 
-/** What the reading keeps between reads (the launch's memo): the model the agent ran on, its last tool calls, the stops seen. */
+/** What the reading keeps between reads (the launch's memo): the model the agent ran on, its last tool calls, its turn, the stops seen. */
 interface Memo {
   model?: string
   tools?: string[]
+  /** The turn it is in: the uuid of the person's prompt that started it (its time when the entry has none). */
+  turn?: string
   /** A stop has been seen in this transcript: a model change after it is the fallback. */
   stopped?: boolean
   /** The stops' identities seen (newStop). */
@@ -18,6 +20,14 @@ interface Memo {
 
 const str = (v: unknown): string | undefined => (typeof v === 'string' && v ? v : undefined)
 
+/** A prompt the person typed (a new turn): not Claude Code's own (meta, a compaction's summary, a command) nor a tool's result. */
+function isPrompt(o: Record<string, any>): boolean {
+  if (o.isMeta || o.isCompactSummary || o.toolUseResult !== undefined) return false
+  const c = o.message?.content
+  if (typeof c === 'string') return !!c.trim() && !c.trimStart().startsWith('<')
+  return Array.isArray(c) && c.length > 0 && c.every((b) => b?.type === 'text' || b?.type === 'image') && c.some((b) => b?.type === 'text' && typeof b.text === 'string' && !b.text.trimStart().startsWith('<'))
+}
+
 /**
  * Claude Code's safeguard stops and model changes in transcript lines (2.1.296, #606).
  * - A stop it retries once writes a system note ("Opus 5.5's safeguards stopped the response above · …", matched by the
@@ -28,7 +38,9 @@ const str = (v: unknown): string | undefined => (typeof v === 'string' && v ? v 
  *   `model_refusal_fallback` with `originalModel`, `fallbackModel` and `scope`; `model_refusal_no_fallback`), a stop by
  *   its `requestId`, and for the session a switch the safeguard made (flagged). Claude Code may first have asked the user
  *   about it (its prompt, which Hive sees on screen): `asked`.
- * Each stop counts once by its identity, however close two are. Commands typed in it (/feedback about a stop, a
+ * Each stop counts once by its identity, however close two are, and carries its turn (the person's prompt that started
+ * it, in the transcript's order), so a stop Hive saw on screen and Claude Code's record of it match whenever, and in
+ * whichever order, Hive reads them (withScreenStops). Commands typed in it (/feedback about a stop, a
  * local_command entry), the person's own prompts and side conversations (subagents) never count. The model an assistant
  * message ran on (`message.model`) changing after a stop is the fallback too; Claude Code's own synthetic messages, and
  * a response another model answered alone (scope local), don't change it.
@@ -41,7 +53,7 @@ export function claudeSafeguards(appended: string, memo: Record<string, unknown>
   const stop = (at: number, id: string | undefined, model = m.model, asked = false): boolean => {
     if (!newStop(m, id)) return false
     m.stopped = true
-    out.push({ kind: 'stop', at, ...(model ? { model } : {}), tools: [...(m.tools ?? [])], ...(id ? { id } : {}), ...(asked ? { asked: true } : {}) })
+    out.push({ kind: 'stop', at, ...(model ? { model } : {}), tools: [...(m.tools ?? [])], ...(id ? { id } : {}), ...(asked ? { asked: true } : {}), ...(m.turn ? { turn: m.turn } : {}) })
     return true
   }
   for (const line of appended.split('\n')) {
@@ -49,7 +61,9 @@ export function claudeSafeguards(appended: string, memo: Record<string, unknown>
     // A note pairs only with the entry right after it.
     const afterNote = m.afterNote
     m.afterNote = false
-    if (!line.includes('"assistant"') && !line.includes('refusedMessageId') && !line.includes('"system"')) continue
+    // The person's prompts too (a new turn), not the tool results that are most of the user entries.
+    const prompt = line.includes('"user"') && !line.includes('"tool_result"')
+    if (!prompt && !line.includes('"assistant"') && !line.includes('refusedMessageId') && !line.includes('"system"')) continue
     let o: Record<string, any>
     try {
       o = JSON.parse(line)
@@ -91,7 +105,9 @@ export function claudeSafeguards(appended: string, memo: Record<string, unknown>
       stop(at, str(o.uuid))
       m.noteUuid = str(o.uuid)
       m.afterNote = true
-    } else if (o.type === 'user' && str(o.refusedMessageId)) {
+    } else if (o.type === 'user' && !str(o.refusedMessageId)) {
+      if (isPrompt(o)) m.turn = str(o.uuid) ?? `prompt ${o.timestamp ?? at}`
+    } else if (o.type === 'user') {
       // The note's pair (the same stop, already counted by the note) or a stop of its own.
       if (afterNote || (str(o.parentUuid) && o.parentUuid === m.noteUuid)) newStop(m, o.refusedMessageId)
       else stop(at, o.refusedMessageId)

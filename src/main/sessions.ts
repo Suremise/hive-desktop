@@ -50,7 +50,7 @@ import { presentWindow, showOsNotification, testNotifyLog, testQuiet } from './t
 import { hashText, heldOpen, insideReal, isInUse, readJson, placeRelative, removePath, samePlace, treeSignature, syncCopy, syncCopyLocked, syncCopyNow, trashAllOrNothing, withFileLock, writeJsonAtomic } from './fsutil'
 import { createLogger, hookJournal, userText } from './logger'
 import { applyStep, compactionOver, expireTasks, hookStep, idleAfter, markedIdle, safeguardAnswered, SAFEGUARD_IDLE_MESSAGE, titleStep, type HookStatusInput, type HookStep } from './hookStatus'
-import { memoModel, memoTools, noteSafeguard, safeguardText, withScreenStops, type SafeguardEvent, type ScreenStop } from '../shared/safeguards'
+import { memoModel, memoTools, memoTurn, noteSafeguard, safeguardText, seenInTurn, withScreenStops, type GuardTurns, type SafeguardEvent, type ScreenStop } from '../shared/safeguards'
 import { admit, describe as describeTurn, endRunning, heard, newLedger, openCalls, reconciles, silentFor, unheardStop, type ScreenReading, type TurnLedger } from './turnLedger'
 import { Compaction } from './compaction'
 import { lastTitle } from './terminalTitle'
@@ -217,11 +217,11 @@ interface LiveSession {
   /** When it began waiting on a safeguard prompt (#606): typed into since, or the prompt gone from its screen, it may be answered. */
   guardPromptAt?: number
   /**
-   * The stop its last safeguard prompt showed, kept on the session's record (SessionRecord.screenStops) until the
-   * transcript records it (the CLI's record of a stop it asked about, SafeguardEvent.asked), so it counts once; a new
-   * prompt from the user starts another turn, and a record after that is another stop.
+   * This launch's safeguard stops per turn (SafeguardEvent.turn) from its prompts on screen and from the CLI's records of
+   * stops it asked about (SafeguardEvent.asked): in a turn, one of each is the same stop, whichever comes first, so the
+   * agent's note counts it once (Performance matches them the same way from the session's record: withScreenStops).
    */
-  guardScreen?: { at: string; sessionId: string }
+  guardTurns?: GuardTurns
   /** The safeguard read under way (readSafeguards: one at a time). */
   guardReading?: Promise<void>
   /** A screen check for the safeguard prompt is queued (one at a time, however much the CLI draws meanwhile). */
@@ -2575,12 +2575,8 @@ class SessionManager {
   /** A safeguard event on the agent's state (noteSafeguard); a switch to another model is told: Hive's own notice, and a note on its Doing cards. */
   private noteSafeguard(l: LiveSession, ev: SafeguardEvent): void {
     const st = l.state
-    if (ev.kind === 'stop' && ev.asked && l.guardScreen) {
-      // The CLI's record of the stop its prompt showed: counted then (and kept on the session's record), so only marked
-      // as recorded there now (the transcript's count has it), with the model when the screen didn't say.
-      const screen = l.guardScreen
-      l.guardScreen = undefined
-      void this.matchScreenStop(st.projectPath, screen, ev.id ?? `transcript ${ev.at}`).catch((e) => log.warn('safeguard: could not match the stop seen on screen', e))
+    if (ev.kind === 'stop' && ev.asked && ev.turn && this.guardSeen(l, ev.turn, 'asked')) {
+      // The CLI's record of a stop its prompt showed in this turn: counted then, so only the model it adds.
       if (ev.model && st.safeguard && !st.safeguard.model) {
         st.safeguard = { ...st.safeguard, model: ev.model }
         this.emitState(st)
@@ -2644,11 +2640,13 @@ class SessionManager {
     let noted = st.safeguard
     if (!noted?.prompt) {
       const model = memoModel(memo)
-      noted = noteSafeguard(noted, { kind: 'stop', at, model, tools: memoTools(memo) }) ?? noted
-      // Kept on the session's record, so Performance counts it though the transcript may never record it (HB3's didn't).
+      const turn = memoTurn(memo)
+      // Counted unless the CLI's record of it in this turn was read first.
+      if (!turn || !this.guardSeen(l, turn, 'screen')) noted = noteSafeguard(noted, { kind: 'stop', at, model, tools: memoTools(memo) }) ?? noted
+      // Kept on the session's record with its turn, so Performance counts it though the transcript may never record it
+      // (HB3's didn't), and once if it does (withScreenStops), whenever Hive reads it.
       if (st.sessionId) {
-        const stop: ScreenStop = { at: new Date(at).toISOString(), ...(model ? { model } : {}) }
-        l.guardScreen = { at: stop.at, sessionId: st.sessionId }
+        const stop: ScreenStop = { at: new Date(at).toISOString(), ...(model ? { model } : {}), ...(turn ? { turn } : {}) }
         await this.keepScreenStop(st.projectPath, st.sessionId, stop).catch((e) => log.warn('safeguard: could not keep the stop seen on screen', e))
       }
     }
@@ -2668,12 +2666,9 @@ class SessionManager {
     })
   }
 
-  /** A stop seen on screen that the transcript recorded after all (by `id`): its count is the transcript's now. */
-  private async matchScreenStop(projectPath: string, screen: { at: string; sessionId: string }, id: string): Promise<void> {
-    await workspace.mutateSessions(projectPath, (f) => {
-      const stop = f.sessions.find((s) => s.id === screen.sessionId)?.screenStops?.find((s) => s.at === screen.at && !s.matched)
-      if (stop) stop.matched = id
-    })
+  /** A stop in `turn` from its prompt on screen or the CLI's record (seenInTurn): true when it was counted already this launch. */
+  private guardSeen(l: LiveSession, turn: string, from: 'screen' | 'asked'): boolean {
+    return seenInTurn((l.guardTurns ??= new Map()), turn, from)
   }
 
   /**
@@ -3280,8 +3275,6 @@ class SessionManager {
     const guard = this.guardCandidate(l, hook.event)
     if (took.verdict === 'apply') {
       let ev = took.event
-      // A new turn: a record of a stop after it isn't the one a prompt showed before.
-      if (ev.kind === 'prompt') l.guardScreen = undefined
       if (guard && ev.kind === 'ask') {
         if (this.guardShown(l, ev.ask)) ev = { ...ev, ask: await this.safeguardPrompt(l, ev.ask, at) }
         else l.guardAsk = { ask: ev.ask, at, applied: true }
@@ -3621,7 +3614,7 @@ class SessionManager {
       l.guardOffset = 0
       l.guardMemo = undefined
       l.guardAsk = undefined
-      l.guardScreen = undefined
+      l.guardTurns = undefined
       // What the old conversation's records said of its turns is no record of the new one's (#648).
       l.turnRecord = undefined
       l.stopsAnswered = undefined
@@ -3979,7 +3972,7 @@ class SessionManager {
     // Safeguard stops seen only on screen (#606), kept on its record: the transcript's count doesn't have them.
     const screen = (ctx?.records ?? (await workspace.sessionsFile(projectPath)).sessions).find((s) => s.id === sessionId)?.screenStops
     if (usage) {
-      const safeguards = withScreenStops(usage.safeguards, screen)
+      const safeguards = withScreenStops(usage.safeguards, screen, usage.safeguardsAsked)
       if (safeguards !== usage.safeguards) usage = { ...usage, safeguards }
     }
     // A transcript without the context window (Claude Code's): the running session's status line has it.

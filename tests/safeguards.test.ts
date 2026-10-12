@@ -3,7 +3,7 @@ import { claudeSafeguards } from '../src/main/providers/claude/safeguards'
 import { codexSafeguards } from '../src/main/providers/codex/safeguards'
 import { claudeCode } from '../src/main/providers/claude/adapter'
 import type { Ask } from '../src/main/providers/types'
-import { SAFEGUARD_DEFAULTS, noteSafeguard, safeguardCodes, safeguardPattern, safeguardText, withScreenStops, type SafeguardEvent, type SafeguardNote } from '../src/shared/safeguards'
+import { SAFEGUARD_DEFAULTS, noteSafeguard, safeguardCodes, safeguardPattern, safeguardText, seenInTurn, withScreenStops, type SafeguardEvent, type SafeguardNote } from '../src/shared/safeguards'
 
 const lines = (...o: unknown[]): string => o.map((x) => JSON.stringify(x)).join('\n') + '\n'
 const at = (iso: string): number => Date.parse(iso)
@@ -274,13 +274,51 @@ describe('usage', () => {
     expect(codex.safeguards).toEqual({ 'gpt-5.3-codex': 1 })
   })
 
-  it('adds the stops seen only on screen, except those the transcript recorded after all', () => {
+  it('adds the stops seen only on screen, except, per turn, those the transcript recorded too', () => {
     const transcript = { 'claude-opus-5-5': 1 }
     expect(withScreenStops(transcript, undefined)).toBe(transcript)
-    expect(withScreenStops(transcript, [{ at: T1, model: 'claude-opus-5-5', matched: 'req_1' }])).toBe(transcript)
-    expect(withScreenStops(transcript, [{ at: T1, model: 'claude-opus-5-5' }, { at: T2 }, { at: T3, model: 'claude-opus-5-5', matched: 'req_2' }])).toEqual({ 'claude-opus-5-5': 2, '': 1 })
+    // Its record in the same turn: the same stop, already in the transcript's count.
+    expect(withScreenStops(transcript, [{ at: T1, model: 'claude-opus-5-5', turn: 'p1' }], { p1: 1 })).toBe(transcript)
+    // A record in another turn is another stop; a screen stop with no turn known always counts.
+    expect(withScreenStops(transcript, [{ at: T1, model: 'claude-opus-5-5', turn: 'p1' }, { at: T2 }, { at: T3, model: 'claude-opus-5-5', turn: 'p3' }], { p3: 1, p9: 1 })).toEqual({ 'claude-opus-5-5': 2, '': 1 })
+    // Two prompts in a turn and one record: one of them is that record's, the other its own.
+    expect(withScreenStops(transcript, [{ at: T1, model: 'claude-opus-5-5', turn: 'p1' }, { at: T2, model: 'claude-opus-5-5', turn: 'p1' }], { p1: 1 })).toEqual({ 'claude-opus-5-5': 2 })
     expect(withScreenStops(undefined, [{ at: T1, model: 'claude-opus-5-5' }])).toEqual({ 'claude-opus-5-5': 1 })
     expect(transcript).toEqual({ 'claude-opus-5-5': 1 })
+  })
+
+  it("matches a prompt's stop with its record by the turn in the transcript, however late it is read: after the next prompt, or a restart", async () => {
+    const { parseTranscript } = await import('../src/main/providers/claude/usage')
+    const prompt = (ts: string, uuid: string, text: string): object => ({ type: 'user', timestamp: ts, uuid, message: { role: 'user', content: text } })
+    // Turn p1: the prompt seen on screen (no entry), then its record when answered "Switch automatically". Turn p2 began
+    // before Hive read either (the next prompt), and turn p3 had a stop its screen showed and nothing recorded (HB3's).
+    const text = lines(prompt(T0, 'p1', 'fix it'), assistant(T0, 'claude-opus-5-5', [toolUse('Bash')]), fallback(T1, 'req_1', 'session'), assistant(T1, 'claude-opus-4-8', []), prompt(T2, 'p2', 'carry on'), assistant(T2, 'claude-opus-4-8', []), prompt(T3, 'p3', 'and this'))
+    const usage = parseTranscript(text, 's1')
+    expect([usage.safeguards, usage.safeguardsAsked]).toEqual([{ 'claude-opus-5-5': 1 }, { p1: 1 }])
+    // What the session's record kept (with each stop's turn), read now or after a restart: each stop counted once.
+    const screen = [{ at: T1, model: 'claude-opus-5-5', turn: 'p1' }, { at: T3, model: 'claude-opus-4-8', turn: 'p3' }]
+    expect(withScreenStops(usage.safeguards, screen, usage.safeguardsAsked)).toEqual({ 'claude-opus-5-5': 1, 'claude-opus-4-8': 1 })
+    // Read in two parts, the record after the next prompt: its turn is still the one it came in.
+    const memo = {}
+    claudeSafeguards(lines(prompt(T0, 'p1', 'fix it')), memo)
+    expect(claudeSafeguards(lines(fallback(T1, 'req_1', 'session'), prompt(T2, 'p2', 'carry on')), memo).find((e) => e.kind === 'stop')).toMatchObject({ asked: true, turn: 'p1' })
+    // Hive's own lines, tool results and Claude Code's meta entries aren't a new turn; a prompt with no uuid is one by its time.
+    const own = claudeSafeguards(lines(prompt(T0, 'p1', 'fix it'), { type: 'user', timestamp: T0, message: { role: 'user', content: [{ type: 'tool_result', tool_use_id: 'x', content: 'ok' }] } }, { type: 'user', isMeta: true, timestamp: T0, message: { role: 'user', content: 'caveat' } }, fallback(T1, 'req_2', 'local'), { type: 'user', timestamp: T2, message: { role: 'user', content: 'next' } }, fallback(T3, 'req_3', 'local')), {})
+    expect(own.map((e) => e.kind === 'stop' && e.turn)).toEqual(['p1', `prompt ${T2}`])
+  })
+
+  it("counts a stop its prompt showed and the CLI recorded once in a launch, whichever is read first", () => {
+    const turns = new Map()
+    // The prompt first, then its record: the record is the same stop.
+    expect(seenInTurn(turns, 'p1', 'screen')).toBe(false)
+    expect(seenInTurn(turns, 'p1', 'asked')).toBe(true)
+    // The record first (read before the screen showed the prompt), then the prompt: likewise.
+    expect(seenInTurn(turns, 'p2', 'asked')).toBe(false)
+    expect(seenInTurn(turns, 'p2', 'screen')).toBe(true)
+    // A second prompt in a turn whose one record is matched, and records in a turn with no prompt: each another stop.
+    expect(seenInTurn(turns, 'p1', 'screen')).toBe(false)
+    expect(seenInTurn(turns, 'p3', 'asked')).toBe(false)
+    expect(seenInTurn(turns, 'p3', 'asked')).toBe(false)
   })
 })
 

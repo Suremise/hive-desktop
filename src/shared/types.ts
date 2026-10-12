@@ -1599,6 +1599,11 @@ export interface SessionUsage {
    * when none, or for a CLI Hive can't detect them in (shared/safeguards.ts).
    */
   safeguards?: Record<string, number>
+  /**
+   * Of those, the CLI's records of stops it may have asked about first (SafeguardEvent.asked), per turn (its prompt's id):
+   * a stop Hive saw on screen in that turn (SessionRecord.screenStops) is one of them, not another (withScreenStops).
+   */
+  safeguardsAsked?: Record<string, number>
 }
 
 export interface UsageTokens {
