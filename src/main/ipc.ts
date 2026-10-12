@@ -20,6 +20,7 @@ import { setPinned } from './pin'
 import { presentWindow } from './testQuiet'
 import { insideArchive, insideReal, isFile, samePlace, writeTextAtomic, writeTextUnlessChanged } from './fsutil'
 import { gitDiff, gitStatus } from './git'
+import { addRemote, createBranch, createTag, fetchAll, pull, push, repoHistory, repoInfo, repoSummary, setIdentity, setRemoteUrl, switchBranch } from './gitRepo'
 import { checkGit, gitTool } from './gitTool'
 import { refreshPath } from './freshPath'
 import { mergeUnused, removalPreview, removeUnusedWorktree, unusedBranchStatus, unusedWorktrees } from './unusedWorktrees'
@@ -849,6 +850,19 @@ export function registerIpc(getAppInfo: () => ReturnType<HiveRequests['app:info'
       void shell.openPath(file)
     },
     'git:tool': (recheck) => (recheck ? checkGit() : gitTool()),
+    // The Git view (#607): the project folder only, read and changed by the user from the window (never an agent tool).
+    'git:summary': (p) => repoSummary(workspace.assertProject(p)),
+    'git:info': (p) => repoInfo(workspace.assertProject(p)),
+    'git:history': (p) => repoHistory(workspace.assertProject(p)),
+    'git:switch': (p, branch) => switchBranch(p, String(branch ?? '')),
+    'git:createBranch': (p, name, stay) => createBranch(p, String(name ?? ''), !!stay),
+    'git:addRemote': (p, name, url) => addRemote(p, String(name ?? ''), String(url ?? '')),
+    'git:setRemoteUrl': (p, name, url) => setRemoteUrl(p, String(name ?? ''), String(url ?? '')),
+    'git:fetch': (p) => fetchAll(p),
+    'git:pull': (p) => pull(p),
+    'git:push': (p, remote) => push(p, remote ? String(remote) : undefined),
+    'git:createTag': (p, name, message, pushTo) => createTag(p, String(name ?? ''), String(message ?? ''), pushTo ? String(pushTo) : undefined),
+    'git:setIdentity': (p, name, email) => setIdentity(p, String(name ?? ''), String(email ?? '')),
 
     'provider:info': () => providerService.all(),
     'provider:refresh': async (id) => {

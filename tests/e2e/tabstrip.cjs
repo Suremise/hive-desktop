@@ -14,7 +14,7 @@ const userData = path.join(lib.WORK, 'tabstrip-profile')
 const ws = path.join(lib.WORK, 'tabstrip-ws')
 const claudeHome = path.join(lib.WORK, 'tabstrip-claude-home')
 const alpha = path.join(ws, 'alpha')
-const LABELS = ['Session', 'Overview', 'Performance', 'Tasks', 'Sessions', 'Files', 'Attachments', 'Changes', 'Memory', 'Skills', 'Templates', 'MCP', 'Settings']
+const LABELS = ['Session', 'Overview', 'Performance', 'Tasks', 'Sessions', 'Files', 'Attachments', 'Git', 'Memory', 'Skills', 'Templates', 'MCP', 'Settings']
 const SPARE = 12
 let failed = 0
 const check = (name, ok, extra = '') => {
@@ -120,9 +120,9 @@ const check = (name, ok, extra = '') => {
   const perf = await expectFit('Performance active', 'icons')
   check('Performance has the label now', perf.active === 'Performance', perf.active)
   await shot('tabstrip-2-icons-dark.png')
-  await page.locator('.tabs .tab', { hasText: 'Changes' }).hover()
+  await page.locator('.tabs .tab', { hasText: 'Git' }).hover()
   const tip = page.locator('.tip')
-  check('an icon-only tab\'s tooltip names it', !!(await lib.until(async () => ((await tip.textContent().catch(() => '')) ?? '').startsWith('Changes'), HUNG_MS)), await tip.textContent().catch(() => ''))
+  check('an icon-only tab\'s tooltip names it', !!(await lib.until(async () => ((await tip.textContent().catch(() => '')) ?? '').startsWith('Git'), HUNG_MS)), await tip.textContent().catch(() => ''))
   await page.mouse.move(5, 500)
   await inv('settings:update', { appearance: { theme: 'light' } })
   await lib.sleep(300)

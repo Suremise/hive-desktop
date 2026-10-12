@@ -95,6 +95,7 @@ import type { AgentTemplate, TemplateDeleted, TemplateDest, TemplateEntry, Templ
 import type { ProjectPref, ProjectPrefValue } from './uiPrefs'
 import type { TipsChange, TipsState } from './tips'
 import type { GitTool } from './gitTool'
+import type { GitHistory, GitRepoInfo, GitRepoSummary } from './gitRepo'
 import type { BoardFoldChange } from './tasks'
 
 type DeepPartial<T> = { [K in keyof T]?: T[K] extends object ? DeepPartial<T[K]> : T[K] }
@@ -544,6 +545,22 @@ export interface HiveRequests {
   'changes:openFile': (root: string, file: string) => void
   /** Whether git itself runs (#346): as last checked, or checked again with `recheck`. */
   'git:tool': (recheck?: boolean) => GitTool
+  /** The Git view (#607), the project folder's only (agents' worktrees change through the merge flow). The user's: no agent tool reaches these. */
+  'git:summary': (projectPath: string) => GitRepoSummary
+  'git:info': (projectPath: string) => GitRepoInfo
+  'git:history': (projectPath: string) => GitHistory
+  /** Each action replies with what it did, in a sentence. Switching (and creating a branch to switch to) or pulling is refused while an agent works in the folder or its merge slot is held (`folderBusy`). */
+  'git:switch': (projectPath: string, branch: string) => string
+  'git:createBranch': (projectPath: string, name: string, stay?: boolean) => string
+  'git:addRemote': (projectPath: string, name: string, url: string) => string
+  'git:setRemoteUrl': (projectPath: string, name: string, url: string) => string
+  'git:fetch': (projectPath: string) => string
+  'git:pull': (projectPath: string) => string
+  /** To the upstream, or to `remote` (setting it as the upstream) when the branch has none. Never forced. */
+  'git:push': (projectPath: string, remote?: string) => string
+  'git:createTag': (projectPath: string, name: string, message: string, pushTo?: string) => string
+  /** This repository's own user.name and user.email; empty removes it (the global one applies). */
+  'git:setIdentity': (projectPath: string, name: string, email: string) => string
 
   /** Each provider's installed CLI, by provider. */
   'provider:info': () => Record<ProviderId, AgentInstallInfo>

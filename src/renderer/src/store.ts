@@ -10,6 +10,7 @@ import { agentProvider, providersInUse, providerWarnings, setInstalledCheck } fr
 import { setDateStyle } from '@shared/dates'
 import { chooseFocus, deferredFocus } from './deferredFocus'
 import type { ProjectTab } from '@shared/projectTabs'
+import type { GitSection } from '@shared/gitRepo'
 import type { ProgressFilter } from '@shared/progress'
 import type { TemplateAgent, TemplateRef } from '@shared/templates'
 import type { GitTool } from '@shared/gitTool'
@@ -318,6 +319,10 @@ interface State {
    * folder). Changes also takes an unused worktree (#400): `unused:<its folder>`, or `unused` for the list of them all.
    */
   changesRoot: Record<string, string>
+  /** Per project: the Git tab's section shown (#607; Changes when none). */
+  gitSection: Record<string, GitSection>
+  /** Per project: bumped after a Git action in this window, so the Git tab and the status bar read git again. */
+  gitVersion: Record<string, number>
   /** Per project: bumped when its unused worktrees change outside the list (a merge of one, #400): the list reloads. */
   unusedVersion: Record<string, number>
   filesRoot: Record<string, string>
@@ -460,6 +465,8 @@ export const useStore = create<State>(() => ({
   running: {},
   pageFocus: {},
   changesRoot: {},
+  gitSection: {},
+  gitVersion: {},
   unusedVersion: {},
   filesRoot: {},
 
@@ -820,13 +827,23 @@ export function setProjectTab(path: string, tab: ProjectTab): void {
   set((s) => ({ projectTabs: { ...s.projectTabs, [path]: tab } }))
 }
 
+/** Opens a project's Git tab at a section (#607): the status bar's item, and whose changes to review (Changes). */
+export function showGit(path: string, section: GitSection): void {
+  set((s) => ({ projectTabs: { ...s.projectTabs, [path]: 'changes' }, gitSection: { ...s.gitSection, [path]: section } }))
+}
+
+/** After a Git action: the project's Git tab and status bar item read git again. */
+export function bumpGit(path: string): void {
+  set((s) => ({ gitVersion: { ...s.gitVersion, [path]: (s.gitVersion[path] ?? 0) + 1 } }))
+}
+
 /** The Changes tab's folder for the list of a project's unused worktrees, and for one of them (#400). */
 export const UNUSED_ROOT = 'unused'
 export const unusedRoot = (worktreePath: string): string => `${UNUSED_ROOT}:${worktreePath}`
 
 /** Opens a project's Changes tab at its unused worktrees (#353, #400: they live in Changes). */
 export function showUnusedWorktrees(path: string): void {
-  set((s) => ({ projectTabs: { ...s.projectTabs, [path]: 'changes' }, changesRoot: { ...s.changesRoot, [path]: UNUSED_ROOT } }))
+  set((s) => ({ projectTabs: { ...s.projectTabs, [path]: 'changes' }, gitSection: { ...s.gitSection, [path]: 'changes' }, changesRoot: { ...s.changesRoot, [path]: UNUSED_ROOT } }))
 }
 
 /** The project's unused worktrees changed outside their list (#400): it reloads. */

@@ -9,7 +9,7 @@ import { processCount } from '@shared/agentProcesses'
 import { formatDateTime, formatWhen } from '@shared/dates'
 import * as actions from '../actions'
 import { call, errorMessage } from '../api'
-import { NO_IDS, NO_PROJECTS, agentPage, agentProviderOf, clearStartFailure, focusAgent, focusedAgentId, isAssistantPath, notify, openInSessionsTab, paneAssignment, projectKey, prompt, revealAgent, seenAgents, set, setProjectTab, showAgent, showInOverview, showPage, useDateStyle, useStore } from '../store'
+import { NO_IDS, NO_PROJECTS, agentPage, agentProviderOf, clearStartFailure, focusAgent, focusedAgentId, isAssistantPath, notify, openInSessionsTab, paneAssignment, projectKey, prompt, revealAgent, seenAgents, set, setProjectTab, showAgent, showGit, showInOverview, showPage, useDateStyle, useStore } from '../store'
 import { useLiveUsage, useLiveUsageState } from '../usage'
 import { commandKeybinding } from '../commands'
 import { cx, formatKeybinding, formatTokens, sessionLabel, timeAgo } from '../util'
@@ -431,7 +431,7 @@ export function AddAgentButton({ project, className, label = 'Add Agent', strip 
 
 function reviewChanges(project: ProjectInfo, a: AgentInfo): void {
   set((s) => ({ changesRoot: { ...s.changesRoot, [project.path]: a.id } }))
-  setProjectTab(project.path, 'changes')
+  showGit(project.path, 'changes')
 }
 
 /** A worktree agent's work not merged into the project folder yet (null: not a worktree agent, or not checked yet). */

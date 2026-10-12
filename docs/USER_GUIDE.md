@@ -56,7 +56,7 @@ Hive runs the **GitHub Copilot CLI** (the `copilot` command), not Copilot in VS 
 
 ### Git
 
-Worktree agents, merging, the **Changes** tab, the unmerged counts on agent tabs, agent templates with worktrees and **Remove All**'s clean-up all use **git**. Install **Git for Windows**, version **2.38 or later** (git-scm.com). **Help → Agent Setup…** shows a **Git** row under every tab: the version Hive found and where, or **Git not found** with how to fix it and a **Git for Windows** button. With an older git, the row says what doesn't work (for example, squash-merged branches still count as unmerged, so their worktrees are kept).
+Worktree agents, merging, the **Git** tab, the unmerged counts on agent tabs, agent templates with worktrees and **Remove All**'s clean-up all use **git**. Install **Git for Windows**, version **2.38 or later** (git-scm.com). **Help → Agent Setup…** shows a **Git** row under every tab: the version Hive found and where, or **Git not found** with how to fix it and a **Git for Windows** button. With an older git, the row says what doesn't work (for example, squash-merged branches still count as unmerged, so their worktrees are kept).
 
 Hive uses the git on its own PATH, together with the PATH Windows gives new programs. If you install git while Hive is open, or add its folder to your PATH, click **Check again**: no need to restart Hive. While git is missing, the status bar shows **Git** in red, and the screens that need it say *"Git isn't installed (or isn't on Hive's PATH)"* rather than that the project isn't a git repository. Hive never deletes a worktree or branch it can't check with git: they're kept, and it says why. Claude Code also uses Git for Windows' Bash for its commands when it's installed (else PowerShell).
 
@@ -183,7 +183,7 @@ Status dots:
 
 A pulsing dot changes shade rather than fading, so it stays easy to see. Hive's grey text (timestamps, counts, hints) and its orange text and icons are drawn to be readable in both the light and dark themes, on hovered and selected rows too (they meet the WCAG AA contrast level).
 
-The sidebar and the lists in the Sessions, Files, Changes and Memory tabs can be made wider or narrower by dragging their right-hand edge, as can the two halves of a split view in the Files tab. Double-click the edge to reset it. Hive remembers the sizes.
+The sidebar and the lists in the Sessions, Files, Git (Changes) and Memory tabs can be made wider or narrower by dragging their right-hand edge, as can the two halves of a split view in the Files tab. Double-click the edge to reset it. Hive remembers the sizes.
 
 A project's tabs (Session, Overview, Performance, Tasks and the rest) shrink to **icons** when their names don't fit, as in a narrow window or with the sidebar and panels open; the tab you're on keeps its name. Hover a tab for its name and shortcut. They get their names back once there's room. In a very narrow window the tabs scroll sideways, keeping the one you're on in view.
 
@@ -300,9 +300,9 @@ The sidebar keeps one status dot per project, showing the most urgent agent (nee
 
 **File locks.** Agents sharing the project folder could otherwise edit the same file at the same time. When an agent edits a file, Hive notes that it is working on it; if another agent then tries to edit that file, Hive tells it to wait or work on something else, and it carries on with other work. The claim ends when the first agent finishes its task. The files an agent holds show as a lock with a count on its tab, named by their path in the agent's folder, even when the folder is reached by another name (a junction, or a short name such as `C:\Users\RUNNER~1\…`). **Settings → Agents & Worktrees → File locks** (or per project) chooses what happens: **Block** (default), **Ask me** (you approve the edit; Codex can't show its own approval for this, so Hive holds the edit back and shows a notification with **Allow**, and Codex waits until you allow it; Hive tells it to go ahead as soon as it has finished replying and you aren't typing in its terminal), **Warn** (the edit goes ahead, the agent is told), or **Off**. Locks cover the agents' file edits, not shell commands (formatters, `npm install`, `git checkout`), and not files agents share outside the project such as the CLIs' own settings or memory — keep that in mind when several agents work in one folder. Agents in their own worktrees never get in each other's way.
 
-If git can't read the changes, the **Changes** tab says why, with **Retry**. The same goes for every list and search: if one can't be read, Hive says so with **Retry** rather than showing nothing, and if a refresh fails the last results stay, with a note saying when they're from. They are always the same project's (or workspace's): switching to another project never shows the last one's.
+If git can't read the changes, the **Git** tab's **Changes** says why, with **Retry**. The same goes for every list and search: if one can't be read, Hive says so with **Retry** rather than showing nothing, and if a refresh fails the last results stay, with a note saying when they're from. They are always the same project's (or workspace's): switching to another project never shows the last one's.
 
-**Reviewing and merging a worktree agent's work.** In the **Changes** and **Files** tabs, the selector at the top switches between the project folder and each agent's worktree. For a worktree, Changes lists everything the agent changed since its branch started (its commits and uncommitted edits). **Open file**, above a diff, opens that folder's copy of the file: the worktree's, not the project's. When it is done, choose **Merge** (pane header, agent menu or Changes tab):
+**Reviewing and merging a worktree agent's work.** In the **Git** tab's **Changes** and the **Files** tab, the selector at the top switches between the project folder and each agent's worktree. For a worktree, Changes lists everything the agent changed since its branch started (its commits and uncommitted edits). **Open file**, above a diff, opens that folder's copy of the file: the worktree's, not the project's. When it is done, choose **Merge** (pane header, agent menu or Changes tab):
 
 - Uncommitted changes are committed on the agent's branch first, with the message you enter.
 - The branch is merged into the branch checked out in the project folder: **Merge** (the default; keeps the agent's commits and their messages, plus a merge commit) or **Squash** (one commit, with the message you enter). Change the default in **Settings → Agents & Worktrees → Default merge style**.
@@ -327,13 +327,13 @@ If git can't read the changes, the **Changes** tab says why, with **Retry**. The
 
 ### Unused worktrees
 
-A worktree you keep when you remove its agent (**Keep worktree and branch**, or **Remove All** without its tick box) stays on disk with its branch: Hive says so in a notice with **Review unused worktrees**. They live in the **Changes** tab, with every other worktree. Its picker starts with **Unused worktrees (n)**, for worktrees no agent of the project uses right now (for example ones from another template, or ones an agent made itself with `git worktree add`), then lists the worktrees agents work in, then the project folder. **Unused worktrees** lists them, each with its branch, who made it (**was B4**, the Hive agent that last worked there; **made by Hive**; or **not made by Hive**), its last commit and its size, and whether it is **merged into main and clean** or what it holds that is nowhere else ("3 commits not on main · 2 changed files"):
+A worktree you keep when you remove its agent (**Keep worktree and branch**, or **Remove All** without its tick box) stays on disk with its branch: Hive says so in a notice with **Review unused worktrees**. They live in the **Git** tab's **Changes**, with every other worktree. Its picker starts with **Unused worktrees (n)**, for worktrees no agent of the project uses right now (for example ones from another template, or ones an agent made itself with `git worktree add`), then lists the worktrees agents work in, then the project folder. **Unused worktrees** lists them, each with its branch, who made it (**was B4**, the Hive agent that last worked there; **made by Hive**; or **not made by Hive**), its last commit and its size, and whether it is **merged into main and clean** or what it holds that is nowhere else ("3 commits not on main · 2 changed files"):
 
 - **Remove** deletes a merged, clean worktree and its branch. **Remove all merged (n)…** does them all after one question. Hive checks each again first: one that changed since (a new commit, a file written) is kept, and the notice says why.
 - **Open** (or picking it by name in the folder picker) shows its changes since main, file by file, as an agent's worktree does. If it holds work, **Merge** opens the usual Merge dialog, which waits its turn like an agent's merge; tick **Remove the worktree and branch afterwards** to tidy it once its work is on main.
 - A worktree that holds work has no plain Remove. **Give to an agent…** opens Add Agent with **Existing worktree** and that worktree chosen. **Remove anyway…** checks the worktree and asks first, naming exactly what goes (its unmerged commits, or for a worktree not on a branch the commits only it has, its uncommitted files and the files git ignores in it, such as build output). If anything in it changes before you confirm (a file added, renamed or edited, ignored ones included, or another branch checked out), nothing is removed: Hive checks it again and asks you again, saying what changed and showing what it holds now, so you confirm what would really go. The same goes for a question left open more than 15 minutes. If Hive can't check what a worktree holds, it doesn't offer to remove it anyway.
 
-The project's **Overview** shows one line, such as "7 unused worktrees (7 merged) — Review in Changes". The **Changes** tab's project folder says when an unused worktree has work that isn't on main, with **Review**. **Project Settings → Storage** has a line for unused worktrees with their total size, linking to Changes. Deleting a template never touches worktrees, but if its worktree agents left worktrees that no agent uses now, Hive says how many, once. The Hive Assistant can see how many unused worktrees a project has and mention them; only you can remove them. Without git (see [Git](#git)), nothing is listed or removed.
+The project's **Overview** shows one line, such as "7 unused worktrees (7 merged) — Review in Changes". **Changes**' project folder says when an unused worktree has work that isn't on main, with **Review**. **Project Settings → Storage** has a line for unused worktrees with their total size, linking to Changes. Deleting a template never touches worktrees, but if its worktree agents left worktrees that no agent uses now, Hive says how many, once. The Hive Assistant can see how many unused worktrees a project has and mention them; only you can remove them. Without git (see [Git](#git)), nothing is listed or removed.
 
 ### Agent templates
 
@@ -780,15 +780,40 @@ The **Attachments** tab shows everything pasted or dropped into the project's se
 
 This tab was called **Images**, and the folder `.hive/images`, before attachments could be any file. Hive moves the old folder's files into `.hive/attachments` the first time it needs them, and links to the old paths (in a transcript, or printed in a terminal) still open the moved files in Hive. An agent given an old path in an earlier conversation won't find it there any more: give it the file again.
 
-## Changes
+## Git view
 
-The **Changes** tab lists files changed in the project's git working tree and shows each one as a side-by-side diff against the last commit — a quick way to review what the agent did.
+A project's **Git** tab (**Alt+6**) has three sections: **Changes**, where it opens, **History** and **Branches & remotes**. The status bar shows the selected project's git in one item, such as **main · origin · ↑2 ↓0**: its branch, the remote its branch tracks, and how many commits are to push (↑) and to pull (↓). Click it for **Branches & remotes**. It says **no upstream** for a branch that tracks no remote branch yet, and **detached at abc1234** or **rebasing** when git is in that state.
+
+Everything here is yours: agents have no tool for any of it, and only the project folder changes here. Agents' worktrees are shown, read-only: their work comes into the project folder through **Merge**.
+
+### Changes
+
+**Changes** lists files changed in the project's git working tree and shows each one as a side-by-side diff against the last commit — a quick way to review what the agent did.
 
 Its picker chooses whose changes you see, in this order: **Unused worktrees** (worktrees no agent works in now, and each of them), the **worktrees in use** by agents, and the **project folder** last (where agents without a worktree, and you, make changes). A project with worktrees opens on Unused worktrees; one without opens on its folder. A sentence at the top of each page says what it shows. Listing unused worktrees asks git about each of them, which can take a few seconds: the first time, the page shows a spinner while Hive looks; after that, the last list shows at once while Hive checks it again. **Refresh** (↻) looks again.
 
-Without git, the tab says so, with the fix (see [Git](#git)).
-
 Hive checks your projects' git status in the background (this tab, branch status, the Files tab's dimmed entries) without writing to the repository's index, so your own `git add` or `git commit`, or an agent's, never fails with *"index.lock: File exists"* because of it. Hive's own git actions, such as **Merge**, still update it as git does. If git is busy when the Files tab lists a folder, ignored entries keep their dimming and the folder is listed again a moment later.
+
+### History
+
+**History** lists the project folder's last 20 commits, newest first, with their branches and tags, and the repository's tags below them. **Create tag…** tags the commit the folder has checked out: give it a name, and a message for an annotated tag, and choose a remote to push it to if you like.
+
+### Branches & remotes
+
+- **Branch**: the branch the project folder is on (or its detached HEAD, and a merge or rebase git has in progress, which you finish in a terminal), the branch it tracks, and ↑ / ↓. These counts are as of the last fetch, whose time is shown: **Hive never fetches by itself**. **Fetch** fetches every remote. **Pull** fetches the branch it tracks and brings yours up to it when that needs no merge; when both have new commits, it says so and changes nothing (merge or rebase in a terminal, or ask an agent). **Push** pushes to the branch it tracks, or, for a branch that tracks none, to the remote you choose, which it then tracks. A push is never forced: when the remote has commits yours hasn't, it says to pull first. **New branch…** makes a branch at the folder's commit and switches to it.
+- **Branches**: each local branch, with what it tracks and ↑ / ↓, its last commit, and **Switch**. Uncommitted changes come along when they don't clash with the other branch; when they do, git refuses and nothing changes. A branch checked out in an agent's worktree can't be switched to (a branch is in one folder at a time). **Remote branches** lists those you have no local branch for: **Switch** makes one that tracks it.
+- **Switching branch or pulling waits for your agents.** It moves the ground under an agent working in the project folder and under a merge into its branch, so while an agent there is working, asking you something or waiting on its background tasks, or the project's merge slot is held or waited for, **Switch**, **New branch…**'s switch and **Pull** are greyed out, and hovering one says why ("B1 is working in the project folder: switch branches once it has finished"). An agent whose session is idle in the folder finds the new branch on its next turn: the confirmation says so.
+- **Remotes**: each with its URL (a password or token in a URL shows as •••, in git's error messages too; to change such a URL, type it whole), **Add remote…** and ✎ to change a URL.
+- **Worktrees**: the repository's other worktrees, whose agent works in each, and **Changes** to review it. Read-only.
+- **Commit identity**: the name and email commits are made with, agents' too: this repository's own setting, your global one, and the one git uses. It warns when commits would fail (no name or email), and when a repository with a GitHub remote commits with a personal address, which anyone can read on GitHub; GitHub's no-reply address (*…@users.noreply.github.com*, in GitHub's email settings) keeps it private. **Set for this repository…** sets this repository's own (`git config --local`); leave both empty to use your global one.
+
+A project inside another repository (say, a workspace you keep in git) shows that repository here, read-only: Hive changes only a project's own repository.
+
+Fetch, pull and push use your git's own sign-in (Git Credential Manager may open its window); they never wait on a prompt in a terminal you can't see, and give up after five minutes.
+
+### Without git
+
+A project that isn't a git repository keeps working in its project folder, without worktrees, merging or a Git view: its **Git** tab says so and how to start (`git init` in the project folder, or ask an agent, and commit; then add a remote to push it). Without git itself, the tab says so, with the fix (see [Git](#git)).
 
 ## Project settings
 
@@ -983,7 +1008,7 @@ Tick **Don't ask again** to stop the question about sessions, or change it any t
 | Next / previous agent page | Ctrl+Alt+PageDown / Ctrl+Alt+PageUp |
 | Focus the session terminal | Ctrl+` |
 | Next / previous project | Ctrl+PageDown / Ctrl+PageUp |
-| Project tabs | Alt+1 … Alt+9, Alt+0 (Session, Overview, Sessions, Files, Attachments, Changes, Memory, Skills, MCP, Settings; Tasks has none, but you can give it one); Ctrl+Tab / Ctrl+Shift+Tab for the next / previous tab |
+| Project tabs | Alt+1 … Alt+9, Alt+0 (Session, Overview, Sessions, Files, Attachments, Git, Memory, Skills, MCP, Settings; Tasks has none, but you can give it one); Ctrl+Tab / Ctrl+Shift+Tab for the next / previous tab |
 | Task board / new card | Ctrl+Shift+J / Ctrl+Alt+T |
 | Workspace Overview | Ctrl+Shift+O |
 | Toggle sidebar | Ctrl+B (outside the terminal) |
