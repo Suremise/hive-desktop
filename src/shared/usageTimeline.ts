@@ -6,7 +6,7 @@ import type { UsageTokens } from './types'
  * usage. Rows of `step` seconds with any use, oldest first: [their start (seconds since the epoch, a multiple of step),
  * input, output, cache write, cache read, requests, the cost report covering them, flags]. A second each (about a row
  * per request), so a card's hold ends where its agent's request did; a session with more rows than MAX_ROWS has them
- * merged into longer steps (10 s, 100 s…).
+ * merged into longer steps (10 s, 100 s…), each step's charges into one (boundTimeline).
  *
  * `reports` are the charges the provider reported, each with the requests it covers (a row's report: its index, or -1
  * for none): Claude Code's running total, each increase covering the requests since the last; Copilot's credits at each
@@ -28,7 +28,10 @@ export interface UsageTimeline {
   reports: number[]
 }
 
-/** The most rows a session keeps (about 0.8 MB in usage-cache.json): more are merged into longer steps. */
+/**
+ * The most rows a session keeps (about 0.8 MB in usage-cache.json): more are merged into longer steps, and their charges
+ * with them, so it never keeps more charges than rows either.
+ */
 export const MAX_ROWS = 20_000
 
 /** A timestamp's second since the epoch; null for a missing or invalid one. */
@@ -63,27 +66,76 @@ export class TimelineBuilder {
    * tokens aren't known yet), merged into longer steps past MAX_ROWS.
    */
   timeline(reports: number[] = [], extra: UsageRow[] = []): UsageTimeline {
-    let step = 1
-    let rows = [...this.rows.values(), ...extra].sort((a, b) => a[0] - b[0]).map((r) => [...r] as UsageRow)
-    while (rows.length > MAX_ROWS) {
-      step *= 10
-      rows = mergeRows(rows, step)
-    }
-    return { step, rows, reports: [...reports] }
+    return boundTimeline({ step: 1, rows: [...this.rows.values(), ...extra].sort((a, b) => a[0] - b[0]).map((r) => [...r] as UsageRow), reports: [...reports] })
   }
 }
 
-/** Rows merged into steps of `step` seconds (each report and flag kept apart). */
-function mergeRows(rows: UsageRow[], step: number): UsageRow[] {
+/**
+ * A timeline within MAX_ROWS rows: merged into steps of 10, 100… seconds until it fits (step grows to the session's
+ * length at most, when all of it is one step). Charges that land in one step are merged with it into one charge, their
+ * sum: no charge is lost or counted twice, only its attribution is coarser (a hold that takes part of a merged charge
+ * gets an estimated share, ≈). Charges no row refers to (a report that covered no request) are left out, so a
+ * timeline never has more charges than rows.
+ */
+export function boundTimeline(t: UsageTimeline): UsageTimeline {
+  let { step, rows, reports } = t
+  while (rows.length > MAX_ROWS) {
+    step *= 10
+    ;({ rows, reports } = mergeRows(rows, reports, step))
+  }
+  return usedReports({ step, rows, reports })
+}
+
+/** Rows merged into steps of `step` seconds, each step's charges merged into one (flags kept apart). */
+function mergeRows(rows: UsageRow[], reports: number[], step: number): { rows: UsageRow[]; reports: number[] } {
+  const startOf = (r: UsageRow): number => Math.floor(r[0] / step) * step
+  // Charges that share a step become one: a union of report indexes, by step.
+  const parent = reports.map((_, i) => i)
+  const root = (i: number): number => {
+    while (parent[i] !== i) i = parent[i] = parent[parent[i]]
+    return i
+  }
+  const firstIn = new Map<number, number>()
+  for (const r of rows) {
+    if (r[6] < 0) continue
+    const start = startOf(r)
+    const first = firstIn.get(start)
+    if (first === undefined) firstIn.set(start, r[6])
+    else {
+      const [a, b] = [root(first), root(r[6])]
+      if (a !== b) parent[Math.max(a, b)] = Math.min(a, b)
+    }
+  }
+  const merged: number[] = []
+  const index = new Map<number, number>()
+  reports.forEach((usd, i) => {
+    const g = root(i)
+    if (!index.has(g)) index.set(g, merged.push(0) - 1)
+    merged[index.get(g)!] += usd
+  })
   const by = new Map<string, UsageRow>()
   for (const r of rows) {
-    const start = Math.floor(r[0] / step) * step
-    const key = rowKey(start, r[6], r[7])
+    const start = startOf(r)
+    const report = r[6] < 0 ? -1 : index.get(root(r[6]))!
+    const key = rowKey(start, report, r[7])
     const m = by.get(key)
     if (m) for (let i = 1; i <= 5; i++) m[i] = (m[i] ?? 0) + (r[i] ?? 0)
-    else by.set(key, [start, r[1], r[2], r[3], r[4], r[5], r[6], r[7]])
+    else by.set(key, [start, r[1], r[2], r[3], r[4], r[5], report, r[7]])
   }
-  return [...by.values()].sort((a, b) => a[0] - b[0])
+  return { rows: [...by.values()].sort((a, b) => a[0] - b[0]), reports: merged }
+}
+
+/** Only the charges rows refer to, numbered in order (a row naming a charge there isn't has none). */
+function usedReports(t: UsageTimeline): UsageTimeline {
+  const index = new Map<number, number>()
+  const reports: number[] = []
+  const rows = t.rows.map((r): UsageRow => {
+    if (r[6] < 0) return r
+    if (t.reports[r[6]] === undefined) return [r[0], r[1], r[2], r[3], r[4], r[5], -1, r[7]]
+    if (!index.has(r[6])) index.set(r[6], reports.push(t.reports[r[6]]) - 1)
+    return [r[0], r[1], r[2], r[3], r[4], r[5], index.get(r[6])!, r[7]]
+  })
+  return { step: t.step, rows, reports }
 }
 
 /**

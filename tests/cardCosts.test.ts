@@ -147,8 +147,10 @@ describe('timeline', () => {
       ]
     })
     expect(readTimeline(b.timeline([0.5]))).not.toBeNull()
-    // A row naming a report there isn't, a row of the old shape, and no reports: not a timeline (read again).
-    expect(readTimeline(b.timeline())).toBeNull()
+    // A row naming a charge there isn't has none; read back, a row naming one, a row of the old shape, and no reports:
+    // not a timeline (read again).
+    expect(b.timeline().rows.map((r) => r[6])).toEqual([-1, -1])
+    expect(readTimeline({ step: 1, rows: [[1, 2, 3, 4, 5, 6, 0, 0]], reports: [] })).toBeNull()
     expect(readTimeline({ step: 1, rows: [[1, 2, 3, 4, 5, 6]], reports: [] })).toBeNull()
     expect(readTimeline({ step: 1, rows: [] })).toBeNull()
     expect(readTimeline('x')).toBeNull()
@@ -173,6 +175,38 @@ describe('timeline', () => {
     expect(t.rows.length).toBeLessThanOrEqual(MAX_ROWS)
     expect(t.rows.every((r) => r[0] % 10 === 0)).toBe(true)
     expect(t.rows.reduce((n, r) => n + r[1], 0)).toBe(MAX_ROWS + 1)
+  })
+
+  it('merges charges with their rows, so a session with a charge per request is bounded too (HR5 round 2)', () => {
+    // A report per request, one a second, past the limit: merging rows alone could never get under it.
+    const b = new TimelineBuilder()
+    const n = MAX_ROWS + 1
+    for (let i = 0; i < n; i++) b.add(T0 + i * 1000, { inputTokens: 10 }, 1, i)
+    const t = b.timeline(Array.from({ length: n }, () => 0.01))
+    expect(t.step).toBe(10)
+    expect(t.rows.length).toBeLessThanOrEqual(MAX_ROWS)
+    expect(t.reports.length).toBeLessThanOrEqual(t.rows.length)
+    expect(readTimeline(t)).not.toBeNull()
+    // Every charge kept, none twice; tokens and requests too.
+    expect(t.reports.reduce((a, x) => a + x, 0)).toBeCloseTo(n * 0.01, 9)
+    expect(t.rows.reduce((a, r) => a + r[1], 0)).toBe(n * 10)
+    expect(t.rows.reduce((a, r) => a + r[5], 0)).toBe(n)
+    // The whole session's charges are exact; a hold taking part of a merged step's charge gets an estimate.
+    const slice: SessionSlice = { usage: { provider: 'claude-code', model: 'claude-sonnet-5-5' } as SessionUsage, timeline: t, from: T0, to: T0 + n * 1000 }
+    const whole = sliceSession(slice, [[T0, T0 + (n + 10) * 1000]], DEFAULT_SETTINGS)!
+    expect(whole.cost).toBeCloseTo(n * 0.01, 6)
+    expect(whole.estimated).toBe(false)
+    const part = sliceSession(slice, [[T0, T0 + 5000]], DEFAULT_SETTINGS)!
+    expect(part.cost).toBeCloseTo(0.05, 6)
+    expect(part.estimated).toBe(true)
+  })
+
+  it('merges charges in one second, and leaves out charges no request refers to', () => {
+    const b = new TimelineBuilder()
+    for (let i = 0; i <= MAX_ROWS; i++) b.add(T0, { inputTokens: 1 }, 1, i)
+    const t = b.timeline([...Array.from({ length: MAX_ROWS + 1 }, () => 1), 5])
+    expect(t).toEqual({ step: 10, rows: [[S(0), MAX_ROWS + 1, 0, 0, 0, MAX_ROWS + 1, 0, 0]], reports: [MAX_ROWS + 1] })
+    expect(new TimelineBuilder().timeline([3])).toEqual({ step: 1, rows: [], reports: [] })
   })
 
   it('comes from each provider’s parser, with the charges that cover each request', () => {
