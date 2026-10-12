@@ -193,7 +193,7 @@ A project's tabs (Session, Overview, Performance, Tasks and the rest) shrink to 
 
 - **Hide**: Hive leaves the project out until you restore it. Nothing is moved or deleted; its cards are archived meanwhile.
 - **Remove from Hive**: the folder stays on disk, and its handovers and cards are packed into it (`.hive/removed`), so you can move it somewhere else, or into another workspace. Wherever Hive sees the folder again, the project shows a banner offering to **Restore** them (or **Discard** them). A worktree can't go with the folder: if one has work that isn't merged yet, merge or discard it first.
-- **Delete**: the folder, its worktrees and its handovers go to the Recycle Bin, and its cards are deleted. Type the project's name to confirm.
+- **Delete**: the folder, its worktrees and its handovers go to the Recycle Bin, and its cards are deleted. Type the project's name to confirm. If something has a file in the folder open for a moment (an antivirus scan, say), Hive waits a moment and tries again. If a program keeps it open (a terminal, an editor), Hive says so and deletes nothing: close it, then delete again. Every other delete to the Recycle Bin in Hive tries again the same way.
 
 The coding agents' own transcripts (in `~/.claude` and `~/.codex`) are never touched. **Settings → Workspace** lists the hidden and removed projects, with **Restore**, which brings each back with its cards (and, for a removed one, its handovers). If a removed project's folder has left the workspace, **Forget** stops listing it.
 

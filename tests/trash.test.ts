@@ -1,20 +1,26 @@
 // Hive's one way to the Recycle Bin (#414): every deletion goes through trash() in src/main/trash.ts, and a test copy of
 // Hive moves what it deletes into its own trash folder instead of the user's Recycle Bin.
-import { existsSync, mkdirSync, readdirSync, readFileSync, rmSync, writeFileSync } from 'fs'
+import { closeSync, existsSync, mkdirSync, openSync, readdirSync, readFileSync, rmSync, writeFileSync } from 'fs'
 import { join, relative } from 'path'
 import { afterAll, afterEach, describe, expect, it, vi } from 'vitest'
 import * as electron from 'electron'
 import { tempDir } from './tempDir'
+// The longest a wait here waits for what it waits on: a bound for a hung run, never how long it should take (#570).
+const HUNG_MS = 10000
 
-// A rename across drives (EXDEV) where a test asks for one: the test trash folder can't be on another drive here.
-const hooks: { exdev: ((from: string, to: string) => boolean) | null } = { exdev: null }
+// A rename across drives (EXDEV) where a test asks for one: the test trash folder can't be on another drive here. And the
+// renames Windows refused, so a test can wait for one.
+const hooks: { exdev: ((from: string, to: string) => boolean) | null; refused: string[] } = { exdev: null, refused: [] }
 vi.mock('fs/promises', async (original) => {
   const real = await original<typeof import('fs/promises')>()
   return {
     ...real,
     rename: async (from: string, to: string) => {
       if (hooks.exdev?.(String(from), String(to))) throw Object.assign(new Error(`EXDEV: cross-device link not permitted, rename '${from}'`), { code: 'EXDEV' })
-      await real.rename(from, to)
+      await real.rename(from, to).catch((e: unknown) => {
+        hooks.refused.push(String(from))
+        throw e
+      })
     }
   }
 })
@@ -32,6 +38,7 @@ afterEach(() => {
   }
   delete shell.trashItem
   hooks.exdev = null
+  hooks.refused = []
 })
 afterAll(() => rmSync(base, { recursive: true, force: true }))
 
@@ -138,6 +145,70 @@ describe('trash (src/main/trash.ts)', () => {
     expect(existsSync(join(dir, 'trash.jsonl'))).toBe(false)
   })
 
+  it('a folder something has open for a moment is moved once it is let go, not refused (#668)', async () => {
+    const dir = join(base, 'held-trash')
+    process.env.HIVE_TEST_TRASH_DIR = dir
+    const folder = join(base, 'held-project')
+    mkdirSync(join(folder, '.hive'), { recursive: true })
+    const file = join(folder, '.hive', 'project.json')
+    writeFileSync(file, '{}')
+    // A handle on a file in it (an antivirus scan, a reader closing it): Windows can't move the folder while it is open.
+    const fd = openSync(file, 'r')
+    // Settled whatever happens below: its failure is kept as a value, never left unhandled.
+    const moving = trash(folder).then(
+      () => null,
+      (e: unknown) => e
+    )
+    let failure: unknown
+    try {
+      // Let go once a try has been refused, as a scan finishes.
+      await vi.waitFor(() => expect(hooks.refused).toContain(folder), { timeout: HUNG_MS })
+    } finally {
+      // On every path: the handle closed and the move over before the test ends (and afterAll removes the folder).
+      closeSync(fd)
+      failure = await moving
+    }
+    expect(failure).toBeNull()
+    expect(existsSync(folder)).toBe(false)
+    const [moved] = readFileSync(join(dir, 'trash.jsonl'), 'utf8').trim().split('\n').map((l) => JSON.parse(l) as { from: string; to: string })
+    expect(moved.from).toBe(folder)
+    expect(readFileSync(join(moved.to, '.hive', 'project.json'), 'utf8')).toBe('{}')
+  })
+
+  it('a folder kept open is refused after a few tries, whole and in place, nothing in the trash (#668)', async () => {
+    const dir = join(base, 'kept-open-trash')
+    process.env.HIVE_TEST_TRASH_DIR = dir
+    const folder = join(base, 'kept-open')
+    mkdirSync(folder, { recursive: true })
+    const file = join(folder, 'a.txt')
+    writeFileSync(file, 'a')
+    const fd = openSync(file, 'r')
+    try {
+      await expect(trash(folder)).rejects.toMatchObject({ code: 'EPERM' })
+      // The first try and five more, then no more.
+      expect(hooks.refused.filter((f) => f === folder)).toHaveLength(6)
+      expect(readFileSync(file, 'utf8')).toBe('a')
+      expect(readdirSync(dir)).toEqual([])
+    } finally {
+      closeSync(fd)
+    }
+  })
+
+  it('outside a test copy, tries the Recycle Bin again while the item is still there (#668)', async () => {
+    delete process.env.HIVE_TEST_TRASH_DIR
+    delete process.env.HIVE_USER_DATA
+    const file = join(base, 'busy.txt')
+    writeFileSync(file, 'busy')
+    let tries = 0
+    shell.trashItem = async (p) => {
+      if (++tries < 3) throw new Error('in use')
+      rmSync(p)
+    }
+    await trash(file)
+    expect(tries).toBe(3)
+    expect(existsSync(file)).toBe(false)
+  })
+
   it('outside a test copy, uses the Recycle Bin (shell.trashItem), and passes on its failure', async () => {
     delete process.env.HIVE_TEST_TRASH_DIR
     delete process.env.HIVE_USER_DATA
@@ -147,9 +218,13 @@ describe('trash (src/main/trash.ts)', () => {
     }
     await trash(join(base, 'real.txt'))
     expect(asked).toEqual([join(base, 'real.txt')])
+    let tries = 0
     shell.trashItem = async () => {
+      tries++
       throw new Error('in use')
     }
+    // Nothing there to move: not tried again.
     await expect(trash(join(base, 'real.txt'))).rejects.toThrow('in use')
+    expect(tries).toBe(1)
   })
 })
