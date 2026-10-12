@@ -15,6 +15,9 @@ const userData = path.join(lib.WORK, 'devconsole-profile')
 const ws = path.join(lib.WORK, 'devconsole-ws')
 const claudeHome = path.join(lib.WORK, 'devconsole-claude-home')
 const alpha = path.join(ws, 'alpha')
+// A long project name and long, alike agent names: a listing's display labels cut them, its arguments must not.
+const longProject = path.join(ws, 'developer-console-capture-and-recording-contract-fixtures-project')
+const LONG_AGENTS = ['Builder for the developer console capture layer', 'Builder for the developer console capture layer 2']
 const PORT = Number(lib.port(47871))
 const BASE = `http://127.0.0.1:${PORT}`
 // What the prompt says that must never reach the console.
@@ -28,6 +31,7 @@ const check = (name, ok, extra = '') => {
 ;(async () => {
   for (const d of [userData, ws]) fs.rmSync(d, { recursive: true, force: true })
   lib.gitProject(alpha)
+  lib.gitProject(longProject)
   const claudeEnv = lib.fakeClaude(userData, claudeHome, [alpha, ws])
   const cfgFile = path.join(userData, 'config.json')
   const cfg = JSON.parse(fs.readFileSync(cfgFile, 'utf8'))
@@ -53,6 +57,7 @@ const check = (name, ok, extra = '') => {
 
     const b1 = await lib.addAgent(inv, alpha, { name: 'B1' })
     const b2 = await lib.addAgent(inv, alpha, { name: 'B2' })
+    for (const name of LONG_AGENTS) await lib.addAgent(inv, longProject, { name })
     const sources = await lib.until(async () => {
       const list = await inv('console:sources')
       return list.some((s) => s.agentId === b1.id) && list.some((s) => s.agentId === b2.id) ? list : null
@@ -60,6 +65,18 @@ const check = (name, ok, extra = '') => {
     const b1Source = sources?.find((s) => s.agentId === b1.id)
     check("the window lists the workspace's agents, its Assistant and Hive as sources", !!b1Source && sources.some((s) => s.kind === 'assistant') && sources.some((s) => s.kind === 'hive'), JSON.stringify(sources))
     check('…none of them captured while nobody watches', sources?.every((s) => !s.capturing && s.events === 0), JSON.stringify(sources))
+
+    // --- Every listed source reads back with exactly the arguments the listing gives (long and alike names too).
+    const listing = await api('GET', '/v1/console/sources?limit=100')
+    const misread = []
+    for (const row of listing.body?.sources ?? []) {
+      const q = new URLSearchParams(row.select).toString()
+      const r = await api('GET', `/v1/console/events?${q}`)
+      if (r.status !== 200 || JSON.stringify(r.body?.source?.select) !== JSON.stringify(row.select)) misread.push(`${q} → ${r.status} ${JSON.stringify(r.body)}`)
+    }
+    check('every listed source reads with its listed arguments', listing.body?.total >= 6 && misread.length === 0, misread.join('; ') || JSON.stringify(listing.body))
+    const longRows = (listing.body?.sources ?? []).filter((row) => row.select?.project === path.basename(longProject))
+    check('…the long project given whole, each alike agent by its own id', longRows.length === LONG_AGENTS.length && new Set(longRows.map((row) => row.select.agent)).size === LONG_AGENTS.length, JSON.stringify(longRows))
 
     // --- A read with no console open starts nothing: it says so, and nothing is captured afterwards either.
     const before = await api('GET', '/v1/console/events?agent=B1&project=alpha')
@@ -120,7 +137,7 @@ const check = (name, ok, extra = '') => {
       check(`…not ${what}: refused as unknown`, r.status === 404 && r.body?.error === 'Not a developer console source you can read', `${r.status} ${JSON.stringify(r.body)}`)
     }
     const listed = await api('GET', '/v1/console/sources', b1Token)
-    check('…and lists only its own session', listed.status === 200 && listed.body.total === 1 && listed.body.sources[0].agent === 'B1' && listed.body.sources[0].capturing === true, JSON.stringify(listed.body))
+    check('…and lists only its own session', listed.status === 200 && listed.body.total === 1 && listed.body.sources[0].select?.agent === b1.id && listed.body.sources[0].label === 'alpha · B1' && listed.body.sources[0].capturing === true, JSON.stringify(listed.body))
 
     // --- Hive's own events, once the window watches them too: B1's API call shows there and in B1's session.
     const notYet = await api('GET', '/v1/console/events?source=hive')

@@ -1,5 +1,5 @@
 import type { CapturedEvent } from '../shared/devConsole'
-import { safeWord } from '../shared/devConsole'
+import { DETAILS_FIELDS, TRANSCRIPT_FIELDS, safeWord } from '../shared/devConsole'
 import type { ProviderId } from '../shared/types'
 import type { LiveDetails } from './providers/types'
 
@@ -44,5 +44,5 @@ export function transcriptEvent(provider: ProviderId, chunk: string, d: LiveDeta
     }
   })
   const said = detailsSummary(d)
-  return { kind: 'transcript', name: 'transcript', provider, raw: { records: lines.length, newest }, made: d, summary: `transcript +${lines.length} record${lines.length === 1 ? '' : 's'} → ${said || 'nothing new'}` }
+  return { kind: 'transcript', name: 'transcript', provider, raw: { records: lines.length, newest }, made: d, safe: { raw: TRANSCRIPT_FIELDS, made: DETAILS_FIELDS }, summary: `transcript +${lines.length} record${lines.length === 1 ? '' : 's'} → ${said || 'nothing new'}` }
 }

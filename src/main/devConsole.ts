@@ -87,7 +87,9 @@ export class DevConsole {
     const old = this.subs.get(id)
     if (!old && this.subs.size >= MAX_SUBSCRIBERS) throw new Error('Too many developer consoles open at once')
     if (old?.includeText) for (const s of old.sources) this.untext(s)
-    const sub: Subscriber = { ...opts, sources: wanted, queue: old?.queue ?? [], queueBytes: old?.queueBytes ?? 0, dropped: old?.dropped ?? 0 }
+    // A new subscription starts with nothing waiting: what was queued for the old one (its sources, its opt-in to text) is
+    // never sent to this one. It gets the rings' redacted events below instead.
+    const sub: Subscriber = { ...opts, sources: wanted, queue: [], queueBytes: 0, dropped: 0 }
     this.subs.set(id, sub)
     for (const s of wanted) if (!this.rings.has(s)) this.rings.set(s, new ConsoleRing())
     if (sub.includeText) for (const s of wanted) this.textual.set(s, (this.textual.get(s) ?? 0) + 1)

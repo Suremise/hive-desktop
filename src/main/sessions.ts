@@ -64,7 +64,7 @@ import { GUIDANCE_REVISION, launchParts, launchRecord } from './guidance'
 import { notificationIcon } from './paths'
 import { reportPlanUsage } from './planUsage'
 import { devConsole, sessionSourceId } from './devConsole'
-import { safeWord } from '../shared/devConsole'
+import { DETAILS_FIELDS, HOOK_FIELDS, HOOK_MADE_FIELDS, STATUSLINE_FIELDS, safeWord } from '../shared/devConsole'
 import { hookSummary, statusLineSummary, transcriptEvent } from './devConsoleWords'
 import { revisionOf } from './revisions'
 import { metricsHandle, recordLaunch } from './metrics'
@@ -1226,6 +1226,7 @@ class SessionManager {
       provider: adapter.id,
       raw: { file: basename(cmd.file), switches: cmd.args.filter((a) => a.startsWith('-')), cwd, version: info.version },
       made: { status: state.status, permissionMode: state.permissionMode, modelId: state.modelId, effort: state.effort, resumed: !!l.resumed },
+      safe: { raw: { file: true, switches: true, cwd: true, version: true }, made: { status: true, permissionMode: true, modelId: true, effort: true } },
       summary: `${adapter.descriptor.name} ${safeWord(info.version)} started${l.resumed ? ' (resumed)' : ''}; ${state.status}`
     }))
     spawnPty(key, {
@@ -1513,7 +1514,7 @@ class SessionManager {
     if (this.live.get(liveId(l.state.projectPath, l.state.agentId)) !== l || !l.adapter.footerMode) return
     const mode = l.adapter.footerMode(screen.text(), l.launchMode)
     if (mode && (mode !== l.state.permissionMode || mode !== l.state.modeObserved)) {
-      devConsole.capture([sessionSourceId(l.state.projectPath, l.state.agentId)], () => ({ kind: 'terminal', name: 'footer mode', provider: l.state.provider, raw: { footer: mode }, made: { permissionMode: mode, was: l.state.permissionMode }, summary: `terminal footer: mode ${mode}` }))
+      devConsole.capture([sessionSourceId(l.state.projectPath, l.state.agentId)], () => ({ kind: 'terminal', name: 'footer mode', provider: l.state.provider, raw: { footer: mode }, made: { permissionMode: mode, was: l.state.permissionMode }, safe: { raw: { footer: true }, made: { permissionMode: true, was: true } }, summary: `terminal footer: mode ${mode}` }))
       l.state.permissionMode = l.state.modeObserved = mode
       this.emitState(l.state)
     }
@@ -2628,7 +2629,7 @@ class SessionManager {
     if (!found?.[1].adapter.statusLine) return
     const l = found[1]
     const d = l.adapter.statusLine!(body)
-    devConsole.capture([sessionSourceId(l.state.projectPath, l.state.agentId)], () => ({ kind: 'statusline', name: 'status line', provider: l.state.provider, raw: body, made: d, summary: statusLineSummary(d) }))
+    devConsole.capture([sessionSourceId(l.state.projectPath, l.state.agentId)], () => ({ kind: 'statusline', name: 'status line', provider: l.state.provider, raw: body, made: d, safe: { raw: STATUSLINE_FIELDS, made: DETAILS_FIELDS }, summary: statusLineSummary(d) }))
     this.applyDetails(l, d)
   }
 
@@ -2929,7 +2930,7 @@ class SessionManager {
     devConsole.capture([sessionSourceId(st.projectPath, st.agentId)], () => {
       const name = safeWord(body.hook_event_name) || '(unnamed)'
       const made = { event: ev, status: st.status, actions: step.actions, ...(reply ? { reply } : {}) }
-      return { kind: 'hook', name, provider: st.provider, raw: body, made, summary: hookSummary(name, body.tool_name, ev.kind, st.status, step.actions, !!reply) }
+      return { kind: 'hook', name, provider: st.provider, raw: body, made, safe: { raw: HOOK_FIELDS, made: HOOK_MADE_FIELDS }, summary: hookSummary(name, body.tool_name, ev.kind, st.status, step.actions, !!reply) }
     })
   }
 

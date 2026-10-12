@@ -67,6 +67,18 @@ export interface CapturedEvent {
   provider?: ProviderId
   raw?: unknown
   made?: unknown
+  /** Where in `raw` and `made` a string may be kept (a field path from the payload's root): every other string is hidden. */
+  safe?: { raw?: SafeFields; made?: SafeFields }
+}
+
+/**
+ * The fields of a payload whose strings may be kept, as a tree from its root: `true` keeps that field's string (or a list
+ * of strings), an object descends into it (and into each item of a list there), and `'*'` stands for any field name at
+ * that level. A string is kept only where its whole path is listed, so a name, id or model under an unlisted field (a
+ * tool's input, an unknown record) stays hidden.
+ */
+export interface SafeFields {
+  [key: string]: true | SafeFields
 }
 
 /** A ring's bounds: by count and by bytes, whichever is reached first; the oldest events go. */
@@ -143,25 +155,31 @@ export class ConsoleRing {
 // Redaction
 // ---------------------------------------------------------------------------
 
-/**
- * Fields whose whole subtree is a secret or a sign-in: masked whatever they hold (strings, numbers, objects), always.
- * Usage counts are spelt `input_tokens` and the like and are numbers outside such a subtree, so they aren't caught here.
- */
-const SECRET_KEY = /(?:^|[_-])(?:token|access_token|refresh_token|id_token|secret|password|passwd|apikey|api_key|credentials?|cookies?|authorization|auth|oauth|login|signin|sign_in|device_code|user_code|verification_uri\w*|session_key|private_key|access_key|bearer|otp|code_verifier)(?:$|[_-])|^(?:token|secret|password|authorization|auth|cookie|credentials?|login|signIn|deviceCode|userCode|apiKey|accessToken|refreshToken)$/i
-/** Fields whose whole subtree is text someone wrote (a person, the model, a CLI): every string in it is hidden unless text is included. */
-const TEXT_KEY = /^(?:prompt|prompts|message|messages|last_assistant_message|lastMessage|lastReply|text|content|reason|title|summary|tool_response|tool_result|result|output|stdout|stderr|error|errors|description|question|answer|body|line|lines|screen|command|custom_instructions|todos|instructions|value|customTitle|subject|ask|asks|open|waitingOn|statusMessage)$/
-/**
- * The only fields whose strings are kept (when they look like an identifier, a path or a time): Hive's own and the CLIs'
- * well-known names, ids, modes and paths. A string anywhere else is hidden, one word or many: an unknown CLI field is
- * text until it is listed here.
- */
-const SAFE_KEYS = new Set([
-  // Hooks, status lines and transcripts (Claude Code, Codex, Copilot).
-  'hook_event_name', 'hookEventName', 'session_id', 'sessionId', 'transcript_path', 'transcriptPath', 'cwd', 'permission_mode', 'permissionMode', 'tool_name', 'toolName', 'tool_use_id', 'toolUseId', 'file_path', 'filePath', 'notebook_path', 'path', 'source', 'trigger', 'matcher', 'notification_type', 'model', 'id', 'display_name', 'version', 'type', 'subtype', 'role', 'stop_reason', 'current_dir', 'project_dir', 'agent_type', 'turn_id', 'call_id', 'timestamp',
-  // What Hive made of it, and its own events.
-  'kind', 'status', 'actions', 'provider', 'mode', 'effort', 'modelId', 'modelName', 'plan', 'label', 'resetsAt', 'updatedAt', 'firedAt', 'state', 'outcome', 'method', 'route', 'query', 'branch', 'project', 'agent', 'agentId', 'agentName', 'waiting', 'name', 'switches', 'file', 'permissionDecision', 'footer', 'was', 'call'
-])
-/** A string kept under a safe field: an identifier, a version, a model id, an enum (no spaces). */
+/** A field name's words, lower case: `idToken`, `id_token`, `ID-Token` and `idtoken`'s parts are all [id, token]. */
+function wordsOf(key: string): string[] {
+  return key
+    .replace(/([a-z0-9])([A-Z])/g, '$1 $2')
+    .replace(/([A-Z]+)([A-Z][a-z])/g, '$1 $2')
+    .toLowerCase()
+    .split(/[^a-z0-9]+/)
+    .filter(Boolean)
+}
+
+/** Words that make a field a secret or a sign-in, alone or (the pairs) side by side, or as the whole name run together. */
+const SECRET_WORDS = new Set(['token', 'secret', 'secrets', 'password', 'passwd', 'passphrase', 'apikey', 'credential', 'credentials', 'cookie', 'cookies', 'authorization', 'auth', 'oauth', 'login', 'signin', 'bearer', 'otp', 'jwt', 'idtoken', 'accesstoken', 'refreshtoken', 'devicecode', 'usercode', 'privatekey', 'sessionkey', 'accesskey'])
+const SECRET_PAIRS = new Set(['api key', 'access key', 'private key', 'session key', 'secret key', 'device code', 'user code', 'verification uri', 'sign in', 'log in', 'client secret', 'code verifier'])
+/** Words that make a field text someone wrote (a person, the model, a CLI, a tool's arguments). */
+const TEXT_WORDS = new Set(['prompt', 'prompts', 'message', 'messages', 'text', 'content', 'reason', 'title', 'summary', 'response', 'result', 'results', 'output', 'stdout', 'stderr', 'error', 'errors', 'description', 'question', 'answer', 'body', 'line', 'lines', 'screen', 'command', 'commands', 'query', 'instructions', 'todos', 'value', 'subject', 'string', 'pattern', 'url', 'args', 'arguments', 'ask', 'asks', 'thinking', 'comment', 'note', 'notes'])
+
+export function isSecretKey(key: string): boolean {
+  const w = wordsOf(key)
+  if (w.some((x) => SECRET_WORDS.has(x)) || SECRET_WORDS.has(w.join(''))) return true
+  for (let i = 0; i + 1 < w.length; i++) if (SECRET_PAIRS.has(`${w[i]} ${w[i + 1]}`)) return true
+  return false
+}
+export const isTextKey = (key: string): boolean => wordsOf(key).some((x) => TEXT_WORDS.has(x))
+
+/** A string kept in a safe field: an identifier, a version, a model id, an enum (no spaces). */
 const IDENTIFIER = /^[\w.:@/+#=-]{1,120}$/
 /** An absolute path on one line (folders are the user's own machine's: the console is local; recordings say more, #638). */
 const PATH = /^(?:[A-Za-z]:[\\/]|\\\\|~[\\/]|\/)[^\r\n]{0,400}$/
@@ -181,45 +199,55 @@ const KEY_MAX = 64
 const hidden = (s: string): string => `<text: ${s.length} chars>`
 const keyOf = (k: string): string => (k.length > KEY_MAX ? `${k.slice(0, KEY_MAX)}…` : k)
 
-/** Where a value sits: under a secret (masked), under text (strings hidden), or in plain fields (strings kept only where safe). */
+/**
+ * Where a value sits. `secret`: under a secret or sign-in field, masked whole. `text`: under text someone wrote, where no
+ * string is kept, whatever the safe fields say. `plain`: a string is kept only where the safe fields list its path.
+ */
 type Context = 'secret' | 'text' | 'plain'
 
-/** A redacted, bounded copy of a payload (see the top of this file). Never throws: what it can't copy it describes. */
-export function redactPayload(value: unknown, opts: RedactOptions = {}): unknown {
-  return copy(value, '', 'plain', 0, opts)
+/**
+ * A redacted, bounded copy of a payload (see the top of this file). `safe` lists the fields whose strings may be kept;
+ * without it, no string is. Never throws: what it can't copy it describes.
+ */
+export function redactPayload(value: unknown, opts: RedactOptions = {}, safe?: SafeFields): unknown {
+  return copy(value, '', 'plain', safe, true, 0, opts)
 }
 
-function copy(v: unknown, key: string, ctx: Context, depth: number, opts: RedactOptions): unknown {
+function copy(v: unknown, key: string, ctx: Context, safe: SafeFields | true | undefined, exact: boolean, depth: number, opts: RedactOptions): unknown {
   // A field's context follows everything under it: a secret's or a prompt's children are the secret's or the prompt's.
-  if (ctx !== 'secret' && key && SECRET_KEY.test(key)) ctx = 'secret'
-  else if (ctx === 'plain' && key && TEXT_KEY.test(key)) ctx = 'text'
+  if (ctx !== 'secret' && key && isSecretKey(key)) ctx = 'secret'
+  // A text field holds no kept string, unless the safe fields name it as an envelope (a transcript record's message: its
+  // model and role, never its text). Listing a text field itself as safe, or reaching it through '*', keeps nothing.
+  else if (ctx === 'plain' && key && isTextKey(key) && !(exact && typeof safe === 'object')) ctx = 'text'
   if (v === undefined) return undefined
   if (ctx === 'secret') return v === null || v === '' ? v : '<redacted>'
   if (v === null || typeof v === 'boolean') return v
   if (typeof v === 'number') return Number.isFinite(v) ? v : String(v)
-  if (typeof v === 'string') return redactString(v, key, ctx, opts)
+  if (typeof v === 'string') return redactString(v, ctx === 'plain' && safe === true, opts)
   if (typeof v !== 'object') return `<${typeof v}>`
   if (depth >= MAX_DEPTH) return Array.isArray(v) ? `<${v.length} items>` : '<object>'
   if (Array.isArray(v)) {
-    // An array's items are judged by the field that holds them (prompts: [...] are text, switches: [...] are kept).
-    const items = v.slice(0, MAX_ITEMS).map((x) => copy(x, key, ctx, depth + 1, opts))
+    // A list's items are judged as the field that holds them: its safe fields apply to each.
+    const items = v.slice(0, MAX_ITEMS).map((x) => copy(x, key, ctx, safe, exact, depth + 1, opts))
     if (v.length > MAX_ITEMS) items.push(`<${v.length - MAX_ITEMS} more>`)
     return items
   }
   const out: Record<string, unknown> = {}
   const entries = Object.entries(v as Record<string, unknown>)
+  const under = typeof safe === 'object' ? safe : undefined
   for (const [k, x] of entries.slice(0, MAX_KEYS)) {
-    const c = copy(x, k, ctx, depth + 1, opts)
+    const named = !!under && Object.hasOwn(under, k)
+    const c = copy(x, k, ctx, under && (named ? under[k] : under['*']), named, depth + 1, opts)
     if (c !== undefined) out[keyOf(k)] = c
   }
   if (entries.length > MAX_KEYS) out['<more>'] = `${entries.length - MAX_KEYS} more fields`
   return out
 }
 
-function redactString(s: string, key: string, ctx: Context, opts: RedactOptions): string {
+function redactString(s: string, safe: boolean, opts: RedactOptions): string {
   if (!s) return s
   if (opts.includeText) return maskSecrets(s.length > TEXT_MAX ? `${s.slice(0, TEXT_MAX)}…` : s)
-  if (ctx === 'plain' && SAFE_KEYS.has(key) && (IDENTIFIER.test(s) || PATH.test(s) || ISO_TIME.test(s))) return maskSecrets(s)
+  if (safe && (IDENTIFIER.test(s) || PATH.test(s) || ISO_TIME.test(s))) return maskSecrets(s)
   return hidden(s)
 }
 
@@ -230,7 +258,7 @@ export function safeWord(v: unknown, max = 64): string {
   return v.length <= max && IDENTIFIER.test(v) ? maskSecrets(v) : hidden(v)
 }
 
-/** A name of Hive's own (an agent's, a project's): kept, cut and on one line; secrets masked. */
+/** A name of Hive's own (an agent's, a project's) for display: cut and on one line; secrets masked. */
 export const hiveName = (v: unknown, max = 40): string => (typeof v === 'string' ? maskSecrets(v.replace(/[\u0000-\u001f\u007f]+/g, ' ').slice(0, max)) : '')
 
 /** An event's name and summary at most (characters). */
@@ -241,8 +269,8 @@ const SUMMARY_MAX = 300
 export function makeEvent(seq: number, at: string, source: string, c: CapturedEvent, opts: RedactOptions = {}): ConsoleEvent {
   const e: ConsoleEvent = { seq, at, source: source.slice(0, 600), kind: c.kind, name: hiveName(c.name, NAME_MAX), summary: hiveName(c.summary, SUMMARY_MAX), bytes: 0 }
   if (c.provider) e.provider = c.provider
-  if (c.raw !== undefined) e.raw = redactPayload(c.raw, opts)
-  if (c.made !== undefined) e.made = redactPayload(c.made, opts)
+  if (c.raw !== undefined) e.raw = redactPayload(c.raw, opts, c.safe?.raw)
+  if (c.made !== undefined) e.made = redactPayload(c.made, opts, c.safe?.made)
   e.bytes = jsonBytes(e)
   if (e.bytes > EVENT_MAX_BYTES) {
     if (e.raw !== undefined) e.raw = outline(e.raw)
@@ -277,4 +305,29 @@ export function jsonBytes(v: unknown): number {
     if (c > 0x7f) n += c > 0x7ff && (c < 0xd800 || c > 0xdfff) ? 2 : 1
   }
   return n
+}
+
+// ---------------------------------------------------------------------------
+// The safe fields of each kind of payload (where a string may be kept)
+// ---------------------------------------------------------------------------
+
+/** A hook as the CLIs send it (Claude Code's snake_case, Copilot's camelCase): its envelope, and a tool input's file path only. */
+export const HOOK_FIELDS: SafeFields = {
+  hook_event_name: true, hookEventName: true, session_id: true, sessionId: true, transcript_path: true, transcriptPath: true, cwd: true, permission_mode: true, permissionMode: true,
+  tool_name: true, toolName: true, tool_use_id: true, toolUseId: true, source: true, trigger: true, matcher: true, notification_type: true, model: true, agent_type: true, turn_id: true, timestamp: true,
+  tool_input: { file_path: true, notebook_path: true, path: true }
+}
+/** What Hive made of a hook: the event's kind, the status, its actions, and a PreToolUse reply's decision. */
+export const HOOK_MADE_FIELDS: SafeFields = { event: { kind: true, source: true, trigger: true, call: true }, status: true, actions: true, reply: { hookSpecificOutput: { hookEventName: true, permissionDecision: true } } }
+/** Claude Code's status line. */
+export const STATUSLINE_FIELDS: SafeFields = { session_id: true, transcript_path: true, cwd: true, version: true, model: { id: true, display_name: true }, workspace: { current_dir: true, project_dir: true }, output_style: { name: true }, rate_limits: { '*': { resets_at: true } } }
+/** The details Hive read from a status line or transcript (never the sign-in's message). */
+export const DETAILS_FIELDS: SafeFields = { modelName: true, modelId: true, effort: true, permissionMode: true, signInAt: true, interruptedAt: true, planUsage: { provider: true, plan: true, updatedAt: true, limits: { id: true, label: true, resetsAt: true } } }
+/** A transcript read: each record's envelope (Claude Code's and Codex's), never its content's text or a tool's input. */
+export const TRANSCRIPT_FIELDS: SafeFields = {
+  newest: {
+    type: true, subtype: true, timestamp: true, sessionId: true, session_id: true, cwd: true, version: true, uuid: true, parentUuid: true, requestId: true,
+    message: { id: true, model: true, role: true, type: true, stop_reason: true, content: { type: true, name: true, id: true, tool_use_id: true } },
+    payload: { type: true, model: true, effort: true, approval_policy: true, cwd: true, call_id: true, name: true, id: true, status: true, sandbox_policy: { mode: true, type: true }, rate_limits: { plan_type: true, '*': { resets_at: true } } }
+  }
 }

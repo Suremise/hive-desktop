@@ -1,6 +1,6 @@
 import { describe, expect, it, vi } from 'vitest'
 import { join } from 'path'
-import { ConsoleRing, EVENT_MAX_BYTES, RING_MAX_BYTES, hiveSourceId, jsonBytes, makeEvent, mayRead, parseSourceId, redactPayload, safeWord, sessionSourceId, type ConsoleEvent } from '../src/shared/devConsole'
+import { ConsoleRing, EVENT_MAX_BYTES, HOOK_FIELDS, RING_MAX_BYTES, TRANSCRIPT_FIELDS, hiveSourceId, jsonBytes, makeEvent, mayRead, parseSourceId, redactPayload, safeWord, sessionSourceId, type ConsoleEvent } from '../src/shared/devConsole'
 import { DevConsole, MAX_SOURCES, QUEUE_MAX_EVENTS } from '../src/main/devConsole'
 import { hookSummary, transcriptEvent } from '../src/main/devConsoleWords'
 import { CONSOLE_NOT_CAPTURED, consoleEventsText, consoleSourcesText } from '../src/shared/toolReplies'
@@ -66,8 +66,8 @@ describe('redactPayload', () => {
     note: 'oneword'
   }
 
-  it('keeps the known identifiers, paths and numbers, and hides every other string, one word or many', () => {
-    const r = redactPayload(hook) as Record<string, any>
+  it("keeps a hook's envelope, its tool's file path and every number, and hides every other string", () => {
+    const r = redactPayload(hook, {}, HOOK_FIELDS) as Record<string, any>
     expect(r.hook_event_name).toBe('PreToolUse')
     expect(r.session_id).toBe(hook.session_id)
     expect(r.transcript_path).toBe(hook.transcript_path)
@@ -82,31 +82,75 @@ describe('redactPayload', () => {
     expect(r.note).toBe('<text: 7 chars>')
   })
 
-  it('a secret, sign-in or prompt field takes everything under it with it', () => {
-    const r = redactPayload({
-      access_token: { data: 'abc-private-token', n: 7 },
-      prompt: { data: 'privateprompt', parts: ['privateword'] },
-      login: { username: 'privateuser', device_code: 'ABCD-EFGH' },
-      oauth: [{ id: 'x' }],
-      signIn: 'expired-private',
-      nested: { deep: { device_code: 'WXYZ-1234', user_code: 'QQQQ' } },
-      authorization: 'Bearer abc.def.ghi',
-      api_key: 'plain'
-    }) as Record<string, any>
-    const text = JSON.stringify(r)
-    for (const secret of ['abc-private-token', 'privateprompt', 'privateword', 'privateuser', 'ABCD-EFGH', 'expired-private', 'WXYZ-1234', 'QQQQ', 'abc.def.ghi', 'plain']) expect(text).not.toContain(secret)
-    expect(r.access_token).toBe('<redacted>')
-    expect(r.login).toBe('<redacted>')
-    expect(r.prompt).toEqual({ data: '<text: 13 chars>', parts: ['<text: 11 chars>'] })
-    expect(r.nested.deep).toEqual({ device_code: '<redacted>', user_code: '<redacted>' })
+  it("a tool's arguments stay hidden, whatever their field is called (provider-shaped)", () => {
+    const MARK = 'privatecustomer'
+    const payloads = [
+      // Claude Code: WebSearch, WebFetch, Grep, Task, an MCP tool.
+      { hook_event_name: 'PreToolUse', tool_name: 'WebSearch', tool_input: { query: MARK } },
+      { hook_event_name: 'PreToolUse', tool_name: 'WebFetch', tool_input: { url: `https://example.com/${MARK}`, prompt: MARK } },
+      { hook_event_name: 'PreToolUse', tool_name: 'Grep', tool_input: { pattern: MARK, path: alpha, glob: MARK } },
+      { hook_event_name: 'PreToolUse', tool_name: 'Task', tool_input: { description: MARK, subagent_type: MARK, id: MARK, name: MARK, model: MARK } },
+      { hook_event_name: 'PostToolUse', tool_name: 'mcp__x__y', tool_input: { id: MARK, model: MARK, name: MARK }, tool_response: { id: MARK } },
+      // Copilot's camelCase hooks.
+      { hookEventName: 'preToolUse', toolName: 'bash', toolArgs: JSON.stringify({ command: MARK }) },
+      // An unknown record: ids, names and models under unlisted fields are its own.
+      { unknown: { id: MARK, name: MARK, model: MARK, session_id: MARK } }
+    ]
+    for (const p of payloads) expect(JSON.stringify(redactPayload(p, {}, HOOK_FIELDS))).not.toContain(MARK)
+    // A path is kept only where the hook's tool input is listed for one.
+    expect((redactPayload(payloads[2], {}, HOOK_FIELDS) as any).tool_input.path).toBe(alpha)
   })
 
-  it('masks a token even under a safe field', () => {
-    expect(redactPayload({ model: 'sk-ant-api03-abcdefghijklmnop' })).toEqual({ model: '<redacted>' })
+  it('a secret, sign-in or prompt field takes everything under it with it, however it is spelt', () => {
+    const r = redactPayload(
+      {
+        access_token: { data: 'abc-private-token', n: 7 },
+        'api-key': { id: 'private-token' },
+        idToken: { id: 'private-token' },
+        ID_TOKEN: 'private-token',
+        Prompt: { name: 'privateprompt' },
+        old_string: { name: 'privatecode' },
+        login: { username: 'privateuser', device_code: 'ABCD-EFGH' },
+        oauth: [{ id: 'x' }],
+        signIn: 'expired-private',
+        nested: { deep: { deviceCode: 'WXYZ-1234', user_code: 'QQQQ', verificationUri: 'https://x/private' } },
+        authorization: 'Bearer abc.def.ghi',
+        apiKey: 'plain'
+      },
+      {},
+      { '*': { id: true, name: true, '*': true } }
+    ) as Record<string, any>
+    const text = JSON.stringify(r)
+    for (const secret of ['abc-private-token', 'private-token', 'privateprompt', 'privatecode', 'privateuser', 'ABCD-EFGH', 'expired-private', 'WXYZ-1234', 'QQQQ', 'private', 'abc.def.ghi', 'plain']) expect(text).not.toContain(secret)
+    expect(r.access_token).toBe('<redacted>')
+    expect(r['api-key']).toBe('<redacted>')
+    expect(r.idToken).toBe('<redacted>')
+    expect(r.login).toBe('<redacted>')
+    expect(r.nested.deep).toEqual({ deviceCode: '<redacted>', user_code: '<redacted>', verificationUri: '<redacted>' })
+  })
+
+  it('usage counts are numbers outside any secret, so they stay', () => {
+    expect(redactPayload({ usage: { input_tokens: 5, cache_read_input_tokens: 2, total_tokens: 7 } })).toEqual({ usage: { input_tokens: 5, cache_read_input_tokens: 2, total_tokens: 7 } })
+  })
+
+  it("a transcript record's envelope is kept, never its text", () => {
+    const record = { type: 'assistant', sessionId: 's1', message: { id: 'msg_1', model: 'claude-opus-5-5', role: 'assistant', content: [{ type: 'text', text: 'privatereply' }, { type: 'tool_use', id: 'toolu_1', name: 'Bash', input: { command: 'privatecommand' } }] } }
+    const r = redactPayload({ records: 1, newest: [record] }, {}, TRANSCRIPT_FIELDS) as { newest: any[] }
+    expect(r.newest[0].message.model).toBe('claude-opus-5-5')
+    expect(r.newest[0].message.content[1].name).toBe('Bash')
+    expect(JSON.stringify(r)).not.toMatch(/privatereply|privatecommand/)
+  })
+
+  it('keeps nothing without safe fields', () => {
+    expect(redactPayload({ id: 'x', name: 'y', model: 'z', n: 1 })).toEqual({ id: '<text: 1 chars>', name: '<text: 1 chars>', model: '<text: 1 chars>', n: 1 })
+  })
+
+  it('masks a token even in a safe field', () => {
+    expect(redactPayload({ model: 'sk-ant-api03-abcdefghijklmnop' }, {}, { model: true })).toEqual({ model: '<redacted>' })
   })
 
   it('keeps text only when asked, with secrets and sign-ins still masked', () => {
-    const r = redactPayload({ ...hook, login: { username: 'privateuser' } }, { includeText: true }) as Record<string, any>
+    const r = redactPayload({ ...hook, login: { username: 'privateuser' } }, { includeText: true }, HOOK_FIELDS) as Record<string, any>
     expect(r.prompt).toContain('deploy with my key')
     expect(r.prompt).not.toContain('sk-ant')
     expect(r.authorization).toBe('<redacted>')
@@ -249,6 +293,28 @@ describe('DevConsole', () => {
     expect(c.stats().bytes).toBeLessThanOrEqual(RING_MAX_BYTES)
   })
 
+  it('a replaced subscription is sent nothing queued for the one before it: not its sources, not its text', async () => {
+    const c = new DevConsole()
+    const got: ConsoleEvent[] = []
+    const deliver = (e: ConsoleEvent[]): void => void got.push(...e)
+    // Another source, before a flush.
+    c.subscribe('w', [A1], { deliver, includeText: true })
+    c.capture([A1], () => ({ kind: 'input', name: 'typed', summary: 's', raw: { text: 'private recording prompt' } }))
+    c.subscribe('w', [A2], { deliver })
+    // The same source, text opted out, before a flush.
+    c.subscribe('v', [A1], { deliver, includeText: true })
+    c.capture([A1], () => ({ kind: 'input', name: 'typed', summary: 's', raw: { text: 'private second prompt' } }))
+    c.subscribe('v', [A1], { deliver })
+    // Back-to-back recordings: the second never gets the first's.
+    c.subscribe('r', [A1], { deliver, includeText: true })
+    c.capture([A1], () => ({ kind: 'input', name: 'typed', summary: 's', raw: { text: 'private third prompt' } }))
+    c.subscribe('r', [A1], { deliver, includeText: true })
+    c.capture([A2], () => ({ kind: 'hook', name: 'Stop', summary: 'after' }))
+    await vi.waitFor(() => expect(got.some((e) => e.summary === 'after')).toBe(true), { timeout: HUNG_MS })
+    expect(JSON.stringify(got)).not.toContain('private')
+    expect(c.stats().queued).toBe(0)
+  })
+
   it("a capture point that throws keeps nothing and doesn't fail its caller", () => {
     const c = new DevConsole()
     c.subscribe('w', [A1])
@@ -332,7 +398,7 @@ describe('summaries', () => {
     const MARK = 'zebraumbrella'
     const c = new DevConsole()
     c.subscribe('w', [A1])
-    c.capture([A1], () => ({ kind: 'hook', name: safeWord(`${MARK} hook`), summary: hookSummary(`${MARK} two`, `${MARK} tool`, 'prompt', 'working', [], false), raw: { prompt: MARK, title: MARK, custom: MARK, nested: { x: [MARK] } }, made: { event: { kind: 'prompt', text: MARK }, status: 'working' } }))
+    c.capture([A1], () => ({ kind: 'hook', name: safeWord(`${MARK} hook`), summary: hookSummary(`${MARK} two`, `${MARK} tool`, 'prompt', 'working', [], false), raw: { prompt: MARK, title: MARK, custom: MARK, nested: { x: [MARK] }, tool_input: { query: MARK } }, made: { event: { kind: 'prompt', text: MARK }, status: 'working' }, safe: { raw: HOOK_FIELDS } }))
     // A Progress run's title is someone's text: kept in the payload, hidden there, and not in the summary.
     c.capture([A1], () => ({ kind: 'progress', name: 'running', summary: 'progress run by B1 → running', raw: { title: `${MARK} customer project` } }))
     expect(JSON.stringify(c.events(A1))).not.toContain(MARK)
@@ -340,14 +406,17 @@ describe('summaries', () => {
 })
 
 describe('replies', () => {
-  const source = { label: 'alpha · B1', kind: 'session', project: 'alpha', agent: 'B1', provider: 'claude-code', capturing: true, events: 2 }
+  const source = { label: 'alpha · B1', kind: 'session', select: { agent: 'a-1', project: 'alpha' }, provider: 'claude-code', capturing: true, events: 2 }
 
   it('lists the sources a page at a time, with how to name each', () => {
-    const text = consoleSourcesText({ total: 2, offset: 0, sources: [source, { label: 'Hive', kind: 'hive', capturing: false, events: 0 }] })
-    expect(text).toBe('alpha · B1 (claude-code): captured, 2 events [agent=B1 project=alpha]\nHive: not captured [source=hive]')
+    const text = consoleSourcesText({ total: 2, offset: 0, sources: [source, { label: 'Hive', kind: 'hive', select: { source: 'hive' }, capturing: false, events: 0 }] })
+    expect(text).toBe('alpha · B1 (claude-code): captured, 2 events [agent="a-1" project="alpha"]\nHive: not captured [source="hive"]')
+    // A name a display label cuts or masks is still given whole as the argument that reads it.
+    const long = 'developer-console-capture-and-recording-contract-fixtures-project'
+    expect(consoleSourcesText({ total: 1, offset: 0, sources: [{ ...source, label: long.slice(0, 40), select: { agent: 'a-9', project: long } }] })).toContain(`project="${long}"`)
     expect(consoleSourcesText({ total: 0, offset: 0, sources: [] })).toBe('No developer console sources you can read.')
     // A large workspace: a page, and where the next starts.
-    const rows = Array.from({ length: 50 }, (_, i) => ({ ...source, label: `project${i} · ${'B'.repeat(40)}`, agent: 'B'.repeat(40), project: `project${i}` }))
+    const rows = Array.from({ length: 50 }, (_, i) => ({ ...source, label: `project${i} · ${'B'.repeat(40)}`, select: { agent: `a-${i}`, project: `project${i}` } }))
     const page = consoleSourcesText({ total: 1000, offset: 50, sources: rows })
     expect(page.endsWith('\nSources 51–100 of 1000: offset=100 for more.')).toBe(true)
     expect(page.length).toBeLessThan(8000)

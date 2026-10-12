@@ -1568,7 +1568,7 @@ async function deliver(store: Store, rec: WatchRecord): Promise<void> {
     // The developer console (#636): the wake as Hive typed it (its line is in the agent's own events, as input).
     devConsole.capture([store.ws.path && hiveSourceId(store.ws.path), sessionSourceId(rec.projectPath, rec.agentId)], () => {
       const what = rec.agents ? `${rec.agents.agents.length} agent(s)` : rec.lanes ? 'lanes' : rec.cond.cards.map((n) => `#${n}`).join(', ')
-      return { kind: 'watch', name: 'wake', raw: { cards: rec.cond.cards, agents: rec.agents?.agents.length ?? 0, lanes: !!rec.lanes, firedAt: rec.fired?.at ?? null }, made: { typed: true, riders: !!rider, replies: telling }, summary: `watch woke ${rec.agentId} (${what})${rider ? ' with messages' : ''}` }
+      return { kind: 'watch', name: 'wake', raw: { cards: rec.cond.cards, agents: rec.agents?.agents.length ?? 0, lanes: !!rec.lanes, firedAt: rec.fired?.at ?? null }, made: { typed: true, riders: !!rider, replies: telling }, safe: { raw: { firedAt: true } }, summary: `watch woke ${rec.agentId} (${what})${rider ? ' with messages' : ''}` }
     })
     noteToldByWatch(rec.projectPath, rec.agentId, toldOfCards)
     for (const x of endedAt) inBackground(`noting on #${x.n} that a watch ended`, noteOnCard(x.n, x.what, store.ws))

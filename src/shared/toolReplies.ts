@@ -416,18 +416,22 @@ export function mergeSlotText(s: MergeSlotInfo, now: number): string {
 
 /** A developer console source as GET /v1/console/sources and /v1/console/events give it (#636). */
 export interface ConsoleSourceRow {
+  /** For display only: cut and masked. */
   label: string
   kind: string
-  project?: string
-  agent?: string
+  /** How a read names it, exactly: { source } for Hive or the Assistant, { agent: <its id>, project: <its project's name> } for an agent. */
+  select?: { source?: string; agent?: string; project?: string }
   provider?: string
   /** An open developer console is capturing it now. */
   capturing: boolean
   events: number
 }
 
-/** How to name a source in hive_console: source=hive or assistant, else its agent (and project). */
-const consoleArgs = (r: ConsoleSourceRow): string => (r.kind === 'hive' ? 'source=hive' : r.kind === 'assistant' ? 'source=assistant' : `agent=${r.agent ?? '?'}${r.project ? ` project=${r.project}` : ''}`)
+/** The arguments hive_console takes for a source, exactly as the listing gives them (JSON strings, so any name reads back). */
+const consoleArgs = (r: ConsoleSourceRow): string =>
+  Object.entries(r.select ?? {})
+    .map(([k, v]) => `${k}=${JSON.stringify(v)}`)
+    .join(' ')
 
 /** A page of the sources a caller can read (GET /v1/console/sources), a line each, and where the next page starts. */
 export function consoleSourcesText(page: { total: number; offset: number; sources: ConsoleSourceRow[] }): string {

@@ -2076,7 +2076,11 @@ async function consoleSource(query: URLSearchParams): Promise<string> {
 
 /** A source as a reply names it (bounded names; whether an open console is capturing it, and how many events it holds). */
 function consoleRow(s: ConsoleSource | undefined, id: string) {
-  return { label: hiveName(s?.label ?? (id.startsWith('hive:') ? 'Hive' : 'an agent'), 80), kind: s?.kind ?? (id.startsWith('hive:') ? 'hive' : 'session'), ...(s?.project ? { project: hiveName(s.project, 60) } : {}), ...(s?.agent ? { agent: hiveName(s.agent) } : {}), ...(s?.provider ? { provider: s.provider } : {}), capturing: devConsole.capturing(id), events: devConsole.count(id) }
+  const kind = s?.kind ?? (id.startsWith('hive:') ? 'hive' : 'session')
+  // `select` names it exactly as a read takes it (the agent's id and its project's own name), apart from the display
+  // label, which is cut and masked: following a listing always reads the source it lists.
+  const select = kind === 'hive' ? { source: 'hive' } : kind === 'assistant' ? { source: 'assistant' } : s?.agentId && s.project ? { agent: s.agentId, project: s.project } : undefined
+  return { label: hiveName(s?.label ?? (kind === 'hive' ? 'Hive' : 'an agent'), 80), kind, ...(select ? { select } : {}), ...(s?.provider ? { provider: s.provider } : {}), capturing: devConsole.capturing(id), events: devConsole.count(id) }
 }
 
 const consoleRowOf = (e: ConsoleEvent) => ({ seq: e.seq, at: e.at, kind: e.kind, name: e.name, summary: e.summary, ...(e.truncated ? { truncated: true } : {}) })
@@ -2283,8 +2287,10 @@ function captureApiCall(req: IncomingMessage, res: ServerResponse, url: URL, m: 
     return {
       kind: 'api',
       name,
-      raw: { method: req.method, route: m.route, query: [...url.searchParams.keys()], role: m.role, project: m.project, requestBytes: m.requestBytes },
+      raw: { method: req.method, route: m.route, params: [...new Set(url.searchParams.keys())].slice(0, 20), role: m.role, project: m.project, requestBytes: m.requestBytes },
       made: { status: res.statusCode, outcome, ms: Math.round(ms), responseBytes: m.responseBytes },
+      // The query's parameter names are kept (identifiers only, never their values).
+      safe: { raw: { method: true, route: true, params: true, role: true, project: true }, made: { outcome: true } },
       summary: `${name} by ${by}${m.project ? ` (${m.project})` : ''} → ${res.statusCode} ${outcome} in ${Math.round(ms)} ms`
     }
   })
