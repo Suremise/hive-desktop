@@ -1,28 +1,31 @@
 // The Git view (#607): a project folder's branch, upstream and ahead/behind (as of the last fetch: never fetched by
 // itself), remotes, history, tags and identity, and the user's actions on them, against real git with local bare
 // repositories as remotes (never a real remote). Switching branch and pulling are refused while an agent works in the
-// folder or the merge slot is held; actions take only a project folder, never a worktree; a push is never forced.
+// folder or the merge slot is held, also when the agent starts while the action waits for the lock; actions take only a
+// project folder, never a worktree; a push is never forced; no password or token in a remote URL is shown or logged.
+// Each test makes its own repositories (`fresh`), so any one runs alone or in any order.
 import { execFileSync } from 'child_process'
 import { mkdirSync, writeFileSync } from 'fs'
 import { join } from 'path'
-import { beforeAll, beforeEach, describe, expect, it, vi } from 'vitest'
-import { aheadBehindText, folderBusy, gitStatusText, identityProblem, identityWarnings, isNoReplyEmail, redactRemoteUrl, remoteNameProblem, remoteUrlProblem, type GitRepoSummary } from '../src/shared/gitRepo'
+import { beforeEach, describe, expect, it, vi } from 'vitest'
+import { aheadBehindText, folderBusy, gitStatusText, identityProblem, identityWarnings, isNoReplyEmail, redactRemoteUrl, redactUrlsIn, remoteNameProblem, remoteUrlProblem, type GitRepoSummary } from '../src/shared/gitRepo'
 import type { MergeSlotInfo } from '../src/shared/types'
 import { tempDir } from './tempDir'
 
-const base = tempDir('hive-gitrepo-')
-const proj = join(base, 'ws', 'proj')
-const remote = join(base, 'remote.git')
-const other = join(base, 'other')
-/** A project folder inside another repository (a workspace kept in git). */
-const outer = join(base, 'outer')
-const nested = join(outer, 'nested')
+/** This test's folders: the project, its bare remote, another clone of it, and a project inside another repository. */
+let proj = ''
+let remote = ''
+let other = ''
+let outer = ''
+let nested = ''
 
 /** The project's agents, and their sessions' status by agent id. */
 let agents: { id: string; name: string; worktree?: { path: string; branch: string; base: string } }[] = []
 let live: Record<string, string> = {}
 let slots: MergeSlotInfo[] = []
 const asUser = vi.fn((_p: string, _b: string, fn: () => Promise<unknown>) => fn())
+/** While set, an action waiting for the project's merge lock stops at its door: `entered` says it got there, `open` lets it in. */
+let lockDoor: { entered: () => void; open: Promise<void> } | null = null
 
 vi.mock('../src/main/workspace', () => ({
   workspace: {
@@ -37,6 +40,20 @@ vi.mock('../src/main/workspace', () => ({
 vi.mock('../src/main/sessions', () => ({ sessions: { liveFor: (_p: string, id: string) => (live[id] ? { status: live[id] } : null) } }))
 vi.mock('../src/main/mergeSlotHost', () => ({ mergeSlots: { list: () => slots, asUser } }))
 vi.mock('../src/main/branchWatch', () => ({ checkProject: async () => undefined }))
+vi.mock('../src/main/fsutil', async (importOriginal) => {
+  const real = await importOriginal<typeof import('../src/main/fsutil')>()
+  return {
+    ...real,
+    withFileLock: async <T,>(path: string, fn: () => Promise<T>): Promise<T> => {
+      const door = lockDoor
+      if (door) {
+        door.entered()
+        await door.open
+      }
+      return real.withFileLock(path, fn)
+    }
+  }
+})
 
 const repo = await import('../src/main/gitRepo')
 
@@ -49,8 +66,20 @@ const commit = (cwd: string, file: string): void => {
   git(cwd, 'add', '-A')
   git(cwd, 'commit', '-qm', `add ${file}`)
 }
+/** Another clone pushes a commit to the remote's main. */
+const theyPush = (file: string): void => {
+  commit(other, file)
+  git(other, 'push', '-q', 'origin', 'HEAD:main')
+}
 
-beforeAll(() => {
+/** New repositories for this test: the project on main, pushed to its bare remote, and another clone of that remote. */
+function fresh(): void {
+  const base = tempDir('hive-gitrepo-')
+  proj = join(base, 'ws', 'proj')
+  remote = join(base, 'remote.git')
+  other = join(base, 'other')
+  outer = join(base, 'outer')
+  nested = join(outer, 'nested')
   mkdirSync(proj, { recursive: true })
   execFileSync('git', ['init', '-q', '--bare', '-b', 'main', remote])
   execFileSync('git', ['init', '-q', '-b', 'main', proj])
@@ -60,49 +89,47 @@ beforeAll(() => {
   git(proj, 'remote', 'add', 'origin', remote)
   git(proj, 'push', '-q', '-u', 'origin', 'main')
   execFileSync('git', ['clone', '-q', remote, other])
-})
+}
 
 beforeEach(() => {
+  fresh()
   agents = []
   live = {}
   slots = []
+  lockDoor = null
   asUser.mockClear()
 })
 
 describe('the summary', () => {
   it('names the branch, its upstream and how far apart they are as of the last fetch, never fetching itself', async () => {
     const s = await repo.repoSummary(proj)
-    expect(s).toMatchObject({ isRepo: true, branch: 'main', state: null, remotes: ['origin'], upstream: { name: 'origin/main', remote: 'origin', ahead: 0, behind: 0 } })
+    expect(s).toMatchObject({ isRepo: true, branch: 'main', state: null, remotes: ['origin'], upstream: { name: 'origin/main', remote: 'origin', ahead: 0, behind: 0 }, fetchedAt: null })
     expect(gitStatusText(s)).toBe('main · origin · ↑0 ↓0')
     // Someone else pushes: nothing changes here until the user fetches.
-    commit(other, `o${Date.now()}.txt`)
-    git(other, 'push', '-q', 'origin', 'main')
+    theyPush('o.txt')
     expect((await repo.repoSummary(proj)).upstream).toMatchObject({ behind: 0 })
-    await repo.fetchAll(proj)
+    expect(await repo.fetchAll(proj)).toBe('Fetched origin.')
     const after = await repo.repoSummary(proj)
     expect(after.upstream).toMatchObject({ ahead: 0, behind: 1 })
     expect(after.fetchedAt).toBeGreaterThan(0)
   })
 
   it('says a folder without git is no repository, and a detached HEAD by its commit', async () => {
-    const plain = join(base, 'plain')
+    const plain = join(outer, 'plain')
     mkdirSync(plain, { recursive: true })
     expect(await repo.repoSummary(plain)).toMatchObject({ isRepo: false, branch: null })
     const head = git(proj, 'rev-parse', '--short', 'HEAD')
-    const detached = join(base, 'detached')
-    git(proj, 'worktree', 'add', '-q', '--detach', detached, 'HEAD')
-    const s = await repo.repoSummary(detached)
+    git(proj, 'checkout', '-q', '--detach')
+    const s = await repo.repoSummary(proj)
     expect(s).toMatchObject({ isRepo: true, branch: null, head, upstream: null })
     expect(gitStatusText(s)).toBe(`detached at ${head}`)
-    git(proj, 'worktree', 'remove', '--force', detached)
   })
 
   it("shows a project inside another repository as that repository's, and changes nothing of it", async () => {
     mkdirSync(nested, { recursive: true })
     execFileSync('git', ['init', '-q', '-b', 'main', outer])
     commit(outer, 'outer.txt')
-    const s = await repo.repoSummary(nested)
-    expect(s).toMatchObject({ isRepo: true, branch: 'main', parentRepo: outer })
+    expect(await repo.repoSummary(nested)).toMatchObject({ isRepo: true, branch: 'main', parentRepo: outer })
     await expect(repo.createBranch(nested, 'x')).rejects.toThrow(`This project is inside the git repository in ${outer}`)
     await expect(repo.addRemote(nested, 'origin', remote)).rejects.toThrow(/inside the git repository/)
     expect(git(outer, 'branch', '--list', 'x')).toBe('')
@@ -111,26 +138,25 @@ describe('the summary', () => {
 })
 
 describe('pull and push', () => {
-  it('pulls by fast-forward only, and refuses a branch that has diverged without changing it', async () => {
-    commit(other, `p${Date.now()}.txt`)
-    git(other, 'push', '-q', 'origin', 'main')
-    expect(await repo.pull(proj)).toMatch(/^Pulled \d+ commits? from origin\/main\.$/)
+  it('pulls by fast-forward only', async () => {
+    theyPush('p.txt')
+    expect(await repo.pull(proj)).toBe('Pulled 1 commit from origin/main.')
     expect(git(proj, 'rev-parse', 'HEAD')).toBe(git(remote, 'rev-parse', 'main'))
     expect(await repo.pull(proj)).toBe('main is up to date with origin/main.')
-    // Both sides move on: no merge here.
-    commit(other, `q${Date.now()}.txt`)
-    git(other, 'push', '-q', 'origin', 'main')
-    commit(proj, `mine${Date.now()}.txt`)
+  })
+
+  it('refuses a branch that has diverged without changing it, and never forces a push over theirs', async () => {
+    theyPush('theirs.txt')
+    commit(proj, 'mine.txt')
     const before = git(proj, 'rev-parse', 'HEAD')
-    await expect(repo.pull(proj)).rejects.toThrow(/have diverged \(1 commit here, 1 there\)/)
+    await expect(repo.pull(proj)).rejects.toThrow('main and origin/main have diverged (1 commit here, 1 there)')
     expect(git(proj, 'rev-parse', 'HEAD')).toBe(before)
-    // Nor is a push forced over theirs.
     await expect(repo.push(proj)).rejects.toThrow(/push was refused \(Hive never forces a push\)/)
-    git(proj, 'reset', '-q', '--hard', 'origin/main')
+    expect(git(remote, 'rev-parse', 'main')).not.toBe(before)
   })
 
   it('pushes to the upstream, and sets one for a branch that has none', async () => {
-    commit(proj, `push${Date.now()}.txt`)
+    commit(proj, 'push.txt')
     expect((await repo.repoSummary(proj)).upstream).toMatchObject({ ahead: 1 })
     expect(await repo.push(proj)).toBe('Pushed main to origin/main.')
     expect(git(remote, 'rev-parse', 'main')).toBe(git(proj, 'rev-parse', 'HEAD'))
@@ -138,17 +164,14 @@ describe('pull and push', () => {
     expect(gitStatusText(await repo.repoSummary(proj))).toBe('feature/x · no upstream')
     expect(await repo.push(proj, 'origin')).toBe('Pushed feature/x to origin/feature/x.')
     expect((await repo.repoSummary(proj)).upstream).toMatchObject({ name: 'origin/feature/x', ahead: 0, behind: 0 })
-    await repo.switchBranch(proj, 'main')
   })
 })
 
 describe('switching branch', () => {
   it('switches to a local branch, and to a remote one as a new branch tracking it', async () => {
-    git(other, 'fetch', '-q')
-    git(other, 'checkout', '-q', '-b', 'theirs', 'origin/main')
-    commit(other, `t${Date.now()}.txt`)
+    git(other, 'checkout', '-q', '-b', 'theirs')
+    commit(other, 't.txt')
     git(other, 'push', '-q', '-u', 'origin', 'theirs')
-    git(other, 'checkout', '-q', 'main')
     await repo.fetchAll(proj)
     expect((await repo.repoInfo(proj)).remoteBranches).toContain('origin/theirs')
     expect(await repo.switchBranch(proj, 'origin/theirs')).toBe('Switched to theirs, tracking origin/theirs.')
@@ -159,11 +182,14 @@ describe('switching branch', () => {
   })
 
   it('is refused while an agent works in the project folder or the merge slot is held, saying why', async () => {
+    git(proj, 'branch', 'feature/x')
     agents = [{ id: 'a1', name: 'B1' }]
     live = { a1: 'working' }
     await expect(repo.switchBranch(proj, 'feature/x')).rejects.toThrow('B1 is working in the project folder: switch branches once it has finished.')
+    theyPush('p.txt')
     await expect(repo.pull(proj)).rejects.toThrow('B1 is working in the project folder: pull once it has finished.')
-    // Idle, it may.
+    expect(git(proj, 'symbolic-ref', '--short', 'HEAD')).toBe('main')
+    // Idle, it may; a held merge slot still stops it.
     live = { a1: 'idle' }
     slots = [{ project: proj, branch: 'main', holder: { id: 'h', kind: 'agent', agentId: 'a2', name: 'B2', cards: [], since: 0, until: 0, taken: true }, waiting: [] }]
     await expect(repo.createBranch(proj, 'other')).rejects.toThrow('B2 holds the merge slot for main: create and switch to a branch once that merge is done.')
@@ -173,14 +199,29 @@ describe('switching branch', () => {
     expect(git(proj, 'symbolic-ref', '--short', 'HEAD')).toBe('main')
     // An agent working in its own worktree doesn't hold the folder.
     slots = []
-    agents = [{ id: 'a3', name: 'B3', worktree: { path: join(base, 'wt'), branch: 'hive/b3', base: 'main' } }]
+    agents = [{ id: 'a3', name: 'B3', worktree: { path: join(outer, 'wt'), branch: 'hive/b3', base: 'main' } }]
     live = { a3: 'working' }
     expect(await repo.switchBranch(proj, 'other')).toBe('Switched to other.')
-    await repo.switchBranch(proj, 'main')
   })
 
-  it("never switches to a branch another worktree has, and takes no worktree for the project folder", async () => {
-    const wt = join(base, 'agentwt')
+  it('is refused when the agent starts working while the action waits for the merge lock', async () => {
+    agents = [{ id: 'a1', name: 'B1' }]
+    let entered!: () => void
+    let open!: () => void
+    const atDoor = new Promise<void>((r) => (entered = r))
+    lockDoor = { entered, open: new Promise<void>((r) => (open = r)) }
+    const created = repo.createBranch(proj, 'raced')
+    // It passed the first check (B1 idle) and waits for the lock: B1 starts a turn now.
+    await atDoor
+    live = { a1: 'working' }
+    open()
+    await expect(created).rejects.toThrow('B1 is working in the project folder: create and switch to a branch once it has finished.')
+    expect(git(proj, 'branch', '--list', 'raced')).toBe('')
+    expect(git(proj, 'symbolic-ref', '--short', 'HEAD')).toBe('main')
+  })
+
+  it('never switches to a branch another worktree has, and takes no worktree for the project folder', async () => {
+    const wt = join(outer, 'agentwt')
     git(proj, 'worktree', 'add', '-q', '-b', 'hive/b4', wt, 'main')
     const info = await repo.repoInfo(proj)
     expect(info.worktrees.map((w) => w.branch)).toContain('hive/b4')
@@ -189,31 +230,50 @@ describe('switching branch', () => {
     // Agents' worktrees are read-only here: no action takes one.
     await expect(repo.createTag(wt, 'v0', '')).rejects.toThrow(/Not a project/)
     await expect(repo.switchBranch(wt, 'main')).rejects.toThrow(/Not a project/)
-    git(proj, 'worktree', 'remove', '--force', wt)
   })
 })
 
 describe('remotes, tags, history and identity', () => {
-  it('adds a remote and changes its URL, hiding a password in what it shows', async () => {
-    const second = join(base, 'second.git')
+  it('adds a remote and changes its URL', async () => {
+    const second = join(outer, 'second.git')
     execFileSync('git', ['init', '-q', '--bare', second])
     expect(await repo.addRemote(proj, 'backup', second)).toBe('Added backup.')
     await expect(repo.addRemote(proj, '-x', second)).rejects.toThrow(/letters, digits/)
     await expect(repo.addRemote(proj, 'backup', second)).rejects.toThrow(/already exists/)
-    await repo.setRemoteUrl(proj, 'backup', 'https://me:secret@example.com/r.git')
-    const info = await repo.repoInfo(proj)
-    expect(info.remotes.find((r) => r.name === 'backup')).toEqual({ name: 'backup', fetchUrl: 'https://•••@example.com/r.git', pushUrl: 'https://•••@example.com/r.git' })
-    await repo.setRemoteUrl(proj, 'backup', second)
+    expect(await repo.setRemoteUrl(proj, 'backup', join(outer, 'third.git'))).toBe("Changed backup's URL.")
+    expect(git(proj, 'remote', 'get-url', 'backup')).toBe(join(outer, 'third.git'))
+  })
+
+  it('shows and says no password or token of a remote URL, whatever its scheme, nor in what git says when it fails', async () => {
+    const SECRET = 'FAKE-SECRET-607'
+    git(proj, 'remote', 'add', 'web', `https://me:${SECRET}@127.0.0.1:1/r.git`)
+    git(proj, 'remote', 'add', 'files', `ftp://me:${SECRET}@127.0.0.1:1/r.git`)
+    git(proj, 'remote', 'add', 'query', `https://127.0.0.1:1/r.git?access_token=${SECRET}`)
+    git(proj, 'remote', 'add', 'shell', `ssh://git:${SECRET}@127.0.0.1:1/r.git`)
+    const shown = JSON.stringify((await repo.repoInfo(proj)).remotes)
+    expect(shown).not.toContain(SECRET)
+    expect(shown).toContain('https://•••@127.0.0.1:1/r.git')
+    expect(shown).toContain('ftp://•••@127.0.0.1:1/r.git')
+    expect(shown).toContain('https://127.0.0.1:1/r.git?access_token=•••')
+    expect(shown).toContain('ssh://git:•••@127.0.0.1:1/r.git')
+    // Fetching from them fails (nothing listens on port 1): git's message quotes the URLs, never the secret.
+    const fetched = await repo.fetchAll(proj).then(() => 'fetched', (e: Error) => e.message)
+    expect(fetched).toMatch(/^Couldn't fetch: /)
+    expect(fetched).not.toContain(SECRET)
+    // An edit that keeps the hidden part is refused: the whole URL has to be typed.
+    expect(remoteUrlProblem('https://•••@127.0.0.1:1/r.git')).toMatch(/Type the whole URL/)
+    await expect(repo.setRemoteUrl(proj, 'web', 'https://•••@127.0.0.1:1/r.git')).rejects.toThrow(/Type the whole URL/)
   })
 
   it('tags the commit, annotated with a message, pushes the tag when asked, and lists commits and tags', async () => {
+    commit(proj, 'b.txt')
     const head = git(proj, 'rev-parse', '--short', 'HEAD')
     expect(await repo.createTag(proj, 'v1.0', 'First', 'origin')).toBe(`Tagged ${head} v1.0 and pushed it to origin.`)
     expect(git(remote, 'tag', '--list')).toContain('v1.0')
     expect(await repo.createTag(proj, 'light', '')).toBe(`Tagged ${head} light.`)
     await expect(repo.createTag(proj, 'bad name', '')).rejects.toThrow("bad name isn't a valid tag name.")
     const h = await repo.repoHistory(proj)
-    expect(h.commits.length).toBeGreaterThan(1)
+    expect(h.commits.map((c) => c.subject)).toEqual(['add b.txt', 'add a.txt'])
     expect(h.commits[0]).toMatchObject({ short: head })
     expect(h.commits[0].refs).toContain('tag: v1.0')
     expect(h.tags.find((t) => t.name === 'v1.0')).toMatchObject({ annotated: true, subject: 'First', commit: head })
@@ -253,9 +313,14 @@ describe('what the window says', () => {
     expect(folderBusy([], [{ branch: 'main', holder: null, waiting: ['B2', 'B3'] }], 'pull')).toBe('B2, B3 are waiting for the merge slot for main: pull once those merges are done.')
   })
 
-  it('hides passwords in URLs, and warns of a personal email on commits that go to GitHub', () => {
+  it('hides passwords and tokens in URLs, in text too, and warns of a personal email on commits that go to GitHub', () => {
     expect(redactRemoteUrl('https://user:ghp_x@github.com/a/b.git')).toBe('https://•••@github.com/a/b.git')
+    expect(redactRemoteUrl('https://ghp_x@github.com/a/b.git')).toBe('https://•••@github.com/a/b.git')
+    expect(redactRemoteUrl('ssh://git@host/a.git')).toBe('ssh://git@host/a.git')
+    expect(redactRemoteUrl('https://host/a.git?x=1&token=s;y=2')).toBe('https://host/a.git?x=•••&token=•••;y=•••')
     expect(redactRemoteUrl('git@github.com:a/b.git')).toBe('git@github.com:a/b.git')
+    expect(redactRemoteUrl('C:\\repos\\r.git')).toBe('C:\\repos\\r.git')
+    expect(redactUrlsIn("fatal: unable to access 'https://h/r.git?access_token=s/': Failed")).toBe("fatal: unable to access 'https://h/r.git?access_token=•••': Failed")
     expect(isNoReplyEmail('123+me@users.noreply.github.com')).toBe(true)
     const github = [{ fetchUrl: 'git@github.com:a/b.git', pushUrl: 'git@github.com:a/b.git' }]
     const me = { local: {}, global: { name: 'Me', email: 'me@example.com' }, effective: { name: 'Me', email: 'me@example.com' } }

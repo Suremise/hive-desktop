@@ -41,7 +41,7 @@ export interface GitRepoSummary {
 
 export interface GitRemote {
   name: string
-  /** A password or token in an https URL shows as •••. */
+  /** Its password or token shows as ••• (`redactRemoteUrl`). */
   fetchUrl: string
   pushUrl: string
 }
@@ -233,9 +233,27 @@ function count(n: number, what: string): string {
   return n === 0 ? 'nothing' : `${n} ${what}${n === 1 ? '' : 's'}`
 }
 
-/** An https remote URL with its password or token hidden: https://•••@github.com/x/y. Others as they are. */
+/** What stands for a hidden password or token. */
+export const HIDDEN = '•••'
+
+/**
+ * A remote URL with its password or token hidden (https://•••@github.com/x/y, ftp://•••@host/r, ssh://me:•••@host/r,
+ * https://host/r.git?access_token=•••), wherever it is shown or logged. Others (git@github.com:x/y, a folder) as they are.
+ */
 export function redactRemoteUrl(url: string): string {
-  return url.replace(/^(https?:\/\/)[^/@\s]+@/i, '$1•••@')
+  // Who and how it signs in: all of it for http(s) and ftp(s), where a token often stands as the user name; for other
+  // schemes (ssh://git@host) the user name stays and only a password goes.
+  const signIn = url.replace(/^([a-z][a-z0-9+.-]*:\/\/)([^/@\s]+)@/i, (_, scheme: string, info: string) =>
+    /^(https?|ftps?):/i.test(scheme) ? `${scheme}${HIDDEN}@` : info.includes(':') ? `${scheme}${info.slice(0, info.indexOf(':'))}:${HIDDEN}@` : `${scheme}${info}@`
+  )
+  // And every value of its query (?access_token=…), which can carry a token too.
+  const q = signIn.indexOf('?')
+  return q < 0 ? signIn : signIn.slice(0, q) + signIn.slice(q).replace(/([?&;][^=&;#\s]*)=[^&;#\s]*/g, `$1=${HIDDEN}`)
+}
+
+/** Text that may quote remote URLs (git's own error messages): each URL in it as `redactRemoteUrl` shows it. */
+export function redactUrlsIn(text: string): string {
+  return text.replace(/\b[a-z][a-z0-9+.-]*:\/\/[^\s'"<>]+/gi, (u) => redactRemoteUrl(u))
 }
 
 /** A GitHub remote. */
@@ -275,6 +293,7 @@ export function remoteUrlProblem(url: string): string | null {
   const u = url.trim()
   if (!u) return 'Enter a URL'
   if (/\s/.test(u) || u.startsWith('-')) return "That isn't a URL or path"
+  if (u.includes(HIDDEN)) return 'Type the whole URL: its password or token is hidden here'
   return null
 }
 
