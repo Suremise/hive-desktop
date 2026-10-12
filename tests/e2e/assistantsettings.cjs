@@ -55,11 +55,12 @@ const check = (name, ok, extra = '') => {
     const s = await screen()
     return ['ready', 'finished'].includes((await live())?.status) && s.lastIndexOf('✻ Worked for') >= s.lastIndexOf('(esc to interrupt)')
   }
+  /** Types `text` and Enter once it takes prompts; one that never does (a hung run) throws before anything is typed. */
   const typeLine = async (text) => {
     const t = Date.now()
     let looks = 0
-    if (!(await lib.until(async () => (looks++, await takesPrompts()), 20000))) console.log(`DIAGNOSTIC typed while it doesn't take prompts: ${JSON.stringify((await live())?.status)}, its screen ends ${JSON.stringify((await screen()).slice(-300))}`)
-    else if (looks > 1) console.log(`  (it took prompts again ${Date.now() - t} ms after "${text.slice(0, 50)}" was due)`)
+    if (!(await lib.until(async () => (looks++, await takesPrompts()), 20000))) throw new Error(`"${text.slice(0, 50)}" not typed: it didn't take prompts within 20 s; the session ${JSON.stringify((await live())?.status)}, its screen ends ${JSON.stringify((await screen()).slice(-300))}`)
+    if (looks > 1) console.log(`  (it took prompts again ${Date.now() - t} ms after "${text.slice(0, 50)}" was due)`)
     const before = (await live())?.turn?.id
     await inv('pty:write', key, text)
     await lib.sleep(300) // on purpose: the fake reads a typed line before its Enter, as a CLI does
