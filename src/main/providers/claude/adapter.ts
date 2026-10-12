@@ -422,7 +422,8 @@ export class ClaudeCodeAdapter implements ProviderAdapter {
    */
   safeguardAsk(ask: Ask, screen: string): boolean {
     if (/\bto use\b/i.test(ask.message)) return false
-    const bottom = screen.split('\n').slice(-SAFEGUARD_PROMPT_LINES).join('\n')
+    // The lines written last: on a screen cleared for the prompt it is at the top, with blank rows below.
+    const bottom = screen.trimEnd().split('\n').slice(-SAFEGUARD_PROMPT_LINES).join('\n')
     return safeguardPattern('claudePrompt').test(bottom)
   }
 

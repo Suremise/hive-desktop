@@ -330,7 +330,7 @@ describe('what counts as a change', () => {
   })
 
   it('a watching agent prompted (a wake, or the user) works again; a tool ending while watching is work too', () => {
-    const s = { status: 'watching' as const, askedAtStart: false, compacting: null, tasks: 0, attention: 'hooks' as const, reviewed: false, titleAsks: false, open: [], waitingOn: null, question: false, reviewing: false, backgroundWakes: false }
+    const s = { status: 'watching' as const, askedAtStart: false, compacting: null, tasks: 0, attention: 'hooks' as const, reviewed: false, titleAsks: false, open: [], waitingOn: null, question: false, reviewing: false, safeguardPrompt: false, backgroundWakes: false }
     expect(hookStep({ kind: 'prompt' } as never, s).next).toBe('working')
     expect(hookStep({ kind: 'toolEnd', call: { tool: 'x' } } as never, s).next).toBe('working')
   })

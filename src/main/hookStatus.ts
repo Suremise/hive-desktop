@@ -46,6 +46,8 @@ export interface HookStatusInput {
   question: boolean
   /** An action is under the CLI's automatic review (LiveSessionState.review). */
   reviewing: boolean
+  /** It waits on its CLI's prompt about a safeguard stop (#606: whether to switch models), which no hook answers. */
+  safeguardPrompt: boolean
 }
 
 export type HookAction =
@@ -158,6 +160,21 @@ export function markedIdle(s: HookStatusInput): HookStep {
   return { next: idleAfter(s, 'ready'), message: null, review: null, ...RESOLVED, actions: ['releaseLocks', ...(s.compacting ? (['compactEnded'] as const) : [])] }
 }
 
+/** What an agent idle after its CLI's safeguard prompt was answered shows (#606). */
+export const SAFEGUARD_IDLE_MESSAGE = 'Idle after a safeguard stop: give it a nudge'
+
+/**
+ * The CLI's prompt about a safeguard stop was answered (#606): it sends no hook for the answer, so HB3 showed "Claude
+ * needs your permission" for half an hour after its turn had ended. Its idle notice, or the prompt gone from its screen
+ * once the user typed, says so: idle (on its background tasks, or ready for a nudge), nothing open. Nothing while it
+ * doesn't wait on that prompt.
+ */
+export function safeguardAnswered(s: HookStatusInput): HookStep {
+  if (!s.safeguardPrompt || s.status !== 'waiting') return { next: null, actions: [] }
+  const next = idleAfter(s, 'ready')
+  return { next, message: next === 'ready' ? SAFEGUARD_IDLE_MESSAGE : null, review: null, ...RESOLVED, actions: ['releaseLocks'] }
+}
+
 export function hookStep(ev: HookEvent, s: HookStatusInput): HookStep {
   switch (ev.kind) {
     case 'start':
@@ -222,7 +239,8 @@ export function hookStep(ev: HookEvent, s: HookStatusInput): HookStep {
       // The CLI says it is idle at its prompt while Hive still shows it working (#612: HB3 stayed "Working…" after its
       // turn ended, and prompts to it were refused): no turn runs, so it is idle again and its claims go. Anything
       // else stands: one waiting for a person or on its background tasks says so itself, and Hive's own Compact has
-      // its own limits.
+      // its own limits. A safeguard prompt says nothing when it is answered: the CLI idle again is its answer (#606).
+      if (s.safeguardPrompt && s.status === 'waiting') return safeguardAnswered(s)
       if (s.status !== 'working' || s.compacting) return { next: null, actions: [] }
       return { next: idleAfter(s, 'ready'), message: null, review: null, ...RESOLVED, actions: ['releaseLocks', 'idleAgain'] }
     case 'compactStart': {

@@ -54,8 +54,11 @@ export function safeguardCodes(name: SafeguardCodesName, overrides?: SafeguardOv
 /** How many of the agent's last tool calls (their names) a stop keeps. */
 export const SAFEGUARD_TOOLS = 5
 
-/** A stop seen this close to the last one noted is the same stop (its CLI's prompt and its transcript entry, read apart). */
-export const SAME_STOP_MS = 60_000
+/**
+ * A stop seen this close to the last one noted is the same stop (its CLI's prompt and its transcript entry, read apart:
+ * seconds). Short, since a CLI that carries on after a stop can be stopped again soon after.
+ */
+export const SAME_STOP_MS = 15_000
 
 /** The names of the last tool calls a detector's memo holds (each keeps them as `tools`), for a stop Hive sees elsewhere. */
 export function memoTools(memo: Record<string, unknown> | undefined): string[] {
@@ -115,6 +118,8 @@ export function noteSafeguard(note: SafeguardNote | undefined, ev: SafeguardEven
     // A switch noted earlier stands until the model changes back: it is the model the agent still runs on.
     if (note?.switched) out.switched = note.switched
     if (note?.unseen) out.unseen = true
+    // So does a prompt about it still waiting (only an answer ends it).
+    if (note?.prompt) out.prompt = true
     return out
   }
   if (!note && !ev.flagged) return null

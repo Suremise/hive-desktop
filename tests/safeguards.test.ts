@@ -1,6 +1,8 @@
 import { describe, expect, it } from 'vitest'
 import { claudeSafeguards } from '../src/main/providers/claude/safeguards'
 import { codexSafeguards } from '../src/main/providers/codex/safeguards'
+import { claudeCode } from '../src/main/providers/claude/adapter'
+import type { Ask } from '../src/main/providers/types'
 import { SAFEGUARD_DEFAULTS, noteSafeguard, safeguardCodes, safeguardPattern, safeguardText, type SafeguardEvent, type SafeguardNote } from '../src/shared/safeguards'
 
 const lines = (...o: unknown[]): string => o.map((x) => JSON.stringify(x)).join('\n') + '\n'
@@ -202,5 +204,28 @@ describe('one stop seen twice', () => {
     expect([again.stops, again.model, again.tools]).toEqual([1, 'claude-opus-5-5', ['Bash']])
     expect(noteSafeguard(again, { kind: 'stop', at: at(T1) + 1000, tools: [] })).toBeNull()
     expect(noteSafeguard(again, { kind: 'stop', at: at(T3), tools: [] })!.stops).toBe(2)
+  })
+
+  it('a prompt still waiting stays through a new stop', () => {
+    const waiting: SafeguardNote = { at: new Date(at(T1)).toISOString(), tools: [], stops: 1, prompt: true }
+    expect(noteSafeguard(waiting, { kind: 'stop', at: at(T3), tools: ['Read'] })).toMatchObject({ stops: 2, prompt: true, tools: ['Read'] })
+  })
+})
+
+describe("Claude Code's prompt about a stop, told by its screen", () => {
+  const ask = (message: string): Ask => ({ kind: 'permission', blocking: true, message })
+  const dialog = [" Opus 5.5's safeguards stopped this response.", ' Switch this conversation to Opus 4.8?', ' ❯ 1. Stay on Opus 5.5', '   2. Switch to Opus 4.8']
+  const screen = (...rows: string[]): string => rows.join('\n')
+  const rows = (text: string, n: number): string[] => Array<string>(n).fill(text)
+
+  it('is a permission prompt naming no tool while its screen shows the safeguard dialog, near its input or on a cleared screen', () => {
+    expect(claudeCode.safeguardAsk!(ask('Claude needs your permission'), screen(...rows('older output', 40), ...dialog, ''))).toBe(true)
+    // Cleared for the dialog: it is at the top, blank rows below.
+    expect(claudeCode.safeguardAsk!(ask('Claude needs your permission'), screen(...dialog, ...rows('', 30)))).toBe(true)
+  })
+
+  it("is no tool's permission prompt, nor a dialog scrolled away", () => {
+    expect(claudeCode.safeguardAsk!(ask('Claude needs your permission to use Bash'), screen(...dialog))).toBe(false)
+    expect(claudeCode.safeguardAsk!(ask('Claude needs your permission'), screen(...dialog, ...rows('later output', 30), '❯ '))).toBe(false)
   })
 })
