@@ -3862,6 +3862,10 @@ p.hint {
   flex-wrap: wrap;
   row-gap: 2px;
 }
+.session-row-size {
+  white-space: nowrap;
+  font-variant-numeric: tabular-nums;
+}
 .sessions-tree .session-row.sub strong {
   font-weight: 500;
   color: var(--fg);

@@ -1,6 +1,6 @@
 import { memo, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
 import type { ProjectInfo, SessionBulkAction, SessionBulkResult, SessionListItem, SessionSkipReason, Transcript, TranscriptImageRef, TranscriptItem, TranscriptSearchResult, TranscriptTool } from '@shared/types'
-import { MAX_AGENTS, TRANSCRIPT_WINDOW } from '@shared/defaults'
+import { MAX_AGENTS, TRANSCRIPT_WINDOW, transcriptSizeInfo, transcriptWarnLimit } from '@shared/defaults'
 import { formatDateTime } from '@shared/dates'
 import { isProviderEnabled, providerDescriptor, providerName } from '@shared/providers'
 import { buildSessionTree, countText, countsIn, pathTo, sessionKey, sessionsIn, type TreeNode } from '@shared/sessionTree'
@@ -60,6 +60,8 @@ export function SessionsTab({ project, assistant = false }: { project: ProjectIn
   const treeRef = useRef<HTMLDivElement>(null)
   const settings = useStore((s) => s.settings)
   const installs = useStore((s) => s.providers)
+  // Transcripts past this size (MB) show in the warning colour, as the agent's footer does.
+  const warnMB = transcriptWarnLimit(project.config, settings?.sessions.transcriptWarnMB ?? 0)
   const prefKey = project.path.toLowerCase()
   const explicit = useStore((s) => s.sessionsTree[prefKey]) ?? NO_PREFS
   // Running sessions of all the project's agents, by session id.
@@ -495,6 +497,8 @@ export function SessionsTab({ project, assistant = false }: { project: ProjectIn
                 live={liveById.get(s.id)?.status ?? null}
                 origin={origin(s)}
                 block={whyNot(s)}
+                warnMB={warnMB}
+                assistant={assistant}
                 selected={s.id === selectedId}
                 cursor={cursor === r.key}
                 onClick={() => activate(r)}
@@ -698,6 +702,24 @@ function SessionMarker({ s, block, live, orphan }: { s: SessionListItem; block: 
   )
 }
 
+/** The transcript's size on disk (#671): amber past Warn when a transcript is over, with what to do about it. */
+function TranscriptSize({ s, warnMB, assistant }: { s: SessionListItem; warnMB: number; assistant: boolean }) {
+  const { text, long } = transcriptSizeInfo(s.transcriptBytes, warnMB)
+  const tip =
+    text === '—'
+      ? `${providerName(s.provider)} has no transcript file for this ${assistant ? 'conversation' : 'session'}${s.hasBackup ? ' (Hive keeps a backup of it)' : ''}.`
+      : `Transcript: ${text} on disk${warnMB > 0 ? ` (flagged over ${warnMB} MB: Settings → Sessions)` : ''}.${
+          long
+            ? ` A long conversation slows down the CLI and Hive, and compacting doesn't shrink the file. ${assistant ? 'Start a new conversation (⋯ → New Conversation) to make it short again.' : 'Hand the work over to a new conversation (Hand Over to…) to make it short again.'}`
+            : ''
+        }`
+  return (
+    <Tooltip content={tip}>
+      <span className={cx('session-row-size', long && 'warn-text')}>{text}</span>
+    </Tooltip>
+  )
+}
+
 function SessionRow(props: {
   s: SessionListItem
   name: string
@@ -708,6 +730,8 @@ function SessionRow(props: {
   live: string | null
   origin: SessionOrigin | null
   block: string | null
+  warnMB: number
+  assistant: boolean
   selected: boolean
   cursor: boolean
   onClick: () => void
@@ -757,6 +781,7 @@ function SessionRow(props: {
           <span>{timeAgo(s.lastActivity)}</span>
         )}
         {s.usage && <span>{formatTokens(s.usage.contextTokens)} context</span>}
+        <TranscriptSize s={s} warnMB={props.warnMB} assistant={props.assistant} />
         {origin && (
           <Tooltip content={<span style={{ whiteSpace: 'pre-line' }}>{origin.detail}</span>}>
             <span className="badge session-origin">{origin.location}</span>
