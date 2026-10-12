@@ -34,6 +34,7 @@ import { CHANGES_ABOUT, unusedPickerLabel } from '@shared/unusedWorktrees'
 import { agentProviderOf, confirm, notify, openInSessionsTab, set, setActivity, showView, UNUSED_ROOT, unusedRoot, useDateStyle, useFocusedAgent, useStore } from '../store'
 import { rememberProjectPref } from '../projectPrefs'
 import { HiveVcsNotice } from '../components/HiveVcsNotice'
+import { InitRepoButton } from '../components/InitRepo'
 import { MergeSlotList, projectSlots, useMergeSlots } from '../components/MergeSlots'
 import { cx, formatDuration, formatNumber, formatTokens, resetsIn, timeAgo } from '../util'
 import { useLiveUsage, useNow } from '../usage'
@@ -780,7 +781,8 @@ export function ChangesTab({ project: owner }: { project: ProjectInfo }) {
       <div className="empty-state" style={{ paddingTop: '15vh' }}>
         <Icon name="source-control" />
         {project.name} is not a git repository, so there are no changes to review.
-        <p className="hint">Ask the agent to run <code>git init</code>, or initialise it yourself, to review its changes here.</p>
+        <p className="hint">Initialise it to review its changes here: it gets a first commit, so agents can work in worktrees too.</p>
+        {project === owner && <InitRepoButton project={owner} small />}
       </div>
     )
   }
