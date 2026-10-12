@@ -64,6 +64,7 @@ import { GUIDANCE_REVISION, launchParts, launchRecord } from './guidance'
 import { notificationIcon } from './paths'
 import { reportPlanUsage } from './planUsage'
 import { devConsole, sessionSourceId } from './devConsole'
+import { safeWord } from '../shared/devConsole'
 import { hookSummary, statusLineSummary, transcriptEvent } from './devConsoleWords'
 import { revisionOf } from './revisions'
 import { metricsHandle, recordLaunch } from './metrics'
@@ -1225,7 +1226,7 @@ class SessionManager {
       provider: adapter.id,
       raw: { file: basename(cmd.file), switches: cmd.args.filter((a) => a.startsWith('-')), cwd, version: info.version },
       made: { status: state.status, permissionMode: state.permissionMode, modelId: state.modelId, effort: state.effort, resumed: !!l.resumed },
-      summary: `${adapter.descriptor.name} ${info.version ?? ''} started${l.resumed ? ' (resumed)' : ''}; ${state.status}`
+      summary: `${adapter.descriptor.name} ${safeWord(info.version)} started${l.resumed ? ' (resumed)' : ''}; ${state.status}`
     }))
     spawnPty(key, {
       ...size,
@@ -2926,7 +2927,7 @@ class SessionManager {
     this.carryOut(id, l, step, String(body.hook_event_name ?? ''), ev, arrived)
     // The developer console (#636): the hook as it came, next to what Hive made of it.
     devConsole.capture([sessionSourceId(st.projectPath, st.agentId)], () => {
-      const name = String(body.hook_event_name ?? '(unnamed)')
+      const name = safeWord(body.hook_event_name) || '(unnamed)'
       const made = { event: ev, status: st.status, actions: step.actions, ...(reply ? { reply } : {}) }
       return { kind: 'hook', name, provider: st.provider, raw: body, made, summary: hookSummary(name, body.tool_name, ev.kind, st.status, step.actions, !!reply) }
     })

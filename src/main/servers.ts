@@ -58,9 +58,9 @@ import { clearDiscovery, writeDiscovery } from './apiDiscovery'
 import { createViewerToken, loadViewerTokens, revokeViewerToken, viewerForToken, viewerTokens } from './viewerTokens'
 import { hookTokenMatches } from './hookTokens'
 import { unusedWorktreeCounts } from './unusedWorktrees'
-import { LEASE_MS, devConsole, hiveSourceId, sessionSourceId } from './devConsole'
+import { devConsole, hiveSourceId, sessionSourceId } from './devConsole'
 import { consoleSources } from './devConsoleSources'
-import { CONSOLE_KINDS, mayRead, type ConsoleEvent, type ConsoleKind, type ConsoleReader } from '../shared/devConsole'
+import { CONSOLE_KINDS, hiveName, mayRead, type ConsoleEvent, type ConsoleKind, type ConsoleReader, type ConsoleSource } from '../shared/devConsole'
 
 const log = createLogger('servers')
 const MAX_BODY = 2 * 1024 * 1024
@@ -2017,13 +2017,16 @@ async function progressCall<T>(ignored: T, change: (caller: ProgressCaller) => T
 // its project's. Empty with the panel turned off.
 // ---------------------------------------------------------------------------
 // Developer console (#636): read-only and redacted, while Settings → Agent API lets agents read it. A project agent reads
-// its own sessions, the Assistant its workspace's; reading starts capture for the reader, for LEASE_MS after its last read.
+// its own sessions, the Assistant its workspace's. Reading starts nothing (#366 decision 4: capture is off unless the
+// console is open): it gives what an open console is capturing, and says when nothing is.
 // ---------------------------------------------------------------------------
 
-/** Events a read gives at most, and the events whose payloads one read gives in full. */
+/** Events a read gives at most, the events one read gives in full, and the sources a page lists. */
 const CONSOLE_ROWS = 30
 const CONSOLE_ROWS_MAX = 100
 const CONSOLE_DETAIL_MAX = 3
+const CONSOLE_SOURCES = 50
+const CONSOLE_SOURCES_MAX = 100
 const NOT_READABLE = 'Not a developer console source you can read'
 
 function consoleReader(): ConsoleReader {
@@ -2031,16 +2034,6 @@ function consoleReader(): ConsoleReader {
   if (a) return { kind: 'agent', projectPath: a.projectPath, agentId: a.agentId }
   const own = assistantCaller()
   return own ? { kind: 'assistant', workspace: own } : { kind: 'all' }
-}
-
-/** Whose capture a read keeps going: one per agent, per Assistant, per viewer, and one for the workspace token. */
-function consoleOwner(): string {
-  const a = agentCaller()
-  if (a) return `agent:${sessionSourceId(a.projectPath, a.agentId)}`
-  const own = assistantCaller()
-  if (own) return `assistant:${own}`
-  const v = viewerCaller()
-  return v ? `viewer:${v.id}` : 'api'
 }
 
 function consoleAllowed(): void {
@@ -2081,66 +2074,49 @@ async function consoleSource(query: URLSearchParams): Promise<string> {
   return id
 }
 
-/** A source as a reply names it, from its workspace's list (its label, provider, and whether it is being captured). */
-function consoleRow(id: string, reading: string[]) {
-  const ws = contextWorkspace()
-  const r = ws ? consoleSources(ws).find((x) => x.id === id) : undefined
-  return { id, label: r?.label ?? id, kind: r?.kind ?? (id.startsWith('hive:') ? 'hive' : 'session'), ...(r?.project ? { project: r.project } : {}), ...(r?.agent ? { agent: r.agent } : {}), ...(r?.provider ? { provider: r.provider } : {}), capturing: devConsole.capturing(id), events: devConsole.count(id), reading: reading.includes(id) }
+/** A source as a reply names it (bounded names; whether an open console is capturing it, and how many events it holds). */
+function consoleRow(s: ConsoleSource | undefined, id: string) {
+  return { label: hiveName(s?.label ?? (id.startsWith('hive:') ? 'Hive' : 'an agent'), 80), kind: s?.kind ?? (id.startsWith('hive:') ? 'hive' : 'session'), ...(s?.project ? { project: hiveName(s.project, 60) } : {}), ...(s?.agent ? { agent: hiveName(s.agent) } : {}), ...(s?.provider ? { provider: s.provider } : {}), capturing: devConsole.capturing(id), events: devConsole.count(id) }
 }
 
 const consoleRowOf = (e: ConsoleEvent) => ({ seq: e.seq, at: e.at, kind: e.kind, name: e.name, summary: e.summary, ...(e.truncated ? { truncated: true } : {}) })
 
-route('GET', '/v1/console/sources', async () => {
+/** A whole number from the query between `min` and `max`, else `fallback`. */
+function intParam(query: URLSearchParams, name: string, fallback: number, min: number, max: number): number {
+  const n = Number(query.get(name))
+  return query.has(name) && Number.isFinite(n) ? Math.min(max, Math.max(min, Math.floor(n))) : fallback
+}
+
+route('GET', '/v1/console/sources', async ({ query }) => {
   consoleAllowed()
   const reader = consoleReader()
-  const reading = devConsole.sourcesOf(consoleOwner())
-  return consoleSources(requireWorkspace())
-    .filter((s) => mayRead(reader, s.id, consoleWorkspaceOf))
-    .map((s) => consoleRow(s.id, reading))
+  const all = consoleSources(requireWorkspace()).filter((s) => mayRead(reader, s.id, consoleWorkspaceOf))
+  const offset = intParam(query, 'offset', 0, 0, all.length)
+  const limit = intParam(query, 'limit', CONSOLE_SOURCES, 1, CONSOLE_SOURCES_MAX)
+  return { total: all.length, offset, sources: all.slice(offset, offset + limit).map((s) => consoleRow(s, s.id)) }
 })
 
 route('GET', '/v1/console/events', async ({ query }) => {
   consoleAllowed()
   const id = await consoleSource(query)
-  const owner = consoleOwner()
-  const started = !devConsole.sourcesOf(owner).includes(id)
-  // Reading starts the reader's capture of the source, or renews it.
-  try {
-    devConsole.watch(owner, [id], { leaseMs: LEASE_MS })
-  } catch (e) {
-    throw new HttpError(429, (e as Error).message)
-  }
-  const leaseEnds = new Date(devConsole.leaseEnd(owner) ?? Date.now()).toISOString()
-  const source = consoleRow(id, devConsole.sourcesOf(owner))
+  const ws = contextWorkspace()
+  const source = consoleRow(ws ? consoleSources(ws).find((x) => x.id === id) : undefined, id)
   const seqs = (query.get('seq') ?? '').split(',').map((x) => Number(x.trim())).filter((n) => Number.isInteger(n) && n > 0)
   if (seqs.length) {
     if (seqs.length > CONSOLE_DETAIL_MAX) throw new HttpError(400, `At most ${CONSOLE_DETAIL_MAX} events in full at a time`)
     const events = seqs.map((n) => devConsole.event(id, n)).filter((e): e is ConsoleEvent => !!e)
-    return { source, started, leaseEnds, events, missing: seqs.filter((n) => !events.some((e) => e.seq === n)) }
+    return { source, events, missing: seqs.filter((n) => !events.some((e) => e.seq === n)) }
   }
   const kinds = (query.get('kinds') ?? '').split(',').map((k) => k.trim()).filter(Boolean)
   const unknown = kinds.filter((k) => !(CONSOLE_KINDS as readonly string[]).includes(k))
-  if (unknown.length) throw new HttpError(400, `Unknown event kinds: ${unknown.join(', ')} (kinds are ${CONSOLE_KINDS.join(', ')})`)
-  const since = Math.max(0, Number(query.get('since')) || 0)
-  const limit = Math.min(CONSOLE_ROWS_MAX, Math.max(1, Number(query.get('limit')) || CONSOLE_ROWS))
+  if (unknown.length) throw new HttpError(400, `Unknown event kinds: ${unknown.slice(0, 5).map((k) => k.slice(0, 30)).join(', ')} (kinds are ${CONSOLE_KINDS.join(', ')})`)
+  const since = intParam(query, 'since', 0, 0, Number.MAX_SAFE_INTEGER)
+  const limit = intParam(query, 'limit', CONSOLE_ROWS, 1, CONSOLE_ROWS_MAX)
   const after = devConsole.events(id, since).filter((e) => !kinds.length || kinds.includes(e.kind as ConsoleKind))
   // The first read gives the newest; a read with since carries on from there, oldest first, so paging misses none.
   const events = since ? after.slice(0, limit) : after.slice(-limit)
   const rest = after.length - events.length
-  return { source, started, leaseEnds, events: events.map(consoleRowOf), ...(rest ? (since ? { newer: rest } : { older: rest }) : {}), newest: events.length ? events[events.length - 1].seq : since }
-})
-
-route('DELETE', '/v1/console/capture', async ({ query }) => {
-  const owner = consoleOwner()
-  const named = query.get('source') || query.get('agent') || query.get('project')
-  const had = devConsole.sourcesOf(owner)
-  if (!named) {
-    devConsole.unsubscribe(owner)
-    return { stopped: had.length }
-  }
-  const id = await consoleSource(query)
-  devConsole.unsubscribe(owner, [id])
-  return { stopped: had.includes(id) ? 1 : 0 }
+  return { source, events: events.map(consoleRowOf), ...(rest ? (since ? { newer: rest } : { older: rest }) : {}), newest: events.length ? events[events.length - 1].seq : since }
 })
 
 route('GET', '/v1/progress', async () => {

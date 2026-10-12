@@ -249,11 +249,13 @@ const prose = (seed, n) => {
   const page2 = measure('hive_list_tasks (offset 70)', tool('hive_list_tasks', { offset: 70 }), 10 * 200)
   check('offset carries on where a page stopped', /^Cards 71–\d+ of \d+\.$/m.test(page2) && page2.split('\n').filter((l) => l.startsWith('#')).length === all.split('\n').filter((l) => l.startsWith('#')).length + 1 - 70, page2.slice(0, 200))
 
-  // The developer console (#636; offered while Settings → Agent API lets agents read it): a first read starts capture, a
-  // turn then reads as a line an event (its prompt hidden), one event in full, the sources and Hive's own events as the
-  // Assistant, and stopping.
-  const consoleFirst = measure('hive_console (first read)', tool('hive_console', { agent: 'Coder' }), 300)
-  check('a first read starts capture and says so', /^alpha · Coder: capture started until \d\d:\d\d UTC/.test(consoleFirst) && /No events yet/.test(consoleFirst), consoleFirst)
+  // The developer console (#636; offered while Settings → Agent API lets agents read it): with no console open a read
+  // starts nothing and says so; with the window watching Coder, a turn reads as a line an event (its prompt hidden), one
+  // event in full, the sources (a page at a time) and Hive's events as the Assistant.
+  const consoleClosed = measure('hive_console (no console open)', tool('hive_console', { agent: 'Coder' }), 300)
+  check('with no console open a read says nothing is captured', consoleClosed.startsWith("alpha · Coder: not captured: the developer console isn't open on it"), consoleClosed)
+  const coderSource = (await inv('console:sources')).find((s) => s.agentId === coder.id)
+  await inv('console:subscribe', [coderSource.id])
   await lib.sendPrompt(inv, lib.ptyKey(alpha, coder.id), 'turn 5 console', { submitted: async () => String(await inv('pty:buffer', lib.ptyKey(alpha, coder.id))).includes('Done: turn 5 console') })
   const consoleTurn = await until(async () => {
     const t = tool('hive_console', { agent: 'Coder' }).text
@@ -266,9 +268,10 @@ const prose = (seed, n) => {
   check('…one in full: the raw hook and what Hive made of it, its prompt still hidden', consoleOne.includes('"raw"') && consoleOne.includes('"made"') && /"prompt":"<text: \d+ chars>"/.test(consoleOne), consoleOne)
   const consoleList = measure('hive_console (sources, as the Assistant)', tool('hive_console', { action: 'sources' }, 'assistant'), 1200)
   check('the sources: a line each, with how to name it', /^alpha · Coder \(claude-code\): captured, \d+ events \[agent=Coder project=alpha\]$/m.test(consoleList) && /^Hive: not captured \[source=hive\]$/m.test(consoleList), consoleList)
+  const sourcePage = await api('GET', '/v1/console/sources?limit=2')
+  check('sources come a page at a time, with the total', sourcePage.status === 200 && sourcePage.body.sources.length === 2 && sourcePage.body.total > 2 && sourcePage.body.offset === 0, sourcePage.text.slice(0, 300))
   measure("hive_console (Hive's events, as the Assistant)", tool('hive_console', { source: 'hive' }, 'assistant'), 300)
-  check('stop ends a capture', measure('hive_console (stop)', tool('hive_console', { action: 'stop' }), 100) === 'Capture stopped (1 source).', texts['hive_console (stop)'])
-  tool('hive_console', { action: 'stop' }, 'assistant')
+  await inv('console:subscribe', [])
 
   console.log('\n--- hive tools (as the Assistant)')
   measure('hive_list_providers', tool('hive_list_providers', {}, 'assistant'))

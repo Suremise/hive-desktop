@@ -486,7 +486,7 @@ export interface HiveRequests {
   'console:sources': () => ConsoleSource[]
   /**
    * What this window watches in the developer console: replaces its list ([] ends it) and returns each source's events
-   * so far. Capture runs while a window or reader watches; live events come as `console-events`. `includeText` keeps
+   * so far. Capture runs only while a window watches a source; live events come as `console-events`. `includeText` keeps
    * prompt and reply text in what this window is sent (secrets stay masked); off by default.
    */
   'console:subscribe': (sources: string[], opts?: { includeText?: boolean }) => Record<string, ConsoleEvent[]>

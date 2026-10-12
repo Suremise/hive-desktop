@@ -1970,7 +1970,7 @@ export type HiveEvent =
   /** A workspace's lanes changed, or one of their cards did (the lanes it lists, as lanes:list gives them). */
   | { type: 'lanes-changed'; workspacePath: string; lanes: LaneInfo[] }
   /** The developer console's new events for the sources this window watches (#636): sent to that window only. */
-  | { type: 'console-events'; events: ConsoleEvent[] }
+  | { type: 'console-events'; events: ConsoleEvent[]; /** Events that didn't fit the window's queue since the last batch (it fell behind). */ dropped?: number }
 
 /**
  * A lane (#483): a builder and a reviewer taking a project's cards in order (the card-loop skill), as Hive keeps it.

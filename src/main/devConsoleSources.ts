@@ -1,5 +1,5 @@
 import type { AgentInfo, ProjectInfo } from '../shared/types'
-import type { ConsoleSource } from '../shared/devConsole'
+import { hiveName, safeWord, type ConsoleSource } from '../shared/devConsole'
 import { ASSISTANT_NAME } from '../shared/assistant'
 import { devConsole, hiveSourceId, sessionSourceId } from './devConsole'
 import { onHiveEvent } from './events'
@@ -44,7 +44,8 @@ export function initDevConsole(): void {
       if (seen.get(r.id) === sig) continue
       seen.set(r.id, sig)
       const pub = publicRun(r)
-      devConsole.capture([source], () => ({ kind: 'progress', name: String(r.state), raw: pub, made: { state: r.state, step: r.step, total: r.total, waiting: r.waiting !== null }, summary: `progress ${pub.title} (${r.agentName}) → ${r.state}${r.total ? ` ${r.step}/${r.total}` : ''}` }))
+      // Its title stays in the payload (hidden there unless text is included): a reporter's title is still someone's text.
+      devConsole.capture([source], () => ({ kind: 'progress', name: safeWord(r.state), raw: pub, made: { state: r.state, step: r.step, total: r.total, waiting: r.waiting !== null }, summary: `progress run by ${hiveName(r.agentName)} → ${safeWord(r.state)}${typeof r.total === 'number' ? ` ${Number(r.step) || 0}/${r.total}` : ''}` }))
     }
     // Runs no longer listed are forgotten (the panel's list is bounded, so is this).
     const ids = new Set(e.runs.map((r) => r.id))

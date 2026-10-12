@@ -107,7 +107,7 @@ export function mayRead(reader: ConsoleReader, source: string, workspaceOfProjec
   return !!ws && samePath(ws, reader.workspace)
 }
 
-/** A source's ring: the newest events within its bounds. */
+/** A source's ring: the newest events within its bounds (one larger than the whole ring isn't kept). */
 export class ConsoleRing {
   private list: ConsoleEvent[] = []
   private size = 0
@@ -118,7 +118,7 @@ export class ConsoleRing {
   push(e: ConsoleEvent): void {
     this.list.push(e)
     this.size += e.bytes
-    while (this.list.length > this.maxEvents || (this.size > this.maxBytes && this.list.length > 1)) this.size -= this.list.shift()!.bytes
+    while (this.list.length > this.maxEvents || (this.size > this.maxBytes && this.list.length > 0)) this.size -= this.list.shift()!.bytes
   }
   get count(): number {
     return this.list.length
@@ -143,65 +143,103 @@ export class ConsoleRing {
 // Redaction
 // ---------------------------------------------------------------------------
 
-/** Fields whose strings are text someone wrote (a person, the model, a CLI): hidden unless text is included. */
-const TEXT_KEY = /^(?:prompt|prompts|message|messages|last_assistant_message|lastmessage|text|content|reason|title|summary|tool_response|tool_result|result|output|stdout|stderr|error|description|question|answer|body|line|lines|screen|old_string|new_string|command|query|custom_instructions|plan|transcript|todos|instructions|value|name|customtitle|subject)$/i
-/** Fields named like a secret: their strings are masked, always. Usage counts (input_tokens) are numbers, so they stay. */
-const SECRET_KEY = /(?:token|secret|password|passwd|api[_-]?key|apikey|credential|cookie|authorization|^auth$|_auth$|^auth_|session[_-]?key|private[_-]?key|access[_-]?key)/i
-/** A string kept as it is: an identifier, a version, a model id, an enum (no spaces). */
-const IDENTIFIER = /^[\w.:@/+#=-]{0,120}$/
+/**
+ * Fields whose whole subtree is a secret or a sign-in: masked whatever they hold (strings, numbers, objects), always.
+ * Usage counts are spelt `input_tokens` and the like and are numbers outside such a subtree, so they aren't caught here.
+ */
+const SECRET_KEY = /(?:^|[_-])(?:token|access_token|refresh_token|id_token|secret|password|passwd|apikey|api_key|credentials?|cookies?|authorization|auth|oauth|login|signin|sign_in|device_code|user_code|verification_uri\w*|session_key|private_key|access_key|bearer|otp|code_verifier)(?:$|[_-])|^(?:token|secret|password|authorization|auth|cookie|credentials?|login|signIn|deviceCode|userCode|apiKey|accessToken|refreshToken)$/i
+/** Fields whose whole subtree is text someone wrote (a person, the model, a CLI): every string in it is hidden unless text is included. */
+const TEXT_KEY = /^(?:prompt|prompts|message|messages|last_assistant_message|lastMessage|lastReply|text|content|reason|title|summary|tool_response|tool_result|result|output|stdout|stderr|error|errors|description|question|answer|body|line|lines|screen|command|custom_instructions|todos|instructions|value|customTitle|subject|ask|asks|open|waitingOn|statusMessage)$/
+/**
+ * The only fields whose strings are kept (when they look like an identifier, a path or a time): Hive's own and the CLIs'
+ * well-known names, ids, modes and paths. A string anywhere else is hidden, one word or many: an unknown CLI field is
+ * text until it is listed here.
+ */
+const SAFE_KEYS = new Set([
+  // Hooks, status lines and transcripts (Claude Code, Codex, Copilot).
+  'hook_event_name', 'hookEventName', 'session_id', 'sessionId', 'transcript_path', 'transcriptPath', 'cwd', 'permission_mode', 'permissionMode', 'tool_name', 'toolName', 'tool_use_id', 'toolUseId', 'file_path', 'filePath', 'notebook_path', 'path', 'source', 'trigger', 'matcher', 'notification_type', 'model', 'id', 'display_name', 'version', 'type', 'subtype', 'role', 'stop_reason', 'current_dir', 'project_dir', 'agent_type', 'turn_id', 'call_id', 'timestamp',
+  // What Hive made of it, and its own events.
+  'kind', 'status', 'actions', 'provider', 'mode', 'effort', 'modelId', 'modelName', 'plan', 'label', 'resetsAt', 'updatedAt', 'firedAt', 'state', 'outcome', 'method', 'route', 'query', 'branch', 'project', 'agent', 'agentId', 'agentName', 'waiting', 'name', 'switches', 'file', 'permissionDecision', 'footer', 'was', 'call'
+])
+/** A string kept under a safe field: an identifier, a version, a model id, an enum (no spaces). */
+const IDENTIFIER = /^[\w.:@/+#=-]{1,120}$/
 /** An absolute path on one line (folders are the user's own machine's: the console is local; recordings say more, #638). */
 const PATH = /^(?:[A-Za-z]:[\\/]|\\\\|~[\\/]|\/)[^\r\n]{0,400}$/
 const ISO_TIME = /^\d{4}-\d\d-\d\dT[\d:.]+(?:Z|[+-]\d\d:?\d\d)?$/
 
 export interface RedactOptions {
-  /** Keep text (cut to TEXT_MAX); secrets are still masked. Off by default. */
+  /** Keep text (cut to TEXT_MAX); secrets and sign-ins are still masked. Off by default. */
   includeText?: boolean
 }
 const TEXT_MAX = 2000
 const MAX_DEPTH = 6
 const MAX_ITEMS = 40
 const MAX_KEYS = 60
+/** A field's name, at most: a longer one is cut (a payload's keys are bounded like its values). */
+const KEY_MAX = 64
 
 const hidden = (s: string): string => `<text: ${s.length} chars>`
+const keyOf = (k: string): string => (k.length > KEY_MAX ? `${k.slice(0, KEY_MAX)}…` : k)
+
+/** Where a value sits: under a secret (masked), under text (strings hidden), or in plain fields (strings kept only where safe). */
+type Context = 'secret' | 'text' | 'plain'
 
 /** A redacted, bounded copy of a payload (see the top of this file). Never throws: what it can't copy it describes. */
 export function redactPayload(value: unknown, opts: RedactOptions = {}): unknown {
-  return copy(value, '', 0, opts)
+  return copy(value, '', 'plain', 0, opts)
 }
 
-function copy(v: unknown, key: string, depth: number, opts: RedactOptions): unknown {
+function copy(v: unknown, key: string, ctx: Context, depth: number, opts: RedactOptions): unknown {
+  // A field's context follows everything under it: a secret's or a prompt's children are the secret's or the prompt's.
+  if (ctx !== 'secret' && key && SECRET_KEY.test(key)) ctx = 'secret'
+  else if (ctx === 'plain' && key && TEXT_KEY.test(key)) ctx = 'text'
+  if (v === undefined) return undefined
+  if (ctx === 'secret') return v === null || v === '' ? v : '<redacted>'
   if (v === null || typeof v === 'boolean') return v
   if (typeof v === 'number') return Number.isFinite(v) ? v : String(v)
-  if (typeof v === 'string') return redactString(v, key, opts)
-  if (typeof v !== 'object') return v === undefined ? undefined : `<${typeof v}>`
+  if (typeof v === 'string') return redactString(v, key, ctx, opts)
+  if (typeof v !== 'object') return `<${typeof v}>`
   if (depth >= MAX_DEPTH) return Array.isArray(v) ? `<${v.length} items>` : '<object>'
   if (Array.isArray(v)) {
-    // An array's items are judged by the field that holds them (prompts: [...] are text).
-    const items = v.slice(0, MAX_ITEMS).map((x) => copy(x, key, depth + 1, opts))
+    // An array's items are judged by the field that holds them (prompts: [...] are text, switches: [...] are kept).
+    const items = v.slice(0, MAX_ITEMS).map((x) => copy(x, key, ctx, depth + 1, opts))
     if (v.length > MAX_ITEMS) items.push(`<${v.length - MAX_ITEMS} more>`)
     return items
   }
   const out: Record<string, unknown> = {}
   const entries = Object.entries(v as Record<string, unknown>)
   for (const [k, x] of entries.slice(0, MAX_KEYS)) {
-    const c = copy(x, k, depth + 1, opts)
-    if (c !== undefined) out[k] = c
+    const c = copy(x, k, ctx, depth + 1, opts)
+    if (c !== undefined) out[keyOf(k)] = c
   }
   if (entries.length > MAX_KEYS) out['<more>'] = `${entries.length - MAX_KEYS} more fields`
   return out
 }
 
-function redactString(s: string, key: string, opts: RedactOptions): string {
-  if (key && SECRET_KEY.test(key)) return s ? '<redacted>' : s
+function redactString(s: string, key: string, ctx: Context, opts: RedactOptions): string {
+  if (!s) return s
   if (opts.includeText) return maskSecrets(s.length > TEXT_MAX ? `${s.slice(0, TEXT_MAX)}…` : s)
-  if (key && TEXT_KEY.test(key)) return s ? hidden(s) : s
-  if (IDENTIFIER.test(s) || PATH.test(s) || ISO_TIME.test(s)) return maskSecrets(s)
+  if (ctx === 'plain' && SAFE_KEYS.has(key) && (IDENTIFIER.test(s) || PATH.test(s) || ISO_TIME.test(s))) return maskSecrets(s)
   return hidden(s)
 }
 
-/** An event as kept: its payloads redacted and bounded, its size counted. */
+/** A word for an event's name or a summary: kept when it is an identifier (a hook's or a tool's name), else said to be text. Never more than `max`. */
+export function safeWord(v: unknown, max = 64): string {
+  if (typeof v === 'number' || typeof v === 'boolean') return String(v)
+  if (typeof v !== 'string' || !v) return ''
+  return v.length <= max && IDENTIFIER.test(v) ? maskSecrets(v) : hidden(v)
+}
+
+/** A name of Hive's own (an agent's, a project's): kept, cut and on one line; secrets masked. */
+export const hiveName = (v: unknown, max = 40): string => (typeof v === 'string' ? maskSecrets(v.replace(/[\u0000-\u001f\u007f]+/g, ' ').slice(0, max)) : '')
+
+/** An event's name and summary at most (characters). */
+const NAME_MAX = 80
+const SUMMARY_MAX = 300
+
+/** An event as kept: its payloads redacted and bounded, its size counted, never over EVENT_MAX_BYTES. */
 export function makeEvent(seq: number, at: string, source: string, c: CapturedEvent, opts: RedactOptions = {}): ConsoleEvent {
-  const e: ConsoleEvent = { seq, at, source, kind: c.kind, name: c.name, summary: maskSecrets(c.summary).slice(0, 300), bytes: 0 }
+  const e: ConsoleEvent = { seq, at, source: source.slice(0, 600), kind: c.kind, name: hiveName(c.name, NAME_MAX), summary: hiveName(c.summary, SUMMARY_MAX), bytes: 0 }
   if (c.provider) e.provider = c.provider
   if (c.raw !== undefined) e.raw = redactPayload(c.raw, opts)
   if (c.made !== undefined) e.made = redactPayload(c.made, opts)
@@ -210,21 +248,29 @@ export function makeEvent(seq: number, at: string, source: string, c: CapturedEv
     if (e.raw !== undefined) e.raw = outline(e.raw)
     if (e.made !== undefined) e.made = outline(e.made)
     e.truncated = true
+    e.bytes = 0
+    e.bytes = jsonBytes(e)
+  }
+  // Still too large (its outline's field names): only that it was cut is kept.
+  if (e.bytes > EVENT_MAX_BYTES) {
+    if (e.raw !== undefined) e.raw = '<cut>'
+    if (e.made !== undefined) e.made = '<cut>'
+    e.bytes = 0
     e.bytes = jsonBytes(e)
   }
   return e
 }
 
-/** What a payload too large to keep was: its fields' names, or its length. */
+/** What a payload too large to keep was: its fields' names (bounded), or its length. */
 function outline(v: unknown): unknown {
   if (Array.isArray(v)) return `<${v.length} items>`
-  if (v && typeof v === 'object') return { '<cut>': `${jsonBytes(v)} bytes`, fields: Object.keys(v).slice(0, MAX_KEYS) }
+  if (v && typeof v === 'object') return { '<cut>': `${jsonBytes(v)} bytes`, fields: Object.keys(v).slice(0, MAX_KEYS).map(keyOf) }
   return typeof v === 'string' && v.length > 200 ? `${v.slice(0, 200)}…` : v
 }
 
-function jsonBytes(v: unknown): number {
+/** A value's size as JSON in UTF-8 bytes, without Buffer (the window has none): code points over 0x7f take 2–4. */
+export function jsonBytes(v: unknown): number {
   const s = JSON.stringify(v) ?? ''
-  // UTF-8 bytes without Buffer (the window has none): code points over 0x7f take 2–4.
   let n = s.length
   for (let i = 0; i < s.length; i++) {
     const c = s.charCodeAt(i)
@@ -232,6 +278,3 @@ function jsonBytes(v: unknown): number {
   }
   return n
 }
-
-/** Short words for a value in a summary line: a number, an id; never text. */
-export const brief = (v: unknown): string => (typeof v === 'number' || typeof v === 'boolean' ? String(v) : typeof v === 'string' && IDENTIFIER.test(v) ? v : typeof v === 'string' ? hidden(v) : '')

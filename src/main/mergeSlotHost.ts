@@ -15,6 +15,7 @@ import { keepBeforeIds } from './beforeIds'
 import { rebase, samePath } from '../shared/movePaths'
 import { NO_PROJECT_IDS, type ProjectIdIndex } from '../shared/projectIds'
 import { devConsole, hiveSourceId, sessionSourceId } from './devConsole'
+import { hiveName, safeWord } from '../shared/devConsole'
 
 const log = createLogger('mergeSlots')
 
@@ -62,8 +63,8 @@ function changed(projectPath: string): void {
   devConsole.capture([hiveSourceId(ws)], () => {
     const slots = workspaceSlots(ws).filter((s) => s.project.toLowerCase() === basename(projectPath).toLowerCase())
     const made = slots.map((s) => ({ branch: s.branch, holder: s.holder && { agentId: s.holder.agentId ?? null, name: s.holder.name, cards: s.holder.cards }, waiting: s.waiting.map((w) => w.name) }))
-    const line = slots.map((s) => `${s.branch}: ${s.holder ? `held by ${s.holder.name}` : 'free'}${s.waiting.length ? `, ${s.waiting.length} waiting` : ''}`).join('; ')
-    return { kind: 'merge-slot', name: 'slots changed', raw: { project: basename(projectPath) }, made, summary: `merge slot ${basename(projectPath)} → ${line || 'free'}` }
+    const line = slots.slice(0, 5).map((s) => `${safeWord(s.branch)}: ${s.holder ? `held by ${hiveName(s.holder.name)}` : 'free'}${s.waiting.length ? `, ${s.waiting.length} waiting` : ''}`).join('; ')
+    return { kind: 'merge-slot', name: 'slots changed', raw: { project: basename(projectPath) }, made, summary: `merge slot ${hiveName(basename(projectPath))} → ${line || 'free'}` }
   })
 }
 
@@ -86,7 +87,7 @@ export function slotTestEvent(agent: SlotAgent, projectPath: string, branch: str
   const outcome = 'held' in result ? (result.held ? 'held' : 'in line') : 'released' in result ? 'released' : 'left' in result ? 'left' : 'none'
   const ws = workspacePathOf(projectPath)
   const event = 'held' in result ? 'claim' : 'release'
-  devConsole.capture([ws && hiveSourceId(ws), sessionSourceId(projectPath, agent.agentId)], () => ({ kind: 'merge-slot', name: event, raw: { project: basename(projectPath), branch, agent: agent.agentName }, made: { outcome }, summary: `merge slot ${event} by ${agent.agentName} on ${branch} → ${outcome}` }))
+  devConsole.capture([ws && hiveSourceId(ws), sessionSourceId(projectPath, agent.agentId)], () => ({ kind: 'merge-slot', name: event, raw: { project: basename(projectPath), branch, agent: agent.agentName }, made: { outcome }, summary: `merge slot ${event} by ${hiveName(agent.agentName)} on ${safeWord(branch)} → ${outcome}` }))
   writeTestLog({ at: new Date().toISOString(), event: 'held' in result ? 'claim' : 'release', project: projectPath, branch, agentId: agent.agentId, agent: agent.agentName, outcome })
 }
 

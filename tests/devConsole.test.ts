@@ -1,12 +1,13 @@
 import { describe, expect, it, vi } from 'vitest'
 import { join } from 'path'
-import { ConsoleRing, EVENT_MAX_BYTES, hiveSourceId, makeEvent, mayRead, parseSourceId, redactPayload, sessionSourceId, type ConsoleEvent } from '../src/shared/devConsole'
-import { DevConsole, MAX_SOURCES } from '../src/main/devConsole'
+import { ConsoleRing, EVENT_MAX_BYTES, RING_MAX_BYTES, hiveSourceId, jsonBytes, makeEvent, mayRead, parseSourceId, redactPayload, safeWord, sessionSourceId, type ConsoleEvent } from '../src/shared/devConsole'
+import { DevConsole, MAX_SOURCES, QUEUE_MAX_EVENTS } from '../src/main/devConsole'
 import { hookSummary, transcriptEvent } from '../src/main/devConsoleWords'
-import { consoleEventsText, consoleSourcesText } from '../src/shared/toolReplies'
+import { CONSOLE_NOT_CAPTURED, consoleEventsText, consoleSourcesText } from '../src/shared/toolReplies'
 
-// The developer console's capture (#636): bounded rings, kept only while someone watches, each raw event redacted and
-// paired with what Hive made of it; who may read which source. The paths are only compared, never touched.
+// The developer console's capture (#636): bounded rings, kept only while a console watches, each raw event redacted
+// (the sensitive context following everything under it) and paired with what Hive made of it; who may read which
+// source; replies bounded. The paths are only compared, never touched.
 const ws = join('C:\\', 'work')
 const alpha = join(ws, 'alpha')
 const beta = join(ws, 'beta')
@@ -27,12 +28,15 @@ describe('ConsoleRing', () => {
     expect(r.bytes).toBe(30)
   })
 
-  it('keeps the newest events within its bytes, and always the newest one', () => {
+  it('keeps the newest events within its bytes, and not one larger than the whole ring', () => {
     const r = new ConsoleRing(100, 25)
     for (let i = 1; i <= 4; i++) r.push(event(i))
     expect(r.all().map((e) => e.seq)).toEqual([3, 4])
-    r.push(event(5, 80))
+    r.push(event(5, 25))
     expect(r.all().map((e) => e.seq)).toEqual([5])
+    r.push(event(6, 80))
+    expect(r.all()).toEqual([])
+    expect(r.bytes).toBe(0)
   })
 
   it('gives the events after a seq, the newest `limit` of them', () => {
@@ -46,24 +50,25 @@ describe('ConsoleRing', () => {
 })
 
 describe('redactPayload', () => {
+  // Shaped as Claude Code's hooks are.
   const hook = {
-    hook_event_name: 'UserPromptSubmit',
+    hook_event_name: 'PreToolUse',
     session_id: '0b5f0c2e-3f7e-4c1a-9c8e-2d1f0a6b7c8d',
     transcript_path: 'C:\\Users\\me\\.claude\\projects\\x\\0b5f.jsonl',
     cwd: alpha,
     permission_mode: 'default',
     prompt: 'deploy with my key sk-ant-api03-abcdefghijklmnop',
     tool_name: 'Edit',
-    tool_input: { file_path: join(alpha, 'src', 'a.ts'), old_string: 'const a = 1', new_string: 'const a = 2', command: 'npm test -- --token abc' },
+    tool_input: { file_path: join(alpha, 'src', 'a.ts'), old_string: 'const a = 1', new_string: 'privatecode', command: 'npm test -- --token abc' },
     usage: { input_tokens: 1200, output_tokens: 30 },
     authorization: 'Bearer abc.def.ghi',
     api_key: 'plain',
-    note: 'two words'
+    note: 'oneword'
   }
 
-  it('keeps identifiers, paths and numbers, and hides text', () => {
+  it('keeps the known identifiers, paths and numbers, and hides every other string, one word or many', () => {
     const r = redactPayload(hook) as Record<string, any>
-    expect(r.hook_event_name).toBe('UserPromptSubmit')
+    expect(r.hook_event_name).toBe('PreToolUse')
     expect(r.session_id).toBe(hook.session_id)
     expect(r.transcript_path).toBe(hook.transcript_path)
     expect(r.cwd).toBe(alpha)
@@ -71,35 +76,52 @@ describe('redactPayload', () => {
     expect(r.tool_input.file_path).toBe(hook.tool_input.file_path)
     expect(r.usage).toEqual({ input_tokens: 1200, output_tokens: 30 })
     expect(r.prompt).toBe(`<text: ${hook.prompt.length} chars>`)
-    expect(r.tool_input.old_string).toMatch(/^<text: \d+ chars>$/)
+    expect(r.tool_input.new_string).toBe('<text: 11 chars>')
     expect(r.tool_input.command).toMatch(/^<text: \d+ chars>$/)
-    expect(r.note).toBe('<text: 9 chars>')
+    // An unknown field's single word is text too.
+    expect(r.note).toBe('<text: 7 chars>')
   })
 
-  it('masks secrets, whatever their field holds', () => {
-    const r = redactPayload(hook) as Record<string, any>
-    expect(r.authorization).toBe('<redacted>')
-    expect(r.api_key).toBe('<redacted>')
-    expect(JSON.stringify(r)).not.toContain('sk-ant')
-    // A key kept as an identifier is still masked.
+  it('a secret, sign-in or prompt field takes everything under it with it', () => {
+    const r = redactPayload({
+      access_token: { data: 'abc-private-token', n: 7 },
+      prompt: { data: 'privateprompt', parts: ['privateword'] },
+      login: { username: 'privateuser', device_code: 'ABCD-EFGH' },
+      oauth: [{ id: 'x' }],
+      signIn: 'expired-private',
+      nested: { deep: { device_code: 'WXYZ-1234', user_code: 'QQQQ' } },
+      authorization: 'Bearer abc.def.ghi',
+      api_key: 'plain'
+    }) as Record<string, any>
+    const text = JSON.stringify(r)
+    for (const secret of ['abc-private-token', 'privateprompt', 'privateword', 'privateuser', 'ABCD-EFGH', 'expired-private', 'WXYZ-1234', 'QQQQ', 'abc.def.ghi', 'plain']) expect(text).not.toContain(secret)
+    expect(r.access_token).toBe('<redacted>')
+    expect(r.login).toBe('<redacted>')
+    expect(r.prompt).toEqual({ data: '<text: 13 chars>', parts: ['<text: 11 chars>'] })
+    expect(r.nested.deep).toEqual({ device_code: '<redacted>', user_code: '<redacted>' })
+  })
+
+  it('masks a token even under a safe field', () => {
     expect(redactPayload({ model: 'sk-ant-api03-abcdefghijklmnop' })).toEqual({ model: '<redacted>' })
   })
 
-  it('keeps text only when asked, with secrets still masked', () => {
-    const r = redactPayload(hook, { includeText: true }) as Record<string, any>
+  it('keeps text only when asked, with secrets and sign-ins still masked', () => {
+    const r = redactPayload({ ...hook, login: { username: 'privateuser' } }, { includeText: true }) as Record<string, any>
     expect(r.prompt).toContain('deploy with my key')
     expect(r.prompt).not.toContain('sk-ant')
     expect(r.authorization).toBe('<redacted>')
+    expect(r.login).toBe('<redacted>')
     expect(r.tool_input.command).toContain('npm test')
   })
 
-  it('judges an array by the field that holds it, and bounds lists, fields and depth', () => {
-    expect(redactPayload({ prompts: ['fix it now', 'and this'] })).toEqual({ prompts: ['<text: 10 chars>', '<text: 8 chars>'] })
+  it('bounds lists, fields, field names and depth', () => {
     const long = redactPayload({ list: Array.from({ length: 50 }, (_, i) => i) }) as { list: unknown[] }
     expect(long.list).toHaveLength(41)
     expect(long.list[40]).toBe('<10 more>')
     const wide = redactPayload(Object.fromEntries(Array.from({ length: 70 }, (_, i) => [`k${i}`, i]))) as Record<string, unknown>
     expect(Object.keys(wide)).toHaveLength(61)
+    const named = redactPayload({ ['k'.repeat(100_000)]: 1 }) as Record<string, unknown>
+    expect(Object.keys(named)[0].length).toBeLessThanOrEqual(65)
     let deep: Record<string, unknown> = { leaf: 1 }
     for (let i = 0; i < 10; i++) deep = { d: deep }
     expect(JSON.stringify(redactPayload(deep))).toContain('<object>')
@@ -111,16 +133,31 @@ describe('redactPayload', () => {
 })
 
 describe('makeEvent', () => {
-  it('counts its size, and cuts payloads too large to their outline', () => {
+  it('counts its size in UTF-8 bytes', () => {
     const small = makeEvent(1, 'at', A1, { kind: 'hook', name: 'Stop', summary: 'Stop → stop; finished', raw: { a: 1 } })
-    // UTF-8 bytes, the arrow's three included.
     expect(small.bytes).toBe(Buffer.byteLength(JSON.stringify({ ...small, bytes: 0 })))
-    expect(makeEvent(1, 'at', A1, { kind: 'hook', name: '𝄞é', summary: '' }).bytes).toBe(Buffer.byteLength(JSON.stringify({ seq: 1, at: 'at', source: A1, kind: 'hook', name: '𝄞é', summary: '', bytes: 0 })))
+    expect(jsonBytes({ name: '𝄞é→' })).toBe(Buffer.byteLength(JSON.stringify({ name: '𝄞é→' })))
+  })
+
+  it('is never larger than its bound, whatever its payload, name or summary', () => {
     const raw = Object.fromEntries(Array.from({ length: 50 }, (_, i) => [`f${i}`, Array.from({ length: 40 }, () => 'ab-'.repeat(33))]))
-    const big = makeEvent(2, 'at', A1, { kind: 'transcript', name: 'transcript', summary: 's', raw })
+    for (const c of [
+      { kind: 'transcript' as const, name: 'transcript', summary: 's', raw: { records: Array.from({ length: 40 }, () => ({ model: 'ab-'.repeat(40) })) } },
+      { kind: 'transcript' as const, name: 'transcript', summary: 's', raw: Object.fromEntries(Array.from({ length: 60 }, (_, i) => [`${i}${'k'.repeat(2000)}`, 1])) },
+      { kind: 'hook' as const, name: 'n'.repeat(40_000), summary: 's'.repeat(40_000), raw },
+      { kind: 'hook' as const, name: 'x', summary: 'y', raw: { ['k'.repeat(1_100_000)]: 1 } }
+    ]) {
+      const e = makeEvent(2, 'at', A1, c)
+      expect(e.bytes).toBeLessThanOrEqual(EVENT_MAX_BYTES)
+      expect(e.bytes).toBe(jsonBytes({ ...e, bytes: 0 }))
+    }
+  })
+
+  it('cuts a payload too large to its outline, and says so', () => {
+    const raw = Object.fromEntries(Array.from({ length: 50 }, (_, i) => [`f${i}`, Array.from({ length: 40 }, () => 'ab-'.repeat(33))]))
+    const big = makeEvent(2, 'at', A1, { kind: 'transcript', name: 'transcript', summary: 's', raw: { path: raw } })
     expect(big.truncated).toBe(true)
-    expect(big.bytes).toBeLessThan(EVENT_MAX_BYTES)
-    expect((big.raw as Record<string, unknown>).fields).toHaveLength(50)
+    expect((big.raw as Record<string, unknown>).fields).toEqual(['path'])
   })
 
   it('masks a secret even in its summary', () => {
@@ -129,15 +166,18 @@ describe('makeEvent', () => {
 })
 
 describe('DevConsole', () => {
-  it('captures nothing, and builds nothing, while nobody watches', () => {
+  it('captures nothing, and builds nothing, while no console watches', () => {
     const c = new DevConsole()
     const build = vi.fn(() => ({ kind: 'hook' as const, name: 'Stop', summary: 's' }))
     c.capture([A1], build)
     expect(build).not.toHaveBeenCalled()
-    expect(c.stats()).toEqual({ sources: 0, events: 0, bytes: 0, subscribers: 0 })
+    expect(c.stats()).toEqual({ sources: 0, events: 0, bytes: 0, subscribers: 0, queued: 0 })
+    // Reading (what the hive tools do) starts nothing.
+    expect(c.events(A1)).toEqual([])
+    expect(c.capturing(A1)).toBe(false)
   })
 
-  it('captures a watched source from its first subscriber to its last', () => {
+  it('captures a watched source from its first console to its last, and keeps nothing after', () => {
     const c = new DevConsole()
     c.subscribe('w1', [A1])
     c.subscribe('w2', [A1, A2])
@@ -149,7 +189,8 @@ describe('DevConsole', () => {
     expect(c.capturing(A1)).toBe(true)
     expect(c.capturing(A2)).toBe(false)
     c.unsubscribe('w1')
-    expect(c.stats()).toEqual({ sources: 0, events: 0, bytes: 0, subscribers: 0 })
+    expect(c.stats()).toEqual({ sources: 0, events: 0, bytes: 0, subscribers: 0, queued: 0 })
+    expect(c.events(A1)).toEqual([])
   })
 
   it('changes a subscription in place: new sources start, dropped ones stop', () => {
@@ -158,48 +199,21 @@ describe('DevConsole', () => {
     c.subscribe('w', [A2])
     expect(c.capturing(A1)).toBe(false)
     expect(c.capturing(A2)).toBe(true)
-    c.watch('w', [A1])
-    expect(c.sourcesOf('w').sort()).toEqual([A1, A2].sort())
-    c.unsubscribe('w', [A2])
-    expect(c.sourcesOf('w')).toEqual([A1])
+    expect(c.sourcesOf('w')).toEqual([A2])
+    c.unsubscribe('nobody')
   })
 
-  it('bounds the sources one subscriber holds', () => {
+  it('bounds the sources one console holds', () => {
     const c = new DevConsole()
     c.subscribe('w', Array.from({ length: MAX_SOURCES + 5 }, (_, i) => sessionSourceId(alpha, `a${i}`)))
     expect(c.sourcesOf('w')).toHaveLength(MAX_SOURCES)
   })
 
-  it('a lease ends on its own once its time has passed, unless renewed', () => {
-    let now = 1_000_000
-    const c = new DevConsole(() => now)
-    c.subscribe('reader', [A1], { leaseMs: 60_000 })
-    now += 50_000
-    expect(c.renew('reader')).toBe(true)
-    now += 50_000
-    expect(c.sourcesOf('reader')).toEqual([A1])
-    now += 20_000
-    expect(c.sourcesOf('reader')).toEqual([])
-    expect(c.capturing(A1)).toBe(false)
-    expect(c.renew('reader')).toBe(false)
-    c.unsubscribe('nobody')
-  })
-
-  it("ending the readers' captures leaves a window's", () => {
-    const c = new DevConsole()
-    c.subscribe('window:1', [A1])
-    c.subscribe('agent:x', [A1, A2], { leaseMs: 60_000 })
-    c.endReaders()
-    expect(c.sourcesOf('agent:x')).toEqual([])
-    expect(c.capturing(A1)).toBe(true)
-    expect(c.capturing(A2)).toBe(false)
-  })
-
-  it("sends live events to a subscriber that takes them, with text only to one that opted in", async () => {
+  it('sends live events to a console, with text only to one that opted in', async () => {
     const c = new DevConsole()
     const plain: ConsoleEvent[] = []
     const text: ConsoleEvent[] = []
-    c.subscribe('agent', [A1], { deliver: (e) => plain.push(...e) })
+    c.subscribe('console', [A1], { deliver: (e) => plain.push(...e) })
     c.subscribe('recording', [A1], { deliver: (e) => text.push(...e), includeText: true })
     c.capture([A1], () => ({ kind: 'input', name: 'typed', summary: 's', raw: { text: 'hello there' } }))
     c.capture([A1], () => ({ kind: 'input', name: 'typed', summary: 's', raw: { text: 'and more' } }))
@@ -214,6 +228,25 @@ describe('DevConsole', () => {
     c.capture([A1], () => ({ kind: 'input', name: 'typed', summary: 's', raw: { text: 'later' } }))
     await vi.waitFor(() => expect(plain).toHaveLength(3), { timeout: HUNG_MS })
     expect((plain[2].raw as { text: string }).text).toBe('<text: 5 chars>')
+  })
+
+  it('bounds what waits to be sent to a console: a burst keeps the newest and counts the rest', async () => {
+    const c = new DevConsole()
+    const got: ConsoleEvent[] = []
+    let dropped = 0
+    c.subscribe('console', [A1], {
+      deliver: (e, d) => {
+        got.push(...e)
+        dropped += d
+      }
+    })
+    for (let i = 0; i < 2000; i++) c.capture([A1], () => ({ kind: 'hook', name: 'Stop', summary: 's' }))
+    expect(c.stats().queued).toBe(QUEUE_MAX_EVENTS)
+    await vi.waitFor(() => expect(got.length + dropped).toBe(2000), { timeout: HUNG_MS })
+    expect(got).toHaveLength(QUEUE_MAX_EVENTS)
+    expect(got[got.length - 1].seq).toBe(2000)
+    expect(c.stats().queued).toBe(0)
+    expect(c.stats().bytes).toBeLessThanOrEqual(RING_MAX_BYTES)
   })
 
   it("a capture point that throws keeps nothing and doesn't fail its caller", () => {
@@ -267,7 +300,7 @@ describe('mayRead', () => {
     expect(mayRead(assistant, sessionSourceId(join('D:\\', 'loose'), 'x'), wsOf)).toBe(false)
   })
 
-  it('a malformed source is nobody\'s', () => {
+  it("a malformed source is nobody's", () => {
     for (const bad of ['', 'session:', 'session:c:\\work\\alpha', 'session:c:\\work\\alpha#', 'hive:', 'other:x']) {
       expect(parseSourceId(bad)).toBeNull()
       expect(mayRead({ kind: 'all' }, bad, wsOf)).toBe(false)
@@ -280,8 +313,9 @@ describe('summaries', () => {
   it('a hook: what came in, what Hive took it for, and what it did, in its own words', () => {
     expect(hookSummary('PreToolUse', 'Edit', 'toolStart', 'working', [], true)).toBe('PreToolUse (Edit) → toolStart; working; replied')
     expect(hookSummary('Stop', undefined, 'stop', 'finished', ['notifyFinished', 'turnEnded'], false)).toBe('Stop → stop; finished; notifyFinished, turnEnded')
-    // A tool name that isn't an identifier is not quoted.
+    // A name that isn't an identifier, or is too long, is not quoted.
     expect(hookSummary('PreToolUse', 'rm -rf my secrets', 'toolStart', 'working', [], false)).toBe('PreToolUse (<text: 17 chars>) → toolStart; working')
+    expect(safeWord('x'.repeat(65))).toBe('<text: 65 chars>')
   })
 
   it("a transcript read: its newest records next to what Hive read from them", () => {
@@ -293,22 +327,38 @@ describe('summaries', () => {
     expect(raw.newest[9]).toEqual({ unparsed: 8 })
     expect(e.summary).toBe('transcript +13 records → model gpt-5 · five_hour 42%')
   })
+
+  it('private text reaches no part of a kept event by default: raw, made, name or summary', () => {
+    const MARK = 'zebraumbrella'
+    const c = new DevConsole()
+    c.subscribe('w', [A1])
+    c.capture([A1], () => ({ kind: 'hook', name: safeWord(`${MARK} hook`), summary: hookSummary(`${MARK} two`, `${MARK} tool`, 'prompt', 'working', [], false), raw: { prompt: MARK, title: MARK, custom: MARK, nested: { x: [MARK] } }, made: { event: { kind: 'prompt', text: MARK }, status: 'working' } }))
+    // A Progress run's title is someone's text: kept in the payload, hidden there, and not in the summary.
+    c.capture([A1], () => ({ kind: 'progress', name: 'running', summary: 'progress run by B1 → running', raw: { title: `${MARK} customer project` } }))
+    expect(JSON.stringify(c.events(A1))).not.toContain(MARK)
+  })
 })
 
 describe('replies', () => {
-  const source = { label: 'alpha · B1', kind: 'session', project: 'alpha', agent: 'B1', provider: 'claude-code', capturing: true, events: 2, reading: true }
+  const source = { label: 'alpha · B1', kind: 'session', project: 'alpha', agent: 'B1', provider: 'claude-code', capturing: true, events: 2 }
 
-  it('lists the sources with how to name each', () => {
-    const text = consoleSourcesText([source, { label: 'Hive', kind: 'hive', capturing: false, events: 0, reading: false }])
-    expect(text).toBe('alpha · B1 (claude-code): you capture it, 2 events [agent=B1 project=alpha]\nHive: not captured [source=hive]')
-    expect(consoleSourcesText([])).toBe('No developer console sources you can read.')
+  it('lists the sources a page at a time, with how to name each', () => {
+    const text = consoleSourcesText({ total: 2, offset: 0, sources: [source, { label: 'Hive', kind: 'hive', capturing: false, events: 0 }] })
+    expect(text).toBe('alpha · B1 (claude-code): captured, 2 events [agent=B1 project=alpha]\nHive: not captured [source=hive]')
+    expect(consoleSourcesText({ total: 0, offset: 0, sources: [] })).toBe('No developer console sources you can read.')
+    // A large workspace: a page, and where the next starts.
+    const rows = Array.from({ length: 50 }, (_, i) => ({ ...source, label: `project${i} · ${'B'.repeat(40)}`, agent: 'B'.repeat(40), project: `project${i}` }))
+    const page = consoleSourcesText({ total: 1000, offset: 50, sources: rows })
+    expect(page.endsWith('\nSources 51–100 of 1000: offset=100 for more.')).toBe(true)
+    expect(page.length).toBeLessThan(8000)
   })
 
-  it('a read: a line per event and how to carry on', () => {
+  it('a read: a line per event and how to carry on; nothing captured says so', () => {
     const events = [{ seq: 7, at: '2026-10-12T01:02:03.000Z', kind: 'hook', name: 'Stop', summary: 'Stop → stop; finished' }]
-    const text = consoleEventsText({ source, started: false, leaseEnds: '2026-10-12T01:32:03.000Z', events, older: 4, newest: 7 })
-    expect(text).toBe('alpha · B1: capturing until 01:32 UTC (each read renews it).\n#7 01:02:03 hook Stop → stop; finished\n4 earlier not shown.\nNext: since=7. seq=[n] gives an event\'s raw payload and what Hive made of it.')
-    expect(consoleEventsText({ source, started: true, leaseEnds: '2026-10-12T01:32:03.000Z', events: [], newest: 0 })).toContain('No events yet: capture starts now')
-    expect(consoleEventsText({ source, started: false, leaseEnds: '2026-10-12T01:32:03.000Z', events: [], missing: [3] })).toContain('Not in its buffer now: #3.')
+    const text = consoleEventsText({ source, events, older: 4, newest: 7 })
+    expect(text).toBe("alpha · B1:\n#7 01:02:03 hook Stop → stop; finished\n4 earlier not shown.\nNext: since=7. seq=[n] gives an event's raw payload and what Hive made of it.")
+    expect(consoleEventsText({ source: { ...source, capturing: false, events: 0 }, events: [], newest: 0 })).toBe(`alpha · B1: ${CONSOLE_NOT_CAPTURED}`)
+    expect(consoleEventsText({ source, events: [], newest: 0 })).toBe('alpha · B1: captured by the open console; no events yet.')
+    expect(consoleEventsText({ source, events: [], missing: [3] })).toContain('Not in its buffer now: #3.')
   })
 })

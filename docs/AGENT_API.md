@@ -505,14 +505,12 @@ What each CLI sends Hive (its hooks, status lines, transcript records, the termi
 
 - **Who reads what:** a project agent (its own token) reads its own session only; the Hive Assistant reads its workspace's agents, its own session and Hive's events there; the workspace token and viewers read any open workspace's. A source the caller may not read, and one an agent names that doesn't exist, is `404` with the same message.
 - **Naming a source:** `agent` (a name or id) and `project` (an agent's own project by default), or `source=assistant` or `source=hive` (the request's workspace). A project agent naming none reads its own session.
-- **Capture:** nothing is captured until someone watches. A read starts the caller's capture of that source, or renews it; it ends 30 minutes after the caller's last read, or with `DELETE`. Each source keeps at most its newest 500 events or 1 MB, in memory only.
-- **Redacted:** strings are kept only where they are identifiers or paths (a hook's name, a session id, a tool's name, a file path); text (prompts, replies, commands, titles, messages) becomes `<text: N chars>`, and anything named or shaped like a secret is `<redacted>`.
+- **Capture:** only while the user has the developer console open on a source; reading starts nothing, and a read of a source no open console captures says so (`source.capturing: false`, no events). Each source keeps at most its newest 500 events or 1 MB, in memory only, and nothing once the console stops watching it.
+- **Redacted:** strings are kept only in known fields (a hook's name, a session id, a tool's name, a file path, a model) and only when they look like an identifier, a path or a time; every other string, one word or many, becomes `<text: N chars>`. A secret or sign-in field (a token, authorization, a login, a device code) is `<redacted>` with everything under it, and a prompt's or message's subtree keeps none of its strings.
 
-`GET /v1/console/sources` — the sources the caller can read: `[{ id, label, kind: "session"|"assistant"|"hive", project?, agent?, provider?, capturing, events, reading }]` (`reading`: the caller's own capture of it is running).
+`GET /v1/console/sources[?offset=n&limit=n]` — the sources the caller can read, 50 a page (`limit` up to 100): `{ total, offset, sources: [{ label, kind: "session"|"assistant"|"hive", project?, agent?, provider?, capturing, events }] }`.
 
-`GET /v1/console/events?agent=…&project=…|source=…[&since=n&limit=n&kinds=hook,statusline,…|&seq=n,n]` — starts or renews the caller's capture and returns `{ source, started, leaseEnds, events, newest, older?|newer? }`. `events` are rows `{ seq, at, kind, name, summary }` (`truncated` when a payload was too large and kept as its outline): the newest 30 the first time (`limit` up to 100), oldest first after `since` (pass the reply's `newest` to carry on; `newer` counts those still to come). `kinds` narrows them: `hook`, `statusline`, `transcript`, `terminal`, `input`, `launch`, `exit`, `api`, `hook-server`, `watch`, `merge-slot`, `progress`. With `seq` (up to 3), the events in full instead, each with its `raw` payload and `made` (what Hive made of it), plus `missing` for those no longer kept. `seq` numbers rise across every source. The console's own reads aren't events.
-
-`DELETE /v1/console/capture[?agent=…|source=…]` — ends the caller's capture of that source, or of all its sources: `{ stopped }`.
+`GET /v1/console/events?agent=…&project=…|source=…[&since=n&limit=n&kinds=hook,statusline,…|&seq=n,n]` — what an open console has captured of the source: `{ source, events, newest, older?|newer? }`. `events` are rows `{ seq, at, kind, name, summary }` (`truncated` when a payload was too large and kept as its outline): the newest 30 the first time (`limit` up to 100), oldest first after `since` (pass the reply's `newest` to carry on; `newer` counts those still to come). `kinds` narrows them: `hook`, `statusline`, `transcript`, `terminal`, `input`, `launch`, `exit`, `api`, `hook-server`, `watch`, `merge-slot`, `progress`. With `seq` (up to 3), the events in full instead, each with its `raw` payload and `made` (what Hive made of it), plus `missing` for those no longer kept. `seq` numbers rise across every source. The console's own reads aren't events.
 
 ### Notifications
 
@@ -584,7 +582,7 @@ When **Provide Hive tools to sessions** is on (the default), Hive adds an MCP se
 | `hive_wait_for_agents` | `POST /v1/agents/wait` (50 seconds by default, it calls again to keep waiting; `wake: true` for an agent watch, a line; `cancel: true` to end it) |
 | `hive_merge_slot` | `GET /v1/projects/{name}/merge-slot`, `POST …/merge-slot/claim` or `…/release` (the session's project), a line (project agents only) |
 | `hive_lane` | `GET /v1/lanes`, `POST /v1/lanes` (`start`), `POST /v1/lanes/join` or `POST /v1/lanes/{id}/end`, a line per lane (an agent: its own project's, as the builder or reviewer) |
-| `hive_console` | `GET /v1/console/events`, `GET /v1/console/sources` or `DELETE /v1/console/capture`, a line per event (its own session; offered only while **Settings → Agent API → Let agents read the developer console** is on) |
+| `hive_console` | `GET /v1/console/events` or `GET /v1/console/sources`, a line per event (its own session; offered only while **Settings → Agent API → Let agents read the developer console** is on) |
 
 Tools default to the session's own project, so an agent can simply say *"create a handover"*. The board tools send the agent's id and project, so a card's history and comments name the agent.
 

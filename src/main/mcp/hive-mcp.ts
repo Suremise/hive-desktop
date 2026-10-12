@@ -18,7 +18,7 @@ import { AGENT_WAIT_MAX_SECONDS, WAIT_MAX_SECONDS } from '../../shared/watch'
 import { LANE_EVENTS } from '../../shared/laneWatch'
 import { CLAIM_WAIT_MAX_SECONDS, CLAIM_WAIT_SECONDS } from '../../shared/mergeSlot'
 import { agentApiCall } from './agentApiCall'
-import { MAX_ROWS, agentWatchText, batchText, consoleEventsText, consoleSourcesText, type ConsoleSourceRow, changedText, claimText, createdText, mergeSlotText, noteText, notesListText, noteWrittenText, projectListText, releaseText, reorderText, settingChangedText, settingListText, settingText, skillListText, taskListText, taskWaitText, type NoteEntry, type ProjectRow, type SettingDetail, type SettingRow, type SkillRow, type TaskBatch, type TaskChange, type TaskReorder, type TaskRow } from '../../shared/toolReplies'
+import { MAX_ROWS, agentWatchText, batchText, consoleEventsText, consoleSourcesText, changedText, claimText, createdText, mergeSlotText, noteText, notesListText, noteWrittenText, projectListText, releaseText, reorderText, settingChangedText, settingListText, settingText, skillListText, taskListText, taskWaitText, type NoteEntry, type ProjectRow, type SettingDetail, type SettingRow, type SkillRow, type TaskBatch, type TaskChange, type TaskReorder, type TaskRow } from '../../shared/toolReplies'
 import type { LaneInfo, MergeSlotInfo } from '../../shared/types'
 import { laneChangeText, laneEndText, lanesText, type LaneChange } from '../../shared/lanes'
 
@@ -611,27 +611,24 @@ const tools: Tool[] = [
   },
   {
     name: 'hive_console',
-    description: `Hive's developer console, read-only: what a CLI sent Hive (hooks, status lines, transcript records, terminal markers, lines Hive typed, its launch and exit, its hive tool calls), each next to what Hive made of it, redacted (no prompt or reply text, tokens or sign-in details). ${ASSISTANT ? "You read any agent of your workspace (agent, project), your own session (source=assistant) and Hive's own events (source=hive: Agent API calls, merge slots, watches, Progress, refused hooks)." : 'You read your own session.'} Nothing is captured until you read: reading starts capture and keeps it until 30 minutes after your last read. read (default): a line per event, the newest 30 the first time, then since=<newest> carries on; kinds narrows them; seq gives up to 3 events in full (raw payload and what Hive made of it). sources lists what you can read; stop ends your capture.`,
+    description: `Hive's developer console, read-only: what a CLI sent Hive (hooks, status lines, transcript records, terminal markers, lines Hive typed, its launch and exit, its hive tool calls), each next to what Hive made of it, redacted (no prompt or reply text, commands, tokens or sign-in details). ${ASSISTANT ? "You read any agent of your workspace (agent, project), your own session (source=assistant) and Hive's own events (source=hive: Agent API calls, merge slots, watches, Progress, refused hooks)." : 'You read your own session.'} Hive captures only while the user has the developer console open on a source; reading starts nothing, and the reply says when nothing is captured. read (default): a line per event, the newest 30 the first time, then since=<newest> carries on; kinds narrows them; seq gives up to 3 events in full (raw payload and what Hive made of it). sources lists what you can read and whether it is captured (50 a page, offset for more).`,
     inputSchema: {
       type: 'object',
       properties: {
-        action: { type: 'string', enum: ['read', 'sources', 'stop'] },
+        action: { type: 'string', enum: ['read', 'sources'] },
         agent: { type: 'string', description: ASSISTANT ? "An agent's name or id (with project)." : 'Your own name; leave it out.' },
         project: { type: 'string' },
         source: { type: 'string', enum: ['assistant', 'hive'] },
         since: { type: 'number', description: 'Only events after this one (the previous reply\'s "since").' },
         limit: { type: 'number', description: 'At most this many lines (default 30, at most 100).' },
+        offset: { type: 'number', description: 'sources: skip this many (the reply says where to carry on).' },
         kinds: { type: 'array', items: { type: 'string', enum: ['hook', 'statusline', 'transcript', 'terminal', 'input', 'launch', 'exit', 'api', 'hook-server', 'watch', 'merge-slot', 'progress'] } },
         seq: cardsArg('Events to give in full (their numbers, at most 3).')
       }
     },
     run: async (a) => {
+      if (a.action === 'sources') return consoleSourcesText((await api('GET', `/v1/console/sources${a.offset ? `?offset=${Number(a.offset)}` : ''}`)) as Parameters<typeof consoleSourcesText>[0])
       const q = [a.source ? `source=${enc(a.source)}` : '', a.agent ? `agent=${enc(a.agent)}` : '', a.project || (a.agent && PROJECT) ? `project=${enc(a.project || PROJECT)}` : '']
-      if (a.action === 'sources') return consoleSourcesText((await api('GET', '/v1/console/sources')) as ConsoleSourceRow[])
-      if (a.action === 'stop') {
-        const r = (await api('DELETE', `/v1/console/capture?${q.filter(Boolean).join('&')}`)) as { stopped: number }
-        return r.stopped ? `Capture stopped (${r.stopped} source${r.stopped === 1 ? '' : 's'}).` : 'You weren\'t capturing that.'
-      }
       q.push(a.since ? `since=${Number(a.since)}` : '', a.limit ? `limit=${Number(a.limit)}` : '', Array.isArray(a.kinds) && a.kinds.length ? `kinds=${enc(a.kinds.join(','))}` : '', Array.isArray(a.seq) && a.seq.length ? `seq=${a.seq.map(Number).join(',')}` : '')
       return consoleEventsText((await api('GET', `/v1/console/events?${q.filter(Boolean).join('&')}`)) as Parameters<typeof consoleEventsText>[0])
     }

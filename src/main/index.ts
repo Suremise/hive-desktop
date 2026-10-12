@@ -4,7 +4,6 @@ import { initLoopCheck } from './loopCheck'
 import { initAgentMessages } from './agentMessages'
 import { initDecisionWakes } from './decisionWakes'
 import { initDevConsole } from './devConsoleSources'
-import { devConsole } from './devConsole'
 import { initAssistantModes } from './assistantMode'
 import { app, BrowserWindow, dialog, Menu, nativeTheme, Notification, protocol, screen, session, shell } from 'electron'
 import { execFile } from 'child_process'
@@ -602,8 +601,6 @@ function wireSettingsEffects(): void {
     const refreshAll = (): void => {
       for (const w of openWorkspaces()) w.scheduleRefresh()
     }
-    // Agents may no longer read the developer console: what they were capturing stops now, not when their leases end.
-    if (prev.agentApi.devConsole && !s.agentApi.devConsole) devConsole.endReaders()
     if (JSON.stringify(s.agentApi) !== JSON.stringify(prev.agentApi)) void startApiServer().then(refreshAll)
     // Session settings changed: refresh "restart to apply", and offer to switch running agents to a new permission mode.
     else if (JSON.stringify(s.providers) !== JSON.stringify(prev.providers) || s.defaultProvider !== prev.defaultProvider || JSON.stringify(s.assistant) !== JSON.stringify(prev.assistant)) refreshAll()

@@ -310,7 +310,7 @@ const APP_ROWS: Row[] = [
     key: 'devConsole',
     title: 'Let agents read the developer console',
     desc: 'Give agents and the Hive Assistant a read-only hive tool for the developer console: what their CLI sends Hive, next to what Hive made of it.',
-    tip: "Each agent reads only its own sessions; the Assistant reads its workspace's agents and Hive's own events. Capture runs only while one reads (it stops 30 minutes after its last read) or the console is open, and is redacted: no prompt or reply text, tokens or sign-in details. Running sessions get the tool after a restart.",
+    tip: "Each agent reads only its own sessions; the Assistant reads its workspace's agents and Hive's own events. Hive captures only while the developer console is open on a source (reading starts nothing), and what it captures is redacted: no prompt or reply text, commands, tokens or sign-in details. Running sessions get the tool after a restart.",
     type: 'boolean'
   },
   { section: 'agentApi', key: 'token', title: 'Access token', desc: 'Bearer token required by the Agent API.', tip: 'Stored in %APPDATA%\\Hive\\agent-api.json. Sessions receive it automatically as HIVE_API_TOKEN.', type: 'custom' },

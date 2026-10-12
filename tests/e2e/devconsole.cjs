@@ -1,8 +1,9 @@
 // The developer console's capture (#636): nothing is captured until someone watches; a watched agent's launch, hooks
 // and status line arrive live, each next to what Hive made of it (the status it set), redacted (the prompt's text never
-// reaches the console); an agent reads its own session over the Agent API and no other source (refused as unknown), the
-// workspace token reads Hive's own events (an agent's API call), the setting off refuses every read and ends agents'
-// captures, and capture stops when the last watcher goes. Fake Claude Code; dev build, throwaway profile, workspace and CLAUDE_CONFIG_DIR.
+// reaches the console); an agent reads its own session over the Agent API and no other source (refused as unknown);
+// Hive's own events show an agent's API call; the setting off refuses every read; and reads never start capture: with no
+// console open (before it opens and after it closes) they are told nothing is captured, and nothing is kept.
+// Fake Claude Code; dev build, throwaway profile, workspace and CLAUDE_CONFIG_DIR.
 const lib = require('./lib.cjs')
 const { _electron } = require('playwright-core')
 const fs = require('fs')
@@ -60,6 +61,11 @@ const check = (name, ok, extra = '') => {
     check("the window lists the workspace's agents, its Assistant and Hive as sources", !!b1Source && sources.some((s) => s.kind === 'assistant') && sources.some((s) => s.kind === 'hive'), JSON.stringify(sources))
     check('…none of them captured while nobody watches', sources?.every((s) => !s.capturing && s.events === 0), JSON.stringify(sources))
 
+    // --- A read with no console open starts nothing: it says so, and nothing is captured afterwards either.
+    const before = await api('GET', '/v1/console/events?agent=B1&project=alpha')
+    check('a read with no console open: nothing captured, and it says so', before.status === 200 && before.body.source.capturing === false && before.body.events.length === 0, JSON.stringify(before.body))
+    check('…and starts no capture', (await inv('console:sources')).every((s) => !s.capturing), JSON.stringify(await inv('console:sources')))
+
     // --- The window watches B1 before it starts: its launch, hooks and status line arrive live, with what Hive made of each.
     await page.evaluate(() => {
       window.__console = []
@@ -114,14 +120,15 @@ const check = (name, ok, extra = '') => {
       check(`…not ${what}: refused as unknown`, r.status === 404 && r.body?.error === 'Not a developer console source you can read', `${r.status} ${JSON.stringify(r.body)}`)
     }
     const listed = await api('GET', '/v1/console/sources', b1Token)
-    check('…and lists only its own session', listed.status === 200 && listed.body.length === 1 && listed.body[0].agent === 'B1' && listed.body[0].reading === true, JSON.stringify(listed.body))
+    check('…and lists only its own session', listed.status === 200 && listed.body.total === 1 && listed.body.sources[0].agent === 'B1' && listed.body.sources[0].capturing === true, JSON.stringify(listed.body))
 
-    // --- The workspace token reads Hive's own events: B1's API call shows there and in B1's session.
-    const hiveFirst = await api('GET', '/v1/console/events?source=hive')
-    check('reading Hive starts its capture', hiveFirst.status === 200 && hiveFirst.body.started === true, JSON.stringify(hiveFirst.body))
+    // --- Hive's own events, once the window watches them too: B1's API call shows there and in B1's session.
+    const notYet = await api('GET', '/v1/console/events?source=hive')
+    check("Hive's events aren't captured until the window watches them", notYet.status === 200 && notYet.body.source.capturing === false, JSON.stringify(notYet.body))
+    await inv('console:subscribe', [b1Source.id, sources.find((s) => s.kind === 'hive').id])
     await api('GET', '/v1/status', b1Token)
     const hiveEvents = await lib.until(async () => {
-      const r = await api('GET', `/v1/console/events?source=hive&since=${hiveFirst.body.newest}`)
+      const r = await api('GET', '/v1/console/events?source=hive')
       return r.body?.events?.find((e) => e.kind === 'api' && e.name === 'GET /v1/status') ? r.body : null
     }, HUNG_MS)
     check("an agent's API call is in Hive's events, who made it and how it went", /by agent .* → 200 ok/.test(hiveEvents?.events.find((e) => e.name === 'GET /v1/status')?.summary ?? ''), JSON.stringify(hiveEvents))
@@ -133,18 +140,18 @@ const check = (name, ok, extra = '') => {
     const off = await api('GET', '/v1/console/events', b1Token)
     check('with the setting off, reading is refused', off.status === 403 && /Settings → Agent API/.test(off.body?.error ?? ''), JSON.stringify(off))
     await inv('settings:update', { agentApi: { devConsole: true } })
-    const again = await api('GET', '/v1/console/events', b1Token)
-    check("…and turning it off ended the agent's capture: its next read starts it again", again.status === 200 && again.body.started === true, JSON.stringify(again.body).slice(0, 300))
 
-    // --- Capture stops once the last watcher goes: the window, B1's lease, the workspace token's.
+    // --- The console closing ends capture, whatever the agents read: nothing is kept, and reads start nothing.
     await inv('console:subscribe', [])
-    const stillB1 = (await inv('console:sources')).find((s) => s.id === b1Source.id)
-    check("the window leaving keeps B1's own capture (its lease)", stillB1?.capturing === true, JSON.stringify(stillB1))
-    const stopped = await api('DELETE', '/v1/console/capture', b1Token)
-    check('B1 stops its capture', stopped.status === 200 && stopped.body.stopped === 1, JSON.stringify(stopped))
-    await api('DELETE', '/v1/console/capture')
-    const after = await inv('console:sources')
-    check('…and with nobody watching, nothing is captured or kept', after.every((s) => !s.capturing && s.events === 0), JSON.stringify(after))
+    const closed = await inv('console:sources')
+    check('with the console closed, nothing is captured or kept', closed.every((s) => !s.capturing && s.events === 0), JSON.stringify(closed))
+    const afterClose = await api('GET', '/v1/console/events', b1Token)
+    check('…an agent reading its own session is told nothing is captured', afterClose.status === 200 && afterClose.body.source.capturing === false && afterClose.body.events.length === 0, JSON.stringify(afterClose.body))
+    await lib.sendPrompt(inv, key, 'work 1', { submitted: async () => (await inv('session:live')).find((s) => s.agentId === b1.id)?.status === 'working' })
+    await lib.until(async () => (await inv('session:live')).find((s) => s.agentId === b1.id)?.status !== 'working', HUNG_MS)
+    await api('GET', '/v1/console/events', b1Token)
+    const still = await inv('console:sources')
+    check('…and a turn and more reads later, still nothing is', still.every((s) => !s.capturing && s.events === 0), JSON.stringify(still))
   } catch (e) {
     check('the suite ran to its end', false, e.stack)
   } finally {

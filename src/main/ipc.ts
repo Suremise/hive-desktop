@@ -828,8 +828,8 @@ export function registerIpc(getAppInfo: () => ReturnType<HiveRequests['app:info'
           devConsole.unsubscribe(id)
         })
       }
-      const deliver = (events: ConsoleEvent[]): void => {
-        if (!wc.isDestroyed()) wc.send('hive:event', { type: 'console-events', events })
+      const deliver = (events: ConsoleEvent[], dropped: number): void => {
+        if (!wc.isDestroyed()) wc.send('hive:event', { type: 'console-events', events, ...(dropped ? { dropped } : {}) })
       }
       return Object.fromEntries(devConsole.subscribe(id, ids, { deliver, includeText: opts?.includeText === true }))
     },

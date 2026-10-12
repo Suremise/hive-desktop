@@ -421,18 +421,21 @@ export interface ConsoleSourceRow {
   project?: string
   agent?: string
   provider?: string
+  /** An open developer console is capturing it now. */
   capturing: boolean
   events: number
-  /** The caller's own capture of it is running (its reads keep it going). */
-  reading: boolean
 }
 
 /** How to name a source in hive_console: source=hive or assistant, else its agent (and project). */
 const consoleArgs = (r: ConsoleSourceRow): string => (r.kind === 'hive' ? 'source=hive' : r.kind === 'assistant' ? 'source=assistant' : `agent=${r.agent ?? '?'}${r.project ? ` project=${r.project}` : ''}`)
 
-export function consoleSourcesText(rows: ConsoleSourceRow[]): string {
-  if (!rows.length) return 'No developer console sources you can read.'
-  return rows.map((r) => `${r.label}${r.provider ? ` (${r.provider})` : ''}: ${r.reading ? `you capture it, ${r.events} events` : r.capturing ? `captured, ${r.events} events` : 'not captured'} [${consoleArgs(r)}]`).join('\n')
+/** A page of the sources a caller can read (GET /v1/console/sources), a line each, and where the next page starts. */
+export function consoleSourcesText(page: { total: number; offset: number; sources: ConsoleSourceRow[] }): string {
+  if (!page.total) return 'No developer console sources you can read.'
+  const rows = page.sources.map((r) => `${r.label}${r.provider ? ` (${r.provider})` : ''}: ${r.capturing ? `captured, ${r.events} events` : 'not captured'} [${consoleArgs(r)}]`)
+  const end = page.offset + page.sources.length
+  const more = end < page.total ? `\nSources ${page.offset + 1}–${end} of ${page.total}: offset=${end} for more.` : ''
+  return `${rows.join('\n')}${more}`
 }
 
 /** An event in a read: a row, or in full (seq) with its raw payload and what Hive made of it. */
@@ -447,16 +450,19 @@ export interface ConsoleEventRow {
   made?: unknown
 }
 
+/** What a read says when no open console captures the source: there is nothing to read, and why. */
+export const CONSOLE_NOT_CAPTURED = "not captured: the developer console isn't open on it (Hive captures only while the user has it open), so there is nothing to read."
+
 /** One read of a source (times in UTC): its rows, or the events asked for in full, and how to go on. */
-export function consoleEventsText(r: { source: ConsoleSourceRow; started: boolean; leaseEnds: string; events: ConsoleEventRow[]; older?: number; newer?: number; newest?: number; missing?: number[] }): string {
-  const head = `${r.source.label}: ${r.started ? 'capture started' : 'capturing'} until ${r.leaseEnds.slice(11, 16)} UTC (each read renews it).`
+export function consoleEventsText(r: { source: ConsoleSourceRow; events: ConsoleEventRow[]; older?: number; newer?: number; newest?: number; missing?: number[] }): string {
+  const label = r.source.label
   if (r.missing) {
     const gone = r.missing.length ? `\nNot in its buffer now: ${r.missing.map((n) => `#${n}`).join(', ')}.` : ''
-    return `${head}\n${r.events.map((e) => JSON.stringify(e)).join('\n')}${gone}`
+    return `${label}:\n${r.events.map((e) => JSON.stringify(e)).join('\n')}${gone}`
   }
-  if (!r.events.length) return `${head}\nNo events${r.newest ? ` after #${r.newest}` : ' yet'}${r.started ? ': capture starts now, so read again once it has done something' : ''}.`
+  if (!r.source.capturing) return `${label}: ${CONSOLE_NOT_CAPTURED}`
+  if (!r.events.length) return `${label}: captured by the open console; no events${r.newest ? ` after #${r.newest}` : ' yet'}.`
   const rows = r.events.map((e) => `#${e.seq} ${e.at.slice(11, 19)} ${e.kind} ${e.summary}${e.truncated ? ' [cut]' : ''}`)
   const more = r.newer ? `\n${r.newer} more after these.` : r.older ? `\n${r.older} earlier not shown.` : ''
-  return `${head}\n${rows.join('\n')}${more}\nNext: since=${r.newest}. seq=[n] gives an event's raw payload and what Hive made of it.`
+  return `${label}:\n${rows.join('\n')}${more}\nNext: since=${r.newest}. seq=[n] gives an event's raw payload and what Hive made of it.`
 }
-
