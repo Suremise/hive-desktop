@@ -8,6 +8,7 @@ import type { AgentApiInfo, AssistantControl, EffortLevel, HiveEvent, LiveSessio
 import { DEFAULT_API_PORT, HIVE_DIR, projectAgents, stopAsksUser, transcriptWarnLimit } from '../shared/defaults'
 import { PROVIDERS, agentProvider, defaultProviderPending, isKnownProvider, isProviderEnabled, offeredModes, projectDefaultProvider, providerName } from '../shared/providers'
 import { fallbackEfforts, modelGroups } from '../shared/models'
+import { agentRuntime, unknownStateText } from '../shared/runtime'
 import { ASSISTANT_AGENT_ID, ASSISTANT_DIR, ASSISTANT_NAME } from '../shared/assistant'
 import { timeLeft } from '../shared/progress'
 import { ProgressError, admitReport, type ProgressCaller } from './progress'
@@ -127,11 +128,12 @@ export async function startHookServer(): Promise<string> {
         sessions.handleStatusLine(run, body)
         return
       }
-      // A hook about to edit files waits for Hive's file-lock decision; other hooks are answered at once so they never slow the agent down.
-      const reply = body.hook_event_name === 'PreToolUse' ? sessions.preToolUse(run, body) : null
+      // A hook about to edit files waits for Hive's file-lock decision, and a Stop for whether to carry the turn on; other
+      // hooks are answered at once so they never slow the agent down. The turn ledger learns what the Stop was told (#648).
+      const reply = sessions.hookReply(run, body)
       res.writeHead(200, { 'Content-Type': 'application/json' })
       res.end(JSON.stringify(reply ?? {}))
-      await sessions.handleHook(run, body)
+      await sessions.handleHook(run, body, reply)
     } catch (e) {
       log.warn('hook error', e)
       if (!res.headersSent) send(res, 400, { error: 'bad request' })
@@ -348,13 +350,15 @@ function progressOf(projectPath: string, agentId: string) {
   return { title: r.title, ...(r.total !== null ? { step: r.step ?? 0, total: r.total } : {}), ...(r.stepName ? { stepName: r.stepName } : {}), ...(r.waiting ? { waiting: r.waiting } : {}), ...(etaMs !== null ? { etaMs } : {}), ...(r.state === 'stale' ? { stale: true } : {}) }
 }
 
-/** An agent's status message: a watching agent's is what it waits for. */
+/** An agent's status message: a watching agent's is what it waits for; one whose state is unknown says so (#648). */
 const statusMessageOf = (live: LiveSessionState | null | undefined): string | null =>
   live?.status === 'watching'
     ? (live.watch?.label ?? null)
     : live?.status === 'signin'
       ? `Its CLI's sign-in has expired: the user must sign in again (${live.signIn?.message ?? 'not signed in'})`
-      : (live?.statusMessage ?? live?.mergeSlot ?? null)
+      : unknownStateText(live)
+        ? `${unknownStateText(live)}: Hive has heard nothing of its turn and seen no sign of its end, so it isn't given work; the user can mark it idle`
+        : (live?.statusMessage ?? live?.mergeSlot ?? null)
 
 async function projectSummary(p: string) {
   const info = await workspace.projectInfo(p)
@@ -1042,6 +1046,8 @@ async function agentActivity(p: string, agentId: string, detail = false) {
     ...(progressOf(p, a.id) ? { progress: progressOf(p, a.id) } : {}),
     reviewing: st?.review ?? null,
     backgroundTasks: st?.backgroundTasks ?? 0,
+    // With detail, its runtime as separate facts (#648): what the status word stands for, unknown included.
+    ...(detail ? { runtime: st ? agentRuntime(st) : null } : {}),
     branch: a.worktree?.branch ?? null,
     worktree: a.worktree?.path ?? null,
     sessionId: sessionId || null,

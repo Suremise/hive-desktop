@@ -47,6 +47,11 @@
 //   SessionStart (compact), PostCompact (auto) and "Compacted while idle, before the prompt cache expired";
 //   fake-recap-<agent> makes it write a recap (an away_summary), which sends no hook of Hive's. Each file is taken
 //   (removed) when acted on.
+// - Turns, as Claude Code 2.1.296 has them (#648): each prompt (and each turn it begins by itself) has its own id, which
+//   its hooks carry (prompt_id); its screen shows a spinner with "esc to interrupt" while it works and "✻ Worked for Ns ·
+//   done H:MM" above its input once done. "latetool": a Read whose PostToolUse reaches Hive after the turn's Stop.
+//   "stopcontinue": after its Stop, once the test makes fake-continue-<agent>, it goes on as when another Stop hook
+//   blocks: a tool call in the same turn (held until fake-continue-done-<agent>), then Stop with stop_hook_active.
 // - `--name` and "/rename <name>" set the session's name in the transcript (a custom title), as Claude Code does.
 // - Its system prompt (the --append-system-prompt-file's text) is recorded on a conversation's first request and that
 //   record used on every later one and every resume, as Claude Code does since 2.1.267, until it compacts;
@@ -249,13 +254,16 @@ const sleep = (ms) => new Promise((r) => setTimeout(r, ms))
 const now = () => new Date().toISOString()
 const write = (entry) => fs.appendFileSync(transcript, JSON.stringify({ sessionId, cwd, timestamp: now(), ...entry }) + '\n')
 
+/** The turn under way: each prompt's own id, which its hooks carry (prompt_id), as Claude Code 2.1.296's do (#648). */
+let promptId = null
+
 async function hook(event, extra = {}) {
   if (!hookUrl) return null
   try {
     const res = await fetch(hookUrl, {
       method: 'POST',
       headers: { Authorization: event === 'SessionStart' ? commandAuth() : `Bearer ${token}`, 'Content-Type': 'application/json' },
-      body: JSON.stringify({ hook_event_name: event, session_id: sessionId, transcript_path: transcript, cwd, permission_mode: runMode(), ...extra })
+      body: JSON.stringify({ hook_event_name: event, session_id: sessionId, transcript_path: transcript, cwd, permission_mode: runMode(), ...(promptId && event !== 'SessionStart' ? { prompt_id: promptId } : {}), ...extra })
     })
     return await res.json().catch(() => null)
   } catch {
@@ -312,7 +320,11 @@ const isBusy = () => busy
 let refused = null
 async function runPrompt(text) {
   busy = true
-  out(`\r\n> ${text}\r\n`)
+  promptId = randomUUID()
+  turnStarted = Date.now()
+  // Its spinner above its input while it works, as Claude Code 2.1.296 draws them.
+  out(`\r\n> ${text}\r\n\r\n✻ Brewing… (esc to interrupt)\r\n`)
+  promptLine()
   write({ type: 'user', message: { role: 'user', content: text } })
   await hook('UserPromptSubmit', { prompt: text })
   if (signedOut()) {
@@ -380,7 +392,10 @@ async function runPrompt(text) {
     for (const end = Date.now() + 120_000; !fs.existsSync(go) && Date.now() < end; ) await sleep(100)
   }
   const mode = /\bwhatmode\b/i.test(text) ? ` (system prompt mode: ${/^# Your mode: (.+)$/m.exec(prompt)?.[1]?.trim() ?? 'none'})` : ''
-  await endTurn(`Done: ${text}${mode}`, Number(/\bcontext\s+(\d+)/i.exec(text)?.[1] ?? 20), /\bloststop\b/i.test(text))
+  // "latetool": a Read whose PostToolUse reaches Hive only after the turn's Stop (#648).
+  const late = /\blatetool\b/i.test(text) ? { tool_name: 'Read', tool_input: { file_path: path.join(cwd, 'README.md') }, tool_use_id: `toolu_${randomUUID().slice(0, 8)}` } : null
+  if (late) await hook('PreToolUse', late)
+  await endTurn(`Done: ${text}${mode}`, Number(/\bcontext\s+(\d+)/i.exec(text)?.[1] ?? 20), /\bloststop\b/i.test(text), { late, carryOn: /\bstopcontinue\b/i.test(text) })
   // "window N": the status line reports a context window of N tokens, as Claude Code's does.
   const contextWindow = /\bwindow\s+(\d+)/i.exec(text)
   if (contextWindow && hookUrl) {
@@ -456,15 +471,36 @@ async function login() {
   await endTurn(`Done: ${text}`)
 }
 
-async function endTurn(answer, inputTokens = 20, lostStop = false) {
+/**
+ * A turn's end: the reply, Stop (unless lost), and the line Claude Code 2.1.296 shows above its input once a turn is
+ * done ("✻ Worked for 1s · done 16:52"). `late`: a tool call whose PostToolUse comes only after the Stop. `carryOn`:
+ * another Stop hook (the user's) makes it go on (#648): once the test makes fake-continue-<agent> in its home, a tool
+ * call in the same turn (held until fake-continue-done-<agent>), then Stop again with stop_hook_active.
+ */
+async function endTurn(answer, inputTokens = 20, lostStop = false, { late = null, carryOn = false } = {}) {
   write({ type: 'assistant', requestId: `req_${randomUUID().slice(0, 8)}`, message: { model: 'claude-fake', content: [{ type: 'text', text: answer }], usage: { input_tokens: inputTokens, output_tokens: 10 } } })
   out(`\r\n${answer}\r\n`)
   // "loststop": the turn ends, but its Stop never reaches Hive (#612).
-  if (!lostStop) await hook('Stop', { last_assistant_message: answer })
+  if (!lostStop) await hook('Stop', { last_assistant_message: answer, stop_hook_active: false })
+  if (late) await hook('PostToolUse', late)
+  if (carryOn) {
+    for (const end = Date.now() + 120_000; !take('fake-continue') && Date.now() < end; ) await sleep(100)
+    const call = { tool_name: 'Bash', tool_input: { command: 'echo again' }, tool_use_id: `toolu_${randomUUID().slice(0, 8)}` }
+    await hook('PreToolUse', call)
+    for (const end = Date.now() + 120_000; !take('fake-continue-done') && Date.now() < end; ) await sleep(100)
+    await hook('PostToolUse', call)
+    out('\r\nCarried on past the Stop.\r\n')
+    await hook('Stop', { last_assistant_message: 'Carried on past the Stop.', stop_hook_active: true })
+  }
+  const d = new Date()
+  out(`\r\n✻ Worked for ${Math.max(0, Math.round((Date.now() - turnStarted) / 1000))}s · done ${d.getHours()}:${String(d.getMinutes()).padStart(2, '0')}\r\n`)
   busy = false
   promptLine()
   idleNotice()
 }
+
+/** When the turn under way began (its "Worked for" line). */
+let turnStarted = Date.now()
 
 /** Turns ended, and when input last came: the idle notification goes once per turn, and only with no input since. */
 let turnsEnded = 0
@@ -528,13 +564,17 @@ async function startBackgroundTask(secs) {
     // A turn in progress finishes first, as Claude Code takes the notification after it.
     for (let i = 0; i < 600 && isBusy(); i++) await sleep(200)
     busy = true
+    // A turn of its own, with no prompt.
+    promptId = randomUUID()
+    turnStarted = Date.now()
     write({ type: 'user', message: { role: 'user', content: `<task-notification>\n<task-id>${task}</task-id>\n<tool-use-id>${id}</tool-use-id>\n<status>completed</status>\n<summary>Background command "Run the tests" completed (exit code 0)</summary>\n</task-notification>` } })
     await sleep(1500)
     await endTurn(`The background task ${task} has finished.`)
   }, secs * 1000)
 }
 
-const promptLine = () => out('\r\n> \r\n  ? for shortcuts\r\n')
+// Its input between two rules, and its footer, as Claude Code 2.1.296 draws them.
+const promptLine = () => out(`\r\n${'─'.repeat(40)}\r\n❯ \r\n${'─'.repeat(40)}\r\n  ? for shortcuts\r\n`)
 
 /** "/compact [focus]", as Claude Code runs it. */
 async function compact(focus) {

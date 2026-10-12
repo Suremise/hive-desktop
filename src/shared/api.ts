@@ -273,6 +273,8 @@ export interface HiveRequests {
   'session:settleLeftovers': (projectPath: string, agentId: string, how: 'end' | 'keep') => number
   /** Types a short "carry on" into a running agent whose turn a refused sign-in stopped (Resume (n), #309). */
   'session:carryOn': (projectPath: string, agentId: string) => void
+  /** The user says an agent whose state is unknown (silent, no sign of its turn's end) is idle (#648). */
+  'session:markIdle': (projectPath: string, agentId: string) => void
   'session:archive': (projectPath: string, sessionId: string, archived: boolean) => void
   'session:rename': (projectPath: string, sessionId: string, name: string) => void
   /** Deletes a session that isn't running from Hive (its record and backups; the CLI's transcript stays). */

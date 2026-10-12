@@ -1,5 +1,6 @@
 import { basename, join } from 'path'
 import { projectAgents } from '../shared/defaults'
+import { agentRuntime } from '../shared/runtime'
 import { notWatchingReason, reviewWaitReason, stalledReason } from '../shared/tasks'
 import type { TaskCard } from '../shared/types'
 import { sessions } from './sessions'
@@ -11,13 +12,13 @@ import { workspaceOf, type WorkspaceService } from './workspace'
  * a reviewer that watches it but hasn't started (#521). Null when it isn't.
  */
 
-/** A workspace's live agents (by its folder): their names, projects, cards left with no watch, and card watches. */
-function liveOf(wsPath: string): { name: string; project: string; agentId: string; notWatching?: number[]; cards: number[] }[] {
+/** A workspace's live agents (by its folder): their names, projects, cards left with no watch, card watches, and how each is now. */
+function liveOf(wsPath: string): { name: string; project: string; agentId: string; notWatching?: number[]; cards: number[]; status: string; silentMinutes?: number }[] {
   const ws = wsPath.toLowerCase()
   return sessions
     .liveStates()
     .filter((s) => workspaceOf(s.projectPath).path?.toLowerCase() === ws)
-    .map((s) => ({ name: s.agentName ?? s.agentId, project: basename(s.projectPath), agentId: s.agentId, notWatching: s.notWatching, cards: s.watch?.cards ?? [] }))
+    .map((s) => ({ name: s.agentName ?? s.agentId, project: basename(s.projectPath), agentId: s.agentId, notWatching: s.notWatching, cards: s.watch?.cards ?? [], status: s.status, silentMinutes: agentRuntime(s).silentMinutes }))
 }
 
 /** Why a card is stalled, given its agent as it is now (null: removed; its name and whether it runs) and its workspace's folder. */

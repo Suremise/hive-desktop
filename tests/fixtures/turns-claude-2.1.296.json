@@ -1,0 +1,112 @@
+{
+ "about": "Claude Code 2.1.296 hooks for three turns, recorded in a test home against a stand-in model API (#645 spike, AB1, 12 Oct 2026). T1 reads a file (one tool call); its Stop is answered with a block three times, so it goes on with no new prompt (stop_hook_active true) under the same prompt_id. T2 has no tool call and one block; T3 no tool call, its Stop given additionalContext once. Paths replaced; long texts cut.",
+ "hooks": [
+  {
+   "hook_event_name": "UserPromptSubmit",
+   "session_id": "470b9525-3062-4a88-9c76-65be9d64d329",
+   "prompt_id": "0e23212d-abe4-49b3-ae05-ada3d985b404",
+   "prompt": "T1 DO_TOOL: read a.txt please",
+   "permission_mode": "default"
+  },
+  {
+   "hook_event_name": "PreToolUse",
+   "session_id": "470b9525-3062-4a88-9c76-65be9d64d329",
+   "prompt_id": "0e23212d-abe4-49b3-ae05-ada3d985b404",
+   "tool_name": "Read",
+   "tool_input": {
+    "file_path": "C:/work/alpha/a.txt"
+   },
+   "tool_use_id": "toolu_probe1",
+   "permission_mode": "default"
+  },
+  {
+   "hook_event_name": "PostToolUse",
+   "session_id": "470b9525-3062-4a88-9c76-65be9d64d329",
+   "prompt_id": "0e23212d-abe4-49b3-ae05-ada3d985b404",
+   "tool_name": "Read",
+   "tool_input": {
+    "file_path": "C:/work/alpha/a.txt"
+   },
+   "tool_use_id": "toolu_probe1",
+   "permission_mode": "default"
+  },
+  {
+   "hook_event_name": "Stop",
+   "session_id": "470b9525-3062-4a88-9c76-65be9d64d329",
+   "prompt_id": "0e23212d-abe4-49b3-ae05-ada3d985b404",
+   "stop_hook_active": false,
+   "last_assistant_message": "answer after the tool (T1)",
+   "permission_mode": "default"
+  },
+  {
+   "hook_event_name": "Stop",
+   "session_id": "470b9525-3062-4a88-9c76-65be9d64d329",
+   "prompt_id": "0e23212d-abe4-49b3-ae05-ada3d985b404",
+   "stop_hook_active": true,
+   "last_assistant_message": "plain answer (T1, request 3)",
+   "permission_mode": "default"
+  },
+  {
+   "hook_event_name": "Stop",
+   "session_id": "470b9525-3062-4a88-9c76-65be9d64d329",
+   "prompt_id": "0e23212d-abe4-49b3-ae05-ada3d985b404",
+   "stop_hook_active": true,
+   "last_assistant_message": "plain answer (T1, request 4)",
+   "permission_mode": "default"
+  },
+  {
+   "hook_event_name": "Stop",
+   "session_id": "470b9525-3062-4a88-9c76-65be9d64d329",
+   "prompt_id": "0e23212d-abe4-49b3-ae05-ada3d985b404",
+   "stop_hook_active": true,
+   "last_assistant_message": "plain answer (T1, request 5)",
+   "permission_mode": "default"
+  },
+  {
+   "hook_event_name": "UserPromptSubmit",
+   "session_id": "470b9525-3062-4a88-9c76-65be9d64d329",
+   "prompt_id": "f39af9bc-cdb9-4eb3-9a2f-6b1e5fae0324",
+   "prompt": "T2 no tool, just answer",
+   "permission_mode": "default"
+  },
+  {
+   "hook_event_name": "Stop",
+   "session_id": "470b9525-3062-4a88-9c76-65be9d64d329",
+   "prompt_id": "f39af9bc-cdb9-4eb3-9a2f-6b1e5fae0324",
+   "stop_hook_active": false,
+   "last_assistant_message": "plain answer (T2, request 6)",
+   "permission_mode": "default"
+  },
+  {
+   "hook_event_name": "Stop",
+   "session_id": "470b9525-3062-4a88-9c76-65be9d64d329",
+   "prompt_id": "f39af9bc-cdb9-4eb3-9a2f-6b1e5fae0324",
+   "stop_hook_active": true,
+   "last_assistant_message": "plain answer (T2, request 7)",
+   "permission_mode": "default"
+  },
+  {
+   "hook_event_name": "UserPromptSubmit",
+   "session_id": "470b9525-3062-4a88-9c76-65be9d64d329",
+   "prompt_id": "f35a37e2-42a6-454a-b4e9-f00c5ea358fa",
+   "prompt": "T3 no tool again, Stop gives additionalContext only",
+   "permission_mode": "default"
+  },
+  {
+   "hook_event_name": "Stop",
+   "session_id": "470b9525-3062-4a88-9c76-65be9d64d329",
+   "prompt_id": "f35a37e2-42a6-454a-b4e9-f00c5ea358fa",
+   "stop_hook_active": false,
+   "last_assistant_message": "plain answer (T3, request 8)",
+   "permission_mode": "default"
+  },
+  {
+   "hook_event_name": "Stop",
+   "session_id": "470b9525-3062-4a88-9c76-65be9d64d329",
+   "prompt_id": "f35a37e2-42a6-454a-b4e9-f00c5ea358fa",
+   "stop_hook_active": true,
+   "last_assistant_message": "plain answer (T3, request 9)",
+   "permission_mode": "default"
+  }
+ ]
+}

@@ -20,6 +20,7 @@ import { ModeBadge } from './PermissionMode'
 import { ProviderIcon } from './ProviderIcon'
 import { contextLines, projectProviderConfig, providerName, providerSettings } from '@shared/providers'
 import { unpricedModel, unpricedText } from '@shared/prices'
+import { unknownStateText } from '@shared/runtime'
 import { Icon, IconButton, ReviewMark, signInNote, statusText, StatusDot, Tooltip, useContextMenu, type MenuEntry } from './ui'
 
 /** Height of an agent pane's header (who it is, its controls) and footer (its session's details). */
@@ -911,6 +912,16 @@ function PaneHeader({ project, a, focused }: { project: ProjectInfo; a: AgentInf
         <Tooltip content={`Hive typed this, but its CLI hasn't taken it (it wasn't reading its input): "${live.untakenLine.text}". Click its terminal and press Enter. Hive types nothing more into it until its CLI takes it.`}>
           <span className="faint pane-status asks">A line Hive typed wasn't taken</span>
         </Tooltip>
+      ) : unknownStateText(live) ? (
+        // A running turn Hive has heard nothing of, with no sign of its end (#648): not idle, so nothing is typed into it.
+        <span className="pane-status unknown-state">
+          <Tooltip content="Hive has heard nothing of this agent's turn for a while and sees no sign that it ended: no Stop from its CLI, nothing in its CLI's records, no idle prompt on its screen. Until it hears more, the agent counts as busy and nothing is typed into it. If its terminal shows it waiting at its prompt, mark it idle.">
+            <span className="faint pane-status asks">{unknownStateText(live)}</span>
+          </Tooltip>
+          <button className="btn small subtle mark-idle" aria-label="Mark idle" onClick={() => void call('session:markIdle', project.path, a.id).catch((e) => notify('error', 'Could not mark the agent idle', String((e as Error).message ?? e)))}>
+            Mark idle
+          </button>
+        </span>
       ) : live?.question ? (
         <Tooltip content={live.question.text ? `Asks: ${live.question.text}` : 'Asks you something'}>
           <span className="faint pane-status asks">{statusText(live)}</span>

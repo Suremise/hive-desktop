@@ -6,6 +6,7 @@ import type { LiveSessionState, SessionStatus } from '@shared/types'
 import { actClass, cx, type SessionAction } from '../util'
 import { call, errorMessage } from '../api'
 import { formatWhen } from '@shared/dates'
+import { unknownStateText } from '@shared/runtime'
 import { providerDescriptor, providerName } from '@shared/providers'
 import { placeTip, type Box } from '@shared/tipPlacement'
 
@@ -268,8 +269,11 @@ export const STATUS_TEXT: Record<SessionStatus | 'idle', string> = {
 const tasks = (n: number): string => `${n} background task${n === 1 ? '' : 's'}`
 
 /** What an agent is doing, in words: its status message, else its status with any background tasks it is running. */
-export function statusText(live: Pick<LiveSessionState, 'status' | 'statusMessage' | 'mergeSlot' | 'backgroundTasks' | 'question' | 'watch'>): string {
+export function statusText(live: Pick<LiveSessionState, 'status' | 'statusMessage' | 'mergeSlot' | 'backgroundTasks' | 'question' | 'watch' | 'turn'>): string {
   const text = ((): string => {
+    // A running turn Hive has heard nothing of, with no sign of its end (#648): "Silent 23 min · state unknown".
+    const unknown = unknownStateText(live)
+    if (unknown) return unknown
     // Waiting on cards: what for ("Waiting for #12 → Review").
     if (live.status === 'watching' && live.watch) return live.watch.label
     if (live.statusMessage) return live.statusMessage

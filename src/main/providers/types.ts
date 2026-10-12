@@ -124,9 +124,13 @@ export interface Ask {
 /** A provider's hook call, turned into what Hive tracks. */
 export type HookEvent =
   | { kind: 'start'; source: string | null }
-  /** A prompt the CLI took: `text`, what it says (when the CLI reports it), for telling who sent what (#418). */
-  | { kind: 'prompt'; text?: string | null }
-  | { kind: 'toolStart' }
+  /**
+   * A prompt the CLI took: `text`, what it says (when the CLI reports it), for telling who sent what (#418).
+   * `injected`: one Hive put into the running turn itself (the turn ledger knows it, #648): not a new prompt.
+   */
+  | { kind: 'prompt'; text?: string | null; injected?: true }
+  /** `resumes`: the tool starts a turn Hive took as over, or one it saw no prompt for (the turn ledger says, #648). */
+  | { kind: 'toolStart'; resumes?: true }
   /** `call`: which tool call ended, when the CLI says (see Ask.call). */
   | { kind: 'toolEnd'; call?: string }
   /** The CLI asks the user something (whether a person is asked now is the status rules' call: see hookStatus). */
@@ -159,6 +163,20 @@ export interface NormalizedHook {
   mode: PermissionMode | null
   /** The reply for a PreToolUse-style hook that edits files: the files it will change (absolute or relative to cwd). */
   editedPaths: string[]
+  /** Which turn and call the hook is about, as the CLI names them (#648: the turn ledger). */
+  ids: HookIds
+}
+
+/**
+ * A hook's own ids (#648), each null when the CLI doesn't send it: `turn` the CLI's turn (Claude Code's prompt_id, Codex's
+ * turn_id), `call` the tool call (tool_use_id), `sub` the sub-agent that sent it (Claude Code's agent_id), and `continued`
+ * that this Stop comes after the turn was carried on past an earlier Stop (stop_hook_active).
+ */
+export interface HookIds {
+  turn: string | null
+  call: string | null
+  sub: string | null
+  continued: boolean
 }
 
 /** Details about a running session a provider reports outside hooks (Claude's status line, Codex's rollout). */
@@ -182,6 +200,12 @@ export interface LiveDetails {
    * permission dialog), as recorded (ISO): handled as an interrupt hook. One from before this launch is history.
    */
   interruptedAt?: string
+  /**
+   * The CLI's own record says its latest turn is over, with nothing started since (Codex's task_complete, Copilot's
+   * agentStop answered, #648): `turn` its id as the hooks name turns (null when they name none), `at` when (ISO). Null:
+   * a turn began after the last one ended; absent: the lines read say neither.
+   */
+  turnEnded?: { turn: string | null; at: string } | null
 }
 
 /**
@@ -278,6 +302,14 @@ export interface ProviderAdapter {
    */
   titleAttention?(version: string | null): ((title: string) => boolean) | null
   lockReply(decision: LockDecision): Record<string, unknown>
+  /** Whether Hive's reply to a Stop hook makes the CLI carry the turn on (a block, or context it acts on, #648). */
+  stopContinues(reply: Record<string, any>): boolean
+  /**
+   * For CLIs whose screen shows for sure whether a turn runs (#648, the turn ledger's last check before "state unknown"):
+   * a reading of the rendered screen, for this version of the CLI: 'idle' at its prompt, 'working' on a turn, or null when
+   * it doesn't show for sure. Null (or absent) for versions it wasn't checked with.
+   */
+  turnScreen?(version: string | null): ((screen: string) => 'idle' | 'working' | null) | null
   /** Claude Code's status-line JSON. */
   statusLine?(body: Record<string, any>): LiveDetails
   /**

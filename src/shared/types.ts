@@ -1127,10 +1127,17 @@ export interface LiveSessionState {
   sessionName?: string
   /** See SessionRecord.titleAtRename. */
   titleAtRename?: string | null
+  /** What the agent is doing, in one word: a projection of its runtime's fields (agentRuntime) and Hive's policy (watching). */
   status: SessionStatus
   /** When the status last changed (ISO): how long an agent has been waiting or finished. */
   statusSince?: string
   statusMessage?: string
+  /**
+   * Its CLI's latest turn as Hive's turn ledger knows it (#648): running, over, or unknown, when a running turn has been
+   * silent for a while (`silentSince`) with no sign of its end. Unknown isn't idle: nothing is typed into it, and the user
+   * can Mark idle. `id`: the CLI's own turn id, when it names turns.
+   */
+  turn?: { state: 'running' | 'over' | 'unknown'; id?: string; silentSince?: string }
   /** Its place at the merge slot (#350): waiting for it ("Waiting for the merge slot (B4 is merging #305)") or holding it. */
   mergeSlot?: string
   /** An action under the CLI's automatic review (Codex's Approve for me), as asked ("Codex asks to run …"): shown beside the status, never as it. */

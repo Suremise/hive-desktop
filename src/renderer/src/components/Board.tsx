@@ -1,6 +1,7 @@
 import { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
 import type { AgentInfo, ArchiveBatch, BoardFold, ProjectInfo, ProviderId, TaskCard, TaskColumn, TaskDecision, TaskPatch, TaskStartTarget } from '@shared/types'
 import { gitProblemText } from '@shared/gitTool'
+import { agentRuntime } from '@shared/runtime'
 import { TASK_COLUMNS, applyBoardFold, cardMatches, newSinceStart, archivedAt, columnColor, columnLabel, notWatchingReason, reviewStalled, reviewWaitReason, stalledReason, taskOverview, type BoardFoldChange } from '@shared/tasks'
 import { enabledProviders, isProviderEnabled, projectDefaultProvider, providerName } from '@shared/providers'
 import { call, errorMessage } from '../api'
@@ -69,7 +70,7 @@ export function cardStalled(projects: ProjectInfo[], c: TaskCard): string | null
   return (
     stalledReason(c, agent ? { name: agent.name, running: !!agent.live } : null) ??
     notWatchingReason(c, projects.flatMap((p) => p.agents.map((a) => ({ name: a.name, project: p.name, notWatching: a.live?.notWatching })))) ??
-    reviewWaitReason(c, projects.flatMap((p) => p.agents.flatMap((a) => (a.live?.watch?.cards.length ? [{ name: a.name, project: p.name, agentId: a.id, cards: a.live.watch.cards }] : []))))
+    reviewWaitReason(c, projects.flatMap((p) => p.agents.flatMap((a) => (a.live?.watch?.cards.length ? [{ name: a.name, project: p.name, agentId: a.id, cards: a.live.watch.cards, status: a.live.status, silentMinutes: agentRuntime(a.live).silentMinutes }] : []))))
   )
 }
 
@@ -344,7 +345,7 @@ function CardTile({
           </Tooltip>
         )}
         {stalled && (
-          <Tooltip block content={/ isn't watching #\d+:/.test(stalled) ? 'Nothing will wake that agent when this card changes. Show it and ask it to carry on its card loop.' : / hasn't started reviewing it:/.test(stalled) ? "Its reviewer's watch didn't wake it. Show the reviewer and ask it to review the card." : 'Nobody is working on it. Start it again (on this agent or another), or move it back to Todo.'}>
+          <Tooltip block content={/ isn't watching #\d+:/.test(stalled) ? 'Nothing will wake that agent when this card changes. Show it and ask it to carry on its card loop.' : /\bstate unknown\b/.test(stalled) ? "Its reviewer may have finished its turn without Hive seeing it end. Show the reviewer: if its terminal waits at its prompt, Mark idle, and the watch wakes it." : / hasn't started reviewing it\b/.test(stalled) ? "Its reviewer's watch didn't wake it. Show the reviewer and ask it to review the card." : 'Nobody is working on it. Start it again (on this agent or another), or move it back to Todo.'}>
             <div className="task-stalled">
               <Icon name="debug-pause" />
               <span className="task-note-text">Stalled: {stalled}</span>

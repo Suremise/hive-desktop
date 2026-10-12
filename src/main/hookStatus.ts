@@ -89,6 +89,9 @@ export interface HookStep {
   actions: HookAction[]
 }
 
+/** Statuses with no turn running, which a tool of a turn that goes on makes working. */
+const IDLE: ReadonlySet<SessionStatus> = new Set(['ready', 'finished', 'watching', 'background', 'signin'])
+
 /** At most this many asks are kept open (an agent rarely has more than two). */
 const MAX_OPEN = 8
 
@@ -145,11 +148,22 @@ export function compactionOver(s: Pick<HookStatusInput, 'status' | 'statusMessag
   return isCompacting(s) ? { next: idle, message: null, actions: [] } : { next: null, actions: [] }
 }
 
+/**
+ * The user says an agent whose state is unknown is idle (Mark idle, #648): Hive heard nothing of its turn for a while and
+ * found no sign of its end. Its turn is over: idle (or on its background tasks), its claims released. Not told as
+ * finished: the user is looking at it.
+ */
+export function markedIdle(s: HookStatusInput): HookStep {
+  return { next: idleAfter(s, 'ready'), message: null, review: null, ...RESOLVED, actions: ['releaseLocks'] }
+}
+
 export function hookStep(ev: HookEvent, s: HookStatusInput): HookStep {
   switch (ev.kind) {
     case 'start':
       return { next: s.status === 'starting' || s.askedAtStart ? 'ready' : null, actions: ['answered'] }
     case 'prompt':
+      // Hive's own message put into the running turn (the turn ledger knows it): no new prompt, nobody answered.
+      if (ev.injected) return { next: null, actions: [] }
       // A question's answer comes as a prompt ('title' attention: the title says when it is answered).
       return {
         next: 'working',
@@ -162,7 +176,8 @@ export function hookStep(ev: HookEvent, s: HookStatusInput): HookStep {
       }
     case 'toolStart':
       // An agent whose sign-in was refused works again: it was signed in (/login in its terminal carries the turn on).
-      return { next: s.status === 'signin' ? 'working' : null, ...reviewed(s), actions: [] }
+      // So does one whose turn the ledger says goes on (carried on past its Stop) or began without a prompt.
+      return { next: s.status === 'signin' || (ev.resumes && IDLE.has(s.status)) ? 'working' : null, ...reviewed(s), actions: [] }
     case 'toolEnd': {
       // A tool ran: the user answered a permission prompt, or the agent carries on after a turn's end. The title is
       // one for everything: while it still asks (a question pending, or the prompt is for another call running
@@ -173,7 +188,7 @@ export function hookStep(ev: HookEvent, s: HookStatusInput): HookStep {
       // Another prompt still up (calls side by side, the title still on): the wait moves on to it, already told.
       const still = answered && s.attention === 'title' && s.titleAsks ? open.findLast((a) => a.blocking) : undefined
       if (still) return { next: null, message: still.message || null, waitingOn: still, open: open.filter((a) => a !== still), ...reviewed(s), actions: [] }
-      const next = answered || s.status === 'ready' || s.status === 'finished' || s.status === 'watching' || s.status === 'background' || s.status === 'signin' ? 'working' : null
+      const next = answered || IDLE.has(s.status) ? 'working' : null
       return { next, ...(open.length !== s.open.length ? { open } : {}), ...(answered ? { waitingOn: null } : {}), ...reviewed(s), actions: [] }
     }
     case 'ask': {
