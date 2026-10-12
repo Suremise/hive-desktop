@@ -74,7 +74,7 @@ const git = (cwd, ...a) => lib.git(cwd, a)
   const turn = async () => {
     const text = `turn ${++turns}`
     const asked = Date.now()
-    const taken = await lib.sendPrompt(inv, key, text, { submitted: async () => (await screen()).includes(`> ${text}`) })
+    const taken = await lib.sendPrompt(inv, key, text, { submitted: async () => (await screen()).includes(`> ${text}`), waitMs: HUNG_MS })
     const ended = taken && (await lib.until(async () => (await screen()).includes(`Done: ${text}`), HUNG_MS))
     const finished =
       ended &&
