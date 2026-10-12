@@ -10,7 +10,7 @@ import { isProviderEnabled } from '../../../shared/providers'
 import { config } from '../../config'
 import { writeJsonAtomic } from '../../fsutil'
 import { createLogger, userText } from '../../logger'
-import { AGENTS_SKILLS, agentsSkillCopyPath, compareVersions, promptArg, runsThroughCmd, syncAgentsSkills, toSpawnable } from '../common'
+import { AGENTS_SKILLS, agentsSkillCopyPath, compareVersions, hookIds, promptArg, runsThroughCmd, syncAgentsSkills, toSpawnable } from '../common'
 import type { CatalogRead, CommandSpec, ConversationParserLike, ExternalSession, LaunchContext, LiveDetails, LockDecision, NormalizedHook, ProviderAdapter, SkillDelivery, SkillRoots, UsageParser } from '../types'
 import { copilotEnv, copilotHome } from './home'
 import { CopilotConversationParser, CopilotUsageParser, copilotDetailsMemo, copilotEventsPath, copilotImageData, eventsDetails, listCopilotSessions, parseEvents, workspaceInfo, type CopilotDetailsMemo } from './events'
@@ -286,7 +286,9 @@ export class CopilotAdapter implements ProviderAdapter {
       transcriptPath: typeof body.transcript_path === 'string' ? body.transcript_path : null,
       // The footer says the mode (footerMode); the hooks don't.
       mode: null,
-      editedPaths: []
+      editedPaths: [],
+      // Its hooks seen so far name no turn (1.0.95): the turn ledger then goes by the order they come in (#648).
+      ids: hookIds(body, { turn: 'turn_id', call: 'tool_use_id' })
     }
     const tool = String(body.tool_name ?? '')
     const input = body.tool_input && typeof body.tool_input === 'object' ? body.tool_input : {}
@@ -341,6 +343,11 @@ export class CopilotAdapter implements ProviderAdapter {
   lockReply(d: LockDecision): Record<string, unknown> {
     if (d.kind === 'warn') return { hookSpecificOutput: { hookEventName: 'PreToolUse', additionalContext: d.context } }
     return { hookSpecificOutput: { hookEventName: 'PreToolUse', permissionDecision: d.kind, permissionDecisionReason: d.reason } }
+  }
+
+  /** A Stop blocked carries the turn on (Copilot's hooks reference; not tried yet, #645). */
+  stopContinues(reply: Record<string, any>): boolean {
+    return reply.decision === 'block'
   }
 
   footerMode(screen: string, launched?: string | null): string | null {
