@@ -33,7 +33,7 @@ const PROVIDERS = {
   // it never asks, and needs no bypass mode (which Claude Code asks to accept once). One value after `=`: the option
   // takes a list, and as separate words it also took the first task Hive passes last, so an agent started on a card sat
   // idle (#498).
-  'claude-code': { provider: 'claude-code', executable: '', mode: 'acceptEdits', extraArgs: '--allowedTools=mcp__hive,Bash,PowerShell,Skill' },
+  'claude-code': { provider: 'claude-code', executable: '', mode: 'acceptEdits', extraArgs: '--allowedTools=mcp__hive,Bash,PowerShell,Skill,Monitor' },
   codex: { provider: 'codex', executable: '', mode: 'full-access' },
   // The real Copilot CLI, offline against the scripted stand-in model (tests/e2e/fake-copilot-api.cjs), in a home of the
   // run's own: a fake as far as cost and sign-in go (no credits, none), Copilot's own tools and hooks for the rest.
@@ -579,6 +579,13 @@ async function runScenario(sc, providerKey, opts = {}) {
     const startRev = result.guidance?.atStart?.revision
     const gotRev = result.guidance?.delivered?.guidance
     result.staleGuidance = !!(startRev && gotRev && startRev !== gotRev)
+    // What the session left running (#613): stopped as Hive stops an agent, its launch's job is looked at (#507), and
+    // what Hive then lists as left running is what it left. Read once every exited launch has been looked at.
+    if (sc.leftovers) {
+      await inv('session:stop', host, agentId)
+      await lib.until(async () => !(await live()), HUNG_MS)
+      observed.leftovers = ((await inv('session:leftovers', true)) ?? []).filter((l) => l.projectPath.toLowerCase() === host.toLowerCase() && l.agentId === agentId)
+    }
     result.checks = (sc.expect?.(observed, ctx) ?? []).map(([name, ok, detail]) =>
       p.fake && (typeof sc.fakeSkips === 'function' ? sc.fakeSkips(providerKey) : (sc.fakeSkips ?? [])).includes(name) ? { name, ok: null, skipped: 'fake provider' } : { name, ok: !!ok, ...(ok ? {} : { detail: String(detail ?? '').slice(0, 300) }) }
     )

@@ -7,7 +7,7 @@
 // commands: those runs check the harness, the board rules and Hive's own costs (benchmarks) for free. The real CLIs are the model trials (opt-in, see README.md).
 //
 // Fixture version: bump when a scenario's setup or checks change, so results can be compared across versions.
-const FIXTURES_VERSION = 53
+const FIXTURES_VERSION = 54
 
 /** The subject's hive tool calls that the server ran, by tool (each has ok, error and args). */
 const called = (o, tool) => o.hiveCalls.filter((c) => c.tool === tool)
@@ -341,6 +341,35 @@ const runs = (o, needle) => o.tools.filter((t) => !t.isError && !/^(Write|Edit|M
 const SLOW_TESTS = {
   'package.json': JSON.stringify({ name: 'alpha', private: true, scripts: { test: 'node test.js' } }, null, 2) + '\n',
   'test.js': "// The full suite: about two minutes on CI.\nsetTimeout(() => console.log('3 passing'), 4000)\n"
+}
+/**
+ * A run that takes about a minute and writes its progress to checks.log (ignored) as it goes, one check failing on the
+ * way (#613): what an agent watches for failures as it runs, and once watched with a `tail -f` that outlived the run.
+ */
+const WATCHED_RUN = {
+  '.gitignore': 'checks.log\n',
+  'package.json': JSON.stringify({ name: 'alpha', private: true, scripts: { test: 'node checks.js' } }, null, 2) + '\n',
+  'checks.js': [
+    "// The project's checks: about a minute. Each writes its result to checks.log as it ends.",
+    "const fs = require('fs')",
+    "const names = ['parse', 'format', 'totals', 'export', 'import', 'dates', 'currency', 'rounding', 'report', 'cleanup']",
+    "fs.writeFileSync('checks.log', '')",
+    'let i = 0',
+    'let failed = 0',
+    "const say = (line) => (fs.appendFileSync('checks.log', line + '\\n'), console.log(line))",
+    'const next = () => {',
+    '  if (i === names.length) {',
+    '    say(`${names.length - failed} passed, ${failed} failed`)',
+    '    process.exit(failed ? 1 : 0)',
+    '  }',
+    '  const name = names[i++]',
+    "  if (name === 'currency') failed++",
+    "  say(`${name === 'currency' ? 'FAIL' : 'ok  '} ${name}`)",
+    '  setTimeout(next, 6000)',
+    '}',
+    'setTimeout(next, 6000)',
+    ''
+  ].join('\n')
 }
 /** Code whose effect lands a moment later (#524): a test of it must wait for the line, not for a length of time. */
 const NOTIFY = {
@@ -1147,6 +1176,30 @@ module.exports.SCENARIOS = [
       ['gave the run a title for the user (#251)', testRuns(o).some(titled), testRuns(o).map((t) => t.input).join(' | ')]
     ],
     fakeSkips: ['ran the tests through hive-progress', 'gave the run a title for the user (#251)']
+  },
+  {
+    id: 'watcher-stopped',
+    title: "A card's long run, watched for failures as it goes: once the card is in Review the agent has left nothing running (#613)",
+    files: WATCHED_RUN,
+    // Stopped after its turn, the agent's launch is looked at: what Hive lists as left running is what it left (#507).
+    leftovers: true,
+    async setup(c) {
+      await c.card('w', {
+        title: 'Run the checks and report',
+        description: "Run this project's checks (`npm test`, about a minute). They write their progress to checks.log as they go: keep an eye on it for FAIL lines while they run, so a failure is seen as soon as it happens. When they end, comment on this card with the result and any failing check, and move it to Review. Change no files."
+      })
+    },
+    prompt: (c) => `Work on card #${c.cards.w}.`,
+    fake: (c) => `skill work-on-card then boardmove ${c.cards.w} doing then work 2 then boardcomment ${c.cards.w} then boardmove ${c.cards.w} review`,
+    expect: (o) => [
+      ['read the work-on-card skill', read(o, 'work-on-card'), o.skillsRead.join(',')],
+      ['ran the checks', testRuns(o).length > 0 || runs(o, 'checks.js').length > 0, o.tools.map((t) => t.name).join(',')],
+      ['moved the card to Review', o.cards.w?.column === 'review', o.cards.w?.column],
+      ['said which check failed on the card', (o.cards.w?.comments ?? []).some((x) => /currency/i.test(x.text)), (o.cards.w?.comments ?? []).map((x) => x.text.slice(0, 120)).join(' | ')],
+      ['left nothing running once its card was in Review (Hive listed nothing as it stopped)', Array.isArray(o.leftovers) && o.leftovers.every((l) => !l.processes.length && !l.more), JSON.stringify(o.leftovers)],
+      ['changed no files', o.gitStatus.trim() === '', o.gitStatus]
+    ],
+    fakeSkips: ['ran the checks', 'said which check failed on the card']
   },
   {
     id: 'progress-off',

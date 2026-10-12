@@ -22,16 +22,16 @@ const check = (name, ok, extra = '') => {
   if (!ok) failed++
   console.log(`${ok ? 'PASS' : 'FAIL'} ${name}${ok || !extra ? '' : ` (${extra})`}`)
 }
-const alive = (pid) => {
-  try {
-    process.kill(pid, 0)
-    return true
-  } catch {
-    return false
-  }
+// Each process the suite starts or is left, by its identity (pid and start time) as soon as its pid is known: a check or
+// the clean-up never takes a process that got the pid after it ended (#603: a remembered pid killed here could have been
+// a concurrent run's Vitest worker, which then exits with code 1).
+const ids = new Map()
+const remember = (pids) => {
+  for (const id of lib.identify(pids.filter((p) => !ids.has(p)))) ids.set(id.pid, id)
+  return pids
 }
+const alive = (pid) => ids.has(pid) && lib.stillSame([ids.get(pid)]).length === 1
 const lingering = () => (fs.existsSync(lingerFile) ? fs.readFileSync(lingerFile, 'utf8').trim().split('\n').filter(Boolean).map((l) => JSON.parse(l).pid) : [])
-const everyPid = new Set()
 
 ;(async () => {
   fs.rmSync(base, { recursive: true, force: true })
@@ -46,7 +46,7 @@ const everyPid = new Set()
   // Someone else's process with the project folder as its working folder: never the agent's.
   const stranger = spawn(process.execPath, ['-e', 'setTimeout(() => {}, 120000)'], { cwd: proj, detached: true, stdio: 'ignore', windowsHide: true, env: lib.childEnv() })
   stranger.unref()
-  everyPid.add(stranger.pid)
+  remember([stranger.pid])
 
   const { app, page, inv } = await lib.launch({ userData, env: { ...env, HIVE_API_PORT: lib.port(47882), HIVE_TEST_ASK_LEFTOVERS: '1' } })
   page.on('pageerror', (e) => check('no page errors', false, e.message))
@@ -66,7 +66,7 @@ const everyPid = new Set()
       await lib.sendPrompt(inv, key, `linger ${n}`, { submitted: async () => lingering().length >= before.length + n })
       await lib.until(async () => (await live())?.status === 'finished', 20000)
       const pids = lingering().slice(before.length)
-      pids.forEach((p) => everyPid.add(p))
+      remember(pids)
       await inv('session:stop', proj, agent.id)
       await lib.until(async () => !(await live()), 15000)
       return pids
@@ -81,7 +81,7 @@ const everyPid = new Set()
     fs.rmSync(atStart)
     await lib.until(() => lingering().length >= 1, 10000)
     const early = lingering()
-    early.forEach((p) => everyPid.add(p))
+    remember(early)
     await inv('session:stop', proj, agent.id)
     await lib.until(async () => !(await live()), 15000)
     const earlyListed = await lib.until(async () => (await listed())?.processes.length === early.length && (await listed()), 15000)
@@ -114,7 +114,7 @@ const everyPid = new Set()
     await lib.until(async () => (await listed())?.processes.length === 1, 15000)
     const kept = await inv('session:settleLeftovers', proj, agent.id, 'keep')
     check('Keep Running stops listing it and leaves it running', kept === 1 && !(await listed()) && one.every(alive), JSON.stringify({ kept, one }))
-    one.forEach((p) => alive(p) && process.kill(p))
+    lib.endExactly(one.map((p) => ids.get(p)).filter(Boolean))
 
     // End them (the setting): ended as the agent stops, never listed.
     await inv('settings:update', { agents: { leftoverProcesses: 'end' } })
@@ -150,7 +150,7 @@ const everyPid = new Set()
     check("the stranger's process outlives Hive", alive(stranger.pid))
   } finally {
     await app.close().catch(() => undefined)
-    for (const pid of everyPid) if (alive(pid)) process.kill(pid)
+    lib.endExactly([...ids.values()])
   }
 
   // A PC where the process tracker never gets going (HIVE_TEST_PROCESS_TRACKER=silent: its helper starts but never says it is ready; given up on after HIVE_TEST_TRACKER_WAIT_MS): agents start
@@ -174,12 +174,12 @@ const everyPid = new Set()
     check('Diagnostics says why', /Agents' processes: not tracked: its PowerShell helper didn't start within 3 s/.test(diag), diag.split('\n').find((l) => l.includes("Agents' processes")))
   } finally {
     await second.app.close().catch(() => undefined)
-    for (const pid of everyPid) if (alive(pid)) process.kill(pid)
+    lib.endExactly([...ids.values()])
   }
   console.log(failed ? `\n${failed} check(s) FAILED` : '\nALL PASSED')
   process.exit(failed ? 1 : 0)
 })().catch((e) => {
   console.error(e)
-  for (const pid of everyPid) if (alive(pid)) process.kill(pid)
+  lib.endExactly([...ids.values()])
   process.exit(1)
 })

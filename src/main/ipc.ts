@@ -58,7 +58,7 @@ import { transcripts } from './transcripts'
 import * as skills from './skills'
 import * as storage from './storage'
 import { antivirusStatus, antivirusSuggestion, applyAntivirus, dismissAntivirus, prepareAntivirus } from './antivirus'
-import { allLeftovers, settleLeftovers } from './agentProcesses'
+import { allLeftovers, leftoversSettled, settleLeftovers } from './agentProcesses'
 import { contextWorkspace, currentWorkspace, inWorkspace, workspace, workspaceFor, workspaceOf, WorkspaceService } from './workspace'
 import { ensureHiveExcluded, trackedHiveFiles, untrackHive, vcsOf } from './hiveVcs'
 import { hiveWindows, windowForPath, windowOf, windowShowing } from './windows'
@@ -528,7 +528,11 @@ export function registerIpc(getAppInfo: () => ReturnType<HiveRequests['app:info'
     'session:setMode': (p, agentId, mode) => sessions.setPermissionMode(p, agentId, mode),
     'session:restartInMode': (p, agentId, mode) => sessions.restartInMode(p, agentId, mode),
     'session:setPlanMode': (p, agentId, on) => sessions.setPlanMode(p, agentId, on),
-    'session:leftovers': () => allLeftovers((p) => workspaceFor(p) === currentWorkspace()),
+    'session:leftovers': async (settled) => {
+      const ws = currentWorkspace()
+      if (settled === true) await leftoversSettled()
+      return allLeftovers((p) => workspaceFor(p) === ws)
+    },
     'session:settleLeftovers': (p, agentId, how) => settleLeftovers(workspace.assertSessionHost(p), agentId, how === 'end' ? 'end' : 'keep'),
     'session:stopBackgroundAndResume': (p, agentId, jobId, sessionId) => sessions.stopBackgroundAndResume(p, agentId, jobId, sessionId),
     'session:handOver': (p, from, to, opts) => sessions.handOver(p, from, to, opts),
