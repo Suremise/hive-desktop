@@ -71,6 +71,10 @@ const check = (name, ok, extra = '') => {
   // Hive's automatic name is "alpha · <date>": the footer shows only the start time.
   const auto = records().find((r) => r.id === st.sessionId)?.name ?? ''
   check('Hive named it automatically and passed that to Claude Code', auto.startsWith('alpha · ') && launches().at(-1).opts['--name'] === auto, auto)
+  // The footer and the Sessions tab name it by one time, its record's, which is when the launch started: recorded
+  // after it with a time of its own, the two could show different minutes (#630).
+  const began = { record: records().find((r) => r.id === st.sessionId)?.createdAt, live: (await live())?.sessionCreatedAt, launch: (await live())?.startedAt }
+  check("its record began when the launch did, the footer's time too", !!began.launch && began.record === began.launch && began.live === began.launch, JSON.stringify(began))
   check('until it has a name, it is named by when it started, as yyyy-mm-dd hh:mm', /^\d{4}-\d{2}-\d{2} \d{2}:\d{2}$/.test(await text()), await text())
   check('the footer shows just its icon', (await tag.innerText()).trim() === '' && (await tag.locator('.codicon').count()) === 1, await tag.innerText())
   await tag.hover()
@@ -149,6 +153,9 @@ const check = (name, ok, extra = '') => {
   await inv('session:start', alpha, { agentId: agent.id, resumeId: st.sessionId })
   await until(async () => (await live())?.status === 'ready', 15000)
   check('resumed with the CLI name passed back', launches().at(-1).opts['--name'] === 'Release notes', launches().at(-1).opts['--name'])
+  // Unnamed, it would be named by when it began, as in the Sessions tab, not when it was resumed.
+  const resumed = { record: rec().createdAt, live: (await live())?.sessionCreatedAt, launch: (await live())?.startedAt }
+  check('a resumed session keeps the time it began', resumed.live === resumed.record && resumed.record === began.record && resumed.launch !== resumed.record, JSON.stringify(resumed))
   check('Hive keeps it as the session name', rec().name === 'Release notes', rec().name)
   check('and the footer still shows it', !!(await until(async () => (await text()) === 'Release notes', 8000)), await text())
 
