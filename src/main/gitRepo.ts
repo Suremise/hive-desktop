@@ -10,6 +10,8 @@ import {
   parentRepoText,
   redactRemoteUrl,
   redactUrlsIn,
+  scrubSecrets,
+  urlSecrets,
   remoteNameProblem,
   remoteUrlProblem,
   type FolderSlot,
@@ -237,14 +239,30 @@ export async function repoHistory(root: string): Promise<GitHistory> {
 /** One action at a time per project folder (a second click, or another window). */
 const running = new Map<string, Promise<unknown>>()
 
-function oneAtATime<T>(projectPath: string, fn: () => Promise<T>): Promise<T> {
+function oneAtATime<T>(projectPath: string, fn: () => Promise<T>, urls: string[] = []): Promise<T> {
   const key = projectPath.toLowerCase()
   const prev = running.get(key) ?? Promise.resolve()
-  const run = prev.then(fn, fn)
+  const run = prev.then(fn, fn).catch(async (e: unknown) => {
+    throw await scrubbed(projectPath, e, urls)
+  })
   const tail = run.catch(() => undefined)
   running.set(key, tail)
   void tail.then(() => running.get(key) === tail && running.delete(key))
   return run
+}
+
+/**
+ * An action's failure without any secret of the repository's remote URLs (and of `urls`, one being added), however the
+ * message quotes them: `gitSays` hides what looks like a URL's password or query, and this the exact parts of every
+ * configured one (`urlSecrets`), in case git quoted one some other way. The message reaches the window and the log.
+ */
+async function scrubbed(projectPath: string, e: unknown, urls: string[]): Promise<unknown> {
+  if (!(e instanceof Error)) return e
+  const r = await git(projectPath, ['config', '--get-regexp', String.raw`^remote\..*\.(push)?url$`])
+  const configured = r.ok ? r.out.split(/\r?\n/).filter(Boolean).map((l) => l.slice(l.indexOf(' ') + 1)) : []
+  const secrets = [...new Set([...configured, ...urls].flatMap(urlSecrets))].sort((a, b) => b.length - a.length)
+  const message = scrubSecrets(e.message, secrets)
+  return message === e.message ? e : new Error(message)
 }
 
 /** The project's agents working in its folder (not a worktree), with their sessions' status. */
@@ -355,7 +373,7 @@ export async function addRemote(projectPath: string, name: string, url: string):
     if (!r.ok) throw failed(`Couldn't add ${name}`, r)
     log.info(`Added remote ${userText(name)} to ${userText(projectPath)}`)
     return `Added ${name}.`
-  })
+  }, [url])
 }
 
 /** Changes a remote's URL (its fetch URL, and its push URL unless that is set separately). */
@@ -370,7 +388,7 @@ export async function setRemoteUrl(projectPath: string, name: string, url: strin
     if (!r.ok) throw failed(`Couldn't change ${name}'s URL`, r)
     log.info(`Changed remote ${userText(name)}'s URL in ${userText(projectPath)}`)
     return `Changed ${name}'s URL.`
-  })
+  }, [url])
 }
 
 /** Fetches every remote: the only way ahead/behind changes (Hive never fetches by itself). */

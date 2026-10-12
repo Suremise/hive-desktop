@@ -8,7 +8,7 @@ import { execFileSync } from 'child_process'
 import { mkdirSync, writeFileSync } from 'fs'
 import { join } from 'path'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
-import { aheadBehindText, folderBusy, gitStatusText, identityProblem, identityWarnings, isNoReplyEmail, redactRemoteUrl, redactUrlsIn, remoteNameProblem, remoteUrlProblem, type GitRepoSummary } from '../src/shared/gitRepo'
+import { aheadBehindText, folderBusy, gitStatusText, identityProblem, identityWarnings, isNoReplyEmail, redactRemoteUrl, redactUrlsIn, scrubSecrets, urlSecrets, remoteNameProblem, remoteUrlProblem, type GitRepoSummary } from '../src/shared/gitRepo'
 import type { MergeSlotInfo } from '../src/shared/types'
 import { tempDir } from './tempDir'
 
@@ -254,7 +254,7 @@ describe('remotes, tags, history and identity', () => {
     expect(shown).not.toContain(SECRET)
     expect(shown).toContain('https://•••@127.0.0.1:1/r.git')
     expect(shown).toContain('ftp://•••@127.0.0.1:1/r.git')
-    expect(shown).toContain('https://127.0.0.1:1/r.git?access_token=•••')
+    expect(shown).toContain('https://127.0.0.1:1/r.git?•••')
     expect(shown).toContain('ssh://git:•••@127.0.0.1:1/r.git')
     // Fetching from them fails (nothing listens on port 1): git's message quotes the URLs, never the secret.
     const fetched = await repo.fetchAll(proj).then(() => 'fetched', (e: Error) => e.message)
@@ -263,6 +263,33 @@ describe('remotes, tags, history and identity', () => {
     // An edit that keeps the hidden part is refused: the whole URL has to be typed.
     expect(remoteUrlProblem('https://•••@127.0.0.1:1/r.git')).toMatch(/Type the whole URL/)
     await expect(repo.setRemoteUrl(proj, 'web', 'https://•••@127.0.0.1:1/r.git')).rejects.toThrow(/Type the whole URL/)
+  })
+
+  it("hides a secret with an apostrophe in it, which git quotes inside apostrophes, in no part", async () => {
+    const PARTS = ['Q1QQ', 'Q2QQ', 'Q3QQ']
+    const secret = PARTS.join("'")
+    const query = `https://127.0.0.1:1/r.git?access_token=${secret}`
+    const userinfo = `https://me:${secret}@127.0.0.1:1/r.git`
+    const leaks = (text: string): string[] => PARTS.filter((p) => text.includes(p))
+    // What git itself says about each (nothing listens on port 1), as gitSays shows it.
+    for (const url of [query, userinfo]) {
+      let err = ''
+      try {
+        execFileSync('git', ['-c', 'http.proxy=', 'ls-remote', url], { cwd: proj, encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'] })
+      } catch (e) {
+        err = String((e as { stderr?: string }).stderr ?? '')
+      }
+      expect(err).toMatch(/unable to access|Failed to connect|Could not resolve|Connection refused/i)
+      const said = repo.gitSays({ out: '', ok: false, buf: Buffer.alloc(0), err, code: 128 })
+      expect(leaks(said), said).toEqual([])
+    }
+    // And through an action, whose failure is also cleaned of the configured URLs' exact secrets.
+    git(proj, 'remote', 'add', 'q', query)
+    git(proj, 'remote', 'add', 'u', userinfo)
+    const fetched = await repo.fetchAll(proj).then(() => 'fetched', (e: Error) => e.message)
+    expect(fetched).toMatch(/^Couldn't fetch: /)
+    expect(leaks(fetched), fetched).toEqual([])
+    expect(leaks(JSON.stringify((await repo.repoInfo(proj)).remotes))).toEqual([])
   })
 
   it('tags the commit, annotated with a message, pushes the tag when asked, and lists commits and tags', async () => {
@@ -317,10 +344,14 @@ describe('what the window says', () => {
     expect(redactRemoteUrl('https://user:ghp_x@github.com/a/b.git')).toBe('https://•••@github.com/a/b.git')
     expect(redactRemoteUrl('https://ghp_x@github.com/a/b.git')).toBe('https://•••@github.com/a/b.git')
     expect(redactRemoteUrl('ssh://git@host/a.git')).toBe('ssh://git@host/a.git')
-    expect(redactRemoteUrl('https://host/a.git?x=1&token=s;y=2')).toBe('https://host/a.git?x=•••&token=•••;y=•••')
+    expect(redactRemoteUrl('https://host/a.git?x=1&token=s;y=2')).toBe('https://host/a.git?•••')
+    expect(redactRemoteUrl("https://me:pa'ss/word@host/a.git#frag")).toBe('https://•••@host/a.git#•••')
+    expect(redactRemoteUrl("ssh://git:pa'ss@host/a.git")).toBe('ssh://git:•••@host/a.git')
     expect(redactRemoteUrl('git@github.com:a/b.git')).toBe('git@github.com:a/b.git')
     expect(redactRemoteUrl('C:\\repos\\r.git')).toBe('C:\\repos\\r.git')
-    expect(redactUrlsIn("fatal: unable to access 'https://h/r.git?access_token=s/': Failed")).toBe("fatal: unable to access 'https://h/r.git?access_token=•••': Failed")
+    expect(redactUrlsIn("fatal: unable to access 'https://h/r.git?access_token=a'b/': Failed")).toBe("fatal: unable to access 'https://h/r.git?••• Failed")
+    expect(urlSecrets("https://me:pa'ss@h/r?t=tok'en%21")).toEqual(expect.arrayContaining(["me:pa'ss", "pa'ss", "t=tok'en%21", "tok'en%21", "tok'en!"]))
+    expect(scrubSecrets("x pa'ss y", ["pa'ss"])).toBe('x ••• y')
     expect(isNoReplyEmail('123+me@users.noreply.github.com')).toBe(true)
     const github = [{ fetchUrl: 'git@github.com:a/b.git', pushUrl: 'git@github.com:a/b.git' }]
     const me = { local: {}, global: { name: 'Me', email: 'me@example.com' }, effective: { name: 'Me', email: 'me@example.com' } }

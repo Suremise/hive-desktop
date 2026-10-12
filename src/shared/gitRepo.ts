@@ -236,24 +236,77 @@ function count(n: number, what: string): string {
 /** What stands for a hidden password or token. */
 export const HIDDEN = '•••'
 
+const URL_START = /^([a-z][a-z0-9+.-]*:\/\/)([\s\S]*)$/i
+/** Schemes whose user name is often a token itself: all of their userinfo is hidden. */
+const TOKEN_SCHEMES = /^(https?|ftps?):/i
+
 /**
  * A remote URL with its password or token hidden (https://•••@github.com/x/y, ftp://•••@host/r, ssh://me:•••@host/r,
- * https://host/r.git?access_token=•••), wherever it is shown or logged. Others (git@github.com:x/y, a folder) as they are.
+ * https://host/r.git?•••), wherever it is shown or logged. Others (git@github.com:x/y, a folder) as they are. It errs
+ * towards hiding: the sign-in is everything before the last @ ahead of the query (a password may hold / or '), and the
+ * whole query and fragment go (any value of them may be a token).
  */
 export function redactRemoteUrl(url: string): string {
-  // Who and how it signs in: all of it for http(s) and ftp(s), where a token often stands as the user name; for other
-  // schemes (ssh://git@host) the user name stays and only a password goes.
-  const signIn = url.replace(/^([a-z][a-z0-9+.-]*:\/\/)([^/@\s]+)@/i, (_, scheme: string, info: string) =>
-    /^(https?|ftps?):/i.test(scheme) ? `${scheme}${HIDDEN}@` : info.includes(':') ? `${scheme}${info.slice(0, info.indexOf(':'))}:${HIDDEN}@` : `${scheme}${info}@`
-  )
-  // And every value of its query (?access_token=…), which can carry a token too.
-  const q = signIn.indexOf('?')
-  return q < 0 ? signIn : signIn.slice(0, q) + signIn.slice(q).replace(/([?&;][^=&;#\s]*)=[^&;#\s]*/g, `$1=${HIDDEN}`)
+  const m = URL_START.exec(url)
+  if (!m) return url
+  const [, scheme, rest] = m
+  const q = rest.search(/[?#]/)
+  let place = q < 0 ? rest : rest.slice(0, q)
+  const at = place.lastIndexOf('@')
+  if (at >= 0) {
+    const info = place.slice(0, at)
+    // All of it for http(s) and ftp(s); for other schemes (ssh://git@host) the user name stays and only a password goes.
+    const shown = TOKEN_SCHEMES.test(scheme) ? HIDDEN : info.includes(':') ? `${info.slice(0, info.indexOf(':'))}:${HIDDEN}` : info
+    place = `${shown}${place.slice(at)}`
+  }
+  return `${scheme}${place}${q < 0 ? '' : `${rest[q]}${HIDDEN}`}`
 }
 
-/** Text that may quote remote URLs (git's own error messages): each URL in it as `redactRemoteUrl` shows it. */
+/**
+ * Text that may quote remote URLs (git's own error messages): each URL in it, to the next whitespace (a quote or
+ * apostrophe can be part of a password or query), as `redactRemoteUrl` shows it.
+ */
 export function redactUrlsIn(text: string): string {
-  return text.replace(/\b[a-z][a-z0-9+.-]*:\/\/[^\s'"<>]+/gi, (u) => redactRemoteUrl(u))
+  return text.replace(/\b[a-z][a-z0-9+.-]*:\/\/\S+/gi, (u) => redactRemoteUrl(u))
+}
+
+/**
+ * The secret parts of a remote URL as configured: its password (an http(s) or ftp(s) URL's whole userinfo too), its
+ * query and each of its values, as written and decoded, so text that quotes them in any other way can be cleaned of
+ * them (`scrubSecrets`). Parts shorter than four characters are left: replacing them would garble the text.
+ */
+export function urlSecrets(url: string): string[] {
+  const m = URL_START.exec(url.trim())
+  if (!m) return []
+  const [, scheme, rest] = m
+  const out: string[] = []
+  const q = rest.search(/[?#]/)
+  const place = q < 0 ? rest : rest.slice(0, q)
+  const at = place.lastIndexOf('@')
+  if (at >= 0) {
+    const info = place.slice(0, at)
+    if (TOKEN_SCHEMES.test(scheme)) out.push(info)
+    if (info.includes(':')) out.push(info.slice(info.indexOf(':') + 1))
+  }
+  if (q >= 0) {
+    const query = rest.slice(q + 1)
+    out.push(query, ...query.split(/[&;#]/).map((p) => (p.includes('=') ? p.slice(p.indexOf('=') + 1) : p)))
+  }
+  const decoded = out.map((s) => {
+    try {
+      return decodeURIComponent(s)
+    } catch {
+      return s
+    }
+  })
+  return [...new Set([...out, ...decoded])].filter((s) => s.length >= 4).sort((a, b) => b.length - a.length)
+}
+
+/** Text with each of `secrets` (longest first) replaced by •••. */
+export function scrubSecrets(text: string, secrets: string[]): string {
+  let out = text
+  for (const s of secrets) out = out.split(s).join(HIDDEN)
+  return out
 }
 
 /** A GitHub remote. */
