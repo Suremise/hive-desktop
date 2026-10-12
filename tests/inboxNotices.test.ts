@@ -146,6 +146,55 @@ describe('notices in the hook replies (#650)', () => {
     expect(context(await hook(st, { hook_event_name: 'Stop', prompt_id: 'p2', stop_hook_active: false }))).toContain(m.id)
   })
 
+  it('one drain a turn however its hooks arrive: two Stops of a turn while the first is worked out, a late Stop of an earlier turn, a prompt arriving meanwhile (round 1 finding 3)', async () => {
+    const st = agent()
+    const full = (body: Record<string, unknown>) => ({ session_id: st.sessionId, cwd: p, ...body })
+    const stop = (turn: string) => full({ hook_event_name: 'Stop', prompt_id: turn, stop_hook_active: false })
+    const real = sessions.inboxNotice!
+    let release = (): void => undefined
+    let asked = 0
+    const hold = (): void => {
+      const gate = new Promise<void>((r) => (release = r))
+      sessions.inboxNotice = async (state, at) => {
+        asked++
+        await gate
+        return real(state, at)
+      }
+    }
+    try {
+      await hook(st, { hook_event_name: 'UserPromptSubmit', prompt_id: 'p1', prompt: 'go' })
+      await leave(st)
+      // Two Stops of p1 arrive before either is handled (the first's notice held): one continuation, asked once.
+      hold()
+      const replies = await run(async () => {
+        const first = sessions.hookReply(st.runId, stop('p1'))
+        const second = sessions.hookReply(st.runId, stop('p1'))
+        release()
+        return Promise.all([first, second])
+      })
+      expect(replies.filter(Boolean).map(context)).toEqual([expect.stringMatching(/^\[Hive\] Before you finish: /)])
+      expect(asked).toBe(1)
+      sessions.inboxNotice = real
+      // A new prompt (p2): a late Stop of p1 gets nothing; p2's own Stop is drained.
+      await hook(st, { hook_event_name: 'UserPromptSubmit', prompt_id: 'p2', prompt: 'again' })
+      expect(await run(() => sessions.hookReply(st.runId, stop('p1')))).toBeNull()
+      expect(context(await hook(st, { hook_event_name: 'Stop', prompt_id: 'p2', stop_hook_active: false }))).toMatch(/^\[Hive\] Before you finish: /)
+      // A prompt arriving while p3's Stop is worked out: that Stop is an earlier turn's by then, and isn't carried on.
+      await hook(st, { hook_event_name: 'UserPromptSubmit', prompt_id: 'p3', prompt: 'more' })
+      hold()
+      const late = await run(async () => {
+        const r = sessions.hookReply(st.runId, stop('p3'))
+        await sessions.hookReply(st.runId, full({ hook_event_name: 'UserPromptSubmit', prompt_id: 'p4', prompt: 'and more' }))
+        release()
+        return r
+      })
+      expect(late).toBeNull()
+    } finally {
+      release()
+      sessions.inboxNotice = real
+    }
+  })
+
   it('a drained turn whose Stop says nothing of the continuation is still drained only once', async () => {
     const st = agent()
     await hook(st, { hook_event_name: 'UserPromptSubmit', prompt_id: 'p1', prompt: 'go' })

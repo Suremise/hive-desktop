@@ -209,12 +209,12 @@ const tools: Tool[] = [
   },
   {
     name: 'hive_inbox',
-    description: `What Hive has for you to read (messages left for you, tasks, the user's decisions, card events), oldest first: each with its id, who it is from and its card; a card's events come as one item. Listing them marks them received. Once you have acted on a message, task, handover or decision, ack it (ack: its ids, as listed): not acked ${OVERDUE_MINUTES} minutes after it was made, it shows as overdue to the user and the Assistant; a card event needs no ack. Replies with what is new, and the ids received before and not acked.`,
+    description: `What Hive has for you to read (messages left for you, tasks, the user's decisions, card events), oldest first: each with its id, who it is from and its card; a card's events come as one item. Listing them marks them received. Once you have read and acted on a message, task, handover or decision, ack it (ack: its ids, as listed; one not read yet isn't acked): not acked ${OVERDUE_MINUTES} minutes after it was made, it shows as overdue to the user and the Assistant; a card event needs no ack. Replies with what is new, and the ids received before and not acked.`,
     inputSchema: { type: 'object', properties: { ack: { type: 'array', items: { type: 'string' }, description: 'Ids to ack ("m12") once you have acted on them.' } } },
     run: async (a) => {
       if (Array.isArray(a.ack) && a.ack.length) {
-        const r = (await api('POST', '/v1/inbox', { ack: a.ack.map(String) })) as { acked: string[]; unknown: string[] }
-        return ackText(r.acked, r.unknown)
+        const r = (await api('POST', '/v1/inbox', { ack: a.ack.map(String) })) as { acked: string[]; unknown: string[]; unread?: string[] }
+        return ackText(r.acked, r.unknown, r.unread ?? [])
       }
       const r = (await api('POST', '/v1/inbox', {})) as { items: InboxItem[]; unacked: string[] }
       return inboxText(r.items, r.unacked)

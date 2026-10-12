@@ -88,6 +88,11 @@ const check = (name, ok, extra = '') => {
   const providers = (await api('GET', '/v1/providers')).body
   check('it lists the providers with their models, efforts and modes', providers?.some((p) => p.id === 'claude-code' && p.enabled && p.installed && p.models.length && p.efforts.length && p.modes.length), JSON.stringify(providers?.map((p) => p.id)))
 
+  // Project agents read what they are given from their inbox with Hive's tools (#650): on from here for their tasks, and
+  // off again for the hand-over checks below.
+  await inv('settings:update', { agentApi: { enabled: true } })
+  await lib.until(async () => (await api('GET', '/v1/status').catch(() => ({}))).status === 200, 10000)
+
   // Create a project; add an agent that starts on a task (on the command line). The view stays on gamma.
   const created = await api('POST', '/v1/projects', { name: 'beta' })
   check('it creates a project, turned on', created.status === 200 && created.body?.active === true && fs.existsSync(path.join(ws, 'beta')), JSON.stringify(created.body))
@@ -195,6 +200,7 @@ const check = (name, ok, extra = '') => {
   fs.mkdirSync(path.join(ws, '.hive', 'shared', 'handovers'), { recursive: true })
   fs.writeFileSync(path.join(ws, '.hive', 'shared', 'handovers', '2026-10-01-alpha-plan.md'), '# Plan\n\n- **Project:** alpha\n\nwork 1\n')
   // Handing over: refused at once while project agents lack Hive's tools (the Agent API is off), then done.
+  await inv('settings:update', { agentApi: { enabled: false } })
   const noTools = await api('POST', '/v1/projects/alpha/handover', { from: 'Builder', to: 'Fixer', handover: false })
   check("no hand-over while agents can't use Hive's tools", noTools.status === 409 && /Hive's tools/.test(noTools.body?.error), JSON.stringify(noTools.body))
   await inv('settings:update', { agentApi: { enabled: true } })

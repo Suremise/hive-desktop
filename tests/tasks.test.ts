@@ -928,7 +928,7 @@ describe('card decisions', () => {
       // What it read is the version of that read (#650): the one decision there was then.
       expect((await receipt).items.map((i) => i.text)).toEqual([expect.stringMatching(new RegExp(`#${n} has 1 new decision from the user`))])
       expect((await fetched).items).toEqual([])
-      expect(await ack).toEqual({ acked: ['m1'], unknown: [] })
+      expect(await ack).toEqual({ acked: ['m1'], unknown: [], unread: [] })
       // Its receipt covered the decision it said, not the newer one.
       await vi.waitFor(async () => expect(await notes()).toEqual(['Told Coder (alpha) of 1 new decision']), { timeout: HUNG_MS })
       // The newer decision is still to be told: the next line names it, and reading it says it.

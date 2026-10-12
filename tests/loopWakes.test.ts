@@ -58,9 +58,9 @@ describe('loop wakes (main/loopWakes.ts, #405)', async () => {
       promptsTaken: (p: string, id: string) => (p.toLowerCase() === alpha.toLowerCase() && state.status.has(id) ? { runId: `run-${id}`, count: state.typed.filter((t) => t.agent === id).length } : null),
       sendPrompt: async (_p: string, id: string, text: string, guard?: () => void) => {
         guard?.()
-        state.typed.push({ agent: id, text })
         state.status.set(id, 'working')
-        state.typed[state.typed.length - 1].text = await follow(alpha, id, text)
+        // Recorded once it has read what the line named, so a check never sees it part way.
+        state.typed.push({ agent: id, text: await follow(alpha, id, text) })
       },
       watchChanged: () => undefined
     })

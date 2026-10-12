@@ -184,6 +184,12 @@ interface LiveSession {
    * the transcript is dropped if one came after the read began, as that hook says something newer (#475).
    */
   hooksSeen?: number
+  /**
+   * Notices in hooks (#650), decided as each hook arrives (before its turn in the queue, as its reply is): the turn its
+   * newest prompt began (its native id, or for a CLI without ids the prompts arrived so far), and the turns whose Stop
+   * was drained already (reserved before the notice is worked out, so two Stops of one turn never both carry it on).
+   */
+  notices?: { turn: string | null; prompts: number; drained: string[] }
   /** When the cost estimate was last worked out (providers that don't report cost, or the user's prices: #436). */
   costAt?: number
   /** The cost the CLI last reported for this launch, kept while the user's prices are shown instead (#436). */
@@ -3251,20 +3257,37 @@ class SessionManager {
     const hook = l.adapter.normalizeHook(body)
     const ev = hook.event
     if (hook.ids.sub) return null
+    // The turn this hook is of, as hooks arrive (the ledger follows them later, in the launch's queue): a prompt begins
+    // one; a hook naming another turn than the newest prompt's is a late one of an earlier turn, and gets no notice.
+    const seen = (l.notices ??= { turn: null, prompts: 0, drained: [] })
+    if (ev.kind === 'prompt' && !(l.adapter.drainIsPrompt && ev.text && l.ledger?.injected.includes(ev.text.replace(/\s+/g, ' ').trim()))) {
+      seen.prompts++
+      seen.turn = hook.ids.turn
+      return null
+    }
+    if (hook.ids.turn && seen.turn && hook.ids.turn !== seen.turn) return null
+    const turn = hook.ids.turn ?? seen.turn ?? `prompt ${seen.prompts}`
     let at: 'checkpoint' | 'drain'
     if (ev.kind === 'toolEnd') at = 'checkpoint'
-    else if (ev.kind === 'stop' && !ev.failed && !hook.ids.continued && !l.ledger?.active?.continued) at = 'drain'
+    else if (ev.kind === 'stop' && !ev.failed && !hook.ids.continued && !seen.drained.includes(turn)) at = 'drain'
     else return null
     const event = String(body.hook_event_name ?? '')
     // An event this CLI can't carry a notice on is never asked about (nothing is marked as told).
     if (!l.adapter.noticeReply(event, NOTICE_PREFIX)) return null
+    // Once a turn: reserved now, before the notice is worked out, so a second Stop of this turn arriving meanwhile has
+    // none (released if there is nothing to drain).
+    if (at === 'drain') seen.drained = [...seen.drained.slice(-19), turn]
     try {
       const text = await this.inboxNotice(l.state, at)
-      const reply = text ? l.adapter.noticeReply(event, text) : null
+      // Still that launch, and that turn the newest (a prompt may have come while the notice was worked out).
+      const still = this.findLaunch(runId, body.session_id)?.[1] === l && (!hook.ids.turn || seen.turn === hook.ids.turn)
+      const reply = text && still ? l.adapter.noticeReply(event, text) : null
+      if (!reply && at === 'drain') seen.drained = seen.drained.filter((t) => t !== turn)
       // A CLI that takes the drain as a new prompt: that prompt is Hive's own, in the turn it carries on.
       if (reply && at === 'drain' && l.adapter.drainIsPrompt) expectInjected((l.ledger ??= newLedger()), text!)
       return reply
     } catch (e) {
+      if (at === 'drain') seen.drained = seen.drained.filter((t) => t !== turn)
       log.warn(`${userText(this.label(l.state))}: no inbox notice`, e)
       return null
     }

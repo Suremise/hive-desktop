@@ -52,9 +52,9 @@ import { sessions } from './sessions'
  * idle again without having read it rings once more (#650: its turn's Stop drain asked it first), never a third time; it
  * stays offered, unread in the pane, until it is read. One offered when Hive stopped, or when its agent's launch ended
  * before it was read, is uncertain: it may not have reached the agent, so it is offered once more, saying it may repeat,
- * and stays uncertain (shown) if that one isn't received either. An agent that can't read an inbox (`readsInbox`: a
- * project agent while the Agent API or its hive server is off) is typed their text instead, as #649 did, and its CLI
- * taking that line is their receipt (receivedVia 'typed'); it is told nothing in its hooks.
+ * and stays uncertain (shown) if that one isn't received either. Nothing is offered to an agent that can't read an inbox
+ * (`readsInbox`: a project agent while the Agent API or its hive server is off): what waits for it waits, shown, until
+ * it can; one wanted now (a task, a handover's step) isn't given, saying why (NO_INBOX). Its bodies are never typed.
  *
  * **Sources.** What made a delivery (`source`: a watch, a loop wake…) registers itself here: it can make its line again
  * just before it is offered, from things as they are then (`refresh`; null: no longer due, and it is cancelled), say
@@ -129,8 +129,6 @@ interface Store {
   confirming: Map<string, { runId: string; count: number }>
   /** Deliveries whose doorbell has rung a second time (#650): never a third. In memory: a restart offers once more anyway. */
   rungAgain: Set<string>
-  /** Deliveries typed with their text, to an agent that can't read an inbox: taking that line is their receipt. */
-  typedFull: Set<string>
   /** Deliveries launched into a run whose saving may have failed (launchWith): the run they went into, by id. */
   launches: Map<string, string>
   /**
@@ -263,7 +261,7 @@ export function load(host: string): Promise<Store> {
   const p = (async () => {
     const read = await readFileOf(host)
     if (stores.has(k)) return stores.get(k)!
-    const store: Store = { host, records: read.records, next: read.next, invalid: read.invalid, lock: Promise.resolve(), offering: new Set(), confirming: new Map(), rungAgain: new Set(), typedFull: new Set(), launches: new Map(), leftUntil: new Map(), hooks: new Map() }
+    const store: Store = { host, records: read.records, next: read.next, invalid: read.invalid, lock: Promise.resolve(), offering: new Set(), confirming: new Map(), rungAgain: new Set(), launches: new Map(), leftUntil: new Map(), hooks: new Map() }
     // Restored before anything else sees it (a second load waits for this one).
     await transact(store, (d) => {
       for (const r of [...d.records]) if (r.state === 'offered') set(store, d, r, 'uncertain', 'may not have reached it: Hive stopped while offering it', undefined, { again: AGAIN_RESTART })
@@ -454,11 +452,13 @@ let senderRefusal = (from: DeliverySender): string | null => {
 }
 /**
  * Whether an agent can read its inbox (#650): the Assistant always (its own tools); a project agent through its hive
- * tools, which it has only while the Agent API and the built-in hive server are on. One that can't is typed what it is
- * given in full.
+ * tools, which it has only while the Agent API and the built-in hive server are on. Nothing is offered to one that
+ * can't (its bodies are never typed instead).
  */
 let readsInbox = (_host: string, agentId: string): boolean => agentId === ASSISTANT_AGENT_ID || (config.settings.agentApi.enabled && config.settings.agentApi.provideHiveMcp)
 export const agentReadsInbox = (host: string, agentId: string): boolean => readsInbox(host, agentId)
+/** Why a delivery wanted now isn't given to an agent that can't read its inbox. */
+const NO_INBOX = "it can't read its inbox: Settings → Agent API and its built-in hive server are off"
 /** For tests: whether agents can read their inbox (null: as the settings say). */
 export const setReadsInboxForTests = (fn: ((host: string, agentId: string) => boolean) | null): void => {
   readsInbox = fn ?? ((_host, agentId) => agentId === ASSISTANT_AGENT_ID || (config.settings.agentApi.enabled && config.settings.agentApi.provideHiveMcp))
@@ -493,11 +493,6 @@ function recheck(store: Store, d: Draft, agentId?: string): void {
       // The launch it went into: as saved, or (a launch's save that failed) as followed in memory.
       const run = store.launches.get(r.id) ?? r.offerRun
       if (base && now && now.runId === base.runId && run === base.runId && now.count > base.count) {
-        // Typed with its text (an agent that can't read an inbox): taking it is its receipt.
-        if (store.typedFull.has(r.id)) {
-          set(store, d, r, 'received', undefined, 'typed', run !== r.offerRun ? { offerRun: run } : {})
-          continue
-        }
         // Its doorbell was taken: received only once it is read (hive_inbox). Its agent idle again without that (its
         // turn ended, the Stop drain's notice let pass), it rings once more.
         if (!store.rungAgain.has(r.id) && readyFor(sessions.liveFor(store.host, r.agentId), r.need ?? 'idle') && set(store, d, r, 'queued')) store.rungAgain.add(r.id)
@@ -518,7 +513,6 @@ function recheck(store: Store, d: Draft, agentId?: string): void {
   for (const id of [...store.confirming.keys()]) if (byId(d.records, id)?.state !== 'offered') store.confirming.delete(id)
   for (const id of [...store.launches.keys()]) if (byId(d.records, id)?.state !== 'offered') store.launches.delete(id)
   for (const id of [...store.rungAgain]) if (!isUnread(byId(d.records, id) ?? { state: 'cancelled' })) store.rungAgain.delete(id)
-  for (const id of [...store.typedFull]) if (byId(d.records, id)?.state !== 'offered') store.typedFull.delete(id)
   for (const id of [...store.hooks.keys()]) if (!isUnread(byId(d.records, id) ?? { state: 'cancelled' })) store.hooks.delete(id)
 }
 
@@ -643,10 +637,9 @@ export async function deliveryView(host: string, agentId: string, limit: number,
 
 /**
  * Whether a delivery can still be cancelled: not read yet (#650: a doorbell names it without its text, so until the agent
- * reads it, it can be taken back; one being typed stops, and a doorbell not taken yet gets no Enter again). One typed
- * with its text, once its CLI has taken that line, is the agent's.
+ * reads it, it can be taken back; one being typed stops, and a doorbell not taken yet gets no Enter again).
  */
-const cancellable = (store: Store, r: DeliveryRecord): boolean => isUnread(r) && !(store.typedFull.has(r.id) && taken(store, r))
+const cancellable = (r: DeliveryRecord): boolean => isUnread(r)
 
 /** Whether an offered delivery's line has been taken by its CLI (its prompt count rose in that launch after the line's Enter). */
 function taken(store: Store, r: DeliveryRecord): boolean {
@@ -666,7 +659,7 @@ export async function cancelDeliveries(host: string, agentId: string, by: string
     let count = 0
     for (const r of [...d.records]) {
       if (r.agentId !== agentId || (kinds && !kinds.includes(r.kind)) || (match && !match(r))) continue
-      if (cancellable(store, r) && set(store, d, r, 'cancelled', `cancelled by ${by}`)) count++
+      if (cancellable(r) && set(store, d, r, 'cancelled', `cancelled by ${by}`)) count++
     }
     return count
   })
@@ -681,7 +674,7 @@ export async function cancelFromSource(host: string, source: string, ref: string
   const n = await transact(store, (d) => {
     let count = 0
     for (const r of [...d.records]) {
-      if (r.source !== source || (ref !== null && r.ref !== ref) || !cancellable(store, r)) continue
+      if (r.source !== source || (ref !== null && r.ref !== ref) || !cancellable(r)) continue
       if (set(store, d, r, 'cancelled', why)) {
         count++
         agents.add(r.agentId)
@@ -716,31 +709,32 @@ export async function readInbox(host: string, agentId: string): Promise<{ items:
   return { items: r.items, unacked: r.unacked }
 }
 
-/** hive_inbox ack: marks an agent's deliveries acked. Ids that aren't its own, or don't exist, are unknown (nothing said of them). */
-export async function ackDeliveries(host: string, agentId: string, ids: readonly string[]): Promise<{ acked: string[]; unknown: string[] }> {
+/**
+ * hive_inbox ack: marks an agent's deliveries acked, once it has read them (#650: a doorbell names them by id, so an id
+ * alone is no sign of reading; one not read yet is `unread`, nothing changes, and the agent reads it first). Ids that
+ * aren't its own, or don't exist, are unknown (nothing said of them). Acked again: still acked.
+ */
+export async function ackDeliveries(host: string, agentId: string, ids: readonly string[]): Promise<{ acked: string[]; unknown: string[]; unread: string[] }> {
   const store = await load(host)
-  const asked = new Set(ids)
-  const gate = await mayGive(store, store.records.filter((x) => x.agentId === agentId && asked.has(x.id) && isUnread(x)))
   const r = await transact(store, (d) => {
-    // One not received yet goes through the one gate, as it would before it is given out (#649): one that may no longer
-    // be delivered is refused, expired or cancelled, not acked; one its source doesn't hold now is unknown.
     recheck(store, d, agentId)
-    const may = gate(d)
     const acked: string[] = []
     const unknown: string[] = []
+    const unread: string[] = []
     for (const id of [...new Set(ids)]) {
       const x = byId(d.records, id)
       if (!x || x.agentId !== agentId) unknown.push(id)
       else if (x.state === 'acked') acked.push(id)
+      // Not read yet: read it first (never acked, nor its source told it was received, from its id alone).
+      else if (isUnread(x)) unread.push(id)
+      else if (x.state === 'received' && set(store, d, x, 'acked')) acked.push(id)
       // Ended without being received (cancelled, refused, expired): not for it to act on.
-      else if (isUnread(x) && !may(x)) unknown.push(id)
-      else if ((isLive(x) || x.state === 'received') && set(store, d, x, 'acked', undefined, 'inbox')) acked.push(id)
       else unknown.push(id)
     }
-    return { acked, unknown }
+    return { acked, unknown, unread }
   })
   show(store, agentId)
-  return { acked: r.acked, unknown: r.unknown }
+  return { acked: r.acked, unknown: r.unknown, unread: r.unread }
 }
 
 /**
@@ -754,8 +748,7 @@ function applyFresh(store: Store, d: Draft, fresh: Map<string, Fresh>): void {
     const r = byId(d.records, id)
     if (!r || !isUnread(r)) continue
     if ('cancel' in f) set(store, d, r, 'cancelled', f.cancel)
-    // Typed with its text (an agent that can't read an inbox): what was typed is what its receipt covers, never rewritten.
-    else if (r.state === 'offered' && (store.typedFull.has(r.id) || eligible(store, r))) continue
+    else if (r.state === 'offered' && eligible(store, r)) continue
     else if (f.body.length > DELIVERY_BODY_MAX_CHARS) set(store, d, r, 'cancelled', 'cancelled: made again, it was too long to keep')
     else if (f.body !== r.body || (f.meta && JSON.stringify(f.meta) !== JSON.stringify(r.meta))) put(d, r, { ...r, body: f.body, ...(f.meta ? { meta: f.meta } : {}) })
   }
@@ -800,8 +793,6 @@ interface Offer {
   runId: string
   sessionId: string
   need: DeliveryNeed
-  /** Typed with their text (an agent that can't read an inbox). */
-  full: boolean
 }
 
 /** What an agent must be doing to be offered these together: the one they share, else free (which every need takes). */
@@ -815,6 +806,8 @@ const needOf = (items: readonly DeliveryRecord[]): DeliveryNeed => {
  * as it is now): `only` that one; else a task or handover alone (the oldest), or all the others together.
  */
 function pickOffer(store: Store, records: readonly DeliveryRecord[], agentId: string, only?: string): DeliveryRecord[] {
+  // One that can't read an inbox is offered nothing (#650): what waits for it waits until it can.
+  if (!readsInbox(store.host, agentId)) return []
   const live = sessions.liveFor(store.host, agentId)
   const can = records.filter((r) => r.agentId === agentId && isWaiting(r) && !whyNot(store, r) && readyFor(live, r.need ?? 'idle')).sort((a, b) => a.seq - b.seq)
   if (only) return can.filter((r) => r.id === only)
@@ -830,11 +823,10 @@ function planOffer(store: Store, d: Draft, items: readonly DeliveryRecord[], tar
   const now = items.map((r) => byId(d.records, r.id)).filter((r): r is DeliveryRecord => !!r && isWaiting(r) && !whyNot(store, r))
   if (!now.length) return null
   // A watching agent is told its watch carries on, unless the line is its own watch's wake (whose receipt ends it).
-  const full = !readsInbox(store.host, now[0].agentId)
-  const line = offerLine(now, now.some((r) => r.source === 'watch') ? null : label, !full)
+  const line = offerLine(now, now.some((r) => r.source === 'watch') ? null : label)
   const was = new Map(now.map((r) => [r.id, r]))
   for (const r of now) set(store, d, r, 'offered', undefined, undefined, { offerRun: target.runId })
-  return { ids: now.map((r) => r.id), was, line, runId: target.runId, sessionId: target.sessionId, need: needOf(now), full }
+  return { ids: now.map((r) => r.id), was, line, runId: target.runId, sessionId: target.sessionId, need: needOf(now) }
 }
 
 /**
@@ -904,10 +896,7 @@ function lost(store: Store): void {
 
 /** While the confirmation checks its CLI took the line: until then a cancel can still end it (and no Enter comes). */
 function confirming(store: Store, o: Offer, before: { runId: string; count: number }): void {
-  for (const id of o.ids) {
-    store.confirming.set(id, before)
-    if (o.full) store.typedFull.add(id)
-  }
+  for (const id of o.ids) store.confirming.set(id, before)
 }
 
 /** Each source's line made again for what is about to be offered (from things as they are now): its body, or why it is cancelled. */
@@ -1050,14 +1039,14 @@ export async function deliverNow(host: string, nd: NewDelivery, holds?: () => bo
     for (let i = 0; i < 3; i++) {
       const now = deliveryNow(host, rec.id)
       if (!now || !isWaiting(now)) break
-      why = whyNoLine(host, nd.agentId, nd.need ?? 'idle') ?? (holds && !holds() ? 'what it was for changed meanwhile' : null)
+      why = (readsInbox(host, nd.agentId) ? null : NO_INBOX) ?? whyNoLine(host, nd.agentId, nd.need ?? 'idle') ?? (holds && !holds() ? 'what it was for changed meanwhile' : null)
       if (why) break
       if (await offerNow(host, nd.agentId, rec.id)) break
     }
   } finally {
     const now = deliveryNow(host, rec.id)
     if (now && isWaiting(now)) {
-      why ??= whyNoLine(host, nd.agentId, nd.need ?? 'idle') ?? 'Hive could not type it'
+      why ??= (readsInbox(host, nd.agentId) ? null : NO_INBOX) ?? whyNoLine(host, nd.agentId, nd.need ?? 'idle') ?? 'Hive could not type it'
       await transact(store, (d) => {
         const r = byId(d.records, rec.id)
         if (r && isWaiting(r)) set(store, d, r, 'cancelled', `not given: ${why}`)
@@ -1082,12 +1071,14 @@ export async function launchWith<T extends { runId: string }>(host: string, nd: 
   // Saved as offered before anything is launched (persist before the effect, #647): not saved, nothing starts. From
   // here a crash leaves it offered, so it is uncertain after the restart, never queued and typed again as if new. The
   // scheduler never offers it (it isn't waiting), and the checks leave it alone while the launch starts.
+  // One that can't read an inbox couldn't read the task its launch names (#650): nothing is launched with it.
+  if (!readsInbox(host, nd.agentId)) throw new NotGiven(NO_INBOX)
   const rec = await createDelivery(host, { ...nd, launching: true }, hooks)
   const store = await load(host)
   store.offering.add(rec.id)
   let run: T
   try {
-    run = await start(offerLine([rec], null, readsInbox(host, nd.agentId)))
+    run = await start(offerLine([rec], null))
   } catch (e) {
     store.offering.delete(rec.id)
     await transact(store, (d) => {
@@ -1101,7 +1092,6 @@ export async function launchWith<T extends { runId: string }>(host: string, nd: 
   if (run?.runId) {
     store.launches.set(rec.id, run.runId)
     store.confirming.set(rec.id, { runId: run.runId, count: 0 })
-    if (!readsInbox(host, nd.agentId)) store.typedFull.add(rec.id)
   }
   try {
     await transact(store, (d) => {

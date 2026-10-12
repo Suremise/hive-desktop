@@ -190,32 +190,16 @@ const idList = (ids: readonly string[]): string => ids.join(', ')
 /**
  * The line that offers deliveries by typing, one line: the CLI's prompt. The doorbell (#650, plans/2026-10-12-messaging-
  * redesign.md §3.4): Hive's fixed words with counts by kind, cards and ids (shared/doorbell.ts), never what they say,
- * which the agent reads with hive_inbox, labelled with its sender (for one that can't, `readsInbox` false: their text,
- * fullText); ids that may repeat say so; and the watch that carries on if the agent is watching.
+ * which the agent reads with hive_inbox, labelled with its sender; ids that may repeat say so; and the watch that carries
+ * on if the agent is watching.
  */
-export function offerLine(records: readonly DeliveryRecord[], watchLabel: string | null, readsInbox = true): string {
+export function offerLine(records: readonly DeliveryRecord[], watchLabel: string | null): string {
   const sorted = [...records].sort((a, b) => a.seq - b.seq)
-  const bell = readsInbox ? inboxNotice('doorbell', sorted.map((r) => ({ id: r.id, kind: r.kind, ...(r.card ? { card: r.card } : {}) }))) : fullText(sorted)
+  const bell = inboxNotice('doorbell', sorted.map((r) => ({ id: r.id, kind: r.kind, ...(r.card ? { card: r.card } : {}) })))
   const again = sorted.filter((r) => r.again)
   const repeat = again.length ? ` (${idList(again.map((r) => r.id))} again: ${[...new Set(again.map((r) => r.again))].join('; ')}, so ${again.length === 1 ? 'it' : 'they'} may repeat.)` : ''
   const tail = watchLabel ? ` (Your watch is still on, ${watchLabel.charAt(0).toLowerCase()}${watchLabel.slice(1)}: do what this asks, then end your turn, and Hive wakes you when it changes.)` : ''
   return `${bell}${repeat}${tail}`
-}
-
-/**
- * What an agent that can't read an inbox is typed (#650: a project agent while the Agent API or its hive server is off):
- * the deliveries' own text, as #649 typed it, messages first and together, then each other delivery as its producer made
- * it. Taking that line is then its receipt.
- */
-function fullText(sorted: readonly DeliveryRecord[]): string {
-  const messages = inboxItems(sorted.filter((r) => r.kind === 'rebrief').map((r) => ({ ...r, state: 'queued' as const })))
-  const parts: string[] = []
-  if (messages.length) {
-    const from = [...new Set(messages.map((m) => m.from))].join(' and ')
-    parts.push(`[Hive] ${messages.length === 1 ? `Message from ${from}: ${messages[0].text}` : `${messages.length} messages from ${from}: ${messages.map((m, i) => `(${i + 1}) ${m.text}`).join(' ')}`}`)
-  }
-  for (const r of sorted) if (r.kind !== 'rebrief') parts.push(r.body)
-  return parts.join(' ')
 }
 
 /** hive_inbox's reply: what is new (now received), and what was received before and isn't acked yet. */
@@ -227,9 +211,10 @@ export function inboxText(items: readonly InboxItem[], unacked: readonly string[
 }
 
 /** hive_inbox ack's reply. */
-export function ackText(acked: readonly string[], unknown: readonly string[]): string {
+export function ackText(acked: readonly string[], unknown: readonly string[], unread: readonly string[] = []): string {
   const a = acked.length ? `Acked ${idList(acked)}.` : 'Nothing acked.'
-  return unknown.length ? `${a} Not in your inbox: ${idList(unknown)}.` : a
+  const notRead = unread.length ? ` Not read yet: ${idList(unread)}: read ${unread.length === 1 ? 'it' : 'them'} with hive_inbox first.` : ''
+  return `${a}${notRead}${unknown.length ? ` Not in your inbox: ${idList(unknown)}.` : ''}`
 }
 
 const clip = (s: string, n: number): string => {

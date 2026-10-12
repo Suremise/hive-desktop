@@ -100,7 +100,7 @@ describe('messages left for agents (#530, #647)', async () => {
     expect(st.typed).toHaveLength(1)
   })
 
-  it('received only once the agent reads it (#650), never because its doorbell was typed or its CLI took it; acked through hive_inbox, also from offered', async () => {
+  it('received only once the agent reads it (#650), never because its doorbell was typed or its CLI took it; acked through hive_inbox once read, never from its id alone', async () => {
     const cli = { count: 0 }
     Object.assign(sessions, { promptsTaken: () => ({ runId: 'r1', count: cli.count }), holdForConfirm: () => () => undefined })
     writer.testHooks.takeMs = 5000
@@ -121,10 +121,13 @@ describe('messages left for agents (#530, #647)', async () => {
       expect(st.shown).toBeUndefined()
       // Still the agent's to ack.
       expect(await deliveries.readInbox(alpha, 'b1')).toEqual({ items: [], unacked: ['m1'] })
-      // Acked straight from offered (it read it in a line Hive didn't see), checked as a hand-out would be.
+      // Not acked from its id alone (#650: its doorbell named it, so it is read first): read, then acked.
       st.status = 'ready'
       expect((await leave('And #521.')).fate).toBe('typed')
-      expect(await deliveries.ackDeliveries(alpha, 'b1', ['m2'])).toEqual({ acked: ['m2'], unknown: [] })
+      expect(await deliveries.ackDeliveries(alpha, 'b1', ['m2'])).toEqual({ acked: [], unknown: [], unread: ['m2'] })
+      expect((await states()).at(-1)).toBe('m2 offered')
+      await deliveries.readInbox(alpha, 'b1')
+      expect(await deliveries.ackDeliveries(alpha, 'b1', ['m2'])).toEqual({ acked: ['m2'], unknown: [], unread: [] })
       expect((await states()).at(-1)).toBe('m2 acked')
     } finally {
       writer.testHooks.takeMs = undefined
@@ -377,13 +380,14 @@ describe('messages left for agents (#530, #647)', async () => {
       // An ack: the agent moves to another conversation while it is saved: acked; the next operation (its inbox) finds
       // the one left for the old conversation expired.
       await leave('Acked from the old conversation.')
+      expect((await deliveries.readInbox(alpha, 'b1')).items.map((x) => x.ids)).toEqual([['m2']])
       await leave('Left for the old conversation.')
       hold()
       const ack = deliveries.ackDeliveries(alpha, 'b1', ['m2'])
       await vi.waitFor(() => expect(holding).toBe(true), { timeout: HUNG_MS })
       st.sessionId = 's2'
       release()
-      expect(await ack).toEqual({ acked: ['m2'], unknown: [] })
+      expect(await ack).toEqual({ acked: ['m2'], unknown: [], unread: [] })
       expect(await deliveries.readInbox(alpha, 'b1')).toEqual({ items: [], unacked: ['m1'] })
       expect((await states()).slice(1)).toEqual(['m2 acked', 'm3 expired: its agent is in another conversation now'])
       // An offer: its sender's permission goes while "offered" is saved: the writer's check before the first key stops
@@ -423,6 +427,9 @@ describe('messages left for agents (#530, #647)', async () => {
         alpha = join(base, `alpha-failed-${how}-${at}`)
         st.status = 'working'
         await leave('Never received.')
+        // An ack is of what was read (#650): read first.
+        if (how === 'ack') await deliveries.readInbox(alpha, 'b1')
+        const was = how === 'ack' ? 'm1 received' : 'm1 queued'
         const fail = (): never => {
           throw new Error('EIO: i/o error')
         }
@@ -435,12 +442,12 @@ describe('messages left for agents (#530, #647)', async () => {
           deliveries.setBeforeSaveForTests(null)
           deliveries.setBeforeRenameForTests(null)
         }
-        expect(await states()).toEqual(['m1 queued'])
+        expect(await states()).toEqual([was])
         const dir = join(alpha, '.hive')
-        expect(JSON.parse(readFileSync(join(dir, 'deliveries.json'), 'utf8')).deliveries.map((r: { id: string; state: string }) => `${r.id} ${r.state}`)).toEqual(['m1 queued'])
+        expect(JSON.parse(readFileSync(join(dir, 'deliveries.json'), 'utf8')).deliveries.map((r: { id: string; state: string }) => `${r.id} ${r.state}`)).toEqual([was])
         expect(readdirSync(dir).filter((f) => f.endsWith('.tmp'))).toEqual([])
         await deliveries.forgetDeliveriesForTests()
-        expect(await states()).toEqual(['m1 queued'])
+        expect(await states()).toEqual([was])
       }
     }
   })
