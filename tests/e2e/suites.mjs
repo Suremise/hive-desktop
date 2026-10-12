@@ -46,6 +46,7 @@ export const SUITES = [
   { name: 'bursts' },
   { name: 'busy' },
   { name: 'cardchip' },
+  { name: 'cardcost' },
   { name: 'carddialog' },
   { name: 'cardlinks' },
   { name: 'cardloop' },

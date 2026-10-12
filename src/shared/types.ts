@@ -10,6 +10,7 @@ import type { DateFormat, TimeFormat } from './dates'
 import type { ProjectPref } from './uiPrefs'
 import type { GitTool } from './gitTool'
 import type { AgentLeftovers, LeftoverProcessMode } from './agentProcesses'
+import type { UsageTimeline } from './usageTimeline'
 
 export type ThemeSetting = 'dark' | 'light' | 'system'
 /** A coding-agent CLI Hive can run ("claude-code", "codex"). See src/shared/providers.ts. */
@@ -558,6 +559,8 @@ export interface TaskCard {
   history: TaskHistoryEntry[]
   /** Hidden from the board, kept and searchable. */
   archived: boolean
+  /** Who held it when (#602): its agent while in Doing, its reviewer while reviewing. What its cost is worked out from. */
+  held?: TaskHold[]
   /**
    * Who archived it: the user, Hive after its days in Done (Settings → Board), or its project being hidden or
    * removed (restoring the project brings those back).
@@ -629,6 +632,21 @@ export interface TaskDecision {
   at: string
   /** When the user last changed its words. */
   editedAt?: string
+}
+
+/**
+ * An agent holding a card for a while (TaskCard.held): its builder (its agent, while the card is in Doing) or its
+ * reviewer (from its review's start to its verdict). Kept by Hive as the card changes (cardCosts.ts trackHolds); a
+ * card from before has them worked out from its history once, by the agents' names.
+ */
+export interface TaskHold {
+  /** The agent's id in the card's project; absent when worked out from history by a name that wasn't the card's agent's. */
+  agent?: string
+  name: string
+  role: 'build' | 'review'
+  from: string
+  /** Absent while it still holds it. */
+  to?: string
 }
 
 /** An agent reviewing a card (TaskCard.review). */
@@ -1505,6 +1523,11 @@ export interface SessionUsage {
   days?: Record<string, DayUsage>
   /** From the parser: each cost report's increase and the tokens it covered by day. Hive turns them into day costs and removes them. */
   costReports?: { costUsd: number; days: Record<string, UsageTokens> }[]
+  /**
+   * From the parser: the usage over time (usageTimeline.ts), for cost per card (#602). Kept in usage-cache.json with the
+   * parser's result and removed before pricing, so it never travels with the session's usage.
+   */
+  timeline?: UsageTimeline
 }
 
 export interface UsageTokens {

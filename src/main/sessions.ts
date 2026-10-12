@@ -40,6 +40,7 @@ import { provider as providerAdapter, allProviders } from './providers'
 import { recacheEstimate } from './providers/common'
 import { usesOwnPrices } from '../shared/prices'
 import { priceUsage } from '../shared/usageDays'
+import { readTimeline, type UsageTimeline } from '../shared/usageTimeline'
 import type { Ask, HookEvent, LaunchContext, LaunchSkill, ProviderAdapter, SkillDelivery, UsageParser } from './providers/types'
 import { providerService } from './providerService'
 import { config } from './config'
@@ -789,6 +790,8 @@ class SessionManager {
       if (!file || file.version !== app.getVersion() || !Array.isArray(file.entries)) return
       for (const e of file.entries) {
         if (!e || typeof e.path !== 'string' || !e.usage || usageCache.has(e.path)) continue
+        // Without a timeline (cost per card, #602: saved before it, or damaged), read again in full when next asked.
+        if (!readTimeline(e.usage.timeline)) continue
         usageCache.set(e.path, { parser: null, sessionId: e.sessionId, provider: e.provider, offset: e.size, size: e.size, mtime: e.mtime, raw: e.usage, usage: null })
       }
       trimUsageCache()
@@ -811,9 +814,13 @@ class SessionManager {
     await writeJsonAtomic(usageCacheFile(), { version: app.getVersion(), entries } satisfies UsageCacheFile).catch((e) => log.warn('usage cache: could not save it', e))
   }
 
-  /** A result with costs from the current prices: the provider's report, else (or on top) Hive's estimate, and each day's share. */
+  /**
+   * A result with costs from the current prices: the provider's report, else (or on top) Hive's estimate, and each day's
+   * share. Without its timeline (usageTimeline has it): it stays in the cache, never in the usage passed on.
+   */
   private priced(raw: SessionUsage): SessionUsage {
-    return priceUsage(raw, config.settings)
+    const { timeline: _timeline, ...usage } = raw
+    return priceUsage(usage, config.settings)
   }
 
   /**
@@ -3394,6 +3401,21 @@ class SessionManager {
       if (window) return { ...usage, contextWindow: window }
     }
     return usage
+  }
+
+  /**
+   * A session's usage with its timeline (cost per card, #602): a null timeline when there is none to read (a deleted
+   * session's kept usage).
+   */
+  async usageTimeline(projectPath: string, sessionId: string, ctx?: ListContext): Promise<{ usage: SessionUsage; timeline: UsageTimeline | null } | null> {
+    assertSessionId(sessionId)
+    const p = await this.anyTranscript(projectPath, sessionId, ctx)
+    if (!p) {
+      const kept = (ctx?.records ?? (await workspace.sessionsFile(projectPath)).sessions).find((s) => s.id === sessionId)?.keptUsage
+      return kept ? { usage: kept, timeline: null } : null
+    }
+    const usage = await this.usageFor(p, sessionId, await this.sessionProvider(projectPath, sessionId, ctx))
+    return usage && { usage, timeline: usageCache.get(p)?.raw?.timeline ?? null }
   }
 
   async list(projectPath: string): Promise<SessionListItem[]> {

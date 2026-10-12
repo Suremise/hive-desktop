@@ -2,6 +2,9 @@
 
 ## Unreleased
 
+### Performance
+- **What each card cost.** A card's panel now says what its agents used while they held it, such as **cost: ≈ $1.84 · 2 rounds**: its builder while it was in Doing and its reviewer from the start of each review to its verdict, as each provider reported it, with each side's part and tokens on hover. Performance has a sortable **Cards** table (cost, builder, reviewer, rounds) for the cards worked on in its range, a row opening its card; and hovering a lane's top line in the Progress panel shows what the lane cost, split into its cards and its **overhead**, what the builder and reviewer used holding no card (merges, watching, compactions), with the cost per finished card. Estimates are marked ≈ and what Hive can't know shows as **Unknown**, never $0. Cards worked on before this keep their cost too, worked out from their history.
+
 ### Agents
 - **What agents left running survives a restart.** Processes an agent left running that Hive didn't ask you about as it quit (a quit to install an update, or with no window open), or that were listed when it crashed, are listed again the next time Hive starts, with **End Them** and **Keep Running**. Hive checks that each is still the same process, so it never offers to end a program that has since taken its place. A dev copy of Hive that an agent's test run left open now shows up there too.
 - **Agents stop what they start.** Agents watching their own test runs with `tail -f` left those watchers running long after the runs ended (16 from one agent in a day). Hive's guidance now tells agents to watch a run with something that ends with it (`hive-progress`, their CLI's notice that a background command ended) and to end the watchers, servers and app copies they started before a card goes to Review.

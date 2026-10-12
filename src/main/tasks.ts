@@ -7,6 +7,7 @@ import { COLUMN_CHOICES, TASK_COLUMNS, cardMatches, isTaskColumn, restoreOrders,
 import { ordinal } from '../shared/toolReplies'
 import type { ArchiveBatch, ArchiveRequest, ArchiveResult, TaskCard, TaskDecision, TaskColumn, TaskComment, TaskPatch, UnarchiveResult } from '../shared/types'
 import { returnRound } from '../shared/watch'
+import { holdsOf, trackHolds } from '../shared/cardCosts'
 import { isProjectId, projectIdNamed, projectNameOf, projectNow, savedProjectName, type ProjectIdIndex } from '../shared/projectIds'
 import { keepBeforeIds } from './beforeIds'
 import { config } from './config'
@@ -130,6 +131,7 @@ function clean(raw: Partial<TaskCard> & { projectId?: unknown }, n: number, ids?
     ...(raw.archivedFor ? { archivedFor: raw.archivedFor } : {}),
     ...(raw.archived === true && typeof raw.archivedBatch === 'string' && raw.archivedBatch ? { archivedBatch: raw.archivedBatch } : {}),
     ...decisionsOf(raw.decisions),
+    ...holdsOf(raw.held),
     createdAt: typeof raw.createdAt === 'string' ? raw.createdAt : now,
     createdBy: typeof raw.createdBy === 'string' ? raw.createdBy : '',
     updatedAt: typeof raw.updatedAt === 'string' ? raw.updatedAt : now
@@ -305,6 +307,8 @@ export async function getTask(n: number, ws: WorkspaceService = workspace): Prom
  * project's: shown as goneProject's while another project has its name, it is saved with that name as it was.
  */
 async function saveCard(ws: WorkspaceService, n: number, card: TaskCard): Promise<void> {
+  // Who holds it now, for its cost (#602): a hold that ended gets its end, a new one starts.
+  trackHolds(card, new Date().toISOString())
   const saved = savedProjectName(card.project)
   let projectId = saved && saved === card.project ? projectIdNamed(await ws.projectIds(), saved) : null
   if (!projectId && saved) {

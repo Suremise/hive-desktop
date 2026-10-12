@@ -1443,8 +1443,9 @@ async function taskView(c: TaskCard, agents = new Map<string, Promise<ReturnType
   }
   // Nobody working on a Doing card: the Assistant reports these and suggests who could take them.
   // Entry ids are the card watches' (#224): left out, so replies stay as lean as before.
-  // Its decisions first (#357): what the user decided, which agents follow over the description.
-  const { number, title, decisions, ...rest } = c
+  // Its decisions first (#357): what the user decided, which agents follow over the description. Its holds (#602) are
+  // for its cost in Hive's window: left out.
+  const { number, title, decisions, held: _held, ...rest } = c
   const view: TaskView = {
     number,
     title,

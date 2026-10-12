@@ -32,6 +32,7 @@ import { mergeSlots, recoverMergeSlots, workspaceSlots } from './mergeSlotHost'
 import { followNames } from './projectRename'
 import { slotBranch } from './mergeSlots'
 import { endLane, listLanes, stampLaneProjects } from './lanes'
+import { cardCosts, laneCosts } from './cardCosts'
 import { badgeDescription } from '../shared/taskbar'
 import * as files from './files'
 import * as mcp from './mcp'
@@ -786,6 +787,13 @@ export function registerIpc(getAppInfo: () => ReturnType<HiveRequests['app:info'
       if (typeof id !== 'string' || !id) throw new Error('Which lane to end is required')
       return endLane(currentWorkspace(), id, { abandoned: abandoned === true })
     },
+    'costs:cards': (q) => {
+      if (!workspace.path) return []
+      const numbers = Array.isArray(q?.numbers) ? q.numbers.filter((n) => Number.isInteger(n) && n > 0).slice(0, 1000) : undefined
+      const time = (v: unknown): number | undefined => (typeof v === 'number' && Number.isFinite(v) ? v : undefined)
+      return cardCosts(currentWorkspace(), { numbers, project: typeof q?.project === 'string' ? q.project : null, from: time(q?.from), to: time(q?.to) })
+    },
+    'costs:lanes': (ids) => (workspace.path ? laneCosts(currentWorkspace(), Array.isArray(ids) ? ids.filter((x): x is string => typeof x === 'string') : undefined) : []),
     'progress:list': async () => {
       const ws = workspace.path
       if (!ws) return []
