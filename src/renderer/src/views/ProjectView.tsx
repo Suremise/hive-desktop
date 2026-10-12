@@ -14,7 +14,8 @@ import { ProjectAgentsTable, useAgentsText } from '../components/AgentsTable'
 import { agentProviderOf, projectKey, projectState, set, setProjectTab, useFocusedAgent, useStore, type ProjectTab } from '../store'
 import { carriesFiles, cx, formatKeybinding } from '../util'
 import { FilesTab, ImagesTab } from './FilesTab'
-import { ChangesTab, MemoryTab, OverviewTab, ProjectMcpTab, ProjectSettingsTab, ProjectSkillsTab } from './ProjectTabs'
+import { GitTab } from './GitTab'
+import { MemoryTab, OverviewTab, ProjectMcpTab, ProjectSettingsTab, ProjectSkillsTab } from './ProjectTabs'
 import { ProjectTemplatesTab } from '../components/Templates'
 import { PerformanceTab } from './Performance'
 import { SessionsTab } from './SessionsTab'
@@ -446,7 +447,7 @@ export function ProjectView({ visible }: { visible: boolean }) {
           {tab === 'sessions' && <SessionsTab project={project} />}
           {tab === 'files' && <FilesTab project={project} />}
           {tab === 'images' && <ImagesTab project={project} />}
-          {tab === 'changes' && <ChangesTab project={project} />}
+          {tab === 'changes' && <GitTab project={project} />}
           {tab === 'memory' && <MemoryTab project={project} />}
           {tab === 'skills' && <ProjectSkillsTab project={project} />}
           {tab === 'templates' && <ProjectTemplatesTab project={project} />}

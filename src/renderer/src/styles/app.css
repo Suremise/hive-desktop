@@ -8183,3 +8183,145 @@ button.progress-run-show:focus-visible {
 .merge-slot-waiting {
   font-size: 12px;
 }
+
+/* The Git tab (#607): its sections (Changes, History, Branches & remotes) over the section shown. */
+.git-view {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  flex-direction: column;
+}
+.git-head {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 6px 14px;
+  border-bottom: 1px solid var(--border-subtle);
+  flex-shrink: 0;
+  min-width: 0;
+}
+.git-head-status {
+  font-size: 12px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  min-width: 0;
+}
+.git-body {
+  flex: 1;
+  min-height: 0;
+  position: relative;
+}
+.git-section-head {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.git-section-actions {
+  margin-left: auto;
+  display: flex;
+  gap: 6px;
+  font-weight: normal;
+}
+.git-rows {
+  display: flex;
+  flex-direction: column;
+  border: 1px solid var(--border-subtle);
+  border-radius: 6px;
+  overflow: hidden;
+  margin-bottom: 8px;
+}
+.git-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 5px 10px;
+  min-height: 30px;
+  font-size: 13px;
+  min-width: 0;
+}
+.git-row + .git-row {
+  border-top: 1px solid var(--border-subtle);
+}
+.git-row.current {
+  background: var(--accent-soft);
+}
+.git-hash {
+  font-family: var(--font-mono, monospace);
+  font-size: 12px;
+  color: var(--fg-muted);
+  flex-shrink: 0;
+}
+.git-name {
+  font-weight: 600;
+  white-space: nowrap;
+}
+.git-subject,
+.git-url {
+  flex: 1;
+  min-width: 0;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.git-url {
+  font-family: var(--font-mono, monospace);
+  font-size: 12px;
+}
+.git-meta,
+.git-track {
+  white-space: nowrap;
+  font-size: 12px;
+  flex-shrink: 0;
+}
+.git-ref {
+  flex-shrink: 0;
+}
+.git-ref.git-tag {
+  background: rgba(245, 196, 81, 0.16);
+  color: var(--warning);
+}
+.git-ref.git-headref {
+  background: var(--accent-soft);
+  color: var(--accent-ink);
+}
+.git-rows > .git-more {
+  align-self: flex-start;
+  margin: 4px 6px;
+}
+.git-current {
+  border: 1px solid var(--border-subtle);
+  border-radius: 6px;
+  padding: 10px 12px;
+  background: var(--bg-sidebar);
+  margin-bottom: 8px;
+}
+.git-current-line {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+.git-current .banner {
+  margin: 8px 0 0;
+}
+.git-fetched {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-top: 6px;
+  font-size: 12px;
+}
+.git-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-top: 10px;
+}
+.git-identity td {
+  padding-right: 24px;
+}
+.git-setup h2 .codicon {
+  margin-right: 4px;
+}

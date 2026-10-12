@@ -176,7 +176,7 @@ export const commands: Command[] = [
   { id: 'project.tab.sessions', label: 'Go to Sessions', category: 'Project', keybinding: 'Alt+3', when: hasProject, run: tab('sessions') },
   { id: 'project.tab.files', label: 'Go to Files', category: 'Project', keybinding: 'Alt+4', when: hasProject, run: tab('files') },
   { id: 'project.tab.images', label: 'Go to Images', category: 'Project', keybinding: 'Alt+5', when: hasProject, run: tab('images') },
-  { id: 'project.tab.changes', label: 'Go to Changes', category: 'Project', keybinding: 'Alt+6', when: hasProject, run: tab('changes') },
+  { id: 'project.tab.changes', label: 'Go to Git', category: 'Project', keybinding: 'Alt+6', when: hasProject, run: tab('changes') },
   { id: 'project.tab.memory', label: 'Go to Memory', category: 'Project', keybinding: 'Alt+7', when: hasProject, run: tab('memory') },
   { id: 'project.tab.skills', label: 'Go to Skills', category: 'Project', keybinding: 'Alt+8', when: hasProject, run: tab('skills') },
   { id: 'project.tab.templates', label: 'Go to Templates', category: 'Project', when: hasProject, run: tab('templates') },
