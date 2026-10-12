@@ -23,6 +23,7 @@
 
 ### Files
 - **A late paste no longer takes your selection.** In the Files tab, a paste, rename or new file that took a moment (a big folder, a slow disk) selected what it made when it finished, even if you had clicked another row meanwhile, so Ctrl+X or Ctrl+C then acted on the wrong file. The row you clicked now keeps the selection.
+- **Deleting something open for a moment.** Delete Project, and every other delete to the Recycle Bin, failed at once when Windows couldn't move the item because something had a file in it open, even for an instant (an antivirus scan, the search indexer). Hive now tries again for about a second and a half, so only a program that keeps it open stops it, and Hive still says so.
 
 ### Agent API
 - **Agents can read the developer console.** **Settings → Agent API → Let agents read the developer console** gives agents and the Hive Assistant a read-only tool, `hive_console`, showing what their CLI sends Hive (hooks, status line, transcript records, the terminal signs Hive reacts to) next to what Hive made of each. An agent reads only its own sessions; the Assistant reads its workspace's agents and Hive's own events (API calls, merge slots, watches, Progress). Hive captures only while the developer console is open (the console window itself is coming next), and what it captures is redacted: no prompt or reply text, commands, tokens or sign-in details. Off unless you turn it on.
