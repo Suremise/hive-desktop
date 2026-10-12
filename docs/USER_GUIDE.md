@@ -535,6 +535,8 @@ Any command can show in the panel by running it with **`hive-progress`** in fron
 
 A command shows real steps when it prints lines like `##hive-progress step=4 total=12 name=carddialog`; any project's test runner can print them (see the Agent API reference). A total printed after a slow start still counts: the bar moves without steps until then, and shows them from then on. `hive-progress` is on the path of every session Hive starts, in Claude Code's and Codex's shells. A command that reports its own progress, such as Hive's own test runners, still shows as one row when an agent wraps it.
 
+Stopping a `hive-progress` command (Ctrl+C where it gets one) gives it 5 seconds to end by itself, then ends it with everything it started, such as the server under an `npm` or `.cmd` command. Hive checks when each of those processes started, so a process that only looks like the command's (an older one whose own parent had the same process number before it ended) is left running. If Windows won't list the processes, only the command itself is ended.
+
 ## Task board
 
 The **Task Board** (in the activity bar, or **Ctrl+Shift+J**) is the workspace's list of work, as cards in six columns: **On Hold**, **Todo**, **Doing**, **Review**, **Passed** and **Done**. You, the Hive Assistant and the agents all use it, so it's where you can see at a glance what is planned, what is being worked on and what is waiting for you.
