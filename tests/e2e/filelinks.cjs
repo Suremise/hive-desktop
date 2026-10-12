@@ -86,7 +86,9 @@ const lines = (n, tag) => Array.from({ length: n }, (_, i) => `// ${tag} line ${
   check('the agents start', !!(await until(async () => (await live(alpha, one.id))?.status === 'ready' && (await live(alpha, two.id))?.status === 'ready', 20000)))
 
   const key = lib.ptyKey(alpha, one.id)
-  await inv('pty:write', key, 'look at src/app.ts:25:4 then ../beta/lib/util.js:3 not src/nope.ts')
+  // Short enough that its turn's "Done:" line holds all three paths on one row in a pane half the window wide.
+  const first = 'see src/app.ts:25:4 ../beta/lib/util.js:3 src/nope.ts'
+  await inv('pty:write', key, first)
   await lib.sleep(200)
   await inv('pty:write', key, '\r')
   check('the paths are printed', !!(await until(() => textAt(key, 'src/nope.ts'), 10000)))
@@ -94,11 +96,11 @@ const lines = (n, tag) => Array.from({ length: n }, (_, i) => `// ${tag} line ${
   const linkTitle = () => page.locator('.terminal-host[title="Open in Files · Ctrl+click"]').count()
 
   // --- A missing file isn't linked; an existing one is.
-  const nope = await drawnAt(key, 'src/nope.ts', 'look at src/app.ts:25:4')
+  const nope = await drawnAt(key, 'src/nope.ts', first)
   await page.mouse.move(nope.x + 4, nope.y)
   await lib.sleep(700)
   check("a file that doesn't exist isn't linked", (await linkTitle()) === 0)
-  const app1 = await drawnAt(key, 'src/app.ts:25:4', 'look at src/app.ts:25:4')
+  const app1 = await drawnAt(key, 'src/app.ts:25:4', first)
   await page.mouse.move(app1.x + 4, app1.y)
   check('an existing file is linked, with a tooltip', !!(await until(async () => (await linkTitle()) === 1, HUNG_MS)))
   await page.screenshot({ path: path.join(lib.WORK, 'filelinks-1-hover.png') })
@@ -118,7 +120,7 @@ const lines = (n, tag) => Array.from({ length: n }, (_, i) => `// ${tag} line ${
 
   // --- A path into another workspace project opens there.
   await backToSession()
-  const util = await drawnAt(key, '../beta/lib/util.js:3', 'look at src/app.ts:25:4')
+  const util = await drawnAt(key, '../beta/lib/util.js:3', first)
   await ctrlClick({ x: util.x + 4, y: util.y })
   check('a path into another project opens in that project', !!(await until(async () => /beta/.test(await page.locator('h1').first().innerText().catch(() => '')) && (await selectedRow()) === 'lib/util.js', 5000)), String(await selectedRow()))
   check('at its line too', !!(await until(async () => (await activeLine()) === '3', 10000)), await activeLine())
