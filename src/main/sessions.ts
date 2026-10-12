@@ -91,6 +91,8 @@ export interface HiveMcpProvider {
 const BACKUP_INTERVAL_MS = 60_000
 /** Minimum time between cost estimates while a turn is running (each parses the whole transcript). */
 const COST_INTERVAL_MS = 30_000
+/** How many of a launch's latest hooks are kept for the log (LiveSession.recentHooks). */
+const RECENT_HOOKS = 8
 /** How long after a CLI starts or is ready its size refresh comes (refreshSize). */
 const SIZE_REFRESH_DELAY_MS = 500
 
@@ -191,6 +193,8 @@ interface LiveSession {
   typed?: { at: number; prompts: number }
   /** The start of its latest reply, as its last turn's end reported it (an agent watch's line, #416). */
   lastReply?: string
+  /** Its latest hooks (what they were, when, and the status they left), for the log when the CLI turns out idle (#612). */
+  recentHooks?: { kind: HookEvent['kind']; at: number; status: SessionStatus }[]
   /**
    * A typed wake being confirmed (#430: watches' confirmTaken, from its typing until it is taken, marked not taken, or the
    * launch ends): nothing more is typed into it meanwhile, however long that takes. A token, so only its own release
@@ -2901,6 +2905,8 @@ class SessionManager {
       if (ev.lastMessage) l.lastReply = ev.lastMessage.slice(0, 2000)
     }
     this.carryOut(id, l, hookStep(ev, this.statusInput(l)), String(body.hook_event_name ?? ''), ev, arrived)
+    if (ev.kind !== 'ignore') (l.recentHooks ??= []).push({ kind: ev.kind, at: Date.now(), status: st.status })
+    if ((l.recentHooks?.length ?? 0) > RECENT_HOOKS) l.recentHooks!.shift()
   }
 
   /** What the status rules need to know of a running agent. */
@@ -2981,6 +2987,13 @@ class SessionManager {
         case 'clearTasks':
           this.clearTasks(l)
           break
+        case 'idleAgain': {
+          // Hive missed how its last turn ended (#612): what it saw before, so the next time says why. Hook kinds and
+          // statuses only, no user text.
+          const seen = (l.recentHooks ?? []).map((h) => `${h.kind} ${new Date(h.at).toISOString().slice(11, 19)} → ${h.status}`).join(', ')
+          log.info(`${userText(label)}: ${l.adapter.descriptor.name} is idle at its prompt while Hive showed it working; idle again (hooks before: ${seen || 'none'})`)
+          break
+        }
         case 'signedOut':
           st.signIn = { message: (ev?.kind === 'signIn' && ev.message?.slice(0, 500)) || `${l.adapter.descriptor.name} isn't signed in.`, since: new Date().toISOString() }
           this.signInLost(st.provider)

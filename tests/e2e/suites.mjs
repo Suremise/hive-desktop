@@ -83,6 +83,7 @@ export const SUITES = [
   { name: 'gitmissing' },
   { name: 'hivevcs' },
   { name: 'icons' },
+  { name: 'idlestatus' },
   { name: 'image' },
   { name: 'inbox', serial: 'window focus' },
   { name: 'installdir' },
