@@ -214,9 +214,10 @@ describe('test tooling ends processes by identity, never by a remembered pid (#6
     readdirSync(join(root, dir), { withFileTypes: true }).flatMap((e) =>
       e.isDirectory() ? (['node_modules', 'fixtures'].includes(e.name) ? [] : files(join(dir, e.name))) : /\.(c|m)?[jt]s$/.test(e.name) ? [join(dir, e.name)] : []
     )
-  it('no process.kill on a pid (other than signal 0) and no taskkill, in tests or scripts', () => {
+  // And in Hive itself: hive-progress ends its command's tree by identity too (wrapper.ts endTree, #655).
+  it('no process.kill on a pid (other than signal 0) and no taskkill, in tests, scripts or src', () => {
     const found: string[] = []
-    for (const f of [...files('tests'), ...files('scripts')]) {
+    for (const f of [...files('tests'), ...files('scripts'), ...files('src')]) {
       readFileSync(join(root, f), 'utf8')
         .split(/\r?\n/)
         .forEach((line, i) => {

@@ -9,7 +9,7 @@ import { createRequire } from 'module'
 import { pathToFileURL } from 'url'
 import { afterAll, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest'
 import { estimateFor, ProgressRun, progressTarget, recordTiming, wrappedLines } from '../src/main/progressReporters/report.mts'
-import { cmdEscapeArgument, commandEnv, commandLabel, parseArgs, runWrapped, spawnSpec, StepFilter, stepLine, timingKey, wasInterrupted } from '../src/main/progressReporters/wrapper'
+import { cmdEscapeArgument, commandEnv, commandLabel, parseArgs, parseProcessList, runWrapped, spawnSpec, StepFilter, stepLine, timingKey, treeToEnd, wasInterrupted } from '../src/main/progressReporters/wrapper'
 import { installShims, shimFiles, withBinOnPath } from '../src/main/progressReporters/shims'
 import { hiveInstructions, progressRule, wrapsLongCommands } from '../src/shared/hiveGuidance'
 import { launchParts } from '../src/main/guidance'
@@ -169,6 +169,35 @@ describe.runIf(process.platform === 'win32')('stopping a command on Windows (#54
     } finally {
       endExactly(serverId)
     }
+  })
+})
+
+describe('which processes stopping a command ends (#655)', () => {
+  it('its tree, children first, but never an older process whose parent id is the command\'s reused pid, nor what that one started', () => {
+    // 100 is the command (cmd), started at 5000; 200 the server under it, 300 the server's worker. 400 started at 4000,
+    // its parent id 100 from a process that ended before the command got that pid: an orphan, not the command's. 500 is
+    // its child (started after it, so its child indeed), and 600 is unrelated.
+    const list = [
+      { pid: 100, parent: 4, started: 5000 },
+      { pid: 200, parent: 100, started: 5010 },
+      { pid: 300, parent: 200, started: 5020 },
+      { pid: 400, parent: 100, started: 4000 },
+      { pid: 500, parent: 400, started: 6000 },
+      { pid: 600, parent: 4, started: 5005 }
+    ]
+    expect(treeToEnd(list, 100).map((p) => p.pid)).toEqual([300, 200, 100])
+    // One started in the same millisecond as its parent is its child (the stamps are only as fine as a millisecond).
+    expect(treeToEnd([...list, { pid: 700, parent: 100, started: 5000 }], 100).map((p) => p.pid)).toEqual([700, 300, 200, 100])
+    // A command already gone ends nothing by its pid; a parent-id loop (two reused pids) is walked once.
+    expect(treeToEnd(list, 999)).toEqual([])
+    expect(treeToEnd([{ pid: 1, parent: 2, started: 10 }, { pid: 2, parent: 1, started: 10 }], 1).map((p) => p.pid)).toEqual([2, 1])
+  })
+
+  it('reads the process list as PowerShell prints it, skipping lines that are not a process', () => {
+    expect(parseProcessList('0 0 0\r\n4 0 1700000000000\r\n\r\n 812 4 1700000000123 \r\nWARNING: x\r\n')).toEqual([
+      { pid: 4, parent: 0, started: 1700000000000 },
+      { pid: 812, parent: 4, started: 1700000000123 }
+    ])
   })
 })
 
