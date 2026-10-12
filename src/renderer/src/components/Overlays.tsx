@@ -23,6 +23,7 @@ const LEVEL_ICON = { info: 'info', success: 'pass', warning: 'warning', error: '
 
 export function Dialogs() {
   const dialog = useStore((s) => s.dialog)
+  const blocked = useStore((s) => s.dialogBlocked)
   const [value, setValue] = useState('')
   const [error, setError] = useState<string | null>(null)
   const [checked, setChecked] = useState(false)
@@ -116,6 +117,7 @@ export function Dialogs() {
               autoFocus
               busy={action.busy === 'confirm'}
               busyLabel={dialog.busyLabel ?? 'Working…'}
+              disabled={!!blocked}
               onClick={() => {
                 const run = dialog.run
                 if (!run) return close(true)

@@ -1,7 +1,7 @@
 import type { SettingShown, TemplateLoadView, PlaceShown } from '@shared/templateLoad'
 import { isKnownProvider } from '@shared/providers'
 import { ProviderIcon } from './ProviderIcon'
-import { Tooltip } from './ui'
+import { Icon, Tooltip } from './ui'
 import { AGENT_NAME_MAX } from '@shared/agentNames'
 import { cx } from '../util'
 
@@ -46,6 +46,10 @@ export function TemplatePlan({ view, edit }: { view: TemplateLoadView; edit?: Na
               <td>
                 {edit ? (
                   <>
+                    <span className="template-plan-from" title="Its name in the template">
+                      {edit.from[i]}
+                    </span>
+                    <Icon name="arrow-right" className="template-plan-arrow" />
                     <input className={cx('input template-plan-name-input', edit.problems[i] && 'invalid')} aria-label={`Name of agent ${i + 1}`} value={edit.names[i] ?? ''} maxLength={AGENT_NAME_MAX} onChange={(e) => edit.onName(i, e.target.value)} />
                     {edit.problems[i] && <div className="field-error">{edit.problems[i]}</div>}
                   </>
@@ -82,8 +86,9 @@ export function TemplatePlan({ view, edit }: { view: TemplateLoadView; edit?: Na
   )
 }
 
-/** The created agents' names, editable in the Load template dialog (#702), each with why it can't be used. */
+/** The created agents' names, editable in the Load template dialog (#702) beside the template's own (`from`), each with why it can't be used. */
 export interface NameEdit {
+  from: string[]
   names: string[]
   problems: (string | null)[]
   onName: (index: number, name: string) => void

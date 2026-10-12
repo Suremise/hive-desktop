@@ -4,7 +4,7 @@
 
 ### Agent names
 - **Agent names are unique across the workspace.** Two projects can no longer each have a B1, which couldn't be told apart on the board, in notifications or by the Assistant. Adding or renaming an agent with a name another project's agent has is refused, and Hive offers one with your project's initials in front (B1 in *hive* becomes HB1). Agents that already share a name keep working: Hive says so once, with a button to rename one.
-- **Name a template's agents as you load it.** The Load template dialog lets you change each new agent's name, and a **Name prefix** renames them all: *AM* turns B1–B6 and R1–R6 into AMB1–AMB6 and AMR1–AMR6. A template from another project opens with this project's initials filled in, and a name that's taken is marked.
+- **Name a template's agents as you load it.** The Load template dialog shows each agent's name in the template beside a box for the name it will get. A name another project's agent has is marked, saying whose, and **Load template** stays greyed out until it's changed.
 - **Why a template won't load without git.** A template whose agents work in their own worktrees can't load into a folder that isn't a git repository (or has no commit yet). Hive now names those agents and says what to do: make it a repository, or put them in the project folder.
 - **Add Agent** says what `hive/` in a branch name is for: it marks branches Hive made, so it can reuse and tidy them up.
 

@@ -6,7 +6,7 @@
 // workspace's with their scopes, and loads into that project. Screenshots and reachability at 1700 and 900 px in both
 // themes. #271: Edit… in the view (name, description, layout; an agent changed in the Agent Settings dialog, one added
 // (a taken name refused), moved, one removed), saved, then loaded: exactly those agents. #702: alpha's names are taken
-// in beta, so loading alpha's templates there opens with beta's prefix (B) filled in, and loads them so. #510: an agent's Save saves the
+// in beta, so loading alpha's templates there marks them, greys Load template out, and loads them renamed. #510: an agent's Save saves the
 // template too; changes not saved survive leaving the editor (marked in the list), and Cancel discards them. The file dialogs and the
 // Recycle Bin are answered in main (never the real ones). Agents use the fake Claude
 // Code (fake-claude/), never started. Dev build, throwaway profile and workspace; a quiet test copy.
@@ -112,9 +112,14 @@ const check = (name, ok, extra = '') => {
   const confirmLoad = page.locator('.dialog', { hasText: 'Load "Team"?' })
   await confirmLoad.waitFor({ timeout: 5000 })
   check("…then loading's confirmation, for the chosen project", (await confirmLoad.locator('.template-plan-removed li').evaluateAll((l) => l.map((x) => x.dataset.agent))).join() === 'Old')
-  const prefixed = (d) => d.locator('#template-prefix').inputValue()
-  check("…alpha's names taken, beta's prefix filled in", (await prefixed(confirmLoad)) === 'B', await prefixed(confirmLoad))
-  await confirmLoad.getByRole('button', { name: 'Load template' }).click()
+  // Its names are alpha's agents' (#702): marked, Load template greyed out until they are changed.
+  const nameBoxes = (d) => d.locator('.template-plan-name-input')
+  const loadOf = (d) => d.getByRole('button', { name: 'Load template' })
+  check("…alpha's names marked, Load template greyed out", (await confirmLoad.locator('.template-plan-table .field-error').count()) === 2 && (await loadOf(confirmLoad).isDisabled()))
+  await nameBoxes(confirmLoad).nth(0).fill('BBuilder')
+  await nameBoxes(confirmLoad).nth(1).fill('BReviewer')
+  await lib.until(() => loadOf(confirmLoad).isEnabled(), 5000)
+  await loadOf(confirmLoad).click()
   check('Load into Project… replaces that project\'s agents and layout', !!(await lib.until(async () => JSON.stringify(projectCfg(beta).agents.map((a) => a.name)) === '["BBuilder","BReviewer"]', 10000)) && projectCfg(beta).layout === 'columns2', JSON.stringify(projectCfg(beta).agents.map((a) => a.name)))
 
   // Export to a test folder: what the template holds, nothing personal.
@@ -261,8 +266,11 @@ const check = (name, ok, extra = '') => {
   await dialog.getByRole('button', { name: 'Continue' }).click()
   const loadEdited = page.locator('.dialog', { hasText: 'Load "Team edited"?' })
   await loadEdited.waitFor({ timeout: 5000 })
-  await loadEdited.getByRole('button', { name: 'Load template' }).click()
-  check('loaded into beta: exactly those agents, in order, with that layout', !!(await lib.until(async () => JSON.stringify(projectCfg(beta).agents.map((a) => [a.name, a.role ?? '', !!a.worktree])) === '[["BTester","",false],["BReviewer","checker",true]]', 15000)) && projectCfg(beta).layout === 'columns3', JSON.stringify(projectCfg(beta).agents))
+  // (Reviewer is alpha's agent's name: changed. Tester is free.)
+  await nameBoxes(loadEdited).nth(1).fill('BReviewer')
+  await lib.until(() => loadOf(loadEdited).isEnabled(), 5000)
+  await loadOf(loadEdited).click()
+  check('loaded into beta: exactly those agents, in order, with that layout', !!(await lib.until(async () => JSON.stringify(projectCfg(beta).agents.map((a) => [a.name, a.role ?? '', !!a.worktree])) === '[["Tester","",false],["BReviewer","checker",true]]', 15000)) && projectCfg(beta).layout === 'columns3', JSON.stringify(projectCfg(beta).agents))
   // A save made while the editor is open is never overwritten (#271): the draft (a new name) is open; "Team edited" is
   // changed on disk (a description) and the editor's own list refreshes (another template saved, from the palette).
   // The editor says so; Save is refused, keeping both the draft and the change; Discard and Reload shows the change.

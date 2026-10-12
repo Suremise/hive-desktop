@@ -53,12 +53,6 @@ export function nameTakenMessage(name: string, owner: NamedAgent, suggestion: st
   return `There is already an agent called "${owner.name}" in ${owner.project}. Agent names are unique across the workspace: try "${suggestion}".`
 }
 
-/** Names with a prefix in front (#702: "AM" and B1 give AMB1); an empty prefix leaves them as they are. */
-export function prefixedNames(prefix: string, names: readonly string[]): string[] {
-  const p = prefix.replace(/\s+/g, ' ').replace(/^ /, '')
-  return names.map((n) => `${p}${n}`.replace(/\s+/g, ' ').trim())
-}
-
 /** Why a name can't be used for an agent (empty, too long), or null. */
 export function agentNameProblem(name: string): string | null {
   const clean = name.replace(/\s+/g, ' ').trim()

@@ -1,31 +1,26 @@
 import { useEffect, useMemo, useState } from 'react'
-import { agentNameProblem, nameTaken, prefixedNames, projectPrefix, sameAgentName, workspaceAgentList } from '@shared/agentNames'
+import { agentNameProblem, nameTaken, sameAgentName, workspaceAgentList } from '@shared/agentNames'
 import { templateLoadView } from '@shared/templateLoad'
 import type { TemplateScope } from '@shared/templates'
 import type { TemplateLoadPlan } from '@shared/types'
 import { call, errorMessage } from '../api'
-import { useStore } from '../store'
+import { set, useStore } from '../store'
 import { TemplatePlan } from './TemplatePlan'
 
-/** What the Load template dialog's button loads with (#702): the names as they are now, or why they can't be used. */
-export interface LoadNames {
-  names: string[]
-  problem: string | null
-}
-
 /**
- * The Load template dialog's plan with its agents' names to choose (#702): a prefix that goes in front of each of the
- * template's names ("AM" gives AMB1, AMR1), and each name editable. A name another project's agent has, one used twice
- * or an empty one is marked; the plan (worktrees reused or new, who replaces whom) is asked for again once typing
- * pauses. `onChange` hears what the dialog's button loads.
+ * The Load template dialog's plan with its agents' names to choose (#702, Darren's decision of 12 Oct): beside each of
+ * the template's names (a reference, never changed) a box for the name the agent will get. A name another project's
+ * agent has, one used twice or an empty one is marked, saying what it clashes with, and the dialog's button stays greyed
+ * out (`dialogBlocked`) until none is; this project's own agents don't count, as the load replaces them. No patterns or
+ * prefixes are filled in. The plan (worktrees reused or new, who replaces whom) is asked for again once typing pauses.
+ * `onChange` hears the names the button loads.
  */
-export function TemplateLoadNames({ path, scope, file, from, initial, initialPrefix, onChange }: { path: string; scope: TemplateScope; file: string; from?: string; initial: TemplateLoadPlan; initialPrefix: string; onChange: (now: LoadNames) => void }) {
+export function TemplateLoadNames({ path, scope, file, from, initial, onChange }: { path: string; scope: TemplateScope; file: string; from?: string; initial: TemplateLoadPlan; onChange: (names: string[]) => void }) {
   const project = useStore((s) => s.workspace?.projects.find((p) => p.path === path) ?? null)
   const projects = useStore((s) => s.workspace?.projects)
   const settings = useStore((s) => s.settings)
   const providers = useStore((s) => s.providers)
   const [plan, setPlan] = useState(initial)
-  const [prefix, setPrefix] = useState(initialPrefix)
   const [names, setNames] = useState(() => initial.create.map((a) => a.name))
   const [planError, setPlanError] = useState<string | null>(null)
   // This project's agents don't count: the load replaces them.
@@ -37,10 +32,11 @@ export function TemplateLoadNames({ path, scope, file, from, initial, initialPre
     const owner = nameTaken(n, others)
     return owner ? `${owner.project} has an agent called ${owner.name}.` : null
   })
-  const problem = problems.find(Boolean) ?? planError
-  const said = problem ? `${problem} Agent names are unique across the workspace: change it, or the prefix.` : null
+  const blocked = problems.some(Boolean) ? 'Agent names are unique across the workspace: change the marked names first.' : planError
   const key = names.join('\n')
-  useEffect(() => onChange({ names: key.split('\n'), problem: said }), [key, said, onChange])
+  useEffect(() => onChange(key.split('\n')), [key, onChange])
+  useEffect(() => set({ dialogBlocked: blocked }), [blocked])
+  useEffect(() => () => set({ dialogBlocked: null }), [])
   useEffect(() => {
     if (key === initial.create.map((a) => a.name).join('\n')) return setPlan(initial)
     let live = true
@@ -56,27 +52,14 @@ export function TemplateLoadNames({ path, scope, file, from, initial, initialPre
   }, [key, path, scope, file, from, initial])
   if (!project) return null
   const view = templateLoadView(plan, project.config, settings, (id) => providers[id])
-  const example = prefixedNames(prefix || projectPrefix(project.name), plan.templateNames.slice(0, 2)).join(', ')
   return (
     <>
-      <div className="template-load-prefix">
-        <label htmlFor="template-prefix">Name prefix</label>
-        <input
-          id="template-prefix"
-          className="input"
-          value={prefix}
-          maxLength={20}
-          placeholder={`e.g. ${projectPrefix(project.name)}`}
-          onChange={(e) => {
-            setPrefix(e.target.value)
-            setNames(prefixedNames(e.target.value, plan.templateNames))
-          }}
-        />
-        <span className="faint">
-          Goes in front of each name ({example}…). Agent names are unique across the workspace; each can be changed below too.
-        </span>
-      </div>
-      <TemplatePlan view={view} edit={{ names, problems, onName: (i, v) => setNames((x) => x.map((n, j) => (j === i ? v : n))) }} />
+      {initial.taken.length > 0 && (
+        <p className="template-plan-note" data-names-taken>
+          Agent names are unique across the workspace, and {[...new Set(initial.taken.map((t) => t.project))].join(', ')} already {initial.taken.length === 1 ? 'has an agent' : 'has agents'} called {initial.taken.map((t) => t.name).join(', ')}: give {initial.taken.length === 1 ? 'it' : 'them'} other names below.
+        </p>
+      )}
+      <TemplatePlan view={view} edit={{ from: initial.templateNames, names, problems, onName: (i, v) => setNames((x) => x.map((n, j) => (j === i ? v : n))) }} />
       {planError && <div className="field-error">{planError}</div>}
     </>
   )

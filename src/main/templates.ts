@@ -38,7 +38,7 @@ import { gitProblem } from './gitTool'
 import { unusedWorktreesNamed } from './unusedWorktrees'
 import { trash } from './trash'
 import { withAgentNames, workspaceAgents } from './agentNames'
-import { agentNameProblem, nameTaken, sameAgentName, suggestAgentName } from '../shared/agentNames'
+import { agentNameProblem, nameTaken, sameAgentName } from '../shared/agentNames'
 
 /**
  * Agent templates (#126): a project's agents and layout saved under a name, in the workspace (`<workspace>/.hive/
@@ -357,10 +357,10 @@ async function reusableWorktree(projectPath: string, name: string, base: string,
   return { why: checked[0].why! }
 }
 
-/** Names another project's agents have, in a refusal: "B1 and R1 are taken (in amberlight): rename them first." */
+/** Names another project's agents have, in a refusal: "B1, R1 are already agents in amberlight: … rename them". */
 function takenText(taken: { name: string; project: string }[]): string {
   const where = [...new Set(taken.map((t) => t.project))].join(', ')
-  return `${taken.map((t) => t.name).join(', ')} ${taken.length === 1 ? 'is' : 'are'} already ${taken.length === 1 ? 'an agent' : 'agents'} in ${where}: agent names are unique across the workspace, so rename ${taken.length === 1 ? 'it' : 'them'} (a prefix does it for all).`
+  return `${taken.map((t) => t.name).join(', ')} ${taken.length === 1 ? 'is' : 'are'} already ${taken.length === 1 ? 'an agent' : 'agents'} in ${where}: agent names are unique across the workspace, so rename ${taken.length === 1 ? 'it' : 'them'}.`
 }
 
 /** Whether an agent is running or starting (a start reserved, not yet live): either way, not safe to remove. */
@@ -638,9 +638,8 @@ export async function addAgentFromTemplate(projectPath: string, scope: TemplateS
   const why = providerProblem(a.provider)
   if (why) throw new TemplateError(`${why}: ${a.name} needs it.`)
   const agents = projectAgents(await workspace.projectConfig(projectPath))
-  // Unique across the workspace (#702): taken here, numbered ("Builder 2"); taken in another project, with this one's prefix (AB1).
-  const everyone = (await workspaceAgents(projectPath)).map((x) => x.name)
-  const name = agents.some((x) => sameAgentName(x.name, a.name)) ? uniqueName(a.name, everyone) : everyone.some((x) => sameAgentName(x, a.name)) ? suggestAgentName(a.name, basename(projectPath), everyone) : a.name
+  // Unique across the workspace (#702): a name any agent of it has gets a number ("Builder 2"), never a prefix.
+  const name = uniqueName(a.name, (await workspaceAgents(projectPath)).map((x) => x.name))
   // A clean worktree Hive made for that name that no agent works in is worked in again (#289), else a new one.
   const base = a.worktree ? await wt.currentBranch(projectPath) : null
   const inUse = new Set(agents.flatMap((x) => (x.worktree ? [placeKey(x.worktree.path)] : [])))

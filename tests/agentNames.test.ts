@@ -1,14 +1,13 @@
-// Agent names unique across the workspace (#702): the rules (a project's prefix, a suggested name, a prefix for a
-// template's names, duplicates from before), and Hive keeping them — Add Agent and its default name, a rename (its own
-// name kept), a template's load (renamed, refused while a name is another project's, a name taken while it stages) and
-// one of its agents, adds and renames in two projects at once (only one gets the name), duplicates from before flagged
+// Agent names unique across the workspace (#702): the rules (a project's prefix, a suggested name, duplicates from
+// before), and Hive keeping them — Add Agent and its default name, a rename (its own name kept), a template's load
+// (renamed, refused while a name is another project's, a name taken while it stages) and one of its agents (numbered), adds and renames in two projects at once (only one gets the name), duplicates from before flagged
 // once, and why a template couldn't be loaded into a project without git.
 import { execFileSync } from 'child_process'
 import { mkdirSync, readFileSync, writeFileSync } from 'fs'
 import { join } from 'path'
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'vitest'
 import * as electron from 'electron'
-import { duplicateAgentNames, nameTaken, prefixedNames, projectPrefix, suggestAgentName } from '../src/shared/agentNames'
+import { duplicateAgentNames, nameTaken, projectPrefix, suggestAgentName } from '../src/shared/agentNames'
 import type { AgentDef, HiveEvent } from '../src/shared/types'
 import { tempDir } from './tempDir'
 
@@ -34,12 +33,6 @@ describe('the name rules', () => {
     expect(suggestAgentName('Builder', 'beta', ['Builder'])).toBe('Builder (beta)')
     expect(suggestAgentName('Builder', 'beta', ['Builder', 'builder (BETA)'])).toBe('Builder (beta) 2')
     expect(suggestAgentName('X', 'x', ['X', 'XX'])).toBe('XX 2')
-  })
-
-  it("a prefix goes in front of a template's names; none leaves them", () => {
-    expect(prefixedNames('AM', ['B1', 'R1'])).toEqual(['AMB1', 'AMR1'])
-    expect(prefixedNames('  QA ', ['Builder'])).toEqual(['QA Builder'])
-    expect(prefixedNames('', ['B1'])).toEqual(['B1'])
   })
 
   it('finds a name taken (case and spacing aside), not by the agent being renamed; lists duplicates by project', () => {
@@ -130,8 +123,8 @@ describe('Hive keeps agent names unique across the workspace', () => {
     await expect(run(() => templates.templatePlan(beta, 'workspace', 'pair.json', undefined, ['X']))).rejects.toThrow(/no longer match the template/)
     await expect(run(() => templates.templatePlan(beta, 'workspace', 'pair.json', undefined, ['X', ' x ']))).rejects.toThrow(/Two of its agents would be called "x"/)
     await expect(run(() => templates.templatePlan(beta, 'workspace', 'pair.json', undefined, ['X', ' ']))).rejects.toThrow(/Enter a name for each of its agents/)
-    // Renamed with a prefix: loaded so. This project's own names don't count (the load replaces its agents).
-    const r = await run(() => templates.loadTemplate(beta, 'workspace', 'pair.json', ids(beta), undefined, undefined, prefixedNames('BE', ['B1', 'R1'])))
+    // Renamed: loaded so. This project's own names don't count (the load replaces its agents).
+    const r = await run(() => templates.loadTemplate(beta, 'workspace', 'pair.json', ids(beta), undefined, undefined, ['BEB1', 'BER1']))
     expect(r.created).toEqual(['BEB1', 'BER1'])
     expect((await run(() => templates.templatePlan(beta, 'workspace', 'pair.json', undefined, ['BEB1', 'BER1']))).taken).toEqual([])
   })
@@ -146,10 +139,10 @@ describe('Hive keeps agent names unique across the workspace', () => {
     await run(() => w.mutateProjectConfig(alpha, (c) => ({ agents: c.agents.filter((a) => a.name !== 'NR1') })))
   })
 
-  it("one agent from a template: numbered when this project has its name, the project's prefix when another has", async () => {
+  it('one agent from a template: numbered when any agent of the workspace has its name, never given a prefix', async () => {
     // beta has BEB1 and BER1; alpha has B1.
-    expect((await run(() => templates.addAgentFromTemplate(beta, 'workspace', 'pair.json', 0))).name).toBe('BB1')
-    expect((await run(() => templates.addAgentFromTemplate(alpha, 'workspace', 'pair.json', 0))).name).toBe('B1 2')
+    expect((await run(() => templates.addAgentFromTemplate(beta, 'workspace', 'pair.json', 0))).name).toBe('B1 2')
+    expect((await run(() => templates.addAgentFromTemplate(alpha, 'workspace', 'pair.json', 0))).name).toBe('B1 3')
   })
 
   it('says why a template with worktree agents can\'t be loaded into a project without git; one without them loads', async () => {

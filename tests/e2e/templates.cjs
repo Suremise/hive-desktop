@@ -5,8 +5,8 @@
 // mouse, the keyboard and the palette, and the strip's controls at narrow widths in both themes, every one reachable,
 // in the order Template ▾, pages, layouts (#292), with one page and with two. #702: agent names unique across the
 // workspace: Add Agent refuses another project's agent's name, offering one, and shows what hive/ in a branch means; a
-// template whose names another project's agents have opens with this project's prefix filled in, each name editable, a
-// clashing one marked and refused. Agents run the fake Claude Code (fake-claude/). Dev build, throwaway profile,
+// template's load shows each name in the template beside a box for the agent's new name: a name another project's
+// agent has (or one used twice) is marked and Load template greyed out until it is changed; nothing is filled in. Agents run the fake Claude Code (fake-claude/). Dev build, throwaway profile,
 // workspace and CLAUDE_CONFIG_DIR; a quiet test copy.
 const lib = require('./lib.cjs')
 const { _electron } = require('playwright-core')
@@ -154,8 +154,16 @@ const check = (name, ok, extra = '') => {
   // The plan as a table (#511): a removed agent's line, a created agent's row and its cells, by column.
   const removedLine = async (d, name) => (await d.locator(`.template-plan-removed li[data-agent="${name}"]`).innerText().catch(() => '')).replace(/\s+/g, ' ')
   const planRow = (d, name) => d.locator(`.template-plan-table tbody tr[data-agent="${name}"]`)
-  // (An agent's name is a field to edit, #702: its value, then the cell's text.)
-  const cells = (d, name) => planRow(d, name).locator('td').evaluateAll((tds) => tds.map((td) => `${td.querySelector('input')?.value ?? ''} ${td.innerText}`.replace(/\s+/g, ' ').trim()))
+  // (An agent's name is a field to edit beside its name in the template, #702: the field's value, then the rest of the cell.)
+  const cells = (d, name) =>
+    planRow(d, name)
+      .locator('td')
+      .evaluateAll((tds) =>
+        tds.map((td) => {
+          const rest = [...td.childNodes].filter((n) => !(n instanceof Element && n.matches('.template-plan-from, input'))).map((n) => n.textContent).join(' ')
+          return `${td.querySelector('input')?.value ?? ''} ${rest}`.replace(/\s+/g, ' ').trim()
+        })
+      )
   const placeOf = async (d, name) => ({ text: (await planRow(d, name).locator('td').last().innerText()).replace(/\s+/g, ' ').trim(), path: (await planRow(d, name).locator('.template-plan-place').getAttribute('data-path').catch(() => null)) ?? '' })
   const created = (d) => d.locator('.template-plan-table tbody tr').evaluateAll((rows) => rows.map((r) => r.dataset.agent))
   check('the warning lists who goes and who comes', (await warn.locator('.template-plan-removed li').evaluateAll((l) => l.map((x) => x.dataset.agent))).join() === 'Old,Tree' && /its worktree and branch hive\/tree, merged into \w+ and clean, stay unless you tick below/i.test(await removedLine(warn, 'Tree')) && (await created(warn)).join() === 'Builder,Reviewer' && /^Builder builder$/.test((await cells(warn, 'Builder'))[0]), JSON.stringify([await removedLine(warn, 'Tree'), await created(warn), await cells(warn, 'Builder')]))
@@ -380,31 +388,32 @@ const check = (name, ok, extra = '') => {
   await dialog.getByRole('button', { name: 'Continue' }).click()
   const crossLoad = page.locator('.dialog', { hasText: 'Load "Alpha trees"?' })
   await shown(crossLoad, 'crossLoad')
-  // #702: its names are alpha's agents': beta's prefix (B) is filled in for them all, each name editable.
+  // #702: each agent's name in the template beside a box for the name it gets. Two are alpha's agents': marked, saying
+  // so, and Load template greyed out until they are changed. Nothing is filled in for them.
   const nameInputs = crossLoad.locator('.template-plan-name-input')
   const namesNow = () => nameInputs.evaluateAll((l) => l.map((x) => x.value))
-  check("names alpha's agents have: beta's prefix filled in", (await crossLoad.locator('#template-prefix').inputValue()) === 'B' && JSON.stringify(await namesNow()) === '["BAlpha builder","BAlpha reviewer","BTree"]', JSON.stringify(await namesNow()))
-  await page.screenshot({ path: path.join(lib.WORK, 'templates-13-prefix.png') })
-  // Another prefix renames them all; a name alpha has is marked, and the load refused (the dialog stays, saying why).
-  await crossLoad.locator('#template-prefix').fill('Beta ')
-  check('…another prefix renames them all', JSON.stringify(await namesNow()) === '["Beta Alpha builder","Beta Alpha reviewer","Beta Tree"]', JSON.stringify(await namesNow()))
-  await nameInputs.nth(0).fill('Alpha builder')
-  check("…a name alpha's agent has is marked", /alpha has an agent called Alpha builder/.test(await crossLoad.locator('.template-plan-table .field-error').first().innerText().catch(() => '')))
-  await crossLoad.getByRole('button', { name: 'Load template' }).click()
-  check('…and refused, saying why', !!(await lib.until(async () => /Agent names are unique across the workspace/.test(await crossLoad.innerText()), HUNG_MS)) && JSON.stringify(projectCfg(beta).agents.map((a) => a.name)) === '["Builder","Reviewer","Builder 2","Reviewer 2"]', await crossLoad.innerText())
-  await page.screenshot({ path: path.join(lib.WORK, 'templates-14-name-refused.png') })
-  // Each name its own: Tree keeps its name, so its worktree is found by it.
+  const fromNames = () => crossLoad.locator('.template-plan-from').allInnerTexts()
+  const errors = () => crossLoad.locator('.template-plan-table .field-error').allInnerTexts()
+  const loadButton = crossLoad.getByRole('button', { name: 'Load template' })
+  check("each name in the template beside a box for its new one, as the template has them", JSON.stringify(await fromNames()) === '["Alpha builder","Alpha reviewer","Tree"]' && JSON.stringify(await namesNow()) === '["Alpha builder","Alpha reviewer","Tree"]', JSON.stringify([await fromNames(), await namesNow()]))
+  check("…the two alpha's agents have marked, saying so, and Load template greyed out", JSON.stringify(await errors()) === '["alpha has an agent called Alpha builder.","alpha has an agent called Alpha reviewer."]' && /alpha already has agents called Alpha builder, Alpha reviewer/.test(await crossLoad.locator('[data-names-taken]').innerText()) && (await loadButton.isDisabled()), JSON.stringify(await errors()))
+  await page.screenshot({ path: path.join(lib.WORK, 'templates-13-names-taken.png') })
+  // One changed, the other still alpha's: still greyed out. A name used twice is marked too.
   await nameInputs.nth(0).fill('BAB')
+  await nameInputs.nth(1).fill('bab')
+  check('…a name used twice is marked, and Load template stays greyed out', !!(await lib.until(async () => JSON.stringify(await errors()) === '["Another of its agents has this name."]', HUNG_MS)) && (await loadButton.isDisabled()), JSON.stringify(await errors()))
+  await page.screenshot({ path: path.join(lib.WORK, 'templates-14-name-twice.png') })
+  // Each name its own: Load template can be clicked; the template's names stay as a reference. Tree keeps its name, so
+  // its worktree is found by it.
   await nameInputs.nth(1).fill('BAR')
-  await nameInputs.nth(2).fill('Tree')
+  check('…all free: Load template can be clicked, the template names unchanged', !!(await lib.until(async () => (await errors()).length === 0 && (await loadButton.isEnabled()), HUNG_MS)) && JSON.stringify(await fromNames()) === '["Alpha builder","Alpha reviewer","Tree"]', JSON.stringify(await errors()))
   const placeSettled = async (name, wanted) => lib.until(async () => wanted.test((await placeOf(crossLoad, name).catch(() => ({ text: '' }))).text), HUNG_MS)
   await placeSettled('Tree', /^own worktree hive\/tree-2/)
   const cl = await placeOf(crossLoad, 'Tree')
   check("the confirmation gives Tree's new worktree in beta: hive/tree-2 in …worktrees\\beta\\tree-2", cl.text.startsWith('own worktree hive/tree-2') && cl.path.toLowerCase() === want.toLowerCase(), `${want}\n${JSON.stringify(cl)}`)
   check('…not the kept hive/tree, saying why (#289)', cl.text.includes('new: hive/tree has 1 uncommitted file'), cl.text)
   await page.screenshot({ path: path.join(lib.WORK, 'templates-7-cross-project.png') })
-  // (Refused once above, its button says Try Again.)
-  await crossLoad.getByRole('button', { name: 'Try Again' }).click()
+  await loadButton.click()
   check("loaded into beta: alpha's agents, with the names chosen", !!(await lib.until(async () => JSON.stringify(projectCfg(beta).agents.map((a) => a.name)) === '["BAB","BAR","Tree"]', 15000)), JSON.stringify(projectCfg(beta).agents.map((a) => a.name)))
   const made = projectCfg(beta).agents.find((a) => a.name === 'Tree')?.worktree
   check("beta's Tree is where the confirmation said: hive/tree-2 in …worktrees\\beta\\tree-2", made?.branch === 'hive/tree-2' && made.path.toLowerCase() === want.toLowerCase(), JSON.stringify(made))
@@ -434,7 +443,9 @@ const check = (name, ok, extra = '') => {
   await dialog.locator('select').selectOption({ label: 'beta' })
   await dialog.getByRole('button', { name: 'Continue' }).click()
   await shown(crossLoad, 'crossLoad')
-  await nameInputs.nth(2).fill('Tree')
+  // (alpha's names still taken: changed again.)
+  await nameInputs.nth(0).fill('BAB')
+  await nameInputs.nth(1).fill('BAR')
   await placeSettled('Tree', /^reuses /)
   const back = await placeOf(crossLoad, 'Tree')
   check('back to "Alpha trees": the confirmation says Tree reuses its clean worktree on hive/tree', back.text === 'reuses hive/tree' && back.path.toLowerCase() === oldTree.toLowerCase(), JSON.stringify(back))
