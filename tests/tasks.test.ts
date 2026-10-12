@@ -1084,6 +1084,32 @@ describe("a project agent's board", () => {
     }
   })
 
+  it("notes a safeguard switch only on cards still the agent's in Doing as they are under their lock (#606)", async () => {
+    const { fileLockDepth, withFileLock } = await import('../src/main/fsutil')
+    const { commentOnDoingCards } = await import('../src/main/cardSessions')
+    const file = (x: number): string => join(wsPath, '.hive', 'tasks', `${x}.json`)
+    const edit = (x: number, change: Record<string, unknown>): void => writeFileSync(file(x), JSON.stringify({ ...JSON.parse(readFileSync(file(x), 'utf8')), ...change }))
+    const said = '**Agent 1, after a safeguard stop:** it now runs on another model.'
+    // Each way a card stops being the agent's while the comment waits for it: moved on, given to no one, taken to another project.
+    const changes: Record<string, unknown>[] = [{ column: 'review' }, { agent: null }, { project: 'beta', agent: null }]
+    for (const change of changes) {
+      const x = (await run(() => tasks.createTask({ title: 'Mine', project: 'alpha', agent: 'a1', column: 'doing' }, user))).number
+      const kept = (await run(() => tasks.createTask({ title: 'Still mine', project: 'alpha', agent: 'a1', column: 'doing' }, user))).number
+      let noted!: Promise<number[]>
+      await withFileLock(file(x), async () => {
+        noted = commentOnDoingCards(w, join(wsPath, 'alpha'), 'a1', said)
+        // It chose the card (from the board as it was) and its write waits behind this lock.
+        await expect.poll(() => fileLockDepth(file(x)), { timeout: HUNG_MS }).toBe(2)
+        edit(x, change)
+      })
+      expect([change, await noted]).toEqual([change, [kept]])
+      expect((await run(() => tasks.getTask(x))).comments).toEqual([])
+      expect((await run(() => tasks.getTask(kept))).comments.map((c) => [c.by, c.text])).toEqual([['Hive', said]])
+      await run(() => tasks.deleteTask(x))
+      await run(() => tasks.deleteTask(kept))
+    }
+  })
+
   it('reads only the latest comment, as far as it may read the card', async () => {
     const l = (await run(() => tasks.createTask({ title: 'Long', description: 'x'.repeat(5000), project: 'alpha' }, user))).number
     expect(await run(() => tasks.latestComment(l, alphaAgent))).toEqual({ number: l, comment: null })

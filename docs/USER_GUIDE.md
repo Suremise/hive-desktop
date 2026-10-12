@@ -1003,7 +1003,7 @@ A CLI's safety classifier can stop an agent's response part way (Claude Code's m
 - **A shield beside the agent's status** in its pane says it happened. Hover it for when, on which model, how many times this session, and the names of the agent's last few tool calls before it (only their names: never what they did, nor what was stopped), so you can tell a false positive from an agent drifting into risky work. It also says what you can do: in Claude Code, `/feedback` reports a false positive, `/model` switches back, and `/config` sets whether it switches models by itself when a message is flagged.
 - **When the CLI asks you about it** (Claude Code asks whether to switch to another model), the agent is **Needs input**, and the notification and its pane say why: *a safety classifier stopped a response*, with its last tool calls. Once you answer, the agent shows **Idle after a safeguard stop: give it a nudge**, and the Hive Assistant can prompt it again.
 - **When its model changes after one** (Claude Code switching by itself, or Codex rerouting a request), Hive tells you, the shield is highlighted with the model it runs on now, and the agent is in **Agents that need you** until you look at its pane. Hive also notes it on the card the agent is working on, and the Assistant sees it in the agent's activity.
-- **Performance** counts the stops per agent and model (below).
+- **Performance** counts the stops per agent and model (below), including one you only saw as Claude Code's question (it doesn't always record those itself). Each stop counts once, however close together two are.
 
 Hive reads this from Claude Code's and Codex's session records. GitHub Copilot's sessions don't record it, so for Copilot agents it isn't detected.
 

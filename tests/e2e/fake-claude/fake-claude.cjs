@@ -58,11 +58,14 @@
 //   blocks: a tool call in the same turn (held until fake-continue-done-<agent>), then Stop with stop_hook_active.
 // - Safeguards, as Claude Code 2.1.296 records them (#606): "safeguard" runs a Bash call, then its safety classifier
 //   stops the response: the system note ("…'s safeguards stopped the response above · continuing once with that noted")
-//   and the notice for the model (a user entry with refusedMessageId), and it carries on once. With "fallback" it then
-//   runs on Opus 4.8 by itself (claude-opus-4-8), as with /config's model switch on. "safeguardprompt": after its turn's
-//   Stop it asks whether to switch models, with no record in its transcript (as HB3's second stop): its dialog drawn on
-//   a cleared screen and a permission_prompt Notification ("Claude needs your permission"); an Enter answers it (the
-//   screen cleared again, its input back, no hook), and the idle notification follows as after a turn.
+//   and, the next entry in its chain, the notice for the model (a user entry with refusedMessageId), and it carries on
+//   once. With "fallback" it then runs on Opus 4.8 by itself (claude-opus-4-8), as with /config's model switch on.
+//   "safeguardprompt": after its turn's Stop it asks whether to switch models (its question dialog, "Model switch", with
+//   the choices "1. Switch automatically" and "2. Stay on …"), drawn on a cleared screen, and a permission_prompt
+//   Notification ("Claude needs your permission"); an Enter answers it (the screen cleared again, its input back, no
+//   hook), and the idle notification follows as after a turn. Answered so, it stays on its model and records nothing
+//   (as HB3's stop); "safeguardpromptswitch" is answered "Switch automatically": its record of the flagged request
+//   (model_refusal_fallback, for the session) and the model it switched to (Opus 4.8, or Sonnet 5.5 if on Opus 4.8).
 // - `--name` and "/rename <name>" set the session's name in the transcript (a custom title), as Claude Code does.
 // - Its system prompt (the --append-system-prompt-file's text) is recorded on a conversation's first request and that
 //   record used on every later one and every resume, as Claude Code does since 2.1.267, until it compacts;
@@ -425,7 +428,7 @@ async function runPrompt(text) {
   const late = /\blatetool\b/i.test(text) ? { tool_name: 'Read', tool_input: { file_path: path.join(cwd, 'README.md') }, tool_use_id: `toolu_${randomUUID().slice(0, 8)}` } : null
   if (late) await hook('PreToolUse', late)
   await endTurn(`Done: ${text}${mode}`, Number(/\bcontext\s+(\d+)/i.exec(text)?.[1] ?? 20), /\bloststop\b/i.test(text), { late, carryOn: /\bstopcontinue\b/i.test(text) })
-  if (/\bsafeguardprompt\b/i.test(text)) await safeguardPrompt()
+  if (/\bsafeguardprompt(switch)?\b/i.test(text)) await safeguardPrompt(/\bsafeguardpromptswitch\b/i.test(text))
   // "window N": the status line reports a context window of N tokens, as Claude Code's does.
   const contextWindow = /\bwindow\s+(\d+)/i.exec(text)
   if (contextWindow && hookUrl) {
@@ -445,20 +448,32 @@ function safeguardStop(fallback) {
   const id = `toolu_${randomUUID().slice(0, 8)}`
   write({ type: 'assistant', requestId: `req_${id}`, message: { model, content: [{ type: 'tool_use', id, name: 'Bash', input: { command: 'echo probe' } }], usage: { input_tokens: 10, output_tokens: 5 } } })
   write({ type: 'user', message: { role: 'user', content: [{ type: 'tool_result', tool_use_id: id, content: 'probe' }] } })
-  write({ type: 'system', subtype: 'informational', content: "Opus 5.5's safeguards stopped the response above · continuing once with that noted", level: 'notice' })
-  write({ type: 'user', isMeta: true, turnCompanion: true, refusedMessageId: `msg_${randomUUID().slice(0, 8)}`, message: { role: 'user', content: [{ type: 'text', text: 'Your response above was stopped by a safety classifier. Continue with the task, noting that.' }] } })
+  const noteId = randomUUID()
+  write({ type: 'system', subtype: 'informational', content: "Opus 5.5's safeguards stopped the response above · continuing once with that noted", level: 'notice', uuid: noteId })
+  write({ type: 'user', isMeta: true, turnCompanion: true, refusedMessageId: `msg_${randomUUID().slice(0, 8)}`, uuid: randomUUID(), parentUuid: noteId, message: { role: 'user', content: [{ type: 'text', text: 'Your response above was stopped by a safety classifier. Continue with the task, noting that.' }] } })
   out("\r\n  ⎿  Opus 5.5's safeguards stopped the response above · continuing once with that noted\r\n")
   if (fallback) model = FALLBACK_MODEL
 }
 
 /**
- * After its turn's Stop, it asks whether to switch models, as Claude Code did after HB3's second stop (#606): no record in
- * its transcript, its dialog on a cleared screen, a permission_prompt Notification naming no tool. An Enter answers it
- * (no hook says so): the screen cleared, its input back, and the idle notification as after a turn.
+ * After its turn's Stop, it asks whether to switch models, as Claude Code did after HB3's second stop (#606): its question
+ * dialog on a cleared screen (as 2.1.296 draws it), a permission_prompt Notification naming no tool. An Enter answers it
+ * (no hook says so): the screen cleared, its input back, and the idle notification as after a turn. Stayed on its model,
+ * nothing is recorded (HB3's); `switchTo`: answered "Switch automatically", it records the flagged request
+ * (model_refusal_fallback, by its requestId) and runs on the other model.
  */
-async function safeguardPrompt() {
-  out("\x1b[2J\x1b[H Opus 5.5's safeguards stopped this response.\r\n Switch this conversation to Opus 4.8?\r\n ❯ 1. Stay on Opus 5.5\r\n   2. Switch to Opus 4.8\r\n Enter to confirm · Esc to cancel\r\n")
+async function safeguardPrompt(switchTo) {
+  const to = model === FALLBACK_MODEL ? 'claude-sonnet-5-5' : FALLBACK_MODEL
+  out(
+    "\x1b[2J\x1b[H ☐ Model switch\r\n\r\n Opus 5.5's safeguards flagged this message. This sometimes happens with safe, normal conversations. Switch to Opus 4.8 and keep going whenever this happens? You can change this later in /config.\r\n\r\n" +
+      ' ❯ 1. Switch automatically\r\n      Continue on Opus 4.8 now, and switch without asking from now on\r\n   2. Stay on Opus 5.5\r\n      Stop here without switching, and ask me each time a message is flagged\r\n   3. Type something.\r\n   4. Chat about this\r\n\r\n Enter to select · ↑/↓ to navigate · Esc to cancel\r\n'
+  )
   onEnter = () => {
+    if (switchTo) {
+      write({ type: 'system', subtype: 'model_refusal_fallback', direction: 'retry', scope: 'session', content: "Opus 5.5's safeguards flagged this message. This sometimes happens with safe, normal conversations. Switched to Opus 4.8.", level: 'warning', trigger: 'refusal', originalModel: model, fallbackModel: to, requestId: `req_${randomUUID().slice(0, 8)}`, apiRefusalCategory: 'cyber', isMeta: false, uuid: randomUUID() })
+      model = to
+      write({ type: 'assistant', requestId: `req_${randomUUID().slice(0, 8)}`, message: { model, content: [{ type: 'text', text: 'Carrying on.' }], usage: { input_tokens: 10, output_tokens: 5 } } })
+    }
     out('\x1b[2J\x1b[H')
     promptLine()
     idleNotice()

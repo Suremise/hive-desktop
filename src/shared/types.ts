@@ -10,7 +10,7 @@ import type { DateFormat, TimeFormat } from './dates'
 import type { ProjectPref } from './uiPrefs'
 import type { GitTool } from './gitTool'
 import type { ConsoleEvent } from './devConsole'
-import type { SafeguardNote } from './safeguards'
+import type { SafeguardNote, ScreenStop } from './safeguards'
 import type { AgentLeftovers, LeftoverProcessMode } from './agentProcesses'
 import type { UsageTimeline } from './usageTimeline'
 
@@ -1069,6 +1069,11 @@ export interface SessionRecord {
    * counting it once the CLI's copy is gone too.
    */
   keptUsage?: SessionUsage
+  /**
+   * Safeguard stops Hive saw only on the CLI's screen (its prompt about one, #606), so Performance counts them (usage()
+   * adds the unmatched ones to SessionUsage.safeguards): the transcript may never record them.
+   */
+  screenStops?: ScreenStop[]
   /** A session the CLI started for another one (e.g. a Codex guardian review), kept when it was adopted. */
   sub?: SubSession
   /**
@@ -1625,6 +1630,8 @@ export interface KeptUsage {
   id: string
   provider: ProviderId
   agentId?: string
+  /** That agent's name when the session was deleted (SessionRecord.agentName), for totals by agent once it is gone. */
+  agentName?: string
   cwd?: string
   name: string
   usage: SessionUsage

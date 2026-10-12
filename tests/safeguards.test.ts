@@ -3,28 +3,52 @@ import { claudeSafeguards } from '../src/main/providers/claude/safeguards'
 import { codexSafeguards } from '../src/main/providers/codex/safeguards'
 import { claudeCode } from '../src/main/providers/claude/adapter'
 import type { Ask } from '../src/main/providers/types'
-import { SAFEGUARD_DEFAULTS, noteSafeguard, safeguardCodes, safeguardPattern, safeguardText, type SafeguardEvent, type SafeguardNote } from '../src/shared/safeguards'
+import { SAFEGUARD_DEFAULTS, noteSafeguard, safeguardCodes, safeguardPattern, safeguardText, withScreenStops, type SafeguardEvent, type SafeguardNote } from '../src/shared/safeguards'
 
 const lines = (...o: unknown[]): string => o.map((x) => JSON.stringify(x)).join('\n') + '\n'
 const at = (iso: string): number => Date.parse(iso)
 
 // Shapes as Claude Code 2.1.296 wrote them when Opus 5.5's safeguards stopped one of HB3's responses (11 Oct), with the
-// content cut down: a tool call, the stopped response, the note, the notice for the model, and the turn carrying on.
+// content cut down: a tool call, the stopped response, the note, the notice for the model (the entry right after it, in
+// its chain), and the turn carrying on.
 const T0 = '2026-10-11T14:11:32.862Z'
 const T1 = '2026-10-11T14:12:12.921Z'
 const T2 = '2026-10-11T14:12:58.912Z'
 const T3 = '2026-10-11T14:30:00.000Z'
+const secondsAfter = (iso: string, s: number): string => new Date(at(iso) + s * 1000).toISOString()
 const assistant = (ts: string, model: string, content: unknown[], extra: object = {}): object => ({ type: 'assistant', timestamp: ts, requestedModel: model, message: { model, role: 'assistant', content }, ...extra })
 const toolUse = (name: string): object => ({ type: 'tool_use', id: `toolu_${name}`, name, input: { command: 'secret input' } })
-const NOTE = { type: 'system', subtype: 'informational', content: "Opus 5.5's safeguards stopped the response above · continuing once with that noted", isMeta: false, timestamp: T1, level: 'notice' }
-const NOTICE = {
+const note = (ts: string, uuid: string): object => ({ type: 'system', subtype: 'informational', content: "Opus 5.5's safeguards stopped the response above · continuing once with that noted", isMeta: false, timestamp: ts, level: 'notice', uuid })
+const notice = (ts: string, refused: string, parentUuid?: string): object => ({
   type: 'user',
   isMeta: true,
   turnCompanion: true,
-  timestamp: T1,
-  refusedMessageId: 'msg_011Cfvauyd3uQPdZm46RmgmS',
+  timestamp: ts,
+  refusedMessageId: refused,
+  ...(parentUuid ? { parentUuid } : {}),
+  uuid: `${refused}-notice`,
   message: { role: 'user', content: 'Your response above was stopped by a safety classifier — this is not a tool or API error. The rest of it was withheld, and tool calls in it that had not finished did not run. Do not produce that content again, even reworded.' }
-}
+})
+const NOTE = note(T1, 'u-note')
+const NOTICE = notice(T1, 'msg_011Cfvauyd3uQPdZm46RmgmS', 'u-note')
+// A flagged request another model answered, or none did (Claude Code's own records of it).
+const fallback = (ts: string, requestId: string, scope: 'session' | 'local', extra: object = {}): object => ({
+  type: 'system',
+  subtype: 'model_refusal_fallback',
+  direction: 'retry',
+  scope,
+  content: "Opus 5.5's safeguards flagged this message. This sometimes happens with safe, normal conversations. Switched to Opus 4.8.",
+  level: 'warning',
+  trigger: 'refusal',
+  originalModel: 'claude-opus-5-5',
+  fallbackModel: 'claude-opus-4-8',
+  requestId,
+  apiRefusalCategory: 'cyber',
+  isMeta: false,
+  timestamp: ts,
+  uuid: `${requestId}-record`,
+  ...extra
+})
 
 describe('Claude Code safeguards', () => {
   it('reads a stop once from its note and notice, with the model and the names of the last tool calls', () => {
@@ -41,21 +65,54 @@ describe('Claude Code safeguards', () => {
       ),
       memo
     )
-    expect(out).toEqual([{ kind: 'stop', at: at(T1), model: 'claude-opus-5-5', tools: ['Read', 'Bash', 'Edit'] }])
+    expect(out).toEqual([{ kind: 'stop', at: at(T1), model: 'claude-opus-5-5', tools: ['Read', 'Bash', 'Edit'], id: 'u-note' }])
     // Only names: nothing of a call's input or the stopped content.
     expect(JSON.stringify(out)).not.toMatch(/secret|withheld/)
   })
 
   it('reads the notice alone (a reworded note) and the note alone (no notice)', () => {
-    expect(claudeSafeguards(lines({ ...NOTE, content: 'Something new happened · carrying on' }, NOTICE), {})).toEqual([{ kind: 'stop', at: at(T1), tools: [] }])
-    expect(claudeSafeguards(lines(NOTE), {})).toEqual([{ kind: 'stop', at: at(T1), tools: [] }])
+    expect(claudeSafeguards(lines({ ...NOTE, content: 'Something new happened · carrying on' }, notice(T1, 'msg_a')), {})).toEqual([{ kind: 'stop', at: at(T1), tools: [], id: 'msg_a' }])
+    expect(claudeSafeguards(lines(NOTE), {})).toEqual([{ kind: 'stop', at: at(T1), tools: [], id: 'u-note' }])
   })
 
-  it('counts two stops minutes apart, and one stop split across two reads once', () => {
+  it('counts each stop by its identity, however close: two seconds apart are two, one split across reads or read again is one', () => {
+    // Two stopped responses three seconds apart (separate short turns), each a note and its notice.
+    const close = claudeSafeguards(lines(note(T1, 'n1'), notice(T1, 'msg_1', 'n1'), note(secondsAfter(T1, 3), 'n2'), notice(secondsAfter(T1, 3), 'msg_2', 'n2')), {})
+    expect(close.map((e) => e.kind === 'stop' && e.id)).toEqual(['n1', 'n2'])
+    // Two notices alone, a second apart: two stopped responses.
+    expect(claudeSafeguards(lines(notice(T1, 'msg_1'), notice(secondsAfter(T1, 1), 'msg_2')), {})).toHaveLength(2)
+    // The note and its notice read apart (the transcript grew between them): one.
     const memo = {}
     expect(claudeSafeguards(lines(NOTE), memo)).toHaveLength(1)
     expect(claudeSafeguards(lines(NOTICE), memo)).toHaveLength(0)
-    expect(claudeSafeguards(lines({ ...NOTE, timestamp: T3 }), memo)).toHaveLength(1)
+    // Its notice linked to it by its chain, though an entry came between: one.
+    expect(claudeSafeguards(lines(note(T1, 'n3'), { type: 'file-history-snapshot', messageId: 'x' }, notice(T1, 'msg_3', 'n3')), {})).toHaveLength(1)
+    // The same notice read again (a reread from the start of a read): not another.
+    const again = {}
+    expect(claudeSafeguards(lines(notice(T1, 'msg_4')), again)).toHaveLength(1)
+    expect(claudeSafeguards(lines(notice(T1, 'msg_4')), again)).toHaveLength(0)
+    // Minutes apart, likewise two.
+    expect(claudeSafeguards(lines({ ...NOTE, timestamp: T3, uuid: 'n5' }), memo)).toHaveLength(1)
+  })
+
+  it('reads a flagged request another model answered for the session as a stop it may have asked about and a flagged switch', () => {
+    const memo = {}
+    const out = claudeSafeguards(lines(assistant(T0, 'claude-opus-5-5', [toolUse('Grep')]), fallback(T1, 'req_1', 'session'), assistant(T2, 'claude-opus-4-8', [toolUse('Bash')])), memo)
+    expect(out).toEqual([
+      { kind: 'stop', at: at(T1), model: 'claude-opus-5-5', tools: ['Grep'], id: 'req_1', asked: true },
+      { kind: 'switch', at: at(T1), from: 'claude-opus-5-5', to: 'claude-opus-4-8', flagged: true }
+    ])
+    // The same record read again, and another request flagged a second later: one more.
+    expect(claudeSafeguards(lines(fallback(T1, 'req_1', 'session'), fallback(secondsAfter(T1, 1), 'req_2', 'session', { originalModel: 'claude-opus-4-8', fallbackModel: 'claude-opus-4-8' })), memo)).toEqual([{ kind: 'stop', at: at(T1) + 1000, model: 'claude-opus-4-8', tools: ['Grep', 'Bash'], id: 'req_2', asked: true }])
+  })
+
+  it('reads a flagged response another model answered alone (its session model unchanged), one none did, and no fallback for another reason', () => {
+    const memo = {}
+    const local = claudeSafeguards(lines(assistant(T0, 'claude-opus-5-5', []), fallback(T1, 'req_1', 'local'), assistant(T1, 'claude-opus-4-8', []), assistant(T2, 'claude-opus-5-5', [])), memo)
+    expect(local).toEqual([{ kind: 'stop', at: at(T1), model: 'claude-opus-5-5', tools: [], id: 'req_1', asked: true }])
+    const none = { type: 'system', subtype: 'model_refusal_no_fallback', content: '', level: 'warning', originalModel: 'claude-opus-5-5', requestId: 'req_2', timestamp: T2, uuid: 'r2' }
+    expect(claudeSafeguards(lines(none), {})).toEqual([{ kind: 'stop', at: at(T2), model: 'claude-opus-5-5', tools: [], id: 'req_2', asked: true }])
+    expect(claudeSafeguards(lines(fallback(T1, 'req_3', 'session', { trigger: 'overloaded', apiRefusalCategory: null })), {})).toEqual([])
   })
 
   it('flags a model change after a stop, not before one, nor a subagent, synthetic or API error message', () => {
@@ -74,7 +131,7 @@ describe('Claude Code safeguards', () => {
       memo
     )
     expect(out).toEqual([
-      { kind: 'stop', at: at(T1), model: 'claude-opus-5-5', tools: ['Bash'] },
+      { kind: 'stop', at: at(T1), model: 'claude-opus-5-5', tools: ['Bash'], id: 'u-note' },
       { kind: 'switch', at: at(T3), from: 'claude-opus-5-5', to: 'claude-opus-4-8' }
     ])
   })
@@ -91,9 +148,10 @@ describe('Claude Code safeguards', () => {
     expect(out).toEqual([])
   })
 
-  it('takes the note pattern from an override, and keeps the default when the override does not compile', () => {
+  it('takes the note pattern and the record kinds from an override, and keeps the default when the override does not compile', () => {
     expect(claudeSafeguards(lines({ ...NOTE, content: 'Guardrails halted the reply' }), {}, { claudeNote: 'guardrails halted' })).toHaveLength(1)
     expect(claudeSafeguards(lines(NOTE), {}, { claudeNote: '(' })).toHaveLength(1)
+    expect(claudeSafeguards(lines({ ...fallback(T1, 'req_1', 'session'), subtype: 'model_flag_fallback' }), {}, { claudeRecords: ['model_flag_fallback'] })).toHaveLength(2)
   })
 
   it('skips lines it cannot parse', () => {
@@ -107,6 +165,7 @@ describe('Codex safeguards', () => {
     const memo = {}
     const out = codexSafeguards(
       lines(
+        rec(T0, 'event_msg', { type: 'task_started', turn_id: 't1' }),
         rec(T0, 'turn_context', { model: 'gpt-5.3-codex' }),
         rec(T0, 'response_item', { type: 'function_call', name: 'exec_command', arguments: '{"cmd":"secret"}', call_id: 'c1' }),
         rec(T0, 'response_item', { type: 'custom_tool_call', name: 'apply_patch', input: 'secret', call_id: 'c2' }),
@@ -116,7 +175,7 @@ describe('Codex safeguards', () => {
       memo
     )
     expect(out).toEqual([
-      { kind: 'stop', at: at(T1), model: 'gpt-5.3-codex', tools: ['Shell', 'Edit'] },
+      { kind: 'stop', at: at(T1), model: 'gpt-5.3-codex', tools: ['Shell', 'Edit'], id: 't1 reroute gpt-5.3-codex>gpt-5.2' },
       { kind: 'switch', at: at(T1), from: 'gpt-5.3-codex', to: 'gpt-5.2', flagged: true },
       { kind: 'switch', at: at(T3), from: 'gpt-5.2', to: 'gpt-5.3-codex' }
     ])
@@ -125,15 +184,22 @@ describe('Codex safeguards', () => {
   it('reads a turn its policy stopped once, from the error and the turn end; another error is not one', () => {
     const out = codexSafeguards(
       lines(
+        rec(T0, 'event_msg', { type: 'task_started', turn_id: 't1' }),
         rec(T0, 'turn_context', { model: 'gpt-5.3-codex' }),
         rec(T1, 'event_msg', { type: 'error', message: 'This request was flagged', codex_error_info: 'cyber_policy' }),
-        rec(T1, 'event_msg', { type: 'task_complete', error: { message: 'flagged', codex_error_info: 'cyber_policy' } }),
+        rec(T1, 'event_msg', { type: 'task_complete', turn_id: 't1', error: { message: 'flagged', codex_error_info: 'cyber_policy' } }),
         rec(T3, 'event_msg', { type: 'error', message: 'Rate limited', codex_error_info: 'usage_limit_exceeded' }),
         rec(T3, 'event_msg', { type: 'model_reroute', from_model: 'a', to_model: 'b', reason: 'something_else' })
       ),
       {}
     )
-    expect(out).toEqual([{ kind: 'stop', at: at(T1), model: 'gpt-5.3-codex', tools: [] }])
+    expect(out).toEqual([{ kind: 'stop', at: at(T1), model: 'gpt-5.3-codex', tools: [], id: 't1 policy' }])
+  })
+
+  it('counts two turns its policy stopped seconds apart as two, with or without turn ids', () => {
+    const turn = (id: string | null, ts: string): object[] => [rec(ts, 'event_msg', { type: 'task_started', ...(id ? { turn_id: id } : {}) }), rec(ts, 'event_msg', { type: 'error', codex_error_info: 'cyber_policy' })]
+    expect(codexSafeguards(lines(...turn('t1', T1), ...turn('t2', secondsAfter(T1, 2))), {})).toHaveLength(2)
+    expect(codexSafeguards(lines(...turn(null, T1), ...turn(null, secondsAfter(T1, 2))), {})).toHaveLength(2)
   })
 
   it('takes its codes from an override', () => {
@@ -147,8 +213,8 @@ describe('the named defaults', () => {
       if (typeof v === 'string') expect(() => new RegExp(v), name).not.toThrow()
       else expect(v.length, name).toBeGreaterThan(0)
     }
-    expect(safeguardPattern('claudePrompt').test('Opus 5.5 safeguards flagged this. Switch to Opus 4.8?')).toBe(true)
     expect(safeguardCodes('codexStop', { codexStop: [] })).toEqual(SAFEGUARD_DEFAULTS.codexStop)
+    expect(safeguardPattern('claudePrompt', { claudePrompt: 'Model switch' }).test('☐ Model switch')).toBe(true)
   })
 })
 
@@ -173,8 +239,20 @@ describe('the note', () => {
     expect(back.stops).toBe(2)
   })
 
+  it('counts every stop it is given, however close (the detectors tell one seen twice by its identity)', () => {
+    let n = noteSafeguard(undefined, stop(T1))!
+    n = noteSafeguard(n, stop(secondsAfter(T1, 12)))!
+    n = noteSafeguard(n, stop(secondsAfter(T1, 13)))!
+    expect(n.stops).toBe(3)
+  })
+
   it('notes a flagged switch with no stop before it', () => {
     expect(noteSafeguard(undefined, sw(T1, 'gpt-5.3-codex', 'gpt-5.2', true))).toMatchObject({ stops: 0, switched: { from: 'gpt-5.3-codex', to: 'gpt-5.2' } })
+  })
+
+  it('a prompt still waiting stays through a new stop', () => {
+    const waiting: SafeguardNote = { at: new Date(at(T1)).toISOString(), tools: [], stops: 1, prompt: true }
+    expect(noteSafeguard(waiting, { kind: 'stop', at: at(T3), tools: ['Read'] })).toMatchObject({ stops: 2, prompt: true, tools: ['Read'] })
   })
 
   it('says what happened, the model now, and the tool names, never content', () => {
@@ -189,43 +267,69 @@ describe('usage', () => {
   it("counts a session's stops by model (what Performance sums per agent and model)", async () => {
     const { parseTranscript } = await import('../src/main/providers/claude/usage')
     const { parseRollout } = await import('../src/main/providers/codex/rollout')
-    const claude = parseTranscript(lines(assistant(T0, 'claude-opus-5-5', [toolUse('Bash')]), NOTE, NOTICE, assistant(T3, 'claude-opus-4-8', []), { ...NOTE, timestamp: T3 }), 's1')
+    const claude = parseTranscript(lines(assistant(T0, 'claude-opus-5-5', [toolUse('Bash')]), NOTE, NOTICE, assistant(T3, 'claude-opus-4-8', []), note(T3, 'n2'), notice(T3, 'msg_2', 'n2')), 's1')
     expect(claude.safeguards).toEqual({ 'claude-opus-5-5': 1, 'claude-opus-4-8': 1 })
     expect(parseTranscript(lines(assistant(T0, 'claude-opus-5-5', [])), 's2').safeguards).toBeUndefined()
     const codex = parseRollout(lines({ timestamp: T0, type: 'turn_context', payload: { model: 'gpt-5.3-codex' } }, { timestamp: T1, type: 'event_msg', payload: { type: 'error', codex_error_info: 'cyber_policy' } }), 's3')
     expect(codex.safeguards).toEqual({ 'gpt-5.3-codex': 1 })
   })
-})
 
-describe('one stop seen twice', () => {
-  it('counts a stop once when its prompt and its transcript entry arrive apart, taking the tools and model the second adds', () => {
-    const first = noteSafeguard(undefined, { kind: 'stop', at: at(T1), tools: [] })!
-    const again = noteSafeguard(first, { kind: 'stop', at: at(T1) - 2000, model: 'claude-opus-5-5', tools: ['Bash'] })!
-    expect([again.stops, again.model, again.tools]).toEqual([1, 'claude-opus-5-5', ['Bash']])
-    expect(noteSafeguard(again, { kind: 'stop', at: at(T1) + 1000, tools: [] })).toBeNull()
-    expect(noteSafeguard(again, { kind: 'stop', at: at(T3), tools: [] })!.stops).toBe(2)
-  })
-
-  it('a prompt still waiting stays through a new stop', () => {
-    const waiting: SafeguardNote = { at: new Date(at(T1)).toISOString(), tools: [], stops: 1, prompt: true }
-    expect(noteSafeguard(waiting, { kind: 'stop', at: at(T3), tools: ['Read'] })).toMatchObject({ stops: 2, prompt: true, tools: ['Read'] })
+  it('adds the stops seen only on screen, except those the transcript recorded after all', () => {
+    const transcript = { 'claude-opus-5-5': 1 }
+    expect(withScreenStops(transcript, undefined)).toBe(transcript)
+    expect(withScreenStops(transcript, [{ at: T1, model: 'claude-opus-5-5', matched: 'req_1' }])).toBe(transcript)
+    expect(withScreenStops(transcript, [{ at: T1, model: 'claude-opus-5-5' }, { at: T2 }, { at: T3, model: 'claude-opus-5-5', matched: 'req_2' }])).toEqual({ 'claude-opus-5-5': 2, '': 1 })
+    expect(withScreenStops(undefined, [{ at: T1, model: 'claude-opus-5-5' }])).toEqual({ 'claude-opus-5-5': 1 })
+    expect(transcript).toEqual({ 'claude-opus-5-5': 1 })
   })
 })
 
 describe("Claude Code's prompt about a stop, told by its screen", () => {
   const ask = (message: string): Ask => ({ kind: 'permission', blocking: true, message })
-  const dialog = [" Opus 5.5's safeguards stopped this response.", ' Switch this conversation to Opus 4.8?', ' ❯ 1. Stay on Opus 5.5', '   2. Switch to Opus 4.8']
+  // Its question dialog as 2.1.296 draws it (an AskUserQuestion it puts through its permission check).
+  const dialog = [
+    ' ☐ Model switch',
+    '',
+    " Opus 5.5's safeguards flagged this message. This sometimes happens with safe, normal conversations. Switch to Opus",
+    ' 4.8 and keep going whenever this happens? You can change this later in /config.',
+    '',
+    ' ❯ 1. Switch automatically',
+    '      Continue on Opus 4.8 now, and switch without asking from now on',
+    '   2. Stay on Opus 5.5',
+    '      Stop here without switching, and ask me each time a message is flagged',
+    '   3. Type something.',
+    '   4. Chat about this',
+    '',
+    ' Enter to select · ↑/↓ to navigate · Esc to cancel'
+  ]
   const screen = (...rows: string[]): string => rows.join('\n')
   const rows = (text: string, n: number): string[] => Array<string>(n).fill(text)
+  const generic = ask('Claude needs your permission')
 
-  it('is a permission prompt naming no tool while its screen shows the safeguard dialog, near its input or on a cleared screen', () => {
-    expect(claudeCode.safeguardAsk!(ask('Claude needs your permission'), screen(...rows('older output', 40), ...dialog, ''))).toBe(true)
+  it('is a permission prompt naming no tool while its screen shows the open dialog, at the bottom or on a cleared screen', () => {
+    expect(claudeCode.safeguardAsk!(generic, screen(...rows('older output', 40), ...dialog, ''))).toBe(true)
     // Cleared for the dialog: it is at the top, blank rows below.
-    expect(claudeCode.safeguardAsk!(ask('Claude needs your permission'), screen(...dialog, ...rows('', 30)))).toBe(true)
+    expect(claudeCode.safeguardAsk!(generic, screen(...dialog, ...rows('', 30)))).toBe(true)
+    // A narrow pane wraps the question and the descriptions.
+    const narrow = dialog.flatMap((r) => (r.length > 40 ? [r.slice(0, 40), r.slice(40, 80), r.slice(80)] : [r]))
+    expect(claudeCode.safeguardAsk!(generic, screen(...rows('older output', 40), ...narrow))).toBe(true)
   })
 
   it("is no tool's permission prompt, nor a dialog scrolled away", () => {
     expect(claudeCode.safeguardAsk!(ask('Claude needs your permission to use Bash'), screen(...dialog))).toBe(false)
-    expect(claudeCode.safeguardAsk!(ask('Claude needs your permission'), screen(...dialog, ...rows('later output', 30), '❯ '))).toBe(false)
+    expect(claudeCode.safeguardAsk!(generic, screen(...dialog, ...rows('later output', 30), '❯ '))).toBe(false)
+  })
+
+  it('is never told by the words alone: task text, an old stop note, another dialog naming no tool, or an answered prompt', () => {
+    // The agent's own work about safeguards, over another prompt naming no tool (the folder trust question).
+    const trust = ['Working on safeguards notices for Hive.', 'A safety classifier stopped a response: see #606.', 'Do you trust the files in this folder?', '❯ 1. Yes', '  2. No']
+    expect(claudeCode.safeguardAsk!(generic, screen(...trust))).toBe(false)
+    // An earlier stop's note still on screen, under an ordinary question.
+    const old = ["  ⎿  Opus 5.5's safeguards stopped the response above · continuing once with that noted", '', 'Which branch should I use?', '❯ 1. main', '  2. dev']
+    expect(claudeCode.safeguardAsk!(generic, screen(...old))).toBe(false)
+    // The prompt answered: Claude Code shows the question and the answer only (either answer).
+    const answered = (choice: string): string[] => [" ⎿  · Opus 5.5's safeguards flagged this message. Switch to Opus 4.8 and keep going whenever this happens? → " + choice, '', '> ']
+    expect(claudeCode.safeguardAsk!(generic, screen(...answered('Stay on Opus 5.5')))).toBe(false)
+    expect(claudeCode.safeguardAsk!(generic, screen(...answered('Switch automatically')))).toBe(false)
   })
 })

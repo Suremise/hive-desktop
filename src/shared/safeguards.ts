@@ -18,8 +18,18 @@ export const SAFEGUARD_DEFAULTS = {
    * "Your response above was stopped by a safety classifier…").
    */
   claudeNote: String.raw`\bsafeguards?\b.{0,60}\bstopped\b|\bstopped by a safety classifier\b`,
-  /** What Claude Code's terminal shows while it asks about a stop it made (whether to switch to another model). */
-  claudePrompt: String.raw`\bsafeguards?\b|\bsafety classifier\b`,
+  /**
+   * Claude Code's records of a request its safeguards flagged (system entries, by subtype): answered by another model
+   * (`model_refusal_fallback`, saying which, and whether for the session or that response only), or by none.
+   */
+  claudeRecords: ['model_refusal_fallback', 'model_refusal_no_fallback'],
+  /**
+   * Claude Code's question while it asks about a flagged message (2.1.296: "…'s safeguards flagged this message. Switch to
+   * Opus 4.8 and keep going whenever this happens?", header "Model switch"), told by its two numbered choices while the
+   * dialog is open ("1. Switch automatically", "2. Stay on Opus 5.5"): an answered one shows only the answer, and the
+   * words "safeguards" or "safety classifier" elsewhere on screen never match.
+   */
+  claudePrompt: String.raw`^(?=[\s\S]*\b\d\.\s*Switch automatically\b)(?=[\s\S]*\b\d\.\s*Stay on\b)`,
   /** Why Codex reroutes a request to another model (its rollout's model_reroute event: the request was flagged). */
   codexReroute: ['high_risk_cyber_activity'],
   /** Codex's error kinds (codex_error_info) for a turn its usage policy stopped. */
@@ -54,11 +64,16 @@ export function safeguardCodes(name: SafeguardCodesName, overrides?: SafeguardOv
 /** How many of the agent's last tool calls (their names) a stop keeps. */
 export const SAFEGUARD_TOOLS = 5
 
-/**
- * A stop seen this close to the last one noted is the same stop (its CLI's prompt and its transcript entry, read apart:
- * seconds). Short, since a CLI that carries on after a stop can be stopped again soon after.
- */
-export const SAME_STOP_MS = 15_000
+/** How many stops' identities a detector's memo keeps, so a record read again (or its pair) isn't another stop. */
+export const SAFEGUARD_IDS = 50
+
+/** Whether a stop is new by its identity (the memo's `ids`), keeping it if so. A stop with none is always new. */
+export function newStop(memo: { ids?: string[] }, id: string | undefined): boolean {
+  if (!id) return true
+  if (memo.ids?.includes(id)) return false
+  memo.ids = [...(memo.ids ?? []), id].slice(-SAFEGUARD_IDS)
+  return true
+}
 
 /** The names of the last tool calls a detector's memo holds (each keeps them as `tools`), for a stop Hive sees elsewhere. */
 export function memoTools(memo: Record<string, unknown> | undefined): string[] {
@@ -75,9 +90,12 @@ export function memoModel(memo: Record<string, unknown> | undefined): string | u
  * What a provider's transcript says of its safeguards, read as the transcript grows (ProviderAdapter.safeguards):
  * a response stopped (`model`: the one it ran on; `tools`: the names of the agent's last calls before it), or the
  * model the agent runs on changing after a stop (`flagged`: the CLI says the change is the safeguard's own, as Codex's
- * reroute does). `at`: when the CLI wrote it (ms).
+ * reroute does). `at`: when the CLI wrote it (ms). A stop's `id` is what the CLI identifies the stopped request by,
+ * when it does: each detector counts a stop once by it, however close two stops are. `asked`: the CLI's record of a
+ * stop it may have asked the user about first (Claude Code's `model_refusal_fallback`), so a stop Hive saw on screen
+ * (the prompt) and this record of it count once.
  */
-export type SafeguardEvent = { kind: 'stop'; at: number; model?: string; tools: string[] } | { kind: 'switch'; at: number; from: string; to: string; flagged?: boolean }
+export type SafeguardEvent = { kind: 'stop'; at: number; model?: string; tools: string[]; id?: string; asked?: boolean } | { kind: 'switch'; at: number; from: string; to: string; flagged?: boolean }
 
 /** An agent's safeguard stops this launch, as its state shows them (LiveSessionState.safeguard). */
 export interface SafeguardNote {
@@ -100,19 +118,14 @@ export interface SafeguardNote {
 }
 
 /**
- * The note after a transcript event. A stop is counted and replaces the last one's time, model and tools; a switch away
+ * The note after a safeguard event. A stop is counted (each is another: the detectors and the screen check tell one seen
+ * twice by its identity, never by how close in time) and replaces the last one's time, model and tools; a switch away
  * from the model a stop was on is kept (unseen, for the inbox), and one back to it is over (the switch is undone).
  * `null`: nothing to change (a switch with no stop before it this launch, or the same as already noted).
  */
 export function noteSafeguard(note: SafeguardNote | undefined, ev: SafeguardEvent): SafeguardNote | null {
   const iso = new Date(ev.at).toISOString()
   if (ev.kind === 'stop') {
-    // The same stop seen twice (its prompt, then its transcript entry, read later): once, with what the second adds.
-    if (note && note.stops > 0 && Math.abs(ev.at - Date.parse(note.at)) < SAME_STOP_MS) {
-      const tools = ev.tools.length ? ev.tools.slice(-SAFEGUARD_TOOLS) : note.tools
-      if (tools.join() === note.tools.join() && (!ev.model || ev.model === note.model)) return null
-      return { ...note, tools, ...(ev.model ? { model: ev.model } : {}) }
-    }
     const out: SafeguardNote = { at: iso, tools: ev.tools.slice(-SAFEGUARD_TOOLS), stops: (note?.stops ?? 0) + 1 }
     if (ev.model) out.model = ev.model
     // A switch noted earlier stands until the model changes back: it is the model the agent still runs on.
@@ -164,4 +177,24 @@ export function safeguardText(note: SafeguardNote, label: (model: string) => str
 /** Adds a read's stops to a session's count by model (SessionUsage.safeguards; '' when the CLI didn't say the model). */
 export function countSafeguards(by: Record<string, number>, events: readonly SafeguardEvent[]): void {
   for (const ev of events) if (ev.kind === 'stop') by[ev.model ?? ''] = (by[ev.model ?? ''] ?? 0) + 1
+}
+
+/**
+ * A stop Hive saw only on the CLI's screen (its prompt about one), kept on the session's record so Performance counts it
+ * (SessionRecord.screenStops): HB3's left no transcript entry. `matched`: the transcript recorded it after all (by this
+ * identity), so the transcript's count has it.
+ */
+export interface ScreenStop {
+  at: string
+  model?: string
+  matched?: string
+}
+
+/** A session's stops by model with those seen only on screen added (SessionUsage.safeguards). */
+export function withScreenStops(by: Record<string, number> | undefined, screen: readonly ScreenStop[] | undefined): Record<string, number> | undefined {
+  const own = (screen ?? []).filter((s) => !s.matched)
+  if (!own.length) return by
+  const out = { ...(by ?? {}) }
+  for (const s of own) out[s.model ?? ''] = (out[s.model ?? ''] ?? 0) + 1
+  return out
 }

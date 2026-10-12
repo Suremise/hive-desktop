@@ -50,7 +50,7 @@ import { presentWindow, showOsNotification, testNotifyLog, testQuiet } from './t
 import { hashText, heldOpen, insideReal, isInUse, readJson, placeRelative, removePath, samePlace, treeSignature, syncCopy, syncCopyLocked, syncCopyNow, trashAllOrNothing, withFileLock, writeJsonAtomic } from './fsutil'
 import { createLogger, hookJournal, userText } from './logger'
 import { applyStep, compactionOver, expireTasks, hookStep, idleAfter, markedIdle, safeguardAnswered, SAFEGUARD_IDLE_MESSAGE, titleStep, type HookStatusInput, type HookStep } from './hookStatus'
-import { memoModel, memoTools, noteSafeguard, safeguardText, type SafeguardEvent } from '../shared/safeguards'
+import { memoModel, memoTools, noteSafeguard, safeguardText, withScreenStops, type SafeguardEvent, type ScreenStop } from '../shared/safeguards'
 import { admit, describe as describeTurn, endRunning, heard, newLedger, openCalls, reconciles, silentFor, unheardStop, type ScreenReading, type TurnLedger } from './turnLedger'
 import { Compaction } from './compaction'
 import { lastTitle } from './terminalTitle'
@@ -107,6 +107,8 @@ const COST_INTERVAL_MS = 30_000
 const RECENT_HOOKS = 8
 /** How long after an ask its CLI's screen may take to show it is a safeguard prompt (LiveSession.guardAsk, #606). */
 const GUARD_ASK_MS = 10_000
+/** How many stops seen only on screen a session's record keeps (SessionRecord.screenStops). */
+const MAX_SCREEN_STOPS = 200
 /**
  * How long a turn may run with nothing heard of it (no hook, no transcript growth, no tool call under way) before Hive
  * looks for its end on the CLI's screen, and failing that says its state is unknown (#648). Never an end in itself.
@@ -214,6 +216,12 @@ interface LiveSession {
   guardAsk?: { ask: Ask; at: number; applied: boolean }
   /** When it began waiting on a safeguard prompt (#606): typed into since, or the prompt gone from its screen, it may be answered. */
   guardPromptAt?: number
+  /**
+   * The stop its last safeguard prompt showed, kept on the session's record (SessionRecord.screenStops) until the
+   * transcript records it (the CLI's record of a stop it asked about, SafeguardEvent.asked), so it counts once; a new
+   * prompt from the user starts another turn, and a record after that is another stop.
+   */
+  guardScreen?: { at: string; sessionId: string }
   /** The safeguard read under way (readSafeguards: one at a time). */
   guardReading?: Promise<void>
   /** A screen check for the safeguard prompt is queued (one at a time, however much the CLI draws meanwhile). */
@@ -2567,6 +2575,18 @@ class SessionManager {
   /** A safeguard event on the agent's state (noteSafeguard); a switch to another model is told: Hive's own notice, and a note on its Doing cards. */
   private noteSafeguard(l: LiveSession, ev: SafeguardEvent): void {
     const st = l.state
+    if (ev.kind === 'stop' && ev.asked && l.guardScreen) {
+      // The CLI's record of the stop its prompt showed: counted then (and kept on the session's record), so only marked
+      // as recorded there now (the transcript's count has it), with the model when the screen didn't say.
+      const screen = l.guardScreen
+      l.guardScreen = undefined
+      void this.matchScreenStop(st.projectPath, screen, ev.id ?? `transcript ${ev.at}`).catch((e) => log.warn('safeguard: could not match the stop seen on screen', e))
+      if (ev.model && st.safeguard && !st.safeguard.model) {
+        st.safeguard = { ...st.safeguard, model: ev.model }
+        this.emitState(st)
+      }
+      return
+    }
     const before = st.safeguard
     const next = noteSafeguard(before, ev)
     if (!next) return
@@ -2620,13 +2640,40 @@ class SessionManager {
     const src = await this.liveTranscript(l).catch(() => null)
     if (src) await this.readSafeguards(l, src).catch((e) => log.warn('safeguard: transcript read failed', e))
     const memo = l.guardMemo
-    const noted = noteSafeguard(st.safeguard, { kind: 'stop', at, model: memoModel(memo), tools: memoTools(memo) }) ?? st.safeguard!
-    const { idle: _i, ...rest } = noted
+    // The prompt it already waits on, told again (its hook, then the screen): the same stop, not another.
+    let noted = st.safeguard
+    if (!noted?.prompt) {
+      const model = memoModel(memo)
+      noted = noteSafeguard(noted, { kind: 'stop', at, model, tools: memoTools(memo) }) ?? noted
+      // Kept on the session's record, so Performance counts it though the transcript may never record it (HB3's didn't).
+      if (st.sessionId) {
+        const stop: ScreenStop = { at: new Date(at).toISOString(), ...(model ? { model } : {}) }
+        l.guardScreen = { at: stop.at, sessionId: st.sessionId }
+        await this.keepScreenStop(st.projectPath, st.sessionId, stop).catch((e) => log.warn('safeguard: could not keep the stop seen on screen', e))
+      }
+    }
+    const { idle: _i, ...rest } = noted!
     st.safeguard = { ...rest, prompt: true }
     l.guardPromptAt = at
     const tools = st.safeguard.tools
     this.emitState(st)
     return { ...ask, message: `A safety classifier stopped a response: ${l.adapter.descriptor.name} asks what to do${tools.length ? ` (its last tool calls: ${tools.join(', ')})` : ''}` }
+  }
+
+  /** A stop seen only on screen, added to its session's record (SessionRecord.screenStops) for Performance. */
+  private async keepScreenStop(projectPath: string, sessionId: string, stop: ScreenStop): Promise<void> {
+    await workspace.mutateSessions(projectPath, (f) => {
+      const rec = f.sessions.find((s) => s.id === sessionId)
+      if (rec) rec.screenStops = [...(rec.screenStops ?? []), stop].slice(-MAX_SCREEN_STOPS)
+    })
+  }
+
+  /** A stop seen on screen that the transcript recorded after all (by `id`): its count is the transcript's now. */
+  private async matchScreenStop(projectPath: string, screen: { at: string; sessionId: string }, id: string): Promise<void> {
+    await workspace.mutateSessions(projectPath, (f) => {
+      const stop = f.sessions.find((s) => s.id === screen.sessionId)?.screenStops?.find((s) => s.at === screen.at && !s.matched)
+      if (stop) stop.matched = id
+    })
   }
 
   /**
@@ -3233,6 +3280,8 @@ class SessionManager {
     const guard = this.guardCandidate(l, hook.event)
     if (took.verdict === 'apply') {
       let ev = took.event
+      // A new turn: a record of a stop after it isn't the one a prompt showed before.
+      if (ev.kind === 'prompt') l.guardScreen = undefined
       if (guard && ev.kind === 'ask') {
         if (this.guardShown(l, ev.ask)) ev = { ...ev, ask: await this.safeguardPrompt(l, ev.ask, at) }
         else l.guardAsk = { ask: ev.ask, at, applied: true }
@@ -3572,6 +3621,7 @@ class SessionManager {
       l.guardOffset = 0
       l.guardMemo = undefined
       l.guardAsk = undefined
+      l.guardScreen = undefined
       // What the old conversation's records said of its turns is no record of the new one's (#648).
       l.turnRecord = undefined
       l.stopsAnswered = undefined
@@ -3925,7 +3975,13 @@ class SessionManager {
     const p = await this.anyTranscript(projectPath, sessionId, ctx)
     // No transcript left: what it used when Clean Up removed Hive's backup.
     if (!p) return (ctx?.records ?? (await workspace.sessionsFile(projectPath)).sessions).find((s) => s.id === sessionId)?.keptUsage ?? null
-    const usage = await this.usageFor(p, sessionId, await this.sessionProvider(projectPath, sessionId, ctx))
+    let usage = await this.usageFor(p, sessionId, await this.sessionProvider(projectPath, sessionId, ctx))
+    // Safeguard stops seen only on screen (#606), kept on its record: the transcript's count doesn't have them.
+    const screen = (ctx?.records ?? (await workspace.sessionsFile(projectPath)).sessions).find((s) => s.id === sessionId)?.screenStops
+    if (usage) {
+      const safeguards = withScreenStops(usage.safeguards, screen)
+      if (safeguards !== usage.safeguards) usage = { ...usage, safeguards }
+    }
     // A transcript without the context window (Claude Code's): the running session's status line has it.
     if (usage && !usage.contextWindow) {
       const window = [...this.live.values()].find((l) => l.state.sessionId === sessionId)?.state.contextWindow
@@ -4345,7 +4401,7 @@ class SessionManager {
         const usage = used && { ...used, lastPrompt: null, costUnreported: undefined }
         if (rec && usage) await workspace.upsertSession(projectPath, { id: sessionId, keptUsage: usage })
         if (expected) await this.assertCleanable(projectPath, sessionId, expected)
-        const kept: KeptUsage | null = rec && usage ? { id: sessionId, provider: recordProvider(rec), agentId: rec.agentId, cwd: rec.cwd, name: rec.name, usage } : null
+        const kept: KeptUsage | null = rec && usage ? { id: sessionId, provider: recordProvider(rec), agentId: rec.agentId, ...(rec.agentName ? { agentName: rec.agentName } : {}), cwd: rec.cwd, name: rec.name, usage } : null
         this.assertNotLive(sessionId, 'delete')
         const files = this.backupFiles(projectPath, sessionId)
         await inUseOnFail(() =>
@@ -4376,14 +4432,18 @@ class SessionManager {
     projectPath = workspace.assertSessionHost(projectPath)
     const file = await workspace.sessionsFile(projectPath)
     const ctx: ListContext = { records: file.sessions, cfg: await workspace.projectConfig(projectPath) }
+    // Whose each was, by the agent's name now (its name then once it is gone): Performance's totals by agent (#606).
+    const named = new Map(projectAgents(ctx.cfg).map((a) => [a.id, a.name]))
     const items: SessionListItem[] = []
     for (const rec of file.sessions) {
       const usage = await this.usage(projectPath, rec.id, ctx).catch(() => null)
+      const agentName = (rec.agentId && named.get(rec.agentId)) || rec.agentName
       items.push({
         id: rec.id,
         provider: recordProvider(rec),
         source: 'hive',
         agentId: rec.agentId,
+        ...(agentName ? { agentName } : {}),
         cwd: rec.cwd,
         archived: rec.archived,
         title: null,
@@ -4394,7 +4454,10 @@ class SessionManager {
         recache: null
       })
     }
-    return [...items, ...(await this.keptUsage(projectPath))]
+    return [...items, ...(await this.keptUsage(projectPath)).map((k) => {
+      const agentName = (k.agentId && named.get(k.agentId)) || k.agentName
+      return agentName ? { ...k, agentName } : k
+    })]
   }
 
   /** Deleted sessions' usage, as list items for totals (never shown in the session lists). */
@@ -4405,6 +4468,7 @@ class SessionManager {
       provider: k.provider,
       source: 'hive' as const,
       agentId: k.agentId,
+      ...(k.agentName ? { agentName: k.agentName } : {}),
       cwd: k.cwd,
       name: k.name,
       archived: true,

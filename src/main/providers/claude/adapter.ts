@@ -25,8 +25,11 @@ import { ClaudeUsageParser, encodeProjectPath, parseTranscript, transcriptSubSes
 const log = createLogger('claude-code')
 /** Transcripts whose sub-agent check is remembered (by path and mtime). */
 const SUB_CACHE = 2000
-/** How many of the screen's last lines a safeguard prompt is looked for in (the prompt is drawn above the input). */
-const SAFEGUARD_PROMPT_LINES = 16
+/**
+ * How many of the screen's last written lines a safeguard prompt is looked for in: its dialog is drawn last, at the
+ * bottom, its choices within about a dozen lines of the end (more when a narrow pane wraps their descriptions).
+ */
+const SAFEGUARD_PROMPT_LINES = 24
 /** A ~/.claude/projects folder name that may hold an 8.3 short name: `~1` is encoded `-1`. */
 const MAY_BE_SHORT = /-\d+(-|$)/
 /** How much of a transcript is read for the cwd it records (its first lines carry none). */
@@ -416,9 +419,10 @@ export class ClaudeCodeAdapter implements ProviderAdapter {
   }
 
   /**
-   * Claude Code's prompt after a safeguard stop (whether to switch models) is a Notification with no tool named (a tool's
-   * permission prompt says "…permission to use Bash"); its words are the screen's, matched in the lines nearest the input
-   * (where the prompt is drawn) by the named pattern (SAFEGUARD_DEFAULTS.claudePrompt).
+   * Claude Code's prompt after a safeguard stop (whether to switch models, a question it puts through its permission
+   * check) is a Notification with no tool named (a tool's permission prompt says "…permission to use Bash"). Its open
+   * dialog is told on the screen, in the lines written last, by the named pattern (SAFEGUARD_DEFAULTS.claudePrompt: its
+   * numbered choices), never by the words "safeguards" or "safety classifier" in other text.
    */
   safeguardAsk(ask: Ask, screen: string): boolean {
     if (/\bto use\b/i.test(ask.message)) return false

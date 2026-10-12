@@ -3,9 +3,12 @@
 // its Doing card, hive_agent_activity's safeguard field: names only, never what was stopped); and Claude Code's prompt
 // about a stop after its turn's Stop (HB3's, 11 Oct) waits for the user saying why, with its last tool calls, stays
 // waiting through the idle notice while it shows, and once answered is idle after the stop, ready for a nudge, taking a
-// task again (HB3 showed "Claude needs your permission" for half an hour). The agent runs the fake Claude Code
-// (fake-claude/: "safeguard", "fallback", "safeguardprompt"), so nothing signs in or spends tokens. Dev build,
-// throwaway profile, workspace and CLAUDE_CONFIG_DIR; notifications recorded, not shown.
+// task again (HB3 showed "Claude needs your permission" for half an hour). Stops seconds apart each count; Performance
+// counts them per agent and model, with a stop seen only on screen (its prompt, no transcript record) kept on the
+// session's record, once with the record Claude Code writes when the prompt is answered "Switch automatically", and the
+// same after a restart. The agent runs the fake Claude Code (fake-claude/: "safeguard", "fallback", "safeguardprompt",
+// "safeguardpromptswitch"), so nothing signs in or spends tokens. Dev build, throwaway profile, workspace and
+// CLAUDE_CONFIG_DIR; notifications recorded, not shown.
 const lib = require('./lib.cjs')
 const { _electron } = require('playwright-core')
 const { createHash } = require('crypto')
@@ -23,6 +26,8 @@ const PORT = Number(lib.port(47876))
 const API = `http://127.0.0.1:${PORT}`
 const IDLE_MESSAGE = 'Idle after a safeguard stop: give it a nudge'
 let failed = 0
+// What Performance counted before the restart, by model.
+let expected = null
 const check = (name, ok, extra = '') => {
   if (!ok) failed++
   console.log(`${ok ? 'PASS' : 'FAIL'} ${name}${ok || !extra ? '' : ` (${extra})`}`)
@@ -115,6 +120,20 @@ const check = (name, ok, extra = '') => {
     const finished = await until(async () => (await live(alpha, id))?.status === 'finished', HUNG_MS)
     check('it finishes that task', !!finished)
 
+    // Two more stops in two short tasks, seconds apart: each is another stop, however close (by their identities).
+    for (const n of [2, 3]) {
+      const again = await api('POST', '/v1/projects/alpha/agents/Tester/prompt', { text: 'safeguard' })
+      const noted = await until(async () => {
+        const s = await live(alpha, id)
+        return s?.status === 'finished' && s.safeguard?.stops === n && s
+      }, HUNG_MS)
+      check(`a stop seconds after the last is another (${n})`, again.status === 200 && !!noted, JSON.stringify([again.body, (await live(alpha, id))?.safeguard]))
+    }
+    // What Performance counts for the agent, by model (#606): the stops in its transcript, and those seen only on screen.
+    const counted = async () => Object.fromEntries(((await inv('metrics:query', { scope: { kind: 'project', project: 'alpha' } })).safeguards ?? []).filter((r) => r.agent === 'Tester').map((r) => [r.model, r.stops]).sort(([x], [y]) => x.localeCompare(y)))
+    const countedIs = async (want) => (await until(async () => JSON.stringify(await counted()) === JSON.stringify(want), HUNG_MS)) || false
+    check('Performance counts the three, by model', await countedIs({ 'claude-fake': 1, 'claude-opus-4-8': 2 }), JSON.stringify(await counted()))
+
     // Claude Code's prompt about a stop, after its turn's Stop: waiting, saying why.
     const before = notifications()
     const asked = await api('POST', '/v1/projects/alpha/agents/Tester/prompt', { text: 'edit other.txt safeguardprompt' })
@@ -154,9 +173,45 @@ const check = (name, ok, extra = '') => {
       const s = await live(alpha, id)
       return s?.status === 'finished' && s
     }, HUNG_MS)
-    check('which it finishes, no longer idle after the stop', !!done && !done.safeguard?.idle && done.safeguard?.stops >= 1, JSON.stringify(done?.safeguard))
+    check('which it finishes, no longer idle after the stop', !!done && !done.safeguard?.idle && done.safeguard?.stops === 4, JSON.stringify(done?.safeguard))
+    // The stop its prompt showed left no transcript record (HB3's): Performance counts it from the session's record.
+    check('Performance counts the stop seen only on screen', await countedIs({ 'claude-fake': 1, 'claude-opus-4-8': 3 }), JSON.stringify(await counted()))
+
+    // A prompt answered "Switch automatically": Claude Code records the flagged request then, the same stop its prompt
+    // showed, so it counts once; and the switch it made is noted.
+    const switching = await api('POST', '/v1/projects/alpha/agents/Tester/prompt', { text: 'safeguardpromptswitch' })
+    const asking = await until(async () => {
+      const s = await live(alpha, id)
+      return s?.status === 'waiting' && s.safeguard?.prompt && s
+    }, HUNG_MS)
+    check('it waits on the next prompt', switching.status === 200 && !!asking, JSON.stringify((await live(alpha, id))?.safeguard))
+    await inv('pty:write', lib.ptyKey(alpha, id), '\r')
+    const moved = await until(async () => {
+      const s = await live(alpha, id)
+      return s?.status === 'ready' && s.safeguard?.switched?.to === 'claude-sonnet-5-5' && s
+    }, HUNG_MS)
+    check('answered, its switch is noted', !!moved && moved.safeguard.stops === 5, JSON.stringify((await live(alpha, id))?.safeguard))
+    check('and Performance counts that stop once (prompt and record)', await countedIs({ 'claude-fake': 1, 'claude-opus-4-8': 4 }), JSON.stringify(await counted()))
+    const record = JSON.parse(fs.readFileSync(path.join(alpha, '.hive', 'sessions.json'), 'utf8')).sessions.find((s) => s.agentId === id)
+    const screenStops = record?.screenStops ?? []
+    check('the session keeps both stops seen on screen, the second matched to its record', screenStops.length === 2 && !screenStops[0].matched && /^req_/.test(screenStops[1].matched ?? ''), JSON.stringify(screenStops))
+    expected = await counted()
   } finally {
     await app.close()
+  }
+
+  // After a restart, Performance still counts them all (the stops seen only on screen are kept on the session's record).
+  const again = await _electron.launch({ executablePath: lib.ELECTRON, args: [lib.ROOT], cwd: lib.ROOT, env })
+  try {
+    const page = await again.firstWindow()
+    await lib.appReady(page)
+    const inv = (ch, ...a) => page.evaluate(([c, x]) => window.hive.invoke(c, ...x), [ch, a])
+    await lib.openWorkspace(inv, page, ws)
+    const counted = async () => Object.fromEntries(((await inv('metrics:query', { scope: { kind: 'project', project: 'alpha' } })).safeguards ?? []).filter((r) => r.agent === 'Tester').map((r) => [r.model, r.stops]).sort(([x], [y]) => x.localeCompare(y)))
+    const same = await lib.until(async () => JSON.stringify(await counted()) === JSON.stringify(expected), HUNG_MS)
+    check('after a restart Performance counts the same', Object.keys(expected ?? {}).length > 0 && !!same, JSON.stringify([expected, await counted()]))
+  } finally {
+    await again.close()
   }
   process.exit(failed ? 1 : 0)
 })().catch((e) => {

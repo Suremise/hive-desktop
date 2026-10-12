@@ -943,15 +943,21 @@ export async function noteOnCard(n: number, what: string, ws: WorkspaceService =
   changed(ws)
 }
 
-/** A comment from Hive itself on a card (#606: its agent's model changed after a safeguard stop), for whoever reads the card. */
-export async function commentAsHive(n: number, said: string, ws: WorkspaceService = workspace): Promise<void> {
-  await withFileLock(cardFile(n, ws), async () => {
+/**
+ * A comment from Hive itself on a card (#606: its agent's model changed after a safeguard stop), for whoever reads the
+ * card. `still`: whether the card, as it is under its lock, is still the one meant (its column, project and agent may
+ * have changed since it was chosen). True when it was written.
+ */
+export async function commentAsHive(n: number, said: string, ws: WorkspaceService = workspace, still: (card: TaskCard) => boolean = () => true): Promise<boolean> {
+  const done = await withFileLock(cardFile(n, ws), async () => {
     const card = await getTask(n, ws)
-    if (card.archived) return
+    if (card.archived || !still(card)) return false
     addComment(card, 'Hive', said)
     await saveCard(ws, n, card)
+    return true
   })
-  changed(ws)
+  if (done) changed(ws)
+  return done
 }
 
 /**
