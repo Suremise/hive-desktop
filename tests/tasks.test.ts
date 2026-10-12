@@ -876,6 +876,71 @@ describe('card decisions', () => {
     }
   })
 
+  it("a decision line's receipt covers only the decisions of the version received: a newer decision made ready by a fetch or an ack while that receipt is saved stays to be told (#649 round 4)", async () => {
+    const deliveries = await import('../src/main/deliveries')
+    const writer = await import('../src/main/lineWriter')
+    const n = (await run(() => tasks.createTask({ title: 'Receipt and a newer decision', project: 'alpha', column: 'doing', agent: 'a1' }, user))).number
+    await laterMs()
+    await run(() => tasks.updateTask(n, { decision: 'Red.' }, assistant))
+    const sent: string[] = []
+    let taken = 0
+    const spies = [
+      vi.spyOn(sessions, 'liveFor').mockImplementation((p, id) => (p === alpha && id === 'a1' ? ({ projectPath: alpha, agentId: 'a1', status: 'finished', runId: 'run-a1' } as never) : null)),
+      vi.spyOn(sessions, 'userMayBeTyping').mockImplementation(() => false),
+      vi.spyOn(sessions, 'lineWaiting').mockImplementation(() => false),
+      vi.spyOn(sessions, 'promptsTaken').mockImplementation((p, id) => (p === alpha && id === 'a1' ? { runId: 'run-a1', count: taken } : null)),
+      vi.spyOn(sessions, 'sendPrompt').mockImplementation(async (_p, _id, text, guard) => {
+        guard?.()
+        sent.push(text)
+      })
+    ]
+    writer.testHooks.takeMs = 5000
+    let release = (): void => undefined
+    const notes = async (): Promise<string[]> => (await run(() => tasks.getTask(n))).history.filter((h) => h.by === 'Hive' && h.what.startsWith('Told ')).map((h) => h.what)
+    try {
+      // Typed: one decision.
+      await decisionWakes.tellNow(w, alpha, 'a1')
+      expect(sent).toHaveLength(1)
+      expect(sent[0]).toMatch(new RegExp(`#${n} has 1 new decision from the user`))
+      // A newer decision; its CLI takes the line, and that receipt's save is held.
+      await laterMs()
+      await run(() => tasks.updateTask(n, { decision: 'Blue, not red.' }, assistant))
+      const held = new Promise<void>((r) => (release = r))
+      let holding = false
+      deliveries.setBeforeSaveForTests(async () => {
+        if (holding) return
+        holding = true
+        await held
+      })
+      taken = 1
+      const receipt = deliveries.followAllForTests()
+      await vi.waitFor(() => expect(holding).toBe(true), { timeout: HUNG_MS })
+      // Meanwhile the agent fetches its inbox and acks that line: the newer decision is made ready by them, behind the receipt.
+      const fetched = deliveries.readInbox(alpha, 'a1')
+      const ack = deliveries.ackDeliveries(alpha, 'a1', ['m1'])
+      release()
+      deliveries.setBeforeSaveForTests(null)
+      await receipt
+      expect((await fetched).items).toEqual([])
+      expect(await ack).toEqual({ acked: ['m1'], unknown: [] })
+      // Its receipt covered the decision it said, not the newer one.
+      await vi.waitFor(async () => expect(await notes()).toEqual(['Told Coder (alpha) of 1 new decision']), { timeout: HUNG_MS })
+      // The newer decision is still to be told: the next line says it.
+      await decisionWakes.tellNow(w, alpha, 'a1')
+      expect(sent).toHaveLength(2)
+      expect(sent[1]).toMatch(new RegExp(`#${n} has 1 new decision from the user`))
+      taken = 2
+      await deliveries.followAllForTests()
+      await vi.waitFor(async () => expect(await notes()).toEqual(['Told Coder (alpha) of 1 new decision', 'Told Coder (alpha) of 1 new decision']), { timeout: HUNG_MS })
+    } finally {
+      release()
+      deliveries.setBeforeSaveForTests(null)
+      writer.testHooks.takeMs = undefined
+      for (const s of spies) s.mockRestore()
+      await writer.settled()
+    }
+  })
+
   it('a decision line stopped as it is typed is tried again by itself, and only while it is still true (#401)', async () => {
     const n = (await run(() => tasks.createTask({ title: 'Stopped lines', project: 'alpha', column: 'doing', agent: 'a1' }, user))).number
     await laterMs()

@@ -165,8 +165,12 @@ function stillDue(p: Wake & { agentId: string }, card: TaskCard | null): boolean
 /** Counts the board's and lanes' changes: a wake checked or typed while one lands is stopped and worked out again. */
 let rolesSeq = 0
 
-/** A delivery's key here: its host and id (ids are a host's own: every project starts at m1). */
-const madeKey = (host: string, id: string): string => `${host.toLowerCase()}#${id}`
+/**
+ * A version of a wake here: its host, delivery id and version (ids are a host's own; a wake is made again before each
+ * offer or hand-out, and an offered one keeps the version it was offered as).
+ */
+const madeKey = (host: string, id: string, v: unknown): string => `${host.toLowerCase()}#${id}#${String(v)}`
+let versions = 0
 /** What each wake was made again from just before it was offered (by host and delivery id): the roles' count, the card's column. */
 const madeFrom = new Map<string, { seq: number; column: TaskCard['column'] }>()
 
@@ -196,18 +200,19 @@ registerSource('loop', {
       if (to) enqueue(ws, host, card, p.kind, to, p.since)
       return { cancel: 'it is another agent\'s wake now' }
     }
-    madeFrom.set(madeKey(host, r.id), { seq, column: card.column })
+    const v = ++versions
+    madeFrom.set(madeKey(host, r.id, v), { seq, column: card.column })
     if (madeFrom.size > 1000) madeFrom.delete(madeFrom.keys().next().value!)
     const kinds: ('column' | 'verdict')[] = p.kind === 'review' ? ['column'] : ['verdict']
-    return { body: loopWakeLine({ ...cardChange(p.n, card, kinds), about: wakeAbout(card, kinds, r.agentId) }, p.kind) }
+    return { body: loopWakeLine({ ...cardChange(p.n, card, kinds), about: wakeAbout(card, kinds, r.agentId) }, p.kind), meta: { ...r.meta, v } }
   },
   holds: (r, host) => {
     const p = wakeOf(r)
-    const m = madeFrom.get(madeKey(host, r.id))
+    const m = madeFrom.get(madeKey(host, r.id, r.meta?.v))
     return !!p && !!m && m.seq === rolesSeq && !watchCovers(host, r.agentId, p.n, p.kind, m.column)
   },
   received: (r, host) => {
-    madeFrom.delete(madeKey(host, r.id))
+    madeFrom.delete(madeKey(host, r.id, r.meta?.v))
     const p = wakeOf(r)
     const ws = workspaceFor(host)
     if (!p || !ws) return
@@ -215,7 +220,7 @@ registerSource('loop', {
     log.info(`Loop wake: #${p.n} to ${userText(p.agentName)}`)
   },
   ended: (r, host) => {
-    madeFrom.delete(madeKey(host, r.id))
+    madeFrom.delete(madeKey(host, r.id, r.meta?.v))
   }
 })
 

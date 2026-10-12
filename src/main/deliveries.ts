@@ -164,17 +164,20 @@ export class NotGiven extends Error {}
 
 /**
  * A producer's part in its deliveries (#649), registered once by name (`source` on the delivery): made again just before
- * it is offered (`refresh`: the line from things as they are now, or null if it is no longer due: it is cancelled then,
- * with `why`); checked before each piece and Enter of its line (`holds`); told when it is received (`received`: its
- * cursor moves on) or ends without that (`ended`). Called outside the host's lock.
+ * it is offered or handed out (`refresh`: the line from things as they are now, with what its receipt will need, `meta`,
+ * saved on the delivery as that version; or cancelled when it is no longer due); checked before each piece and Enter of
+ * its line (`holds`); told when it is received (`received`: its cursor moves on, from the received version's own `meta`,
+ * never from what a later refresh prepared) or ends without that (`ended`). Called outside the host's lock.
  */
 export interface DeliverySource {
-  refresh?: (r: DeliveryRecord, host: string) => Promise<{ body: string } | { cancel: string } | null>
+  refresh?: (r: DeliveryRecord, host: string) => Promise<Fresh | null>
   holds?: (r: DeliveryRecord, host: string) => boolean
   received?: (r: DeliveryRecord, host: string) => void
   ended?: (r: DeliveryRecord, host: string) => void
 }
 const sources = new Map<string, DeliverySource>()
+/** What a source says of a delivery made again: its text and context as they are now (one version), or why it is cancelled. */
+type Fresh = { body: string; meta?: Record<string, string | number | boolean> } | { cancel: string }
 
 /** A producer's own part in one delivery, given when it is made (in memory only): see Store.hooks. */
 export interface DeliveryHooks {
@@ -707,14 +710,19 @@ export async function ackDeliveries(host: string, agentId: string, ids: readonly
   return { acked: r.acked, unknown: r.unknown }
 }
 
-/** Applies, in a draft, what sources said as their deliveries were made again: cancelled, or their text as it is now. */
-function applyFresh(store: Store, d: Draft, fresh: Map<string, { body: string } | { cancel: string }>): void {
+/**
+ * Applies, in a draft, what sources said as their deliveries were made again: cancelled, or their text and context as
+ * they are now (that version, saved with it). One already offered keeps the version it was offered as (what was typed,
+ * and what its receipt covers): a later refresh can cancel it, never rewrite it.
+ */
+function applyFresh(store: Store, d: Draft, fresh: Map<string, Fresh>): void {
   for (const [id, f] of fresh) {
     const r = byId(d.records, id)
     if (!r || !isUnread(r)) continue
     if ('cancel' in f) set(store, d, r, 'cancelled', f.cancel)
+    else if (r.state === 'offered') continue
     else if (f.body.length > DELIVERY_BODY_MAX_CHARS) set(store, d, r, 'cancelled', 'cancelled: made again, it was too long to keep')
-    else if (f.body !== r.body) put(d, r, { ...r, body: f.body })
+    else if (f.body !== r.body || (f.meta && JSON.stringify(f.meta) !== JSON.stringify(r.meta))) put(d, r, { ...r, body: f.body, ...(f.meta ? { meta: f.meta } : {}) })
   }
 }
 
@@ -865,8 +873,8 @@ function confirming(store: Store, o: Offer, before: { runId: string; count: numb
 }
 
 /** Each source's line made again for what is about to be offered (from things as they are now): its body, or why it is cancelled. */
-async function refreshAll(store: Store, items: readonly DeliveryRecord[]): Promise<Map<string, { body: string } | { cancel: string }>> {
-  const out = new Map<string, { body: string } | { cancel: string }>()
+async function refreshAll(store: Store, items: readonly DeliveryRecord[]): Promise<Map<string, Fresh>> {
+  const out = new Map<string, Fresh>()
   for (const r of items) {
     const fn = r.source ? sources.get(r.source)?.refresh : undefined
     if (!fn) continue

@@ -457,6 +457,45 @@ describe('the delivery service (#647)', async () => {
     expect((await deliveries.readInbox(alpha, 'b1')).items.map((i) => i.ids.join())).toEqual(['m4'])
   })
 
+  it("a delivery keeps the version it was offered as (#649 round 4): made again afterwards (by a fetch), its text and context aren't rewritten, and its receipt gets that version's context, never a later one", async () => {
+    let version = 0
+    const received: unknown[] = []
+    deliveries.registerSource('versioned', {
+      refresh: async () => {
+        version++
+        return { body: `[Hive] Version ${version}.`, meta: { v: version } }
+      },
+      received: (r) => void received.push(r.meta?.v)
+    })
+    const taken = { n: 0 }
+    Object.assign(sessions, { promptsTaken: () => ({ runId: 'r1', count: taken.n }) })
+    try {
+      st.status = 'working'
+      await deliveries.createDelivery(alpha, { agentId: 'b1', kind: 'card-event', from: hive, body: '[Hive] Version 0.', source: 'versioned', ref: 'x' })
+      // Offered as version 1 (typed, its CLI hasn't taken it yet).
+      st.status = 'ready'
+      await deliveries.offerAllForTests()
+      expect(st.typed).toEqual(['[Hive] Version 1.'])
+      // Made again by a fetch the source doesn't let through (version 2): the offered one isn't rewritten.
+      deliveries.registerSource('versioned', {
+        refresh: async () => {
+          version++
+          return { body: `[Hive] Version ${version}.`, meta: { v: version } }
+        },
+        holds: () => false,
+        received: (r) => void received.push(r.meta?.v)
+      })
+      expect((await deliveries.readInbox(alpha, 'b1')).items).toEqual([])
+      expect((await deliveries.deliveriesOf(alpha, 'b1'))[0]).toMatchObject({ state: 'offered', body: '[Hive] Version 1.', meta: { v: 1 } })
+      // Its CLI takes the line: received as version 1, and its source is told version 1's context.
+      taken.n = 1
+      await deliveries.followAllForTests()
+      await vi.waitFor(() => expect(received).toEqual([1]), { timeout: HUNG_MS })
+    } finally {
+      Object.assign(sessions, { promptsTaken: () => null })
+    }
+  })
+
   it('the Agent API view: unread, overdue, the newest rows with their times', async () => {
     await make()
     await make({ body: 'Second.' })

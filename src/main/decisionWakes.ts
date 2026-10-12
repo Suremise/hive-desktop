@@ -63,10 +63,34 @@ export function decisionLine(cards: Map<number, { count: number }>): string {
 /** The decisions are the user's: Hive relays them. */
 const USER = { kind: 'user', name: 'the user' } as const
 
-/** A delivery's key here: its host and id (ids are a host's own: every project starts at m1). */
-const madeKey = (host: string, id: string): string => `${host.toLowerCase()}#${id}`
-/** What each line was made from just before it was offered (by host and delivery id): its decisions, the board's and the agent's reads then. */
-const made = new Map<string, { ws: WorkspaceService; self: string; cards: Awaited<ReturnType<typeof newDecisionsOn>>; gen: number; reads: ReturnType<typeof cardReadsBy> }>()
+/**
+ * What each version of a line was made from (by host, delivery id and version: ids are a host's own, and a line is made
+ * again before each offer or hand-out): the board's and the agent's reads then, which `holds` compares with now. What it
+ * tells is saved on the delivery itself (its `meta`), so a receipt covers the version received, never a later one.
+ */
+const madeKey = (host: string, id: string, v: unknown): string => `${host.toLowerCase()}#${id}#${String(v)}`
+const made = new Map<string, { ws: WorkspaceService; gen: number; reads: ReturnType<typeof cardReadsBy> }>()
+let versions = 0
+
+/** A line's decisions as its delivery saves them: "card:count:latest", comma-separated (as many as fit what reads back). */
+const encodeCards = (cards: Map<number, { count: number; latest: number }>): string => [...cards].map(([n, d]) => `${n}:${d.count}:${d.latest}`).join(',')
+const decodeCards = (v: unknown): Map<number, { count: number; latest: number }> =>
+  new Map(
+    (typeof v === 'string' && v ? v.split(',') : []).flatMap((x) => {
+      const [n, count, latest] = x.split(':').map(Number)
+      return Number.isInteger(n) && n > 0 && Number.isFinite(count) && Number.isFinite(latest) ? [[n, { count, latest }] as const] : []
+    })
+  )
+/** The decisions of a line that fit its delivery's context (400 characters): those it says, the rest told by a next line. */
+function fitting(cards: Map<number, { count: number; latest: number }>): Map<number, { count: number; latest: number }> {
+  const out = new Map<number, { count: number; latest: number }>()
+  for (const [n, d] of cards) {
+    const next = new Map(out).set(n, d)
+    if (encodeCards(next).length > 400) break
+    out.set(n, d)
+  }
+  return out
+}
 
 async function boardSelf(ws: WorkspaceService, projectPath: string, agentId: string): Promise<string | null> {
   const def = projectAgents(await ws.projectConfig(projectPath)).find((a) => a.id === agentId)
@@ -88,31 +112,36 @@ registerSource('decision', {
     // What the line is worked out from: the board and the agent's reads as they are now.
     const gen = genOf(ws)
     const reads = cardReadsBy(agent)
-    const cards = await newDecisionsOn(ws, agent, self, told.get(keyOf(host, r.agentId)))
+    const cards = fitting(await newDecisionsOn(ws, agent, self, told.get(keyOf(host, r.agentId))))
     if (!cards.size) return { cancel: 'nothing new to tell' }
-    made.set(madeKey(host, r.id), { ws, self, cards, gen, reads })
+    // This version: its line, and what its receipt tells (saved with it), and what its holds compares with.
+    const v = ++versions
+    made.set(madeKey(host, r.id, v), { ws, gen, reads })
     if (made.size > 500) made.delete(made.keys().next().value!)
-    return { body: decisionLine(cards) }
+    return { body: decisionLine(cards), meta: { v, cards: encodeCards(cards), self } }
   },
   holds: (r, host) => {
-    const m = made.get(madeKey(host, r.id))
+    const m = made.get(madeKey(host, r.id, r.meta?.v))
     return !!m && openWorkspaces().includes(m.ws) && genOf(m.ws) === m.gen && cardReadsBy({ projectPath: host, agentId: r.agentId }) === m.reads
   },
   received: (r, host) => {
-    const m = made.get(madeKey(host, r.id))
-    made.delete(madeKey(host, r.id))
-    if (!m) return
+    made.delete(madeKey(host, r.id, r.meta?.v))
+    // What the version received says, and nothing a later refresh prepared.
+    const cards = decodeCards(r.meta?.cards)
+    const self = typeof r.meta?.self === 'string' ? r.meta.self : null
+    const ws = workspaceFor(host)
+    if (!cards.size || !self || !ws) return
     const key = keyOf(host, r.agentId)
     const known = told.get(key) ?? new Map<number, number>()
-    for (const [n, d] of m.cards) known.set(n, Math.max(known.get(n) ?? 0, d.latest))
+    for (const [n, d] of cards) known.set(n, Math.max(known.get(n) ?? 0, d.latest))
     told.delete(key)
     told.set(key, known)
     if (told.size > 500) told.delete(told.keys().next().value!)
-    log.info(`Told ${userText(m.self)} of new decisions on ${[...m.cards.keys()].map((n) => `#${n}`).join(', ')}`)
-    void Promise.all([...m.cards].map(([n, d]) => noteOnCard(n, `Told ${m.self} of ${d.count} new decision${d.count === 1 ? '' : 's'}`, m.ws).catch((e) => log.warn(`noting on #${n} that decisions were told`, e))))
+    log.info(`Told ${userText(self)} of new decisions on ${[...cards.keys()].map((n) => `#${n}`).join(', ')}`)
+    void Promise.all([...cards].map(([n, d]) => noteOnCard(n, `Told ${self} of ${d.count} new decision${d.count === 1 ? '' : 's'}`, ws).catch((e) => log.warn(`noting on #${n} that decisions were told`, e))))
   },
   ended: (r, host) => {
-    made.delete(madeKey(host, r.id))
+    made.delete(madeKey(host, r.id, r.meta?.v))
   }
 })
 
@@ -128,10 +157,10 @@ async function tell(ws: WorkspaceService, projectPath: string, agentId: string):
   try {
     const self = await boardSelf(ws, projectPath, agentId)
     if (!self) return
-    const cards = await newDecisionsOn(ws, agent, self, told.get(key))
+    const cards = fitting(await newDecisionsOn(ws, agent, self, told.get(key)))
     if (!cards.size) return
     // Made again from the decisions as they are when it is offered (one waiting is that one).
-    await createDelivery(projectPath, { agentId, agentName: self, kind: 'answer', from: USER, card: [...cards.keys()][0], body: decisionLine(cards), source: 'decision', ref: 'decisions', replace: true, need: 'free' })
+    await createDelivery(projectPath, { agentId, agentName: self, kind: 'answer', from: USER, card: [...cards.keys()][0], body: decisionLine(cards), source: 'decision', ref: 'decisions', replace: true, need: 'free', meta: { cards: encodeCards(cards), self } })
     await offerNow(projectPath, agentId)
   } finally {
     telling.delete(key)
