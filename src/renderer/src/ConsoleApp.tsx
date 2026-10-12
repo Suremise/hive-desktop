@@ -4,7 +4,7 @@ import { clockTime, filterChoices, filterEvents, mergeEvents, sourceGroups, sour
 import type { AppSettings, HiveEvent } from '@shared/types'
 import { providerName } from '@shared/providers'
 import { call, errorMessage } from './api'
-import { Icon, IconButton } from './components/ui'
+import { Icon, IconButton, SearchInput } from './components/ui'
 import { cx } from './util'
 import './styles/console.css'
 
@@ -195,8 +195,7 @@ export function ConsoleApp() {
         <span className="dc-sep" />
         <div className="dc-search">
           <Icon name="search" />
-          <input ref={searchRef} value={search} onChange={(e) => setSearch(e.target.value)} placeholder="Search events (Ctrl+F)" aria-label="Search events" spellCheck={false} />
-          {search && <IconButton icon="close" title="Clear the search" onClick={() => setSearch('')} />}
+          <SearchInput ref={searchRef} value={search} onChange={setSearch} placeholder="Search events (Ctrl+F)" aria-label="Search events" spellCheck={false} />
         </div>
         <select className="dc-provider" value={provider} onChange={(e) => setProvider(e.target.value)} aria-label="Provider">
           <option value="">All providers</option>
