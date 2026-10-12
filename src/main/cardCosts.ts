@@ -5,7 +5,7 @@ import { allTasks } from './tasks'
 import { listLanes } from './lanes'
 import { inWorkspace, type WorkspaceService } from './workspace'
 import { projectAgents } from '../shared/defaults'
-import { addPart, cardRounds, emptyPart, holdsFromHistory, mergeSpans, roundPart, sliceSession, subtractSpans, type CardCost, type CostPart, type LaneCost, type SessionSlice, type Span } from '../shared/cardCosts'
+import { addPart, cardRounds, emptyPart, holdsFromHistory, mergeSpans, roundPart, scalePart, sharedSpans, sliceSession, subtractSpans, type CardCost, type CostPart, type LaneCost, type SessionSlice, type Span } from '../shared/cardCosts'
 import type { TaskCard, TaskHold } from '../shared/types'
 
 /**
@@ -81,7 +81,24 @@ async function sessionReader(ws: WorkspaceService): Promise<(project: string) =>
   }
 }
 
-function costOf(card: TaskCard, p: AgentSessions | null, now: number): CardCost {
+/** Each agent's merged spans on each card of a project (by the project and the agent's name), for sharedSpans. */
+type HeldIndex = Map<string, Map<number, Span[]>>
+const heldKey = (project: string, name: string): string => `${project.toLowerCase()}|${name.toLowerCase()}`
+
+function heldIndex(cards: TaskCard[], now: number): HeldIndex {
+  const raw = new Map<string, Map<number, Span[]>>()
+  for (const c of cards) {
+    for (const h of holdsOfCard(c)) {
+      const byCard = raw.get(heldKey(c.project, h.name)) ?? new Map<number, Span[]>()
+      byCard.set(c.number, [...(byCard.get(c.number) ?? []), holdSpan(h, now)])
+      raw.set(heldKey(c.project, h.name), byCard)
+    }
+  }
+  for (const byCard of raw.values()) for (const [n, spans] of byCard) byCard.set(n, mergeSpans(spans))
+  return raw
+}
+
+function costOf(card: TaskCard, p: AgentSessions | null, now: number, index: HeldIndex): CardCost {
   const build = emptyPart()
   const review = emptyPart()
   let unmatched = 0
@@ -107,7 +124,9 @@ function costOf(card: TaskCard, p: AgentSessions | null, now: number): CardCost 
       }
       continue
     }
-    addPart(g.who.role === 'build' ? build : review, usedIn(list, spans))
+    // While the agent held other cards too, its usage is shared between them.
+    const others = [...(index.get(heldKey(card.project, g.who.name))?.entries() ?? [])].filter(([n]) => n !== card.number).map(([, s]) => s)
+    for (const [k, part] of sharedSpans(spans, others)) addPart(g.who.role === 'build' ? build : review, scalePart(usedIn(list, part), 1 / k))
   }
   return {
     number: card.number,
@@ -131,7 +150,9 @@ export async function cardCosts(ws: WorkspaceService, o: { numbers?: number[]; p
   return inWorkspace(ws, async () => {
     const now = Date.now()
     const want = o.numbers ? new Set(o.numbers) : null
-    const cards = (await allTasks(ws)).filter((c) => (want ? want.has(c.number) : !o.project || c.project.toLowerCase() === o.project.toLowerCase()))
+    const all = await allTasks(ws)
+    const cards = all.filter((c) => (want ? want.has(c.number) : !o.project || c.project.toLowerCase() === o.project.toLowerCase()))
+    const index = heldIndex(all, now)
     const read = await sessionReader(ws)
     const out: CardCost[] = []
     for (const c of cards) {
@@ -142,7 +163,7 @@ export async function cardCosts(ws: WorkspaceService, o: { numbers?: number[]; p
         const to = o.to ?? now
         if (!holds.some((h) => ms(h.from, now) < to && ms(h.to, now) >= from)) continue
       }
-      out.push(costOf(c, c.project ? await read(c.project) : null, now))
+      out.push(costOf(c, c.project ? await read(c.project) : null, now, index))
     }
     return out
   })

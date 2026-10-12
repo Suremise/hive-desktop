@@ -151,6 +151,32 @@ export function subtractSpans(spans: Span[], minus: Span[]): Span[] {
   return out
 }
 
+/**
+ * An agent's spans on one card, cut where its spans on its other cards begin and end, by how many cards it held then
+ * (this one and the others covering the piece): what it used while holding k cards is shared between them, 1/k each,
+ * so no usage counts twice. `others` is each other card's merged spans.
+ */
+export function sharedSpans(spans: Span[], others: Span[][]): Map<number, Span[]> {
+  const out = new Map<number, Span[]>()
+  for (const [a, b] of spans) {
+    const cuts = new Set([a, b])
+    for (const o of others) for (const [c, d] of o) for (const x of [c, d]) if (x > a && x < b) cuts.add(x)
+    const points = [...cuts].sort((x, y) => x - y)
+    for (let i = 0; i + 1 < points.length; i++) {
+      const [x, y] = [points[i], points[i + 1]]
+      const k = 1 + others.filter((o) => overlap(o, x, y) > 0).length
+      out.set(k, [...(out.get(k) ?? []), [x, y]])
+    }
+  }
+  for (const [k, v] of out) out.set(k, mergeSpans(v))
+  return out
+}
+
+/** A part's usage and cost times f (its share); how many parts were priced or not stays. */
+export function scalePart(p: CostPart, f: number): CostPart {
+  return { ...p, inputTokens: p.inputTokens * f, outputTokens: p.outputTokens * f, cacheWriteTokens: p.cacheWriteTokens * f, cacheReadTokens: p.cacheReadTokens * f, requests: p.requests * f, cost: p.cost * f }
+}
+
 /** How much of [a, b) the spans cover, in ms. */
 function overlap(spans: Span[], a: number, b: number): number {
   let n = 0

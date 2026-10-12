@@ -1,6 +1,6 @@
 // Cost per card and per lane (#602): who held a card when, and what their sessions used then.
 import { describe, expect, it } from 'vitest'
-import { cardCostLine as costLine, cardRounds, holdsFromHistory, holdsOf, mergeSpans, partCost, sliceSession, subtractSpans, trackHolds, type CardCost, type SessionSlice } from '../src/shared/cardCosts'
+import { cardCostLine as costLine, cardRounds, holdsFromHistory, holdsOf, mergeSpans, partCost, scalePart, sharedSpans, sliceSession, subtractSpans, trackHolds, type CardCost, type SessionSlice } from '../src/shared/cardCosts'
 import { MAX_ROWS, TimelineBuilder, readTimeline, secondOf, type UsageRow } from '../src/shared/usageTimeline'
 import { ClaudeUsageParser } from '../src/main/providers/claude/usage'
 import { parseRollout } from '../src/main/providers/codex/rollout'
@@ -114,6 +114,15 @@ describe('spans', () => {
     expect(mergeSpans([[5, 9], [1, 3], [2, 4], [9, 9]])).toEqual([[1, 4], [5, 9]])
     expect(subtractSpans([[0, 10]], [[2, 3], [5, 7]])).toEqual([[0, 2], [3, 5], [7, 10]])
     expect(subtractSpans([[0, 10]], [[0, 10]])).toEqual([])
+  })
+
+  it('shares time an agent held several cards between them', () => {
+    // Held 0–10; another card 4–6 and a third 5–20: 0–4 alone, 4–5 with one other, 5–6 with two, 6–10 with one.
+    const shared = sharedSpans([[0, 10]], [[[4, 6]], [[5, 20]]])
+    expect(Object.fromEntries(shared)).toEqual({ 1: [[0, 4]], 2: [[4, 5], [6, 10]], 3: [[5, 6]] })
+    expect(Object.fromEntries(sharedSpans([[0, 10]], []))).toEqual({ 1: [[0, 10]] })
+    const part = { inputTokens: 10, outputTokens: 4, cacheWriteTokens: 0, cacheReadTokens: 2, requests: 2, cost: 1, estimated: true, priced: 1, unpriced: 0 }
+    expect(scalePart(part, 0.5)).toEqual({ ...part, inputTokens: 5, outputTokens: 2, cacheReadTokens: 1, requests: 1, cost: 0.5 })
   })
 })
 

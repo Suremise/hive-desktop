@@ -461,7 +461,7 @@ Hive works out what each card cost from who held it when and what their sessions
 - **In Performance.** A **Cards** table lists the cards worked on in the range, with their cost, the builder's and reviewer's parts, their review rounds and when they were last held. Sort by any column (unknown costs go last); click a row to open the card. In a project's Performance tab, only that project's cards.
 - **On a lane.** In the Progress panel, hover a lane's top line (the pair and its count) for what the lane cost since it started, split into **on cards** and **overhead**: what its builder and reviewer used while holding no card, such as merging, watching for a verdict and compacting. It also says the cost per finished card.
 
-Time an agent spends between cards, such as reading a card it was just woken for before taking it, is overhead, not the card's. Copilot reports its tokens only when a session ends, so Hive spreads them over that session's requests: a Copilot card's tokens are approximate (its cost comes from Copilot's own charges). Cards worked on before Hive kept this have it worked out from their history, by the agents' names.
+Time an agent spends between cards, such as reading a card it was just woken for before taking it, is overhead, not the card's. While an agent holds several cards at once, what it uses then is shared between them equally. Copilot reports its tokens only when a session ends, so Hive spreads them over that session's requests: a Copilot card's tokens are approximate (its cost comes from Copilot's own charges). Cards worked on before Hive kept this have it worked out from their history, by the agents' names.
 
 ### Comparing before and after
 
