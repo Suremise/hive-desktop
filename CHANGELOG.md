@@ -1,6 +1,7 @@
 # Release Notes
 
 ## Unreleased
+- **More of what a CLI update can break is in Settings → Advanced**: how Hive tells a safety classifier stopped an agent's response (Claude Code's transcript note and its question about switching models), what Claude Code's and Codex's screens show once a turn is done or while one runs, Codex's hint that it queues what you type, and the labels of Codex's `/permissions` menu.
 
 ### Messages
 - **Messages to agents are kept, and you can see where they got to.** What the Assistant leaves an agent (`hive_message_agent`) is now a saved delivery with an id: it survives the agent stopping and Hive restarting, and its state goes from waiting to typed, **received** (the agent read it with its new inbox, `hive_inbox`) and **acked** (the agent says it acted on it). The pane shows **✉ 1 unread** until the agent has it, and **✉ 1 overdue** when it hasn't acked one within 30 minutes; the Assistant sees each one's state and times in the agent's activity. A message still waiting when the Assistant that left it stops, or Hive restarts, is refused rather than sent later, and the Assistant's activity list says so.

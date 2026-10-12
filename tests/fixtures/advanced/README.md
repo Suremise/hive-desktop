@@ -11,6 +11,8 @@ What the CLIs really show, for the unit tests (`tests/advanced*.test.ts`) that c
 | `signin-error-copilot-1.0.95.txt` | GitHub Copilot CLI 1.0.95 | After one prompt (`say hi`) when the model API answers 401 |
 | `signin-error-copilot-1.0.95.jsonl` | GitHub Copilot CLI 1.0.95 | The `session.error` record that turn wrote to `session-state/*/events.jsonl` |
 | `statusline-claude-2.1.296.json` | Claude Code 2.1.296 | One status line command's input, with the plan limits (`rate_limits.five_hour`, `rate_limits.seven_day`) |
+| `safeguards-claude-2.1.296.jsonl` | Claude Code 2.1.296 | Its transcript entries for a safeguard stop (#606): the system note and the notice for the model, as HB3's session wrote them on 11 Oct (content cut down) |
+| `safeguard-prompt-claude-2.1.296.txt` | Claude Code 2.1.296 | Its question after a safeguard stop ("Model switch", with the choices `1. Switch automatically` and `2. Stay on Opus 5.5`), as HB3's screen showed it (#606) |
 | `mcp-list-codex-0.162.1.json` | Codex 0.162.1 | `codex -c 'mcp_servers.hive={command="node",args=["x.js"],tool_timeout_sec=900}' mcp list --json` in the Codex test home: Codex reads Hive's timeout for the hive tools (only the hive entry kept) |
 
 How they were recorded (12 Oct 2026), each in a new empty folder, with an environment built from an allowlist (no inherited variables). The screens used no sign-in and sent nothing to a real model; the status line is the one exception, below.
@@ -19,6 +21,7 @@ How they were recorded (12 Oct 2026), each in a new empty folder, with an enviro
 - Codex: the Codex test home (`CODEX_HOME`, `lib.cjs`), in a new `git init` folder it didn't trust (Codex asks only in a Git repository); ended at the question, unanswered, so its `config.toml` was not changed.
 - Copilot: offline (`COPILOT_OFFLINE=true`, `COPILOT_PROVIDER_BASE_URL`, `COPILOT_MODEL=gpt-4.1`) against the stand-in model API (`tests/e2e/fake-copilot-api.cjs`), with `copilotTestEnv()`'s own home, profile and empty `GH_CONFIG_DIR`, `gh` off PATH. The sign-in error used a stand-in of the probe's own that answers every request with 401 and a JSON error body; Copilot reports it as `errorType: "authentication"` (`statusCode: 401`).
 - Claude Code status line: the signed-in Claude Code test home (`CLAUDE_TEST_HOME`, `lib.cjs`; no API key), `claude --model haiku --settings <file>` whose `statusLine` command dumped its input, one prompt (`say ok`), then `/exit`. Paths are replaced with `C:\work\alpha` (and `C:\work\transcript.jsonl`, `C:\work\scratchpad`), the session and prompt ids with `00000000-0000-4000-8000-00000000000n`.
+- Safeguard stops (#685), the exceptions to the date and the folders: Claude Code's entries and question are #606's, recorded from HB3's real session on 11 Oct (they were in `tests/safeguards.test.ts`, which now reads the question from here). Claude Code's records of a flagged request and Codex's safeguard events have no real recording yet (#697): a name in a CLI's binary isn't one.
 
 Record them again when a CLI's screen changes, named with the new version, and point the tests at them.
 
