@@ -17,7 +17,7 @@ import { allProviders } from './providers'
 import { providerService } from './providerService'
 import { config } from './config'
 import { clearRecent, recentChanged, recentFor, removeRecent } from './recentWorkspaces'
-import { emit, emitTo } from './events'
+import { emit, emitTo, onHiveEvent } from './events'
 import { setPinned } from './pin'
 import { presentWindow } from './testQuiet'
 import { insideArchive, insideReal, isFile, samePlace, writeTextAtomic, writeTextUnlessChanged } from './fsutil'
@@ -80,8 +80,27 @@ import { benchContext, importBenchmark, keepReport, listBenchmarks, pinBenchmark
 
 /** The window an IPC call came from, for calls that keep something per window (the developer console's subscription). */
 const senderStore = new AsyncLocalStorage<WebContents>()
-/** Windows subscribed to the developer console, each ending its subscription when it closes. */
-const consoleWindows = new Set<string>()
+/**
+ * Windows subscribed to the developer console, each with the workspace (lower case) it subscribed in: a subscription ends
+ * when its window closes or leaves that workspace (#637), so no capture outlives the workspace it was for.
+ */
+const consoleWindows = new Map<string, { wc: WebContents; workspace: string }>()
+/** Pages whose subscription already ends when they close. */
+const consolePages = new WeakSet<WebContents>()
+const consoleWorkspace = (wc: WebContents): string => ((windowOf(wc) ?? consoleOwner(wc))?.ws.path ?? '').toLowerCase()
+onHiveEvent((e) => {
+  if (e.type !== 'workspace-changed') return
+  for (const [id, sub] of consoleWindows) {
+    if (!sub.wc.isDestroyed() && consoleWorkspace(sub.wc) === sub.workspace) continue
+    consoleWindows.delete(id)
+    devConsole.unsubscribe(id)
+  }
+})
+/** Whether this window's workspace may read a console source (its own agents, its Assistant and Hive there). */
+const windowMayRead = (source: string): boolean => {
+  const ws = currentWorkspace().path
+  return !!ws && mayRead({ kind: 'assistant', workspace: ws }, source, (p) => workspaceFor(p)?.path ?? null)
+}
 
 /** The instruction files of the given providers in a project, with their content. */
 async function projectInstructions(project: string, ids: ProviderId[]): Promise<InstructionsFile[]> {
@@ -837,16 +856,17 @@ export function registerIpc(getAppInfo: () => ReturnType<HiveRequests['app:info'
     'console:subscribe': (sources, opts) => {
       const wc = senderStore.getStore()
       if (!wc) throw new Error('Not allowed')
-      const ws = currentWorkspace().path
       if (!Array.isArray(sources)) throw new Error('sources must be a list')
-      const ids = sources.filter((s): s is string => typeof s === 'string' && !!ws && mayRead({ kind: 'assistant', workspace: ws }, s, (p) => workspaceFor(p)?.path ?? null))
+      const ids = sources.filter((s): s is string => typeof s === 'string' && windowMayRead(s))
       const id = `window:${wc.id}`
       if (!ids.length) {
+        consoleWindows.delete(id)
         devConsole.unsubscribe(id)
         return {}
       }
-      if (!consoleWindows.has(id)) {
-        consoleWindows.add(id)
+      consoleWindows.set(id, { wc, workspace: consoleWorkspace(wc) })
+      if (!consolePages.has(wc)) {
+        consolePages.add(wc)
         wc.once('destroyed', () => {
           consoleWindows.delete(id)
           devConsole.unsubscribe(id)
@@ -859,7 +879,8 @@ export function registerIpc(getAppInfo: () => ReturnType<HiveRequests['app:info'
     },
     'console:snapshot': (source, since) => {
       const wc = senderStore.getStore()
-      if (!wc || !devConsole.sourcesOf(`window:${wc.id}`).includes(String(source))) return []
+      // Only what this window watches, and may read in the workspace it shows now.
+      if (!wc || !windowMayRead(String(source)) || !devConsole.sourcesOf(`window:${wc.id}`).includes(String(source))) return []
       return devConsole.events(String(source), Number(since) || 0)
     },
     'personas:list': () => personas.listPersonas(),

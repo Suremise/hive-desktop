@@ -43,6 +43,10 @@ export function ConsoleApp() {
   const searchRef = useRef<HTMLInputElement>(null)
   const eventsRef = useRef(events)
   eventsRef.current = events
+  // The newest event received for the source, shown or held while paused: Clear hides everything up to it.
+  const latestRef = useRef(0)
+  // Clear's boundary: events at or before it never come back (a resume's snapshot included).
+  const clearedRef = useRef(0)
 
   useEffect(() => {
     let settings: AppSettings | null = null
@@ -58,9 +62,10 @@ export function ConsoleApp() {
         settings = e.settings
         applyTheme(e.settings)
       } else if (e.type === 'console-events') {
-        const mine = e.events.filter((x) => x.source === sourceRef.current)
+        const mine = e.events.filter((x) => x.source === sourceRef.current && x.seq > clearedRef.current)
         if (e.dropped) setDropped((n) => n + e.dropped!)
         if (!mine.length) return
+        latestRef.current = Math.max(latestRef.current, ...mine.map((x) => x.seq))
         if (pausedRef.current) setWaiting((n) => n + mine.length)
         else setEvents((list) => mergeEvents(list, mine))
       }
@@ -95,6 +100,8 @@ export function ConsoleApp() {
     setWaiting(0)
     setDropped(0)
     setAfterSeq(0)
+    latestRef.current = 0
+    clearedRef.current = 0
     stick.current = true
     if (!source) {
       void call('console:subscribe', []).catch(() => undefined)
@@ -104,7 +111,9 @@ export function ConsoleApp() {
     call('console:subscribe', [source]).then(
       (got) => {
         if (stale) return
-        setEvents((list) => mergeEvents(list, got[source] ?? []))
+        const first = got[source] ?? []
+        if (first.length) latestRef.current = Math.max(latestRef.current, first[first.length - 1].seq)
+        setEvents((list) => mergeEvents(list, first))
         loadSources()
       },
       (e) => !stale && setError(errorMessage(e))
@@ -123,7 +132,12 @@ export function ConsoleApp() {
     // What came while paused is still in the source's ring.
     const list = eventsRef.current
     const since = list.length ? list[list.length - 1].seq : 0
-    void call('console:snapshot', from, since).then((got) => sourceRef.current === from && setEvents((l) => mergeEvents(l, got)))
+    void call('console:snapshot', from, Math.max(since, clearedRef.current)).then((got) => {
+      if (sourceRef.current !== from) return
+      const kept = got.filter((x) => x.seq > clearedRef.current)
+      if (kept.length) latestRef.current = Math.max(latestRef.current, kept[kept.length - 1].seq)
+      setEvents((l) => mergeEvents(l, kept))
+    })
   }, [])
 
   const pause = useCallback(() => {
@@ -131,9 +145,14 @@ export function ConsoleApp() {
     setPaused(true)
   }, [])
 
+  // Clear empties the list through the newest event received, held ones too: only what comes after shows.
   const clear = useCallback(() => {
     const list = eventsRef.current
-    if (list.length) setAfterSeq(list[list.length - 1].seq)
+    const upTo = Math.max(latestRef.current, list.length ? list[list.length - 1].seq : 0)
+    clearedRef.current = upTo
+    setAfterSeq(upTo)
+    setEvents([])
+    setWaiting(0)
     setPicked(null)
     setDropped(0)
   }, [])
@@ -191,7 +210,7 @@ export function ConsoleApp() {
           {!source ? 'Not watching' : paused ? `Paused${waiting ? ` (${waiting} new)` : ''}` : 'Live'}
         </span>
         <IconButton icon={paused ? 'debug-start' : 'debug-pause'} title={paused ? 'Resume' : 'Pause'} onClick={paused ? resume : pause} disabled={!source} className="dc-pause" />
-        <IconButton icon="clear-all" title="Clear" onClick={clear} disabled={!events.length} className="dc-clear" />
+        <IconButton icon="clear-all" title="Clear" onClick={clear} disabled={!events.length && !waiting} className="dc-clear" />
         <span className="dc-sep" />
         <div className="dc-search">
           <Icon name="search" />
@@ -229,7 +248,7 @@ export function ConsoleApp() {
           {!source && <div className="dc-empty">Pick a source to watch. Hive captures a source only while this window watches it, and what it captures is redacted: no prompt or reply text, commands, tokens or sign-in details.</div>}
           {source && !shown.length && <div className="dc-empty">{events.length ? 'No events match.' : 'Waiting for events…'}</div>}
           {shown.map((e) => (
-            <div key={e.seq} role="listitem" className={cx('dc-row', picked === e.seq && 'picked')} data-kind={e.kind} onClick={() => setPicked(picked === e.seq ? null : e.seq)}>
+            <div key={e.seq} role="listitem" className={cx('dc-row', picked === e.seq && 'picked')} data-kind={e.kind} data-seq={e.seq} onClick={() => setPicked(picked === e.seq ? null : e.seq)}>
               <span className="dc-time">{clockTime(e.at)}</span>
               <span className="dc-kind-tag">{e.kind}</span>
               <span className="dc-name">{e.name}</span>

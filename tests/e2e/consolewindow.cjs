@@ -3,7 +3,9 @@
 // of its own, whose page calls only the console's channels; picking a source shows a fake Claude Code's launch and hooks
 // live, each event's raw payload beside what Hive made of it; event type, provider and search filter the list; pause
 // holds it (new events counted) and resume fills it in; clear empties it; the shortcut brings the open window forward;
-// it remembers its size; closing it ends capture; and turning the setting off closes it.
+// it remembers its size; closing it ends capture; Clear while paused drops what was held for good; a console belongs to
+// its window's workspace (switching or closing it there closes the console and ends its capture, another window's
+// console carrying on); and turning the setting off closes it.
 // Fake Claude Code; dev build, throwaway profile, workspace and CLAUDE_CONFIG_DIR.
 const lib = require('./lib.cjs')
 const { _electron } = require('playwright-core')
@@ -16,6 +18,9 @@ const userData = path.join(lib.WORK, 'consolewindow-profile')
 const ws = path.join(lib.WORK, 'consolewindow-ws')
 const claudeHome = path.join(lib.WORK, 'consolewindow-claude-home')
 const alpha = path.join(ws, 'alpha')
+// Two more workspaces: one for a second window, one the first window switches to.
+const ws2 = path.join(lib.WORK, 'consolewindow-ws2')
+const ws3 = path.join(lib.WORK, 'consolewindow-ws3')
 const PORT = Number(lib.port(47872))
 // What the prompt says that must never reach the window.
 const PRIVATE = 'walrus-lantern-pebble'
@@ -26,8 +31,10 @@ const check = (name, ok, extra = '') => {
 }
 
 ;(async () => {
-  for (const d of [userData, ws]) fs.rmSync(d, { recursive: true, force: true })
+  for (const d of [userData, ws, ws2, ws3]) fs.rmSync(d, { recursive: true, force: true })
   lib.gitProject(alpha)
+  lib.gitProject(path.join(ws2, 'beta'))
+  lib.gitProject(path.join(ws3, 'gamma'))
   const claudeEnv = lib.fakeClaude(userData, claudeHome, [alpha, ws])
   const cfgFile = path.join(userData, 'config.json')
   const cfg = JSON.parse(fs.readFileSync(cfgFile, 'utf8'))
@@ -113,7 +120,7 @@ const check = (name, ok, extra = '') => {
 
     // --- B1's launch and hooks arrive, each with what Hive made of it.
     await inv('session:start', alpha, { agentId: b1.id })
-    const rows = () => dc.locator('.dc-row').evaluateAll((els) => els.map((e) => ({ kind: e.dataset.kind, name: e.querySelector('.dc-name').textContent, summary: e.querySelector('.dc-summary').textContent })))
+    const rows = () => dc.locator('.dc-row').evaluateAll((els) => els.map((e) => ({ seq: Number(e.dataset.seq), kind: e.dataset.kind, name: e.querySelector('.dc-name').textContent, summary: e.querySelector('.dc-summary').textContent })))
     const row = (pred) => lib.until(async () => (await rows()).find(pred), HUNG_MS)
     check('its launch shows', !!(await row((r) => r.kind === 'launch')))
     const start = await row((r) => r.name === 'SessionStart')
@@ -165,6 +172,30 @@ const check = (name, ok, extra = '') => {
     const cleared = await lib.until(async () => ((await rows()).some((r) => r.name === 'UserPromptSubmit' || r.kind === 'launch') ? null : await rows()), HUNG_MS)
     check('clear empties the list', !!cleared && (await dc.locator('.dc-status').textContent()).includes('(cleared)'), JSON.stringify(cleared))
 
+    // --- Clear while paused: a whole turn held back goes too, resume brings none of it back, and what comes after shows.
+    await dc.locator('.dc-pause').click()
+    await lib.until(async () => (await dc.locator('.dc-live').textContent()).includes('Paused'), HUNG_MS)
+    const lastShown = Math.max(0, ...(await rows()).map((r) => r.seq))
+    await lib.sendPrompt(inv, key, 'edit a.ts', { submitted: async () => /\(\d+ new\)/.test(await dc.locator('.dc-live').textContent()) })
+    await lib.until(async () => (await inv('session:live')).find((s) => s.agentId === b1.id)?.status === 'ready', HUNG_MS)
+    const ring = () => dc.evaluate((src) => window.hive.invoke('console:snapshot', src, 0), b1Option)
+    const heldTurn = await lib.until(async () => {
+      const r = (await ring()).filter((e) => e.seq > lastShown)
+      return r.some((e) => e.name === 'Stop') ? r : null
+    }, HUNG_MS)
+    const waitingNow = async () => Number((await dc.locator('.dc-live').textContent()).match(/\((\d+) new\)/)?.[1] ?? 0)
+    await lib.until(async () => (await waitingNow()) >= heldTurn.length, HUNG_MS)
+    await dc.locator('.dc-clear').click()
+    await lib.until(async () => (await rows()).length === 0 && (await waitingNow()) === 0, HUNG_MS)
+    check('clear while paused empties the list and what it held', (await rows()).length === 0 && (await dc.locator('.dc-live').textContent()).trim() === 'Paused', await dc.locator('.dc-live').textContent())
+    await dc.locator('.dc-pause').click()
+    await lib.sendPrompt(inv, key, 'work 1', { submitted: async () => (await rows()).some((r) => r.name === 'UserPromptSubmit') })
+    await row((r) => r.name === 'Stop')
+    const heldMax = Math.max(...heldTurn.map((e) => e.seq))
+    const afterClear = await rows()
+    check('…resume brings none of the cleared turn back; the next turn shows', afterClear.filter((r) => r.name === 'UserPromptSubmit').length === 1 && afterClear.filter((r) => r.name === 'Stop').length === 1 && afterClear.every((r) => r.seq > heldMax), JSON.stringify(afterClear))
+    await lib.until(async () => (await inv('session:live')).find((s) => s.agentId === b1.id)?.status === 'ready', HUNG_MS)
+
     // --- Size remembered; the shortcut brings the open window forward rather than opening another.
     await app.evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows().find((w) => w.getTitle().startsWith('Developer Console'))?.setSize(900, 600))
     const saved = await lib.until(async () => {
@@ -185,7 +216,66 @@ const check = (name, ok, extra = '') => {
     const size = await lib.until(() => app.evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows().find((w) => w.getTitle().startsWith('Developer Console'))?.getSize() ?? null), HUNG_MS)
     check('the shortcut opens it again, at its remembered size', !!again && size?.[0] === 900 && size[1] === 600, JSON.stringify(size))
 
+    // --- A console belongs to its window's workspace: opening another workspace in that window, or closing it, closes the
+    // console and ends its capture, while another window's console carries on.
+    await again.locator('.dc-source').selectOption(b1Option)
+    await lib.until(async () => (await inv('console:sources')).find((s) => s.agentId === b1.id)?.capturing, HUNG_MS)
+    const nextWindow = app.waitForEvent('window')
+    await inv('window:new')
+    const page2 = await nextWindow
+    page2.on('pageerror', (e) => check('no page errors (second window)', false, e.message))
+    await lib.appReady(page2)
+    const inv2 = (ch, ...a) => page2.evaluate(([c, x]) => window.hive.invoke(c, ...x), [ch, a])
+    await lib.openWorkspace(inv2, page2, ws2)
+    await inv2('console:open')
+    // The console showing a workspace's sources, by its folder's name.
+    const consoleOn = (name) =>
+      lib.until(async () => {
+        for (const c of consoles()) {
+          const list = await c.evaluate(() => window.hive.invoke('console:sources')).catch(() => null)
+          if (list?.length && list.every((x) => x.workspacePath.toLowerCase().endsWith(name))) return c
+        }
+        return null
+      }, HUNG_MS)
+    const dc2 = await consoleOn('consolewindow-ws2')
+    const hive2 = (await inv2('console:sources')).find((x) => x.kind === 'hive')
+    await lib.until(async () => (await dc2.locator('.dc-source option').evaluateAll((els) => els.map((e) => e.value))).includes(hive2.id), HUNG_MS)
+    await dc2.locator('.dc-source').selectOption(hive2.id)
+    const hive2Live = async () => !!(await inv2('console:sources')).find((x) => x.kind === 'hive')?.capturing && (await dc2.locator('.dc-live').textContent()).includes('Live')
+    await lib.until(hive2Live, HUNG_MS)
+    check("a second window's console watches its own workspace", await hive2Live())
+
+    await inv('session:stop', alpha, b1.id)
+    await lib.until(async () => (await inv('session:live')).find((s) => s.agentId === b1.id)?.status !== 'ready', HUNG_MS)
+    await lib.openWorkspace(inv, page, ws3)
+    await lib.until(() => !consoles().includes(again), HUNG_MS)
+    check('another workspace opened in its window closes its console', !consoles().includes(again))
+    check("…and the other window's console carries on", consoles().includes(dc2) && (await hive2Live()))
+    await inv('console:open')
+    const dc3 = await consoleOn('consolewindow-ws3')
+    const ws3Sources = await dc3.evaluate(() => window.hive.invoke('console:sources'))
+    check('opened again, it shows the new workspace only', ws3Sources.every((x) => x.workspacePath.toLowerCase().endsWith('consolewindow-ws3')), JSON.stringify(ws3Sources.map((x) => x.id)))
+    const oldWatch = await dc3.evaluate((id) => window.hive.invoke('console:subscribe', [id]), b1Option)
+    const oldRead = await dc3.evaluate((id) => window.hive.invoke('console:snapshot', id, 0), b1Option)
+    check("…and can't watch or read the old workspace's sources", JSON.stringify(oldWatch) === '{}' && oldRead.length === 0, `${JSON.stringify(oldWatch)} ${oldRead.length}`)
+    const hive3 = ws3Sources.find((x) => x.kind === 'hive')
+    await dc3.locator('.dc-source').selectOption(hive3.id)
+    await lib.until(async () => (await inv('console:sources')).find((x) => x.kind === 'hive')?.capturing, HUNG_MS)
+    await inv('workspace:close')
+    await lib.until(() => !consoles().includes(dc3), HUNG_MS)
+    check('closing the workspace closes its console', !consoles().includes(dc3))
+    check("…the other window's still carrying on", await hive2Live())
+    await lib.openWorkspace(inv, page, ws)
+    const back = await inv('console:sources')
+    check('back in the first workspace, nothing of the old watch is captured or kept', back.length > 0 && back.every((x) => !x.capturing && x.events === 0), JSON.stringify(back))
+    // The window closes under its own call: its answer never comes.
+    await inv2('window:close').catch(() => undefined)
+    await lib.until(() => !consoles().includes(dc2), HUNG_MS)
+    check('a console closes with its window', !consoles().includes(dc2))
+
     // --- Turning the setting off closes it and hides it again.
+    await inv('console:open')
+    await lib.until(() => consoles().length === 1, HUNG_MS)
     await inv('settings:update', { advanced: { showDeveloperFeatures: false } })
     await lib.until(() => consoles().length === 0, HUNG_MS)
     check('turning developer features off closes the console', consoles().length === 0)

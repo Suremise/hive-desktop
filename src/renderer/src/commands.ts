@@ -409,7 +409,7 @@ export const commands: Command[] = [
   { id: 'view.fullScreen', label: 'Toggle Full Screen', category: 'View', keybinding: 'F11', run: () => call('window:toggleFullScreen') },
   { id: 'view.alwaysOnTop', label: 'Always on Top', category: 'View', keybinding: 'Mod+Alt+O', checked: () => get().alwaysOnTop, run: () => toggleAlwaysOnTop() },
   { id: 'view.devTools', label: 'Toggle Developer Tools', category: 'Developer', keybinding: 'Mod+Shift+I', run: () => call('window:toggleDevTools') },
-  { id: 'help.devConsole', label: 'Developer Console', category: 'Developer', keybinding: 'Mod+Alt+J', hidden: () => !get().settings?.advanced.showDeveloperFeatures, tip: () => 'What each CLI sends Hive, next to what Hive made of it, in a window of its own', run: () => call('console:open') },
+  { id: 'help.devConsole', label: 'Developer Console', category: 'Developer', keybinding: 'Mod+Alt+J', when: hasWorkspace, hidden: () => !get().settings?.advanced.showDeveloperFeatures, tip: () => 'What each CLI sends Hive, next to what Hive made of it, in a window of its own', run: () => call('console:open') },
   { id: 'view.reload', label: 'Reload Window', category: 'Developer', run: () => void actions.saveUnsavedFirst('reload the window').then((ok) => ok && location.reload()) },
   { id: 'notes.open', label: 'Open Shared Note', category: 'Notes', internal: true, run: (path: string) => { showView('notes'); set({ selectedNote: path }) } },
   { id: 'mcp.import', label: 'Copy Project MCP Servers to Workspace', category: 'MCP', internal: true, run: (path: string, names: string[]) => actions.importProjectMcp(path, names) },

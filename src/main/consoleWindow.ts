@@ -2,19 +2,38 @@ import { basename, join } from 'path'
 import { app, BrowserWindow, nativeTheme, screen, shell, type WebContents } from 'electron'
 import type { HiveEvent, WindowState } from '../shared/types'
 import { config } from './config'
+import { onHiveEvent } from './events'
 import { keepOffScreen, offScreenOrigin, testQuiet } from './testQuiet'
 import { resourcesDir } from './tray'
 import type { HiveWindow } from './windows'
 
 /**
  * The developer console's window (#366, #637): its own window like Chrome DevTools, so it can go on a second screen, one
- * per Hive window and on that window's workspace. It calls only the console's channels (ipc.ts), closes with the window
- * that opened it, and remembers its size and position.
+ * per Hive window and on the workspace that window showed when it opened. It calls only the console's channels (ipc.ts),
+ * closes with the window that opened it or when that window leaves its workspace (another opens in it, or it closes), and
+ * remembers its size and position.
  */
 
 const consoles = new Map<HiveWindow, BrowserWindow>()
 /** A console window's page → the Hive window it belongs to. */
 const owners = new Map<number, HiveWindow>()
+/** Each console's workspace (lower case): the one its owner showed when it opened. */
+const workspaces = new Map<BrowserWindow, string>()
+
+const workspaceKey = (path: string | null | undefined): string => (path ?? '').toLowerCase()
+
+let following = false
+/** Closes a console whose owner no longer shows its workspace: its capture and its list end with it. */
+function followWorkspaces(): void {
+  if (following) return
+  following = true
+  onHiveEvent((e) => {
+    if (e.type !== 'workspace-changed') return
+    for (const [owner, win] of consoles) {
+      if (!win.isDestroyed() && workspaceKey(owner.ws.path) !== workspaces.get(win)) win.destroy()
+    }
+  })
+}
 
 const DEFAULT_BOUNDS: WindowState = { width: 1100, height: 720, maximized: false }
 
@@ -42,8 +61,10 @@ function visible(b: WindowState): boolean {
   return screen.getAllDisplays().some(({ workArea: a }) => b.x! >= a.x - 50 && b.y! >= a.y - 50 && b.x! < a.x + a.width && b.y! < a.y + a.height)
 }
 
-/** Opens the Hive window's console, or brings it forward when it is open. */
+/** Opens the Hive window's console on its workspace, or brings it forward when it is open. */
 export function openConsoleWindow(owner: HiveWindow): BrowserWindow {
+  if (!owner.ws.path) throw new Error("Open a workspace first: the developer console shows a workspace's agents and Hive's work there.")
+  followWorkspaces()
   const open = consoleWindowOf(owner)
   if (open) {
     if (open.isMinimized()) open.restore()
@@ -83,8 +104,10 @@ export function openConsoleWindow(owner: HiveWindow): BrowserWindow {
   const id = win.webContents.id
   consoles.set(owner, win)
   owners.set(id, owner)
+  workspaces.set(win, workspaceKey(owner.ws.path))
   win.on('closed', () => {
     owners.delete(id)
+    workspaces.delete(win)
     if (consoles.get(owner) === win) consoles.delete(owner)
   })
   // It goes with the window that opened it.
