@@ -37,8 +37,8 @@ function followWorkspaces(): void {
 
 const DEFAULT_BOUNDS: WindowState = { width: 1100, height: 720, maximized: false }
 
-/** The IPC channels a console window may call: its sources and subscription, and the settings for its theme. */
-export const CONSOLE_WINDOW_CHANNELS: ReadonlySet<string> = new Set(['console:sources', 'console:subscribe', 'console:snapshot', 'settings:get'])
+/** The IPC channels a console window may call: its sources, subscription and recording, and the settings for its theme. */
+export const CONSOLE_WINDOW_CHANNELS: ReadonlySet<string> = new Set(['console:sources', 'console:subscribe', 'console:snapshot', 'console:record', 'console:stopRecording', 'console:recordings', 'console:showRecording', 'settings:get'])
 
 /** The Hive window a console window's page belongs to. */
 export function consoleOwner(sender: WebContents): HiveWindow | null {

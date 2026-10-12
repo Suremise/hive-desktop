@@ -11,7 +11,10 @@ import { tempDir } from './tempDir'
 // What the test started that is still running: stopped by its command line (it names the test's folder) and start,
 // never by a pid remembered from earlier, which Windows may have given another process since: under load that could
 // be a concurrent run's Vitest worker (#547: a likely cause of one exiting with code 1, not reproduced).
-const { stopProcessesIn } = createRequire(import.meta.url)('./e2e/folderProcesses.cjs') as { stopProcessesIn: (folder: string, since?: number) => number }
+const { stopProcessesIn, endExactly } = createRequire(import.meta.url)('./e2e/folderProcesses.cjs') as {
+  stopProcessesIn: (folder: string, since?: number) => number
+  endExactly: (targets: { pid: number; started: number }[]) => number
+}
 
 const events: unknown[] = []
 vi.mock('../src/main/events', () => ({ emit: (e: unknown) => events.push(e) }))
@@ -52,6 +55,21 @@ const alive = (pid: number): boolean => {
     return false
   }
 }
+
+// Each test ends what it leaves running (#675), so the afterAll's sweep, for what a failed test left, usually finds
+// nothing: one process listing rather than three PowerShell calls (list, end, list again), which under heavy load
+// took most of its 30 s bound.
+/** Ends a process the test started and still holds: while it runs, Node holds its handle, so its pid is still its own. */
+async function endHeld(p: ChildProcess): Promise<void> {
+  if (p.exitCode !== null || p.signalCode !== null) return
+  const exited = new Promise((r) => p.once('exit', r))
+  p.kill()
+  await exited
+}
+
+/** Ends processes as the tracker identified them (pid and creation time), never by a pid alone: endExactly's identities. */
+const endListed = (processes: { pid: number; created?: string }[]): number =>
+  endExactly(processes.filter((p) => p.created).map((p) => ({ pid: p.pid, started: Number(BigInt(p.created!) / 10000n - 11644473600000n) })))
 
 async function until(fn: () => boolean, ms: number): Promise<boolean> {
   const end = Date.now() + ms
@@ -122,7 +140,8 @@ else {
     const { launchEnded, leftoversOf, settleLeftovers } = await import('../src/main/agentProcesses')
     // Started by someone else, in the same folder, at the same time: never the launch's.
     const other = join(dir, 'other.txt')
-    spawn(process.execPath, [script, 'stranger', other], { detached: true, stdio: 'ignore', windowsHide: true }).unref()
+    const strangerProc = spawn(process.execPath, [script, 'stranger', other], { detached: true, stdio: 'ignore', windowsHide: true })
+    strangerProc.unref()
     expect(await until(() => !!pidsIn(other).stranger, 10000)).toBe(true)
     const stranger = pidsIn(other).stranger
 
@@ -143,6 +162,7 @@ else {
     // Another agent's call, or the same again, ends nothing more.
     expect(await settleLeftovers(dir, 'a2', 'end')).toBe(0)
     expect(await settleLeftovers(dir, 'a1', 'end')).toBe(0)
+    await endHeld(strangerProc)
   }, 60000)
 
   it('keeps them running when asked, and stops listing them', async () => {
@@ -150,10 +170,12 @@ else {
     const out = join(dir, 'run2.txt')
     await launch('run2', out)
     const { child, grandchild } = pidsIn(out)
-    expect((await launchEnded('run2'))?.processes).toHaveLength(2)
+    const listed = (await launchEnded('run2'))?.processes ?? []
+    expect(listed).toHaveLength(2)
     expect(await settleLeftovers(dir, 'a1', 'keep')).toBe(2)
     expect(leftoversOf(dir, 'a1').processes).toHaveLength(0)
     expect(alive(child) && alive(grandchild)).toBe(true)
+    expect(endListed(listed)).toBe(2)
   }, 60000)
 
   it("keeps listing what it couldn't end, says so, and ends it when tried again", async () => {
@@ -380,7 +402,8 @@ $r | ConvertTo-Json -Compress
 
     // Someone else's process, which a kept record names by its pid with another start time: as if the pid were reused.
     const other = join(dir, 'other7.txt')
-    spawn(process.execPath, [script, 'stranger', other], { detached: true, stdio: 'ignore', windowsHide: true }).unref()
+    const strangerProc = spawn(process.execPath, [script, 'stranger', other], { detached: true, stdio: 'ignore', windowsHide: true })
+    strangerProc.unref()
     expect(await until(() => !!pidsIn(other).stranger, 10000)).toBe(true)
     const stranger = pidsIn(other).stranger
     saved.launches[0].processes.push({ pid: stranger, name: 'node.exe', label: 'node old.js', created: '116444736000000000' })
@@ -426,5 +449,6 @@ $r | ConvertTo-Json -Compress
     expect(after.leftoversOf(dir, 'a7').processes).toHaveLength(0)
     expect(await keptNow()).toEqual([])
     after.closeProcessTracking()
+    await endHeld(strangerProc)
   }, 90000)
 })

@@ -65,6 +65,7 @@ export const SUITES = [
   { name: 'compact', needs: ['claude'], claudeHome: 'own' },
   { name: 'consolewindow' },
   { name: 'context' },
+  { name: 'contract-copilot', needs: ['copilot'] },
   { name: 'contrast' },
   { name: 'copilot', needs: ['copilot'] },
   { name: 'copilotsize', needs: ['copilot'] },

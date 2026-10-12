@@ -16,6 +16,7 @@
     "dev": "electron-vite dev",
     "build": "npm run typecheck && npm run lint && npm run licenses && electron-vite build",
     "bundled-history": "node scripts/bundled-history.mjs",
+    "console-fixture": "node scripts/consoleFixture.mjs",
     "scenarios": "node tests/scenarios/run.mjs",
     "licenses": "node scripts/licenses.mjs",
     "preview": "electron-vite preview",

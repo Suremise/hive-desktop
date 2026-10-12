@@ -9,7 +9,7 @@ import type { KeepAwakeSetting } from './keepAwake'
 import type { DateFormat, TimeFormat } from './dates'
 import type { ProjectPref } from './uiPrefs'
 import type { GitTool } from './gitTool'
-import type { ConsoleEvent } from './devConsole'
+import type { ConsoleEvent, ConsoleRecordingInfo } from './devConsole'
 import type { SafeguardNote, ScreenStop } from './safeguards'
 import type { AgentLeftovers, LeftoverProcessMode } from './agentProcesses'
 import type { UsageTimeline } from './usageTimeline'
@@ -2100,6 +2100,8 @@ export type HiveEvent =
   /** A workspace's lanes changed, or one of their cards did (the lanes it lists, as lanes:list gives them). */
   | { type: 'lanes-changed'; workspacePath: string; lanes: LaneInfo[] }
   /** The developer console's new events for the sources this window watches (#636): sent to that window only. */
+  /** A window's developer console recording got further, or stopped (#638). */
+  | { type: 'console-recording'; recording: ConsoleRecordingInfo }
   | { type: 'console-events'; events: ConsoleEvent[]; /** Events that didn't fit the window's queue since the last batch (it fell behind). */ dropped?: number }
 
 /**
