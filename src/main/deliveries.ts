@@ -343,6 +343,9 @@ async function save(store: Store, d: Draft): Promise<void> {
     d.after.push(() => log.warn(`Saved deliveries that aren't valid moved to ${userText(aside)}, to keep the file small enough`))
     d.invalid = []
   }
+  // What is written is what reads back (#649): one check, readDelivery's, for saving and restoring alike; a record it
+  // wouldn't read back fails the save (nothing changes), never a delivery lost on the next start.
+  for (const r of d.records) if (!readDelivery(JSON.parse(JSON.stringify(r)))) throw new Error(`delivery ${r.id} isn't one Hive could read back`)
   const text = fileText(d)
   if (Buffer.byteLength(text) > MAX_FILE_BYTES) throw new Error('too many deliveries to keep in this project')
   const tmp = `${file}.${process.pid}-${randomBytes(4).toString('hex')}.tmp`
@@ -905,14 +908,35 @@ async function offerOnce(host: string, agentId: string, only?: string): Promise<
     })
   } finally {
     for (const id of o.ids) store.offering.delete(id)
-    // Not typed: put back (and ended, if it may no longer be given out) before this returns, so a reply says so.
+    // Not typed: put back (and ended, if it may no longer be given out) before this returns, so a reply says so; what
+    // its source no longer has due (what it was made from changed as it was typed) ends now too, not at the next try.
     if (typed) log.info(`Deliveries ${o.ids.join(', ')} for ${userText(agentId)} offered`)
-    else await unoffer(store, o)
+    else {
+      await unoffer(store, o)
+      await dropUndue(store, o.ids)
+    }
     show(store, agentId)
   }
   // Put off part-way (the user began typing there, what it was made from changed): tried again by itself, soon.
   if (!typed) retrySoon(host, agentId)
   return typed
+}
+
+/**
+ * Ends, of these deliveries still waiting, those their source no longer has due (a producer's own check, given with one,
+ * is its caller's to answer: deliverNow says why it wasn't given; the next offer ends what its check no longer wants).
+ */
+async function dropUndue(store: Store, ids: readonly string[]): Promise<void> {
+  const waiting = ids.map((id) => byId(store.records, id)).filter((r): r is DeliveryRecord => !!r && isWaiting(r))
+  const fresh = await refreshAll(store, waiting)
+  const ends = [...fresh].filter(([, f]) => 'cancel' in f) as [string, { cancel: string }][]
+  if (!ends.length) return
+  await transact(store, (d) => {
+    for (const [id, f] of ends) {
+      const r = byId(d.records, id)
+      if (r && isWaiting(r)) set(store, d, r, 'cancelled', f.cancel)
+    }
+  }).catch((e) => log.warn('ending deliveries no longer due', e))
 }
 
 /** Agents whose line was put off part-way, tried again in a moment (one timer each; the tick and statuses try too). */

@@ -7,6 +7,8 @@ import { join } from 'path'
 import { afterAll, beforeEach, describe, expect, it, vi } from 'vitest'
 import * as electron from 'electron'
 import { DELIVERY_BODY_MAX_CHARS, DELIVERY_STATES, ackText, canMove, inboxItems, inboxSummary, inboxText, isOverdue, moved, offerLine, readDelivery, type DeliveryRecord, type DeliverySender } from '../src/shared/deliveries'
+import { taskPrompt } from '../src/shared/tasks'
+import type { TaskCard } from '../src/shared/types'
 import { tempDir } from './tempDir'
 
 // The longest a wait here waits for what it waits on: a bound for a hung run, never how long it should take (#570).
@@ -359,8 +361,9 @@ describe('the delivery service (#647)', async () => {
     expect(st.typed).toEqual(["Start on #7. (Its id: m1. Once you've acted on it, ack it with hive_inbox.) (m1 again: Hive restarted while offering it, so it may repeat.)"])
   })
 
-  it('a long task (a card with a long description) is kept as made and restored as it was; one longer than a delivery may be is refused when made, never lost on a restart (#649 round 2)', async () => {
-    const long = `Work on task #9 from the Hive task board: Long\n\n${'A long description. '.repeat(1000)}`
+  it('a long task (a card with a 9,000-character description) is kept as made and restored as it was; one longer than a delivery may be is refused when made, never lost on a restart (#649 round 2)', async () => {
+    const card = { number: 9, title: 'Long', description: 'A long description. '.repeat(450).slice(0, 9000), project: 'alpha', agent: 'b1', column: 'doing', order: 1, labels: [], blocked: null, blockedBy: [], links: [], comments: [], history: [], archived: false, createdAt: at, createdBy: 'You', updatedAt: at } as TaskCard
+    const long = taskPrompt(card, true, { note: 'Address the latest review comment.' })
     expect(long.length).toBeGreaterThan(9000)
     st.status = 'working'
     await deliveries.createDelivery(alpha, { agentId: 'b1', kind: 'task', from: hive, body: long })

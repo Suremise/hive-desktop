@@ -738,6 +738,10 @@ export function watchFor(projectPath: string, agentId: string): TaskWatchInfo | 
     return null
   }
   const r = recordOf(store, projectPath, agentId)
+  // Its wake handed over and its CLI never took the line (#430, marked): nothing will wake it now, so it isn't shown as
+  // waiting on cards (#649: the watch itself lasts until that wake is received) and its loop is checked as one with no
+  // watch (#376: its cards show as stalled).
+  if (r?.fired?.delivery && sessions.lineUntaken(projectPath, agentId)) return null
   return r ? infoOf(r) : null
 }
 

@@ -2645,9 +2645,8 @@ class SessionManager {
       state.status = 'watching'
       state.unseen = false
     } else if (!watch && state.status === 'watching') state.status = 'finished'
-    // Working or watching again, or a background task of its own will wake it (#521): no longer waiting with no watch (#376);
-    // watching with its wake untaken in its prompt (#649: the watch lasts until it is received), still nothing wakes it.
-    if ((state.status !== 'ready' && state.status !== 'finished' && !(state.status === 'watching' && state.untakenLine)) || tasksWillWake(state)) state.notWatching = undefined
+    // Working or watching again, or a background task of its own will wake it (#521): no longer waiting with no watch (#376).
+    if ((state.status !== 'ready' && state.status !== 'finished') || tasksWillWake(state)) state.notWatching = undefined
     if (this.statusSent.get(state) !== state.status) {
       this.statusSent.set(state, state.status)
       state.statusSince = new Date().toISOString()

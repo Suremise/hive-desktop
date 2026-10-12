@@ -48,8 +48,6 @@ describe('cards in play for a loop agent (#376)', () => {
     expect(providerDescriptor('codex').capabilities.backgroundWakes).toBe(false)
     expect(unwatched({ provider: 'codex', status: 'finished', backgroundTasks: 1 })).toBe(true)
     expect(unwatched({ provider: 'claude-code', status: 'watching', watch: { cards: [1], changes: ['column'], label: '', since: '', limitAt: '' } })).toBe(false)
-    // Watching, but its wake sits untaken in its prompt (#649: the watch lasts until it is received): nothing wakes it.
-    expect(unwatched({ provider: 'claude-code', status: 'watching', watch: { cards: [1], changes: ['column'], label: '', since: '', limitAt: '' }, untakenLine: { since: '', text: '[Hive] #1 is in Review.' } })).toBe(true)
     expect(unwatched(null)).toBe(false)
   })
 })

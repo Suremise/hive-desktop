@@ -1,7 +1,7 @@
 // A card loop left with no watch (#376), on fake Claude Code agents (fake-claude/). On 7 Oct a Codex reviewer's wake was
 // typed but its Enter never taken, so it sat "finished" for hours with its watch gone while the builder waited on it.
-// Checked: a wake whose first Enter the CLI drops gets Enter again and is taken; one never taken leaves the agent
-// watching (its watch lasts until its wake is received, #649) with nothing to wake it, and after the grace its card shows as stalled ("Reviewer isn't watching #n", on the board and through
+// Checked: a wake whose first Enter the CLI drops gets Enter again and is taken; one never taken leaves the agent idle
+// with no watch, and after the grace its card shows as stalled ("Reviewer isn't watching #n", on the board and through
 // the Agent API) with one notification, cleared once the agent works again; an agent that ends its turn without starting
 // a watch, with its card in Review, is flagged the same way; one that keeps watching never is. Dev build, throwaway
 // profile, workspace and CLAUDE_CONFIG_DIR; the grace and the wait for a wake to be taken are shortened for the test.
@@ -138,8 +138,7 @@ const check = (name, ok, extra = '') => {
   const reason = `Reviewer isn't watching #${c1}: its turn ended with no card watch.`
   check('a wake never taken: after the grace, the card is stalled, saying who and why', !!(await until(async () => (await stalledOf(c1)) === reason, 30000)), String(await stalledOf(c1)))
   check('…the line was never sent, and Hive says so', !!(await until(async () => /still wasn't taken/.test(hiveLog()), 8000)) && wakes('Reviewer').length === 1)
-  // Its wake isn't received, so its watch is still on (#649), with the line not taken, and the card it left marked.
-  check('…the reviewer shows its watch, the line not taken, and the card it left', (await live(reviewer.id))?.status === 'watching' && !!(await live(reviewer.id))?.untakenLine && JSON.stringify((await live(reviewer.id))?.notWatching) === JSON.stringify([c1]), JSON.stringify(await live(reviewer.id)))
+  check('…the reviewer shows idle, with the card it left', ['ready', 'finished'].includes((await live(reviewer.id))?.status) && JSON.stringify((await live(reviewer.id))?.notWatching) === JSON.stringify([c1]), JSON.stringify(await live(reviewer.id)))
   await page.getByRole('button', { name: 'Task Board' }).click()
   const tile = page.locator(`.task-card[data-task="${c1}"]`)
   check('the board shows the card stalled', !!(await until(async () => /Stalled: Reviewer isn't watching/.test((await tile.innerText().catch(() => '')) ?? ''), 8000)), await tile.innerText().catch(() => ''))

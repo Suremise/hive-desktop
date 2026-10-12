@@ -1288,6 +1288,45 @@ describe('watches (main/watches.ts)', async () => {
     await disposeWorkspaceService(w)
   })
 
+  it("a watch whose wake its CLI never took (marked) isn't shown as waiting on cards: nothing will wake its agent, so its loop is checked as one with no watch; taken, its watch ends as received (#649 round 3)", async () => {
+    const { w, alpha } = await open()
+    const st = fake(alpha)
+    let untaken = false
+    Object.assign(sessions, {
+      lineUntaken: () => untaken,
+      sendPrompt: async (_p: string, _id: string, text: string, guard?: () => void) => {
+        guard?.()
+        st.typed.push(text)
+        st.status = 'finished'
+      }
+    })
+    writer.testHooks.takeMs = 20
+    try {
+      const c = await inWorkspace(w, () => tasks.createTask({ title: 'Untaken', project: 'alpha' }, user))
+      await watches.registerWatch(w, alpha, 'a1', { cards: [c.number], changes: ['comment'] })
+      await inWorkspace(w, () => tasks.commentTask(c.number, 'news', user))
+      await evaluated(w)
+      expect(st.typed).toHaveLength(1)
+      // Handed over, not received: still its watch.
+      expect(watches.watchFor(alpha, 'a1')?.cards).toEqual([c.number])
+      // Marked not taken: not shown as waiting on cards (its status is finished, with no watch).
+      untaken = true
+      expect(watches.watchFor(alpha, 'a1')).toBeNull()
+      // Taken after all (the user pressed Enter): received, and the watch has ended.
+      untaken = false
+      st.prompts++
+      await deliveries.followAllForTests()
+      await watches.settled()
+      expect((await deliveries.deliveriesOf(alpha, 'a1')).map((r) => r.state)).toEqual(['received'])
+      expect(watches.watchFor(alpha, 'a1')).toBeNull()
+    } finally {
+      delete (sessions as unknown as Record<string, unknown>).lineUntaken
+      writer.testHooks.takeMs = undefined
+      await writer.settled()
+      await disposeWorkspaceService(w)
+    }
+  })
+
   it('a saved watch that is not valid is kept aside and never stops the others; a damaged file is set aside', async () => {
     const { w, path, alpha } = await open()
     const st = fake(alpha)

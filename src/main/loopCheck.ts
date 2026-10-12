@@ -62,11 +62,9 @@ export function noteLoopWatch(projectPath: string, agentId: string, cards: numbe
 /**
  * Idle with no watch: its turn has ended and nothing is set to wake it. Background tasks still running will, where its
  * CLI is woken by them (#521: a builder that ended its turn while its e2e run went on was shown as not watching), so it
- * isn't flagged until they end; a CLI that isn't woken by them (Codex) is flagged as before. Watching, but its wake sits
- * in its prompt untaken (#649: the watch lasts until its wake is received): nothing will wake it either.
+ * isn't flagged until they end; a CLI that isn't woken by them (Codex) is flagged as before.
  */
-export const unwatched = (st: Pick<LiveSessionState, 'status' | 'watch' | 'backgroundTasks' | 'provider' | 'untakenLine'> | null): boolean =>
-  !!st && (((st.status === 'ready' || st.status === 'finished') && !st.watch && !tasksWillWake(st)) || (st.status === 'watching' && !!st.untakenLine))
+export const unwatched = (st: Pick<LiveSessionState, 'status' | 'watch' | 'backgroundTasks' | 'provider'> | null): boolean => !!st && (st.status === 'ready' || st.status === 'finished') && !st.watch && !tasksWillWake(st)
 
 /** A session's status changed: an agent in a loop that went idle with no watch is checked after the grace. */
 function statusChanged(st: LiveSessionState): void {
