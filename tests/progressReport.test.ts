@@ -5,6 +5,7 @@ import { spawnSync } from 'child_process'
 import { existsSync, readFileSync, rmSync, statSync, writeFileSync } from 'fs'
 import { createServer, type Server } from 'http'
 import { join } from 'path'
+import { createRequire } from 'module'
 import { pathToFileURL } from 'url'
 import { afterAll, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest'
 import { estimateFor, ProgressRun, progressTarget, recordTiming, wrappedLines } from '../src/main/progressReporters/report.mts'
@@ -13,6 +14,9 @@ import { installShims, shimFiles, withBinOnPath } from '../src/main/progressRepo
 import { hiveInstructions, progressRule, wrapsLongCommands } from '../src/shared/hiveGuidance'
 import { launchParts } from '../src/main/guidance'
 import { tempDir } from './tempDir'
+// A process by its identity (pid and start time), never by a remembered pid alone (#603).
+type Identity = { pid: number; started: number }
+const { identify, stillSame, endExactly } = createRequire(import.meta.url)('./e2e/folderProcesses.cjs') as { identify: (pids: number[]) => Identity[]; stillSame: (ids: Identity[]) => number[]; endExactly: (ids: Identity[]) => number }
 
 const dir = tempDir('hive-progress-')
 afterAll(() => rmSync(dir, { recursive: true, force: true }))
@@ -151,24 +155,19 @@ describe.runIf(process.platform === 'win32')('stopping a command on Windows (#54
     const going = runWrapped(['--', serve], { env: env(), cwd: dir, stdout: { write: () => true }, stderr: { write: () => true }, stdin: 'ignore', minIntervalMs: 100, startWaitMs: 0, signals: [stop] })
     await vi.waitFor(() => expect(existsSync(pidFile) && calls.length > 0).toBe(true), { timeout: 15_000 })
     const pid = Number(readFileSync(pidFile, 'utf8'))
-    const alive = (p: number): boolean => {
-      try {
-        process.kill(p, 0)
-        return true
-      } catch (e) {
-        return (e as NodeJS.ErrnoException).code === 'EPERM'
-      }
-    }
-    expect(alive(pid)).toBe(true)
+    // Its identity while it is known to be the server: the checks and the clean-up never take a later process with its pid.
+    const serverId = identify([pid])
+    const alive = (): boolean => stillSame(serverId).length === 1
+    expect(alive()).toBe(true)
     try {
       // Stopped twice: ended at once, with the server under cmd.
       process.emit(stop)
       process.emit(stop)
       expect(await going).not.toBe(0)
-      await vi.waitFor(() => expect(alive(pid)).toBe(false), { timeout: 10_000 })
+      await vi.waitFor(() => expect(alive()).toBe(false), { timeout: 10_000 })
       expect(calls.at(-1)).toMatchObject({ path: '/v1/progress/run-1/finish', body: { ok: false, stopped: true, summary: 'interrupted' } })
     } finally {
-      if (alive(pid)) process.kill(pid)
+      endExactly(serverId)
     }
   })
 })

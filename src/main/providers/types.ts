@@ -139,6 +139,11 @@ export type HookEvent =
   /** The turn ended because the CLI's sign-in was refused (expired, revoked, an invalid key): `message` is the CLI's. */
   | { kind: 'signIn'; message: string | null }
   | { kind: 'interrupt' }
+  /**
+   * The CLI says it is idle at its prompt, waiting for input, with nothing running (Claude Code's idle_prompt
+   * notification, a minute after a turn): no turn is in flight, whatever Hive last saw (#612).
+   */
+  | { kind: 'idle' }
   | { kind: 'compactStart'; trigger: string }
   | { kind: 'compactEnd' }
   | { kind: 'end' }

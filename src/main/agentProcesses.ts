@@ -1,7 +1,9 @@
 import { spawn, type ChildProcessWithoutNullStreams } from 'child_process'
 import { tmpdir } from 'os'
+import { join } from 'path'
 import { app } from 'electron'
 import { emit, toast } from './events'
+import { readJson, writeJsonAtomic } from './fsutil'
 import { createLogger, userText } from './logger'
 import { POWERSHELL } from './launchGate'
 import { processCount, processLabel, type AgentLeftovers, type AgentProcess } from '../shared/agentProcesses'
@@ -20,6 +22,10 @@ import { processCount, processLabel, type AgentLeftovers, type AgentProcess } fr
  * Job objects need Win32 calls, which Node lacks: one hidden PowerShell per Hive holds the jobs (C# through Add-Type,
  * no files), answering one line per request. Without it (PowerShell blocked) nothing is tracked, and agents stop as
  * before. Its jobs don't end processes when it closes: quitting Hive leaves running what the user chose to keep.
+ *
+ * What is listed is also kept in Hive's profile (leftovers.json, #614), each process by its id and start time: a quit
+ * that doesn't ask (no window shown, or to install an update) or a crash leaves it there, and the next start lists again
+ * those still running as the same processes (restoreLeftovers), to end by that identity (their jobs are gone by then).
  */
 
 const log = createLogger('processes')
@@ -65,6 +71,7 @@ public static class HiveJobs {
   [DllImport("kernel32.dll", SetLastError=true)] static extern bool GetProcessTimes(IntPtr h, out long created, out long exited, out long kernel, out long user);
   [DllImport("kernel32.dll", SetLastError=true)] static extern IntPtr CreateToolhelp32Snapshot(uint flags, int pid);
   [DllImport("kernel32.dll")] static extern void GetSystemTimeAsFileTime(out long now);
+  [DllImport("kernel32.dll", SetLastError=true)] static extern uint WaitForSingleObject(IntPtr h, uint ms);
   [DllImport("kernel32.dll", SetLastError=true, CharSet=CharSet.Unicode)] static extern bool Process32FirstW(IntPtr snap, ref ProcessEntry e);
   [DllImport("kernel32.dll", SetLastError=true, CharSet=CharSet.Unicode)] static extern bool Process32NextW(IntPtr snap, ref ProcessEntry e);
   [StructLayout(LayoutKind.Sequential, CharSet=CharSet.Unicode)] struct ProcessEntry {
@@ -217,6 +224,58 @@ public static class HiveJobs {
   }
   public static bool IsHeld(int pid) { lock (turn) return held.ContainsKey(pid); }
   public static bool IsFollowed(int pid) { lock (turn) return followed.ContainsKey(pid); }
+  /** When pid started (FILETIME), while it runs; 0 when it doesn't (gone, exited) or can't be read. */
+  public static long CreatedOf(int pid) {
+    IntPtr p = OpenProcess(0x1000, false, pid);
+    if (p == IntPtr.Zero) return 0;
+    try { uint code; long c, x, k, u; return GetExitCodeProcess(p, out code) && code == 259 && GetProcessTimes(p, out c, out x, out k, out u) ? c : 0; } finally { CloseHandle(p); }
+  }
+  /** "pid:created,…" as pairs; malformed entries are left out. */
+  static List<KeyValuePair<int, long>> Pairs(string list) {
+    var r = new List<KeyValuePair<int, long>>();
+    foreach (string e in list.Split(',')) {
+      string[] pc = e.Split(':'); int pid; long created;
+      if (pc.Length == 2 && int.TryParse(pc[0], out pid) && long.TryParse(pc[1], out created) && pid > 0 && created > 0) r.Add(new KeyValuePair<int, long>(pid, created));
+    }
+    return r;
+  }
+  /**
+   * Processes kept from before Hive restarted, by id and start time ("pid:created,…", #614): those still running as
+   * the same process, as JSON ["pid:created", …]: an identity is the pair, never the id alone. An id that names
+   * another process by now (another start time) is left out.
+   */
+  public static string Identify(string list) {
+    var b = new StringBuilder("[");
+    bool first = true;
+    foreach (var p in Pairs(list)) {
+      if (CreatedOf(p.Key) != p.Value) continue;
+      b.Append(first ? "" : ",").Append('"').Append(p.Key).Append(':').Append(p.Value).Append('"');
+      first = false;
+    }
+    return b.Append(']').ToString();
+  }
+  /**
+   * Ends processes by id and start time ("pid:created,…", #614), each only while it is still that process: one gone, or
+   * whose id names another process by now, counts as ended. JSON {"ended":n,"failed":n}: those failed still run.
+   */
+  public static string EndExact(string list) {
+    int ended = 0, failed = 0;
+    foreach (var e in Pairs(list)) {
+      // PROCESS_TERMINATE | SYNCHRONIZE | PROCESS_QUERY_LIMITED_INFORMATION
+      IntPtr p = OpenProcess(0x0001 | 0x100000 | 0x1000, false, e.Key);
+      if (p == IntPtr.Zero) {
+        // ERROR_INVALID_PARAMETER: no process has the id. Anything else: one does, and Windows won't let Hive end it.
+        if (Marshal.GetLastWin32Error() == 87) ended++; else failed++;
+        continue;
+      }
+      try {
+        uint code; long c, x, k, u;
+        if (!GetProcessTimes(p, out c, out x, out k, out u) || c != e.Value || !GetExitCodeProcess(p, out code) || code != 259) { ended++; continue; }
+        if (TerminateProcess(p, 1) && WaitForSingleObject(p, 2000) == 0) ended++; else failed++;
+      } finally { CloseHandle(p); }
+    }
+    return "{\"ended\":" + ended + ",\"failed\":" + failed + "}";
+  }
   /**
    * The port's thread: holds each process as it joins a job. Those that end are swept for together, at most
    * ${EXIT_BATCH_MS} ms after the first of them (a build ends hundreds of processes, and a sweep's snapshot of every
@@ -357,7 +416,7 @@ public static class HiveJobs {
       bool first = true;
       using (var q = new ManagementObjectSearcher("SELECT ProcessId, Name, CommandLine FROM Win32_Process WHERE " + where))
         foreach (ManagementObject p in q.Get()) {
-          b.Append(first ? "" : ",").Append("{\"pid\":").Append(Convert.ToInt32(p["ProcessId"])).Append(",\"name\":").Append(Q((string)p["Name"])).Append(",\"cmd\":").Append(Q((string)p["CommandLine"])).Append('}');
+          b.Append(first ? "" : ",").Append("{\"pid\":").Append(Convert.ToInt32(p["ProcessId"])).Append(",\"name\":").Append(Q((string)p["Name"])).Append(",\"cmd\":").Append(Q((string)p["CommandLine"])).Append(",\"created\":\"").Append(CreatedOf(Convert.ToInt32(p["ProcessId"]))).Append("\"}");
           first = false;
         }
     }
@@ -374,6 +433,8 @@ public static class HiveJobs {
         case "list": r = Describe(a[2], ${MAX_LISTED + 1}); break;
         case "kill": r = Kill(a[2]) ? "true" : "false"; break;
         case "forget": Forget(a[2]); r = "true"; break;
+        case "identify": r = Identify(a[2]); break;
+        case "endexact": r = EndExact(a[2]); break;
         default: r = Q("unknown command"); break;
       }
     } catch (Exception e) { r = Q("error: " + e.Message); }
@@ -401,7 +462,7 @@ interface JobList {
   total: number
   /** How many of its processes the host adopted after they escaped the job (Sweep, #543). */
   adopted?: number
-  processes: { pid: number; name: string; cmd: string }[]
+  processes: { pid: number; name: string; cmd: string; created?: string }[]
 }
 
 /** The one PowerShell holding the jobs, started on first use; null once it couldn't start (nothing is tracked then). */
@@ -518,8 +579,9 @@ class JobHost {
    * a reply that doesn't come within waitMs() means it is stuck: it is closed, its jobs lost (jobsLost), and the next
    * request starts a new one. So nothing (a launch, End, quitting) waits on it for longer.
    */
-  async request(command: 'add' | 'list' | 'kill' | 'forget', job: string, pid?: number): Promise<unknown> {
-    if (this.failed || !/^[\w-]+$/.test(job)) return null
+  async request(command: 'add' | 'list' | 'kill' | 'forget' | 'identify' | 'endexact', job: string, pid?: number): Promise<unknown> {
+    // A job's id, or (identify, endexact) a list of processes by id and start time: "pid:created,…".
+    if (this.failed || !/^[\w:,-]+$/.test(job)) return null
     if (!(await this.start()) || !this.proc) return null
     const p = this.proc
     const n = this.next++
@@ -571,8 +633,11 @@ interface Launch {
 
 /** Launches whose CLI is still running (or exited and being looked at). */
 const running = new Map<string, Launch>()
-/** What stopped launches left running, per launch, newest last. */
-const left = new Map<string, Launch & { processes: AgentProcess[]; more: number; since: string }>()
+/**
+ * What stopped launches left running, per launch, newest last. `restored`: kept from before Hive restarted (#614), with
+ * no job: its processes are known by their ids and start times only.
+ */
+const left = new Map<string, Launch & { processes: AgentProcess[]; more: number; since: string; restored?: boolean }>()
 let poll: ReturnType<typeof setInterval> | null = null
 
 const agentKey = (projectPath: string, agentId: string): string => `${projectPath.toLowerCase()}\n${agentId}`
@@ -636,6 +701,8 @@ async function findLeftovers(runId: string): Promise<AgentLeftovers | null> {
   left.set(runId, { ...launch, processes: list.processes, more: list.more, since: new Date().toISOString() })
   log.info(`${userText(launch.agentName)} left ${list.processes.length + list.more} process(es) running: ${userText(list.processes.map((p) => p.label).join('; '))}${list.adopted ? ` (${list.adopted} adopted after leaving the job, #543)` : ''}`)
   bound(launch)
+  // Kept once within the bounds, so the file never holds a launch just forgotten.
+  persist()
   startPolling()
   const now = leftoversOf(launch.projectPath, launch.agentId)
   emit({ type: 'agent-leftovers', leftovers: now })
@@ -648,7 +715,7 @@ async function listJob(runId: string): Promise<{ processes: AgentProcess[]; more
   const processes = r.processes
     // A console window's host belongs to a process of the job and ends with it: not one to list.
     .filter((p) => !/^(conhost|openconsole)\.exe$/i.test(p.name))
-    .map((p) => ({ pid: p.pid, name: p.name, label: processLabel(p.name, p.cmd) }))
+    .map((p) => ({ pid: p.pid, name: p.name, label: processLabel(p.name, p.cmd), ...(p.created && p.created !== '0' ? { created: p.created } : {}) }))
     .sort((a, b) => a.pid - b.pid)
     .slice(0, MAX_LISTED)
   const hosts = r.processes.length - r.processes.filter((p) => !/^(conhost|openconsole)\.exe$/i.test(p.name)).length
@@ -661,7 +728,7 @@ function bound(launch: Launch): void {
   const over = [...mine.slice(0, Math.max(0, mine.length - MAX_JOBS_PER_AGENT)), ...[...left.values()].slice(0, Math.max(0, left.size - MAX_JOBS))]
   for (const l of over) {
     left.delete(l.runId)
-    void host.request('forget', l.runId)
+    if (!l.restored) void host.request('forget', l.runId)
   }
 }
 
@@ -675,11 +742,11 @@ function startPolling(): void {
 async function refresh(): Promise<void> {
   const changed = new Set<string>()
   for (const l of [...left.values()]) {
-    const list = await listJob(l.runId)
+    const list = l.restored ? await stillRunning(l.processes) : await listJob(l.runId)
     if (!left.has(l.runId)) continue
     if (list && !list.processes.length) {
       left.delete(l.runId)
-      void host.request('forget', l.runId)
+      if (!l.restored) void host.request('forget', l.runId)
       changed.add(agentKey(l.projectPath, l.agentId))
     } else if (list && (list.processes.length !== l.processes.length || list.more !== l.more || list.processes.some((p, i) => p.pid !== l.processes[i]?.pid))) {
       left.set(l.runId, { ...l, processes: list.processes, more: list.more })
@@ -691,6 +758,7 @@ async function refresh(): Promise<void> {
     const first = [...left.values()].find((l) => agentKey(l.projectPath, l.agentId) === k)
     emit({ type: 'agent-leftovers', leftovers: first ? leftoversOf(first.projectPath, first.agentId) : { projectPath, agentId, agentName: '', processes: [], more: 0, since: '' } })
   }
+  if (changed.size) persist()
   if (!left.size && poll) {
     clearInterval(poll)
     poll = null
@@ -730,14 +798,15 @@ export async function settleLeftovers(projectPath: string, agentId: string, how:
   let done = 0
   let failed = 0
   for (const l of mine) {
-    if (how === 'end' && (killFailsForTests() || (await host.request('kill', l.runId)) !== true)) {
+    if (how === 'end' && (killFailsForTests() || !(l.restored ? await endExactly(l.processes) : (await host.request('kill', l.runId)) === true))) {
       failed += l.processes.length + l.more
       continue
     }
     left.delete(l.runId)
-    void host.request('forget', l.runId)
+    if (!l.restored) void host.request('forget', l.runId)
     done += l.processes.length + l.more
   }
+  persist()
   const name = mine[0].agentName
   if (done) log.info(`${how === 'end' ? 'ended' : 'kept'} ${done} process(es) ${userText(name)} left running`)
   emit({ type: 'agent-leftovers', leftovers: leftoversOf(mine[0].projectPath, agentId) })
@@ -784,15 +853,25 @@ export function closeProcessTracking(): void {
 /**
  * The host ended unexpectedly: its jobs closed, so their processes can't be told apart any more. Said at once (the
  * once-a-run notice) and kept for Diagnostics, even once a new host tracks later launches: running agents' processes
- * and what was listed as left running are no longer tracked (and keep running; nothing is ended).
+ * are no longer tracked (and keep running; nothing is ended). What was listed as left running stays listed, and kept,
+ * by identity (#614): each process whose start time is known is still told from a later one with its id, so the next
+ * host (started by the next request) lists and ends exactly it, as after a restart; the rest can't be, and go.
  */
 function jobsLost(why: string): void {
-  const agents = allLeftovers()
-  const listed = agents.reduce((n, a) => n + a.processes.length + a.more, 0)
   const launches = running.size
   running.clear()
-  left.clear()
-  for (const a of agents) emit({ type: 'agent-leftovers', leftovers: { ...a, processes: [], more: 0 } })
+  let listed = 0
+  const agents = new Map<string, { projectPath: string; agentId: string }>()
+  for (const l of [...left.values()]) {
+    if (l.restored) continue
+    const known = l.processes.filter((p) => p.created)
+    listed += l.processes.length - known.length + l.more
+    agents.set(agentKey(l.projectPath, l.agentId), { projectPath: l.projectPath, agentId: l.agentId })
+    if (known.length) left.set(l.runId, { ...l, processes: known, more: 0, restored: true })
+    else left.delete(l.runId)
+  }
+  persist()
+  for (const a of agents.values()) emit({ type: 'agent-leftovers', leftovers: leftoversOf(a.projectPath, a.agentId) })
   lost = `the process tracker stopped at ${new Date().toISOString()} (${why}): ${launches} running launch(es) and ${listed} listed process(es) were no longer tracked`
   noteUntracked(`Hive's process tracker stopped (${why})`, `${listed ? `${processCount(listed)} listed as left running ${listed === 1 ? 'is' : 'are'} no longer tracked (still running), nor is ` : 'What '}${launches ? `what the ${launches === 1 ? 'running agent starts' : `${launches} running agents start`}` : 'running agents start'} until ${launches === 1 ? 'it restarts' : 'they restart'}.`)
 }
@@ -821,6 +900,133 @@ export function noteUntracked(reason: string | null, detail?: string): void {
 /** Diagnostics: what the tracker lost earlier in this run when it stopped, or null. */
 export function trackingLost(): string | null {
   return lost
+}
+
+/** Where what agents left running is kept for the next start (#614): Hive's profile. */
+const savedFile = (): string => join(app.getPath('userData'), 'leftovers.json')
+
+/** A stopped launch's leftovers as kept (#614): its own record, so the bounds hold across restarts. */
+interface SavedLaunch {
+  runId: string
+  projectPath: string
+  agentId: string
+  agentName: string
+  since: string
+  processes: AgentProcess[]
+}
+
+interface SavedLeftovers {
+  version: 1
+  launches: SavedLaunch[]
+}
+
+/** The latest write of the kept list (writes go one after another, the newest last). */
+let saving: Promise<void> = Promise.resolve()
+/** Whether the kept list on disk may hold something (written with processes, or read with some at the start). */
+let keptAny = false
+
+/**
+ * Keeps what is listed now for the next start (#614): each launch apart, as listed (so within the bounds: bound runs
+ * first), each process by id and start time (one whose start time couldn't be read can't be told from a later process
+ * with its id, so it isn't kept).
+ */
+function persist(): void {
+  const launches: SavedLaunch[] = []
+  for (const l of left.values()) {
+    const processes = l.processes.filter((p) => p.created)
+    if (processes.length) launches.push({ runId: l.runId, projectPath: l.projectPath, agentId: l.agentId, agentName: l.agentName, since: l.since, processes })
+  }
+  // A Hive whose agents never left anything writes no file.
+  if (!launches.length && !keptAny) return
+  keptAny = launches.length > 0
+  const data: SavedLeftovers = { version: 1, launches }
+  saving = saving.then(() => writeJsonAtomic(savedFile(), data)).catch((e) => log.warn('could not keep the list of processes agents left running', e))
+}
+
+/** Once the kept list is written (Hive quitting). */
+export function leftoversSaved(): Promise<void> {
+  return saving
+}
+
+const identity = (p: AgentProcess): string => `${p.pid}:${p.created}`
+const identities = (processes: AgentProcess[]): string => processes.filter((p) => p.created).map(identity).join(',')
+
+/**
+ * Which of the processes still run as the same processes: their ids and start times, as pairs (an id alone may name a
+ * later process, #614). Null when the host can't say.
+ */
+async function stillRunning(processes: AgentProcess[]): Promise<{ processes: AgentProcess[]; more: number } | null> {
+  const list = identities(processes)
+  if (!list) return { processes: [], more: 0 }
+  const r = await host.request('identify', list)
+  if (!Array.isArray(r)) return null
+  const alive = new Set(r.map(String))
+  return { processes: processes.filter((p) => p.created && alive.has(identity(p))), more: 0 }
+}
+
+/** Ends the processes, each only while it is still the same process: whether none still runs. */
+async function endExactly(processes: AgentProcess[]): Promise<boolean> {
+  const list = identities(processes)
+  if (!list) return true
+  const r = (await host.request('endexact', list)) as { ended?: number; failed?: number } | null
+  return !!r && typeof r === 'object' && r.failed === 0
+}
+
+/** The kept launches that can be read, within the bounds as Hive keeps them: the newest, and each list cut. */
+function boundedSaved(saved: Partial<SavedLeftovers> | null): SavedLaunch[] {
+  const valid = (Array.isArray(saved?.launches) ? saved.launches : [])
+    .filter((l) => l && typeof l.runId === 'string' && typeof l.projectPath === 'string' && typeof l.agentId === 'string' && Array.isArray(l.processes))
+    .map((l) => ({
+      ...l,
+      agentName: String(l.agentName ?? ''),
+      since: String(l.since ?? new Date().toISOString()),
+      processes: l.processes.filter((p) => p && Number.isSafeInteger(p.pid) && p.pid > 0 && /^\d+$/.test(String(p.created))).slice(0, MAX_LISTED)
+    }))
+    .filter((l) => l.processes.length)
+  const perAgent = new Map<string, number>()
+  const kept: SavedLaunch[] = []
+  // Newest last, as listed: counted from the newest.
+  for (const l of valid.reverse()) {
+    const k = agentKey(l.projectPath, l.agentId)
+    const n = perAgent.get(k) ?? 0
+    if (n >= MAX_JOBS_PER_AGENT || kept.length >= MAX_JOBS) continue
+    perAgent.set(k, n + 1)
+    kept.push(l)
+  }
+  return kept.reverse()
+}
+
+/**
+ * What agents left running before Hive last closed (#614): the kept launches' processes still running as the same ones,
+ * each launch listed again on its own (the agent's pane header, `session:leftovers`) within the usual bounds, and
+ * returned (per agent) for Hive to offer as when an agent stops. Without the host, nothing is restored and the list
+ * stays kept for the next start.
+ */
+export async function restoreLeftovers(): Promise<AgentLeftovers[]> {
+  const launches = boundedSaved(await readJson<Partial<SavedLeftovers> | null>(savedFile(), null))
+  const all = launches.flatMap((l) => l.processes)
+  if (!all.length || !(await trackingReady())) return []
+  const now = await stillRunning(all)
+  if (!now) return []
+  // Written again below, without those that have ended or are other processes by now.
+  keptAny = true
+  const alive = new Set(now.processes.map(identity))
+  const agents = new Map<string, { projectPath: string; agentId: string }>()
+  for (const l of launches) {
+    const processes = l.processes.filter((p) => alive.has(identity(p))).map((p) => ({ pid: p.pid, name: String(p.name ?? ''), label: String(p.label ?? p.name ?? ''), created: String(p.created) }))
+    const runId = l.runId.startsWith('restored:') ? l.runId : `restored:${l.runId}`
+    if (!processes.length || left.has(runId)) continue
+    const launch = { runId, projectPath: l.projectPath, agentId: l.agentId, agentName: l.agentName }
+    left.set(runId, { ...launch, processes, more: 0, since: l.since, restored: true })
+    bound(launch)
+    agents.set(agentKey(l.projectPath, l.agentId), { projectPath: l.projectPath, agentId: l.agentId })
+    log.info(`${userText(l.agentName)} left ${processes.length} process(es) running before Hive restarted: ${userText(processes.map((p) => p.label).join('; '))}`)
+  }
+  persist()
+  const found = [...agents.values()].map((a) => leftoversOf(a.projectPath, a.agentId)).filter((l) => l.processes.length)
+  if (found.length) startPolling()
+  for (const l of found) emit({ type: 'agent-leftovers', leftovers: l })
+  return found
 }
 
 /** Tests: the helper's process id while it runs. */

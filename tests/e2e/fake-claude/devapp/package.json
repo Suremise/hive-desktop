@@ -1,0 +1,5 @@
+{
+  "name": "hive-test-devapp",
+  "private": true,
+  "main": "main.js"
+}
