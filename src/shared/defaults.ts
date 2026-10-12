@@ -114,6 +114,9 @@ export const DEFAULT_SETTINGS: AppSettings = {
     archiveDoneDays: 14,
     columnColors: true,
     colors: { ...DEFAULT_COLUMN_COLORS }
+  },
+  advanced: {
+    showDeveloperFeatures: false
   }
 }
 
