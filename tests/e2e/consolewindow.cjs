@@ -272,8 +272,12 @@ const check = (name, ok, extra = '') => {
     const switched = await lib.until(async () => (await recordingText()).trim().match(/^Recording \d+ events to (console-\S+\.jsonl)/)?.[1] ?? null, HUNG_MS)
     const hiveOption = (await dc.locator('.dc-source option').evaluateAll((els) => els.map((e) => e.value))).find((v) => v.startsWith('hive:'))
     await dc.locator('.dc-source').selectOption(hiveOption)
-    const switchedEnd = await lib.until(() => readRecording(switched).find((l) => l.type === 'end') ?? null, HUNG_MS)
-    check('picking another source ends the recording', switchedEnd?.reason === 'stopped' && /^Saved \d+ events/.test((await recordingText()).trim()), JSON.stringify(switchedEnd))
+    // The file's end line is written before the window hears it ended: wait for both.
+    const switchedEnd = await lib.until(async () => {
+      const end = readRecording(switched).find((l) => l.type === 'end')
+      return end && /^Saved \d+ events/.test((await recordingText()).trim()) ? end : null
+    }, HUNG_MS)
+    check('picking another source ends the recording', switchedEnd?.reason === 'stopped', `${JSON.stringify(switchedEnd)} · ${await recordingText()}`)
     await dc.locator('.dc-source').selectOption(b1Option)
     await lib.until(async () => (await inv('console:sources')).find((s) => s.agentId === b1.id)?.capturing, HUNG_MS)
 
