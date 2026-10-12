@@ -91,6 +91,10 @@ const lingering = () => (fs.existsSync(lingerFile) ? fs.readFileSync(lingerFile,
 
     // Ask: listed, shown in the pane header and a notification; End ends exactly them.
     const two = await leaveRunning(2)
+    // The notification is a toast for 15 s from the stop, then only in the Notifications panel (without its buttons):
+    // looked for from now, beside the checks below, not after them, which can take longer than that under load (#673).
+    const toast = page.locator('.toast', { hasText: 'left 2 processes running' })
+    const offered = lib.until(async () => (await toast.locator('button', { hasText: 'End Them' }).count()) > 0, 30000).catch(() => false)
     check('the agent left two processes running as it stopped', two.length === 2 && two.every(alive), JSON.stringify(two))
     const found = await lib.until(async () => {
       const l = await listed()
@@ -100,8 +104,7 @@ const lingering = () => (fs.existsSync(lingerFile) ? fs.readFileSync(lingerFile,
     check("the stranger's process isn't listed", !!found && !found.processes.some((x) => x.pid === stranger.pid))
     const chip = page.locator('.agent-leftovers')
     check('the pane header shows "2 left running"', await chip.first().waitFor({ timeout: 10000 }).then(() => chip.first().textContent()).then((t) => /2 left running/.test(t ?? ''), () => false))
-    const toast = page.locator('.toast', { hasText: 'left 2 processes running' })
-    check('a notification offers to end them', await toast.first().waitFor({ timeout: 5000 }).then(() => toast.locator('button', { hasText: 'End Them' }).count()).then((c) => c > 0, () => false))
+    check('a notification offers to end them', !!(await offered))
     await page.screenshot({ path: path.join(shots, 'leftovers-header.png') })
     await chip.first().click()
     await page.getByText('End All 2', { exact: true }).click()
