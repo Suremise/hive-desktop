@@ -12,10 +12,12 @@ import { claudeFileAllowed, contentHash, ContentTooLarge, copyMissing, copySkill
 import { createLogger, userText } from '../../logger'
 import { EDITOR_EXTENSION_PATH, EDITOR_ROOTS, compareVersions, hookForwardCommand, readFirstLine, run, runsThroughCmd, taskArgs, toSpawnable } from '../common'
 import type { StartHint } from '../../../shared/startFailure'
-import type { BackgroundTaskEvent, CatalogRead, CommandSpec, ExternalSession, LaunchContext, LiveDetails, LockDecision, NormalizedHook, ProviderAdapter, SkillDelivery, SkillRoots } from '../types'
+import type { Ask, BackgroundTaskEvent, CatalogRead, CommandSpec, ExternalSession, LaunchContext, LiveDetails, LockDecision, NormalizedHook, ProviderAdapter, SkillDelivery, SkillRoots } from '../types'
 import { autoCompactOf, settingsScopes } from './autoCompact'
 import { mergeLaunchSettings, userSettings, withoutSettingsArgs } from './launchSettings'
 import { claudeBackgroundTasks } from './background'
+import { claudeSafeguards } from './safeguards'
+import { safeguardPattern, type SafeguardEvent } from '../../../shared/safeguards'
 import { ConversationParser, claudeImageData } from './conversation'
 import { readClaudeModels } from './models'
 import { ClaudeUsageParser, encodeProjectPath, parseTranscript, transcriptSubSession } from './usage'
@@ -23,6 +25,8 @@ import { ClaudeUsageParser, encodeProjectPath, parseTranscript, transcriptSubSes
 const log = createLogger('claude-code')
 /** Transcripts whose sub-agent check is remembered (by path and mtime). */
 const SUB_CACHE = 2000
+/** How many of the screen's last lines a safeguard prompt is looked for in (the prompt is drawn above the input). */
+const SAFEGUARD_PROMPT_LINES = 16
 /** A ~/.claude/projects folder name that may hold an 8.3 short name: `~1` is encoded `-1`. */
 const MAY_BE_SHORT = /-\d+(-|$)/
 /** How much of a transcript is read for the cwd it records (its first lines carry none). */
@@ -382,6 +386,21 @@ export class ClaudeCodeAdapter implements ProviderAdapter {
 
   backgroundTasks(appended: string): BackgroundTaskEvent[] {
     return claudeBackgroundTasks(appended)
+  }
+
+  safeguards(appended: string, memo: Record<string, unknown>): SafeguardEvent[] {
+    return claudeSafeguards(appended, memo)
+  }
+
+  /**
+   * Claude Code's prompt after a safeguard stop (whether to switch models) is a Notification with no tool named (a tool's
+   * permission prompt says "…permission to use Bash"); its words are the screen's, matched in the lines nearest the input
+   * (where the prompt is drawn) by the named pattern (SAFEGUARD_DEFAULTS.claudePrompt).
+   */
+  safeguardAsk(ask: Ask, screen: string): boolean {
+    if (/\bto use\b/i.test(ask.message)) return false
+    const bottom = screen.split('\n').slice(-SAFEGUARD_PROMPT_LINES).join('\n')
+    return safeguardPattern('claudePrompt').test(bottom)
   }
 
   startHint(text: string): StartHint | null {

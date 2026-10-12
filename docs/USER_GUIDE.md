@@ -449,7 +449,7 @@ It's on by default: **Settings → Sessions → Record performance metrics** tur
 - how long Hive was recording in the range: metrics are only kept while the workspace is open in Hive with recording on, so time before that, while Hive was closed or recording was off, or before a reset is **not recorded** (no data, not zero), and so is history Hive removed to keep its metrics file small, which the page says;
 - cards: Agent API requests (per hour recorded) and how many failed or were cancelled, their latency (p50 and p95), the data sent and received, the characters Hive's tools gave the models, and what each session got at launch;
 - a chart of requests per hour (24 hours) or per day, failures in red and hours not recorded hatched; hover a bar for its tool calls and launches;
-- tables of Hive's tools (sorted by the characters they cost a model's context), Agent API routes, the guidance given at launch in parts (Hive's core instructions, what it adds for the project, the Assistant's role and mode, the skills' catalog), and the providers' own usage for project agents and the Assistant apart: tokens, requests, context (each session's latest, not added up), compactions and API-equivalent cost (≈ where Hive estimated it, **unknown** where a session reported nothing; not a bill). If a project's session history couldn't be read, the page says the totals are partial;
+- tables of Hive's tools (sorted by the characters they cost a model's context), Agent API routes, the guidance given at launch in parts (Hive's core instructions, what it adds for the project, the Assistant's role and mode, the skills' catalog), and the providers' own usage for project agents and the Assistant apart: tokens, requests, context (each session's latest, not added up), compactions, **safeguard stops** (responses a CLI's safety classifier stopped; *not detected* for Copilot) and API-equivalent cost (≈ where Hive estimated it, **unknown** where a session reported nothing; not a bill), and, when there were any, the safeguard stops per agent and model. If a project's session history couldn't be read, the page says the totals are partial;
 - for the whole workspace, the skill service's scans and cache, and Hive-wide event streams.
 
 It refreshes every minute while you look at it (and **Refresh** at once); reading it doesn't add to the numbers. A note says when measurements were dropped because a limit was full, and **What isn't measured** lists what it can't see. **Export** saves what the page shows (its scope, range and filters) as a JSON file with its units, coverage and Hive's version; **Shift+click** Export to replace project names with project-1, project-2… and leave out the workspace's path, before sharing it.
@@ -994,6 +994,17 @@ To sign in again:
 
 Hive notices the sign-in when an agent of that CLI works again, when Agent Setup's **Sign in** finishes, or at its next check (every minute while agents wait). The agents that are still stopped then read **Stopped while signed out**, and **Resume All Agents** in the project header counts them: it types a short "carry on" into each, so a card loop picks up where it stopped. Agents that already carried on aren't prompted again. A Codex agent you prompt again right after signing in shows **working**: Hive reads Codex's refusal from its session after the fact, and that late read can't turn it back to **Needs sign-in**.
 
+### When a safety classifier stops an agent
+
+A CLI's safety classifier can stop an agent's response part way (Claude Code's model safeguards, Codex's cyber checks), carry on with another model, or ask you what to do. Hive spots it in the agent's session and tells you, so a false positive doesn't go unnoticed and an agent doesn't carry on with a weaker model without your knowing:
+
+- **A shield beside the agent's status** in its pane says it happened. Hover it for when, on which model, how many times this session, and the names of the agent's last few tool calls before it (only their names: never what they did, nor what was stopped), so you can tell a false positive from an agent drifting into risky work. It also says what you can do: in Claude Code, `/feedback` reports a false positive, `/model` switches back, and `/config` sets whether it switches models by itself when a message is flagged.
+- **When the CLI asks you about it** (Claude Code asks whether to switch to another model), the agent is **Needs input**, and the notification and its pane say why: *a safety classifier stopped a response*, with its last tool calls. Once you answer, the agent shows **Idle after a safeguard stop: give it a nudge**, and the Hive Assistant can prompt it again.
+- **When its model changes after one** (Claude Code switching by itself, or Codex rerouting a request), the shield shows the model it runs on now, in orange, and the agent is in **Agents that need you** until you look at its pane. Hive also notes it on the card the agent is working on, and the Assistant sees it in the agent's activity.
+- **Performance** counts the stops per agent and model (below).
+
+Hive reads this from Claude Code's and Codex's session records. GitHub Copilot's sessions don't record it, so for Copilot agents it isn't detected.
+
 ### Agents that need you
 
 With agents working in several projects, the status bar tells you who is waiting on you: **2 need you**. Click it for the list, oldest first, with how long each has been waiting:
@@ -1001,6 +1012,7 @@ With agents working in several projects, the status bar tells you who is waiting
 - **Needs input**: an agent waiting for your answer, such as a permission. It stays in the list until you answer it.
 - **Asks**: an agent that asked you a question but carries on working meanwhile (Codex can). Its pane says **has a question for you**, and it stays in the list until you answer the question in its terminal.
 - **Needs sign-in**: an agent its CLI stopped because the sign-in has expired. It stays in the list until you sign in again (below).
+- **After a safeguard stop**: an agent whose model changed after its CLI's safety classifier stopped a response (see [When a safety classifier stops an agent](#when-a-safety-classifier-stops-an-agent)). It leaves the list once its pane is on screen.
 - **Finished**: an agent that finished while you weren't looking at it: in another project, on another page of agents, on another tab, or while Hive was in the background. It leaves the list once its pane is on screen.
 
 Click a row to go to that agent (the Assistant's opens its panel). The **Projects** icon in the activity bar shows the same number, and each project in the sidebar shows how many of its agents need you.

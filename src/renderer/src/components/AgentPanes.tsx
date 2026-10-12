@@ -19,9 +19,10 @@ import { offerTip } from '../tips'
 import { onStripMenu, takeStripMenu, type StripMenu } from '../stripMenus'
 import { ModeBadge } from './PermissionMode'
 import { ProviderIcon } from './ProviderIcon'
-import { contextLines, projectProviderConfig, providerName, providerSettings } from '@shared/providers'
+import { contextLines, projectProviderConfig, providerDescriptor, providerName, providerSettings } from '@shared/providers'
+import { safeguardText } from '@shared/safeguards'
 import { unpricedModel, unpricedText } from '@shared/prices'
-import { Icon, IconButton, ReviewMark, signInNote, statusText, StatusDot, Tooltip, useContextMenu, type MenuEntry } from './ui'
+import { Icon, IconButton, ReviewMark, SafeguardMark, signInNote, statusText, StatusDot, Tooltip, useContextMenu, type MenuEntry } from './ui'
 
 /** Height of an agent pane's header (who it is, its controls) and footer (its session's details). */
 export const PANE_HEADER = 30
@@ -654,6 +655,7 @@ function AgentTabTip({ project, a }: { project: ProjectInfo; a: AgentInfo }) {
   const lines = [`${a.name} (${providerName(agentProviderOf(project, a))}): ${live ? statusText(live) : failure ? `failed to start: ${failure.reason.split('\n')[0]}` : 'not running'}`]
   const signIn = signInNote(live)
   if (signIn) lines.push(signIn)
+  if (live?.safeguard) lines.push(safeguardText(live.safeguard, providerDescriptor(live.provider).modelLabel))
   if (a.role) lines.push(`Role: ${a.role}`)
   // Only shown when it has a choice of its own (#537): the default, all of the project's servers, goes without saying.
   if (agentChoosesMcp(a)) lines.push(`MCP servers: ${agentMcpText(a)}`)
@@ -939,6 +941,7 @@ function PaneHeader({ project, a, focused }: { project: ProjectInfo; a: AgentInf
         </SignInTip>
       )}
       <ReviewMark live={live} />
+      <SafeguardMark live={live} />
       <CardChip project={project} a={a} short />
       <Locks a={a} />
       <Leftovers project={project} a={a} />

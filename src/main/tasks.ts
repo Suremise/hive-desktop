@@ -943,6 +943,17 @@ export async function noteOnCard(n: number, what: string, ws: WorkspaceService =
   changed(ws)
 }
 
+/** A comment from Hive itself on a card (#606: its agent's model changed after a safeguard stop), for whoever reads the card. */
+export async function commentAsHive(n: number, said: string, ws: WorkspaceService = workspace): Promise<void> {
+  await withFileLock(cardFile(n, ws), async () => {
+    const card = await getTask(n, ws)
+    if (card.archived) return
+    addComment(card, 'Hive', said)
+    await saveCard(ws, n, card)
+  })
+  changed(ws)
+}
+
 /**
  * Stops the reviews an agent has going (its session ended, or it was removed), so a card never shows a reviewer that
  * has gone. A review started again meanwhile by another agent is left alone.

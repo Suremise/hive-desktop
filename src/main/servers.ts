@@ -6,7 +6,8 @@ import { basename, dirname, join, resolve as resolvePath } from 'path'
 import { stat } from 'original-fs/promises'
 import type { AgentApiInfo, AssistantControl, EffortLevel, HiveEvent, LiveSessionState, PermissionMode, ProviderId, SkillInfo, TaskCard, TaskColumn, TaskPatch, TaskStartTarget, ToastLevel } from '../shared/types'
 import { DEFAULT_API_PORT, HIVE_DIR, projectAgents, stopAsksUser, transcriptWarnLimit } from '../shared/defaults'
-import { PROVIDERS, agentProvider, defaultProviderPending, isKnownProvider, isProviderEnabled, offeredModes, projectDefaultProvider, providerName } from '../shared/providers'
+import { PROVIDERS, agentProvider, defaultProviderPending, isKnownProvider, isProviderEnabled, offeredModes, projectDefaultProvider, providerDescriptor, providerName } from '../shared/providers'
+import type { SafeguardNote } from '../shared/safeguards'
 import { agentChoosesMcp, agentGetsMcp, cleanMcpServers } from '../shared/agentMcp'
 import { fallbackEfforts, modelGroups } from '../shared/models'
 import { ASSISTANT_AGENT_ID, ASSISTANT_DIR, ASSISTANT_NAME } from '../shared/assistant'
@@ -1024,6 +1025,20 @@ route('POST', '/v1/projects/:name/agents/:agent/message', async ({ params, body 
 const ACTIVITY_SHORT = { task: 300, reply: 500, tools: 3, summary: 100 }
 const ACTIVITY_DETAIL = { task: 2000, reply: 3000, tools: 10, summary: 200 }
 
+/**
+ * A safeguard note as an agent's activity gives it (#606): when its CLI's safety classifier last stopped a response, on
+ * which model, how many times this launch, the names of its last tool calls before it, the model it runs on since (when
+ * that changed), and whether it waits on the CLI's prompt about it or is idle after it.
+ */
+function safeguardActivity(n: SafeguardNote) {
+  return {
+    ...(n.stops ? { stoppedAt: n.at, stops: n.stops, ...(n.model ? { model: n.model } : {}), toolsBefore: n.tools } : {}),
+    ...(n.switched ? { switchedTo: n.switched.to, switchedFrom: n.switched.from, switchedAt: n.switched.at } : {}),
+    ...(n.prompt ? { waitingOnPrompt: true } : {}),
+    ...(n.idle ? { idleAfterStop: true } : {})
+  }
+}
+
 /** What an agent is doing: its status, the task it was last given, its latest reply, its recent tool calls, its locked files. */
 async function agentActivity(p: string, agentId: string, detail = false) {
   const info = await workspace.projectInfo(p)
@@ -1058,13 +1073,14 @@ async function agentActivity(p: string, agentId: string, detail = false) {
   }
   const folder = a.worktree?.path ?? p
   const typed = sessions.userTypedAt(p, agentId)
+  const provider = st?.provider ?? agentProvider(a, info.config, config.settings)
   // Messages left for it (#530): those waiting (the start of each), and what became of the last ones.
   const msgs = messagesOf(p, agentId)
   return {
     project: info.name,
     agent: a.name,
     id: a.id,
-    provider: st?.provider ?? agentProvider(a, info.config, config.settings),
+    provider,
     status: st?.status ?? 'stopped',
     statusMessage: statusMessageOf(st),
     ...(watchingOf(st) ? { watching: watchingOf(st) } : {}),
@@ -1084,6 +1100,8 @@ async function agentActivity(p: string, agentId: string, detail = false) {
     toolCalls,
     recentTools,
     ...(Object.keys(clipped).length ? { clipped } : {}),
+    // Its CLI's safety classifier stopped a response or its model changed after one (#606): only names, never content.
+    ...(st?.safeguard ? { safeguard: safeguardActivity(st.safeguard) } : providerDescriptor(provider).safeguardHelp === null ? { safeguard: 'not detected' } : {}),
     lockedFiles: sessions.locksFor(p, agentId).map((f) => placeRelative(folder, f) || f),
     userTypedSecondsAgo: typed ? Math.round((Date.now() - typed) / 1000) : null,
     ...(msgs.queued.length ? { messagesWaiting: msgs.queued.map((m) => ({ from: m.from, at: m.at, text: clip(m.text.replace(/\s+/g, ' '), 80) })) } : {}),

@@ -3,6 +3,8 @@ import { addTokens, emptyDay, localDay } from '../../../shared/usageDays'
 import { TimelineBuilder } from '../../../shared/usageTimeline'
 import { CLAUDE_CODE } from '../../../shared/claude'
 import { isSessionId } from '../../../shared/defaults'
+import { countSafeguards } from '../../../shared/safeguards'
+import { claudeSafeguards } from './safeguards'
 
 /**
  * Whether a transcript (its first line) is a sub-agent's: Claude Code marks a sub-agent's messages `isSidechain`, and
@@ -80,6 +82,9 @@ export class ClaudeUsageParser {
   private reports: { total: number; keys: string[] }[] = []
   private prompts = new Map<string, number>()
   private compactionDays: string[] = []
+  /** Safeguard stops by the model they stopped (#606), and the detection's own memo. */
+  private safeguards: Record<string, number> = {}
+  private safeguardMemo: Record<string, unknown> = {}
 
   constructor(sessionId: string) {
     this.usage = {
@@ -110,6 +115,7 @@ export class ClaudeUsageParser {
   /** Reads whole lines of the transcript (the next part of it). */
   feed(text: string): void {
     const usage = this.usage
+    countSafeguards(this.safeguards, claudeSafeguards(text, this.safeguardMemo))
     for (const line of text.split('\n')) {
       if (!line.trim()) continue
       let o: Record<string, any>
@@ -219,6 +225,7 @@ export class ClaudeUsageParser {
       timeline.add(r.at, t, 1, reportOf.get(key) ?? -1)
     }
     usage.timeline = timeline.timeline(charges)
+    if (Object.keys(this.safeguards).length) usage.safeguards = { ...this.safeguards }
     for (const [day, n] of this.prompts) dayOf(day).prompts += n
     for (const day of this.compactionDays) dayOf(day).compactions++
     delete days['']

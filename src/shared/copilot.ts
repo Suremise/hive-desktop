@@ -183,6 +183,8 @@ export const COPILOT_DESCRIPTOR: ProviderDescriptor = {
   extensionNote:
     "You have GitHub Copilot in VS Code (or a similar editor). Hive doesn't use the editor's copy — it moves with every extension update. Install the Copilot CLI; your extension keeps working as before.",
   signInHelp: 'Sign in again: run copilot login in a terminal (Help → Agent Setup → GitHub Copilot shows how).',
+  // Its session events have no record of a safety classifier stopping a response or rerouting it (checked with 1.0.x, #606).
+  safeguardHelp: null,
   modelLabel: copilotModelLabel,
   canSwitchLive: copilotCanSwitchLive
 }

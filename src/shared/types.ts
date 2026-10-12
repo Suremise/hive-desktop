@@ -10,6 +10,7 @@ import type { DateFormat, TimeFormat } from './dates'
 import type { ProjectPref } from './uiPrefs'
 import type { GitTool } from './gitTool'
 import type { ConsoleEvent } from './devConsole'
+import type { SafeguardNote } from './safeguards'
 import type { AgentLeftovers, LeftoverProcessMode } from './agentProcesses'
 import type { UsageTimeline } from './usageTimeline'
 
@@ -1213,6 +1214,12 @@ export interface LiveSessionState {
    * message and when. Status `signin` until the CLI is signed in again, then `ready`; Resume (n) carries it on.
    */
   signIn?: { message: string; since: string }
+  /**
+   * Its CLI's safety classifier stopped a response this launch, or its model changed after one (#606): when, the model,
+   * the names of its last tool calls before it (never their input nor what was stopped), and whether it waits on the
+   * CLI's prompt about it, is idle after it, or runs on another model since. Absent when none.
+   */
+  safeguard?: SafeguardNote
   /** Reported by the provider once the session has started. */
   effort?: string
   modelName?: string
@@ -1549,6 +1556,11 @@ export interface SessionUsage {
    * parser's result and removed before pricing, so it never travels with the session's usage.
    */
   timeline?: UsageTimeline
+  /**
+   * Responses the CLI's safety classifier stopped (#606), by the model each was on ('' when the CLI didn't say): absent
+   * when none, or for a CLI Hive can't detect them in (shared/safeguards.ts).
+   */
+  safeguards?: Record<string, number>
 }
 
 export interface UsageTokens {

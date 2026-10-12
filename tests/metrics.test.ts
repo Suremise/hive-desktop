@@ -763,7 +763,7 @@ describe('round 7: a shortened label never equals a real project name', () => {
 describe('trend, the Performance view and export', () => {
   const view = () => import('../src/shared/metricsView')
   const report = (r: Omit<import('../src/shared/metrics').MetricsReport, 'providers'>, providers: import('../src/shared/metrics').ProviderUsageSummary[] = []) => ({ ...r, providers })
-  const usage = (provider: string, costUsd: number) => ({ provider, sessions: 1, unknown: 0, inputTokens: 10, outputTokens: 5, cacheReadTokens: 0, cacheWriteTokens: 0, reasoningTokens: 0, requests: 2, compactions: 0, costUsd, costEstimated: 0, costUnknown: 0, role: 'agent' as const, running: 0, contextSessions: 0, contextAvgTokens: 0, contextMaxTokens: 0, contextWindow: null })
+  const usage = (provider: string, costUsd: number) => ({ provider, sessions: 1, unknown: 0, inputTokens: 10, outputTokens: 5, cacheReadTokens: 0, cacheWriteTokens: 0, reasoningTokens: 0, requests: 2, compactions: 0, safeguardStops: 0, costUsd, costEstimated: 0, costUnknown: 0, role: 'agent' as const, running: 0, contextSessions: 0, contextAvgTokens: 0, contextMaxTokens: 0, contextWindow: null })
 
   it('a trend has every slot of the range: hours up to 2 days, days beyond; a project scope only its own', async () => {
     const { w } = await open()
@@ -839,13 +839,14 @@ describe('trend, the Performance view and export', () => {
     const { w, path } = await open()
     metrics.recordApi(metrics.metricsHandle(w), 'Secret-Project', api())
     metrics.recordApi(metrics.metricsHandle(w), 'other', api())
-    const r = report(metrics.queryMetrics(w, { scope: { kind: 'workspace' }, trend: true }))
+    const r = { ...report(metrics.queryMetrics(w, { scope: { kind: 'workspace' }, trend: true })), safeguards: [{ project: 'Secret-Project', agent: 'Secret-Agent', provider: 'claude-code', role: 'agent' as const, model: 'claude-opus-5-5', stops: 1 }] }
     const plain = metricsExport(r, '9.9.9', false) as Record<string, unknown>
     expect(plain).toMatchObject({ schema: METRICS_EXPORT_SCHEMA, app: { name: 'Hive', version: '9.9.9' }, sanitized: false })
     expect(Object.keys(plain.units as object)).toEqual(expect.arrayContaining(['bytes', 'chars', 'ms', 'tokens', 'costUsd']))
     expect(JSON.stringify(plain)).toContain('Secret-Project')
     const clean = JSON.stringify(metricsExport(r, '9.9.9', true))
-    expect(clean).not.toMatch(/Secret-Project|"other"/)
+    expect(clean).not.toMatch(/Secret-Project|Secret-Agent|"other"/)
+    expect(JSON.parse(clean).report.safeguards).toEqual([{ project: 'project-1', agent: 'agent-1', provider: 'claude-code', role: 'agent', model: 'claude-opus-5-5', stops: 1 }])
     expect(clean).not.toContain(JSON.stringify(path).slice(1, -1))
     expect(Object.keys(JSON.parse(clean).report.projects).sort()).toEqual(['project-1', 'project-2'])
     expect(JSON.parse(clean).report.trend.length).toBeGreaterThan(0)
@@ -958,9 +959,9 @@ describe('#116 round 1: filters, coverage, attribution, unknown usage, guidance 
     for (const p of ['alpha', 'beta']) mkdirSync(join(path, p), { recursive: true })
     const at = new Date(T0 - HOUR).toISOString()
     const usage = (input: number, cost: number | null, context = 0) => ({ inputTokens: input, outputTokens: 1, cacheWriteTokens: 0, cacheReadTokens: 0, requests: 2, reasoningTokens: 0, contextTokens: context, contextWindow: context ? 200000 : null, compactions: [], cacheTtlSeconds: 300, firstActivity: at, lastActivity: at, userMessages: 1, lastPrompt: null, costUsd: cost, costEstimated: false })
-    const item = (id: string, u: ReturnType<typeof usage> | null) => ({ id, provider: 'claude-code', source: 'hive', title: null, lastActivity: at, hasTranscript: true, hasBackup: false, usage: u, recache: null })
+    const item = (id: string, u: (ReturnType<typeof usage> & { safeguards?: Record<string, number> }) | null, agentName?: string) => ({ id, provider: 'claude-code', source: 'hive', title: null, lastActivity: at, hasTranscript: true, hasBackup: false, usage: u, recache: null, ...(agentName ? { agentName } : {}) })
     const byPath: Record<string, unknown[]> = {
-      [join(path, 'alpha').toLowerCase()]: [item('a1', usage(100, 1, 5000)), item('a2', usage(50, null, 15000))],
+      [join(path, 'alpha').toLowerCase()]: [item('a1', { ...usage(100, 1, 5000), safeguards: { 'claude-opus-5-5': 2 } }, 'HB3'), item('a2', { ...usage(50, null, 15000), safeguards: { 'claude-opus-5-5': 1, 'claude-opus-4-8': 1 } }, 'HB3')],
       [join(path, 'beta').toLowerCase()]: [item('b1', null)],
       [w.assistantHome.toLowerCase()]: [item('s1', usage(7, 0.5))]
     }
@@ -975,6 +976,14 @@ describe('#116 round 1: filters, coverage, attribution, unknown usage, guidance 
       expect([agents.sessions, agents.running, agents.unknown, agents.inputTokens, agents.costUsd, agents.costUnknown]).toEqual([3, 1, 1, 150, 1, 2])
       expect([agents.contextSessions, agents.contextAvgTokens, agents.contextMaxTokens, agents.contextWindow]).toEqual([2, 10000, 15000, 200000])
       expect([assistant.sessions, assistant.inputTokens, assistant.costUsd]).toEqual([1, 7, 0.5])
+      // Safeguard stops (#606): per provider, and per agent and model, most first.
+      expect([agents.safeguardStops, assistant.safeguardStops]).toEqual([4, 0])
+      const report = await metricsReport(w, { scope: { kind: 'workspace' } })
+      expect(report.safeguards).toEqual([
+        { project: 'alpha', agent: 'HB3', provider: 'claude-code', role: 'agent', model: 'claude-opus-5-5', stops: 3 },
+        { project: 'alpha', agent: 'HB3', provider: 'claude-code', role: 'agent', model: 'claude-opus-4-8', stops: 1 }
+      ])
+      expect((await metricsReport(w, { scope: { kind: 'project', project: 'beta' } })).safeguards).toBeUndefined()
       // The workspace's own work, or the Assistant only: the Assistant's sessions alone.
       expect((await rows({ own: true })).map((p) => p.role)).toEqual(['assistant'])
       expect((await rows({ role: 'assistant' })).map((p) => p.role)).toEqual(['assistant'])
