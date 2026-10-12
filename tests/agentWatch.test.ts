@@ -173,7 +173,9 @@ describe('agent watches (main/watches.ts)', async () => {
     const state = { status: 'watching' as string, typing: false, typed: [] as string[], agents: new Map<string, AgentNow | null>() }
     const is = (p: string, id: string, want: string) => p.toLowerCase() === alpha.toLowerCase() && id === want
     Object.assign(sessions, {
-      liveFor: (p: string, id: string) => (is(p, id, 'a1') ? ({ projectPath: alpha, agentId: 'a1', status: state.status } as never) : null),
+      liveFor: (p: string, id: string) => (is(p, id, 'a1') ? ({ projectPath: alpha, agentId: 'a1', status: state.status, runId: 'run-1' } as never) : null),
+      // Each line typed into it is taken (#649: its wake is received, and its watch ends, then).
+      promptsTaken: (p: string, id: string) => (is(p, id, 'a1') ? { runId: 'run-1', count: state.typed.length } : null),
       agentNow: (p: string, id: string) => {
         const a = p.toLowerCase() === alpha.toLowerCase() ? state.agents.get(id) : undefined
         return a ? { statusMessage: null, backgroundTasks: 0, reply: null, ...a } : null
@@ -403,8 +405,10 @@ describe('agent watches (main/watches.ts)', async () => {
     const assistant = { status: 'watching' as string, typed: [] as string[] }
     const liveFor = sessions.liveFor
     const sendPrompt = sessions.sendPrompt
+    const promptsTaken = sessions.promptsTaken
     Object.assign(sessions, {
-      liveFor: (p: string, id: string) => (id === 'assistant' ? ({ projectPath: home, agentId: 'assistant', status: assistant.status } as never) : liveFor(p, id)),
+      liveFor: (p: string, id: string) => (id === 'assistant' ? ({ projectPath: home, agentId: 'assistant', status: assistant.status, runId: 'run-a' } as never) : liveFor(p, id)),
+      promptsTaken: (p: string, id: string) => (id === 'assistant' ? { runId: 'run-a', count: assistant.typed.length } : promptsTaken(p, id)),
       sendPrompt: async (p: string, id: string, text: string, guard?: () => void) => {
         if (id !== 'assistant') return sendPrompt(p, id, text, guard)
         guard?.()
@@ -456,7 +460,7 @@ describe('agent watches (main/watches.ts)', async () => {
       expect(assistant.typed).toHaveLength(3)
     } finally {
       config.settings.assistant.tellReplies = true
-      Object.assign(sessions, { liveFor, sendPrompt })
+      Object.assign(sessions, { liveFor, sendPrompt, promptsTaken })
     }
     await disposeWorkspaceService(w)
   })
@@ -466,8 +470,10 @@ describe('agent watches (main/watches.ts)', async () => {
     const a = { status: 'watching' as string, typed: [] as string[] }
     const liveFor = sessions.liveFor
     const sendPrompt = sessions.sendPrompt
+    const promptsTaken = sessions.promptsTaken
     Object.assign(sessions, {
-      liveFor: (p: string, id: string) => (id === 'assistant' ? ({ projectPath: home, agentId: 'assistant', status: a.status } as never) : liveFor(p, id)),
+      liveFor: (p: string, id: string) => (id === 'assistant' ? ({ projectPath: home, agentId: 'assistant', status: a.status, runId: 'run-a' } as never) : liveFor(p, id)),
+      promptsTaken: (p: string, id: string) => (id === 'assistant' ? { runId: 'run-a', count: a.typed.length } : promptsTaken(p, id)),
       sendPrompt: async (p: string, id: string, text: string, guard?: () => void) => {
         if (id !== 'assistant') return sendPrompt(p, id, text, guard)
         guard?.()
@@ -475,7 +481,7 @@ describe('agent watches (main/watches.ts)', async () => {
         a.status = 'working'
       }
     })
-    return { a, restore: () => Object.assign(sessions, { liveFor, sendPrompt }) }
+    return { a, restore: () => Object.assign(sessions, { liveFor, sendPrompt, promptsTaken }) }
   }
 
   it('turning Tell the Assistant when I reply off withholds a reply already waiting to be told, for card and agent watches; turning it on again replays none (round 1 finding)', async () => {
@@ -536,6 +542,52 @@ describe('agent watches (main/watches.ts)', async () => {
       restore()
     }
     await disposeWorkspaceService(w)
+  })
+
+  it("hive_inbox gives out a wake telling the user's reply only while the user lets replies be told: the setting turned off (and nothing else), it isn't handed out, and is cancelled (#649 round 3)", async () => {
+    const { config } = await import('../src/main/config')
+    const deliveries = await import('../src/main/deliveries')
+    const { w, alpha } = await open()
+    const st = fake(alpha)
+    const home = w.assistantHome
+    mkdirSync(home, { recursive: true })
+    const { a, restore } = assistantOf(home)
+    // The Assistant gets busy as its wake is about to be typed: the wake waits, queued.
+    const typing = sessions.sendPrompt
+    let once = true
+    sessions.sendPrompt = async (p: string, id: string, text: string, guard?: () => void) => {
+      if (id === 'assistant' && once) {
+        once = false
+        a.status = 'working'
+        throw new Error('The Assistant got busy.')
+      }
+      return typing(p, id, text, guard)
+    }
+    try {
+      const c = await inWorkspace(w, () => tasks.createTask({ title: 'Icon', project: 'alpha', agent: 'a2', column: 'doing' }, { kind: 'user' }))
+      move(st, alpha, 'a2', nowOf())
+      await watches.registerWatch(w, home, 'assistant', { cards: [c.number], changes: ['comment'] })
+      watches.noteUserReply(alpha, 'a2', 'Reviewer', 'PRIVATE choice')
+      await watches.evaluateWatches(w)
+      await watches.settled()
+      expect(a.typed).toEqual([])
+      const waiting = await deliveries.deliveriesOf(home, 'assistant')
+      expect(waiting.map((r) => r.state)).toEqual(['queued'])
+      expect(waiting[0].body).toMatch(/PRIVATE choice/)
+      // The setting alone is turned off (no withdrawal ran): the watch's own check says so, and the inbox listens.
+      config.settings.assistant.tellReplies = false
+      try {
+        expect((await deliveries.readInbox(home, 'assistant')).items).toEqual([])
+        expect((await deliveries.deliveriesOf(home, 'assistant')).map((r) => `${r.state}: ${r.detail}`)).toEqual(["cancelled: the user's replies are no longer told"])
+      } finally {
+        config.settings.assistant.tellReplies = true
+      }
+    } finally {
+      sessions.sendPrompt = typing
+      restore()
+      await watches.settled()
+      await disposeWorkspaceService(w)
+    }
   })
 
   it('turned off (and on again) while a wake telling a reply is being typed, nothing more is typed; what else changed comes again without it (rounds 2 and 3 findings)', async () => {
@@ -661,7 +713,8 @@ describe('agent watches (main/watches.ts)', async () => {
     await watches.evaluateWatches(w)
     await vi.waitFor(() => expect(st.typed).toHaveLength(1), { timeout: HUNG_MS })
     expect(st.typed[0]).toBe(`[Hive] #${c1} was reassigned to Second (your watch on it ended). Your card watch has ended: drop it from your list and carry on with your next card.`)
-    expect(watches.watchFor(alpha, 'a1')).toBeNull()
+    // Its line taken, the wake is received and the watch ends (#649).
+    await vi.waitFor(() => expect(watches.watchFor(alpha, 'a1')).toBeNull(), { timeout: HUNG_MS })
     await vi.waitFor(async () => expect((await inWorkspace(w, () => tasks.getTask(c1, w))).history.map((h) => h.what)).toContain('Ended Builder (alpha)\'s watch on it: reassigned to Second'), { timeout: HUNG_MS })
     // Two cards: one blocked stays, paused (#481); the other's arrival is told alone.
     st.status = 'watching'

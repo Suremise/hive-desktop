@@ -78,6 +78,57 @@ vi.mock('../src/main/sessions', () => ({
   }
 }))
 
+// The delivery service (#649) as assistantMode uses it, stood in for: one mode message waiting per home (a newer one made
+// again from a newer switch), ended once its launch has, made again just before it is offered (one no longer due is
+// dropped), typed only while it holds, received once typed, and tried again when the Assistant is next idle.
+vi.mock('../src/main/deliveries', async () => {
+  const { sessions } = await import('../src/main/sessions')
+  const { onHiveEvent } = await import('../src/main/events')
+  type R = { id: string; source?: string; ref?: string; body: string; forRun?: string; meta?: Record<string, unknown> }
+  type Source = { refresh?: (r: R, host: string) => Promise<{ cancel: string } | { body: string } | null>; holds?: (r: R, host: string) => boolean; received?: (r: R, host: string) => void }
+  const sources = new Map<string, Source>()
+  let waiting: R | null = null
+  let n = 0
+  const idle = (): boolean => !!st.live && ['ready', 'finished', 'watching'].includes(st.live.status)
+  const offerNow = async (host: string, agentId: string): Promise<boolean> => {
+    const r = waiting
+    if (!r || !idle()) return false
+    const src = r.source ? sources.get(r.source) : undefined
+    if (st.live?.runId !== r.forRun) {
+      if (waiting === r) waiting = null
+      return false
+    }
+    const f = await src?.refresh?.(r, host)
+    if (f && 'cancel' in f) {
+      if (waiting === r) waiting = null
+      return false
+    }
+    try {
+      await (sessions as unknown as { sendPrompt: (h: string, a: string, t: string, g: () => void) => Promise<void> }).sendPrompt(host, agentId, r.body, () => {
+        if (src?.holds && !src.holds(r, host)) throw new Error('It no longer holds.')
+        if (!idle()) throw new Error('The Assistant got busy.')
+      })
+    } catch {
+      return false
+    }
+    if (waiting === r) waiting = null
+    src?.received?.(r, host)
+    return true
+  }
+  onHiveEvent((e: unknown) => {
+    const ev = e as { type: string; state: { projectPath: string; agentId: string; status: string } }
+    if (ev.type === 'session-status' && ['ready', 'finished', 'watching'].includes(ev.state.status)) setTimeout(() => void offerNow(ev.state.projectPath, ev.state.agentId), 500)
+  })
+  return {
+    registerSource: (name: string, s: Source) => sources.set(name, s),
+    createDelivery: async (_host: string, nd: Omit<R, 'id'>) => {
+      waiting = waiting && waiting.ref === nd.ref ? { ...waiting, ...nd, id: waiting.id } : { ...nd, id: `m${++n}` }
+      return waiting
+    },
+    offerNow
+  }
+})
+
 const gate = (): { until: Promise<void>; open: () => void } => {
   let open = (): void => undefined
   const until = new Promise<void>((r) => (open = r))

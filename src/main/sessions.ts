@@ -55,6 +55,8 @@ import { admit, describe as describeTurn, endRunning, heard, newLedger, openCall
 import { Compaction } from './compaction'
 import { lastTitle } from './terminalTitle'
 import { asksYou } from '../shared/inbox'
+import type { DeliveryHooks, NewDelivery } from './deliveries'
+import { readyFor } from './readiness'
 import { FinishBatcher, finishedNotice, noticeRoute, type FocusedHive, type NoticeRoute } from '../shared/bursts'
 import { commentOnDoingCards, recordCards } from './cardSessions'
 import { listMcp, toLaunchDef } from './mcp'
@@ -513,6 +515,8 @@ const SIGN_IN_RECHECK_MS = 60_000
 /** The status message of an agent stopped by a refused sign-in once its CLI is signed in again (#309). */
 const SIGNED_IN_AGAIN = 'Stopped while signed out'
 /** What Resume (n) types into such an agent. */
+/** Hive's own deliveries come from it (#649). */
+const HIVE_SENDER = { kind: 'hive', name: 'Hive' } as const
 const CARRY_ON_PROMPT = 'Your last turn stopped because your sign-in had expired. It is renewed now: carry on where you left off.'
 
 class SessionManager {
@@ -535,8 +539,19 @@ class SessionManager {
   private lockAsked = new Map<string, number>()
   /** "Allow" given while the agent was still in its turn (`<liveId>|<lock key>` → the file's path): the go-ahead it gets when that turn ends. */
   private lockGoAhead = new Map<string, string>()
-  /** Go-aheads put off while the user was typing in the agent's terminal: tried again when the pause ends. */
-  private goAheadTimers = new Map<string, ReturnType<typeof setTimeout>>()
+  /**
+   * The delivery service (#649, deliveries.ts sets it as it loads): the lines sessions give agents of their own (a lock's
+   * go-ahead, the carry-on after a sign-in, a handover's steps) are deliveries it offers, as every way into an agent is.
+   */
+  deliveries: {
+    give: (host: string, nd: NewDelivery, hooks?: DeliveryHooks) => Promise<unknown>
+    now: (host: string, nd: NewDelivery, holds?: () => boolean) => Promise<unknown>
+    cancel: (host: string, source: string, ref: string | null, why: string) => Promise<number>
+  } | null = null
+  private delivery(): NonNullable<SessionManager['deliveries']> {
+    if (!this.deliveries) throw new Error("Hive's delivery service isn't running.")
+    return this.deliveries
+  }
   hookUrl = ''
   apiEnv: (projectPath: string, agentId: string) => Record<string, string> = () => ({})
   /** Hive's bin folder (hive-progress), first on each session's PATH; null until written, or when it couldn't be. */
@@ -582,12 +597,13 @@ class SessionManager {
 
   /**
    * Presses Enter again in an agent whose typed line wasn't taken (#376: a CLI dropped the Enter, and the line stayed in
-   * its prompt). Only in the same launch, while it is idle, and not while the user types there or Hive types into it.
+   * its prompt). Only in the same launch, while it is idle (watching too: a watch lasts until its wake is received, #649),
+   * and not while the user types there or Hive types into it.
    */
   submitAgain(projectPath: string, agentId: string, runId: string): boolean {
     const l = this.live.get(liveId(projectPath, agentId))
     const key = this.key(projectPath, agentId)
-    if (!l || l.state.runId !== runId || (l.state.status !== 'ready' && l.state.status !== 'finished') || this.userMayBeTyping(projectPath, agentId) || this.delivering.has(key)) return false
+    if (!l || l.state.runId !== runId || !readyFor(l.state) || this.userMayBeTyping(projectPath, agentId) || this.delivering.has(key)) return false
     writePty(key, '\r')
     return true
   }
@@ -612,7 +628,7 @@ class SessionManager {
   clearTyped(projectPath: string, agentId: string, runId: string): boolean {
     const l = this.live.get(liveId(projectPath, agentId))
     const key = this.key(projectPath, agentId)
-    if (!l || l.state.runId !== runId || (l.state.status !== 'ready' && l.state.status !== 'finished') || this.userMayBeTyping(projectPath, agentId) || this.delivering.has(key)) return false
+    if (!l || l.state.runId !== runId || !readyFor(l.state) || this.userMayBeTyping(projectPath, agentId) || this.delivering.has(key)) return false
     if (!l.typed || (l.prompts ?? 0) > l.typed.prompts || this.userTypedOverLine(projectPath, agentId)) return false
     writePty(key, '\x15')
     l.typed = undefined
@@ -1667,6 +1683,24 @@ class SessionManager {
     if (st.status === 'waiting') throw new Error('The agent is asking you something. Answer it first, then switch the mode.')
     if (st.status === 'starting') throw new Error('The session is still starting. Try again in a moment.')
     const key = this.key(projectPath, agentId)
+    // The composer is reserved while the keys go in (#649), as for a line Hive types: none is typed into the menu, nor
+    // the keys into a line.
+    if (this.delivering.has(key)) throw new Error('Hive is typing a line into this agent. Switch the mode in a moment.')
+    this.delivering.add(key)
+    try {
+      return await this.switchModeKeys(l, mode, how)
+    } finally {
+      this.delivering.delete(key)
+    }
+  }
+
+  /** setPermissionMode's keys, with the composer reserved. */
+  private async switchModeKeys(l: LiveSession, mode: PermissionMode, how: string): Promise<{ ok: boolean; restart?: boolean; message?: string }> {
+    const st = l.state
+    const p = st.provider
+    const name = l.adapter.descriptor.name
+    const id = liveId(st.projectPath, st.agentId)
+    const key = this.key(st.projectPath, st.agentId)
     if (how === 'menu' && l.adapter.modeMenuKeys) {
       // The CLI's own menu (Codex: /permissions). Only while idle: typed into a working agent it would queue.
       if (st.status === 'working') throw new Error(`${name} is working. Switch the mode once it has finished.`)
@@ -2013,11 +2047,16 @@ class SessionManager {
       const want = source.sessionId
       const isNew = (h: HandoverRef): boolean => (!known.has(h.relPath) || h.modified > known.get(h.relPath)!) && (!want || h.session === want)
       toast('info', `${from.name} is writing a handover`, self ? 'It continues from it in a new conversation when it\'s done.' : `${to.name} continues from it when it's done.`, undefined, projectPath)
-      await this.sendPrompt(
-        projectPath,
-        fromAgentId,
-        `Please write a handover of this work with the hive_create_handover tool, so that ${self ? 'you can continue it in a new conversation' : `another agent (${to.name}) can continue it`}: the goal, what is done, decisions made and why, the current state, open problems and the next steps. Then stop.`
-      )
+      // A handover delivery (#649), given now or not at all.
+      await this.delivery().now(projectPath, {
+        agentId: fromAgentId,
+        agentName: from.name,
+        conversation: source.sessionId || null,
+        kind: 'handover',
+        from: HIVE_SENDER,
+        body: `Please write a handover of this work with the hive_create_handover tool, so that ${self ? 'you can continue it in a new conversation' : `another agent (${to.name}) can continue it`}: the goal, what is done, decisions made and why, the current state, open problems and the next steps. Then stop.`,
+        need: 'free'
+      })
       const t0 = Date.now()
       let idleSince = 0
       for (;;) {
@@ -2052,7 +2091,7 @@ class SessionManager {
       if (!target) throw new Error(`${to.name} didn't become ready. Answer any question in its terminal, then hand over again without a new handover.`)
       await new Promise((r) => setTimeout(r, 1500))
     }
-    await this.sendPrompt(projectPath, toAgentId, `Read the handover "${handover}" with the hive_read_shared_note tool and continue the work from it. It was written by ${self ? 'you, in your previous conversation' : from.name}.`)
+    await this.delivery().now(projectPath, { agentId: toAgentId, agentName: to.name, kind: 'handover', from: HIVE_SENDER, body: `Read the handover "${handover}" with the hive_read_shared_note tool and continue the work from it. It was written by ${self ? 'you, in your previous conversation' : from.name}.`, need: 'free' })
     // Link the sessions once the target's id is known (Codex reports it with the first prompt).
     const linked = await this.waitStatus(projectPath, toAgentId, (s) => !s || !!s.sessionId, 60_000).catch(() => null)
     if (linked?.sessionId && fromSession) await workspace.upsertSession(projectPath, { id: linked.sessionId, handedOverFrom: fromSession }).catch(() => undefined)
@@ -2091,6 +2130,8 @@ class SessionManager {
     if (!l.adapter.planToggleKey) throw new Error(`${l.adapter.descriptor.name} has no Plan mode toggle.`)
     if (l.state.status === 'waiting') throw new Error('The agent is asking you something. Answer it first.')
     if (!!l.state.planMode === on) return
+    // Not into a line Hive is typing (#649: the composer is reserved meanwhile).
+    if (this.delivering.has(this.key(projectPath, agentId))) throw new Error('Hive is typing a line into this agent. Try again in a moment.')
     writePty(this.key(projectPath, agentId), l.adapter.planToggleKey)
     l.state.planMode = on
     this.emitState(l.state)
@@ -2922,10 +2963,10 @@ class SessionManager {
       const st = this.liveFor(projectPath, agentId)
       return st?.signIn && (st.status === 'ready' || st.status === 'finished' || st.status === 'signin') ? st : null
     }
-    if (!stalled()) throw new Error('It has already carried on.')
-    await this.sendPrompt(projectPath, agentId, CARRY_ON_PROMPT, () => {
-      if (!stalled()) throw new Error('It carried on by itself.')
-    })
+    const st = stalled()
+    if (!st) throw new Error('It has already carried on.')
+    // A control notice for this launch (#649), given now or not at all: never once it has carried on by itself.
+    await this.delivery().now(projectPath, { agentId, kind: 'control', from: HIVE_SENDER, body: CARRY_ON_PROMPT, source: 'carry-on', ref: st.runId, need: 'stalled', forRun: st.runId }, () => !!stalled())
   }
 
   /** The launch a hook call belongs to: named by its run id, else (older launch folders) by session id. */
@@ -3119,48 +3160,27 @@ class SessionManager {
   }
 
   /**
-   * Types one go-ahead for the agent's allowed files, as any prompt Hive types on its own is: only while it is idle and
-   * the user isn't writing in its terminal (Pause after you type), checked again until Enter, so the user's input is
-   * never added to or sent. The files are allowed again for the turn it starts. Not typed, they wait: for the pause
-   * to end, or the next turn's end (the user's own prompt, or a wake, went first; the files stay allowed for it).
+   * Gives the agent one go-ahead for its allowed files once its turn has ended: a delivery (#649: a control notice for
+   * this launch) the delivery service offers as any line of Hive's is, only while it is free and the user isn't writing
+   * in its terminal (Pause after you type), checked again until Enter, so the user's input is never added to or sent. The
+   * files are allowed again for the turn it starts. Not typed yet, it waits (the user's own prompt, or a wake, went
+   * first; the files stay allowed for it, and the next turn's end gives it again).
    */
   private sendGoAheads(id: string, l: LiveSession): void {
-    const { projectPath, agentId } = l.state
+    const { projectPath, agentId, runId } = l.state
     const keys = [...this.lockGoAhead.keys()].filter((k) => k.startsWith(`${id}|`))
-    const idle = (): boolean => l.state.status === 'ready' || l.state.status === 'finished'
-    if (!keys.length || !idle() || this.live.get(id) !== l) return
-    if (this.userMayBeTyping(projectPath, agentId)) return this.goAheadLater(id, l)
+    if (!keys.length || (l.state.status !== 'ready' && l.state.status !== 'finished') || this.live.get(id) !== l) return
     const paths = keys.map((k) => this.lockGoAhead.get(k)!)
     for (const k of keys) this.lockAllowed.set(k, ++this.lockSeq)
     // This delivery's go-aheads, still wanted: an interrupt, the edit going ahead, or the session ending or moving
     // (dropGoAheads, editAccepted) cancels it, even part-way.
     const current = (): boolean => this.live.get(id) === l && keys.every((k, i) => this.lockGoAhead.get(k) === paths[i])
-    const allowed = (): void => {
-      if (!current()) throw new Error('The go-ahead was cancelled.')
-      if (!idle()) throw new Error('The agent started working before the go-ahead was typed.')
-      if (this.userMayBeTyping(projectPath, agentId)) throw new Error('The user is typing there.')
-    }
-    this.sendPrompt(projectPath, agentId, goAheadPrompt(l.state.cwd, paths), allowed).then(
-      () => keys.forEach((k, i) => this.lockGoAhead.get(k) === paths[i] && this.lockGoAhead.delete(k)),
-      (e: Error) => {
-        log.info(`${userText(this.label(l.state))}: go-ahead for a locked edit put off: ${e.message}`)
-        if (current() && this.userMayBeTyping(projectPath, agentId)) this.goAheadLater(id, l)
-      }
-    )
-  }
-
-  /** Tries the go-ahead again once the user's typing pause is over. */
-  private goAheadLater(id: string, l: LiveSession): void {
-    if (this.goAheadTimers.has(id)) return
-    const u = this.userInput.get(this.key(l.state.projectPath, l.state.agentId))
-    const wait = Math.max(500, (u?.at ?? 0) + (config.settings.assistant?.typingPause ?? 15) * 1000 - Date.now() + 200)
-    this.goAheadTimers.set(
-      id,
-      setTimeout(() => {
-        this.goAheadTimers.delete(id)
-        this.sendGoAheads(id, l)
-      }, wait)
-    )
+    this.delivery()
+      .give(projectPath, { agentId, kind: 'control', from: HIVE_SENDER, body: goAheadPrompt(l.state.cwd, paths), source: 'go-ahead', ref: runId, replace: true, need: 'free', forRun: runId }, {
+        holds: current,
+        received: () => keys.forEach((k, i) => this.lockGoAhead.get(k) === paths[i] && this.lockGoAhead.delete(k))
+      })
+      .catch((e: Error) => log.info(`${userText(this.label(l.state))}: go-ahead for a locked edit not given: ${e.message}`))
   }
 
   /**
@@ -3184,9 +3204,15 @@ class SessionManager {
   }
 
   private dropGoAheads(id: string): void {
-    for (const k of this.lockGoAhead.keys()) if (k.startsWith(`${id}|`)) this.lockGoAhead.delete(k)
-    clearTimeout(this.goAheadTimers.get(id))
-    this.goAheadTimers.delete(id)
+    let had = false
+    for (const k of this.lockGoAhead.keys())
+      if (k.startsWith(`${id}|`)) {
+        this.lockGoAhead.delete(k)
+        had = true
+      }
+    // Its delivery, if it was given one, no longer holds: cancelled now, rather than at its next try.
+    const l = this.live.get(id)
+    if (had && l) void this.deliveries?.cancel(l.state.projectPath, 'go-ahead', l.state.runId, 'cancelled: the go-ahead was dropped').catch(() => undefined)
   }
 
   private publishLocks(id: string): void {

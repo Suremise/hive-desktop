@@ -101,8 +101,9 @@ const check = (name, ok, extra = '') => {
   const already = await lastWaitReply(watcher.id)
   check('watching an idle agent answers at once: already, and no watch', (already ?? '').startsWith('Already: Worker (alpha) is idle') && !(await live(watcher.id))?.watch, already)
 
-  // --- Finishing its turn: one line, with its reply.
-  await say(worker.id, 'work 6')
+  // --- Finishing its turn: one line, with its reply. Its turn is held until the watcher watches (not a fixed time,
+  // which a loaded machine outran: #667).
+  await say(worker.id, 'work 1 holduntil agentwatch-first')
   await until(async () => (await live(worker.id))?.status === 'working', HUNG_MS)
   const t0 = Date.now()
   await say(watcher.id, watchOn('Worker'))
@@ -115,10 +116,11 @@ const check = (name, ok, extra = '') => {
   const status = (await api('GET', '/v1/projects/alpha')).body?.agents?.find((a) => a.name === 'Watcher')
   check('the Agent API reports the watch, with the agent watched', status?.status === 'watching' && status?.statusMessage === 'Waiting for Worker to finish' && status?.watching?.agents?.[0] === 'Worker', JSON.stringify(status))
   await page.screenshot({ path: path.join(lib.WORK, 'agentwatch-watching.png') })
+  fs.writeFileSync(path.join(claudeHome, 'agentwatch-first'), '')
   await until(async () => wakes('Watcher').length >= 1, 30000)
   await lib.sleep(2000) // A fixed wait on purpose: this checks that a second line does NOT come.
   const w1 = wakes('Watcher')
-  check('woken exactly once when the worker finished, with its reply', w1.length === 1 && w1[0].startsWith('[Hive] Worker (alpha) finished: "Done: work 6"') && w1[0].includes('Your agent watch has ended'), JSON.stringify(w1))
+  check('woken exactly once when the worker finished, with its reply', w1.length === 1 && w1[0].startsWith('[Hive] Worker (alpha) finished: "Done: work 1 holduntil agentwatch-first"') && w1[0].includes('Your agent watch has ended'), JSON.stringify(w1))
   await until(() => idle(watcher.id), HUNG_MS)
   check('…and the watch has ended', !(await live(watcher.id))?.watch)
 
@@ -168,15 +170,17 @@ const check = (name, ok, extra = '') => {
   check('woken once when the worker stops', w5.length === 5 && w5[4].startsWith('[Hive] Worker (alpha) stopped'), JSON.stringify(w5.slice(4)))
   await until(() => idle(watcher.id), HUNG_MS)
 
-  // --- Cancel: the watcher ends its own watch, and nothing is typed when the agent finishes.
+  // --- Cancel: the watcher ends its own watch, and nothing is typed when the agent finishes. The worker's turn is held
+  // until the cancel is in (not a fixed time, which a loaded machine outran: #667), then ends.
   await start(worker.id)
-  await say(worker.id, 'work 6')
+  await say(worker.id, 'holduntil agentwatch-cancelled')
   await until(async () => (await live(worker.id))?.status === 'working', HUNG_MS)
   await say(watcher.id, watchOn('Worker'))
   await until(async () => (await live(watcher.id))?.status === 'watching', 15000)
   await say(watcher.id, 'hive hive_wait_for_agents {"cancel":true}')
   await until(async () => (await lastWaitReply(watcher.id)) === 'Cancelled your agent watch.' && (await idle(watcher.id)), 15000)
   check('cancel ends the agent watch', (await lastWaitReply(watcher.id)) === 'Cancelled your agent watch.' && !(await live(watcher.id))?.watch, await lastWaitReply(watcher.id))
+  fs.writeFileSync(path.join(claudeHome, 'agentwatch-cancelled'), '')
   await until(() => idle(worker.id), 20000)
   await lib.sleep(3000) // A fixed wait on purpose: this checks that no line comes after a cancel.
   check('…and no line came when the worker finished', wakes('Watcher').length === 5, JSON.stringify(wakes('Watcher').slice(5)))

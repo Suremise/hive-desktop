@@ -4,10 +4,15 @@
 // expiry and overdue. The sessions are stand-ins here (the e2e deliveries suite runs fake Claude Code agents).
 import { existsSync, mkdirSync, readFileSync, readdirSync, rmSync, writeFileSync } from 'fs'
 import { join } from 'path'
-import { afterAll, beforeEach, describe, expect, it } from 'vitest'
+import { afterAll, beforeEach, describe, expect, it, vi } from 'vitest'
 import * as electron from 'electron'
-import { DELIVERY_STATES, ackText, canMove, inboxItems, inboxSummary, inboxText, isOverdue, moved, offerLine, readDelivery, type DeliveryRecord, type DeliverySender } from '../src/shared/deliveries'
+import { DELIVERY_BODY_MAX_CHARS, DELIVERY_STATES, ackText, canMove, inboxItems, inboxSummary, inboxText, isOverdue, moved, offerLine, readDelivery, type DeliveryRecord, type DeliverySender } from '../src/shared/deliveries'
+import { taskPrompt } from '../src/shared/tasks'
+import type { TaskCard } from '../src/shared/types'
 import { tempDir } from './tempDir'
+
+// The longest a wait here waits for what it waits on: a bound for a hung run, never how long it should take (#570).
+const HUNG_MS = 10000
 
 const at = '2026-10-12T03:00:00.000Z'
 const rec = (over: Partial<DeliveryRecord> = {}): DeliveryRecord => ({ id: 'm1', seq: 1, agentId: 'b1', conversation: null, kind: 'rebrief', from: { kind: 'assistant', name: 'the Assistant', workspace: 'C:/ws', launch: 'a1' }, body: 'Rebase first.', state: 'queued', created: at, expires: '2026-10-13T03:00:00.000Z', ...over })
@@ -65,9 +70,14 @@ describe('delivery records (#647)', () => {
     expect(inboxText([], [])).toBe('Nothing new.')
     expect(inboxText([], ['m5'])).toBe('Nothing new. Received before, not acked yet: m5.')
     expect(ackText(['m1', 'm3'], ['m9'])).toBe('Acked m1, m3. Not in your inbox: m9.')
-    expect(offerLine([rec({ id: 'm4', seq: 4, kind: 'card-event', from: hive, card: 607, body: 'is in Review' }), rec({ id: 'm5', seq: 5, kind: 'card-event', from: hive, card: 607, body: 'has a new comment' })], null)).toBe(
-      "[Hive] #607: 2 changes, read the card (Their ids: m4, m5. Once you've acted on them, ack them with hive_inbox.)"
+    // Typed (#649): messages first, with their ids; each other delivery as its producer's own line, with its id to ack for
+    // a kind the agent acks (not a card event or a control notice); one that may repeat says so.
+    const wake = (id: string, seq: number, body: string, o: Partial<DeliveryRecord> = {}) => rec({ id, seq, kind: 'card-event', from: hive, card: 607, body, ...o })
+    expect(offerLine([wake('m4', 4, '[Hive] #607 is in Review.'), wake('m5', 5, '[Hive] #607 has a new comment.')], null)).toBe('[Hive] #607 is in Review. [Hive] #607 has a new comment.')
+    expect(offerLine([wake('m6', 6, '[Hive] #607 is in Review.'), rec({ id: 'm2', seq: 2, body: 'Rebase first.' }), rec({ id: 'm7', seq: 7, kind: 'answer', from: { kind: 'user', name: 'the user' }, body: '[Hive] #607 has 1 new decision.' })], null)).toBe(
+      "[Hive] Message from the Assistant: Rebase first. (Its id: m2. Once you've acted on it, ack it with hive_inbox.) [Hive] #607 is in Review. [Hive] #607 has 1 new decision. (Its id: m7. Once you've acted on it, ack it with hive_inbox.)"
     )
+    expect(offerLine([wake('m8', 8, '[Hive] #607 is in Review.', { again: 'Hive restarted while offering it' })], null)).toBe('[Hive] #607 is in Review. (m8 again: Hive restarted while offering it, so it may repeat.)')
   })
 
   it('reads back only what checks out (the file can be edited by hand)', () => {
@@ -131,33 +141,41 @@ describe('the delivery service (#647)', async () => {
     expect((await make({ from: hive, kind: 'card-event', card: 7, body: 'is in Review' })).id).toBe('m3')
   })
 
-  it("after a restart: one offered stays offered (never typed again) until it is fetched; the Assistant's from a launch that has ended is refused, and in its activity list; Hive's waits and is offered", async () => {
+  it("after a restart (#649): one offered and not received is uncertain, offered once more saying it may repeat, then left uncertain; the Assistant's from a launch that has ended is refused, and in its activity list; one queued waits and is offered", async () => {
     await make({ body: 'From the old launch.' })
-    await make({ from: hive, kind: 'card-event', card: 7, body: 'is in Review' })
+    await make({ from: hive, kind: 'card-event', card: 7, body: '[Hive] #7 is in Review.' })
     st.status = 'ready'
-    // Offered (typed), then Hive stops.
+    // Offered (typed), then Hive stops before its CLI took it.
     await deliveries.offerNow(alpha, 'b1')
     expect(await states()).toEqual(['m1 offered', 'm2 offered'])
     // The Assistant starts again (a new launch) after Hive restarts: what was offered isn't received, so its permission
-    // counts: refused. Hive's own stays offered.
+    // counts: refused. Hive's own may not have reached the agent: uncertain.
     now.launch = 'a2'
     const listed = assistant.actions(ws).length
     await restart()
-    expect(await states()).toEqual(["m1 refused: the Assistant's session that left it ended", 'm2 offered'])
+    expect(await states()).toEqual(["m1 refused: the Assistant's session that left it ended", 'm2 uncertain: may not have reached it: Hive stopped while offering it'])
     expect(assistant.actions(ws).slice(listed).map((a) => `${a.text} | ${a.error}`)).toEqual(["A message for B1 (m1) was refused | the Assistant's session that left it ended"])
-    // Not typed again once the agent is idle; received once it fetches it.
+    // Offered once more when the agent is idle, saying it may repeat.
+    st.status = 'ready'
+    st.typed = []
+    await deliveries.offerNow(alpha, 'b1')
+    expect(st.typed).toEqual(['[Hive] #7 is in Review. (m2 again: Hive restarted while offering it, so it may repeat.)'])
+    expect(await states()).toEqual(["m1 refused: the Assistant's session that left it ended", 'm2 offered'])
+    // Hive stops again before that one is taken: uncertain, and not typed a third time; the inbox still has it.
+    await restart()
+    expect((await states())[1]).toBe('m2 uncertain: may not have reached it: Hive stopped while offering it')
     st.status = 'ready'
     st.typed = []
     await deliveries.offerNow(alpha, 'b1')
     expect(st.typed).toEqual([])
-    expect((await deliveries.readInbox(alpha, 'b1')).items.map((x) => `${x.ids.join()} ${x.text}`)).toEqual(['m2 is in Review'])
+    expect((await deliveries.readInbox(alpha, 'b1')).items.map((x) => `${x.ids.join()} ${x.text}`)).toEqual(['m2 [Hive] #7 is in Review.'])
     expect(await states()).toEqual(["m1 refused: the Assistant's session that left it ended", 'm2 received'])
     // Queued and never offered: waits across the restart, and is offered after it.
-    await make({ from: hive, kind: 'card-event', card: 8, body: 'is in Passed' })
+    await make({ from: hive, kind: 'card-event', card: 8, body: '[Hive] #8 is in Passed.' })
     await restart()
     st.status = 'ready'
     await deliveries.offerNow(alpha, 'b1')
-    expect(st.typed).toEqual(["[Hive] #8: is in Passed (Its id: m3. Once you've acted on it, ack it with hive_inbox.)"])
+    expect(st.typed).toEqual(['[Hive] #8 is in Passed.'])
   })
 
   it('a damaged file is set aside, never overwritten, and Hive starts again with none', async () => {
@@ -211,8 +229,8 @@ describe('the delivery service (#647)', async () => {
     st.status = 'ready'
     await deliveries.offerNow(alpha, 'b1')
     expect(st.typed).toEqual([])
-    // Again: nothing new; received and not acked.
-    expect(await deliveries.readInbox(alpha, 'b1')).toEqual({ items: [], unacked: ['m1', 'm2', 'm3'] })
+    // Again: nothing new; received and not acked (a message: a card event is done once received, #649).
+    expect(await deliveries.readInbox(alpha, 'b1')).toEqual({ items: [], unacked: ['m1'] })
     // Ack: its own; another agent's, or none, is unknown (nothing said of it).
     expect(await deliveries.ackDeliveries(alpha, 'b1', ['m1', 'm2', 'm4', 'm99'])).toEqual({ acked: ['m1', 'm2'], unknown: ['m4', 'm99'] })
     expect(await states()).toEqual(['m1 acked', 'm2 acked', 'm3 received'])
@@ -241,13 +259,241 @@ describe('the delivery service (#647)', async () => {
     // Its expiry already past when it is next looked at (no wait for it).
     await make({ expiresMs: -1000 })
     await make({ from: hive, kind: 'card-event', card: 7, body: 'is in Review' })
-    await make({ from: hive, kind: 'card-event', card: 8, body: 'is in Done', conversation: null })
+    await make({ from: hive, kind: 'card-event', card: 8, body: '[Hive] #8 is in Done.', conversation: null })
     st.sessionId = 's2'
     st.status = 'ready'
     await deliveries.offerNow(alpha, 'b1')
     expect(await states()).toEqual(['m1 expired: not received in time', 'm2 expired: its agent is in another conversation now', 'm3 offered'])
     // Its conversation not known yet (a CLI that reports it later): not held back.
-    expect(st.typed).toEqual(["[Hive] #8: is in Done (Its id: m3. Once you've acted on it, ack it with hive_inbox.)"])
+    expect(st.typed).toEqual(['[Hive] #8 is in Done.'])
+  })
+
+  it('a task is given now or not at all (#649): typed at once, alone, with its id to ack; not given (cancelled, saying why) to an agent that is busy or watching; one a launch carries is received once that launch takes its first prompt', async () => {
+    const task = (body: string) => deliveries.deliverNow(alpha, { agentId: 'b1', agentName: 'B1', kind: 'task', from: hive, body, need: 'free' })
+    st.status = 'working'
+    await expect(task('Fix #3.')).rejects.toThrow(/^it is working$/)
+    st.status = 'watching'
+    await expect(task('Fix #4.')).rejects.toThrow(/waiting on cards/)
+    expect(await states()).toEqual(['m1 cancelled: not given: it is working', 'm2 cancelled: not given: it is waiting on cards, and takes no new work until it is woken'])
+    // A message waits too: the task goes alone.
+    st.status = 'working'
+    await make({ body: 'Rebase first.' })
+    st.status = 'ready'
+    expect((await task('Fix #5.')).state).toBe('offered')
+    expect(st.typed).toEqual(["Fix #5. (Its id: m4. Once you've acted on it, ack it with hive_inbox.)"])
+    expect((await states())[2]).toBe('m3 queued')
+    // A task its launch carries: offered into that launch (its prompt with its id), received once it takes its first prompt.
+    const taken = { n: 0 }
+    Object.assign(sessions, { promptsTaken: () => ({ runId: 'r9', count: taken.n }) })
+    try {
+      st.runId = 'r9'
+      let line = ''
+      const { record } = await deliveries.launchWith(alpha, { agentId: 'b1', kind: 'task', from: hive, body: 'Start on #6.' }, async (l) => {
+        line = l
+        return { runId: 'r9' }
+      })
+      expect(line).toBe("Start on #6. (Its id: m5. Once you've acted on it, ack it with hive_inbox.)")
+      expect(record).toMatchObject({ id: 'm5', state: 'offered', offerRun: 'r9' })
+      taken.n = 1
+      await deliveries.followAllForTests()
+      expect((await deliveries.deliveriesOf(alpha, 'b1')).find((r) => r.id === 'm5')).toMatchObject({ state: 'received', receivedVia: 'typed' })
+      // A launch that fails: its task is cancelled, and the error stands.
+      await expect(
+        deliveries.launchWith(alpha, { agentId: 'b1', kind: 'task', from: hive, body: 'Never started.' }, async () => {
+          throw new Error('It refused to start.')
+        })
+      ).rejects.toThrow(/refused to start/)
+      expect((await states()).at(-1)).toBe('m6 cancelled: not given: It refused to start.')
+    } finally {
+      Object.assign(sessions, { promptsTaken: () => null })
+    }
+  })
+
+  it("a launch's task is saved as offered before anything is launched (#649 round 2): not saved, nothing starts; while it starts, never offered by the scheduler; its run's save failing after the launch, it is still followed, and a restart finds it uncertain", async () => {
+    const task = (body: string) => ({ agentId: 'b1', agentName: 'B1', kind: 'task' as const, from: hive, body })
+    // Not saved: nothing is launched.
+    deliveries.setBeforeSaveForTests(() => {
+      throw new Error('EIO: i/o error')
+    })
+    let starts = 0
+    try {
+      await expect(deliveries.launchWith(alpha, task('Never launched.'), async () => (starts++, { runId: 'r9' }))).rejects.toThrow(/couldn't save/)
+    } finally {
+      deliveries.setBeforeSaveForTests(null)
+    }
+    expect(starts).toBe(0)
+    expect(await states()).toEqual([])
+    // While it starts: saved as offered (not queued), and the scheduler doesn't offer it too.
+    let release = (): void => undefined
+    const held = new Promise<void>((r) => (release = r))
+    let starting = false
+    st.status = 'ready'
+    const launching = deliveries.launchWith(alpha, task('Start on #7.'), async () => {
+      starting = true
+      await held
+      return { runId: 'r9' }
+    })
+    await vi.waitFor(() => expect(starting).toBe(true), { timeout: HUNG_MS })
+    expect(file().deliveries.map((r) => `${r.id} ${r.state}`)).toEqual(['m1 offered'])
+    await deliveries.offerAllForTests()
+    await deliveries.followAllForTests()
+    expect(st.typed).toEqual([])
+    expect(await states()).toEqual(['m1 offered'])
+    // Its run's save fails after the launch: launched all the same, and still offered into that launch (in memory).
+    deliveries.setBeforeSaveForTests(() => {
+      throw new Error('EIO: i/o error')
+    })
+    release()
+    try {
+      expect((await launching).record.state).toBe('offered')
+    } finally {
+      deliveries.setBeforeSaveForTests(null)
+    }
+    st.runId = 'r9'
+    await deliveries.offerAllForTests()
+    await deliveries.followAllForTests()
+    expect(st.typed).toEqual([])
+    expect(await states()).toEqual(['m1 offered'])
+    // Hive stops before that launch takes it: uncertain after the restart, offered once more saying it may repeat.
+    await restart()
+    expect(await states()).toEqual(['m1 uncertain: may not have reached it: Hive stopped while offering it'])
+    await deliveries.offerAllForTests()
+    expect(st.typed).toEqual(["Start on #7. (Its id: m1. Once you've acted on it, ack it with hive_inbox.) (m1 again: Hive restarted while offering it, so it may repeat.)"])
+  })
+
+  it('a long task (a card with a 9,000-character description) is kept as made and restored as it was; one longer than a delivery may be is refused when made, never lost on a restart (#649 round 2)', async () => {
+    const card = { number: 9, title: 'Long', description: 'A long description. '.repeat(450).slice(0, 9000), project: 'alpha', agent: 'b1', column: 'doing', order: 1, labels: [], blocked: null, blockedBy: [], links: [], comments: [], history: [], archived: false, createdAt: at, createdBy: 'You', updatedAt: at } as TaskCard
+    const long = taskPrompt(card, true, { note: 'Address the latest review comment.' })
+    expect(long.length).toBeGreaterThan(9000)
+    st.status = 'working'
+    await deliveries.createDelivery(alpha, { agentId: 'b1', kind: 'task', from: hive, body: long })
+    await make({ from: hive, kind: 'handover', body: `Read the handover "x". ${'More. '.repeat(3000)}` })
+    await restart()
+    const back = await deliveries.deliveriesOf(alpha, 'b1')
+    expect(back.map((r) => `${r.id} ${r.state} ${r.body.length}`)).toEqual([`m1 queued ${long.length}`, `m2 queued ${back[1]?.body.length}`])
+    expect(back[0].body).toBe(long)
+    expect(file()).not.toHaveProperty('invalid')
+    // Over the limit: refused at once, nothing saved.
+    await expect(deliveries.createDelivery(alpha, { agentId: 'b1', kind: 'task', from: hive, body: 'x'.repeat(DELIVERY_BODY_MAX_CHARS + 1) })).rejects.toThrow(/too long to give an agent/)
+    expect(await states()).toEqual(['m1 queued', 'm2 queued'])
+  })
+
+  it("a launch's task survives the status its own save sends (#649 round 3): a running agent started on a new conversation, its pane updated as the intent is saved (setInbox, which emits its status: the service rechecks then), a slow start, then its run's save failing: still offered into the new run, never uncertain, never typed again", async () => {
+    const shown = sessions.setInbox
+    // As in Hive: showing an agent's inbox sends its status when it changed (per agent), on which the service follows its
+    // deliveries.
+    const last = new Map<string, string>()
+    Object.assign(sessions, {
+      setInbox: (p: string, id: string, inbox: unknown) => {
+        const k = `${p.toLowerCase()}#${id}`
+        if (last.get(k) === JSON.stringify(inbox)) return
+        last.set(k, JSON.stringify(inbox))
+        void deliveries.followAllForTests()
+      }
+    })
+    try {
+      // An agent already running (launch r1), started again on a new conversation (launch r9).
+      st.status = 'ready'
+      let release = (): void => undefined
+      const held = new Promise<void>((r) => (release = r))
+      let starting = false
+      const launching = deliveries.launchWith(alpha, { agentId: 'b1', agentName: 'B1', kind: 'task', from: hive, body: 'A new conversation on #8.' }, async () => {
+        starting = true
+        await held
+        return { runId: 'r9' }
+      })
+      await vi.waitFor(() => expect(starting).toBe(true), { timeout: HUNG_MS })
+      await deliveries.followAllForTests()
+      await deliveries.offerAllForTests()
+      expect(await states()).toEqual(['m1 offered'])
+      expect(st.typed).toEqual([])
+      // Started; saving its run fails: still followed in memory as offered into r9.
+      deliveries.setBeforeSaveForTests(() => {
+        throw new Error('EIO: i/o error')
+      })
+      st.runId = 'r9'
+      release()
+      try {
+        await launching
+        await deliveries.followAllForTests()
+      } finally {
+        deliveries.setBeforeSaveForTests(null)
+      }
+      await deliveries.followAllForTests()
+      await deliveries.offerAllForTests()
+      expect(await states()).toEqual(['m1 offered'])
+      expect(st.typed).toEqual([])
+    } finally {
+      Object.assign(sessions, { setInbox: shown })
+    }
+  })
+
+  it("hive_inbox gives out only what its source still holds, through the same gate as an offer (#649 round 3): made again (its text as it is now, or cancelled when no longer due), and an ack of something unread is checked the same way; something already received can still be acked", async () => {
+    const holding = { on: true }
+    deliveries.registerSource('test-source', {
+      refresh: async (r) => (r.body.startsWith('Gone') ? { cancel: 'cancelled: no longer due' } : r.body.startsWith('Old') ? { body: 'New text.' } : null),
+      holds: () => holding.on
+    })
+    st.status = 'working'
+    const ev = (body: string) => deliveries.createDelivery(alpha, { agentId: 'b1', kind: 'card-event', from: hive, body, source: 'test-source', ref: body })
+    await ev('Gone by now.')
+    await ev('Old text.')
+    await ev('Held.')
+    expect((await deliveries.readInbox(alpha, 'b1')).items.map((i) => `${i.ids.join()} ${i.text}`)).toEqual(['m2 New text.', 'm3 Held.'])
+    expect(await states()).toEqual(['m1 cancelled: cancelled: no longer due', 'm2 received', 'm3 received'])
+    // Its source holds none now: nothing given out, nothing acked from unread; what was received can still be acked.
+    holding.on = false
+    await ev('Not now.')
+    // Typing and pulling ask the same gate: not typed while its source doesn't hold it, nor handed out.
+    st.status = 'ready'
+    st.typed = []
+    await deliveries.offerAllForTests()
+    expect(st.typed).toEqual([])
+    expect(await deliveries.readInbox(alpha, 'b1')).toEqual({ items: [], unacked: [] })
+    expect(await deliveries.ackDeliveries(alpha, 'b1', ['m4', 'm2'])).toEqual({ acked: ['m2'], unknown: ['m4'] })
+    expect((await states()).slice(2)).toEqual(['m3 received', 'm4 queued'])
+    holding.on = true
+    st.status = 'working'
+    expect((await deliveries.readInbox(alpha, 'b1')).items.map((i) => i.ids.join())).toEqual(['m4'])
+  })
+
+  it("a delivery keeps the version it was offered as (#649 round 4): made again afterwards (by a fetch), its text and context aren't rewritten, and its receipt gets that version's context, never a later one", async () => {
+    let version = 0
+    const received: unknown[] = []
+    deliveries.registerSource('versioned', {
+      refresh: async () => {
+        version++
+        return { body: `[Hive] Version ${version}.`, meta: { v: version } }
+      },
+      received: (r) => void received.push(r.meta?.v)
+    })
+    const taken = { n: 0 }
+    Object.assign(sessions, { promptsTaken: () => ({ runId: 'r1', count: taken.n }) })
+    try {
+      st.status = 'working'
+      await deliveries.createDelivery(alpha, { agentId: 'b1', kind: 'card-event', from: hive, body: '[Hive] Version 0.', source: 'versioned', ref: 'x' })
+      // Offered as version 1 (typed, its CLI hasn't taken it yet).
+      st.status = 'ready'
+      await deliveries.offerAllForTests()
+      expect(st.typed).toEqual(['[Hive] Version 1.'])
+      // Made again by a fetch the source doesn't let through (version 2): the offered one isn't rewritten.
+      deliveries.registerSource('versioned', {
+        refresh: async () => {
+          version++
+          return { body: `[Hive] Version ${version}.`, meta: { v: version } }
+        },
+        holds: () => false,
+        received: (r) => void received.push(r.meta?.v)
+      })
+      expect((await deliveries.readInbox(alpha, 'b1')).items).toEqual([])
+      expect((await deliveries.deliveriesOf(alpha, 'b1'))[0]).toMatchObject({ state: 'offered', body: '[Hive] Version 1.', meta: { v: 1 } })
+      // Its CLI takes the line: received as version 1, and its source is told version 1's context.
+      taken.n = 1
+      await deliveries.followAllForTests()
+      await vi.waitFor(() => expect(received).toEqual([1]), { timeout: HUNG_MS })
+    } finally {
+      Object.assign(sessions, { promptsTaken: () => null })
+    }
   })
 
   it('the Agent API view: unread, overdue, the newest rows with their times', async () => {
