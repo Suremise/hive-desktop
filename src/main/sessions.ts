@@ -47,7 +47,7 @@ import { presentWindow, showOsNotification, testNotifyLog, testQuiet } from './t
 import { hashText, heldOpen, isInUse, readJson, placeRelative, removePath, samePlace, treeSignature, syncCopy, syncCopyLocked, syncCopyNow, trashAllOrNothing, withFileLock, writeJsonAtomic } from './fsutil'
 import { createLogger, hookJournal, userText } from './logger'
 import { applyStep, compactionOver, expireTasks, hookStep, idleAfter, markedIdle, titleStep, type HookStatusInput, type HookStep } from './hookStatus'
-import { admit, describe as describeTurn, endRunning, heard, newLedger, openCalls, reconciles, silentFor, unheardStop, type ScreenReading, type TurnLedger } from './turnLedger'
+import { admit, confirm, describe as describeTurn, endRunning, heard, newLedger, openCalls, reconciles, silentFor, tentative, unheardStop, type ScreenReading, type TurnLedger } from './turnLedger'
 import { Compaction } from './compaction'
 import { lastTitle } from './terminalTitle'
 import { asksYou } from '../shared/inbox'
@@ -103,6 +103,8 @@ const RECENT_HOOKS = 8
 const silentMs = (): number => (!app.isPackaged && Number(process.env.HIVE_TEST_SILENT_MS) > 0 ? Number(process.env.HIVE_TEST_SILENT_MS) : 5 * 60_000)
 /** How many times silentMs a running turn with a tool call open may be silent before its state is unknown (a long test run). */
 const OPEN_CALL_SILENCE = 12
+/** How long a turn that went on after its Stop on a tool start alone may be silent before Hive looks again (#648). */
+const TENTATIVE_SILENT_MS = 30_000
 /** How many of the CLI's Stop answers (LiveDetails.stopsAnswered) a launch keeps: a turn has few. */
 const STOPS_KEPT = 64
 /** "40 s", "23 min": a silence, for the log. */
@@ -2971,11 +2973,13 @@ class SessionManager {
   handleHook(runId: string | null, body: Record<string, any>, reply: Record<string, unknown> | null = null): Promise<void> {
     // A turn's end releases only the locks claimed before it arrived: PreToolUse claims them at once, outside this queue.
     const arrived = this.lockSeq
+    // When it reached Hive, before it waits its turn: a turn begins then, for comparing with the CLI's records (#648).
+    const at = Date.now()
     const launch = this.findLaunch(runId, body.session_id)?.[1]
     // The launch's hooks before this one: what the old conversation had seen, if this one switches conversations.
     const before = launch?.hooksSeen ?? 0
     if (launch) launch.hooksSeen = before + 1
-    return this.inHookOrder(runId ?? `session:${String(body.session_id ?? '')}`, () => this.handleHookNow(runId, body, arrived, before, reply))
+    return this.inHookOrder(runId ?? `session:${String(body.session_id ?? '')}`, () => this.handleHookNow(runId, body, arrived, before, reply, at))
   }
 
   /** Runs `fn` after what is queued for the launch (its hooks, its title), in the order they came. */
@@ -2989,7 +2993,7 @@ class SessionManager {
     return run
   }
 
-  private async handleHookNow(runId: string | null, body: Record<string, any>, arrived: number, hooksBefore: number, reply: Record<string, unknown> | null = null): Promise<void> {
+  private async handleHookNow(runId: string | null, body: Record<string, any>, arrived: number, hooksBefore: number, reply: Record<string, unknown> | null = null, at = Date.now()): Promise<void> {
     const found = this.findLaunch(runId, body.session_id)
     if (!found) return
     const [id, l] = found
@@ -3022,7 +3026,7 @@ class SessionManager {
     const ids = hook.ids
     const continued = hook.event.kind === 'stop' && !hook.event.failed && !!reply && l.adapter.stopContinues(reply)
     const before = st.status
-    const took = admit(ledger, hook.event, ids, { hiveContinued: continued, screen: () => this.screenTurn(l) })
+    const took = admit(ledger, hook.event, ids, { hiveContinued: continued, screen: () => this.screenTurn(l), now: at })
     if (took.verdict === 'apply') {
       const ev = took.event
       // Hooks are handled in order, so the next one waits for this read: a turn's end counts the tasks it started.
@@ -3111,7 +3115,9 @@ class SessionManager {
     const quiet = (): boolean => {
       const st = l.state
       const silent = silentFor(l.ledger!)
-      return silent !== null && silent >= silentMs() && st.status === 'working' && !l.compacting && !isCompacting(st)
+      // A turn that went on after its Stop on a tool start alone is looked at again sooner (it may be a late hook's).
+      const limit = tentative(l.ledger!) ? Math.min(TENTATIVE_SILENT_MS, silentMs()) : silentMs()
+      return silent !== null && silent >= limit && st.status === 'working' && !l.compacting && !isCompacting(st)
     }
     if (!quiet()) return
     void this.inHookOrder(l.state.runId, async () => {
@@ -3124,6 +3130,7 @@ class SessionManager {
       // Visibly at work (a long reply, a long think, a tool running): heard, so not silent.
       if (shown === 'working') {
         heard(l.ledger!)
+        confirm(l.ledger!)
         if (st.turn?.state === 'unknown') this.noteTurn(l)
         return
       }
@@ -3148,6 +3155,8 @@ class SessionManager {
       if (this.live.get(id) !== l || l.state.turn?.state !== 'unknown' || !l.ledger) return
       const before = l.state.status
       endRunning(l.ledger, 'user')
+      // The user's word supersedes what Hive thought runs: no compaction, nobody asked (their ends may be lost too).
+      this.fact(l.state, { maintenance: null, attention: null })
       this.carryOut(id, l, markedIdle(this.statusInput(l)), 'Mark idle')
       this.noteTurn(l)
       log.info(`${userText(this.label(l.state))}: marked idle by the user (${before} → ${l.state.status})`)

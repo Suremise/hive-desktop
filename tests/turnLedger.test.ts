@@ -1,7 +1,7 @@
 import { readFileSync } from 'fs'
 import { join } from 'path'
 import { describe, expect, it } from 'vitest'
-import { admit, endRunning, expectInjected, heard, newLedger, openCalls, reconciles, silentFor, unheardStop, type ScreenReading, type TurnLedger } from '../src/main/turnLedger'
+import { admit, confirm, endRunning, expectInjected, heard, newLedger, openCalls, reconciles, silentFor, tentative, unheardStop, type ScreenReading, type TurnLedger } from '../src/main/turnLedger'
 import { applyStep, hookStep, type HookStatusInput } from '../src/main/hookStatus'
 import type { HookEvent, HookIds, ProviderAdapter } from '../src/main/providers/types'
 import type { SessionStatus } from '../src/shared/types'
@@ -60,69 +60,103 @@ describe('the turn ledger', () => {
     expect(a.stale).toEqual(['a tool end of a turn that is over'])
   })
 
-  it("a tool's late start after its turn's Stop is old news too, unless the CLI's screen shows the turn going on", () => {
-    for (const screen of [null, 'idle'] as ScreenReading[]) {
-      const a = agent()
-      feed(a, { kind: 'prompt' }, ids('t1'))
-      feed(a, { kind: 'stop', lastMessage: null }, ids('t1'))
-      feed(a, { kind: 'toolStart' }, ids('t1', { call: 'c1' }), false, screen)
-      expect([a.status, a.ledger.active?.state], String(screen)).toEqual(['finished', 'over'])
-      expect(a.stale).toEqual(['a tool start after its turn ended, with nothing showing it goes on'])
-    }
-    // Another Stop hook carried it on (the user's): the screen shows it working, and the turn goes on to its next Stop.
+  it("a tool start after its turn's Stop carries the turn on: confirmed by its screen, else tentatively, never idle", () => {
+    // Its screen shows it working (another Stop hook carried it on): confirmed, and the turn goes on to its next Stop.
     const a = agent()
     feed(a, { kind: 'prompt' }, ids('t1'))
     feed(a, { kind: 'stop', lastMessage: null }, ids('t1'))
     feed(a, { kind: 'toolStart' }, ids('t1', { call: 'c1' }), false, 'working')
-    expect([a.status, a.ledger.active?.state]).toEqual(['working', 'running'])
+    expect([a.status, a.ledger.active?.state, tentative(a.ledger)]).toEqual(['working', 'running', false])
     feed(a, { kind: 'toolEnd' }, ids('t1', { call: 'c1' }))
     feed(a, { kind: 'stop', lastMessage: null }, ids('t1', { continued: true }))
     expect(a.status).toBe('finished')
+    // The hook came before the CLI redrew (its screen still idle), or the screen isn't read: tentative, working, no open call.
+    for (const screen of [null, 'idle'] as ScreenReading[]) {
+      const b = agent()
+      feed(b, { kind: 'prompt' }, ids('t1'))
+      feed(b, { kind: 'stop', lastMessage: null }, ids('t1'))
+      feed(b, { kind: 'toolStart' }, ids('t1', { call: 'c1' }), false, screen)
+      expect([b.status, b.ledger.active?.state, tentative(b.ledger), openCalls(b.ledger)], String(screen)).toEqual(['working', 'running', true, 0])
+      // Its screen shows it at work later: confirmed; its own Stop then ends it.
+      confirm(b.ledger)
+      expect(tentative(b.ledger)).toBe(false)
+      feed(b, { kind: 'stop', lastMessage: null }, ids('t1', { continued: true }))
+      expect(b.status).toBe('finished')
+    }
   })
 
-  it('without turn ids (Copilot), a tool end after the turn ended with no tool start since is old news; a start only with the screen working', () => {
+  it('without turn ids (Copilot), a tool end after the turn ended with no tool start since is old news; a start goes on tentatively', () => {
     const a = agent()
     feed(a, { kind: 'prompt' }, ids(null))
     feed(a, { kind: 'toolStart' }, ids(null))
     feed(a, { kind: 'stop', lastMessage: null }, ids(null))
     feed(a, { kind: 'toolEnd' }, ids(null))
-    feed(a, { kind: 'toolStart' }, ids(null))
     expect(a.status).toBe('finished')
-    expect(a.stale).toEqual(['a tool end after its turn ended, with no tool start since', 'a tool start after its turn ended, with nothing showing it goes on'])
+    expect(a.stale).toEqual(['a tool end after its turn ended, with no tool start since'])
+    feed(a, { kind: 'toolStart' }, ids(null))
+    expect([a.status, tentative(a.ledger)]).toEqual(['working', true])
     // No turn known at all: a tool start alone changes nothing (as before the ledger).
     const fresh = feed(agent('ready'), { kind: 'toolStart' }, ids(null))
     expect([fresh.status, fresh.ledger.active]).toEqual(['ready', null])
   })
 
-  it("an earlier turn's late news while a later turn runs changes nothing, and never makes the earlier one active", () => {
-    const a = agent()
-    feed(a, { kind: 'prompt' }, ids('t1'))
-    feed(a, { kind: 'toolStart' }, ids('t1', { call: 'c1' }))
-    feed(a, { kind: 'stop', lastMessage: null }, ids('t1'))
-    feed(a, { kind: 'prompt' }, ids('t2'))
-    feed(a, { kind: 'toolEnd' }, ids('t1', { call: 'c1' }))
-    feed(a, { kind: 'toolStart' }, ids('t1', { call: 'c2' }), false, 'working')
-    feed(a, { kind: 'prompt', text: 'late' }, ids('t1'))
-    feed(a, { kind: 'ask', ask: { kind: 'permission', blocking: true, message: 'May I?' } }, ids('t1'))
-    feed(a, { kind: 'stop', lastMessage: null }, ids('t1'))
-    expect(a.status).toBe('working')
-    expect(a.ledger.active).toMatchObject({ id: 't2', state: 'running' })
-    expect(a.stale).toEqual(['a tool end of a turn that is over', 'a tool start of an earlier turn', 'a prompt of a turn that is over', 'a question of a turn that is over', "an earlier turn's Stop"])
+  it("an earlier turn's late news, of every kind, changes nothing while a later turn runs, and never makes it active", () => {
+    const late: [HookEvent, HookIds][] = [
+      [{ kind: 'toolEnd' }, ids('t1', { call: 'c1' })],
+      [{ kind: 'toolStart' }, ids('t1', { call: 'c2' })],
+      [{ kind: 'prompt', text: 'late' }, ids('t1')],
+      [{ kind: 'ask', ask: { kind: 'permission', blocking: true, message: 'May I?' } }, ids('t1')],
+      [{ kind: 'stop', lastMessage: null }, ids('t1')],
+      [{ kind: 'interrupt' }, ids('t1')],
+      [{ kind: 'idle' }, ids('t1')],
+      [{ kind: 'signIn', message: null }, ids('t1')]
+    ]
+    for (const [ev, i] of late) {
+      const a = agent()
+      feed(a, { kind: 'prompt' }, ids('t1'))
+      feed(a, { kind: 'toolStart' }, ids('t1', { call: 'c1' }))
+      feed(a, { kind: 'stop', lastMessage: null }, ids('t1'))
+      feed(a, { kind: 'prompt' }, ids('t2'))
+      feed(a, ev, i, false, 'working')
+      expect([a.status, a.ledger.active?.id, a.ledger.active?.state], ev.kind).toEqual(['working', 't2', 'running'])
+      expect(a.stale, ev.kind).toHaveLength(1)
+      expect(a.stale[0], ev.kind).toMatch(/of an earlier turn$/)
+    }
+    // End news naming a turn never seen is no news of the running one either.
+    for (const ev of [{ kind: 'interrupt' }, { kind: 'idle' }, { kind: 'signIn', message: null }] as HookEvent[]) {
+      const a = feed(agent(), { kind: 'prompt' }, ids('t2'))
+      feed(a, ev, ids('t-never'))
+      expect([a.status, a.ledger.active?.state], ev.kind).toEqual(['working', 'running'])
+    }
   })
 
-  it('remembers every turn of the launch: a late hook from many turns ago is still old news', () => {
-    const a = agent()
-    for (let n = 0; n < 40; n++) {
+  it('remembers the latest turns of the launch; past that bound, a forgotten id is never taken for a new turn on its own word', () => {
+    const a: Agent = { status: 'ready', ledger: newLedger(0, { maxSeen: 5 }), stale: [] }
+    for (let n = 0; n < 5; n++) {
       feed(a, { kind: 'prompt' }, ids(`t${n}`))
       feed(a, { kind: 'stop', lastMessage: null }, ids(`t${n}`))
     }
+    // All five remembered: t0 is an earlier turn.
     feed(a, { kind: 'toolEnd' }, ids('t0', { call: 'c' }))
     feed(a, { kind: 'toolStart' }, ids('t0', { call: 'c' }), false, 'working')
-    expect([a.status, a.ledger.active?.id, a.ledger.active?.state]).toEqual(['finished', 't39', 'over'])
+    expect([a.status, a.ledger.active?.id, a.ledger.forgot]).toEqual(['finished', 't4', false])
+    // The sixth turn passes the bound: t0 is forgotten. Its late start isn't a new turn unless the screen shows one runs.
+    feed(a, { kind: 'prompt' }, ids('t5'))
+    feed(a, { kind: 'stop', lastMessage: null }, ids('t5'))
+    expect(a.ledger.forgot).toBe(true)
+    feed(a, { kind: 'toolStart' }, ids('t0', { call: 'c' }))
+    feed(a, { kind: 'toolEnd' }, ids('t0', { call: 'c' }))
+    feed(a, { kind: 'stop', lastMessage: null }, ids('t0'))
+    feed(a, { kind: 'idle' }, ids('t0'))
+    expect([a.status, a.ledger.active?.id, a.ledger.active?.state]).toEqual(['finished', 't5', 'over'])
+    expect(a.stale.slice(-4)).toEqual(['a tool start of a turn not remembered, with nothing showing a turn runs', 'a tool end of a turn Hive never saw begin', 'a Stop of a turn not remembered', 'idle news of a turn Hive never saw'])
+    // A turn the CLI really began by itself, its screen showing it at work: taken.
+    feed(a, { kind: 'toolStart' }, ids('t6', { call: 'c' }), false, 'working')
+    expect([a.status, a.ledger.active?.id]).toEqual(['working', 't6'])
     // A tool end of a turn never seen isn't a new turn either: its start would have said so.
-    feed(a, { kind: 'toolEnd' }, ids('t-never', { call: 'c' }))
-    expect(a.status).toBe('finished')
-    expect(a.stale).toEqual(['a tool end of a turn that is over', 'a tool start of an earlier turn', 'a tool end of a turn Hive never saw begin'])
+    const b = feed(feed(agent(), { kind: 'prompt' }, ids('t1')), { kind: 'stop', lastMessage: null }, ids('t1'))
+    feed(b, { kind: 'toolEnd' }, ids('t-never', { call: 'c' }))
+    expect([b.status, b.stale]).toEqual(['finished', ['a tool end of a turn Hive never saw begin']])
   })
 
   it("a Stop Hive answered with a continuation is not the turn's end: the Stop answered with nothing is", () => {

@@ -18,6 +18,8 @@ const { codex, codexTurnScreen } = await import('../src/main/providers/codex/ada
 const { newLedger } = await import('../src/main/turnLedger')
 const { agentRuntime, runtimeLabel } = await import('../src/shared/runtime')
 
+/** The longest a wait here waits for what it waits on: a bound for a hung run, never how long it should take. */
+const HUNG_MS = 15_000
 const wsPath = join(base, 'ws')
 const p = join(wsPath, 'alpha')
 type State = { runId: string; agentId: string; sessionId: string; status: string; turn?: { state: string; silentSince?: string } }
@@ -229,7 +231,7 @@ describe('the turn ledger in a session', () => {
     expect(composer()).toBe('free')
     // Typing a line (sendPrompt): held while it types, and after, until its CLI takes it.
     const sending = run(() => sessions.sendPrompt(p, st.agentId, 'next task'))
-    await vi.waitFor(() => expect(composer()).toBe('held'), { timeout: 5000 })
+    await vi.waitFor(() => expect(composer()).toBe('held'), { timeout: HUNG_MS })
     await sending
     expect(composer()).toBe('held')
     await hook(st, { hook_event_name: 'UserPromptSubmit', turn_id: 't2', prompt: 'next task' })
@@ -239,6 +241,93 @@ describe('the turn ledger in a session', () => {
     expect(composer()).toBe('held')
     release()
     expect(composer()).toBe('free')
+  })
+
+  it("a tool start that reaches Hive before the CLI has redrawn: the turn goes on tentatively, confirmed once its screen shows work", async () => {
+    process.env.HIVE_TEST_SILENT_MS = '1000'
+    const { st, l } = agent('redraw')
+    let frame = '• Done.\n\n› Ask Codex to do anything'
+    l.turnScreen = codexTurnScreen
+    l.screen = { text: () => frame }
+    await hook(st, { hook_event_name: 'UserPromptSubmit', turn_id: 't1', prompt: 'go' })
+    await hook(st, { hook_event_name: 'Stop', turn_id: 't1', stop_hook_active: false })
+    expect(st.status).toBe('finished')
+    // Another Stop hook carries the turn on; its tool's PreToolUse comes while the screen still shows the idle frame.
+    await hook(st, pre('t1', 'exec-6'))
+    expect([st.status, st.turn?.state]).toEqual(['working', 'running'])
+    // The CLI redraws: working. The next look confirms it, and its own Stop ends it.
+    frame = '• Working (3s • esc to interrupt)\n\n› Ask Codex to do anything'
+    l.ledger.heard = Date.now() - 5000
+    s.checkSilence(p, st.agentId)
+    await settled(st)
+    expect([st.status, st.turn?.state, (l.ledger as unknown as { active: { tentative?: boolean } }).active.tentative]).toEqual(['working', 'running', undefined])
+    await hook(st, post('t1', 'exec-6'))
+    await hook(st, { hook_event_name: 'Stop', turn_id: 't1', stop_hook_active: true })
+    expect([st.status, st.turn?.state]).toEqual(['finished', 'over'])
+  })
+
+  it("a late tool start after the turn's Stop (nothing goes on): working only until the short look finds its screen idle", async () => {
+    process.env.HIVE_TEST_SILENT_MS = '1000'
+    const { st, l } = agent('latestart')
+    l.turnScreen = codexTurnScreen
+    l.screen = { text: () => '• Done.\n\n› Ask Codex to do anything' }
+    await hook(st, { hook_event_name: 'UserPromptSubmit', turn_id: 't1', prompt: 'go' })
+    await hook(st, { hook_event_name: 'Stop', turn_id: 't1' })
+    await hook(st, pre('t1', 'exec-7'))
+    expect(st.status).toBe('working')
+    l.ledger.heard = Date.now() - 5000
+    s.checkSilence(p, st.agentId)
+    await settled(st)
+    expect([st.status, st.turn?.state]).toEqual(['finished', 'over'])
+  })
+
+  it("Copilot: a turn's Stop answered while its prompt still waits in the queue is this turn's, also after Hive's continuation", async () => {
+    const { copilot } = await import('../src/main/providers/copilot/adapter')
+    const q = sessions as unknown as { inHookOrder: (key: string, fn: () => Promise<void>) => Promise<void> }
+    for (const continued of [false, true]) {
+      const { st, l, rollout } = agent(continued ? 'queued-cont' : 'queued')
+      Object.assign(l, { adapter: copilot })
+      const ev = (type: string, data: Record<string, unknown>, at: number) => JSON.stringify({ type, data, timestamp: new Date(at).toISOString() }) + '\n'
+      if (continued) {
+        sessions.stopReplier = () => ({ decision: 'block', reason: 'You have mail: call hive_inbox' })
+        await hook(st, { hook_event_name: 'UserPromptSubmit', prompt: 'go' })
+        await hook(st, { hook_event_name: 'Stop' })
+        sessions.stopReplier = null
+      }
+      // The launch's queue is held (an earlier hook recording the session); the prompt arrives and waits behind it.
+      let release: (() => void) | undefined
+      const held = run(() => q.inHookOrder(st.runId, () => new Promise<void>((r) => (release = r))))
+      await vi.waitFor(() => expect(release).toBeTypeOf('function'), { timeout: HUNG_MS })
+      const prompt = continued ? null : hook(st, { hook_event_name: 'UserPromptSubmit', prompt: 'quick one' })
+      const arrived = Date.now()
+      // The turn is short: its Stop is answered (and that hook lost) when the prompt has arrived but isn't handled yet. With
+      // continuations: the answer to Hive's, then the final one's.
+      appendFileSync(rollout, continued ? ev('hook.end', { hookType: 'agentStop' }, arrived) + ev('hook.end', { hookType: 'agentStop' }, arrived + 1) : ev('hook.end', { hookType: 'agentStop' }, arrived))
+      const reading = run(() => s.readDetails(l, rollout, statSync(rollout).size))
+      // Hive handles the prompt only later than that record (a turn taken as begun when handled would call it earlier).
+      await vi.waitFor(() => expect(Date.now()).toBeGreaterThan(arrived + 2), { timeout: HUNG_MS })
+      release!()
+      await held
+      await prompt
+      await reading
+      await settled(st)
+      expect([st.status, st.turn?.state], String(continued)).toEqual(['finished', 'over'])
+    }
+  })
+
+  it('Mark idle after a mid-turn compaction whose end was lost too: no compaction is left behind', async () => {
+    process.env.HIVE_TEST_SILENT_MS = '1000'
+    const { st, l } = agent('markcompact')
+    await hook(st, { hook_event_name: 'UserPromptSubmit', turn_id: 't1', prompt: 'go' })
+    await hook(st, { hook_event_name: 'PreCompact', turn_id: 't1', trigger: 'auto' })
+    expect(agentRuntime(st as never).maintenance).toBe('compacting')
+    // PostCompact and the Stop never come; the screen isn't read: unknown, then the user marks it idle.
+    l.ledger.heard = Date.now() - 5000
+    s.checkSilence(p, st.agentId)
+    await settled(st)
+    expect(st.turn?.state).toBe('unknown')
+    await run(() => sessions.markIdle(p, st.agentId))
+    expect([st.status, agentRuntime(st as never).maintenance, agentRuntime(st as never).attention, runtimeLabel(st as never)]).toEqual(['ready', null, null, null])
   })
 
   it('never ends a turn on silence alone: a short silence is left as it is', async () => {
