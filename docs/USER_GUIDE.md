@@ -454,6 +454,17 @@ It's on by default: **Settings → Sessions → Record performance metrics** tur
 
 It refreshes every minute while you look at it (and **Refresh** at once); reading it doesn't add to the numbers. A note says when measurements were dropped because a limit was full, and **What isn't measured** lists what it can't see. **Export** saves what the page shows (its scope, range and filters) as a JSON file with its units, coverage and Hive's version; **Shift+click** Export to replace project names with project-1, project-2… and leave out the workspace's path, before sharing it.
 
+### Cost per card
+
+Hive works out what each card cost from who held it when and what their sessions used then:
+
+- **What counts.** A card's **builder** (its agent) while it is in **Doing**, and its **reviewer** from the start of each review to its verdict. Usage is each provider's own report: Hive's estimates (where a provider reports no cost, or you chose your own prices) are marked **≈**, and what Hive can't know, such as an agent with no session Hive knows of or a model with no price, shows as **Unknown** or **+ ?**, never as $0.
+- **On the card.** The bottom of a card's panel says, for example, **cost: ≈ $1.84 · 2 rounds**. Hover it for the builder's and the reviewer's parts and their tokens (input, output, cache writes and reads, requests).
+- **In Performance.** A **Cards** table lists the cards worked on in the range, with their cost, the builder's and reviewer's parts, their review rounds and when they were last held. Sort by any column (unknown costs go last); click a row to open the card. In a project's Performance tab, only that project's cards.
+- **On a lane.** In the Progress panel, hover a lane's top line (the pair and its count) for what the lane cost since it started, split into **on cards** and **overhead**: what its builder and reviewer used while holding no card, such as merging, watching for a verdict and compacting. It also says the cost per finished card.
+
+Time an agent spends between cards, such as reading a card it was just woken for before taking it, is overhead, not the card's. While an agent holds several cards at once, what it uses then is shared between them equally. A reported charge is split only between the requests it covered, so a card's cost never changes because of work done later; where a card took only some of a charge's requests, its share is marked ≈. Copilot reports its tokens only when a session ends: until then a Copilot card's tokens show as unknown, and then Hive spreads them over that session's requests, marked ≈ (its cost comes from Copilot's own charges). Cards worked on before Hive kept this have it worked out from their history, by the agents' names.
+
 ### Comparing before and after
 
 **Compare** (at the top of the Performance page) puts a baseline next to a run, to see whether a change made Hive's
@@ -701,6 +712,16 @@ A server can be a program Hive starts (`command`, `args`, `env`, as above) or on
 
 A server you add or change is used by sessions started afterwards; restart a running session to give it the change.
 
+### Giving a server to some agents only
+
+By default every agent in a project gets all of the project's servers. To keep a server's tools away from agents that don't need it (each server's tools take up room in an agent's context), open the agent's settings (right-click its tab → **Agent Settings…**) and under **MCP servers** choose **Only these**, then untick the servers it shouldn't have. For example, a release-testing agent can have a sandbox server that the builders don't. Choosing **Only these** starts with every server ticked, so nothing changes until you untick one; **All of the project's** puts it back.
+
+- Hive's own `hive` server is always given, whatever you choose.
+- An agent with **Only these** doesn't get a server enabled later: tick it in its settings. One with **All** gets it.
+- A running agent takes the change when it restarts.
+- Templates keep the choice, so an agent loaded from a template gets the same servers, where they're on.
+- The agent's tooltip shows its choice, and once any agent has one, the project's **MCP** tab says under each server which agents get it.
+
 ### Adding a server from a file
 
 **Add MCP Server from File** (the file icon in the MCP view's header) adds a server someone gave you, as **Add Skill from File** does for skills:
@@ -908,6 +929,14 @@ An app that only shows what Hive is doing, such as **Apiary** (the office view),
 To make one, open **Settings → Agent API → Viewer tokens**, type a name for the app (say *Apiary*) and click **Make viewer token**. The new token shows in its row: copy it and paste it into the app once. **Revoke** cuts that app off at once (it is refused from its next call, and stops receiving events), without touching anything else that uses the API. Hive keeps viewer tokens in its own folder (`%APPDATA%\Hive\agent-api-viewers.json`), never in a project.
 
 The app finds a running Hive by itself: while the Agent API is on, Hive keeps its address (never a token) in `%APPDATA%\Hive\agent-api-discovery.json`, and removes it when the API is turned off or Hive quits.
+
+### Agents reading the developer console
+
+Hive's developer console shows what each coding agent's CLI sends Hive (its hooks, status line, transcript records, the terminal signs Hive reacts to) next to what Hive made of each: the status it set, the details it read. **Settings → Agent API → Let agents read the developer console** gives agents and the Hive Assistant a read-only tool for it (`hive_console`), so they can see what their CLI does while they build and debug. It is off unless you turn it on, and running sessions get the tool when they next start.
+
+- Each agent reads **only its own sessions**. The Assistant reads its workspace's agents, its own session, and Hive's own events there (Agent API calls, merge slots, watches waking agents, Progress runs).
+- Hive captures only while you have the developer console open on an agent: an agent reading starts nothing, and is told when nothing is captured. Hive keeps the newest 500 events of each, in memory only, and nothing once the console stops watching it.
+- What it captures is **redacted**: no prompt or reply text, commands, tokens or sign-in details. Names of tools and files, session ids and the numbers (usage, plan limits, costs) stay.
 
 ## Updating Hive
 

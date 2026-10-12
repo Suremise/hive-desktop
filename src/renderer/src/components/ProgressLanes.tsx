@@ -8,6 +8,7 @@ import { cx } from '../util'
 import { cardStalled } from './Board'
 import { usePanelFold } from './ProgressMerge'
 import { Icon, Tooltip } from './ui'
+import { LaneCostTip, useLaneCost } from './CardCost'
 
 /**
  * The bottom of the Progress panel (#484): the lanes (a builder and its reviewer working through cards in order), one
@@ -182,23 +183,27 @@ function LaneRow({ lane: l, max }: { lane: Lane; max: number }) {
   const segments = fitSegments(cards, max)
   const pair = l.reviewer ? `${l.builder.name} / ${l.reviewer.name}` : l.builder.name
   const word = STATE_WORD[l.state]
+  // Its cost on the hover of its top line (#602), read when the hover first shows.
+  const cost = useLaneCost(l.id)
   return (
     <div className={cx('progress-lane', l.state)} data-lane={l.id}>
-      <div className="progress-lane-top">
-        <span className="progress-lane-pair">{pair}</span>
-        {l.name && <span className="progress-lane-name faint">· {l.name}</span>}
-        <div className="grow" />
-        {word && <span className={cx('progress-lane-state', l.state)}>{word}</span>}
-        {stalled && (
-          <Tooltip content={`#${stalled.n}: ${stalled.why}`}>
-            <span className="progress-lane-state stalled">stalled</span>
-          </Tooltip>
-        )}
-        {current !== null && !l.frozen && <span className="progress-lane-current">#{current}</span>}
-        <span className="progress-lane-count faint">
-          {unknown ? '–' : finished}/{total}
-        </span>
-      </div>
+      <Tooltip block content={<LaneCostTip cost={cost.cost} />}>
+        <div className="progress-lane-top" onMouseEnter={cost.load}>
+          <span className="progress-lane-pair">{pair}</span>
+          {l.name && <span className="progress-lane-name faint">· {l.name}</span>}
+          <div className="grow" />
+          {word && <span className={cx('progress-lane-state', l.state)}>{word}</span>}
+          {stalled && (
+            <Tooltip content={`#${stalled.n}: ${stalled.why}`}>
+              <span className="progress-lane-state stalled">stalled</span>
+            </Tooltip>
+          )}
+          {current !== null && !l.frozen && <span className="progress-lane-current">#{current}</span>}
+          <span className="progress-lane-count faint">
+            {unknown ? '–' : finished}/{total}
+          </span>
+        </div>
+      </Tooltip>
       <div className="lane-bar" role="list" aria-label={unknown ? `${pair}: ${total} cards, not recorded` : `${pair}: ${finished} of ${total} cards finished`}>
         {segments.map((s) => (
           <Segment key={s.kind === 'card' ? s.number : `${s.kind}-${s.numbers[0]}`} segment={s} />

@@ -481,7 +481,7 @@ export async function loadTemplate(projectPath: string, scope: TemplateScope, fi
       for (const [i, a] of plan.create.entries()) {
         // A worktree the plan reuses (#289), checked again just now (the plan is made afresh for the load): else a new one.
         const reuse = plan.worktrees[i]?.reuse ? plan.worktrees[i] : null
-        const opts = { name: a.name, role: a.role, provider: a.provider, model: a.model, effort: a.effort, permissionMode: a.permissionMode, use200kContext: a.use200kContext, location: reuse ? ('existing-worktree' as const) : a.worktree ? ('new-worktree' as const) : ('project' as const), ...(reuse ? { worktreePath: reuse.path } : {}) }
+        const opts = { name: a.name, role: a.role, provider: a.provider, model: a.model, effort: a.effort, permissionMode: a.permissionMode, use200kContext: a.use200kContext, mcpServers: a.mcpServers, location: reuse ? ('existing-worktree' as const) : a.worktree ? ('new-worktree' as const) : ('project' as const), ...(reuse ? { worktreePath: reuse.path } : {}) }
         staged.push(await prepareAgent(projectPath, cfg, opts, a.name, staged.map((s) => s.def)))
         await testHooks.staged?.(a.name)
       }
@@ -588,7 +588,7 @@ export async function addAgentFromTemplate(projectPath: string, scope: TemplateS
   const inUse = new Set(agents.flatMap((x) => (x.worktree ? [placeKey(x.worktree.path)] : [])))
   const found = base ? await reusableWorktree(projectPath, name, base, undefined, inUse, await wt.listWorktrees(projectPath)) : null
   const reuse = found && 'reuse' in found ? found.reuse : null
-  const settings = { name, role: a.role, provider: a.provider, model: a.model, effort: a.effort, permissionMode: a.permissionMode, use200kContext: a.use200kContext }
+  const settings = { name, role: a.role, provider: a.provider, model: a.model, effort: a.effort, permissionMode: a.permissionMode, use200kContext: a.use200kContext, mcpServers: a.mcpServers }
   const def = await addAgent(projectPath, reuse ? { ...settings, location: 'existing-worktree', worktreePath: reuse.path } : { ...settings, location: a.worktree ? 'new-worktree' : 'project' })
   if (reuse) log.info(`Added ${userText(name)} from a template in its worktree again (${userText(reuse.branch)})`)
   return reuse ? { ...def, reused: true } : def
