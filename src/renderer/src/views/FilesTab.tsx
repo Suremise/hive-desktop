@@ -136,7 +136,20 @@ function FilesBrowser({ project, selector, jump }: { project: ProjectInfo; selec
   const listWidth = usePaneSize('files', 360)
   const [dirs, setDirs] = useState<Record<string, FileEntry[]>>({})
   const [expanded, setExpanded] = useState<Record<string, boolean>>({})
-  const [selected, setSelected] = useState<string[]>([])
+  const [selected, setSelectedState] = useState<string[]>([])
+  // An action that ends late (a slow paste, rename or new file) selects what it made only if the selection hasn't
+  // changed since it started: a row the user clicked meanwhile keeps it, so the next key acts on that row (#641).
+  // Counted when each change is made, not when it renders: a drag selects its row at dragstart, which may not have
+  // rendered by the drop.
+  const selectionSeq = useRef(0)
+  const setSelected = (next: React.SetStateAction<string[]>): void => {
+    selectionSeq.current++
+    setSelectedState(next)
+  }
+  const unchangedSelection = (): (() => boolean) => {
+    const before = selectionSeq.current
+    return () => selectionSeq.current === before
+  }
   const [anchor, setAnchor] = useState<string | null>(null)
   const [editing, setEditing] = useState<Editing | null>(null)
   const [filter, setFilter] = useState('')
@@ -199,7 +212,8 @@ function FilesBrowser({ project, selector, jump }: { project: ProjectInfo; selec
   useEffect(() => {
     setDirs({})
     setExpanded({})
-    setSelected([])
+    selectionSeq.current++
+    setSelectedState([])
     void loadDir('')
     loadGit()
   }, [project.path, loadDir, loadGit])
@@ -314,6 +328,7 @@ function FilesBrowser({ project, selector, jump }: { project: ProjectInfo; selec
 
   const commitEdit = async (value: string): Promise<void> => {
     const ed = editing
+    const unchanged = unchangedSelection()
     setEditing(null)
     if (!ed || !value.trim()) return
     if (ed.kind === 'rename') {
@@ -329,7 +344,7 @@ function FilesBrowser({ project, selector, jump }: { project: ProjectInfo; selec
           setDirs((d) => Object.fromEntries(Object.entries(d).filter(([k]) => !isUnder(k, ed.rel))))
           if (expanded[ed.rel]) void loadDir(rel)
         }
-        reveal(rel)
+        if (unchanged()) reveal(rel)
       }
       return
     }
@@ -345,7 +360,7 @@ function FilesBrowser({ project, selector, jump }: { project: ProjectInfo; selec
         setExpanded((x) => ({ ...x, [p]: true }))
         await loadDir(p)
       }
-      reveal(rel)
+      if (unchanged()) reveal(rel)
     }
   }
 
@@ -357,9 +372,10 @@ function FilesBrowser({ project, selector, jump }: { project: ProjectInfo; selec
     const lost = dirty.length ? ` Unsaved changes to ${dirty.length === 1 ? dirty[0] : `${dirty.length} files`} will be lost.` : ''
     const ok = await confirm({ title: 'Move to Recycle Bin?', message: `Move ${what} to the Recycle Bin?`, detail: `You can restore it from the Recycle Bin.${lost}`, confirmLabel: 'Move to Recycle Bin', danger: true })
     if (!ok) return
+    const unchanged = unchangedSelection()
     const done = await actions.attempt('Could not delete', () => call('files:trash', project.path, rels).then(() => true))
     if (done) discardDrafts(project.path, rels)
-    setSelected([])
+    if (unchanged()) setSelected([])
     for (const d of new Set(items.map((i) => parentOf(i.relPath)))) void loadDir(d)
     loadGit()
   }
@@ -373,6 +389,7 @@ function FilesBrowser({ project, selector, jump }: { project: ProjectInfo; selec
   const paste = async (dest = targetDir()): Promise<void> => {
     const clip = fileClipboard
     if (!clip) return
+    const unchanged = unchangedSelection()
     let out: string[] | undefined
     if (clip.project !== project.path) {
       const sources = clip.rels.map((r) => `${clip.project}\\${r.replace(/\//g, '\\')}`)
@@ -391,10 +408,11 @@ function FilesBrowser({ project, selector, jump }: { project: ProjectInfo; selec
     if (dest) expand(dest)
     await loadDir(dest)
     loadGit()
-    if (out?.length) setSelected(out)
+    if (out?.length && unchanged()) setSelected(out)
   }
 
   const duplicate = async (items = selEntries): Promise<void> => {
+    const unchanged = unchangedSelection()
     const created: string[] = []
     const byDir = new Map<string, string[]>()
     for (const i of items) byDir.set(parentOf(i.relPath), [...(byDir.get(parentOf(i.relPath)) ?? []), i.relPath])
@@ -403,7 +421,7 @@ function FilesBrowser({ project, selector, jump }: { project: ProjectInfo; selec
       if (out) created.push(...out)
       await loadDir(dir)
     }
-    if (created.length) setSelected(created)
+    if (created.length && unchanged()) setSelected(created)
   }
 
   const open = (e: FileEntry): void => {
@@ -526,6 +544,7 @@ function FilesBrowser({ project, selector, jump }: { project: ProjectInfo; selec
     ev.stopPropagation()
     setDropTarget(null)
     window.clearTimeout(hoverTimer.current)
+    const unchanged = unchangedSelection()
     const internal = ev.dataTransfer.getData(HIVE_FILES_MIME)
     let out: string[] | undefined
     if (internal) {
@@ -546,7 +565,7 @@ function FilesBrowser({ project, selector, jump }: { project: ProjectInfo; selec
     if (dir) expand(dir)
     await loadDir(dir)
     loadGit()
-    if (out?.length) setSelected(out)
+    if (out?.length && unchanged()) setSelected(out)
   }
 
   const cutSet = fileClipboard?.mode === 'cut' && fileClipboard.project === project.path ? new Set(fileClipboard.rels) : null

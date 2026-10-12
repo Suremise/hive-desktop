@@ -737,7 +737,7 @@ The **Files** tab is a file browser for the project folder.
 
 - **Create:** the New File and New Folder buttons (or right-click a folder) add an entry inside the selected folder; type the name in place. A name like `docs/notes.md` creates the folders in between.
 - **Rename** with F2, **delete** with Del. Deleted files go to the **Recycle Bin**, so they can be restored.
-- **Cut, copy and paste** with Ctrl+X, Ctrl+C and Ctrl+V, or from the right-click menu, which also has **Duplicate**, **Copy Path** and **Copy Relative Path**. Pasting into another project always copies.
+- **Cut, copy and paste** with Ctrl+X, Ctrl+C and Ctrl+V, or from the right-click menu, which also has **Duplicate**, **Copy Path** and **Copy Relative Path**. Pasting into another project always copies. A paste, a rename or a new file selects what it made once it's done; if you click another row before then (in a big folder or on a slow disk), your row stays selected, so the next key acts on it.
 - **Drag and drop:** drag entries onto a folder to move them (hold Ctrl to copy). Drag files in from Explorer to copy them into the project. Drag files onto the **Session** tab to paste their paths into the running session.
 - **Open elsewhere:** the buttons above the editor (and the right-click menu) open a file in its default app or reveal it in File Explorer.
 - **Find:** the box at the top searches the whole project by name or path (git-ignored files are left out).
