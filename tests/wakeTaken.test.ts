@@ -14,13 +14,38 @@ type Entry = { state: Record<string, unknown>; prompts: number; typed?: { at: nu
 const live = (sessions as unknown as { live: Map<string, Entry> }).live
 const key = `${project.toLowerCase()}#${id}`
 
+/**
+ * A hand-made live state whose runtime facts follow its status, as the turn ledger's would (#648): the CLI running, a turn
+ * running while it works, asked while it waits. Readiness reads the facts (#649).
+ */
+function withFacts<T extends { status: string }>(state: T): T {
+  let status = state.status
+  const rt = { lifecycle: 'running', maintenance: null as null, attention: null as 'waiting' | null, composer: 'free' }
+  const follow = (): void => {
+    Object.assign(state, { turn: { state: status === 'working' ? 'running' : 'over' } })
+    rt.attention = status === 'waiting' ? 'waiting' : null
+  }
+  Object.defineProperty(state, 'status', {
+    get: () => status,
+    set: (v: string) => {
+      status = v
+      follow()
+    },
+    enumerable: true,
+    configurable: true
+  })
+  Object.assign(state, { runtime: rt })
+  follow()
+  return state
+}
+
 describe('a line still waiting to be taken (#430)', () => {
   afterEach(() => {
     live.delete(key)
     vi.restoreAllMocks()
   })
   const running = (over: Partial<Entry> = {}): Entry => {
-    const e: Entry = { state: { projectPath: project, agentId: id, agentName: 'Watcher', runId: 'run1', status: 'ready' }, prompts: 0, ...over }
+    const e: Entry = { state: withFacts({ projectPath: project, agentId: id, agentName: 'Watcher', runId: 'run1', status: 'ready' }), prompts: 0, ...over }
     live.set(key, e)
     return e
   }
@@ -66,7 +91,7 @@ describe('a wake being confirmed holds its input the whole time (#430 round 2)',
     const writes: string[] = []
     vi.spyOn(pty, 'writePty').mockImplementation((_k, data) => void writes.push(data))
     // Just typed (prompts 0), busy (Enter again unsafe while working).
-    const e: Entry = { state: { projectPath: project, agentId: id, agentName: 'Watcher', runId: 'run1', status: 'working' }, prompts: 0, typed: { at: Date.now(), prompts: 0 } }
+    const e: Entry = { state: withFacts({ projectPath: project, agentId: id, agentName: 'Watcher', runId: 'run1', status: 'working' }), prompts: 0, typed: { at: Date.now(), prompts: 0 } }
     live.set(key, e)
     const done = writer.confirmTaken(project, id, { runId: 'run1', count: 0 }, 'WAKE')
     await vi.advanceTimersByTimeAsync(31_000)
