@@ -47,8 +47,8 @@ const exists = (rel) => fs.existsSync(path.join(proj, rel))
 // The longest a check waits for its condition: a bound for a hung run, never how long the step should take.
 const HUNG_MS = 10000
 const results = []
-const check = (name, ok) => {
-  results.push(`${ok ? 'PASS' : 'FAIL'}  ${name}`)
+const check = (name, ok, extra = '') => {
+  results.push(`${ok ? 'PASS' : 'FAIL'}  ${name}${ok || !extra ? '' : ` (${extra})`}`)
 }
 
 ;(async () => {
@@ -101,6 +101,9 @@ const check = (name, ok) => {
   await row('dist').click()
   await page.keyboard.press('Control+V')
   check('copy/paste src/util.ts -> dist/util.ts', !!(await lib.until(() => exists('dist/util.ts') && exists('src/util.ts'), 10000)))
+  // The tab then reloads dist and selects the copy: a click before that loses its selection to it, and the cut below
+  // would take dist/util.ts instead of README2.md (#595).
+  check('…and selects the copy', !!(await lib.until(() => selected('dist/util.ts'), HUNG_MS)))
 
   // Cut README2.md into src.
   await row('README2.md').click()
@@ -108,7 +111,16 @@ const check = (name, ok) => {
   await row('src').click() // collapses src, still the paste target
   await page.keyboard.press('Control+V')
   // Moved on disk, then the tab selects what it pasted: a click before that loses its selection to it.
-  check('cut/paste README2.md -> src/README2.md', !!(await lib.until(async () => exists('src/README2.md') && !exists('README2.md') && (await selected('src/README2.md')), HUNG_MS)))
+  // What didn't hold, when it fails (#595): the move on disk, the rows selected, whether src is open, and any toast.
+  const pasted = async () =>
+    JSON.stringify({
+      moved: exists('src/README2.md'),
+      left: exists('README2.md'),
+      selected: await page.locator('.file-row.selected').evaluateAll((els) => els.map((e) => e.getAttribute('data-rel'))),
+      srcOpen: (await row('src').locator('.codicon-chevron-down').count()) === 1,
+      toasts: await page.locator('.toast').allInnerTexts()
+    })
+  check('cut/paste README2.md -> src/README2.md', !!(await lib.until(async () => exists('src/README2.md') && !exists('README2.md') && (await selected('src/README2.md')), HUNG_MS)), await pasted())
 
   // Duplicate via the context menu.
   await row('.gitignore').click({ button: 'right' })

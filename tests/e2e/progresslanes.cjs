@@ -260,10 +260,16 @@ const until = (fn, ms = 10000) => lib.until(fn, ms, 150)
   // A shorter window: dragged to the top, the edge stops where the runs keep their room, at a whole lane.
   await lib.fitWindow(app, page, { width: 1400, height: 600 })
   await until(async () => (await page.evaluate(() => window.innerHeight)) === 600, HUNG_MS)
+  // Measured for the short window before the edge is dragged, and the drag's result waited for, not read once (#601).
+  await until(async () => Number((await edgeSays()).max) < 7, HUNG_MS)
   await drag(pitch)
   await drag(-2000)
-  const shortFit = await fit()
-  check('in a short window, dragged to the top, the runs keep their room and the list ends at a whole lane', shortFit.whole < 7 && showsWhole(shortFit, shortFit.whole) && (await body()) >= 119 && (await body()) < 119 + pitch, JSON.stringify({ shortFit, body: await body() }))
+  let shortFit = null
+  const shortOk = await until(async () => {
+    shortFit = { f: await fit(), body: await body() }
+    return shortFit.f.whole < 7 && showsWhole(shortFit.f, shortFit.f.whole) && shortFit.body >= 119 && shortFit.body < 119 + pitch
+  }, HUNG_MS)
+  check('in a short window, dragged to the top, the runs keep their room and the list ends at a whole lane', !!shortOk, JSON.stringify({ shortFit, says: await edgeSays() }))
   await lib.fitWindow(app, page, { width: 1400, height: 850 })
   await until(async () => (await page.evaluate(() => window.innerHeight)) === 850, HUNG_MS)
   // Double-click: back to four, and nothing kept.
@@ -311,7 +317,13 @@ const until = (fn, ms = 10000) => lib.until(fn, ms, 150)
   const run = await api(t1, 'POST', '/v1/progress', { title: 'Full test set', total: 146, step: 112, stepName: 'mergeslot', estimateMs: 600000 })
   const claim = await api(t1, 'POST', '/v1/projects/alpha/merge-slot/claim', { branch: 'main', cards: [n8], timeoutSeconds: 0 })
   const wait = await api(t3, 'POST', '/v1/projects/alpha/merge-slot/claim', { branch: 'main', cards: [long[18]], timeoutSeconds: 0 })
-  check('B1 holds the slot and B3 waits', run.status === 200 && claim.body?.held === true && wait.body?.held === false, JSON.stringify([run, claim, wait]))
+  // B3's token works while its launch runs; a 401 here means it ended (#601): say whether it still runs, and its launches.
+  const b3Now = async () => {
+    const now = await live(b3.id)
+    const all = fs.readFileSync(path.join(claudeHome, 'fake-launches.jsonl'), 'utf8').trim().split('\n').map((l) => JSON.parse(l))
+    return { status: now?.status ?? 'not running', runId: now?.runId ?? null, launches: all.filter((l) => l.cwd.toLowerCase() === (b3.worktree?.path ?? alpha).toLowerCase()).length }
+  }
+  check('B1 holds the slot and B3 waits', run.status === 200 && claim.body?.held === true && wait.body?.held === false, JSON.stringify([run, claim, wait, ...(wait.status === 401 ? [{ b3: await b3Now() }] : [])]))
   const mergeCard = panel.locator('.progress-merge-card')
   check('a merge card shows on top', !!(await until(async () => (await mergeCard.count()) === 1, HUNG_MS)))
   const branch = b1.worktree?.branch
