@@ -146,6 +146,7 @@ export const SUITES = [
   { name: 'resume' },
   { name: 'resumeall' },
   { name: 'review' },
+  { name: 'safeguards' },
   { name: 'scenarioteardown' },
   { name: 'searchclear' },
   { name: 'sessionname' },
