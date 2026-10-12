@@ -576,8 +576,15 @@ async function runScenario(sc, providerKey, opts = {}) {
     observed.status = s?.status ?? 'stopped'
     // The watch it ended its turn with (#402): the live one, not every watch it started (a new one replaces the last).
     observed.watch = s?.watch ?? null
-    // The lines Hive typed in to wake it (#402), in order.
-    observed.wakeLines = items.filter((x) => x.kind === 'user' && String(x.text ?? '').trim().startsWith('[Hive]')).map((x) => String(x.text).trim().slice(0, 1000))
+    // What Hive woke it with (#402), in order: a line it typed in, or (#650: its doorbell) what the session's next
+    // hive_inbox call read, the inbox's own items after the doorbell.
+    observed.wakeLines = items.flatMap((x, i) => {
+      const text = String(x.kind === 'user' ? (x.text ?? '') : '').trim()
+      if (!text.startsWith('[Hive]')) return []
+      if (!text.startsWith('[Hive] New in your inbox: ')) return [text.slice(0, 1000)]
+      const read = items.slice(i + 1).find((y) => y.kind === 'tool' && /hive_inbox/.test(y.tool.name))
+      return [String(read?.tool.result ?? text).trim().slice(0, 1000)]
+    })
     observed.guidance = result.guidance
     // What the hive servers ran: the subject's own calls, and everyone's (an agent the Assistant started).
     observed.allHiveCalls = readMcpLog(mcpLog)

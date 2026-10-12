@@ -28,7 +28,7 @@ const ran = (o, tool) => called(o, tool).filter((c) => c.ok)
  * ("Please let me know if you need anything else", "Tell me if anything is unclear") puts no decision and doesn't count.
  */
 const asksTheUser = (text) =>
-  /\?|\bplease (?:choose|decide|confirm|pick|select)\b|\b(?:let me know|tell me) (?:which|whether|how you(?:'d| would) like)\b|\b(?:need|needs|waiting for|awaiting) your (?:decision|choice|call|answer|go-ahead)\b/i.test(String(text ?? ''))
+  /\?|\bplease (?:choose|decide|confirm|pick|select)\b|\b(?:let me know|tell me) (?:which|whether|how you(?:'d| would) like)\b|\b(?:need|needs|waiting for|awaiting|awaits?) your (?:decision|choice|call|answer|go-ahead|approval|confirmation)\b/i.test(String(text ?? ''))
 /**
  * Starts Coder on a long task without a card before the subject's prompt (#416): ready (a trust question answered), then
  * the task typed in, until it is working. The fakes do "work N" (`fakeSecs`: the wake quotes Coder's reply, which the
