@@ -171,7 +171,8 @@ export function laneSummary(cards: CardSegment[]): { finished: number; total: nu
 }
 
 /**
- * How many lanes the Progress panel's lanes section shows before it scrolls (#569): up to four by default; the user drags
+ * How many lanes the Progress panel's lanes section shows before it scrolls (#569): up to four by default (Settings →
+ * Advanced → Progress panel: lanes shown, and a workspace's own: #367, the `fallback` below); the user drags
  * the section's top edge (or presses Up and Down on it) for more or fewer, in whole lanes, kept per workspace. With fewer
  * lanes than that, the section is only as tall as they are.
  */
@@ -180,14 +181,14 @@ export const DEFAULT_LANE_ROWS = 4
 /** The height the runs above keep (px) when the lanes are dragged up: about a run and a half. */
 export const RUNS_KEEP_PX = 120
 
-/** A kept choice as a whole number of lanes, at least one; the default when there is none (or it isn't a number). */
-export function chosenLaneRows(kept: number | null | undefined): number {
-  return typeof kept === 'number' && Number.isFinite(kept) ? Math.max(1, Math.round(kept)) : DEFAULT_LANE_ROWS
+/** A kept choice as a whole number of lanes, at least one; the default (`fallback`) when there is none (or it isn't a number). */
+export function chosenLaneRows(kept: number | null | undefined, fallback = DEFAULT_LANE_ROWS): number {
+  return typeof kept === 'number' && Number.isFinite(kept) ? Math.max(1, Math.round(kept)) : fallback
 }
 
 /** The lanes shown: the choice, but never more than there are (no empty space) and at least one. */
-export function lanesShown(kept: number | null | undefined, count: number): number {
-  return Math.max(1, Math.min(count, chosenLaneRows(kept)))
+export function lanesShown(kept: number | null | undefined, count: number, fallback = DEFAULT_LANE_ROWS): number {
+  return Math.max(1, Math.min(count, chosenLaneRows(kept, fallback)))
 }
 
 /**
@@ -204,8 +205,8 @@ export function maxLaneRows(count: number, roomPx: number, pitchPx: number): num
  * the choice shows whole lanes and leaves the runs their room; the choice itself is kept for when there is room again.
  * `max` is the most that fit, the splitter's maximum.
  */
-export function laneRowsNow(kept: number | null | undefined, count: number, roomPx: number | null, pitchPx: number): { chosen: number; shown: number; max: number } {
-  const chosen = lanesShown(kept, count)
+export function laneRowsNow(kept: number | null | undefined, count: number, roomPx: number | null, pitchPx: number, fallback = DEFAULT_LANE_ROWS): { chosen: number; shown: number; max: number } {
+  const chosen = lanesShown(kept, count, fallback)
   const max = roomPx === null ? count : maxLaneRows(count, roomPx, pitchPx)
   return { chosen, shown: Math.min(chosen, max), max }
 }

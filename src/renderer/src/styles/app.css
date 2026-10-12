@@ -469,6 +469,27 @@ kbd {
   margin-top: 2px;
   word-break: break-word;
 }
+/* A safeguard stop or the model fallback after one, beside an agent's status (SafeguardMark, #606). */
+.safeguard-mark {
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+  flex: none;
+  min-width: 0;
+  color: var(--fg-muted);
+  font-size: 12px;
+}
+.safeguard-mark.alert {
+  color: var(--warning);
+}
+.safeguard-mark .codicon {
+  font-size: 13px;
+}
+.safeguard-model {
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
 .activity-btn.active::before {
   content: '';
   position: absolute;
@@ -2580,6 +2601,87 @@ p.hint {
 .setting.danger .s-title {
   color: var(--error);
 }
+/* Settings → Advanced's list (#367): about:config style, grouped by Hive and each CLI. */
+.advanced-list {
+  max-width: 900px;
+  margin-top: 8px;
+}
+.advanced-bar {
+  display: flex;
+  gap: 12px;
+  align-items: center;
+  flex-wrap: wrap;
+  margin-bottom: 8px;
+}
+.advanced-bar .search-box {
+  flex: 1;
+  min-width: 200px;
+}
+.advanced-group h3 {
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--fg-muted);
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  margin: 16px 0 2px;
+  padding-bottom: 4px;
+  border-bottom: 1px solid var(--border-subtle);
+}
+.advanced-row .advanced-id {
+  font-family: 'Cascadia Code', Consolas, monospace;
+  font-size: 11px;
+  color: var(--fg-muted);
+  margin-top: 2px;
+  overflow-wrap: anywhere;
+}
+.advanced-row .s-desc code {
+  font-family: 'Cascadia Code', Consolas, monospace;
+  overflow-wrap: anywhere;
+}
+.advanced-row.invalid .s-title {
+  color: var(--error);
+}
+.advanced-row .advanced-control {
+  flex-direction: column;
+  align-items: stretch;
+}
+.advanced-row .input.mono {
+  font-family: 'Cascadia Code', Consolas, monospace;
+  font-size: 12px;
+}
+.advanced-workspace {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  font-size: 12px;
+}
+.advanced-note {
+  font-size: 12px;
+  margin-top: 6px;
+  line-height: 1.5;
+}
+.advanced-note > .codicon {
+  vertical-align: -3px;
+  margin-right: 4px;
+}
+.advanced-note .btn {
+  margin-left: 6px;
+}
+.advanced-note.error {
+  color: var(--error);
+}
+.advanced-note.warn {
+  color: var(--warning);
+}
+@media (max-width: 700px) {
+  .setting.advanced-row {
+    flex-direction: column;
+    gap: 8px;
+  }
+  .setting.advanced-row .s-control {
+    width: 100%;
+  }
+}
 .range {
   accent-color: var(--accent);
   width: 100%;
@@ -3759,6 +3861,10 @@ p.hint {
   margin-left: 22px;
   flex-wrap: wrap;
   row-gap: 2px;
+}
+.session-row-size {
+  white-space: nowrap;
+  font-variant-numeric: tabular-nums;
 }
 .sessions-tree .session-row.sub strong {
   font-weight: 500;

@@ -6,7 +6,8 @@ import { basename, dirname, join, resolve as resolvePath } from 'path'
 import { stat } from 'original-fs/promises'
 import type { AgentApiInfo, AssistantControl, EffortLevel, HiveEvent, LiveSessionState, PermissionMode, ProviderId, SkillInfo, TaskCard, TaskColumn, TaskPatch, TaskStartTarget, ToastLevel } from '../shared/types'
 import { DEFAULT_API_PORT, HIVE_DIR, projectAgents, stopAsksUser, transcriptWarnLimit } from '../shared/defaults'
-import { PROVIDERS, agentProvider, defaultProviderPending, isKnownProvider, isProviderEnabled, offeredModes, projectDefaultProvider, providerName } from '../shared/providers'
+import { PROVIDERS, agentProvider, defaultProviderPending, isKnownProvider, isProviderEnabled, offeredModes, projectDefaultProvider, providerDescriptor, providerName } from '../shared/providers'
+import type { SafeguardNote } from '../shared/safeguards'
 import { agentChoosesMcp, agentGetsMcp, cleanMcpServers } from '../shared/agentMcp'
 import { fallbackEfforts, modelGroups } from '../shared/models'
 import { agentRuntime, unknownStateText } from '../shared/runtime'
@@ -27,7 +28,8 @@ import { emit, onHiveEvent, toast } from './events'
 import { cancelWatch, encodeSince, registerAgentWatch, registerLaneWatch, registerWatch, scopedCard } from './watches'
 import { readLaneCondition } from '../shared/laneWatch'
 import { agentBusy, AGENT_WATCH_MAX_AGENTS, type AgentNow, type WatchedAgent } from '../shared/agentWatch'
-import { alreadyThere, cardChange, changesBetween, decodeSince, markOf, movedIntoSince, readCondition, AGENT_WAIT_MAX_SECONDS, WAIT_MAX_SECONDS, WATCH_DEFAULT_LIMIT_MINUTES, WATCH_MAX_LIMIT_MINUTES, type CardChange, type CardMark } from '../shared/watch'
+import { alreadyThere, cardChange, changesBetween, decodeSince, markOf, movedIntoSince, readCondition, WATCH_DEFAULT_LIMIT_MINUTES, WATCH_MAX_LIMIT_MINUTES, type CardChange, type CardMark } from '../shared/watch'
+import { waitMaxSeconds } from './advanced'
 import { insideReal, placeMatcher, placeRelative, readCapped, readJson, samePlace, writeJsonAtomic } from './fsutil'
 import { listWorktrees } from './worktrees'
 import { reuseNote } from '../shared/unusedWorktrees'
@@ -44,7 +46,8 @@ import { writePty } from './ptyHost'
 import { sessions } from './sessions'
 import { cardStall } from './cardStall'
 import { cancelMessages, leaveMessage, MESSAGE_MAX_CHARS } from './agentMessages'
-import { ackDeliveries, deliveryView, readInbox } from './deliveries'
+import { ackDeliveries, deliverNow, deliveryView, launchWith, NotGiven, readInbox } from './deliveries'
+import type { DeliverySender } from '../shared/deliveries'
 import * as tasks from './tasks'
 import * as taskBatch from './taskBatch'
 import { startTask } from './taskStart'
@@ -877,7 +880,8 @@ route('POST', '/v1/projects/:name/agents', async ({ params, body }) => {
     let started = ''
     if (body?.start || prompt) {
       try {
-        await sessions.start(p, { agentId: def.id, prompt: prompt || undefined })
+        if (prompt) await startOnTask(p, def.id, def.name, prompt, (line) => sessions.start(p, { agentId: def.id, prompt: line }))
+        else await sessions.start(p, { agentId: def.id })
         started = ' and started it'
       } catch (e) {
         started = ` (it didn't start: ${(e as Error).message})`
@@ -913,7 +917,7 @@ route('POST', '/v1/projects/:name/agents/:agent/start', async ({ params, body })
       if (!resumeId) throw new HttpError(409, `${a.name} has no conversation to resume. Start it without resume.`)
     }
     const prompt = typeof body?.prompt === 'string' ? body.prompt.trim() : ''
-    const st = await sessions.start(p, { agentId, resumeId, prompt: prompt || undefined })
+    const st = prompt ? await startOnTask(p, agentId, a.name, prompt, (line) => sessions.start(p, { agentId, resumeId, prompt: line })) : await sessions.start(p, { agentId, resumeId })
     return { done: `${resumeId ? 'Resumed' : 'Started'} ${a.name} in ${basename(p)}`, said: prompt ? ` on: ${clip(prompt.replace(/\s+/g, ' '), 80)}` : undefined, result: st }
   })
 })
@@ -954,7 +958,7 @@ route('POST', '/v1/projects/:name/agents/:agent/prompt', async ({ params, body }
   if (!text) throw new HttpError(400, 'text is required')
   // A new conversation for the task (a new lane, say): the current one ends, as when it hands over to itself.
   const fresh = body?.newConversation === true
-  return assistantChange<{ ok: boolean; newConversation?: boolean }>('agents', `give ${a.name} in ${basename(p)} a task${fresh ? ' in a new conversation' : ''}`, async (guard) => {
+  return assistantChange<{ ok: boolean; id?: string; newConversation?: boolean }>('agents', `give ${a.name} in ${basename(p)} a task${fresh ? ' in a new conversation' : ''}`, async (guard) => {
     const st = sessions.liveFor(p, agentId)
     // Never over the top of the agent's work, a question to the user, or the user's own typing.
     if (!st) throw new HttpError(409, `${a.name} isn't running. Start it with the task instead (hive_start_agent with prompt).`)
@@ -972,7 +976,7 @@ route('POST', '/v1/projects/:name/agents/:agent/prompt', async ({ params, body }
     if (agentNowFor(p, agentId).pending) throw new HttpError(409, `Hive has just typed a line into ${a.name} that its CLI hasn't taken yet. Wait for it (hive_wait_for_agents), then give it the task.`)
     if (fresh) {
       // The Assistant's authority (Control, its session) again after the stop and at the launch: it may end meanwhile.
-      await sessions.newConversation(p, agentId, text, guard).catch((e: Error) => {
+      await startOnTask(p, agentId, a.name, text, (line) => sessions.newConversation(p, agentId, line, guard)).catch((e: Error) => {
         const stopped = !sessions.liveFor(p, agentId)
         if (e instanceof assistant.ChangeRefused) {
           if (!stopped) throw e
@@ -983,8 +987,12 @@ route('POST', '/v1/projects/:name/agents/:agent/prompt', async ({ params, body }
       })
       return { done: `Gave ${a.name} in ${basename(p)} a task in a new conversation`, said: `: ${clip(text.replace(/\s+/g, ' '), 80)}`, result: { ok: true, newConversation: true } }
     }
-    await sessions.sendPrompt(p, agentId, text)
-    return { done: `Gave ${a.name} in ${basename(p)} a task`, said: `: ${clip(text.replace(/\s+/g, ' '), 80)}`, result: { ok: true } }
+    // A task delivery (#649), given now or not at all: never queued behind the agent's work.
+    const r = await deliverNow(p, { agentId, agentName: a.name, conversation: st.sessionId || null, kind: 'task', from: callerSender(), body: text, need: 'free' }).catch((e: Error) => {
+      if (e instanceof NotGiven) throw new HttpError(409, `${a.name} wasn't given the task: ${e.message}.`)
+      throw e
+    })
+    return { done: `Gave ${a.name} in ${basename(p)} a task (${r.id})`, said: `: ${clip(text.replace(/\s+/g, ' '), 80)}`, result: { ok: true, id: r.id } }
   })
 })
 
@@ -1004,14 +1012,12 @@ route('POST', '/v1/projects/:name/agents/:agent/message', async ({ params, body 
   const text = typeof body?.text === 'string' ? body.text.trim() : ''
   if (!text) throw new HttpError(400, 'text is required')
   if (text.length > MESSAGE_MAX_CHARS) throw new HttpError(400, `text is at most ${MESSAGE_MAX_CHARS} characters (this has ${text.length})`)
-  const ws = assistantCaller()
   return assistantChange<{ id: string; typed: boolean; queued: number; status: string }>('agents', `leave ${a.name} in ${basename(p)} a message`, async (guard) => {
     const st = sessions.liveFor(p, agentId)
     if (!st) throw new HttpError(409, `${a.name} isn't running. Start it with the message as its task instead (hive_start_agent with prompt).`)
     guard()
     // Its sender saved with it: the Assistant's launch, whose permission is worked out again at every step (#645).
-    const launch = sessions.liveFor(assistant.assistantHome(ws!), ASSISTANT_AGENT_ID)?.runId ?? ''
-    const r = await leaveMessage(p, agentId, a.name, { kind: 'assistant', name: 'the Assistant', workspace: ws!, launch }, text).catch((e: Error) => {
+    const r = await leaveMessage(p, agentId, a.name, callerSender(), text).catch((e: Error) => {
       throw new HttpError(409, e.message)
     })
     if (r.fate === 'cancelled' || r.fate === 'expired' || r.fate === 'refused') throw new HttpError(409, `The message wasn't typed into ${a.name}: ${r.fate === 'cancelled' ? (r.detail ?? 'cancelled') : `${r.fate}, ${r.detail ?? ''}`}.`)
@@ -1019,6 +1025,21 @@ route('POST', '/v1/projects/:name/agents/:agent/message', async ({ params, body 
     return { done: `${typed ? 'Gave' : 'Left'} ${a.name} in ${basename(p)} a message (${r.id})${typed ? '' : ' (queued)'}`, said: `: ${clip(text.replace(/\s+/g, ' '), 80)}`, result: { id: r.id, typed, queued: r.queued, status: typed ? (sessions.liveFor(p, agentId)?.status ?? 'stopped') : st.status } }
   })
 })
+
+/**
+ * Who an Agent API call's delivery is from (#645, #649): the Assistant's launch, whose permission is worked out again at
+ * every step; else the user (their own scripts).
+ */
+function callerSender(): DeliverySender {
+  const ws = assistantCaller()
+  if (!ws) return { kind: 'user', name: 'the user' }
+  const launch = sessions.liveFor(assistant.assistantHome(ws), ASSISTANT_AGENT_ID)?.runId ?? ''
+  return { kind: 'assistant', name: 'the Assistant', workspace: ws, launch }
+}
+
+/** Starts an agent on a task (#649): a task delivery its launch carries as its prompt, received once its CLI takes it. */
+const startOnTask = (p: string, agentId: string, agentName: string, prompt: string, start: (line: string) => Promise<LiveSessionState>): Promise<LiveSessionState> =>
+  launchWith(p, { agentId, agentName, kind: 'task', from: callerSender(), body: prompt }, start).then((x) => x.launched)
 
 /** Who is calling hive_inbox: a project agent (its own), or the Assistant (its home's). */
 function inboxOwner(): { host: string; agentId: string } {
@@ -1052,6 +1073,20 @@ route('GET', '/v1/projects/:name/agents/:agent/deliveries', async ({ params, que
 /** How much of an agent's activity a reply carries: the short form, and with detail. */
 const ACTIVITY_SHORT = { task: 300, reply: 500, tools: 3, summary: 100 }
 const ACTIVITY_DETAIL = { task: 2000, reply: 3000, tools: 10, summary: 200 }
+
+/**
+ * A safeguard note as an agent's activity gives it (#606): when its CLI's safety classifier last stopped a response, on
+ * which model, how many times this launch, the names of its last tool calls before it, the model it runs on since (when
+ * that changed), and whether it waits on the CLI's prompt about it or is idle after it.
+ */
+function safeguardActivity(n: SafeguardNote) {
+  return {
+    ...(n.stops ? { stoppedAt: n.at, stops: n.stops, ...(n.model ? { model: n.model } : {}), toolsBefore: n.tools } : {}),
+    ...(n.switched ? { switchedTo: n.switched.to, switchedFrom: n.switched.from, switchedAt: n.switched.at } : {}),
+    ...(n.prompt ? { waitingOnPrompt: true } : {}),
+    ...(n.idle ? { idleAfterStop: true } : {})
+  }
+}
 
 /** What an agent is doing: its status, the task it was last given, its latest reply, its recent tool calls, its locked files. */
 async function agentActivity(p: string, agentId: string, detail = false) {
@@ -1087,13 +1122,14 @@ async function agentActivity(p: string, agentId: string, detail = false) {
   }
   const folder = a.worktree?.path ?? p
   const typed = sessions.userTypedAt(p, agentId)
+  const provider = st?.provider ?? agentProvider(a, info.config, config.settings)
   // What was left for it (#530, #647): unread and overdue, and its latest deliveries with their states and times.
   const inbox = await deliveryView(p, agentId, detail ? 20 : 5)
   return {
     project: info.name,
     agent: a.name,
     id: a.id,
-    provider: st?.provider ?? agentProvider(a, info.config, config.settings),
+    provider,
     status: st?.status ?? 'stopped',
     statusMessage: statusMessageOf(st),
     ...(watchingOf(st) ? { watching: watchingOf(st) } : {}),
@@ -1115,6 +1151,8 @@ async function agentActivity(p: string, agentId: string, detail = false) {
     toolCalls,
     recentTools,
     ...(Object.keys(clipped).length ? { clipped } : {}),
+    // Its CLI's safety classifier stopped a response or its model changed after one (#606): only names, never content.
+    ...(st?.safeguard ? { safeguard: safeguardActivity(st.safeguard) } : providerDescriptor(provider).safeguardHelp === null ? { safeguard: 'not detected' } : {}),
     lockedFiles: sessions.locksFor(p, agentId).map((f) => placeRelative(folder, f) || f),
     userTypedSecondsAgo: typed ? Math.round((Date.now() - typed) / 1000) : null,
     ...(inbox.deliveries.length ? { inbox } : {})
@@ -1180,7 +1218,7 @@ route('POST', '/v1/agents/wait', async ({ body }) => {
     if ('already' in r) return { already: r.already }
     return { watching: r.watching.label, limitAt: r.watching.limitAt, ...(r.replaced ? { replaced: r.replaced } : {}) }
   }
-  const limit = Math.min(AGENT_WAIT_MAX_SECONDS, Math.max(5, Number(body?.timeoutSeconds) || 300)) * 1000
+  const limit = Math.min(waitMaxSeconds('agents'), Math.max(5, Number(body?.timeoutSeconds) || 300)) * 1000
   const t0 = Date.now()
   const working = (): boolean => targets.some((t) => agentBusy(agentNowFor(t.p, t.id), !throughBackground))
   while (working() && Date.now() - t0 < limit) await new Promise((r) => setTimeout(r, 1000))
@@ -1749,7 +1787,7 @@ const WAITS_PER_CALLER = 2
 /**
  * Waiting on cards (#128). `wake: true`: the calling agent (or the Assistant) registers a watch and ends its turn; Hive
  * types one line into it when a watched card changes (main/watches.ts). `cancel: true`: ends its watch. Otherwise the
- * call waits itself, up to WAIT_MAX_SECONDS, for a change since `since` (or since the call), driven by the board's
+ * call waits itself, up to its longest (Settings → Advanced, #367), for a change since `since` (or since the call), driven by the board's
  * change events (no polling). A project agent waits only on its own project's cards.
  */
 route('POST', '/v1/tasks/wait', async ({ body }) => {
@@ -1801,8 +1839,10 @@ route('POST', '/v1/tasks/wait', async ({ body }) => {
     return { watching: r.watching.label, limitAt: r.watching.limitAt }
   }
   const seconds = body?.timeoutSeconds === undefined ? 300 : Number(body.timeoutSeconds)
-  if (!Number.isFinite(seconds) || seconds < 1) throw new HttpError(400, `timeoutSeconds must be from 1 to ${WAIT_MAX_SECONDS}`)
-  const limitMs = Math.min(WAIT_MAX_SECONDS, seconds) * 1000
+  // The longest is Settings → Advanced's (#367), under Codex's timeout for hive's tools.
+  const maxSeconds = waitMaxSeconds('cards')
+  if (!Number.isFinite(seconds) || seconds < 1) throw new HttpError(400, `timeoutSeconds must be from 1 to ${maxSeconds}`)
+  const limitMs = Math.min(maxSeconds, seconds) * 1000
   let base: Map<number, CardMark> | null = null
   let sinceAt = Date.now()
   if (body?.since !== undefined) {

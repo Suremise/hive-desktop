@@ -5,6 +5,9 @@ import { CODEX } from '../../../shared/codex'
 import { isSessionId } from '../../../shared/defaults'
 import { firstLine, shortPath, toolLabel, type NewItem } from '../conversation'
 import type { ConversationParserLike, ImageLocation, LiveDetails } from '../types'
+import { advanced } from '../../advanced'
+import { countSafeguards } from '../../../shared/safeguards'
+import { codexSafeguards } from './safeguards'
 
 /**
  * Codex's rollout files (~/.codex/sessions/YYYY/MM/DD/rollout-<time>-<id>.jsonl): one JSON record per
@@ -48,11 +51,14 @@ export function rolloutPlanUsage(rateLimits: Record<string, any> | null | undefi
   const limits: PlanLimit[] = []
   for (const key of ['primary', 'secondary'] as const) {
     const w = rateLimits[key]
-    if (!w || typeof w.used_percent !== 'number') continue
-    const minutes = typeof w.window_minutes === 'number' ? w.window_minutes : null
+    // The field names are advanced settings (#367).
+    const used = w?.[advanced.get<string>('codex.rateLimits.usedPercent')]
+    if (!w || typeof used !== 'number') continue
+    const window = w[advanced.get<string>('codex.rateLimits.windowMinutes')]
+    const minutes = typeof window === 'number' ? window : null
     const label = minutes === 300 ? '5-hour' : minutes === 10080 ? 'weekly' : minutes ? `${Math.round(minutes / 60)}-hour` : key
     const resets = typeof w.resets_at === 'number' ? new Date(w.resets_at * 1000).toISOString() : typeof w.resets_in_seconds === 'number' ? new Date(Date.parse(now) + w.resets_in_seconds * 1000).toISOString() : null
-    limits.push({ id: minutes ? `w${minutes}` : key, label, windowMinutes: minutes, usedPercent: Math.max(0, Math.min(100, w.used_percent)), resetsAt: resets })
+    limits.push({ id: minutes ? `w${minutes}` : key, label, windowMinutes: minutes, usedPercent: Math.max(0, Math.min(100, used)), resetsAt: resets })
   }
   if (!limits.length) return null
   return { provider: CODEX, plan: typeof rateLimits.plan_type === 'string' ? rateLimits.plan_type : null, limits, updatedAt: now }
@@ -104,7 +110,8 @@ export function signInRefused(error: unknown): string | null {
     const refused = info === 'unauthorized' || (typeof info === 'object' && Object.values(info).some((v) => (v as { http_status_code?: unknown } | null)?.http_status_code === 401))
     return refused ? message || 'Codex isn’t signed in.' : null
   }
-  return /^unexpected status 401 Unauthorized\b|access token could not be refreshed|refresh token (?:has expired|was already used|was revoked)/i.test(message) ? message : null
+  // An advanced setting (#367).
+  return advanced.pattern('codex.signIn.expired').test(message) ? message : null
 }
 
 /** Session details from appended rollout lines: model, effort, plan mode, preset, plan limits, a refused sign-in and the latest turn's end. */
@@ -130,7 +137,7 @@ export function rolloutDetails(text: string): LiveDetails {
       }
     }
     if (r.type === 'event_msg' && p.type === 'token_count') {
-      const u = rolloutPlanUsage(p.rate_limits, r.timestamp ?? new Date().toISOString())
+      const u = rolloutPlanUsage(p[advanced.get<string>('codex.rateLimits.field')], r.timestamp ?? new Date().toISOString())
       if (u) out.planUsage = u
     } else if (r.type === 'event_msg' && p.type === 'thread_settings_applied') {
       const ts = p.thread_settings ?? {}
@@ -163,6 +170,9 @@ export class CodexUsageParser {
   private timeline = new TimelineBuilder()
   /** The last running totals seen, to count each day's increase. */
   private last: UsageTokens = { inputTokens: 0, outputTokens: 0, cacheWriteTokens: 0, cacheReadTokens: 0 }
+  /** Safeguard stops by the model they stopped (#606), and the detection's own memo. */
+  private safeguards: Record<string, number> = {}
+  private safeguardMemo: Record<string, unknown> = {}
 
   constructor(sessionId: string) {
     this.usage = {
@@ -198,6 +208,7 @@ export class CodexUsageParser {
   /** Reads whole lines of the rollout (the next part of it). */
   feed(text: string): void {
     const usage = this.usage
+    countSafeguards(this.safeguards, codexSafeguards(text, this.safeguardMemo))
     for (const line of text.split('\n')) {
       const r = parseLine(line)
       if (!r) continue
@@ -271,7 +282,7 @@ export class CodexUsageParser {
   result(title: string | null = null): SessionUsage {
     const days: Record<string, DayUsage> = {}
     for (const [k, d] of Object.entries(this.days)) days[k] = { ...d }
-    return { ...this.usage, title, customTitle: title, compactions: this.usage.compactions.map((c) => ({ ...c })), days, timeline: this.timeline.timeline() }
+    return { ...this.usage, title, customTitle: title, compactions: this.usage.compactions.map((c) => ({ ...c })), days, timeline: this.timeline.timeline(), ...(Object.keys(this.safeguards).length ? { safeguards: { ...this.safeguards } } : {}) }
   }
 }
 

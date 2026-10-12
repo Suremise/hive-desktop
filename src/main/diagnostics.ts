@@ -19,6 +19,7 @@ import { inWorkspace } from './workspace'
 import { trackingLost, trackingProblem } from './agentProcesses'
 import { diagnosticRecording } from '../shared/consoleFixtures.mts'
 import { latestRecording, readRecordingText } from './consoleRecorder'
+import { advanced } from './advanced'
 
 /** How much of Hive's log a report carries. */
 const LOG_LINES = 50
@@ -129,7 +130,9 @@ export async function diagnostics(opts: { recording?: boolean } = {}): Promise<s
     `- Agent API: ${s.agentApi.enabled ? 'on' : 'off'}; built-in hive MCP server: ${s.agentApi.provideHiveMcp ? 'on' : 'off'}; session input: ${s.agentApi.allowSessionInput ? 'allowed' : 'off'}`,
     `- Assistant control: ${typeof s.assistant.control === 'string' ? s.assistant.control : 'custom'}`,
     `- Notifications: ${s.notifications.desktopNotifications ? 'on' : 'off'}; while Hive is focused: ${{ inApp: 'in Hive', nothing: 'nothing', windows: 'Windows notifications' }[s.notifications.whileFocused]}${s.notifications.whileFocused === 'inApp' ? ` (banners for ${{ all: 'all workspaces', workspace: 'this workspace', project: 'this project' }[s.notifications.bannerScope]}, ${s.notifications.bannerPosition}, ${s.notifications.bannerSeconds} s; waiting banners ${s.notifications.waitingBannerStays ? 'stay' : 'close too'})` : ''}; chime ${s.notifications.chimeEnabled ? 'on' : 'off'}`,
-    `- Theme: ${s.appearance.theme}`
+    `- Theme: ${s.appearance.theme}`,
+    // Overrides of Hive's defaults (#367): how many and which, by Hive's names; never their values.
+    ...advanced.diagnostics(windows.map((w) => (w.ws.path ? (w.ws.config.advanced ?? null) : null)))
   ].join('\n')
 
   // The log goes back further than what is open now: earlier workspaces and their projects are taken out too.

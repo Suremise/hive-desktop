@@ -4,7 +4,7 @@
  * series of the report, and their totals. Pure, so both entries share it and tests can check it. A project scope's
  * report holds only that project's part: nothing here can widen it.
  */
-import { LATENCY_BOUNDS_MS, emptyTimed, mergeTimed, percentile, type ApiSeries, type CatalogSeries, type GuidanceSeries, type McpSeries, type MetricsPart, type MetricsQuery, type MetricsReport, type MetricsScope, type ProviderUsageSummary, type Timed } from './metrics'
+import { LATENCY_BOUNDS_MS, emptyTimed, mergeTimed, percentile, type ApiSeries, type CatalogSeries, type GuidanceSeries, type McpSeries, type MetricsPart, type MetricsQuery, type MetricsReport, type MetricsScope, type ProviderUsageSummary, type SafeguardCount, type Timed } from './metrics'
 
 export type PerfRange = '24h' | '7d' | '30d'
 export const PERF_RANGES: { value: PerfRange; label: string; ms: number }[] = [
@@ -85,6 +85,8 @@ export interface PerfSelection {
   guidance: GuidanceSeries[]
   catalog: CatalogSeries[]
   providers: ProviderUsageSummary[]
+  /** Safeguard stops per agent and model (#606), by provider and role as the providers' usage is. */
+  safeguards: SafeguardCount[]
 }
 
 /** The series the filters keep. Provider applies where there is one (launches, provider usage); role everywhere it is known. */
@@ -96,7 +98,8 @@ export function select(r: MetricsReport, f: PerfFilters): PerfSelection {
     guidance: parts.flatMap((p) => p.guidance).filter((s) => roleOk(f.role, s.role) && (!f.provider || s.provider === f.provider)),
     catalog: parts.flatMap((p) => p.catalog).filter((s) => roleOk(f.role, s.role)),
     // Provider usage is per provider and whose sessions (agents' or the Assistant's); scripts have none.
-    providers: r.providers.filter((p) => (!f.provider || p.provider === f.provider) && (f.role === 'all' || p.role === f.role))
+    providers: r.providers.filter((p) => (!f.provider || p.provider === f.provider) && (f.role === 'all' || p.role === f.role)),
+    safeguards: (r.safeguards ?? []).filter((g) => (!f.provider || g.provider === f.provider) && (f.role === 'all' || g.role === f.role))
   }
 }
 

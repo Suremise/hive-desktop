@@ -29,6 +29,7 @@ import { config } from './config'
 import { closeConsoleWindows, sendToConsoles } from './consoleWindow'
 import { archiveOldDone, endReviews } from './tasks'
 import { emit, emitTo, onHiveEvent, toast } from './events'
+import { advanced, bindAdvancedSettings, mcpAdvancedEnv } from './advanced'
 import { recordLiveCards } from './cardSessions'
 import { registerIpc } from './ipc'
 import { watchRenderer } from './rendererWatch'
@@ -696,6 +697,10 @@ const ALLOWED_PERMISSIONS = new Set(['clipboard-read', 'clipboard-sanitized-writ
 
 app.whenReady().then(async () => {
   config.load()
+  // Advanced settings (#367): advanced.json's overrides, followed as it changes.
+  advanced.load()
+  // Show developer features is one of them too, kept under its settings key: the file and the setting stay one value.
+  bindAdvancedSettings(config)
   session.defaultSession.setPermissionRequestHandler((_wc, permission, done) => done(ALLOWED_PERMISSIONS.has(permission)))
   session.defaultSession.setPermissionCheckHandler((_wc, permission) => ALLOWED_PERMISSIONS.has(permission))
   protocol.handle('hive-img', async (req) => {
@@ -751,6 +756,7 @@ app.whenReady().then(async () => {
           HIVE_ASSISTANT_SETTINGS: config.settings.assistant?.changeSettings === true ? '1' : '0',
           // The developer console's tool (hive_console) is offered only while Settings → Agent API lets agents read it.
           HIVE_DEV_CONSOLE: config.settings.agentApi.devConsole === true ? '1' : '0',
+          ...mcpAdvancedEnv(),
           ...testMcpLog()
         }
       }
@@ -774,6 +780,8 @@ app.whenReady().then(async () => {
         // Whether its instructions tell it to run long commands through hive-progress unasked.
         HIVE_PROGRESS_COMMANDS: wrapsLongCommands(config.settings.general) ? '1' : '0',
         HIVE_DEV_CONSOLE: s.devConsole === true ? '1' : '0',
+        // Its reply timeout and wait caps (#367: Settings → Advanced).
+        ...mcpAdvancedEnv(),
         ...testMcpLog()
       }
     }
@@ -898,6 +906,8 @@ app.whenReady().then(async () => {
     if (e.type === 'session-status' || e.type === 'session-exit') checkPendingQuit()
     // A window opened or closed its workspace: remember it for the next start.
     if (e.type === 'workspace-changed') saveWindowsSoon()
+    // A CLI's installed version: what a CLI-facing advanced override is made for, and flagged against (#367).
+    if (e.type === 'provider-install' && !e.info.checking) advanced.noteCli(e.provider, e.info.found ? (e.info.version ?? null) : null)
     // A card moved to Doing (or was given to a running agent): its session records it.
     if (e.type === 'tasks-changed') void recordLiveCards(e.workspacePath, sessions.liveStates())
     // A reviewer whose session ended isn't reviewing any more: its cards stop showing it.
@@ -933,6 +943,7 @@ app.on('will-quit', () => {
   killAll()
   closeProcessTracking()
   unwatchAll()
+  advanced.stop()
   destroyTray()
 })
 

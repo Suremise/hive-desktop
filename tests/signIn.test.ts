@@ -80,7 +80,7 @@ describe('Codex: a refused sign-in', () => {
 })
 
 describe('status rules: needs sign-in', () => {
-  const input = (status: SessionStatus): HookStatusInput => ({ status, askedAtStart: false, compacting: null, backgroundWakes: false, tasks: 0, attention: 'hooks', reviewed: false, titleAsks: false, open: [], waitingOn: null, question: false, reviewing: false })
+  const input = (status: SessionStatus): HookStatusInput => ({ status, askedAtStart: false, compacting: null, backgroundWakes: false, tasks: 0, attention: 'hooks', reviewed: false, titleAsks: false, open: [], waitingOn: null, question: false, reviewing: false, safeguardPrompt: false })
 
   it('ends the turn as needs sign-in, told once per CLI (not as finished), its locks released', () => {
     const step = hookStep({ kind: 'signIn', message: 'Login expired · Please run /login' }, input('working'))

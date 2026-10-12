@@ -12,17 +12,25 @@ import { claudeFileAllowed, contentHash, ContentTooLarge, copyMissing, copySkill
 import { createLogger, userText } from '../../logger'
 import { EDITOR_EXTENSION_PATH, EDITOR_ROOTS, compareVersions, hookForwardCommand, hookIds, readFirstLine, run, runsThroughCmd, taskArgs, toSpawnable } from '../common'
 import type { StartHint } from '../../../shared/startFailure'
-import type { BackgroundTaskEvent, CatalogRead, CommandSpec, ExternalSession, LaunchContext, LiveDetails, LockDecision, NormalizedHook, ProviderAdapter, SkillDelivery, SkillRoots } from '../types'
+import type { Ask, BackgroundTaskEvent, CatalogRead, CommandSpec, ExternalSession, LaunchContext, LiveDetails, LockDecision, NormalizedHook, ProviderAdapter, SkillDelivery, SkillRoots } from '../types'
 import { autoCompactOf, settingsScopes } from './autoCompact'
 import { mergeLaunchSettings, userSettings, withoutSettingsArgs } from './launchSettings'
 import { claudeBackgroundTasks } from './background'
+import { claudeSafeguards } from './safeguards'
+import type { SafeguardEvent } from '../../../shared/safeguards'
 import { ConversationParser, claudeImageData } from './conversation'
 import { readClaudeModels } from './models'
 import { ClaudeUsageParser, encodeProjectPath, parseTranscript, transcriptSubSession } from './usage'
+import { advanced } from '../../advanced'
 
 const log = createLogger('claude-code')
 /** Transcripts whose sub-agent check is remembered (by path and mtime). */
 const SUB_CACHE = 2000
+/**
+ * How many of the screen's last written lines a safeguard prompt is looked for in: its dialog is drawn last, at the
+ * bottom, its choices within about a dozen lines of the end (more when a narrow pane wraps their descriptions).
+ */
+const SAFEGUARD_PROMPT_LINES = 24
 /** A ~/.claude/projects folder name that may hold an 8.3 short name: `~1` is encoded `-1`. */
 const MAY_BE_SHORT = /-\d+(-|$)/
 /** How much of a transcript is read for the cwd it records (its first lines carry none). */
@@ -56,7 +64,8 @@ export function claudeTurnScreen(screen: string): 'idle' | 'working' | null {
   const status = lines.slice(0, input).findLastIndex((l) => /^[✻✶✳✢✽·*]\s+\S/.test(l))
   if (status < 0) return null
   if (lines.slice(status).some((l) => /esc to interrupt/i.test(l))) return 'working'
-  if (/\bfor (?:\d+[hms]\s*)+· done \d{1,2}:\d{2}\b/.test(lines[status])) return 'idle'
+  // Its past tense (an advanced setting, #685).
+  if (advanced.pattern('claude-code.turnScreen.done').test(lines[status])) return 'idle'
   return /^\S+\s+\S+…/.test(lines[status]) ? 'working' : null
 }
 
@@ -94,20 +103,23 @@ async function headCwd(path: string): Promise<string | null> {
   }
 }
 
-/** Subscription limits from Claude Code's status line (rate_limits.five_hour / seven_day); null for API-key accounts. */
+/**
+ * Subscription limits from Claude Code's status line (rate_limits.five_hour / seven_day); null for API-key accounts. The
+ * field names are advanced settings (#367).
+ */
 export function parseClaudePlanUsage(payload: Record<string, unknown>, now = new Date()): PlanUsage | null {
-  const rl = payload.rate_limits as Record<string, unknown> | undefined
+  const rl = payload[advanced.get<string>('claude-code.statusLine.rateLimits')] as Record<string, unknown> | undefined
   if (!rl || typeof rl !== 'object') return null
   const limits: PlanLimit[] = []
   const add = (raw: unknown, id: string, label: string, windowMinutes: number): void => {
     if (!raw || typeof raw !== 'object') return
     const r = raw as Record<string, unknown>
-    const pct = Number(r.used_percentage)
+    const pct = Number(r[advanced.get<string>('claude-code.statusLine.usedPercent')])
     if (!Number.isFinite(pct)) return
     limits.push({ id, label, windowMinutes, usedPercent: Math.max(0, Math.min(100, pct)), resetsAt: toIso(r.resets_at) })
   }
-  add(rl.five_hour, 'five_hour', '5-hour', 300)
-  add(rl.seven_day, 'seven_day', 'weekly', 10080)
+  add(rl[advanced.get<string>('claude-code.statusLine.fiveHour')], 'five_hour', '5-hour', 300)
+  add(rl[advanced.get<string>('claude-code.statusLine.weekly')], 'seven_day', 'weekly', 10080)
   return limits.length ? { provider: CLAUDE_CODE, plan: null, limits, updatedAt: now.toISOString() } : null
 }
 
@@ -124,8 +136,11 @@ export class ClaudeCodeAdapter implements ProviderAdapter {
   /** If Hive itself was started from inside a Claude Code session, don't leak that session's identity. User configuration such as CLAUDE_CODE_GIT_BASH_PATH is kept. */
   readonly envToStrip = ['CLAUDECODE', 'CLAUDE_PID', 'CLAUDE_AGENT_SDK_VERSION', 'CLAUDE_CODE_ENTRYPOINT', 'CLAUDE_CODE_CHILD_SESSION', 'CLAUDE_CODE_SESSION_ID', 'CLAUDE_CODE_SESSION_ATTENDED', 'CLAUDE_CODE_MESSAGING_SOCKET', 'CLAUDE_CODE_MESSAGING_TOKEN', 'CLAUDE_CODE_SSE_PORT', 'CLAUDE_CODE_ENABLE_SDK_FILE_CHECKPOINTING', 'MCP_CONNECTION_NONBLOCKING']
   readonly compactFailure = /not enough messages to compact|error during compaction|compaction failed/i
-  // Before a folder's first session: "Is this a project you created or one you trust? … trust this folder".
-  readonly startupQuestion = /trust this folder/i
+  // Before a folder's first session: "Is this a project you created or one you trust? … trust this folder" (#367: an
+  // advanced setting, so a changed question can be fixed without a release).
+  get startupQuestion(): RegExp {
+    return advanced.pattern('claude-code.trust.prompt')
+  }
 
   private async candidates(): Promise<{ path: string; source: string }[]> {
     const out: { path: string; source: string }[] = []
@@ -332,10 +347,12 @@ export class ClaudeCodeAdapter implements ProviderAdapter {
     // launch's private folder, outside the project (#345).
     await writeJsonAtomic(join(ctx.privateDir, 'mcp.json'), { mcpServers: ctx.mcpServers })
 
+    // Their timeouts are advanced settings (#367).
+    const timeout = advanced.number('claude-code.hooks.timeoutSeconds')
     const hook = {
       type: 'http',
       url: ctx.hookUrl,
-      timeout: 5,
+      timeout,
       headers: { Authorization: 'Bearer $HIVE_HOOK_TOKEN' },
       allowedEnvVars: ['HIVE_HOOK_TOKEN']
     }
@@ -343,18 +360,18 @@ export class ClaudeCodeAdapter implements ProviderAdapter {
     for (const ev of HOOK_EVENTS) {
       // SessionStart only supports command hooks (not http), so it forwards its JSON with curl.
       if (ev === 'SessionStart') {
-        hooks[ev] = [{ hooks: [{ type: 'command', command: hookForwardCommand(ctx.hookUrl, ctx.hookAuthFile), timeout: 5 }] }]
+        hooks[ev] = [{ hooks: [{ type: 'command', command: hookForwardCommand(ctx.hookUrl, ctx.hookAuthFile, timeout), timeout }] }]
         continue
       }
       // Every tool's start and end, so the turn ledger sees each call begin (#648: a tool after a turn's Stop carries it on,
       // a tool end with no start since is late news). PreToolUse answers an edit with a lock decision, so it gets a longer
       // timeout; if Hive doesn't answer, the edit goes ahead. Any other tool is answered at once.
-      if (ev === 'PreToolUse') hooks[ev] = [{ matcher: '*', hooks: [{ ...hook, timeout: 10 }] }]
+      if (ev === 'PreToolUse') hooks[ev] = [{ matcher: '*', hooks: [{ ...hook, timeout: advanced.number('claude-code.hooks.preToolUseTimeoutSeconds') }] }]
       else hooks[ev] = [ev === 'PostToolUse' ? { matcher: '*', hooks: [hook] } : { hooks: [hook] }]
     }
     // The status line forwards Claude Code's status JSON (model, effort, cost, plan limits) to Hive and
     // prints nothing, so no line is added to the terminal.
-    const statusLine = { type: 'command', command: hookForwardCommand(`${ctx.hookUrl}&statusline`, ctx.hookAuthFile), padding: 0 }
+    const statusLine = { type: 'command', command: hookForwardCommand(`${ctx.hookUrl}&statusline`, ctx.hookAuthFile, timeout), padding: 0 }
     // The user's --settings merged in: Hive passes only this file (#330).
     await writeJsonAtomic(join(ctx.privateDir, 'settings.json'), mergeLaunchSettings({ hooks, statusLine }, theirs, { url: ctx.hookUrl, envVar: 'HIVE_HOOK_TOKEN' }))
     await writeJsonAtomic(join(dir, 'sync.json'), { launchedAt: new Date().toISOString(), hashes })
@@ -405,6 +422,23 @@ export class ClaudeCodeAdapter implements ProviderAdapter {
 
   backgroundTasks(appended: string): BackgroundTaskEvent[] {
     return claudeBackgroundTasks(appended)
+  }
+
+  safeguards(appended: string, memo: Record<string, unknown>): SafeguardEvent[] {
+    return claudeSafeguards(appended, memo)
+  }
+
+  /**
+   * Claude Code's prompt after a safeguard stop (whether to switch models, a question it puts through its permission
+   * check) is a Notification with no tool named (a tool's permission prompt says "…permission to use Bash"). Its open
+   * dialog is told on the screen, in the lines written last, by the advanced setting claude-code.safeguard.prompt (its
+   * numbered choices), never by the words "safeguards" or "safety classifier" in other text.
+   */
+  safeguardAsk(ask: Ask, screen: string): boolean {
+    if (/\bto use\b/i.test(ask.message)) return false
+    // The lines written last: on a screen cleared for the prompt it is at the top, with blank rows below.
+    const bottom = screen.trimEnd().split('\n').slice(-SAFEGUARD_PROMPT_LINES).join('\n')
+    return advanced.pattern('claude-code.safeguard.prompt').test(bottom)
   }
 
   startHint(text: string): StartHint | null {
@@ -480,7 +514,7 @@ export class ClaudeCodeAdapter implements ProviderAdapter {
         // invalid key ("Login expired · Please run /login", 2.1.291). Any other error (a rate limit, the server) ends
         // the turn as Stop does, with the CLI's message, marked failed: it doesn't show the sign-in works.
         const message = typeof body.last_assistant_message === 'string' ? body.last_assistant_message : null
-        out.event = body.error === 'authentication_failed' ? { kind: 'signIn', message } : { kind: 'stop', lastMessage: message, failed: true }
+        out.event = body.error === advanced.get<string>('claude-code.signIn.stopError') ? { kind: 'signIn', message } : { kind: 'stop', lastMessage: message, failed: true }
         break
       }
       case 'PreCompact':
