@@ -130,39 +130,44 @@ function locked<T>(store: Store, fn: () => Promise<T>): Promise<T> {
 }
 
 /**
- * A transaction (see the top): `plan` changes a copy of what is published (synchronously); a copy it changed is saved and
- * then published. `verify`, asked once the save is done, says whether what was planned still holds; if not, it is planned
- * again from what is published (which nothing else changed meanwhile: the host's lock is held) and saved again, up to
- * MAX_PLANS times. A plan that throws changes nothing; a save that fails throws NotSaved and publishes nothing.
+ * A transaction (see the top): `plan` changes a copy of what is published (synchronously). A copy it changed is written
+ * to a file of its own beside the deliveries file (`prepare`, the slow part); then `verify` says whether what was planned
+ * still holds now; only then is that file renamed over the deliveries file (`commit`: atomic, the one moment it becomes
+ * what Hive restores) and the copy published. A draft that `verify` rejects is never committed: its file is removed and it
+ * is planned again from what is published (which nothing else changed meanwhile: the host's lock is held), up to
+ * MAX_PLANS times. A plan that throws, or a write or rename that fails, leaves the deliveries file and what is published as
+ * they were (NotSaved for a failed save): there is nothing to undo.
  */
 function transact<T>(store: Store, plan: (d: Draft) => T, verify?: (d: Draft, planned: T) => boolean): Promise<T> {
   return locked(store, async () => {
-    let saved = false
     for (let n = 1; ; n++) {
       const d: Draft = { records: [...store.records], next: store.next, invalid: [...store.invalid], dirty: false, after: [] }
-      let planned: T
+      const planned = plan(d)
+      if (!d.dirty) {
+        if (verify && n < MAX_PLANS && !verify(d, planned)) continue
+        return planned
+      }
+      let tmp: string
       try {
-        planned = plan(d)
+        tmp = await prepare(store, d)
       } catch (e) {
-        // Planned again after a save and refused now: what is on disk goes back to what is published.
-        if (saved) await write(store, { records: [...store.records], next: store.next, invalid: [...store.invalid], dirty: true, after: [] }).catch((err) => log.warn('restoring deliveries', err))
-        throw e
+        throw new NotSaved(`Hive couldn't save the deliveries (${(e as Error).message}): nothing changed.`, { cause: e })
       }
-      if (d.dirty) {
-        try {
-          await write(store, d)
-          saved = true
-        } catch (e) {
-          throw new NotSaved(`Hive couldn't save the deliveries (${(e as Error).message}): nothing changed.`, { cause: e })
-        }
+      // Checked at the effect: after the slow write, right before it is committed (and the body returned, the ack
+      // recorded, the line typed). Rejected: never committed, planned again.
+      if (verify && n < MAX_PLANS && !verify(d, planned)) {
+        await rm(tmp, { force: true }).catch(() => undefined)
+        continue
       }
-      if (verify && n < MAX_PLANS && !verify(d, planned)) continue
-      if (d.dirty) {
-        store.records = d.records
-        store.next = d.next
-        store.invalid = d.invalid
-        for (const f of d.after) f()
+      try {
+        await commit(store, tmp)
+      } catch (e) {
+        throw new NotSaved(`Hive couldn't save the deliveries (${(e as Error).message}): nothing changed.`, { cause: e })
       }
+      store.records = d.records
+      store.next = d.next
+      store.invalid = d.invalid
+      for (const f of d.after) f()
       return planned
     }
   })
@@ -262,8 +267,11 @@ export const setBeforeSaveForTests = (fn: (() => Promise<void> | void) | null): 
   beforeSave = fn
 }
 
-/** Writes a draft to the host's file (atomic: a temp file, then a rename). */
-async function write(store: Store, d: Draft): Promise<void> {
+/**
+ * Writes a draft to a temp file beside the host's deliveries file, for `commit`; its path. Nothing restores it: the loader
+ * reads only the deliveries file. Removed if it fails.
+ */
+async function prepare(store: Store, d: Draft): Promise<string> {
   await beforeSave?.()
   prune(d)
   const file = fileOf(store.host)
@@ -280,7 +288,24 @@ async function write(store: Store, d: Draft): Promise<void> {
   const tmp = `${file}.${process.pid}-${randomBytes(4).toString('hex')}.tmp`
   try {
     await writeFile(tmp, text, 'utf8')
-    await renameRetrying(tmp, file, 20, undefined, rename)
+  } catch (e) {
+    await rm(tmp, { force: true }).catch(() => undefined)
+    throw e
+  }
+  return tmp
+}
+
+/** For tests: run before each commit (to fail it). */
+let beforeCommit: (() => Promise<void> | void) | null = null
+export const setBeforeCommitForTests = (fn: (() => Promise<void> | void) | null): void => {
+  beforeCommit = fn
+}
+
+/** Makes a prepared draft the host's deliveries file: one atomic rename. Its temp file is removed if that fails. */
+async function commit(store: Store, tmp: string): Promise<void> {
+  try {
+    await beforeCommit?.()
+    await renameRetrying(tmp, fileOf(store.host), 20, undefined, rename)
   } catch (e) {
     await rm(tmp, { force: true }).catch(() => undefined)
     throw e
@@ -328,6 +353,13 @@ function set(d: Draft, r: DeliveryRecord, to: DeliveryState, detail?: string, vi
 
 const byId = (records: readonly DeliveryRecord[], id: string): DeliveryRecord | undefined => records.find((r) => r.id === id)
 
+/** The time expiry is measured against (Date.now; a test's own clock). */
+let clock = (): number => Date.now()
+/** For tests: the clock expiry is measured against (null: Date.now). */
+export const setClockForTests = (fn: (() => number) | null): void => {
+  clock = fn ?? (() => Date.now())
+}
+
 /** Why this sender may no longer send what it left (null: it may). Asked at every step: before it is offered, before each piece and Enter. */
 let senderRefusal = (from: DeliverySender): string | null => {
   if (from.kind !== 'assistant') return null
@@ -344,7 +376,7 @@ export const setSenderCheckForTests = (fn: (from: DeliverySender) => string | nu
 function whyNot(store: Store, r: DeliveryRecord): { to: 'refused' | 'expired'; why: string } | null {
   const why = senderRefusal(r.from)
   if (why) return { to: 'refused', why }
-  if (Date.parse(r.expires) <= Date.now()) return { to: 'expired', why: 'not received in time' }
+  if (Date.parse(r.expires) <= clock()) return { to: 'expired', why: 'not received in time' }
   const live = sessions.liveFor(store.host, r.agentId)
   if (r.conversation && live?.sessionId && live.sessionId !== r.conversation) return { to: 'expired', why: 'its agent is in another conversation now' }
   return null
@@ -544,7 +576,7 @@ function offerHolds(store: Store, o: Offer, records: readonly DeliveryRecord[] =
   if (!live || live.runId !== o.runId || (o.sessionId && live.sessionId && live.sessionId !== o.sessionId)) return false
   return o.ids.every((id) => {
     const r = byId(records, id)
-    return r?.state === 'offered' && r.offerRun === o.runId && !senderRefusal(r.from) && Date.parse(r.expires) > Date.now() && !(r.conversation && live.sessionId && live.sessionId !== r.conversation)
+    return r?.state === 'offered' && r.offerRun === o.runId && !senderRefusal(r.from) && Date.parse(r.expires) > clock() && !(r.conversation && live.sessionId && live.sessionId !== r.conversation)
   })
 }
 
@@ -564,21 +596,26 @@ function unoffer(store: Store, o: Offer): Promise<void> {
     .catch((e) => log.warn('putting deliveries back', e))
 }
 
-/** The line they were in was cleared before its CLI took it (#530): their sender may no longer send them, so refused. */
+/**
+ * The line they were in won't be submitted by Hive (#530: the confirmation found the offer no longer holds before its
+ * Enter again, and cleared the line or left the user's draft): each still offered by it ends as what is true now, refused
+ * (its sender may no longer send it) or expired (too old, its agent in another conversation); one that would still hold
+ * for another line (its agent started again) is put back to wait.
+ */
 function withdrawn(store: Store, o: Offer): void {
-  transactSoon(store, 'refusing deliveries', (d) => {
+  transactSoon(store, 'withdrawing deliveries', (d) => {
     for (const id of o.ids) {
       const r = byId(d.records, id)
-      if (r?.state === 'offered' && r.offerRun === o.runId) set(d, r, 'refused', senderRefusal(r.from) ?? 'its sender may no longer send it')
+      if (r?.state !== 'offered' || r.offerRun !== o.runId) continue
+      const no = whyNot(store, r)
+      if (no) set(d, r, no.to, no.why)
+      else {
+        const was = o.was.get(id)
+        if (was) put(d, r, was)
+      }
     }
   })
 }
-
-/** Whether an offer's deliveries may still all be sent (the confirmation's check before Enter again). */
-const allowedAll = (store: Store, o: Offer): boolean => o.ids.every((id) => {
-  const r = byId(store.records, id)
-  return !!r && !senderRefusal(r.from)
-})
 
 /**
  * What rides a wake typed into the agent (watches.onWakeRider), first in its line: its deliveries waiting that may still be
@@ -625,7 +662,8 @@ function riderFor(projectPath: string, agentId: string, wakeLine: string): Rider
     notTaken: () => {
       if (offer) void unoffer(store, offer)
     },
-    allowed: () => !!offer && allowedAll(store, offer),
+    // Before the confirmation's Enter again: the same check as before each key of the line.
+    allowed: () => !!offer && offerHolds(store, offer),
     withdrawn: () => {
       if (offer) withdrawn(store, offer)
     }
@@ -681,7 +719,8 @@ async function offerOnce(host: string, agentId: string): Promise<void> {
   try {
     typed = await typeLine(host, agentId, o.line, () => offerHolds(store, o) && o.ids.every((id) => store.offering.has(id)), {
       rider: false,
-      ride: { still: () => allowedAll(store, o), withdrawn: () => withdrawn(store, o), instead: null }
+      // Before the confirmation's Enter again: the same check as before each key of the line.
+      ride: { still: () => offerHolds(store, o), withdrawn: () => withdrawn(store, o), instead: null }
     })
   } finally {
     for (const id of o.ids) store.offering.delete(id)

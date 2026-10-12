@@ -4,7 +4,7 @@
 // with their ids; bounded; each kept to its sender's permission (refused, never typed, once it is gone); cancelled by the
 // user or the Assistant; kept across the agent's stops; the reply says what became of it. The sessions are stand-ins here
 // (the e2e agentmessage and deliveries suites run fake Claude Code agents).
-import { rmSync } from 'fs'
+import { readFileSync, rmSync } from 'fs'
 import { join } from 'path'
 import { afterAll, beforeEach, describe, expect, it, vi } from 'vitest'
 import * as electron from 'electron'
@@ -394,6 +394,99 @@ describe('messages left for agents (#530, #647)', async () => {
     } finally {
       release()
       deliveries.setBeforeSaveForTests(null)
+    }
+  })
+
+  it('a draft rejected at its check is never what Hive restores: its check fails, the next save fails too, Hive restarts (inbox and ack)', async () => {
+    for (const how of ['inbox', 'ack'] as const) {
+      alpha = join(base, `alpha-rejected-${how}`)
+      why = null
+      st.status = 'working'
+      await leave('Rejected draft.')
+      // The first save (received, or acked) is held while the Assistant's launch ends; the second (its refusal) fails.
+      let release = (): void => undefined
+      const held = new Promise<void>((r) => (release = r))
+      let saves = 0
+      deliveries.setBeforeSaveForTests(async () => {
+        saves++
+        if (saves === 1) await held
+        else throw new Error('EIO: i/o error')
+      })
+      try {
+        const call = how === 'inbox' ? deliveries.readInbox(alpha, 'b1') : deliveries.ackDeliveries(alpha, 'b1', ['m1'])
+        await vi.waitFor(() => expect(saves).toBe(1), { timeout: HUNG_MS })
+        why = "the Assistant's session that left it ended"
+        release()
+        await expect(call).rejects.toThrow(/couldn't save the deliveries \(EIO/)
+      } finally {
+        release()
+        deliveries.setBeforeSaveForTests(null)
+      }
+      // What Hive restores is what was committed: queued, never received or acked (and no body went out).
+      expect(JSON.parse(readFileSync(join(alpha, '.hive', 'deliveries.json'), 'utf8')).deliveries.map((r: { id: string; state: string }) => `${r.id} ${r.state}`)).toEqual(['m1 queued'])
+      await deliveries.forgetDeliveriesForTests()
+      expect(await states()).toEqual(["m1 refused: the Assistant's session that left it ended"])
+    }
+  })
+
+  it("the confirmation's Enter again checks what the first keys did: expired (also once a check has published it), another conversation: no Enter, ended honestly", async () => {
+    const cli = { count: 0, enters: 0, clears: 0 }
+    const before = { ...sessions } as Record<string, unknown>
+    Object.assign(sessions, {
+      promptsTaken: () => ({ runId: 'r1', count: cli.count }),
+      holdForConfirm: () => () => undefined,
+      lineNotTaken: () => undefined,
+      submitAgain: () => {
+        cli.enters++
+        cli.count++
+        return true
+      },
+      clearTyped: () => {
+        cli.clears++
+        return true
+      },
+      sendPrompt: async (_p: string, _id: string, text: string, guard?: () => void) => {
+        guard?.()
+        st.typed.push(text)
+        st.status = 'finished'
+      }
+    })
+    let t = Date.now()
+    deliveries.setClockForTests(() => t)
+    watches.testHooks.takeMs = 100
+    try {
+      // Typed, its first Enter lost; then past its expiry: no Enter again; the line is cleared; expired.
+      st.status = 'ready'
+      expect((await messages.leaveMessage(alpha, 'b1', 'HR2', asst, 'Expires before the retry.')).fate).toBe('typed')
+      t += 25 * 60 * 60_000
+      await vi.waitFor(() => expect(cli.clears).toBe(1), { timeout: HUNG_MS })
+      await vi.waitFor(async () => expect(await states()).toEqual(['m1 expired: not received in time']), { timeout: HUNG_MS })
+      expect(cli.enters).toBe(0)
+      await vi.waitFor(() => expect(watches.confirmsInFlight()).toBe(0), { timeout: HUNG_MS })
+      // The same once a check (the agent's inbox) has published it expired first.
+      t = Date.now()
+      st.status = 'ready'
+      expect((await leave('Expired by a check first.')).fate).toBe('typed')
+      t += 25 * 60 * 60_000
+      expect(await deliveries.readInbox(alpha, 'b1')).toEqual({ items: [], unacked: [] })
+      expect((await states()).at(-1)).toBe('m2 expired: not received in time')
+      await vi.waitFor(() => expect(cli.clears).toBe(2), { timeout: HUNG_MS })
+      expect(cli.enters).toBe(0)
+      await vi.waitFor(() => expect(watches.confirmsInFlight()).toBe(0), { timeout: HUNG_MS })
+      // The agent in another conversation before the retry: no Enter again; expired.
+      t = Date.now()
+      st.status = 'ready'
+      expect((await leave('For this conversation.')).fate).toBe('typed')
+      st.sessionId = 's2'
+      await vi.waitFor(() => expect(cli.clears).toBe(3), { timeout: HUNG_MS })
+      await vi.waitFor(async () => expect((await states()).at(-1)).toBe('m3 expired: its agent is in another conversation now'), { timeout: HUNG_MS })
+      expect(cli.enters).toBe(0)
+    } finally {
+      deliveries.setClockForTests(null)
+      watches.testHooks.takeMs = undefined
+      for (const k of ['promptsTaken', 'holdForConfirm', 'lineNotTaken', 'submitAgain', 'clearTyped']) delete (sessions as unknown as Record<string, unknown>)[k]
+      Object.assign(sessions, { sendPrompt: before.sendPrompt, promptsTaken: () => null })
+      await vi.waitFor(() => expect(watches.confirmsInFlight()).toBe(0), { timeout: HUNG_MS })
     }
   })
 
