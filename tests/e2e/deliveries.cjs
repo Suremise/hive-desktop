@@ -3,9 +3,10 @@
 // queued and saved in the project's .hive/deliveries.json, its pane shows "✉ 1 unread"; the agent fetches it mid-turn with
 // hive_inbox (received, so it isn't typed after) and acks it (acked); one typed into it is received when its CLI takes the
 // line; one not acked in time shows as overdue; hive_agent_activity gives each one's state and times, so the Assistant
-// sees them. Then Hive restarts: the Assistant's message still waiting is refused (its launch has ended, #645) and shown
-// in the Assistant's activity list; a card event Hive saved (as Messaging 3's board events will be) is restored, offered
-// to the agent once it is resumed, received and acked. Dev build, throwaway profile, workspace and CLAUDE_CONFIG_DIR.
+// sees them. A stop of the agent keeps what waits for it; once the Assistant's launch ends, its message still waiting is
+// refused (#645) and shown in the Assistant's activity list. Then Hive restarts: what was refused stays so; a card event
+// Hive saved (as Messaging 3's board events will be) is restored, offered to the agent once it is resumed, received and
+// acked (the restore itself, offered → uncertain and a refusal at load, is in tests/deliveries.test.ts). Dev build, throwaway profile, workspace and CLAUDE_CONFIG_DIR.
 const lib = require('./lib.cjs')
 const { _electron } = require('playwright-core')
 const { execFileSync } = require('child_process')
@@ -150,17 +151,21 @@ async function start() {
   await say(builder.id, 'hive hive_inbox {"ack":["m2"]}')
   check('acked, it is no longer overdue', !!(await until(async () => delivery('m2')?.state === 'acked' && !(await paneText()), HUNG_MS)), JSON.stringify(delivery('m2')))
 
-  // --- 4. Hive restarts with a message waiting: the Assistant's launch has ended, so it is refused, and shown.
+  // --- 4. The Assistant's launch ends with a message waiting: refused, and shown (#645); it stays so across a restart.
   await until(() => idle(builder.id), HUNG_MS)
   await say(builder.id, 'holduntil deliveries-go3')
   await until(async () => (await live(alpha, builder.id))?.status === 'working', HUNG_MS)
-  check('a message is queued before the restart', tool('hive_message_agent', { project: 'alpha', agent: 'Builder', text: 'From the launch that ends.' }).text.startsWith('Queued for Builder (m3, working)'))
-  // Stopped while it still works (nothing is offered to a stopped agent), then Hive quits.
+  check('a message is queued for the working builder', tool('hive_message_agent', { project: 'alpha', agent: 'Builder', text: 'From the launch that ends.' }).text.startsWith('Queued for Builder (m3, working)'))
+  // The builder stopped while it still works: a stop keeps what waits for it (nothing is offered to a stopped agent).
   await inv('session:stop', alpha)
+  await until(async () => !(await live(alpha, builder.id)), HUNG_MS)
+  check('…a stop of the builder keeps it waiting, saved', saved().find((d) => d.id === 'm3')?.state === 'queued', JSON.stringify(saved().find((d) => d.id === 'm3')))
+  // The Assistant stops: the launch that left it has ended.
   await inv('session:stop', home)
+  check("once the Assistant's launch has ended, its waiting message is refused", !!(await until(() => saved().find((d) => d.id === 'm3')?.state === 'refused', HUNG_MS)) && saved().find((d) => d.id === 'm3')?.detail === "the Assistant's session that left it ended", JSON.stringify(saved().find((d) => d.id === 'm3')))
+  check("…and the refusal is in the Assistant's activity list", !!(await until(async () => (await inv('assistant:actions')).some((a) => a.text === 'A message for Builder (m3) was refused' && a.error === "the Assistant's session that left it ended"), HUNG_MS)), JSON.stringify((await inv('assistant:actions')).slice(-3)))
   await until(async () => (await inv('session:live')).length === 0, HUNG_MS)
   await app.close()
-  check('…and is still waiting, saved, as Hive stops (a stop keeps it)', saved().find((d) => d.id === 'm3')?.state === 'queued', JSON.stringify(saved().find((d) => d.id === 'm3')))
   // A card event Hive saved for the builder (as Messaging 3's board events will be): it survives the restart.
   const data = JSON.parse(fs.readFileSync(file, 'utf8'))
   data.deliveries.push({ id: `m${data.next}`, seq: data.next, agentId: builder.id, agentName: 'Builder', conversation: sessionId, kind: 'card-event', from: { kind: 'hive', name: 'Hive' }, card: 7, body: 'is back in Review, round 2', state: 'queued', created: new Date().toISOString(), expires: new Date(Date.now() + 3600_000).toISOString() })
@@ -170,8 +175,7 @@ async function start() {
 
   ;({ app, page, inv, live } = await start())
   await page.getByText('alpha', { exact: true }).first().click()
-  check("after the restart, the Assistant's waiting message is refused: its launch has ended", !!(await until(() => saved().find((d) => d.id === 'm3')?.state === 'refused', HUNG_MS)) && saved().find((d) => d.id === 'm3')?.detail === "the Assistant's session that left it ended", JSON.stringify(saved().find((d) => d.id === 'm3')))
-  check("…and the refusal is in the Assistant's activity list", !!(await until(async () => (await inv('assistant:actions')).some((a) => a.text === 'A message for Builder (m3) was refused' && a.error === "the Assistant's session that left it ended"), HUNG_MS)), JSON.stringify((await inv('assistant:actions')).slice(-3)))
+  check('after the restart, the refused message stays refused', saved().find((d) => d.id === 'm3')?.state === 'refused', JSON.stringify(saved().find((d) => d.id === 'm3')))
   check('…and the card event is restored, waiting', saved().find((d) => d.id === eventId)?.state === 'queued')
   await inv('session:start', alpha, { agentId: builder.id, resumeId: sessionId })
   check('the builder is resumed in the same conversation', !!(await until(async () => (await idle(builder.id)) && (await live(alpha, builder.id))?.sessionId === sessionId, HUNG_MS)))
