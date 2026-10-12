@@ -56,15 +56,34 @@ const git = (cwd, ...a) => lib.git(cwd, a)
   await inv('session:start', alpha, { agentId: two.id })
   check('the agent starts in its worktree', !!(await until(async () => (await live(two.id))?.status === 'ready', 15000)))
 
-  /** A prompt to the agent, and the end of its turn. */
+  const key = lib.ptyKey(alpha, two.id)
+  const screen = async () => lib.plainText(await inv('pty:buffer', key).catch(() => ''))
+  // What the agent and Hive's branch check say, for a failed check's log line.
+  const state = async () => {
+    const s = await live(two.id)
+    const b = (await inv('agents:branchStatuses')).find((x) => x.agentId === two.id)?.status
+    return `status ${s?.status} since ${s?.statusSince}; branch ahead ${b?.ahead} dirty ${b?.dirty}; terminal …${(await screen()).slice(-160)}`
+  }
+
+  /**
+   * A prompt to the agent, and the end of its turn, each step checked (#662): the fake echoes the prompt as it takes it
+   * ("> turn n"), prints "Done: turn n" as the turn ends, and Hive marks it finished once the Stop arrives: that turn's
+   * finished (since the prompt), not the last turn's still showing.
+   */
   let turns = 0
   const turn = async () => {
-    turns++
-    await inv('pty:write', lib.ptyKey(alpha, two.id), `turn ${turns}`)
-    await lib.sleep(300)
-    await inv('pty:write', lib.ptyKey(alpha, two.id), '\r')
-    await until(async () => String(await inv('pty:buffer', lib.ptyKey(alpha, two.id))).includes(`Done: turn ${turns}`), 15000)
-    await until(async () => (await live(two.id))?.status === 'finished', 15000)
+    const text = `turn ${++turns}`
+    const asked = Date.now()
+    const taken = await lib.sendPrompt(inv, key, text, { submitted: async () => (await screen()).includes(`> ${text}`) })
+    const ended = taken && (await lib.until(async () => (await screen()).includes(`Done: ${text}`), HUNG_MS))
+    const finished =
+      ended &&
+      (await lib.until(async () => {
+        const s = await live(two.id)
+        return s?.status === 'finished' && Date.parse(s.statusSince ?? '') >= asked
+      }, HUNG_MS))
+    check(`${text}: the agent takes it and finishes`, !!finished, `${!taken ? 'not taken' : !ended ? 'no Done' : 'not finished'}: ${await state()}`)
+    if (taken > 1) console.log(`  (${text} was taken on attempt ${taken})`)
   }
   const merge = page.locator('.pane-header-bar').getByRole('button', { name: 'Merge…' })
   // Read in one step, '' when it's gone: a badge going away between a count() and an innerText() left innerText()
@@ -82,7 +101,7 @@ const git = (cwd, ...a) => lib.git(cwd, a)
   git(wt, 'add', '-A')
   git(wt, 'commit', '-q', '-m', 'b')
   await turn()
-  check('a commit shows on Merge… once the turn ends', !!(await until(async () => (await count()) === '1', 8000)), await count())
+  check('a commit shows on Merge… once the turn ends', !!(await until(async () => (await count()) === '1', 8000)), `${await count()}; ${await state()}`)
   check('Merge… is highlighted', await highlighted())
   check('and the tab shows ↑1', (await tabBadge()) === '1' && (await page.locator('.agent-tab .agent-unmerged .codicon-arrow-up').count()) === 1, await tabBadge())
   await merge.hover()
@@ -114,7 +133,7 @@ const git = (cwd, ...a) => lib.git(cwd, a)
   git(wt, 'add', '-A')
   git(wt, 'commit', '-q', '-m', 'd')
   await turn()
-  check('new work after a squash merge shows again', !!(await until(async () => (await count()) !== '' && (await highlighted()), 8000)), await count())
+  check('new work after a squash merge shows again', !!(await until(async () => (await count()) !== '' && (await highlighted()), 8000)), `${await count()}; ${await state()}`)
 
   // The Merge dialog: Merge and keeping the worktree are the defaults; Squash offers to move the branch.
   await merge.click()
@@ -137,17 +156,15 @@ const git = (cwd, ...a) => lib.git(cwd, a)
   git(wt, 'add', '-A')
   git(wt, 'commit', '-q', '-m', 'e')
   await turn()
-  check('the next task counts only its own commit', !!(await until(async () => (await count()) === '1', 8000)), await count())
+  check('the next task counts only its own commit', !!(await until(async () => (await count()) === '1', 8000)), `${await count()}; ${await state()}`)
   const next = await inv('agents:merge', alpha, two.id, { squash: false, message: 'Merge Two again', cleanup: false })
   check('and merges cleanly', next.ok && fs.existsSync(path.join(alpha, 'e.ts')), JSON.stringify(next))
   check('the worktree and agent are still there', fs.existsSync(wt) && (await page.locator('.agent-tab', { hasText: 'Two' }).count()) === 1)
 
   // Not while the agent is in the middle of a task: Merge… is disabled (its count still shows), and Hive refuses.
   fs.writeFileSync(path.join(wt, 'f.ts'), 'export const f = 6\n')
-  await inv('pty:write', lib.ptyKey(alpha, two.id), 'work 6')
-  await lib.sleep(300)
-  await inv('pty:write', lib.ptyKey(alpha, two.id), '\r')
-  check('the agent is working', !!(await until(async () => (await live(two.id))?.status === 'working', 8000)))
+  const working = await lib.sendPrompt(inv, key, 'work 6', { submitted: async () => (await live(two.id))?.status === 'working', waitMs: HUNG_MS })
+  check('the agent is working', working > 0, await state())
   check('Merge… is disabled while it works', !!(await until(() => merge.isDisabled(), HUNG_MS)))
   await merge.hover({ force: true })
   check('its tooltip says why', !!(await until(async () => (await page.locator('.tip').filter({ hasText: 'Two is working. Merge once it has finished.' }).count()) > 0, HUNG_MS)))
