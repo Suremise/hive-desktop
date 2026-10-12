@@ -146,6 +146,7 @@ export const commands: Command[] = [
   { id: 'settings.open', label: 'Open Settings', category: 'Preferences', keybinding: 'Mod+,', run: () => setActivity('settings') },
   { id: 'settings.providers', label: 'Choose Coding Agents (Providers)', category: 'Preferences', run: () => { set({ settingsSection: 'providers', settingsQuery: '' }); setActivity('settings') } },
   { id: 'settings.keybindings', label: 'Customise Keyboard Shortcuts', category: 'Preferences', run: () => { set({ settingsSection: 'keybindings', settingsQuery: '' }); setActivity('settings') } },
+  { id: 'settings.advanced', label: 'Advanced Settings', category: 'Preferences', run: () => { set({ settingsSection: 'advanced', settingsQuery: '' }); setActivity('settings') } },
   { id: 'settings.notifications', label: 'Notification Settings', category: 'Preferences', run: () => { set({ settingsSection: 'notifications', settingsQuery: '' }); setActivity('settings') } },
   { id: 'antivirus.show', label: 'Antivirus Scanning of the Workspace', category: 'Preferences', run: () => showAntivirus() },
   { id: 'antivirus.dismiss', label: 'Don’t Suggest Antivirus Exclusions Again', category: 'Preferences', internal: true, run: () => void call('antivirus:dismiss') },

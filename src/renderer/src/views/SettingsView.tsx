@@ -21,6 +21,8 @@ import { KeybindingsEditor } from '../components/Keybindings'
 import { HiddenProjectsList } from '../components/ProjectRemoval'
 import { WorkspaceStorageList } from '../components/Storage'
 import { AntivirusPanel } from '../components/Antivirus'
+import { AdvancedSettings } from '../components/AdvancedSettings'
+import { ADVANCED_DEFS, groupName, type AdvancedState } from '@shared/advanced'
 import { choose, confirm, get, notify, set, useStore } from '../store'
 import { cx, timeAgo } from '../util'
 
@@ -60,6 +62,7 @@ const CONTROLS: Record<string, () => React.ReactNode> = {
       <Icon name="output" /> Open logs
     </button>
   ),
+  'advanced.values': () => <AdvancedValues />,
   'advanced.data': () => <DataFolder />,
   'advanced.reset': () => <ResetAll />
 }
@@ -823,6 +826,20 @@ function ViewerTokens() {
   )
 }
 
+/** Settings → Advanced's list (#367), filtered by Settings' own search and Modified only too. */
+function AdvancedValues() {
+  const query = useStore((s) => s.settingsQuery)
+  const modifiedOnly = useStore((s) => s.settingsModifiedOnly)
+  return <AdvancedSettings query={query} modifiedOnly={modifiedOnly} />
+}
+
+/** Whether Settings' search, or Modified only, finds something in Advanced's list (its values aren't rows of their own). */
+function advancedMatches(q: string, modifiedOnly: boolean, advanced: AdvancedState | null): boolean {
+  const words = q.split(/\s+/).filter(Boolean)
+  const hits = (text: string): boolean => words.every((w) => text.toLowerCase().includes(w))
+  return ADVANCED_DEFS.some((d) => (!modifiedOnly || advanced?.values[d.id] !== undefined || advanced?.workspace?.[d.id] !== undefined) && hits(`${d.id} ${d.setting ?? ''} ${groupName(d.group)} ${d.title} ${d.desc}`))
+}
+
 function DataFolder() {
   const info = useStore((s) => s.appInfo)
   const path = info ? `${info.userData}\\config.json` : ''
@@ -846,9 +863,13 @@ function ResetAll() {
     <button
       className="btn danger"
       onClick={async () => {
-        if (!(await confirm({ title: 'Reset all settings?', message: 'Every setting on this page returns to its default.', confirmLabel: 'Reset', danger: true }))) return
-        set({ settings: await call('settings:reset') })
-        notify('success', 'Settings reset')
+        if (!(await confirm({ title: 'Reset all settings?', message: "Every setting in Settings returns to its default, the advanced settings in advanced.json too. A workspace's own advanced values are kept.", confirmLabel: 'Reset', danger: true }))) return
+        try {
+          set({ settings: await call('settings:reset') })
+          notify('success', 'Settings reset')
+        } catch (e) {
+          notify('error', 'Could not reset the settings', errorMessage(e))
+        }
       }}
     >
       Reset
@@ -860,18 +881,23 @@ export function SettingsView() {
   const settings = useStore((s) => s.settings)
   const section = useStore((s) => s.settingsSection) as Section
   const query = useStore((s) => s.settingsQuery)
-  const [modifiedOnly, setModifiedOnly] = useState(false)
+  const modifiedOnly = useStore((s) => s.settingsModifiedOnly)
+  const setModifiedOnly = (v: boolean): void => set({ settingsModifiedOnly: v })
+  // Modified only lasts while Settings is shown, as it did.
+  useEffect(() => () => set({ settingsModifiedOnly: false }), [])
   const loops = useStore((s) => s.workspace?.config.loops)
+  const advanced = useStore((s) => s.advanced)
 
   const visible = useMemo(() => {
     const q = query.trim().toLowerCase()
     return SETTINGS.filter((d) => {
+      if (d.id === 'advanced.values' && (q || modifiedOnly)) return advancedMatches(q, modifiedOnly, advanced)
       if (q && !`${d.title} ${d.desc} ${d.tip} ${d.key}`.toLowerCase().includes(q)) return false
       if (modifiedOnly && (d.type === 'custom' || getValue(settings!, d, loops) === defaultValue(d))) return false
       if (!q && !modifiedOnly && d.section !== section) return false
       return true
     })
-  }, [query, section, settings, modifiedOnly, loops])
+  }, [query, section, settings, modifiedOnly, loops, advanced])
 
   if (!settings) return null
   const grouped = SECTIONS.map((s) => ({ ...s, items: visible.filter((d) => d.section === s.id) })).filter((g) => g.items.length)

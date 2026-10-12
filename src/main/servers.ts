@@ -28,7 +28,8 @@ import { emit, onHiveEvent, toast } from './events'
 import { cancelWatch, encodeSince, registerAgentWatch, registerLaneWatch, registerWatch, scopedCard } from './watches'
 import { readLaneCondition } from '../shared/laneWatch'
 import { agentBusy, AGENT_WATCH_MAX_AGENTS, type AgentNow, type WatchedAgent } from '../shared/agentWatch'
-import { alreadyThere, cardChange, changesBetween, decodeSince, markOf, movedIntoSince, readCondition, AGENT_WAIT_MAX_SECONDS, WAIT_MAX_SECONDS, WATCH_DEFAULT_LIMIT_MINUTES, WATCH_MAX_LIMIT_MINUTES, type CardChange, type CardMark } from '../shared/watch'
+import { alreadyThere, cardChange, changesBetween, decodeSince, markOf, movedIntoSince, readCondition, WATCH_DEFAULT_LIMIT_MINUTES, WATCH_MAX_LIMIT_MINUTES, type CardChange, type CardMark } from '../shared/watch'
+import { waitMaxSeconds } from './advanced'
 import { insideReal, placeMatcher, placeRelative, readCapped, readJson, samePlace, writeJsonAtomic } from './fsutil'
 import { listWorktrees } from './worktrees'
 import { reuseNote } from '../shared/unusedWorktrees'
@@ -1217,7 +1218,7 @@ route('POST', '/v1/agents/wait', async ({ body }) => {
     if ('already' in r) return { already: r.already }
     return { watching: r.watching.label, limitAt: r.watching.limitAt, ...(r.replaced ? { replaced: r.replaced } : {}) }
   }
-  const limit = Math.min(AGENT_WAIT_MAX_SECONDS, Math.max(5, Number(body?.timeoutSeconds) || 300)) * 1000
+  const limit = Math.min(waitMaxSeconds('agents'), Math.max(5, Number(body?.timeoutSeconds) || 300)) * 1000
   const t0 = Date.now()
   const working = (): boolean => targets.some((t) => agentBusy(agentNowFor(t.p, t.id), !throughBackground))
   while (working() && Date.now() - t0 < limit) await new Promise((r) => setTimeout(r, 1000))
@@ -1786,7 +1787,7 @@ const WAITS_PER_CALLER = 2
 /**
  * Waiting on cards (#128). `wake: true`: the calling agent (or the Assistant) registers a watch and ends its turn; Hive
  * types one line into it when a watched card changes (main/watches.ts). `cancel: true`: ends its watch. Otherwise the
- * call waits itself, up to WAIT_MAX_SECONDS, for a change since `since` (or since the call), driven by the board's
+ * call waits itself, up to its longest (Settings → Advanced, #367), for a change since `since` (or since the call), driven by the board's
  * change events (no polling). A project agent waits only on its own project's cards.
  */
 route('POST', '/v1/tasks/wait', async ({ body }) => {
@@ -1838,8 +1839,10 @@ route('POST', '/v1/tasks/wait', async ({ body }) => {
     return { watching: r.watching.label, limitAt: r.watching.limitAt }
   }
   const seconds = body?.timeoutSeconds === undefined ? 300 : Number(body.timeoutSeconds)
-  if (!Number.isFinite(seconds) || seconds < 1) throw new HttpError(400, `timeoutSeconds must be from 1 to ${WAIT_MAX_SECONDS}`)
-  const limitMs = Math.min(WAIT_MAX_SECONDS, seconds) * 1000
+  // The longest is Settings → Advanced's (#367), under Codex's timeout for hive's tools.
+  const maxSeconds = waitMaxSeconds('cards')
+  if (!Number.isFinite(seconds) || seconds < 1) throw new HttpError(400, `timeoutSeconds must be from 1 to ${maxSeconds}`)
+  const limitMs = Math.min(maxSeconds, seconds) * 1000
   let base: Map<number, CardMark> | null = null
   let sinceAt = Date.now()
   if (body?.since !== undefined) {

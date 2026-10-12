@@ -498,6 +498,8 @@ export interface WorkspaceConfig {
   hiddenProjects?: HiddenProject[]
   /** Card loops' rounds and wait in hours when a request doesn't say (#412, Settings → Workspace); absent: 10 and 6. */
   loops?: { rounds?: number; waitHours?: number }
+  /** The workspace's own advanced values (#367: Settings → Advanced, This workspace), for those a workspace can set. */
+  advanced?: Record<string, unknown>
 }
 
 /** A project folder Hive leaves out of the workspace, until it's restored in Settings → Workspace. */
@@ -2055,6 +2057,8 @@ export type HiveEvent =
   | { type: 'toast'; toast: ToastMessage }
   | { type: 'chime'; projectPath: string; silent?: boolean }
   | { type: 'settings-changed'; settings: AppSettings }
+  /** Advanced settings (#367) changed: an override, advanced.json, a workspace's own or an installed CLI's version. */
+  | { type: 'advanced-changed' }
   /** One project's view preference saved (ui:setProjectPref): every window's store follows. */
   | { type: 'ui-pref-changed'; pref: ProjectPref; project: string; value: unknown }
   /** What the tips know changed (ui:changeTips): every window's store follows. */
