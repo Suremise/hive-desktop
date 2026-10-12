@@ -8,7 +8,7 @@ import { tempDir } from './tempDir'
 type Proc = { pid: number; parent?: number; commandLine: string; started: number }
 type Tree = { pid: number; started: number }[]
 const req = createRequire(import.meta.url)
-const { namesFolder, ownedBy, descendantsIn, stillRunning, processes, endExactly, childrenFirst, stopProcessesIn } = req('./e2e/folderProcesses.cjs') as {
+const { namesFolder, ownedBy, descendantsIn, stillRunning, processes, endExactly, childrenFirst, stopProcessesIn, identify, stillSame, endTreeExactly, endChildTree } = req('./e2e/folderProcesses.cjs') as {
   processes: () => Proc[]
   endExactly: (targets: Tree) => number
   childrenFirst: (list: Proc[], targets: Tree) => Tree
@@ -17,6 +17,10 @@ const { namesFolder, ownedBy, descendantsIn, stillRunning, processes, endExactly
   descendantsIn: (list: Proc[], root: number) => Tree
   stillRunning: (list: Proc[], tree: Tree) => number[]
   stopProcessesIn: (folder: string, since?: number, tree?: Tree) => number
+  identify: (pids: number[]) => Tree
+  stillSame: (ids: Tree) => number[]
+  endTreeExactly: (root: { pid: number; started: number }, list?: Proc[]) => number
+  endChildTree: (child: ChildProcess) => number
 }
 const { baseEnv } = req('./e2e/runContext.cjs') as { baseEnv: () => Record<string, string> }
 
@@ -143,6 +147,59 @@ describe("a scenario's leftover processes (#542, #402)", () => {
       expect(stopProcessesIn(own, since)).toBe(0)
     } finally {
       if (parent.exitCode === null && parent.signalCode === null) parent.kill()
+    }
+  }, 60000)
+
+  it("a tree ends only from the root's own identity: a root whose pid names another process by now ends nothing (#603)", () => {
+    // The root as it was when taken (pid 100, started 1000); its pid is now an unrelated process's, with a child of its own.
+    const now = [
+      { pid: 100, parent: 4, started: 9000, commandLine: 'node worker.js' },
+      { pid: 101, parent: 100, started: 9100, commandLine: 'node worker-child.js' }
+    ]
+    expect(endTreeExactly({ pid: 100, started: 1000 }, now)).toBe(0)
+    // Gone, or never given an identity: nothing either.
+    expect(endTreeExactly({ pid: 100, started: 1000 }, [])).toBe(0)
+    expect(endTreeExactly({ pid: 100, started: 0 }, now)).toBe(0)
+  })
+
+  it.runIf(process.platform === 'win32')("ends a root that is still itself and its child, children first; a stale identity of it, or an exited ChildProcess, ends nothing (#603)", async () => {
+    const childPid = join(tmp, 'tree-603.pid')
+    // A parent and the child it starts, the child in a job that ends with its parent (Node's): only ending it first reaches it.
+    const script = `require('fs').writeFileSync(process.argv[1], String(require('child_process').spawn(process.execPath, ['-e', 'setInterval(() => {}, 1000)'], { stdio: 'ignore' }).pid)); setInterval(() => {}, 1000)`
+    const parent = spawn(process.execPath, ['-e', script, childPid], { env: baseEnv(), stdio: 'ignore' })
+    const exited = (c: ChildProcess) => c.exitCode !== null || c.signalCode !== null
+    try {
+      await vi.waitFor(() => expect(existsSync(childPid) && Number(readFileSync(childPid, 'utf8')) > 0).toBe(true), { timeout: 15000, interval: 100 })
+      const [root, child] = identify([parent.pid!, Number(readFileSync(childPid, 'utf8'))])
+      expect(root && child).toBeTruthy()
+      // As if the root had ended and Windows had given its pid to this process, started later: it and its child are left alone.
+      expect(endTreeExactly({ pid: root.pid, started: root.started - 5000 })).toBe(0)
+      expect(stillSame([root, child])).toEqual([root.pid, child.pid])
+      // Its own identity: both ended, the child first (ending the parent first would take the child with it: 1).
+      expect(endTreeExactly(root)).toBe(2)
+      await vi.waitFor(() => expect(exited(parent)).toBe(true), { timeout: 15000, interval: 100 })
+      expect(stillSame([root, child])).toEqual([])
+      // Gone: nothing to end, and no error; an exited ChildProcess is never looked up by its pid.
+      expect(endTreeExactly(root)).toBe(0)
+      expect(endChildTree(parent)).toBe(0)
+    } finally {
+      if (!exited(parent)) parent.kill()
+    }
+  }, 60000)
+
+  it.runIf(process.platform === 'win32')('ends a ChildProcess it holds, with what it started (#603)', async () => {
+    const childPid = join(tmp, 'held-603.pid')
+    const script = `require('fs').writeFileSync(process.argv[1], String(require('child_process').spawn(process.execPath, ['-e', 'setInterval(() => {}, 1000)'], { stdio: 'ignore' }).pid)); setInterval(() => {}, 1000)`
+    const parent = spawn(process.execPath, ['-e', script, childPid], { env: baseEnv(), stdio: 'ignore' })
+    const exited = () => parent.exitCode !== null || parent.signalCode !== null
+    try {
+      await vi.waitFor(() => expect(existsSync(childPid) && Number(readFileSync(childPid, 'utf8')) > 0).toBe(true), { timeout: 15000, interval: 100 })
+      const [child] = identify([Number(readFileSync(childPid, 'utf8'))])
+      expect(endChildTree(parent)).toBe(2)
+      await vi.waitFor(() => expect(exited()).toBe(true), { timeout: 15000, interval: 100 })
+      expect(stillSame([child])).toEqual([])
+    } finally {
+      if (!exited()) parent.kill()
     }
   }, 60000)
 })

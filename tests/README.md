@@ -31,8 +31,10 @@ Anyone who clones the repository must get the same results, on any machine and u
 - **Processes are ended by identity, never by a remembered pid** (#603). Windows gives a pid to a new process soon
   after its last one ends, so `process.kill(pid)` on a pid read earlier can end another run's process (a Vitest worker
   then exits with code 1), and `taskkill /T` follows parent ids that may be stale. Take a process's identity while it is
-  known to be yours (`identify` in `tests/e2e/folderProcesses.cjs`, also on `lib`), check it with `stillSame`, end it
-  with `endExactly`, `endTreeExactly` or `stopProcessesIn`, or kill your own `ChildProcess` through its handle.
+  known to be yours (`identify` in `tests/e2e/folderProcesses.cjs`, also on `lib`), check it with `stillSame`, and end
+  it with `endExactly` or `endTreeExactly` (which take that identity, never a pid: a root that is another process by
+  now ends nothing) or `stopProcessesIn`; a `ChildProcess` you hold and that hasn't exited, with `endChildTree` or its
+  own `kill()`.
   `tests/folderProcesses.test.ts` fails on a `process.kill` of a pid or a `taskkill` in the tests or scripts.
 - **Tests pass under load.** The full suites run beside other runs (up to two heavy runs on a machine by default, the
   e2e runner's test slots, which a full unit run takes too, and focused unit runs beside them). Before calling a test done, run it under that load, not only

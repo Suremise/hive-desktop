@@ -55,7 +55,7 @@ const root = join(here, '..', '..')
 const lib = createRequire(import.meta.url)('./lib.cjs')
 const runContext = createRequire(import.meta.url)('./runContext.cjs')
 const { claimedByRuns, clearDir, evidenceFor, findBoard, finishSuiteDir, freshFolder, recordKept, releaseKept } = createRequire(import.meta.url)('./evidence.cjs')
-const { stopProcessesIn, endTreeExactly } = createRequire(import.meta.url)('./folderProcesses.cjs')
+const { stopProcessesIn, endChildTree } = createRequire(import.meta.url)('./folderProcesses.cjs')
 const { describeExit, windowsCodesIn } = createRequire(import.meta.url)('./windowsExits.cjs')
 
 const args = process.argv.slice(2)
@@ -250,7 +250,7 @@ const run = (name, port) =>
     const timer = setTimeout(() => {
       out += '\nFAIL timed out after 10 minutes: the suite and the processes it started were stopped\n'
       // Each as the process it is now, children first (#603): never taskkill /T, which follows parent ids that may be stale.
-      if (process.platform !== 'win32' || !endTreeExactly(child.pid)) child.kill()
+      if (process.platform !== 'win32' || !endChildTree(child)) child.kill()
     }, 10 * 60_000)
     child.on('exit', (code) => {
       clearTimeout(timer)

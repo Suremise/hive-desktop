@@ -38,7 +38,7 @@ const here = dirname(fileURLToPath(import.meta.url))
 const root = join(here, '..', '..')
 const runContext = createRequire(import.meta.url)('./runContext.cjs')
 // A process tree ended by identity, never taskkill /T on a pid (#603).
-const { endTreeExactly } = createRequire(import.meta.url)('./folderProcesses.cjs')
+const { endChildTree } = createRequire(import.meta.url)('./folderProcesses.cjs')
 
 const argv = process.argv.slice(2)
 const repeat = Math.max(1, Number(argv[argv.indexOf('--repeat') + 1]) || 1)
@@ -214,7 +214,7 @@ async function heavyRound(k, worktrees) {
     let child
     const killed = start({ name: 'killed', cwd: root, script: 'tests/e2e/run.mjs', args, env: { ...env, HIVE_TEST_HEAVY_SLOTS: '1' }, started: (p) => (child = p) })
     const held = await until(() => slots() === 1, 60_000)
-    endTreeExactly(child.pid)
+    endChildTree(child)
     await killed
     const next = await start({ name: 'after a killed run', cwd: root, script: 'tests/e2e/run.mjs', args, env: { ...env, HIVE_TEST_HEAVY_SLOTS: '1' } })
     check("a killed run's slot is taken by the next run without waiting", held && next.code === 0 && !/Waiting for a test slot/.test(next.out), `held ${held}, exit ${next.code}`)
@@ -246,7 +246,7 @@ async function heavyRound(k, worktrees) {
     lined = await until(() => waiting() === 1, 60_000)
     const killedMerge = run(2, 'HB', (p) => (doomed = p))
     lined = lined && (await until(() => waiting() === 2 && existsSync(join(pool, `wait-${doomed.pid}.json`)), 60_000))
-    endTreeExactly(doomed.pid)
+    endChildTree(doomed)
     await killedMerge
     rmSync(join(pool, `slot-${gate.slot}.json`), { force: true })
     const after = await ordinary
