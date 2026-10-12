@@ -14,6 +14,7 @@
 //   N seconds; its task notification then starts a turn by itself, as in Claude Code. "pad N" adds N KB to the
 //   transcript. "context N": the reply's request reports N input tokens, so the session's context is about N. "ask" first asks for permission (a permission_prompt Notification), then carries on by itself.
 //   "holduntil NAME": the turn doesn't end until the test makes a file NAME in its home (CLAUDE_CONFIG_DIR).
+//   "waitfile NAME" as a step ("waitfile go then hive hive_inbox {}"): the steps after it wait for that file.
 //   "shell: <command line>" runs a command in cmd with the session's environment (fake-shell.jsonl records it).
 //   "linger N" leaves N processes running after it ends, as an agent's preview server or tail -f does (#507): each a
 //   detached, hidden node started by a short-lived detached one that has exited by then (linger.cjs; their pids in
@@ -341,6 +342,13 @@ async function runPrompt(text) {
   // Steps joined by "then" run in order ("work N" in a step waits N seconds before the next).
   const steps = text.split(/\s+then\s+/i)
   for (const [i, step] of steps.entries()) {
+    // "waitfile NAME": this step waits until the test makes a file NAME in its home (two minutes at most, in case the
+    // test died), so the next step comes after what the test does meanwhile (a message left for it, #647).
+    const waitFile = /\bwaitfile\s+([\w.-]+)/i.exec(step)
+    if (waitFile) {
+      const go = path.join(process.env.CLAUDE_CONFIG_DIR || '', waitFile[1])
+      for (const end = Date.now() + 120_000; !fs.existsSync(go) && Date.now() < end; ) await sleep(100)
+    }
     for (const m of step.matchAll(/\bskill\s+([a-z0-9][\w-]*)/gi)) readSkill(m[1])
     const move = /\bboardmove\s+(\d+)\s+(\w+)/i.exec(step)
     if (move) await boardPatch(Number(move[1]), { column: move[2].toLowerCase() })

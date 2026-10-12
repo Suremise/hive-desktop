@@ -41,7 +41,8 @@ import { DEFAULT_WAIT_MS, MAX_WAIT_MS, MergeSlotError, slotBranch, slotCards, ty
 import { writePty } from './ptyHost'
 import { sessions } from './sessions'
 import { cardStall } from './cardStall'
-import { cancelMessages, leaveMessage, MESSAGE_MAX_CHARS, messagesOf } from './agentMessages'
+import { cancelMessages, leaveMessage, MESSAGE_MAX_CHARS } from './agentMessages'
+import { ackDeliveries, deliveryView, readInbox } from './deliveries'
 import * as tasks from './tasks'
 import * as taskBatch from './taskBatch'
 import { startTask } from './taskStart'
@@ -457,7 +458,7 @@ function route(method: string, path: string, handler: Handler): void {
 }
 
 /** The Agent API's contract version: goes up when a route or field changes in a way a client would notice. */
-export const API_VERSION = 3
+export const API_VERSION = 4
 
 /** Who Hive takes a request's caller for, and what it may reach (GET /v1/status). */
 async function callerInfo(): Promise<Record<string, unknown>> {
@@ -954,40 +955,64 @@ route('POST', '/v1/projects/:name/agents/:agent/prompt', async ({ params, body }
   })
 })
 
-// A message for a running agent that may not take a prompt now (#530): typed at once when it can be (idle, or watching:
-// its watch carries on), else queued and typed as its next line once it is idle. cancel=true cancels those waiting.
+// A message for a running agent that may not take a prompt now (#530): a delivery (#647) offered at once when it can be
+// (idle, or watching: its watch carries on), else queued and offered as its next line once it is idle; the agent can also
+// fetch it with hive_inbox. cancel=true cancels those waiting.
 route('POST', '/v1/projects/:name/agents/:agent/message', async ({ params, body }) => {
   const p = projectByName(params[0])
   const agentId = await agentParam(p, decodeURIComponent(params[1]))
   const a = await agentDefOf(p, agentId)
   if (body?.cancel === true) {
     return assistantChange<{ cancelled: number }>('agents', `cancel the messages waiting for ${a.name} in ${basename(p)}`, async () => {
-      const n = cancelMessages(p, agentId, 'the Assistant')
+      const n = await cancelMessages(p, agentId, 'the Assistant')
       return { done: n ? `Cancelled ${n === 1 ? 'the message' : `${n} messages`} waiting for ${a.name} in ${basename(p)}` : `No message was waiting for ${a.name} in ${basename(p)}`, result: { cancelled: n } }
     })
   }
   const text = typeof body?.text === 'string' ? body.text.trim() : ''
   if (!text) throw new HttpError(400, 'text is required')
   if (text.length > MESSAGE_MAX_CHARS) throw new HttpError(400, `text is at most ${MESSAGE_MAX_CHARS} characters (this has ${text.length})`)
-  return assistantChange<{ typed: boolean; queued: number; status: string }>('agents', `leave ${a.name} in ${basename(p)} a message`, async (guard) => {
+  const ws = assistantCaller()
+  return assistantChange<{ id: string; typed: boolean; queued: number; status: string }>('agents', `leave ${a.name} in ${basename(p)} a message`, async (guard) => {
     const st = sessions.liveFor(p, agentId)
     if (!st) throw new HttpError(409, `${a.name} isn't running. Start it with the message as its task instead (hive_start_agent with prompt).`)
-    // Its permission goes with it: checked again before it is typed, however long it waits, and before each piece.
-    const allowed = (): string | null => {
-      try {
-        guard()
-        return null
-      } catch (e) {
-        return (e as { status?: number }).status === 403 ? 'the user turned Settings → Assistant → Control down' : "the Assistant's session that left it ended"
-      }
-    }
-    const r = await leaveMessage(p, agentId, a.name, 'the Assistant', text, allowed).catch((e: Error) => {
+    guard()
+    // Its sender saved with it: the Assistant's launch, whose permission is worked out again at every step (#645).
+    const launch = sessions.liveFor(assistant.assistantHome(ws!), ASSISTANT_AGENT_ID)?.runId ?? ''
+    const r = await leaveMessage(p, agentId, a.name, { kind: 'assistant', name: 'the Assistant', workspace: ws!, launch }, text).catch((e: Error) => {
       throw new HttpError(409, e.message)
     })
-    if (r.fate === 'cancelled' || r.fate === 'dropped' || r.fate === 'refused') throw new HttpError(409, `The message wasn't typed into ${a.name}: ${r.fate === 'cancelled' ? `${r.detail ?? 'the user'} cancelled it` : r.fate === 'refused' ? `refused, ${r.detail}` : `dropped, ${r.detail}`}.`)
-    const typed = r.fate === 'delivered'
-    return { done: `${typed ? 'Gave' : 'Left'} ${a.name} in ${basename(p)} a message${typed ? '' : ' (queued)'}`, said: `: ${clip(text.replace(/\s+/g, ' '), 80)}`, result: { typed, queued: r.queued, status: typed ? (sessions.liveFor(p, agentId)?.status ?? 'stopped') : st.status } }
+    if (r.fate === 'cancelled' || r.fate === 'expired' || r.fate === 'refused') throw new HttpError(409, `The message wasn't typed into ${a.name}: ${r.fate === 'cancelled' ? (r.detail ?? 'cancelled') : `${r.fate}, ${r.detail ?? ''}`}.`)
+    const typed = r.fate === 'typed'
+    return { done: `${typed ? 'Gave' : 'Left'} ${a.name} in ${basename(p)} a message (${r.id})${typed ? '' : ' (queued)'}`, said: `: ${clip(text.replace(/\s+/g, ' '), 80)}`, result: { id: r.id, typed, queued: r.queued, status: typed ? (sessions.liveFor(p, agentId)?.status ?? 'stopped') : st.status } }
   })
+})
+
+/** Who is calling hive_inbox: a project agent (its own), or the Assistant (its home's). */
+function inboxOwner(): { host: string; agentId: string } {
+  const me = agentCaller()
+  if (me) return { host: me.projectPath, agentId: me.agentId }
+  if (assistantCaller()) return { host: requireWorkspace().assistantHome, agentId: ASSISTANT_AGENT_ID }
+  throw new HttpError(400, 'Only an agent or the Assistant has an inbox.')
+}
+
+// hive_inbox (#647): the caller's deliveries not received yet (a card's events in one item), now received; with ack, marks
+// those ids acked. An id that isn't the caller's is unknown, like one that doesn't exist.
+route('POST', '/v1/inbox', async ({ body }) => {
+  const { host, agentId } = inboxOwner()
+  if (body?.ack !== undefined) {
+    if (!Array.isArray(body.ack) || !body.ack.length || body.ack.length > 200 || !body.ack.every((x: unknown) => typeof x === 'string' && x.length <= 32)) throw new HttpError(400, 'ack is a list of delivery ids ("m12"), at most 200')
+    return ackDeliveries(host, agentId, (body.ack as string[]).map((x) => x.trim()))
+  }
+  return readInbox(host, agentId)
+})
+
+// An agent's deliveries with their states and times (#647): the newest `limit` (default 20, at most 200).
+route('GET', '/v1/projects/:name/agents/:agent/deliveries', async ({ params, query }) => {
+  const p = projectByName(params[0])
+  ownProjectOnly(p, "Reading an agent's deliveries")
+  const agentId = await agentParam(p, decodeURIComponent(params[1]))
+  const limit = Math.min(200, Math.max(1, Number(query.get('limit')) || 20))
+  return deliveryView(p, agentId, limit, 300)
 })
 
 /** How much of an agent's last task and reply its activity shows without detail (GET …/activity?detail=true for all). */
@@ -1029,8 +1054,8 @@ async function agentActivity(p: string, agentId: string, detail = false) {
   }
   const folder = a.worktree?.path ?? p
   const typed = sessions.userTypedAt(p, agentId)
-  // Messages left for it (#530): those waiting (the start of each), and what became of the last ones.
-  const msgs = messagesOf(p, agentId)
+  // What was left for it (#530, #647): unread and overdue, and its latest deliveries with their states and times.
+  const inbox = await deliveryView(p, agentId, detail ? 20 : 5)
   return {
     project: info.name,
     agent: a.name,
@@ -1057,8 +1082,7 @@ async function agentActivity(p: string, agentId: string, detail = false) {
     ...(Object.keys(clipped).length ? { clipped } : {}),
     lockedFiles: sessions.locksFor(p, agentId).map((f) => placeRelative(folder, f) || f),
     userTypedSecondsAgo: typed ? Math.round((Date.now() - typed) / 1000) : null,
-    ...(msgs.queued.length ? { messagesWaiting: msgs.queued.map((m) => ({ from: m.from, at: m.at, text: clip(m.text.replace(/\s+/g, ' '), 80) })) } : {}),
-    ...(msgs.last ? { lastMessages: msgs.last } : {})
+    ...(inbox.deliveries.length ? { inbox } : {})
   }
 }
 

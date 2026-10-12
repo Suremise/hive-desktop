@@ -52,7 +52,8 @@ export function publicSessionState(s: LiveSessionState): Record<string, unknown>
     reviewing: s.review ? true : undefined,
     signIn: s.signIn && { since: s.signIn.since },
     untakenLine: s.untakenLine && { since: s.untakenLine.since },
-    queuedMessages: s.queuedMessages?.map((m) => ({ from: m.from, at: m.at })),
+    // Its deliveries not received yet (#647): who from, when and their state, not what they say; and how many are overdue.
+    inbox: s.inbox && { unread: s.inbox.unread.map((m) => ({ id: m.id, from: m.from, at: m.at, state: m.state })), overdue: s.inbox.overdue },
     permissionMode: s.permissionMode,
     modeSwitching: s.modeSwitching,
     planMode: s.planMode,

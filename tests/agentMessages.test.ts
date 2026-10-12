@@ -1,102 +1,126 @@
-// Messages left for an agent that can't take a prompt now (#530, main/agentMessages.ts): typed at once when it is idle or
-// watching (its watch carries on, and the line says so), else queued and typed with its next line: first in a wake (a
-// watch's line, a loop wake) when one comes first, else a line of its own once it is idle; several in one line; bounded;
-// each kept to its sender's permission (refused, never typed, once it is gone); cancelled by the user or the Assistant;
-// dropped when its launch ends; the reply says what became of it. The sessions are stand-ins here (the e2e
-// agentmessage suite runs fake Claude Code agents).
+// Messages left for an agent (#530, main/agentMessages.ts), as deliveries (#647, main/deliveries.ts): typed at once when it
+// is idle or watching (its watch carries on, and the line says so), else queued and typed with its next line: first in a
+// wake (a watch's line, a loop wake) when one comes first, else a line of its own once it is idle; several in one line,
+// with their ids; bounded; each kept to its sender's permission (refused, never typed, once it is gone); cancelled by the
+// user or the Assistant; kept across the agent's stops; the reply says what became of it. The sessions are stand-ins here
+// (the e2e agentmessage and deliveries suites run fake Claude Code agents).
 import { rmSync } from 'fs'
 import { join } from 'path'
 import { afterAll, beforeEach, describe, expect, it, vi } from 'vitest'
 import * as electron from 'electron'
+import type { DeliverySender } from '../src/shared/deliveries'
 import { tempDir } from './tempDir'
 // The longest a wait here waits for what it waits on: a bound for a hung run, never how long it should take (#570).
 const HUNG_MS = 10000
 
-describe('messages left for agents (#530)', async () => {
+describe('messages left for agents (#530, #647)', async () => {
   const base = tempDir('hive-messages-')
   ;(electron.app as unknown as { getPath: () => string }).getPath = () => join(base, 'profile')
   afterAll(() => rmSync(base, { recursive: true, force: true }))
   const messages = await import('../src/main/agentMessages')
+  const deliveries = await import('../src/main/deliveries')
   const watches = await import('../src/main/watches')
-  messages.useRiderForTests()
+  deliveries.useRiderForTests()
   const { sessions } = await import('../src/main/sessions')
-  const alpha = join(base, 'alpha')
+  let n = 0
+  let alpha = ''
   /**
-   * Stand-in agents of alpha (b1, and any other id while `running`): b1's status, launch and watch, the queue shown,
+   * Stand-in agents of alpha (b1, and any other id while `running`): b1's status, launch and watch, the inbox shown,
    * whether the user types there, what was typed, and `during`: run while a line is being typed (before its last check).
    */
-  const st = { status: 'working' as string, runId: 'r1', watch: null as null | { label: string }, typing: false, shown: null as unknown[] | null, typed: [] as string[], running: true, during: null as null | (() => void) }
+  const st = { status: 'working' as string, runId: 'r1', sessionId: 's1', watch: null as null | { label: string }, typing: false, shown: undefined as undefined | { unread: { id: string; state: string; text: string }[]; overdue: number }, typed: [] as string[], running: true, during: null as null | (() => unknown) }
   Object.assign(sessions, {
-    liveFor: (p: string, id: string) => (st.running && p.toLowerCase() === alpha.toLowerCase() ? ({ projectPath: alpha, agentId: id, status: st.status, runId: st.runId, ...(st.watch ? { watch: st.watch } : {}) } as never) : null),
+    liveFor: (p: string, id: string) => (st.running && p.toLowerCase() === alpha.toLowerCase() ? ({ projectPath: alpha, agentId: id, status: st.status, runId: st.runId, sessionId: st.sessionId, ...(st.watch ? { watch: st.watch } : {}) } as never) : null),
     userMayBeTyping: () => st.typing,
     lineWaiting: () => false,
     promptsTaken: () => null,
-    setQueuedMessages: (_p: string, id: string, items: unknown[] | null) => {
-      if (id === 'b1') st.shown = items
+    setInbox: (_p: string, id: string, inbox: typeof st.shown) => {
+      if (id === 'b1') st.shown = inbox
     },
     sendPrompt: async (_p: string, _id: string, text: string, guard?: () => void) => {
       guard?.()
-      st.during?.()
+      await st.during?.()
       guard?.()
       st.typed.push(text)
       st.status = 'working'
     }
   })
-  const leave = (text: string, allowed?: () => string | null) => messages.leaveMessage(alpha, 'b1', 'HR2', 'the Assistant', text, allowed)
-  beforeEach(() => {
-    messages.clearMessages()
-    Object.assign(st, { status: 'working', runId: 'r1', watch: null, typing: false, shown: null, typed: [], running: true, during: null })
+  /** Whether the Assistant may still send what it left (null: it may), as Control and its launch would say. */
+  let why: string | null = null
+  deliveries.setSenderCheckForTests((from) => (from.kind === 'assistant' ? why : null))
+  const asst: DeliverySender = { kind: 'assistant', name: 'the Assistant', workspace: 'C:/ws', launch: 'a1' }
+  const leave = (text: string) => messages.leaveMessage(alpha, 'b1', 'HR2', asst, text)
+  const states = async (agentId = 'b1') => (await deliveries.deliveriesOf(alpha, agentId)).map((r) => `${r.id} ${r.state}${r.detail ? `: ${r.detail}` : ''}`)
+  const tryAll = () => deliveries.offerAllForTests()
+  beforeEach(async () => {
+    // Each test its own project, so ids start at m1.
+    alpha = join(base, `alpha${++n}`)
+    why = null
+    Object.assign(st, { status: 'working', runId: 'r1', sessionId: 's1', watch: null, typing: false, shown: undefined, typed: [], running: true, during: null })
   })
 
-  it('the line: one message, several in order, and a watch that carries on', () => {
-    expect(messages.messageLine([{ from: 'the Assistant', text: 'Darren answered #506: resume in the recorded provider.' }], null)).toBe('[Hive] Message from the Assistant: Darren answered #506: resume in the recorded provider.')
-    expect(messages.messageLine([{ from: 'the Assistant', text: 'One.' }, { from: 'the Assistant', text: 'Two.' }], 'Waiting for #506, #509 → Review')).toBe(
-      '[Hive] 2 messages from the Assistant: (1) One. (2) Two. (Your watch is still on, waiting for #506, #509 → Review: do what this asks, then end your turn, and Hive wakes you when it changes.)'
-    )
-  })
-
-  it('a watching agent is typed into at once, and told its watch carries on', async () => {
+  it('a watching agent is typed into at once, with its id, and told its watch carries on', async () => {
     Object.assign(st, { status: 'watching', watch: { label: 'Waiting for #506 → Review' } })
-    expect(await leave('Review #506 when it returns, then #509.')).toEqual({ fate: 'delivered', queued: 0 })
-    expect(st.typed).toEqual(['[Hive] Message from the Assistant: Review #506 when it returns, then #509. (Your watch is still on, waiting for #506 → Review: do what this asks, then end your turn, and Hive wakes you when it changes.)'])
-    expect(st.shown).toBeNull()
-    expect(messages.messagesOf(alpha, 'b1')).toMatchObject({ queued: [], last: { outcome: 'delivered', count: 1 } })
+    expect(await leave('Review #506 when it returns, then #509.')).toEqual({ id: 'm1', fate: 'typed', queued: 0 })
+    expect(st.typed).toEqual(["[Hive] Message from the Assistant: Review #506 when it returns, then #509. (Its id: m1. Once you've acted on it, ack it with hive_inbox.) (Your watch is still on, waiting for #506 → Review: do what this asks, then end your turn, and Hive wakes you when it changes.)"])
+    expect(await states()).toEqual(['m1 offered'])
+    // Offered, not received: the pane still shows it until its CLI takes the line or the agent fetches it.
+    expect(st.shown?.unread.map((m) => `${m.id} ${m.state}`)).toEqual(['m1 offered'])
   })
 
   it('a working agent gets it as its next line once it is idle; several waiting go in one line', async () => {
-    expect(await leave('Add #520 to your lane after #519.')).toEqual({ fate: 'queued', queued: 1 })
-    expect(await leave('And #522.')).toEqual({ fate: 'queued', queued: 2 })
-    await messages.tryMessages()
+    expect(await leave('Add #520 to your lane after #519.')).toEqual({ id: 'm1', fate: 'queued', queued: 1 })
+    expect(await leave('And #522.')).toEqual({ id: 'm2', fate: 'queued', queued: 2 })
+    await tryAll()
     expect(st.typed).toEqual([])
-    expect((st.shown as { text: string }[]).map((m) => m.text)).toEqual(['Add #520 to your lane after #519.', 'And #522.'])
+    expect(st.shown?.unread.map((m) => m.text)).toEqual(['Add #520 to your lane after #519.', 'And #522.'])
     // Waiting for the user, on background tasks, starting: still queued. The user typing there: still queued.
     for (const s of ['waiting', 'background', 'starting']) {
       st.status = s
-      await messages.tryMessages()
+      await tryAll()
     }
     Object.assign(st, { status: 'finished', typing: true })
-    await messages.tryMessages()
+    await tryAll()
     expect(st.typed).toEqual([])
     st.typing = false
-    await messages.tryMessages()
-    expect(st.typed).toEqual(['[Hive] 2 messages from the Assistant: (1) Add #520 to your lane after #519. (2) And #522.'])
-    expect(st.shown).toBeNull()
-    expect(messages.messagesOf(alpha, 'b1')).toMatchObject({ queued: [], last: { outcome: 'delivered', count: 2 } })
-    // Delivered once.
+    await tryAll()
+    expect(st.typed).toEqual(["[Hive] 2 messages from the Assistant: (1) Add #520 to your lane after #519. (2) And #522. (Their ids: m1, m2. Once you've acted on them, ack them with hive_inbox.)"])
+    expect(await states()).toEqual(['m1 offered', 'm2 offered'])
+    // Offered once.
     st.status = 'ready'
-    await messages.tryMessages()
+    await tryAll()
     expect(st.typed).toHaveLength(1)
   })
 
-  it("queued messages ride the agent's next wake, first, once; a change while it is typed stops it, and the next try takes the queue as it is (round 1 finding)", async () => {
+  it('received once its CLI takes the line (its prompt count goes up in the same launch), not before', async () => {
+    const cli = { count: 0 }
+    Object.assign(sessions, { promptsTaken: () => ({ runId: 'r1', count: cli.count }), holdForConfirm: () => () => undefined })
+    watches.testHooks.takeMs = 5000
+    try {
+      st.status = 'ready'
+      expect((await leave('Rebase first.')).fate).toBe('typed')
+      expect(await states()).toEqual(['m1 offered'])
+      cli.count++
+      await vi.waitFor(async () => expect(await states()).toEqual(['m1 received']), { timeout: HUNG_MS })
+      expect((await deliveries.deliveriesOf(alpha, 'b1'))[0].receivedVia).toBe('line')
+      await vi.waitFor(() => expect(st.shown).toBeUndefined(), { timeout: HUNG_MS })
+    } finally {
+      watches.testHooks.takeMs = undefined
+      for (const k of ['holdForConfirm']) delete (sessions as unknown as Record<string, unknown>)[k]
+      Object.assign(sessions, { promptsTaken: () => null })
+      await vi.waitFor(() => expect(watches.confirmsInFlight()).toBe(0), { timeout: HUNG_MS })
+    }
+  })
+
+  it("queued messages ride the agent's next wake, first, once; a change while it is typed stops it, and the next try takes the queue as it is", async () => {
     await leave('Use the revised review scope.')
     // The agent's turn ends and a wake (a loop wake, typed through typeLine) is due before the queue is tried.
     st.status = 'finished'
-    expect(await watches.typeLine(alpha, 'b1', '[Hive] #2 (B1\'s card) is in Review. You review this card in its loop: carry on with it.', () => true)).toBe(true)
-    expect(st.typed).toEqual(["[Hive] Message from the Assistant: Use the revised review scope. [Hive] #2 (B1's card) is in Review. You review this card in its loop: carry on with it."])
-    expect(messages.messagesOf(alpha, 'b1')).toMatchObject({ queued: [], last: { outcome: 'delivered', count: 1 } })
+    expect(await watches.typeLine(alpha, 'b1', "[Hive] #2 (B1's card) is in Review. You review this card in its loop: carry on with it.", () => true)).toBe(true)
+    expect(st.typed).toEqual(["[Hive] Message from the Assistant: Use the revised review scope. (Its id: m1. Once you've acted on it, ack it with hive_inbox.) [Hive] #2 (B1's card) is in Review. You review this card in its loop: carry on with it."])
+    expect(await states()).toEqual(['m1 offered'])
     st.status = 'finished'
-    await messages.tryMessages()
+    await tryAll()
     expect(st.typed).toHaveLength(1)
     // Cancelled while the wake is typed: the wake isn't typed with it; tried again, it goes alone.
     st.status = 'working'
@@ -107,51 +131,60 @@ describe('messages left for agents (#530)', async () => {
     st.during = null
     expect(await watches.typeLine(alpha, 'b1', '[Hive] #3 is in Review.', () => true)).toBe(true)
     expect(st.typed.at(-1)).toBe('[Hive] #3 is in Review.')
-    // A line of a message's own takes no rider.
+    expect((await states()).at(-1)).toBe('m2 cancelled: cancelled by the user')
+    // A wake that isn't typed after all (the agent got busy): what rode it waits again, and goes with the next line.
     st.status = 'working'
-    await leave('Alone.')
+    await leave('Again later.')
+    st.status = 'finished'
+    st.during = () => {
+      st.status = 'working'
+    }
+    expect(await watches.typeLine(alpha, 'b1', '[Hive] #4 is in Review.', () => true)).toBe(false)
+    st.during = null
+    expect((await states()).at(-1)).toBe('m3 queued')
+    // A line of its own takes no rider.
     st.status = 'finished'
     expect(await watches.typeLine(alpha, 'b1', '[Hive] Something else.', () => true, { rider: false })).toBe(true)
     expect(st.typed.at(-1)).toBe('[Hive] Something else.')
-    expect(messages.messagesOf(alpha, 'b1').queued).toHaveLength(1)
+    expect((await states()).at(-1)).toBe('m3 queued')
   })
 
-  it("cancelled while it is being typed: never typed, and the reply says so, not that it was typed (round 1 finding)", async () => {
+  it('cancelled while it is being typed: never typed, and the reply says so, not that it was typed', async () => {
     st.status = 'ready'
     st.during = () => messages.cancelMessages(alpha, 'b1', 'the user')
-    expect(await leave('Stop that.')).toEqual({ fate: 'cancelled', queued: 0, detail: 'the user' })
+    expect(await leave('Stop that.')).toEqual({ id: 'm1', fate: 'cancelled', queued: 0, detail: 'cancelled by the user' })
     expect(st.typed).toEqual([])
   })
 
-  it("kept to its sender's permission: refused, never typed, once it is gone, while queued or while it is typed (round 1 finding)", async () => {
-    let why: string | null = null
-    const allowed = () => why
-    await leave('This delivery requires Control agents.', allowed)
+  it("kept to its sender's permission: refused, never typed, once it is gone, while queued or while it is typed", async () => {
+    await leave('This delivery requires Control agents.')
     why = 'the user turned Settings → Assistant → Control down'
     st.status = 'finished'
-    await messages.tryMessages()
+    await tryAll()
     expect(st.typed).toEqual([])
-    expect(messages.messagesOf(alpha, 'b1')).toMatchObject({ queued: [], last: { outcome: 'refused', count: 1, detail: 'the user turned Settings → Assistant → Control down' } })
+    expect(await states()).toEqual(['m1 refused: the user turned Settings → Assistant → Control down'])
+    // Nor can it be sent while its sender may not.
+    await expect(leave('Refused at once.')).rejects.toThrow(/Not sent: the user turned/)
     // Nor does it ride a wake.
     why = null
     st.status = 'working'
-    await leave('Also gone.', allowed)
+    await leave('Also gone.')
     why = "the Assistant's session that left it ended"
     st.status = 'finished'
     expect(await watches.typeLine(alpha, 'b1', '[Hive] #4 is in Review.', () => true)).toBe(true)
     expect(st.typed).toEqual(['[Hive] #4 is in Review.'])
-    expect(messages.messagesOf(alpha, 'b1').last).toMatchObject({ outcome: 'refused', detail: "the Assistant's session that left it ended" })
+    expect((await states()).at(-1)).toBe("m2 refused: the Assistant's session that left it ended")
     // Revoked while it is being typed at once: stopped before Enter, and refused.
     why = null
     st.status = 'ready'
     st.during = () => {
       why = 'the user turned Settings → Assistant → Control down'
     }
-    expect(await leave('Typed now?', allowed)).toEqual({ fate: 'refused', queued: 0, detail: 'the user turned Settings → Assistant → Control down' })
+    expect(await leave('Typed now?')).toEqual({ id: 'm3', fate: 'refused', queued: 0, detail: 'the user turned Settings → Assistant → Control down' })
     expect(st.typed).toEqual(['[Hive] #4 is in Review.'])
   })
 
-  it("its CLI drops the first Enter and its permission goes before the Enter again: never submitted; the line is cleared and a wake it rode typed alone (round 2 finding)", async () => {
+  it('its CLI drops the first Enter and its permission goes before the Enter again: never submitted; the line is cleared and a wake it rode typed alone', async () => {
     // A CLI that takes nothing typed (as Codex dropped an Enter on 7 Oct), until Hive presses Enter again.
     const cli = { count: 0, enters: 0, clears: 0 }
     const before = { ...sessions } as Record<string, unknown>
@@ -176,102 +209,76 @@ describe('messages left for agents (#530)', async () => {
     })
     watches.testHooks.takeMs = 100
     try {
-      let why: string | null = null
-      const allowed = () => why
       // Its own line: typed, not taken; revoked before the Enter again.
       st.status = 'ready'
-      expect(await leave('Revoked before the retry.', allowed)).toEqual({ fate: 'delivered', queued: 0 })
+      expect(await leave('Revoked before the retry.')).toEqual({ id: 'm1', fate: 'typed', queued: 0 })
       why = 'the user turned Settings → Assistant → Control down'
       await vi.waitFor(() => expect(cli.clears).toBe(1), { timeout: HUNG_MS })
       expect(cli.enters).toBe(0)
-      expect(messages.messagesOf(alpha, 'b1').last).toMatchObject({ outcome: 'refused', detail: 'the user turned Settings → Assistant → Control down' })
+      expect(await states()).toEqual(['m1 refused: the user turned Settings → Assistant → Control down'])
       // Riding a wake: the same, and the wake is typed again alone, and taken.
       why = null
       st.status = 'working'
-      await leave('Riding, revoked before the retry.', allowed)
+      await leave('Riding, revoked before the retry.')
       st.status = 'finished'
       expect(await watches.typeLine(alpha, 'b1', '[Hive] #5 is in Review.', () => true)).toBe(true)
-      expect(st.typed.at(-1)).toBe('[Hive] Message from the Assistant: Riding, revoked before the retry. [Hive] #5 is in Review.')
+      expect(st.typed.at(-1)).toBe("[Hive] Message from the Assistant: Riding, revoked before the retry. (Its id: m2. Once you've acted on it, ack it with hive_inbox.) [Hive] #5 is in Review.")
       why = "the Assistant's session that left it ended"
       await vi.waitFor(() => expect(cli.clears).toBe(2), { timeout: HUNG_MS })
       await vi.waitFor(() => expect(st.typed.at(-1)).toBe('[Hive] #5 is in Review.'), { timeout: 5000 })
       expect(st.typed.filter((t) => t.includes('Riding, revoked'))).toHaveLength(1)
-      expect(messages.messagesOf(alpha, 'b1').last).toMatchObject({ outcome: 'refused', detail: "the Assistant's session that left it ended" })
+      expect((await states()).at(-1)).toBe("m2 refused: the Assistant's session that left it ended")
       // The wake typed again is taken by the Enter again (nothing rides it now): one Enter, for it.
       await vi.waitFor(() => expect(cli.enters).toBe(1), { timeout: HUNG_MS })
-      // Still allowed: the Enter again submits it, as before.
+      // Still allowed: the Enter again submits it, as before, and it is received.
       why = null
       st.status = 'ready'
-      await leave('Still allowed.', allowed)
+      await leave('Still allowed.')
       await vi.waitFor(() => expect(cli.enters).toBe(2), { timeout: HUNG_MS })
+      await vi.waitFor(async () => expect((await states()).at(-1)).toBe('m3 received'), { timeout: HUNG_MS })
       expect(cli.clears).toBe(2)
-
-      // The user typed into the line since (round 3 finding): their draft. No Enter, no clear, not offered for Enter.
-      const marks: string[] = []
-      Object.assign(sessions, { userTypedOverLine: () => true, lineNotTaken: (_p: string, _id: string, _r: string, text: string) => void marks.push(text) })
-      st.status = 'ready'
-      await leave('Drafted over, revoked.', allowed)
-      why = 'the user turned Settings → Assistant → Control down'
-      await vi.waitFor(() => expect(messages.messagesOf(alpha, 'b1').last).toMatchObject({ outcome: 'refused' }), { timeout: HUNG_MS })
-      expect([cli.enters, cli.clears, marks]).toEqual([2, 2, []])
-      // Riding a wake, drafted over: the wake isn't typed over the draft; it comes once the user's prompt is submitted.
-      why = null
-      st.status = 'working'
-      await leave('Riding, drafted over.', allowed)
-      st.status = 'finished'
-      expect(await watches.typeLine(alpha, 'b1', '[Hive] #6 is in Review.', () => true)).toBe(true)
-      const typed = st.typed.length
-      why = "the Assistant's session that left it ended"
-      await vi.waitFor(() => expect(messages.messagesOf(alpha, 'b1').last).toMatchObject({ outcome: 'refused', detail: "the Assistant's session that left it ended" }), { timeout: HUNG_MS })
-      st.status = 'finished'
-      await new Promise((r) => setTimeout(r, 1500)) // A fixed wait on purpose: this checks that the wake is NOT typed over the draft.
-      expect([st.typed.length, cli.enters, cli.clears, marks]).toEqual([typed, 2, 2, []])
-      cli.count++ // the user submits their prompt
-      Object.assign(sessions, { userTypedOverLine: () => false })
-      await vi.waitFor(() => expect(st.typed.at(-1)).toBe('[Hive] #6 is in Review.'), { timeout: 5000 })
     } finally {
       watches.testHooks.takeMs = undefined
-      for (const k of ['promptsTaken', 'holdForConfirm', 'lineNotTaken', 'submitAgain', 'clearTyped', 'userTypedOverLine']) delete (sessions as unknown as Record<string, unknown>)[k]
+      for (const k of ['promptsTaken', 'holdForConfirm', 'lineNotTaken', 'submitAgain', 'clearTyped']) delete (sessions as unknown as Record<string, unknown>)[k]
       Object.assign(sessions, { sendPrompt: before.sendPrompt, promptsTaken: () => null })
+      await vi.waitFor(() => expect(watches.confirmsInFlight()).toBe(0), { timeout: HUNG_MS })
     }
   })
 
-  it('bounded: at most 5 waiting, 4000 characters each, and the latest outcomes of at most 200 agents; refused for an agent not running', async () => {
+  it('bounded: at most 5 waiting, 4000 characters each; refused for an agent not running', async () => {
     for (let i = 0; i < messages.MAX_QUEUED; i++) await leave(`Note ${i}`)
     await expect(leave('One too many')).rejects.toThrow(/already has 5 messages waiting/)
     await expect(leave('x'.repeat(messages.MESSAGE_MAX_CHARS + 1))).rejects.toThrow(/at most 4000 characters/)
-    for (let i = 0; i < messages.MAX_OUTCOMES + 20; i++) {
-      await messages.leaveMessage(alpha, `a${i}`, `A${i}`, 'the Assistant', 'Hello')
-      messages.cancelMessages(alpha, `a${i}`, 'the user')
-    }
-    expect(messages.outcomeCount()).toBe(messages.MAX_OUTCOMES)
-    expect(messages.messagesOf(alpha, 'a0').last).toBeNull()
-    expect(messages.messagesOf(alpha, `a${messages.MAX_OUTCOMES + 19}`).last).toMatchObject({ outcome: 'cancelled' })
+    // Another agent's count is its own.
+    expect((await messages.leaveMessage(alpha, 'b2', 'B2', asst, 'Hello')).fate).toBe('queued')
     st.running = false
     await expect(leave('Hello')).rejects.toThrow(/isn't running/)
   })
 
-  it('cancelled (the user, the Assistant), or dropped when its launch ends: never typed', async () => {
+  it('cancelled by the user or the Assistant: never typed; kept across a stop and offered to its next launch of that conversation, not another', async () => {
     await leave('Hold on.')
-    expect(messages.cancelMessages(alpha, 'b1', 'the user')).toBe(1)
-    expect(st.shown).toBeNull()
-    expect(messages.messagesOf(alpha, 'b1').last).toMatchObject({ outcome: 'cancelled', count: 1, detail: 'the user' })
-    expect(messages.cancelMessages(alpha, 'b1', 'the user')).toBe(0)
+    expect(await messages.cancelMessages(alpha, 'b1', 'the user')).toBe(1)
+    expect(st.shown).toBeUndefined()
+    expect(await states()).toEqual(['m1 cancelled: cancelled by the user'])
+    expect(await messages.cancelMessages(alpha, 'b1', 'the user')).toBe(0)
     st.status = 'ready'
-    await messages.tryMessages()
+    await tryAll()
     expect(st.typed).toEqual([])
-    // A new launch: what waited for the old one is dropped.
+    // Stopped and started again in the same conversation: it waited, and goes in.
     st.status = 'working'
-    await leave('For the old launch.')
-    Object.assign(st, { runId: 'r2', status: 'ready' })
-    await messages.tryMessages()
-    expect(st.typed).toEqual([])
-    expect(messages.messagesOf(alpha, 'b1')).toMatchObject({ queued: [], last: { outcome: 'dropped', detail: 'its session was started again' } })
-    // Stopped.
-    st.status = 'working'
-    await leave('Too late.')
+    await leave('For after the restart.')
     st.running = false
-    await messages.tryMessages()
-    expect(messages.messagesOf(alpha, 'b1')).toMatchObject({ queued: [], last: { outcome: 'dropped', detail: 'it stopped' } })
+    await tryAll()
+    expect((await states()).at(-1)).toBe('m2 queued')
+    Object.assign(st, { running: true, runId: 'r2', status: 'ready' })
+    await tryAll()
+    expect(st.typed.at(-1)).toMatch(/^\[Hive\] Message from the Assistant: For after the restart\./)
+    // Its agent in another conversation now: not for it.
+    st.status = 'working'
+    await leave('For the old conversation.')
+    Object.assign(st, { sessionId: 's2', status: 'ready' })
+    await tryAll()
+    expect(st.typed.filter((t) => t.includes('For the old conversation'))).toEqual([])
+    expect((await states()).at(-1)).toBe('m3 expired: its agent is in another conversation now')
   })
 })

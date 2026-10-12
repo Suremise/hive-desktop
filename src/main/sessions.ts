@@ -23,7 +23,7 @@ import type {
   PermissionMode,
   ProjectConfig,
   ProviderId,
-  QueuedMessage,
+  InboxSummary,
   SessionBulkAction,
   SessionBulkResult,
   Attached,
@@ -571,11 +571,11 @@ class SessionManager {
     this.emitState(l.state)
   }
 
-  /** Shows (or clears) the messages left for an agent that wait to be typed (#530, agentMessages.ts). */
-  setQueuedMessages(projectPath: string, agentId: string, items: QueuedMessage[] | null): void {
+  /** Shows (or clears) an agent's deliveries not received yet and those overdue (#647, deliveries.ts); nothing sent when unchanged. */
+  setInbox(projectPath: string, agentId: string, inbox: InboxSummary | undefined): void {
     const l = this.live.get(liveId(projectPath, agentId))
-    if (!l) return
-    l.state.queuedMessages = items?.length ? items.map((m) => ({ ...m })) : undefined
+    if (!l || JSON.stringify(l.state.inbox) === JSON.stringify(inbox)) return
+    l.state.inbox = inbox ? { unread: inbox.unread.map((m) => ({ ...m })), overdue: inbox.overdue } : undefined
     this.emitState(l.state)
   }
 
