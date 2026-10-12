@@ -1,6 +1,7 @@
 import type { AgentInstallInfo, AutoCompactSetting, CatalogModel, EffortLevel, McpServerDef, MemorySource, PathDataCopy, PermissionMode, PlanUsage, ProviderId, ReadinessIssue, SessionUsage, SubSession, TranscriptImageRef, TranscriptItem } from '../../shared/types'
 import type { ProviderDescriptor } from '../../shared/providers'
 import type { StartHint } from '../../shared/startFailure'
+import type { SafeguardEvent } from '../../shared/safeguards'
 
 export interface LaunchSkill {
   name: string
@@ -343,6 +344,17 @@ export interface ProviderAdapter {
    * launch's own, kept between reads (and emptied when the reading starts again), for what a later line completes.
    */
   backgroundTasks?(appended: string, memo: Record<string, unknown>): BackgroundTaskEvent[]
+  /**
+   * Safeguard stops, and model changes after one (#606), in lines appended to the session's transcript (whole lines).
+   * `memo` is the launch's own, kept between reads (and emptied when the reading starts again). Absent: Hive can't
+   * detect them for this CLI (descriptor.safeguardHelp is null).
+   */
+  safeguards?(appended: string, memo: Record<string, unknown>): SafeguardEvent[]
+  /**
+   * Whether an ask is the CLI's prompt about a safeguard stop (Claude Code asks whether to switch models), from the ask
+   * and the terminal's screen as it shows it.
+   */
+  safeguardAsk?(ask: Ask, screen: string): boolean
   /**
    * The installed CLI's models and what each can do (#125), when it can say (null: couldn't, or an unexpected reply).
    * Asking may start the CLI briefly, but never a session, a prompt or a sign-in. env: the sessions' environment.

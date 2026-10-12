@@ -5,7 +5,7 @@ import { basename } from 'path'
 import { agentDoingCards, agentReviewCards } from '../shared/tasks'
 import type { LiveSessionState } from '../shared/types'
 import { createLogger } from './logger'
-import { allTasks } from './tasks'
+import { allTasks, commentAsHive } from './tasks'
 import { workspaceFor, type WorkspaceService } from './workspace'
 
 const log = createLogger('cards')
@@ -42,4 +42,14 @@ export async function recordLiveCards(workspacePath: string, live: LiveSessionSt
     if (!s.sessionId || s.settingUp || workspaceFor(s.projectPath) !== ws) continue
     await recordCards(ws, s.projectPath, s.agentId, s.sessionId).catch((e) => log.warn(`Could not record the cards of session ${s.sessionId}`, e))
   }
+}
+
+/** A comment from Hive on each card an agent of a project has in Doing (#606: its model changed after a safeguard stop). */
+export async function commentOnDoingCards(ws: WorkspaceService, projectPath: string, agentId: string, said: string): Promise<number[]> {
+  if (ws.isAssistantHome(projectPath)) return []
+  const project = basename(projectPath)
+  const out: number[] = []
+  // Each checked again under its lock: moved, reassigned or taken to another project meanwhile, it isn't the agent's now.
+  for (const c of agentDoingCards(await allTasks(ws), project, agentId)) if (await commentAsHive(c.number, said, ws, (card) => agentDoingCards([card], project, agentId).length === 1)) out.push(c.number)
+  return out
 }

@@ -7,19 +7,21 @@ import { onHiveEvent } from './events'
 import { createLogger, userText } from './logger'
 import { sessions } from './sessions'
 import { noteOnCard } from './tasks'
-import { confirmTaken } from './watches'
+import { createDelivery, fromSource, offerNow, registerSource } from './deliveries'
+import { isWaiting } from '../shared/deliveries'
 import { openWorkspaces, workspaceFor, type WorkspaceService } from './workspace'
 
 /**
  * Decisions reach an agent waiting for the user (#401). An agent asks the user, and its turn ends; the user answers
  * elsewhere (through the Assistant), and the answer is recorded on its card as decisions (#357). An agent waiting makes no
- * tool calls, so the flag in its next reply never comes: Hive types one line into it, as a card watch's wake is typed
- * (#376, #430: taken, or marked), when its turn has ended (ready or finished: not working, not on background tasks, not
- * watching, whose wake tells it, and never into a question or permission prompt it shows), the user isn't typing there
- * and no line of Hive's waits to be taken. Decisions landing together are told together: after a short settle. What a
- * line told isn't told again (in memory); the card's history says whom Hive told. The Assistant's own cards aren't its:
- * project agents only. A line worked out is typed only while it is still true: until Enter, nothing on the board changed
- * and the agent read no card since (else it is worked out again later); one refused is tried again after a settle.
+ * tool calls, so the flag in its next reply never comes: Hive gives it one line, a delivery (#649: the user's answer,
+ * which the agent acks), offered as a card watch's wake is (#376, #430: taken, or marked) when its turn has ended (ready
+ * or finished: not working, not on background tasks, not watching, whose wake tells it, and never into a question or
+ * permission prompt it shows), the user isn't typing there and no line of Hive's waits to be taken. Decisions landing
+ * together are told together: after a short settle. What a line told isn't told again once it is received (in memory);
+ * the card's history says whom Hive told. The Assistant's own cards aren't its: project agents only. A line is made again
+ * just before it is offered, and typed only while it is still true: until Enter, nothing on the board changed and the
+ * agent read no card since (else it is made again at the next try).
  */
 
 const log = createLogger('decisions')
@@ -48,23 +50,6 @@ onHiveEvent((e) => {
   if (e.type === 'tasks-changed') boardGen.set(e.workspacePath.toLowerCase(), (boardGen.get(e.workspacePath.toLowerCase()) ?? 0) + 1)
 })
 
-/**
- * Agents with a line put off (the user typing, a line of Hive's waiting, the board changing as it was typed): tried
- * again after each settle (one timer per agent), however long the barrier lasts, until it is told, or nothing is new to
- * it any more, or it stops being ready (working, a prompt shown, its session ended: the end of its next turn checks
- * again). Logged once per spell.
- */
-const pending = new Set<string>()
-/** A line stopped because what it says may have changed: worked out again at once, up to this many times. */
-const STALE_TRIES = 3
-class Stale extends Error {}
-function later(ws: WorkspaceService, projectPath: string, agentId: string): void {
-  const key = keyOf(projectPath, agentId)
-  pending.add(key)
-  if (pending.size > 500) pending.delete(pending.values().next().value!)
-  settle(`agent:${key}`, () => void tell(ws, projectPath, agentId).catch((e) => log.warn('telling of decisions', e)))
-}
-
 /** Whether an agent may be told now: its turn has ended, nobody types there, no line of Hive's waits. */
 const ready = (st: LiveSessionState | null): boolean => !!st && (st.status === 'ready' || st.status === 'finished')
 
@@ -75,71 +60,108 @@ export function decisionLine(cards: Map<number, { count: number }>): string {
   return `[Hive] ${parts.join(', ')} from the user: read ${them} (hive_read_task) and carry on from where you asked.`
 }
 
-/** Tells one agent of the decisions new to it, if it may be told now. */
-async function tell(ws: WorkspaceService, projectPath: string, agentId: string): Promise<void> {
-  const key = keyOf(projectPath, agentId)
-  if (telling.has(key) || ws.isAssistantHome(projectPath)) return
-  // Not ready (working, on background tasks, watching, a prompt shown, stopped): the end of its turn checks again. Its
-  // workspace closed: nothing to tell it from.
-  if (!ready(sessions.liveFor(projectPath, agentId)) || !openWorkspaces().includes(ws)) {
-    pending.delete(key)
-    return
+/** The decisions are the user's: Hive relays them. */
+const USER = { kind: 'user', name: 'the user' } as const
+
+/**
+ * What each version of a line was made from (by host, delivery id and version: ids are a host's own, and a line is made
+ * again before each offer or hand-out): the board's and the agent's reads then, which `holds` compares with now. What it
+ * tells is saved on the delivery itself (its `meta`), so a receipt covers the version received, never a later one.
+ */
+const madeKey = (host: string, id: string, v: unknown): string => `${host.toLowerCase()}#${id}#${String(v)}`
+const made = new Map<string, { ws: WorkspaceService; gen: number; reads: ReturnType<typeof cardReadsBy> }>()
+let versions = 0
+
+/** A line's decisions as its delivery saves them: "card:count:latest", comma-separated (as many as fit what reads back). */
+const encodeCards = (cards: Map<number, { count: number; latest: number }>): string => [...cards].map(([n, d]) => `${n}:${d.count}:${d.latest}`).join(',')
+const decodeCards = (v: unknown): Map<number, { count: number; latest: number }> =>
+  new Map(
+    (typeof v === 'string' && v ? v.split(',') : []).flatMap((x) => {
+      const [n, count, latest] = x.split(':').map(Number)
+      return Number.isInteger(n) && n > 0 && Number.isFinite(count) && Number.isFinite(latest) ? [[n, { count, latest }] as const] : []
+    })
+  )
+/** The decisions of a line that fit its delivery's context (400 characters): those it says, the rest told by a next line. */
+function fitting(cards: Map<number, { count: number; latest: number }>): Map<number, { count: number; latest: number }> {
+  const out = new Map<number, { count: number; latest: number }>()
+  for (const [n, d] of cards) {
+    const next = new Map(out).set(n, d)
+    if (encodeCards(next).length > 400) break
+    out.set(n, d)
   }
-  const agent = { projectPath, agentId }
-  telling.add(key)
-  try {
-    const def = projectAgents(await ws.projectConfig(projectPath)).find((a) => a.id === agentId)
-    if (!def) {
-      pending.delete(key)
-      return
-    }
-    const self = `${def.name} (${basename(projectPath)})`
-    let cards: Awaited<ReturnType<typeof newDecisionsOn>>
-    let line: string
-    let before: ReturnType<typeof sessions.promptsTaken>
-    for (let attempt = 0; ; attempt++) {
-      // What the line is worked out from: the board and the agent's reads as they are now.
-      const gen = genOf(ws)
-      const reads = cardReadsBy(agent)
-      cards = await newDecisionsOn(ws, agent, self, told.get(key))
-      if (!cards.size) {
-        pending.delete(key)
-        return
-      }
-      line = decisionLine(cards)
-      // Still true, and still the moment: checked before typing, before each piece of it and before Enter.
-      const stillSo = (): void => {
-        if (!openWorkspaces().includes(ws)) throw new Error('Its workspace was closed.')
-        if (genOf(ws) !== gen) throw new Stale('The board changed.')
-        if (cardReadsBy(agent) !== reads) throw new Stale('It read a card.')
-        if (!ready(sessions.liveFor(projectPath, agentId))) throw new Error('The agent got busy.')
-        if (sessions.userMayBeTyping(projectPath, agentId)) throw new Error('The user is typing there.')
-        if (sessions.lineWaiting(projectPath, agentId)) throw new Error("A line Hive typed there isn't taken yet.")
-      }
-      before = sessions.promptsTaken(projectPath, agentId)
-      try {
-        stillSo()
-        await sessions.sendPrompt(projectPath, agentId, line, stillSo)
-        break
-      } catch (e) {
-        // The board changed or it read a card as the line was typed (often only the file watcher's echo of a change
-        // already counted): worked out again at once, a few times. Anything else: after another settle. Nothing told.
-        if (e instanceof Stale && attempt < STALE_TRIES) continue
-        if (!pending.has(key)) log.info(`Telling ${userText(self)} of new decisions put off until it can be: ${(e as Error).message}`)
-        later(ws, projectPath, agentId)
-        return
-      }
-    }
-    pending.delete(key)
+  return out
+}
+
+async function boardSelf(ws: WorkspaceService, projectPath: string, agentId: string): Promise<string | null> {
+  const def = projectAgents(await ws.projectConfig(projectPath)).find((a) => a.id === agentId)
+  return def ? `${def.name} (${basename(projectPath)})` : null
+}
+
+/**
+ * The decision lines' part in their deliveries (#649): made again just before each offer from the decisions new to the
+ * agent then (none left: cancelled); offered only while the board and the agent's reads haven't changed since (else made
+ * again at the next try); received, its decisions are told (never again) and noted on their cards.
+ */
+registerSource('decision', {
+  refresh: async (r, host) => {
+    const ws = workspaceFor(host)
+    if (!ws || !openWorkspaces().includes(ws)) return { cancel: 'its workspace was closed' }
+    const self = await boardSelf(ws, host, r.agentId)
+    if (!self) return { cancel: 'its agent has gone' }
+    const agent = { projectPath: host, agentId: r.agentId }
+    // What the line is worked out from: the board and the agent's reads as they are now.
+    const gen = genOf(ws)
+    const reads = cardReadsBy(agent)
+    const cards = fitting(await newDecisionsOn(ws, agent, self, told.get(keyOf(host, r.agentId))))
+    if (!cards.size) return { cancel: 'nothing new to tell' }
+    // This version: its line, and what its receipt tells (saved with it), and what its holds compares with.
+    const v = ++versions
+    made.set(madeKey(host, r.id, v), { ws, gen, reads })
+    if (made.size > 500) made.delete(made.keys().next().value!)
+    return { body: decisionLine(cards), meta: { v, cards: encodeCards(cards), self } }
+  },
+  holds: (r, host) => {
+    const m = made.get(madeKey(host, r.id, r.meta?.v))
+    return !!m && openWorkspaces().includes(m.ws) && genOf(m.ws) === m.gen && cardReadsBy({ projectPath: host, agentId: r.agentId }) === m.reads
+  },
+  received: (r, host) => {
+    made.delete(madeKey(host, r.id, r.meta?.v))
+    // What the version received says, and nothing a later refresh prepared.
+    const cards = decodeCards(r.meta?.cards)
+    const self = typeof r.meta?.self === 'string' ? r.meta.self : null
+    const ws = workspaceFor(host)
+    if (!cards.size || !self || !ws) return
+    const key = keyOf(host, r.agentId)
     const known = told.get(key) ?? new Map<number, number>()
     for (const [n, d] of cards) known.set(n, Math.max(known.get(n) ?? 0, d.latest))
     told.delete(key)
     told.set(key, known)
     if (told.size > 500) told.delete(told.keys().next().value!)
     log.info(`Told ${userText(self)} of new decisions on ${[...cards.keys()].map((n) => `#${n}`).join(', ')}`)
-    if (before) void confirmTaken(projectPath, agentId, before, line).catch((e) => log.warn('checking a line was taken', e))
-    // Noted before the next agent is told (tellAll), so these board changes don't stop its line part-way.
-    await Promise.all([...cards].map(([n, d]) => noteOnCard(n, `Told ${self} of ${d.count} new decision${d.count === 1 ? '' : 's'}`, ws).catch((e) => log.warn(`noting on #${n} that decisions were told`, e))))
+    void Promise.all([...cards].map(([n, d]) => noteOnCard(n, `Told ${self} of ${d.count} new decision${d.count === 1 ? '' : 's'}`, ws).catch((e) => log.warn(`noting on #${n} that decisions were told`, e))))
+  },
+  ended: (r, host) => {
+    made.delete(madeKey(host, r.id, r.meta?.v))
+  }
+})
+
+/** Gives one agent a line of the decisions new to it, if it may be told now: a delivery, one per agent, offered now. */
+async function tell(ws: WorkspaceService, projectPath: string, agentId: string): Promise<void> {
+  const key = keyOf(projectPath, agentId)
+  if (telling.has(key) || ws.isAssistantHome(projectPath)) return
+  // Not ready (working, on background tasks, watching, a prompt shown, stopped): the end of its turn checks again. Its
+  // workspace closed: nothing to tell it from.
+  if (!ready(sessions.liveFor(projectPath, agentId)) || !openWorkspaces().includes(ws)) return
+  const agent = { projectPath, agentId }
+  telling.add(key)
+  try {
+    const self = await boardSelf(ws, projectPath, agentId)
+    if (!self) return
+    const cards = fitting(await newDecisionsOn(ws, agent, self, told.get(key)))
+    if (!cards.size) return
+    // Made again from the decisions as they are when it is offered (one waiting is that one).
+    await createDelivery(projectPath, { agentId, agentName: self, kind: 'answer', from: USER, card: [...cards.keys()][0], body: decisionLine(cards), source: 'decision', ref: 'decisions', replace: true, need: 'free', meta: { cards: encodeCards(cards), self } })
+    await offerNow(projectPath, agentId)
   } finally {
     telling.delete(key)
   }
@@ -186,8 +208,8 @@ export function initDecisionWakes(): void {
 /** Checks now (what a settled change does): for tests. */
 export const tellNow = (ws: WorkspaceService, projectPath: string, agentId: string): Promise<void> => tell(ws, projectPath, agentId)
 
-/** For tests: nothing is left to do for an agent (no line being typed, put off, or waiting for its settle to try again). */
+/** For tests: nothing is left to do for an agent (no line being made or waiting to be offered, or waiting for its settle). */
 export function settledFor(projectPath: string, agentId: string): boolean {
   const key = keyOf(projectPath, agentId)
-  return !telling.has(key) && !pending.has(key) && !settling.has(`agent:${key}`)
+  return !telling.has(key) && !settling.has(`agent:${key}`) && !fromSource(projectPath, 'decision').some((r) => r.agentId === agentId && isWaiting(r))
 }

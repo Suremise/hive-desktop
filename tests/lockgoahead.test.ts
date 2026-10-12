@@ -27,6 +27,8 @@ const base = tempDir('hive-goahead-')
 
 const { createWorkspaceService, disposeWorkspaceService, inWorkspace } = await import('../src/main/workspace')
 const { sessions } = await import('../src/main/sessions')
+// The delivery service gives the go-ahead (#649): it sets itself into sessions as it loads.
+await import('../src/main/deliveries')
 const { config } = await import('../src/main/config')
 const { codex } = await import('../src/main/providers/codex/adapter')
 
@@ -41,6 +43,31 @@ const typingTime = () => wait(1500)
 /** Settings → Assistant → Pause after you type, for these tests (seconds). */
 const PAUSE = 2
 
+/**
+ * A hand-made live state whose runtime facts follow its status, as the turn ledger's would (#648): the CLI running, a turn
+ * running while it works, asked while it waits. Readiness reads the facts (#649).
+ */
+function withFacts<T extends { status: string }>(state: T): T {
+  let status = state.status
+  const rt = { lifecycle: 'running', maintenance: null as null, attention: null as 'waiting' | null, composer: 'free' }
+  const follow = (): void => {
+    Object.assign(state, { turn: { state: status === 'working' ? 'running' : 'over' } })
+    rt.attention = status === 'waiting' ? 'waiting' : null
+  }
+  Object.defineProperty(state, 'status', {
+    get: () => status,
+    set: (v: string) => {
+      status = v
+      follow()
+    },
+    enumerable: true,
+    configurable: true
+  })
+  Object.assign(state, { runtime: rt })
+  follow()
+  return state
+}
+
 let n = 0
 /**
  * Running Codex agents (no process), each set with files of its own: `holder` has claimed one, `other` a second, and
@@ -52,7 +79,7 @@ function agents() {
   const second = `other${n}.txt`
   for (const f of [file, second]) writeFileSync(join(p, f), 'hi\n')
   const agent = (agentId: string) => {
-    const state = { provider: 'codex', runId: `run-${agentId}`, projectPath: p, agentId, cwd: p, sessionId: `session-${agentId}`, status: 'working', startedAt: '', launchSignature: '', unseen: false }
+    const state = withFacts({ provider: 'codex', runId: `run-${agentId}`, projectPath: p, agentId, cwd: p, sessionId: `session-${agentId}`, status: 'working', startedAt: '', launchSignature: '', unseen: false })
     s.live.set(`${p.toLowerCase()}#${agentId}`, { state, adapter: codex, transcriptMtime: '', defaultModel: false, modeTail: '', launchMode: null, configuredMode: null })
     s.runs.set(state.runId, `${p.toLowerCase()}#${agentId}`)
     return state

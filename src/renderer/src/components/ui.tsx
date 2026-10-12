@@ -8,6 +8,7 @@ import { call, errorMessage } from '../api'
 import { formatWhen } from '@shared/dates'
 import { runtimeLabel, unknownStateText } from '@shared/runtime'
 import { providerDescriptor, providerName } from '@shared/providers'
+import { safeguardText } from '@shared/safeguards'
 import { placeTip, type Box } from '@shared/tipPlacement'
 
 export function Icon({ name, className, title, spin }: { name: string; className?: string; title?: string; spin?: boolean }) {
@@ -307,6 +308,34 @@ export function ReviewMark({ live }: { live: Pick<LiveSessionState, 'review' | '
     >
       <span className="review-mark" role="img" aria-label="An action is being reviewed automatically">
         <Icon name="shield" />
+      </span>
+    </Tooltip>
+  )
+}
+
+/**
+ * Its CLI's safety classifier stopped a response, or its model changed after one (#606): a shield beside the status,
+ * labelled with the model it runs on now when that changed. What happened, when, the names of its last tool calls
+ * before it and what to do show on hover; never what was stopped.
+ */
+export function SafeguardMark({ live }: { live: Pick<LiveSessionState, 'safeguard' | 'provider'> | null | undefined }) {
+  const note = live?.safeguard
+  if (!note) return null
+  const d = providerDescriptor(live.provider)
+  const text = safeguardText(note, d.modelLabel)
+  const alert = !!note.switched || !!note.prompt || !!note.idle
+  return (
+    <Tooltip
+      content={
+        <>
+          <div>{text}</div>
+          {d.safeguardHelp && <div className="faint review-mark-detail">{d.safeguardHelp}</div>}
+        </>
+      }
+    >
+      <span className={cx('safeguard-mark', alert && 'alert')} role="img" aria-label={text}>
+        <Icon name="shield" />
+        {note.switched && <span className="safeguard-model">{d.modelLabel(note.switched.to)}</span>}
       </span>
     </Tooltip>
   )

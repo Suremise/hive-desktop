@@ -56,6 +56,16 @@
 //   done H:MM" above its input once done. "latetool": a Read whose PostToolUse reaches Hive after the turn's Stop.
 //   "stopcontinue": after its Stop, once the test makes fake-continue-<agent>, it goes on as when another Stop hook
 //   blocks: a tool call in the same turn (held until fake-continue-done-<agent>), then Stop with stop_hook_active.
+// - Safeguards, as Claude Code 2.1.296 records them (#606): "safeguard" runs a Bash call, then its safety classifier
+//   stops the response: the system note ("…'s safeguards stopped the response above · continuing once with that noted")
+//   and, the next entry in its chain, the notice for the model (a user entry with refusedMessageId), and it carries on
+//   once. With "fallback" it then runs on Opus 4.8 by itself (claude-opus-4-8), as with /config's model switch on.
+//   "safeguardprompt": after its turn's Stop it asks whether to switch models (its question dialog, "Model switch", with
+//   the choices "1. Switch automatically" and "2. Stay on …"), drawn on a cleared screen, and a permission_prompt
+//   Notification ("Claude needs your permission"); an Enter answers it (the screen cleared again, its input back, no
+//   hook), and the idle notification follows as after a turn. Answered so, it stays on its model and records nothing
+//   (as HB3's stop); "safeguardpromptswitch" is answered "Switch automatically": its record of the flagged request
+//   (model_refusal_fallback, for the session) and the model it switched to (Opus 4.8, or Sonnet 5.5 if on Opus 4.8).
 // - Notices (#650), as Claude Code 2.1.296 takes them: context in a PostToolUse or Stop reply reaches "the model", and a
 //   Stop answered with context (or a block) carries the turn on to another Stop with stop_hook_active. Each notice
 //   ("[Hive] …") is logged in fake-notices.jsonl (agent, where, text). With fake-follow-notices.txt in its home (any
@@ -271,6 +281,9 @@ const write = (entry) => fs.appendFileSync(transcript, JSON.stringify({ sessionI
 
 /** The turn under way: each prompt's own id, which its hooks carry (prompt_id), as Claude Code 2.1.296's do (#648). */
 let promptId = null
+/** The model its replies are on: "fallback" switches it after a safeguard stop (#606). */
+let model = 'claude-fake'
+const FALLBACK_MODEL = 'claude-opus-4-8'
 
 async function hook(event, extra = {}) {
   if (!hookUrl) return null
@@ -373,7 +386,7 @@ async function runPrompt(text) {
   // Its spinner above its input while it works, as Claude Code 2.1.296 draws them, taken back when the turn ends.
   out(BUSY)
   busyDrawn = writes
-  write({ type: 'user', message: { role: 'user', content: text } })
+  write({ type: 'user', uuid: randomUUID(), message: { role: 'user', content: text } })
   await hook('UserPromptSubmit', { prompt: text })
   if (signedOut()) {
     const said = 'Login expired · Please run /login'
@@ -394,11 +407,12 @@ async function runPrompt(text) {
     const file = path.resolve(cwd, edit[1])
     const id = `toolu_${randomUUID().slice(0, 8)}`
     const reply = await hook('PreToolUse', { tool_name: 'Edit', tool_input: { file_path: file, old_string: 'a', new_string: 'b' }, tool_use_id: id })
-    write({ type: 'assistant', requestId: `req_${id}`, message: { model: 'claude-fake', content: [{ type: 'tool_use', id, name: 'Edit', input: { file_path: file, old_string: 'a', new_string: 'b' } }], usage: { input_tokens: 10, output_tokens: 5 } } })
+    write({ type: 'assistant', requestId: `req_${id}`, message: { model, content: [{ type: 'tool_use', id, name: 'Edit', input: { file_path: file, old_string: 'a', new_string: 'b' } }], usage: { input_tokens: 10, output_tokens: 5 } } })
     const denied = reply?.hookSpecificOutput?.permissionDecision === 'deny'
     write({ type: 'user', message: { role: 'user', content: [{ type: 'tool_result', tool_use_id: id, content: denied ? 'Blocked by a hook' : 'The file has been updated.', is_error: denied }] } })
     await hook('PostToolUse', { tool_name: 'Edit', tool_input: { file_path: file }, tool_use_id: id })
   }
+  if (/\bsafeguard\b/i.test(text)) safeguardStop(/\bfallback\b/i.test(text))
   if (/\bask\b/i.test(text)) await hook('Notification', { notification_type: 'permission_prompt', message: 'Claude needs your permission to use Bash' })
   // "askafter N": the permission prompt N seconds into the turn (it starts working first).
   const askAfter = /\baskafter\s+(\d+)/i.exec(text)
@@ -453,6 +467,7 @@ async function runPrompt(text) {
   const late = /\blatetool\b/i.test(text) ? { tool_name: 'Read', tool_input: { file_path: path.join(cwd, 'README.md') }, tool_use_id: `toolu_${randomUUID().slice(0, 8)}` } : null
   if (late) await hook('PreToolUse', late)
   await endTurn(`Done: ${text}${mode}`, Number(/\bcontext\s+(\d+)/i.exec(text)?.[1] ?? 20), /\bloststop\b/i.test(text), { late, carryOn: /\bstopcontinue\b/i.test(text) })
+  if (/\bsafeguardprompt(switch)?\b/i.test(text)) await safeguardPrompt(/\bsafeguardpromptswitch\b/i.test(text))
   // "window N": the status line reports a context window of N tokens, as Claude Code's does.
   const contextWindow = /\bwindow\s+(\d+)/i.exec(text)
   if (contextWindow && hookUrl) {
@@ -464,19 +479,60 @@ async function runPrompt(text) {
   }
 }
 
+/**
+ * A safety classifier stops its response after a Bash call, as Claude Code 2.1.296 records it (#606): the system note and
+ * the notice for the model, then it carries on once; `fallback`: on Opus 4.8 from then on, by itself.
+ */
+function safeguardStop(fallback) {
+  const id = `toolu_${randomUUID().slice(0, 8)}`
+  write({ type: 'assistant', requestId: `req_${id}`, message: { model, content: [{ type: 'tool_use', id, name: 'Bash', input: { command: 'echo probe' } }], usage: { input_tokens: 10, output_tokens: 5 } } })
+  write({ type: 'user', message: { role: 'user', content: [{ type: 'tool_result', tool_use_id: id, content: 'probe' }] } })
+  const noteId = randomUUID()
+  write({ type: 'system', subtype: 'informational', content: "Opus 5.5's safeguards stopped the response above · continuing once with that noted", level: 'notice', uuid: noteId })
+  write({ type: 'user', isMeta: true, turnCompanion: true, refusedMessageId: `msg_${randomUUID().slice(0, 8)}`, uuid: randomUUID(), parentUuid: noteId, message: { role: 'user', content: [{ type: 'text', text: 'Your response above was stopped by a safety classifier. Continue with the task, noting that.' }] } })
+  out("\r\n  ⎿  Opus 5.5's safeguards stopped the response above · continuing once with that noted\r\n")
+  if (fallback) model = FALLBACK_MODEL
+}
+
+/**
+ * After its turn's Stop, it asks whether to switch models, as Claude Code did after HB3's second stop (#606): its question
+ * dialog on a cleared screen (as 2.1.296 draws it), a permission_prompt Notification naming no tool. An Enter answers it
+ * (no hook says so): the screen cleared, its input back, and the idle notification as after a turn. Stayed on its model,
+ * nothing is recorded (HB3's); `switchTo`: answered "Switch automatically", it records the flagged request
+ * (model_refusal_fallback, by its requestId) and runs on the other model.
+ */
+async function safeguardPrompt(switchTo) {
+  const to = model === FALLBACK_MODEL ? 'claude-sonnet-5-5' : FALLBACK_MODEL
+  out(
+    "\x1b[2J\x1b[H ☐ Model switch\r\n\r\n Opus 5.5's safeguards flagged this message. This sometimes happens with safe, normal conversations. Switch to Opus 4.8 and keep going whenever this happens? You can change this later in /config.\r\n\r\n" +
+      ' ❯ 1. Switch automatically\r\n      Continue on Opus 4.8 now, and switch without asking from now on\r\n   2. Stay on Opus 5.5\r\n      Stop here without switching, and ask me each time a message is flagged\r\n   3. Type something.\r\n   4. Chat about this\r\n\r\n Enter to select · ↑/↓ to navigate · Esc to cancel\r\n'
+  )
+  onEnter = () => {
+    if (switchTo) {
+      write({ type: 'system', subtype: 'model_refusal_fallback', direction: 'retry', scope: 'session', content: "Opus 5.5's safeguards flagged this message. This sometimes happens with safe, normal conversations. Switched to Opus 4.8.", level: 'warning', trigger: 'refusal', originalModel: model, fallbackModel: to, requestId: `req_${randomUUID().slice(0, 8)}`, apiRefusalCategory: 'cyber', isMeta: false, uuid: randomUUID() })
+      model = to
+      write({ type: 'assistant', requestId: `req_${randomUUID().slice(0, 8)}`, message: { model, content: [{ type: 'text', text: 'Carrying on.' }], usage: { input_tokens: 10, output_tokens: 5 } } })
+    }
+    out('\x1b[2J\x1b[H')
+    promptLine()
+    idleNotice()
+  }
+  await hook('Notification', { notification_type: 'permission_prompt', message: 'Claude needs your permission' })
+}
+
 /** Reads a Hive skill as Claude Code's Skill tool does, recording the call and its answer in the transcript. */
 function readSkill(name) {
   const id = `toolu_skill_${randomUUID().slice(0, 8)}`
   const file = path.join(opts['--plugin-dir'] ?? '', 'skills', name, 'SKILL.md')
   const text = opts['--plugin-dir'] && fs.existsSync(file) ? fs.readFileSync(file, 'utf8') : null
-  write({ type: 'assistant', requestId: `req_${id}`, message: { model: 'claude-fake', content: [{ type: 'tool_use', id, name: 'Skill', input: { skill: `hive:${name}` } }], usage: { input_tokens: 10, output_tokens: 5 } } })
+  write({ type: 'assistant', requestId: `req_${id}`, message: { model, content: [{ type: 'tool_use', id, name: 'Skill', input: { skill: `hive:${name}` } }], usage: { input_tokens: 10, output_tokens: 5 } } })
   write({ type: 'user', message: { role: 'user', content: [{ type: 'tool_result', tool_use_id: id, content: text ?? `Unknown skill: hive:${name}`, is_error: text === null }] } })
 }
 
 /** Calls a hive tool through the launch's own hive MCP server; the call and its reply go in the transcript. */
 async function hiveCall(tool, input) {
   const id = `toolu_hive_${randomUUID().slice(0, 8)}`
-  write({ type: 'assistant', requestId: `req_${id}`, message: { model: 'claude-fake', content: [{ type: 'tool_use', id, name: `mcp__hive__${tool}`, input }], usage: { input_tokens: 10, output_tokens: 5 } } })
+  write({ type: 'assistant', requestId: `req_${id}`, message: { model, content: [{ type: 'tool_use', id, name: `mcp__hive__${tool}`, input }], usage: { input_tokens: 10, output_tokens: 5 } } })
   let r
   try {
     r = await callHiveTool(JSON.parse(fs.readFileSync(opts['--mcp-config'], 'utf8')).mcpServers.hive, tool, input)
@@ -490,7 +546,7 @@ async function hiveCall(tool, input) {
 /** Changes card n as hive_update_task does: the hive tools' API, with this agent's token; the call is in the transcript. */
 async function boardPatch(n, change) {
   const id = `toolu_board_${randomUUID().slice(0, 8)}`
-  write({ type: 'assistant', requestId: `req_${id}`, message: { model: 'claude-fake', content: [{ type: 'tool_use', id, name: 'mcp__hive__hive_update_task', input: { number: n, ...change } }], usage: { input_tokens: 10, output_tokens: 5 } } })
+  write({ type: 'assistant', requestId: `req_${id}`, message: { model, content: [{ type: 'tool_use', id, name: 'mcp__hive__hive_update_task', input: { number: n, ...change } }], usage: { input_tokens: 10, output_tokens: 5 } } })
   let record
   try {
     const env = JSON.parse(fs.readFileSync(opts['--mcp-config'], 'utf8')).mcpServers.hive.env
@@ -536,7 +592,7 @@ async function login() {
  * call in the same turn (held until fake-continue-done-<agent>), then Stop again with stop_hook_active.
  */
 async function endTurn(answer, inputTokens = 20, lostStop = false, { late = null, carryOn = false } = {}) {
-  write({ type: 'assistant', requestId: `req_${randomUUID().slice(0, 8)}`, message: { model: 'claude-fake', content: [{ type: 'text', text: answer }], usage: { input_tokens: inputTokens, output_tokens: 10 } } })
+  write({ type: 'assistant', requestId: `req_${randomUUID().slice(0, 8)}`, message: { model, content: [{ type: 'text', text: answer }], usage: { input_tokens: inputTokens, output_tokens: 10 } } })
   // The spinner and input drawn while it worked go, as Claude Code redraws them (when nothing was written since).
   if (busyDrawn === writes) out(`\x1b[${BUSY_LINES}A\r\x1b[J`)
   out(`\r\n${answer}\r\n`)
@@ -632,7 +688,7 @@ async function startBackgroundTask(secs) {
   const task = `b${randomUUID().slice(0, 8)}`
   const input = { command: `sleep ${secs}`, description: 'Run the tests', run_in_background: true }
   await hook('PreToolUse', { tool_name: 'Bash', tool_input: input, tool_use_id: id })
-  write({ type: 'assistant', requestId: `req_${id}`, message: { model: 'claude-fake', content: [{ type: 'tool_use', id, name: 'Bash', input }], usage: { input_tokens: 10, output_tokens: 5 } } })
+  write({ type: 'assistant', requestId: `req_${id}`, message: { model, content: [{ type: 'tool_use', id, name: 'Bash', input }], usage: { input_tokens: 10, output_tokens: 5 } } })
   write({ type: 'user', message: { role: 'user', content: [{ type: 'tool_result', tool_use_id: id, content: `Command running in background with ID: ${task}.` }] }, toolUseResult: { stdout: '', stderr: '', interrupted: false, backgroundTaskId: task } })
   await hook('PostToolUse', { tool_name: 'Bash', tool_input: input, tool_use_id: id })
   setTimeout(async () => {

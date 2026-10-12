@@ -14,6 +14,8 @@ import { distinguishingParents } from '@shared/folderLabels'
 import { GIT_DOWNLOAD, GIT_MIN, gitFixText, gitOldText, gitProblemText } from '@shared/gitTool'
 import { testedNote, testedSummary } from '@shared/testedClis'
 import { APP_NAME } from '@shared/appName'
+import { formatDateTime } from '@shared/dates'
+import type { ConsoleRecordingInfo } from '@shared/devConsole'
 import { ProviderIcon } from './ProviderIcon'
 import { BusyButton, Icon, IconButton, LoadFailed, Modal, SearchInput, STATUS_TEXT, useBackdrop, useBusy } from './ui'
 
@@ -472,19 +474,34 @@ export function DiagnosticsDialog() {
   const [text, setText] = useState<string | null>(null)
   const [error, setError] = useState<string | null>(null)
   const [attempt, setAttempt] = useState(0)
+  // The newest developer console recording (#638): attached only when asked, and only a redacted one.
+  const [recording, setRecording] = useState<ConsoleRecordingInfo | null>(null)
+  const [attach, setAttach] = useState(false)
+  useEffect(() => {
+    if (!open) return
+    setAttach(false)
+    let current = true
+    void call('console:recordings').then(
+      (r) => current && setRecording(r.latest),
+      () => current && setRecording(null)
+    )
+    return () => {
+      current = false
+    }
+  }, [open])
   useEffect(() => {
     if (!open) return
     setText(null)
     setError(null)
     let current = true
-    void call('app:diagnostics').then(
+    void call('app:diagnostics', { recording: attach }).then(
       (t) => current && setText(t),
       (e) => current && setError(errorMessage(e))
     )
     return () => {
       current = false
     }
-  }, [open, attempt])
+  }, [open, attempt, attach])
   if (!open) return null
   const close = (): void => set({ diagnosticsOpen: false })
   const copy = (): void => {
@@ -518,6 +535,14 @@ export function DiagnosticsDialog() {
         For a bug report: Hive's version, your coding agents, counts, the settings that change how Hive behaves and the end of its log. Folders, workspace, project and agent names, and
         anything that looks like a key or token are taken out. This is exactly what will be copied.
       </p>
+      {recording &&
+        (recording.includeText ? (
+          <p className="muted diagnostics-recording">The newest developer console recording includes prompt and reply text, so it can't be attached.</p>
+        ) : (
+          <label className="flex dialog-check diagnostics-recording">
+            <input type="checkbox" className="checkbox" checked={attach} onChange={(e) => setAttach(e.target.checked)} /> Attach the newest developer console recording ({formatDateTime(recording.startedAt)}, {recording.events} events), its newest events redacted again
+          </label>
+        ))}
       {error ? (
         <LoadFailed what="the diagnostics" error={error} onRetry={() => setAttempt((n) => n + 1)} />
       ) : (

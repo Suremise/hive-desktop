@@ -148,6 +148,11 @@ export interface ProviderDescriptor {
   extensionNote: string
   /** How to sign in again once its sign-in has expired, while agents wait (the needs sign-in status, #309). */
   signInHelp: string
+  /**
+   * What to do about a safeguard stop or the model fallback after one (#606), shown with the note; null when Hive can't
+   * detect them for this CLI (its transcript has no such record, shared/safeguards.ts): "not detected".
+   */
+  safeguardHelp: string | null
   modelLabel: (model: string) => string
   /** Whether a running session can switch to a mode without restarting (launched: the mode it started in). */
   canSwitchLive: (target: PermissionMode, current: PermissionMode | undefined, launched: PermissionMode | null | undefined) => boolean
