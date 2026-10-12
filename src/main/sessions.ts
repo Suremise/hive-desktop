@@ -3029,11 +3029,12 @@ class SessionManager {
     const ids = hook.ids
     const continued = hook.event.kind === 'stop' && !hook.event.failed && !!reply && l.adapter.stopContinues(reply)
     const before = st.status
-    // A CLI that wakes when its background tasks end (one runs, or its transcript says one ended) begins that turn itself,
-    // with no prompt: the next turn id Hive hasn't seen is that turn's (turnLedger rule 1's one exception).
-    const wake = l.adapter.descriptor.capabilities.backgroundWakes && ((l.tasks?.size ?? 0) > 0 || !!l.woke)
+    // A CLI that wakes when its background tasks end begins that turn itself: while its transcript says one just ended
+    // (never merely because one runs), a tool call it never saw may open that turn should its prompt hook be lost
+    // (turnLedger rule 1).
+    const woke = l.adapter.descriptor.capabilities.backgroundWakes && !!l.woke
     const was = ledger.active
-    const took = admit(ledger, hook.event, ids, { hiveContinued: continued, wake, now: at })
+    const took = admit(ledger, hook.event, ids, { hiveContinued: continued, woke, now: at })
     if (ledger.active !== was) l.woke = false
     if (took.verdict === 'apply') {
       const ev = took.event

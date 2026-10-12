@@ -330,33 +330,64 @@ describe('the turn ledger in a session', () => {
     expect([st.status, agentRuntime(st as never).maintenance, agentRuntime(st as never).attention, runtimeLabel(st as never), openCalls(l.ledger as never)]).toEqual(['ready', null, null, null, 0])
   })
 
-  it("a Claude Code turn its background task's end began (no prompt hook) is taken, whether its hooks or its transcript come first", async () => {
+  it("a Claude Code turn its background task's end began: by its prompt hook (2.1.296); with that hook lost, only once its transcript says the task ended", async () => {
     const { claudeCode } = await import('../src/main/providers/claude/adapter')
     const claude = (st: State, body: Record<string, unknown>) => hook(st, { transcript_path: undefined, ...body })
-    for (const first of ['hooks', 'transcript'] as const) {
-      const { st, l } = agent(`wake-${first}`)
+    for (const how of ['prompt', 'transcript', 'running'] as const) {
+      const { st, l } = agent(`wake-${how}`)
       const launch = l as unknown as { adapter: unknown; tasks?: Map<string, { at: number; expiresAt?: number }>; woke?: boolean }
       launch.adapter = claudeCode
       await claude(st, { hook_event_name: 'UserPromptSubmit', prompt_id: 'p1', prompt: 'run the tests in the background' })
       // Its turn ends with a task running: background.
       launch.tasks = new Map([['b1', { at: Date.now() }]])
       await claude(st, { hook_event_name: 'Stop', prompt_id: 'p1', stop_hook_active: false })
-      expect(st.status, first).toBe('background')
-      if (first === 'transcript') {
-        // Its transcript shows the task ended (the CLI wakes) before any hook of the new turn.
+      expect(st.status, how).toBe('background')
+      if (how === 'prompt') {
+        // As Claude Code 2.1.296 wakes (#648's probe): the task's notification is the new turn's prompt.
+        await claude(st, { hook_event_name: 'UserPromptSubmit', prompt_id: 'p2', prompt: '<task-notification>\n<task-id>b1</task-id>\n<status>completed</status>\n</task-notification>' })
+        expect([st.status, st.turn], how).toEqual(['working', { state: 'running', id: 'p2' }])
+      }
+      if (how === 'transcript') {
+        // Its prompt hook lost; its transcript shows the task ended (the CLI wakes) before any other hook of the new turn.
         launch.tasks.clear()
         launch.woke = true
       }
       await claude(st, { hook_event_name: 'PreToolUse', prompt_id: 'p2', tool_name: 'Read', tool_input: { file_path: 'a.txt' }, tool_use_id: 'toolu_1' })
-      expect([st.status, st.turn], first).toEqual(['working', { state: 'running', id: 'p2' }])
-      expect(launch.woke, first).toBe(false)
+      if (how === 'running') {
+        // Its prompt hook lost, and nothing says the task ended (it merely runs): no evidence of a wake, so stale.
+        expect([st.status, st.turn], how).toEqual(['background', { state: 'over', id: 'p1' }])
+        continue
+      }
+      expect([st.status, st.turn], how).toEqual(['working', { state: 'running', id: 'p2' }])
+      expect(launch.woke, how).toBe(false)
       launch.tasks.clear()
       await claude(st, { hook_event_name: 'PostToolUse', prompt_id: 'p2', tool_name: 'Read', tool_input: { file_path: 'a.txt' }, tool_use_id: 'toolu_1' })
       await claude(st, { hook_event_name: 'Stop', prompt_id: 'p2', stop_hook_active: false })
-      expect([st.status, st.turn], first).toEqual(['finished', { state: 'over', id: 'p2' }])
+      expect([st.status, st.turn], how).toEqual(['finished', { state: 'over', id: 'p2' }])
       // With nothing due to wake it, a hook of a turn Hive saw no prompt for is stale.
       await claude(st, { hook_event_name: 'PreToolUse', prompt_id: 'p3', tool_name: 'Read', tool_input: { file_path: 'a.txt' }, tool_use_id: 'toolu_2' })
-      expect([st.status, st.turn], first).toEqual(['finished', { state: 'over', id: 'p2' }])
+      expect([st.status, st.turn], how).toEqual(['finished', { state: 'over', id: 'p2' }])
+    }
+  })
+
+  it("an idle /compact under its own prompt_id (Claude Code 2.1.296): compacting, then idle; a delayed PreCompact of an earlier turn changes nothing", async () => {
+    const { claudeCode } = await import('../src/main/providers/claude/adapter')
+    const { st, l } = agent('own-compaction')
+    ;(l as unknown as { adapter: unknown }).adapter = claudeCode
+    const claude = (body: Record<string, unknown>) => hook(st, { transcript_path: undefined, ...body })
+    await claude({ hook_event_name: 'UserPromptSubmit', prompt_id: 'p1', prompt: 'go' })
+    await claude({ hook_event_name: 'Stop', prompt_id: 'p1', stop_hook_active: false })
+    await claude({ hook_event_name: 'PreCompact', prompt_id: 'k1', trigger: 'manual', custom_instructions: '' })
+    expect([st.status, runtimeLabel(st as never)]).toEqual(['working', 'Compacting the conversation…'])
+    await claude({ hook_event_name: 'SessionStart', prompt_id: 'k1', source: 'compact' })
+    await claude({ hook_event_name: 'PostCompact', prompt_id: 'k1', trigger: 'manual' })
+    expect([st.status, agentRuntime(st as never).maintenance]).toEqual(['ready', null])
+    // A new turn, over; then the earlier compaction's or turn's delayed news: nothing changes (HR3's round-3 case).
+    await claude({ hook_event_name: 'UserPromptSubmit', prompt_id: 'p2', prompt: 'again' })
+    await claude({ hook_event_name: 'Stop', prompt_id: 'p2', stop_hook_active: false })
+    for (const late of [{ hook_event_name: 'PreCompact', prompt_id: 'p1', trigger: 'auto' }, { hook_event_name: 'PreCompact', prompt_id: 'k1', trigger: 'auto' }, { hook_event_name: 'SessionEnd', prompt_id: 'p1', reason: 'other' }]) {
+      await claude(late)
+      expect([st.status, st.turn, agentRuntime(st as never).maintenance], JSON.stringify(late)).toEqual(['finished', { state: 'over', id: 'p2' }, null])
     }
   })
 

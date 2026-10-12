@@ -14,13 +14,19 @@ import type { HookEvent, HookIds } from './providers/types'
  *    Stop) never reopens one. Any hook naming a turn that is neither the open nor the latest one is stale, with no effect
  *    on status, and **an id Hive doesn't remember is stale, never new**: the bound on the ids kept (`seen`) can't make an
  *    old one a new turn. A prompt alone opens a turn under an id never seen (the CLI awaits its hook before the turn, so
- *    a prompt hook is never late). Hooks naming no turn are launch-wide (SessionStart, SessionEnd, compaction) or from a
- *    CLI whose hooks name none (Copilot), and are the latest turn's.
+ *    a prompt hook is never late). This holds for every kind of hook that names a turn, launch-wide ones too (a delayed
+ *    PreCompact or SessionEnd of an earlier turn is stale); hooks naming none are launch-wide (SessionStart, a
+ *    compaction's) or from a CLI whose hooks name none (Copilot), and are the latest turn's.
+ *    Two starts the CLI makes by itself, under an id of their own with no prompt hook (Claude Code 2.1.296, verified):
+ *    - **a compaction** (`/compact` while idle, or the CLI's own): its PreCompact, under an id never seen, opens that
+ *      compaction, not a turn; only its own launch-wide news follows under that id (SessionStart, PostCompact,
+ *      SessionEnd), until a turn begins.
+ *    - **a background task's wake** (Darren's decision, 12 Oct): it sends its prompt hook (a `<task-notification>`), so it
+ *      opens like any prompt. Should that hook be lost, a tool start whose call id the launch never saw opens the turn,
+ *      only while the CLI's transcript says a task of it just ended (`woke`), never merely because a task runs.
+ *    Past the bound on the ids kept (`forgot`), neither opens anything: an id not remembered may be an earlier one.
  * 2. **No screen timing decides a continuation**: rule 1 decides it from the ids alone, so a hook reaching Hive before the
  *    CLI redraws changes nothing.
- *    One exception: a CLI that starts a turn by itself when its background tasks end (Claude Code: no prompt hook) does
- *    so only while Hive knows a task of it runs or has just ended (`wake`, from its transcript): the next id Hive hasn't
- *    seen, with no turn running, is that turn.
  * 3. **Times are when a hook reached Hive** (`now`, taken before it waits its turn in the launch's queue), not when it
  *    was handled: the CLI's records are compared with them.
  * - A prompt in the running turn (its id) is one the CLI takes mid-turn; one Hive put there itself (`expectInjected`, a
@@ -58,6 +64,12 @@ export interface TurnLedger {
   /** Turn ids the launch has seen, in order (the latest `maxSeen`): only to say why a hook is stale. */
   seen: Set<string>
   maxSeen: number
+  /** Tool call ids the launch has seen (the latest `maxSeen` × 10): a start of one never seen may open a wake's turn. */
+  calls: Set<string>
+  /** An id was let go past the bound (of turns or calls): from then on an id not remembered opens nothing but a prompt. */
+  forgot: boolean
+  /** The id of a compaction the CLI began itself (rule 1), its news still to come: until a turn begins. */
+  compaction: string | null
   /** Hooks received for the launch, in order (the receive sequence the log gives each). */
   seq: number
   /** When Hive last heard from the CLI (a hook, the transcript growing, its screen showing it at work), ms. */
@@ -83,7 +95,15 @@ const MAX_SEEN = 10_000
 const MAX_INJECTED = 8
 
 export function newLedger(now = Date.now(), opts: { maxSeen?: number } = {}): TurnLedger {
-  return { active: null, seen: new Set(), maxSeen: opts.maxSeen ?? MAX_SEEN, seq: 0, heard: now, injected: [] }
+  return { active: null, seen: new Set(), maxSeen: opts.maxSeen ?? MAX_SEEN, calls: new Set(), forgot: false, compaction: null, seq: 0, heard: now, injected: [] }
+}
+
+/** Remembers an id in one of the ledger's bounded sets; past its bound the oldest is let go (`forgot`). */
+function remember(ledger: TurnLedger, set: Set<string>, id: string, max: number): void {
+  set.add(id)
+  if (set.size <= max) return
+  set.delete(set.values().next().value!)
+  ledger.forgot = true
 }
 
 const flat = (text: string): string => text.replace(/\s+/g, ' ').trim()
@@ -106,10 +126,9 @@ function end(ledger: TurnLedger, by: string): void {
 
 /** A turn begins (`id` never seen before, or none). */
 function begin(ledger: TurnLedger, id: string | null, now: number): Turn {
-  if (id) {
-    ledger.seen.add(id)
-    if (ledger.seen.size > ledger.maxSeen) ledger.seen.delete(ledger.seen.values().next().value!)
-  }
+  if (id) remember(ledger, ledger.seen, id, ledger.maxSeen)
+  // A compaction the CLI began itself is over by now: its late news is an earlier one's.
+  ledger.compaction = null
   ledger.active = { id, state: 'running', startedAt: now, calls: new Set(), unnamedCalls: 0, callsSeen: new Set(), stops: 0, continued: 0 }
   return ledger.active
 }
@@ -120,10 +139,11 @@ function reopen(t: Turn): void {
   t.endedBy = undefined
 }
 
-function addCall(t: Turn, call: string | null): void {
+function addCall(ledger: TurnLedger, t: Turn, call: string | null): void {
   if (call) {
     t.calls.add(call)
     t.callsSeen.add(call)
+    remember(ledger, ledger.calls, call, ledger.maxSeen * 10)
   } else t.unnamedCalls++
 }
 
@@ -134,40 +154,56 @@ function endCall(t: Turn, call: string | null): void {
 
 /** A hook's kind, for the log's reasons. */
 function what(ev: HookEvent): string {
-  return ev.kind === 'toolStart' ? 'a tool start' : ev.kind === 'toolEnd' ? 'a tool end' : ev.kind === 'prompt' ? 'a prompt' : ev.kind === 'ask' ? 'a question' : ev.kind === 'stop' ? 'a Stop' : `${ev.kind} news`
+  const names: Partial<Record<HookEvent['kind'], string>> = { toolStart: 'a tool start', toolEnd: 'a tool end', prompt: 'a prompt', ask: 'a question', stop: 'a Stop', start: 'a session start', end: 'a session end', compactStart: 'a compaction start', compactEnd: 'a compaction end' }
+  return names[ev.kind] ?? `${ev.kind} news`
 }
 
 /**
  * Takes a hook in: what the status rules should make of it. `hiveContinued`: Hive answered this Stop with a
- * continuation. `wake`: the CLI is due to start a turn by itself (a background task of it runs or just ended). `now`:
- * when the hook reached Hive (before it waited its turn in the launch's queue). Counts it (seq) and that the CLI was heard.
+ * continuation. `woke`: the CLI's transcript says a background task of it just ended, so it may begin a turn by itself.
+ * `now`: when the hook reached Hive (before it waited its turn in the launch's queue). Counts it (seq) and that the CLI
+ * was heard.
  */
-export function admit(ledger: TurnLedger, ev: HookEvent, ids: HookIds, opts: { hiveContinued?: boolean; wake?: boolean; now?: number } = {}): Admitted {
+export function admit(ledger: TurnLedger, ev: HookEvent, ids: HookIds, opts: { hiveContinued?: boolean; woke?: boolean; now?: number } = {}): Admitted {
   const now = opts.now ?? Date.now()
   ledger.seq++
   ledger.heard = Math.max(ledger.heard, now)
   const a = ledger.active
   const running = a?.state === 'running'
   const turn = ids.turn
-  // Launch-wide hooks name no turn; the CLI's session ending is the launch's.
-  if (ev.kind === 'start' || ev.kind === 'end' || ev.kind === 'compactStart' || ev.kind === 'compactEnd' || ev.kind === 'ignore') {
-    if (ev.kind === 'end') end(ledger, 'end')
-    return { verdict: 'apply', event: ev }
-  }
-  // A hook naming a turn that is neither the open nor the latest one: an earlier turn's, or one not remembered. Stale
-  // (rule 1), but for a prompt under an id never seen, which opens a turn, and the turn a background task's wake began.
+  const launchWide = ev.kind === 'start' || ev.kind === 'end' || ev.kind === 'compactStart' || ev.kind === 'compactEnd' || ev.kind === 'ignore'
+  // A hook naming a turn that is neither the open nor the latest one (any kind): an earlier turn's, or one not remembered.
+  // Stale (rule 1), but for the starts that open one under an id never seen: a prompt, a compaction the CLI began, and
+  // (only while it woke) a wake's first tool call.
   if (turn && a?.id !== turn) {
+    // The news of a compaction the CLI began itself (its id until a turn begins): the launch's, never a turn's.
+    if (turn === ledger.compaction) {
+      if (!launchWide) return { verdict: 'stale', why: `${what(ev)} under a compaction's id` }
+      if (ev.kind === 'end') end(ledger, 'end')
+      return { verdict: 'apply', event: ev }
+    }
     const earlier = ledger.seen.has(turn)
     if (ev.kind === 'prompt' && !earlier) {
       begin(ledger, turn, now)
       return { verdict: 'apply', event: ev }
     }
-    if (earlier || !opts.wake || running || ids.sub) return { verdict: 'stale', why: `${what(ev)} ${earlier ? 'of an earlier turn' : 'of a turn Hive saw no prompt for'}` }
-    begin(ledger, turn, now)
-    const r = admit(ledger, ev, ids, { ...opts, now })
-    ledger.seq--
-    if (r.verdict !== 'apply') return r
-    return { verdict: 'apply', event: r.event.kind === 'toolStart' ? { ...r.event, resumes: true } : r.event, note: "a turn the CLI began by itself: its background task's wake" }
+    if (!earlier && !ledger.forgot && !ids.sub) {
+      if (ev.kind === 'compactStart') {
+        remember(ledger, ledger.seen, turn, ledger.maxSeen)
+        ledger.compaction = turn
+        return { verdict: 'apply', event: ev, note: 'a compaction the CLI began itself, under its own id' }
+      }
+      if (ev.kind === 'toolStart' && opts.woke && !running && ids.call && !ledger.calls.has(ids.call)) {
+        addCall(ledger, begin(ledger, turn, now), ids.call)
+        return { verdict: 'apply', event: { ...ev, resumes: true }, note: "a turn the CLI began by itself: its background task's wake (no prompt hook)" }
+      }
+    }
+    return { verdict: 'stale', why: `${what(ev)} ${earlier ? 'of an earlier turn' : 'of a turn Hive saw no prompt for'}` }
+  }
+  // Launch-wide hooks (naming the latest turn, or none); the CLI's session ending is the launch's.
+  if (launchWide) {
+    if (ev.kind === 'end') end(ledger, 'end')
+    return { verdict: 'apply', event: ev }
   }
   // From here the hook names the latest turn, or none (a CLI whose hooks name none).
   switch (ev.kind) {
@@ -186,11 +222,11 @@ export function admit(ledger: TurnLedger, ev: HookEvent, ids: HookIds, opts: { h
       if (ids.sub) {
         // A sub-agent works inside its parent's turn: news of that turn while it runs; after it, a background agent's.
         if (!running) return { verdict: 'stale', why: "a sub-agent's tool outside the running turn" }
-        addCall(a, ids.call)
+        addCall(ledger, a, ids.call)
         return { verdict: 'apply', event: ev }
       }
       if (running) {
-        addCall(a, ids.call)
+        addCall(ledger, a, ids.call)
         return { verdict: 'apply', event: ev }
       }
       // No ids and no turn known yet: nothing to carry on (a tool start alone changes nothing, as before the ledger).
@@ -198,7 +234,7 @@ export function admit(ledger: TurnLedger, ev: HookEvent, ids: HookIds, opts: { h
       // The latest turn, over: a call it never started is a start of it, and it goes on; one it started is no start.
       if (ids.call && a.callsSeen.has(ids.call)) return { verdict: 'stale', why: 'a tool start of a call its turn started before it ended' }
       reopen(a)
-      addCall(a, ids.call)
+      addCall(ledger, a, ids.call)
       return { verdict: 'apply', event: { ...ev, resumes: true }, note: 'a new tool call after its Stop: its turn goes on' }
     }
     case 'toolEnd': {

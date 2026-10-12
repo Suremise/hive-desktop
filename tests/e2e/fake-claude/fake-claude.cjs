@@ -548,6 +548,8 @@ async function whileIdle() {
   }
   if (!take('fake-idle-compact')) return
   busy = true
+  // A compaction while idle has a prompt_id of its own, with no prompt (Claude Code 2.1.296, #648).
+  promptId = randomUUID()
   await hook('PreCompact', { trigger: 'auto', custom_instructions: null })
   out('\r\nCompacting conversation…\r\n')
   write({ type: 'system', subtype: 'compact_boundary', content: 'Conversation compacted', compactMetadata: { trigger: 'auto', preTokens: 30, postTokens: 10 } })
@@ -563,7 +565,8 @@ async function whileIdle() {
 
 /**
  * A Bash command run in the background for `secs` seconds, recorded the way Claude Code records one. When it
- * ends, the task notification starts a new turn by itself (no UserPromptSubmit), which replies and stops.
+ * ends, the task notification starts a new turn by itself, which replies and stops: under a new prompt_id, with a
+ * UserPromptSubmit whose prompt is the notification (as Claude Code 2.1.296 does, #648).
  */
 async function startBackgroundTask(secs) {
   const id = `toolu_${randomUUID().slice(0, 8)}`
@@ -577,10 +580,12 @@ async function startBackgroundTask(secs) {
     // A turn in progress finishes first, as Claude Code takes the notification after it.
     for (let i = 0; i < 600 && isBusy(); i++) await sleep(200)
     busy = true
-    // A turn of its own, with no prompt.
+    // A turn of its own: the notification is its prompt.
     promptId = randomUUID()
     turnStarted = Date.now()
-    write({ type: 'user', message: { role: 'user', content: `<task-notification>\n<task-id>${task}</task-id>\n<tool-use-id>${id}</tool-use-id>\n<status>completed</status>\n<summary>Background command "Run the tests" completed (exit code 0)</summary>\n</task-notification>` } })
+    const note = `<task-notification>\n<task-id>${task}</task-id>\n<tool-use-id>${id}</tool-use-id>\n<status>completed</status>\n<summary>Background command "Run the tests" completed (exit code 0)</summary>\n</task-notification>`
+    write({ type: 'user', message: { role: 'user', content: note } })
+    await hook('UserPromptSubmit', { prompt: note })
     await sleep(1500)
     await endTurn(`The background task ${task} has finished.`)
   }, secs * 1000)
@@ -603,6 +608,8 @@ async function compact(focus) {
     return
   }
   busy = true
+  // Typed while idle: a prompt_id of its own, with no prompt (Claude Code 2.1.296, #648).
+  promptId = randomUUID()
   await hook('PreCompact', { trigger: 'manual', custom_instructions: focus })
   out('\r\nCompacting conversation…\r\n')
   await sleep(Number(/\bhold\s+(\d+)/i.exec(focus)?.[1] ?? 1) * 1000)
