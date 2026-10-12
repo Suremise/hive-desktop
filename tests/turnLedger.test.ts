@@ -167,28 +167,46 @@ describe('the turn ledger', () => {
     const a = feed(feed(agent(), { kind: 'prompt' }, ids('t1')), { kind: 'stop', lastMessage: null }, ids('t1'))
     // /compact while idle: PreCompact, SessionStart (compact), PostCompact, all under k1.
     feed(a, { kind: 'compactStart', trigger: 'manual' }, ids('k1'))
-    expect([a.status, a.statusMessage, a.ledger.compaction, a.ledger.active?.id, a.ledger.active?.state]).toEqual(['working', COMPACTING_MESSAGE, 'k1', 't1', 'over'])
+    expect([a.status, a.statusMessage, a.ledger.compaction, a.ledger.active?.id, a.ledger.active?.state]).toEqual(['working', COMPACTING_MESSAGE, { id: 'k1', open: true }, 't1', 'over'])
+    // A repeated start while it runs is no new compaction (HR3, round 4).
+    feed(a, { kind: 'compactStart', trigger: 'manual' }, ids('k1'))
     feed(a, { kind: 'start', source: 'compact' }, ids('k1'))
     feed(a, { kind: 'compactEnd' }, ids('k1'))
-    expect([a.status, a.stale]).toEqual(['ready', []])
+    expect([a.status, a.statusMessage, a.ledger.compaction, a.stale]).toEqual(['ready', undefined, { id: 'k1', open: false }, ['a repeated compaction start']])
+    // Over: a delayed or repeated start of it, or its other news, changes nothing (it froze the agent "Compacting…").
+    feed(a, { kind: 'compactStart', trigger: 'manual' }, ids('k1'))
+    feed(a, { kind: 'start', source: 'compact' }, ids('k1'))
+    feed(a, { kind: 'compactEnd' }, ids('k1'))
+    expect([a.status, a.statusMessage, a.ledger.compaction?.open]).toEqual(['ready', undefined, false])
+    expect(a.stale.slice(1)).toEqual(['a compaction start of a compaction that is over', 'a session start of a compaction that is over', 'a compaction end of a compaction that is over'])
     // A turn's news under its id is no turn's: stale.
     feed(a, { kind: 'toolStart' }, ids('k1', { call: 'c9' }))
     feed(a, { kind: 'stop', lastMessage: null }, ids('k1'))
     feed(a, { kind: 'idle' }, ids('k1'))
     expect([a.status, a.ledger.active?.id, a.ledger.active?.state]).toEqual(['ready', 't1', 'over'])
-    expect(a.stale).toEqual(["a tool start under a compaction's id", "a Stop under a compaction's id", "idle news under a compaction's id"])
+    expect(a.stale.slice(4)).toEqual(["a tool start under a compaction's id", "a Stop under a compaction's id", "idle news under a compaction's id"])
     // A new turn ends it: its late news is an earlier one's.
     feed(a, { kind: 'prompt' }, ids('t2'))
     feed(a, { kind: 'compactEnd' }, ids('k1'))
     feed(a, { kind: 'end' }, ids('k1'))
     expect([a.status, a.ledger.compaction, a.ledger.active?.id, a.ledger.active?.state]).toEqual(['working', null, 't2', 'running'])
-    expect(a.stale.slice(3)).toEqual(['a compaction end of an earlier turn', 'a session end of an earlier turn'])
+    expect(a.stale.slice(7)).toEqual(['a compaction end of an earlier turn', 'a session end of an earlier turn'])
     // The launch's SessionEnd under the compaction's id (the latest the CLI named) stops it.
     const b = feed(feed(agent(), { kind: 'prompt' }, ids('t1')), { kind: 'stop', lastMessage: null }, ids('t1'))
     feed(b, { kind: 'compactStart', trigger: 'auto' }, ids('k1'))
     feed(b, { kind: 'compactEnd' }, ids('k1'))
+    feed(b, { kind: 'compactStart', trigger: 'auto' }, ids('k1'))
     feed(b, { kind: 'end' }, ids('k1'))
-    expect([b.status, b.stale]).toEqual(['stopped', []])
+    expect([b.status, b.stale]).toEqual(['stopped', ['a compaction start of a compaction that is over']])
+    // A later compaction under an id of its own is a new one; the earlier one's news stays stale.
+    const d = feed(feed(agent(), { kind: 'prompt' }, ids('t1')), { kind: 'stop', lastMessage: null }, ids('t1'))
+    feed(d, { kind: 'compactStart', trigger: 'manual' }, ids('k1'))
+    feed(d, { kind: 'compactEnd' }, ids('k1'))
+    feed(d, { kind: 'compactStart', trigger: 'manual' }, ids('k2'))
+    expect([d.status, d.ledger.compaction]).toEqual(['working', { id: 'k2', open: true }])
+    feed(d, { kind: 'compactStart', trigger: 'manual' }, ids('k1'))
+    feed(d, { kind: 'compactEnd' }, ids('k2'))
+    expect([d.status, d.statusMessage, d.stale]).toEqual(['ready', undefined, ['a compaction start of an earlier turn']])
     // Only while no turn runs (Darren, option B): one under an id of another while a turn runs opens nothing, and the
     // running turn's own news goes on.
     const c = feed(agent(), { kind: 'prompt' }, ids('t1'))

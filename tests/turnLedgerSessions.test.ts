@@ -379,9 +379,14 @@ describe('the turn ledger in a session', () => {
     await claude({ hook_event_name: 'Stop', prompt_id: 'p1', stop_hook_active: false })
     await claude({ hook_event_name: 'PreCompact', prompt_id: 'k1', trigger: 'manual', custom_instructions: '' })
     expect([st.status, runtimeLabel(st as never)]).toEqual(['working', 'Compacting the conversation…'])
+    // Its start again while it runs is no new compaction.
+    await claude({ hook_event_name: 'PreCompact', prompt_id: 'k1', trigger: 'manual', custom_instructions: '' })
     await claude({ hook_event_name: 'SessionStart', prompt_id: 'k1', source: 'compact' })
     await claude({ hook_event_name: 'PostCompact', prompt_id: 'k1', trigger: 'manual' })
     expect([st.status, agentRuntime(st as never).maintenance]).toEqual(['ready', null])
+    // HR3's round-4 case: its PreCompact again once it is over kept the agent "Compacting…" for good. Now nothing changes.
+    await claude({ hook_event_name: 'PreCompact', prompt_id: 'k1', trigger: 'auto', custom_instructions: '' })
+    expect([st.status, agentRuntime(st as never).maintenance, runtimeLabel(st as never)]).toEqual(['ready', null, null])
     // A new turn, over; then the earlier compaction's or turn's delayed news: nothing changes (HR3's round-3 case).
     await claude({ hook_event_name: 'UserPromptSubmit', prompt_id: 'p2', prompt: 'again' })
     await claude({ hook_event_name: 'Stop', prompt_id: 'p2', stop_hook_active: false })
@@ -389,6 +394,17 @@ describe('the turn ledger in a session', () => {
       await claude(late)
       expect([st.status, st.turn, agentRuntime(st as never).maintenance], JSON.stringify(late)).toEqual(['finished', { state: 'over', id: 'p2' }, null])
     }
+    // The launch's SessionEnd, under the latest compaction's id with none of it running (as at the probe's stop): stopped.
+    const { st: st2, l: l2 } = agent('own-compaction-end')
+    ;(l2 as unknown as { adapter: unknown }).adapter = claudeCode
+    const claude2 = (body: Record<string, unknown>) => hook(st2, { transcript_path: undefined, ...body })
+    await claude2({ hook_event_name: 'UserPromptSubmit', prompt_id: 'p1', prompt: 'go' })
+    await claude2({ hook_event_name: 'Stop', prompt_id: 'p1', stop_hook_active: false })
+    await claude2({ hook_event_name: 'PreCompact', prompt_id: 'k1', trigger: 'manual', custom_instructions: '' })
+    await claude2({ hook_event_name: 'PostCompact', prompt_id: 'k1', trigger: 'manual' })
+    await claude2({ hook_event_name: 'PreCompact', prompt_id: 'k1', trigger: 'manual', custom_instructions: '' })
+    await claude2({ hook_event_name: 'SessionEnd', prompt_id: 'k1', reason: 'other' })
+    expect([st2.status, agentRuntime(st2 as never).maintenance]).toEqual(['stopped', null])
   })
 
   it('never ends a turn on silence alone: a short silence is left as it is', async () => {

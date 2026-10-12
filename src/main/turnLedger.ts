@@ -20,7 +20,8 @@ import type { HookEvent, HookIds } from './providers/types'
  *    Two starts the CLI makes by itself, under an id of their own with no prompt hook (Claude Code 2.1.296, verified):
  *    - **a compaction** (`/compact` while idle, or the CLI's own; Darren's decision, option B): its PreCompact, under an
  *      id never seen while no turn runs, opens that compaction, not a turn; only its own launch-wide news follows under
- *      that id (SessionStart, PostCompact, SessionEnd), until a turn begins.
+ *      that id (SessionStart, PostCompact, SessionEnd), until a turn begins. Once, like a turn: a start of it again (while
+ *      it runs, or after its PostCompact) is stale, and so is its news once it is over, but for the launch's SessionEnd.
  *    - **a background task's wake** (Darren's decision, 12 Oct): it sends its prompt hook (a `<task-notification>`), so it
  *      opens like any prompt. Should that hook be lost, a tool start whose call id the launch never saw opens the turn,
  *      only while the CLI's transcript says a task of it just ended (`woke`), never merely because a task runs.
@@ -68,8 +69,8 @@ export interface TurnLedger {
   calls: Set<string>
   /** An id was let go past the bound (of turns or calls): from then on an id not remembered opens nothing but a prompt. */
   forgot: boolean
-  /** The id of a compaction the CLI began itself (rule 1), its news still to come: until a turn begins. */
-  compaction: string | null
+  /** A compaction the CLI began itself under an id of its own (rule 1), and whether it is still under way: until a turn begins. */
+  compaction: { id: string; open: boolean } | null
   /** Hooks received for the launch, in order (the receive sequence the log gives each). */
   seq: number
   /** When Hive last heard from the CLI (a hook, the transcript growing, its screen showing it at work), ms. */
@@ -176,9 +177,14 @@ export function admit(ledger: TurnLedger, ev: HookEvent, ids: HookIds, opts: { h
   // Stale (rule 1), but for the starts that open one under an id never seen: a prompt, a compaction the CLI began, and
   // (only while it woke) a wake's first tool call.
   if (turn && a?.id !== turn) {
-    // The news of a compaction the CLI began itself (its id until a turn begins): the launch's, never a turn's.
-    if (turn === ledger.compaction) {
+    // The news of a compaction the CLI began itself (its id until a turn begins): the launch's, never a turn's. It begins
+    // once and ends once: a start of it again, or its news once it is over, is stale; the launch's SessionEnd isn't.
+    const k = ledger.compaction
+    if (turn === k?.id) {
       if (!launchWide) return { verdict: 'stale', why: `${what(ev)} under a compaction's id` }
+      if (ev.kind === 'compactStart') return { verdict: 'stale', why: k.open ? 'a repeated compaction start' : 'a compaction start of a compaction that is over' }
+      if (!k.open && ev.kind !== 'end') return { verdict: 'stale', why: `${what(ev)} of a compaction that is over` }
+      if (ev.kind === 'compactEnd') k.open = false
       if (ev.kind === 'end') end(ledger, 'end')
       return { verdict: 'apply', event: ev }
     }
@@ -190,7 +196,7 @@ export function admit(ledger: TurnLedger, ev: HookEvent, ids: HookIds, opts: { h
     if (!earlier && !ledger.forgot && !ids.sub) {
       if (ev.kind === 'compactStart' && !running) {
         remember(ledger, ledger.seen, turn, ledger.maxSeen)
-        ledger.compaction = turn
+        ledger.compaction = { id: turn, open: true }
         return { verdict: 'apply', event: ev, note: 'a compaction the CLI began itself, under its own id' }
       }
       if (ev.kind === 'toolStart' && opts.woke && !running && ids.call && !ledger.calls.has(ids.call)) {
