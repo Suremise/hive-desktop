@@ -800,10 +800,15 @@ export interface AgentDef {
   persona?: string
   /** What the agent is for ("builder", "reviewer"; free text, #126): saved in templates; empty, its name is its role. */
   role?: string
+  /**
+   * Only these of the project's MCP servers (#537, shared/agentMcp.ts), saved in templates; absent: all of them. The
+   * built-in hive server is given whatever this says.
+   */
+  mcpServers?: string[]
 }
 
-/** A change to an agent's settings: empty values (null for use200kContext) clear an override so it follows the project. */
-export type AgentPatch = Partial<Pick<AgentDef, 'name' | 'provider' | 'model' | 'effort' | 'permissionMode' | 'persona' | 'role'>> & { use200kContext?: boolean | null }
+/** A change to an agent's settings: empty values (null for use200kContext and mcpServers) clear an override so it follows the project. */
+export type AgentPatch = Partial<Pick<AgentDef, 'name' | 'provider' | 'model' | 'effort' | 'permissionMode' | 'persona' | 'role'>> & { use200kContext?: boolean | null; mcpServers?: string[] | null }
 
 /** What loading a template into a project would do (#126), and what stops it now. */
 /**
@@ -876,6 +881,8 @@ export interface AddAgentOptions {
   permissionMode?: PermissionMode
   use200kContext?: boolean
   role?: string
+  /** Only these of the project's MCP servers (#537); absent: all of them. */
+  mcpServers?: string[]
   /**
    * #456: new-worktree, work in the project's unused worktree on that branch instead when it is merged into the base and
    * clean, brought up to the base; existing-worktree, bring the one chosen up to the base when it is merged and clean.

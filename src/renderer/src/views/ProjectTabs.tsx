@@ -5,6 +5,7 @@ import { KeybindingsEditor } from '../components/Keybindings'
 import type { CompactionEvent, GitDiff, GitStatus, McpServerInfo, MemorySource, PlanLimit, ProjectConfig, ProjectInfo, ProviderId, SessionListItem, SessionUsage, SkillInfo, UnusedWorktree } from '@shared/types'
 import { unpricedModel, unpricedText, usesOwnPrices } from '@shared/prices'
 import { formatDateTime } from '@shared/dates'
+import { agentChoosesMcp, agentGetsMcp, agentMcpText } from '@shared/agentMcp'
 import { gitFixText } from '@shared/gitTool'
 import { UnusedHeading, UnusedWorkNotice, UnusedWorktreesLine, UnusedWorktreesSection, useUnusedWorktrees } from '../components/UnusedWorktrees'
 import { PERIODS, activeIn, costText, dailyTotals, money, periodFrom, sumUsage, type DayTotal, type Period, type Totals } from '@shared/usageTotals'
@@ -1180,6 +1181,13 @@ export function ProjectMcpTab({ project }: { project: ProjectInfo }) {
     await actions.refreshWorkspace()
   }
   const hiveOn = !!(settings?.agentApi.enabled && settings.agentApi.provideHiveMcp && api?.running)
+  // Which agents get a server, once any agent has a choice of its own (#537, Agent Settings → MCP servers).
+  const choosing = project.agents.some((a) => agentChoosesMcp(a))
+  const givenTo = (name: string): string | null => {
+    if (!choosing) return null
+    const to = project.agents.filter((a) => agentGetsMcp(a, name)).map((a) => a.name)
+    return to.length === project.agents.length ? 'Given to every agent' : to.length ? `Given to ${to.join(', ')} only` : 'Given to no agent (each chose others)'
+  }
   return (
     <div className="scroll-page">
       <div className="page-narrow">
@@ -1202,6 +1210,7 @@ export function ProjectMcpTab({ project }: { project: ProjectInfo }) {
           <div className="toggle-list">
             {servers.map((m) => {
               const on = m.globallyEnabled && !disabled.has(m.name)
+              const given = givenTo(m.name)
               return (
                 <div key={m.name} className={cx('toggle-item', !m.globallyEnabled && 'disabled')}>
                   <Icon name={m.def?.url ? 'globe' : 'plug'} />
@@ -1210,6 +1219,7 @@ export function ProjectMcpTab({ project }: { project: ProjectInfo }) {
                       {m.name} {!m.globallyEnabled && <span className="badge">disabled in workspace</span>} {m.error && <span className="badge error">invalid</span>}
                     </div>
                     <div className="ti-desc">{m.error ?? m.def?.description ?? m.def?.command}</div>
+                    {on && given && <div className="ti-desc">{given}</div>}
                   </div>
                   <Switch checked={on} disabled={!m.globallyEnabled || !!m.error} onChange={(v) => void toggle(m.name, v)} />
                 </div>
@@ -1317,7 +1327,7 @@ function AgentList({ project }: { project: ProjectInfo }) {
       {project.agents.map((a) => {
         const provider = agentProviderOf(project, a)
         const model = effectiveModelLabel(provider, a.model || projectProviderConfig(cfg, provider).model, providerSettings(settings, provider).defaultModel, providers[provider])
-        const overrides = [a.model && `model ${modelLabel(a.model, provider)}`, a.effort && `effort ${a.effort}`, a.permissionMode && permissionLabel(provider, a.permissionMode), a.use200kContext !== undefined && `200K context ${a.use200kContext ? 'on' : 'off'}`].filter(Boolean)
+        const overrides = [a.model && `model ${modelLabel(a.model, provider)}`, a.effort && `effort ${a.effort}`, a.permissionMode && permissionLabel(provider, a.permissionMode), a.use200kContext !== undefined && `200K context ${a.use200kContext ? 'on' : 'off'}`, agentChoosesMcp(a) && `MCP servers ${agentMcpText(a)}`].filter(Boolean)
         const off = !isProviderEnabled(settings, provider)
         return (
           <div key={a.id} className={cx('agent-list-row', off && 'off')}>

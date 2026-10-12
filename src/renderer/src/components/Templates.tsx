@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useState } from 'react'
 import { MAX_AGENTS, SESSION_LAYOUTS } from '@shared/defaults'
+import { agentChoosesMcp, agentMcpText } from '@shared/agentMcp'
 import { isKnownProvider, providerDescriptor, providerName } from '@shared/providers'
 import { TEMPLATE_DESCRIPTION_MAX, TEMPLATE_NAME_MAX, uniqueName, unknownProviders, type TemplateAgent, type TemplateDest, type TemplateDeleted, type TemplateEntry, type TemplateRef } from '@shared/templates'
 import type { PageLayout, ProjectInfo } from '@shared/types'
@@ -391,7 +392,10 @@ function TemplateEditor({ t, project, onDone }: { t: TemplateEntry; project?: Pr
                   <td>{a.model ?? 'Default'}{a.use200kContext ? ' · 200K context' : ''}</td>
                   <td>{settingText(a, 'effort')}</td>
                   <td>{settingText(a, 'permissionMode')}</td>
-                  <td>{a.worktree ? 'Its own worktree' : 'The project folder'}</td>
+                  <td>
+                    {a.worktree ? 'Its own worktree' : 'The project folder'}
+                    {agentChoosesMcp(a) && <div className="faint">MCP servers: {agentMcpText(a)}</div>}
+                  </td>
                   <td className="template-agent-actions">
                     <IconButton icon="edit" title={known ? `Edit ${a.name}…` : "This Hive doesn't know its coding agent: it can be moved or removed, not edited"} disabled={!known || busy} onClick={() => void edit(i)} />
                     <IconButton icon="copy" title={`Copy ${a.name}`} disabled={!known || full || busy} onClick={() => void edit(i, true)} />
@@ -492,7 +496,10 @@ export function TemplateDetail({ t, project, onGone, onSelect }: { t: TemplateEn
                     <td>{a.model ?? 'Default'}{a.use200kContext ? ' · 200K context' : ''}</td>
                     <td>{settingText(a, 'effort')}</td>
                     <td>{settingText(a, 'permissionMode')}</td>
-                    <td>{a.worktree ? 'Its own worktree' : 'The project folder'}</td>
+                    <td>
+                      {a.worktree ? 'Its own worktree' : 'The project folder'}
+                      {agentChoosesMcp(a) && <div className="faint">MCP servers: {agentMcpText(a)}</div>}
+                    </td>
                   </tr>
                 ))}
               </tbody>

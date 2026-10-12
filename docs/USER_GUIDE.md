@@ -712,6 +712,16 @@ A server can be a program Hive starts (`command`, `args`, `env`, as above) or on
 
 A server you add or change is used by sessions started afterwards; restart a running session to give it the change.
 
+### Giving a server to some agents only
+
+By default every agent in a project gets all of the project's servers. To keep a server's tools away from agents that don't need it (each server's tools take up room in an agent's context), open the agent's settings (right-click its tab → **Agent Settings…**) and under **MCP servers** choose **Only these**, then untick the servers it shouldn't have. For example, a release-testing agent can have a sandbox server that the builders don't. Choosing **Only these** starts with every server ticked, so nothing changes until you untick one; **All of the project's** puts it back.
+
+- Hive's own `hive` server is always given, whatever you choose.
+- An agent with **Only these** doesn't get a server enabled later: tick it in its settings. One with **All** gets it.
+- A running agent takes the change when it restarts.
+- Templates keep the choice, so an agent loaded from a template gets the same servers, where they're on.
+- The agent's tooltip shows its choice, and once any agent has one, the project's **MCP** tab says under each server which agents get it.
+
 ### Adding a server from a file
 
 **Add MCP Server from File** (the file icon in the MCP view's header) adds a server someone gave you, as **Add Skill from File** does for skills:

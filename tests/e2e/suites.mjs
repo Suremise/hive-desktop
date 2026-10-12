@@ -102,6 +102,7 @@ export const SUITES = [
   { name: 'loopwakes' },
   { name: 'loopwatch' },
   { name: 'mcp' },
+  { name: 'mcpagents' },
   { name: 'mcpfile' },
   { name: 'mergeslot' },
   { name: 'mode', needs: ['claude'], claudeHome: 'own' },

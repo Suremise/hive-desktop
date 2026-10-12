@@ -55,6 +55,7 @@ import { asksYou } from '../shared/inbox'
 import { FinishBatcher, finishedNotice, noticeRoute, type FocusedHive, type NoticeRoute } from '../shared/bursts'
 import { recordCards } from './cardSessions'
 import { listMcp, toLaunchDef } from './mcp'
+import { agentGetsMcp } from '../shared/agentMcp'
 import { launchEnded, leftoversOf, noteUntracked, settleLeftovers, trackingProblem, trackingReady, trackLaunch, type TrackResult } from './agentProcesses'
 import type { GateWord } from './launchGate'
 import { leftoversSummary, processCount } from '../shared/agentProcesses'
@@ -711,16 +712,18 @@ class SessionManager {
       }
     }
     const mcpDisabled = new Set(pc.mcp.disabled)
+    // The agent's own choice narrows the project's servers (#537): all of them unless it names some.
+    const forAgent = agent ?? projectAgents(pc)[0]
     const mcpServers: Record<string, McpServerDef> = {}
     for (const m of await listMcp()) {
-      if (m.globallyEnabled && !mcpDisabled.has(m.name) && m.def) mcpServers[m.name] = toLaunchDef(m.def, workspace.mcpDir)
+      if (m.globallyEnabled && !mcpDisabled.has(m.name) && m.def && agentGetsMcp(forAgent, m.name)) mcpServers[m.name] = toLaunchDef(m.def, workspace.mcpDir)
     }
     const hive = this.hiveMcp(projectPath, agent?.id)
     if (hive) mcpServers.hive = hive
     // The Assistant looks after the workspace with Hive's own tools, not the projects' MCP servers.
     if (assistant) for (const k of Object.keys(mcpServers)) if (k !== 'hive') delete mcpServers[k]
 
-    const l = agentLaunchSettings(agent ?? projectAgents(pc)[0], pc, s)
+    const l = agentLaunchSettings(forAgent, pc, s)
     const extraArgs = l.extraArgs.flatMap((a) => splitArgs(a))
     const chime = pc.chime === 'inherit' ? s.notifications.chimeEnabled : pc.chime === 'on'
     return { provider: l.provider, skills, skillHashes, skillProblems, mcpServers, model: l.model, effort: l.effort, permissionMode: l.permissionMode, extraArgs, use200kContext: l.use200kContext, chime }

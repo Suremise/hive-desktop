@@ -4,6 +4,7 @@
 // the places to manage them (the Templates view, a project's Templates tab) and sharing them as files (export, import).
 import { MAX_AGENTS, ROLE_MAX, SESSION_LAYOUTS, projectAgents } from './defaults'
 import { isKnownProvider } from './providers'
+import { cleanMcpServers } from './agentMcp'
 import type { AgentDef, EffortLevel, PageLayout, PermissionMode, ProviderId } from './types'
 
 /** The format's version: a template made by a newer Hive (a higher one) is refused rather than half read. */
@@ -49,6 +50,8 @@ export interface TemplateAgent {
   effort?: EffortLevel
   permissionMode?: PermissionMode
   use200kContext?: boolean
+  /** Only these of the project's MCP servers (#537); absent: all of them. */
+  mcpServers?: string[]
   /** Its own new worktree (true) or the project folder. */
   worktree: boolean
 }
@@ -99,6 +102,7 @@ export function templateFrom(name: string, agents: AgentDef[], layout: PageLayou
       ...(a.effort ? { effort: a.effort } : {}),
       ...(a.permissionMode ? { permissionMode: a.permissionMode } : {}),
       ...(typeof a.use200kContext === 'boolean' ? { use200kContext: a.use200kContext } : {}),
+      ...(Array.isArray(a.mcpServers) ? { mcpServers: [...a.mcpServers] } : {}),
       worktree: !!a.worktree
     }))
   }
@@ -129,6 +133,12 @@ export function readTemplate(raw: unknown): AgentTemplate | string {
     if (a.role !== undefined && (typeof a.role !== 'string' || a.role.length > ROLE_MAX)) return `${name}'s role is over ${ROLE_MAX} characters.`
     for (const k of ['model', 'effort', 'permissionMode'] as const) if (a[k] !== undefined && !setting(a[k])) return `${name}'s ${k} isn't one Hive can use.`
     if (a.use200kContext !== undefined && typeof a.use200kContext !== 'boolean') return `${name}'s context setting isn't one Hive can use.`
+    let mcpServers: string[] | undefined
+    try {
+      mcpServers = cleanMcpServers(a.mcpServers)
+    } catch {
+      return `${name}'s MCP servers aren't a list Hive can use.`
+    }
     const role = typeof a.role === 'string' ? a.role.replace(/\s+/g, ' ').trim() : ''
     agents.push({
       name,
@@ -138,6 +148,7 @@ export function readTemplate(raw: unknown): AgentTemplate | string {
       ...(a.effort ? { effort: a.effort as string } : {}),
       ...(a.permissionMode ? { permissionMode: a.permissionMode as string } : {}),
       ...(typeof a.use200kContext === 'boolean' ? { use200kContext: a.use200kContext } : {}),
+      ...(mcpServers ? { mcpServers } : {}),
       worktree: a.worktree === true
     })
   }
