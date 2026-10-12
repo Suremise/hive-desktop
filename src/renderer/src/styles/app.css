@@ -2580,6 +2580,87 @@ p.hint {
 .setting.danger .s-title {
   color: var(--error);
 }
+/* Settings → Advanced's list (#367): about:config style, grouped by Hive and each CLI. */
+.advanced-list {
+  max-width: 900px;
+  margin-top: 8px;
+}
+.advanced-bar {
+  display: flex;
+  gap: 12px;
+  align-items: center;
+  flex-wrap: wrap;
+  margin-bottom: 8px;
+}
+.advanced-bar .search-box {
+  flex: 1;
+  min-width: 200px;
+}
+.advanced-group h3 {
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--fg-muted);
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  margin: 16px 0 2px;
+  padding-bottom: 4px;
+  border-bottom: 1px solid var(--border-subtle);
+}
+.advanced-row .advanced-id {
+  font-family: 'Cascadia Code', Consolas, monospace;
+  font-size: 11px;
+  color: var(--fg-muted);
+  margin-top: 2px;
+  overflow-wrap: anywhere;
+}
+.advanced-row .s-desc code {
+  font-family: 'Cascadia Code', Consolas, monospace;
+  overflow-wrap: anywhere;
+}
+.advanced-row.invalid .s-title {
+  color: var(--error);
+}
+.advanced-row .advanced-control {
+  flex-direction: column;
+  align-items: stretch;
+}
+.advanced-row .input.mono {
+  font-family: 'Cascadia Code', Consolas, monospace;
+  font-size: 12px;
+}
+.advanced-workspace {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  font-size: 12px;
+}
+.advanced-note {
+  font-size: 12px;
+  margin-top: 6px;
+  line-height: 1.5;
+}
+.advanced-note > .codicon {
+  vertical-align: -3px;
+  margin-right: 4px;
+}
+.advanced-note .btn {
+  margin-left: 6px;
+}
+.advanced-note.error {
+  color: var(--error);
+}
+.advanced-note.warn {
+  color: var(--warning);
+}
+@media (max-width: 700px) {
+  .setting.advanced-row {
+    flex-direction: column;
+    gap: 8px;
+  }
+  .setting.advanced-row .s-control {
+    width: 100%;
+  }
+}
 .range {
   accent-color: var(--accent);
   width: 100%;

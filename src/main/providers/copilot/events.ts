@@ -9,6 +9,7 @@ import { COPILOT } from '../../../shared/copilot'
 import { formatToolInput } from '../claude/conversation'
 import { firstLine, shortPath, type NewItem } from '../conversation'
 import type { ConversationParserLike, ExternalSession, ImageLocation, LiveDetails } from '../types'
+import { advanced } from '../../advanced'
 
 /**
  * The Copilot CLI's sessions (COPILOT_HOME/session-state/<id>/): events.jsonl holds one JSON event per line,
@@ -44,14 +45,16 @@ const realModel = (m: unknown): string | null => (typeof m === 'string' && m && 
 /**
  * The CLI's message when an error means its sign-in was refused or is missing (#309), else null: a session.error the
  * CLI marks as authentication, or one of its sign-in messages ("Please use /login to sign in to use Copilot", a 401).
- * Not seen in the spike (an invalid token falls back to the stored login), so this only knows the messages.
+ * Not seen in the spike (an invalid token falls back to the stored login); recorded offline with a 401 from the model
+ * API (tests/fixtures/advanced/signin-error-copilot-1.0.95.jsonl: errorType "authentication").
  */
 export function signInRefused(data: unknown): string | null {
   if (!data || typeof data !== 'object') return null
   const d = data as { errorType?: unknown; message?: unknown }
   const message = typeof d.message === 'string' ? d.message : ''
-  if (typeof d.errorType === 'string' && /^auth/i.test(d.errorType)) return message || 'Copilot isn’t signed in.'
-  return /please use \/login|sign in to use copilot|not (?:signed|logged) in|\b401\b|bad credentials/i.test(message) ? message : null
+  // Both patterns are advanced settings (#367).
+  if (typeof d.errorType === 'string' && advanced.pattern('copilot.signIn.errorType').test(d.errorType)) return message || 'Copilot isn’t signed in.'
+  return advanced.pattern('copilot.signIn.errorMessage').test(message) ? message : null
 }
 
 /** What eventsDetails keeps between a launch's reads: the model call being read has the user's refusal of a prompt. */

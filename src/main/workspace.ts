@@ -8,6 +8,7 @@ import chokidar, { type FSWatcher } from 'chokidar'
 import { ASSISTANT_DIR, ASSISTANT_NAME, PERSONAS_DIR, assistantProjectConfig } from '../shared/assistant'
 import { DEFAULT_PROJECT_CONFIG, DEFAULT_WORKSPACE_CONFIG, HIVE_DIR, mergeDefaults, migrateProjectConfig, projectAgents, withLegacyProjectFields, withoutSkillSwitches } from '../shared/defaults'
 import { LANE_MAX_ROUNDS, LOOP_WAIT_MAX_HOURS } from '../shared/lanes'
+import { advancedDef, checkAdvanced } from '../shared/advanced'
 import type { AgentDef, AgentInfo, HiddenProject, HiveEvent, KeptUsage, LiveSessionState, ProjectConfig, ProjectInfo, RemovedData, SessionRecord, WorkspaceConfig, WorkspaceInfo, WorkspaceMoved } from '../shared/types'
 import { config } from './config'
 import { emit, emitTo } from './events'
@@ -525,6 +526,23 @@ export class WorkspaceService {
     this.wsConfig.loops = { ...this.wsConfig.loops, ...(patch.rounds !== undefined ? { rounds: patch.rounds } : {}), ...(patch.waitHours !== undefined ? { waitHours: patch.waitHours } : {}) }
     await this.saveWorkspaceConfig()
     this.scheduleRefresh()
+  }
+
+  /** Sets the workspace's own value of an advanced setting a workspace can set (#367), or removes it (null: Hive's again). */
+  async setAdvanced(id: string, raw: unknown): Promise<void> {
+    if (!this.path) throw new Error('No workspace is open')
+    const def = advancedDef(id)
+    if (!def?.workspace) throw new Error(`${def?.title ?? id} can't be set for a workspace.`)
+    const own = { ...this.wsConfig.advanced }
+    if (raw === null || raw === undefined) delete own[id]
+    else {
+      const checked = checkAdvanced(def, raw)
+      if ('error' in checked) throw new Error(checked.error)
+      own[id] = checked.value
+    }
+    if (Object.keys(own).length) this.wsConfig.advanced = own
+    else delete this.wsConfig.advanced
+    await this.saveWorkspaceConfig()
   }
 
   /** Leaves a project folder out of the workspace (mode says how), or takes it back (null). */
