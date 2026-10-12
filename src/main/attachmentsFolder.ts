@@ -105,7 +105,6 @@ async function moveOldFolder(host: string): Promise<void> {
   }
   let moved = 0
   let left = 0
-  const renamed: Record<string, string> = {}
   for (const d of await readdir(old)) {
     const from = join(old, d)
     const to = join(dest, d)
@@ -127,9 +126,11 @@ async function moveOldFolder(host: string): Promise<void> {
       }
       const target = await freeName(to, f, (i) => ` (moved${i > 1 ? ` ${i}` : ''})`)
       try {
+        // A renamed file's new name is on disk before it moves: if recording it fails, it stays at its old path (where
+        // old links find it first); if the move then fails or Hive stops, the record is unused while the old path is.
+        if (target !== join(to, f)) await recordRenamed(dest, `${d}/${f}`, `${d}/${target.slice(to.length + 1)}`)
         await rename(join(from, f), target)
         moved++
-        if (target !== join(to, f)) renamed[`${d}/${f}`] = `${d}/${target.slice(to.length + 1)}`
       } catch (e) {
         left++
         log.warn(`Could not move ${userText(f)} to ${ATTACHMENTS_DIR}`, e)
@@ -137,18 +138,35 @@ async function moveOldFolder(host: string): Promise<void> {
     }
     await rmdir(from).catch(() => undefined)
   }
-  if (Object.keys(renamed).length) await writeJsonAtomic(join(dest, MOVED_FILE), { ...(await readMoved(dest)), ...renamed })
   await rmdir(old).catch(() => undefined)
   log.info(`Moved ${moved} file(s) of ${userText(old)} to ${ATTACHMENTS_DIR}${left ? `; ${left} left there` : ''}`)
 }
 
+/** The renamed files' record, for resolving old links: empty when there is none or it can't be read. */
 async function readMoved(root: string): Promise<Record<string, string>> {
   try {
     const v = JSON.parse(await readFile(join(root, MOVED_FILE), 'utf8')) as unknown
-    return v && typeof v === 'object' ? (v as Record<string, string>) : {}
+    return v && typeof v === 'object' && !Array.isArray(v) ? (v as Record<string, string>) : {}
   } catch {
     return {}
   }
+}
+
+/**
+ * Adds one renamed file to the record, keeping every entry already there. Throws when the record is there but can't be
+ * read as one (damaged, or not a file): it is never replaced by a record that has lost what it held.
+ */
+async function recordRenamed(root: string, from: string, to: string): Promise<void> {
+  const path = join(root, MOVED_FILE)
+  let map: Record<string, string> = {}
+  try {
+    const v = JSON.parse(await readFile(path, 'utf8')) as unknown
+    if (!v || typeof v !== 'object' || Array.isArray(v)) throw new Error(`${MOVED_FILE} is not a record of moved files`)
+    map = v as Record<string, string>
+  } catch (e) {
+    if ((e as NodeJS.ErrnoException).code !== 'ENOENT') throw e
+  }
+  await writeJsonAtomic(path, { ...map, [from]: to })
 }
 
 /**

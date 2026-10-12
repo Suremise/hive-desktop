@@ -155,6 +155,55 @@ describe.runIf(process.platform === 'win32')('attachments on disk', () => {
     }
   })
 
+  /** Old and new links of a collision each open their own file, before and after a restart. */
+  const bothResolve = async (): Promise<void> => {
+    for (const restarted of [false, true]) {
+      if (restarted) forgetMoves()
+      const [oldLink, newLink] = await run(() => files.linkFiles(proj, [`.hive/images/${sid}/a.png`, `.hive/attachments/${sid}/a.png`]))
+      expect(readFileSync(join(proj, ...oldLink!.split('/')), 'utf8')).toBe('old')
+      expect(readFileSync(join(proj, ...newLink!.split('/')), 'utf8')).toBe('new')
+    }
+  }
+
+  it("a collision whose new name can't be recorded stays at its old path, where old links still find it", async () => {
+    write(join(proj, '.hive', 'attachments', sid, 'a.png'), 'new')
+    const old = write(join(proj, '.hive', 'images', sid, 'a.png'), 'old')
+    write(join(proj, '.hive', 'images', sid, 'b.png'), 'b')
+    // The record can't be written: something that isn't a file has its name.
+    mkdirSync(join(proj, '.hive', 'attachments', '.moved.json'), { recursive: true })
+    await attachmentsDir(proj)
+    expect(readFileSync(old, 'utf8')).toBe('old')
+    expect(existsSync(join(proj, '.hive', 'attachments', sid, 'a (moved).png'))).toBe(false)
+    // What didn't collide moved all the same.
+    expect(readFileSync(join(proj, '.hive', 'attachments', sid, 'b.png'), 'utf8')).toBe('b')
+    await bothResolve()
+  })
+
+  it('a damaged record of renamed files is kept, not replaced by one that lost its entries', async () => {
+    write(join(proj, '.hive', 'attachments', sid, 'a.png'), 'new')
+    const old = write(join(proj, '.hive', 'images', sid, 'a.png'), 'old')
+    const record = write(join(proj, '.hive', 'attachments', '.moved.json'), '{ damaged')
+    await attachmentsDir(proj)
+    expect(readFileSync(record, 'utf8')).toBe('{ damaged')
+    expect(readFileSync(old, 'utf8')).toBe('old')
+    await bothResolve()
+  })
+
+  it('stopped between recording a new name and moving the file, old links still open the original', async () => {
+    write(join(proj, '.hive', 'attachments', sid, 'a.png'), 'new')
+    write(join(proj, '.hive', 'images', sid, 'a.png'), 'old')
+    // As a run that recorded the rename, then stopped before the move, leaves it; with its folder move not yet done.
+    write(join(proj, '.hive', 'attachments', '.moved.json'), JSON.stringify({ [`${sid}/a.png`]: `${sid}/a (moved).png` }))
+    // Before any move this run: the old path is still there, and old links open it (the record isn't used).
+    await bothResolve()
+    // The next run's move finishes it, to the recorded name.
+    forgetMoves()
+    await attachmentsDir(proj)
+    expect(existsSync(join(proj, '.hive', 'images', sid, 'a.png'))).toBe(false)
+    expect(readFileSync(join(proj, '.hive', 'attachments', sid, 'a (moved).png'), 'utf8')).toBe('old')
+    await bothResolve()
+  })
+
   for (const where of ['session folder', 'attachments folder', '.hive folder'] as const) {
     it(`never writes an attachment through a linked ${where}`, async () => {
       if (where === '.hive folder') rmSync(join(proj, '.hive'), { recursive: true, force: true })
