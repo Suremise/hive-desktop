@@ -2,6 +2,10 @@
 
 ## Unreleased
 
+### Messages
+- **Messages to agents are kept, and you can see where they got to.** What the Assistant leaves an agent (`hive_message_agent`) is now a saved delivery with an id: it survives the agent stopping and Hive restarting, and its state goes from waiting to typed, **received** (the agent read it with its new inbox, `hive_inbox`) and **acked** (the agent says it acted on it). The pane shows **✉ 1 unread** until the agent has it, and **✉ 1 overdue** when it hasn't acked one within 30 minutes; the Assistant sees each one's state and times in the agent's activity. A message still waiting when the Assistant that left it stops, or Hive restarts, is refused rather than sent later, and the Assistant's activity list says so.
+- **Agent API**: `POST /v1/inbox` (an agent's or the Assistant's own inbox, and `ack`), `GET /v1/projects/{name}/agents/{agent}/deliveries`, and the activity's `inbox` replace `messagesWaiting` and `lastMessages`; the event stream's `queuedMessages` is now `inbox`. The API's version is 4.
+
 ### Performance
 - **What each card cost.** A card's panel now says what its agents used while they held it, such as **cost: ≈ $1.84 · 2 rounds**: its builder while it was in Doing and its reviewer from the start of each review to its verdict, as each provider reported it, with each side's part and tokens on hover. Performance has a sortable **Cards** table (cost, builder, reviewer, rounds) for the cards worked on in its range, a row opening its card; and hovering a lane's top line in the Progress panel shows what the lane cost, split into its cards and its **overhead**, what the builder and reviewer used holding no card (merges, watching, compactions), with the cost per finished card. Estimates are marked ≈ and what Hive can't know shows as **Unknown**, never $0. Cards worked on before this keep their cost too, worked out from their history.
 
