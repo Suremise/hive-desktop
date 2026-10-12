@@ -1171,6 +1171,123 @@ describe('watches (main/watches.ts)', async () => {
     }
   })
 
+  it("two projects' wakes with the same delivery id (each project's m1): a receipt ends only its own project's watch (#649 round 2)", async () => {
+    const { w, path, alpha } = await open()
+    const beta = join(path, 'beta')
+    mkdirSync(join(beta, '.hive'), { recursive: true })
+    writeFileSync(join(beta, '.hive', 'project.json'), JSON.stringify({ version: 2, agents: [{ id: 'b1', name: 'Bee' }] }))
+    await w.refresh()
+    const st = { typed: [] as string[], taken: new Map<string, number>([['a1', 0], ['b1', 0]]), status: new Map<string, string>([['a1', 'watching'], ['b1', 'watching']]) }
+    const same = (a: string, b: string): boolean => a.toLowerCase() === b.toLowerCase()
+    const who = (p: string, id: string): string | null => ((same(p, alpha) && id === 'a1') || (same(p, beta) && id === 'b1') ? id : null)
+    Object.assign(sessions, {
+      liveFor: (p: string, id: string) => (who(p, id) ? ({ projectPath: p, agentId: id, status: st.status.get(id), runId: `run-${id}`, sessionId: `s-${id}` } as never) : null),
+      promptsTaken: (p: string, id: string) => (who(p, id) ? { runId: `run-${id}`, count: st.taken.get(id)! } : null),
+      userMayBeTyping: () => false,
+      sendPrompt: async (_p: string, id: string, text: string, guard?: () => void) => {
+        guard?.()
+        st.typed.push(`${id}: ${text}`)
+        st.status.set(id, 'finished')
+      },
+      watchChanged: () => undefined
+    })
+    writer.testHooks.takeMs = 20
+    try {
+      const ca = await inWorkspace(w, () => tasks.createTask({ title: 'A', project: 'alpha' }, user))
+      const cb = await inWorkspace(w, () => tasks.createTask({ title: 'B', project: 'beta' }, user))
+      await watches.registerWatch(w, alpha, 'a1', { cards: [ca.number], changes: ['comment'] })
+      await watches.registerWatch(w, beta, 'b1', { cards: [cb.number], changes: ['comment'] })
+      await inWorkspace(w, () => tasks.commentTask(ca.number, 'for alpha', user))
+      await inWorkspace(w, () => tasks.commentTask(cb.number, 'for beta', user))
+      await evaluated(w)
+      expect(st.typed).toHaveLength(2)
+      expect((await deliveries.deliveriesOf(alpha, 'a1')).map((r) => r.id)).toEqual(['m1'])
+      expect((await deliveries.deliveriesOf(beta, 'b1')).map((r) => r.id)).toEqual(['m1'])
+      // Alpha's line is taken: only alpha's watch ends.
+      st.taken.set('a1', 1)
+      await deliveries.followAllForTests()
+      await watches.settled()
+      expect(watches.watchFor(alpha, 'a1')).toBeNull()
+      expect(watches.watchFor(beta, 'b1')?.cards).toEqual([cb.number])
+      // Beta's then.
+      st.taken.set('b1', 1)
+      await deliveries.followAllForTests()
+      await watches.settled()
+      expect(watches.watchFor(beta, 'b1')).toBeNull()
+    } finally {
+      writer.testHooks.takeMs = undefined
+      await writer.settled()
+      await disposeWorkspaceService(w)
+    }
+  })
+
+  it("a lane wake's marks move only once it is received: one not received (cancelled, expired) fires again on the same events; kept pending across a restart (#649 round 2)", async () => {
+    const lanes = await import('../src/main/lanes')
+    const { w, path, alpha } = await open()
+    const st = fake(alpha)
+    // The CLI doesn't take what is typed.
+    Object.assign(sessions, {
+      sendPrompt: async (_p: string, _id: string, text: string, guard?: () => void) => {
+        guard?.()
+        st.typed.push(text)
+        st.status = 'finished'
+      }
+    })
+    writer.testHooks.takeMs = 20
+    try {
+      const c = await inWorkspace(w, () => tasks.createTask({ title: 'Laned', project: 'alpha', agent: 'a1', column: 'doing' }, user))
+      const lane = (await lanes.startLane(w, { project: 'alpha', builder: 'a1', reviewer: 'a2', cards: [c.number], by: 'Builder (alpha)' })).lane
+      await watches.registerLaneWatch(w, alpha, 'a1', { ids: [lane.id], events: ['failed', 'blocked', 'stalled', 'merge-due', 'ended', 'abandoned'] })
+      const marksBefore = JSON.parse(readFileSync(join(path, '.hive', 'watches.json'), 'utf8')).watches[0].laneMarks
+      await lanes.endLane(w, lane.id, { abandoned: true })
+      await evaluated(w)
+      expect(st.typed).toHaveLength(1)
+      // Handed over, not received: the watch's own marks haven't moved; the line's are pending with it, saved.
+      const saved = JSON.parse(readFileSync(join(path, '.hive', 'watches.json'), 'utf8')).watches[0]
+      expect(saved.laneMarks).toEqual(marksBefore)
+      expect(saved.fired.laneMarks[lane.id].state).toBe('abandoned')
+      // Cancelled without a receipt: the watch fires again on the same event.
+      await deliveries.cancelFromSource(alpha, 'watch', null, 'cancelled: a test')
+      await watches.settled()
+      await vi.waitFor(() => expect(st.typed).toHaveLength(2), { timeout: HUNG_MS })
+      expect(st.typed[1]).toBe(st.typed[0])
+      // Read back after a restart before its receipt: still pending, and the watch's marks still as they were.
+      await deliveries.forgetDeliveriesForTests()
+      watches.forgetWatches(w)
+      await vi.waitFor(() => expect(watches.watchFor(alpha, 'a1')).not.toBeNull(), { timeout: HUNG_MS })
+      await watches.settled()
+      const back = JSON.parse(readFileSync(join(path, '.hive', 'watches.json'), 'utf8')).watches[0]
+      expect(back.laneMarks).toEqual(marksBefore)
+      expect(back.fired.laneMarks[lane.id].state).toBe('abandoned')
+    } finally {
+      writer.testHooks.takeMs = undefined
+      await writer.settled()
+      await disposeWorkspaceService(w)
+    }
+  })
+
+  it('a watch read back from before #649 marked as being typed (`sending`) is an attempt, not a receipt: handed over once more, saying it may repeat (#649 round 2)', async () => {
+    const { w, path, alpha } = await open()
+    const st = fake(alpha)
+    const c = await inWorkspace(w, () => tasks.createTask({ title: 'Legacy', project: 'alpha' }, user))
+    await watches.registerWatch(w, alpha, 'a1', { cards: [c.number], changes: ['comment'] })
+    await watches.settled()
+    // The file as a build from before #649 left it, typing when Hive stopped.
+    const file = join(path, '.hive', 'watches.json')
+    const data = JSON.parse(readFileSync(file, 'utf8'))
+    data.watches[0].fired = { line: `[Hive] #${c.number} has news. Your card watch has ended: carry on.`, at: new Date().toISOString(), cards: [c.number], sending: new Date().toISOString() }
+    writeFileSync(file, JSON.stringify(data))
+    watches.forgetWatches(w)
+    // Read back (as its agent's state asks for it), handed over and typed.
+    watches.watchFor(alpha, 'a1')
+    await vi.waitFor(() => expect(st.typed).toHaveLength(1), { timeout: HUNG_MS })
+    await watches.settled()
+    expect(st.typed[0]).toMatch(/ \(m1 again: Hive restarted while typing it, so it may repeat\.\)$/)
+    // Received (its CLI took it): the watch ends.
+    expect(watches.watchFor(alpha, 'a1')).toBeNull()
+    await disposeWorkspaceService(w)
+  })
+
   it('a saved watch that is not valid is kept aside and never stops the others; a damaged file is set aside', async () => {
     const { w, path, alpha } = await open()
     const st = fake(alpha)

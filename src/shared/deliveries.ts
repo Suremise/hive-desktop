@@ -90,6 +90,14 @@ export interface DeliveryRecord {
   forRun?: string
 }
 
+/**
+ * The longest a delivery's text may be (#649: a task's prompt, a card's description and the user's note in it, is the
+ * longest a producer makes): refused when it is made, and the same as what is read back, so whatever is saved restores.
+ */
+export const DELIVERY_BODY_MAX_CHARS = 100_000
+/** The longest a reason it ended (or may repeat) is kept: longer ones are cut when they are set, never refused on reading back. */
+export const DELIVERY_DETAIL_MAX_CHARS = 500
+
 /** Unacked this long after it was made, a delivery is overdue: shown as such to the user and the Assistant. */
 export const OVERDUE_MINUTES = 30
 /** How long a delivery waits to be received before it expires. */
@@ -135,7 +143,7 @@ export function moved(r: DeliveryRecord, to: DeliveryState, at: string, detail?:
     next.acked = at
     next.received ??= at
   } else if (to !== 'uncertain') next.ended = at
-  if (detail) next.detail = detail
+  if (detail) next.detail = detail.length > DELIVERY_DETAIL_MAX_CHARS ? `${detail.slice(0, DELIVERY_DETAIL_MAX_CHARS - 1)}…` : detail
   return next
 }
 
@@ -291,19 +299,19 @@ export function readDelivery(v: unknown): DeliveryRecord | null {
   if (!str(r.id, 32) || !/^m\d+$/.test(r.id) || !Number.isInteger(r.seq) || (r.seq as number) < 1 || !str(r.agentId, 128) || !r.agentId) return null
   if (!(DELIVERY_KINDS as readonly unknown[]).includes(r.kind) || !(DELIVERY_STATES as readonly unknown[]).includes(r.state)) return null
   const from = readSender(r.from)
-  if (!from || !str(r.body, 8000) || !time(r.created) || !time(r.expires)) return null
+  if (!from || !str(r.body, DELIVERY_BODY_MAX_CHARS) || !time(r.created) || !time(r.expires)) return null
   if (!(r.conversation === null || str(r.conversation, 200))) return null
   if (r.card !== undefined && !(Number.isInteger(r.card) && (r.card as number) > 0)) return null
   if (![r.offered, r.received, r.acked, r.ended].every(optTime)) return null
   if (r.offers !== undefined && !(Number.isInteger(r.offers) && (r.offers as number) >= 0)) return null
   if (r.receivedVia !== undefined && r.receivedVia !== 'inbox' && r.receivedVia !== 'typed') return null
-  if (r.again !== undefined && !str(r.again, 300)) return null
+  if (r.again !== undefined && !str(r.again, DELIVERY_DETAIL_MAX_CHARS)) return null
   if (r.source !== undefined && !(str(r.source, 40) && /^[a-z-]+$/.test(r.source))) return null
   if (r.ref !== undefined && !str(r.ref, 300)) return null
   if (r.need !== undefined && r.need !== 'free' && r.need !== 'stalled') return null
   if (r.forRun !== undefined && !str(r.forRun, 200)) return null
   if (r.meta !== undefined && !readMeta(r.meta)) return null
-  if (r.detail !== undefined && !str(r.detail, 500)) return null
+  if (r.detail !== undefined && !str(r.detail, DELIVERY_DETAIL_MAX_CHARS)) return null
   if (r.agentName !== undefined && !str(r.agentName, 300)) return null
   if (r.offerRun !== undefined && !str(r.offerRun, 200)) return null
   const out: DeliveryRecord = { id: r.id, seq: r.seq as number, agentId: r.agentId, conversation: (r.conversation as string | null) || null, kind: r.kind as DeliveryKind, from, body: r.body, state: r.state as DeliveryState, created: r.created, expires: r.expires }

@@ -119,10 +119,12 @@ interface WatchRecord {
    * It fired: the line for the agent (made again when it is handed over), and the cards whose state it tells.
    * `delivery`: the delivery it was handed over as (#649, deliveries.ts), saved before the delivery service types it: the
    * watch ends once that is received (its line taken by its CLI, or fetched), and a watch read back with one follows it.
-   * `sending`: from before #649 (Hive began typing it): read back, it counts as delivered. `agents`: an agent watch's
-   * agents it tells about (by agentKey; none for its limit).
+   * `laneMarks`: a lane watch's marks as its line tells them, pending until that delivery is received (the watch's own
+   * marks don't move before: one not received fires again from them). `again`: it may have been given before (read back
+   * from before #649 being typed, `sending`, which proves only an attempt): handed over saying it may repeat.
+   * `agents`: an agent watch's agents it tells about (by agentKey; none for its limit).
    */
-  fired?: { line: string; at: string; cards: number[]; agents?: string[]; lanes?: true; replies?: true; delivery?: string; sending?: string }
+  fired?: { line: string; at: string; cards: number[]; agents?: string[]; lanes?: true; replies?: true; delivery?: string; laneMarks?: Record<string, LaneMark>; again?: true; sending?: string }
 }
 
 interface Store {
@@ -311,10 +313,10 @@ function load(ws: WorkspaceService): Promise<Store> {
     await testHooks.afterLoad?.()
     if (!open()) throw closedError()
     // Only this workspace's agents, each with the view of the board its own token gives it. A watch handed over as a
-    // delivery follows it (below); one from before #649 that was being typed when Hive stopped counts as delivered.
+    // delivery follows it (below); one from before #649 that was being typed when Hive stopped is offered once more.
     const list: WatchRecord[] = []
     const invalid = read.invalid
-    let delivered = false
+    let migrated = false
     // Each watch in its project's folder now, by the project's id (#508), its agents' too; one from before gets the ids.
     const ids = await ws.projectIds()
     if (!open()) throw closedError()
@@ -331,14 +333,21 @@ function load(ws: WorkspaceService): Promise<Store> {
     for (const { rec, raw } of read.list) {
       if (gone.has(rec)) invalid.push(raw)
       else if (!hostedIn(ws, path, rec.projectPath) || (rec.agents && !rec.agents.agents.every((a) => mayWatch(ws, path, rec.projectPath, a.projectPath)))) invalid.push(raw)
-      else if (rec.fired?.sending) {
-        delivered = true
-        log.info(`The wake for ${userText(rec.agentId)} was being typed when Hive stopped: it counts as delivered`)
-      } else if (list.some((x) => same(x.projectPath, rec.projectPath) && x.agentId === rec.agentId)) invalid.push(raw)
-      else list.push({ ...rec, scope: scopeFor(ws, rec.projectPath) })
+      else if (list.some((x) => same(x.projectPath, rec.projectPath) && x.agentId === rec.agentId)) invalid.push(raw)
+      else {
+        // Being typed when Hive stopped (from before #649): an attempt, not a receipt. It is handed over once more, made
+        // from the cards as they are then, saying it may repeat.
+        if (rec.fired?.sending) {
+          delete rec.fired.sending
+          rec.fired.again = true
+          migrated = true
+          log.info(`The wake for ${userText(rec.agentId)} was being typed when Hive stopped: it is offered once more, saying it may repeat`)
+        }
+        list.push({ ...rec, scope: scopeFor(ws, rec.projectPath) })
+      }
     }
-    // Delivered ones leave the file at the next tick.
-    const store: Store = { ws, path, life, list, invalid, saved: read.text, dirty: delivered || stamped || gone.size > 0, queue: Promise.resolve(), delivering: new Map(), woke: new Map(), wokeAgents: new Map(), wokeLanes: new Map(), wokeReplies: new Map() }
+    // What was migrated is saved at the next tick.
+    const store: Store = { ws, path, life, list, invalid, saved: read.text, dirty: migrated || stamped || gone.size > 0, queue: Promise.resolve(), delivering: new Map(), woke: new Map(), wokeAgents: new Map(), wokeLanes: new Map(), wokeReplies: new Map() }
     // Read back too big for every watch to end (a hand edit, an older build): room is made, nothing is lost.
     if (budget(store, list) > MAX_FILE_BYTES) {
       const over: WatchRecord[] = []
@@ -485,7 +494,18 @@ function readRecord(v: unknown): WatchRecord | null {
     const cards = Array.isArray(f?.cards) ? f.cards.filter((n): n is number => cond.cards.includes(n as number)) : null
     if (!f || typeof f.line !== 'string' || jsonBytes(f.line) > MAX_LINE_BYTES || !f.line.startsWith('[Hive] ') || !time(f.at) || !cards || (f.sending !== undefined && !time(f.sending)) || (f.delivery !== undefined && !(typeof f.delivery === 'string' && /^m\d{1,15}$/.test(f.delivery)))) return null
     const told = Array.isArray(f.agents) && agentMarks ? f.agents.filter((k): k is string => typeof k === 'string' && k in agentMarks!) : undefined
-    fired = { line: f.line, at: f.at, cards, ...(told?.length ? { agents: told } : {}), ...(f.lanes === true && lanes ? { lanes: true as const } : {}), ...(f.replies === true ? { replies: true as const } : {}), ...(f.delivery ? { delivery: f.delivery as string } : {}), ...(f.sending ? { sending: f.sending as string } : {}) }
+    // A lane watch's pending marks (#649): each as a lane watch's own marks are read.
+    let pendingLanes: Record<string, LaneMark> | undefined
+    if (f.laneMarks !== undefined) {
+      if (!lanes || !f.laneMarks || typeof f.laneMarks !== 'object' || Array.isArray(f.laneMarks)) return null
+      pendingLanes = {}
+      for (const [id, m] of Object.entries(f.laneMarks as Record<string, unknown>).slice(0, 200)) {
+        const mark = /^[\w-]{1,64}$/.test(id) ? readSavedLaneMark(m) : null
+        if (!mark) return null
+        pendingLanes[id] = mark
+      }
+    }
+    fired = { line: f.line, at: f.at, cards, ...(told?.length ? { agents: told } : {}), ...(f.lanes === true && lanes ? { lanes: true as const } : {}), ...(f.replies === true ? { replies: true as const } : {}), ...(f.delivery ? { delivery: f.delivery as string } : {}), ...(pendingLanes ? { laneMarks: pendingLanes } : {}), ...(f.again === true ? { again: true as const } : {}), ...(f.sending ? { sending: f.sending as string } : {}) }
   }
   // Where its view of each card ended (every card, or none from before #224), and whose own changes aren't news.
   let seen: Record<string, Seen> | undefined
@@ -539,7 +559,7 @@ const fileText = (store: Store, list: WatchRecord[], invalid = store.invalid): s
 
 /** The longest a watch's saved form can grow to: fired with the longest line, being typed. */
 const AT = new Date(0).toISOString()
-const atMost = (r: WatchRecord): WatchRecord => ({ ...r, fired: { line: 'x'.repeat(MAX_LINE_BYTES - 2), at: AT, cards: r.cond.cards, ...(r.agentMarks ? { agents: Object.keys(r.agentMarks) } : {}), delivery: 'm999999999999999', sending: AT } })
+const atMost = (r: WatchRecord): WatchRecord => ({ ...r, fired: { line: 'x'.repeat(MAX_LINE_BYTES - 2), at: AT, cards: r.cond.cards, ...(r.agentMarks ? { agents: Object.keys(r.agentMarks) } : {}), ...(r.laneMarks ? { laneMarks: r.laneMarks } : {}), delivery: 'm999999999999999', again: true, sending: AT } })
 /**
  * The bytes one watch takes in the file (#321): its own JSON as fileText writes it, an entry of the "watches" array, so
  * each of its lines indented by four more spaces.
@@ -1366,8 +1386,9 @@ interface Told {
   agents: Map<string, number>
   /** A card watch's: the latest reply of the user's the line tells (#418), else where it began. */
   reply: number | undefined
-  /** A lane watch's: when the line was made from the lanes (#531). */
+  /** A lane watch's: when the line was made from the lanes (#531), and each lane as it tells it (else the watch's own marks). */
   laneAt: string
+  laneMarks: Record<string, LaneMark> | null
   /** What the line tells of each card it names, as read for it (#578: what loop wakes then leave alone). */
   ofCards: Record<string, Baseline>
   /** Cards released as it was made (#420), noted in their history once it is received. */
@@ -1378,17 +1399,23 @@ interface Told {
 
 }
 
-/** Wakes handed over and not received yet, by delivery id: their watch and what their line tells (in memory, as `woke`). */
+/**
+ * Wakes handed over and not received yet, by their host and delivery id (ids are a host's own: every project starts at
+ * m1): their watch and what their line tells (in memory, as `woke`).
+ */
 const handed = new Map<string, { store: Store; rec: WatchRecord; told: Told }>()
+const handedKey = (host: string, id: string): string => `${resolve(host).toLowerCase()}#${id}`
 const MAX_HANDED = 2000
 
 /** The watch a wake's delivery was handed over by (its workspace's watches loaded), or null. */
 function watchOf(host: string, r: DeliveryRecord): { store: Store; rec: WatchRecord } | null {
-  const h = handed.get(r.id)
+  const h = handed.get(handedKey(host, r.id))
   const store = storeFor(host)
+  // Its own watch only: of this host and agent, handed over as this delivery (by its ref, the watch and its fire).
+  const mine = (x: WatchRecord): boolean => x.fired?.delivery === r.id && same(x.projectPath, host) && x.agentId === r.agentId && wakeRef(x) === r.ref
   // The workspace's watches as they are now (a store read again since is the one that counts).
-  if (h && h.store === store && h.store.list.includes(h.rec) && h.rec.fired?.delivery === r.id) return h
-  const rec = store?.list.find((x) => x.fired?.delivery === r.id && same(x.projectPath, host) && x.agentId === r.agentId)
+  if (h && h.store === store && h.store.list.includes(h.rec) && mine(h.rec)) return h
+  const rec = store?.list.find(mine)
   return store && rec ? { store, rec } : null
 }
 
@@ -1405,17 +1432,19 @@ registerSource('watch', {
     const w = watchOf(host, r)
     // Its workspace's watches not loaded yet: decided once they are (it isn't typed meanwhile).
     if (!w) return storeFor(host) ? { cancel: 'its watch has ended' } : null
-    if (!repliesHold(handed.get(r.id)?.told)) return { cancel: "the user's replies are no longer told" }
+    if (!repliesHold(handed.get(handedKey(host, r.id))?.told)) return { cancel: "the user's replies are no longer told" }
     return null
   },
-  holds: (r, host) => !!watchOf(host, r) && repliesHold(handed.get(r.id)?.told),
+  holds: (r, host) => !!watchOf(host, r) && repliesHold(handed.get(handedKey(host, r.id))?.told),
   received: (r, host) => {
     const w = watchOf(host, r)
-    const told = handed.get(r.id)?.told
-    handed.delete(r.id)
+    const told = handed.get(handedKey(host, r.id))?.told
+    handed.delete(handedKey(host, r.id))
     if (!w) return
     const { store, rec } = w
+    // What its line told (read back from the watch after a restart: its lanes' pending marks; the rest started afresh).
     if (told) toldBy(store, rec, told)
+    else if (rec.lanes && rec.fired?.laneMarks) toldBy(store, rec, { cards: {}, agents: new Map(), reply: undefined, laneAt: rec.fired.at, laneMarks: rec.fired.laneMarks, ofCards: {}, endedAt: [], replies: false, generation: replyGeneration })
     log.info(`The wake for ${userText(rec.agentId)} (${r.id}) was received: its watch has ended`)
     // The watch has ended (unless it was replaced meanwhile, which stays).
     inBackground(
@@ -1429,7 +1458,7 @@ registerSource('watch', {
   },
   ended: (r, host) => {
     const w = watchOf(host, r)
-    handed.delete(r.id)
+    handed.delete(handedKey(host, r.id))
     if (!w) return
     const { store, rec } = w
     // Not given (too old, or what it told may no longer be told): the watch goes back to waiting, and fires again on
@@ -1473,9 +1502,10 @@ function toldBy(store: Store, rec: WatchRecord, told: Told): void {
   if (store.woke.size > MAX_WATCHES) store.woke.delete(store.woke.keys().next().value!)
   if (rec.agents) noteToldAgents(store, key, told.agents)
   // A lane watch's: each lane as its line told it (#531), where the agent's next lane watch starts.
-  if (rec.lanes && rec.laneMarks) {
+  const lanes = told.laneMarks ?? rec.laneMarks
+  if (rec.lanes && lanes) {
     store.wokeLanes.delete(key)
-    store.wokeLanes.set(key, { at: told.laneAt, marks: new Map(Object.entries(rec.laneMarks)) })
+    store.wokeLanes.set(key, { at: told.laneAt, marks: new Map(Object.entries(lanes)) })
     if (store.wokeLanes.size > MAX_WATCHES) store.wokeLanes.delete(store.wokeLanes.keys().next().value!)
   }
   if (told.reply !== undefined) {
@@ -1625,20 +1655,20 @@ async function deliver(store: Store, rec: WatchRecord): Promise<void> {
     // rather than making another (the same watch and fire make the same one). Not saved: not handed over (tried again).
     const given = await locked(store, async () => {
       if (!current() || !rec.fired || rec.fired.delivery) return null
-      const d = await createDelivery(rec.projectPath, { agentId: rec.agentId, kind: 'card-event', from: HIVE, body: line, ...(rec.fired.cards.length ? { card: rec.fired.cards[0] } : {}), source: 'watch', ref: wakeRef(rec), replace: true })
-      const wasLanes = rec.laneMarks
+      const d = await createDelivery(rec.projectPath, { agentId: rec.agentId, kind: 'card-event', from: HIVE, body: line, ...(rec.fired.cards.length ? { card: rec.fired.cards[0] } : {}), source: 'watch', ref: wakeRef(rec), replace: true, ...(rec.fired.again ? { again: 'Hive restarted while typing it' } : {}) })
       rec.fired.line = line
       rec.fired.delivery = d.id
-      if (laneTold) rec.laneMarks = laneTold
+      // A lane watch's marks move only once its line is received: pending with it until then (saved, for a restart).
+      if (laneTold) rec.fired.laneMarks = laneTold
       try {
         await save(store)
       } catch (e) {
         delete rec.fired.delivery
-        rec.laneMarks = wasLanes
+        delete rec.fired.laneMarks
         await cancelFromSource(rec.projectPath, 'watch', wakeRef(rec), "cancelled: its watch couldn't be saved").catch(() => undefined)
         throw e
       }
-      handed.set(d.id, { store, rec, told: { cards: told, agents: toldAgents, reply: toldReply, laneAt: laneToldAt, ofCards: toldOfCards, endedAt, replies: telling, generation } })
+      handed.set(handedKey(rec.projectPath, d.id), { store, rec, told: { cards: told, agents: toldAgents, reply: toldReply, laneAt: laneToldAt, laneMarks: laneTold, ofCards: toldOfCards, endedAt, replies: telling, generation } })
       while (handed.size > MAX_HANDED) handed.delete(handed.keys().next().value!)
       return d
     })

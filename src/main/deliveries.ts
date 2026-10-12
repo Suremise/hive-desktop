@@ -5,6 +5,7 @@ import { app } from 'electron'
 import { ASSISTANT_AGENT_ID } from '../shared/assistant'
 import { HIVE_DIR } from '../shared/defaults'
 import {
+  DELIVERY_BODY_MAX_CHARS,
   DELIVERY_EXPIRY_HOURS,
   OVERDUE_MINUTES,
   deliveryRow,
@@ -98,6 +99,9 @@ export const overdueMs = (): number => {
   return Number.isFinite(t) && t > 0 ? t : OVERDUE_MINUTES * 60_000
 }
 
+/** The run a delivery made for a launch is offered into until that launch has started (launchWith). */
+const LAUNCHING = 'launching'
+
 /** Why a delivery may repeat when it is offered once more (#649). */
 const AGAIN_RESTART = 'Hive restarted while offering it'
 const AGAIN_LAUNCH = 'its session ended or restarted before its CLI took the line'
@@ -118,6 +122,8 @@ interface Store {
    * the count rises in that launch; until then a cancel can still end it. Kept until it leaves offered.
    */
   confirming: Map<string, { runId: string; count: number }>
+  /** Deliveries launched into a run whose saving may have failed (launchWith): the run they went into, by id. */
+  launches: Map<string, string>
   /**
    * Agents whose line Hive left in their prompt, not submitted (#530: the user typed over it, or it couldn't be cleared):
    * nothing more is typed into one until that prompt is submitted (its CLI's count passes this), so a draft is never
@@ -245,7 +251,7 @@ export function load(host: string): Promise<Store> {
   const p = (async () => {
     const read = await readFileOf(host)
     if (stores.has(k)) return stores.get(k)!
-    const store: Store = { host, records: read.records, next: read.next, invalid: read.invalid, lock: Promise.resolve(), offering: new Set(), confirming: new Map(), leftUntil: new Map(), hooks: new Map() }
+    const store: Store = { host, records: read.records, next: read.next, invalid: read.invalid, lock: Promise.resolve(), offering: new Set(), confirming: new Map(), launches: new Map(), leftUntil: new Map(), hooks: new Map() }
     // Restored before anything else sees it (a second load waits for this one).
     await transact(store, (d) => {
       for (const r of [...d.records]) if (r.state === 'offered') set(store, d, r, 'uncertain', 'may not have reached it: Hive stopped while offering it', undefined, { again: AGAIN_RESTART })
@@ -458,11 +464,13 @@ function recheck(store: Store, d: Draft, agentId?: string): void {
     if (r.state === 'offered' && !store.offering.has(r.id)) {
       const base = store.confirming.get(r.id)
       const now = sessions.promptsTaken(store.host, r.agentId)
-      if (base && now && now.runId === base.runId && r.offerRun === base.runId && now.count > base.count) {
-        set(store, d, r, 'received', undefined, 'typed')
+      // The launch it went into: as saved, or (a launch's save that failed) as followed in memory.
+      const run = store.launches.get(r.id) ?? r.offerRun
+      if (base && now && now.runId === base.runId && run === base.runId && now.count > base.count) {
+        set(store, d, r, 'received', undefined, 'typed', run !== r.offerRun ? { offerRun: run } : {})
         continue
       }
-      if (r.offerRun && sessions.liveFor(store.host, r.agentId)?.runId !== r.offerRun) {
+      if (run && sessions.liveFor(store.host, r.agentId)?.runId !== run) {
         set(store, d, r, 'uncertain', `may not have reached it: ${AGAIN_LAUNCH}`, undefined, { again: AGAIN_LAUNCH })
         continue
       }
@@ -472,6 +480,7 @@ function recheck(store: Store, d: Draft, agentId?: string): void {
   }
   // What has left offered keeps no check of its line's receipt.
   for (const id of [...store.confirming.keys()]) if (byId(d.records, id)?.state !== 'offered') store.confirming.delete(id)
+  for (const id of [...store.launches.keys()]) if (byId(d.records, id)?.state !== 'offered') store.launches.delete(id)
   for (const id of [...store.hooks.keys()]) if (!isUnread(byId(d.records, id) ?? { state: 'cancelled' })) store.hooks.delete(id)
 }
 
@@ -504,6 +513,10 @@ export interface NewDelivery {
   need?: DeliveryNeed
   /** Only for this launch of its agent (a mode notice, a lock's go-ahead): it expires when that launch ends. */
   forRun?: string
+  /** Why it may repeat (one Hive may have given before: a watch read back from before #649 being typed). */
+  again?: string
+  /** Offered by a launch about to start (launchWith only). */
+  launching?: true
 }
 
 /** How many of an agent's deliveries of a kind wait to be offered. */
@@ -514,6 +527,11 @@ export const waitingCount = (host: string, agentId: string, kind: DeliveryKind):
  * One already waiting with the same source and ref is returned instead (made again from this one with `replace`).
  */
 export async function createDelivery(host: string, nd: NewDelivery, hooks?: DeliveryHooks): Promise<DeliveryRecord> {
+  // Only what reads back is saved (readDelivery's limits): a longer text is refused here, never lost on a restart.
+  if (nd.body.length > DELIVERY_BODY_MAX_CHARS) throw new Error(`It is too long to give an agent (${nd.body.length} characters, at most ${DELIVERY_BODY_MAX_CHARS}).`)
+  if ((nd.ref?.length ?? 0) > 300 || (nd.source?.length ?? 0) > 40) throw new Error('Not a delivery Hive can keep: its source or key is too long.')
+  const meta = nd.meta && Object.fromEntries(Object.entries(nd.meta).slice(0, 20).map(([k, v]) => [k.slice(0, 40), typeof v === 'string' ? v.slice(0, 500) : v]))
+  const agentName = nd.agentName?.slice(0, 300)
   const store = await load(host)
   const r = await transact(store, (d) => {
     const why = senderRefusal(nd.from)
@@ -521,7 +539,7 @@ export async function createDelivery(host: string, nd: NewDelivery, hooks?: Deli
     const had = nd.source && nd.ref !== undefined ? d.records.find((x) => x.source === nd.source && x.ref === nd.ref && x.agentId === nd.agentId && isWaiting(x)) : undefined
     if (had) {
       if (!nd.replace) return had
-      const again: DeliveryRecord = { ...had, body: nd.body, ...(nd.card ? { card: nd.card } : {}), ...(nd.meta ? { meta: nd.meta } : {}), ...(nd.forRun ? { forRun: nd.forRun } : {}), expires: new Date(Date.now() + (nd.expiresMs ?? DELIVERY_EXPIRY_HOURS * 60 * 60_000)).toISOString() }
+      const again: DeliveryRecord = { ...had, body: nd.body, ...(nd.card ? { card: nd.card } : {}), ...(meta ? { meta } : {}), ...(nd.forRun ? { forRun: nd.forRun } : {}), expires: new Date(Date.now() + (nd.expiresMs ?? DELIVERY_EXPIRY_HOURS * 60 * 60_000)).toISOString() }
       put(d, had, again)
       return again
     }
@@ -532,7 +550,7 @@ export async function createDelivery(host: string, nd: NewDelivery, hooks?: Deli
       id: `m${seq}`,
       seq,
       agentId: nd.agentId,
-      ...(nd.agentName ? { agentName: nd.agentName } : {}),
+      ...(agentName ? { agentName } : {}),
       conversation: nd.conversation || null,
       kind: nd.kind,
       from: nd.from,
@@ -542,9 +560,12 @@ export async function createDelivery(host: string, nd: NewDelivery, hooks?: Deli
       created: nowIso(),
       expires: new Date(Date.now() + (nd.expiresMs ?? DELIVERY_EXPIRY_HOURS * 60 * 60_000)).toISOString(),
       ...(nd.source ? { source: nd.source, ...(nd.ref !== undefined ? { ref: nd.ref } : {}) } : {}),
-      ...(nd.meta ? { meta: nd.meta } : {}),
+      ...(meta ? { meta } : {}),
       ...(nd.need && nd.need !== 'idle' ? { need: nd.need } : {}),
-      ...(nd.forRun ? { forRun: nd.forRun } : {})
+      ...(nd.forRun ? { forRun: nd.forRun } : {}),
+      ...(nd.again ? { again: nd.again } : {}),
+      // Made offered, into a launch about to start (launchWith): saved before the launch, never offered by the scheduler.
+      ...(nd.launching ? { state: 'offered' as const, offered: nowIso(), offers: 1, offerRun: LAUNCHING } : {})
     }
     d.records.push(rec)
     d.dirty = true
@@ -857,6 +878,7 @@ async function offerOnce(host: string, agentId: string, only?: string): Promise<
         const r = byId(d.records, id)
         if (!r || !isWaiting(r)) continue
         if ('cancel' in f) set(store, d, r, 'cancelled', f.cancel)
+        else if (f.body.length > DELIVERY_BODY_MAX_CHARS) set(store, d, r, 'cancelled', 'cancelled: made again, it was too long to keep')
         else if (f.body !== r.body) put(d, r, { ...r, body: f.body })
       }
       items = pickOffer(store, d.records, agentId, only).filter((r) => items.some((x) => x.id === r.id))
@@ -949,25 +971,40 @@ export async function deliverNow(host: string, nd: NewDelivery, holds?: () => bo
  * once the launch's CLI takes its first prompt. `start` failing cancels it, and the error stands.
  */
 export async function launchWith<T extends { runId: string }>(host: string, nd: NewDelivery, start: (line: string) => Promise<T>, hooks?: DeliveryHooks): Promise<{ record: DeliveryRecord; launched: T }> {
-  const rec = await createDelivery(host, nd, hooks)
+  // Saved as offered before anything is launched (persist before the effect, #647): not saved, nothing starts. From
+  // here a crash leaves it offered, so it is uncertain after the restart, never queued and typed again as if new. The
+  // scheduler never offers it (it isn't waiting), and the checks leave it alone while the launch starts.
+  const rec = await createDelivery(host, { ...nd, launching: true }, hooks)
   const store = await load(host)
+  store.offering.add(rec.id)
   let run: T
   try {
     run = await start(offerLine([rec], null))
   } catch (e) {
+    store.offering.delete(rec.id)
     await transact(store, (d) => {
       const r = byId(d.records, rec.id)
-      if (r && isWaiting(r)) set(store, d, r, 'cancelled', `not given: ${(e as Error).message}`)
-    }).catch(() => undefined)
+      if (r?.state === 'offered' && r.offerRun === LAUNCHING) set(store, d, r, 'cancelled', `not given: ${(e as Error).message}`)
+    }).catch((err) => log.warn("cancelling a launch's task", err))
     show(store, nd.agentId)
     throw e
   }
-  await transact(store, (d) => {
-    const r = byId(d.records, rec.id)
-    if (r && isWaiting(r)) set(store, d, r, 'offered', undefined, undefined, run?.runId ? { offerRun: run.runId } : {})
-  }).catch((e) => log.warn('offering a launch\'s task', e))
-  // Received once the launch's CLI takes its first prompt (a launch that names no run is followed by the inbox alone).
-  if (run?.runId) store.confirming.set(rec.id, { runId: run.runId, count: 0 })
+  // The launch it went into, in memory at once (what the checks follow if saving it fails), and on disk.
+  if (run?.runId) {
+    store.launches.set(rec.id, run.runId)
+    store.confirming.set(rec.id, { runId: run.runId, count: 0 })
+  }
+  try {
+    await transact(store, (d) => {
+      const r = byId(d.records, rec.id)
+      if (r?.state === 'offered' && r.offerRun === LAUNCHING && run?.runId) put(d, r, { ...r, offerRun: run.runId })
+    })
+  } catch (e) {
+    // Launched with it: still offered into that launch (followed in memory); a restart finds it uncertain.
+    log.warn("saving the launch a task went into (it is followed in memory; a restart finds it uncertain)", e)
+  } finally {
+    store.offering.delete(rec.id)
+  }
   show(store, nd.agentId)
   return { record: deliveryNow(host, rec.id) ?? rec, launched: run }
 }

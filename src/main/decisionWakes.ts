@@ -63,7 +63,9 @@ export function decisionLine(cards: Map<number, { count: number }>): string {
 /** The decisions are the user's: Hive relays them. */
 const USER = { kind: 'user', name: 'the user' } as const
 
-/** What each line was made from just before it was offered (by delivery id): its decisions, the board's and the agent's reads then. */
+/** A delivery's key here: its host and id (ids are a host's own: every project starts at m1). */
+const madeKey = (host: string, id: string): string => `${host.toLowerCase()}#${id}`
+/** What each line was made from just before it was offered (by host and delivery id): its decisions, the board's and the agent's reads then. */
 const made = new Map<string, { ws: WorkspaceService; self: string; cards: Awaited<ReturnType<typeof newDecisionsOn>>; gen: number; reads: ReturnType<typeof cardReadsBy> }>()
 
 async function boardSelf(ws: WorkspaceService, projectPath: string, agentId: string): Promise<string | null> {
@@ -88,17 +90,17 @@ registerSource('decision', {
     const reads = cardReadsBy(agent)
     const cards = await newDecisionsOn(ws, agent, self, told.get(keyOf(host, r.agentId)))
     if (!cards.size) return { cancel: 'nothing new to tell' }
-    made.set(r.id, { ws, self, cards, gen, reads })
+    made.set(madeKey(host, r.id), { ws, self, cards, gen, reads })
     if (made.size > 500) made.delete(made.keys().next().value!)
     return { body: decisionLine(cards) }
   },
   holds: (r, host) => {
-    const m = made.get(r.id)
+    const m = made.get(madeKey(host, r.id))
     return !!m && openWorkspaces().includes(m.ws) && genOf(m.ws) === m.gen && cardReadsBy({ projectPath: host, agentId: r.agentId }) === m.reads
   },
   received: (r, host) => {
-    const m = made.get(r.id)
-    made.delete(r.id)
+    const m = made.get(madeKey(host, r.id))
+    made.delete(madeKey(host, r.id))
     if (!m) return
     const key = keyOf(host, r.agentId)
     const known = told.get(key) ?? new Map<number, number>()
@@ -109,8 +111,8 @@ registerSource('decision', {
     log.info(`Told ${userText(m.self)} of new decisions on ${[...m.cards.keys()].map((n) => `#${n}`).join(', ')}`)
     void Promise.all([...m.cards].map(([n, d]) => noteOnCard(n, `Told ${m.self} of ${d.count} new decision${d.count === 1 ? '' : 's'}`, m.ws).catch((e) => log.warn(`noting on #${n} that decisions were told`, e))))
   },
-  ended: (r) => {
-    made.delete(r.id)
+  ended: (r, host) => {
+    made.delete(madeKey(host, r.id))
   }
 })
 

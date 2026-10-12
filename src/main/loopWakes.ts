@@ -165,7 +165,9 @@ function stillDue(p: Wake & { agentId: string }, card: TaskCard | null): boolean
 /** Counts the board's and lanes' changes: a wake checked or typed while one lands is stopped and worked out again. */
 let rolesSeq = 0
 
-/** What each wake was made again from just before it was offered (by delivery id): the roles' count, the card's column. */
+/** A delivery's key here: its host and id (ids are a host's own: every project starts at m1). */
+const madeKey = (host: string, id: string): string => `${host.toLowerCase()}#${id}`
+/** What each wake was made again from just before it was offered (by host and delivery id): the roles' count, the card's column. */
 const madeFrom = new Map<string, { seq: number; column: TaskCard['column'] }>()
 
 /**
@@ -194,26 +196,26 @@ registerSource('loop', {
       if (to) enqueue(ws, host, card, p.kind, to, p.since)
       return { cancel: 'it is another agent\'s wake now' }
     }
-    madeFrom.set(r.id, { seq, column: card.column })
+    madeFrom.set(madeKey(host, r.id), { seq, column: card.column })
     if (madeFrom.size > 1000) madeFrom.delete(madeFrom.keys().next().value!)
     const kinds: ('column' | 'verdict')[] = p.kind === 'review' ? ['column'] : ['verdict']
     return { body: loopWakeLine({ ...cardChange(p.n, card, kinds), about: wakeAbout(card, kinds, r.agentId) }, p.kind) }
   },
   holds: (r, host) => {
     const p = wakeOf(r)
-    const m = madeFrom.get(r.id)
+    const m = madeFrom.get(madeKey(host, r.id))
     return !!p && !!m && m.seq === rolesSeq && !watchCovers(host, r.agentId, p.n, p.kind, m.column)
   },
   received: (r, host) => {
-    madeFrom.delete(r.id)
+    madeFrom.delete(madeKey(host, r.id))
     const p = wakeOf(r)
     const ws = workspaceFor(host)
     if (!p || !ws) return
     inBackground(`noting a loop wake on #${p.n}`, noteOnCard(p.n, `Woke ${p.agentName} ${p.kind === 'review' ? 'to review it' : 'with its verdict'} (a loop wake)`, ws))
     log.info(`Loop wake: #${p.n} to ${userText(p.agentName)}`)
   },
-  ended: (r) => {
-    madeFrom.delete(r.id)
+  ended: (r, host) => {
+    madeFrom.delete(madeKey(host, r.id))
   }
 })
 

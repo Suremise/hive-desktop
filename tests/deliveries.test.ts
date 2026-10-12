@@ -4,10 +4,13 @@
 // expiry and overdue. The sessions are stand-ins here (the e2e deliveries suite runs fake Claude Code agents).
 import { existsSync, mkdirSync, readFileSync, readdirSync, rmSync, writeFileSync } from 'fs'
 import { join } from 'path'
-import { afterAll, beforeEach, describe, expect, it } from 'vitest'
+import { afterAll, beforeEach, describe, expect, it, vi } from 'vitest'
 import * as electron from 'electron'
-import { DELIVERY_STATES, ackText, canMove, inboxItems, inboxSummary, inboxText, isOverdue, moved, offerLine, readDelivery, type DeliveryRecord, type DeliverySender } from '../src/shared/deliveries'
+import { DELIVERY_BODY_MAX_CHARS, DELIVERY_STATES, ackText, canMove, inboxItems, inboxSummary, inboxText, isOverdue, moved, offerLine, readDelivery, type DeliveryRecord, type DeliverySender } from '../src/shared/deliveries'
 import { tempDir } from './tempDir'
+
+// The longest a wait here waits for what it waits on: a bound for a hung run, never how long it should take (#570).
+const HUNG_MS = 10000
 
 const at = '2026-10-12T03:00:00.000Z'
 const rec = (over: Partial<DeliveryRecord> = {}): DeliveryRecord => ({ id: 'm1', seq: 1, agentId: 'b1', conversation: null, kind: 'rebrief', from: { kind: 'assistant', name: 'the Assistant', workspace: 'C:/ws', launch: 'a1' }, body: 'Rebase first.', state: 'queued', created: at, expires: '2026-10-13T03:00:00.000Z', ...over })
@@ -302,6 +305,74 @@ describe('the delivery service (#647)', async () => {
     } finally {
       Object.assign(sessions, { promptsTaken: () => null })
     }
+  })
+
+  it("a launch's task is saved as offered before anything is launched (#649 round 2): not saved, nothing starts; while it starts, never offered by the scheduler; its run's save failing after the launch, it is still followed, and a restart finds it uncertain", async () => {
+    const task = (body: string) => ({ agentId: 'b1', agentName: 'B1', kind: 'task' as const, from: hive, body })
+    // Not saved: nothing is launched.
+    deliveries.setBeforeSaveForTests(() => {
+      throw new Error('EIO: i/o error')
+    })
+    let starts = 0
+    try {
+      await expect(deliveries.launchWith(alpha, task('Never launched.'), async () => (starts++, { runId: 'r9' }))).rejects.toThrow(/couldn't save/)
+    } finally {
+      deliveries.setBeforeSaveForTests(null)
+    }
+    expect(starts).toBe(0)
+    expect(await states()).toEqual([])
+    // While it starts: saved as offered (not queued), and the scheduler doesn't offer it too.
+    let release = (): void => undefined
+    const held = new Promise<void>((r) => (release = r))
+    let starting = false
+    st.status = 'ready'
+    const launching = deliveries.launchWith(alpha, task('Start on #7.'), async () => {
+      starting = true
+      await held
+      return { runId: 'r9' }
+    })
+    await vi.waitFor(() => expect(starting).toBe(true), { timeout: HUNG_MS })
+    expect(file().deliveries.map((r) => `${r.id} ${r.state}`)).toEqual(['m1 offered'])
+    await deliveries.offerAllForTests()
+    await deliveries.followAllForTests()
+    expect(st.typed).toEqual([])
+    expect(await states()).toEqual(['m1 offered'])
+    // Its run's save fails after the launch: launched all the same, and still offered into that launch (in memory).
+    deliveries.setBeforeSaveForTests(() => {
+      throw new Error('EIO: i/o error')
+    })
+    release()
+    try {
+      expect((await launching).record.state).toBe('offered')
+    } finally {
+      deliveries.setBeforeSaveForTests(null)
+    }
+    st.runId = 'r9'
+    await deliveries.offerAllForTests()
+    await deliveries.followAllForTests()
+    expect(st.typed).toEqual([])
+    expect(await states()).toEqual(['m1 offered'])
+    // Hive stops before that launch takes it: uncertain after the restart, offered once more saying it may repeat.
+    await restart()
+    expect(await states()).toEqual(['m1 uncertain: may not have reached it: Hive stopped while offering it'])
+    await deliveries.offerAllForTests()
+    expect(st.typed).toEqual(["Start on #7. (Its id: m1. Once you've acted on it, ack it with hive_inbox.) (m1 again: Hive restarted while offering it, so it may repeat.)"])
+  })
+
+  it('a long task (a card with a long description) is kept as made and restored as it was; one longer than a delivery may be is refused when made, never lost on a restart (#649 round 2)', async () => {
+    const long = `Work on task #9 from the Hive task board: Long\n\n${'A long description. '.repeat(1000)}`
+    expect(long.length).toBeGreaterThan(9000)
+    st.status = 'working'
+    await deliveries.createDelivery(alpha, { agentId: 'b1', kind: 'task', from: hive, body: long })
+    await make({ from: hive, kind: 'handover', body: `Read the handover "x". ${'More. '.repeat(3000)}` })
+    await restart()
+    const back = await deliveries.deliveriesOf(alpha, 'b1')
+    expect(back.map((r) => `${r.id} ${r.state} ${r.body.length}`)).toEqual([`m1 queued ${long.length}`, `m2 queued ${back[1]?.body.length}`])
+    expect(back[0].body).toBe(long)
+    expect(file()).not.toHaveProperty('invalid')
+    // Over the limit: refused at once, nothing saved.
+    await expect(deliveries.createDelivery(alpha, { agentId: 'b1', kind: 'task', from: hive, body: 'x'.repeat(DELIVERY_BODY_MAX_CHARS + 1) })).rejects.toThrow(/too long to give an agent/)
+    expect(await states()).toEqual(['m1 queued', 'm2 queued'])
   })
 
   it('the Agent API view: unread, overdue, the newest rows with their times', async () => {

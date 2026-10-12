@@ -788,6 +788,53 @@ describe('card decisions', () => {
     }
   })
 
+  it("two projects' decision lines with the same delivery id (each project's m1) are each told and noted on their own card, never the other's (#649 round 2)", async () => {
+    const writer = await import('../src/main/lineWriter')
+    const deliveries = await import('../src/main/deliveries')
+    const beta = join(wsPath, 'beta')
+    const na = (await run(() => tasks.createTask({ title: 'Alpha asks', project: 'alpha', column: 'doing', agent: 'a1' }, user))).number
+    const nb = (await run(() => tasks.createTask({ title: 'Beta asks', project: 'beta', column: 'doing', agent: 'b1' }, user))).number
+    await laterMs()
+    await run(() => tasks.updateTask(na, { decision: 'Alpha: blue.' }, assistant))
+    await run(() => tasks.updateTask(nb, { decision: 'Beta: green.' }, assistant))
+    const sent: { to: string; text: string }[] = []
+    // Neither CLI takes its line until the test says so.
+    const taken = new Map<string, number>([['a1', 0], ['b1', 0]])
+    const who = (p: string, id: string): boolean => (p === alpha && id === 'a1') || (p === beta && id === 'b1')
+    const spies = [
+      vi.spyOn(sessions, 'liveFor').mockImplementation((p, id) => (id && who(p, id) ? ({ projectPath: p, agentId: id, status: 'finished', runId: `run-${id}` } as never) : null)),
+      vi.spyOn(sessions, 'userMayBeTyping').mockImplementation(() => false),
+      vi.spyOn(sessions, 'lineWaiting').mockImplementation(() => false),
+      vi.spyOn(sessions, 'promptsTaken').mockImplementation((p, id) => (who(p, id) ? { runId: `run-${id}`, count: taken.get(id)! } : null)),
+      vi.spyOn(sessions, 'sendPrompt').mockImplementation(async (_p, id, text, guard) => {
+        guard?.()
+        sent.push({ to: id, text })
+      })
+    ]
+    writer.testHooks.takeMs = 20
+    try {
+      await decisionWakes.tellNow(w, alpha, 'a1')
+      await decisionWakes.tellNow(w, beta, 'b1')
+      expect(sent.map((s) => s.to)).toEqual(['a1', 'b1'])
+      // Each project's own first delivery.
+      expect(sent.every((s) => s.text.includes('(Its id: m1.'))).toBe(true)
+      // Alpha's is taken: told and noted on alpha's card only.
+      taken.set('a1', 1)
+      await deliveries.followAllForTests()
+      await vi.waitFor(async () => expect((await run(() => tasks.getTask(na))).history.some((h) => h.what === 'Told Coder (alpha) of 1 new decision')).toBe(true), { timeout: HUNG_MS })
+      expect((await run(() => tasks.getTask(nb))).history.some((h) => h.what.startsWith('Told '))).toBe(false)
+      expect((await deliveries.deliveriesOf(beta, 'b1')).map((r) => r.state)).toEqual(['offered'])
+      // Beta's then: noted on its own card, as itself.
+      taken.set('b1', 1)
+      await deliveries.followAllForTests()
+      await vi.waitFor(async () => expect((await run(() => tasks.getTask(nb))).history.some((h) => h.what === 'Told B (beta) of 1 new decision')).toBe(true), { timeout: HUNG_MS })
+    } finally {
+      writer.testHooks.takeMs = undefined
+      for (const s of spies) s.mockRestore()
+      await writer.settled()
+    }
+  })
+
   it('a decision line stopped as it is typed is tried again by itself, and only while it is still true (#401)', async () => {
     const n = (await run(() => tasks.createTask({ title: 'Stopped lines', project: 'alpha', column: 'doing', agent: 'a1' }, user))).number
     await laterMs()
