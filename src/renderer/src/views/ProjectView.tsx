@@ -13,7 +13,7 @@ import { Icon, IconButton, STATUS_TEXT, Switch, Tooltip, useContextMenu } from '
 import { ProjectAgentsTable, useAgentsText } from '../components/AgentsTable'
 import { agentProviderOf, projectKey, projectState, set, setProjectTab, useFocusedAgent, useStore, type ProjectTab } from '../store'
 import { carriesFiles, cx, formatKeybinding } from '../util'
-import { FilesTab, ImagesTab } from './FilesTab'
+import { AttachmentsTab, FilesTab } from './FilesTab'
 import { GitTab } from './GitTab'
 import { MemoryTab, OverviewTab, ProjectMcpTab, ProjectSettingsTab, ProjectSkillsTab } from './ProjectTabs'
 import { ProjectTemplatesTab } from '../components/Templates'
@@ -446,7 +446,7 @@ export function ProjectView({ visible }: { visible: boolean }) {
           {tab === 'tasks' && <ProjectTasksTab project={project} />}
           {tab === 'sessions' && <SessionsTab project={project} />}
           {tab === 'files' && <FilesTab project={project} />}
-          {tab === 'images' && <ImagesTab project={project} />}
+          {tab === 'images' && <AttachmentsTab project={project} />}
           {tab === 'changes' && <GitTab project={project} />}
           {tab === 'memory' && <MemoryTab project={project} />}
           {tab === 'skills' && <ProjectSkillsTab project={project} />}

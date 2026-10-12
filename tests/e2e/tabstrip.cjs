@@ -14,7 +14,7 @@ const userData = path.join(lib.WORK, 'tabstrip-profile')
 const ws = path.join(lib.WORK, 'tabstrip-ws')
 const claudeHome = path.join(lib.WORK, 'tabstrip-claude-home')
 const alpha = path.join(ws, 'alpha')
-const LABELS = ['Session', 'Overview', 'Performance', 'Tasks', 'Sessions', 'Files', 'Images', 'Git', 'Memory', 'Skills', 'Templates', 'MCP', 'Settings']
+const LABELS = ['Session', 'Overview', 'Performance', 'Tasks', 'Sessions', 'Files', 'Attachments', 'Git', 'Memory', 'Skills', 'Templates', 'MCP', 'Settings']
 const SPARE = 12
 let failed = 0
 const check = (name, ok, extra = '') => {

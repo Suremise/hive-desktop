@@ -175,7 +175,7 @@ export const commands: Command[] = [
   { id: 'project.tab.tasks', label: 'Go to Tasks', category: 'Project', when: hasProject, run: tab('tasks') },
   { id: 'project.tab.sessions', label: 'Go to Sessions', category: 'Project', keybinding: 'Alt+3', when: hasProject, run: tab('sessions') },
   { id: 'project.tab.files', label: 'Go to Files', category: 'Project', keybinding: 'Alt+4', when: hasProject, run: tab('files') },
-  { id: 'project.tab.images', label: 'Go to Images', category: 'Project', keybinding: 'Alt+5', when: hasProject, run: tab('images') },
+  { id: 'project.tab.images', label: 'Go to Attachments', category: 'Project', keybinding: 'Alt+5', when: hasProject, run: tab('images') },
   { id: 'project.tab.changes', label: 'Go to Git', category: 'Project', keybinding: 'Alt+6', when: hasProject, run: tab('changes') },
   { id: 'project.tab.memory', label: 'Go to Memory', category: 'Project', keybinding: 'Alt+7', when: hasProject, run: tab('memory') },
   { id: 'project.tab.skills', label: 'Go to Skills', category: 'Project', keybinding: 'Alt+8', when: hasProject, run: tab('skills') },
@@ -367,7 +367,7 @@ export const commands: Command[] = [
   { id: 'view.assistant', label: 'Show Hive Assistant View', category: 'View', run: () => setActivity('assistant') },
   { id: 'view.assistantConversations', label: 'Show Assistant Conversations', category: 'View', run: () => showAssistantView('conversations') },
   { id: 'view.personas', label: 'Show Assistant Modes', category: 'View', run: () => showAssistantView('personas') },
-  { id: 'view.assistantImages', label: 'Show Assistant Images', category: 'View', run: () => showAssistantView('images') },
+  { id: 'view.assistantImages', label: 'Show Assistant Attachments', category: 'View', run: () => showAssistantView('images') },
   { id: 'assistant.toggle', label: 'Toggle Hive Assistant', category: 'Assistant', keybinding: 'Mod+Alt+I', when: hasWorkspace, run: () => setAssistantOpen(!get().assistantOpen) },
   { id: 'assistant.settings', label: 'Assistant Settings…', category: 'Assistant', when: hasWorkspace, run: () => set({ assistantSettingsOpen: true }) },
   {

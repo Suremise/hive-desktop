@@ -16,27 +16,27 @@ const session = (id: string, patch: Partial<CleanupSession> = {}): CleanupSessio
   backups: [{ path: `P/.hive/archive/${id}.jsonl`, bytes: 1000 }],
   ...patch
 })
-const facts = (sessions: CleanupSession[], images: string[] = [], live: string[] = []): CleanupFacts => ({
+const facts = (sessions: CleanupSession[], folders: string[] = [], live: string[] = []): CleanupFacts => ({
   sessions,
-  imageFolders: images.map((name) => ({ name, path: `P/.hive/images/${name}`, bytes: 500 })),
+  attachmentFolders: folders.map((name) => ({ name, path: `P/.hive/attachments/${name}`, bytes: 500 })),
   liveNames: new Set(live),
   now
 })
-const NONE: CleanupOptions = { archivedImagesDays: null, orphanImages: false, archivedBackupsDays: null, goneBackups: false }
+const NONE: CleanupOptions = { archivedAttachmentsDays: null, orphanAttachments: false, archivedBackupsDays: null, goneBackups: false }
 
 describe('Clean Up', () => {
-  it('removes images of archived sessions older than N days only', () => {
+  it('removes attachments of archived sessions older than N days only', () => {
     const f = facts([session('old'), session('young', { lastActiveAt: ago(10) }), session('open', { archived: false }), session('busy', { running: true })], ['old', 'young', 'open', 'busy'])
-    expect(planCleanup(f, { ...NONE, archivedImagesDays: 90 }).map((i) => [i.kind, i.sessionId])).toEqual([['archived-images', 'old']])
-    expect(planCleanup(f, { ...NONE, archivedImagesDays: 5 }).map((i) => i.sessionId)).toEqual(['old', 'young'])
+    expect(planCleanup(f, { ...NONE, archivedAttachmentsDays: 90 }).map((i) => [i.kind, i.sessionId])).toEqual([['archived-attachments', 'old']])
+    expect(planCleanup(f, { ...NONE, archivedAttachmentsDays: 5 }).map((i) => i.sessionId)).toEqual(['old', 'young'])
     expect(planCleanup(f, NONE)).toEqual([])
   })
 
-  it("removes images of deleted sessions and of launches that never got an id, never a running one's", () => {
+  it("removes attachments of deleted sessions and of launches that never got an id, never a running one's", () => {
     const f = facts([session('kept')], ['kept', 'deleted-1', 'run-abc', 'run-live', 'live-id'], ['run-live', 'live-id'])
-    const items = planCleanup(f, { ...NONE, orphanImages: true })
-    expect(items.map((i) => i.path)).toEqual(['P/.hive/images/deleted-1', 'P/.hive/images/run-abc'])
-    expect(items.every((i) => i.kind === 'orphan-images')).toBe(true)
+    const items = planCleanup(f, { ...NONE, orphanAttachments: true })
+    expect(items.map((i) => i.path)).toEqual(['P/.hive/attachments/deleted-1', 'P/.hive/attachments/run-abc'])
+    expect(items.every((i) => i.kind === 'orphan-attachments')).toBe(true)
   })
 
   it("keeps old backups apart from last copies: N days only takes backups the CLI still has", () => {

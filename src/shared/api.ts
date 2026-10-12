@@ -70,7 +70,10 @@ import type {
   QuitSession,
   SessionBulkAction,
   SessionBulkResult,
-  SessionImageGroup,
+  SessionAttachmentGroup,
+  AttachmentPlan,
+  Attached,
+  AttachmentContent,
   SessionListItem,
   WorkspaceUsage,
   WorkspaceStorage,
@@ -323,8 +326,12 @@ export interface HiveRequests {
   'session:restartInMode': (projectPath: string, agentId: string, mode: PermissionMode) => void
   /** Switches running agents whose settings now say a different mode (after "Switch now"). */
   'session:applyModes': () => { switched: string[]; skipped: string[] }
-  /** Saves the clipboard image (or copies sourceFile) into .hive/images/<sessionId>; null if the clipboard has no image. */
-  'session:saveImage': (projectPath: string, sourceFile?: string, agentId?: string) => string | null
+  /** Saves the clipboard image into .hive/attachments/<sessionId> and gives its path; null if the clipboard has no image. */
+  'session:pasteImage': (projectPath: string, agentId?: string) => string | null
+  /** How each file would be attached to the agent's session (#387): copied or by path, its size and kind. Nothing changes. */
+  'session:planAttach': (projectPath: string, sources: string[], agentId?: string) => AttachmentPlan[]
+  /** Attaches files to the agent's running session: copies those planAttach says into .hive/attachments/<sessionId>; the paths to paste. */
+  'session:attach': (projectPath: string, sources: string[], agentId?: string) => Attached[]
 
   /** Adds an agent to the project (up to twelve), creating its worktree if asked, or reusing one (#456: `reuse` says how). */
   'agents:add': (projectPath: string, opts: AddAgentOptions) => AddedAgent
@@ -522,11 +529,14 @@ export interface HiveRequests {
   'files:setUnsaved': (paths: string[]) => void
   'files:unwatch': (projectPath: string) => void
 
-  'images:list': (projectPath: string) => SessionImageGroup[]
-  'images:trash': (projectPath: string, path: string) => void
-  /** Moves all of a session's images to the Recycle Bin, all or none (not while it runs): how many went. */
-  'images:trashGroup': (projectPath: string, sessionId: string) => number
-  'images:copy': (path: string) => void
+  'attachments:list': (projectPath: string) => SessionAttachmentGroup[]
+  /** A kept attachment's text, for the viewer's previews. */
+  'attachments:read': (projectPath: string, path: string) => AttachmentContent
+  'attachments:trash': (projectPath: string, path: string) => void
+  /** Moves all of a session's attachments to the Recycle Bin, all or none (not while it runs): how many went. */
+  'attachments:trashGroup': (projectPath: string, sessionId: string) => number
+  /** Copies an image attachment to the clipboard. */
+  'attachments:copyImage': (path: string) => void
 
   /** root is a project or one of its agents' worktrees. With base, lists everything changed since the branch left base. */
   'git:status': (root: string, base?: string) => GitStatus
