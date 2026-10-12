@@ -4,7 +4,7 @@
 // with their ids; bounded; each kept to its sender's permission (refused, never typed, once it is gone); cancelled by the
 // user or the Assistant; kept across the agent's stops; the reply says what became of it. The sessions are stand-ins here
 // (the e2e agentmessage and deliveries suites run fake Claude Code agents).
-import { readFileSync, rmSync } from 'fs'
+import { readdirSync, readFileSync, rmSync } from 'fs'
 import { join } from 'path'
 import { afterAll, beforeEach, describe, expect, it, vi } from 'vitest'
 import * as electron from 'electron'
@@ -332,7 +332,7 @@ describe('messages left for agents (#530, #647)', async () => {
     }
   })
 
-  it('checked again at the effect: what changes while a save is held is what counts (sender gone, another conversation)', async () => {
+  it('an operation takes effect at its save: a change while it is saved applies to the next one; a line is checked again before its first key', async () => {
     let release = (): void => undefined
     let holding = false
     const hold = (): void => {
@@ -347,27 +347,32 @@ describe('messages left for agents (#530, #647)', async () => {
       })
     }
     try {
-      // The inbox: its sender's launch ends while the save of "received" is held: not given out, refused.
+      // The inbox: its sender's launch ends while the save of "received" is held: the fetch was decided before, so it
+      // is given out and received.
       st.status = 'working'
-      await leave('Fetched while revoked.')
+      await leave('Fetched, then revoked.')
       hold()
       const read = deliveries.readInbox(alpha, 'b1')
       await vi.waitFor(() => expect(holding).toBe(true), { timeout: HUNG_MS })
       why = "the Assistant's session that left it ended"
       release()
-      expect(await read).toEqual({ items: [], unacked: [] })
-      expect(await states()).toEqual(["m1 refused: the Assistant's session that left it ended"])
+      expect((await read).items.map((x) => x.ids)).toEqual([['m1']])
+      expect(await states()).toEqual(['m1 received'])
       why = null
-      // An ack: the agent moves to another conversation while it is saved: expired, not acked.
+      // An ack: the agent moves to another conversation while it is saved: acked; the next operation (its inbox) finds
+      // the one left for the old conversation expired.
       await leave('Acked from the old conversation.')
+      await leave('Left for the old conversation.')
       hold()
       const ack = deliveries.ackDeliveries(alpha, 'b1', ['m2'])
       await vi.waitFor(() => expect(holding).toBe(true), { timeout: HUNG_MS })
       st.sessionId = 's2'
       release()
-      expect(await ack).toEqual({ acked: [], unknown: ['m2'] })
-      expect((await states()).at(-1)).toBe('m2 expired: its agent is in another conversation now')
-      // An offer: its sender's permission goes while "offered" is saved: nothing typed, refused.
+      expect(await ack).toEqual({ acked: ['m2'], unknown: [] })
+      expect(await deliveries.readInbox(alpha, 'b1')).toEqual({ items: [], unacked: ['m1'] })
+      expect((await states()).slice(1)).toEqual(['m2 acked', 'm3 expired: its agent is in another conversation now'])
+      // An offer: its sender's permission goes while "offered" is saved: the writer's check before the first key stops
+      // it: nothing typed, refused.
       await leave('Offered while revoked.')
       hold()
       st.status = 'ready'
@@ -377,7 +382,7 @@ describe('messages left for agents (#530, #647)', async () => {
       release()
       await offering
       expect(st.typed).toEqual([])
-      expect((await states()).at(-1)).toBe('m3 refused: the user turned Settings → Assistant → Control down')
+      expect((await states()).at(-1)).toBe('m4 refused: the user turned Settings → Assistant → Control down')
       why = null
       // An offer: the agent moves to another conversation while "offered" is saved: nothing typed into it, expired.
       st.status = 'working'
@@ -390,50 +395,46 @@ describe('messages left for agents (#530, #647)', async () => {
       release()
       await offering2
       expect(st.typed).toEqual([])
-      expect((await states()).at(-1)).toBe('m4 expired: its agent is in another conversation now')
+      expect((await states()).at(-1)).toBe('m5 expired: its agent is in another conversation now')
     } finally {
       release()
       deliveries.setBeforeSaveForTests(null)
     }
   })
 
-  it('a draft rejected at its check is never what Hive restores: its check fails, the next save fails too, Hive restarts (inbox and ack)', async () => {
+  it('a save that fails changes nothing, on disk or in memory, and a restart restores what was saved (inbox and ack; its write or its rename failing)', async () => {
     for (const how of ['inbox', 'ack'] as const) {
-      alpha = join(base, `alpha-rejected-${how}`)
-      why = null
-      st.status = 'working'
-      await leave('Rejected draft.')
-      // The first save (received, or acked) is held while the Assistant's launch ends; the second (its refusal) fails.
-      let release = (): void => undefined
-      const held = new Promise<void>((r) => (release = r))
-      let saves = 0
-      deliveries.setBeforeSaveForTests(async () => {
-        saves++
-        if (saves === 1) await held
-        else throw new Error('EIO: i/o error')
-      })
-      try {
-        const call = how === 'inbox' ? deliveries.readInbox(alpha, 'b1') : deliveries.ackDeliveries(alpha, 'b1', ['m1'])
-        await vi.waitFor(() => expect(saves).toBe(1), { timeout: HUNG_MS })
-        why = "the Assistant's session that left it ended"
-        release()
-        await expect(call).rejects.toThrow(/couldn't save the deliveries \(EIO/)
-      } finally {
-        release()
-        deliveries.setBeforeSaveForTests(null)
+      for (const at of ['write', 'rename'] as const) {
+        alpha = join(base, `alpha-failed-${how}-${at}`)
+        st.status = 'working'
+        await leave('Never received.')
+        const fail = (): never => {
+          throw new Error('EIO: i/o error')
+        }
+        if (at === 'write') deliveries.setBeforeSaveForTests(fail)
+        else deliveries.setBeforeRenameForTests(fail)
+        try {
+          const call = how === 'inbox' ? deliveries.readInbox(alpha, 'b1') : deliveries.ackDeliveries(alpha, 'b1', ['m1'])
+          await expect(call).rejects.toThrow(/couldn't save the deliveries \(EIO.*nothing changed/)
+        } finally {
+          deliveries.setBeforeSaveForTests(null)
+          deliveries.setBeforeRenameForTests(null)
+        }
+        expect(await states()).toEqual(['m1 queued'])
+        const dir = join(alpha, '.hive')
+        expect(JSON.parse(readFileSync(join(dir, 'deliveries.json'), 'utf8')).deliveries.map((r: { id: string; state: string }) => `${r.id} ${r.state}`)).toEqual(['m1 queued'])
+        expect(readdirSync(dir).filter((f) => f.endsWith('.tmp'))).toEqual([])
+        await deliveries.forgetDeliveriesForTests()
+        expect(await states()).toEqual(['m1 queued'])
       }
-      // What Hive restores is what was committed: queued, never received or acked (and no body went out).
-      expect(JSON.parse(readFileSync(join(alpha, '.hive', 'deliveries.json'), 'utf8')).deliveries.map((r: { id: string; state: string }) => `${r.id} ${r.state}`)).toEqual(['m1 queued'])
-      await deliveries.forgetDeliveriesForTests()
-      expect(await states()).toEqual(["m1 refused: the Assistant's session that left it ended"])
     }
   })
 
-  it("the confirmation's Enter again checks what the first keys did: expired (also once a check has published it), another conversation: no Enter, ended honestly", async () => {
+  it("the confirmation's Enter again checks what the first keys did: expired (also once a check has published it), another conversation, cancelled, another launch: no Enter, ended honestly", async () => {
     const cli = { count: 0, enters: 0, clears: 0 }
     const before = { ...sessions } as Record<string, unknown>
     Object.assign(sessions, {
-      promptsTaken: () => ({ runId: 'r1', count: cli.count }),
+      promptsTaken: () => ({ runId: st.runId, count: cli.count }),
       holdForConfirm: () => () => undefined,
       lineNotTaken: () => undefined,
       submitAgain: () => {
@@ -481,6 +482,25 @@ describe('messages left for agents (#530, #647)', async () => {
       await vi.waitFor(() => expect(cli.clears).toBe(3), { timeout: HUNG_MS })
       await vi.waitFor(async () => expect((await states()).at(-1)).toBe('m3 expired: its agent is in another conversation now'), { timeout: HUNG_MS })
       expect(cli.enters).toBe(0)
+      await vi.waitFor(() => expect(watches.confirmsInFlight()).toBe(0), { timeout: HUNG_MS })
+      // Cancelled while its CLI hasn't taken the line: no Enter again; Hive's line is cleared; cancelled.
+      st.status = 'ready'
+      expect((await leave('Cancelled before the retry.')).fate).toBe('typed')
+      expect(await messages.cancelMessages(alpha, 'b1', 'the user')).toBe(1)
+      await vi.waitFor(() => expect(cli.clears).toBe(4), { timeout: HUNG_MS })
+      expect((await states()).at(-1)).toBe('m4 cancelled: cancelled by the user')
+      expect(cli.enters).toBe(0)
+      await vi.waitFor(() => expect(watches.confirmsInFlight()).toBe(0), { timeout: HUNG_MS })
+      // The agent started again before the retry: no Enter (nor a clear) in the new launch; it stays offered, for its inbox.
+      st.status = 'ready'
+      expect((await leave('Typed into the old launch.')).fate).toBe('typed')
+      st.runId = 'r2'
+      await vi.waitFor(() => expect(watches.confirmsInFlight()).toBe(0), { timeout: HUNG_MS })
+      expect(cli.enters).toBe(0)
+      expect(cli.clears).toBe(4)
+      expect((await states()).at(-1)).toBe('m5 offered')
+      // Once taken, it is the agent's: a cancel no longer reaches it.
+      expect(await messages.cancelMessages(alpha, 'b1', 'the user')).toBe(0)
     } finally {
       deliveries.setClockForTests(null)
       watches.testHooks.takeMs = undefined
