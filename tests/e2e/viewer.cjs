@@ -107,7 +107,7 @@ function stream(token) {
 
   // --- Discovery: the address, never a token.
   const found = await lib.until(readDiscovery, HUNG_MS)
-  check('the discovery file names the running API', found?.app === 'Hive' && found.url === BASE && found.port === PORT && found.api === 3 && typeof found.pid === 'number', JSON.stringify(found))
+  check('the discovery file names the running API', found?.app === 'Hive' && found.url === BASE && found.port === PORT && found.api === 4 && typeof found.pid === 'number', JSON.stringify(found))
   const discoveryText = fs.readFileSync(discovery, 'utf8')
   check('…and holds no token', !/token"\s*:/i.test(discoveryText) && !discoveryText.includes(apiToken), discoveryText)
   check('its health check answers', (await fetch(`${found.url}/v1/health`).then((r) => r.json())).ok === true)
@@ -128,7 +128,7 @@ function stream(token) {
   const viewer = made.token
   const as = (method, route, body) => api(method, route, body, viewer)
   const status = await as('GET', '/v1/status')
-  check('GET /v1/status says who it is: a read-only viewer of the workspace', status.status === 200 && status.body.caller?.role === 'viewer' && status.body.caller.name === 'Apiary' && status.body.caller.readOnly === true && status.body.api?.version === 3, JSON.stringify(status.body?.caller))
+  check('GET /v1/status says who it is: a read-only viewer of the workspace', status.status === 200 && status.body.caller?.role === 'viewer' && status.body.caller.name === 'Apiary' && status.body.caller.readOnly === true && status.body.api?.version === 4, JSON.stringify(status.body?.caller))
 
   // --- An agent, for the merge slot, its activity and its own token's stream.
   await page.keyboard.press('Escape')
@@ -233,9 +233,9 @@ function stream(token) {
   check('the Assistant gives Ann a long task', (await api('POST', '/v1/projects/alpha/agents/Ann/prompt', { text: 'work 8' }, assistantToken)).status === 200)
   check('…and she works on it', !!(await lib.until(async () => (await live(ann.id))?.status === 'working', HUNG_MS)))
   const queued = await api('POST', '/v1/projects/alpha/agents/Ann/message', { text: `Next, ${SECRET}` }, assistantToken)
-  check('a message for her waits in Hive', queued.status === 200 && queued.body?.typed === false && !!(await lib.until(async () => (await live(ann.id))?.queuedMessages?.length === 1, HUNG_MS)), JSON.stringify(queued))
-  const waitingFor = await seen(viewerStream, 'session-status', (d) => d.state.agentId === ann.id && d.state.queuedMessages?.length === 1)
-  check('the stream says a message waits, from whom, not what it says', !!waitingFor && waitingFor.data.state.queuedMessages[0].from !== undefined && !('text' in waitingFor.data.state.queuedMessages[0]), JSON.stringify(waitingFor?.data?.state?.queuedMessages))
+  check('a message for her waits in Hive', queued.status === 200 && queued.body?.typed === false && !!(await lib.until(async () => (await live(ann.id))?.inbox?.unread?.length === 1, HUNG_MS)), JSON.stringify(queued))
+  const waitingFor = await seen(viewerStream, 'session-status', (d) => d.state.agentId === ann.id && d.state.inbox?.unread?.length === 1)
+  check('the stream says a message waits, from whom, not what it says', !!waitingFor && waitingFor.data.state.inbox.unread[0].from !== undefined && !('text' in waitingFor.data.state.inbox.unread[0]), JSON.stringify(waitingFor?.data?.state?.inbox))
   const left = await seen(viewerStream, 'assistant-activity', (d) => /Left Ann in alpha a message/.test(d.action.text))
   check("the Assistant's action arrives, without the message", !!left && !left.data.action.text.includes(SECRET), JSON.stringify(left?.data))
   const added = await api('POST', '/v1/projects/alpha/agents', { name: 'Runner' }, assistantToken)

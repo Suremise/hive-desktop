@@ -31,8 +31,8 @@ the real tier, `--only-real` runs only it; a suite named always runs.
 A suite passes when it exits cleanly and prints no `FAIL` line. **Environment failures are a SKIP, not a FAIL**, but
 only where it is certain: a real suite marks each step that waits on the CLI answering (a turn) with
 `lib.cliStep(name, { session: <pty key> }, fn)`, and its `check` reports to `lib.checked(ok)`. When a check in such a step
-fails and a **new** usage or rate limit, sign-in or network error (`lib.environmentProblems`) appeared **in that step's
-session** during it, the suite stops there with `SKIPPED environment: <why> (in "<step>", <session>)`, which the run
+fails and a **new** usage or rate limit, sign-in or network error (`lib.environmentProblems`), or a launch of the Store
+PowerShell 7 that Codex's sandbox refused (`lib.storePwshRefusals`, below), appeared **in that step's session** during it, the suite stops there with `SKIPPED environment: <why> (in "<step>", <session>)`, which the run
 record lists under **Skipped for the environment**. It stays a FAIL when the step threw (an exception is never the
 environment's: a bug, a rejected IPC call, a file error; so a step's waits on the CLI end in a check, not a throw), when
 anything failed before the step, when another FAIL line was printed (a page error), when the error is in another
@@ -351,6 +351,14 @@ minutes, the network off and Hive's fake CLIs only: no real CLI, sign-in or cred
   those peer snapshots; a missing or partial snapshot is reported as unavailable. A sandbox START with no result
   is evidence to investigate, not proof of a collision or a reason to skip. Compare the selected CLI version, shell
   path and launch environment with an unchanged solo pass before testing concurrent runs.
+  Codex's non-admin sandbox can't start the **Microsoft Store's PowerShell 7** (the shell Codex picks where it is
+  installed) while any other process of that package runs on the machine, sandboxed or not (#499, #658): any agent's
+  PowerShell command or a pwsh terminal is enough, so it comes and goes with what else runs. Codex then shows
+  `CreateProcessAsUserW failed: 5 (Access is denied.)` (`-1073283067` by the package's path) and the command never
+  runs. In a CLI step that is an environment SKIP only when that session's Codex transcript records the refusal with
+  the command's executable the Store's pwsh (its WindowsApps alias or the package's path; the terminal cuts it off):
+  another shell, another code, or a command that can't be read stays a FAIL. Windows PowerShell 5.1 and cmd aren't affected; steering the suites to them is #584, the product side
+  #585.
 
 ## Where they work
 

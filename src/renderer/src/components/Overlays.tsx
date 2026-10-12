@@ -241,7 +241,7 @@ export function CommandPalette() {
 
   const items = useMemo(() => {
     const cmdItems = mode === 'projects' ? [] : commands
-      .filter((c) => !c.internal && (!c.when || c.when()))
+      .filter((c) => !c.internal && !c.hidden?.() && (!c.when || c.when()))
       .map((c) => ({ id: c.id, label: `${c.category}: ${commandLabel(c)}`, keybinding: commandKeybinding(c.id), run: () => runCommand(c.id), icon: 'symbol-event', checked: c.checked }))
     const projectItems = projects.map((p) => ({
       id: `project:${p.path}`,

@@ -4259,9 +4259,12 @@ body.pane-resizing .monaco-editor {
 .agent-leftovers:hover {
   background: color-mix(in srgb, var(--warning) 14%, transparent);
 }
-/* Messages left for it, waiting to be typed (#530). */
+/* What was left for it and isn't received yet (#530, #647); not acked in time, it is overdue. */
 .agent-messages {
   color: var(--accent-ink);
+}
+.agent-messages.overdue {
+  color: var(--warning);
 }
 .agent-messages:hover {
   background: color-mix(in srgb, var(--accent-ink) 14%, transparent);

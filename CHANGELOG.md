@@ -2,6 +2,10 @@
 
 ## Unreleased
 
+### Messages
+- **Messages to agents are kept, and you can see where they got to.** What the Assistant leaves an agent (`hive_message_agent`) is now a saved delivery with an id: it survives the agent stopping and Hive restarting, and its state goes from waiting to typed, **received** (the agent read it with its new inbox, `hive_inbox`) and **acked** (the agent says it acted on it). The pane shows **✉ 1 unread** until the agent has it, and **✉ 1 overdue** when it hasn't acked one within 30 minutes; the Assistant sees each one's state and times in the agent's activity. A message still waiting when the Assistant that left it stops, or Hive restarts, is refused rather than sent later, and the Assistant's activity list says so.
+- **Agent API**: `POST /v1/inbox` (an agent's or the Assistant's own inbox, and `ack`), `GET /v1/projects/{name}/agents/{agent}/deliveries`, and the activity's `inbox` replace `messagesWaiting` and `lastMessages`; the event stream's `queuedMessages` is now `inbox`. The API's version is 4.
+
 ### Performance
 - **What each card cost.** A card's panel now says what its agents used while they held it, such as **cost: ≈ $1.84 · 2 rounds**: its builder while it was in Doing and its reviewer from the start of each review to its verdict, as each provider reported it, with each side's part and tokens on hover. Performance has a sortable **Cards** table (cost, builder, reviewer, rounds) for the cards worked on in its range, a row opening its card; and hovering a lane's top line in the Progress panel shows what the lane cost, split into its cards and its **overhead**, what the builder and reviewer used holding no card (merges, watching, compactions), with the cost per finished card. Estimates are marked ≈ and what Hive can't know shows as **Unknown**, never $0. Cards worked on before this keep their cost too, worked out from their history.
 
@@ -23,6 +27,8 @@
 - **Attach any file to a prompt.** Drop a PDF, a log, a CSV or any other file onto an agent's or the Assistant's terminal, not only images: Hive pastes its path, copying it into the session's attachments first when it comes from outside the agent's folder (images are always kept). A chip over the terminal shows each attachment until you send the prompt, and says when the agent's CLI doesn't read that kind of file itself, so the agent opens it by its path (Claude Code reads PDFs itself; Codex and Copilot open them by path). Files over 20 MB are asked about first, and nothing attached is ever run.
 - **Images is now Attachments.** The project tab and the Assistant view's section show every kind of file attached, with a filter by kind and previews of PDFs, Markdown, CSV and text in the viewer. Hive moves each project's `.hive/images` folder to `.hive/attachments` by itself, and old links to the images still open them. Storage and Clean Up… count and remove attachments.
 
+### Developer features
+- **The developer console.** Turn on **Settings → Advanced → Show developer features**, then **Help → Developer Console** (Ctrl+Alt+J) opens a window of its own, like a browser's developer tools: pick an agent, the Hive Assistant or Hive itself and watch each hook, status line, launch and API call arrive beside what Hive made of it, redacted. Filter by event type or provider, search, pause and clear; Hive captures a source only while the console is open on it.
 ### Files
 - **A late paste no longer takes your selection.** In the Files tab, a paste, rename or new file that took a moment (a big folder, a slow disk) selected what it made when it finished, even if you had clicked another row meanwhile, so Ctrl+X or Ctrl+C then acted on the wrong file. The row you clicked now keeps the selection.
 
