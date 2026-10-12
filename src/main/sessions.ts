@@ -1474,7 +1474,7 @@ class SessionManager {
       throw e
     } finally {
       this.delivering.delete(key)
-      this.noteComposer(this.live.get(id))
+      this.noteComposer(this.live.get(id), key)
     }
   }
 
@@ -1551,13 +1551,21 @@ class SessionManager {
   }
 
   /** Whether Hive holds an agent's input (RuntimeFacts.composer): typing into it, or a line it typed not taken yet. */
-  private composerOf(l: LiveSession): RuntimeFacts['composer'] {
-    return this.delivering.has(this.key(l.state.projectPath, l.state.agentId)) || this.lineBlocked(l) ? 'held' : 'free'
+  private composerOf(l: LiveSession, key = this.key(l.state.projectPath, l.state.agentId)): RuntimeFacts['composer'] {
+    return this.delivering.has(key) || this.lineBlocked(l) ? 'held' : 'free'
   }
 
-  /** The agent's input may be held or freed now (Hive typing, confirming, a line taken or given up): sent when it changed. */
-  private noteComposer(l: LiveSession | undefined): void {
-    if (l && this.fact(l.state, { composer: this.composerOf(l) })) this.emitState(l.state)
+  /**
+   * The agent's input may be held or freed now (Hive typing, confirming, a line taken or given up): sent when it changed.
+   * Only a report: it never stops what Hive is typing (`key`: the terminal's, when the caller has it).
+   */
+  private noteComposer(l: LiveSession | undefined, key?: string): void {
+    if (!l) return
+    try {
+      if (this.fact(l.state, { composer: this.composerOf(l, key) })) this.emitState(l.state)
+    } catch (e) {
+      log.warn('could not report whether Hive holds an input', e)
+    }
   }
 
   /** Reads the mode from the CLI's footer on its screen as it redraws, so a mode change in the terminal shows in Hive at once. */
@@ -1744,11 +1752,12 @@ class SessionManager {
     if (!l || l.state.runId !== runId) return null
     const token = Symbol('confirming')
     l.confirming = token
-    this.noteComposer(l)
+    const key = this.key(projectPath, agentId)
+    this.noteComposer(l, key)
     return () => {
       if (l.confirming !== token) return
       l.confirming = undefined
-      this.noteComposer(l)
+      this.noteComposer(l, key)
     }
   }
 
@@ -1848,7 +1857,7 @@ class SessionManager {
     }
     waiting()
     this.delivering.add(key)
-    this.noteComposer(l)
+    this.noteComposer(l, key)
     const same = (): boolean => !!runId && this.live.get(liveId(projectPath, agentId))?.state.runId === runId
     const check = (): void => {
       if (!same()) throw new Error('The agent stopped before the prompt was sent.')
@@ -1905,8 +1914,8 @@ class SessionManager {
       if (sent && l) l.typed = sent
       this.delivering.delete(key)
       // Its input is held while the line waits to be taken, at most PENDING_MS: free again then, if not taken sooner.
-      this.noteComposer(this.live.get(liveId(projectPath, agentId)))
-      if (sent) setTimeout(() => this.noteComposer(this.live.get(liveId(projectPath, agentId))), PENDING_MS + 100).unref?.()
+      this.noteComposer(this.live.get(liveId(projectPath, agentId)), key)
+      if (sent) setTimeout(() => this.noteComposer(this.live.get(liveId(projectPath, agentId)), key), PENDING_MS + 100).unref?.()
     }
   }
 
@@ -2552,7 +2561,7 @@ class SessionManager {
 
   private emitState(state: LiveSessionState): void {
     // Its input as Hive holds it now (#648): a line typed or given up since the last report.
-    const l = this.live.get(liveId(state.projectPath, state.agentId))
+    const l = state.projectPath ? this.live.get(liveId(state.projectPath, state.agentId)) : undefined
     if (l?.state === state) this.fact(state, { composer: this.composerOf(l) })
     // A wake-on-change watch (#128): an agent whose turn has ended waits on its cards (watching), never idle; without
     // the watch, it is just finished again (not newly: nothing to look at, nothing to notify).
