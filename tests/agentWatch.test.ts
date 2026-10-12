@@ -10,7 +10,7 @@ import { agentBusy, agentEvent, agentLimitLine, agentPart, agentWakeLine, agentW
 import { WAKE_MAX_BYTES, cardChange, cardWakeLine, readCondition, userNameOf, wakeAbout, type WatchCondition } from '../src/shared/watch'
 import { agentWatchText } from '../src/shared/toolReplies'
 import { tempDir } from './tempDir'
-import { follow } from './doorbell'
+import { follow } from './followDoorbell'
 
 // The longest a test waits for what it is waiting on: a bound for a hung run, never how long it should take.
 const HUNG_MS = 10000

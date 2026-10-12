@@ -11,7 +11,7 @@ import { LANE_DEFAULT_EVENTS, laneHits, laneWakeLine, readLaneCondition, type La
 import { WAKE_MAX_BYTES } from '../src/shared/watch'
 import { taskWaitText } from '../src/shared/toolReplies'
 import { tempDir } from './tempDir'
-import { follow } from './doorbell'
+import { follow } from './followDoorbell'
 // The longest a wait here waits for what it waits on: a bound for a hung run, never how long it should take (#570).
 const HUNG_MS = 10000
 

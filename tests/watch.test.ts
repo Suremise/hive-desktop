@@ -11,7 +11,7 @@ import { taskWaitText } from '../src/shared/toolReplies'
 import { hookStep } from '../src/main/hookStatus'
 import type { TaskCard } from '../src/shared/types'
 import { tempDir } from './tempDir'
-import { follow, toldOf } from './doorbell'
+import { follow, toldOf } from './followDoorbell'
 
 // The longest a test waits for what it is waiting on: a bound for a hung run, never how long it should take.
 const HUNG_MS = 10000

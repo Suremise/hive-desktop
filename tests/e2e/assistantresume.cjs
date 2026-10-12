@@ -76,12 +76,18 @@ const persona = ({ name, word: w }) =>
   }
   // None until its first message is in.
   const items = async (id) => (await inv('transcript:read', home, id).catch(() => null))?.items ?? []
-  const told = async (id, m) => (await items(id)).filter((i) => i.kind === 'user' && i.text.includes(`[Hive] Mode: ${m.name} (chosen by the user)`)).length
+  /**
+   * Where it was told a mode (#650: Hive's doorbell, then its hive_inbox read, whose result has the notice): the
+   * doorbells (prompts) that gave it.
+   */
+  const toldAt = (list, m) =>
+    list.filter((i, k) => i.kind === 'user' && i.text.startsWith('[Hive] New in your inbox: ') && String(list.slice(k + 1).find((y) => y.kind === 'tool' && /hive_inbox/.test(y.tool.name))?.tool.result ?? '').includes(`[Hive] Mode: ${m.name} (chosen by the user)`))
+  const told = async (id, m) => toldAt(await items(id), m).length
   const turnEnded = (state, user) => state?.status === 'finished' && Date.parse(state.statusSince) >= Date.parse(user?.timestamp)
   /** A recorded notice can precede its UserPromptSubmit hook: idle alone may still be the previous turn (#398/#473). */
   const noticeEnded = async (id, m) => {
     const ended = await lib.until(async () => {
-      const notice = (await items(id)).findLast((i) => i.kind === 'user' && i.text.includes(`[Hive] Mode: ${m.name} (chosen by the user)`))
+      const notice = toldAt(await items(id), m).at(-1)
       return notice && turnEnded(await live(), notice)
     }, 90000, 500)
     const state = await live()

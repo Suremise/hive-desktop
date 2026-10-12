@@ -579,7 +579,7 @@ async function runScenario(sc, providerKey, opts = {}) {
     // What Hive woke it with (#402), in order: a line it typed in, or (#650: its doorbell) what the session's next
     // hive_inbox call read, the inbox's own items after the doorbell.
     observed.wakeLines = items.flatMap((x, i) => {
-      const line = String(x.kind === 'user' ? (x.line ?? '') : '').trim()
+      const line = String(x.kind === 'user' ? (x.text ?? '') : '').trim()
       if (!line.startsWith('[Hive]')) return []
       if (!line.startsWith('[Hive] New in your inbox: ')) return [line.slice(0, 1000)]
       const read = items.slice(i + 1).find((y) => y.kind === 'tool' && /hive_inbox/.test(y.tool.name))
