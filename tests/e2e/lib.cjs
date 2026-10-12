@@ -493,6 +493,10 @@ _electron.launch = async (...args) => {
     // The suite's empty one is made here (Codex refuses a CODEX_HOME that doesn't exist).
     fs.mkdirSync(env[k], { recursive: true })
   }
+  // Its profile on its command line (#614), which Hive ignores: the runner stops what names a suite's folder once the
+  // suite ends, and a test Hive's own line names only the checkout, so a suite killed before closing its Hive (HB1's,
+  // 10 Oct) left it running for a day. Chromium's own processes already name it (--user-data-dir).
+  if (env.HIVE_USER_DATA) args[0] = { ...args[0], args: [...(args[0].args ?? []), `--hive-test-profile=${env.HIVE_USER_DATA}`] }
   const app = await launchElectron(...args)
   apps.add(app)
   app.on('close', () => apps.delete(app))

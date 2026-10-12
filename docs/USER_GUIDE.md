@@ -234,7 +234,7 @@ Hive keeps track of every process an agent's session starts, however it was star
 - **Ask** (the default): a notification lists them (*site left 2 processes running: node serve.js, tail -f capture-1.log*) with **End Them** and **Keep Running**, and the agent's pane header shows **⚠ 2 left running** until you decide or they end by themselves. Hover it for the list; click it to end them or keep them. **Keep Running** leaves them running and stops listing them.
 - **End them**: Hive ends them as the agent stops, without asking.
 
-Choose in **Settings → Agents → Processes left running**. When you quit Hive with some still listed, it asks once whether to end them or leave them running (a quit with no window shown, or to install an update, leaves them running).
+Choose in **Settings → Agents → Processes left running**. When you quit Hive with some still listed, it asks once whether to end them or leave them running (a quit with no window shown, or to install an update, leaves them running). Those Hive didn't ask about stay listed: when Hive next starts, it lists again the ones still running and offers to end them, checking that each is still the same process.
 
 Agents are also told to stop what they start: to watch a test run with something that ends with it (`hive-progress`, or their CLI's notice that a background command ended) rather than a `tail -f`, and to end the watchers, servers and app copies they started before their card goes to Review, unless the card or you need them running.
 

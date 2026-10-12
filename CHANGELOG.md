@@ -3,6 +3,7 @@
 ## Unreleased
 
 ### Agents
+- **What agents left running survives a restart.** Processes an agent left running that Hive didn't ask you about as it quit (a quit to install an update, or with no window open), or that were listed when it crashed, are listed again the next time Hive starts, with **End Them** and **Keep Running**. Hive checks that each is still the same process, so it never offers to end a program that has since taken its place. A dev copy of Hive that an agent's test run left open now shows up there too.
 - **Agents stop what they start.** Agents watching their own test runs with `tail -f` left those watchers running long after the runs ended (16 from one agent in a day). Hive's guidance now tells agents to watch a run with something that ends with it (`hive-progress`, their CLI's notice that a background command ended) and to end the watchers, servers and app copies they started before a card goes to Review.
 
 ### Agent API
