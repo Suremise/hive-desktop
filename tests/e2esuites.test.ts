@@ -310,6 +310,72 @@ describe('the real tier and environment failures (card #191)', () => {
     for (const t of ['PreToolUse hook error: connect ECONNREFUSED 127.0.0.1:51234', 'Context limit reached · /compact or /clear to continue', 'Error: Cannot read properties of undefined', '? for shortcuts', 'The rate limiter in src/limits.ts']) expect(environmentProblem(t), t).toBeNull()
   })
 
+  it("Codex's sandbox refusing a launch is the environment's only when its transcript shows the command was the Store PowerShell 7 (#658)", () => {
+    const { environmentProblem, storePwshRefusals } = createRequire(import.meta.url)('./e2e/lib.cjs') as {
+      environmentProblem: (t: string) => string | null
+      storePwshRefusals: (jsonl: string) => { why: string }[]
+    }
+    const alias = 'C:\\Users\\x\\AppData\\Local\\Microsoft\\WindowsApps\\pwsh.exe'
+    const pkg = '"C:\\Program Files\\WindowsApps\\Microsoft.PowerShell_7.6.6.0_x64__8wekyb3d8bbwe\\pwsh.exe"'
+    const refusal = (code: string, cmd: string) => `Failed to create unified exec process: CreateProcessAsUserW failed: ${code} | cwd=C:\\demo | cmd=${cmd} -Command "node linger.js stop" | env_u16_len=5324 | si_flags=256 | creation_flags=134743040`
+    const unquoted = (cmd: string) => cmd.replace(/^"|"$/g, '')
+    // The command's end as Codex 0.162 writes it in its rollout (an item_completed event of a failed CommandExecution).
+    const ended = (item: Record<string, unknown>) => JSON.stringify({ type: 'event_msg', payload: { type: 'item_completed', thread_id: 't', turn_id: 'u', item: { type: 'CommandExecution', id: 'exec-1', source: 'unified_exec_startup', status: 'failed', exit_code: -1, ...item } } })
+    const end = (code: string, cmd: string, item: Record<string, unknown> = {}) => ended({ command: [unquoted(cmd), '-Command', 'node linger.js stop'], aggregated_output: refusal(code, cmd), ...item })
+    // That record, and the Rust form of the same error in the tool's output, which isn't a launch of its own.
+    const line = (code: string, cmd: string) =>
+      end(code, cmd) +
+      '\n' +
+      JSON.stringify({ type: 'response_item', payload: { type: 'custom_tool_call_output', output: `Script error:\nexec_command failed: CreateProcess { message: "Rejected(\\"${refusal(code, cmd).replace(/\\/g, '\\\\\\\\')}\\")" }` } })
+    // The Store pwsh by its alias (error 5) and by the package's path (0xC0070005): the environment's, once each.
+    for (const [code, cmd] of [['5 (Access is denied.)', alias], ['-1073283067', pkg]]) {
+      const found = storePwshRefusals(line(code, cmd))
+      expect(found.length, cmd).toBe(1)
+      expect(found[0].why).toMatch(/^Codex's sandbox couldn't start the Store PowerShell 7/)
+    }
+    // Any other shell, even on a machine with the Store pwsh, another code, or a longer number: not it (a FAIL).
+    const others: [string, string][] = [
+      ['5 (Access is denied.)', 'C:\\Windows\\System32\\WindowsPowerShell\\v1.0\\powershell.exe'],
+      ['5 (Access is denied.)', 'C:\\Windows\\System32\\cmd.exe'],
+      ['5 (Access is denied.)', '"C:\\Program Files\\PowerShell\\7\\pwsh.exe"'],
+      ['5 (Access is denied.)', 'C:\\tools\\WindowsApps-old\\pwsh.exe'],
+      ['2 (The system cannot find the file specified.)', alias],
+      ['50 (The request is not supported.)', alias],
+      ['-10732830670', pkg],
+      ['-1073283067.5', pkg]
+    ]
+    for (const [code, cmd] of others) expect(storePwshRefusals(line(code, cmd)), `${code} ${cmd}`).toEqual([])
+    // Only that record is a launch: the same refusal quoted by the user, by Codex's answer or reasoning, in the tool's
+    // output, in another object, or as what a command printed (it ran: completed, or failed with its own exit code) isn't.
+    const said = refusal('5 (Access is denied.)', alias)
+    const quoted = [
+      { type: 'event_msg', payload: { type: 'user_message', message: said } },
+      { type: 'response_item', payload: { type: 'message', role: 'user', content: [{ type: 'input_text', text: said }] } },
+      { type: 'response_item', payload: { type: 'message', role: 'assistant', content: [{ type: 'output_text', text: said }] } },
+      { type: 'event_msg', payload: { type: 'agent_message', message: said } },
+      { type: 'response_item', payload: { type: 'reasoning', summary: [{ type: 'summary_text', text: said }] } },
+      { type: 'response_item', payload: { type: 'custom_tool_call_output', output: said } },
+      { type: 'event_msg', payload: { type: 'exec_command_end', status: 'failed', exit_code: -1, aggregated_output: said } },
+      { msg: said }
+    ].map((r) => JSON.stringify(r))
+    for (const l of quoted) expect(storePwshRefusals(l), l).toEqual([])
+    expect(storePwshRefusals(end('5 (Access is denied.)', alias, { status: 'completed', exit_code: 0 }))).toEqual([])
+    expect(storePwshRefusals(end('5 (Access is denied.)', alias, { exit_code: 1 }))).toEqual([])
+    expect(storePwshRefusals(end('5 (Access is denied.)', alias, { type: 'FileChange' }))).toEqual([])
+    // Its executable must be the one the refusal names, and be given.
+    expect(storePwshRefusals(end('5 (Access is denied.)', alias, { command: ['C:\\Windows\\System32\\cmd.exe', '/c', 'x'] }))).toEqual([])
+    expect(storePwshRefusals(end('5 (Access is denied.)', alias, { command: undefined }))).toEqual([])
+    expect(storePwshRefusals(end('5 (Access is denied.)', 'C:\\Windows\\System32\\cmd.exe', { command: [alias] }))).toEqual([])
+    // The same command's end twice is one launch; two commands are two.
+    expect(storePwshRefusals(`${end('5 (Access is denied.)', alias)}\n${end('5 (Access is denied.)', alias)}`)).toHaveLength(1)
+    expect(storePwshRefusals(`${end('5 (Access is denied.)', alias)}\n${end('5 (Access is denied.)', alias, { id: 'exec-2' })}`)).toHaveLength(2)
+    // Nothing that isn't JSON, and nothing at all.
+    expect(storePwshRefusals(`not json ${said}`)).toEqual([])
+    expect(storePwshRefusals('')).toEqual([])
+    // The terminal alone, which cuts the command off, is never enough.
+    expect(environmentProblem(`• Failed (exit -1) node linger.js stop └ ${refusal('5 (Access is denied.)', alias)}`)).toBeNull()
+  })
+
   it('the record lists the real tier not run and the suites skipped for the environment', () => {
     const results = [
       { name: 'board', ok: true, seconds: 3 },

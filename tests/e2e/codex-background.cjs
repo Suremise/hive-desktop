@@ -6,10 +6,13 @@ const { _electron } = require('playwright-core')
 const fs = require('fs')
 const path = require('path')
 const { runningCliSuites, printSandboxDiagnostics } = require('./codexDiagnostics.cjs')
+const { processes, namesFile } = require('./folderProcesses.cjs')
 
 const userData = path.join(lib.WORK, 'cxbg-profile')
 const ws = path.join(lib.WORK, 'cxbg-ws')
 const proj = path.join(ws, 'demo')
+// The file the command writes as it ends, named for this run: a check that it started never takes another suite's (#658).
+const marker = `bg-done-${process.pid}-${Date.now().toString(36)}.txt`
 let failed = 0
 let diagnosticWindow = null
 let diagnosticPrinted = false
@@ -63,7 +66,7 @@ const check = (name, ok, extra = '') => {
   const key = lib.ptyKey(proj, agent.id)
   // Printing only the id is the form that went uncounted (#162): Hive mustn't depend on what the script prints.
   const prompt =
-    "Call exec_command once with cmd \"Start-Sleep -Seconds 40; Set-Content -Path bg-done.txt -Value done\" and yield_time_ms 1000. It will return a session id while the command keeps running: do not wait for it, poll it or call write_stdin. If you call it from a script, print only its session id (text(r.session_id)). Reply with the single word STARTED and end your turn."
+    `Call exec_command once with cmd "Start-Sleep -Seconds 40; Set-Content -Path ${marker} -Value done" and yield_time_ms 1000. It will return a session id while the command keeps running: do not wait for it, poll it or call write_stdin. If you call it from a script, print only its session id (text(r.session_id)). Reply with the single word STARTED and end your turn.`
   // Codex answering the prompt is the CLI's part (a usage limit or the network there is the environment's: lib.cliStep).
   diagnosticWindow = { from: Date.now(), peersBefore: runningCliSuites() }
   const t0 = await lib.cliStep('the prompt’s turn', { session: key }, async () => {
@@ -77,6 +80,10 @@ const check = (name, ok, extra = '') => {
     const ended = await until((s) => s?.status === 'finished' && s, 120000)
     const started = Date.now()
     check('its turn ends: finished, not background (Codex is never told)', ended?.status === 'finished', JSON.stringify(ended && { status: ended.status }))
+    // Starting the command is Codex's part too: its sandbox can refuse to (#658, the environment's where it says so).
+    const running = await lib.until(() => fs.existsSync(path.join(proj, marker)) || namesFile(processes(), marker), 10000, 1000)
+    check('Codex started the command', running, lib.plainText(await inv('pty:buffer', key)).slice(-600))
+    if (!running) diagnostics(lib.plainText(await inv('pty:buffer', key)))
     return started
   })
   // Hive's part: counting what the turn left running.
@@ -87,8 +94,8 @@ const check = (name, ok, extra = '') => {
   await page.screenshot({ path: path.join(lib.WORK, 'codex-background.png') })
 
   // The command ends about 40 s after it started: the count drops, and Codex doesn't start a turn of its own.
-  const done = await until((s) => !s?.backgroundTasks && fs.existsSync(path.join(proj, 'bg-done.txt')) && s, 90000)
-  check('the count drops when the command ends', !!done && !done.backgroundTasks, JSON.stringify(done && { tasks: done.backgroundTasks, file: fs.existsSync(path.join(proj, 'bg-done.txt')) }))
+  const done = await until((s) => !s?.backgroundTasks && fs.existsSync(path.join(proj, marker)) && s, 90000)
+  check('the count drops when the command ends', !!done && !done.backgroundTasks, JSON.stringify(done && { tasks: done.backgroundTasks, file: fs.existsSync(path.join(proj, marker)) }))
   if (!done) diagnostics(lib.plainText(await inv('pty:buffer', key)))
   await until(() => Date.now() - t0 > 60000, 30000)
   const after = await live()
