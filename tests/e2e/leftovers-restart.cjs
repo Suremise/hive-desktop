@@ -81,7 +81,7 @@ const readKept = () => (fs.existsSync(kept) ? JSON.parse(fs.readFileSync(kept, '
     const all = before ? before.processes.map((p) => p.pid) : []
     const saved = await lib.until(() => {
       const k = readKept()
-      const a = k?.agents?.find((x) => x.agentId === agent.id)
+      const a = k?.launches?.find((x) => x.agentId === agent.id)
       return a && all.every((pid) => a.processes.some((p) => p.pid === pid && /^\d+$/.test(p.created))) && k
     }, 10000)
     check("Hive keeps the list in its profile, each process with its start time", !!saved, JSON.stringify(readKept()))
@@ -91,9 +91,9 @@ const readKept = () => (fs.existsSync(kept) ? JSON.parse(fs.readFileSync(kept, '
     app = null
     check('closing Hive without asking leaves them running', lib.processRunning(dev) && lib.processRunning(node))
     const k = readKept()
-    check('and keeps them listed for the next start', !!k?.agents?.some((a) => a.agentId === agent.id && a.processes.some((p) => p.pid === dev)), JSON.stringify(k))
+    check('and keeps them listed for the next start', !!k?.launches?.some((a) => a.agentId === agent.id && a.processes.some((p) => p.pid === dev)), JSON.stringify(k))
     // A kept record whose pid names another process now: the stranger's, with another start time.
-    k.agents[0].processes.push({ pid: stranger.pid, name: 'node.exe', label: 'node old-server.js', created: '116444736000000000' })
+    k.launches[0].processes.push({ pid: stranger.pid, name: 'node.exe', label: 'node old-server.js', created: '116444736000000000' })
     fs.writeFileSync(kept, JSON.stringify(k, null, 2))
 
     const second = await lib.launch({ userData, env: { ...env, HIVE_API_PORT: lib.port(47869) } })
@@ -113,7 +113,7 @@ const readKept = () => (fs.existsSync(kept) ? JSON.parse(fs.readFileSync(kept, '
     else await second.inv('session:settleLeftovers', proj, agent.id, 'end')
     check('End Them ends the dev copy and the node', await lib.until(() => !lib.processRunning(dev) && !lib.processRunning(node), 15000))
     check("and every process listed for them", await lib.until(() => (again ? again.processes : []).every((p) => !lib.processRunning(p.pid)), 15000), JSON.stringify(again?.processes.filter((p) => lib.processRunning(p.pid))))
-    check('nothing is listed or kept any more', !!(await lib.until(async () => !(await listed(second.inv))?.processes.length && !readKept()?.agents?.length, 10000)), JSON.stringify(readKept()))
+    check('nothing is listed or kept any more', !!(await lib.until(async () => !(await listed(second.inv))?.processes.length && !readKept()?.launches?.length, 10000)), JSON.stringify(readKept()))
     check("the stranger's process still runs", lib.processRunning(stranger.pid))
   } finally {
     await app?.close().catch(() => undefined)
