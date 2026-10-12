@@ -428,7 +428,7 @@ describe('the delivery service (#647)', async () => {
     }
   })
 
-  it("hive_inbox gives out only what its source still holds (#649 round 3): made again (its text as it is now, or cancelled when no longer due), and an ack of something unread is checked the same way; something already received can still be acked", async () => {
+  it("hive_inbox gives out only what its source still holds, through the same gate as an offer (#649 round 3): made again (its text as it is now, or cancelled when no longer due), and an ack of something unread is checked the same way; something already received can still be acked", async () => {
     const holding = { on: true }
     deliveries.registerSource('test-source', {
       refresh: async (r) => (r.body.startsWith('Gone') ? { cancel: 'cancelled: no longer due' } : r.body.startsWith('Old') ? { body: 'New text.' } : null),
@@ -444,10 +444,16 @@ describe('the delivery service (#647)', async () => {
     // Its source holds none now: nothing given out, nothing acked from unread; what was received can still be acked.
     holding.on = false
     await ev('Not now.')
+    // Typing and pulling ask the same gate: not typed while its source doesn't hold it, nor handed out.
+    st.status = 'ready'
+    st.typed = []
+    await deliveries.offerAllForTests()
+    expect(st.typed).toEqual([])
     expect(await deliveries.readInbox(alpha, 'b1')).toEqual({ items: [], unacked: [] })
     expect(await deliveries.ackDeliveries(alpha, 'b1', ['m4', 'm2'])).toEqual({ acked: ['m2'], unknown: ['m4'] })
     expect((await states()).slice(2)).toEqual(['m3 received', 'm4 queued'])
     holding.on = true
+    st.status = 'working'
     expect((await deliveries.readInbox(alpha, 'b1')).items.map((i) => i.ids.join())).toEqual(['m4'])
   })
 

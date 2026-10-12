@@ -664,15 +664,14 @@ function untaken(store: Store, r: DeliveryRecord): boolean {
  */
 export async function readInbox(host: string, agentId: string): Promise<{ items: InboxItem[]; unacked: string[] }> {
   const store = await load(host)
-  // Its sources' say first (#649), as for an offer: each made again from things as they are now.
-  const fresh = await refreshAll(store, store.records.filter((x) => x.agentId === agentId && isUnread(x)))
+  // Through the one gate (#649), as an offer: a reply the user no longer lets be told, a watch that has ended, a wake
+  // that is someone else's now, isn't handed out.
+  const gate = await mayGive(store, store.records.filter((x) => x.agentId === agentId && isUnread(x)))
   const r = await transact(store, (d) => {
     recheck(store, d, agentId)
-    applyFresh(store, d, fresh)
+    const may = gate(d)
     const mine = d.records.filter((x) => x.agentId === agentId)
-    // Only what may still be given out: what its source and producer still hold (a reply the user no longer lets be
-    // told, a watch that has ended, a wake that is someone else's now, isn't handed out).
-    const give = mine.filter((x) => isUnread(x) && stillWanted(store, x))
+    const give = mine.filter(may)
     const out = { items: inboxItems(give), unacked: mine.filter((x) => x.state === 'received' && needsAck(x.kind)).map((x) => x.id) }
     for (const x of give) set(store, d, x, 'received', undefined, 'inbox')
     return out
@@ -685,13 +684,12 @@ export async function readInbox(host: string, agentId: string): Promise<{ items:
 export async function ackDeliveries(host: string, agentId: string, ids: readonly string[]): Promise<{ acked: string[]; unknown: string[] }> {
   const store = await load(host)
   const asked = new Set(ids)
-  const fresh = await refreshAll(store, store.records.filter((x) => x.agentId === agentId && asked.has(x.id) && isUnread(x)))
+  const gate = await mayGive(store, store.records.filter((x) => x.agentId === agentId && asked.has(x.id) && isUnread(x)))
   const r = await transact(store, (d) => {
-    // One not received yet is checked as it would be before it is given out (its sender's permission, its expiry, the
-    // agent's conversation, and its source's say): one that may no longer be delivered is refused, expired or
-    // cancelled, not acked; one its source doesn't hold now is unknown.
+    // One not received yet goes through the one gate, as it would before it is given out (#649): one that may no longer
+    // be delivered is refused, expired or cancelled, not acked; one its source doesn't hold now is unknown.
     recheck(store, d, agentId)
-    applyFresh(store, d, fresh)
+    const may = gate(d)
     const acked: string[] = []
     const unknown: string[] = []
     for (const id of [...new Set(ids)]) {
@@ -699,7 +697,7 @@ export async function ackDeliveries(host: string, agentId: string, ids: readonly
       if (!x || x.agentId !== agentId) unknown.push(id)
       else if (x.state === 'acked') acked.push(id)
       // Ended without being received (cancelled, refused, expired): not for it to act on.
-      else if (isUnread(x) && !stillWanted(store, x)) unknown.push(id)
+      else if (isUnread(x) && !may(x)) unknown.push(id)
       else if ((isLive(x) || x.state === 'received') && set(store, d, x, 'acked', undefined, 'inbox')) acked.push(id)
       else unknown.push(id)
     }
@@ -720,8 +718,29 @@ function applyFresh(store: Store, d: Draft, fresh: Map<string, { body: string } 
   }
 }
 
-/** Whether a delivery's source and producer still hold it (what an offer's writer asks before each key). */
-const stillWanted = (store: Store, r: DeliveryRecord): boolean => (r.source ? sources.get(r.source)?.holds?.(r, store.host) : undefined) !== false && store.hooks.get(r.id)?.holds?.() !== false
+/**
+ * Whether a delivery may be given to its agent now, as far as it goes (#649): its sender may still send it, it hasn't
+ * expired, it is for the agent's conversation (and launch), and its source and producer still hold it. The one check
+ * the gate (mayGive) and the writer before each key (offerHolds) both ask.
+ */
+const eligible = (store: Store, r: DeliveryRecord): boolean =>
+  !whyNot(store, r) && (r.source ? sources.get(r.source)?.holds?.(r, store.host) : undefined) !== false && store.hooks.get(r.id)?.holds?.() !== false
+
+/**
+ * The one gate every hand-out goes through (#649): an offer (and so the typing), hive_inbox's read and an ack of something
+ * unread all ask it, so typing and pulling never disagree. Each delivery is made again from its source first (`refresh`:
+ * its text as it is now, or cancelled when no longer due; what its source keeps for its receipt prepared), and one its
+ * producer no longer wants is cancelled. Applied in the caller's transaction, it says of each whether it may be given out
+ * (unread and eligible). Already received ones aren't its business: they can still be acked.
+ */
+async function mayGive(store: Store, records: readonly DeliveryRecord[]): Promise<(d: Draft) => (r: DeliveryRecord) => boolean> {
+  const fresh = await refreshAll(store, records)
+  for (const r of records) if (!fresh.has(r.id) && store.hooks.get(r.id)?.holds?.() === false) fresh.set(r.id, { cancel: 'cancelled: no longer wanted' })
+  return (d) => {
+    applyFresh(store, d, fresh)
+    return (r) => isUnread(r) && eligible(store, r)
+  }
+}
 
 /** An offer: its deliveries (as they were before it, to put back), the line, the launch and conversation it is for. */
 interface Offer {
@@ -774,9 +793,7 @@ function offerHolds(store: Store, o: Offer, records: readonly DeliveryRecord[] =
   if (!live || live.runId !== o.runId || (o.sessionId && live.sessionId && live.sessionId !== o.sessionId)) return false
   return o.ids.every((id) => {
     const r = byId(records, id)
-    if (r?.state !== 'offered' || r.offerRun !== o.runId || senderRefusal(r.from) || Date.parse(r.expires) <= clock() || (r.conversation && live.sessionId && live.sessionId !== r.conversation)) return false
-    const s = r.source ? sources.get(r.source) : undefined
-    return (s?.holds?.(r, store.host) ?? true) && (store.hooks.get(id)?.holds?.() ?? true)
+    return r?.state === 'offered' && r.offerRun === o.runId && eligible(store, r)
   })
 }
 
@@ -895,18 +912,17 @@ async function offerOnce(host: string, agentId: string, only?: string): Promise<
     if (sessions.userMayBeTyping(host, agentId)) retrySoon(host, agentId)
     return false
   }
-  // Each source's line made again from things as they are now: one no longer due is cancelled (and not offered), as is
-  // one its producer no longer wants (its own check, given with it).
-  const fresh = await refreshAll(store, items)
-  for (const r of items) if (!fresh.has(r.id) && store.hooks.get(r.id)?.holds?.() === false) fresh.set(r.id, { cancel: 'cancelled: no longer wanted' })
+  // Through the one gate (as hive_inbox is): each made again from things as they are now; what may not be given out
+  // isn't offered.
+  const gate = await mayGive(store, items)
   const label = st.status === 'watching' && st.watch ? st.watch.label : null
   // Saved as offered before the first key (checked as it is planned), and checked again before each key: if Hive stops
   // in between it is uncertain, never "delivered". Not saved, or no longer to be given out: nothing is typed.
   let offer: Offer | null
   try {
     offer = await transact(store, (d) => {
-      applyFresh(store, d, fresh)
-      items = pickOffer(store, d.records, agentId, only).filter((r) => items.some((x) => x.id === r.id))
+      const may = gate(d)
+      items = pickOffer(store, d.records, agentId, only).filter((r) => items.some((x) => x.id === r.id) && may(r))
       return planOffer(store, d, items, { runId: st.runId, sessionId: st.sessionId }, label)
     })
   } catch (e) {
