@@ -1,5 +1,6 @@
 import type { CompactionEvent, DayUsage, SessionUsage, SubSession, UsageTokens } from '../../../shared/types'
 import { addTokens, emptyDay, localDay } from '../../../shared/usageDays'
+import { TimelineBuilder } from '../../../shared/usageTimeline'
 import { CLAUDE_CODE } from '../../../shared/claude'
 import { isSessionId } from '../../../shared/defaults'
 
@@ -45,10 +46,11 @@ interface UsageBlock {
   cache_creation?: { ephemeral_1h_input_tokens?: number; ephemeral_5m_input_tokens?: number }
 }
 
-/** A request's usage and the local day it ran on. */
+/** A request's usage, the local day it ran on and when (its place in the timeline: usageTimeline.ts). */
 interface Request {
   u: UsageBlock
   day: string
+  at: string | undefined
 }
 
 const tokensOf = (u: UsageBlock): UsageTokens => ({
@@ -133,7 +135,7 @@ export class ClaudeUsageParser {
           if (!u) break
           const key = o.requestId ?? msg.id ?? o.uuid ?? String(this.byRequest.size)
           const known = this.byRequest.get(key)
-          this.byRequest.set(key, { u, day: known?.day || day })
+          this.byRequest.set(key, { u, day: known?.day || day, at: known?.at ?? (ts || usage.lastActivity || undefined) })
           if (!known) this.uncovered.add(key)
           if (!side) {
             // The output (thinking included) stays in the context: what Claude Code compacts on is input + output.
@@ -197,13 +199,16 @@ export class ClaudeUsageParser {
     const usage: SessionUsage = { ...this.usage, compactions: [...this.usage.compactions] }
     const days: Record<string, DayUsage> = {}
     const dayOf = (d: string): DayUsage => (days[d] ??= emptyDay())
+    const timeline = new TimelineBuilder()
     for (const r of this.byRequest.values()) {
       const t = tokensOf(r.u)
       addTokens(usage, t)
       const d = dayOf(r.day)
       addTokens(d, t)
       d.requests++
+      timeline.add(r.at, t, 1)
     }
+    usage.timeline = timeline.timeline()
     for (const [day, n] of this.prompts) dayOf(day).prompts += n
     for (const day of this.compactionDays) dayOf(day).compactions++
     delete days['']

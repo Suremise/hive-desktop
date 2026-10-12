@@ -6820,6 +6820,20 @@ textarea.input.task-blocked-input {
   font-size: 12px;
   margin-top: 12px;
 }
+/* A card's cost (#602): above who added it; the breakdown on hover. */
+.task-cost {
+  font-size: 12px;
+  margin-top: 12px;
+}
+.task-cost + .task-created {
+  margin-top: 4px;
+}
+.cost-tip {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  max-width: 420px;
+}
 /* Remove Project: what each choice touches. */
 .removal-list {
   margin: 0 0 10px;
@@ -8148,6 +8162,10 @@ button.progress-run-show:focus-visible {
   gap: 6px;
   min-width: 0;
   font-size: 12px;
+}
+/* The top line carries the lane's cost on its hover (#602): it still fills the row inside its tooltip's wrap. */
+.progress-lane > .tip-wrap > .progress-lane-top {
+  flex: 1;
 }
 .progress-lane-pair {
   flex-shrink: 0;

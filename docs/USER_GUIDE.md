@@ -452,6 +452,17 @@ It's on by default: **Settings → Sessions → Record performance metrics** tur
 
 It refreshes every minute while you look at it (and **Refresh** at once); reading it doesn't add to the numbers. A note says when measurements were dropped because a limit was full, and **What isn't measured** lists what it can't see. **Export** saves what the page shows (its scope, range and filters) as a JSON file with its units, coverage and Hive's version; **Shift+click** Export to replace project names with project-1, project-2… and leave out the workspace's path, before sharing it.
 
+### Cost per card
+
+Hive works out what each card cost from who held it when and what their sessions used then:
+
+- **What counts.** A card's **builder** (its agent) while it is in **Doing**, and its **reviewer** from the start of each review to its verdict. Usage is each provider's own report: Hive's estimates (where a provider reports no cost, or you chose your own prices) are marked **≈**, and what Hive can't know, such as an agent with no session Hive knows of or a model with no price, shows as **Unknown** or **+ ?**, never as $0.
+- **On the card.** The bottom of a card's panel says, for example, **cost: ≈ $1.84 · 2 rounds**. Hover it for the builder's and the reviewer's parts and their tokens (input, output, cache writes and reads, requests).
+- **In Performance.** A **Cards** table lists the cards worked on in the range, with their cost, the builder's and reviewer's parts, their review rounds and when they were last held. Sort by any column (unknown costs go last); click a row to open the card. In a project's Performance tab, only that project's cards.
+- **On a lane.** In the Progress panel, hover a lane's top line (the pair and its count) for what the lane cost since it started, split into **on cards** and **overhead**: what its builder and reviewer used while holding no card, such as merging, watching for a verdict and compacting. It also says the cost per finished card.
+
+Time an agent spends between cards, such as reading a card it was just woken for before taking it, is overhead, not the card's. Copilot reports its tokens only when a session ends, so Hive spreads them over that session's requests: a Copilot card's tokens are approximate (its cost comes from Copilot's own charges). Cards worked on before Hive kept this have it worked out from their history, by the agents' names.
+
 ### Comparing before and after
 
 **Compare** (at the top of the Performance page) puts a baseline next to a run, to see whether a change made Hive's

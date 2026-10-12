@@ -97,6 +97,7 @@ import type { TipsChange, TipsState } from './tips'
 import type { GitTool } from './gitTool'
 import type { GitHistory, GitRepoInfo, GitRepoSummary } from './gitRepo'
 import type { BoardFoldChange } from './tasks'
+import type { CardCost, LaneCost } from './cardCosts'
 
 type DeepPartial<T> = { [K in keyof T]?: T[K] extends object ? DeepPartial<T[K]> : T[K] }
 export type SettingsPatch = DeepPartial<AppSettings>
@@ -479,6 +480,13 @@ export interface HiveRequests {
   'lanes:list': () => LaneInfo[]
   /** The user ends a lane (abandoned: unmerged); returns it as it is now. */
   'lanes:end': (laneId: string, abandoned?: boolean) => LaneInfo
+  /**
+   * Cost per card (#602): the cards named, or every card (a project's, by its folder name) held at some time in [from, to)
+   * (ms since the epoch).
+   */
+  'costs:cards': (q: { numbers?: number[]; project?: string | null; from?: number; to?: number }) => CardCost[]
+  /** Cost per lane (#602): the lanes named, or every lane listed. */
+  'costs:lanes': (laneIds?: string[]) => LaneCost[]
   /** This window's workspace's progress runs, newest first. */
   'progress:list': () => ProgressRun[]
   /** Moves a finished or stale run to Recent. */
