@@ -9,7 +9,6 @@ const lib = require('./lib.cjs')
 const { _electron } = require('playwright-core')
 const fs = require('fs')
 const path = require('path')
-const { spawnSync } = require('child_process')
 // The longest a wait here waits for what it waits on: a bound for a hung run, never how long it should take (#570).
 const HUNG_MS = 30000
 
@@ -156,8 +155,11 @@ const t = setInterval(() => {
   const server = await startShell(builder.id, `hive-progress --title "Preview server" -- node -e "setInterval(() => {}, 1000)"`)
   const srv = await newRun(known, (r) => r.title === 'Preview server')
   check('the server run reports its process', !!srv && Number.isInteger(srv.pid) && srv.pid > 0, JSON.stringify(srv))
-  const kill = spawnSync('taskkill', ['/PID', String(srv?.pid), '/T', '/F'], { env: lib.baseEnv(), encoding: 'utf8' })
-  check('its process tree is ended (as an agent stopping it does)', kill.status === 0, `${kill.stdout} ${kill.stderr}`)
+  // Its identity while it is known to be the server (it runs until ended), for ending it as that process (#603).
+  const [serverId] = srv?.pid ? lib.identify([srv.pid]) : []
+  // Its tree, each process as it is now (never taskkill /T on a pid, #603).
+  const ended = serverId ? lib.endTreeExactly(serverId) : 0
+  check('its process tree is ended (as an agent stopping it does)', ended >= 1, `${ended} ended`)
   await server()
   const gone = await until(async () => (await runs()).find((r) => r.id === srv?.id && r.finishedAt !== null), 45000)
   check('Hive sees its process gone: ended without a report', gone?.state === 'stopped' && gone.stopReason === 'gone', JSON.stringify(gone))
