@@ -236,6 +236,8 @@ Hive keeps track of every process an agent's session starts, however it was star
 
 Choose in **Settings → Agents → Processes left running**. When you quit Hive with some still listed, it asks once whether to end them or leave them running (a quit with no window shown, or to install an update, leaves them running).
 
+Agents are also told to stop what they start: to watch a test run with something that ends with it (`hive-progress`, or their CLI's notice that a background command ended) rather than a `tail -f`, and to end the watchers, servers and app copies they started before their card goes to Review, unless the card or you need them running.
+
 Hive only ever ends processes the agent's session started: never one you started yourself in the same folder. If Windows doesn't let Hive end them, they stay listed in the pane header, so you can try again or keep them. On a PC where Hive can't keep track of agents' processes (PowerShell blocked by a company policy, for example), agents start as usual, Hive tells you once, and Help → Copy Diagnostics says why; what they leave running then isn't listed. Processes the agent's CLI already ends with its terminal (those attached to it) are never listed. One gap remains with PowerShell 7 installed from the Microsoft Store (Codex runs its commands in PowerShell 7 when you have it): a program it starts and leaves running as it exits within about a second, before Hive has seen it (`Start-Process` returning at once), isn't tracked. Commands Codex leaves running in the background keep their PowerShell open, so they are.
 
 ### Reading past sessions

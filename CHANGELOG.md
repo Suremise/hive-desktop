@@ -2,6 +2,9 @@
 
 ## Unreleased
 
+### Agents
+- **Agents stop what they start.** Agents watching their own test runs with `tail -f` left those watchers running long after the runs ended (16 from one agent in a day). Hive's guidance now tells agents to watch a run with something that ends with it (`hive-progress`, their CLI's notice that a background command ended) and to end the watchers, servers and app copies they started before a card goes to Review.
+
 ### Agent API
 - **Viewer tokens, for apps that show Hive.** An app that only shows what your agents are doing, such as Apiary, can now get a read-only **viewer token**: **Settings → Agent API → Viewer tokens** makes one, named for its app, that reads everything in your workspaces and follows its events but can't change anything (every change is refused); **Revoke** cuts that app off at once. Such an app finds a running Hive by itself from `%APPDATA%\Hive\agent-api-discovery.json`, which holds Hive's API address (never a token) while the Agent API is on.
 - **More events, and the Progress panel's runs.** The event stream (`/v1/events`) now also sends progress runs, merge slots, Hive's notices, the Hive Assistant's actions and the agents it adds, so an app needn't poll for them. `GET /v1/progress` lists the Progress panel's runs. Nothing private goes out on the stream or in the runs: no prompts, messages, questions or replies, no CLI output, no command lines (their arguments can hold a token) and no notice text; a run's title goes out only when it was given on purpose (`hive-progress --title`), and a run titled by its command line is just "a command". An agent's state on the stream now says *that* a message waits for it or it asked something, not what. The API's contract version is now 3.
