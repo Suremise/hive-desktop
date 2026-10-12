@@ -189,11 +189,14 @@ describe('the turn ledger', () => {
     feed(b, { kind: 'compactEnd' }, ids('k1'))
     feed(b, { kind: 'end' }, ids('k1'))
     expect([b.status, b.stale]).toEqual(['stopped', []])
-    // One under an id of its own while a turn runs leaves that turn running; the turn's own news goes on.
+    // Only while no turn runs (Darren, option B): one under an id of another while a turn runs opens nothing, and the
+    // running turn's own news goes on.
     const c = feed(agent(), { kind: 'prompt' }, ids('t1'))
     feed(c, { kind: 'compactStart', trigger: 'auto' }, ids('k2'))
+    feed(c, { kind: 'compactEnd' }, ids('k2'))
     feed(c, { kind: 'toolStart' }, ids('t1', { call: 'c1' }))
-    expect([c.status, c.ledger.active?.id, c.ledger.active?.state, openCalls(c.ledger), c.stale]).toEqual(['working', 't1', 'running', 1, []])
+    expect([c.status, c.statusMessage, c.ledger.compaction, c.ledger.active?.id, c.ledger.active?.state, openCalls(c.ledger)]).toEqual(['working', undefined, null, 't1', 'running', 1])
+    expect(c.stale).toEqual(['a compaction start of a turn Hive saw no prompt for', 'a compaction end of a turn Hive saw no prompt for'])
     // An end with no start seen opens nothing (above: a compaction end under an id never seen is stale).
   })
 
