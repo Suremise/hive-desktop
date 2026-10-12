@@ -5,6 +5,7 @@ import { CLAUDE_CODE } from '../../../shared/claude'
 import { isSessionId } from '../../../shared/defaults'
 import { countSafeguards } from '../../../shared/safeguards'
 import { claudeSafeguards } from './safeguards'
+import { isUserPrompt } from './prompts'
 
 /**
  * Whether a transcript (its first line) is a sub-agent's: Claude Code marks a sub-agent's messages `isSidechain`, and
@@ -154,7 +155,7 @@ export class ClaudeUsageParser {
           break
         }
         case 'user':
-          if (!side && !o.isMeta && (typeof o.message?.content === 'string' || (Array.isArray(o.message?.content) && o.message.content.some((c: any) => c?.type === 'text')))) {
+          if (!side && isUserPrompt(o)) {
             usage.userMessages++
             this.prompts.set(day, (this.prompts.get(day) ?? 0) + 1)
           }

@@ -318,6 +318,29 @@ describe('usage', () => {
     expect(own.map((e) => e.kind === 'stop' && e.turn)).toEqual(['p1', `prompt ${T2}`])
   })
 
+  it('tells a prompt the person sent as the usage counts them: one definition (isUserPrompt)', async () => {
+    const { parseTranscript } = await import('../src/main/providers/claude/usage')
+    const image = { type: 'image', source: { type: 'base64', media_type: 'image/png', data: 'iVBORw0KGgo=' } }
+    const sent = [
+      { type: 'user', timestamp: T0, uuid: 'a', message: { role: 'user', content: '<task>Continue with this task</task>' } },
+      { type: 'user', timestamp: T1, uuid: 'b', message: { role: 'user', content: [image] } },
+      { type: 'user', timestamp: T2, uuid: 'c', message: { role: 'user', content: 'plain' } }
+    ]
+    const own = [
+      { type: 'user', isMeta: true, timestamp: T2, message: { role: 'user', content: 'caveat' } },
+      { type: 'user', isCompactSummary: true, timestamp: T2, message: { role: 'user', content: 'This session is being continued…' } },
+      { type: 'user', timestamp: T2, message: { role: 'user', content: [{ type: 'tool_result', tool_use_id: 'x', content: 'ok' }] }, toolUseResult: { stdout: '' } }
+    ]
+    expect(parseTranscript(lines(...sent, ...own), 's1').userMessages).toBe(3)
+    const memo: Record<string, unknown> = {}
+    const turns: (string | undefined)[] = []
+    for (const e of [...sent, ...own]) {
+      claudeSafeguards(lines(e), memo)
+      turns.push(memoTurn(memo))
+    }
+    expect(turns).toEqual(['a', 'b', 'c', 'c', 'c', 'c'])
+  })
+
   it("starts a new turn at every prompt the person sent, markup and all, or images alone, so a new task's stop stays its own", () => {
     const image = { type: 'image', source: { type: 'base64', media_type: 'image/png', data: 'iVBORw0KGgo=' } }
     const prompts: [string, unknown][] = [

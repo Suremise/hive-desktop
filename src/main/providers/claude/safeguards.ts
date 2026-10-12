@@ -1,4 +1,5 @@
 import { SAFEGUARD_TOOLS, newStop, safeguardCodes, safeguardPattern, type SafeguardEvent, type SafeguardOverrides } from '../../../shared/safeguards'
+import { isUserPrompt } from './prompts'
 
 /** What the reading keeps between reads (the launch's memo): the model the agent ran on, its last tool calls, its turn, the stops seen. */
 interface Memo {
@@ -20,19 +21,6 @@ interface Memo {
 
 const str = (v: unknown): string | undefined => (typeof v === 'string' && v ? v : undefined)
 
-/**
- * Something the person (or Hive for them) sent, a new turn: any text, markup and all ("<task>…</task>", a command), or
- * images alone. Not Claude Code's own entries, told by their fields: meta entries (its notices, caveats and reminders),
- * a compaction's summary, and tool results. Over-counting turns is safe: nothing is written between Claude Code's prompt
- * about a stop and its record of it, so they always share a turn; too few would merge two tasks' stops.
- */
-function isPrompt(o: Record<string, any>): boolean {
-  if (o.isMeta || o.isCompactSummary || o.toolUseResult !== undefined) return false
-  const c = o.message?.content
-  if (typeof c === 'string') return !!c.trim()
-  if (!Array.isArray(c) || c.some((b) => b?.type === 'tool_result')) return false
-  return c.some((b) => b?.type === 'image' || (b?.type === 'text' && typeof b.text === 'string' && !!b.text.trim()))
-}
 
 /**
  * Claude Code's safeguard stops and model changes in transcript lines (2.1.296, #606).
@@ -112,7 +100,9 @@ export function claudeSafeguards(appended: string, memo: Record<string, unknown>
       m.noteUuid = str(o.uuid)
       m.afterNote = true
     } else if (o.type === 'user' && !str(o.refusedMessageId)) {
-      if (isPrompt(o)) m.turn = str(o.uuid) ?? `prompt ${o.timestamp ?? at}`
+      // Each prompt the person sent (isUserPrompt, as the usage counts them) starts a turn. More turns than Claude Code's
+      // own are safe: nothing is written between its prompt about a stop and its record of it, so they share a turn.
+      if (isUserPrompt(o)) m.turn = str(o.uuid) ?? `prompt ${o.timestamp ?? at}`
     } else if (o.type === 'user') {
       // The note's pair (the same stop, already counted by the note) or a stop of its own.
       if (afterNote || (str(o.parentUuid) && o.parentUuid === m.noteUuid)) newStop(m, o.refusedMessageId)
