@@ -380,12 +380,14 @@ describe('the delivery service (#647)', async () => {
 
   it("a launch's task survives the status its own save sends (#649 round 3): a running agent started on a new conversation, its pane updated as the intent is saved (setInbox, which emits its status: the service rechecks then), a slow start, then its run's save failing: still offered into the new run, never uncertain, never typed again", async () => {
     const shown = sessions.setInbox
-    // As in Hive: showing an agent's inbox sends its status when it changed, on which the service follows its deliveries.
-    let last = ''
+    // As in Hive: showing an agent's inbox sends its status when it changed (per agent), on which the service follows its
+    // deliveries.
+    const last = new Map<string, string>()
     Object.assign(sessions, {
-      setInbox: (_p: string, _id: string, inbox: unknown) => {
-        if (JSON.stringify(inbox) === last) return
-        last = JSON.stringify(inbox)
+      setInbox: (p: string, id: string, inbox: unknown) => {
+        const k = `${p.toLowerCase()}#${id}`
+        if (last.get(k) === JSON.stringify(inbox)) return
+        last.set(k, JSON.stringify(inbox))
         void deliveries.followAllForTests()
       }
     })
