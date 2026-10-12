@@ -268,7 +268,18 @@ const prose = (seed, n) => {
   check('…one in full: the raw hook and what Hive made of it, its prompt still hidden', consoleOne.includes('"raw"') && consoleOne.includes('"made"') && /"prompt":"<text: \d+ chars>"/.test(consoleOne), consoleOne)
   const consoleList = measure('hive_console (sources, as the Assistant)', tool('hive_console', { action: 'sources' }, 'assistant'), 1200)
   check('the sources: a line each, with how to name it', /^alpha · Coder \(claude-code\): captured, \d+ events \[agent=Coder project=alpha\]$/m.test(consoleList) && /^Hive: not captured \[source=hive\]$/m.test(consoleList), consoleList)
-  const sourcePage = await api('GET', '/v1/console/sources?limit=2')
+  // On a connection of its own (agent: false): after the slow tool calls above, fetch's kept-alive socket can be the one
+  // Hive's server is closing for idleness, which reset this request once under load.
+  const sourcePage = await new Promise((resolve, reject) => {
+    require('http')
+      .get(`${API}/v1/console/sources?limit=2`, { agent: false, headers: { Authorization: `Bearer ${apiToken}` } }, (res) => {
+        let text = ''
+        res.setEncoding('utf8')
+        res.on('data', (d) => (text += d))
+        res.on('end', () => resolve({ status: res.statusCode, text, body: JSON.parse(text) }))
+      })
+      .on('error', reject)
+  })
   check('sources come a page at a time, with the total', sourcePage.status === 200 && sourcePage.body.sources.length === 2 && sourcePage.body.total > 2 && sourcePage.body.offset === 0, sourcePage.text.slice(0, 300))
   measure("hive_console (Hive's events, as the Assistant)", tool('hive_console', { source: 'hive' }, 'assistant'), 300)
   await inv('console:subscribe', [])
