@@ -42,6 +42,7 @@ export const TIP_MOMENTS: Record<TipMoment, string> = {
 
 /** Every tip, sorted by id so tips added on different branches land in different places (tests/tips.test.ts checks). */
 export const TIP_ENTRIES: Tip[] = [
+  { id: 'agent-console', group: 'Shortcuts', order: 372, title: 'Let agents see what their CLI sends', text: "Settings → Agent API → Let agents read the developer console gives agents a read-only tool showing their CLI's hooks and status line next to what Hive made of each, redacted, so they can debug what Hive sees.", docs: 'Agents reading the developer console' },
   { id: 'agent-layouts', group: 'Agents', order: 90, title: 'Several agents side by side', text: 'Each agent has its own pane: choose a layout at the right of the agent row, and drag tabs or panes to rearrange them. File locks stop two agents editing the same file.', docs: 'Several agents in one project', command: 'agent.addWith', knownBy: [] },
   { id: 'agent-settings', group: 'Agents', order: 120, title: 'A model per agent', text: "Click an agent's model in its footer for Agent Settings: give a reviewer a faster model while another agent codes with the strongest.", docs: 'Several agents in one project' },
   { id: 'always-on-top', group: 'Shortcuts', order: 395, title: 'Keep a Hive window on top', text: 'The pin in the title bar (or Ctrl+Alt+O) keeps the window above your other apps, so a test run or an emulator can work underneath. Each window has its own, remembered for its workspace.', docs: 'Always on Top', command: 'view.alwaysOnTop' },
