@@ -492,27 +492,40 @@ function Locks({ a }: { a: AgentInfo }) {
  * Processes the agent's stopped launches left running (#507), such as a preview server: how many, each in the tooltip,
  * and a click to end them or keep them running (then no longer listed). Gone once they end by themselves.
  */
-/** Messages left for it that wait to be typed (#530): who from and their start, and Cancel. */
-function QueuedMessages({ project, a, live }: { project: ProjectInfo; a: AgentInfo; live: LiveSessionState | null | undefined }) {
+/**
+ * What was left for it and isn't received yet (#530, #647: its deliveries): "✉ 2 unread", who from and the start of each
+ * in the tooltip, and Cancel for those still waiting; and how many weren't acked in time ("1 overdue").
+ */
+function AgentInbox({ project, a, live }: { project: ProjectInfo; a: AgentInfo; live: LiveSessionState | null | undefined }) {
   const menu = useContextMenu()
-  const items = live?.queuedMessages
-  if (!items?.length) return null
-  const n = items.length
-  const word = n === 1 ? 'message' : `${n} messages`
+  const inbox = live?.inbox
+  if (!inbox) return null
+  const n = inbox.unread.length
+  const waiting = inbox.unread.filter((m) => m.state === 'queued' || m.state === 'uncertain').length
   const cancel = () => void actions.attempt('Could not cancel the messages', () => call('session:cancelMessages', project.path, a.id))
+  const label = [n ? `${n} unread` : '', inbox.overdue ? `${inbox.overdue} overdue` : ''].filter(Boolean).join(' · ')
+  const state = (s: string): string => (s === 'queued' ? 'waiting' : s === 'offered' ? 'typed, not fetched or acked yet' : 'its offer not confirmed')
+  const lines = inbox.unread.map((m) => `${m.id} from ${m.from} (${state(m.state)}): ${m.text}`)
+  const tip = [
+    n ? `${n === 1 ? 'A message' : `${n} messages`} for ${a.name} that it hasn't fetched or acked yet: offered as its next line once it is idle, or read with hive_inbox.\n${lines.join('\n')}` : '',
+    inbox.overdue ? `${inbox.overdue === 1 ? 'One delivery was' : `${inbox.overdue} deliveries were`} not acked in time: the agent hasn't said it acted on ${inbox.overdue === 1 ? 'it' : 'them'}.` : '',
+    waiting ? `Click to cancel ${waiting === 1 ? 'the one waiting' : `the ${waiting} waiting`}.` : ''
+  ]
+    .filter(Boolean)
+    .join('\n\n')
   return (
     <>
-      <Tooltip content={<span style={{ whiteSpace: 'pre-line' }}>{`${n === 1 ? 'A message' : `${n} messages`} for ${a.name}, typed as its next line once it is idle:\n${items.map((m) => `From ${m.from}: ${m.text.length > 120 ? `${m.text.slice(0, 119)}…` : m.text}`).join('\n')}\n\nClick to cancel ${n === 1 ? 'it' : 'them'}.`}</span>}>
+      <Tooltip content={<span style={{ whiteSpace: 'pre-line' }}>{tip}</span>}>
         <button
           type="button"
-          className="agent-messages"
-          aria-label={`${word} waiting`}
+          className={`agent-messages${inbox.overdue ? ' overdue' : ''}`}
+          aria-label={label}
           onClick={(e) => {
             e.stopPropagation()
-            menu.openAt(...below(e.currentTarget), [{ label: n === 1 ? 'Cancel the Message' : `Cancel the ${n} Messages`, icon: 'close', onClick: cancel }])
+            if (waiting) menu.openAt(...below(e.currentTarget), [{ label: waiting === 1 ? 'Cancel the Message' : `Cancel the ${waiting} Messages`, icon: 'close', onClick: cancel }])
           }}
         >
-          <Icon name="mail" /> {n === 1 ? '1 message' : `${n} messages`} waiting
+          <Icon name="mail" /> {label}
         </button>
       </Tooltip>
       {menu.element}
@@ -953,7 +966,7 @@ function PaneHeader({ project, a, focused }: { project: ProjectInfo; a: AgentInf
       <CardChip project={project} a={a} short />
       <Locks a={a} />
       <Leftovers project={project} a={a} />
-      <QueuedMessages project={project} a={a} live={live} />
+      <AgentInbox project={project} a={a} live={live} />
       <div className="grow" />
       {size !== 'menu' &&
         (live ? (

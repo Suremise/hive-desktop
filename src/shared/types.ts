@@ -1144,11 +1144,20 @@ export interface TaskWatchInfo {
   limitAt: string
 }
 
-/** A message left for a running agent (#530): who from ("the Assistant"), its text, when. */
-export interface QueuedMessage {
+/** A delivery not received yet, as an agent's pane shows it (#647, shared/deliveries.ts): its id, who from, the start of what it says, when. */
+export interface InboxBrief {
+  id: string
   from: string
   text: string
   at: string
+  state: 'queued' | 'offered' | 'uncertain' | 'received' | 'acked' | 'cancelled' | 'refused' | 'expired'
+  card?: number
+}
+
+/** An agent's deliveries as its pane shows them: those not received yet, and how many aren't acked in time (overdue). */
+export interface InboxSummary {
+  unread: InboxBrief[]
+  overdue: number
 }
 
 export interface LiveSessionState {
@@ -1228,10 +1237,10 @@ export interface LiveSessionState {
    */
   untakenLine?: { since: string; text: string }
   /**
-   * Messages left for it while it couldn't take a prompt (#530: the Assistant's hive_message_agent), typed as its next
-   * line once it is idle; shown in its pane, where the user can cancel them.
+   * Its deliveries (#647: messages left for it, main/deliveries.ts) not received yet, and how many are overdue; shown in
+   * its pane ("✉ 2 unread"), where the user can cancel those waiting. Absent when there are none.
    */
-  queuedMessages?: QueuedMessage[]
+  inbox?: InboxSummary
   /**
    * Its last turn stopped because its CLI's sign-in was refused, and it hasn't carried on since (#309): the CLI's
    * message and when. Status `signin` until the CLI is signed in again, then `ready`; Resume (n) carries it on.
