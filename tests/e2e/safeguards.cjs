@@ -194,7 +194,7 @@ const check = (name, ok, extra = '') => {
     check('and Performance counts that stop once (prompt and record)', await countedIs({ 'claude-fake': 1, 'claude-opus-4-8': 4 }), JSON.stringify(await counted()))
     const record = JSON.parse(fs.readFileSync(path.join(alpha, '.hive', 'sessions.json'), 'utf8')).sessions.find((s) => s.agentId === id)
     const screenStops = record?.screenStops ?? []
-    check('the session keeps both stops seen on screen, the second matched to its record', screenStops.length === 2 && !screenStops[0].matched && /^req_/.test(screenStops[1].matched ?? ''), JSON.stringify(screenStops))
+    check('the session keeps both stops seen on screen, the second matched to its record', screenStops.length === 2 && !screenStops[0].matched && (screenStops[1].matched ?? '').startsWith('req_'), JSON.stringify(screenStops))
     expected = await counted()
   } finally {
     await app.close()

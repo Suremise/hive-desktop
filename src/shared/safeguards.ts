@@ -194,7 +194,7 @@ export interface ScreenStop {
 export function withScreenStops(by: Record<string, number> | undefined, screen: readonly ScreenStop[] | undefined): Record<string, number> | undefined {
   const own = (screen ?? []).filter((s) => !s.matched)
   if (!own.length) return by
-  const out = { ...(by ?? {}) }
+  const out: Record<string, number> = { ...by }
   for (const s of own) out[s.model ?? ''] = (out[s.model ?? ''] ?? 0) + 1
   return out
 }
