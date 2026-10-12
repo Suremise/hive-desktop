@@ -5,6 +5,8 @@ import { join, relative } from 'path'
 import { afterAll, afterEach, describe, expect, it, vi } from 'vitest'
 import * as electron from 'electron'
 import { tempDir } from './tempDir'
+// The longest a wait here waits for what it waits on: a bound for a hung run, never how long it should take (#570).
+const HUNG_MS = 10000
 
 // A rename across drives (EXDEV) where a test asks for one: the test trash folder can't be on another drive here. And the
 // renames Windows refused, so a test can wait for one.
@@ -152,11 +154,21 @@ describe('trash (src/main/trash.ts)', () => {
     writeFileSync(file, '{}')
     // A handle on a file in it (an antivirus scan, a reader closing it): Windows can't move the folder while it is open.
     const fd = openSync(file, 'r')
-    const moving = trash(folder)
-    // Let go once a try has been refused, as a scan finishes.
-    await vi.waitFor(() => expect(hooks.refused).toContain(folder), { timeout: 5000 })
-    closeSync(fd)
-    await expect(moving).resolves.toBeUndefined()
+    // Settled whatever happens below: its failure is kept as a value, never left unhandled.
+    const moving = trash(folder).then(
+      () => null,
+      (e: unknown) => e
+    )
+    let failure: unknown
+    try {
+      // Let go once a try has been refused, as a scan finishes.
+      await vi.waitFor(() => expect(hooks.refused).toContain(folder), { timeout: HUNG_MS })
+    } finally {
+      // On every path: the handle closed and the move over before the test ends (and afterAll removes the folder).
+      closeSync(fd)
+      failure = await moving
+    }
+    expect(failure).toBeNull()
     expect(existsSync(folder)).toBe(false)
     const [moved] = readFileSync(join(dir, 'trash.jsonl'), 'utf8').trim().split('\n').map((l) => JSON.parse(l) as { from: string; to: string })
     expect(moved.from).toBe(folder)
