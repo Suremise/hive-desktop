@@ -37,6 +37,8 @@ const check = (name, ok, extra = '') => {
   const cfg = JSON.parse(fs.readFileSync(cfgFile, 'utf8'))
   cfg.settings.general = { ...cfg.settings.general, confirmOnQuit: 'never' }
   cfg.settings.agentApi = { ...cfg.settings.agentApi, enabled: true, devConsole: true }
+  // Arguments that carry text: an inline option value, and a value that begins with a dash (#636 round 3).
+  cfg.settings.providers['claude-code'].extraArgs = `--append-system-prompt=${PRIVATE}-inline --allowedTools -${PRIVATE}-dash`
   fs.writeFileSync(cfgFile, JSON.stringify(cfg, null, 2))
 
   const env = lib.hiveEnv({ HIVE_USER_DATA: userData, HIVE_API_PORT: String(PORT), ...claudeEnv })
@@ -97,7 +99,7 @@ const check = (name, ok, extra = '') => {
 
     await inv('session:start', alpha, { agentId: b1.id })
     const launched = await seen((e) => e.kind === 'launch')
-    check("its launch: the CLI's switches and version, not its arguments", launched?.raw?.switches?.every((a) => a.startsWith('-')) && launched?.made?.status !== undefined, JSON.stringify(launched))
+    check("its launch: the CLI, its version and how many arguments, never the arguments", typeof launched?.raw?.args === 'number' && launched.raw.switches === undefined && launched?.made?.status !== undefined && !JSON.stringify(launched).includes(PRIVATE), JSON.stringify(launched))
     const started = await seen((e) => e.kind === 'hook' && e.name === 'SessionStart')
     check('SessionStart arrives next to what Hive made of it', started?.made?.event?.kind === 'start' && typeof started.made.status === 'string' && started.summary.startsWith('SessionStart → start;'), JSON.stringify(started))
     check('…from the provider that sent it', started?.provider === 'claude-code')
@@ -125,6 +127,8 @@ const check = (name, ok, extra = '') => {
     const b1Token = JSON.parse(fs.readFileSync(path.join(tokenDir, fs.readdirSync(tokenDir).find((f) => f.endsWith('.json'))), 'utf8')).token
     const own = await api('GET', '/v1/console/events', b1Token)
     check('an agent reads its own session: rows, not payloads', own.status === 200 && own.body.events.some((e) => e.name === 'UserPromptSubmit') && own.body.events.every((e) => e.raw === undefined), JSON.stringify(own.body).slice(0, 400))
+    const launchFull = await api('GET', `/v1/console/events?seq=${launched.seq}`, b1Token)
+    check('…its launch read in full keeps no argument text', launchFull.status === 200 && launchFull.body.events.length === 1 && !JSON.stringify(launchFull.body).includes(PRIVATE) && !JSON.stringify(own.body).includes(PRIVATE), JSON.stringify(launchFull.body).slice(0, 400))
     const full = await api('GET', `/v1/console/events?seq=${prompt.seq}`, b1Token)
     check('…and one in full on request, still redacted', full.status === 200 && full.body.events[0]?.raw?.prompt?.startsWith('<text:') && !JSON.stringify(full.body).includes(PRIVATE), JSON.stringify(full.body).slice(0, 300))
     for (const [what, q] of [

@@ -65,7 +65,7 @@ import { notificationIcon } from './paths'
 import { reportPlanUsage } from './planUsage'
 import { devConsole, sessionSourceId } from './devConsole'
 import { DETAILS_FIELDS, HOOK_FIELDS, HOOK_MADE_FIELDS, STATUSLINE_FIELDS, safeWord } from '../shared/devConsole'
-import { hookSummary, statusLineSummary, transcriptEvent } from './devConsoleWords'
+import { hookSummary, launchEvent, statusLineSummary, transcriptEvent } from './devConsoleWords'
 import { revisionOf } from './revisions'
 import { metricsHandle, recordLaunch } from './metrics'
 import { headerOf } from './revisions'
@@ -1219,16 +1219,8 @@ class SessionManager {
     const size = startSize(key)
     const screen = l.adapter.footerMode || l.adapter.modeMenuKeys ? new TerminalScreen(size.cols, size.rows) : null
     l.screen = screen
-    // The developer console (#636): how it was started. Only the command line's switches: their values can hold a prompt.
-    devConsole.capture([sessionSourceId(projectPath, agent.id)], () => ({
-      kind: 'launch',
-      name: 'launch',
-      provider: adapter.id,
-      raw: { file: basename(cmd.file), switches: cmd.args.filter((a) => a.startsWith('-')), cwd, version: info.version },
-      made: { status: state.status, permissionMode: state.permissionMode, modelId: state.modelId, effort: state.effort, resumed: !!l.resumed },
-      safe: { raw: { file: true, switches: true, cwd: true, version: true }, made: { status: true, permissionMode: true, modelId: true, effort: true } },
-      summary: `${adapter.descriptor.name} ${safeWord(info.version)} started${l.resumed ? ' (resumed)' : ''}; ${state.status}`
-    }))
+    // The developer console (#636): how it was started (launchEvent: never its arguments).
+    devConsole.capture([sessionSourceId(projectPath, agent.id)], () => launchEvent({ provider: adapter.id, name: adapter.descriptor.name, file: cmd.file, args: cmd.args, cwd, version: info.version, state, resumed: !!l.resumed }))
     spawnPty(key, {
       ...size,
       file: cmd.file,

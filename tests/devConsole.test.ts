@@ -2,7 +2,7 @@ import { describe, expect, it, vi } from 'vitest'
 import { join } from 'path'
 import { ConsoleRing, EVENT_MAX_BYTES, HOOK_FIELDS, RING_MAX_BYTES, TRANSCRIPT_FIELDS, hiveSourceId, jsonBytes, makeEvent, mayRead, parseSourceId, redactPayload, safeWord, sessionSourceId, type ConsoleEvent } from '../src/shared/devConsole'
 import { DevConsole, MAX_SOURCES, QUEUE_MAX_EVENTS } from '../src/main/devConsole'
-import { hookSummary, transcriptEvent } from '../src/main/devConsoleWords'
+import { hookSummary, launchEvent, transcriptEvent } from '../src/main/devConsoleWords'
 import { CONSOLE_NOT_CAPTURED, consoleEventsText, consoleSourcesText } from '../src/shared/toolReplies'
 
 // The developer console's capture (#636): bounded rings, kept only while a console watches, each raw event redacted
@@ -372,6 +372,20 @@ describe('mayRead', () => {
       expect(mayRead({ kind: 'all' }, bad, wsOf)).toBe(false)
     }
     expect(mayRead({ kind: 'all' }, A1, wsOf)).toBe(true)
+  })
+})
+
+describe('launches', () => {
+  it("keep the CLI, its version and how many arguments, never an argument: an inline value or a value starting with a dash", () => {
+    const MARK = 'privatecustomer'
+    const c = new DevConsole()
+    c.subscribe('w', [A1])
+    const args = ['--session-id', 'x', `--append-system-prompt=${MARK}`, '--allowedTools', `-${MARK}-dash`, '--model', 'opus']
+    c.capture([A1], () => launchEvent({ provider: 'claude-code', name: 'Claude Code', file: join('C:\\', 'tools', 'claude.exe'), args, cwd: alpha, version: '2.1.296', state: { status: 'starting', permissionMode: 'default', modelId: undefined, effort: undefined }, resumed: false }))
+    const [e] = c.events(A1)
+    expect(e.raw).toEqual({ file: 'claude.exe', args: 7, cwd: alpha, version: '2.1.296' })
+    expect(JSON.stringify(e)).not.toContain(MARK)
+    expect(e.summary).toBe('Claude Code 2.1.296 started; starting')
   })
 })
 
