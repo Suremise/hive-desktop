@@ -5,7 +5,7 @@ import { allTasks } from './tasks'
 import { listLanes } from './lanes'
 import { inWorkspace, type WorkspaceService } from './workspace'
 import { projectAgents } from '../shared/defaults'
-import { addPart, cardRounds, emptyPart, holdsFromHistory, mergeSpans, roundPart, scalePart, sharedSpans, sliceSession, subtractSpans, type CardCost, type CostPart, type LaneCost, type SessionSlice, type Span } from '../shared/cardCosts'
+import { addPart, cardRounds, emptyPart, holdsFromHistory, mergeSpans, roundPart, scalePart, sharedSpans, sliceSession, subtractSpans, unknownPart, type CardCost, type CostPart, type LaneCost, type SessionSlice, type Span } from '../shared/cardCosts'
 import type { TaskCard, TaskHold } from '../shared/types'
 
 /**
@@ -120,7 +120,7 @@ function costOf(card: TaskCard, p: AgentSessions | null, now: number, index: Hel
       // No session Hive knows of for this agent: what it used is unknown, never $0.
       if (spans.length) {
         unmatched++
-        addPart(g.who.role === 'build' ? build : review, { ...emptyPart(), unpriced: 1 })
+        addPart(g.who.role === 'build' ? build : review, unknownPart())
       }
       continue
     }
@@ -190,7 +190,7 @@ export async function laneCosts(ws: WorkspaceService, ids?: string[]): Promise<L
       for (const a of [l.builder, ...(l.reviewer ? [l.reviewer] : [])]) {
         const list = p ? sessionsOf(p, { agent: a.id, name: a.name }) : []
         if (!list.length) {
-          addPart(total, { ...emptyPart(), unpriced: 1 })
+          addPart(total, unknownPart())
           continue
         }
         // Every card this agent held (the lane's or not), within the lane's time.

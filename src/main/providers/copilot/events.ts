@@ -2,7 +2,7 @@ import { readdir, readFile, stat } from 'original-fs/promises'
 import { join } from 'path'
 import type { DayUsage, SessionUsage, TranscriptItem, TranscriptTool, UsageTokens } from '../../../shared/types'
 import { addTokens, emptyDay, localDay } from '../../../shared/usageDays'
-import { TimelineBuilder, secondOf } from '../../../shared/usageTimeline'
+import { TimelineBuilder, pendingRows, secondOf, spreadTokens } from '../../../shared/usageTimeline'
 import { isSessionId } from '../../../shared/defaults'
 import { placeMatcher } from '../../fsutil'
 import { COPILOT } from '../../../shared/copilot'
@@ -194,10 +194,15 @@ export type CopilotSessionUsage = SessionUsage & { premiumRequests: number | nul
 export class CopilotUsageParser {
   private usage: CopilotSessionUsage
   private days: Record<string, DayUsage> = {}
-  /** Over time (usageTimeline.ts): requests and charges as they come, a launch's tokens spread over its requests. */
+  /**
+   * Over time (usageTimeline.ts): each request, the charge that covers it (the credits a checkpoint reports cover the
+   * requests since the one before), and a launch's tokens, given only at its exit, spread over its requests.
+   */
   private timeline = new TimelineBuilder()
-  /** The seconds of the requests since the last exit, and how many in each: where its tokens are spread. */
-  private launchRequests = new Map<number, number>()
+  /** Each charge's credits in USD (the timeline's reports). */
+  private charges: number[] = []
+  /** The requests since the last exit, with the charge covering each (-1: none yet): their tokens aren't known yet. */
+  private launch: { second: number; report: number }[] = []
   /** The last running totals seen, to count each day's increase. */
   private lastTokens: UsageTokens = { ...ZERO }
   private lastNano = 0
@@ -252,7 +257,14 @@ export class CopilotUsageParser {
     const grew = nano >= this.lastNano ? nano - this.lastNano : nano
     this.lastNano = nano
     this.usage.costUsd = nanoAiuToUsd(nano)
-    this.timeline.addCost(ts || this.usage.lastActivity, nanoAiuToUsd(grew))
+    // The charge covers the requests since the last one (also $0: a free model's are known to cost nothing); with none
+    // (a charge on its own), it is a row of its own.
+    const open = this.launch.filter((q) => q.report < 0)
+    if (grew > 0 || open.length) {
+      const report = this.charges.push(nanoAiuToUsd(grew)) - 1
+      for (const q of open) q.report = report
+      if (!open.length) this.timeline.add(ts || this.usage.lastActivity, {}, 0, report)
+    }
     this.charged ??= {}
     const day = this.dayKey(ts)
     if (day) this.charged[day] = (this.charged[day] ?? 0) + grew
@@ -296,9 +308,8 @@ export class CopilotUsageParser {
           usage.requests++
           const day = this.day(ts)
           if (day) day.requests++
-          this.timeline.add(ts || usage.lastActivity, {}, 1)
-          const sec = secondOf(ts || usage.lastActivity)
-          if (sec !== null) this.launchRequests.set(sec, (this.launchRequests.get(sec) ?? 0) + 1)
+          const second = secondOf(ts || usage.lastActivity)
+          if (second !== null) this.launch.push({ second, report: -1 })
           usage.model = realModel(d.model) ?? usage.model
           break
         }
@@ -329,8 +340,8 @@ export class CopilotUsageParser {
             cacheWriteTokens: grew(t.cacheWriteTokens, this.lastTokens.cacheWriteTokens)
           }
           if (day) addTokens(day, step)
-          this.timeline.spread(this.launchRequests, step, ts || usage.lastActivity)
-          this.launchRequests.clear()
+          spreadTokens(this.timeline, this.launch, step, ts || usage.lastActivity)
+          this.launch = []
           this.lastTokens = { inputTokens: t.inputTokens, outputTokens: t.outputTokens, cacheWriteTokens: t.cacheWriteTokens, cacheReadTokens: t.cacheReadTokens }
           Object.assign(usage, this.lastTokens)
           usage.reasoningTokens = t.reasoningTokens
@@ -359,7 +370,7 @@ export class CopilotUsageParser {
           return { costUsd: nanoAiuToUsd(nano), days: { [k]: tokenSum(t) > 0 || !nano ? t : { ...ZERO, inputTokens: 1 } } }
         })
       : []
-    return { ...this.usage, title, customTitle: title, compactions: [], days, ...(costReports.length ? { costReports } : {}), timeline: this.timeline.timeline() }
+    return { ...this.usage, title, customTitle: title, compactions: [], days, ...(costReports.length ? { costReports } : {}), timeline: this.timeline.timeline(this.charges, pendingRows(this.launch)) }
   }
 }
 

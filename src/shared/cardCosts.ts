@@ -1,10 +1,9 @@
 import type { AppSettings, SessionUsage, TaskCard, TaskColumn, TaskHold, UsageTokens } from './types'
-import { estimateCost } from './prices'
+import { estimateCost, usesOwnPrices } from './prices'
 import { TASK_COLUMNS } from './tasks'
 import { reviewRounds } from './laneBar'
-import { localDay } from './usageDays'
 import { costText, money } from './usageTotals'
-import type { UsageRow, UsageTimeline } from './usageTimeline'
+import { TOKENS_SPREAD, TOKENS_UNKNOWN, type UsageRow, type UsageTimeline } from './usageTimeline'
 
 /**
  * Cost per card and per lane (#602, Darren's decision of 11 Oct). Usage is the card's while an agent held it: its
@@ -172,9 +171,14 @@ export function sharedSpans(spans: Span[], others: Span[][]): Map<number, Span[]
   return out
 }
 
-/** A part's usage and cost times f (its share); how many parts were priced or not stays. */
+/**
+ * A part's usage and cost times f (its share of time an agent held several cards); how many parts were priced or not
+ * stays. A share is Hive's, so it is marked ≈ (cost and tokens).
+ */
 export function scalePart(p: CostPart, f: number): CostPart {
-  return { ...p, inputTokens: p.inputTokens * f, outputTokens: p.outputTokens * f, cacheWriteTokens: p.cacheWriteTokens * f, cacheReadTokens: p.cacheReadTokens * f, requests: p.requests * f, cost: p.cost * f }
+  if (f === 1) return p
+  const known = p.priced > 0
+  return { ...p, inputTokens: p.inputTokens * f, outputTokens: p.outputTokens * f, cacheWriteTokens: p.cacheWriteTokens * f, cacheReadTokens: p.cacheReadTokens * f, requests: p.requests * f, cost: p.cost * f, estimated: p.estimated || known, tokensEstimated: true }
 }
 
 /** How much of [a, b) the spans cover, in ms. */
@@ -201,9 +205,19 @@ export interface CostPart {
   priced: number
   /** Parts whose cost isn't known (no price for the model, or usage Hive can't place in time): never counted as $0. */
   unpriced: number
+  /**
+   * Parts whose tokens aren't known (Copilot's before its launch exits, a session Hive can't place in time): the token
+   * counts are only what is known, never 0 for them.
+   */
+  tokensUnknown: number
+  /** Some of the tokens are Hive's share of a total (Copilot's spread over its requests, a card held with others): ≈. */
+  tokensEstimated: boolean
 }
 
-export const emptyPart = (): CostPart => ({ inputTokens: 0, outputTokens: 0, cacheWriteTokens: 0, cacheReadTokens: 0, requests: 0, cost: 0, estimated: false, priced: 0, unpriced: 0 })
+export const emptyPart = (): CostPart => ({ inputTokens: 0, outputTokens: 0, cacheWriteTokens: 0, cacheReadTokens: 0, requests: 0, cost: 0, estimated: false, priced: 0, unpriced: 0, tokensUnknown: 0, tokensEstimated: false })
+
+/** Usage nobody knows: a cost and tokens unknown. */
+export const unknownPart = (): CostPart => ({ ...emptyPart(), unpriced: 1, tokensUnknown: 1 })
 
 export function addPart(to: CostPart, p: CostPart): CostPart {
   to.inputTokens += p.inputTokens
@@ -215,13 +229,15 @@ export function addPart(to: CostPart, p: CostPart): CostPart {
   to.estimated ||= p.estimated
   to.priced += p.priced
   to.unpriced += p.unpriced
+  to.tokensUnknown += p.tokensUnknown
+  to.tokensEstimated ||= p.tokensEstimated
   return to
 }
 
 const rowTokens = (r: UsageRow): UsageTokens => ({ inputTokens: r[1], outputTokens: r[2], cacheWriteTokens: r[3], cacheReadTokens: r[4] })
 const tokenSum = (t: UsageTokens): number => t.inputTokens + t.outputTokens + t.cacheWriteTokens + t.cacheReadTokens
 
-/** A session as the cost of cards reads it: its usage with day costs (priced), its timeline, and when it was active. */
+/** A session as the cost of cards reads it: its usage (for its provider and model), its timeline, and when it was active. */
 export interface SessionSlice {
   usage: SessionUsage | null
   timeline: UsageTimeline | null
@@ -232,59 +248,81 @@ export interface SessionSlice {
 
 /**
  * What a session used in some spans of time: each row of its timeline (a second, mostly) by how much of it the spans
- * cover, and each day's cost shared over its rows the way that day's cost was made (the provider's charges where it
- * reports them by turn, else Hive's estimate for the tokens, else the tokens), so a day's rows add up to its cost in the
- * Overview. A session active in the spans whose timeline or usage Hive doesn't have is an unknown part. Null when it
- * wasn't active in them.
+ * cover. Its cost: a reported charge (UsageTimeline.reports) is split only between the rows it covers, by Hive's
+ * estimate for their tokens (else their tokens, their requests, or equally), and is exact where all of a charge's rows
+ * are inside, ≈ where the spans split it; rows no charge covers are Hive's estimate (≈), and so is everything when the
+ * user chose their own prices over the provider's (#436). Unknown where there is no price, or no tokens to price yet. A
+ * session active in the spans whose timeline or usage Hive doesn't have is an unknown part. Null when it wasn't active
+ * in them.
  */
 export function sliceSession(s: SessionSlice, spans: Span[], settings?: Pick<AppSettings, 'providers'> | null): CostPart | null {
   if (!spans.length) return null
-  if (!s.usage || !s.timeline) return overlap(spans, s.from, Math.max(s.to, s.from + 1)) > 0 ? { ...emptyPart(), unpriced: 1 } : null
+  if (!s.usage || !s.timeline) return overlap(spans, s.from, Math.max(s.to, s.from + 1)) > 0 ? unknownPart() : null
   // Not active near the spans at all (a minute's margin: its first and last activity are its main conversation's).
   if (s.to >= s.from && overlap(spans, s.from - 60_000, s.to + 60_000) === 0) return null
-  const usage = s.usage
-  const est = (t: UsageTokens): number => estimateCost({ provider: usage.provider, model: usage.model, ...t }, settings) ?? 0
-  // Each day's rows and how they share its cost.
+  const { provider, model } = s.usage
+  const { rows, reports } = s.timeline
   const step = s.timeline.step * 1000
-  const byDay = new Map<string, UsageRow[]>()
-  for (const r of s.timeline.rows) {
-    const day = localDay(r[0] * 1000)
-    const rows = byDay.get(day)
-    if (rows) rows.push(r)
-    else byDay.set(day, [r])
+  const covered = rows.map((r) => overlap(spans, r[0] * 1000, r[0] * 1000 + step) / step)
+  if (!covered.some((f) => f > 0)) return null
+  const est = (r: UsageRow): number | null => estimateCost({ provider, model, ...rowTokens(r) }, settings)
+  const own = usesOwnPrices(provider, settings)
+  // How each charge is split between its rows: one measure for all of a charge's rows.
+  const measures: ((r: UsageRow) => number)[] = [(r) => est(r) ?? 0, (r) => tokenSum(rowTokens(r)), (r) => r[5], () => 1]
+  const byReport = new Map<number, { rows: number[]; weight: (r: UsageRow) => number; total: number }>()
+  if (!own)
+    rows.forEach((r, i) => {
+      if (r[6] < 0) return
+      const g = byReport.get(r[6]) ?? { rows: [], weight: () => 1, total: 0 }
+      g.rows.push(i)
+      byReport.set(r[6], g)
+    })
+  for (const g of byReport.values()) {
+    for (const m of measures) {
+      const total = g.rows.reduce((n, i) => n + m(rows[i]), 0)
+      if (total > 0) {
+        g.weight = m
+        g.total = total
+        break
+      }
+    }
   }
   const out = emptyPart()
-  let active = false
-  for (const [day, rows] of byDay) {
-    const covered = rows.map((r) => overlap(spans, r[0] * 1000, r[0] * 1000 + step) / step)
-    if (!covered.some((f) => f > 0)) continue
-    active = true
-    const charged = rows.some((r) => (r[6] ?? 0) > 0)
-    const estimates = rows.map((r) => est(rowTokens(r)))
-    const priced = estimates.some((e) => e > 0)
-    const weight = (r: UsageRow, i: number): number => (charged ? (r[6] ?? 0) : priced ? estimates[i] : tokenSum(rowTokens(r)))
-    let total = 0
-    let mine = 0
-    rows.forEach((r, i) => {
-      const f = covered[i]
-      total += weight(r, i)
-      mine += weight(r, i) * f
+  let costKnown = false
+  let costUnknown = false
+  let tokensUnknown = false
+  rows.forEach((r, i) => {
+    const f = covered[i]
+    if (f <= 0) return
+    if (r[7] & TOKENS_UNKNOWN) tokensUnknown = true
+    else {
       out.inputTokens += r[1] * f
       out.outputTokens += r[2] * f
       out.cacheWriteTokens += r[3] * f
       out.cacheReadTokens += r[4] * f
-      out.requests += r[5] * f
-    })
-    // The day's cost as priced (usageDays.ts); a session without days has one cost for all of it.
-    const d = usage.days?.[day] ?? (usage.days ? null : { costUsd: usage.costUsd, costEstimated: usage.costEstimated })
-    if (!d || d.costUsd === null) out.unpriced++
-    else {
-      out.priced++
-      if (total > 0) out.cost += d.costUsd * (mine / total)
-      if (d.costEstimated) out.estimated = true
+      if (r[7] & TOKENS_SPREAD) out.tokensEstimated = true
     }
-  }
-  return active ? out : null
+    out.requests += r[5] * f
+    const g = !own && r[6] >= 0 ? byReport.get(r[6]) : undefined
+    if (g) {
+      costKnown = true
+      if (g.total > 0) out.cost += (reports[r[6]] ?? 0) * (g.weight(r) / g.total) * f
+      // The spans take part of the charge: its split is Hive's.
+      if (g.rows.some((j) => covered[j] !== 1)) out.estimated = true
+      return
+    }
+    const e = r[7] & TOKENS_UNKNOWN ? null : est(r)
+    if (e === null) costUnknown = true
+    else {
+      costKnown = true
+      out.cost += e * f
+      out.estimated = true
+    }
+  })
+  out.priced = costKnown ? 1 : 0
+  out.unpriced = costUnknown ? 1 : 0
+  out.tokensUnknown = tokensUnknown ? 1 : 0
+  return out
 }
 
 // ---------------------------------------------------------------------------
@@ -343,11 +381,18 @@ export function cardCostLine(c: CardCost): string {
 
 const tok = (n: number): string => (n >= 1_000_000 ? `${(n / 1_000_000).toFixed(1)}M` : n >= 1000 ? `${Math.round(n / 1000)}K` : String(Math.round(n)))
 
-/** A part's tokens in words, for a hover: "in 12K · out 3K · cache write 40K · cache read 1.2M · 31 requests". */
+/**
+ * A part's tokens in words, for a hover: "in 12K · out 3K · cache write 40K · cache read 1.2M · 31 requests"; "≈ " when
+ * some are Hive's share of a total, "+ unknown" when some aren't known, "tokens unknown" when none are.
+ */
 export function partTokens(p: CostPart): string {
-  if (!p.priced && !p.unpriced) return 'nothing used'
-  const tokens = `in ${tok(p.inputTokens)} · out ${tok(p.outputTokens)} · cache write ${tok(p.cacheWriteTokens)} · cache read ${tok(p.cacheReadTokens)} · ${Math.round(p.requests)} request${Math.round(p.requests) === 1 ? '' : 's'}`
-  return p.unpriced && !p.priced ? `unknown${p.inputTokens + p.outputTokens ? ` (${tokens} known)` : ''}` : tokens
+  if (!p.priced && !p.unpriced && !p.tokensUnknown) return 'nothing used'
+  const known = p.inputTokens + p.outputTokens + p.cacheWriteTokens + p.cacheReadTokens > 0
+  const requests = Math.round(p.requests)
+  const count = requests ? ` · ${requests} request${requests === 1 ? '' : 's'}` : ''
+  if (p.tokensUnknown && !known) return `tokens unknown${count}`
+  const tokens = `${p.tokensEstimated ? '≈ ' : ''}in ${tok(p.inputTokens)} · out ${tok(p.outputTokens)} · cache write ${tok(p.cacheWriteTokens)} · cache read ${tok(p.cacheReadTokens)}`
+  return `${tokens}${p.tokensUnknown ? ' + unknown' : ''}${count}`
 }
 
 /** Cost per finished card ("≈ $2.10 a card"), when any finished and the cost is known. */
