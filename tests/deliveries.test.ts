@@ -172,6 +172,9 @@ describe('the delivery service (#647)', async () => {
     await restart()
     expect(await states()).toEqual(['m1 queued'])
     expect((await make()).id).toBe('m9')
+    // …and kept aside in the file as they were, not lost.
+    await deliveries.settledForTests()
+    expect((JSON.parse(readFileSync(join(alpha, '.hive', 'deliveries.json'), 'utf8')) as { invalid?: unknown[] }).invalid).toEqual([{ id: 'nope' }])
   })
 
   it('permission is worked out again at every step: refused at once when its sender may not; refused while it waits once Control is turned down', async () => {

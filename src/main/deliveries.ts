@@ -74,6 +74,8 @@ interface Store {
   queue: Promise<void>
   /** The ids being offered by a line being typed now: cancelled meanwhile, its typing stops. */
   offering: Set<string>
+  /** Saved entries that aren't deliveries (a hand edit, a newer build's): kept aside in the file as they were, not used. */
+  invalid: unknown[]
 }
 
 const stores = new Map<string, Store>()
@@ -91,11 +93,11 @@ export function load(host: string): Promise<Store> {
   if (going) return going
   const p = (async () => {
     const read = await readFileOf(host)
-    const store: Store = { host, records: read.records, next: read.next, queue: Promise.resolve(), offering: new Set() }
+    const store: Store = { host, records: read.records, next: read.next, queue: Promise.resolve(), offering: new Set(), invalid: read.invalid }
     if (stores.has(k)) return stores.get(k)!
     stores.set(k, store)
     // Offered when Hive stopped: whether it arrived isn't known.
-    let changed = read.changed
+    let changed = false
     for (const r of store.records) if (r.state === 'offered') changed = set(store, r, 'uncertain', 'Hive stopped before it knew whether this reached the agent') || changed
     changed = recheck(store) || changed
     if (changed) void commit(store)
@@ -108,13 +110,13 @@ export function load(host: string): Promise<Store> {
   return p
 }
 
-async function readFileOf(host: string): Promise<{ records: DeliveryRecord[]; next: number; changed: boolean }> {
+async function readFileOf(host: string): Promise<{ records: DeliveryRecord[]; next: number; invalid: unknown[] }> {
   const file = fileOf(host)
   let got: { data: Buffer; more: boolean }
   try {
     got = await readCapped(file, MAX_FILE_BYTES)
   } catch (e) {
-    if ((e as NodeJS.ErrnoException).code === 'ENOENT') return { records: [], next: 1, changed: false }
+    if ((e as NodeJS.ErrnoException).code === 'ENOENT') return { records: [], next: 1, invalid: [] }
     throw new Error(`Could not read the deliveries (${(e as Error).message})`, { cause: e })
   }
   let data: { next?: unknown; deliveries?: unknown } | null = null
@@ -128,18 +130,20 @@ async function readFileOf(host: string): Promise<{ records: DeliveryRecord[]; ne
     const to = `${file}.${got.more ? 'too-big' : 'damaged'}-${Date.now()}`
     await renameRetrying(file, to)
     log.warn(`The deliveries file was ${got.more ? 'too big' : 'damaged'}: set aside as ${userText(to)}`)
-    return { records: [], next: 1, changed: false }
+    return { records: [], next: 1, invalid: [] }
   }
   const raw = Array.isArray(data.deliveries) ? data.deliveries : []
   const records: DeliveryRecord[] = []
+  const invalid: unknown[] = Array.isArray((data as { invalid?: unknown }).invalid) ? [...((data as { invalid: unknown[] }).invalid)] : []
   for (const v of raw) {
     const r = readDelivery(v)
     if (r && !records.some((x) => x.id === r.id)) records.push(r)
+    else invalid.push(v)
   }
-  if (records.length < raw.length) log.warn(`${raw.length - records.length} saved deliver${raw.length - records.length === 1 ? 'y is' : 'ies are'} not valid: left out`)
+  if (records.length < raw.length) log.warn(`${raw.length - records.length} saved deliver${raw.length - records.length === 1 ? 'y is' : 'ies are'} not valid: kept aside in the file, not used`)
   const top = records.reduce((m, r) => Math.max(m, r.seq), 0)
   const next = Number.isInteger(data.next) && (data.next as number) > top ? (data.next as number) : top + 1
-  return { records, next, changed: records.length < raw.length }
+  return { records, next, invalid }
 }
 
 /** Saves a host's deliveries after the saves before it (its records as they are when it runs). Never throws. */
@@ -155,7 +159,7 @@ async function save(store: Store): Promise<void> {
   await mkdir(join(store.host, HIVE_DIR), { recursive: true })
   const tmp = `${file}.${process.pid}-${randomBytes(4).toString('hex')}.tmp`
   try {
-    await writeFile(tmp, JSON.stringify({ version: 1, next: store.next, deliveries: store.records }, null, 2) + '\n', 'utf8')
+    await writeFile(tmp, JSON.stringify({ version: 1, next: store.next, deliveries: store.records, ...(store.invalid.length ? { invalid: store.invalid } : {}) }, null, 2) + '\n', 'utf8')
     await renameRetrying(tmp, file, 20, undefined, rename)
   } catch (e) {
     await rm(tmp, { force: true }).catch(() => undefined)
