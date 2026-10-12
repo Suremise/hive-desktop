@@ -49,18 +49,31 @@ export function transcriptEvent(provider: ProviderId, chunk: string, d: LiveDeta
 }
 
 /**
- * A launch: the CLI, its version and how many arguments, never the arguments themselves. An option's value, inline
- * (`--append-system-prompt=…`) or not, can be a prompt, and a value can begin with a dash: only the CLI's own grammar
- * tells them from switches, so none is kept.
+ * Option names the CLIs Hive runs take (Claude Code's, Codex's, Copilot's): a launch keeps an argument only when it is
+ * exactly one of these. A name from this list is never someone's text; anything else (an option's value, inline after
+ * `=` or the next argument, even one that begins with a dash, and positionals) is only counted.
+ */
+const KNOWN_SWITCHES = new Set([
+  '--acp', '--additional-mcp-config', '--allow-all', '--allow-all-mcp-server-instructions', '--allow-all-tools', '--allow-tool', '--allowedTools', '--append-system-prompt-file', '--autopilot',
+  '--continue', '--dangerously-bypass-approvals-and-sandbox', '--dangerously-skip-permissions', '--disable-builtin-mcps', '--disable-mcp-server', '--effort', '--full-auto', '--mcp-config', '--model',
+  '--name', '--no-auto-update', '--no-daemon', '--permission-mode', '--plugin-dir', '--reasoning-effort', '--resume', '--sandbox', '--ask-for-approval', '--session-id', '--settings',
+  '--strict-mcp-config', '--system-prompt-snapshot', '--verbose', '-c', '-m', '-a', '-s', '-C', '-p'
+])
+
+/**
+ * A launch: the CLI, its version, the known option names it was given (KNOWN_SWITCHES) and how many other arguments,
+ * never their text: an option's value, inline (`--append-system-prompt=…`) or not, can be a prompt, and a value can
+ * begin with a dash.
  */
 export function launchEvent(l: { provider: ProviderId; name: string; file: string; args: string[]; cwd: string; version: string | null; state: Pick<LiveSessionState, 'status' | 'permissionMode' | 'modelId' | 'effort'>; resumed: boolean }): CapturedEvent {
+  const switches = l.args.filter((a) => KNOWN_SWITCHES.has(a)).slice(0, 40)
   return {
     kind: 'launch',
     name: 'launch',
     provider: l.provider,
-    raw: { file: basename(l.file), args: l.args.length, cwd: l.cwd, version: l.version },
+    raw: { file: basename(l.file), switches, otherArgs: l.args.length - switches.length, cwd: l.cwd, version: l.version },
     made: { status: l.state.status, permissionMode: l.state.permissionMode, modelId: l.state.modelId, effort: l.state.effort, resumed: l.resumed },
-    safe: { raw: { file: true, cwd: true, version: true }, made: { status: true, permissionMode: true, modelId: true, effort: true } },
+    safe: { raw: { file: true, switches: true, cwd: true, version: true }, made: { status: true, permissionMode: true, modelId: true, effort: true } },
     summary: `${l.name} ${safeWord(l.version)} started${l.resumed ? ' (resumed)' : ''}; ${l.state.status}`
   }
 }

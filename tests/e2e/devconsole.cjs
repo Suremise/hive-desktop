@@ -99,7 +99,7 @@ const check = (name, ok, extra = '') => {
 
     await inv('session:start', alpha, { agentId: b1.id })
     const launched = await seen((e) => e.kind === 'launch')
-    check("its launch: the CLI, its version and how many arguments, never the arguments", typeof launched?.raw?.args === 'number' && launched.raw.switches === undefined && launched?.made?.status !== undefined && !JSON.stringify(launched).includes(PRIVATE), JSON.stringify(launched))
+    check("its launch: the CLI, its version and its known option names, the rest counted", typeof launched?.raw?.otherArgs === 'number' && launched.raw.otherArgs >= 2 && launched.raw.switches?.includes('--session-id') && launched.raw.switches.includes('--allowedTools') && launched?.made?.status !== undefined && !JSON.stringify(launched).includes(PRIVATE), JSON.stringify(launched))
     const started = await seen((e) => e.kind === 'hook' && e.name === 'SessionStart')
     check('SessionStart arrives next to what Hive made of it', started?.made?.event?.kind === 'start' && typeof started.made.status === 'string' && started.summary.startsWith('SessionStart → start;'), JSON.stringify(started))
     check('…from the provider that sent it', started?.provider === 'claude-code')

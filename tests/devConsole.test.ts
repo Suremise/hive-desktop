@@ -376,14 +376,15 @@ describe('mayRead', () => {
 })
 
 describe('launches', () => {
-  it("keep the CLI, its version and how many arguments, never an argument: an inline value or a value starting with a dash", () => {
+  it("keep the CLI, its version and its known option names, and count the rest: never an inline value or a value starting with a dash", () => {
     const MARK = 'privatecustomer'
     const c = new DevConsole()
     c.subscribe('w', [A1])
     const args = ['--session-id', 'x', `--append-system-prompt=${MARK}`, '--allowedTools', `-${MARK}-dash`, '--model', 'opus']
     c.capture([A1], () => launchEvent({ provider: 'claude-code', name: 'Claude Code', file: join('C:\\', 'tools', 'claude.exe'), args, cwd: alpha, version: '2.1.296', state: { status: 'starting', permissionMode: 'default', modelId: undefined, effort: undefined }, resumed: false }))
     const [e] = c.events(A1)
-    expect(e.raw).toEqual({ file: 'claude.exe', args: 7, cwd: alpha, version: '2.1.296' })
+    // Only names from the known list; the rest (values, an inline value, one starting with a dash) counted.
+    expect(e.raw).toEqual({ file: 'claude.exe', switches: ['--session-id', '--allowedTools', '--model'], otherArgs: 4, cwd: alpha, version: '2.1.296' })
     expect(JSON.stringify(e)).not.toContain(MARK)
     expect(e.summary).toBe('Claude Code 2.1.296 started; starting')
   })
