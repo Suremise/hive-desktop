@@ -692,14 +692,15 @@ export class WorkspaceService {
     })
   }
 
-  async upsertSession(projectPath: string, rec: Partial<SessionRecord> & { id: string }): Promise<SessionRecord> {
+  /** `created`: fields only a new record takes (a launch's start as its createdAt), never written over an existing one's. */
+  async upsertSession(projectPath: string, rec: Partial<SessionRecord> & { id: string }, created?: Partial<SessionRecord>): Promise<SessionRecord> {
     return this.mutateSessions(projectPath, (f) => {
       let existing = f.sessions.find((s) => s.id === rec.id)
       if (existing) Object.assign(existing, rec)
       else {
         const now = new Date().toISOString()
         // Callers name the provider; records from before providers are Claude Code's.
-        existing = { agent: 'claude-code', name: '', createdAt: now, lastActiveAt: now, archived: false, ...rec }
+        existing = { agent: 'claude-code', name: '', createdAt: now, lastActiveAt: now, archived: false, ...created, ...rec }
         f.sessions.push(existing)
         // A deleted session that runs again (e.g. resumed inside the CLI) is Hive's again.
         if (f.deleted?.includes(rec.id)) f.deleted = f.deleted.filter((id) => id !== rec.id)

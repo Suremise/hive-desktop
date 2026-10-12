@@ -3,6 +3,7 @@
 ## Unreleased
 
 ### Agents
+- **A session's automatic name is the same everywhere.** Until it has a name, a session is named by when it started. The agent's footer and the Sessions tab could show that time a minute apart, and a resumed session's footer showed when it was resumed. Both now show when the session began.
 - **An idle agent no longer stays "Working…".** When Hive missed how a Claude Code agent's turn ended, the agent could show **Working…** at an empty prompt for good, and the Hive Assistant couldn't give it a task. Hive now takes Claude Code's own "waiting for your input" signal, a minute after a turn, and shows the agent idle again. Claude Code's compaction while idle and its recaps leave an idle agent idle.
 
 ### Git

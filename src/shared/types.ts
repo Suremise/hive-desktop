@@ -1128,6 +1128,11 @@ export interface LiveSessionState {
   sessionName?: string
   /** See SessionRecord.titleAtRename. */
   titleAtRename?: string | null
+  /**
+   * When the conversation began: its record's createdAt (a resumed one began before this launch; a new one's record is
+   * given this launch's startedAt), which names it until it has a name, as in the Sessions tab (#630).
+   */
+  sessionCreatedAt?: string
   status: SessionStatus
   /** When the status last changed (ISO): how long an agent has been waiting or finished. */
   statusSince?: string
