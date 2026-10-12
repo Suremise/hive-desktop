@@ -579,11 +579,11 @@ async function runScenario(sc, providerKey, opts = {}) {
     // What Hive woke it with (#402), in order: a line it typed in, or (#650: its doorbell) what the session's next
     // hive_inbox call read, the inbox's own items after the doorbell.
     observed.wakeLines = items.flatMap((x, i) => {
-      const text = String(x.kind === 'user' ? (x.text ?? '') : '').trim()
-      if (!text.startsWith('[Hive]')) return []
-      if (!text.startsWith('[Hive] New in your inbox: ')) return [text.slice(0, 1000)]
+      const line = String(x.kind === 'user' ? (x.line ?? '') : '').trim()
+      if (!line.startsWith('[Hive]')) return []
+      if (!line.startsWith('[Hive] New in your inbox: ')) return [line.slice(0, 1000)]
       const read = items.slice(i + 1).find((y) => y.kind === 'tool' && /hive_inbox/.test(y.tool.name))
-      return [String(read?.tool.result ?? text).trim().slice(0, 1000)]
+      return [String(read?.tool.result ?? line).trim().slice(0, 1000)]
     })
     observed.guidance = result.guidance
     // What the hive servers ran: the subject's own calls, and everyone's (an agent the Assistant started).
