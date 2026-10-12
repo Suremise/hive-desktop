@@ -5,6 +5,7 @@ import { basename, dirname, join } from 'path'
 import { MAX_AGENTS, ROLE_MAX, agentPtyKey, mergeBlocked, moveAgentTo, projectAgents, slugify, swapAgentsIn } from '../shared/defaults'
 import { forgetPtys } from './ptyHost'
 import { agentProvider, defaultProviderPending, isKnownProvider } from '../shared/providers'
+import { cleanMcpServers } from '../shared/agentMcp'
 import type { AddAgentOptions, AddedAgent, AgentBranchStatus, AgentDef, AgentPatch, AgentWorktree, MergeResult, ProjectConfig, ProjectGitInfo, RemovedAgent, WorktreeCheck, WorktreeMatch, WorktreeReuse } from '../shared/types'
 import { lockfileChanged, reuseNote } from '../shared/unusedWorktrees'
 import { config } from './config'
@@ -265,6 +266,8 @@ export async function prepareAgent(projectPath: string, cfg: ProjectConfig, opts
   if (typeof opts.use200kContext === 'boolean') def.use200kContext = opts.use200kContext
   const role = cleanRole(opts.role)
   if (role) def.role = role
+  const mcpServers = cleanMcpServers(opts.mcpServers)
+  if (mcpServers) def.mcpServers = mcpServers
 
   let reuse: WorktreeReuse | undefined
   if (opts.location === 'new-worktree') {
@@ -328,8 +331,11 @@ export function cleanRole(role: unknown): string {
 export async function updateAgent(projectPath: string, agentId: string, patch: AgentPatch): Promise<AgentDef> {
   // The Hive Assistant's settings for this workspace are its agent's, too (it keeps its name).
   projectPath = workspace.assertSessionHost(projectPath)
-  if (workspace.isAssistantHome(projectPath)) delete patch.name
-  else delete patch.persona
+  // The Assistant gets Hive's own tools, not the projects' MCP servers, whatever it is given (sessions.ts).
+  if (workspace.isAssistantHome(projectPath)) {
+    delete patch.name
+    delete patch.mcpServers
+  } else delete patch.persona
   const cfg = await workspace.projectConfig(projectPath)
   const agents = projectAgents(cfg)
   if (patch.name !== undefined) {
@@ -338,9 +344,11 @@ export async function updateAgent(projectPath: string, agentId: string, patch: A
     if (agents.some((a) => a.id !== agentId && a.name.toLowerCase() === patch.name!.toLowerCase())) throw new Error(`There is already an agent called "${patch.name}".`)
   }
   // Empty values clear an override so the agent follows the project again (and an empty role: its name is its role).
-  const { use200kContext, ...rest } = patch
+  const { use200kContext, mcpServers, ...rest } = patch
   const clean: Partial<AgentDef> = { ...rest }
   if ('role' in clean) clean.role = cleanRole(clean.role) || undefined
+  // null: all of the project's servers again (#537).
+  if (mcpServers !== undefined) clean.mcpServers = cleanMcpServers(mcpServers)
   for (const k of ['model', 'effort', 'permissionMode', 'persona'] as const) if (k in clean && !clean[k]) clean[k] = undefined
   if (use200kContext !== undefined) clean.use200kContext = typeof use200kContext === 'boolean' ? use200kContext : undefined
   if (patch.provider !== undefined) {

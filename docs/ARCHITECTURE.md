@@ -76,7 +76,7 @@ Adding a provider: a descriptor added to `PROVIDERS`, an adapter added to the re
 
 `sessions.start()` (Claude Code shown; Codex differs as above):
 
-1. Resolves effective settings (`effective()`, run in the project's workspace): every Hive skill in the workspace, the workspace-enabled MCP servers minus the project's opt-outs, plus model, effort, permission mode and args. Bypass is downgraded unless the global opt-in is on.
+1. Resolves effective settings (`effective()`, run in the project's workspace): every Hive skill in the workspace, the workspace-enabled MCP servers minus the project's opt-outs, narrowed to the agent's own choice when it has one (`agentGetsMcp` in `shared/agentMcp.ts`, #537: every adapter then passes only those, and turns off the user's same-named servers like any other), plus model, effort, permission mode and args. Bypass is downgraded unless the global opt-in is on.
 2. Restores the transcript from `.hive/sessions` if resuming and Claude Code no longer has it.
 3. `adapter.prepareLaunch()` — for Claude Code, rebuilds `Project/.hive/launch/` from scratch:
    - `plugin/` — a session-only Claude Code plugin containing copies of the Hive skills (`--plugin-dir`)

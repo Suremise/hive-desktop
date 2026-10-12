@@ -88,7 +88,8 @@ const settingsArgs = {
   model: { type: 'string', description: 'Model (hive_list_providers). Empty follows the project.' },
   effort: { type: 'string', description: 'Effort level (hive_list_providers). Empty follows the project.' },
   mode: { type: 'string', description: 'Permission mode (hive_list_providers). Empty follows the project.' },
-  context200k: { type: 'string', enum: ['on', 'off', ''], description: "Use a 200K context window instead of the model's 1M one, for providers with context200k (hive_list_providers). Empty follows the project." }
+  context200k: { type: 'string', enum: ['on', 'off', ''], description: "Use a 200K context window instead of the model's 1M one, for providers with context200k (hive_list_providers). Empty follows the project." },
+  mcpServers: { type: 'array', items: { type: 'string' }, description: "Only these of the project's MCP servers (names), [] none, [\"*\"] all (the default). The hive server is always given." }
 }
 const agentPath = (a: Record<string, any>): string => `/v1/projects/${proj(a)}/agents/${enc(a.agent || '')}`
 /** Which agent is changing a card, for its history (Hive fills in the name). */
@@ -273,7 +274,7 @@ const tools: Tool[] = [
       required: ['project']
     },
     run: async (a) => {
-      const r = (await api('POST', `/v1/projects/${proj(a)}/agents`, { name: a.name, provider: a.provider, model: a.model, effort: a.effort, mode: a.mode, context200k: a.context200k, worktree: a.worktree, existingWorktree: a.existingWorktree, branch: a.branch, base: a.base, start: a.start, prompt: a.prompt })) as {
+      const r = (await api('POST', `/v1/projects/${proj(a)}/agents`, { name: a.name, provider: a.provider, model: a.model, effort: a.effort, mode: a.mode, context200k: a.context200k, mcpServers: a.mcpServers, worktree: a.worktree, existingWorktree: a.existingWorktree, branch: a.branch, base: a.base, start: a.start, prompt: a.prompt })) as {
         agent: { id: string; name: string; worktree?: { path: string; branch: string } | null }
         project: { name: string; agents: { id: string; provider: string; status: string }[] }
         reuse?: string
@@ -285,9 +286,9 @@ const tools: Tool[] = [
   },
   {
     name: 'hive_update_agent',
-    description: "Change an agent's name, provider, model, effort, permission mode or 200K context. A running agent takes the change when restarted; its provider changes only while it is stopped.",
+    description: "Change an agent's name, provider, model, effort, permission mode, 200K context or MCP servers. A running agent takes the change when restarted; its provider changes only while it is stopped.",
     inputSchema: { type: 'object', properties: { project: projectArg, agent: agentArg, name: { type: 'string' }, ...settingsArgs }, required: ['project', 'agent'] },
-    run: (a) => api('PATCH', agentPath(a), { name: a.name, provider: a.provider, model: a.model, effort: a.effort, mode: a.mode, context200k: a.context200k })
+    run: (a) => api('PATCH', agentPath(a), { name: a.name, provider: a.provider, model: a.model, effort: a.effort, mode: a.mode, context200k: a.context200k, mcpServers: a.mcpServers })
   },
   {
     name: 'hive_start_agent',
