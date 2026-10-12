@@ -99,20 +99,19 @@ public static class HiveJobs {
    */
   static Dictionary<int, Held> held = new Dictionary<int, Held>();
   /**
-   * Escaped processes that can't join their parent's job, being in a job of their own that can't take another (the
-   * Store's PowerShell is in its package's): followed instead, held open, listed and ended with the job, and their own
-   * escaped children taken in as they are found.
+   * Escaped processes that aren't put in their parent's job, being in a job already (the Store's PowerShell is in its
+   * package's, #659): followed instead, held open, listed and ended with the job, and their own escaped children taken
+   * in as they are found.
    */
   static Dictionary<int, Held> followed = new Dictionary<int, Held>();
   /**
    * Adopts what escaped the jobs (#543): a packaged app's process (the Microsoft Store's PowerShell 7) starts its
    * children outside every job, so they would neither be listed nor ended. Each live process whose parent is in a job
-   * (running, or held as it ends), that is itself not in that job, joins it (nested in any job it is in, where Windows
-   * allows; one it can't join stays untracked, as before); its own children join by themselves
-   * from then on, and those it started before are found in the same sweep. The parent must have started before the
-   * child: a parent id not held could name a later process that took a dead parent's id. Swept as each process of a job
-   * ends (so a shell that starts something and exits at once is caught), before listing or ending a job, and every
-   * ${SWEEP_MS} ms (for an escaped child's own children).
+   * (running, or held as it ends), that is itself not in that job, joins it if it is in no job (its own children join by
+   * themselves from then on), or is followed (Take); those it started before are found in the same sweep. The parent
+   * must have started before the child: a parent id not held could name a later process that took a dead parent's id.
+   * Swept as each process of a job ends (so a shell that starts something and exits at once is caught), before listing
+   * or ending a job, and every ${SWEEP_MS} ms (for an escaped child's own children).
    */
   public static int Sweep() {
     lock (turn) {
@@ -157,7 +156,7 @@ public static class HiveJobs {
     }
   }
   /**
-   * Takes an escaped process into job id: adopted into it, or followed when it can't join. pid and parent are as a
+   * Takes an escaped process into job id: adopted into it if it is in no job, else followed. pid and parent are as a
    * snapshot taken at time "at" saw them: an id may name another process by now, so a process opened by it (the
    * candidate, or a parent not held) that was created after the snapshot isn't the one it saw (#543). Public for the
    * unit tests, which hand it stale identities.
@@ -171,12 +170,16 @@ public static class HiveJobs {
       if (c == IntPtr.Zero) return false;
       bool keep = false;
       try {
-        bool inJob; uint code; long cc, pc, x, k, u;
+        bool inJob, inAny; uint code; long cc, pc, x, k, u;
         if (!IsProcessInJob(c, job, out inJob) || inJob) return false;
         if (!GetExitCodeProcess(c, out code) || code != 259) return false;
         if (!GetProcessTimes(c, out cc, out x, out k, out u) || cc > at) return false;
         if (!Started(parent, at, out pc) || pc > cc) return false;
-        if (AssignProcessToJobObject(job, c)) return true;
+        // Only a process in no job joins: one in another job is followed (#659). Windows would nest the jobs: the Store's
+        // PowerShell's is its package's, which every Store PowerShell started later joins, and when it had no parent it
+        // became this launch's, so the next ones (any agent's or app's) were listed and ended with this launch.
+        if (!IsProcessInJob(c, IntPtr.Zero, out inAny)) return false;
+        if (!inAny && AssignProcessToJobObject(job, c)) return true;
         followed[pid] = new Held { job = id, h = c, created = cc };
         keep = true;
         return true;

@@ -77,11 +77,18 @@ if (role === 'cli') process.stdin.once('data', () => { start('child'); setTimeou
 // before this CLI joins its job: the child's parent is in the job, the child in none.
 else if (role === 'escaper') { start('child'); process.stdin.once('data', () => process.exit(0)) }
 // The real Store PowerShell (where it is installed), as Codex runs a background command: on "go", it runs a process
-// that keeps running, and this CLI exits once that has started.
+// that keeps running (the shell's id said too), and this CLI exits once that has started.
 else if (role === 'storepwsh') process.stdin.once('data', () => {
-  const ps = spawn(process.env.STORE_PWSH, ['-NoProfile', '-Command', '& $env:LONE_NODE $env:LONE_SCRIPT lone $env:LONE_OUT'], { stdio: 'ignore', windowsHide: true, env: { ...process.env, LONE_NODE: process.execPath, LONE_SCRIPT: __filename, LONE_OUT: out } })
-  // Windows may refuse to start it (#585): said, for the test to tell from a tracking failure.
-  ps.on('error', (e) => { fs.appendFileSync(out, 'pwsh-error ' + JSON.stringify(e.message) + '\\n'); process.exit(3) })
+  // Windows may refuse to start it (#585), as a throw (EPERM) or an error: said, for the test to tell from a tracking failure.
+  const refused = (e) => { fs.appendFileSync(out, 'pwsh-error ' + JSON.stringify(e.message) + '\\n'); process.exit(3) }
+  let ps
+  try {
+    ps = spawn(process.env.STORE_PWSH, ['-NoProfile', '-Command', '& $env:LONE_NODE $env:LONE_SCRIPT lone $env:LONE_OUT'], { stdio: 'ignore', windowsHide: true, env: { ...process.env, LONE_NODE: process.execPath, LONE_SCRIPT: __filename, LONE_OUT: out } })
+  } catch (e) {
+    refused(e)
+  }
+  if (ps.pid) fs.appendFileSync(out, 'pwsh ' + ps.pid + '\\n')
+  ps.on('error', refused)
   ps.on('exit', (code) => { fs.appendFileSync(out, 'pwsh-exit ' + code + '\\n'); process.exit(4) })
   const started = setInterval(() => { if (fs.existsSync(out) && fs.readFileSync(out, 'utf8').includes('lone ')) { clearInterval(started); process.exit(0) } }, 100)
 })
@@ -210,15 +217,71 @@ else {
       await launchEnded('run6')
       ctx.skip(`the Store's PowerShell didn't run its command (exit ${code}): ${said.trim()}`)
     }
-    const { lone } = pidsIn(out)
+    const { pwsh, lone } = pidsIn(out)
     const left = await launchEnded('run6')
-    // What was running then, if it wasn't listed: the shell and the process it ran, with their parents.
-    const seen = (): string => (left ? '' : String(execFileSync('powershell', ['-NoProfile', '-Command', `Get-CimInstance Win32_Process | Where-Object { $_.ProcessId -eq ${lone} -or $_.Name -eq 'pwsh.exe' } | ForEach-Object { "$($_.ProcessId) <- $($_.ParentProcessId) $($_.Name)" }`], { windowsHide: true })))
-    expect(left?.processes.map((p) => p.pid) ?? [], `CLI ${cli.pid}, lone ${lone}: ${seen()}`).toContain(lone)
-    expect(left?.processes.some((p) => /^pwsh/i.test(p.label))).toBe(true)
-    expect(await settleLeftovers(dir, 'a6', 'end')).toBe(2)
-    expect(await until(() => !alive(lone), 5000)).toBe(true)
+    // The launch's own and no other's (#659): the shell and what it runs (its console host isn't listed).
+    const listed = (left?.processes.map((p) => p.pid) ?? []).sort((a, b) => a - b)
+    const own = [pwsh, lone].sort((a, b) => a - b)
+    const unlisted = own.filter((p) => !listed.includes(p))
+    // What was running then, if not: the shells and the process it ran, with their parents.
+    const seen = (): string => (listed.join() === own.join() ? '' : String(execFileSync('powershell', ['-NoProfile', '-Command', `Get-CimInstance Win32_Process | Where-Object { $_.ProcessId -eq ${lone} -or $_.Name -eq 'pwsh.exe' } | ForEach-Object { "$($_.ProcessId) <- $($_.ParentProcessId) $($_.Name)" }`], { windowsHide: true })))
+    const why = `CLI ${cli.pid}, ${said.trim()}: ${seen()}`
+    expect(listed.filter((p) => !own.includes(p)), why).toEqual([])
+    expect(unlisted.filter(alive), why).toEqual([])
+    expect(await settleLeftovers(dir, 'a6', 'end')).toBe(listed.length)
+    expect(await until(() => !alive(pwsh) && !alive(lone), 5000)).toBe(true)
+    // Ended before it was listed, not by this launch: the shell is in its package's job, which another program's job on
+    // the PC can take in (as this tracker's did before #659) and end with its own.
+    if (unlisted.length) ctx.skip(`the Store's PowerShell or what it ran had ended before it was listed (${unlisted.join(', ')}): ${why}`)
   }, 60000)
+
+  // An escaped process already in a job is followed, never assigned to the launch's (#659): Windows would nest one job in
+  // the other. The Store PowerShell's job is its package's, which every Store PowerShell joins: when it had no parent,
+  // assigning one made it this launch's, and the next ones (any agent's or app's, other test runs') were listed and
+  // ended with it. A test can't make a job without a parent here (Hive's own runs in one, which refuses breakaway), but
+  // a launch's job that is still empty has none: assigning nested it the other way, which is as wrong, and shows.
+  it('follows an escaped process that is already in another job, never nesting the jobs (#659)', async () => {
+    const { HOST_SOURCE } = await import('../src/main/agentProcesses')
+    const src = join(dir, 'host.cs')
+    writeFileSync(src, HOST_SOURCE)
+    const probe = join(dir, 'injob.ps1')
+    writeFileSync(
+      probe,
+      `param($src, $node)
+$ErrorActionPreference = 'Stop'
+Add-Type -ReferencedAssemblies System.Management -TypeDefinition (Get-Content -Raw $src)
+Add-Type -TypeDefinition @'
+using System; using System.Runtime.InteropServices;
+public static class OtherJob {
+  [DllImport("kernel32.dll")] public static extern IntPtr CreateJobObject(IntPtr a, IntPtr n);
+  [DllImport("kernel32.dll")] static extern IntPtr OpenProcess(uint a, bool i, int p);
+  [DllImport("kernel32.dll")] static extern bool AssignProcessToJobObject(IntPtr j, IntPtr p);
+  [DllImport("kernel32.dll")] static extern bool CloseHandle(IntPtr h);
+  public static bool Assign(IntPtr job, int pid) { IntPtr h = OpenProcess(0x0101 | 0x1000, false, pid); bool ok = AssignProcessToJobObject(job, h); CloseHandle(h); return ok; }
+}
+'@
+$sleeper = { $s = [System.Diagnostics.ProcessStartInfo]::new($node, '-e "setTimeout(() => {}, 60000)"'); $s.UseShellExecute = $false; $s.CreateNoWindow = $true; [System.Diagnostics.Process]::Start($s) }
+$r = [ordered]@{}
+# In a job of another's, as the Store PowerShell is in its package's.
+$a = & $sleeper
+$r.inOther = [OtherJob]::Assign([OtherJob]::CreateJobObject([IntPtr]::Zero, [IntPtr]::Zero), $a.Id)
+# A launch whose job has nothing in it yet (its CLI exited before it could join).
+$gone = & $sleeper
+$gone.Kill()
+$null = $gone.WaitForExit(10000)
+$r.added = [HiveJobs]::Add('t', $gone.Id)
+$r.taken = [HiveJobs]::Take('t', $a.Id, $PID, [HiveJobs]::CreatedOf($a.Id))
+$r.followed = [HiveJobs]::IsFollowed($a.Id)
+$r.inJob = [HiveJobs]::List('t') -contains $a.Id
+$r.listed = [HiveJobs]::Members('t') -contains $a.Id
+$r.ended = [HiveJobs]::Kill('t') -and $a.WaitForExit(10000)
+if (-not $a.HasExited) { Stop-Process -Id $a.Id -Force }
+$r | ConvertTo-Json -Compress
+`
+    )
+    const out = execFileSync(join(process.env.SystemRoot ?? 'C:\\Windows', 'System32', 'WindowsPowerShell', 'v1.0', 'powershell.exe'), ['-NoProfile', '-NonInteractive', '-ExecutionPolicy', 'Bypass', '-File', probe, src, process.execPath], { windowsHide: true, timeout: 120000 })
+    expect(JSON.parse(String(out).trim().split(/\r?\n/).at(-1)!)).toEqual({ inOther: true, added: 'the process has exited', taken: true, followed: true, inJob: false, listed: true, ended: true })
+  }, 120000)
 
   // The host's C# driven directly, in a PowerShell of the test's own, with identities a late snapshot or a late port
   // notification could carry (#543): an id that names another process by now is never taken in, and a followed
