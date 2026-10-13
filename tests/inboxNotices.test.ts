@@ -21,6 +21,8 @@ const { copilot } = await import('../src/main/providers/copilot/adapter')
 const { newLedger } = await import('../src/main/turnLedger')
 const deliveries = await import('../src/main/deliveries')
 const { initInboxNotices } = await import('../src/main/inboxNotices')
+const tasks = await import('../src/main/tasks')
+const { projectAgents } = await import('../src/shared/defaults')
 
 describe("Hive's notice wording (#650)", () => {
   it('names counts by kind, the cards and the ids, never what a delivery says or who sent it', () => {
@@ -328,6 +330,55 @@ describe('notices in the hook replies (#650)', () => {
       }
     } finally {
       Object.assign(s3, real)
+    }
+  })
+
+  it("a launch started again while its session's record is written keeps its own session to resume and cards: the old write, held inside the config's or sessions file's mutation, changes nothing of the agent's (round 5 finding)", async () => {
+    const s3 = sessions as unknown as { recordSession: (p: string, a: { id: string; name: string }, l: unknown) => Promise<void> }
+    const lastSession = async (agentId: string) => projectAgents(await run(() => w.projectConfig(p))).find((a) => a.id === agentId)?.lastSessionId
+    const record = async (id: string) => (await run(() => w.sessionsFile(p))).sessions.find((x) => x.id === id)
+    /** Holds the next call of a workspace method (its real work waits) until released; says when it is reached. */
+    const holdNext = (name: 'ensureProject' | 'mutateSessions', skip = 0) => {
+      const real = (w[name] as (...a: unknown[]) => Promise<unknown>).bind(w)
+      let release = (): void => undefined
+      const gate = new Promise<void>((r) => (release = r))
+      const at = { reached: false }
+      let calls = 0
+      const spy = vi.spyOn(w as unknown as Record<typeof name, (...a: unknown[]) => Promise<unknown>>, name).mockImplementation(async (...a: unknown[]) => {
+        if (calls++ === skip) {
+          at.reached = true
+          await gate
+        }
+        return real(...a)
+      })
+      return { at, release, spy }
+    }
+    for (const where of ['config', 'cards'] as const) {
+      const st = agent()
+      const key = `${p.toLowerCase()}#${st.agentId}`
+      await run(() => w.mutateProjectConfig(p, (cfg) => ({ agents: [...projectAgents(cfg), { id: st.agentId, name: `Rec ${where}`, lastSessionId: 'before' } as never] })))
+      const card = (await run(() => tasks.createTask({ title: `Recorded ${where}`, project: 'alpha', column: 'doing', agent: st.agentId }, { kind: 'user' }))).number
+      const old = s.live.get(key)!
+      // Held inside the agent's config write (its mutation's first wait), or the session record's card write.
+      const h = where === 'config' ? holdNext('ensureProject') : holdNext('mutateSessions', 1)
+      try {
+        const recording = run(() => s3.recordSession.call(sessions, p, { id: st.agentId, name: `Rec ${where}` }, old))
+        await vi.waitFor(() => expect(h.at.reached, where).toBe(true), { timeout: 5000 })
+        // Started again: the new launch records its own session to resume.
+        s.live.set(key, { ...old, state: { ...old.state, runId: `${st.runId}-new` }, ledger: newLedger() })
+        if (where === 'cards') h.spy.mockRestore()
+        await run(() => w.updateAgent(p, st.agentId, { lastSessionId: 'new-session' }))
+        h.release()
+        await recording
+      } finally {
+        h.release()
+        h.spy.mockRestore()
+      }
+      expect(await lastSession(st.agentId), where).toBe('new-session')
+      // The old conversation's own record is history, kept; the new launch's cards aren't put in it.
+      expect(await record(st.sessionId), where).toBeTruthy()
+      expect((await record(st.sessionId))?.cards?.some((c) => c.number === card) ?? false, where).toBe(false)
+      s.live.delete(key)
     }
   })
 

@@ -1416,15 +1416,18 @@ class SessionManager {
     }, { createdAt: state.sessionCreatedAt })
     state.sessionCreatedAt = rec.createdAt
     if (!this.owns(l)) return
-    await workspace.updateAgent(projectPath, agent.id, { lastSessionId: sessionId }).catch(() => undefined)
-    // The card it was started on (or already has in Doing).
+    // The agent's session to resume (and no other agent's any more), decided under the config's lock as it is written: a
+    // launch started again while this write waited for the lock keeps its own (#650).
+    await workspace
+      .mutateProjectConfig(projectPath, (cfg) => {
+        const agents = projectAgents(cfg)
+        if (!this.owns(l) || !agents.some((a) => a.id === agent.id)) return {}
+        return { agents: agents.map((a) => (a.id === agent.id ? { ...a, lastSessionId: sessionId } : a.lastSessionId === sessionId ? { ...a, lastSessionId: undefined } : a)) }
+      })
+      .catch(() => undefined)
+    // The card it was started on (or already has in Doing), only while it is the agent's launch as the record is written.
     if (!this.owns(l)) return
-    await recordCards(workspaceOf(projectPath), projectPath, agent.id, sessionId).catch((e) => log.warn(`Could not record the cards of session ${sessionId}`, e))
-    const projectConfig = await workspace.projectConfig(projectPath)
-    if (!this.owns(l)) return
-    for (const other of projectAgents(projectConfig)) {
-      if (other.id !== agent.id && other.lastSessionId === sessionId) await workspace.updateAgent(projectPath, other.id, { lastSessionId: undefined }).catch(() => undefined)
-    }
+    await recordCards(workspaceOf(projectPath), projectPath, agent.id, sessionId, () => this.owns(l)).catch((e) => log.warn(`Could not record the cards of session ${sessionId}`, e))
   }
 
   /** Stops one agent's session, or every agent of the project when agentId is omitted. */

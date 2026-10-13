@@ -705,6 +705,62 @@ describe('the delivery service (#647)', async () => {
     expect(refreshes).toBe(3)
   })
 
+  it("a read whose retry fails still returns what it received before: nothing is received that the agent wasn't given (#650 round 5)", async () => {
+    // m1 holds; m2's source moves once as the read makes it again (missed: tried again), and that retry's save fails.
+    let seq = 0
+    let refreshes = 0
+    const told: string[] = []
+    deliveries.registerSource('steady', { refresh: async () => ({ body: '[Hive] Steady.', meta: { v: 'steady-1' } }), received: (r) => void told.push(`${r.id} ${String(r.meta?.v)}`) })
+    deliveries.registerSource('moving-once', {
+      refresh: async () => {
+        refreshes++
+        const made = seq
+        if (refreshes === 2) queueMicrotask(() => seq++)
+        return { body: `[Hive] Made at ${made}.`, meta: { seq: made } }
+      },
+      holds: (r) => r.meta?.seq === seq,
+      received: (r) => void told.push(`${r.id} ${String(r.meta?.seq)}`)
+    })
+    st.status = 'working'
+    await deliveries.createDelivery(alpha, { agentId: 'b1', kind: 'card-event', from: hive, body: '[Hive] Steady.', source: 'steady', ref: 'a' })
+    await deliveries.createDelivery(alpha, { agentId: 'b1', kind: 'card-event', from: hive, body: '[Hive] Made at -1.', source: 'moving-once', ref: 'b' })
+    st.status = 'ready'
+    await deliveries.offerAllForTests()
+    expect(await states()).toEqual(['m1 offered', 'm2 offered'])
+    st.status = 'working'
+    let saves = 0
+    deliveries.setBeforeSaveForTests(() => {
+      if (++saves === 2) throw new Error('second save failed')
+    })
+    try {
+      // The first attempt received m1 (saved); the retry for m2 failed: m1 is returned all the same.
+      expect((await deliveries.readInbox(alpha, 'b1')).items.map((i) => `${i.ids.join(',')} ${i.text}`)).toEqual(['m1 [Hive] Steady.'])
+    } finally {
+      deliveries.setBeforeSaveForTests(null)
+    }
+    expect(saves).toBe(2)
+    expect(await states()).toEqual(['m1 received', 'm2 offered'])
+    // Its source told of the version returned, and only of it.
+    expect(told).toEqual(['m1 steady-1'])
+    // m2 waits for the next read, which gives it.
+    expect((await deliveries.readInbox(alpha, 'b1')).items.map((i) => i.text)).toEqual(['[Hive] Made at 1.'])
+    expect(told).toEqual(['m1 steady-1', 'm2 1'])
+  })
+
+  it('a read that fails before anything is received fails, and gives nothing (#650 round 5)', async () => {
+    await make({ body: 'Not lost.' })
+    deliveries.setBeforeSaveForTests(() => {
+      throw new Error('the save failed')
+    })
+    try {
+      await expect(deliveries.readInbox(alpha, 'b1')).rejects.toThrow('the save failed')
+    } finally {
+      deliveries.setBeforeSaveForTests(null)
+    }
+    expect(await states()).toEqual(['m1 queued'])
+    expect((await deliveries.readInbox(alpha, 'b1')).items.map((i) => i.text)).toEqual(['Not lost.'])
+  })
+
   it('the Agent API view: unread, overdue, the newest rows with their times', async () => {
     await make()
     await make({ body: 'Second.' })

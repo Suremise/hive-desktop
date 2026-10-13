@@ -10,8 +10,11 @@ import { workspaceFor, type WorkspaceService } from './workspace'
 
 const log = createLogger('cards')
 
-/** Adds the agent's Doing cards, and those it reviews, to its session's record (only one Hive has recorded). */
-export async function recordCards(ws: WorkspaceService, projectPath: string, agentId: string, sessionId: string): Promise<void> {
+/**
+ * Adds the agent's Doing cards, and those it reviews, to its session's record (only one Hive has recorded). `still`, asked
+ * under the file's lock as the record is written: whether that session is still the agent's (a launch's own, #650).
+ */
+export async function recordCards(ws: WorkspaceService, projectPath: string, agentId: string, sessionId: string, still?: () => boolean): Promise<void> {
   if (ws.isAssistantHome(projectPath)) return
   const all = await allTasks(ws)
   const project = basename(projectPath)
@@ -27,7 +30,7 @@ export async function recordCards(ws: WorkspaceService, projectPath: string, age
   if (!now || cards.every((c) => has(now.cards, c))) return
   await ws.mutateSessions(projectPath, (f) => {
     const rec = f.sessions.find((s) => s.id === sessionId)
-    if (!rec) return
+    if (!rec || (still && !still())) return
     const had = rec.cards ?? []
     const add = cards.filter((c) => !has(had, c))
     if (add.length) rec.cards = [...had, ...add]
