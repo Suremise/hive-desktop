@@ -133,6 +133,8 @@ export const AREAS = [
   { paths: ['src/main/turnLedger.ts', 'src/shared/runtime.ts'], suites: ['turnledger', 'idlestatus', 'background', 'attention', 'signin', 'lanewatch', 'replysize'] },
   // The rendered screen Hive reads Claude Code's footer (the live permission mode) from.
   { paths: ['src/main/terminalScreen.ts'], suites: ['mode', 'assistant', 'wakepaste'] },
+  // The footer's mode read from that screen, by Claude Code's and Copilot's per-mode patterns (#696).
+  { paths: ['src/shared/footerModes.ts'], suites: ['mode', 'copilot', 'advanced'] },
   { paths: ['src/main/mcp.ts', 'src/main/mcpSecrets.ts'], suites: ['drafts', 'mcp', 'mcpagents', 'mcpfile'] },
   // Per-agent MCP servers (#537): the agent's choice, its launch, the dialogs and the MCP tab.
   { paths: ['src/shared/agentMcp.ts'], suites: ['mcpagents', 'mcpfile', 'templates'] },

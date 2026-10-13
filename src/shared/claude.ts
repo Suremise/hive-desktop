@@ -1,3 +1,4 @@
+import { footerPatterns, lastFooterMode, type FooterModeDef, type FooterPatterns } from './footerModes'
 import type { PermissionMode } from './types'
 import type { ModeCaveatFacts, ModeOption, ModelGroup, ModelOption, ProviderDescriptor } from './providers'
 
@@ -74,28 +75,32 @@ export const isOlderModel = (model: string): boolean => CLAUDE_MODEL_GROUPS.some
 /** The modes Claude Code's Shift+Tab cycles through, in order (checked with Claude Code 2.1.284). */
 export const MODE_CYCLE: PermissionMode[] = ['manual', 'acceptEdits', 'plan', 'auto']
 
-const MODES = String.raw`(manual\s*mode|accept\s*edits|plan\s*mode|auto\s*mode|bypass\s*permissions|don['’]?t\s*ask)`
 /**
- * A mode in the footer: after Claude Code's mode symbol (⏵⏵ or ⏸), or followed by its hint ("(shift+tab to
+ * A mode's footer: its words after Claude Code's mode symbol (⏵⏵ or ⏸), or followed by its hint ("(shift+tab to
  * cycle)" or "·"). Manual shows only "⏸ manual mode on" (Claude Code 2.1.286), so the symbol is needed.
  */
-const FOOTER_MODE = new RegExp(String.raw`[⏵⏸][\s⏵⏸]*${MODES}\s*on\b|${MODES}\s*on\s*(?:\(|·)`, 'gi')
+const footer = (words: string): string => String.raw`[⏵⏸][\s⏵⏸]*${words}\s*on\b|${words}\s*on\s*(?:\(|·)`
+
+/** Each mode's footer (Claude Code 2.1.296): the defaults of the advanced settings claude-code.footer.<key> (#696), flags i. */
+export const CLAUDE_FOOTER_MODES: readonly FooterModeDef[] = [
+  { mode: 'manual', key: 'manual', label: 'Manual', pattern: footer(String.raw`manual\s*mode`) },
+  { mode: 'acceptEdits', key: 'acceptEdits', label: 'Accept edits', pattern: footer(String.raw`accept\s*edits`) },
+  { mode: 'plan', key: 'plan', label: 'Plan', pattern: footer(String.raw`plan\s*mode`) },
+  { mode: 'auto', key: 'auto', label: 'Auto', pattern: footer(String.raw`auto\s*mode`) },
+  { mode: 'bypassPermissions', key: 'bypassPermissions', label: 'Bypass permissions', pattern: footer(String.raw`bypass\s*permissions`) },
+  { mode: 'dontAsk', key: 'dontAsk', label: "Don't ask", pattern: footer(String.raw`don['’]?t\s*ask`) }
+]
+
+const FOOTER_DEFAULTS = footerPatterns(CLAUDE_FOOTER_MODES, 'i')
 
 /**
  * The permission mode in Claude Code's footer ("⏵⏵ auto mode on (shift+tab to cycle)"), from the terminal's
  * rendered screen (TerminalScreen; the output stream misses footers redrawn in part, as without colours), or text with
- * control sequences replaced by spaces. The last one wins; null when there is none.
+ * control sequences replaced by spaces. The last one wins; null when there is none. `patterns`: the adapter's, from
+ * the advanced settings.
  */
-export function footerMode(text: string): PermissionMode | null {
-  let last: string | null = null
-  for (const m of text.matchAll(FOOTER_MODE)) last = (m[1] ?? m[2]).toLowerCase().replace(/\s+/g, '')
-  if (!last) return null
-  if (last.startsWith('manual')) return 'manual'
-  if (last.startsWith('accept')) return 'acceptEdits'
-  if (last.startsWith('plan')) return 'plan'
-  if (last.startsWith('auto')) return 'auto'
-  if (last.startsWith('bypass')) return 'bypassPermissions'
-  return 'dontAsk'
+export function footerMode(text: string, patterns: FooterPatterns = FOOTER_DEFAULTS): PermissionMode | null {
+  return lastFooterMode(text, patterns)
 }
 
 /** The permission_mode Claude Code sends with hooks ("default" is Manual). */
