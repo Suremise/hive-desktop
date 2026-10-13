@@ -49,7 +49,7 @@ import { emit, emitTo, tellListeners, toast } from './events'
 import { presentWindow, showOsNotification, testNotifyLog, testQuiet } from './testQuiet'
 import { hashText, heldOpen, insideReal, isInUse, readJson, placeRelative, removePath, samePlace, treeSignature, syncCopy, syncCopyLocked, syncCopyNow, trashAllOrNothing, withFileLock, writeJsonAtomic } from './fsutil'
 import { createLogger, hookJournal, userText } from './logger'
-import { applyStep, compactionOver, expireTasks, hookStep, idleAfter, markedIdle, safeguardAnswered, SAFEGUARD_IDLE_MESSAGE, titleStep, type HookStatusInput, type HookStep } from './hookStatus'
+import { applyStep, compactionOver, expireTasks, hookStep, idleAfter, markedIdle, safeguardAnswered, SAFEGUARD_IDLE_MESSAGE, startupScreen, startupWatched, titleStep, type HookStatusInput, type HookStep } from './hookStatus'
 import { memoModel, memoTools, memoTurn, noteSafeguard, safeguardText, seenInTurn, withScreenStops, type GuardTurns, type SafeguardEvent, type ScreenStop } from '../shared/safeguards'
 import { admit, describe as describeTurn, endRunning, expectInjected, heard, newLedger, openCalls, reconciles, silentFor, unheardStop, type ScreenReading, type TurnLedger } from './turnLedger'
 import { Compaction } from './compaction'
@@ -198,6 +198,8 @@ interface LiveSession {
   startAllowed?: () => void
   /** The CLI asked something before it started (e.g. whether to trust the folder): shown as waiting for the user. */
   askedAtStart?: boolean
+  /** That question was answered: its screen no longer says anything about the start (startupScreen). */
+  startupDone?: boolean
   /** For a CLI whose terminal title says when a person must act (ProviderAdapter.titleAttention): its test, for this launch. */
   titleAttention?: (title: string) => boolean
   /** The title says a person must act now (as the status has it: applied in order with the hooks). */
@@ -242,8 +244,16 @@ interface LiveSession {
   mode?: string
   /** Prompts the CLI has reported submitted in this launch (UserPromptSubmit), for sendPrompt's confirm and a wake's (#376). */
   prompts?: number
-  /** Hive's latest typed prompt (sendPrompt): when, and the prompts taken then. Until the CLI takes it, it is pending (#416). */
-  typed?: { at: number; prompts: number }
+  /**
+   * Hive's latest typed prompt (sendPrompt): when (`at`, its Enter; `from`, when its typing reserved the composer), and the
+   * prompts taken then. Until the CLI takes it, it is pending (#416).
+   */
+  typed?: { at: number; prompts: number; from: number }
+  /**
+   * A line of Hive's the user typed into before its CLI took it (#652 round 1 finding 2): the prompt is their draft now, so
+   * nothing more is typed into the agent until a prompt is submitted (the CLI's count passes this).
+   */
+  draftOver?: { prompts: number }
   /** The start of its latest reply, as its last turn's end reported it (an agent watch's line, #416). */
   lastReply?: string
   /** Its latest hooks (what they were, when, and the status they left), for the log when the CLI turns out idle (#612). */
@@ -625,35 +635,31 @@ class SessionManager {
     const l = this.live.get(liveId(projectPath, agentId))
     const key = this.key(projectPath, agentId)
     if (!l || l.state.runId !== runId || !readyFor(l.state) || this.userMayBeTyping(projectPath, agentId) || this.delivering.has(key)) return false
+    // The prompt is the user's draft once they have typed in it (#652 round 1 finding 2): never sent by Hive's Enter.
+    if (this.userTypedOverLine(projectPath, agentId)) return false
     writePty(key, '\r')
     return true
   }
 
   /**
-   * Whether the user has typed in an agent's terminal since Hive's line still waiting there was typed (#530 round 3
-   * finding): the prompt then holds their draft too, whatever the typing pause says, and is theirs, not Hive's to clear.
-   * False when no line of Hive's waits.
+   * Whether the user has typed in an agent's terminal since Hive's line still waiting there began to be typed (#530, #652
+   * round 1 finding 2): the prompt holds their input too, whatever the typing pause says (0 included), and is theirs, not
+   * Hive's to submit. False when no line of Hive's waits.
    */
   userTypedOverLine(projectPath: string, agentId: string): boolean {
     const l = this.live.get(liveId(projectPath, agentId))
-    return !!l?.typed && this.userTypedAt(projectPath, agentId) >= l.typed.at
+    return !!l?.typed && (l.prompts ?? 0) <= l.typed.prompts && this.userTypedAt(projectPath, agentId) >= l.typed.from
   }
 
   /**
-   * Clears a line Hive typed that its CLI hasn't taken (Ctrl+U): #530, a message whose sender may no longer send it is
-   * never submitted by Hive's Enter again. Only Hive's own line, as it typed it: one still waiting (typed, not taken),
-   * with no input of the user's since it was typed (however long ago: the typing pause doesn't make a draft Hive's), and
-   * under submitAgain's conditions (the same launch, idle, nobody typing there, Hive not typing). The line no longer
-   * counts as waiting. Whether it was cleared.
+   * Leaves Hive's untaken line to the user, who typed into it (#652 round 1 finding 2): never submitted or cleared by Hive,
+   * and nothing more typed into the agent until a prompt is submitted there (its CLI's count goes up). Only for this launch.
    */
-  clearTyped(projectPath: string, agentId: string, runId: string): boolean {
+  leaveToUser(projectPath: string, agentId: string, runId: string): void {
     const l = this.live.get(liveId(projectPath, agentId))
-    const key = this.key(projectPath, agentId)
-    if (!l || l.state.runId !== runId || !readyFor(l.state) || this.userMayBeTyping(projectPath, agentId) || this.delivering.has(key)) return false
-    if (!l.typed || (l.prompts ?? 0) > l.typed.prompts || this.userTypedOverLine(projectPath, agentId)) return false
-    writePty(key, '\x15')
-    l.typed = undefined
-    return true
+    if (!l || l.state.runId !== runId) return
+    l.draftOver = { prompts: l.prompts ?? 0 }
+    this.noteComposer(l, this.key(projectPath, agentId))
   }
 
   /** Marks (or clears) the cards an agent in a card loop left with no watch (#376): they show as stalled. */
@@ -1613,22 +1619,24 @@ class SessionManager {
   /** For CLIs whose first hook waits for the first prompt: the prompt showing in the terminal means ready. */
   private watchReadyOutput(id: string, data: string): void {
     const l = this.live.get(id)
-    if (!l || (l.state.status !== 'starting' && !l.askedAtStart) || (!l.adapter.readyOutput && !l.adapter.startupQuestion)) return
+    const s = l && { status: l.state.status, askedAtStart: !!l.askedAtStart, settled: (l.prompts ?? 0) > 0 || !!l.startupDone }
+    if (!l || !s || !startupWatched(s, l.adapter)) return
     l.modeTail = (l.modeTail + data.replace(/\x1b\[[0-9;?]*[ -/]*[@-~]/g, ' ')).slice(-600)
-    const text = l.modeTail.replace(/\s+/g, ' ')
-    const asked = l.adapter.startupQuestion?.exec(text)
-    if (l.state.status === 'starting' && asked) {
-      devConsole.capture([sessionSourceId(l.state.projectPath, l.state.agentId)], () => ({ kind: 'terminal', name: 'startup question', provider: l.state.provider, raw: { screen: asked[0] }, made: { status: 'waiting', trust: asked[0].includes('trust') }, safe: { made: { status: true } }, summary: 'terminal: asks something before it starts; waiting' }))
+    const seen = startupScreen(s, l.modeTail.replace(/\s+/g, ' '), l.adapter)
+    if (seen && seen !== 'ready') {
+      const asked = seen.asked
+      devConsole.capture([sessionSourceId(l.state.projectPath, l.state.agentId)], () => ({ kind: 'terminal', name: 'startup question', provider: l.state.provider, raw: { screen: asked }, made: { status: 'waiting', trust: asked.includes('trust') }, safe: { made: { status: true } }, summary: 'terminal: asks something before it starts; waiting' }))
+      if (l.state.status !== 'starting') log.info(`${userText(this.label(l.state))}: asks something before it starts, after its prompt showed (it was ready): waiting`)
       l.askedAtStart = true
       l.modeTail = ''
       this.fact(l.state, { attention: 'waiting' })
       l.state.status = 'waiting'
       l.state.unseen = true
-      l.state.statusMessage = asked[0].includes('trust') ? 'Asks whether to trust this folder' : 'Asks something before it starts'
+      l.state.statusMessage = asked.includes('trust') ? 'Asks whether to trust this folder' : 'Asks something before it starts'
       this.notify(l.state.projectPath, `${this.label(l.state)} needs your input`, l.state.statusMessage, 'waiting', undefined, l.state.agentId)
       this.emitState(l.state)
-    } else if (l.adapter.readyOutput?.test(text)) {
-      devConsole.capture([sessionSourceId(l.state.projectPath, l.state.agentId)], () => ({ kind: 'terminal', name: 'ready', provider: l.state.provider, raw: { screen: text.slice(-200) }, made: { status: 'ready' }, safe: { made: { status: true } }, summary: 'terminal: its prompt shows; ready' }))
+    } else if (seen === 'ready') {
+      devConsole.capture([sessionSourceId(l.state.projectPath, l.state.agentId)], () => ({ kind: 'terminal', name: 'ready', provider: l.state.provider, raw: { screen: l.modeTail.replace(/\s+/g, ' ').slice(-200) }, made: { status: 'ready' }, safe: { made: { status: true } }, summary: 'terminal: its prompt shows; ready' }))
       this.startupAnswered(l)
       this.fact(l.state, { lifecycle: 'running' })
       l.state.status = 'ready'
@@ -1649,6 +1657,7 @@ class SessionManager {
   private startupAnswered(l: LiveSession): void {
     if (!l.askedAtStart) return
     l.askedAtStart = false
+    l.startupDone = true
     l.state.statusMessage = undefined
     this.fact(l.state, { attention: null })
   }
@@ -1917,6 +1926,8 @@ class SessionManager {
   private lineBlocked(l: LiveSession | undefined): boolean {
     if (!l) return false
     if (l.state.untakenLine || l.confirming) return true
+    // The user's draft over a line of Hive's: until a prompt is submitted there.
+    if (l.draftOver && (l.prompts ?? 0) <= l.draftOver.prompts) return true
     return !!l.typed && (l.prompts ?? 0) <= l.typed.prompts && Date.now() - l.typed.at < PENDING_MS
   }
 
@@ -2007,7 +2018,7 @@ class SessionManager {
     }
     const since = Date.now()
     let typed = false
-    let sent: { at: number; prompts: number } | null = null
+    let sent: { at: number; prompts: number; from: number } | null = null
     try {
       check()
       writePty(key, '\x15')
@@ -2026,7 +2037,7 @@ class SessionManager {
       writePty(key, '\r')
       // Waiting to be taken from here (#430), for whatever Hive types next: recorded once this call is done with it (its
       // own Enter again below is no line over it; nothing else types meanwhile, it holds `delivering`).
-      sent = { at: Date.now(), prompts: before }
+      sent = { at: Date.now(), prompts: before, from: since }
       devConsole.capture([sessionSourceId(projectPath, agentId)], () => ({ kind: 'input', name: 'Hive typed a line', provider: l?.state.provider, raw: { text: line }, made: { bracketedPaste: !!l?.screen?.bracketedPaste(), confirm: !!opts.confirm }, summary: `Hive typed a line (${line.length} chars) and Enter` }))
       // confirm: until the CLI reports the prompt submitted. One just resumed and still drawing its conversation can
       // drop the Enter, or take it as a new line (#334): Enter again, which an empty prompt ignores. Still not

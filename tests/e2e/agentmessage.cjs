@@ -5,8 +5,9 @@
 // line once the builder is idle, with its id to ack; hive_agent_activity says what waits and that it was offered (typed;
 // received only when fetched with hive_inbox), and the pane shows it until the builder acks it with hive_inbox; the user
 // cancels one from the pane, and it is
-// never typed; a message queued for an agent whose card or agent watch fires meanwhile rides that wake, first, in one
-// line; one whose sender may no longer send it (Control turned down) is refused, never typed. Dev build, throwaway
+// never typed; one tied to a card's round (#652) is refused for a card out of Doing and Review, and stale, never told,
+// once that card passes; a message queued for an agent whose card or agent watch fires meanwhile goes in one doorbell
+// with that wake, read first; one whose sender may no longer send it (Control turned down) is refused, never typed. Dev build, throwaway
 // profile, workspace and CLAUDE_CONFIG_DIR.
 const lib = require('./lib.cjs')
 const { _electron } = require('playwright-core')
@@ -147,6 +148,23 @@ const check = (name, ok, extra = '') => {
   await until(() => idle(builder.id), 20000)
   await lib.sleep(2000) // A fixed wait on purpose: this checks that the cancelled message is NOT typed.
   check('…and it is never typed', !wakes('Builder').some((t) => t.includes('Never mind this one.')), JSON.stringify(wakes('Builder')))
+
+  // --- 3b. Tied to a card round (#652): refused for a card out of Doing and Review; once the card passes, stale, never told.
+  const c3 = (await inv('tasks:create', { title: 'Round-tied', project: 'alpha', agent: builder.id, column: 'todo' })).number
+  const early = tool('hive_message_agent', { project: 'alpha', agent: 'Builder', text: 'Too early.', card: c3 })
+  check('a message tied to a card not in Doing or Review is refused', early.isError && early.text.includes(`#${c3} left Doing and Review: a message tied to its round needs it in Doing or Review`), early.text)
+  await inv('tasks:update', c3, { column: 'doing' })
+  await say(builder.id, 'work 6')
+  await until(async () => (await live(alpha, builder.id))?.status === 'working', 10000)
+  const tied = tool('hive_message_agent', { project: 'alpha', agent: 'Builder', text: 'Round 1: also cover the empty case.', card: c3 })
+  const tiedId = /\((m\d+), for #\d+ round 1, working\)/.exec(tied.text)?.[1]
+  check('a message tied to its round is queued, saying the round', !tied.isError && !!tiedId && tied.text.startsWith(`Queued for Builder (${tiedId}, for #${c3} round 1, working)`), tied.text)
+  await inv('tasks:update', c3, { column: 'passed' })
+  check('…the card passes before it is read: stale, saying why', !!(await until(() => lastDelivery('Builder')?.id === tiedId && lastDelivery('Builder')?.state === 'stale' && lastDelivery('Builder')?.detail === `#${c3} passed review`, 15000)), JSON.stringify(lastDelivery('Builder')))
+  check('…and no longer unread in its pane', !!(await until(async () => (await pane.count()) === 0, 10000)))
+  await until(() => idle(builder.id), 20000)
+  // Stale is an end: nothing can offer it after, so no doorbell names it and the builder never reads it.
+  check('…never told or read', !bells('Builder').some((t) => t.includes(`${tiedId})`) || t.includes(`${tiedId},`)) && !wakes('Builder').some((t) => t.includes('Round 1: also cover the empty case.')), JSON.stringify(wakeLog('Builder')))
 
   // --- 4. A message queued for a busy reviewer whose card watch fires meanwhile: both in one line, the message first.
   const c2 = (await inv('tasks:create', { title: 'Revised scope', project: 'alpha', agent: builder.id, column: 'doing' })).number

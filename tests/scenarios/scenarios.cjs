@@ -873,6 +873,39 @@ module.exports.SCENARIOS = [
     fakeSkips: ['asked the user about it']
   },
   {
+    id: 'inbox-stale',
+    title: "A re-brief tied to a card's round goes stale, not late (#652, from #699): the card passes just after the message is left, so the agent is never given it and doesn't reopen the passed card",
+    files: { 'greeting.txt': 'Hello\n' },
+    assistantMessages: true,
+    async setup(c) {
+      await c.card('a', { title: 'Friendlier greeting', description: 'Change greeting.txt to say "Hi there!".' })
+      await c.startAssistant()
+    },
+    // Once the card is in Review and the agent's turn has ended, a re-brief for its round is left for it, and the reviewer
+    // passes the card at once (as HR6 passed #699 a second before the Assistant's message reached HB6).
+    async during(c, status) {
+      if (!c.sentAt && ['ready', 'finished'].includes(status) && (await c.api('GET', `/v1/tasks/${c.cards.a}`)).body?.column === 'review') {
+        c.sentAt = Date.now()
+        c.sent = await c.assistantMessage('coder', `Darren decided on #${c.cards.a}: the greeting is "Stale!", not "Hi there!". Change it.`, { card: c.cards.a })
+        c.passed = await c.inv('tasks:update', c.cards.a, { column: 'passed' })
+      }
+      if (c.sentAt) c.got = await c.deliveries('coder')
+    },
+    // Whatever the agent does once its doorbell may have rung is part of the outcome: until the message has ended.
+    keepWaiting: async (c) => !!c.sentAt && !!c.got?.some((d) => d.kind === 'rebrief') && !c.got.some((d) => d.kind === 'rebrief' && !['queued', 'offered', 'uncertain'].includes(d.state)),
+    prompt: (c) => `Work on card #${c.cards.a}.`,
+    fake: (c) => `skill work-on-card then boardmove ${c.cards.a} doing then boardmove ${c.cards.a} review`,
+    expect: (o, c) => {
+      const msg = (c.got ?? []).find((d) => d.kind === 'rebrief')
+      return [
+        ['the message was left, tied to its round', new RegExp(`for #${c.cards.a} round 1`).test(c.sent ?? ''), c.sent],
+        ['stale once the card passed, never given', msg?.state === 'stale' && msg.detail === `#${c.cards.a} passed review` && !msg.received, JSON.stringify(msg)],
+        ['the greeting is the card\'s, not the stale one', !/Stale!/.test(c.read('greeting.txt') ?? ''), c.read('greeting.txt')],
+        ["didn't reopen the passed card", o.cards.a?.column === 'passed', history(o.cards.a).join(' | ')]
+      ]
+    }
+  },
+  {
     id: 'review-against-decision',
     title: "A reviewer checks the work against the card's decisions (#357): work that ignores one fails",
     files: { 'greet.js': "module.exports = (name) => 'Hello, ' + name\n" },

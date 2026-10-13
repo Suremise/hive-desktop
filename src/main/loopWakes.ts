@@ -18,10 +18,11 @@ import { workspaceFor, type WorkspaceService } from './workspace'
  * sees one; never for the agent that made the change; left to the agent's own watch when one tells it of the change; and
  * off for a project whose Project Settings → Card loops → Wake reviewers and builders is off.
  *
- * A delivery (#649, deliveries.ts: a card event, the latest per agent and card, at most a day), offered as a wake is: only
- * while the agent is idle and nobody types there, checked to be taken. Made again just before it is offered, from the
- * card and the lane as they are then: one no longer due is cancelled. Each one received (its line taken by its CLI) is
- * noted in the card's history, as Hive.
+ * A delivery (#649, deliveries.ts: a card event, the latest per agent and card, at most a day), made at once and given
+ * by the delivery service as everything is (#650: the doorbell when its agent is idle, a notice in its hooks while it
+ * works). Made again just before it is offered or read, from the card and the lane as they are then (#652: what lands
+ * with the handoff is in it, with no settle of its own): one no longer due is cancelled. Each one received (read with
+ * hive_inbox) is noted in the card's history, as Hive.
  */
 
 const log = createLogger('loopWakes')
@@ -32,28 +33,19 @@ const HIVE = { kind: 'hive', name: 'Hive' } as const
 const keyOf = (projectPath: string, agentId: string, n: number): string => `${projectPath.toLowerCase()}#${agentId}#${n}`
 /** How long a wake waits for its agent to be idle (its session running) before it is dropped. */
 const KEEP_MS = 24 * 60 * 60_000
-/** A handoff's wake waits this long first, so a comment or move landing with it is in its line (a watch's settle). */
-const SETTLE_MS = 1500
+/** For unit tests: a pause before a handoff is worked out (#578: a handoff later than the watch that tells the same change). */
+export const testHooks: { beforeHandoff?: () => Promise<void> } = {}
 
 /**
- * For unit tests: the settle before a handoff's wake is first tried (SETTLE_MS; 0 tries it at once), and a pause before
- * a handoff is worked out (#578: a handoff later than the watch that tells the same change).
- */
-export const testHooks: { settleMs?: number; beforeHandoff?: () => Promise<void> } = {}
-
-/**
- * What loop wakes are doing in the background (#570): handoffs being worked out, the settle before each wake is made, and
- * tries. `settled()` resolves once none is left, nor any of the watches' work they lead to. A wake waiting for its agent
- * to be idle isn't in flight: it is a delivery waiting (`pendingLoopWakes()`).
+ * What loop wakes are doing in the background (#570): handoffs being worked out, and their wakes being made and tried.
+ * `settled()` resolves once none is left, nor any of the watches' work they lead to. A wake waiting for its agent to be
+ * idle isn't in flight: it is a delivery waiting (`pendingLoopWakes()`).
  */
 const inFlight = new Set<Promise<unknown>>()
 function inBackground(what: string, work: Promise<unknown>): void {
   const p = work.catch((e) => log.warn(what, e))
   inFlight.add(p)
   void p.finally(() => inFlight.delete(p))
-}
-function inBackgroundAfter(ms: number, what: string, work: () => Promise<unknown>): void {
-  inBackground(what, new Promise<void>((done, fail) => setTimeout(() => work().then(() => done(), fail), ms).unref?.()))
 }
 
 /** Resolves once loop wakes and watches have nothing in flight: every handoff so far is made, kept or dropped. */
@@ -114,20 +106,20 @@ const wakeOf = (r: DeliveryRecord): Wake | null => {
 
 /**
  * Queues a wake for an agent (the latest per agent and card: a newer handoff of the same card replaces one still
- * waiting), unless its own watch tells it; made after a settle, and offered.
+ * waiting), unless its own watch tells it; made, and offered.
  */
 function enqueue(ws: WorkspaceService, projectPath: string, card: TaskCard, kind: LoopEvent['kind'], to: { id: string; name: string }, since: TaskHistoryEntry | null): void {
   if (watchCovers(projectPath, to.id, card.number, kind, card.column)) return
-  inBackgroundAfter(testHooks.settleMs ?? SETTLE_MS, 'a loop wake', async () => {
+  inBackground('a loop wake', (async () => {
     if (!ws.path || !ws.isProjectPath(projectPath)) return
     const kinds: ('column' | 'verdict')[] = kind === 'review' ? ['column'] : ['verdict']
     const meta = { n: card.number, kind, agentName: to.name, sinceAt: since?.at ?? '', sinceId: since?.id ?? '' }
     await createDelivery(projectPath, { agentId: to.id, agentName: to.name, kind: 'card-event', from: HIVE, card: card.number, body: loopWakeLine({ ...cardChange(card.number, card, kinds), about: wakeAbout(card, kinds, to.id) }, kind), expiresMs: KEEP_MS, source: 'loop', ref: `#${card.number}`, replace: true, meta })
     await offerNow(projectPath, to.id)
-  })
+  })())
 }
 
-/** A handoff saved (tasks.ts): whose wake it is, if anyone's, queued and tried after a settle. */
+/** A handoff saved (tasks.ts): whose wake it is, if anyone's, queued and tried. */
 async function handoff(e: LoopEvent): Promise<void> {
   await testHooks.beforeHandoff?.()
   const { card, kind, actor } = e

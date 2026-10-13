@@ -67,13 +67,13 @@ const check = (name, ok, extra = '') => {
   const status = () => panel().locator('.assistant-status')
   const statusText = async () => (await status().locator('.assistant-status-text').innerText().catch(() => '')).replace(/\s+/g, ' ').trim()
   const tone = async () => status().getAttribute('data-tone').catch(() => null)
-  const type = async (text) => {
-    await inv('pty:write', key, text)
-    await lib.sleep(300) // on purpose: the fake reads a typed line before its Enter, as a CLI does
-    await inv('pty:write', key, '\r')
-  }
-  // Its turn over (a card watch keeps it watching).
-  const idle = async () => !!(await lib.until(async () => ['ready', 'finished', 'watching'].includes((await live())?.status), 30000))
+  // Each prompt is typed once the fake takes prompts, and waited for by its own turn (#684: under load the last turn's
+  // "finished" was still showing when the next prompt's wait began, so the suite ran ahead of it). type() returns what
+  // ends(typed) needs, true once the prompt's own turn has ended (a card watch keeps it watching).
+  const prompts = lib.fakePrompts((ch, ...a) => inv(ch, ...a), key, () => live(), { home: claudeHome })
+  const type = prompts.type
+  const ends = async (typed) => !!(await prompts.over(typed))
+  const say = async (text) => !!(await prompts.say(text))
   const box = async (sel) => (await panel().locator(sel).first().boundingBox()) ?? { x: 0, y: 0, width: 0, height: 0 }
   const shots = async (name) => {
     for (const theme of ['dark', 'light']) {
@@ -98,11 +98,11 @@ const check = (name, ok, extra = '') => {
   await panel().locator('.assistant-header').getByRole('button', { name: 'Start', exact: true }).click()
   check('started and idle: “Status: Idle”', !!(await lib.until(async () => (await statusText()) === 'Status: Idle' && (await tone()) === 'calm', 20000)), await statusText())
   check('…its icon idle, outlined', ['ready', 'finished', 'idle'].includes(await mark().getAttribute('data-status')) && (await mark().locator('.fill').evaluate((el) => getComputedStyle(el).opacity)) === '0')
-  await type('work 4')
+  const working = await type('work 4')
   check('working: “Status: Working”', !!(await lib.until(async () => (await statusText()) === 'Status: Working' && (await tone()) === 'busy', 5000)), await statusText())
   check('…its icon working, filled, with the working dot', (await mark().getAttribute('data-status')) === 'working' && (await mark().locator('.fill').evaluate((el) => getComputedStyle(el).opacity)) !== '0' && (await mark().locator('.dot.working').count()) === 1)
-  await idle()
-  await type('ask then work 5')
+  check('…and that turn ends', await ends(working))
+  const asking = await type('ask then work 5')
   check('asking for permission: “Status: Waiting for you”, in the attention colour', !!(await lib.until(async () => (await statusText()) === 'Status: Waiting for you' && (await tone()) === 'attention', 8000)), await statusText())
   // The attention colour (--attention-fg, the warning colour's AA shade, #399), as computed for an element of that
   // colour, against the line's own; and the text's contrast on what is really behind it (the line's tint over the
@@ -141,15 +141,14 @@ const check = (name, ok, extra = '') => {
   const colours = await attentionAA()
   check('…in the attention colour, with AA contrast on its tint in both themes', Object.values(colours).every((c) => c.got === c.want && c.ratio >= 4.5), JSON.stringify(colours))
   await shots('waiting')
-  check('…and its turn ends by itself after the question', await idle())
+  check('…and its turn ends by itself after the question', await ends(asking))
 
   // --- What it did: under the footer, the last 3, Show all scrolls inside the same height.
   // Newest first they are: a card, two setting changes (with Revert, a taller button), then three cards.
   const task = (t) => `hive hive_create_task {"project":"alpha","title":"${t}"}`
-  await type([task('First thing'), task('Second thing'), task('Third thing'), 'skill tune-settings', 'hive hive_update_setting {"id":"sessions.transcriptWarnMB","value":50}', 'hive hive_update_setting {"id":"sessions.transcriptWarnMB","value":60}', task('Sixth thing')].join(' then '))
-  await idle()
+  check('it makes six changes in one turn', await say([task('First thing'), task('Second thing'), task('Third thing'), 'skill tune-settings', 'hive hive_update_setting {"id":"sessions.transcriptWarnMB","value":50}', 'hive hive_update_setting {"id":"sessions.transcriptWarnMB","value":60}', task('Sixth thing')].join(' then ')))
   const section = panel().locator('.assistant-actions')
-  check('six changes: “Done by the Assistant (6)”', !!(await lib.until(async () => /Done by the Assistant\s*\(6\)/i.test(await section.locator('.assistant-actions-head').innerText().catch(() => '')), 10000)), await section.innerText().catch(() => ''))
+  check('six changes: “Done by the Assistant (6)”', !!(await lib.until(async () => /Done by the Assistant\s*\(6\)/i.test(await section.locator('.assistant-actions-head').innerText().catch(() => '')), HUNG_MS)), await section.innerText().catch(() => ''))
   const order = await page.evaluate(() => {
     const at = (sel) => document.querySelector(`.assistant-panel ${sel}`)?.getBoundingClientRect().top ?? -1
     return { status: at('.assistant-status'), actions: at('.assistant-actions'), workspace: at('.assistant-overview'), terminal: at('.assistant-terminal'), inOverview: !!document.querySelector('.assistant-overview .assistant-action') }
@@ -209,7 +208,7 @@ const check = (name, ok, extra = '') => {
 
   // --- Hive's own question its action waits on (stopping a busy agent): waiting for your approval, until answered.
   // Its task is "work 60", spelled with a JSON escape so the fake Assistant doesn't take it as its own "work 60".
-  await type('hive hive_add_agent {"project":"alpha","name":"Fixer","prompt":"w\\u006frk 60"}')
+  check('it adds an agent to alpha', await say('hive hive_add_agent {"project":"alpha","name":"Fixer","prompt":"w\\u006frk 60"}'))
   const alpha = path.join(ws, 'alpha')
   const fixerLive = async () => (await inv('session:live')).find((x) => x.projectPath.toLowerCase() === alpha.toLowerCase() && x.agentName === 'Fixer')
   check('an agent of alpha is busy', !!(await lib.until(async () => (await fixerLive())?.status === 'working', 30000)))
@@ -225,8 +224,7 @@ const check = (name, ok, extra = '') => {
     return { got: getComputedStyle(el.querySelector('.assistant-agent-status')).color, want, backing: getComputedStyle(el, '::before').backgroundColor }
   })
   check('…its activity in the text colour, over a tint', textColours.got === textColours.want && textColours.backing !== 'rgba(0, 0, 0, 0)', JSON.stringify(textColours))
-  await idle()
-  await type('hive hive_stop_agent {"project":"alpha","agent":"Fixer"}')
+  const stopping = await type('hive hive_stop_agent {"project":"alpha","agent":"Fixer"}')
   const card = panel().locator('.assistant-question', { hasText: 'Stop Fixer in alpha?' })
   check('stopping it asks the user on a card', !!(await lib.until(async () => (await card.count()) === 1, 15000)))
   check('…and the status line says the Assistant waits for your approval', !!(await lib.until(async () => (await statusText()) === 'Status: Waiting for your approval: Stop Fixer in alpha?' && (await tone()) === 'attention', 5000)), `${await statusText()} / ${await tone()}`)
@@ -235,12 +233,12 @@ const check = (name, ok, extra = '') => {
   await shots('approval')
   await card.locator('button', { hasText: "Don't stop" }).click()
   check('answered: the card goes and the status line is back to normal', !!(await lib.until(async () => (await card.count()) === 0 && !/approval/.test(await statusText()) && (await tone()) !== 'attention', 15000)), `${await statusText()} / ${await tone()}`)
-  await idle()
+  check('…and its turn ends', await ends(stopping))
   const fixer = await fixerLive()
   if (fixer) await inv('session:stop', alpha, fixer.agentId)
 
   // --- A card watch: its cards as chips that open the card, and until when.
-  await type('hive hive_wait_for_tasks {"cards":[1,2],"wake":true,"column":"review","limitMinutes":90}')
+  check('it watches two cards', await say('hive hive_wait_for_tasks {"cards":[1,2],"wake":true,"column":"review","limitMinutes":90}'))
   check('watching: “Status: Waiting for #1 #2 → Review (watch until …)” (chips side by side)', !!(await lib.until(async () => /^Status: Waiting for #1 #2 → Review \(watch until \d{1,2}:\d{2}( [AP]M)?\)$/.test(await statusText()) && (await tone()) === 'calm', 15000)), await statusText())
   const chips = status().locator('.card-chip')
   check('…each card the app’s card chip', (await chips.count()) === 2 && (await chips.first().locator('.codicon').count()) === 1)
@@ -302,9 +300,7 @@ const check = (name, ok, extra = '') => {
   }
   await lib.until(async () => (await panel().locator('.assistant-header').count()) === 1, 5000)
   await panel().locator('.assistant-header').getByRole('button', { name: /Resume|Start/ }).first().click()
-  await idle()
-  await type('hive hive_create_task {"project":"alpha","title":"After the restart"}')
-  await idle()
+  check('it adds a card after the restart', await say('hive hive_create_task {"project":"alpha","title":"After the restart"}'))
   const again = panel().locator('.assistant-actions')
   check('after a restart, “Done by the Assistant” is still folded', !!(await lib.until(async () => (await again.count()) === 1, 10000)) && (await again.locator('.assistant-actions-head').getAttribute('aria-expanded')) === 'false' && (await again.locator('.assistant-action').count()) === 0)
   const alphaAgain = panel().locator('.assistant-project[data-project="alpha"]')
