@@ -1,5 +1,10 @@
 # Release Notes
 
+## Unreleased
+
+### Progress panel
+- **Put your lanes in your own order.** Drag a running lane up or down in the Progress panel's lane list (a line shows where it goes), or focus it and press Alt+Up or Alt+Down; its right-click menu has Move Up, Move Down and Usual Order. Each workspace keeps the order, after a restart too: a new lane comes in on top, and a lane that is merged or abandoned drops to the bottom, after those that stopped before it, so the latest is always last (#568).
+
 ## 0.7.1 — 13 October 2026
 
 ### Advanced settings

@@ -2,7 +2,7 @@ import { useEffect, useMemo } from 'react'
 import { panelOrder } from '@shared/laneBar'
 import type { LaneCard, LaneInfo } from '@shared/types'
 import { call } from './api'
-import { set, useStore } from './store'
+import { get, set, useStore } from './store'
 
 /**
  * Where the Progress panel's lanes come from (#484): the one place that knows the lane data's shape (#483's
@@ -30,13 +30,35 @@ export interface Lane {
 
 const NO_LANES: Lane[] = []
 const NO_INFO: LaneInfo[] = []
+const NO_ORDER: string[] = []
 
 const folderName = (p: string): string => p.split(/[\\/]/).filter(Boolean).pop()?.toLowerCase() ?? ''
 
+/** This workspace's running lanes in the user's order (#568), or none: the usual order. */
+export function useLaneOrder(): string[] {
+  return useStore((s) => (s.workspace ? s.laneOrder[s.workspace.path.toLowerCase()] : undefined) ?? NO_ORDER)
+}
+
+/**
+ * Keeps this workspace's running lanes in this order (#568; null: back to the usual order): shown at once, and saved by
+ * main for this workspace only, on what is saved now.
+ */
+export function saveLaneOrder(ids: string[] | null): void {
+  const ws = get().workspace?.path
+  if (!ws) return
+  const all = { ...get().laneOrder }
+  if (ids?.length) all[ws.toLowerCase()] = ids
+  else delete all[ws.toLowerCase()]
+  set({ laneOrder: all })
+  void call('ui:setLaneOrder', ids)
+    .then((saved) => set({ laneOrder: saved }))
+    .catch(() => undefined)
+}
+
 /**
  * This window's lanes, loaded when its workspace changes (events keep them current), in the workspace's projects, in the
- * panel's order (running first, panelOrder). `load: false` only reads what the Progress panel and the sidebar loaded
- * (a tooltip's table, shown for a moment).
+ * panel's order (running first, in the user's order once they moved one; panelOrder). `load: false` only reads what the
+ * Progress panel and the sidebar loaded (a tooltip's table, shown for a moment).
  */
 export function useLanes(load = true): Lane[] {
   const ws = useStore((s) => s.workspace?.path)
@@ -44,12 +66,15 @@ export function useLanes(load = true): Lane[] {
     if (!ws || !load) return
     let current = true
     void call('lanes:list').then((lanes) => current && set({ lanes }))
+    // The order as saved now: another window may have changed it while it had this workspace open.
+    void call('ui:get').then((ui) => current && set({ laneOrder: ui.laneOrder ?? {} }), () => undefined)
     return () => {
       current = false
     }
   }, [ws, load])
   const raw = useStore((s) => s.lanes ?? NO_INFO)
   const projects = useStore((s) => s.workspace?.projects)
+  const order = useLaneOrder()
   return useMemo(() => {
     if (!raw.length || !projects) return NO_LANES
     // A lane names its project by folder name; one whose project isn't in the workspace is left out.
@@ -60,6 +85,6 @@ export function useLanes(load = true): Lane[] {
       const frozen = d.state === 'ended' || d.state === 'abandoned' ? d.cards : null
       return project ? [{ id: d.id, project, builder: who(d.builder), reviewer: d.reviewer ? who(d.reviewer) : null, name: d.name, cards: d.cards.map((c) => c.number), state: d.state, frozen, startedAt: d.startedAt, endedAt: d.endedAt }] : []
     })
-    return lanes.length ? panelOrder(lanes) : NO_LANES
-  }, [raw, projects])
+    return lanes.length ? panelOrder(lanes, order) : NO_LANES
+  }, [raw, projects, order])
 }

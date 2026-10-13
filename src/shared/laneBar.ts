@@ -185,10 +185,66 @@ export function currentCard(cards: readonly { number: number; state: SegmentStat
 
 const GROUP: Record<LaneState, number> = { active: 0, paused: 1, ended: 2, abandoned: 2 }
 
-/** The panel's order of lanes (#512): running ones, then paused ones, then ended and abandoned ones; newest first in each. */
-export function panelOrder<T extends { state: LaneState; startedAt: string; endedAt: string | null }>(lanes: readonly T[]): T[] {
-  const at = (l: T): string => (GROUP[l.state] === 2 ? (l.endedAt ?? l.startedAt) : l.startedAt)
-  return [...lanes].sort((a, b) => GROUP[a.state] - GROUP[b.state] || at(b).localeCompare(at(a)))
+/** A lane still running (active or paused), which the user can move; an ended or abandoned one has finished. */
+export const laneRunning = (state: LaneState): boolean => GROUP[state] < 2
+
+/**
+ * The panel's order of lanes (#512, #568): the running ones (active and paused), then the finished ones (ended and
+ * abandoned) in the order they finished, the latest last. Running lanes are in the user's order (`order`: lane ids,
+ * kept per workspace) once they have moved one: lanes it doesn't name (started since) on top, newest first (paused or
+ * not), then the others as it has them. Without one, active before paused, newest first in each.
+ */
+export function panelOrder<T extends { id: string; state: LaneState; startedAt: string; endedAt: string | null }>(lanes: readonly T[], order: readonly string[] = []): T[] {
+  const placed = new Map(order.map((id, i) => [id, i]))
+  const rank = (l: T): number => placed.get(l.id) ?? -1
+  // With an order, the lanes it doesn't name are newest first whatever their state (a new lane paused at once, on a
+  // blocked card, still arrives on top); without one, active before paused (#512).
+  const group = (l: T): number => (placed.size ? 0 : GROUP[l.state])
+  const running = lanes.filter((l) => laneRunning(l.state)).sort((a, b) => rank(a) - rank(b) || group(a) - group(b) || b.startedAt.localeCompare(a.startedAt))
+  const finished = lanes.filter((l) => !laneRunning(l.state)).sort((a, b) => (a.endedAt ?? a.startedAt).localeCompare(b.endedAt ?? b.startedAt))
+  return [...running, ...finished]
+}
+
+/**
+ * The running lanes' order (ids) once `id` is dropped before `before` (another running lane), or after the last of them
+ * (null); null when that leaves it where it is.
+ */
+export function droppedLaneOrder(running: readonly string[], id: string, before: string | null): string[] | null {
+  if (!running.includes(id) || before === id) return null
+  const rest = running.filter((x) => x !== id)
+  const at = before === null ? rest.length : rest.indexOf(before)
+  if (at < 0) return null
+  const next = [...rest.slice(0, at), id, ...rest.slice(at)]
+  return next.join('\n') === running.join('\n') ? null : next
+}
+
+/** The most lanes a kept order names: more than ever run at once. */
+export const LANE_ORDER_MAX = 100
+
+/** A lane order as it is kept: lane ids, each once, at most LANE_ORDER_MAX; anything else is no order ([]). */
+export function keptLaneOrder(ids: unknown): string[] {
+  if (!Array.isArray(ids)) return []
+  return [...new Set(ids.filter((x): x is string => typeof x === 'string' && x.length > 0 && x.length <= 64))].slice(0, LANE_ORDER_MAX)
+}
+
+/**
+ * A new order of the lanes shown (the panel filtered to a project or an agent) as the whole workspace's: the lanes not
+ * shown keep their places, and the shown ones fill theirs in their new order.
+ */
+export function mergedLaneOrder(all: readonly string[], shownNext: readonly string[]): string[] {
+  const shown = new Set(shownNext)
+  const next = [...shownNext]
+  return all.map((id) => (shown.has(id) ? (next.shift() ?? id) : id))
+}
+
+/** The running lanes' order (ids) once `id` moves a place up (-1) or down (1); null at the end it can't pass. */
+export function nudgedLaneOrder(running: readonly string[], id: string, by: -1 | 1): string[] | null {
+  const i = running.indexOf(id)
+  const j = i + by
+  if (i < 0 || j < 0 || j >= running.length) return null
+  const next = [...running]
+  ;[next[i], next[j]] = [next[j], next[i]]
+  return next
 }
 
 /** Every card of a lane as a segment, in the lane's order. */

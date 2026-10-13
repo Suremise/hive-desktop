@@ -3,7 +3,9 @@
 // card's column, blocked reason and review rounds, folding a long lane's finished cards into "✓ n", one lane only as
 // tall as it is, four rows before the list scrolls and the section's top edge dragged (or Up and Down) for more or fewer
 // in whole lanes, never squeezing the runs, double-click for four, kept folded and through a restart (#569), running lanes first, the card being worked as current, an ended or abandoned lane frozen as it was left
-// (#512), hover text (with what a failed review's underline and the hatching mean, #706), a click opening the card, and the section folding to its bar; while an agent holds the merge slot, a
+// (#512), hover text (with what a failed review's underline and the hatching mean, #706), a click opening the card, and the section folding to its bar; running lanes
+// put in the user's order (#568): dragged with a line where they go (the list scrolled, and scrolling near its edge), Alt+Up and Alt+Down said to screen
+// readers, the context menu, a new lane on top, a finished one to the very bottom, kept through a restart, and the usual order again; while an agent holds the merge slot, a
 // card in the merge colour on top (holder, branch → main, its running step, time, who waits) with a divider, folding to
 // one line; a short, zoomed window keeps the lanes inside the panel and a run readable. Screenshots of the idle, lanes,
 // merging and short states in both themes. The lanes are #483's, started through the Agent API. Dev build, throwaway
@@ -158,9 +160,10 @@ const until = (fn, ms = 10000) => lib.until(fn, ms, 150)
   const l7 = await startLane('B8', 'R1', 'one more', [await make('Eighth lane, one', 'todo')])
   check('seven lanes started, one ended and one abandoned', [l1, l2, l3, l4, l5, l6, l7].every(Boolean) && ended.body?.state === 'ended' && dropped.body?.state === 'abandoned', JSON.stringify([ended, dropped]))
   const order = () => section.locator('.progress-lane').evaluateAll((els) => els.map((e) => e.getAttribute('data-lane')))
-  // Running lanes first, newest first, then the paused one, then the abandoned and ended ones, newest first (#512).
-  const wantOrder = [l7, l6, l2, l1, l3, l5, l4]
-  check('the lanes show, a row each: running first (newest first), then paused, then ended and abandoned', !!(await until(async () => (await order()).join() === wantOrder.join(), HUNG_MS)), JSON.stringify({ got: await order(), want: wantOrder }))
+  // Running lanes first, newest first, then the paused one (#512), then the ended and abandoned ones in the order they
+  // finished, the latest last (#568).
+  const wantOrder = [l7, l6, l2, l1, l3, l4, l5]
+  check('the lanes show, a row each: running first (newest first), then paused, then ended and abandoned as they finished', !!(await until(async () => (await order()).join() === wantOrder.join(), HUNG_MS)), JSON.stringify({ got: await order(), want: wantOrder }))
   const row1 = section.locator(`.progress-lane[data-lane="${l1}"]`)
   const top1 = await row1.locator('.progress-lane-top').innerText()
   // #3 is back in Review while #4 is being fixed in Doing: the lane is on #4, the card being built (#512).
@@ -433,7 +436,7 @@ const until = (fn, ms = 10000) => lib.until(fn, ms, 150)
   check('a builder that moves on past a blocked card: the lane is running, on the card being worked', !!(await until(async () => { const t = await row3.locator('.progress-lane-top').innerText(); return !/paused/.test(t) && new RegExp(`#${short[1]}\\b`).test(t) }, HUNG_MS)), await row3.locator('.progress-lane-top').innerText())
   check('…its blocked card still flagged in its segment', /\bblocked\b/.test((await row3.locator(`.lane-seg[data-card="${short[0]}"]`).getAttribute('class')) ?? ''))
   // Running again, it sorts with the running lanes, newest first (it was started after B1's and B3's).
-  check('…and moves up among the running lanes', !!(await until(async () => (await order()).join() === [l7, l6, l3, l2, l1, l5, l4].join(), HUNG_MS)), JSON.stringify(await order()))
+  check('…and moves up among the running lanes', !!(await until(async () => (await order()).join() === [l7, l6, l3, l2, l1, l4, l5].join(), HUNG_MS)), JSON.stringify(await order()))
   // A lane ended without a record of its cards (ended before #512 kept one, or the record damaged): B5's merged lane,
   // its record taken out of lanes.json. Its card #2 moving on in B1's lane shows there only; B5's says not recorded.
   const lanesFile = path.join(ws, '.hive', 'lanes.json')
@@ -454,6 +457,153 @@ const until = (fn, ms = 10000) => lib.until(fn, ms, 150)
   await list.evaluate((el) => (el.scrollTop = el.scrollHeight))
   await shoot('lanes-moved-on')
 
+  // --- The user's order (#568). Running: l7, l6, l3, l2, l1 (five show); then l4 and l5, finished.
+  const rowOf = (id) => section.locator(`.progress-lane[data-lane="${id}"]`)
+  const savedOrder = () => page.evaluate((w) => window.hive.invoke('ui:get').then((ui) => ui.laneOrder?.[w.toLowerCase()] ?? null), ws)
+  const said = () => section.locator('.progress-lanes-said').innerText()
+  const ordered = async (ids) => !!(await until(async () => (await order()).join() === ids.join(), HUNG_MS))
+  const scrollTop = () => list.evaluate((el) => el.scrollTop)
+  check('running lanes can be dragged and focused; finished ones neither', (await rowOf(l7).getAttribute('draggable')) === 'true' && (await rowOf(l7).getAttribute('tabindex')) === '0' && (await rowOf(l4).getAttribute('draggable')) === null && (await rowOf(l4).getAttribute('tabindex')) === null)
+  check('…and nothing is kept until one is moved', (await savedOrder()) === null, JSON.stringify(await savedOrder()))
+  const lineOn = async (id) => {
+    const c = (await rowOf(id).getAttribute('class')) ?? ''
+    return /\bdrop-before\b/.test(c) ? 'before' : /\bdrop-after\b/.test(c) ? 'after' : null
+  }
+  const lines = () => section.locator('.progress-lane.drop-before, .progress-lane.drop-after').count()
+  // Picks a lane up by its top line, and waits until the panel has it as dragged.
+  let held = null
+  const pick = async (id) => {
+    await page.mouse.move(0, 0)
+    const s = await rowOf(id).locator('.progress-lane-top').boundingBox()
+    await page.mouse.move(s.x + 30, s.y + s.height / 2)
+    await page.mouse.down()
+    let k = 0
+    // Playwright sends few dragovers: a small move each poll until the drag has started and the row says so.
+    return until(async () => {
+      await page.mouse.move(s.x + 34 + (k++ % 2), s.y + s.height / 2 + 4)
+      return /\bdragging\b/.test((await rowOf(id).getAttribute('class')) ?? '')
+    }, HUNG_MS)
+  }
+  // Moves the dragged lane to (x, y), nudging a pixel each poll until `ok` holds (Playwright sends a dragover only on a move).
+  const holdAt = async (x, y, ok) => {
+    await page.mouse.move(x, y, { steps: 6 })
+    let k = 0
+    const seen = await until(async () => {
+      held = { x: x + (k++ % 2), y }
+      await page.mouse.move(held.x, held.y)
+      return ok()
+    }, HUNG_MS)
+    return !!seen
+  }
+  // Over a lane's top (0.3) or bottom (0.7) half.
+  const over = async (id, half) => {
+    const t = await rowOf(id).boundingBox()
+    return { x: t.x + 60, y: t.y + t.height * (half === 'top' ? 0.3 : 0.7) }
+  }
+  // Lets go where it is held: Playwright drops only on a release that straight follows a move.
+  const release = async () => {
+    await page.mouse.move(held.x, held.y)
+    await page.mouse.up()
+  }
+  // All seven lanes shown for the drags (the edge, End), so the list doesn't scroll under them; five again after.
+  await edge.focus()
+  await page.keyboard.press('End')
+  await until(async () => showsWhole(await fit(), 7), HUNG_MS)
+  for (const theme of ['dark', 'light']) {
+    await inv('settings:update', { appearance: { theme } })
+    await until(async () => (await page.evaluate(() => document.documentElement.dataset.theme)) === theme, HUNG_MS)
+    // Dark: l1 (the last running lane) above l7, the first; light: l7, now second, after l2, the last running lane.
+    const [from, to, half, line] = theme === 'dark' ? [l1, l7, 'top', 'before'] : [l7, l2, 'bottom', 'after']
+    const picked = await pick(from)
+    const p = await over(to, half)
+    const shows = picked && (await holdAt(p.x, p.y, async () => (await lineOn(to)) === line))
+    check(`${theme}: a dragged lane is dimmed, and a line shows where it goes`, !!shows && (await lines()) === 1, JSON.stringify({ picked, line: await lineOn(to), cls: await rowOf(from).getAttribute('class') }))
+    await page.screenshot({ path: path.join(shots, `lanes-drag-${theme}.png`) })
+    await release()
+  }
+  await inv('settings:update', { appearance: { theme: 'dark' } })
+  let mine = [l1, l6, l3, l2, l7]
+  check('dropped, the lanes take the order, the finished ones still last', await ordered([...mine, l4, l5]), JSON.stringify(await order()))
+  check('…kept for the workspace', !!(await until(async () => (await savedOrder())?.join() === mine.join(), HUNG_MS)), JSON.stringify(await savedOrder()))
+  // Held where it would stay (l6 over l3's top half: it is just above it), or over a finished lane: no line.
+  await pick(l6)
+  const stay = await over(l3, 'top')
+  const fin = await over(l4, 'top')
+  // Over a running lane that moves it first, so the line is known to show, then where it wouldn't.
+  const moves = await over(l1, 'top')
+  const before = await holdAt(moves.x, moves.y, async () => (await lineOn(l1)) === 'before')
+  const none1 = await holdAt(stay.x, stay.y, async () => (await lines()) === 0)
+  const none2 = before && (await holdAt(moves.x, moves.y, async () => (await lineOn(l1)) === 'before')) && (await holdAt(fin.x, fin.y, async () => (await lines()) === 0))
+  check('…no line where it would stay, nor over a finished lane', before && none1 && !!none2, JSON.stringify({ before, none1, none2 }))
+  await release()
+  check('…and dropped there, nothing moves', await ordered([...mine, l4, l5]), JSON.stringify(await order()))
+  await edge.focus()
+  await page.keyboard.press('ArrowDown')
+  await page.keyboard.press('ArrowDown')
+  check('(five lanes shown again)', !!(await until(async () => showsWhole(await fit(), 5) && (await kept()) === 5, HUNG_MS)), JSON.stringify(await fit()))
+  // The list scrolled to its end (l3 at the top of what shows): a drag in the middle of it lands where it was dropped.
+  await list.evaluate((el) => (el.scrollTop = el.scrollHeight))
+  await until(async () => (await scrollTop()) > 0, HUNG_MS)
+  const scrolled = await scrollTop()
+  await pick(l7)
+  const onL2 = await over(l2, 'top')
+  await holdAt(onL2.x, onL2.y, async () => (await lineOn(l2)) === 'before')
+  await release()
+  mine = [l1, l6, l3, l7, l2]
+  check('with the list scrolled, a drag lands where it was dropped', (await ordered([...mine, l4, l5])) && scrolled > 0, JSON.stringify({ order: await order(), scrolled }))
+  // Held at the list's top edge, it scrolls up by itself (the pointer still), to drop on a lane out of view: l2 above l1.
+  await until(async () => (await scrollTop()) > 0, HUNG_MS)
+  await pick(l2)
+  const lb = await list.boundingBox()
+  await page.mouse.move(lb.x + 60, lb.y + 4, { steps: 6 })
+  held = { x: lb.x + 60, y: lb.y + 4 }
+  check('dragged to the top edge, the list scrolls up while held there', !!(await until(async () => (await scrollTop()) === 0, HUNG_MS)), String(await scrollTop()))
+  const onL1 = await over(l1, 'top')
+  check('…and a line shows on the lane it scrolled to', await holdAt(onL1.x, onL1.y, async () => (await lineOn(l1)) === 'before'))
+  await release()
+  mine = [l2, l1, l6, l3, l7]
+  check('…where the lane drops', await ordered([...mine, l4, l5]), JSON.stringify(await order()))
+  // Keyboard: Tabbed to (from the top edge, past the Lanes bar, to the first lane), Alt+Down and Alt+Up move it a place,
+  // it keeps the focus, and screen readers are told.
+  const focusedLane = () => page.evaluate(() => document.activeElement?.getAttribute('data-lane') ?? null)
+  await edge.focus()
+  await page.keyboard.press('Tab')
+  await page.keyboard.press('Tab')
+  check('Tab reaches the first lane', !!(await until(async () => (await focusedLane()) === l2, HUNG_MS)), String(await focusedLane()))
+  await page.keyboard.press('Alt+ArrowDown')
+  mine = [l1, l2, l6, l3, l7]
+  check('Alt+Down moves the focused lane down a place, and it keeps the focus', (await ordered([...mine, l4, l5])) && (await focusedLane()) === l2, JSON.stringify({ order: await order(), focus: await focusedLane() }))
+  check('…said to screen readers', (await section.locator('.progress-lanes-said').getAttribute('role')) === 'status' && !!(await until(async () => /B3 \/ R1 \(a long lane\) moved: 2 of 5 running lanes/.test(await said()), HUNG_MS)), await said())
+  await page.mouse.move(5, 5)
+  await shoot('lanes-focused')
+  await page.keyboard.press('Alt+ArrowUp')
+  mine = [l2, l1, l6, l3, l7]
+  check('Alt+Up moves it up', (await ordered([...mine, l4, l5])) && (await focusedLane()) === l2, JSON.stringify(await order()))
+  await page.keyboard.press('Alt+ArrowUp')
+  check('…not past the first running lane, and says so', !!(await until(async () => /already the first running lane/.test(await said()), HUNG_MS)) && (await order()).join() === [...mine, l4, l5].join(), await said())
+  check('…kept', !!(await until(async () => (await savedOrder())?.join() === mine.join(), HUNG_MS)), JSON.stringify(await savedOrder()))
+  // The context menu: Move Up and Move Down (with their keys), and the usual order.
+  await rowOf(l3).locator('.progress-lane-top').click({ button: 'right' })
+  const menuItem = (label) => page.locator('.menu[role="menu"] .menu-item', { hasText: label })
+  check('a running lane has a context menu to move it', !!(await until(async () => (await menuItem('Move Up').count()) === 1, HUNG_MS)) && (await menuItem('Move Down').count()) === 1 && (await menuItem('Usual Order').count()) === 1)
+  await shoot('lanes-menu')
+  await menuItem('Move Up').click()
+  mine = [l2, l1, l3, l6, l7]
+  check('…Move Up moves it', await ordered([...mine, l4, l5]), JSON.stringify(await order()))
+  // A new lane arrives on top; the moved ones keep their order below it.
+  // B9's: an agent of its own (a builder's new lane hides its ended one).
+  await lib.addAgent(inv, alpha, { name: 'B9' })
+  const l8 = await startLane('B9', null, 'arrives on top', [await make('Ninth lane, one', 'doing', b1.id)])
+  check('a lane started since arrives on top, the order below it kept', await ordered([l8, ...mine, l4, l5]), JSON.stringify(await order()))
+  // A lane that finishes drops to the very bottom, after those that finished before it.
+  const endL6 = await api(workspaceToken, 'POST', `/v1/lanes/${l6}/end`, { abandoned: true })
+  mine = [l8, l2, l1, l3, l7]
+  check('a lane that finishes drops to the very bottom, the latest finish last', endL6.status === 200 && (await ordered([...mine, l4, l5, l6])), JSON.stringify({ endL6: endL6.status, order: await order() }))
+  check('…and a finished lane can no longer be moved', (await rowOf(l6).getAttribute('draggable')) === null)
+  await list.evaluate((el) => (el.scrollTop = 0))
+  await page.mouse.move(5, 5)
+  await shoot('lanes-reordered')
+
   // --- Hive restarted: the workspace's lanes chosen (five) are kept (#569).
   await app.close().catch(() => undefined)
   const app2 = await _electron.launch({ executablePath: lib.ELECTRON, args: [lib.ROOT], cwd: lib.ROOT, env })
@@ -471,6 +621,14 @@ const until = (fn, ms = 10000) => lib.until(fn, ms, 150)
     return { now, f }
   }
   check('after a restart, the lanes chosen are kept', !!(await until(async () => { const r = await rowsAfter(); return r.now === '5' && !!r.f && Math.abs(r.f.sixthTop - r.f.client) <= 1 }, 20000)), JSON.stringify(await rowsAfter()))
+  const order2 = () => page2.locator('.progress-lane').evaluateAll((els) => els.map((e) => e.getAttribute('data-lane')))
+  check("…and the user's order of lanes (#568)", !!(await until(async () => (await order2()).join() === [...mine, l4, l5, l6].join(), HUNG_MS)), JSON.stringify(await order2()))
+  // The usual order again, from a lane's context menu: running ones newest first; nothing kept.
+  await page2.locator(`.progress-lane[data-lane="${l3}"] .progress-lane-top`).click({ button: 'right' })
+  await page2.locator('.menu[role="menu"] .menu-item', { hasText: 'Usual Order' }).click()
+  const usualOrder = [l8, l7, l3, l2, l1, l4, l5, l6]
+  const saved2 = () => page2.evaluate((w) => window.hive.invoke('ui:get').then((ui) => ui.laneOrder?.[w.toLowerCase()] ?? null), ws)
+  check('Usual Order puts the lanes back, and keeps no order', !!(await until(async () => (await order2()).join() === usualOrder.join() && (await saved2()) === null, HUNG_MS)), JSON.stringify({ order: await order2(), saved: await saved2() }))
   await app2.close().catch(() => undefined)
   console.log(failed ? `\n${failed} FAILED` : '\nAll passed')
   process.exit(failed ? 1 : 0)

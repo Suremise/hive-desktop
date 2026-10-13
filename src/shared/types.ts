@@ -448,6 +448,8 @@ export interface AppConfig {
     boardFold?: Record<string, BoardFold>
     /** Each workspace's Progress panel filter (#251), by workspace path in lower case: one project's runs (and agent's), or all. */
     progressFilter?: Record<string, { project: string; agent?: string }>
+    /** Each workspace's running lanes in the order the user put them in the Progress panel (#568), by workspace path in lower case: lane ids. */
+    laneOrder?: Record<string, string[]>
   }
   /** Per provider: the model last seen in a session started without a model choice (the CLI's own default). */
   observedDefaultModel: Record<ProviderId, string>

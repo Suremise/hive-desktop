@@ -205,6 +205,8 @@ interface State {
   boardFold: Record<string, BoardFold>
   /** Each workspace's Progress panel filter (#251; saved in ui), by workspace path in lower case. */
   progressFilter: Record<string, ProgressFilter>
+  /** Each workspace's running lanes in the user's order (#568; saved in ui), lane ids by workspace path in lower case. */
+  laneOrder: Record<string, string[]>
   selectedProject: string | null
   projectTabs: Record<string, ProjectTab>
   selectedNote: string | null
@@ -410,6 +412,7 @@ export const useStore = create<State>(() => ({
   assistantFold: {},
   boardFold: {},
   progressFilter: {},
+  laneOrder: {},
   selectedProject: null,
   projectTabs: {},
   selectedNote: null,
