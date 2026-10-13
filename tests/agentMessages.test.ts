@@ -259,9 +259,9 @@ describe('messages left for agents (#530, #647)', async () => {
     expect(st.typed).toEqual([bell('1 card event', 'm3')])
   })
 
-  it('its CLI drops the first Enter and its permission goes before the Enter again: never submitted; the line is cleared and a wake that was in it typed again alone', async () => {
+  it('its CLI drops the first Enter and its permission goes before the Enter again: the doorbell is never cleared (#652), the Enter again gives the agent nothing of it, and it is refused', async () => {
     // A CLI that takes nothing typed (as Codex dropped an Enter on 7 Oct), until Hive presses Enter again.
-    const cli = { count: 0, enters: 0, clears: 0 }
+    const cli = { count: 0, enters: 0 }
     const before = { ...sessions } as Record<string, unknown>
     Object.assign(sessions, {
       promptsTaken: () => ({ runId: 'r1', count: cli.count }),
@@ -273,10 +273,6 @@ describe('messages left for agents (#530, #647)', async () => {
         st.status = 'working'
         return true
       },
-      clearTyped: () => {
-        cli.clears++
-        return true
-      },
       sendPrompt: async (_p: string, _id: string, text: string, guard?: () => void) => {
         guard?.()
         st.typed.push(text)
@@ -285,41 +281,30 @@ describe('messages left for agents (#530, #647)', async () => {
     })
     writer.testHooks.takeMs = 100
     try {
-      // Its own line: typed, not taken; revoked before the Enter again.
+      // Its own doorbell: typed, not taken; revoked before the Enter again, which still comes (it names an id, nothing more).
       st.status = 'ready'
       expect(await leave('Revoked before the retry.')).toEqual({ id: 'm1', fate: 'typed', queued: 0 })
       why = 'the user turned Settings → Assistant → Control down'
-      await vi.waitFor(() => expect(cli.clears).toBe(1), { timeout: HUNG_MS })
-      expect(cli.enters).toBe(0)
-      // Its refusal is saved after the line is cleared.
-      await vi.waitFor(async () => expect(await states()).toEqual(['m1 refused: the user turned Settings → Assistant → Control down']), { timeout: HUNG_MS })
-      // In a line with a wake: the same, and the wake is typed again alone (it still holds), and taken.
+      await vi.waitFor(() => expect(cli.enters).toBe(1), { timeout: HUNG_MS })
+      // The agent reads its inbox: nothing of it, and it is refused.
+      expect(await deliveries.readInbox(alpha, 'b1')).toEqual({ items: [], unacked: [] })
+      expect(await states()).toEqual(['m1 refused: the user turned Settings → Assistant → Control down'])
+      await vi.waitFor(() => expect(writer.confirmsInFlight()).toBe(0), { timeout: HUNG_MS })
+      // In a doorbell with a wake: the same; the read gives the wake alone, and the doorbell was typed once.
       why = null
       st.status = 'working'
-      await leave('Riding, revoked before the retry.')
+      await leave('In a line with a wake, revoked before the retry.')
       st.status = 'finished'
       expect(await wake('[Hive] #5 is in Review.')).toBe(true)
       expect(st.typed.at(-1)).toBe(bell('1 message and 1 card event', 'm2, m3'))
       why = "the Assistant's session that left it ended"
-      await vi.waitFor(() => expect(cli.clears).toBe(2), { timeout: HUNG_MS })
-      await vi.waitFor(() => expect(st.typed.at(-1)).toBe(bell('1 card event', 'm3')), { timeout: 5000 })
-      expect(st.typed.filter((t) => t.includes('m2'))).toHaveLength(1)
-      await vi.waitFor(async () => expect((await states())[1]).toBe("m2 refused: the Assistant's session that left it ended"), { timeout: HUNG_MS })
-      // The wake typed again is taken by the Enter again (nothing else is in its line now): one Enter, for it; received
-      // once the agent reads it (#650).
-      await vi.waitFor(() => expect(cli.enters).toBe(1), { timeout: HUNG_MS })
-      expect((await deliveries.readInbox(alpha, 'b1')).items.map((x) => x.ids.join())).toEqual(['m3'])
-      expect((await states()).at(-1)).toBe('m3 received')
-      // Still allowed: the Enter again submits it, as before.
-      why = null
-      st.status = 'ready'
-      await leave('Still allowed.')
       await vi.waitFor(() => expect(cli.enters).toBe(2), { timeout: HUNG_MS })
-      expect((await deliveries.readInbox(alpha, 'b1')).items.map((x) => x.ids.join())).toEqual(['m4'])
-      expect(cli.clears).toBe(2)
+      expect((await deliveries.readInbox(alpha, 'b1')).items.map((x) => x.ids.join())).toEqual(['m3'])
+      expect((await states()).slice(1)).toEqual(["m2 refused: the Assistant's session that left it ended", 'm3 received'])
+      expect(st.typed.filter((t) => t.includes('m3'))).toHaveLength(1)
     } finally {
       writer.testHooks.takeMs = undefined
-      for (const k of ['promptsTaken', 'holdForConfirm', 'lineNotTaken', 'submitAgain', 'clearTyped']) delete (sessions as unknown as Record<string, unknown>)[k]
+      for (const k of ['promptsTaken', 'holdForConfirm', 'lineNotTaken', 'submitAgain']) delete (sessions as unknown as Record<string, unknown>)[k]
       Object.assign(sessions, { sendPrompt: before.sendPrompt, promptsTaken: () => null })
       await vi.waitFor(() => expect(writer.confirmsInFlight()).toBe(0), { timeout: HUNG_MS })
     }
@@ -452,8 +437,8 @@ describe('messages left for agents (#530, #647)', async () => {
     }
   })
 
-  it("the confirmation's Enter again checks what the first keys did: expired (also once a check has published it), another conversation, cancelled, another launch (uncertain then, #649): no Enter, ended honestly", async () => {
-    const cli = { count: 0, enters: 0, clears: 0 }
+  it("a doorbell not taken whose deliveries end before the Enter again (expired, another conversation, cancelled): Enter again, once, and they end honestly; another launch: no Enter, uncertain (#649)", async () => {
+    const cli = { count: 0, enters: 0 }
     const before = { ...sessions } as Record<string, unknown>
     Object.assign(sessions, {
       promptsTaken: () => ({ runId: st.runId, count: cli.count }),
@@ -463,10 +448,6 @@ describe('messages left for agents (#530, #647)', async () => {
         cli.enters++
         cli.count++
         st.status = 'working'
-        return true
-      },
-      clearTyped: () => {
-        cli.clears++
         return true
       },
       sendPrompt: async (_p: string, _id: string, text: string, guard?: () => void) => {
@@ -479,65 +460,55 @@ describe('messages left for agents (#530, #647)', async () => {
     deliveries.setClockForTests(() => t)
     writer.testHooks.takeMs = 100
     try {
-      // Typed, its first Enter lost; then past its expiry: no Enter again; the line is cleared; expired.
+      // Typed, its first Enter lost; then past its expiry: Enter again; expired, and the read gives nothing.
       st.status = 'ready'
       expect((await messages.leaveMessage(alpha, 'b1', 'HR2', asst, 'Expires before the retry.')).fate).toBe('typed')
       t += 25 * 60 * 60_000
-      await vi.waitFor(() => expect(cli.clears).toBe(1), { timeout: HUNG_MS })
-      await vi.waitFor(async () => expect(await states()).toEqual(['m1 expired: not received in time']), { timeout: HUNG_MS })
-      expect(cli.enters).toBe(0)
-      await vi.waitFor(() => expect(writer.confirmsInFlight()).toBe(0), { timeout: HUNG_MS })
-      // The same once a check (the agent's inbox) has published it expired first.
-      t = Date.now()
-      st.status = 'ready'
-      expect((await leave('Expired by a check first.')).fate).toBe('typed')
-      t += 25 * 60 * 60_000
+      await vi.waitFor(() => expect(cli.enters).toBe(1), { timeout: HUNG_MS })
       expect(await deliveries.readInbox(alpha, 'b1')).toEqual({ items: [], unacked: [] })
-      expect((await states()).at(-1)).toBe('m2 expired: not received in time')
-      await vi.waitFor(() => expect(cli.clears).toBe(2), { timeout: HUNG_MS })
-      expect(cli.enters).toBe(0)
+      expect(await states()).toEqual(['m1 expired: not received in time'])
       await vi.waitFor(() => expect(writer.confirmsInFlight()).toBe(0), { timeout: HUNG_MS })
-      // The agent in another conversation before the retry: no Enter again; expired.
+      // The agent in another conversation before the retry: expired.
       t = Date.now()
       st.status = 'ready'
       expect((await leave('For this conversation.')).fate).toBe('typed')
       st.sessionId = 's2'
-      await vi.waitFor(() => expect(cli.clears).toBe(3), { timeout: HUNG_MS })
-      await vi.waitFor(async () => expect((await states()).at(-1)).toBe('m3 expired: its agent is in another conversation now'), { timeout: HUNG_MS })
-      expect(cli.enters).toBe(0)
+      await vi.waitFor(() => expect(cli.enters).toBe(2), { timeout: HUNG_MS })
+      expect(await deliveries.readInbox(alpha, 'b1')).toEqual({ items: [], unacked: [] })
+      expect((await states()).at(-1)).toBe('m2 expired: its agent is in another conversation now')
       await vi.waitFor(() => expect(writer.confirmsInFlight()).toBe(0), { timeout: HUNG_MS })
-      // Cancelled while its CLI hasn't taken the line: no Enter again; Hive's line is cleared; cancelled.
+      // Cancelled while its CLI hasn't taken the doorbell: cancelled, and the read gives nothing.
+      st.sessionId = 's1'
       st.status = 'ready'
       expect((await leave('Cancelled before the retry.')).fate).toBe('typed')
       expect(await messages.cancelMessages(alpha, 'b1', 'the user')).toBe(1)
-      await vi.waitFor(() => expect(cli.clears).toBe(4), { timeout: HUNG_MS })
-      expect((await states()).at(-1)).toBe('m4 cancelled: cancelled by the user')
-      expect(cli.enters).toBe(0)
+      expect((await states()).at(-1)).toBe('m3 cancelled: cancelled by the user')
+      await vi.waitFor(() => expect(cli.enters).toBe(3), { timeout: HUNG_MS })
+      expect(await deliveries.readInbox(alpha, 'b1')).toEqual({ items: [], unacked: [] })
       await vi.waitFor(() => expect(writer.confirmsInFlight()).toBe(0), { timeout: HUNG_MS })
-      // The agent started again before the retry: no Enter (nor a clear) in the new launch; it may not have reached the
-      // agent, so it is uncertain (#649), waiting to be offered once more, and the user can still cancel it.
+      // The agent started again before the retry: no Enter in the new launch; it may not have reached the agent, so it is
+      // uncertain (#649), waiting to be offered once more, and the user can still cancel it.
       st.status = 'working'
       expect((await leave('Typed into the old launch.')).fate).toBe('queued')
       st.status = 'ready'
       await tryAll()
-      expect((await states()).at(-1)).toBe('m5 offered')
+      expect((await states()).at(-1)).toBe('m4 offered')
       st.runId = 'r2'
       await vi.waitFor(() => expect(writer.confirmsInFlight()).toBe(0), { timeout: HUNG_MS })
-      expect(cli.enters).toBe(0)
-      expect(cli.clears).toBe(4)
-      await vi.waitFor(async () => expect((await states()).at(-1)).toBe('m5 uncertain: may not have reached it: its session ended or restarted before it was read'), { timeout: HUNG_MS })
+      expect(cli.enters).toBe(3)
+      await vi.waitFor(async () => expect((await states()).at(-1)).toBe('m4 uncertain: may not have reached it: its session ended or restarted before it was read'), { timeout: HUNG_MS })
       expect(await messages.cancelMessages(alpha, 'b1', 'the user')).toBe(1)
     } finally {
       deliveries.setClockForTests(null)
       writer.testHooks.takeMs = undefined
-      for (const k of ['promptsTaken', 'holdForConfirm', 'lineNotTaken', 'submitAgain', 'clearTyped']) delete (sessions as unknown as Record<string, unknown>)[k]
+      for (const k of ['promptsTaken', 'holdForConfirm', 'lineNotTaken', 'submitAgain']) delete (sessions as unknown as Record<string, unknown>)[k]
       Object.assign(sessions, { sendPrompt: before.sendPrompt, promptsTaken: () => null })
       await vi.waitFor(() => expect(writer.confirmsInFlight()).toBe(0), { timeout: HUNG_MS })
     }
   })
 
-  it("a line with a wake whose offer is saved slowly while a prompt of the user's is taken: its confirmation waits for this line, a cancel still ends the message, no Enter again, and the wake is typed again alone", async () => {
-    const cli = { count: 0, enters: 0, clears: 0, entersAtClear: -1 }
+  it("a doorbell with a wake whose offer is saved slowly while a prompt of the user's is taken: its confirmation waits for this line, a cancel still ends the message, and the Enter again gives the wake alone", async () => {
+    const cli = { count: 0, enters: 0 }
     const before = { ...sessions } as Record<string, unknown>
     Object.assign(sessions, {
       promptsTaken: () => ({ runId: st.runId, count: cli.count }),
@@ -547,11 +518,6 @@ describe('messages left for agents (#530, #647)', async () => {
         cli.enters++
         cli.count++
         st.status = 'working'
-        return true
-      },
-      clearTyped: () => {
-        cli.clears++
-        cli.entersAtClear = cli.enters
         return true
       },
       sendPrompt: async (_p: string, _id: string, text: string, guard?: () => void) => {
@@ -565,7 +531,7 @@ describe('messages left for agents (#530, #647)', async () => {
     let release = (): void => undefined
     try {
       st.status = 'working'
-      await leave('Rides a slow save.')
+      await leave('In a slow save.')
       await deliveries.createDelivery(alpha, { agentId: 'b1', kind: 'card-event', from: hive, body: '[Hive] #6 is in Review.' })
       // The offer's save of "offered" is held; meanwhile the user's own prompt is taken and its turn ends.
       const held = new Promise<void>((r) => (release = r))
@@ -586,63 +552,69 @@ describe('messages left for agents (#530, #647)', async () => {
       // Its Enter was lost (the count is still the user's prompt's): not taken, so still the user's to cancel.
       expect(writer.confirmsInFlight()).toBe(1)
       expect(await messages.cancelMessages(alpha, 'b1', 'the user')).toBe(1)
-      await vi.waitFor(() => expect(cli.clears).toBe(1), { timeout: HUNG_MS })
-      expect(cli.entersAtClear).toBe(0)
-      await vi.waitFor(async () => expect(await states()).toEqual(['m1 cancelled: cancelled by the user', 'm2 queued']), { timeout: HUNG_MS })
-      // The wake that was in it is typed again alone.
-      await vi.waitFor(() => expect(st.typed.at(-1)).toBe(bell('1 card event', 'm2')), { timeout: HUNG_MS })
-      expect(st.typed.filter((t) => t.includes('m1'))).toHaveLength(1)
+      expect(await states()).toEqual(['m1 cancelled: cancelled by the user', 'm2 offered'])
+      // The Enter again sends the doorbell, which still names the wake: it reads the wake alone, never typed twice.
+      await vi.waitFor(() => expect(cli.enters).toBe(1), { timeout: HUNG_MS })
+      expect((await deliveries.readInbox(alpha, 'b1')).items.map((x) => x.ids.join())).toEqual(['m2'])
+      expect(st.typed).toHaveLength(1)
     } finally {
       release()
       deliveries.setBeforeSaveForTests(null)
       writer.testHooks.takeMs = undefined
-      for (const k of ['promptsTaken', 'holdForConfirm', 'lineNotTaken', 'submitAgain', 'clearTyped']) delete (sessions as unknown as Record<string, unknown>)[k]
+      for (const k of ['promptsTaken', 'holdForConfirm', 'lineNotTaken', 'submitAgain']) delete (sessions as unknown as Record<string, unknown>)[k]
       Object.assign(sessions, { sendPrompt: before.sendPrompt, promptsTaken: () => null })
       await vi.waitFor(() => expect(writer.confirmsInFlight()).toBe(0), { timeout: HUNG_MS })
     }
   })
 
-  it('a line Hive leaves in the prompt (the user typed over it): nothing more is typed into the agent until that prompt is submitted, so their draft is never typed over (#530, #649)', async () => {
-    const cli = { count: 0 }
-    const before = { ...sessions } as Record<string, unknown>
-    Object.assign(sessions, {
-      promptsTaken: () => ({ runId: st.runId, count: cli.count }),
-      holdForConfirm: () => () => undefined,
-      lineNotTaken: () => undefined,
-      userTypedOverLine: () => true,
-      submitAgain: () => true,
-      clearTyped: () => true,
-      sendPrompt: async (_p: string, _id: string, text: string, guard?: () => void) => {
-        guard?.()
-        st.typed.push(text)
-        st.status = 'finished'
-      }
-    })
-    writer.testHooks.takeMs = 50
+  it('tied to a card round (#652): refused for a card not in Doing or Review; stale, never offered or given, once the card passes or a new round starts; kept while the card cannot be read', async () => {
+    // The board as a stand-in: card 7, in Doing in round 1 (no failed review yet).
+    const card = { number: 7, column: 'doing', archived: false, history: [] as { at: string; by: string; what: string }[] } as never as { number: number; column: string; archived: boolean; history: { at: string; by: string; what: string }[] }
+    let readable = true
+    deliveries.setCardReaderForTests(async (_host, num) => (!readable ? undefined : num === 7 ? (structuredClone(card) as never) : null))
+    const tied = (text: string) => messages.leaveMessage(alpha, 'b1', 'HR2', asst, text, 7)
     try {
-      st.status = 'working'
-      await leave('Revoked with a draft over it.')
-      st.status = 'finished'
-      expect(await wake('[Hive] #7 is in Review.')).toBe(true)
-      expect(st.typed).toHaveLength(1)
-      // Its sender's permission goes before the Enter again, and the user has typed over the line: left as it is.
-      why = 'the user turned Settings → Assistant → Control down'
-      await vi.waitFor(async () => expect(await states()).toEqual(['m1 refused: the user turned Settings → Assistant → Control down', 'm2 queued']), { timeout: HUNG_MS })
-      await vi.waitFor(() => expect(writer.confirmsInFlight()).toBe(0), { timeout: HUNG_MS })
-      why = null
-      // The wake still holds, but nothing is typed over the user's draft while that prompt stands.
+      // Not on the board, or not in Doing or Review: refused, nothing made.
+      await expect(messages.leaveMessage(alpha, 'b1', 'HR2', asst, 'For a missing card.', 8)).rejects.toThrow(/There is no card #8/)
+      card.column = 'todo'
+      await expect(tied('Not started.')).rejects.toThrow(/#7 left Doing and Review: a message tied to its round needs it in Doing or Review/)
+      expect(await states()).toEqual([])
+      // In Doing: tied to round 1, queued while the agent works; saved with its round.
+      card.column = 'doing'
+      expect(await tied('Round 1: also cover the empty case.')).toEqual({ id: 'm1', fate: 'queued', queued: 1, round: 1 })
+      expect((await deliveries.deliveriesOf(alpha, 'b1'))[0]).toMatchObject({ card: 7, round: 1 })
+      expect(JSON.parse(readFileSync(join(alpha, '.hive', 'deliveries.json'), 'utf8')).deliveries[0]).toMatchObject({ card: 7, round: 1 })
+      // Its first hand-in (into Review, round 1 still): still relevant.
+      card.column = 'review'
+      await deliveries.sweepStaleForTests()
+      expect(await states()).toEqual(['m1 queued'])
+      // The card can't be read for a moment (its workspace closing): not stale on that account.
+      readable = false
+      card.column = 'passed'
+      await deliveries.sweepStaleForTests()
+      expect(await states()).toEqual(['m1 queued'])
+      // It passed: stale, with why, never offered to the idle agent, and its inbox gives nothing of it.
+      readable = true
+      await deliveries.sweepStaleForTests()
+      expect(await states()).toEqual(['m1 stale: #7 passed review'])
       st.status = 'ready'
       await tryAll()
-      expect(st.typed).toHaveLength(1)
-      // Submitted (its CLI's count goes up): the wake goes in, alone.
-      cli.count++
-      await tryAll()
-      expect(st.typed.at(-1)).toBe(bell('1 card event', 'm2'))
+      expect(st.typed).toEqual([])
+      expect(await deliveries.readInbox(alpha, 'b1')).toEqual({ items: [], unacked: [] })
+      // Its doorbell already rung: a new round starting before the agent reads it leaves the read nothing (the gate checks it).
+      card.column = 'doing'
+      expect((await tied('Round 1 again.')).fate).toBe('typed')
+      expect(st.typed).toEqual([bell('1 message (#7)', 'm2')])
+      card.history.push({ at: new Date().toISOString(), by: 'HR2 (alpha)', what: 'Review failed' })
+      expect(await deliveries.readInbox(alpha, 'b1')).toEqual({ items: [], unacked: [] })
+      expect((await states()).at(-1)).toBe('m2 stale: #7 is in round 2 now')
+      // One for round 2, while the card is in Review after that failed verdict: given.
+      card.column = 'review'
+      st.status = 'ready'
+      expect(await tied('Round 2: the finding is about retries.')).toMatchObject({ id: 'm3', fate: 'typed', round: 2 })
+      expect((await deliveries.readInbox(alpha, 'b1')).items.map((x) => `${x.ids.join()} ${x.text}`)).toEqual(['m3 Round 2: the finding is about retries.'])
     } finally {
-      writer.testHooks.takeMs = undefined
-      for (const k of ['promptsTaken', 'holdForConfirm', 'lineNotTaken', 'userTypedOverLine', 'submitAgain', 'clearTyped']) delete (sessions as unknown as Record<string, unknown>)[k]
-      Object.assign(sessions, { sendPrompt: before.sendPrompt, promptsTaken: () => null })
-      await vi.waitFor(() => expect(writer.confirmsInFlight()).toBe(0), { timeout: HUNG_MS })
+      deliveries.setCardReaderForTests(null)
     }
   })
 

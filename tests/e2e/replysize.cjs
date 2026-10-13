@@ -373,6 +373,8 @@ const prose = (seed, n) => {
   await lib.until(async () => (await live(path.join(ws, 'beta'), (await inv('workspace:refresh')).projects.find((p) => p.name === 'beta').agents.find((a) => a.name === 'Helper').id))?.status === 'finished', 15000) // its turn over: stopping a working agent would ask the user
   const msg = measure('hive_message_agent', tool('hive_message_agent', { project: 'beta', agent: 'Helper', text: 'turn 2' }, 'assistant'), 200)
   check('a message to an idle agent is told at once, with its id', /^Told Helper now \(m\d+\): it reads it with hive_inbox\.$/.test(msg), msg)
+  // Until Helper reads it, a told message can still be cancelled (#650): nothing waits once it is received (#681).
+  await lib.until(() => ['received', 'acked'].includes(JSON.parse(tool('hive_agent_activity', { project: 'beta', agent: 'Helper' }, 'assistant').text).inbox?.deliveries?.at(-1)?.state), HUNG_MS)
   check('cancel with nothing waiting says so', measure('hive_message_agent (cancel)', tool('hive_message_agent', { project: 'beta', agent: 'Helper', cancel: true }, 'assistant'), 100) === 'No message was waiting for Helper.', texts['hive_message_agent (cancel)'])
   await lib.until(async () => (await live(path.join(ws, 'beta'), (await inv('workspace:refresh')).projects.find((p) => p.name === 'beta').agents.find((a) => a.name === 'Helper').id))?.status === 'finished', 15000)
   measure('hive_stop_agent', tool('hive_stop_agent', { project: 'beta', agent: 'Helper' }, 'assistant'), 300)

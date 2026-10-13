@@ -69,16 +69,14 @@ export function whyNoLine(projectPath: string, agentId: string, need: DeliveryNe
 export const canTypeLine = (projectPath: string, agentId: string, need: DeliveryNeed = 'idle'): boolean => whyNoLine(projectPath, agentId, need) === null
 
 /**
- * What a typed line carries, for its confirmation (#530, #647): `still`, whether it may still be submitted, asked before
- * Enter is pressed again; `withdrawn` when it may not and the line was cleared instead (or left, the user's draft in it);
- * `confirming` with the launch and prompt count it was typed at while the confirmation runs, and `settled` once that has
- * ended; `taken` once its CLI took it (#650: not a receipt, the doorbell carries no text), never for a launch that ended first;
- * `lost` when that launch ended (or another began) before its CLI took it.
+ * What the delivery service follows of a typed line (#647, #650): `confirming` with the launch and prompt count it was
+ * typed at while the confirmation runs, and `settled` once that has ended; `taken` once its CLI took it (not a receipt:
+ * the doorbell carries no text), never for a launch that ended first; `lost` when that launch ended (or another began)
+ * before its CLI took it. Nothing decides whether it may still be submitted (#652): Hive's lines are the doorbell, fixed
+ * words and ids, whose Enter again gives nothing that may no longer be given (hive_inbox checks each delivery as it is
+ * read), or the user's own task.
  */
-export interface RideCheck {
-  still: () => boolean
-  /** `left`: the line is still in its prompt (the user's draft is in it, or it couldn't be cleared). */
-  withdrawn: (left: boolean) => void
+export interface LineFollow {
   confirming?: (before: { runId: string; count: number }) => void
   settled?: () => void
   taken?: () => void
@@ -90,7 +88,7 @@ export interface RideCheck {
  * waiting there; one at a time per agent; checked to be taken (#376). `wanted` is asked again before every piece and
  * before Enter. Whether it was typed (false: try again later).
  */
-export async function typeLine(projectPath: string, agentId: string, line: string, wanted: () => boolean, opts: { ride?: RideCheck; need?: DeliveryNeed } = {}): Promise<boolean> {
+export async function typeLine(projectPath: string, agentId: string, line: string, wanted: () => boolean, opts: { follow?: LineFollow; need?: DeliveryNeed } = {}): Promise<boolean> {
   const key = agentKey(projectPath, agentId)
   const need = opts.need ?? 'idle'
   if (!canTypeLine(projectPath, agentId, need) || !wanted()) return false
@@ -107,7 +105,7 @@ export async function typeLine(projectPath: string, agentId: string, line: strin
       before = sessions.promptsTaken(projectPath, agentId)
     })
     log.info(`Woke ${userText(agentId)}: ${userText(line.slice(0, 80))}`)
-    if (before) inBackground('checking a wake was taken', confirmTaken(projectPath, agentId, before, line, opts.ride))
+    if (before) inBackground('checking a wake was taken', confirmTaken(projectPath, agentId, before, line, opts.follow))
     return true
   } catch (e) {
     log.info(`Wake for ${userText(agentId)} put off: ${(e as Error).message}`)
@@ -122,19 +120,19 @@ export async function typeLine(projectPath: string, agentId: string, line: strin
  * wake stayed in its prompt, unsent, for hours, while its watch had ended. Not taken in time, Enter is pressed again,
  * once; still not taken, it is logged, and the agent's cards show as stalled when its loop is checked (loopCheck.ts).
  */
-export async function confirmTaken(projectPath: string, agentId: string, before: { runId: string; count: number }, line: string, ride?: RideCheck): Promise<boolean> {
+export async function confirmTaken(projectPath: string, agentId: string, before: { runId: string; count: number }, line: string, follow?: LineFollow): Promise<boolean> {
   // Nothing more is typed into it while this runs, however long (#430): released when it ends (taken, or marked).
   const release = sessions.holdForConfirm(projectPath, agentId, before.runId)
-  ride?.confirming?.(before)
+  follow?.confirming?.(before)
   confirmsRunning++
   try {
-    const r = await confirming(projectPath, agentId, before, line, ride)
-    if (r === 'taken') ride?.taken?.()
-    else if (r === 'gone') ride?.lost?.()
+    const r = await confirming(projectPath, agentId, before, line)
+    if (r === 'taken') follow?.taken?.()
+    else if (r === 'gone') follow?.lost?.()
     return r === 'taken' || r === 'gone'
   } finally {
     confirmsRunning--
-    ride?.settled?.()
+    follow?.settled?.()
     release?.()
   }
 }
@@ -142,7 +140,7 @@ let confirmsRunning = 0
 /** How many typed lines are being checked for being taken now: tests wait for none, after which no Enter comes. */
 export const confirmsInFlight = (): number => confirmsRunning
 
-async function confirming(projectPath: string, agentId: string, before: { runId: string; count: number }, line: string, ride?: RideCheck): Promise<'taken' | 'gone' | 'withdrawn' | 'kept' | false> {
+async function confirming(projectPath: string, agentId: string, before: { runId: string; count: number }, line: string): Promise<'taken' | 'gone' | false> {
   const t0 = Date.now()
   const taken = (): 'taken' | 'gone' | false => {
     const now = sessions.promptsTaken(projectPath, agentId)
@@ -167,27 +165,10 @@ async function confirming(projectPath: string, agentId: string, before: { runId:
   // Enter again, once, when that is safe (the same launch, idle, nobody typing there, Hive not typing): waited for a
   // while rather than given up at once (#430). Never a third Enter.
   let retried = false
-  let withheld = false
   for (const end = Date.now() + 6 * takeMs(); ; ) {
     const t = taken()
     if (t) return t
-    // What the line carries may no longer be sent (#530: its sender's Control turned down, its session ended; #647:
-    // expired, cancelled, the agent in another conversation): never submitted by this Enter. The line is cleared when
-    // that is safe (as an Enter would be).
-    if (ride && !ride.still()) {
-      withheld = true
-      // The user has typed into it since (round 3 finding): their draft, not Hive's line to clear or offer for Enter.
-      if (sessions.userTypedOverLine(projectPath, agentId)) {
-        ride.withdrawn(true)
-        log.info(`Left the line typed into ${userText(agentId)} as it is: what rode it may no longer be sent, and the user has typed there since`)
-        return 'kept'
-      }
-      if (sessions.clearTyped(projectPath, agentId, before.runId)) {
-        ride.withdrawn(false)
-        log.info(`Cleared the line typed into ${userText(agentId)}: what rode it may no longer be sent`)
-        return 'withdrawn'
-      }
-    } else if (sessions.submitAgain(projectPath, agentId, before.runId)) {
+    if (sessions.submitAgain(projectPath, agentId, before.runId)) {
       retried = true
       break
     }
@@ -199,13 +180,7 @@ async function confirming(projectPath: string, agentId: string, before: { runId:
     const again = await waitTaken()
     if (again) return again
     log.warn(`The wake typed into ${userText(agentId)} still wasn't taken: it may be waiting in its prompt`)
-  } else log.warn(`The wake typed into ${userText(agentId)} wasn't taken, and Enter couldn't be pressed again (${withheld ? 'what rode it may no longer be sent, and the line could not be cleared' : 'busy, or the user typing there'})`)
-  // What it carries may no longer be sent and it couldn't be cleared: never offered for Enter (the user isn't asked to
-  // send it).
-  if (withheld) {
-    ride!.withdrawn(true)
-    return 'kept'
-  }
+  } else log.warn(`The wake typed into ${userText(agentId)} wasn't taken, and Enter couldn't be pressed again (busy, or the user typing there)`)
   // Shown in its pane, the user told once, and nothing more typed into it until it is taken (#430).
   sessions.lineNotTaken(projectPath, agentId, before.runId, line, retried)
   return false

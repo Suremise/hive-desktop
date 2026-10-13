@@ -30,7 +30,7 @@ const item = (r: DeliveryRecord): NoticeItem => ({ id: r.id, kind: r.kind, ...(r
 
 /** The notice for a launch at a checkpoint or its turn's end; null when there is nothing (new) to tell. */
 export async function noticeFor(st: LiveSessionState, at: 'checkpoint' | 'drain'): Promise<string | null> {
-  // One that can't read an inbox (its hive tools off) is typed what it is given in full instead: nothing to tell it here.
+  // One that can't read an inbox (its hive tools off) is given no delivery (#650's decision): nothing to tell it here.
   if (!agentReadsInbox(st.projectPath, st.agentId)) return null
   const unread = await unreadFor(st)
   if (!unread.length) return null

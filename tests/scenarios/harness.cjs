@@ -405,13 +405,14 @@ async function runScenario(sc, providerKey, opts = {}) {
       },
       /**
        * Leaves one of alpha's agents ('coder') a message as the Assistant does (#650): hive_message_agent through the real
-       * hive MCP server with the Assistant's own token (the Assistant started first if it isn't). Its reply's text.
+       * hive MCP server with the Assistant's own token (the Assistant started first if it isn't); `extra`: more of the tool's
+       * arguments (#652: `card`). Its reply's text.
        */
-      assistantMessage: async (key, text) => {
+      assistantMessage: async (key, text, extra = {}) => {
         await ctx.startAssistant()
         const tokenFile = path.join(userData, 'assistant-api', `${require('crypto').createHash('sha256').update(ws.toLowerCase()).digest('hex').slice(0, 16)}.json`)
         const out = execFileSync(process.execPath, [path.join(lib.ROOT, 'out', 'main', 'hive-mcp.js')], {
-          input: JSON.stringify({ jsonrpc: '2.0', id: 1, method: 'tools/call', params: { name: 'hive_message_agent', arguments: { project: 'alpha', agent: ctx.agents[key].name, text } } }) + '\n',
+          input: JSON.stringify({ jsonrpc: '2.0', id: 1, method: 'tools/call', params: { name: 'hive_message_agent', arguments: { project: 'alpha', agent: ctx.agents[key].name, text, ...extra } } }) + '\n',
           env: lib.childEnv({ HIVE_API_URL: `http://127.0.0.1:${port}`, HIVE_WORKSPACE: ws, HIVE_ROLE: 'assistant', HIVE_ASSISTANT_CONTROL: 'agents', HIVE_API_TOKEN_FILE: tokenFile, HIVE_API_TOKEN: '', HIVE_PROJECT: '' }),
           timeout: 60000
         }).toString()
