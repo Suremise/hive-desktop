@@ -10,7 +10,7 @@
  * subscriber (the user's own recording, #638), never of an agent; secrets are masked even then.
  */
 import type { ProviderId } from './types'
-import { maskSecrets } from './redact'
+import { maskSecrets, maskText } from './redact'
 
 /** Who sends the events: one agent's session (the Assistant's too), or Hive itself in a workspace. */
 export type ConsoleSourceKind = 'session' | 'assistant' | 'hive'
@@ -270,7 +270,11 @@ function copy(v: unknown, key: string, ctx: Context, safe: SafeFields | true | u
 
 function redactString(s: string, safe: boolean, opts: RedactOptions): string {
   if (!s) return s
-  if (opts.includeText) return maskSecrets(s.length > TEXT_MAX ? `${s.slice(0, TEXT_MAX)}…` : s)
+  // Masked whole, then cut: a cut could leave part of a secret too short to be recognised.
+  if (opts.includeText) {
+    const t = maskText(s)
+    return t.length > TEXT_MAX ? `${t.slice(0, TEXT_MAX)}…` : t
+  }
   if (safe && (IDENTIFIER.test(s) || PATH.test(s) || ISO_TIME.test(s))) return maskSecrets(s)
   return hidden(s)
 }
@@ -289,12 +293,28 @@ export const hiveName = (v: unknown, max = 40): string => (typeof v === 'string'
 const NAME_MAX = 80
 const SUMMARY_MAX = 300
 
-/** An event as kept: its payloads redacted and bounded, its size counted, never over EVENT_MAX_BYTES. */
+/**
+ * Every string and field name of a payload as redacted, masked as free text (`maskText`, redact.ts): whatever field a
+ * secret sits in, and whatever the text setting kept. Bounded as the payload is (redactPayload's depth, items, keys).
+ */
+function maskAll(v: unknown): unknown {
+  if (typeof v === 'string') return maskText(v)
+  if (!v || typeof v !== 'object') return v
+  if (Array.isArray(v)) return v.map(maskAll)
+  return Object.fromEntries(Object.entries(v as Record<string, unknown>).map(([k, x]) => [maskText(k), maskAll(x)]))
+}
+
+/**
+ * An event as kept: its payloads redacted and bounded, its size counted, never over EVENT_MAX_BYTES. The last step
+ * before its size is bounded (which only cuts) is secret masking over every string the console shows, records or gives
+ * an agent: name, summary, every payload string and field name, text kept or not (#699). Its source is Hive's own key
+ * (a project's folder and an agent's id, never a CLI's), compared, never shown.
+ */
 export function makeEvent(seq: number, at: string, source: string, c: CapturedEvent, opts: RedactOptions = {}): ConsoleEvent {
-  const e: ConsoleEvent = { seq, at, source: source.slice(0, 600), kind: c.kind, name: hiveName(c.name, NAME_MAX), summary: hiveName(c.summary, SUMMARY_MAX), bytes: 0 }
+  const e: ConsoleEvent = { seq, at, source: source.slice(0, 600), kind: c.kind, name: maskText(hiveName(c.name, NAME_MAX)), summary: maskText(hiveName(c.summary, SUMMARY_MAX)), bytes: 0 }
   if (c.provider) e.provider = c.provider
-  if (c.raw !== undefined) e.raw = redactPayload(c.raw, opts, c.safe?.raw)
-  if (c.made !== undefined) e.made = redactPayload(c.made, opts, c.safe?.made)
+  if (c.raw !== undefined) e.raw = maskAll(redactPayload(c.raw, opts, c.safe?.raw))
+  if (c.made !== undefined) e.made = maskAll(redactPayload(c.made, opts, c.safe?.made))
   e.bytes = jsonBytes(e)
   if (e.bytes > EVENT_MAX_BYTES) {
     if (e.raw !== undefined) e.raw = outline(e.raw)

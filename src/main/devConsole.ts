@@ -8,8 +8,10 @@ import { ConsoleRing, hiveSourceId, makeEvent, sessionSourceId, type CapturedEve
  *
  * Subscribers are the console's windows (and, with #638, their recordings). Readers (agents' and the Assistant's hive
  * tools) subscribe to nothing: they read what an open console is capturing, and are told when it isn't. Every event is
- * redacted as it is kept (shared/devConsole.ts); a subscriber that opted into text (the user's own recording) is sent a
- * second copy with text kept, and only it.
+ * redacted as it is kept (shared/devConsole.ts); a subscriber that opted into text (the user's own recording, or a window
+ * while Settings → Advanced → Developer console: show text is on, #699) is sent a second copy with text kept, and only it.
+ * While a source has such a subscriber, those copies are kept in a ring of their own too, which only text subscribers
+ * read (a window's backlog after a pause); readers only ever get the redacted ring.
  */
 
 /** At most this many sources per subscriber, and this many subscribers: each holds rings while it lasts. */
@@ -22,7 +24,7 @@ export const QUEUE_MAX_BYTES = 1024 * 1024
 export interface ConsoleSubscription {
   /** Live events as they are kept, batched after the current task; `dropped`: how many didn't fit its queue since the last batch. */
   deliver?: (events: ConsoleEvent[], dropped: number) => void
-  /** Keep text in the events it is sent (the user's own recording, never a reader). */
+  /** Keep text in the events it is sent (the user's own recording, or a window while the setting is on; never a reader). */
   includeText?: boolean
 }
 
@@ -38,6 +40,8 @@ export class DevConsole {
   private subs = new Map<string, Subscriber>()
   /** Sources with a subscriber that keeps text, by how many such subscribers. */
   private textual = new Map<string, number>()
+  /** The events with text of each source in `textual`, kept from its first text subscriber to its last. */
+  private textRings = new Map<string, ConsoleRing>()
   private seq = 0
   private flushing = false
 
@@ -73,6 +77,7 @@ export class DevConsole {
       const e = makeEvent(++this.seq, at, source, c)
       this.rings.get(source)!.push(e)
       const withText = this.textual.get(source) ? makeEvent(e.seq, at, source, c, { includeText: true }) : null
+      if (withText) this.textRings.get(source)?.push(withText)
       for (const sub of this.subs.values()) if (sub.deliver && sub.sources.has(source)) this.enqueue(sub, sub.includeText && withText ? withText : e)
     }
     this.scheduleFlush()
@@ -80,7 +85,8 @@ export class DevConsole {
 
   /**
    * Starts or changes a subscription: `sources` replaces its list (capture starts for the new ones and stops for those
-   * no other subscriber watches). Returns each source's events so far (redacted), oldest first.
+   * no other subscriber watches). Returns each source's events so far, oldest first: redacted, or for a subscriber that
+   * keeps text, with text where it was kept since the source's first text subscriber.
    */
   subscribe(id: string, sources: string[], opts: ConsoleSubscription = {}): Map<string, ConsoleEvent[]> {
     const wanted = new Set(sources.slice(0, MAX_SOURCES))
@@ -92,9 +98,35 @@ export class DevConsole {
     const sub: Subscriber = { ...opts, sources: wanted, queue: [], queueBytes: 0, dropped: 0 }
     this.subs.set(id, sub)
     for (const s of wanted) if (!this.rings.has(s)) this.rings.set(s, new ConsoleRing())
-    if (sub.includeText) for (const s of wanted) this.textual.set(s, (this.textual.get(s) ?? 0) + 1)
+    if (sub.includeText) for (const s of wanted) this.retext(s)
     if (old) for (const s of old.sources) if (!wanted.has(s)) this.dropIfUnwatched(s)
-    return new Map([...wanted].map((s) => [s, this.rings.get(s)!.all()]))
+    return new Map([...wanted].map((s) => [s, this.withTextFor(sub, s, this.rings.get(s)!.all())]))
+  }
+
+  /**
+   * Turns text on or off for a subscription as it is (a window when the setting changes). Turned off, nothing with text
+   * is sent to it again: what waits to be sent is dropped (the window reads the redacted ring again). Returns whether it
+   * changed.
+   */
+  setIncludeText(id: string, on: boolean): boolean {
+    const sub = this.subs.get(id)
+    if (!sub || !!sub.includeText === on) return false
+    sub.includeText = on
+    for (const s of sub.sources) {
+      if (on) this.retext(s)
+      else this.untext(s)
+    }
+    if (!on) {
+      sub.queue = []
+      sub.queueBytes = 0
+      sub.dropped = 0
+    }
+    return true
+  }
+
+  /** Whether a subscription keeps text. */
+  includesText(id: string): boolean {
+    return !!this.subs.get(id)?.includeText
   }
 
   /**
@@ -132,6 +164,13 @@ export class DevConsole {
     return this.rings.get(source)?.since(since, limit) ?? []
   }
 
+  /** What a subscriber reads of a source it watches after `since`: redacted, or with text where kept when it keeps text. */
+  eventsFor(id: string, source: string, since = 0): ConsoleEvent[] {
+    const sub = this.subs.get(id)
+    if (!sub?.sources.has(source)) return []
+    return this.withTextFor(sub, source, this.events(source, since))
+  }
+
   event(source: string, seq: number): ConsoleEvent | undefined {
     return this.rings.get(source)?.find(seq)
   }
@@ -141,17 +180,22 @@ export class DevConsole {
     return this.rings.get(source)?.count ?? 0
   }
 
-  /** What is captured now: sources, events and bytes, and what waits to be sent (diagnostics and tests). */
-  stats(): { sources: number; events: number; bytes: number; subscribers: number; queued: number } {
+  /** What is captured now: sources, events (and those kept with text too) and bytes, and what waits to be sent (diagnostics and tests). */
+  stats(): { sources: number; events: number; textEvents: number; bytes: number; subscribers: number; queued: number } {
     let events = 0
     let bytes = 0
     for (const r of this.rings.values()) {
       events += r.count
       bytes += r.bytes
     }
+    let textEvents = 0
+    for (const r of this.textRings.values()) {
+      textEvents += r.count
+      bytes += r.bytes
+    }
     let queued = 0
     for (const s of this.subs.values()) queued += s.queue.length
-    return { sources: this.rings.size, events, bytes, subscribers: this.subs.size, queued }
+    return { sources: this.rings.size, events, textEvents, bytes, subscribers: this.subs.size, queued }
   }
 
   /** Queues an event for a subscriber within its bounds: the oldest waiting go first, and are counted. */
@@ -164,16 +208,31 @@ export class DevConsole {
     }
   }
 
+  /** Redacted events with each one's copy with text put in their place, for a subscriber that keeps text. */
+  private withTextFor(sub: Subscriber, source: string, events: ConsoleEvent[]): ConsoleEvent[] {
+    const ring = sub.includeText ? this.textRings.get(source) : undefined
+    return ring?.count ? events.map((e) => ring.find(e.seq) ?? e) : events
+  }
+
+  private retext(s: string): void {
+    this.textual.set(s, (this.textual.get(s) ?? 0) + 1)
+    if (!this.textRings.has(s)) this.textRings.set(s, new ConsoleRing())
+  }
+
   private untext(s: string): void {
     const n = (this.textual.get(s) ?? 0) - 1
     if (n > 0) this.textual.set(s, n)
-    else this.textual.delete(s)
+    else {
+      this.textual.delete(s)
+      this.textRings.delete(s)
+    }
   }
 
   private dropIfUnwatched(source: string): void {
     for (const sub of this.subs.values()) if (sub.sources.has(source)) return
     this.rings.delete(source)
     this.textual.delete(source)
+    this.textRings.delete(source)
   }
 
   private scheduleFlush(): void {
