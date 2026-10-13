@@ -184,13 +184,6 @@ interface LiveSession {
    * the transcript is dropped if one came after the read began, as that hook says something newer (#475).
    */
   hooksSeen?: number
-  /**
-   * Notices in hooks (#650), decided as each hook arrives (before its turn in the queue, as its reply is): the turn its
-   * newest prompt began (its native id, or for a CLI without ids the prompts arrived so far), the native ids seen (a
-   * prompt naming one again begins nothing, as in the turn ledger), and the turns whose Stop was drained already
-   * (reserved before the notice is worked out, so two Stops of one turn never both carry it on).
-   */
-  notices?: { turn: string | null; prompts: number; drained: string[]; ids: string[] }
   /** When the cost estimate was last worked out (providers that don't report cost, or the user's prices: #436). */
   costAt?: number
   /** The cost the CLI last reported for this launch, kept while the user's prices are shown instead (#436). */
@@ -3257,63 +3250,51 @@ class SessionManager {
   inboxNotice: ((state: LiveSessionState, at: 'checkpoint' | 'drain') => Promise<string | null> | string | null) | null = null
 
   /**
-   * What Hive answers a hook call with, before handling it (the hook server sends it, then calls handleHook with it): a
-   * PreToolUse's file-lock decision (made at once, before anything is awaited: it claims locks in the order hooks came),
-   * a notice after a tool call, a Stop's drain, else nothing. A notice goes only to the agent's own turn (not a
-   * sub-agent's, whose context isn't the agent's), and the drain at most once a turn: not to a Stop that follows a
-   * continuation (stop_hook_active), nor one of a turn Hive carried on already.
+   * What Hive answers a hook call with (the hook server sends it, then calls handleHook with the same body): a
+   * PreToolUse's file-lock decision (made at once, before anything is awaited: it claims locks in the order hooks came);
+   * for a hook that may carry a notice (a tool's end, a Stop: noticeReply), a reply decided in the launch's hook order by
+   * handleHookNow, once the turn ledger has the hooks before it (#650: the ledger's verdict and turn, never a view of its
+   * own); else nothing.
    */
-  async hookReply(runId: string | null, body: Record<string, any>): Promise<Record<string, unknown> | null> {
+  hookReply(runId: string | null, body: Record<string, any>): Promise<Record<string, unknown> | null> {
     const lock = body.hook_event_name === 'PreToolUse' ? this.preToolUse(runId, body) : null
-    if (lock || !this.inboxNotice) return lock
+    if (lock || !this.inboxNotice) return Promise.resolve(lock)
     const l = this.findLaunch(runId, body.session_id)?.[1]
-    if (!l) return null
+    if (!l) return Promise.resolve(null)
     const hook = l.adapter.normalizeHook(body)
     const ev = hook.event
-    if (hook.ids.sub) return null
-    // The turn this hook is of, as hooks arrive (the ledger follows them later, in the launch's queue): a prompt begins
-    // one; a hook naming another turn than the newest prompt's is a late one of an earlier turn, and gets no notice.
-    const seen = (l.notices ??= { turn: null, prompts: 0, drained: [], ids: [] })
-    if (ev.kind === 'prompt') {
-      // Hive's own drain taken as a prompt (Copilot): in the turn it carries on, never a new one.
-      if (l.adapter.drainIsPrompt && ev.text && l.ledger?.injected.includes(ev.text.replace(/\s+/g, ' ').trim())) return null
-      // As the turn ledger admits prompts: a native id seen before (the turn's own, again, or an earlier turn's, late)
-      // begins nothing; only a new one, or any prompt of a CLI that names no turn, is a new prompt generation.
-      if (hook.ids.turn && seen.ids.includes(hook.ids.turn)) return null
-      if (hook.ids.turn) seen.ids = [...seen.ids.slice(-49), hook.ids.turn]
-      seen.prompts++
-      seen.turn = hook.ids.turn
-      return null
-    }
-    if (hook.ids.turn && seen.turn && hook.ids.turn !== seen.turn) return null
-    // The prompt generation this hook belongs to, as it arrived: a newer prompt meanwhile makes its notice the old turn's.
-    const generation = seen.prompts
-    const turn = hook.ids.turn ?? seen.turn ?? `prompt ${generation}`
-    let at: 'checkpoint' | 'drain'
-    if (ev.kind === 'toolEnd') at = 'checkpoint'
-    else if (ev.kind === 'stop' && !ev.failed && !hook.ids.continued && !seen.drained.includes(turn)) at = 'drain'
-    else return null
-    const event = String(body.hook_event_name ?? '')
-    // An event this CLI can't carry a notice on is never asked about (nothing is marked as told).
-    if (!l.adapter.noticeReply(event, NOTICE_PREFIX)) return null
-    // Once a turn: reserved now, before the notice is worked out, so a second Stop of this turn arriving meanwhile has
-    // none (released if there is nothing to drain).
-    if (at === 'drain') seen.drained = [...seen.drained.slice(-19), turn]
-    try {
-      const text = await this.inboxNotice(l.state, at)
-      // Still that launch, and that turn the newest (no prompt came while the notice was worked out, with an id or none):
-      // else nothing goes to the old turn, its reservation is let go, and nothing is taken as Hive's own text.
-      const still = this.findLaunch(runId, body.session_id)?.[1] === l && seen.prompts === generation && (!hook.ids.turn || seen.turn === hook.ids.turn)
-      const reply = text && still ? l.adapter.noticeReply(event, text) : null
-      if (!reply && at === 'drain') seen.drained = seen.drained.filter((t) => t !== turn)
-      // A CLI that takes the drain as a new prompt: that prompt is Hive's own, in the turn it carries on.
-      if (reply && at === 'drain' && l.adapter.drainIsPrompt) expectInjected((l.ledger ??= newLedger()), text!)
-      return reply
-    } catch (e) {
-      if (at === 'drain') seen.drained = seen.drained.filter((t) => t !== turn)
-      log.warn(`${userText(this.label(l.state))}: no inbox notice`, e)
-      return null
-    }
+    // Never a sub-agent's (its context isn't the agent's), nor a Stop that follows a continuation (stop_hook_active).
+    if (hook.ids.sub || !(ev.kind === 'toolEnd' || (ev.kind === 'stop' && !ev.failed && !hook.ids.continued))) return Promise.resolve(null)
+    // An event this CLI can't carry a notice on is never asked about.
+    if (!l.adapter.noticeReply(String(body.hook_event_name ?? ''), NOTICE_PREFIX)) return Promise.resolve(null)
+    return new Promise((settle) => this.noticeReplies.set(body, settle))
+  }
+
+  /** Hook calls whose reply waits for its place in the launch's hook order (hookReply), by their body. */
+  private noticeReplies = new WeakMap<object, (reply: Record<string, unknown> | null) => void>()
+
+  /**
+   * The notice for a hook in the launch's order (#650), with the turn ledger as it is just before it (nothing else of the
+   * launch is handled while this is worked out): none for a hook the ledger finds stale; a checkpoint after the agent's
+   * own tool call; the drain at a Stop of the running turn that Hive hasn't carried on yet (the ledger's own count, so at
+   * most once a turn, whatever a Stop says of it). Null when there is nothing to tell.
+   */
+  private async noticeIn(runId: string | null, l: LiveSession, ledger: TurnLedger, body: Record<string, any>, woke: boolean, at: number): Promise<Record<string, unknown> | null> {
+    if (!this.inboxNotice) return null
+    const hook = l.adapter.normalizeHook(body)
+    const ev = hook.event
+    // What the ledger would make of it (a copy: it is admitted below, with what it was told).
+    if (admit(structuredClone(ledger), ev, hook.ids, { woke, now: at }).verdict === 'stale') return null
+    const drain = ev.kind === 'stop'
+    if (drain && !(ledger.active && ledger.active.state === 'running' && ledger.active.continued === 0)) return null
+    const turn = ledger.active
+    const text = await this.inboxNotice(l.state, drain ? 'drain' : 'checkpoint')
+    // Still that launch and that turn (the queue holds the rest of the launch's hooks, so only its end can change them).
+    if (!text || this.findLaunch(runId, body.session_id)?.[1] !== l || ledger.active !== turn) return null
+    const reply = l.adapter.noticeReply(String(body.hook_event_name ?? ''), text)
+    // A CLI that takes the drain as a new prompt: that prompt is Hive's own, in the turn it carries on.
+    if (reply && drain && l.adapter.drainIsPrompt) expectInjected(ledger, text)
+    return reply
   }
 
   /**
@@ -3345,7 +3326,22 @@ class SessionManager {
   }
 
   private async handleHookNow(runId: string | null, body: Record<string, any>, arrived: number, hooksBefore: number, replying: unknown = null, at = Date.now()): Promise<void> {
-    const reply = await Promise.resolve(replying).catch(() => null)
+    // A reply decided here, in the launch's order (#650: a notice), is sent as soon as it is known, and always at the end.
+    const pending = this.noticeReplies.get(body)
+    this.noticeReplies.delete(body)
+    let reply: unknown = pending ? null : await Promise.resolve(replying).catch(() => null)
+    try {
+      await this.handleHookIn(runId, body, arrived, hooksBefore, at, reply, pending ? (r) => {
+        reply = r
+        pending(r)
+      } : null)
+    } finally {
+      pending?.((reply as Record<string, unknown> | null) ?? null)
+    }
+  }
+
+  private async handleHookIn(runId: string | null, body: Record<string, any>, arrived: number, hooksBefore: number, at: number, given: unknown, decide: ((reply: Record<string, unknown> | null) => void) | null): Promise<void> {
+    let reply = given
     const found = this.findLaunch(runId, body.session_id)
     if (!found) return
     const [id, l] = found
@@ -3376,12 +3372,20 @@ class SessionManager {
     // The turn ledger first (#648): a hook about a turn that is over is old news, and a Stop Hive carried on isn't an end.
     const ledger = (l.ledger ??= newLedger())
     const ids = hook.ids
-    const continued = hook.event.kind === 'stop' && !hook.event.failed && !!reply && typeof reply === 'object' && l.adapter.stopContinues(reply as Record<string, unknown>)
     const before = st.status
     // A CLI that wakes when its background tasks end begins that turn itself: while its transcript says one just ended
     // (never merely because one runs), a tool call it never saw may open that turn should its prompt hook be lost
     // (turnLedger rule 1).
     const woke = l.adapter.descriptor.capabilities.backgroundWakes && !!l.woke
+    // Its notice (#650), from the ledger as it is now, before it is admitted with what it was told.
+    if (decide) {
+      reply = await this.noticeIn(runId, l, ledger, body, woke, at).catch((e) => {
+        log.warn(`${userText(label)}: no inbox notice`, e)
+        return null
+      })
+      decide(reply as Record<string, unknown> | null)
+    }
+    const continued = hook.event.kind === 'stop' && !hook.event.failed && !!reply && typeof reply === 'object' && l.adapter.stopContinues(reply as Record<string, unknown>)
     const was = ledger.active
     const took = admit(ledger, hook.event, ids, { hiveContinued: continued, woke, now: at })
     if (ledger.active !== was) l.woke = false

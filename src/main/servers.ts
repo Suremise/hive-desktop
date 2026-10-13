@@ -141,10 +141,11 @@ export async function startHookServer(): Promise<string> {
         sessions.handleStatusLine(run, body)
         return
       }
-      // A hook about to edit files waits for Hive's file-lock decision (made at once, in the order hooks came), a tool's
-      // end for a notice of what the agent has unread and a Stop for whether to carry the turn on (#650); other hooks are
-      // answered at once so they never slow the agent down. It is handled in the launch's order from when it came, with
-      // its reply: the turn ledger learns what the Stop was told (#648).
+      // A hook about to edit files waits for Hive's file-lock decision (made at once, in the order hooks came); a tool's
+      // end and a Stop that may carry a notice wait for their place in the launch's hook order, where the turn ledger
+      // decides whose turn they are (#650: a notice of what is unread, or the drain carrying the turn on); other hooks
+      // are answered at once so they never slow the agent down. Each is handled in the launch's order from when it came,
+      // with its reply: the turn ledger learns what the Stop was told (#648).
       const reply = sessions.hookReply(run, body)
       const handled = sessions.handleHook(run, body, reply)
       const answer = await reply.catch((e) => {

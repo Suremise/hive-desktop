@@ -146,14 +146,22 @@ describe('notices in the hook replies (#650)', () => {
     expect(context(await hook(st, { hook_event_name: 'Stop', prompt_id: 'p2', stop_hook_active: false }))).toContain(m.id)
   })
 
-  it('one drain a turn however its hooks arrive: two Stops of a turn while the first is worked out, a late Stop of an earlier turn, a prompt arriving meanwhile (round 1 finding 3)', async () => {
+  it('one drain a turn however its hooks arrive, decided in the launch\'s order from the turn ledger: two Stops of a turn sent at once, a late Stop of an earlier turn, a prompt sent while a Stop\'s notice is worked out (round 1 finding 3)', async () => {
     const st = agent()
     const full = (body: Record<string, unknown>) => ({ session_id: st.sessionId, cwd: p, ...body })
     const stop = (turn: string) => full({ hook_event_name: 'Stop', prompt_id: turn, stop_hook_active: false })
+    // A hook as the hook server sends it, not waited for: its reply, once handled in the launch's order.
+    const send = (body: Record<string, unknown>) =>
+      run(async () => {
+        const reply = sessions.hookReply(st.runId, body)
+        await sessions.handleHook(st.runId, body, reply)
+        return reply
+      })
     const real = sessions.inboxNotice!
     let release = (): void => undefined
     let asked = 0
     const hold = (): void => {
+      asked = 0
       const gate = new Promise<void>((r) => (release = r))
       sessions.inboxNotice = async (state, at) => {
         asked++
@@ -164,31 +172,32 @@ describe('notices in the hook replies (#650)', () => {
     try {
       await hook(st, { hook_event_name: 'UserPromptSubmit', prompt_id: 'p1', prompt: 'go' })
       await leave(st)
-      // Two Stops of p1 arrive before either is handled (the first's notice held): one continuation, asked once.
+      // Two Stops of p1 sent at once, the first's notice held: one continuation, the notice asked once.
       hold()
-      const replies = await run(async () => {
-        const first = sessions.hookReply(st.runId, stop('p1'))
-        const second = sessions.hookReply(st.runId, stop('p1'))
-        release()
-        return Promise.all([first, second])
-      })
-      expect(replies.filter(Boolean).map(context)).toEqual([expect.stringMatching(/^\[Hive\] Before you finish: /)])
+      const first = send(stop('p1'))
+      const second = send(stop('p1'))
+      await vi.waitFor(() => expect(asked).toBe(1), { timeout: 5000 })
+      release()
+      const replies = await Promise.all([first, second])
+      expect(replies.map(context)).toEqual([expect.stringMatching(/^\[Hive\] Before you finish: /), undefined])
       expect(asked).toBe(1)
       sessions.inboxNotice = real
-      // A new prompt (p2): a late Stop of p1 gets nothing; p2's own Stop is drained.
+      // A new prompt (p2): a late Stop of p1 is stale to the ledger, and gets nothing; p2's own Stop is drained.
       await hook(st, { hook_event_name: 'UserPromptSubmit', prompt_id: 'p2', prompt: 'again' })
-      expect(await run(() => sessions.hookReply(st.runId, stop('p1')))).toBeNull()
+      expect(await hook(st, { hook_event_name: 'Stop', prompt_id: 'p1', stop_hook_active: false })).toBeNull()
       expect(context(await hook(st, { hook_event_name: 'Stop', prompt_id: 'p2', stop_hook_active: false }))).toMatch(/^\[Hive\] Before you finish: /)
-      // A prompt arriving while p3's Stop is worked out: that Stop is an earlier turn's by then, and isn't carried on.
+      // A prompt (p4) sent while p3's Stop's notice is worked out waits behind it: the Stop is decided on p3, the turn the
+      // ledger has then; p4 begins after, and has its own drain.
       await hook(st, { hook_event_name: 'UserPromptSubmit', prompt_id: 'p3', prompt: 'more' })
       hold()
-      const late = await run(async () => {
-        const r = sessions.hookReply(st.runId, stop('p3'))
-        await sessions.hookReply(st.runId, full({ hook_event_name: 'UserPromptSubmit', prompt_id: 'p4', prompt: 'and more' }))
-        release()
-        return r
-      })
-      expect(late).toBeNull()
+      const atStop = send(stop('p3'))
+      await vi.waitFor(() => expect(asked).toBe(1), { timeout: 5000 })
+      const next = send(full({ hook_event_name: 'UserPromptSubmit', prompt_id: 'p4', prompt: 'and more' }))
+      release()
+      expect(context(await atStop)).toMatch(/^\[Hive\] Before you finish: /)
+      await next
+      sessions.inboxNotice = real
+      expect(context(await hook(st, { hook_event_name: 'Stop', prompt_id: 'p4', stop_hook_active: false }))).toMatch(/^\[Hive\] Before you finish: /)
     } finally {
       release()
       sessions.inboxNotice = real
@@ -264,35 +273,44 @@ describe('notices in the hook replies (#650)', () => {
     expect(await hook(st, { hook_event_name: 'Stop', prompt_id: 'p2', stop_hook_active: false })).toBeNull()
   })
 
-  it('Copilot (no turn ids): a new prompt while an older Stop is worked out makes it the old turn\'s: no continuation, nothing taken as Hive\'s own, and the new prompt keeps its own drain (round 2 finding)', async () => {
+  it('Copilot (no turn ids): hooks are answered in order from the turn ledger: a prompt sent while a Stop\'s notice is worked out waits behind it, the drain is that turn\'s, and the prompt begins the next turn, with its own drain (round 2 finding)', async () => {
     const cp = agent(copilot)
     const full = (body: Record<string, unknown>) => ({ session_id: cp.sessionId, cwd: p, ...body })
     const stop = full({ hook_event_name: 'Stop', stop_reason: 'end_turn', stop_hook_active: false })
+    const send = (body: Record<string, unknown>) =>
+      run(async () => {
+        const reply = sessions.hookReply(cp.runId, body)
+        await sessions.handleHook(cp.runId, body, reply)
+        return reply
+      })
     await hook(cp, { hook_event_name: 'UserPromptSubmit', prompt: 'first' })
+    const taken = sessions.promptsTaken(p, cp.agentId)?.count ?? 0
     await leave(cp)
     const real = sessions.inboxNotice!
     let release = (): void => undefined
+    let asked = 0
     const gate = new Promise<void>((r) => (release = r))
     sessions.inboxNotice = async (state, at) => {
+      asked++
       await gate
       return real(state, at)
     }
     try {
-      const old = await run(async () => {
-        const r = sessions.hookReply(cp.runId, stop)
-        await sessions.hookReply(cp.runId, full({ hook_event_name: 'UserPromptSubmit', prompt: 'second' }))
-        release()
-        return r
-      })
-      expect(old).toBeNull()
-      expect(s.live.get(`${p.toLowerCase()}#${cp.agentId}`)?.ledger.injected).toEqual([])
+      const atStop = send(stop)
+      await vi.waitFor(() => expect(asked).toBe(1), { timeout: 5000 })
+      const second = send(full({ hook_event_name: 'UserPromptSubmit', prompt: 'second' }))
+      release()
+      const drain = (await atStop) as { decision: string; reason: string }
+      expect(drain).toMatchObject({ decision: 'block', reason: expect.stringMatching(/^\[Hive\] Before you finish: /) })
+      await second
     } finally {
       release()
       sessions.inboxNotice = real
     }
-    // The new prompt's Stop: drained, once.
-    expect(await run(() => sessions.hookReply(cp.runId, stop))).toMatchObject({ decision: 'block', reason: expect.stringMatching(/^\[Hive\] Before you finish: /) })
-    expect(await run(() => sessions.hookReply(cp.runId, stop))).toBeNull()
+    // "second" isn't the drain's text: a new prompt, the next turn, which has its own drain, once.
+    expect(sessions.promptsTaken(p, cp.agentId)?.count).toBe(taken + 1)
+    expect(await hook(cp, { hook_event_name: 'Stop', stop_reason: 'end_turn', stop_hook_active: false })).toMatchObject({ decision: 'block' })
+    expect(await hook(cp, { hook_event_name: 'Stop', stop_reason: 'end_turn', stop_hook_active: false })).toBeNull()
   })
 
   it("Copilot: the drain comes back as a prompt (its hooks name no turn), taken as Hive's own in the turn it carries on", async () => {
