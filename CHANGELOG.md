@@ -2,6 +2,9 @@
 
 ## Unreleased
 
+### Advanced settings
+- **How Claude Code's and Copilot's footers show each permission mode is in Settings → Advanced too.** Hive reads an agent's mode from its footer, and watches it while switching modes with Shift+Tab: if a CLI update renames a mode there, the mode's setting fixes it without waiting for a Hive release.
+
 ### Agents
 - **Waiting for an agent you just started on a task waits for that task.** `hive_wait_for_agents` (and `POST /v1/agents/wait`) called right after starting an agent with a prompt, or giving it one in a new conversation, could answer at once that it was ready: its CLI was up but hadn't begun the task yet. It now counts as working until its CLI takes the task.
 
