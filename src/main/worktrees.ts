@@ -49,10 +49,13 @@ export async function listWorktrees(cwd: string): Promise<{ path: string; branch
   return out
 }
 
-/** A branch name that doesn't exist yet: wanted, else wanted-2, wanted-3… `taken`: names to avoid too (a plan's earlier ones). */
+/**
+ * A branch name that doesn't exist yet: wanted, else wanted-2, wanted-3… `taken`: names to avoid too (a plan's earlier
+ * ones). Case aside: on Windows git keeps branches as files, so hive/HIVE/… and hive/hive/… would be the same one (#703).
+ */
 export async function uniqueBranch(cwd: string, wanted: string, taken: ReadonlySet<string> = new Set()): Promise<string> {
-  const existing = new Set(await localBranches(cwd))
-  const free = (b: string): boolean => !existing.has(b) && !taken.has(b)
+  const existing = new Set([...(await localBranches(cwd)), ...taken].map((b) => b.toLowerCase()))
+  const free = (b: string): boolean => !existing.has(b.toLowerCase())
   if (free(wanted)) return wanted
   for (let i = 2; ; i++) if (free(`${wanted}-${i}`)) return `${wanted}-${i}`
 }

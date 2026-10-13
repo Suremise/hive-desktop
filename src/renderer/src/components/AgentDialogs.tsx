@@ -3,6 +3,7 @@ import { DEFAULT_PROJECT_CONFIG, MAX_AGENTS, ROLE_MAX, effectiveModelLabel, form
 import { PROVIDERS, agentProvider, chosenDefaultProvider, defaultProviderPending, isProviderEnabled, modeCaveat, offeredModes, permissionLabel, projectDefaultProvider, projectProviderConfig, projectUse200k, providerDescriptor, providerName, providerSettings } from '@shared/providers'
 import type { AddAgentOptions, AgentBranchStatus, EffortLevel, MergeResult, PermissionMode, ProjectGitInfo, ProjectInfo, ProviderId, WorktreeMatch } from '@shared/types'
 import { reuseNote } from '@shared/unusedWorktrees'
+import { hiveBranch, reusableBranches } from '@shared/hiveBranches'
 import { nameTaken, nameTakenMessage, sameAgentName, suggestAgentName, workspaceAgentList } from '@shared/agentNames'
 import type { TemplateAgent } from '@shared/templates'
 import { gitFixText, gitProblemText } from '@shared/gitTool'
@@ -162,6 +163,7 @@ export function AddAgentDialog() {
   const project = useStore((s) => s.workspace?.projects.find((p) => p.path === s.addAgentFor) ?? null)
   const settings = useStore((s) => s.settings)
   const workspaceProjects = useStore((s) => s.workspace?.projects)
+  const workspaceName = useStore((s) => s.workspace?.name ?? '')
   // `error`: git couldn't be read, which isn't the same as "not a repository".
   const [git, setGit] = useState<(ProjectGitInfo & { error?: string }) | null>(null)
   const [name, setName] = useState('')
@@ -191,7 +193,8 @@ export function AddAgentDialog() {
     let n = agents.length + 1
     while (everyone.some((a) => sameAgentName(a.name, `Agent ${n}`))) n++
     setName(`Agent ${n}`)
-    setBranch(`hive/agent-${n}`)
+    // hive/<workspace>/<project>/<agent> (#703).
+    setBranch(hiveBranch({ workspace: useStore.getState().workspace?.name ?? '', project: project.name }, `Agent ${n}`))
     setBranchEdited(false)
     setModel('')
     setEffort('')
@@ -227,7 +230,7 @@ export function AddAgentDialog() {
   useEffect(() => {
     setMatch(null)
     const b = branch.trim()
-    if (!path || location !== 'new-worktree' || !b || !base || !git?.worktrees.some((w) => !w.used && w.branch === b)) return
+    if (!path || location !== 'new-worktree' || !b || !base || !git?.worktrees.some((w) => !w.used && !!w.branch && reusableBranches(b, { workspace: workspaceName, project: path.split(/[\\/]/).pop() ?? '' }).includes(w.branch))) return
     let live = true
     const t = setTimeout(() => {
       void call('agents:worktreeMatch', path, b, base)
@@ -238,7 +241,7 @@ export function AddAgentDialog() {
       live = false
       clearTimeout(t)
     }
-  }, [path, location, branch, base, git])
+  }, [path, location, branch, base, git, workspaceName])
 
   // Opened while Hive was still looking for the CLIs: Automatic's pick, once it is known (#506).
   useEffect(() => {
@@ -271,7 +274,7 @@ export function AddAgentDialog() {
 
   const rename = (v: string): void => {
     setName(v)
-    if (!branchEdited) setBranch(`hive/${slugify(v)}`)
+    if (!branchEdited) setBranch(hiveBranch({ workspace: workspaceName, project: project.name }, v))
   }
 
   const add = async (): Promise<void> => {

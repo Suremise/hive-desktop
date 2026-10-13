@@ -886,7 +886,7 @@ export interface ResumeTarget {
 export interface AddAgentOptions {
   name?: string
   location: 'project' | 'new-worktree' | 'existing-worktree'
-  /** new-worktree: branch to create (default hive/<name>) and the branch to base it on (default the current one). */
+  /** new-worktree: branch to create (default hive/<workspace>/<project>/<name>, #703) and the branch to base it on (default the current one). */
   branch?: string
   base?: string
   /** existing-worktree: its folder. */

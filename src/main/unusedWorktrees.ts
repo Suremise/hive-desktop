@@ -5,6 +5,7 @@ import { lstat, readdir, readlink } from 'original-fs/promises'
 import { projectAgents, slugify } from '../shared/defaults'
 import type { AgentBranchStatus, AgentWorktree, MergeResult, SessionRecord, UnusedWorktree, UnusedWorktreeOrigin, UnusedWorktreePreview, UnusedWorktreeRemoval, UnusedWorktrees } from '../shared/types'
 import { lostLines } from '../shared/unusedWorktrees'
+import { agentPart, hiveBranchAgent } from '../shared/hiveBranches'
 import { containsPlace, placeKey, realPath } from './fsutil'
 import { git, gitReading } from './git'
 import { gitProblem } from './gitTool'
@@ -181,17 +182,20 @@ export async function unusedWorktreeCounts(projectPath: string): Promise<{ count
 }
 
 /**
- * The project's unused worktrees named after these agents as Hive names worktrees (`hive/<slug>` in
- * `<worktrees>/<project>/<slug>`, or numbered `-2`…): what a deleted template's worktree agents left (#353's hint).
+ * The project's unused worktrees named after these agents as Hive names worktrees (`hive/<workspace>/<project>/<slug>`,
+ * or `hive/<slug>` from before #703, in `<worktrees>/<project>/<slug>`, or numbered `-2`…): what a deleted template's
+ * worktree agents left (#353's hint).
  */
 export async function unusedWorktreesNamed(projectPath: string, names: string[]): Promise<string[]> {
   const slugs = new Set(names.map(slugify))
+  const parts = new Set(names.map((n) => agentPart(n).toLowerCase()))
   if (!slugs.size) return []
   const root = join(workspaceOf(projectPath).worktreesRoot, basename(projectPath))
   const { listed } = await candidates(projectPath).catch(() => ({ listed: [] as { path: string; branch: string | null }[] }))
   const base = (s: string): string => s.replace(/-\d+$/, '')
+  const home = { workspace: basename(workspaceOf(projectPath).path ?? ''), project: basename(projectPath) }
   return listed
-    .filter((w) => key(resolve(w.path, '..')) === key(root) && slugs.has(base(basename(w.path).toLowerCase())) && !!w.branch && w.branch.startsWith('hive/') && slugs.has(base(w.branch.slice(5))))
+    .filter((w) => key(resolve(w.path, '..')) === key(root) && slugs.has(base(basename(w.path).toLowerCase())) && !!w.branch && parts.has(base(hiveBranchAgent(w.branch, home)?.toLowerCase() ?? '')))
     .map((w) => w.path)
 }
 

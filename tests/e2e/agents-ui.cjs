@@ -60,11 +60,11 @@ const check = (name, ok, extra = '') => { if (ok) pass++; else fail++; console.l
   await page.locator('.choice', { hasText: 'New worktree' }).click(); await sleep(400)
   await page.screenshot({ path: path.join(scratch, 'ui-1-add.png') })
   await page.locator('.dialog input.input').first().fill('Tester')
-  check('branch follows name', (await page.locator('.agent-form.nested input').inputValue()) === 'hive/tester')
+  check('branch follows name', (await page.locator('.agent-form.nested input').inputValue()) === 'hive/ws/demo/tester')
   await page.locator('.dialog label', { hasText: 'Start a session now' }).locator('input').uncheck()
   await page.locator('.dialog .btn.primary', { hasText: 'Add Agent' }).click(); await lib.until(async () => (await inv('workspace:refresh')).projects[0].agents.some((a) => a.name === 'Tester'), 15000)
   let p = (await inv('workspace:refresh')).projects[0]
-  check('agent created from the dialog', p.agents.some((a) => a.name === 'Tester' && a.worktree?.branch === 'hive/tester'))
+  check('agent created from the dialog', p.agents.some((a) => a.name === 'Tester' && a.worktree?.branch === 'hive/ws/demo/tester'))
   check('two agents: two columns, automatically', (p.config.layout ?? 'auto') === 'auto' && (await page.locator('.agent-pane').count()) === 2, JSON.stringify(p.config.layout))
   await sleep(500)
   await page.screenshot({ path: path.join(scratch, 'ui-2-strip.png') })

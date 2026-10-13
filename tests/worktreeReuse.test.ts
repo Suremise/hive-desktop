@@ -6,7 +6,7 @@
 // no process in it (checked once, not guarded against work started meanwhile).
 import { execFileSync, spawn } from 'child_process'
 import { existsSync, mkdirSync, rmSync, writeFileSync } from 'fs'
-import { join } from 'path'
+import { basename, join } from 'path'
 import { afterAll, beforeAll, describe, expect, it } from 'vitest'
 import * as electron from 'electron'
 import { lockfileChanged, reuseNote } from '../src/shared/unusedWorktrees'
@@ -29,9 +29,12 @@ let w: ReturnType<typeof createWorkspaceService>
 const run = <T,>(fn: () => Promise<T>): Promise<T> => inWorkspace(w, fn)
 let n = 0
 
-/** An unused worktree hive/<name> in the workspace's worktree folder, off main. */
-async function tree(name: string, where = root): Promise<{ path: string; branch: string }> {
-  const t = { path: join(where, name), branch: `hive/${name}` }
+/** The branch Hive makes for a new worktree agent of this name here (#703): hive/<workspace>/<project>/<name>. */
+const full = (t: { path: string }): string => `hive/ws/proj/${basename(t.path)}`
+
+/** An unused worktree in the workspace's worktree folder, off main: on hive/<name>, Hive's branch from before #703, unless `branch` says. */
+async function tree(name: string, where = root, branch = `hive/${name}`): Promise<{ path: string; branch: string }> {
+  const t = { path: join(where, name), branch }
   await createWorktree(proj, t.path, t.branch, 'main')
   return t
 }
@@ -72,7 +75,7 @@ describe('a new worktree agent named like an unused worktree', () => {
     expect(await wt.dirtyCount(t.path)).toBe(0)
     expect(def.reuse).toEqual({ branch: t.branch, reused: true, base: 'main', upTo: head(proj) })
     expect(def.needsSetup).toBeUndefined()
-    expect(branches()).not.toContain(`${t.branch}-2`)
+    expect(branches()).not.toContain(full(t))
     expect(reuseNote(def.reuse!)).toBe(`reused ${t.branch}, brought up to main at ${head(proj).slice(0, 7)}`)
   })
 
@@ -110,7 +113,7 @@ describe('a new worktree agent named like an unused worktree', () => {
     commit(ahead.path, `mine${n}.txt`)
     const tip = head(ahead.path)
     const a = await add(`B${n}`)
-    expect(a.worktree!.branch).toBe(`${ahead.branch}-2`)
+    expect(a.worktree!.branch).toBe(full(ahead))
     expect(a.reuse).toEqual({ branch: ahead.branch, reused: false, base: 'main', notReused: '1 commit not merged into main' })
     expect(reuseNote(a.reuse!)).toBe(`made a new worktree, leaving ${ahead.branch}'s unused one as it is (1 commit not merged into main)`)
     expect(head(ahead.path)).toBe(tip)
@@ -118,7 +121,7 @@ describe('a new worktree agent named like an unused worktree', () => {
     const dirty = await tree(`b${++n}`)
     writeFileSync(join(dirty.path, 'draft.txt'), 'draft\n')
     const d = await add(`B${n}`)
-    expect(d.worktree!.branch).toBe(`${dirty.branch}-2`)
+    expect(d.worktree!.branch).toBe(full(dirty))
     expect(d.reuse?.notReused).toBe('1 uncommitted file')
     expect(existsSync(join(dirty.path, 'draft.txt'))).toBe(true)
   })
@@ -136,7 +139,7 @@ describe('a new worktree agent named like an unused worktree', () => {
     reset()
     const t = await tree(`b${++n}`, join(base, 'elsewhere'))
     const def = await add(`B${n}`)
-    expect(def.worktree!.branch).toBe(`${t.branch}-2`)
+    expect(def.worktree!.branch).toBe(full(t))
     expect(def.reuse).toBeUndefined()
   })
 
@@ -146,7 +149,7 @@ describe('a new worktree agent named like an unused worktree', () => {
     const release = reserveForRemoval(t.path)
     try {
       const def = await add(`B${n}`)
-      expect(def.worktree!.branch).toBe(`${t.branch}-2`)
+      expect(def.worktree!.branch).toBe(full(t))
       expect(def.reuse?.notReused).toBe('it is being removed or merged')
     } finally {
       release()
@@ -157,7 +160,45 @@ describe('a new worktree agent named like an unused worktree', () => {
     reset()
     const t = await tree(`b${++n}`)
     const def = await run(() => addAgent(proj, { name: `B${n}`, location: 'new-worktree' }))
-    expect(def.worktree!.branch).toBe(`${t.branch}-2`)
+    expect(def.worktree!.branch).toBe(full(t))
+    expect(def.reuse).toBeUndefined()
+  })
+})
+
+describe('branches in full, hive/<workspace>/<project>/<agent>, and the ones from before (#703)', () => {
+  it('a new worktree is on the full form; an unused one on it is reused', async () => {
+    reset()
+    const made = await add(`F${++n}`)
+    expect(made.worktree!.branch).toBe(`hive/ws/proj/f${n}`)
+    const t = await tree(`f${++n}`, root, `hive/ws/proj/f${n}`)
+    const def = await add(`F${n}`)
+    expect([placeKey(def.worktree!.path), def.worktree!.branch, def.reuse?.reused]).toEqual([placeKey(t.path), t.branch, true])
+  })
+
+  it('of one on each form, the full form is reused; the one from before stays', async () => {
+    reset()
+    const name = `f${++n}`
+    const old = await tree(`${name}-old`, root, `hive/${name}`)
+    const t = await tree(name, root, `hive/ws/proj/${name}`)
+    const def = await add(name.toUpperCase())
+    expect([placeKey(def.worktree!.path), def.worktree!.branch]).toEqual([placeKey(t.path), t.branch])
+    expect(existsSync(old.path) && branches().includes(old.branch)).toBe(true)
+  })
+
+  it("Add Agent's look before adding finds the one from before for the full form, and only for Hive's own branch", async () => {
+    reset()
+    const t = await tree(`f${++n}`)
+    expect(await run(() => worktreeMatch(proj, `hive/ws/proj/f${n}`, 'main'))).toMatchObject({ path: t.path, branch: t.branch, reusable: true })
+    // A branch of the user's own, or another workspace's or project's full form, never finds it.
+    for (const other of [`feature/f${n}`, `hive/other/proj/f${n}`, `hive/ws/other/f${n}`]) expect(await run(() => worktreeMatch(proj, other, 'main'))).toBeNull()
+  })
+
+  it("another workspace's branch for a project of the same name in one repository is never taken: a new one", async () => {
+    reset()
+    const t = await tree(`f${++n}`, root, `hive/other/proj/f${n}`)
+    const def = await add(`F${n}`)
+    expect(def.worktree!.branch).toBe(`hive/ws/proj/f${n}`)
+    expect(placeKey(def.worktree!.path)).not.toBe(placeKey(t.path))
     expect(def.reuse).toBeUndefined()
   })
 })
@@ -196,7 +237,7 @@ describe('one something uses (checked once): left as it is, and a new worktree i
       writeFileSync(lock, '', { flag: 'wx' })
       try {
         const def = await add(`R${n}`)
-        expect(def.worktree!.branch).toBe(`${t.branch}-2`)
+        expect(def.worktree!.branch).toBe(full(t))
         expect(def.reuse?.notReused).toBe('git is busy in it')
         // Left as it was: HEAD, index and files.
         expect(git(t.path, 'symbolic-ref', 'HEAD')).toBe(`refs/heads/${t.branch}`)
@@ -226,10 +267,13 @@ describe('one something uses (checked once): left as it is, and a new worktree i
         child.once('error', fail)
       })
       const def = await add(`R${n}`)
-      expect(def.worktree!.branch).toBe(`${t.branch}-2`)
+      expect(def.worktree!.branch).toBe(full(t))
       expect(def.reuse?.notReused).toBe('a program is using it')
       expect(head(t.path)).toBe(tip)
       expect(existsSync(inside)).toBe(true)
+      // The new one goes again: an unused one on the full form would be taken first (#703).
+      git(proj, 'worktree', 'remove', '--force', def.worktree!.path)
+      git(proj, 'branch', '-D', def.worktree!.branch)
     } finally {
       child.stdin.end()
       await ended
