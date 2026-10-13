@@ -680,6 +680,31 @@ describe('the delivery service (#647)', async () => {
     }
   })
 
+  it('a read gives what its agent was rung for even when what it was made from changes again as it is made again for the read (#650: a loop wake whose roles moved once more)', async () => {
+    // The board's generation: a version holds while it is the one it was made from; the read's first making is overtaken
+    // by a change just after it (as a card note's own event is), once.
+    let seq = 0
+    let refreshes = 0
+    deliveries.registerSource('moving', {
+      refresh: async () => {
+        refreshes++
+        const made = seq
+        if (refreshes === 2) queueMicrotask(() => seq++)
+        return { body: `[Hive] Made at ${made}.`, meta: { seq: made } }
+      },
+      holds: (r) => r.meta?.seq === seq
+    })
+    st.status = 'working'
+    await deliveries.createDelivery(alpha, { agentId: 'b1', kind: 'card-event', from: hive, body: '[Hive] Made at -1.', source: 'moving', ref: 'x' })
+    st.status = 'ready'
+    await deliveries.offerAllForTests()
+    expect(await states()).toEqual(['m1 offered'])
+    st.status = 'working'
+    expect((await deliveries.readInbox(alpha, 'b1')).items.map((i) => i.text)).toEqual(['[Hive] Made at 1.'])
+    expect(await states()).toEqual(['m1 received'])
+    expect(refreshes).toBe(3)
+  })
+
   it('the Agent API view: unread, overdue, the newest rows with their times', async () => {
     await make()
     await make({ body: 'Second.' })

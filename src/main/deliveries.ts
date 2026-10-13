@@ -702,20 +702,29 @@ export async function cancelFromSource(host: string, source: string, ref: string
  */
 export async function readInbox(host: string, agentId: string): Promise<{ items: InboxItem[]; unacked: string[] }> {
   const store = await load(host)
-  // Through the one gate (#649), as an offer: a reply the user no longer lets be told, a watch that has ended, a wake
-  // that is someone else's now, isn't handed out.
-  const gate = await mayGive(store, store.records.filter((x) => x.agentId === agentId && isUnread(x)))
-  const r = await transact(store, (d) => {
-    recheck(store, d, agentId)
-    const may = gate(d)
-    const mine = d.records.filter((x) => x.agentId === agentId)
-    const give = mine.filter(may)
-    const out = { items: inboxItems(give), unacked: mine.filter((x) => x.state === 'received' && needsAck(x.kind)).map((x) => x.id) }
-    for (const x of give) set(store, d, x, 'received', undefined, 'inbox')
-    return out
-  })
+  const given: DeliveryRecord[] = []
+  let unacked: string[] | null = null
+  // An offered one its agent was rung for that this read didn't give (what it was made from changed again while it was
+  // made again for the read: a loop wake's roles, a decision line's board) is tried again, a few times at most (#650).
+  for (let attempt = 0; attempt < 3; attempt++) {
+    // Through the one gate (#649), as an offer: a reply the user no longer lets be told, a watch that has ended, a wake
+    // that is someone else's now, isn't handed out.
+    const gate = await mayGive(store, store.records.filter((x) => x.agentId === agentId && isUnread(x)))
+    const r = await transact(store, (d) => {
+      recheck(store, d, agentId)
+      const may = gate(d)
+      const mine = d.records.filter((x) => x.agentId === agentId)
+      const give = mine.filter(may)
+      const before = mine.filter((x) => x.state === 'received' && needsAck(x.kind)).map((x) => x.id)
+      for (const x of give) set(store, d, x, 'received', undefined, 'inbox')
+      return { give, before, missed: mine.some((x) => x.state === 'offered' && !give.includes(x)) }
+    })
+    given.push(...r.give)
+    unacked ??= r.before
+    if (!r.missed) break
+  }
   show(store, agentId)
-  return { items: r.items, unacked: r.unacked }
+  return { items: inboxItems(given), unacked: unacked ?? [] }
 }
 
 /**
