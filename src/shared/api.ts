@@ -96,6 +96,7 @@ import type { ProjectPref, ProjectPrefValue } from './uiPrefs'
 import type { TipsChange, TipsState } from './tips'
 import type { AdvancedState } from './advanced'
 import type { GitTool } from './gitTool'
+import type { GitInitCheck, GitInitOptions } from './gitInit'
 import type { GitHistory, GitRepoInfo, GitRepoSummary } from './gitRepo'
 import type { BoardFoldChange } from './tasks'
 import type { CardCost, LaneCost } from './cardCosts'
@@ -606,6 +607,9 @@ export interface HiveRequests {
   'git:createTag': (projectPath: string, name: string, message: string, pushTo?: string) => string
   /** This repository's own user.name and user.email; empty removes it (the global one applies). */
   'git:setIdentity': (projectPath: string, name: string, email: string) => string
+  /** Initialise repository (#701): whether it can be done, and what the dialog asks; then git init on main, .hive excluded first, a starter .gitignore, the first commit. */
+  'git:initCheck': (projectPath: string) => GitInitCheck
+  'git:init': (projectPath: string, opts: GitInitOptions) => string
 
   /** Each provider's installed CLI, by provider. */
   'provider:info': () => Record<ProviderId, AgentInstallInfo>

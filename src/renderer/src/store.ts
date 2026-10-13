@@ -304,6 +304,8 @@ interface State {
   templateEdits: Record<string, TemplateEdit>
   /** Worktree agent whose Merge dialog is open. */
   mergeFor: AgentRef | null
+  /** The project whose Initialise repository dialog is open (#701): kept while the Git tab changes under it. */
+  gitInitFor: string | null
   /** The agent whose work "Hand Over to…" hands to another agent. */
   handOverFor: AgentRef | null
   /** Shows this agent's session in its project's Overview and scrolls to it (the footer's context count); `at` makes each click count. */
@@ -464,6 +466,7 @@ export const useStore = create<State>(() => ({
   templateAgentFor: null,
   templateEdits: {},
   mergeFor: null,
+  gitInitFor: null,
   handOverFor: null,
   overviewJump: null,
   projectSettingsJump: null,

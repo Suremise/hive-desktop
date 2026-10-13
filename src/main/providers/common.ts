@@ -350,7 +350,7 @@ async function deliverSkill(s: LaunchContext['skills'][number], dest: string, fo
 }
 
 /** Keeps Hive's copies (and a swap's dot-folders) out of git, in the repository's info/exclude. */
-async function excludeCopies(cwd: string): Promise<void> {
+export async function excludeCopies(cwd: string): Promise<void> {
   const common = await run('git', ['-C', cwd, 'rev-parse', '--git-common-dir'], 5000)
   const gitDir = common.code === 0 ? common.stdout.trim() : ''
   if (!gitDir) return

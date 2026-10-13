@@ -150,7 +150,7 @@ const shot = (page, name) => page.screenshot({ path: path.join(lib.WORK, `gitvie
   await page.getByText('beta', { exact: true }).first().click()
   await page.locator('.tabs .tab', { hasText: 'Git' }).click()
   const notes = page.locator('[data-git-setup]')
-  check("a project without git says so, with the setup notes", !!(await lib.until(async () => /beta isn't a git repository/.test(await text(notes)) && /git init/.test(await text(notes)), HUNG_MS)), await text(notes))
+  check('a project without git says so, with the setup notes and Initialise repository…', !!(await lib.until(async () => /beta isn't a git repository/.test(await text(notes)) && (await notes.locator('[data-git-init]').count()) === 1, HUNG_MS)), await text(notes))
   check('and has no status bar item', (await item.count()) === 0)
   await shot(page, '5-no-git')
 
