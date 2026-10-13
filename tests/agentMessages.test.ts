@@ -618,6 +618,120 @@ describe('messages left for agents (#530, #647)', async () => {
     }
   })
 
+  it("tied to a card round, read while the host's lock is held elsewhere (#652 round 1 finding 1): a card that passes or enters a new round while the read waits is seen, and a message made meanwhile is checked too", async () => {
+    const card = { number: 7, column: 'doing', archived: false, history: [] as { at: string; by: string; what: string }[] }
+    const tied7 = (text: string) => messages.leaveMessage(alpha, 'b1', 'HR2', asst, text, 7)
+    let looked = (): void => undefined
+    deliveries.setCardReaderForTests(async () => {
+      looked()
+      return structuredClone(card) as never
+    })
+    /** Holds the next save (an unrelated delivery's), so what comes after it waits for the host's lock. */
+    const holdNextSave = async () => {
+      let release = (): void => undefined
+      const held = new Promise<void>((r) => (release = r))
+      let holding = false
+      deliveries.setBeforeSaveForTests(async () => {
+        if (holding) return
+        holding = true
+        await held
+      })
+      const unrelated = deliveries.createDelivery(alpha, { agentId: 'other', kind: 'control', from: hive, body: 'other' })
+      await vi.waitFor(() => expect(holding).toBe(true), { timeout: HUNG_MS })
+      return async () => {
+        release()
+        deliveries.setBeforeSaveForTests(null)
+        await unrelated
+      }
+    }
+    try {
+      // Passed while the read waits behind a held save: stale, not received.
+      expect((await tied7('Old round instruction.')).fate).toBe('queued')
+      let release = await holdNextSave()
+      let lookups = 0
+      looked = () => void lookups++
+      const read = deliveries.readInbox(alpha, 'b1')
+      // Nothing is read of the card before the lock is held.
+      await new Promise<void>((r) => setImmediate(r))
+      expect(lookups).toBe(0)
+      card.column = 'passed'
+      await release()
+      expect((await read).items).toEqual([])
+      expect(await states()).toEqual(['m1 stale: #7 passed review'])
+      // A new round while the read waits: stale too.
+      card.column = 'review'
+      expect((await tied7('Round 1 again.')).fate).toBe('queued')
+      release = await holdNextSave()
+      const read2 = deliveries.readInbox(alpha, 'b1')
+      card.history.push({ at: new Date().toISOString(), by: 'HR2 (alpha)', what: 'Review failed' })
+      await release()
+      expect((await read2).items).toEqual([])
+      expect((await states()).at(-1)).toBe('m3 stale: #7 is in round 2 now')
+      // A message for round 2 made while the read waits (queued for the lock before it, so published by the time the read
+      // holds it), its card passing meanwhile: the read checks it too, and it is stale.
+      release = await holdNextSave()
+      const made = deliveries.createDelivery(alpha, { agentId: 'b1', agentName: 'HR2', kind: 'rebrief', from: asst, card: 7, round: 2, body: 'Made while the read waits.' })
+      await new Promise<void>((r) => setImmediate(r))
+      const read3 = deliveries.readInbox(alpha, 'b1')
+      card.column = 'passed'
+      await release()
+      expect((await made).id).toBe('m6')
+      expect((await read3).items).toEqual([])
+      expect((await states()).at(-1)).toBe('m6 stale: #7 passed review')
+      expect(await deliveries.readInbox(alpha, 'b1')).toEqual({ items: [], unacked: [] })
+    } finally {
+      deliveries.setBeforeSaveForTests(null)
+      deliveries.setCardReaderForTests(null)
+    }
+  })
+
+  it("a doorbell the user typed into before its CLI took it is theirs (#652 round 1 finding 2): no Enter again, whether what it named holds, was cancelled or refused; what still holds waits again", async () => {
+    const cli = { count: 0, enters: 0, left: 0 }
+    const before = { ...sessions } as Record<string, unknown>
+    Object.assign(sessions, {
+      promptsTaken: () => ({ runId: 'r1', count: cli.count }),
+      holdForConfirm: () => () => undefined,
+      lineNotTaken: () => undefined,
+      // The user has typed into the prompt since the doorbell began (whatever the typing pause says).
+      userTypedOverLine: () => true,
+      leaveToUser: () => void cli.left++,
+      submitAgain: () => {
+        cli.enters++
+        return true
+      },
+      sendPrompt: async (_p: string, _id: string, text: string, guard?: () => void) => {
+        guard?.()
+        st.typed.push(text)
+        st.status = 'finished'
+      }
+    })
+    writer.testHooks.takeMs = 50
+    try {
+      // Still holding: no Enter, and it waits again (offered once more after the user sends a prompt there).
+      st.status = 'ready'
+      expect((await leave('Still wanted.')).fate).toBe('typed')
+      await vi.waitFor(() => expect(cli.left).toBe(1), { timeout: HUNG_MS })
+      await vi.waitFor(async () => expect(await states()).toEqual(['m1 queued']), { timeout: HUNG_MS })
+      // Cancelled, then refused, before the confirmation looks: no Enter either, and each ends as it is.
+      await messages.cancelMessages(alpha, 'b1', 'the user')
+      st.status = 'ready'
+      expect((await leave('Cancelled.')).fate).toBe('typed')
+      expect(await messages.cancelMessages(alpha, 'b1', 'the user')).toBe(1)
+      await vi.waitFor(() => expect(cli.left).toBe(2), { timeout: HUNG_MS })
+      st.status = 'ready'
+      expect((await leave('Refused.')).fate).toBe('typed')
+      why = 'the user turned Settings → Assistant → Control down'
+      await vi.waitFor(() => expect(cli.left).toBe(3), { timeout: HUNG_MS })
+      await vi.waitFor(async () => expect((await states()).slice(1)).toEqual(['m2 cancelled: cancelled by the user', 'm3 refused: the user turned Settings → Assistant → Control down']), { timeout: HUNG_MS })
+      expect(cli.enters).toBe(0)
+    } finally {
+      writer.testHooks.takeMs = undefined
+      for (const k of ['promptsTaken', 'holdForConfirm', 'lineNotTaken', 'userTypedOverLine', 'leaveToUser', 'submitAgain']) delete (sessions as unknown as Record<string, unknown>)[k]
+      Object.assign(sessions, { sendPrompt: before.sendPrompt, promptsTaken: () => null })
+      await vi.waitFor(() => expect(writer.confirmsInFlight()).toBe(0), { timeout: HUNG_MS })
+    }
+  })
+
   it('bounded: at most 5 waiting, 4000 characters each; refused for an agent not running', async () => {
     for (let i = 0; i < messages.MAX_QUEUED; i++) await leave(`Note ${i}`)
     await expect(leave('One too many')).rejects.toThrow(/already has 5 messages waiting/)

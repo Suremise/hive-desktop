@@ -83,8 +83,9 @@ import { workspaceFor } from './workspace'
  *
  * **Relevance** (#652). One tied to a card's round (`card` and `round`: a re-brief for the work under way) is stale once
  * that card has moved on (passed, done or archived, out of Doing and Review, or in a later round): ended as stale, with
- * why, never offered or given, checked by the gate (`mayGive`) and again as the board changes (`sweepStale`), so a
- * doorbell already rung for it finds nothing. On #699 (13 Oct) the Assistant's re-brief for a round's finding reached its
+ * why, never offered or given: checked under the host's lock as an offer or a read is planned (`staleNow`, read again
+ * if the board changed meanwhile), and as the board changes (`sweepStale`), so a doorbell already rung for it finds
+ * nothing. On #699 (13 Oct) the Assistant's re-brief for a round's finding reached its
  * builder a second after the card passed, and it reopened the card to apply it.
  *
  * The rules, for every operation (create, offer, readInbox, ack, cancel): **one async lock per host**, inside it copy,
@@ -92,7 +93,9 @@ import { workspaceFor } from './workspace'
  * return; no check after the save. A line typed into the agent is checked again by its writer before each key with the
  * same check (`offerHolds`); one that no longer holds gets no Enter. Once typed, the doorbell is never cleared or
  * withdrawn (#652): it names ids, never what they say, so an Enter again for one that no longer holds gives the agent
- * nothing (hive_inbox checks each delivery as it reads it).
+ * nothing (hive_inbox checks each delivery as it reads it). One the user typed into before its CLI took it is theirs:
+ * never submitted by Hive, what it named waits again, and nothing more is typed there until a prompt is sent
+ * (sessions.leaveToUser).
  */
 
 const log = createLogger('deliveries')
@@ -193,11 +196,8 @@ export interface DeliverySource {
   ended?: (r: DeliveryRecord, host: string) => void
 }
 const sources = new Map<string, DeliverySource>()
-/**
- * What a source says of a delivery made again: its text and context as they are now (one version), or why it is cancelled;
- * or, for one tied to a card's round, why it is stale (#652).
- */
-type Fresh = { body: string; meta?: Record<string, string | number | boolean> } | { cancel: string } | { stale: string }
+/** What a source says of a delivery made again: its text and context as they are now (one version), or why it is cancelled. */
+type Fresh = { body: string; meta?: Record<string, string | number | boolean> } | { cancel: string }
 
 /** A producer's own part in one delivery, given when it is made (in memory only): see Store.hooks. */
 export interface DeliveryHooks {
@@ -223,10 +223,20 @@ function locked<T>(store: Store, fn: () => Promise<T>): Promise<T> {
  * that throws, or a save that fails (NotSaved), leaves the deliveries file and what is published as they were.
  */
 function transact<T>(store: Store, plan: (d: Draft) => T): Promise<T> {
+  return transactAfter(store, async () => undefined, (d) => plan(d))
+}
+
+/**
+ * A transaction whose plan needs something read first, under the host's lock (#652: the cards that deliveries tied to a
+ * round are for): `read` runs once the lock is held, so from what is published then (a delivery made while it waited
+ * included), and the plan follows it at once, as transact's does.
+ */
+function transactAfter<P, T>(store: Store, read: () => Promise<P>, plan: (d: Draft, got: P) => T): Promise<T> {
   running++
   return locked(store, async () => {
+    const got = await read()
     const d: Draft = { records: [...store.records], next: store.next, invalid: [...store.invalid], dirty: false, after: [] }
-    const planned = plan(d)
+    const planned = plan(d, got)
     if (!d.dirty) return planned
     try {
       await save(store, d)
@@ -730,7 +740,9 @@ export async function readInbox(host: string, agentId: string): Promise<{ items:
       // Through the one gate (#649), as an offer: a reply the user no longer lets be told, a watch that has ended, a wake
       // that is someone else's now, isn't handed out.
       const gate = await mayGive(store, store.records.filter((x) => x.agentId === agentId && isUnread(x)))
-      r = await transact(store, (d) => {
+      // Relevance (#652) is read under the lock, so a card that moved on while this read waited for it is seen.
+      r = await transactAfter(store, () => staleNow(store, agentId), (d, stale) => {
+        endStale(store, d, stale)
         recheck(store, d, agentId)
         const may = gate(d)
         const mine = d.records.filter((x) => x.agentId === agentId)
@@ -792,8 +804,7 @@ function applyFresh(store: Store, d: Draft, fresh: Map<string, Fresh>): void {
   for (const [id, f] of fresh) {
     const r = byId(d.records, id)
     if (!r || !isUnread(r)) continue
-    if ('stale' in f) set(store, d, r, 'stale', f.stale)
-    else if ('cancel' in f) set(store, d, r, 'cancelled', f.cancel)
+    if ('cancel' in f) set(store, d, r, 'cancelled', f.cancel)
     else if (r.state === 'offered' && eligible(store, r)) continue
     else if (f.body.length > DELIVERY_BODY_MAX_CHARS) set(store, d, r, 'cancelled', 'cancelled: made again, it was too long to keep')
     else if (f.body !== r.body || (f.meta && JSON.stringify(f.meta) !== JSON.stringify(r.meta))) put(d, r, { ...r, body: f.body, ...(f.meta ? { meta: f.meta } : {}) })
@@ -824,7 +835,6 @@ const producerHolds = (store: Store, r: DeliveryRecord): boolean => (r.state ===
  */
 async function mayGive(store: Store, records: readonly DeliveryRecord[]): Promise<(d: Draft) => (r: DeliveryRecord) => boolean> {
   const fresh = await refreshAll(store, records)
-  for (const [id, why] of await staleOf(store.host, records)) fresh.set(id, { stale: why })
   for (const r of records) if (!fresh.has(r.id) && !producerHolds(store, r)) fresh.set(r.id, { cancel: 'cancelled: no longer wanted' })
   return (d) => {
     applyFresh(store, d, fresh)
@@ -891,6 +901,35 @@ async function staleOf(host: string, records: readonly DeliveryRecord[]): Promis
   return out
 }
 
+/** Board changes seen (tasks-changed): a relevance read that one overtook is read again (staleNow). */
+let boardChanges = 0
+onHiveEvent((e) => {
+  if (e.type === 'tasks-changed') boardChanges++
+})
+
+/**
+ * A host's deliveries (an agent's, or all) tied to a card's round that are stale now (#652), read under its lock (in a
+ * transactAfter's `read`): from the records published then, and read again if the board changed while the cards were
+ * read, so a plan never acts on a card as it was before a change Hive has already seen.
+ */
+async function staleNow(store: Store, agentId?: string): Promise<Map<string, string>> {
+  let out = new Map<string, string>()
+  for (let i = 0; i < 5; i++) {
+    const seen = boardChanges
+    out = await staleOf(store.host, store.records.filter((r) => !agentId || r.agentId === agentId))
+    if (seen === boardChanges) break
+  }
+  return out
+}
+
+/** Ends, in a draft, what staleNow found stale (still unread). */
+function endStale(store: Store, d: Draft, stale: ReadonlyMap<string, string>): void {
+  for (const [id, why] of stale) {
+    const r = byId(d.records, id)
+    if (r && isUnread(r)) set(store, d, r, 'stale', why)
+  }
+}
+
 /** Ends what has become stale in each loaded host (#652), as the board changes: one sweep at a time, again if asked meanwhile. */
 let sweeping: Promise<void> | null = null
 let sweepAgain = false
@@ -903,16 +942,8 @@ function sweepStale(): void {
     do {
       sweepAgain = false
       for (const store of [...stores.values()]) {
-        const tied = store.records.filter((r) => r.round && isUnread(r))
-        if (!tied.length) continue
-        const stale = await staleOf(store.host, tied)
-        if (!stale.size) continue
-        await transact(store, (d) => {
-          for (const [id, why] of stale) {
-            const r = byId(d.records, id)
-            if (r && isUnread(r)) set(store, d, r, 'stale', why)
-          }
-        }).catch((e) => log.warn('ending stale deliveries', e))
+        if (!store.records.some((r) => r.round && isUnread(r))) continue
+        await transactAfter(store, () => staleNow(store), (d, stale) => endStale(store, d, stale)).catch((e) => log.warn('ending stale deliveries', e))
         showAll(store)
       }
     } while (sweepAgain)
@@ -1056,7 +1087,8 @@ async function offerOnce(host: string, agentId: string, only?: string): Promise<
   // in between it is uncertain, never "delivered". Not saved, or no longer to be given out: nothing is typed.
   let offer: Offer | null
   try {
-    offer = await transact(store, (d) => {
+    offer = await transactAfter(store, () => staleNow(store, agentId), (d, stale) => {
+      endStale(store, d, stale)
       const may = gate(d)
       items = pickOffer(store, d.records, agentId, only).filter((r) => items.some((x) => x.id === r.id) && may(r))
       return planOffer(store, d, items, { runId: st.runId, sessionId: st.sessionId }, label)
@@ -1077,7 +1109,8 @@ async function offerOnce(host: string, agentId: string, only?: string): Promise<
   try {
     typed = await typeLine(host, agentId, o.line, () => offerHolds(store, o) && o.ids.every((id) => store.offering.has(id)), {
       need: o.need,
-      follow: { confirming: (before) => confirming(store, o, before), lost: () => lost(store) }
+      // A line the user typed into before its CLI took it is theirs (#652 round 1 finding 2): what it named waits again.
+      follow: { confirming: (before) => confirming(store, o, before), lost: () => lost(store), left: () => void unoffer(store, o) }
     })
   } finally {
     for (const id of o.ids) store.offering.delete(id)

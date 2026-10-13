@@ -72,15 +72,17 @@ export const canTypeLine = (projectPath: string, agentId: string, need: Delivery
  * What the delivery service follows of a typed line (#647, #650): `confirming` with the launch and prompt count it was
  * typed at while the confirmation runs, and `settled` once that has ended; `taken` once its CLI took it (not a receipt:
  * the doorbell carries no text), never for a launch that ended first; `lost` when that launch ended (or another began)
- * before its CLI took it. Nothing decides whether it may still be submitted (#652): Hive's lines are the doorbell, fixed
- * words and ids, whose Enter again gives nothing that may no longer be given (hive_inbox checks each delivery as it is
- * read), or the user's own task.
+ * before its CLI took it; `left` when the user typed into it before its CLI took it (#652 round 1 finding 2), so it is
+ * theirs now and never submitted by Hive. What it names doesn't decide whether it may still be submitted (#652): Hive's
+ * lines are the doorbell, fixed words and ids, whose Enter again gives nothing that may no longer be given (hive_inbox
+ * checks each delivery as it is read), or the user's own task.
  */
 export interface LineFollow {
   confirming?: (before: { runId: string; count: number }) => void
   settled?: () => void
   taken?: () => void
   lost?: () => void
+  left?: () => void
 }
 
 /**
@@ -129,6 +131,7 @@ export async function confirmTaken(projectPath: string, agentId: string, before:
     const r = await confirming(projectPath, agentId, before, line)
     if (r === 'taken') follow?.taken?.()
     else if (r === 'gone') follow?.lost?.()
+    else if (r === 'left') follow?.left?.()
     return r === 'taken' || r === 'gone'
   } finally {
     confirmsRunning--
@@ -140,7 +143,7 @@ let confirmsRunning = 0
 /** How many typed lines are being checked for being taken now: tests wait for none, after which no Enter comes. */
 export const confirmsInFlight = (): number => confirmsRunning
 
-async function confirming(projectPath: string, agentId: string, before: { runId: string; count: number }, line: string): Promise<'taken' | 'gone' | false> {
+async function confirming(projectPath: string, agentId: string, before: { runId: string; count: number }, line: string): Promise<'taken' | 'gone' | 'left' | false> {
   const t0 = Date.now()
   const taken = (): 'taken' | 'gone' | false => {
     const now = sessions.promptsTaken(projectPath, agentId)
@@ -168,6 +171,13 @@ async function confirming(projectPath: string, agentId: string, before: { runId:
   for (const end = Date.now() + 6 * takeMs(); ; ) {
     const t = taken()
     if (t) return t
+    // The user has typed into the prompt since Hive's line began (#652 round 1 finding 2: any pause, 0 included): it is
+    // their draft, never submitted or cleared by Hive, and nothing more is typed into the agent until a prompt is sent.
+    if (sessions.userTypedOverLine(projectPath, agentId)) {
+      sessions.leaveToUser(projectPath, agentId, before.runId)
+      log.info(`Left the line typed into ${userText(agentId)} to the user, who has typed there since`)
+      return 'left'
+    }
     if (sessions.submitAgain(projectPath, agentId, before.runId)) {
       retried = true
       break

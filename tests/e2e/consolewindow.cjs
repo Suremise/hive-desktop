@@ -263,7 +263,9 @@ const check = (name, ok, extra = '') => {
     // The newest recording with text: never attached.
     await recordTurn(`edit a.ts ${SPOKEN}`, true)
     await openDiagnostics()
-    check('a recording with text is never offered', (await page.locator('.diagnostics-recording input').count()) === 0 && /includes prompt and reply text, so it can't be attached/.test(await page.locator('.diagnostics-recording').textContent()))
+    // The dialog's recording row is read for the newest recording, which can come after its preview (#718): waited for.
+    const notOffered = async () => (await page.locator('.diagnostics-recording input').count()) === 0 && /includes prompt and reply text, so it can't be attached/.test((await page.locator('.diagnostics-recording').textContent().catch(() => '')) ?? '')
+    check('a recording with text is never offered', !!(await lib.until(notOffered, HUNG_MS)))
     await page.keyboard.press('Escape')
     await lib.until(async () => (await page.locator('.diagnostics-preview').count()) === 0, HUNG_MS)
     // Picking another source ends a recording, with what it had captured.
