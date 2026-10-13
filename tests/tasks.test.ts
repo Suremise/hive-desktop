@@ -949,6 +949,42 @@ describe('card decisions', () => {
     }
   })
 
+  it('a decision recorded while its doorbell is rung and not read yet is told by that line, read once: not by a second line beside it (#650)', async () => {
+    const deliveries = await import('../src/main/deliveries')
+    const writer = await import('../src/main/lineWriter')
+    const n = (await run(() => tasks.createTask({ title: 'Rung, then another decision', project: 'alpha', column: 'doing', agent: 'a1' }, user))).number
+    await laterMs()
+    await run(() => tasks.updateTask(n, { decision: 'Wide, from the door.' }, assistant))
+    const sent: string[] = []
+    const spies = [
+      vi.spyOn(sessions, 'liveFor').mockImplementation((p, id) => (p === alpha && id === 'a1' ? ({ projectPath: alpha, agentId: 'a1', status: 'finished', runId: 'run-a1' } as never) : null)),
+      vi.spyOn(sessions, 'userMayBeTyping').mockImplementation(() => false),
+      vi.spyOn(sessions, 'lineWaiting').mockImplementation(() => false),
+      // Each doorbell typed is taken; the agent hasn't read its inbox yet.
+      vi.spyOn(sessions, 'promptsTaken').mockImplementation((p, id) => (p === alpha && id === 'a1' ? { runId: 'run-a1', count: sent.length } : null)),
+      vi.spyOn(sessions, 'sendPrompt').mockImplementation(async (_p, _id, text, guard) => {
+        guard?.()
+        sent.push(text)
+      })
+    ]
+    writer.testHooks.takeMs = 20
+    try {
+      await decisionWakes.tellNow(w, alpha, 'a1')
+      expect(sent).toEqual([`[Hive] New in your inbox: 1 answer (#${n}) (m1). Call hive_inbox to read it.`])
+      // Another decision before it reads, told again (the board's settle, its turn's end): the rung line covers it.
+      await laterMs()
+      await run(() => tasks.updateTask(n, { decision: 'Close on the counter.' }, assistant))
+      await decisionWakes.tellNow(w, alpha, 'a1')
+      expect(sent).toHaveLength(1)
+      expect((await deliveries.readInbox(alpha, 'a1')).items.map((i) => i.text)).toEqual([expect.stringMatching(new RegExp(`^\\[Hive\\] #${n} has 2 new decisions from the user`))])
+      expect((await deliveries.deliveriesOf(alpha, 'a1')).map((r) => `${r.id} ${r.state}`)).toEqual(['m1 received'])
+    } finally {
+      writer.testHooks.takeMs = undefined
+      for (const s of spies) s.mockRestore()
+      await writer.settled()
+    }
+  })
+
   it('a decision line stopped as it is typed is tried again by itself, and only while it is still true (#401)', async () => {
     const n = (await run(() => tasks.createTask({ title: 'Stopped lines', project: 'alpha', column: 'doing', agent: 'a1' }, user))).number
     await laterMs()

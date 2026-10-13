@@ -155,6 +155,9 @@ async function tell(ws: WorkspaceService, projectPath: string, agentId: string):
   const agent = { projectPath, agentId }
   telling.add(key)
   try {
+    // A line offered and not read yet (#650: its doorbell rang) is made again from the board when the agent reads it, so
+    // it tells these decisions too: not a second line beside it.
+    if (fromSource(projectPath, 'decision').some((r) => r.agentId === agentId && r.state === 'offered')) return
     const self = await boardSelf(ws, projectPath, agentId)
     if (!self) return
     const cards = fitting(await newDecisionsOn(ws, agent, self, told.get(key)))
