@@ -4,6 +4,7 @@
 
 ### Advanced settings
 - **How Claude Code's and Copilot's footers show each permission mode is in Settings → Advanced too.** Hive reads an agent's mode from its footer, and watches it while switching modes with Shift+Tab: if a CLI update renames a mode there, the mode's setting fixes it without waiting for a Hive release.
+- **How long a stopped Copilot agent gets to exit is a setting.** Settings → Advanced → GitHub Copilot → **Stop: exit grace** (10 seconds by default, 3 to 60): Hive ends a Copilot that hasn't exited by itself after that long, losing its token totals. Raise it if a very busy PC still loses them.
 
 ### Agents
 - **Loading a template is quicker on a busy machine.** Its plan and load read the project's worktrees, branches and current branch once, and each worktree's state once, instead of once per agent: about a third to a half fewer git commands, so the Load template dialog no longer takes seconds to open while tests or builds run.

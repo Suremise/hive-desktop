@@ -568,6 +568,19 @@ export const ADVANCED_DEFS: readonly AdvancedDef[] = [
     unit: 's',
     applies: 'sessions',
     samples: [HOOKS_TAKEN['copilot']]
+  },
+  {
+    id: 'copilot.exit.graceSeconds',
+    group: 'copilot',
+    title: 'Stop: exit grace',
+    desc: "When Hive stops Copilot (Stop, Restart, closing a project or quitting), how long it gives Copilot to exit by itself after its Ctrl+C before killing it. Copilot writes the session's token totals only as it exits by itself: one killed first loses them. It took up to 2.4 s on a busy machine (#716); quitting Hive or closing a workspace waits up to this long, and a second more, for a Copilot that hangs.",
+    kind: 'number',
+    default: 10,
+    min: 3,
+    max: 60,
+    unit: 's',
+    applies: 'now',
+    samples: [{ from: `${FIX}/console/copilot.json`, version: '1.0.95', text: '"type": "session.shutdown"', shows: "Copilot stopped by Hive, writing its token totals (session.shutdown) and exiting by itself (exit code 0)" }]
   }
 ]
 
