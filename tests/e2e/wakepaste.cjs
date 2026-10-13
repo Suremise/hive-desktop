@@ -2,12 +2,17 @@
 // the Assistant. While fake-slow-input is there the fake reads no input, so Hive's Ctrl+U, the line and its Enter reach
 // it in one read, as they reached a busy Claude Code, which took such a read as a paste with those keys in it as text
 // and sent the line neither on Enter nor on Enter again (the fake acts that out). Hive puts the line in as a bracketed
-// paste, which is text however it arrives: the wake is taken at its first Enter, and the log says so. A wake typed
-// while the CLI reads its input as usual is taken too. Dev build, throwaway profile, workspace and CLAUDE_CONFIG_DIR.
+// paste, which is text however it arrives: the wake is taken at its first Enter (the fake says which Enter sent it). A
+// wake typed while the CLI reads its input as usual is taken too. Whether Hive pressed Enter again isn't checked (#664):
+// it does when the CLI reads its input later than Hive's window to be taken (3 s here), as a starved CLI does under load,
+// and that Enter falls on an empty prompt; what is checked is that Hive's check of the wake ends and no mark stays.
+// Dev build, throwaway profile, workspace and CLAUDE_CONFIG_DIR.
 const lib = require('./lib.cjs')
 const { _electron } = require('playwright-core')
 const fs = require('fs')
 const path = require('path')
+// The longest a wait here waits for what it waits on: a bound for a hung run, never how long it should take (#570).
+const HUNG_MS = 30000
 
 const userData = path.join(lib.WORK, 'wakepaste-profile')
 const ws = path.join(lib.WORK, 'wakepaste-ws')
@@ -55,6 +60,10 @@ const check = (name, ok, extra = '') => {
   }
   /** Hive's log lines about wakes typed into agent `id`. */
   const wakeLines = (id) => hiveLog().split('\n').filter((l) => l.includes(id) && /\[watches\] (Woke|The wake typed into)/.test(l))
+  /** How many of those wakes Hive's check has ended for: taken in time, or marked (a mark the CLI's late take clears). */
+  const settled = (id) => wakeLines(id).filter((l) => /was taken after \d+ ms|still wasn't taken|wasn't taken, and Enter couldn't/.test(l)).length
+  /** Hive's check of the agent's nth wake has ended, and no mark stays: it counts the line taken. */
+  const hiveSawTaken = async (p, id, n) => !!(await lib.until(async () => settled(id) >= n && !(await live(p, id))?.untakenLine, HUNG_MS))
   const say = async (p, id, text) => {
     await inv('pty:write', lib.ptyKey(p, id), text)
     await lib.sleep(300) // on purpose: the fake reads a typed line before its Enter, as a CLI does
@@ -76,7 +85,7 @@ const check = (name, ok, extra = '') => {
   ]) {
     const watch = async () => {
       await say(p, id, `hive hive_wait_for_tasks {"cards":[${card}],"changes":["comment"],"wake":true}`)
-      return lib.until(async () => (await live(p, id))?.status === 'watching', 15000)
+      return lib.until(async () => (await live(p, id))?.status === 'watching', HUNG_MS)
     }
     const mine = () => wakes().filter((w) => w.text.includes(`#${card}`) && w.agent === name)
     let name = null
@@ -85,28 +94,29 @@ const check = (name, ok, extra = '') => {
     check(`${who} watches the card`, !!(await watch()))
     const before = wakes().length
     await inv('tasks:comment', card, `Read as usual, for ${who}`)
-    const first = await lib.until(() => wakes().length > before && wakes().at(-1), 20000)
+    const first = await lib.until(() => wakes().length > before && wakes().at(-1), HUNG_MS)
     name = first?.agent
     check(`${who}: a wake typed while the CLI reads as usual is taken`, !!first && first.text.includes(`Read as usual, for ${who}`), JSON.stringify(first))
-    check(`${who}: …at its first Enter`, !!(await lib.until(() => wakeLines(id).some((l) => /was taken after \d+ ms/.test(l)), 10000)) && !wakeLines(id).some((l) => /wasn't taken/.test(l)), wakeLines(id).join(' | '))
-    await lib.until(() => idle(p, id), 20000)
+    check(`${who}: …at its first Enter`, first?.enter === 1, JSON.stringify(first))
+    check(`${who}: …and Hive counts it taken`, await hiveSawTaken(p, id, 1), wakeLines(id).join(' | '))
+    await lib.until(() => idle(p, id), HUNG_MS)
 
     // Busy for a moment: Hive's Ctrl+U, the line and its Enter reach it in one read.
     check(`${who} watches again`, !!(await watch()))
     const knob = path.join(claudeHome, `fake-slow-input-${String(name).replace(/[^\w-]/g, '_')}.txt`)
     fs.writeFileSync(knob, '')
-    check(`${who}: its CLI stops reading its input`, !!(await lib.until(() => fs.existsSync(knob.replace(/\.txt$/, '.paused')), 10000)))
+    check(`${who}: its CLI stops reading its input`, !!(await lib.until(() => fs.existsSync(knob.replace(/\.txt$/, '.paused')), HUNG_MS)))
     const typed = wakeLines(id).filter((l) => / Woke /.test(l)).length
     const taken = mine().length
     await inv('tasks:comment', card, `Read in one go, for ${who}`)
     // Hive has typed it and pressed Enter (its log says Woke once the Enter is in).
-    check(`${who}: Hive types the wake meanwhile`, !!(await lib.until(() => wakeLines(id).filter((l) => / Woke /.test(l)).length > typed, 20000)), wakeLines(id).join(' | '))
+    check(`${who}: Hive types the wake meanwhile`, !!(await lib.until(() => wakeLines(id).filter((l) => / Woke /.test(l)).length > typed, HUNG_MS)), wakeLines(id).join(' | '))
     fs.rmSync(knob, { force: true })
-    const got = await lib.until(() => mine().length > taken && mine().at(-1), 20000)
+    const got = await lib.until(() => mine().length > taken && mine().at(-1), HUNG_MS)
     check(`${who}: the wake its CLI read in one go is taken`, !!got && got.text.includes(`Read in one go, for ${who}`), JSON.stringify(mine()))
-    check(`${who}: …at its first Enter: Hive never presses Enter again`, !!(await lib.until(() => wakeLines(id).filter((l) => /was taken after \d+ ms/.test(l)).length >= 2, 10000)) && !wakeLines(id).some((l) => /wasn't taken/.test(l)), wakeLines(id).join(' | '))
-    check(`${who}: nothing marked as not taken`, !(await live(p, id))?.untakenLine)
-    await lib.until(() => idle(p, id), 20000)
+    check(`${who}: …at its first Enter, not lost in a paste`, got?.enter === 1, JSON.stringify(got))
+    check(`${who}: …and Hive counts it taken: nothing marked as not taken`, await hiveSawTaken(p, id, 2), wakeLines(id).join(' | '))
+    await lib.until(() => idle(p, id), HUNG_MS)
   }
 
   await app.close()
