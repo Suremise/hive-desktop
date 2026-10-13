@@ -8438,6 +8438,11 @@ button.progress-run-show:focus-visible {
   border-radius: 0 0 2px 2px;
   background: var(--error);
 }
+/* A segment's hover with what its marks mean (#706): a line each under the card's. */
+.lane-seg-note {
+  margin-top: 2px;
+  color: var(--fg);
+}
 .lane-seg.finished,
 .lane-seg.more {
   flex: 0 0 auto;
