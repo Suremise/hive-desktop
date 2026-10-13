@@ -124,7 +124,10 @@ const becomes = async (fn) => !!(await lib.until(fn, HUNG_MS))
   // The Hive Assistant view: a summary, its conversations and its personas.
   await page.locator('.activity-btn[aria-label="Hive Assistant"]').click()
   check('the Assistant view has a summary', await becomes(async () => (await page.locator('.assistant-summary .assistant-stat').count()) === 4))
-  check('it opens on the conversations', (await page.locator('.sessions-list .pane-header', { hasText: 'Conversations' }).count()) === 1 && (await page.locator('.sessions-list', { hasText: 'No conversations yet' }).count()) === 1)
+  // The summary's stats are drawn at once (showing "…" until its conversations are read), the list once they are: so
+  // the list is waited for, not read once after the stats (#710: it failed under load).
+  const conversations = page.locator('.sessions-list')
+  check('it opens on the conversations', await becomes(async () => (await conversations.locator('.pane-header', { hasText: 'Conversations' }).count()) === 1 && (await page.locator('.sessions-list', { hasText: 'No conversations yet' }).count()) === 1), JSON.stringify(await conversations.allInnerTexts()))
   // The personas load after the view opens: wait for them (read once, it failed under load, #648's runs).
   check('it lists the modes', await becomes(async () => (await page.locator('.persona-row').count()) === 5), String(await page.locator('.persona-row').count()))
   await page.locator('.persona-row', { hasText: 'QA triager' }).click()
@@ -152,9 +155,9 @@ const becomes = async (fn) => !!(await lib.until(fn, HUNG_MS))
   // Its conversation is in the Assistant view's browser, and reads like any session.
   await page.locator('.assistant-panel .assistant-header button[aria-label="More"]').click()
   await page.locator('.menu-item', { hasText: 'All Conversations…' }).click()
-  await lib.until(async () => (await page.locator('.session-row').count()) === 1, 10000)
-  check('All Conversations… lists it', (await page.locator('.session-row').count()) === 1, String(await page.locator('.session-row').count()))
-  check("it is the running one, with a Show button for the Assistant's panel", (await page.locator('.split-main button', { hasText: 'Show' }).count()) === 1)
+  // The list and its selected conversation's page come after the click: each waited for (#710).
+  check('All Conversations… lists it', await becomes(async () => (await page.locator('.session-row').count()) === 1), String(await page.locator('.session-row').count()))
+  check("it is the running one, with a Show button for the Assistant's panel", await becomes(async () => (await page.locator('.split-main button', { hasText: 'Show' }).count()) === 1))
   // Closing the workspace (Confirm on quit: always) lists it as "Assistant", then stops it.
   await inv('settings:update', { general: { confirmOnQuit: 'always' } })
   const closing = inv('workspace:close')
