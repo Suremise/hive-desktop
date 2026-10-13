@@ -3,6 +3,7 @@
  * watches as card watches (main/watches.ts). It fires when a watched agent's turn ends, it waits for the user, or it
  * stops; its line names every agent that did. Pure, so the watches, the Agent API and tests share it.
  */
+import { AGENT_LIMIT_MAX } from './defaults'
 import type { SessionStatus } from './types'
 import { DEFAULT_USER_NAME, WAKE_MAX_BYTES } from './watch'
 import { isProjectId } from './projectIds'
@@ -26,8 +27,8 @@ export interface AgentWatchCondition {
   ignoreBackground: boolean
 }
 
-/** At most this many agents in one watch (a project has at most 12; the Assistant can watch several projects'). */
-export const AGENT_WATCH_MAX_AGENTS = 20
+/** At most this many agents in one watch: a whole project's at the most (#562), and more, as the Assistant can watch several projects'. */
+export const AGENT_WATCH_MAX_AGENTS = AGENT_LIMIT_MAX + 8
 
 /** An agent as a watch reads it now (null runId: not running). */
 export interface AgentNow {

@@ -2,7 +2,7 @@ import { randomBytes } from 'crypto'
 import { existsSync } from 'original-fs'
 import { rename } from 'original-fs/promises'
 import { basename, dirname, join } from 'path'
-import { MAX_AGENTS, ROLE_MAX, agentPtyKey, mergeBlocked, moveAgentTo, projectAgents, slugify, swapAgentsIn } from '../shared/defaults'
+import { ROLE_MAX, agentLimitText, agentPtyKey, mergeBlocked, moveAgentTo, projectAgents, slugify, swapAgentsIn } from '../shared/defaults'
 import { forgetPtys } from './ptyHost'
 import { agentProvider, defaultProviderPending, isKnownProvider } from '../shared/providers'
 import { cleanMcpServers } from '../shared/agentMcp'
@@ -24,6 +24,8 @@ import { providerService } from './providerService'
 import { assertNameFree, withAgentNames, workspaceAgents } from './agentNames'
 import { sameAgentName } from '../shared/agentNames'
 import { chooseSpace, hiveBranch, reusableBranches, type BranchHome } from '../shared/hiveBranches'
+import { AGENTS_PER_PROJECT } from '../shared/advanced'
+import { advanced } from './advanced'
 
 const log = createLogger('agents')
 
@@ -115,11 +117,20 @@ export function pendingSetupPatch(now: ProjectConfig, change: { add?: string[]; 
   return after.length === before.length && after.every((p, i) => p === before[i]) ? null : { setupPending: after }
 }
 
+/**
+ * How many agents this project can have (#562): its workspace's own Agents per project, else Settings → Advanced's, else
+ * 12. Read afresh each time (under the project's lock too), so a change applies at once.
+ */
+export function agentLimit(projectPath: string): number {
+  return advanced.get<number>(AGENTS_PER_PROJECT, workspaceOf(projectPath).config.advanced)
+}
+
 export async function addAgent(projectPath: string, opts: AddAgentOptions): Promise<AddedAgent> {
   projectPath = workspace.assertProject(projectPath)
   const cfg = await workspace.projectConfig(projectPath)
   const agents = projectAgents(cfg)
-  if (agents.length >= MAX_AGENTS) throw new Error(`A project can have up to ${MAX_AGENTS} agents.`)
+  const limit = agentLimit(projectPath)
+  if (agents.length >= limit) throw new Error(agentLimitText(limit))
   // Unique across the workspace (#702): the default "Agent n" too, numbered past the other projects' names.
   const everyone = await workspaceAgents(projectPath)
   let n = agents.length + 1
@@ -136,7 +147,9 @@ export async function addAgent(projectPath: string, opts: AddAgentOptions): Prom
       await assertNameFree(projectPath, name)
       await workspace.mutateProjectConfig(projectPath, (now) => {
         const list = projectAgents(now)
-        if (list.length >= MAX_AGENTS) throw new Error(`A project can have up to ${MAX_AGENTS} agents.`)
+        // The limit as it is now: Settings may have lowered it since the check above.
+        const max = agentLimit(projectPath)
+        if (list.length >= max) throw new Error(agentLimitText(max))
         if (list.some((a) => sameAgentName(a.name, name))) throw new Error(`There is already an agent called "${name}".`)
         const wtPath = def.worktree && placeKey(def.worktree.path)
         if (wtPath && list.some((a) => a.worktree && placeKey(a.worktree.path) === wtPath)) throw new Error('Another agent already works in that worktree.')

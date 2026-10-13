@@ -165,6 +165,23 @@ else {
     await endHeld(strangerProc)
   }, 60000)
 
+  it("measures the memory running agents take (#562): each running launch's processes, summed", async () => {
+    const { agentsMemory, launchEnded, trackLaunch } = await import('../src/main/agentProcesses')
+    const out = join(dir, 'mem.txt')
+    // A CLI that keeps running: no "go" needed, it writes its pid and sleeps.
+    const cli = spawn(process.execPath, [script, 'holder', out], { stdio: 'ignore', windowsHide: true })
+    expect(await trackLaunch({ runId: 'mem1', projectPath: dir, agentId: 'm1', agentName: 'Busy' }, cli.pid!)).toEqual({ tracked: true })
+    expect(await until(() => !!pidsIn(out).holder, 10000)).toBe(true)
+    const m = await agentsMemory()
+    expect(m?.agents).toBe(1)
+    // A Node process's own private memory is several MB at least, far below a GB.
+    expect(m!.bytes).toBeGreaterThan(5 * 1024 ** 2)
+    expect(m!.bytes).toBeLessThan(1024 ** 3)
+    await endHeld(cli)
+    await launchEnded('mem1')
+    expect(await agentsMemory()).toBeNull()
+  }, 60000)
+
   it('keeps them running when asked, and stops listing them', async () => {
     const { launchEnded, leftoversOf, settleLeftovers } = await import('../src/main/agentProcesses')
     const out = join(dir, 'run2.txt')
