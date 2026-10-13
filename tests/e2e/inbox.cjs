@@ -81,11 +81,9 @@ const shot = (page, name) => page.screenshot({ path: path.join(lib.WORK, `inbox-
   /** A prompt to an agent, and the end of its turn. */
   const turn = async (proj, id) => {
     const n = (turns[id] = (turns[id] ?? 0) + 1)
-    await inv('pty:write', lib.ptyKey(proj, id), `${id} turn ${n}`)
-    await lib.sleep(300)
-    await inv('pty:write', lib.ptyKey(proj, id), '\r')
-    await until(async () => String(await inv('pty:buffer', lib.ptyKey(proj, id))).includes(`Done: ${id} turn ${n}`), 15000)
-    await until(async () => (await live(proj, id))?.status === 'finished', 15000)
+    // Typed once the fake takes prompts, and waited for by its own turn (#684, lib.fakePrompts).
+    check(`${id}'s turn ${n} ends`, !!(await lib.fakePrompts(inv, lib.ptyKey(proj, id), () => live(proj, id), { home: claudeHome }).say(`${id} turn ${n}`)))
+    await until(async () => String(await inv('pty:buffer', lib.ptyKey(proj, id))).includes(`Done: ${id} turn ${n}`), HUNG_MS)
     await lib.sleep(600)
   }
   const item = page.locator('.statusbar .inbox-item')

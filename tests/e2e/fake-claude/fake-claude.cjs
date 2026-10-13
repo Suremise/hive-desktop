@@ -279,6 +279,18 @@ let promptId = null
 let model = 'claude-fake'
 const FALLBACK_MODEL = 'claude-opus-4-8'
 
+/**
+ * A hook that didn't reach Hive (#684: under load a Stop never did, and the turn stayed running), in fake-hook-errors.jsonl
+ * in its home: the hook, when, and the error or the status Hive answered. It goes on as Claude Code does.
+ */
+const hookFailed = (event, entry) => {
+  try {
+    fs.appendFileSync(path.join(home, 'fake-hook-errors.jsonl'), JSON.stringify({ at: new Date().toISOString(), pid: process.pid, event, prompt: promptId, ...entry }) + '\n')
+  } catch {
+    // Its home gone: nothing to tell.
+  }
+}
+
 async function hook(event, extra = {}) {
   if (!hookUrl) return null
   try {
@@ -287,8 +299,10 @@ async function hook(event, extra = {}) {
       headers: { Authorization: event === 'SessionStart' ? commandAuth() : `Bearer ${token}`, 'Content-Type': 'application/json' },
       body: JSON.stringify({ hook_event_name: event, session_id: sessionId, transcript_path: transcript, cwd, permission_mode: runMode(), ...(promptId && event !== 'SessionStart' ? { prompt_id: promptId } : {}), ...extra })
     })
+    if (!res.ok) hookFailed(event, { status: res.status })
     return await res.json().catch(() => null)
-  } catch {
+  } catch (e) {
+    hookFailed(event, { error: String(e?.cause?.code ?? e?.cause?.message ?? e?.message ?? e) })
     return null
   }
 }
