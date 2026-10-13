@@ -83,9 +83,10 @@ import { workspaceFor } from './workspace'
  *
  * **Relevance** (#652). One tied to a card's round (`card` and `round`: a re-brief for the work under way) is stale once
  * that card has moved on (passed, done or archived, out of Doing and Review, or in a later round): ended as stale, with
- * why, never offered or given: checked under the host's lock as an offer or a read is planned (`staleNow`, read again
- * if the board changed meanwhile), and as the board changes (`sweepStale`), so a doorbell already rung for it finds
- * nothing. On #699 (13 Oct) the Assistant's re-brief for a round's finding reached its
+ * why, never offered or given: checked under the host's lock as an offer or a read is planned (`relevanceNow`, judged
+ * current right before the plan and read again if the board changed meanwhile; overtaken every time, the tied ones are
+ * held back unread rather than judged on an outdated read), and as the board changes (`sweepStale`), so a doorbell
+ * already rung for it finds nothing. On #699 (13 Oct) the Assistant's re-brief for a round's finding reached its
  * builder a second after the card passed, and it reopened the card to apply it.
  *
  * The rules, for every operation (create, offer, readInbox, ack, cancel): **one async lock per host**, inside it copy,
@@ -229,12 +230,21 @@ function transact<T>(store: Store, plan: (d: Draft) => T): Promise<T> {
 /**
  * A transaction whose plan needs something read first, under the host's lock (#652: the cards that deliveries tied to a
  * round are for): `read` runs once the lock is held, so from what is published then (a delivery made while it waited
- * included), and the plan follows it at once, as transact's does.
+ * included), and again while `again` says what it read was overtaken (at most READS times). `again` is asked last with
+ * nothing awaited between it and the plan, so the plan knows whether what it was given is still current (it says so
+ * itself, from the same check).
  */
-function transactAfter<P, T>(store: Store, read: () => Promise<P>, plan: (d: Draft, got: P) => T): Promise<T> {
+function transactAfter<P, T>(store: Store, read: () => Promise<P>, plan: (d: Draft, got: P) => T, again?: (got: P) => boolean): Promise<T> {
   running++
   return locked(store, async () => {
-    const got = await read()
+    let got = await read()
+    await beforePlan?.()
+    for (let i = 1; i < READS; i++) {
+      if (!again?.(got)) break
+      got = await read()
+      await beforePlan?.()
+    }
+    // From here to the save, nothing is awaited: the plan is made from `got` as `again` last judged it.
     const d: Draft = { records: [...store.records], next: store.next, invalid: [...store.invalid], dirty: false, after: [] }
     const planned = plan(d, got)
     if (!d.dirty) return planned
@@ -249,6 +259,14 @@ function transactAfter<P, T>(store: Store, read: () => Promise<P>, plan: (d: Dra
     for (const f of d.after) f()
     return planned
   }).finally(() => running--)
+}
+
+/** How many times a transaction's read is made, at most, when what it read keeps being overtaken (transactAfter). */
+const READS = 5
+/** For tests: run after a transaction's read, before it is judged current and planned (to change the board between them). */
+let beforePlan: (() => Promise<void> | void) | null = null
+export const setBeforePlanForTests = (fn: (() => Promise<void> | void) | null): void => {
+  beforePlan = fn
 }
 
 /** Transactions not finished yet (also those nothing waits for): what settled() waits for. */
@@ -741,16 +759,21 @@ export async function readInbox(host: string, agentId: string): Promise<{ items:
       // that is someone else's now, isn't handed out.
       const gate = await mayGive(store, store.records.filter((x) => x.agentId === agentId && isUnread(x)))
       // Relevance (#652) is read under the lock, so a card that moved on while this read waited for it is seen.
-      r = await transactAfter(store, () => staleNow(store, agentId), (d, stale) => {
-        endStale(store, d, stale)
-        recheck(store, d, agentId)
-        const may = gate(d)
-        const mine = d.records.filter((x) => x.agentId === agentId)
-        const give = mine.filter(may)
-        const before = mine.filter((x) => x.state === 'received' && needsAck(x.kind)).map((x) => x.id)
-        for (const x of give) set(store, d, x, 'received', undefined, 'inbox')
-        return { give, before, missed: mine.some((x) => x.state === 'offered' && !give.includes(x)) }
-      })
+      r = await transactAfter(
+        store,
+        () => relevanceNow(store, agentId),
+        (d, rel) => {
+          const held = applyRelevance(store, d, rel, agentId)
+          recheck(store, d, agentId)
+          const may = gate(d)
+          const mine = d.records.filter((x) => x.agentId === agentId)
+          const give = mine.filter((x) => may(x) && !held.has(x.id))
+          const before = mine.filter((x) => x.state === 'received' && needsAck(x.kind)).map((x) => x.id)
+          for (const x of give) set(store, d, x, 'received', undefined, 'inbox')
+          return { give, before, missed: mine.some((x) => x.state === 'offered' && !give.includes(x)) }
+        },
+        overtaken
+      )
     } catch (e) {
       // Nothing received yet: the read fails, and gave nothing. A retry failing keeps what the attempts before it
       // received (saved as received): this read returns them, and what it missed waits for the next.
@@ -901,33 +924,46 @@ async function staleOf(host: string, records: readonly DeliveryRecord[]): Promis
   return out
 }
 
-/** Board changes seen (tasks-changed): a relevance read that one overtook is read again (staleNow). */
+/** Board changes seen (tasks-changed): a relevance read one has overtaken is read again, or not acted on (Relevance). */
 let boardChanges = 0
 onHiveEvent((e) => {
   if (e.type === 'tasks-changed') boardChanges++
 })
 
-/**
- * A host's deliveries (an agent's, or all) tied to a card's round that are stale now (#652), read under its lock (in a
- * transactAfter's `read`): from the records published then, and read again if the board changed while the cards were
- * read, so a plan never acts on a card as it was before a change Hive has already seen.
- */
-async function staleNow(store: Store, agentId?: string): Promise<Map<string, string>> {
-  let out = new Map<string, string>()
-  for (let i = 0; i < 5; i++) {
-    const seen = boardChanges
-    out = await staleOf(store.host, store.records.filter((r) => !agentId || r.agentId === agentId))
-    if (seen === boardChanges) break
-  }
-  return out
+/** A relevance read (#652): which deliveries tied to a card's round are stale, and the board's changes when it began. */
+interface Relevance {
+  stale: Map<string, string>
+  board: number
 }
 
-/** Ends, in a draft, what staleNow found stale (still unread). */
-function endStale(store: Store, d: Draft, stale: ReadonlyMap<string, string>): void {
-  for (const [id, why] of stale) {
-    const r = byId(d.records, id)
-    if (r && isUnread(r)) set(store, d, r, 'stale', why)
+/**
+ * A host's deliveries (an agent's, or all) tied to a card's round that are stale, read under its lock (a transactAfter's
+ * `read`, with `overtaken` as its `again`): from the records published then.
+ */
+async function relevanceNow(store: Store, agentId?: string): Promise<Relevance> {
+  const board = boardChanges
+  return { stale: await staleOf(store.host, store.records.filter((r) => !agentId || r.agentId === agentId)), board }
+}
+/** Whether the board has changed since a relevance read began: what it found may be out of date. */
+const overtaken = (rel: Relevance): boolean => rel.board !== boardChanges
+
+/**
+ * Applies a relevance read in a draft, as the plan is made (nothing awaited since transactAfter last judged it): if the
+ * board is as it was read, what it found stale ends as stale; if not (overtaken READS times running), nothing is ended
+ * from it, and the deliveries tied to a round (an agent's, or all) are held back: returned, to be neither given nor
+ * offered by this operation, left unread for a later one.
+ */
+function applyRelevance(store: Store, d: Draft, rel: Relevance, agentId?: string): Set<string> {
+  if (!overtaken(rel)) {
+    for (const [id, why] of rel.stale) {
+      const r = byId(d.records, id)
+      if (r && isUnread(r)) set(store, d, r, 'stale', why)
+    }
+    return new Set()
   }
+  const held = d.records.filter((r) => r.round && isUnread(r) && (!agentId || r.agentId === agentId)).map((r) => r.id)
+  if (held.length) d.after.push(() => log.info(`Deliveries ${held.join(', ')} held back: the board kept changing while their cards were read`))
+  return new Set(held)
 }
 
 /** Ends what has become stale in each loaded host (#652), as the board changes: one sweep at a time, again if asked meanwhile. */
@@ -943,7 +979,7 @@ function sweepStale(): void {
       sweepAgain = false
       for (const store of [...stores.values()]) {
         if (!store.records.some((r) => r.round && isUnread(r))) continue
-        await transactAfter(store, () => staleNow(store), (d, stale) => endStale(store, d, stale)).catch((e) => log.warn('ending stale deliveries', e))
+        await transactAfter(store, () => relevanceNow(store), (d, rel) => void applyRelevance(store, d, rel), overtaken).catch((e) => log.warn('ending stale deliveries', e))
         showAll(store)
       }
     } while (sweepAgain)
@@ -1087,12 +1123,17 @@ async function offerOnce(host: string, agentId: string, only?: string): Promise<
   // in between it is uncertain, never "delivered". Not saved, or no longer to be given out: nothing is typed.
   let offer: Offer | null
   try {
-    offer = await transactAfter(store, () => staleNow(store, agentId), (d, stale) => {
-      endStale(store, d, stale)
-      const may = gate(d)
-      items = pickOffer(store, d.records, agentId, only).filter((r) => items.some((x) => x.id === r.id) && may(r))
-      return planOffer(store, d, items, { runId: st.runId, sessionId: st.sessionId }, label)
-    })
+    offer = await transactAfter(
+      store,
+      () => relevanceNow(store, agentId),
+      (d, rel) => {
+        const held = applyRelevance(store, d, rel, agentId)
+        const may = gate(d)
+        items = pickOffer(store, d.records, agentId, only).filter((r) => items.some((x) => x.id === r.id) && may(r) && !held.has(r.id))
+        return planOffer(store, d, items, { runId: st.runId, sessionId: st.sessionId }, label)
+      },
+      overtaken
+    )
   } catch (e) {
     log.warn(`Deliveries for ${userText(agentId)} not offered: ${(e as Error).message}`)
     show(store, agentId)

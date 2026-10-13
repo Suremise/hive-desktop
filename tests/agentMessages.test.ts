@@ -732,6 +732,62 @@ describe('messages left for agents (#530, #647)', async () => {
     }
   })
 
+  it('tied to a card round, the board changing after the cards are read (#652 round 2 finding 1): judged at the plan, read again, and never acted on from an outdated read, for the read and the offer', async () => {
+    const { emit } = await import('../src/main/events')
+    const card = { number: 7, column: 'doing', archived: false, history: [] as { at: string; by: string; what: string }[] }
+    deliveries.setCardReaderForTests(async () => structuredClone(card) as never)
+    const tied7 = (text: string) => messages.leaveMessage(alpha, 'b1', 'HR2', asst, text, 7)
+    const boardChanged = () => emit({ type: 'tasks-changed', workspacePath: 'C:/ws' })
+    /** Runs `fn` once, the first time a transaction's read is done and before it is judged and planned. */
+    const onceBeforePlan = (fn: () => void) => {
+      let done = false
+      deliveries.setBeforePlanForTests(() => {
+        if (done) return
+        done = true
+        fn()
+      })
+    }
+    try {
+      // The read: the card passes after its cards were read, before the plan. Read again: stale, nothing given.
+      expect((await tied7('Round 1: also cover the empty case.')).fate).toBe('queued')
+      onceBeforePlan(() => {
+        card.column = 'passed'
+        boardChanged()
+      })
+      expect(await deliveries.readInbox(alpha, 'b1')).toEqual({ items: [], unacked: [] })
+      expect(await states()).toEqual(['m1 stale: #7 passed review'])
+      // The offer: the same between its read and its plan. Nothing is typed, and it is stale.
+      card.column = 'doing'
+      expect((await tied7('Round 1 again.')).fate).toBe('queued')
+      onceBeforePlan(() => {
+        card.column = 'passed'
+        boardChanged()
+      })
+      st.status = 'ready'
+      expect(await deliveries.offerNow(alpha, 'b1')).toBe(false)
+      expect(st.typed).toEqual([])
+      expect((await states()).at(-1)).toBe('m2 stale: #7 passed review')
+      // The board changing at every read (another card's moves): the tied message is held back, unread, neither given nor
+      // offered; one not tied to a round goes on as usual.
+      card.column = 'doing'
+      st.status = 'working'
+      expect((await tied7('Held back.')).fate).toBe('queued')
+      await leave('Not tied to a round.')
+      deliveries.setBeforePlanForTests(() => boardChanged())
+      st.status = 'ready'
+      expect(await deliveries.offerNow(alpha, 'b1')).toBe(true)
+      expect(st.typed).toEqual([bell('1 message', 'm4')])
+      expect((await deliveries.readInbox(alpha, 'b1')).items.map((x) => x.ids.join())).toEqual(['m4'])
+      expect((await states()).slice(2)).toEqual(['m3 queued', 'm4 received'])
+      // Once the board is quiet, it is judged and given.
+      deliveries.setBeforePlanForTests(null)
+      expect((await deliveries.readInbox(alpha, 'b1')).items.map((x) => `${x.ids.join()} ${x.text}`)).toEqual(['m3 Held back.'])
+    } finally {
+      deliveries.setBeforePlanForTests(null)
+      deliveries.setCardReaderForTests(null)
+    }
+  })
+
   it('bounded: at most 5 waiting, 4000 characters each; refused for an agent not running', async () => {
     for (let i = 0; i < messages.MAX_QUEUED; i++) await leave(`Note ${i}`)
     await expect(leave('One too many')).rejects.toThrow(/already has 5 messages waiting/)
