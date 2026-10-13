@@ -5,7 +5,7 @@ import { existsSync, readFileSync, statSync } from 'original-fs'
 import type { AgentInstallInfo, McpServerDef, MemorySource, ReadinessIssue, SessionUsage, SubSession } from '../../../shared/types'
 import { assertSessionId } from '../../../shared/defaults'
 import type { StartHint } from '../../../shared/startFailure'
-import { COPILOT, COPILOT_DESCRIPTOR, copilotCanApproveEdits, copilotCanSwitchLive, copilotFooterMode, copilotModeFlags } from '../../../shared/copilot'
+import { COPILOT, COPILOT_DESCRIPTOR, COPILOT_FOOTER_MODES, copilotCanApproveEdits, copilotCanSwitchLive, copilotFooterMode, copilotModeFlags } from '../../../shared/copilot'
 import { isProviderEnabled } from '../../../shared/providers'
 import { config } from '../../config'
 import { writeJsonAtomic } from '../../fsutil'
@@ -358,7 +358,7 @@ export class CopilotAdapter implements ProviderAdapter {
   }
 
   footerMode(screen: string, launched?: string | null): string | null {
-    return copilotFooterMode(screen, launched)
+    return copilotFooterMode(screen, launched, COPILOT_FOOTER_MODES.map((d) => [d.mode, advanced.pattern(`copilot.footer.${d.key}`)] as const))
   }
 
   canSwitchLive(target: string, current: string | undefined, launched: string | null | undefined): boolean {

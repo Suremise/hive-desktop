@@ -6,6 +6,8 @@ import { existsSync, readFileSync, writeFileSync } from 'fs'
 import { join } from 'path'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { ADVANCED_DEFS, advancedDef, advancedFileText, advancedRow, checkAdvanced, cliFacing, parseAdvancedFile, sampleMiss, type AdvancedDef } from '../src/shared/advanced'
+import { CLAUDE_FOOTER_MODES } from '../src/shared/claude'
+import { COPILOT_FOOTER_MODES } from '../src/shared/copilot'
 import { SETTINGS_CATALOG, checkSettingValue, settingDefault, settingEntry, settingPatch, settingValue, settingValueText } from '../src/shared/settingsCatalog'
 import { AdvancedStore, advanced, bindAdvancedSettings, mcpAdvancedEnv, updateSettingsChecked, waitMaxSeconds } from '../src/main/advanced'
 import { DEFAULT_SETTINGS, mergeDefaults } from '../src/shared/defaults'
@@ -93,6 +95,15 @@ describe('advanced defaults', () => {
     // Codex's placeholder: on its idle screen, not while it asks about trust.
     expect(screen('screen-codex-0.162.1-idle.txt')).toContain(def('codex.ready.placeholder').default)
     expect(screen('advanced/trust-codex-0.162.1.txt')).not.toContain(def('codex.ready.placeholder').default)
+  })
+
+  it("each footer mode's default finds its own recorded screen, and no other mode's (#696)", () => {
+    const footers = ADVANCED_DEFS.filter((d) => d.id.includes('.footer.'))
+    expect(footers.map((d) => d.id)).toEqual([...CLAUDE_FOOTER_MODES.map((m) => `claude-code.footer.${m.key}`), ...COPILOT_FOOTER_MODES.map((m) => `copilot.footer.${m.key}`)])
+    for (const d of footers) {
+      const own = fixtureText(d.samples![0].from)
+      for (const other of footers.filter((o) => o.group === d.group)) expect(new RegExp(other.default as string, other.flags ?? '').test(own), `${other.id} on ${d.samples![0].from}`).toBe(other === d)
+    }
   })
 })
 
@@ -429,6 +440,13 @@ describe('the adapters and the hive MCP server use them', () => {
     const ask = { kind: 'permission', blocking: true, message: 'Claude needs your permission' } as const
     expect(claudeCode.safeguardAsk!(ask, screen('advanced/safeguard-prompt-claude-2.1.296.txt'))).toBe(true)
     expect(claudeCode.safeguardAsk!(ask, screen('screen-claude-2.1.296-idle.txt'))).toBe(false)
+    // #696: each mode's footer, from the screens recorded in it.
+    const claudeScreens = { manual: 'screen-claude-2.1.296-idle.txt', acceptEdits: 'advanced/footer-claude-2.1.296-acceptEdits.txt', plan: 'advanced/footer-claude-2.1.296-plan.txt', auto: 'screen-claude-2.1.296-hive-idle.txt', bypassPermissions: 'advanced/footer-claude-2.1.296-bypassPermissions.txt', dontAsk: 'advanced/footer-claude-2.1.296-dontAsk.txt' }
+    for (const [mode, file] of Object.entries(claudeScreens)) expect(claudeCode.footerMode!(screen(file)), file).toBe(mode)
+    const copilotScreens = { ask: 'advanced/ready-copilot-1.0.95.txt', 'allow-all': 'advanced/footer-copilot-1.0.95-allow-all.txt', plan: 'advanced/footer-copilot-1.0.95-plan.txt', autopilot: 'advanced/footer-copilot-1.0.95-autopilot.txt' }
+    for (const [mode, file] of Object.entries(copilotScreens)) expect(copilot.footerMode!(screen(file), 'plan'), file).toBe(mode)
+    expect(copilot.footerMode!(screen('advanced/ready-copilot-1.0.95.txt'), 'accept-edits')).toBe('accept-edits')
+    expect(copilot.footerMode!(screen('advanced/trust-copilot-1.0.95.txt'))).toBeNull()
   })
 
   it("reads Codex's plan limits under renamed fields once the overrides name them (the recorded token_count, renamed)", async () => {
@@ -502,6 +520,16 @@ describe('the adapters and the hive MCP server use them', () => {
     expect(permissionsMenuNumber('  1. Ask for approval   …\n› 2. Read only access (current)  Read workspace files\n', 'read-only')).toBe('2')
     await advanced.set('claude-code.safeguard.prompt', String.raw`\bModel switch\b`)
     expect(claudeCode.safeguardAsk!({ kind: 'permission', blocking: true, message: 'Claude needs your permission' }, ' ☐ Model switch\n')).toBe(true)
+    // #696: a mode's footer, as if the CLI renamed it; the mode found last on screen still wins.
+    const { copilot } = await import('../src/main/providers/copilot/adapter')
+    expect(claudeCode.footerMode!('  ⏸ planning on (shift+tab to cycle)')).toBeNull()
+    await advanced.set('claude-code.footer.plan', String.raw`⏸ planning on\b`)
+    expect(claudeCode.footerMode!('  ⏸ planning on (shift+tab to cycle)')).toBe('plan')
+    expect(claudeCode.footerMode!('  ⏸ plan mode on (shift+tab to cycle)')).toBeNull()
+    expect(claudeCode.footerMode!('⏸ planning on\n  ⏵⏵ auto mode on (shift+tab to cycle)')).toBe('auto')
+    await advanced.set('copilot.footer.ask', String.raw`\bInteractive · Ask\b`)
+    expect(copilot.footerMode!(' · Interactive · Ask First · / commands', 'accept-edits')).toBe('accept-edits')
+    expect(copilot.footerMode!(' · Interactive · Manual Approval · / commands')).toBeNull()
     await advanced.set('copilot.hooks.timeoutSeconds', 15)
     await advanced.set('copilot.hooks.preToolUseTimeoutSeconds', 30)
     const hooks = (copilotHooks('http://127.0.0.1:1/hook', 't') as { hooks: Record<string, { timeoutSec: number }[]> }).hooks

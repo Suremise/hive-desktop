@@ -4,7 +4,7 @@ import { mkdir, open, readdir, stat, writeFile } from 'original-fs/promises'
 import { existsSync, readFileSync, realpathSync } from 'original-fs'
 import type { AgentInstallInfo, AutoCompactSetting, McpServerDef, MemorySource, PathDataCopy, PlanLimit, PlanUsage, ReadinessIssue, SubSession } from '../../../shared/types'
 import { HIVE_DIR, assertSessionId, isSessionId } from '../../../shared/defaults'
-import { CLAUDE_CODE, CLAUDE_DESCRIPTOR, baseModel, canSwitchLive, footerMode, hookMode } from '../../../shared/claude'
+import { CLAUDE_CODE, CLAUDE_DESCRIPTOR, CLAUDE_FOOTER_MODES, baseModel, canSwitchLive, footerMode, hookMode } from '../../../shared/claude'
 import { providerSettings } from '../../../shared/providers'
 import { samePath } from '../../../shared/movePaths'
 import { config } from '../../config'
@@ -557,7 +557,7 @@ export class ClaudeCodeAdapter implements ProviderAdapter {
   }
 
   footerMode(screen: string): string | null {
-    return footerMode(screen)
+    return footerMode(screen, CLAUDE_FOOTER_MODES.map((d) => [d.mode, advanced.pattern(`claude-code.footer.${d.key}`)] as const))
   }
 
   canSwitchLive(target: string, current: string | undefined, launched: string | null | undefined): boolean {

@@ -14,6 +14,8 @@
  *
  * Pure data and helpers: no React, no Node (Settings, the main process and the Assistant's settings tools share it).
  */
+import { CLAUDE_FOOTER_MODES } from './claude'
+import { COPILOT_FOOTER_MODES } from './copilot'
 import { SAFEGUARD_DEFAULTS } from './safeguards'
 import type { ProviderId } from './types'
 
@@ -82,6 +84,20 @@ const HOOKS_TAKEN: Record<string, AdvancedSample> = {
   'claude-code': { from: `${FIX}/turns-claude-2.1.296.json`, version: '2.1.296', text: '"hook_event_name": "PreToolUse"', shows: "Claude Code sending Hive's hooks, PreToolUse too" },
   codex: { from: `${FIX}/turns-codex-0.162.1.json`, version: '0.162.1', text: '"hook_event_name": "PreToolUse"', shows: "Codex running Hive's hooks (trusted, so their timeouts match the hashes Hive gave it), PreToolUse too" },
   copilot: { from: `${FIX}/console/copilot.json`, version: '1.0.95', text: '"name": "PreToolUse"', shows: "Copilot sending Hive's hooks from its launch plugin, PreToolUse too" }
+}
+
+/** Each CLI's footer in each mode, from screens recorded in it (#696). */
+const FOOTER_SAMPLES: Record<string, AdvancedSample> = {
+  'claude-code.manual': { from: `${FIX}/screen-claude-2.1.296-idle.txt`, version: '2.1.296', text: '⏸ manual mode on · ? for shortcuts' },
+  'claude-code.acceptEdits': { from: `${FIX}/advanced/footer-claude-2.1.296-acceptEdits.txt`, version: '2.1.296', text: '⏵⏵ accept edits on (shift+tab to cycle)' },
+  'claude-code.plan': { from: `${FIX}/advanced/footer-claude-2.1.296-plan.txt`, version: '2.1.296', text: '⏸ plan mode on (shift+tab to cycle)' },
+  'claude-code.auto': { from: `${FIX}/screen-claude-2.1.296-hive-idle.txt`, version: '2.1.296', text: '⏵⏵ auto mode on (shift+tab to cycle)' },
+  'claude-code.bypassPermissions': { from: `${FIX}/advanced/footer-claude-2.1.296-bypassPermissions.txt`, version: '2.1.296', text: '⏵⏵ bypass permissions on (shift+tab to cycle)' },
+  'claude-code.dontAsk': { from: `${FIX}/advanced/footer-claude-2.1.296-dontAsk.txt`, version: '2.1.296', text: "⏵⏵ don't ask on (shift+tab to cycle)" },
+  'copilot.ask': { from: `${FIX}/advanced/ready-copilot-1.0.95.txt`, version: '1.0.95', text: '· Interactive · Manual Approval ·' },
+  'copilot.allowAll': { from: `${FIX}/advanced/footer-copilot-1.0.95-allow-all.txt`, version: '1.0.95', text: '· Interactive · Allow All ·' },
+  'copilot.plan': { from: `${FIX}/advanced/footer-copilot-1.0.95-plan.txt`, version: '1.0.95', text: '· Plan · Manual Approval ·' },
+  'copilot.autopilot': { from: `${FIX}/advanced/footer-copilot-1.0.95-autopilot.txt`, version: '1.0.95', text: '· Autopilot · Manual Approval ·' }
 }
 
 /** Every advanced value, in the order Settings lists them (by group). */
@@ -269,6 +285,19 @@ export const ADVANCED_DEFS: readonly AdvancedDef[] = [
     applies: 'now',
     samples: [{ from: `${FIX}/advanced/safeguard-prompt-claude-2.1.296.txt`, version: '2.1.296', text: ' ❯ 1. Switch automatically\n      Continue on Opus 4.8 now, and switch without asking from now on\n   2. Stay on Opus 5.5' }]
   },
+  ...CLAUDE_FOOTER_MODES.map(
+    (m): AdvancedDef => ({
+      id: `claude-code.footer.${m.key}`,
+      group: 'claude-code',
+      title: `Footer: ${m.label}`,
+      desc: `Claude Code's footer in the ${m.label} mode ("${FOOTER_SAMPLES[`claude-code.${m.key}`].text}"). Hive reads an agent's permission mode from its footer (the mode found last on screen), and switches modes by pressing Shift+Tab until the footer shows the one wanted; wrong, Hive doesn't see the agent in ${m.label}, and can't switch to it without a restart.`,
+      kind: 'pattern',
+      default: m.pattern,
+      flags: 'i',
+      applies: 'now',
+      samples: [FOOTER_SAMPLES[`claude-code.${m.key}`]]
+    })
+  ),
   // Codex
   {
     id: 'codex.trust.prompt',
@@ -443,6 +472,18 @@ export const ADVANCED_DEFS: readonly AdvancedDef[] = [
     applies: 'now',
     samples: [{ from: `${FIX}/advanced/ready-copilot-1.0.95.txt`, version: '1.0.95', text: '← open sidebar · Interactive · Manual Approval · / commands · ? help' }]
   },
+  ...COPILOT_FOOTER_MODES.map(
+    (m): AdvancedDef => ({
+      id: `copilot.footer.${m.key}`,
+      group: 'copilot',
+      title: `Footer: ${m.label}`,
+      desc: `Copilot's footer in the ${m.label} mode ("${FOOTER_SAMPLES[`copilot.${m.key}`].text}")${m.mode === 'ask' ? ', which Ask and Accept edits share (Hive tells them apart by the mode the session started in)' : ''}. Hive reads an agent's mode from its footer (the mode found last on screen), and switches modes by pressing Shift+Tab until the footer shows the one wanted; wrong, Hive doesn't see the agent in that mode, and can't switch to it without a restart.`,
+      kind: 'pattern',
+      default: m.pattern,
+      applies: 'now',
+      samples: [FOOTER_SAMPLES[`copilot.${m.key}`]]
+    })
+  ),
   {
     id: 'copilot.signIn.errorType',
     group: 'copilot',
