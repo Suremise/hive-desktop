@@ -113,8 +113,10 @@ const check = (name, ok, extra = '') => {
     const startAndTrust = async (agent) => {
       const s = await inv('session:start', proj, { agentId: agent.id })
       check(`${agent.name}: starts with a session id Hive chose (--session-id)`, /^[0-9a-f-]{36}$/.test(s?.sessionId ?? ''), s?.sessionId)
-      const asked = await lib.until(async () => /Do you trust the files in this folder/.test(await screen(agent.id)), 30000, 300)
-      check(`${agent.name}: the folder-trust question shows as waiting`, !!asked && (await status(agent.id)) === 'waiting', await status(agent.id))
+      // Hive reads the question from the screen it draws, so it shows as waiting once Hive has read it (#679: once under
+      // load the screen had it and the status, read once, was still ready).
+      const asked = await lib.until(async () => /Do you trust the files in this folder/.test(await screen(agent.id)) && (await status(agent.id)) === 'waiting', 30000, 300)
+      check(`${agent.name}: the folder-trust question shows as waiting`, !!asked, `${await status(agent.id)}; on screen: ${/Do you trust the files in this folder/.test(await screen(agent.id))}`)
       await inv('pty:write', key(agent.id), '\r')
       check(`${agent.name}: ready once answered`, !!(await reach(agent.id, ['ready'])), await status(agent.id))
       return s
@@ -269,9 +271,19 @@ const check = (name, ok, extra = '') => {
     check('A: Autopilot is refused while the opt-in is off', /Autopilot is turned off/.test(autopilotOff), autopilotOff)
 
     // A: a question (ask_user: Notification elicitation_dialog): waiting with its question, then answered.
+    const QUESTION = /enter accept · ctrl\+d decline · esc cancel/g
+    const questionsIn = async () => (lib.plainText(await inv('pty:buffer', key(a.id)).catch(() => '')).match(QUESTION) ?? []).length
+    const questionsBefore = await questionsIn()
     await send(a.id, 'question then say Thanks.')
     const q = await lib.until(async () => { const l = await live(a.id); return l?.status === 'waiting' ? l : null }, 30000, 300)
     check('A: its question shows as waiting, with the question', !!q && /Which one should I use/.test(q.statusMessage ?? ''), `${await status(a.id)} ${q?.statusMessage ?? ''}`)
+    // Enter once Copilot has drawn the question form (its footer, "↑/↓ select · enter accept · ctrl+d decline · esc
+    // cancel"): waiting comes from its Notification hook, before the form takes keys (#679: an Enter sent at once was
+    // lost under load, and it stayed waiting).
+    const waitingAt = Date.now()
+    const drawn = await lib.until(async () => (await questionsIn()) > questionsBefore, DIALOG_DRAWN_MS, 200)
+    if (Date.now() - waitingAt > 1000) console.log(`  (the question form was drawn ${Date.now() - waitingAt} ms after it showed as waiting)`)
+    check('A: Copilot draws the question form', !!drawn, (await screen(a.id)).slice(-300))
     await inv('pty:write', key(a.id), '\r')
     check('A: the answered question finishes', !!(await reach(a.id, ['finished'])), await status(a.id))
 

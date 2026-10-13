@@ -8,6 +8,8 @@ const fs = require('fs')
 const path = require('path')
 // The longest a wait here waits for what it waits on: a bound for a hung run, never how long it should take (#570).
 const HUNG_MS = 10000
+// The longest a quit waits for the agent's turn to end ("work 8"), and Hive to close after it: a bound for a hung run.
+const QUIT_HUNG_MS = 60000
 
 let failed = 0
 const check = (name, ok, extra = '') => {
@@ -75,7 +77,9 @@ async function keepBusy(inv, alpha, agent, live, secs) {
     const waitButton = dialog.locator('button', { hasText: 'Quit when' })
     check('and offers to quit when it finishes', (await waitButton.count()) === 1)
     await page.screenshot({ path: path.join(lib.WORK, 'quitwait-1-dialog.png') })
-    const closing = exited(app, 30000)
+    // Closed once the agent's turn is over and Hive has quit; each bounded for a hung run, with when each came logged
+    // (#679: once under load it hadn't closed within 30 s of the click, with no sign of which step was late).
+    const closed = app.waitForEvent('close', { timeout: QUIT_HUNG_MS * 2 }).then(() => Date.now(), () => null)
     const t0 = Date.now()
     await waitButton.click()
     check('the window hides', !!(await until(async () => !(await visible(app)), 5000)))
@@ -83,7 +87,15 @@ async function keepBusy(inv, alpha, agent, live, secs) {
     check('a quit is pending (the tray shows it), with one agent working', state?.pending === true && state?.working === 1, JSON.stringify(state))
     await lib.sleep(2000) // A fixed wait on purpose: this checks that Hive does NOT quit while the agent works.
     check("it doesn't quit while the agent works", (await live().catch(() => null))?.status === 'working')
-    check('it quits once the agent finishes', await closing)
+    let lastSeen = null
+    const finished = await until(async () => {
+      const s = await live().catch(() => null)
+      if (s) lastSeen = { status: s.status, quit: await inv('app:quitState').catch(() => null) }
+      return !s || s.status !== 'working' ? Date.now() : null
+    }, QUIT_HUNG_MS)
+    const closedAt = await closed
+    console.log(`  (the agent's turn was over ${finished ? finished - t0 : '?'} ms after the click; Hive closed ${closedAt ? closedAt - t0 : '?'} ms after it; last seen ${JSON.stringify(lastSeen)})`)
+    check('it quits once the agent finishes', !!closedAt, JSON.stringify(lastSeen))
     check('not before the agent was done (about 8 s)', Date.now() - t0 > 4000, `${Date.now() - t0} ms`)
   }
 
