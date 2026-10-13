@@ -1,5 +1,10 @@
 # Release Notes
 
+## Unreleased
+
+### Hive Assistant
+- **A decision on a card in Review reaches its card loop.** Recording your decision on a card in Review, or clearing its block, wakes neither the card's builder nor its reviewer, so the Assistant now follows it with a message to the builder, and to the reviewer when it changes what they check, instead of the loop waiting until its watch runs out.
+
 ## 0.7.1 — 13 October 2026
 
 ### Advanced settings

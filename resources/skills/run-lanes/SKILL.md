@@ -49,6 +49,7 @@ Nothing wakes you but the user and a watch you started, so never leave lanes on 
 
 ## Changing a running lane
 
+- A decision you record on a lane's card in Review, or a block you clear from one, wakes neither side: follow it with `hive_message_agent` to the builder (with `card`), and to the reviewer when it changes what they check (coordinate-agents, Plan as cards).
 - A comment on a card doesn't reach a builder's loop. To add or reorder cards, wait until the builder is idle, prompt it with the new list, and start the lane again with it (`hive_lane` `start`).
 - To move a card to another lane, reassign it (`hive_update_task` with `agent`): Hive ends the old pair's watches on it and tells them. Then prompt the new lane's builder once it is idle.
 
