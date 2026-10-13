@@ -22,7 +22,7 @@ import { makeDist } from '../scripts/distCopy.mjs'
 // @ts-expect-error: plain .mjs modules without types
 import { buildLock, buildStamp, buildStamped, buildStampedAt, builtOnce, devBuild, ensureBuild } from './e2e/build.mjs'
 // @ts-expect-error: plain .mjs modules without types
-import { LANES, LANE_PORTS, claimHeld, claimLane, lanePorts, laneWork, pickLane, portFree } from './e2e/lanes.mjs'
+import { LANES, LANE_PORTS, claimHeld, claimLane, describeHolder, laneHolders, lanePorts, laneWaitLine, laneWork, pickLane, portFree, waitForLane } from './e2e/lanes.mjs'
 // @ts-expect-error: plain .mjs modules without types
 import { describeClaim, heavySlots, holdsMergeSlot, isFullUnitRun, isHeavy, needsSlot, preMerge, trySlot, waitForSlot, waitLine } from './e2e/slots.mjs'
 // @ts-expect-error: plain .mjs modules without types
@@ -984,9 +984,13 @@ describe("each runner's own lane: ports and suite folders (lanes.mjs)", () => {
 
   it('scenario runs claim a lane too: their folders and Agent API port, never the shared 47930 or scenarios folder (#183, #184)', () => {
     const run = readFileSync(join(__dirname, 'scenarios', 'run.mjs'), 'utf8')
-    // The same pool as the e2e runner's (runContext.LANES_DIR).
-    expect(run).toContain('const lane = await claimLane(runContext.LANES_DIR, { root: lib.ROOT })')
-    expect(readFileSync(join(dir, 'run.mjs'), 'utf8')).toContain('await claimLane(runContext.LANES_DIR, { root })')
+    // The same pool as the e2e runner's (runContext.LANES_DIR), each waiting for a lane while all are taken (#707).
+    expect(run).toMatch(/const lane = await waitForLane\(runContext\.LANES_DIR, \{\s+root: lib\.ROOT,/)
+    expect(readFileSync(join(dir, 'run.mjs'), 'utf8')).toMatch(/const got = await waitForLane\(runContext\.LANES_DIR, \{\s+root,/)
+    for (const r of [run, readFileSync(join(dir, 'run.mjs'), 'utf8')]) {
+      expect(r).toContain("'a test lane')")
+      expect(r).toMatch(/wait: !(opts\.noWait|argv\.includes\('--no-wait'\))/)
+    }
     expect(run).toContain("const workRoot = laneWork(join(lib.WORK, '..', 'scenarios'), lane.lane)")
     expect(run).toMatch(/runScenario\(sc, provider, \{[^}]*workRoot, port: lane\.first/)
     expect(run).toContain('process.on(\'exit\', lane.release)')
@@ -1023,6 +1027,47 @@ describe("each runner's own lane: ports and suite folders (lanes.mjs)", () => {
       first.release()
       expect(existsSync(join(lanesDir, 'lane-0.json'))).toBe(true)
       expect(readdirSync(lanesDir).includes('.claiming')).toBe(false)
+    } finally {
+      rmSync(lanesDir, { recursive: true, force: true })
+    }
+  })
+
+  it('runners beyond the lanes wait for one instead of failing; --no-wait refuses at once, saying who holds them (#707)', async () => {
+    const lanesDir = tempDir('hive-lanes-')
+    try {
+      const free = async () => true
+      // Every runner is alive until it lets its lane go (a claim written is held at once, by its owner).
+      const ended = new Set<number>()
+      const running = (pid: number) => !ended.has(pid)
+      const pids = Array.from({ length: LANES + 2 }, (_, i) => 500 + i)
+      const got = new Map<number, { lane: number; waitedMs: number; release: () => void }>()
+      const waiting = new Set<number>()
+      const runs = pids.map((pid) =>
+        waitForLane(lanesDir, { owner: pid, what: `e2e: run ${pid}`, root: 'W', alive: running, free, pollMs: 10, onWait: () => waiting.add(pid) }).then((g: { lane: number; waitedMs: number; release: () => void }) => {
+          got.set(pid, g)
+          return g
+        })
+      )
+      // Ten get a lane each; the other two wait, none fails.
+      await vi.waitFor(() => expect([got.size, [...waiting].filter((p) => !got.has(p)).length]).toEqual([LANES, 2]), { timeout: HUNG_MS })
+      expect(new Set([...got.values()].map((g) => g.lane)).size).toBe(LANES)
+      // Meanwhile a runner with --no-wait is refused at once, with who holds the lanes.
+      const refused = await waitForLane(lanesDir, { owner: 900, alive: running, free, wait: false })
+      expect(refused.refused.holders).toHaveLength(LANES)
+      expect(describeHolder(refused.refused.holders[0])).toMatch(/^e2e: run 5\d\d in W \(process 5\d\d, 0 min\)$/)
+      expect(laneWaitLine(refused.refused)).toMatch(new RegExp(`^Waiting for a test lane \\(all ${LANES} are taken on this machine\\): held by e2e: run 5`))
+      expect(existsSync(join(lanesDir, 'lane-900.json'))).toBe(false)
+      // Two let theirs go (one ends, one crashes): the two waiting take those lanes.
+      const [a, b] = [...got.entries()].slice(0, 2)
+      a[1].release()
+      ended.add(a[0])
+      ended.add(b[0])
+      const all = await Promise.all(runs)
+      const late = pids.filter((p) => waiting.has(p))
+      expect(late).toHaveLength(2)
+      expect(late.map((p) => got.get(p)!.lane).sort()).toEqual([a[1].lane, b[1].lane].sort())
+      expect(all).toHaveLength(LANES + 2)
+      expect(laneHolders(lanesDir, running)).toHaveLength(LANES)
     } finally {
       rmSync(lanesDir, { recursive: true, force: true })
     }
