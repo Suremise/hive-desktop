@@ -254,6 +254,83 @@ describe('notices in the hook replies (#650)', () => {
     }
   })
 
+  it("a launch started again while its own hook's step waits (a conversation switch, the first session record, a safeguard prompt) keeps what is the new launch's: its lock, its state shown, and the old step records nothing as the agent's current (round 4 finding)", async () => {
+    type Lock = { liveId: string; at: number; seq: number; path: string }
+    const s3 = sessions as unknown as Record<string, unknown> & { locks: Map<string, Lock>; emitState: (st: State) => void }
+    const real = { backup: s3.backup, agentDef: s3.agentDef, liveTranscript: s3.liveTranscript, emitState: s3.emitState, recordSession: s3.recordSession }
+    const emitted: string[] = []
+    const recorded: string[] = []
+    s3.emitState = function (this: unknown, st: State) {
+      emitted.push(st.runId)
+      return (real.emitState as (st: State) => void).call(this, st)
+    }
+    s3.recordSession = async (_p: string, _a: unknown, l: { state: State }) => void recorded.push(l.state.runId)
+    /** Holds a helper of the launch's own until released (the step waits there), and says when it is reached. */
+    const holdAt = (name: 'backup' | 'agentDef' | 'liveTranscript', result: () => unknown) => {
+      let release = (): void => undefined
+      const gate = new Promise<void>((r) => (release = r))
+      const at = { reached: false }
+      s3[name] = async () => {
+        at.reached = true
+        await gate
+        return result()
+      }
+      return { at, release }
+    }
+    /** The agent started again (a new launch at work) with a lock of its own, while the old launch's step waits. */
+    const restart = (st: State) => {
+      const key = `${p.toLowerCase()}#${st.agentId}`
+      const old = s.live.get(key)!
+      s.live.set(key, { ...old, state: { ...old.state, runId: `${st.runId}-new`, status: 'working' }, ledger: newLedger() })
+      s3.locks.set(`lock-${st.agentId}`, { liveId: key, at: Date.now(), seq: 100, path: join(p, 'a.txt') })
+      return old
+    }
+    const send = (st: State, body: Record<string, unknown>) =>
+      run(async () => {
+        const full = { session_id: st.sessionId, cwd: p, ...body }
+        const reply = sessions.hookReply(st.runId, full)
+        await sessions.handleHook(st.runId, full, reply)
+        return reply
+      })
+    const cases: { name: string; hold: () => { at: { reached: boolean }; release: () => void }; step: (st: State) => Promise<unknown> }[] = [
+      // The CLI moves to another conversation (/clear): the old one's backup is held.
+      { name: 'switch', hold: () => holdAt('backup', () => undefined), step: (st) => send(st, { hook_event_name: 'UserPromptSubmit', prompt_id: 'p9', prompt: 'next', session_id: '99999999-0000-4000-8000-000000000000' }) },
+      // The first hook names the launch's session: the agent's definition is held before it is recorded.
+      { name: 'first record', hold: () => holdAt('agentDef', () => ({ agent: { id: 'x', name: 'X' }, count: 1 })), step: (st) => send(st, { hook_event_name: 'UserPromptSubmit', prompt_id: 'p9', prompt: 'go', session_id: '88888888-0000-4000-8000-000000000000' }) },
+      // A safeguard prompt: its transcript read is held.
+      { name: 'safeguard', hold: () => holdAt('liveTranscript', () => null), step: (st) => run(() => (s3.safeguardPrompt as (l: unknown, ask: unknown, at: number) => Promise<unknown>).call(sessions, s.live.get(`${p.toLowerCase()}#${st.agentId}`), { kind: 'question', message: 'Asked' }, Date.now())) }
+    ]
+    try {
+      for (const c of cases) {
+        const st = agent()
+        if (c.name === 'first record') st.sessionId = ''
+        else await hook(st, { hook_event_name: 'UserPromptSubmit', prompt_id: 'p1', prompt: 'go' })
+        const before = { sessionId: st.sessionId, status: st.status }
+        const h = c.hold()
+        emitted.length = 0
+        recorded.length = 0
+        const step = c.step(st)
+        await vi.waitFor(() => expect(h.at.reached, c.name).toBe(true), { timeout: 5000 })
+        const old = restart(st)
+        h.release()
+        const out = await step
+        // The new launch keeps its lock and is still at work; nothing of the old one is shown or recorded as current.
+        expect(sessions.locksFor(p, st.agentId), c.name).toEqual([join(p, 'a.txt')])
+        expect(s.live.get(`${p.toLowerCase()}#${st.agentId}`)?.state, c.name).toMatchObject({ runId: `${st.runId}-new`, status: 'working' })
+        expect(emitted.filter((r) => r === st.runId), c.name).toEqual([])
+        expect(recorded, c.name).toEqual([])
+        if (c.name === 'switch') expect(old.state.sessionId, c.name).toBe(before.sessionId)
+        if (c.name === 'safeguard') expect(out, c.name).toEqual({ kind: 'question', message: 'Asked' })
+        else expect(out, c.name).toBeNull()
+        s3.locks.delete(`lock-${st.agentId}`)
+        s.live.delete(`${p.toLowerCase()}#${st.agentId}`)
+        Object.assign(s3, { backup: real.backup, agentDef: real.agentDef, liveTranscript: real.liveTranscript })
+      }
+    } finally {
+      Object.assign(s3, real)
+    }
+  })
+
   it('a drained turn whose Stop says nothing of the continuation is still drained only once', async () => {
     const st = agent()
     await hook(st, { hook_event_name: 'UserPromptSubmit', prompt_id: 'p1', prompt: 'go' })

@@ -1375,7 +1375,19 @@ class SessionManager {
     workspaceOf(projectPath).scheduleRefresh()
   }
 
-  /** Records the running session in sessions.json and as the agent's session to resume. */
+  /**
+   * Whether `l` is still its agent's launch (#650): one stopped or started again while a step of its own waited gets
+   * nothing more of that step that is the current launch's (its state shown, its locks, the agent's session to resume).
+   */
+  private owns(l: LiveSession): boolean {
+    return this.live.get(liveId(l.state.projectPath, l.state.agentId)) === l
+  }
+
+  /**
+   * Records the running session in sessions.json and as the agent's session to resume. The session's own record is kept
+   * whatever happens to the launch; the agent's session to resume and its cards only while it is still the agent's
+   * launch.
+   */
   private async recordSession(projectPath: string, agent: Pick<AgentDef, 'id' | 'name' | 'worktree'>, l: LiveSession): Promise<void> {
     const { state } = l
     const sessionId = state.sessionId
@@ -1403,10 +1415,14 @@ class SessionManager {
       ...(agent.worktree ? { branch: agent.worktree.branch } : {})
     }, { createdAt: state.sessionCreatedAt })
     state.sessionCreatedAt = rec.createdAt
+    if (!this.owns(l)) return
     await workspace.updateAgent(projectPath, agent.id, { lastSessionId: sessionId }).catch(() => undefined)
     // The card it was started on (or already has in Doing).
+    if (!this.owns(l)) return
     await recordCards(workspaceOf(projectPath), projectPath, agent.id, sessionId).catch((e) => log.warn(`Could not record the cards of session ${sessionId}`, e))
-    for (const other of projectAgents(await workspace.projectConfig(projectPath))) {
+    const projectConfig = await workspace.projectConfig(projectPath)
+    if (!this.owns(l)) return
+    for (const other of projectAgents(projectConfig)) {
       if (other.id !== agent.id && other.lastSessionId === sessionId) await workspace.updateAgent(projectPath, other.id, { lastSessionId: undefined }).catch(() => undefined)
     }
   }
@@ -2707,6 +2723,8 @@ class SessionManager {
     // Its last tool calls as its transcript has them now (the read as it grows may not have come yet).
     const src = await this.liveTranscript(l).catch(() => null)
     if (src) await this.readSafeguards(l, src).catch((e) => log.warn('safeguard: transcript read failed', e))
+    // Stopped or started again meanwhile (#650): nothing of it is shown over the agent's current launch.
+    if (!this.owns(l)) return ask
     const memo = l.guardMemo
     // The prompt it already waits on, told again (its hook, then the screen): the same stop, not another.
     let noted = st.safeguard
@@ -2721,6 +2739,7 @@ class SessionManager {
         const stop: ScreenStop = { at: new Date(at).toISOString(), ...(model ? { model } : {}), ...(turn ? { turn } : {}) }
         await this.keepScreenStop(st.projectPath, st.sessionId, stop).catch((e) => log.warn('safeguard: could not keep the stop seen on screen', e))
       }
+      if (!this.owns(l)) return ask
     }
     const { idle: _i, ...rest } = noted!
     st.safeguard = { ...rest, prompt: true }
@@ -3362,11 +3381,13 @@ class SessionManager {
       try {
         st.sessionId = assertSessionId(hook.sessionId)
         const { agent } = await this.agentDef(st.projectPath, st.agentId)
+        if (!current()) return
         await this.recordSession(st.projectPath, agent, l)
         if (!current()) return
         this.emitState(st)
         workspaceOf(st.projectPath).scheduleRefresh()
       } catch (e) {
+        if (!current()) return
         log.warn(`${userText(label)}: could not record session ${hook.sessionId}`, e)
       }
     }
@@ -3725,10 +3746,14 @@ class SessionManager {
     const old = st.sessionId
     await this.backup(st.projectPath, st.agentId, true, hooksBefore).catch(() => undefined)
     await workspace.upsertSession(st.projectPath, { id: old, lastActiveAt: new Date().toISOString() }).catch(() => undefined)
+    // The old conversation's backup and record are history; the move itself only while this is still the agent's launch
+    // (#650: one started again meanwhile keeps its own locks, state and session to resume).
+    if (!this.owns(l)) return
     log.info(`${userText(this.label(st))}: the CLI moved from session ${old} to ${sessionId}`)
     try {
       const { agent, count } = await this.agentDef(st.projectPath, st.agentId)
       const existing = (await workspace.sessionsFile(st.projectPath)).sessions.find((s) => s.id === sessionId)
+      if (!this.owns(l)) return
       st.sessionId = sessionId
       l.name = existing?.name || autoName(st.projectPath, agent, count)
       st.sessionName = l.name
@@ -3757,6 +3782,7 @@ class SessionManager {
     } catch (e) {
       log.warn(`${userText(this.label(st))}: could not record session ${sessionId}`, e)
     }
+    if (!this.owns(l)) return
     this.emitState(st)
     workspaceOf(st.projectPath).scheduleRefresh()
   }
