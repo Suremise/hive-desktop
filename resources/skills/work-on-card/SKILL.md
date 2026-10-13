@@ -25,6 +25,7 @@ The card is the brief, and the board is how the user, the Hive Assistant and oth
 - **Tests you write or change wait for what they expect to see, never for a length of time**: poll the condition (with a generous bound for a hung run) rather than sleep and then check, or read state once just after an action. Raising a timeout isn't a fix. Each test cleans up its own state, and passes under load, not only alone. Follow the project's test notes where it has them.
 - Work you find but weren't asked to do goes on a new card (`hive_create_task`, described well enough to start from cold), not into this one.
 - If you can't go on, set `blocked` with the reason; an empty `blocked` clears it.
+- **Wait with a watch, not a timer.** Waiting for the user, another card or a while (a merge slot to renew), end your turn on a card watch (`hive_wait_for_tasks` with `wake`, and `limitMinutes` for the time), never a sleep or a background timer.
 
 ## Your inbox
 

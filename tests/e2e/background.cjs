@@ -1,7 +1,8 @@
 // An agent waiting on a background task it started: shown as background (not finished), waited for by
-// hive_wait_for_agents, refused new tasks, and finished once the task's notification has run its turn. The agent
-// runs the fake Claude Code (fake-claude/), so nothing signs in or spends tokens. Dev build, throwaway profile,
-// workspace and CLAUDE_CONFIG_DIR.
+// hive_wait_for_agents, refused new tasks, and finished once the task's notification has run its turn. #726: a message
+// still reaches it while its own background task runs (a timer it set), within seconds. The agent runs the fake Claude
+// Code (fake-claude/), so nothing signs in or spends tokens. Dev build, throwaway profile, workspace and
+// CLAUDE_CONFIG_DIR.
 const lib = require('./lib.cjs')
 const { _electron } = require('playwright-core')
 const { createHash } = require('crypto')
@@ -104,6 +105,30 @@ const check = (name, ok, extra = '') => {
   const given = await api('POST', '/v1/projects/alpha/agents/Tester/prompt', { text: 'work 1' })
   check('then it takes a task again', given.status === 200, JSON.stringify(given.body))
   await api('POST', '/v1/agents/wait', { agents: [{ project: 'alpha', agent: 'Tester' }], timeoutSeconds: 30 })
+
+  // #726: its turn over while a long background task of its own runs (a timer to renew a merge slot, say), a message
+  // rings its doorbell within seconds, not once the task ends; it reads the message from its inbox.
+  const timer = await api('POST', '/v1/projects/alpha/agents/Tester/prompt', { text: 'background 60' })
+  const timing = await until(async () => {
+    const s = await live(alpha, id)
+    return s?.status === 'background' && s.backgroundTasks === 1 && s
+  }, HUNG_MS)
+  check('it waits on a long background task of its own', timer.status === 200 && !!timing, JSON.stringify(timer.body))
+  const doorbells = () => {
+    const f = path.join(claudeHome, 'fake-wakes.jsonl')
+    return (fs.existsSync(f) ? fs.readFileSync(f, 'utf8').trim().split('\n').filter(Boolean).map((l) => JSON.parse(l)) : []).filter((w) => w.agent === 'Tester' && !!w.doorbell)
+  }
+  const rang = doorbells().length
+  const t1 = Date.now()
+  const left = await api('POST', '/v1/projects/alpha/agents/Tester/message', { text: 'Darren pushed the tag: carry on with the release.' })
+  const heard = await until(async () => doorbells().length > rang, HUNG_MS)
+  const during = await live(alpha, id)
+  check('a message rings its doorbell within seconds while the task runs', left.status === 200 && !!heard && Date.now() - t1 < 15000 && during?.backgroundTasks === 1, JSON.stringify({ left: left.body, ms: Date.now() - t1, tasks: during?.backgroundTasks }))
+  const read = await until(async () => {
+    const inbox = (await api('GET', '/v1/projects/alpha/agents/Tester/activity')).body?.inbox
+    return !!inbox?.deliveries?.some((d) => d.id === left.body?.id && (d.state === 'received' || d.state === 'acked'))
+  }, HUNG_MS)
+  check('it reads the message from its inbox', !!read, JSON.stringify((await api('GET', '/v1/projects/alpha/agents/Tester/activity')).body?.inbox))
 
   await app.close()
   process.exit(failed ? 1 : 0)

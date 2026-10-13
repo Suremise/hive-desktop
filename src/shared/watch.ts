@@ -13,8 +13,11 @@
 import type { TaskCard, TaskColumn } from './types'
 import { COLUMN_CHOICES, COLUMN_IDS, TASK_COLUMNS, columnLabel } from './tasks'
 
-/** What counts as a change: a column move, a new comment, a review verdict, a change of agent. Default: any. */
-export type WatchChange = 'column' | 'comment' | 'verdict' | 'agent'
+/**
+ * What counts as a change: a column move, a new comment, a review verdict, a change of agent. Default: any. `blocked` (a
+ * card becoming blocked) isn't one to choose: a lane watch counts it for the cards beside its lanes (#726, `blocked`).
+ */
+export type WatchChange = 'column' | 'comment' | 'verdict' | 'agent' | 'blocked'
 export const WATCH_CHANGES: readonly WatchChange[] = ['column', 'comment', 'verdict', 'agent']
 
 /** A wait's condition: the cards (numbers), which changes count, and optionally a column one of them must be in. */
@@ -32,6 +35,8 @@ export interface WatchCondition {
    * leaves and comes back, or is returned for review: a reviewer waiting for a failed card's next round.
    */
   fresh?: true
+  /** A card becoming blocked counts too (#726: the cards beside a lane watch's lanes). */
+  blocked?: true
 }
 
 /** At most this many cards in one wait. */
@@ -78,9 +83,10 @@ export function readSavedCondition(v: unknown): WatchCondition | null {
   if (v.column !== undefined && !COLUMNS.includes(v.column as string)) return null
   if (v.moveInto !== undefined && (v.moveInto !== true || v.column === undefined)) return null
   if (v.fresh !== undefined && (v.fresh !== true || v.moveInto !== true)) return null
+  if (v.blocked !== undefined && v.blocked !== true) return null
   // A column goes with `column` among the changes (as readCondition makes it).
   if (v.column !== undefined && !changes.includes('column')) return null
-  return { cards: cards as number[], changes: changes as WatchChange[], ...(v.column ? { column: v.column as TaskColumn } : {}), ...(v.moveInto ? { moveInto: true as const } : {}), ...(v.fresh ? { fresh: true as const } : {}) }
+  return { cards: cards as number[], changes: changes as WatchChange[], ...(v.column ? { column: v.column as TaskColumn } : {}), ...(v.moveInto ? { moveInto: true as const } : {}), ...(v.fresh ? { fresh: true as const } : {}), ...(v.blocked ? { blocked: true as const } : {}) }
 }
 
 /** A card's mark now (null card: gone). */
@@ -205,7 +211,7 @@ export function carriedOver(card: TaskCard, told: Baseline, self: string): CardM
  * entries after where its view ended, so none is missed for sharing a millisecond with one already seen (#224). What
  * the watcher (`self`) did itself before the watch began (`since`) isn't news.
  */
-export function changesSince(card: TaskCard | null, base: Baseline & { since: string; self?: string }, cond: Pick<WatchCondition, 'changes' | 'column' | 'moveInto'>): WatchChange[] | 'gone' {
+export function changesSince(card: TaskCard | null, base: Baseline & { since: string; self?: string }, cond: Pick<WatchCondition, 'changes' | 'column' | 'moveInto' | 'blocked'>): WatchChange[] | 'gone' {
   const now = markOf(card)
   if (!card || now.column === 'gone' || (now.archived && !base.mark.archived)) return 'gone'
   const kinds = new Set(cond.changes.length ? cond.changes : WATCH_CHANGES)
@@ -220,8 +226,12 @@ export function changesSince(card: TaskCard | null, base: Baseline & { since: st
   if (kinds.has('comment') && c.length) out.push('comment')
   if (kinds.has('verdict') && h.some((e) => VERDICT.test(e.what))) out.push('verdict')
   if (kinds.has('agent') && now.agent !== base.mark.agent) out.push('agent')
+  // Blocked since, and still (#726): a block lifted again meanwhile has nothing left to tell.
+  if (cond.blocked && card.blocked && h.some((e) => BLOCKED.test(e.what))) out.push('blocked')
   return out
 }
+
+const BLOCKED = /^Blocked: /
 
 /** A card's return for review in its history: "Returned for review, round 2". */
 const RETURNED = /^Returned for review, round (\d+)/
@@ -309,6 +319,8 @@ export interface CardChange {
   comment: { by: string; firstLine: string } | null
   /** Gone because it was archived (#351), not deleted or moved out of view: only the user brings it back. */
   archived?: boolean
+  /** Why it is blocked, when becoming blocked is a change it tells (#726). */
+  blocked?: string
   /** For a wake line only (wakeAbout): whose card it is and the review's verdict. */
   about?: WakeAbout
 }
@@ -365,7 +377,7 @@ const jsonBytes = (s: string): number => new TextEncoder().encode(JSON.stringify
  * What the Assistant's card wake ends with while lanes are running (#402): its watch has ended, and the lanes still need
  * one. Kept whole: the rest of the line is cut to make room.
  */
-export const LANES_RUNNING_TAIL = ' Lanes are still running (hive_lane list): before you end your turn, watch them again in one lane watch (hive_wait_for_tasks with lanes ["all"], wake; run-lanes).'
+export const LANES_RUNNING_TAIL = ' Lanes are still running (hive_lane list): before you end your turn, watch them again in one lane watch, with any card outside them as cards (hive_wait_for_tasks with lanes ["all"], cards, wake; run-lanes).'
 export function withLanesTail(line: string, max = WAKE_MAX_BYTES): string {
   if (line.endsWith(LANES_RUNNING_TAIL)) return line
   let s = line
@@ -385,7 +397,7 @@ const firstLine = (text: string, max = 160): string => {
 export function cardChange(n: number, card: TaskCard | null, changes: WatchChange[] | 'gone'): CardChange {
   const last = card?.comments.at(-1)
   const by = card ? ([...card.history].sort((a, b) => a.at.localeCompare(b.at)).at(-1)?.by ?? null) : null
-  return { number: n, column: card ? card.column : 'gone', changes, by, comment: last ? { by: last.by, firstLine: firstLine(last.text) } : null, ...(changes === 'gone' && card?.archived ? { archived: true } : {}) }
+  return { number: n, column: card ? card.column : 'gone', changes, by, comment: last ? { by: last.by, firstLine: firstLine(last.text) } : null, ...(changes === 'gone' && card?.archived ? { archived: true } : {}), ...(changes !== 'gone' && changes.includes('blocked') && card?.blocked ? { blocked: card.blocked } : {}) }
 }
 
 const columnWord = (c: TaskColumn | 'gone'): string => (c === 'gone' ? 'gone' : columnLabel(c))
@@ -422,8 +434,11 @@ function lineOf(change: CardChange, tail: string): string {
   return line(true)
 }
 
-/** A card's part of a wake line after its number: whose it is, where it is now and the verdict that put it there. */
-function whereNow(change: CardChange): string {
+/**
+ * A card's part of a wake line after its number: whose it is, where it is now and the verdict that put it there, and why
+ * it is blocked when that is what changed (#726), cut to `blockedMax` characters (0: only that it is).
+ */
+function whereNow(change: CardChange, blockedMax = 120): string {
   const about = change.about
   // Gone also covers a card moved out of what the agent may see (another project): nothing about it is said then.
   if (change.changes === 'gone') return change.archived ? ' was archived (off the board: only the user brings it back)' : ' is gone from your board (archived, deleted or moved to another project)'
@@ -431,7 +446,9 @@ function whereNow(change: CardChange): string {
   const verdict = about?.verdict ? `: ${shortName(about.verdict.by)} ${about.verdict.passed ? 'passed' : 'failed'} it` : ''
   // Passed means the review passed, not that the work is merged: Done is merged (#170).
   const merged = about?.owner && change.column === 'passed' ? " (Passed isn't merged)" : ''
-  return about?.returned ? `${owner} was returned for review (round ${about.returned})${verdict}` : `${owner} is in ${columnWord(change.column)}${verdict}${merged}`
+  const why = change.blocked ? [...change.blocked.replace(/\s+/g, ' ').trim()] : []
+  const blocked = change.blocked ? ` and blocked${blockedMax > 0 ? `: "${why.length > blockedMax ? `${why.slice(0, blockedMax - 1).join('')}…` : why.join('')}"` : ''}` : ''
+  return about?.returned ? `${owner} was returned for review (round ${about.returned})${verdict}${blocked}` : `${owner} is in ${columnWord(change.column)}${verdict}${merged}${blocked}`
 }
 
 /**
@@ -442,9 +459,12 @@ function whereNow(change: CardChange): string {
  * that details were left out. Never cut mid-way, one line, within WAKE_MAX_BYTES.
  */
 const MANY_TAIL = '. Your card watch has ended: carry on (hive_read_task with latestComment on each card for its comment in full).'
-/** A card's part of a line telling several (#224), its latest comment's first line cut to `max` characters (0: left out). */
-function cardPart(c: CardChange, max: number): string {
-  const head = `#${c.number}${whereNow(c)}`
+/**
+ * A card's part of a line telling several (#224), its latest comment's first line (and why it is blocked, #726) cut to
+ * `max` characters (0: left out). A lane watch's line tells its cards with it.
+ */
+export function cardPart(c: CardChange, max: number): string {
+  const head = `#${c.number}${whereNow(c, max)}`
   if (!c.comment || max <= 0 || c.changes === 'gone') return head
   const t = [...c.comment.firstLine]
   return `${head} (latest comment by ${shortName(c.comment.by)}: "${t.length > max ? `${t.slice(0, max - 1).join('')}…` : t.join('')}")`
@@ -473,11 +493,11 @@ export function wakeLines(changes: CardChange[]): string {
 }
 
 /** A card in a few words, for a wake line too long to tell each in full: where it is, its verdict, nothing else. */
-function brief(c: CardChange): string {
+export function brief(c: CardChange): string {
   if (c.changes === 'gone' || c.column === 'gone') return `#${c.number} ${c.archived ? 'archived' : 'gone'}`
   const a = c.about
   if (a?.returned) return `#${c.number} returned for review (round ${a.returned})`
-  return `#${c.number} in ${columnWord(c.column)}${a?.verdict ? (a.verdict.passed ? ', passed' : ', failed') : ''}`
+  return `#${c.number} in ${columnWord(c.column)}${a?.verdict ? (a.verdict.passed ? ', passed' : ', failed') : ''}${c.blocked ? ', blocked' : ''}`
 }
 
 /**
