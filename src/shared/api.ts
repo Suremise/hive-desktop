@@ -376,9 +376,9 @@ export interface HiveRequests {
   /** Saves the project's agents and layout; a name already there is replaced only with `overwrite` (else `exists`). */
   'templates:save': (projectPath: string, scope: TemplateScope, name: string, overwrite: boolean) => { saved: TemplateEntry } | { exists: string }
   /** What loading a template would do, and what stops it now. `from`: the project a project's template is kept in, if not this one. */
-  'templates:plan': (projectPath: string, scope: TemplateScope, file: string, from?: string) => TemplateLoadPlan
+  'templates:plan': (projectPath: string, scope: TemplateScope, file: string, from?: string, names?: string[]) => TemplateLoadPlan
   /** Replaces the project's agents and layout with a template's; `expected` is the agents' ids as the user saw them. */
-  'templates:load': (projectPath: string, scope: TemplateScope, file: string, expected: string[], from?: string, removeOld?: { paths: string[]; mergedInto: string | null }) => { created: string[]; removed: string[]; oldWorktrees: OldWorktreeOutcome[] }
+  'templates:load': (projectPath: string, scope: TemplateScope, file: string, expected: string[], from?: string, removeOld?: { paths: string[]; mergedInto: string | null }, names?: string[]) =>{ created: string[]; removed: string[]; oldWorktrees: OldWorktreeOutcome[] }
   /** Adds one agent of a template (the `index`-th), the others left alone. */
   'templates:addAgent': (projectPath: string, scope: TemplateScope, file: string, index: number, from?: string) => AgentDef & { reused?: true }
   /** Every template of the workspace (#127, the Templates view): the workspace's, then each project's. */
@@ -401,7 +401,7 @@ export interface HiveRequests {
   /** Branches and worktrees, for the Add Agent dialog. */
   'agents:gitInfo': (projectPath: string) => ProjectGitInfo
   /** The unused worktree a new one on `branch` from `base` would reuse (#456), checked: null when there is none. */
-  'agents:worktreeMatch': (projectPath: string, branch: string, base: string) => WorktreeMatch | null
+  'agents:worktreeMatch': (projectPath: string, branch: string, base: string, name?: string) => WorktreeMatch | null
   'agents:branchStatus': (projectPath: string, agentId: string) => AgentBranchStatus
   /** Every worktree agent's unmerged work known so far (then `branch-status` events as it changes). */
   'agents:branchStatuses': () => { projectPath: string; agentId: string; status: AgentBranchStatus | null }[]

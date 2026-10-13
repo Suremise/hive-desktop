@@ -498,6 +498,8 @@ export interface WorkspaceConfig {
   hiddenProjects?: HiddenProject[]
   /** Card loops' rounds and wait in hours when a request doesn't say (#412, Settings → Workspace); absent: 10 and 6. */
   loops?: { rounds?: number; waitHours?: number }
+  /** Agent names two projects share from before names were unique (#702), lower case: each said once, while it lasts. */
+  flaggedAgentNames?: string[]
   /** The workspace's own advanced values (#367: Settings → Advanced, This workspace), for those a workspace can set. */
   advanced?: Record<string, unknown>
 }
@@ -762,6 +764,12 @@ export interface ProjectConfig {
    * setup command: an agent that works in one again runs it first (needsSetup), so it isn't lost, nor run twice.
    */
   setupPending?: string[]
+  /**
+   * Workspace parts other than the workspace's own that Hive has given this project's worktree branches
+   * (hive/<part>/<project>/<agent>, #703 round 3: when a branch from before was in the way of its own): with its own,
+   * the only ones Hive takes for this project's. Added when Hive first makes a branch in one; never removed.
+   */
+  branchSpaces?: string[]
   fileLocks: Inherit<FileLockMode>
   /** Overrides settings.agents.worktreeCopy; null inherits. */
   worktreeCopy: string | null
@@ -842,7 +850,12 @@ export interface TemplateLoadPlan {
   layout: PageLayout
   /** The project's agents, all removed: running ones and uncommitted worktree work block the load. */
   remove: { id: string; name: string; running: boolean; dirty: number; worktree?: { path: string; branch: string } }[]
+  /** The agents it creates, with the names chosen in the dialog (#702) when it gave some. */
   create: TemplateAgent[]
+  /** The template's own names for them, by `create`'s order: what a prefix goes in front of (#702). */
+  templateNames: string[]
+  /** Created names another project's agent has (#702): the load is refused until they are renamed. */
+  taken: { name: string; project: string }[]
   /**
    * Where each created agent's worktree is (#268), by `create`'s order: a branch in this project's repository and a folder
    * in its worktree location; null for an agent in the project folder. `reuse`: a clean worktree of that name it works in
@@ -882,7 +895,7 @@ export interface ResumeTarget {
 export interface AddAgentOptions {
   name?: string
   location: 'project' | 'new-worktree' | 'existing-worktree'
-  /** new-worktree: branch to create (default hive/<name>) and the branch to base it on (default the current one). */
+  /** new-worktree: branch to create (default hive/<workspace>/<project>/<name>, #703) and the branch to base it on (default the current one). */
   branch?: string
   base?: string
   /** existing-worktree: its folder. */
@@ -942,6 +955,10 @@ export interface ProjectGitInfo {
   worktrees: { path: string; branch: string | null; used: boolean }[]
   /** Where new worktrees are created. */
   worktreesRoot: string
+  /** The workspace part of new branches here (#703: `chooseSpace`, clear of branches from before); absent: not a repository. */
+  branchSpace?: string
+  /** The other workspace parts that are this project's (project.json's `branchSpaces`). */
+  branchSpaces?: string[]
 }
 
 /** A worktree agent's branch compared with the branch it merges into. */

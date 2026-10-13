@@ -21,6 +21,9 @@ import { workspace, workspaceOf } from './workspace'
 import * as wt from './worktrees'
 import { gitProblem } from './gitTool'
 import { providerService } from './providerService'
+import { assertNameFree, withAgentNames, workspaceAgents } from './agentNames'
+import { sameAgentName } from '../shared/agentNames'
+import { chooseSpace, hiveBranch, reusableBranches, type BranchHome } from '../shared/hiveBranches'
 
 const log = createLogger('agents')
 
@@ -40,7 +43,9 @@ export async function gitInfo(projectPath: string): Promise<ProjectGitInfo> {
     current,
     branches: await wt.localBranches(projectPath),
     worktrees: all.filter((w) => !samePlace(w.path, projectPath)).map((w) => ({ ...w, used: used.has(placeKey(w.path)) })),
-    worktreesRoot: join(workspaceOf(projectPath).worktreesRoot, projectPath.split(/[\\/]/).pop()!)
+    worktreesRoot: join(workspaceOf(projectPath).worktreesRoot, projectPath.split(/[\\/]/).pop()!),
+    // The workspace part of new branches here (#703), for the dialog's default branch.
+    ...(all.length ? await branchHome(projectPath).then((h) => ({ branchSpace: h.space, branchSpaces: [...(h.spaces ?? [])] })) : {})
   }
 }
 
@@ -115,26 +120,32 @@ export async function addAgent(projectPath: string, opts: AddAgentOptions): Prom
   const cfg = await workspace.projectConfig(projectPath)
   const agents = projectAgents(cfg)
   if (agents.length >= MAX_AGENTS) throw new Error(`A project can have up to ${MAX_AGENTS} agents.`)
+  // Unique across the workspace (#702): the default "Agent n" too, numbered past the other projects' names.
+  const everyone = await workspaceAgents(projectPath)
   let n = agents.length + 1
-  while (agents.some((a) => a.name === `Agent ${n}`)) n++
+  while (everyone.some((a) => sameAgentName(a.name, `Agent ${n}`))) n++
   const name = opts.name?.trim() || `Agent ${n}`
-  if (agents.some((a) => a.name.toLowerCase() === name.toLowerCase())) throw new Error(`There is already an agent called "${name}".`)
+  // Before a worktree is made for it, then again with the write (below).
+  await assertNameFree(projectPath, name)
   // Before the worktrees are looked at: a removal since then refuses the claim (#289).
   const mark = claimMark()
   const { def, discard, reuse } = await prepareAgent(projectPath, cfg, opts, name, agents)
   try {
-    await workspace.mutateProjectConfig(projectPath, (now) => {
-      const list = projectAgents(now)
-      // Checked again under the lock: another add (the UI and the Assistant at once) may have come first.
-      if (list.length >= MAX_AGENTS) throw new Error(`A project can have up to ${MAX_AGENTS} agents.`)
-      if (list.some((a) => a.name.toLowerCase() === name.toLowerCase())) throw new Error(`There is already an agent called "${name}".`)
-      const wtPath = def.worktree && placeKey(def.worktree.path)
-      if (wtPath && list.some((a) => a.worktree && placeKey(a.worktree.path) === wtPath)) throw new Error('Another agent already works in that worktree.')
-      if (def.worktree && (removedSince(def.worktree.path, mark) || !existsSync(def.worktree.path))) throw new Error('That worktree is being removed, or was just removed.')
-      // An existing worktree whose setup never ran runs it first (#289), one reused for a new one too (#456).
-      const pending = opts.location === 'existing-worktree' || reuse?.reused ? takePendingSetup(now, def) : null
-      // An automatic layout follows the agents, so the new one shows; with one chosen by hand, a full page sends it to the next (#134).
-      return { agents: [...list, def], ...pending }
+    await withAgentNames(projectPath, async () => {
+      // Checked again with the write: another add or rename (the UI and the Assistant at once, another project) may have come first.
+      await assertNameFree(projectPath, name)
+      await workspace.mutateProjectConfig(projectPath, (now) => {
+        const list = projectAgents(now)
+        if (list.length >= MAX_AGENTS) throw new Error(`A project can have up to ${MAX_AGENTS} agents.`)
+        if (list.some((a) => sameAgentName(a.name, name))) throw new Error(`There is already an agent called "${name}".`)
+        const wtPath = def.worktree && placeKey(def.worktree.path)
+        if (wtPath && list.some((a) => a.worktree && placeKey(a.worktree.path) === wtPath)) throw new Error('Another agent already works in that worktree.')
+        if (def.worktree && (removedSince(def.worktree.path, mark) || !existsSync(def.worktree.path))) throw new Error('That worktree is being removed, or was just removed.')
+        // An existing worktree whose setup never ran runs it first (#289), one reused for a new one too (#456).
+        const pending = opts.location === 'existing-worktree' || reuse?.reused ? takePendingSetup(now, def) : null
+        // An automatic layout follows the agents, so the new one shows; with one chosen by hand, a full page sends it to the next (#134).
+        return { agents: [...list, def], ...pending }
+      })
     })
   } catch (e) {
     await discard()
@@ -155,22 +166,55 @@ async function reuseCheck(projectPath: string, path: string, branch: string, bas
 }
 
 /**
- * The project's unused worktree on `branch` (#456), checked against `base`: one in Hive's worktrees folder for the
- * project that git lists on that branch and no agent (`others`) works in. Null when there is none.
+ * Where a project is, for the branches Hive makes in it (#703): its workspace's folder name and its own, and the other
+ * workspace parts Hive has given its branches (project.json's `branchSpaces`): with the workspace's own, the only ones
+ * that are its.
  */
-export async function matchingWorktree(projectPath: string, branch: string, base: string, others: readonly AgentDef[]): Promise<WorktreeMatch | null> {
+export async function branchPlace(projectPath: string): Promise<BranchHome> {
+  const recorded = (await workspace.projectConfig(projectPath)).branchSpaces
+  return { workspace: basename(workspaceOf(projectPath).path ?? ''), project: basename(projectPath), spaces: Array.isArray(recorded) ? recorded.filter((s) => typeof s === 'string') : [] }
+}
+
+/**
+ * The same, with the workspace part its new branches take in its repository now (`chooseSpace`: its own or the one it
+ * moved to, clear of branches from before), and whether that part is new (recorded once a branch is made in it).
+ */
+export async function branchHome(projectPath: string): Promise<BranchHome & { newSpace: boolean }> {
+  const home = await branchPlace(projectPath)
+  const { space, isNew } = chooseSpace(home, await wt.localBranches(projectPath))
+  return { ...home, space, newSpace: isNew }
+}
+
+/** Records a workspace part Hive has made a branch in for this project (#703 round 3), so it stays this project's. */
+async function recordSpace(projectPath: string, space: string): Promise<void> {
+  await workspace.mutateProjectConfig(projectPath, (now) => {
+    const before = Array.isArray(now.branchSpaces) ? now.branchSpaces : []
+    return before.some((s) => s.toLowerCase() === space.toLowerCase()) ? {} : { branchSpaces: [...before, space] }
+  })
+}
+
+/**
+ * The project's unused worktree on `branch` (#456), checked against `base`: one in Hive's worktrees folder for the
+ * project that git lists on that branch and no agent (`others`) works in. When `branch` is the full-form branch of the
+ * agent called `name`, one on the branch Hive made for that name before (hive/<its slug>, #703) is found too, the full
+ * form first. Null when there is none.
+ */
+export async function matchingWorktree(projectPath: string, branch: string, base: string, others: readonly AgentDef[], name?: string): Promise<WorktreeMatch | null> {
   const root = placeKey(join(workspaceOf(projectPath).worktreesRoot, basename(projectPath)))
   const used = new Set(others.flatMap((a) => (a.worktree ? [placeKey(a.worktree.path)] : [])))
-  const w = (await wt.listWorktrees(projectPath)).find((x) => x.branch === branch && !samePlace(x.path, projectPath) && placeKey(dirname(x.path)) === root && !used.has(placeKey(x.path)) && existsSync(x.path))
-  if (!w) return null
-  const checked = await reuseCheck(projectPath, w.path, branch, base)
-  return { path: w.path, branch, base, reusable: !('why' in checked), ...('why' in checked ? { why: checked.why } : {}) }
+  const listed = (await wt.listWorktrees(projectPath)).filter((x) => !samePlace(x.path, projectPath) && placeKey(dirname(x.path)) === root && !used.has(placeKey(x.path)) && existsSync(x.path))
+  const w = reusableBranches(branch, await branchPlace(projectPath), name)
+    .map((b) => listed.find((x) => x.branch === b))
+    .find((x) => !!x)
+  if (!w?.branch) return null
+  const checked = await reuseCheck(projectPath, w.path, w.branch, base)
+  return { path: w.path, branch: w.branch, base, reusable: !('why' in checked), ...('why' in checked ? { why: checked.why } : {}) }
 }
 
 /** The Add Agent dialog's look before adding (#456): the unused worktree a new one on `branch` from `base` would reuse. */
-export async function worktreeMatch(projectPath: string, branch: string, base: string): Promise<WorktreeMatch | null> {
+export async function worktreeMatch(projectPath: string, branch: string, base: string, name?: string): Promise<WorktreeMatch | null> {
   projectPath = workspace.assertProject(projectPath)
-  return matchingWorktree(projectPath, branch.trim(), base, projectAgents(await workspace.projectConfig(projectPath)))
+  return matchingWorktree(projectPath, branch.trim(), base, projectAgents(await workspace.projectConfig(projectPath)), typeof name === 'string' ? name : undefined)
 }
 
 /** Worktrees being brought up to their base right now (#456), by `placeKey`: one add at a time takes each. */
@@ -233,15 +277,23 @@ async function bringUp(projectPath: string, path: string, branch: string, base: 
 }
 
 /**
- * Where a new worktree for an agent called `name` goes in this project: a new branch `hive/<name>` in the project's own
- * repository and a folder in the workspace's worktree location under the project's name, each numbered (`-2`) when taken.
+ * Where a new worktree for an agent called `name` goes in this project: a new branch `hive/<workspace>/<project>/<name>`
+ * (#703) in the project's own repository and a folder in the workspace's worktree location under the project's name, each numbered (`-2`) when taken.
  * `taken`: branches and folders (`placeKey`s) a plan has already given out. Shared by adding an agent and by a template's
  * load plan (#268), so what the plan shows is what the load makes.
  */
-export async function newWorktreePlace(projectPath: string, name: string, branch?: string, taken: { branches: ReadonlySet<string>; folders: ReadonlySet<string> } = { branches: new Set(), folders: new Set() }): Promise<{ branch: string; path: string }> {
+export async function newWorktreePlace(projectPath: string, name: string, branch?: string, taken: { branches: ReadonlySet<string>; folders: ReadonlySet<string> } = { branches: new Set(), folders: new Set() }): Promise<{ branch: string; path: string; newSpace?: string }> {
+  const home = await branchHome(projectPath)
+  const generated = hiveBranch(home, name)
+  // The default Hive generates for this name, whether left out or sent back as it was shown (the Add Agent dialog and the
+  // Agent API send the branch they show, #703 round 4); a branch of the user's own is never taken as a part Hive gave.
+  const supplied = branch?.trim()
+  const isDefault = !supplied || supplied.toLowerCase() === generated.toLowerCase()
   return {
-    branch: await wt.uniqueBranch(projectPath, branch?.trim() || `hive/${slugify(name)}`, taken.branches),
-    path: wt.uniqueFolder(join(workspaceOf(projectPath).worktreesRoot, projectPath.split(/[\\/]/).pop()!, slugify(name)), taken.folders)
+    branch: await wt.uniqueBranch(projectPath, supplied || generated, taken.branches),
+    path: wt.uniqueFolder(join(workspaceOf(projectPath).worktreesRoot, projectPath.split(/[\\/]/).pop()!, slugify(name)), taken.folders),
+    // A workspace part this project hasn't had: recorded once its branch is made (#703 round 3).
+    ...(isDefault && home.newSpace && home.space ? { newSpace: home.space } : {})
   }
 }
 
@@ -274,7 +326,7 @@ export async function prepareAgent(projectPath: string, cfg: ProjectConfig, opts
     const base = opts.base || (await wt.currentBranch(projectPath))
     if (!base) throw new Error(gitProblem() ? `${gitProblem()}, so Hive can't make a worktree.` : 'The project folder is not on a branch. Choose the branch to start from.')
     // An unused worktree on the branch it would get is worked in again when merged and clean (#456), else a new one.
-    const match = opts.reuseWorktree ? await matchingWorktree(projectPath, opts.branch?.trim() || `hive/${slugify(name)}`, base, others) : null
+    const match = opts.reuseWorktree ? await matchingWorktree(projectPath, opts.branch?.trim() || hiveBranch(await branchHome(projectPath), name), base, others, name) : null
     if (match) {
       const took = match.reusable ? await bringUp(projectPath, match.path, match.branch, base) : { why: match.why ?? 'not checked' }
       if ('why' in took) reuse = { branch: match.branch, reused: false, base, notReused: took.why }
@@ -285,8 +337,9 @@ export async function prepareAgent(projectPath: string, cfg: ProjectConfig, opts
       }
     }
     if (!def.worktree) {
-      const { branch, path: dest } = await newWorktreePlace(projectPath, name, opts.branch)
+      const { branch, path: dest, newSpace } = await newWorktreePlace(projectPath, name, opts.branch)
       await wt.createWorktree(projectPath, dest, branch, base)
+      if (newSpace) await recordSpace(projectPath, newSpace)
       const s = config.settings.agents
       const copied = await wt.copyIgnored(projectPath, dest, cfg.worktreeCopy ?? s.worktreeCopy)
       if (copied.length) log.info(`Copied into ${userText(dest)}: ${userText(copied.join(', '))}`)
@@ -341,7 +394,6 @@ export async function updateAgent(projectPath: string, agentId: string, patch: A
   if (patch.name !== undefined) {
     patch.name = patch.name.trim()
     if (!patch.name) throw new Error('Enter a name.')
-    if (agents.some((a) => a.id !== agentId && a.name.toLowerCase() === patch.name!.toLowerCase())) throw new Error(`There is already an agent called "${patch.name}".`)
   }
   // Empty values clear an override so the agent follows the project again (and an empty role: its name is its role).
   const { use200kContext, mcpServers, ...rest } = patch
@@ -360,7 +412,19 @@ export async function updateAgent(projectPath: string, agentId: string, patch: A
       Object.assign(clean, { model: patch.model || undefined, effort: patch.effort || undefined, permissionMode: patch.permissionMode || undefined, use200kContext: typeof use200kContext === 'boolean' ? use200kContext : undefined, lastSessionId: undefined })
     }
   }
-  const def = await workspace.updateAgent(projectPath, agentId, clean)
+  // A name: free across the workspace (#702), checked holding the names lock against the agent as saved then, just
+  // before the write (every change of a name takes that lock, so none comes between). Its own name again is no change:
+  // an agent sharing its name from before names were unique keeps it while its other settings change, but only while it
+  // still has that name. The Assistant's agent is never renamed.
+  const name = patch.name
+  const def =
+    name !== undefined
+      ? await withAgentNames(projectPath, async () => {
+          const now = projectAgents(await workspace.projectConfig(projectPath)).find((a) => a.id === agentId)
+          if (!now || !sameAgentName(now.name, name)) await assertNameFree(projectPath, name, { self: agentId })
+          return workspace.updateAgent(projectPath, agentId, clean)
+        })
+      : await workspace.updateAgent(projectPath, agentId, clean)
   const live = sessions.liveFor(projectPath, agentId)
   if (live && patch.name) live.agentName = patch.name
   await workspaceOf(projectPath).refresh()

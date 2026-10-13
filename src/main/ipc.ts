@@ -635,8 +635,8 @@ export function registerIpc(getAppInfo: () => ReturnType<HiveRequests['app:info'
     'agents:swap': (p, id, other) => projectAgents.swapAgents(p, id, other),
     'templates:list': (p) => templates.listTemplates(p),
     'templates:save': (p, scope, name, overwrite) => templates.saveTemplate(p, scope, name, overwrite),
-    'templates:plan': (p, scope, file, from) => templates.templatePlan(p, scope, file, from),
-    'templates:load': (p, scope, file, expected, from, removeOld) => templates.loadTemplate(p, scope, file, expected, from, removeOld),
+    'templates:plan': (p, scope, file, from, names) => templates.templatePlan(p, scope, file, from, names),
+    'templates:load': (p, scope, file, expected, from, removeOld, names) => templates.loadTemplate(p, scope, file, expected, from, removeOld, names),
     'templates:addAgent': (p, scope, file, index, from) => templates.addAgentFromTemplate(p, scope, file, index, from),
     'templates:all': () => templates.listAllTemplates(),
     'templates:rename': (ref, name) => templates.renameTemplate(ref, name),
@@ -658,7 +658,7 @@ export function registerIpc(getAppInfo: () => ReturnType<HiveRequests['app:info'
     },
     'templates:import': (path, to, onClash) => templates.importTemplate(path, to, onClash),
     'agents:gitInfo': (p) => projectAgents.gitInfo(p),
-    'agents:worktreeMatch': (p, branch, base) => projectAgents.worktreeMatch(p, branch, base),
+    'agents:worktreeMatch': (p, branch, base, name) => projectAgents.worktreeMatch(p, branch, base, name),
     'agents:branchStatus': async (p, id) => {
       const st = await projectAgents.branchStatus(p, id)
       branchWatch.record(p, id, st)

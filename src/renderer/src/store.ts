@@ -274,6 +274,8 @@ interface State {
   moveBannerHidden: string | null
   shortcutsOpen: boolean
   dialog: DialogRequest | null
+  /** Why the open confirm can't be confirmed yet, set by its content (#702: a template's names that clash): its button is greyed out. */
+  dialogBlocked: string | null
   /** Sessions listed in the quit dialog while main waits for a decision. */
   quitRequest: QuitSession[] | null
   /** Files with unsaved edits listed in the quit dialog (absolute paths). */
@@ -453,6 +455,7 @@ export const useStore = create<State>(() => ({
   moveBannerHidden: null,
   shortcutsOpen: false,
   dialog: null,
+  dialogBlocked: null,
   quitRequest: null,
   quitUnsaved: [],
   quitScope: 'app',
@@ -945,7 +948,7 @@ function openDialog(d: DialogRequest): void {
 
 /** Closes the dialog shown (its caller resolves it) and shows the next one waiting, if any. */
 export function closeDialog(): void {
-  set({ dialog: dialogQueue.shift() ?? null })
+  set({ dialog: dialogQueue.shift() ?? null, dialogBlocked: null })
 }
 
 export function confirm(opts: Omit<ConfirmRequest, 'kind' | 'resolve'>): Promise<boolean> {
