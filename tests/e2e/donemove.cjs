@@ -55,13 +55,11 @@ const until = async (fn, ms = 10000) => {
   await inv('tasks:create', { title: 'Greeting', project: 'alpha', column: 'review' })
   const callsSoFar = () => (fs.existsSync(calls) ? fs.readFileSync(calls, 'utf8').trim().split('\n').filter(Boolean).length : 0)
   const lastCall = () => JSON.parse(fs.readFileSync(calls, 'utf8').trim().split('\n').at(-1))
+  // Each prompt is typed once the fake takes prompts, and waited for by its own turn (#684, lib.fakePrompts).
+  const prompts = lib.fakePrompts(inv, key, live, { home: claudeHome })
   const run = async (text) => {
     const before = callsSoFar()
-    await inv('pty:write', key, text)
-    await lib.sleep(100)
-    await inv('pty:write', key, '\r')
-    await until(async () => callsSoFar() > before, 15000)
-    await until(async () => (await live())?.status === 'finished', 10000)
+    check(`the prompt "${text}" is answered`, !!(await prompts.say(text)))
     return callsSoFar() > before ? lastCall() : null
   }
   const moves = async (n) => (await card(n)).history.filter((h) => h.what.startsWith('Moved to')).map((h) => `${h.by}: ${h.what}`)

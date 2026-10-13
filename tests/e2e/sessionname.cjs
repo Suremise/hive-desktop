@@ -49,13 +49,14 @@ const check = (name, ok, extra = '') => {
   const agent = await lib.addAgent(inv, alpha, { name: 'Writer' })
   const live = async () => (await inv('session:live')).find((s) => s.projectPath.toLowerCase() === alpha.toLowerCase() && s.agentId === agent.id)
   const key = lib.ptyKey(alpha, agent.id)
-  /** Types a line in the agent's terminal; a prompt waits for its turn to end. */
+  /**
+   * Types a line in the agent's terminal once the fake takes prompts; a prompt waits for its own turn to end (#684,
+   * lib.fakePrompts).
+   */
+  const prompts = lib.fakePrompts(inv, key, live, { home: claudeHome })
   const type = async (text, prompt = true) => {
-    await inv('pty:write', key, text)
-    await lib.sleep(300)
-    await inv('pty:write', key, '\r')
-    if (!prompt) return
-    await until(async () => (await live())?.status === 'finished', 15000)
+    const typed = await prompts.type(text)
+    if (prompt) check(`the prompt "${text}" is answered`, !!(await prompts.over(typed)))
   }
   const records = () => JSON.parse(fs.readFileSync(path.join(alpha, '.hive', 'sessions.json'), 'utf8')).sessions
   const launches = () => fs.readFileSync(path.join(claudeHome, 'fake-launches.jsonl'), 'utf8').trim().split('\n').map((l) => JSON.parse(l))
