@@ -2006,6 +2006,19 @@ p.hint {
 .template-plan-place {
   cursor: default;
 }
+/* The Load template dialog's names (#702): the template's own, then the box for the name each agent gets. */
+.template-plan-from {
+  color: var(--fg-muted);
+}
+.template-plan-arrow {
+  margin: 0 4px;
+  color: var(--fg-muted);
+  vertical-align: middle;
+}
+.template-plan-name-input {
+  width: 140px;
+  font-weight: 600;
+}
 .template-plan-note {
   margin: 8px 0 0;
   color: var(--fg-muted);

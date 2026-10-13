@@ -1,4 +1,4 @@
-import { randomBytes } from 'crypto'
+import { randomBytes, randomUUID } from 'crypto'
 import { basename, join, resolve, sep } from 'path'
 import { mkdir, readdir, readFile, stat, writeFile } from 'original-fs/promises'
 import { existsSync, statSync, watch, type FSWatcher as RootWatcher } from 'original-fs'
@@ -18,6 +18,7 @@ import { allProviders } from './providers'
 import { worktreesRoot } from './worktrees'
 import { ensureHiveExcluded, gitDirOf, hiveVcs } from './hiveVcs'
 import { gitProblem } from './gitTool'
+import { duplicateAgentNames, suggestAgentName } from '../shared/agentNames'
 import { NO_PROJECT_IDS, isProjectId, settleProjectIds, type ProjectIdEntry, type ProjectIdIndex } from '../shared/projectIds'
 
 const log = createLogger('workspace')
@@ -792,7 +793,32 @@ export class WorkspaceService {
     for (const [k, v] of this.roots) if (!known.has(v.toLowerCase())) this.roots.delete(k)
     this.cached = { path: this.path, name: basename(this.path), config: this.wsConfig, projects, assistant: assistant && { ...assistant, name: ASSISTANT_NAME, active: true, unmanagedMcp: [] }, moved: this.moved }
     this.emit({ type: 'workspace-changed', workspace: this.cached })
+    this.flagDuplicateNames(projects)
     return this.cached
+  }
+
+  /**
+   * Agent names two projects share, from before names were unique across the workspace (#702): they keep working, and
+   * each is said once (workspace.json remembers it while it lasts), with a rename to make and a way into Agent Settings.
+   */
+  private flagDuplicateNames(projects: ProjectInfo[]): void {
+    const all = projects.flatMap((p) => p.agents.map((a) => ({ project: p.name, path: p.path, name: a.name, id: a.id })))
+    const dups = duplicateAgentNames(all)
+    const now = dups.map((d) => d.name.toLowerCase()).sort()
+    const before = this.wsConfig.flaggedAgentNames ?? []
+    if (now.length === before.length && now.every((n, i) => n === before[i])) return
+    // In memory at once, so a refresh close behind this one doesn't say them again.
+    if (now.length) this.wsConfig.flaggedAgentNames = now
+    else delete this.wsConfig.flaggedAgentNames
+    void this.saveWorkspaceConfig().catch((e) => log.warn('remembering the shared agent names', e))
+    const fresh = dups.filter((d) => !before.includes(d.name.toLowerCase()))
+    if (!fresh.length) return
+    // The one to rename: the last project's, alphabetically, given its own project's prefix.
+    const first = fresh[0].agents[fresh[0].agents.length - 1] as (typeof all)[number]
+    const suggestion = suggestAgentName(first.name, first.project, all.map((a) => a.name))
+    const shared = fresh.map((d) => `${d.name} is in ${d.agents.map((a) => a.project).join(' and ')}`).join('; ')
+    const message = `Agent names are unique across the workspace now, so each agent can be told apart. ${shared}: they keep working, but rename one of each, e.g. ${first.project}'s ${first.name} to ${suggestion}.`
+    this.emit({ type: 'toast', toast: { id: randomUUID(), level: 'warning', title: fresh.length === 1 ? `Two agents are called ${fresh[0].name}` : 'Agents share names', message, actions: [{ label: `Rename ${first.project}'s ${first.name}…`, command: 'agent.settings', args: [first.path, first.id] }], source: first.path, timestamp: new Date().toISOString() } })
   }
 
   info(): WorkspaceInfo | null {

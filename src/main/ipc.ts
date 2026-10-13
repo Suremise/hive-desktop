@@ -77,7 +77,7 @@ import { cancelMessages } from './agentMessages'
 import { cardBusy } from './cardBusy'
 import { devConsole } from './devConsole'
 import { consoleSources } from './devConsoleSources'
-import { CONSOLE_WINDOW_CHANNELS, consoleOwner, openConsoleWindow } from './consoleWindow'
+import { CONSOLE_WINDOW_CHANNELS, consoleOwner, openConsoleWindow, sendToConsoles } from './consoleWindow'
 import { isRecordingName, latestRecording, recordingOf, recordingsDir, startRecording, stopRecording, stopRecordingsWhere } from './consoleRecorder'
 import { mayRead, type ConsoleEvent } from '../shared/devConsole'
 import { benchContext, importBenchmark, keepReport, listBenchmarks, pinBenchmark, readBenchmark, removeBenchmark, selectBenchmarks } from './benchmarks'
@@ -104,6 +104,16 @@ onHiveEvent((e) => {
   }
   // A recording ends with the workspace it recorded in too (#638).
   stopRecordingsWhere((wc, recordedIn) => !!recordedIn && consoleWorkspace(wc) !== recordedIn, 'workspace')
+})
+/**
+ * Settings → Advanced → Developer console: show text (#699): while it is on, the console's windows are sent prompt, reply
+ * and command text (secrets still masked, shared/devConsole.ts); a change applies to their subscriptions at once.
+ */
+const consoleShowsText = (): boolean => advanced.get<boolean>('hive.console.showText') === true
+advanced.onChange(() => {
+  const showText = consoleShowsText()
+  for (const id of consoleWindows.keys()) devConsole.setIncludeText(id, showText)
+  sendToConsoles({ type: 'console-options', showText })
 })
 /** Whether this window's workspace may read a console source (its own agents, its Assistant and Hive there). */
 const windowMayRead = (source: string): boolean => {
@@ -625,8 +635,8 @@ export function registerIpc(getAppInfo: () => ReturnType<HiveRequests['app:info'
     'agents:swap': (p, id, other) => projectAgents.swapAgents(p, id, other),
     'templates:list': (p) => templates.listTemplates(p),
     'templates:save': (p, scope, name, overwrite) => templates.saveTemplate(p, scope, name, overwrite),
-    'templates:plan': (p, scope, file, from) => templates.templatePlan(p, scope, file, from),
-    'templates:load': (p, scope, file, expected, from, removeOld) => templates.loadTemplate(p, scope, file, expected, from, removeOld),
+    'templates:plan': (p, scope, file, from, names) => templates.templatePlan(p, scope, file, from, names),
+    'templates:load': (p, scope, file, expected, from, removeOld, names) => templates.loadTemplate(p, scope, file, expected, from, removeOld, names),
     'templates:addAgent': (p, scope, file, index, from) => templates.addAgentFromTemplate(p, scope, file, index, from),
     'templates:all': () => templates.listAllTemplates(),
     'templates:rename': (ref, name) => templates.renameTemplate(ref, name),
@@ -648,7 +658,7 @@ export function registerIpc(getAppInfo: () => ReturnType<HiveRequests['app:info'
     },
     'templates:import': (path, to, onClash) => templates.importTemplate(path, to, onClash),
     'agents:gitInfo': (p) => projectAgents.gitInfo(p),
-    'agents:worktreeMatch': (p, branch, base) => projectAgents.worktreeMatch(p, branch, base),
+    'agents:worktreeMatch': (p, branch, base, name) => projectAgents.worktreeMatch(p, branch, base, name),
     'agents:branchStatus': async (p, id) => {
       const st = await projectAgents.branchStatus(p, id)
       branchWatch.record(p, id, st)
@@ -882,7 +892,8 @@ export function registerIpc(getAppInfo: () => ReturnType<HiveRequests['app:info'
       openConsoleWindow(owner)
     },
     'console:sources': () => consoleSources(currentWorkspace()),
-    'console:subscribe': (sources, opts) => {
+    'console:options': () => ({ showText: consoleShowsText() }),
+    'console:subscribe': (sources) => {
       const wc = senderStore.getStore()
       if (!wc) throw new Error('Not allowed')
       if (!Array.isArray(sources)) throw new Error('sources must be a list')
@@ -906,13 +917,14 @@ export function registerIpc(getAppInfo: () => ReturnType<HiveRequests['app:info'
       const deliver = (events: ConsoleEvent[], dropped: number): void => {
         if (!wc.isDestroyed()) wc.send('hive:event', { type: 'console-events', events, ...(dropped ? { dropped } : {}) })
       }
-      return Object.fromEntries(devConsole.subscribe(id, ids, { deliver, includeText: opts?.includeText === true }))
+      // Text only while the setting is on, whatever the page asks.
+      return Object.fromEntries(devConsole.subscribe(id, ids, { deliver, includeText: consoleShowsText() }))
     },
     'console:snapshot': (source, since) => {
       const wc = senderStore.getStore()
       // Only what this window watches, and may read in the workspace it shows now.
-      if (!wc || !windowMayRead(String(source)) || !devConsole.sourcesOf(`window:${wc.id}`).includes(String(source))) return []
-      return devConsole.events(String(source), Number(since) || 0)
+      if (!wc || !windowMayRead(String(source))) return []
+      return devConsole.eventsFor(`window:${wc.id}`, String(source), Number(since) || 0)
     },
     // Recording a source this window may read to a file (#638).
     'console:record': async (source, opts) => {

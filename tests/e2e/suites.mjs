@@ -64,6 +64,7 @@ export const SUITES = [
   { name: 'codex-setup', needs: ['codex'] },
   { name: 'codexfolder' },
   { name: 'compact', needs: ['claude'], claudeHome: 'own' },
+  { name: 'consoletext' },
   { name: 'consolewindow' },
   { name: 'context' },
   { name: 'contract-copilot', needs: ['copilot'] },
