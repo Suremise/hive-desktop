@@ -50,7 +50,7 @@ If a wake isn't possible (the tool says so), wait in the call instead: `hive_wai
 
 **Never end a turn in a loop without a watch**, unless the loop is over or you're asking the user. Woken with nothing to do yet (a reviewer whose card isn't back in Review), start the same watch again.
 
-**The watch is your only standing wait.** A loop runs for hours, and a command left running in it outlives the run it was for. Watch your own test runs with something that ends with them (`hive-progress`, your CLI's notice that a background command ended), never `tail -f`, and stop any watcher, server or app copy you started before you move a card on or end your turn to wait.
+**The watch is your only standing wait.** A loop runs for hours, and a command left running in it outlives the run it was for. Watch your own test runs with something that ends with them (`hive-progress`, your CLI's notice that a background command ended), never `tail -f`, and stop any watcher, server or app copy you started before you move a card on or end your turn to wait. To wait for a time too (a merge slot to renew), give the watch that `limitMinutes`: never a sleep or a timer in a command.
 
 Hive also wakes a loop's agents itself (unless the project turned it off): the reviewer when a card arrives in Review, the builder on a verdict (in your inbox: "#12 (B1's card) is in Review. You review this card in its loop…"). Act on it as on your watch's wake. Watches are still how you wait: where yours tells you of the change, Hive's own wake isn't sent.
 

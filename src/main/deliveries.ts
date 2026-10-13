@@ -1337,7 +1337,8 @@ export function initDeliveries(): void {
         // A doorbell let pass, a launch ended: what was offered rings once more, or is uncertain.
         if (store.records.some((r) => r.agentId === agentId && r.state === 'offered')) transactSoon(store, 'checking deliveries', (d) => recheck(store, d, agentId))
         show(store, agentId)
-        if (readyFor(e.state, 'stalled') || status === 'watching') setTimeout(() => void offerNow(projectPath, agentId).catch((err) => log.warn('offering deliveries', err)), 500).unref?.()
+        // Idle for a message or a card event (watching, or its turn over while its own background tasks run, #726) too.
+        if (readyFor(e.state, 'stalled') || readyFor(e.state) || status === 'watching') setTimeout(() => void offerNow(projectPath, agentId).catch((err) => log.warn('offering deliveries', err)), 500).unref?.()
       })
       .catch((err) => log.warn('loading deliveries', err))
   })

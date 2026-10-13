@@ -26,7 +26,7 @@ import { providerService } from './providerService'
 import { config } from './config'
 import { emit, onHiveEvent, toast } from './events'
 import { cancelWatch, encodeSince, registerAgentWatch, registerLaneWatch, registerWatch, scopedCard } from './watches'
-import { readLaneCondition } from '../shared/laneWatch'
+import { readLaneCards, readLaneCondition } from '../shared/laneWatch'
 import { agentBusy, AGENT_WATCH_MAX_AGENTS, type AgentNow, type WatchedAgent } from '../shared/agentWatch'
 import { alreadyThere, cardChange, changesBetween, decodeSince, markOf, movedIntoSince, readCondition, WATCH_DEFAULT_LIMIT_MINUTES, WATCH_MAX_LIMIT_MINUTES, type CardChange, type CardMark } from '../shared/watch'
 import { waitMaxSeconds } from './advanced'
@@ -1825,18 +1825,26 @@ route('POST', '/v1/tasks/wait', async ({ body }) => {
     const had = await cancelWatch(ws, who.projectPath, who.agentId)
     return { done: had ? `Cancelled your ${w?.agents ? 'agent' : w?.lanes ? 'lane' : 'card'} watch.` : 'You had no card watch.' }
   }
-  // A lane watch (#531): whole lanes, not cards; always one that wakes.
+  // A lane watch (#531): whole lanes; always one that wakes. With cards beside them (#726): `cards` and their `changes`.
   if (body?.lanes !== undefined) {
-    if (body.cards !== undefined || body.column !== undefined || body.changes !== undefined || body.fresh !== undefined) throw new HttpError(400, 'lanes goes without cards, column, changes or fresh: events says what counts')
+    if (body.column !== undefined || body.fresh !== undefined) throw new HttpError(400, 'lanes goes without column or fresh: events says what counts on the lanes, changes on the cards beside them')
     const lc = readLaneCondition(body)
     if (typeof lc === 'string') throw new HttpError(400, lc)
+    const extra = readLaneCards(body)
+    if (typeof extra === 'string') throw new HttpError(400, extra)
     if (body.wake !== true || !who) throw new HttpError(400, 'A lane watch wakes you (wake: true), for an agent or the Assistant: a script waits on cards.')
     const limit = body?.limitMinutes === undefined ? WATCH_DEFAULT_LIMIT_MINUTES : Number(body.limitMinutes)
     if (!Number.isFinite(limit) || limit < 1 || limit > WATCH_MAX_LIMIT_MINUTES) throw new HttpError(400, `limitMinutes must be from 1 to ${WATCH_MAX_LIMIT_MINUTES}`)
-    const r = await registerLaneWatch(ws, who.projectPath, who.agentId, lc, limit).catch((e: Error) => {
-      throw new HttpError(e.message.startsWith('No such lane') ? 404 : 409, e.message)
+    // Each card named must be one the caller may see, as for a card watch.
+    if (extra.cards?.length) {
+      const actor = await taskActor()
+      for (const n of extra.cards) await tasks.readTask(n, actor)
+      stillOpen()
+    }
+    const r = await registerLaneWatch(ws, who.projectPath, who.agentId, lc, limit, extra).catch((e: Error) => {
+      throw e instanceof HttpError ? e : new HttpError(/^(No such lane|Unknown task)/.test(e.message) ? 404 : 409, e.message)
     })
-    return { watching: r.watching.label, limitAt: r.watching.limitAt, events: lc.events, ...(r.replaced ? { replaced: r.replaced } : {}) }
+    return { watching: r.watching.label, limitAt: r.watching.limitAt, events: lc.events, ...(r.replaced ? { replaced: r.replaced } : {}), ...(r.cards ? { cards: r.cards } : {}) }
   }
   const cond = readCondition(body ?? {})
   if (typeof cond === 'string') throw new HttpError(400, cond)
