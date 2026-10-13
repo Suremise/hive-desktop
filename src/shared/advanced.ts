@@ -98,6 +98,15 @@ export const ADVANCED_DEFS: readonly AdvancedDef[] = [
     applies: 'now'
   },
   {
+    id: 'hive.console.showText',
+    group: 'hive',
+    title: 'Developer console: show prompt, reply and command text',
+    desc: "Show the text in the developer console: prompts, replies, commands and tools' arguments, under a banner saying it is unredacted, and start each recording with its text box ticked. Tokens, API keys and sign-in details stay masked whatever this says; agents' hive_console stays redacted, and a recording with text is never attached to Copy Diagnostics.",
+    kind: 'boolean',
+    default: false,
+    applies: 'now'
+  },
+  {
     id: 'hive.mcp.replySeconds',
     group: 'hive',
     title: 'hive tools: reply timeout',
