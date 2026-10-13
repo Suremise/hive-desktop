@@ -28,7 +28,7 @@ import type { AgentDef, OldWorktreeOutcome, ProviderId, TemplateLoadPlan } from 
 import { config } from './config'
 import { placeKey, readKeptJson, withFileLock, writeKeptJson, writeTextAtomic } from './fsutil'
 import { createLogger, userText } from './logger'
-import { addAgent, branchHome, claimMark, newWorktreePlace, prepareAgent, removedSince, reserveForRemoval, takePendingSetup } from './projectAgents'
+import { addAgent, branchPlace, claimMark, newWorktreePlace, prepareAgent, removedSince, reserveForRemoval, takePendingSetup } from './projectAgents'
 import { providerService } from './providerService'
 import { sessions } from './sessions'
 import { endReviews, releaseAgentCards } from './tasks'
@@ -38,7 +38,7 @@ import { gitProblem } from './gitTool'
 import { unusedWorktreesNamed } from './unusedWorktrees'
 import { trash } from './trash'
 import { withAgentNames, workspaceAgents } from './agentNames'
-import { agentPart, hiveBranchAgent } from '../shared/hiveBranches'
+import { hiveBranchNumber } from '../shared/hiveBranches'
 import { agentNameProblem, nameTaken, sameAgentName } from '../shared/agentNames'
 
 /**
@@ -345,17 +345,16 @@ async function reusableWorktree(projectPath: string, name: string, base: string,
   const slug = slugify(name)
   const root = placeKey(join(workspaceOf(projectPath).worktreesRoot, projectPath.split(/[\\/]/).pop()!))
   const numbered = (s: string, stem: string): boolean => s === stem || (s.startsWith(`${stem}-`) && /^\d+$/.test(s.slice(stem.length + 1)))
-  // Its branch Hive's for that name in either form (#703): hive/<workspace>/<project>/<name> now, hive/<name> from before.
-  const home = branchHome(projectPath)
-  const agentOf = (branch: string): string => hiveBranchAgent(branch, home)?.toLowerCase() ?? ''
-  const part = agentPart(name).toLowerCase()
-  const mine = listed.filter((w) => !!w.branch && placeKey(dirname(w.path)) === root && numbered(basename(w.path).toLowerCase(), slug) && numbered(agentOf(w.branch), part))
+  // Its branch Hive's for that name in either form (#703): hive/<workspace>/<project>/<name> now, hive/<its slug> from
+  // before (compared as Hive made it then).
+  const home = branchPlace(projectPath)
+  const mine = listed.filter((w) => !!w.branch && placeKey(dirname(w.path)) === root && numbered(basename(w.path).toLowerCase(), slug) && hiveBranchNumber(w.branch, home, name) !== null)
   if (!mine.length) return null
   const free = mine.filter((w) => !inUse.has(placeKey(w.path)))
   if (!free.length) return { why: `another agent works in ${mine[0].branch}'s worktree` }
   const checked = await Promise.all(free.map(async (w) => ({ w: { path: w.path, branch: w.branch! }, why: await notReusable(projectPath, { path: w.path, branch: w.branch! }, base, listed) })))
   const clean = checked.filter((c) => !c.why)
-  const exact = clean.find((c) => basename(c.w.path).toLowerCase() === slug && agentOf(c.w.branch) === part)
+  const exact = clean.find((c) => basename(c.w.path).toLowerCase() === slug && hiveBranchNumber(c.w.branch, home, name) === 0)
   if (exact) return { reuse: exact.w }
   if (clean.length === 1) return { reuse: clean[0].w }
   if (clean.length > 1) return { why: `several clean worktrees could be its (${clean.map((c) => c.w.branch).join(', ')})` }

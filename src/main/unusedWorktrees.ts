@@ -5,7 +5,7 @@ import { lstat, readdir, readlink } from 'original-fs/promises'
 import { projectAgents, slugify } from '../shared/defaults'
 import type { AgentBranchStatus, AgentWorktree, MergeResult, SessionRecord, UnusedWorktree, UnusedWorktreeOrigin, UnusedWorktreePreview, UnusedWorktreeRemoval, UnusedWorktrees } from '../shared/types'
 import { lostLines } from '../shared/unusedWorktrees'
-import { agentPart, hiveBranchAgent } from '../shared/hiveBranches'
+import { hiveBranchNumber } from '../shared/hiveBranches'
 import { containsPlace, placeKey, realPath } from './fsutil'
 import { git, gitReading } from './git'
 import { gitProblem } from './gitTool'
@@ -187,15 +187,14 @@ export async function unusedWorktreeCounts(projectPath: string): Promise<{ count
  * worktree agents left (#353's hint).
  */
 export async function unusedWorktreesNamed(projectPath: string, names: string[]): Promise<string[]> {
-  const slugs = new Set(names.map(slugify))
-  const parts = new Set(names.map((n) => agentPart(n).toLowerCase()))
-  if (!slugs.size) return []
+  if (!names.length) return []
   const root = join(workspaceOf(projectPath).worktreesRoot, basename(projectPath))
   const { listed } = await candidates(projectPath).catch(() => ({ listed: [] as { path: string; branch: string | null }[] }))
-  const base = (s: string): string => s.replace(/-\d+$/, '')
+  const numbered = (s: string, stem: string): boolean => s === stem || (s.startsWith(`${stem}-`) && /^\d+$/.test(s.slice(stem.length + 1)))
   const home = { workspace: basename(workspaceOf(projectPath).path ?? ''), project: basename(projectPath) }
   return listed
-    .filter((w) => key(resolve(w.path, '..')) === key(root) && slugs.has(base(basename(w.path).toLowerCase())) && !!w.branch && parts.has(base(hiveBranchAgent(w.branch, home)?.toLowerCase() ?? '')))
+    // Its folder named after one of them, and its branch Hive's for that one, in either form (#703).
+    .filter((w) => key(resolve(w.path, '..')) === key(root) && !!w.branch && names.some((n) => numbered(basename(w.path).toLowerCase(), slugify(n)) && hiveBranchNumber(w.branch!, home, n) !== null))
     .map((w) => w.path)
 }
 

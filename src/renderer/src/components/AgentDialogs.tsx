@@ -226,14 +226,26 @@ export function AddAgentDialog() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [path])
 
-  // New worktree: whether an unused worktree is already on that branch (#456), looked at once the typing pauses.
+  // Where its branch is (#703): hive/<workspace>/<project>/<agent>, the workspace part as git info gives it for this
+  // repository (clear of branches from before, `branchSpace`) once it is known.
+  const home = { workspace: workspaceName, project: path?.split(/[\\/]/).pop() ?? '', ...(git?.branchSpace ? { space: git.branchSpace } : {}) }
+  // Git info read: the default branch in the repository's own space, unless the user typed one.
+  useEffect(() => {
+    if (git?.branchSpace && !branchEdited) setBranch(hiveBranch({ ...home, space: git.branchSpace }, name))
+    // Only when git info arrives.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [git])
+
+  // New worktree: whether an unused worktree is already on that branch (#456), looked at once the typing pauses: for its
+  // default branch, also one on the branch Hive made for that name before (#703).
   useEffect(() => {
     setMatch(null)
     const b = branch.trim()
-    if (!path || location !== 'new-worktree' || !b || !base || !git?.worktrees.some((w) => !w.used && !!w.branch && reusableBranches(b, { workspace: workspaceName, project: path.split(/[\\/]/).pop() ?? '' }).includes(w.branch))) return
+    const agent = name.trim()
+    if (!path || location !== 'new-worktree' || !b || !base || !git?.worktrees.some((w) => !w.used && !!w.branch && reusableBranches(b, home, agent).includes(w.branch))) return
     let live = true
     const t = setTimeout(() => {
-      void call('agents:worktreeMatch', path, b, base)
+      void call('agents:worktreeMatch', path, b, base, agent)
         .then((m) => live && setMatch(m))
         .catch(() => undefined)
     }, 300)
@@ -241,7 +253,9 @@ export function AddAgentDialog() {
       live = false
       clearTimeout(t)
     }
-  }, [path, location, branch, base, git, workspaceName])
+    // (home follows path, git and the workspace's name.)
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [path, location, branch, base, git, workspaceName, name])
 
   // Opened while Hive was still looking for the CLIs: Automatic's pick, once it is known (#506).
   useEffect(() => {
@@ -274,7 +288,7 @@ export function AddAgentDialog() {
 
   const rename = (v: string): void => {
     setName(v)
-    if (!branchEdited) setBranch(hiveBranch({ workspace: workspaceName, project: project.name }, v))
+    if (!branchEdited) setBranch(hiveBranch(home, v))
   }
 
   const add = async (): Promise<void> => {

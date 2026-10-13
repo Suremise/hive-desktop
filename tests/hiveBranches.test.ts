@@ -4,7 +4,7 @@
 // Add Agent may find an unused worktree on.
 import { execFileSync } from 'child_process'
 import { describe, expect, it } from 'vitest'
-import { hiveBranch, hiveBranchAgent, oldHiveBranch, refPart, reusableBranches } from '../src/shared/hiveBranches'
+import { branchSpace, hiveBranch, hiveBranchNumber, oldHiveBranch, refPart, reusableBranches } from '../src/shared/hiveBranches'
 
 /** Whether git takes `name` as a branch name. */
 const gitTakes = (name: string): boolean => {
@@ -38,25 +38,51 @@ describe('the full form', () => {
   })
 })
 
-describe('the agent of a branch Hive made', () => {
+describe("a branch Hive made for an agent", () => {
   const home = { workspace: 'HIVE', project: 'amberlight' }
 
-  it('reads either form: hive/<agent> from before, and the full form for this workspace and project, case aside', () => {
-    expect(hiveBranchAgent('hive/amb1', home)).toBe('amb1')
-    expect(hiveBranchAgent('hive/amb1-2', home)).toBe('amb1-2')
-    expect(hiveBranchAgent('hive/HIVE/amberlight/amb1', home)).toBe('amb1')
-    expect(hiveBranchAgent('hive/hive/Amberlight/amb1-3', home)).toBe('amb1-3')
-    expect(hiveBranchAgent('hive/My-Work/web-app/b1', { workspace: 'My Work', project: 'web app' })).toBe('b1')
+  it('is recognised in either form: hive/<slug> from before as Hive made it, and the full form here, case aside', () => {
+    expect(hiveBranchNumber('hive/amb1', home, 'AMB1')).toBe(0)
+    expect(hiveBranchNumber('hive/amb1-2', home, 'AMB1')).toBe(2)
+    expect(hiveBranchNumber('hive/HIVE/amberlight/amb1', home, 'AMB1')).toBe(0)
+    expect(hiveBranchNumber('hive/hive/Amberlight/amb1-3', home, 'amb1')).toBe(3)
+    // In a workspace part numbered past a branch from before (branchSpace): still this workspace's.
+    expect(hiveBranchNumber('hive/HIVE-2/amberlight/amb1', home, 'AMB1')).toBe(0)
+    expect(hiveBranchNumber('hive/My-Work/web-app/b1', { workspace: 'My Work', project: 'web app' }, 'B1')).toBe(0)
   })
 
-  it("is null for another workspace's or project's branch (two workspaces in one repository), or one that isn't Hive's", () => {
-    for (const b of ['hive/OTHER/amberlight/amb1', 'hive/HIVE/other/amb1', 'feature/amb1', 'hive/HIVE/amb1', 'hive/a/b/c/d', 'main', 'hive']) expect(hiveBranchAgent(b, home)).toBeNull()
+  it("from before, by its slug exactly as Hive made it then: B--1 had hive/b--1 (round 2: not the new rules' b-1)", () => {
+    expect(oldHiveBranch('B--1')).toBe('hive/b--1')
+    expect(hiveBranchNumber('hive/b--1', home, 'B--1')).toBe(0)
+    expect(hiveBranchNumber('hive/b--1-2', home, 'B--1')).toBe(2)
+    expect(hiveBranchNumber('hive/b-1', home, 'B--1')).toBeNull()
+    // The full form uses the new rules: B--1's part is b-1.
+    expect(hiveBranch(home, 'B--1')).toBe('hive/HIVE/amberlight/b-1')
+    expect(hiveBranchNumber('hive/HIVE/amberlight/b-1', home, 'B--1')).toBe(0)
   })
 
-  it("Add Agent's new worktree on the full form may find the same agent's from before; any other branch only itself", () => {
-    expect(reusableBranches('hive/HIVE/amberlight/amb1', home)).toEqual(['hive/HIVE/amberlight/amb1', 'hive/amb1'])
-    expect(reusableBranches('hive/OTHER/amberlight/amb1', home)).toEqual(['hive/OTHER/amberlight/amb1'])
-    expect(reusableBranches('hive/amb1', home)).toEqual(['hive/amb1'])
-    expect(reusableBranches('feature/x', home)).toEqual(['feature/x'])
+  it("isn't another agent's, another workspace's or project's (two workspaces in one repository), or a branch not Hive's", () => {
+    for (const b of ['hive/OTHER/amberlight/amb1', 'hive/HIVE/other/amb1', 'hive/HIVEX/amberlight/amb1', 'feature/amb1', 'hive/HIVE/amb1', 'hive/a/b/c/d', 'main', 'hive', 'hive/amb10', 'hive/HIVE/amberlight/amb1-x']) expect(hiveBranchNumber(b, home, 'AMB1')).toBeNull()
+  })
+
+  it("Add Agent's new worktree on an agent's full-form branch may find the branch Hive made for that name before; any other only itself", () => {
+    expect(reusableBranches('hive/HIVE/amberlight/amb1', home, 'AMB1')).toEqual(['hive/HIVE/amberlight/amb1', 'hive/amb1'])
+    expect(reusableBranches('hive/HIVE/amberlight/b-1', home, 'B--1')).toEqual(['hive/HIVE/amberlight/b-1', 'hive/b--1'])
+    // Without the name, or for another agent's or workspace's branch: only itself.
+    expect(reusableBranches('hive/HIVE/amberlight/amb1', home)).toEqual(['hive/HIVE/amberlight/amb1'])
+    expect(reusableBranches('hive/HIVE/amberlight/amb2', home, 'AMB1')).toEqual(['hive/HIVE/amberlight/amb2'])
+    expect(reusableBranches('hive/OTHER/amberlight/amb1', home, 'AMB1')).toEqual(['hive/OTHER/amberlight/amb1'])
+    expect(reusableBranches('feature/x', home, 'X')).toEqual(['feature/x'])
+  })
+})
+
+describe('the workspace part in a repository with branches from before (#703 round 2)', () => {
+  const home = { workspace: 'ws', project: 'alpha' }
+  it("is the workspace's own, unless hive/<workspace> or hive/<workspace>/<project> is a branch (case aside): then numbered", () => {
+    expect(branchSpace(home, ['main', 'hive/b1', 'hive/ws/alpha/b1'])).toBe('ws')
+    expect(branchSpace(home, ['main', 'hive/ws'])).toBe('ws-2')
+    expect(branchSpace(home, ['hive/WS', 'hive/ws-2/alpha'])).toBe('ws-3')
+    expect(branchSpace({ workspace: 'HIVE', project: 'amberlight' }, ['hive/hive'])).toBe('HIVE-2')
+    expect(hiveBranch({ ...home, space: branchSpace(home, ['hive/ws']) }, 'New')).toBe('hive/ws-2/alpha/new')
   })
 })

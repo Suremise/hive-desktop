@@ -715,6 +715,20 @@ describe('a template loaded again into the worktrees it made (#289)', () => {
     expect(named.map(placeKey).sort()).toEqual([placeKey(old), placeKey(join(root, 'tree-b'))].sort())
   }, false))
 
+  gitIt('a worktree from before of a name the new rules write otherwise (B--1 had hive/b--1) is still found: reused, and tidied when its template goes (#703 round 2)', inOwnWorkspace(async ({ alpha, beta, run }) => {
+    const root = join(`${join(beta, '..')}.worktrees`, 'beta')
+    const old = join(root, 'b--1')
+    git(beta, 'worktree', 'add', '-q', '-b', 'hive/b--1', old, 'main')
+    writeFileSync(join(alpha, '.hive', 'templates', 'hyphens.json'), JSON.stringify({ version: 1, name: 'Hyphens', layout: 'auto', agents: [{ name: 'B--1', provider: 'claude-code', worktree: true }] }))
+    // Unused, named after the template's agent: the hint a deletion gives counts it.
+    expect((await run(() => unusedWorktreesNamed(beta, ['B--1']))).map(placeKey)).toEqual([placeKey(old)])
+    const plan = await run(() => templates.templatePlan(beta, 'project', 'hyphens.json', alpha))
+    expect(plan.worktrees[0]).toMatchObject({ reuse: true, branch: 'hive/b--1' })
+    await run(() => templates.loadTemplate(beta, 'project', 'hyphens.json', ['b1'], alpha))
+    const made = cfgOf(beta).agents.find((a: AgentDef) => a.name === 'B--1').worktree
+    expect([placeKey(made.path), made.branch]).toEqual([placeKey(old), 'hive/b--1'])
+  }, false))
+
   gitIt('loading the same template again works in the same worktrees; switching templates and back reattaches them (#289)', inOwnWorkspace(async ({ alpha, beta, run, hb }) => {
     const ids = (): string[] => cfgOf(beta).agents.map((a: AgentDef) => a.id)
     const places = (): string[][] => cfgOf(beta).agents.map((a: AgentDef) => [a.name, a.worktree?.branch ?? '', a.worktree ? placeKey(a.worktree.path) : ''])

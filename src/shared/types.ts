@@ -946,6 +946,8 @@ export interface ProjectGitInfo {
   worktrees: { path: string; branch: string | null; used: boolean }[]
   /** Where new worktrees are created. */
   worktreesRoot: string
+  /** The workspace part of new branches here (#703: `branchSpace`, clear of branches from before); absent: not a repository. */
+  branchSpace?: string
 }
 
 /** A worktree agent's branch compared with the branch it merges into. */

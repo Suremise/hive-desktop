@@ -50,12 +50,16 @@ export async function listWorktrees(cwd: string): Promise<{ path: string; branch
 }
 
 /**
- * A branch name that doesn't exist yet: wanted, else wanted-2, wanted-3… `taken`: names to avoid too (a plan's earlier
- * ones). Case aside: on Windows git keeps branches as files, so hive/HIVE/… and hive/hive/… would be the same one (#703).
+ * A branch name git can make: wanted, else wanted-2, wanted-3… `taken`: names to avoid too (a plan's earlier ones). Not
+ * one that exists, nor one a branch is inside (hive/ws/x while hive/ws/x/y exists), case aside: on Windows git keeps
+ * branches as files, so hive/HIVE/… and hive/hive/… would be the same one (#703). A branch it would be inside (hive/ws for
+ * hive/ws/alpha/b1) can't be numbered away: refused, saying which (`branchSpace` keeps Hive's own clear of that).
  */
 export async function uniqueBranch(cwd: string, wanted: string, taken: ReadonlySet<string> = new Set()): Promise<string> {
-  const existing = new Set([...(await localBranches(cwd)), ...taken].map((b) => b.toLowerCase()))
-  const free = (b: string): boolean => !existing.has(b.toLowerCase())
+  const existing = [...new Set([...(await localBranches(cwd)), ...taken].map((b) => b.toLowerCase()))]
+  const parent = existing.find((b) => wanted.toLowerCase().startsWith(`${b}/`))
+  if (parent) throw new Error(`Git can't make the branch ${wanted}: a branch ${parent} is in the way. Choose another branch.`)
+  const free = (b: string): boolean => !existing.some((e) => e === b.toLowerCase() || e.startsWith(`${b.toLowerCase()}/`))
   if (free(wanted)) return wanted
   for (let i = 2; ; i++) if (free(`${wanted}-${i}`)) return `${wanted}-${i}`
 }

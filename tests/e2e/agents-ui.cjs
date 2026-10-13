@@ -13,6 +13,9 @@ fs.mkdirSync(proj, { recursive: true })
 const g = (cmd, cwd = proj) => lib.git(cwd, cmd)
 g('init -q -b main'); g('config user.email t@e.com'); g('config user.name T')
 fs.writeFileSync(path.join(proj, 'a.txt'), 'a\n'); g('add -A'); g('commit -q -m init')
+// A branch from before #703 in the way of hive/ws/demo/…: an agent once called "ws" had hive/ws. New branches go to
+// hive/ws-2/demo/…, the dialog's default too, and it stays.
+g('branch hive/ws')
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms))
 let pass = 0, fail = 0
 const check = (name, ok, extra = '') => { if (ok) pass++; else fail++; console.log(ok ? 'PASS' : 'FAIL', name, extra) }
@@ -60,11 +63,11 @@ const check = (name, ok, extra = '') => { if (ok) pass++; else fail++; console.l
   await page.locator('.choice', { hasText: 'New worktree' }).click(); await sleep(400)
   await page.screenshot({ path: path.join(scratch, 'ui-1-add.png') })
   await page.locator('.dialog input.input').first().fill('Tester')
-  check('branch follows name', (await page.locator('.agent-form.nested input').inputValue()) === 'hive/ws/demo/tester')
+  check('branch follows name, in the place git can make it (hive/ws is a branch)', !!(await lib.until(async () => (await page.locator('.agent-form.nested input').inputValue()) === 'hive/ws-2/demo/tester', HUNG_MS)), await page.locator('.agent-form.nested input').inputValue())
   await page.locator('.dialog label', { hasText: 'Start a session now' }).locator('input').uncheck()
   await page.locator('.dialog .btn.primary', { hasText: 'Add Agent' }).click(); await lib.until(async () => (await inv('workspace:refresh')).projects[0].agents.some((a) => a.name === 'Tester'), 15000)
   let p = (await inv('workspace:refresh')).projects[0]
-  check('agent created from the dialog', p.agents.some((a) => a.name === 'Tester' && a.worktree?.branch === 'hive/ws/demo/tester'))
+  check('agent created from the dialog', p.agents.some((a) => a.name === 'Tester' && a.worktree?.branch === 'hive/ws-2/demo/tester') && g('branch --list hive/ws').includes('hive/ws'))
   check('two agents: two columns, automatically', (p.config.layout ?? 'auto') === 'auto' && (await page.locator('.agent-pane').count()) === 2, JSON.stringify(p.config.layout))
   await sleep(500)
   await page.screenshot({ path: path.join(scratch, 'ui-2-strip.png') })

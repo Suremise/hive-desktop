@@ -391,7 +391,7 @@ export interface HiveRequests {
   /** Branches and worktrees, for the Add Agent dialog. */
   'agents:gitInfo': (projectPath: string) => ProjectGitInfo
   /** The unused worktree a new one on `branch` from `base` would reuse (#456), checked: null when there is none. */
-  'agents:worktreeMatch': (projectPath: string, branch: string, base: string) => WorktreeMatch | null
+  'agents:worktreeMatch': (projectPath: string, branch: string, base: string, name?: string) => WorktreeMatch | null
   'agents:branchStatus': (projectPath: string, agentId: string) => AgentBranchStatus
   /** Every worktree agent's unmerged work known so far (then `branch-status` events as it changes). */
   'agents:branchStatuses': () => { projectPath: string; agentId: string; status: AgentBranchStatus | null }[]

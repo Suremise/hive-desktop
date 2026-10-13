@@ -623,7 +623,7 @@ export function registerIpc(getAppInfo: () => ReturnType<HiveRequests['app:info'
     },
     'templates:import': (path, to, onClash) => templates.importTemplate(path, to, onClash),
     'agents:gitInfo': (p) => projectAgents.gitInfo(p),
-    'agents:worktreeMatch': (p, branch, base) => projectAgents.worktreeMatch(p, branch, base),
+    'agents:worktreeMatch': (p, branch, base, name) => projectAgents.worktreeMatch(p, branch, base, name),
     'agents:branchStatus': async (p, id) => {
       const st = await projectAgents.branchStatus(p, id)
       branchWatch.record(p, id, st)

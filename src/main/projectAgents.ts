@@ -23,7 +23,7 @@ import { gitProblem } from './gitTool'
 import { providerService } from './providerService'
 import { assertNameFree, withAgentNames, workspaceAgents } from './agentNames'
 import { sameAgentName } from '../shared/agentNames'
-import { hiveBranch, reusableBranches, type BranchHome } from '../shared/hiveBranches'
+import { branchSpace, hiveBranch, reusableBranches, type BranchHome } from '../shared/hiveBranches'
 
 const log = createLogger('agents')
 
@@ -43,7 +43,9 @@ export async function gitInfo(projectPath: string): Promise<ProjectGitInfo> {
     current,
     branches: await wt.localBranches(projectPath),
     worktrees: all.filter((w) => !samePlace(w.path, projectPath)).map((w) => ({ ...w, used: used.has(placeKey(w.path)) })),
-    worktreesRoot: join(workspaceOf(projectPath).worktreesRoot, projectPath.split(/[\\/]/).pop()!)
+    worktreesRoot: join(workspaceOf(projectPath).worktreesRoot, projectPath.split(/[\\/]/).pop()!),
+    // The workspace part of new branches here (#703), for the dialog's default branch.
+    ...(all.length ? { branchSpace: (await branchHome(projectPath)).space } : {})
   }
 }
 
@@ -164,18 +166,25 @@ async function reuseCheck(projectPath: string, path: string, branch: string, bas
 }
 
 /** Where a project is, for the branches Hive makes in it (#703): its workspace's folder name and its own. */
-export const branchHome = (projectPath: string): BranchHome => ({ workspace: basename(workspaceOf(projectPath).path ?? ''), project: basename(projectPath) })
+export const branchPlace = (projectPath: string): BranchHome => ({ workspace: basename(workspaceOf(projectPath).path ?? ''), project: basename(projectPath) })
+
+/** The same, with the workspace part its new branches take in its repository (`branchSpace`: clear of branches from before). */
+export async function branchHome(projectPath: string): Promise<BranchHome> {
+  const home = branchPlace(projectPath)
+  return { ...home, space: branchSpace(home, await wt.localBranches(projectPath)) }
+}
 
 /**
  * The project's unused worktree on `branch` (#456), checked against `base`: one in Hive's worktrees folder for the
- * project that git lists on that branch and no agent (`others`) works in. When `branch` is Hive's full form, one on the
- * same agent's branch from before (hive/<agent>, #703) is found too, the full form first. Null when there is none.
+ * project that git lists on that branch and no agent (`others`) works in. When `branch` is the full-form branch of the
+ * agent called `name`, one on the branch Hive made for that name before (hive/<its slug>, #703) is found too, the full
+ * form first. Null when there is none.
  */
-export async function matchingWorktree(projectPath: string, branch: string, base: string, others: readonly AgentDef[]): Promise<WorktreeMatch | null> {
+export async function matchingWorktree(projectPath: string, branch: string, base: string, others: readonly AgentDef[], name?: string): Promise<WorktreeMatch | null> {
   const root = placeKey(join(workspaceOf(projectPath).worktreesRoot, basename(projectPath)))
   const used = new Set(others.flatMap((a) => (a.worktree ? [placeKey(a.worktree.path)] : [])))
   const listed = (await wt.listWorktrees(projectPath)).filter((x) => !samePlace(x.path, projectPath) && placeKey(dirname(x.path)) === root && !used.has(placeKey(x.path)) && existsSync(x.path))
-  const w = reusableBranches(branch, branchHome(projectPath))
+  const w = reusableBranches(branch, branchPlace(projectPath), name)
     .map((b) => listed.find((x) => x.branch === b))
     .find((x) => !!x)
   if (!w?.branch) return null
@@ -184,9 +193,9 @@ export async function matchingWorktree(projectPath: string, branch: string, base
 }
 
 /** The Add Agent dialog's look before adding (#456): the unused worktree a new one on `branch` from `base` would reuse. */
-export async function worktreeMatch(projectPath: string, branch: string, base: string): Promise<WorktreeMatch | null> {
+export async function worktreeMatch(projectPath: string, branch: string, base: string, name?: string): Promise<WorktreeMatch | null> {
   projectPath = workspace.assertProject(projectPath)
-  return matchingWorktree(projectPath, branch.trim(), base, projectAgents(await workspace.projectConfig(projectPath)))
+  return matchingWorktree(projectPath, branch.trim(), base, projectAgents(await workspace.projectConfig(projectPath)), typeof name === 'string' ? name : undefined)
 }
 
 /** Worktrees being brought up to their base right now (#456), by `placeKey`: one add at a time takes each. */
@@ -256,7 +265,7 @@ async function bringUp(projectPath: string, path: string, branch: string, base: 
  */
 export async function newWorktreePlace(projectPath: string, name: string, branch?: string, taken: { branches: ReadonlySet<string>; folders: ReadonlySet<string> } = { branches: new Set(), folders: new Set() }): Promise<{ branch: string; path: string }> {
   return {
-    branch: await wt.uniqueBranch(projectPath, branch?.trim() || hiveBranch(branchHome(projectPath), name), taken.branches),
+    branch: await wt.uniqueBranch(projectPath, branch?.trim() || hiveBranch(await branchHome(projectPath), name), taken.branches),
     path: wt.uniqueFolder(join(workspaceOf(projectPath).worktreesRoot, projectPath.split(/[\\/]/).pop()!, slugify(name)), taken.folders)
   }
 }
@@ -290,7 +299,7 @@ export async function prepareAgent(projectPath: string, cfg: ProjectConfig, opts
     const base = opts.base || (await wt.currentBranch(projectPath))
     if (!base) throw new Error(gitProblem() ? `${gitProblem()}, so Hive can't make a worktree.` : 'The project folder is not on a branch. Choose the branch to start from.')
     // An unused worktree on the branch it would get is worked in again when merged and clean (#456), else a new one.
-    const match = opts.reuseWorktree ? await matchingWorktree(projectPath, opts.branch?.trim() || hiveBranch(branchHome(projectPath), name), base, others) : null
+    const match = opts.reuseWorktree ? await matchingWorktree(projectPath, opts.branch?.trim() || hiveBranch(await branchHome(projectPath), name), base, others, name) : null
     if (match) {
       const took = match.reusable ? await bringUp(projectPath, match.path, match.branch, base) : { why: match.why ?? 'not checked' }
       if ('why' in took) reuse = { branch: match.branch, reused: false, base, notReused: took.why }
