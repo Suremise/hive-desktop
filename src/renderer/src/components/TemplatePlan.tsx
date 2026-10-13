@@ -1,14 +1,16 @@
 import type { SettingShown, TemplateLoadView, PlaceShown } from '@shared/templateLoad'
 import { isKnownProvider } from '@shared/providers'
 import { ProviderIcon } from './ProviderIcon'
-import { Tooltip } from './ui'
+import { Icon, Tooltip } from './ui'
+import { AGENT_NAME_MAX } from '@shared/agentNames'
+import { cx } from '../util'
 
 /**
  * The Load template dialog's plan (#511): who goes, then who comes as a table (agent, coding agent, model, effort,
  * mode, where), what the template leaves to the defaults shown as what it is here with a muted "(default)", a new
  * worktree by its branch with its folder on hover; then the notes. In the template's order.
  */
-export function TemplatePlan({ view }: { view: TemplateLoadView }) {
+export function TemplatePlan({ view, edit }: { view: TemplateLoadView; edit?: NameEdit }) {
   return (
     <div className="template-plan">
       {view.removed.length > 0 && (
@@ -38,10 +40,22 @@ export function TemplatePlan({ view }: { view: TemplateLoadView }) {
           </tr>
         </thead>
         <tbody>
-          {view.created.map((a) => (
-            <tr key={a.name} data-agent={a.name}>
+          {view.created.map((a, i) => (
+            // By place while names are edited: a key that changed with each key press would lose the field's focus.
+            <tr key={edit ? i : a.name} data-agent={a.name}>
               <td>
-                <span className="template-plan-name">{a.name}</span>
+                {edit ? (
+                  <>
+                    <span className="template-plan-from" title="Its name in the template">
+                      {edit.from[i]}
+                    </span>
+                    <Icon name="arrow-right" className="template-plan-arrow" />
+                    <input className={cx('input template-plan-name-input', edit.problems[i] && 'invalid')} aria-label={`Name of agent ${i + 1}`} value={edit.names[i] ?? ''} maxLength={AGENT_NAME_MAX} onChange={(e) => edit.onName(i, e.target.value)} />
+                    {edit.problems[i] && <div className="field-error">{edit.problems[i]}</div>}
+                  </>
+                ) : (
+                  <span className="template-plan-name">{a.name}</span>
+                )}
                 {a.replaces && <span className="badge">new</span>}
                 {a.role && <div className="faint">{a.role}</div>}
               </td>
@@ -70,6 +84,14 @@ export function TemplatePlan({ view }: { view: TemplateLoadView }) {
       ))}
     </div>
   )
+}
+
+/** The created agents' names, editable in the Load template dialog (#702) beside the template's own (`from`), each with why it can't be used. */
+export interface NameEdit {
+  from: string[]
+  names: string[]
+  problems: (string | null)[]
+  onName: (index: number, name: string) => void
 }
 
 function Setting({ s }: { s: SettingShown }) {

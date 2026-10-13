@@ -37,8 +37,8 @@ function followWorkspaces(): void {
 
 const DEFAULT_BOUNDS: WindowState = { width: 1100, height: 720, maximized: false }
 
-/** The IPC channels a console window may call: its sources, subscription and recording, and the settings for its theme. */
-export const CONSOLE_WINDOW_CHANNELS: ReadonlySet<string> = new Set(['console:sources', 'console:subscribe', 'console:snapshot', 'console:record', 'console:stopRecording', 'console:recordings', 'console:showRecording', 'settings:get'])
+/** The IPC channels a console window may call: its sources, options, subscription and recording, and the settings for its theme. */
+export const CONSOLE_WINDOW_CHANNELS: ReadonlySet<string> = new Set(['console:sources', 'console:options', 'console:subscribe', 'console:snapshot', 'console:record', 'console:stopRecording', 'console:recordings', 'console:showRecording', 'settings:get'])
 
 /** The Hive window a console window's page belongs to. */
 export function consoleOwner(sender: WebContents): HiveWindow | null {
@@ -150,7 +150,7 @@ export function closeConsoleWindows(): void {
   for (const w of consoles.values()) if (!w.isDestroyed()) w.close()
 }
 
-/** Sends an event to every console window (the settings, for its theme). */
+/** Sends an event to every console window (the settings, for its theme; the console's options). */
 export function sendToConsoles(event: HiveEvent): void {
   for (const w of consoles.values()) if (!w.isDestroyed()) w.webContents.send('hive:event', event)
 }

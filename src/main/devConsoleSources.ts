@@ -1,5 +1,6 @@
 import type { AgentInfo, ProjectInfo } from '../shared/types'
 import { hiveName, safeWord, type ConsoleSource } from '../shared/devConsole'
+import { maskText } from '../shared/redact'
 import { ASSISTANT_NAME } from '../shared/assistant'
 import { devConsole, hiveSourceId, sessionSourceId } from './devConsole'
 import { onHiveEvent } from './events'
@@ -16,7 +17,7 @@ export function consoleSources(ws: WorkspaceService): ConsoleSource[] {
   if (!info || !wsPath) return []
   const row = (p: ProjectInfo, a: AgentInfo, kind: 'session' | 'assistant'): ConsoleSource => {
     const id = sessionSourceId(p.path, a.id)
-    return { id, kind, label: kind === 'assistant' ? ASSISTANT_NAME : `${p.name} · ${a.name}`, workspacePath: wsPath, projectPath: p.path, project: p.name, agentId: a.id, agent: a.name, provider: a.live?.provider ?? a.provider, capturing: devConsole.capturing(id), events: devConsole.count(id) }
+    return { id, kind, label: kind === 'assistant' ? ASSISTANT_NAME : maskText(`${p.name} · ${a.name}`), workspacePath: wsPath, projectPath: p.path, project: p.name, agentId: a.id, agent: a.name, provider: a.live?.provider ?? a.provider, capturing: devConsole.capturing(id), events: devConsole.count(id) }
   }
   const rows = info.projects.flatMap((p) => p.agents.map((a) => row(p, a, 'session')))
   if (info.assistant) rows.push(...info.assistant.agents.map((a) => row(info.assistant!, a, 'assistant')))

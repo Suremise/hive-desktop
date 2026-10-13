@@ -12,7 +12,9 @@ import './styles/console.css'
  * The developer console window (#366, #637): pick a source (an agent's session, the Assistant or Hive itself) and watch
  * what comes in next to what Hive made of it. Capture runs while this window watches a source (#636); pause stops the
  * list moving (capture goes on, and resuming fills in from the ring), clear hides what came before. Record writes the
- * source's events from then on to a file in main (#638), redacted unless the user ticks text for that recording.
+ * source's events from then on to a file in main (#638), redacted unless the user ticks text for that recording. While
+ * Settings → Advanced → Developer console: show text is on (#699), main sends this window the text too (never secrets):
+ * a banner says so, and the recording box starts ticked.
  */
 
 function applyTheme(s: AppSettings | null): void {
@@ -41,6 +43,8 @@ export function ConsoleApp() {
   const [recording, setRecording] = useState<ConsoleRecordingInfo | null>(null)
   const [recordMenu, setRecordMenu] = useState(false)
   const [withText, setWithText] = useState(false)
+  // Settings → Advanced → Developer console: show text (#699); main decides what it sends, this says so.
+  const [showText, setShowText] = useState(false)
   const recordingRef = useRef(false)
   recordingRef.current = !!recording?.recording
   const pausedRef = useRef(false)
@@ -70,6 +74,8 @@ export function ConsoleApp() {
         applyTheme(e.settings)
       } else if (e.type === 'console-recording') {
         setRecording(e.recording)
+      } else if (e.type === 'console-options') {
+        setShowText(e.showText)
       } else if (e.type === 'console-events') {
         const mine = e.events.filter((x) => x.source === sourceRef.current && x.seq > clearedRef.current)
         if (e.dropped) setDropped((n) => n + e.dropped!)
@@ -94,6 +100,28 @@ export function ConsoleApp() {
       (e) => setError(errorMessage(e))
     )
   }, [])
+
+  useEffect(() => {
+    void call('console:options').then((o) => setShowText(o.showText), () => undefined)
+  }, [])
+
+  // Text turned on or off: what is listed is read again as main now sends it (turned off, no text stays on screen).
+  const shownText = useRef<boolean | null>(null)
+  useEffect(() => {
+    const was = shownText.current
+    shownText.current = showText
+    const from = sourceRef.current
+    if (was === null || was === showText || !from) return
+    void call('console:snapshot', from, clearedRef.current).then((got) => {
+      if (sourceRef.current !== from) return
+      // Paused, the list stays as it was: only what it shows is read again.
+      const list = eventsRef.current
+      const upTo = pausedRef.current ? (list.length ? list[list.length - 1].seq : 0) : Infinity
+      const kept = got.filter((x) => x.seq > clearedRef.current && x.seq <= upTo)
+      if (kept.length) latestRef.current = Math.max(latestRef.current, kept[kept.length - 1].seq)
+      setEvents(kept)
+    })
+  }, [showText])
 
   useEffect(() => {
     loadSources()
@@ -174,7 +202,11 @@ export function ConsoleApp() {
     if (!from) return
     setRecordMenu(false)
     call('console:record', from, { includeText: withText }).then(setRecording, (e) => setError(errorMessage(e)))
-    setWithText(false)
+  }
+  // The box starts as the setting says each time the menu opens.
+  const toggleRecordMenu = (): void => {
+    if (!recordMenu) setWithText(showText)
+    setRecordMenu(!recordMenu)
   }
   const stopRecording = (): void => void call('console:stopRecording').then((r) => r && setRecording(r), (e) => setError(errorMessage(e)))
 
@@ -238,10 +270,12 @@ export function ConsoleApp() {
           </button>
         ) : (
           <span className="dc-record-wrap">
-            <IconButton icon="record" title="Record to a file" onClick={() => setRecordMenu(!recordMenu)} disabled={!source} className="dc-record" expanded={recordMenu} />
+            <IconButton icon="record" title="Record to a file" onClick={toggleRecordMenu} disabled={!source} className="dc-record" expanded={recordMenu} />
             {recordMenu && (
               <div className="dc-record-menu" role="dialog" aria-label="Record">
-                <div>Record {watched ? sourceOption({ ...watched, events: 0 }) : 'this source'} to a file, from now until you stop. Redacted like the console: no prompt or reply text, commands, tokens or sign-ins.</div>
+                <div>
+                  Record {watched ? sourceOption({ ...watched, events: 0 }) : 'this source'} to a file, from now until you stop. Redacted unless you tick text: no prompt or reply text, commands, tokens or sign-ins.
+                </div>
                 <label className="flex dialog-check">
                   <input type="checkbox" className="checkbox" checked={withText} onChange={(e) => setWithText(e.target.checked)} /> Include prompt and reply text in this recording (tokens and sign-ins stay masked)
                 </label>
@@ -280,6 +314,14 @@ export function ConsoleApp() {
           ))}
         </div>
       )}
+      {showText && (
+        <div className="banner warn dc-unredacted" role="status">
+          <Icon name="unlock" />
+          <span>
+            <b>Unredacted:</b> this console shows prompt, reply and command text (Settings → Advanced → Developer console: show prompt, reply and command text). Tokens, API keys and sign-in details stay masked.
+          </span>
+        </div>
+      )}
       {error && <div className="dc-error">{error}</div>}
       <div className={cx('dc-body', current && 'with-detail')}>
         <div
@@ -291,7 +333,12 @@ export function ConsoleApp() {
             stick.current = el.scrollHeight - el.scrollTop - el.clientHeight < 24
           }}
         >
-          {!source && <div className="dc-empty">Pick a source to watch. Hive captures a source only while this window watches it, and what it captures is redacted: no prompt or reply text, commands, tokens or sign-in details.</div>}
+          {!source && (
+            <div className="dc-empty">
+              Pick a source to watch. Hive captures a source only while this window watches it, and what it captures is redacted:{' '}
+              {showText ? 'no tokens or sign-in details (this window shows prompt, reply and command text while the setting is on).' : 'no prompt or reply text, commands, tokens or sign-in details.'}
+            </div>
+          )}
           {source && !shown.length && <div className="dc-empty">{events.length ? 'No events match.' : 'Waiting for events…'}</div>}
           {shown.map((e) => (
             <div key={e.seq} role="listitem" className={cx('dc-row', picked === e.seq && 'picked')} data-kind={e.kind} data-seq={e.seq} onClick={() => setPicked(picked === e.seq ? null : e.seq)}>
@@ -366,7 +413,7 @@ export function ConsoleApp() {
           </span>
         )}
         <span className="dc-sep" />
-        <span>Redacted: no prompt or reply text, commands, tokens or sign-ins</span>
+        <span className={cx('dc-redaction', showText && 'unredacted')}>{showText ? 'Unredacted: text shown; tokens and sign-ins masked' : 'Redacted: no prompt or reply text, commands, tokens or sign-ins'}</span>
       </div>
     </div>
   )

@@ -75,6 +75,7 @@ const tasks = await import('../src/main/tasks')
 const { addAgent, claimMark, removedSince, reserveForRemoval } = await import('../src/main/projectAgents')
 // Paths compared as places: git lists the long names of folders Hive may know by short (8.3) ones, as on CI (#389).
 const { placeKey } = await import('../src/main/fsutil')
+const { unusedWorktreesNamed } = await import('../src/main/unusedWorktrees')
 
 describe('the template format', () => {
   const agents: AgentDef[] = [
@@ -166,6 +167,8 @@ describe('saving and loading templates', () => {
   const cfgOf = (p: string) => JSON.parse(readFileSync(join(p, '.hive', 'project.json'), 'utf8'))
   const names = (p: string) => cfgOf(p).agents.map((a: AgentDef) => a.name)
   const run = <T>(fn: () => Promise<T>): Promise<T> => inWorkspace(w, fn)
+  // Pair's agents loaded into beta: alpha has Builder and Reviewer, and names are unique across the workspace (#702).
+  const B = ['BBuilder', 'BReviewer']
   const live = new Set<string>()
   /** Starts held part-way (reserved, not yet live) until released. */
   const held: (() => void)[] = []
@@ -233,11 +236,17 @@ describe('saving and loading templates', () => {
     expect(plan.blocked).toEqual([])
     expect(plan.remove.map((a) => a.name)).toEqual(['Old'])
     expect(plan.create.map((a) => a.name)).toEqual(['Builder', 'Reviewer'])
-    const r = await run(() => templates.loadTemplate(beta, 'workspace', 'pair-2.json', ['b1']))
-    expect(r).toEqual({ created: ['Builder', 'Reviewer'], removed: ['Old'], oldWorktrees: [] })
+    // Its names are alpha's agents' (#702): said by the plan, and the load refused until they are renamed.
+    expect(plan.taken).toEqual([{ name: 'Builder', project: 'alpha' }, { name: 'Reviewer', project: 'alpha' }])
+    await expect(run(() => templates.loadTemplate(beta, 'workspace', 'pair-2.json', ['b1']))).rejects.toThrow(/Builder, Reviewer are already agents in alpha: agent names are unique across the workspace/)
+    expect(names(beta)).toEqual(['Old'])
+    const renamed = await run(() => templates.templatePlan(beta, 'workspace', 'pair-2.json', undefined, B))
+    expect([renamed.create.map((a) => a.name), renamed.templateNames, renamed.taken]).toEqual([B, ['Builder', 'Reviewer'], []])
+    const r = await run(() => templates.loadTemplate(beta, 'workspace', 'pair-2.json', ['b1'], undefined, undefined, B))
+    expect(r).toEqual({ created: B, removed: ['Old'], oldWorktrees: [] })
     const cfg = cfgOf(beta)
     expect(cfg.layout).toBe('columns2')
-    expect(cfg.agents.map((a: AgentDef) => [a.name, a.role, a.model, a.provider])).toEqual([['Builder', 'builder', 'opus', 'claude-code'], ['Reviewer', undefined, undefined, 'claude-code']])
+    expect(cfg.agents.map((a: AgentDef) => [a.name, a.role, a.model, a.provider])).toEqual([['BBuilder', 'builder', 'opus', 'claude-code'], ['BReviewer', undefined, undefined, 'claude-code']])
     expect(cfg.agents.some((a: AgentDef) => a.id === 'b1')).toBe(false)
     const card = (await run(() => tasks.allTasks())).find((c) => c.title === 'Old work')!
     expect([card.agent, card.column]).toEqual([null, 'todo'])
@@ -309,7 +318,7 @@ describe('saving and loading templates', () => {
     templates.testHooks.staged = async () => {
       for (const id of before) refused.push(await run(() => sessions.start(beta, { agentId: id })).then(() => 'started', (e: Error) => e.message))
     }
-    await run(() => templates.loadTemplate(beta, 'workspace', 'pair.json', before))
+    await run(() => templates.loadTemplate(beta, 'workspace', 'pair.json', before, undefined, undefined, B))
     expect(refused.length).toBeGreaterThan(0)
     expect(new Set(refused)).toEqual(new Set(["A template is being loaded into this project, so its agents can't start now."]))
     const after = run(() => sessions.start(beta, { agentId: ids()[0] })).catch((e: Error) => e.message)
@@ -453,16 +462,17 @@ describe('saving and loading templates', () => {
   })
 
   gitIt("a project's template loads into another project (from the Templates view), its worktrees new ones in that project only (#268)", async () => {
-    // alpha has its own worktree agent "Tree A" (on alpha's hive/tree-a); beta already has a hive/tree-b branch, and a setup command.
-    const source = await run(() => addAgent(alpha, { name: 'Tree A', location: 'new-worktree' }))
-    git(beta, 'branch', 'hive/tree-b')
+    // alpha has a worktree agent of its own on alpha's hive/tree-a; beta already has the branch its Tree B would get
+    // (hive/ws/beta/tree-b, #703), and a setup command.
+    const source = await run(() => addAgent(alpha, { name: 'Alpha tree', location: 'new-worktree', branch: 'hive/tree-a' }))
+    git(beta, 'branch', 'hive/ws/beta/tree-b')
     writeFileSync(join(beta, '.hive', 'project.json'), JSON.stringify({ ...cfgOf(beta), worktreeSetup: 'npm install' }))
     const ids = cfgOf(beta).agents.map((a: AgentDef) => a.id)
     const plan = await run(() => templates.templatePlan(beta, 'project', 'trees.json', alpha))
     expect([plan.name, plan.blocked]).toEqual(['Trees', []])
     expect(plan.setup).toBe('npm install')
     // Where each new worktree goes: beta's own branches (taken ones numbered) and folders under beta's name.
-    expect(plan.worktrees.map((tree) => tree?.branch)).toEqual(['hive/tree-a', 'hive/tree-b-2'])
+    expect(plan.worktrees.map((tree) => tree?.branch)).toEqual(['hive/ws/beta/tree-a', 'hive/ws/beta/tree-b-2'])
     expect(plan.worktrees.every((tree) => !!tree && basename(join(tree.path, '..')) === 'beta' && tree.base === 'main')).toBe(true)
     expect(plan.worktrees[0]!.path.toLowerCase()).not.toBe(source.worktree!.path.toLowerCase())
     // Without `from`, beta's own folder: it has no trees.json.
@@ -476,7 +486,7 @@ describe('saving and loading templates', () => {
     expect(cfgOf(beta).agents.every((a: AgentDef) => a.needsSetup)).toBe(true)
     const betaTrees = [...git(beta, 'worktree', 'list', '--porcelain').toString().matchAll(/^worktree (.+)$/gm)].map((m) => placeKey(m[1].trim()))
     for (const tree of made) expect(betaTrees).toContain(placeKey(tree!.path))
-    expect(git(beta, 'branch', '--list', 'hive/tree-a').toString()).toMatch(/hive\/tree-a/)
+    expect(git(beta, 'branch', '--list', 'hive/ws/beta/tree-a').toString()).toContain('hive/ws/beta/tree-a')
     // Nothing points at alpha's: its worktree and branch are alpha's alone, untouched.
     expect(made.some((tree: AgentDef['worktree']) => tree!.path.toLowerCase() === source.worktree!.path.toLowerCase())).toBe(false)
     expect(git(alpha, 'worktree', 'list', '--porcelain').toString().toLowerCase()).not.toContain('/beta/')
@@ -574,13 +584,13 @@ describe('saving and loading templates', () => {
     const ids = cfgOf(beta).agents.map((a: AgentDef) => a.id)
     branchStaysFor = branchy.worktree!.branch
     try {
-      const r = await run(() => templates.loadTemplate(beta, 'workspace', 'pair.json', ids, undefined, { paths: [branchy.worktree!.path], mergedInto: 'main' }))
-      expect(r.oldWorktrees).toEqual([{ branch: 'hive/branchy', removed: true, branchKept: true, why: 'main changed since it was checked' }])
+      const r = await run(() => templates.loadTemplate(beta, 'workspace', 'pair.json', ids, undefined, { paths: [branchy.worktree!.path], mergedInto: 'main' }, B))
+      expect(r.oldWorktrees).toEqual([{ branch: 'hive/ws/beta/branchy', removed: true, branchKept: true, why: 'main changed since it was checked' }])
     } finally {
       branchStaysFor = null
     }
     expect(existsSync(branchy.worktree!.path)).toBe(false)
-    expect(git(beta, 'branch', '--list', 'hive/branchy').toString()).toMatch(/hive\/branchy/)
+    expect(git(beta, 'branch', '--list', 'hive/ws/beta/branchy').toString()).toContain('hive/ws/beta/branchy')
   })
 
   it('changes at once to one place never pick the same file or miss a name: imports, duplicates, saves', async () => {
@@ -644,7 +654,7 @@ describe('a template loaded again into the worktrees it made (#289)', () => {
     await Promise.all(bodies)
   })
 
-  type Place = { w: unknown; alpha: string; beta: string; run: <T>(fn: () => Promise<T>) => Promise<T>; own: (hook: (branch: string) => Promise<void>) => (branch: string) => Promise<void> }
+  type Place = { w: unknown; alpha: string; beta: string; run: <T>(fn: () => Promise<T>) => Promise<T>; own: (hook: (branch: string) => Promise<void>) => (branch: string) => Promise<void>; hb: (agent: string) => string }
   /** A new workspace: alpha has the project template "Trees" (Tree A and Tree B, each in a worktree); beta has one agent,
    * a setup command, and a hive/tree-b branch already, so its Tree B gets hive/tree-b-2. With `loaded`, Trees is loaded
    * into beta: Tree A on hive/tree-a, Tree B on hive/tree-b-2, neither set up yet. A workspace template "Pair" (Builder,
@@ -653,6 +663,8 @@ describe('a template loaded again into the worktrees it made (#289)', () => {
     const wsPath = join(base, `again-${++k}`)
     const alpha = join(wsPath, 'alpha')
     const beta = join(wsPath, 'beta')
+    // beta's branches for its agents, as Hive names them (#703): hive/<workspace>/beta/<agent>.
+    const hb = (agent: string): string => `hive/${basename(wsPath)}/beta/${agent}`
     for (const p of [alpha, beta]) {
       mkdirSync(join(p, '.hive', 'templates'), { recursive: true })
       execFileSync('git', ['init', '-q', '-b', 'main', p])
@@ -660,7 +672,7 @@ describe('a template loaded again into the worktrees it made (#289)', () => {
       git(p, 'add', '.')
       git(p, 'commit', '-qm', 'a')
     }
-    git(beta, 'branch', 'hive/tree-b')
+    git(beta, 'branch', hb('tree-b'))
     writeFileSync(join(alpha, '.hive', 'project.json'), JSON.stringify({ version: 2, layout: 'auto', agents: [] }))
     writeFileSync(join(alpha, '.hive', 'templates', 'trees.json'), JSON.stringify({ version: 1, name: 'Trees', layout: 'rows2', agents: [{ name: 'Tree A', provider: 'claude-code', worktree: true }, { name: 'Tree B', provider: 'claude-code', worktree: true }] }))
     writeFileSync(join(beta, '.hive', 'project.json'), JSON.stringify({ version: 2, layout: 'auto', worktreeSetup: 'npm install', agents: [{ id: 'b1', name: 'Old', provider: 'claude-code' }] }))
@@ -674,7 +686,7 @@ describe('a template loaded again into the worktrees it made (#289)', () => {
         if (loaded) await run(() => templates.loadTemplate(beta, 'project', 'trees.json', ['b1'], alpha))
         // A template hook (one for the whole module) set by this test acts only on this workspace's load.
         const own = (hook: (branch: string) => Promise<void>) => async (branch: string) => (contextWorkspace() === w ? hook(branch) : undefined)
-        await test({ w, alpha, beta, run, own })
+        await test({ w, alpha, beta, run, own, hb })
       } finally {
         await disposeWorkspaceService(w)
       }
@@ -683,16 +695,55 @@ describe('a template loaded again into the worktrees it made (#289)', () => {
     await body
   }
 
-  gitIt('loading the same template again works in the same worktrees; switching templates and back reattaches them (#289)', inOwnWorkspace(async ({ alpha, beta, run }) => {
+  gitIt("a worktree Hive made before #703 (hive/<agent>) is worked in again, and tidied as Hive's; another workspace's never is", inOwnWorkspace(async ({ alpha, beta, run, hb }) => {
+    const ids = (): string[] => cfgOf(beta).agents.map((a: AgentDef) => a.id)
+    const root = join(`${join(beta, '..')}.worktrees`, 'beta')
+    // An unused, clean worktree of Tree A's from before, on hive/tree-a in its folder.
+    const old = join(root, 'tree-a')
+    git(beta, 'worktree', 'add', '-q', '-b', 'hive/tree-a', old, 'main')
+    const plan = await run(() => templates.templatePlan(beta, 'project', 'trees.json', alpha))
+    expect(plan.worktrees.map((t) => [t?.reuse ?? false, t?.branch])).toEqual([[true, 'hive/tree-a'], [false, hb('tree-b-2')]])
+    await run(() => templates.loadTemplate(beta, 'project', 'trees.json', ids(), alpha))
+    const treeA = cfgOf(beta).agents.find((a: AgentDef) => a.name === 'Tree A').worktree
+    expect([placeKey(treeA.path), treeA.branch]).toEqual([placeKey(old), 'hive/tree-a'])
+    // Replaced, both are unused: named after the template's agents in either form. A worktree of that name on another
+    // workspace's branch for a project called beta (one repository, two workspaces) isn't beta's: one called other-ws,
+    // or one called <this workspace>-2, which only looks like a part Hive could have given beta (#703 round 3).
+    await run(() => templates.loadTemplate(beta, 'workspace', 'pair.json', ids()))
+    const wsName = basename(join(beta, '..'))
+    git(beta, 'worktree', 'add', '-q', '-b', 'hive/other-ws/beta/tree-c', join(root, 'tree-c'), 'main')
+    git(beta, 'worktree', 'add', '-q', '-b', `hive/${wsName}-2/beta/tree-d`, join(root, 'tree-d'), 'main')
+    const named = await run(() => unusedWorktreesNamed(beta, ['Tree A', 'Tree B', 'Tree C', 'Tree D']))
+    expect(named.map(placeKey).sort()).toEqual([placeKey(old), placeKey(join(root, 'tree-b'))].sort())
+    writeFileSync(join(alpha, '.hive', 'templates', 'cd.json'), JSON.stringify({ version: 1, name: 'CD', layout: 'auto', agents: [{ name: 'Tree C', provider: 'claude-code', worktree: true }, { name: 'Tree D', provider: 'claude-code', worktree: true }] }))
+    const cd = await run(() => templates.templatePlan(beta, 'project', 'cd.json', alpha))
+    expect(cd.worktrees.map((t) => [t?.reuse ?? false, t?.branch])).toEqual([[false, hb('tree-c')], [false, hb('tree-d')]])
+  }, false))
+
+  gitIt('a worktree from before of a name the new rules write otherwise (B--1 had hive/b--1) is still found: reused, and tidied when its template goes (#703 round 2)', inOwnWorkspace(async ({ alpha, beta, run }) => {
+    const root = join(`${join(beta, '..')}.worktrees`, 'beta')
+    const old = join(root, 'b--1')
+    git(beta, 'worktree', 'add', '-q', '-b', 'hive/b--1', old, 'main')
+    writeFileSync(join(alpha, '.hive', 'templates', 'hyphens.json'), JSON.stringify({ version: 1, name: 'Hyphens', layout: 'auto', agents: [{ name: 'B--1', provider: 'claude-code', worktree: true }] }))
+    // Unused, named after the template's agent: the hint a deletion gives counts it.
+    expect((await run(() => unusedWorktreesNamed(beta, ['B--1']))).map(placeKey)).toEqual([placeKey(old)])
+    const plan = await run(() => templates.templatePlan(beta, 'project', 'hyphens.json', alpha))
+    expect(plan.worktrees[0]).toMatchObject({ reuse: true, branch: 'hive/b--1' })
+    await run(() => templates.loadTemplate(beta, 'project', 'hyphens.json', ['b1'], alpha))
+    const made = cfgOf(beta).agents.find((a: AgentDef) => a.name === 'B--1').worktree
+    expect([placeKey(made.path), made.branch]).toEqual([placeKey(old), 'hive/b--1'])
+  }, false))
+
+  gitIt('loading the same template again works in the same worktrees; switching templates and back reattaches them (#289)', inOwnWorkspace(async ({ alpha, beta, run, hb }) => {
     const ids = (): string[] => cfgOf(beta).agents.map((a: AgentDef) => a.id)
     const places = (): string[][] => cfgOf(beta).agents.map((a: AgentDef) => [a.name, a.worktree?.branch ?? '', a.worktree ? placeKey(a.worktree.path) : ''])
-    const branches = (): string[] => git(beta, 'branch', '--list', 'hive/*').toString().split('\n').map((s) => s.replace('*', '').trim()).filter(Boolean).sort()
+    const branches = (): string[] => git(beta, 'branch', '--list', 'hive/*', 'hive/*/*/*').toString().split('\n').map((s) => s.replace('*', '').trim()).filter(Boolean).sort()
     // Loaded: Tree A on hive/tree-a, Tree B on hive/tree-b-2 (hive/tree-b was taken).
     const trees = places()
-    expect(trees.map((p) => p[1])).toEqual(['hive/tree-a', 'hive/tree-b-2'])
+    expect(trees.map((p) => p[1])).toEqual([hb('tree-a'), hb('tree-b-2')])
     const known = branches()
     let plan = await run(() => templates.templatePlan(beta, 'project', 'trees.json', alpha))
-    expect(plan.worktrees.map((t) => [t?.reuse, t?.branch])).toEqual([[true, 'hive/tree-a'], [true, 'hive/tree-b-2']])
+    expect(plan.worktrees.map((t) => [t?.reuse, t?.branch])).toEqual([[true, hb('tree-a')], [true, hb('tree-b-2')]])
     // Neither has started yet, so neither has run beta's setup command (npm install): loaded again, both still will.
     const setup = (): boolean[] => cfgOf(beta).agents.map((a: AgentDef) => !!a.needsSetup)
     const pending = (): string[] => (cfgOf(beta).setupPending ?? []).map((p: string) => placeKey(p))
@@ -717,19 +768,19 @@ describe('a template loaded again into the worktrees it made (#289)', () => {
     expect(pending()).toEqual([])
   }))
 
-  gitIt('a dirty worktree gets a new one when loading, saying why; Add Agent from Template works in a free, clean one again (#289)', inOwnWorkspace(async ({ alpha, beta, run }) => {
+  gitIt('a dirty worktree gets a new one when loading, saying why; Add Agent from Template works in a free, clean one again (#289)', inOwnWorkspace(async ({ alpha, beta, run, hb }) => {
     const ids = (): string[] => cfgOf(beta).agents.map((a: AgentDef) => a.id)
     const pending = (): string[] => (cfgOf(beta).setupPending ?? []).map((p: string) => placeKey(p))
     // Loaded, and Tree A has started (set up); Tree B hasn't yet.
     writeFileSync(join(beta, '.hive', 'project.json'), JSON.stringify({ ...cfgOf(beta), agents: cfgOf(beta).agents.map((a: AgentDef) => (a.name === 'Tree A' ? { ...a, needsSetup: false } : a)) }))
     const trees: string[][] = cfgOf(beta).agents.map((a: AgentDef) => [a.name, a.worktree?.branch ?? '', a.worktree ? placeKey(a.worktree.path) : ''])
-    expect(trees.map((p) => p[1])).toEqual(['hive/tree-a', 'hive/tree-b-2'])
+    expect(trees.map((p) => p[1])).toEqual([hb('tree-a'), hb('tree-b-2')])
     // A worktree with uncommitted work isn't reused: a new one instead, saying why. Nothing is ever removed.
     await run(() => templates.loadTemplate(beta, 'workspace', 'pair.json', ids()))
     const wip = join(trees[0][2], 'wip.txt')
     writeFileSync(wip, 'unfinished')
     const plan = await run(() => templates.templatePlan(beta, 'project', 'trees.json', alpha))
-    expect(plan.worktrees[0]).toMatchObject({ branch: 'hive/tree-a-2', notReused: 'hive/tree-a has 1 uncommitted file' })
+    expect(plan.worktrees[0]).toMatchObject({ branch: hb('tree-a-2'), notReused: `${hb('tree-a')} has 1 uncommitted file` })
     expect(plan.worktrees[0]?.reuse).toBeUndefined()
     expect(plan.worktrees[1]?.reuse).toBe(true)
     rmSync(wip)
@@ -743,10 +794,10 @@ describe('a template loaded again into the worktrees it made (#289)', () => {
     expect(!!b.needsSetup).toBe(true)
     expect(pending()).toEqual([])
     const again = await run(() => templates.addAgentFromTemplate(beta, 'project', 'trees.json', 0, alpha))
-    expect([again.name, again.reused, again.worktree?.branch]).toEqual(['Tree A 2', undefined, 'hive/tree-a-2'])
+    expect([again.name, again.reused, again.worktree?.branch]).toEqual(['Tree A 2', undefined, hb('tree-a-2')])
   }))
 
-  gitIt("offers the replaced agents' merged, clean worktrees for removal; removes only those asked for and still merged and clean, and only once the load is published (#289)", inOwnWorkspace(async ({ w, alpha, beta, run, own }) => {
+  gitIt("offers the replaced agents' merged, clean worktrees for removal; removes only those asked for and still merged and clean, and only once the load is published (#289)", inOwnWorkspace(async ({ w, alpha, beta, run, own, hb }) => {
     const ids = (): string[] => cfgOf(beta).agents.map((a: AgentDef) => a.id)
     const tree = (name: string): NonNullable<AgentDef['worktree']> => cfgOf(beta).agents.find((a: AgentDef) => a.name === name).worktree
     // Loaded, then Tree A added again from the template (Tree A 2, on hive/tree-a-2: Tree A's worktree is in use); Tree A
@@ -757,11 +808,11 @@ describe('a template loaded again into the worktrees it made (#289)', () => {
     writeFileSync(join(unmerged.path, 'own.txt'), 'work')
     git(unmerged.path, 'add', '.')
     git(unmerged.path, 'commit', '-qm', 'own work')
-    const orphan = (await run(() => addAgent(alpha, { name: 'Tree A', location: 'new-worktree' }))).worktree!.path
+    const orphan = (await run(() => addAgent(alpha, { name: 'Alpha tree', location: 'new-worktree' }))).worktree!.path
     const plan = await run(() => templates.templatePlan(beta, 'workspace', 'pair.json'))
     expect(plan.mergedInto).toBe('main')
     // Tree B's worktree is merged and clean too, but isn't asked for below.
-    expect(plan.oldWorktrees.map((o) => [o.branch, o.removable, o.why])).toEqual([['hive/tree-a', true, undefined], ['hive/tree-b-2', true, undefined], ['hive/tree-a-2', false, '1 commit not merged into main']])
+    expect(plan.oldWorktrees.map((o) => [o.branch, o.removable, o.why])).toEqual([[hb('tree-a'), true, undefined], [hb('tree-b-2'), true, undefined], [hb('tree-a-2'), false, '1 commit not merged into main']])
     const ask = { paths: [merged.path, unmerged.path, orphan], mergedInto: plan.mergedInto }
     // A refused load (the agents changed since they were shown) removes nothing.
     await expect(run(() => templates.loadTemplate(beta, 'workspace', 'pair.json', ids().slice(1), undefined, ask))).rejects.toThrow(/changed since you looked/)
@@ -781,11 +832,11 @@ describe('a template loaded again into the worktrees it made (#289)', () => {
       holds.push(hold)
     }
     templates.testHooks.beforeRemoval = own(async (branch) => {
-      if (branch === 'hive/tree-a') await claimHeld('Before')
-      if (branch === 'hive/tree-a-2') claims.push((await run(() => addAgent(beta, { name: 'Early', location: 'existing-worktree', worktreePath: unmerged.path }))).name)
+      if (branch === hb('tree-a')) await claimHeld('Before')
+      if (branch === hb('tree-a-2')) claims.push((await run(() => addAgent(beta, { name: 'Early', location: 'existing-worktree', worktreePath: unmerged.path }))).name)
     })
     templates.testHooks.removing = own(async (branch) => {
-      if (branch !== 'hive/tree-a') return
+      if (branch !== hb('tree-a')) return
       claims.push(await outcome('Late')(run(() => addAgent(beta, { name: 'Late', location: 'existing-worktree', worktreePath: merged.path }))))
       await claimHeld('During')
     })
@@ -798,13 +849,13 @@ describe('a template loaded again into the worktrees it made (#289)', () => {
     for (const h of holds) h.release()
     expect(await Promise.all(stale)).toEqual(['Before refused: That worktree is being removed, or was just removed.', 'During refused: That worktree is being removed, or was just removed.'])
     expect(names(beta)).toEqual(['Builder', 'Reviewer', 'Early'])
-    expect(r.oldWorktrees).toEqual([{ branch: 'hive/tree-a', removed: true }, { branch: 'hive/tree-a-2', removed: false, why: 'an agent works in it now' }])
+    expect(r.oldWorktrees).toEqual([{ branch: hb('tree-a'), removed: true }, { branch: hb('tree-a-2'), removed: false, why: 'an agent works in it now' }])
     // No agent works in a worktree that is gone.
     expect(cfgOf(beta).agents.every((a: AgentDef) => !a.worktree || existsSync(a.worktree.path))).toBe(true)
     expect(existsSync(merged.path)).toBe(false)
-    expect(git(beta, 'branch', '--list', 'hive/tree-a').toString().trim()).toBe('')
+    expect(git(beta, 'branch', '--list', hb('tree-a')).toString().trim()).toBe('')
     expect(existsSync(join(unmerged.path, 'own.txt'))).toBe(true)
-    expect(git(beta, 'branch', '--list', 'hive/tree-a-2').toString()).toMatch(/hive\/tree-a-2/)
+    expect(git(beta, 'branch', '--list', hb('tree-a-2')).toString()).toContain(hb('tree-a-2'))
     expect(existsSync(orphan)).toBe(true)
     // Not asked: nothing is removed.
     expect((await run(() => templates.loadTemplate(beta, 'workspace', 'pair.json', ids()))).oldWorktrees).toEqual([])

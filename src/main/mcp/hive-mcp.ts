@@ -291,7 +291,7 @@ const tools: Tool[] = [
         name: { type: 'string', description: 'Default: "Agent n".' },
         ...settingsArgs,
         worktree: { type: 'boolean' },
-        branch: { type: 'string', description: 'Worktree branch (default hive/<name>).' },
+        branch: { type: 'string', description: 'Worktree branch (default hive/<workspace>/<project>/<name>).' },
         base: { type: 'string', description: 'Branch the worktree starts from (default the current one).' },
         existingWorktree: { type: 'string', description: 'An unused worktree to work in: its folder or branch.' },
         start: { type: 'boolean' },

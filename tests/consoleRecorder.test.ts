@@ -5,6 +5,7 @@ import { join } from 'path'
 import type { WebContents } from 'electron'
 import { sessionSourceId, type ConsoleSource } from '../src/shared/devConsole'
 import { parseRecording, recordingName } from '../src/shared/consoleFixtures.mts'
+import { SECRET_SAMPLES } from './secretSamples'
 
 // Recording a console source (#638), the service itself: one recording per window, only while the window still wants
 // it (a start overtaken by a close, a stop or a newer start records nothing, whenever it is overtaken); a file each,
@@ -172,6 +173,21 @@ describe('starting', () => {
 })
 
 describe('stopping', () => {
+  it('a recording with text keeps the text, and masks the secrets and sign-ins in it (#699 round 1)', async () => {
+    const wc = page()
+    const info = await startRecording(wc, source, 'c:\\work', true, () => true)
+    for (const s of SECRET_SAMPLES) devConsole.capture([A1], () => ({ kind: 'hook', name: 'UserPromptSubmit', summary: 's', raw: { prompt: s.text, tool_input: { command: s.text } } }))
+    await stopRecording(wc.id, 'stopped')
+    const r = lines(info.file)
+    expect(r.header).toMatchObject({ text: true })
+    expect(r.events).toHaveLength(SECRET_SAMPLES.length)
+    for (const [i, s] of SECRET_SAMPLES.entries()) {
+      const text = JSON.stringify(r.events[i])
+      for (const secret of s.secrets) expect(text, s.text).not.toContain(secret)
+      for (const k of s.kept ?? []) expect(text, s.text).toContain(k)
+    }
+  })
+
   it('writes what was captured up to the stop, even still queued, and nothing after', async () => {
     const wc = page()
     const info = await startRecording(wc, source, 'c:\\work', false, () => true)

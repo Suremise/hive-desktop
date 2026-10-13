@@ -108,6 +108,16 @@
   color: var(--error);
 }
 
+/* Developer console: show text (#699): what this window shows isn't redacted. */
+.dc-unredacted {
+  padding: 4px 8px;
+  gap: 6px;
+}
+
+.dc-redaction.unredacted {
+  color: var(--warning);
+}
+
 .dc-body {
   flex: 1;
   min-height: 0;

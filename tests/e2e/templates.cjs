@@ -3,7 +3,10 @@
 // an agent runs, while a worktree agent has uncommitted work, and while a provider the template needs is off), the layout
 // and roles recreated, the removed worktree kept, Add Agent ▾ → Add Agent from Template (a taken name numbered), with the
 // mouse, the keyboard and the palette, and the strip's controls at narrow widths in both themes, every one reachable,
-// in the order Template ▾, pages, layouts (#292), with one page and with two. Agents run the fake Claude Code (fake-claude/). Dev build, throwaway profile,
+// in the order Template ▾, pages, layouts (#292), with one page and with two. #702: agent names unique across the
+// workspace: Add Agent refuses another project's agent's name, offering one, and shows what hive/ in a branch means; a
+// template's load shows each name in the template beside a box for the agent's new name: a name another project's
+// agent has (or one used twice) is marked and Load template greyed out until it is changed; nothing is filled in. Agents run the fake Claude Code (fake-claude/). Dev build, throwaway profile,
 // workspace and CLAUDE_CONFIG_DIR; a quiet test copy.
 const lib = require('./lib.cjs')
 const { _electron } = require('playwright-core')
@@ -105,6 +108,8 @@ const check = (name, ok, extra = '') => {
   await replace.getByRole('button', { name: 'Replace' }).click()
   await lib.until(async () => JSON.parse(fs.readFileSync(file, 'utf8')).name === 'pair', 5000)
   check('…and replaces it', JSON.parse(fs.readFileSync(file, 'utf8')).name === 'pair')
+  // alpha's agents renamed (names are unique across the workspace, #702), so pair's Builder and Reviewer are free in beta.
+  for (const a of projectCfg(alpha).agents) await inv('agents:update', alpha, a.id, { name: `Alpha ${a.name.toLowerCase()}` })
 
   // --- beta: Old (running) and Tree (a worktree agent with uncommitted work). Loading is refused until both are dealt with.
   await select('beta')
@@ -149,12 +154,28 @@ const check = (name, ok, extra = '') => {
   // The plan as a table (#511): a removed agent's line, a created agent's row and its cells, by column.
   const removedLine = async (d, name) => (await d.locator(`.template-plan-removed li[data-agent="${name}"]`).innerText().catch(() => '')).replace(/\s+/g, ' ')
   const planRow = (d, name) => d.locator(`.template-plan-table tbody tr[data-agent="${name}"]`)
-  const cells = async (d, name) => (await planRow(d, name).locator('td').allInnerTexts()).map((t) => t.replace(/\s+/g, ' ').trim())
+  // (An agent's name is a field to edit beside its name in the template, #702: the field's value, then the rest of the cell.)
+  const cells = (d, name) =>
+    planRow(d, name)
+      .locator('td')
+      .evaluateAll((tds) =>
+        tds.map((td) => {
+          const rest = [...td.childNodes].filter((n) => !(n instanceof Element && n.matches('.template-plan-from, input'))).map((n) => n.textContent).join(' ')
+          return `${td.querySelector('input')?.value ?? ''} ${rest}`.replace(/\s+/g, ' ').trim()
+        })
+      )
   const placeOf = async (d, name) => ({ text: (await planRow(d, name).locator('td').last().innerText()).replace(/\s+/g, ' ').trim(), path: (await planRow(d, name).locator('.template-plan-place').getAttribute('data-path').catch(() => null)) ?? '' })
   const created = (d) => d.locator('.template-plan-table tbody tr').evaluateAll((rows) => rows.map((r) => r.dataset.agent))
-  check('the warning lists who goes and who comes', (await warn.locator('.template-plan-removed li').evaluateAll((l) => l.map((x) => x.dataset.agent))).join() === 'Old,Tree' && /its worktree and branch hive\/tree, merged into \w+ and clean, stay unless you tick below/i.test(await removedLine(warn, 'Tree')) && (await created(warn)).join() === 'Builder,Reviewer' && /^Builder builder$/.test((await cells(warn, 'Builder'))[0]), JSON.stringify([await removedLine(warn, 'Tree'), await created(warn), await cells(warn, 'Builder')]))
+  check('the warning lists who goes and who comes', (await warn.locator('.template-plan-removed li').evaluateAll((l) => l.map((x) => x.dataset.agent))).join() === 'Old,Tree' && /its worktree and branch hive\/templates-ws\/beta\/tree, merged into \w+ and clean, stay unless you tick below/i.test(await removedLine(warn, 'Tree')) && (await created(warn)).join() === 'Builder,Reviewer' && /^Builder builder$/.test((await cells(warn, 'Builder'))[0]), JSON.stringify([await removedLine(warn, 'Tree'), await created(warn), await cells(warn, 'Builder')]))
   await page.screenshot({ path: path.join(lib.WORK, 'templates-3-warning.png') })
-  await warn.getByRole('button', { name: 'Load template' }).click()
+  // #702 round 2: a name emptied is marked and Load template greyed out; put back as it was, it can be clicked again.
+  const firstName = warn.locator('.template-plan-name-input').first()
+  const warnLoad = warn.getByRole('button', { name: 'Load template' })
+  await firstName.fill('')
+  check('an emptied name is marked, and Load template greyed out', !!(await lib.until(async () => /Enter a name/.test(await warn.locator('.template-plan-table .field-error').first().innerText().catch(() => '')) && (await warnLoad.isDisabled()), HUNG_MS)))
+  await firstName.fill('Builder')
+  check('…put back, Load template can be clicked again', !!(await lib.until(async () => (await warn.locator('.template-plan-table .field-error').count()) === 0 && (await warnLoad.isEnabled()), HUNG_MS)))
+  await warnLoad.click()
   const loaded = await lib.until(async () => JSON.stringify(projectCfg(beta).agents.map((a) => a.name)) === '["Builder","Reviewer"]', 15000)
   check('loading replaces the agents', !!loaded, JSON.stringify(projectCfg(beta).agents.map((a) => a.name)))
   const b = projectCfg(beta)
@@ -179,7 +200,7 @@ const check = (name, ok, extra = '') => {
   const helperCells = await cells(treesWarn, 'Helper')
   check("…gives each new agent's settings in a row (inherited ones as their default)", builderCells[0].startsWith('Builder') && (await planRow(treesWarn, 'Builder').locator('.badge', { hasText: 'new' }).count()) === 1 && builderCells[1] === 'Claude Code' && builderCells[2] === 'Opus 5.5' && builderCells[3] === 'High' && builderCells[4].endsWith(' (default)') && helperCells[2] === 'Opus 5.5 (default)' && helperCells[4].endsWith(' (default)'), JSON.stringify([builderCells, helperCells]))
   const builderPlace = await placeOf(treesWarn, 'Builder')
-  check("…and the new worktree's branch, its folder in this project on hover", builderPlace.text === 'own worktree hive/builder' && builderPlace.path.toLowerCase() === treePath.toLowerCase() && (await placeOf(treesWarn, 'Helper')).text === 'project folder', JSON.stringify(builderPlace))
+  check("…and the new worktree's branch, its folder in this project on hover", builderPlace.text === 'own worktree hive/templates-ws/beta/builder' && builderPlace.path.toLowerCase() === treePath.toLowerCase() && (await placeOf(treesWarn, 'Helper')).text === 'project folder', JSON.stringify(builderPlace))
   await planRow(treesWarn, 'Builder').locator('.template-plan-place').hover()
   const tip = page.locator('.tip', { hasText: 'A new worktree in' })
   check('…the full folder in its tooltip', !!(await lib.until(async () => (await tip.count()) === 1 && (await tip.innerText()).toLowerCase().includes(treePath.toLowerCase()), HUNG_MS)), await tip.innerText().catch(() => ''))
@@ -207,7 +228,7 @@ const check = (name, ok, extra = '') => {
   const twelveWarn = page.locator('.dialog', { hasText: 'Load "Twelve"?' })
   await shown(twelveWarn, 'twelveWarn')
   check('twelve agents: a row each, in the order of the template', (await created(twelveWarn)).join() === twelve.join(), JSON.stringify(await created(twelveWarn)))
-  check('…builders in their own worktrees, reviewers in the project folder', (await placeOf(twelveWarn, 'HB1')).text === 'own worktree hive/hb1' && (await placeOf(twelveWarn, 'HR6')).text === 'project folder')
+  check('…builders in their own worktrees, reviewers in the project folder', (await placeOf(twelveWarn, 'HB1')).text === 'own worktree hive/templates-ws/beta/hb1' && (await placeOf(twelveWarn, 'HR6')).text === 'project folder')
   const twelveBox = twelveWarn.locator('.detail.rich')
   check('…the table scrolls in its box, never sideways', await twelveBox.evaluate((el) => el.scrollWidth <= el.clientWidth + 1))
   for (const theme of ['dark', 'light']) {
@@ -238,6 +259,19 @@ const check = (name, ok, extra = '') => {
   check("Add Agent's main click opens the Add Agent dialog", !!(await lib.until(async () => (await addDialog.count()) === 1, 5000)))
   await lib.sleep(500)
   check('…without adding an agent', projectCfg(beta).agents.length === 3, JSON.stringify(projectCfg(beta).agents.map((a) => a.name)))
+  // #702: another project's agent's name is refused, saying whose, with a free one to use.
+  const nameField = addDialog.locator('.agent-form input.input').first()
+  await nameField.fill('alpha builder')
+  const taken = addDialog.locator('[data-name-taken]')
+  check("Add Agent refuses another project's agent's name, saying whose", !!(await lib.until(async () => /alpha already has an agent called Alpha builder: agent names are unique across the workspace\. Use alpha builder \(beta\)/.test(await taken.innerText().catch(() => '')), HUNG_MS)) && (await addDialog.getByRole('button', { name: 'Add Agent' }).isDisabled()), await taken.innerText().catch(() => ''))
+  await page.screenshot({ path: path.join(lib.WORK, 'templates-11-name-taken.png') })
+  await taken.locator('a').click()
+  check('…and its suggestion fills the name in', (await nameField.inputValue()) === 'alpha builder (beta)' && (await taken.count()) === 0 && (await addDialog.getByRole('button', { name: 'Add Agent' }).isEnabled()), await nameField.inputValue())
+  // New worktree: what hive/ in its branch means.
+  await addDialog.locator('label.choice', { hasText: 'New worktree' }).locator('input[type="radio"]').check()
+  const hint = addDialog.locator('[data-branch-hint]')
+  check('Add Agent says what hive/ in a branch means', !!(await lib.until(async () => (await hint.innerText().catch(() => '')) === 'hive/ marks branches Hive made, so it can reuse and tidy them up.', HUNG_MS)), await hint.innerText().catch(() => ''))
+  await page.screenshot({ path: path.join(lib.WORK, 'templates-12-branch-hint.png') })
   await page.keyboard.press('Escape')
   await lib.until(async () => (await addDialog.count()) === 0, HUNG_MS)
 
@@ -332,9 +366,10 @@ const check = (name, ok, extra = '') => {
   await inv('session:stop', beta)
   await lib.until(async () => (await inv('session:live')).length === 0, 15000)
 
-  // --- #268: alpha's own template, with a worktree agent ("Tree", on alpha's hive/tree), loaded into beta from the
-  // Templates view. beta's new Tree gets a new worktree of beta's: beta already has a hive/tree branch and a tree folder
-  // (its earlier Tree's, kept) with uncommitted work, so not that one (#289) but hive/tree-2 in …worktrees\beta\tree-2,
+  // --- #268: alpha's own template, with a worktree agent ("Tree", on alpha's hive/templates-ws/alpha/tree), loaded into
+  // beta from the Templates view. beta's new Tree gets a new worktree of beta's: beta already has a
+  // hive/templates-ws/beta/tree branch and a tree folder (its earlier Tree's, kept) with uncommitted work, so not that one
+  // (#289) but hive/templates-ws/beta/tree-2 in …worktrees\beta\tree-2,
   // as the confirmation said, with why. alpha's is untouched. Then (#289) a template in between and back: Tree works in
   // a clean worktree of its name again, no new one.
   await select('alpha')
@@ -345,11 +380,13 @@ const check = (name, ok, extra = '') => {
   await dialog.locator('input.input').fill('Alpha trees')
   await dialog.getByRole('button', { name: 'Save', exact: true }).click()
   const alphaTrees = path.join(alpha, '.hive', 'templates', 'alpha-trees.json')
-  check("alpha's own template saved, with its worktree agent (and no path or branch)", !!(await lib.until(async () => fs.existsSync(alphaTrees), 5000)) && /"name": "Tree",[\s\S]*"worktree": true/.test(fs.readFileSync(alphaTrees, 'utf8')) && !/hive\/tree|worktrees/.test(fs.readFileSync(alphaTrees, 'utf8')))
+  check("alpha's own template saved, with its worktree agent (and no path or branch)", !!(await lib.until(async () => fs.existsSync(alphaTrees), 5000)) && /"name": "Tree",[\s\S]*"worktree": true/.test(fs.readFileSync(alphaTrees, 'utf8')) && !/hive\/templates-ws\/beta\/tree|worktrees/.test(fs.readFileSync(alphaTrees, 'utf8')))
+  // alpha's Tree renamed after saving (its worktree stays), so the template's Tree is free in beta; its other two aren't.
+  await inv('agents:update', alpha, srcTree.id, { name: 'Alpha tree' })
   const srcCfg = JSON.stringify(projectCfg(alpha).agents.find((a) => a.id === srcTree.id).worktree)
   const want = path.join(`${ws}.worktrees`, 'beta', 'tree-2')
   const oldTree = path.join(`${ws}.worktrees`, 'beta', 'tree')
-  check("beta already has a hive/tree branch and a tree folder (its earlier Tree's)", lib.git(beta, ['branch', '--list', 'hive/tree']).includes('hive/tree') && fs.existsSync(oldTree))
+  check("beta already has a hive/templates-ws/beta/tree branch and a tree folder (its earlier Tree's)", lib.git(beta, ['branch', '--list', 'hive/templates-ws/beta/tree']).includes('hive/templates-ws/beta/tree') && fs.existsSync(oldTree))
   fs.writeFileSync(path.join(oldTree, 'wip.txt'), 'unfinished')
   await page.locator('.activitybar [aria-label="Templates"]').click()
   await page.locator('.sidebar .template-row[aria-label="Alpha trees"]').first().click()
@@ -359,17 +396,38 @@ const check = (name, ok, extra = '') => {
   await dialog.getByRole('button', { name: 'Continue' }).click()
   const crossLoad = page.locator('.dialog', { hasText: 'Load "Alpha trees"?' })
   await shown(crossLoad, 'crossLoad')
+  // #702: each agent's name in the template beside a box for the name it gets. Two are alpha's agents': marked, saying
+  // so, and Load template greyed out until they are changed. Nothing is filled in for them.
+  const nameInputs = crossLoad.locator('.template-plan-name-input')
+  const namesNow = () => nameInputs.evaluateAll((l) => l.map((x) => x.value))
+  const fromNames = () => crossLoad.locator('.template-plan-from').allInnerTexts()
+  const errors = () => crossLoad.locator('.template-plan-table .field-error').allInnerTexts()
+  const loadButton = crossLoad.getByRole('button', { name: 'Load template' })
+  check("each name in the template beside a box for its new one, as the template has them", JSON.stringify(await fromNames()) === '["Alpha builder","Alpha reviewer","Tree"]' && JSON.stringify(await namesNow()) === '["Alpha builder","Alpha reviewer","Tree"]', JSON.stringify([await fromNames(), await namesNow()]))
+  check("…the two alpha's agents have marked, saying so, and Load template greyed out", JSON.stringify(await errors()) === '["alpha has an agent called Alpha builder.","alpha has an agent called Alpha reviewer."]' && /alpha already has agents called Alpha builder, Alpha reviewer/.test(await crossLoad.locator('[data-names-taken]').innerText()) && (await loadButton.isDisabled()), JSON.stringify(await errors()))
+  await page.screenshot({ path: path.join(lib.WORK, 'templates-13-names-taken.png') })
+  // One changed, the other still alpha's: still greyed out. A name used twice is marked too.
+  await nameInputs.nth(0).fill('BAB')
+  await nameInputs.nth(1).fill('bab')
+  check('…a name used twice is marked, and Load template stays greyed out', !!(await lib.until(async () => JSON.stringify(await errors()) === '["Another of its agents has this name."]', HUNG_MS)) && (await loadButton.isDisabled()), JSON.stringify(await errors()))
+  await page.screenshot({ path: path.join(lib.WORK, 'templates-14-name-twice.png') })
+  // Each name its own: Load template can be clicked; the template's names stay as a reference. Tree keeps its name, so
+  // its worktree is found by it.
+  await nameInputs.nth(1).fill('BAR')
+  check('…all free: Load template can be clicked, the template names unchanged', !!(await lib.until(async () => (await errors()).length === 0 && (await loadButton.isEnabled()), HUNG_MS)) && JSON.stringify(await fromNames()) === '["Alpha builder","Alpha reviewer","Tree"]', JSON.stringify(await errors()))
+  const placeSettled = async (name, wanted) => lib.until(async () => wanted.test((await placeOf(crossLoad, name).catch(() => ({ text: '' }))).text), HUNG_MS)
+  await placeSettled('Tree', /^own worktree hive\/templates-ws\/beta\/tree-2/)
   const cl = await placeOf(crossLoad, 'Tree')
-  check("the confirmation gives Tree's new worktree in beta: hive/tree-2 in …worktrees\\beta\\tree-2", cl.text.startsWith('own worktree hive/tree-2') && cl.path.toLowerCase() === want.toLowerCase(), `${want}\n${JSON.stringify(cl)}`)
-  check('…not the kept hive/tree, saying why (#289)', cl.text.includes('new: hive/tree has 1 uncommitted file'), cl.text)
+  check("the confirmation gives Tree's new worktree in beta: hive/tree-2 in …worktrees\\beta\\tree-2", cl.text.startsWith('own worktree hive/templates-ws/beta/tree-2') && cl.path.toLowerCase() === want.toLowerCase(), `${want}\n${JSON.stringify(cl)}`)
+  check('…not the kept hive/tree, saying why (#289)', cl.text.includes('new: hive/templates-ws/beta/tree has 1 uncommitted file'), cl.text)
   await page.screenshot({ path: path.join(lib.WORK, 'templates-7-cross-project.png') })
-  await crossLoad.getByRole('button', { name: 'Load template' }).click()
-  check("loaded into beta: alpha's agents", !!(await lib.until(async () => JSON.stringify(projectCfg(beta).agents.map((a) => a.name)) === JSON.stringify(projectCfg(alpha).agents.map((a) => a.name)), 15000)), JSON.stringify(projectCfg(beta).agents.map((a) => a.name)))
+  await loadButton.click()
+  check("loaded into beta: alpha's agents, with the names chosen", !!(await lib.until(async () => JSON.stringify(projectCfg(beta).agents.map((a) => a.name)) === '["BAB","BAR","Tree"]', 15000)), JSON.stringify(projectCfg(beta).agents.map((a) => a.name)))
   const made = projectCfg(beta).agents.find((a) => a.name === 'Tree')?.worktree
-  check("beta's Tree is where the confirmation said: hive/tree-2 in …worktrees\\beta\\tree-2", made?.branch === 'hive/tree-2' && made.path.toLowerCase() === want.toLowerCase(), JSON.stringify(made))
+  check("beta's Tree is where the confirmation said: hive/tree-2 in …worktrees\\beta\\tree-2", made?.branch === 'hive/templates-ws/beta/tree-2' && made.path.toLowerCase() === want.toLowerCase(), JSON.stringify(made))
   const norm = (p) => p.toLowerCase().replace(/\\/g, '/')
-  check("…a worktree and branch of beta's repository", norm(lib.git(beta, ['worktree', 'list', '--porcelain'])).includes(norm(want)) && lib.git(beta, ['branch', '--list', 'hive/tree-2']).includes('hive/tree-2'))
-  check("…not of alpha's", !norm(lib.git(alpha, ['worktree', 'list', '--porcelain'])).includes(norm(want)) && !lib.git(alpha, ['branch', '--list', 'hive/tree-2']).includes('hive/tree-2'))
+  check("…a worktree and branch of beta's repository", norm(lib.git(beta, ['worktree', 'list', '--porcelain'])).includes(norm(want)) && lib.git(beta, ['branch', '--list', 'hive/templates-ws/beta/tree-2']).includes('hive/templates-ws/beta/tree-2'))
+  check("…not of alpha's", !norm(lib.git(alpha, ['worktree', 'list', '--porcelain'])).includes(norm(want)) && !lib.git(alpha, ['branch', '--list', 'hive/templates-ws/beta/tree-2']).includes('hive/templates-ws/beta/tree-2'))
   check("alpha's Tree and its worktree are untouched", JSON.stringify(projectCfg(alpha).agents.find((a) => a.id === srcTree.id).worktree) === srcCfg && fs.existsSync(srcTree.worktree.path) && lib.git(srcTree.worktree.path, ['rev-parse', '--abbrev-ref', 'HEAD']).trim() === srcTree.worktree.branch && norm(made.path) !== norm(srcTree.worktree.path))
   check('the kept worktree with uncommitted work is still there, its work too', fs.readFileSync(path.join(oldTree, 'wip.txt'), 'utf8') === 'unfinished')
 
@@ -384,7 +442,7 @@ const check = (name, ok, extra = '') => {
   await item('pair').click()
   const toPair = page.locator('.dialog', { hasText: 'Load "pair"?' })
   await shown(toPair, 'toPair')
-  check('replaced by "pair", Tree\'s worktree stays', /its worktree and branch hive\/tree-2, merged into \w+ and clean, stay unless you tick below/i.test(await removedLine(toPair, 'Tree')), await removedLine(toPair, 'Tree'))
+  check('replaced by "pair", Tree\'s worktree stays', /its worktree and branch hive\/templates-ws\/beta\/tree-2, merged into \w+ and clean, stay unless you tick below/i.test(await removedLine(toPair, 'Tree')), await removedLine(toPair, 'Tree'))
   await toPair.getByRole('button', { name: 'Load template' }).click()
   await lib.until(async () => JSON.stringify(projectCfg(beta).agents.map((a) => a.name)) === '["Builder","Reviewer"]', 15000)
   await page.locator('.activitybar [aria-label="Templates"]').click()
@@ -393,13 +451,17 @@ const check = (name, ok, extra = '') => {
   await dialog.locator('select').selectOption({ label: 'beta' })
   await dialog.getByRole('button', { name: 'Continue' }).click()
   await shown(crossLoad, 'crossLoad')
+  // (alpha's names still taken: changed again.)
+  await nameInputs.nth(0).fill('BAB')
+  await nameInputs.nth(1).fill('BAR')
+  await placeSettled('Tree', /^reuses /)
   const back = await placeOf(crossLoad, 'Tree')
-  check('back to "Alpha trees": the confirmation says Tree reuses its clean worktree on hive/tree', back.text === 'reuses hive/tree' && back.path.toLowerCase() === oldTree.toLowerCase(), JSON.stringify(back))
+  check('back to "Alpha trees": the confirmation says Tree reuses its clean worktree on hive/templates-ws/beta/tree', back.text === 'reuses hive/templates-ws/beta/tree' && back.path.toLowerCase() === oldTree.toLowerCase(), JSON.stringify(back))
   await page.screenshot({ path: path.join(lib.WORK, 'templates-8-reuse.png') })
   await crossLoad.getByRole('button', { name: 'Load template' }).click()
   await lib.until(async () => projectCfg(beta).agents.some((a) => a.name === 'Tree'), 15000)
   const reattached = projectCfg(beta).agents.find((a) => a.name === 'Tree')?.worktree
-  check('…and works in it: no new worktree or branch', norm(reattached?.path ?? '') === norm(oldTree) && reattached.branch === 'hive/tree' && hiveBranches() === branchesBefore, `${JSON.stringify(reattached)} ${hiveBranches()} / ${branchesBefore}`)
+  check('…and works in it: no new worktree or branch', norm(reattached?.path ?? '') === norm(oldTree) && reattached.branch === 'hive/templates-ws/beta/tree' && hiveBranches() === branchesBefore, `${JSON.stringify(reattached)} ${hiveBranches()} / ${branchesBefore}`)
 
   // --- #289: "pair" again: Tree's worktree (hive/tree: nothing of its own, so merged, and clean) is offered for removal,
   // unticked; ticked, it goes with its branch once the load is done.
@@ -410,8 +472,8 @@ const check = (name, ok, extra = '') => {
   await shown(toPair, 'toPair')
   const tick = toPair.locator('.dialog-check input[type="checkbox"]')
   const tickLabel = (await toPair.locator('.dialog-check').innerText().catch(() => '')).trim()
-  check('the dialog offers to remove the merged, clean old worktree, unticked', /^Also remove the old worktree and its branch \(merged into \w+ and clean\): hive\/tree$/.test(tickLabel) && !(await tick.isChecked()), tickLabel)
-  check('…and says so on its line', /its worktree and branch hive\/tree, merged into \w+ and clean, stay unless you tick below/i.test(await removedLine(toPair, 'Tree')), await removedLine(toPair, 'Tree'))
+  check('the dialog offers to remove the merged, clean old worktree, unticked', /^Also remove the old worktree and its branch \(merged into \w+ and clean\): hive\/templates-ws\/beta\/tree$/.test(tickLabel) && !(await tick.isChecked()), tickLabel)
+  check('…and says so on its line', /its worktree and branch hive\/templates-ws\/beta\/tree, merged into \w+ and clean, stay unless you tick below/i.test(await removedLine(toPair, 'Tree')), await removedLine(toPair, 'Tree'))
   await tick.check()
   await page.screenshot({ path: path.join(lib.WORK, 'templates-9-remove-old.png') })
   await toPair.getByRole('button', { name: 'Load template' }).click()
@@ -419,8 +481,25 @@ const check = (name, ok, extra = '') => {
   // The removal runs once the load is published (after the agents change), and the notice says it is over: waited for
   // first, as a slow machine can take a while over the git checks.
   check('ticked: the load says the old worktree went', !!(await lib.until(async () => (await page.locator('.toast', { hasText: 'Removed an old worktree' }).count()) === 1, 30000)))
-  check('…and it and its branch are gone', !fs.existsSync(oldTree) && !lib.git(beta, ['branch', '--list', 'hive/tree']).includes('hive/tree'))
-  check('…and nothing else: the other kept worktree stays', fs.existsSync(want) && lib.git(beta, ['branch', '--list', 'hive/tree-2']).includes('hive/tree-2'))
+  check('…and it and its branch are gone', !fs.existsSync(oldTree) && !lib.git(beta, ['branch', '--list', 'hive/templates-ws/beta/tree']).includes('hive/templates-ws/beta/tree'))
+  check('…and nothing else: the other kept worktree stays', fs.existsSync(want) && lib.git(beta, ['branch', '--list', 'hive/templates-ws/beta/tree-2']).includes('hive/templates-ws/beta/tree-2'))
+
+  // --- #703: a worktree Hive made before branches were hive/<workspace>/<project>/<agent> (on hive/legacy, unused and
+  // clean) is worked in again by a template's agent of that name: the confirmation says so, and no new one is made.
+  const legacyTree = path.join(`${ws}.worktrees`, 'beta', 'legacy')
+  lib.git(beta, ['worktree', 'add', '-q', '-b', 'hive/legacy', legacyTree, lib.git(beta, ['rev-parse', '--abbrev-ref', 'HEAD']).trim()])
+  fs.writeFileSync(path.join(ws, '.hive', 'templates', 'legacy.json'), JSON.stringify({ version: 1, name: 'Legacy', savedAt: new Date().toISOString(), layout: 'auto', agents: [{ name: 'Legacy', provider: 'claude-code', worktree: true }] }))
+  await inv('workspace:refresh')
+  await loadMenu()
+  await item('Legacy').click()
+  const legacyLoad = page.locator('.dialog', { hasText: 'Load "Legacy"?' })
+  await shown(legacyLoad, 'legacyLoad')
+  const legacyPlace = await placeOf(legacyLoad, 'Legacy')
+  check('a worktree from before (hive/legacy): the confirmation says the agent reuses it', legacyPlace.text === 'reuses hive/legacy' && norm(legacyPlace.path) === norm(legacyTree), JSON.stringify(legacyPlace))
+  await page.screenshot({ path: path.join(lib.WORK, 'templates-15-legacy-branch.png') })
+  await legacyLoad.getByRole('button', { name: 'Load template' }).click()
+  const legacyMade = async () => projectCfg(beta).agents.find((a) => a.name === 'Legacy')?.worktree
+  check('…and works in it, on its branch from before', !!(await lib.until(async () => (await legacyMade())?.branch === 'hive/legacy', 15000)) && norm((await legacyMade()).path) === norm(legacyTree) && !lib.git(beta, ['branch', '--list', 'hive/templates-ws/beta/legacy']).includes('legacy'), JSON.stringify(await legacyMade()))
 
   await app.close()
   console.log(failed ? `${failed} check(s) failed` : 'all checks passed')

@@ -1,6 +1,8 @@
 import { describe, expect, it } from 'vitest'
+import { createContext, runInContext, runInNewContext } from 'vm'
 import { argsForLog, userText } from '../src/main/logger'
-import { MARKED_LOG, OLDER_LINE, redact, redactLog, type RedactContext } from '../src/shared/redact'
+import { MARKED_LOG, OLDER_LINE, maskSecrets, maskText, redact, redactLog, type RedactContext } from '../src/shared/redact'
+import { SECRET_SAMPLES } from './secretSamples'
 
 const ctx: RedactContext = {
   home: 'C:\\Users\\Jo Smith',
@@ -36,12 +38,104 @@ describe('diagnostics redaction', () => {
       'hook http://127.0.0.1:60849/hook?run=70f2eb161df8d337491abb47',
       'signed in as jo.smith@example.com'
     ]
-    const out = redact(lines.join('\n'), ctx)
+    // Line by line, as the log is: a credential masks the rest of its own string.
+    const out = lines.map((l) => redact(l, ctx)).join('\n')
     expect(out).not.toMatch(/abc\.def-123|s3cr3tvalue|k-12345678|sk-ant|ghp_|eyJhbGci|70f2eb16|jo\.smith@/)
     expect(out).toContain('Authorization: <redacted>')
-    expect(out).toContain('token=<redacted>&x=1')
-    expect(out).toContain('"ok": true')
+    // Everything after a credential's name in its string is masked (#699): the rest of the query too.
+    expect(out).toContain('GET /v1/tasks?token=<redacted>')
+    expect(out).not.toContain('&x=1')
+    // A quoted name masks the rest of its string too (#699 round 5): the JSON's other fields go with it.
+    expect(out).toContain('{"apiKey": <redacted>')
     expect(out).toContain('<email>')
+  })
+
+  it('free text: secret options and their values (quoted with spaces too), passwords written out, sign-in and device codes (#699)', () => {
+    for (const s of SECRET_SAMPLES) {
+      for (const out of [maskText(s.text), redact(s.text, ctx)]) {
+        for (const secret of s.secrets) expect(out, s.text).not.toContain(secret)
+        for (const k of s.kept ?? []) expect(out, s.text).toContain(k)
+      }
+    }
+    expect(maskText('password: very secret phrase')).toBe('password: <redacted>')
+    expect(maskText('ran tool --password "very secret phrase" --verbose')).toBe('ran tool --password <redacted>')
+    expect(maskText('{"password": "a b", "ok": true}')).toBe('{"password": <redacted>')
+    expect(maskText('{"config":{"password":"hunter2","ok":true},"other":1}')).toBe('{"config":{"password":<redacted>')
+    expect(maskText('enter ABCD-EFGH')).toBe('enter <redacted>')
+  })
+
+  it("the log: a credential masks the rest of its line, and the lines a continuation carries it onto", () => {
+    const T = '2026-10-02T10:00:00.000Z [INFO] [sessions]'
+    const log = [`${T} Hive 0.7.0 starting (${MARKED_LOG})`, `${T} ran curl --api-key \``, '  continuedLogSecret `', '  againLogSecret', `${T} next line stays`].join('\n')
+    const out = redactLog(log, ctx)
+    expect(out).not.toMatch(/continuedLogSecret|againLogSecret/)
+    expect(out).toContain(`${T} next line stays`)
+    expect(out).toContain('ran curl --api-key <redacted>')
+  })
+
+  it('masking ends on any whitespace and on long input, and masks everything after a credential (#699 rounds 3–4)', () => {
+    const WHITESPACE = ['\t', '\v', '\f', ' ', '\u00a0', '\u1680', '\u2000', '\u2028', '\u2029', '\u202f', '\u205f', '\u3000', '\ufeff', '\r', '\n', '\r\n']
+    const shapes = (w: string): string[] => [
+      `tool --token short${w}secret`,
+      `tool --token ${w}${w}secret`,
+      `tool --token "a${w}b" --x`,
+      `tool --token \`${w}secret`,
+      `tool --password \\${w}secret`,
+      `tool --token=${w}`,
+      `password: short${w}secret`,
+      `token=short${w}secret`,
+      `Authorization: short${w}secret`,
+      `{"token": "short${w}secret"}`,
+      `-u user:short${w}secret`,
+      `enter ABCD-EFGH${w}`,
+      `${w}--token${w}${w}`
+    ]
+    for (const w of WHITESPACE) {
+      for (const text of shapes(w)) {
+        // A masking that never ends would hang the test: vm's bound stops it, and the test fails with a timeout error.
+        const out = runInNewContext('maskText(text)', { maskText, text }, { timeout: 5000 }) as string
+        // Whatever separates the words, on one line or more, everything after a credential's name is masked.
+        if (text.includes('secret')) expect(out, JSON.stringify(text)).not.toContain('secret')
+      }
+    }
+    // Long input, shaped to make a backtracking pattern slow: words that hold a credential's name many times over, many
+    // names, long runs of spaces, quotes and continuations. Each must finish well inside the bound.
+    const long = ['token'.repeat(200_000), 'x-'.repeat(500_000), '--verbose '.repeat(100_000), 'mytoken'.repeat(100_000) + ' = v', `"${'a'.repeat(1_000_000)}`, ' '.repeat(1_000_000) + 'token=x', '"token": "'.repeat(100_000), 'a `\n'.repeat(200_000), `code${' '.repeat(1_000_000)}x`, `a.${'b.'.repeat(500_000)}`, `${'a@'.repeat(300_000)}`, '-u "'.repeat(250_000), `-u "${'a b'.repeat(300_000)}`, ' -u x'.repeat(200_000), '{"a":'.repeat(200_000), `"${'a'.repeat(99)}`.repeat(10_000), '{"config":{"x":['.repeat(60_000), `{"token":"${'\\"'.repeat(300_000)}`]
+    for (const text of long) expect(() => runInNewContext('maskText(text)', { maskText, text }, { timeout: 5000 }), text.slice(0, 20)).not.toThrow()
+  })
+
+  // #699 round 5: a long run of backslashes made the quoted-name search quadratic. Not one shape but every one of these:
+  // each pair of the characters the patterns care about, repeated, and each credential prefix followed by a long run of
+  // one of them, or repeated with it. At 200,000 characters a quadratic pattern takes minutes and a linear one
+  // milliseconds, so the bound tells them apart under any load.
+  it('masking is linear on every adversarial shape: each pair of special characters, each credential prefix (#699 round 5)', () => {
+    const BS = '\\'
+    const CHARS = [BS, '"', "'", '-', ':', '=', '@', '.', '+', '/', '`', ' ', '\t', '\n', 'a', 'A', '0', '{', '[', '\u2068', '\u2069', '?', '&', 'e']
+    const PREFIXES = ['-u ', '--user=', '--token ', 'token', 'token=', '"', `${BS}"`, 'eyJ', 'a@', 'code ', 'Bearer ', 'sk-', '"token":']
+    const N = 200_000
+    const cases: string[] = []
+    for (const a of CHARS) for (const b of CHARS) cases.push((a + b).repeat(N / 2))
+    for (const p of PREFIXES) {
+      for (const c of CHARS) cases.push(p + c.repeat(N), (p + c).repeat(Math.floor(N / (p.length + 1))))
+    }
+    const vmContext = createContext({ maskText, redactLog, ctx, text: '' })
+    const start = `2026-10-02T10:00:00.000Z [INFO] [main] Hive 0.7.0 starting (${MARKED_LOG})\n`
+    for (const text of cases) {
+      vmContext.text = text
+      // A pattern that reads a run again from inside it would blow the bound; vm stops it and the test fails.
+      expect(() => runInContext('maskText(text)', vmContext, { timeout: 5000 }), JSON.stringify(text.slice(0, 12))).not.toThrow()
+      // The log too (a line at a time, its user-text marks first), on one long line.
+      if (!text.includes('\n')) {
+        vmContext.text = start + text
+        expect(() => runInContext('redactLog(text, ctx)', vmContext, { timeout: 5000 }), `log ${JSON.stringify(text.slice(0, 12))}`).not.toThrow()
+      }
+    }
+  }, 300_000)
+
+  it("names and identifiers keep their shape: no sign-in code is read into them, a session id's parts included", () => {
+    for (const id of ['0B6F5D1E-6D5A-4C1F-9A4E-1C2D3E4F5A6B', 'ABCD-EFGH', 'hive.console.showText', 'PreToolUse']) expect(maskSecrets(id)).toBe(id)
+    expect(maskText('session 0B6F5D1E-6D5A-4C1F-9A4E-1C2D3E4F5A6B resumed')).toBe('session 0B6F5D1E-6D5A-4C1F-9A4E-1C2D3E4F5A6B resumed')
+    expect(maskText('ran npm test -- --reporter dot; 2758 tests passed')).toBe('ran npm test -- --reporter dot; 2758 tests passed')
   })
 
   it('keeps what a report needs', () => {
@@ -135,7 +229,7 @@ describe('diagnostics redaction of the log', () => {
 
   it('a value written into its flag (--flag=value) is judged the same way', () => {
     const extra = ['--append-system-prompt=ConfidentialMerger', '--name=PrivateClient', '--config=developer_instructions="Be terse"', '-c=mcp_servers.acme-crm.enabled=false', '--model=opus', '--model=has space', '--x.y=Secret', 'Next']
-    const marked = (a: string): string => a.replace(/⁨[^⁩]*⁩/g, '<marked>')
+    const marked = (a: string): string => a.replace(/\u2068[^\u2069]*\u2069/g, '<marked>')
     expect(argsForLog(extra).map(marked)).toEqual(['--append-system-prompt=<marked>', '--name=<marked>', '--config=developer_instructions=<marked>', '-c=<marked>', '--model=opus', '--model=<marked>', '--x.y=<marked>', '<marked>'])
     const out = redactLog(`${T} [pty] spawn x: claude.exe ${JSON.stringify(argsForLog(extra))}`, ctx)
     expect(out).not.toMatch(/Confidential|PrivateClient|terse|acme|Secret|Next/)

@@ -376,9 +376,9 @@ export interface HiveRequests {
   /** Saves the project's agents and layout; a name already there is replaced only with `overwrite` (else `exists`). */
   'templates:save': (projectPath: string, scope: TemplateScope, name: string, overwrite: boolean) => { saved: TemplateEntry } | { exists: string }
   /** What loading a template would do, and what stops it now. `from`: the project a project's template is kept in, if not this one. */
-  'templates:plan': (projectPath: string, scope: TemplateScope, file: string, from?: string) => TemplateLoadPlan
+  'templates:plan': (projectPath: string, scope: TemplateScope, file: string, from?: string, names?: string[]) => TemplateLoadPlan
   /** Replaces the project's agents and layout with a template's; `expected` is the agents' ids as the user saw them. */
-  'templates:load': (projectPath: string, scope: TemplateScope, file: string, expected: string[], from?: string, removeOld?: { paths: string[]; mergedInto: string | null }) => { created: string[]; removed: string[]; oldWorktrees: OldWorktreeOutcome[] }
+  'templates:load': (projectPath: string, scope: TemplateScope, file: string, expected: string[], from?: string, removeOld?: { paths: string[]; mergedInto: string | null }, names?: string[]) =>{ created: string[]; removed: string[]; oldWorktrees: OldWorktreeOutcome[] }
   /** Adds one agent of a template (the `index`-th), the others left alone. */
   'templates:addAgent': (projectPath: string, scope: TemplateScope, file: string, index: number, from?: string) => AgentDef & { reused?: true }
   /** Every template of the workspace (#127, the Templates view): the workspace's, then each project's. */
@@ -401,7 +401,7 @@ export interface HiveRequests {
   /** Branches and worktrees, for the Add Agent dialog. */
   'agents:gitInfo': (projectPath: string) => ProjectGitInfo
   /** The unused worktree a new one on `branch` from `base` would reuse (#456), checked: null when there is none. */
-  'agents:worktreeMatch': (projectPath: string, branch: string, base: string) => WorktreeMatch | null
+  'agents:worktreeMatch': (projectPath: string, branch: string, base: string, name?: string) => WorktreeMatch | null
   'agents:branchStatus': (projectPath: string, agentId: string) => AgentBranchStatus
   /** Every worktree agent's unmerged work known so far (then `branch-status` events as it changes). */
   'agents:branchStatuses': () => { projectPath: string; agentId: string; status: AgentBranchStatus | null }[]
@@ -515,13 +515,15 @@ export interface HiveRequests {
   'console:open': () => void
   /** The developer console's sources in this window's workspace (#636): its agents, its Assistant and Hive itself. */
   'console:sources': () => ConsoleSource[]
+  /** The developer console's options (#699): `showText`, Settings → Advanced → Developer console: show text. Changes come as `console-options`. */
+  'console:options': () => { showText: boolean }
   /**
    * What this window watches in the developer console: replaces its list ([] ends it) and returns each source's events
-   * so far. Capture runs only while a window watches a source; live events come as `console-events`. `includeText` keeps
-   * prompt and reply text in what this window is sent (secrets stay masked); off by default.
+   * so far. Capture runs only while a window watches a source; live events come as `console-events`. Redacted, or with
+   * prompt, reply and command text while `console:options`' showText is on (secrets stay masked).
    */
-  'console:subscribe': (sources: string[], opts?: { includeText?: boolean }) => Record<string, ConsoleEvent[]>
-  /** A watched source's events after `since` (a seq), oldest first. */
+  'console:subscribe': (sources: string[]) => Record<string, ConsoleEvent[]>
+  /** A watched source's events after `since` (a seq), oldest first (with text as `console:subscribe` says). */
   'console:snapshot': (source: string, since?: number) => ConsoleEvent[]
   /**
    * Records a source this window may read to a file in Hive's console-recordings folder (#638), from now until stopped,

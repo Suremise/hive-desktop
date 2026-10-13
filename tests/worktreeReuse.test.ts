@@ -5,11 +5,12 @@
 // Templates reuse their own way (#289): without reuseWorktree nothing changes. Only one nothing uses: no git lock in it,
 // no process in it (checked once, not guarded against work started meanwhile).
 import { execFileSync, spawn } from 'child_process'
-import { existsSync, mkdirSync, rmSync, writeFileSync } from 'fs'
-import { join } from 'path'
+import { existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from 'fs'
+import { basename, join } from 'path'
 import { afterAll, beforeAll, describe, expect, it } from 'vitest'
 import * as electron from 'electron'
 import { lockfileChanged, reuseNote } from '../src/shared/unusedWorktrees'
+import type { AddedAgent, ProjectConfig } from '../src/shared/types'
 import { tempDir } from './tempDir'
 
 const base = tempDir('hive-wtreuse-')
@@ -18,7 +19,7 @@ const base = tempDir('hive-wtreuse-')
 const { createWorkspaceService, disposeWorkspaceService, inWorkspace } = await import('../src/main/workspace')
 const wt = await import('../src/main/worktrees')
 const { createWorktree } = wt
-const { addAgent, reserveForRemoval, worktreeMatch } = await import('../src/main/projectAgents')
+const { addAgent, gitInfo, reserveForRemoval, worktreeMatch } = await import('../src/main/projectAgents')
 const { placeKey } = await import('../src/main/fsutil')
 
 const git = (cwd: string, ...a: string[]): string => execFileSync('git', ['-c', 'core.autocrlf=false', ...a], { cwd, encoding: 'utf8' }).trim()
@@ -29,9 +30,12 @@ let w: ReturnType<typeof createWorkspaceService>
 const run = <T,>(fn: () => Promise<T>): Promise<T> => inWorkspace(w, fn)
 let n = 0
 
-/** An unused worktree hive/<name> in the workspace's worktree folder, off main. */
-async function tree(name: string, where = root): Promise<{ path: string; branch: string }> {
-  const t = { path: join(where, name), branch: `hive/${name}` }
+/** The branch Hive makes for a new worktree agent of this name here (#703): hive/<workspace>/<project>/<name>. */
+const full = (t: { path: string }): string => `hive/ws/proj/${basename(t.path)}`
+
+/** An unused worktree in the workspace's worktree folder, off main: on hive/<name>, Hive's branch from before #703, unless `branch` says. */
+async function tree(name: string, where = root, branch = `hive/${name}`): Promise<{ path: string; branch: string }> {
+  const t = { path: join(where, name), branch }
   await createWorktree(proj, t.path, t.branch, 'main')
   return t
 }
@@ -72,7 +76,7 @@ describe('a new worktree agent named like an unused worktree', () => {
     expect(await wt.dirtyCount(t.path)).toBe(0)
     expect(def.reuse).toEqual({ branch: t.branch, reused: true, base: 'main', upTo: head(proj) })
     expect(def.needsSetup).toBeUndefined()
-    expect(branches()).not.toContain(`${t.branch}-2`)
+    expect(branches()).not.toContain(full(t))
     expect(reuseNote(def.reuse!)).toBe(`reused ${t.branch}, brought up to main at ${head(proj).slice(0, 7)}`)
   })
 
@@ -110,7 +114,7 @@ describe('a new worktree agent named like an unused worktree', () => {
     commit(ahead.path, `mine${n}.txt`)
     const tip = head(ahead.path)
     const a = await add(`B${n}`)
-    expect(a.worktree!.branch).toBe(`${ahead.branch}-2`)
+    expect(a.worktree!.branch).toBe(full(ahead))
     expect(a.reuse).toEqual({ branch: ahead.branch, reused: false, base: 'main', notReused: '1 commit not merged into main' })
     expect(reuseNote(a.reuse!)).toBe(`made a new worktree, leaving ${ahead.branch}'s unused one as it is (1 commit not merged into main)`)
     expect(head(ahead.path)).toBe(tip)
@@ -118,7 +122,7 @@ describe('a new worktree agent named like an unused worktree', () => {
     const dirty = await tree(`b${++n}`)
     writeFileSync(join(dirty.path, 'draft.txt'), 'draft\n')
     const d = await add(`B${n}`)
-    expect(d.worktree!.branch).toBe(`${dirty.branch}-2`)
+    expect(d.worktree!.branch).toBe(full(dirty))
     expect(d.reuse?.notReused).toBe('1 uncommitted file')
     expect(existsSync(join(dirty.path, 'draft.txt'))).toBe(true)
   })
@@ -136,7 +140,7 @@ describe('a new worktree agent named like an unused worktree', () => {
     reset()
     const t = await tree(`b${++n}`, join(base, 'elsewhere'))
     const def = await add(`B${n}`)
-    expect(def.worktree!.branch).toBe(`${t.branch}-2`)
+    expect(def.worktree!.branch).toBe(full(t))
     expect(def.reuse).toBeUndefined()
   })
 
@@ -146,7 +150,7 @@ describe('a new worktree agent named like an unused worktree', () => {
     const release = reserveForRemoval(t.path)
     try {
       const def = await add(`B${n}`)
-      expect(def.worktree!.branch).toBe(`${t.branch}-2`)
+      expect(def.worktree!.branch).toBe(full(t))
       expect(def.reuse?.notReused).toBe('it is being removed or merged')
     } finally {
       release()
@@ -157,7 +161,45 @@ describe('a new worktree agent named like an unused worktree', () => {
     reset()
     const t = await tree(`b${++n}`)
     const def = await run(() => addAgent(proj, { name: `B${n}`, location: 'new-worktree' }))
-    expect(def.worktree!.branch).toBe(`${t.branch}-2`)
+    expect(def.worktree!.branch).toBe(full(t))
+    expect(def.reuse).toBeUndefined()
+  })
+})
+
+describe('branches in full, hive/<workspace>/<project>/<agent>, and the ones from before (#703)', () => {
+  it('a new worktree is on the full form; an unused one on it is reused', async () => {
+    reset()
+    const made = await add(`F${++n}`)
+    expect(made.worktree!.branch).toBe(`hive/ws/proj/f${n}`)
+    const t = await tree(`f${++n}`, root, `hive/ws/proj/f${n}`)
+    const def = await add(`F${n}`)
+    expect([placeKey(def.worktree!.path), def.worktree!.branch, def.reuse?.reused]).toEqual([placeKey(t.path), t.branch, true])
+  })
+
+  it('of one on each form, the full form is reused; the one from before stays', async () => {
+    reset()
+    const name = `f${++n}`
+    const old = await tree(`${name}-old`, root, `hive/${name}`)
+    const t = await tree(name, root, `hive/ws/proj/${name}`)
+    const def = await add(name.toUpperCase())
+    expect([placeKey(def.worktree!.path), def.worktree!.branch]).toEqual([placeKey(t.path), t.branch])
+    expect(existsSync(old.path) && branches().includes(old.branch)).toBe(true)
+  })
+
+  it("Add Agent's look before adding finds the one from before for the full form, and only for Hive's own branch", async () => {
+    reset()
+    const t = await tree(`f${++n}`)
+    expect(await run(() => worktreeMatch(proj, `hive/ws/proj/f${n}`, 'main', `F${n}`))).toMatchObject({ path: t.path, branch: t.branch, reusable: true })
+    // A branch of the user's own, or another workspace's or project's full form, never finds it.
+    for (const other of [`feature/f${n}`, `hive/other/proj/f${n}`, `hive/ws/other/f${n}`]) expect(await run(() => worktreeMatch(proj, other, 'main'))).toBeNull()
+  })
+
+  it("another workspace's branch for a project of the same name in one repository is never taken: a new one", async () => {
+    reset()
+    const t = await tree(`f${++n}`, root, `hive/other/proj/f${n}`)
+    const def = await add(`F${n}`)
+    expect(def.worktree!.branch).toBe(`hive/ws/proj/f${n}`)
+    expect(placeKey(def.worktree!.path)).not.toBe(placeKey(t.path))
     expect(def.reuse).toBeUndefined()
   })
 })
@@ -196,7 +238,7 @@ describe('one something uses (checked once): left as it is, and a new worktree i
       writeFileSync(lock, '', { flag: 'wx' })
       try {
         const def = await add(`R${n}`)
-        expect(def.worktree!.branch).toBe(`${t.branch}-2`)
+        expect(def.worktree!.branch).toBe(full(t))
         expect(def.reuse?.notReused).toBe('git is busy in it')
         // Left as it was: HEAD, index and files.
         expect(git(t.path, 'symbolic-ref', 'HEAD')).toBe(`refs/heads/${t.branch}`)
@@ -226,10 +268,13 @@ describe('one something uses (checked once): left as it is, and a new worktree i
         child.once('error', fail)
       })
       const def = await add(`R${n}`)
-      expect(def.worktree!.branch).toBe(`${t.branch}-2`)
+      expect(def.worktree!.branch).toBe(full(t))
       expect(def.reuse?.notReused).toBe('a program is using it')
       expect(head(t.path)).toBe(tip)
       expect(existsSync(inside)).toBe(true)
+      // The new one goes again: an unused one on the full form would be taken first (#703).
+      git(proj, 'worktree', 'remove', '--force', def.worktree!.path)
+      git(proj, 'branch', '-D', def.worktree!.branch)
     } finally {
       child.stdin.end()
       await ended
@@ -248,5 +293,102 @@ describe('lockfiles', () => {
     expect(lockfileChanged(['pnpm-lock.yaml', 'Cargo.lock'])).toBe(true)
     expect(lockfileChanged(['package.json', 'README.md', 'locks/notes.lock.txt'])).toBe(false)
     expect(lockfileChanged([])).toBe(false)
+  })
+})
+
+describe('branches from before in the way of the full form (#703 round 2)', () => {
+  it("a hive/<slug> worktree of a name the new rules write otherwise (B--1: hive/b--1) is still found, in the look and the add", async () => {
+    reset()
+    const t = await tree('b--1', root, 'hive/b--1')
+    expect(await run(() => worktreeMatch(proj, 'hive/ws/proj/b-1', 'main', 'B--1'))).toMatchObject({ path: t.path, branch: 'hive/b--1', reusable: true })
+    const def = await add('B--1')
+    expect([placeKey(def.worktree!.path), def.worktree!.branch, def.reuse?.reused]).toEqual([placeKey(t.path), 'hive/b--1', true])
+  })
+
+  /** A repository of its own, as it was before #703 (no full-form branch yet, so a branch hive/ws can be one), as a project. */
+  async function oldRepo(folder: string): Promise<{ path: string; add: (name: string) => Promise<AddedAgent>; dropAgents: () => Promise<unknown>; branches: () => string[]; cfg: () => ProjectConfig }> {
+    const path = join(wsPath, folder)
+    mkdirSync(join(path, '.hive'), { recursive: true })
+    execFileSync('git', ['init', '-q', '-b', 'main', path])
+    for (const [k, v] of [['user.name', 'Test'], ['user.email', 'test@example.com']]) git(path, 'config', k, v)
+    commit(path, 'a.txt')
+    writeFileSync(join(path, '.hive', 'project.json'), JSON.stringify({ version: 2, agents: [] }))
+    await w.refresh()
+    return {
+      path,
+      add: (name) => run(() => addAgent(path, { name, location: 'new-worktree', reuseWorktree: true })),
+      // Its agents removed, their worktrees kept (as Remove Agent → Keep worktree and branch); what else it has stays.
+      dropAgents: () => run(() => w.mutateProjectConfig(path, () => ({ agents: [] }))),
+      branches: () => git(path, 'branch', '--format=%(refname:short)').split(/\r?\n/).filter(Boolean),
+      cfg: () => JSON.parse(readFileSync(join(path, '.hive', 'project.json'), 'utf8'))
+    }
+  }
+
+  it('a branch hive/<workspace> from before (an agent once called "ws"), in either case: new branches go to hive/ws-2/…, recorded as the project\'s, and it stays', async () => {
+    for (const [folder, legacy] of [['oldrepo', 'hive/ws'], ['oldcase', 'hive/WS']]) {
+      const r = await oldRepo(folder)
+      git(r.path, 'branch', legacy)
+      const def = await r.add(`New ${folder}`)
+      expect(def.worktree!.branch).toBe(`hive/ws-2/${folder}/new-${folder}`)
+      expect(r.cfg().branchSpaces).toEqual(['ws-2'])
+      // The dialog is told the same place for its default, and which parts are the project's.
+      expect(await run(() => gitInfo(r.path))).toMatchObject({ branchSpace: 'ws-2', branchSpaces: ['ws-2'] })
+      expect(r.branches()).toContain(legacy)
+    }
+  })
+
+  it('the default sent back as shown (the dialog, the Agent API) records the part too; a branch of the user\'s own never does (round 4)', async () => {
+    const r = await oldRepo('explicit')
+    git(r.path, 'branch', 'hive/ws')
+    const def = await run(() => addAgent(r.path, { name: 'Shown', location: 'new-worktree', branch: 'hive/ws-2/explicit/shown', reuseWorktree: true }))
+    expect(def.worktree!.branch).toBe('hive/ws-2/explicit/shown')
+    expect(r.cfg().branchSpaces).toEqual(['ws-2'])
+    const mine = await oldRepo('userown')
+    git(mine.path, 'branch', 'hive/ws')
+    const own = await run(() => addAgent(mine.path, { name: 'Own one', location: 'new-worktree', branch: 'hive/ws-5/userown/mine', reuseWorktree: true }))
+    expect(own.worktree!.branch).toBe('hive/ws-5/userown/mine')
+    expect(mine.cfg().branchSpaces).toBeUndefined()
+  })
+
+  it('stays there once the branch in the way is gone (round 3): a kept worktree in it is reused, by the look and the add', async () => {
+    const r = await oldRepo('oldgone')
+    git(r.path, 'branch', 'hive/ws')
+    const kept = await r.add('Gone')
+    await r.dropAgents()
+    git(r.path, 'branch', '-D', 'hive/ws')
+    expect(await run(() => gitInfo(r.path))).toMatchObject({ branchSpace: 'ws-2' })
+    expect(await run(() => worktreeMatch(r.path, 'hive/ws-2/oldgone/gone', 'main', 'Gone'))).toMatchObject({ path: kept.worktree!.path, branch: 'hive/ws-2/oldgone/gone', reusable: true })
+    // Asked for on its own part (hive/ws/…), the same agent's in the part it moved to is found too.
+    expect(await run(() => worktreeMatch(r.path, 'hive/ws/oldgone/gone', 'main', 'Gone'))).toMatchObject({ path: kept.worktree!.path, branch: 'hive/ws-2/oldgone/gone' })
+    const again = await r.add('Gone')
+    expect([placeKey(again.worktree!.path), again.worktree!.branch, again.reuse?.reused]).toEqual([placeKey(kept.worktree!.path), 'hive/ws-2/oldgone/gone', true])
+    expect(r.branches().filter((b) => b.endsWith('/gone'))).toEqual(['hive/ws-2/oldgone/gone'])
+  })
+
+  it("another workspace called ws-2 in the same repository (round 3): its branches are never this one's, and its part is never taken", async () => {
+    reset()
+    // ws-2's Foreign, with a worktree in this project's worktrees folder; and this project's own Foreign from before #703.
+    const foreign = await tree(`foreign${++n}`, root, `hive/ws-2/proj/foreign${n}`)
+    expect(await run(() => worktreeMatch(proj, `hive/ws/proj/foreign${n}`, 'main', `Foreign${n}`))).toBeNull()
+    const legacy = await tree(`foreign${n}-old`, root, `hive/foreign${n}`)
+    expect(await run(() => worktreeMatch(proj, `hive/ws/proj/foreign${n}`, 'main', `Foreign${n}`))).toMatchObject({ path: legacy.path, branch: legacy.branch })
+    const def = await add(`Foreign${n}`)
+    expect([placeKey(def.worktree!.path), def.worktree!.branch]).toEqual([placeKey(legacy.path), legacy.branch])
+    expect(existsSync(foreign.path) && branches().includes(foreign.branch)).toBe(true)
+    // In a repository where ws must move off its own part, it skips ws-2 (in use there) for ws-3.
+    const r = await oldRepo('shared')
+    git(r.path, 'branch', 'hive/ws')
+    git(r.path, 'branch', 'hive/ws-2/shared/theirs')
+    expect((await r.add('Mine')).worktree!.branch).toBe('hive/ws-3/shared/mine')
+    expect(r.cfg().branchSpaces).toEqual(['ws-3'])
+  })
+
+  it('a branch Hive would make one inside of (hive/ws/proj/x/y) numbers it; one it would be inside of refuses, saying which', async () => {
+    reset()
+    git(proj, 'branch', `hive/ws/proj/x${++n}/y`)
+    expect((await add(`X${n}`)).worktree!.branch).toBe(`hive/ws/proj/x${n}-2`)
+    reset()
+    git(proj, 'branch', `feature${n}`)
+    await expect(add(`Y${n}`, { branch: `feature${n}/y` })).rejects.toThrow(`a branch feature${n} is in the way`)
   })
 })
