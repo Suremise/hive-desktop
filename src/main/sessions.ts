@@ -192,6 +192,8 @@ interface LiveSession {
   switchTail?: string
   /** The first task, for the launch's command line (cleared once launched). */
   initialPrompt?: string
+  /** This launch was given its first task on its command line: until its CLI takes it, it is pending (#712). */
+  launchTask?: true
   /** Throws if whoever asked for this launch may no longer have it (the Assistant's authority), checked just before spawning. */
   startAllowed?: () => void
   /** The CLI asked something before it started (e.g. whether to trust the folder): shown as waiting for the user. */
@@ -609,13 +611,18 @@ class SessionManager {
 
   /**
    * A running agent as an agent watch reads it (#416), or null when it isn't running. A prompt Hive typed within the last
-   * PENDING_MS that its CLI hasn't taken yet is pending: the agent was just given a task, and counts as working.
+   * PENDING_MS that its CLI hasn't taken yet is pending: the agent was just given a task, and counts as working. So is a
+   * launch's task on its command line (#712): the CLI is ready at its SessionStart and takes the task only after, so it
+   * is pending until its first prompt, at most PENDING_MS after it became ready.
    */
   agentNow(projectPath: string, agentId: string): { status: SessionStatus; runId: string; prompts: number; pending: boolean; statusMessage: string | null; backgroundTasks: number; reply: string | null } | null {
     const l = this.live.get(liveId(projectPath, agentId))
     if (!l) return null
     const prompts = l.prompts ?? 0
-    const pending = !!l.typed && prompts <= l.typed.prompts && Date.now() - l.typed.at < PENDING_MS
+    const typed = !!l.typed && prompts <= l.typed.prompts && Date.now() - l.typed.at < PENDING_MS
+    const st = l.state
+    const launch = !!l.launchTask && prompts === 0 && (st.status === 'starting' || (st.status === 'ready' && Date.now() - Date.parse(st.statusSince ?? '') < PENDING_MS))
+    const pending = typed || launch
     return { status: l.state.status, runId: l.state.runId, prompts, pending, statusMessage: l.state.statusMessage ?? null, backgroundTasks: l.state.backgroundTasks ?? 0, reply: l.lastReply ?? null }
   }
 
@@ -1090,7 +1097,7 @@ class SessionManager {
       launchSignature: '',
       unseen: false
     }
-    this.live.set(id, { state, adapter, transcriptMtime: '', defaultModel: false, modeTail: '', recognition: new ScreenRecognition(adapter), launchMode: null, configuredMode: null, modeOverride: opts.permissionMode, name: sessionName, transcriptPath: existing?.transcriptPath, initialPrompt: opts.prompt?.trim() || undefined, startAllowed: opts.allowed, resumed: !!opts.resumeId })
+    this.live.set(id, { state, adapter, transcriptMtime: '', defaultModel: false, modeTail: '', recognition: new ScreenRecognition(adapter), launchMode: null, configuredMode: null, modeOverride: opts.permissionMode, name: sessionName, transcriptPath: existing?.transcriptPath, initialPrompt: opts.prompt?.trim() || undefined, ...(opts.prompt?.trim() ? { launchTask: true as const } : {}), startAllowed: opts.allowed, resumed: !!opts.resumeId })
     this.runs.set(runId, id)
 
     const setup = cfg.worktreeSetup.trim()
@@ -2153,7 +2160,7 @@ class SessionManager {
     projectPath = workspace.assertProject(projectPath)
     const now = this.agentNow(projectPath, agentId)
     if (!now) throw new Error("It isn't running.")
-    if (now.pending || this.delivering.has(this.key(projectPath, agentId))) throw new Error('Hive has just typed a prompt into it that its CLI has not taken yet.')
+    if (now.pending || this.delivering.has(this.key(projectPath, agentId))) throw new Error('It has just been given a prompt that its CLI has not taken yet.')
     allowed?.()
     if (!(await this.endConversation(projectPath, agentId))) throw new Error("It didn't stop, so no new conversation was started.")
     allowed?.()

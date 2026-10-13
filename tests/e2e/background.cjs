@@ -105,6 +105,25 @@ const check = (name, ok, extra = '') => {
   check('then it takes a task again', given.status === 200, JSON.stringify(given.body))
   await api('POST', '/v1/agents/wait', { agents: [{ project: 'alpha', agent: 'Tester' }], timeoutSeconds: 30 })
 
+  // #712: a launch's task is on its CLI's command line, taken only after SessionStart. Held there (the fake keeps it
+  // until fake-launch-go), the agent is ready but hasn't begun its task: a wait doesn't take that for idle.
+  fs.writeFileSync(path.join(claudeHome, 'fake-launch-hold-Tester'), '')
+  const before = (await live(alpha, id))?.runId
+  const renewed = await api('POST', '/v1/projects/alpha/agents/Tester/prompt', { text: 'work 1', newConversation: true })
+  check('a new conversation on a task starts (#712)', renewed.status === 200, JSON.stringify(renewed.body))
+  const ready = await until(async () => {
+    const s = await live(alpha, id)
+    return s?.runId !== before && s?.status === 'ready' && s
+  }, HUNG_MS)
+  check('its CLI is ready, its task held', !!ready, JSON.stringify(await live(alpha, id)))
+  const held = await api('POST', '/v1/agents/wait', { agents: [{ project: 'alpha', agent: 'Tester' }], timeoutSeconds: 5 })
+  check('a wait in that gap waits: the task counts as given (#712)', held.body?.timedOut === true && held.body.agents[0].status === 'ready', JSON.stringify(held.body))
+  const busyNow = await api('POST', '/v1/projects/alpha/agents/Tester/prompt', { text: 'something else' })
+  check('and nothing more is given it meanwhile', busyNow.status === 409 && /hasn't taken yet/.test(busyNow.body?.error ?? ''), JSON.stringify(busyNow.body))
+  fs.writeFileSync(path.join(claudeHome, 'fake-launch-go-Tester'), '')
+  const took = await api('POST', '/v1/agents/wait', { agents: [{ project: 'alpha', agent: 'Tester' }], timeoutSeconds: 30 })
+  check('once it takes the task, the wait ends with the task done', took.body?.timedOut === false && took.body.agents[0].status === 'finished', JSON.stringify(took.body))
+
   await app.close()
   process.exit(failed ? 1 : 0)
 })().catch((e) => {

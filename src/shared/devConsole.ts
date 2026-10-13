@@ -270,10 +270,14 @@ function copy(v: unknown, key: string, ctx: Context, safe: SafeFields | true | u
 
 function redactString(s: string, safe: boolean, opts: RedactOptions): string {
   if (!s) return s
-  // Masked whole, then cut: a cut could leave part of a secret too short to be recognised.
   if (opts.includeText) {
-    const t = maskText(s)
-    return t.length > TEXT_MAX ? `${t.slice(0, TEXT_MAX)}…` : t
+    if (s.length <= TEXT_MAX) return maskText(s)
+    // Cut to the cap first, so masking never reads more than it (the Assistant's rule, #699 round 6): what is past the cap
+    // is dropped, so nothing can leak from it. A word the cut goes through is dropped whole, so no part of a secret too
+    // short to be recognised is kept.
+    let end = TEXT_MAX
+    if (!/\s/.test(s[TEXT_MAX])) while (end > 0 && !/\s/.test(s[end - 1])) end--
+    return `${maskText(s.slice(0, end))}…`
   }
   if (safe && (IDENTIFIER.test(s) || PATH.test(s) || ISO_TIME.test(s))) return maskSecrets(s)
   return hidden(s)
