@@ -907,6 +907,60 @@ kbd {
 .agents-table-card > span {
   max-width: min(300px, calc(var(--agents-room) * 0.36));
 }
+/* Five columns (#572: the confirms' What happens, the quit dialog's Project): smaller shares that still add up. */
+.agents-table.cols-5 .agents-table-cut > span {
+  max-width: min(200px, calc(var(--agents-room) * 0.19));
+}
+.agents-table.cols-5 .agents-table-name > span {
+  max-width: min(150px, calc(var(--agents-room) * 0.14));
+}
+.agents-table.cols-5 .agents-table-card > span {
+  max-width: min(260px, calc(var(--agents-room) * 0.28));
+}
+/* What stopping an agent interrupts (#572), in the warning colour as the quit dialog's badges are. */
+.agents-table td.agents-table-warn {
+  color: var(--warning);
+}
+/* A heading row: the quit dialog's agents under their workspace (#572). */
+.agents-table tr.agents-table-group td {
+  padding: 8px 0 2px;
+  border-bottom: none;
+  color: var(--fg-muted);
+  font-size: 11px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+/* In a dialog (#572): the dialog's width, and nothing cut: what a confirm says about each agent (a worktree kept and
+   why) is read in full, so a long cell wraps; only the agent's name stays on one line. */
+.dialog .agents-table {
+  width: 100%;
+}
+.dialog .agents-table td {
+  white-space: normal;
+}
+.dialog .agents-table td.agents-table-cut > span {
+  max-width: none;
+  overflow: visible;
+  text-overflow: clip;
+}
+.dialog .agents-table td.agents-table-name,
+.dialog .agents-table td.agents-table-short {
+  white-space: nowrap;
+}
+.agents-detail-note {
+  margin-top: 8px;
+  color: var(--fg-muted);
+}
+/* Text for screen readers only (a table's plain-text form, #572). */
+.visually-hidden {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  overflow: hidden;
+  clip-path: inset(50%);
+  white-space: pre-line;
+}
 
 /* ---------- Status dots ---------- */
 .dot {
@@ -3532,27 +3586,30 @@ p.hint {
   border-top: 1px solid var(--border-subtle);
   border-bottom: 1px solid var(--border-subtle);
 }
-.quit-row {
+/* The unsaved files. The agents are a table (#572): .quit-agents. */
+.quit-unsaved .quit-row {
   display: flex;
   align-items: center;
   gap: 8px;
   padding: 4px 2px;
 }
-.quit-row strong {
+.quit-unsaved .quit-row strong {
   color: var(--fg-strong);
   font-weight: 600;
 }
-/* Quitting with several windows open: the agents under their workspace's name. */
-.quit-group {
-  display: flex;
+.quit-agents {
+  margin: 4px 0 10px;
+  padding: 4px 0;
+  border-top: 1px solid var(--border-subtle);
+  border-bottom: 1px solid var(--border-subtle);
+}
+/* Quitting with several windows open: the agents under their workspace's name (a heading row, .agents-table-group). */
+.quit-group-line {
+  display: inline-flex;
   align-items: center;
   gap: 6px;
-  padding: 6px 2px 2px;
-  color: var(--fg-muted);
-  font-size: 11px;
-  font-weight: 600;
-  text-transform: uppercase;
-  letter-spacing: 0.04em;
+  max-width: 100%;
+  min-width: 0;
 }
 /* What tells two same-named workspaces apart: secondary (plain, lower case) but readable, at least 4.5:1 (#219). */
 .quit-group-where {
@@ -3564,13 +3621,13 @@ p.hint {
   text-overflow: ellipsis;
   white-space: nowrap;
 }
-.quit-group:first-child {
-  padding-top: 0;
+.agents-table tbody tr.quit-group:first-child td {
+  padding-top: 2px;
 }
-.quit-group ~ .quit-row {
+.quit-group ~ .quit-row td:first-child {
   padding-left: 14px;
 }
-.dialog:has(.quit-list) {
+.dialog:has(.quit-list):not(.wide) {
   width: 580px;
 }
 /* Quitting with several windows open: close only the window the dialog is in. */

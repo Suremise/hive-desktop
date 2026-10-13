@@ -72,28 +72,33 @@ export function batchCounts(agents: readonly BatchAgent[]): BatchCounts {
   }
 }
 
-/** The confirmation's line for an agent: what it is doing, and what stopping it costs when that is something. */
-export function batchLine(agent: BatchAgent, statusText: (live: NonNullable<BatchAgent['live']>) => string): string {
-  if (!agent.live) return `• ${agent.name} — not running`
-  const note = busyNote(agent.live.status)
-  return `• ${agent.name} — ${statusText(agent.live)}${note ? ` (${note})` : ''}`
-}
-
 /** A worktree agent's worktree, with whether it could be deleted without losing work (`agents:worktreeChecks`). */
 export interface BatchWorktree {
   branch: string
   check?: Pick<WorktreeCheck, 'removable' | 'reason'>
 }
 
+/** What a batch does to each agent (#572): Start New (All), Archive and Start New (All), Remove All. */
+export type BatchKind = 'start' | 'archive' | 'remove'
+
 /**
- * Remove All's line for an agent (#291): what it is doing, as `batchLine`, and for a worktree agent what can happen to
- * its worktree: deleted only if the box is ticked and it is merged and clean, else always kept (and why).
+ * The confirmation table's "What happens" cell for an agent (#572): stopping it first when it runs, saying what that
+ * interrupts as the line does (`busyNote`, then `warn`), and what follows.
  */
-export function removeLine(agent: BatchAgent, statusText: (live: NonNullable<BatchAgent['live']>) => string, worktree?: BatchWorktree): string {
-  const line = batchLine(agent, statusText)
-  if (!worktree) return line
+export function batchOutcome(kind: BatchKind, agent: Pick<BatchAgent, 'live'>): { text: string; warn: boolean } {
+  const then = kind === 'start' ? 'a new session' : kind === 'archive' ? 'its session archived, then a new one' : 'removed'
+  if (!agent.live) return { text: then.charAt(0).toUpperCase() + then.slice(1), warn: false }
+  const note = busyNote(agent.live.status)
+  return { text: `Stopped${note ? ` (${note})` : ''}, then ${then}`, warn: !!note }
+}
+
+/**
+ * Remove All's Worktree cell (#291, #572): the branch, and what can happen to it: deleted only if the box is ticked and it
+ * is merged and clean, else always kept (and why).
+ */
+export function removeWorktreeText(worktree: BatchWorktree): string {
   const check = worktree.check
-  return `${line} · worktree ${worktree.branch}: ${check?.removable ? 'merged and clean' : `always kept (${check?.reason ?? "couldn't be checked"})`}`
+  return `${worktree.branch}: ${check?.removable ? 'merged and clean' : `always kept (${check?.reason ?? "couldn't be checked"})`}`
 }
 
 export interface BatchResult {

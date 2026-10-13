@@ -34,7 +34,8 @@ const check = (name, ok, extra = '') => {
   cfg.settings.general = { ...cfg.settings.general, confirmOnQuit: 'never' }
   fs.writeFileSync(cfgFile, JSON.stringify(cfg, null, 2))
 
-  const env = lib.hiveEnv({ HIVE_USER_DATA: userData, HIVE_API_PORT: lib.port(47884), CLAUDE_CONFIG_DIR: claudeHome })
+  const PORT = lib.port(47884)
+  const env = lib.hiveEnv({ HIVE_USER_DATA: userData, HIVE_API_PORT: PORT, CLAUDE_CONFIG_DIR: claudeHome })
   const app = await _electron.launch({ executablePath: lib.ELECTRON, args: [lib.ROOT], cwd: lib.ROOT, env })
   const page = await app.firstWindow()
   page.on('pageerror', (e) => check('no page errors', false, e.message))
@@ -223,13 +224,70 @@ const check = (name, ok, extra = '') => {
   await inv('settings:update', { appearance: { theme: 'dark' } })
   await page.mouse.move(0, 0)
 
+  // The confirms' agents are a table (#572): each row's cells by its agent's name; the plain lines stay for screen readers.
+  const tableOf = (d) =>
+    d.locator('table.agents-table').evaluate((t) => ({
+      heads: [...t.querySelectorAll('thead th')].map((h) => h.textContent.trim()),
+      rows: Object.fromEntries([...t.querySelectorAll('tbody tr[data-agent]')].map((r) => [r.dataset.agent, [...r.children].map((c) => ({ text: c.textContent.trim(), warn: c.classList.contains('agents-table-warn') }))])),
+      hidden: t.closest('[aria-hidden="true"]') !== null
+    }))
+  const plainLines = (d) => d.locator('.agents-detail .visually-hidden').innerText()
+  const bothThemes = async (name) => {
+    for (const theme of ['dark', 'light']) {
+      await inv('settings:update', { appearance: { theme } })
+      await until(async () => (await page.evaluate(() => document.documentElement.dataset.theme)) === theme, HUNG_MS)
+      await page.screenshot({ path: path.join(lib.WORK, `${name}-${theme}.png`) })
+    }
+    await inv('settings:update', { appearance: { theme: 'dark' } })
+  }
+  // --- Stop (2): the running agents as a table, Agent · State · Card, its card named; Cancel changes nothing.
+  const card = (await inv('tasks:create', { title: 'Batch tables', project: 'alpha', column: 'doing', agent: w.id })).number
+  // Once the window's board has it: the Worker's tab shows the card.
+  await until(async () => (await page.locator(`.agent-tab[data-agent="${w.id}"]`).innerText().catch(() => '')).includes(`#${card}`), HUNG_MS)
+  // Idle reviews another card (started with its own token, as its CLI would): its row says "reviewing #n …".
+  const reviewed = (await inv('tasks:create', { title: 'Review table', project: 'alpha', column: 'review', agent: s.id })).number
+  const launches = () => fs.readFileSync(path.join(claudeHome, 'fake-launches.jsonl'), 'utf8').trim().split('\n').map((l) => JSON.parse(l))
+  const idleToken = launches().filter((l) => l.sessionId === before.i).at(-1)?.env?.HIVE_API_TOKEN
+  const startReview = await fetch(`http://127.0.0.1:${PORT}/v1/tasks/${reviewed}`, { method: 'PATCH', headers: { Authorization: `Bearer ${idleToken}`, 'Content-Type': 'application/json' }, body: JSON.stringify({ review: 'start' }) })
+  check('Idle starts reviewing a card', !!idleToken && startReview.status === 200, `${!!idleToken} ${startReview.status}`)
+  await until(async () => (await page.locator(`.agent-tab[data-agent="${i.id}"]`).innerText().catch(() => '')).includes(`#${reviewed}`), HUNG_MS)
+  // What a screen reader gets: the accessibility tree's text (the table is hidden from it, so a cell is never said twice).
+  const cdp = await page.context().newCDPSession(page)
+  const axTexts = async () => (await cdp.send('Accessibility.getFullAXTree')).nodes.filter((n) => !n.ignored).map((n) => n.name?.value ?? '')
+  const stopDialog = page.locator('.dialog', { hasText: 'Stop all agents?' })
+  await header.getByRole('button', { name: 'Stop (2)', exact: true }).click()
+  await stopDialog.waitFor({ timeout: 5000 })
+  const stopTable = await tableOf(stopDialog)
+  check('Stop all lists the running agents as a table: Agent, State, Card', JSON.stringify(stopTable.heads) === JSON.stringify(['Agent', 'State', 'Card']) && JSON.stringify(Object.keys(stopTable.rows).sort()) === JSON.stringify(['Idle', 'Worker']), JSON.stringify(stopTable))
+  check("…the Worker's card in its row, and the one Idle reviews in its", stopTable.rows.Worker?.[2]?.text === `#${card} Batch tables` && /Working/.test(stopTable.rows.Worker?.[1]?.text ?? '') && stopTable.rows.Idle?.[2]?.text === `reviewing #${reviewed} Review table`, JSON.stringify(stopTable.rows))
+  const stopAx = await axTexts()
+  check('…a screen reader gets each card too, the reviewed one as such', stopAx.some((t) => t.includes(`• Worker — Working`) && t.includes(`card #${card} Batch tables`)) && stopAx.some((t) => t.includes(`• Idle — `) && t.includes(`card reviewing #${reviewed} Review table`)), JSON.stringify(stopAx.filter((t) => t.includes('•'))))
+  // The table itself is out of the accessibility tree, so no cell of it is said twice.
+  const tableIgnored = async () => {
+    const { root } = await cdp.send('DOM.getDocument', { depth: 0 })
+    const { nodeId } = await cdp.send('DOM.querySelector', { nodeId: root.nodeId, selector: '.dialog table.agents-table' })
+    const { nodes } = await cdp.send('Accessibility.getPartialAXTree', { nodeId, fetchRelatives: false })
+    return nodes.length > 0 && nodes.every((n) => n.ignored)
+  }
+  check('…and the table itself is ignored by screen readers, so nothing is said twice', (await tableIgnored()) && !stopAx.includes(`#${card} Batch tables`), JSON.stringify(stopAx.filter((t) => /Batch tables/.test(t))))
+  check('…the table hidden from screen readers, its plain lines for them instead, and the note under it', stopTable.hidden && /• Worker — Working/.test(await plainLines(stopDialog)) && /conversations are kept/.test(await stopDialog.locator('.agents-detail-note').innerText()))
+  await bothThemes('startall-stop-confirm')
+  await stopDialog.getByRole('button', { name: 'Cancel' }).click()
+  await stopDialog.waitFor({ state: 'detached', timeout: 5000 })
+  check('…and Cancel stops nobody', (await live(w.id))?.status === 'working' && !!(await live(i.id)))
+
   // --- Start New (All): one question listing every agent, the working one flagged; Cancel changes nothing.
   const dialog = page.locator('.dialog', { hasText: 'Start new sessions for all agents?' })
   await header.getByRole('button', { name: 'Start New (3)', exact: true }).click()
   await dialog.waitFor({ timeout: 5000 })
   const text = await dialog.innerText()
-  check('it lists every agent, flagging the working one', /Worker — Working.*\(will be interrupted\)/.test(text) && /Idle — /.test(text) && /Stopped — not running/.test(text), text)
-  await page.screenshot({ path: path.join(lib.WORK, 'startall-confirm.png') })
+  check('it lists every agent, flagging the working one', /Worker — Working.*\(will be interrupted\)/.test(text) && /Idle — /.test(text) && /Stopped — Not running · A new session/.test(text), text)
+  const newTable = await tableOf(dialog)
+  const newAx = await axTexts()
+  check('…a screen reader gets each agent with its card and what happens to it', newAx.some((t) => t.includes(`• Worker — Working`) && t.includes(`card #${card} Batch tables`) && t.includes('Stopped (will be interrupted), then a new session')) && newAx.some((t) => t.includes(`card reviewing #${reviewed} Review table`)), JSON.stringify(newAx.filter((t) => t.includes('•'))))
+  check('…as a table: Agent, State, Card, What happens', JSON.stringify(newTable.heads) === JSON.stringify(['Agent', 'State', 'Card', 'What happens']) && Object.keys(newTable.rows).length === 3, JSON.stringify(newTable))
+  check('…the working one stopped first, in the warning colour; the stopped one only starts', newTable.rows.Worker?.[3]?.text === 'Stopped (will be interrupted), then a new session' && newTable.rows.Worker[3].warn && newTable.rows.Stopped?.[3]?.text === 'A new session' && !newTable.rows.Stopped[3].warn && newTable.rows.Stopped?.[1]?.text === 'Not running', JSON.stringify(newTable.rows))
+  await bothThemes('startall-confirm')
   await dialog.getByRole('button', { name: 'Cancel' }).click()
   await lib.sleep(1500) // on purpose: nothing may stop or start after Cancel
   check('Cancel changes nothing', (await live(w.id))?.sessionId === before.w && (await live(w.id))?.status === 'working' && (await live(i.id))?.sessionId === before.i && !(await live(s.id)))
@@ -258,6 +316,8 @@ const check = (name, ok, extra = '') => {
   await header.getByRole('button', { name: 'Archive and Start New (3)' }).click()
   await archiveDialog.waitFor({ timeout: 5000 })
   const archiveText = await archiveDialog.innerText()
+  const archiveTable = await tableOf(archiveDialog)
+  check('Archive lists them as a table too, saying each session is archived', archiveTable.rows.Worker?.[3]?.text === 'Stopped (will be interrupted), then its session archived, then a new one' && Object.keys(archiveTable.rows).length === 3, JSON.stringify(archiveTable.rows))
   check('Archive asks once, listing the agents with sessions, the working one flagged', /Worker — Working.*\(will be interrupted\)/.test(archiveText) && /Idle — /.test(archiveText) && /Stopped — /.test(archiveText) && /\.hive\/archive/.test(archiveText), archiveText)
   await archiveDialog.getByRole('button', { name: 'Archive and start new' }).click()
   const renewed = await until(async () => {

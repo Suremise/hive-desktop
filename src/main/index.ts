@@ -12,7 +12,7 @@ import { appendFileSync, createReadStream, existsSync } from 'original-fs'
 import { basename, join, resolve, sep } from 'path'
 import { readFile, stat } from 'original-fs/promises'
 import { Readable } from 'stream'
-import type { AppInfo, McpServerDef, QuitChoice, QuitScope, QuitSession, WindowState } from '../shared/types'
+import type { AppInfo, McpServerDef, QuitChoice, QuitScope, QuitSession, TaskCard, WindowState } from '../shared/types'
 import { providerService } from './providerService'
 import { checkGit } from './gitTool'
 import { handoverSession, hiveInstructions, withLatestHandover, wrapsLongCommands } from '../shared/hiveGuidance'
@@ -28,7 +28,8 @@ import { SERVABLE_EXT, servableType, unwatchAll } from './files'
 import { movedAttachment } from './attachmentsFolder'
 import { config } from './config'
 import { closeConsoleWindows, sendToConsoles } from './consoleWindow'
-import { archiveOldDone, endReviews } from './tasks'
+import { allTasks, archiveOldDone, endReviews } from './tasks'
+import { agentCardText } from '../shared/agentTable'
 import { emit, emitTo, onHiveEvent, toast } from './events'
 import { advanced, bindAdvancedSettings, mcpAdvancedEnv } from './advanced'
 import { recordLiveCards } from './cardSessions'
@@ -373,9 +374,30 @@ const quitSessions = (ws?: WorkspaceService): QuitSession[] =>
       const wsPath = workspaceOf(s.projectPath).path
       const where = wsPath ? { workspace: basename(wsPath), workspacePath: wsPath } : {}
       if (workspace.isAssistantHome(s.projectPath)) return { projectPath: s.projectPath, project: ASSISTANT_NAME, status: s.status, provider: s.provider, ...where, ...watch }
-      const agents = workspaceOf(s.projectPath).info()?.projects.find((p) => p.path.toLowerCase() === s.projectPath.toLowerCase())?.agents.length ?? 1
-      return { projectPath: s.projectPath, project: basename(s.projectPath), status: s.status, provider: s.provider, ...where, ...(agents > 1 ? { agent: s.agentName } : {}), ...watch }
+      // Every agent by its name and id (#572: the dialog's table has an Agent column, and its Card is found by the id).
+      return { projectPath: s.projectPath, project: basename(s.projectPath), status: s.status, provider: s.provider, ...where, agent: s.agentName ?? s.agentId, agentId: s.agentId, ...watch }
     })
+
+/**
+ * The sessions with each agent's card (#572): the one it works on, or reviews, from its workspace's board, read once a
+ * workspace. A board that can't be read leaves its agents without one.
+ */
+async function withCards(list: QuitSession[]): Promise<QuitSession[]> {
+  const boards = new Map<string, Promise<TaskCard[]>>()
+  const board = (projectPath: string): Promise<TaskCard[]> => {
+    const ws = workspaceOf(projectPath)
+    const key = (ws.path ?? '').toLowerCase()
+    if (!boards.has(key)) boards.set(key, allTasks(ws).catch(() => []))
+    return boards.get(key)!
+  }
+  return Promise.all(
+    list.map(async (s) => {
+      if (!s.agentId) return s
+      const card = agentCardText(await board(s.projectPath), s.project, s.agentId)
+      return card ? { ...s, card } : s
+    })
+  )
+}
 /** Agents that are working, or waiting on background tasks that will set them working again. */
 // A watching agent whose card is being worked on by another agent isn't done either: it carries on when woken.
 const workingCount = (): number => sessions.liveStates().filter((s) => s.status === 'working' || s.status === 'background' || !!watchKeepsQuitWaiting(s)).length
@@ -384,8 +406,13 @@ const workingCount = (): number => sessions.liveStates().filter((s) => s.status 
 function ask(e: HiveWindow, req: { sessions: QuitSession[]; unsaved: string[]; scope: QuitScope }): Promise<QuitChoice> {
   showWindow(e.win)
   return new Promise<QuitChoice>((answer) => {
+    // Held at once, so a second request finds it; shown once the agents' cards are read (#572).
     e.question = { request: req.sessions, unsaved: req.unsaved, scope: req.scope, answer }
-    emitTo(e.win, { type: 'quit-request', sessions: req.sessions, unsaved: req.unsaved, scope: req.scope })
+    void withCards(req.sessions).then((listed) => {
+      if (e.question?.answer !== answer) return
+      e.question.request = listed
+      emitTo(e.win, { type: 'quit-request', sessions: listed, unsaved: req.unsaved, scope: req.scope })
+    })
   }).finally(() => {
     e.question = null
   })

@@ -59,8 +59,12 @@ export interface QuitSession {
   projectPath: string
   project: string
   status: SessionStatus
-  /** The agent's name, when the project has more than one. */
+  /** The agent's name (none for the Hive Assistant). */
   agent?: string
+  /** The agent's id, to find its card. */
+  agentId?: string
+  /** The card it works on, or reviews ("reviewing #12 …"), from its workspace's board (#572). */
+  card?: string
   /** The name of the workspace it runs in (its folder's), shown over its group when several windows are open. */
   workspace?: string
   /** That workspace's full path: the quit dialog groups agents by it, so two workspaces with the same name stay apart. */

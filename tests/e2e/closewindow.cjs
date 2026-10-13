@@ -86,7 +86,7 @@ const invOn = (page) => (ch, ...a) => page.evaluate(([c, x]) => window.hive.invo
   const dialogIn = (page) =>
     page
       .evaluate(() => {
-        const d = [...document.querySelectorAll('.dialog')].find((x) => x.querySelector('.quit-list'))
+        const d = [...document.querySelectorAll('.dialog')].find((x) => x.querySelector('.quit-agents'))
         if (!d) return null
         return {
           title: d.getAttribute('aria-label') ?? '',
@@ -94,7 +94,8 @@ const invOn = (page) => (ch, ...a) => page.evaluate(([c, x]) => window.hive.invo
           groups: [...d.querySelectorAll('.quit-group')].map((g) => g.textContent.trim()),
           // Each row with the workspace heading above it.
           unsaved: d.querySelectorAll('.quit-unsaved .quit-row').length,
-          rows: [...([...d.querySelectorAll('.quit-list')].find((l) => !l.closest('.quit-unsaved'))?.children ?? [])].reduce((acc, el) => (el.classList.contains('quit-group') ? { ws: el.textContent.trim(), list: acc.list } : { ws: acc.ws, list: [...acc.list, `${acc.ws}|${el.querySelector('strong')?.textContent}`] }), { ws: '', list: [] }).list,
+          // The agents' table (#572): a heading row per workspace, then its agents' rows, the project in the second cell.
+          rows: [...(d.querySelector('.quit-agents tbody')?.children ?? [])].reduce((acc, el) => (el.classList.contains('quit-group') ? { ws: el.textContent.trim(), list: acc.list } : { ws: acc.ws, list: [...acc.list, `${acc.ws}|${el.children[1]?.textContent.trim()}`] }), { ws: '', list: [] }).list,
           buttons: [...d.querySelectorAll('button')].map((b) => b.textContent.trim()).filter(Boolean)
         }
       })
@@ -232,7 +233,7 @@ const invOn = (page) => (ch, ...a) => page.evaluate(([c, x]) => window.hive.invo
   /** Everything wrong with the quit dialog's layout: a control outside the dialog, cut, or overlapping another. */
   const layout = (page) =>
     page.evaluate(() => {
-      const d = [...document.querySelectorAll('.dialog')].find((x) => x.querySelector('.quit-list'))
+      const d = [...document.querySelectorAll('.dialog')].find((x) => x.querySelector('.quit-agents'))
       if (!d) return { bad: ['no dialog'], buttons: [] }
       const box = d.getBoundingClientRect()
       const bad = []

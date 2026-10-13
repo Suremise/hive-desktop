@@ -1,4 +1,4 @@
-import { Fragment, useEffect, useMemo, useRef, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import iconUrl from '../assets/icon.svg'
 import { call, errorMessage } from '../api'
 import { commandKeybinding, commandLabel, commands, runCommand } from '../commands'
@@ -17,6 +17,7 @@ import { APP_NAME } from '@shared/appName'
 import { formatDateTime } from '@shared/dates'
 import type { ConsoleRecordingInfo } from '@shared/devConsole'
 import { ProviderIcon } from './ProviderIcon'
+import { AgentsDetail, CARD_COLUMN, PROJECT_COLUMN, STATE_COLUMN, type AgentColumn, type AgentTableGroup, type AgentTableRow } from './AgentsTable'
 import { BusyButton, Icon, IconButton, LoadFailed, Modal, SearchInput, STATUS_TEXT, useBackdrop, useBusy } from './ui'
 
 const LEVEL_ICON = { info: 'info', success: 'pass', warning: 'warning', error: 'error' } as const
@@ -932,6 +933,8 @@ export function AgentSetupDialog() {
 // ---------------------------------------------------------------------------
 
 const BUSY: SessionStatus[] = ['working', 'waiting', 'background', 'watching']
+/** What stopping a busy agent interrupts, in the quit dialog's table (#572). */
+const STOPPING: Partial<Record<SessionStatus, string>> = { working: 'Will be interrupted', background: 'Background tasks will stop', waiting: 'Waiting for you', watching: 'Its card loop pauses until it is resumed' }
 
 /**
  * Asks what to do with running sessions and unsaved files when Hive quits. Main waits for
@@ -996,10 +999,33 @@ export function QuitDialog() {
   }
   const parents = distinguishingParents([...groups.values()].map((g) => g.path).filter(Boolean))
   const stopsAll = allWindows ? `Quitting closes all ${windows} windows and stops` : 'Quitting stops'
+  // The agents' rows (#572), each workspace's under its name when several windows are open.
+  const quitColumns: AgentColumn[] = [PROJECT_COLUMN, STATE_COLUMN, CARD_COLUMN, ...(busy ? [{ label: 'Stopping it' }] : [])]
+  const tableRows: (AgentTableRow | AgentTableGroup)[] = []
+  for (const [key, { name, path, rows }] of groups) {
+    if (name) {
+      const group = (
+        <span className="quit-group-line">
+          <Icon name="folder" /> {name}
+          {parents.has(key) && <span className="quit-group-where">{parents.get(key)}</span>}
+        </span>
+      )
+      tableRows.push({ key: `ws:${key}`, className: 'quit-group', title: path, group, text: parents.has(key) ? `${name} (${parents.get(key)})` : name })
+    }
+    for (const s of rows)
+      tableRows.push({
+        key: `${s.projectPath}:${s.agentId ?? s.agent ?? ''}`,
+        name: s.agent ?? s.project,
+        dot: s.status,
+        className: 'quit-row',
+        cells: [{ text: s.agent ? s.project : '' }, { text: s.status === 'watching' && s.watch ? s.watch : STATUS_TEXT[s.status] }, { text: s.card ?? '' }, ...(busy ? [{ text: STOPPING[s.status] ?? '', warn: true }] : [])]
+      })
+  }
   return (
     <Modal
       title={scope === 'workspace' ? 'Close this workspace?' : scope === 'switch' ? 'Switch workspace?' : closing ? 'Close this window?' : allWindows ? `Quit Hive and close all ${windows} windows?` : 'Quit Hive?'}
       icon={busy || unsaved.length ? 'warning' : 'sign-out'}
+      wide={sessions.length > 0}
       onClose={() => void decide('cancel')}
       footer={
         <>
@@ -1053,28 +1079,10 @@ export function QuitDialog() {
             : `${closing ? stops : stopsAll} ${sessions.length === 1 ? 'running session' : `${sessions.length} running sessions`}${allWindows ? ', in every workspace' : ''}.`}
         </p>
       )}
-      <div className="quit-list" hidden={!sessions.length}>
-        {[...groups].map(([key, { name, path, rows }]) => (
-          <Fragment key={`ws:${key}`}>
-            {name && (
-              <div className="quit-group" title={path}>
-                <Icon name="folder" /> {name}
-                {parents.has(key) && <span className="quit-group-where">{parents.get(key)}</span>}
-              </div>
-            )}
-            {rows.map((s) => (
-              <div key={`${s.projectPath}:${s.agent ?? ''}`} className="quit-row">
-                <span className={cx('dot', s.status)} />
-                <strong>{s.project}</strong>{s.agent && <span className="muted">· {s.agent}</span>}
-                <span className="faint">{s.status === 'watching' && s.watch ? s.watch : STATUS_TEXT[s.status]}</span>
-                {s.status === 'working' && <span className="badge warn">Will be interrupted</span>}
-                {s.status === 'background' && <span className="badge warn">Background tasks will stop</span>}
-                {s.status === 'waiting' && <span className="badge warn">Waiting for you</span>}
-                {s.status === 'watching' && <span className="badge warn">Its card loop pauses until it is resumed</span>}
-              </div>
-            ))}
-          </Fragment>
-        ))}
+      {/* The agents as a table (#572): Agent · Project · State · Card · what stopping it interrupts, under their workspace
+          when several windows are open; its plain text, grouped the same way, for screen readers. */}
+      <div className="quit-agents" hidden={!sessions.length}>
+        <AgentsDetail data={{ columns: quitColumns, rows: tableRows }} />
       </div>
       {allWindows && (
         // In the body, not the footer: beside Cancel, Quit when agents finish and Quit now it would push the footer out of the dialog.

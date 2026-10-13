@@ -2,6 +2,9 @@
 
 ## Unreleased
 
+### Agents
+- **Agents as a table in more places.** Stop All, Start New, Archive and Start New, Remove All and the quit dialog list their agents as a table (each one's state, card, worktree and what happens to it) instead of a line each, and hovering the status bar's running sessions shows the running agents the same way (#572).
+
 ### Progress panel
 - **Put your lanes in your own order.** Drag a running lane up or down in the Progress panel's lane list (a line shows where it goes), or focus it and press Alt+Up or Alt+Down; its right-click menu has Move Up, Move Down and Usual Order. Each workspace keeps the order, after a restart too: a new lane comes in on top, and a lane that is merged or abandoned drops to the bottom, after those that stopped before it, so the latest is always last (#568).
 

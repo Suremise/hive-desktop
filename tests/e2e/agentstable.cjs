@@ -213,6 +213,18 @@ const LONG = 'Coordinator out of the box: fold the coordinator playbook into the
   const axBadge = await focusedAx()
   check('…and is described', !!axBadge?.description.includes('B2: Waiting on 1 background task'), JSON.stringify(axBadge))
 
+  // --- The status bar's running sessions (#572): the counts, then the running agents as a table, Agent · Project · State ·
+  // Card · Waiting for, every column inside the tooltip; their plain-text lines as the item's description.
+  const running = page.locator('.statusbar .status-item.running-sessions')
+  const bar = await hoverTable(running)
+  check("the status bar's running sessions show a table: Agent, Project, State, Card, Waiting for", JSON.stringify(bar?.head) === JSON.stringify(['Agent', 'Project', 'State', 'Card', 'Waiting for']), JSON.stringify(bar?.head))
+  check('…of the four running agents, each with its project', JSON.stringify(bar?.rows.map((r) => r.name).sort()) === JSON.stringify(['B1', 'B2', 'R1', 'R2']) && bar.rows.every((r) => r.cells[1] === 'alpha'), JSON.stringify(bar?.rows))
+  check('…B1 on its card, R1 waiting for it', row(bar, 'B1')[3].startsWith(`#${c1} `) && row(bar, 'R1')[4] === `#${c1} → Review`, JSON.stringify([row(bar, 'B1'), row(bar, 'R1')]))
+  check('…the counts above it', /4 running session\(s\): 1 working, 1 waiting on background tasks/.test(await page.locator('.tip.agents-tip strong').first().innerText()))
+  check('…every column inside the tooltip', fits(bar), fitText(bar))
+  check('…and the item is described by its agents, a line each', new RegExp(`• B1 — in alpha · Working… · card #${c1} `).test((await running.getAttribute('aria-description')) ?? '') && new RegExp(`• R1 — in alpha · Watching · waiting for #${c1} → Review`).test((await running.getAttribute('aria-description')) ?? ''), await running.getAttribute('aria-description'))
+  await shoot('statusbar-running')
+
   // --- Narrow and zoomed, with a long agent name: every column still fits, the long cells cut with an ellipsis.
   await inv('agents:update', alpha, a.B1.id, { name: 'Builder with a descriptive agent name' })
   await until(async () => (await page.locator('.agent-tab', { hasText: 'Builder with a descriptive' }).count()) > 0, 5000)

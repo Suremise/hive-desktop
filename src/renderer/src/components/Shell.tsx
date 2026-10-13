@@ -1,4 +1,4 @@
-import type { PlanLimit } from '@shared/types'
+import type { PlanLimit, TaskCard, WorkspaceInfo } from '@shared/types'
 import { useNow } from '../usage'
 import { runCommand } from '../commands'
 import { setActivity, set, useProviderWarnings, useStore, type Activity } from '../store'
@@ -14,6 +14,8 @@ import { keepAwakeText } from '@shared/keepAwake'
 import { GIT_MIN, gitFixText, gitProblemText } from '@shared/gitTool'
 import { useInbox } from '../inbox'
 import { GitStatusBarItem } from '../views/GitTab'
+import { AGENT_LIMIT_MAX } from '@shared/defaults'
+import { AgentRowsTable, CARD_COLUMN, PROJECT_COLUMN, STATE_COLUMN, WAITING_COLUMN, agentRow, tableText, type AgentTableData, type AgentTableRow } from './AgentsTable'
 
 const ACTIVITIES: { id: Activity; icon: string; label: string; command: string }[] = [
   { id: 'projects', icon: 'files', label: 'Projects', command: 'view.projects' },
@@ -68,11 +70,41 @@ export function ActivityBar() {
   )
 }
 
+/** The most agents the running sessions' table lists (a screenful): more say "and n more". */
+const RUNNING_ROWS_MAX = AGENT_LIMIT_MAX
+
+/**
+ * The workspace's running agents (#572): Agent · Project · State · Card · Waiting for (only when one waits), project by
+ * project in the sidebar's order; `max` rows at most.
+ */
+function runningAgentsData(workspace: WorkspaceInfo, tasks: readonly TaskCard[], max = Infinity): AgentTableData {
+  const shown = workspace.projects.flatMap((p) => p.agents.filter((a) => a.live).map((a) => ({ p, a, ...agentRow(p, a, tasks) }))).slice(0, max)
+  const waits = shown.some((r) => r.waits)
+  return {
+    columns: [PROJECT_COLUMN, STATE_COLUMN, CARD_COLUMN, ...(waits ? [WAITING_COLUMN] : [])],
+    rows: shown.map(({ p, a, state, card, waits: w }): AgentTableRow => ({ key: `${p.path}:${a.id}`, name: a.name, dot: a.live!.status, cells: [{ text: p.name }, { text: state }, { text: card }, ...(waits ? [{ text: w }] : [])] }))
+  }
+}
+
+/** The running sessions' tooltip (#572): the counts, then the running agents as a table, at most a screenful ("and n more"). */
+function RunningAgentsTip({ workspace, summary, count }: { workspace: WorkspaceInfo; summary: string; count: number }) {
+  const tasks = useStore((s) => s.tasks)
+  const data = runningAgentsData(workspace, tasks, RUNNING_ROWS_MAX)
+  return (
+    <div className="rail-tip">
+      <strong>{summary}</strong>
+      <AgentRowsTable {...data} />
+      {count > data.rows.length && <div className="faint">and {count - data.rows.length} more</div>}
+    </div>
+  )
+}
+
 export function StatusBar() {
   const workspace = useStore((s) => s.workspace)
   const selected = useStore((s) => s.selectedProject)
   const api = useStore((s) => s.api)
   const project = workspace?.projects.find((p) => p.path === selected)
+  const tasks = useStore((s) => s.tasks)
 
   if (!workspace) {
     return (
@@ -91,6 +123,9 @@ export function StatusBar() {
   const working = live.filter((l) => l!.status === 'working').length
   const waiting = live.filter((l) => asksYou(l)).length
   const background = live.filter((l) => l!.status === 'background').length
+  const summary = `${live.length} running session(s): ${working} working, ${background ? `${background} waiting on background tasks, ` : ''}${waiting} waiting for you`
+  // The table's plain text, every agent, for screen readers (#572).
+  const agentLines = live.length ? tableText(runningAgentsData(workspace, tasks)) : ''
 
   return (
     <div className="statusbar">
@@ -100,8 +135,8 @@ export function StatusBar() {
         </div>
       </Tooltip>
       {project && <GitStatusBarItem project={project} />}
-      <Tooltip content={`${live.length} running session(s): ${working} working, ${background ? `${background} waiting on background tasks, ` : ''}${waiting} waiting for you`}>
-        <div className="status-item" onClick={() => runCommand('view.projects')}>
+      <Tooltip content={live.length ? <RunningAgentsTip workspace={workspace} summary={summary} count={live.length} /> : summary} className={live.length ? 'agents-tip' : undefined}>
+        <div className="status-item running-sessions" onClick={() => runCommand('view.projects')} aria-label={summary} aria-description={agentLines || undefined}>
           <Icon name="pulse" /> {live.length}
         </div>
       </Tooltip>
