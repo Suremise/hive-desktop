@@ -480,8 +480,10 @@ export function DiagnosticsDialog() {
   const [recording, setRecording] = useState<ConsoleRecordingInfo | null>(null)
   const [attach, setAttach] = useState(false)
   useEffect(() => {
-    if (!open) return
+    // Cleared while closed, so an open never shows the last open's row (or choice) until its read returns (#723).
+    setRecording(null)
     setAttach(false)
+    if (!open) return
     let current = true
     void call('console:recordings').then(
       (r) => current && setRecording(r.latest),
