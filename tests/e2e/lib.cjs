@@ -679,6 +679,85 @@ async function sendPrompt(inv, key, text, { submitted, tries = 3, waitMs = 20000
   return 0
 }
 
+/**
+ * The longest a fake Claude Code's prompt waits to be taken, or its turn to end: a bound for a hung run, never how long
+ * it should take (#570). Under load the fake took a prompt 10 s after it was typed (#672).
+ */
+const TURN_HUNG_MS = 60000
+
+/**
+ * Prompts typed into the fake Claude Code (fake-claude/) in a session (pty `key`; `live()` gives its session:live entry),
+ * each waited for by its own turn (#672, #684). Two gaps open under load when a suite types a prompt and then waits for
+ * the status: the status is still the last turn's "finished" until the fake takes the new prompt, so the wait returns
+ * at once; and Hive has a turn finished at the fake's Stop hook, but the fake ends it on its side (drawing "✻ Worked
+ * for" and its input line) only after the hook's reply, and drops an Enter typed in between.
+ * A third: a line Hive types into the session itself (a mode message, a wake) can be taken late, and a prompt typed
+ * meanwhile is dropped while the turn that ends is Hive's. So a prompt counts as taken only once its conversation has it,
+ * and as answered once a reply follows it there and Hive's turn ledger has the turn over.
+ * - type(text): types `text` and Enter once the fake takes prompts: the session idle and its screen showing its last turn
+ *   over (no spinner drawn since the last "✻ Worked for"). Throws, with what it showed, without typing if it never does.
+ *   Returns what over() needs.
+ * - over(typed): waits for the typed prompt in the conversation, then for its reply and the turn over (Hive's turn
+ *   ledger, a turn after the one before it); the turn's id, or null with the session, its conversation, its screen and
+ *   the hooks that didn't reach Hive (fake-hook-errors.jsonl in `opts.home`, its CLAUDE_CONFIG_DIR) logged, and
+ *   `opts.why(text)` called for more evidence.
+ * - say(text): both.
+ * For the fake's prompts that end with a reply (not /compact, /rename or a refused sign-in: type() alone for those).
+ * Each wait is bounded by `opts.hungMs` (TURN_HUNG_MS) and logs how long one not done at the first look took.
+ */
+function fakePrompts(inv, key, live, { hungMs = TURN_HUNG_MS, home = null, why = null } = {}) {
+  const screen = async () => (await inv('pty:buffer', key).catch(() => '')) ?? ''
+  const idle = (s) => ['ready', 'finished', 'watching', 'background'].includes(s?.status) && s?.turn?.state !== 'running'
+  const takesPrompts = async () => {
+    const b = await screen()
+    return idle(await live()) && b.lastIndexOf('✻ Worked for') >= b.lastIndexOf('(esc to interrupt)')
+  }
+  /** Its conversation from item `from` on (all of it by default), as the Sessions tab reads it. */
+  const conversation = async (from) => {
+    const s = await live()
+    const t = s?.sessionId ? await inv('transcript:read', s.projectPath, s.sessionId, from === undefined ? undefined : { from }).catch(() => null) : null
+    return t ?? { total: 0, from: 0, items: [] }
+  }
+  const short = (text) => JSON.stringify(text.slice(0, 50))
+  const type = async (text) => {
+    const t = Date.now()
+    let looks = 0
+    if (!(await until(async () => (looks++, await takesPrompts()), hungMs))) throw new Error(`${short(text)} not typed: the fake didn't take prompts within ${hungMs / 1000} s; the session ${JSON.stringify((await live())?.status)}, its turn ${JSON.stringify((await live())?.turn ?? null)}, its screen ends ${JSON.stringify((await screen()).slice(-300))}`)
+    if (looks > 1) console.log(`  (it took prompts again ${Date.now() - t} ms after ${short(text)} was due)`)
+    const before = (await live())?.turn?.id ?? null
+    const items = (await conversation()).total
+    await inv('pty:write', key, text)
+    await sleep(300) // on purpose: the fake reads a typed line before its Enter, as a CLI does
+    await inv('pty:write', key, '\r')
+    return { text, before, items }
+  }
+  const over = async ({ text, before, items }) => {
+    const t = Date.now()
+    // Where the prompt is in its conversation (an item's id is its index), and whether a reply follows it.
+    const asked = async () => {
+      const c = await conversation(items)
+      const at = c.items.findIndex((x) => x.kind === 'user' && x.text.trim() === text.trim())
+      return at < 0 ? null : { replied: c.items.slice(at + 1).some((x) => x.kind === 'assistant') }
+    }
+    const taken = await until(asked, hungMs, 250)
+    if (Date.now() - t > 2000) console.log(`  (the prompt ${short(text)} ${taken ? 'was taken' : 'was not taken'} after ${Date.now() - t} ms)`)
+    const ended = !!taken && (await until(async () => {
+      const s = await live()
+      return s?.turn?.id && s.turn.id !== before && s.turn.state === 'over' && s.status !== 'working' && (await asked())?.replied ? s.turn.id : null
+    }, hungMs, 250))
+    if (ended) return ended
+    console.log(`DIAGNOSTIC the prompt ${short(text)} ${taken ? "wasn't answered" : "wasn't taken (not in its conversation)"}; the session: ${JSON.stringify((await live()) ?? null)}`)
+    console.log(`DIAGNOSTIC its conversation since: ${JSON.stringify((await conversation(items)).items.map((x) => `${x.kind}: ${String(x.text ?? '').slice(0, 80)}`))}`)
+    console.log(`DIAGNOSTIC its screen ends ${JSON.stringify((await screen()).slice(-400))}`)
+    const failed = home && fs.existsSync(path.join(home, 'fake-hook-errors.jsonl')) ? fs.readFileSync(path.join(home, 'fake-hook-errors.jsonl'), 'utf8').trim().split(/\r?\n/) : []
+    console.log(`DIAGNOSTIC hooks that didn't reach Hive: ${home ? (failed.length ? failed.join(' | ') : 'none') : '(its home not given)'}`)
+    if (why) await why(text)
+    return null
+  }
+  const say = async (text) => over(await type(text))
+  return { screen, takesPrompts, type, over, say }
+}
+
 /** Skips the whole suite with a reason (the run record shows it): for a suite that can't run on this machine. */
 function skip(reason) {
   console.log(`SKIPPED ${reason}`)
@@ -868,4 +947,4 @@ async function haikuAutoCaveat(page, autoOffered, timeoutMs = 10000) {
   return [ok, JSON.stringify(await caveat())]
 }
 
-module.exports = { ROOT, ELECTRON, WORK, CODEX_HOME, CLAUDE_TEST_HOME, TRASH, trashed, tidyUp, ownClaudeHome, probeDir, hiveEnv, childEnv, baseEnv, git, GIT_LOCKED, plainText, trustChoice, haikuAutoMode, haikuAutoCaveat, sleep, port, until, hoverTip, quitWatch, appReady, openWorkspace, hadEstimate, fitWindow, enableProviders, fakeClaude, launch, waitForProvider, addAgent, soloAgent, ptyKey, acceptClaudeTrust, acceptRelaunchTrust, withFileLock, trustForCodex, gitProject, codexSignedIn, launchDir, launchHook, codexHook, processTree, stopProcessesIn, identify, stillSame, endExactly, endTreeExactly, endChildTree, processRunning, samplePng, environmentProblem, environmentProblems, storePwshRefusals, stepVerdict, checked, cliStep, sendPrompt, skip }
+module.exports = { ROOT, ELECTRON, WORK, CODEX_HOME, CLAUDE_TEST_HOME, TRASH, trashed, tidyUp, ownClaudeHome, probeDir, hiveEnv, childEnv, baseEnv, git, GIT_LOCKED, plainText, trustChoice, haikuAutoMode, haikuAutoCaveat, sleep, port, until, hoverTip, quitWatch, appReady, openWorkspace, hadEstimate, fitWindow, enableProviders, fakeClaude, launch, waitForProvider, addAgent, soloAgent, ptyKey, acceptClaudeTrust, acceptRelaunchTrust, withFileLock, trustForCodex, gitProject, codexSignedIn, launchDir, launchHook, codexHook, processTree, stopProcessesIn, identify, stillSame, endExactly, endTreeExactly, endChildTree, processRunning, samplePng, environmentProblem, environmentProblems, storePwshRefusals, stepVerdict, checked, cliStep, sendPrompt, TURN_HUNG_MS, fakePrompts, skip }

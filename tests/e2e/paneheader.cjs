@@ -88,13 +88,14 @@ function commits(wt, n) {
   check('the agent starts', !!(await until(async () => (await live(long.id))?.status === 'ready', 15000)))
   const key = lib.ptyKey(alpha, long.id)
   let turns = 0
+  // A turn, typed once the fake takes prompts and waited for by its own end (#684, lib.fakePrompts), and over on the
+  // fake's side too: Compact types /compact next, which the fake drops while it still ends the turn (#679: Hive showed it
+  // compacting, and it never was ready again).
+  const prompts = lib.fakePrompts(inv, key, () => live(long.id), { home: claudeHome })
   const turn = async () => {
     turns++
-    await inv('pty:write', key, `turn ${turns}`)
-    await lib.sleep(300)
-    await inv('pty:write', key, '\r')
-    await until(async () => String(await inv('pty:buffer', key)).includes(`Done: turn ${turns}`), 15000)
-    await until(async () => (await live(long.id))?.status === 'finished', 15000)
+    check(`turn ${turns} is answered`, !!(await prompts.say(`turn ${turns}`)))
+    check(`…and the fake takes input again`, !!(await lib.until(prompts.takesPrompts, lib.TURN_HUNG_MS)))
   }
   await turn()
   await page.getByRole('button', { name: 'Two columns' }).click()

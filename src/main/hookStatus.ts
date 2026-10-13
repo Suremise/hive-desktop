@@ -135,6 +135,38 @@ export function titleStep(asks: boolean, s: HookStatusInput): HookStep {
   return { ...step, ...(prompt && question ? { question: question.message } : {}), open: s.open.filter((a) => a !== prompt && a !== question) }
 }
 
+/** A launch as its start is read from its screen (startupScreen). `settled`: it has taken a prompt, or its question was answered. */
+export interface StartupState {
+  status: SessionStatus
+  askedAtStart: boolean
+  settled: boolean
+}
+
+/** What a CLI's screen says about its start: its question before it (a folder's trust), and its prompt (ready). */
+export interface StartupScreen {
+  readyOutput?: RegExp | null
+  startupQuestion?: RegExp | null
+}
+
+/**
+ * Whether a launch's screen is still read for its start. For a CLI whose readiness is read from its screen (readyOutput),
+ * that goes on while it is ready but hasn't taken a prompt nor been asked: its question can come after its prompt is drawn
+ * (#679: Copilot drew its footer before its trust question under load, and stayed ready while it asked).
+ */
+export function startupWatched(s: StartupState, screen: StartupScreen): boolean {
+  if (!screen.readyOutput && !screen.startupQuestion) return false
+  return s.status === 'starting' || s.askedAtStart || (s.status === 'ready' && !s.settled && !!screen.readyOutput)
+}
+
+/** What the start's screen text means now: its question (the agent waits for you), its prompt (ready), or nothing yet. */
+export function startupScreen(s: StartupState, text: string, screen: StartupScreen): { asked: string } | 'ready' | null {
+  if (!startupWatched(s, screen)) return null
+  const asked = s.askedAtStart ? null : screen.startupQuestion?.exec(text)
+  if (asked) return { asked: asked[0] }
+  if ((s.status === 'starting' || s.askedAtStart) && screen.readyOutput?.test(text)) return 'ready'
+  return null
+}
+
 /** The status a turn's end (or an interruption) leaves: background while tasks will start the agent again. */
 export function idleAfter(s: Pick<HookStatusInput, 'backgroundWakes' | 'tasks'>, idle: 'finished' | 'ready'): SessionStatus {
   return s.backgroundWakes && s.tasks > 0 ? 'background' : idle

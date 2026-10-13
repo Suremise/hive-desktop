@@ -47,53 +47,18 @@ const check = (name, ok, extra = '') => {
   const key = lib.ptyKey(home, 'assistant')
   const live = async () => (await inv('session:live')).find((s) => s.projectPath.toLowerCase() === home.toLowerCase() && s.agentId === 'assistant')
   const settings = async () => inv('settings:get')
-  // The fake takes a prompt only once its last turn is over on its side: Hive has the turn finished at its Stop hook, but
-  // the fake ends it after the hook's reply, drawing "✻ Worked for" and its input line. An Enter in between is dropped
-  // (#672). So its screen, not only the status, says when it takes the next one: no spinner drawn since that line.
-  const screen = async () => (await inv('pty:buffer', key)) ?? ''
-  const takesPrompts = async () => {
-    const s = await screen()
-    return ['ready', 'finished'].includes((await live())?.status) && s.lastIndexOf('✻ Worked for') >= s.lastIndexOf('(esc to interrupt)')
-  }
-  /** Types `text` and Enter once it takes prompts; one that never does (a hung run) throws before anything is typed. */
-  const typeLine = async (text) => {
-    const t = Date.now()
-    let looks = 0
-    if (!(await lib.until(async () => (looks++, await takesPrompts()), 20000))) throw new Error(`"${text.slice(0, 50)}" not typed: it didn't take prompts within 20 s; the session ${JSON.stringify((await live())?.status)}, its screen ends ${JSON.stringify((await screen()).slice(-300))}`)
-    if (looks > 1) console.log(`  (it took prompts again ${Date.now() - t} ms after "${text.slice(0, 50)}" was due)`)
-    const before = (await live())?.turn?.id
-    await inv('pty:write', key, text)
-    await lib.sleep(300) // on purpose: the fake reads a typed line before its Enter, as a CLI does
-    await inv('pty:write', key, '\r')
-    return before
-  }
-  /**
-   * Has the Assistant run one prompt (fake commands), and waits for that prompt's own turn to end: a new turn id,
-   * finished (#672: under load the fake took the prompt 10 s after it was typed, and "finished" read meanwhile was still
-   * the last turn's, so the suite went on before its call was made). A prompt taken late is logged with how late.
-   */
-  const say = async (text) => {
-    const before = await typeLine(text)
-    const t = Date.now()
-    const turn = async () => (await live())?.turn?.id
-    const started = await lib.until(async () => ((await turn()) && (await turn()) !== before ? await turn() : null), HUNG_MS)
-    if (Date.now() - t > 2000) console.log(`  (the prompt "${text.slice(0, 50)}" ${started ? 'was taken' : 'was not taken'} after ${Date.now() - t} ms)`)
-    const finished = !!started && !!(await lib.until(async () => {
-      const s = await live()
-      return s?.turn?.id === started && s.status === 'finished'
-    }, 30000))
-    if (!finished) await whyNotFinished(text)
-    return finished
-  }
+  // Each prompt is typed once the fake takes prompts and waited for by its own turn (#672, #684: lib.fakePrompts).
+  const prompts = lib.fakePrompts(inv, key, live, { home: claudeHome, why: () => whyNotFinished() })
+  const typeLine = prompts.type
+  /** Has the Assistant run one prompt (fake commands): true once that prompt's own turn has ended. */
+  const say = async (text) => !!(await prompts.say(text))
   /**
    * Evidence for a turn that didn't finish (#551: the restarted Assistant's terminal ended just after its first call):
    * the session's state, how each fake ended (fake-exits.jsonl: none for one ended from outside), and Hive's log of
    * terminals and the Assistant.
    */
-  const whyNotFinished = async (text) => {
+  const whyNotFinished = async () => {
     const read = (f) => (fs.existsSync(f) ? fs.readFileSync(f, 'utf8').trim().split(/\r?\n/) : [])
-    console.log(`DIAGNOSTIC the turn "${text.slice(0, 60)}" didn't finish; the session: ${JSON.stringify((await live()) ?? null)}`)
-    console.log(`DIAGNOSTIC its screen ends ${JSON.stringify((await screen()).slice(-400))}`)
     for (const l of read(path.join(claudeHome, 'fake-exits.jsonl'))) console.log(`DIAGNOSTIC fake exit: ${l.slice(0, 600)}`)
     for (const l of read(path.join(claudeHome, 'fake-launches.jsonl'))) console.log(`DIAGNOSTIC fake launch: session ${JSON.parse(l).sessionId}`)
     for (const l of read(path.join(userData, 'logs', 'hive.log')).filter((line) => /\[(pty|assistant|sessions?|agents?|processes)\]|WARN|ERROR/.test(line)).slice(-40)) console.log(`DIAGNOSTIC ${l.slice(0, 400)}`)
