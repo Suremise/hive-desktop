@@ -16,6 +16,7 @@ import {
   unknownProviders,
   TEMPLATE_IMPORT_MAX,
   TEMPLATE_NAME_MAX,
+  templateLimitText,
   type AgentTemplate,
   type TemplateDeleted,
   type TemplateDest,
@@ -28,7 +29,7 @@ import type { AgentDef, OldWorktreeOutcome, ProviderId, TemplateLoadPlan } from 
 import { config } from './config'
 import { placeKey, readKeptJson, withFileLock, writeKeptJson, writeTextAtomic } from './fsutil'
 import { createLogger, userText } from './logger'
-import { addAgent, branchPlace, claimMark, newWorktreePlace, prepareAgent, removedSince, reserveForRemoval, takePendingSetup } from './projectAgents'
+import { addAgent, agentLimit, branchPlace, claimMark, newWorktreePlace, prepareAgent, removedSince, reserveForRemoval, takePendingSetup } from './projectAgents'
 import { providerService } from './providerService'
 import { sessions } from './sessions'
 import { endReviews, releaseAgentCards } from './tasks'
@@ -193,7 +194,7 @@ export async function renameTemplate(ref: TemplateRef, name: string): Promise<Te
 
 /**
  * Saves a template edited in the Templates view (#271): its name, description, layout and agents, in the file it is
- * kept in (its place stays: Duplicate… moves it). The edit is checked as untrusted (as an import is: 1–12 agents with
+ * kept in (its place stays: Duplicate… moves it). The edit is checked as untrusted (as an import is: 1–24 agents with
  * unique names, providers' ids, settings as CLIs name them) and refused, saying why, if another template there has its
  * name or the template changed since it was opened (`savedAt`, as it was then): nothing is half saved, and a change
  * made meanwhile (a re-save from a project, another window's edit) is never overwritten unasked.
@@ -405,6 +406,9 @@ export async function templatePlan(projectPath: string, scope: TemplateScope, fi
     if (why) missing.push({ provider: id, reason: why, agents: t.agents.filter((a) => a.provider === id).map((a) => a.name) })
   }
   for (const m of missing) blocked.push(`${m.reason}, needed by ${m.agents.join(', ')}.`)
+  // It replaces the project's agents: all of them have to fit (#562).
+  const limit = agentLimit(projectPath)
+  if (t.agents.length > limit) blocked.push(templateLimitText(t.agents.length, limit))
   const base = t.agents.some((a) => a.worktree) ? await wt.currentBranch(projectPath) : null
   if (t.agents.some((a) => a.worktree) && !base) blocked.push(await needsGit(projectPath, t.agents.filter((a) => a.worktree).map((a) => a.name)))
   // Where each worktree agent works, as the load makes them, one after another: in this project, never the template's
@@ -549,6 +553,9 @@ export async function loadTemplate(projectPath: string, scope: TemplateScope, fi
           const list = projectAgents(now)
           if (changed(list.map((a) => a.id))) throw new TemplateError("The project's agents changed while the template was loading: nothing was changed. Open the template again.")
           if (list.some((a) => busy(projectPath, a.id))) throw new TemplateError('An agent started meanwhile: nothing was changed. Stop it first.')
+          // The limit as it is now: Settings may have lowered it since the plan.
+          const limit = agentLimit(projectPath)
+          if (staged.length > limit) throw new TemplateError(`${templateLimitText(staged.length, limit)} Nothing was changed.`)
           if (staged.some((s) => s.def.worktree && (removedSince(s.def.worktree.path, mark) || !existsSync(s.def.worktree.path)))) throw new TemplateError('A worktree it would work in again is being removed, or was just removed: nothing was changed. Open the template again.')
           old = list
           // A worktree whose setup never ran keeps that (#289): an agent working in it again runs it first, and one kept

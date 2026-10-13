@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useState } from 'react'
-import { MAX_AGENTS, SESSION_LAYOUTS } from '@shared/defaults'
+import { SESSION_LAYOUTS } from '@shared/defaults'
+import { useAgentLimit } from '../advanced'
 import { agentChoosesMcp, agentMcpText } from '@shared/agentMcp'
 import { isKnownProvider, providerDescriptor, providerName } from '@shared/providers'
 import { TEMPLATE_DESCRIPTION_MAX, TEMPLATE_NAME_MAX, uniqueName, unknownProviders, type TemplateAgent, type TemplateDest, type TemplateDeleted, type TemplateEntry, type TemplateRef } from '@shared/templates'
@@ -231,6 +232,8 @@ function editTemplateAgent(template: string, agent: TemplateAgent | null, others
  */
 function TemplateEditor({ t, project, onDone }: { t: TemplateEntry; project?: ProjectInfo; onDone: () => void }) {
   const key = editKey(t)
+  // As many as a project of this workspace can have: more couldn't be loaded here (#562).
+  const limit = useAgentLimit()
   // The template as the editor opened it (or last saved it), kept whatever the list shows later: what the draft is
   // compared with, and the revision a save expects (a newer one there refuses it, so a save made meanwhile is never
   // overwritten).
@@ -257,7 +260,7 @@ function TemplateEditor({ t, project, onDone }: { t: TemplateEntry; project?: Pr
   }
   const put = (patch: Partial<TemplateDraft>): void => setDraft((d) => ({ ...d, ...patch }))
   const agents = draft.agents
-  const full = agents.length >= MAX_AGENTS
+  const full = agents.length >= limit
   const problemOf = (d: TemplateDraft): string | null => (!d.name.trim() ? 'Enter a name for the template.' : !d.agents.length ? 'A template needs at least one agent.' : null)
   const problem = problemOf(draft)
   const where = project?.path ?? (t.scope === 'project' ? t.project : undefined)
@@ -361,7 +364,7 @@ function TemplateEditor({ t, project, onDone }: { t: TemplateEntry; project?: Pr
           <h3 className="agent-dialog-h">
             Agents <span className="count">{agents.length}</span>
           </h3>
-          <Tooltip content={full ? `A template can have up to ${MAX_AGENTS} agents` : 'Add an agent, in the Agent Settings dialog'}>
+          <Tooltip content={full ? `A template can have up to ${limit} agents, as many as a project (Settings → Advanced → Agents per project)` : 'Add an agent, in the Agent Settings dialog'}>
             <button className="btn small subtle" disabled={full || busy} onClick={() => void edit(null)}>
               <Icon name="add" /> Add Agent…
             </button>

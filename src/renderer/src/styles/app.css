@@ -868,6 +868,11 @@ kbd {
   padding: 3px 8px;
   white-space: nowrap;
 }
+/* More than 12 agents (#562): tighter rows, so 24 still fit the window's height. */
+.table.agents-table.many td {
+  padding-top: 1px;
+  padding-bottom: 1px;
+}
 .table.agents-table th:first-child,
 .table.agents-table td:first-child {
   padding-left: 0;
@@ -4559,6 +4564,14 @@ body.pane-resizing .monaco-editor {
   min-width: 24px;
   padding: 0 7px;
   font-size: 12px;
+}
+/* More pages than buttons (#562): ‹, "3 / 12" with its menu, ›. */
+.page-switch.compact .page-menu {
+  display: inline-flex;
+  align-items: center;
+  gap: 2px;
+  white-space: nowrap;
+  font-variant-numeric: tabular-nums;
 }
 .page-switch .dot {
   position: absolute;

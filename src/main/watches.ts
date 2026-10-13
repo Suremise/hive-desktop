@@ -233,7 +233,7 @@ const renameOnce = (from: string, to: string): Promise<void> => (testHooks.renam
 const writeText = (path: string, text: string): Promise<void> => (testHooks.write ?? ((p: string, t: string) => writeFile(p, t, 'utf8')))(path, text)
 
 /**
- * At most this many watches a workspace (one per agent: 12 agents in each of many projects), and this big a file. Both
+ * At most this many watches a workspace (one per agent: up to 24 agents in each of many projects, #562), and this big a file. Both
  * hold for what Hive writes as well as what it reads: a watch that would pass either is refused when it is made.
  */
 const MAX_WATCHES = 500

@@ -1,7 +1,7 @@
 // Agent pages (#134): one layout for the project (automatic until chosen), and a page holds as many agents as it has
 // panes, so every agent on a page has a pane: pages = agents ÷ panes. One at a time (Single) is one page of every agent.
 import { describe, expect, it } from 'vitest'
-import { MAX_AGENTS, SESSION_LAYOUTS, agentPageCount, agentsPerPage, chosenLayout, layoutForAgents, layoutPanes, migrateProjectConfig, pageAgents, pageEndIndex, pageOfAgent, projectLayout, projectPerPage } from '../src/shared/defaults'
+import { AGENT_LIMIT_DEFAULT, AGENT_LIMIT_MAX, SESSION_LAYOUTS, agentPageCount, agentsPerPage, chosenLayout, layoutForAgents, layoutPanes, migrateProjectConfig, pageAgents, pageEndIndex, pageOfAgent, projectLayout, projectPerPage } from '../src/shared/defaults'
 import type { PageLayout, SessionLayout } from '../src/shared/types'
 
 const agents = (n: number) => Array.from({ length: n }, (_, i) => ({ id: `a${i + 1}`, name: `Agent ${i + 1}` }))
@@ -22,12 +22,15 @@ describe('agent pages follow the layout (#134)', () => {
     expect(pages(12, 'grid6')).toBe('a1a2a3a4a5a6|a7a8a9a10a11a12')
     // One at a time: one page of every agent (its tabs choose the one shown), so never any page buttons.
     expect(pages(12, 'single')).toBe('a1a2a3a4a5a6a7a8a9a10a11a12')
+    // 24, the most Agents per project allows (#562): four pages of six; one at a time, still one page.
+    expect(pages(24, 'grid6').split('|').length).toBe(4)
+    expect(pages(24, 'single').split('|').length).toBe(1)
   })
 
-  it('for every layout and every count from 1 to 12, auto included: each agent on exactly one page, every page full but the last', () => {
-    expect(MAX_AGENTS).toBe(12)
+  it('for every layout and every count from 1 to 24 (#562), auto included: each agent on exactly one page, every page full but the last', () => {
+    expect([AGENT_LIMIT_DEFAULT, AGENT_LIMIT_MAX]).toEqual([12, 24])
     for (const layout of ['auto', ...SESSION_LAYOUTS.map((l) => l.value)] as PageLayout[]) {
-      for (let n = 1; n <= MAX_AGENTS; n++) {
+      for (let n = 1; n <= AGENT_LIMIT_MAX; n++) {
         const shown = projectLayout(cfg(n, layout))
         const per = agentsPerPage(shown)
         const count = agentPageCount(n, per)
@@ -46,7 +49,7 @@ describe('agent pages follow the layout (#134)', () => {
   })
 
   it('auto shows every agent up to the 3×2 grid, then pages of six', () => {
-    expect([1, 2, 3, 4, 5, 6, 7, 12].map(layoutForAgents)).toEqual(['single', 'columns2', 'columns3', 'grid', 'grid6', 'grid6', 'grid6', 'grid6'])
+    expect([1, 2, 3, 4, 5, 6, 7, 12, 24].map(layoutForAgents)).toEqual(['single', 'columns2', 'columns3', 'grid', 'grid6', 'grid6', 'grid6', 'grid6', 'grid6'])
     expect(projectLayout(cfg(4))).toBe('grid')
     expect(pages(5)).toBe('a1a2a3a4a5')
     expect(pages(7)).toBe('a1a2a3a4a5a6|a7')
