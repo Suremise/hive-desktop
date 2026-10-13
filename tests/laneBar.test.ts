@@ -2,7 +2,7 @@
 // rounds), the hover text, folding a long lane's finished cards, and the header's numbers; an ended lane's segments as it
 // left them, the card being worked, and the panel's order of lanes (#512).
 import { describe, expect, it } from 'vitest'
-import { cardSegment, chosenLaneRows, currentCard, DEFAULT_LANE_ROWS, draggedLaneRows, fitSegments, frozenSegment, keyedLaneRows, laneCards, laneRowsNow, lanesShown, laneSummary, maxLaneRows, panelOrder, reviewRounds, segmentsThatFit, type CardSegment, type SegmentState } from '../src/shared/laneBar'
+import { cardSegment, chosenLaneRows, currentCard, DEFAULT_LANE_ROWS, draggedLaneRows, failedVerdictGist, fitSegments, frozenSegment, keyedLaneRows, laneCards, laneRowsNow, lanesShown, laneSummary, maxLaneRows, panelOrder, reviewRounds, SEGMENT_NOTE_MAX, segmentName, segmentsThatFit, type CardSegment, type SegmentState } from '../src/shared/laneBar'
 import type { LaneCard, LaneState, TaskCard, TaskColumn } from '../src/shared/types'
 
 const card = (number: number, column: TaskColumn, history: string[] = [], extra: Partial<TaskCard> = {}): TaskCard => ({
@@ -59,14 +59,64 @@ describe('a card segment', () => {
   })
 
   it('says why a blocked card is blocked, and a card not on the board', () => {
-    expect(cardSegment(7, card(7, 'doing', [], { blocked: 'waiting for Darren' })).label).toBe('#7 Card 7 · Doing, round 1 · Blocked: waiting for Darren')
-    expect(cardSegment(7, card(7, 'hold')).label).toBe('#7 Card 7 · On Hold, waiting for you')
-    expect(cardSegment(9, undefined)).toMatchObject({ state: 'todo', label: '#9 · not on the board' })
+    expect(cardSegment(7, card(7, 'doing', [], { blocked: 'waiting for Darren' }))).toMatchObject({ label: '#7 Card 7 · Doing, round 1', notes: ['#7: blocked: waiting for Darren'] })
+    expect(cardSegment(7, card(7, 'hold'))).toMatchObject({ label: '#7 Card 7 · On Hold, waiting for you', notes: ['#7: On Hold: waiting for you to move it on'] })
+    expect(cardSegment(9, undefined)).toMatchObject({ state: 'todo', label: '#9 · not on the board', notes: [] })
   })
 
   it('reads the verdicts with their history', () => {
     expect(reviewRounds(card(1, 'review', ['Review failed', 'Started reviewing']))).toEqual({ failures: 1, failedNow: false, reviewed: true })
     expect(reviewRounds(card(1, 'todo'))).toEqual({ failures: 0, failedNow: false, reviewed: false })
+  })
+})
+
+describe("what a segment's marks mean (#706)", () => {
+  const at = (s: number): string => new Date(1000 * s).toISOString()
+  // A failed verdict by R1 at 3 s, its comment saved with it; an older one, and someone else's comment, around it.
+  const reviewed = (column: TaskColumn, more: Partial<TaskCard> = {}): TaskCard =>
+    card(650, column, [], {
+      history: [
+        { at: at(1), by: 'R1', what: 'Review failed' },
+        { at: at(2), by: 'B1', what: 'Moved to Review' },
+        { at: at(3), by: 'R1', what: 'Review failed' }
+      ],
+      comments: [
+        { at: at(1), by: 'R1', text: 'Round 1: FAILED: an old finding' },
+        { at: at(2), by: 'B1', text: 'Round 2 ready' },
+        { at: at(3), by: 'R1', text: '\n**Round 2: FAILED: 2 findings**: the tooltip clips\n\n1. …' }
+      ],
+      ...more
+    })
+
+  it("a failed review's underline: the round that failed, the next one, and the reviewer's gist", () => {
+    const s = cardSegment(650, reviewed('review'))
+    expect(s).toMatchObject({ failed: true, round: 2, notes: ['#650: review failed (round 2): waiting for round 3', 'Reviewer: Round 2: FAILED: 2 findings: the tooltip clips'] })
+    // The same text is its accessible name, after the label.
+    expect(segmentName(s)).toBe('#650 Card 650 · Review, round 2 failed review. #650: review failed (round 2): waiting for round 3. Reviewer: Round 2: FAILED: 2 findings: the tooltip clips')
+    // Being fixed in Doing: still waiting for its next round.
+    expect(cardSegment(650, reviewed('doing', { history: [...reviewed('doing').history, { at: at(4), by: 'B1', what: 'Moved to Doing' }] })).notes[0]).toBe('#650: review failed (round 2): waiting for round 3')
+  })
+
+  it('no gist without a comment saved with the verdict, and none once the next round starts', () => {
+    expect(failedVerdictGist({ history: [{ at: at(3), by: 'R1', what: 'Review failed' }], comments: [{ at: at(3), by: 'B1', text: 'not the reviewer' }, { at: at(60), by: 'R1', text: 'a minute later' }] })).toBeNull()
+    expect(cardSegment(650, reviewed('review', { comments: [] })).notes).toEqual(['#650: review failed (round 2): waiting for round 3'])
+    const next = reviewed('review', { history: [...reviewed('review').history, { at: at(5), by: 'B1', what: 'Returned for review, round 3' }] })
+    expect(cardSegment(650, next)).toMatchObject({ failed: false, round: 3, notes: [] })
+  })
+
+  it("the hatching: a blocked card's reason or why it is On Hold, first line, cut when long", () => {
+    expect(cardSegment(8, card(8, 'review', [], { blocked: 'Asked Darren about the colour\nmore detail' })).notes).toEqual(['#8: blocked: Asked Darren about the colour'])
+    expect(cardSegment(8, card(8, 'hold', [], { blocked: 'parked for 0.6' })).notes).toEqual(['#8: On Hold: parked for 0.6'])
+    const long = cardSegment(8, card(8, 'todo', [], { blocked: 'x'.repeat(400) })).notes[0]
+    expect(long).toBe(`#8: blocked: ${'x'.repeat(SEGMENT_NOTE_MAX - 1)}…`)
+    expect(cardSegment(8, card(8, 'doing', [], { blocked: '  \n ' })).notes).toEqual(['#8: blocked'])
+    // A finished card isn't hatched, so a stale reason says nothing; nor does a card with no marks.
+    expect(cardSegment(8, card(8, 'passed', [], { blocked: 'stale reason' })).notes).toEqual([])
+    expect(cardSegment(8, card(8, 'doing')).notes).toEqual([])
+  })
+
+  it('a failed card that is blocked too says both', () => {
+    expect(cardSegment(650, reviewed('doing', { blocked: 'which colour?', comments: [] })).notes).toEqual(['#650: review failed (round 2): waiting for round 3', '#650: blocked: which colour?'])
   })
 })
 
@@ -128,16 +178,18 @@ describe("an ended lane's segments (#512)", () => {
   const lc = (number: number, column: LaneCard['column'], over: Partial<LaneCard> = {}): LaneCard => ({ number, title: `Card ${number}`, column, blocked: null, round: 1, reviewing: false, ...over })
 
   it('shows each card as the lane left it, never failed (it keeps no verdicts)', () => {
-    expect(frozenSegment(lc(5, 'doing', { round: 2 }))).toEqual({ kind: 'card', number: 5, state: 'doing', failed: false, round: 2, label: '#5 Card 5 · Doing, round 2, when the lane ended' })
+    expect(frozenSegment(lc(5, 'doing', { round: 2 }))).toEqual({ kind: 'card', number: 5, state: 'doing', failed: false, round: 2, label: '#5 Card 5 · Doing, round 2, when the lane ended', notes: [] })
     expect(frozenSegment(lc(6, 'passed', { round: 3 }))).toMatchObject({ state: 'passed', round: 3, label: '#6 Card 6 · Passed in round 3, when the lane ended' })
     expect(frozenSegment(lc(7, 'todo'))).toMatchObject({ state: 'todo', round: null, label: '#7 Card 7 · Todo, when the lane ended' })
-    expect(frozenSegment(lc(8, 'review', { blocked: 'Asked Darren' }))).toMatchObject({ state: 'blocked', label: '#8 Card 8 · Review, round 1 · Blocked: Asked Darren, when the lane ended' })
-    expect(frozenSegment(lc(9, 'hold'))).toMatchObject({ state: 'blocked', label: '#9 Card 9 · On Hold, when the lane ended' })
+    // Its hatching says why, as the lane left it (#706).
+    expect(frozenSegment(lc(8, 'review', { blocked: 'Asked Darren' }))).toMatchObject({ state: 'blocked', label: '#8 Card 8 · Review, round 1, when the lane ended', notes: ['#8: blocked: Asked Darren'] })
+    expect(frozenSegment(lc(9, 'hold'))).toMatchObject({ state: 'blocked', label: '#9 Card 9 · On Hold, when the lane ended', notes: [] })
+    expect(frozenSegment(lc(9, 'hold', { blocked: 'for 0.6' })).notes).toEqual(['#9: On Hold: for 0.6'])
     expect(frozenSegment(lc(10, 'gone'))).toMatchObject({ state: 'todo', round: null, label: '#10 · not on the board when the lane ended' })
   })
 
   it("says when the lane kept no record of a card, never where the board has it now", () => {
-    expect(frozenSegment(lc(11, 'unrecorded'))).toEqual({ kind: 'card', number: 11, state: 'unrecorded', failed: false, round: null, label: '#11 Card 11 · not recorded: the lane ended before Hive kept where its cards were' })
+    expect(frozenSegment(lc(11, 'unrecorded'))).toEqual({ kind: 'card', number: 11, state: 'unrecorded', failed: false, round: null, label: '#11 Card 11 · not recorded: the lane ended before Hive kept where its cards were', notes: [] })
     expect(frozenSegment(lc(12, 'unrecorded', { title: '' })).label).toBe('#12 · not recorded: the lane ended before Hive kept where its cards were')
     // Not finished, not worked: such a lane has no current card to show.
     expect(laneSummary([frozenSegment(lc(11, 'unrecorded'))])).toMatchObject({ finished: 0, total: 1 })

@@ -9,7 +9,8 @@ import { agentChoosesMcp, agentGetsMcp, agentMcpText } from '@shared/agentMcp'
 import { gitFixText } from '@shared/gitTool'
 import { UnusedHeading, UnusedWorkNotice, UnusedWorktreesLine, UnusedWorktreesSection, useUnusedWorktrees } from '../components/UnusedWorktrees'
 import { PERIODS, activeIn, costText, dailyTotals, money, periodFrom, sumUsage, type DayTotal, type Period, type Totals } from '@shared/usageTotals'
-import { FILE_LOCK_MODES, MAX_AGENTS, contextPercent, turnPushedCompaction, effectiveModelLabel, mergeBlocked, modelLabel } from '@shared/defaults'
+import { FILE_LOCK_MODES, contextPercent, turnPushedCompaction, effectiveModelLabel, mergeBlocked, modelLabel } from '@shared/defaults'
+import { useAgentLimit } from '../advanced'
 import { PROVIDERS, contextLines, defaultProviderLabel, isProviderEnabled, modeOption, offeredModes, permissionLabel, projectDefaultProvider, projectProviderConfig, providerDescriptor, providerName, providerSettings } from '@shared/providers'
 import { EffortPicker, ModelPicker } from '../components/ModelPicker'
 import { effortText, runsAsName } from '@shared/models'
@@ -1322,6 +1323,7 @@ function DraftTextarea({ value, onCommit, ...rest }: { value: string; onCommit: 
 
 function AgentList({ project }: { project: ProjectInfo }) {
   const settings = useStore((s) => s.settings)
+  const limit = useAgentLimit()
   const providers = useStore((s) => s.providers)
   const cfg = project.config
   return (
@@ -1361,7 +1363,7 @@ function AgentList({ project }: { project: ProjectInfo }) {
           </div>
         )
       })}
-      <button className="btn subtle small" disabled={project.agents.length >= MAX_AGENTS} onClick={() => set({ addAgentFor: project.path })}>
+      <button className="btn subtle small" disabled={project.agents.length >= limit} onClick={() => set({ addAgentFor: project.path })}>
         <Icon name="add" /> Add Agent
       </button>
     </div>

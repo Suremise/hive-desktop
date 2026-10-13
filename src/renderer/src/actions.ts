@@ -1,7 +1,8 @@
 import { basename } from './util'
 import { call, errorMessage } from './api'
+import { agentLimit } from './advanced'
 import { agentOf, agentProviderOf, choose, confirm, findProject, focusAfterRemoving, focusAgent, runOnce, isAssistantPath, setAssistantOpen, focusedAgentId, get, notify, prompt, revealAgent, set, setActivity, setProjectTab, showAgent, showView, useStore } from './store'
-import { MANY_AGENTS, MAX_AGENTS, chosenLayout, moveAgentTo, sessionInAgentFolder, swapAgentsIn } from '@shared/defaults'
+import { MANY_AGENTS, agentLimitText, chosenLayout, moveAgentTo, sessionInAgentFolder, swapAgentsIn } from '@shared/defaults'
 import { defaultProviderPending, isProviderEnabled, projectDefaultProvider, providerName } from '@shared/providers'
 import { agentsToResume, resumeAll, stalledOnSignIn } from '@shared/resumeAll'
 import { batchLine, eachAgent, removeLine, sessionsToArchive, type BatchResult } from '@shared/startAll'
@@ -272,8 +273,8 @@ async function ensureWorktree(path: string, agentId: string): Promise<boolean> {
 export async function quickAddAgent(path: string | null = get().selectedProject, forProvider?: ProviderId): Promise<string | null> {
   if (!path) return null
   const p = project(path)
-  if (p && p.agents.length >= MAX_AGENTS) {
-    notify('warning', 'No room for another agent', `A project can have up to ${MAX_AGENTS} agents. Remove one first.`)
+  if (p && p.agents.length >= agentLimit()) {
+    notify('warning', 'No room for another agent', `${agentLimitText(agentLimit())} Remove one first.`)
     return null
   }
   const provider = await detectedProvider(
@@ -297,7 +298,7 @@ export async function quickAddAgent(path: string | null = get().selectedProject,
 /** After adding an agent: the seventh brings a note that each agent is its own CLI process. */
 export function noteManyAgents(path: string): void {
   const n = project(path)?.agents.length ?? 0
-  if (n === MANY_AGENTS) notify('info', `${n} agents in this project`, "Each agent runs its own copy of its CLI (roughly 150–400 MB of memory each), and they all share your plan's usage limits.")
+  if (n === MANY_AGENTS) notify('info', `${n} agents in this project`, "Each agent runs its own copy of its CLI (roughly 200–500 MB of memory each), and they all share your plan's usage limits.")
 }
 
 /** Changes a project's settings for one provider. */
@@ -388,7 +389,7 @@ export async function resumeSession(path: string, item: Pick<SessionListItem, 'i
   // A session from the project folder, and the project has no agent there: add one of its provider.
   const inProjectFolder = !item.cwd || item.cwd.toLowerCase() === path.toLowerCase()
   if (!target && isAssistantPath(path)) return
-  if (!target && inProjectFolder && item.provider && (p?.agents.length ?? 0) < MAX_AGENTS) {
+  if (!target && inProjectFolder && item.provider && (p?.agents.length ?? 0) < agentLimit()) {
     target = await quickAddAgent(path, item.provider)
     if (!target) return
     p = project(path)

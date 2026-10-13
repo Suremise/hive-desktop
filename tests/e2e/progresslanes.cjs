@@ -3,7 +3,7 @@
 // card's column, blocked reason and review rounds, folding a long lane's finished cards into "✓ n", one lane only as
 // tall as it is, four rows before the list scrolls and the section's top edge dragged (or Up and Down) for more or fewer
 // in whole lanes, never squeezing the runs, double-click for four, kept folded and through a restart (#569), running lanes first, the card being worked as current, an ended or abandoned lane frozen as it was left
-// (#512), hover text, a click opening the card, and the section folding to its bar; while an agent holds the merge slot, a
+// (#512), hover text (with what a failed review's underline and the hatching mean, #706), a click opening the card, and the section folding to its bar; while an agent holds the merge slot, a
 // card in the merge colour on top (holder, branch → main, its running step, time, who waits) with a divider, folding to
 // one line; a short, zoomed window keeps the lanes inside the panel and a run readable. Screenshots of the idle, lanes,
 // merging and short states in both themes. The lanes are #483's, started through the Agent API. Dev build, throwaway
@@ -79,7 +79,7 @@ const until = (fn, ms = 10000) => lib.until(fn, ms, 150)
   const toReview = async (n) => api(t1, 'PATCH', `/v1/tasks/${n}`, { column: 'review', comment: 'Ready.' })
   const verdict = async (n, review) => {
     await api(tr, 'PATCH', `/v1/tasks/${n}`, { review: 'start' })
-    return api(tr, 'PATCH', `/v1/tasks/${n}`, review === 'passed' ? { review, column: 'passed', comment: 'Passed.' } : { review, comment: '1. Fix it.' })
+    return api(tr, 'PATCH', `/v1/tasks/${n}`, review === 'passed' ? { review, column: 'passed', comment: 'Passed.' } : { review, comment: '**Round 1: FAILED: 1 finding**: the hover clips\n\n1. Fix it.' })
   }
   await toReview(n1)
   await verdict(n1, 'passed')
@@ -299,6 +299,37 @@ const until = (fn, ms = 10000) => lib.until(fn, ms, 150)
   await row1.locator(`.lane-seg[data-card="${n4}"]`).hover()
   check("…and a failed one's", !!(await until(async () => /round 1 failed review/.test((await page.locator('.tip').allInnerTexts()).join(' ')), HUNG_MS)))
   await shoot('lanes')
+  // What the marks mean (#706): the red underline's failed round and the reviewer's gist, the hatching's reason, in the
+  // hover and in the segment's accessible name. A screenshot of each hover in both themes.
+  const marks = [
+    [n4, 'failed', [`#${n4}: review failed (round 1): waiting for round 2`, 'Reviewer: Round 1: FAILED: 1 finding: the hover clips']],
+    [n6, 'blocked', [`#${n6}: blocked: Waiting for a design decision`]],
+    [n7, 'hold', [`#${n7}: On Hold: waiting for you to move it on`]]
+  ]
+  for (const [n, what, lines] of marks) {
+    const seg = row1.locator(`.lane-seg[data-card="${n}"]`)
+    const tipOf = page.locator('.tip', { hasText: `#${n} ` })
+    const notes = async () => tipOf.locator('.lane-seg-note').allInnerTexts().catch(() => [])
+    await page.mouse.move(0, 0)
+    await seg.hover()
+    check(`hovering the ${what} segment says what its mark means, a line each`, !!(await until(async () => JSON.stringify(await notes()) === JSON.stringify(lines), HUNG_MS)), JSON.stringify(await notes()))
+    const name = (await seg.getAttribute('aria-label')) ?? ''
+    check(`…and its accessible name says it too`, lines.every((l) => name.includes(l)), name)
+    for (const theme of ['dark', 'light']) {
+      await inv('settings:update', { appearance: { theme } })
+      await until(async () => (await page.evaluate(() => document.documentElement.dataset.theme)) === theme, HUNG_MS)
+      // The theme's repaint can drop the hover: hover again until the tooltip is back with its notes.
+      const shown = await until(async () => {
+        if ((await notes()).length === lines.length) return true
+        await seg.hover()
+        return false
+      }, HUNG_MS)
+      check(`${theme}: the ${what} hover shows for its screenshot`, !!shown)
+      await page.screenshot({ path: path.join(shots, `hover-${what}-${theme}.png`) })
+    }
+    await inv('settings:update', { appearance: { theme: 'dark' } })
+  }
+  await page.mouse.move(0, 0)
   // A click opens the card.
   await row1.locator(`.lane-seg[data-card="${n6}"]`).click()
   const dialog = page.locator('.dialog[role="dialog"]').first()

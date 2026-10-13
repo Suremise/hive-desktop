@@ -23,6 +23,12 @@ export interface CardSegment {
   round: number | null
   /** Hover text: "#405 Built-in loop wakes · Review, round 2". */
   label: string
+  /**
+   * What its marks mean (#706), each a line under the label in its hover and after it in its accessible name: a failed
+   * review's red underline ("#650: review failed (round 4): waiting for round 5", then the reviewer's gist) and the red
+   * cross-hatching of a blocked or On Hold card (its reason's first line).
+   */
+  notes: string[]
 }
 
 /** Finished cards folded into one segment ("✓ 6"), or the rest of a lane too long for its bar ("+4"). */
@@ -66,9 +72,48 @@ export function reviewRounds(c: TaskCard): { failures: number; failedNow: boolea
   return { failures, failedNow, reviewed: last >= 0 }
 }
 
+/** The longest a note's quoted line (a blocked reason, a reviewer's gist) runs in a segment's hover before it is cut. */
+export const SEGMENT_NOTE_MAX = 160
+
+/** A text's first line that isn't blank, cut to SEGMENT_NOTE_MAX. */
+function oneLine(text: string): string {
+  const line = text.split('\n').map((l) => l.trim()).find(Boolean) ?? ''
+  return line.length > SEGMENT_NOTE_MAX ? `${line.slice(0, SEGMENT_NOTE_MAX - 1)}…` : line
+}
+
+/** How long after a verdict its comment is taken as the verdict's: both are saved in the same change. */
+const VERDICT_COMMENT_MS = 10_000
+
+/** The first line of the comment its reviewer gave with its latest failed verdict, if any (#706). */
+export function failedVerdictGist(c: Pick<TaskCard, 'history' | 'comments'>): string | null {
+  const v = c.history.findLast((h) => parts(h.what).some((p) => p.startsWith('Review failed')))
+  const at = v ? Date.parse(v.at) : NaN
+  if (!v || Number.isNaN(at)) return null
+  const said = c.comments.find((x) => x.by === v.by && Date.parse(x.at) >= at && Date.parse(x.at) - at <= VERDICT_COMMENT_MS)
+  // Plain text in a tooltip: a heading's marks and bold dropped.
+  const line = said ? oneLine(said.text.replace(/^\s*#+\s+/gm, '').replace(/\*\*|__/g, '')) : ''
+  return line || null
+}
+
+/**
+ * Why a blocked segment is hatched (#706): "#7: blocked: <its reason's first line>", "#7: On Hold: <reason>", or with no
+ * reason, On Hold until the user moves it; null for an ended lane's card On Hold with none (its label says it all).
+ */
+function blockedNote(n: number, hold: boolean, blocked: string | null, live: boolean): string | null {
+  const reason = blocked ? oneLine(blocked) : ''
+  if (reason) return `#${n}: ${hold ? 'On Hold' : 'blocked'}: ${reason}`
+  if (!hold) return `#${n}: blocked`
+  return live ? `#${n}: On Hold: waiting for you to move it on` : null
+}
+
+/** A card segment's accessible name: its label and its notes (#706). */
+export function segmentName(s: CardSegment): string {
+  return [s.label, ...s.notes].join('. ')
+}
+
 /** A card number's segment, from the card as it is on the board (or not: archived and deleted cards may be missing). */
 export function cardSegment(n: number, card: TaskCard | undefined): CardSegment {
-  if (!card) return { kind: 'card', number: n, state: 'todo', failed: false, round: null, label: `#${n} · not on the board` }
+  if (!card) return { kind: 'card', number: n, state: 'todo', failed: false, round: null, label: `#${n} · not on the board`, notes: [] }
   const state = stateOf(card)
   const { failures, failedNow, reviewed } = reviewRounds(card)
   const inRound = card.column === 'doing' || card.column === 'review'
@@ -80,8 +125,17 @@ export function cardSegment(n: number, card: TaskCard | undefined): CardSegment 
   if (failed) what = `${where}, round ${round} failed review`
   else if (round !== null && inRound) what = `${where}, round ${round}`
   else if (round !== null && round > 1) what = `${where} in round ${round}`
-  if (card.blocked) what += ` · Blocked: ${card.blocked}`
-  return { kind: 'card', number: n, state, failed, round, label: `#${n} ${card.title} · ${what}` }
+  const notes: string[] = []
+  // The red underline: which round failed and what comes next, then the reviewer's own one-line gist.
+  if (failed) {
+    notes.push(`#${n}: review failed (round ${round}): waiting for round ${(round ?? 0) + 1}`)
+    const gist = failedVerdictGist(card)
+    if (gist) notes.push(`Reviewer: ${gist}`)
+  }
+  // The red cross-hatching: why it can't go on.
+  const why = state === 'blocked' ? blockedNote(n, card.column === 'hold', card.blocked, true) : null
+  if (why) notes.push(why)
+  return { kind: 'card', number: n, state, failed, round, label: `#${n} ${card.title} · ${what}`, notes }
 }
 
 /** A lane card's state as the lane last read it (LaneCard): a gone card reads as still to do, as one not on the board. */
@@ -101,17 +155,17 @@ export function laneCardState(c: LaneCard): SegmentState {
  */
 export function frozenSegment(c: LaneCard): CardSegment {
   const state = laneCardState(c)
-  if (c.column === 'gone') return { kind: 'card', number: c.number, state, failed: false, round: null, label: `#${c.number} · not on the board when the lane ended` }
+  if (c.column === 'gone') return { kind: 'card', number: c.number, state, failed: false, round: null, label: `#${c.number} · not on the board when the lane ended`, notes: [] }
   // Ended without a record of its cards: said so, rather than the board's now presented as when it ended.
-  if (c.column === 'unrecorded') return { kind: 'card', number: c.number, state, failed: false, round: null, label: `#${c.number}${c.title ? ` ${c.title}` : ''} · not recorded: the lane ended before Hive kept where its cards were` }
+  if (c.column === 'unrecorded') return { kind: 'card', number: c.number, state, failed: false, round: null, label: `#${c.number}${c.title ? ` ${c.title}` : ''} · not recorded: the lane ended before Hive kept where its cards were`, notes: [] }
   const where = c.column === 'hold' ? 'On Hold' : columnLabel(c.column)
   const inRound = c.column === 'doing' || c.column === 'review'
   const round = inRound || isFinished(state) ? c.round : null
   let what = where
   if (round !== null && inRound) what = `${where}, round ${round}`
   else if (round !== null && round > 1) what = `${where} in round ${round}`
-  if (c.blocked) what += ` · Blocked: ${c.blocked}`
-  return { kind: 'card', number: c.number, state, failed: false, round, label: `#${c.number} ${c.title} · ${what}, when the lane ended` }
+  const why = state === 'blocked' ? blockedNote(c.number, c.column === 'hold', c.blocked, false) : null
+  return { kind: 'card', number: c.number, state, failed: false, round, label: `#${c.number} ${c.title} · ${what}, when the lane ended`, notes: why ? [why] : [] }
 }
 
 /**

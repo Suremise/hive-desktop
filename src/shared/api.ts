@@ -348,8 +348,10 @@ export interface HiveRequests {
   /** Attaches files to the agent's running session: copies those planAttach says into .hive/attachments/<sessionId>; the paths to paste. */
   'session:attach': (projectPath: string, sources: string[], agentId?: string) => Attached[]
 
-  /** Adds an agent to the project (up to twelve), creating its worktree if asked, or reusing one (#456: `reuse` says how). */
+  /** Adds an agent to the project (up to Agents per project, #562), creating its worktree if asked, or reusing one (#456: `reuse` says how). */
   'agents:add': (projectPath: string, opts: AddAgentOptions) => AddedAgent
+  /** What more agents would cost (#562): the memory the running agents take now (null: can't be told) and the computer's. */
+  'agents:memory': () => { running: { agents: number; bytes: number } | null; total: number; free: number }
   /** Changing provider clears the agent's model, effort and mode, and its session to resume (conversations can't move between providers). */
   /** Changes an agent's name and settings; for the Hive Assistant's home, its settings for this workspace (persona too). */
   'agents:update': (projectPath: string, agentId: string, patch: AgentPatch) => AgentDef

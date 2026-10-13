@@ -98,7 +98,7 @@ Test copies run quiet: an unpackaged build with a test profile (`HIVE_USER_DATA`
 | `src/main/index.ts` | App lifecycle, window, quit flow, settings side effects |
 | `src/main/sessions.ts` | Launch/stop/resume per agent (any provider), normalised hooks → status, file locks (PreToolUse), transcript backups, usage and cost, Continue with… |
 | `src/shared/assistant.ts`, `assistantTools.ts`, `src/main/personas.ts`, `assistantControl.ts`, `src/renderer/src/components/Assistant.tsx`, `AssistantView.tsx`, `Personas.tsx` | The Hive Assistant (one per workspace, a session host at `.hive/assistant` whose settings are overlaid from Settings → Assistant) and its personas (`.hive/personas`, shipped in `resources/personas`) |
-| `src/main/projectAgents.ts`, `src/main/worktrees.ts` | A project's agents (up to 12; a page holds as many as the layout has panes): add/update/remove/merge; git worktree operations |
+| `src/main/projectAgents.ts`, `src/main/worktrees.ts` | A project's agents (up to Agents per project, `agentLimit()`: 12 by default, 24 at most, #562; a page holds as many as the layout has panes): add/update/remove/merge; git worktree operations |
 | `src/shared/providers.ts`, `claude.ts`, `codex.ts`, `copilot.ts` | Provider descriptors (names, modes, models, capabilities) and settings resolution helpers |
 | `src/shared/models.ts`, `src/main/providers/*/models.ts` | Models and capabilities from the CLIs (Claude Code's initialize, codex debug models, Copilot's ACP session), with the editable fallbacks: what the pickers, the footer and the Agent API offer |
 | `src/main/providers/` | `ProviderAdapter` interface, registry, `claude/`, `codex/` and `copilot/` adapters (launch, hooks, transcripts, usage, conversation parsers) |
