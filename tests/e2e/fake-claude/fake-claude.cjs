@@ -8,7 +8,9 @@
 //   starting on "Yes, I trust this folder" (Claude Code's starts on "No, exit"), so Enter trusts it; Down/Up move the
 //   choice, and Enter on "No, exit" quits (exit 1).
 // - It sends SessionStart, then takes prompts: the last command-line argument, or a line typed and sent with
-//   Enter (Ctrl+U clears the line), shown on its input line as it is typed. Each prompt sends UserPromptSubmit, is written to the transcript, "works"
+//   Enter (Ctrl+U clears the line), shown on its input line as it is typed. With fake-launch-hold-<agent> in its home, it
+//   holds its command line's task after SessionStart until the test makes fake-launch-go-<agent> (#712: a CLI ready but
+//   not yet on its task). Each prompt sends UserPromptSubmit, is written to the transcript, "works"
 //   (1 s, or N seconds for "work N"), and ends with a reply and Stop. "edit <file>" first sends PreToolUse for
 //   an Edit of that file and records the tool call. "background N" starts a background command that ends after
 //   N seconds; its task notification then starts a turn by itself, as in Claude Code. "pad N" adds N KB to the
@@ -946,6 +948,7 @@ async function main() {
   await hook('SessionStart', { source: opts['--resume'] ? 'resume' : 'startup' })
   promptLine()
   setInterval(() => void whileIdle(), 200)
+  if (firstPrompt && take('fake-launch-hold')) while (!take('fake-launch-go')) await sleep(100)
   if (firstPrompt) await runPrompt(firstPrompt)
 }
 void main()
