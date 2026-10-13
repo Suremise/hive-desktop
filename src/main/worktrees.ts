@@ -41,10 +41,15 @@ async function localBranchesStrict(cwd: string): Promise<string[]> {
   return r.out.split(/\r?\n/).map((l) => l.trim()).filter(Boolean)
 }
 
-/** The project's worktrees (including the project folder itself), from `git worktree list`. */
+/** The project's worktrees (including the project folder itself), from `git worktree list`; none when git can't list them. */
 export async function listWorktrees(cwd: string): Promise<{ path: string; branch: string | null }[]> {
+  return (await listWorktreesOrNull(cwd)) ?? []
+}
+
+/** `listWorktrees`, or null when git can't list them (#734: a failed listing isn't an empty one). */
+async function listWorktreesOrNull(cwd: string): Promise<{ path: string; branch: string | null }[] | null> {
   const r = await git(cwd, ['worktree', 'list', '--porcelain'])
-  if (!r.ok) return []
+  if (!r.ok) return null
   const out: { path: string; branch: string | null }[] = []
   for (const block of r.out.split(/\r?\n\r?\n/)) {
     const path = /^worktree (.+)$/m.exec(block)?.[1]
@@ -87,9 +92,9 @@ export class RepoReads {
     return this.checkedOutBranch().catch(() => null)
   }
 
-  /** `listWorktrees`. */
+  /** `listWorktrees`: none when git can't list them, a failure that isn't kept (#734). */
   worktrees(): Promise<{ path: string; branch: string | null }[]> {
-    return this.once('worktrees', () => listWorktrees(this.projectPath))
+    return this.once('worktrees', () => listWorktreesOrNull(this.projectPath), (v) => v === null).then((v) => v ?? [])
   }
 
   /** The local branches; throws when git can't list them. */
