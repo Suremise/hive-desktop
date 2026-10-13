@@ -1,29 +1,37 @@
 // One git command failing while the rest work (#346): a failed read is never an answer. Not "detached HEAD", so not
 // "nothing to merge"; not "not a git repository", so not an empty Changes tab; not an empty list of a branch's changes.
-// Real repositories; `failing` makes the one matching command fail as git would (exit 128, its message).
+// Real repositories; `failing` makes the one matching command fail as git would (exit 128, its message), and `answering`
+// gives one command an answer of the test's (a failure, or an output git would give).
 import { execFileSync } from 'child_process'
 import { mkdirSync, rmSync, writeFileSync } from 'fs'
-import { join } from 'path'
+import { dirname, join } from 'path'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { tempDir } from './tempDir'
 
 let failing: ((cwd: string, args: string[]) => boolean) | null = null
+let answering: ((cwd: string, args: string[]) => { ok: boolean; out: string } | null) | null = null
 vi.mock('../src/main/git', async (importOriginal) => {
   const real = await importOriginal<typeof import('../src/main/git')>()
   const failed = (): ReturnType<typeof real.git> => Promise.resolve({ out: '', ok: false, buf: Buffer.alloc(0), err: 'fatal: injected failure', code: 128 })
-  const git: typeof real.git = (cwd, args, ...rest) => (failing?.(cwd, args) ? failed() : real.git(cwd, args, ...rest))
+  const answer = (a: { ok: boolean; out: string }): ReturnType<typeof real.git> => (a.ok ? Promise.resolve({ out: a.out, ok: true, buf: Buffer.from(a.out), err: '', code: 0 }) : failed())
+  const git: typeof real.git = (cwd, args, ...rest) => {
+    const a = answering?.(cwd, args)
+    return a ? answer(a) : failing?.(cwd, args) ? failed() : real.git(cwd, args, ...rest)
+  }
   const gitReading: typeof real.gitReading = (cwd, args) => (failing?.(cwd, args) ? failed() : real.gitReading(cwd, args))
   return { ...real, git, gitReading }
 })
 
 const { gitStatus } = await import('../src/main/git')
-const { branchStatus, mergeWorktree, createWorktree } = await import('../src/main/worktrees')
+const { branchStatus, mergeWorktree, createWorktree, RepoReads } = await import('../src/main/worktrees')
+const { placeKey } = await import('../src/main/fsutil')
 
 const run = (cwd: string, ...args: string[]): string => execFileSync('git', args, { cwd, encoding: 'utf8' })
 let root = ''
 
 afterEach(() => {
   failing = null
+  answering = null
   if (root) rmSync(root, { recursive: true, force: true })
   root = ''
 })
@@ -107,5 +115,45 @@ describe('the Changes tab', () => {
   it("a base git can't find is an error, not the working tree alone", async () => {
     const { wt } = await project()
     await expect(gitStatus(wt.path, 'no-such-branch')).rejects.toThrow(/git merge-base no-such-branch failed/)
+  })
+})
+
+// One operation's reads (#732) keep what git answered, never a failure taken for an answer (#734): a worktree listing that
+// failed read as none, and was kept as none for the rest of a template's plan or load.
+describe("one operation's worktree listing", () => {
+  const isList = (args: string[]): boolean => args[0] === 'worktree' && args[1] === 'list'
+  const places = (l: { path: string }[]): string[] => l.map((w) => placeKey(w.path)).sort()
+
+  it("a failed listing reads as none but isn't kept: the next read asks git again, and keeps its answer", async () => {
+    const { p, wt } = await project()
+    let lists = 0
+    answering = (_cwd, args) => (isList(args) && ++lists === 1 ? { ok: false, out: '' } : null)
+    const reads = new RepoReads(p)
+    expect(await reads.worktrees()).toEqual([])
+    const listed = places(await reads.worktrees())
+    expect(listed).toEqual([placeKey(p), placeKey(wt.path)].sort())
+    expect(places(await reads.worktrees())).toEqual(listed)
+    expect(lists).toBe(2)
+  })
+
+  it('a listing git gave is kept, empty or not, until changed()', async () => {
+    const { p, wt } = await project()
+    let lists = 0
+    // The first answer is an empty listing (git ran and listed nothing); the rest are git's own.
+    answering = (_cwd, args) => (isList(args) && ++lists === 1 ? { ok: true, out: '' } : null)
+    const reads = new RepoReads(p)
+    expect(await reads.worktrees()).toEqual([])
+    expect(await reads.worktrees()).toEqual([])
+    expect(lists).toBe(1)
+    reads.changed()
+    expect(places(await reads.worktrees())).toEqual([placeKey(p), placeKey(wt.path)].sort())
+    expect(lists).toBe(2)
+    // A worktree made meanwhile: the kept listing stands until the operation says it changed something.
+    const made = join(dirname(wt.path), 'made')
+    await createWorktree(p, made, 'hive/made', 'main')
+    expect(places(await reads.worktrees())).toEqual([placeKey(p), placeKey(wt.path)].sort())
+    reads.changed()
+    expect(places(await reads.worktrees())).toEqual([placeKey(p), placeKey(wt.path), placeKey(made)].sort())
+    expect(lists).toBe(3)
   })
 })

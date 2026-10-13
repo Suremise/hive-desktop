@@ -495,12 +495,17 @@ export async function removeAgent(projectPath: string, agentId: string, opts: { 
   return result
 }
 
-/** For each worktree agent of the project, whether its worktree could be deleted without losing work (#291). */
+/**
+ * For each worktree agent of the project, whether its worktree could be deleted without losing work (#291). Read-only,
+ * so one set of reads serves them all (#733): the main branch, its commit and the worktree list are read once, not once
+ * per agent. Removing one checks it afresh (`removeAgent`).
+ */
 export async function worktreeChecks(projectPath: string): Promise<({ agentId: string } & WorktreeCheck)[]> {
   projectPath = workspace.assertProject(projectPath)
   const agents = projectAgents(await workspace.projectConfig(projectPath))
+  const reads = new wt.RepoReads(projectPath)
   const out: ({ agentId: string } & WorktreeCheck)[] = []
-  for (const a of agents) if (a.worktree) out.push({ agentId: a.id, ...(await wt.worktreeCheck(projectPath, a.worktree)) })
+  for (const a of agents) if (a.worktree) out.push({ agentId: a.id, ...(await wt.worktreeCheck(projectPath, a.worktree, reads)) })
   return out
 }
 
