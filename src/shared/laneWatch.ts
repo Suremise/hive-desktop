@@ -1,18 +1,24 @@
 import type { LaneState, TaskCard, TaskColumn } from './types'
 import { columnLabel } from './tasks'
-import { WAKE_MAX_BYTES } from './watch'
+import { brief, cardPart, WAKE_MAX_BYTES, WATCH_CHANGES, WATCH_MAX_CARDS, type CardChange, type WatchChange } from './watch'
 
 /**
  * Lane watches (#531): a watch on whole lanes (main/lanes.ts), not cards. On 10 Oct the Assistant, with seven lanes and
  * about 25 open cards, swapped cards in and out of its 20-card watch on every wake, missed one (#390 sat in Review
  * unreviewed), and was woken on every column move, most of which needed nothing. A lane watch follows each lane's cards
  * as the lane goes on (cards added included, no card limit), and counts only what a coordinator acts on.
+ *
+ * #726: the release card #720 was in no lane, so HB6 waited about 45 minutes for Darren's push before the Assistant
+ * noticed. The same watch takes cards beside its lanes (`cards`, told as a card watch tells them, and when one becomes
+ * blocked), and wakes when an agent of the projects it follows starts waiting for the user (`waiting`).
  */
 
 /** What a lane watch counts. The default is all but `passed` and `moved`. */
-export const LANE_EVENTS = ['failed', 'blocked', 'stalled', 'merge-due', 'ended', 'abandoned', 'passed', 'moved'] as const
+export const LANE_EVENTS = ['failed', 'blocked', 'stalled', 'merge-due', 'ended', 'abandoned', 'waiting', 'passed', 'moved'] as const
 export type LaneEvent = (typeof LANE_EVENTS)[number]
-export const LANE_DEFAULT_EVENTS: LaneEvent[] = ['failed', 'blocked', 'stalled', 'merge-due', 'ended', 'abandoned']
+export const LANE_DEFAULT_EVENTS: LaneEvent[] = ['failed', 'blocked', 'stalled', 'merge-due', 'ended', 'abandoned', 'waiting']
+/** What counts on the cards beside a lane watch's lanes by default (#726); a card becoming blocked always does. */
+export const LANE_CARD_CHANGES: WatchChange[] = ['comment', 'column', 'verdict']
 /** At most this many lanes named in one watch ("all" follows every running lane, however many). */
 export const LANE_WATCH_MAX = 50
 
@@ -119,31 +125,85 @@ export function newLaneBase(now: LaneNow, since: string): LaneMark {
 }
 
 const jsonBytes = (s: string): number => new TextEncoder().encode(JSON.stringify(s)).length
-const TAIL = ' Your lane watch has ended: read the cards named (hive_read_task), act on them, then watch the lanes again (hive_wait_for_tasks with lanes).'
+
+/** An agent that started waiting for the user (#726): its name and project, its card (null: none), and what it asks (null: not known). */
+export interface WaitHit {
+  name: string
+  project: string
+  card: number | null
+  what: string | null
+}
+
+const waitPart = (w: WaitHit, detail: number): string => `${w.name} (${w.project}) is waiting for the user${w.card ? ` on #${w.card}` : ''}${w.what && detail ? `: "${clip(w.what, detail)}"` : ''}`
+
+/** What a lane watch's line ends with: what to do, with the waits and the cards beside its lanes when it tells or keeps them. */
+const tailOf = (waits: boolean, cards: boolean): string =>
+  ` Your lane watch has ended: read the cards named (hive_read_task), act on them, ${waits ? 'tell the user what an agent waits for (hive_notify) and never answer it for them, ' : ''}then watch the lanes again (hive_wait_for_tasks with lanes${cards ? '; your cards stay unless you pass cards' : ''}).`
 
 /**
- * The wake line for a lane watch's hits: each lane, then what happened in it, one line within WAKE_MAX_BYTES. Details
- * (blocked and stalled reasons) give way first, then labels shorten to the lane's id, then each lane is only counted.
+ * The wake line for a lane watch's hits: each lane, then what happened in it, then the cards beside its lanes that
+ * changed (#726, as a card watch tells them) and the agents waiting for the user (#726), one line within WAKE_MAX_BYTES.
+ * `watching`: it has cards beside its lanes (the line says they stay). Details (blocked and stalled reasons, comments,
+ * what an agent asks) give way first, then labels shorten to the lane's id, then each lane is only counted, the cards
+ * named in a few words and the waiting agents by name.
  */
-export function laneWakeLine(hits: readonly LaneHit[]): string {
+export function laneWakeLine(hits: readonly LaneHit[], more: { cards?: readonly CardChange[]; waits?: readonly WaitHit[]; watching?: boolean } = {}): string {
+  const cards = more.cards ?? []
+  const waits = more.waits ?? []
+  const TAIL = tailOf(waits.length > 0, !!more.watching)
   const part = (p: LaneHit['parts'][number], detail: number): string => (p.detail && detail ? `${p.text}: "${clip(p.detail, detail)}"` : p.text)
+  const join = (lanes: string[], cs: string[], ws: string[]): string => [...lanes, cs.join('; '), ws.join('; ')].filter(Boolean).join(' | ')
   for (const detail of [120, 50, 0]) {
     for (const short of [false, true]) {
-      const line = `[Hive] ${hits.map((h) => `Lane ${short ? h.id : h.label}: ${h.parts.map((p) => part(p, detail)).join('; ')}`).join(' | ')}.${TAIL}`
+      const line = `[Hive] ${join(hits.map((h) => `Lane ${short ? h.id : h.label}: ${h.parts.map((p) => part(p, detail)).join('; ')}`), cards.map((c) => cardPart(c, detail)), waits.map((w) => waitPart(w, detail)))}.${TAIL}`
       if (jsonBytes(line) <= WAKE_MAX_BYTES) return line
     }
   }
-  const counts = `[Hive] ${hits.length} lane${hits.length === 1 ? '' : 's'} changed: ${hits.map((h) => `${h.id} (${h.parts.map((p) => (p.n ? `#${p.n} ${p.event}` : p.event)).join(', ')})`).join(', ')}`
-  return jsonBytes(counts + `.${TAIL}`) <= WAKE_MAX_BYTES ? `${counts}.${TAIL}` : `[Hive] ${hits.length} lanes changed: list them (hive_lane list) and read their cards.${TAIL}`
+  const lanes = hits.length ? [`${hits.length} lane${hits.length === 1 ? '' : 's'} changed: ${hits.map((h) => `${h.id} (${h.parts.map((p) => (p.n ? `#${p.n} ${p.event}` : p.event)).join(', ')})`).join(', ')}`] : []
+  const counts = `[Hive] ${join(lanes, cards.map(brief), waits.length ? [`waiting for the user: ${waits.map((w) => `${w.name} (${w.project})`).join(', ')}`] : [])}`
+  if (jsonBytes(counts + `.${TAIL}`) <= WAKE_MAX_BYTES) return `${counts}.${TAIL}`
+  const what = [hits.length ? `${hits.length} lane${hits.length === 1 ? '' : 's'} changed` : '', cards.length ? `${cards.length} of your cards changed` : '', waits.length ? `${waits.length} agent${waits.length === 1 ? ' is' : 's are'} waiting for the user` : ''].filter(Boolean).join(', ')
+  return `[Hive] ${what}: list them (hive_lane list, hive_list_projects) and read their cards.${TAIL}`
 }
 
-/** A lane watch's label (its status, the pane): "Waiting on all running lanes", "Waiting on 3 lanes". */
-export const laneWatchLabel = (cond: LaneWatchCondition): string => (cond.ids === 'all' ? 'Waiting on all running lanes' : `Waiting on ${cond.ids.length === 1 ? `lane ${cond.ids[0]}` : `${cond.ids.length} lanes`}`)
+const cardList = (cards: readonly number[]): string => cards.map((n) => `#${n}`).join(', ')
+
+/** A lane watch's label (its status, the pane): "Waiting on all running lanes", "Waiting on 3 lanes", with its cards (#726) "… and #720". */
+export const laneWatchLabel = (cond: LaneWatchCondition, cards: readonly number[] = []): string =>
+  `${cond.ids === 'all' ? 'Waiting on all running lanes' : `Waiting on ${cond.ids.length === 1 ? `lane ${cond.ids[0]}` : `${cond.ids.length} lanes`}`}${cards.length ? ` and ${cardList(cards)}` : ''}`
 
 /** The line typed when a lane watch's limit passes with nothing to tell. */
-export function laneLimitLine(cond: LaneWatchCondition, minutes: number): string {
+export function laneLimitLine(cond: LaneWatchCondition, minutes: number, cards: readonly number[] = []): string {
   const dur = minutes >= 60 ? `${Math.round((minutes / 60) * 10) / 10} h` : `${minutes} min`
-  return `[Hive] Nothing to tell on ${cond.ids === 'all' ? 'the running lanes' : cond.ids.length === 1 ? `lane ${cond.ids[0]}` : `${cond.ids.length} lanes`} in ${dur}: your lane watch has ended. Check them (hive_lane list), then watch again, or tell the user (hive_notify) if one seems stuck.`
+  return `[Hive] Nothing to tell on ${cond.ids === 'all' ? 'the running lanes' : cond.ids.length === 1 ? `lane ${cond.ids[0]}` : `${cond.ids.length} lanes`}${cards.length ? ` or ${cardList(cards)}` : ''} in ${dur}: your lane watch has ended. Check them (hive_lane list), then watch again, or tell the user (hive_notify) if one seems stuck.`
+}
+
+/** What became of a lane watch's cards beside its lanes (#726): those it has now, kept from the last lane watch, the ones they replace, and kept ones left out (done or gone). */
+export interface LaneWatchCards {
+  now: number[]
+  kept?: true
+  replaced?: number[]
+  dropped?: number[]
+}
+
+/**
+ * The cards beside a lane watch's lanes (#726) from untrusted arguments (`cards`, `changes`), or what is wrong. `cards`
+ * left out keeps the last lane watch's, [] drops them; `changes` left out keeps theirs (else LANE_CARD_CHANGES).
+ */
+export function readLaneCards(args: { cards?: unknown; changes?: unknown }): { cards?: number[]; changes?: WatchChange[] } | string {
+  const out: { cards?: number[]; changes?: WatchChange[] } = {}
+  if (args.cards !== undefined) {
+    const raw = args.cards
+    if (!Array.isArray(raw) || raw.some((n) => !Number.isInteger(n) || (n as number) <= 0) || new Set(raw).size !== raw.length) return 'cards must be card numbers (no repeats), or [] for none'
+    if (raw.length > WATCH_MAX_CARDS) return `at most ${WATCH_MAX_CARDS} cards`
+    out.cards = raw as number[]
+  }
+  if (args.changes !== undefined) {
+    const c = args.changes
+    if (!Array.isArray(c) || !c.length || c.some((x) => !WATCH_CHANGES.includes(x as WatchChange))) return `changes must be any of ${WATCH_CHANGES.join(', ')}`
+    out.changes = [...new Set(c as WatchChange[])]
+  }
+  return out
 }
 
 /** A lane watch's condition from untrusted arguments (`lanes`, `events`), or what is wrong. */

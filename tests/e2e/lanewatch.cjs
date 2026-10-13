@@ -1,7 +1,9 @@
 // The Assistant watches whole lanes (#531), on fake Claude Code agents (fake-claude/): one lane watch
 // (hive_wait_for_tasks with lanes ["all"]) shows "Waiting on all running lanes"; a card moved into Review stays quiet; a
 // failed review in the lane wakes it with one line naming the lane and the card; a lane started later is followed by the
-// next watch too. Dev build, throwaway profile, workspace and CLAUDE_CONFIG_DIR.
+// next watch too. #726: the same watch takes a card in no lane (cards: a release card): its comment wakes it, the next
+// watch keeps it, and an agent showing a permission prompt wakes it too. Dev build, throwaway profile, workspace and
+// CLAUDE_CONFIG_DIR.
 const lib = require('./lib.cjs')
 const { _electron } = require('playwright-core')
 const fs = require('fs')
@@ -76,13 +78,28 @@ const check = (name, ok, extra = '') => {
   await say(alpha, builder.id, `hive hive_lane ${JSON.stringify({ action: 'start', cards: [a, b], reviewer: 'Reviewer', name: 'greetings' })}`)
   await until(() => idle(alpha, builder.id), 15000)
 
-  // The Assistant watches every running lane in one watch.
-  await say(home, 'assistant', 'hive hive_wait_for_tasks {"lanes":["all"],"wake":true,"limitMinutes":360}')
-  check('the Assistant watches the lanes: "Waiting on all running lanes"', !!(await until(async () => (await live(home, 'assistant'))?.status === 'watching' && (await live(home, 'assistant'))?.watch?.label === 'Waiting on all running lanes', 15000)), JSON.stringify((await live(home, 'assistant'))?.watch))
+  // A release card in no lane (#726), Builder2's.
+  const rel = await newCard('Release 0.7.0', builder2.id)
+  const watchAgain = async () => {
+    await until(async () => ['ready', 'finished'].includes((await live(home, 'assistant'))?.status), 20000)
+    await say(home, 'assistant', 'hive hive_wait_for_tasks {"lanes":["all"],"wake":true,"limitMinutes":360}')
+    return until(async () => (await live(home, 'assistant'))?.status === 'watching' && (await live(home, 'assistant'))?.watch, 15000)
+  }
+
+  // The Assistant watches every running lane and the release card in one watch.
+  await say(home, 'assistant', `hive hive_wait_for_tasks {"lanes":["all"],"cards":[${rel}],"wake":true,"limitMinutes":360}`)
+  check(`the Assistant watches the lanes and #${rel}: "Waiting on all running lanes and #${rel}"`, !!(await until(async () => (await live(home, 'assistant'))?.status === 'watching' && (await live(home, 'assistant'))?.watch?.label === `Waiting on all running lanes and #${rel}`, 15000)), JSON.stringify((await live(home, 'assistant'))?.watch))
   const before = wakes().length
   await inv('tasks:update', a, { column: 'review' })
   await lib.sleep(3000) // A fixed wait on purpose: this checks that a plain move into Review does NOT wake it.
   check('a card moved into Review stays quiet', wakes().length === before && (await live(home, 'assistant'))?.status === 'watching', JSON.stringify(wakes().slice(before)))
+
+  // (a) A comment on the release card wakes the same watch.
+  await inv('tasks:comment', rel, 'Draft release is up: push when ready')
+  const relLine = () => wakes().slice(before).find((t) => t.startsWith(`[Hive] #${rel} `))
+  check('a comment on the card outside the lanes wakes it', !!(await until(async () => !!relLine(), 20000)) && relLine().includes('"Draft release is up: push when ready"') && relLine().includes('Your lane watch has ended'), JSON.stringify(wakes().slice(before)))
+  const kept = await watchAgain()
+  check(`watched again with no cards, it keeps #${rel}`, kept?.label === `Waiting on all running lanes and #${rel}`, JSON.stringify(kept))
 
   // The review fails: one line, naming the lane and the card.
   await until(() => idle(alpha, reviewer.id), 20000)
@@ -93,10 +110,16 @@ const check = (name, ok, extra = '') => {
   const failedLine = () => wakes().slice(before).find((t) => t.startsWith('[Hive] Lane Builder / Reviewer (greetings):'))
   check('a failed review wakes it: one line with the lane and the card', !!(await until(async () => !!failedLine(), 20000)) && failedLine().includes(`#${a} failed review (Reviewer (alpha))`) && failedLine().includes('Your lane watch has ended'), JSON.stringify(wakes().slice(before)))
 
+  // (c) Builder2, on the release card, shows a permission prompt: the same watch wakes, naming it and its card.
+  await watchAgain()
+  const asked = wakes().length
+  await say(alpha, builder2.id, 'ask then work 20 then done')
+  const waitLine = () => wakes().slice(asked).find((t) => t.startsWith('[Hive] Builder2 (alpha) is waiting for the user'))
+  check('an agent showing a permission prompt wakes it, naming the agent, its card and what it asks', !!(await until(async () => !!waitLine(), 30000)) && waitLine().includes(`on #${rel}: "Claude needs your permission to use Bash"`) && waitLine().includes('never answer it for them'), JSON.stringify(wakes().slice(asked)))
+  await until(() => idle(alpha, builder2.id), 40000)
+
   // A lane started after its next watch began is followed too.
-  await until(async () => ['ready', 'finished'].includes((await live(home, 'assistant'))?.status), 20000)
-  await say(home, 'assistant', 'hive hive_wait_for_tasks {"lanes":["all"],"wake":true,"limitMinutes":360}')
-  await until(async () => (await live(home, 'assistant'))?.status === 'watching', 15000)
+  await watchAgain()
   const c = await newCard('README usage', builder2.id)
   await say(alpha, builder2.id, `hive hive_lane ${JSON.stringify({ action: 'start', cards: [c], reviewer: 'Reviewer' })}`)
   await until(() => idle(alpha, builder2.id), 15000)

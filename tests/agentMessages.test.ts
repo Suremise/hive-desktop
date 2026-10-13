@@ -82,8 +82,9 @@ describe('messages left for agents (#530, #647)', async () => {
     await tryAll()
     expect(st.typed).toEqual([])
     expect(st.shown?.unread.map((m) => m.text)).toEqual(['Add #520 to your lane after #519.', 'And #522.'])
-    // Waiting for the user, on background tasks, starting: still queued. The user typing there: still queued.
-    for (const s of ['waiting', 'background', 'starting']) {
+    // Waiting for the user, starting: still queued. The user typing there: still queued. (Its turn over on background
+    // tasks of its own takes it, #726: below.)
+    for (const s of ['waiting', 'starting']) {
       st.status = s
       await tryAll()
     }
@@ -98,6 +99,10 @@ describe('messages left for agents (#530, #647)', async () => {
     st.status = 'ready'
     await tryAll()
     expect(st.typed).toHaveLength(1)
+    // #726: its turn over while its own background tasks run (a timer), a new message rings at once.
+    st.status = 'background'
+    expect(await leave('Darren pushed the tag.')).toEqual({ id: 'm3', fate: 'typed', queued: 0 })
+    expect(st.typed).toHaveLength(2)
   })
 
   it('received only once the agent reads it (#650), never because its doorbell was typed or its CLI took it; acked through hive_inbox once read, never from its id alone', async () => {
