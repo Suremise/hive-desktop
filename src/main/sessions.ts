@@ -3348,10 +3348,14 @@ class SessionManager {
     const st = l.state
     const hook = l.adapter.normalizeHook(body)
     const label = this.label(st)
+    // Still this launch after each wait below (#650): one stopped or started again meanwhile gets nothing more of this
+    // hook (no reply, status, actions or notification of the old one over the new).
+    const current = (): boolean => this.live.get(id) === l
     // The user started or opened another conversation in the CLI (/clear, /new, /resume): follow it. Only a
     // prompt switches, since helpers the CLI runs for itself (subagents) can report other session ids.
     if (hook.event.kind === 'prompt' && st.sessionId && hook.sessionId && hook.sessionId !== st.sessionId && isSessionId(hook.sessionId)) {
       await this.switchSession(l, hook.sessionId, hook.transcriptPath, hooksBefore)
+      if (!current()) return
     } else if (hook.transcriptPath && hook.transcriptPath !== l.transcriptPath) l.transcriptPath = hook.transcriptPath
     // Providers that choose their own session id report it here (the first hook of the launch).
     if (!st.sessionId && hook.sessionId) {
@@ -3359,6 +3363,7 @@ class SessionManager {
         st.sessionId = assertSessionId(hook.sessionId)
         const { agent } = await this.agentDef(st.projectPath, st.agentId)
         await this.recordSession(st.projectPath, agent, l)
+        if (!current()) return
         this.emitState(st)
         workspaceOf(st.projectPath).scheduleRefresh()
       } catch (e) {
@@ -3383,6 +3388,7 @@ class SessionManager {
         log.warn(`${userText(label)}: no inbox notice`, e)
         return null
       })
+      if (!current()) return
       decide(reply as Record<string, unknown> | null)
     }
     const continued = hook.event.kind === 'stop' && !hook.event.failed && !!reply && typeof reply === 'object' && l.adapter.stopContinues(reply as Record<string, unknown>)
@@ -3400,6 +3406,7 @@ class SessionManager {
       }
       // Hooks are handled in order, so the next one waits for this read: a turn's end counts the tasks it started.
       if (ev.kind === 'stop') await this.beforeTurnEnd(l, ev.lastMessage)
+      if (!current()) return
       const step = hookStep(ev, this.statusInput(l))
       this.carryOut(id, l, step, String(body.hook_event_name ?? ''), ev, arrived)
       actions = step.actions
@@ -3411,6 +3418,7 @@ class SessionManager {
       const ask = hook.event.ask
       if (this.guardShown(l, ask)) {
         const ev: HookEvent = { kind: 'ask', ask: await this.safeguardPrompt(l, ask, at) }
+        if (!current()) return
         const step = hookStep(ev, this.statusInput(l))
         this.carryOut(id, l, step, String(body.hook_event_name ?? ''), ev, arrived)
         actions = step.actions

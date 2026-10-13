@@ -204,6 +204,56 @@ describe('notices in the hook replies (#650)', () => {
     }
   })
 
+  it("a launch stopped, or started again, while a hook's notice is worked out gets nothing more of that hook: its reply settles empty, nothing is taken as Hive's own, and none of the old hook's status or actions lands (round 3 finding)", async () => {
+    const real = sessions.inboxNotice!
+    const s2 = sessions as unknown as { carryOut: (...a: unknown[]) => unknown }
+    const carryOut = s2.carryOut
+    for (const how of ['stop', 'restart'] as const) {
+      const st = agent()
+      const key = `${p.toLowerCase()}#${st.agentId}`
+      await hook(st, { hook_event_name: 'UserPromptSubmit', prompt_id: 'p1', prompt: 'go' })
+      await leave(st)
+      const old = s.live.get(key)!
+      let release = (): void => undefined
+      let asked = 0
+      const gate = new Promise<void>((r) => (release = r))
+      sessions.inboxNotice = async (state, at) => {
+        asked++
+        await gate
+        return real(state, at)
+      }
+      const carried: string[] = []
+      s2.carryOut = function (this: unknown, ...a: unknown[]) {
+        carried.push((a[1] as { state: State }).state.runId)
+        return carryOut.apply(this, a)
+      }
+      try {
+        const body = { session_id: st.sessionId, cwd: p, hook_event_name: 'Stop', prompt_id: 'p1', stop_hook_active: false }
+        const sent = run(async () => {
+          const reply = sessions.hookReply(st.runId, body)
+          await sessions.handleHook(st.runId, body, reply)
+          return reply
+        })
+        await vi.waitFor(() => expect(asked).toBe(1), { timeout: 5000 })
+        // Stopped (gone), or started again as a new launch at work, while the notice is held.
+        if (how === 'stop') s.live.delete(key)
+        else s.live.set(key, { ...old, state: { ...old.state, runId: `${st.runId}-new`, status: 'working' }, ledger: newLedger() })
+        release()
+        expect(await sent).toBeNull()
+        expect(carried).toEqual([])
+        expect(old.ledger.injected).toEqual([])
+        expect(old.ledger.active?.state).toBe('running')
+        expect(old.state.status).toBe('working')
+        if (how === 'restart') expect(s.live.get(key)?.state).toMatchObject({ runId: `${st.runId}-new`, status: 'working' })
+      } finally {
+        release()
+        sessions.inboxNotice = real
+        s2.carryOut = carryOut
+        s.live.delete(key)
+      }
+    }
+  })
+
   it('a drained turn whose Stop says nothing of the continuation is still drained only once', async () => {
     const st = agent()
     await hook(st, { hook_event_name: 'UserPromptSubmit', prompt_id: 'p1', prompt: 'go' })
