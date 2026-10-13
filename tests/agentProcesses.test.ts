@@ -305,6 +305,151 @@ $r | ConvertTo-Json -Compress
     expect(JSON.parse(String(out).trim().split(/\r?\n/).at(-1)!)).toEqual({ inOther: true, added: 'the process has exited', taken: true, followed: true, inJob: false, listed: true, ended: true })
   }, 120000)
 
+  // A packaged app's process (the Store's PowerShell) is in no job for its first few ms, until Windows puts it in its
+  // package's job (#678). A sweep that sees it then must follow it, not assign it: assigned, Windows nested the package's
+  // job in the launch's as it put it there, so the next Store PowerShell anyone started was listed and ended with this
+  // launch (#659's harm). A helper takes it in (Take, as a sweep does) the moment a snapshot shows it; the moment is short,
+  // so it tries again until it caught one in no job. It ends only what it started, by handles it started them with or
+  // checked by start time against the snapshot that saw them (a process an id names by now is never kept).
+  it.runIf(hasStorePwsh)("follows a packaged app's process caught before it joins its package's job, never nesting that job (#678)", async (ctx) => {
+    const { HOST_SOURCE } = await import('../src/main/agentProcesses')
+    const src = join(dir, 'catch.cs')
+    writeFileSync(
+      src,
+      HOST_SOURCE +
+        `
+public static class Catch {
+  [DllImport("kernel32.dll")] static extern IntPtr OpenProcess(uint a, bool i, int p);
+  [DllImport("kernel32.dll")] static extern bool CloseHandle(IntPtr h);
+  [DllImport("kernel32.dll")] static extern bool IsProcessInJob(IntPtr p, IntPtr j, out bool r);
+  [DllImport("kernel32.dll")] static extern bool TerminateProcess(IntPtr p, uint c);
+  [DllImport("kernel32.dll")] static extern void GetSystemTimeAsFileTime(out long now);
+  [DllImport("kernel32.dll")] static extern uint WaitForSingleObject(IntPtr h, uint ms);
+  [DllImport("kernel32.dll")] static extern bool GetProcessTimes(IntPtr h, out long created, out long exited, out long kernel, out long user);
+  [DllImport("kernel32.dll")] static extern IntPtr CreateToolhelp32Snapshot(uint f, int p);
+  [DllImport("kernel32.dll", CharSet=CharSet.Unicode)] static extern bool Process32FirstW(IntPtr s, ref PE e);
+  [DllImport("kernel32.dll", CharSet=CharSet.Unicode)] static extern bool Process32NextW(IntPtr s, ref PE e);
+  [StructLayout(LayoutKind.Sequential, CharSet=CharSet.Unicode)] struct PE { public uint size, usage, pid; public IntPtr heap; public uint module, threads, parent; public int priority; public uint flags; [MarshalAs(UnmanagedType.ByValTStr, SizeConst=260)] public string exe; }
+  /** The Store PowerShell caught (Pid), held open from when it was checked to be the one seen until End. */
+  static IntPtr caught = IntPtr.Zero;
+  public static int Pid;
+  static long Created(IntPtr h) { long c, x, k, u; return GetProcessTimes(h, out c, out x, out k, out u) ? c : 0; }
+  /**
+   * Keeps pid as the one caught only if the process it opens is the one a snapshot taken at "at" saw: started after
+   * notBefore (its CLI) and not after "at". A process the id names by now (started later) is closed, never kept, so End
+   * never ends it: an identity is the id and start time, never the id alone.
+   */
+  public static bool Hold(int pid, long notBefore, long at) {
+    if (caught != IntPtr.Zero) return Pid == pid;
+    // PROCESS_TERMINATE | SYNCHRONIZE | PROCESS_QUERY_LIMITED_INFORMATION
+    IntPtr h = OpenProcess(0x0001 | 0x100000 | 0x1000, false, pid);
+    if (h == IntPtr.Zero) return false;
+    long created = Created(h);
+    if (created == 0 || created < notBefore || created > at) { CloseHandle(h); return false; }
+    caught = h;
+    Pid = pid;
+    return true;
+  }
+  /** Spins on snapshots until cli's pwsh.exe shows, and takes it into job id as soon as Take will: whether it was in no job just before. */
+  public static bool Take(string id, int cli, int ms) {
+    // SYNCHRONIZE | PROCESS_QUERY_LIMITED_INFORMATION: the CLI exits at once when Windows refuses to start the Store PowerShell (#585).
+    IntPtr c = OpenProcess(0x100000 | 0x1000, false, cli);
+    try { return Spin(id, cli, c, ms); } finally { CloseHandle(c); }
+  }
+  static bool Spin(string id, int cli, IntPtr c, int ms) {
+    var clock = System.Diagnostics.Stopwatch.StartNew();
+    long cliCreated = Created(c);
+    while (cliCreated != 0 && clock.ElapsedMilliseconds < ms && WaitForSingleObject(c, 0) != 0) {
+      long at; GetSystemTimeAsFileTime(out at);
+      IntPtr snap = CreateToolhelp32Snapshot(2, 0);
+      var e = new PE(); e.size = (uint)Marshal.SizeOf(typeof(PE));
+      int pid = 0;
+      for (bool more = Process32FirstW(snap, ref e); more; more = Process32NextW(snap, ref e)) if (e.parent == cli && string.Equals(e.exe, "pwsh.exe", StringComparison.OrdinalIgnoreCase)) pid = (int)e.pid;
+      CloseHandle(snap);
+      // Not kept when this snapshot is the first to show it (it started after "at"), as Take refuses it then: the next
+      // snapshot is looked at.
+      if (pid == 0 || !Hold(pid, cliCreated, at)) continue;
+      bool any;
+      bool none = IsProcessInJob(caught, IntPtr.Zero, out any) && !any;
+      if (HiveJobs.Take(id, pid, cli, at)) return none;
+    }
+    return false;
+  }
+  public static bool In(int pid) { IntPtr h = OpenProcess(0x1000, false, pid); bool r = false; if (h != IntPtr.Zero) { IsProcessInJob(h, IntPtr.Zero, out r); CloseHandle(h); } return r; }
+  public static void End() { if (caught == IntPtr.Zero) return; TerminateProcess(caught, 1); CloseHandle(caught); caught = IntPtr.Zero; Pid = 0; }
+}
+`
+    )
+    const probe = join(dir, 'packaged.ps1')
+    writeFileSync(
+      probe,
+      `param($src, $node, $pwsh, $cli)
+$ErrorActionPreference = 'Stop'
+Add-Type -ReferencedAssemblies System.Management -TypeDefinition (Get-Content -Raw $src)
+function Start-Quiet($exe, $arguments, [switch]$stdin) { $s = [System.Diagnostics.ProcessStartInfo]::new($exe, $arguments); $s.UseShellExecute = $false; $s.CreateNoWindow = $true; $s.RedirectStandardInput = [bool]$stdin; [System.Diagnostics.Process]::Start($s) }
+function Wait-Until($test) { $clock = [System.Diagnostics.Stopwatch]::StartNew(); while ($clock.ElapsedMilliseconds -lt 10000 -and -not (& $test)) { Start-Sleep -Milliseconds 20 } }
+$r = [ordered]@{ caught = $false; tries = 0; refused = 0 }
+# The helper itself: a process its snapshot's id names by now, started after that snapshot, is never kept, so never
+# ended by its clean-up; the one the snapshot saw is (a sleeper of this script's stands in for both).
+$u = Start-Quiet $node '-e "setTimeout(() => {}, 60000)"'
+try {
+  $uc = [HiveJobs]::CreatedOf($u.Id)
+  $r.staleKept = [Catch]::Hold($u.Id, 0, $uc - 1)
+  [Catch]::End()
+  $r.staleSurvived = [HiveJobs]::CreatedOf($u.Id) -eq $uc
+  $r.ownKept = [Catch]::Hold($u.Id, 0, $uc)
+  [Catch]::End()
+  $r.ownEnded = $u.WaitForExit(10000)
+} finally {
+  [Catch]::End()
+  if (-not $u.HasExited) { $u.Kill() }
+}
+for ($i = 1; $i -le 10 -and -not $r.caught; $i++) {
+  $r.tries = $i
+  $job = "t$i"
+  $c = $null
+  $b = $null
+  try {
+    # The launch: its CLI joins the job, then on "go" starts the Store PowerShell, which joins its package's job.
+    $c = Start-Quiet $node ('"' + $cli + '" "' + $pwsh + '"') -stdin
+    $null = [HiveJobs]::Add($job, $c.Id)
+    $c.StandardInput.WriteLine('go')
+    $r.caught = [Catch]::Take($job, $c.Id, 10000)
+    $a = [Catch]::Pid
+    if ($r.caught) {
+      Wait-Until { [Catch]::In($a) }
+      # Another's Store PowerShell, started afterwards outside the launch: never the launch's.
+      try { $b = Start-Quiet $pwsh '-NoProfile -Command Start-Sleep 10' } catch { $r.refused++; $r.caught = $false }
+      if ($b) {
+        Wait-Until { [Catch]::In($b.Id) }
+        $r.shellFollowed = [HiveJobs]::IsFollowed($a)
+        $r.shellInJob = [HiveJobs]::List($job) -contains $a
+        $r.otherInJob = [HiveJobs]::List($job) -contains $b.Id
+        $r.otherListed = [HiveJobs]::Members($job) -contains $b.Id
+      }
+    } elseif ($c.WaitForExit(0) -and $c.ExitCode -eq 3) { $r.refused++ }
+  } finally {
+    # Only this script's own, each by the handle it started or checked it with.
+    if ($b -and -not $b.HasExited) { $b.Kill() }
+    [Catch]::End()
+    if ($c -and -not $c.HasExited) { $c.Kill() }
+    [HiveJobs]::Forget($job)
+  }
+}
+$r | ConvertTo-Json -Compress
+`
+    )
+    const cli = join(dir, 'packagedcli.cjs')
+    // Exits with 3 when Windows refuses to start the Store PowerShell (#585), as a throw (EPERM) or an error.
+    writeFileSync(cli, `process.stdin.once('data', () => { try { require('child_process').spawn(process.argv[2], ['-NoProfile', '-Command', 'Start-Sleep 10'], { stdio: 'ignore', windowsHide: true }).on('error', () => process.exit(3)) } catch { process.exit(3) } setTimeout(() => process.exit(0), 20000) })\n`)
+    const out = execFileSync(join(process.env.SystemRoot ?? 'C:\\Windows', 'System32', 'WindowsPowerShell', 'v1.0', 'powershell.exe'), ['-NoProfile', '-NonInteractive', '-ExecutionPolicy', 'Bypass', '-File', probe, src, process.execPath, storePwsh, cli], { windowsHide: true, timeout: 240000 })
+    const r = JSON.parse(String(out).trim().split(/\r?\n/).at(-1)!)
+    expect(r).toMatchObject({ staleKept: false, staleSurvived: true, ownKept: true, ownEnded: true })
+    // Windows' refusals (#585), and a moment never caught, aren't the tracker's.
+    if (!r.caught) ctx.skip(`no Store PowerShell was caught before it joined its package's job in ${r.tries} tries (${r.refused} refused by Windows)`)
+    expect(r).toMatchObject({ caught: true, shellFollowed: true, shellInJob: false, otherInJob: false, otherListed: false })
+  }, 240000)
+
   // The host's C# driven directly, in a PowerShell of the test's own, with identities a late snapshot or a late port
   // notification could carry (#543): an id that names another process by now is never taken in, and a followed
   // process Windows won't end keeps End failing, and listed, until it is ended.

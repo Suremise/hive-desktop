@@ -87,6 +87,7 @@ export const SUITES = [
   { name: 'files' },
   { name: 'footerfit' },
   { name: 'freshpath' },
+  { name: 'gitinit' },
   { name: 'gitmissing' },
   { name: 'gitview' },
   { name: 'hivevcs' },

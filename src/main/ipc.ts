@@ -22,6 +22,7 @@ import { setPinned } from './pin'
 import { presentWindow } from './testQuiet'
 import { insideArchive, insideReal, isFile, samePlace, writeTextAtomic, writeTextUnlessChanged } from './fsutil'
 import { gitDiff, gitStatus } from './git'
+import { initCheck, initRepo } from './gitInit'
 import { addRemote, createBranch, createTag, fetchAll, pull, push, repoHistory, repoInfo, repoSummary, setIdentity, setRemoteUrl, switchBranch } from './gitRepo'
 import { checkGit, gitTool } from './gitTool'
 import { refreshPath } from './freshPath'
@@ -1011,6 +1012,8 @@ export function registerIpc(getAppInfo: () => ReturnType<HiveRequests['app:info'
     'git:push': (p, remote) => push(p, remote ? String(remote) : undefined),
     'git:createTag': (p, name, message, pushTo) => createTag(p, String(name ?? ''), String(message ?? ''), pushTo ? String(pushTo) : undefined),
     'git:setIdentity': (p, name, email) => setIdentity(p, String(name ?? ''), String(email ?? '')),
+    'git:initCheck': (p) => initCheck(p),
+    'git:init': (p, opts) => initRepo(p, opts && typeof opts === 'object' ? opts : { gitignore: 'none' }),
 
     'provider:info': () => providerService.all(),
     'provider:refresh': async (id) => {

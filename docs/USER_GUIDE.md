@@ -841,7 +841,20 @@ Fetch, pull and push use your git's own sign-in (Git Credential Manager may open
 
 ### Without git
 
-A project that isn't a git repository keeps working in its project folder, without worktrees, merging or a Git view: its **Git** tab says so and how to start (`git init` in the project folder, or ask an agent, and commit; then add a remote to push it). Without git itself, the tab says so, with the fix (see [Git](#git)).
+A project that isn't a git repository keeps working in its project folder, without worktrees, merging or a Git view: its **Git** tab says so, with **Initialise repository…** to make it one. Without git itself, the tab says so, with the fix (see [Git](#git)).
+
+### Initialise repository
+
+**Initialise repository…** on the Git tab of a project without git makes it a repository in one click, ready for agents' worktrees. Its dialog:
+
+- offers a **starter .gitignore**: none, **Minimal** (OS files and logs), or one for **Node**, **Python**, **.NET** or **Godot** projects, each with the minimal lines too. If the project already has a .gitignore, it is kept and none is offered;
+- asks for **your name and email** when git has none (no global identity, counting files your git config includes), and saves them to this repository's config only, never your global one. Otherwise it says who the commits are made as. If your git config has conditional includes (`includeIf`), which may set an identity for the new repository, the fields are optional: what you enter is used only where they set none. If the new repository turns out to have no identity and you entered none, Hive makes the repository and stops before the first commit: the dialog stays open as **Make the first commit**, asking for what's missing. On GitHub, its no-reply address keeps your email private.
+
+**Initialise** then runs `git init` on a branch called **main**, adds the project's .hive to the repository's `.git/info/exclude` before anything is staged (so it is never committed: see [What Hive keeps in a project](#what-hive-keeps-in-a-project)), writes the .gitignore you chose, and commits everything in the folder as **Initial commit** (an empty commit if there's nothing yet). The Git tab and the project's worktrees work at once: add an agent in a new worktree, or a remote under **Branches & remotes** to push it. There is no undo: if a step fails, the message says what was done and where it stopped (say, a .gitignore rule that brings .hive back stops it before anything is staged, with nothing committed).
+
+- A project **inside another repository** (a workspace you keep in git) shows that repository's **Branches & remotes** read-only, with **Initialise its own repository…**: a repository inside another is usually a mistake, so the dialog names the repository around it and asks you to confirm.
+- A repository with **no commits yet** (one that stopped short, or one made with `git init` by hand) says so on **Branches & remotes**, with **Make first commit…**: the same dialog, which keeps .hive out of git and makes the first commit on the branch it has.
+- A folder another version control system keeps (Mercurial, Subversion, Jujutsu, Bazaar, Fossil), in it or in a folder above, isn't initialised, even a Jujutsu repository that has git beside it: the dialog says which.
 
 ## Project settings
 
