@@ -14,6 +14,7 @@
  *
  * Pure data and helpers: no React, no Node (Settings, the main process and the Assistant's settings tools share it).
  */
+import { AGENT_LIMIT_DEFAULT, AGENT_LIMIT_MAX } from './defaults'
 import { SAFEGUARD_DEFAULTS } from './safeguards'
 import type { ProviderId } from './types'
 
@@ -84,6 +85,9 @@ const HOOKS_TAKEN: Record<string, AdvancedSample> = {
   copilot: { from: `${FIX}/console/copilot.json`, version: '1.0.95', text: '"name": "PreToolUse"', shows: "Copilot sending Hive's hooks from its launch plugin, PreToolUse too" }
 }
 
+/** The agents-per-project value's id (#562). */
+export const AGENTS_PER_PROJECT = 'hive.agents.perProject'
+
 /** Every advanced value, in the order Settings lists them (by group). */
 export const ADVANCED_DEFS: readonly AdvancedDef[] = [
   // Hive's own
@@ -152,6 +156,19 @@ export const ADVANCED_DEFS: readonly AdvancedDef[] = [
     min: 1,
     max: 24,
     unit: 'lanes',
+    workspace: true,
+    applies: 'now'
+  },
+  {
+    id: AGENTS_PER_PROJECT,
+    group: 'hive',
+    title: 'Agents per project',
+    desc: `How many agents a project can have (#562): ${AGENT_LIMIT_DEFAULT} unless you need more, up to ${AGENT_LIMIT_MAX}. Each agent runs its own copy of its CLI, so more agents take more memory, and they all share your plans' usage limits. Lowering it removes no agents: a project with more just can't add another. Templates and the Agent API keep to it too.`,
+    kind: 'number',
+    default: AGENT_LIMIT_DEFAULT,
+    min: 1,
+    max: AGENT_LIMIT_MAX,
+    unit: 'agents',
     workspace: true,
     applies: 'now'
   },

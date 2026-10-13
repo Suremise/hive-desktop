@@ -3,9 +3,10 @@
  * with an id, its target, kind, sender, card, body and state, saved in its project's .hive/deliveries.json and offered
  * by one scheduler (main/deliveries.ts): every way into an agent makes one (#649). The agent collects them with
  * hive_inbox (received) and acknowledges them once it has acted on them (acked). This file is the pure part: the states and their moves, coalescing, the typed line and the
- * inbox's reply. No imports beyond shared types: hive-mcp.js runs outside the app bundle.
+ * inbox's reply. No imports beyond shared files with none of their own: hive-mcp.js runs outside the app bundle.
  */
 import type { InboxBrief, InboxSummary } from './types'
+import { inboxNotice } from './doorbell'
 
 /** What a delivery is: a task, a re-brief (a message for the work it is on), a card event, the user's answer, a handover, a control notice. */
 export const DELIVERY_KINDS = ['task', 'rebrief', 'card-event', 'answer', 'handover', 'control'] as const
@@ -26,15 +27,16 @@ export const goesAlone = (kind: DeliveryKind): boolean => kind === 'task' || kin
 export type DeliveryNeed = 'idle' | 'free' | 'stalled'
 
 /**
- * queued: waiting to be offered; offered: Hive has put it in front of the agent (today, typed into its terminal);
- * received: the agent fetched it with hive_inbox (#645: received is automatic on fetch), or (#649, until #650's doorbell)
- * the line that carried its whole text was taken by its CLI: the prompt count rose in the launch it was typed into, after
- * that line's Enter (receivedVia 'typed'); acked: the agent says it has acted on it. Ended without that: cancelled (by
- * whom), refused (its sender may no longer send it), expired (too old, or its agent is in another conversation now).
+ * queued: waiting to be offered; offered: Hive has told the agent of it (#650: the doorbell typed into its terminal, which
+ * names it by id; never its text); received: the agent fetched it with hive_inbox (#645: received is automatic on fetch;
+ * #650: the only receipt. Before #650 a line that carried its whole text also made it received once its CLI took it,
+ * receivedVia 'typed', which saved records may still say); acked: the agent says it has acted on it. Ended without that: cancelled (by
+ * whom), refused (its sender may no longer send it), expired (too old, or its agent is in another conversation now),
+ * stale (#652: tied to a card's round, and that card has moved on: passed, out of Doing and Review, or in a new round).
  * uncertain: offered when Hive stopped or its agent's launch ended, before it was received: it may not have reached the
  * agent, so it is offered once more, saying it may repeat (`again`), and stays uncertain if that one isn't received.
  */
-export const DELIVERY_STATES = ['queued', 'offered', 'received', 'acked', 'cancelled', 'refused', 'expired', 'uncertain'] as const
+export const DELIVERY_STATES = ['queued', 'offered', 'received', 'acked', 'cancelled', 'refused', 'expired', 'uncertain', 'stale'] as const
 export type DeliveryState = (typeof DELIVERY_STATES)[number]
 
 /**
@@ -56,6 +58,11 @@ export interface DeliveryRecord {
   kind: DeliveryKind
   from: DeliverySender
   card?: number
+  /**
+   * The round of its card it is for (#652, with `card`: a re-brief for the work under way, the card's failed reviews plus
+   * one when it was made): it is relevant only while the card is in Doing or Review in that round, and stale after.
+   */
+  round?: number
   /** What it says (a card event's short line, a message's text). */
   body: string
   state: DeliveryState
@@ -65,7 +72,7 @@ export interface DeliveryRecord {
   /** How many times it was offered (again after Hive stopped while offering it). */
   offers?: number
   received?: string
-  /** How it was received: fetched with hive_inbox, or its line taken by its CLI ('typed', #649). */
+  /** How it was received: fetched with hive_inbox ('typed': its line taken by its CLI, before #650 made the inbox the only receipt). */
   receivedVia?: 'inbox' | 'typed'
   /** The launch its offer was typed into (an offer holds only while that launch runs). */
   offerRun?: string
@@ -104,15 +111,16 @@ export const OVERDUE_MINUTES = 30
 export const DELIVERY_EXPIRY_HOURS = 24
 
 const NEXT: Record<DeliveryState, readonly DeliveryState[]> = {
-  queued: ['offered', 'received', 'acked', 'cancelled', 'refused', 'expired'],
+  queued: ['offered', 'received', 'acked', 'cancelled', 'refused', 'expired', 'stale'],
   // Back to queued: the offer didn't happen after all (nothing was typed). Cancelled: while it is still being typed.
-  offered: ['received', 'acked', 'uncertain', 'queued', 'cancelled', 'refused', 'expired'],
-  uncertain: ['offered', 'received', 'acked', 'cancelled', 'refused', 'expired'],
+  offered: ['received', 'acked', 'uncertain', 'queued', 'cancelled', 'refused', 'expired', 'stale'],
+  uncertain: ['offered', 'received', 'acked', 'cancelled', 'refused', 'expired', 'stale'],
   received: ['acked', 'expired'],
   acked: [],
   cancelled: [],
   refused: [],
-  expired: []
+  expired: [],
+  stale: []
 }
 
 export const canMove = (from: DeliveryState, to: DeliveryState): boolean => NEXT[from].includes(to)
@@ -187,31 +195,18 @@ export function inboxItems(records: readonly DeliveryRecord[]): InboxItem[] {
 const idList = (ids: readonly string[]): string => ids.join(', ')
 
 /**
- * The line that offers deliveries by typing (today's transport, until Messaging 4 switches channels), one line: the CLI's
- * prompt. Messages first, together, with their ids to ack; then each other delivery's own line (a wake, a notice, a
- * task), as its producer made it, with its id to ack for a kind the agent acks; one that may repeat says so; and the
- * watch that carries on if the agent is watching.
+ * The line that offers deliveries by typing, one line: the CLI's prompt. The doorbell (#650, plans/2026-10-12-messaging-
+ * redesign.md §3.4): Hive's fixed words with counts by kind, cards and ids (shared/doorbell.ts), never what they say,
+ * which the agent reads with hive_inbox, labelled with its sender; ids that may repeat say so; and the watch that carries
+ * on if the agent is watching.
  */
 export function offerLine(records: readonly DeliveryRecord[], watchLabel: string | null): string {
   const sorted = [...records].sort((a, b) => a.seq - b.seq)
-  const messages = inboxItems(sorted.filter((r) => r.kind === 'rebrief').map((r) => ({ ...r, state: 'queued' as const })))
-  const parts: string[] = []
-  if (messages.length) {
-    const from = [...new Set(messages.map((m) => m.from))].join(' and ')
-    const body = messages.length === 1 ? `Message from ${from}: ${messages[0].text}` : `${messages.length} messages from ${from}: ${messages.map((m, i) => `(${i + 1}) ${m.text}`).join(' ')}`
-    parts.push(`[Hive] ${body}${ackTail(messages.flatMap((m) => m.ids))}`)
-  }
-  for (const r of sorted) if (r.kind !== 'rebrief') parts.push(`${r.body}${needsAck(r.kind) ? ackTail([r.id]) : ''}`)
+  const bell = inboxNotice('doorbell', sorted.map((r) => ({ id: r.id, kind: r.kind, ...(r.card ? { card: r.card } : {}) })))
   const again = sorted.filter((r) => r.again)
   const repeat = again.length ? ` (${idList(again.map((r) => r.id))} again: ${[...new Set(again.map((r) => r.again))].join('; ')}, so ${again.length === 1 ? 'it' : 'they'} may repeat.)` : ''
   const tail = watchLabel ? ` (Your watch is still on, ${watchLabel.charAt(0).toLowerCase()}${watchLabel.slice(1)}: do what this asks, then end your turn, and Hive wakes you when it changes.)` : ''
-  return `${parts.join(' ')}${repeat}${tail}`
-}
-
-/** The ids to ack, after what they are for. */
-function ackTail(ids: readonly string[]): string {
-  const one = ids.length === 1
-  return ` (${one ? 'Its id' : 'Their ids'}: ${idList(ids)}. Once you've acted on ${one ? 'it' : 'them'}, ack ${one ? 'it' : 'them'} with hive_inbox.)`
+  return `${bell}${repeat}${tail}`
 }
 
 /** hive_inbox's reply: what is new (now received), and what was received before and isn't acked yet. */
@@ -223,9 +218,10 @@ export function inboxText(items: readonly InboxItem[], unacked: readonly string[
 }
 
 /** hive_inbox ack's reply. */
-export function ackText(acked: readonly string[], unknown: readonly string[]): string {
+export function ackText(acked: readonly string[], unknown: readonly string[], unread: readonly string[] = []): string {
   const a = acked.length ? `Acked ${idList(acked)}.` : 'Nothing acked.'
-  return unknown.length ? `${a} Not in your inbox: ${idList(unknown)}.` : a
+  const notRead = unread.length ? ` Not read yet: ${idList(unread)}: read ${unread.length === 1 ? 'it' : 'them'} with hive_inbox first.` : ''
+  return `${a}${notRead}${unknown.length ? ` Not in your inbox: ${idList(unknown)}.` : ''}`
 }
 
 const clip = (s: string, n: number): string => {
@@ -302,6 +298,7 @@ export function readDelivery(v: unknown): DeliveryRecord | null {
   if (!from || !str(r.body, DELIVERY_BODY_MAX_CHARS) || !time(r.created) || !time(r.expires)) return null
   if (!(r.conversation === null || str(r.conversation, 200))) return null
   if (r.card !== undefined && !(Number.isInteger(r.card) && (r.card as number) > 0)) return null
+  if (r.round !== undefined && !(r.card !== undefined && Number.isInteger(r.round) && (r.round as number) > 0)) return null
   if (![r.offered, r.received, r.acked, r.ended].every(optTime)) return null
   if (r.offers !== undefined && !(Number.isInteger(r.offers) && (r.offers as number) >= 0)) return null
   if (r.receivedVia !== undefined && r.receivedVia !== 'inbox' && r.receivedVia !== 'typed') return null
@@ -317,6 +314,7 @@ export function readDelivery(v: unknown): DeliveryRecord | null {
   const out: DeliveryRecord = { id: r.id, seq: r.seq as number, agentId: r.agentId, conversation: (r.conversation as string | null) || null, kind: r.kind as DeliveryKind, from, body: r.body, state: r.state as DeliveryState, created: r.created, expires: r.expires }
   if (r.agentName) out.agentName = r.agentName as string
   if (r.card) out.card = r.card as number
+  if (r.round) out.round = r.round as number
   for (const k of ['offered', 'received', 'acked', 'ended', 'detail'] as const) if (r[k]) out[k] = r[k] as string
   if (r.offers) out.offers = r.offers as number
   if (r.receivedVia) out.receivedVia = r.receivedVia as 'inbox' | 'typed'

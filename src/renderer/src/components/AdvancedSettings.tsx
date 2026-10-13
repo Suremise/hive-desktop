@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useState } from 'react'
-import { ADVANCED_DEFS, advancedRow, advancedTakes, advancedText, checkAdvanced, cliFacing, groupName, type AdvancedDef, type AdvancedRow } from '@shared/advanced'
+import { ADVANCED_DEFS, AGENTS_PER_PROJECT, advancedRow, advancedTakes, advancedText, checkAdvanced, cliFacing, groupName, type AdvancedDef, type AdvancedRow } from '@shared/advanced'
+import { AGENT_LIMIT_DEFAULT, manyAgentsNote } from '@shared/defaults'
 import type { ProviderId } from '@shared/types'
 import { call, errorMessage } from '../api'
 import { notify, set, useStore } from '../store'
@@ -144,6 +145,7 @@ function AdvancedItem({ row, cli, workspace }: { row: AdvancedRow; cli: string |
             </button>
           </div>
         )}
+        {def.id === AGENTS_PER_PROJECT && [row.value, shownValue(def, row.override, null), shownValue(def, row.workspaceValue, null)].some((v) => typeof v === 'number' && v > AGENT_LIMIT_DEFAULT) && <ManyAgentsNote />}
         {error && <div className="field-error">{error}</div>}
       </div>
       <div className="s-control advanced-control">
@@ -156,6 +158,26 @@ function AdvancedItem({ row, cli, workspace }: { row: AdvancedRow; cli: string |
           </div>
         )}
       </div>
+    </div>
+  )
+}
+
+/** Agents per project over the default (#562): what more agents cost, in this machine's figures, measured as it shows. */
+function ManyAgentsNote() {
+  const [text, setText] = useState<string | null>(null)
+  useEffect(() => {
+    let live = true
+    void call('agents:memory')
+      .then((m) => live && setText(manyAgentsNote(m)))
+      .catch(() => undefined)
+    return () => {
+      live = false
+    }
+  }, [])
+  if (!text) return null
+  return (
+    <div className="advanced-note" data-note="many-agents">
+      <Icon name="info" /> {text}
     </div>
   )
 }

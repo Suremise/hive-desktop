@@ -1,5 +1,5 @@
 import { useLayoutEffect, useRef, useState } from 'react'
-import { RUNS_KEEP_PX, draggedLaneRows, fitSegments, frozenSegment, keyedLaneRows, laneCards, laneRowsNow, laneSummary, segmentsThatFit, type LaneSegment } from '@shared/laneBar'
+import { RUNS_KEEP_PX, draggedLaneRows, fitSegments, frozenSegment, keyedLaneRows, laneCards, laneRowsNow, laneSummary, segmentName, segmentsThatFit, type LaneSegment } from '@shared/laneBar'
 import { call } from '../api'
 import { NO_PROJECTS, get, set, useStore } from '../store'
 import type { Lane } from '../laneSource'
@@ -20,7 +20,8 @@ import { LaneCostTip, useLaneCost } from './CardCost'
  * that fit while the runs keep their room (measured as the panel changes: a resize, zoom, a merge card). A row is a header (the pair, the lane, the card being
  * worked, finished/total) and a segmented bar, one segment per card coloured and patterned by where it is. An ended or
  * abandoned lane shows its cards as it left them, muted and still (#512), never the board's now. Hover a segment for the
- * card and its round; a click opens the card. A running lane with a stalled card (#521: its reviewer watching but not
+ * card and its round, and what a red underline (a failed review) or hatching (blocked, On Hold) means (#706); a click
+ * opens the card. A running lane with a stalled card (#521: its reviewer watching but not
  * reviewing, its agent not watching) says so in its header. The section folds down to its header bar (remembered per
  * workspace, keeping the chosen height), and isn't there at all without lanes.
  */
@@ -227,9 +228,22 @@ function Segment({ segment: s }: { segment: LaneSegment }) {
         </span>
       </Tooltip>
     )
+  // What its red underline or hatching means (#706), a line each under the card's own.
+  const tip = s.notes.length ? (
+    <div className="lane-seg-tip">
+      <div>{s.label}</div>
+      {s.notes.map((n) => (
+        <div key={n} className="lane-seg-note">
+          {n}
+        </div>
+      ))}
+    </div>
+  ) : (
+    s.label
+  )
   return (
-    <Tooltip content={s.label} focus>
-      <button type="button" role="listitem" className={cx('lane-seg', s.state, s.failed && 'failed')} data-card={s.number} aria-label={s.label} onClick={() => set({ taskOpen: s.number })} />
+    <Tooltip content={tip} focus>
+      <button type="button" role="listitem" className={cx('lane-seg', s.state, s.failed && 'failed')} data-card={s.number} aria-label={segmentName(s)} onClick={() => set({ taskOpen: s.number })} />
     </Tooltip>
   )
 }

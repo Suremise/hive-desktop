@@ -156,10 +156,11 @@ const check = (name, ok, extra = '') => {
   // project's agent's any more. Cancelling the reviewer's watch leaves it idle with no watch, so #1 is flagged first.
   await inv('watch:cancel', alpha, reviewer.id)
   check('a cancelled watch: after the grace the card it left is flagged', !!(await until(async () => ((await stalledOf(c1)) ?? '').startsWith("Reviewer isn't watching #"), 15000)), String(await stalledOf(c1)))
-  // Its watch gone, the reviewer gets Hive's loop wake for #1, in Review since section 2 (#405): taken, the reviewer is
-  // idle again before anything else is typed to it, or the next line lands while it works and is lost (#571).
+  // Hive's loop wake for #1, in Review since section 2 (#405), reaches the reviewer: read with whatever else its inbox
+  // had when it read it (#650: in section 2, with the wake whose line it took then), and the reviewer is idle again before
+  // anything else is typed to it, or the next line lands while it works and is lost (#571).
   const loopWake = `[Hive] #${c1} (Builder's card) is in Review. You review this card in its loop`
-  check("…and Hive's loop wake for it reaches the reviewer, which is idle again", !!(await until(async () => wakes('Reviewer').some((w) => w.text.startsWith(loopWake)) && ['ready', 'finished'].includes((await live(reviewer.id))?.status), 15000)), `${JSON.stringify(wakes('Reviewer').map((w) => w.text.slice(0, 60)))} ${await why(reviewer.id)}`)
+  check("…and Hive's loop wake for it reaches the reviewer, which is idle again", !!(await until(async () => wakes('Reviewer').some((w) => w.text.includes(loopWake)) && ['ready', 'finished'].includes((await live(reviewer.id))?.status), 15000)), `${JSON.stringify(wakes('Reviewer').map((w) => w.text.slice(0, 60)))} ${await why(reviewer.id)}`)
   await inv('tasks:update', c1, { project: 'beta' })
   check('moved to another project: no longer stalled, and the mark leaves the agent', !!(await until(async () => !(await stalledOf(c1)) && !(await live(reviewer.id))?.notWatching, 8000)), JSON.stringify({ stalled: await stalledOf(c1), mark: (await live(reviewer.id))?.notWatching }))
 

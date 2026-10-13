@@ -2,6 +2,7 @@ import { initWatches, onWatchedCardsMoved, watchKeepsQuitWaiting } from './watch
 import { initLoopWakes } from './loopWakes'
 import { initLoopCheck } from './loopCheck'
 import { initDeliveries } from './deliveries'
+import { initInboxNotices } from './inboxNotices'
 import { initDecisionWakes } from './decisionWakes'
 import { initDevConsole } from './devConsoleSources'
 import { initAssistantModes } from './assistantMode'
@@ -791,6 +792,7 @@ app.whenReady().then(async () => {
   initLoopWakes()
   initLoopCheck()
   initDeliveries()
+  initInboxNotices()
   initDecisionWakes()
   initDevConsole()
   initAssistantModes()

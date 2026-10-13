@@ -231,7 +231,8 @@ function stream(token) {
   const assistantFile = path.join(userData, 'assistant-api', `${createHash('sha256').update(ws.toLowerCase()).digest('hex').slice(0, 16)}.json`)
   const assistantToken = (await lib.until(() => fs.existsSync(assistantFile) && JSON.parse(fs.readFileSync(assistantFile, 'utf8')).token, HUNG_MS)) || ''
   check('the Assistant gives Ann a long task', (await api('POST', '/v1/projects/alpha/agents/Ann/prompt', { text: 'work 8' }, assistantToken)).status === 200)
-  check('…and she works on it', !!(await lib.until(async () => (await live(ann.id))?.status === 'working', HUNG_MS)))
+  // At work on it once she has read it from her inbox (#650: its doorbell names it; what she reads then is all she has).
+  check('…and she works on it', !!(await lib.until(async () => (await live(ann.id))?.status === 'working' && !(await live(ann.id))?.inbox?.unread?.length, HUNG_MS)))
   const queued = await api('POST', '/v1/projects/alpha/agents/Ann/message', { text: `Next, ${SECRET}` }, assistantToken)
   check('a message for her waits in Hive', queued.status === 200 && queued.body?.typed === false && !!(await lib.until(async () => (await live(ann.id))?.inbox?.unread?.length === 1, HUNG_MS)), JSON.stringify(queued))
   const waitingFor = await seen(viewerStream, 'session-status', (d) => d.state.agentId === ann.id && d.state.inbox?.unread?.length === 1)

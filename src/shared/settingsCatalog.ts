@@ -536,7 +536,7 @@ const PROJECT_ROWS: Row[] = [
   { section: 'loops', key: 'loopWaitHours', title: 'Wait (hours)', desc: "How many hours an agent in this project's card loops waits with no change before it tells you, when you don't say. Empty inherits Settings → Workspace → Card loop wait.", tip: 'Saying "wait: 2h" when you start a loop still wins. Up to a day.', type: 'number', min: 1, max: LOOP_WAIT_MAX_HOURS, step: 1 },
   { section: 'storage', key: 'storage', title: 'What Hive keeps', desc: 'Measured in the background; Refresh measures again. The coding agents’ own transcripts (in ~/.claude and ~/.codex) aren’t counted, and Clean Up… never touches them.', type: 'custom', wide: true },
   { section: 'keys', key: 'keybindings', title: 'Shortcuts', desc: 'Change one to give this project its own; Reset returns it to the global shortcut. Stored in the project’s .hive folder, which is not committed.', type: 'custom', wide: true },
-  { section: 'agents', key: 'agents', title: 'Agents', desc: "Up to 12 agents can work on the project at once, each in the project folder or its own worktree. Agents without their own settings use this project's.", type: 'custom', wide: true },
+  { section: 'agents', key: 'agents', title: 'Agents', desc: "Up to 12 agents can work on the project at once (up to 24 with Settings → Advanced → Agents per project), each in the project folder or its own worktree. Agents without their own settings use this project's.", type: 'custom', wide: true },
   {
     section: 'agents',
     key: 'fileLocks',

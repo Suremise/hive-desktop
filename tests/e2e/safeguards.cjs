@@ -96,7 +96,8 @@ const check = (name, ok, extra = '') => {
       return s?.safeguard?.switched?.to === 'claude-opus-4-8' && s
     }, HUNG_MS)
     const g = switched?.safeguard
-    check('the stop and the switch are noted, with the tool calls before it', g?.stops === 1 && g.switched.from === 'claude-fake' && g.model === 'claude-fake' && g.tools.join() === 'Edit,Bash', JSON.stringify(g))
+    // The tool calls before it: its own, and its inbox read (#650: its task came by doorbell).
+    check('the stop and the switch are noted, with the tool calls before it', g?.stops === 1 && g.switched.from === 'claude-fake' && g.model === 'claude-fake' && g.tools.filter((x) => x !== 'mcp__hive__hive_inbox').join() === 'Edit,Bash' && g.tools.includes('mcp__hive__hive_inbox'), JSON.stringify(g))
     const mark = await until(async () => {
       const t = await page.locator('.safeguard-mark').first().innerText().catch(() => '')
       return /4\.8/.test(t) && t

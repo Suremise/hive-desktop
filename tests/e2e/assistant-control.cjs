@@ -89,9 +89,10 @@ const check = (name, ok, extra = '') => {
    * Waits for an agent of alpha to be done with a task Hive just gave it (#680): its activity has the task (`task`, a
    * pattern) and the reply to it. agents/wait can answer before that task is taken (the last turn's "finished", or a new
    * launch still starting), so its answer is shown, never relied on; the activity is read until it has both, bounded for
-   * a hung run. Returns { act, waited } once done, else null with what the wait and the activity said.
+   * a hung run; with `session`, in that conversation (a task in the same words as the one before it). Returns
+   * { act, waited } once done, else null with what the wait and the activity said.
    */
-  const taskDone = async (name, task) => {
+  const taskDone = async (name, task, session = null) => {
     const waited = (await api('POST', '/v1/agents/wait', { agents: [{ project: 'alpha', agent: name }], timeoutSeconds: 30 })).body
     let act = null
     const t = Date.now()
@@ -99,14 +100,19 @@ const check = (name, ok, extra = '') => {
     const done = await until(async () => {
       looks++
       act = (await api('GET', `/v1/projects/alpha/agents/${name}/activity`)).body
-      return task.test(act?.currentTask ?? '') && act.latestReply === `Done: ${act.currentTask}`
+      return task.test(act?.currentTask ?? '') && act.latestReply === `Done: ${act.currentTask}` && (!session || act.sessionId === session)
     }, lib.TURN_HUNG_MS)
     if (looks > 1) console.log(`  (${name}'s task ${done ? 'was done' : 'was not done'} ${Date.now() - t} ms after agents/wait answered ${JSON.stringify(waited)})`)
-    if (!done) console.log(`DIAGNOSTIC ${name}: agents/wait said ${JSON.stringify(waited)}; its activity ${JSON.stringify(act && { task: act.currentTask, reply: act.latestReply, status: act.status })}; its session ${JSON.stringify((await inv('session:live')).find((x) => x.agentName === name) ?? null)}`)
+    if (!done) console.log(`DIAGNOSTIC ${name}: agents/wait said ${JSON.stringify(waited)}; its activity ${JSON.stringify(act && { task: act.currentTask, reply: act.latestReply, status: act.status, sessionId: act.sessionId })}; its session ${JSON.stringify((await inv('session:live')).find((x) => x.agentName === name) ?? null)}`)
     return done ? { act, waited } : null
   }
   const providers = (await api('GET', '/v1/providers')).body
   check('it lists the providers with their models, efforts and modes', providers?.some((p) => p.id === 'claude-code' && p.enabled && p.installed && p.models.length && p.efforts.length && p.modes.length), JSON.stringify(providers?.map((p) => p.id)))
+
+  // Project agents read what they are given from their inbox with Hive's tools (#650): on from here for their tasks, and
+  // off again for the hand-over checks below.
+  await inv('settings:update', { agentApi: { enabled: true } })
+  await lib.until(async () => (await api('GET', '/v1/status').catch(() => ({}))).status === 200, 10000)
 
   // Create a project; add an agent that starts on a task (on the command line). The view stays on gamma.
   const created = await api('POST', '/v1/projects', { name: 'beta' })
@@ -129,8 +135,8 @@ const check = (name, ok, extra = '') => {
   check('nor a new conversation for it (#437): its run goes on', busyFresh.status === 409 && /working/.test(busyFresh.body?.error) && (await live(alpha, builder))?.runId === workingRun, JSON.stringify(busyFresh.body))
   const waited = await api('POST', '/v1/agents/wait', { agents: [{ project: 'alpha', agent: 'Builder' }], timeoutSeconds: 30 })
   check('waiting returns when it finishes', waited.body?.timedOut === false && waited.body.agents[0].status === 'finished', JSON.stringify(waited.body))
-  const act = (await taskDone('Builder', /^work 3 \(Its id: m\d+\. Once you've acted on it, ack it with hive_inbox\.\)$/))?.act
-  check('its activity: the task and the reply', !!act, JSON.stringify(act))
+  const act = (await taskDone('Builder', /^work 3$/))?.act
+  check('its activity: the task (#650: read from its inbox) and the reply', !!act, JSON.stringify(act))
   const typed = await api('POST', '/v1/projects/alpha/agents/Builder/prompt', { text: 'next' })
   check("no task where the user typed in the last minute", typed.status === 409 && /typed/.test(typed.body?.error), JSON.stringify(typed.body))
   const typedFresh = await api('POST', '/v1/projects/alpha/agents/Builder/prompt', { text: 'next', newConversation: true })
@@ -140,8 +146,7 @@ const check = (name, ok, extra = '') => {
   const afterEnter = await api('POST', '/v1/projects/alpha/agents/Builder/prompt', { text: 'work 1' })
   check('Enter ends the pause', afterEnter.status === 200, JSON.stringify(afterEnter.body))
   // Done with it before the next step: a new conversation is refused while it works.
-  const enterTask = new RegExp(`^work 1 \\(Its id: ${afterEnter.body?.id}\\. `)
-  check('…and it does that task', !!(await taskDone('Builder', enterTask)))
+  check('…and it does that task', !!(await taskDone('Builder', /^work 1$/)))
 
   // A new lane (#437): an idle agent's next task in a new conversation, in one call; the old one stays in its history.
   const old = await live(alpha, builder)
@@ -149,8 +154,8 @@ const check = (name, ok, extra = '') => {
   check('an idle agent takes a task in a new conversation', fresh.status === 200 && fresh.body?.newConversation === true, JSON.stringify(fresh.body))
   const renewed = await until(async () => { const s = await live(alpha, builder); return s?.sessionId && s.sessionId !== old?.sessionId && s }, HUNG_MS)
   check('it runs as a new launch with a new session', !!old?.sessionId && !!renewed && renewed.runId !== old.runId, JSON.stringify({ old: old?.sessionId, now: renewed?.sessionId }))
-  // Its own task, in the new conversation: not the one before it (the same words, another delivery id).
-  const freshAct = (await taskDone('Builder', new RegExp(`^work 1 \\(Its id: (?!${afterEnter.body?.id}\\.)m\\d+\\. Once you've acted on it, ack it with hive_inbox\\.\\)$`)))?.act
+  // Its own task, in the new conversation: not the one before it (the same words), so read in the new session.
+  const freshAct = renewed ? (await taskDone('Builder', /^work 1$/, renewed.sessionId))?.act : null
   check('on the task, with no handover', !!freshAct, JSON.stringify(freshAct && { task: freshAct.currentTask, reply: freshAct.latestReply }))
   const history = (await inv('session:list', alpha)).map((s) => s.id)
   check('the old conversation stays in the Sessions history', history.includes(old?.sessionId) && history.includes(renewed?.sessionId), JSON.stringify(history))
@@ -221,6 +226,7 @@ const check = (name, ok, extra = '') => {
   fs.mkdirSync(path.join(ws, '.hive', 'shared', 'handovers'), { recursive: true })
   fs.writeFileSync(path.join(ws, '.hive', 'shared', 'handovers', '2026-10-01-alpha-plan.md'), '# Plan\n\n- **Project:** alpha\n\nwork 1\n')
   // Handing over: refused at once while project agents lack Hive's tools (the Agent API is off), then done.
+  await inv('settings:update', { agentApi: { enabled: false } })
   const noTools = await api('POST', '/v1/projects/alpha/handover', { from: 'Builder', to: 'Fixer', handover: false })
   check("no hand-over while agents can't use Hive's tools", noTools.status === 409 && /Hive's tools/.test(noTools.body?.error), JSON.stringify(noTools.body))
   await inv('settings:update', { agentApi: { enabled: true } })

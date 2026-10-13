@@ -85,7 +85,7 @@ const check = (name, ok, extra = '') => {
   await inv('tasks:update', n, { decision: 'Shot 2: close on the counter.' })
   check('one line for the two decisions', !!(await until(async () => wakes().length >= 1, 20000)), JSON.stringify(wakes()))
   await lib.sleep(4000) // A fixed wait on purpose: this checks that a second line does NOT come.
-  check('…exactly one, naming the card and both', wakes().length === 1 && /^\[Hive\] #\d+ has 2 new decisions from the user: read them \(hive_read_task\) and carry on from where you asked\. \(Its id: m\d+\. Once you've acted on it, ack it with hive_inbox\.\)$/.test(wakes()[0]) && wakes()[0].startsWith(`[Hive] #${n} `), JSON.stringify(wakes()))
+  check('…exactly one, naming the card and both', wakes().length === 1 && /^\[Hive\] #\d+ has 2 new decisions from the user: read them \(hive_read_task\) and carry on from where you asked\.$/.test(wakes()[0]) && wakes()[0].startsWith(`[Hive] #${n} `), JSON.stringify(wakes()))
   check('it reads them', !!(await until(async () => reads(n).length >= 1, 15000)))
   check("the card's history says whom Hive told", !!(await until(async () => (await card(n))?.history.some((h) => h.by === 'Hive' && h.what === 'Told Asker (alpha) of 2 new decisions'), 10000)), JSON.stringify((await card(n))?.history.map((h) => h.what)))
   await until(() => idle(agent.id), 15000)

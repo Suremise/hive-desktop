@@ -159,8 +159,27 @@ export const DEFAULT_PROJECT_CONFIG: ProjectConfig = {
 /** The transcript viewer loads this many items at a time (the latest first, earlier ones as you scroll up). */
 export const TRANSCRIPT_WINDOW = 200
 
-/** A project can run up to this many agents at once. */
-export const MAX_AGENTS = 12
+/**
+ * How many agents a project can have (#562): Settings → Advanced → Agents per project (`hive.agents.perProject`, a
+ * workspace can set its own), this by default and at most AGENT_LIMIT_MAX. Read it with `agentLimit()` (main, per project)
+ * or `useAgentLimit()` (renderer), never a constant.
+ */
+export const AGENT_LIMIT_DEFAULT = 12
+/** The most the setting allows (Darren, 11 Oct: four pages of six; more than that should be another project). Templates hold at most this many. */
+export const AGENT_LIMIT_MAX = 24
+/** Why another agent can't be added: the project has `limit` already. */
+export const agentLimitText = (limit: number): string => `A project can have up to ${limit} agents (Settings → Advanced → Agents per project).`
+/** Memory as the agents note says it: MB, or GB from 1 GB. */
+const memoryText = (n: number): string => (n >= 1024 ** 3 ? `${(n / 1024 ** 3).toFixed(1)} GB` : formatBytes(n))
+
+/**
+ * Settings → Advanced's note once Agents per project goes over the default (Darren, 11 Oct): what more agents cost, in
+ * the machine's own figures (the memory running agents take now, measured; the computer's), and the plans' limits.
+ */
+export function manyAgentsNote(m: { running: { agents: number; bytes: number } | null; total: number; free: number }): string {
+  const now = m.running && m.running.agents > 0 ? `. Your ${m.running.agents} running agent${m.running.agents === 1 ? ' takes' : 's take'} ${memoryText(m.running.bytes)} now (about ${memoryText(m.running.bytes / m.running.agents)} each);` : ', roughly 200–500 MB of memory each;'
+  return `More than ${AGENT_LIMIT_DEFAULT} agents: each runs its own copy of its CLI${now} this computer has ${memoryText(m.total)} of memory, ${memoryText(m.free)} free. They all share your plans' usage limits, so they reach them sooner.`
+}
 /** An agent's role (#126) is at most this long. */
 export const ROLE_MAX = 60
 /** Adding the agent that makes this many: a note that each is its own CLI process. */
@@ -171,7 +190,7 @@ export const MANY_AGENTS = 7
  * (Single) is one page of every agent, its tabs choosing which is shown, so it never has page buttons.
  */
 export function agentsPerPage(layout: SessionLayout): number {
-  return layout === 'single' ? MAX_AGENTS : layoutPanes(layout)
+  return layout === 'single' ? AGENT_LIMIT_MAX : layoutPanes(layout)
 }
 
 /** How many agent pages `count` agents take, `perPage` to a page (at least one). */

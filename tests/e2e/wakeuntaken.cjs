@@ -90,7 +90,7 @@ const check = (name, ok, extra = '') => {
   check('it watches again', !!(await watch()))
   await inv('tasks:comment', card, 'Second change')
   const marked = await until(async () => (await live(agent.id))?.untakenLine, 20000)
-  check('not taken after Enter again: the agent is marked', !!marked && /^\[Hive\] #\d+ is in/.test(marked.text), JSON.stringify(marked))
+  check('not taken after Enter again: the agent is marked', !!marked && /^\[Hive\] New in your inbox: 1 card event \(#\d+\) \(m\d+\)\./.test(marked.text), JSON.stringify(marked))
   check('Hive pressed Enter twice, never a third time (the CLI dropped both)', fs.readFileSync(path.join(claudeHome, 'fake-drop-enters-Watcher.txt'), 'utf8').trim() === '0' && wakes().length === 1, JSON.stringify({ left: fs.readFileSync(path.join(claudeHome, 'fake-drop-enters-Watcher.txt'), 'utf8'), wakes: wakes().length }))
   check('the log says: Enter again, still not taken', /wasn't taken: pressed Enter again/.test(hiveLog()) && /still wasn't taken/.test(hiveLog()))
   check('its pane says so', !!(await until(async () => (await page.locator('.pane-status', { hasText: "A line Hive typed wasn't taken" }).count()) >= 1, 5000)))

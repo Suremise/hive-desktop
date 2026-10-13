@@ -12,6 +12,10 @@
 //   shell COMMAND…             its powershell tool
 //   question                   its ask_user tool (a question for the person)
 //   say TEXT…                  the turn's last reply (default: "Done.")
+//   checkpoint                 a view of README.md: a tool call after which Hive's notice may come (#650)
+// Hive's notices (#650: "[Hive] New in your inbox…" added to a tool's result, "[Hive] Before you finish…" as the prompt
+// its Stop carried the turn on with) and its doorbell (the prompt "[Hive] New in your inbox…") are followed as a model does:
+// hive_inbox, then hive_inbox with ack for its ids; new work read so (a task, a handover) is then the prompt's steps.
 // One step a model call: each tool's result comes back in the next request, which gets the next step. Every request is
 // logged (`log`: one JSON line each, with the tools Copilot offered and the system prompt's length), so a suite can see
 // what Copilot sent. Usage is reported with each reply (tokens, as an API would), so Hive has some to count.
@@ -21,7 +25,7 @@ const http = require('http')
 const fs = require('fs')
 const path = require('path')
 const { execFileSync, spawnSync } = require('child_process')
-const { parseHiveStep } = require('./fake-bridge.cjs')
+const { parseHiveStep, isDoorbell, doorbellIsWork, inboxRows } = require('./fake-bridge.cjs')
 
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms))
 
@@ -61,11 +65,45 @@ function actionsOf(prompt) {
     if ((m = /^edit\s+(\S+)\s+(\S+)\s+(\S+)$/i.exec(step))) out.push({ tool: 'edit', args: { path: m[1], old_str: m[2], new_str: m[3] } })
     if ((m = /^write\s+(\S+)\s+([\s\S]+)$/i.exec(step))) out.push({ tool: 'create', args: { path: m[1], file_text: `${m[2]}\n` } })
     if ((m = /^view\s+(\S+)$/i.exec(step))) out.push({ tool: 'view', args: { path: m[1] } })
+    // "checkpoint": a tool call of its own, after which Hive's notice may come (#650).
+    if (/^checkpoint$/i.test(step)) out.push({ tool: 'view', args: { path: 'README.md' } })
     if ((m = /^shell:?\s+([\s\S]+)$/i.exec(step))) out.push({ tool: 'powershell', args: { command: m[1], description: 'Run a command', mode: 'sync', initial_wait: 30 } })
     if (/^question$/i.test(step)) out.push({ tool: 'ask_user', args: { message: 'Which one should I use?', requestedSchema: { type: 'object', properties: { choice: { type: 'string', enum: ['first', 'second'] } }, required: ['choice'] } } })
     if ((m = /^say\s+([\s\S]+)$/i.exec(step))) out.push({ say: m[1] })
   }
   return out
+}
+
+/** An assistant message that calls hive_inbox (a notice followed), and its arguments. */
+function inboxCall(m) {
+  const c = m.role === 'assistant' && Array.isArray(m.tool_calls) ? m.tool_calls.find((t) => (t.function?.name ?? '').endsWith('hive_inbox')) : null
+  if (!c) return null
+  try {
+    return JSON.parse(c.function.arguments || '{}')
+  } catch {
+    return {}
+  }
+}
+
+/**
+ * Hive's notice (#650: "[Hive] New in your inbox…" after a tool's result, as Copilot adds a postToolUse hook's context,
+ * or "[Hive] Before you finish…", the prompt its Stop carried the turn on with), followed as a model does: hive_inbox,
+ * then hive_inbox with ack for the ids it listed. The call to make, or null (no notice, or followed already).
+ */
+function followNotice(msgs, tools) {
+  // Where Copilot puts one, not a mention of one (Hive's guidance and skills quote them): after a tool's result, or the
+  // whole prompt.
+  const isNotice = (m) => (m.role === 'tool' && /Additional guidance from postToolUse hooks:\s*\[Hive\] New in your inbox/.test(textOf(m))) || (m.role === 'user' && /^\[Hive\] (New in your inbox|Before you finish)/.test(promptOf(textOf(m))))
+  const k = msgs.findLastIndex(isNotice)
+  const name = offered(tools, 'hive_inbox')
+  if (k < 0 || !name) return null
+  const after = msgs.slice(k + 1)
+  const calls = after.map(inboxCall).filter(Boolean)
+  if (!calls.length) return { tool: name, args: {} }
+  if (calls.some((a) => Array.isArray(a.ack))) return null
+  const listed = after.find((m) => m.role === 'tool' && /\bnew:/.test(textOf(m)))
+  const ids = [...new Set([...textOf(listed).matchAll(/\bm\d+\b/g)].map((x) => x[0]))]
+  return ids.length ? { tool: name, args: { ack: ids } } : null
 }
 
 /**
@@ -80,8 +118,17 @@ function decide(body) {
   let at = -1
   for (let i = msgs.length - 1; i >= 0 && at < 0; i--) if (msgs[i].role === 'user' && /<current_datetime>/.test(textOf(msgs[i]))) at = i
   if (at < 0) at = msgs.findLastIndex((m) => m.role === 'user')
-  const prompt = promptOf(textOf(msgs[at]))
-  const done = msgs.slice(at + 1).filter((m) => m.role === 'assistant' && Array.isArray(m.tool_calls) && m.tool_calls.length).length
+  let prompt = promptOf(textOf(msgs[at]))
+  const notice = followNotice(msgs, body.tools)
+  if (notice) return { prompt: prompt.slice(0, 160), step: 'notice', wait: 0, ...notice }
+  // Hive's doorbell (#650), read (the notice above): new work it read (a task, a handover) is what it does; anything else
+  // (a wake, a message) it has read, and its turn ends.
+  if (isDoorbell(prompt)) {
+    const listed = msgs.slice(at + 1).find((m) => m.role === 'tool' && /\bnew:/.test(textOf(m)))
+    prompt = doorbellIsWork(prompt) ? inboxRows(textOf(listed)).map((x) => x.text).join(' ') : ''
+  }
+  // Its own steps' calls: those it made to follow a notice don't count.
+  const done = msgs.slice(at + 1).filter((m) => m.role === 'assistant' && Array.isArray(m.tool_calls) && m.tool_calls.length && !inboxCall(m)).length
   const actions = actionsOf(prompt)
   const out = { prompt: prompt.slice(0, 160), step: done }
   let wait = 0
@@ -101,7 +148,7 @@ function decide(body) {
   const say = actions.filter((a) => a.say).pop()?.say
   // A turn takes a moment at least, as the fake CLIs' scripted turns do: one over at once can end between two looks at
   // the agent, which then never seems to have worked.
-  return { ...out, wait: Math.max(wait, 1500), text: say ?? (actions.length ? 'Done.' : `Fake Copilot: ${prompt.slice(0, 80)}`) }
+  return { ...out, wait: Math.max(wait, 1500), text: say ?? (actions.length || !prompt ? 'Done.' : `Fake Copilot: ${prompt.slice(0, 80)}`) }
 }
 
 const USAGE = { prompt_tokens: 1200, completion_tokens: 40, total_tokens: 1240, prompt_tokens_details: { cached_tokens: 1000 } }

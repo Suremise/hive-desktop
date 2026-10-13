@@ -71,7 +71,7 @@ describe('the turn ledger in a session', () => {
     s.notify = () => {}
   })
   afterEach(() => {
-    sessions.stopReplier = null
+    sessions.inboxNotice = null
     delete process.env.HIVE_TEST_SILENT_MS
   })
   afterAll(async () => {
@@ -93,7 +93,7 @@ describe('the turn ledger in a session', () => {
   it("isn't over at a Stop Hive answered with a continuation, only at the one it answered with nothing", async () => {
     const { st } = agent('cont')
     let drains = 1
-    sessions.stopReplier = () => (drains-- > 0 ? { decision: 'block', reason: 'You have mail: call hive_inbox' } : null)
+    sessions.inboxNotice = (_st, at) => (at === 'drain' && drains-- > 0 ? '[Hive] You have mail: call hive_inbox' : null)
     await hook(st, { hook_event_name: 'UserPromptSubmit', turn_id: 't1', prompt: 'go' })
     await hook(st, { hook_event_name: 'Stop', turn_id: 't1', stop_hook_active: false, last_assistant_message: 'Done' })
     expect(st.status).toBe('working')
@@ -284,13 +284,14 @@ describe('the turn ledger in a session', () => {
     const q = sessions as unknown as { inHookOrder: (key: string, fn: () => Promise<void>) => Promise<void> }
     for (const continued of [false, true]) {
       const { st, l, rollout } = agent(continued ? 'queued-cont' : 'queued')
-      Object.assign(l, { adapter: copilot })
+      // Copilot's hooks carry no notice yet (#650): one that would carry the turn on, as its hooks reference says a block does.
+      Object.assign(l, { adapter: Object.assign(Object.create(copilot), { noticeReply: (e: string, text: string) => (e === 'Stop' ? { decision: 'block', reason: text } : null) }) })
       const ev = (type: string, data: Record<string, unknown>, at: number) => JSON.stringify({ type, data, timestamp: new Date(at).toISOString() }) + '\n'
       if (continued) {
-        sessions.stopReplier = () => ({ decision: 'block', reason: 'You have mail: call hive_inbox' })
+        sessions.inboxNotice = (_st, at) => (at === 'drain' ? '[Hive] You have mail: call hive_inbox' : null)
         await hook(st, { hook_event_name: 'UserPromptSubmit', prompt: 'go' })
         await hook(st, { hook_event_name: 'Stop' })
-        sessions.stopReplier = null
+        sessions.inboxNotice = null
       }
       // The launch's queue is held (an earlier hook recording the session); the prompt arrives and waits behind it.
       let release: (() => void) | undefined
@@ -422,7 +423,7 @@ describe('the turn ledger in a session', () => {
   it("a Copilot turn (no turn ids) ends from a Stop answered after it began that Hive never got, not from an earlier turn's", async () => {
     const { copilot } = await import('../src/main/providers/copilot/adapter')
     const { st, l, rollout } = agent('copilot')
-    Object.assign(l, { adapter: copilot })
+    Object.assign(l, { adapter: Object.assign(Object.create(copilot), { noticeReply: (e: string, text: string) => (e === 'Stop' ? { decision: 'block', reason: text } : null) }) })
     const ev = (type: string, data: Record<string, unknown>, at: Date) => JSON.stringify({ type, data, timestamp: at.toISOString() }) + '\n'
     // A Stop answered just before the prompt (an earlier turn's), read in the same tail as the new prompt's hook.
     const before = new Date(Date.now() - 1000)
@@ -432,9 +433,9 @@ describe('the turn ledger in a session', () => {
     await settled(st)
     expect([st.status, st.turn?.state]).toEqual(['working', 'running'])
     // Hive carries it on once (its Stop answered), then its final Stop never reaches Hive.
-    sessions.stopReplier = () => ({ decision: 'block', reason: 'You have mail: call hive_inbox' })
+    sessions.inboxNotice = (_st, at) => (at === 'drain' ? '[Hive] You have mail: call hive_inbox' : null)
     await hook(st, { hook_event_name: 'Stop' })
-    sessions.stopReplier = null
+    sessions.inboxNotice = null
     appendFileSync(rollout, ev('hook.end', { hookType: 'agentStop' }, new Date(Date.now() + 5)))
     await run(() => s.readDetails(l, rollout, statSync(rollout).size))
     await settled(st)

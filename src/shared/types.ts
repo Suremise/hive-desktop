@@ -799,7 +799,7 @@ export interface AgentWorktree {
   base: string
 }
 
-/** One of a project's (up to twelve) agents. Settings left undefined follow the project's. */
+/** One of a project's agents (up to Agents per project, #562). Settings left undefined follow the project's. */
 export interface AgentDef {
   /** Random and never reused, so session records of removed agents don't attach to new ones. */
   id: string
@@ -1175,7 +1175,7 @@ export interface InboxBrief {
   from: string
   text: string
   at: string
-  state: 'queued' | 'offered' | 'uncertain' | 'received' | 'acked' | 'cancelled' | 'refused' | 'expired'
+  state: 'queued' | 'offered' | 'uncertain' | 'received' | 'acked' | 'cancelled' | 'refused' | 'expired' | 'stale'
   card?: number
 }
 

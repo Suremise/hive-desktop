@@ -64,7 +64,8 @@ function idle(agentId: string): { status: string } {
   s.live.set(`${p.toLowerCase()}#${agentId}`, { state, adapter: claudeCode, transcriptMtime: '', defaultModel: false, modeTail: '', launchMode: null, configuredMode: null })
   return state
 }
-const prompted = (): boolean => pty.typed.join('').includes('Work on task')
+// Its doorbell (#650: the task's id, never its text, which the agent reads with hive_inbox).
+const prompted = (): boolean => pty.typed.join('').includes('New in your inbox: 1 task')
 const submitted = (): boolean => pty.typed.includes('\r')
 
 describe('a Start typed into a running agent', () => {
@@ -111,8 +112,8 @@ describe('a Start typed into a running agent', () => {
 
   it('the agent starts work while the prompt is typed: it is not sent, and what Hive typed is cleared again', async () => {
     const st = idle('d2')
-    pty.onWrite = (d) => {
-      if (d.includes('Work on')) st.status = 'working'
+    pty.onWrite = () => {
+      if (pty.typed.join('').includes('New in your inbox')) st.status = 'working'
     }
     const { error, card } = await startWith('d2', user)
     expect(error).toMatch(/is working/)

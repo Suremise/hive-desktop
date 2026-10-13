@@ -1,4 +1,5 @@
 import { useMemo } from 'react'
+import { AGENT_LIMIT_DEFAULT } from '@shared/defaults'
 import type { ProjectInfo, TaskCard } from '@shared/types'
 import { laneOrder, waitingFor, type TableLane } from '@shared/agentTable'
 import { agentDoingCards, agentReviewCards } from '@shared/tasks'
@@ -38,12 +39,13 @@ export function agentsText(p: ProjectInfo, tasks: TaskCard[], lanes: readonly Ta
  * A project's agents as a table (#529), for a tooltip: Agent (with its status dot) · State · Card (one line, cut with an
  * ellipsis) · Waiting for (only when one waits), in lane order (a builder, then its reviewer). The table never scrolls:
  * each column has a share of the room the window leaves (app.css), and a longer cell, the agent's name too, is cut.
+ * More agents than the default limit (up to 24, #562) take tighter rows, so they still fit a window's height.
  */
 export function AgentsTable({ project: p, tasks, lanes }: { project: ProjectInfo; tasks: TaskCard[]; lanes: readonly TableLane[] }) {
   const rows = laneOrder(p.agents, lanes).map((a) => ({ a, ...row(p, a, tasks) }))
   const waits = rows.some((r) => r.waits)
   return (
-    <table className="table agents-table" data-agents={rows.length}>
+    <table className={cx('table agents-table', rows.length > AGENT_LIMIT_DEFAULT && 'many')} data-agents={rows.length}>
       <thead>
         <tr>
           <th>Agent</th>

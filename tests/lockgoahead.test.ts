@@ -28,7 +28,7 @@ const base = tempDir('hive-goahead-')
 const { createWorkspaceService, disposeWorkspaceService, inWorkspace } = await import('../src/main/workspace')
 const { sessions } = await import('../src/main/sessions')
 // The delivery service gives the go-ahead (#649): it sets itself into sessions as it loads.
-await import('../src/main/deliveries')
+const deliveries = await import('../src/main/deliveries')
 const { config } = await import('../src/main/config')
 const { codex } = await import('../src/main/providers/codex/adapter')
 
@@ -108,8 +108,11 @@ function agents() {
     /** The user typing in editor's terminal. */
     userTypes: (text: string) => sessions.noteUserInput(s.key(p, editor.agentId), text),
     typed,
-    /** The go-ahead for the file typed (in pieces, as Hive types) and sent. */
-    goAhead: () => typed().join('').includes(`allowed you to edit ${file}`) && typed().at(-1) === '\r'
+    /**
+     * The go-ahead for the file given: its doorbell typed (in pieces, as Hive types) and sent (#650: it names the notice
+     * by id; the agent reads what it says with hive_inbox).
+     */
+    goAhead: async () => typed().join('').includes('New in your inbox: 1 notice') && typed().at(-1) === '\r' && (await deliveries.deliveriesOf(p, editor.agentId)).some((r) => r.state === 'offered' && r.body.includes(`allowed you to edit ${file}`))
   }
 }
 
@@ -137,7 +140,7 @@ describe('Allow on an "Ask me" lock', () => {
     expect(await a.edit()).not.toBeNull()
     a.editor.status = 'finished'
     await a.allow()
-    await vi.waitFor(() => expect(a.goAhead()).toBe(true), { timeout: HUNG_MS })
+    await vi.waitFor(async () => expect(await a.goAhead()).toBe(true), { timeout: HUNG_MS })
   })
 
   it('clicked while the blocked agent is still in its turn: nothing is typed then; at its end, the go-ahead, and the edit is allowed', async () => {
@@ -148,7 +151,7 @@ describe('Allow on an "Ask me" lock', () => {
     expect(a.typed()).toEqual([])
     await a.hook('Stop')
     expect(a.editor.status).toBe('finished')
-    await vi.waitFor(() => expect(a.goAhead()).toBe(true), { timeout: HUNG_MS })
+    await vi.waitFor(async () => expect(await a.goAhead()).toBe(true), { timeout: HUNG_MS })
     // The next turn's retry goes through: the turn's end released the allowance the click gave, and it was given again.
     a.editor.status = 'working'
     expect(await a.edit()).toBeNull()
@@ -190,7 +193,7 @@ describe('Allow on an "Ask me" lock', () => {
     // The retry also edits the second file, which other holds and nobody allowed: the whole edit is refused.
     expect(await a.edit(a.file, a.second)).not.toBeNull()
     await a.hook('Stop')
-    await vi.waitFor(() => expect(a.goAhead()).toBe(true), { timeout: HUNG_MS })
+    await vi.waitFor(async () => expect(await a.goAhead()).toBe(true), { timeout: HUNG_MS })
     expect(a.typed().join('')).not.toContain(a.second)
   })
 
@@ -215,8 +218,8 @@ describe('Allow on an "Ask me" lock', () => {
     expect(await a.edit()).not.toBeNull()
     await a.allow()
     let typedBy: number | null = null
-    pty.onWrite = (d) => {
-      if (typedBy === null && d.includes('allowed')) {
+    pty.onWrite = () => {
+      if (typedBy === null && pty.typed.map((t) => t.data).join('').includes('New in your inbox')) {
         typedBy = pty.typed.length
         a.userTypes('My next task')
       }
@@ -229,7 +232,7 @@ describe('Allow on an "Ask me" lock', () => {
     expect(a.typed().includes('\r')).toBe(false)
     expect(pty.typed.slice(typedBy!).some((t) => t.data === '\x15')).toBe(false)
     pty.onWrite = () => undefined
-    await vi.waitFor(() => expect(a.goAhead()).toBe(true), { timeout: (PAUSE + 3) * 1000 })
+    await vi.waitFor(async () => expect(await a.goAhead()).toBe(true), { timeout: (PAUSE + 3) * 1000 })
   })
 
   it('a draft in the terminal when the turn ends: nothing is typed until the user pauses', async () => {
@@ -241,7 +244,7 @@ describe('Allow on an "Ask me" lock', () => {
     await a.hook('Stop')
     await wait(PAUSE * 500)
     expect(a.typed()).toEqual([])
-    await vi.waitFor(() => expect(a.goAhead()).toBe(true), { timeout: (PAUSE + 3) * 1000 })
+    await vi.waitFor(async () => expect(await a.goAhead()).toBe(true), { timeout: (PAUSE + 3) * 1000 })
   })
 
   it('interrupted while the go-ahead is being typed: it stops before Enter, and is not tried again', async () => {

@@ -1,6 +1,7 @@
 import { memo, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
 import type { ProjectInfo, SessionBulkAction, SessionBulkResult, SessionListItem, SessionSkipReason, Transcript, TranscriptImageRef, TranscriptItem, TranscriptSearchResult, TranscriptTool } from '@shared/types'
-import { MAX_AGENTS, TRANSCRIPT_WINDOW, transcriptSizeInfo, transcriptWarnLimit } from '@shared/defaults'
+import { TRANSCRIPT_WINDOW, transcriptSizeInfo, transcriptWarnLimit } from '@shared/defaults'
+import { useAgentLimit } from '../advanced'
 import { formatDateTime } from '@shared/dates'
 import { isProviderEnabled, providerDescriptor, providerName } from '@shared/providers'
 import { buildSessionTree, countText, countsIn, pathTo, sessionKey, sessionsIn, type TreeNode } from '@shared/sessionTree'
@@ -39,6 +40,7 @@ const BULK_VERB: Record<SessionBulkAction, string> = { archive: 'Archived', unar
 
 export function SessionsTab({ project, assistant = false }: { project: ProjectInfo; assistant?: boolean }) {
   const { items, reload, error: listError, loadedAt } = useSessions(project)
+  const limit = useAgentLimit()
   const listWidth = usePaneSize('sessions', 320)
   const [showArchived, setShowArchived] = useState(false)
   const noun = assistant ? 'conversation' : 'session'
@@ -281,7 +283,7 @@ export function SessionsTab({ project, assistant = false }: { project: ProjectIn
       providerEnabled: isProviderEnabled(settings, s.provider),
       providerInstalled: install && !install.checking ? install.found : null,
       runners: actions.agentsForSession(project, s),
-      canAddAgent: !assistant && (!s.cwd || s.cwd.toLowerCase() === project.path.toLowerCase()) && project.agents.length < MAX_AGENTS,
+      canAddAgent: !assistant && (!s.cwd || s.cwd.toLowerCase() === project.path.toLowerCase()) && project.agents.length < limit,
       assistant
     }
   }
