@@ -30,8 +30,6 @@ describe('loop wakes (main/loopWakes.ts, #405)', async () => {
   const lanes = await import('../src/main/lanes')
   const loopWakes = await import('../src/main/loopWakes')
   loopWakes.initLoopWakes()
-  // A handoff's wake is tried at once here, not after Hive's settle (comments landing with it told with it).
-  loopWakes.testHooks.settleMs = 0
   const { sessions } = await import('../src/main/sessions')
   let n = 0
   /** A workspace whose project alpha has a builder (b1), a reviewer (r1) and another agent (o1). */

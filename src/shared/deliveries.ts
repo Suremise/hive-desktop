@@ -31,11 +31,12 @@ export type DeliveryNeed = 'idle' | 'free' | 'stalled'
  * names it by id; never its text); received: the agent fetched it with hive_inbox (#645: received is automatic on fetch;
  * #650: the only receipt. Before #650 a line that carried its whole text also made it received once its CLI took it,
  * receivedVia 'typed', which saved records may still say); acked: the agent says it has acted on it. Ended without that: cancelled (by
- * whom), refused (its sender may no longer send it), expired (too old, or its agent is in another conversation now).
+ * whom), refused (its sender may no longer send it), expired (too old, or its agent is in another conversation now),
+ * stale (#652: tied to a card's round, and that card has moved on: passed, out of Doing and Review, or in a new round).
  * uncertain: offered when Hive stopped or its agent's launch ended, before it was received: it may not have reached the
  * agent, so it is offered once more, saying it may repeat (`again`), and stays uncertain if that one isn't received.
  */
-export const DELIVERY_STATES = ['queued', 'offered', 'received', 'acked', 'cancelled', 'refused', 'expired', 'uncertain'] as const
+export const DELIVERY_STATES = ['queued', 'offered', 'received', 'acked', 'cancelled', 'refused', 'expired', 'uncertain', 'stale'] as const
 export type DeliveryState = (typeof DELIVERY_STATES)[number]
 
 /**
@@ -57,6 +58,11 @@ export interface DeliveryRecord {
   kind: DeliveryKind
   from: DeliverySender
   card?: number
+  /**
+   * The round of its card it is for (#652, with `card`: a re-brief for the work under way, the card's failed reviews plus
+   * one when it was made): it is relevant only while the card is in Doing or Review in that round, and stale after.
+   */
+  round?: number
   /** What it says (a card event's short line, a message's text). */
   body: string
   state: DeliveryState
@@ -105,15 +111,16 @@ export const OVERDUE_MINUTES = 30
 export const DELIVERY_EXPIRY_HOURS = 24
 
 const NEXT: Record<DeliveryState, readonly DeliveryState[]> = {
-  queued: ['offered', 'received', 'acked', 'cancelled', 'refused', 'expired'],
+  queued: ['offered', 'received', 'acked', 'cancelled', 'refused', 'expired', 'stale'],
   // Back to queued: the offer didn't happen after all (nothing was typed). Cancelled: while it is still being typed.
-  offered: ['received', 'acked', 'uncertain', 'queued', 'cancelled', 'refused', 'expired'],
-  uncertain: ['offered', 'received', 'acked', 'cancelled', 'refused', 'expired'],
+  offered: ['received', 'acked', 'uncertain', 'queued', 'cancelled', 'refused', 'expired', 'stale'],
+  uncertain: ['offered', 'received', 'acked', 'cancelled', 'refused', 'expired', 'stale'],
   received: ['acked', 'expired'],
   acked: [],
   cancelled: [],
   refused: [],
-  expired: []
+  expired: [],
+  stale: []
 }
 
 export const canMove = (from: DeliveryState, to: DeliveryState): boolean => NEXT[from].includes(to)
@@ -291,6 +298,7 @@ export function readDelivery(v: unknown): DeliveryRecord | null {
   if (!from || !str(r.body, DELIVERY_BODY_MAX_CHARS) || !time(r.created) || !time(r.expires)) return null
   if (!(r.conversation === null || str(r.conversation, 200))) return null
   if (r.card !== undefined && !(Number.isInteger(r.card) && (r.card as number) > 0)) return null
+  if (r.round !== undefined && !(r.card !== undefined && Number.isInteger(r.round) && (r.round as number) > 0)) return null
   if (![r.offered, r.received, r.acked, r.ended].every(optTime)) return null
   if (r.offers !== undefined && !(Number.isInteger(r.offers) && (r.offers as number) >= 0)) return null
   if (r.receivedVia !== undefined && r.receivedVia !== 'inbox' && r.receivedVia !== 'typed') return null
@@ -306,6 +314,7 @@ export function readDelivery(v: unknown): DeliveryRecord | null {
   const out: DeliveryRecord = { id: r.id, seq: r.seq as number, agentId: r.agentId, conversation: (r.conversation as string | null) || null, kind: r.kind as DeliveryKind, from, body: r.body, state: r.state as DeliveryState, created: r.created, expires: r.expires }
   if (r.agentName) out.agentName = r.agentName as string
   if (r.card) out.card = r.card as number
+  if (r.round) out.round = r.round as number
   for (const k of ['offered', 'received', 'acked', 'ended', 'detail'] as const) if (r[k]) out[k] = r[k] as string
   if (r.offers) out.offers = r.offers as number
   if (r.receivedVia) out.receivedVia = r.receivedVia as 'inbox' | 'typed'

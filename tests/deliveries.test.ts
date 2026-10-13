@@ -29,7 +29,12 @@ describe('delivery records (#647)', () => {
     expect(moved(offered, 'queued', at)).toEqual(rec())
     expect(moved(rec(), 'cancelled', at, 'cancelled by the user')).toMatchObject({ state: 'cancelled', ended: at, detail: 'cancelled by the user' })
     // Ended stays ended; received can't be refused or cancelled (the agent has it).
-    for (const end of ['acked', 'cancelled', 'refused', 'expired'] as const) for (const to of DELIVERY_STATES) expect(canMove(end, to)).toBe(false)
+    for (const end of ['acked', 'cancelled', 'refused', 'expired', 'stale'] as const) for (const to of DELIVERY_STATES) expect(canMove(end, to)).toBe(false)
+    // Stale (#652): from anything not read yet, never once received.
+    for (const from of ['queued', 'offered', 'uncertain'] as const) expect(canMove(from, 'stale')).toBe(true)
+    expect(canMove('received', 'stale')).toBe(false)
+    expect(moved(rec(), 'stale', at, '#7 passed review')).toMatchObject({ state: 'stale', ended: at, detail: '#7 passed review' })
+    expect(isOverdue(rec({ state: 'stale' }), Date.parse(at) + 31 * 60_000)).toBe(false)
     expect(canMove('received', 'refused')).toBe(false)
     expect(canMove('received', 'cancelled')).toBe(false)
     expect(canMove('queued', 'uncertain')).toBe(false)
@@ -83,7 +88,9 @@ describe('delivery records (#647)', () => {
 
   it('reads back only what checks out (the file can be edited by hand)', () => {
     expect(readDelivery(JSON.parse(JSON.stringify(rec({ card: 12, offered: at, offers: 1, state: 'offered' }))))).toEqual(rec({ card: 12, offered: at, offers: 1, state: 'offered' }))
-    for (const bad of [{ id: 'x1' }, { state: 'delivered' }, { kind: 'mail' }, { from: { kind: 'assistant', name: 'A' } }, { created: 'yesterday' }, { card: -1 }, { body: 7 }, { seq: 0 }]) expect(readDelivery({ ...rec(), ...bad })).toBeNull()
+    for (const bad of [{ id: 'x1' }, { state: 'delivered' }, { kind: 'mail' }, { from: { kind: 'assistant', name: 'A' } }, { created: 'yesterday' }, { card: -1 }, { body: 7 }, { seq: 0 }, { round: 2 }, { card: 7, round: 0 }, { card: 7, round: 1.5 }]) expect(readDelivery({ ...rec(), ...bad })).toBeNull()
+    // A card's round (#652) reads back with its card.
+    expect(readDelivery(JSON.parse(JSON.stringify(rec({ card: 7, round: 3, state: 'stale', ended: at, detail: '#7 passed review' }))))).toEqual(rec({ card: 7, round: 3, state: 'stale', ended: at, detail: '#7 passed review' }))
     expect(readDelivery(null)).toBeNull()
   })
 })

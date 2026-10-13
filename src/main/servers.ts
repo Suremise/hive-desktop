@@ -1021,17 +1021,21 @@ route('POST', '/v1/projects/:name/agents/:agent/message', async ({ params, body 
   const text = typeof body?.text === 'string' ? body.text.trim() : ''
   if (!text) throw new HttpError(400, 'text is required')
   if (text.length > MESSAGE_MAX_CHARS) throw new HttpError(400, `text is at most ${MESSAGE_MAX_CHARS} characters (this has ${text.length})`)
-  return assistantChange<{ id: string; typed: boolean; queued: number; status: string }>('agents', `leave ${a.name} in ${basename(p)} a message`, async (guard) => {
+  // Tied to a card's round (#652): stale, never given, once the card has moved on.
+  const card = body?.card === undefined || body?.card === null ? undefined : Number(body.card)
+  if (card !== undefined && !(Number.isInteger(card) && card > 0)) throw new HttpError(400, 'card must be a card number')
+  return assistantChange<{ id: string; typed: boolean; queued: number; status: string; round?: number }>('agents', `leave ${a.name} in ${basename(p)} a message`, async (guard) => {
     const st = sessions.liveFor(p, agentId)
     if (!st) throw new HttpError(409, `${a.name} isn't running. Start it with the message as its task instead (hive_start_agent with prompt).`)
     guard()
     // Its sender saved with it: the Assistant's launch, whose permission is worked out again at every step (#645).
-    const r = await leaveMessage(p, agentId, a.name, callerSender(), text).catch((e: Error) => {
+    const r = await leaveMessage(p, agentId, a.name, callerSender(), text, card).catch((e: Error) => {
       throw new HttpError(409, e.message)
     })
-    if (r.fate === 'cancelled' || r.fate === 'expired' || r.fate === 'refused') throw new HttpError(409, `The message wasn't typed into ${a.name}: ${r.fate === 'cancelled' ? (r.detail ?? 'cancelled') : `${r.fate}, ${r.detail ?? ''}`}.`)
+    if (r.fate === 'cancelled' || r.fate === 'expired' || r.fate === 'refused' || r.fate === 'stale') throw new HttpError(409, `The message wasn't typed into ${a.name}: ${r.fate === 'cancelled' ? (r.detail ?? 'cancelled') : `${r.fate}, ${r.detail ?? ''}`}.`)
     const typed = r.fate === 'typed'
-    return { done: `${typed ? 'Gave' : 'Left'} ${a.name} in ${basename(p)} a message (${r.id})${typed ? '' : ' (queued)'}`, said: `: ${clip(text.replace(/\s+/g, ' '), 80)}`, result: { id: r.id, typed, queued: r.queued, status: typed ? (sessions.liveFor(p, agentId)?.status ?? 'stopped') : st.status } }
+    const tied = r.round ? ` for #${card} round ${r.round}` : ''
+    return { done: `${typed ? 'Gave' : 'Left'} ${a.name} in ${basename(p)} a message (${r.id})${tied}${typed ? '' : ' (queued)'}`, said: `: ${clip(text.replace(/\s+/g, ' '), 80)}`, result: { id: r.id, typed, queued: r.queued, status: typed ? (sessions.liveFor(p, agentId)?.status ?? 'stopped') : st.status, ...(r.round ? { round: r.round } : {}) } }
   })
 })
 

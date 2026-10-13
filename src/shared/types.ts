@@ -1175,7 +1175,7 @@ export interface InboxBrief {
   from: string
   text: string
   at: string
-  state: 'queued' | 'offered' | 'uncertain' | 'received' | 'acked' | 'cancelled' | 'refused' | 'expired'
+  state: 'queued' | 'offered' | 'uncertain' | 'received' | 'acked' | 'cancelled' | 'refused' | 'expired' | 'stale'
   card?: number
 }
 

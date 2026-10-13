@@ -240,8 +240,16 @@ interface LiveSession {
   mode?: string
   /** Prompts the CLI has reported submitted in this launch (UserPromptSubmit), for sendPrompt's confirm and a wake's (#376). */
   prompts?: number
-  /** Hive's latest typed prompt (sendPrompt): when, and the prompts taken then. Until the CLI takes it, it is pending (#416). */
-  typed?: { at: number; prompts: number }
+  /**
+   * Hive's latest typed prompt (sendPrompt): when (`at`, its Enter; `from`, when its typing reserved the composer), and the
+   * prompts taken then. Until the CLI takes it, it is pending (#416).
+   */
+  typed?: { at: number; prompts: number; from: number }
+  /**
+   * A line of Hive's the user typed into before its CLI took it (#652 round 1 finding 2): the prompt is their draft now, so
+   * nothing more is typed into the agent until a prompt is submitted (the CLI's count passes this).
+   */
+  draftOver?: { prompts: number }
   /** The start of its latest reply, as its last turn's end reported it (an agent watch's line, #416). */
   lastReply?: string
   /** Its latest hooks (what they were, when, and the status they left), for the log when the CLI turns out idle (#612). */
@@ -618,35 +626,31 @@ class SessionManager {
     const l = this.live.get(liveId(projectPath, agentId))
     const key = this.key(projectPath, agentId)
     if (!l || l.state.runId !== runId || !readyFor(l.state) || this.userMayBeTyping(projectPath, agentId) || this.delivering.has(key)) return false
+    // The prompt is the user's draft once they have typed in it (#652 round 1 finding 2): never sent by Hive's Enter.
+    if (this.userTypedOverLine(projectPath, agentId)) return false
     writePty(key, '\r')
     return true
   }
 
   /**
-   * Whether the user has typed in an agent's terminal since Hive's line still waiting there was typed (#530 round 3
-   * finding): the prompt then holds their draft too, whatever the typing pause says, and is theirs, not Hive's to clear.
-   * False when no line of Hive's waits.
+   * Whether the user has typed in an agent's terminal since Hive's line still waiting there began to be typed (#530, #652
+   * round 1 finding 2): the prompt holds their input too, whatever the typing pause says (0 included), and is theirs, not
+   * Hive's to submit. False when no line of Hive's waits.
    */
   userTypedOverLine(projectPath: string, agentId: string): boolean {
     const l = this.live.get(liveId(projectPath, agentId))
-    return !!l?.typed && this.userTypedAt(projectPath, agentId) >= l.typed.at
+    return !!l?.typed && (l.prompts ?? 0) <= l.typed.prompts && this.userTypedAt(projectPath, agentId) >= l.typed.from
   }
 
   /**
-   * Clears a line Hive typed that its CLI hasn't taken (Ctrl+U): #530, a message whose sender may no longer send it is
-   * never submitted by Hive's Enter again. Only Hive's own line, as it typed it: one still waiting (typed, not taken),
-   * with no input of the user's since it was typed (however long ago: the typing pause doesn't make a draft Hive's), and
-   * under submitAgain's conditions (the same launch, idle, nobody typing there, Hive not typing). The line no longer
-   * counts as waiting. Whether it was cleared.
+   * Leaves Hive's untaken line to the user, who typed into it (#652 round 1 finding 2): never submitted or cleared by Hive,
+   * and nothing more typed into the agent until a prompt is submitted there (its CLI's count goes up). Only for this launch.
    */
-  clearTyped(projectPath: string, agentId: string, runId: string): boolean {
+  leaveToUser(projectPath: string, agentId: string, runId: string): void {
     const l = this.live.get(liveId(projectPath, agentId))
-    const key = this.key(projectPath, agentId)
-    if (!l || l.state.runId !== runId || !readyFor(l.state) || this.userMayBeTyping(projectPath, agentId) || this.delivering.has(key)) return false
-    if (!l.typed || (l.prompts ?? 0) > l.typed.prompts || this.userTypedOverLine(projectPath, agentId)) return false
-    writePty(key, '\x15')
-    l.typed = undefined
-    return true
+    if (!l || l.state.runId !== runId) return
+    l.draftOver = { prompts: l.prompts ?? 0 }
+    this.noteComposer(l, this.key(projectPath, agentId))
   }
 
   /** Marks (or clears) the cards an agent in a card loop left with no watch (#376): they show as stalled. */
@@ -1910,6 +1914,8 @@ class SessionManager {
   private lineBlocked(l: LiveSession | undefined): boolean {
     if (!l) return false
     if (l.state.untakenLine || l.confirming) return true
+    // The user's draft over a line of Hive's: until a prompt is submitted there.
+    if (l.draftOver && (l.prompts ?? 0) <= l.draftOver.prompts) return true
     return !!l.typed && (l.prompts ?? 0) <= l.typed.prompts && Date.now() - l.typed.at < PENDING_MS
   }
 
@@ -2000,7 +2006,7 @@ class SessionManager {
     }
     const since = Date.now()
     let typed = false
-    let sent: { at: number; prompts: number } | null = null
+    let sent: { at: number; prompts: number; from: number } | null = null
     try {
       check()
       writePty(key, '\x15')
@@ -2019,7 +2025,7 @@ class SessionManager {
       writePty(key, '\r')
       // Waiting to be taken from here (#430), for whatever Hive types next: recorded once this call is done with it (its
       // own Enter again below is no line over it; nothing else types meanwhile, it holds `delivering`).
-      sent = { at: Date.now(), prompts: before }
+      sent = { at: Date.now(), prompts: before, from: since }
       devConsole.capture([sessionSourceId(projectPath, agentId)], () => ({ kind: 'input', name: 'Hive typed a line', provider: l?.state.provider, raw: { text: line }, made: { bracketedPaste: !!l?.screen?.bracketedPaste(), confirm: !!opts.confirm }, summary: `Hive typed a line (${line.length} chars) and Enter` }))
       // confirm: until the CLI reports the prompt submitted. One just resumed and still drawing its conversation can
       // drop the Enter, or take it as a new line (#334): Enter again, which an empty prompt ignores. Still not
