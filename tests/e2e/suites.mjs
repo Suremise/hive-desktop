@@ -71,6 +71,7 @@ export const SUITES = [
   { name: 'contract-copilot', needs: ['copilot'] },
   { name: 'contrast' },
   { name: 'copilot', needs: ['copilot'] },
+  { name: 'copilotcopy', needs: ['copilot'] },
   { name: 'copilotsize', needs: ['copilot'] },
   { name: 'ctxpercent' },
   { name: 'decisions' },

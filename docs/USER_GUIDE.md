@@ -1117,7 +1117,7 @@ Tick **Don't ask again** to stop the question about sessions, or change it any t
 | External terminal in the project | Ctrl+Shift+` |
 | Documentation | F1 |
 
-In the terminal, Ctrl+C copies when text is selected (otherwise it interrupts the agent) and Ctrl+V pastes. Right-click copies or pastes text. See **Help → Keyboard Shortcuts** for the full list.
+In the terminal, Ctrl+C copies when text is selected (otherwise it interrupts the agent) and Ctrl+V pastes. Right-click copies or pastes text. GitHub Copilot selects text with the mouse itself: drag over what you want, then press Ctrl+C, and Copilot copies it ("copied to clipboard"). Hold **Shift** while you drag to make Hive's own selection instead, in any agent's pane. An agent's CLI can only put text on the clipboard just after you press a key or click in its pane, and can never read it. See **Help → Keyboard Shortcuts** for the full list.
 
 **Changing shortcuts.** **Settings → Keyboard Shortcuts** lists every command: click a column's header to sort by it, or pick a **Category** or where it is **Set** to see only those. Click the pencil (or double-click a shortcut) and press the keys you want; press a second combination straight after for a chord such as Ctrl+K Ctrl+S. You can remove a shortcut, reset one, or reset them all. Hive warns when a shortcut is already used, and won't take keys you need for typing and editing (a key without Ctrl or Alt, Ctrl+C/V/X/A/Z/Y, Shift+Tab). A project can have its own shortcuts for project and session commands in **Project Settings → Keyboard Shortcuts**; they apply while that project is selected.
 

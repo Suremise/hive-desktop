@@ -17,6 +17,9 @@
 ### Messages
 - **An agent waiting on its own timer still hears from you.** An agent that ended its turn while a background command of its own runs (a sleep, a reminder to renew the merge slot) now gets messages and card events within seconds, rather than once the command ends. Agents are also told to wait for things with a card watch rather than a timer.
 
+### Terminal
+- **Copying from a Copilot pane works.** Copilot selects text with the mouse itself and copies it when you press Ctrl+C, saying "copied to clipboard", but the clipboard kept what it had. Hive now takes a CLI's copy (an OSC 52 request) from the pane you're using, and never lets a CLI read the clipboard.
+
 ## 0.7.0 — 13 October 2026
 
 ### Agent names

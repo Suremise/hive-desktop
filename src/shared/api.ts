@@ -101,6 +101,7 @@ import type { GitHistory, GitRepoInfo, GitRepoSummary } from './gitRepo'
 import type { BoardFoldChange } from './tasks'
 import type { CardCost, LaneCost } from './cardCosts'
 import type { ConsoleEvent, ConsoleRecordingInfo, ConsoleSource } from './devConsole'
+import type { Osc52Refusal } from './osc52'
 
 type DeepPartial<T> = { [K in keyof T]?: T[K] extends object ? DeepPartial<T[K]> : T[K] }
 export type SettingsPatch = DeepPartial<AppSettings>
@@ -441,6 +442,8 @@ export interface HiveRequests {
   /** Its process's size now (null without one): a terminal shown before the window has fitted it draws at that size. */
   'pty:size': (key: string) => { cols: number; rows: number } | null
   'pty:kill': (key: string) => void
+  /** A terminal refused its program's OSC 52 clipboard request (#736): logged. */
+  'pty:clipboardRefused': (key: string, reason: Osc52Refusal) => void
 
   'skills:list': (projectPath?: string) => SkillInfo[]
   /** The workspace's Hive skills, with the bundled skills it doesn't have (bundled: 'missing'). */

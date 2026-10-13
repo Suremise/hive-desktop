@@ -28,7 +28,7 @@ import { addRemote, createBranch, createTag, fetchAll, pull, push, repoHistory, 
 import { checkGit, gitTool } from './gitTool'
 import { refreshPath } from './freshPath'
 import { mergeUnused, removalPreview, removeUnusedWorktree, unusedBranchStatus, unusedWorktrees } from './unusedWorktrees'
-import { createLogger, logsDir } from './logger'
+import { createLogger, logsDir, userText } from './logger'
 import { diagnostics } from './diagnostics'
 import { keepAwakeCount } from './power'
 import { progress } from './progressService'
@@ -742,6 +742,9 @@ export function registerIpc(getAppInfo: () => ReturnType<HiveRequests['app:info'
     'pty:size': (key) => ptySize(key),
     'pty:kill': (key) => {
       if (key.startsWith('task:')) killPty(key)
+    },
+    'pty:clipboardRefused': (key, reason) => {
+      log.info(`terminal ${userText(key)}: OSC 52 clipboard ${reason === 'read' ? 'read' : 'write'} refused (${String(reason).slice(0, 20)})`)
     },
 
     'skills:list': (p) => {
