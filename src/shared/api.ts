@@ -94,7 +94,9 @@ import type { Artifact, CompareScope, ImportResult, KeptEntry } from './benchmar
 import type { AgentTemplate, TemplateDeleted, TemplateDest, TemplateEntry, TemplateRef, TemplateScope } from './templates'
 import type { ProjectPref, ProjectPrefValue } from './uiPrefs'
 import type { TipsChange, TipsState } from './tips'
+import type { AdvancedState } from './advanced'
 import type { GitTool } from './gitTool'
+import type { GitInitCheck, GitInitOptions } from './gitInit'
 import type { GitHistory, GitRepoInfo, GitRepoSummary } from './gitRepo'
 import type { BoardFoldChange } from './tasks'
 import type { CardCost, LaneCost } from './cardCosts'
@@ -169,6 +171,14 @@ export interface HiveRequests {
   'settings:setProviderFallback': (provider: ProviderId, kind: 'models' | 'efforts', list: (FallbackModel | EffortOption)[] | null) => AppSettings
   /** Sets (string), removes (null) or resets to the default (undefined) one command's shortcut. */
   'settings:setKeybinding': (commandId: string, key: string | null | undefined) => AppSettings
+  /** Advanced settings (#367): advanced.json's overrides, this window's workspace's own values and the installed CLIs. */
+  'advanced:state': () => AdvancedState
+  /** Sets an advanced value (null: back to the default), in advanced.json or (scope workspace) this workspace's own. */
+  'advanced:set': (id: string, value: unknown, scope?: 'app' | 'workspace') => AdvancedState
+  /** Keeps a CLI-facing override for the CLI version installed now. */
+  'advanced:keep': (id: string) => AdvancedState
+  /** Opens advanced.json in the user's editor. */
+  'advanced:open': () => void
   'ui:get': () => AppConfig['ui']
   'ui:set': (ui: Partial<AppConfig['ui']>) => void
   /** Saves one pane's size (null: back to its default), leaving the other panes as they are: several windows save them. */
@@ -597,6 +607,9 @@ export interface HiveRequests {
   'git:createTag': (projectPath: string, name: string, message: string, pushTo?: string) => string
   /** This repository's own user.name and user.email; empty removes it (the global one applies). */
   'git:setIdentity': (projectPath: string, name: string, email: string) => string
+  /** Initialise repository (#701): whether it can be done, and what the dialog asks; then git init on main, .hive excluded first, a starter .gitignore, the first commit. */
+  'git:initCheck': (projectPath: string) => GitInitCheck
+  'git:init': (projectPath: string, opts: GitInitOptions) => string
 
   /** Each provider's installed CLI, by provider. */
   'provider:info': () => Record<ProviderId, AgentInstallInfo>

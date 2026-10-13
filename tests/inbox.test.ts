@@ -37,6 +37,21 @@ describe('attention inbox', () => {
     expect(box.needYou.map(inboxStateText)).toEqual(['Asks: Which colour?', 'Needs input: Allow curl?', 'Asks you something'])
   })
 
+  it('needs you: an agent on another model after a safeguard stop (#606), until its pane is seen; waiting comes first', () => {
+    const switched = { from: 'claude-opus-5-5', to: 'claude-opus-4-8', at: '2026-10-11T14:20:00.000Z' }
+    const note = { at: '2026-10-11T14:12:12.921Z', model: 'claude-opus-5-5', tools: ['Bash'], stops: 1, switched, unseen: true }
+    const p = project('alpha', [
+      agent('fell', live('working', '2026-10-11T14:00:00Z', false, { safeguard: note })),
+      agent('seen', live('working', '2026-10-11T14:00:00Z', false, { safeguard: { ...note, unseen: undefined } })),
+      agent('asks', live('waiting', '2026-10-11T14:30:00Z', false, { statusMessage: 'Allow Bash?', safeguard: note })),
+      agent('stopped', live('working', '2026-10-11T14:00:00Z', false, { safeguard: { at: note.at, tools: [], stops: 1 } }))
+    ])
+    const box = inbox([p], null, () => null)
+    expect(box.needYou.map((i) => `${i.agentId}/${i.kind}/${i.since}`)).toEqual(['fell/safeguard/2026-10-11T14:20:00.000Z', 'asks/waiting/2026-10-11T14:30:00Z'])
+    expect(inboxStateText(box.needYou[0])).toBe('After a safeguard stop: Now runs on Opus 4.8 instead of Opus 5.5')
+    expect(needsYou(p.agents[0].live)).toBe(false)
+  })
+
   it('lists them across projects and the Assistant, oldest first', () => {
     const a = project('alpha', [agent('one', live('finished', '2026-10-02T10:05:00Z', true)), agent('two', live('working', '2026-10-02T09:00:00Z'))])
     const b = project('beta', [agent('three', live('waiting', '2026-10-02T10:01:00Z', false, { statusMessage: 'Allow Bash?' }))])

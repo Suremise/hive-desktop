@@ -2,13 +2,16 @@ import { basename } from 'path'
 import type { SettingsPatch } from '../shared/api'
 import type { EffortOption, FallbackModel, ModelPrice, ProjectConfig, ProviderId } from '../shared/types'
 import { modelCaps } from '../shared/models'
+import { advancedDef, advancedTakes } from '../shared/advanced'
 import { projectProviderConfig, providerSettings } from '../shared/providers'
 import { SETTINGS_CATALOG, checkSettingValue, effortTakes, settingDefault, settingEntry, settingKind, settingOptions, settingPatch, settingPath, settingValue, settingValueText, type SettingContext, type SettingEntry, type SettingScope } from '../shared/settingsCatalog'
 import type { SettingDetail, SettingRow } from '../shared/toolReplies'
 import * as assistant from './assistantControl'
 import { config } from './config'
 import { providerService } from './providerService'
+import { emit } from './events'
 import { workspace } from './workspace'
+import { advanced, updateSettingsChecked } from './advanced'
 
 /**
  * Hive's settings for the Agent API and the Hive Assistant's settings tools (#186): the catalog's entries with their
@@ -54,6 +57,8 @@ const contextFor = (project: ProjectConfig | null): SettingContext => ({ efforts
 
 /** What a setting takes, in words. */
 function takesText(e: SettingEntry, project: ProjectConfig | null): string {
+  const def = e.advanced ? advancedDef(e.advanced.id) : undefined
+  if (def) return `${advancedTakes(def)} null: ${e.advanced?.scope === 'workspace' ? "Settings → Advanced's value" : "Hive's default"}.`
   const kind = settingKind(e)
   const inherit = e.scope === 'project' && e.inherits && (kind === 'number' || e.key === 'worktreeCopy') ? ', or null to inherit' : ''
   switch (kind) {
@@ -101,17 +106,24 @@ export async function projectOf(projectPath: string | null): Promise<{ path: str
  */
 export function settingRows(opts: { query?: string; scope?: SettingScope; project?: { config: ProjectConfig } | null }): SettingRow[] {
   const words = (opts.query ?? '').toLowerCase().split(/\s+/).filter(Boolean)
-  return SETTINGS_CATALOG.filter((e) => !e.action && (e.scope !== 'project' || !!opts.project) && (!opts.scope || e.scope === opts.scope))
+  const rows = SETTINGS_CATALOG.filter((e) => !e.action && (e.scope !== 'project' || !!opts.project) && (!opts.scope || e.scope === opts.scope))
     .filter((e) => {
       const text = `${e.id} ${settingPath(e)} ${e.desc} ${e.tip} ${e.helps ?? ''}`.toLowerCase()
       return words.every((w) => text.includes(w))
     })
     .map((e) => {
-      const value = settingValue(e, config.settings, opts.project?.config, workspace.config)
+      const value = settingValue(e, config.settings, opts.project?.config, workspace.config, advanced.overrides())
       const def = settingDefault(e)
       const changed = JSON.stringify(value) !== JSON.stringify(def)
-      return { id: e.id, title: e.title, value: settingValueText(e, value), ...(changed ? { default: settingValueText(e, def) } : {}), desc: firstSentence(e.desc), ...(e.readOnly ? { readOnly: true as const } : {}) }
+      return { row: { id: e.id, title: e.title, value: settingValueText(e, value), ...(changed ? { default: settingValueText(e, def) } : {}), desc: firstSentence(e.desc), ...(e.readOnly ? { readOnly: true as const } : {}) }, advanced: !!e.advanced, changed }
     })
+  // Advanced settings (#367) only when a query asks or one was changed: the rest are one line, so a plain listing stays lean.
+  if (words.length) return rows.map((r) => r.row)
+  const atDefault = rows.filter((r) => r.advanced && !r.changed).length
+  return [
+    ...rows.filter((r) => !r.advanced || r.changed).map((r) => r.row),
+    ...(atDefault ? [{ id: 'advanced.*', title: 'query "advanced" lists them', value: `${atDefault} more`, desc: 'Advanced settings.' }] : [])
+  ]
 }
 
 /** One setting in full, with its value (a project's for a project setting; a table as it is). */
@@ -124,7 +136,7 @@ export function settingDetail(e: SettingEntry, project: { name: string; config: 
     path: settingPath(e),
     scope: e.scope,
     ...(project && e.scope === 'project' ? { project: project.name } : {}),
-    value: settingValueText(e, settingValue(e, config.settings, cfg, workspace.config), true),
+    value: settingValueText(e, settingValue(e, config.settings, cfg, workspace.config, advanced.overrides()), true),
     default: settingValueText(e, settingDefault(e), true),
     takes: takesText(e, cfg),
     desc: e.desc,
@@ -178,6 +190,26 @@ export async function applySetting(
     })
     return { old, new: settingValue(e, config.settings, next) }
   }
+  if ('advanced' in change) {
+    // Settings → Advanced's (advanced.json), or the workspace's own (workspace.json) (#367).
+    const now = (): unknown => settingValue(e, config.settings, null, workspace.config, advanced.overrides())
+    let old: unknown
+    let next: unknown
+    if (change.advanced.scope === 'workspace') {
+      // Changed as it is checked: nothing awaited between the guard and the change (setAdvanced changes it at once).
+      old = now()
+      guard?.(old)
+      const done = workspace.setAdvanced(change.advanced.id, change.advanced.value)
+      next = now()
+      await done
+      emit({ type: 'advanced-changed' })
+    } else {
+      // In the change's turn among advanced.json's changes: the value it checks is the one it replaces (#367 round 4).
+      const capture = { before: () => ((old = now()), guard?.(old)), after: () => (next = now()) }
+      await advanced.set(change.advanced.id, change.advanced.value, capture)
+    }
+    return { old, new: next }
+  }
   if ('workspace' in change) {
     // The workspace's own (workspace.json), with nothing awaited between the guard and the change.
     const old = settingValue(e, config.settings, null, workspace.config)
@@ -186,10 +218,18 @@ export async function applySetting(
     return { old, new: settingValue(e, config.settings, null, workspace.config) }
   }
   // Hive's own settings change at once, with nothing awaited between the guard and the change.
-  const old = settingValue(e, config.settings)
+  const current = (): unknown => settingValue(e, config.settings, null, null, advanced.overrides())
+  if ('settings' in change) {
+    // Show developer features is kept in advanced.json too: written there first, or refused, with the guard and the
+    // old and new values in that change's turn (#367); other settings at once, as before.
+    let old: unknown
+    let next: unknown
+    await updateSettingsChecked(change.settings as SettingsPatch, (p) => config.updateSettings(p), { before: () => ((old = current()), guard?.(old)), after: () => (next = current()) })
+    return { old, new: next }
+  }
+  const old = current()
   guard?.(old)
-  if ('settings' in change) config.updateSettings(change.settings as SettingsPatch)
-  else if ('prices' in change) {
+  if ('prices' in change) {
     const provider = change.prices.provider
     const before = removedPrices(provider)
     config.setProviderPrices(provider, change.prices.value as Record<string, ModelPrice>, raw === null ? [] : removed)

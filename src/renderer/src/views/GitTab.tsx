@@ -31,6 +31,7 @@ import { useNow } from '../usage'
 import { cx, timeAgo } from '../util'
 import { projectSlots, useMergeSlots } from '../components/MergeSlots'
 import { BusyButton, Icon, IconButton, LoadFailed, Modal, StaleNote, Tooltip, useBusy } from '../components/ui'
+import { InitRepoButton, InitRepoHost } from '../components/InitRepo'
 import { ChangesTab } from './ProjectTabs'
 
 /**
@@ -125,6 +126,7 @@ export function GitTab({ project }: { project: ProjectInfo }) {
           <BranchesSection project={project} />
         )}
       </div>
+      <InitRepoHost project={project} />
     </div>
   )
 }
@@ -138,8 +140,9 @@ function GitSetupNotes({ project }: { project: ProjectInfo }) {
           <Icon name="source-control" /> {project.name} isn't a git repository
         </h2>
         <p>Without git, agents work in the project folder, and Hive has no worktrees, merging or Git view for it.</p>
-        <p className="hint">
-          To use them, make it a repository: run <code>git init</code> in the project folder (or ask an agent to) and commit its files. Then add a remote under Branches &amp; remotes to push it.
+        <p className="hint">To use them, make it a repository: Initialise makes it one on a branch called main, keeps its .hive out of git, and commits its files, so agents can work in worktrees at once. Then add a remote under Branches &amp; remotes to push it.</p>
+        <p>
+          <InitRepoButton project={project} />
         </p>
         <p className="hint">
           <a onClick={() => openGuideAt(GIT_VIEW_GUIDE)}>Learn more</a>
@@ -341,9 +344,20 @@ function BranchesSection({ project }: { project: ProjectInfo }) {
                 <IconButton icon={read.loading ? 'loading' : 'refresh'} spin={read.loading} title="Read git again (doesn't fetch)" onClick={read.reload} />
               </span>
             </h2>
+            {!ro && !s.head && (
+              <div className="banner warn" data-git-no-commits="">
+                <Icon name="warning" /> No commits yet, and agents' worktrees need one.
+                <div style={{ marginTop: 6 }}>
+                  <InitRepoButton project={project} label="Make first commit…" small />
+                </div>
+              </div>
+            )}
             {ro && (
               <div className="banner info" data-git-parent="">
                 <Icon name="info" /> {ro}
+                <div style={{ marginTop: 6 }}>
+                  <InitRepoButton project={project} label="Initialise its own repository…" small />
+                </div>
               </div>
             )}
             <div className="git-current" data-git-current="">

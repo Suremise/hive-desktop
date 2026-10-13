@@ -17,10 +17,13 @@ import { findSecretWarnings } from '../../mcpSecrets'
 import { AGENTS_SKILLS, EDITOR_EXTENSION_PATH, EDITOR_ROOTS, agentsSkillCopyPath, compareVersions, hookForwardCommand, hookIds, readFirstLine, run, syncAgentsSkills, taskArgs, toSpawnable } from '../common'
 import type { BackgroundTaskEvent, CatalogRead, CommandSpec, ExternalSession, KeySteps, LaunchContext, LiveDetails, LockDecision, NormalizedHook, ProviderAdapter, SkillDelivery, SkillRoots, UsageParser } from '../types'
 import { codexBackgroundMemo, codexBackgroundTasks, type CodexBackgroundMemo } from './background'
+import { codexSafeguards } from './safeguards'
+import type { SafeguardEvent } from '../../../shared/safeguards'
 import { CodexConversationParser, CodexUsageParser, codexImageData, parseRollout, patchPaths, rolloutDetails, rolloutSubSession } from './rollout'
 import { parseCodexModels } from './models'
-import { PERMISSIONS_MENU_LABELS, permissionsMenuNumber } from './permissionsMenu'
+import { permissionsMenuLabel, permissionsMenuNumber } from './permissionsMenu'
 import { strayCodexWarning } from './strayFolder'
+import { advanced } from '../../advanced'
 
 const log = createLogger('codex')
 
@@ -87,13 +90,14 @@ const TURN_SCREEN_SINCE = '0.162.1'
  * its placeholder ("Ask Codex to do anything"), with nothing queued; else null (a draft, a dialog, a menu: not sure).
  */
 export function codexTurnScreen(screen: string): 'idle' | 'working' | null {
-  if (/esc to interrupt|\bWorking \(/i.test(screen)) return 'working'
+  if (advanced.pattern('codex.turnScreen.working').test(screen)) return 'working'
   if (codexHoldsInput(screen)) return null
   const input = screen
     .split('\n')
     .map((l) => l.trim())
     .findLast((l) => l.startsWith('›'))
-  return input && /^›\s*Ask Codex to do anything\s*$/.test(input) ? 'idle' : null
+  // Its placeholder alone (an advanced setting, #367).
+  return input && input.replace(/^›\s*/, '') === advanced.get<string>('codex.ready.placeholder').trim() ? 'idle' : null
 }
 /**
  * Codex has loaded: its session header names the folder (`~\…`, `C:\…`, `\\server\…`) where it said "loading". The
@@ -112,7 +116,7 @@ export function codexHoldsInput(screen: string): boolean {
     .map((l) => l.trim())
     .filter(Boolean)
     .at(-1)
-  return last !== undefined && /^tab to queue message\b/i.test(last)
+  return last !== undefined && advanced.pattern('codex.queue.hint').test(last)
 }
 /**
  * Whether Codex's input still holds `command`, unrun (#363): the input is the last line Codex marks with "›", and holds
@@ -131,23 +135,31 @@ export function inputHolds(screen: string, command: string): boolean {
  * Codex's own terminal title items, set for Hive's sessions and its sandbox setup so a user's [tui].terminal_title
  * can't hide "Action Required" or the busy spinner.
  */
-const TITLE_ITEMS = ['activity', 'project-name']
+const titleItems = (): string[] => advanced.get<string[]>('codex.title.items')
 
 type HookEvent = 'SessionStart' | 'UserPromptSubmit' | 'PreToolUse' | 'PostToolUse' | 'PermissionRequest' | 'Stop' | 'Interrupt' | 'PreCompact' | 'PostCompact' | 'SessionEnd'
-const HOOKS: { event: HookEvent; label: string; matcher?: string; timeout: number }[] = [
-  { event: 'SessionStart', label: 'session_start', timeout: 5 },
-  { event: 'UserPromptSubmit', label: 'user_prompt_submit', timeout: 5 },
+/** A hook's timeout: the hooks' (5 s), PreToolUse's (10 s), or at most 3 s (#367: advanced settings). */
+type HookWait = 'hook' | 'preToolUse' | 'short'
+const HOOKS: { event: HookEvent; label: string; matcher?: string; wait: HookWait }[] = [
+  { event: 'SessionStart', label: 'session_start', wait: 'hook' },
+  { event: 'UserPromptSubmit', label: 'user_prompt_submit', wait: 'hook' },
   // PreToolUse answers with a file-lock decision; request_user_input also comes through here.
-  { event: 'PreToolUse', label: 'pre_tool_use', matcher: '*', timeout: 10 },
-  { event: 'PostToolUse', label: 'post_tool_use', matcher: '*', timeout: 5 },
-  { event: 'PermissionRequest', label: 'permission_request', matcher: '*', timeout: 5 },
-  { event: 'Stop', label: 'stop', timeout: 5 },
+  { event: 'PreToolUse', label: 'pre_tool_use', matcher: '*', wait: 'preToolUse' },
+  { event: 'PostToolUse', label: 'post_tool_use', matcher: '*', wait: 'hook' },
+  { event: 'PermissionRequest', label: 'permission_request', matcher: '*', wait: 'hook' },
+  { event: 'Stop', label: 'stop', wait: 'hook' },
   // Codex clamps these two to 3 seconds (and warns in the terminal about anything longer).
-  { event: 'Interrupt', label: 'interrupt', timeout: 3 },
-  { event: 'PreCompact', label: 'pre_compact', timeout: 5 },
-  { event: 'PostCompact', label: 'post_compact', timeout: 5 },
-  { event: 'SessionEnd', label: 'session_end', timeout: 3 }
+  { event: 'Interrupt', label: 'interrupt', wait: 'short' },
+  { event: 'PreCompact', label: 'pre_compact', wait: 'hook' },
+  { event: 'PostCompact', label: 'post_compact', wait: 'hook' },
+  { event: 'SessionEnd', label: 'session_end', wait: 'short' }
 ]
+
+/** A hook's timeout in seconds, from Settings → Advanced (#367); part of its trust hash. */
+function hookTimeout(wait: HookWait): number {
+  const hook = advanced.number('codex.hooks.timeoutSeconds')
+  return wait === 'preToolUse' ? advanced.number('codex.hooks.preToolUseTimeoutSeconds') : wait === 'short' ? Math.min(3, hook) : hook
+}
 
 /**
  * Codex runs hook commands with PowerShell on Windows, where a quoted program path is an expression and
@@ -155,7 +167,7 @@ const HOOKS: { event: HookEvent; label: string; matcher?: string; timeout: numbe
  * the launch's auth file, so the -c arguments (seen in process listings) carry no token (#345).
  */
 function hookCommand(url: string, authFile: string): string {
-  return hookForwardCommand(url, authFile)
+  return hookForwardCommand(url, authFile, advanced.number('codex.hooks.timeoutSeconds'))
 }
 
 const sortDeep = (v: unknown): unknown =>
@@ -177,10 +189,11 @@ function hookOverrides(url: string, authFile: string, hashes?: Record<string, st
   const args: string[] = []
   const state: Record<string, { trusted_hash: string }> = {}
   for (const h of HOOKS) {
-    const handler = { type: 'command', command, timeout: h.timeout }
+    const timeout = hookTimeout(h.wait)
+    const handler = { type: 'command', command, timeout }
     args.push('-c', `hooks.${h.event}=${toToml([h.matcher ? { matcher: h.matcher, hooks: [handler] } : { hooks: [handler] }])}`)
     const key = `${SESSION_FLAGS}:${h.label}:0:0`
-    state[key] = { trusted_hash: hashes?.[key] ?? hookHash(h.label, h.matcher, command, h.timeout) }
+    state[key] = { trusted_hash: hashes?.[key] ?? hookHash(h.label, h.matcher, command, timeout) }
   }
   args.push('-c', `hooks.state=${toToml(state)}`)
   return args
@@ -252,7 +265,7 @@ export function codexMcpServer(name: string, def: McpServerDef): { table: Record
   if (!def.command) return { table: null }
   const table: Record<string, unknown> = { command: def.command, default_tools_approval_mode: 'approve' }
   // Hive's own tools can wait minutes (for agents to finish, or for the user to answer the Assistant).
-  if (name === 'hive') table.tool_timeout_sec = 900
+  if (name === 'hive') table.tool_timeout_sec = advanced.number('codex.mcp.toolTimeoutSeconds')
   if (def.args?.length) table.args = def.args.map(String)
   if (typeof def.cwd === 'string') table.cwd = def.cwd
   const env: Record<string, string> = {}
@@ -298,10 +311,15 @@ export class CodexAdapter implements ProviderAdapter {
   /** A parent Codex session's identity, when Hive runs inside one. User configuration (CODEX_HOME…) is kept. */
   readonly envToStrip = ['CODEX_SANDBOX', 'CODEX_SANDBOX_NETWORK_DISABLED', 'CODEX_THREAD_ID', 'CODEX_SESSION_ID', 'CODEX_CI']
   readonly compactFailure = null
-  // SessionStart only comes with the first prompt; the composer's placeholder means Codex is up.
-  readonly readyOutput = /Ask Codex to do anything/
-  // Before a folder's first session: "Trust this folder? Codex can read, edit, and run files here…".
-  readonly startupQuestion = /trust this folder/i
+  // SessionStart only comes with the first prompt; the composer's placeholder means Codex is up. Both texts are
+  // advanced settings (#367).
+  get readyOutput(): RegExp {
+    return advanced.pattern('codex.ready.placeholder')
+  }
+  // Before a folder's first session (in a Git repository): "Trust this folder? Codex can read, edit, and run files here…".
+  get startupQuestion(): RegExp {
+    return advanced.pattern('codex.trust.prompt')
+  }
   readonly planToggleKey = '\x1b[Z'
   busyScreen(screen: string): boolean {
     return codexHoldsInput(screen)
@@ -465,7 +483,7 @@ export class CodexAdapter implements ProviderAdapter {
     const dir = join(tmpdir(), 'hive-codex-setup')
     mkdirSync(dir, { recursive: true })
     // The title items are pinned as for sessions: the busy wait below reads the spinner a user's own [tui].terminal_title could drop.
-    const s = toSpawnable(executable, ['--no-daemon', '-C', dir, '-c', `projects=${toToml({ [dir]: { trust_level: 'trusted' } })}`, '-c', `tui.terminal_title=${toToml(TITLE_ITEMS)}`, ...CODEX_MODE_FLAGS['read-only']])
+    const s = toSpawnable(executable, ['--no-daemon', '-C', dir, '-c', `projects=${toToml({ [dir]: { trust_level: 'trusted' } })}`, '-c', `tui.terminal_title=${toToml(titleItems())}`, ...CODEX_MODE_FLAGS['read-only']])
     const before = this.sandboxKind()
     const keys = before === 'unelevated'
       ? [{ keys: '/setup-default-sandbox', waitMs: 300 }, { keys: '\r', heldOn: (screen: string) => inputHolds(screen, '/setup-default-sandbox') }]
@@ -535,7 +553,7 @@ export class CodexAdapter implements ProviderAdapter {
     }
     if (known === undefined) {
       const command = hookCommand(ctx.hookUrl, ctx.hookAuthFile)
-      const same = HOOKS.every((h) => theirs[`${SESSION_FLAGS}:${h.label}:0:0`] === hookHash(h.label, h.matcher, command, h.timeout))
+      const same = HOOKS.every((h) => theirs[`${SESSION_FLAGS}:${h.label}:0:0`] === hookHash(h.label, h.matcher, command, hookTimeout(h.wait)))
       this.hashCheck.set(version, same)
       if (same) return
       log.warn(`Codex ${version} hashes hooks differently from Hive; Hive asks Codex for the hashes on each launch`)
@@ -554,7 +572,7 @@ export class CodexAdapter implements ProviderAdapter {
     args.push('--no-daemon')
     args.push(...hookOverrides(ctx.hookUrl, ctx.hookAuthFile, this.hashesByRun.get(ctx.runId)))
     this.hashesByRun.delete(ctx.runId)
-    args.push('-c', `tui.terminal_title=${toToml(TITLE_ITEMS)}`)
+    args.push('-c', `tui.terminal_title=${toToml(titleItems())}`)
     if (ctx.model) args.push('-m', ctx.model)
     if (ctx.effort) args.push('-c', `model_reasoning_effort=${toToml(ctx.effort)}`)
     args.push(...(CODEX_MODE_FLAGS[ctx.permissionMode ?? ''] ?? CODEX_MODE_FLAGS[CODEX_DESCRIPTOR.defaultPermissionMode]))
@@ -679,6 +697,10 @@ export class CodexAdapter implements ProviderAdapter {
     return codexBackgroundTasks(appended, (memo.codex ??= codexBackgroundMemo()) as CodexBackgroundMemo)
   }
 
+  safeguards(appended: string, memo: Record<string, unknown>): SafeguardEvent[] {
+    return codexSafeguards(appended, memo)
+  }
+
   /**
    * Codex's /permissions menu numbers its presets, and typing a number picks one (arrow keys wrap around, so counting
    * presses is unreliable). Which number is read from the menu Codex draws, by the preset's label: Codex 0.161 reordered
@@ -691,7 +713,7 @@ export class CodexAdapter implements ProviderAdapter {
       { keys: '/permissions', waitMs: 200 },
       // Enter again while Codex's input still holds the command, once it is free (#363); never a second /permissions.
       { keys: '\r', waitMs: 200, heldOn: (screen) => inputHolds(screen, '/permissions') },
-      { pick: (screen) => permissionsMenuNumber(screen, target), what: `"${PERMISSIONS_MENU_LABELS[target] ?? target}" in Codex's /permissions menu`, waitMs: 300 }
+      { pick: (screen) => permissionsMenuNumber(screen, target), what: `"${permissionsMenuLabel(target) ?? target}" in Codex's /permissions menu`, waitMs: 300 }
     ]
   }
 

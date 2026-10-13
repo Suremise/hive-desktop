@@ -3,6 +3,7 @@ import { create } from 'zustand'
 import { useMemo, type ReactNode } from 'react'
 import type { Period } from '@shared/usageTotals'
 import type { StartFailure } from '@shared/startFailure'
+import type { AdvancedState } from '@shared/advanced'
 import type { AgentLeftovers } from '@shared/agentProcesses'
 import { EMPTY_TIPS_STATE, type TipsState } from '@shared/tips'
 import { agentPtyKey, layoutPanes, mostUrgent, pageAgents, pageOfAgent, projectLayout, projectPerPage } from '@shared/defaults'
@@ -156,6 +157,8 @@ export interface DoingRequest {
 
 interface State {
   settings: AppSettings | null
+  /** Settings → Advanced (#367): advanced.json's overrides, this window's workspace's own values and the installed CLIs. */
+  advanced: AdvancedState | null
   workspace: WorkspaceInfo | null
   /** The recent workspaces as this window sees them (#144). */
   recent: RecentWorkspace[]
@@ -240,6 +243,8 @@ interface State {
   docsAnchor: string | null
   settingsSection: string
   settingsQuery: string
+  /** Settings' Modified only (Settings → Advanced's list follows it too, #367). */
+  settingsModifiedOnly: boolean
 
   toasts: ToastMessage[]
   /** In-app banners showing in this window (components/NoticeBanners.tsx), the newest first. */
@@ -301,6 +306,8 @@ interface State {
   templateEdits: Record<string, TemplateEdit>
   /** Worktree agent whose Merge dialog is open. */
   mergeFor: AgentRef | null
+  /** The project whose Initialise repository dialog is open (#701): kept while the Git tab changes under it. */
+  gitInitFor: string | null
   /** The agent whose work "Hand Over to…" hands to another agent. */
   handOverFor: AgentRef | null
   /** Shows this agent's session in its project's Overview and scrolls to it (the footer's context count); `at` makes each click count. */
@@ -373,6 +380,7 @@ interface State {
 
 export const useStore = create<State>(() => ({
   settings: null,
+  advanced: null,
   workspace: null,
   recent: [],
   providers: {},
@@ -426,6 +434,7 @@ export const useStore = create<State>(() => ({
   docsAnchor: null,
   settingsSection: 'general',
   settingsQuery: '',
+  settingsModifiedOnly: false,
 
   toasts: [],
   notices: [],
@@ -460,6 +469,7 @@ export const useStore = create<State>(() => ({
   templateAgentFor: null,
   templateEdits: {},
   mergeFor: null,
+  gitInitFor: null,
   handOverFor: null,
   overviewJump: null,
   projectSettingsJump: null,

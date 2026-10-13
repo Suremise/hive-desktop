@@ -183,11 +183,11 @@ export function taskArgs(executable: string, text: string): string[] {
  * (`-H @<file>`, in Hive's user data), so neither the command nor any file it is written to holds a token (#345). The
  * form works in Git Bash, PowerShell and cmd alike: `curl.exe` unquoted (a quoted path is an expression in PowerShell),
  * `"@-"` quoted (a bare @- is splatting there), forward slashes (bash would eat backslashes). Codex's hook trust hash
- * covers this text (codex/adapter.ts hookHash).
+ * covers this text (codex/adapter.ts hookHash). `seconds`: how long curl tries, the hook's own timeout (#367).
  */
-export function hookForwardCommand(hookUrl: string, authFile: string): string {
+export function hookForwardCommand(hookUrl: string, authFile: string, seconds = 5): string {
   const curl = process.platform === 'win32' ? 'curl.exe' : 'curl'
-  return `${curl} -s -m 5 -X POST -H "@${authFile.split('\\').join('/')}" -H "Content-Type: application/json" --data-binary "@-" "${hookUrl}"`
+  return `${curl} -s -m ${seconds} -X POST -H "@${authFile.split('\\').join('/')}" -H "Content-Type: application/json" --data-binary "@-" "${hookUrl}"`
 }
 
 /**
@@ -350,7 +350,7 @@ async function deliverSkill(s: LaunchContext['skills'][number], dest: string, fo
 }
 
 /** Keeps Hive's copies (and a swap's dot-folders) out of git, in the repository's info/exclude. */
-async function excludeCopies(cwd: string): Promise<void> {
+export async function excludeCopies(cwd: string): Promise<void> {
   const common = await run('git', ['-C', cwd, 'rev-parse', '--git-common-dir'], 5000)
   const gitDir = common.code === 0 ? common.stdout.trim() : ''
   if (!gitDir) return

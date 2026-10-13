@@ -33,9 +33,34 @@ const s = sessions as unknown as { live: Map<string, unknown>; key: (p: string, 
 let w: ReturnType<typeof createWorkspaceService>
 const run = <T>(fn: () => Promise<T>): Promise<T> => inWorkspace(w, fn)
 
+/**
+ * A hand-made live state whose runtime facts follow its status, as the turn ledger's would (#648): the CLI running, a turn
+ * running while it works, asked while it waits. Readiness reads the facts (#649).
+ */
+function withFacts<T extends { status: string }>(state: T): T {
+  let status = state.status
+  const rt = { lifecycle: 'running', maintenance: null as null, attention: null as 'waiting' | null, composer: 'free' }
+  const follow = (): void => {
+    Object.assign(state, { turn: { state: status === 'working' ? 'running' : 'over' } })
+    rt.attention = status === 'waiting' ? 'waiting' : null
+  }
+  Object.defineProperty(state, 'status', {
+    get: () => status,
+    set: (v: string) => {
+      status = v
+      follow()
+    },
+    enumerable: true,
+    configurable: true
+  })
+  Object.assign(state, { runtime: rt })
+  follow()
+  return state
+}
+
 /** A running agent, idle, as SessionManager keeps one (no process). */
 function idle(agentId: string): { status: string } {
-  const state = { provider: 'claude', runId: `run-${agentId}`, projectPath: p, agentId, cwd: p, sessionId: '', status: 'ready', startedAt: '', launchSignature: '', unseen: false }
+  const state = withFacts({ provider: 'claude', runId: `run-${agentId}`, projectPath: p, agentId, cwd: p, sessionId: '', status: 'ready', startedAt: '', launchSignature: '', unseen: false })
   s.live.set(`${p.toLowerCase()}#${agentId}`, { state, adapter: claudeCode, transcriptMtime: '', defaultModel: false, modeTail: '', launchMode: null, configuredMode: null })
   return state
 }
@@ -49,6 +74,9 @@ describe('a Start typed into a running agent', () => {
     writeFileSync(join(p, '.hive', 'project.json'), JSON.stringify({ version: 2, agents: ['d1', 'd2', 'd3', 'd4'].map((id, i) => ({ id, name: `Agent ${i + 1}` })) }))
     w = createWorkspaceService()
     await w.open(wsPath)
+    // The Assistant that starts cards here is running: a task it gives is refused once its session has ended (#645, #649).
+    const home = w.assistantHome
+    s.live.set(`${home.toLowerCase()}#assistant`, { state: { provider: 'claude', runId: 'run-assistant', projectPath: home, agentId: 'assistant', cwd: home, sessionId: '', status: 'working', startedAt: '', launchSignature: '', unseen: false }, adapter: claudeCode, transcriptMtime: '', defaultModel: false, modeTail: '', launchMode: null, configuredMode: null })
   })
   afterAll(async () => {
     s.live.clear()

@@ -178,6 +178,7 @@ export const CLAUDE_DESCRIPTOR: ProviderDescriptor = {
   extensionNote:
     "You have the Claude Code extension for VS Code (or a similar editor). Hive doesn't use it — the extension's built-in copy moves with every extension update and can't be updated on its own. Install the CLI; your extension keeps working as before.",
   signInHelp: 'Type /login in one of its agents’ terminals (that agent then carries on by itself), or use Help → Agent Setup → Claude Code → Sign in.',
+  safeguardHelp: 'In its terminal: /feedback reports a false positive, /model switches back, and /config sets whether it switches models by itself when a message is flagged.',
   modelLabel: claudeModelLabel,
   canSwitchLive
 }
