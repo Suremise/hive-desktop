@@ -105,7 +105,7 @@ describe('the template format', () => {
     expect(readTemplate({ ...ok, version: TEMPLATE_VERSION + 1 })).toMatch(/newer version of Hive/)
     expect(readTemplate({ ...ok, version: undefined })).toMatch(/no version/)
     expect(readTemplate({ ...ok, agents: [] })).toMatch(/no agents/)
-    expect(readTemplate({ ...ok, agents: Array.from({ length: 13 }, (_, i) => ({ name: `A${i}`, provider: 'claude-code' })) })).toMatch(/up to 12/)
+    expect(readTemplate({ ...ok, agents: Array.from({ length: 25 }, (_, i) => ({ name: `A${i}`, provider: 'claude-code' })) })).toMatch(/up to 24/)
     expect(readTemplate({ ...ok, agents: [{ name: 'A', provider: 'claude-code' }, { name: 'a', provider: 'claude-code' }] })).toMatch(/Two agents are called/)
     // A provider this Hive doesn't know is kept (shown flagged; loading it is refused), if it looks like a provider's id.
     const later = readTemplate({ ...ok, agents: [{ name: 'A', provider: 'gemini' }, { name: 'B', provider: 'claude-code' }] })
@@ -445,7 +445,7 @@ describe('saving and loading templates', () => {
     const n = await count()
     await expect(run(() => templates.importTemplate(f('notjson.json', '{ nope'), where))).rejects.toThrow(/not JSON/)
     await expect(run(() => templates.importTemplate(f('newer.json', JSON.stringify({ ...good, version: 2 })), where))).rejects.toThrow(/newer version of Hive/)
-    await expect(run(() => templates.importTemplate(f('many.json', JSON.stringify({ ...good, agents: Array.from({ length: 13 }, (_, i) => ({ name: `A${i}`, provider: 'claude-code' })) })), where))).rejects.toThrow(/up to 12/)
+    await expect(run(() => templates.importTemplate(f('many.json', JSON.stringify({ ...good, agents: Array.from({ length: 25 }, (_, i) => ({ name: `A${i}`, provider: 'claude-code' })) })), where))).rejects.toThrow(/up to 24/)
     await expect(run(() => templates.importTemplate(f('big.json', JSON.stringify({ ...good, pad: 'x'.repeat(300 * 1024) })), where))).rejects.toThrow(/over 256 KB/)
     await expect(run(() => templates.importTemplate(join(dir, 'missing.json'), where))).rejects.toThrow(/isn't there/)
     expect(await count()).toBe(n)
@@ -521,7 +521,7 @@ describe('saving and loading templates', () => {
     const now = saved.savedAt
     await expect(run(() => templates.updateTemplate(ref, { ...edited, name: 'Trees' }, now))).rejects.toThrow(/already a template called "Trees"/)
     await expect(run(() => templates.updateTemplate(ref, { ...edited, agents: [] }, now))).rejects.toThrow(/no agents/)
-    await expect(run(() => templates.updateTemplate(ref, { ...edited, agents: Array.from({ length: 13 }, (_, i) => ({ name: `A${i}`, provider: 'claude-code', worktree: false })) }, now))).rejects.toThrow(/up to 12/)
+    await expect(run(() => templates.updateTemplate(ref, { ...edited, agents: Array.from({ length: 25 }, (_, i) => ({ name: `A${i}`, provider: 'claude-code', worktree: false })) }, now))).rejects.toThrow(/up to 24/)
     await expect(run(() => templates.updateTemplate(ref, { ...edited, agents: [edited.agents[0], { ...edited.agents[1], name: 'two' }] }, now))).rejects.toThrow(/Two agents are called "two"/)
     await expect(run(() => templates.updateTemplate(ref, { ...edited, agents: [{ ...edited.agents[0], provider: '../x' }] }, now))).rejects.toThrow(/coding agent isn't one/)
     await expect(run(() => templates.updateTemplate(ref, { ...edited, name: ' ' }, now))).rejects.toThrow(/Enter a name/)

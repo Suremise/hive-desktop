@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState, type ReactNode } from 'react'
-import { DEFAULT_PROJECT_CONFIG, MAX_AGENTS, ROLE_MAX, effectiveModelLabel, formatBytes, mergeBlocked, projectAgents, slugify, transcriptWarnLimit } from '@shared/defaults'
+import { DEFAULT_PROJECT_CONFIG, ROLE_MAX, agentLimitText, effectiveModelLabel, formatBytes, mergeBlocked, projectAgents, slugify, transcriptWarnLimit } from '@shared/defaults'
+import { useAgentLimit } from '../advanced'
 import { PROVIDERS, agentProvider, chosenDefaultProvider, defaultProviderPending, isProviderEnabled, modeCaveat, offeredModes, permissionLabel, projectDefaultProvider, projectProviderConfig, projectUse200k, providerDescriptor, providerName, providerSettings } from '@shared/providers'
 import type { AddAgentOptions, AgentBranchStatus, EffortLevel, MergeResult, PermissionMode, ProjectGitInfo, ProjectInfo, ProviderId, WorktreeMatch } from '@shared/types'
 import { reuseNote } from '@shared/unusedWorktrees'
@@ -262,10 +263,11 @@ export function AddAgentDialog() {
     const p = useStore.getState().workspace?.projects.find((x) => x.path === path)
     if (p && followDefault && !defaultPending) setProvider(projectDefaultProvider(p.config, useStore.getState().settings))
   }, [path, followDefault, defaultPending])
+  const limit = useAgentLimit()
 
   if (!path || !project || !settings) return null
   const close = (): void => set({ addAgentFor: null })
-  const full = project.agents.length >= MAX_AGENTS
+  const full = project.agents.length >= limit
   const free = git?.worktrees.filter((w) => !w.used) ?? []
   const copy = project.config.worktreeCopy ?? settings.agents.worktreeCopy
   const setup = project.config.worktreeSetup.trim()
@@ -346,7 +348,7 @@ export function AddAgentDialog() {
         </>
       }
     >
-      {full && <div className="banner warn">A project can have up to {MAX_AGENTS} agents. Remove one first.</div>}
+      {full && <div className="banner warn">{agentLimitText(limit)} Remove one first.</div>}
       <div className="agent-form">
         <label>Name</label>
         <input

@@ -435,6 +435,19 @@ public static class HiveJobs {
     }
     return b.Append("]}").ToString();
   }
+  /** The memory each job's processes use now (working sets, as Task Manager counts them), for "job,job,…": a JSON array in the same order (#562). */
+  public static string Memory(string ids) {
+    var b = new StringBuilder("[");
+    string[] list = ids.Split(',');
+    for (int i = 0; i < list.Length; i++) {
+      long bytes = 0;
+      foreach (int pid in Members(list[i])) {
+        try { using (var p = System.Diagnostics.Process.GetProcessById(pid)) bytes += p.WorkingSet64; } catch (Exception) { }
+      }
+      b.Append(i > 0 ? "," : "").Append(bytes);
+    }
+    return b.Append("]").ToString();
+  }
   /** One request ("<n> <command> <job> [pid]") answered as "<n> <JSON>". */
   public static string Answer(string line) {
     string[] a = line.Split(' ');
@@ -448,6 +461,7 @@ public static class HiveJobs {
         case "forget": Forget(a[2]); r = "true"; break;
         case "identify": r = Identify(a[2]); break;
         case "endexact": r = EndExact(a[2]); break;
+        case "memory": r = Memory(a[2]); break;
         default: r = Q("unknown command"); break;
       }
     } catch (Exception e) { r = Q("error: " + e.Message); }
@@ -592,8 +606,8 @@ class JobHost {
    * a reply that doesn't come within waitMs() means it is stuck: it is closed, its jobs lost (jobsLost), and the next
    * request starts a new one. So nothing (a launch, End, quitting) waits on it for longer.
    */
-  async request(command: 'add' | 'list' | 'kill' | 'forget' | 'identify' | 'endexact', job: string, pid?: number): Promise<unknown> {
-    // A job's id, or (identify, endexact) a list of processes by id and start time: "pid:created,…".
+  async request(command: 'add' | 'list' | 'kill' | 'forget' | 'identify' | 'endexact' | 'memory', job: string, pid?: number): Promise<unknown> {
+    // A job's id, or (identify, endexact) a list of processes by id and start time: "pid:created,…", or (memory) of jobs: "job,job,…".
     if (this.failed || !/^[\w:,-]+$/.test(job)) return null
     if (!(await this.start()) || !this.proc) return null
     const p = this.proc
@@ -695,6 +709,19 @@ export function launchEnded(runId: string): Promise<AgentLeftovers | null> {
 
 /** Launches being looked at as their CLIs exit (launchEnded). */
 const settling = new Set<Promise<unknown>>()
+
+/**
+ * The memory running agents take now (#562): each running launch's processes (its CLI and all it started), measured by
+ * the job host. Null when it can't be told (no agent running, not Windows, the tracker not working).
+ */
+export async function agentsMemory(): Promise<{ agents: number; bytes: number } | null> {
+  const ids = [...running.keys()]
+  if (process.platform !== 'win32' || !ids.length || !host.usable) return null
+  const r = await host.request('memory', ids.join(','))
+  if (!Array.isArray(r)) return null
+  const each = r.filter((n): n is number => typeof n === 'number' && n > 0)
+  return each.length ? { agents: each.length, bytes: each.reduce((a, b) => a + b, 0) } : null
+}
 
 /** Once every launch that has exited has been looked at (Hive quitting asks about all their leftovers at once). */
 export async function leftoversSettled(): Promise<void> {

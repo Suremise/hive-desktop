@@ -1,5 +1,6 @@
 import { BrowserWindow, ClipboardItem, app, clipboard, dialog, ipcMain, nativeImage, shell } from 'electron'
 import { spawn } from 'child_process'
+import { freemem, totalmem } from 'os'
 import { AsyncLocalStorage } from 'async_hooks'
 import type { WebContents } from 'electron'
 import { existsSync } from 'original-fs'
@@ -64,7 +65,7 @@ import { transcripts } from './transcripts'
 import * as skills from './skills'
 import * as storage from './storage'
 import { antivirusStatus, antivirusSuggestion, applyAntivirus, dismissAntivirus, prepareAntivirus } from './antivirus'
-import { allLeftovers, leftoversSettled, settleLeftovers } from './agentProcesses'
+import { agentsMemory, allLeftovers, leftoversSettled, settleLeftovers } from './agentProcesses'
 import { contextWorkspace, currentWorkspace, inWorkspace, workspace, workspaceFor, workspaceOf, WorkspaceService } from './workspace'
 import { ensureHiveExcluded, trackedHiveFiles, untrackHive, vcsOf } from './hiveVcs'
 import { hiveWindows, windowForPath, windowOf, windowShowing } from './windows'
@@ -614,6 +615,7 @@ export function registerIpc(getAppInfo: () => ReturnType<HiveRequests['app:info'
     'session:attach': (p, sources, agentId) => sessions.attach(p, sources, agentId),
 
     'agents:add': (p, opts) => projectAgents.addAgent(p, opts),
+    'agents:memory': async () => ({ running: await agentsMemory(), total: totalmem(), free: freemem() }),
     'agents:update': (p, id, patch) => projectAgents.updateAgent(p, id, patch),
     'agents:remove': (p, id, opts) => projectAgents.removeAgent(p, id, opts),
     'agents:worktreeChecks': (p) => projectAgents.worktreeChecks(p),
