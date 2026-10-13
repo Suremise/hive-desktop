@@ -20,6 +20,12 @@
 //   "work N". Anything else: a short turn.
 //   The turn ledger's cases (#648): "latetool" (a command whose PostToolUse reaches Hive after the turn's Stop),
 //   "loststop" (no Stop reaches Hive; its rollout records the turn's end, task_complete) and "silent" (neither).
+//   Notices (#650), as Codex 0.162.1 takes them: context in a PostToolUse reply reaches "the model", and a Stop blocked
+//   carries the same turn on to another Stop with stop_hook_active. Each ("[Hive] …") is logged in fake-notices.jsonl in
+//   CODEX_HOME; with fake-follow-notices.txt (or fake-follow-notices-<agent>.txt) there, it reads its inbox (hive_inbox)
+//   and acks what it listed. "checkpoint": a command (PreToolUse, PostToolUse) whose reply it reads. Hive's doorbell
+//   ("[Hive] New in your inbox: …") it follows as a model does: it reads its inbox; new work it read (a task, a
+//   handover) is its prompt, anything else (a wake, a message) is logged in fake-wakes.jsonl in CODEX_HOME.
 // - Each prompt is a turn with its own id, which its hooks carry (turn_id) and its rollout records (task_started,
 //   task_complete after Stop), as Codex 0.162.1 does.
 // - A first prompt as its last plain argument (after "resume <id>" too) is its first turn, as Codex starts on one.
@@ -27,7 +33,7 @@
 const fs = require('fs')
 const path = require('path')
 const { randomUUID } = require('crypto')
-const { callHiveTool, fromCodexTable, parseHiveStep } = require('../fake-bridge.cjs')
+const { callHiveTool, fromCodexTable, parseHiveStep, isDoorbell, doorbellIsWork, inboxRows } = require('../fake-bridge.cjs')
 
 const args = process.argv.slice(2)
 if (args[0] === '--version') {
@@ -143,13 +149,38 @@ const setTitle = (t) => out(`\x1b]0;${t}\x07`)
 /** The turn under way: each prompt's own id, which its hooks carry (turn_id), as Codex 0.162.1's do. */
 let turnId = null
 
+/** Sends a hook as Codex's curl command does; Hive's reply (JSON), or null. */
 async function hook(event, extra = {}) {
-  if (!hookUrl) return
-  await fetch(hookUrl, {
+  if (!hookUrl) return null
+  const res = await fetch(hookUrl, {
     method: 'POST',
     headers: { Authorization: authHeader(), 'Content-Type': 'application/json' },
     body: JSON.stringify({ hook_event_name: event, session_id: sessionId, transcript_path: rollout, cwd: process.cwd(), model: 'gpt-fake', permission_mode: 'default', ...(turnId && event !== 'SessionStart' && event !== 'SessionEnd' ? { turn_id: turnId } : {}), ...extra })
-  }).catch(() => undefined)
+  }).catch(() => null)
+  return res ? await res.json().catch(() => null) : null
+}
+
+/** Hive's notice in a hook's reply (#650: context after a tool call, a block's reason at Stop), logged in fake-notices.jsonl; null when none. */
+function noticeIn(reply, at) {
+  const text = reply?.hookSpecificOutput?.additionalContext ?? (reply?.decision === 'block' ? reply.reason : null)
+  if (typeof text !== 'string' || !text.startsWith('[Hive]') || !process.env.CODEX_HOME) return null
+  const agent = String(process.env.HIVE_AGENT || 'agent').replace(/[^\w-]/g, '_')
+  fs.appendFileSync(path.join(process.env.CODEX_HOME, 'fake-notices.jsonl'), JSON.stringify({ agent, at, text, when: new Date().toISOString() }) + '\n')
+  return text
+}
+
+/** Whether this agent follows Hive's notices (fake-follow-notices.txt in CODEX_HOME, or its own fake-follow-notices-<agent>.txt). */
+function followsNotices() {
+  const home = process.env.CODEX_HOME
+  const agent = String(process.env.HIVE_AGENT || 'agent').replace(/[^\w-]/g, '_')
+  return !!home && (fs.existsSync(path.join(home, 'fake-follow-notices.txt')) || fs.existsSync(path.join(home, `fake-follow-notices-${agent}.txt`)))
+}
+
+/** Acts on a notice as a model that follows them: reads its inbox (hive_inbox), then acks the ids it listed. */
+async function readInbox() {
+  const listed = await hiveCall('hive_inbox', {})
+  const ids = [...new Set([...String(listed?.text ?? '').matchAll(/\bm\d+\b/g)].map((m) => m[0]))]
+  if (ids.length) await hiveCall('hive_inbox', { ack: ids })
 }
 
 /** Codex's own record of a turn starting or ending (task_started, task_complete), by its turn id. */
@@ -242,6 +273,7 @@ async function hiveCall(tool, input) {
   const server = hiveServer()
   const r = server ? await callHiveTool(server, tool, input) : { text: 'error: no hive server', isError: true }
   record({ type: 'function_call_output', call_id: id, output: r.isError && !/^error/i.test(r.text) ? `error: ${r.text}` : r.text })
+  return r
 }
 
 /** Reads a skill as Codex does: its SKILL.md from the folder Hive delivered it to, with a shell command. */
@@ -275,7 +307,14 @@ async function scripted(step) {
   if (call) await hiveCall(call.tool, call.args)
   const pause = /\bwork\s+(\d+)/i.exec(step)
   if (pause) await sleep(Number(pause[1]) * 1000)
-  return any || !!(move || rev || comment || call || pause)
+  // "checkpoint": a command of its own, whose PostToolUse reply may carry Hive's notice (#650).
+  const check = /\bcheckpoint\b/i.test(step)
+  if (check) {
+    const c = { ...bash('ls'), tool_use_id: `exec-${randomUUID()}` }
+    await hook('PreToolUse', c)
+    if (noticeIn(await hook('PostToolUse', c), 'checkpoint') && followsNotices()) await readInbox()
+  }
+  return any || !!(move || rev || comment || call || pause || check)
 }
 
 /** A prompt: its steps, separated by " then " ("question then review allow"). */
@@ -291,6 +330,17 @@ async function runPrompt(text) {
   turnRecord('task_started')
   fs.appendFileSync(rollout, JSON.stringify({ timestamp: new Date().toISOString(), type: 'response_item', payload: { type: 'message', role: 'user', content: [{ type: 'input_text', text }] } }) + '\n')
   await hook('UserPromptSubmit', { prompt: text })
+  // Hive's doorbell (#650): it reads its inbox (hive_inbox), as a model does, and acts on what it read (one that follows
+  // notices acks it too); what else it read (a wake, a message) is logged in fake-wakes.jsonl in CODEX_HOME.
+  if (isDoorbell(text)) {
+    const work = doorbellIsWork(text)
+    const r = await hiveCall('hive_inbox', {})
+    const rows = r.isError ? [] : inboxRows(r.text)
+    if (rows.length && followsNotices()) await hiveCall('hive_inbox', { ack: rows.flatMap((x) => x.ids) })
+    const read = rows.map((x) => x.text).join(' ')
+    if (!work && process.env.CODEX_HOME) fs.appendFileSync(path.join(process.env.CODEX_HOME, 'fake-wakes.jsonl'), JSON.stringify({ agent: String(process.env.HIVE_AGENT || 'agent').replace(/[^\w-]/g, '_'), text: read, at: new Date().toISOString() }) + '\n')
+    if (rows.length) text = work ? read : ''
+  }
   let questions = 0
   let scriptedSteps = false
   // "latetool": a command whose PostToolUse reaches Hive only after the turn's Stop (#648).
@@ -330,7 +380,14 @@ async function runPrompt(text) {
   }
   out(`\r\nDone: ${text}\r\n`)
   // "loststop": its Stop never reaches Hive, though Codex records the turn's end; "silent": neither (#648).
-  if (!/\b(loststop|silent)\b/.test(text)) await hook('Stop', { last_assistant_message: `Done: ${text}`, stop_hook_active: false })
+  if (!/\b(loststop|silent)\b/.test(text)) {
+    const reply = await hook('Stop', { last_assistant_message: `Done: ${text}`, stop_hook_active: false })
+    // Blocked (#650: Hive's drain): the reason goes on in the same turn as a hook prompt (no UserPromptSubmit), then Stop again.
+    if (reply?.decision === 'block') {
+      if (noticeIn(reply, 'drain') && followsNotices()) await readInbox()
+      await hook('Stop', { last_assistant_message: `Done: ${text}`, stop_hook_active: true })
+    }
+  }
   if (!/\bsilent\b/.test(text)) turnRecord('task_complete')
   if (late) await hook('PostToolUse', late)
   busy = false

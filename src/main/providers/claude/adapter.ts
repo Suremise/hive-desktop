@@ -535,6 +535,16 @@ export class ClaudeCodeAdapter implements ProviderAdapter {
     return { hookSpecificOutput: { hookEventName: 'PreToolUse', permissionDecision: d.kind, permissionDecisionReason: d.reason } }
   }
 
+  /**
+   * Notices as context (2.1.296, #645's spike: each reaches the model as a user-role reminder): after a tool call
+   * (PostToolUse; PreToolUse's lands at the same point, so it stays for locks), and at Stop, which carries the turn on.
+   * Stop is given context, not a block, which the user would see as "Stop hook error".
+   */
+  noticeReply(event: string, text: string): Record<string, unknown> | null {
+    if (!text || (event !== 'PostToolUse' && event !== 'Stop')) return null
+    return { hookSpecificOutput: { hookEventName: event, additionalContext: text } }
+  }
+
   /** A Stop blocked, or given context, carries the turn on (2.1.296, #645's spike: both reach the model and it goes on). */
   stopContinues(reply: Record<string, any>): boolean {
     return reply.decision === 'block' || !!reply.hookSpecificOutput?.additionalContext

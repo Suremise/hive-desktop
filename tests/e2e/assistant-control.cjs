@@ -88,6 +88,11 @@ const check = (name, ok, extra = '') => {
   const providers = (await api('GET', '/v1/providers')).body
   check('it lists the providers with their models, efforts and modes', providers?.some((p) => p.id === 'claude-code' && p.enabled && p.installed && p.models.length && p.efforts.length && p.modes.length), JSON.stringify(providers?.map((p) => p.id)))
 
+  // Project agents read what they are given from their inbox with Hive's tools (#650): on from here for their tasks, and
+  // off again for the hand-over checks below.
+  await inv('settings:update', { agentApi: { enabled: true } })
+  await lib.until(async () => (await api('GET', '/v1/status').catch(() => ({}))).status === 200, 10000)
+
   // Create a project; add an agent that starts on a task (on the command line). The view stays on gamma.
   const created = await api('POST', '/v1/projects', { name: 'beta' })
   check('it creates a project, turned on', created.status === 200 && created.body?.active === true && fs.existsSync(path.join(ws, 'beta')), JSON.stringify(created.body))
@@ -110,7 +115,7 @@ const check = (name, ok, extra = '') => {
   const waited = await api('POST', '/v1/agents/wait', { agents: [{ project: 'alpha', agent: 'Builder' }], timeoutSeconds: 30 })
   check('waiting returns when it finishes', waited.body?.timedOut === false && waited.body.agents[0].status === 'finished', JSON.stringify(waited.body))
   const act = (await api('GET', '/v1/projects/alpha/agents/Builder/activity')).body
-  check('its activity: the task and the reply', /^work 3 \(Its id: m\d+\. Once you've acted on it, ack it with hive_inbox\.\)$/.test(act?.currentTask ?? '') && act.latestReply === `Done: ${act.currentTask}`, JSON.stringify(act))
+  check('its activity: the task (#650: read from its inbox) and the reply', /^work 3$/.test(act?.currentTask ?? '') && act.latestReply === `Done: ${act.currentTask}`, JSON.stringify(act))
   const typed = await api('POST', '/v1/projects/alpha/agents/Builder/prompt', { text: 'next' })
   check("no task where the user typed in the last minute", typed.status === 409 && /typed/.test(typed.body?.error), JSON.stringify(typed.body))
   const typedFresh = await api('POST', '/v1/projects/alpha/agents/Builder/prompt', { text: 'next', newConversation: true })
@@ -127,9 +132,9 @@ const check = (name, ok, extra = '') => {
   check('an idle agent takes a task in a new conversation', fresh.status === 200 && fresh.body?.newConversation === true, JSON.stringify(fresh.body))
   const renewed = await until(async () => { const s = await live(alpha, builder); return s?.sessionId && s.sessionId !== old?.sessionId && s }, HUNG_MS)
   check('it runs as a new launch with a new session', !!old?.sessionId && !!renewed && renewed.runId !== old.runId, JSON.stringify({ old: old?.sessionId, now: renewed?.sessionId }))
-  await api('POST', '/v1/agents/wait', { agents: [{ project: 'alpha', agent: 'Builder' }], timeoutSeconds: 30 })
-  const freshAct = (await api('GET', '/v1/projects/alpha/agents/Builder/activity')).body
-  check('on the task, with no handover', /^work 1 \(Its id: m\d+\. Once you've acted on it, ack it with hive_inbox\.\)$/.test(freshAct?.currentTask ?? '') && freshAct.latestReply === `Done: ${freshAct.currentTask}`, JSON.stringify(freshAct && { task: freshAct.currentTask, reply: freshAct.latestReply }))
+  // Its reply, once it has one: a wait could answer between the new launch's start and its taking the task.
+  const freshAct = await until(async () => { const a = (await api('GET', '/v1/projects/alpha/agents/Builder/activity')).body; return a?.latestReply ? a : null }, HUNG_MS)
+  check('on the task, with no handover', /^work 1$/.test(freshAct?.currentTask ?? '') && freshAct.latestReply === `Done: ${freshAct.currentTask}`, JSON.stringify(freshAct && { task: freshAct.currentTask, reply: freshAct.latestReply }))
   const history = (await inv('session:list', alpha)).map((s) => s.id)
   check('the old conversation stays in the Sessions history', history.includes(old?.sessionId) && history.includes(renewed?.sessionId), JSON.stringify(history))
   check('it is listed in Done by the Assistant', (await inv('assistant:actions')).some((x) => x.ok && x.text.startsWith('Gave Builder in alpha a task in a new conversation')))
@@ -195,6 +200,7 @@ const check = (name, ok, extra = '') => {
   fs.mkdirSync(path.join(ws, '.hive', 'shared', 'handovers'), { recursive: true })
   fs.writeFileSync(path.join(ws, '.hive', 'shared', 'handovers', '2026-10-01-alpha-plan.md'), '# Plan\n\n- **Project:** alpha\n\nwork 1\n')
   // Handing over: refused at once while project agents lack Hive's tools (the Agent API is off), then done.
+  await inv('settings:update', { agentApi: { enabled: false } })
   const noTools = await api('POST', '/v1/projects/alpha/handover', { from: 'Builder', to: 'Fixer', handover: false })
   check("no hand-over while agents can't use Hive's tools", noTools.status === 409 && /Hive's tools/.test(noTools.body?.error), JSON.stringify(noTools.body))
   await inv('settings:update', { agentApi: { enabled: true } })

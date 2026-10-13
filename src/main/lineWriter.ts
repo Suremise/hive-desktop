@@ -72,7 +72,7 @@ export const canTypeLine = (projectPath: string, agentId: string, need: Delivery
  * What a typed line carries, for its confirmation (#530, #647): `still`, whether it may still be submitted, asked before
  * Enter is pressed again; `withdrawn` when it may not and the line was cleared instead (or left, the user's draft in it);
  * `confirming` with the launch and prompt count it was typed at while the confirmation runs, and `settled` once that has
- * ended; `taken` once its CLI took it (#649: the receipt of what it carried), never for a launch that ended first;
+ * ended; `taken` once its CLI took it (#650: not a receipt, the doorbell carries no text), never for a launch that ended first;
  * `lost` when that launch ended (or another began) before its CLI took it.
  */
 export interface RideCheck {

@@ -372,7 +372,7 @@ const prose = (seed, n) => {
   measure('hive_prompt_agent', tool('hive_prompt_agent', { project: 'beta', agent: 'Helper', text: 'turn 1' }, 'assistant'), 300)
   await lib.until(async () => (await live(path.join(ws, 'beta'), (await inv('workspace:refresh')).projects.find((p) => p.name === 'beta').agents.find((a) => a.name === 'Helper').id))?.status === 'finished', 15000) // its turn over: stopping a working agent would ask the user
   const msg = measure('hive_message_agent', tool('hive_message_agent', { project: 'beta', agent: 'Helper', text: 'turn 2' }, 'assistant'), 200)
-  check('a message to an idle agent is typed at once, with its id', /^Typed into Helper now \(m\d+\)\.$/.test(msg), msg)
+  check('a message to an idle agent is told at once, with its id', /^Told Helper now \(m\d+\): it reads it with hive_inbox\.$/.test(msg), msg)
   check('cancel with nothing waiting says so', measure('hive_message_agent (cancel)', tool('hive_message_agent', { project: 'beta', agent: 'Helper', cancel: true }, 'assistant'), 100) === 'No message was waiting for Helper.', texts['hive_message_agent (cancel)'])
   await lib.until(async () => (await live(path.join(ws, 'beta'), (await inv('workspace:refresh')).projects.find((p) => p.name === 'beta').agents.find((a) => a.name === 'Helper').id))?.status === 'finished', 15000)
   measure('hive_stop_agent', tool('hive_stop_agent', { project: 'beta', agent: 'Helper' }, 'assistant'), 300)
@@ -458,7 +458,11 @@ const prose = (seed, n) => {
   for (const sr of alphaPart?.mcp ?? []) got[`${sr.tool} ${sr.mode} ${sr.outcome}`] = { count: sr.count, chars: sr.chars, bytes: sr.bytes }
   check("metrics: each tool call's reported size is the text the model got, by mode and outcome", JSON.stringify(Object.fromEntries(Object.entries(got).filter(([k]) => k in expected).sort())) === JSON.stringify(Object.fromEntries(Object.entries(expected).sort())), JSON.stringify({ got, expected }))
   const cat = (alphaPart?.catalog ?? []).find((c) => c.role === 'agent')
-  check("metrics: the tool list as the session got it, once a start", cat?.starts === 1 && cat.tools === list.length && cat.toolsBytes === Buffer.byteLength(JSON.stringify(list), 'utf8'), JSON.stringify(cat))
+  // Once a start: the coder's, and the agent a card was started on, whose fake reads its inbox when its task's doorbell
+  // rings (#650: through the hive server, which it starts for that call, with a tool list of its own). The catalog sums
+  // them: the coder's list as it got it, and the other's.
+  const listBytes = Buffer.byteLength(JSON.stringify(list), 'utf8')
+  check("metrics: the tool list as the session got it, once a start", cat?.starts === 2 && cat.tools > list.length && cat.tools < list.length * 3 && cat.toolsBytes > listBytes && cat.toolsBytes < listBytes * 3, JSON.stringify({ cat, list: list.length, bytes: listBytes }))
   check("metrics: the Assistant's tool calls are the workspace's own, with detail mode counted", (report.workspace?.mcp ?? []).some((sr) => sr.role === 'assistant' && sr.tool === 'hive_agent_activity' && sr.mode === 'detail'), JSON.stringify(report.workspace?.mcp?.slice(0, 3)))
   const routes = [...Object.values(report.projects), report.workspace].flatMap((pt) => pt.api.map((sr) => sr.route))
   check('metrics: API routes are templates, never paths asked for', routes.includes('/v1/tasks/:n') && !routes.some((r) => /\/\d/.test(r)), routes.join(' '))

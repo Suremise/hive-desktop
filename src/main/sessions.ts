@@ -51,12 +51,13 @@ import { hashText, heldOpen, insideReal, isInUse, readJson, placeRelative, remov
 import { createLogger, hookJournal, userText } from './logger'
 import { applyStep, compactionOver, expireTasks, hookStep, idleAfter, markedIdle, safeguardAnswered, SAFEGUARD_IDLE_MESSAGE, titleStep, type HookStatusInput, type HookStep } from './hookStatus'
 import { memoModel, memoTools, memoTurn, noteSafeguard, safeguardText, seenInTurn, withScreenStops, type GuardTurns, type SafeguardEvent, type ScreenStop } from '../shared/safeguards'
-import { admit, describe as describeTurn, endRunning, heard, newLedger, openCalls, reconciles, silentFor, unheardStop, type ScreenReading, type TurnLedger } from './turnLedger'
+import { admit, describe as describeTurn, endRunning, expectInjected, heard, newLedger, openCalls, reconciles, silentFor, unheardStop, type ScreenReading, type TurnLedger } from './turnLedger'
 import { Compaction } from './compaction'
 import { lastTitle } from './terminalTitle'
 import { asksYou } from '../shared/inbox'
 import type { DeliveryHooks, NewDelivery } from './deliveries'
 import { readyFor } from './readiness'
+import { NOTICE_PREFIX } from '../shared/doorbell'
 import { FinishBatcher, finishedNotice, noticeRoute, type FocusedHive, type NoticeRoute } from '../shared/bursts'
 import { commentOnDoingCards, recordCards } from './cardSessions'
 import { listMcp, toLaunchDef } from './mcp'
@@ -1374,7 +1375,19 @@ class SessionManager {
     workspaceOf(projectPath).scheduleRefresh()
   }
 
-  /** Records the running session in sessions.json and as the agent's session to resume. */
+  /**
+   * Whether `l` is still its agent's launch (#650): one stopped or started again while a step of its own waited gets
+   * nothing more of that step that is the current launch's (its state shown, its locks, the agent's session to resume).
+   */
+  private owns(l: LiveSession): boolean {
+    return this.live.get(liveId(l.state.projectPath, l.state.agentId)) === l
+  }
+
+  /**
+   * Records the running session in sessions.json and as the agent's session to resume. The session's own record is kept
+   * whatever happens to the launch; the agent's session to resume and its cards only while it is still the agent's
+   * launch.
+   */
   private async recordSession(projectPath: string, agent: Pick<AgentDef, 'id' | 'name' | 'worktree'>, l: LiveSession): Promise<void> {
     const { state } = l
     const sessionId = state.sessionId
@@ -1402,12 +1415,19 @@ class SessionManager {
       ...(agent.worktree ? { branch: agent.worktree.branch } : {})
     }, { createdAt: state.sessionCreatedAt })
     state.sessionCreatedAt = rec.createdAt
-    await workspace.updateAgent(projectPath, agent.id, { lastSessionId: sessionId }).catch(() => undefined)
-    // The card it was started on (or already has in Doing).
-    await recordCards(workspaceOf(projectPath), projectPath, agent.id, sessionId).catch((e) => log.warn(`Could not record the cards of session ${sessionId}`, e))
-    for (const other of projectAgents(await workspace.projectConfig(projectPath))) {
-      if (other.id !== agent.id && other.lastSessionId === sessionId) await workspace.updateAgent(projectPath, other.id, { lastSessionId: undefined }).catch(() => undefined)
-    }
+    if (!this.owns(l)) return
+    // The agent's session to resume (and no other agent's any more), decided under the config's lock as it is written: a
+    // launch started again while this write waited for the lock keeps its own (#650).
+    await workspace
+      .mutateProjectConfig(projectPath, (cfg) => {
+        const agents = projectAgents(cfg)
+        if (!this.owns(l) || !agents.some((a) => a.id === agent.id)) return {}
+        return { agents: agents.map((a) => (a.id === agent.id ? { ...a, lastSessionId: sessionId } : a.lastSessionId === sessionId ? { ...a, lastSessionId: undefined } : a)) }
+      })
+      .catch(() => undefined)
+    // The card it was started on (or already has in Doing), only while it is the agent's launch as the record is written.
+    if (!this.owns(l)) return
+    await recordCards(workspaceOf(projectPath), projectPath, agent.id, sessionId, () => this.owns(l)).catch((e) => log.warn(`Could not record the cards of session ${sessionId}`, e))
   }
 
   /** Stops one agent's session, or every agent of the project when agentId is omitted. */
@@ -2706,6 +2726,8 @@ class SessionManager {
     // Its last tool calls as its transcript has them now (the read as it grows may not have come yet).
     const src = await this.liveTranscript(l).catch(() => null)
     if (src) await this.readSafeguards(l, src).catch((e) => log.warn('safeguard: transcript read failed', e))
+    // Stopped or started again meanwhile (#650): nothing of it is shown over the agent's current launch.
+    if (!this.owns(l)) return ask
     const memo = l.guardMemo
     // The prompt it already waits on, told again (its hook, then the screen): the same stop, not another.
     let noted = st.safeguard
@@ -2720,6 +2742,7 @@ class SessionManager {
         const stop: ScreenStop = { at: new Date(at).toISOString(), ...(model ? { model } : {}), ...(turn ? { turn } : {}) }
         await this.keepScreenStop(st.projectPath, st.sessionId, stop).catch((e) => log.warn('safeguard: could not keep the stop seen on screen', e))
       }
+      if (!this.owns(l)) return ask
     }
     const { idle: _i, ...rest } = noted!
     st.safeguard = { ...rest, prompt: true }
@@ -3241,27 +3264,65 @@ class SessionManager {
   private hookQueues = new Map<string, Promise<void>>()
 
   /**
-   * Answers a launch's Stop: a reply that carries the turn on (in the provider's format), or null to let it end. Set by
-   * what has something for the agent before it stops (Messaging 4's drain); none yet. The turn ledger counts a turn's
-   * end only from a Stop answered with nothing, as continuations fire no prompt (#648).
+   * The notice for what the agent has unread (#650, inboxNotices.ts): Hive's fixed text, or null when there is nothing
+   * to tell. At a checkpoint (a tool call of the agent's own ended) or its turn's end (the drain: a reply that carries
+   * the turn on). The turn ledger counts a turn's end only from a Stop answered with nothing, as continuations fire no
+   * prompt (#648).
    */
-  stopReplier: ((state: LiveSessionState, body: Record<string, any>) => Record<string, unknown> | null) | null = null
+  inboxNotice: ((state: LiveSessionState, at: 'checkpoint' | 'drain') => Promise<string | null> | string | null) | null = null
 
   /**
-   * What Hive answers a hook call with, before handling it (the hook server sends it, then calls handleHook with it): a
-   * PreToolUse's file-lock decision, a Stop's continuation (stopReplier), else nothing.
+   * What Hive answers a hook call with (the hook server sends it, then calls handleHook with the same body): a
+   * PreToolUse's file-lock decision (made at once, before anything is awaited: it claims locks in the order hooks came);
+   * for a hook that may carry a notice (a tool's end, a Stop: noticeReply), a reply decided in the launch's hook order by
+   * handleHookNow, once the turn ledger has the hooks before it (#650: the ledger's verdict and turn, never a view of its
+   * own); else nothing.
    */
-  hookReply(runId: string | null, body: Record<string, any>): Record<string, unknown> | null {
-    if (body.hook_event_name === 'PreToolUse') return this.preToolUse(runId, body)
-    if (!this.stopReplier) return null
+  hookReply(runId: string | null, body: Record<string, any>): Promise<Record<string, unknown> | null> {
+    const lock = body.hook_event_name === 'PreToolUse' ? this.preToolUse(runId, body) : null
+    if (lock || !this.inboxNotice) return Promise.resolve(lock)
     const l = this.findLaunch(runId, body.session_id)?.[1]
-    const ev = l?.adapter.normalizeHook(body).event
-    return l && ev?.kind === 'stop' && !ev.failed ? this.stopReplier(l.state, body) : null
+    if (!l) return Promise.resolve(null)
+    const hook = l.adapter.normalizeHook(body)
+    const ev = hook.event
+    // Never a sub-agent's (its context isn't the agent's), nor a Stop that follows a continuation (stop_hook_active).
+    if (hook.ids.sub || !(ev.kind === 'toolEnd' || (ev.kind === 'stop' && !ev.failed && !hook.ids.continued))) return Promise.resolve(null)
+    // An event this CLI can't carry a notice on is never asked about.
+    if (!l.adapter.noticeReply(String(body.hook_event_name ?? ''), NOTICE_PREFIX)) return Promise.resolve(null)
+    return new Promise((settle) => this.noticeReplies.set(body, settle))
+  }
+
+  /** Hook calls whose reply waits for its place in the launch's hook order (hookReply), by their body. */
+  private noticeReplies = new WeakMap<object, (reply: Record<string, unknown> | null) => void>()
+
+  /**
+   * The notice for a hook in the launch's order (#650), with the turn ledger as it is just before it (nothing else of the
+   * launch is handled while this is worked out): none for a hook the ledger finds stale; a checkpoint after the agent's
+   * own tool call; the drain at a Stop of the running turn that Hive hasn't carried on yet (the ledger's own count, so at
+   * most once a turn, whatever a Stop says of it). Null when there is nothing to tell.
+   */
+  private async noticeIn(runId: string | null, l: LiveSession, ledger: TurnLedger, body: Record<string, any>, woke: boolean, at: number): Promise<Record<string, unknown> | null> {
+    if (!this.inboxNotice) return null
+    const hook = l.adapter.normalizeHook(body)
+    const ev = hook.event
+    // What the ledger would make of it (a copy: it is admitted below, with what it was told).
+    if (admit(structuredClone(ledger), ev, hook.ids, { woke, now: at }).verdict === 'stale') return null
+    const drain = ev.kind === 'stop'
+    if (drain && !(ledger.active && ledger.active.state === 'running' && ledger.active.continued === 0)) return null
+    const turn = ledger.active
+    const text = await this.inboxNotice(l.state, drain ? 'drain' : 'checkpoint')
+    // Still that launch and that turn (the queue holds the rest of the launch's hooks, so only its end can change them).
+    if (!text || this.findLaunch(runId, body.session_id)?.[1] !== l || ledger.active !== turn) return null
+    const reply = l.adapter.noticeReply(String(body.hook_event_name ?? ''), text)
+    // A CLI that takes the drain as a new prompt: that prompt is Hive's own, in the turn it carries on.
+    if (reply && drain && l.adapter.drainIsPrompt) expectInjected(ledger, text)
+    return reply
   }
 
   /**
-   * Handles a hook call from an agent's CLI (already answered with `reply`: hookReply). One launch's hooks run in
-   * order: an older one that awaits (recording the session) must not land after a newer one's status.
+   * Handles a hook call from an agent's CLI, answered with `reply` (hookReply's, which may still be on its way: it is
+   * waited for in the launch's order). One launch's hooks run in order: an older one that awaits (recording the
+   * session) must not land after a newer one's status.
    */
   handleHook(runId: string | null, body: Record<string, any>, reply: unknown = null): Promise<void> {
     // A turn's end releases only the locks claimed before it arrived: PreToolUse claims them at once, outside this queue.
@@ -3286,27 +3347,50 @@ class SessionManager {
     return run
   }
 
-  private async handleHookNow(runId: string | null, body: Record<string, any>, arrived: number, hooksBefore: number, reply: unknown = null, at = Date.now()): Promise<void> {
+  private async handleHookNow(runId: string | null, body: Record<string, any>, arrived: number, hooksBefore: number, replying: unknown = null, at = Date.now()): Promise<void> {
+    // A reply decided here, in the launch's order (#650: a notice), is sent as soon as it is known, and always at the end.
+    const pending = this.noticeReplies.get(body)
+    this.noticeReplies.delete(body)
+    let reply: unknown = pending ? null : await Promise.resolve(replying).catch(() => null)
+    try {
+      await this.handleHookIn(runId, body, arrived, hooksBefore, at, reply, pending ? (r) => {
+        reply = r
+        pending(r)
+      } : null)
+    } finally {
+      pending?.((reply as Record<string, unknown> | null) ?? null)
+    }
+  }
+
+  private async handleHookIn(runId: string | null, body: Record<string, any>, arrived: number, hooksBefore: number, at: number, given: unknown, decide: ((reply: Record<string, unknown> | null) => void) | null): Promise<void> {
+    let reply = given
     const found = this.findLaunch(runId, body.session_id)
     if (!found) return
     const [id, l] = found
     const st = l.state
     const hook = l.adapter.normalizeHook(body)
     const label = this.label(st)
+    // Still this launch after each wait below (#650): one stopped or started again meanwhile gets nothing more of this
+    // hook (no reply, status, actions or notification of the old one over the new).
+    const current = (): boolean => this.live.get(id) === l
     // The user started or opened another conversation in the CLI (/clear, /new, /resume): follow it. Only a
     // prompt switches, since helpers the CLI runs for itself (subagents) can report other session ids.
     if (hook.event.kind === 'prompt' && st.sessionId && hook.sessionId && hook.sessionId !== st.sessionId && isSessionId(hook.sessionId)) {
       await this.switchSession(l, hook.sessionId, hook.transcriptPath, hooksBefore)
+      if (!current()) return
     } else if (hook.transcriptPath && hook.transcriptPath !== l.transcriptPath) l.transcriptPath = hook.transcriptPath
     // Providers that choose their own session id report it here (the first hook of the launch).
     if (!st.sessionId && hook.sessionId) {
       try {
         st.sessionId = assertSessionId(hook.sessionId)
         const { agent } = await this.agentDef(st.projectPath, st.agentId)
+        if (!current()) return
         await this.recordSession(st.projectPath, agent, l)
+        if (!current()) return
         this.emitState(st)
         workspaceOf(st.projectPath).scheduleRefresh()
       } catch (e) {
+        if (!current()) return
         log.warn(`${userText(label)}: could not record session ${hook.sessionId}`, e)
       }
     }
@@ -3317,12 +3401,21 @@ class SessionManager {
     // The turn ledger first (#648): a hook about a turn that is over is old news, and a Stop Hive carried on isn't an end.
     const ledger = (l.ledger ??= newLedger())
     const ids = hook.ids
-    const continued = hook.event.kind === 'stop' && !hook.event.failed && !!reply && typeof reply === 'object' && l.adapter.stopContinues(reply as Record<string, unknown>)
     const before = st.status
     // A CLI that wakes when its background tasks end begins that turn itself: while its transcript says one just ended
     // (never merely because one runs), a tool call it never saw may open that turn should its prompt hook be lost
     // (turnLedger rule 1).
     const woke = l.adapter.descriptor.capabilities.backgroundWakes && !!l.woke
+    // Its notice (#650), from the ledger as it is now, before it is admitted with what it was told.
+    if (decide) {
+      reply = await this.noticeIn(runId, l, ledger, body, woke, at).catch((e) => {
+        log.warn(`${userText(label)}: no inbox notice`, e)
+        return null
+      })
+      if (!current()) return
+      decide(reply as Record<string, unknown> | null)
+    }
+    const continued = hook.event.kind === 'stop' && !hook.event.failed && !!reply && typeof reply === 'object' && l.adapter.stopContinues(reply as Record<string, unknown>)
     const was = ledger.active
     const took = admit(ledger, hook.event, ids, { hiveContinued: continued, woke, now: at })
     if (ledger.active !== was) l.woke = false
@@ -3337,6 +3430,7 @@ class SessionManager {
       }
       // Hooks are handled in order, so the next one waits for this read: a turn's end counts the tasks it started.
       if (ev.kind === 'stop') await this.beforeTurnEnd(l, ev.lastMessage)
+      if (!current()) return
       const step = hookStep(ev, this.statusInput(l))
       this.carryOut(id, l, step, String(body.hook_event_name ?? ''), ev, arrived)
       actions = step.actions
@@ -3348,6 +3442,7 @@ class SessionManager {
       const ask = hook.event.ask
       if (this.guardShown(l, ask)) {
         const ev: HookEvent = { kind: 'ask', ask: await this.safeguardPrompt(l, ask, at) }
+        if (!current()) return
         const step = hookStep(ev, this.statusInput(l))
         this.carryOut(id, l, step, String(body.hook_event_name ?? ''), ev, arrived)
         actions = step.actions
@@ -3654,10 +3749,14 @@ class SessionManager {
     const old = st.sessionId
     await this.backup(st.projectPath, st.agentId, true, hooksBefore).catch(() => undefined)
     await workspace.upsertSession(st.projectPath, { id: old, lastActiveAt: new Date().toISOString() }).catch(() => undefined)
+    // The old conversation's backup and record are history; the move itself only while this is still the agent's launch
+    // (#650: one started again meanwhile keeps its own locks, state and session to resume).
+    if (!this.owns(l)) return
     log.info(`${userText(this.label(st))}: the CLI moved from session ${old} to ${sessionId}`)
     try {
       const { agent, count } = await this.agentDef(st.projectPath, st.agentId)
       const existing = (await workspace.sessionsFile(st.projectPath)).sessions.find((s) => s.id === sessionId)
+      if (!this.owns(l)) return
       st.sessionId = sessionId
       l.name = existing?.name || autoName(st.projectPath, agent, count)
       st.sessionName = l.name
@@ -3686,6 +3785,7 @@ class SessionManager {
     } catch (e) {
       log.warn(`${userText(this.label(st))}: could not record session ${sessionId}`, e)
     }
+    if (!this.owns(l)) return
     this.emitState(st)
     workspaceOf(st.projectPath).scheduleRefresh()
   }

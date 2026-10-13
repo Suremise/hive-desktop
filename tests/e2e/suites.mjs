@@ -96,6 +96,7 @@ export const SUITES = [
   { name: 'idlestatus' },
   { name: 'image' },
   { name: 'inbox', serial: 'window focus' },
+  { name: 'inboxnotices' },
   { name: 'installdir' },
   { name: 'isolation' },
   { name: 'keys' },

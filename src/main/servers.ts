@@ -46,7 +46,8 @@ import { writePty } from './ptyHost'
 import { sessions } from './sessions'
 import { cardStall } from './cardStall'
 import { cancelMessages, leaveMessage, MESSAGE_MAX_CHARS } from './agentMessages'
-import { ackDeliveries, deliverNow, deliveryView, launchWith, NotGiven, readInbox } from './deliveries'
+import { ackDeliveries, deliveriesOf, deliverNow, deliveryView, launchWith, NotGiven, readInbox } from './deliveries'
+import { isDoorbell } from '../shared/doorbell'
 import type { DeliverySender } from '../shared/deliveries'
 import * as tasks from './tasks'
 import * as taskBatch from './taskBatch'
@@ -140,12 +141,20 @@ export async function startHookServer(): Promise<string> {
         sessions.handleStatusLine(run, body)
         return
       }
-      // A hook about to edit files waits for Hive's file-lock decision, and a Stop for whether to carry the turn on; other
-      // hooks are answered at once so they never slow the agent down. The turn ledger learns what the Stop was told (#648).
+      // A hook about to edit files waits for Hive's file-lock decision (made at once, in the order hooks came); a tool's
+      // end and a Stop that may carry a notice wait for their place in the launch's hook order, where the turn ledger
+      // decides whose turn they are (#650: a notice of what is unread, or the drain carrying the turn on); other hooks
+      // are answered at once so they never slow the agent down. Each is handled in the launch's order from when it came,
+      // with its reply: the turn ledger learns what the Stop was told (#648).
       const reply = sessions.hookReply(run, body)
+      const handled = sessions.handleHook(run, body, reply)
+      const answer = await reply.catch((e) => {
+        log.warn('hook reply', e)
+        return null
+      })
       res.writeHead(200, { 'Content-Type': 'application/json' })
-      res.end(JSON.stringify(reply ?? {}))
-      await sessions.handleHook(run, body, reply)
+      res.end(JSON.stringify(answer ?? {}))
+      await handled
     } catch (e) {
       log.warn('hook error', e)
       if (!res.headersSent) send(res, 400, { error: 'bad request' })
@@ -992,7 +1001,7 @@ route('POST', '/v1/projects/:name/agents/:agent/prompt', async ({ params, body }
       if (e instanceof NotGiven) throw new HttpError(409, `${a.name} wasn't given the task: ${e.message}.`)
       throw e
     })
-    return { done: `Gave ${a.name} in ${basename(p)} a task (${r.id})`, said: `: ${clip(text.replace(/\s+/g, ' '), 80)}`, result: { ok: true, id: r.id } }
+    return { done: `Gave ${a.name} in ${basename(p)} a task${r ? ` (${r.id})` : ''}`, said: `: ${clip(text.replace(/\s+/g, ' '), 80)}`, result: { ok: true, ...(r ? { id: r.id } : {}) } }
   })
 })
 
@@ -1108,8 +1117,11 @@ async function agentActivity(p: string, agentId: string, detail = false) {
     const lastUser = items.map((x) => x.kind).lastIndexOf('user')
     const task = lastUser >= 0 ? items[lastUser] : null
     if (task?.kind === 'user') {
-      currentTask = clip(task.text, lim.task)
-      if (task.text.length > lim.task) clipped.currentTask = task.text.length
+      // Its last prompt Hive's doorbell (#650: ids only): the task it was last given is the newest one (or handover) delivered.
+      const given = isDoorbell(task.text) ? (await deliveriesOf(p, agentId)).findLast((r) => r.kind === 'task' || r.kind === 'handover')?.body : undefined
+      const text = given ?? task.text
+      currentTask = clip(text, lim.task)
+      if (text.length > lim.task) clipped.currentTask = text.length
     }
     const reply = [...items].reverse().find((x) => x.kind === 'assistant')
     if (reply?.kind === 'assistant') {
