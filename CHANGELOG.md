@@ -1,12 +1,13 @@
 # Release Notes
 
-## Unreleased
+## 0.7.1 — 13 October 2026
 
 ### Advanced settings
 - **How Claude Code's and Copilot's footers show each permission mode is in Settings → Advanced too.** Hive reads an agent's mode from its footer, and watches it while switching modes with Shift+Tab: if a CLI update renames a mode there, the mode's setting fixes it without waiting for a Hive release.
 - **How long a stopped Copilot agent gets to exit is a setting.** Settings → Advanced → GitHub Copilot → **Stop: exit grace** (10 seconds by default, 3 to 60): Hive ends a Copilot that hasn't exited by itself after that long, losing its token totals. Raise it if a very busy PC still loses them.
 
 ### Agents
+- **A stopped Copilot agent keeps its token totals on a busy PC.** Copilot writes a session's totals only as it exits, which took up to 2.4 seconds under load, and Hive ended it after 2.5 seconds, so on a busier machine the totals were lost. Hive now gives it 10 seconds, ending only a Copilot that doesn't exit; quitting Hive waits for it.
 - **Loading a template is quicker on a busy machine.** Its plan and load read the project's worktrees, branches and current branch once, and each worktree's state once, instead of once per agent: about a third to a half fewer git commands, so the Load template dialog no longer takes seconds to open while tests or builds run.
 - **Waiting for an agent you just started on a task waits for that task.** `hive_wait_for_agents` (and `POST /v1/agents/wait`) called right after starting an agent with a prompt, or giving it one in a new conversation, could answer at once that it was ready: its CLI was up but hadn't begun the task yet. It now counts as working until its CLI takes the task.
 
@@ -47,7 +48,6 @@
 - **A lane's marks explain themselves.** Hovering a card's segment in a lane now says what its red underline means (*#650: review failed (round 4): waiting for round 5*, with the reviewer's one-line gist) and why red cross-hatching is there (the card's blocked reason, or that it's On Hold, waiting for you). Screen readers get the same text.
 
 ### Agents
-- **A stopped Copilot agent keeps its token totals on a busy PC.** Copilot writes a session's totals only as it exits, which took up to 2.4 seconds under load, and Hive ended it after 2.5 seconds, so on a busier machine the totals were lost. Hive now gives it 10 seconds, ending only a Copilot that doesn't exit; quitting Hive waits for it.
 - **A Copilot agent asking whether to trust its folder shows as waiting, even on a busy PC.** Copilot can draw its prompt a moment before its trust question; Hive took the prompt to mean it was ready and kept showing it ready while it asked, so nothing said it needed you. Hive now still reads the question until the agent has taken its first prompt.
 - **More than twelve agents in a project.** **Agents per project** in Settings → Advanced raises the limit of twelve, up to 24, for all workspaces or just one. Above 12 it shows what more agents cost on your computer: the memory your running agents take now and how much is free. Pages, templates, the agents table and agent watches all work with 24. More than six pages show as **‹ 3 / 12 ›**, with a menu of every page. Lowering it removes no agents.
 - **One agent's leftovers no longer take in other agents' PowerShell.** With the Microsoft Store's PowerShell 7 installed, the PowerShell one agent's session started could take in every Store PowerShell started after it on the PC, another agent's or another app's: they were listed as the first agent's leftovers, and **End Them** ended them too. Hive now follows such a process on its own, also when it catches one in the first moments after it starts, so each agent lists and ends only what it started.
