@@ -768,6 +768,37 @@ describe('a template loaded again into the worktrees it made (#289)', () => {
     expect(pending()).toEqual([])
   }))
 
+  gitIt("a plan or load reads the repository once, not once per agent: its worktrees, branches and current branch, and each worktree's status (#732)", inOwnWorkspace(async ({ alpha, beta, run }) => {
+    const ids = (): string[] => cfgOf(beta).agents.map((a: AgentDef) => a.id)
+    // The git commands run in this workspace's repository and worktrees, by command: what one step ran.
+    const { gitTestHooks } = await import('../src/main/git')
+    const here = (cwd: string): boolean => placeKey(cwd) === placeKey(beta) || placeKey(cwd).startsWith(placeKey(`${join(beta, '..')}.worktrees`))
+    const counted = async (step: () => Promise<unknown>): Promise<Record<string, number>> => {
+      const by: Record<string, number> = {}
+      gitTestHooks.started = (cwd, args) => {
+        if (here(cwd)) by[args.slice(0, 2).join(' ')] = (by[args.slice(0, 2).join(' ')] ?? 0) + 1
+      }
+      try {
+        await run(step)
+      } finally {
+        gitTestHooks.started = undefined
+      }
+      return by
+    }
+    const reads = (by: Record<string, number>) => ({ worktrees: by['worktree list'] ?? 0, current: by['rev-parse --abbrev-ref'] ?? 0, branches: by['for-each-ref --format=%(refname:short)'] ?? 0, status: by['status --porcelain'] ?? 0 })
+    // Both of Trees' worktrees worked in again: each looked at as a replaced agent's and as one to reuse, read once.
+    expect(reads(await counted(() => templates.templatePlan(beta, 'project', 'trees.json', alpha)))).toEqual({ worktrees: 1, current: 1, branches: 0, status: 2 })
+    // Pair replaces them, offering both worktrees for removal: the main branch and its commit read once for both.
+    const pair = await counted(() => templates.loadTemplate(beta, 'workspace', 'pair.json', ids()))
+    expect([reads(pair), pair['symbolic-ref --quiet'], pair['rev-parse --verify']]).toEqual([{ worktrees: 1, current: 1, branches: 1, status: 2 }, 1, 3])
+    // Three new worktrees: the branches read by the plan for all three, then again after each worktree is made (not
+    // before the first), so each new branch is free.
+    writeFileSync(join(alpha, '.hive', 'templates', 'three.json'), JSON.stringify({ version: 1, name: 'Three', layout: 'auto', agents: ['C', 'D', 'E'].map((n) => ({ name: `Tree ${n}`, provider: 'claude-code', worktree: true })) }))
+    const three = await counted(() => templates.loadTemplate(beta, 'project', 'three.json', ids(), alpha))
+    expect([reads(three), three['worktree add']]).toEqual([{ worktrees: 1, current: 1, branches: 3, status: 0 }, 3])
+    expect(names(beta)).toEqual(['Tree C', 'Tree D', 'Tree E'])
+  }))
+
   gitIt('a dirty worktree gets a new one when loading, saying why; Add Agent from Template works in a free, clean one again (#289)', inOwnWorkspace(async ({ alpha, beta, run, hb }) => {
     const ids = (): string[] => cfgOf(beta).agents.map((a: AgentDef) => a.id)
     const pending = (): string[] => (cfgOf(beta).setupPending ?? []).map((p: string) => placeKey(p))
