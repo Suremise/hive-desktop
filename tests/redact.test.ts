@@ -64,6 +64,25 @@ describe('diagnostics redaction', () => {
     expect(maskText('enter ABCD-EFGH')).toBe('enter <redacted>')
   })
 
+  it('a quoted key naming a credential masks its value whatever else is in the name: punctuation, escaped or mismatched quotes (#705 round 1)', () => {
+    const BS = '\\'
+    const quotes: [string, string][] = [['"', '"'], ["'", "'"], [`${BS}"`, `${BS}"`], ['"', "'"]]
+    const words = ['token', 'password', 'api_key', 'auth', 'secret', 'pwd', 'credentials']
+    const punct = ['/', '[0]', '!', '@', '#', '%', '&', '*', '|', '<', '>', '?', ';', '~', '`', '^', '+', '(', ')', '{', '}', ',', '$', 'é', ' ', '.', '-', '_']
+    for (const [open, close] of quotes) {
+      for (const w of words) {
+        for (const p of punct) {
+          for (const name of [`${w}${p}x`, `x${p}${w}`, `${p}${w}${p}`]) {
+            for (const sep of [':', '=', ' : ', ': ']) {
+              const text = `{${open}${name}${close}${sep}${open}privateValue${close}}`
+              expect(maskText(text), text).not.toContain('privateValue')
+            }
+          }
+        }
+      }
+    }
+  })
+
   it("the log: a credential masks the rest of its line, and the lines a continuation carries it onto", () => {
     const T = '2026-10-02T10:00:00.000Z [INFO] [sessions]'
     const log = [`${T} Hive 0.7.0 starting (${MARKED_LOG})`, `${T} ran curl --api-key \``, '  continuedLogSecret `', '  againLogSecret', `${T} next line stays`].join('\n')
@@ -104,6 +123,19 @@ describe('diagnostics redaction', () => {
     for (const text of long) expect(() => runInNewContext('maskText(text)', { maskText, text }, { timeout: 5000 }), text.slice(0, 20)).not.toThrow()
   })
 
+  // #699 round 6 (the Assistant's rule): backslashes and quotes at 10k, 100k and 1M characters, through masking whole
+  // strings (Copy Diagnostics' path; the console cuts first), each well inside the bound.
+  it('masking scales linearly on backslashes and quotes: 10k, 100k and 1M characters (#699 round 6)', () => {
+    const BS = '\\'
+    const vmContext = createContext({ maskText, text: '' })
+    for (const n of [10_000, 100_000, 1_000_000]) {
+      for (const text of [BS.repeat(n), '"'.repeat(n), "'".repeat(n), `${BS}"`.repeat(n / 2), `"${BS.repeat(n)}`, `-u ${BS.repeat(n)}`, `"token":${BS.repeat(n)}`, `${'"a'.repeat(n / 2)}`]) {
+        vmContext.text = text
+        expect(() => runInContext('maskText(text)', vmContext, { timeout: 5000 }), `${n}: ${JSON.stringify(text.slice(0, 8))}`).not.toThrow()
+      }
+    }
+  })
+
   // #699 round 5: a long run of backslashes made the quoted-name search quadratic. Not one shape but every one of these:
   // each pair of the characters the patterns care about, repeated, and each credential prefix followed by a long run of
   // one of them, or repeated with it. At 200,000 characters a quadratic pattern takes minutes and a linear one
@@ -113,22 +145,23 @@ describe('diagnostics redaction', () => {
     const CHARS = [BS, '"', "'", '-', ':', '=', '@', '.', '+', '/', '`', ' ', '\t', '\n', 'a', 'A', '0', '{', '[', '\u2068', '\u2069', '?', '&', 'e']
     const PREFIXES = ['-u ', '--user=', '--token ', 'token', 'token=', '"', `${BS}"`, 'eyJ', 'a@', 'code ', 'Bearer ', 'sk-', '"token":']
     const N = 200_000
-    const cases: string[] = []
-    for (const a of CHARS) for (const b of CHARS) cases.push((a + b).repeat(N / 2))
+    const pairs: string[] = []
+    for (const a of CHARS) for (const b of CHARS) pairs.push((a + b).repeat(N / 2))
+    const prefixed: string[] = []
     for (const p of PREFIXES) {
-      for (const c of CHARS) cases.push(p + c.repeat(N), (p + c).repeat(Math.floor(N / (p.length + 1))))
+      for (const c of CHARS) prefixed.push(p + c.repeat(N), (p + c).repeat(Math.floor(N / (p.length + 1))))
     }
     const vmContext = createContext({ maskText, redactLog, ctx, text: '' })
     const start = `2026-10-02T10:00:00.000Z [INFO] [main] Hive 0.7.0 starting (${MARKED_LOG})\n`
-    for (const text of cases) {
+    for (const text of [...pairs, ...prefixed]) {
       vmContext.text = text
       // A pattern that reads a run again from inside it would blow the bound; vm stops it and the test fails.
       expect(() => runInContext('maskText(text)', vmContext, { timeout: 5000 }), JSON.stringify(text.slice(0, 12))).not.toThrow()
-      // The log too (a line at a time, its user-text marks first), on one long line.
-      if (!text.includes('\n')) {
-        vmContext.text = start + text
-        expect(() => runInContext('redactLog(text, ctx)', vmContext, { timeout: 5000 }), `log ${JSON.stringify(text.slice(0, 12))}`).not.toThrow()
-      }
+    }
+    // The log too (a line at a time, its user-text marks first), on one long line of each case.
+    for (const text of [...pairs, ...prefixed].filter((t) => !t.includes('\n'))) {
+      vmContext.text = start + text
+      expect(() => runInContext('redactLog(text, ctx)', vmContext, { timeout: 5000 }), `log ${JSON.stringify(text.slice(0, 12))}`).not.toThrow()
     }
   }, 300_000)
 

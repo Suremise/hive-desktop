@@ -36,7 +36,7 @@ export interface AgentNow {
   runId: string | null
   /** Prompts its CLI has taken in this launch. */
   prompts: number
-  /** Hive typed a prompt into it that its CLI hasn't taken yet (just given a task): it counts as working. */
+  /** It was given a prompt its CLI hasn't taken yet (typed by Hive, or its launch's task, #712): it counts as working. */
   pending: boolean
   statusMessage?: string | null
   backgroundTasks?: number
@@ -79,7 +79,7 @@ export function agentEvent(now: AgentNow, mark: AgentMark | undefined, ignoreBac
     case 'signin':
       return 'waiting'
     default:
-      // Idle without having taken the prompt it was typed when the watch began (its CLI dropped it).
+      // Idle without having taken the prompt it was given when the watch began (its CLI dropped it).
       return mark?.pending && mark.runId === now.runId && now.prompts <= mark.prompts ? 'untaken' : 'finished'
   }
 }
@@ -138,7 +138,7 @@ function partOf(a: Pick<WatchedAgent, 'name' | 'project'>, ev: AgentEvent, now: 
     case 'waiting':
       return now.status === 'signin' ? `${who} is waiting for the user to sign in to its CLI again` : `${who} is waiting for the user${quote(now.statusMessage)}`
     case 'untaken':
-      return `${who} is idle: its CLI hasn't taken the prompt it was typed`
+      return `${who} is idle: its CLI hasn't taken the prompt it was given`
     case 'finished': {
       const n = now.backgroundTasks ?? 0
       const also = now.watch ? ` (${now.watch.replace(/^Waiting/, 'now waiting')})` : n ? ` (${n} background task${n === 1 ? '' : 's'} still running)` : ''

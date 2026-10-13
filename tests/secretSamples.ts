@@ -95,6 +95,38 @@ export const SECRET_SAMPLES: SecretSample[] = [
   { text: 'response: {"data":{"items":[{"id":1},{"access_token":"embeddedAccess"', secrets: ['embeddedAccess'], kept: ['response'] },
   { text: '{"list":[1,2,{"x":"y"}],"api key":"spacedKeyValue","api.key":"dottedKeyValue"}', secrets: ['spacedKeyValue', 'dottedKeyValue'], kept: ['list'] },
   { text: '[{"name":"a","token":"arrayToken1"},{"name":"b","token":"arrayToken2"}]', secrets: ['arrayToken1', 'arrayToken2'], kept: ['name'] },
+  // Quoted names with punctuation in them, which no run of name characters holds whole (#705 round 1), and a key whose
+  // quotes don't match.
+  { text: '{"password/value":"shortPrivatePassword"}', secrets: ['shortPrivatePassword'] },
+  { text: '{"token[0]":"shortPrivateToken","auth/header":"shortPrivateKey"}', secrets: ['shortPrivateToken', 'shortPrivateKey'] },
+  { text: '{"note":"n","token!name":"bangTokenValue","x (password)": "parenPassword"}', secrets: ['bangTokenValue', 'parenPassword'], kept: ['note'] },
+  { text: String.raw`{\"secret@vault\":\"escapedAtKey\"}`, secrets: ['escapedAtKey'] },
+  { text: `{"password': mismatchedQuoteValue}`, secrets: ['mismatchedQuoteValue'] },
+  // A name after a dot in a run of name characters (#705 round 1): a header, an option, a user:password.
+  { text: 'header api_key.Bearer dottedBearerToken', secrets: ['dottedBearerToken'], kept: ['header'] },
+  { text: 'run a.--token dottedOptionToken -v', secrets: ['dottedOptionToken'], kept: ['run'] },
+  { text: 'curl x.-u admin:dottedUserPassword https://example.com', secrets: ['dottedUserPassword'], kept: ['curl'] },
+  // A user:password, or a quoted name, at and past the length the scan reads (#705 round 2): one that reaches the limit
+  // without a clear end is masked whatever it holds (round 3).
+  ...[253, 254, 255, 256, 257, 300].flatMap((len): SecretSample[] => {
+    const user = 'user.'.repeat(61).slice(0, len)
+    const pw = `boundaryPassword${len}`
+    return [
+      { text: `curl -u "${user}:${pw}" -v`, secrets: [pw], kept: ['curl'] },
+      { text: `curl --user='${user}:${pw}' https://example.com`, secrets: [pw], kept: ['curl'] },
+      { text: `curl -u ${user}:${pw} -v`, secrets: [pw], kept: ['curl'] },
+      { text: `curl --user=${user}:${pw} -v`, secrets: [pw], kept: ['curl'] },
+      { text: String.raw`{"cmd":"curl -u \"` + `${user}:${pw}` + String.raw`\" -v"}`, secrets: [pw], kept: ['cmd'] }
+    ]
+  }),
+  ...[99, 100, 101, 150].flatMap((len): SecretSample[] => {
+    const name = 'my api key '.repeat(14).slice(0, len)
+    const value = `quotedNameValue${len}`
+    return [
+      { text: `{"${name}": "${value}"}`, secrets: [value] },
+      { text: String.raw`{\"` + name + String.raw`\": \"` + value + String.raw`\"}`, secrets: [value] }
+    ]
+  }),
   // Whitespace other than spaces and tabs (#699 round 3: it hung the scanner, gone since round 4).
   { text: 'tool --token short\u000bverticalTabSecret --verbose', secrets: ['short', 'verticalTabSecret'] },
   { text: 'tool --token short\u000cformFeedSecret\u00a0nbspSecret\u3000ideographicSecret --verbose', secrets: ['formFeedSecret', 'nbspSecret', 'ideographicSecret'] },

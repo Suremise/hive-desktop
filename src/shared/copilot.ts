@@ -1,3 +1,4 @@
+import { footerPatterns, lastFooterMode, type FooterModeDef, type FooterPatterns } from './footerModes'
 import type { PermissionMode } from './types'
 import type { ModeOption, ModelGroup, ProviderDescriptor } from './providers'
 import { codexModelLabel } from './codex'
@@ -66,19 +67,28 @@ export function copilotModeFlags(mode: PermissionMode, folder: string): string[]
 }
 
 /**
- * The mode a footer's two parts mean ("Plan · Manual Approval"); null for one Hive has no mode for (Assisted approval).
- * Read by each part's first word: in a narrow terminal Copilot wraps its footer item by item ("← open ·Interactive ·
- * Manual · / commands" over "sidebar Approval next tab", 1.0.93). Interactive · Manual is Ask, or Accept edits in a
- * session `launched` in it (the footer can't tell them apart).
+ * Each mode's footer, by its two parts ("Plan · Manual Approval"), read by each part's first word: in a narrow terminal
+ * Copilot wraps its footer item by item ("← open ·Interactive · Manual · / commands" over "sidebar Approval next tab",
+ * 1.0.93). The defaults of the advanced settings copilot.footer.<key> (#696), case sensitive. Accept edits has none: its
+ * footer is Ask's. Hive has no mode for Assisted approval.
  */
-export function copilotFooterMode(screen: string, launched?: PermissionMode | null): PermissionMode | null {
-  const m = [...screen.matchAll(/\b(Interactive|Plan|Autopilot) ?· ?(Manual|Allow|Assisted)\b/g)].pop()
-  if (!m) return null
-  if (m[1] === 'Plan') return 'plan'
-  if (m[1] === 'Autopilot') return 'autopilot'
-  if (m[2] === 'Allow') return 'allow-all'
-  if (m[2] !== 'Manual') return null
-  return launched === 'accept-edits' ? 'accept-edits' : 'ask'
+export const COPILOT_FOOTER_MODES: readonly FooterModeDef[] = [
+  { mode: 'ask', key: 'ask', label: 'Ask', pattern: String.raw`\bInteractive ?· ?Manual\b` },
+  { mode: 'allow-all', key: 'allowAll', label: 'Allow all', pattern: String.raw`\bInteractive ?· ?Allow\b` },
+  { mode: 'plan', key: 'plan', label: 'Plan', pattern: String.raw`\bPlan ?· ?(?:Manual|Allow|Assisted)\b` },
+  { mode: 'autopilot', key: 'autopilot', label: 'Autopilot', pattern: String.raw`\bAutopilot ?· ?(?:Manual|Allow|Assisted)\b` }
+]
+
+const FOOTER_DEFAULTS = footerPatterns(COPILOT_FOOTER_MODES, '')
+
+/**
+ * The mode Copilot's footer shows, the last one found on screen; null for none. Ask's footer (Interactive · Manual) is
+ * Accept edits in a session `launched` in it (the footer can't tell them apart). `patterns`: the adapter's, from the
+ * advanced settings.
+ */
+export function copilotFooterMode(screen: string, launched?: PermissionMode | null, patterns: FooterPatterns = FOOTER_DEFAULTS): PermissionMode | null {
+  const mode = lastFooterMode(screen, patterns)
+  return mode === 'ask' && launched === 'accept-edits' ? 'accept-edits' : mode
 }
 
 /**
