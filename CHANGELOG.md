@@ -8,6 +8,13 @@
 ### Agents
 - **Waiting for an agent you just started on a task waits for that task.** `hive_wait_for_agents` (and `POST /v1/agents/wait`) called right after starting an agent with a prompt, or giving it one in a new conversation, could answer at once that it was ready: its CLI was up but hadn't begun the task yet. It now counts as working until its CLI takes the task.
 
+### Hive Assistant
+- **One watch for the lanes and the cards beside them.** The Assistant's watch on all running lanes can also follow cards in no lane, such as a release card: a comment, a move, a verdict or a block on one wakes it in the same line as the lanes' events, and its next lane watch keeps them. Its status says, for example, **Waiting on all running lanes and #720**.
+- **The Assistant hears when an agent waits for you.** An agent showing a permission prompt or asking you something in its pane now wakes the Assistant's lane watch once, naming the agent, its card and what it asks, so it can tell you rather than let it wait unnoticed. It never answers for you.
+
+### Messages
+- **An agent waiting on its own timer still hears from you.** An agent that ended its turn while a background command of its own runs (a sleep, a reminder to renew the merge slot) now gets messages and card events within seconds, rather than once the command ends. Agents are also told to wait for things with a card watch rather than a timer.
+
 ## 0.7.0 — 13 October 2026
 
 ### Agent names

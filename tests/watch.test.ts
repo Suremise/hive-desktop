@@ -1996,7 +1996,8 @@ describe("the lanes-running tail of the Assistant's wake", () => {
     const line = '[Hive] #1 is in Doing. Your card watch has ended: carry on.'
     expect(withLanesTail(line)).toBe(line + LANES_RUNNING_TAIL)
     expect(withLanesTail(withLanesTail(line))).toBe(line + LANES_RUNNING_TAIL)
-    expect(LANES_RUNNING_TAIL).toMatch(/one lane watch \(hive_wait_for_tasks with lanes \["all"\], wake; run-lanes\)/)
+    // #726: a card outside the lanes goes in the same watch.
+    expect(LANES_RUNNING_TAIL).toMatch(/one lane watch, with any card outside them as cards \(hive_wait_for_tasks with lanes \["all"\], cards, wake; run-lanes\)/)
   })
   it('a long line is cut to make room: the tail is always whole, and the line fits', () => {
     const out = withLanesTail('[Hive] ' + 'x'.repeat(2000))

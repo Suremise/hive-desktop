@@ -22,15 +22,24 @@ describe('readyFor (#649)', () => {
     expect(readyFor(st({ turn: { state: 'unknown', silentSince: '' } }))).toBe(false)
   })
 
-  it('not while it compacts, is asked something, or is starting or stopped; background tasks that will wake it hold it too', () => {
+  it('not while it compacts, is asked something, or is starting or stopped; background tasks that will wake it hold new work', () => {
     expect(readyFor(st({ facts: { maintenance: 'compacting' } }))).toBe(false)
     expect(readyFor(st({ facts: { attention: 'waiting' } }))).toBe(false)
     expect(readyFor(st({ facts: { attention: 'question' } }))).toBe(false)
     expect(readyFor(st({ facts: { lifecycle: 'starting' } }))).toBe(false)
     expect(readyFor(st({ facts: { lifecycle: 'stopped' } }))).toBe(false)
-    expect(readyFor(st({ backgroundTasks: 1 }))).toBe(false)
+    expect(readyFor(st({ backgroundTasks: 1 }), 'free')).toBe(false)
+    expect(readyFor(st({ backgroundTasks: 1 }), 'stalled')).toBe(false)
     // A CLI its background tasks don't wake (Codex) is idle all the same.
     expect(readyFor(st({ provider: 'codex', backgroundTasks: 1 }))).toBe(true)
+    expect(readyFor(st({ provider: 'codex', backgroundTasks: 1 }), 'free')).toBe(true)
+  })
+
+  it('its turn over while its own background tasks run (a timer, a sleep): a message or a card event is offered (#726)', () => {
+    expect(readyFor(st({ status: 'background', backgroundTasks: 1 }))).toBe(true)
+    expect(readyFor(st({ status: 'background', backgroundTasks: 1, watch }))).toBe(true)
+    // Not while a turn runs (a doorbell's, or one its CLI began for a task that ended).
+    expect(readyFor(st({ status: 'background', backgroundTasks: 1, turn: { state: 'running' } }))).toBe(false)
   })
 
   it("a watch is Hive's policy: a watching agent takes a message or a wake (idle), not new work (free)", () => {
@@ -53,6 +62,8 @@ describe('readyFor (#649)', () => {
     expect(readyFor(old('working'))).toBe(false)
     expect(readyFor(old('watching'))).toBe(true)
     expect(readyFor(old('watching'), 'free')).toBe(false)
+    expect(readyFor(old('background'))).toBe(true)
+    expect(readyFor(old('background'), 'free')).toBe(false)
     expect(readyFor(old('signin'), 'stalled')).toBe(true)
     expect(readyFor(null)).toBe(false)
   })

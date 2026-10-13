@@ -2181,7 +2181,7 @@ async function twoLanes(c, { d = false, aColumn = 'todo' } = {}) {
   }
 }
 /** What Hive's card wake to the Assistant ends with while lanes run (src/shared/watch.ts, the same: a unit test checks). */
-const LANES_RUNNING_TAIL = ' Lanes are still running (hive_lane list): before you end your turn, watch them again in one lane watch (hive_wait_for_tasks with lanes ["all"], wake; run-lanes).'
+const LANES_RUNNING_TAIL = ' Lanes are still running (hive_lane list): before you end your turn, watch them again in one lane watch, with any card outside them as cards (hive_wait_for_tasks with lanes ["all"], cards, wake; run-lanes).'
 /** The Assistant's card watches that worked and wake it (with wake: true), each with its cards. */
 const cardWatches = (o) => ran(o, 'hive_wait_for_tasks').filter((x) => argsOf(x).wake === true && !argsOf(x).cancel)
 /**

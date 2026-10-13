@@ -14,7 +14,7 @@ import { onHiveEvent } from './events'
 import { readCapped, renameRetrying } from './fsutil'
 import { createLogger, userText } from './logger'
 import { listLanes } from './lanes'
-import { laneCardMark, laneHits, laneLimitLine, laneWakeLine, laneWatchLabel, mergeDue, newLaneBase, readSavedLaneCondition, readSavedLaneMark, verdictsOf, type LaneHit, type LaneMark, type LaneNow, type LaneWatchCondition } from '../shared/laneWatch'
+import { LANE_CARD_CHANGES, laneCardMark, laneHits, laneLimitLine, laneWakeLine, laneWatchLabel, mergeDue, newLaneBase, readSavedLaneCondition, readSavedLaneMark, verdictsOf, type LaneHit, type LaneMark, type LaneNow, type LaneWatchCards, type LaneWatchCondition, type WaitHit } from '../shared/laneWatch'
 import { cardStallIn } from './cardStall'
 import { noteLoopWatch } from './loopCheck'
 import { sessions } from './sessions'
@@ -71,10 +71,16 @@ interface WatchRecord {
   /**
    * A lane watch (#531): the lanes it follows (ids, or every running lane in the watcher's view) and what counts, and each
    * lane as last measured (by id): as the watch began, moved on while nothing that counts happens, and what its line
-   * told once it fires. No cards: a lane's cards are followed as the lane goes on.
+   * told once it fires. A lane's cards are followed as the lane goes on; `cond` holds only cards beside its lanes (#726:
+   * a release card in no lane), followed as a card watch follows its cards, a card becoming blocked counting too.
    */
   lanes?: LaneWatchCondition
   laneMarks?: Record<string, LaneMark>
+  /**
+   * A lane watch's: the latest of agents' waits for the user it knows (#726, a `seq` of waitStarts): one after it, by an
+   * agent of the projects it follows and still going on, fires it. Moves on while nothing that counts happens.
+   */
+  waitSeq?: number
   /**
    * Where a lane watch's view of what is new begins (#531 round 2 finding): a lane started, or a card added to a lane,
    * after it is measured from an empty start. The watch's own start, or for one started after a wake, when that wake's
@@ -158,9 +164,10 @@ interface Store {
   wokeAgents: Map<string, Map<string, number>>
   /**
    * What each agent's lane watch wakes told it (#531): when the line was made, and each lane's mark, by id. Its next lane
-   * watch starts there. In memory, bounded as `woke`.
+   * watch starts there. In memory, bounded as `woke`. Also the cards beside its lanes (#726), which its next lane watch
+   * keeps unless it names others, and the latest wait for the user it knew.
    */
-  wokeLanes: Map<string, { at: string; marks: Map<string, LaneMark> }>
+  wokeLanes: Map<string, { at: string; marks: Map<string, LaneMark>; cards?: { cards: number[]; changes: WatchChange[] }; waitSeq?: number }>
   /** A lane check is due (debounced: status changes come in bursts). */
   laneCheck?: true
   /** When the tick last checked lane watches (stalls come with time). */
@@ -477,8 +484,11 @@ function readRecord(v: unknown): WatchRecord | null {
     }
     lanes = c
     if (r.laneSince !== undefined && !time(r.laneSince)) return null
+    if (r.waitSeq !== undefined && (typeof r.waitSeq !== 'number' || !Number.isInteger(r.waitSeq) || r.waitSeq < 0)) return null
   }
-  const cond = agents || lanes ? NO_CARDS : readSavedCondition(r.cond)
+  // A lane watch's cards beside its lanes (#726), if any (one from before has none).
+  const laneCards = lanes && Array.isArray((r.cond as { cards?: unknown } | undefined)?.cards) && (r.cond as { cards: unknown[] }).cards.length > 0
+  const cond = agents || (lanes && !laneCards) ? NO_CARDS : readSavedCondition(r.cond)
   if (!cond || !r.marks || typeof r.marks !== 'object') return null
   const marks: Record<string, CardMark> = {}
   for (const n of cond.cards) {
@@ -544,7 +554,7 @@ function readRecord(v: unknown): WatchRecord | null {
   }
   const from = { ...(seen ? { seen } : {}), ...(r.self ? { self: r.self as string } : {}) }
   // The scope is set by the workspace that loads it (from the agent's folder), whatever the file says.
-  return { id: r.id, projectPath: r.projectPath, ...(isProjectId(r.projectId) ? { projectId: r.projectId } : {}), agentId: r.agentId, scope: '', cond, ...(agents ? { agents, agentMarks } : {}), ...(lanes ? { lanes, laneMarks, ...(r.laneSince ? { laneSince: r.laneSince as string } : {}) } : {}), marks, current: { ...marks }, since: r.since, ...from, limitMinutes: minutes, limitAt: r.limitAt, ...(typeof r.replySeq === 'number' ? { replySeq: r.replySeq } : {}), ...(on ? { on } : {}), ...(r.watcherName ? { watcherName: r.watcherName as string } : {}), ...(released ? { released } : {}), ...(fired ? { fired } : {}) }
+  return { id: r.id, projectPath: r.projectPath, ...(isProjectId(r.projectId) ? { projectId: r.projectId } : {}), agentId: r.agentId, scope: '', cond, ...(agents ? { agents, agentMarks } : {}), ...(lanes ? { lanes, laneMarks, ...(r.laneSince ? { laneSince: r.laneSince as string } : {}), ...(typeof r.waitSeq === 'number' ? { waitSeq: r.waitSeq } : {}) } : {}), marks, current: { ...marks }, since: r.since, ...from, limitMinutes: minutes, limitAt: r.limitAt, ...(typeof r.replySeq === 'number' ? { replySeq: r.replySeq } : {}), ...(on ? { on } : {}), ...(r.watcherName ? { watcherName: r.watcherName as string } : {}), ...(released ? { released } : {}), ...(fired ? { fired } : {}) }
 }
 
 /** An agent watch's condition on cards: none. */
@@ -700,7 +710,7 @@ const infoOf = (r: WatchRecord): TaskWatchInfo =>
   r.agents
     ? { cards: [], changes: [], agents: r.agents.agents.map((a) => a.name), label: agentWatchLabel(r.agents), since: r.since, limitAt: r.limitAt }
     : r.lanes
-      ? { cards: [], changes: [], lanes: r.lanes.ids === 'all' ? ['all'] : [...r.lanes.ids], label: laneWatchLabel(r.lanes), since: r.since, limitAt: r.limitAt }
+      ? { cards: r.cond.cards, changes: r.cond.changes, lanes: r.lanes.ids === 'all' ? ['all'] : [...r.lanes.ids], label: laneWatchLabel(r.lanes, r.cond.cards), since: r.since, limitAt: r.limitAt }
       : { cards: r.cond.cards, changes: r.cond.changes, ...(r.cond.column ? { column: r.cond.column } : {}), label: watchLabel(r.cond), since: r.since, limitAt: r.limitAt }
 /** A watcher's project's id (#508), as the workspace last read the ids (it reads them when it opens). */
 const projectIdOf = (ws: WorkspaceService, projectPath: string): { projectId?: string } => {
@@ -937,7 +947,29 @@ export function noteAgentStatus(st: LiveSessionState): void {
   happenings.delete(key)
   happenings.set(key, [...list, { seq: lastSeq, now }].slice(-HAPPENINGS_KEPT))
   if (happenings.size > AGENTS_KEPT) happenings.delete(happenings.keys().next().value!)
+  // It started waiting for the user (#726): a lane watch tells it once, while it still waits.
+  if (st.status === 'waiting') {
+    waitStarts.push({ seq: lastSeq, projectPath: st.projectPath, agentId: st.agentId, name: st.agentName ?? st.agentId, runId: st.runId || '', what: st.statusMessage ?? null })
+    if (waitStarts.length > WAITS_KEPT) waitStarts.shift()
+  }
 }
+
+/**
+ * Agents starting to wait for the user (#726: a permission prompt or a question in its pane, the status Hive shows as
+ * waiting), numbered on the events' clock, the latest few: a lane watch tells each once, while it still waits. In
+ * memory: a wait under way when Hive started is the user's to see (its pane says so).
+ */
+interface WaitStart {
+  seq: number
+  projectPath: string
+  agentId: string
+  name: string
+  runId: string
+  what: string | null
+}
+const waitStarts: WaitStart[] = []
+const WAITS_KEPT = 200
+const latestWaitSeq = (): number => waitStarts.at(-1)?.seq ?? 0
 
 /**
  * Prompts the user sent agents from their panes (#418: sessions.userReplied), the latest few, numbered on the events'
@@ -1198,15 +1230,30 @@ async function lanesNow(store: Store, rec: Pick<WatchRecord, 'scope' | 'lanes' |
   return out
 }
 
+/** What a lane watch has to tell now (#531, #726), and where its marks would move to. */
+interface LaneRound {
+  hits: LaneHit[]
+  next: Record<string, LaneMark>
+  /** The cards beside its lanes that changed (#726), and each of them as read for the line. */
+  cards: CardChange[]
+  told: Record<string, Baseline>
+  /** Agents that started waiting for the user since its mark and still wait (#726), and the latest wait known now. */
+  waits: WaitHit[]
+  waitSeq: number
+}
+
 /**
  * A lane watch's events since its marks (#531), and where its marks would move to: each lane it follows now (a lane
  * started after an "all" watch began, from an empty start, so what it already has is told; a card new to a lane likewise,
- * from when the watch began). Lanes no longer followed (an ended one told) leave an "all" watch's marks.
+ * from when the watch began). Lanes no longer followed (an ended one told) leave an "all" watch's marks. With them, the
+ * cards beside its lanes as a card watch checks its cards, and the agents waiting for the user (#726).
  */
-async function laneRound(store: Store, rec: WatchRecord, board?: TaskCard[]): Promise<{ hits: LaneHit[]; next: Record<string, LaneMark> }> {
+async function laneRound(store: Store, rec: WatchRecord, board?: TaskCard[]): Promise<LaneRound> {
   const cond = rec.lanes!
-  const nows = await lanesNow(store, rec, board)
-  const started = new Map((await listLanes(store.ws, { all: true })).map((l) => [l.id, l.startedAt]))
+  const all = board ?? (await allTasks(store.ws))
+  const nows = await lanesNow(store, rec, all)
+  const listed = await listLanes(store.ws, { all: true })
+  const started = new Map(listed.map((l) => [l.id, l.startedAt]))
   const hits: LaneHit[] = []
   const next: Record<string, LaneMark> = cond.ids === 'all' ? {} : { ...rec.laneMarks }
   for (const n of nows) {
@@ -1216,8 +1263,44 @@ async function laneRound(store: Store, rec: WatchRecord, board?: TaskCard[]): Pr
     if (h) hits.push(h)
     next[n.id] = n.mark
   }
-  return { hits, next }
+  const c = rec.cond.cards.length ? await check(store, rec) : null
+  // Named lanes: the waits of their projects' agents; "all": of every project in the watcher's view.
+  const named = cond.ids === 'all' ? null : new Set(listed.filter((l) => (cond.ids as string[]).includes(l.id)).map((l) => l.project.toLowerCase()))
+  const waitSeq = latestWaitSeq()
+  return { hits, next, cards: c?.hits ?? [], told: c?.told ?? {}, waits: waitsSince(store, rec, all, named), waitSeq }
 }
+
+/**
+ * The agents a lane watch tells as waiting for the user (#726): each that started waiting after its mark (`waitSeq`), an
+ * agent of a project it follows (the watcher's view, or the named lanes' projects), not itself, and still waiting in the
+ * same launch (a wait the user answered at once has nothing left to tell); its latest wait, with its card (the one it
+ * works on in Doing, else the one it reviews) and what it asks.
+ */
+function waitsSince(store: Store, rec: WatchRecord, board: readonly TaskCard[], named: Set<string> | null): WaitHit[] {
+  if (!rec.lanes?.events.includes('waiting')) return []
+  const from = rec.waitSeq ?? 0
+  const latest = new Map<string, WaitStart>()
+  for (const w of waitStarts) {
+    if (w.seq <= from || (same(w.projectPath, rec.projectPath) && w.agentId === rec.agentId) || !mayWatch(store.ws, store.path, rec.projectPath, w.projectPath)) continue
+    const project = basename(resolve(w.projectPath)).toLowerCase()
+    if ((rec.scope !== null && project !== rec.scope.toLowerCase()) || (named && !named.has(project))) continue
+    latest.set(agentKey(w.projectPath, w.agentId), w)
+  }
+  const out: WaitHit[] = []
+  for (const w of latest.values()) {
+    const live = sessions.liveFor(w.projectPath, w.agentId)
+    if (live?.status !== 'waiting' || (live.runId || '') !== w.runId) continue
+    const project = basename(resolve(w.projectPath))
+    const mine = (c: TaskCard): boolean => !c.archived && !!c.project && same(c.project, project)
+    const card = board.find((c) => mine(c) && c.column === 'doing' && c.agent === w.agentId) ?? board.find((c) => mine(c) && c.column === 'review' && c.review?.agent === w.agentId)
+    out.push({ name: w.name, project, card: card?.number ?? null, what: w.what })
+  }
+  return out
+}
+
+/** A lane watch's line from its round (#726: its cards and the waiting agents with its lanes). */
+const laneLine = (rec: WatchRecord, r: LaneRound): string => fitLine(laneWakeLine(r.hits, { cards: r.cards, waits: r.waits, watching: rec.cond.cards.length > 0 }))
+const roundTells = (r: LaneRound): boolean => r.hits.length > 0 || r.cards.length > 0 || r.waits.length > 0
 
 /**
  * Checks a workspace's lane watches (#531): a lane with an event that counts fires its watch, telling every lane's events
@@ -1233,14 +1316,15 @@ async function evaluateLanes(store: Store): Promise<void> {
     for (const rec of store.list) {
       if (!rec.lanes || rec.fired) continue
       try {
-        const { hits, next } = await laneRound(store, rec, board)
-        if (hits.length) {
+        const r = await laneRound(store, rec, board)
+        if (roundTells(r)) {
           // Fired: its marks stay where they were, so the line typed later is worked out again from there with
           // whatever else happened meanwhile (one batch, round 1 finding), and becomes what the wake told.
-          rec.fired = { line: fitLine(laneWakeLine(hits)), at: new Date().toISOString(), cards: [], lanes: true }
+          rec.fired = { line: laneLine(rec, r), at: new Date().toISOString(), cards: r.cards.filter((h) => h.changes !== 'gone').map((h) => h.number), lanes: true }
           changed = true
-        } else if (JSON.stringify(next) !== JSON.stringify(rec.laneMarks)) {
-          rec.laneMarks = next
+        } else if (JSON.stringify(r.next) !== JSON.stringify(rec.laneMarks) || r.waitSeq !== rec.waitSeq) {
+          rec.laneMarks = r.next
+          rec.waitSeq = r.waitSeq
           changed = true
         }
       } catch (e) {
@@ -1253,18 +1337,27 @@ async function evaluateLanes(store: Store): Promise<void> {
   for (const rec of store.list.filter((r) => r.lanes && r.fired)) await deliver(store, rec)
 }
 
-export type LaneWatchResult = { watching: TaskWatchInfo; replaced?: string }
+export type LaneWatchResult = { watching: TaskWatchInfo; replaced?: string; cards?: LaneWatchCards }
 
 /**
  * Starts (or replaces) an agent's watch on lanes (#531): the lanes it names (each in its view, else an error), or every
  * running lane. After a wake, each lane starts from what that wake told, so an event since fires it at once. It is the
  * agent's one watch: a card or agent watch it had ends (said in the reply).
+ *
+ * With cards beside its lanes (#726, `extra.cards`, each in its view, else an error): followed as a card watch follows
+ * its cards (from what a wake told about them, else from now), `changes` counting, and a card becoming blocked. Left
+ * out, the last lane watch's cards are kept (the one it replaces, or the one whose wake was read), less those since done
+ * or gone; [] drops them. The reply says which (`cards`).
  */
-export async function registerLaneWatch(ws: WorkspaceService, projectPath: string, agentId: string, cond: LaneWatchCondition, limitMinutes = WATCH_DEFAULT_LIMIT_MINUTES): Promise<LaneWatchResult> {
+export async function registerLaneWatch(ws: WorkspaceService, projectPath: string, agentId: string, cond: LaneWatchCondition, limitMinutes = WATCH_DEFAULT_LIMIT_MINUTES, extra: { cards?: number[]; changes?: WatchChange[] } = {}): Promise<LaneWatchResult> {
+  // Waits for the user are new from here (#726 round 1 finding): taken before anything waits, so one that begins while
+  // the lanes and cards are read is told, not taken as its baseline.
+  const waitsFrom = latestWaitSeq()
   await followAgent(projectPath, agentId)
   const store = await load(ws)
   if (!hostedIn(ws, store.path, projectPath)) throw new Error(`Not a project of this workspace: ${projectPath}`)
   const scope = scopeFor(ws, projectPath)
+  const self = await boardName(ws, projectPath, agentId)
   if (cond.ids !== 'all') {
     const known = (await listLanes(ws, { all: true })).filter((l) => scope === null || same(l.project, scope))
     const unknown = cond.ids.filter((id) => !known.some((l) => l.id === id))
@@ -1287,10 +1380,50 @@ export async function registerLaneWatch(ws: WorkspaceService, projectPath: strin
       else if (!(told && Date.parse(started.get(n.id) ?? '') > Date.parse(laneSince))) laneMarks[n.id] = n.mark
     }
     const old = recordOf(store, projectPath, agentId)
+    // The cards beside its lanes (#726): those named, else the last lane watch's (the one it replaces, or the one whose
+    // wake was read), less those done or gone since (a card named must be one it may see).
+    const last = old?.lanes ? (old.cond.cards.length ? { cards: old.cond.cards, changes: old.cond.changes } : undefined) : told?.cards
+    const keep = extra.cards === undefined
+    const changes = extra.changes ?? (keep ? last?.changes : undefined) ?? LANE_CARD_CHANGES
+    const toldCards = self ? store.woke.get(agentKey(projectPath, agentId)) : undefined
+    const marks: Record<string, CardMark> = {}
+    const seen: Record<string, Seen> = {}
+    const current: Record<string, CardMark> = {}
+    const cards: number[] = []
+    const dropped: number[] = []
+    // Whose own changes since aren't news (its board name), for cards measured from a wake.
+    let bySelf = false
+    for (const n of extra.cards ?? last?.cards ?? []) {
+      const card = await cardIn(store, n, scope)
+      if (keep && (!card || card.archived || card.column === 'done')) {
+        dropped.push(n)
+        continue
+      }
+      if (!card) throw unknownTask(n)
+      current[n] = markOf(card)
+      cards.push(n)
+      // Kept from the lane watch it replaces: from where that one was (a change that fired it, not handed over yet, is
+      // still news). Else after a wake that told it, from what it told (#224): a change since is news.
+      const had = old?.lanes && old.cond.cards.includes(n) && old.seen?.[n] ? { mark: old.marks[n], seen: old.seen[n] } : undefined
+      const was = had ? undefined : toldCards?.get(String(n))
+      marks[n] = had ? had.mark : was ? carriedOver(card, was, self!) : markOf(card)
+      seen[n] = had ? had.seen : was ? was.seen : seenOf(card)
+      if (had ? !!old!.self : !!was) bySelf = true
+    }
+    const cardCond: WatchCondition = cards.length ? { cards, changes, blocked: true } : NO_CARDS
+    const from = cards.length ? { seen, ...(bySelf && self ? { self } : {}) } : {}
+    const had = last?.cards ?? []
+    const cardsOut: LaneWatchCards | undefined =
+      cards.length || dropped.length || (!keep && had.length)
+        ? { now: cards, ...(keep ? { kept: true as const } : {}), ...(!keep && had.length && (had.length !== cards.length || had.some((n) => !cards.includes(n))) ? { replaced: [...had] } : {}), ...(dropped.length ? { dropped } : {}) }
+        : undefined
+    // The waits for the user it starts from (#726): the watch it replaces, else what its last wake told, else when this
+    // call began.
+    const waitSeq = (old?.lanes ? old.waitSeq : undefined) ?? told?.waitSeq ?? waitsFrom
     const before = store.list
     if (!old && store.list.length >= MAX_WATCHES) throw new Error(`This workspace already has ${MAX_WATCHES} watches, the most Hive keeps: wait for some to end`)
     const minutes = Math.min(WATCH_MAX_LIMIT_MINUTES, Math.max(1, Math.round(limitMinutes)))
-    const rec: WatchRecord = { id: randomBytes(6).toString('hex'), projectPath, ...projectIdOf(ws, projectPath), agentId, scope, cond: NO_CARDS, lanes: cond, laneMarks, laneSince, marks: {}, current: {}, since, limitMinutes: minutes, limitAt: new Date(Date.now() + minutes * 60_000).toISOString() }
+    const rec: WatchRecord = { id: randomBytes(6).toString('hex'), projectPath, ...projectIdOf(ws, projectPath), agentId, scope, cond: cardCond, lanes: cond, laneMarks, laneSince, waitSeq, marks, current, since, ...from, limitMinutes: minutes, limitAt: new Date(Date.now() + minutes * 60_000).toISOString() }
     const next = [...store.list.filter((x) => x !== old), rec]
     if (budget(store, next) > MAX_FILE_BYTES && !((await setAside(store)) && budget(store, next) <= MAX_FILE_BYTES)) throw new Error('Too many watches to keep in this workspace: wait for some to end')
     store.list = next
@@ -1301,8 +1434,8 @@ export async function registerLaneWatch(ws: WorkspaceService, projectPath: strin
       throw new Error(`Could not save the watch: ${(e as Error).message}`, { cause: e })
     }
     stopDelivery(store, old)
-    log.info(`${userText(agentId)} watches ${cond.ids === 'all' ? 'all running lanes' : cond.ids.join(', ')}`)
-    return { watching: infoOf(rec), ...(old ? { replaced: infoOf(old).label } : {}) }
+    log.info(`${userText(agentId)} watches ${cond.ids === 'all' ? 'all running lanes' : cond.ids.join(', ')}${cards.length ? ` and ${cards.map((n) => `#${n}`).join(', ')}` : ''}`)
+    return { watching: infoOf(rec), ...(old ? { replaced: infoOf(old).label } : {}), ...(cardsOut ? { cards: cardsOut } : {}) }
   })
   sessions.watchChanged(projectPath, agentId)
   // Checked once in place: an event since a wake, or while it was being set up, isn't missed.
@@ -1339,7 +1472,8 @@ const settling = new Set<string>()
 export function watchCovers(projectPath: string, agentId: string, n: number, kind: 'review' | 'verdict', column: TaskColumn): boolean {
   const store = storeFor(projectPath)
   const rec = store && recordOf(store, projectPath, agentId)
-  if (!rec || rec.agents || rec.lanes || !rec.cond.cards.includes(n)) return false
+  // A lane watch's cards beside its lanes (#726) are its cards like any other.
+  if (!rec || rec.agents || !rec.cond.cards.includes(n)) return false
   if (rec.fired) return rec.fired.cards.includes(n)
   const into = (c: TaskColumn): boolean => rec.cond.changes.includes('column') && (!rec.cond.column || rec.cond.column === c)
   if (kind === 'verdict') return rec.cond.changes.includes('verdict') || (column !== 'review' && into(column))
@@ -1393,6 +1527,8 @@ interface Told {
   /** A lane watch's: when the line was made from the lanes (#531), and each lane as it tells it (else the watch's own marks). */
   laneAt: string
   laneMarks: Record<string, LaneMark> | null
+  /** A lane watch's: the latest wait for the user known when its line was made (#726), else the watch's own. */
+  waitSeq?: number
   /** What the line tells of each card it names, as read for it (#578: what loop wakes then leave alone). */
   ofCards: Record<string, Baseline>
   /** Cards released as it was made (#420), noted in their history once it is received. */
@@ -1448,7 +1584,7 @@ registerSource('watch', {
     const { store, rec } = w
     // What its line told (read back from the watch after a restart: its lanes' pending marks; the rest started afresh).
     if (told) toldBy(store, rec, told)
-    else if (rec.lanes && rec.fired?.laneMarks) toldBy(store, rec, { cards: {}, agents: new Map(), reply: undefined, laneAt: rec.fired.at, laneMarks: rec.fired.laneMarks, ofCards: {}, endedAt: [], replies: false, generation: replyGeneration })
+    else if (rec.lanes && rec.fired?.laneMarks) toldBy(store, rec, { cards: {}, agents: new Map(), reply: undefined, laneAt: rec.fired.at, laneMarks: rec.fired.laneMarks, waitSeq: rec.waitSeq, ofCards: {}, endedAt: [], replies: false, generation: replyGeneration })
     log.info(`The wake for ${userText(rec.agentId)} (${r.id}) was received: its watch has ended`)
     // The watch has ended (unless it was replaced meanwhile, which stays).
     inBackground(
@@ -1505,11 +1641,13 @@ function toldBy(store: Store, rec: WatchRecord, told: Told): void {
   store.woke.set(key, known)
   if (store.woke.size > MAX_WATCHES) store.woke.delete(store.woke.keys().next().value!)
   if (rec.agents) noteToldAgents(store, key, told.agents)
-  // A lane watch's: each lane as its line told it (#531), where the agent's next lane watch starts.
+  // A lane watch's: each lane as its line told it (#531), where the agent's next lane watch starts, which keeps its cards
+  // beside the lanes (#726).
   const lanes = told.laneMarks ?? rec.laneMarks
   if (rec.lanes && lanes) {
     store.wokeLanes.delete(key)
-    store.wokeLanes.set(key, { at: told.laneAt, marks: new Map(Object.entries(lanes)) })
+    const waitSeq = told.waitSeq ?? rec.waitSeq
+    store.wokeLanes.set(key, { at: told.laneAt, marks: new Map(Object.entries(lanes)), ...(rec.cond.cards.length ? { cards: { cards: [...rec.cond.cards], changes: [...rec.cond.changes] } } : {}), ...(waitSeq !== undefined ? { waitSeq } : {}) })
     if (store.wokeLanes.size > MAX_WATCHES) store.wokeLanes.delete(store.wokeLanes.keys().next().value!)
   }
   if (told.reply !== undefined) {
@@ -1583,13 +1721,31 @@ async function deliver(store: Store, rec: WatchRecord): Promise<void> {
     let toldReply = rec.replySeq
     let laneTold: Record<string, LaneMark> | null = null
     let laneToldAt = rec.fired.at
+    let waitTold = rec.waitSeq
     let toldOfCards: Record<string, Baseline> = {}
     const endedAt: { n: number; what: string }[] = []
     for (const n of rec.cond.cards) {
       const s = rec.seen?.[n]
       if (s) told[n] = { mark: rec.marks[n], seen: s }
     }
-    if (rec.fired.cards.length) {
+    if (rec.lanes) {
+      // A lane watch's (#531): every lane's events since its marks, with the cards beside its lanes that changed and the
+      // agents waiting for the user (#726). Ones that landed after it fired are in the same line, and the marks it is
+      // handed over with are what the wake told. Fired by its limit, its line stays.
+      const r = rec.fired.lanes ? await laneRound(store, rec).catch(() => null) : null
+      if (r && roundTells(r)) {
+        line = laneLine(rec, r)
+        laneTold = r.next
+        laneToldAt = new Date().toISOString()
+        waitTold = r.waitSeq
+        if (r.cards.length) told = r.told
+        toldOfCards = Object.fromEntries(r.cards.filter((h) => h.changes !== 'gone' && r.told[h.number]).map((h) => [h.number, r.told[h.number]]))
+      } else if (r) {
+        // Nothing left to tell (a wait the user answered meanwhile, a block lifted): not given, the watch waits on.
+        await withdraw(store, rec, current)
+        return
+      }
+    } else if (rec.fired.cards.length) {
       // Told as the cards are now, every change since the watch began (#224): one that landed after the line was made
       // is in it too, and a card that has left the agent's view is told as gone.
       const r = await check(store, rec)
@@ -1629,15 +1785,6 @@ async function deliver(store: Store, rec: WatchRecord): Promise<void> {
         await withdraw(store, rec, current)
         return
       }
-    } else if (rec.fired.lanes && rec.lanes) {
-      // Every lane's events since the watch's marks (#531): ones that landed after it fired are in the same line, and
-      // the marks it is handed over with are what the wake told.
-      const r = await laneRound(store, rec).catch(() => null)
-      if (r?.hits.length) {
-        line = fitLine(laneWakeLine(r.hits))
-        laneTold = r.next
-        laneToldAt = new Date().toISOString()
-      }
     } else if (rec.fired.agents?.length) {
       // Every agent's latest event since the watch began (#416): one that finished meanwhile is in it too, and one
       // given work again since is still told what it did (and that it is working again).
@@ -1654,7 +1801,7 @@ async function deliver(store: Store, rec: WatchRecord): Promise<void> {
     if (telling && (!tellReplies() || replyGeneration !== generation)) throw new RepliesRevoked()
     // The Assistant woken from a card watch while lanes run (#402): its watch has ended, so the line says to watch them
     // all again (a model that reads no skill on a wake otherwise ends its turn watching nothing).
-    if (rec.agentId === ASSISTANT_AGENT_ID && !rec.agents && rec.cond.cards.length && (await listLanes(store.ws).catch(() => [])).some((l) => l.state === 'active' || l.state === 'paused')) line = withLanesTail(line, MAX_LINE_BYTES)
+    if (rec.agentId === ASSISTANT_AGENT_ID && !rec.agents && !rec.lanes && rec.cond.cards.length && (await listLanes(store.ws).catch(() => [])).some((l) => l.state === 'active' || l.state === 'paused')) line = withLanesTail(line, MAX_LINE_BYTES)
     // Handed over as a delivery, saved as the watch's before the service can type it: a restart follows that delivery
     // rather than making another (the same watch and fire make the same one). Not saved: not handed over (tried again).
     const given = await locked(store, async () => {
@@ -1672,7 +1819,7 @@ async function deliver(store: Store, rec: WatchRecord): Promise<void> {
         await cancelFromSource(rec.projectPath, 'watch', wakeRef(rec), "cancelled: its watch couldn't be saved").catch(() => undefined)
         throw e
       }
-      handed.set(handedKey(rec.projectPath, d.id), { store, rec, told: { cards: told, agents: toldAgents, reply: toldReply, laneAt: laneToldAt, laneMarks: laneTold, ofCards: toldOfCards, endedAt, replies: telling, generation } })
+      handed.set(handedKey(rec.projectPath, d.id), { store, rec, told: { cards: told, agents: toldAgents, reply: toldReply, laneAt: laneToldAt, laneMarks: laneTold, waitSeq: waitTold, ofCards: toldOfCards, endedAt, replies: telling, generation } })
       while (handed.size > MAX_HANDED) handed.delete(handed.keys().next().value!)
       return d
     })
@@ -1992,7 +2139,7 @@ export async function tick(now = Date.now()): Promise<void> {
       let changed = store.dirty
       for (const rec of store.list) {
         if (!rec.fired && Date.parse(rec.limitAt) <= now) {
-          rec.fired = { line: fitLine(rec.agents ? agentLimitLine(rec.agents, rec.limitMinutes) : rec.lanes ? laneLimitLine(rec.lanes, rec.limitMinutes) : limitLine(rec.cond, rec.limitMinutes, rec.released ?? [])), at: new Date(now).toISOString(), cards: [] }
+          rec.fired = { line: fitLine(rec.agents ? agentLimitLine(rec.agents, rec.limitMinutes) : rec.lanes ? laneLimitLine(rec.lanes, rec.limitMinutes, rec.cond.cards) : limitLine(rec.cond, rec.limitMinutes, rec.released ?? [])), at: new Date(now).toISOString(), cards: [] }
           changed = true
         }
       }
@@ -2021,8 +2168,8 @@ export function watchKeepsQuitWaiting(st: LiveSessionState): string | null {
   if (!rec) return null
   // An agent watch: while an agent it waits for works.
   if (rec.agents) return rec.agents.agents.some((a) => agentBusy(agentNowOf(a), rec.agents!.ignoreBackground)) ? st.watch.label : null
-  // A lane watch: it follows lanes, not work it is waiting on (#531).
-  if (rec.lanes) return null
+  // A lane watch: it follows lanes, not work it is waiting on (#531), but the cards beside them (#726) are like a card watch's.
+  if (rec.lanes && !rec.cond.cards.length) return null
   const busyCard = rec.cond.cards.some((n) => {
     const m = rec.current?.[n] ?? rec.marks[n]
     return m && (m.column === 'doing' || m.column === 'review') && m.agent && m.agent !== st.agentId
