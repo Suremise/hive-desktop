@@ -37,7 +37,11 @@ export interface GitRunOptions {
   timeout?: number
 }
 
+/** A seam for unit tests: told of each git command as it starts (#732 counts a template plan's and load's). */
+export const gitTestHooks: { started?: (cwd: string, args: readonly string[]) => void } = {}
+
 export function git(cwd: string, args: string[], maxBuffer = 16 * 1024 * 1024, input?: string, opts: GitRunOptions = {}): Promise<GitResult> {
+  gitTestHooks.started?.(cwd, args)
   return new Promise((res) => {
     const child = execFile('git', [...GIT_PREFIX, ...args], { cwd, windowsHide: true, maxBuffer, encoding: 'buffer', ...(opts.env ? { env: opts.env } : {}), ...(opts.timeout ? { timeout: opts.timeout } : {}) }, (err, stdout, stderr) => {
       const buf = (stdout as unknown as Buffer) ?? Buffer.alloc(0)
