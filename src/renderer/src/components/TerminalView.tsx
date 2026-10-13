@@ -13,6 +13,7 @@ import { fileLinkProvider } from '../fileLinks'
 import { useStore } from '../store'
 import { offerTip } from '../tips'
 import type { ProviderId } from '@shared/types'
+import { osc52, OSC52_INPUT_MS, type Osc52Refusal } from '@shared/osc52'
 import { carriesFiles, cx, HIVE_FILES_MIME, quotePath } from '../util'
 import { addChips, attachFiles, clearChips } from '../attach'
 import { AttachmentChips } from './AttachmentChips'
@@ -84,6 +85,15 @@ function disposeWebgl(webgl: WebglAddon, canvases: HTMLCanvasElement[]): void {
   return Array.from({ length: term.rows }, (_, row) => buf.getLine(buf.viewportY + row)?.translateToString(false) ?? '')
 }
 
+/** A terminal's own selection (Shift+drag, or a drag where the program doesn't track the mouse), for tests. */
+;(window as unknown as { __hiveTerminalSelection?: (key: string) => string | null }).__hiveTerminalSelection = (key) => terminals.get(key)?.getSelection() ?? null
+
+/** Writes text to a terminal as if its program printed it (escape sequences too), for tests; resolves once xterm has parsed it. */
+;(window as unknown as { __hiveTerminalOutput?: (key: string, data: string) => Promise<boolean> }).__hiveTerminalOutput = (key, data) => {
+  const term = terminals.get(key)
+  return new Promise((resolve) => (term ? term.write(data, () => resolve(true)) : resolve(false)))
+}
+
 /** Scrolls a terminal by some lines without any input, as xterm's own late scroll syncs do, for tests. */
 ;(window as unknown as { __hiveTerminalScrollLines?: (key: string, lines: number) => void }).__hiveTerminalScrollLines = (key, lines) => terminals.get(key)?.scrollLines(lines)
 
@@ -107,6 +117,8 @@ const FIT_SETTLE_MS = 100
 const HOLD_BOTTOM_MS = 1000
 /** How long after a wheel turn or a key a scroll counts as the user's. */
 const USER_SCROLL_MS = 500
+/** A terminal logs each kind of refused OSC 52 request at most this often: a program may repeat one. */
+const OSC52_LOG_MS = 60_000
 
 /**
  * Fits a terminal to its pane and tells its process the size: the only place that does (#247). Never while the
@@ -332,6 +344,32 @@ export function TerminalView({
       } else void navigator.clipboard.readText().then((t) => t && term.paste(t))
     }, { signal })
 
+    // A program's own copy (#736): Copilot selects with the mouse itself and copies with an OSC 52 write, which xterm
+    // drops without a handler. Taken only from the terminal the user is using (focused in the focused window, with their
+    // key or click just now), never a read: see osc52(). Leaving the window forgets the input: coming back alone doesn't
+    // let a program write.
+    let inputAt = 0
+    const noteInput = (): void => {
+      inputAt = Date.now()
+    }
+    for (const type of ['keydown', 'mousedown', 'mouseup'] as const) host.current!.addEventListener(type, noteInput, { signal, capture: true, passive: true })
+    window.addEventListener('blur', () => {
+      inputAt = 0
+    }, { signal })
+    const refusalLogged = new Map<Osc52Refusal, number>()
+    const refuse = (reason: Osc52Refusal): void => {
+      if (Date.now() - (refusalLogged.get(reason) ?? -Infinity) < OSC52_LOG_MS) return
+      refusalLogged.set(reason, Date.now())
+      void call('pty:clipboardRefused', ptyKey, reason).catch(() => undefined)
+    }
+    const disposeOsc52 = term.parser.registerOscHandler(52, (data) => {
+      const inUse = Date.now() - inputAt < OSC52_INPUT_MS && document.hasFocus() && !!host.current?.contains(document.activeElement)
+      const r = osc52(data, inUse)
+      if (r.kind === 'write') void navigator.clipboard.writeText(r.text).catch(() => undefined)
+      else refuse(r.reason)
+      return true
+    })
+
     // Files dropped from Explorer or Hive's Files/Attachments tabs are attached (#387): their paths are pasted, each copied
     // into the session's .hive/attachments first when it comes from outside the session's folder or is an image.
     host.current!.addEventListener('dragover', (e) => {
@@ -450,6 +488,7 @@ export function TerminalView({
       if (fitTimer) clearTimeout(fitTimer)
       disposeScroll.dispose()
       disposeRender.dispose()
+      disposeOsc52.dispose()
       disposeInput.dispose()
       unsubData()
       unsubExit()

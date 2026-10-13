@@ -20,7 +20,7 @@ npm run dist && npm run e2e -- --packaged   # also the installed-app suites (dis
 ```
 
 **Two tiers.** The **fake tier** is every suite that starts no real CLI: those with no `needs`, those that run the
-fake Claude Code or fake Codex, and `copilot` and `copilotsize` (`needs: ['copilot']`), which run the real Copilot CLI offline against a
+fake Claude Code or fake Codex, and `copilot`, `copilotcopy` and `copilotsize` (`needs: ['copilot']`), which run the real Copilot CLI offline against a
 scripted stand-in model: no sign-in and no cost, so it is in the full set, and skipped where Copilot isn't installed. The **real tier** is the suites that start the real Claude Code (`needs: ['claude']` in
 `suites.mjs`) or the real Codex in its test home (`needs: ['codex']`): they test what fakes can't (hooks reaching Hive,
 the CLIs' transcript formats, session binding, usage, their trust and mode screens, Codex's sandbox), but they are slow,
