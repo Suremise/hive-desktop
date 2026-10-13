@@ -203,8 +203,15 @@ const check = (name, ok, extra = '') => {
   check('project tab: a Hive skill (view only) has no warning', (await page.locator('.skills-warning').count()) === 0)
   await hiveRow.hover()
   await hiveRow.locator('button[aria-label^="Edit in the workspace"]').click()
-  await lib.until(async () => (await page.locator('.skill-row.selected', { hasText: 'workspace-note' }).count()) === 1, 10000)
-  const inSkillsView = (await page.locator('.skill-row.selected', { hasText: 'workspace-note' }).count()) === 1
+  // The project tab's row for the same skill stays in the DOM, hidden and selected, and the Skills view draws its own row
+  // once its list is read (#717). Counting both, the old check passed at once on the hidden row and then read once: 1
+  // while the Skills view's list wasn't drawn yet, 2 (a failure) once it was, which under load it was by the read. Only a
+  // visible row counts, waited for; what showed is logged when it took a while.
+  const editAt = Date.now()
+  const selectedRows = async () => [await page.locator('.skill-row.selected', { hasText: 'workspace-note' }).count(), await page.locator('.skill-row.selected:visible', { hasText: 'workspace-note' }).count()]
+  const firstLook = await selectedRows()
+  const inSkillsView = !!(await lib.until(async () => (await selectedRows())[1] === 1, HUNG_MS))
+  if (Date.now() - editAt > 2000 || !inSkillsView) console.log(`  (Edit in workspace: the Skills view drew the skill selected ${Date.now() - editAt} ms after the click; selected rows at first [all, visible]: ${JSON.stringify(firstLook)}, now ${JSON.stringify(await selectedRows())})`)
   // The Skills view's page loads its list, then Monaco (lazily) and the file: wait for its editor, or a preview (which
   // would mean it failed). The project tab's page for the same skill stays in the DOM, hidden: only visible ones count.
   await lib.until(async () => (await page.locator('.split .monaco-editor:visible, .split .scroll-page:visible').count()) >= 1, 10000)

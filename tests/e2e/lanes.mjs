@@ -6,7 +6,8 @@
 // A lane is only taken when its ports are free, so something else holding them (an older runner without lanes, another
 // app) just moves the runner to the next lane. A runner started inside a suite doesn't claim one: it takes ports
 // above its parent's (runner.mjs's portBase). Scenario runs (tests/scenarios/run.mjs) claim lanes from the same pool,
-// for their folders and Agent API port.
+// for their folders and Agent API port. A runner that finds every lane taken waits for one (waitForLane, #707), as a heavy
+// run waits for a test slot (slots.mjs), saying who holds them; --no-wait fails at once instead.
 import { mkdirSync, readdirSync, readFileSync, rmSync, statSync, writeFileSync } from 'fs'
 import { createServer } from 'net'
 import { join } from 'path'
@@ -122,9 +123,9 @@ function readClaims(dir) {
 /**
  * Claims a lane in dir for this runner: { lane, ...lanePorts(lane), release() }, or null when every lane is taken.
  * Lanes held by a live claim are skipped without looking at their ports; the others are taken only if their ports are
- * free. release() removes the claim (only if it is still this runner's).
+ * free. release() removes the claim (only if it is still this runner's). what: what the run is, for others waiting.
  */
-export async function claimLane(dir, { owner = process.pid, root = '', alive = processAlive, free = portFree, now = () => Date.now() } = {}) {
+export async function claimLane(dir, { owner = process.pid, root = '', what = '', alive = processAlive, free = portFree, now = () => Date.now() } = {}) {
   mkdirSync(dir, { recursive: true })
   return withLock(dir, async () => {
     const claims = readClaims(dir)
@@ -137,7 +138,7 @@ export async function claimLane(dir, { owner = process.pid, root = '', alive = p
         continue
       }
       const file = join(dir, `lane-${k}.json`)
-      writeFileSync(file, JSON.stringify({ pid: owner, at: now(), root }))
+      writeFileSync(file, JSON.stringify({ pid: owner, at: now(), root, ...(what ? { what } : {}) }))
       const release = () => {
         try {
           if (JSON.parse(readFileSync(file, 'utf8')).pid === owner) rmSync(file, { force: true })
@@ -148,4 +149,40 @@ export async function claimLane(dir, { owner = process.pid, root = '', alive = p
       return { lane: k, ...lanePorts(k), release }
     }
   })
+}
+
+/** A claim, for a person: what it runs and where, its process and for how long (slots.mjs's describeClaim too). */
+export function describeHolder(c, now = Date.now(), fallback = 'a test run') {
+  const min = Math.max(0, Math.round((now - c.at) / 60_000))
+  return `${c.what || fallback}${c.first ? ' (pre-merge)' : ''} in ${c.root || 'another worktree'} (process ${c.pid}, ${min} min)`
+}
+
+/** The lanes' live claims, lowest lane first ({ lane, pid, at, root, what }): who a waiting runner waits for. */
+export function laneHolders(dir, alive = processAlive, now = Date.now()) {
+  const claims = readClaims(dir)
+  return claims.flatMap((c, k) => (claimHeld(c, alive, now) ? [{ ...c, lane: k }] : []))
+}
+
+/** What a runner waiting for a lane prints at a look that finds none (both runners). */
+export function laneWaitLine({ holders }, now = Date.now()) {
+  return `Waiting for a test lane (all ${LANES} are taken on this machine): held by ${holders.map((c) => describeHolder(c, now)).join('; ') || 'runs just finishing'}.`
+}
+
+/**
+ * Claims a lane, waiting for one while every lane is taken (#707): with more agents than lanes checking their cards at
+ * once, the extra runners wait instead of failing. { ...claimLane's, waitedMs }, or with wait: false (--no-wait), one
+ * look: { refused: { holders } }. onWait({ holders }) is called at each look that finds none, every pollMs. Lanes go to
+ * whichever waiting runner looks first when one is let go: a run holds one for minutes, so waiters take turns soon.
+ */
+export async function waitForLane(dir, { wait = true, pollMs = 2000, onWait = () => {}, ...opts } = {}) {
+  const started = Date.now()
+  const now = opts.now ?? (() => Date.now())
+  for (;;) {
+    const got = await claimLane(dir, opts)
+    if (got) return { ...got, waitedMs: Date.now() - started }
+    const holders = laneHolders(dir, opts.alive, now())
+    if (!wait) return { refused: { holders } }
+    onWait({ holders })
+    await sleep(pollMs)
+  }
 }

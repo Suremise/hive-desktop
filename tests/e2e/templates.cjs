@@ -14,6 +14,10 @@ const fs = require('fs')
 const path = require('path')
 // The longest a wait here waits for what it waits on: a bound for a hung run, never how long it should take (#570).
 const HUNG_MS = 10000
+// A load's confirmation shows once the template's plan is read, with git checks for each worktree agent: the 12-agent
+// template's (6 worktrees) took 8.8 and 10 s under load, past HUNG_MS though nothing hung (#715). The longest a plan
+// read may take: a bound for a hung one, never how long it should take.
+const PLAN_HUNG_MS = 60000
 
 const userData = path.join(lib.WORK, 'templates-profile')
 const ws = path.join(lib.WORK, 'templates-ws')
@@ -69,11 +73,11 @@ const check = (name, ok, extra = '') => {
     await item('Save Template…').click()
   }
   // A dialog that follows a click (a load's confirmation comes once the template's plan, git included, is read):
-  // waited for as it shows, bounded only for a hung run (#663). A slow one is logged with how long it took; one that
-  // never came throws with what the window showed instead.
+  // waited for as it shows, bounded only for a hung plan read (#663, #715). A slow one is logged with how long it took;
+  // one that never came throws with what the window showed instead.
   const shown = async (d, what) => {
     const t = Date.now()
-    const ok = await lib.until(() => d.isVisible(), HUNG_MS)
+    const ok = await lib.until(() => d.isVisible(), PLAN_HUNG_MS)
     if (Date.now() - t > 2000) console.log(`  (${what} took ${Date.now() - t} ms)`)
     if (!ok) throw new Error(`${what} didn't show; the window: ${await page.locator('.project-header h1').innerText().catch(() => '?')}, dialogs ${JSON.stringify(await page.locator('.dialog').allInnerTexts())}, menu ${JSON.stringify(await menuItems())}`)
   }

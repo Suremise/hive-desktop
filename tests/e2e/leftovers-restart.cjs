@@ -39,8 +39,10 @@ const readKept = () => (fs.existsSync(kept) ? JSON.parse(fs.readFileSync(kept, '
   fs.writeFileSync(cfgFile, JSON.stringify(cfg, null, 2))
 
   // Someone else's process, whose pid a kept record will name with another start time: never listed or ended. It names
-  // the suite's folder, so the clean-up below finds it.
-  const stranger = spawn(process.execPath, ['-e', 'setTimeout(() => {}, 120000)', base], { cwd: base, detached: true, stdio: 'ignore', windowsHide: true, env: lib.childEnv() })
+  // the suite's folder, so the clean-up below finds it. It runs until that clean-up, not for a set time (#708: leftovers'
+  // 120 s one ended before a slow run's check), and ends itself once this suite's process is gone (or after an hour).
+  const strangerCode = `const suite = ${process.pid}; setInterval(() => { try { process.kill(suite, 0) } catch { process.exit(0) } }, 1000); setTimeout(() => process.exit(0), 3600000)`
+  const stranger = spawn(process.execPath, ['-e', strangerCode, base], { cwd: base, detached: true, stdio: 'ignore', windowsHide: true, env: lib.childEnv() })
   stranger.unref()
 
   let app = null

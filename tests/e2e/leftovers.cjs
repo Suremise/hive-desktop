@@ -43,10 +43,15 @@ const lingering = () => (fs.existsSync(lingerFile) ? fs.readFileSync(lingerFile,
   cfg.settings.sessions = { ...cfg.settings.sessions, confirmStop: false }
   fs.writeFileSync(cfgFile, JSON.stringify(cfg, null, 2))
 
-  // Someone else's process with the project folder as its working folder: never the agent's.
-  const stranger = spawn(process.execPath, ['-e', 'setTimeout(() => {}, 120000)'], { cwd: proj, detached: true, stdio: 'ignore', windowsHide: true, env: lib.childEnv() })
+  // Someone else's process with the project folder as its working folder: never the agent's. It runs until the suite
+  // ends it (endExactly, below), not for a set time: one that lived 120 s had ended before a 213 s run under load checked
+  // that it outlives Hive (#708). It ends itself only once this suite's process is gone (or after an hour), so a suite
+  // killed part-way leaves nothing running.
+  const strangerCode = `const suite = ${process.pid}; setInterval(() => { try { process.kill(suite, 0) } catch { process.exit(0) } }, 1000); setTimeout(() => process.exit(0), 3600000)`
+  const stranger = spawn(process.execPath, ['-e', strangerCode], { cwd: proj, detached: true, stdio: 'ignore', windowsHide: true, env: lib.childEnv() })
   stranger.unref()
   remember([stranger.pid])
+  const strangerAt = Date.now()
 
   const { app, page, inv } = await lib.launch({ userData, env: { ...env, HIVE_API_PORT: lib.port(47882), HIVE_TEST_ASK_LEFTOVERS: '1' } })
   page.on('pageerror', (e) => check('no page errors', false, e.message))
@@ -150,7 +155,7 @@ const lingering = () => (fs.existsSync(lingerFile) ? fs.readFileSync(lingerFile,
     const q = fs.existsSync(asked) ? JSON.parse(fs.readFileSync(asked, 'utf8')) : null
     check('quitting asks about what the agent left running', !!q && /left 1 process running/.test(q.message) && /site · Website: node /.test(q.detail) && q.buttons[0] === 'End Them', JSON.stringify(q))
     check('and End Them ends it', await lib.until(() => atQuit.every((p) => !alive(p)), 10000))
-    check("the stranger's process outlives Hive", alive(stranger.pid))
+    check("the stranger's process outlives Hive", alive(stranger.pid), `checked ${Math.round((Date.now() - strangerAt) / 1000)} s after it started`)
   } finally {
     await app.close().catch(() => undefined)
     lib.endExactly([...ids.values()])
