@@ -761,6 +761,12 @@ export interface ProjectConfig {
    * setup command: an agent that works in one again runs it first (needsSetup), so it isn't lost, nor run twice.
    */
   setupPending?: string[]
+  /**
+   * Workspace parts other than the workspace's own that Hive has given this project's worktree branches
+   * (hive/<part>/<project>/<agent>, #703 round 3: when a branch from before was in the way of its own): with its own,
+   * the only ones Hive takes for this project's. Added when Hive first makes a branch in one; never removed.
+   */
+  branchSpaces?: string[]
   fileLocks: Inherit<FileLockMode>
   /** Overrides settings.agents.worktreeCopy; null inherits. */
   worktreeCopy: string | null
@@ -946,8 +952,10 @@ export interface ProjectGitInfo {
   worktrees: { path: string; branch: string | null; used: boolean }[]
   /** Where new worktrees are created. */
   worktreesRoot: string
-  /** The workspace part of new branches here (#703: `branchSpace`, clear of branches from before); absent: not a repository. */
+  /** The workspace part of new branches here (#703: `chooseSpace`, clear of branches from before); absent: not a repository. */
   branchSpace?: string
+  /** The other workspace parts that are this project's (project.json's `branchSpaces`). */
+  branchSpaces?: string[]
 }
 
 /** A worktree agent's branch compared with the branch it merges into. */

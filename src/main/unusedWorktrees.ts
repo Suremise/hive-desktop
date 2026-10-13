@@ -11,7 +11,7 @@ import { git, gitReading } from './git'
 import { gitProblem } from './gitTool'
 import { createLogger, userText } from './logger'
 import { checkProject } from './branchWatch'
-import { mergeInProject, reserveForRemoval } from './projectAgents'
+import { branchPlace, mergeInProject, reserveForRemoval } from './projectAgents'
 import { workspace, workspaceOf } from './workspace'
 import * as wt from './worktrees'
 
@@ -191,7 +191,7 @@ export async function unusedWorktreesNamed(projectPath: string, names: string[])
   const root = join(workspaceOf(projectPath).worktreesRoot, basename(projectPath))
   const { listed } = await candidates(projectPath).catch(() => ({ listed: [] as { path: string; branch: string | null }[] }))
   const numbered = (s: string, stem: string): boolean => s === stem || (s.startsWith(`${stem}-`) && /^\d+$/.test(s.slice(stem.length + 1)))
-  const home = { workspace: basename(workspaceOf(projectPath).path ?? ''), project: basename(projectPath) }
+  const home = await branchPlace(projectPath)
   return listed
     // Its folder named after one of them, and its branch Hive's for that one, in either form (#703).
     .filter((w) => key(resolve(w.path, '..')) === key(root) && !!w.branch && names.some((n) => numbered(basename(w.path).toLowerCase(), slugify(n)) && hiveBranchNumber(w.branch!, home, n) !== null))

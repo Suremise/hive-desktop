@@ -228,7 +228,7 @@ export function AddAgentDialog() {
 
   // Where its branch is (#703): hive/<workspace>/<project>/<agent>, the workspace part as git info gives it for this
   // repository (clear of branches from before, `branchSpace`) once it is known.
-  const home = { workspace: workspaceName, project: path?.split(/[\\/]/).pop() ?? '', ...(git?.branchSpace ? { space: git.branchSpace } : {}) }
+  const home = { workspace: workspaceName, project: path?.split(/[\\/]/).pop() ?? '', spaces: git?.branchSpaces ?? [], ...(git?.branchSpace ? { space: git.branchSpace } : {}) }
   // Git info read: the default branch in the repository's own space, unless the user typed one.
   useEffect(() => {
     if (git?.branchSpace && !branchEdited) setBranch(hiveBranch({ ...home, space: git.branchSpace }, name))

@@ -4,7 +4,7 @@
 // Add Agent may find an unused worktree on.
 import { execFileSync } from 'child_process'
 import { describe, expect, it } from 'vitest'
-import { branchSpace, hiveBranch, hiveBranchNumber, oldHiveBranch, refPart, reusableBranches } from '../src/shared/hiveBranches'
+import { chooseSpace, hiveBranch, hiveBranchNumber, oldHiveBranch, refPart, reusableBranches } from '../src/shared/hiveBranches'
 
 /** Whether git takes `name` as a branch name. */
 const gitTakes = (name: string): boolean => {
@@ -46,8 +46,10 @@ describe("a branch Hive made for an agent", () => {
     expect(hiveBranchNumber('hive/amb1-2', home, 'AMB1')).toBe(2)
     expect(hiveBranchNumber('hive/HIVE/amberlight/amb1', home, 'AMB1')).toBe(0)
     expect(hiveBranchNumber('hive/hive/Amberlight/amb1-3', home, 'amb1')).toBe(3)
-    // In a workspace part numbered past a branch from before (branchSpace): still this workspace's.
-    expect(hiveBranchNumber('hive/HIVE-2/amberlight/amb1', home, 'AMB1')).toBe(0)
+    // In a workspace part Hive gave this project (recorded): this project's; one that only looks numbered isn't (round 3:
+    // another workspace may be called HIVE-2).
+    expect(hiveBranchNumber('hive/HIVE-2/amberlight/amb1', { ...home, spaces: ['HIVE-2'] }, 'AMB1')).toBe(0)
+    expect(hiveBranchNumber('hive/HIVE-2/amberlight/amb1', home, 'AMB1')).toBeNull()
     expect(hiveBranchNumber('hive/My-Work/web-app/b1', { workspace: 'My Work', project: 'web app' }, 'B1')).toBe(0)
   })
 
@@ -73,16 +75,34 @@ describe("a branch Hive made for an agent", () => {
     expect(reusableBranches('hive/HIVE/amberlight/amb2', home, 'AMB1')).toEqual(['hive/HIVE/amberlight/amb2'])
     expect(reusableBranches('hive/OTHER/amberlight/amb1', home, 'AMB1')).toEqual(['hive/OTHER/amberlight/amb1'])
     expect(reusableBranches('feature/x', home, 'X')).toEqual(['feature/x'])
+    // With a recorded part: the same agent's branch in each of the project's own parts, the current one first, then before #703.
+    expect(reusableBranches('hive/HIVE-2/amberlight/amb1', { ...home, spaces: ['HIVE-2'] }, 'AMB1')).toEqual(['hive/HIVE-2/amberlight/amb1', 'hive/HIVE/amberlight/amb1', 'hive/amb1'])
+    expect(reusableBranches('hive/HIVE-2/amberlight/amb1', home, 'AMB1')).toEqual(['hive/HIVE-2/amberlight/amb1'])
   })
 })
 
-describe('the workspace part in a repository with branches from before (#703 round 2)', () => {
+describe('the workspace part for new branches (#703 rounds 2 and 3)', () => {
   const home = { workspace: 'ws', project: 'alpha' }
-  it("is the workspace's own, unless hive/<workspace> or hive/<workspace>/<project> is a branch (case aside): then numbered", () => {
-    expect(branchSpace(home, ['main', 'hive/b1', 'hive/ws/alpha/b1'])).toBe('ws')
-    expect(branchSpace(home, ['main', 'hive/ws'])).toBe('ws-2')
-    expect(branchSpace(home, ['hive/WS', 'hive/ws-2/alpha'])).toBe('ws-3')
-    expect(branchSpace({ workspace: 'HIVE', project: 'amberlight' }, ['hive/hive'])).toBe('HIVE-2')
-    expect(hiveBranch({ ...home, space: branchSpace(home, ['hive/ws']) }, 'New')).toBe('hive/ws-2/alpha/new')
+  it("is the workspace's own, unless hive/<workspace> or hive/<workspace>/<project> is a branch (case aside): then a new numbered one", () => {
+    expect(chooseSpace(home, ['main', 'hive/b1', 'hive/ws/alpha/b1'])).toEqual({ space: 'ws', isNew: false })
+    expect(chooseSpace(home, ['main', 'hive/ws'])).toEqual({ space: 'ws-2', isNew: true })
+    expect(chooseSpace(home, ['hive/WS', 'hive/ws-2/alpha'])).toEqual({ space: 'ws-3', isNew: true })
+    expect(chooseSpace({ workspace: 'HIVE', project: 'amberlight' }, ['hive/hive'])).toEqual({ space: 'HIVE-2', isNew: true })
+    expect(hiveBranch({ ...home, space: chooseSpace(home, ['hive/ws']).space }, 'New')).toBe('hive/ws-2/alpha/new')
+  })
+
+  it("never a new one another workspace of that name uses in the repository (round 3: a workspace called ws-2)", () => {
+    expect(chooseSpace(home, ['hive/ws', 'hive/ws-2/alpha/foreign'])).toEqual({ space: 'ws-3', isNew: true })
+    // Its project only: ws-2's other projects' branches don't stand in the way.
+    expect(chooseSpace(home, ['hive/ws', 'hive/ws-2/beta/x'])).toEqual({ space: 'ws-2', isNew: true })
+  })
+
+  it('stays where it moved to (round 3): the recorded part while it is clear, even once the branch in the way has gone', () => {
+    const moved = { ...home, spaces: ['ws-2'] }
+    expect(chooseSpace(moved, ['hive/ws'])).toEqual({ space: 'ws-2', isNew: false })
+    expect(chooseSpace(moved, ['main'])).toEqual({ space: 'ws-2', isNew: false })
+    // Its own again, if the recorded one is blocked; a further one only when both are.
+    expect(chooseSpace(moved, ['hive/ws-2'])).toEqual({ space: 'ws', isNew: false })
+    expect(chooseSpace(moved, ['hive/ws-2', 'hive/ws'])).toEqual({ space: 'ws-3', isNew: true })
   })
 })

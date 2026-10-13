@@ -707,12 +707,17 @@ describe('a template loaded again into the worktrees it made (#289)', () => {
     const treeA = cfgOf(beta).agents.find((a: AgentDef) => a.name === 'Tree A').worktree
     expect([placeKey(treeA.path), treeA.branch]).toEqual([placeKey(old), 'hive/tree-a'])
     // Replaced, both are unused: named after the template's agents in either form. A worktree of that name on another
-    // workspace's branch for a project called beta (one repository, two workspaces) isn't beta's.
+    // workspace's branch for a project called beta (one repository, two workspaces) isn't beta's: one called other-ws,
+    // or one called <this workspace>-2, which only looks like a part Hive could have given beta (#703 round 3).
     await run(() => templates.loadTemplate(beta, 'workspace', 'pair.json', ids()))
-    const elsewhere = join(root, 'tree-c')
-    git(beta, 'worktree', 'add', '-q', '-b', 'hive/other-ws/beta/tree-c', elsewhere, 'main')
-    const named = await run(() => unusedWorktreesNamed(beta, ['Tree A', 'Tree B', 'Tree C']))
+    const wsName = basename(join(beta, '..'))
+    git(beta, 'worktree', 'add', '-q', '-b', 'hive/other-ws/beta/tree-c', join(root, 'tree-c'), 'main')
+    git(beta, 'worktree', 'add', '-q', '-b', `hive/${wsName}-2/beta/tree-d`, join(root, 'tree-d'), 'main')
+    const named = await run(() => unusedWorktreesNamed(beta, ['Tree A', 'Tree B', 'Tree C', 'Tree D']))
     expect(named.map(placeKey).sort()).toEqual([placeKey(old), placeKey(join(root, 'tree-b'))].sort())
+    writeFileSync(join(alpha, '.hive', 'templates', 'cd.json'), JSON.stringify({ version: 1, name: 'CD', layout: 'auto', agents: [{ name: 'Tree C', provider: 'claude-code', worktree: true }, { name: 'Tree D', provider: 'claude-code', worktree: true }] }))
+    const cd = await run(() => templates.templatePlan(beta, 'project', 'cd.json', alpha))
+    expect(cd.worktrees.map((t) => [t?.reuse ?? false, t?.branch])).toEqual([[false, hb('tree-c')], [false, hb('tree-d')]])
   }, false))
 
   gitIt('a worktree from before of a name the new rules write otherwise (B--1 had hive/b--1) is still found: reused, and tidied when its template goes (#703 round 2)', inOwnWorkspace(async ({ alpha, beta, run }) => {

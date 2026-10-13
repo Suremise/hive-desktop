@@ -23,7 +23,7 @@ import { gitProblem } from './gitTool'
 import { providerService } from './providerService'
 import { assertNameFree, withAgentNames, workspaceAgents } from './agentNames'
 import { sameAgentName } from '../shared/agentNames'
-import { branchSpace, hiveBranch, reusableBranches, type BranchHome } from '../shared/hiveBranches'
+import { chooseSpace, hiveBranch, reusableBranches, type BranchHome } from '../shared/hiveBranches'
 
 const log = createLogger('agents')
 
@@ -45,7 +45,7 @@ export async function gitInfo(projectPath: string): Promise<ProjectGitInfo> {
     worktrees: all.filter((w) => !samePlace(w.path, projectPath)).map((w) => ({ ...w, used: used.has(placeKey(w.path)) })),
     worktreesRoot: join(workspaceOf(projectPath).worktreesRoot, projectPath.split(/[\\/]/).pop()!),
     // The workspace part of new branches here (#703), for the dialog's default branch.
-    ...(all.length ? { branchSpace: (await branchHome(projectPath)).space } : {})
+    ...(all.length ? await branchHome(projectPath).then((h) => ({ branchSpace: h.space, branchSpaces: [...(h.spaces ?? [])] })) : {})
   }
 }
 
@@ -165,13 +165,32 @@ async function reuseCheck(projectPath: string, path: string, branch: string, bas
   return why.length ? { why: why.join(' and ') } : { tip, baseTip }
 }
 
-/** Where a project is, for the branches Hive makes in it (#703): its workspace's folder name and its own. */
-export const branchPlace = (projectPath: string): BranchHome => ({ workspace: basename(workspaceOf(projectPath).path ?? ''), project: basename(projectPath) })
+/**
+ * Where a project is, for the branches Hive makes in it (#703): its workspace's folder name and its own, and the other
+ * workspace parts Hive has given its branches (project.json's `branchSpaces`): with the workspace's own, the only ones
+ * that are its.
+ */
+export async function branchPlace(projectPath: string): Promise<BranchHome> {
+  const recorded = (await workspace.projectConfig(projectPath)).branchSpaces
+  return { workspace: basename(workspaceOf(projectPath).path ?? ''), project: basename(projectPath), spaces: Array.isArray(recorded) ? recorded.filter((s) => typeof s === 'string') : [] }
+}
 
-/** The same, with the workspace part its new branches take in its repository (`branchSpace`: clear of branches from before). */
-export async function branchHome(projectPath: string): Promise<BranchHome> {
-  const home = branchPlace(projectPath)
-  return { ...home, space: branchSpace(home, await wt.localBranches(projectPath)) }
+/**
+ * The same, with the workspace part its new branches take in its repository now (`chooseSpace`: its own or the one it
+ * moved to, clear of branches from before), and whether that part is new (recorded once a branch is made in it).
+ */
+export async function branchHome(projectPath: string): Promise<BranchHome & { newSpace: boolean }> {
+  const home = await branchPlace(projectPath)
+  const { space, isNew } = chooseSpace(home, await wt.localBranches(projectPath))
+  return { ...home, space, newSpace: isNew }
+}
+
+/** Records a workspace part Hive has made a branch in for this project (#703 round 3), so it stays this project's. */
+async function recordSpace(projectPath: string, space: string): Promise<void> {
+  await workspace.mutateProjectConfig(projectPath, (now) => {
+    const before = Array.isArray(now.branchSpaces) ? now.branchSpaces : []
+    return before.some((s) => s.toLowerCase() === space.toLowerCase()) ? {} : { branchSpaces: [...before, space] }
+  })
 }
 
 /**
@@ -184,7 +203,7 @@ export async function matchingWorktree(projectPath: string, branch: string, base
   const root = placeKey(join(workspaceOf(projectPath).worktreesRoot, basename(projectPath)))
   const used = new Set(others.flatMap((a) => (a.worktree ? [placeKey(a.worktree.path)] : [])))
   const listed = (await wt.listWorktrees(projectPath)).filter((x) => !samePlace(x.path, projectPath) && placeKey(dirname(x.path)) === root && !used.has(placeKey(x.path)) && existsSync(x.path))
-  const w = reusableBranches(branch, branchPlace(projectPath), name)
+  const w = reusableBranches(branch, await branchPlace(projectPath), name)
     .map((b) => listed.find((x) => x.branch === b))
     .find((x) => !!x)
   if (!w?.branch) return null
@@ -263,10 +282,13 @@ async function bringUp(projectPath: string, path: string, branch: string, base: 
  * `taken`: branches and folders (`placeKey`s) a plan has already given out. Shared by adding an agent and by a template's
  * load plan (#268), so what the plan shows is what the load makes.
  */
-export async function newWorktreePlace(projectPath: string, name: string, branch?: string, taken: { branches: ReadonlySet<string>; folders: ReadonlySet<string> } = { branches: new Set(), folders: new Set() }): Promise<{ branch: string; path: string }> {
+export async function newWorktreePlace(projectPath: string, name: string, branch?: string, taken: { branches: ReadonlySet<string>; folders: ReadonlySet<string> } = { branches: new Set(), folders: new Set() }): Promise<{ branch: string; path: string; newSpace?: string }> {
+  const home = branch?.trim() ? null : await branchHome(projectPath)
   return {
-    branch: await wt.uniqueBranch(projectPath, branch?.trim() || hiveBranch(await branchHome(projectPath), name), taken.branches),
-    path: wt.uniqueFolder(join(workspaceOf(projectPath).worktreesRoot, projectPath.split(/[\\/]/).pop()!, slugify(name)), taken.folders)
+    branch: await wt.uniqueBranch(projectPath, branch?.trim() || hiveBranch(home!, name), taken.branches),
+    path: wt.uniqueFolder(join(workspaceOf(projectPath).worktreesRoot, projectPath.split(/[\\/]/).pop()!, slugify(name)), taken.folders),
+    // A workspace part this project hasn't had: recorded once its branch is made (#703 round 3).
+    ...(home?.newSpace && home.space ? { newSpace: home.space } : {})
   }
 }
 
@@ -310,8 +332,9 @@ export async function prepareAgent(projectPath: string, cfg: ProjectConfig, opts
       }
     }
     if (!def.worktree) {
-      const { branch, path: dest } = await newWorktreePlace(projectPath, name, opts.branch)
+      const { branch, path: dest, newSpace } = await newWorktreePlace(projectPath, name, opts.branch)
       await wt.createWorktree(projectPath, dest, branch, base)
+      if (newSpace) await recordSpace(projectPath, newSpace)
       const s = config.settings.agents
       const copied = await wt.copyIgnored(projectPath, dest, cfg.worktreeCopy ?? s.worktreeCopy)
       if (copied.length) log.info(`Copied into ${userText(dest)}: ${userText(copied.join(', '))}`)

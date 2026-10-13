@@ -347,7 +347,7 @@ async function reusableWorktree(projectPath: string, name: string, base: string,
   const numbered = (s: string, stem: string): boolean => s === stem || (s.startsWith(`${stem}-`) && /^\d+$/.test(s.slice(stem.length + 1)))
   // Its branch Hive's for that name in either form (#703): hive/<workspace>/<project>/<name> now, hive/<its slug> from
   // before (compared as Hive made it then).
-  const home = branchPlace(projectPath)
+  const home = await branchPlace(projectPath)
   const mine = listed.filter((w) => !!w.branch && placeKey(dirname(w.path)) === root && numbered(basename(w.path).toLowerCase(), slug) && hiveBranchNumber(w.branch, home, name) !== null)
   if (!mine.length) return null
   const free = mine.filter((w) => !inUse.has(placeKey(w.path)))
