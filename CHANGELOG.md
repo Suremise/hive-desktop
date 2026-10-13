@@ -2,6 +2,9 @@
 
 ## Unreleased
 
+### Agents
+- **Remove All and the unused worktrees list are quicker on a busy machine.** Checking which worktrees could be deleted reads the project's worktree list and main branch once, not once per worktree.
+
 ### Hive Assistant
 - **A decision on a card in Review reaches its card loop.** Recording your decision on a card in Review, or clearing its block, wakes neither the card's builder nor its reviewer, so the Assistant now follows it with a message to the builder, and to the reviewer when it changes what they check, instead of the loop waiting until its watch runs out.
 
