@@ -25,7 +25,7 @@ import {
   type TemplateAgent,
   type TemplateScope
 } from '../shared/templates'
-import type { AgentDef, OldWorktreeOutcome, ProviderId, TemplateLoadPlan } from '../shared/types'
+import type { AgentBranchStatus, AgentDef, AgentWorktree, OldWorktreeOutcome, ProviderId, TemplateLoadPlan } from '../shared/types'
 import { config } from './config'
 import { placeKey, readKeptJson, withFileLock, writeKeptJson, writeTextAtomic } from './fsutil'
 import { createLogger, userText } from './logger'
@@ -315,14 +315,28 @@ const refFor = (projectPath: string, scope: TemplateScope, file: string, from?: 
 /** A worktree a template's agent can work in again: its folder and branch. */
 type Reuse = { path: string; branch: string }
 
+/** A worktree's `branchStatus`, as one plan reads it (#732: once each, though the plan looks at one twice). */
+type StatusOf = (w: AgentWorktree) => Promise<AgentBranchStatus>
+
+/** `branchStatus` read once per worktree and branch for one operation (#732), with its reads of the repository. */
+function statusReads(projectPath: string, reads: wt.RepoReads): StatusOf {
+  const kept = new Map<string, Promise<AgentBranchStatus>>()
+  return (w) => {
+    const key = `${placeKey(w.path)}|${w.branch}`
+    let p = kept.get(key)
+    if (!p) kept.set(key, (p = wt.branchStatus(projectPath, w, reads)))
+    return p
+  }
+}
+
 /** Why a worktree can't be worked in again (null: it can): git must list it on `branch`, with nothing uncommitted (strict). */
-async function notReusable(projectPath: string, w: Reuse, base: string, listed: { path: string; branch: string | null }[]): Promise<string | null> {
+async function notReusable(w: Reuse, base: string, listed: { path: string; branch: string | null }[], status: StatusOf): Promise<string | null> {
   const here = placeKey(w.path)
   const there = listed.find((x) => placeKey(x.path) === here)
   if (!there) return `git doesn't list ${w.path} as a worktree any more`
   if (there.branch !== w.branch) return `its worktree is on ${there.branch ?? 'no branch'}, not ${w.branch}`
   try {
-    const { dirty } = await wt.branchStatus(projectPath, { path: there.path, branch: w.branch, base })
+    const { dirty } = await status({ path: there.path, branch: w.branch, base })
     return dirty ? `${w.branch} has ${dirty} uncommitted ${dirty === 1 ? 'file' : 'files'}` : null
   } catch (e) {
     return `Hive couldn't check ${w.branch} (${(e as Error).message.split('\n')[0]})`
@@ -337,10 +351,10 @@ async function notReusable(projectPath: string, w: Reuse, base: string, listed: 
  * (`notReusable`); of several clean ones, the unnumbered one, else none (ambiguous). `reuse`, or why the one that
  * matches can't be (null: none matches). Paths are compared by their real names (#389): git lists the long ones.
  */
-async function reusableWorktree(projectPath: string, name: string, base: string, own: Reuse | undefined, inUse: ReadonlySet<string>, listed: { path: string; branch: string | null }[]): Promise<{ reuse: Reuse } | { why: string } | null> {
+async function reusableWorktree(projectPath: string, name: string, base: string, own: Reuse | undefined, inUse: ReadonlySet<string>, listed: { path: string; branch: string | null }[], status: StatusOf): Promise<{ reuse: Reuse } | { why: string } | null> {
   if (own) {
     if (inUse.has(placeKey(own.path))) return { why: `another agent works in ${own.branch}'s worktree` }
-    const why = await notReusable(projectPath, own, base, listed)
+    const why = await notReusable(own, base, listed, status)
     return why ? { why } : { reuse: { path: resolve(own.path), branch: own.branch } }
   }
   const slug = slugify(name)
@@ -353,7 +367,7 @@ async function reusableWorktree(projectPath: string, name: string, base: string,
   if (!mine.length) return null
   const free = mine.filter((w) => !inUse.has(placeKey(w.path)))
   if (!free.length) return { why: `another agent works in ${mine[0].branch}'s worktree` }
-  const checked = await Promise.all(free.map(async (w) => ({ w: { path: w.path, branch: w.branch! }, why: await notReusable(projectPath, { path: w.path, branch: w.branch! }, base, listed) })))
+  const checked = await Promise.all(free.map(async (w) => ({ w: { path: w.path, branch: w.branch! }, why: await notReusable({ path: w.path, branch: w.branch! }, base, listed, status) })))
   const clean = checked.filter((c) => !c.why)
   const exact = clean.find((c) => basename(c.w.path).toLowerCase() === slug && hiveBranchNumber(c.w.branch, home, name) === 0)
   if (exact) return { reuse: exact.w }
@@ -375,10 +389,13 @@ const busy = (projectPath: string, agentId: string): boolean => !!sessions.liveF
  * What loading a template into a project would do: the agents removed and created, the layout, and what stops it now —
  * an agent running or starting, a removed worktree agent's uncommitted work (or a worktree whose state git can't tell:
  * then it isn't known to be safe), a provider that is off or not installed, worktree agents in a project that isn't on
- * a git branch. Nothing is changed.
+ * a git branch. Nothing is changed. The repository is read once for the whole plan, not once per agent (#732): its
+ * branches, worktrees and current branch, and each worktree's status; `reads`: a load's, which it goes on using.
  */
-export async function templatePlan(projectPath: string, scope: TemplateScope, file: string, from?: string, names?: string[]): Promise<TemplateLoadPlan> {
+export async function templatePlan(projectPath: string, scope: TemplateScope, file: string, from?: string, names?: string[], reads?: wt.RepoReads): Promise<TemplateLoadPlan> {
   projectPath = workspace.assertProject(projectPath)
+  const repo = reads ?? new wt.RepoReads(projectPath)
+  const status = statusReads(projectPath, repo)
   const original = await usable(refFor(projectPath, scope, file, from))
   const t = { ...original, agents: withNames(original.agents, names) }
   const cfg = await workspace.projectConfig(projectPath)
@@ -391,7 +408,7 @@ export async function templatePlan(projectPath: string, scope: TemplateScope, fi
     if (a.worktree && existsSync(a.worktree.path)) {
       // As Remove Agent checks before a worktree goes: strictly, so a git that fails never reads as "nothing to lose".
       try {
-        dirty = (await wt.branchStatus(projectPath, a.worktree)).dirty
+        dirty = (await status(a.worktree)).dirty
       } catch (e) {
         blocked.push(`Hive couldn't check ${a.name}'s worktree (${a.worktree.path}): ${(e as Error).message.split('\n')[0]}`)
       }
@@ -409,28 +426,28 @@ export async function templatePlan(projectPath: string, scope: TemplateScope, fi
   // It replaces the project's agents: all of them have to fit (#562).
   const limit = agentLimit(projectPath)
   if (t.agents.length > limit) blocked.push(templateLimitText(t.agents.length, limit))
-  const base = t.agents.some((a) => a.worktree) ? await wt.currentBranch(projectPath) : null
-  if (t.agents.some((a) => a.worktree) && !base) blocked.push(await needsGit(projectPath, t.agents.filter((a) => a.worktree).map((a) => a.name)))
+  const base = t.agents.some((a) => a.worktree) ? await repo.currentBranch() : null
+  if (t.agents.some((a) => a.worktree) && !base) blocked.push(await needsGit(projectPath, t.agents.filter((a) => a.worktree).map((a) => a.name), repo))
   // Where each worktree agent works, as the load makes them, one after another: in this project, never the template's
   // project (a template holds only whether an agent has its own worktree, #268). A clean worktree of the same name is
   // worked in again (#289: the replaced agent's, or an earlier load's), else a new one.
   const taken = { branches: new Set<string>(), folders: new Set<string>() }
   const worktrees: TemplateLoadPlan['worktrees'] = []
-  const listed = base && t.agents.some((a) => a.worktree) ? await wt.listWorktrees(projectPath) : []
+  const listed = base && t.agents.some((a) => a.worktree) ? await repo.worktrees() : []
   for (const a of t.agents) {
     if (!a.worktree || !base) {
       worktrees.push(null)
       continue
     }
     const own = current.find((x) => x.worktree && x.name.toLowerCase() === a.name.toLowerCase())?.worktree
-    const found = await reusableWorktree(projectPath, a.name, base, own && { path: own.path, branch: own.branch }, taken.folders, listed)
+    const found = await reusableWorktree(projectPath, a.name, base, own && { path: own.path, branch: own.branch }, taken.folders, listed, status)
     if (found && 'reuse' in found) {
       taken.branches.add(found.reuse.branch)
       taken.folders.add(placeKey(found.reuse.path))
       worktrees.push({ ...found.reuse, base, reuse: true })
       continue
     }
-    const spot = await newWorktreePlace(projectPath, a.name, undefined, taken)
+    const spot = await newWorktreePlace(projectPath, a.name, undefined, taken, repo)
     taken.branches.add(spot.branch)
     taken.folders.add(placeKey(spot.path))
     worktrees.push({ ...spot, base, ...(found ? { notReused: found.why } : {}) })
@@ -442,7 +459,7 @@ export async function templatePlan(projectPath: string, scope: TemplateScope, fi
   let mergedInto: string | null = null
   for (const a of current) {
     if (!a.worktree || reused.has(placeKey(a.worktree.path))) continue
-    const check = await wt.worktreeCheck(projectPath, a.worktree)
+    const check = await wt.worktreeCheck(projectPath, a.worktree, repo)
     mergedInto = check.into
     oldWorktrees.push({ agent: a.name, path: a.worktree.path, branch: a.worktree.branch, removable: check.removable, ...(check.removable ? {} : { why: check.reason ?? 'not checked' }) })
   }
@@ -476,12 +493,12 @@ function withNames(agents: TemplateAgent[], names: unknown): TemplateAgent[] {
  * Why a template's worktree agents can't have worktrees here (#702: why a template couldn't be loaded into a project
  * without git): git can't run, the project isn't a repository, or it isn't on a branch (detached, or no commit yet).
  */
-async function needsGit(projectPath: string, names: string[]): Promise<string> {
+async function needsGit(projectPath: string, names: string[], reads: wt.RepoReads): Promise<string> {
   const who = `its worktree ${names.length === 1 ? 'agent' : 'agents'} (${names.join(', ')})`
   const fix = 'or edit the template to put them in the project folder'
   if (gitProblem()) return `${gitProblem()}, so ${who} can't have worktrees of their own: fix git (Agent Setup), ${fix}.`
   const project = basename(projectPath)
-  if (!(await wt.listWorktrees(projectPath)).length) return `${project} isn't a git repository, so ${who} can't have worktrees of their own. Make it a repository with a first commit, ${fix}.`
+  if (!(await reads.worktrees()).length) return `${project} isn't a git repository, so ${who} can't have worktrees of their own. Make it a repository with a first commit, ${fix}.`
   return `${project} isn't on a branch (a detached HEAD, or no commit yet), so ${who} have nothing to branch from. Check out a branch or make a first commit, ${fix}.`
 }
 
@@ -524,7 +541,9 @@ export async function loadTemplate(projectPath: string, scope: TemplateScope, fi
   try {
     // Before the plan looks at the worktrees: one removed since then isn't worked in again (#289).
     const mark = claimMark()
-    const plan = await templatePlan(projectPath, scope, file, from, names)
+    // The plan's reads of the repository, which staging goes on using (#732): read again only after it makes a worktree.
+    const reads = new wt.RepoReads(projectPath)
+    const plan = await templatePlan(projectPath, scope, file, from, names, reads)
     if (plan.blocked.length) throw new TemplateError(`The template can't be loaded yet:\n${plan.blocked.map((b) => `• ${b}`).join('\n')}`)
     const changed = (ids: string[]): boolean => !Array.isArray(expected) || ids.length !== expected.length || ids.some((id, i) => id !== expected[i])
     if (changed(plan.remove.map((a) => a.id))) throw new TemplateError("The project's agents changed since you looked: open the template again.")
@@ -537,7 +556,7 @@ export async function loadTemplate(projectPath: string, scope: TemplateScope, fi
         // A worktree the plan reuses (#289), checked again just now (the plan is made afresh for the load): else a new one.
         const reuse = plan.worktrees[i]?.reuse ? plan.worktrees[i] : null
         const opts = { name: a.name, role: a.role, provider: a.provider, model: a.model, effort: a.effort, permissionMode: a.permissionMode, use200kContext: a.use200kContext, mcpServers: a.mcpServers, location: reuse ? ('existing-worktree' as const) : a.worktree ? ('new-worktree' as const) : ('project' as const), ...(reuse ? { worktreePath: reuse.path } : {}) }
-        staged.push(await prepareAgent(projectPath, cfg, opts, a.name, staged.map((s) => s.def)))
+        staged.push(await prepareAgent(projectPath, cfg, opts, a.name, staged.map((s) => s.def), reads))
         await testHooks.staged?.(a.name)
       }
       // Published at once, under the lock, on the agents as they are now; their names checked with it, holding the
@@ -654,7 +673,7 @@ export async function addAgentFromTemplate(projectPath: string, scope: TemplateS
   // A clean worktree Hive made for that name that no agent works in is worked in again (#289), else a new one.
   const base = a.worktree ? await wt.currentBranch(projectPath) : null
   const inUse = new Set(agents.flatMap((x) => (x.worktree ? [placeKey(x.worktree.path)] : [])))
-  const found = base ? await reusableWorktree(projectPath, name, base, undefined, inUse, await wt.listWorktrees(projectPath)) : null
+  const found = base ? await reusableWorktree(projectPath, name, base, undefined, inUse, await wt.listWorktrees(projectPath), (w) => wt.branchStatus(projectPath, w)) : null
   const reuse = found && 'reuse' in found ? found.reuse : null
   const settings = { name, role: a.role, provider: a.provider, model: a.model, effort: a.effort, permissionMode: a.permissionMode, use200kContext: a.use200kContext, mcpServers: a.mcpServers }
   const def = await addAgent(projectPath, reuse ? { ...settings, location: 'existing-worktree', worktreePath: reuse.path } : { ...settings, location: a.worktree ? 'new-worktree' : 'project' })

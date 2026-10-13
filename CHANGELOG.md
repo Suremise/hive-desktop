@@ -3,6 +3,7 @@
 ## Unreleased
 
 ### Agents
+- **Loading a template is quicker on a busy machine.** Its plan and load read the project's worktrees, branches and current branch once, and each worktree's state once, instead of once per agent: about a third to a half fewer git commands, so the Load template dialog no longer takes seconds to open while tests or builds run.
 - **Waiting for an agent you just started on a task waits for that task.** `hive_wait_for_agents` (and `POST /v1/agents/wait`) called right after starting an agent with a prompt, or giving it one in a new conversation, could answer at once that it was ready: its CLI was up but hadn't begun the task yet. It now counts as working until its CLI takes the task.
 
 ## 0.7.0 — 13 October 2026
