@@ -283,12 +283,17 @@ async function bringUp(projectPath: string, path: string, branch: string, base: 
  * load plan (#268), so what the plan shows is what the load makes.
  */
 export async function newWorktreePlace(projectPath: string, name: string, branch?: string, taken: { branches: ReadonlySet<string>; folders: ReadonlySet<string> } = { branches: new Set(), folders: new Set() }): Promise<{ branch: string; path: string; newSpace?: string }> {
-  const home = branch?.trim() ? null : await branchHome(projectPath)
+  const home = await branchHome(projectPath)
+  const generated = hiveBranch(home, name)
+  // The default Hive generates for this name, whether left out or sent back as it was shown (the Add Agent dialog and the
+  // Agent API send the branch they show, #703 round 4); a branch of the user's own is never taken as a part Hive gave.
+  const supplied = branch?.trim()
+  const isDefault = !supplied || supplied.toLowerCase() === generated.toLowerCase()
   return {
-    branch: await wt.uniqueBranch(projectPath, branch?.trim() || hiveBranch(home!, name), taken.branches),
+    branch: await wt.uniqueBranch(projectPath, supplied || generated, taken.branches),
     path: wt.uniqueFolder(join(workspaceOf(projectPath).worktreesRoot, projectPath.split(/[\\/]/).pop()!, slugify(name)), taken.folders),
     // A workspace part this project hasn't had: recorded once its branch is made (#703 round 3).
-    ...(home?.newSpace && home.space ? { newSpace: home.space } : {})
+    ...(isDefault && home.newSpace && home.space ? { newSpace: home.space } : {})
   }
 }
 

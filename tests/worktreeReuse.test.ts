@@ -337,6 +337,19 @@ describe('branches from before in the way of the full form (#703 round 2)', () =
     }
   })
 
+  it('the default sent back as shown (the dialog, the Agent API) records the part too; a branch of the user\'s own never does (round 4)', async () => {
+    const r = await oldRepo('explicit')
+    git(r.path, 'branch', 'hive/ws')
+    const def = await run(() => addAgent(r.path, { name: 'Shown', location: 'new-worktree', branch: 'hive/ws-2/explicit/shown', reuseWorktree: true }))
+    expect(def.worktree!.branch).toBe('hive/ws-2/explicit/shown')
+    expect(r.cfg().branchSpaces).toEqual(['ws-2'])
+    const mine = await oldRepo('userown')
+    git(mine.path, 'branch', 'hive/ws')
+    const own = await run(() => addAgent(mine.path, { name: 'Own one', location: 'new-worktree', branch: 'hive/ws-5/userown/mine', reuseWorktree: true }))
+    expect(own.worktree!.branch).toBe('hive/ws-5/userown/mine')
+    expect(mine.cfg().branchSpaces).toBeUndefined()
+  })
+
   it('stays there once the branch in the way is gone (round 3): a kept worktree in it is reused, by the look and the add', async () => {
     const r = await oldRepo('oldgone')
     git(r.path, 'branch', 'hive/ws')
