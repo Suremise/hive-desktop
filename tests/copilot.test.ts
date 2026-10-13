@@ -211,6 +211,28 @@ describe('Copilot launch', () => {
     expect(stopWaitMs(15_000, [exit.graceMs])).toBe(15_000)
   })
 
+  it('takes its exit grace from Settings → Advanced (copilot.exit.graceSeconds), at each stop (#727)', async () => {
+    const { advanced } = await import('../src/main/advanced')
+    const { stopWaitMs } = await import('../src/main/sessions')
+    advanced.load(tempDir('hive-copilot-advanced-'))
+    try {
+      expect(copilot.exitKeys.graceMs).toBe(10_000)
+      await advanced.set('copilot.exit.graceSeconds', 25)
+      expect(copilot.exitKeys.graceMs).toBe(25_000)
+      // Quitting waits past the longer grace too.
+      expect(stopWaitMs(3000, [copilot.exitKeys.graceMs])).toBeGreaterThan(25_000)
+      // A grace shorter than the keys take, or one that would hold quitting for minutes, is refused.
+      await expect(advanced.set('copilot.exit.graceSeconds', 2)).rejects.toThrow(/whole number from 3 to 60/)
+      await expect(advanced.set('copilot.exit.graceSeconds', 61)).rejects.toThrow(/whole number from 3 to 60/)
+      expect(copilot.exitKeys.graceMs).toBe(25_000)
+      await advanced.set('copilot.exit.graceSeconds', null)
+      expect(copilot.exitKeys.graceMs).toBe(10_000)
+    } finally {
+      await advanced.resetAll()
+      advanced.stop()
+    }
+  })
+
   it('gives every event to Hive’s hook server over HTTP, by the PascalCase names', () => {
     const h = copilotHooks('http://127.0.0.1:5000/hook?run=r1', 'tok') as { version: number; hooks: Record<string, { type: string; url: string; headers: Record<string, string>; timeoutSec: number }[]> }
     expect(h.version).toBe(1)
