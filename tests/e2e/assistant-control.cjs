@@ -132,8 +132,8 @@ const check = (name, ok, extra = '') => {
   check('an idle agent takes a task in a new conversation', fresh.status === 200 && fresh.body?.newConversation === true, JSON.stringify(fresh.body))
   const renewed = await until(async () => { const s = await live(alpha, builder); return s?.sessionId && s.sessionId !== old?.sessionId && s }, HUNG_MS)
   check('it runs as a new launch with a new session', !!old?.sessionId && !!renewed && renewed.runId !== old.runId, JSON.stringify({ old: old?.sessionId, now: renewed?.sessionId }))
-  await api('POST', '/v1/agents/wait', { agents: [{ project: 'alpha', agent: 'Builder' }], timeoutSeconds: 30 })
-  const freshAct = (await api('GET', '/v1/projects/alpha/agents/Builder/activity')).body
+  // Its reply, once it has one: a wait could answer between the new launch's start and its taking the task.
+  const freshAct = await until(async () => { const a = (await api('GET', '/v1/projects/alpha/agents/Builder/activity')).body; return a?.latestReply ? a : null }, HUNG_MS)
   check('on the task, with no handover', /^work 1$/.test(freshAct?.currentTask ?? '') && freshAct.latestReply === `Done: ${freshAct.currentTask}`, JSON.stringify(freshAct && { task: freshAct.currentTask, reply: freshAct.latestReply }))
   const history = (await inv('session:list', alpha)).map((s) => s.id)
   check('the old conversation stays in the Sessions history', history.includes(old?.sessionId) && history.includes(renewed?.sessionId), JSON.stringify(history))
