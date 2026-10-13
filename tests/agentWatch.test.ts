@@ -57,7 +57,7 @@ describe('what an agent watch counts', () => {
     expect(many).toContain('Agent 19')
     expect(agentPart(b6, 'finished', nowOf({ status: 'watching', watch: 'Waiting for #12 → Review' }))).toBe('B6 (hive) finished (now waiting for #12 → Review)')
     expect(agentPart(b6, 'finished', nowOf({ status: 'ready', backgroundTasks: 2 }), 200, true)).toBe('B6 (hive) is idle (2 background tasks still running)')
-    expect(agentPart(b6, 'untaken', nowOf({ status: 'ready' }))).toBe("B6 (hive) is idle: its CLI hasn't taken the prompt it was typed")
+    expect(agentPart(b6, 'untaken', nowOf({ status: 'ready' }))).toBe("B6 (hive) is idle: its CLI hasn't taken the prompt it was given")
     expect(agentLimitLine({ agents: [b6], ignoreBackground: false }, 120)).toMatch(/^\[Hive\] B6 is still working after 2 h: your agent watch has ended\. Check on it \(hive_agent_activity\)/)
     expect(agentWatchLabel({ agents: [b6, { ...b6, agentId: 'b7', name: 'B7' }], ignoreBackground: false })).toBe('Waiting for B6, B7 to finish')
   })
@@ -1024,7 +1024,7 @@ describe('agent watches (main/watches.ts)', async () => {
     await watches.evaluateAgentWatches(w)
     await watches.settled()
     st.typed.pop()
-    expect(st.told.pop()).toMatch(/Reviewer \(alpha\) is idle: its CLI hasn't taken the prompt it was typed/)
+    expect(st.told.pop()).toMatch(/Reviewer \(alpha\) is idle: its CLI hasn't taken the prompt it was given/)
     // Background tasks count as working, unless ignored.
     st.status = 'watching'
     st.agents.set('a2', nowOf())

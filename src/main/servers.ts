@@ -982,7 +982,7 @@ route('POST', '/v1/projects/:name/agents/:agent/prompt', async ({ params, body }
     if (sessions.userMayBeTyping(p, agentId)) throw new HttpError(409, `The user has just typed in ${a.name}'s terminal and may still be writing there. Ask the user before giving it a task.`)
     // A line Hive typed that its CLI hasn't taken (#430): more typing would be lost behind it, or clear it.
     if (sessions.lineUntaken(p, agentId)) throw new HttpError(409, `${a.name}'s CLI hasn't taken a line Hive typed into it (it wasn't reading its input). Tell the user: they can click its terminal and press Enter. Nothing is typed into it until then.`)
-    if (agentNowFor(p, agentId).pending) throw new HttpError(409, `Hive has just typed a line into ${a.name} that its CLI hasn't taken yet. Wait for it (hive_wait_for_agents), then give it the task.`)
+    if (agentNowFor(p, agentId).pending) throw new HttpError(409, `${a.name} has just been given a prompt that its CLI hasn't taken yet. Wait for it (hive_wait_for_agents), then give it the task.`)
     if (fresh) {
       // The Assistant's authority (Control, its session) again after the stop and at the launch: it may end meanwhile.
       await startOnTask(p, agentId, a.name, text, (line) => sessions.newConversation(p, agentId, line, guard)).catch((e: Error) => {
