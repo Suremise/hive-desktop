@@ -1,14 +1,15 @@
-import { useLayoutEffect, useRef, useState } from 'react'
-import { RUNS_KEEP_PX, draggedLaneRows, fitSegments, frozenSegment, keyedLaneRows, laneCards, laneRowsNow, laneSummary, segmentName, segmentsThatFit, type LaneSegment } from '@shared/laneBar'
+import { useEffect, useLayoutEffect, useRef, useState } from 'react'
+import { clampScroll, edgeSpeed, frameStep } from '@shared/edgeScroll'
+import { RUNS_KEEP_PX, draggedLaneRows, droppedLaneOrder, fitSegments, frozenSegment, keyedLaneRows, laneCards, laneRowsNow, laneRunning, laneSummary, mergedLaneOrder, nudgedLaneOrder, segmentName, segmentsThatFit, type LaneSegment } from '@shared/laneBar'
 import { call } from '../api'
 import { NO_PROJECTS, get, set, useStore } from '../store'
-import type { Lane } from '../laneSource'
+import { saveLaneOrder, useLaneOrder, type Lane } from '../laneSource'
 import { useNow } from '../usage'
 import { cx } from '../util'
 import { useAdvancedValue } from '../advanced'
 import { cardStalled } from './Board'
 import { usePanelFold } from './ProgressMerge'
-import { Icon, Tooltip } from './ui'
+import { Icon, Tooltip, useContextMenu } from './ui'
 import { LaneCostTip, useLaneCost } from './CardCost'
 
 /**
@@ -24,6 +25,10 @@ import { LaneCostTip, useLaneCost } from './CardCost'
  * opens the card. A running lane with a stalled card (#521: its reviewer watching but not
  * reviewing, its agent not watching) says so in its header. The section folds down to its header bar (remembered per
  * workspace, keeping the chosen height), and isn't there at all without lanes.
+ * Running lanes can be put in the user's own order (#568): dragged (a line shows where it goes; held near the list's top
+ * or bottom edge, it scrolls), or focused and moved with Alt+Up and Alt+Down (or from its context menu), said to screen
+ * readers; kept per workspace. A lane started since goes on top, and a lane that finishes drops to the bottom, after
+ * those that finished before it.
  */
 
 const foldKey = (ws: string): string => `progress-lanes-fold:${ws.toLowerCase()}`
@@ -36,7 +41,10 @@ const PITCH_PX = 61
 
 const STATE_WORD: Record<Lane['state'], string | null> = { active: null, paused: 'paused', ended: 'merged', abandoned: 'abandoned' }
 
-export function LanesSection({ lanes, width }: { lanes: Lane[]; width: number }) {
+const lanePair = (l: Lane): string => (l.reviewer ? `${l.builder.name} / ${l.reviewer.name}` : l.builder.name)
+
+/** `lanes`: the lanes shown (the panel's filter applied); `all`: the workspace's, in the same order, to keep a move's order whole. */
+export function LanesSection({ lanes, all, width }: { lanes: Lane[]; all: Lane[]; width: number }) {
   const ws = useStore((s) => s.workspace?.path ?? null)
   const [folded, toggle] = usePanelFold(ws ? foldKey(ws) : null)
   const key = ws ? rowsKey(ws) : null
@@ -50,6 +58,147 @@ export function LanesSection({ lanes, width }: { lanes: Lane[]; width: number })
   const [pitch, setPitch] = useState(PITCH_PX)
   const [room, setRoom] = useState<number | null>(null)
   const open = lanes.length > 0 && !folded
+  // Reordering (#568): the running lanes' ids as shown, the lane being dragged and where it would go (undefined: nowhere
+  // that moves it), what the last move said to screen readers, and the lane to focus again once it has moved.
+  const running = lanes.filter((l) => laneRunning(l.state)).map((l) => l.id)
+  const custom = useLaneOrder().length > 0
+  const [dragging, setDragging] = useState<string | null>(null)
+  const [dropBefore, setDropBefore] = useState<string | null | undefined>(undefined)
+  const [said, setSaid] = useState('')
+  const refocus = useRef<string | null>(null)
+  const menu = useContextMenu()
+  useLayoutEffect(() => {
+    const id = refocus.current
+    if (!id) return
+    refocus.current = null
+    const row = list.current?.querySelector<HTMLElement>(`.progress-lane[data-lane="${CSS.escape(id)}"]`)
+    row?.focus({ preventScroll: true })
+    row?.scrollIntoView({ block: 'nearest' })
+  }, [lanes])
+  const moved = (next: string[] | null, l: Lane, keyboard: boolean): void => {
+    if (!next) return
+    if (keyboard) refocus.current = l.id
+    // Filtered to a project or an agent, the lanes not shown keep their places.
+    saveLaneOrder(mergedLaneOrder(all.filter((x) => laneRunning(x.state)).map((x) => x.id), next))
+    const at = next.indexOf(l.id) + 1
+    setSaid(`${lanePair(l)}${l.name ? ` (${l.name})` : ''} moved: ${at} of ${next.length} running ${next.length === 1 ? 'lane' : 'lanes'}`)
+  }
+  const usual = (): void => {
+    saveLaneOrder(null)
+    setSaid('Lanes back in the usual order')
+  }
+  const laneMenu = (e: React.MouseEvent, l: Lane): void => {
+    const i = running.indexOf(l.id)
+    menu.open(e, [
+      { label: 'Move Up', icon: 'arrow-up', keybinding: 'Alt+Up', disabled: i <= 0, onClick: () => moved(nudgedLaneOrder(running, l.id, -1), l, true) },
+      { label: 'Move Down', icon: 'arrow-down', keybinding: 'Alt+Down', disabled: i >= running.length - 1, onClick: () => moved(nudgedLaneOrder(running, l.id, 1), l, true) },
+      { separator: true },
+      { label: 'Usual Order', icon: 'list-ordered', detail: 'Running lanes newest first, paused ones after them', disabled: !custom, onClick: usual }
+    ])
+  }
+  /**
+   * Where the dragged lane would go with the pointer at (x, y), from the lane under it now: over a running lane, before
+   * it (its top half) or the next running one (null after the last); over anything else, or where it would stay, nowhere.
+   * Called on every dragover, and after each step of the list's scrolling, so the line follows what comes under the pointer.
+   */
+  const place = (x: number, y: number): void => {
+    if (!dragging) return
+    const row = (document.elementFromPoint(x, y) as HTMLElement | null)?.closest<HTMLElement>('.progress-lane')
+    const id = row && list.current?.contains(row) ? row.dataset.lane : undefined
+    const i = id ? running.indexOf(id) : -1
+    if (!row || !id || i < 0) return setDropBefore(undefined)
+    const box = row.getBoundingClientRect()
+    const before = y < box.top + box.height / 2 ? id : (running[i + 1] ?? null)
+    setDropBefore(droppedLaneOrder(running, dragging, before) ? before : undefined)
+  }
+  const placeNow = useRef(place)
+  placeNow.current = place
+  // While a lane is dragged: near the list's top or bottom edge it scrolls, every frame, as the board's columns do (so
+  // it keeps going with the pointer held still: dragover doesn't come at a steady rate, or at all without a move). Stops
+  // when the drag ends, is dropped or cancelled, or the pointer leaves the list.
+  const pointer = useRef<{ x: number; y: number } | null>(null)
+  const isDragging = !!dragging
+  useEffect(() => {
+    if (!isDragging) return
+    const over = (e: DragEvent): void => {
+      pointer.current = list.current?.contains(e.target as Node) ? { x: e.clientX, y: e.clientY } : null
+    }
+    const stop = (): void => {
+      pointer.current = null
+    }
+    document.addEventListener('dragover', over, true)
+    document.addEventListener('drop', stop, true)
+    let frame = 0
+    let last = performance.now()
+    const step = (now: number): void => {
+      const ms = now - last
+      last = now
+      const p = pointer.current
+      const el = list.current
+      if (p && el && el.scrollHeight > el.clientHeight) {
+        const r = el.getBoundingClientRect()
+        const top = el.scrollTop
+        el.scrollTop = clampScroll(top, frameStep(edgeSpeed(p.y, r.top, r.bottom), ms), el.scrollHeight - el.clientHeight)
+        if (el.scrollTop !== top) placeNow.current(p.x, p.y)
+      }
+      frame = requestAnimationFrame(step)
+    }
+    frame = requestAnimationFrame(step)
+    return () => {
+      cancelAnimationFrame(frame)
+      document.removeEventListener('dragover', over, true)
+      document.removeEventListener('drop', stop, true)
+      pointer.current = null
+    }
+  }, [isDragging])
+  const reorder = (l: Lane): LaneReorder | null => {
+    if (!laneRunning(l.state)) return null
+    const i = running.indexOf(l.id)
+    return {
+      movable: running.length > 1,
+      dragging: dragging === l.id,
+      dropBefore: !!dragging && dropBefore === l.id,
+      dropAfter: !!dragging && dropBefore === null && i === running.length - 1,
+      onDragStart: (e) => {
+        e.dataTransfer.effectAllowed = 'move'
+        e.dataTransfer.setData(LANE_DRAG, l.id)
+        e.dataTransfer.setData('text/plain', lanePair(l))
+        // After the browser has taken its drag image.
+        setTimeout(() => setDragging(l.id), 0)
+      },
+      onDragEnd: () => {
+        setDragging(null)
+        setDropBefore(undefined)
+      },
+      onDragOver: (e) => {
+        if (!dragging) return
+        e.preventDefault()
+        e.dataTransfer.dropEffect = 'move'
+        place(e.clientX, e.clientY)
+      },
+      onDrop: (e) => {
+        e.preventDefault()
+        const lane = lanes.find((x) => x.id === dragging)
+        const next = dragging && dropBefore !== undefined ? droppedLaneOrder(running, dragging, dropBefore) : null
+        setDragging(null)
+        setDropBefore(undefined)
+        if (lane) moved(next, lane, false)
+      },
+      onKeyDown: (e) => {
+        if (!e.altKey || e.ctrlKey || e.metaKey || e.shiftKey || (e.key !== 'ArrowUp' && e.key !== 'ArrowDown')) return
+        e.preventDefault()
+        e.stopPropagation()
+        const next = nudgedLaneOrder(running, l.id, e.key === 'ArrowUp' ? -1 : 1)
+        if (next) moved(next, l, true)
+        else setSaid(`${lanePair(l)} is already the ${e.key === 'ArrowUp' ? 'first' : 'last'} running lane`)
+      },
+      onContextMenu: (e) => laneMenu(e, l)
+    }
+  }
+  // Over no running lane (a finished one, the list's padding): nowhere to drop, so no line.
+  const overList = (e: React.DragEvent<HTMLDivElement>): void => {
+    if (dragging && !e.isDefaultPrevented()) setDropBefore(undefined)
+  }
   useLayoutEffect(() => {
     const el = list.current
     const body = el?.closest('.progress-panel')?.querySelector<HTMLElement>('.progress-body')
@@ -82,12 +231,16 @@ export function LanesSection({ lanes, width }: { lanes: Lane[]; width: number })
       </button>
       {!folded && (
         // Whole lanes, the next one's top at the bottom edge; all of them, with the list's padding, when they fit.
-        <div className="progress-lanes-list" ref={list} style={shown < lanes.length ? { maxHeight: shown * pitch } : undefined}>
+        <div className="progress-lanes-list" ref={list} style={shown < lanes.length ? { maxHeight: shown * pitch } : undefined} onDragOver={overList}>
           {lanes.map((l) => (
-            <LaneRow key={l.id} lane={l} max={segmentsThatFit(width - BAR_INSET_PX)} />
+            <LaneRow key={l.id} lane={l} max={segmentsThatFit(width - BAR_INSET_PX)} reorder={reorder(l)} />
           ))}
         </div>
       )}
+      <div className="progress-lanes-said" role="status">
+        {said}
+      </div>
+      {menu.element}
     </div>
   )
 }
@@ -167,7 +320,24 @@ function LanesEdge({ rowsKey: key, chosen, shown, max, count, pitch, fallback }:
   )
 }
 
-function LaneRow({ lane: l, max }: { lane: Lane; max: number }) {
+const LANE_DRAG = 'application/x-hive-lane'
+
+/** What a running lane's row needs to be moved (#568); a finished lane has none. */
+interface LaneReorder {
+  /** There is another running lane to move it past. */
+  movable: boolean
+  dragging: boolean
+  dropBefore: boolean
+  dropAfter: boolean
+  onDragStart: (e: React.DragEvent<HTMLDivElement>) => void
+  onDragEnd: () => void
+  onDragOver: (e: React.DragEvent<HTMLDivElement>) => void
+  onDrop: (e: React.DragEvent<HTMLDivElement>) => void
+  onKeyDown: (e: React.KeyboardEvent<HTMLDivElement>) => void
+  onContextMenu: (e: React.MouseEvent<HTMLDivElement>) => void
+}
+
+function LaneRow({ lane: l, max, reorder: r }: { lane: Lane; max: number; reorder: LaneReorder | null }) {
   const tasks = useStore((s) => s.tasks)
   const projects = useStore((s) => s.workspace?.projects ?? NO_PROJECTS)
   // Read again each minute: a card waiting in Review becomes stalled with time (#521).
@@ -186,12 +356,31 @@ function LaneRow({ lane: l, max }: { lane: Lane; max: number }) {
   // A lane that ended without a record of its cards doesn't know how many were finished (#512).
   const unknown = cards.some((c) => c.state === 'unrecorded')
   const segments = fitSegments(cards, max)
-  const pair = l.reviewer ? `${l.builder.name} / ${l.reviewer.name}` : l.builder.name
+  const pair = lanePair(l)
   const word = STATE_WORD[l.state]
   // Its cost on the hover of its top line (#602), read when the hover first shows.
   const cost = useLaneCost(l.id)
   return (
-    <div className={cx('progress-lane', l.state)} data-lane={l.id}>
+    <div
+      className={cx('progress-lane', l.state, r?.movable && 'movable', r?.dragging && 'dragging', r?.dropBefore && 'drop-before', r?.dropAfter && 'drop-after')}
+      data-lane={l.id}
+      // A running lane is focusable, to move it with Alt+Up and Alt+Down (#568).
+      {...(r
+        ? {
+            role: 'group',
+            'aria-label': `${pair}${l.name ? `, ${l.name}` : ''}`,
+            'aria-keyshortcuts': r.movable ? 'Alt+ArrowUp Alt+ArrowDown' : undefined,
+            tabIndex: 0,
+            draggable: r.movable,
+            onDragStart: r.onDragStart,
+            onDragEnd: r.onDragEnd,
+            onDragOver: r.onDragOver,
+            onDrop: r.onDrop,
+            onKeyDown: r.onKeyDown,
+            onContextMenu: r.onContextMenu
+          }
+        : {})}
+    >
       <Tooltip block content={<LaneCostTip cost={cost.cost} />}>
         <div className="progress-lane-top" onMouseEnter={cost.load}>
           <span className="progress-lane-pair">{pair}</span>

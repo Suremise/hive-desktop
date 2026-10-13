@@ -21,6 +21,7 @@ async function startIn(inv, proj) {
   const a = await lib.addAgent(inv, proj)
   await inv('session:start', proj, { agentId: a.id })
   await lib.acceptClaudeTrust(inv, proj, a.id)
+  return a
 }
 
 async function launch(name, config) {
@@ -70,8 +71,10 @@ const forceClose = async (app) => {
     const { app, page, inv, ws } = await launch('always', { settings: { general: { confirmOnQuit: true } } })
     check('migration: old "true" became "working"', (await inv('settings:get')).general.confirmOnQuit === 'working')
     await inv('settings:update', { general: { confirmOnQuit: 'always' } })
-    await startIn(inv, path.join(ws, 'alpha'))
+    const alphaAgent = await startIn(inv, path.join(ws, 'alpha'))
     await startIn(inv, path.join(ws, 'beta'))
+    // alpha's agent works on a card: the dialog's table says which (#572).
+    const card = (await inv('tasks:create', { title: 'Quit table', project: 'alpha', column: 'doing', agent: alphaAgent.id })).number
     // Its sessions up and idle, so quitting finds them running.
     await untilReady(inv, 2)
     await page.evaluate(() => window.hive.invoke('app:quit')) // same entry point as the tray's Quit Hive
@@ -79,7 +82,23 @@ const forceClose = async (app) => {
     check('dialog: shown in-app', await dialogShown())
     check('dialog: lists both sessions', await becomes(async () => (await page.locator('.quit-row').count()) === 2))
     check('dialog: no "quit when finished" when nothing is working', (await page.locator('.dialog button', { hasText: 'Quit when' }).count()) === 0)
-    await page.screenshot({ path: path.join(shots, '1-dialog-idle.png') })
+    // The agents as a table (#572): Agent, Project, State, Card (no "Stopping it" while nothing is busy).
+    const table = page.locator('.dialog .quit-agents table.agents-table')
+    // As written (the headings are upper case by CSS only).
+    const heads = await table.locator('thead th').allTextContents()
+    const alphaRow = table.locator('tr.quit-row', { hasText: 'alpha' })
+    const cells = await alphaRow.locator('td').allInnerTexts()
+    check('dialog: the agents are a table: Agent, Project, State, Card', JSON.stringify(heads) === JSON.stringify(['Agent', 'Project', 'State', 'Card']))
+    check(`dialog: a row is the agent, its project, its state and its card (#${card})`, cells.length === 4 && cells[0].trim() === alphaAgent.name && cells[1].trim() === 'alpha' && cells[3].trim() === `#${card} Quit table`)
+    // For screen readers, the same as plain text (the table hidden from them): each agent, its project, state and card.
+    const plain = await page.locator('.dialog .quit-agents .visually-hidden').innerText()
+    check('dialog: its plain text says each agent with its project, state and card, the table hidden from screen readers', plain.includes(`• ${alphaAgent.name} — in alpha · Ready · card #${card} Quit table`) && (await page.locator('.dialog .quit-agents [aria-hidden="true"] table.agents-table').count()) === 1)
+    for (const theme of ['dark', 'light']) {
+      await inv('settings:update', { appearance: { theme } })
+      await becomes(async () => (await page.evaluate(() => document.documentElement.dataset.theme)) === theme)
+      await page.screenshot({ path: path.join(shots, `1-dialog-idle-${theme}.png`) })
+    }
+    await inv('settings:update', { appearance: { theme: 'dark' } })
     await page.locator('.dialog button', { hasText: 'Cancel' }).click()
     check('cancel: dialog closed, sessions still running', await becomes(async () => (await page.locator('.quit-row').count()) === 0 && (await inv('app:quitState')).request === null) && (await inv('session:live')).length === 2)
     // Escape also cancels.

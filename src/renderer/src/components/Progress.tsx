@@ -194,7 +194,7 @@ export function ProgressPanel() {
           </>
         )}
       </div>
-      <LanesSection lanes={shownLanes} width={width} />
+      <LanesSection lanes={shownLanes} all={lanes} width={width} />
     </div>
   )
 }

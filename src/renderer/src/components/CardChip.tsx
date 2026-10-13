@@ -1,6 +1,7 @@
 import { useMemo } from 'react'
 import type { AgentInfo, ProjectInfo, TaskCard, TaskColumn } from '@shared/types'
 import { agentDoingCards, agentReviewCards, columnColor } from '@shared/tasks'
+import { cardsText } from '@shared/agentTable'
 import { isAssistantPath, set, useStore } from '../store'
 import { cx } from '../util'
 import { Icon, Tooltip } from './ui'
@@ -19,8 +20,7 @@ export function useAgentReviews(project: ProjectInfo, agentId: string): TaskCard
 
 /** "#4 Attention inbox" (+1 when it has more), for a tooltip or a status line; empty when it has none. */
 export function cardText(cards: TaskCard[]): string {
-  if (!cards.length) return ''
-  return `#${cards[0].number} ${cards[0].title}${cards.length > 1 ? ` +${cards.length - 1}` : ''}`
+  return cardsText(cards)
 }
 
 /**

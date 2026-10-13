@@ -59,8 +59,12 @@ export interface QuitSession {
   projectPath: string
   project: string
   status: SessionStatus
-  /** The agent's name, when the project has more than one. */
+  /** The agent's name (none for the Hive Assistant). */
   agent?: string
+  /** The agent's id, to find its card. */
+  agentId?: string
+  /** The card it works on, or reviews ("reviewing #12 …"), from its workspace's board (#572). */
+  card?: string
   /** The name of the workspace it runs in (its folder's), shown over its group when several windows are open. */
   workspace?: string
   /** That workspace's full path: the quit dialog groups agents by it, so two workspaces with the same name stay apart. */
@@ -448,6 +452,8 @@ export interface AppConfig {
     boardFold?: Record<string, BoardFold>
     /** Each workspace's Progress panel filter (#251), by workspace path in lower case: one project's runs (and agent's), or all. */
     progressFilter?: Record<string, { project: string; agent?: string }>
+    /** Each workspace's running lanes in the order the user put them in the Progress panel (#568), by workspace path in lower case: lane ids. */
+    laneOrder?: Record<string, string[]>
   }
   /** Per provider: the model last seen in a session started without a model choice (the CLI's own default). */
   observedDefaultModel: Record<ProviderId, string>

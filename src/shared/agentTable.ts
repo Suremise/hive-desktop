@@ -1,4 +1,5 @@
-import type { LaneState, TaskWatchInfo } from './types'
+import { agentDoingCards, agentReviewCards } from './tasks'
+import type { LaneState, TaskCard, TaskWatchInfo } from './types'
 
 /**
  * A project's agents as a table (#529: the project tile's tooltip, the sidebar's agent count and the project header's
@@ -35,6 +36,46 @@ export function laneOrder<T extends { id: string }>(agents: readonly T[], lanes:
   }
   for (const a of agents) put(a.id)
   return out
+}
+
+/** "#4 Attention inbox" (+1 when there are more), for a tooltip, a table's cell or a status line; empty for none. */
+export function cardsText(cards: readonly Pick<TaskCard, 'number' | 'title'>[]): string {
+  if (!cards.length) return ''
+  return `#${cards[0].number} ${cards[0].title}${cards.length > 1 ? ` +${cards.length - 1}` : ''}`
+}
+
+/**
+ * An agent's Card cell: the card it works on (in Doing), else the one it reviews ("reviewing #12 …"); empty for none.
+ * `project` is the project's name, as the board has it.
+ */
+export function agentCardText(cards: readonly TaskCard[], project: string, agentId: string): string {
+  const doing = cardsText(agentDoingCards(cards, project, agentId))
+  if (doing) return doing
+  const reviewing = cardsText(agentReviewCards(cards, project, agentId))
+  return reviewing ? `reviewing ${reviewing}` : ''
+}
+
+/** A column as an agents table's plain text says it (#572): the words before its cell ("card #12 …"); none for a state or a sentence. */
+export interface TextColumn {
+  prefix?: string
+}
+
+/** A row of an agents table, or a heading across it, as its plain text needs them. */
+export type TextRow = { name: string; cells: readonly { text: string }[] } | { groupText: string }
+
+/**
+ * An agents table as plain text (#572), for screen readers and a confirm's copy: a line an agent with every cell the
+ * table shows, in its order ("• B1 — Working… · card #12 Lanes · worktree hive/b1 · Stopped (will be interrupted),
+ * then a new session"; an empty cell left out), and a heading's line ("workspace-a:") over its agents.
+ */
+export function agentRowsText(columns: readonly TextColumn[], rows: readonly TextRow[]): string {
+  return rows
+    .map((r) => {
+      if ('groupText' in r) return `${r.groupText}:`
+      const cells = columns.flatMap((c, i) => (r.cells[i]?.text ? [`${c.prefix ?? ''}${r.cells[i].text}`] : []))
+      return `• ${r.name}${cells.length ? ` — ${cells.join(' · ')}` : ''}`
+    })
+    .join('\n')
 }
 
 /** A watching agent's "Waiting for" cell: its watch's label without the words ("#506, #509 → Review", "B6 to finish"). */

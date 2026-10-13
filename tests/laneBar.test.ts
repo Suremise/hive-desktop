@@ -2,7 +2,7 @@
 // rounds), the hover text, folding a long lane's finished cards, and the header's numbers; an ended lane's segments as it
 // left them, the card being worked, and the panel's order of lanes (#512).
 import { describe, expect, it } from 'vitest'
-import { cardSegment, chosenLaneRows, currentCard, DEFAULT_LANE_ROWS, draggedLaneRows, failedVerdictGist, fitSegments, frozenSegment, keyedLaneRows, laneCards, laneRowsNow, lanesShown, laneSummary, maxLaneRows, panelOrder, reviewRounds, SEGMENT_NOTE_MAX, segmentName, segmentsThatFit, type CardSegment, type SegmentState } from '../src/shared/laneBar'
+import { cardSegment, chosenLaneRows, currentCard, DEFAULT_LANE_ROWS, draggedLaneRows, droppedLaneOrder, failedVerdictGist, fitSegments, frozenSegment, keptLaneOrder, keyedLaneRows, LANE_ORDER_MAX, laneCards, laneRowsNow, laneRunning, lanesShown, laneSummary, maxLaneRows, mergedLaneOrder, nudgedLaneOrder, panelOrder, reviewRounds, SEGMENT_NOTE_MAX, segmentName, segmentsThatFit, type CardSegment, type SegmentState } from '../src/shared/laneBar'
 import type { LaneCard, LaneState, TaskCard, TaskColumn } from '../src/shared/types'
 
 const card = (number: number, column: TaskColumn, history: string[] = [], extra: Partial<TaskCard> = {}): TaskCard => ({
@@ -199,7 +199,7 @@ describe("an ended lane's segments (#512)", () => {
 describe("the panel's order of lanes (#512)", () => {
   const lane = (id: string, state: LaneState, startedAt: string, endedAt: string | null = null) => ({ id, state, startedAt, endedAt })
 
-  it('running first, then paused, then ended and abandoned; newest first in each', () => {
+  it('running first, then paused, newest first in each; then ended and abandoned in the order they finished (#568)', () => {
     const list = [
       lane('old-ended', 'ended', '2026-10-10T01:00:00Z', '2026-10-10T02:00:00Z'),
       lane('old-run', 'active', '2026-10-10T01:00:00Z'),
@@ -207,8 +207,90 @@ describe("the panel's order of lanes (#512)", () => {
       lane('dropped', 'abandoned', '2026-10-09T23:00:00Z', '2026-10-10T04:00:00Z'),
       lane('new-run', 'active', '2026-10-10T05:00:00Z')
     ]
-    expect(panelOrder(list).map((l) => l.id)).toEqual(['new-run', 'old-run', 'paused', 'dropped', 'old-ended'])
+    expect(panelOrder(list).map((l) => l.id)).toEqual(['new-run', 'old-run', 'paused', 'old-ended', 'dropped'])
     expect(list[0].id).toBe('old-ended')
+  })
+})
+
+describe("the user's order of lanes (#568)", () => {
+  const lane = (id: string, state: LaneState, startedAt: string, endedAt: string | null = null) => ({ id, state, startedAt, endedAt })
+  const ids = (ls: { id: string }[]): string[] => ls.map((l) => l.id)
+  const a = lane('a', 'active', '2026-10-10T01:00:00Z')
+  const b = lane('b', 'active', '2026-10-10T02:00:00Z')
+  const c = lane('c', 'paused', '2026-10-10T03:00:00Z')
+
+  it('without a move, nothing changes from the usual order', () => {
+    expect(ids(panelOrder([a, b, c]))).toEqual(ids(panelOrder([a, b, c], [])))
+    expect(ids(panelOrder([a, b, c]))).toEqual(['b', 'a', 'c'])
+  })
+
+  it('running lanes, paused ones too, follow the order the user put them in', () => {
+    expect(ids(panelOrder([a, b, c], ['c', 'a', 'b']))).toEqual(['c', 'a', 'b'])
+  })
+
+  it('a lane started since arrives on top, paused or not, newest first; the moved ones keep their order below it', () => {
+    const d = lane('d', 'active', '2026-10-10T04:00:00Z')
+    // Started after d, paused at once (its first card blocked): still on top.
+    const e = lane('e', 'paused', '2026-10-10T05:00:00Z')
+    expect(ids(panelOrder([a, b, c, d, e], ['a', 'c', 'b']))).toEqual(['e', 'd', 'a', 'c', 'b'])
+    // One of them pausing later keeps its place among them: by when it started, not its state.
+    expect(ids(panelOrder([a, b, c, { ...d, state: 'paused' as const }, { ...e, state: 'active' as const }], ['a', 'c', 'b']))).toEqual(['e', 'd', 'a', 'c', 'b'])
+    expect(ids(panelOrder([a, b, c, { ...d, state: 'paused' as const }, { ...e, state: 'active' as const }].reverse(), ['a', 'c', 'b']))).toEqual(['e', 'd', 'a', 'c', 'b'])
+    // Without an order, active before paused as ever (#512).
+    expect(ids(panelOrder([a, b, c, d, e]))).toEqual(['d', 'b', 'a', 'e', 'c'])
+  })
+
+  it('a lane that pauses or runs again keeps its place in the order', () => {
+    expect(ids(panelOrder([{ ...a, state: 'paused' as const }, b, { ...c, state: 'active' as const }], ['a', 'b', 'c']))).toEqual(['a', 'b', 'c'])
+  })
+
+  it('a lane that finishes leaves the order and drops to the very bottom, the latest finish last', () => {
+    const early = lane('early', 'ended', '2026-10-09T01:00:00Z', '2026-10-10T06:00:00Z')
+    const done = { ...a, state: 'ended' as const, endedAt: '2026-10-10T07:00:00Z' }
+    const gone = { ...b, state: 'abandoned' as const, endedAt: '2026-10-10T08:00:00Z' }
+    expect(ids(panelOrder([gone, early, c, done], ['a', 'b', 'c']))).toEqual(['c', 'early', 'a', 'b'])
+  })
+
+  it('ids it names that are no lane any more change nothing', () => {
+    expect(ids(panelOrder([a, b], ['gone', 'a', 'b', 'old']))).toEqual(['a', 'b'])
+  })
+
+  it('only running lanes move', () => {
+    expect((['active', 'paused', 'ended', 'abandoned'] as const).map(laneRunning)).toEqual([true, true, false, false])
+  })
+
+  it('a drop puts the lane before another, or after the last; a drop that leaves it in place is none', () => {
+    const run = ['a', 'b', 'c', 'd']
+    expect(droppedLaneOrder(run, 'd', 'a')).toEqual(['d', 'a', 'b', 'c'])
+    expect(droppedLaneOrder(run, 'a', 'c')).toEqual(['b', 'a', 'c', 'd'])
+    expect(droppedLaneOrder(run, 'a', null)).toEqual(['b', 'c', 'd', 'a'])
+    expect(droppedLaneOrder(run, 'b', 'c')).toBeNull()
+    expect(droppedLaneOrder(run, 'b', 'b')).toBeNull()
+    expect(droppedLaneOrder(run, 'd', null)).toBeNull()
+    expect(droppedLaneOrder(run, 'x', 'a')).toBeNull()
+    expect(droppedLaneOrder(run, 'a', 'ended-lane')).toBeNull()
+  })
+
+  it('a move among the lanes a filtered panel shows leaves the others where they are', () => {
+    // Shown: b, d (one project's); moved: d above b.
+    expect(mergedLaneOrder(['a', 'b', 'c', 'd', 'e'], ['d', 'b'])).toEqual(['a', 'd', 'c', 'b', 'e'])
+    expect(mergedLaneOrder(['a', 'b', 'c'], ['c', 'b', 'a'])).toEqual(['c', 'b', 'a'])
+    expect(mergedLaneOrder(['a', 'b'], [])).toEqual(['a', 'b'])
+  })
+
+  it('Alt+Up and Alt+Down move a lane a place, never past either end', () => {
+    expect(nudgedLaneOrder(['a', 'b', 'c'], 'b', -1)).toEqual(['b', 'a', 'c'])
+    expect(nudgedLaneOrder(['a', 'b', 'c'], 'b', 1)).toEqual(['a', 'c', 'b'])
+    expect(nudgedLaneOrder(['a', 'b', 'c'], 'a', -1)).toBeNull()
+    expect(nudgedLaneOrder(['a', 'b', 'c'], 'c', 1)).toBeNull()
+    expect(nudgedLaneOrder(['a', 'b', 'c'], 'x', 1)).toBeNull()
+  })
+
+  it('an order is kept as lane ids, each once and a bounded list; anything else is none', () => {
+    expect(keptLaneOrder(['a', 'b', 'a', '', 7, null, 'x'.repeat(65), 'c'])).toEqual(['a', 'b', 'c'])
+    expect(keptLaneOrder('a')).toEqual([])
+    expect(keptLaneOrder(null)).toEqual([])
+    expect(keptLaneOrder(Array.from({ length: LANE_ORDER_MAX + 5 }, (_, i) => `l${i}`))).toHaveLength(LANE_ORDER_MAX)
   })
 })
 
