@@ -386,6 +386,21 @@ describe('the advanced store', () => {
     await s.reload()
     expect(s.diagnostics([null])).toEqual(['- Advanced settings: 1 override (hive.mcp.replySeconds)', '  - not valid, so the default is used: hive.mcp.replySeconds', '  - unknown to this Hive: 1'])
   })
+
+  it("the developer console's show text is off by default; turned on, its listeners hear it and diagnostics name it (#699)", async () => {
+    const { s, dir } = store()
+    s.load(dir)
+    expect(def('hive.console.showText')).toMatchObject({ kind: 'boolean', default: false, applies: 'now' })
+    expect(s.get<boolean>('hive.console.showText')).toBe(false)
+    const heard: boolean[] = []
+    s.onChange(() => heard.push(s.get<boolean>('hive.console.showText')))
+    await s.set('hive.console.showText', true)
+    expect(heard).toEqual([true])
+    expect(s.diagnostics([null])).toEqual(['- Advanced settings: 1 override (hive.console.showText)'])
+    await s.set('hive.console.showText', false)
+    expect(heard).toEqual([true, false])
+    expect(s.diagnostics([null])).toEqual(['- Advanced settings: no overrides'])
+  })
 })
 
 describe('the adapters and the hive MCP server use them', () => {

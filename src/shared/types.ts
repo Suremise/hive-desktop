@@ -2108,6 +2108,8 @@ export type HiveEvent =
   /** The developer console's new events for the sources this window watches (#636): sent to that window only. */
   /** A window's developer console recording got further, or stopped (#638). */
   | { type: 'console-recording'; recording: ConsoleRecordingInfo }
+  /** The developer console's options changed (#699): Settings → Advanced → Developer console: show text. Console windows only. */
+  | { type: 'console-options'; showText: boolean }
   | { type: 'console-events'; events: ConsoleEvent[]; /** Events that didn't fit the window's queue since the last batch (it fell behind). */ dropped?: number }
 
 /**

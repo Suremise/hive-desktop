@@ -514,13 +514,15 @@ export interface HiveRequests {
   'console:open': () => void
   /** The developer console's sources in this window's workspace (#636): its agents, its Assistant and Hive itself. */
   'console:sources': () => ConsoleSource[]
+  /** The developer console's options (#699): `showText`, Settings → Advanced → Developer console: show text. Changes come as `console-options`. */
+  'console:options': () => { showText: boolean }
   /**
    * What this window watches in the developer console: replaces its list ([] ends it) and returns each source's events
-   * so far. Capture runs only while a window watches a source; live events come as `console-events`. `includeText` keeps
-   * prompt and reply text in what this window is sent (secrets stay masked); off by default.
+   * so far. Capture runs only while a window watches a source; live events come as `console-events`. Redacted, or with
+   * prompt, reply and command text while `console:options`' showText is on (secrets stay masked).
    */
-  'console:subscribe': (sources: string[], opts?: { includeText?: boolean }) => Record<string, ConsoleEvent[]>
-  /** A watched source's events after `since` (a seq), oldest first. */
+  'console:subscribe': (sources: string[]) => Record<string, ConsoleEvent[]>
+  /** A watched source's events after `since` (a seq), oldest first (with text as `console:subscribe` says). */
   'console:snapshot': (source: string, since?: number) => ConsoleEvent[]
   /**
    * Records a source this window may read to a file in Hive's console-recordings folder (#638), from now until stopped,
