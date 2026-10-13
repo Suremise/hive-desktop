@@ -274,6 +274,8 @@ interface State {
   moveBannerHidden: string | null
   shortcutsOpen: boolean
   dialog: DialogRequest | null
+  /** Why the open confirm can't be confirmed yet, set by its content (#702: a template's names that clash): its button is greyed out. */
+  dialogBlocked: string | null
   /** Sessions listed in the quit dialog while main waits for a decision. */
   quitRequest: QuitSession[] | null
   /** Files with unsaved edits listed in the quit dialog (absolute paths). */
@@ -304,6 +306,8 @@ interface State {
   templateEdits: Record<string, TemplateEdit>
   /** Worktree agent whose Merge dialog is open. */
   mergeFor: AgentRef | null
+  /** The project whose Initialise repository dialog is open (#701): kept while the Git tab changes under it. */
+  gitInitFor: string | null
   /** The agent whose work "Hand Over to…" hands to another agent. */
   handOverFor: AgentRef | null
   /** Shows this agent's session in its project's Overview and scrolls to it (the footer's context count); `at` makes each click count. */
@@ -451,6 +455,7 @@ export const useStore = create<State>(() => ({
   moveBannerHidden: null,
   shortcutsOpen: false,
   dialog: null,
+  dialogBlocked: null,
   quitRequest: null,
   quitUnsaved: [],
   quitScope: 'app',
@@ -464,6 +469,7 @@ export const useStore = create<State>(() => ({
   templateAgentFor: null,
   templateEdits: {},
   mergeFor: null,
+  gitInitFor: null,
   handOverFor: null,
   overviewJump: null,
   projectSettingsJump: null,
@@ -942,7 +948,7 @@ function openDialog(d: DialogRequest): void {
 
 /** Closes the dialog shown (its caller resolves it) and shows the next one waiting, if any. */
 export function closeDialog(): void {
-  set({ dialog: dialogQueue.shift() ?? null })
+  set({ dialog: dialogQueue.shift() ?? null, dialogBlocked: null })
 }
 
 export function confirm(opts: Omit<ConfirmRequest, 'kind' | 'resolve'>): Promise<boolean> {

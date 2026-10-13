@@ -352,6 +352,21 @@ export class CopilotAdapter implements ProviderAdapter {
     return { hookSpecificOutput: { hookEventName: 'PreToolUse', permissionDecision: d.kind, permissionDecisionReason: d.reason } }
   }
 
+  /**
+   * Notices (1.0.95, offline against a stand-in model, #650): after a tool call as top-level additionalContext, which
+   * Copilot adds to the tool's result ("Additional guidance from postToolUse hooks"; its hookSpecificOutput form doesn't
+   * reach the model); at Stop as a block, whose reason it takes as a new prompt (drainIsPrompt).
+   */
+  noticeReply(event: string, text: string): Record<string, unknown> | null {
+    if (!text) return null
+    if (event === 'PostToolUse') return { additionalContext: text }
+    if (event === 'Stop') return { decision: 'block', reason: text }
+    return null
+  }
+
+  /** A Stop's continuation comes back as a new prompt hook, with the reason as its prompt (1.0.95, #650). */
+  readonly drainIsPrompt = true
+
   /** A Stop blocked carries the turn on (Copilot's hooks reference; not tried yet, #645). */
   stopContinues(reply: Record<string, any>): boolean {
     return reply.decision === 'block'

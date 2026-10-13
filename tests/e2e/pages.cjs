@@ -1,7 +1,9 @@
 // Agent pages (#134): one layout for the project, and a page holds as many agents as the layout has panes, so pages
 // = agents ÷ panes. Automatic until chosen (up to a 3×2 grid, then pages of six). 4 agents in three columns are two
 // pages (the 4th alone on page 2); 6 in a grid of four are two; one at a time has no page buttons; switching the layout
-// changes the pages at once; the last page's spare panes are empty; up to twelve agents.
+// changes the pages at once; the last page's spare panes are empty; up to twelve agents, and up to 24 with this
+// workspace's Agents per project raised (#562): pages, the most page buttons, the agents table, a template of 24 round
+// trip, a lower limit refusing a template and more agents but removing none.
 // Dev build, throwaway profile and workspace; no sessions are started.
 const lib = require('./lib.cjs')
 const { _electron } = require('playwright-core')
@@ -143,6 +145,98 @@ const check = (name, ok, extra = '') => {
   await lib.sleep(300)
   await remove('Agent 7')
   check('removing the only agent on page 2 goes to page 1', (await page.locator('.page-switch').count()) === 0 && (await panes()) >= 1)
+
+  // --- More than twelve (#562): Settings → Advanced → Agents per project, this workspace's own value, up to 24.
+  const setLimit = (v) => inv('advanced:set', 'hive.agents.perProject', v, 'workspace')
+  const agentsNow = async () => (await inv('workspace:refresh')).projects[0].agents
+  const refusal = () => inv('agents:add', proj, { location: 'project', provider: 'claude-code' }).then(() => '', (e) => String(e.message ?? e))
+  const addButton = page.locator('.agent-strip button.agent-add').first()
+  await add(12 - (await agentsNow()).length)
+  const at12 = await refusal()
+  check('back at twelve: a thirteenth is refused, naming the setting', /up to 12 agents \(Settings → Advanced → Agents per project\)/.test(at12), at12)
+  check('…and Add Agent is greyed out', !!(await lib.until(() => addButton.isDisabled(), HUNG_MS)))
+  await setLimit(24)
+  check('this workspace allows 24: Add Agent is back', !!(await lib.until(async () => !(await addButton.isDisabled()), HUNG_MS)))
+  await add(12)
+  check('twenty-four agents', (await agentsNow()).length === 24, String((await agentsNow()).length))
+  const at24 = await refusal()
+  check('a twenty-fifth is refused', /up to 24 agents/.test(at24), at24)
+  await choose('Grid of six')
+  check('24 in the grid of six: four pages', (await buttons()) === 4, String(await buttons()))
+  await go(4)
+  check('page 4: a full grid', (await shown()).split(',').length === 6, await shown())
+  // The most pages: two columns, all in the strip and the window, an agent tab or two too.
+  const stripFits = () =>
+    page.evaluate(() => {
+      const strip = document.querySelector('.agent-strip')
+      const out = [...document.querySelectorAll('.page-switch button, .layout-switch button, .agent-strip .agent-add')].filter((b) => {
+        const r = b.getBoundingClientRect()
+        return r.width === 0 || r.left < 0 || r.right > window.innerWidth
+      })
+      // Room left for the agent tabs (they scroll): at least one shows.
+      return { overflows: !!strip && strip.scrollWidth > strip.clientWidth + 1, out: out.length, tabs: (document.querySelector('.agent-tabs')?.clientWidth ?? 0) >= 100 }
+    })
+  // Twelve pages are more than buttons fit: ‹, "1 / 12" (a menu of every page), ›.
+  const pager = async () => (await page.locator('.page-switch.compact .page-menu').innerText().catch(() => '')).trim()
+  await choose('Two columns')
+  // Page 10 of 12: the focused agent's, from page 4 of the grid of six.
+  check('24 in two columns: the compact pager, ‹ 10 / 12 › (where the focused agent is)', (await buttons()) === 3 && (await pager()) === '10 / 12', `${await buttons()} / ${await pager()}`)
+  await page.locator('.page-switch.compact .page-menu').click()
+  check('its menu lists the twelve pages', !!(await lib.until(async () => (await page.locator('.menu-item', { hasText: /^Page \d+/ }).count()) === 12, HUNG_MS)))
+  await page.locator('.menu-item', { hasText: /^Page 12/ }).click()
+  check('page 12 from the menu: the last two', !!(await lib.until(async () => (await pager()) === '12 / 12', HUNG_MS)) && (await shown()).split(',').length === 2, `${await pager()} / ${await shown()}`)
+  await page.locator('.page-switch button[aria-label="Next agent page"]').click()
+  check('› after the last goes round to page 1', !!(await lib.until(async () => (await pager()) === '1 / 12', HUNG_MS)), await pager())
+  await page.locator('.page-switch button[aria-label="Previous agent page"]').click()
+  check('‹ goes back to page 12', !!(await lib.until(async () => (await pager()) === '12 / 12', HUNG_MS)), await pager())
+  check('the pager and the layouts fit the strip', JSON.stringify(await stripFits()) === '{"overflows":false,"out":0,"tabs":true}', JSON.stringify(await stripFits()))
+  await page.screenshot({ path: path.join(lib.WORK, 'pages-4-24-columns2.png') })
+  await lib.fitWindow(app, page, { width: 1024, height: 700 })
+  await lib.until(async () => (await page.evaluate(() => window.innerWidth)) === 1024, HUNG_MS)
+  check('…also in a 1024-wide window', JSON.stringify(await stripFits()) === '{"overflows":false,"out":0,"tabs":true}', JSON.stringify(await stripFits()))
+  await page.screenshot({ path: path.join(lib.WORK, 'pages-5-24-narrow.png') })
+  // The agents table (#529) of 24 fits the window's height, without scrolling or fading out.
+  const table = async () => {
+    await page.evaluate(() => document.activeElement?.blur?.())
+    await page.mouse.move(600, 400)
+    await lib.until(async () => (await page.locator('.tip').count()) === 0, HUNG_MS)
+    await page.locator('.project-header .project-title .badge').first().hover()
+    await lib.until(async () => (await page.locator('.tip.agents-tip table.agents-table').count()) === 1, HUNG_MS)
+    return page.evaluate(() => {
+      const tip = document.querySelector('.tip.agents-tip')
+      const r = tip.getBoundingClientRect()
+      return { rows: tip.querySelectorAll('tbody tr').length, clipped: tip.classList.contains('clipped'), scrolls: tip.scrollHeight > tip.clientHeight + 1, inside: r.top >= 0 && r.bottom <= window.innerHeight }
+    })
+  }
+  const t700 = await table()
+  check('the agents table of 24 fits a 700-high window', t700.rows === 24 && !t700.clipped && !t700.scrolls && t700.inside, JSON.stringify(t700))
+  await page.screenshot({ path: path.join(lib.WORK, 'pages-6-24-table.png') })
+  await page.mouse.move(600, 400)
+  await lib.fitWindow(app, page, { width: 1600, height: 900 })
+  await choose('One at a time')
+  check('24 one at a time: no page buttons', (await buttons()) === 0 && (await panes()) === 1, `${await buttons()} / ${await panes()}`)
+
+  // A template of 24 (saved, then loaded back into the project), and the limit applying to it.
+  const saved = await inv('templates:save', proj, 'project', 'Two dozen', false)
+  check('a template of 24 is saved', saved?.saved?.agents?.length === 24, JSON.stringify(saved).slice(0, 200))
+  for (const a of (await agentsNow()).slice(3)) await inv('agents:remove', proj, a.id, { deleteWorktree: false })
+  check('down to three agents', (await agentsNow()).length === 3)
+  await setLimit(12)
+  const low = await inv('templates:plan', proj, 'project', saved.saved.file)
+  check("this workspace back to 12: the template's plan is blocked, saying why", low.blocked.some((b) => /It has 24 agents, and this project can have up to 12/.test(b)), JSON.stringify(low.blocked))
+  const lowLoad = await inv('templates:load', proj, 'project', saved.saved.file, low.remove.map((a) => a.id)).then(() => '', (e) => String(e.message ?? e))
+  check('…and loading it is refused, nothing changed', /up to 12/.test(lowLoad) && (await agentsNow()).length === 3, lowLoad)
+  await setLimit(24)
+  const plan = await inv('templates:plan', proj, 'project', saved.saved.file)
+  check('at 24, its plan has 24 agents and nothing blocking', plan.create.length === 24 && plan.blocked.length === 0, JSON.stringify(plan.blocked))
+  const loaded = await inv('templates:load', proj, 'project', saved.saved.file, plan.remove.map((a) => a.id))
+  check('loaded: 24 agents again', loaded.created.length === 24 && (await agentsNow()).length === 24, `${loaded.created.length} / ${(await agentsNow()).length}`)
+  // Lowered with 24 agents: they all stay; none can be added.
+  await setLimit(null)
+  check('the workspace value cleared (back to 12): the 24 agents stay', (await agentsNow()).length === 24)
+  const after = await refusal()
+  check('…and none can be added', /up to 12 agents/.test(after), after)
+  check('…Add Agent greyed out', !!(await lib.until(() => addButton.isDisabled(), HUNG_MS)))
 
   await app.close()
   process.exit(failed ? 1 : 0)

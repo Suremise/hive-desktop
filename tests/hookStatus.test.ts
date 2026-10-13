@@ -712,3 +712,46 @@ describe('background tasks: their time limit', () => {
     expect(expireTasks(new Map([['a', { at: now - 10 * min }]]), now, 10)).toEqual(['a'])
   })
 })
+
+describe("a CLI's start, read from its screen (#679)", () => {
+  const copilot = { readyOutput: /· \/ commands ·/, startupQuestion: /Do you trust the files in this folder\?/ }
+  const claude = { readyOutput: null, startupQuestion: /Do you trust the files in this folder\?/ }
+  const footer = '← open sidebar · Interactive · Manual Approval · / commands · ? help'
+  const trust = 'Confirm folder trust … Do you trust the files in this folder? ❯ 1. Yes'
+  const state = (status: SessionStatus, extra: { askedAtStart?: boolean; settled?: boolean } = {}) => ({ status, askedAtStart: false, settled: false, ...extra })
+
+  it('starting: its question makes it wait, its prompt makes it ready', async () => {
+    const { startupScreen } = await import('../src/main/hookStatus')
+    expect(startupScreen(state('starting'), trust, copilot)).toEqual({ asked: 'Do you trust the files in this folder?' })
+    expect(startupScreen(state('starting'), footer, copilot)).toBe('ready')
+    // Both on screen: the question wins (it is drawn over the prompt).
+    expect(startupScreen(state('starting'), `${footer} ${trust}`, copilot)).toEqual({ asked: 'Do you trust the files in this folder?' })
+    expect(startupScreen(state('starting'), 'Loading…', copilot)).toBeNull()
+  })
+
+  it('its question after its prompt was drawn still makes it wait, until it has taken a prompt', async () => {
+    const { startupScreen, startupWatched } = await import('../src/main/hookStatus')
+    expect(startupScreen(state('ready'), trust, copilot)).toEqual({ asked: 'Do you trust the files in this folder?' })
+    expect(startupScreen(state('ready'), footer, copilot)).toBeNull()
+    expect(startupWatched(state('ready', { settled: true }), copilot)).toBe(false)
+    expect(startupScreen(state('ready', { settled: true }), trust, copilot)).toBeNull()
+    // Working or finished: a turn's text is never read as its start.
+    expect(startupScreen(state('working'), trust, copilot)).toBeNull()
+    expect(startupScreen(state('finished'), trust, copilot)).toBeNull()
+  })
+
+  it('asked: only its prompt counts (answered), and then nothing more', async () => {
+    const { startupScreen, startupWatched } = await import('../src/main/hookStatus')
+    expect(startupScreen(state('waiting', { askedAtStart: true }), `${trust} ${footer}`, copilot)).toBe('ready')
+    expect(startupScreen(state('waiting', { askedAtStart: true }), trust, copilot)).toBeNull()
+    expect(startupWatched(state('ready', { settled: true }), copilot)).toBe(false)
+  })
+
+  it('a CLI whose start a hook reports: its question only while starting, as before', async () => {
+    const { startupScreen, startupWatched } = await import('../src/main/hookStatus')
+    expect(startupScreen(state('starting'), trust, claude)).toEqual({ asked: 'Do you trust the files in this folder?' })
+    expect(startupWatched(state('ready'), claude)).toBe(false)
+    expect(startupScreen(state('ready'), trust, claude)).toBeNull()
+    expect(startupWatched(state('starting'), {})).toBe(false)
+  })
+})

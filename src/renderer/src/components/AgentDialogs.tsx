@@ -1,8 +1,11 @@
 import { useEffect, useRef, useState, type ReactNode } from 'react'
-import { DEFAULT_PROJECT_CONFIG, MAX_AGENTS, ROLE_MAX, effectiveModelLabel, formatBytes, mergeBlocked, projectAgents, slugify, transcriptWarnLimit } from '@shared/defaults'
+import { DEFAULT_PROJECT_CONFIG, ROLE_MAX, agentLimitText, effectiveModelLabel, formatBytes, mergeBlocked, projectAgents, slugify, transcriptWarnLimit } from '@shared/defaults'
+import { useAgentLimit } from '../advanced'
 import { PROVIDERS, agentProvider, chosenDefaultProvider, defaultProviderPending, isProviderEnabled, modeCaveat, offeredModes, permissionLabel, projectDefaultProvider, projectProviderConfig, projectUse200k, providerDescriptor, providerName, providerSettings } from '@shared/providers'
 import type { AddAgentOptions, AgentBranchStatus, EffortLevel, MergeResult, PermissionMode, ProjectGitInfo, ProjectInfo, ProviderId, WorktreeMatch } from '@shared/types'
 import { reuseNote } from '@shared/unusedWorktrees'
+import { hiveBranch, reusableBranches } from '@shared/hiveBranches'
+import { nameTaken, nameTakenMessage, sameAgentName, suggestAgentName, workspaceAgentList } from '@shared/agentNames'
 import type { TemplateAgent } from '@shared/templates'
 import { gitFixText, gitProblemText } from '@shared/gitTool'
 import * as actions from '../actions'
@@ -160,6 +163,8 @@ export function AddAgentDialog() {
   const path = useStore((s) => s.addAgentFor)
   const project = useStore((s) => s.workspace?.projects.find((p) => p.path === s.addAgentFor) ?? null)
   const settings = useStore((s) => s.settings)
+  const workspaceProjects = useStore((s) => s.workspace?.projects)
+  const workspaceName = useStore((s) => s.workspace?.name ?? '')
   // `error`: git couldn't be read, which isn't the same as "not a repository".
   const [git, setGit] = useState<(ProjectGitInfo & { error?: string }) | null>(null)
   const [name, setName] = useState('')
@@ -184,10 +189,13 @@ export function AddAgentDialog() {
   useEffect(() => {
     if (!path || !project) return
     const agents = projectAgents(project.config)
+    // Unique across the workspace (#702): numbered past every project's names.
+    const everyone = workspaceAgentList(useStore.getState().workspace?.projects)
     let n = agents.length + 1
-    while (agents.some((a) => a.name === `Agent ${n}`)) n++
+    while (everyone.some((a) => sameAgentName(a.name, `Agent ${n}`))) n++
     setName(`Agent ${n}`)
-    setBranch(`hive/agent-${n}`)
+    // hive/<workspace>/<project>/<agent> (#703).
+    setBranch(hiveBranch({ workspace: useStore.getState().workspace?.name ?? '', project: project.name }, `Agent ${n}`))
     setBranchEdited(false)
     setModel('')
     setEffort('')
@@ -219,14 +227,26 @@ export function AddAgentDialog() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [path])
 
-  // New worktree: whether an unused worktree is already on that branch (#456), looked at once the typing pauses.
+  // Where its branch is (#703): hive/<workspace>/<project>/<agent>, the workspace part as git info gives it for this
+  // repository (clear of branches from before, `branchSpace`) once it is known.
+  const home = { workspace: workspaceName, project: path?.split(/[\\/]/).pop() ?? '', spaces: git?.branchSpaces ?? [], ...(git?.branchSpace ? { space: git.branchSpace } : {}) }
+  // Git info read: the default branch in the repository's own space, unless the user typed one.
+  useEffect(() => {
+    if (git?.branchSpace && !branchEdited) setBranch(hiveBranch({ ...home, space: git.branchSpace }, name))
+    // Only when git info arrives.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [git])
+
+  // New worktree: whether an unused worktree is already on that branch (#456), looked at once the typing pauses: for its
+  // default branch, also one on the branch Hive made for that name before (#703).
   useEffect(() => {
     setMatch(null)
     const b = branch.trim()
-    if (!path || location !== 'new-worktree' || !b || !base || !git?.worktrees.some((w) => !w.used && w.branch === b)) return
+    const agent = name.trim()
+    if (!path || location !== 'new-worktree' || !b || !base || !git?.worktrees.some((w) => !w.used && !!w.branch && reusableBranches(b, home, agent).includes(w.branch))) return
     let live = true
     const t = setTimeout(() => {
-      void call('agents:worktreeMatch', path, b, base)
+      void call('agents:worktreeMatch', path, b, base, agent)
         .then((m) => live && setMatch(m))
         .catch(() => undefined)
     }, 300)
@@ -234,22 +254,29 @@ export function AddAgentDialog() {
       live = false
       clearTimeout(t)
     }
-  }, [path, location, branch, base, git])
+    // (home follows path, git and the workspace's name.)
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [path, location, branch, base, git, workspaceName, name])
 
   // Opened while Hive was still looking for the CLIs: Automatic's pick, once it is known (#506).
   useEffect(() => {
     const p = useStore.getState().workspace?.projects.find((x) => x.path === path)
     if (p && followDefault && !defaultPending) setProvider(projectDefaultProvider(p.config, useStore.getState().settings))
   }, [path, followDefault, defaultPending])
+  const limit = useAgentLimit()
 
   if (!path || !project || !settings) return null
   const close = (): void => set({ addAgentFor: null })
-  const full = project.agents.length >= MAX_AGENTS
+  const full = project.agents.length >= limit
   const free = git?.worktrees.filter((w) => !w.used) ?? []
   const copy = project.config.worktreeCopy ?? settings.agents.worktreeCopy
   const setup = project.config.worktreeSetup.trim()
   const checking = followDefault && defaultPending
-  const valid = !!name.trim() && !full && !checking && isProviderEnabled(settings, provider) && (location !== 'new-worktree' || (!!branch.trim() && !!base)) && (location !== 'existing-worktree' || !!existing)
+  // A name another agent of the workspace has (#702): refused, with a free one to use.
+  const everyone = workspaceAgentList(workspaceProjects)
+  const owner = name.trim() ? nameTaken(name, everyone) : null
+  const suggestion = owner ? suggestAgentName(name.trim(), project.name, everyone.map((a) => a.name)) : ''
+  const valid = !!name.trim() && !owner && !full && !checking && isProviderEnabled(settings, provider) && (location !== 'new-worktree' || (!!branch.trim() && !!base)) && (location !== 'existing-worktree' || !!existing)
   const chooseProvider = (v: ProviderId): void => {
     // Model, effort, mode and context are the provider's own: another provider starts from the project's.
     if (v === provider) return
@@ -259,6 +286,11 @@ export function AddAgentDialog() {
     setEffort('')
     setPermission('')
     setContext('')
+  }
+
+  const rename = (v: string): void => {
+    setName(v)
+    if (!branchEdited) setBranch(hiveBranch(home, v))
   }
 
   const add = async (): Promise<void> => {
@@ -316,18 +348,21 @@ export function AddAgentDialog() {
         </>
       }
     >
-      {full && <div className="banner warn">A project can have up to {MAX_AGENTS} agents. Remove one first.</div>}
+      {full && <div className="banner warn">{agentLimitText(limit)} Remove one first.</div>}
       <div className="agent-form">
         <label>Name</label>
         <input
           className="input"
           value={name}
           autoFocus
-          onChange={(e) => {
-            setName(e.target.value)
-            if (!branchEdited) setBranch(`hive/${slugify(e.target.value)}`)
-          }}
+          onChange={(e) => rename(e.target.value)}
         />
+        {owner && (
+          <div className="field-error span2" data-name-taken>
+            {owner.project === project.name ? `${project.name} already has an agent called ${owner.name}.` : `${owner.project} already has an agent called ${owner.name}: agent names are unique across the workspace.`}{' '}
+            <a onClick={() => rename(suggestion)}>Use {suggestion}</a>
+          </div>
+        )}
       </div>
       <h3 className="agent-dialog-h">Coding agent</h3>
       <ProviderChoice value={provider} onChange={chooseProvider} />
@@ -370,6 +405,9 @@ export function AddAgentDialog() {
                     setBranchEdited(true)
                   }}
                 />
+                <div className="faint span2" data-branch-hint>
+                  <code>hive/</code> marks branches Hive made, so it can reuse and tidy them up.
+                </div>
                 <label>Based on</label>
                 <select className="select" value={base} onChange={(e) => setBase(e.target.value)}>
                   {git?.branches.map((b) => (
@@ -673,7 +711,15 @@ export function AgentSettingsDialog() {
   const project = useStore((s) => s.workspace?.projects.find((p) => p.path === s.agentSettingsFor?.project) ?? null)
   const agent = project?.agents.find((a) => a.id === target?.agentId) ?? null
   const settings = useStore((s) => s.settings)
+  const projects = useStore((s) => s.workspace?.projects)
   if (!target || !project || !agent) return null
+  // Another agent of the workspace's name (#702); its own name stays, even one it shares from before names were unique.
+  const nameProblem = (n: string): string | null => {
+    if (sameAgentName(n, agent.name)) return null
+    const everyone = workspaceAgentList(projects)
+    const owner = nameTaken(n, everyone, { project: project.name, id: agent.id })
+    return owner ? nameTakenMessage(n, owner, suggestAgentName(n, project.name, everyone.map((a) => a.name))) : null
+  }
   const current = agent.live?.provider ?? agentProvider(agent, project.config, settings)
   const close = (): void => set({ agentSettingsFor: null })
   const initial: AgentFields = { name: agent.name, role: agent.role ?? '', provider: current, model: agent.model ?? '', effort: agent.effort ?? '', permission: agent.permissionMode ?? '', context: contextChoice(agent.use200kContext), worktree: !!agent.worktree, mcp: agent.mcpServers ? [...agent.mcpServers] : null }
@@ -704,6 +750,7 @@ export function AgentSettingsDialog() {
         ) : undefined
       }
       note={agent.live ? `Changes apply the next time ${agent.name} starts; the running session keeps its settings until then.` : undefined}
+      nameProblem={nameProblem}
       confirmSave={async (f) => {
         if (f.provider !== current) {
           const ok = await confirm({

@@ -16,18 +16,20 @@ import {
   unknownProviders,
   TEMPLATE_IMPORT_MAX,
   TEMPLATE_NAME_MAX,
+  templateLimitText,
   type AgentTemplate,
   type TemplateDeleted,
   type TemplateDest,
   type TemplateEntry,
   type TemplateRef,
+  type TemplateAgent,
   type TemplateScope
 } from '../shared/templates'
 import type { AgentDef, OldWorktreeOutcome, ProviderId, TemplateLoadPlan } from '../shared/types'
 import { config } from './config'
 import { placeKey, readKeptJson, withFileLock, writeKeptJson, writeTextAtomic } from './fsutil'
 import { createLogger, userText } from './logger'
-import { addAgent, claimMark, newWorktreePlace, prepareAgent, removedSince, reserveForRemoval, takePendingSetup } from './projectAgents'
+import { addAgent, agentLimit, branchPlace, claimMark, newWorktreePlace, prepareAgent, removedSince, reserveForRemoval, takePendingSetup } from './projectAgents'
 import { providerService } from './providerService'
 import { sessions } from './sessions'
 import { endReviews, releaseAgentCards } from './tasks'
@@ -36,6 +38,9 @@ import * as wt from './worktrees'
 import { gitProblem } from './gitTool'
 import { unusedWorktreesNamed } from './unusedWorktrees'
 import { trash } from './trash'
+import { withAgentNames, workspaceAgents } from './agentNames'
+import { hiveBranchNumber } from '../shared/hiveBranches'
+import { agentNameProblem, nameTaken, sameAgentName } from '../shared/agentNames'
 
 /**
  * Agent templates (#126): a project's agents and layout saved under a name, in the workspace (`<workspace>/.hive/
@@ -189,7 +194,7 @@ export async function renameTemplate(ref: TemplateRef, name: string): Promise<Te
 
 /**
  * Saves a template edited in the Templates view (#271): its name, description, layout and agents, in the file it is
- * kept in (its place stays: Duplicate… moves it). The edit is checked as untrusted (as an import is: 1–12 agents with
+ * kept in (its place stays: Duplicate… moves it). The edit is checked as untrusted (as an import is: 1–24 agents with
  * unique names, providers' ids, settings as CLIs name them) and refused, saying why, if another template there has its
  * name or the template changed since it was opened (`savedAt`, as it was then): nothing is half saved, and a change
  * made meanwhile (a re-save from a project, another window's edit) is never overwritten unasked.
@@ -341,17 +346,26 @@ async function reusableWorktree(projectPath: string, name: string, base: string,
   const slug = slugify(name)
   const root = placeKey(join(workspaceOf(projectPath).worktreesRoot, projectPath.split(/[\\/]/).pop()!))
   const numbered = (s: string, stem: string): boolean => s === stem || (s.startsWith(`${stem}-`) && /^\d+$/.test(s.slice(stem.length + 1)))
-  const mine = listed.filter((w) => !!w.branch && placeKey(dirname(w.path)) === root && numbered(basename(w.path).toLowerCase(), slug) && numbered(w.branch.toLowerCase(), `hive/${slug}`))
+  // Its branch Hive's for that name in either form (#703): hive/<workspace>/<project>/<name> now, hive/<its slug> from
+  // before (compared as Hive made it then).
+  const home = await branchPlace(projectPath)
+  const mine = listed.filter((w) => !!w.branch && placeKey(dirname(w.path)) === root && numbered(basename(w.path).toLowerCase(), slug) && hiveBranchNumber(w.branch, home, name) !== null)
   if (!mine.length) return null
   const free = mine.filter((w) => !inUse.has(placeKey(w.path)))
   if (!free.length) return { why: `another agent works in ${mine[0].branch}'s worktree` }
   const checked = await Promise.all(free.map(async (w) => ({ w: { path: w.path, branch: w.branch! }, why: await notReusable(projectPath, { path: w.path, branch: w.branch! }, base, listed) })))
   const clean = checked.filter((c) => !c.why)
-  const exact = clean.find((c) => basename(c.w.path).toLowerCase() === slug && c.w.branch.toLowerCase() === `hive/${slug}`)
+  const exact = clean.find((c) => basename(c.w.path).toLowerCase() === slug && hiveBranchNumber(c.w.branch, home, name) === 0)
   if (exact) return { reuse: exact.w }
   if (clean.length === 1) return { reuse: clean[0].w }
   if (clean.length > 1) return { why: `several clean worktrees could be its (${clean.map((c) => c.w.branch).join(', ')})` }
   return { why: checked[0].why! }
+}
+
+/** Names another project's agents have, in a refusal: "B1, R1 are already agents in amberlight: … rename them". */
+function takenText(taken: { name: string; project: string }[]): string {
+  const where = [...new Set(taken.map((t) => t.project))].join(', ')
+  return `${taken.map((t) => t.name).join(', ')} ${taken.length === 1 ? 'is' : 'are'} already ${taken.length === 1 ? 'an agent' : 'agents'} in ${where}: agent names are unique across the workspace, so rename ${taken.length === 1 ? 'it' : 'them'}.`
 }
 
 /** Whether an agent is running or starting (a start reserved, not yet live): either way, not safe to remove. */
@@ -363,9 +377,10 @@ const busy = (projectPath: string, agentId: string): boolean => !!sessions.liveF
  * then it isn't known to be safe), a provider that is off or not installed, worktree agents in a project that isn't on
  * a git branch. Nothing is changed.
  */
-export async function templatePlan(projectPath: string, scope: TemplateScope, file: string, from?: string): Promise<TemplateLoadPlan> {
+export async function templatePlan(projectPath: string, scope: TemplateScope, file: string, from?: string, names?: string[]): Promise<TemplateLoadPlan> {
   projectPath = workspace.assertProject(projectPath)
-  const t = await usable(refFor(projectPath, scope, file, from))
+  const original = await usable(refFor(projectPath, scope, file, from))
+  const t = { ...original, agents: withNames(original.agents, names) }
   const cfg = await workspace.projectConfig(projectPath)
   const current = projectAgents(cfg)
   const remove: TemplateLoadPlan['remove'] = []
@@ -391,8 +406,11 @@ export async function templatePlan(projectPath: string, scope: TemplateScope, fi
     if (why) missing.push({ provider: id, reason: why, agents: t.agents.filter((a) => a.provider === id).map((a) => a.name) })
   }
   for (const m of missing) blocked.push(`${m.reason}, needed by ${m.agents.join(', ')}.`)
+  // It replaces the project's agents: all of them have to fit (#562).
+  const limit = agentLimit(projectPath)
+  if (t.agents.length > limit) blocked.push(templateLimitText(t.agents.length, limit))
   const base = t.agents.some((a) => a.worktree) ? await wt.currentBranch(projectPath) : null
-  if (t.agents.some((a) => a.worktree) && !base) blocked.push(gitProblem() ? `${gitProblem()}: its worktree agents need git.` : 'Its worktree agents need the project to be a git repository on a branch.')
+  if (t.agents.some((a) => a.worktree) && !base) blocked.push(await needsGit(projectPath, t.agents.filter((a) => a.worktree).map((a) => a.name)))
   // Where each worktree agent works, as the load makes them, one after another: in this project, never the template's
   // project (a template holds only whether an agent has its own worktree, #268). A clean worktree of the same name is
   // worked in again (#289: the replaced agent's, or an earlier load's), else a new one.
@@ -428,7 +446,43 @@ export async function templatePlan(projectPath: string, scope: TemplateScope, fi
     mergedInto = check.into
     oldWorktrees.push({ agent: a.name, path: a.worktree.path, branch: a.worktree.branch, removable: check.removable, ...(check.removable ? {} : { why: check.reason ?? 'not checked' }) })
   }
-  return { scope: t.scope, file: t.file, name: t.name, layout: t.layout, remove, create: t.agents, worktrees, setup, oldWorktrees, mergedInto, missing, blocked }
+  // Names another project's agent has (#702): this project's own don't count, as the load replaces them.
+  const others = (await workspaceAgents(projectPath)).filter((a) => a.project.toLowerCase() !== basename(projectPath).toLowerCase())
+  const takenNames = t.agents.flatMap((a) => {
+    const owner = nameTaken(a.name, others)
+    return owner ? [{ name: a.name, project: owner.project }] : []
+  })
+  return { scope: t.scope, file: t.file, name: t.name, layout: t.layout, remove, create: t.agents, templateNames: original.agents.map((a) => a.name), taken: takenNames, worktrees, setup, oldWorktrees, mergedInto, missing, blocked }
+}
+
+/**
+ * A template's agents with the names chosen for them in the Load template dialog (#702), by order: as many as it has,
+ * each a name an agent can have, no two the same. None given: its own names.
+ */
+function withNames(agents: TemplateAgent[], names: unknown): TemplateAgent[] {
+  if (names === undefined || names === null) return agents
+  if (!Array.isArray(names) || names.length !== agents.length || names.some((n) => typeof n !== 'string')) throw new TemplateError('The names given for its agents no longer match the template: open it again.')
+  const clean = (names as string[]).map((n) => n.replace(/\s+/g, ' ').trim())
+  for (const n of clean) {
+    const why = agentNameProblem(n)
+    if (why) throw new TemplateError(`${why.replace(/\.$/, '')} for each of its agents.`)
+  }
+  const twice = clean.find((n, i) => clean.findIndex((m) => sameAgentName(m, n)) !== i)
+  if (twice) throw new TemplateError(`Two of its agents would be called "${twice}".`)
+  return agents.map((a, i) => ({ ...a, name: clean[i] }))
+}
+
+/**
+ * Why a template's worktree agents can't have worktrees here (#702: why a template couldn't be loaded into a project
+ * without git): git can't run, the project isn't a repository, or it isn't on a branch (detached, or no commit yet).
+ */
+async function needsGit(projectPath: string, names: string[]): Promise<string> {
+  const who = `its worktree ${names.length === 1 ? 'agent' : 'agents'} (${names.join(', ')})`
+  const fix = 'or edit the template to put them in the project folder'
+  if (gitProblem()) return `${gitProblem()}, so ${who} can't have worktrees of their own: fix git (Agent Setup), ${fix}.`
+  const project = basename(projectPath)
+  if (!(await wt.listWorktrees(projectPath)).length) return `${project} isn't a git repository, so ${who} can't have worktrees of their own. Make it a repository with a first commit, ${fix}.`
+  return `${project} isn't on a branch (a detached HEAD, or no commit yet), so ${who} have nothing to branch from. Check out a branch or make a first commit, ${fix}.`
 }
 
 /** Seams for unit tests: called after each of a load's agents is staged (its name), before the load is published. */
@@ -461,7 +515,7 @@ const loading = new Set<string>()
  *   agent's worktree that no agent works in now, checked again and guarded while deleting (`removeCheckedWorktree`):
  *   one that isn't any more is kept, and the reply says why.
  */
-export async function loadTemplate(projectPath: string, scope: TemplateScope, file: string, expected: string[], from?: string, removeOld?: { paths: string[]; mergedInto: string | null }): Promise<{ created: string[]; removed: string[]; oldWorktrees: OldWorktreeOutcome[] }> {
+export async function loadTemplate(projectPath: string, scope: TemplateScope, file: string, expected: string[], from?: string, removeOld?: { paths: string[]; mergedInto: string | null }, names?: string[]): Promise<{ created: string[]; removed: string[]; oldWorktrees: OldWorktreeOutcome[] }> {
   projectPath = workspace.assertProject(projectPath)
   const key = projectPath.toLowerCase()
   if (loading.has(key)) throw new TemplateError('A template is already being loaded into this project.')
@@ -470,10 +524,11 @@ export async function loadTemplate(projectPath: string, scope: TemplateScope, fi
   try {
     // Before the plan looks at the worktrees: one removed since then isn't worked in again (#289).
     const mark = claimMark()
-    const plan = await templatePlan(projectPath, scope, file, from)
+    const plan = await templatePlan(projectPath, scope, file, from, names)
     if (plan.blocked.length) throw new TemplateError(`The template can't be loaded yet:\n${plan.blocked.map((b) => `• ${b}`).join('\n')}`)
     const changed = (ids: string[]): boolean => !Array.isArray(expected) || ids.length !== expected.length || ids.some((id, i) => id !== expected[i])
     if (changed(plan.remove.map((a) => a.id))) throw new TemplateError("The project's agents changed since you looked: open the template again.")
+    if (plan.taken.length) throw new TemplateError(takenText(plan.taken))
     const cfg = await workspace.projectConfig(projectPath)
     const staged: { def: AgentDef; discard: () => Promise<void> }[] = []
     let old: AgentDef[] = []
@@ -485,26 +540,38 @@ export async function loadTemplate(projectPath: string, scope: TemplateScope, fi
         staged.push(await prepareAgent(projectPath, cfg, opts, a.name, staged.map((s) => s.def)))
         await testHooks.staged?.(a.name)
       }
-      // Published at once, under the lock, on the agents as they are now.
-      await workspace.mutateProjectConfig(projectPath, (now) => {
-        const list = projectAgents(now)
-        if (changed(list.map((a) => a.id))) throw new TemplateError("The project's agents changed while the template was loading: nothing was changed. Open the template again.")
-        if (list.some((a) => busy(projectPath, a.id))) throw new TemplateError('An agent started meanwhile: nothing was changed. Stop it first.')
-        if (staged.some((s) => s.def.worktree && (removedSince(s.def.worktree.path, mark) || !existsSync(s.def.worktree.path)))) throw new TemplateError('A worktree it would work in again is being removed, or was just removed: nothing was changed. Open the template again.')
-        old = list
-        // A worktree whose setup never ran keeps that (#289): an agent working in it again runs it first, and one kept
-        // without an agent is remembered for the next.
-        const pathKey = placeKey
-        const taking = new Set(staged.flatMap((s) => (s.def.worktree ? [pathKey(s.def.worktree.path)] : [])))
-        const pendingBefore = new Set(list.filter((a) => a.worktree && a.needsSetup).map((a) => pathKey(a.worktree!.path)))
-        let pending = Array.isArray(now.setupPending) ? now.setupPending.filter((p) => typeof p === 'string') : []
-        for (const s of staged) {
-          if (!s.def.worktree || s.def.needsSetup) continue
-          if (pendingBefore.has(pathKey(s.def.worktree.path)) && now.worktreeSetup.trim()) s.def.needsSetup = true
-          else pending = takePendingSetup({ ...now, setupPending: pending }, s.def)?.setupPending ?? pending
-        }
-        pending = [...pending.filter((p) => !taking.has(pathKey(p))), ...list.filter((a) => a.worktree && a.needsSetup && !taking.has(pathKey(a.worktree.path))).map((a) => a.worktree!.path)]
-        return { agents: staged.map((s) => s.def), layout: plan.layout, setupPending: [...new Map(pending.map((p) => [pathKey(p), p])).values()].slice(-50) }
+      // Published at once, under the lock, on the agents as they are now; their names checked with it, holding the
+      // workspace's names lock (#702): another project may have taken one meanwhile.
+      await withAgentNames(projectPath, async () => {
+        const others = (await workspaceAgents(projectPath)).filter((a) => a.project.toLowerCase() !== basename(projectPath).toLowerCase())
+        const clash = staged.flatMap((s) => {
+          const owner = nameTaken(s.def.name, others)
+          return owner ? [{ name: s.def.name, project: owner.project }] : []
+        })
+        if (clash.length) throw new TemplateError(`${takenText(clash)} Nothing was changed.`)
+        await workspace.mutateProjectConfig(projectPath, (now) => {
+          const list = projectAgents(now)
+          if (changed(list.map((a) => a.id))) throw new TemplateError("The project's agents changed while the template was loading: nothing was changed. Open the template again.")
+          if (list.some((a) => busy(projectPath, a.id))) throw new TemplateError('An agent started meanwhile: nothing was changed. Stop it first.')
+          // The limit as it is now: Settings may have lowered it since the plan.
+          const limit = agentLimit(projectPath)
+          if (staged.length > limit) throw new TemplateError(`${templateLimitText(staged.length, limit)} Nothing was changed.`)
+          if (staged.some((s) => s.def.worktree && (removedSince(s.def.worktree.path, mark) || !existsSync(s.def.worktree.path)))) throw new TemplateError('A worktree it would work in again is being removed, or was just removed: nothing was changed. Open the template again.')
+          old = list
+          // A worktree whose setup never ran keeps that (#289): an agent working in it again runs it first, and one kept
+          // without an agent is remembered for the next.
+          const pathKey = placeKey
+          const taking = new Set(staged.flatMap((s) => (s.def.worktree ? [pathKey(s.def.worktree.path)] : [])))
+          const pendingBefore = new Set(list.filter((a) => a.worktree && a.needsSetup).map((a) => pathKey(a.worktree!.path)))
+          let pending = Array.isArray(now.setupPending) ? now.setupPending.filter((p) => typeof p === 'string') : []
+          for (const s of staged) {
+            if (!s.def.worktree || s.def.needsSetup) continue
+            if (pendingBefore.has(pathKey(s.def.worktree.path)) && now.worktreeSetup.trim()) s.def.needsSetup = true
+            else pending = takePendingSetup({ ...now, setupPending: pending }, s.def)?.setupPending ?? pending
+          }
+          pending = [...pending.filter((p) => !taking.has(pathKey(p))), ...list.filter((a) => a.worktree && a.needsSetup && !taking.has(pathKey(a.worktree.path))).map((a) => a.worktree!.path)]
+          return { agents: staged.map((s) => s.def), layout: plan.layout, setupPending: [...new Map(pending.map((p) => [pathKey(p), p])).values()].slice(-50) }
+        })
       })
     } catch (e) {
       for (const s of staged) await s.discard()
@@ -582,7 +649,8 @@ export async function addAgentFromTemplate(projectPath: string, scope: TemplateS
   const why = providerProblem(a.provider)
   if (why) throw new TemplateError(`${why}: ${a.name} needs it.`)
   const agents = projectAgents(await workspace.projectConfig(projectPath))
-  const name = uniqueName(a.name, agents.map((x) => x.name))
+  // Unique across the workspace (#702): a name any agent of it has gets a number ("Builder 2"), never a prefix.
+  const name = uniqueName(a.name, (await workspaceAgents(projectPath)).map((x) => x.name))
   // A clean worktree Hive made for that name that no agent works in is worked in again (#289), else a new one.
   const base = a.worktree ? await wt.currentBranch(projectPath) : null
   const inUse = new Set(agents.flatMap((x) => (x.worktree ? [placeKey(x.worktree.path)] : [])))

@@ -8,6 +8,8 @@ const fs = require('fs')
 const path = require('path')
 // The longest a wait here waits for what it waits on: a bound for a hung run, never how long it should take (#570).
 const HUNG_MS = 10000
+// The longest a quit waits for the agent's turn to end ("work 8"), and Hive to close after it: a bound for a hung run.
+const QUIT_HUNG_MS = 60000
 
 let failed = 0
 const check = (name, ok, extra = '') => {
@@ -75,7 +77,11 @@ async function keepBusy(inv, alpha, agent, live, secs) {
     const waitButton = dialog.locator('button', { hasText: 'Quit when' })
     check('and offers to quit when it finishes', (await waitButton.count()) === 1)
     await page.screenshot({ path: path.join(lib.WORK, 'quitwait-1-dialog.png') })
-    const closing = exited(app, 30000)
+    // The agent's turn ends, then Hive closes: each waited for as it comes, bounded for a hung run, with when each came
+    // logged (#679: once under load it hadn't closed within 30 s of the click, with no sign of which step was late). The
+    // close is listened for from before the click, so one between two looks is still seen.
+    let closedAt = null
+    void app.waitForEvent('close', { timeout: 0 }).then(() => (closedAt = Date.now()), () => undefined)
     const t0 = Date.now()
     await waitButton.click()
     check('the window hides', !!(await until(async () => !(await visible(app)), 5000)))
@@ -83,8 +89,32 @@ async function keepBusy(inv, alpha, agent, live, secs) {
     check('a quit is pending (the tray shows it), with one agent working', state?.pending === true && state?.working === 1, JSON.stringify(state))
     await lib.sleep(2000) // A fixed wait on purpose: this checks that Hive does NOT quit while the agent works.
     check("it doesn't quit while the agent works", (await live().catch(() => null))?.status === 'working')
-    check('it quits once the agent finishes', await closing)
-    check('not before the agent was done (about 8 s)', Date.now() - t0 > 4000, `${Date.now() - t0} ms`)
+    // The turn's end: Hive seen with the agent no longer working, or, once Hive has closed (no more looks), the fake's
+    // reply in its conversation, which it writes as the turn ends; a call that fails says nothing either way.
+    const replyAt = () => {
+      const dir = path.join(lib.WORK, 'quitwait-wait-claude-home', 'projects')
+      const lines = fs.existsSync(dir) ? fs.readdirSync(dir, { recursive: true }).filter((f) => String(f).endsWith('.jsonl')).flatMap((f) => fs.readFileSync(path.join(dir, String(f)), 'utf8').split('\n')) : []
+      const reply = lines.map((l) => { try { return JSON.parse(l) } catch { return null } }).findLast((e) => e?.type === 'assistant' && (e.message?.content?.[0]?.text ?? '').startsWith('Done: please work 8'))
+      return reply ? Date.parse(reply.timestamp) : null
+    }
+    let lastSeen = null
+    // { at, by }: seen in Hive (then before it closed, as Hive answered), or read from the conversation once it had.
+    const turnOver = await until(async () => {
+      const at = Date.now()
+      const s = await live().catch(() => null)
+      if (s) {
+        lastSeen = { status: s.status, quit: await inv('app:quitState').catch(() => null) }
+        return s.status !== 'working' ? { at, by: 'Hive' } : null
+      }
+      const replied = closedAt ? replyAt() : null
+      return replied ? { at: replied, by: 'its conversation' } : null
+    }, QUIT_HUNG_MS)
+    check("the agent's turn ends", !!turnOver, JSON.stringify(lastSeen))
+    const closed = !!turnOver && !!(await until(() => closedAt, QUIT_HUNG_MS))
+    if (!closed) await app.close().catch(() => undefined)
+    console.log(`  (the agent's turn was over ${turnOver ? `${turnOver.at - t0} ms after the click (seen by ${turnOver.by})` : '?'}; Hive closed ${closedAt ? closedAt - t0 : '?'} ms after the click; last seen ${JSON.stringify(lastSeen)})`)
+    check('it quits once the agent finishes', closed, JSON.stringify(lastSeen))
+    check('not before the agent was done', closed && (turnOver.by === 'Hive' || closedAt >= turnOver.at), `turn over ${turnOver ? turnOver.at - t0 : '?'} ms (by ${turnOver?.by}), closed ${closedAt ? closedAt - t0 : '?'} ms after the click`)
   }
 
   // --- Cancel Pending Quit: Hive keeps running after the agent finishes.

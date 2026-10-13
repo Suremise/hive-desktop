@@ -94,4 +94,32 @@ function parseHiveStep(step) {
   return { tool: m[1], args }
 }
 
-module.exports = { callHiveTool, fromCodexTable, parseHiveStep }
+/** Whether a prompt is Hive's doorbell (#650): its fixed words naming what waits in the agent's inbox by id. */
+const isDoorbell = (text) => String(text).startsWith('[Hive] New in your inbox: ')
+
+/**
+ * Whether a doorbell names only tasks and handovers (a new piece of work, whose text is the agent's next prompt), not
+ * wakes, messages or notices.
+ */
+const doorbellIsWork = (text) => /^\[Hive\] New in your inbox: (\d+ (task|tasks|handover|handovers)( \(#[\d, #]+\))?( and |, )?)+ \(m/.test(String(text))
+
+/**
+ * hive_inbox's reply (shared/deliveries.ts inboxText) as its items: { ids, from, card, text }, oldest first. An item's
+ * text may run over several lines (a task's); the reply's own lines (its count, what was received before, the ack note,
+ * and what Hive adds to a tool's reply, such as #357's "[Hive] #12 has 1 new decision…") aren't items.
+ */
+function inboxRows(reply) {
+  const rows = []
+  let open = false
+  for (const line of String(reply ?? '').split('\n')) {
+    const m = /^(m\d+(?:,m\d+)*) · (.+?)(?: · #(\d+))?: (.*)$/.exec(line)
+    if (m) {
+      rows.push({ ids: m[1].split(','), from: m[2], card: m[3] ? Number(m[3]) : null, text: m[4] })
+      open = true
+    } else if (/^(Received before, not acked yet: |Ack each with hive_inbox |\[Hive\] )/.test(line)) open = false
+    else if (open) rows[rows.length - 1].text += `\n${line}`
+  }
+  return rows
+}
+
+module.exports = { callHiveTool, fromCodexTable, parseHiveStep, isDoorbell, doorbellIsWork, inboxRows }

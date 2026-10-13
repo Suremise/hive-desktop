@@ -1,17 +1,18 @@
 import { basename } from './util'
 import { call, errorMessage } from './api'
+import { agentLimit } from './advanced'
 import { agentOf, agentProviderOf, choose, confirm, findProject, focusAfterRemoving, focusAgent, runOnce, isAssistantPath, setAssistantOpen, focusedAgentId, get, notify, prompt, revealAgent, set, setActivity, setProjectTab, showAgent, showView, useStore } from './store'
-import { MANY_AGENTS, MAX_AGENTS, chosenLayout, moveAgentTo, sessionInAgentFolder, swapAgentsIn } from '@shared/defaults'
+import { MANY_AGENTS, agentLimitText, chosenLayout, moveAgentTo, sessionInAgentFolder, swapAgentsIn } from '@shared/defaults'
 import { defaultProviderPending, isProviderEnabled, projectDefaultProvider, providerName } from '@shared/providers'
 import { agentsToResume, resumeAll, stalledOnSignIn } from '@shared/resumeAll'
 import { batchLine, eachAgent, removeLine, sessionsToArchive, type BatchResult } from '@shared/startAll'
 import type { McpServerInfo, OldWorktreeOutcome, ProjectInfo, ProjectProviderConfig, ProviderId, SessionLayout, SessionListItem, ToastAction } from '@shared/types'
 import { TEMPLATE_NAME_MAX, type TemplateEntry, type TemplateScope } from '@shared/templates'
-import { oldWorktreesNotice, templateLoadDetail, templateLoadView } from '@shared/templateLoad'
+import { oldWorktreesNotice, templateLoadDetail } from '@shared/templateLoad'
 import { formatTokens, type SessionAction } from './util'
 import { statusText } from './components/ui'
 import { createElement } from 'react'
-import { TemplatePlan } from './components/TemplatePlan'
+import { TemplateLoadNames } from './components/TemplateLoad'
 import { clearEditorDraft, clearEditorDraftsUnder } from './editorDrafts'
 
 /** Runs an async action and shows a toast if it fails. */
@@ -272,8 +273,8 @@ async function ensureWorktree(path: string, agentId: string): Promise<boolean> {
 export async function quickAddAgent(path: string | null = get().selectedProject, forProvider?: ProviderId): Promise<string | null> {
   if (!path) return null
   const p = project(path)
-  if (p && p.agents.length >= MAX_AGENTS) {
-    notify('warning', 'No room for another agent', `A project can have up to ${MAX_AGENTS} agents. Remove one first.`)
+  if (p && p.agents.length >= agentLimit()) {
+    notify('warning', 'No room for another agent', `${agentLimitText(agentLimit())} Remove one first.`)
     return null
   }
   const provider = await detectedProvider(
@@ -297,7 +298,7 @@ export async function quickAddAgent(path: string | null = get().selectedProject,
 /** After adding an agent: the seventh brings a note that each agent is its own CLI process. */
 export function noteManyAgents(path: string): void {
   const n = project(path)?.agents.length ?? 0
-  if (n === MANY_AGENTS) notify('info', `${n} agents in this project`, "Each agent runs its own copy of its CLI (roughly 150–400 MB of memory each), and they all share your plan's usage limits.")
+  if (n === MANY_AGENTS) notify('info', `${n} agents in this project`, "Each agent runs its own copy of its CLI (roughly 200–500 MB of memory each), and they all share your plan's usage limits.")
 }
 
 /** Changes a project's settings for one provider. */
@@ -388,7 +389,7 @@ export async function resumeSession(path: string, item: Pick<SessionListItem, 'i
   // A session from the project folder, and the project has no agent there: add one of its provider.
   const inProjectFolder = !item.cwd || item.cwd.toLowerCase() === path.toLowerCase()
   if (!target && isAssistantPath(path)) return
-  if (!target && inProjectFolder && item.provider && (p?.agents.length ?? 0) < MAX_AGENTS) {
+  if (!target && inProjectFolder && item.provider && (p?.agents.length ?? 0) < agentLimit()) {
     target = await quickAddAgent(path, item.provider)
     if (!target) return
     p = project(path)
@@ -863,7 +864,7 @@ export async function loadTemplate(path: string, entry: Pick<TemplateEntry, 'sco
     const off = plan.missing.some((m) => /turned off/.test(m.reason))
     const choice = await choose({
       title: `Can't load "${plan.name}" yet`,
-      message: 'It would replace every agent of this project, which isn’t safe or possible yet:',
+      message: `It can't be loaded into ${project(path)?.name ?? 'this project'} yet:`,
       detail: plan.blocked.map((b) => `• ${b}`).join('\n'),
       choices: [...(fix ? [{ label: 'Open Agent Setup', value: 'setup' }] : []), { label: 'OK', value: 'ok' }]
     })
@@ -872,17 +873,20 @@ export async function loadTemplate(path: string, entry: Pick<TemplateEntry, 'sco
     return
   }
   const p = project(path)
-  const expected = (p?.agents ?? []).map((a) => a.id)
+  if (!p) return
+  const expected = p.agents.map((a) => a.id)
+  // The names its agents get (#702): chosen in the dialog, which greys out its button while one clashes.
+  let names = plan.create.map((a) => a.name)
   const removable = plan.oldWorktrees.filter((w) => w.removable)
   let removeOld = false
   let result: { oldWorktrees: OldWorktreeOutcome[] } | undefined
   const ok = await confirm({
     title: `Load "${plan.name}"?`,
-    message: plan.remove.length ? `It replaces every agent of ${p?.name ?? 'this project'}.` : `It adds its agents to ${p?.name ?? 'this project'}.`,
+    message: plan.remove.length ? `It replaces every agent of ${p.name}.` : `It adds its agents to ${p.name}.`,
     // Who goes and who comes: each new agent's settings, and its new worktree's branch and folder in this project (#268),
-    // as a table (#511).
-    detail: p ? templateLoadDetail(plan, p.config, get().settings, (id) => get().providers[id]) : undefined,
-    content: p ? createElement(TemplatePlan, { view: templateLoadView(plan, p.config, get().settings, (id) => get().providers[id]) }) : undefined,
+    // as a table (#511), with their names to choose (#702).
+    detail: templateLoadDetail(plan, p.config, get().settings, (id) => get().providers[id]),
+    content: createElement(TemplateLoadNames, { path, scope: entry.scope, file: entry.file, from, initial: plan, onChange: (now: string[]) => void (names = now) }),
     wide: true,
     scrollDetail: true,
     confirmLabel: 'Load template',
@@ -891,7 +895,7 @@ export async function loadTemplate(path: string, entry: Pick<TemplateEntry, 'sco
     // The removed agents' worktrees that are merged and clean can go with the load, if ticked (off by default, #289).
     check: removable.length ? { label: removeOldLabel(removable.map((w) => w.branch), plan.mergedInto), initial: false, set: (v) => (removeOld = v) } : undefined,
     run: async () => {
-      result = await call('templates:load', path, entry.scope, entry.file, expected, from, removeOld ? { paths: removable.map((w) => w.path), mergedInto: plan.mergedInto } : undefined)
+      result = await call('templates:load', path, entry.scope, entry.file, expected, from, removeOld ? { paths: removable.map((w) => w.path), mergedInto: plan.mergedInto } : undefined, names)
     }
   })
   if (!ok) return

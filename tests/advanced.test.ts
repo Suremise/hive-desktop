@@ -397,6 +397,21 @@ describe('the advanced store', () => {
     await s.reload()
     expect(s.diagnostics([null])).toEqual(['- Advanced settings: 1 override (hive.mcp.replySeconds)', '  - not valid, so the default is used: hive.mcp.replySeconds', '  - unknown to this Hive: 1'])
   })
+
+  it("the developer console's show text is off by default; turned on, its listeners hear it and diagnostics name it (#699)", async () => {
+    const { s, dir } = store()
+    s.load(dir)
+    expect(def('hive.console.showText')).toMatchObject({ kind: 'boolean', default: false, applies: 'now' })
+    expect(s.get<boolean>('hive.console.showText')).toBe(false)
+    const heard: boolean[] = []
+    s.onChange(() => heard.push(s.get<boolean>('hive.console.showText')))
+    await s.set('hive.console.showText', true)
+    expect(heard).toEqual([true])
+    expect(s.diagnostics([null])).toEqual(['- Advanced settings: 1 override (hive.console.showText)'])
+    await s.set('hive.console.showText', false)
+    expect(heard).toEqual([true, false])
+    expect(s.diagnostics([null])).toEqual(['- Advanced settings: no overrides'])
+  })
 })
 
 describe('the adapters and the hive MCP server use them', () => {
@@ -598,8 +613,13 @@ describe("the Assistant's settings catalog", () => {
     expect(settingValue(lanes, {} as never, null, {})).toBeNull()
     expect(checkSettingValue(lanes, 'inherit')).toEqual({ value: null })
     expect(settingPatch(lanes, 6)).toEqual({ advanced: { id: 'hive.progress.lanesShown', scope: 'workspace', value: 6 } })
-    // Agents per project is #562's (12 Oct decision): not here yet.
-    expect(settingEntry('workspace.advanced.hive.agents.perProject')).toBeUndefined()
+    // Agents per project (#562): Settings' and a workspace's own, 1–24.
+    const agents = settingEntry('workspace.advanced.hive.agents.perProject')!
+    expect(agents.scope).toBe('workspace')
+    expect(settingEntry('advanced.hive.agents.perProject')).toMatchObject({ min: 1, max: 24 })
+    expect(checkSettingValue(agents, 24)).toEqual({ value: 24 })
+    expect(checkSettingValue(agents, 25)).toMatchObject({ error: expect.any(String) })
+    expect(settingPatch(agents, 20)).toEqual({ advanced: { id: 'hive.agents.perProject', scope: 'workspace', value: 20 } })
     // The developer features switch keeps its key and entry in Hive's settings, with its advanced value's text.
     expect(settingEntry('advanced.showDeveloperFeatures')).toMatchObject({ hidden: true, type: 'boolean', title: def('hive.showDeveloperFeatures').title, desc: def('hive.showDeveloperFeatures').desc })
     expect(settingEntry('advanced.hive.showDeveloperFeatures')).toBeUndefined()

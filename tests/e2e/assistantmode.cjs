@@ -55,19 +55,17 @@ const check = (name, ok, extra = '') => {
     return ''
   }
   const told = (id, mode) => transcript(id).split('\n').filter((l) => l.includes('"type":"user"') && l.includes(`[Hive] Mode: ${mode} (chosen by the user)`)).length
-  const say = async (text) => {
-    await inv('pty:write', key, text)
-    await lib.sleep(300) // on purpose: the fake reads a typed line before its Enter, as a CLI does
-    await inv('pty:write', key, '\r')
-  }
-  const idle = async () => !!(await lib.until(async () => ['ready', 'finished'].includes((await live())?.status), 20000))
+  // Each prompt is typed once the fake takes prompts, and waited for by its own turn (#684: under load the status still
+  // said the last turn had finished while the fake was still in Hive's mode message's turn, and dropped "whatmode").
+  const prompts = lib.fakePrompts(inv, key, live, { home: claudeHome })
+  // Its turn over on its side too (a mode message Hive typed into it): it takes the next prompt.
+  const idle = async () => !!(await lib.until(prompts.takesPrompts, lib.TURN_HUNG_MS))
   // The mode its system prompt is in, as the fake says it for "whatmode" (its recorded prompt unless it was told not to).
   const promptMode = async (id) => {
     const asked = (transcript(id).match(/system prompt mode: /g) ?? []).length
-    await say('whatmode')
-    await lib.until(async () => (transcript(id).match(/system prompt mode: /g) ?? []).length > asked, 15000)
+    if (!(await prompts.say('whatmode'))) return '(its turn didn\'t end)'
+    await lib.until(async () => (transcript(id).match(/system prompt mode: /g) ?? []).length > asked, HUNG_MS)
     const all = [...transcript(id).matchAll(/system prompt mode: ([^)"]+)\)/g)]
-    await idle()
     return all.length > asked ? all[all.length - 1][1] : '(no answer)'
   }
   const record = (id) => JSON.parse(fs.readFileSync(path.join(home, '.hive', 'sessions.json'), 'utf8')).sessions.find((s) => s.id === id) ?? {}
@@ -107,27 +105,26 @@ const check = (name, ok, extra = '') => {
   await page.keyboard.press('Escape')
 
   // --- Idle: told at once, in the same conversation.
+  // At once, but under load the fake can lose the Enter after Hive's line, which Hive presses again 10 s later (#684): so
+  // it is waited for, bounded for a hung run.
   await pick('Planner')
-  check('switching to Planner tells it at once, in its conversation', !!(await lib.until(async () => (await buffer()).includes('[Hive] Mode: Planner (chosen by the user). Lead with the open design questions'), 10000)), (await buffer()).slice(-400))
+  check('switching to Planner tells it at once, in its conversation', !!(await lib.until(async () => (await buffer()).includes('[Hive] Mode: Planner (chosen by the user). Lead with the open design questions'), lib.TURN_HUNG_MS)), (await buffer()).slice(-400))
   check('…ending with Hive\'s own sentence', !!(await lib.until(async () => (await buffer()).includes('Your tools and permissions are unchanged.'), 10000)), JSON.stringify((await buffer()).slice(-600)))
   check('…without a restart: the same session', (await live())?.sessionId === session, `${session} → ${(await live())?.sessionId}`)
   check('…saved for the workspace, and the header shows it', !!(await lib.until(async () => agentFile().persona === 'planner' && (await panel.locator('.assistant-persona').innerText()).includes('Planner'), 10000)), `${JSON.stringify(agentFile())}; header: ${await panel.locator('.assistant-persona').innerText()}`)
   check('…and recorded as the mode its conversation was last given', !!(await lib.until(async () => record(session).persona === 'planner', 5000)), JSON.stringify(record(session)))
-  await lib.until(async () => (await live())?.status === 'finished', 15000)
 
   // --- Working: told once it has finished.
-  await inv('pty:write', key, 'work 6')
-  await lib.sleep(300) // on purpose: the fake reads a typed line before its Enter, as a CLI does
-  await inv('pty:write', key, '\r')
-  check('it works on something', !!(await lib.until(async () => (await live())?.status === 'working', 5000)))
+  const working = await prompts.type('work 6')
+  check('it works on something', !!(await lib.until(async () => (await live())?.turn?.id !== working.before && (await live())?.status === 'working', lib.TURN_HUNG_MS)), JSON.stringify((await live())?.turn))
   await pick('QA triager')
   await lib.sleep(1000) // on purpose: nothing is typed into a working Assistant
   check('switching while it works types nothing yet', !(await buffer()).includes('[Hive] Mode: QA triager'))
   check('…and is saved at once', agentFile().persona === 'qa-triager', JSON.stringify(agentFile()))
-  check('…then told once it has finished', !!(await lib.until(async () => (await buffer()).includes('[Hive] Mode: QA triager (chosen by the user). Take a report'), 20000)))
-  check('…and sent (in its conversation once)', !!(await lib.until(async () => told(session, 'QA triager') === 1, 20000)), String(told(session, 'QA triager')))
+  check('…then told once it has finished', !!(await lib.until(async () => (await buffer()).includes('[Hive] Mode: QA triager (chosen by the user). Take a report'), lib.TURN_HUNG_MS)))
+  check('…and sent (in its conversation once)', !!(await lib.until(async () => told(session, 'QA triager') === 1, lib.TURN_HUNG_MS)), String(told(session, 'QA triager')))
   check('…still the same session', (await live())?.sessionId === session)
-  await lib.until(async () => (await live())?.status === 'finished', 15000)
+  await idle()
 
   // --- Restart in This Mode: the same conversation, resumed with the mode's full instructions.
   await modeMenu()
@@ -150,13 +147,15 @@ const check = (name, ok, extra = '') => {
   check('…and tells nothing yet', told(session, 'Release manager') === 0)
 
   // --- Resumed after a switch while it was stopped: told the mode once it is idle, once (#334). The fake loses Enter
-  // for its first seconds, as Claude Code can while it draws a resumed conversation: Hive presses it again.
+  // for its first seconds, as Claude Code can while it draws a resumed conversation: Hive presses it again. Under load
+  // that took 24 s (#684), and a prompt typed before it was taken was lost: so it is waited for, bounded for a hung run.
   fs.writeFileSync(path.join(claudeHome, 'fake-resume-draw.json'), JSON.stringify({ ms: 3500 }))
   await inv('session:start', home, { resumeId: session, agentId: 'assistant' })
-  check('resumed, the conversation is told its new mode (its first Enter lost)', !!(await lib.until(async () => told(session, 'Release manager') === 1, 20000)), transcript(session).slice(-600))
+  check('resumed, the conversation is told its new mode (its first Enter lost)', !!(await lib.until(async () => told(session, 'Release manager') === 1, lib.TURN_HUNG_MS)), transcript(session).slice(-600))
   fs.rmSync(path.join(claudeHome, 'fake-resume-draw.json'))
   check('…the same conversation', (await live())?.sessionId === session)
-  check("…and its system prompt is the mode's", (await idle()) && (await promptMode(session)) === 'Release manager')
+  const resumedMode = await promptMode(session)
+  check("…and its system prompt is the mode's", resumedMode === 'Release manager', resumedMode)
   check('…recorded as the mode it was last given', record(session).persona === 'release-manager', JSON.stringify(record(session)))
   await inv('session:stop', home, 'assistant')
   await lib.until(async () => !(await live()), 15000)

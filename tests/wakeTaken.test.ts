@@ -5,12 +5,13 @@
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { sessions } from '../src/main/sessions'
 import * as pty from '../src/main/ptyHost'
+import { config } from '../src/main/config'
 // The writer of Hive's lines and their confirmation (#649: lineWriter.ts, which the delivery service types with).
 import * as writer from '../src/main/lineWriter'
 
 const project = 'C:/fake-ws/alpha'
 const id = 'a1'
-type Entry = { state: Record<string, unknown>; prompts: number; typed?: { at: number; prompts: number } }
+type Entry = { state: Record<string, unknown>; prompts: number; typed?: { at: number; prompts: number; from?: number } }
 const live = (sessions as unknown as { live: Map<string, Entry> }).live
 const key = `${project.toLowerCase()}#${id}`
 
@@ -151,5 +152,69 @@ describe("a wake's Enter again (#430)", () => {
     expect(await writer.confirmTaken(project, id, { runId: 'run1', count: 0 }, 'WAKE')).toBe(true)
     expect(submit).toHaveBeenCalledTimes(1)
     expect(marks).toEqual([])
+  })
+})
+
+describe("a line of Hive's the user typed into is theirs (#652 round 1 finding 2)", () => {
+  const was = config.settings.assistant
+  afterEach(() => {
+    live.delete(key)
+    config.settings.assistant = was
+    writer.testHooks.takeMs = undefined
+    vi.useRealTimers()
+    vi.restoreAllMocks()
+  })
+  /** A doorbell typed at `t` (its typing began 500 ms before), its first Enter lost: the CLI's count unchanged. */
+  const typedAt = (t: number): Entry => {
+    const e: Entry = { state: withFacts({ projectPath: project, agentId: id, agentName: 'Builder', runId: 'run1', status: 'ready' }), prompts: 0, typed: { at: t, prompts: 0, from: t - 500 } }
+    live.set(key, e)
+    return e
+  }
+  const BELL = '[Hive] New in your inbox: 1 message (m1). Call hive_inbox to read it.'
+
+  for (const pause of [15, 0]) {
+    it(`edited and left past the typing pause (${pause} s): no Enter again, and nothing more typed until a prompt is sent`, async () => {
+      vi.useFakeTimers()
+      const t = Date.now()
+      config.settings.assistant = { ...was, typingPause: pause, enterEndsPause: true } as typeof was
+      const writes: string[] = []
+      vi.spyOn(pty, 'writePty').mockImplementation((_k, data) => void writes.push(data))
+      const marks = vi.spyOn(sessions, 'lineNotTaken').mockImplementation(() => undefined)
+      const e = typedAt(t)
+      // The user replaces Hive's line with a draft of their own, and leaves it unsent past the pause.
+      sessions.noteUserInput(`session:${key}`, 'my unsent draft')
+      vi.setSystemTime(t + 20_000)
+      expect(sessions.userMayBeTyping(project, id)).toBe(false)
+      writer.testHooks.takeMs = 0
+      let left = 0
+      expect(await writer.confirmTaken(project, id, { runId: 'run1', count: 0 }, BELL, { left: () => void left++ })).toBe(false)
+      expect(writes).toEqual([])
+      expect(left).toBe(1)
+      expect(marks).not.toHaveBeenCalled()
+      // Not Hive's to send even directly, and nothing is typed over the draft, however long it stands.
+      expect(sessions.submitAgain(project, id, 'run1')).toBe(false)
+      vi.setSystemTime(t + 10 * 60_000)
+      expect(sessions.lineWaiting(project, id)).toBe(true)
+      await expect(sessions.sendPrompt(project, id, 'NEXT BELL')).rejects.toThrow(/hasn't taken the line Hive typed before/)
+      expect(writes).toEqual([])
+      // The user sends it (the CLI's count goes up): typing goes on.
+      e.prompts = 1
+      expect(sessions.lineWaiting(project, id)).toBe(false)
+    })
+  }
+
+  it('a draft from before the line began is no reason: Enter again, once', async () => {
+    vi.useFakeTimers()
+    const t = Date.now()
+    config.settings.assistant = { ...was, typingPause: 15, enterEndsPause: true } as typeof was
+    const writes: string[] = []
+    vi.spyOn(pty, 'writePty').mockImplementation((_k, data) => void writes.push(data))
+    vi.spyOn(sessions, 'lineNotTaken').mockImplementation(() => undefined)
+    sessions.noteUserInput(`session:${key}`, 'x')
+    vi.setSystemTime(t + 20_000)
+    typedAt(t + 19_000)
+    writer.testHooks.takeMs = 0
+    expect(await writer.confirmTaken(project, id, { runId: 'run1', count: 0 }, BELL)).toBe(false)
+    expect(writes).toEqual(['\r'])
   })
 })

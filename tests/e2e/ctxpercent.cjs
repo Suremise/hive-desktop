@@ -50,11 +50,12 @@ const until = async (fn, ms = 10000) => {
   const live = async () => (await inv('session:live')).find((s) => s.agentId === agent.id)
   await inv('session:start', alpha, { agentId: agent.id })
   check('the agent starts', !!(await until(async () => (await live())?.status === 'ready', 20000)))
+  // Each prompt is typed once the fake takes prompts, and waited for by its own turn (#684, lib.fakePrompts); a
+  // compaction is no turn of its own: the fake's screen says when it's over.
+  const prompts = lib.fakePrompts(inv, key, live, { home: claudeHome })
   const send = async (text) => {
-    await inv('pty:write', key, text)
-    await lib.sleep(100)
-    await inv('pty:write', key, '\r')
-    await until(async () => (await live())?.status === 'finished', 10000)
+    if (text.startsWith('/')) await prompts.type(text)
+    else check(`the prompt "${text}" is answered`, !!(await prompts.say(text)))
   }
   /** Whether the window shows that theme yet (settings reach it as an event, after settings:update returns). */
   const themeIs = (theme) => async () => (await page.evaluate(() => document.documentElement.getAttribute('data-theme'))) === theme
@@ -112,7 +113,6 @@ const until = async (fn, ms = 10000) => {
   // --- A click on it lands on the Overview's compaction history (#124, the link #121 announces): the session compacts
   // first, so there is one.
   await send('/compact')
-  await until(async () => (await live())?.status === 'finished' || (await live())?.status === 'ready', 10000)
   // The compaction reaches the session's usage (what the Overview lists) once the CLI has written it.
   await until(async () => (await inv('session:list', alpha)).some((x) => x.usage?.compactions?.length), 15000)
   await ctxItem.click()

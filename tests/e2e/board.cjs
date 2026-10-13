@@ -147,15 +147,34 @@ const check = (name, ok, extra = '') => {
   check('a list with a card from another column, or for Done, is refused', mixed.status === 400 && doneOrder.status === 403, JSON.stringify([mixed, doneOrder]))
   for (const n of [rA, rB]) await inv('tasks:delete', n)
 
-  // Dragging a card to another column.
-  await tile(1).dragTo(column('Review').locator('.board-column-body'))
-  check('a card drags to another column', !!(await until(async () => (await card(1))?.column === 'review', 5000)), (await card(1))?.column)
+  // Dragging a card to another column. Each drag starts once the board draws the card where the step before left it
+  // (#682: under load the board was still redrawing after the deletions above, and both drags missed). A drop shows at
+  // once (the card moved, or the Move to Doing dialog: no call first), so one not shown within the hung-run bound
+  // missed: logged with what the board showed (a screenshot too), and dragged again, at most 3 times.
+  const drawnIn = (label, n) => column(label).locator(`.task-card[data-task="${n}"]`)
+  const dragged = async (what, n, label, landed) => {
+    for (let drag = 1; drag <= 3; drag++) {
+      const t = Date.now()
+      await tile(n).dragTo(column(label).locator('.board-column-body'))
+      let looks = 0
+      const ok = !!(await until(async () => (looks++, await landed()), HUNG_MS))
+      if (looks > 1) console.log(`  (${what}, drag ${drag}: ${ok ? 'landed' : 'missed'} after ${Date.now() - t} ms; #${n} is in ${(await card(n))?.column}, drawn in ${JSON.stringify(await page.locator(`.board-column:has(.task-card[data-task="${n}"]) .board-column-label`).allInnerTexts())}, ${await page.locator('.dialog').count()} dialog(s) open)`)
+      if (ok) return true
+      await page.screenshot({ path: path.join(lib.WORK, `board-drag-${label.toLowerCase()}-${drag}.png`) })
+    }
+    return false
+  }
+  const deleted = Date.now()
+  let redraws = 0
+  check('…and the board draws only #1 again', !!(await until(async () => (redraws++, (await tile(rA).count()) + (await tile(rB).count()) === 0 && (await drawnIn('Todo', 1).count()) === 1), HUNG_MS)))
+  if (redraws > 1) console.log(`  (the board drew the deletions ${Date.now() - deleted} ms after they were made)`)
+  check('a card drags to another column', await dragged('to Review', 1, 'Review', async () => (await card(1))?.column === 'review'), (await card(1))?.column)
   // Into Doing, it asks who works on it first (doingmove has the rest).
-  await tile(1).dragTo(column('Doing').locator('.board-column-body'))
+  check('…and the board draws it in Review', !!(await until(async () => (await drawnIn('Review', 1).count()) === 1, HUNG_MS)))
   const toDoing = page.locator('.dialog', { hasText: 'Move #1 to Doing' })
-  check('dragging into Doing asks who works on it', !!(await until(async () => (await toDoing.count()) === 1, 5000)))
+  check('dragging into Doing asks who works on it', await dragged('into Doing', 1, 'Doing', async () => (await toDoing.count()) === 1))
   await toDoing.getByRole('button', { name: 'Move to Doing' }).click()
-  check('and moves it when confirmed', !!(await until(async () => (await card(1))?.column === 'doing', 5000)), (await card(1))?.column)
+  check('and moves it when confirmed', !!(await until(async () => (await card(1))?.column === 'doing', HUNG_MS)), (await card(1))?.column)
   await inv('tasks:update', 1, { column: 'todo' })
 
   // The card dialog saves only what the user changed: an agent's move meanwhile stays.

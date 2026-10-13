@@ -16,6 +16,7 @@
  */
 import { CLAUDE_FOOTER_MODES } from './claude'
 import { COPILOT_FOOTER_MODES } from './copilot'
+import { AGENT_LIMIT_DEFAULT, AGENT_LIMIT_MAX } from './defaults'
 import { SAFEGUARD_DEFAULTS } from './safeguards'
 import type { ProviderId } from './types'
 
@@ -86,6 +87,9 @@ const HOOKS_TAKEN: Record<string, AdvancedSample> = {
   copilot: { from: `${FIX}/console/copilot.json`, version: '1.0.95', text: '"name": "PreToolUse"', shows: "Copilot sending Hive's hooks from its launch plugin, PreToolUse too" }
 }
 
+/** The agents-per-project value's id (#562). */
+export const AGENTS_PER_PROJECT = 'hive.agents.perProject'
+
 /** Each CLI's footer in each mode, from screens recorded in it (#696). */
 const FOOTER_SAMPLES: Record<string, AdvancedSample> = {
   'claude-code.manual': { from: `${FIX}/screen-claude-2.1.296-idle.txt`, version: '2.1.296', text: '⏸ manual mode on · ? for shortcuts' },
@@ -111,6 +115,15 @@ export const ADVANCED_DEFS: readonly AdvancedDef[] = [
     kind: 'boolean',
     default: false,
     setting: 'advanced.showDeveloperFeatures',
+    applies: 'now'
+  },
+  {
+    id: 'hive.console.showText',
+    group: 'hive',
+    title: 'Developer console: show prompt, reply and command text',
+    desc: "Show the text in the developer console: prompts, replies, commands and tools' arguments, under a banner saying it is unredacted, and start each recording with its text box ticked. Tokens, API keys and sign-in details stay masked whatever this says; agents' hive_console stays redacted, and a recording with text is never attached to Copy Diagnostics.",
+    kind: 'boolean',
+    default: false,
     applies: 'now'
   },
   {
@@ -159,6 +172,19 @@ export const ADVANCED_DEFS: readonly AdvancedDef[] = [
     min: 1,
     max: 24,
     unit: 'lanes',
+    workspace: true,
+    applies: 'now'
+  },
+  {
+    id: AGENTS_PER_PROJECT,
+    group: 'hive',
+    title: 'Agents per project',
+    desc: `How many agents a project can have (#562): ${AGENT_LIMIT_DEFAULT} unless you need more, up to ${AGENT_LIMIT_MAX}. Each agent runs its own copy of its CLI, so more agents take more memory, and they all share your plans' usage limits. Lowering it removes no agents: a project with more just can't add another. Templates and the Agent API keep to it too.`,
+    kind: 'number',
+    default: AGENT_LIMIT_DEFAULT,
+    min: 1,
+    max: AGENT_LIMIT_MAX,
+    unit: 'agents',
     workspace: true,
     applies: 'now'
   },

@@ -219,12 +219,12 @@ const tools: Tool[] = [
   },
   {
     name: 'hive_inbox',
-    description: `What Hive has for you to read (messages left for you, tasks, the user's decisions, card events), oldest first: each with its id, who it is from and its card; a card's events come as one item. Listing them marks them received. Once you have acted on a message, task, handover or decision, ack it (ack: its ids, as listed or as the line typed into your session gave them): not acked ${OVERDUE_MINUTES} minutes after it was made, it shows as overdue to the user and the Assistant; a card event needs no ack. Replies with what is new, and the ids received before and not acked.`,
+    description: `What Hive has for you to read (messages left for you, tasks, the user's decisions, card events), oldest first: each with its id, who it is from and its card; a card's events come as one item. Listing them marks them received. Once you have read and acted on a message, task, handover or decision, ack it (ack: its ids, as listed; one not read yet isn't acked): not acked ${OVERDUE_MINUTES} minutes after it was made, it shows as overdue to the user and the Assistant; a card event needs no ack. Replies with what is new, and the ids received before and not acked.`,
     inputSchema: { type: 'object', properties: { ack: { type: 'array', items: { type: 'string' }, description: 'Ids to ack ("m12") once you have acted on them.' } } },
     run: async (a) => {
       if (Array.isArray(a.ack) && a.ack.length) {
-        const r = (await api('POST', '/v1/inbox', { ack: a.ack.map(String) })) as { acked: string[]; unknown: string[] }
-        return ackText(r.acked, r.unknown)
+        const r = (await api('POST', '/v1/inbox', { ack: a.ack.map(String) })) as { acked: string[]; unknown: string[]; unread?: string[] }
+        return ackText(r.acked, r.unknown, r.unread ?? [])
       }
       const r = (await api('POST', '/v1/inbox', {})) as { items: InboxItem[]; unacked: string[] }
       return inboxText(r.items, r.unacked)
@@ -238,7 +238,7 @@ const tools: Tool[] = [
   },
   {
     name: 'hive_agent_activity',
-    description: `What one agent is doing: status, background tasks, transcript size (transcriptMB; past transcriptWarnMB it slows down, so suggest a handover to a new conversation), the start of the task it was last given and of its latest reply, its last tool calls this turn, safeguard (its CLI's safety classifier stopped a response or switched its model since: when, the model, the names of the tool calls before it; "not detected" for a CLI Hive can't tell), locked files, how long ago the user typed in its terminal, and what was left for it (hive_message_agent): inbox, with unread, overdue (not acked ${OVERDUE_MINUTES} minutes after it was made) and its latest deliveries (5; 20 with detail), each with its id, state (queued, offered: typed into it, received: it fetched it with hive_inbox, acked, cancelled, refused, expired), times and why it ended. Texts are clipped: the task to 300 characters, the reply to 500, the last 3 tool calls (100 characters each); detail=true raises that to 2000, 3000 and the last 10 calls (200 each). toolCalls is how many calls this turn had, and clipped gives the whole length of a text that was cut. Hive gives no more of a conversation than that: for the rest, the card's comments or the agent itself.`,
+    description: `What one agent is doing: status, background tasks, transcript size (transcriptMB; past transcriptWarnMB it slows down, so suggest a handover to a new conversation), the start of the task it was last given and of its latest reply, its last tool calls this turn, safeguard (its CLI's safety classifier stopped a response or switched its model since: when, the model, the names of the tool calls before it; "not detected" for a CLI Hive can't tell), locked files, how long ago the user typed in its terminal, and what was left for it (hive_message_agent): inbox, with unread, overdue (not acked ${OVERDUE_MINUTES} minutes after it was made) and its latest deliveries (5; 20 with detail), each with its id, state (queued, offered: its line typed into it, received: it read it with hive_inbox, acked, cancelled, refused, expired, stale: its card moved on), times and why it ended. Texts are clipped: the task to 300 characters, the reply to 500, the last 3 tool calls (100 characters each); detail=true raises that to 2000, 3000 and the last 10 calls (200 each). toolCalls is how many calls this turn had, and clipped gives the whole length of a text that was cut. Hive gives no more of a conversation than that: for the rest, the card's comments or the agent itself.`,
     inputSchema: { type: 'object', properties: { project: projectArg, agent: agentArg, detail: { type: 'boolean' } } },
     run: (a) => api('GET', `${agentPath(a)}/activity${a.detail ? '?detail=true' : ''}`)
   },
@@ -291,7 +291,7 @@ const tools: Tool[] = [
         name: { type: 'string', description: 'Default: "Agent n".' },
         ...settingsArgs,
         worktree: { type: 'boolean' },
-        branch: { type: 'string', description: 'Worktree branch (default hive/<name>).' },
+        branch: { type: 'string', description: 'Worktree branch (default hive/<workspace>/<project>/<name>).' },
         base: { type: 'string', description: 'Branch the worktree starts from (default the current one).' },
         existingWorktree: { type: 'string', description: 'An unused worktree to work in: its folder or branch.' },
         start: { type: 'boolean' },
@@ -341,14 +341,15 @@ const tools: Tool[] = [
   {
     name: 'hive_message_agent',
     description:
-      "Leave a running agent a message it can't take as a prompt now: one that is watching (a card loop), working, waiting on background tasks or for the user, or where the user just typed. Saved, and typed at once when it is idle or watching (a watching agent is woken by it, and its watch carries on), else queued and typed with its next line: first in a line with a wake that comes first (its watch's, a loop wake), or on its own once it is idle; the agent can also fetch it first with hive_inbox (at most 5 waiting, 4000 characters each; kept if it stops; refused if your Control is turned down or your session ends meanwhile). For what it already works on (a re-brief, the user's answer); a new task is still hive_prompt_agent or hive_start_task. Replies with its id; hive_agent_activity shows its state: offered once typed, received once its CLI takes that line or the agent fetches it with hive_inbox, acked once it says it acted on it. cancel=true cancels the messages waiting.",
-    inputSchema: { type: 'object', properties: { project: projectArg, agent: agentArg, text: { type: 'string' }, cancel: { type: 'boolean' } }, required: ['project', 'agent'] },
+      "Leave a running agent a message it can't take as a prompt now: one that is watching (a card loop), working, waiting on background tasks or for the user, or where the user just typed. Saved in its inbox, and Hive tells it (its id, never its text): at its next tool call or before its turn ends while it works, else with a short line typed once it is idle or watching (a watching agent is woken by it, and its watch carries on). It reads it with hive_inbox, labelled as yours (at most 5 waiting, 4000 characters each; kept if it stops; refused if your Control is turned down or your session ends meanwhile). For what it already works on (a re-brief, the user's answer); a new task is still hive_prompt_agent or hive_start_task. card: the card in Doing or Review it is about; tied to that card's round, it is dropped as stale, never given, once the card passes, leaves Doing and Review or starts a new round. Replies with its id; hive_agent_activity shows its state: offered once its line is typed, received once it reads it with hive_inbox, acked once it says it acted on it, stale. cancel=true cancels the messages it hasn't read yet.",
+    inputSchema: { type: 'object', properties: { project: projectArg, agent: agentArg, text: { type: 'string' }, card: { type: 'number' }, cancel: { type: 'boolean' } }, required: ['project', 'agent'] },
     run: async (a) => {
-      const r = (await api('POST', `${agentPath(a)}/message`, a.cancel === true ? { cancel: true } : { text: a.text })) as { id?: string; typed?: boolean; queued?: number; status?: string; cancelled?: number }
+      const r = (await api('POST', `${agentPath(a)}/message`, a.cancel === true ? { cancel: true } : { text: a.text, ...(a.card !== undefined ? { card: a.card } : {}) })) as { id?: string; typed?: boolean; queued?: number; status?: string; cancelled?: number; round?: number }
       const who = String(a.agent || 'the agent')
       if (a.cancel === true) return r.cancelled ? `Cancelled ${r.cancelled === 1 ? 'the message' : `${r.cancelled} messages`} waiting for ${who}.` : `No message was waiting for ${who}.`
-      if (r.typed) return `Typed into ${who} now (${r.id})${r.status === 'watching' ? ': its watch carries on' : ''}.`
-      return `Queued for ${who} (${r.id}, ${r.status}): typed with its next line, a wake or once it is idle; ${r.queued} waiting. hive_agent_activity says when it is received and acked.`
+      const tied = r.round ? `, for #${a.card} round ${r.round}` : ''
+      if (r.typed) return `Told ${who} now (${r.id}${tied}): it reads it with hive_inbox${r.status === 'watching' ? '; its watch carries on' : ''}.`
+      return `Queued for ${who} (${r.id}${tied}, ${r.status}): Hive tells it at its next tool call or turn's end, or once it is idle; ${r.queued} waiting. hive_agent_activity says when it is received and acked.`
     }
   },
   {

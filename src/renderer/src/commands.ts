@@ -274,6 +274,18 @@ export const commands: Command[] = [
   { id: 'agent.add', label: 'Add Agent', category: 'Session', keybinding: 'Mod+Alt+Shift+N', when: hasProject, run: (path?: string) => void actions.quickAddAgent(path ?? get().selectedProject) },
   { id: 'agent.addWith', label: 'Add Agent…', category: 'Session', when: hasProject, run: (path?: string) => set({ addAgentFor: path ?? get().selectedProject }) },
   {
+    id: 'agent.settings',
+    label: 'Agent Settings…',
+    category: 'Session',
+    when: () => !!selected()?.agents.length,
+    // From a notice (#702: an agent to rename), that agent; from the palette, the focused one.
+    run: (path?: string, agentId?: string) => {
+      const p = path ? get().workspace?.projects.find((x) => x.path === path) : selected()
+      const id = agentId ?? (p ? focusedAgentId(p) : null)
+      if (p && id && p.agents.some((a) => a.id === id)) set({ agentSettingsFor: { project: p.path, agentId: id } })
+    }
+  },
+  {
     id: 'agent.next',
     label: 'Focus Next Agent',
     category: 'Session',

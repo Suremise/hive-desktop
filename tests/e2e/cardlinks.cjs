@@ -61,14 +61,14 @@ const check = (name, ok, extra = '') => {
     await page.keyboard.press('Escape')
     await until(async () => (await dialog.count()) === 0, HUNG_MS)
   }
-  /** Prints a prompt in a fake session (it echoes it back) and waits for it to finish. */
+  /**
+   * Prints a prompt in a fake session (it echoes it back): typed once the fake takes prompts, and waited for by its own
+   * turn (#684, lib.fakePrompts), then for its reply on screen.
+   */
   const say = async (proj, id, prompt) => {
     const key = lib.ptyKey(proj, id)
-    await inv('pty:write', key, prompt)
-    await lib.sleep(200)
-    await inv('pty:write', key, '\r')
-    await until(async () => String(await inv('pty:buffer', key)).includes(`Done: ${prompt}`), 15000)
-    await until(async () => (await live(proj, id))?.status === 'finished', 15000)
+    check(`the prompt "${prompt.slice(0, 40)}" is answered`, !!(await lib.fakePrompts(inv, key, () => live(proj, id), { home: claudeHome }).say(prompt)))
+    await until(async () => String(await inv('pty:buffer', key)).includes(`Done: ${prompt}`), HUNG_MS)
   }
   /** A terminal's cell width in pixels. */
   const cellWidth = (key) => page.evaluate((k) => window.__hiveTerminalState(k).cols && document.querySelector(`.terminal-host[data-pty="${CSS.escape(k)}"] .xterm-screen`).getBoundingClientRect().width / window.__hiveTerminalState(k).cols, key)

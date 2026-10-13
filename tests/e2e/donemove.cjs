@@ -55,13 +55,11 @@ const until = async (fn, ms = 10000) => {
   await inv('tasks:create', { title: 'Greeting', project: 'alpha', column: 'review' })
   const callsSoFar = () => (fs.existsSync(calls) ? fs.readFileSync(calls, 'utf8').trim().split('\n').filter(Boolean).length : 0)
   const lastCall = () => JSON.parse(fs.readFileSync(calls, 'utf8').trim().split('\n').at(-1))
+  // Each prompt is typed once the fake takes prompts, and waited for by its own turn (#684, lib.fakePrompts).
+  const prompts = lib.fakePrompts(inv, key, live, { home: claudeHome })
   const run = async (text) => {
     const before = callsSoFar()
-    await inv('pty:write', key, text)
-    await lib.sleep(100)
-    await inv('pty:write', key, '\r')
-    await until(async () => callsSoFar() > before, 15000)
-    await until(async () => (await live())?.status === 'finished', 10000)
+    check(`the prompt "${text}" is answered`, !!(await prompts.say(text)))
     return callsSoFar() > before ? lastCall() : null
   }
   const moves = async (n) => (await card(n)).history.filter((h) => h.what.startsWith('Moved to')).map((h) => `${h.by}: ${h.what}`)
@@ -95,7 +93,9 @@ const until = async (fn, ms = 10000) => {
   const transcript = path.join(claudeHome, 'projects', alpha.replace(/[^a-zA-Z0-9]/g, '-'), `${(await live()).sessionId}.jsonl`)
   const prompt = await until(async () => {
     const lines = fs.existsSync(transcript) ? fs.readFileSync(transcript, 'utf8').split('\n').filter((l) => l.includes(`task #${n} `)) : []
-    return lines.length ? JSON.parse(lines.at(-1)).message.content : null
+    // Read from its inbox (#650: the task's doorbell names it; the hive_inbox call's result has its text).
+    const content = lines.length ? JSON.parse(lines.at(-1)).message.content : null
+    return typeof content === 'string' || content === null ? content : (content.find?.((c) => typeof c.content === 'string')?.content ?? null)
   }, 15000)
   // The prompt points to the work-on-card skill, which the agent's launch carries, and which says Review when done and
   // Done only once merged or when the user asks (#170; the session's Hive instructions say it too, for a session without the skill).

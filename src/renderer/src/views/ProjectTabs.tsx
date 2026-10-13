@@ -9,7 +9,8 @@ import { agentChoosesMcp, agentGetsMcp, agentMcpText } from '@shared/agentMcp'
 import { gitFixText } from '@shared/gitTool'
 import { UnusedHeading, UnusedWorkNotice, UnusedWorktreesLine, UnusedWorktreesSection, useUnusedWorktrees } from '../components/UnusedWorktrees'
 import { PERIODS, activeIn, costText, dailyTotals, money, periodFrom, sumUsage, type DayTotal, type Period, type Totals } from '@shared/usageTotals'
-import { FILE_LOCK_MODES, MAX_AGENTS, contextPercent, turnPushedCompaction, effectiveModelLabel, mergeBlocked, modelLabel } from '@shared/defaults'
+import { FILE_LOCK_MODES, contextPercent, turnPushedCompaction, effectiveModelLabel, mergeBlocked, modelLabel } from '@shared/defaults'
+import { useAgentLimit } from '../advanced'
 import { PROVIDERS, contextLines, defaultProviderLabel, isProviderEnabled, modeOption, offeredModes, permissionLabel, projectDefaultProvider, projectProviderConfig, providerDescriptor, providerName, providerSettings } from '@shared/providers'
 import { EffortPicker, ModelPicker } from '../components/ModelPicker'
 import { effortText, runsAsName } from '@shared/models'
@@ -34,6 +35,7 @@ import { CHANGES_ABOUT, unusedPickerLabel } from '@shared/unusedWorktrees'
 import { agentProviderOf, confirm, notify, openInSessionsTab, set, setActivity, showView, UNUSED_ROOT, unusedRoot, useDateStyle, useFocusedAgent, useStore } from '../store'
 import { rememberProjectPref } from '../projectPrefs'
 import { HiveVcsNotice } from '../components/HiveVcsNotice'
+import { InitRepoButton } from '../components/InitRepo'
 import { MergeSlotList, projectSlots, useMergeSlots } from '../components/MergeSlots'
 import { cx, formatDuration, formatNumber, formatTokens, resetsIn, timeAgo } from '../util'
 import { useLiveUsage, useNow } from '../usage'
@@ -780,7 +782,8 @@ export function ChangesTab({ project: owner }: { project: ProjectInfo }) {
       <div className="empty-state" style={{ paddingTop: '15vh' }}>
         <Icon name="source-control" />
         {project.name} is not a git repository, so there are no changes to review.
-        <p className="hint">Ask the agent to run <code>git init</code>, or initialise it yourself, to review its changes here.</p>
+        <p className="hint">Initialise it to review its changes here: it gets a first commit, so agents can work in worktrees too.</p>
+        {project === owner && <InitRepoButton project={owner} small />}
       </div>
     )
   }
@@ -1320,6 +1323,7 @@ function DraftTextarea({ value, onCommit, ...rest }: { value: string; onCommit: 
 
 function AgentList({ project }: { project: ProjectInfo }) {
   const settings = useStore((s) => s.settings)
+  const limit = useAgentLimit()
   const providers = useStore((s) => s.providers)
   const cfg = project.config
   return (
@@ -1359,7 +1363,7 @@ function AgentList({ project }: { project: ProjectInfo }) {
           </div>
         )
       })}
-      <button className="btn subtle small" disabled={project.agents.length >= MAX_AGENTS} onClick={() => set({ addAgentFor: project.path })}>
+      <button className="btn subtle small" disabled={project.agents.length >= limit} onClick={() => set({ addAgentFor: project.path })}>
         <Icon name="add" /> Add Agent
       </button>
     </div>

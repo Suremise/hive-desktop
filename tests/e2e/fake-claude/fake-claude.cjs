@@ -30,9 +30,12 @@
 //   (review: start, passed or failed; a column with the verdict), and "boardcomment N" comments on it. All are written to the transcript as the hive tool
 //   call they stand for (mcp__hive__hive_update_task), as Claude Code writes an MCP call. "hive TOOL {json}" calls a
 //   hive tool through the real hive MCP server of the launch's --mcp-config (fake-bridge.cjs: logged and measured by
-//   Hive's performance metrics as a real call is), written to the transcript as that MCP call and its reply. A line
-//   Hive types to wake it ("[Hive] #12 is in Review…", a card watch) is logged in fake-wakes.jsonl and answered with
-//   the next line of fake-wakes-<agent>.txt (a test's script of what this agent does next); with a number N in
+//   Hive's performance metrics as a real call is), written to the transcript as that MCP call and its reply. Hive's
+//   doorbell ("[Hive] New in your inbox: …", #650) it follows as a model does: it reads its inbox with hive_inbox (and
+//   acks it too when it follows notices, below). New work (a task, a handover) it read is its prompt; what else it read
+//   (a card watch's wake, "[Hive] #12 is in Review…", a message), like a line Hive types to wake it, is logged in
+//   fake-wakes.jsonl and answered with the next line of fake-wakes-<agent>.txt (a test's script of what this agent does
+//   next); with a number N in
 //   fake-drop-enters-<agent>.txt, it drops the next N Enters after such a line, which stays typed (#376). It turns on
 //   bracketed paste, as Claude Code does. While fake-slow-input-<agent>.txt is in its home it reads no input, as a busy
 //   Claude Code (#597; fake-slow-input-<agent>.paused says it has stopped): what arrived meanwhile comes in one read,
@@ -66,6 +69,12 @@
 //   hook), and the idle notification follows as after a turn. Answered so, it stays on its model and records nothing
 //   (as HB3's stop); "safeguardpromptswitch" is answered "Switch automatically": its record of the flagged request
 //   (model_refusal_fallback, for the session) and the model it switched to (Opus 4.8, or Sonnet 5.5 if on Opus 4.8).
+// - Notices (#650), as Claude Code 2.1.296 takes them: context in a PostToolUse or Stop reply reaches "the model", and a
+//   Stop answered with context (or a block) carries the turn on to another Stop with stop_hook_active. Each notice
+//   ("[Hive] …") is logged in fake-notices.jsonl (agent, where, text). With fake-follow-notices.txt in its home (any
+//   agent) or fake-follow-notices-<agent>.txt, it acts on one as a model that follows Hive's notices: hive_inbox, then
+//   hive_inbox with ack for the ids it listed. "checkpoint" as a step is a tool call (a Bash, PreToolUse and PostToolUse)
+//   whose PostToolUse reply it reads.
 // - `--name` and "/rename <name>" set the session's name in the transcript (a custom title), as Claude Code does.
 // - Its system prompt (the --append-system-prompt-file's text) is recorded on a conversation's first request and that
 //   record used on every later one and every resume, as Claude Code does since 2.1.267, until it compacts;
@@ -93,7 +102,7 @@ const fs = require('fs')
 const path = require('path')
 const { randomUUID } = require('crypto')
 const { spawn } = require('child_process')
-const { callHiveTool, parseHiveStep } = require('../fake-bridge.cjs')
+const { callHiveTool, parseHiveStep, isDoorbell, doorbellIsWork, inboxRows } = require('../fake-bridge.cjs')
 
 const args = process.argv.slice(2)
 if (args[0] === '--version') {
@@ -279,6 +288,18 @@ let promptId = null
 let model = 'claude-fake'
 const FALLBACK_MODEL = 'claude-opus-4-8'
 
+/**
+ * A hook that didn't reach Hive (#684: under load a Stop never did, and the turn stayed running), in fake-hook-errors.jsonl
+ * in its home: the hook, when, and the error or the status Hive answered. It goes on as Claude Code does.
+ */
+const hookFailed = (event, entry) => {
+  try {
+    fs.appendFileSync(path.join(home, 'fake-hook-errors.jsonl'), JSON.stringify({ at: new Date().toISOString(), pid: process.pid, event, prompt: promptId, ...entry }) + '\n')
+  } catch {
+    // Its home gone: nothing to tell.
+  }
+}
+
 async function hook(event, extra = {}) {
   if (!hookUrl) return null
   try {
@@ -287,10 +308,58 @@ async function hook(event, extra = {}) {
       headers: { Authorization: event === 'SessionStart' ? commandAuth() : `Bearer ${token}`, 'Content-Type': 'application/json' },
       body: JSON.stringify({ hook_event_name: event, session_id: sessionId, transcript_path: transcript, cwd, permission_mode: runMode(), ...(promptId && event !== 'SessionStart' ? { prompt_id: promptId } : {}), ...extra })
     })
+    if (!res.ok) hookFailed(event, { status: res.status })
     return await res.json().catch(() => null)
-  } catch {
+  } catch (e) {
+    hookFailed(event, { error: String(e?.cause?.code ?? e?.cause?.message ?? e?.message ?? e) })
     return null
   }
+}
+
+/** Hive's notice in a hook's reply (#650: context, or a block's reason), logged in fake-notices.jsonl; null when none. */
+function noticeIn(reply, at) {
+  const text = reply?.hookSpecificOutput?.additionalContext ?? (reply?.decision === 'block' ? reply.reason : null)
+  if (typeof text !== 'string' || !text.startsWith('[Hive]')) return null
+  const agent = String(process.env.HIVE_AGENT || 'agent').replace(/[^\w-]/g, '_')
+  fs.appendFileSync(path.join(home, 'fake-notices.jsonl'), JSON.stringify({ agent, at, text, when: new Date().toISOString() }) + '\n')
+  return text
+}
+
+/** Whether this agent follows Hive's notices (fake-follow-notices.txt, or its own fake-follow-notices-<agent>.txt). */
+function followsNotices() {
+  const agent = String(process.env.HIVE_AGENT || 'agent').replace(/[^\w-]/g, '_')
+  return fs.existsSync(path.join(home, 'fake-follow-notices.txt')) || fs.existsSync(path.join(home, `fake-follow-notices-${agent}.txt`))
+}
+
+/** Acts on a notice as a model that follows them: reads its inbox (hive_inbox), then acks the ids it listed. */
+async function readInbox() {
+  const listed = await hiveCall('hive_inbox', {})
+  const ids = [...new Set([...String(listed?.text ?? '').matchAll(/\bm\d+\b/g)].map((m) => m[0]))]
+  if (ids.length) await hiveCall('hive_inbox', { ack: ids })
+}
+
+/**
+ * Hive's doorbell (#650): it reads its inbox (hive_inbox, through the hive MCP server, a call in its transcript), as a
+ * model does; one that follows Hive's notices acks what it read too. What it read: its items' texts in one line, or null
+ * when it has no hive server to ask.
+ */
+async function followDoorbell() {
+  if (!opts['--mcp-config']) return null
+  const r = await hiveCall('hive_inbox', {})
+  if (r.isError) return null
+  const rows = inboxRows(r.text)
+  if (rows.length && followsNotices()) await hiveCall('hive_inbox', { ack: rows.flatMap((x) => x.ids) })
+  return rows.map((x) => x.text).join(' ')
+}
+
+/** A tool call of its own (a Bash), whose PostToolUse reply may carry a notice (#650: "checkpoint" as a step). */
+async function checkpoint() {
+  const id = `toolu_${randomUUID().slice(0, 8)}`
+  const call = { tool_name: 'Bash', tool_input: { command: 'echo checkpoint' }, tool_use_id: id }
+  await hook('PreToolUse', call)
+  write({ type: 'assistant', requestId: `req_${id}`, message: { model: 'claude-fake', content: [{ type: 'tool_use', id, name: 'Bash', input: call.tool_input }], usage: { input_tokens: 10, output_tokens: 5 } } })
+  write({ type: 'user', message: { role: 'user', content: [{ type: 'tool_result', tool_use_id: id, content: 'checkpoint' }] } })
+  if (noticeIn(await hook('PostToolUse', call), 'checkpoint') && followsNotices()) await readInbox()
 }
 
 /**
@@ -312,10 +381,10 @@ function shell(cmd) {
   })
 }
 
-function wakeScript(text) {
-  if (!text.startsWith('[Hive]') || !home) return null
+function wakeScript(text, doorbell = null) {
+  if ((!doorbell && !text.startsWith('[Hive]')) || !home) return null
   const agent = String(process.env.HIVE_AGENT || 'agent').replace(/[^\w-]/g, '_')
-  fs.appendFileSync(path.join(home, 'fake-wakes.jsonl'), JSON.stringify({ agent, text, at: new Date().toISOString() }) + '\n')
+  fs.appendFileSync(path.join(home, 'fake-wakes.jsonl'), JSON.stringify({ agent, text, ...(doorbell ? { doorbell } : {}), at: new Date().toISOString() }) + '\n')
   const file = path.join(home, `fake-wakes-${agent}.txt`)
   if (!fs.existsSync(file)) return null
   const lines = fs.readFileSync(file, 'utf8').split('\n').filter((l) => l.trim())
@@ -361,8 +430,12 @@ async function runPrompt(text) {
     return
   }
   const prompt = systemPrompt()
-  // A line Hive typed to wake it (a card watch): logged, and answered with the next line of its wake script.
-  const woken = wakeScript(text)
+  // Hive's doorbell (#650): what it reads in its inbox is what it acts on. New work (a task, a handover) is its prompt;
+  // anything else (a card watch's wake, a message) is logged, and answered with the next line of its wake script, as a
+  // line Hive typed to wake it is.
+  const doorbell = isDoorbell(text) ? text : null
+  if (doorbell) text = (await followDoorbell()) ?? text
+  const woken = doorbell && doorbellIsWork(doorbell) ? null : wakeScript(text, doorbell)
   if (woken !== null) text = woken
   const edit = /\bedit\s+(\S+)/i.exec(text)
   if (edit) {
@@ -401,6 +474,7 @@ async function runPrompt(text) {
     if (comment) await boardPatch(Number(comment[1]), { comment: 'Fake: done, see the files.' })
     const call = parseHiveStep(step)
     if (call) await hiveCall(call.tool, call.args)
+    if (/\bcheckpoint\b/i.test(step)) await checkpoint()
     // "shell: <command line>": runs it in cmd with the session's environment (PATH, HIVE_*), as an agent's shell
     // would; the agent, command, exit code and output go to fake-shell.jsonl in its home.
     const sh = /\bshell:\s*(.+)$/i.exec(step)
@@ -501,6 +575,7 @@ async function hiveCall(tool, input) {
     r = { text: String(e), isError: true }
   }
   write({ type: 'user', message: { role: 'user', content: [{ type: 'tool_result', tool_use_id: id, content: r.text, is_error: r.isError }] } })
+  return r
 }
 
 /** Changes card n as hive_update_task does: the hive tools' API, with this agent's token; the call is in the transcript. */
@@ -557,7 +632,14 @@ async function endTurn(answer, inputTokens = 20, lostStop = false, { late = null
   if (busyDrawn === writes) out(`\x1b[${BUSY_LINES}A\r\x1b[J`)
   out(`\r\n${answer}\r\n`)
   // "loststop": the turn ends, but its Stop never reaches Hive (#612).
-  if (!lostStop) await hook('Stop', { last_assistant_message: answer, stop_hook_active: false })
+  if (!lostStop) {
+    const reply = await hook('Stop', { last_assistant_message: answer, stop_hook_active: false })
+    // Carried on (#650: Hive's drain, or any Stop hook's block): one more call to the model, then Stop again.
+    if (reply?.decision === 'block' || reply?.hookSpecificOutput?.additionalContext) {
+      if (noticeIn(reply, 'drain') && followsNotices()) await readInbox()
+      await hook('Stop', { last_assistant_message: answer, stop_hook_active: true })
+    }
+  }
   if (late) await hook('PostToolUse', late)
   if (carryOn) {
     for (const end = Date.now() + 120_000; !take('fake-continue') && Date.now() < end; ) await sleep(100)

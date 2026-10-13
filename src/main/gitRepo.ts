@@ -156,7 +156,7 @@ export function parseWorktrees(out: string): GitWorktreeRow[] {
 }
 
 /** `git config --get-regexp ^user\.(name|email)$` (one scope or all): the last of each wins, as git takes it. */
-function parseIdentity(r: GitResult): GitIdentityPart {
+export function parseIdentity(r: GitResult): GitIdentityPart {
   const out: GitIdentityPart = {}
   if (!r.ok) return out
   for (const line of r.out.split(/\r?\n/)) {
@@ -239,7 +239,7 @@ export async function repoHistory(root: string): Promise<GitHistory> {
 /** One action at a time per project folder (a second click, or another window). */
 const running = new Map<string, Promise<unknown>>()
 
-function oneAtATime<T>(projectPath: string, fn: () => Promise<T>, urls: string[] = []): Promise<T> {
+export function oneAtATime<T>(projectPath: string, fn: () => Promise<T>, urls: string[] = []): Promise<T> {
   const key = projectPath.toLowerCase()
   const prev = running.get(key) ?? Promise.resolve()
   const run = prev.then(fn, fn).catch(async (e: unknown) => {

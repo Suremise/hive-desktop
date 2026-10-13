@@ -4,6 +4,7 @@ import { ConsoleRing, EVENT_MAX_BYTES, HOOK_FIELDS, RING_MAX_BYTES, TRANSCRIPT_F
 import { DevConsole, MAX_SOURCES, QUEUE_MAX_EVENTS } from '../src/main/devConsole'
 import { hookSummary, launchEvent, transcriptEvent } from '../src/main/devConsoleWords'
 import { CONSOLE_NOT_CAPTURED, consoleEventsText, consoleSourcesText } from '../src/shared/toolReplies'
+import { SECRET_SAMPLES } from './secretSamples'
 
 // The developer console's capture (#636): bounded rings, kept only while a console watches, each raw event redacted
 // (the sensitive context following everything under it) and paired with what Hive made of it; who may read which
@@ -215,7 +216,7 @@ describe('DevConsole', () => {
     const build = vi.fn(() => ({ kind: 'hook' as const, name: 'Stop', summary: 's' }))
     c.capture([A1], build)
     expect(build).not.toHaveBeenCalled()
-    expect(c.stats()).toEqual({ sources: 0, events: 0, bytes: 0, subscribers: 0, queued: 0 })
+    expect(c.stats()).toEqual({ sources: 0, events: 0, textEvents: 0, bytes: 0, subscribers: 0, queued: 0 })
     // Reading (what the hive tools do) starts nothing.
     expect(c.events(A1)).toEqual([])
     expect(c.capturing(A1)).toBe(false)
@@ -233,7 +234,7 @@ describe('DevConsole', () => {
     expect(c.capturing(A1)).toBe(true)
     expect(c.capturing(A2)).toBe(false)
     c.unsubscribe('w1')
-    expect(c.stats()).toEqual({ sources: 0, events: 0, bytes: 0, subscribers: 0, queued: 0 })
+    expect(c.stats()).toEqual({ sources: 0, events: 0, textEvents: 0, bytes: 0, subscribers: 0, queued: 0 })
     expect(c.events(A1)).toEqual([])
   })
 
@@ -313,6 +314,145 @@ describe('DevConsole', () => {
     await vi.waitFor(() => expect(got.some((e) => e.summary === 'after')).toBe(true), { timeout: HUNG_MS })
     expect(JSON.stringify(got)).not.toContain('private')
     expect(c.stats().queued).toBe(0)
+  })
+
+  // Developer console: show text (#699): a window's subscription keeps text while the setting is on, never secrets.
+  describe('a window showing text', () => {
+    const MARK = 'privatewords'
+    const SECRETS = ['sk-ant-api03-abcdefghijklmnop', 'ghp_abcdefghijklmnopqrstu', 'eyJhbGciOiJIUzI1NiJ9.eyJzdWIiOiIxMjM0In0.c2lnbmF0dXJlMTIz', 'Bearer abcdefghij', 'hunter2pass', 'ABCD-EFGH', 'privateuser', 'me@example.com']
+    // A hook carrying text, and secrets in every place they can be: in the text, in secret fields, in a sign-in.
+    const hook = () => ({
+      kind: 'hook' as const,
+      name: 'PreToolUse',
+      summary: 'PreToolUse (Bash)',
+      raw: {
+        hook_event_name: 'PreToolUse',
+        prompt: `${MARK} with my key ${SECRETS[0]} and ${SECRETS[1]}`,
+        tool_name: 'Bash',
+        // What follows a credential to the next option is masked too: the words shown come before.
+        tool_input: { command: `curl ${MARK} -H "Authorization: ${SECRETS[3]}" --token ${SECRETS[2]}` },
+        password: SECRETS[4],
+        login: { device_code: SECRETS[5], username: SECRETS[6] },
+        note: `mail ${SECRETS[7]}`
+      },
+      safe: { raw: HOOK_FIELDS }
+    })
+    const noSecrets = (events: ConsoleEvent[]): void => {
+      const text = JSON.stringify(events)
+      for (const s of SECRETS) expect(text, s).not.toContain(s)
+    }
+
+    it('shows text only while it is on, and secrets stay masked even then', async () => {
+      const c = new DevConsole()
+      const got: ConsoleEvent[] = []
+      c.subscribe('window', [A1], { deliver: (e) => void got.push(...e) })
+      c.capture([A1], hook)
+      await vi.waitFor(() => expect(got).toHaveLength(1), { timeout: HUNG_MS })
+      expect(JSON.stringify(got[0])).not.toContain(MARK)
+      expect(c.setIncludeText('window', true)).toBe(true)
+      expect(c.includesText('window')).toBe(true)
+      c.capture([A1], hook)
+      await vi.waitFor(() => expect(got).toHaveLength(2), { timeout: HUNG_MS })
+      const shown = got[1].raw as Record<string, any>
+      expect(shown.prompt).toContain(MARK)
+      expect(shown.tool_input.command).toContain(MARK)
+      expect(shown.password).toBe('<redacted>')
+      expect(shown.login).toBe('<redacted>')
+      noSecrets(got)
+      // Turned off: nothing more with text.
+      expect(c.setIncludeText('window', false)).toBe(true)
+      expect(c.includesText('window')).toBe(false)
+      c.capture([A1], hook)
+      await vi.waitFor(() => expect(got).toHaveLength(3), { timeout: HUNG_MS })
+      expect(JSON.stringify(got[2])).not.toContain(MARK)
+    })
+
+    it('secrets and sign-ins in the text itself stay masked: options, quoted values with spaces, passwords, device codes (#699 round 1)', async () => {
+      const c = new DevConsole()
+      const got: ConsoleEvent[] = []
+      c.subscribe('window', [A1], { deliver: (e) => void got.push(...e), includeText: true })
+      // As a prompt, a command, a reply and a tool's output carry them.
+      for (const s of SECRET_SAMPLES) {
+        c.capture([A1], () => ({ kind: 'hook', name: 'PreToolUse', summary: 's', raw: { prompt: s.text, tool_input: { command: s.text }, last_assistant_message: s.text, tool_response: { stdout: s.text } }, safe: { raw: HOOK_FIELDS } }))
+      }
+      await vi.waitFor(() => expect(got).toHaveLength(SECRET_SAMPLES.length), { timeout: HUNG_MS })
+      for (const [i, s] of SECRET_SAMPLES.entries()) {
+        for (const kept of [got[i], c.eventsFor('window', A1)[i]]) {
+          const text = JSON.stringify(kept)
+          for (const secret of s.secrets) expect(text, s.text).not.toContain(secret)
+          for (const k of s.kept ?? []) expect(text, s.text).toContain(k)
+        }
+      }
+    })
+
+    it('masking is the last step over the whole event, text kept or not: its name, summary, every payload string and field name', () => {
+      // A secret in a prompt, a reply and a command line; in a field kept as a path; in a field's name; in the event's
+      // name and summary; and in a payload too large, cut to its outline (its field names).
+      const big = Object.fromEntries(Array.from({ length: 50 }, (_, i) => [`f${i} --token outlineSecret${i}`, 'x'.repeat(1000)]))
+      const captured = {
+        kind: 'hook' as const,
+        name: 'enter ABCD-EFGH',
+        summary: 'PreToolUse --api-key summarySecret',
+        raw: {
+          hook_event_name: 'PreToolUse',
+          cwd: 'C:\\work\\x --password pathSecret',
+          prompt: 'deploy with --api-key promptSecret',
+          last_assistant_message: 'Done. Use password: replySecret words',
+          tool_input: { command: 'curl -H "Cookie: sid=commandSecret" -u admin:userSecret https://example.com' },
+          'device_code=keySecret': 1
+        },
+        safe: { raw: HOOK_FIELDS }
+      }
+      for (const includeText of [false, true]) {
+        for (const e of [makeEvent(1, 'at', A1, captured, { includeText }), makeEvent(2, 'at', A1, { kind: 'transcript', name: 'transcript', summary: 's', raw: big }, { includeText })]) {
+          const text = JSON.stringify(e)
+          for (const secret of ['ABCD-EFGH', 'summarySecret', 'pathSecret', 'promptSecret', 'replySecret', 'commandSecret', 'userSecret', 'keySecret', 'outlineSecret']) expect(text, `${secret}, text ${includeText}`).not.toContain(secret)
+        }
+      }
+      // The text itself still shows when kept.
+      expect(JSON.stringify(makeEvent(1, 'at', A1, captured, { includeText: true }))).toContain('deploy with --api-key <redacted>')
+    })
+
+    it("its backlog (a resume after a pause) has text where it was kept, never what came before; readers' never has", () => {
+      const c = new DevConsole()
+      c.subscribe('window', [A1], { includeText: true })
+      c.subscribe('other', [A1])
+      c.capture([A1], hook)
+      expect(c.stats().textEvents).toBe(1)
+      const backlog = c.eventsFor('window', A1)
+      expect(JSON.stringify(backlog)).toContain(MARK)
+      noSecrets(backlog)
+      // The same seqs as the redacted ring: one list, two copies.
+      expect(backlog.map((e) => e.seq)).toEqual(c.events(A1).map((e) => e.seq))
+      // A reader (the hive tools), and a window without text, get the redacted ring.
+      expect(JSON.stringify(c.events(A1))).not.toContain(MARK)
+      expect(JSON.stringify(c.eventsFor('other', A1))).not.toContain(MARK)
+      // A new subscription with text gets the kept text back with the rest.
+      expect(JSON.stringify(c.subscribe('third', [A1], { includeText: true }).get(A1))).toContain(MARK)
+      // A source the subscriber doesn't watch gives nothing.
+      expect(c.eventsFor('window', A2)).toEqual([])
+    })
+
+    it('turned off, its text goes: nothing waiting is sent, and none is kept once no subscriber keeps text', async () => {
+      const c = new DevConsole()
+      const got: ConsoleEvent[] = []
+      c.subscribe('window', [A1], { deliver: (e) => void got.push(...e), includeText: true })
+      c.capture([A1], hook)
+      // Before the flush.
+      c.setIncludeText('window', false)
+      expect(c.stats()).toMatchObject({ queued: 0, textEvents: 0 })
+      expect(JSON.stringify(c.eventsFor('window', A1))).not.toContain(MARK)
+      c.capture([A1], () => ({ kind: 'hook', name: 'Stop', summary: 'after' }))
+      await vi.waitFor(() => expect(got.some((e) => e.summary === 'after')).toBe(true), { timeout: HUNG_MS })
+      expect(JSON.stringify(got)).not.toContain(MARK)
+      // A recording with text keeps its own text ring going, and only while it lasts.
+      c.subscribe('recording', [A1], { includeText: true })
+      c.capture([A1], hook)
+      expect(c.stats().textEvents).toBe(1)
+      c.unsubscribe('recording')
+      expect(c.stats().textEvents).toBe(0)
+      expect(c.setIncludeText('nobody', true)).toBe(false)
+    })
   })
 
   it("a capture point that throws keeps nothing and doesn't fail its caller", () => {

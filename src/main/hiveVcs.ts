@@ -55,6 +55,21 @@ export function vcsOf(folder: string): { kind: 'git'; root: string } | { kind: '
   }
 }
 
+/**
+ * Another version control system keeping the folder or one above it, looked for at every level whatever git is there
+ * too (a colocated Jujutsu repository has both .jj and .git, #701), or null.
+ */
+export function otherVcsOf(folder: string): { name: string; root: string } | null {
+  let dir = resolve(folder)
+  for (;;) {
+    const other = OTHER_VCS.find(([marker]) => existsSync(join(dir, marker)))
+    if (other) return { name: other[1], root: dir }
+    const up = dirname(dir)
+    if (up === dir) return null
+    dir = up
+  }
+}
+
 /** A path's part as a git ignore pattern matches it literally: its wildcards and brackets escaped (`project[1]`). */
 export function literalPattern(part: string): string {
   return part.replace(/[\\[\]*?]/g, (c) => `\\${c}`)

@@ -2,7 +2,7 @@
 // agents) or to add one agent from. What a template holds and what it leaves out (sessions, worktree paths and branches,
 // setup state, the Assistant's persona: those belong to the project), checked as untrusted input when read. #127 adds
 // the places to manage them (the Templates view, a project's Templates tab) and sharing them as files (export, import).
-import { MAX_AGENTS, ROLE_MAX, SESSION_LAYOUTS, projectAgents } from './defaults'
+import { AGENT_LIMIT_MAX, ROLE_MAX, SESSION_LAYOUTS, projectAgents } from './defaults'
 import { isKnownProvider } from './providers'
 import { cleanMcpServers } from './agentMcp'
 import type { AgentDef, EffortLevel, PageLayout, PermissionMode, ProviderId } from './types'
@@ -16,7 +16,7 @@ export type TemplateScope = 'workspace' | 'project'
 export const TEMPLATE_SCOPES: readonly TemplateScope[] = ['workspace', 'project']
 /** An exported template's file name ends so ("Build and review.hive-template.json"). */
 export const TEMPLATE_EXPORT_SUFFIX = '.hive-template.json'
-/** A file to import is at most this big (a template of 12 agents is a few KB). */
+/** A file to import is at most this big (a template of 24 agents is a few KB). */
 export const TEMPLATE_IMPORT_MAX = 256 * 1024
 /** A template's description (#271, optional) is at most this long. */
 export const TEMPLATE_DESCRIPTION_MAX = 500
@@ -113,6 +113,9 @@ const text = (v: unknown, max: number): v is string => typeof v === 'string' && 
 /** A model, effort or mode as a CLI names it: short, no spaces or control characters. */
 const setting = (v: unknown): v is string => typeof v === 'string' && /^[A-Za-z0-9._:/[\]-]{1,100}$/.test(v)
 
+/** Why a template of `count` agents can't be loaded into a project that can have `limit` (#562). */
+export const templateLimitText = (count: number, limit: number): string => `It has ${count} agents, and this project can have up to ${limit} (Settings → Advanced → Agents per project).`
+
 /** A template read from a file (untrusted): the template, or why it can't be used. */
 export function readTemplate(raw: unknown): AgentTemplate | string {
   if (!isObj(raw)) return "It isn't a Hive agent template."
@@ -121,7 +124,8 @@ export function readTemplate(raw: unknown): AgentTemplate | string {
   if (version > TEMPLATE_VERSION) return 'It was made by a newer version of Hive: update Hive to use it.'
   if (!text(raw.name, TEMPLATE_NAME_MAX)) return `Its name is missing or longer than ${TEMPLATE_NAME_MAX} characters.`
   if (!Array.isArray(raw.agents) || !raw.agents.length) return 'It has no agents.'
-  if (raw.agents.length > MAX_AGENTS) return `It has ${raw.agents.length} agents; a project can have up to ${MAX_AGENTS}.`
+  // Any template Hive could have saved (#562): whether it fits a project is its load's to say (templateLimitText).
+  if (raw.agents.length > AGENT_LIMIT_MAX) return `It has ${raw.agents.length} agents; a project can have up to ${AGENT_LIMIT_MAX}.`
   const agents: TemplateAgent[] = []
   for (const [i, a] of raw.agents.entries()) {
     const which = `Agent ${i + 1}`

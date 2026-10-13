@@ -2,7 +2,8 @@ import { useCallback, useEffect, useLayoutEffect, useRef, useState, type CSSProp
 import { CardChip, useAgentCards, useAgentReviews } from './CardChip'
 import { modelCaps } from '@shared/models'
 import { agentChoosesMcp, agentMcpText } from '@shared/agentMcp'
-import { MAX_AGENTS, SESSION_LAYOUTS, agentPageCount, agentsPerPage, dropIndex, pageEndIndex, compactThreshold, contextPercent, agentModelShown, effortLabel, formatBytes, isCompacting, layoutPanes, mergeBlocked, mostUrgent, pageAgents, projectLayout, sessionInAgentFolder, transcriptWarnLimit, unmergedWork } from '@shared/defaults'
+import { SESSION_LAYOUTS, agentLimitText, agentPageCount, agentsPerPage, dropIndex, pageEndIndex, compactThreshold, contextPercent, agentModelShown, effortLabel, formatBytes, isCompacting, layoutPanes, mergeBlocked, mostUrgent, pageAgents, pageOfAgent, projectLayout, sessionInAgentFolder, transcriptWarnLimit, unmergedWork } from '@shared/defaults'
+import { agentLimit, useAgentLimit } from '../advanced'
 import type { AgentInfo, LiveSessionState, PageLayout, ProjectInfo, SessionLayout, SessionListItem, SessionUsage } from '@shared/types'
 import { TEMPLATE_SCOPES, type TemplateEntry, type TemplateScope } from '@shared/templates'
 import type { StartFailure } from '@shared/startFailure'
@@ -264,6 +265,8 @@ function swapDrop(project: ProjectInfo, otherId: string): void {
 }
 
 /** How long a dragged agent hovers over a page button before that page shows, so it can be dropped on one of its panes. */
+/** Up to this many agent pages show a button each; more show the compact pager (#562): 12 agents in two columns are six. */
+const PAGE_BUTTONS_MAX = 6
 const PAGE_HOVER_MS = 600
 
 /**
@@ -397,10 +400,11 @@ function agentMenu(project: ProjectInfo, a: AgentInfo, pick: () => void, inHeade
 export function AddAgentButton({ project, className, label = 'Add Agent', strip }: { project: ProjectInfo; className?: string; label?: string; strip?: boolean }) {
   const menu = useContextMenu()
   const caret = useRef<HTMLButtonElement>(null)
-  const full = project.agents.length >= MAX_AGENTS
+  const limit = useAgentLimit()
+  const full = project.agents.length >= limit
   const templates = !isAssistantPath(project.path)
   const configure = (): void => set({ addAgentFor: project.path })
-  const tip = full ? `A project can have up to ${MAX_AGENTS} agents` : 'Configure Agent and Add…: choose its provider, where it works and its settings'
+  const tip = full ? agentLimitText(limit) : 'Configure Agent and Add…: choose its provider, where it works and its settings'
   const fromTemplate = async (keyboard: boolean): Promise<void> => {
     const at = caret.current && below(caret.current)
     const all = await templateList(project.path)
@@ -584,7 +588,7 @@ const templateList = (path: string): Promise<TemplateEntry[] | null> =>
 /** Add Agent from Template: each usable template's agents, under its name and scope (#126). */
 function addFromTemplateItems(project: ProjectInfo, list: TemplateEntry[]): MenuEntry[] {
   const all = list.filter((t) => !t.problem)
-  const full = project.agents.length >= MAX_AGENTS
+  const full = project.agents.length >= agentLimit()
   return all.length
     ? all.flatMap((t) => [
         { header: true, label: `${t.name} · ${scopeName(t.scope).toLowerCase()}` },
@@ -730,6 +734,71 @@ export function AgentStrip({ project }: { project: ProjectInfo }) {
   useEffect(() => {
     tabs.current?.querySelector('.agent-tab.focused')?.scrollIntoView({ block: 'nearest', inline: 'nearest' })
   }, [focused, project.agents.length])
+  /**
+   * The button that shows page i (#134): a dot for its most urgent agent, or one the Assistant added there; a drop target
+   * while an agent is dragged (#135, #238). `as`: the compact pager's ‹ and › (more than PAGE_BUTTONS_MAX pages, #562).
+   */
+  const pageButton = (i: number, as?: { label: string; name: string }): ReactNode => {
+    const onPage = pageAgents(project.agents, i, perPage)
+    // Another page's most urgent agent shows as a dot on its button, or one the Assistant added there.
+    const state = page === i ? null : mostUrgent(onPage.map((a) => a.live))
+    const added = page !== i && onPage.some((a) => fresh.includes(a.id))
+    // A drop here moves the agent to this page's last place: not a target where it already is (#238). Held over,
+    // the button still shows its page, to drop on a pane there.
+    const moves = !!dragging && pageEndIndex(project.agents.length, i, perPage) !== project.agents.findIndex((a) => a.id === dragging)
+    return (
+      <Tooltip key={as ? as.name : i} content={`${as ? `${as.name} (page ${i + 1})` : `Page ${i + 1}`}: ${onPage.length === 1 ? `agent ${i * perPage + 1}` : `agents ${i * perPage + 1}–${i * perPage + onPage.length}`}${added ? ', with an agent the Assistant added' : ''}${pageKb ? ` (${formatKeybinding(pageKb)} for the next page)` : ''}`}>
+        <button
+          className={cx(!as && page === i && 'active', moves && dropPage === i && 'drop-target')}
+          onClick={() => showPage(project, i)}
+          aria-label={as ? as.name : `Agent page ${i + 1}`}
+          onDragOver={(e) => {
+            if (!dragging) return
+            if (moves) e.preventDefault()
+            setDropPage(moves ? i : null)
+            setDropBefore(undefined)
+            // Held over another page's button for a moment, that page shows, to drop on one of its panes (#135).
+            if (i !== page && pageHover.current?.page !== i) {
+              if (pageHover.current) clearTimeout(pageHover.current.timer)
+              pageHover.current = { page: i, timer: setTimeout(() => showPage(project, i), PAGE_HOVER_MS) }
+            }
+          }}
+          onDragLeave={() => {
+            setDropPage(null)
+            if (pageHover.current?.page === i) {
+              clearTimeout(pageHover.current.timer)
+              pageHover.current = null
+            }
+          }}
+          onDrop={(e) => {
+            e.preventDefault()
+            if (pageHover.current) clearTimeout(pageHover.current.timer)
+            pageHover.current = null
+            if (moves) dropAgent(project, pageEndIndex(project.agents.length, i, perPage))
+          }}
+        >
+          {as ? as.label : i + 1}
+          {state ? <span className={cx('dot', state.status, state.unseen && 'unseen')} /> : added && <span className="dot added" />}
+        </button>
+      </Tooltip>
+    )
+  }
+  // Every other page's most urgent agent, for the compact pager's menu button.
+  const elsewhere = pages > PAGE_BUTTONS_MAX ? mostUrgent(project.agents.filter((_, k) => pageOfAgent(k, perPage) !== page).map((a) => a.live)) : null
+  const pageMenu = (el: Element, keyboard: boolean): void => {
+    const r = el.getBoundingClientRect()
+    menu.openAt(
+      r.left,
+      r.bottom + 2,
+      Array.from({ length: pages }, (_, k) => ({
+        label: `Page ${k + 1}`,
+        icon: k === page ? 'check' : undefined,
+        detail: pageAgents(project.agents, k, perPage).map((a) => a.name).join(', '),
+        onClick: () => showPage(project, k)
+      })),
+      keyboard
+    )
+  }
   return (
     <div className="agent-strip" ref={stripRef}>
       {/* Scrolls sideways (mouse wheel too) when a project's agents don't fit; a line marks where each page starts. */}
@@ -778,53 +847,19 @@ export function AgentStrip({ project }: { project: ProjectInfo }) {
       <div className="grow" />
       {/* On the right: Template ▾, then the pages beside the layouts they follow from (#292). */}
       {!isAssistantPath(project.path) && <TemplateButton project={project} labelled={stripWidth >= TEMPLATE_LABEL_FROM} />}
-      {pages > 1 && (
-        <div className="segmented page-switch">
-          {Array.from({ length: pages }, (_, i) => {
-            const onPage = pageAgents(project.agents, i, perPage)
-            // Another page's most urgent agent shows as a dot on its button, or one the Assistant added there.
-            const state = page === i ? null : mostUrgent(onPage.map((a) => a.live))
-            const added = page !== i && onPage.some((a) => fresh.includes(a.id))
-            // A drop here moves the agent to this page's last place: not a target where it already is (#238). Held over,
-            // the button still shows its page, to drop on a pane there.
-            const moves = !!dragging && pageEndIndex(project.agents.length, i, perPage) !== project.agents.findIndex((a) => a.id === dragging)
-            return (
-              <Tooltip key={i} content={`Page ${i + 1}: ${onPage.length === 1 ? `agent ${i * perPage + 1}` : `agents ${i * perPage + 1}–${i * perPage + onPage.length}`}${added ? ', with an agent the Assistant added' : ''}${pageKb ? ` (${formatKeybinding(pageKb)} for the next page)` : ''}`}>
-                <button
-                  className={cx(page === i && 'active', moves && dropPage === i && 'drop-target')}
-                  onClick={() => showPage(project, i)}
-                  aria-label={`Agent page ${i + 1}`}
-                  onDragOver={(e) => {
-                    if (!dragging) return
-                    if (moves) e.preventDefault()
-                    setDropPage(moves ? i : null)
-                    setDropBefore(undefined)
-                    // Held over another page's button for a moment, that page shows, to drop on one of its panes (#135).
-                    if (i !== page && pageHover.current?.page !== i) {
-                      if (pageHover.current) clearTimeout(pageHover.current.timer)
-                      pageHover.current = { page: i, timer: setTimeout(() => showPage(project, i), PAGE_HOVER_MS) }
-                    }
-                  }}
-                  onDragLeave={() => {
-                    setDropPage(null)
-                    if (pageHover.current?.page === i) {
-                      clearTimeout(pageHover.current.timer)
-                      pageHover.current = null
-                    }
-                  }}
-                  onDrop={(e) => {
-                    e.preventDefault()
-                    if (pageHover.current) clearTimeout(pageHover.current.timer)
-                    pageHover.current = null
-                    if (moves) dropAgent(project, pageEndIndex(project.agents.length, i, perPage))
-                  }}
-                >
-                  {i + 1}
-                  {state ? <span className={cx('dot', state.status, state.unseen && 'unseen')} /> : added && <span className="dot added" />}
-                </button>
-              </Tooltip>
-            )
-          })}
+      {pages > 1 && pages <= PAGE_BUTTONS_MAX && <div className="segmented page-switch">{Array.from({ length: pages }, (_, i) => pageButton(i))}</div>}
+      {/* More pages than fit as buttons (up to 24 agents, #562): ‹, which page of how many (a menu of them all), ›. */}
+      {pages > PAGE_BUTTONS_MAX && (
+        <div className="segmented page-switch compact">
+          {pageButton((page - 1 + pages) % pages, { label: '‹', name: 'Previous agent page' })}
+          <Tooltip content={`Page ${page + 1} of ${pages}: choose a page${pageKb ? ` (${formatKeybinding(pageKb)} for the next page)` : ''}`}>
+            <button className="page-menu" aria-label="Agent pages" aria-haspopup="menu" onClick={(e) => pageMenu(e.currentTarget, e.detail === 0)}>
+              {page + 1} / {pages}
+              <Icon name="chevron-down" />
+              {elsewhere && <span className={cx('dot', elsewhere.status, elsewhere.unseen && 'unseen')} />}
+            </button>
+          </Tooltip>
+          {pageButton((page + 1) % pages, { label: '›', name: 'Next agent page' })}
         </div>
       )}
       {(many || layout !== 'single') && (
@@ -1238,13 +1273,14 @@ function StartFailedBar({ project, a, failure, single }: { project: ProjectInfo;
 /** What a pane shows when its agent has no terminal yet, or when the pane is empty. */
 function PaneBody({ project, a, hasTerminal, single }: { project: ProjectInfo; a: AgentInfo | null; hasTerminal: boolean; single: boolean }) {
   const failure = useStartFailure(project, a)
+  const limit = useAgentLimit()
   if (!a) {
     // A single empty pane is a project without agents: its "No agents yet" (SessionEmpty) shows, not covered (#227).
     if (single) return null
     return (
       <div className="pane-placeholder">
         <p className="faint">Empty pane</p>
-        {project.agents.length < MAX_AGENTS && <AddAgentButton project={project} className="subtle small" />}
+        {project.agents.length < limit && <AddAgentButton project={project} className="subtle small" />}
       </div>
     )
   }

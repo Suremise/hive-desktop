@@ -31,7 +31,7 @@ Lane end: claim the merge slot, use merge-ready, merge your branch into main, mo
 Follow-ups go to Todo as new cards.
 ```
 
-Then what this lane needs: test homes or other safety rules, risky areas, overlaps with other lanes, a merge point mid-lane. Write them in now: anything you add later reaches a busy agent only as a message (`hive_message_agent`), at its next turn. A reviewer's brief: `Use card-loop as the reviewer. Cards, in order: #12, #15. Your builder is B1, in <folder>.`, with what to look at closely on risky cards.
+Then what this lane needs: test homes or other safety rules, risky areas, overlaps with other lanes, a merge point mid-lane. Write them in now: anything you add later reaches a busy agent only as a message (`hive_message_agent`), read from its inbox at its next tool call or turn's end. A reviewer's brief: `Use card-loop as the reviewer. Cards, in order: #12, #15. Your builder is B1, in <folder>.`, with what to look at closely on risky cards.
 
 - Give rounds and a wait only when the user did; otherwise the lane takes the project's card-loop settings.
 - Agents working in the project folder, with no worktree, have nothing to merge: their brief says to commit, and to move a passed card to Done.
@@ -44,7 +44,7 @@ Nothing wakes you but the user and a watch you started, so never leave lanes on 
 
 - **One lane watch covers the whole team.** `hive_wait_for_tasks` with `lanes: ["all"]`, `wake: true`, `limitMinutes: 360`: it follows every running lane, lanes started later and cards added to a lane too, with no card limit, and wakes you only for what needs you: a failed review, a card blocked (a question for the user) or stalled, a lane whose cards have all passed (its merge is due), a lane ended or abandoned. Add `events` (`passed`, `moved`) only to follow more. You have one watch at a time, and a card watch would replace it: put follow-ups in a lane, or check them on each wake.
 - **Check the reply says it is waiting** before you end your turn. If it doesn't, start it again once; if it still doesn't, tell the user.
-- On each wake: read what changed (`hive_read_task` with `latestComment` and `summary: true`: reports and verdicts lead with a one-line summary; read a comment in full only when you act on its detail), then sweep the board: new follow-ups, stalled cards, a card waiting for the user, an agent idle while its card waits (check it with `hive_agent_activity`; prompt it once it is idle). Then start the lane watch again, and tell the user in a line or two. Once every lane has ended, say so; there is nothing left to watch.
+- On each wake: `hive_inbox` lists what changed in each lane; read the cards it names (`hive_read_task` with `latestComment` and `summary: true`: reports and verdicts lead with a one-line summary; read a comment in full only when you act on its detail), then sweep the board: new follow-ups, stalled cards, a card waiting for the user, an agent idle while its card waits (check it with `hive_agent_activity`; prompt it once it is idle). Then start the lane watch again, and tell the user in a line or two. Once every lane has ended, say so; there is nothing left to watch.
 - An agent asking the user something: pass the question on (coordinate-agents, Leave agents alone), and start the lane watch again before you end your turn: the other lanes carry on while the user decides.
 
 ## Changing a running lane

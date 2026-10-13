@@ -668,6 +668,18 @@ export class CodexAdapter implements ProviderAdapter {
     return { hookSpecificOutput: { hookEventName: 'PreToolUse', permissionDecision: d.kind, permissionDecisionReason: d.reason } }
   }
 
+  /**
+   * Notices (0.162.1, #645's live rerun): after a tool call as context, which reaches the model as a developer message;
+   * at Stop as a block, whose reason carries the same turn on as a user-role hook prompt. Fixed text only: developer
+   * messages are trusted.
+   */
+  noticeReply(event: string, text: string): Record<string, unknown> | null {
+    if (!text) return null
+    if (event === 'PostToolUse') return { hookSpecificOutput: { hookEventName: event, additionalContext: text } }
+    if (event === 'Stop') return { decision: 'block', reason: text }
+    return null
+  }
+
   /** A Stop blocked carries the turn on, its reason as a new prompt (Codex's hooks reference; 0.162.1, #645's spike). */
   stopContinues(reply: Record<string, any>): boolean {
     return reply.decision === 'block'
