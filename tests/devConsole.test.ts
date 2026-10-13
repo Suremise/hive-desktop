@@ -1,5 +1,6 @@
 import { describe, expect, it, vi } from 'vitest'
 import { join } from 'path'
+import { createContext, runInContext } from 'vm'
 import { ConsoleRing, EVENT_MAX_BYTES, HOOK_FIELDS, RING_MAX_BYTES, TRANSCRIPT_FIELDS, hiveSourceId, jsonBytes, makeEvent, mayRead, parseSourceId, redactPayload, safeWord, sessionSourceId, type ConsoleEvent } from '../src/shared/devConsole'
 import { DevConsole, MAX_SOURCES, QUEUE_MAX_EVENTS } from '../src/main/devConsole'
 import { hookSummary, launchEvent, transcriptEvent } from '../src/main/devConsoleWords'
@@ -157,6 +158,21 @@ describe('redactPayload', () => {
     expect(r.authorization).toBe('<redacted>')
     expect(r.login).toBe('<redacted>')
     expect(r.tool_input.command).toContain('npm test')
+  })
+
+  it('cuts text to its cap before masking it, dropping a word the cut goes through, and stays fast on huge text (#699 round 6)', () => {
+    // A key the cut would split: dropped whole, never kept in part (too short then to be recognised as a key).
+    const split = redactPayload({ prompt: `${'a '.repeat(999)}sk-ant-api03-abcdefghijklmnopqrstu and more` }, { includeText: true }) as { prompt: string }
+    expect(split.prompt.endsWith('a …')).toBe(true)
+    expect(split.prompt).not.toContain('sk-')
+    // Masking reads only what is kept: a megabyte of backslashes and quotes is cut to the cap first. A pattern that read it
+    // all again and again would blow vm's bound.
+    const vmContext = createContext({ redactPayload, text: '' })
+    for (const text of ['\\'.repeat(1_000_000), '"'.repeat(1_000_000), `--token ${'\\"'.repeat(500_000)}`]) {
+      vmContext.text = text
+      const out = runInContext('redactPayload({ prompt: text }, { includeText: true })', vmContext, { timeout: 5000 }) as { prompt: string }
+      expect(out.prompt.length).toBeLessThanOrEqual(2001)
+    }
   })
 
   it('bounds lists, fields, field names and depth', () => {

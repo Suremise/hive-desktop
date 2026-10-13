@@ -20,12 +20,13 @@ const escape = (s: string): string => s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
 const folderRe = (p: string): RegExp => new RegExp(escape(p.replace(/[\\/]+$/, '')).replace(/\\\\|\//g, String.raw`[\\/]+`), 'gi')
 
 // ---------------------------------------------------------------------------
-// Credentials in free text (#699; the Assistant's rule after round 3, extended after round 4): a credential's name
-// anywhere in a string, bare or quoted (`password=`, `--api-key`, `"password":`, `'api key':`), masks everything after it
-// to the end of that string. No parsing of quotes, escapes, continuations, options or JSON: a secret's value can't leave a
-// fragment behind, and no container can hide one, when nothing after its name is kept. Losing what follows a secret (the
-// flags after it, a JSON object's other fields) is the accepted cost. A payload Hive holds as an object is masked by its
-// keys instead (devConsole.ts's redactPayload), not here.
+// Credentials in free text (#699; the Assistant's rules after rounds 3–5): a credential's name anywhere in a string, bare
+// or quoted (`password=`, `--api-key`, `"password":`, `'api key':`), masks everything after it to the end of that string.
+// No parsing of quotes, escapes, continuations, options or JSON: a secret's value can't leave a fragment behind, and no
+// container can hide one, when nothing after its name is kept. Losing what follows a secret (the flags after it, a JSON
+// object's other fields) is the accepted cost. A payload Hive holds as an object is masked by its keys instead
+// (devConsole.ts's redactPayload), not here. Names are found by a single pass of direct character checks, no regex: each
+// character is looked at a bounded number of times, so it is linear on any input (round 5 found quadratic regexes).
 // ---------------------------------------------------------------------------
 
 type Step = (text: string) => string
@@ -34,30 +35,130 @@ const replacing =
   (text) =>
     text.replace(re, by)
 
-/** The words in a name that make it a secret's or a sign-in's (a field, a key=value's key, a command-line option, a header). */
-const SECRET_NAME = String.raw`token|secret|password|passwd|passphrase|passcode|pwd|api[\s._-]?key|apikey|credentials?|cookie|session[\s._-]?key|access[\s._-]?key|private[\s._-]?key|auth|device[\s._-]?code|user[\s._-]?code|otp|code[\s._-]?verifier`
-const CREDENTIAL = new RegExp(SECRET_NAME, 'i')
+/**
+ * The words that make a name a secret's or a sign-in's, with spaces, dots, underscores and dashes taken out of the name
+ * first (`api_key`, `x-api-key`, `"api key"` and `api.key` all hold `apikey`). A name holding one anywhere counts
+ * (`GITHUB_TOKEN`, `csrftoken`, `client_secret`, `Authorization`).
+ */
+const CREDENTIAL_WORDS = ['token', 'secret', 'password', 'passwd', 'passphrase', 'passcode', 'pwd', 'apikey', 'credential', 'cookie', 'sessionkey', 'accesskey', 'privatekey', 'auth', 'devicecode', 'usercode', 'otp', 'codeverifier']
+
+/** A name's characters: ASCII letters and digits, `_`, `-` and `.` (a key, an option, an environment variable). */
+const isNameChar = (c: string | undefined): boolean =>
+  c !== undefined && ((c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z') || (c >= '0' && c <= '9') || c === '_' || c === '-' || c === '.')
+const isSpace = (c: string | undefined): boolean => c === ' ' || c === '\t' || c === '\n' || c === '\r' || (c !== undefined && c > '~' && c.trim() === '') || c === '\v' || c === '\f'
+
+function namesCredential(name: string): boolean {
+  // Shorter than every credential word (`pwd`, `otp`): none can be in it.
+  if (name.length < 3) return false
+  let squeezed = ''
+  for (const c of name.toLowerCase()) if (!isSpace(c) && c !== '.' && c !== '_' && c !== '-') squeezed += c
+  return CREDENTIAL_WORDS.some((w) => squeezed.includes(w))
+}
 
 /**
- * Where a credential's value starts in free text, or -1: after `-u` or `--user` with a user:password (quoted, escaped or
- * with spaces in the name: `-u "name with spaces:pw"`); a quoted name and its `:` or `=` (a JSON or Python key at any
- * depth, `"password":`, `'api key':`, `\"token\":` in a JSON string inside another; at most 100 characters); a
- * command-line option naming one and its separator (`--api-key k`, `--token=t`); a bare name and its `:` or `=` (`token=t`,
- * `password: p`, `Authorization: Bearer t`, `$env:API_KEY = k`); or `Bearer `. Each name is matched whole and then tested
- * (`CREDENTIAL`); an ordinary one is passed over and the search goes on after it, so it stays linear on any input.
+ * Where a value starts after a name ending at `end`, or -1: past a key's closing quote (escaped or not), then `:` or `=`
+ * (spaces around it); for an option (`dash`), whitespace alone will do too. Reads only the characters right after the
+ * name, which belong to no other name.
  */
-// Linear by construction (#699 round 5): every run a quantifier reads starts only at that run's start (the lookbehinds:
-// no word character or `-` before a name, no `\` before a quoted name's escapes), and no two quantifiers next to each
-// other can read the same characters, so a failed match never reads the same run again from inside it; what looks ahead
-// (`-u`'s user:password) reads at most 256 characters. (A bare name may follow a `\`: `"a\ntoken=x"` in a JSON string's
-// text.)
-const NAMED =
-  /(?<![\w-])(?:(?:-u|--user)(?:=|\s+)(?=\\*"[^"]{0,256}:|\\*'[^']{0,256}:|[^\s:"']{0,256}:)|(?<!\\)\\*["']([^"'\\\r\n]{1,100})\\*["']\s*[:=]\s*|(--?[\w-]+)(?:=|\s+)|([\w-]+)(?:\\+["'])?\s*[:=]\s*|[Bb]earer\s+)/g
+function valueAfter(text: string, end: number, dash: boolean): number {
+  let k = end
+  while (text[k] === '\\') k++
+  if (text[k] === '"' || text[k] === "'") k++
+  else k = end
+  let s = k
+  while (isSpace(text[s])) s++
+  if (text[s] === ':' || text[s] === '=') {
+    s++
+    while (isSpace(text[s])) s++
+    return s
+  }
+  return dash && s > k ? s : -1
+}
+
+/**
+ * At most this far, `-u`'s value is read for the `:` of a user:password, and a quoted name for its closing quote. One that
+ * reaches its limit without a clear end is masked, whatever it holds (#705 round 3: masking too much is fine, showing a
+ * secret isn't, and no exact budget then decides whether a password shows).
+ */
+const LOOK = 256
+const QUOTED_NAME_MAX = 100
+
+/**
+ * After `-u` or `--user` ending at `end`: where its value starts if it is a user:password (quoted, escaped or spaced), or
+ * one too long to tell (no `:`, closing quote or space within LOOK characters), else -1.
+ */
+function userPasswordAfter(text: string, end: number): number {
+  let s = end
+  if (text[s] === '=') s++
+  else if (isSpace(text[s])) while (isSpace(text[s])) s++
+  else return -1
+  // Escaping backslashes before a quote: read once, as no other name can start inside them.
+  let k = s
+  while (text[k] === '\\') k++
+  const q = text[k] === '"' || text[k] === "'" ? text[k] : ''
+  const from = q ? k + 1 : s
+  for (let p = from; p < text.length; p++) {
+    if (p - from >= LOOK) return s
+    const c = text[p]
+    if (c === ':') return s
+    if (q ? c === q : isSpace(c) || c === '"' || c === "'") return -1
+  }
+  return -1
+}
+
+/**
+ * Where a credential's value starts in free text, or -1: after a name holding a credential's word and its separator (a
+ * key's `:` or `=`, `token=t`, `password: p`, `Authorization: Bearer t`, `$env:API_KEY = k`, `"password":`, `\"token\":`;
+ * an option's `=` or whitespace, `--api-key k`), a quoted name of up to 100 characters, whatever is in it (`'api key':`, `"token[0]":`),
+ * `-u` or `--user` with a user:password, or `Bearer `; a quoted name naming a credential, or `-u`'s value, that reaches its
+ * limit without a clear end, from there. One pass: each name run is read once, each quote looks at most 100 characters
+ * ahead, `-u` at most 256 after its quote.
+ */
 function credentialStart(text: string): number {
-  NAMED.lastIndex = 0
-  for (let m = NAMED.exec(text); m; m = NAMED.exec(text)) {
-    const name = m[1] ?? m[2] ?? m[3]
-    if (name === undefined || CREDENTIAL.test(name)) return m.index + m[0].length
+  const n = text.length
+  let i = 0
+  while (i < n) {
+    const c = text[i]
+    if (c === '"' || c === "'") {
+      // A quoted name, whatever is in it (`'api key':`, `"token[0]":`, `"password/value":`): up to the next quote of either
+      // kind on its line, at most 100 characters on, tested whole (#705 round 1: a name a run of name characters can't
+      // hold, read as runs, never reached its closing quote and separator).
+      let close = i + 1
+      while (close < n && close - i <= QUOTED_NAME_MAX && text[close] !== '"' && text[close] !== "'" && text[close] !== '\n' && text[close] !== '\r') close++
+      // No closing quote within the limit, and what was read names a credential: masked from there (round 3).
+      if (close < n && close - i > QUOTED_NAME_MAX && namesCredential(text.slice(i + 1, close))) return i + 1
+      if (text[close] === '"' || text[close] === "'") {
+        let nameEnd = close
+        while (nameEnd > i + 1 && text[nameEnd - 1] === '\\') nameEnd--
+        if (namesCredential(text.slice(i + 1, nameEnd))) {
+          const v = valueAfter(text, close, false)
+          if (v >= 0) return v
+        }
+      }
+      i++
+      continue
+    }
+    if (!isNameChar(c)) {
+      i++
+      continue
+    }
+    let j = i
+    while (isNameChar(text[j])) j++
+    const name = text.slice(i, j)
+    // Its last part after a dot as well (`x.Bearer t`, `a.--token t`): a name starts after a dot too (#705 round 1).
+    const last = name.slice(name.lastIndexOf('.') + 1).toLowerCase()
+    if (last === '-u' || last === '--user') {
+      const v = userPasswordAfter(text, j)
+      if (v >= 0) return v
+    } else if (last === 'bearer' && isSpace(text[j])) {
+      let s = j
+      while (isSpace(text[s])) s++
+      if (s < n) return s
+    } else if (namesCredential(name)) {
+      const v = valueAfter(text, j, name[0] === '-' || last[0] === '-')
+      if (v >= 0) return v
+    }
+    i = j
   }
   return -1
 }
