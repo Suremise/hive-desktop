@@ -128,6 +128,18 @@ const howLong = (ms: number): string => (ms < 120_000 ? `${Math.round(ms / 1000)
 /** How long after a CLI starts or is ready its size refresh comes (refreshSize). */
 const SIZE_REFRESH_DELAY_MS = 500
 
+/** After a kill, how long a CLI's console takes to be gone (its processes listed and ended, then its exit). */
+const KILL_EXIT_MS = 1000
+
+/**
+ * How long stopping sessions waits for them to end: its own timeout, or longer where a CLI is given time to exit by
+ * itself before it is killed (an adapter's exitKeys graceMs: Copilot's 10 s, #716), so its kill and exit still come
+ * within the wait. Sessions that end sooner end the wait sooner.
+ */
+export function stopWaitMs(timeoutMs: number, graces: (number | undefined)[]): number {
+  return Math.max(timeoutMs, ...graces.map((g) => (g === undefined ? 0 : g + KILL_EXIT_MS)))
+}
+
 interface LiveSession {
   state: LiveSessionState
   adapter: ProviderAdapter
@@ -1514,7 +1526,8 @@ class SessionManager {
       l.stopRequested = true
       this.endProcess(l)
     }
-    await Promise.race([Promise.all([...waits, ...pending.map((p) => p.done)]), new Promise((r) => setTimeout(r, timeoutMs))])
+    const waitMs = stopWaitMs(timeoutMs, chosen.map(([, l]) => l.adapter.exitKeys?.graceMs))
+    await Promise.race([Promise.all([...waits, ...pending.map((p) => p.done)]), new Promise((r) => setTimeout(r, waitMs))])
   }
 
   /**

@@ -117,8 +117,9 @@ export class CopilotAdapter implements ProviderAdapter {
     return advanced.pattern('copilot.trust.prompt')
   }
   // Copilot writes a session's token totals (session.shutdown) only as it exits by itself (#465). Ctrl+C cancels what
-  // runs (a turn, a dialog), and twice in a row exits ("ctrl+c again to exit"); three cover a turn or dialog first.
-  readonly exitKeys = { keys: ['\x03', '\x03', '\x03'], gapMs: 400, graceMs: 2500 }
+  // runs (a turn, a dialog), and twice in a row exits ("ctrl+c again to exit"); three cover a turn or dialog first. It
+  // took 1.7-2.4 s from the first key to exit under load (#716), so the kill waits 10 s: only for one that hangs.
+  readonly exitKeys = { keys: ['\x03', '\x03', '\x03'], gapMs: 400, graceMs: 10_000 }
 
   // Installation, readiness and the install, update and sign-in tasks (#452).
   locate(): Promise<AgentInstallInfo> {

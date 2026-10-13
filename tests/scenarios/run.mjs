@@ -13,7 +13,8 @@
 //
 // More than five scenarios, or --repeat, waits for a test slot (tests/e2e/slots.mjs; --no-wait fails at once instead),
 // unless started inside an e2e suite, whose run holds one. A pre-merge run goes first in that queue (#558): --pre-merge,
-// or one started by the agent holding its project's merge slot.
+// or one started by the agent holding its project's merge slot. Every run waits for a test lane while all 10 are taken
+// (tests/e2e/lanes.mjs, #707; --no-wait fails at once instead).
 // --budget N (USD, API-equivalent, above 0, default 2) stops a model run once the scenarios so far cost that much, or
 // as soon as a trial reports no cost (the spend can't be checked then; --allow-unknown-cost goes on anyway); --only runs
 // some; --keep leaves each scenario's profile and workspace; --repeat N runs each N times (samples, for spread);
@@ -32,7 +33,7 @@ import { createRequire } from 'module'
 import { readFileSync, writeFileSync } from 'fs'
 import { join } from 'path'
 import { devBuild, ensureBuild } from '../e2e/build.mjs'
-import { LANES, claimLane, laneWork } from '../e2e/lanes.mjs'
+import { LANES, describeHolder, laneWaitLine, laneWork, waitForLane } from '../e2e/lanes.mjs'
 import { describeClaim, heavySlots, needsSlot, preMerge, waitForSlot, waitLine } from '../e2e/slots.mjs'
 import { waitForCodexHome } from '../e2e/codexHomeLock.mjs'
 import { autoClean } from '../e2e/clean.mjs'
@@ -154,11 +155,28 @@ if (build.stale) {
 }
 
 // This run's lane: its own folders and Agent API port, so another run at the same time can't remove, open or answer
-// for this one's test Hive.
-const lane = await claimLane(runContext.LANES_DIR, { root: lib.ROOT })
-if (!lane) {
-  console.error(`Every test lane (${LANES}) is taken by e2e or scenario runs still going: wait for one to finish.`)
+// for this one's test Hive. With every lane taken it waits for one (#707), as for a test slot; --no-wait: fail at once.
+const laneQueue = slotWaitProgress('scenarios', `npm run scenarios -- ${argv.join(' ')}`.trim(), argv, 'a test lane')
+let laneSaid = ''
+const lane = await waitForLane(runContext.LANES_DIR, {
+  root: lib.ROOT,
+  what: `scenarios: ${chosen.length} (${provider})${repeats > 1 ? ` × ${repeats}` : ''}`,
+  wait: !argv.includes('--no-wait'),
+  onWait: (look) => {
+    const line = laneWaitLine(look)
+    if (line !== laneSaid) console.log(line)
+    laneSaid = line
+    laneQueue.waiting(look.holders.map((c) => describeHolder(c)).join('; '))
+  }
+})
+if (lane.refused) {
+  console.error(`No test lane free (--no-wait): every test lane (${LANES}) is taken, by ${lane.refused.holders.map((c) => describeHolder(c)).join('; ') || 'runs just finishing'}.`)
   process.exit(2)
+}
+if (laneSaid) {
+  const after = `${Math.round(lane.waitedMs / 1000)} s`
+  console.log(`Got a test lane after ${after}.`)
+  await laneQueue.finish(`got a test lane after ${after}`)
 }
 process.on('exit', lane.release)
 process.on('SIGINT', () => process.exit(130))

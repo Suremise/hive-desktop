@@ -22,7 +22,8 @@
 //   --build         build first (npx electron-vite build), only if the build isn't from this source (build.mjs).
 //   --packaged      include the installer's suites (need npm run dist); --no-progress: don't report to Hive.
 //   --no-wait       a heavy run (more than 5 suites, or --repeat) fails at once when every test slot on this machine is
-//                   taken, instead of waiting for one (slots.mjs; heavySlots in hive-test\config.json, default 2).
+//                   taken, instead of waiting for one (slots.mjs; heavySlots in hive-test\config.json, default 2); and
+//                   any run fails at once when every test lane (10) is taken, instead of waiting for one (lanes.mjs, #707).
 //   --pre-merge     a heavy run checking a merge goes first in the queue for a test slot (#558). Not needed in the
 //                   session of an agent holding the merge slot: such a run goes first anyway (slots.mjs holdsMergeSlot).
 // Needs a dev build. A suite fails when it exits non-zero or prints a line starting with FAIL. Each suite gets its own
@@ -43,7 +44,7 @@ import { CLI_LOG, fingerprint, readCliLog, realCliHomes, realCliVersions, record
 import { isRealCli, needsDevBuild, packagedStatus, parentSuite, parseArgs, portBase, realNotRun, repeatStatus, resultLines, selectSuites, suiteOutcome } from './runner.mjs'
 import { devBuild, ensureBuild } from './build.mjs'
 import { FAILED_KEEP_MS, finishRunDirs, keepSuiteFiles, logsRootFor, markRunFailed, newRunDir, omittedLine, pruneRunDirsReleasing } from './logs.mjs'
-import { LANES, claimLane, laneWork } from './lanes.mjs'
+import { LANES, describeHolder, laneWaitLine, laneWork, waitForLane } from './lanes.mjs'
 import { describeClaim, heavySlots, needsSlot, preMerge, waitForSlot, waitLine } from './slots.mjs'
 import { usesCodexHome, waitForCodexHome } from './codexHomeLock.mjs'
 import { autoClean, holdLane } from './clean.mjs'
@@ -184,12 +185,32 @@ if (packagedStale) console.warn(`Warning: ${packagedStale}: the installer's suit
 // The runner's lane (lanes.mjs): ports and suite folders no other runner on this machine uses while this one runs, so
 // runners started at the same time from different worktrees don't take each other's. A runner started inside a suite
 // (progressreport runs one in its agent's shell) claims none: it takes ports well clear of its parent's (portBase).
-const lane = nested ? null : await claimLane(runContext.LANES_DIR, { root })
+// With every lane taken it waits for one, saying who holds them (and in the Progress panel), #707; --no-wait: fail.
+let lane = null
 if (!nested) {
-  if (!lane) {
-    console.error(`Every e2e lane (${LANES}) is taken by runners still going: wait for one to finish.`)
+  const queue = slotWaitProgress('e2e', `npm run e2e -- ${args.join(' ')}`.trim(), args, 'a test lane')
+  let said = ''
+  const got = await waitForLane(runContext.LANES_DIR, {
+    root,
+    what: `e2e: ${chosen.length} suite${chosen.length === 1 ? '' : 's'}${opts.repeat > 1 ? ` × ${opts.repeat}` : ''}`,
+    wait: !opts.noWait,
+    onWait: (look) => {
+      const line = laneWaitLine(look)
+      if (line !== said) console.log(line)
+      said = line
+      queue.waiting(look.holders.map((c) => describeHolder(c)).join('; '))
+    }
+  })
+  if (got.refused) {
+    console.error(`No test lane free (--no-wait): every e2e lane (${LANES}) is taken, by ${got.refused.holders.map((c) => describeHolder(c)).join('; ') || 'runs just finishing'}.`)
     process.exit(2)
   }
+  if (said) {
+    const after = `${Math.round(got.waitedMs / 1000)} s`
+    console.log(`Got a test lane after ${after}.\n`)
+    await queue.finish(`got a test lane after ${after}`)
+  }
+  lane = got
   process.on('exit', lane.release)
   process.on('SIGINT', () => process.exit(130))
 }

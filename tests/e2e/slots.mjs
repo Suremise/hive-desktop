@@ -15,7 +15,7 @@ import { mkdirSync, readdirSync, readFileSync, rmSync, writeFileSync } from 'fs'
 import { createRequire } from 'module'
 import { join } from 'path'
 import { processAlive } from './logs.mjs'
-import { claimHeld, withLock } from './lanes.mjs'
+import { claimHeld, describeHolder, withLock } from './lanes.mjs'
 import { parentSuite } from './runner.mjs'
 
 /** Heavy runs at once, unless the machine's config.json or HIVE_TEST_HEAVY_SLOTS says otherwise. */
@@ -198,8 +198,7 @@ export async function trySlot(dir, { slots = heavySlots(), owner = process.pid, 
 
 /** A claim, for a person: what it runs and where, its process and for how long. */
 export function describeClaim(c, now = Date.now()) {
-  const min = Math.max(0, Math.round((now - c.at) / 60_000))
-  return `${c.what || 'a heavy run'}${c.first ? ' (pre-merge)' : ''} in ${c.root || 'another worktree'} (process ${c.pid}, ${min} min)`
+  return describeHolder(c, now, 'a heavy run')
 }
 
 /** What a waiting run prints at a look that finds no slot (both runners): how many go at once, its place, the holders. */

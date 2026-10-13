@@ -16,6 +16,8 @@ const sleep = (ms) => new Promise((r) => setTimeout(r, ms))
 const results = []
 // The longest a check waits for its condition: a bound for a hung run, never how long the step should take.
 const HUNG_MS = 10000
+/** The longest the real Claude Code may take to start and run its status line: a bound for a hung CLI (#717). */
+const CLI_HUNG_MS = 60000
 const check = (n, ok, extra = '') => results.push(`${ok ? 'PASS' : 'FAIL'}  ${n}${extra ? ` (${extra})` : ''}`)
 ;(async () => {
   const env = lib.hiveEnv({ HIVE_USER_DATA: userData, ...lib.ownClaudeHome('plan').env })
@@ -107,12 +109,14 @@ const check = (n, ok, extra = '') => results.push(`${ok ? 'PASS' : 'FAIL'}  ${n}
   const chip = (await lib.until(async () => { const t = await chipText(); return t.includes('· High') && t }, HUNG_MS)) || (await chipText())
   check('the agent footer shows the configured effort', chip.includes('· High'), chip)
   await inv('session:start', proj, { agentId: agent.id })
-  await lib.acceptClaudeTrust(inv, proj, agent.id)
+  // Claude Code runs its status line once it has started and drawn its prompt. Under load that came after the 20 s this
+  // allowed (#717), and its trust question can come after acceptClaudeTrust's own 15 s: both waited for, bounded only
+  // for a hung CLI.
+  const startedAt = Date.now()
+  await lib.acceptClaudeTrust(inv, proj, agent.id, CLI_HUNG_MS)
   let live = null
-  for (let i = 0; i < 40 && !live?.effort; i++) {
-    await sleep(500)
-    live = (await inv('session:live'))[0]
-  }
+  await lib.until(async () => ((live = (await inv('session:live'))[0]), !!live?.effort && !!live?.modelName), CLI_HUNG_MS)
+  console.log(`status line: Claude Code reported its effort and model ${Date.now() - startedAt} ms after the start`)
   check('status line reports effort and model', !!live?.effort && !!live?.modelName, JSON.stringify({ effort: live?.effort, modelName: live?.modelName, costUsd: live?.costUsd }))
   await page.locator('.tab', { hasText: 'Session' }).first().click(); await lib.until(async () => (await page.locator('.tab.active', { hasText: 'Session' }).count()) === 1, 10000)
   const raw = await inv('pty:buffer', lib.ptyKey(proj, agent.id))

@@ -197,13 +197,18 @@ describe('Copilot launch', () => {
     expect(readFileSync(join(ctx.privateDir, 'instructions', '.github', 'instructions', 'hive.instructions.md'), 'utf8')).toBe("---\napplyTo: '**'\n---\nRole: assistant.\n")
   })
 
-  it('is ended with Ctrl+C before it is killed, so it writes its token totals (#465)', () => {
+  it('is ended with Ctrl+C before it is killed, so it writes its token totals (#465)', async () => {
     const exit = copilot.exitKeys
     expect(exit.keys.length).toBeGreaterThanOrEqual(2)
     expect(exit.keys.every((k) => k === '\x03')).toBe(true)
-    // Within the time quitting Hive or closing a workspace waits for sessions to end (stopWhereAndWait, 3 s).
-    expect(exit.graceMs).toBeLessThan(3000)
     expect((exit.keys.length - 1) * exit.gapMs).toBeLessThan(exit.graceMs)
+    // Killed only if it hangs: it took up to 2.4 s to exit by itself under load, and 2.5 s killed it (#716).
+    expect(exit.graceMs).toBeGreaterThanOrEqual(10_000)
+    // Quitting Hive or closing a workspace (stopWhereAndWait, 3 s) waits past the grace, for the kill and its exit.
+    const { stopWaitMs } = await import('../src/main/sessions')
+    expect(stopWaitMs(3000, [exit.graceMs])).toBeGreaterThan(exit.graceMs)
+    expect(stopWaitMs(3000, [undefined, undefined])).toBe(3000)
+    expect(stopWaitMs(15_000, [exit.graceMs])).toBe(15_000)
   })
 
   it('gives every event to Hive’s hook server over HTTP, by the PascalCase names', () => {

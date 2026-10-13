@@ -9,6 +9,9 @@ const fs = require('fs')
 const path = require('path')
 // The longest a wait here waits for what it waits on: a bound for a hung run, never how long it should take (#570).
 const HUNG_MS = 10000
+// The calls the suite slows. Removing a project is slowed for long enough that "Hiding…" and an Escape fit in it under
+// load (#717); a step that slows another call puts this back afterwards.
+const SLOW_IPC = 'tasks:start=2000,tasks:delete=1500,tasks:comment=1500,project:remove=5000'
 
 const userData = path.join(lib.WORK, 'busy-profile')
 const ws = path.join(lib.WORK, 'busy-ws')
@@ -37,7 +40,7 @@ const check = (name, ok, extra = '') => {
     HIVE_USER_DATA: userData,
     HIVE_API_PORT: lib.port(47894),
     CLAUDE_CONFIG_DIR: claudeHome,
-    HIVE_TEST_SLOW_IPC: 'tasks:start=2000,tasks:delete=1500,tasks:comment=1500,project:remove=2000'
+    HIVE_TEST_SLOW_IPC: SLOW_IPC
   })
   const app = await _electron.launch({ executablePath: lib.ELECTRON, args: [lib.ROOT], cwd: lib.ROOT, env })
   const page = await app.firstWindow()
@@ -183,9 +186,10 @@ const check = (name, ok, extra = '') => {
   const text = await footer.innerText().catch(() => '')
   check("a new conversation doesn't show the previous one's usage", !/\b30 ctx/.test(text) && /– ctx/.test(text), text)
   await page.screenshot({ path: path.join(lib.WORK, 'busy-3-usage.png') })
-  await app.evaluate(() => {
-    process.env.HIVE_TEST_SLOW_IPC = ''
-  })
+  // Back to the suite's own slow calls (#717: '' here left removing a project fast, and its checks below raced it).
+  await app.evaluate((_electronModule, v) => {
+    process.env.HIVE_TEST_SLOW_IPC = v
+  }, SLOW_IPC)
   await inv('session:stop', alpha, agent.id)
   await until(async () => !(await live()), 10000)
 
@@ -199,8 +203,10 @@ const check = (name, ok, extra = '') => {
   await rd.locator('.dialog-footer button').last().click()
   check('Remove Project shows Hiding…', !!(await until(async () => /Hiding…/.test(await rd.innerText().catch(() => '')), HUNG_MS)))
   await page.keyboard.press('Escape')
-  check('and can’t be closed part-way', (await rd.count()) === 1)
-  check('then beta is hidden', !!(await until(async () => !(await inv('workspace:get')).projects.some((p) => p.name === 'beta') && (await rd.count()) === 0, 8000)))
+  const stillOpen = (await rd.count()) === 1
+  const why = stillOpen ? '' : (await inv('workspace:get')).projects.some((p) => p.name === 'beta') ? '(closed while beta was being removed)' : '(beta was already removed: the check came too late to tell)'
+  check('and can’t be closed part-way', stillOpen, why)
+  check('then beta is hidden', !!(await until(async () => !(await inv('workspace:get')).projects.some((p) => p.name === 'beta') && (await rd.count()) === 0, 5000 + HUNG_MS)))
 
   await inv('session:stop', alpha)
   await lib.until(async () => (await inv('session:live')).length === 0, 15000)

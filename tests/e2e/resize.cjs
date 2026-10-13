@@ -10,6 +10,7 @@ fs.mkdirSync(path.join(ws, 'demo'), { recursive: true })
 fs.writeFileSync(path.join(ws, 'demo', 'README.md'), '# Demo\n\nSome text.\n')
 require('child_process').execSync('git init -q', { cwd: path.join(ws, 'demo') })
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms))
+const HUNG_MS = 15000
 let pass = 0, fail = 0
 const check = (name, ok, extra = '') => { if (ok) pass++; else fail++; console.log(ok ? 'PASS' : 'FAIL', name, extra) }
 ;(async () => {
@@ -71,13 +72,20 @@ const check = (name, ok, extra = '') => { if (ok) pass++; else fail++; console.l
       check('split dblclick resets', Math.abs(h3 / host - 0.5) < 0.02)
     }
   }
-  // Persistence across a reload
-  await page.locator('.tabs .tab', { hasText: 'Git' }).first().click(); await sleep(400)
-  await drag(page.locator('.tab-body:visible .split-list > .pane-resizer').first(), 60)
+  // Persistence across a reload (#717: under load it failed once, with nothing to say why). Each step waits for what the
+  // next needs: the Git tab's divider drawn before the drag, the width saved before the reload, the list at its width after.
+  const gitList = '.tab-body:visible .split-list'
+  await page.locator('.tabs .tab', { hasText: 'Git' }).first().click()
+  await lib.until(async () => (await page.locator(`${gitList} > .pane-resizer`).count()) > 0, HUNG_MS)
+  await drag(page.locator(`${gitList} > .pane-resizer`).first(), 60)
+  const savedGit = await lib.until(async () => (await inv('ui:get')).panes?.changes ?? null, HUNG_MS)
+  check('Git width saved before the reload', Math.abs(savedGit - 340) <= 3, `(${savedGit})`)
   await page.reload(); await lib.appReady(page)
-  await page.getByText('demo', { exact: true }).first().click(); await sleep(400)
-  await page.locator('.tabs .tab', { hasText: 'Git' }).first().click(); await lib.until(async () => (await page.locator('.tab-body:visible .split-list').count()) > 0, 10000)
-  check('width kept after reload', Math.abs((await width('.tab-body:visible .split-list')) - 340) <= 3)
+  await page.getByText('demo', { exact: true }).first().click()
+  await page.locator('.tabs .tab', { hasText: 'Git' }).first().click()
+  const gitWidth = async () => ((await page.locator(gitList).count()) > 0 ? width(gitList) : null)
+  const kept = await lib.until(async () => { const w = await gitWidth(); return w !== null && Math.abs(w - 340) <= 3 ? w : null }, HUNG_MS)
+  check('width kept after reload', !!kept, `(${kept ?? await gitWidth()})`)
   await page.screenshot({ path: path.join(scratch, 'resize-changes.png') })
   // Docs view
   await page.evaluate(() => { const b = [...document.querySelectorAll('.activity-btn')].find((e) => /Documentation/.test(e.getAttribute('aria-label') || '')); b?.click() }); await sleep(800)

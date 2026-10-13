@@ -83,7 +83,8 @@ folder, a folder per suite in it, below). Claims are files in `%LOCALAPPDATA%\hi
 runner's claim expires (its process is gone, or it is a day old). A lane is only taken when nothing is listening on
 its ports, so anything else holding them (an older runner without lanes, another app) moves the runner to the next
 one. The runner prints its lane, its suites' folder and its logs folder when it starts. Ten runners at once is the
-most: the eleventh stops and says so.
+most: an eleventh (e2e or scenarios) waits for a lane, printing who holds them and showing as "e2e: waiting for a test
+lane" in the Progress panel, and takes the first one let go (#707); with `--no-wait` it fails at once instead.
 A runner started inside a suite claims no lane: it takes ports 1000 above its parent suite's (`portBase` in
 `runner.mjs`) and its suites' folders in `nested` inside the parent's (`E2E_RUN_DIR`). Logs stay in one place for every
 lane (`logs/` below), so `.active` there shows every run still going. Suites keep their test projects outside the

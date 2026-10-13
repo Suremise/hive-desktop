@@ -156,7 +156,8 @@ environment problem when the screen shows one) when it doesn't get there, rather
   **lane** from the e2e runner's pool (`tests/e2e/lanes.mjs`), and its scenarios' profiles and workspaces go in
   `%LOCALAPPDATA%\hive-test\scenarios\lanes\<k>\<scenario>-<provider>` (where `--keep` leaves them), with the lane's
   first port as the test Hive's Agent API port. The run prints its lane when it starts. Ten runs at once (scenario and
-  e2e runs together) is the most: the eleventh stops and says so. A run of more than five scenarios, or with
+  e2e runs together) is the most: an eleventh waits for a lane, saying who holds them (#707; `--no-wait` fails at
+  once instead). A run of more than five scenarios, or with
   `--repeat`, is a heavy run: it waits for one of the machine's test slots, as heavy e2e runs do, saying who holds them
   (`--no-wait` fails at once instead; tests/e2e/README.md, "Heavy runs queue").
 - **Results** go to `%LOCALAPPDATA%\hive-test\scenarios\results\<time>-<provider>`: `results.json` (each scenario's
