@@ -191,10 +191,11 @@ export async function branchPlace(projectPath: string): Promise<BranchHome> {
 /**
  * The same, with the workspace part its new branches take in its repository now (`chooseSpace`: its own or the one it
  * moved to, clear of branches from before), and whether that part is new (recorded once a branch is made in it).
+ * `reads`: the branches as one operation read them (#732).
  */
-export async function branchHome(projectPath: string): Promise<BranchHome & { newSpace: boolean }> {
+export async function branchHome(projectPath: string, reads?: wt.RepoReads): Promise<BranchHome & { newSpace: boolean }> {
   const home = await branchPlace(projectPath)
-  const { space, isNew } = chooseSpace(home, await wt.localBranches(projectPath))
+  const { space, isNew } = chooseSpace(home, await (reads ? reads.branchesStrict().catch(() => []) : wt.localBranches(projectPath)))
   return { ...home, space, newSpace: isNew }
 }
 
@@ -293,17 +294,19 @@ async function bringUp(projectPath: string, path: string, branch: string, base: 
  * Where a new worktree for an agent called `name` goes in this project: a new branch `hive/<workspace>/<project>/<name>`
  * (#703) in the project's own repository and a folder in the workspace's worktree location under the project's name, each numbered (`-2`) when taken.
  * `taken`: branches and folders (`placeKey`s) a plan has already given out. Shared by adding an agent and by a template's
- * load plan (#268), so what the plan shows is what the load makes.
+ * load plan (#268), so what the plan shows is what the load makes. `reads`: the branches as one operation read them (#732).
  */
-export async function newWorktreePlace(projectPath: string, name: string, branch?: string, taken: { branches: ReadonlySet<string>; folders: ReadonlySet<string> } = { branches: new Set(), folders: new Set() }): Promise<{ branch: string; path: string; newSpace?: string }> {
-  const home = await branchHome(projectPath)
+export async function newWorktreePlace(projectPath: string, name: string, branch?: string, taken: { branches: ReadonlySet<string>; folders: ReadonlySet<string> } = { branches: new Set(), folders: new Set() }, reads?: wt.RepoReads): Promise<{ branch: string; path: string; newSpace?: string }> {
+  // One read of the branches for both (#732): its workspace part and a free name.
+  const repo = reads ?? new wt.RepoReads(projectPath)
+  const home = await branchHome(projectPath, repo)
   const generated = hiveBranch(home, name)
   // The default Hive generates for this name, whether left out or sent back as it was shown (the Add Agent dialog and the
   // Agent API send the branch they show, #703 round 4); a branch of the user's own is never taken as a part Hive gave.
   const supplied = branch?.trim()
   const isDefault = !supplied || supplied.toLowerCase() === generated.toLowerCase()
   return {
-    branch: await wt.uniqueBranch(projectPath, supplied || generated, taken.branches),
+    branch: await wt.uniqueBranch(projectPath, supplied || generated, taken.branches, repo),
     path: wt.uniqueFolder(join(workspaceOf(projectPath).worktreesRoot, projectPath.split(/[\\/]/).pop()!, slugify(name)), taken.folders),
     // A workspace part this project hasn't had: recorded once its branch is made (#703 round 3).
     ...(isDefault && home.newSpace && home.space ? { newSpace: home.space } : {})
@@ -313,9 +316,10 @@ export async function newWorktreePlace(projectPath: string, name: string, branch
 /**
  * A new agent's definition, ready to add but not added (#126: a template stages its agents, then adds them all at once):
  * its id, settings and, for a new worktree, the worktree made for it. `others` are the agents it must not clash with (a
- * worktree in use). `discard` removes a worktree made for it, for when it isn't added after all.
+ * worktree in use). `discard` removes a worktree made for it, for when it isn't added after all. `reads`: the repository as
+ * the operation staging several agents read it (#732: a template's load), told when this one makes a worktree.
  */
-export async function prepareAgent(projectPath: string, cfg: ProjectConfig, opts: AddAgentOptions, name: string, others: AgentDef[]): Promise<{ def: AgentDef; discard: () => Promise<void>; reuse?: WorktreeReuse }> {
+export async function prepareAgent(projectPath: string, cfg: ProjectConfig, opts: AddAgentOptions, name: string, others: AgentDef[], reads?: wt.RepoReads): Promise<{ def: AgentDef; discard: () => Promise<void>; reuse?: WorktreeReuse }> {
   // Never reused: sessions of a removed agent keep its id and must not attach to a new one.
   const id = `a-${randomBytes(4).toString('hex')}`
 
@@ -336,7 +340,7 @@ export async function prepareAgent(projectPath: string, cfg: ProjectConfig, opts
 
   let reuse: WorktreeReuse | undefined
   if (opts.location === 'new-worktree') {
-    const base = opts.base || (await wt.currentBranch(projectPath))
+    const base = opts.base || (await (reads ? reads.currentBranch() : wt.currentBranch(projectPath)))
     if (!base) throw new Error(gitProblem() ? `${gitProblem()}, so Hive can't make a worktree.` : 'The project folder is not on a branch. Choose the branch to start from.')
     // An unused worktree on the branch it would get is worked in again when merged and clean (#456), else a new one.
     const match = opts.reuseWorktree ? await matchingWorktree(projectPath, opts.branch?.trim() || hiveBranch(await branchHome(projectPath), name), base, others, name) : null
@@ -350,8 +354,12 @@ export async function prepareAgent(projectPath: string, cfg: ProjectConfig, opts
       }
     }
     if (!def.worktree) {
-      const { branch, path: dest, newSpace } = await newWorktreePlace(projectPath, name, opts.branch)
-      await wt.createWorktree(projectPath, dest, branch, base)
+      const { branch, path: dest, newSpace } = await newWorktreePlace(projectPath, name, opts.branch, undefined, reads)
+      try {
+        await wt.createWorktree(projectPath, dest, branch, base)
+      } finally {
+        reads?.changed()
+      }
       if (newSpace) await recordSpace(projectPath, newSpace)
       const s = config.settings.agents
       const copied = await wt.copyIgnored(projectPath, dest, cfg.worktreeCopy ?? s.worktreeCopy)
@@ -362,11 +370,11 @@ export async function prepareAgent(projectPath: string, cfg: ProjectConfig, opts
   } else if (opts.location === 'existing-worktree') {
     if (!opts.worktreePath) throw new Error('Choose a worktree.')
     const target = placeKey(opts.worktreePath)
-    const found = (await wt.listWorktrees(projectPath)).find((w) => placeKey(w.path) === target)
+    const found = (await (reads ? reads.worktrees() : wt.listWorktrees(projectPath))).find((w) => placeKey(w.path) === target)
     if (!found || target === placeKey(projectPath)) throw new Error(gitProblem() ? `${gitProblem()}, so Hive can't check that worktree.` : 'That folder is not a worktree of this project.')
     if (others.some((a) => a.worktree && placeKey(a.worktree.path) === target)) throw new Error('Another agent already works in that worktree.')
     if (!found.branch) throw new Error('That worktree is not on a branch (detached HEAD).')
-    const base = (await wt.currentBranch(projectPath)) ?? found.branch
+    const base = (await (reads ? reads.currentBranch() : wt.currentBranch(projectPath))) ?? found.branch
     def.worktree = { path: found.path, branch: found.branch, base }
     // Chosen by the user (#456): brought up to the base when merged and clean, else taken as it is, with its work.
     if (opts.reuseWorktree && base !== found.branch) {

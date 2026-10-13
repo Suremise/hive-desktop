@@ -31,8 +31,14 @@ export async function currentBranch(cwd: string): Promise<string | null> {
 }
 
 export async function localBranches(cwd: string): Promise<string[]> {
+  return localBranchesStrict(cwd).catch(() => [])
+}
+
+/** The local branches; throws when git can't list them (#353: a removal never takes an unknown main branch for none). */
+async function localBranchesStrict(cwd: string): Promise<string[]> {
   const r = await git(cwd, ['for-each-ref', '--format=%(refname:short)', 'refs/heads'])
-  return r.ok ? r.out.split(/\r?\n/).map((l) => l.trim()).filter(Boolean) : []
+  if (!r.ok) throw new Error(`git couldn't list the branches (${gitProblem() ?? (r.err.split(/\r?\n/)[0] || 'for-each-ref failed')})`)
+  return r.out.split(/\r?\n/).map((l) => l.trim()).filter(Boolean)
 }
 
 /** The project's worktrees (including the project folder itself), from `git worktree list`. */
@@ -50,13 +56,76 @@ export async function listWorktrees(cwd: string): Promise<{ path: string; branch
 }
 
 /**
+ * What one operation reads of a project's repository, each read once (#732: a template's plan or load read the same
+ * things once per agent): the branch checked out in the project folder, its worktrees, its local branches, its main
+ * branch, branches' commits and worktrees' uncommitted files. After the operation makes or removes a worktree or branch
+ * itself, `changed()`, so the next read of any of them is fresh; the project folder's branch is kept (nothing Hive does
+ * there moves it). A read that fails isn't kept: the next asks git again. Functions that take one read afresh without it.
+ */
+export class RepoReads {
+  private readonly memo = new Map<string, Promise<unknown>>()
+  constructor(readonly projectPath: string) {}
+
+  /** `failed`: an answer that says git couldn't read it (null), not kept either. */
+  private once<T>(key: string, read: () => Promise<T>, failed?: (v: T) => boolean): Promise<T> {
+    const kept = this.memo.get(key) as Promise<T> | undefined
+    if (kept) return kept
+    const p = read()
+    this.memo.set(key, p)
+    const forget = (): void => void (this.memo.get(key) === p && this.memo.delete(key))
+    p.then((v) => (failed?.(v) ? forget() : undefined), forget)
+    return p
+  }
+
+  /** `checkedOutBranch` of the project folder: throws when git can't say. */
+  checkedOutBranch(): Promise<string | null> {
+    return this.once('head', () => checkedOutBranch(this.projectPath))
+  }
+
+  /** `currentBranch` of the project folder: null when it is detached or git can't say. */
+  currentBranch(): Promise<string | null> {
+    return this.checkedOutBranch().catch(() => null)
+  }
+
+  /** `listWorktrees`. */
+  worktrees(): Promise<{ path: string; branch: string | null }[]> {
+    return this.once('worktrees', () => listWorktrees(this.projectPath))
+  }
+
+  /** The local branches; throws when git can't list them. */
+  branchesStrict(): Promise<string[]> {
+    return this.once('branches', () => localBranchesStrict(this.projectPath))
+  }
+
+  /** `primaryBranchStrict`. */
+  primaryBranchStrict(): Promise<string | null> {
+    return this.once('primary', () => primaryBranchStrict(this.projectPath, this))
+  }
+
+  /** `tipOf` a branch. */
+  tip(branch: string): Promise<string | null> {
+    return this.once(`tip ${branch}`, () => tipOf(this.projectPath, branch), (v) => v === null)
+  }
+
+  /** `dirtyCount` of a worktree's folder. */
+  dirty(path: string): Promise<number | null> {
+    return this.once(`dirty ${placeKey(path)}`, () => dirtyCount(path), (v) => v === null)
+  }
+
+  /** The operation made or removed a worktree or branch: everything but the project folder's branch is read again. */
+  changed(): void {
+    for (const k of [...this.memo.keys()]) if (k !== 'head') this.memo.delete(k)
+  }
+}
+
+/**
  * A branch name git can make: wanted, else wanted-2, wanted-3… `taken`: names to avoid too (a plan's earlier ones). Not
  * one that exists, nor one a branch is inside (hive/ws/x while hive/ws/x/y exists), case aside: on Windows git keeps
  * branches as files, so hive/HIVE/… and hive/hive/… would be the same one (#703). A branch it would be inside (hive/ws for
  * hive/ws/alpha/b1) can't be numbered away: refused, saying which (`branchSpace` keeps Hive's own clear of that).
  */
-export async function uniqueBranch(cwd: string, wanted: string, taken: ReadonlySet<string> = new Set()): Promise<string> {
-  const existing = [...new Set([...(await localBranches(cwd)), ...taken].map((b) => b.toLowerCase()))]
+export async function uniqueBranch(cwd: string, wanted: string, taken: ReadonlySet<string> = new Set(), reads?: RepoReads): Promise<string> {
+  const existing = [...new Set([...(await (reads ? reads.branchesStrict().catch(() => []) : localBranches(cwd))), ...taken].map((b) => b.toLowerCase()))]
   const parent = existing.find((b) => wanted.toLowerCase().startsWith(`${b}/`))
   if (parent) throw new Error(`Git can't make the branch ${wanted}: a branch ${parent} is in the way. Choose another branch.`)
   const free = (b: string): boolean => !existing.some((e) => e === b.toLowerCase() || e.startsWith(`${b.toLowerCase()}/`))
@@ -146,13 +215,13 @@ export async function dirtyCount(cwd: string): Promise<number | null> {
  * A worktree branch's commits not merged and its uncommitted files. A git command that fails (git missing included)
  * throws, never counting as nothing to merge or nothing to lose (#346).
  */
-export async function branchStatus(projectPath: string, wt: AgentWorktree): Promise<AgentBranchStatus> {
+export async function branchStatus(projectPath: string, wt: AgentWorktree, reads?: RepoReads): Promise<AgentBranchStatus> {
   // Detached is a real answer (counted against the base); a failed read isn't, and stops here.
-  const into = await checkedOutBranch(projectPath).catch((e: Error) => {
+  const into = await (reads ?? new RepoReads(projectPath)).checkedOutBranch().catch((e: Error) => {
     throw new Error(`Git couldn't check ${wt.branch}: ${e.message}.`)
   })
   const count = await git(projectPath, ['rev-list', '--count', `${into ?? wt.base}..${wt.branch}`])
-  const dirty = existsSync(wt.path) ? await dirtyCount(wt.path) : 0
+  const dirty = existsSync(wt.path) ? await (reads ? reads.dirty(wt.path) : dirtyCount(wt.path)) : 0
   if (!count.ok || dirty === null) {
     throw new Error(`Git couldn't check ${wt.branch}: ${gitProblem() ?? ((count.ok ? 'git status failed in its folder' : count.err.trim()) || 'unknown error')}.`)
   }
@@ -176,10 +245,8 @@ export async function primaryBranch(projectPath: string): Promise<string | null>
  * the branches or read origin/HEAD (anything but its "no such symbolic ref", exit 1 with nothing said), so a removal
  * never takes an unknown main branch for none.
  */
-export async function primaryBranchStrict(projectPath: string): Promise<string | null> {
-  const heads = await git(projectPath, ['for-each-ref', '--format=%(refname:short)', 'refs/heads'])
-  if (!heads.ok) throw new Error(`git couldn't list the branches (${gitProblem() ?? (heads.err.split(/\r?\n/)[0] || 'for-each-ref failed')})`)
-  const local = new Set(heads.out.split(/\r?\n/).map((l) => l.trim()).filter(Boolean))
+export async function primaryBranchStrict(projectPath: string, reads?: RepoReads): Promise<string | null> {
+  const local = new Set(await (reads ? reads.branchesStrict() : localBranchesStrict(projectPath)))
   const remote = await git(projectPath, ['symbolic-ref', '--quiet', '--short', 'refs/remotes/origin/HEAD'])
   if (!remote.ok && !(remote.code === 1 && !remote.err)) throw new Error(`git couldn't read origin/HEAD (${gitProblem() ?? (remote.err.split(/\r?\n/)[0] || 'symbolic-ref failed')})`)
   const named = remote.ok ? remote.out.trim().replace(/^origin\//, '') : ''
@@ -207,18 +274,19 @@ export async function unmergedCommits(projectPath: string, into: string, tip: st
  * counts as not removable. `tip` is the commit checked, for `removeCheckedWorktree`. Shared by Remove All (#291) and
  * loading templates (#289).
  */
-export async function worktreeCheck(projectPath: string, wt: AgentWorktree): Promise<WorktreeCheck> {
-  const into = await primaryBranch(projectPath)
+export async function worktreeCheck(projectPath: string, wt: AgentWorktree, reads?: RepoReads): Promise<WorktreeCheck> {
+  const into = reads ? await reads.primaryBranchStrict().catch(() => null) : await primaryBranch(projectPath)
   // Git that can't run says nothing about the repository: that is the reason, not "no main branch" (#346).
   const unusable = (reason: string): WorktreeCheck => ({ removable: false, into, reason: gitProblem() ?? reason })
   if (!into) return unusable('the repository has no main branch (main or master) to check it against')
-  const listed = await listWorktrees(projectPath)
+  const listed = await (reads ? reads.worktrees() : listWorktrees(projectPath))
   // By real paths (#389): git lists the long name, while Hive may have been given a short (8.3) one, a junction or a symlink.
   if (samePlace(wt.path, projectPath) || !listed.some((l) => samePlace(l.path, wt.path) && l.branch === wt.branch)) return unusable(`git doesn't list it as a worktree on ${wt.branch}`)
   if (!existsSync(wt.path)) return { removable: false, into, reason: 'its folder is missing' }
   // Both commits, so what is checked is fixed: the deletion is guarded against either branch moving afterwards.
-  const [tip, intoTip] = await Promise.all([tipOf(projectPath, wt.branch), tipOf(projectPath, into)])
-  const [ahead, dirty] = tip && intoTip ? await Promise.all([unmergedCommits(projectPath, intoTip, tip), dirtyCount(wt.path)]) : [null, null]
+  const tipOfBranch = (b: string): Promise<string | null> => (reads ? reads.tip(b) : tipOf(projectPath, b))
+  const [tip, intoTip] = await Promise.all([tipOfBranch(wt.branch), tipOfBranch(into)])
+  const [ahead, dirty] = tip && intoTip ? await Promise.all([unmergedCommits(projectPath, intoTip, tip), reads ? reads.dirty(wt.path) : dirtyCount(wt.path)]) : [null, null]
   if (!tip || !intoTip || ahead === null || dirty === null) return unusable(`git couldn't check ${wt.branch}`)
   const why = [ahead ? `${ahead} commit${ahead === 1 ? '' : 's'} not merged into ${into}` : '', dirty ? `${dirty} uncommitted file${dirty === 1 ? '' : 's'}` : ''].filter(Boolean)
   return why.length ? { removable: false, into, reason: why.join(' and '), ahead, dirty, tip, intoTip } : { removable: true, into, tip, intoTip, ahead: 0, dirty: 0 }
