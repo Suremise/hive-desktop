@@ -32,7 +32,8 @@ vi.mock('../src/main/git', async (importOriginal) => {
 
 const { PREVIEW_MS, mergeUnused, removalPreview, removeUnusedWorktree, unusedBranchStatus, unusedWorktreeCounts, unusedWorktrees, unusedWorktreesNamed } = await import('../src/main/unusedWorktrees')
 const { createWorktree } = await import('../src/main/worktrees')
-const { addAgent, reserveForRemoval } = await import('../src/main/projectAgents')
+const { addAgent, reserveForRemoval, worktreeChecks } = await import('../src/main/projectAgents')
+const { gitTestHooks } = await import('../src/main/git')
 const { gitOnPath, setGitToolForTests } = await import('../src/main/gitTool')
 const templates = await import('../src/main/templates')
 // Paths compared as places: git lists the long names of folders Hive may know by short (8.3) ones, as on CI (#389).
@@ -175,6 +176,55 @@ describe('listing', () => {
     expect(d).toMatchObject({ branch: null, check: { removable: false, reason: 'it is not on a branch (detached HEAD)', dirty: 0 } })
     expect((await run(() => removeUnusedWorktree(proj, t.path))).deleted).toBe(false)
     expect(existsSync(t.path)).toBe(true)
+  })
+
+  // Read-only check loops share one operation's reads (#733): the project's worktree list, its main branch (its branches
+  // and origin/HEAD) and main's commit once, however many worktrees; each worktree's own reads stay its own.
+  /** The project folder's reads one step made, by what they read. */
+  const counted = async (step: () => Promise<unknown>): Promise<{ worktrees: number; branches: number; originHead: number; mainTip: number }> => {
+    const by: string[] = []
+    gitTestHooks.started = (cwd, args) => {
+      if (placeKey(cwd) === placeKey(proj)) by.push(args.join(' '))
+    }
+    try {
+      await run(step)
+    } finally {
+      gitTestHooks.started = undefined
+    }
+    const count = (re: RegExp): number => by.filter((a) => re.test(a)).length
+    return { worktrees: count(/^worktree list/), branches: count(/^for-each-ref --format=%\(refname:short\) refs\/heads$/), originHead: count(/^symbolic-ref /), mainTip: count(/^rev-parse --verify --quiet refs\/heads\/main\^\{commit\}$/) }
+  }
+  const ONCE = { worktrees: 1, branches: 1, originHead: 1, mainTip: 1 }
+
+  it('the list reads the worktree list and the main branch once, however many worktrees (#733)', async () => {
+    const merged = await tree(`once${++n}`)
+    const ahead = await tree(`onceahead${n}`)
+    commit(ahead.path, 'x.txt')
+    const detached = await tree(`oncedetached${n}`)
+    git(detached.path, 'checkout', '-q', '--detach')
+    let list: UnusedWorktree[] = []
+    expect(await counted(async () => (list = (await unusedWorktrees(proj)).worktrees))).toEqual(ONCE)
+    // Each checked as before.
+    const of = (t: { path: string }): UnusedWorktree | undefined => list.find((x) => placeKey(x.path) === placeKey(t.path))
+    expect([of(merged)?.check.removable, of(ahead)?.check.reason, of(detached)?.check]).toEqual([true, '1 commit not merged into main', expect.objectContaining({ removable: false, into: 'main', reason: 'it is not on a branch (detached HEAD)', dirty: 0 })])
+  })
+
+  it("Remove All's checks read the worktree list and the main branch once, however many agents (#733)", async () => {
+    const trees = [await tree(`checks${++n}`), await tree(`checksahead${n}`), await tree(`checksdirty${n}`)]
+    commit(trees[1].path, 'x.txt')
+    writeFileSync(join(trees[2].path, 'loose.txt'), 'x')
+    agents(trees)
+    try {
+      let checks: Awaited<ReturnType<typeof worktreeChecks>> = []
+      expect(await counted(async () => (checks = await worktreeChecks(proj)))).toEqual(ONCE)
+      expect(checks.map((c) => [c.agentId, c.removable, c.reason ?? null])).toEqual([
+        ['a0', true, null],
+        ['a1', false, '1 commit not merged into main'],
+        ['a2', false, '1 uncommitted file']
+      ])
+    } finally {
+      agents([])
+    }
   })
 })
 

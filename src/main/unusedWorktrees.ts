@@ -40,8 +40,8 @@ async function unsafe(projectPath: string, path: string): Promise<string | null>
 }
 
 /** The worktrees git lists for the project that no agent works in, as they are now (no check yet). */
-async function candidates(projectPath: string): Promise<{ listed: { path: string; branch: string | null }[]; problem?: string }> {
-  const all = await wt.listWorktrees(projectPath)
+async function candidates(projectPath: string, reads?: wt.RepoReads): Promise<{ listed: { path: string; branch: string | null }[]; problem?: string }> {
+  const all = await (reads ? reads.worktrees() : wt.listWorktrees(projectPath))
   if (!all.length) {
     const problem = gitProblem()
     return problem ? { listed: [], problem } : { listed: [] }
@@ -61,9 +61,9 @@ async function candidates(projectPath: string): Promise<{ listed: { path: string
  * its HEAD alone holds (on no branch, tag or remote branch: removing the worktree loses them). Left out when git can't
  * count them, so nothing is offered that can't say what it loses.
  */
-async function detachedCheck(projectPath: string, path: string): Promise<UnusedWorktree['check']> {
-  const [dirty, alone] = await Promise.all([wt.dirtyCount(path), unreferencedCommits(path)])
-  return { removable: false, into: await wt.primaryBranch(projectPath), reason: gitProblem() ?? 'it is not on a branch (detached HEAD)', ...(dirty === null ? {} : { dirty }), ...(alone === null ? {} : { ahead: alone }) }
+async function detachedCheck(projectPath: string, path: string, reads: wt.RepoReads): Promise<UnusedWorktree['check']> {
+  const [dirty, alone] = await Promise.all([reads.dirty(path), unreferencedCommits(path)])
+  return { removable: false, into: await reads.primaryBranchStrict().catch(() => null), reason: gitProblem() ?? 'it is not on a branch (detached HEAD)', ...(dirty === null ? {} : { dirty }), ...(alone === null ? {} : { ahead: alone }) }
 }
 
 /**
@@ -86,8 +86,8 @@ export function worktreeOrigin(path: string, sessions: readonly Pick<SessionReco
   return hiveFolder && contains(hiveFolder, path) ? { madeBy: 'hive' } : { madeBy: 'other' }
 }
 
-async function describe(projectPath: string, w: { path: string; branch: string | null }, origin: UnusedWorktreeOrigin): Promise<UnusedWorktree> {
-  const check = w.branch ? await wt.worktreeCheck(projectPath, { path: w.path, branch: w.branch, base: '' }) : await detachedCheck(projectPath, w.path)
+async function describe(projectPath: string, w: { path: string; branch: string | null }, origin: UnusedWorktreeOrigin, reads: wt.RepoReads): Promise<UnusedWorktree> {
+  const check = w.branch ? await wt.worktreeCheck(projectPath, { path: w.path, branch: w.branch, base: '' }, reads) : await detachedCheck(projectPath, w.path, reads)
   const [head, last] = await Promise.all([git(w.path, ['rev-parse', '--verify', '--quiet', 'HEAD']), git(w.path, ['log', '-1', '--format=%cI%x00%s'])])
   const [at, subject] = last.ok ? last.out.trim().split('\0') : []
   return {
@@ -105,17 +105,21 @@ export async function unusedWorktreeFolders(projectPath: string): Promise<{ path
   return (await candidates(projectPath).catch(() => ({ listed: [] }))).listed
 }
 
-/** The project's unused worktrees, each checked. */
+/**
+ * The project's unused worktrees, each checked. Read-only, so one set of reads serves them all (#733): the worktree list,
+ * the main branch and its commit are read once, not once per worktree. Removing one checks it afresh.
+ */
 export async function unusedWorktrees(projectPath: string): Promise<UnusedWorktrees> {
   projectPath = workspace.assertProject(projectPath)
-  const { listed, problem } = await candidates(projectPath)
+  const reads = new wt.RepoReads(projectPath)
+  const { listed, problem } = await candidates(projectPath, reads)
   if (problem) return { worktrees: [], gitProblem: problem }
   const worktrees: UnusedWorktree[] = []
   const ws = workspaceOf(projectPath)
   const sessions = (await workspace.sessionsFile(projectPath).catch(() => null))?.sessions ?? []
   // Where Hive makes the project's agent worktrees (projectAgents.ts).
   const hiveFolder = ws.path ? join(ws.worktreesRoot, basename(projectPath)) : null
-  for (const w of listed) worktrees.push(await describe(projectPath, w, worktreeOrigin(w.path, sessions, hiveFolder)))
+  for (const w of listed) worktrees.push(await describe(projectPath, w, worktreeOrigin(w.path, sessions, hiveFolder), reads))
   // The Changes tab may read these (and only these) now (#400).
   workspaceOf(projectPath).noteUnusedWorktrees(projectPath, worktrees.map((w) => w.path))
   return { worktrees }
