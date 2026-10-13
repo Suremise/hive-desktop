@@ -246,9 +246,16 @@ const check = (name, ok, extra = '') => {
       await page.locator('.menu .menu-item', { hasText: 'Copy Diagnostics' }).click()
       await lib.until(async () => !/Collecting/.test((await page.locator('.diagnostics-preview').textContent().catch(() => 'Collecting')) ?? 'Collecting'), HUNG_MS)
     }
+    // The dialog reads its recording row and its preview with two calls (#718): the row can come after the preview, and
+    // until it does the row is the previous open's (none at first, then the offerable one). The read is slowed here so it
+    // always comes last, and the checks wait for the newest recording's row rather than reading once.
+    await app.evaluate(() => {
+      process.env.HIVE_TEST_SLOW_IPC = 'console:recordings=1500'
+    })
     await openDiagnostics()
     const offer = page.locator('.diagnostics-recording')
-    check('Copy Diagnostics offers the newest recording, unticked', (await offer.count()) === 1 && !(await offer.locator('input').isChecked()) && !(await page.locator('.diagnostics-preview').textContent()).includes('Developer console recording'))
+    const offered = await lib.until(async () => ((await offer.locator('input').count()) === 1 ? offer.locator('input') : null), HUNG_MS)
+    check('Copy Diagnostics offers the newest recording, unticked', !!offered && !(await offered.isChecked()) && !(await page.locator('.diagnostics-preview').textContent()).includes('Developer console recording'), JSON.stringify(await offer.allTextContents()))
     await offer.locator('input').check()
     const attached = await lib.until(async () => {
       const t = (await page.locator('.diagnostics-preview').textContent()) ?? ''
@@ -263,9 +270,12 @@ const check = (name, ok, extra = '') => {
     // The newest recording with text: never attached.
     await recordTurn(`edit a.ts ${SPOKEN}`, true)
     await openDiagnostics()
-    // The dialog's recording row is read for the newest recording, which can come after its preview (#718): waited for.
+    // Until the slowed read returns, the row is the previous open's offerable one: waited for.
     const notOffered = async () => (await page.locator('.diagnostics-recording input').count()) === 0 && /includes prompt and reply text, so it can't be attached/.test((await page.locator('.diagnostics-recording').textContent().catch(() => '')) ?? '')
-    check('a recording with text is never offered', !!(await lib.until(notOffered, HUNG_MS)))
+    check('a recording with text is never offered', !!(await lib.until(notOffered, HUNG_MS)), JSON.stringify(await page.locator('.diagnostics-recording').allTextContents()))
+    await app.evaluate(() => {
+      delete process.env.HIVE_TEST_SLOW_IPC
+    })
     await page.keyboard.press('Escape')
     await lib.until(async () => (await page.locator('.diagnostics-preview').count()) === 0, HUNG_MS)
     // Picking another source ends a recording, with what it had captured.
