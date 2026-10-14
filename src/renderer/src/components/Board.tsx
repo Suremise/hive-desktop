@@ -2,10 +2,11 @@ import { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
 import type { AgentInfo, ArchiveBatch, BoardFold, ProjectInfo, ProviderId, TaskCard, TaskColumn, TaskDecision, TaskPatch, TaskStartTarget } from '@shared/types'
 import { gitProblemText } from '@shared/gitTool'
 import { agentRuntime } from '@shared/runtime'
-import { TASK_COLUMNS, applyBoardFold, cardMatches, newSinceStart, archivedAt, columnColor, columnLabel, notWatchingReason, reviewStalled, reviewWaitReason, stalledReason, taskOverview, type BoardFoldChange } from '@shared/tasks'
+import { COLUMN_TEXT, TASK_COLUMNS, applyBoardFold, archiveBatchLabel, archiveBatchText, cardMatches, newSinceStart, archivedAt, columnColor, columnName, notWatchingReason, reviewStalled, reviewWaitReason, stalledReason, taskOverview, type BoardFoldChange } from '@shared/tasks'
 import { enabledProviders, isProviderEnabled, projectDefaultProvider, providerName } from '@shared/providers'
+import { fmt, msg, tr, type Msg } from '@shared/i18n'
 import { call, errorMessage } from '../api'
-import { NO_PROJECTS, agentProviderOf, choose, confirm, get, loadTasks, notify, revealAgent, set, setProjectTab, showView, useDateStyle, useStore, type ArchiveAllRequest, type DoingRequest } from '../store'
+import { NO_PROJECTS, agentProviderOf, choose, confirm, get, loadTasks, notify, revealAgent, set, setProjectTab, showView, useDateStyle, useLanguage, useStore, type ArchiveAllRequest, type DoingRequest } from '../store'
 import { selectProject } from '../actions'
 import { cx, timeAgo } from '../util'
 import { clampScroll, edgeSpeed, frameStep } from '@shared/edgeScroll'
@@ -67,14 +68,34 @@ function cardAgent(projects: ProjectInfo[], c: TaskCard): { project: ProjectInfo
  * watches but hasn't started reviewing for a while (#521).
  */
 export function cardStalled(projects: ProjectInfo[], c: TaskCard): string | null {
-  const { agent } = cardAgent(projects, c)
-  return (
-    stalledReason(c, agent ? { name: agent.name, running: !!agent.live } : null) ??
-    notWatchingReason(c, projects.flatMap((p) => p.agents.map((a) => ({ name: a.name, project: p.name, notWatching: a.live?.notWatching })))) ??
-    reviewWaitReason(c, projects.flatMap((p) => p.agents.flatMap((a) => (a.live?.watch?.cards.length ? [{ name: a.name, project: p.name, agentId: a.id, cards: a.live.watch.cards, status: a.live.status, silentMinutes: agentRuntime(a.live).silentMinutes }] : []))))
-  )
+  return cardStall(projects, c)?.text ?? null
 }
 
+/** What a stalled card's hover says to do, by why it is stalled. */
+type StallKind = 'nobody' | 'not-watching' | 'review-silent' | 'review-wait'
+
+/** Why the card is stalled (cardStalled), in the window's language, and which kind of stall it is. */
+function cardStall(projects: ProjectInfo[], c: TaskCard): { text: string; kind: StallKind } | null {
+  const { agent } = cardAgent(projects, c)
+  const nobody = stalledReason(c, agent ? { name: agent.name, running: !!agent.live } : null, tr)
+  if (nobody) return { text: nobody, kind: 'nobody' }
+  const looping = notWatchingReason(c, projects.flatMap((p) => p.agents.map((a) => ({ name: a.name, project: p.name, notWatching: a.live?.notWatching }))), tr)
+  if (looping) return { text: looping, kind: 'not-watching' }
+  const watchers = projects.flatMap((p) => p.agents.flatMap((a) => (a.live?.watch?.cards.length ? [{ name: a.name, project: p.name, agentId: a.id, cards: a.live.watch.cards, status: a.live.status, silentMinutes: agentRuntime(a.live).silentMinutes }] : [])))
+  const waiting = reviewWaitReason(c, watchers, Date.now(), tr)
+  if (!waiting) return null
+  // The watcher reviewWaitReason names: its state unknown (silent) or not.
+  const w = watchers.find((x) => x.project.toLowerCase() === c.project.toLowerCase() && x.agentId !== c.agent && x.cards.includes(c.number))
+  return { text: waiting, kind: w?.silentMinutes !== undefined ? 'review-silent' : 'review-wait' }
+}
+
+/** A stalled card's hover: what to do about it. */
+function stallHint(kind: StallKind): string {
+  if (kind === 'not-watching') return tr(msg({ id: 'board.stall.hintNotWatching', defaultMessage: 'Nothing will wake that agent when this card changes. Show it and ask it to carry on its card loop.', description: "Tooltip on a stalled card: an agent in a card loop stopped without a card watch (what wakes it when the card changes)." }))
+  if (kind === 'review-silent') return tr(msg({ id: 'board.stall.hintReviewSilent', defaultMessage: 'Its reviewer may have finished its turn without Hive seeing it end. Show the reviewer: if its terminal waits at its prompt, Mark idle, and the watch wakes it.', description: 'Tooltip on a card stalled in Review whose reviewer Hive has heard nothing from. "Mark idle" is a command in the agent\'s menu: keep its wording as that command is translated.' }))
+  if (kind === 'review-wait') return tr(msg({ id: 'board.stall.hintReviewWait', defaultMessage: "Its reviewer's watch didn't wake it. Show the reviewer and ask it to review the card.", description: 'Tooltip on a card stalled in Review: its reviewer watches it but has not started.' }))
+  return tr(msg({ id: 'board.stall.hintNobody', defaultMessage: 'Nobody is working on it. Start it again (on this agent or another), or move it back to Todo.', description: 'Tooltip on a card stalled in Doing: no agent is working on it. Todo is a board column.' }))
+}
 
 const inProject = (c: TaskCard, project: string | null): boolean => project === null || c.project.toLowerCase() === project.toLowerCase()
 
@@ -85,12 +106,13 @@ const inProject = (c: TaskCard, project: string | null): boolean => project === 
 function cardBusy(c: TaskCard, projects: ProjectInfo[], assistant: ProjectInfo | null): string | null {
   if (c.column === 'doing') {
     const { agent } = cardAgent(projects, c)
-    if (agent?.live) return `${agent.name} is working on it`
+    if (agent?.live) return tr(msg({ id: 'board.busy.working', defaultMessage: '{agent} is working on it', description: "Why Archive All skips a card (listed in its dialog): an agent ({agent}, its name) is working on it." }), { agent: agent.name })
   }
-  if (c.review) return `${c.review.agentName} is reviewing it`
+  if (c.review) return tr(msg({ id: 'board.busy.reviewing', defaultMessage: '{agent} is reviewing it', description: "Why Archive All skips a card (listed in its dialog): an agent ({agent}, its name) is reviewing it." }), { agent: c.review.agentName })
   for (const p of assistant ? [...projects, assistant] : projects) {
     const a = p.agents.find((x) => x.live?.watch?.cards.includes(c.number))
-    if (a) return `${p === assistant ? 'The Assistant' : a.name} is watching it`
+    if (a && p === assistant) return tr(msg({ id: 'board.busy.assistantWatching', defaultMessage: 'The Assistant is watching it', description: 'Why Archive All skips a card (listed in its dialog): the Hive Assistant waits for it to change.' }))
+    if (a) return tr(msg({ id: 'board.busy.watching', defaultMessage: '{agent} is watching it', description: "Why Archive All skips a card (listed in its dialog): an agent ({agent}, its name) waits for it to change." }), { agent: a.name })
   }
   return null
 }
@@ -104,23 +126,23 @@ function archiveScope(all: TaskCard[], r: Pick<ArchiveAllRequest, 'column' | 'pr
 /** The menu item that opens Archive All: a column's, or the board's (column null). Counted, and off with nothing shown. */
 function archiveAllItem(all: TaskCard[], r: ArchiveAllRequest): MenuEntry {
   const { shown, total } = archiveScope(all, r)
-  const where = r.column === null ? null : columnLabel(r.column)
-  const label =
-    shown.length < total
-      ? `Archive the ${shown.length} Shown${where ? '' : ` Card${shown.length === 1 ? '' : 's'}`} (of ${total})…`
-      : where
-        ? `Archive All in ${where} (${total})…`
-        : `Archive All Cards (${total})…`
+  const where = r.column === null ? null : columnName(r.column, tr)
+  let label: string
+  if (shown.length < total && where) label = tr(msg({ id: 'board.archiveAll.menuShownIn', defaultMessage: 'Archive the {n} Shown (of {total})…', description: "Menu item in a board column's ⋯ menu, when a search hides some of its cards: archive the {n} cards shown, of the column's {total}. Opens a dialog (…)." }), { n: shown.length, total })
+  else if (shown.length < total) label = tr(msg({ id: 'board.archiveAll.menuShown', defaultMessage: '{n, plural, one {Archive the # Shown Card (of {total})…} other {Archive the # Shown Cards (of {total})…}}', description: "Menu item in the board's ⋯ menu, when a search hides some cards: archive the {n} cards shown, of the board's {total}. Opens a dialog (…)." }), { n: shown.length, total })
+  else if (where) label = tr(msg({ id: 'board.archiveAll.menuColumn', defaultMessage: 'Archive All in {column} ({total})…', description: "Menu item in a board column's ⋯ menu: archive all {total} cards of the column ({column}, its name). Opens a dialog (…)." }), { column: where, total })
+  else label = tr(msg({ id: 'board.archiveAll.menuAll', defaultMessage: 'Archive All Cards ({total})…', description: "Menu item in the board's ⋯ menu: archive all {total} cards. Opens a dialog (…)." }), { total })
   return { label, icon: 'archive', disabled: !shown.length, onClick: () => set({ boardArchiveAll: r }) }
 }
 
-async function change(n: number, patch: TaskPatch, what = 'Could not change the card'): Promise<boolean> {
+/** Changes a card; a failure is a toast titled `what` (default: Could not change the card). */
+async function change(n: number, patch: TaskPatch, what?: string): Promise<boolean> {
   try {
     await call('tasks:update', n, patch)
     await loadTasks()
     return true
   } catch (e) {
-    notify('error', what, errorMessage(e))
+    notify('error', what ?? tr(msg({ id: 'board.error.change', defaultMessage: 'Could not change the card', description: "An error toast's title: changing a card failed." })), errorMessage(e))
     return false
   }
 }
@@ -135,7 +157,7 @@ async function archive(c: TaskCard, archived: boolean): Promise<void> {
     await call('tasks:archive', c.number, archived)
     await loadTasks()
   } catch (e) {
-    notify('error', archived ? 'Could not archive the card' : 'Could not bring the card back', errorMessage(e))
+    notify('error', archived ? tr(msg({ id: 'board.error.archive', defaultMessage: 'Could not archive the card', description: "An error toast's title: archiving a card failed." })) : tr(msg({ id: 'board.error.unarchive', defaultMessage: 'Could not bring the card back', description: "An error toast's title: bringing an archived card back to the board failed." })), errorMessage(e))
   } finally {
     archiving.delete(c.number)
   }
@@ -144,10 +166,10 @@ async function archive(c: TaskCard, archived: boolean): Promise<void> {
 /** Deletes a card after asking; the question stays open, with a spinner, until it's done. */
 function remove(c: TaskCard): Promise<boolean> {
   return confirm({
-    title: `Delete #${c.number}?`,
-    message: `"${c.title}" goes to the Recycle Bin, with its comments and history. Archive it instead to keep it out of sight but searchable.`,
-    confirmLabel: 'Delete',
-    busyLabel: 'Deleting…',
+    title: tr(msg({ id: 'board.delete.title', defaultMessage: 'Delete #{card}?', description: "Title of the confirmation before a card is deleted. {card} is its number (after #)." }), { card: c.number }),
+    message: tr(msg({ id: 'board.delete.message', defaultMessage: '"{title}" goes to the Recycle Bin, with its comments and history. Archive it instead to keep it out of sight but searchable.', description: "The confirmation before a card is deleted. {title} is the card's title. Recycle Bin is Windows' name for it." }), { title: c.title }),
+    confirmLabel: tr(msg({ id: 'board.delete.button', defaultMessage: 'Delete', description: 'Button: deletes the card (to the Recycle Bin).' })),
+    busyLabel: tr(msg({ id: 'board.delete.busy', defaultMessage: 'Deleting…', description: 'The Delete button while the card is being deleted.' })),
     danger: true,
     run: async () => {
       await call('tasks:delete', c.number)
@@ -159,33 +181,89 @@ function remove(c: TaskCard): Promise<boolean> {
 /** The right-click menu of a card. */
 function cardMenu(c: TaskCard): MenuEntry[] {
   return [
-    { label: 'Open', icon: 'go-to-file', onClick: () => set({ taskOpen: c.number }) },
+    { label: tr(msg({ id: 'board.menu.open', defaultMessage: 'Open', description: "Menu item on a card (right-click): opens the card's dialog." })), icon: 'go-to-file', onClick: () => set({ taskOpen: c.number }) },
     ...(c.archived
       ? []
       : [
-          { label: 'Start…', icon: 'play', disabled: !c.project, onClick: () => set({ taskStartFor: c.number }) },
+          { label: tr(msg({ id: 'board.menu.start', defaultMessage: 'Start…', description: 'Menu item on a card (right-click): gives it to an agent to start (opens a dialog).' })), icon: 'play', disabled: !c.project, onClick: () => set({ taskStartFor: c.number }) },
           { separator: true },
-          { header: true, label: 'Move to' },
-          ...TASK_COLUMNS.filter((x) => x.id !== c.column).map((x) => ({ label: x.label, icon: 'arrow-right', onClick: () => (x.id === 'doing' ? moveToDoing({ n: c.number, project: c.project, agent: c.agent }) : void change(c.number, { column: x.id })) })),
+          { header: true, label: tr(msg({ id: 'board.menu.moveTo', defaultMessage: 'Move to', description: "A heading in a card's right-click menu, above the board columns it can move to." })) },
+          ...TASK_COLUMNS.filter((x) => x.id !== c.column).map((x) => ({ label: tr(COLUMN_TEXT[x.id].label), icon: 'arrow-right', onClick: () => (x.id === 'doing' ? moveToDoing({ n: c.number, project: c.project, agent: c.agent }) : void change(c.number, { column: x.id })) })),
           // A failed card still in Review goes back to its reviewer for the next round (#214).
-          ...(returnRound(c) ? [{ label: 'Review (next round)', icon: 'refresh', onClick: () => void change(c.number, { column: 'review' }) }] : []),
+          ...(returnRound(c) ? [{ label: tr(msg({ id: 'board.menu.nextRound', defaultMessage: 'Review (next round)', description: "Menu item on a card that failed review and is still in Review: returns it to its reviewer for the next round. Review is the board column." })), icon: 'refresh', onClick: () => void change(c.number, { column: 'review' }) }] : []),
           { separator: true }
         ]),
-    { label: c.archived ? 'Bring Back' : 'Archive', icon: c.archived ? 'discard' : 'archive', onClick: () => void archive(c, !c.archived) },
-    { label: 'Delete…', icon: 'trash', danger: true, onClick: () => void remove(c) }
+    { label: c.archived ? tr(BRING_BACK) : tr(ARCHIVE), icon: c.archived ? 'discard' : 'archive', onClick: () => void archive(c, !c.archived) },
+    { label: tr(msg({ id: 'board.menu.delete', defaultMessage: 'Delete…', description: 'Menu item on a card (right-click): deletes it after asking.' })), icon: 'trash', danger: true, onClick: () => void remove(c) }
   ]
 }
+
+/** A card's agent when its name isn't known. */
+const ITS_AGENT = msg({ id: 'board.agent.unnamed', defaultMessage: 'its agent', description: "Stands for a card's agent when its name isn't known (it was removed), in place of a name in other messages. Lower case." })
+/** A card's agent removed from its project. */
+const REMOVED_AGENT = msg({ id: 'board.agent.removed', defaultMessage: '{agent} (removed)', description: "A card's agent that was removed from its project, on the card. {agent} is its name." })
+/** The archived cards' view with none. */
+const NO_ARCHIVED = msg({ id: 'board.archived.none', defaultMessage: 'No archived cards.', description: "The archived cards' view (and its table) when there are none." })
+/** A new card: the board toolbar's button and the card dialog's title. */
+const NEW_CARD = msg({ id: 'board.newCard.button', defaultMessage: 'New Card', description: "The board toolbar's button that adds a card, and the title of the dialog it opens." })
+/** Cards in Review, counted (the Overview's strip, the Board sidebar's section). */
+const WAITING_FOR_REVIEW = msg({ id: 'board.overview.waitingForReview', defaultMessage: 'Waiting for review', description: "Cards in the Review column, counted: on the Overview's board strip (after the number) and as a heading in the Board sidebar." })
+/** Stalled cards, counted (the Overview's strip, the Board sidebar's section). */
+const STALLED = msg({ id: 'board.overview.stalled', defaultMessage: 'Stalled', description: "Cards nobody is getting on with, counted: on the Overview's board strip (after the number) and as a heading in the Board sidebar." })
+/** Dialog buttons. */
+const CANCEL = msg({ id: 'board.dialog.cancel', defaultMessage: 'Cancel', description: "Button: closes a board dialog without doing anything." })
+const TRY_AGAIN = msg({ id: 'board.dialog.tryAgain', defaultMessage: 'Try Again', description: "A board dialog's main button after it failed: does it again." })
+const ARCHIVING = msg({ id: 'board.dialog.archiving', defaultMessage: 'Archiving…', description: 'A button while cards are being archived.' })
+const SAVING = msg({ id: 'board.dialog.saving', defaultMessage: 'Saving…', description: 'A button while the card (or a decision) is being saved.' })
+const STARTING = msg({ id: 'board.dialog.starting', defaultMessage: 'Starting…', description: 'A button while a card is being started on an agent.' })
+const CREATING_WORKTREE = msg({ id: 'board.dialog.creatingWorktree', defaultMessage: 'Creating the worktree…', description: "A button while a card is being started on a new agent in its own git worktree (making the worktree takes a moment)." })
+const SAVE = msg({ id: 'board.dialog.save', defaultMessage: 'Save', description: 'Button: saves the card (or a changed decision).' })
+const ADDING = msg({ id: 'board.dialog.adding', defaultMessage: 'Adding…', description: 'A button while a new card or decision is being added.' })
+/** The board's name: the Board view's title and its sidebar's. */
+const TASK_BOARD = msg({ id: 'board.view.title', defaultMessage: 'Task Board', description: "The board's name: the title of the Task Board view and of its sidebar." })
+const BRING_BACK = msg({ id: 'board.card.bringBack', defaultMessage: 'Bring Back', description: "Menu item (a card's right-click menu) and button (its dialog) on an archived card: brings it back to the board." })
+const ARCHIVE = msg({ id: 'board.card.archive', defaultMessage: 'Archive', description: "Menu item (a card's right-click menu) and button (its dialog): archives the card (off the board, still searchable)." })
+/** Start with no project. */
+const NEEDS_PROJECT = msg({ id: 'board.dialog.needsProject', defaultMessage: 'Give it a project first: its agent works there.', description: "Why a card with no project can't be started (a tooltip, and the Start dialog)." })
+/** The card dialog's Blocked field (its label and the box's name). */
+const BLOCKED_FIELD = msg({ id: 'board.dialog.blocked', defaultMessage: 'Blocked', description: "A field label in the card dialog: why the card can't go on (empty: it isn't blocked)." })
+/** No agent has the card. */
+const NOBODY_YET = msg({ id: 'board.dialog.nobodyYet', defaultMessage: 'Nobody yet', description: "No agent has the card: the card dialog's agent choice, and a choice of the Move to Doing dialog." })
+/** Start the card (the Start and Move to Doing dialogs' button). */
+const START = msg({ id: 'board.dialog.startButton', defaultMessage: 'Start', description: 'Button of the Start dialog (and of Move to Doing with Assign and start): starts the card on the chosen agent.' })
+/** Save with no title. */
+const NEEDS_TITLE = msg({ id: 'board.dialog.needsTitle', defaultMessage: 'A card needs a title.', description: 'An error in the card dialog: Save with an empty title.' })
+/** The card dialog's fields by key, as a warning names them when someone else changed them too. */
+const FIELD_NAMES: Record<string, Msg> = {
+  title: msg({ id: 'board.field.title', defaultMessage: 'title', description: "A card's field, named in a list (\"Your title, labels replaced the change made meanwhile\"). Lower case." }),
+  description: msg({ id: 'board.field.description', defaultMessage: 'description', description: "A card's field, named in a list (\"Your title, description replaced the change made meanwhile\"). Lower case." }),
+  project: msg({ id: 'board.field.project', defaultMessage: 'project', description: "A card's field, named in a list (\"Your project replaced the change made meanwhile\"). Lower case." }),
+  agent: msg({ id: 'board.field.agent', defaultMessage: 'agent', description: "A card's field, named in a list (\"Your agent replaced the change made meanwhile\"). Lower case." }),
+  column: msg({ id: 'board.field.column', defaultMessage: 'column', description: "A card's field, named in a list (\"Your column replaced the change made meanwhile\"): the board column it is in. Lower case." }),
+  labels: msg({ id: 'board.field.labels', defaultMessage: 'labels', description: "A card's field, named in a list (\"Your labels replaced the change made meanwhile\"). Lower case." }),
+  blocked: msg({ id: 'board.field.blocked', defaultMessage: 'blocked', description: "A card's field, named in a list (\"Your blocked replaced the change made meanwhile\"): why it can't go on. Lower case." }),
+  blockedBy: msg({ id: 'board.field.blockedBy', defaultMessage: 'blockedBy', description: "A card's field, named in a list (\"Your blockedBy replaced the change made meanwhile\"): the cards it depends on. Lower case." }),
+  links: msg({ id: 'board.field.links', defaultMessage: 'links', description: "A card's field, named in a list (\"Your links replaced the change made meanwhile\"): its related cards. Lower case." })
+}
+/** The New card buttons' tooltip. */
+const NEW_CARD_TIP = msg({ id: 'board.newCard.tip', defaultMessage: 'New card', description: 'Tooltip on the + buttons that add a card (the Todo column, the Board sidebar).' })
+/** A card's move failed. */
+const MOVE_FAILED = msg({ id: 'board.error.move', defaultMessage: 'Could not move the card', description: "An error toast's title: moving a card to another column failed." })
+/** Where a card with no project belongs (on the card, and the archived cards' Project column). */
+const WORKSPACE_CARD = msg({ id: 'board.card.workspace', defaultMessage: 'workspace', description: "Where a card that belongs to no project is (it is about the whole workspace): shown in place of a project's name on the card. Lower case." })
+/** An agent whose session isn't running. */
+const NOT_RUNNING = msg({ id: 'board.agent.notRunning', defaultMessage: 'Not running', description: "A card's agent's state, on the card: its session isn't running." })
 
 /** What the card's agent is doing (Doing cards), or who has it. */
 function AgentLine({ c, projects, live }: { c: TaskCard; projects: ProjectInfo[]; live: boolean }) {
   if (!c.agent) return null
   const { project, agent } = cardAgent(projects, c)
-  const name = agent?.name ?? c.agentName ?? 'its agent'
-  if (!agent) return <span className="task-agent faint">{name} (removed)</span>
+  const name = agent?.name ?? c.agentName ?? tr(ITS_AGENT)
+  if (!agent) return <span className="task-agent faint">{tr(REMOVED_AGENT, { agent: name })}</span>
   const status = agent.live?.status ?? 'stopped'
-  const text = agent.live ? statusText(agent.live) : 'Not running'
+  const text = agent.live ? statusText(agent.live) : tr(NOT_RUNNING)
   return (
-    <Tooltip content={`${name}: ${text}. Click to show it.`}>
+    <Tooltip content={tr(msg({ id: 'board.agent.tip', defaultMessage: '{agent}: {status}. Click to show it.', description: "Tooltip on a card's agent line: the agent's name and what it is doing ({status}: \"Working…\", \"Not running\")." }), { agent: name, status: text })}>
       <span
         className={cx('task-agent', live && 'live')}
         onClick={(e) => {
@@ -197,7 +275,7 @@ function AgentLine({ c, projects, live }: { c: TaskCard; projects: ProjectInfo[]
       >
         {live && <span className={cx('dot', agent.live ? status : 'stopped')} />}
         <span className="task-agent-name">{name}</span>
-        {live && <span className="faint">{agent.live ? STATUS_TEXT[status] : 'Not running'}</span>}
+        {live && <span className="faint">{agent.live ? STATUS_TEXT[status] : tr(NOT_RUNNING)}</span>}
       </span>
     </Tooltip>
   )
@@ -209,9 +287,15 @@ function ReviewLine({ c, projects }: { c: TaskCard; projects: ProjectInfo[] }) {
   const project = c.project ? (projects.find((p) => p.name.toLowerCase() === c.project.toLowerCase()) ?? null) : null
   const reviewer = project?.agents.find((a) => a.id === c.review!.agent) ?? null
   const name = reviewer?.name ?? c.review.agentName
-  const stalled = reviewStalled(c, reviewer ? { name: reviewer.name, running: !!reviewer.live } : null)
+  const stalled = reviewStalled(c, reviewer ? { name: reviewer.name, running: !!reviewer.live } : null, tr)
+  const values = { agent: name, ago: timeAgo(c.review.since) }
+  const tip = !stalled
+    ? tr(msg({ id: 'board.review.tip', defaultMessage: '{agent} is reviewing it (since {ago}). Click to show it.', description: "Tooltip on a card's reviewer line: who is reviewing it, since when ({ago}: \"5 min ago\")." }), values)
+    : reviewer
+      ? tr(msg({ id: 'board.review.tipNotRunning', defaultMessage: "{agent} started reviewing it {ago}, and isn't running.", description: "Tooltip on a card's reviewer line, in amber: the reviewer ({agent}) started {ago} (\"5 min ago\") but its session isn't running now." }), values)
+      : tr(msg({ id: 'board.review.tipRemoved', defaultMessage: '{agent} started reviewing it {ago}, and was removed.', description: "Tooltip on a card's reviewer line, in amber: the reviewer ({agent}) started {ago} (\"5 min ago\") and was removed from the project since." }), values)
   return (
-    <Tooltip content={stalled ? `${name} started reviewing it ${timeAgo(c.review.since)}, and ${stalled.charAt(0).toLowerCase()}${stalled.slice(1)}` : `${name} is reviewing it (since ${timeAgo(c.review.since)}). Click to show it.`}>
+    <Tooltip content={tip}>
       <div
         className={cx('task-review', stalled && 'stalled')}
         onClick={(e) => {
@@ -223,8 +307,11 @@ function ReviewLine({ c, projects }: { c: TaskCard; projects: ProjectInfo[] }) {
       >
         <Icon name="eye" />
         <span className="task-note-text">
-          Reviewing: {name}
-          {stalled ? ` (${reviewer ? 'not running' : 'removed'})` : ` · ${timeAgo(c.review.since)}`}
+          {!stalled
+            ? tr(msg({ id: 'board.review.line', defaultMessage: 'Reviewing: {agent} · {ago}', description: "A card's reviewer line on the board: who is reviewing it and since when ({ago}: \"5 min ago\")." }), values)
+            : reviewer
+              ? tr(msg({ id: 'board.review.lineNotRunning', defaultMessage: 'Reviewing: {agent} (not running)', description: "A card's reviewer line on the board, in amber: its reviewer's session isn't running." }), values)
+              : tr(msg({ id: 'board.review.lineRemoved', defaultMessage: 'Reviewing: {agent} (removed)', description: "A card's reviewer line on the board, in amber: its reviewer was removed from the project." }), values)}
         </span>
       </div>
     </Tooltip>
@@ -249,9 +336,9 @@ function Chevrons({ dir }: { dir: 'left' | 'right' }) {
 function FoldedAgent({ c, projects }: { c: TaskCard; projects: ProjectInfo[] }) {
   if (!c.agent) return null
   const { agent } = cardAgent(projects, c)
-  const name = agent?.name ?? c.agentName ?? 'its agent'
+  const name = agent?.name ?? c.agentName ?? tr(ITS_AGENT)
   const live = c.column === 'doing'
-  const text = !agent ? `${name} (removed)` : `${name}: ${agent.live ? statusText(agent.live) : 'Not running'}`
+  const text = !agent ? tr(REMOVED_AGENT, { agent: name }) : tr(msg({ id: 'board.agent.folded', defaultMessage: '{agent}: {status}', description: "Tooltip on a folded card's agent dot: the agent's name and what it is doing ({status}: \"Working…\", \"Not running\")." }), { agent: name, status: agent.live ? statusText(agent.live) : tr(NOT_RUNNING) })
   return (
     <Tooltip content={text}>
       <span className="task-folded-agent" aria-label={text}>
@@ -283,8 +370,20 @@ function CardTile({
   const finished = c.column === 'doing' && agent?.live?.status === 'finished'
   // Read again each minute: a card waiting in Review becomes stalled with time (#521).
   useNow(60_000)
-  const stalled = cardStalled(projects, c)
-  const fold = <IconButton icon={folded ? 'chevron-right' : 'chevron-down'} title={folded ? `Expand #${c.number}` : `Collapse #${c.number} to one line`} className="task-fold" expanded={!folded} onClick={() => foldCards([c.number], !folded)} />
+  const stall = cardStall(projects, c)
+  const stalled = stall?.text ?? null
+  const fold = (
+    <IconButton
+      icon={folded ? 'chevron-right' : 'chevron-down'}
+      title={folded ? tr(msg({ id: 'board.card.expand', defaultMessage: 'Expand #{card}', description: 'Tooltip on the chevron of a card folded to one line: shows it in full. {card} is its number (after #).' }), { card: c.number }) : tr(msg({ id: 'board.card.collapse', defaultMessage: 'Collapse #{card} to one line', description: 'Tooltip on the chevron of a card: folds it to one line. {card} is its number (after #).' }), { card: c.number })}
+      className="task-fold"
+      expanded={!folded}
+      onClick={() => foldCards([c.number], !folded)}
+    />
+  )
+  const blockedTip = c.blocked ? tr(msg({ id: 'board.card.blockedTip', defaultMessage: 'Blocked: {reason}', description: "Tooltip on a blocked card: why it can't go on ({reason}, in the user's or an agent's own words)." }), { reason: c.blocked }) : ''
+  const blockedLabel = tr(msg({ id: 'board.card.blocked', defaultMessage: 'Blocked', description: "Accessible name of a folded card's blocked mark (a card that can't go on)." }))
+  const stalledText = stalled ? tr(msg({ id: 'board.card.stalled', defaultMessage: 'Stalled: {why}', description: 'On a stalled card (and its tooltip when folded): nobody is getting on with it, and why ({why}, a sentence).' }), { why: stalled }) : ''
   const props = {
     className: cx('task-card', folded && 'folded', c.blocked && 'blocked', finished && 'finished', stalled && !c.blocked && 'stalled'),
     draggable: !c.archived,
@@ -305,15 +404,15 @@ function CardTile({
               <span className="task-title">{c.title}</span>
             </Tooltip>
             {c.blocked && (
-              <Tooltip content={`Blocked: ${c.blocked}`}>
-                <span className="task-flag blocked" aria-label="Blocked">
+              <Tooltip content={blockedTip}>
+                <span className="task-flag blocked" aria-label={blockedLabel}>
                   <Icon name="circle-slash" />
                 </span>
               </Tooltip>
             )}
             {stalled && (
-              <Tooltip content={`Stalled: ${stalled}`}>
-                <span className="task-flag stalled" aria-label="Stalled">
+              <Tooltip content={stalledText}>
+                <span className="task-flag stalled" aria-label={tr(msg({ id: 'board.card.stalledMark', defaultMessage: 'Stalled', description: "Accessible name of a folded card's stalled mark (nobody is getting on with it)." }))}>
                   <Icon name="debug-pause" />
                 </span>
               </Tooltip>
@@ -333,23 +432,23 @@ function CardTile({
           {fold}
           <span className="task-number">#{c.number}</span>
           {showProject && c.project && <span className="task-project">{c.project}</span>}
-          {!c.project && <span className="task-project faint">workspace</span>}
+          {!c.project && <span className="task-project faint">{tr(WORKSPACE_CARD)}</span>}
         </div>
         <div className="task-title">{c.title}</div>
         {/* Long reasons (hashes, paths) wrap anywhere, at most three lines on the card; the whole on hover (#372). */}
         {c.blocked && (
-          <Tooltip block content={`Blocked: ${c.blocked}`}>
+          <Tooltip block content={blockedTip}>
             <div className="task-blocked">
               <Icon name="circle-slash" />
               <span className="task-note-text">{c.blocked}</span>
             </div>
           </Tooltip>
         )}
-        {stalled && (
-          <Tooltip block content={/ isn't watching #\d+:/.test(stalled) ? 'Nothing will wake that agent when this card changes. Show it and ask it to carry on its card loop.' : /\bstate unknown\b/.test(stalled) ? "Its reviewer may have finished its turn without Hive seeing it end. Show the reviewer: if its terminal waits at its prompt, Mark idle, and the watch wakes it." : / hasn't started reviewing it\b/.test(stalled) ? "Its reviewer's watch didn't wake it. Show the reviewer and ask it to review the card." : 'Nobody is working on it. Start it again (on this agent or another), or move it back to Todo.'}>
+        {stall && (
+          <Tooltip block content={stallHint(stall.kind)}>
             <div className="task-stalled">
               <Icon name="debug-pause" />
-              <span className="task-note-text">Stalled: {stalled}</span>
+              <span className="task-note-text">{stalledText}</span>
             </div>
           </Tooltip>
         )}
@@ -362,7 +461,7 @@ function CardTile({
               </span>
             ))}
             {c.blockedBy.length > 0 && (
-              <Tooltip content={`Depends on ${c.blockedBy.map((n) => `#${n}`).join(', ')}`}>
+              <Tooltip content={tr(msg({ id: 'board.card.dependsOn', defaultMessage: 'Depends on {cards}', description: 'Tooltip on a card\'s dependencies: the cards to finish first ({cards}: "#3, #5").' }), { cards: fmt.list(c.blockedBy.map((n) => `#${n}`), 'unit') })}>
                 <span className="faint">
                   <Icon name="link" /> {c.blockedBy.map((n) => `#${n}`).join(' ')}
                 </span>
@@ -374,8 +473,8 @@ function CardTile({
               </span>
             )}
             {!!c.decisions?.length && (
-              <Tooltip content={`Decisions: ${c.decisions.length}. ${c.decisions.map((d) => (d.text.length > 80 ? `${d.text.slice(0, 79)}…` : d.text)).join(' · ')}`}>
-                <span className="faint task-decision-count" aria-label={`Decisions: ${c.decisions.length}`}>
+              <Tooltip content={tr(msg({ id: 'board.card.decisionsTip', defaultMessage: 'Decisions: {n}. {decisions}', description: "Tooltip on a card's decision count: how many decisions the user recorded ({n}), then each one, cut short ({decisions}, the user's own words, separated by ·)." }), { n: c.decisions.length, decisions: c.decisions.map((d) => (d.text.length > 80 ? `${d.text.slice(0, 79)}…` : d.text)).join(' · ') })}>
+                <span className="faint task-decision-count" aria-label={tr(msg({ id: 'board.card.decisionsCount', defaultMessage: 'Decisions: {n}', description: "Accessible name of a card's decision count: how many decisions the user recorded about it." }), { n: c.decisions.length })}>
                   <Icon name="law" /> {c.decisions.length}
                 </span>
               </Tooltip>
@@ -398,6 +497,7 @@ type DragState = { n: number; column: TaskColumn; before: number | null }
  * board this is part of (a project's Tasks tab: its project), for Archive All's "the n shown (of m)" (#351).
  */
 export function Board({ project, scope = null, query, archived }: { project: string | null; scope?: string | null; query: string; archived: boolean }) {
+  useLanguage()
   const all = useStore((s) => s.tasks)
   const projects = useStore((s) => s.workspace?.projects ?? NO_PROJECTS)
   const colored = useStore((s) => s.settings?.board.columnColors ?? true)
@@ -532,15 +632,16 @@ export function Board({ project, scope = null, query, archived }: { project: str
     if (column === 'doing' && card.column !== 'doing') return moveToDoing({ n: card.number, project: card.project, agent: card.agent, before: d.before })
     // Shown moved at once; the board is read again when the change lands.
     set((s) => ({ tasks: s.tasks.map((c) => (c.number === d.n ? { ...c, column } : c)) }))
-    await change(d.n, { column, before: d.before }, 'Could not move the card')
+    await change(d.n, { column, before: d.before }, tr(MOVE_FAILED))
   }
 
   const folded = new Set(fold.cards ?? [])
+  const collapseLabel = (name: string): string => tr(msg({ id: 'board.columns.collapse', defaultMessage: 'Collapse {column}', description: "Tooltip, accessible name and menu item: folds a board column ({column}, its name) sideways into a narrow strip." }), { column: name })
   const columnMenu = (col: (typeof TASK_COLUMNS)[number], list: TaskCard[]): MenuEntry[] => [
-    { label: 'Collapse All Cards', icon: 'collapse-all', disabled: !list.some((c) => !folded.has(c.number)), onClick: () => foldCards(list.map((c) => c.number), true) },
-    { label: 'Expand All Cards', icon: 'expand-all', disabled: !list.some((c) => folded.has(c.number)), onClick: () => foldCards(list.map((c) => c.number), false) },
+    { label: tr(msg({ id: 'board.columns.collapseCards', defaultMessage: 'Collapse All Cards', description: "Menu item in a board column's menu: folds each of its cards to one line." })), icon: 'collapse-all', disabled: !list.some((c) => !folded.has(c.number)), onClick: () => foldCards(list.map((c) => c.number), true) },
+    { label: tr(msg({ id: 'board.columns.expandCards', defaultMessage: 'Expand All Cards', description: "Menu item in a board column's menu: shows each of its folded cards in full." })), icon: 'expand-all', disabled: !list.some((c) => folded.has(c.number)), onClick: () => foldCards(list.map((c) => c.number), false) },
     { separator: true },
-    { label: `Collapse ${col.label}`, icon: 'chevron-left', onClick: () => collapseColumn(col.id, true) },
+    { label: collapseLabel(tr(COLUMN_TEXT[col.id].label)), icon: 'chevron-left', onClick: () => collapseColumn(col.id, true) },
     { separator: true },
     archiveAllItem(all, { column: col.id, project, scope, query })
   ]
@@ -549,6 +650,8 @@ export function Board({ project, scope = null, query, archived }: { project: str
     <div ref={boardRef} className={cx('board', colored && 'colored')} onDragEnd={() => setDrag(null)}>
       {TASK_COLUMNS.map((col) => {
         const list = cards.filter((c) => c.column === col.id)
+        const name = tr(COLUMN_TEXT[col.id].label)
+        const description = tr(COLUMN_TEXT[col.id].description)
         const columnProps = {
           'data-column': col.id,
           style: colored ? ({ '--col': columnColor(colors, col.id) } as React.CSSProperties) : undefined,
@@ -566,11 +669,11 @@ export function Board({ project, scope = null, query, archived }: { project: str
         if (fold.columns?.includes(col.id)) {
           return (
             <div key={col.id} className={cx('board-column', 'collapsed', drag?.column === col.id && 'drag-over')} {...columnProps}>
-              <Tooltip content={`Expand ${col.label}: ${col.description}`}>
-                <button className="board-column-strip" aria-label={`Expand ${col.label}`} aria-expanded={false} onClick={() => collapseColumn(col.id, false)} onContextMenu={(e) => headerMenu.open(e, columnMenu(col, list).slice(0, 2))}>
+              <Tooltip content={tr(msg({ id: 'board.columns.expandTip', defaultMessage: 'Expand {column}: {description}', description: "Tooltip on a collapsed board column's strip: expands it. {column} is its name, {description} what the column is for." }), { column: name, description })}>
+                <button className="board-column-strip" aria-label={tr(msg({ id: 'board.columns.expand', defaultMessage: 'Expand {column}', description: "Accessible name of a collapsed board column's strip: expands the column ({column}, its name)." }), { column: name })} aria-expanded={false} onClick={() => collapseColumn(col.id, false)} onContextMenu={(e) => headerMenu.open(e, columnMenu(col, list).slice(0, 2))}>
                   <Chevrons dir="right" />
                   <span className="count">{list.length}</span>
-                  <span className="board-column-label">{col.label}</span>
+                  <span className="board-column-label">{name}</span>
                 </button>
               </Tooltip>
             </div>
@@ -579,20 +682,20 @@ export function Board({ project, scope = null, query, archived }: { project: str
         return (
           <div key={col.id} className={cx('board-column', drag?.column === col.id && 'drag-over')} {...columnProps}>
             <div className="board-column-header" onContextMenu={(e) => headerMenu.open(e, columnMenu(col, list))}>
-              <Tooltip content={`Collapse ${col.label}`}>
-                <button className="icon-btn board-fold" aria-label={`Collapse ${col.label}`} aria-expanded onClick={() => collapseColumn(col.id, true)}>
+              <Tooltip content={collapseLabel(name)}>
+                <button className="icon-btn board-fold" aria-label={collapseLabel(name)} aria-expanded onClick={() => collapseColumn(col.id, true)}>
                   <Chevrons dir="left" />
                 </button>
               </Tooltip>
-              <Tooltip content={col.description}>
-                <span className="board-column-label">{col.label}</span>
+              <Tooltip content={description}>
+                <span className="board-column-label">{name}</span>
               </Tooltip>
               <span className="count">{list.length}</span>
               <span className="grow" />
-              {col.id === 'todo' && <IconButton icon="add" title="New card" onClick={() => set({ taskOpen: { project: project ?? '' } })} />}
+              {col.id === 'todo' && <IconButton icon="add" title={tr(NEW_CARD_TIP)} onClick={() => set({ taskOpen: { project: project ?? '' } })} />}
               <IconButton
                 icon="ellipsis"
-                title={`${col.label}: more`}
+                title={tr(msg({ id: 'board.columns.more', defaultMessage: '{column}: more', description: "Tooltip on a board column's ⋯ button: opens its menu. {column} is its name." }), { column: name })}
                 onClick={(e) => {
                   const b = (e.currentTarget as HTMLElement).getBoundingClientRect()
                   headerMenu.openAt(b.left, b.bottom, columnMenu(col, list))
@@ -616,7 +719,7 @@ export function Board({ project, scope = null, query, archived }: { project: str
                 />
               ))}
               {drag?.column === col.id && drag.before === null && <div className="task-drop" />}
-              {list.length === 0 && !drag && <div className="board-empty faint">{col.id === 'todo' ? 'No cards. + adds one.' : 'Nothing here.'}</div>}
+              {list.length === 0 && !drag && <div className="board-empty faint">{col.id === 'todo' ? tr(msg({ id: 'board.columns.emptyTodo', defaultMessage: 'No cards. + adds one.', description: 'In the empty Todo column of the board. + is the button in its header that adds a card.' })) : tr(msg({ id: 'board.columns.empty', defaultMessage: 'Nothing here.', description: 'In an empty board column.' }))}</div>}
             </div>
           </div>
         )
@@ -629,13 +732,14 @@ export function Board({ project, scope = null, query, archived }: { project: str
 /** An archived card's agent, as it was named when it last had one. */
 const lastAgent = (c: TaskCard): string => (c.agent ? (c.agentName ?? c.agent) : '')
 
-const ARCHIVED_COLUMNS: DataColumn<TaskCard>[] = [
+/** The archived cards' table columns, in the window's language (made again when it changes). */
+const archivedColumns = (): DataColumn<TaskCard>[] => [
   { key: 'number', header: '#', num: true, descFirst: true, cell: (c) => <span className="task-number">#{c.number}</span>, sortValue: (c) => c.number, filter: { kind: 'text', value: (c) => `#${c.number}` } },
-  { key: 'title', header: 'Title', cell: (c) => <span className="archive-title">{c.title}</span>, sortValue: (c) => c.title, filter: { kind: 'text', value: (c) => c.title } },
-  { key: 'project', header: 'Project', cell: (c) => (c.project ? <span className="task-project">{c.project}</span> : <span className="faint">workspace</span>), sortValue: (c) => c.project || null, filter: { kind: 'choice', value: (c) => c.project || 'workspace' } },
+  { key: 'title', header: tr(msg({ id: 'board.archived.title', defaultMessage: 'Title', description: "A column header of the archived cards' table: the card's title." })), cell: (c) => <span className="archive-title">{c.title}</span>, sortValue: (c) => c.title, filter: { kind: 'text', value: (c) => c.title } },
+  { key: 'project', header: tr(msg({ id: 'board.archived.project', defaultMessage: 'Project', description: "A column header of the archived cards' table: the card's project." })), cell: (c) => (c.project ? <span className="task-project">{c.project}</span> : <span className="faint">{tr(WORKSPACE_CARD)}</span>), sortValue: (c) => c.project || null, filter: { kind: 'choice', value: (c) => c.project || tr(WORKSPACE_CARD) } },
   {
     key: 'labels',
-    header: 'Labels',
+    header: tr(msg({ id: 'board.archived.labels', defaultMessage: 'Labels', description: "A column header of the archived cards' table: the card's labels." })),
     cell: (c) => (
       <span className="archive-labels">
         {c.labels.map((l) => (
@@ -648,15 +752,15 @@ const ARCHIVED_COLUMNS: DataColumn<TaskCard>[] = [
     sortValue: (c) => c.labels.join(', ') || null,
     filter: { kind: 'choice', value: (c) => c.labels.join(', '), values: (c) => c.labels }
   },
-  { key: 'agent', header: 'Agent', cell: (c) => lastAgent(c) || <span className="faint">–</span>, sortValue: (c) => lastAgent(c) || null, filter: { kind: 'text', value: lastAgent } },
-  { key: 'column', header: 'From', cell: (c) => columnLabel(c.column), sortValue: (c) => TASK_COLUMNS.findIndex((x) => x.id === c.column), filter: { kind: 'choice', value: (c) => c.column }, choiceLabel: (v) => columnLabel(v as TaskColumn) },
-  { key: 'archived', header: 'Archived', descFirst: true, cell: (c) => formatDateTime(archivedAt(c)), sortValue: (c) => archivedAt(c) },
-  { key: 'created', header: 'Created', descFirst: true, cell: (c) => formatDateTime(c.createdAt), sortValue: (c) => c.createdAt },
+  { key: 'agent', header: tr(msg({ id: 'board.archived.agent', defaultMessage: 'Agent', description: "A column header of the archived cards' table: the agent the card last had." })), cell: (c) => lastAgent(c) || <span className="faint">–</span>, sortValue: (c) => lastAgent(c) || null, filter: { kind: 'text', value: lastAgent } },
+  { key: 'column', header: tr(msg({ id: 'board.archived.from', defaultMessage: 'From', description: "A column header of the archived cards' table: the board column the card was archived from." })), cell: (c) => columnName(c.column, tr), sortValue: (c) => TASK_COLUMNS.findIndex((x) => x.id === c.column), filter: { kind: 'choice', value: (c) => c.column }, choiceLabel: (v) => columnName(v as TaskColumn, tr) },
+  { key: 'archived', header: tr(msg({ id: 'board.archived.archived', defaultMessage: 'Archived', description: "A column header of the archived cards' table: when the card was archived (a date and time)." })), descFirst: true, cell: (c) => formatDateTime(archivedAt(c)), sortValue: (c) => archivedAt(c) },
+  { key: 'created', header: tr(msg({ id: 'board.archived.created', defaultMessage: 'Created', description: "A column header of the archived cards' table: when the card was created (a date and time)." })), descFirst: true, cell: (c) => formatDateTime(c.createdAt), sortValue: (c) => c.createdAt },
   {
     key: 'actions',
     header: '',
     cell: (c) => (
-      <Tooltip content={`Bring #${c.number} back to the end of ${columnLabel(c.column)}`}>
+      <Tooltip content={tr(msg({ id: 'board.archived.unarchiveTip', defaultMessage: 'Bring #{card} back to the end of {column}', description: "Tooltip on an archived card's Unarchive button. {card} is its number (after #), {column} the board column it was archived from." }), { card: c.number, column: columnName(c.column, tr) })}>
         <button
           className="btn small subtle"
           onClick={(e) => {
@@ -664,14 +768,12 @@ const ARCHIVED_COLUMNS: DataColumn<TaskCard>[] = [
             void archive(c, false)
           }}
         >
-          Unarchive
+          {tr(msg({ id: 'board.archived.unarchive', defaultMessage: 'Unarchive', description: 'Button on an archived card in the archived cards\' table: brings it back to the board.' }))}
         </button>
       </Tooltip>
     )
   }
 ]
-/** In one project's view, its cards only: no project column. */
-const ARCHIVED_COLUMNS_ONE_PROJECT = ARCHIVED_COLUMNS.filter((c) => c.key !== 'project')
 
 /**
  * The archived cards (#249): a table that sorts, filters and pages (DataTable), newest archived first. A row opens its
@@ -681,6 +783,7 @@ const ARCHIVED_COLUMNS_ONE_PROJECT = ARCHIVED_COLUMNS.filter((c) => c.key !== 'p
  */
 function ArchivedTable({ cards: archivedCards, project, query }: { cards: TaskCard[]; project: string | null; query: string }) {
   useDateStyle()
+  const language = useLanguage()
   const all = useStore((s) => s.tasks)
   const [selected, setSelected] = useState<Set<string>>(() => new Set())
   const [bringing, setBringing] = useState(false)
@@ -718,7 +821,9 @@ function ArchivedTable({ cards: archivedCards, project, query }: { cards: TaskCa
   // Only cards still archived (and shown) stay selected.
   const shown = useMemo(() => new Set(cards.map((c) => String(c.number))), [cards])
   const picked = [...selected].filter((k) => shown.has(k))
-  const columns = project === null ? ARCHIVED_COLUMNS : ARCHIVED_COLUMNS_ONE_PROJECT
+  // In one project's view, its cards only: no project column.
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  const columns = useMemo(() => archivedColumns().filter((c) => project === null || c.key !== 'project'), [project === null, language])
   const unarchiveSelected = async (): Promise<void> => {
     setBringing(true)
     try {
@@ -731,34 +836,36 @@ function ArchivedTable({ cards: archivedCards, project, query }: { cards: TaskCa
       setBringing(false)
     }
   }
-  if (!archivedCards.length) return <div className="empty-state">No archived cards{query ? ' match' : ''}.</div>
+  if (!archivedCards.length) return <div className="empty-state">{query ? tr(msg({ id: 'board.archived.noneMatch', defaultMessage: 'No archived cards match.', description: "The archived cards' view when none match the board's search." })) : tr(NO_ARCHIVED)}</div>
+  const batchLabel = tr(msg({ id: 'board.archived.batch', defaultMessage: 'Batch', description: "Label of the archived cards' batch picker: which bulk archive (Archive All) to show." }))
   return (
     <div className="task-archive">
       <div className="task-archive-actions">
         <span className="faint">
-          {cards.length} archived card{cards.length === 1 ? '' : 's'}
-          {picked.length ? ` · ${picked.length} selected` : ''}
+          {picked.length
+            ? tr(msg({ id: 'board.archived.countSelected', defaultMessage: '{n, plural, one {# archived card} other {# archived cards}} · {selected} selected', description: "Above the archived cards' table: how many archived cards it shows ({n}) and how many of them are selected ({selected})." }), { n: cards.length, selected: picked.length })
+            : tr(msg({ id: 'board.archived.count', defaultMessage: '{n, plural, one {# archived card} other {# archived cards}}', description: "Above the archived cards' table: how many archived cards it shows." }), { n: cards.length })}
         </span>
         <button className="btn small" disabled={!picked.length || bringing} onClick={() => void unarchiveSelected()}>
-          <Icon name="discard" /> Unarchive Selected{picked.length ? ` (${picked.length})` : ''}
+          <Icon name="discard" /> {picked.length ? tr(msg({ id: 'board.archived.unarchiveSelectedN', defaultMessage: 'Unarchive Selected ({n})', description: "Button above the archived cards' table: brings the {n} selected cards back to the board." }), { n: picked.length }) : tr(msg({ id: 'board.archived.unarchiveSelected', defaultMessage: 'Unarchive Selected', description: "Button above the archived cards' table (off while none is selected): brings the selected cards back to the board." }))}
         </button>
         {kept.length > 0 && (
           <label className="archive-batch faint">
-            Batch
-            <select className="select" aria-label="Batch" value={chosen ? chosen.b.id : ''} onChange={(e) => setBatch(e.target.value)}>
-              <option value="">All archived cards</option>
+            {batchLabel}
+            <select className="select" aria-label={batchLabel} value={chosen ? chosen.b.id : ''} onChange={(e) => setBatch(e.target.value)}>
+              <option value="">{tr(msg({ id: 'board.archived.allBatches', defaultMessage: 'All archived cards', description: "The archived cards' batch picker's first choice: every archived card, whatever archived it." }))}</option>
               {kept.map(({ b, n }) => (
                 <option key={b.id} value={b.id}>
-                  {formatDateTime(b.at)} · {b.label} · {cardsWord(n)}
+                  {formatDateTime(b.at)} · {archiveBatchText(b.label, tr)} · {cardsWord(n)}
                 </option>
               ))}
             </select>
           </label>
         )}
         {chosen && (
-          <Tooltip content={`Bring the ${cardsWord(chosen.n)} archived in this batch back to their columns, where they were`}>
+          <Tooltip content={tr(msg({ id: 'board.archived.unarchiveBatchTip', defaultMessage: '{n, plural, one {Bring the # card archived in this batch back to its column, where it was} other {Bring the # cards archived in this batch back to their columns, where they were}}', description: "Tooltip on Unarchive this batch: brings the {n} cards of one bulk archive back where they were on the board." }), { n: chosen.n })}>
             <button className="btn small" disabled={bringing} onClick={() => void bringBatch(chosen.b.id)}>
-              <Icon name="discard" /> Unarchive this batch ({chosen.n})
+              <Icon name="discard" /> {tr(msg({ id: 'board.archived.unarchiveBatch', defaultMessage: 'Unarchive this batch ({n})', description: "Button above the archived cards' table: brings the {n} cards of the chosen bulk archive back where they were." }), { n: chosen.n })}
             </button>
           </Tooltip>
         )}
@@ -771,10 +878,10 @@ function ArchivedTable({ cards: archivedCards, project, query }: { cards: TaskCa
         rowKey={(c) => String(c.number)}
         defaultSort={{ key: 'archived', desc: true }}
         defaultPageSize={20}
-        empty="No archived cards."
+        empty={tr(NO_ARCHIVED)}
         onRowClick={(c) => set({ taskOpen: c.number })}
-        rowLabel={(c) => `Open #${c.number} ${c.title}`}
-        selection={{ selected, onChange: setSelected, label: (c) => `Select #${c.number}` }}
+        rowLabel={(c) => tr(msg({ id: 'board.archived.openRow', defaultMessage: 'Open #{card} {title}', description: "Accessible name of a row of the archived cards' table: opens the card. {card} is its number (after #), {title} its title." }), { card: c.number, title: c.title })}
+        selection={{ selected, onChange: setSelected, label: (c) => tr(msg({ id: 'board.archived.selectRow', defaultMessage: 'Select #{card}', description: "Accessible name of a row's checkbox in the archived cards' table. {card} is the card's number (after #)." }), { card: c.number }) }}
       />
     </div>
   )
@@ -796,25 +903,26 @@ export function BoardToolbar({
   archived: boolean
   setArchived: (v: boolean) => void
 }) {
+  useLanguage()
   const count = useStore((s) => (s.tasks ?? NO_TASKS).filter((c) => c.archived && (project === null || c.project.toLowerCase() === project.toLowerCase())).length)
   const menu = useContextMenu()
   return (
     <div className="board-toolbar">
       <div className="board-search">
         <Icon name="search" />
-        <SearchInput placeholder="Search cards (#12, words, labels)" value={query} onChange={setQuery} />
+        <SearchInput placeholder={tr(msg({ id: 'board.toolbar.search', defaultMessage: 'Search cards (#12, words, labels)', description: "Placeholder of the board's search box: finds cards by number (#12), words or labels." }))} value={query} onChange={setQuery} />
       </div>
       <label className="flex muted" style={{ cursor: 'pointer' }}>
-        <input type="checkbox" className="checkbox" checked={archived} onChange={(e) => setArchived(e.target.checked)} /> Archived ({count})
+        <input type="checkbox" className="checkbox" checked={archived} onChange={(e) => setArchived(e.target.checked)} /> {tr(msg({ id: 'board.toolbar.archived', defaultMessage: 'Archived ({n})', description: "A checkbox in the board's toolbar: shows the archived cards instead (how many there are: {n})." }), { n: count })}
       </label>
       <div className="grow" />
       <button className="btn primary" onClick={() => set({ taskOpen: { project: project ?? '' } })}>
-        <Icon name="add" /> New Card
+        <Icon name="add" /> {tr(NEW_CARD)}
       </button>
       {!archived && (
         <IconButton
           icon="ellipsis"
-          title="Board: more"
+          title={tr(msg({ id: 'board.toolbar.more', defaultMessage: 'Board: more', description: "Tooltip on the board toolbar's ⋯ button: opens the board's menu (Archive All Cards…)." }))}
           className="board-more"
           onClick={(e) => {
             const b = (e.currentTarget as HTMLElement).getBoundingClientRect()
@@ -832,6 +940,7 @@ export function BoardToolbar({
  * Overview (its cards only; each number opens its Tasks tab).
  */
 export function TaskStrip({ project }: { project: ProjectInfo | null }) {
+  useLanguage()
   const tasks = useStore((s) => s.tasks)
   const projects = useStore((s) => s.workspace?.projects ?? NO_PROJECTS)
   // Counted again each minute: a card waiting in Review becomes stalled with time (#521).
@@ -848,28 +957,28 @@ export function TaskStrip({ project }: { project: ProjectInfo | null }) {
     return (
       <div className="board-strip" data-project={project.name}>
         <Icon name="project" />
-        <span>No cards for this project.</span>
+        <span>{tr(msg({ id: 'board.overview.noCards', defaultMessage: 'No cards for this project.', description: "A project's Overview, where its cards are counted, when it has none." }))}</span>
         <button className="board-strip-item" onClick={open}>
-          Open Tasks
+          {tr(msg({ id: 'board.overview.openTasks', defaultMessage: 'Open Tasks', description: "Button on a project's Overview with no cards: opens its Tasks tab." }))}
         </button>
       </div>
     )
   }
-  const items: { label: string; n: number; tone?: string }[] = [
-    { label: 'On Hold', n: o.hold },
-    { label: 'Todo', n: o.todo },
-    { label: 'Doing', n: o.doing },
-    { label: 'Waiting for review', n: o.review, tone: 'accent' },
-    { label: 'Passed', n: o.passed },
-    { label: 'Done', n: o.done },
-    { label: 'Stalled', n: o.stalled, tone: 'warning' },
-    { label: 'Blocked', n: o.blocked, tone: 'error' }
+  const items: { key: string; label: string; n: number; tone?: string }[] = [
+    { key: 'hold', label: tr(COLUMN_TEXT.hold.label), n: o.hold },
+    { key: 'todo', label: tr(COLUMN_TEXT.todo.label), n: o.todo },
+    { key: 'doing', label: tr(COLUMN_TEXT.doing.label), n: o.doing },
+    { key: 'review', label: tr(WAITING_FOR_REVIEW), n: o.review, tone: 'accent' },
+    { key: 'passed', label: tr(COLUMN_TEXT.passed.label), n: o.passed },
+    { key: 'done', label: tr(COLUMN_TEXT.done.label), n: o.done },
+    { key: 'stalled', label: tr(STALLED), n: o.stalled, tone: 'warning' },
+    { key: 'blocked', label: tr(msg({ id: 'board.overview.blocked', defaultMessage: 'Blocked', description: "A count on the Overview's board strip: cards that are blocked (can't go on). Follows the number." })), n: o.blocked, tone: 'error' }
   ]
   return (
     <div className="board-strip" data-project={project?.name}>
       <Icon name="project" />
       {items.map((x) => (
-        <button key={x.label} className={cx('board-strip-item', x.n > 0 && x.tone)} onClick={open}>
+        <button key={x.key} data-count={x.key} className={cx('board-strip-item', x.n > 0 && x.tone)} onClick={open}>
           <span className="n">{x.n}</span> {x.label}
         </button>
       ))}
@@ -877,7 +986,7 @@ export function TaskStrip({ project }: { project: ProjectInfo | null }) {
   )
 }
 
-const cardsWord = (n: number): string => `${n} card${n === 1 ? '' : 's'}`
+const cardsWord = (n: number): string => tr(msg({ id: 'board.cards.count', defaultMessage: '{n, plural, one {# card} other {# cards}}', description: 'A number of cards ("3 cards"), in Archive All and the archived cards\' batch picker.' }), { n })
 
 /**
  * Archive All in a column, or Archive All Cards (#351): what it takes (the cards the board shows, every one when nothing
@@ -885,6 +994,7 @@ const cardsWord = (n: number): string => `${n} card${n === 1 ? '' : 's'}`
  * one batch; the toast's Undo (and "Unarchive this batch" in Archived) brings it back where it was.
  */
 export function ArchiveAllDialog() {
+  useLanguage()
   const req = useStore((s) => s.boardArchiveAll)
   const all = useStore((s) => s.tasks)
   const projects = useStore((s) => s.workspace?.projects ?? NO_PROJECTS)
@@ -905,16 +1015,25 @@ export function ArchiveAllDialog() {
   })
   const going = include ? shown : shown.filter((c) => !held.some((h) => h.c === c))
   const filtered = shown.length < total
-  const where = req.column === null ? null : columnLabel(req.column)
-  const title = where ? (filtered ? `Archive the ${shown.length} Shown in ${where}?` : `Archive All in ${where}?`) : filtered ? `Archive the ${shown.length} Shown Cards?` : 'Archive All Cards?'
-  const message = !going.length
-    ? `Every card here is one an agent is on. Tick the box below to archive ${shown.length === 1 ? 'it' : 'them'} anyway.`
-    : `Archive ${filtered ? `the ${cardsWord(going.length)} shown` : cardsWord(going.length)}${where ? ` in ${where}` : ''}${filtered ? ` (of ${total})` : ''}? You can unarchive them from Archived.`
+  const where = req.column === null ? null : columnName(req.column, tr)
+  const n = going.length
+  let title: string
+  if (where && filtered) title = tr(msg({ id: 'board.archiveAll.titleShownIn', defaultMessage: 'Archive the {n} Shown in {column}?', description: "Title of the Archive All dialog for a column whose cards a search narrows: the {n} cards shown in the column ({column}, its name)." }), { n: shown.length, column: where })
+  else if (where) title = tr(msg({ id: 'board.archiveAll.titleColumn', defaultMessage: 'Archive All in {column}?', description: "Title of the Archive All dialog for a board column ({column}, its name)." }), { column: where })
+  else if (filtered) title = tr(msg({ id: 'board.archiveAll.titleShown', defaultMessage: '{n, plural, one {Archive the # Shown Card?} other {Archive the # Shown Cards?}}', description: 'Title of the Archive All dialog for the whole board when a search narrows its cards: the {n} cards shown.' }), { n: shown.length })
+  else title = tr(msg({ id: 'board.archiveAll.titleAll', defaultMessage: 'Archive All Cards?', description: 'Title of the Archive All dialog for the whole board.' }))
+  let message: string
+  if (!n) message = tr(msg({ id: 'board.archiveAll.allBusy', defaultMessage: '{n, plural, one {Every card here is one an agent is on. Tick the box below to archive it anyway.} other {Every card here is one an agent is on. Tick the box below to archive them anyway.}}', description: 'In the Archive All dialog when an agent is on every card it would archive ({n} cards). The box is "Also archive cards agents are working on".' }), { n: shown.length })
+  else if (filtered && where) message = tr(msg({ id: 'board.archiveAll.messageShownIn', defaultMessage: 'Archive the {n, plural, one {# card} other {# cards}} shown in {column} (of {total})? You can unarchive them from Archived.', description: 'The Archive All dialog for a column a search narrows: archives the {n} cards shown in {column} (its name), of its {total}. Archived is the checkbox that shows archived cards.' }), { n, column: where, total })
+  else if (filtered) message = tr(msg({ id: 'board.archiveAll.messageShown', defaultMessage: 'Archive the {n, plural, one {# card} other {# cards}} shown (of {total})? You can unarchive them from Archived.', description: "The Archive All dialog for the whole board when a search narrows it: archives the {n} cards shown, of the board's {total}. Archived is the checkbox that shows archived cards." }), { n, total })
+  else if (where) message = tr(msg({ id: 'board.archiveAll.messageColumn', defaultMessage: 'Archive {n, plural, one {# card} other {# cards}} in {column}? You can unarchive them from Archived.', description: 'The Archive All dialog for a column: archives its {n} cards ({column}, its name). Archived is the checkbox that shows archived cards.' }), { n, column: where })
+  else message = tr(msg({ id: 'board.archiveAll.messageAll', defaultMessage: 'Archive {n, plural, one {# card} other {# cards}}? You can unarchive them from Archived.', description: "The Archive All dialog for the whole board: archives its {n} cards. Archived is the checkbox that shows archived cards." }), { n })
   const perColumn = TASK_COLUMNS.flatMap((col) => {
-    const n = going.filter((c) => c.column === col.id).length
-    return n ? [`${col.label} ${n}`] : []
+    const k = going.filter((c) => c.column === col.id).length
+    return k ? [tr(msg({ id: 'board.archiveAll.columnCount', defaultMessage: '{column} {n}', description: 'In the Archive All dialog for the whole board: how many cards it archives from a column ("Done 4"), listed with the other columns.' }), { column: tr(COLUMN_TEXT[col.id].label), n: k })] : []
   })
-  const label = where ? (filtered ? `${going.length} shown in ${where}` : `All in ${where}`) : filtered ? `${going.length} shown cards` : 'All Cards'
+  // The batch's name, kept with it in English and quoted in its cards' history; the archive's picker shows it translated.
+  const label = archiveBatchLabel(req.column, filtered ? n : null)
   // Main checks each card again as it archives it (still in the column, project and search shown, and nobody on it
   // unless the box is ticked), so a card an agent took while this was open stays.
   const run = async (): Promise<void> => {
@@ -937,28 +1056,36 @@ export function ArchiveAllDialog() {
       footer={
         <>
           <button className="btn subtle" onClick={close}>
-            Cancel
+            {tr(CANCEL)}
           </button>
-          <BusyButton className={where ? 'primary' : 'danger'} autoFocus disabled={!going.length} busy={action.busy === 'archive'} busyLabel="Archiving…" onClick={() => void action.run('archive', run)}>
-            {action.error ? 'Try Again' : `Archive ${cardsWord(going.length)}`}
+          <BusyButton className={where ? 'primary' : 'danger'} autoFocus disabled={!going.length} busy={action.busy === 'archive'} busyLabel={tr(ARCHIVING)} onClick={() => void action.run('archive', run)}>
+            {action.error ? tr(TRY_AGAIN) : tr(msg({ id: 'board.archiveAll.button', defaultMessage: '{n, plural, one {Archive # card} other {Archive # cards}}', description: 'The Archive All dialog\'s button: archives {n} cards.' }), { n })}
           </BusyButton>
         </>
       }
     >
       <div className="archive-all">
         <div>{message}</div>
-        {filtered && <div className="faint">Cards the search or filter hides stay on the board.</div>}
+        {filtered && <div className="faint">{tr(msg({ id: 'board.archiveAll.filteredNote', defaultMessage: 'Cards the search or filter hides stay on the board.', description: 'In the Archive All dialog when a search or filter narrows the board.' }))}</div>}
         {!where && perColumn.length > 0 && <div className="archive-all-counts">{perColumn.join(' · ')}</div>}
         {held.length > 0 && (
           <>
             <div className="archive-all-held">
-              {include ? 'Archived too' : 'Skipped'}: {held.length === 1 ? 'a card an agent is on' : `${held.length} cards agents are on`}
+              {include
+                ? tr(msg({ id: 'board.archiveAll.heldIncluded', defaultMessage: '{n, plural, one {Archived too: a card an agent is on} other {Archived too: # cards agents are on}}', description: 'In the Archive All dialog, above the cards agents are on, when the user ticked to archive them too ({n} cards).' }), { n: held.length })
+                : tr(msg({ id: 'board.archiveAll.heldSkipped', defaultMessage: '{n, plural, one {Skipped: a card an agent is on} other {Skipped: # cards agents are on}}', description: 'In the Archive All dialog, above the cards agents are on, which it leaves on the board ({n} cards).' }), { n: held.length })}
             </div>
-            <DialogList items={held.map((h) => `#${h.c.number} ${h.c.title} · ${h.why}${include ? '' : ' · skipped'}`)} />
+            <DialogList
+              items={held.map((h) =>
+                include
+                  ? tr(msg({ id: 'board.archiveAll.heldRow', defaultMessage: '#{card} {title} · {why}', description: 'A card an agent is on, listed in the Archive All dialog: its number, title and who is on it ({why}: "Alfie is working on it").' }), { card: h.c.number, title: h.c.title, why: h.why })
+                  : tr(msg({ id: 'board.archiveAll.heldRowSkipped', defaultMessage: '#{card} {title} · {why} · skipped', description: 'A card an agent is on, listed in the Archive All dialog, which it leaves on the board: its number, title and who is on it ({why}: "Alfie is working on it").' }), { card: h.c.number, title: h.c.title, why: h.why })
+              )}
+            />
             <label className="flex dialog-check">
-              <input type="checkbox" checked={include} disabled={!!action.busy} onChange={(e) => setInclude(e.target.checked)} /> Also archive cards agents are working on
+              <input type="checkbox" checked={include} disabled={!!action.busy} onChange={(e) => setInclude(e.target.checked)} /> {tr(msg({ id: 'board.archiveAll.includeBusy', defaultMessage: 'Also archive cards agents are working on', description: 'A checkbox in the Archive All dialog: archives the cards agents are on too.' }))}
             </label>
-            {include && <div className="archive-all-warning">Their agents lose their card: an archived card can't be changed or moved by them, and a watch on it ends, telling the agent it was archived.</div>}
+            {include && <div className="archive-all-warning">{tr(msg({ id: 'board.archiveAll.includeWarning', defaultMessage: "Their agents lose their card: an archived card can't be changed or moved by them, and a watch on it ends, telling the agent it was archived.", description: 'A warning in the Archive All dialog once the user ticks to archive the cards agents are on. A watch is how an agent waits for a card to change.' }))}</div>}
           </>
         )}
       </div>
@@ -1013,10 +1140,10 @@ function Decisions({
   }
   const removeDecision = (d: TaskDecision): void =>
     void confirm({
-      title: 'Remove this decision?',
-      message: `"${d.text.length > 200 ? `${d.text.slice(0, 199)}…` : d.text}" leaves #${card.number}. Its history keeps what it said.`,
-      confirmLabel: 'Remove',
-      busyLabel: 'Removing…',
+      title: tr(msg({ id: 'board.decision.removeTitle', defaultMessage: 'Remove this decision?', description: "Title of the confirmation before a card's decision is removed." })),
+      message: tr(msg({ id: 'board.decision.removeMessage', defaultMessage: '"{decision}" leaves #{card}. Its history keeps what it said.', description: "The confirmation before a decision is removed: {decision} is its text (cut short), {card} the card's number (after #)." }), { decision: d.text.length > 200 ? `${d.text.slice(0, 199)}…` : d.text, card: card.number }),
+      confirmLabel: tr(msg({ id: 'board.decision.remove', defaultMessage: 'Remove', description: 'Button: removes the decision from the card.' })),
+      busyLabel: tr(msg({ id: 'board.decision.removing', defaultMessage: 'Removing…', description: 'The Remove button while the decision is being removed.' })),
       danger: true,
       run: async () => {
         await call('tasks:editDecision', card.number, d.id, null)
@@ -1026,20 +1153,20 @@ function Decisions({
   return (
     <div className="task-decisions">
       <div className="task-section-h">
-        Decisions ({list.length})
-        <InfoTip text="What you decided about this card: scope, wording, a default. Agents read them when they start and again before Review, and follow them where the description says otherwise; reviewers check the work against them. An agent or the Assistant can write down a decision you made; only you change or remove one." />
+        {tr(msg({ id: 'board.decision.heading', defaultMessage: 'Decisions ({n})', description: "A heading in the card dialog: the decisions the user recorded about the card, and how many ({n})." }), { n: list.length })}
+        <InfoTip text={tr(msg({ id: 'board.decision.info', defaultMessage: 'What you decided about this card: scope, wording, a default. Agents read them when they start and again before Review, and follow them where the description says otherwise; reviewers check the work against them. An agent or the Assistant can write down a decision you made; only you change or remove one.', description: "The (i) beside the card dialog's Decisions heading. Review is the board column; the Assistant is the Hive Assistant." }))} />
       </div>
       {list.map((d) => (
         <div key={d.id} className={cx('task-decision', newSinceStart(card, d) && 'new')}>
           {editing?.id === d.id ? (
             <div className="task-decision-edit">
-              <textarea className="input" aria-label="Decision" value={editing.text} autoFocus onChange={(e) => setEditing({ ...editing, text: e.target.value })} onKeyDown={(e) => e.key === 'Enter' && (e.ctrlKey || e.metaKey) && save()} />
+              <textarea className="input" aria-label={tr(msg({ id: 'board.decision.editLabel', defaultMessage: 'Decision', description: 'Accessible name of the box where a decision is changed (card dialog).' }))} value={editing.text} autoFocus onChange={(e) => setEditing({ ...editing, text: e.target.value })} onKeyDown={(e) => e.key === 'Enter' && (e.ctrlKey || e.metaKey) && save()} />
               <div className="flex">
                 <button className="btn small subtle" disabled={!!action.busy} onClick={() => setEditing(null)}>
-                  Cancel
+                  {tr(CANCEL)}
                 </button>
-                <BusyButton className="small" busy={action.busy === 'edit'} busyLabel="Saving…" disabled={!editing.text.trim() || editing.text.trim() === d.text} onClick={save}>
-                  Save
+                <BusyButton className="small" busy={action.busy === 'edit'} busyLabel={tr(SAVING)} disabled={!editing.text.trim() || editing.text.trim() === d.text} onClick={save}>
+                  {tr(SAVE)}
                 </BusyButton>
               </div>
             </div>
@@ -1047,14 +1174,15 @@ function Decisions({
             <>
               <div className="task-decision-text">{d.text}</div>
               <div className="task-decision-by faint">
-                Decided by you{d.recordedBy && d.recordedBy !== 'You' ? ` · recorded by ${d.recordedBy}` : ''} · <Tooltip content={formatDateTime(d.at)}><span>{timeAgo(d.at)}</span></Tooltip>
-                {d.editedAt ? ' · edited' : ''}
-                {newSinceStart(card, d) && <span className="badge accent">new since start</span>}
+                {/* "You" is how a decision the user recorded names its recorder (stored, English). */}
+                {d.recordedBy && d.recordedBy !== 'You' ? tr(msg({ id: 'board.decision.byRecorded', defaultMessage: 'Decided by you · recorded by {recorder}', description: "Under a decision in the card dialog: the user decided it, and an agent or the Assistant wrote it down ({recorder}, its name)." }), { recorder: d.recordedBy }) : tr(msg({ id: 'board.decision.by', defaultMessage: 'Decided by you', description: 'Under a decision in the card dialog: the user decided it (and recorded it).' }))} · <Tooltip content={formatDateTime(d.at)}><span>{timeAgo(d.at)}</span></Tooltip>
+                {d.editedAt ? ` · ${tr(msg({ id: 'board.decision.edited', defaultMessage: 'edited', description: 'Under a decision in the card dialog, after when it was decided: it was changed since. Lower case.' }))}` : ''}
+                {newSinceStart(card, d) && <span className="badge accent">{tr(msg({ id: 'board.decision.new', defaultMessage: 'new since start', description: 'A badge on a decision in the card dialog: it was recorded after work on the card began. Lower case, short.' }))}</span>}
                 <span className="grow" />
                 {!card.archived && (
                   <>
-                    <IconButton icon="edit" title="Change this decision" onClick={() => setEditing({ id: d.id, text: d.text, was: d.text })} />
-                    <IconButton icon="trash" title="Remove this decision" onClick={() => removeDecision(d)} />
+                    <IconButton icon="edit" title={tr(msg({ id: 'board.decision.change', defaultMessage: 'Change this decision', description: 'Tooltip on the pencil button beside a decision (card dialog).' }))} onClick={() => setEditing({ id: d.id, text: d.text, was: d.text })} />
+                    <IconButton icon="trash" title={tr(msg({ id: 'board.decision.removeTip', defaultMessage: 'Remove this decision', description: 'Tooltip on the bin button beside a decision (card dialog).' }))} onClick={() => removeDecision(d)} />
                   </>
                 )}
               </div>
@@ -1064,12 +1192,12 @@ function Decisions({
       ))}
       {!card.archived && (
         <div className="task-decision-new">
-          <textarea className="input" aria-label="New decision" placeholder="Record a decision you made about this card (agents follow it over the description)" value={draft} onChange={(e) => setDraft(e.target.value)} onKeyDown={(e) => e.key === 'Enter' && (e.ctrlKey || e.metaKey) && draft.trim() && add()} />
+          <textarea className="input" aria-label={tr(msg({ id: 'board.decision.newLabel', defaultMessage: 'New decision', description: 'Accessible name of the box where a new decision is written (card dialog).' }))} placeholder={tr(msg({ id: 'board.decision.newPlaceholder', defaultMessage: 'Record a decision you made about this card (agents follow it over the description)', description: 'Placeholder of the box where a new decision is written (card dialog).' }))} value={draft} onChange={(e) => setDraft(e.target.value)} onKeyDown={(e) => e.key === 'Enter' && (e.ctrlKey || e.metaKey) && draft.trim() && add()} />
           {/* Easy to see once there is something to add (#432), and the dialog's Save adds it too. */}
           <div className="task-new-actions">
-            {draft.trim() && <span className="faint">Save adds it too</span>}
-            <BusyButton className={cx('small', draft.trim() && 'primary')} busy={action.busy === 'add'} busyLabel="Adding…" disabled={!draft.trim()} onClick={add}>
-              <Icon name="law" /> Add Decision
+            {draft.trim() && <span className="faint">{tr(msg({ id: 'board.decision.saveAddsIt', defaultMessage: 'Save adds it too', description: "Beside Add Decision once something is written: the card dialog's Save button adds the decision as well." }))}</span>}
+            <BusyButton className={cx('small', draft.trim() && 'primary')} busy={action.busy === 'add'} busyLabel={tr(ADDING)} disabled={!draft.trim()} onClick={add}>
+              <Icon name="law" /> {tr(msg({ id: 'board.decision.add', defaultMessage: 'Add Decision', description: 'Button in the card dialog: records the decision written above.' }))}
             </BusyButton>
           </div>
         </div>
@@ -1085,18 +1213,20 @@ export function BoardView() {
   const query = useStore((s) => s.boardQuery)
   const archived = useStore((s) => s.boardArchived)
   const workspace = useStore((s) => s.workspace)
+  useLanguage()
   useEffect(() => {
     void loadTasks()
     loadBoardFold()
   }, [workspace?.path])
-  if (!workspace) return <div className="empty-state">Open a workspace to see its task board.</div>
+  if (!workspace) return <div className="empty-state">{tr(msg({ id: 'board.view.noWorkspace', defaultMessage: 'Open a workspace to see its task board.', description: 'The Task Board view with no workspace open.' }))}</div>
   return (
     <div className="board-view">
       <div className="board-header">
         <h1>
-          Task Board{project !== null && <span className="faint"> · {project || 'workspace cards'}</span>}
+          {tr(TASK_BOARD)}
+          {project !== null && <span className="faint"> · {project || tr(msg({ id: 'board.view.workspaceCards', defaultMessage: 'workspace cards', description: "After the Task Board's title when the sidebar shows the cards of no project (about the whole workspace). Lower case." }))}</span>}
         </h1>
-        <span className="faint">Plan work as cards, start them on agents, and see where each one is. Agents put finished work in Review, and reviewers move what passes to Passed.</span>
+        <span className="faint">{tr(msg({ id: 'board.view.intro', defaultMessage: 'Plan work as cards, start them on agents, and see where each one is. Agents put finished work in Review, and reviewers move what passes to Passed.', description: 'Under the Task Board\'s title. Review and Passed are board columns.' }))}</span>
       </div>
       <BoardToolbar project={project} query={query} setQuery={(q) => set({ boardQuery: q })} archived={archived} setArchived={(v) => set({ boardArchived: v })} />
       <Board project={project} query={query} archived={archived} />
@@ -1108,6 +1238,7 @@ export function BoardView() {
 export function ProjectTasksTab({ project }: { project: ProjectInfo }) {
   const [query, setQuery] = useState('')
   const [archived, setArchived] = useState(false)
+  useLanguage()
   useEffect(() => {
     void loadTasks()
     loadBoardFold()
@@ -1125,12 +1256,13 @@ export function BoardPanel() {
   const tasks = useStore((s) => s.tasks)
   const projects = useStore((s) => s.workspace?.projects ?? NO_PROJECTS)
   const chosen = useStore((s) => s.boardProject)
+  useLanguage()
   const open = (name: string | null): number => tasks.filter((c) => !c.archived && c.column !== 'done' && (name === null || c.project.toLowerCase() === name.toLowerCase())).length
   const review = tasks.filter((c) => !c.archived && c.column === 'review')
   useNow(60_000)
   const stalled = tasks.filter((c) => cardStalled(projects, c))
   const row = (name: string | null, label: string, icon: string) => (
-    <div key={label} className={cx('row', chosen === name && 'selected')} onClick={() => set({ boardProject: name })}>
+    <div key={name === null ? 'all' : `p:${name}`} className={cx('row', chosen === name && 'selected')} onClick={() => set({ boardProject: name })}>
       <Icon name={icon} /> <span className="label">{label}</span>
       <span className="count">{open(name) || ''}</span>
     </div>
@@ -1138,22 +1270,22 @@ export function BoardPanel() {
   return (
     <>
       <div className="pane-header">
-        Task Board
-        <InfoTip text="The workspace's cards, in .hive/tasks. Agents and the Assistant read, change and move them through Hive's tools (finished work goes to Review); only you archive or delete them." />
+        {tr(TASK_BOARD)}
+        <InfoTip text={tr(msg({ id: 'board.panel.info', defaultMessage: "The workspace's cards, in .hive/tasks. Agents and the Assistant read, change and move them through Hive's tools (finished work goes to Review); only you archive or delete them.", description: "The (i) beside the Board sidebar's title. Keep .hive/tasks as it is (a folder). Review is a board column." }))} />
         <div className="actions">
-          <IconButton icon="add" title="New card" onClick={() => set({ taskOpen: { project: chosen ?? '' } })} />
-          <IconButton icon="refresh" title="Refresh" onClick={() => void loadTasks()} />
+          <IconButton icon="add" title={tr(NEW_CARD_TIP)} onClick={() => set({ taskOpen: { project: chosen ?? '' } })} />
+          <IconButton icon="refresh" title={tr(msg({ id: 'board.panel.refresh', defaultMessage: 'Refresh', description: "Tooltip on the Board sidebar's refresh button: reads the cards again." }))} onClick={() => void loadTasks()} />
         </div>
       </div>
       <div className="pane-body">
-        {row(null, 'All projects', 'layers')}
+        {row(null, tr(msg({ id: 'board.panel.allProjects', defaultMessage: 'All projects', description: "The Board sidebar's first row: shows every project's cards." })), 'layers')}
         {projects.map((p) => row(p.name, p.name, 'folder'))}
-        {row('', 'Workspace', 'root-folder')}
+        {row('', tr(msg({ id: 'board.panel.workspace', defaultMessage: 'Workspace', description: "A row of the Board sidebar: shows the cards of no project (about the whole workspace)." })), 'root-folder')}
         {stalled.length > 0 && (
           <>
             <div className="section-header">
-              Stalled <span className="count">{stalled.length}</span>
-              <InfoTip text="Cards in Doing that nobody is working on: no agent has them, or their agent was removed or isn't running. Also cards in Doing or Review that an agent in a card loop left without waiting on them." />
+              {tr(STALLED)} <span className="count">{stalled.length}</span>
+              <InfoTip text={tr(msg({ id: 'board.panel.stalledInfo', defaultMessage: "Cards in Doing that nobody is working on: no agent has them, or their agent was removed or isn't running. Also cards in Doing or Review that an agent in a card loop left without waiting on them.", description: "The (i) beside the Board sidebar's Stalled heading. Doing and Review are board columns." }))} />
             </div>
             {stalled.map((c) => (
               <Tooltip key={c.number} block content={cardStalled(projects, c) ?? ''}>
@@ -1167,7 +1299,7 @@ export function BoardPanel() {
         {review.length > 0 && (
           <>
             <div className="section-header">
-              Waiting for review <span className="count">{review.length}</span>
+              {tr(WAITING_FOR_REVIEW)} <span className="count">{review.length}</span>
             </div>
             {review.map((c) => (
               <div key={c.number} className="row" onClick={() => set({ taskOpen: c.number })}>
@@ -1194,6 +1326,7 @@ const refs = (v: string): number[] =>
 export function TaskDialog() {
   const open = useStore((s) => s.taskOpen)
   useDateStyle()
+  useLanguage()
   const card = useStore((s) => (typeof s.taskOpen === 'number' ? (s.tasks.find((c) => c.number === s.taskOpen) ?? null) : null))
   const projects = useStore((s) => s.workspace?.projects ?? NO_PROJECTS)
   const isNew = open !== null && typeof open === 'object'
@@ -1288,19 +1421,17 @@ export function TaskDialog() {
     if (action.busy || decisionBusy) return
     if (unsaved) {
       const what = [
-        edited.length ? (isNew ? 'this new card' : 'your changes to the card') : '',
-        comment.trim() ? 'the comment you are writing' : '',
-        decision.trim() ? 'the decision you are writing' : '',
-        decisionChanged ? 'your change to a decision' : ''
-      ]
-        .filter(Boolean)
-        .join(' and ')
+        edited.length ? (isNew ? tr(msg({ id: 'board.discard.newCard', defaultMessage: 'this new card', description: 'What closing the card dialog would lose, in "Closing loses {what}.": a card not added yet. Lower case.' })) : tr(msg({ id: 'board.discard.changes', defaultMessage: 'your changes to the card', description: 'What closing the card dialog would lose, in "Closing loses {what}.": changed fields. Lower case.' }))) : '',
+        comment.trim() ? tr(msg({ id: 'board.discard.comment', defaultMessage: 'the comment you are writing', description: 'What closing the card dialog would lose, in "Closing loses {what}.": a comment not posted. Lower case.' })) : '',
+        decision.trim() ? tr(msg({ id: 'board.discard.decision', defaultMessage: 'the decision you are writing', description: 'What closing the card dialog would lose, in "Closing loses {what}.": a decision not added. Lower case.' })) : '',
+        decisionChanged ? tr(msg({ id: 'board.discard.decisionChange', defaultMessage: 'your change to a decision', description: 'What closing the card dialog would lose, in "Closing loses {what}.": a decision changed and not saved. Lower case.' })) : ''
+      ].filter(Boolean)
       const choice = await choose({
-        title: 'Discard unsaved changes?',
-        message: `Closing loses ${what}.`,
+        title: tr(msg({ id: 'board.discard.title', defaultMessage: 'Discard unsaved changes?', description: 'Title of the question when the card dialog closes with something not saved.' })),
+        message: tr(msg({ id: 'board.discard.message', defaultMessage: 'Closing loses {what}.', description: 'When the card dialog closes with something not saved: {what} lists what would be lost ("your changes to the card and the comment you are writing").' }), { what: fmt.list(what) }),
         choices: [
-          { label: 'Discard', value: 'discard' },
-          { label: 'Keep Editing', value: 'keep' }
+          { label: tr(msg({ id: 'board.discard.discard', defaultMessage: 'Discard', description: 'Button: closes the card dialog, losing what was not saved.' })), value: 'discard' },
+          { label: tr(msg({ id: 'board.discard.keep', defaultMessage: 'Keep Editing', description: 'Button: goes back to the card dialog, nothing lost.' })), value: 'keep' }
         ]
       })
       if (choice !== 'discard') return
@@ -1313,7 +1444,7 @@ export function TaskDialog() {
    * which the Move to Doing dialog sets (they stay unsaved here until it has).
    */
   const persist = async (hold = false): Promise<void> => {
-    if (!title.trim()) throw new Error('A card needs a title.')
+    if (!title.trim()) throw new Error(tr(NEEDS_TITLE))
     if (isNew) {
       const c = await call('tasks:create', { title, description, project, agent: agent || null, column, labels: labelList })
       const extra: TaskPatch = {}
@@ -1351,14 +1482,20 @@ export function TaskDialog() {
       if (give) delete patch.agent
       if (Object.keys(patch).length) await call('tasks:update', card.number, patch)
       if (give) await call('tasks:update', card.number, { agent: give })
-      if (clashed.length) notify('warning', `#${card.number} was also changed while you edited it`, `Your ${clashed.join(', ')} replaced the change made meanwhile (see its history).`)
+      if (clashed.length) {
+        notify(
+          'warning',
+          tr(msg({ id: 'board.clash.title', defaultMessage: '#{card} was also changed while you edited it', description: "A warning toast's title after saving the card dialog: someone (an agent, say) changed the same fields meanwhile. {card} is the card's number (after #)." }), { card: card.number }),
+          tr(msg({ id: 'board.clash.message', defaultMessage: 'Your {fields} replaced the change made meanwhile (see its history).', description: "A warning toast after saving the card dialog: the user's values won over a change made meanwhile. {fields} lists the fields (\"title, labels\")." }), { fields: fmt.list(clashed.map((k) => tr(FIELD_NAMES[k] ?? FIELD_NAMES.title)), 'unit') })
+        )
+      }
     }
     orig.current = hold ? { ...fields, agent: orig.current.agent, column: orig.current.column } : { ...fields }
     await loadTasks()
   }
 
   /** A decision being changed to nothing: Save refuses it (removing one is its bin's, never Save's). */
-  const BLANK_DECISION = "A decision can't be empty: write it again, cancel the change, or remove the decision with its bin."
+  const BLANK_DECISION = tr(msg({ id: 'board.decision.blank', defaultMessage: "A decision can't be empty: write it again, cancel the change, or remove the decision with its bin.", description: 'An error in the card dialog: Save with a decision changed to nothing. The bin is the button that removes a decision.' }))
   const blankEdit = (): boolean => {
     const e = drafts.current.edit
     return !!e && !e.text.trim() && e.was !== ''
@@ -1405,7 +1542,7 @@ export function TaskDialog() {
     // Into Doing from another column: the Move to Doing dialog asks who works on it, and saves the rest when it is
     // confirmed (Cancel there leaves this dialog open, nothing saved).
     if (card && column === 'doing' && orig.current.column !== 'doing') {
-      if (!title.trim()) return action.setError('A card needs a title.')
+      if (!title.trim()) return action.setError(tr(NEEDS_TITLE))
       if (blankEdit()) return action.setError(BLANK_DECISION)
       return moveToDoing({
         n: card.number,
@@ -1447,7 +1584,7 @@ export function TaskDialog() {
 
   return (
     <Modal
-      title={isNew ? 'New Card' : `#${card!.number}`}
+      title={isNew ? tr(NEW_CARD) : `#${card!.number}`}
       icon="checklist"
       wide
       onClose={() => void tryClose()}
@@ -1458,12 +1595,12 @@ export function TaskDialog() {
           {card && (
             <>
               <button className="btn subtle danger-text" onClick={() => void remove(card).then((ok) => ok && close())}>
-                <Icon name="trash" /> Delete
+                <Icon name="trash" /> {tr(msg({ id: 'board.dialog.delete', defaultMessage: 'Delete', description: "Button in the card dialog: deletes the card (after asking)." }))}
               </button>
               <BusyButton
                 className="subtle"
                 busy={action.busy === 'archive'}
-                busyLabel={card.archived ? 'Bringing back…' : 'Archiving…'}
+                busyLabel={card.archived ? tr(msg({ id: 'board.dialog.bringingBack', defaultMessage: 'Bringing back…', description: 'The Bring Back button while the archived card is being brought back.' })) : tr(ARCHIVING)}
                 onClick={() =>
                   void action
                     .run('archive', async () => {
@@ -1473,12 +1610,12 @@ export function TaskDialog() {
                     .then((r) => r && close())
                 }
               >
-                <Icon name={card.archived ? 'discard' : 'archive'} /> {card.archived ? 'Bring Back' : 'Archive'}
+                <Icon name={card.archived ? 'discard' : 'archive'} /> {card.archived ? tr(BRING_BACK) : tr(ARCHIVE)}
               </BusyButton>
               {!card.archived && (
-                <Tooltip content={!card.project ? 'Give it a project first: its agent works there.' : edited.length ? 'Save your changes, then give it to an agent with the card as its prompt.' : 'Give it to an agent, with the card as its prompt.'}>
-                  <BusyButton className="subtle" busy={action.busy === 'start'} busyLabel="Saving…" disabled={!card.project || !title.trim()} onClick={() => void start()}>
-                    <Icon name="play" /> {edited.length ? 'Save and Start…' : 'Start…'}
+                <Tooltip content={!card.project ? tr(NEEDS_PROJECT) : edited.length ? tr(msg({ id: 'board.dialog.startTipSave', defaultMessage: 'Save your changes, then give it to an agent with the card as its prompt.', description: "Tooltip on the card dialog's Save and Start… button." })) : tr(msg({ id: 'board.dialog.startTip', defaultMessage: 'Give it to an agent, with the card as its prompt.', description: "Tooltip on the card dialog's Start… button." }))}>
+                  <BusyButton className="subtle" busy={action.busy === 'start'} busyLabel={tr(SAVING)} disabled={!card.project || !title.trim()} onClick={() => void start()}>
+                    <Icon name="play" /> {edited.length ? tr(msg({ id: 'board.dialog.saveAndStart', defaultMessage: 'Save and Start…', description: 'Button in the card dialog with unsaved changes: saves them, then asks which agent starts the card.' })) : tr(msg({ id: 'board.dialog.start', defaultMessage: 'Start…', description: 'Button in the card dialog: asks which agent starts the card.' }))}
                   </BusyButton>
                 </Tooltip>
               )}
@@ -1486,22 +1623,23 @@ export function TaskDialog() {
           )}
           <div className="grow" />
           <button className="btn subtle" onClick={() => void tryClose()}>
-            Cancel
+            {tr(CANCEL)}
           </button>
-          <BusyButton className="primary" busy={action.busy === 'save'} busyLabel={isNew ? 'Adding…' : 'Saving…'} disabled={!title.trim() || card?.archived} onClick={() => void save()}>
-            {isNew ? 'Add Card' : 'Save'}
+          <BusyButton className="primary" busy={action.busy === 'save'} busyLabel={isNew ? tr(ADDING) : tr(SAVING)} disabled={!title.trim() || card?.archived} onClick={() => void save()}>
+            {isNew ? tr(msg({ id: 'board.dialog.addCard', defaultMessage: 'Add Card', description: 'The New Card dialog\'s main button: adds the card.' })) : tr(SAVE)}
           </BusyButton>
         </>
       }
     >
       {card?.archived && (
         <div className="banner info">
-          <Icon name="archive" /> Archived{card.archivedFor === 'project-hidden' ? ` when ${card.project} was hidden` : card.archivedFor === 'project-removed' ? ` when ${card.project} was removed from Hive` : card.archivedFor === 'done' ? ' automatically after its days in Done (Settings → Board)' : ''}. Bring it back to change it.
+          <Icon name="archive" />{' '}
+          {tr(msg({ id: 'board.dialog.archivedBanner', defaultMessage: '{cause, select, hidden {Archived when {project} was hidden.} removed {Archived when {project} was removed from Hive.} done {Archived automatically after its days in Done (Settings → Board).} other {Archived.}} Bring it back to change it.', description: "A banner in an archived card's dialog: why it was archived (its project {project} hidden or removed, or after its days in the Done column: Settings → Board is where that is set), and that it must be brought back to be changed." }), { cause: card.archivedFor === 'project-hidden' ? 'hidden' : card.archivedFor === 'project-removed' ? 'removed' : card.archivedFor === 'done' ? 'done' : 'user', project: card.project })}
         </div>
       )}
-      <input ref={titleRef} className="input task-title-input" placeholder="Title" value={title} maxLength={200} onChange={(e) => setTitle(e.target.value)} />
+      <input ref={titleRef} className="input task-title-input" placeholder={tr(msg({ id: 'board.dialog.titlePlaceholder', defaultMessage: 'Title', description: "Placeholder of the card dialog's title box." }))} value={title} maxLength={200} onChange={(e) => setTitle(e.target.value)} />
       <div className="agent-form task-form">
-        <label>Project</label>
+        <label>{tr(msg({ id: 'board.dialog.project', defaultMessage: 'Project', description: "A field label in the card dialog: the card's project." }))}</label>
         <select
           className="select"
           value={project}
@@ -1510,74 +1648,73 @@ export function TaskDialog() {
             setAgent('')
           }}
         >
-          <option value="">None (about the workspace)</option>
+          <option value="">{tr(msg({ id: 'board.dialog.noProject', defaultMessage: 'None (about the workspace)', description: "The card dialog's project choice for a card of no project: it is about the whole workspace." }))}</option>
           {projects.map((p) => (
             <option key={p.path} value={p.name}>
               {p.name}
             </option>
           ))}
-          {project && !proj && <option value={project}>{project} (not in the workspace)</option>}
+          {project && !proj && <option value={project}>{tr(msg({ id: 'board.dialog.projectGone', defaultMessage: '{project} (not in the workspace)', description: "The card dialog's project choice when the card's project ({project}) is no longer in the workspace." }), { project })}</option>}
         </select>
-        <label>Agent</label>
+        <label>{tr(msg({ id: 'board.dialog.agent', defaultMessage: 'Agent', description: "A field label in the card dialog: the agent the card is given to." }))}</label>
         <select className="select" value={agent} disabled={!proj} onChange={(e) => setAgent(e.target.value)}>
-          <option value="">Nobody yet</option>
+          <option value="">{tr(NOBODY_YET)}</option>
           {proj?.agents.map((a) => (
             <option key={a.id} value={a.id}>
-              {a.name}
-              {a.live ? ` (${statusText(a.live)})` : ''}
+              {a.live ? tr(msg({ id: 'board.dialog.agentStatus', defaultMessage: '{agent} ({status})', description: "An agent in the card dialog's agent choice, with what it is doing ({status}: \"Working…\")." }), { agent: a.name, status: statusText(a.live) }) : a.name}
             </option>
           ))}
-          {agent && proj && !proj.agents.some((a) => a.id === agent) && <option value={agent}>{card?.agentName ?? agent} (removed)</option>}
+          {agent && proj && !proj.agents.some((a) => a.id === agent) && <option value={agent}>{tr(REMOVED_AGENT, { agent: card?.agentName ?? agent })}</option>}
         </select>
-        <label>Column</label>
+        <label>{tr(msg({ id: 'board.dialog.column', defaultMessage: 'Column', description: 'A field label in the card dialog: the board column the card is in.' }))}</label>
         <select className="select" value={column} onChange={(e) => setColumn(e.target.value as TaskColumn)}>
           {TASK_COLUMNS.map((c) => (
             <option key={c.id} value={c.id}>
-              {c.label}
+              {tr(COLUMN_TEXT[c.id].label)}
             </option>
           ))}
         </select>
-        <label>Labels</label>
-        <input className="input" placeholder="Comma separated, e.g. bug, ui" value={labels} onChange={(e) => setLabels(e.target.value)} />
-        <label>Blocked</label>
+        <label>{tr(msg({ id: 'board.dialog.labels', defaultMessage: 'Labels', description: "A field label in the card dialog: the card's labels." }))}</label>
+        <input className="input" placeholder={tr(msg({ id: 'board.dialog.labelsPlaceholder', defaultMessage: 'Comma separated, e.g. bug, ui', description: "Placeholder of the card dialog's labels box: labels separated by commas (bug and ui are examples)." }))} value={labels} onChange={(e) => setLabels(e.target.value)} />
+        <label>{tr(BLOCKED_FIELD)}</label>
         {/* One line of text, wrapped to show all of a long reason (#372): Enter adds no line break. */}
         <textarea
           className="input task-blocked-input"
           rows={1}
-          aria-label="Blocked"
-          placeholder="Why it can't go on (empty: not blocked)"
+          aria-label={tr(BLOCKED_FIELD)}
+          placeholder={tr(msg({ id: 'board.dialog.blockedPlaceholder', defaultMessage: "Why it can't go on (empty: not blocked)", description: "Placeholder of the card dialog's Blocked box: why the card can't go on; empty means it isn't blocked." }))}
           value={blocked}
           onChange={(e) => setBlocked(e.target.value.replace(/\s*[\r\n]+\s*/g, ' '))}
           onKeyDown={(e) => {
             if (e.key === 'Enter' && !e.ctrlKey && !e.metaKey) e.preventDefault()
           }}
         />
-        <label>Depends on</label>
-        <input className="input" placeholder="Cards to finish first, e.g. #3 #5" value={blockedBy} onChange={(e) => setBlockedBy(e.target.value)} />
-        <label>Related</label>
-        <input className="input" placeholder="Related cards, e.g. #7" value={links} onChange={(e) => setLinks(e.target.value)} />
+        <label>{tr(msg({ id: 'board.dialog.dependsOn', defaultMessage: 'Depends on', description: 'A field label in the card dialog: the cards to finish before this one.' }))}</label>
+        <input className="input" placeholder={tr(msg({ id: 'board.dialog.dependsOnPlaceholder', defaultMessage: 'Cards to finish first, e.g. #3 #5', description: "Placeholder of the card dialog's Depends on box: card numbers (#3 #5 are examples)." }))} value={blockedBy} onChange={(e) => setBlockedBy(e.target.value)} />
+        <label>{tr(msg({ id: 'board.dialog.related', defaultMessage: 'Related', description: 'A field label in the card dialog: related cards.' }))}</label>
+        <input className="input" placeholder={tr(msg({ id: 'board.dialog.relatedPlaceholder', defaultMessage: 'Related cards, e.g. #7', description: "Placeholder of the card dialog's Related box: card numbers (#7 is an example)." }))} value={links} onChange={(e) => setLinks(e.target.value)} />
       </div>
       <div className="task-section-h">
-        Description
+        {tr(msg({ id: 'board.dialog.description', defaultMessage: 'Description', description: "A heading in the card dialog: the card's description." }))}
         <span className="grow" />
-        <button className={cx('btn small subtle', !preview && 'active')} onClick={() => setPreview(false)}>
-          Write
+        <button className={cx('btn small subtle', !preview && 'active') /* i18n-ignore: class names, not text */} onClick={() => setPreview(false)}>
+          {tr(msg({ id: 'board.dialog.write', defaultMessage: 'Write', description: "A tab button in the card dialog: edit the description's Markdown." }))}
         </button>
-        <button className={cx('btn small subtle', preview && 'active')} onClick={() => setPreview(true)}>
-          Preview
+        <button className={cx('btn small subtle', preview && 'active') /* i18n-ignore: class names, not text */} onClick={() => setPreview(true)}>
+          {tr(msg({ id: 'board.dialog.preview', defaultMessage: 'Preview', description: 'A tab button in the card dialog: show the description as it reads (Markdown rendered).' }))}
         </button>
       </div>
       {preview ? (
         <div className="task-description" onDoubleClick={() => setPreview(false)}>
-          {description.trim() ? <Markdown source={description} /> : <span className="faint">No description. Double-click to write one.</span>}
+          {description.trim() ? <Markdown source={description} /> : <span className="faint">{tr(msg({ id: 'board.dialog.noDescription', defaultMessage: 'No description. Double-click to write one.', description: "The card dialog's description preview when there is none." }))}</span>}
         </div>
       ) : (
-        <textarea className="input task-description-input" placeholder="What to do, and how to tell it's done (Markdown). Whoever starts the card reads only this." value={description} onChange={(e) => setDescription(e.target.value)} />
+        <textarea className="input task-description-input" placeholder={tr(msg({ id: 'board.dialog.descriptionPlaceholder', defaultMessage: "What to do, and how to tell it's done (Markdown). Whoever starts the card reads only this.", description: "Placeholder of the card dialog's description box." }))} value={description} onChange={(e) => setDescription(e.target.value)} />
       )}
       {card && (
         <>
           <Decisions card={card} draft={decision} setDraft={setDecision} editing={decisionEdit} setEditing={setDecisionEdit} setBusy={setDecisionBusy} />
-          <div className="task-section-h">Comments ({card.comments.length})</div>
+          <div className="task-section-h">{tr(msg({ id: 'board.dialog.comments', defaultMessage: 'Comments ({n})', description: "A heading in the card dialog: the card's comments, and how many ({n})." }), { n: card.comments.length })}</div>
           {card.comments.map((c, i) => (
             <div key={i} className="task-comment">
               <div className="task-comment-by">
@@ -1588,17 +1725,17 @@ export function TaskDialog() {
           ))}
           {!card.archived && (
             <div className="task-comment-new">
-              <textarea className="input" aria-label="New comment" placeholder="Add a comment" value={comment} onChange={(e) => setComment(e.target.value)} onKeyDown={(e) => e.key === 'Enter' && (e.ctrlKey || e.metaKey) && void addComment()} />
+              <textarea className="input" aria-label={tr(msg({ id: 'board.dialog.newComment', defaultMessage: 'New comment', description: 'Accessible name of the box where a comment is written (card dialog).' }))} placeholder={tr(msg({ id: 'board.dialog.commentPlaceholder', defaultMessage: 'Add a comment', description: "Placeholder of the card dialog's comment box." }))} value={comment} onChange={(e) => setComment(e.target.value)} onKeyDown={(e) => e.key === 'Enter' && (e.ctrlKey || e.metaKey) && void addComment()} />
               <div className="task-new-actions">
-                {comment.trim() && <span className="faint">Save posts it too</span>}
-                <BusyButton className={cx('small', comment.trim() && 'primary')} busy={action.busy === 'comment'} busyLabel="Posting…" disabled={!comment.trim()} onClick={() => void addComment()}>
-                  <Icon name="comment" /> Comment
+                {comment.trim() && <span className="faint">{tr(msg({ id: 'board.dialog.savePostsIt', defaultMessage: 'Save posts it too', description: "Beside the Comment button once something is written: the card dialog's Save button posts the comment as well." }))}</span>}
+                <BusyButton className={cx('small', comment.trim() && 'primary')} busy={action.busy === 'comment'} busyLabel={tr(msg({ id: 'board.dialog.posting', defaultMessage: 'Posting…', description: 'The Comment button while the comment is being posted.' }))} disabled={!comment.trim()} onClick={() => void addComment()}>
+                  <Icon name="comment" /> {tr(msg({ id: 'board.dialog.comment', defaultMessage: 'Comment', description: 'Button in the card dialog: posts the comment written above.' }))}
                 </BusyButton>
               </div>
             </div>
           )}
           <div className="task-section-h clickable" onClick={() => setShowHistory(!showHistory)}>
-            <Icon name={showHistory ? 'chevron-down' : 'chevron-right'} /> History ({card.history.length})
+            <Icon name={showHistory ? 'chevron-down' : 'chevron-right'} /> {tr(msg({ id: 'board.dialog.history', defaultMessage: 'History ({n})', description: "A heading in the card dialog (click to show or hide): the card's history of changes, and how many entries ({n})." }), { n: card.history.length })}
           </div>
           {showHistory && (
             <div className="task-history">
@@ -1611,7 +1748,9 @@ export function TaskDialog() {
           )}
           <CardCostLine card={card} />
           <div className="faint task-created">
-            Added by {card.createdBy || 'unknown'} {timeAgo(card.createdAt)} · changed {timeAgo(card.updatedAt)}
+            {card.createdBy
+              ? tr(msg({ id: 'board.dialog.added', defaultMessage: 'Added by {by} {added} · changed {changed}', description: "At the foot of the card dialog: who added the card ({by}: \"You\", an agent's name), when ({added}: \"3 days ago\"), and when it last changed ({changed})." }), { by: card.createdBy, added: timeAgo(card.createdAt), changed: timeAgo(card.updatedAt) })
+              : tr(msg({ id: 'board.dialog.addedUnknown', defaultMessage: 'Added by unknown {added} · changed {changed}', description: "At the foot of the card dialog when who added the card isn't known: when it was added ({added}: \"3 days ago\") and last changed ({changed})." }), { added: timeAgo(card.createdAt), changed: timeAgo(card.updatedAt) })}
           </div>
         </>
       )}
@@ -1637,7 +1776,7 @@ function useStartPick(project: ProjectInfo | null) {
   const settings = useStore((s) => s.settings)
   // Git that can't run makes no worktree, whatever the project folder holds (#346).
   const gitProblem = useStore((s) => gitProblemText(s.gitTool))
-  const worktreeWhy = !project ? null : gitProblem ? `${gitProblem}.` : project.isGitRepo ? null : 'The project is not a git repository.'
+  const worktreeWhy = !project ? null : gitProblem ? `${gitProblem}.` : project.isGitRepo ? null : tr(msg({ id: 'board.start.notGit', defaultMessage: 'The project is not a git repository.', description: 'Why a card cannot start on a new agent in its own worktree (the Start dialog): the project has no git repository.' }))
   const [choice, setChoice] = useState<StartChoice | null>(null)
   const [name, setName] = useState('')
   const [provider, setProvider] = useState<ProviderId | ''>('')
@@ -1679,7 +1818,15 @@ function StartChoices({ project, pick }: { project: ProjectInfo; pick: StartPick
                 <strong>
                   <ProviderIcon provider={p} /> {a.name}
                 </strong>
-                <div className="faint">{!enabled ? `${providerName(p)} is turned off.` : a.live ? (freeAgent(a) ? `${statusText(a.live)}: gets the card as its next message.` : `${statusText(a.live).replace(/…$/, '')}. Choose it once it's idle.`) : 'Stopped: starts a new conversation on the card.'}</div>
+                <div className="faint">
+                  {!enabled
+                    ? tr(msg({ id: 'board.start.providerOff', defaultMessage: '{provider} is turned off.', description: "Under an agent in the Start dialog that can't take the card: its CLI ({provider}: Claude Code, Codex…) is turned off in Settings." }), { provider: providerName(p) })
+                    : a.live
+                      ? freeAgent(a)
+                        ? tr(msg({ id: 'board.start.idle', defaultMessage: '{status}: gets the card as its next message.', description: "Under an idle agent in the Start dialog: what it is doing ({status}: \"Ready\", \"Finished\"), and that the card is typed to it next." }), { status: statusText(a.live) })
+                        : tr(msg({ id: 'board.start.busy', defaultMessage: "{status}. Choose it once it's idle.", description: "Under a busy agent in the Start dialog, which can't take the card yet: what it is doing ({status}: \"Working\")." }), { status: statusText(a.live).replace(/…$/, '') })
+                      : tr(msg({ id: 'board.start.stopped', defaultMessage: 'Stopped: starts a new conversation on the card.', description: 'Under a stopped agent in the Start dialog: starting the card starts it with a new conversation.' }))}
+                </div>
               </div>
             </label>
           )
@@ -1688,28 +1835,28 @@ function StartChoices({ project, pick }: { project: ProjectInfo; pick: StartPick
           <input type="radio" checked={choice?.kind === 'new'} onChange={() => setChoice({ kind: 'new' })} />
           <div>
             <strong>
-              <Icon name="add" /> A new agent
+              <Icon name="add" /> {tr(msg({ id: 'board.start.newAgent', defaultMessage: 'A new agent', description: 'A choice in the Start dialog: the card starts on a new agent of the project.' }))}
             </strong>
-            <div className="faint">Works in the project folder, next to the others.</div>
+            <div className="faint">{tr(msg({ id: 'board.start.newAgentText', defaultMessage: 'Works in the project folder, next to the others.', description: 'Under "A new agent" in the Start dialog.' }))}</div>
           </div>
         </label>
         <label className={cx('choice', choice?.kind === 'worktree' && 'selected', !!worktreeWhy && 'disabled')}>
           <input type="radio" disabled={!!worktreeWhy} checked={choice?.kind === 'worktree'} onChange={() => setChoice({ kind: 'worktree' })} />
           <div>
             <strong>
-              <Icon name="git-branch" /> A new agent in its own worktree
+              <Icon name="git-branch" /> {tr(msg({ id: 'board.start.worktreeAgent', defaultMessage: 'A new agent in its own worktree', description: 'A choice in the Start dialog: the card starts on a new agent with its own git worktree (branch and folder).' }))}
             </strong>
-            <div className="faint">{worktreeWhy ?? 'Its own branch and folder; merge its work back when the card is done.'}</div>
+            <div className="faint">{worktreeWhy ?? tr(msg({ id: 'board.start.worktreeText', defaultMessage: 'Its own branch and folder; merge its work back when the card is done.', description: 'Under "A new agent in its own worktree" in the Start dialog.' }))}</div>
           </div>
         </label>
       </div>
       {(choice?.kind === 'new' || choice?.kind === 'worktree') && (
         <div className="agent-form nested">
-          <label>Name</label>
-          <input className="input" placeholder="Default: Agent n" value={name} onChange={(e) => setName(e.target.value)} />
-          <label>Provider</label>
+          <label>{tr(msg({ id: 'board.start.name', defaultMessage: 'Name', description: "A field label in the Start dialog: the new agent's name." }))}</label>
+          <input className="input" placeholder={tr(msg({ id: 'board.start.namePlaceholder', defaultMessage: 'Default: Agent n', description: "Placeholder of the new agent's name in the Start dialog: left empty, it is named Agent and a number." }))} value={name} onChange={(e) => setName(e.target.value)} />
+          <label>{tr(msg({ id: 'board.start.provider', defaultMessage: 'Provider', description: "A field label in the Start dialog: the new agent's CLI (Claude Code, Codex…)." }))}</label>
           <select className="select" value={provider} onChange={(e) => setProvider(e.target.value as ProviderId)}>
-            <option value="">Project default ({providerName(def)})</option>
+            <option value="">{tr(msg({ id: 'board.start.projectDefault', defaultMessage: 'Project default ({provider})', description: "The Start dialog's provider choice: the project's default CLI ({provider}, its name)." }), { provider: providerName(def) })}</option>
             {providers.map((p) => (
               <option key={p.id} value={p.id}>
                 {p.name}
@@ -1725,7 +1872,7 @@ function StartChoices({ project, pick }: { project: ProjectInfo; pick: StartPick
 /** Starts a card (the Start and Move to Doing dialogs) and says so, with Show. */
 async function startCard(card: TaskCard, project: ProjectInfo, target: TaskStartTarget): Promise<void> {
   const r = await call('tasks:start', card.number, target)
-  notify('success', `#${card.number} started on ${r.agentName}`, card.title, [{ label: 'Show', command: 'agent.show', args: [project.path, r.agentId] }])
+  notify('success', tr(msg({ id: 'board.start.started', defaultMessage: '#{card} started on {agent}', description: "A toast's title after a card started: its number (after #) and the agent ({agent}, its name). The card's title follows." }), { card: card.number, agent: r.agentName }), card.title, [{ label: tr(msg({ id: 'board.start.show', defaultMessage: 'Show', description: "A button on the toast after a card started: shows the agent it started on." })), command: 'agent.show', args: [project.path, r.agentId] }])
 }
 
 export function TaskStartDialog() {
@@ -1735,6 +1882,7 @@ export function TaskStartDialog() {
   const pick = useStartPick(project)
   const action = useBusy()
   const { setError: setStartError } = action
+  useLanguage()
 
   useEffect(() => {
     if (n === null || !project) return
@@ -1747,8 +1895,19 @@ export function TaskStartDialog() {
   const close = (): void => set({ taskStartFor: null })
   if (!project) {
     return (
-      <Modal title={`Start #${card.number}`} icon="play" onClose={close} footer={<button className="btn primary" onClick={close}>OK</button>}>
-        <p>{card.project ? `${card.project} isn't a project in this workspace.` : 'The card has no project.'} Give it a project first: its agent works there.</p>
+      <Modal
+        title={tr(msg({ id: 'board.start.titleShort', defaultMessage: 'Start #{card}', description: "Title of the Start dialog when the card can't start: {card} is its number (after #)." }), { card: card.number })}
+        icon="play"
+        onClose={close}
+        footer={
+          <button className="btn primary" onClick={close}>
+            {tr(msg({ id: 'board.start.ok', defaultMessage: 'OK', description: 'Button: closes the Start dialog of a card that has no project.' }))}
+          </button>
+        }
+      >
+        <p>
+          {card.project ? tr(msg({ id: 'board.start.projectGone', defaultMessage: "{project} isn't a project in this workspace.", description: "Why a card can't start: its project ({project}) isn't in the workspace." }), { project: card.project }) : tr(msg({ id: 'board.start.noProject', defaultMessage: 'The card has no project.', description: "Why a card can't start: it belongs to no project." }))} {tr(NEEDS_PROJECT)}
+        </p>
       </Modal>
     )
   }
@@ -1765,7 +1924,7 @@ export function TaskStartDialog() {
 
   return (
     <Modal
-      title={`Start #${card.number}: ${card.title}`}
+      title={tr(msg({ id: 'board.start.title', defaultMessage: 'Start #{card}: {title}', description: "Title of the Start dialog: the card's number (after #) and title." }), { card: card.number, title: card.title })}
       icon="play"
       onClose={close}
       busy={!!action.busy}
@@ -1773,17 +1932,15 @@ export function TaskStartDialog() {
       footer={
         <>
           <button className="btn subtle" onClick={close}>
-            Cancel
+            {tr(CANCEL)}
           </button>
-          <BusyButton className="primary" busy={action.busy === 'start'} busyLabel={pick.choice?.kind === 'worktree' ? 'Creating the worktree…' : 'Starting…'} disabled={!pick.ready} onClick={() => void go()}>
-            <Icon name="play" /> {action.error ? 'Try Again' : 'Start'}
+          <BusyButton className="primary" busy={action.busy === 'start'} busyLabel={pick.choice?.kind === 'worktree' ? tr(CREATING_WORKTREE) : tr(STARTING)} disabled={!pick.ready} onClick={() => void go()}>
+            <Icon name="play" /> {action.error ? tr(TRY_AGAIN) : tr(START)}
           </BusyButton>
         </>
       }
     >
-      <p style={{ marginTop: 0 }}>
-        The agent gets the card as its prompt (title and description), and the card moves to Doing. A stopped agent starts a new conversation; an idle one gets it as its next message.
-      </p>
+      <p style={{ marginTop: 0 }}>{tr(msg({ id: 'board.start.intro', defaultMessage: 'The agent gets the card as its prompt (title and description), and the card moves to Doing. A stopped agent starts a new conversation; an idle one gets it as its next message.', description: 'At the top of the Start dialog. Doing is a board column.' }))}</p>
       <StartChoices project={project} pick={pick} />
     </Modal>
   )
@@ -1811,7 +1968,7 @@ export function moveToDoing(req: DoingRequest): void {
       await loadTasks()
       req.done?.()
     } catch (e) {
-      notify('error', 'Could not move the card', errorMessage(e))
+      notify('error', tr(MOVE_FAILED), errorMessage(e))
       await loadTasks()
     }
   })()
@@ -1826,6 +1983,7 @@ export function MoveToDoingDialog() {
   const pick = useStartPick(project)
   const action = useBusy()
   const { setError } = action
+  useLanguage()
 
   useEffect(() => {
     if (!req) return
@@ -1843,7 +2001,7 @@ export function MoveToDoingDialog() {
   const assignable = project.agents.some((a) => a.id === assignee)
   const ready = mode === 'nobody' || (mode === 'assign' ? assignable : pick.ready)
   const before = req.before !== undefined ? { before: req.before } : {}
-  const holder = req.agent ? (project.agents.find((a) => a.id === req.agent)?.name ?? card.agentName ?? 'its agent') : null
+  const holder = req.agent ? (project.agents.find((a) => a.id === req.agent)?.name ?? card.agentName ?? tr(ITS_AGENT)) : null
 
   const go = async (): Promise<void> => {
     if (!ready) return
@@ -1874,11 +2032,11 @@ export function MoveToDoingDialog() {
       </div>
     </label>
   )
-  const label = action.error ? 'Try Again' : mode === 'start' ? 'Start' : 'Move to Doing'
+  const label = action.error ? tr(TRY_AGAIN) : mode === 'start' ? tr(START) : tr(msg({ id: 'board.doing.button', defaultMessage: 'Move to Doing', description: 'The Move to Doing dialog\'s button: moves the card into the Doing column (a board column).' }))
 
   return (
     <Modal
-      title={`Move #${card.number} to Doing`}
+      title={tr(msg({ id: 'board.doing.title', defaultMessage: 'Move #{card} to Doing', description: 'Title of the Move to Doing dialog: {card} is the card\'s number (after #). Doing is a board column.' }), { card: card.number })}
       icon="arrow-right"
       onClose={close}
       busy={!!action.busy}
@@ -1886,9 +2044,9 @@ export function MoveToDoingDialog() {
       footer={
         <>
           <button className="btn subtle" onClick={close}>
-            Cancel
+            {tr(CANCEL)}
           </button>
-          <BusyButton className="primary" busy={!!action.busy} busyLabel={mode === 'start' ? (pick.choice?.kind === 'worktree' ? 'Creating the worktree…' : 'Starting…') : 'Moving…'} disabled={!ready} onClick={() => void go()}>
+          <BusyButton className="primary" busy={!!action.busy} busyLabel={mode === 'start' ? (pick.choice?.kind === 'worktree' ? tr(CREATING_WORKTREE) : tr(STARTING)) : tr(msg({ id: 'board.doing.moving', defaultMessage: 'Moving…', description: 'The Move to Doing button while the card is being moved.' }))} disabled={!ready} onClick={() => void go()}>
             {mode === 'start' && <Icon name="play" />} {label}
           </BusyButton>
         </>
@@ -1898,21 +2056,21 @@ export function MoveToDoingDialog() {
         <strong>{card.title}</strong> · {project.name}
       </p>
       <div className="choice-list doing-modes">
-        {row('nobody', 'circle-large-outline', 'Nobody yet', holder ? `Moves it with no agent. Takes it from ${holder}.` : 'Moves it with no agent.')}
-        {row('assign', 'person', 'Assign an agent', project.agents.length ? 'Gives it to an agent of the project. Nothing is sent to the agent and nothing starts.' : 'The project has no agents yet.', !project.agents.length)}
+        {row('nobody', 'circle-large-outline', tr(NOBODY_YET), holder ? tr(msg({ id: 'board.doing.nobodyFrom', defaultMessage: 'Moves it with no agent. Takes it from {agent}.', description: 'Under "Nobody yet" in the Move to Doing dialog, when the card has an agent ({agent}, its name).' }), { agent: holder }) : tr(msg({ id: 'board.doing.nobody', defaultMessage: 'Moves it with no agent.', description: 'Under "Nobody yet" in the Move to Doing dialog.' })))}
+        {row('assign', 'person', tr(msg({ id: 'board.doing.assign', defaultMessage: 'Assign an agent', description: 'A choice in the Move to Doing dialog: give the card to an agent without starting anything.' })), project.agents.length ? tr(msg({ id: 'board.doing.assignText', defaultMessage: 'Gives it to an agent of the project. Nothing is sent to the agent and nothing starts.', description: 'Under "Assign an agent" in the Move to Doing dialog.' })) : tr(msg({ id: 'board.doing.noAgents', defaultMessage: 'The project has no agents yet.', description: 'Under "Assign an agent" in the Move to Doing dialog (off) when the project has no agents.' })), !project.agents.length)}
         {mode === 'assign' && (
           <div className="agent-form nested doing-sub">
-            <label>Agent</label>
+            <label>{tr(msg({ id: 'board.doing.agent', defaultMessage: 'Agent', description: 'A field label in the Move to Doing dialog: which agent gets the card.' }))}</label>
             <select className="select" value={assignee} onChange={(e) => setAssignee(e.target.value)}>
               {project.agents.map((a) => (
                 <option key={a.id} value={a.id}>
-                  {a.name} ({a.live ? statusText(a.live) : 'Stopped'})
+                  {tr(msg({ id: 'board.doing.agentStatus', defaultMessage: '{agent} ({status})', description: "An agent in the Move to Doing dialog's agent choice, with what it is doing ({status}: \"Working…\", \"Stopped\")." }), { agent: a.name, status: a.live ? statusText(a.live) : tr(msg({ id: 'board.doing.stopped', defaultMessage: 'Stopped', description: "An agent's state in the Move to Doing dialog's agent choice: its session isn't running." })) })}
                 </option>
               ))}
             </select>
           </div>
         )}
-        {row('start', 'play', 'Assign and start', 'The agent gets the card as its prompt: a stopped one starts a new conversation, an idle one gets it as its next message.')}
+        {row('start', 'play', tr(msg({ id: 'board.doing.start', defaultMessage: 'Assign and start', description: 'A choice in the Move to Doing dialog: give the card to an agent and start it on the card.' })), tr(msg({ id: 'board.doing.startText', defaultMessage: 'The agent gets the card as its prompt: a stopped one starts a new conversation, an idle one gets it as its next message.', description: 'Under "Assign and start" in the Move to Doing dialog.' })))}
         {mode === 'start' && (
           <div className="doing-sub">
             <StartChoices project={project} pick={pick} />

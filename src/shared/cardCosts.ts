@@ -1,5 +1,6 @@
 import type { AppSettings, SessionUsage, TaskCard, TaskColumn, TaskHold, UsageTokens } from './types'
 import { estimateCost, usesOwnPrices } from './prices'
+import { fmt, msg, tr } from './i18n'
 import { TASK_COLUMNS } from './tasks'
 import { reviewRounds } from './laneBar'
 import { costText, money } from './usageTotals'
@@ -79,7 +80,7 @@ export function holdsFromHistory(card: Pick<TaskCard, 'history' | 'agent' | 'age
       if (created && column === 'doing' && card.agentName) builder = card.agentName
       if (moved) column = COLUMN_BY_LABEL.get(moved[1].toLowerCase()) ?? column
       if (part.startsWith('Returned for review')) column = 'review'
-      if (part.startsWith('Given to ')) builder = part.slice('Given to '.length).trim()
+      if (part.startsWith('Given to ')) builder = part.slice('Given to '.length).trim() // i18n-ignore: card history, stored in English
       if (part.startsWith('Taken from ')) builder = null
       if (part.startsWith('Started reviewing')) reviewer = agentNamed(h.by)
       if (/^Review (passed|failed)/.test(part) || /^Review by .* stopped/.test(part)) reviewer = null
@@ -373,30 +374,29 @@ export function partCost(p: CostPart): string {
   return costText({ cost: p.cost, estimated: p.estimated, priced: p.priced, unpriced: p.unpriced })
 }
 
-/** "cost: ≈ $1.84 · 2 rounds" (the card's own line). */
+/** "cost: ≈ $1.84 · 2 rounds" (the card's own line), in the window's language (#798). */
 export function cardCostLine(c: CardCost): string {
-  const rounds = c.rounds ? ` · ${c.rounds} round${c.rounds === 1 ? '' : 's'}` : ''
-  return `cost: ${partCost(c.total)}${rounds}`
+  return tr(msg({ id: 'board.cost.cardLine', defaultMessage: 'cost: {cost}{rounds, plural, =0 {} one { · # round} other { · # rounds}}', description: "A card's cost on the board, under its title: what its agents used ({cost}: \"≈ $1.84\", \"Unknown\"), then how many review rounds it has had (none: leave that branch empty). Lower case: it reads as a note." }), { cost: partCost(c.total), rounds: c.rounds })
 }
 
-const tok = (n: number): string => (n >= 1_000_000 ? `${(n / 1_000_000).toFixed(1)}M` : n >= 1000 ? `${Math.round(n / 1000)}K` : String(Math.round(n)))
+/** A token count in a few characters: "30", "12K", "1.2M" (compact, in the window's language). */
+const tok = (n: number): string => fmt.number(Math.round(n), { notation: 'compact', maximumFractionDigits: 1 })
 
 /**
  * A part's tokens in words, for a hover: "in 12K · out 3K · cache write 40K · cache read 1.2M · 31 requests"; "≈ " when
  * some are Hive's share of a total, "+ unknown" when some aren't known, "tokens unknown" when none are.
  */
 export function partTokens(p: CostPart): string {
-  if (!p.priced && !p.unpriced && !p.tokensUnknown) return 'nothing used'
+  if (!p.priced && !p.unpriced && !p.tokensUnknown) return tr(msg({ id: 'board.cost.nothingUsed', defaultMessage: 'nothing used', description: "A card's or lane's token use, in a cost hover: no tokens at all. Lower case: it follows a cost." }))
   const known = p.inputTokens + p.outputTokens + p.cacheWriteTokens + p.cacheReadTokens > 0
   const requests = Math.round(p.requests)
-  const count = requests ? ` · ${requests} request${requests === 1 ? '' : 's'}` : ''
-  if (p.tokensUnknown && !known) return `tokens unknown${count}`
-  const tokens = `${p.tokensEstimated ? '≈ ' : ''}in ${tok(p.inputTokens)} · out ${tok(p.outputTokens)} · cache write ${tok(p.cacheWriteTokens)} · cache read ${tok(p.cacheReadTokens)}`
-  return `${tokens}${p.tokensUnknown ? ' + unknown' : ''}${count}`
+  if (p.tokensUnknown && !known) return tr(msg({ id: 'board.cost.tokensUnknown', defaultMessage: 'tokens unknown{requests, plural, =0 {} one { · # request} other { · # requests}}', description: "A card's or lane's token use, in a cost hover: the provider didn't say how many tokens, then how many requests (none: leave that branch empty). Lower case: it follows a cost." }), { requests })
+  const values = { input: tok(p.inputTokens), output: tok(p.outputTokens), cacheWrite: tok(p.cacheWriteTokens), cacheRead: tok(p.cacheReadTokens), estimated: p.tokensEstimated ? 'yes' : 'no', unknown: p.tokensUnknown ? 'yes' : 'no', requests }
+  return tr(msg({ id: 'board.cost.tokens', defaultMessage: '{estimated, select, yes {≈ } other {}}in {input} · out {output} · cache write {cacheWrite} · cache read {cacheRead}{unknown, select, yes { + unknown} other {}}{requests, plural, =0 {} one { · # request} other { · # requests}}', description: "A card's or lane's token use, in a cost hover: input, output, cache write and cache read tokens (\"12K\"); ≈ first when some are Hive's estimate; + unknown when some aren't known; then how many requests (none: leave that branch empty). Lower case: it follows a cost." }), values)
 }
 
-/** Cost per finished card ("≈ $2.10 a card"), when any finished and the cost is known. */
+/** Cost per finished card ("≈ $2.10 a finished card"), when any finished and the cost is known. */
 export function perFinished(l: LaneCost): string | null {
   if (!l.finished || !l.total.priced) return null
-  return `${l.total.estimated ? '≈ ' : ''}${money(l.total.cost / l.finished)}${l.total.unpriced ? ' + ?' : ''} a finished card`
+  return tr(msg({ id: 'board.cost.perFinished', defaultMessage: '{estimated, select, yes {≈ } other {}}{cost}{unpriced, select, yes { + ?} other {}} a finished card', description: "A lane's cost per finished card ({cost}: \"$2.10\"), in its cost hover (Progress panel): ≈ first when it is an estimate, + ? when some usage couldn't be priced." }), { cost: money(l.total.cost / l.finished), estimated: l.total.estimated ? 'yes' : 'no', unpriced: l.total.unpriced ? 'yes' : 'no' })
 }
