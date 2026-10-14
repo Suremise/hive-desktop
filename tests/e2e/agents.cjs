@@ -133,6 +133,10 @@ const shot = (page, n) => page.screenshot({ path: path.join(scratch, `agents-${n
   const [h1, h2] = [hooks[l1.sessionId], hooks[l2.sessionId]]
   check("another launch's token is refused", (await post({ url: h1.url, token: h2.token }, { session_id: l1.sessionId, hook_event_name: 'Notification' })).status === 401)
   check('a call naming no launch is refused', (await post({ url: h1.url.replace(/\?.*/, ''), token: h1.token }, { session_id: l1.sessionId, hook_event_name: 'Notification' })).status === 401)
+  // Hive's log says so, once each (#711): a hook a CLI sent but Hive refused leaves a trace on Hive's side.
+  const hiveLog = () => fs.readFileSync(path.join(userData, 'logs', 'hive.log'), 'utf8')
+  const refusedLines = () => hiveLog().split('\n').filter((x) => x.includes('Refused a hook call'))
+  check("Hive's log tells of each refused hook call, and why", !!(await lib.until(() => refusedLines().some((x) => x.includes(`run ${l1.runId}: its token didn't match`)) && refusedLines().some((x) => x.includes('named no launch')), 10000)), refusedLines().join(' | '))
   const file = path.join(proj, 'app.txt')
   const pre = (sid, f = file, tool = 'Edit') => hook({ session_id: sid, hook_event_name: 'PreToolUse', tool_name: tool, tool_input: { file_path: f }, cwd: proj })
   let r = await pre(l1.sessionId)
