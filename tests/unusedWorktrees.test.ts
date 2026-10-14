@@ -44,7 +44,15 @@ const { placeKey, withFileLock } = await import('../src/main/fsutil')
 // heavier load. So each test is bounded by GIT_HUNG_MS rather than the suite's 20 s: only a hung git takes a minute.
 const GIT_HUNG_MS = 60_000
 vi.setConfig({ testTimeout: GIT_HUNG_MS })
-const git = (cwd: string, ...a: string[]): string => execFileSync('git', ['-c', 'user.email=t@t', '-c', 'user.name=t', '-c', 'core.autocrlf=false', ...a], { cwd, encoding: 'utf8' })
+/** A failure says what git said (#864: "nothing to commit" is on stdout, a lock or a fatal error on stderr). */
+const git = (cwd: string, ...a: string[]): string => {
+  try {
+    return execFileSync('git', ['-c', 'user.email=t@t', '-c', 'user.name=t', '-c', 'core.autocrlf=false', ...a], { cwd, encoding: 'utf8', stdio: 'pipe' })
+  } catch (e) {
+    const { stdout, stderr } = e as { stdout?: string; stderr?: string }
+    throw new Error(`git ${a.join(' ')} failed in ${cwd}:\n${[stderr, stdout].map((s) => s?.trim()).filter(Boolean).join('\n')}`, { cause: e })
+  }
+}
 const wsPath = join(base, 'ws')
 const proj = join(wsPath, 'proj')
 const root = join(base, 'ws.worktrees', 'proj')
@@ -338,7 +346,8 @@ describe('Remove anyway', () => {
 
   it('refuses after an ignored file changes', async () => {
     const t = await tree(`ignored${++n}`)
-    commit(t.path, '.gitignore')
+    // Not commit(t.path, '.gitignore'): its ".gitignore" line ignores the file itself, so that commit had nothing of its
+    // own and failed whenever git's index didn't make it rehash a.txt (#864).
     writeFileSync(join(t.path, '.gitignore'), '*.log\n')
     git(t.path, 'add', '-A')
     git(t.path, 'commit', '-qm', 'ignore logs')
