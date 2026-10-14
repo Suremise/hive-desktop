@@ -1,0 +1,11 @@
+{
+  "prop|text|Windows won't let Hive's windows read {} Its permissions have an entry for an app package but none for ALL APPLICATION PACKAGES, which Hive's sandboxed windows need, and Hive couldn't add one. {}": 1,
+  "prop|title|Hive can't start": 1,
+  "prose|call|{} {} (Ctrl+C copies this message.)": 1,
+  "prose|return|{}; icacls {} /grant {}": 1,
+  "prose|var|Run this command in PowerShell (as an administrator if you don't own the folder), then start Hive again:": 1,
+  "prose|var|Run this command in PowerShell (as an administrator if you don't own them): it adds the entry to the folder and to the file. Then start Hive again:": 1,
+  "prose|var|a file in the folder Hive is installed in: {}": 1,
+  "prose|var|icacls {} /grant {}": 1,
+  "prose|var|the folder Hive is installed in: {}": 1
+}

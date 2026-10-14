@@ -1,0 +1,19 @@
+{
+  "prop|text|No coding agent CLI is installed — Help → Agent Setup": 1,
+  "prop|text|No coding agents are turned on — Settings → Providers": 1,
+  "prop|text|{} is turned off — Settings → Providers": 1,
+  "prop|text|{} isn't installed — Help → Agent Setup": 1,
+  "prose|call|{} input + {} output of the last turn (thinking included)": 1,
+  "prose|prop:other|Agent": 1,
+  "prose|prop:text|Unknown provider": 2,
+  "prose|return|Automatic": 1,
+  "prose|return|Automatic (checking…)": 1,
+  "prose|return|Automatic ({})": 1,
+  "prose|return|Hive passes the task after \"--\"; remove it from extra arguments. For an option whose value is \"--\", write --option=--.": 1,
+  "prose|return|{} compacts by itself at about {} by default (its settings can change this)": 1,
+  "prose|return|{} compacts by itself at about {}, its default for this window{}{}": 1,
+  "prose|return|{} compacts by itself at about {}: its auto-compact window is {} ({}){}": 1,
+  "prose|return|{} doesn't compact by itself: auto-compaction is off ({}){}": 1,
+  "prose|var|Context: {} tokens{}": 1,
+  "prose|var|of {}": 1
+}

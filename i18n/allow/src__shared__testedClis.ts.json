@@ -1,0 +1,11 @@
+{
+  "prose|return|Hive couldn't tell which version is installed, so it can't compare it with the tested one.": 1,
+  "prose|return|Older than tested; consider updating.": 1,
+  "prose|return|Tested with {} · {}": 1,
+  "prose|return|This version came out after this Hive release was tested. Most updates work; if something behaves oddly, report it (Copy Diagnostics).": 1,
+  "prose|return|installed version unknown": 1,
+  "prose|return|installed {}": 1,
+  "prose|return|the tested version": 1,
+  "prose|return|version unknown": 1,
+  "prose|return|{} than tested": 1
+}

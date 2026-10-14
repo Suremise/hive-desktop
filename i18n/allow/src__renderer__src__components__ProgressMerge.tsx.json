@@ -1,0 +1,14 @@
+{
+  "jsx-attr|aria-label|Merging": 1,
+  "jsx-attr|content|Release the merge slot {}, if it is stuck": 1,
+  "jsx-attr|content|your merge holds": 1,
+  "jsx-attr|content|{} holds": 1,
+  "jsx-attr|title|Fold the merge to one line": 1,
+  "jsx-attr|title|Show the merge in full": 1,
+  "jsx-text||Release": 1,
+  "jsx-text||Waiting:": 1,
+  "jsx-text||into": 1,
+  "prose|call|progress-merge-time faint": 1,
+  "prose|var|over its time": 1,
+  "prose|var|{} so far · {}": 1
+}

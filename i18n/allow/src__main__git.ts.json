@@ -1,0 +1,8 @@
+{
+  "prose|call|git diff": 1,
+  "prose|call|git merge-base {}": 1,
+  "prose|call|git status": 1,
+  "prose|error|Path is outside the project": 2,
+  "prose|error|exit code {}": 1,
+  "prose|prop:other|File is too large to diff ({} KB).": 1
+}

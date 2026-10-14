@@ -1,0 +1,13 @@
+{
+  "call|toast|{} exited with code {}": 1,
+  "call|toast|{} finished": 1,
+  "call|toast|{}: Hive couldn't find {}. Do it in the terminal, or update Hive.": 1,
+  "call|toast|{}: Hive stopped typing into it, as {}. Finish it in the terminal.": 1,
+  "prose|error|Hive is still looking for {}. Try again in a moment.": 1,
+  "prose|error|Stop all running {} agents before updating it.": 1,
+  "prose|error|{} has no setup task.": 1,
+  "prose|error|{} is not installed.": 1,
+  "prose|return|it stayed busy for 30 seconds": 1,
+  "prose|return|its terminal closed": 1,
+  "prose|var|the coding agent CLIs": 1
+}

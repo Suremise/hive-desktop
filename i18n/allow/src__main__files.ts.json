@@ -1,0 +1,15 @@
+{
+  "prose|error|\"{}\" already exists": 2,
+  "prose|error|\"{}\" already exists in {}": 1,
+  "prose|error|\"{}\" is not a valid name": 1,
+  "prose|error|A name is required": 1,
+  "prose|error|Another program has one of these files open. Close it, then try again.": 1,
+  "prose|error|Another program has this file open. Close it, then try again.": 1,
+  "prose|error|Cannot put \"{}\" inside itself": 1,
+  "prose|error|Not a session attachment": 1,
+  "prose|error|Not one of the session attachments Hive keeps.": 2,
+  "prose|error|Path is outside the project": 1,
+  "prose|error|Path leads outside the project (through a link)": 1,
+  "prose|error|This action needs a file or folder inside the project": 1,
+  "prose|error|the project root": 1
+}

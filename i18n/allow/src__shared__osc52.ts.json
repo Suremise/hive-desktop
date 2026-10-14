@@ -1,0 +1,6 @@
+{
+  "prop|reason|invalid": 2,
+  "prop|reason|not-in-use": 1,
+  "prop|reason|read": 1,
+  "prop|reason|too-large": 2
+}

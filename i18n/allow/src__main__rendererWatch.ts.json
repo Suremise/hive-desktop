@@ -1,0 +1,14 @@
+{
+  "prop|detail|{} Wait for it, or reload it.": 1,
+  "prop|message|Hive's window isn't responding.": 1,
+  "prop|message|Hive's window stopped working.": 1,
+  "prop|title|Hive's window stopped and was reloaded": 1,
+  "prose|prop:text|Open Logs": 1,
+  "prose|prop:text|Quit Hive": 1,
+  "prose|prop:text|Reload": 2,
+  "prose|prop:text|Wait": 1,
+  "prose|return|Your agents kept running.{}": 1,
+  "prose|var|Unsaved changes to {} were lost.": 1,
+  "prose|var|Your agents are still running: reloading the window reconnects to them.": 1,
+  "prose|var|one file": 1
+}

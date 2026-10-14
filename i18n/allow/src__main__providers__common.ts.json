@@ -1,0 +1,20 @@
+{
+  "prose|assign|Task: {}": 1,
+  "prose|call|it could not be copied": 1,
+  "prose|call|the skills could not be copied": 1,
+  "prose|error|{} has to run through cmd.exe, which takes a command line of at most {} characters, and this launch needs about {}. Set the CLI's path in Settings to its .exe (or install the standalone CLI), which has no such limit.": 1,
+  "prose|prop:other|a folder of the user's in .agents/skills is named {}": 1,
+  "prose|prop:other|it could not be copied": 1,
+  "prose|prop:other|it could not be copied{}, so it kept its old copy": 1,
+  "prose|prop:other|its copy could not be read": 1,
+  "prose|prop:other|its old copy was in use, so it kept that one": 1,
+  "prose|prop:other|{}, so it kept its old copy": 1,
+  "prose|return|{} -s -m {} -X POST -H \"@{}\" -H \"Content-Type: application/json\" --data-binary \"@-\" \"{}\"": 1,
+  "prose|var|) ELSE (": 1,
+  "prose|var|GOTO start": 1,
+  "prose|var|IF EXIST \"%dp0%\\node.exe\" (": 1,
+  "prose|var|SET \"_prog=%dp0%\\node.exe\"": 1,
+  "prose|var|SET \"_prog=node\"": 1,
+  "prose|var|SET PATHEXT=%PATHEXT:;.JS;=;%": 1,
+  "prose|var|SET dp0=%~dp0": 1
+}

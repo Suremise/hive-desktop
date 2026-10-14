@@ -1,0 +1,17 @@
+{
+  "prose|return|It has no agents.": 1,
+  "prose|return|It has {} agents, and this project can have up to {} (Settings → Advanced → Agents per project).": 1,
+  "prose|return|It has {} agents; a project can have up to {}.": 1,
+  "prose|return|It isn't a Hive agent template (no version).": 1,
+  "prose|return|It isn't a Hive agent template.": 1,
+  "prose|return|It was made by a newer version of Hive: update Hive to use it.": 1,
+  "prose|return|Its name is missing or longer than {} characters.": 1,
+  "prose|return|Two agents are called \"{}\".": 1,
+  "prose|return|{} has no name (or one over 60 characters).": 1,
+  "prose|return|{}'s MCP servers aren't a list Hive can use.": 1,
+  "prose|return|{}'s coding agent isn't one Hive can use ({}).": 1,
+  "prose|return|{}'s context setting isn't one Hive can use.": 1,
+  "prose|return|{}'s role is over {} characters.": 1,
+  "prose|return|{}'s {} isn't one Hive can use.": 1,
+  "prose|var|Agent {}": 1
+}

@@ -1,0 +1,13 @@
+{
+  "prose|return|A {} {} ran for another session, not a conversation of its own: it can't be resumed.": 1,
+  "prose|return|It is running now.": 1,
+  "prose|return|It ran in a worktree no agent uses any more ({}). Add an agent for that worktree to resume it.": 1,
+  "prose|return|Neither {} nor Hive has its transcript any more, so there is nothing to resume.": 1,
+  "prose|return|No agent works in the project folder, and the project has no room for another agent.": 1,
+  "prose|return|{} is turned off. Turn it on in Settings → Providers to resume it.": 1,
+  "prose|return|{} isn't installed. Set it up in Agent Setup to resume it.": 1,
+  "prose|return|{} was removed: Resume adds a {} agent for it.": 1,
+  "prose|return|{} was removed: it resumes in {}.": 1,
+  "prose|var|Its agent": 1,
+  "prose|var|Its agent {}": 1
+}

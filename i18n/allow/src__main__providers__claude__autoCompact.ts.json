@@ -1,0 +1,20 @@
+{
+  "prop|label|--settings": 2,
+  "prop|label|--settings {}": 1,
+  "prose|call|Claude Code's settings.json": 1,
+  "prose|call|it isn't a file": 2,
+  "prose|call|it's over Claude Code's 2 MiB limit": 2,
+  "prose|call|managed settings": 1,
+  "prose|call|the project's .claude/settings.json": 1,
+  "prose|call|the project's .claude/settings.local.json": 1,
+  "prose|prop:other|an estimate: {}": 1,
+  "prose|prop:other|autoCompactEnabled: false in {}": 1,
+  "prose|prop:other|couldn't be read ({})": 1,
+  "prose|prop:other|isn't a list Claude Code takes (user, project, local)": 1,
+  "prose|prop:other|may stop Claude Code reading some settings files": 1,
+  "prose|prop:other|{} in {}": 1,
+  "prose|prop:other|{}: \"auto\" in {}": 1,
+  "prose|prop:other|{}; and {}": 1,
+  "prose|return|{} (env in {})": 1,
+  "prose|var|an estimate: managed policies Hive can't read, such as Windows registry policies or your organisation's server-managed settings, could change it": 1
+}

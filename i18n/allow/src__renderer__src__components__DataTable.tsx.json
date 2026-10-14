@@ -1,0 +1,18 @@
+{
+  "jsx-attr|aria-label|Filter {}": 2,
+  "jsx-attr|aria-label|Pages": 1,
+  "jsx-attr|aria-label|Select all {} {}rows": 1,
+  "jsx-attr|aria-label|matching": 1,
+  "jsx-attr|placeholder|Filter": 1,
+  "jsx-attr|title|First page": 1,
+  "jsx-attr|title|Last page": 1,
+  "jsx-attr|title|Next page": 1,
+  "jsx-attr|title|Previous page": 1,
+  "jsx-attr|title|Sort by {}": 1,
+  "jsx-text||All": 1,
+  "jsx-text||Clear filters": 1,
+  "jsx-text||No rows match the filters.": 1,
+  "jsx-text||Page": 1,
+  "jsx-text||Rows per page": 1,
+  "jsx-text||of": 2
+}

@@ -1,0 +1,5 @@
+{
+  "prose|error|Not a session folder name.": 1,
+  "prose|error|{} is a link or not a folder of the project's own, so Hive keeps no attachments in it.": 1,
+  "prose|error|{} is not a record of moved files": 1
+}

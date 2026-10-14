@@ -1,0 +1,11 @@
+{
+  "call|attempt|Could not attach": 2,
+  "prop|confirmLabel|Attach": 1,
+  "prop|confirmLabel|Attach All": 1,
+  "prop|detail|An agent may not manage a file this large: its CLI can refuse it, or reading it can fill much of its context.{}": 1,
+  "prop|detail|Hive keeps a copy with the session.": 1,
+  "prop|message|\"{}\" is {}.": 1,
+  "prop|message|These files are over {}:": 1,
+  "prop|title|Attach a large file?": 1,
+  "prop|title|Attach {} large files?": 1
+}
