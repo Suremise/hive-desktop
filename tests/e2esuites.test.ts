@@ -109,6 +109,7 @@ describe('the suites a change needs (affected.mjs)', () => {
     expect(affectedSuites(['tests/e2e/carddialog.cjs', 'docs/SPEC.md', 'CHANGELOG.md'], names).suites).toEqual(['about', 'carddialog'])
     expect(affectedSuites(['docs/USER_GUIDE.md'], names).suites).toEqual(['about', 'tipcorner', 'tips'])
     expect(affectedSuites(['README.md'], names).suites).toEqual([])
+    expect(affectedSuites(['CONTRIBUTING.md'], names)).toEqual({ suites: [], why: [] })
   })
 
   it('maps runtime resources and every user of a shared test helper (review round 1)', () => {

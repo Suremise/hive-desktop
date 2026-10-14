@@ -266,7 +266,7 @@ export function under(file, paths) {
  * .agents/skills, are neither shipped nor read by the app; Hive's own copies there are git-ignored), and the unit tests
  * (npm test runs those).
  */
-export const DOCS_ONLY = ['README.md', 'AGENTS.md', 'CLAUDE.md', 'RELEASING.md', 'tests/README.md', 'tests/e2e/README.md', 'tests/scenarios/', 'reference/', '.gitattributes', '.gitignore', '.claude/skills/', '.agents/skills/']
+export const DOCS_ONLY = ['README.md', 'CONTRIBUTING.md', 'AGENTS.md', 'CLAUDE.md', 'RELEASING.md', 'tests/README.md', 'tests/e2e/README.md', 'tests/scenarios/', 'reference/', '.gitattributes', '.gitignore', '.claude/skills/', '.agents/skills/']
 
 /** Fixtures the fake CLIs answer with too (#125): a change to one needs the suites its area names, not only npm test. */
 const FAKE_FIXTURES = ['tests/fixtures/claude-initialize.json', 'tests/fixtures/codex-debug-models.json']
