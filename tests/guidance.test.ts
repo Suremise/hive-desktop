@@ -115,6 +115,27 @@ describe('the bundled skills', () => {
       }
     }
   })
+
+  // A question for the user blocks the card as well as telling them (#840): a lane watch wakes on a card becoming
+  // blocked, never on a comment, so a reviewer's question left as a comment sat unseen for over an hour (#805).
+  it("stop for the user's answer by blocking the card and telling them, then clear it once they decide", () => {
+    const line = (skill: string, starts: string): string => catalog.get(skill)!.text.split(/\r?\n/).find((l) => l.includes(starts)) ?? ''
+    for (const [skill, starts] of [
+      ['card-loop', '**Stop and ask**'],
+      ['review-agent-work', '**A question only the user can answer**'],
+      ['work-on-card', '**A question only the user can answer**']
+    ]) {
+      const rule = line(skill, starts)
+      expect(rule, `${skill}: ${starts}`).not.toBe('')
+      expect(rule, skill).toMatch(/set `blocked`/)
+      expect(rule, skill).toMatch(/hive_notify/)
+      expect(rule, skill).toMatch(/clear `blocked`/)
+    }
+    // An archived or deleted card can't be changed by an agent (only the user brings it back): telling the user is all.
+    expect(line('card-loop', '**Stop and ask**')).toMatch(/archived or gone can't be changed: `hive_notify` alone, and leave it as it is/)
+    // Blocked where it is: a builder at its round limit moved its card to Doing first (Codex, following work-on-card).
+    expect(line('card-loop', '**Stop and ask**')).toMatch(/blocked` on the card where it is \([^)]*no move/)
+  })
 })
 
 describe("Hive's development skills", () => {

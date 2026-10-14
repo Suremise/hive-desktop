@@ -3,8 +3,10 @@
 // (HIVE_TEST_REGISTRY_PATH: test copies never read the machine's). Then the suite "installs" the fake Codex as an
 // installer does: a folder of its own with codex.cmd, added to the registry's PATH (the stand-in, changed in Hive's main
 // process while it runs). Agent Setup's Check again finds it there (via PATH), Hive's own PATH has the folder, and a new
-// Codex agent starts with it, its session's PATH holding the folder too. No real CLI is installed: the fake Codex is
-// tests/e2e/fake-codex. Throwaway profile, workspace and CODEX_HOME; quiet.
+// Codex agent starts with it, its session's PATH holding the folder too. Then a tool is "installed" the same way with no
+// Check again (#821): a Sign in task's terminal and the agent started again after it get its folder, as Hive reads the
+// registry's PATH before it starts a process. No real CLI is installed: the fake Codex is tests/e2e/fake-codex.
+// Throwaway profile, workspace and CODEX_HOME; quiet.
 const lib = require('./lib.cjs')
 const fs = require('fs')
 const path = require('path')
@@ -14,6 +16,8 @@ const ws = path.join(lib.WORK, 'freshpath-ws')
 const codexHome = path.join(lib.WORK, 'freshpath-codex-home')
 // The "install" folder, with codex.cmd (a one-line launcher, as npm makes) and its script.
 const bin = path.join(lib.WORK, 'freshpath-bin')
+// A tool's folder, installed later outside Hive (#821).
+const tool = path.join(lib.WORK, 'freshpath-tool')
 const seen = path.join(lib.WORK, 'freshpath-seen.jsonl')
 const alpha = path.join(ws, 'alpha')
 // The fake's version, so Agent Setup's answer is known to be this copy.
@@ -35,16 +39,17 @@ function pathWithoutCodex() {
 }
 
 ;(async () => {
-  for (const d of [userData, ws, codexHome, bin]) fs.rmSync(d, { recursive: true, force: true })
+  for (const d of [userData, ws, codexHome, bin, tool]) fs.rmSync(d, { recursive: true, force: true })
   fs.rmSync(seen, { force: true })
   fs.mkdirSync(bin, { recursive: true })
+  fs.mkdirSync(tool, { recursive: true })
   fs.mkdirSync(codexHome, { recursive: true })
   fs.writeFileSync(path.join(codexHome, 'config.toml'), '[windows]\nsandbox = "unelevated"\n')
   // Notes each run's first argument and whether its PATH has the folder, then is the fake Codex.
   const fake = path.join(__dirname, 'fake-codex', 'fake-codex.cjs')
   fs.writeFileSync(
     path.join(bin, 'codex.cjs'),
-    `const fs = require('fs')\nconst p = process.env.PATH ?? process.env.Path ?? ''\nfs.appendFileSync(${JSON.stringify(seen)}, JSON.stringify({ arg: process.argv[2] ?? '', hasBin: p.toLowerCase().split(';').includes(${JSON.stringify(bin.toLowerCase())}) }) + '\\n')\nrequire(${JSON.stringify(fake)})\n`
+    `const fs = require('fs')\nconst p = process.env.PATH ?? process.env.Path ?? ''\nfs.appendFileSync(${JSON.stringify(seen)}, JSON.stringify({ arg: process.argv[2] ?? '', hasBin: p.toLowerCase().split(';').includes(${JSON.stringify(bin.toLowerCase())}), hasTool: p.toLowerCase().split(';').includes(${JSON.stringify(tool.toLowerCase())}) }) + '\\n')\nrequire(${JSON.stringify(fake)})\n`
   )
   fs.writeFileSync(path.join(bin, 'codex.cmd'), '@node "%~dp0codex.cjs" %*\r\n')
   lib.gitProject(alpha)
@@ -101,6 +106,24 @@ function pathWithoutCodex() {
   check('a new Codex agent starts with it', !!(await lib.until(async () => (await live())?.status === 'ready', 25000)), JSON.stringify(await live()))
   const session = runs().slice(n).filter((r) => !['--version', 'login', 'debug', 'app-server'].includes(r.arg))
   check("…and its session's PATH has the new folder", session.length > 0 && session.every((r) => r.hasBin), JSON.stringify(runs().slice(n)))
+  check('…but not a folder not installed yet', session.every((r) => !r.hasTool), JSON.stringify(runs().slice(n)))
+
+  // --- A tool installed later, outside Hive (#821): its folder goes on the registry's PATH, and nothing makes Hive
+  // look for the CLIs again. What Hive starts from now on has it.
+  await app.evaluate((_, dirs) => {
+    process.env.HIVE_TEST_REGISTRY_PATH = dirs
+  }, [bin, tool].join(';'))
+  const m = runs().length
+  await inv('provider:task', 'codex', 'login')
+  const login = await lib.until(() => runs().slice(m).find((r) => r.arg === 'login'), 20000)
+  check("a Sign in task's terminal started after it has the tool's folder", !!login && login.hasTool, JSON.stringify(runs().slice(m)))
+  await inv('session:stop', alpha, agent.id)
+  check('the agent stops', !!(await lib.until(async () => !(await live()) || (await live()).status === 'stopped', 15000)), JSON.stringify(await live()))
+  const k = runs().length
+  await inv('session:start', alpha, { agentId: agent.id })
+  check('the agent starts again', !!(await lib.until(async () => (await live())?.status === 'ready', 25000)), JSON.stringify(await live()))
+  const again = runs().slice(k).filter((r) => !['--version', 'login', 'debug', 'app-server'].includes(r.arg))
+  check("…and its session's PATH has the tool's folder, with no Check again", again.length > 0 && again.every((r) => r.hasTool), JSON.stringify(runs().slice(k)))
 
   await inv('session:stop', alpha, agent.id).catch(() => undefined)
   await app.close()

@@ -16,11 +16,17 @@
 ### Progress panel
 - **Put your lanes in your own order.** Drag a running lane up or down in the Progress panel's lane list (a line shows where it goes), or focus it and press Alt+Up or Alt+Down; its right-click menu has Move Up, Move Down and Usual Order. Each workspace keeps the order, after a restart too: a new lane comes in on top, and a lane that is merged or abandoned drops to the bottom, after those that stopped before it, so the latest is always last (#568).
 
+### Card loops
+- **An agent's question for you no longer sits unseen on a card.** A builder or reviewer that needs your decision now blocks the card with its question as well as notifying you, so the card shows as blocked, the Assistant's lane watch picks it up, and the agent clears it once you decide. Before, a reviewer could ask only in a comment, which nothing flagged (#840).
+
 ### Hive Assistant
 - **Apps that follow the Assistant no longer have to read its sentences.** Each of its actions on the Agent API's event stream now says what it was (`kind`: starting a card, giving an agent a task, moving cards…) and what it was about (the project, the agent, the card or cards, the lane, the column), so a viewer such as Apiary keeps working when the sentence is reworded or translated. Nothing private is added. The API's version is now 5 (#763).
 - **A decision on a card in Review reaches its card loop.** Recording your decision on a card in Review, or clearing its block, wakes neither the card's builder nor its reviewer, so the Assistant now follows it with a message to the builder, and to the reviewer when it changes what they check, instead of the loop waiting until its watch runs out.
 
 ### Fixes
+- **Every link in the third-party notices opens a web page.** Eleven packages that name their repository in a short or SSH form (`owner/repo`, `git@github.com:…`) had links that went nowhere (#788).
+- **Sign in is always in sight in Agent Setup.** A CLI installed at a long path (WinGet's package folders) widened the row and pushed **Sign in** out of the dialog, so a new GitHub Copilot user couldn't sign in. The path now wraps, with the full path in its tooltip (#821, Suremise/hive-desktop#2).
+- **What you install while Hive is open reaches new terminals and agents.** Hive now reads the PATH Windows gives new programs just before it starts an agent, an Agent Setup terminal or **Open External Terminal Here**, so a CLI or tool installed outside Hive is found there without **Check again** or a restart (#821).
 - **The workspace no longer goes back to how it was before a change.** When Hive read the projects twice close together on a busy machine, the earlier reading could finish last and show an agent list from before the change, and say again that two agents share a name. The later reading now stands.
 - **Copy Diagnostics no longer briefly offers an old recording.** Opened again, the dialog showed the last open's developer console recording row, with its checkbox, until it had read the newest one, even when the newest had prompt and reply text and couldn't be attached (nothing was attached either way). It now shows no row until the newest is read.
 - **Hive's window fits the display it opens on.** Opened on a smaller display than the one it was last on, the window kept its old size and ran off the display's edge, so a project's tabs stayed labelled and were cut off until the window was resized. It now opens no larger than the display and wholly on it, unless the display is smaller than Hive's smallest window (900 × 560) (#812).

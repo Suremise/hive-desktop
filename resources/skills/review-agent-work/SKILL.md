@@ -55,6 +55,7 @@ For a card, end your review with `hive_update_task`:
 - `review: "passed"` or `"failed"`, with the report as `comment`. Its **first line is the verdict in one line**: "Round 1: PASSED" (with the gist), or "Round 1: FAILED: 2 findings: <their titles>". The findings and the evidence follow below it.
 - **Passed**: move it to `passed` in the same change (`column: "passed"`): reviewed, waiting to be merged. Not to `done`, which means merged.
 - **Failed**: it stays in Review. Leave its fixes to whoever the user asks to make them.
+- **A question only the user can answer** (scope, a choice the card doesn't settle) comes before a verdict: set `blocked` on the card (`hive_update_task`) to the question and `hive_notify` the user; a comment alone reaches no one, and the card stays in Review. Hive tells you of the decision they record: clear `blocked` (empty) and finish the review.
 
 If the card leaves Review while you review it (taken back to Doing for more work), your review is over. Leave the card where it is: don't move it back to Review or on to Passed, start another review or give a verdict: tell the user what you found, so the newer work is reviewed when it's ready. Only if your own session ended mid-review, with the card still in Review, start the review again.
 

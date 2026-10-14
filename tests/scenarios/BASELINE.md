@@ -36,6 +36,23 @@ Codex run.
 
 Every scenario ran once per provider. Models vary from run to run, so a single result is a sample, not a rate.
 
+## A question for the user blocks the card: fakes, Claude Code (haiku), Codex (its default model), fixtures v56, 14 October 2026
+
+#840: a reviewer that needed the user's decision on #805 asked only in a comment, which no lane watch sees. card-loop's
+Stop and ask, review-agent-work and work-on-card now say to set the card's `blocked` to the question (where it is: no
+move) as well as `hive_notify`, and to clear it after the decision. **review-asks-user** is new (a card in Review whose
+implementer guessed a currency the card doesn't name: the reviewer blocks it with its question, tells the user and gives
+no verdict); **card-loop-rounds** now also checks the card is blocked.
+- **Fakes**: all pass before and after the skill change (`2026-10-14T16-19-38-fake` against `2026-10-14T16-52-18-fake`:
+  318 checks pass in each, the same ones; tool calls and tokens unchanged, skill bytes delivered +1.3%), and the two
+  scenarios pass with the fake Claude Code and the fake Codex (`2026-10-14T17-42-14-fake`, `2026-10-14T17-42-54-fake-codex`).
+- **Claude Code (haiku)**: review-card, review-asks-user and card-loop-rounds all pass (`2026-10-14T17-43-42-claude-code`,
+  $0.02 in all).
+- **Codex**: review-card and review-asks-user pass; card-loop-rounds failed once (`2026-10-14T17-45-34-codex`): the
+  builder moved the card to Doing before blocking it, following work-on-card's "with the card yours in Doing". card-loop
+  now says to block it where it is; run again, it passes for both (`2026-10-14T17-49-32-codex`,
+  `2026-10-14T17-50-55-claude-code`).
+
 ## A decision put to the user without a "?" counts: fakes, Codex rescored, fixtures v53, 11 October 2026
 
 #566: every **mode-*-plans**' "wrote cards for alpha, or asked first" and "surfaced a decision for the user" looked only

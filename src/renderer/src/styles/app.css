@@ -2854,6 +2854,29 @@ p.hint {
   border: 1px solid var(--border-subtle);
   margin-bottom: 12px;
 }
+/* A long CLI path (WinGet's package folders) wraps rather than widening the row: its text column may shrink below its
+   longest word, and the buttons beside it keep their size, so Sign in is never pushed out of sight (#821). */
+.setup-status > .grow {
+  min-width: 0;
+}
+.setup-path {
+  font-size: 11px;
+  overflow-wrap: anywhere;
+}
+.setup-wrap code {
+  overflow-wrap: anywhere;
+}
+.setup-actions {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  flex-shrink: 0;
+  gap: 8px;
+  max-width: 50%;
+}
+.setup-status > .btn {
+  flex-shrink: 0;
+}
 /* The row's own icon only: icons in its badges and buttons keep their size (#449). */
 .setup-status > .codicon {
   font-size: 24px;
@@ -2865,6 +2888,12 @@ p.hint {
   align-items: center;
   gap: 4px;
   margin-top: 4px;
+}
+/* A long readiness message wraps inside its badge. */
+.setup-badges .badge {
+  white-space: normal;
+  height: auto;
+  min-height: 18px;
 }
 .setup-notes .hint {
   margin: 4px 0 0;
