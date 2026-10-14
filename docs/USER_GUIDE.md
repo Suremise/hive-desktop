@@ -814,6 +814,8 @@ Select a file and it opens on the right, ready to edit, with syntax highlighting
 | SVG | **Image** (default) · **Edit** |
 | Images, PDF | Viewer (click an image to toggle actual size) |
 
+When the file's pane is narrow (or the labels are long in your language), these buttons and **Save** show only their icons, with their names in tooltips, and the file's size and age are left out; narrower still, the buttons move to a second row under the file's name. **Save** is always in view.
+
 Files with unsaved changes get a ● in the tree. The edits are kept while you look at other files or tabs, and follow a file you rename or move in the Files tab. Deleting a file with unsaved changes warns you first. When you quit, Hive lists the files with unsaved changes and saves them or discards them, as you choose; reloading the window or switching workspace offers to save them first. Unsaved changes are not kept if Hive crashes, so save often. If a file changes on disk while you have unsaved edits, for example because the agent edited it, Hive tells you and lets you **Reload** it or **Overwrite with mine**. A file without edits simply updates. Binary files and files over 5 MB aren't opened; use **Open in Default App** for those.
 
 ## Attachments

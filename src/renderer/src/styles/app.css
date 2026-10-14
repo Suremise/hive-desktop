@@ -1859,6 +1859,19 @@ p.hint {
   color: var(--fg-strong);
   font-weight: 600;
 }
+/* Labels dropped (FileView's useCompactToolbar, #814); if even the icons don't fit, they wrap onto another row under the
+   file's name rather than push Save out of the pane. */
+.editor-toolbar.compact {
+  flex-wrap: wrap;
+  height: auto;
+  min-height: 35px;
+  padding-top: 4px;
+  padding-bottom: 4px;
+  row-gap: 4px;
+}
+.editor-toolbar.compact .path {
+  flex: 1 1 80px;
+}
 .editor-host {
   flex: 1;
   min-height: 0;
