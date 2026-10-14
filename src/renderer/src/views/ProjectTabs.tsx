@@ -15,7 +15,7 @@ import { PROVIDERS, contextLines, defaultProviderLabel, isProviderEnabled, modeO
 import { instructionsStarter } from '@shared/projectTabs'
 import { EffortPicker, ModelPicker } from '../components/ModelPicker'
 import { effortText, runsAsName } from '@shared/models'
-import { PROJECT_SETTINGS_SECTIONS, settingEntry } from '@shared/settingsCatalog'
+import { PROJECT_SETTINGS_SECTIONS, settingEntry, shownSetting } from '@shared/settingsCatalog'
 import { LANE_MAX_ROUNDS, LOOP_WAIT_MAX_HOURS, loopDefaults } from '@shared/lanes'
 import { NumberField } from '../components/NumberField'
 import { StorageView } from '../components/Storage'
@@ -1552,10 +1552,9 @@ function rowText(id: string): { title: string; desc: string; tip?: string; wide?
   const e = settingEntry(id)
   // i18n-ignore: an internal error (a row missing from the catalog), never a message the user reads
   if (!e) throw new Error(`No settings catalog entry ${id}`)
-  // A row with messages shows them in the window's language; its English stays the Assistant's (settingsCatalog.ts).
-  const t = e.text
-  const tip = t ? tr(t.tip) : e.tip
-  return { title: t ? tr(t.title) : e.title, desc: t ? tr(t.desc) : e.desc, ...(tip ? { tip } : {}), ...(e.wide ? { wide: true } : {}) }
+  // In the window's language, as Settings shows it (shownSetting); its English stays the Assistant's (settingsCatalog.ts).
+  const shown = shownSetting(e)
+  return { title: shown.title, desc: shown.desc, ...(shown.tip ? { tip: shown.tip } : {}), ...(e.wide ? { wide: true } : {}) }
 }
 
 interface ProjectSettingDef {
