@@ -110,20 +110,26 @@ async function history(ctx) {
   return gitView(ctx)
 }
 
+/** The pseudo-locale (shared/i18n/languages.ts): every message shows changed from its English. */
+const PSEUDO = 'en-XA'
+
 /** Tells the window its language changed, as Settings → General → Language does (the language-changed event). */
 const sendLanguage = (ctx, language) =>
   ctx.app.evaluate(({ BrowserWindow }, l) => BrowserWindow.getAllWindows()[0].webContents.send('hive:event', { type: 'language-changed', language: l }), language)
 
 /**
  * A Git form opened in English that then follows the change to the run's language (#804, round 1: an open form keeps
- * no text of its own). It opens with the window switched to English, takes some typing, and is switched back: its
- * title, help, labels and button must each change, and what was typed must stay. Throws otherwise, so the screen
- * isn't reached. The form is left open in the run's language, for its screenshots.
+ * no text of its own). It opens with the window switched to English, takes some typing, and is switched back; what
+ * was typed must stay. Under the pseudo-locale every message differs from its English, so its title, help, labels and
+ * button must each change; a language may rightly keep a word ("URL") or not have it translated yet (English, its
+ * fallback), so there only the switch landing (the page's lang) is waited for. Throws otherwise, so the screen isn't
+ * reached. The form is left open in the run's language, for its screenshots.
  */
 async function formFollowsLanguage(ctx, action, what) {
   const { page, lib } = ctx
   const info = (await ctx.inv('app:info')).language
   const english = info.code === 'en'
+  const pseudo = info.code === PSEUDO
   if (!english) await sendLanguage(ctx, { ...info, code: 'en', locale: 'en', messages: {} })
   await page.locator(`[data-action="${action}"]`).first().click()
   const dialog = await shown(ctx, page.locator('.dialog', { has: page.locator('.git-form') }).last(), what)
@@ -136,10 +142,11 @@ async function formFollowsLanguage(ctx, action, what) {
   await sendLanguage(ctx, info)
   let after = []
   const followed = await lib.until(async () => {
+    if (!pseudo) return (await page.evaluate(() => document.documentElement.lang)) === info.code
     after = await words()
     return after.length === before.length && after.every((w, i) => w !== before[i])
   }, ctx.hungMs)
-  if (!followed) throw new Error(`${what} didn't follow the language: ${JSON.stringify(before)} → ${JSON.stringify(after)}`)
+  if (!followed) throw new Error(pseudo ? `${what} didn't follow the language: ${JSON.stringify(before)} → ${JSON.stringify(after)}` : `the window didn't switch back to ${info.code}`)
   const kept = await box.inputValue()
   if (kept !== 'kept-1') throw new Error(`${what} lost what was typed: ${JSON.stringify(kept)}`)
   return dialog
