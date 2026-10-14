@@ -3,8 +3,11 @@
 // active tab in view, when even that doesn't fit. No tab is ever cut off unless the strip scrolls, at the window's
 // minimum width too; icon-only tabs keep their name (tooltip and accessible label) and order, and dragging files over
 // the Session tab still switches to it. Light and dark screenshots. The agent runs the fake Claude Code (fake-claude/).
+// Opened in a narrow window, the tabs fit at once, with no resize (#812): on Hive's start with the project restored, on
+// switching to another project, and on showing the project again after another view.
 // Dev build, throwaway profile, workspace and CLAUDE_CONFIG_DIR.
 const lib = require('./lib.cjs')
+const { _electron } = require('playwright-core')
 const fs = require('fs')
 const path = require('path')
 // The longest a wait here waits for what it waits on: a bound for a hung run, never how long it should take (#570).
@@ -14,9 +17,11 @@ const userData = path.join(lib.WORK, 'tabstrip-profile')
 const ws = path.join(lib.WORK, 'tabstrip-ws')
 const claudeHome = path.join(lib.WORK, 'tabstrip-claude-home')
 const alpha = path.join(ws, 'alpha')
+const beta = path.join(ws, 'beta')
 const LABELS = ['Session', 'Overview', 'Performance', 'Tasks', 'Sessions', 'Files', 'Attachments', 'Git', 'Memory', 'Skills', 'Templates', 'MCP', 'Settings']
 const SPARE = 12
 let failed = 0
+const inv2 = (page, ch, ...a) => page.evaluate(([c, args]) => window.hive.invoke(c, ...args), [ch, a])
 const check = (name, ok, extra = '') => {
   if (!ok) failed++
   console.log(`${ok ? 'PASS' : 'FAIL'} ${name}${ok || !extra ? '' : ` (${extra})`}`)
@@ -26,6 +31,7 @@ const check = (name, ok, extra = '') => {
   for (const d of [userData, ws, claudeHome]) fs.rmSync(d, { recursive: true, force: true })
   fs.mkdirSync(claudeHome, { recursive: true })
   lib.gitProject(alpha)
+  lib.gitProject(beta)
   fs.writeFileSync(path.join(claudeHome, 'fake-trusted.json'), JSON.stringify([alpha.toLowerCase()]))
   lib.enableProviders(userData)
   const cfgFile = path.join(userData, 'config.json')
@@ -179,7 +185,66 @@ const check = (name, ok, extra = '') => {
   check('dragging files over the icon-only Session tab switches to it', !!(await lib.until(async () => (await inspect()).active === 'Session', HUNG_MS)), (await inspect()).active)
 
   await inv('session:stop', alpha).catch(() => undefined)
+
+  // --- Opened narrow (#812): the fit is right on first show, with no resize to set it. Hive starts from saved bounds as
+  // narrow as it allows (sidebar shown: room for the icons but not the labels, as above), and nothing sizes the window or
+  // the page after that (lib.launch would: fitWindow), so only Hive's own first layout can get the fit right.
   await app.close()
+  const narrowBounds = { width: minW, height: HEIGHT, maximized: false }
+  const saved = JSON.parse(fs.readFileSync(cfgFile, 'utf8'))
+  saved.window = narrowBounds
+  saved.windows = (saved.windows ?? []).map((w) => ({ workspace: w.workspace, ...narrowBounds }))
+  fs.writeFileSync(cfgFile, JSON.stringify(saved, null, 2))
+  const again = await _electron.launch({ executablePath: lib.ELECTRON, args: [lib.ROOT], cwd: lib.ROOT, env: lib.hiveEnv({ HIVE_USER_DATA: userData, HIVE_API_PORT: lib.port(47914), CLAUDE_CONFIG_DIR: claudeHome }) })
+  try {
+    const p = await again.firstWindow()
+    p.on('pageerror', (e) => check('no page errors (narrow start)', false, e.message))
+    await lib.appReady(p)
+    const sizes = []
+    const fitOf = () => p.evaluate(() => {
+      const s = document.querySelector('.tabs')
+      return s && s.clientWidth > 0 ? { fit: s.dataset.fit, scrolls: s.scrollWidth > s.clientWidth, width: s.clientWidth, window: innerWidth } : null
+    })
+    /** Waits for the strip to show `fit` without scrolling; a bound for a hung run, then says what it showed. */
+    const fitsAs = async (what, fit) => {
+      const ok = await lib.until(async () => { const r = await fitOf(); if (r) sizes.push(r.window); return r && r.fit === fit && !r.scrolls }, HUNG_MS)
+      check(`${what}: ${fit}, no scrolling`, !!ok, JSON.stringify(await fitOf()))
+    }
+    const narrowShot = (file) => p.screenshot({ path: path.join(lib.WORK, file), clip: { x: 0, y: 0, width: sizes[0] ?? minW, height: 140 } })
+    await fitsAs('Hive started narrow with alpha restored', 'icons')
+    await narrowShot('tabstrip-6-start-narrow-dark.png')
+    await p.getByText('beta', { exact: true }).first().click()
+    await lib.until(async () => (await p.locator('.project-header h1').textContent().catch(() => '')) === 'beta', HUNG_MS)
+    await fitsAs('switched to beta', 'icons')
+    await inv2(p, 'settings:update', { appearance: { theme: 'light' } })
+    await lib.until(() => p.evaluate(() => document.documentElement.dataset.theme === 'light'), HUNG_MS)
+    await narrowShot('tabstrip-7-beta-narrow-light.png')
+    await inv2(p, 'settings:update', { appearance: { theme: 'dark' } })
+    // Hidden behind another view (its strip laid out at no width), then shown again.
+    await p.locator('.activity-btn[aria-label="Workspace Overview"]').click()
+    await lib.until(() => p.evaluate(() => !document.querySelector('.tabs')?.offsetParent), HUNG_MS)
+    await p.locator('.activity-btn[aria-label="Projects"]').click()
+    await fitsAs('beta shown again after Workspace Overview', 'icons')
+    // Nothing resized the window meanwhile: every reading was at the one width it opened at.
+    check('the window kept the width it opened at', sizes.length > 0 && sizes.every((w) => w === sizes[0]), sizes.join(', '))
+
+    // --- A window opening on a display smaller than the bounds it starts from (saved on a larger display: #812) fits
+    // the display, rather than running off its edge laid out for its full size, labels and all. The display is a stand-in
+    // (Electron's screen, answering for a 1000 x 640 one), and the window starts from this one's, made larger.
+    const SMALL = { x: 0, y: 0, width: 1000, height: 640 }
+    await again.evaluate(({ BrowserWindow, screen }, area) => {
+      BrowserWindow.getAllWindows()[0].setSize(1600, 900)
+      const display = { ...screen.getPrimaryDisplay(), bounds: area, workArea: area }
+      screen.getPrimaryDisplay = () => display
+      screen.getAllDisplays = () => [display]
+      screen.getDisplayNearestPoint = () => display
+    }, SMALL)
+    await inv2(p, 'window:new')
+    const second = await lib.until(() => again.evaluate(({ BrowserWindow }) => { const all = BrowserWindow.getAllWindows(); return all.length > 1 ? all.reduce((x, y) => (y.id > x.id ? y : x)).getSize() : null }), HUNG_MS)
+    check('a window from bounds larger than its display opens fitted to it', !!second && second[0] <= SMALL.width && second[1] <= SMALL.height, JSON.stringify(second))
+  } finally {
+    await again.close()
+  }
   console.log(failed ? `${failed} check(s) failed` : 'All checks passed')
   process.exit(failed ? 1 : 0)
 })().catch((e) => {
