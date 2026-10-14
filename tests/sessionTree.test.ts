@@ -1,6 +1,6 @@
 // The Sessions tab's tree (#239): provider → agent → session → its sub-sessions, newest first, with counts.
 import { describe, expect, it } from 'vitest'
-import { NOT_FROM_AGENT, buildSessionTree, countText, countsIn, pathTo, sessionsIn, type TreeNode } from '../src/shared/sessionTree'
+import { buildSessionTree, notFromAgent, countText, countsIn, pathTo, sessionsIn, type TreeNode } from '../src/shared/sessionTree'
 import type { SessionListItem } from '../src/shared/types'
 
 const id = (n: number): string => `00000000-0000-4000-8000-${String(n).padStart(12, '0')}`
@@ -40,8 +40,8 @@ const list: SessionListItem[] = [
 describe('buildSessionTree', () => {
   it('groups by provider (descriptor order), then agent (project order, removed, then none); sub-sessions under their session', () => {
     expect(labels(buildSessionTree(list, opts))).toEqual([
-      ['Claude Code', [['Claude', ['Claude work', 'First']], ['Coder (removed)', ['Old Coder work']], [NOT_FROM_AGENT, ['From VS Code']]]],
-      ['Codex', [['Codexette', ['Codex work']], [NOT_FROM_AGENT, ['Lost review']]]]
+      ['Claude Code', [['Claude', ['Claude work', 'First']], ['Coder (removed)', ['Old Coder work']], [notFromAgent(), ['From VS Code']]]],
+      ['Codex', [['Codexette', ['Codex work']], [notFromAgent(), ['Lost review']]]]
     ])
     const codexWork = buildSessionTree(list, opts)[1].children[0].children[0]
     expect(codexWork.kind === 'session' && codexWork.children.map((c) => c.kind === 'session' && c.item.name)).toEqual(['Review 1', 'Review 2'])
@@ -61,7 +61,7 @@ describe('buildSessionTree', () => {
   it('archived sessions show with Archived, or when selected; their sub-sessions go with them', () => {
     const archivedParent = list.map((s) => (s.id === id(9) ? { ...s, archived: true } : s))
     expect(sessionsIn({ kind: 'provider', key: '', label: '', provider: 'codex', children: buildSessionTree(archivedParent, opts) }).map((s) => s.name)).not.toContain('Review 1')
-    expect(labels(buildSessionTree(list, { ...opts, showArchived: true }))[0]).toEqual(['Claude Code', [['Claude', ['Claude work', 'Put away', 'First']], ['Coder (removed)', ['Old Coder work']], [NOT_FROM_AGENT, ['From VS Code']]]])
+    expect(labels(buildSessionTree(list, { ...opts, showArchived: true }))[0]).toEqual(['Claude Code', [['Claude', ['Claude work', 'Put away', 'First']], ['Coder (removed)', ['Old Coder work']], [notFromAgent(), ['From VS Code']]]])
     expect(JSON.stringify(labels(buildSessionTree(list, { ...opts, selectedId: id(2) })))).toContain('Put away')
   })
   it('search keeps matching sessions, and the session of a matching sub-session', () => {

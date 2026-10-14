@@ -3,6 +3,8 @@
 // a PDF it reads) or only by opening the path with its tools. The kinds each CLI reads are in its descriptor
 // (capabilities.attachments).
 
+import { msg, tr, type Msg } from './i18n'
+
 /** What kind of file an attachment is, as far as a CLI reading it cares. `file` is anything else (a zip, a binary). */
 export type AttachmentKind = 'image' | 'pdf' | 'text' | 'file'
 
@@ -30,12 +32,17 @@ export function attachmentKind(name: string): AttachmentKind {
   return 'file'
 }
 
-/** A kind's name for the user, for a filter or a chip: "Image", "PDF", "Text", "File". */
-export const ATTACHMENT_KIND_LABEL: Record<AttachmentKind, string> = { image: 'Image', pdf: 'PDF', text: 'Text', file: 'File' }
+/** A kind's name for the user, for a filter or a chip: "Image", "PDF", "Text", "File" (#802: shown with tr). */
+export const ATTACHMENT_KIND_LABEL: Record<AttachmentKind, Msg> = {
+  image: msg({ id: 'sessions.attach.image', defaultMessage: 'Image', description: "An attachment's kind (a chip on an agent's prompt, the Attachments tab's filter): an image. Keep it short." }),
+  pdf: msg({ id: 'sessions.attach.pdf', defaultMessage: 'PDF', description: "An attachment's kind: a PDF document. Keep it short." }),
+  text: msg({ id: 'sessions.attach.text', defaultMessage: 'Text', description: "An attachment's kind: a text or code file. Keep it short." }),
+  file: msg({ id: 'sessions.attach.file', defaultMessage: 'File', description: "An attachment's kind: any other file (a zip, a binary). Keep it short." })
+}
 /** The filters' order in the Attachments tab. */
 export const ATTACHMENT_KINDS: AttachmentKind[] = ['image', 'pdf', 'text', 'file']
 /** A kind's icon (codicons). */
-export const ATTACHMENT_KIND_ICON: Record<AttachmentKind, string> = { image: 'file-media', pdf: 'file-pdf', text: 'file-code', file: 'file' }
+export const ATTACHMENT_KIND_ICON: Record<AttachmentKind, string> = { image: 'file-media', pdf: 'file-pdf', text: 'file-code', file: 'file' } // i18n-ignore: icon names
 
 /**
  * How an attachment is labelled for a CLI: its kind, and whether the CLI reads that kind itself (`native`) or the agent
@@ -43,12 +50,13 @@ export const ATTACHMENT_KIND_ICON: Record<AttachmentKind, string> = { image: 'fi
  */
 export function attachmentLabel(kind: AttachmentKind, reads: readonly AttachmentKind[], cli: string): { label: string; native: boolean; detail: string } {
   const native = reads.includes(kind)
-  const label = ATTACHMENT_KIND_LABEL[kind]
-  if (native) {
-    const what = kind === 'image' ? 'sees the image' : kind === 'pdf' ? 'reads the PDF' : 'reads the text'
-    return { label, native, detail: `${cli} ${what} itself.` }
+  const label = tr(ATTACHMENT_KIND_LABEL[kind])
+  if (native) return { label, native, detail: tr(msg({ id: 'sessions.attach.native', defaultMessage: '{cli} {kind, select, image {sees the image} pdf {reads the PDF} other {reads the text}} itself.', description: "An attachment chip's hover: the agent's CLI ({cli}: \"Claude Code\") reads this kind of file itself (an image, a PDF, or text)." }), { cli, kind }) }
+  return {
+    label: tr(msg({ id: 'sessions.attach.byPath', defaultMessage: '{kind} · by path', description: "An attachment chip's label when the agent's CLI doesn't read that kind of file itself: the kind ({kind}: \"PDF\"), and that the agent gets only its path." }), { kind: label }),
+    native,
+    detail: tr(msg({ id: 'sessions.attach.byPathDetail', defaultMessage: "{cli} doesn't read {kind, select, pdf {PDFs} other {this kind of file}} itself: the agent gets its path and opens it with its tools.", description: "An attachment chip's hover when the agent's CLI ({cli}) doesn't read the file's kind (PDFs, or another kind) itself." }), { cli, kind })
   }
-  return { label: `${label} · by path`, native, detail: `${cli} doesn't read ${kind === 'pdf' ? 'PDFs' : 'this kind of file'} itself: the agent gets its path and opens it with its tools.` }
 }
 
 /**

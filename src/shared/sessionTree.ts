@@ -1,5 +1,7 @@
 import type { ProviderId, SessionListItem } from './types'
 import { PROVIDERS, providerName } from './providers'
+import { msg, tr } from './i18n'
+import { removedAgentName } from './sessionOrigin'
 
 /**
  * The Sessions tab's tree: provider → agent → session → the sub-sessions it started (Codex's guardian reviews, other
@@ -44,7 +46,8 @@ export interface SessionTreeOptions {
   match?: ((s: SessionListItem) => boolean) | null
 }
 
-export const NOT_FROM_AGENT = 'Not from an agent'
+/** The group of sessions no agent ran (adopted, or from before Hive recorded agents), as the Sessions tab names it. */
+export const notFromAgent = (): string => tr(msg({ id: 'sessions.tree.notFromAgent', defaultMessage: 'Not from an agent', description: "A group in the Sessions tab's list: sessions no agent ran (adopted, or from before Hive recorded agents)." }))
 
 const providerKey = (p: ProviderId): string => `p:${p}`
 export const sessionKey = (id: string): string => `s:${id}`
@@ -113,7 +116,7 @@ function agentBranches(provider: ProviderId, sessions: SessionNode[], agents: Se
     if (!groups.has(g)) {
       groups.set(g, {
         // As the session's origin says it (sessionOrigin): "Coder (removed)", or "Removed agent" from before names were kept.
-        label: !id ? NOT_FROM_AGENT : now >= 0 ? agents[now].name : s.item.agentName ? `${s.item.agentName} (removed)` : 'Removed agent',
+        label: !id ? notFromAgent() : now >= 0 ? agents[now].name : removedAgentName(s.item.agentName),
         agentId: id,
         removed: !!id && now < 0,
         // The project's agents in their order, then removed ones (newest first, as found), then no agent.
@@ -156,7 +159,8 @@ export function pathTo(tree: readonly TreeNode[], sessionId: string): string[] |
 
 /** "3 sessions and 12 sub-sessions", "1 session", "12 sub-sessions". */
 export function countText(c: { sessions: number; subs: number }): string {
-  const s = c.sessions ? `${c.sessions} session${c.sessions === 1 ? '' : 's'}` : ''
-  const u = c.subs ? `${c.subs} sub-session${c.subs === 1 ? '' : 's'}` : ''
-  return [s, u].filter(Boolean).join(' and ') || 'no sessions'
+  if (!c.sessions && !c.subs) return tr(msg({ id: 'sessions.tree.none', defaultMessage: 'no sessions', description: "A group's count in the Sessions tab's list when it has none. Lower case." }))
+  if (!c.subs) return tr(msg({ id: 'sessions.tree.sessions', defaultMessage: '{n, plural, one {# session} other {# sessions}}', description: "A group's count in the Sessions tab's list: how many sessions." }), { n: c.sessions })
+  if (!c.sessions) return tr(msg({ id: 'sessions.tree.subs', defaultMessage: '{n, plural, one {# sub-session} other {# sub-sessions}}', description: "A group's count in the Sessions tab's list: how many sub-sessions (sessions a CLI ran for another, such as subagents)." }), { n: c.subs })
+  return tr(msg({ id: 'sessions.tree.both', defaultMessage: '{n, plural, one {# session} other {# sessions}} and {subs, plural, one {# sub-session} other {# sub-sessions}}', description: "A group's count in the Sessions tab's list: how many sessions and sub-sessions (sessions a CLI ran for another, such as subagents)." }), { n: c.sessions, subs: c.subs })
 }
