@@ -4,9 +4,10 @@ import { fmt, msg, tr, tRich } from '@shared/i18n'
 import type { KeybindingOverrides, ProjectInfo } from '@shared/types'
 import * as actions from '../actions'
 import { call } from '../api'
-import { commands, eventToKey, isProjectScoped, terminalReserved, type Command } from '../commands'
+import { commandCategory, commands, eventToKey, isProjectScoped, terminalReserved, type Command } from '../commands'
 import { confirm, notify, set, useStore } from '../store'
 import { formatKeybinding } from '../util'
+import { otherUsers, shortcutUsers } from '../keyConflicts'
 import { Icon, IconButton, SearchInput, Tooltip } from './ui'
 import { DataTable, type DataColumn } from './DataTable'
 
@@ -107,21 +108,19 @@ export function KeybindingsEditor({ project }: { project?: ProjectInfo }) {
       })
   }, [project, global, local])
 
-  // Shortcuts used by more than one command (within what this editor shows plus, for a project, the global rest).
-  const conflicts = useMemo(() => {
-    const byKey = new Map<string, string[]>()
-    const add = (key: string | undefined, label: string): void => {
-      if (!key) return
-      const k = key.toUpperCase()
-      byKey.set(k, [...(byKey.get(k) ?? []), label])
-    }
-    for (const r of rows) add(r.key, r.c.label)
-    if (project) for (const c of commands) if (!c.internal && !isProjectScoped(c)) add(resolveKeybinding(c.id, c.keybinding, global, undefined), c.label)
-    return byKey
-  }, [rows, project, global])
+  // Shortcuts used by more than one command (within what this editor shows plus, for a project, the global rest), by
+  // command id: the commands are named when a clash is shown, in the language shown then (#795).
+  const conflicts = useMemo(
+    () =>
+      shortcutUsers([
+        ...rows.map((r) => ({ id: r.c.id, key: r.key })),
+        ...(project ? commands.filter((c) => !c.internal && !isProjectScoped(c)).map((c) => ({ id: c.id, key: resolveKeybinding(c.id, c.keybinding, global, undefined) })) : [])
+      ]),
+    [rows, project, global]
+  )
 
   const q = query.trim().toLowerCase()
-  const shown = rows.filter((r) => !q || `${r.c.category} ${r.c.label} ${r.c.id} ${r.key ? formatKeybinding(r.key) : ''}`.toLowerCase().includes(q))
+  const shown = rows.filter((r) => !q || `${commandCategory(r.c)} ${r.c.label} ${r.c.id} ${r.key ? formatKeybinding(r.key) : ''}`.toLowerCase().includes(q))
 
   const save = async (id: string, key: string | null | undefined): Promise<void> => {
     if (project) {
@@ -140,7 +139,7 @@ export function KeybindingsEditor({ project }: { project?: ProjectInfo }) {
     setRecording(null)
     const problem = keybindingProblem(key)
     if (problem) return notify('warning', tr(msg({ id: 'settings.keys.cantUse', defaultMessage: "{keys} can't be used", description: "Title of a warning when a recorded shortcut can't be used. {keys} is the shortcut (Ctrl+K)." }), { keys: formatKeybinding(key) }), problem)
-    const others = (conflicts.get(key.toUpperCase()) ?? []).filter((l) => l !== rows.find((r) => r.c.id === id)?.c.label)
+    const others = otherUsers(conflicts, key, id).map(commandName)
     if (
       others.length &&
       !(await confirm({
@@ -202,6 +201,9 @@ export function KeybindingsEditor({ project }: { project?: ProjectInfo }) {
 
 const ALL_ROWS = [1000]
 
+/** A command's name in the language shown, by its id. */
+const commandName = (id: string): string => commands.find((c) => c.id === id)?.label ?? id
+
 /** Where a shortcut comes from, as the Set column shows it ('' for a default one). */
 function sourceLabel(r: Row): string {
   switch (r.source) {
@@ -245,14 +247,14 @@ function keyColumns({ project, recording, setRecording, record, save, conflicts 
       ),
       sortValue: (r) => r.c.label
     },
-    { key: 'category', header: tr(msg({ id: 'settings.keys.column.category', defaultMessage: 'Category', description: "A column of the keyboard shortcuts editor: the command's category (Project, Session…)." })), className: 'kb-category faint', cell: (r) => r.c.category, sortValue: (r) => r.c.category, filter: { kind: 'choice', value: (r) => r.c.category } }, // i18n-ignore: class names
+    { key: 'category', header: tr(msg({ id: 'settings.keys.column.category', defaultMessage: 'Category', description: "A column of the keyboard shortcuts editor: the command's category (Project, Session…)." })), className: 'kb-category faint', cell: (r) => commandCategory(r.c), sortValue: (r) => commandCategory(r.c), filter: { kind: 'choice', value: (r) => commandCategory(r.c) } }, // i18n-ignore: class names
     {
       key: 'key',
       header: tr(msg({ id: 'settings.keys.column.shortcut', defaultMessage: 'Shortcut', description: 'A column of the keyboard shortcuts editor: the keys.' })),
       className: 'kb-key',
       cell: (r) => {
         if (recording === r.c.id) return <Recorder onDone={(k) => record(r.c.id, k)} onCancel={() => setRecording(null)} />
-        const clash = r.key ? (conflicts.get(r.key.toUpperCase()) ?? []).filter((l) => l !== r.c.label) : []
+        const clash = otherUsers(conflicts, r.key, r.c.id).map(commandName)
         const terminal = r.key && terminalReserved().has(r.key.toUpperCase())
         return (
           <span className="kb-key-value" onDoubleClick={() => setRecording(r.c.id)}>

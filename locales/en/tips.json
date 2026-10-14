@@ -515,6 +515,14 @@
     "defaultMessage": "Everything you attached, in one place",
     "description": "A tip's title."
   },
+  "tips.improveTranslation.text": {
+    "defaultMessage": "Spotted a clumsy or wrong word in your language? Help → Improve This Translation shows how to fix it, or add a language, with a pull request on GitHub.",
+    "description": "A tip. Help → Improve This Translation is a name in Hive: keep it as Hive shows it. GitHub is a name."
+  },
+  "tips.improveTranslation.title": {
+    "defaultMessage": "Make Hive read better in your language",
+    "description": "A tip's title."
+  },
   "tips.inboxNotices.text": {
     "defaultMessage": "A message the Assistant leaves a working agent reaches it at its next tool call, or before its turn ends, as a short notice from Hive: nothing is typed over its work. The agent reads it from its inbox and acks it; its pane shows ✉ 1 unread until it does.",
     "description": "A tip. Names of Hive's menus, views, settings and commands: keep them as Hive shows them."

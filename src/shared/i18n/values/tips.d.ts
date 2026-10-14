@@ -130,6 +130,8 @@ interface HiveMessageValues {
   'tips.hiveSkills.title': undefined
   'tips.imagesTab.text': undefined
   'tips.imagesTab.title': undefined
+  'tips.improveTranslation.text': undefined
+  'tips.improveTranslation.title': undefined
   'tips.inboxNotices.text': undefined
   'tips.inboxNotices.title': undefined
   'tips.keepAwake.text': undefined

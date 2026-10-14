@@ -1,3 +1,4 @@
+import { msg, tr } from '@shared/i18n'
 import { Fragment, useId, useLayoutEffect, useRef, useState, type ReactNode } from 'react'
 import { call } from '../api'
 import { set, useStore } from '../store'
@@ -65,7 +66,7 @@ export function ShowAllList<T>({
         id={id}
         className={cx('show-all-list', all && 'all', className)}
         style={all && height !== null ? { height } : undefined}
-        {...(all ? { role: 'region', 'aria-label': `${label}, all ${items.length}`, tabIndex: 0 } : {})}
+        {...(all ? { role: 'region', 'aria-label': tr(msg({ id: 'shell.showAll.region', defaultMessage: '{label}, all {n}', description: 'The name, for screen readers, of a list unfolded to all its items. {label} says what they are (given by each view); {n} how many.' }), { label, n: items.length }), tabIndex: 0 } : {})}
       >
         {shown.map((x) => (
           <Fragment key={keyOf(x)}>{renderItem(x)}</Fragment>
@@ -74,7 +75,7 @@ export function ShowAllList<T>({
       {items.length > few && (
         <button type="button" className="show-all-fold" aria-expanded={all} aria-controls={id} onClick={toggle}>
           <Icon name={all ? 'chevron-up' : 'chevron-down'} />
-          {all ? 'Show fewer' : `Show all ${items.length}`}
+          {all ? tr(msg({ id: 'shell.showAll.fewer', defaultMessage: 'Show fewer', description: 'Under an unfolded list: folds it again.' })) : tr(msg({ id: 'shell.showAll.all', defaultMessage: 'Show all {n}', description: 'Under a folded list: shows all its items. {n} is how many.' }), { n: items.length })}
         </button>
       )}
     </>

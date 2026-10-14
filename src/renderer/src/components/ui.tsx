@@ -10,6 +10,7 @@ import { runtimeLabel, unknownStateText } from '@shared/runtime'
 import { providerDescriptor, providerName } from '@shared/providers'
 import { safeguardText } from '@shared/safeguards'
 import { placeTip, type Box } from '@shared/tipPlacement'
+import { msg, tr, type Msg } from '@shared/i18n'
 
 export function Icon({ name, className, title, spin }: { name: string; className?: string; title?: string; spin?: boolean }) {
   return <i className={cx('codicon', `codicon-${name}`, spin && 'spin', className)} title={title} aria-hidden={!title} />
@@ -110,10 +111,10 @@ export function InfoTip({ text }: { text: ReactNode }) {
 export function LoadFailed({ what, error, onRetry, inline }: { what: string; error: string; onRetry: () => void; inline?: boolean }) {
   return (
     <div className={cx(inline ? 'pane-empty' : 'empty-state', 'load-failed')} role="alert">
-      <Icon name="error" /> Could not load {what}: {error}
+      <Icon name="error" /> {tr(msg({ id: 'shell.loadFailed', defaultMessage: 'Could not load {what}: {error}', description: 'A load that failed. {what} names what (the sessions, the diagnostics…), given by each view; {error} is why.' }), { what, error })}
       <div>
         <button className="btn small" onClick={onRetry}>
-          <Icon name="refresh" /> Retry
+          <Icon name="refresh" /> {tr(msg({ id: 'shell.retry', defaultMessage: 'Retry', description: 'Button: tries a load that failed again.' }))}
         </button>
       </div>
     </div>
@@ -126,11 +127,11 @@ export function StaleNote({ what, error, at, onRetry }: { what: string; error: s
     <div className="banner warn load-stale" role="status">
       <Tooltip content={error}>
         <span>
-          <Icon name="warning" /> Could not refresh {what}{at ? `; last updated ${formatWhen(at)}` : ''}.
+          <Icon name="warning" /> {at ? tr(msg({ id: 'shell.refreshFailedAt', defaultMessage: 'Could not refresh {what}; last updated {when}.', description: 'A refresh that failed while the last results stay shown. {what} names what; {when} is when they are from.' }), { what, when: formatWhen(at) }) : tr(msg({ id: 'shell.refreshFailed', defaultMessage: 'Could not refresh {what}.', description: 'A refresh that failed while the last results stay shown. {what} names what.' }), { what })}
         </span>
       </Tooltip>
       <button className="btn small" onClick={onRetry}>
-        Retry
+        {tr(msg({ id: 'shell.retry', defaultMessage: 'Retry', description: 'Button: tries a load that failed again.' }))}
       </button>
     </div>
   )
@@ -223,7 +224,7 @@ export function SearchInput({
         <span className="search-clear">
           <IconButton
             icon="close"
-            title="Clear"
+            title={tr(msg({ id: 'shell.search.clear', defaultMessage: 'Clear', description: 'The × in a search box: clears it.' }))}
             onClick={() => {
               onChange('')
               input.current?.focus()
@@ -257,21 +258,26 @@ export function Switch({ checked, onChange, disabled, small, label }: { checked:
   )
 }
 
-export const STATUS_TEXT: Record<SessionStatus | 'idle', string> = {
-  idle: 'No session',
-  stopped: 'Stopped',
-  starting: 'Starting…',
-  ready: 'Ready',
-  working: 'Working…',
-  waiting: 'Needs your input',
-  background: 'Background tasks',
-  watching: 'Waiting on cards',
-  finished: 'Finished',
-  error: 'Error',
-  signin: 'Needs sign-in'
+/** Each status's words, as messages (#767). */
+export const STATUS_MSG: Record<SessionStatus | 'idle', Msg> = {
+  idle: msg({ id: 'shell.status.idle', defaultMessage: 'No session', description: "An agent's status: it has no session." }),
+  stopped: msg({ id: 'shell.status.stopped', defaultMessage: 'Stopped', description: "An agent's status." }),
+  starting: msg({ id: 'shell.status.starting', defaultMessage: 'Starting…', description: "An agent's status." }),
+  ready: msg({ id: 'shell.status.ready', defaultMessage: 'Ready', description: "An agent's status: started, waiting for a prompt." }),
+  working: msg({ id: 'shell.status.working', defaultMessage: 'Working…', description: "An agent's status." }),
+  waiting: msg({ id: 'shell.status.waiting', defaultMessage: 'Needs your input', description: "An agent's status: it asks you something, or a permission." }),
+  background: msg({ id: 'shell.status.background', defaultMessage: 'Background tasks', description: "An agent's status: its turn ended while background tasks it started still run." }),
+  watching: msg({ id: 'shell.status.watching', defaultMessage: 'Waiting on cards', description: "An agent's status: waiting for cards to change (a card watch)." }),
+  finished: msg({ id: 'shell.status.finished', defaultMessage: 'Finished', description: "An agent's status: its turn has ended." }),
+  error: msg({ id: 'shell.status.error', defaultMessage: 'Error', description: "An agent's status: its CLI failed." }),
+  signin: msg({ id: 'shell.status.signin', defaultMessage: 'Needs sign-in', description: "An agent's status: its CLI's sign-in was refused or has expired." })
 }
 
-const tasks = (n: number): string => `${n} background task${n === 1 ? '' : 's'}`
+/** Each status's words in the language shown: each a getter, read when rendered (keep the words, not this object's values). */
+export const STATUS_TEXT: Readonly<Record<SessionStatus | 'idle', string>> = Object.defineProperties(
+  {} as Record<SessionStatus | 'idle', string>,
+  Object.fromEntries(Object.entries(STATUS_MSG).map(([k, m]) => [k, { get: () => tr(m), enumerable: true }]))
+)
 
 /**
  * What an agent is doing, in words: projected from its runtime's facts (#648: asking, compacting, silent with its state
@@ -288,11 +294,14 @@ export function statusText(live: Pick<LiveSessionState, 'status' | 'statusMessag
     // At the merge slot (#350): waiting for it, or merging.
     if (live.mergeSlot) return live.mergeSlot
     const n = live.backgroundTasks ?? 0
-    if (live.status === 'background') return `Waiting on ${tasks(n)}`
-    return n && (live.status === 'finished' || live.status === 'ready') ? `${STATUS_TEXT[live.status]} · ${tasks(n)} running` : STATUS_TEXT[live.status]
+    // Whole sentences with the count, so a language words each count as it needs (#795).
+    if (live.status === 'background') return tr(msg({ id: 'shell.status.waitingOnTasks', defaultMessage: '{n, plural, one {Waiting on # background task} other {Waiting on # background tasks}}', description: "An agent's status: its turn ended while background tasks it started still run. {n} is how many." }), { n })
+    if (n && live.status === 'finished') return tr(msg({ id: 'shell.status.finishedWithTasks', defaultMessage: '{n, plural, one {Finished · # background task running} other {Finished · # background tasks running}}', description: "An agent's status: finished, while background tasks it started run. {n} is how many." }), { n })
+    if (n && live.status === 'ready') return tr(msg({ id: 'shell.status.readyWithTasks', defaultMessage: '{n, plural, one {Ready · # background task running} other {Ready · # background tasks running}}', description: "An agent's status: ready for a prompt, while background tasks it started run. {n} is how many." }), { n })
+    return STATUS_TEXT[live.status]
   })()
   // A question it doesn't stop for: it works on meanwhile.
-  return live.question && live.status !== 'waiting' ? `${text} · has a question for you` : text
+  return live.question && live.status !== 'waiting' ? tr(msg({ id: 'shell.status.question', defaultMessage: '{status} · has a question for you', description: "An agent's status while it works on with a question for you." }), { status: text }) : text
 }
 
 /**
@@ -305,12 +314,12 @@ export function ReviewMark({ live }: { live: Pick<LiveSessionState, 'review' | '
     <Tooltip
       content={
         <>
-          <div>{providerName(live.provider)}'s reviewer is checking an action; you aren't needed.</div>
+          <div>{tr(msg({ id: 'shell.review.checking', defaultMessage: "{provider}'s reviewer is checking an action; you aren't needed.", description: "Tooltip of the shield beside an agent's status while its CLI's automatic review checks an action. {provider} is the coding agent's name." }), { provider: providerName(live.provider) })}</div>
           <div className="faint review-mark-detail">{live.review}</div>
         </>
       }
     >
-      <span className="review-mark" role="img" aria-label="An action is being reviewed automatically">
+      <span className="review-mark" role="img" aria-label={tr(msg({ id: 'shell.review.label', defaultMessage: 'An action is being reviewed automatically', description: 'The name, for screen readers, of the shield beside an agent under automatic review.' }))}>
         <Icon name="shield" />
       </span>
     </Tooltip>
@@ -353,8 +362,13 @@ export function signInNote(live: Pick<LiveSessionState, 'status' | 'signIn' | 'p
   if (!live?.signIn) return null
   const d = providerDescriptor(live.provider)
   const said = live.signIn.message.length > 160 ? `${live.signIn.message.slice(0, 160)}…` : live.signIn.message
-  if (live.status === 'signin') return `${d.name} says: ${said}\n${d.signInHelp} Then Resume in the project's header carries on the agents it stopped.`
-  if (live.status === 'ready' || live.status === 'finished') return `Its turn stopped when ${d.name}'s sign-in expired. Resume in the project's header carries it on.`
+  // Two lines: what the CLI said, then how to carry on (a message keeps no line break).
+  if (live.status === 'signin')
+    return [
+      tr(msg({ id: 'shell.signIn.said', defaultMessage: '{provider} says: {said}', description: "Tooltip of an agent that needs sign-in, its first line. {provider} is the coding agent's name; {said} what its CLI said, as it said it." }), { provider: d.name, said }),
+      tr(msg({ id: 'shell.signIn.then', defaultMessage: "{help} Then Resume in the project's header carries on the agents it stopped.", description: "Tooltip of an agent that needs sign-in, its second line. {help} says how to sign in again (in English for now); Resume is a button in the project's header." }), { help: d.signInHelp })
+    ].join('\n')
+  if (live.status === 'ready' || live.status === 'finished') return tr(msg({ id: 'shell.signIn.stopped', defaultMessage: "Its turn stopped when {provider}'s sign-in expired. Resume in the project's header carries it on.", description: "Tooltip of an agent whose turn stopped for its sign-in. {provider} is the coding agent's name." }), { provider: d.name })
   return null
 }
 
@@ -362,7 +376,7 @@ export function StatusDot({ live, active }: { live: LiveSessionState | null; act
   const status = live?.status ?? (active ? 'idle' : 'stopped')
   const said = live?.statusMessage ?? live?.mergeSlot
   const base = !live ? STATUS_TEXT[status] : said ? `${STATUS_TEXT[status]} — ${said}` : statusText(live)
-  const reviewed = live?.review ? `${base} · an action is being reviewed automatically` : base
+  const reviewed = live?.review ? tr(msg({ id: 'shell.review.status', defaultMessage: '{status} · an action is being reviewed automatically', description: "An agent's status tooltip while its CLI's automatic review checks an action." }), { status: base }) : base
   const note = signInNote(live)
   const text = note ? <span style={{ whiteSpace: 'pre-line' }}>{`${reviewed}\n${note}`}</span> : reviewed
   return (
@@ -518,7 +532,7 @@ window.addEventListener('blur', () => {
  * dialog again (#355). Kept from it until that key is released (each key on its own), or the window loses the focus.
  */
 function holdBackKeyPress(): void {
-  for (const k of ['Enter', ' ']) if (heldKeys.has(k)) heldBack.add(k)
+  for (const k of ['Enter', ' ']) if (heldKeys.has(k)) heldBack.add(k) // i18n-ignore: key names
 }
 
 /**
@@ -638,7 +652,7 @@ export function Modal({
         >
           {icon && <Icon name={icon} />}
           <h2>{title}</h2>
-          <IconButton icon="close" title={busy ? 'Wait for it to finish' : 'Close (Esc)'} disabled={busy} onClick={onClose} />
+          <IconButton icon="close" title={busy ? tr(msg({ id: 'shell.dialog.wait', defaultMessage: 'Wait for it to finish', description: "Tooltip of a dialog's close button while what it does runs." })) : tr(msg({ id: 'shell.dialog.close', defaultMessage: 'Close (Esc)', description: "Tooltip of a dialog's close button. Esc is a key: keep it." }))} disabled={busy} onClick={onClose} />
         </div>
         <div className="dialog-body" inert={busy || undefined}>
           {children}
@@ -664,7 +678,7 @@ marked.use({
   renderer: {
     heading({ tokens, depth, text }) {
       const id = text.toLowerCase().replace(/<[^>]*>/g, '').replace(/[^\p{L}\p{N}\s-]/gu, '').trim().replace(/\s/g, '-')
-      return `<h${depth} id="${id}">${this.parser.parseInline(tokens)}</h${depth}>\n`
+      return `<h${depth} id="${id}">${this.parser.parseInline(tokens)}</h${depth}>\n` // i18n-ignore: HTML, not text
     }
   }
 })

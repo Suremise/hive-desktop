@@ -280,6 +280,8 @@ Hive shows dates as **2026-10-04** and times as **14:05** by default: sessions n
 
 Hive shows its window, menus and messages in the language Windows displays, when Hive has it, else in English. **Settings → General → Language** chooses another: *Automatic* follows Windows (and says which language that gives), then each language by its own name. Languages translated by AI say so after their name, such as *Polski (AI)*, with a note in that language under the list: improvements are welcome. Anything a language hasn't translated yet shows in English, and *Automatic* only picks a language once Hive has translations for it. In any language but English, the setting's title also says *Language*, so you can always find your way back.
 
+**Help → Improve This Translation** opens the guide for translators on GitHub: how to fix a translation, or add a language, with a pull request.
+
 A new language shows at once. A few parts that come from Chromium, the engine Hive is built on (the PDF viewer, date pickers), change when Hive next starts, and the setting says so.
 
 What stays in English: what Hive tells agents and the Hive Assistant (their instructions, skills, notices and the hive tools' replies), so they work the same whatever your language; they can still answer you in yours. Names you gave things, and what agents wrote, stay as they are. The installer follows Windows' display language too.
