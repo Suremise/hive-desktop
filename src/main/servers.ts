@@ -69,6 +69,7 @@ import { hookTokenMatches, refusedHookNote } from './hookTokens'
 import { unusedWorktreeCounts } from './unusedWorktrees'
 import { devConsole, hiveSourceId, sessionSourceId } from './devConsole'
 import { consoleSources } from './devConsoleSources'
+import { englishError, HiveError } from './hiveError'
 import { CONSOLE_KINDS, hiveName, mayRead, type ConsoleEvent, type ConsoleKind, type ConsoleReader, type ConsoleSource } from '../shared/devConsole'
 
 const log = createLogger('servers')
@@ -109,8 +110,11 @@ class HttpError extends Error {
   }
 }
 
+/** A reply's body as sent: its JSON as it is, whatever names its data uses (a console event's raw payload, #845). */
+export const replyText = (body: unknown): string => (body === undefined ? '' : JSON.stringify(body))
+
 function send(res: ServerResponse, status: number, body: unknown, headers: Record<string, string> = {}): void {
-  const text = body === undefined ? '' : JSON.stringify(body)
+  const text = replyText(body)
   const m = apiRequests.get(res)
   if (m) m.responseBytes = Buffer.byteLength(text, 'utf8')
   res.writeHead(status, { 'Content-Type': 'application/json; charset=utf-8', 'Cache-Control': 'no-store', ...headers })
@@ -925,7 +929,7 @@ route('POST', '/v1/projects/:name/agents', async ({ params, body }) => {
     const said = prompt && didStart ? ` on: ${clip(prompt.replace(/\s+/g, ' '), 80)}` : undefined
     // The stream's line is Hive's own words: neither why it didn't start nor the reuse note (git's words) goes there.
     const brief = `Added ${def.name} to ${project}${def.worktree ? ` (worktree, branch ${def.worktree.branch})` : ''}${didStart === true ? ' and started it' : didStart === false ? "; it didn't start" : ''}`
-    return { done: `Added ${def.name} to ${project}${def.worktree ? ` (worktree, branch ${def.worktree.branch}${reuse ? `: ${reuse}` : ''})` : ''}${started}`, said, brief, act: { agent: actAgent(def) }, result: { agent: def, project: await projectSummary(p), ...(reuse ? { reuse } : {}) } }
+    return { done: `Added ${def.name} to ${project}${def.worktree ? ` (worktree, branch ${def.worktree.branch}${reuse ? `: ${reuse}` : ''})` : ''}${started}`, said, brief, act: { agent: actAgent(def) }, result: { agent: addedForAgents(def), project: await projectSummary(p), ...(reuse ? { reuse } : {}) } }
   })
 })
 
@@ -1594,8 +1598,8 @@ async function taskView(c: TaskCard, agents = new Map<string, Promise<ReturnType
     title,
     ...(decisions?.length ? { decisions: decisions.map(tasks.withoutId) } : {}),
     ...rest,
-    comments: c.comments.map(tasks.withoutId),
-    history: c.history.map(tasks.withoutId),
+    comments: c.comments.map(entryForAgents),
+    history: c.history.map(entryForAgents),
     agent,
     // A Doing card nobody works on, a card an agent was looping on and left with no watch (#376), or one in Review its
     // watching reviewer hasn't started on (#521).
@@ -2086,7 +2090,7 @@ route('GET', '/v1/metrics', async ({ query }) => {
   if (scope.kind === 'project' && !scope.project) throw new HttpError(400, 'scope=project needs project')
   const role = query.get('role') ?? undefined
   if (role !== undefined && role !== 'agent' && role !== 'assistant' && role !== 'api') throw new HttpError(400, 'role must be agent, assistant or api')
-  return metricsReport(w, { scope, from: query.get('from') ?? undefined, to: query.get('to') ?? undefined, trend: query.get('trend') === '1', role, provider: query.get('provider') || undefined, own: query.get('own') === '1' }).catch((e) => {
+  return metricsReport(w, { scope, from: query.get('from') ?? undefined, to: query.get('to') ?? undefined, trend: query.get('trend') === '1', role, provider: query.get('provider') || undefined, own: query.get('own') === '1' }).then(metricsForAgents, (e) => {
     throw e instanceof HttpError ? e : new HttpError(400, (e as Error).message)
   })
 })
@@ -2421,9 +2425,9 @@ async function serveApi(req: IncomingMessage, res: ServerResponse, url: URL): Pr
     const notice = flagged ? await decisionsNotice(ws, before, began) : null
     send(res, 200, result ?? null, notice ? { 'X-Hive-Notice': encodeURIComponent(notice) } : {})
   } catch (e) {
-    const status = errorStatus(e)
+    const { status, body } = apiErrorReply(e)
     if (status === 500) log.error(`API ${req.method} ${url.pathname}`, e)
-    send(res, status, { error: (e as Error).message, ...(e instanceof HttpError ? e.extra : undefined) })
+    send(res, status, body)
   }
 }
 
@@ -2475,9 +2479,41 @@ async function decisionsNotice(ws: WorkspaceService | null, before: Map<number, 
   return noticeText(now)
 }
 
-/** The HTTP status for an error thrown by the session and workspace services, which don't know about HTTP. */
-/** The status the Agent API answers an error with. */
+/** The Agent API's answer to an error: its status, and its English whatever language Hive shows (#845). */
+export function apiErrorReply(e: unknown): { status: number; body: Record<string, unknown> } {
+  return { status: errorStatus(e), body: { error: englishError(e), ...(e instanceof HttpError ? e.extra : undefined) } }
+}
+
+/**
+ * Hive's own text as data beside an English field (#845, `WindowTextField` in types.ts) is the window's: agents read
+ * the English. Replies are built field by field (sessions' status, skills, MCP servers, events); where a whole object
+ * goes out, these leave its companions behind, and only them: the rest of the object, whatever it holds, as it is.
+ */
+/** A card's history entry or comment: without its id (replies stay lean) or its text as data. */
+export const entryForAgents = <T extends { id?: string; whatText?: unknown; hiveText?: unknown }>({ id: _id, whatText: _what, hiveText: _hive, ...rest }: T): Omit<T, 'id' | 'whatText' | 'hiveText'> => rest
+/** A metrics report: its lists of what wasn't measured or filtered in English only. */
+export function metricsForAgents<R extends { notMeasuredText?: unknown; filters?: { notFilteredText?: unknown } }>(r: R): Omit<R, 'notMeasuredText'> {
+  const { notMeasuredText: _m, ...rest } = r
+  if (!rest.filters) return rest
+  const { notFilteredText: _f, ...filters } = rest.filters
+  return { ...rest, filters }
+}
+/** An agent just added: its reuse note in English only. */
+export function addedForAgents<A extends { reuse?: { notReusedText?: unknown } }>(a: A): A {
+  if (!a.reuse) return a
+  const { notReusedText: _n, ...reuse } = a.reuse
+  return { ...a, reuse }
+}
+
+/** What a HiveError's kind answers with (#845). */
+const KIND_STATUS = { invalid: 400, forbidden: 403, notFound: 404, conflict: 409 } as const
+
+/**
+ * The status the Agent API answers an error with. The session and workspace services don't know about HTTP: a
+ * HiveError's kind says it, else its English message does (statusFor).
+ */
 function errorStatus(e: unknown): number {
+  if (e instanceof HiveError && e.kind) return KIND_STATUS[e.kind]
   return e instanceof HttpError ? e.status : e instanceof tasks.TaskPermissionError ? 403 : e instanceof tasks.TaskConflictError ? 409 : statusFor(e as Error)
 }
 
@@ -2498,7 +2534,7 @@ function broadcast(event: HiveEvent): void {
   const lineFor = (agent: AgentIdentity | null): string | null => {
     if (!lines.has(agent)) {
       const payload = apiEventFor(event, agent)
-      lines.set(agent, payload ? `event: ${event.type}\ndata: ${JSON.stringify(payload)}\n\n` : null)
+      lines.set(agent, payload ? `event: ${event.type}\ndata: ${replyText(payload)}\n\n` : null)
     }
     return lines.get(agent)!
   }

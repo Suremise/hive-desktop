@@ -1,5 +1,6 @@
 import { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
-import type { AgentInfo, ArchiveBatch, BoardFold, ProjectInfo, ProviderId, TaskCard, TaskColumn, TaskDecision, TaskPatch, TaskStartTarget } from '@shared/types'
+import type { AgentInfo, ArchiveBatch, BoardFold, ProjectInfo, ProviderId, StoredText, TaskCard, TaskColumn, TaskDecision, TaskPatch, TaskStartTarget } from '@shared/types'
+import { BY_TEXT, storedMessage } from '@shared/taskHistory'
 import { gitProblemText } from '@shared/gitTool'
 import { agentRuntime } from '@shared/runtime'
 import { COLUMN_TEXT, TASK_COLUMNS, applyBoardFold, archiveBatchLabel, archiveBatchText, cardMatches, newSinceStart, archivedAt, columnColor, columnName, notWatchingReason, reviewStalled, reviewVerdictWaitReason, reviewWaitReason, stalledReason, taskOverview, type BoardFoldChange } from '@shared/tasks'
@@ -1318,6 +1319,21 @@ export function BoardPanel() {
 }
 
 // ---------------------------------------------------------------------------
+/**
+ * A line of a card's history, or a comment Hive wrote, as the window shows it (#846): from its message and values, in the
+ * window's language (a batch's name worded as the archive's picker words it); its English for an entry from before, or
+ * one whose message this Hive doesn't know.
+ */
+function storedLine(english: string, stored: StoredText | undefined): string {
+  const m = storedMessage(stored)
+  if (!m || !stored) return english
+  const values = stored.values && typeof stored.values.label === 'string' ? { ...stored.values, label: archiveBatchText(stored.values.label, tr) } : stored.values
+  return tr(m, values)
+}
+
+/** Who wrote a history line or a comment, as stored (English: "You", "Assistant", "Repair"), in the window's language; Hive and agents' names as they are. */
+const byText = (by: string): string => (Object.hasOwn(BY_TEXT, by) ? tr(BY_TEXT[by]) : by)
+
 // The card dialog: a new card, or one card in full (its fields, description, comments and history).
 // ---------------------------------------------------------------------------
 
@@ -1722,9 +1738,9 @@ export function TaskDialog() {
           {card.comments.map((c, i) => (
             <div key={i} className="task-comment">
               <div className="task-comment-by">
-                <strong>{c.by}</strong> <span className="faint">{timeAgo(c.at)}</span>
+                <strong>{byText(c.by)}</strong> <span className="faint">{timeAgo(c.at)}</span>
               </div>
-              <Markdown source={c.text} />
+              <Markdown source={storedLine(c.text, c.hiveText)} />
             </div>
           ))}
           {!card.archived && (
@@ -1745,7 +1761,7 @@ export function TaskDialog() {
             <div className="task-history">
               {[...card.history].reverse().map((h, i) => (
                 <div key={i}>
-                  <span className="faint">{formatDateTime(h.at)}</span> <strong>{h.by}</strong> {h.what}
+                  <span className="faint">{formatDateTime(h.at)}</span> <strong>{byText(h.by)}</strong> {storedLine(h.what, h.whatText)}
                 </div>
               ))}
             </div>
@@ -1753,7 +1769,7 @@ export function TaskDialog() {
           <CardCostLine card={card} />
           <div className="faint task-created">
             {card.createdBy
-              ? tr(msg({ id: 'board.dialog.added', defaultMessage: 'Added by {by} {added} · changed {changed}', description: "At the foot of the card dialog: who added the card ({by}: \"You\", an agent's name), when ({added}: \"3 days ago\"), and when it last changed ({changed})." }), { by: card.createdBy, added: timeAgo(card.createdAt), changed: timeAgo(card.updatedAt) })
+              ? tr(msg({ id: 'board.dialog.added', defaultMessage: 'Added by {by} {added} · changed {changed}', description: "At the foot of the card dialog: who added the card ({by}: \"You\", an agent's name), when ({added}: \"3 days ago\"), and when it last changed ({changed})." }), { by: byText(card.createdBy), added: timeAgo(card.createdAt), changed: timeAgo(card.updatedAt) })
               : tr(msg({ id: 'board.dialog.addedUnknown', defaultMessage: 'Added by unknown {added} · changed {changed}', description: "At the foot of the card dialog when who added the card isn't known: when it was added ({added}: \"3 days ago\") and last changed ({changed})." }), { added: timeAgo(card.createdAt), changed: timeAgo(card.updatedAt) })}
           </div>
         </>

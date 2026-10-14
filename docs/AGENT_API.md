@@ -65,7 +65,7 @@ curl -s -H "Authorization: Bearer $HIVE_API_TOKEN" "$HIVE_API_URL/v1/projects"
 
 ### Errors
 
-Errors return a non-2xx status and `{ "error": "message" }`.
+Errors return a non-2xx status and `{ "error": "message" }`. The message is in English, whatever language Hive shows: the window shows the same refusal in the user's language, and replies never carry that translation.
 
 | Status | Meaning |
 |---|---|

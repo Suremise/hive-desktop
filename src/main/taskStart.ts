@@ -3,24 +3,23 @@ import { ASSISTANT_AGENT_ID } from '../shared/assistant'
 import type { DeliverySender } from '../shared/deliveries'
 import { projectAgents } from '../shared/defaults'
 import { deliverNow, launchWith, NotGiven } from './deliveries'
-import { columnLabel, taskPrompt } from '../shared/tasks'
+import { msg } from '../shared/i18n'
+import { taskPrompt } from '../shared/tasks'
 import type { TaskCard, TaskStartTarget } from '../shared/types'
 import { emit } from './events'
 import { addAgent, removeAgent } from './projectAgents'
 import { sessions } from './sessions'
-import { getTask, updateTask, type TaskActor } from './tasks'
+import { hiveError, errorText } from './hiveError'
+import { getTask, UNKNOWN_AGENT, updateTask, type TaskActor } from './tasks'
 import { createLogger, userText } from './logger'
 import { workspace } from './workspace'
 
 const log = createLogger('tasks')
 
-const STATUS_WORDS: Record<string, string> = {
-  working: 'is working',
-  starting: 'is starting',
-  waiting: 'is waiting for the user',
-  background: 'is waiting on background tasks it started',
-  watching: 'is waiting on cards (a card watch): it takes no other work until it is woken, or the watch is cancelled (Cancel in its header)'
-}
+/** The statuses in which an agent can't be given a card: its refusal's `{status}`, each in its own words. */
+const BUSY_STATUSES = new Set(['working', 'starting', 'waiting', 'background', 'watching'])
+/** A Start refused because the agent is busy (#846): its status chooses the words. */
+const AGENT_BUSY = msg({ id: 'tasks.start.agentBusy', defaultMessage: "{agent} {status, select, working {is working} starting {is starting} waiting {is waiting for the user} background {is waiting on background tasks it started} other {is waiting on cards (a card watch): it takes no other work until it is woken, or the watch is cancelled (Cancel in its header)}}. Start the task once it's idle, or give it to another agent.", description: "An error: a card can't be started with the agent {agent} (its name) now, because of what it is doing ({status}, select: working, starting, waiting for the user, waiting on background tasks it started, or waiting on cards in a card watch; translate each). Cancel is the button in the agent's header." })
 
 /** Cards being started now ("<workspace>#<n>"): a second Start of the same card is refused, not run twice. */
 const starting = new Set<string>()
@@ -46,9 +45,9 @@ const MAX_NOTE = 4000
  * "address the latest review comment"), added to the prompt.
  */
 export async function startTask(n: number, target: TaskStartTarget, actor: TaskActor, note?: string): Promise<{ card: TaskCard; agentId: string; agentName: string; added: boolean }> {
-  if (note && note.length > MAX_NOTE) throw new Error(`The note is too long (at most ${MAX_NOTE} characters).`)
+  if (note && note.length > MAX_NOTE) throw hiveError(msg({ id: 'tasks.start.noteTooLong', defaultMessage: 'The note is too long (at most {max} characters).', description: 'An error: the note given with a Start (what the agent should do now) is longer than it may be ({max}, a number of characters).' }), { max: MAX_NOTE }, { kind: 'invalid' })
   const key = `${(workspace.path ?? '').toLowerCase()}#${n}`
-  if (starting.has(key)) throw new Error(`#${n} is already being started.`)
+  if (starting.has(key)) throw hiveError(msg({ id: 'tasks.start.alreadyStarting', defaultMessage: '#{n} is already being started.', description: 'An error: card #{n} (a number) is being started already; a second Start of it is refused.' }), { n })
   starting.add(key)
   try {
     return await startReserved(n, target, actor, note?.trim() || undefined)
@@ -64,21 +63,21 @@ export async function startTask(n: number, target: TaskStartTarget, actor: TaskA
  */
 function availability(p: string, agentId: string, agentName: string, actor: TaskActor): { live: boolean } {
   const st = sessions.liveFor(p, agentId)
-  if (st && STATUS_WORDS[st.status]) throw new Error(`${agentName} ${STATUS_WORDS[st.status]}. Start the task once it's idle, or give it to another agent.`)
-  if (st && actor.kind !== 'user' && sessions.userMayBeTyping(p, agentId)) throw new Error(`The user has just typed in ${agentName}'s terminal and may still be writing there. Ask the user first.`)
+  if (st && BUSY_STATUSES.has(st.status)) throw hiveError(AGENT_BUSY, { agent: agentName, status: st.status })
+  if (st && actor.kind !== 'user' && sessions.userMayBeTyping(p, agentId)) throw hiveError(msg({ id: 'tasks.start.userTyping', defaultMessage: "The user has just typed in {agent}'s terminal and may still be writing there. Ask the user first.", description: "An error: an agent or the Assistant tried to give a card to the agent {agent} (its name), but the user has just typed in that agent's terminal." }), { agent: agentName })
   return { live: !!st }
 }
 
 /** Who a Start's task is from (#649): the Assistant's launch (its permission worked out again at every step), an agent, or the user. */
 function senderOf(actor: TaskActor): DeliverySender {
-  if (actor.kind === 'assistant') return { kind: 'assistant', name: 'the Assistant', workspace: workspace.path!, launch: sessions.liveFor(workspace.assistantHome, ASSISTANT_AGENT_ID)?.runId ?? '' }
+  if (actor.kind === 'assistant') return { kind: 'assistant', name: 'the Assistant', workspace: workspace.path!, launch: sessions.liveFor(workspace.assistantHome, ASSISTANT_AGENT_ID)?.runId ?? '' } // i18n-ignore: who a delivery is from, as agents read it
   if (actor.kind === 'agent') return { kind: 'hive', name: actor.name }
-  return { kind: 'user', name: 'the user' }
+  return { kind: 'user', name: 'the user' } // i18n-ignore: who a delivery is from, as agents read it
 }
 
 function startable(card: TaskCard): void {
-  if (card.archived) throw new Error(`#${card.number} is archived. Bring it back first.`)
-  if (!card.project) throw new Error(`#${card.number} has no project. Give it one first: the agent works in that project.`)
+  if (card.archived) throw hiveError(msg({ id: 'tasks.start.archived', defaultMessage: '#{n} is archived. Bring it back first.', description: 'An error: card #{n} (a number) is archived, so it cannot be started; bring it back onto the board first.' }), { n: card.number }, { kind: 'conflict' })
+  if (!card.project) throw hiveError(msg({ id: 'tasks.start.noProject', defaultMessage: '#{n} has no project. Give it one first: the agent works in that project.', description: 'An error: card #{n} (a number) belongs to no project (only the workspace), so no agent can start it; give it a project first.' }), { n: card.number }, { kind: 'invalid' })
 }
 
 async function startReserved(n: number, target: TaskStartTarget, actor: TaskActor, note: string | undefined): Promise<{ card: TaskCard; agentId: string; agentName: string; added: boolean }> {
@@ -91,12 +90,12 @@ async function startReserved(n: number, target: TaskStartTarget, actor: TaskActo
   let reserved: string | null = null
   if (target.kind === 'agent') {
     const a = projectAgents(await workspace.projectConfig(p)).find((x) => x.id === target.agentId || x.name.toLowerCase() === target.agentId.toLowerCase())
-    if (!a) throw new Error(`Unknown agent "${target.agentId}" in ${before.project}`)
+    if (!a) throw hiveError(UNKNOWN_AGENT, { agent: target.agentId, project: before.project }, { kind: 'notFound' })
     agentId = a.id
     agentName = a.name
     availability(p, a.id, a.name, actor)
     const agentKey = `${p.toLowerCase()}|${a.id}`
-    if (busyAgents.has(agentKey)) throw new Error(`${a.name} is being given another card. Start this one once it's idle, or give it to another agent.`)
+    if (busyAgents.has(agentKey)) throw hiveError(msg({ id: 'tasks.start.beingGiven', defaultMessage: "{agent} is being given another card. Start this one once it's idle, or give it to another agent.", description: 'An error: the agent {agent} (its name) is being given another card right now, so this one cannot be started with it.' }), { agent: a.name })
     busyAgents.add(agentKey)
     reserved = agentKey
   } else {
@@ -141,10 +140,14 @@ async function giveCard(
     card = await updateTask(n, { agent: agentId, ...(before.column === 'doing' ? {} : { column: 'doing' as const }) }, actor, {
       check: (now) => {
         startable(now)
-        if (now.project.toLowerCase() !== before.project.toLowerCase()) throw new Error(`#${n} moved to ${now.project || 'the workspace'} meanwhile. Start it again.`)
-        if (now.column === 'done' && before.column !== 'done') throw new Error(`#${n} was moved to Done meanwhile. Start it again if there is more to do.`)
-        if (now.column !== before.column) throw new Error(`#${n} was moved to ${columnLabel(now.column)} meanwhile. Start it again if it's still to do.`)
-        if (now.agent !== before.agent) throw new Error(`#${n} was given to ${now.agent ? 'another agent' : 'nobody'} meanwhile. Start it again if it's still to do.`)
+        if (now.project.toLowerCase() !== before.project.toLowerCase()) {
+          throw now.project
+            ? hiveError(msg({ id: 'tasks.start.movedProject', defaultMessage: '#{n} moved to {project} meanwhile. Start it again.', description: 'An error: while card #{n} (a number) was being started, it was moved to the project {project} (a folder name).' }), { n, project: now.project })
+            : hiveError(msg({ id: 'tasks.start.movedWorkspace', defaultMessage: '#{n} moved to the workspace meanwhile. Start it again.', description: 'An error: while card #{n} (a number) was being started, it was taken out of its project, to the whole workspace.' }), { n })
+        }
+        if (now.column === 'done' && before.column !== 'done') throw hiveError(msg({ id: 'tasks.start.movedDone', defaultMessage: '#{n} was moved to Done meanwhile. Start it again if there is more to do.', description: 'An error: while card #{n} (a number) was being started, it was moved to Done (a board column).' }), { n })
+        if (now.column !== before.column) throw hiveError(msg({ id: 'tasks.start.movedColumn', defaultMessage: "#{n} was moved to {column, select, hold {On Hold} todo {Todo} doing {Doing} review {Review} passed {Passed} done {Done} other {{column}}} meanwhile. Start it again if it's still to do.", description: 'An error: while card #{n} (a number) was being started, it was moved to the column {column} (select: a board column; translate each).' }), { n, column: now.column })
+        if (now.agent !== before.agent) throw hiveError(msg({ id: 'tasks.start.reassigned', defaultMessage: "#{n} was given to {who, select, another {another agent} other {nobody}} meanwhile. Start it again if it's still to do.", description: 'An error: while card #{n} (a number) was being started, it was given to another agent, or taken from its agent ({who}, select: translate each).' }), { n, who: now.agent ? 'another' : 'nobody' })
       }
     })
   } catch (e) {
@@ -157,7 +160,7 @@ async function giveCard(
   const back = (agent: string | null): Promise<TaskCard> =>
     updateTask(n, { agent, column: before.column }, actor, {
       check: (now) => {
-        if (now.agent !== agentId || now.column !== card.column || now.project !== card.project || now.archived) throw new Error('changed meanwhile')
+        if (now.agent !== agentId || now.column !== card.column || now.project !== card.project || now.archived) throw new Error('changed meanwhile') // i18n-ignore: never shown (the card stays as it is)
       }
     })
   let live = false
@@ -177,7 +180,7 @@ async function giveCard(
     }
     if (live)
       await deliverNow(p, { ...nd, conversation: sessions.liveFor(p, agentId)?.sessionId || null }, holds).catch((e: Error) => {
-        throw e instanceof NotGiven ? new Error(`${agentName} wasn't given #${n}: ${e.message}.`) : e
+        throw e instanceof NotGiven ? hiveError(msg({ id: 'tasks.start.notGiven', defaultMessage: "{agent} wasn't given #{n}: {why}.", description: "An error: the card #{n} (a number) could not be typed into the terminal of the agent {agent} (its name); {why} says why." }), { agent: agentName, n, why: errorText(e) }, { cause: e }) : e
       })
     else await launchWith(p, nd, (line) => sessions.start(p, { agentId, prompt: line }))
   } catch (e) {

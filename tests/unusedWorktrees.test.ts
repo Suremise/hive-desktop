@@ -294,7 +294,7 @@ describe('Remove anyway', () => {
       vi.setSystemTime(Date.now() + PREVIEW_MS - 60_000)
       expect(await anyway(fresh.path, q.token)).toEqual({ deleted: true })
       vi.setSystemTime(Date.now() + 2 * 60_000)
-      expect(await anyway(old.path, p.token)).toEqual({ deleted: false, lookAgain: true, reason: 'what it holds was checked more than 15 minutes ago: nothing was removed, look again' })
+      expect(await anyway(old.path, p.token)).toEqual({ deleted: false, lookAgain: true, reason: 'what it holds was checked more than 15 minutes ago' })
     } finally {
       vi.useRealTimers()
     }

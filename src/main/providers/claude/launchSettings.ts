@@ -1,12 +1,30 @@
 import { isAbsolute, join } from 'path'
 import { open, stat } from 'original-fs/promises'
 import { SETTINGS_FILE_LIMIT, SETTINGS_READ_CHUNK, settingsArgValue } from './autoCompact'
+import { msg } from '../../../shared/i18n/msg'
+import { errorText, hiveError } from '../../hiveError'
 
 /**
  * A `--settings` in the user's own arguments (#330). Claude Code reads only the last `--settings` it is given (checked
  * with 2.1.291 in a test home), so the user's would replace Hive's launch settings and with them every hook and the
  * status line. Instead Hive reads the user's settings, merges them into its own launch file and passes that alone.
  */
+
+/**
+ * Why a launch is refused (#842): thrown as HiveErrors, so the window reads them in its language and the Agent API (an
+ * agent or the Assistant starting one) in English.
+ */
+const M = {
+  noValue: msg({ id: 'providers.settings.noValue', defaultMessage: "The last --settings in Extra arguments has no value. Give it a settings file or inline JSON (--settings '<file or JSON>'), or remove it in Agent Settings or Settings → Claude Code.", description: 'Starting a Claude Code agent is refused: its extra arguments end with --settings and nothing after it. Keep --settings and <file or JSON> as they are; "Agent Settings" and "Settings → Claude Code" are where to change it, as Hive shows them.' }),
+  unreadable: msg({ id: 'providers.settings.unreadable', defaultMessage: "The settings file {file} (--settings in Extra arguments) can't be read: {why}. Fix it or remove it in Agent Settings or Settings → Claude Code.", description: "Starting a Claude Code agent is refused: the settings file in its extra arguments can't be read. {file} is its path; {why} is the reason (\"there is no such file\", \"it isn't a file\", or the system's own words). Keep --settings as it is." }),
+  noFile: msg({ id: 'providers.settings.noFile', defaultMessage: 'there is no such file', description: "Why a settings file can't be read, after \"can't be read:\" in another message: it doesn't exist." }),
+  notAFile: msg({ id: 'providers.settings.notAFile', defaultMessage: "it isn't a file", description: "Why a settings file can't be read, after \"can't be read:\" in another message: the path is a folder or a device." }),
+  tooLarge: msg({ id: 'providers.settings.tooLarge', defaultMessage: "it's over Claude Code's 2 MiB limit for settings files", description: "Why a settings file can't be read, after \"can't be read:\" in another message: it is larger than Claude Code takes. Keep 2 MiB as it is." }),
+  notJson: msg({ id: 'providers.settings.notJson', defaultMessage: "The settings file {file} (--settings in Extra arguments) isn't valid JSON ({why}). Fix it or remove it in Agent Settings or Settings → Claude Code.", description: "Starting a Claude Code agent is refused: its settings file isn't JSON. {file} is its path; {why} is the JSON parser's own words (English). Keep --settings and JSON as they are." }),
+  notObject: msg({ id: 'providers.settings.notObject', defaultMessage: "{source, select, inline {The --settings in Extra arguments} other {The settings file {file} (--settings in Extra arguments)}} isn't a settings object ('{ … }'). Fix it or remove it in Agent Settings or Settings → Claude Code.", description: "Starting a Claude Code agent is refused: its settings aren't an object. {source} is inline (settings written in the argument itself) or file; {file} is the file's path as the user wrote it. Keep --settings and the setting names as they are; \"Agent Settings\" and \"Settings → Claude Code\" are where to change it, as Hive shows them. Keep { … } as it is." }),
+  hooksOff: msg({ id: 'providers.settings.hooksOff', defaultMessage: "{source, select, inline {The --settings in Extra arguments} other {The settings file {file} (--settings in Extra arguments)}} turns off all hooks (disableAllHooks), which Hive needs for the agent's status, file locks and status line. Remove it in Agent Settings or Settings → Claude Code.", description: "Starting a Claude Code agent is refused: its settings turn Claude Code's hooks off. {source} is inline (settings written in the argument itself) or file; {file} is the file's path as the user wrote it. Keep --settings and the setting names as they are; \"Agent Settings\" and \"Settings → Claude Code\" are where to change it, as Hive shows them." }),
+  notList: msg({ id: 'providers.settings.notList', defaultMessage: "{source, select, inline {The --settings in Extra arguments} other {The settings file {file} (--settings in Extra arguments)}} sets {key} to something other than a list, which stops Hive's hooks reaching it. Make it a list ([ … ]) or remove it in Agent Settings or Settings → Claude Code.", description: "Starting a Claude Code agent is refused: a hook allowlist in its settings isn't a list. {key} is the setting's name. {source} is inline (settings written in the argument itself) or file; {file} is the file's path as the user wrote it. Keep --settings and the setting names as they are; \"Agent Settings\" and \"Settings → Claude Code\" are where to change it, as Hive shows them. Keep [ … ] as it is." })
+}
 
 /** The user's arguments without any `--settings` (Hive's one launch settings file carries what it held). */
 export function withoutSettingsArgs(args: readonly string[]): string[] {
@@ -29,7 +47,7 @@ export async function userSettings(args: readonly string[], cwd: string): Promis
   const v = settingsArgValue(args)
   if (v === null) return null
   // `--settings` at the end, `--settings=` or an empty value: a mistake to fix, not "no settings" (#361).
-  if (!v) throw new Error('The last --settings in Extra arguments has no value. Give it a settings file or inline JSON (--settings <file or JSON>), or remove it in Agent Settings or Settings → Claude Code.') // i18n-ignore: both audiences: thrown at a launch, read by the window and the Agent API alike; HiveError (E10a) carries it in both languages (#842)
+  if (!v) throw hiveError(M.noValue)
   // Claude Code takes a value that parses as JSON as inline settings, and anything else as a file's path.
   let json: unknown
   let inline = false
@@ -41,27 +59,27 @@ export async function userSettings(args: readonly string[], cwd: string): Promis
       // not JSON: a file's name, as Claude Code reads it
     }
   }
-  const what = inline ? 'The --settings in Extra arguments' : `The settings file ${v} (--settings in Extra arguments)` // i18n-ignore: both audiences: thrown at a launch, read by the window and the Agent API alike; HiveError (E10a) carries it in both languages (#842)
+  const what = { source: inline ? 'inline' : 'file', file: v }
   if (!inline) {
     const file = isAbsolute(v) ? v : join(cwd, v)
     let text: string
     try {
       text = await readSettingsFile(file)
     } catch (e) {
-      throw new Error(`${what} can't be read: ${(e as NodeJS.ErrnoException).code === 'ENOENT' ? 'there is no such file' : (e as Error).message}. Fix it or remove it in Agent Settings or Settings → Claude Code.`, { cause: e }) // i18n-ignore: both audiences: thrown at a launch, read by the window and the Agent API alike; HiveError (E10a) carries it in both languages (#842)
+      throw hiveError(M.unreadable, { file: v, why: (e as NodeJS.ErrnoException).code === 'ENOENT' ? M.noFile : errorText(e) }, { cause: e })
     }
     try {
       json = JSON.parse(text.replace(/^﻿/, ''))
     } catch (e) {
-      throw new Error(`${what} isn't valid JSON (${(e as Error).message}). Fix it or remove it in Agent Settings or Settings → Claude Code.`, { cause: e }) // i18n-ignore: both audiences: thrown at a launch, read by the window and the Agent API alike; HiveError (E10a) carries it in both languages (#842)
+      throw hiveError(M.notJson, { file: v, why: (e as Error).message }, { cause: e })
     }
   }
-  if (!json || typeof json !== 'object' || Array.isArray(json)) throw new Error(`${what} isn't a settings object ({ … }). Fix it or remove it in Agent Settings or Settings → Claude Code.`) // i18n-ignore: both audiences: thrown at a launch, read by the window and the Agent API alike; HiveError (E10a) carries it in both languages (#842)
+  if (!json || typeof json !== 'object' || Array.isArray(json)) throw hiveError(M.notObject, what)
   // It would turn off Hive's hooks and status line with the user's (Claude Code 2.1.292): Hive can't keep both.
-  if ((json as Record<string, unknown>).disableAllHooks === true) throw new Error(`${what} turns off all hooks (disableAllHooks), which Hive needs for the agent's status, file locks and status line. Remove it in Agent Settings or Settings → Claude Code.`) // i18n-ignore: both audiences: thrown at a launch, read by the window and the Agent API alike; HiveError (E10a) carries it in both languages (#842)
+  if ((json as Record<string, unknown>).disableAllHooks === true) throw hiveError(M.hooksOff, what)
   // A list's entries are added to (mergeLaunchSettings); anything else in its place blocks Hive's hooks (2.1.292).
   for (const key of HOOK_ALLOWLISTS) {
-    if (key in json && !Array.isArray((json as Record<string, unknown>)[key])) throw new Error(`${what} sets ${key} to something other than a list, which stops Hive's hooks reaching it. Make it a list ([ … ]) or remove it in Agent Settings or Settings → Claude Code.`) // i18n-ignore: both audiences: thrown at a launch, read by the window and the Agent API alike; HiveError (E10a) carries it in both languages (#842)
+    if (key in json && !Array.isArray((json as Record<string, unknown>)[key])) throw hiveError(M.notList, { ...what, key })
   }
   return json as Record<string, unknown>
 }
@@ -74,12 +92,12 @@ export async function userSettings(args: readonly string[], cwd: string): Promis
  */
 async function readSettingsFile(file: string): Promise<string> {
   const st = await stat(file)
-  if (!st.isFile()) throw new Error("it isn't a file") // i18n-ignore: both audiences: thrown at a launch, read by the window and the Agent API alike; HiveError (E10a) carries it in both languages (#842)
-  const over = (): Error => new Error("it's over Claude Code's 2 MiB limit for settings files") // i18n-ignore: both audiences: thrown at a launch, read by the window and the Agent API alike; HiveError (E10a) carries it in both languages (#842)
+  if (!st.isFile()) throw hiveError(M.notAFile)
+  const over = (): Error => hiveError(M.tooLarge)
   if (st.size > SETTINGS_FILE_LIMIT) throw over()
   const fh = await open(file, 'r')
   try {
-    if (!(await fh.stat()).isFile()) throw new Error("it isn't a file") // i18n-ignore: both audiences: thrown at a launch, read by the window and the Agent API alike; HiveError (E10a) carries it in both languages (#842)
+    if (!(await fh.stat()).isFile()) throw hiveError(M.notAFile)
     const chunks: Buffer[] = []
     let n = 0
     for (;;) {

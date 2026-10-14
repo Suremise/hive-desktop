@@ -1,6 +1,6 @@
 // Types shared by the main process, preload bridge and renderer.
 
-import type { Text } from './advanced'
+import type { Text, TextPart } from './advanced'
 import type { AvOffer } from './antivirus'
 import type { ActivityTarget } from './assistantActivity'
 import type { AttachmentKind } from './attachments'
@@ -15,6 +15,45 @@ import type { ConsoleEvent, ConsoleRecordingInfo } from './devConsole'
 import type { SafeguardNote, ScreenStop } from './safeguards'
 import type { AgentLeftovers, LeftoverProcessMode } from './agentProcesses'
 import type { UsageTimeline } from './usageTimeline'
+
+/**
+ * Text read by both the window and agents (#845, E10a of #677). Hive's services throw a `HiveError` (main/hiveError.ts
+ * has the whole contract). What they store or return as data keeps its English field, which agents, the log, old
+ * records and any code matching it go on reading, and gains its text as data beside it: a `…Text` field (a `Text`,
+ * shared/advanced.ts, or a `StoredText` in a file). The window shows the `…Text` in the user's language and falls back
+ * to the English when there is none (a record from before, or the CLI's own words). The Agent API never sends a `…Text`
+ * field: its replies are built field by field, and where one sends a whole object that has one, servers.ts leaves the
+ * companion behind (`entryForAgents`, `metricsForAgents`, `addedForAgents`).
+ */
+/** What kind of refusal an error is: the Agent API's status for it (400, 403, 404, 409). */
+export type HiveErrorKind = 'invalid' | 'forbidden' | 'notFound' | 'conflict'
+/** A failure as data, in a result or an event: its text as data (or a plain error's message, as it came), and its kind. */
+export interface HiveErrorData {
+  text: TextPart
+  kind?: HiveErrorKind
+}
+/**
+ * Text kept in a file (#845): a message's id and its values, never its English or its note, so a record stays small and
+ * a later change to the English reaches it. The window formats it with its area's message of that id, and shows the
+ * English field beside it for an id it doesn't know (a record from a newer Hive). Values are names and numbers, the
+ * same in every language: a word the message chooses (a column, a verdict) is a `select` key, never English.
+ */
+export interface StoredText {
+  id: string
+  values?: Record<string, string | number>
+}
+/** The window's text as data beside an English field (above), by name: what the Agent API leaves out of its replies. */
+export type WindowTextField =
+  | 'whatText'
+  | 'hiveText'
+  | 'statusText'
+  | 'mergeSlotText'
+  | 'messageText'
+  | 'notReusedText'
+  | 'problemText'
+  | 'errorText'
+  | 'notMeasuredText'
+  | 'notFilteredText'
 
 export type ThemeSetting = 'dark' | 'light' | 'system'
 /** A coding-agent CLI Hive can run ("claude-code", "codex"). See src/shared/providers.ts. */
@@ -547,6 +586,8 @@ export interface TaskComment {
   /** "You", "Assistant", or an agent ("Agent 2 (Claude Code) in hive"). */
   by: string
   text: string
+  /** A comment Hive wrote itself (#845): its text as data, for the window; `text` is its English. */
+  hiveText?: StoredText
   /** Unique on the card (#224): what a card watch counts its view of the card by. Comments from before have none. */
   id?: string
 }
@@ -554,7 +595,10 @@ export interface TaskComment {
 export interface TaskHistoryEntry {
   at: string
   by: string
+  /** In English, always (#845): agents read it, and Hive's own code matches it. */
   what: string
+  /** What happened as data (#845), for the window to show in the user's language: entries from before have none. */
+  whatText?: StoredText
   /** Unique on the card (#224), as a comment's. */
   id?: string
 }
@@ -893,7 +937,7 @@ export interface TemplateLoadPlan {
   /** The project's worktree setup command, which each new worktree runs before its agent first starts (null: none). */
   setup: string | null
   /** Providers the template needs that are off or not installed, and which of its agents need each. */
-  missing: { provider: ProviderId; reason: string; agents: string[] }[]
+  missing: { provider: ProviderId; reason: string; agents: string[]; problem?: 'unknown' | 'off' | 'notInstalled' }[]
   /** Why it can't be loaded now (empty: it can). */
   blocked: string[]
 }
@@ -960,7 +1004,9 @@ export interface WorktreeReuse {
   base: string
   upTo?: string
   keptWork?: boolean
+  /** In English (the Agent API's start reply says it); `notReusedText` is it as the window shows it (#845). */
   notReused?: string
+  notReusedText?: Text
 }
 
 /** An agent just added, with what happened to a worktree it could reuse (#456). */
@@ -1238,7 +1284,12 @@ export interface LiveSessionState {
   status: SessionStatus
   /** When the status last changed (ISO): how long an agent has been waiting or finished. */
   statusSince?: string
+  /**
+   * In English, or the CLI's own words (#845): agents read it, and Hive's code compares it. `statusText` is Hive's own
+   * text as the window shows it (none when the message is the CLI's).
+   */
   statusMessage?: string
+  statusText?: Text
   /**
    * Its CLI's latest turn as Hive's turn ledger knows it (#648): running, over, or unknown, when a running turn has been
    * silent for a while (`silentSince`) with no sign of its end. Unknown isn't idle: nothing is typed into it, and the user
@@ -1252,6 +1303,8 @@ export interface LiveSessionState {
   runtime?: RuntimeFacts
   /** Its place at the merge slot (#350): waiting for it ("Waiting for the merge slot (B4 is merging #305)") or holding it. */
   mergeSlot?: string
+  /** `mergeSlot` as the window shows it (#845); `mergeSlot` is its English. */
+  mergeSlotText?: Text
   /** An action under the CLI's automatic review (Codex's Approve for me), as asked ("Codex asks to run …"): shown beside the status, never as it. */
   review?: string
   /**
@@ -1291,7 +1344,7 @@ export interface LiveSessionState {
    * Its last turn stopped because its CLI's sign-in was refused, and it hasn't carried on since (#309): the CLI's
    * message and when. Status `signin` until the CLI is signed in again, then `ready`; Resume (n) carries it on.
    */
-  signIn?: { message: string; since: string }
+  signIn?: { message: string; since: string; /** Hive's own message as the window shows it (#845), when `message` isn't the CLI's. */ messageText?: Text }
   /**
    * Its CLI's safety classifier stopped a response this launch, or its model changed after one (#606): when, the model,
    * the names of its last tool calls before it (never their input nor what was stopped), and whether it waits on the
@@ -1515,8 +1568,10 @@ export interface SkillInfo {
   updateAvailable?: true
   /** Hive skills: who gets it (SKILL.md's metadata.audience): project agents (the default), the Assistant, or both. */
   audience?: SkillAudience
-  /** Hive skills: its header is broken or its audience unknown, so nobody gets it until it's fixed (why, in words). */
+  /** Hive skills: its header is broken or its audience unknown, so nobody gets it until it's fixed (why, in English). */
   problem?: string
+  /** `problem` as the window shows it (#845). */
+  problemText?: Text
 }
 
 /** Who a Hive skill is for. */
@@ -1540,7 +1595,9 @@ export interface McpServerInfo {
   name: string
   path: string
   def: McpServerDef | null
+  /** In English, or the reason a read failed as Node gave it; `errorText` is Hive's own as the window shows it (#845). */
   error?: string
+  errorText?: Text
   /** On for all projects (#713): each project has it on unless it turned it off. Else only where a project turned it on. */
   globallyEnabled: boolean
   secretWarnings: string[]
