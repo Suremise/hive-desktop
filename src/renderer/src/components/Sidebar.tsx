@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import { Children, useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import type { McpServerInfo, NoteFile, ProjectInfo, SkillInfo } from '@shared/types'
 import { AgentsTable, agentsText } from './AgentsTable'
 import { useLanes, type Lane } from '../laneSource'
@@ -19,12 +19,114 @@ import { AssistantSidePanel } from './AssistantView'
 import { BoardPanel } from './Board'
 import { WorkspaceOverviewPanel } from '../views/WorkspaceOverview'
 import { PerformancePanel } from '../views/Performance'
-import { tr } from '@shared/i18n'
+import { fmt, tr, tRich } from '@shared/i18n'
 import { msg } from '@shared/i18n/msg'
 
 /** Width of the compact Projects rail, and how narrow a drag has to go before the sidebar snaps to it. */
 const RAIL_WIDTH = 48
 const SNAP_WIDTH = 120
+
+const M = {
+  noWorkspace: msg({ id: 'assistant.sidebar.noWorkspace', defaultMessage: '{what, select, projects {Open a workspace to see its projects.} notes {Open a workspace to see its shared notes.} other {Open a workspace to see its MCP servers.}}', description: 'The sidebar with no workspace open (Projects, Shared Notes or MCP Servers).' }),
+  openWorkspace: msg({ id: 'assistant.sidebar.openWorkspace', defaultMessage: 'Open Workspace', description: 'A button and the compact sidebar\'s tooltip: opens a workspace.' }),
+  newWorkspace: msg({ id: 'assistant.sidebar.newWorkspace', defaultMessage: 'New Workspace', description: "A button with no workspace open: creates a workspace." }),
+  newSession: msg({ id: 'assistant.sidebar.newSession', defaultMessage: 'New Session', description: "An item of a project's right-click menu in the Projects sidebar: starts a session." }),
+  resumeLast: msg({ id: 'assistant.sidebar.resumeLast', defaultMessage: 'Resume Last Session', description: "An item of a project's right-click menu in the Projects sidebar." }),
+  resumeAll: msg({ id: 'assistant.sidebar.resumeAll', defaultMessage: 'Resume All Agents', description: "An item of a project's right-click menu in the Projects sidebar: resumes every agent's session." }),
+  stopAll: msg({ id: 'assistant.sidebar.stopAll', defaultMessage: 'Stop All Agents', description: "A project's right-click menu, with more than one agent running." }),
+  stopSession: msg({ id: 'assistant.sidebar.stopSession', defaultMessage: 'Stop Session', description: "An item of a project's right-click menu in the Projects sidebar: stops its running session." }),
+  addAgent: msg({ id: 'assistant.sidebar.addAgent', defaultMessage: 'Add Agent', description: "A project's right-click menu: adds an agent at once, with the defaults." }),
+  addAgentDialog: msg({ id: 'assistant.sidebar.addAgentDialog', defaultMessage: 'Add Agent…', description: "A project's right-click menu: opens the Add Agent dialog." }),
+  markNotWorking: msg({ id: 'assistant.sidebar.markNotWorking', defaultMessage: 'Mark as Not Working On', description: "A project's right-click menu: makes it inactive." }),
+  markWorking: msg({ id: 'assistant.sidebar.markWorking', defaultMessage: 'Mark as Working On', description: "A project's right-click menu: makes it active." }),
+  reveal: msg({ id: 'assistant.sidebar.reveal', defaultMessage: 'Reveal in File Explorer', description: "A project's or a note's right-click menu." }),
+  terminal: msg({ id: 'assistant.sidebar.terminal', defaultMessage: 'Open External Terminal', description: "An item of a project's right-click menu: opens a terminal window in its folder." }),
+  tasks: msg({ id: 'assistant.sidebar.tasks', defaultMessage: 'Tasks', description: "A project's right-click menu: its Tasks tab." }),
+  projectSettings: msg({ id: 'assistant.sidebar.projectSettings', defaultMessage: 'Project Settings', description: "A project's right-click menu: its Settings tab." }),
+  removeProject: msg({ id: 'assistant.sidebar.removeProject', defaultMessage: 'Remove Project…', description: "An item of a project's right-click menu in the Projects sidebar: removes it from the workspace." }),
+  needYou: msg({ id: 'assistant.sidebar.needYou', defaultMessage: '{count, plural, one {# agent needs you} other {# agents need you}}', description: "Tooltip on a project's bell: how many of its agents wait for you." }),
+  expand: msg({ id: 'assistant.sidebar.expand', defaultMessage: 'Expand Sidebar', description: 'The compact sidebar: the button that widens it again.' }),
+  expandTip: msg({ id: 'assistant.sidebar.expandTip', defaultMessage: '{hasKey, select, yes {Expand Sidebar ({key})} other {Expand Sidebar}}', description: 'Tooltip on the compact sidebar\'s widen button, with its shortcut ({key}: "Ctrl+Alt+B").' }),
+  compactTip: msg({ id: 'assistant.sidebar.compactTip', defaultMessage: '{hasKey, select, yes {Compact Sidebar ({key})} other {Compact Sidebar}}', description: 'The Projects sidebar: the button that narrows it to a rail, with its shortcut ({key}: "Ctrl+Alt+B").' }),
+  noSession: msg({ id: 'assistant.sidebar.noSession', defaultMessage: 'No session', description: "An active project's status when no session runs." }),
+  inactive: msg({ id: 'assistant.sidebar.inactive', defaultMessage: 'Inactive', description: "A project's status when it isn't being worked on." }),
+  railLabel: msg({ id: 'assistant.sidebar.railLabel', defaultMessage: '{project}: {status}', description: 'The compact sidebar: a project\'s accessible name, with its status ("Working").' }),
+  workspace: msg({ id: 'assistant.sidebar.workspace', defaultMessage: 'Workspace: {name}', description: "The compact sidebar: tooltip on the workspace's icon." }),
+  projects: msg({ id: 'assistant.sidebar.projects', defaultMessage: 'Projects', description: "The Projects sidebar's heading with no workspace open." }),
+  bypassTip: msg({ id: 'assistant.sidebar.bypassTip', defaultMessage: 'Bypass permissions: sessions run every action without asking.', description: "Tooltip on a project's warning: an agent runs in a provider's no-guardrails mode." }),
+  restartTip: msg({ id: 'assistant.sidebar.restartTip', defaultMessage: 'Settings changed since this session started. Restart the session to apply them.', description: "Tooltip on a project's restart mark." }),
+  unmanagedTip: msg({ id: 'assistant.sidebar.unmanagedTip', defaultMessage: 'Project MCP servers not in the workspace (disabled): {servers}', description: "Tooltip on a project's plug: MCP servers in its own config that Hive turned off." }),
+  statusLabel: msg({ id: 'assistant.sidebar.statusLabel', defaultMessage: '{project} agents: {status}', description: "A project's status, for screen readers (its agents' table follows on focus)." }),
+  activeTip: msg({ id: 'assistant.sidebar.activeTip', defaultMessage: 'Working on this project. Click to mark it as not being worked on.', description: "Tooltip on an active project's switch." }),
+  inactiveTip: msg({ id: 'assistant.sidebar.inactiveTip', defaultMessage: 'Mark as a project you are working on. Only active projects run sessions and show status.', description: "Tooltip on an inactive project's switch." }),
+  activeLabel: msg({ id: 'assistant.sidebar.activeLabel', defaultMessage: 'Active: {project}', description: "A project's switch, for screen readers." }),
+  newProject: msg({ id: 'assistant.sidebar.newProject', defaultMessage: 'New Project…', description: 'The Projects sidebar: a button.' }),
+  refresh: msg({ id: 'assistant.sidebar.refresh', defaultMessage: 'Refresh', description: 'A sidebar button: reads its list again.' }),
+  openWorkspaceFolder: msg({ id: 'assistant.sidebar.openWorkspaceFolder', defaultMessage: 'Open Workspace Folder', description: 'The Projects sidebar: a button that opens the workspace in Explorer.' }),
+  filterProjects: msg({ id: 'assistant.sidebar.filterProjects', defaultMessage: 'Filter projects', description: "The Projects sidebar's filter box, empty." }),
+  noProjects: msg({ id: 'assistant.sidebar.noProjects', defaultMessage: 'This workspace has no projects yet. Each folder in the workspace is a project.', description: 'The Projects sidebar with no projects.' }),
+  newProjectButton: msg({ id: 'assistant.sidebar.newProjectButton', defaultMessage: 'New Project', description: 'The Projects sidebar with no projects: a button.' }),
+  workingOn: msg({ id: 'assistant.sidebar.workingOn', defaultMessage: 'Working on', description: 'The Projects sidebar: the section of active projects.' }),
+  workingOnTip: msg({ id: 'assistant.sidebar.workingOnTip', defaultMessage: 'Active projects get a terminal session, status indicators and notifications.', description: "Tooltip on the Working on section of the Projects sidebar." }),
+  toggleOn: msg({ id: 'assistant.sidebar.toggleOn', defaultMessage: 'Toggle a project on to start working on it.', description: 'Under Working on, with no active projects.' }),
+  otherProjects: msg({ id: 'assistant.sidebar.otherProjects', defaultMessage: 'Other projects', description: 'The Projects sidebar: the section of inactive projects.' }),
+  sharedNotes: msg({ id: 'assistant.sidebar.sharedNotes', defaultMessage: 'Shared Notes', description: "The Shared Notes sidebar's heading." }),
+  newFolder: msg({ id: 'assistant.sidebar.newFolder', defaultMessage: 'New Folder', description: "Shared Notes: the dialog's title." }),
+  newNote: msg({ id: 'assistant.sidebar.newNote', defaultMessage: 'New Note', description: "Shared Notes: the dialog's title." }),
+  folderMessage: msg({ id: 'assistant.sidebar.folderMessage', defaultMessage: 'Folder inside .hive/shared', description: 'Shared Notes, New Folder. Keep .hive/shared as it is.' }),
+  noteMessage: msg({ id: 'assistant.sidebar.noteMessage', defaultMessage: 'Markdown note inside .hive/shared. Agents can read it through the Hive MCP tools.', description: 'Shared Notes, New Note. Keep .hive/shared as it is.' }),
+  create: msg({ id: 'assistant.sidebar.create', defaultMessage: 'Create', description: "New Note's, New Folder's and New MCP Server's button." }),
+  createFailed: msg({ id: 'assistant.sidebar.createFailed', defaultMessage: 'Could not create', description: 'An error notice: a shared note or folder.' }),
+  newNoteHere: msg({ id: 'assistant.sidebar.newNoteHere', defaultMessage: 'New Note Here', description: "A shared notes folder's right-click menu." }),
+  newFolderHere: msg({ id: 'assistant.sidebar.newFolderHere', defaultMessage: 'New Folder Here', description: "A shared notes folder's right-click menu." }),
+  renameMenu: msg({ id: 'assistant.sidebar.renameMenu', defaultMessage: 'Rename…', description: "A shared note's right-click menu." }),
+  saveFirst: msg({ id: 'assistant.sidebar.saveFirst', defaultMessage: 'Save or discard your changes to {name} first', description: 'A notice: a note with unsaved edits can\'t be renamed.' }),
+  saveFirstDetail: msg({ id: 'assistant.sidebar.saveFirstDetail', defaultMessage: 'It has unsaved edits, which would otherwise be saved under its old name.', description: 'Under Save or discard your changes first.' }),
+  rename: msg({ id: 'assistant.sidebar.rename', defaultMessage: 'Rename', description: "Renaming a shared note: the dialog's title and button." }),
+  renameFailed: msg({ id: 'assistant.sidebar.renameFailed', defaultMessage: 'Could not rename', description: 'An error notice: a shared note.' }),
+  delete: msg({ id: 'assistant.sidebar.delete', defaultMessage: 'Delete', description: "A shared note's right-click menu." }),
+  deleteFolder: msg({ id: 'assistant.sidebar.deleteFolder', defaultMessage: 'Delete folder', description: 'A button on a shared notes folder.' }),
+  deleteNote: msg({ id: 'assistant.sidebar.deleteNote', defaultMessage: 'Delete note', description: "A trash button beside a shared note: deletes it." }),
+  notesTip: msg({ id: 'assistant.sidebar.notesTip', defaultMessage: "Notes, instructions and handovers stored in the workspace's .hive/shared folder. Shared across every project and session.", description: 'Tooltip on Shared Notes. Keep .hive/shared as it is.' }),
+  newNoteButton: msg({ id: 'assistant.sidebar.newNoteButton', defaultMessage: 'New Note…', description: "A button over the shared notes: creates a note." }),
+  newFolderButton: msg({ id: 'assistant.sidebar.newFolderButton', defaultMessage: 'New Folder…', description: "A button over the shared notes: creates a folder." }),
+  openFolder: msg({ id: 'assistant.sidebar.openFolder', defaultMessage: 'Open Folder', description: "Shared Notes: a button that opens .hive/shared in Explorer." }),
+  noNotes: msg({ id: 'assistant.sidebar.noNotes', defaultMessage: 'No notes yet. Create one, or ask an agent to write a handover with the Hive MCP tools.', description: "The Shared Notes sidebar when the workspace has no notes." }),
+  openFirst: msg({ id: 'assistant.sidebar.openFirst', defaultMessage: 'Open a workspace first', description: 'A notice: adding a skill with no workspace open.' }),
+  skills: msg({ id: 'assistant.sidebar.skills', defaultMessage: 'Skills', description: "The heading of the Skills sidebar: the workspace's Hive skills." }),
+  newSkill: msg({ id: 'assistant.sidebar.newSkill', defaultMessage: 'New Skill…', description: "A button over the Hive skills: creates a skill." }),
+  skillFromFile: msg({ id: 'assistant.sidebar.skillFromFile', defaultMessage: 'Add Skill from File (.md or .zip)…', description: 'The Skills sidebar: a button. Keep .md and .zip as they are.' }),
+  openSkillsFolder: msg({ id: 'assistant.sidebar.openSkillsFolder', defaultMessage: 'Open Hive Skills Folder', description: 'The Skills sidebar: a button that opens .hive/skills in Explorer.' }),
+  filterSkills: msg({ id: 'assistant.sidebar.filterSkills', defaultMessage: 'Filter skills', description: "The Skills sidebar's filter box, empty." }),
+  hiveGroup: msg({ id: 'assistant.sidebar.hiveGroup', defaultMessage: 'Hive', description: "The Skills sidebar: the section of the workspace's Hive skills. Usually kept as Hive." }),
+  noWorkspaceSkills: msg({ id: 'assistant.sidebar.noWorkspaceSkills', defaultMessage: 'Open a workspace to manage Hive skills.', description: 'The Skills sidebar with no workspace open.' }),
+  skillsLoadTarget: msg({ id: 'assistant.sidebar.skillsLoadTarget', defaultMessage: 'the skills', description: 'What could not be loaded when the Hive skills were first read: shown in "Could not load {what}: {error}", with Retry.' }),
+  skillsRefreshTarget: msg({ id: 'assistant.sidebar.skillsRefreshTarget', defaultMessage: 'the skills', description: 'What could not be refreshed while the skills shown stay on screen: shown in "Could not refresh {what}; last updated …", with Retry.' }),
+  loading: msg({ id: 'assistant.sidebar.loading', defaultMessage: 'Loading…', description: "The Skills sidebar while the Hive skills are read." }),
+  noSkills: msg({ id: 'assistant.sidebar.noSkills', defaultMessage: 'No Hive skills yet. Create one with +, or add one from a .md or .zip.', description: 'The Skills sidebar with no Hive skills. + is the add button.' }),
+  restoreSkill: msg({ id: 'assistant.sidebar.restoreSkill', defaultMessage: 'Restore this skill that ships with Hive', description: "A button beside a deleted skill of Hive's own." }),
+  deleteSkill: msg({ id: 'assistant.sidebar.deleteSkill', defaultMessage: 'Delete skill', description: "A trash button beside a Hive skill: deletes it." }),
+  skillsHint: msg({ id: 'assistant.sidebar.skillsHint', defaultMessage: "Each goes to the project agents in every project, unless it's marked <b>Assistant</b> (only the Hive Assistant gets it) or <b>Agents + Assistant</b>. A project's own skills, and your user and plugin skills, are in its <b>Skills</b> tab.", description: "Under the Skills sidebar's list. <b> is bold: the badges' words (Assistant, Agents + Assistant) and the tab's name, as they show." }),
+  mcpServers: msg({ id: 'assistant.sidebar.mcpServers', defaultMessage: 'MCP Servers', description: "The heading of the MCP sidebar: the workspace's MCP servers." }),
+  newServerTitle: msg({ id: 'assistant.sidebar.newServerTitle', defaultMessage: 'New MCP Server', description: "The title of the dialog that creates an MCP server." }),
+  newServerMessage: msg({ id: 'assistant.sidebar.newServerMessage', defaultMessage: 'Creates {file} in the workspace from a template you can edit.', description: 'New MCP Server. {file} is .hive/mcp/<name>.json, <name> standing for the name you type.' }),
+  serverNameRule: msg({ id: 'assistant.sidebar.serverNameRule', defaultMessage: 'Use letters, numbers, "-" and "_". "hive" is reserved.', description: "New MCP Server: a name that can't be used. Keep hive as it is (the built-in server's name)." }),
+  createServerFailed: msg({ id: 'assistant.sidebar.createServerFailed', defaultMessage: 'Could not create server', description: "An error notice: New MCP Server couldn't create the server's file; the reason follows." }),
+  mcpTip: msg({ id: 'assistant.sidebar.mcpTip', defaultMessage: "MCP servers deployed to the workspace (.hive/mcp) are available to every project and run only where they are on: turn one on in a project's MCP tab, or for all projects with its switch here. Changes apply to new sessions.", description: 'Tooltip on MCP Servers. Keep .hive/mcp as it is.' }),
+  newServer: msg({ id: 'assistant.sidebar.newServer', defaultMessage: 'New MCP Server…', description: "A button over the MCP servers: creates a server from a template." }),
+  serverFromFile: msg({ id: 'assistant.sidebar.serverFromFile', defaultMessage: 'Add MCP Server from File (.json or .zip)…', description: 'The MCP sidebar: a button. Keep .json and .zip as they are.' }),
+  openMcpFolder: msg({ id: 'assistant.sidebar.openMcpFolder', defaultMessage: 'Open MCP Folder', description: 'The MCP sidebar: a button that opens .hive/mcp in Explorer.' }),
+  workspaceGroup: msg({ id: 'assistant.sidebar.workspaceGroup', defaultMessage: 'Workspace', description: "The MCP sidebar: the section of the workspace's servers." }),
+  noServers: msg({ id: 'assistant.sidebar.noServers', defaultMessage: 'No MCP servers yet. Create one with +, or add one from a .json definition or a .zip of a server folder.', description: 'The MCP sidebar with no servers. + is the add button.' }),
+  deleteServer: msg({ id: 'assistant.sidebar.deleteServer', defaultMessage: 'Delete server', description: "A trash button beside an MCP server of the workspace: deletes it." }),
+  builtIn: msg({ id: 'assistant.sidebar.builtIn', defaultMessage: 'Built-in', description: "The MCP sidebar: the section of Hive's own server." }),
+  hiveServerDesc: msg({ id: 'assistant.sidebar.hiveServerDesc', defaultMessage: 'Hive tools for agents: projects, shared notes, handovers, notifications', description: "Under the built-in hive server: what it gives agents." }),
+  hiveServerTip: msg({ id: 'assistant.sidebar.hiveServerTip', defaultMessage: 'Controlled in Settings → Agent API', description: "Tooltip on the built-in server's On or Off." }),
+  on: msg({ id: 'assistant.sidebar.on', defaultMessage: 'On', description: 'A badge: the built-in hive server is on.' }),
+  off: msg({ id: 'assistant.sidebar.off', defaultMessage: 'Off', description: 'A badge: the built-in hive server is off.' })
+}
+
+const bold = (c: React.ReactNode[]): React.ReactNode => <strong>{c}</strong>
 
 export function Sidebar() {
   const activity = useStore((s) => s.activity)
@@ -79,15 +181,15 @@ export function Sidebar() {
   )
 }
 
-function NoWorkspace({ what }: { what: string }) {
+function NoWorkspace({ what }: { what: 'projects' | 'notes' | 'mcp' }) {
   return (
     <div className="pane-empty">
-      Open a workspace to see its {what}.
+      {tr(M.noWorkspace, { what })}
       <button className="btn primary" onClick={() => runCommand('workspace.open')}>
-        <Icon name="folder-opened" /> Open Workspace
+        <Icon name="folder-opened" /> {tr(M.openWorkspace)}
       </button>
       <button className="btn subtle" onClick={() => runCommand('workspace.create')}>
-        <Icon name="new-folder" /> New Workspace
+        <Icon name="new-folder" /> {tr(M.newWorkspace)}
       </button>
     </div>
   )
@@ -121,9 +223,10 @@ export function Section({ title, count, children, defaultOpen = true, tip, butto
 // Projects
 // ---------------------------------------------------------------------------
 
-function compactTip(): string {
+/** The compact sidebar's shortcut, for a message's select. */
+function compactKey(): { hasKey: 'yes' | 'no'; key: string } {
   const kb = commandKeybinding('view.compactSidebar')
-  return kb ? ` (${formatKeybinding(kb)})` : ''
+  return { hasKey: kb ? 'yes' : 'no', key: kb ? formatKeybinding(kb) : '' }
 }
 
 /** A project's lanes (its builders and reviewers, to pair them up in its agents table, #529). */
@@ -135,22 +238,22 @@ function projectLanes(lanes: readonly Lane[], p: ProjectInfo): Lane[] {
 function projectMenu(p: ProjectInfo): MenuEntry[] {
   const running = p.agents.filter((a) => a.live).length
   return [
-    { label: 'New Session', icon: 'add', action: 'start', onClick: () => void actions.newSession(p.path) },
-    { label: 'Resume Last Session', icon: 'debug-continue', action: 'resume', onClick: () => void actions.resumeLast(p.path) },
-    ...(p.agents.length > 1 ? [{ label: 'Resume All Agents', icon: 'blank', action: 'resume' as const, disabled: !agentsToResume(p.agents).length, onClick: () => void actions.resumeAllAgents(p.path) }] : []),
+    { label: tr(M.newSession), icon: 'add', action: 'start', onClick: () => void actions.newSession(p.path) },
+    { label: tr(M.resumeLast), icon: 'debug-continue', action: 'resume', onClick: () => void actions.resumeLast(p.path) },
+    ...(p.agents.length > 1 ? [{ label: tr(M.resumeAll), icon: 'blank', action: 'resume' as const, disabled: !agentsToResume(p.agents).length, onClick: () => void actions.resumeAllAgents(p.path) }] : []),
     running > 1
-      ? { label: 'Stop All Agents', icon: 'debug-stop', action: 'stop', onClick: () => void actions.stopAllAgents(p.path) }
-      : { label: 'Stop Session', icon: 'debug-stop', action: 'stop', disabled: !running, onClick: () => void actions.stopSession(p.path, p.agents.find((a) => a.live)?.id) },
-    { label: 'Add Agent', icon: 'person-add', onClick: () => void actions.quickAddAgent(p.path) },
-    { label: 'Add Agent…', icon: 'blank', onClick: () => set({ addAgentFor: p.path }) },
+      ? { label: tr(M.stopAll), icon: 'debug-stop', action: 'stop', onClick: () => void actions.stopAllAgents(p.path) }
+      : { label: tr(M.stopSession), icon: 'debug-stop', action: 'stop', disabled: !running, onClick: () => void actions.stopSession(p.path, p.agents.find((a) => a.live)?.id) },
+    { label: tr(M.addAgent), icon: 'person-add', onClick: () => void actions.quickAddAgent(p.path) },
+    { label: tr(M.addAgentDialog), icon: 'blank', onClick: () => set({ addAgentFor: p.path }) },
     { separator: true },
-    { label: p.active ? 'Mark as Not Working On' : 'Mark as Working On', icon: p.active ? 'circle-slash' : 'pass', onClick: () => void actions.setProjectActive(p.path, !p.active) },
+    { label: tr(p.active ? M.markNotWorking : M.markWorking), icon: p.active ? 'circle-slash' : 'pass', onClick: () => void actions.setProjectActive(p.path, !p.active) },
     { separator: true },
-    { label: 'Reveal in File Explorer', icon: 'folder-opened', onClick: () => void call('project:openInExplorer', p.path) },
-    { label: 'Open External Terminal', icon: 'terminal', onClick: () => void call('project:openTerminal', p.path) },
+    { label: tr(M.reveal), icon: 'folder-opened', onClick: () => void call('project:openInExplorer', p.path) },
+    { label: tr(M.terminal), icon: 'terminal', onClick: () => void call('project:openTerminal', p.path) },
     { separator: true },
     {
-      label: 'Tasks',
+      label: tr(M.tasks),
       icon: 'project',
       onClick: () => {
         actions.selectProject(p.path)
@@ -158,7 +261,7 @@ function projectMenu(p: ProjectInfo): MenuEntry[] {
       }
     },
     {
-      label: 'Project Settings',
+      label: tr(M.projectSettings),
       icon: 'settings',
       onClick: () => {
         actions.selectProject(p.path)
@@ -166,7 +269,7 @@ function projectMenu(p: ProjectInfo): MenuEntry[] {
       }
     },
     { separator: true },
-    { label: 'Remove Project…', icon: 'trash', onClick: () => set({ removeProjectFor: p.path }) }
+    { label: tr(M.removeProject), icon: 'trash', onClick: () => set({ removeProjectFor: p.path }) }
   ]
 }
 
@@ -195,7 +298,7 @@ function useNeedCounts(): Map<string, number> {
 function NeedCount({ n }: { n: number | undefined }) {
   if (!n) return null
   return (
-    <Tooltip content={`${n} agent${n === 1 ? '' : 's'} need${n === 1 ? 's' : ''} you`}>
+    <Tooltip content={tr(M.needYou, { count: n })}>
       <span className="project-needs">
         <Icon name="bell-dot" />
         {n}
@@ -213,8 +316,8 @@ function ProjectsRail() {
   const menu = useContextMenu()
 
   const expand = (
-    <Tooltip content={`Expand Sidebar${compactTip()}`} side="right">
-      <button className="rail-btn" onClick={() => toggleCompactSidebar(false)} aria-label="Expand Sidebar">
+    <Tooltip content={tr(M.expandTip, compactKey())} side="right">
+      <button className="rail-btn" onClick={() => toggleCompactSidebar(false)} aria-label={tr(M.expand)}>
         <Icon name="chevron-right" />
       </button>
     </Tooltip>
@@ -223,8 +326,8 @@ function ProjectsRail() {
     return (
       <div className="rail">
         {expand}
-        <Tooltip content="Open Workspace" side="right">
-          <button className="rail-btn" onClick={() => runCommand('workspace.open')} aria-label="Open Workspace">
+        <Tooltip content={tr(M.openWorkspace)} side="right">
+          <button className="rail-btn" onClick={() => runCommand('workspace.open')} aria-label={tr(M.openWorkspace)}>
             <Icon name="folder-opened" />
           </button>
         </Tooltip>
@@ -234,7 +337,7 @@ function ProjectsRail() {
 
   const item = (p: ProjectInfo) => {
     const state = projectState(p)
-    const status = state ? STATUS_TEXT[state.status] : p.active ? 'No session' : 'Inactive'
+    const status = state ? STATUS_TEXT[state.status] : tr(p.active ? M.noSession : M.inactive)
     // Its agents as a table (#529), whenever it has any.
     const table = p.agents.length > 0
     const lanesOf = projectLanes(lanes, p)
@@ -267,7 +370,7 @@ function ProjectsRail() {
           }}
           onDoubleClick={() => p.active && !state && void actions.newSession(p.path)}
           onContextMenu={(e) => menu.open(e, projectMenu(p))}
-          aria-label={`${p.name}: ${status}`}
+          aria-label={tr(M.railLabel, { project: p.name, status })}
           aria-description={table ? agentsText(p, tasks, lanesOf) : undefined}
         >
           <span className="rail-initials">{projectInitials(p.name)}</span>
@@ -283,7 +386,7 @@ function ProjectsRail() {
   return (
     <div className="rail">
       {expand}
-      <Tooltip content={`Workspace: ${workspace.name}`} side="right">
+      <Tooltip content={tr(M.workspace, { name: workspace.name })} side="right">
         <span className="rail-workspace">
           <Icon name="root-folder" />
         </span>
@@ -311,7 +414,7 @@ function ProjectsPanel() {
   if (!workspace) {
     return (
       <>
-        <div className="pane-header">Projects</div>
+        <div className="pane-header">{tr(M.projects)}</div>
         <NoWorkspace what="projects" />
       </>
     )
@@ -329,12 +432,12 @@ function ProjectsPanel() {
     // One dot per project: the most urgent of its agents.
     const state = projectState(p)
     const running = p.agents.filter((a) => a.live).length
-    const status = state ? STATUS_TEXT[state.status] : p.active ? 'No session' : 'Inactive'
+    const status = state ? STATUS_TEXT[state.status] : tr(p.active ? M.noSession : M.inactive)
     const lanesOf = projectLanes(lanes, p)
     return (
       <div
         key={p.path}
-        className={cx('row project-row', selected === p.path && 'selected', !p.active && 'inactive')}
+        className={cx(/* i18n-ignore: class names */ 'row project-row', selected === p.path && 'selected', !p.active && 'inactive')}
         onClick={() => actions.selectProject(p.path)}
         onDoubleClick={() => p.active && !state && void actions.newSession(p.path)}
         onContextMenu={(e) => menu.open(e, projectMenu(p))}
@@ -344,7 +447,7 @@ function ProjectsPanel() {
           <div className="project-name">
             <span style={{ overflow: 'hidden', textOverflow: 'ellipsis' }}>{p.name}</span>
             {bypass && (
-              <Tooltip content="Bypass permissions: sessions run every action without asking.">
+              <Tooltip content={tr(M.bypassTip)}>
                 <Icon name="warning" className="" />
               </Tooltip>
             )}
@@ -356,12 +459,12 @@ function ProjectsPanel() {
               </Tooltip>
             )}
             {p.agents.some((a) => a.restartNeeded) && (
-              <Tooltip content="Settings changed since this session started. Restart the session to apply them.">
+              <Tooltip content={tr(M.restartTip)}>
                 <Icon name="refresh" />
               </Tooltip>
             )}
             {p.unmanagedMcp.length > 0 && (
-              <Tooltip content={`Project MCP servers not in the workspace (disabled): ${p.unmanagedMcp.join(', ')}`}>
+              <Tooltip content={tr(M.unmanagedTip, { servers: fmt.list(p.unmanagedMcp, 'unit') })}>
                 <Icon name="plug" />
               </Tooltip>
             )}
@@ -376,7 +479,7 @@ function ProjectsPanel() {
             {/* Its agents as a table (#529), whenever it has any: on hover, or on keyboard focus (the row's one tab stop for it). */}
             {p.agents.length ? (
               <Tooltip content={<AgentsTable project={p} tasks={tasks} lanes={lanesOf} />} className="agents-tip" focus>
-                <span className="project-status" tabIndex={0} aria-label={`${p.name} agents: ${status}`} aria-description={agentsText(p, tasks, lanesOf)}>
+                <span className="project-status" tabIndex={0} aria-label={tr(M.statusLabel, { project: p.name, status })} aria-description={agentsText(p, tasks, lanesOf)}>
                   {status}
                 </span>
               </Tooltip>
@@ -385,8 +488,8 @@ function ProjectsPanel() {
             )}
           </div>
         </div>
-        <Tooltip content={p.active ? 'Working on this project. Click to mark it as not being worked on.' : 'Mark as a project you are working on. Only active projects run sessions and show status.'}>
-          <Switch small checked={p.active} onChange={(v) => void actions.setProjectActive(p.path, v)} label={`Active: ${p.name}`} />
+        <Tooltip content={tr(p.active ? M.activeTip : M.inactiveTip)}>
+          <Switch small checked={p.active} onChange={(v) => void actions.setProjectActive(p.path, v)} label={tr(M.activeLabel, { project: p.name })} />
         </Tooltip>
       </div>
     )
@@ -397,32 +500,32 @@ function ProjectsPanel() {
       <div className="pane-header">
         {workspace.name}
         <div className="actions">
-          <IconButton icon="new-folder" title="New Project…" onClick={() => runCommand('project.new')} />
-          <IconButton icon="refresh" title="Refresh" onClick={() => void actions.refreshWorkspace()} />
-          <IconButton icon="chevron-left" title={`Compact Sidebar${compactTip()}`} onClick={() => toggleCompactSidebar(true)} />
-          <IconButton icon="folder-opened" title="Open Workspace Folder" onClick={() => void call('app:openPath', workspace.path)} />
+          <IconButton icon="new-folder" title={tr(M.newProject)} onClick={() => runCommand('project.new')} />
+          <IconButton icon="refresh" title={tr(M.refresh)} onClick={() => void actions.refreshWorkspace()} />
+          <IconButton icon="chevron-left" title={tr(M.compactTip, compactKey())} onClick={() => toggleCompactSidebar(true)} />
+          <IconButton icon="folder-opened" title={tr(M.openWorkspaceFolder)} onClick={() => void call('app:openPath', workspace.path)} />
         </div>
       </div>
       {workspace.projects.length > 6 && (
         <div style={{ padding: '0 8px 6px 12px' }}>
-          <SearchInput style={{ height: 24 }} placeholder="Filter projects" value={filter} onChange={setFilter} />
+          <SearchInput style={{ height: 24 }} placeholder={tr(M.filterProjects)} value={filter} onChange={setFilter} />
         </div>
       )}
       <div className="pane-body">
         {workspace.projects.length === 0 ? (
           <div className="pane-empty">
-            This workspace has no projects yet. Each folder in the workspace is a project.
+            {tr(M.noProjects)}
             <button className="btn primary" onClick={() => runCommand('project.new')}>
-              <Icon name="new-folder" /> New Project
+              <Icon name="new-folder" /> {tr(M.newProjectButton)}
             </button>
           </div>
         ) : (
           <>
-            <Section title="Working on" count={active.length} tip="Active projects get a terminal session, status indicators and notifications.">
-              {active.length === 0 && <div className="pane-empty" style={{ paddingTop: 8 }}>Toggle a project on to start working on it.</div>}
+            <Section title={tr(M.workingOn)} count={active.length} tip={tr(M.workingOnTip)}>
+              {active.length === 0 && <div className="pane-empty" style={{ paddingTop: 8 }}>{tr(M.toggleOn)}</div>}
               {active.map(row)}
             </Section>
-            <Section title="Other projects" count={inactive.length}>
+            <Section title={tr(M.otherProjects)} count={inactive.length}>
               {inactive.map(row)}
             </Section>
           </>
@@ -454,22 +557,22 @@ function NotesPanel() {
   if (!workspace) {
     return (
       <>
-        <div className="pane-header">Shared Notes</div>
-        <NoWorkspace what="shared notes" />
+        <div className="pane-header">{tr(M.sharedNotes)}</div>
+        <NoWorkspace what="notes" />
       </>
     )
   }
 
   const create = async (isDir: boolean, parent = ''): Promise<void> => {
     const name = await prompt({
-      title: isDir ? 'New Folder' : 'New Note',
-      message: isDir ? 'Folder inside .hive/shared' : 'Markdown note inside .hive/shared. Agents can read it through the Hive MCP tools.',
-      placeholder: isDir ? 'folder-name' : 'note-name.md',
+      title: tr(isDir ? M.newFolder : M.newNote),
+      message: tr(isDir ? M.folderMessage : M.noteMessage),
+      placeholder: isDir ? 'folder-name' : 'note-name.md', // i18n-ignore: example file names
       initial: parent ? `${parent}/` : '',
-      confirmLabel: 'Create'
+      confirmLabel: tr(M.create)
     })
     if (!name) return
-    const path = await actions.attempt('Could not create', () => call('notes:create', name, isDir))
+    const path = await actions.attempt(tr(M.createFailed), () => call('notes:create', name, isDir))
     if (path && !isDir) set({ selectedNote: path })
     load()
   }
@@ -485,30 +588,30 @@ function NotesPanel() {
             menu.open(e, [
               ...(n.isDir
                 ? [
-                    { label: 'New Note Here', icon: 'new-file', onClick: () => void create(false, n.relPath) },
-                    { label: 'New Folder Here', icon: 'new-folder', onClick: () => void create(true, n.relPath) },
+                    { label: tr(M.newNoteHere), icon: 'new-file', onClick: () => void create(false, n.relPath) },
+                    { label: tr(M.newFolderHere), icon: 'new-folder', onClick: () => void create(true, n.relPath) },
                     { separator: true }
                   ]
                 : []),
               {
-                label: 'Rename…',
+                label: tr(M.renameMenu),
                 icon: 'tag',
                 onClick: async () => {
                   // Its unsaved edits are tied to its path: renaming would leave them saving to the old name.
-                  if (hasEditorDraftsUnder(n.path)) return notify('warning', `Save or discard your changes to ${n.name} first`, 'It has unsaved edits, which would otherwise be saved under its old name.')
-                  const nn = await prompt({ title: 'Rename', initial: n.name, confirmLabel: 'Rename' })
+                  if (hasEditorDraftsUnder(n.path)) return notify('warning', tr(M.saveFirst, { name: n.name }), tr(M.saveFirstDetail))
+                  const nn = await prompt({ title: tr(M.rename), initial: n.name, confirmLabel: tr(M.rename) })
                   if (nn && nn !== n.name) {
                     // Edited while the dialog was open.
-                    if (hasEditorDraftsUnder(n.path)) return notify('warning', `Save or discard your changes to ${n.name} first`, 'It has unsaved edits, which would otherwise be saved under its old name.')
-                    const np = await actions.attempt('Could not rename', () => call('notes:rename', n.path, nn))
+                    if (hasEditorDraftsUnder(n.path)) return notify('warning', tr(M.saveFirst, { name: n.name }), tr(M.saveFirstDetail))
+                    const np = await actions.attempt(tr(M.renameFailed), () => call('notes:rename', n.path, nn))
                     if (np && selected === n.path) set({ selectedNote: np })
                     load()
                   }
                 }
               },
-              { label: 'Reveal in File Explorer', icon: 'folder-opened', onClick: () => void call('app:showInFolder', n.path) },
+              { label: tr(M.reveal), icon: 'folder-opened', onClick: () => void call('app:showInFolder', n.path) },
               { separator: true },
-              { label: 'Delete', icon: 'trash', danger: true, onClick: () => void actions.deleteNote(n.path, n.relPath, n.isDir).then(load) }
+              { label: tr(M.delete), icon: 'trash', danger: true, onClick: () => void actions.deleteNote(n.path, n.relPath, n.isDir).then(load) }
             ])
           }
         >
@@ -516,7 +619,7 @@ function NotesPanel() {
           {n.isDir && <Icon name={expanded[n.relPath] ? 'folder-opened' : 'folder'} />}
           <span className="label">{n.name}</span>
           <div className="row-actions" style={{ marginLeft: 'auto' }} onClick={(e) => e.stopPropagation()}>
-            <IconButton icon="trash" title={n.isDir ? 'Delete folder' : 'Delete note'} onClick={() => void actions.deleteNote(n.path, n.relPath, n.isDir).then(load)} />
+            <IconButton icon="trash" title={tr(n.isDir ? M.deleteFolder : M.deleteNote)} onClick={() => void actions.deleteNote(n.path, n.relPath, n.isDir).then(load)} />
           </div>
         </div>
         {n.isDir && expanded[n.relPath] && n.children && renderNodes(n.children, depth + 1)}
@@ -526,17 +629,17 @@ function NotesPanel() {
   return (
     <>
       <div className="pane-header">
-        Shared Notes
-        <InfoTip text="Notes, instructions and handovers stored in the workspace's .hive/shared folder. Shared across every project and session." />
+        {tr(M.sharedNotes)}
+        <InfoTip text={tr(M.notesTip)} />
         <div className="actions">
-          <IconButton icon="new-file" title="New Note…" onClick={() => void create(false)} />
-          <IconButton icon="new-folder" title="New Folder…" onClick={() => void create(true)} />
-          <IconButton icon="refresh" title="Refresh" onClick={load} />
-          <IconButton icon="folder-opened" title="Open Folder" onClick={() => void call('app:openPath', `${workspace.path}\\.hive\\shared`)} />
+          <IconButton icon="new-file" title={tr(M.newNoteButton)} onClick={() => void create(false)} />
+          <IconButton icon="new-folder" title={tr(M.newFolderButton)} onClick={() => void create(true)} />
+          <IconButton icon="refresh" title={tr(M.refresh)} onClick={load} />
+          <IconButton icon="folder-opened" title={tr(M.openFolder)} onClick={() => void call('app:openPath', `${workspace.path}\\.hive\\shared`)} />
         </div>
       </div>
       <div className="pane-body">
-        {tree.length === 0 ? <div className="pane-empty">No notes yet. Create one, or ask an agent to write a handover with the Hive MCP tools.</div> : renderNodes(tree, 0)}
+        {tree.length === 0 ? <div className="pane-empty">{tr(M.noNotes)}</div> : renderNodes(tree, 0)}
       </div>
       {menu.element}
     </>
@@ -565,7 +668,7 @@ function SkillsPanel() {
   useEffect(load, [load, version])
 
   const add = async (mode: 'new' | 'file'): Promise<void> => {
-    if (!workspace) return notify('warning', 'Open a workspace first')
+    if (!workspace) return notify('warning', tr(M.openFirst))
     const s = await addSkill(mode, { kind: 'hive' })
     if (s) set({ selectedSkill: s.path })
   }
@@ -577,29 +680,29 @@ function SkillsPanel() {
   return (
     <>
       <div className="pane-header">
-        Skills
+        {tr(M.skills)}
         <div className="actions">
-          <IconButton icon="add" title="New Skill…" onClick={() => void add('new')} disabled={!workspace} />
-          <IconButton icon="file-add" title="Add Skill from File (.md or .zip)…" onClick={() => void add('file')} disabled={!workspace} />
-          <IconButton icon="refresh" title="Refresh" onClick={load} />
-          <IconButton icon="folder-opened" title="Open Hive Skills Folder" onClick={() => void call('skills:openFolder')} disabled={!workspace} />
+          <IconButton icon="add" title={tr(M.newSkill)} onClick={() => void add('new')} disabled={!workspace} />
+          <IconButton icon="file-add" title={tr(M.skillFromFile)} onClick={() => void add('file')} disabled={!workspace} />
+          <IconButton icon="refresh" title={tr(M.refresh)} onClick={load} />
+          <IconButton icon="folder-opened" title={tr(M.openSkillsFolder)} onClick={() => void call('skills:openFolder')} disabled={!workspace} />
         </div>
       </div>
       {workspace && <HiveSkillsWarning />}
       <div style={{ padding: '0 8px 6px 12px' }}>
-        <SearchInput style={{ height: 24 }} placeholder="Filter skills" value={filter} onChange={setFilter} />
+        <SearchInput style={{ height: 24 }} placeholder={tr(M.filterSkills)} value={filter} onChange={setFilter} />
       </div>
       <div className="pane-body">
-        <Section title="Hive" count={skills.length - missing} tip={SKILL_LEVEL_TIP.hive}>
-          {!workspace && <div className="pane-empty">Open a workspace to manage Hive skills.</div>}
-          {workspace && error && loaded.data && <StaleNote what="the skills" error={error} at={loaded.at} onRetry={load} />}
-          {workspace && error && !loaded.data && <LoadFailed inline what="the skills" error={error} onRetry={load} />}
+        <Section title={tr(M.hiveGroup)} count={skills.length - missing} tip={SKILL_LEVEL_TIP.hive}>
+          {!workspace && <div className="pane-empty">{tr(M.noWorkspaceSkills)}</div>}
+          {workspace && error && loaded.data && <StaleNote what={tr(M.skillsRefreshTarget)} error={error} at={loaded.at} onRetry={load} />}
+          {workspace && error && !loaded.data && <LoadFailed inline what={tr(M.skillsLoadTarget)} error={error} onRetry={load} />}
           {workspace && !error && !loaded.data && (
             <div className="pane-empty">
-              <Icon name="loading" spin /> Loading…
+              <Icon name="loading" spin /> {tr(M.loading)}
             </div>
           )}
-          {workspace && !error && loaded.data && skills.length === 0 && <div className="pane-empty">No Hive skills yet. Create one with +, or add one from a .md or .zip.</div>}
+          {workspace && !error && loaded.data && skills.length === 0 && <div className="pane-empty">{tr(M.noSkills)}</div>}
           {shown.map((s) => (
             <SkillRow
               key={s.path}
@@ -608,9 +711,9 @@ function SkillsPanel() {
               onSelect={() => set({ selectedSkill: s.path })}
               actionsFor={
                 s.bundled === 'missing' ? (
-                  <IconButton icon="history" title="Restore this skill that ships with Hive" onClick={() => void restoreBundled(s).then((r) => r && set({ selectedSkill: r.path }))} />
+                  <IconButton icon="history" title={tr(M.restoreSkill)} onClick={() => void restoreBundled(s).then((r) => r && set({ selectedSkill: r.path }))} />
                 ) : (
-                  <IconButton icon="trash" title="Delete skill" onClick={() => void deleteSkill(s)} />
+                  <IconButton icon="trash" title={tr(M.deleteSkill)} onClick={() => void deleteSkill(s)} />
                 )
               }
             />
@@ -618,7 +721,7 @@ function SkillsPanel() {
         </Section>
         {workspace && (
           <p className="hint" style={{ padding: '4px 14px' }}>
-            Each goes to the project agents in every project, unless it's marked <strong>Assistant</strong> (only the Hive Assistant gets it) or <strong>Agents + Assistant</strong>. A project's own skills, and your user and plugin skills, are in its <strong>Skills</strong> tab.
+            {Children.toArray(tRich<React.ReactNode>(M.skillsHint, { b: bold }))}
           </p>
         )}
       </div>
@@ -653,22 +756,22 @@ function McpPanel() {
   if (!workspace) {
     return (
       <>
-        <div className="pane-header">MCP Servers</div>
-        <NoWorkspace what="MCP servers" />
+        <div className="pane-header">{tr(M.mcpServers)}</div>
+        <NoWorkspace what="mcp" />
       </>
     )
   }
 
   const create = async (): Promise<void> => {
     const name = await prompt({
-      title: 'New MCP Server',
-      message: 'Creates .hive/mcp/<name>.json in the workspace from a template you can edit.',
-      placeholder: 'server-name',
-      confirmLabel: 'Create',
-      validate: (v) => (/^[a-zA-Z0-9][a-zA-Z0-9_-]{0,63}$/.test(v.trim()) && v.trim() !== 'hive' ? null : 'Use letters, numbers, "-" and "_". "hive" is reserved.')
+      title: tr(M.newServerTitle),
+      message: tr(M.newServerMessage, { file: '.hive/mcp/<name>.json' }),
+      placeholder: 'server-name', // i18n-ignore: an example server name
+      confirmLabel: tr(M.create),
+      validate: (v) => (/^[a-zA-Z0-9][a-zA-Z0-9_-]{0,63}$/.test(v.trim()) && v.trim() !== 'hive' ? null : tr(M.serverNameRule))
     })
     if (!name) return
-    const m = await actions.attempt('Could not create server', () => call('mcp:create', name.trim()))
+    const m = await actions.attempt(tr(M.createServerFailed), () => call('mcp:create', name.trim()))
     if (m) set({ selectedMcp: m.name })
     load()
   }
@@ -678,20 +781,20 @@ function McpPanel() {
   return (
     <>
       <div className="pane-header">
-        MCP Servers
-        <InfoTip text="MCP servers deployed to the workspace (.hive/mcp) are available to every project and run only where they are on: turn one on in a project's MCP tab, or for all projects with its switch here. Changes apply to new sessions." />
+        {tr(M.mcpServers)}
+        <InfoTip text={tr(M.mcpTip)} />
         <div className="actions">
-          <IconButton icon="add" title="New MCP Server…" onClick={() => void create()} />
-          <IconButton icon="file-add" title="Add MCP Server from File (.json or .zip)…" onClick={() => void actions.addMcpServerFromFile().then((m) => m && load())} />
-          <IconButton icon="refresh" title="Refresh" onClick={load} />
-          <IconButton icon="folder-opened" title="Open MCP Folder" onClick={() => void call('mcp:openFolder')} />
+          <IconButton icon="add" title={tr(M.newServer)} onClick={() => void create()} />
+          <IconButton icon="file-add" title={tr(M.serverFromFile)} onClick={() => void actions.addMcpServerFromFile().then((m) => m && load())} />
+          <IconButton icon="refresh" title={tr(M.refresh)} onClick={load} />
+          <IconButton icon="folder-opened" title={tr(M.openMcpFolder)} onClick={() => void call('mcp:openFolder')} />
         </div>
       </div>
       <div className="pane-body">
-        <Section title="Workspace" count={servers.length}>
-          {loaded.current && servers.length === 0 && <div className="pane-empty">No MCP servers yet. Create one with +, or add one from a .json definition or a .zip of a server folder.</div>}
+        <Section title={tr(M.workspaceGroup)} count={servers.length}>
+          {loaded.current && servers.length === 0 && <div className="pane-empty">{tr(M.noServers)}</div>}
           {servers.map((m) => (
-            <div key={m.name} className={cx('row tall', selected === m.name && 'selected')} onClick={() => set({ selectedMcp: m.name })}>
+            <div key={m.name} className={cx(/* i18n-ignore: class names */ 'row tall', selected === m.name && 'selected')} onClick={() => set({ selectedMcp: m.name })}>
               <Icon name={m.error ? 'error' : m.def?.url ? 'globe' : 'plug'} />
               <div style={{ flex: 1, minWidth: 0 }}>
                 <div className="label">
@@ -712,7 +815,7 @@ function McpPanel() {
                 )}
               </div>
               <div className="row-actions" onClick={(e) => e.stopPropagation()}>
-                <IconButton icon="trash" title="Delete server" onClick={() => void actions.deleteMcpServer(m.name)} />
+                <IconButton icon="trash" title={tr(M.deleteServer)} onClick={() => void actions.deleteMcpServer(m.name)} />
               </div>
               <Tooltip
                 content={
@@ -726,15 +829,15 @@ function McpPanel() {
             </div>
           ))}
         </Section>
-        <Section title="Built-in" count={1}>
-          <div className={cx('row tall', selected === '__hive' && 'selected')} onClick={() => set({ selectedMcp: '__hive' })}>
+        <Section title={tr(M.builtIn)} count={1}>
+          <div className={cx(/* i18n-ignore: class names */ 'row tall', selected === '__hive' && 'selected')} onClick={() => set({ selectedMcp: '__hive' })}>
             <Icon name="hubot" />
             <div style={{ flex: 1, minWidth: 0 }}>
-              <div className="label">hive</div>
-              <div className="desc">Hive tools for agents: projects, shared notes, handovers, notifications</div>
+              <div className="label">{'hive' /* i18n-ignore: the server's name */}</div>
+              <div className="desc">{tr(M.hiveServerDesc)}</div>
             </div>
-            <Tooltip content="Controlled in Settings → Agent API">
-              <span className={cx('badge', hiveOn ? 'success' : '')}>{hiveOn ? 'On' : 'Off'}</span>
+            <Tooltip content={tr(M.hiveServerTip)}>
+              <span className={cx('badge', hiveOn ? 'success' : '')}>{tr(hiveOn ? M.on : M.off)}</span>
             </Tooltip>
           </div>
         </Section>

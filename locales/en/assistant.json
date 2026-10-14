@@ -1,0 +1,1998 @@
+{
+  "assistant.loadNames.blocked": {
+    "defaultMessage": "Agent names are unique across the workspace: change the marked names first.",
+    "description": "Load template: why its button can't be used yet."
+  },
+  "assistant.loadNames.sameTwice": {
+    "defaultMessage": "Another of its agents has this name.",
+    "description": "Load template, under a name box: another of the template's agents is given the same name."
+  },
+  "assistant.loadNames.taken": {
+    "defaultMessage": "{project} has an agent called {name}.",
+    "description": "Load template, under a name box: an agent of another project has that name."
+  },
+  "assistant.loadNames.takenNote": {
+    "defaultMessage": "Agent names are unique across the workspace, and {projects} already {count, plural, one {has an agent} other {has agents}} called {names}: give {count, plural, one {it} other {them}} other names below.",
+    "description": "Load template, above the plan: some of the template's names are taken. {projects} lists the projects, {names} the names; {count} is how many names."
+  },
+  "assistant.mcpSecret.argument": {
+    "defaultMessage": "An argument starting \"{start}…\" looks like a literal secret.",
+    "description": "A warning on an MCP server's definition: one of its command's arguments looks like a password or token. {start} is its first characters."
+  },
+  "assistant.mcpSecret.named": {
+    "defaultMessage": "{where, select, header {header} other {env}} \"{key}\" looks like a literal secret. Use an environment variable reference such as \"{ref}\".",
+    "description": "A warning on an MCP server's definition: an environment variable (env) or HTTP header of that name holds what looks like a password or token. Keep env and header as they are (the definition's fields); {ref} is the reference to use instead, such as ${GITHUB_TOKEN}."
+  },
+  "assistant.modes.create": {
+    "defaultMessage": "Create",
+    "description": "The New Mode dialog: its button."
+  },
+  "assistant.modes.createFailed": {
+    "defaultMessage": "Could not create the mode",
+    "description": "An error notice: New Mode couldn't create the mode's file; the reason follows."
+  },
+  "assistant.modes.defaultBadge": {
+    "defaultMessage": "Default",
+    "description": "A badge on the mode a workspace uses until you choose one (Settings → Assistant)."
+  },
+  "assistant.modes.delete": {
+    "defaultMessage": "Delete",
+    "description": "Confirmation before a mode is deleted: its button."
+  },
+  "assistant.modes.deleteFailed": {
+    "defaultMessage": "Could not delete the mode",
+    "description": "An error notice: a mode's file couldn't be deleted; the reason follows."
+  },
+  "assistant.modes.deleteMessage": {
+    "defaultMessage": "{file} goes to the Recycle Bin.{bundled, select, yes { It ships with Hive, so you can restore it later.} other {}}",
+    "description": "Confirmation before a mode is deleted: {file} is its file (advisor.md). The second sentence when it is one of Hive's own."
+  },
+  "assistant.modes.deleteTip": {
+    "defaultMessage": "Delete mode",
+    "description": "A trash button beside an Assistant mode and over an open one: deletes it."
+  },
+  "assistant.modes.deleteTitle": {
+    "defaultMessage": "Delete {name}?",
+    "description": "Confirmation before a mode is deleted; {name} is the mode's name."
+  },
+  "assistant.modes.hint": {
+    "defaultMessage": "Choosing a mode switches a running Assistant at once and keeps its conversation. Default marks the one a workspace uses until you choose. Edit a mode to change how the Assistant works in it.",
+    "description": "Under the list of modes. Default is the badge."
+  },
+  "assistant.modes.inUse": {
+    "defaultMessage": "In Use",
+    "description": "A greyed button over the mode the Assistant uses."
+  },
+  "assistant.modes.inUseBadge": {
+    "defaultMessage": "In use",
+    "description": "A badge on the mode the workspace's Assistant uses now."
+  },
+  "assistant.modes.inUseTip": {
+    "defaultMessage": "This workspace's Assistant uses this mode",
+    "description": "Tooltip on In Use, over the mode the Assistant uses."
+  },
+  "assistant.modes.lettersOrNumbers": {
+    "defaultMessage": "Use letters or numbers.",
+    "description": "The New Mode dialog: a name with neither letters nor numbers can't be used."
+  },
+  "assistant.modes.namePlaceholder": {
+    "defaultMessage": "Mode name",
+    "description": "The New Mode dialog: the name box's placeholder."
+  },
+  "assistant.modes.newMessage": {
+    "defaultMessage": "Creates {file} in the workspace, to describe in your own words how the Assistant should work.",
+    "description": "The New Mode dialog. {file} is .hive/personas/<name>.md, <name> standing for the name you type."
+  },
+  "assistant.modes.newTitle": {
+    "defaultMessage": "New Mode",
+    "description": "The title of the dialog that creates an Assistant mode (a Markdown file)."
+  },
+  "assistant.modes.restoreFailed": {
+    "defaultMessage": "Could not restore the mode",
+    "description": "An error notice: a mode that ships with Hive couldn't be put back; the reason follows."
+  },
+  "assistant.modes.restoreHere": {
+    "defaultMessage": "Restore to This Workspace",
+    "description": "A button on a deleted mode of Hive's own: puts it back in the workspace."
+  },
+  "assistant.modes.restoreTip": {
+    "defaultMessage": "Restore this mode that ships with Hive",
+    "description": "A button beside a deleted mode of Hive's own."
+  },
+  "assistant.modes.revert": {
+    "defaultMessage": "Revert",
+    "description": "Confirmation before a mode is put back as Hive ships it: its button."
+  },
+  "assistant.modes.revertButton": {
+    "defaultMessage": "Revert to Default",
+    "description": "A button on an edited mode of Hive's own: puts it back as Hive ships it."
+  },
+  "assistant.modes.revertMessage": {
+    "defaultMessage": "Your copy goes to the Recycle Bin and Hive puts back the mode as this version ships it.",
+    "description": "Confirmation before a mode is put back as Hive ships it."
+  },
+  "assistant.modes.revertTip": {
+    "defaultMessage": "Put back the mode as Hive ships it (your copy goes to the Recycle Bin). Hive keeps edited copies as they are; unedited ones it updates itself.",
+    "description": "Tooltip on Revert to Default, over an edited mode that ships with Hive."
+  },
+  "assistant.modes.revertTitle": {
+    "defaultMessage": "Revert {name} to Hive's version?",
+    "description": "Confirmation before an edited mode that ships with Hive is put back as Hive ships it."
+  },
+  "assistant.modes.selectOne": {
+    "defaultMessage": "Select a mode to read or edit it.",
+    "description": "The Assistant view's main area with no mode selected."
+  },
+  "assistant.modes.shipsMissing": {
+    "defaultMessage": "Ships with Hive. Restore it to use it.",
+    "description": "Under a mode of Hive's own that was deleted from the workspace."
+  },
+  "assistant.modes.tip": {
+    "defaultMessage": "A mode is how the Hive Assistant works: what it puts first and how it hands things back, in a Markdown file in the workspace (.hive/personas). The panel's mode menu switches between them at once, keeping the conversation; Settings → Assistant sets the default.",
+    "description": "Tooltip on the Modes section of the Assistant view. Keep .hive/personas as it is."
+  },
+  "assistant.modes.updateBadge": {
+    "defaultMessage": "Update available",
+    "description": "A badge on an edited mode of Hive's own when Hive ships a newer version."
+  },
+  "assistant.modes.updateTip": {
+    "defaultMessage": "This copy was edited, so Hive didn't update it. This Hive ships a newer version: Revert to Default brings it in.",
+    "description": "Tooltip on Update available, over an edited mode. Revert to Default is the button beside it."
+  },
+  "assistant.modes.useHere": {
+    "defaultMessage": "Use in This Workspace",
+    "description": "A button that makes a mode the workspace Assistant's."
+  },
+  "assistant.modes.useTip": {
+    "defaultMessage": "Make this the mode of this workspace's Assistant (a running Assistant is told at once, keeping its conversation)",
+    "description": "Tooltip on Use in This Workspace."
+  },
+  "assistant.panel.agentTip": {
+    "defaultMessage": "{running, select, yes {{name}: {status}} other {{name}: not running}}",
+    "description": "The first line of an agent's tooltip in the Assistant's overview ({status}: Working…)."
+  },
+  "assistant.panel.allConversations": {
+    "defaultMessage": "All Conversations…",
+    "description": "The Assistant's More menu: opens its conversations in the Assistant view."
+  },
+  "assistant.panel.appliesNext": {
+    "defaultMessage": "Model, effort, mode and context apply when the Assistant next starts. A new mode is told to it at once; a new provider restarts it now (after asking).",
+    "description": "Assistant Settings, at the bottom, while the Assistant runs."
+  },
+  "assistant.panel.asking": {
+    "defaultMessage": "The Assistant is asking you something",
+    "description": "The hidden Assistant panel's bell: a question waits for you."
+  },
+  "assistant.panel.attention": {
+    "defaultMessage": "{kind, select, waiting {is waiting for you} question {has a question for you} safeguard {changed models after a safeguard stop} other {has finished}}",
+    "description": "The Assistant's overview: what an agent that needs you is doing, after its project and name. Lower case: it follows them."
+  },
+  "assistant.panel.cancel": {
+    "defaultMessage": "Cancel",
+    "description": "The Assistant Settings dialog's button that closes it without saving."
+  },
+  "assistant.panel.chooseMode": {
+    "defaultMessage": "Choose a mode",
+    "description": "Tooltip on the Assistant's mode button when it has none."
+  },
+  "assistant.panel.codingAgent": {
+    "defaultMessage": "Coding agent",
+    "description": "Assistant Settings: a heading (Claude Code, Codex…)."
+  },
+  "assistant.panel.compact": {
+    "defaultMessage": "Compact",
+    "description": "The Assistant's Compact button, for screen readers."
+  },
+  "assistant.panel.compactLater": {
+    "defaultMessage": "Compact once the Assistant has finished",
+    "description": "Tooltip on Compact while the Assistant works."
+  },
+  "assistant.panel.compactMenu": {
+    "defaultMessage": "Compact…",
+    "description": "The Assistant's More menu, in a narrow panel."
+  },
+  "assistant.panel.compactTip": {
+    "defaultMessage": "{hasTokens, select, yes {Compact the conversation (now {tokens} tokens).} other {Compact the conversation.}}{suggested, select, yes { Recommended: the context is over your threshold.} other {}}",
+    "description": "Tooltip on Compact ({tokens}: \"120K\"). The second sentence when the context is over Settings → Sessions' threshold."
+  },
+  "assistant.panel.compacting": {
+    "defaultMessage": "Compacting the conversation…",
+    "description": "Tooltip on Compact while the conversation is compacted."
+  },
+  "assistant.panel.conversations": {
+    "defaultMessage": "Conversations",
+    "description": "A button: a menu of the Assistant's past conversations."
+  },
+  "assistant.panel.counts": {
+    "defaultMessage": "{running} running · {projects, plural, one {# project} other {# projects}}",
+    "description": "Beside Workspace in the Assistant's overview."
+  },
+  "assistant.panel.default": {
+    "defaultMessage": "Default",
+    "description": "Assistant Settings: a model, effort, mode or context that follows Settings → Assistant (what it is follows in brackets)."
+  },
+  "assistant.panel.defaultMode": {
+    "defaultMessage": "Default ({name})",
+    "description": "Assistant Settings: the mode that follows Settings → Assistant ({name}: that mode)."
+  },
+  "assistant.panel.doneBy": {
+    "defaultMessage": "Done by the Assistant",
+    "description": "The heading of the list of what the Assistant did (a count follows)."
+  },
+  "assistant.panel.ended": {
+    "defaultMessage": "The conversation has ended.",
+    "description": "The Assistant's panel after its conversation ended."
+  },
+  "assistant.panel.foldLabel": {
+    "defaultMessage": "{folded, select, yes {Show {project}'s agents} other {Fold {project}'s agents}}",
+    "description": "The Assistant's overview: a project's chevron, for screen readers."
+  },
+  "assistant.panel.forWorkspace": {
+    "defaultMessage": "For this workspace. Anything left at <i>Default</i> follows <link>Settings → Assistant</link>.",
+    "description": "Assistant Settings, at the top. <i> is italic (the choice Default); <link> opens Settings → Assistant."
+  },
+  "assistant.panel.hide": {
+    "defaultMessage": "Hide the Assistant",
+    "description": "An item of the Assistant panel's More (⋯) menu: hides the panel; the Assistant keeps running."
+  },
+  "assistant.panel.hideTip": {
+    "defaultMessage": "{hasKey, select, yes {Hide the Assistant (it keeps running) ({key})} other {Hide the Assistant (it keeps running)}}",
+    "description": "Tooltip on the button that hides the Assistant panel, with its shortcut ({key}: \"Ctrl+Alt+I\")."
+  },
+  "assistant.panel.inactive": {
+    "defaultMessage": "{count, plural, one {# inactive project} other {# inactive projects}}",
+    "description": "The Assistant's overview: a row that shows the inactive projects folded into it."
+  },
+  "assistant.panel.listFailed": {
+    "defaultMessage": "Could not list conversations",
+    "description": "An error notice: the Assistant's past conversations couldn't be listed; the reason follows."
+  },
+  "assistant.panel.manageModes": {
+    "defaultMessage": "Manage Modes…",
+    "description": "The Assistant's mode and More menus: opens the modes in the Assistant view."
+  },
+  "assistant.panel.mode": {
+    "defaultMessage": "Mode",
+    "description": "Assistant Settings: the mode's label."
+  },
+  "assistant.panel.modeHeader": {
+    "defaultMessage": "Mode",
+    "description": "The heading of the Assistant's mode menu."
+  },
+  "assistant.panel.modeHeaderLive": {
+    "defaultMessage": "Mode (switches now, keeping the conversation)",
+    "description": "The heading of the Assistant's mode menu while it runs."
+  },
+  "assistant.panel.modeLater": {
+    "defaultMessage": "The Assistant will be told as soon as it has finished what it is doing.",
+    "description": "Under Mode: …, when the Assistant is busy."
+  },
+  "assistant.panel.modeTitle": {
+    "defaultMessage": "Mode: {name}",
+    "description": "A notice after the Assistant's mode was switched ({name}: the mode, Advisor…)."
+  },
+  "assistant.panel.modeTold": {
+    "defaultMessage": "The Assistant has been told, in this conversation.",
+    "description": "Under Mode: …, when the running Assistant was told at once."
+  },
+  "assistant.panel.more": {
+    "defaultMessage": "More",
+    "description": "The Assistant panel's ⋯ button, which opens its More menu."
+  },
+  "assistant.panel.moveLeft": {
+    "defaultMessage": "Move Panel to the Left",
+    "description": "An item of the Assistant panel's More (⋯) menu: moves the panel to the window's left side."
+  },
+  "assistant.panel.moveRight": {
+    "defaultMessage": "Move Panel to the Right",
+    "description": "An item of the Assistant panel's More (⋯) menu: moves the panel to the window's right side."
+  },
+  "assistant.panel.new": {
+    "defaultMessage": "New",
+    "description": "A button after the conversation ended: starts a new one."
+  },
+  "assistant.panel.newConversation": {
+    "defaultMessage": "New Conversation",
+    "description": "An item of the Assistant panel's More (⋯) menu: starts a new conversation."
+  },
+  "assistant.panel.newConversationLabel": {
+    "defaultMessage": "New conversation",
+    "description": "The Assistant's New button, for screen readers."
+  },
+  "assistant.panel.newConversationTip": {
+    "defaultMessage": "Start a new conversation",
+    "description": "Tooltip on the Assistant's New button."
+  },
+  "assistant.panel.noAgents": {
+    "defaultMessage": "no agents",
+    "description": "The Assistant's overview: a project with no agents. Lower case."
+  },
+  "assistant.panel.noConversations": {
+    "defaultMessage": "No conversations yet",
+    "description": "The menu of the Assistant's past conversations, when there are none."
+  },
+  "assistant.panel.noEdits": {
+    "defaultMessage": "It doesn't edit files itself. Within Settings → Assistant → Control, it can run agents for you and create projects; everything it does is listed here.",
+    "description": "The Assistant's panel before it starts. Keep the setting's path as Settings shows it."
+  },
+  "assistant.panel.noProjects": {
+    "defaultMessage": "No projects in this workspace yet.",
+    "description": "The Assistant's overview with no projects."
+  },
+  "assistant.panel.notDone": {
+    "defaultMessage": "Not done: {error}",
+    "description": "Tooltip on something the Assistant was refused, after when: why ({error}, from Hive's Agent API, in English)."
+  },
+  "assistant.panel.notRunning": {
+    "defaultMessage": "not running",
+    "description": "The Assistant's overview: none of a folded project's agents run. Lower case."
+  },
+  "assistant.panel.nothingToCompact": {
+    "defaultMessage": "Nothing to compact yet",
+    "description": "Tooltip on Compact before anything was said."
+  },
+  "assistant.panel.openCard": {
+    "defaultMessage": "{known, select, yes {Open card #{number}, in {column}} other {Open card #{number}}}",
+    "description": "A card chip in the Assistant's status line, for screen readers ({column}: \"Review\")."
+  },
+  "assistant.panel.openNow": {
+    "defaultMessage": "open now",
+    "description": "Beside a past conversation in the menu: it is the one running. Lower case: it follows when it was active."
+  },
+  "assistant.panel.personaTip": {
+    "defaultMessage": "{name}: {description}",
+    "description": "Tooltip on the Assistant's mode button: the mode and what it is for."
+  },
+  "assistant.panel.progress": {
+    "defaultMessage": "{hasStep, select, yes {Progress: {run} ({step})} other {Progress: {run}}}",
+    "description": "An agent's tooltip in the Assistant's overview: its test run ({run}: \"e2e: 12 suites 4/12\"; {step}: what it is on)."
+  },
+  "assistant.panel.railLabel": {
+    "defaultMessage": "Hive Assistant",
+    "description": "The hidden Assistant panel's strip, written down it. Hive's name stays as it is."
+  },
+  "assistant.panel.restart": {
+    "defaultMessage": "Restart",
+    "description": "Restart in This Mode's confirmation: its button."
+  },
+  "assistant.panel.restartButton": {
+    "defaultMessage": "Restart the Assistant",
+    "description": "A confirmation's button: stops the Assistant and starts a new conversation."
+  },
+  "assistant.panel.restartDetail": {
+    "defaultMessage": "The whole conversation is cached again, which costs more than switching (switching keeps everything and only tells the Assistant the mode).",
+    "description": "Confirmation before Restart in This Mode."
+  },
+  "assistant.panel.restartInMode": {
+    "defaultMessage": "Restart in This Mode…",
+    "description": "An item of the Assistant's mode menu: restarts it with the mode's full instructions."
+  },
+  "assistant.panel.restartMessage": {
+    "defaultMessage": "The Assistant stops and resumes this conversation with the {name} mode's full instructions.",
+    "description": "Confirmation before Restart in This Mode ({name}: the mode)."
+  },
+  "assistant.panel.restartQuestion": {
+    "defaultMessage": "Restart the Assistant?",
+    "description": "Confirmation before the Assistant's coding agent is changed."
+  },
+  "assistant.panel.restartTitle": {
+    "defaultMessage": "Restart in {name} mode?",
+    "description": "Confirmation before Restart in This Mode ({name}: the mode)."
+  },
+  "assistant.panel.resume": {
+    "defaultMessage": "Resume",
+    "description": "A button: resumes the Assistant's last conversation."
+  },
+  "assistant.panel.resumeConversation": {
+    "defaultMessage": "Resume a Conversation…",
+    "description": "An item of the Assistant panel's More (⋯) menu: a list of past conversations to resume."
+  },
+  "assistant.panel.resumeLater": {
+    "defaultMessage": "You can resume the current conversation later from the Assistant's ⋯ menu.",
+    "description": "Under a confirmation that restarts the Assistant. ⋯ is the panel's More button."
+  },
+  "assistant.panel.resumeMenu": {
+    "defaultMessage": "Resume",
+    "description": "An item of the Assistant panel's More (⋯) menu: resumes its last conversation."
+  },
+  "assistant.panel.resumeOne": {
+    "defaultMessage": "Resume a conversation",
+    "description": "The heading of the menu of the Assistant's past conversations."
+  },
+  "assistant.panel.resumeTip": {
+    "defaultMessage": "Resume \"{name}\", {when}",
+    "description": "Tooltip on Resume: the conversation and when it was last active ({when}: \"3 hours ago\")."
+  },
+  "assistant.panel.revert": {
+    "defaultMessage": "Revert",
+    "description": "A button beside a setting the Assistant changed: puts the old value back."
+  },
+  "assistant.panel.revertFailed": {
+    "defaultMessage": "Could not revert the setting",
+    "description": "An error notice: a setting the Assistant changed couldn't be put back; the reason follows."
+  },
+  "assistant.panel.revertLabel": {
+    "defaultMessage": "Revert {setting} to {value}",
+    "description": "The Revert button, for screen readers ({setting}: the setting's path; {value}: its old value)."
+  },
+  "assistant.panel.reverted": {
+    "defaultMessage": "reverted",
+    "description": "Beside a setting the Assistant changed that was put back."
+  },
+  "assistant.panel.reviewing": {
+    "defaultMessage": "Reviewing #{number} {title}",
+    "description": "An agent's tooltip in the Assistant's overview: a card it reviews."
+  },
+  "assistant.panel.running": {
+    "defaultMessage": "{count} running",
+    "description": "The Assistant's overview: how many of a folded project's agents run. Lower case."
+  },
+  "assistant.panel.save": {
+    "defaultMessage": "Save",
+    "description": "The Assistant Settings dialog's button that saves the choices."
+  },
+  "assistant.panel.saveFailed": {
+    "defaultMessage": "Could not save the Assistant's settings",
+    "description": "An error notice: the Assistant Settings dialog's choices couldn't be saved; the reason follows."
+  },
+  "assistant.panel.saveModeFailed": {
+    "defaultMessage": "Could not save the mode",
+    "description": "An error notice: Restart in This Mode couldn't save the mode; the reason follows."
+  },
+  "assistant.panel.settings": {
+    "defaultMessage": "Settings",
+    "description": "Assistant Settings: the heading over model, effort, mode and context."
+  },
+  "assistant.panel.settingsMenu": {
+    "defaultMessage": "Assistant Settings…",
+    "description": "An item of the Assistant panel's More (⋯) menu: opens the Assistant Settings dialog."
+  },
+  "assistant.panel.settingsName": {
+    "defaultMessage": "Assistant Settings",
+    "description": "The Assistant's footer: its settings button, and the Assistant Settings dialog's title."
+  },
+  "assistant.panel.show": {
+    "defaultMessage": "Show the Hive Assistant",
+    "description": "The hidden Assistant panel's strip, for screen readers."
+  },
+  "assistant.panel.showTip": {
+    "defaultMessage": "{hasKey, select, yes {Show the Hive Assistant ({key})} other {Show the Hive Assistant}}",
+    "description": "Tooltip on the hidden Assistant panel's strip, with its shortcut ({key}: \"Ctrl+Alt+I\")."
+  },
+  "assistant.panel.start": {
+    "defaultMessage": "Start Assistant",
+    "description": "A button in the Assistant's panel before it starts."
+  },
+  "assistant.panel.startMenu": {
+    "defaultMessage": "Start",
+    "description": "The Assistant's Start button and menu item."
+  },
+  "assistant.panel.startTip": {
+    "defaultMessage": "Start the Assistant",
+    "description": "Tooltip on the Assistant's Start button."
+  },
+  "assistant.panel.status": {
+    "defaultMessage": "Status: {text}",
+    "description": "The Assistant's status line under its header ({text}: \"Working\", \"Waiting for #12 → Review\")."
+  },
+  "assistant.panel.statusTitle": {
+    "defaultMessage": "{running, select, yes {The Assistant: {status}} other {The Assistant is not running}}",
+    "description": "The Assistant's mark: what it is doing ({status}: Working, Waiting for you…)."
+  },
+  "assistant.panel.stop": {
+    "defaultMessage": "Stop",
+    "description": "The Assistant's Stop button and menu item."
+  },
+  "assistant.panel.stopFailed": {
+    "defaultMessage": "Could not stop the Assistant",
+    "description": "An error notice: the Assistant's session couldn't be stopped; the reason follows."
+  },
+  "assistant.panel.stopTip": {
+    "defaultMessage": "Stop the Assistant (the conversation is kept)",
+    "description": "Tooltip on the Assistant panel's Stop button."
+  },
+  "assistant.panel.switchFailed": {
+    "defaultMessage": "Could not switch the mode",
+    "description": "An error notice: the Assistant's mode couldn't be switched; the reason follows."
+  },
+  "assistant.panel.switching": {
+    "defaultMessage": "Switching to {to} stops this conversation ({from} conversations can't move to another provider) and starts a new one.",
+    "description": "Confirmation before the Assistant's coding agent is changed ({to}, {from}: Claude Code, Codex…)."
+  },
+  "assistant.panel.tellFailed": {
+    "defaultMessage": "Could not tell the Assistant its mode",
+    "description": "An error notice: the running Assistant couldn't be told its new mode; the reason follows."
+  },
+  "assistant.panel.theAssistant": {
+    "defaultMessage": "The Assistant",
+    "description": "The Assistant's name when its mode isn't known yet, at the start of a sentence; and who a no-guardrails mode would run as."
+  },
+  "assistant.panel.title": {
+    "defaultMessage": "Assistant",
+    "description": "The Assistant panel's title, beside its coding agent's icon. Keep it short."
+  },
+  "assistant.panel.transcriptAdvice": {
+    "defaultMessage": "Start a new conversation (⋯ → New Conversation) to keep things quick.",
+    "description": "The Assistant's footer, in the tooltip of a long conversation's size. ⋯ is the More button; New Conversation its menu item."
+  },
+  "assistant.panel.watches": {
+    "defaultMessage": "<b>{name}</b> watches over this workspace: ask it what the agents are doing, about any project, or for a plan or a review.",
+    "description": "The Assistant's panel before it starts. {name} is its mode (Overseer…) or The Assistant; <b> is bold."
+  },
+  "assistant.panel.workingOn": {
+    "defaultMessage": "Working on #{number} {title}",
+    "description": "An agent's tooltip in the Assistant's overview: a card it works on."
+  },
+  "assistant.panel.workspace": {
+    "defaultMessage": "Workspace",
+    "description": "The heading of the Assistant's overview of the workspace."
+  },
+  "assistant.panel.worktree": {
+    "defaultMessage": "Worktree on {branch}",
+    "description": "An agent's tooltip in the Assistant's overview: its worktree's branch."
+  },
+  "assistant.sidebar.activeLabel": {
+    "defaultMessage": "Active: {project}",
+    "description": "A project's switch, for screen readers."
+  },
+  "assistant.sidebar.activeTip": {
+    "defaultMessage": "Working on this project. Click to mark it as not being worked on.",
+    "description": "Tooltip on an active project's switch."
+  },
+  "assistant.sidebar.addAgent": {
+    "defaultMessage": "Add Agent",
+    "description": "A project's right-click menu: adds an agent at once, with the defaults."
+  },
+  "assistant.sidebar.addAgentDialog": {
+    "defaultMessage": "Add Agent…",
+    "description": "A project's right-click menu: opens the Add Agent dialog."
+  },
+  "assistant.sidebar.builtIn": {
+    "defaultMessage": "Built-in",
+    "description": "The MCP sidebar: the section of Hive's own server."
+  },
+  "assistant.sidebar.bypassTip": {
+    "defaultMessage": "Bypass permissions: sessions run every action without asking.",
+    "description": "Tooltip on a project's warning: an agent runs in a provider's no-guardrails mode."
+  },
+  "assistant.sidebar.compactTip": {
+    "defaultMessage": "{hasKey, select, yes {Compact Sidebar ({key})} other {Compact Sidebar}}",
+    "description": "The Projects sidebar: the button that narrows it to a rail, with its shortcut ({key}: \"Ctrl+Alt+B\")."
+  },
+  "assistant.sidebar.create": {
+    "defaultMessage": "Create",
+    "description": "New Note's, New Folder's and New MCP Server's button."
+  },
+  "assistant.sidebar.createFailed": {
+    "defaultMessage": "Could not create",
+    "description": "An error notice: a shared note or folder."
+  },
+  "assistant.sidebar.createServerFailed": {
+    "defaultMessage": "Could not create server",
+    "description": "An error notice: New MCP Server couldn't create the server's file; the reason follows."
+  },
+  "assistant.sidebar.delete": {
+    "defaultMessage": "Delete",
+    "description": "A shared note's right-click menu."
+  },
+  "assistant.sidebar.deleteFolder": {
+    "defaultMessage": "Delete folder",
+    "description": "A button on a shared notes folder."
+  },
+  "assistant.sidebar.deleteNote": {
+    "defaultMessage": "Delete note",
+    "description": "A trash button beside a shared note: deletes it."
+  },
+  "assistant.sidebar.deleteServer": {
+    "defaultMessage": "Delete server",
+    "description": "A trash button beside an MCP server of the workspace: deletes it."
+  },
+  "assistant.sidebar.deleteSkill": {
+    "defaultMessage": "Delete skill",
+    "description": "A trash button beside a Hive skill: deletes it."
+  },
+  "assistant.sidebar.expand": {
+    "defaultMessage": "Expand Sidebar",
+    "description": "The compact sidebar: the button that widens it again."
+  },
+  "assistant.sidebar.expandTip": {
+    "defaultMessage": "{hasKey, select, yes {Expand Sidebar ({key})} other {Expand Sidebar}}",
+    "description": "Tooltip on the compact sidebar's widen button, with its shortcut ({key}: \"Ctrl+Alt+B\")."
+  },
+  "assistant.sidebar.filterProjects": {
+    "defaultMessage": "Filter projects",
+    "description": "The Projects sidebar's filter box, empty."
+  },
+  "assistant.sidebar.filterSkills": {
+    "defaultMessage": "Filter skills",
+    "description": "The Skills sidebar's filter box, empty."
+  },
+  "assistant.sidebar.folderMessage": {
+    "defaultMessage": "Folder inside .hive/shared",
+    "description": "Shared Notes, New Folder. Keep .hive/shared as it is."
+  },
+  "assistant.sidebar.hiveGroup": {
+    "defaultMessage": "Hive",
+    "description": "The Skills sidebar: the section of the workspace's Hive skills. Usually kept as Hive."
+  },
+  "assistant.sidebar.hiveServerDesc": {
+    "defaultMessage": "Hive tools for agents: projects, shared notes, handovers, notifications",
+    "description": "Under the built-in hive server: what it gives agents."
+  },
+  "assistant.sidebar.hiveServerTip": {
+    "defaultMessage": "Controlled in Settings → Agent API",
+    "description": "Tooltip on the built-in server's On or Off."
+  },
+  "assistant.sidebar.inactive": {
+    "defaultMessage": "Inactive",
+    "description": "A project's status when it isn't being worked on."
+  },
+  "assistant.sidebar.inactiveTip": {
+    "defaultMessage": "Mark as a project you are working on. Only active projects run sessions and show status.",
+    "description": "Tooltip on an inactive project's switch."
+  },
+  "assistant.sidebar.loading": {
+    "defaultMessage": "Loading…",
+    "description": "The Skills sidebar while the Hive skills are read."
+  },
+  "assistant.sidebar.markNotWorking": {
+    "defaultMessage": "Mark as Not Working On",
+    "description": "A project's right-click menu: makes it inactive."
+  },
+  "assistant.sidebar.markWorking": {
+    "defaultMessage": "Mark as Working On",
+    "description": "A project's right-click menu: makes it active."
+  },
+  "assistant.sidebar.mcpServers": {
+    "defaultMessage": "MCP Servers",
+    "description": "The heading of the MCP sidebar: the workspace's MCP servers."
+  },
+  "assistant.sidebar.mcpTip": {
+    "defaultMessage": "MCP servers deployed to the workspace (.hive/mcp) are available to every project and run only where they are on: turn one on in a project's MCP tab, or for all projects with its switch here. Changes apply to new sessions.",
+    "description": "Tooltip on MCP Servers. Keep .hive/mcp as it is."
+  },
+  "assistant.sidebar.needYou": {
+    "defaultMessage": "{count, plural, one {# agent needs you} other {# agents need you}}",
+    "description": "Tooltip on a project's bell: how many of its agents wait for you."
+  },
+  "assistant.sidebar.newFolder": {
+    "defaultMessage": "New Folder",
+    "description": "Shared Notes: the dialog's title."
+  },
+  "assistant.sidebar.newFolderButton": {
+    "defaultMessage": "New Folder…",
+    "description": "A button over the shared notes: creates a folder."
+  },
+  "assistant.sidebar.newFolderHere": {
+    "defaultMessage": "New Folder Here",
+    "description": "A shared notes folder's right-click menu."
+  },
+  "assistant.sidebar.newNote": {
+    "defaultMessage": "New Note",
+    "description": "Shared Notes: the dialog's title."
+  },
+  "assistant.sidebar.newNoteButton": {
+    "defaultMessage": "New Note…",
+    "description": "A button over the shared notes: creates a note."
+  },
+  "assistant.sidebar.newNoteHere": {
+    "defaultMessage": "New Note Here",
+    "description": "A shared notes folder's right-click menu."
+  },
+  "assistant.sidebar.newProject": {
+    "defaultMessage": "New Project…",
+    "description": "The Projects sidebar: a button."
+  },
+  "assistant.sidebar.newProjectButton": {
+    "defaultMessage": "New Project",
+    "description": "The Projects sidebar with no projects: a button."
+  },
+  "assistant.sidebar.newServer": {
+    "defaultMessage": "New MCP Server…",
+    "description": "A button over the MCP servers: creates a server from a template."
+  },
+  "assistant.sidebar.newServerMessage": {
+    "defaultMessage": "Creates {file} in the workspace from a template you can edit.",
+    "description": "New MCP Server. {file} is .hive/mcp/<name>.json, <name> standing for the name you type."
+  },
+  "assistant.sidebar.newServerTitle": {
+    "defaultMessage": "New MCP Server",
+    "description": "The title of the dialog that creates an MCP server."
+  },
+  "assistant.sidebar.newSession": {
+    "defaultMessage": "New Session",
+    "description": "An item of a project's right-click menu in the Projects sidebar: starts a session."
+  },
+  "assistant.sidebar.newSkill": {
+    "defaultMessage": "New Skill…",
+    "description": "A button over the Hive skills: creates a skill."
+  },
+  "assistant.sidebar.newWorkspace": {
+    "defaultMessage": "New Workspace",
+    "description": "A button with no workspace open: creates a workspace."
+  },
+  "assistant.sidebar.noNotes": {
+    "defaultMessage": "No notes yet. Create one, or ask an agent to write a handover with the Hive MCP tools.",
+    "description": "The Shared Notes sidebar when the workspace has no notes."
+  },
+  "assistant.sidebar.noProjects": {
+    "defaultMessage": "This workspace has no projects yet. Each folder in the workspace is a project.",
+    "description": "The Projects sidebar with no projects."
+  },
+  "assistant.sidebar.noServers": {
+    "defaultMessage": "No MCP servers yet. Create one with +, or add one from a .json definition or a .zip of a server folder.",
+    "description": "The MCP sidebar with no servers. + is the add button."
+  },
+  "assistant.sidebar.noSession": {
+    "defaultMessage": "No session",
+    "description": "An active project's status when no session runs."
+  },
+  "assistant.sidebar.noSkills": {
+    "defaultMessage": "No Hive skills yet. Create one with +, or add one from a .md or .zip.",
+    "description": "The Skills sidebar with no Hive skills. + is the add button."
+  },
+  "assistant.sidebar.noWorkspace": {
+    "defaultMessage": "{what, select, projects {Open a workspace to see its projects.} notes {Open a workspace to see its shared notes.} other {Open a workspace to see its MCP servers.}}",
+    "description": "The sidebar with no workspace open (Projects, Shared Notes or MCP Servers)."
+  },
+  "assistant.sidebar.noWorkspaceSkills": {
+    "defaultMessage": "Open a workspace to manage Hive skills.",
+    "description": "The Skills sidebar with no workspace open."
+  },
+  "assistant.sidebar.noteMessage": {
+    "defaultMessage": "Markdown note inside .hive/shared. Agents can read it through the Hive MCP tools.",
+    "description": "Shared Notes, New Note. Keep .hive/shared as it is."
+  },
+  "assistant.sidebar.notesTip": {
+    "defaultMessage": "Notes, instructions and handovers stored in the workspace's .hive/shared folder. Shared across every project and session.",
+    "description": "Tooltip on Shared Notes. Keep .hive/shared as it is."
+  },
+  "assistant.sidebar.off": {
+    "defaultMessage": "Off",
+    "description": "A badge: the built-in hive server is off."
+  },
+  "assistant.sidebar.on": {
+    "defaultMessage": "On",
+    "description": "A badge: the built-in hive server is on."
+  },
+  "assistant.sidebar.openFirst": {
+    "defaultMessage": "Open a workspace first",
+    "description": "A notice: adding a skill with no workspace open."
+  },
+  "assistant.sidebar.openFolder": {
+    "defaultMessage": "Open Folder",
+    "description": "Shared Notes: a button that opens .hive/shared in Explorer."
+  },
+  "assistant.sidebar.openMcpFolder": {
+    "defaultMessage": "Open MCP Folder",
+    "description": "The MCP sidebar: a button that opens .hive/mcp in Explorer."
+  },
+  "assistant.sidebar.openSkillsFolder": {
+    "defaultMessage": "Open Hive Skills Folder",
+    "description": "The Skills sidebar: a button that opens .hive/skills in Explorer."
+  },
+  "assistant.sidebar.openWorkspace": {
+    "defaultMessage": "Open Workspace",
+    "description": "A button and the compact sidebar's tooltip: opens a workspace."
+  },
+  "assistant.sidebar.openWorkspaceFolder": {
+    "defaultMessage": "Open Workspace Folder",
+    "description": "The Projects sidebar: a button that opens the workspace in Explorer."
+  },
+  "assistant.sidebar.otherProjects": {
+    "defaultMessage": "Other projects",
+    "description": "The Projects sidebar: the section of inactive projects."
+  },
+  "assistant.sidebar.projectSettings": {
+    "defaultMessage": "Project Settings",
+    "description": "A project's right-click menu: its Settings tab."
+  },
+  "assistant.sidebar.projects": {
+    "defaultMessage": "Projects",
+    "description": "The Projects sidebar's heading with no workspace open."
+  },
+  "assistant.sidebar.railLabel": {
+    "defaultMessage": "{project}: {status}",
+    "description": "The compact sidebar: a project's accessible name, with its status (\"Working\")."
+  },
+  "assistant.sidebar.refresh": {
+    "defaultMessage": "Refresh",
+    "description": "A sidebar button: reads its list again."
+  },
+  "assistant.sidebar.removeProject": {
+    "defaultMessage": "Remove Project…",
+    "description": "An item of a project's right-click menu in the Projects sidebar: removes it from the workspace."
+  },
+  "assistant.sidebar.rename": {
+    "defaultMessage": "Rename",
+    "description": "Renaming a shared note: the dialog's title and button."
+  },
+  "assistant.sidebar.renameFailed": {
+    "defaultMessage": "Could not rename",
+    "description": "An error notice: a shared note."
+  },
+  "assistant.sidebar.renameMenu": {
+    "defaultMessage": "Rename…",
+    "description": "A shared note's right-click menu."
+  },
+  "assistant.sidebar.restartTip": {
+    "defaultMessage": "Settings changed since this session started. Restart the session to apply them.",
+    "description": "Tooltip on a project's restart mark."
+  },
+  "assistant.sidebar.restoreSkill": {
+    "defaultMessage": "Restore this skill that ships with Hive",
+    "description": "A button beside a deleted skill of Hive's own."
+  },
+  "assistant.sidebar.resumeAll": {
+    "defaultMessage": "Resume All Agents",
+    "description": "An item of a project's right-click menu in the Projects sidebar: resumes every agent's session."
+  },
+  "assistant.sidebar.resumeLast": {
+    "defaultMessage": "Resume Last Session",
+    "description": "An item of a project's right-click menu in the Projects sidebar."
+  },
+  "assistant.sidebar.reveal": {
+    "defaultMessage": "Reveal in File Explorer",
+    "description": "A project's or a note's right-click menu."
+  },
+  "assistant.sidebar.saveFirst": {
+    "defaultMessage": "Save or discard your changes to {name} first",
+    "description": "A notice: a note with unsaved edits can't be renamed."
+  },
+  "assistant.sidebar.saveFirstDetail": {
+    "defaultMessage": "It has unsaved edits, which would otherwise be saved under its old name.",
+    "description": "Under Save or discard your changes first."
+  },
+  "assistant.sidebar.serverFromFile": {
+    "defaultMessage": "Add MCP Server from File (.json or .zip)…",
+    "description": "The MCP sidebar: a button. Keep .json and .zip as they are."
+  },
+  "assistant.sidebar.serverNameRule": {
+    "defaultMessage": "Use letters, numbers, \"-\" and \"_\". \"hive\" is reserved.",
+    "description": "New MCP Server: a name that can't be used. Keep hive as it is (the built-in server's name)."
+  },
+  "assistant.sidebar.sharedNotes": {
+    "defaultMessage": "Shared Notes",
+    "description": "The Shared Notes sidebar's heading."
+  },
+  "assistant.sidebar.skillFromFile": {
+    "defaultMessage": "Add Skill from File (.md or .zip)…",
+    "description": "The Skills sidebar: a button. Keep .md and .zip as they are."
+  },
+  "assistant.sidebar.skills": {
+    "defaultMessage": "Skills",
+    "description": "The heading of the Skills sidebar: the workspace's Hive skills."
+  },
+  "assistant.sidebar.skillsHint": {
+    "defaultMessage": "Each goes to the project agents in every project, unless it's marked <b>Assistant</b> (only the Hive Assistant gets it) or <b>Agents + Assistant</b>. A project's own skills, and your user and plugin skills, are in its <b>Skills</b> tab.",
+    "description": "Under the Skills sidebar's list. <b> is bold: the badges' words (Assistant, Agents + Assistant) and the tab's name, as they show."
+  },
+  "assistant.sidebar.skillsLoadTarget": {
+    "defaultMessage": "the skills",
+    "description": "What could not be loaded when the Hive skills were first read: shown in \"Could not load {what}: {error}\", with Retry."
+  },
+  "assistant.sidebar.skillsRefreshTarget": {
+    "defaultMessage": "the skills",
+    "description": "What could not be refreshed while the skills shown stay on screen: shown in \"Could not refresh {what}; last updated …\", with Retry."
+  },
+  "assistant.sidebar.statusLabel": {
+    "defaultMessage": "{project} agents: {status}",
+    "description": "A project's status, for screen readers (its agents' table follows on focus)."
+  },
+  "assistant.sidebar.stopAll": {
+    "defaultMessage": "Stop All Agents",
+    "description": "A project's right-click menu, with more than one agent running."
+  },
+  "assistant.sidebar.stopSession": {
+    "defaultMessage": "Stop Session",
+    "description": "An item of a project's right-click menu in the Projects sidebar: stops its running session."
+  },
+  "assistant.sidebar.tasks": {
+    "defaultMessage": "Tasks",
+    "description": "A project's right-click menu: its Tasks tab."
+  },
+  "assistant.sidebar.terminal": {
+    "defaultMessage": "Open External Terminal",
+    "description": "An item of a project's right-click menu: opens a terminal window in its folder."
+  },
+  "assistant.sidebar.toggleOn": {
+    "defaultMessage": "Toggle a project on to start working on it.",
+    "description": "Under Working on, with no active projects."
+  },
+  "assistant.sidebar.unmanagedTip": {
+    "defaultMessage": "Project MCP servers not in the workspace (disabled): {servers}",
+    "description": "Tooltip on a project's plug: MCP servers in its own config that Hive turned off."
+  },
+  "assistant.sidebar.workingOn": {
+    "defaultMessage": "Working on",
+    "description": "The Projects sidebar: the section of active projects."
+  },
+  "assistant.sidebar.workingOnTip": {
+    "defaultMessage": "Active projects get a terminal session, status indicators and notifications.",
+    "description": "Tooltip on the Working on section of the Projects sidebar."
+  },
+  "assistant.sidebar.workspace": {
+    "defaultMessage": "Workspace: {name}",
+    "description": "The compact sidebar: tooltip on the workspace's icon."
+  },
+  "assistant.sidebar.workspaceGroup": {
+    "defaultMessage": "Workspace",
+    "description": "The MCP sidebar: the section of the workspace's servers."
+  },
+  "assistant.skills.add": {
+    "defaultMessage": "Add",
+    "description": "The Add Skill from File dialog: its button."
+  },
+  "assistant.skills.addFailed": {
+    "defaultMessage": "Could not add the skill",
+    "description": "An error notice: the new skill couldn't be added; the reason follows."
+  },
+  "assistant.skills.alsoFor": {
+    "defaultMessage": "Also add it for {provider}",
+    "description": "A tick box in New Skill: add it to the other provider's local skills too."
+  },
+  "assistant.skills.audienceAgents": {
+    "defaultMessage": "Project agents",
+    "description": "A Hive skill's badge: the project agents get it."
+  },
+  "assistant.skills.audienceAgentsTip": {
+    "defaultMessage": "For the project agents: every agent in every project of this workspace gets it. The Hive Assistant doesn't. This is the default; to change it, set audience under metadata: in its SKILL.md's header (assistant, or all for both).",
+    "description": "Tooltip on Project agents. Keep audience, metadata:, assistant, all and SKILL.md as they are."
+  },
+  "assistant.skills.audienceAll": {
+    "defaultMessage": "Agents + Assistant",
+    "description": "A Hive skill's badge: the project agents and the Hive Assistant get it. Keep it short."
+  },
+  "assistant.skills.audienceAllTip": {
+    "defaultMessage": "For both the project agents (every agent in every project) and the Hive Assistant (audience: all in its SKILL.md's header).",
+    "description": "Tooltip on Agents + Assistant. Keep audience: all and SKILL.md as they are."
+  },
+  "assistant.skills.audienceAssistant": {
+    "defaultMessage": "Assistant",
+    "description": "A Hive skill's badge: the Hive Assistant gets it."
+  },
+  "assistant.skills.audienceAssistantTip": {
+    "defaultMessage": "For the Hive Assistant only (audience: assistant in its SKILL.md's header). Project agents don't get it.",
+    "description": "Tooltip on Assistant. Keep audience: assistant and SKILL.md as they are."
+  },
+  "assistant.skills.copied": {
+    "defaultMessage": "Copied \"{name}\" to the workspace",
+    "description": "A notice: a skill was copied into the workspace's Hive skills."
+  },
+  "assistant.skills.copiedDetail": {
+    "defaultMessage": "{audience, select, assistant {The Hive Assistant now gets it} all {The project agents and the Hive Assistant now get it} other {The project agents now get it}} as a Hive skill, from their next session.",
+    "description": "Under Copied … to the workspace: who gets it now."
+  },
+  "assistant.skills.copiedNobody": {
+    "defaultMessage": "Copied \"{name}\" to the workspace, but nobody gets it yet",
+    "description": "A notice: a skill was copied into the workspace's Hive skills, but its header can't be read."
+  },
+  "assistant.skills.copiedNobodyDetail": {
+    "defaultMessage": "Its header needs fixing first: {problem}. Open it in the Skills view to edit it.",
+    "description": "Under Copied … but nobody gets it yet. {problem} says what is wrong with the skill's header."
+  },
+  "assistant.skills.copy": {
+    "defaultMessage": "Copy to workspace",
+    "description": "A button over a user's or project's skill: copies it into the Hive skills."
+  },
+  "assistant.skills.copyFailed": {
+    "defaultMessage": "Could not copy skill",
+    "description": "An error notice: a skill couldn't be copied into the workspace; the reason follows."
+  },
+  "assistant.skills.copyTip": {
+    "defaultMessage": "Copy it into the workspace's Hive skills. The project agents in every project get it, unless its SKILL.md's header sets another audience.",
+    "description": "Tooltip on Copy to workspace. Keep SKILL.md as it is."
+  },
+  "assistant.skills.create": {
+    "defaultMessage": "Create",
+    "description": "The New Skill dialog: its button."
+  },
+  "assistant.skills.delete": {
+    "defaultMessage": "Delete",
+    "description": "Confirmation before a skill is deleted: its button."
+  },
+  "assistant.skills.deleteFailed": {
+    "defaultMessage": "Could not delete the skill",
+    "description": "An error notice: a skill couldn't be deleted; the reason follows."
+  },
+  "assistant.skills.deleteHive": {
+    "defaultMessage": "It's removed from the workspace, so new sessions of {audience, select, assistant {the Hive Assistant} all {the project agents and the Hive Assistant} other {the project agents}} no longer get it. A running Claude Code session keeps its own copy until it restarts. Codex sessions share the copy in their folder: a running one loses it when another Codex session in that folder starts.",
+    "description": "Confirmation before a Hive skill is deleted: who loses it and when."
+  },
+  "assistant.skills.deleteLocal": {
+    "defaultMessage": "{known, select, yes {{provider} agents} other {The agents}} in this project no longer load it in new sessions.",
+    "description": "Confirmation before a project's own skill is deleted. {provider} is Claude Code, Codex…"
+  },
+  "assistant.skills.deleteMessage": {
+    "defaultMessage": "Move \"{name}\" to the Recycle Bin?",
+    "description": "Confirmation before a skill is deleted. {name} is the skill."
+  },
+  "assistant.skills.deleteNobody": {
+    "defaultMessage": "It's removed from the workspace. Nobody gets it now ({problem}), so no session loses it.",
+    "description": "Confirmation before a Hive skill nobody gets is deleted. {problem} says what is wrong with its header."
+  },
+  "assistant.skills.deleteTip": {
+    "defaultMessage": "Delete skill",
+    "description": "A trash button over an open skill: deletes it."
+  },
+  "assistant.skills.deleteTitle": {
+    "defaultMessage": "Delete skill?",
+    "description": "Confirmation before a skill is deleted: its title."
+  },
+  "assistant.skills.deletedBadge": {
+    "defaultMessage": "deleted",
+    "description": "A badge on a skill of Hive's own that was deleted from the workspace."
+  },
+  "assistant.skills.deletedHere": {
+    "defaultMessage": "Deleted from this workspace",
+    "description": "A badge over a skill of Hive's own that was deleted from the workspace."
+  },
+  "assistant.skills.editInWorkspace": {
+    "defaultMessage": "Edit in workspace",
+    "description": "A button over a Hive skill in a project: opens it in the Skills view."
+  },
+  "assistant.skills.editTip": {
+    "defaultMessage": "Hive skills are edited in the workspace's Skills view, since every project shares them. This takes you there.",
+    "description": "Tooltip on Edit in workspace, over a Hive skill in a project."
+  },
+  "assistant.skills.fileMessage": {
+    "defaultMessage": "Adds {file} to {where}. A .md becomes the skill's SKILL.md; a .zip is unpacked as the skill's folder.",
+    "description": "The Add Skill from File dialog. {file} is the file chosen; {where} where it goes (\"the workspace (.hive/skills)\"). Keep .md, .zip and SKILL.md as they are."
+  },
+  "assistant.skills.fileTitle": {
+    "defaultMessage": "Add Skill from File",
+    "description": "The Add Skill from File dialog's title."
+  },
+  "assistant.skills.levelHive": {
+    "defaultMessage": "Hive",
+    "description": "A skill's kind, on a badge: one of the workspace's Hive skills. Usually kept as Hive."
+  },
+  "assistant.skills.levelLocal": {
+    "defaultMessage": "Local (User Managed)",
+    "description": "A skill's kind, on a badge: one in the project's folder, which the user manages."
+  },
+  "assistant.skills.levelPlugin": {
+    "defaultMessage": "Plugin",
+    "description": "A skill's kind, on a badge: one from a Claude Code plugin."
+  },
+  "assistant.skills.levelUser": {
+    "defaultMessage": "User",
+    "description": "A skill's kind, on a badge: one in the user's own profile (~/.claude/skills)."
+  },
+  "assistant.skills.nameRule": {
+    "defaultMessage": "Use letters, numbers, \"-\" and \"_\" (max 64)",
+    "description": "A skill's name that can't be used."
+  },
+  "assistant.skills.newMessage": {
+    "defaultMessage": "Creates {file} in {where}. Use lowercase letters, numbers and dashes.",
+    "description": "The New Skill dialog. {file} is <name>/SKILL.md, <name> standing for the name you type; {where} where it goes (\"the workspace (.hive/skills)\")."
+  },
+  "assistant.skills.newTitle": {
+    "defaultMessage": "New Skill",
+    "description": "The title of the dialog that creates a skill (a folder with a SKILL.md)."
+  },
+  "assistant.skills.notGiven": {
+    "defaultMessage": "Not given",
+    "description": "A badge on a Hive skill nobody gets, because its header can't be read."
+  },
+  "assistant.skills.notGivenTip": {
+    "defaultMessage": "Nobody gets this skill until its header is fixed: {problem}. A skill's header starts and ends with a --- line; for who gets it, put audience: agents, assistant or all under metadata:.",
+    "description": "Tooltip on Not given: a Hive skill whose header (SKILL.md's front matter) can't be read. {problem} says what is wrong. Keep ---, audience:, agents, assistant, all and metadata: as they are."
+  },
+  "assistant.skills.readFailed": {
+    "defaultMessage": "Could not read the file",
+    "description": "An error notice, adding a skill from a file."
+  },
+  "assistant.skills.restore": {
+    "defaultMessage": "Restore",
+    "description": "A button: puts back a deleted skill of Hive's own."
+  },
+  "assistant.skills.restoreFailed": {
+    "defaultMessage": "Could not restore the skill",
+    "description": "An error notice: a skill that ships with Hive couldn't be put back; the reason follows."
+  },
+  "assistant.skills.restored": {
+    "defaultMessage": "Restored \"{name}\"",
+    "description": "A notice: a deleted skill of Hive's own is back."
+  },
+  "assistant.skills.revert": {
+    "defaultMessage": "Revert",
+    "description": "Confirmation before an edited skill is put back as Hive ships it: its button."
+  },
+  "assistant.skills.revertButton": {
+    "defaultMessage": "Revert to default",
+    "description": "A button over an edited skill of Hive's own: puts it back as Hive ships it."
+  },
+  "assistant.skills.revertDetail": {
+    "defaultMessage": "The current copy goes to the Recycle Bin, so edits made to it can still be recovered from there.",
+    "description": "Confirmation before an edited skill is put back as Hive ships it."
+  },
+  "assistant.skills.revertMessage": {
+    "defaultMessage": "Replace the workspace's \"{name}\" with the version that ships with this version of Hive?",
+    "description": "Confirmation before an edited skill is put back as Hive ships it. {name} is the skill."
+  },
+  "assistant.skills.revertTip": {
+    "defaultMessage": "This skill ships with Hive, and this copy was edited. Hive keeps edited copies as they are; unedited ones it updates itself.",
+    "description": "Tooltip on Revert to default, over an edited skill that ships with Hive."
+  },
+  "assistant.skills.revertTitle": {
+    "defaultMessage": "Revert to default?",
+    "description": "Confirmation before an edited skill that ships with Hive is put back as Hive ships it."
+  },
+  "assistant.skills.reverted": {
+    "defaultMessage": "Reverted \"{name}\" to default",
+    "description": "A notice: an edited skill is back as Hive ships it."
+  },
+  "assistant.skills.stillLocal": {
+    "defaultMessage": "{known, select, yes {{provider} agents} other {The agents}} here also still load the local copy until you delete it.",
+    "description": "Under Copied … to the workspace, for a project's own skill: the project's copy stays. {provider} is Claude Code, Codex…"
+  },
+  "assistant.skills.tipHive": {
+    "defaultMessage": "Hive skills live in the workspace (.hive/skills). Each goes to the project agents (every agent in every project, of every provider), to the Hive Assistant, or to both, as the audience in its SKILL.md says (the project agents if it says none). Hive copies them for each session when it starts, so edits reach new sessions. Add, edit and delete them in the Skills view.",
+    "description": "Tooltip on the Hive skills. Keep .hive/skills, SKILL.md and audience as they are."
+  },
+  "assistant.skills.tipLocal": {
+    "defaultMessage": "Skills in the project folder for one provider (.claude/skills for Claude Code, .agents/skills for Codex). That provider's agents load them in this project. You manage them: add, edit and delete them here.",
+    "description": "Tooltip on a project's own skills. Keep the paths as they are."
+  },
+  "assistant.skills.tipPlugin": {
+    "defaultMessage": "Skills from Claude Code plugins you've installed. Claude Code agents always load them. Listed for reference; manage plugins in Claude Code.",
+    "description": "Tooltip on Claude Code plugins' skills."
+  },
+  "assistant.skills.tipUser": {
+    "defaultMessage": "Skills in your user profile (~/.claude/skills for Claude Code, ~/.codex/skills for Codex). That provider's agents always load them, in every project. Listed for reference; manage them outside Hive.",
+    "description": "Tooltip on the user's own skills. Keep the paths as they are."
+  },
+  "assistant.skills.updateAvailable": {
+    "defaultMessage": "Update available",
+    "description": "A badge over an edited skill of Hive's own when Hive ships a newer version."
+  },
+  "assistant.skills.updateBadge": {
+    "defaultMessage": "update",
+    "description": "A badge on an edited skill of Hive's own when Hive ships a newer version."
+  },
+  "assistant.skills.updateTip": {
+    "defaultMessage": "This copy was edited, so Hive didn't update it. This Hive ships a newer version: Revert to default brings it in (your copy goes to the Recycle Bin).",
+    "description": "Tooltip on Update available, over an edited skill. Revert to default is the button beside it."
+  },
+  "assistant.skills.warning": {
+    "defaultMessage": "<b>Warning:</b> Editing these skills may change agent behaviour in Hive",
+    "description": "A banner over the Hive skills and a Hive skill being edited. <b> is bold."
+  },
+  "assistant.skills.whereHive": {
+    "defaultMessage": "the workspace (.hive/skills)",
+    "description": "Where a skill is added, inside New Skill and Add Skill from File: the Hive skills. Lower case: it is part of a sentence."
+  },
+  "assistant.skills.whereLocal": {
+    "defaultMessage": "{provider}'s local skills",
+    "description": "Where a skill is added, inside New Skill and Add Skill from File: a project's own skills of {provider} (Claude Code, Codex…). Lower case: it is part of a sentence."
+  },
+  "assistant.template.agentNoName": {
+    "defaultMessage": "Agent {n} has no name (or one over 60 characters).",
+    "description": "Why a template file can't be used: its agent number {n} (1, 2…) has no usable name."
+  },
+  "assistant.template.badContext": {
+    "defaultMessage": "{name}'s context setting isn't one Hive can use.",
+    "description": "Why a template file can't be used: an agent's 200K context setting isn't on or off."
+  },
+  "assistant.template.badMcp": {
+    "defaultMessage": "{name}'s MCP servers aren't a list Hive can use.",
+    "description": "Why a template file can't be used: an agent's list of MCP servers."
+  },
+  "assistant.template.badName": {
+    "defaultMessage": "Its name is missing or longer than {max} characters.",
+    "description": "Why a template file can't be used: the template's name."
+  },
+  "assistant.template.badProvider": {
+    "defaultMessage": "{name}'s coding agent isn't one Hive can use ({given, select, yes {{provider}} other {none}}).",
+    "description": "Why a template file can't be used: an agent's coding agent (Claude Code, Codex…) is no id Hive could know. {name} is the agent; {provider} what the file says; none when it says nothing."
+  },
+  "assistant.template.badSetting": {
+    "defaultMessage": "{name}'s {setting, select, model {model} effort {effort} other {permissionMode}} isn't one Hive can use.",
+    "description": "Why a template file can't be used: an agent's model, effort or permission mode is no value a coding agent takes. Keep permissionMode as it is (the file's field)."
+  },
+  "assistant.template.longRole": {
+    "defaultMessage": "{name}'s role is over {max} characters.",
+    "description": "Why a template file can't be used: an agent's role is too long."
+  },
+  "assistant.template.newer": {
+    "defaultMessage": "It was made by a newer version of Hive: update Hive to use it.",
+    "description": "Why a template file can't be used: a newer Hive made it."
+  },
+  "assistant.template.noAgents": {
+    "defaultMessage": "It has no agents.",
+    "description": "Why a template file can't be used: it holds no agents."
+  },
+  "assistant.template.noVersion": {
+    "defaultMessage": "It isn't a Hive agent template (no version).",
+    "description": "Why a template file can't be used: it has no format version."
+  },
+  "assistant.template.notTemplate": {
+    "defaultMessage": "It isn't a Hive agent template.",
+    "description": "Why a template file can't be used: it isn't one."
+  },
+  "assistant.template.sameName": {
+    "defaultMessage": "Two agents are called \"{name}\".",
+    "description": "Why a template file can't be used: two agents share a name."
+  },
+  "assistant.template.tooMany": {
+    "defaultMessage": "It has {count} agents; a project can have up to {max}.",
+    "description": "Why a template file can't be used: more agents than any project can have."
+  },
+  "assistant.template.tooManyHere": {
+    "defaultMessage": "It has {count} agents, and this project can have up to {limit} (Settings → Advanced → Agents per project).",
+    "description": "Why a template can't be loaded into this project: it has more agents than the project allows. Keep the setting's path as Settings shows it."
+  },
+  "assistant.templateLoad.afterLoad": {
+    "defaultMessage": "{removed, select, yes {Their conversations stay in the Sessions tab, and their open cards go back (Doing ones to Todo). The layout becomes the template's.} other {The layout becomes the template's.}}",
+    "description": "Load template, the last note: what happens to the agents that go (when some do) and to the project's layout. Sessions, Doing and Todo as Hive names them."
+  },
+  "assistant.templateLoad.branchKeptTitle": {
+    "defaultMessage": "{count, plural, one {An old worktree's branch was kept} other {# old worktrees' branches were kept}}",
+    "description": "After loading a template: old worktrees whose folder went but whose branch stayed."
+  },
+  "assistant.templateLoad.createdHeading": {
+    "defaultMessage": "Created:",
+    "description": "Load template's confirmation, as text: the heading over the template's agents."
+  },
+  "assistant.templateLoad.createdLine": {
+    "defaultMessage": "{name}{hasRole, select, yes { — {role}} other {}}{replaces, select, yes { (new)} other {}}: {provider}, {settings}",
+    "description": "Load template's confirmation, as text: an agent the template brings, after a bullet: its role, (new) when it replaces an agent of the same name, its coding agent ({provider}) and its model · effort · mode ({settings})."
+  },
+  "assistant.templateLoad.folderOnly": {
+    "defaultMessage": "{branch}: its folder was removed, but the branch was kept{hasWhy, select, yes { ({why})} other {}}.",
+    "description": "After loading a template, a line of the details: an old worktree whose branch stayed, and why."
+  },
+  "assistant.templateLoad.isDefault": {
+    "defaultMessage": "{setting} (default)",
+    "description": "A new agent's model, effort or mode that the template leaves to the project's or Hive's defaults: {setting} is what it comes to here (\"Opus 5.5\", \"High\")."
+  },
+  "assistant.templateLoad.keptLine": {
+    "defaultMessage": "{branch}: kept{hasWhy, select, yes { ({why})} other {}}.",
+    "description": "After loading a template, a line of the details: an old worktree that stayed, and why."
+  },
+  "assistant.templateLoad.keptTitle": {
+    "defaultMessage": "{count, plural, one {An old worktree was kept} other {# old worktrees were kept}}",
+    "description": "After loading a template: some old worktrees you chose to remove couldn't be."
+  },
+  "assistant.templateLoad.newLine": {
+    "defaultMessage": "own worktree on {branch} (from {base}) in {path}{hasNote, select, yes { ({note})} other {}}",
+    "description": "Load template's confirmation, as text, under a new agent: its own new worktree, on branch {branch} made from {base}, in folder {path}."
+  },
+  "assistant.templateLoad.newWhy": {
+    "defaultMessage": "new: {why}",
+    "description": "Load template, after a new agent's worktree: why it gets a new one rather than the old one of its name ({why}: \"hive/claude has 1 uncommitted file\")."
+  },
+  "assistant.templateLoad.oldKept": {
+    "defaultMessage": "its worktree and branch {branch} stay{hasWhy, select, yes {: {why}} other {}}",
+    "description": "Load template, beside an agent that goes: its worktree is kept. {why} says why (\"2 commits not merged into main\"). Lower case: it follows the agent's name in brackets."
+  },
+  "assistant.templateLoad.oldRemovable": {
+    "defaultMessage": "its worktree and branch {branch}, merged into {known, select, yes {{into}} other {the main branch}} and clean, stay unless you tick below",
+    "description": "Load template, beside an agent that goes: its worktree could be removed (a tick box below the list). {into} is the branch its work is merged into. Lower case: it follows the agent's name in brackets."
+  },
+  "assistant.templateLoad.oldReused": {
+    "defaultMessage": "its worktree on {branch} goes on with the new {name}",
+    "description": "Load template, beside an agent that goes: a new agent of the same name ({name}) works in its worktree (on branch {branch}) again. Lower case: it follows the agent's name in brackets."
+  },
+  "assistant.templateLoad.ownLine": {
+    "defaultMessage": "own worktree",
+    "description": "Load template's confirmation, as text, under a new agent: it works in a worktree of its own."
+  },
+  "assistant.templateLoad.removedHeading": {
+    "defaultMessage": "Removed:",
+    "description": "Load template's confirmation, as text: the heading over the agents that go."
+  },
+  "assistant.templateLoad.removedLine": {
+    "defaultMessage": "{name}{hasNote, select, yes { ({note})} other {}}{replaced, select, yes {: replaced by a new agent with the same name} other {}}",
+    "description": "Load template's confirmation, as text: an agent that goes, after a bullet. {note} is what happens to its worktree."
+  },
+  "assistant.templateLoad.removedWith": {
+    "defaultMessage": "Removed with {count, plural, one {its branch} other {their branches}}: {branches}.",
+    "description": "After loading a template, a line of the details: the worktrees that went whole, by branch."
+  },
+  "assistant.templateLoad.reuseLine": {
+    "defaultMessage": "reuses its worktree on {branch} in {path} (clean; its branch is left as it is)",
+    "description": "Load template's confirmation, as text, under a new agent: it works in an old worktree again."
+  },
+  "assistant.templateLoad.setup": {
+    "defaultMessage": "Each new worktree runs the project's setup command ({command}) before its agent first starts.",
+    "description": "Load template, a note under the list: {command} is the project's setup command (\"npm install\")."
+  },
+  "assistant.templateLoad.wholeDetail": {
+    "defaultMessage": "{branches}, with {count, plural, one {its branch} other {their branches}}: merged and clean.",
+    "description": "After loading a template: {branches} lists the removed worktrees by branch."
+  },
+  "assistant.templateLoad.wholeTitle": {
+    "defaultMessage": "Removed {count, plural, one {an old worktree} other {# old worktrees}}",
+    "description": "After loading a template: the old worktrees you chose to remove went, with their branches."
+  },
+  "assistant.templatePlan.agent": {
+    "defaultMessage": "Agent",
+    "description": "Load template's table: the column of the agents' names."
+  },
+  "assistant.templatePlan.codingAgent": {
+    "defaultMessage": "Coding agent",
+    "description": "Load template's table: the column of each agent's CLI (Claude Code, Codex…)."
+  },
+  "assistant.templatePlan.created": {
+    "defaultMessage": "Created",
+    "description": "Load template: the heading over the template's agents."
+  },
+  "assistant.templatePlan.default": {
+    "defaultMessage": "(default)",
+    "description": "Load template's table, after a model, effort or mode: the template leaves it to the project's or Hive's defaults."
+  },
+  "assistant.templatePlan.effort": {
+    "defaultMessage": "Effort",
+    "description": "Load template's table: a column (the model's reasoning effort)."
+  },
+  "assistant.templatePlan.folder": {
+    "defaultMessage": "project folder",
+    "description": "Load template's table, Where: the agent works in the project's folder."
+  },
+  "assistant.templatePlan.fromTip": {
+    "defaultMessage": "Its name in the template",
+    "description": "Load template's table: tooltip on an agent's name as the template has it, beside the box for its new name."
+  },
+  "assistant.templatePlan.mode": {
+    "defaultMessage": "Mode",
+    "description": "Load template's table: a column (the permission mode)."
+  },
+  "assistant.templatePlan.model": {
+    "defaultMessage": "Model",
+    "description": "Load template's table: a column."
+  },
+  "assistant.templatePlan.nameLabel": {
+    "defaultMessage": "Name of agent {n}",
+    "description": "Load template's table: the accessible name of the box for agent number {n}'s name."
+  },
+  "assistant.templatePlan.newBadge": {
+    "defaultMessage": "new",
+    "description": "Load template's table: a badge on an agent that replaces one of the same name."
+  },
+  "assistant.templatePlan.newTip": {
+    "defaultMessage": "A new worktree in {path}, from {base}",
+    "description": "Load template's table: tooltip on a new worktree ({path}: its folder; {base}: the branch it starts from)."
+  },
+  "assistant.templatePlan.noteSentence": {
+    "defaultMessage": "{note}.",
+    "description": "Load template, under an agent that goes: what happens to its worktree ({note}), as a sentence (its first letter made a capital). Use your language's full stop."
+  },
+  "assistant.templatePlan.ownOn": {
+    "defaultMessage": "own worktree {branch}",
+    "description": "Load template's table, Where: the agent's new worktree, on branch {branch}."
+  },
+  "assistant.templatePlan.ownWorktree": {
+    "defaultMessage": "own worktree",
+    "description": "Load template's table, Where: the agent gets a worktree of its own."
+  },
+  "assistant.templatePlan.removed": {
+    "defaultMessage": "Removed",
+    "description": "Load template: the heading over the agents that go."
+  },
+  "assistant.templatePlan.replaced": {
+    "defaultMessage": "(replaced by a new agent with the same name)",
+    "description": "Load template, after an agent that goes."
+  },
+  "assistant.templatePlan.reuseTip": {
+    "defaultMessage": "Works in its worktree again: {path} (clean; its branch is left as it is)",
+    "description": "Load template's table: tooltip on a worktree worked in again ({path}: its folder)."
+  },
+  "assistant.templatePlan.reuses": {
+    "defaultMessage": "reuses {branch}",
+    "description": "Load template's table, Where: the agent works in an old worktree again, on branch {branch}."
+  },
+  "assistant.templatePlan.where": {
+    "defaultMessage": "Where",
+    "description": "Load template's table: a column (the folder or worktree each agent works in)."
+  },
+  "assistant.templates.aProject": {
+    "defaultMessage": "a project",
+    "description": "A template's project when its name isn't known."
+  },
+  "assistant.templates.addAgent": {
+    "defaultMessage": "Add Agent…",
+    "description": "A button in the template editor: adds an agent in the Agent Settings dialog."
+  },
+  "assistant.templates.addProjectFirst": {
+    "defaultMessage": "Add a project to the workspace first.",
+    "description": "Under the notice No projects, from Load into Project."
+  },
+  "assistant.templates.addTip": {
+    "defaultMessage": "Add an agent, in the Agent Settings dialog",
+    "description": "Tooltip on Add Agent in the template editor."
+  },
+  "assistant.templates.agentSaved": {
+    "defaultMessage": "\"{name}\": {agent} saved in it.",
+    "description": "Under Template saved: an agent's settings were saved in the template."
+  },
+  "assistant.templates.agents": {
+    "defaultMessage": "{count, plural, one {# agent} other {# agents}}",
+    "description": "How many agents a template has."
+  },
+  "assistant.templates.agentsHeading": {
+    "defaultMessage": "Agents",
+    "description": "The template editor: the heading over its agents (a count follows)."
+  },
+  "assistant.templates.allTemplates": {
+    "defaultMessage": "All templates",
+    "description": "The Templates view's filter: every template."
+  },
+  "assistant.templates.atMost": {
+    "defaultMessage": "At most {max} characters.",
+    "description": "Renaming a template: the name typed is too long."
+  },
+  "assistant.templates.automaticOption": {
+    "defaultMessage": "Automatic (shows all the agents, up to six)",
+    "description": "The template editor's layouts: the one that fits the agents."
+  },
+  "assistant.templates.cancel": {
+    "defaultMessage": "Cancel",
+    "description": "The template editor's button with unsaved changes: closes it, asking first."
+  },
+  "assistant.templates.cantBeUsed": {
+    "defaultMessage": "Can't be used",
+    "description": "A badge on a template that can't be used (damaged, made by a newer Hive…)."
+  },
+  "assistant.templates.cantEdit": {
+    "defaultMessage": "This Hive doesn't know its coding agent: it can be moved or removed, not edited",
+    "description": "The template editor: the edit button of an agent whose coding agent isn't known here."
+  },
+  "assistant.templates.changesNotSaved": {
+    "defaultMessage": "Changes not saved",
+    "description": "The template editor: beside its buttons while there are unsaved changes."
+  },
+  "assistant.templates.clashDetail": {
+    "defaultMessage": "Replace it with the imported one, or keep both (the imported one gets a number).",
+    "description": "Import, when where it is kept has a template of that name."
+  },
+  "assistant.templates.clashMessage": {
+    "defaultMessage": "{scope, select, workspace {The workspace} other {{project}}} already has \"{name}\".",
+    "description": "Import, when where it is kept has a template of that name ({project}: a project's name)."
+  },
+  "assistant.templates.clashTitle": {
+    "defaultMessage": "A template of that name is already there",
+    "description": "Import, when where it is kept has a template of that name."
+  },
+  "assistant.templates.close": {
+    "defaultMessage": "Close",
+    "description": "The template editor's button with nothing to save."
+  },
+  "assistant.templates.colActions": {
+    "defaultMessage": "Actions",
+    "description": "The template editor's table: the accessible name of the column of buttons."
+  },
+  "assistant.templates.colAgent": {
+    "defaultMessage": "Agent",
+    "description": "A template's table: the agents' names."
+  },
+  "assistant.templates.colCodingAgent": {
+    "defaultMessage": "Coding agent",
+    "description": "A template's table: each agent's CLI (Claude Code, Codex…)."
+  },
+  "assistant.templates.colEffort": {
+    "defaultMessage": "Effort",
+    "description": "A template's table: a column (the model's reasoning effort)."
+  },
+  "assistant.templates.colMode": {
+    "defaultMessage": "Mode",
+    "description": "A template's table: a column (the permission mode)."
+  },
+  "assistant.templates.colModel": {
+    "defaultMessage": "Model",
+    "description": "A template's table: the column of each agent's model."
+  },
+  "assistant.templates.colRole": {
+    "defaultMessage": "Role",
+    "description": "A template's table: each agent's role."
+  },
+  "assistant.templates.colWorksIn": {
+    "defaultMessage": "Works in",
+    "description": "A template's table: where each agent works."
+  },
+  "assistant.templates.context200k": {
+    "defaultMessage": "200K context",
+    "description": "A template's table, after the model: the agent uses the model's 200K-token context. Keep 200K."
+  },
+  "assistant.templates.continue": {
+    "defaultMessage": "Continue",
+    "description": "Load into Project: the dialog's button (the plan is shown next)."
+  },
+  "assistant.templates.copyAgent": {
+    "defaultMessage": "Copy {name}",
+    "description": "The template editor: a button on an agent's row."
+  },
+  "assistant.templates.default": {
+    "defaultMessage": "Default",
+    "description": "A template's agent's model, effort or mode when it is left to the project's or Hive's defaults."
+  },
+  "assistant.templates.delete": {
+    "defaultMessage": "Delete",
+    "description": "Confirmation before a template is deleted: its button."
+  },
+  "assistant.templates.deleteMessage": {
+    "defaultMessage": "The template goes to the Recycle Bin (from {scope, select, workspace {the workspace} other {{project}}}).",
+    "description": "Confirmation before a template is deleted ({project}: a project's name)."
+  },
+  "assistant.templates.deleteTip": {
+    "defaultMessage": "Delete template",
+    "description": "A trash button over a template: deletes it (asking first)."
+  },
+  "assistant.templates.deleteTitle": {
+    "defaultMessage": "Delete \"{name}\"?",
+    "description": "Confirmation before a template is deleted."
+  },
+  "assistant.templates.deleting": {
+    "defaultMessage": "Deleting…",
+    "description": "Delete's button while it works."
+  },
+  "assistant.templates.description": {
+    "defaultMessage": "Description",
+    "description": "The template editor: the description's label."
+  },
+  "assistant.templates.descriptionPlaceholder": {
+    "defaultMessage": "Optional: what it is for",
+    "description": "The template editor: the description's box, empty."
+  },
+  "assistant.templates.discard": {
+    "defaultMessage": "Discard",
+    "description": "Confirmation before closing a template editor with unsaved changes: its button."
+  },
+  "assistant.templates.discardMessage": {
+    "defaultMessage": "Your changes to \"{name}\" aren't saved.",
+    "description": "Confirmation before closing a template editor with unsaved changes."
+  },
+  "assistant.templates.discardReload": {
+    "defaultMessage": "Discard and Reload",
+    "description": "The template editor, when the template was saved elsewhere meanwhile: a button."
+  },
+  "assistant.templates.discardTitle": {
+    "defaultMessage": "Discard your changes?",
+    "description": "Confirmation before closing a template editor with unsaved changes."
+  },
+  "assistant.templates.draftLabel": {
+    "defaultMessage": "Template \"{name}\"",
+    "description": "A template with unsaved changes, as the list of unsaved edits names it (when quitting or closing the window)."
+  },
+  "assistant.templates.duplicate": {
+    "defaultMessage": "Duplicate",
+    "description": "The button of the dialog that duplicates a template."
+  },
+  "assistant.templates.duplicateButton": {
+    "defaultMessage": "Duplicate…",
+    "description": "A button over a template: copies it, asking where to keep the copy."
+  },
+  "assistant.templates.duplicateFailed": {
+    "defaultMessage": "Could not duplicate the template",
+    "description": "An error notice: a template couldn't be duplicated; the reason follows."
+  },
+  "assistant.templates.duplicateMessage": {
+    "defaultMessage": "A copy to share or change on its own. A name already taken there gets a number.",
+    "description": "Duplicate's dialog, over where to keep the copy."
+  },
+  "assistant.templates.duplicateTitle": {
+    "defaultMessage": "Duplicate \"{name}\"",
+    "description": "The title of the dialog that duplicates a template ({name}: the template)."
+  },
+  "assistant.templates.duplicated": {
+    "defaultMessage": "Template duplicated",
+    "description": "A notice after a template was duplicated; where the copy is follows."
+  },
+  "assistant.templates.edit": {
+    "defaultMessage": "Edit…",
+    "description": "A button on a template: opens its editor."
+  },
+  "assistant.templates.editAgent": {
+    "defaultMessage": "Edit {name}…",
+    "description": "The template editor: a button on an agent's row."
+  },
+  "assistant.templates.editTip": {
+    "defaultMessage": "Change its agents (each in the Agent Settings dialog), their order, its name, description and layout",
+    "description": "Tooltip on Edit…, over a template: what its editor changes."
+  },
+  "assistant.templates.editTitle": {
+    "defaultMessage": "Edit \"{name}\"",
+    "description": "The template editor's heading ({name}: the template)."
+  },
+  "assistant.templates.editorHint": {
+    "defaultMessage": "The order is the order of the agents in a project: the layout's pages hold them in turn. Saving an agent saves the template too; other changes are saved with <b>Save Template</b>. Saving changes this template only, never a project loaded from it earlier.",
+    "description": "Under the template editor's agents. <b> is bold; Save Template is the button."
+  },
+  "assistant.templates.enterName": {
+    "defaultMessage": "Enter a name.",
+    "description": "Renaming a template: the name box is empty."
+  },
+  "assistant.templates.everyProject": {
+    "defaultMessage": "The workspace (every project)",
+    "description": "Where to keep a template: a choice in a list."
+  },
+  "assistant.templates.exportButton": {
+    "defaultMessage": "Export…",
+    "description": "A button on a template: saves it as a file to share."
+  },
+  "assistant.templates.exportFailed": {
+    "defaultMessage": "Could not export the template",
+    "description": "An error notice: a template couldn't be saved as a file; the reason follows."
+  },
+  "assistant.templates.exported": {
+    "defaultMessage": "Template exported",
+    "description": "A notice after a template was saved as a file; the file's path follows."
+  },
+  "assistant.templates.exportedDetail": {
+    "defaultMessage": "It holds the agents' settings and roles and the layout: no paths, sessions or names. Import it into any Hive.",
+    "description": "Under Template exported, after the file's path."
+  },
+  "assistant.templates.fullTip": {
+    "defaultMessage": "A template can have up to {limit} agents, as many as a project (Settings → Advanced → Agents per project)",
+    "description": "Tooltip on Add Agent when the template is full. Keep the setting's path as Settings shows it."
+  },
+  "assistant.templates.gone": {
+    "defaultMessage": "That template is no longer there.",
+    "description": "The Templates view: the selected template was deleted or moved."
+  },
+  "assistant.templates.import": {
+    "defaultMessage": "Import",
+    "description": "The button of the dialog that imports a template, after choosing where to keep it."
+  },
+  "assistant.templates.importButton": {
+    "defaultMessage": "Import Template…",
+    "description": "A button: imports a template from a file."
+  },
+  "assistant.templates.importFailed": {
+    "defaultMessage": "Could not import the template",
+    "description": "An error notice: a template file couldn't be imported; the reason follows."
+  },
+  "assistant.templates.importMessage": {
+    "defaultMessage": "{count, plural, one {# agent} other {# agents}}.{hasUnknown, select, yes { {unknown}} other {}} Where should it be kept?",
+    "description": "Import's dialog: how many agents the template has; {unknown} says when its coding agents aren't known here."
+  },
+  "assistant.templates.importTitle": {
+    "defaultMessage": "Import \"{name}\"",
+    "description": "Import's dialog title: {name} is the template's."
+  },
+  "assistant.templates.imported": {
+    "defaultMessage": "Template imported",
+    "description": "A notice after a template file was imported; where it is kept follows."
+  },
+  "assistant.templates.importedDetail": {
+    "defaultMessage": "\"{name}\", in {scope, select, workspace {the workspace} other {{project}}}.{hasUnknown, select, yes { {unknown}} other {}}",
+    "description": "Under Template imported: the template and where it is kept; {unknown} says when its coding agents aren't known here."
+  },
+  "assistant.templates.keepBoth": {
+    "defaultMessage": "Keep Both",
+    "description": "Import, a template of that name is there: keep both."
+  },
+  "assistant.templates.keepIn": {
+    "defaultMessage": "Keep it in",
+    "description": "Where to keep a template: the label of the list."
+  },
+  "assistant.templates.layout": {
+    "defaultMessage": "{layout, select, auto {Automatic} single {One at a time} columns2 {Two columns} columns3 {Three columns} grid {Grid of four} grid6 {Grid of six} other {{layout}}}",
+    "description": "A template's layout of agent panes, as the Session tab's layout menu names it. Keep it short."
+  },
+  "assistant.templates.layoutLabel": {
+    "defaultMessage": "Layout",
+    "description": "The template editor: the layout's label."
+  },
+  "assistant.templates.layoutPhrase": {
+    "defaultMessage": "{layout, select, auto {automatic layout} single {one at a time layout} columns2 {two columns layout} columns3 {three columns layout} grid {grid of four layout} grid6 {grid of six layout} other {{layout} layout}}",
+    "description": "A template's layout of agent panes inside a sentence (\"2 agents, two columns layout\")."
+  },
+  "assistant.templates.loadAny": {
+    "defaultMessage": "Load into Project…",
+    "description": "A button on a template in the Templates view."
+  },
+  "assistant.templates.loadAnyTip": {
+    "defaultMessage": "Choose a project; its agents and layout are replaced with the template’s",
+    "description": "Tooltip on Load into Project…, over a template in the Templates view."
+  },
+  "assistant.templates.loadHere": {
+    "defaultMessage": "Load into This Project…",
+    "description": "A button on a template in a project's Templates tab."
+  },
+  "assistant.templates.loadHereTip": {
+    "defaultMessage": "Replace this project's agents and layout with the template's",
+    "description": "Tooltip on Load into This Project."
+  },
+  "assistant.templates.loadMessage": {
+    "defaultMessage": "It replaces every agent of the project you choose, and its layout. Hive lists who goes and who comes before anything changes.",
+    "description": "Load into Project: the dialog that asks which project."
+  },
+  "assistant.templates.loadTarget": {
+    "defaultMessage": "the templates",
+    "description": "What could not be loaded when the templates were first read: shown in \"Could not load {what}: {error}\", with Retry."
+  },
+  "assistant.templates.loadTitle": {
+    "defaultMessage": "Load \"{name}\" into a project",
+    "description": "Load into Project: the dialog that asks which project."
+  },
+  "assistant.templates.loading": {
+    "defaultMessage": "Loading…",
+    "description": "The Templates view or tab while the templates are read."
+  },
+  "assistant.templates.mcpServers": {
+    "defaultMessage": "MCP servers: {servers}",
+    "description": "A template's table, under Works in: the MCP servers an agent chose."
+  },
+  "assistant.templates.moveDown": {
+    "defaultMessage": "Move {name} down",
+    "description": "The template editor: a button on an agent's row."
+  },
+  "assistant.templates.moveUp": {
+    "defaultMessage": "Move {name} up",
+    "description": "The template editor: a button on an agent's row."
+  },
+  "assistant.templates.name": {
+    "defaultMessage": "Name",
+    "description": "The template editor: the name's label."
+  },
+  "assistant.templates.namePlaceholder": {
+    "defaultMessage": "Template name",
+    "description": "Renaming a template: the name box when it is empty."
+  },
+  "assistant.templates.needAgent": {
+    "defaultMessage": "A template needs at least one agent.",
+    "description": "Why a template being edited can't be saved yet."
+  },
+  "assistant.templates.needName": {
+    "defaultMessage": "Enter a name for the template.",
+    "description": "Why a template being edited can't be saved yet."
+  },
+  "assistant.templates.newAgentName": {
+    "defaultMessage": "Agent",
+    "description": "The name suggested for a new agent of a template (a number follows when it is taken: Agent 2)."
+  },
+  "assistant.templates.noLongerEdited": {
+    "defaultMessage": "That template is no longer being edited",
+    "description": "An error: a template's changes were saved after its editor closed."
+  },
+  "assistant.templates.noProjects": {
+    "defaultMessage": "No projects",
+    "description": "A notice: Load into Project with no projects in the workspace."
+  },
+  "assistant.templates.noWorkspace": {
+    "defaultMessage": "Open a workspace to see its templates.",
+    "description": "The Templates view with no workspace open."
+  },
+  "assistant.templates.noWorkspaceTemplates": {
+    "defaultMessage": "No workspace templates.",
+    "description": "Under Workspace, when the workspace has no templates."
+  },
+  "assistant.templates.noneOfItsOwn": {
+    "defaultMessage": "No templates of its own.",
+    "description": "The Templates view, under a project with no templates."
+  },
+  "assistant.templates.noneYet": {
+    "defaultMessage": "None of its own yet.",
+    "description": "A project's Templates tab: it has no templates of its own."
+  },
+  "assistant.templates.notSaved": {
+    "defaultMessage": "Not saved",
+    "description": "A badge on a template open in its editor with unsaved changes."
+  },
+  "assistant.templates.ownWorktree": {
+    "defaultMessage": "Its own worktree",
+    "description": "A template's table, Works in: the agent gets a worktree of its own."
+  },
+  "assistant.templates.panelHint": {
+    "defaultMessage": "Save a project's agents as a template from its Session tab (<b>Save Template…</b>). Export one to share it; Import brings one in.",
+    "description": "Under the Templates view's list. <b> is bold; Save Template… is the Session tab's button."
+  },
+  "assistant.templates.problem": {
+    "defaultMessage": "This template can't be used: {problem}",
+    "description": "Over a template that can't be used; {problem} says why."
+  },
+  "assistant.templates.project": {
+    "defaultMessage": "Project",
+    "description": "Load into Project: the label of the list of projects."
+  },
+  "assistant.templates.projectFolder": {
+    "defaultMessage": "The project folder",
+    "description": "A template's table, Works in: the agent works in the project's folder."
+  },
+  "assistant.templates.refresh": {
+    "defaultMessage": "Refresh",
+    "description": "A button: reads the templates again."
+  },
+  "assistant.templates.refreshTarget": {
+    "defaultMessage": "the templates",
+    "description": "What could not be refreshed while the templates shown stay on screen: shown in \"Could not refresh {what}; last updated …\", with Retry."
+  },
+  "assistant.templates.removeAgent": {
+    "defaultMessage": "Remove {name}",
+    "description": "The template editor: a button on an agent's row."
+  },
+  "assistant.templates.rename": {
+    "defaultMessage": "Rename",
+    "description": "The button of the dialog that renames a template."
+  },
+  "assistant.templates.renameButton": {
+    "defaultMessage": "Rename…",
+    "description": "A button over a template: renames it."
+  },
+  "assistant.templates.renameFailed": {
+    "defaultMessage": "Could not rename the template",
+    "description": "An error notice: a template couldn't be renamed; the reason follows."
+  },
+  "assistant.templates.renameTitle": {
+    "defaultMessage": "Rename \"{name}\"",
+    "description": "The title of the dialog that renames a template ({name}: the template)."
+  },
+  "assistant.templates.replace": {
+    "defaultMessage": "Replace",
+    "description": "Import, a template of that name is there: replace it."
+  },
+  "assistant.templates.review": {
+    "defaultMessage": "Review",
+    "description": "A button on the notice of unused worktrees left by a deleted template's agents: opens the list."
+  },
+  "assistant.templates.rowDesc": {
+    "defaultMessage": "{count, plural, one {# agent} other {# agents}} · {layout} layout",
+    "description": "Under a template in a list: its agents and its layout ({layout}: \"Two columns\")."
+  },
+  "assistant.templates.saveTemplate": {
+    "defaultMessage": "Save Template",
+    "description": "The template editor's button that saves the template."
+  },
+  "assistant.templates.saved": {
+    "defaultMessage": "Template saved",
+    "description": "A notice after a template was saved; its name and agents follow."
+  },
+  "assistant.templates.savedDetail": {
+    "defaultMessage": "\"{name}\": {count, plural, one {# agent} other {# agents}}, {layout}.",
+    "description": "Under Template saved: its agents and layout ({layout}: \"two columns layout\")."
+  },
+  "assistant.templates.saving": {
+    "defaultMessage": "Saving…",
+    "description": "The template editor's Save Template button while it saves."
+  },
+  "assistant.templates.selectOne": {
+    "defaultMessage": "Select a template to see its agents and layout, load it into a project, or export it to share.",
+    "description": "The Templates view's main area with no template selected."
+  },
+  "assistant.templates.selectOneHere": {
+    "defaultMessage": "Select a template to see its agents and layout, load it into this project, or export it to share.",
+    "description": "A project's Templates tab with no template selected."
+  },
+  "assistant.templates.showOf": {
+    "defaultMessage": "Show templates of",
+    "description": "The Templates view: the accessible name of the filter (All templates, Workspace, a project)."
+  },
+  "assistant.templates.stale": {
+    "defaultMessage": "\"{name}\" was saved again since you started editing it, so these changes can't be saved over it.",
+    "description": "The template editor, when the template was saved elsewhere meanwhile."
+  },
+  "assistant.templates.summary": {
+    "defaultMessage": "{count, plural, one {# agent} other {# agents}}, {layout}{hasSaved, select, yes {, saved {when}} other {}}. Kept in {scope, select, workspace {the workspace, for every project} other {{project}, for that project only}}. Change it with <b>Edit…</b>, or save a project's agents again under the same name.",
+    "description": "Over a template's agents: how many, its layout (\"two columns layout\"), when it was saved ({when}: \"3 days ago\"), and where it is kept. <b> is bold; Edit… is the button."
+  },
+  "assistant.templates.tabHint": {
+    "defaultMessage": "<b>Save Template…</b> on the Session tab saves this project's agents and layout. All the workspace's templates are in the <view>Templates view</view>.",
+    "description": "Under a project's Templates tab's list. <b> is bold (the Session tab's button); <view> is a link that opens the Templates view."
+  },
+  "assistant.templates.thisProject": {
+    "defaultMessage": "This project",
+    "description": "A project's Templates tab: the group of its own templates."
+  },
+  "assistant.templates.thisProjectOnly": {
+    "defaultMessage": "{project} (this project only)",
+    "description": "Where to keep a template: a project, in a list."
+  },
+  "assistant.templates.tip": {
+    "defaultMessage": "A template is a project's agents (settings and roles) and layout, saved under a name: the workspace's are for every project, a project's are its own (kept in its .hive, out of git). Export one to share it as a file.",
+    "description": "Tooltip on Templates (the Templates view and a project's Templates tab). Keep .hive as it is."
+  },
+  "assistant.templates.title": {
+    "defaultMessage": "Templates",
+    "description": "The Templates view's and a project's Templates tab's heading."
+  },
+  "assistant.templates.unknown": {
+    "defaultMessage": "It uses a coding agent this Hive doesn't know ({ids}): it can be kept, but not loaded until Hive knows it.",
+    "description": "A template whose agents use a CLI this Hive doesn't know (one from a newer Hive). {ids} lists them."
+  },
+  "assistant.templates.unknownAgent": {
+    "defaultMessage": "Unknown agent",
+    "description": "A badge on a template one of whose agents uses a coding agent this Hive doesn't know."
+  },
+  "assistant.templates.unknownProvider": {
+    "defaultMessage": "{provider} (unknown)",
+    "description": "A template's table: a coding agent this Hive doesn't know ({provider}: its id)."
+  },
+  "assistant.templates.unsavedTip": {
+    "defaultMessage": "It is open in the editor with changes not saved yet",
+    "description": "Tooltip on Not saved, beside a template."
+  },
+  "assistant.templates.where": {
+    "defaultMessage": "\"{name}\", in {scope, select, workspace {the workspace} other {{project}}}.",
+    "description": "Under Template duplicated or Template imported: the template and where it is kept ({project}: a project's name)."
+  },
+  "assistant.templates.workspace": {
+    "defaultMessage": "Workspace",
+    "description": "A badge, a group and a filter: the workspace's templates (for every project)."
+  },
+  "assistant.view.allAttachments": {
+    "defaultMessage": "All Attachments",
+    "description": "The Assistant view: the row that shows the files attached to its conversations."
+  },
+  "assistant.view.allConversations": {
+    "defaultMessage": "All Conversations",
+    "description": "The Assistant view: the row that shows the Assistant's conversations."
+  },
+  "assistant.view.attachments": {
+    "defaultMessage": "Attachments",
+    "description": "The Assistant view: the section of the files attached to its conversations."
+  },
+  "assistant.view.conversations": {
+    "defaultMessage": "Conversations",
+    "description": "The Assistant view: the section of the Assistant's conversations."
+  },
+  "assistant.view.modes": {
+    "defaultMessage": "Modes",
+    "description": "The Assistant view: the section of the Assistant's modes (how it works: Advisor, Builder…)."
+  },
+  "assistant.view.newMode": {
+    "defaultMessage": "New Mode…",
+    "description": "The Assistant view, Modes: a button that creates a mode."
+  },
+  "assistant.view.noWorkspace": {
+    "defaultMessage": "Open a workspace to see its Assistant.",
+    "description": "The Assistant view with no workspace open."
+  },
+  "assistant.view.noWorkspaceMain": {
+    "defaultMessage": "Open a workspace to see its Assistant's conversations.",
+    "description": "The Assistant view's main area with no workspace open."
+  },
+  "assistant.view.openFolder": {
+    "defaultMessage": "Open Modes Folder",
+    "description": "The Assistant view, Modes: a button that opens the modes' folder in Explorer."
+  },
+  "assistant.view.period": {
+    "defaultMessage": "Period",
+    "description": "The Assistant view: the accessible name of the period buttons (Today, 7 days…)."
+  },
+  "assistant.view.refresh": {
+    "defaultMessage": "Refresh",
+    "description": "The Assistant view, Modes: a button that reads the modes again."
+  },
+  "assistant.view.showPanel": {
+    "defaultMessage": "Show the Assistant's panel",
+    "description": "The Assistant view: a button that opens the Assistant's panel on the right."
+  },
+  "assistant.view.statConversations": {
+    "defaultMessage": "Conversations",
+    "description": "The Assistant view, Used so far: how many conversations."
+  },
+  "assistant.view.statCost": {
+    "defaultMessage": "Cost",
+    "description": "The Assistant view, Used so far: what it cost at API prices."
+  },
+  "assistant.view.statPrompts": {
+    "defaultMessage": "Prompts",
+    "description": "The Assistant view, Used so far: how many prompts were sent."
+  },
+  "assistant.view.statTokens": {
+    "defaultMessage": "Tokens",
+    "description": "The Assistant view, Used so far: tokens used."
+  },
+  "assistant.view.summaryTip": {
+    "defaultMessage": "What this workspace's Assistant has used across its conversations, in the period chosen (by calendar day: Today is since midnight). It isn't counted in any project's Overview. The cost is what the work would have cost at API prices: on a subscription you are not charged this.",
+    "description": "The Assistant view: tooltip on Used so far. Today and Overview as Hive names them."
+  },
+  "assistant.view.title": {
+    "defaultMessage": "Hive Assistant",
+    "description": "The Assistant view's heading in the sidebar. Hive's name stays as it is."
+  },
+  "assistant.view.titleTip": {
+    "defaultMessage": "Your workspace's overseer: what it has used, its modes, its conversations and the files attached to them. Its panel is on the right (Ctrl+Alt+I); its defaults are in Settings → Assistant.",
+    "description": "The Assistant view: tooltip on its heading. Keep the shortcut as it is."
+  },
+  "assistant.view.unpriced": {
+    "defaultMessage": "{count, plural, one {# conversation without a price} other {# conversations without a price}}",
+    "description": "The Assistant view: tooltip on Cost when some conversations' models have no known price."
+  },
+  "assistant.view.usedSoFar": {
+    "defaultMessage": "Used so far",
+    "description": "The Assistant view: the heading of what the Assistant has used (tokens, cost)."
+  }
+}

@@ -62,6 +62,7 @@ export async function newAssistantToken(workspacePath: string): Promise<void> {
   s.token = randomBytes(32).toString('hex')
   const file = assistantTokenFile(workspacePath)
   await mkdir(dirname(file), { recursive: true })
+  // i18n-ignore: the token file is the Assistant's to read, not the window's
   await writeJsonAtomic(file, { token: s.token, note: "The Hive Assistant's Agent API token for one workspace. Hive replaces it each time the Assistant starts." })
 }
 
@@ -146,6 +147,7 @@ export class ChangeRefused extends Error {
   }
 }
 
+// i18n-ignore: the control levels as the Assistant's refusals name them (Agent API replies stay English)
 export const LEVEL_NAME: Record<AssistantControl, string> = { look: 'Look and advise', agents: 'Control agents', projects: 'Control agents and create projects' }
 
 /** Refuses (and records) a change the control level doesn't allow: the Assistant's change boundary, before anything counts. */
@@ -153,6 +155,7 @@ export function refuseUnlessAllowed(workspacePath: string, need: AssistantContro
   if (allows(need)) return
   // i18n-ignore: the Agent API's event stream (#763) speaks English, as the rest of the API does
   record(workspacePath, act, what.charAt(0).toUpperCase() + what.slice(1), 'not allowed by Settings → Assistant → Control', { reason: 'Not allowed by Settings → Assistant → Control' })
+  // i18n-ignore: a refusal the Assistant reads (Agent API replies stay English)
   throw new ChangeRefused(403, `The user's settings (Settings → Assistant → Control: ${LEVEL_NAME[controlLevel()]}) don't let you ${what}. Tell the user what you would do instead.`)
 }
 
@@ -166,12 +169,16 @@ export function refuseUnlessAllowed(workspacePath: string, need: AssistantContro
 export function admit(workspacePath: string, token: string, need: AssistantControl, what: string, act: ActivityTarget): () => void {
   refuseUnlessAllowed(workspacePath, need, what, act)
   if (!countAction(workspacePath)) {
+    // i18n-ignore: the Agent API's event stream (#763) speaks English, as the rest of the API does
     record(workspacePath, act, what.charAt(0).toUpperCase() + what.slice(1), `limit of ${MAX_ACTIONS_PER_TURN} changes for one message`, { reason: publicReason(429) })
     // `fits` (none, now) stays on the refusal: the batch route's reply contract (#417).
+    // i18n-ignore: a refusal the Assistant reads (Agent API replies stay English)
     throw new ChangeRefused(429, `You have made ${MAX_ACTIONS_PER_TURN} changes for this message, the most Hive allows for one. Tell the user what is done and ask whether to go on.`, { fits: 0 })
   }
   return () => {
+    // i18n-ignore: a refusal the Assistant reads (Agent API replies stay English)
     if (!allows(need)) throw new ChangeRefused(403, 'The user turned Settings → Assistant → Control down before this change was made: nothing changed here.')
+    // i18n-ignore: a refusal the Assistant reads (Agent API replies stay English)
     if (!isCurrentToken(workspacePath, token)) throw new ChangeRefused(409, "The Assistant's session that asked for this ended before the change was made: nothing changed here.")
   }
 }
