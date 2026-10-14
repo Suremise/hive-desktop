@@ -390,10 +390,12 @@ function retarget(def: McpServerDef, from: string, to: string): McpServerDef {
 async function readServerFile(file: string): Promise<{ def: McpServerDef; files: Map<string, Uint8Array> | null; folder: string | null; name: string; hash: string }> {
   const ext = extname(file).toLowerCase()
   if (ext !== '.json' && ext !== '.zip') throw new Error('Choose a .json definition or a .zip of a server folder.')
-  const size = (await stat(file)).size
-  if (ext === '.json' && size > MCP_JSON_MAX_BYTES) throw new Error('The .json is too large for an MCP server definition (over 1 MB).')
-  if (ext === '.zip' && size > MCP_ZIP_MAX_BYTES) throw new Error('The .zip is too large for an MCP server (over 200 MB).')
+  const max = ext === '.json' ? MCP_JSON_MAX_BYTES : MCP_ZIP_MAX_BYTES
+  const tooLarge = (): Error => (ext === '.json' ? new Error('The .json is too large for an MCP server definition (over 1 MB).') : new Error('The .zip is too large for an MCP server (over 200 MB).'))
+  if ((await stat(file)).size > max) throw tooLarge()
   const data = await readFile(file)
+  // The stat is a snapshot: a file that grew after it is held to the limit by the bytes read.
+  if (data.length > max) throw tooLarge()
   const hash = createHash('sha256').update(data).digest('hex')
   if (ext === '.json') {
     let raw: unknown
