@@ -38,7 +38,7 @@ export function codexSafeguards(appended: string, memo: Record<string, unknown>)
     if (!newStop(m, id)) return
     out.push({ kind: 'stop', at, ...(model ? { model } : {}), tools: [...(m.tools ?? [])], id })
   }
-  const turn = (): string => m.turn ?? `turn ${m.turns ?? 0}`
+  const turn = (): string => m.turn ?? `turn ${m.turns ?? 0}` // i18n-ignore: an id for a turn, never shown
   const tool = (name: string): void => {
     m.tools = [...(m.tools ?? []), name].slice(-SAFEGUARD_TOOLS)
   }
@@ -64,14 +64,14 @@ export function codexSafeguards(appended: string, memo: Record<string, unknown>)
     } else if (r.type === 'response_item') {
       if (p.type === 'function_call' || p.type === 'custom_tool_call') {
         const name = String(p.name ?? 'tool')
-        tool(/exec_command|shell|local_shell/.test(name) ? 'Shell' : name === 'apply_patch' ? 'Edit' : name)
-      } else if (p.type === 'local_shell_call') tool('Shell')
+        tool(/exec_command|shell|local_shell/.test(name) ? 'Shell' : name === 'apply_patch' ? 'Edit' : name) // i18n-ignore: a tool's name, matched by the safeguards
+      } else if (p.type === 'local_shell_call') tool('Shell') // i18n-ignore: a tool's name, matched by the safeguards
       else if (p.type === 'web_search_call') tool('WebSearch')
     } else if (r.type === 'event_msg') {
       if (p.type === 'thread_settings_applied' && typeof p.thread_settings?.model === 'string') m.model = p.thread_settings.model
       else if (p.type === 'model_reroute' && typeof p.to_model === 'string' && reroute.includes(String(p.reason ?? ''))) {
         const from = typeof p.from_model === 'string' && p.from_model ? p.from_model : m.model
-        stop(at, `${turn()} reroute ${from ?? ''}>${p.to_model}`, from)
+        stop(at, `${turn()} reroute ${from ?? ''}>${p.to_model}`, from) // i18n-ignore: an id for a stop, never shown
         if (from && from !== p.to_model) out.push({ kind: 'switch', at, from, to: p.to_model, flagged: true })
         m.model = p.to_model
         m.rerouted = p.to_model

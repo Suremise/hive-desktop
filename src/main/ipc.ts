@@ -1039,12 +1039,12 @@ export function registerIpc(getAppInfo: () => ReturnType<HiveRequests['app:info'
     'git:initCheck': (p) => initCheck(p),
     'git:init': (p, opts) => initRepo(p, opts && typeof opts === 'object' ? opts : { gitignore: 'none' }),
 
-    'provider:info': () => providerService.all(),
+    'provider:info': () => providerService.shown(),
     'provider:refresh': async (id) => {
       // Agent Setup's Check again looks at git too (#346), on the PATH a new process would get (#472).
       await refreshPath()
       await Promise.all([providerService.refresh(id, true), checkGit()])
-      return providerService.all()
+      return providerService.shown()
     },
     'provider:task': async (id, task) => {
       await refreshPathBeforeStart()

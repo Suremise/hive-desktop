@@ -1,4 +1,5 @@
 import { createHash } from 'crypto'
+import { msg, tr } from '../../../shared/i18n'
 import { spawn } from 'child_process'
 import { homedir, tmpdir } from 'os'
 import { basename, join, resolve } from 'path'
@@ -14,7 +15,7 @@ import { config } from '../../config'
 import { placeMatcher } from '../../fsutil'
 import { createLogger, userText } from '../../logger'
 import { findSecretWarnings } from '../../mcpSecrets'
-import { AGENTS_SKILLS, EDITOR_EXTENSION_PATH, EDITOR_ROOTS, agentsSkillCopyPath, compareVersions, hookForwardCommand, hookIds, readFirstLine, run, syncAgentsSkills, taskArgs, toSpawnable } from '../common'
+import { AGENTS_SKILLS, EDITOR_EXTENSION_PATH, EDITOR_ROOTS, agentsSkillCopyPath, compareVersions, hookForwardCommand, exportSubtitleText, hookIds, installText, notInstalledIssue, readFirstLine, run, signedOutIssue, syncAgentsSkills, taskArgs, toSpawnable, updateIssue, userMemoryLabel } from '../common'
 import type { BackgroundTaskEvent, CatalogRead, CommandSpec, ExternalSession, KeySteps, LaunchContext, LiveDetails, LockDecision, NormalizedHook, ProviderAdapter, SkillDelivery, SkillRoots, UsageParser } from '../types'
 import { codexBackgroundMemo, codexBackgroundTasks, type CodexBackgroundMemo } from './background'
 import { codexSafeguards } from './safeguards'
@@ -50,9 +51,9 @@ const userConfig = (): Record<string, any> => readToml(join(codexHome(), 'config
 
 /** Agent Setup's explanation of the two choices Codex's sandbox setup offers, for someone working in Hive. */
 const SANDBOX_CHOICE = [
-  "**Set up** opens Codex's sandbox setup, which offers two choices. With either, Codex agents in **Ask for approval** or **Approve for me** can edit files in their own folder (the project, or the agent's worktree) and run commands there without asking, and ask before going online or writing anywhere else. Hive's own features (status, file locks, handovers, shared notes) work the same with both.",
-  "**Set up default sandbox** (recommended): commands run under two local Windows accounts Codex creates for them (`CodexSandboxOffline` and `CodexSandboxOnline`), with a firewall rule that keeps them offline unless you allow it. It isolates commands best. Windows asks for Administrator permission once.",
-  '**Use non-admin sandbox**: needs no Administrator permission. Commands run under your own account with restricted rights. It protects your files and blocks internet access in most cases, but Codex warns it carries more risk if the agent is tricked by instructions hidden in a file or web page it reads (prompt injection). You can upgrade to the default sandbox from here later.'
+  msg({ id: 'providers.codex.sandbox.setUp', defaultMessage: "**Set up** opens Codex's sandbox setup, which offers two choices. With either, Codex agents in **Ask for approval** or **Approve for me** can edit files in their own folder (the project, or the agent's worktree) and run commands there without asking, and ask before going online or writing anywhere else. Hive's own features (status, file locks, handovers, shared notes) work the same with both.", description: "Agent Setup, under Codex's sandbox setup (Windows): what Set up does. **…** marks bold text: keep the marks. Set up is the button; Ask for approval and Approve for me are Codex's permission modes as Hive names them: use their names as shown." }),
+  msg({ id: 'providers.codex.sandbox.default', defaultMessage: '**Set up default sandbox** (recommended): commands run under two local Windows accounts Codex creates for them (`CodexSandboxOffline` and `CodexSandboxOnline`), with a firewall rule that keeps them offline unless you allow it. It isolates commands best. Windows asks for Administrator permission once.', description: "Agent Setup, under Codex's sandbox setup (Windows): its first choice. **Set up default sandbox** is the choice as Codex names it (in English); `…` marks account names: keep them." }),
+  msg({ id: 'providers.codex.sandbox.nonAdmin', defaultMessage: '**Use non-admin sandbox**: needs no Administrator permission. Commands run under your own account with restricted rights. It protects your files and blocks internet access in most cases, but Codex warns it carries more risk if the agent is tricked by instructions hidden in a file or web page it reads (prompt injection). You can upgrade to the default sandbox from here later.', description: "Agent Setup, under Codex's sandbox setup (Windows): its second choice. **Use non-admin sandbox** is the choice as Codex names it (in English)." })
 ]
 
 /** A value as TOML, for -c overrides: strings, numbers, booleans, arrays and inline tables. */
@@ -141,18 +142,18 @@ type HookEvent = 'SessionStart' | 'UserPromptSubmit' | 'PreToolUse' | 'PostToolU
 /** A hook's timeout: the hooks' (5 s), PreToolUse's (10 s), or at most 3 s (#367: advanced settings). */
 type HookWait = 'hook' | 'preToolUse' | 'short'
 const HOOKS: { event: HookEvent; label: string; matcher?: string; wait: HookWait }[] = [
-  { event: 'SessionStart', label: 'session_start', wait: 'hook' },
-  { event: 'UserPromptSubmit', label: 'user_prompt_submit', wait: 'hook' },
+  { event: 'SessionStart', label: 'session_start', wait: 'hook' }, // i18n-ignore: Codex's hook event names, as its config writes them
+  { event: 'UserPromptSubmit', label: 'user_prompt_submit', wait: 'hook' }, // i18n-ignore: Codex's hook event names, as its config writes them
   // PreToolUse answers with a file-lock decision; request_user_input also comes through here.
-  { event: 'PreToolUse', label: 'pre_tool_use', matcher: '*', wait: 'preToolUse' },
-  { event: 'PostToolUse', label: 'post_tool_use', matcher: '*', wait: 'hook' },
-  { event: 'PermissionRequest', label: 'permission_request', matcher: '*', wait: 'hook' },
-  { event: 'Stop', label: 'stop', wait: 'hook' },
+  { event: 'PreToolUse', label: 'pre_tool_use', matcher: '*', wait: 'preToolUse' }, // i18n-ignore: Codex's hook event names, as its config writes them
+  { event: 'PostToolUse', label: 'post_tool_use', matcher: '*', wait: 'hook' }, // i18n-ignore: Codex's hook event names, as its config writes them
+  { event: 'PermissionRequest', label: 'permission_request', matcher: '*', wait: 'hook' }, // i18n-ignore: Codex's hook event names, as its config writes them
+  { event: 'Stop', label: 'stop', wait: 'hook' }, // i18n-ignore: Codex's hook event names, as its config writes them
   // Codex clamps these two to 3 seconds (and warns in the terminal about anything longer).
-  { event: 'Interrupt', label: 'interrupt', wait: 'short' },
-  { event: 'PreCompact', label: 'pre_compact', wait: 'hook' },
-  { event: 'PostCompact', label: 'post_compact', wait: 'hook' },
-  { event: 'SessionEnd', label: 'session_end', wait: 'short' }
+  { event: 'Interrupt', label: 'interrupt', wait: 'short' }, // i18n-ignore: Codex's hook event names, as its config writes them
+  { event: 'PreCompact', label: 'pre_compact', wait: 'hook' }, // i18n-ignore: Codex's hook event names, as its config writes them
+  { event: 'PostCompact', label: 'post_compact', wait: 'hook' }, // i18n-ignore: Codex's hook event names, as its config writes them
+  { event: 'SessionEnd', label: 'session_end', wait: 'short' } // i18n-ignore: Codex's hook event names, as its config writes them
 ]
 
 /** A hook's timeout in seconds, from Settings → Advanced (#367); part of its trust hash. */
@@ -246,7 +247,7 @@ export function codexMcpServer(name: string, def: McpServerDef): { table: Record
     return m ? (m[1] ?? m[2]) : null
   }
   // Secrets must be environment references: literal ones would appear on Codex's command line.
-  if (findSecretWarnings(def).length) return { table: null, warning: `MCP server "${name}" has a literal secret, so Codex agents don't get it. Use an environment variable reference such as \${TOKEN}.` }
+  if (findSecretWarnings(def).length) return { table: null, warning: `MCP server "${name}" has a literal secret, so Codex agents don't get it. Use an environment variable reference such as \${TOKEN}.` } // i18n-ignore: logged only
   if (def.url) {
     const table: Record<string, unknown> = { url: def.url, default_tools_approval_mode: 'approve' }
     const plain: Record<string, string> = {}
@@ -255,7 +256,7 @@ export function codexMcpServer(name: string, def: McpServerDef): { table: Record
       const bearer = /^Bearer\s+(.+)$/i.exec(String(v))
       if (/^authorization$/i.test(k) && bearer && ref(bearer[1])) table.bearer_token_env_var = ref(bearer[1])
       else if (ref(v)) fromEnv[k] = ref(v)!
-      else if (typeof v === 'string' && v.includes('${')) return { table: null, warning: `MCP server "${name}": header ${k} mixes text and a variable, which Codex can't pass on. Codex agents don't get this server.` }
+      else if (typeof v === 'string' && v.includes('${')) return { table: null, warning: `MCP server "${name}": header ${k} mixes text and a variable, which Codex can't pass on. Codex agents don't get this server.` } // i18n-ignore: logged only
       else plain[k] = String(v)
     }
     if (Object.keys(plain).length) table.http_headers = plain
@@ -273,7 +274,7 @@ export function codexMcpServer(name: string, def: McpServerDef): { table: Record
   for (const [k, v] of Object.entries(def.env ?? {})) {
     const r = ref(v)
     if (r === k) passThrough.push(k)
-    else if (r || (typeof v === 'string' && v.includes('${'))) return { table: null, warning: `MCP server "${name}": env ${k} takes its value from another variable, which Codex can't pass on. Name the variable ${k} itself.` }
+    else if (r || (typeof v === 'string' && v.includes('${'))) return { table: null, warning: `MCP server "${name}": env ${k} takes its value from another variable, which Codex can't pass on. Name the variable ${k} itself.` } // i18n-ignore: logged only
     else env[k] = String(v)
   }
   if (Object.keys(env).length) table.env = env
@@ -326,11 +327,11 @@ export class CodexAdapter implements ProviderAdapter {
   }
 
   startHint(text: string): StartHint | null {
-    if (/\bmodel\b/i.test(text) && /not found|invalid|unknown|not supported|does not exist/i.test(text)) return { hint: 'Codex doesn\'t know this model: choose another in Agent Settings.', fix: 'agent-settings' }
+    if (/\bmodel\b/i.test(text) && /not found|invalid|unknown|not supported|does not exist/i.test(text)) return { hint: tr(msg({ id: 'providers.codex.hint.model', defaultMessage: "Codex doesn't know this model: choose another in Agent Settings.", description: "Why Codex didn't start, in the agent's pane, with a button that goes where it says. Agent Settings, Agent Setup and Settings → … are Hive's names: use them as shown." })), fix: 'agent-settings' }
     // Hive's -c overrides and the user's own config.toml.
-    if (/error loading config|config\.toml|error parsing -c|invalid value for|unknown variant|unexpected argument|unrecognized|for more information, try '--help'/i.test(text)) return { hint: 'Codex refused its settings: check Extra arguments in Agent Settings and Settings → Codex, and your config.toml.', fix: 'agent-settings' }
-    if (/not logged in|codex login|please (sign|log) in|unauthorized|401/i.test(text)) return { hint: 'Codex isn\'t signed in: sign in in Agent Setup, then start it again.', fix: 'agent-setup' }
-    if (/is not recognized|ENOENT|cannot find|sandbox/i.test(text)) return { hint: 'Codex looks broken or not set up: check it in Agent Setup.', fix: 'agent-setup' }
+    if (/error loading config|config\.toml|error parsing -c|invalid value for|unknown variant|unexpected argument|unrecognized|for more information, try '--help'/i.test(text)) return { hint: tr(msg({ id: 'providers.codex.hint.settings', defaultMessage: 'Codex refused its settings: check Extra arguments in Agent Settings and Settings → Codex, and your config.toml.', description: "Why Codex didn't start, in the agent's pane, with a button that goes where it says. Agent Settings, Agent Setup and Settings → … are Hive's names: use them as shown." })), fix: 'agent-settings' }
+    if (/not logged in|codex login|please (sign|log) in|unauthorized|401/i.test(text)) return { hint: tr(msg({ id: 'providers.codex.hint.signIn', defaultMessage: "Codex isn't signed in: sign in in Agent Setup, then start it again.", description: "Why Codex didn't start, in the agent's pane, with a button that goes where it says. Agent Settings, Agent Setup and Settings → … are Hive's names: use them as shown." })), fix: 'agent-setup' }
+    if (/is not recognized|ENOENT|cannot find|sandbox/i.test(text)) return { hint: tr(msg({ id: 'providers.codex.hint.broken', defaultMessage: 'Codex looks broken or not set up: check it in Agent Setup.', description: "Why Codex didn't start, in the agent's pane, with a button that goes where it says. Agent Settings, Agent Setup and Settings → … are Hive's names: use them as shown." })), fix: 'agent-setup' }
     return null
   }
   /** Codex versions whose hook hashes Hive has checked against Codex itself: true = Hive's own hash matches. */
@@ -352,9 +353,9 @@ export class CodexAdapter implements ProviderAdapter {
     }
     if (process.platform === 'win32') {
       // The standalone installer adds this to the user PATH, which a Hive started before the install doesn't have yet.
-      if (process.env.LOCALAPPDATA) out.push({ path: join(process.env.LOCALAPPDATA, 'Programs', 'OpenAI', 'Codex', 'bin', 'codex.exe'), source: 'standalone install' })
+      if (process.env.LOCALAPPDATA) out.push({ path: join(process.env.LOCALAPPDATA, 'Programs', 'OpenAI', 'Codex', 'bin', 'codex.exe'), source: 'standalone install' }) // i18n-ignore: an install's source as Hive names it, in diagnostics and the Agent API's status
       if (process.env.APPDATA) out.push({ path: join(process.env.APPDATA, 'npm', 'codex.cmd'), source: 'npm' })
-    } else out.push({ path: join(homedir(), '.local', 'bin', 'codex'), source: 'standalone install' })
+    } else out.push({ path: join(homedir(), '.local', 'bin', 'codex'), source: 'standalone install' }) // i18n-ignore: an install's source as Hive names it, in diagnostics and the Agent API's status
     return out
   }
 
@@ -413,8 +414,8 @@ export class CodexAdapter implements ProviderAdapter {
 
   diagnostics(): string[] {
     const kind = this.sandboxKind()
-    const named: Record<string, string> = { elevated: 'default (admin)', unelevated: 'non-admin', 'n/a': 'not used on this system' }
-    return [`Windows sandbox: ${kind === null ? 'not set up' : (named[kind] ?? (/^[\w-]{1,24}$/.test(kind) ? kind : 'unknown'))}`]
+    const named: Record<string, string> = { elevated: 'default (admin)', unelevated: 'non-admin', 'n/a': 'not used on this system' } // i18n-ignore: Copy Diagnostics' report (the design keeps diagnostics content English)
+    return [`Windows sandbox: ${kind === null ? 'not set up' : (named[kind] ?? (/^[\w-]{1,24}$/.test(kind) ? kind : 'unknown'))}`] // i18n-ignore: Copy Diagnostics' report (the design keeps diagnostics content English)
   }
 
   configHome(): string {
@@ -422,21 +423,29 @@ export class CodexAdapter implements ProviderAdapter {
   }
 
   readiness(info: AgentInstallInfo): ReadinessIssue[] {
-    if (!info.found) return [{ id: 'not-installed', level: 'error', message: 'Codex is not installed.', action: { label: 'Install', task: 'install' } }]
+    const name = this.descriptor.name
+    if (!info.found) return [notInstalledIssue(name)]
     const out: ReadinessIssue[] = []
     const sandbox = this.sandboxKind()
-    if (info.loggedIn === false) out.push({ id: 'signed-out', level: 'error', message: 'Codex is not signed in.', action: { label: 'Sign in', task: 'login' } })
-    else if (!sandbox) out.push({ id: 'sandbox', level: 'warning', message: 'Codex needs a one-time setup of its Windows sandbox; until then it asks before every command.', action: { label: 'Set up', task: 'setup' }, detail: SANDBOX_CHOICE })
+    if (info.loggedIn === false) out.push(signedOutIssue(name))
+    else if (!sandbox)
+      out.push({
+        id: 'sandbox',
+        level: 'warning',
+        message: installText(msg({ id: 'providers.codex.sandbox.needed', defaultMessage: 'Codex needs a one-time setup of its Windows sandbox; until then it asks before every command.', description: "Agent Setup and Settings → Providers: Codex's Windows sandbox isn't set up yet." })),
+        action: { label: installText(msg({ id: 'providers.codex.sandbox.setUpAction', defaultMessage: 'Set up', description: "Agent Setup's button: opens Codex's sandbox setup in a terminal." })), task: 'setup' },
+        detail: SANDBOX_CHOICE.map(installText)
+      })
     else if (sandbox === 'unelevated') {
       out.push({
         id: 'sandbox-upgrade',
         level: 'info',
-        message: 'Codex uses its non-admin sandbox.',
-        action: { label: 'Upgrade', task: 'setup' },
-        detail: ['**Upgrade** switches Codex to its default sandbox, which runs commands under separate Windows accounts instead of your own. Windows asks for Administrator permission once. Codex agents that are running keep their sandbox until they restart.']
+        message: installText(msg({ id: 'providers.codex.sandbox.nonAdminUsed', defaultMessage: 'Codex uses its non-admin sandbox.', description: 'Agent Setup and Settings → Providers: Codex runs commands in its non-admin sandbox (Windows), which can be upgraded.' })),
+        action: { label: installText(msg({ id: 'providers.codex.sandbox.upgradeAction', defaultMessage: 'Upgrade', description: "Agent Setup's button: switches Codex to its default sandbox." })), task: 'setup' },
+        detail: [installText(msg({ id: 'providers.codex.sandbox.upgrade', defaultMessage: '**Upgrade** switches Codex to its default sandbox, which runs commands under separate Windows accounts instead of your own. Windows asks for Administrator permission once. Codex agents that are running keep their sandbox until they restart.', description: "Agent Setup, under Codex's sandbox setup (Windows): what Upgrade does. **…** marks bold text: keep the marks." }))]
       })
     }
-    if (info.updateAvailable) out.push({ id: 'update', level: 'info', message: `Codex ${info.latestVersion} is available.`, action: { label: 'Update', task: 'update' } })
+    if (info.updateAvailable) out.push(updateIssue(name, info.latestVersion))
     return out
   }
 
@@ -460,9 +469,9 @@ export class CodexAdapter implements ProviderAdapter {
 
   installCommand(): CommandSpec {
     if (process.platform === 'win32') {
-      return { file: 'powershell.exe', args: ['-NoProfile', '-ExecutionPolicy', 'Bypass', '-Command', 'irm https://chatgpt.com/codex/install.ps1 | iex'] }
+      return { file: 'powershell.exe', args: ['-NoProfile', '-ExecutionPolicy', 'Bypass', '-Command', 'irm https://chatgpt.com/codex/install.ps1 | iex'] } // i18n-ignore: a command run in a terminal
     }
-    return { file: '/bin/bash', args: ['-lc', 'curl -fsSL https://chatgpt.com/codex/install.sh | sh'] }
+    return { file: '/bin/bash', args: ['-lc', 'curl -fsSL https://chatgpt.com/codex/install.sh | sh'] } // i18n-ignore: a command run in a terminal
   }
 
   updateCommand(executable: string): CommandSpec {
@@ -639,9 +648,9 @@ export class CodexAdapter implements ProviderAdapter {
         break
       case 'PermissionRequest': {
         const line = String(input.command ?? '').split('\n')[0]
-        const what = tool === 'apply_patch' ? `edit ${patchPaths(String(input.command ?? '')).join(', ')}` : tool === 'Bash' ? `run ${line.length > 120 ? `${line.slice(0, 119)}…` : line}` : tool ? `use ${tool}` : 'continue'
+        const what = tool === 'apply_patch' ? `edit ${patchPaths(String(input.command ?? '')).join(', ')}` : tool === 'Bash' ? `run ${line.length > 120 ? `${line.slice(0, 119)}…` : line}` : tool ? `use ${tool}` : 'continue' // i18n-ignore: a status message in the CLI's place, which agents read (GET /v1/projects)
         // Sent before anyone answers it: in Approve for me, Codex's auto-reviewer does (ModeOption.reviewed).
-        out.event = { kind: 'ask', ask: { kind: 'permission', blocking: true, message: `Codex asks to ${what}`, call: toolCall(tool, input) } }
+        out.event = { kind: 'ask', ask: { kind: 'permission', blocking: true, message: `Codex asks to ${what}`, call: toolCall(tool, input) } } // i18n-ignore: a status message in the CLI's place, which agents read (GET /v1/projects)
         break
       }
       case 'Stop':
@@ -725,7 +734,7 @@ export class CodexAdapter implements ProviderAdapter {
       { keys: '/permissions', waitMs: 200 },
       // Enter again while Codex's input still holds the command, once it is free (#363); never a second /permissions.
       { keys: '\r', waitMs: 200, heldOn: (screen) => inputHolds(screen, '/permissions') },
-      { pick: (screen) => permissionsMenuNumber(screen, target), what: `"${permissionsMenuLabel(target) ?? target}" in Codex's /permissions menu`, waitMs: 300 }
+      { pick: (screen) => permissionsMenuNumber(screen, target), what: `"${permissionsMenuLabel(target) ?? target}" in Codex's /permissions menu`, waitMs: 300 } // i18n-ignore: the CLI's menu item, quoted in callers' messages (PickNotFound's `what`)
     ]
   }
 
@@ -876,7 +885,7 @@ export class CodexAdapter implements ProviderAdapter {
   imageData = codexImageData
 
   exportSubtitle(sessionId: string, project: string): string {
-    return `Codex session \`${sessionId}\` · project ${project}`
+    return exportSubtitleText(this.descriptor.name, sessionId, project)
   }
 
   // -------------------------------------------------------------------------
@@ -886,8 +895,8 @@ export class CodexAdapter implements ProviderAdapter {
   async memorySources(projectPath: string): Promise<MemorySource[]> {
     const p = this.id
     const sources: MemorySource[] = [
-      { provider: p, id: 'project', label: 'AGENTS.md', path: join(projectPath, 'AGENTS.md'), kind: 'claude-md', exists: false },
-      { provider: p, id: 'user', label: 'User AGENTS.md (all projects)', path: join(codexHome(), 'AGENTS.md'), kind: 'claude-md', exists: false }
+      { provider: p, id: 'project', label: 'AGENTS.md', path: join(projectPath, 'AGENTS.md'), kind: 'claude-md', exists: false }, // i18n-ignore: a file's name
+      { provider: p, id: 'user', label: userMemoryLabel('AGENTS.md'), path: join(codexHome(), 'AGENTS.md'), kind: 'claude-md', exists: false }
     ]
     for (const s of sources) s.exists = existsSync(s.path)
     return sources

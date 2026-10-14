@@ -1,5 +1,6 @@
 // Types shared by the main process, preload bridge and renderer.
 
+import type { Text } from './advanced'
 import type { AvOffer } from './antivirus'
 import type { ActivityTarget } from './assistantActivity'
 import type { AttachmentKind } from './attachments'
@@ -33,7 +34,10 @@ export type BannerPosition = 'top-left' | 'top-center' | 'top-right' | 'bottom-l
 export interface Notice {
   id: string
   kind: 'finished' | 'waiting' | 'notice'
+  /** In the language Hive shows (#796). */
   title: string
+  /** The title in English, for the Agent API (agent-facing text stays English), when `title` is a translated one. */
+  apiTitle?: string
   body: string
   /** The project it is about (null: app-wide, such as plan usage); clicking the banner shows it. */
   projectPath: string | null
@@ -775,7 +779,7 @@ export interface ProjectConfig {
    * Folders that moved (an agent's worktree repaired or recreated at a new place) whose CLI data (copyPathData) isn't
    * all copied yet (#146): kept until a copy works, so Repair tries again, after a restart too.
    */
-  pendingCopies?: { from: string; to: string; of: string }[]
+  pendingCopies?: { from: string; to: string; of: string; owner?: MoveOwner }[]
   /**
    * Worktrees kept after their agent was replaced (#289: loading a template) before its first session ran the worktree
    * setup command: an agent that works in one again runs it first (needsSetup), so it isn't lost, nor run twice.
@@ -1454,10 +1458,18 @@ export interface WorktreeGone {
 }
 
 /** A CLI's per-path folder copied for a moved folder: files to copy, and files already there with other content (kept). */
+/**
+ * Whose a moved folder is (#796): kept as data, so Repair's report says it in the language shown when it is shown,
+ * whatever language the move was recorded in. `of` beside it keeps the English label older records and readers have.
+ */
+export type MoveOwner = { kind: 'project' } | { kind: 'assistant' } | { kind: 'worktree'; agent: string }
+
 export interface PathDataCopy {
   provider: ProviderId
   /** Whose folder it is, as the dialog says it: "the project", "Builder's worktree" (set by the move, not the CLI). */
   of?: string
+  /** The same as data (#796). */
+  owner?: MoveOwner
   from: string
   to: string
   copy: number
@@ -1815,7 +1827,7 @@ export type TranscriptItem = TranscriptItemBase &
      * A note in the conversation: the CLI's own (an API error, a sign-in or usage limit, an interruption), or what it
      * relays (`from`): a background task's summary, or a command's output with no command (#342).
      */
-    | { kind: 'notice'; text: string; level: 'info' | 'error'; from?: 'task' | 'command' }
+    | { kind: 'notice'; text: string; level: 'info' | 'error'; from?: 'task' | 'command'; /** Hive's own notice as data (#797): `text` is its English, the window is sent it in its language. */ message?: Text }
   )
 
 export interface Transcript {

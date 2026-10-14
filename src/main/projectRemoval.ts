@@ -2,6 +2,7 @@ import { basename, dirname, extname, join, resolve } from 'path'
 import { copyFile, mkdir, readdir, readFile, rmdir } from 'original-fs/promises'
 import { existsSync } from 'original-fs'
 import { HIVE_DIR, agentPtyKey, projectAgents } from '../shared/defaults'
+import { fmt, msg, tr } from '../shared/i18n'
 import { forgetPtys } from './ptyHost'
 import type { AgentDef, ProjectRemoval, ProjectRemovalInfo, TaskCard } from '../shared/types'
 import { config } from './config'
@@ -47,7 +48,7 @@ async function handoversOf(ws: WorkspaceService, name: string): Promise<string[]
 /** A project folder of the open workspace, shown or hidden. */
 function folderOf(ws: WorkspaceService, projectPath: string): string {
   const p = join(ws.path ?? '', basename(projectPath))
-  if (!ws.path || !same(dirname(resolve(projectPath)), ws.path) || !existsSync(p) || basename(p).startsWith('.')) throw new Error(`Not a project in the open workspace: ${projectPath}`)
+  if (!ws.path || !same(dirname(resolve(projectPath)), ws.path) || !existsSync(p) || basename(p).startsWith('.')) throw new Error(tr(msg({ id: 'main.removal.notProject', defaultMessage: 'Not a project in the open workspace: {path}', description: "An error removing, hiding or restoring a project: the folder {path} is not one of the workspace's projects." }), { path: projectPath }))
   return p
 }
 
@@ -67,13 +68,13 @@ export async function checkedWorktrees(ws: WorkspaceService, p: string, agents: 
     if (!a.worktree) continue
     const t = resolve(a.worktree.path)
     const why = !registered.has(realPath(t).toLowerCase())
-      ? "git doesn't list it as one of the project's worktrees"
+      ? tr(msg({ id: 'main.removal.why.notListed', defaultMessage: "git doesn't list it as one of the project's worktrees", description: "Why Hive won't remove or delete an agent's worktree with its project: a clause in brackets (main.removal.refusedTree)." }))
       : containsPlace(t, p) || containsPlace(t, ws.path!)
-        ? 'it contains the project or the workspace'
+        ? tr(msg({ id: 'main.removal.why.contains', defaultMessage: 'it contains the project or the workspace', description: "Why Hive won't remove or delete an agent's worktree with its project: a clause in brackets (main.removal.refusedTree)." }))
         : projects.some((x) => samePlace(x, t))
-          ? 'it is another project of the workspace'
+          ? tr(msg({ id: 'main.removal.why.otherProject', defaultMessage: 'it is another project of the workspace', description: "Why Hive won't remove or delete an agent's worktree with its project: a clause in brackets (main.removal.refusedTree)." }))
           : null
-    if (why) refused.push(`${a.name}'s worktree ${t} (${why})`)
+    if (why) refused.push(tr(msg({ id: 'main.removal.refusedTree', defaultMessage: "{agent}'s worktree {path} ({why})", description: "An agent's worktree Hive won't remove or delete with its project. {agent} is the agent's name, {path} the worktree's folder, {why} why (main.removal.why.*)." }), { agent: a.name, path: t, why }))
     else ok.push(a)
   }
   return { ok, refused }
@@ -110,14 +111,18 @@ function unmergedWork(worktrees: ProjectRemovalInfo['worktrees']): string | null
   const held = worktrees.filter((w) => w.ahead || w.dirty || w.error)
   if (!held.length) return null
   const what = (w: ProjectRemovalInfo['worktrees'][number]): string =>
-    w.error ?? [w.ahead && `${w.ahead} commit${w.ahead === 1 ? '' : 's'} not merged`, w.dirty && `${w.dirty} uncommitted file${w.dirty === 1 ? '' : 's'}`].filter(Boolean).join(', ')
-  return `Merge or discard the work in ${held.map((w) => `${w.agent}'s worktree (${what(w)})`).join(' and ')} first: a worktree can't go with the project folder.`
+    w.error ??
+    fmt.list([
+      ...(w.ahead ? [tr(msg({ id: 'main.removal.ahead', defaultMessage: '{n, plural, one {# commit not merged} other {# commits not merged}}', description: "Work in an agent's worktree that stops Remove from Hive: its commits not merged. {n} is how many." }), { n: w.ahead })] : []),
+      ...(w.dirty ? [tr(msg({ id: 'main.removal.dirty', defaultMessage: '{n, plural, one {# uncommitted file} other {# uncommitted files}}', description: "Work in an agent's worktree that stops Remove from Hive: its files not committed. {n} is how many." }), { n: w.dirty })] : [])
+    ])
+  return tr(msg({ id: 'main.removal.unmerged', defaultMessage: "Merge or discard the work in {worktrees} first: a worktree can't go with the project folder.", description: "Why Remove from Hive can't go ahead. {worktrees} lists the agents' worktrees with work in them (main.removal.heldTree)." }), { worktrees: fmt.list(held.map((w) => tr(msg({ id: 'main.removal.heldTree', defaultMessage: "{agent}'s worktree ({work})", description: "An agent's worktree with work in it, in the reason Remove from Hive can't go ahead. {work} says what (commits not merged, uncommitted files) or why git couldn't check." }), { agent: w.agent, work: what(w) }))) })
 }
 
 /** Stops the project's agents (and starts in progress) and waits for them, so nothing holds or changes its folders. */
 async function stopAgents(p: string): Promise<void> {
   await sessions.stopWhereAndWait((s) => same(s.projectPath, p), 8000)
-  if (sessions.projectStates(p).length || sessions.pendingStarts().some((x) => same(x, p))) throw new Error(`Could not stop ${basename(p)}'s agents. Stop them, then try again.`)
+  if (sessions.projectStates(p).length || sessions.pendingStarts().some((x) => same(x, p))) throw new Error(tr(msg({ id: 'main.removal.stopFailed', defaultMessage: "Could not stop {project}'s agents. Stop them, then try again.", description: 'An error removing, hiding or deleting a project: its agents kept running.' }), { project: basename(p) }))
 }
 
 /** Projects being removed now (lower-cased paths): one removal at a time each. */
@@ -132,7 +137,7 @@ export async function removeProject(projectPath: string, how: ProjectRemoval): P
   const p = folderOf(ws, projectPath)
   const name = basename(p)
   const key = p.toLowerCase()
-  if (removing.has(key)) throw new Error(`${name} is already being removed.`)
+  if (removing.has(key)) throw new Error(tr(msg({ id: 'main.removal.already', defaultMessage: '{project} is already being removed.', description: 'An error: the project is being removed, hidden or deleted already.' }), { project: name }))
   // Refused at once, before stopping anything, when it can already tell.
   if (how === 'remove') {
     const early = unmergedWork((await removalInfo(p)).worktrees)
@@ -169,7 +174,7 @@ async function removeFromHive(ws: WorkspaceService, p: string, info: ProjectRemo
   const held = unmergedWork(info.worktrees)
   if (held) throw new Error(held)
   const { ok, refused } = await checkedWorktrees(ws, p, agents)
-  if (refused.length) throw new Error(`Hive won't remove ${refused.join(' or ')}. Fix or remove that agent first.`)
+  if (refused.length) throw new Error(tr(msg({ id: 'main.removal.wontRemove', defaultMessage: "Hive won't remove {worktrees}. Fix or remove that agent first.", description: "Why Remove from Hive refused: agents' worktrees it won't remove. {worktrees} lists them, joined with “or” (main.removal.refusedTree)." }), { worktrees: fmt.list(refused, 'disjunction') }))
   // Packed first: everything after it can be undone from the pack.
   await pack(ws, p, info.handovers)
   // The worktrees have nothing left that isn't in the project: they and their agents go.
@@ -184,7 +189,7 @@ async function removeFromHive(ws: WorkspaceService, p: string, info: ProjectRemo
   for (const rel of info.handovers) {
     await trash(join(ws.sharedDir, rel)).catch((e) => {
       log.warn(`Could not move ${userText(rel)} to the Recycle Bin`, e)
-      warnings.push(`${rel} stayed in the shared notes (a copy is packed in the folder): ${(e as Error).message}`)
+      warnings.push(tr(msg({ id: 'main.removal.handoverKept', defaultMessage: '{note} stayed in the shared notes (a copy is packed in the folder): {why}', description: "A warning after Remove from Hive: a handover note couldn't be moved to the Recycle Bin. {note} is its path, {why} the system's message." }), { note: rel, why: (e as Error).message }))
     })
   }
   await ws.setHidden(name, 'removed')
@@ -203,17 +208,20 @@ async function deleteProject(ws: WorkspaceService, p: string, info: ProjectRemov
     await trash(p)
   } catch (e) {
     resume()
-    throw new Error(`Could not move ${name} to the Recycle Bin: ${(e as Error).message}. Close any program using its folder (a terminal, an editor), then try again. Nothing was deleted.`, { cause: e })
+    throw new Error(
+      tr(msg({ id: 'main.removal.trashFailed', defaultMessage: 'Could not move {project} to the Recycle Bin: {why}. Close any program using its folder (a terminal, an editor), then try again. Nothing was deleted.', description: "Why Delete failed: the project's folder couldn't go to the Recycle Bin. {why} is the system's message." }), { project: name, why: (e as Error).message }),
+      { cause: e }
+    )
   }
   // From here the project is gone: what can't follow is reported, not undone.
-  const warnings = refused.map((r) => `Left alone: ${r}.`)
+  const warnings = refused.map((r) => tr(msg({ id: 'main.removal.leftAlone', defaultMessage: 'Left alone: {worktree}.', description: "A warning after Delete: an agent's worktree Hive didn't delete with the project (main.removal.refusedTree)." }), { worktree: r }))
   for (const t of trees) {
-    await trash(t).catch((e) => warnings.push(`${t} couldn't be moved to the Recycle Bin: ${(e as Error).message}`))
+    await trash(t).catch((e) => warnings.push(tr(msg({ id: 'main.removal.notTrashed', defaultMessage: "{path} couldn't be moved to the Recycle Bin: {why}", description: "A warning after Delete: a worktree or handover note of the project couldn't go to the Recycle Bin. {path} is it, {why} the system's message." }), { path: t, why: (e as Error).message })))
   }
   for (const rel of info.handovers) {
-    await trash(join(ws.sharedDir, rel)).catch((e) => warnings.push(`${rel} couldn't be moved to the Recycle Bin: ${(e as Error).message}`))
+    await trash(join(ws.sharedDir, rel)).catch((e) => warnings.push(tr(msg({ id: 'main.removal.notTrashed', defaultMessage: "{path} couldn't be moved to the Recycle Bin: {why}", description: "A warning after Delete: a worktree or handover note of the project couldn't go to the Recycle Bin. {path} is it, {why} the system's message." }), { path: rel, why: (e as Error).message })))
   }
-  await deleteProjectCards(ws, name).catch((e) => warnings.push(`Its cards couldn't all be deleted: ${(e as Error).message}`))
+  await deleteProjectCards(ws, name).catch((e) => warnings.push(tr(msg({ id: 'main.removal.cardsKept', defaultMessage: "Its cards couldn't all be deleted: {why}", description: "A warning after Delete: some of the project's cards stayed. {why} is the system's message." }), { why: (e as Error).message })))
   // The project's empty folder of worktrees.
   const treesDir = join(ws.worktreesRoot, name)
   if (existsSync(treesDir) && !(await readdir(treesDir).catch(() => ['?'])).length) await rmdir(treesDir).catch(() => undefined)
@@ -261,7 +269,7 @@ async function restoreTarget(dir: string, f: string, text: string): Promise<stri
     if (!existsSync(target)) return target
     if ((await readFile(target, 'utf8').catch(() => null)) === text) return null
   }
-  throw new Error(`Too many handovers named like ${f}`)
+  throw new Error(tr(msg({ id: 'main.removal.tooManyNames', defaultMessage: 'Too many handovers named like {note}', description: "Why restoring a project's handovers stopped: a thousand notes have its name already." }), { note: f }))
 }
 
 /**
@@ -294,9 +302,9 @@ async function unpack(ws: WorkspaceService, p: string): Promise<{ handovers: num
 export async function restoreProject(name: string): Promise<{ handovers: number; cards: number }> {
   const ws = workspace
   const entry = (ws.config.hiddenProjects ?? []).find((h) => same(h.name, name))
-  if (!entry) throw new Error(`${name} isn't hidden or removed.`)
+  if (!entry) throw new Error(tr(msg({ id: 'main.removal.notHidden', defaultMessage: "{project} isn't hidden or removed.", description: 'An error restoring a project (Settings → Workspace → Projects): it is shown already.' }), { project: name }))
   const p = join(ws.path!, entry.name)
-  if (!existsSync(p)) throw new Error(`The folder ${entry.name} is no longer in the workspace. Put it back, or forget it.`)
+  if (!existsSync(p)) throw new Error(tr(msg({ id: 'main.removal.folderGone', defaultMessage: 'The folder {folder} is no longer in the workspace. Put it back, or forget it.', description: 'An error restoring a project whose folder has gone. Forget is the button that stops listing it.' }), { folder: entry.name }))
   await ws.setHidden(entry.name, null)
   // If unpacking fails, the project is back and its pack stays: its banner offers to restore it again.
   const result = entry.mode === 'removed' && existsSync(join(p, HIVE_DIR, REMOVED_DIR)) ? await unpack(ws, p) : { handovers: 0, cards: await restoreProjectCards(ws, entry.name) }
@@ -321,7 +329,7 @@ export async function forgetHidden(name: string): Promise<void> {
   const ws = workspace
   const entry = (ws.config.hiddenProjects ?? []).find((h) => same(h.name, name))
   if (!entry) return
-  if (existsSync(join(ws.path!, entry.name))) throw new Error(`${entry.name} is still in the workspace: restore it instead.`)
+  if (existsSync(join(ws.path!, entry.name))) throw new Error(tr(msg({ id: 'main.removal.stillThere', defaultMessage: '{project} is still in the workspace: restore it instead.', description: 'An error forgetting a hidden project whose folder is still there.' }), { project: entry.name }))
   await ws.setHidden(entry.name, null)
   await ws.refresh()
 }

@@ -1,0 +1,74 @@
+// Generated from locales/en/providers.json: do not edit. Each message's placeholders and their types, for tr(): a
+// global script, so its interface merges with every other area's (shared/i18n/msg.ts).
+interface HiveMessageValues {
+  'providers.action.install': undefined
+  'providers.action.signIn': undefined
+  'providers.action.update': undefined
+  'providers.autoCompact.autoIn': { key: string | number; scope: string | number }
+  'providers.autoCompact.badSources': undefined
+  'providers.autoCompact.disabledIn': { scope: string | number }
+  'providers.autoCompact.envIn': { variable: string | number; scope: string | number }
+  'providers.autoCompact.estimate': { unsure: string | number }
+  'providers.autoCompact.estimateAnd': { estimate: string | number; unsure: string | number }
+  'providers.autoCompact.keyIn': { key: string | number; scope: string | number }
+  'providers.autoCompact.scope.local': undefined
+  'providers.autoCompact.scope.managed': undefined
+  'providers.autoCompact.scope.project': undefined
+  'providers.autoCompact.scope.user': undefined
+  'providers.autoCompact.unread': undefined
+  'providers.autoCompact.unreadable': { why: string | number }
+  'providers.autoCompact.unsureMode': undefined
+  'providers.autoCompact.unsureScope': { scope: string | number; unsure: string | number }
+  'providers.autoCompact.why.notFile': undefined
+  'providers.autoCompact.why.tooBig': undefined
+  'providers.claude.hint.args': undefined
+  'providers.claude.hint.broken': undefined
+  'providers.claude.hint.model': undefined
+  'providers.claude.hint.signIn': undefined
+  'providers.codex.hint.broken': undefined
+  'providers.codex.hint.model': undefined
+  'providers.codex.hint.settings': undefined
+  'providers.codex.hint.signIn': undefined
+  'providers.codex.sandbox.default': undefined
+  'providers.codex.sandbox.needed': undefined
+  'providers.codex.sandbox.nonAdmin': undefined
+  'providers.codex.sandbox.nonAdminUsed': undefined
+  'providers.codex.sandbox.setUp': undefined
+  'providers.codex.sandbox.setUpAction': undefined
+  'providers.codex.sandbox.upgrade': undefined
+  'providers.codex.sandbox.upgradeAction': undefined
+  'providers.codex.stray.files': { more: number; files: string | number }
+  'providers.codex.stray.message': { folder: string | number; files: string | number }
+  'providers.codex.stray.title': undefined
+  'providers.copilot.hint.args': undefined
+  'providers.copilot.hint.broken': undefined
+  'providers.copilot.hint.mcp': undefined
+  'providers.copilot.hint.model': undefined
+  'providers.copilot.hint.signIn': undefined
+  'providers.copilot.parens.message': undefined
+  'providers.copilot.parens.title': undefined
+  'providers.copilot.planNote': undefined
+  'providers.copilot.signIn.deviceCode': undefined
+  'providers.copilot.signIn.gh': undefined
+  'providers.copilot.signIn.ignored': { n: number; variables: string | number }
+  'providers.copilot.signIn.runs': undefined
+  'providers.copilot.updateManual': { provider: string | number }
+  'providers.export.compacted': { trigger: string | number; before: string | number; after: string | number }
+  'providers.export.error': undefined
+  'providers.export.image': undefined
+  'providers.export.imageAt': { path: string | number }
+  'providers.export.result': undefined
+  'providers.export.subtitle': { provider: string | number; session: string | number; project: string | number }
+  'providers.export.summary': undefined
+  'providers.export.thinking': undefined
+  'providers.export.you': undefined
+  'providers.memory.user': { file: string | number }
+  'providers.readiness.notInstalled': { provider: string | number }
+  'providers.readiness.signedOut': { provider: string | number }
+  'providers.readiness.update': { provider: string | number; version: string | number }
+  'providers.transcript.aborted': undefined
+  'providers.transcript.apiError': undefined
+  'providers.transcript.interrupted': undefined
+  'providers.transcript.resumed': undefined
+  'providers.transcript.turnEnded': { reason: string | number }
+}

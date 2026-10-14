@@ -1,3 +1,4 @@
+import { msg, tr } from '../shared/i18n'
 import { basename, join } from 'path'
 import { app, BrowserWindow, nativeTheme, screen, shell, type WebContents } from 'electron'
 import type { HiveEvent, WindowState } from '../shared/types'
@@ -63,7 +64,7 @@ function visible(b: WindowState): boolean {
 
 /** Opens the Hive window's console on its workspace, or brings it forward when it is open. */
 export function openConsoleWindow(owner: HiveWindow): BrowserWindow {
-  if (!owner.ws.path) throw new Error("Open a workspace first: the developer console shows a workspace's agents and Hive's work there.")
+  if (!owner.ws.path) throw new Error(tr(msg({ id: 'main.console.noWorkspace', defaultMessage: "Open a workspace first: the developer console shows a workspace's agents and Hive's work there.", description: 'An error when the developer console is opened with no workspace open.' })))
   followWorkspaces()
   const open = consoleWindowOf(owner)
   if (open) {
@@ -84,7 +85,7 @@ export function openConsoleWindow(owner: HiveWindow): BrowserWindow {
     minHeight: 320,
     show: false,
     focusable: !offScreen,
-    title: `Developer Console — ${basename(owner.ws.path ?? '') || 'Hive'}`,
+    title: tr(msg({ id: 'main.console.title', defaultMessage: 'Developer Console — {workspace}', description: "The developer console's window title. {workspace} is the workspace's folder name." }), { workspace: basename(owner.ws.path ?? '') || 'Hive' /* i18n-ignore: the app's name */ }),
     icon: join(resourcesDir(), 'icon.png'),
     backgroundColor: dark() ? '#1e1e1e' : '#ffffff',
     autoHideMenuBar: true,

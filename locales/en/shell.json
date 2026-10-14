@@ -1,0 +1,1458 @@
+{
+  "shell.about.blurb": {
+    "defaultMessage": "An agent-first workspace for AI-assisted coding. Run coding agents such as {providers} across your projects, side by side.",
+    "description": "Help → About: what Hive is. {providers} lists the coding agents (Claude Code, Codex and GitHub Copilot)."
+  },
+  "shell.about.cli": {
+    "defaultMessage": "CLI {version} ({source})",
+    "description": "A row of Help → About, a coding agent's: its CLI's version and where Hive found it."
+  },
+  "shell.about.copied": {
+    "defaultMessage": "Version information copied",
+    "description": "A notice after Help → About's Copy."
+  },
+  "shell.about.copy": {
+    "defaultMessage": "Copy",
+    "description": "Help → About's button: copies the versions."
+  },
+  "shell.about.dataFolder": {
+    "defaultMessage": "Data folder",
+    "description": "A row of Help → About: the folder of Hive's profile."
+  },
+  "shell.about.legal": {
+    "defaultMessage": "© 2026 Darren Marshall. {app} is independently developed and isn't affiliated with, endorsed or sponsored by {companies}. {products}; each is installed separately under its maker's terms.",
+    "description": "Help → About's small print. {app} is Hive's name; {companies} lists the coding agents' makers (joined with “or”); {products} says whose each agent is, a sentence per agent (shell.about.productOf)."
+  },
+  "shell.about.licence": {
+    "defaultMessage": "Open source under the <licence>MIT License</licence>. Includes <notices>third-party software</notices> and <chromium>Chromium</chromium>.",
+    "description": "Help → About: Hive's licence. Each tag is a link: to the licence, the notices of the software Hive includes, and Chromium's licences. MIT and Chromium are names: keep them."
+  },
+  "shell.about.noCli": {
+    "defaultMessage": "CLI not installed",
+    "description": "A row of Help → About, a coding agent's, when its CLI isn't installed."
+  },
+  "shell.about.noLicences": {
+    "defaultMessage": "Licences not found",
+    "description": "A notice when Chromium's licence file can't be opened."
+  },
+  "shell.about.noLicencesDetail": {
+    "defaultMessage": "The Chromium licence file is in the folder Hive is installed in.",
+    "description": "More in the notice that Chromium's licence file wasn't found."
+  },
+  "shell.about.productOf": {
+    "defaultMessage": "{product} is a product of {company}",
+    "description": "Help → About's small print, a part per coding agent, joined with semicolons: whose it is."
+  },
+  "shell.about.releaseNotes": {
+    "defaultMessage": "Release Notes",
+    "description": "Help → About's button: opens the release notes."
+  },
+  "shell.about.title": {
+    "defaultMessage": "About {app}",
+    "description": "Help → About's title. {app} is Hive's name."
+  },
+  "shell.about.version": {
+    "defaultMessage": "Version",
+    "description": "A row of Help → About: Hive's version."
+  },
+  "shell.about.versionLine": {
+    "defaultMessage": "Version {version}",
+    "description": "Under Hive's name in Help → About."
+  },
+  "shell.category.assistant": {
+    "defaultMessage": "Assistant",
+    "description": "A command's category: the Hive Assistant's."
+  },
+  "shell.category.developer": {
+    "defaultMessage": "Developer",
+    "description": "A command's category: tools for developing Hive and debugging it."
+  },
+  "shell.category.file": {
+    "defaultMessage": "File",
+    "description": "A command's category (the File menu's)."
+  },
+  "shell.category.help": {
+    "defaultMessage": "Help",
+    "description": "A command's category (the Help menu's)."
+  },
+  "shell.category.mcp": {
+    "defaultMessage": "MCP",
+    "description": "A command's category: MCP servers. MCP is a name: keep it."
+  },
+  "shell.category.notes": {
+    "defaultMessage": "Notes",
+    "description": "A command's category: shared notes."
+  },
+  "shell.category.preferences": {
+    "defaultMessage": "Preferences",
+    "description": "A command's category: Settings and what is in it."
+  },
+  "shell.category.project": {
+    "defaultMessage": "Project",
+    "description": "A command's category: commands about the project shown."
+  },
+  "shell.category.session": {
+    "defaultMessage": "Session",
+    "description": "A command's category: commands about an agent's session."
+  },
+  "shell.category.tasks": {
+    "defaultMessage": "Tasks",
+    "description": "A command's category: the task board's cards."
+  },
+  "shell.category.view": {
+    "defaultMessage": "View",
+    "description": "A command's category (the View menu's)."
+  },
+  "shell.close": {
+    "defaultMessage": "Close",
+    "description": "Closes a panel or a dialog."
+  },
+  "shell.command.agent.add": {
+    "defaultMessage": "Add Agent",
+    "description": "A command (the menus, the command palette, Settings → Keyboard Shortcuts), in the Session category."
+  },
+  "shell.command.agent.addWith": {
+    "defaultMessage": "Add Agent…",
+    "description": "A command (the menus, the command palette, Settings → Keyboard Shortcuts), in the Session category. The … says it opens a dialog first: keep it."
+  },
+  "shell.command.agent.focusN": {
+    "defaultMessage": "Focus Agent {n}",
+    "description": "A command per agent number (the menus, the command palette, Settings → Keyboard Shortcuts), in the Session category. {n} is the agent's place in the strip, 1 to 9."
+  },
+  "shell.command.agent.moveLeft": {
+    "defaultMessage": "Move Agent Left",
+    "description": "A command (the menus, the command palette, Settings → Keyboard Shortcuts), in the Session category."
+  },
+  "shell.command.agent.moveRight": {
+    "defaultMessage": "Move Agent Right",
+    "description": "A command (the menus, the command palette, Settings → Keyboard Shortcuts), in the Session category."
+  },
+  "shell.command.agent.next": {
+    "defaultMessage": "Focus Next Agent",
+    "description": "A command (the menus, the command palette, Settings → Keyboard Shortcuts), in the Session category."
+  },
+  "shell.command.agent.nextPage": {
+    "defaultMessage": "Next Agent Page",
+    "description": "A command (the menus, the command palette, Settings → Keyboard Shortcuts), in the Session category."
+  },
+  "shell.command.agent.previous": {
+    "defaultMessage": "Focus Previous Agent",
+    "description": "A command (the menus, the command palette, Settings → Keyboard Shortcuts), in the Session category."
+  },
+  "shell.command.agent.previousPage": {
+    "defaultMessage": "Previous Agent Page",
+    "description": "A command (the menus, the command palette, Settings → Keyboard Shortcuts), in the Session category."
+  },
+  "shell.command.agent.settings": {
+    "defaultMessage": "Agent Settings…",
+    "description": "A command (the menus, the command palette, Settings → Keyboard Shortcuts), in the Session category. The … says it opens a dialog first: keep it."
+  },
+  "shell.command.agent.show": {
+    "defaultMessage": "Show Agent",
+    "description": "A command (the menus, the command palette, Settings → Keyboard Shortcuts), in the Session category. It isn't in the menus or the palette: notifications and buttons run it by its name."
+  },
+  "shell.command.antivirus.dismiss": {
+    "defaultMessage": "Don’t Suggest Antivirus Exclusions Again",
+    "description": "A command (the menus, the command palette, Settings → Keyboard Shortcuts), in the Preferences category. It isn't in the menus or the palette: notifications and buttons run it by its name."
+  },
+  "shell.command.antivirus.show": {
+    "defaultMessage": "Antivirus Scanning of the Workspace",
+    "description": "A command (the menus, the command palette, Settings → Keyboard Shortcuts), in the Preferences category."
+  },
+  "shell.command.app.quit": {
+    "defaultMessage": "Exit",
+    "description": "A command (the menus, the command palette, Settings → Keyboard Shortcuts), in the File category."
+  },
+  "shell.command.app.quitAll": {
+    "defaultMessage": "Exit Hive (all windows)",
+    "description": "The File menu's Exit, with several windows open: it closes them all."
+  },
+  "shell.command.assistant.answer": {
+    "defaultMessage": "Answer the Hive Assistant",
+    "description": "A command (the menus, the command palette, Settings → Keyboard Shortcuts), in the Assistant category. It isn't in the menus or the palette: notifications and buttons run it by its name."
+  },
+  "shell.command.assistant.moveLeft": {
+    "defaultMessage": "Move Assistant Panel to the Left",
+    "description": "The command that moves the Assistant's panel, while it is on the right."
+  },
+  "shell.command.assistant.moveRight": {
+    "defaultMessage": "Move Assistant Panel to the Right",
+    "description": "The command that moves the Assistant's panel, while it is on the left."
+  },
+  "shell.command.assistant.moveSide": {
+    "defaultMessage": "Move Assistant Panel Left or Right",
+    "description": "A command (the menus, the command palette, Settings → Keyboard Shortcuts), in the Assistant category."
+  },
+  "shell.command.assistant.settings": {
+    "defaultMessage": "Assistant Settings…",
+    "description": "A command (the menus, the command palette, Settings → Keyboard Shortcuts), in the Assistant category. The … says it opens a dialog first: keep it."
+  },
+  "shell.command.assistant.start": {
+    "defaultMessage": "Start the Hive Assistant",
+    "description": "A command (the menus, the command palette, Settings → Keyboard Shortcuts), in the Assistant category."
+  },
+  "shell.command.assistant.toggle": {
+    "defaultMessage": "Toggle Hive Assistant",
+    "description": "A command (the menus, the command palette, Settings → Keyboard Shortcuts), in the Assistant category."
+  },
+  "shell.command.help.about": {
+    "defaultMessage": "About {app}",
+    "description": "A command (the Help menu, the command palette), in the Help category. {app} is Hive's name."
+  },
+  "shell.command.help.agentSetup": {
+    "defaultMessage": "Agent Setup…",
+    "description": "A command (the menus, the command palette, Settings → Keyboard Shortcuts), in the Help category. The … says it opens a dialog first: keep it."
+  },
+  "shell.command.help.api": {
+    "defaultMessage": "Agent API Reference",
+    "description": "A command (the menus, the command palette, Settings → Keyboard Shortcuts), in the Help category."
+  },
+  "shell.command.help.checkProviders": {
+    "defaultMessage": "Check Coding Agents for Updates",
+    "description": "A command (the menus, the command palette, Settings → Keyboard Shortcuts), in the Help category."
+  },
+  "shell.command.help.checkUpdates": {
+    "defaultMessage": "Check for Updates…",
+    "description": "A command (the menus, the command palette, Settings → Keyboard Shortcuts), in the Help category. The … says it opens a dialog first: keep it."
+  },
+  "shell.command.help.devConsole": {
+    "defaultMessage": "Developer Console",
+    "description": "A command (the menus, the command palette, Settings → Keyboard Shortcuts), in the Developer category."
+  },
+  "shell.command.help.diagnostics": {
+    "defaultMessage": "Copy Diagnostics…",
+    "description": "A command (the menus, the command palette, Settings → Keyboard Shortcuts), in the Help category. The … says it opens a dialog first: keep it."
+  },
+  "shell.command.help.docs": {
+    "defaultMessage": "Documentation",
+    "description": "A command (the menus, the command palette, Settings → Keyboard Shortcuts), in the Help category."
+  },
+  "shell.command.help.improveTranslation": {
+    "defaultMessage": "Improve This Translation",
+    "description": "A command (the Help menu, the command palette), in the Help category: opens the guide for translators, on GitHub, to fix a translation or add a language."
+  },
+  "shell.command.help.logs": {
+    "defaultMessage": "Open Logs Folder",
+    "description": "A command (the menus, the command palette, Settings → Keyboard Shortcuts), in the Help category."
+  },
+  "shell.command.help.releaseNotes": {
+    "defaultMessage": "Release Notes",
+    "description": "A command (the menus, the command palette, Settings → Keyboard Shortcuts), in the Help category."
+  },
+  "shell.command.help.shortcuts": {
+    "defaultMessage": "Keyboard Shortcuts",
+    "description": "A command (the menus, the command palette, Settings → Keyboard Shortcuts), in the Help category."
+  },
+  "shell.command.help.tips": {
+    "defaultMessage": "Tips…",
+    "description": "A command (the menus, the command palette, Settings → Keyboard Shortcuts), in the Help category. The … says it opens a dialog first: keep it."
+  },
+  "shell.command.layout": {
+    "defaultMessage": "Layout: {layout}",
+    "description": "A command per agent layout (the menus, the command palette, Settings → Keyboard Shortcuts), in the Session category. {layout} is the layout's name."
+  },
+  "shell.command.mcp.import": {
+    "defaultMessage": "Copy Project MCP Servers to Workspace",
+    "description": "A command (the menus, the command palette, Settings → Keyboard Shortcuts), in the MCP category. It isn't in the menus or the palette: notifications and buttons run it by its name."
+  },
+  "shell.command.notes.open": {
+    "defaultMessage": "Open Shared Note",
+    "description": "A command (the menus, the command palette, Settings → Keyboard Shortcuts), in the Notes category. It isn't in the menus or the palette: notifications and buttons run it by its name."
+  },
+  "shell.command.palette.show": {
+    "defaultMessage": "Show All Commands",
+    "description": "A command (the menus, the command palette, Settings → Keyboard Shortcuts), in the View category."
+  },
+  "shell.command.progress.toggle": {
+    "defaultMessage": "Toggle Progress Panel",
+    "description": "A command (the menus, the command palette, Settings → Keyboard Shortcuts), in the View category."
+  },
+  "shell.command.project.focus": {
+    "defaultMessage": "Focus Project",
+    "description": "A command (the menus, the command palette, Settings → Keyboard Shortcuts), in the Project category. It isn't in the menus or the palette: notifications and buttons run it by its name."
+  },
+  "shell.command.project.goto": {
+    "defaultMessage": "Go to Project…",
+    "description": "A command (the menus, the command palette, Settings → Keyboard Shortcuts), in the View category. The … says it opens a dialog first: keep it."
+  },
+  "shell.command.project.new": {
+    "defaultMessage": "New Project…",
+    "description": "A command (the menus, the command palette, Settings → Keyboard Shortcuts), in the Project category. The … says it opens a dialog first: keep it."
+  },
+  "shell.command.project.next": {
+    "defaultMessage": "Next Project",
+    "description": "A command (the menus, the command palette, Settings → Keyboard Shortcuts), in the Project category."
+  },
+  "shell.command.project.openExplorer": {
+    "defaultMessage": "Reveal Project in File Explorer",
+    "description": "A command (the menus, the command palette, Settings → Keyboard Shortcuts), in the Project category."
+  },
+  "shell.command.project.openTerminal": {
+    "defaultMessage": "Open External Terminal Here",
+    "description": "A command (the menus, the command palette, Settings → Keyboard Shortcuts), in the Project category."
+  },
+  "shell.command.project.previous": {
+    "defaultMessage": "Previous Project",
+    "description": "A command (the menus, the command palette, Settings → Keyboard Shortcuts), in the Project category."
+  },
+  "shell.command.project.remove": {
+    "defaultMessage": "Remove Project…",
+    "description": "A command (the menus, the command palette, Settings → Keyboard Shortcuts), in the Project category. The … says it opens a dialog first: keep it."
+  },
+  "shell.command.project.storage": {
+    "defaultMessage": "Project Storage and Clean Up…",
+    "description": "A command (the menus, the command palette, Settings → Keyboard Shortcuts), in the Project category. The … says it opens a dialog first: keep it."
+  },
+  "shell.command.project.tab.changes": {
+    "defaultMessage": "Go to Git",
+    "description": "A command (the menus, the command palette, Settings → Keyboard Shortcuts), in the Project category."
+  },
+  "shell.command.project.tab.files": {
+    "defaultMessage": "Go to Files",
+    "description": "A command (the menus, the command palette, Settings → Keyboard Shortcuts), in the Project category."
+  },
+  "shell.command.project.tab.images": {
+    "defaultMessage": "Go to Attachments",
+    "description": "A command (the menus, the command palette, Settings → Keyboard Shortcuts), in the Project category."
+  },
+  "shell.command.project.tab.mcp": {
+    "defaultMessage": "Go to MCP",
+    "description": "A command (the menus, the command palette, Settings → Keyboard Shortcuts), in the Project category."
+  },
+  "shell.command.project.tab.memory": {
+    "defaultMessage": "Go to Memory",
+    "description": "A command (the menus, the command palette, Settings → Keyboard Shortcuts), in the Project category."
+  },
+  "shell.command.project.tab.next": {
+    "defaultMessage": "Next Project Tab",
+    "description": "A command (the menus, the command palette, Settings → Keyboard Shortcuts), in the Project category."
+  },
+  "shell.command.project.tab.overview": {
+    "defaultMessage": "Go to Overview",
+    "description": "A command (the menus, the command palette, Settings → Keyboard Shortcuts), in the Project category."
+  },
+  "shell.command.project.tab.performance": {
+    "defaultMessage": "Go to Performance",
+    "description": "A command (the menus, the command palette, Settings → Keyboard Shortcuts), in the Project category."
+  },
+  "shell.command.project.tab.previous": {
+    "defaultMessage": "Previous Project Tab",
+    "description": "A command (the menus, the command palette, Settings → Keyboard Shortcuts), in the Project category."
+  },
+  "shell.command.project.tab.session": {
+    "defaultMessage": "Go to Session",
+    "description": "A command (the menus, the command palette, Settings → Keyboard Shortcuts), in the Project category."
+  },
+  "shell.command.project.tab.sessions": {
+    "defaultMessage": "Go to Sessions",
+    "description": "A command (the menus, the command palette, Settings → Keyboard Shortcuts), in the Project category."
+  },
+  "shell.command.project.tab.settings": {
+    "defaultMessage": "Go to Project Settings",
+    "description": "A command (the menus, the command palette, Settings → Keyboard Shortcuts), in the Project category."
+  },
+  "shell.command.project.tab.skills": {
+    "defaultMessage": "Go to Skills",
+    "description": "A command (the menus, the command palette, Settings → Keyboard Shortcuts), in the Project category."
+  },
+  "shell.command.project.tab.tasks": {
+    "defaultMessage": "Go to Tasks",
+    "description": "A command (the menus, the command palette, Settings → Keyboard Shortcuts), in the Project category."
+  },
+  "shell.command.project.tab.templates": {
+    "defaultMessage": "Go to Templates",
+    "description": "A command (the menus, the command palette, Settings → Keyboard Shortcuts), in the Project category."
+  },
+  "shell.command.project.toggleActive": {
+    "defaultMessage": "Toggle Project Active",
+    "description": "A command (the menus, the command palette, Settings → Keyboard Shortcuts), in the Project category."
+  },
+  "shell.command.project.unusedWorktrees": {
+    "defaultMessage": "Show Unused Worktrees",
+    "description": "A command (the menus, the command palette, Settings → Keyboard Shortcuts), in the Project category. It isn't in the menus or the palette: notifications and buttons run it by its name."
+  },
+  "shell.command.session.allowLockedEdit": {
+    "defaultMessage": "Allow a Locked Edit",
+    "description": "A command (the menus, the command palette, Settings → Keyboard Shortcuts), in the Session category. It isn't in the menus or the palette: notifications and buttons run it by its name."
+  },
+  "shell.command.session.applyPermissionModes": {
+    "defaultMessage": "Switch Running Agents to Their Permission Mode Settings",
+    "description": "A command (the menus, the command palette, Settings → Keyboard Shortcuts), in the Session category."
+  },
+  "shell.command.session.archive": {
+    "defaultMessage": "Archive Session and Start New…",
+    "description": "A command (the menus, the command palette, Settings → Keyboard Shortcuts), in the Session category. The … says it opens a dialog first: keep it."
+  },
+  "shell.command.session.archiveAll": {
+    "defaultMessage": "Archive and Start New (All)…",
+    "description": "A command (the menus, the command palette, Settings → Keyboard Shortcuts), in the Session category. The … says it opens a dialog first: keep it."
+  },
+  "shell.command.session.archiveAllLive": {
+    "defaultMessage": "{several, select, yes {Archive and Start New ({n})…} other {Archive and Start New…}}",
+    "description": "The command that archives the agents' sessions and starts new ones, as the menus and the palette show it: with several agents, how many it acts on ({n}). The … says it asks first: keep it."
+  },
+  "shell.command.session.compact": {
+    "defaultMessage": "Compact Conversation…",
+    "description": "A command (the menus, the command palette, Settings → Keyboard Shortcuts), in the Session category. The … says it opens a dialog first: keep it."
+  },
+  "shell.command.session.focusTerminal": {
+    "defaultMessage": "Focus Session Terminal",
+    "description": "A command (the menus, the command palette, Settings → Keyboard Shortcuts), in the Session category."
+  },
+  "shell.command.session.handOverTo": {
+    "defaultMessage": "Hand Over an Agent's Work",
+    "description": "A command (the menus, the command palette, Settings → Keyboard Shortcuts), in the Session category. It isn't in the menus or the palette: notifications and buttons run it by its name."
+  },
+  "shell.command.session.new": {
+    "defaultMessage": "New Session",
+    "description": "A command (the menus, the command palette, Settings → Keyboard Shortcuts), in the Session category."
+  },
+  "shell.command.session.permissionMode": {
+    "defaultMessage": "Switch Permission Mode…",
+    "description": "A command (the menus, the command palette, Settings → Keyboard Shortcuts), in the Session category. The … says it opens a dialog first: keep it."
+  },
+  "shell.command.session.removeAll": {
+    "defaultMessage": "Remove All Agents…",
+    "description": "A command (the menus, the command palette, Settings → Keyboard Shortcuts), in the Session category. The … says it opens a dialog first: keep it."
+  },
+  "shell.command.session.removeAllLive": {
+    "defaultMessage": "{n, plural, one {Remove Agent…} other {Remove All Agents (#)…}}",
+    "description": "The command that removes the project's agents, as the menus and the palette show it: how many it removes. The … says it asks first: keep it."
+  },
+  "shell.command.session.resume": {
+    "defaultMessage": "Resume Last Session",
+    "description": "A command (the menus, the command palette, Settings → Keyboard Shortcuts), in the Session category."
+  },
+  "shell.command.session.settleLeftovers": {
+    "defaultMessage": "End or Keep the Processes an Agent Left Running",
+    "description": "A command (the menus, the command palette, Settings → Keyboard Shortcuts), in the Session category. It isn't in the menus or the palette: notifications and buttons run it by its name."
+  },
+  "shell.command.session.startNewAll": {
+    "defaultMessage": "Start New (All)…",
+    "description": "A command (the menus, the command palette, Settings → Keyboard Shortcuts), in the Session category. The … says it opens a dialog first: keep it."
+  },
+  "shell.command.session.startNewAllLive": {
+    "defaultMessage": "{several, select, yes {Start New ({n})…} other {Start New…}}",
+    "description": "The command that gives every agent of the project a new session, as the menus and the palette show it: with several agents, how many it acts on ({n}). The … says it asks first: keep it."
+  },
+  "shell.command.session.stop": {
+    "defaultMessage": "Stop Session",
+    "description": "A command (the menus, the command palette, Settings → Keyboard Shortcuts), in the Session category."
+  },
+  "shell.command.session.stopBackgroundAndResume": {
+    "defaultMessage": "Stop a Background Session and Resume It",
+    "description": "A command (the menus, the command palette, Settings → Keyboard Shortcuts), in the Session category. It isn't in the menus or the palette: notifications and buttons run it by its name."
+  },
+  "shell.command.settings.advanced": {
+    "defaultMessage": "Advanced Settings",
+    "description": "A command (the menus, the command palette, Settings → Keyboard Shortcuts), in the Preferences category."
+  },
+  "shell.command.settings.keybindings": {
+    "defaultMessage": "Customise Keyboard Shortcuts",
+    "description": "A command (the menus, the command palette, Settings → Keyboard Shortcuts), in the Preferences category."
+  },
+  "shell.command.settings.notifications": {
+    "defaultMessage": "Notification Settings",
+    "description": "A command (the menus, the command palette, Settings → Keyboard Shortcuts), in the Preferences category."
+  },
+  "shell.command.settings.open": {
+    "defaultMessage": "Open Settings",
+    "description": "A command (the menus, the command palette, Settings → Keyboard Shortcuts), in the Preferences category."
+  },
+  "shell.command.settings.providers": {
+    "defaultMessage": "Choose Coding Agents (Providers)",
+    "description": "A command (the menus, the command palette, Settings → Keyboard Shortcuts), in the Preferences category."
+  },
+  "shell.command.task.new": {
+    "defaultMessage": "New Card…",
+    "description": "A command (the menus, the command palette, Settings → Keyboard Shortcuts), in the Tasks category. The … says it opens a dialog first: keep it."
+  },
+  "shell.command.task.undoArchive": {
+    "defaultMessage": "Undo Archive",
+    "description": "A command (the menus, the command palette, Settings → Keyboard Shortcuts), in the Tasks category. It isn't in the menus or the palette: notifications and buttons run it by its name."
+  },
+  "shell.command.template.addAgent": {
+    "defaultMessage": "Add Agent from Template…",
+    "description": "A command (the menus, the command palette, Settings → Keyboard Shortcuts), in the Session category. The … says it opens a dialog first: keep it."
+  },
+  "shell.command.template.load": {
+    "defaultMessage": "Load Template…",
+    "description": "A command (the menus, the command palette, Settings → Keyboard Shortcuts), in the Session category. The … says it opens a dialog first: keep it."
+  },
+  "shell.command.template.save": {
+    "defaultMessage": "Save Agents as Template…",
+    "description": "A command (the menus, the command palette, Settings → Keyboard Shortcuts), in the Session category. The … says it opens a dialog first: keep it."
+  },
+  "shell.command.update.install": {
+    "defaultMessage": "Restart and Update Hive",
+    "description": "A command (the menus, the command palette, Settings → Keyboard Shortcuts), in the Help category."
+  },
+  "shell.command.update.releaseNotes": {
+    "defaultMessage": "What's New in Hive",
+    "description": "A command (the menus, the command palette, Settings → Keyboard Shortcuts), in the Help category."
+  },
+  "shell.command.update.show": {
+    "defaultMessage": "Show Hive Update",
+    "description": "A command (the menus, the command palette, Settings → Keyboard Shortcuts), in the Help category."
+  },
+  "shell.command.view.alwaysOnTop": {
+    "defaultMessage": "Always on Top",
+    "description": "A command (the menus, the command palette, Settings → Keyboard Shortcuts), in the View category."
+  },
+  "shell.command.view.assistant": {
+    "defaultMessage": "Show Hive Assistant View",
+    "description": "A command (the menus, the command palette, Settings → Keyboard Shortcuts), in the View category."
+  },
+  "shell.command.view.assistantConversations": {
+    "defaultMessage": "Show Assistant Conversations",
+    "description": "A command (the menus, the command palette, Settings → Keyboard Shortcuts), in the View category."
+  },
+  "shell.command.view.assistantImages": {
+    "defaultMessage": "Show Assistant Attachments",
+    "description": "A command (the menus, the command palette, Settings → Keyboard Shortcuts), in the View category."
+  },
+  "shell.command.view.board": {
+    "defaultMessage": "Show Task Board",
+    "description": "A command (the menus, the command palette, Settings → Keyboard Shortcuts), in the View category."
+  },
+  "shell.command.view.compactSidebar": {
+    "defaultMessage": "Toggle Compact Sidebar",
+    "description": "A command (the menus, the command palette, Settings → Keyboard Shortcuts), in the View category."
+  },
+  "shell.command.view.devTools": {
+    "defaultMessage": "Toggle Developer Tools",
+    "description": "A command (the menus, the command palette, Settings → Keyboard Shortcuts), in the Developer category."
+  },
+  "shell.command.view.fullScreen": {
+    "defaultMessage": "Toggle Full Screen",
+    "description": "A command (the menus, the command palette, Settings → Keyboard Shortcuts), in the View category."
+  },
+  "shell.command.view.mcp": {
+    "defaultMessage": "Show MCP Servers",
+    "description": "A command (the menus, the command palette, Settings → Keyboard Shortcuts), in the View category."
+  },
+  "shell.command.view.notes": {
+    "defaultMessage": "Show Shared Notes",
+    "description": "A command (the menus, the command palette, Settings → Keyboard Shortcuts), in the View category."
+  },
+  "shell.command.view.notifications": {
+    "defaultMessage": "Show Notifications",
+    "description": "A command (the menus, the command palette, Settings → Keyboard Shortcuts), in the View category."
+  },
+  "shell.command.view.overview": {
+    "defaultMessage": "Show Workspace Overview",
+    "description": "A command (the menus, the command palette, Settings → Keyboard Shortcuts), in the View category."
+  },
+  "shell.command.view.performance": {
+    "defaultMessage": "Show Performance",
+    "description": "A command (the menus, the command palette, Settings → Keyboard Shortcuts), in the View category."
+  },
+  "shell.command.view.personas": {
+    "defaultMessage": "Show Assistant Modes",
+    "description": "A command (the menus, the command palette, Settings → Keyboard Shortcuts), in the View category."
+  },
+  "shell.command.view.projects": {
+    "defaultMessage": "Show Projects",
+    "description": "A command (the menus, the command palette, Settings → Keyboard Shortcuts), in the View category."
+  },
+  "shell.command.view.reload": {
+    "defaultMessage": "Reload Window",
+    "description": "A command (the menus, the command palette, Settings → Keyboard Shortcuts), in the Developer category."
+  },
+  "shell.command.view.skills": {
+    "defaultMessage": "Show Skills",
+    "description": "A command (the menus, the command palette, Settings → Keyboard Shortcuts), in the View category."
+  },
+  "shell.command.view.templates": {
+    "defaultMessage": "Show Templates",
+    "description": "A command (the menus, the command palette, Settings → Keyboard Shortcuts), in the View category."
+  },
+  "shell.command.view.toggleSidebar": {
+    "defaultMessage": "Toggle Sidebar",
+    "description": "A command (the menus, the command palette, Settings → Keyboard Shortcuts), in the View category."
+  },
+  "shell.command.view.zoomIn": {
+    "defaultMessage": "Zoom In",
+    "description": "A command (the menus, the command palette, Settings → Keyboard Shortcuts), in the View category."
+  },
+  "shell.command.view.zoomOut": {
+    "defaultMessage": "Zoom Out",
+    "description": "A command (the menus, the command palette, Settings → Keyboard Shortcuts), in the View category."
+  },
+  "shell.command.view.zoomReset": {
+    "defaultMessage": "Reset Zoom",
+    "description": "A command (the menus, the command palette, Settings → Keyboard Shortcuts), in the View category."
+  },
+  "shell.command.window.close": {
+    "defaultMessage": "Close Window",
+    "description": "A command (the menus, the command palette, Settings → Keyboard Shortcuts), in the File category."
+  },
+  "shell.command.window.new": {
+    "defaultMessage": "New Window",
+    "description": "A command (the menus, the command palette, Settings → Keyboard Shortcuts), in the File category."
+  },
+  "shell.command.workspace.clearRecent": {
+    "defaultMessage": "Clear Recently Opened…",
+    "description": "A command (the menus, the command palette, Settings → Keyboard Shortcuts), in the File category. The … says it opens a dialog first: keep it."
+  },
+  "shell.command.workspace.close": {
+    "defaultMessage": "Close Workspace",
+    "description": "A command (the menus, the command palette, Settings → Keyboard Shortcuts), in the File category."
+  },
+  "shell.command.workspace.create": {
+    "defaultMessage": "New Workspace…",
+    "description": "A command (the menus, the command palette, Settings → Keyboard Shortcuts), in the File category. The … says it opens a dialog first: keep it."
+  },
+  "shell.command.workspace.open": {
+    "defaultMessage": "Open Workspace…",
+    "description": "A command (the menus, the command palette, Settings → Keyboard Shortcuts), in the File category. The … says it opens a dialog first: keep it."
+  },
+  "shell.command.workspace.refresh": {
+    "defaultMessage": "Refresh Workspace",
+    "description": "A command (the menus, the command palette, Settings → Keyboard Shortcuts), in the File category."
+  },
+  "shell.command.workspace.repairMove": {
+    "defaultMessage": "Repair Moved Workspace…",
+    "description": "A command (the menus, the command palette, Settings → Keyboard Shortcuts), in the File category. The … says it opens a dialog first: keep it."
+  },
+  "shell.compact.before": {
+    "defaultMessage": "{n, plural, one {Compacted # time before} other {Compacted # times before}}",
+    "description": "The Compact dialog: how often this conversation was compacted already."
+  },
+  "shell.compact.busy": {
+    "defaultMessage": "The agent is busy. Compact once it has finished.",
+    "description": "The Compact dialog while the agent works."
+  },
+  "shell.compact.button": {
+    "defaultMessage": "Compact",
+    "description": "The Compact dialog's button."
+  },
+  "shell.compact.cacheExpired": {
+    "defaultMessage": "Cache expired: compacting re-reads the whole context once",
+    "description": "The Compact dialog: the prompt cache has expired."
+  },
+  "shell.compact.cacheWarm": {
+    "defaultMessage": "Cache warm ({minutes} min left), so compacting is cheap",
+    "description": "The Compact dialog: the prompt cache is still warm. {minutes} is how many minutes it has left."
+  },
+  "shell.compact.context": {
+    "defaultMessage": "Context <b>{tokens}</b> tokens",
+    "description": "The Compact dialog: how big the conversation's context is. {tokens} is a number of tokens, shortened (148k); <b> is bold."
+  },
+  "shell.compact.focus": {
+    "defaultMessage": "Focus <faint>(optional)</faint>",
+    "description": "The Compact dialog's box for what the summary should keep. <faint> is greyed."
+  },
+  "shell.compact.focusPlaceholder": {
+    "defaultMessage": "Leave empty and the agent decides what to keep. Or steer it, e.g. “keep the Files tab decisions and open bugs; drop the test runs”.",
+    "description": "Placeholder of the Compact dialog's Focus box."
+  },
+  "shell.compact.sending": {
+    "defaultMessage": "Sending…",
+    "description": "The Compact dialog's button while it asks the agent to compact."
+  },
+  "shell.compact.title": {
+    "defaultMessage": "{several, select, yes {Compact {project} · {agent}?} other {Compact {project}?}}",
+    "description": "The title of the Compact dialog: compacting an agent's conversation. {project} is the project, {agent} the agent (named when the project has several)."
+  },
+  "shell.compact.typed": {
+    "defaultMessage": "Anything you had half-typed in the session is cleared first; press Ctrl+Y in the session to get it back.",
+    "description": "At the bottom of the Compact dialog. Ctrl+Y is a key: keep it."
+  },
+  "shell.compact.what": {
+    "defaultMessage": "The agent summarises the conversation so far and continues from the summary, which makes every later message cheaper. The full history stays in the session's transcript.",
+    "description": "The Compact dialog: what compacting does."
+  },
+  "shell.diagnostics.attach": {
+    "defaultMessage": "Attach the newest developer console recording ({when}, {n, plural, one {# event} other {# events}}), its newest events redacted again",
+    "description": "A box in Copy Diagnostics. {when} is when the recording started; {n} how many events it has."
+  },
+  "shell.diagnostics.collecting": {
+    "defaultMessage": "Collecting…",
+    "description": "Copy Diagnostics while it gathers them."
+  },
+  "shell.diagnostics.copied": {
+    "defaultMessage": "Diagnostics copied",
+    "description": "A notice after Help → Copy Diagnostics copied them."
+  },
+  "shell.diagnostics.copiedDetail": {
+    "defaultMessage": "Paste them into your bug report.",
+    "description": "More in the notice after the diagnostics were copied."
+  },
+  "shell.diagnostics.copy": {
+    "defaultMessage": "Copy",
+    "description": "Copy Diagnostics' button: copies them."
+  },
+  "shell.diagnostics.copyFailed": {
+    "defaultMessage": "Could not copy the diagnostics",
+    "description": "An error's title: copying the diagnostics failed."
+  },
+  "shell.diagnostics.recordingText": {
+    "defaultMessage": "The newest developer console recording includes prompt and reply text, so it can't be attached.",
+    "description": "Copy Diagnostics, when the newest developer console recording has text in it."
+  },
+  "shell.diagnostics.title": {
+    "defaultMessage": "Copy Diagnostics",
+    "description": "The title of Help → Copy Diagnostics."
+  },
+  "shell.diagnostics.what": {
+    "defaultMessage": "For a bug report: Hive's version, your coding agents, counts, the settings that change how Hive behaves and the end of its log. Folders, workspace, project and agent names, and anything that looks like a key or token are taken out. This is exactly what will be copied.",
+    "description": "Copy Diagnostics: what it copies (shown below it)."
+  },
+  "shell.diagnostics.what2": {
+    "defaultMessage": "the diagnostics",
+    "description": "Fills \"Could not load {what}\" when the diagnostics fail to load."
+  },
+  "shell.dialog.cancel": {
+    "defaultMessage": "Cancel",
+    "description": "A dialog's button that closes it without doing anything."
+  },
+  "shell.dialog.close": {
+    "defaultMessage": "Close (Esc)",
+    "description": "Tooltip of a dialog's close button. Esc is a key: keep it."
+  },
+  "shell.dialog.copy": {
+    "defaultMessage": "Copy",
+    "description": "Button beside a list in a dialog: copies it."
+  },
+  "shell.dialog.copyAll": {
+    "defaultMessage": "Copy all",
+    "description": "Button beside a list of several in a dialog: copies them all."
+  },
+  "shell.dialog.ok": {
+    "defaultMessage": "OK",
+    "description": "A dialog's button that agrees, when the dialog gives it no other name."
+  },
+  "shell.dialog.tryAgain": {
+    "defaultMessage": "Try Again",
+    "description": "A dialog's button after what it did failed: does it again."
+  },
+  "shell.dialog.wait": {
+    "defaultMessage": "Wait for it to finish",
+    "description": "Tooltip of a dialog's close button while what it does runs."
+  },
+  "shell.dialog.working": {
+    "defaultMessage": "Working…",
+    "description": "A dialog's button while what it does runs."
+  },
+  "shell.edit.copy": {
+    "defaultMessage": "Copy",
+    "description": "An item of the Edit menu."
+  },
+  "shell.edit.cut": {
+    "defaultMessage": "Cut",
+    "description": "An item of the Edit menu."
+  },
+  "shell.edit.paste": {
+    "defaultMessage": "Paste",
+    "description": "An item of the Edit menu."
+  },
+  "shell.edit.redo": {
+    "defaultMessage": "Redo",
+    "description": "An item of the Edit menu."
+  },
+  "shell.edit.selectAll": {
+    "defaultMessage": "Select All",
+    "description": "An item of the Edit menu."
+  },
+  "shell.edit.undo": {
+    "defaultMessage": "Undo",
+    "description": "An item of the Edit menu."
+  },
+  "shell.error.allowEdit": {
+    "defaultMessage": "Could not allow the edit",
+    "description": "An error's title: allowing an agent's edit of a locked file failed."
+  },
+  "shell.error.endProcesses": {
+    "defaultMessage": "Could not end the processes",
+    "description": "An error's title: ending the processes an agent left running failed."
+  },
+  "shell.error.keepProcesses": {
+    "defaultMessage": "Could not keep the processes",
+    "description": "An error's title: keeping the processes an agent left running failed."
+  },
+  "shell.error.stopBackground": {
+    "defaultMessage": "Could not stop the background session",
+    "description": "An error's title: stopping an agent's background session failed."
+  },
+  "shell.error.switchModes": {
+    "defaultMessage": "Could not switch permission modes",
+    "description": "An error's title: switching running agents to their permission mode settings failed."
+  },
+  "shell.errorBoundary.logs": {
+    "defaultMessage": "Open Logs",
+    "description": "Button under a view that failed: opens the folder of Hive's log files."
+  },
+  "shell.errorBoundary.named": {
+    "defaultMessage": "{view} ran into a problem and couldn't be shown.",
+    "description": "Where a part of the window failed to show. {view} names it (The Assistant, The Progress panel…), given in the window's code."
+  },
+  "shell.errorBoundary.reload": {
+    "defaultMessage": "Reload Window",
+    "description": "Button under a failed window: reloads it."
+  },
+  "shell.errorBoundary.save": {
+    "defaultMessage": "{n, plural, one {Save # Unsaved File} other {Save # Unsaved Files}}",
+    "description": "Button under a failed window: saves the files with unsaved edits first."
+  },
+  "shell.errorBoundary.saveFailed": {
+    "defaultMessage": "Couldn't save: {why}",
+    "description": "After saving unsaved files from a failed window: what failed. {why} lists the reasons."
+  },
+  "shell.errorBoundary.saved": {
+    "defaultMessage": "{n, plural, one {Saved # file.} other {Saved # files.}}",
+    "description": "After saving unsaved files from a failed window."
+  },
+  "shell.errorBoundary.sessions": {
+    "defaultMessage": "Running sessions are not affected.",
+    "description": "Under a view that failed to show."
+  },
+  "shell.errorBoundary.tryAgain": {
+    "defaultMessage": "Try Again",
+    "description": "Button under a view that failed: shows it again."
+  },
+  "shell.errorBoundary.view": {
+    "defaultMessage": "This view ran into a problem and couldn't be shown.",
+    "description": "Where a view of the window failed to show."
+  },
+  "shell.loadFailed": {
+    "defaultMessage": "Could not load {what}: {error}",
+    "description": "A load that failed. {what} names what (the sessions, the diagnostics…), given by each view; {error} is why."
+  },
+  "shell.mcp.copyToWorkspace": {
+    "defaultMessage": "Copy to workspace",
+    "description": "The notice's button: copies the project's MCP servers to the workspace."
+  },
+  "shell.mcp.notInWorkspace": {
+    "defaultMessage": "{project}: MCP servers not in the workspace",
+    "description": "A notice: a project defines MCP servers of its own (in its .mcp.json) that the workspace doesn't have. {project} is its name."
+  },
+  "shell.mcp.notInWorkspaceDetail": {
+    "defaultMessage": "{n, plural, one {{servers} is defined in the project's .mcp.json and will stay disabled until copied to the workspace.} other {{servers} are defined in the project's .mcp.json and will stay disabled until copied to the workspace.}}",
+    "description": "More in the notice about a project's own MCP servers. {servers} lists their names; {n} is how many. .mcp.json is a file name: keep it."
+  },
+  "shell.menu.clearRecent": {
+    "defaultMessage": "Clear Recently Opened…",
+    "description": "The last item of Open Recent: forgets them all, after asking."
+  },
+  "shell.menu.edit": {
+    "defaultMessage": "Edit",
+    "description": "A menu of the title bar's menu bar."
+  },
+  "shell.menu.file": {
+    "defaultMessage": "File",
+    "description": "A menu of the title bar's menu bar."
+  },
+  "shell.menu.help": {
+    "defaultMessage": "Help",
+    "description": "A menu of the title bar's menu bar."
+  },
+  "shell.menu.noRecent": {
+    "defaultMessage": "No recent workspaces",
+    "description": "Open Recent when there are none."
+  },
+  "shell.menu.openRecent": {
+    "defaultMessage": "Open Recent",
+    "description": "The File menu's submenu of recent workspaces."
+  },
+  "shell.menu.project": {
+    "defaultMessage": "Project",
+    "description": "A menu of the title bar's menu bar."
+  },
+  "shell.menu.removeRecent": {
+    "defaultMessage": "Remove from recent",
+    "description": "Tooltip of the × beside a recent workspace."
+  },
+  "shell.menu.removeRecentItem": {
+    "defaultMessage": "Remove from Recent",
+    "description": "Right-click menu of a recent workspace: forgets it (the folder stays)."
+  },
+  "shell.menu.removeRecentLabel": {
+    "defaultMessage": "Remove {workspace} from recent",
+    "description": "The name, for screen readers, of the × beside a recent workspace. {workspace} is its folder's name."
+  },
+  "shell.menu.session": {
+    "defaultMessage": "Session",
+    "description": "A menu of the title bar's menu bar."
+  },
+  "shell.menu.view": {
+    "defaultMessage": "View",
+    "description": "A menu of the title bar's menu bar."
+  },
+  "shell.modes.noneSwitched": {
+    "defaultMessage": "Permission mode not switched",
+    "description": "A notice after switching permission modes: none could be switched; why is listed under it."
+  },
+  "shell.modes.nothing": {
+    "defaultMessage": "Nothing to switch",
+    "description": "A notice: every running agent already has its permission mode."
+  },
+  "shell.modes.nothingDetail": {
+    "defaultMessage": "Every running agent is already in the mode its settings ask for.",
+    "description": "More in the notice that there was nothing to switch."
+  },
+  "shell.modes.someSkipped": {
+    "defaultMessage": "Some agents were not switched",
+    "description": "A notice after switching permission modes: the agents listed under it were not switched."
+  },
+  "shell.modes.switched": {
+    "defaultMessage": "Permission mode switched",
+    "description": "A notice after running agents were switched to their permission mode settings; the agents are listed under it."
+  },
+  "shell.notifications.clearAll": {
+    "defaultMessage": "Clear all",
+    "description": "Button of the notifications panel: removes every notification."
+  },
+  "shell.notifications.none": {
+    "defaultMessage": "No notifications",
+    "description": "The notifications panel when it is empty."
+  },
+  "shell.notifications.title": {
+    "defaultMessage": "Notifications",
+    "description": "The heading of the notifications panel (the bell in the status bar)."
+  },
+  "shell.palette.command": {
+    "defaultMessage": "{category}: {command}",
+    "description": "A command in the command palette: its category, then its name."
+  },
+  "shell.palette.goToProject": {
+    "defaultMessage": "Go to Project: {project}",
+    "description": "A project in the command palette: choosing it shows the project."
+  },
+  "shell.palette.noMatch": {
+    "defaultMessage": "No matching commands",
+    "description": "The command palette when what is typed matches nothing."
+  },
+  "shell.palette.placeholder": {
+    "defaultMessage": "Type a command or project name",
+    "description": "The command palette's placeholder."
+  },
+  "shell.palette.projectsPlaceholder": {
+    "defaultMessage": "Go to project",
+    "description": "The command palette's placeholder when it lists projects (Go to Project…)."
+  },
+  "shell.providers.choose": {
+    "defaultMessage": "Choose providers",
+    "description": "The banner's button: opens Settings → Providers."
+  },
+  "shell.providers.noneInstalled": {
+    "defaultMessage": "{several, select, yes {No coding agent CLI is installed. Install one of those you turned on to run agents.} other {No coding agent CLI is installed. Install {provider} to run agents.}}",
+    "description": "A banner when no turned-on provider's CLI is installed. {provider} is the one turned on, when only one is."
+  },
+  "shell.providers.noneOn": {
+    "defaultMessage": "No coding agents are turned on. Choose the ones you use (Claude Code, …) to run sessions.",
+    "description": "A banner when no provider is turned on."
+  },
+  "shell.providers.setUp": {
+    "defaultMessage": "Set up",
+    "description": "A provider's banner's button when Hive names no other action: opens Agent Setup."
+  },
+  "shell.providers.setup": {
+    "defaultMessage": "Agent Setup",
+    "description": "The banner's button: opens Agent Setup."
+  },
+  "shell.quit.action": {
+    "defaultMessage": "{action, select, saveAndClose {Save and close} closeWorkspace {Close workspace} switchWorkspace {Switch workspace} closeWindow {Close window} saveAndQuit {Save and quit} other {Quit}}",
+    "description": "The quit dialog's main button with no sessions running. {action} picks what it does."
+  },
+  "shell.quit.alwaysAsks": {
+    "defaultMessage": "Hive always asks about unsaved files.",
+    "description": "Tooltip of the quit dialog's \"Don't ask again\" box while files are unsaved."
+  },
+  "shell.quit.busy": {
+    "defaultMessage": "{n, plural, one {An agent is in the middle of something.} other {# agents are in the middle of something.}}",
+    "description": "The quit dialog: how many agents are busy (working, waiting for you…)."
+  },
+  "shell.quit.changedWhileSaving": {
+    "defaultMessage": "Some files changed while they were being saved",
+    "description": "A warning when quitting: files were edited while Hive saved them."
+  },
+  "shell.quit.changedWhileSavingDetail": {
+    "defaultMessage": "Hive is still open, so your latest edits are kept. Save them, then try again.",
+    "description": "More in the warning that files changed while they were saved."
+  },
+  "shell.quit.discard": {
+    "defaultMessage": "Discard the changes",
+    "description": "The quit dialog's choice: drop the unsaved edits."
+  },
+  "shell.quit.dontAsk": {
+    "defaultMessage": "Don't ask again about sessions",
+    "description": "A box in the quit dialog: next time, quit without asking about running sessions."
+  },
+  "shell.quit.kept": {
+    "defaultMessage": "Conversations are kept. Resume them from the project or its Sessions tab next time.",
+    "description": "At the bottom of the quit dialog."
+  },
+  "shell.quit.now": {
+    "defaultMessage": "{action, select, saveAndClose {Save and close now} closeWorkspace {Close workspace now} switchWorkspace {Switch workspace now} closeWindow {Close window now} saveAndQuit {Save and quit now} other {Quit now}}",
+    "description": "The quit dialog's main button with sessions running: do it now, stopping them. {action} picks what it does."
+  },
+  "shell.quit.saveFailed": {
+    "defaultMessage": "{n, plural, one {Couldn't save a file, so Hive is still open} other {Couldn't save # files, so Hive is still open}}",
+    "description": "An error's title when quitting: unsaved files couldn't be saved, so Hive didn't quit. The reasons are listed under it."
+  },
+  "shell.quit.saveThem": {
+    "defaultMessage": "Save them",
+    "description": "The quit dialog's choice: save the unsaved files first."
+  },
+  "shell.quit.saving": {
+    "defaultMessage": "Saving…",
+    "description": "The quit dialog's button while unsaved files are saved."
+  },
+  "shell.quit.stopping.background": {
+    "defaultMessage": "Background tasks will stop",
+    "description": "The quit dialog's table: an agent waiting on background tasks it started."
+  },
+  "shell.quit.stopping.waiting": {
+    "defaultMessage": "Waiting for you",
+    "description": "The quit dialog's table: an agent waiting for your answer."
+  },
+  "shell.quit.stopping.watching": {
+    "defaultMessage": "Its card loop pauses until it is resumed",
+    "description": "The quit dialog's table: an agent waiting on cards in a card loop."
+  },
+  "shell.quit.stopping.working": {
+    "defaultMessage": "Will be interrupted",
+    "description": "The quit dialog's table, What stopping it interrupts: a working agent."
+  },
+  "shell.quit.stoppingColumn": {
+    "defaultMessage": "Stopping it",
+    "description": "The quit dialog's table: the heading of the column saying what stopping each agent interrupts."
+  },
+  "shell.quit.stops": {
+    "defaultMessage": "{how, select, workspace {Closing the workspace stops its} switch {Switching workspace stops this workspace's} window {Closing this window stops this workspace's} allWindows {Quitting closes all {windows} windows and stops} other {Quitting stops}} {busy, select, yes {{n, plural, one {session} other {{all, select, yes {all {n} sessions} other {{n} sessions}}}}} other {{n, plural, one {running session} other {# running sessions}}}}{everywhere, select, yes {, in every workspace} other {}}.",
+    "description": "The quit dialog: what closing or quitting stops. {how} is what it does (close the workspace, switch it, close the window, quit with {windows} windows open, or quit); {busy} is yes when an agent is busy (then the sentence before says so); {n} is how many sessions; {all} is yes when quitting; {everywhere} is yes with several windows."
+  },
+  "shell.quit.title": {
+    "defaultMessage": "{how, select, workspace {Close this workspace?} switch {Switch workspace?} window {Close this window?} allWindows {Quit Hive and close all {windows} windows?} other {Quit Hive?}}",
+    "description": "The quit dialog's title: closing the workspace, switching it, closing the window, or quitting Hive (with {windows} windows open, 2 or more)."
+  },
+  "shell.quit.unsaved": {
+    "defaultMessage": "{n, plural, one {# file has unsaved changes.} other {# files have unsaved changes.}}",
+    "description": "The quit dialog: how many open files have unsaved edits (listed under it)."
+  },
+  "shell.quit.when": {
+    "defaultMessage": "{action, select, saveAndClose {Save and close} closeWorkspace {Close workspace} switchWorkspace {Switch workspace} closeWindow {Close window} saveAndQuit {Save and quit} other {Quit}} when {working, plural, one {the agent finishes} other {agents finish}}",
+    "description": "The quit dialog's button: quit once the working agents finish. {action} picks what it does (quit, or save and quit); {working} is how many agents are working."
+  },
+  "shell.quit.whenTip": {
+    "defaultMessage": "Hide Hive and quit as soon as no agent is working",
+    "description": "Tooltip of the quit dialog's button that quits once the agents finish."
+  },
+  "shell.quit.windowOnly": {
+    "defaultMessage": "{named, select, yes {Meant to close only this window ({workspace})?} other {Meant to close only this window?}} Its agents stop, and the other {others, plural, one {window stays} other {# windows stay}} open, as with its X.",
+    "description": "The quit dialog with several windows open: closing just this one instead. {workspace} is its workspace's name; {others} how many other windows stay open; its X is the window's close button."
+  },
+  "shell.quit.windowOnlyButton": {
+    "defaultMessage": "Close this window only",
+    "description": "The quit dialog's button that closes just this window."
+  },
+  "shell.quitPending.now": {
+    "defaultMessage": "Quit now",
+    "description": "The banner's button: quits without waiting."
+  },
+  "shell.quitPending.text": {
+    "defaultMessage": "{n, plural, one {Hive will quit when the working agent finishes.} other {Hive will quit when # working agents finish.}}",
+    "description": "A banner while Hive waits for agents to finish before it quits."
+  },
+  "shell.refreshFailed": {
+    "defaultMessage": "Could not refresh {what}.",
+    "description": "A refresh that failed while the last results stay shown. {what} names what."
+  },
+  "shell.refreshFailedAt": {
+    "defaultMessage": "Could not refresh {what}; last updated {when}.",
+    "description": "A refresh that failed while the last results stay shown. {what} names what; {when} is when they are from."
+  },
+  "shell.retry": {
+    "defaultMessage": "Retry",
+    "description": "Button: tries a load that failed again."
+  },
+  "shell.review.checking": {
+    "defaultMessage": "{provider}'s reviewer is checking an action; you aren't needed.",
+    "description": "Tooltip of the shield beside an agent's status while its CLI's automatic review checks an action. {provider} is the coding agent's name."
+  },
+  "shell.review.label": {
+    "defaultMessage": "An action is being reviewed automatically",
+    "description": "The name, for screen readers, of the shield beside an agent under automatic review."
+  },
+  "shell.review.status": {
+    "defaultMessage": "{status} · an action is being reviewed automatically",
+    "description": "An agent's status tooltip while its CLI's automatic review checks an action."
+  },
+  "shell.search.clear": {
+    "defaultMessage": "Clear",
+    "description": "The × in a search box: clears it."
+  },
+  "shell.setup.checkAgain": {
+    "defaultMessage": "Check again",
+    "description": "Agent Setup's button: looks for the CLI, git and updates again."
+  },
+  "shell.setup.docs": {
+    "defaultMessage": "{provider} docs",
+    "description": "Agent Setup's button: opens the coding agent's own documentation. {provider} is its name."
+  },
+  "shell.setup.done": {
+    "defaultMessage": "{what} You can close this window.",
+    "description": "Agent Setup after a task did its job. {what} says what happened."
+  },
+  "shell.setup.found": {
+    "defaultMessage": "<b>{provider} {version}</b> <muted>— found via {source}</muted>",
+    "description": "Agent Setup: the CLI Hive found. {provider} is its name, {version} its version, {source} where it was found (PATH, an install folder); <b> is bold, <muted> greyed."
+  },
+  "shell.setup.gitMissing": {
+    "defaultMessage": "Git not found",
+    "description": "Agent Setup when Hive finds no git. Git is a name: keep it."
+  },
+  "shell.setup.gitOk": {
+    "defaultMessage": "<b>Git {version}</b> <muted>— for worktrees, merging and the Git tab</muted>",
+    "description": "Agent Setup: the git Hive found. {version} is its version; <b> is bold, <muted> greyed. Git is a name: keep it."
+  },
+  "shell.setup.gitOld": {
+    "defaultMessage": "Git {version} is older than {min}",
+    "description": "Agent Setup when the git found is too old. {version} and {min} are version numbers."
+  },
+  "shell.setup.gitOldDetail": {
+    "defaultMessage": "{why} Update Git for Windows to {min} or later, then Check again.",
+    "description": "Agent Setup, under a too old git. {why} says why (in English for now); Git for Windows is a product's name; Check again is the dialog's button."
+  },
+  "shell.setup.gitProblemDetail": {
+    "defaultMessage": "{problem}: worktree agents, merging, the Git tab and the unmerged counts don't work. {fix}",
+    "description": "Agent Setup under a git problem. {problem} and {fix} say what is wrong and what to do (in English for now)."
+  },
+  "shell.setup.gitUnknown": {
+    "defaultMessage": "Couldn't check Git",
+    "description": "Agent Setup when Hive couldn't run git to check it."
+  },
+  "shell.setup.gitUnknownDetail": {
+    "defaultMessage": "{error}. Hive needs Git {min} or later for worktrees, merging and the Git tab.",
+    "description": "Agent Setup when git couldn't be checked. {error} is the error, as given."
+  },
+  "shell.setup.install": {
+    "defaultMessage": "Install {provider}",
+    "description": "Agent Setup's button: installs the CLI. {provider} is its name."
+  },
+  "shell.setup.installed": {
+    "defaultMessage": "{provider} is installed and Hive has found it: agents you start now can use it, without restarting Hive (the installer's advice to restart your terminal is for terminals already open). Agents already running get the new PATH when they restart.",
+    "description": "Agent Setup, after an install found the coding agent's CLI. {provider} is its name; PATH is a Windows setting: keep it."
+  },
+  "shell.setup.looking": {
+    "defaultMessage": "Looking for {provider}…",
+    "description": "Agent Setup while Hive looks for a CLI. {provider} is its name."
+  },
+  "shell.setup.lookingForGit": {
+    "defaultMessage": "Looking for Git…",
+    "description": "Agent Setup while Hive looks for git."
+  },
+  "shell.setup.notFound": {
+    "defaultMessage": "The install ended, but Hive can't find {provider}. If the installer reported an error, it's shown below; if it says it worked, Check again, or set {provider}'s path in Settings → {provider}.",
+    "description": "Agent Setup, after an install ended without Hive finding the CLI. {provider} is its name; Check again is the dialog's button."
+  },
+  "shell.setup.notInstalled": {
+    "defaultMessage": "{provider} is not installed",
+    "description": "Agent Setup when a CLI isn't installed. {provider} is its name."
+  },
+  "shell.setup.notInstalledDetail": {
+    "defaultMessage": "Hive runs the standalone {provider} command-line tool in each project. It isn't bundled with Hive — install it with {company}'s official installer.",
+    "description": "Agent Setup, under \"<provider> is not installed\". {provider} is the coding agent's name, {company} its maker's."
+  },
+  "shell.setup.off": {
+    "defaultMessage": "{provider} is turned off, so Hive doesn't run it. <on>Turn it on</on>",
+    "description": "Agent Setup for a provider that is turned off. {provider} is its name; <on> is a link that turns it on."
+  },
+  "shell.setup.rejected": {
+    "defaultMessage": "{n, plural, one {Ignored a copy} other {Ignored copies}} bundled with an editor extension ({path}). Hive only uses the standalone CLI.",
+    "description": "Agent Setup when it found a CLI only inside an editor's extension. {n} is how many; {path} is where (one of them)."
+  },
+  "shell.setup.setUp": {
+    "defaultMessage": "{provider} is set up.",
+    "description": "Agent Setup after a setup step. {provider} is the coding agent's name."
+  },
+  "shell.setup.signedIn": {
+    "defaultMessage": "{provider} is signed in.",
+    "description": "Agent Setup after signing in. {provider} is the coding agent's name."
+  },
+  "shell.setup.signedInAs": {
+    "defaultMessage": "{account, select, none {Signed in} other {Signed in as {account}}}{method, select, none {} other { ({method})}}",
+    "description": "A badge in Agent Setup: the CLI is signed in. {account} is the account, {method} how it signed in (none: not known)."
+  },
+  "shell.setup.startFailed": {
+    "defaultMessage": "Could not start",
+    "description": "An error's title: Agent Setup couldn't start an install, an update or a sign-in."
+  },
+  "shell.setup.tabOff": {
+    "defaultMessage": "{provider}<faint> (off)</faint>",
+    "description": "A tab of Agent Setup for a provider that is turned off. {provider} is its name; <faint> is greyed."
+  },
+  "shell.setup.testedAt": {
+    "defaultMessage": "Hive's tests ran against {version} on {date}",
+    "description": "Tooltip of Agent Setup's tested-version line. {version} is the CLI's version; {date} when Hive's tests ran."
+  },
+  "shell.setup.title": {
+    "defaultMessage": "Agent Setup",
+    "description": "The title of Help → Agent Setup."
+  },
+  "shell.setup.upToDate": {
+    "defaultMessage": "Up to date",
+    "description": "A badge in Agent Setup: the CLI is the newest version."
+  },
+  "shell.setup.updated": {
+    "defaultMessage": "{provider} is up to date.",
+    "description": "Agent Setup after an update. {provider} is the coding agent's name."
+  },
+  "shell.shortcuts.copyPaste": {
+    "defaultMessage": "Copy selection / paste",
+    "description": "Help → Keyboard Shortcuts: copying and pasting in an agent's terminal."
+  },
+  "shell.shortcuts.copyPasteKeys": {
+    "defaultMessage": "{copy} {paste} or right-click",
+    "description": "Help → Keyboard Shortcuts: the keys for copy and paste ({copy} is Ctrl+C, {paste} Ctrl+V), or the right mouse button."
+  },
+  "shell.shortcuts.customise": {
+    "defaultMessage": "Customise…",
+    "description": "Button of Help → Keyboard Shortcuts: opens Settings → Keyboard Shortcuts."
+  },
+  "shell.shortcuts.reserved": {
+    "defaultMessage": "{keys} are left to {provider} while its terminal has focus.",
+    "description": "Under Help → Keyboard Shortcuts: keys a coding agent keeps in its terminal. {keys} lists them; {provider} is the agent's name."
+  },
+  "shell.shortcuts.switchMode": {
+    "defaultMessage": "Switch mode inside the agent (Claude Code: permission mode)",
+    "description": "Help → Keyboard Shortcuts: what Shift+Tab does in an agent's terminal."
+  },
+  "shell.shortcuts.terminal": {
+    "defaultMessage": "Terminal",
+    "description": "Help → Keyboard Shortcuts: keys an agent's terminal takes (the category column)."
+  },
+  "shell.shortcuts.title": {
+    "defaultMessage": "Keyboard Shortcuts",
+    "description": "The title of Help → Keyboard Shortcuts."
+  },
+  "shell.showAll.all": {
+    "defaultMessage": "Show all {n}",
+    "description": "Under a folded list: shows all its items. {n} is how many."
+  },
+  "shell.showAll.fewer": {
+    "defaultMessage": "Show fewer",
+    "description": "Under an unfolded list: folds it again."
+  },
+  "shell.showAll.region": {
+    "defaultMessage": "{label}, all {n}",
+    "description": "The name, for screen readers, of a list unfolded to all its items. {label} says what they are (given by each view); {n} how many."
+  },
+  "shell.signIn.said": {
+    "defaultMessage": "{provider} says: {said}",
+    "description": "Tooltip of an agent that needs sign-in, its first line. {provider} is the coding agent's name; {said} what its CLI said, as it said it."
+  },
+  "shell.signIn.stopped": {
+    "defaultMessage": "Its turn stopped when {provider}'s sign-in expired. Resume in the project's header carries it on.",
+    "description": "Tooltip of an agent whose turn stopped for its sign-in. {provider} is the coding agent's name."
+  },
+  "shell.signIn.then": {
+    "defaultMessage": "{help} Then Resume in the project's header carries on the agents it stopped.",
+    "description": "Tooltip of an agent that needs sign-in, its second line. {help} says how to sign in again (in English for now); Resume is a button in the project's header."
+  },
+  "shell.startFailed.agent": {
+    "defaultMessage": "{agent} couldn't start",
+    "description": "A notice when an agent's session failed to start. {agent} is its name."
+  },
+  "shell.startFailed.named": {
+    "defaultMessage": "{project} · {agent} couldn't start",
+    "description": "A notice when an agent's session failed to start, while its pane isn't on screen. {project} and {agent} are names."
+  },
+  "shell.startFailed.show": {
+    "defaultMessage": "Show",
+    "description": "The notice's button: shows the agent's pane."
+  },
+  "shell.startFailed.unnamed": {
+    "defaultMessage": "An agent couldn't start",
+    "description": "A notice when a session failed to start and its agent isn't known."
+  },
+  "shell.status.background": {
+    "defaultMessage": "Background tasks",
+    "description": "An agent's status: its turn ended while background tasks it started still run."
+  },
+  "shell.status.error": {
+    "defaultMessage": "Error",
+    "description": "An agent's status: its CLI failed."
+  },
+  "shell.status.finished": {
+    "defaultMessage": "Finished",
+    "description": "An agent's status: its turn has ended."
+  },
+  "shell.status.finishedWithTasks": {
+    "defaultMessage": "{n, plural, one {Finished · # background task running} other {Finished · # background tasks running}}",
+    "description": "An agent's status: finished, while background tasks it started run. {n} is how many."
+  },
+  "shell.status.idle": {
+    "defaultMessage": "No session",
+    "description": "An agent's status: it has no session."
+  },
+  "shell.status.question": {
+    "defaultMessage": "{status} · has a question for you",
+    "description": "An agent's status while it works on with a question for you."
+  },
+  "shell.status.ready": {
+    "defaultMessage": "Ready",
+    "description": "An agent's status: started, waiting for a prompt."
+  },
+  "shell.status.readyWithTasks": {
+    "defaultMessage": "{n, plural, one {Ready · # background task running} other {Ready · # background tasks running}}",
+    "description": "An agent's status: ready for a prompt, while background tasks it started run. {n} is how many."
+  },
+  "shell.status.signin": {
+    "defaultMessage": "Needs sign-in",
+    "description": "An agent's status: its CLI's sign-in was refused or has expired."
+  },
+  "shell.status.starting": {
+    "defaultMessage": "Starting…",
+    "description": "An agent's status."
+  },
+  "shell.status.stopped": {
+    "defaultMessage": "Stopped",
+    "description": "An agent's status."
+  },
+  "shell.status.waiting": {
+    "defaultMessage": "Needs your input",
+    "description": "An agent's status: it asks you something, or a permission."
+  },
+  "shell.status.waitingOnTasks": {
+    "defaultMessage": "{n, plural, one {Waiting on # background task} other {Waiting on # background tasks}}",
+    "description": "An agent's status: its turn ended while background tasks it started still run. {n} is how many."
+  },
+  "shell.status.watching": {
+    "defaultMessage": "Waiting on cards",
+    "description": "An agent's status: waiting for cards to change (a card watch)."
+  },
+  "shell.status.working": {
+    "defaultMessage": "Working…",
+    "description": "An agent's status."
+  },
+  "shell.table.all": {
+    "defaultMessage": "All",
+    "description": "A table's column filter's first choice: no filter."
+  },
+  "shell.table.clearFilters": {
+    "defaultMessage": "Clear filters",
+    "description": "Button in a table whose filters match nothing: clears them."
+  },
+  "shell.table.filter": {
+    "defaultMessage": "Filter",
+    "description": "Placeholder of a table's text filter under a column."
+  },
+  "shell.table.filterBy": {
+    "defaultMessage": "Filter {column}",
+    "description": "The name, for screen readers, of a table's filter under a column. {column} is the heading."
+  },
+  "shell.table.first": {
+    "defaultMessage": "First page",
+    "description": "A table's button: its first page."
+  },
+  "shell.table.last": {
+    "defaultMessage": "Last page",
+    "description": "A table's button: its last page."
+  },
+  "shell.table.next": {
+    "defaultMessage": "Next page",
+    "description": "A table's button."
+  },
+  "shell.table.noMatch": {
+    "defaultMessage": "No rows match the filters.",
+    "description": "A table whose filters match nothing."
+  },
+  "shell.table.page": {
+    "defaultMessage": "Page {page} of {pages}",
+    "description": "Under a table: which page it shows."
+  },
+  "shell.table.pages": {
+    "defaultMessage": "Pages",
+    "description": "The name, for screen readers, of a table's page controls."
+  },
+  "shell.table.previous": {
+    "defaultMessage": "Previous page",
+    "description": "A table's button."
+  },
+  "shell.table.range": {
+    "defaultMessage": "{from}–{to} of {total}",
+    "description": "Under a table: which of its rows the page shows."
+  },
+  "shell.table.rowsPerPage": {
+    "defaultMessage": "Rows per page",
+    "description": "Beside a table's choice of how many rows a page shows."
+  },
+  "shell.table.selectAll": {
+    "defaultMessage": "{n, plural, one {Select all # row} other {Select all # rows}}",
+    "description": "The name, for screen readers, of a table's tick box that selects every row."
+  },
+  "shell.table.selectAllMatching": {
+    "defaultMessage": "{n, plural, one {Select all # matching row} other {Select all # matching rows}}",
+    "description": "The name, for screen readers, of a table's tick box that selects every row its filters match (on every page)."
+  },
+  "shell.table.sortBy": {
+    "defaultMessage": "Sort by {column}",
+    "description": "Tooltip of a table's column heading: sorts by it. {column} is the heading."
+  },
+  "shell.tip.app.quit": {
+    "defaultMessage": "Quit Hive",
+    "description": "What a command does, on hover in the menus."
+  },
+  "shell.tip.app.quitAll": {
+    "defaultMessage": "Close all {n} windows and stop the agents in every workspace",
+    "description": "What a command does, on hover in the menus. {n} is how many windows are open (2 or more)."
+  },
+  "shell.tip.help.devConsole": {
+    "defaultMessage": "What each CLI sends Hive, next to what Hive made of it, in a window of its own",
+    "description": "What a command does, on hover in the menus."
+  },
+  "shell.tip.help.improveTranslation": {
+    "defaultMessage": "How to fix a translation, or add a language, on GitHub",
+    "description": "What a command does, on hover in the menus."
+  },
+  "shell.tip.window.closeQuit": {
+    "defaultMessage": "Close the window and quit Hive",
+    "description": "What a command does, on hover in the menus. With one window, and Close to tray off."
+  },
+  "shell.tip.window.closeSeveral": {
+    "defaultMessage": "Close this window and stop its workspace's agents",
+    "description": "What a command does, on hover in the menus. With several windows open."
+  },
+  "shell.tip.window.closeToTray": {
+    "defaultMessage": "Close the window; Hive keeps running in the tray",
+    "description": "What a command does, on hover in the menus. With one window, and Close to tray on."
+  },
+  "shell.tip.workspace.clearRecent": {
+    "defaultMessage": "Forget the recent workspaces (the folders are left alone); ones open in a window stay",
+    "description": "What a command does, on hover in the menus."
+  },
+  "shell.tip.workspace.close": {
+    "defaultMessage": "Stop this workspace's agents and close it; the window stays open",
+    "description": "What a command does, on hover in the menus."
+  },
+  "shell.tip.workspace.repairMove": {
+    "defaultMessage": "The workspace or a project moved to another folder: repair what still points to the old one",
+    "description": "What a command does, on hover in the menus."
+  },
+  "shell.titlebar.pin": {
+    "defaultMessage": "Always on Top",
+    "description": "The name, for screen readers, of the pin in the title bar."
+  },
+  "shell.titlebar.pinTip": {
+    "defaultMessage": "{on, select, yes {Always on Top (on)} other {Always on Top (off)}}",
+    "description": "Tooltip of the pin in the title bar (its shortcut follows): whether the window stays above other apps."
+  },
+  "shell.toast.dismiss": {
+    "defaultMessage": "Dismiss",
+    "description": "Button on a notice in the corner: closes it."
+  },
+  "shell.view.assistant": {
+    "defaultMessage": "The Assistant",
+    "description": "Names a part of the window that failed to show (\"The Assistant ran into a problem…\")."
+  },
+  "shell.view.devConsole": {
+    "defaultMessage": "The developer console",
+    "description": "Names the developer console's window when it fails to show (\"The developer console ran into a problem…\")."
+  },
+  "shell.view.progress": {
+    "defaultMessage": "The Progress panel",
+    "description": "Names a part of the window that failed to show (\"The Progress panel ran into a problem…\")."
+  }
+}

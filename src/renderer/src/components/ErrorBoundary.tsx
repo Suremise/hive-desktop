@@ -1,11 +1,12 @@
+import { msg, tr } from '@shared/i18n'
 import { Component, type ErrorInfo, type ReactNode } from 'react'
 import { call } from '../api'
 import { saveAllDrafts, unsavedFiles } from './FileView'
 
 interface Props {
   children: ReactNode
-  /** What failed, for the message ("This tab", "Hive"). */
-  label?: string
+  /** What failed, for the message ("The Assistant", "Hive"); a function is read when the message shows, in the language shown then. */
+  label?: string | (() => string)
   /** A new value (e.g. another project or tab) clears the error and tries again. */
   resetKey?: string
   /** The whole window failed: offer a reload instead of trying the view again. */
@@ -28,7 +29,12 @@ export class ErrorBoundary extends Component<Props, { error: Error | null; key?:
   }
 
   componentDidCatch(error: Error, info: ErrorInfo): void {
-    console.error(`${this.props.label ?? 'View'} failed`, error, info.componentStack)
+    console.error(`${this.label() ?? 'View'} failed`, error, info.componentStack)
+  }
+
+  private label(): string | undefined {
+    const l = this.props.label
+    return typeof l === 'function' ? l() : l
   }
 
   render(): ReactNode {
@@ -37,9 +43,9 @@ export class ErrorBoundary extends Component<Props, { error: Error | null; key?:
     return (
       <div className="empty-state error-boundary" role="alert">
         <span className="codicon codicon-warning" />
-        <strong>{this.props.label ?? 'This view'} ran into a problem and couldn't be shown.</strong>
+        <strong>{this.label() ? tr(msg({ id: 'shell.errorBoundary.named', defaultMessage: "{view} ran into a problem and couldn't be shown.", description: "Where a part of the window failed to show. {view} names it (The Assistant, The Progress panel…), given in the window's code." }), { view: this.label() ?? '' }) : tr(msg({ id: 'shell.errorBoundary.view', defaultMessage: "This view ran into a problem and couldn't be shown.", description: 'Where a view of the window failed to show.' }))}</strong>
         <code className="error-boundary-message">{error.message || String(error)}</code>
-        <span className="faint">Running sessions are not affected.</span>
+        <span className="faint">{tr(msg({ id: 'shell.errorBoundary.sessions', defaultMessage: 'Running sessions are not affected.', description: 'Under a view that failed to show.' }))}</span>
         {this.state.saveResult && <span>{this.state.saveResult}</span>}
         <div className="flex" style={{ gap: 8, justifyContent: 'center' }}>
           {this.props.root ? (
@@ -49,24 +55,24 @@ export class ErrorBoundary extends Component<Props, { error: Error | null; key?:
                   className="btn"
                   onClick={() =>
                     void saveAllDrafts().then((r) => {
-                      this.setState({ saveResult: r.failed.length ? `Couldn't save: ${r.failed.map((f) => f.message).join('; ')}` : `Saved ${r.saved} file${r.saved === 1 ? '' : 's'}.` })
+                      this.setState({ saveResult: r.failed.length ? tr(msg({ id: 'shell.errorBoundary.saveFailed', defaultMessage: "Couldn't save: {why}", description: 'After saving unsaved files from a failed window: what failed. {why} lists the reasons.' }), { why: r.failed.map((f) => f.message).join('; ') }) : tr(msg({ id: 'shell.errorBoundary.saved', defaultMessage: '{n, plural, one {Saved # file.} other {Saved # files.}}', description: 'After saving unsaved files from a failed window.' }), { n: r.saved }) })
                     })
                   }
                 >
-                  Save {unsavedFiles().length} Unsaved File{unsavedFiles().length === 1 ? '' : 's'}
+                  {tr(msg({ id: 'shell.errorBoundary.save', defaultMessage: '{n, plural, one {Save # Unsaved File} other {Save # Unsaved Files}}', description: 'Button under a failed window: saves the files with unsaved edits first.' }), { n: unsavedFiles().length })}
                 </button>
               )}
               <button className="btn primary" onClick={() => location.reload()}>
-                Reload Window
+                {tr(msg({ id: 'shell.errorBoundary.reload', defaultMessage: 'Reload Window', description: 'Button under a failed window: reloads it.' }))}
               </button>
             </>
           ) : (
             <button className="btn primary" onClick={() => this.setState({ error: null })}>
-              Try Again
+              {tr(msg({ id: 'shell.errorBoundary.tryAgain', defaultMessage: 'Try Again', description: 'Button under a view that failed: shows it again.' }))}
             </button>
           )}
           <button className="btn subtle" onClick={() => void call('app:openLogs')}>
-            Open Logs
+            {tr(msg({ id: 'shell.errorBoundary.logs', defaultMessage: 'Open Logs', description: "Button under a view that failed: opens the folder of Hive's log files." }))}
           </button>
         </div>
       </div>

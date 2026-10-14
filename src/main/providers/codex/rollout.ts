@@ -3,7 +3,7 @@ import { emptyDay, localDay } from '../../../shared/usageDays'
 import { TimelineBuilder } from '../../../shared/usageTimeline'
 import { CODEX } from '../../../shared/codex'
 import { isSessionId } from '../../../shared/defaults'
-import { firstLine, shortPath, toolLabel, type NewItem } from '../conversation'
+import { NOTICE_TEXT, firstLine, noticeOf, shortPath, toolLabel, type NewItem } from '../conversation'
 import type { ConversationParserLike, ImageLocation, LiveDetails } from '../types'
 import { advanced } from '../../advanced'
 import { countSafeguards } from '../../../shared/safeguards'
@@ -76,7 +76,7 @@ export function rolloutSubSession(meta: Record<string, any>): SubSession | null 
   const parentId = typeof meta?.parent_thread_id === 'string' && isSessionId(meta.parent_thread_id) ? meta.parent_thread_id : null
   if (sub === undefined && !parentId && (!thread || thread === 'user')) return null
   const name = typeof sub === 'string' ? sub : sub && typeof sub === 'object' ? String(sub.other ?? Object.keys(sub)[0] ?? '') : ''
-  const kind = thread === 'guardian_review' || name === 'guardian' ? 'guardian review' : name ? name.replace(/_/g, ' ') : 'sub-agent'
+  const kind = thread === 'guardian_review' || name === 'guardian' ? 'guardian review' : name ? name.replace(/_/g, ' ') : 'sub-agent' // i18n-ignore: a sub-session's kind, kept in sessions.json
   return { parentId, kind }
 }
 
@@ -108,7 +108,7 @@ export function signInRefused(error: unknown): string | null {
   const info = e.codex_error_info
   if (info !== undefined && info !== null) {
     const refused = info === 'unauthorized' || (typeof info === 'object' && Object.values(info).some((v) => (v as { http_status_code?: unknown } | null)?.http_status_code === 401))
-    return refused ? message || 'Codex isn’t signed in.' : null
+    return refused ? message || 'Codex isn’t signed in.' : null // i18n-ignore: a status message in the CLI's place, which agents read (GET /v1/projects)
   }
   // An advanced setting (#367).
   return advanced.pattern('codex.signIn.expired').test(message) ? message : null
@@ -392,7 +392,7 @@ export class CodexConversationParser implements ConversationParserLike {
           const cmd = Array.isArray(args.command) ? (args.command as string[]).join(' ') : ((args.cmd ?? args.command) as string | undefined)
           const input = shell && typeof cmd === 'string' ? cmd : JSON.stringify(args, null, 2)
           const summary = shell ? firstLine(cmd) : firstLine(Object.values(args).find((v) => typeof v === 'string'))
-          this.tool(String(p.call_id ?? ''), shell ? 'Shell' : name, input, summary.slice(0, 200), ts)
+          this.tool(String(p.call_id ?? ''), shell ? 'Shell' : name, input, summary.slice(0, 200), ts) // i18n-ignore: a tool's name, as agents read it (hive_agent_activity)
           break
         }
         case 'custom_tool_call': {
@@ -402,8 +402,8 @@ export class CodexConversationParser implements ConversationParserLike {
           const scripted = name === 'exec' ? scriptPatch(input) : null
           const patch = name === 'apply_patch' ? input : scripted
           if (patch !== null) {
-            this.tool(String(p.call_id ?? ''), 'Edit', patch, patchPaths(patch).map((f) => shortPath(f, this.root)).join(', ').slice(0, 200), ts)
-          } else this.tool(String(p.call_id ?? ''), name === 'exec' ? 'Script' : name, input, firstLine(input).slice(0, 200), ts)
+            this.tool(String(p.call_id ?? ''), 'Edit', patch, patchPaths(patch).map((f) => shortPath(f, this.root)).join(', ').slice(0, 200), ts) // i18n-ignore: a tool's name, as agents read it (hive_agent_activity)
+          } else this.tool(String(p.call_id ?? ''), name === 'exec' ? 'Script' : name, input, firstLine(input).slice(0, 200), ts) // i18n-ignore: a tool's name, as agents read it (hive_agent_activity)
           break
         }
         case 'function_call_output':
@@ -432,7 +432,7 @@ export class CodexConversationParser implements ConversationParserLike {
       const summary = typeof p.message === 'string' ? p.message : null
       this.push({ kind: 'compaction', timestamp: ts, trigger: 'auto', preTokens: 0, postTokens: 0, nextRequestTokens: null, summary })
     } else if (r.type === 'event_msg') {
-      if (p.type === 'turn_aborted') this.push({ kind: 'notice', timestamp: ts, text: p.reason === 'interrupted' ? 'Interrupted by you' : `Turn ended: ${p.reason ?? 'aborted'}`, level: 'info' })
+      if (p.type === 'turn_aborted') this.push({ ...noticeOf(p.reason === 'interrupted' ? NOTICE_TEXT.interrupted : p.reason ? { m: NOTICE_TEXT.turnEnded, values: { reason: String(p.reason) } } : NOTICE_TEXT.aborted, 'info'), timestamp: ts })
       else if (p.type === 'error' && typeof p.message === 'string') this.push({ kind: 'notice', timestamp: ts, text: p.message, level: 'error' })
     }
   }

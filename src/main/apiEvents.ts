@@ -164,11 +164,11 @@ export function apiEventFor(event: HiveEvent, agent: StreamScope | null): Record
             waiting: s.waiting.map((w) => ({ agentId: w.agentId, name: w.name, cards: w.cards, since: w.since }))
           }))
       }
-    // What Hive told the user, without its body (an agent's last reply, its question).
+    // What Hive told the user, without its body (an agent's last reply, its question), its title in English.
     case 'notice': {
       const n = event.notice
       if (!own(n.projectPath)) return null
-      return { type: event.type, notice: { id: n.id, kind: n.kind, title: n.title, projectPath: n.projectPath, ...(n.agentId ? { agentId: n.agentId } : {}) } }
+      return { type: event.type, notice: { id: n.id, kind: n.kind, title: n.apiTitle ?? n.title, projectPath: n.projectPath, ...(n.agentId ? { agentId: n.agentId } : {}) } }
     }
     case 'notice-resolved':
     case 'agent-added':

@@ -3,6 +3,7 @@ import { PROVIDERS, providerDescriptor } from '@shared/providers'
 import { batchCounts, type BatchCounts } from '@shared/startAll'
 import type { ProviderId, SessionLayout } from '@shared/types'
 import { APP_NAME } from '@shared/appName'
+import { msg, tr, type Msg, type Values } from '@shared/i18n'
 import { call } from './api'
 import { unarchiveBatch } from './boardBatches'
 import { checkForUpdates, openReleaseNotes } from './components/Updates'
@@ -13,10 +14,31 @@ import { requestStripMenu, type StripMenu } from './stripMenus'
 import { showAntivirus } from './components/Antivirus'
 import { agentPage, assistantOnLeft, focusedAgentId, get, isAssistantPath, setAssistantSide, notify, openProjectSettings, set, setActivity, setAssistantOpen, setProgressOpen, progressIsOpen, showAssistantView, showView, showUnusedWorktrees, setProjectTab, showAgent, showPage, toggleCompactSidebar, type ProjectTab } from './store'
 
-export interface Command {
+/** A command's category: an id (CATEGORY_TEXT names it), as Settings → Keyboard Shortcuts groups and filters them. */
+export type CommandCategory = 'view' | 'file' | 'project' | 'session' | 'help' | 'preferences' | 'assistant' | 'developer' | 'tasks' | 'notes' | 'mcp'
+
+/** Each category's name, in the palette ("Session: Compact Conversation…") and Settings → Keyboard Shortcuts. */
+export const CATEGORY_TEXT: Record<CommandCategory, Msg> = {
+  view: msg({ id: 'shell.category.view', defaultMessage: 'View', description: "A command's category (the View menu's)." }),
+  file: msg({ id: 'shell.category.file', defaultMessage: 'File', description: "A command's category (the File menu's)." }),
+  project: msg({ id: 'shell.category.project', defaultMessage: 'Project', description: "A command's category: commands about the project shown." }),
+  session: msg({ id: 'shell.category.session', defaultMessage: 'Session', description: "A command's category: commands about an agent's session." }),
+  help: msg({ id: 'shell.category.help', defaultMessage: 'Help', description: "A command's category (the Help menu's)." }),
+  preferences: msg({ id: 'shell.category.preferences', defaultMessage: 'Preferences', description: "A command's category: Settings and what is in it." }),
+  assistant: msg({ id: 'shell.category.assistant', defaultMessage: 'Assistant', description: "A command's category: the Hive Assistant's." }),
+  developer: msg({ id: 'shell.category.developer', defaultMessage: 'Developer', description: "A command's category: tools for developing Hive and debugging it." }),
+  tasks: msg({ id: 'shell.category.tasks', defaultMessage: 'Tasks', description: "A command's category: the task board's cards." }),
+  notes: msg({ id: 'shell.category.notes', defaultMessage: 'Notes', description: "A command's category: shared notes." }),
+  mcp: msg({ id: 'shell.category.mcp', defaultMessage: 'MCP', description: "A command's category: MCP servers. MCP is a name: keep it." })
+}
+
+/** A command as written below: its name a message (#767). */
+export interface CommandDef {
   id: string
-  label: string
-  category: string
+  /** Its name, a message; with values for one that names something (a layout, an agent's number). */
+  name: Msg
+  nameValues?: Values
+  category: CommandCategory
   /** The default shortcut. Users change it in Settings → Keyboard Shortcuts (projects for Project and Session commands). */
   keybinding?: string
   run: (...args: any[]) => unknown
@@ -25,16 +47,27 @@ export interface Command {
   internal?: boolean
   /** A toggle: shown with a checkmark in the menus and the palette while it is on. */
   checked?: () => boolean
-  /** Its label as things are now, in the menus and the palette (`label` is its name everywhere else). */
+  /** Its label as things are now, in the menus and the palette (`label` is its name everywhere else), in the language shown. */
   liveLabel?: () => string
-  /** What it does, on hover in the menus. */
+  /** What it does, on hover in the menus, in the language shown. */
   tip?: () => string
   /** Left out of the menus, the palette and Tips, and not run, while this says so (developer features, #637). */
   hidden?: () => boolean
 }
 
+export interface Command extends CommandDef {
+  /** Its name in the language shown, as it is when read: read it when rendering, never keep it. */
+  readonly label: string
+}
+
 /** A command's label in the menus and the palette. */
 export const commandLabel = (c: Command): string => c.liveLabel?.() ?? c.label
+
+/** A command's category's name, in the language shown. */
+export const commandCategory = (c: Pick<Command, 'category'>): string => tr(CATEGORY_TEXT[c.category])
+
+/** CONTRIBUTING's section on fixing a translation (Help → Improve This Translation). */
+const TRANSLATING_URL = 'https://github.com/Suremise/hive-desktop/blob/main/CONTRIBUTING.md#fix-a-translation'
 
 /** More than one window is open: File → Exit closes them all. */
 const severalWindows = (): boolean => get().windowCount > 1
@@ -56,9 +89,9 @@ const hasLive = (): boolean => {
 }
 
 /** A batch action's label with how many agents it acts on, as the project header shows it (#275); no count with one agent. */
-function batchLabel(name: string, which: keyof BatchCounts): string {
+function batchLabel(m: Msg, which: keyof BatchCounts): string {
   const agents = selected()?.agents ?? []
-  return agents.length > 1 ? `${name} (${batchCounts(agents)[which]})…` : `${name}…`
+  return tr(m, { several: agents.length > 1 ? 'yes' : 'no', n: agents.length > 1 ? batchCounts(agents)[which] : 0 })
 }
 
 function cycleAgent(delta: number): void {
@@ -127,11 +160,12 @@ function focusTerminal(): void {
   }, 50)
 }
 
-const layoutCommand = (value: SessionLayout, n: number): Command => ({
+const layoutCommand = (value: SessionLayout, n: number): CommandDef => ({
   id: `layout.${value}`,
-  label: `Layout: ${SESSION_LAYOUTS.find((l) => l.value === value)?.label ?? value}`,
-  category: 'Session',
-  keybinding: `Mod+Alt+${n}`,
+  name: msg({ id: 'shell.command.layout', defaultMessage: 'Layout: {layout}', description: "A command per agent layout (the menus, the command palette, Settings → Keyboard Shortcuts), in the Session category. {layout} is the layout's name." }),
+  nameValues: { layout: SESSION_LAYOUTS.find((l) => l.value === value)?.label ?? value },
+  category: 'session',
+  keybinding: `Mod+Alt+${n}`, // i18n-ignore: a shortcut's keys
   when: hasProject,
   run: () => {
     // One layout for the project (#134).
@@ -140,62 +174,62 @@ const layoutCommand = (value: SessionLayout, n: number): Command => ({
   }
 })
 
-export const commands: Command[] = [
-  { id: 'palette.show', label: 'Show All Commands', category: 'View', keybinding: 'Mod+Shift+P', run: () => set({ paletteOpen: true, paletteMode: 'commands' }) },
-  { id: 'project.goto', label: 'Go to Project…', category: 'View', keybinding: 'Mod+P', when: hasWorkspace, run: () => set({ paletteOpen: true, paletteMode: 'projects' }) },
-  { id: 'settings.open', label: 'Open Settings', category: 'Preferences', keybinding: 'Mod+,', run: () => setActivity('settings') },
-  { id: 'settings.providers', label: 'Choose Coding Agents (Providers)', category: 'Preferences', run: () => { set({ settingsSection: 'providers', settingsQuery: '' }); setActivity('settings') } },
-  { id: 'settings.keybindings', label: 'Customise Keyboard Shortcuts', category: 'Preferences', run: () => { set({ settingsSection: 'keybindings', settingsQuery: '' }); setActivity('settings') } },
-  { id: 'settings.advanced', label: 'Advanced Settings', category: 'Preferences', run: () => { set({ settingsSection: 'advanced', settingsQuery: '' }); setActivity('settings') } },
-  { id: 'settings.notifications', label: 'Notification Settings', category: 'Preferences', run: () => { set({ settingsSection: 'notifications', settingsQuery: '' }); setActivity('settings') } },
-  { id: 'antivirus.show', label: 'Antivirus Scanning of the Workspace', category: 'Preferences', run: () => showAntivirus() },
-  { id: 'antivirus.dismiss', label: 'Don’t Suggest Antivirus Exclusions Again', category: 'Preferences', internal: true, run: () => void call('antivirus:dismiss') },
-  { id: 'window.new', label: 'New Window', category: 'File', keybinding: 'Mod+K Mod+N', run: () => call('window:new') },
-  { id: 'workspace.open', label: 'Open Workspace…', category: 'File', keybinding: 'Mod+K Mod+O', run: (path?: string) => actions.openWorkspace(path) },
-  { id: 'workspace.create', label: 'New Workspace…', category: 'File', run: () => actions.createWorkspace() },
-  { id: 'workspace.clearRecent', label: 'Clear Recently Opened…', category: 'File', tip: () => 'Forget the recent workspaces (the folders are left alone); ones open in a window stay', run: () => actions.clearRecent() },
-  { id: 'workspace.close', label: 'Close Workspace', category: 'File', when: hasWorkspace, tip: () => "Stop this workspace's agents and close it; the window stays open", run: () => actions.closeWorkspace() },
+const COMMAND_DEFS: CommandDef[] = [
+  { id: 'palette.show', name: msg({ id: 'shell.command.palette.show', defaultMessage: 'Show All Commands', description: 'A command (the menus, the command palette, Settings → Keyboard Shortcuts), in the View category.' }), category: 'view', keybinding: 'Mod+Shift+P', run: () => set({ paletteOpen: true, paletteMode: 'commands' }) }, // i18n-ignore: a shortcut's keys
+  { id: 'project.goto', name: msg({ id: 'shell.command.project.goto', defaultMessage: 'Go to Project…', description: 'A command (the menus, the command palette, Settings → Keyboard Shortcuts), in the View category. The … says it opens a dialog first: keep it.' }), category: 'view', keybinding: 'Mod+P', when: hasWorkspace, run: () => set({ paletteOpen: true, paletteMode: 'projects' }) }, // i18n-ignore: a shortcut's keys
+  { id: 'settings.open', name: msg({ id: 'shell.command.settings.open', defaultMessage: 'Open Settings', description: 'A command (the menus, the command palette, Settings → Keyboard Shortcuts), in the Preferences category.' }), category: 'preferences', keybinding: 'Mod+,', run: () => setActivity('settings') }, // i18n-ignore: a shortcut's keys
+  { id: 'settings.providers', name: msg({ id: 'shell.command.settings.providers', defaultMessage: 'Choose Coding Agents (Providers)', description: 'A command (the menus, the command palette, Settings → Keyboard Shortcuts), in the Preferences category.' }), category: 'preferences', run: () => { set({ settingsSection: 'providers', settingsQuery: '' }); setActivity('settings') } },
+  { id: 'settings.keybindings', name: msg({ id: 'shell.command.settings.keybindings', defaultMessage: 'Customise Keyboard Shortcuts', description: 'A command (the menus, the command palette, Settings → Keyboard Shortcuts), in the Preferences category.' }), category: 'preferences', run: () => { set({ settingsSection: 'keybindings', settingsQuery: '' }); setActivity('settings') } },
+  { id: 'settings.advanced', name: msg({ id: 'shell.command.settings.advanced', defaultMessage: 'Advanced Settings', description: 'A command (the menus, the command palette, Settings → Keyboard Shortcuts), in the Preferences category.' }), category: 'preferences', run: () => { set({ settingsSection: 'advanced', settingsQuery: '' }); setActivity('settings') } },
+  { id: 'settings.notifications', name: msg({ id: 'shell.command.settings.notifications', defaultMessage: 'Notification Settings', description: 'A command (the menus, the command palette, Settings → Keyboard Shortcuts), in the Preferences category.' }), category: 'preferences', run: () => { set({ settingsSection: 'notifications', settingsQuery: '' }); setActivity('settings') } },
+  { id: 'antivirus.show', name: msg({ id: 'shell.command.antivirus.show', defaultMessage: 'Antivirus Scanning of the Workspace', description: 'A command (the menus, the command palette, Settings → Keyboard Shortcuts), in the Preferences category.' }), category: 'preferences', run: () => showAntivirus() },
+  { id: 'antivirus.dismiss', name: msg({ id: 'shell.command.antivirus.dismiss', defaultMessage: 'Don’t Suggest Antivirus Exclusions Again', description: "A command (the menus, the command palette, Settings → Keyboard Shortcuts), in the Preferences category. It isn't in the menus or the palette: notifications and buttons run it by its name." }), category: 'preferences', internal: true, run: () => void call('antivirus:dismiss') },
+  { id: 'window.new', name: msg({ id: 'shell.command.window.new', defaultMessage: 'New Window', description: 'A command (the menus, the command palette, Settings → Keyboard Shortcuts), in the File category.' }), category: 'file', keybinding: 'Mod+K Mod+N', run: () => call('window:new') }, // i18n-ignore: a shortcut's keys
+  { id: 'workspace.open', name: msg({ id: 'shell.command.workspace.open', defaultMessage: 'Open Workspace…', description: 'A command (the menus, the command palette, Settings → Keyboard Shortcuts), in the File category. The … says it opens a dialog first: keep it.' }), category: 'file', keybinding: 'Mod+K Mod+O', run: (path?: string) => actions.openWorkspace(path) }, // i18n-ignore: a shortcut's keys
+  { id: 'workspace.create', name: msg({ id: 'shell.command.workspace.create', defaultMessage: 'New Workspace…', description: 'A command (the menus, the command palette, Settings → Keyboard Shortcuts), in the File category. The … says it opens a dialog first: keep it.' }), category: 'file', run: () => actions.createWorkspace() },
+  { id: 'workspace.clearRecent', name: msg({ id: 'shell.command.workspace.clearRecent', defaultMessage: 'Clear Recently Opened…', description: 'A command (the menus, the command palette, Settings → Keyboard Shortcuts), in the File category. The … says it opens a dialog first: keep it.' }), category: 'file', tip: () => tr(msg({ id: 'shell.tip.workspace.clearRecent', defaultMessage: 'Forget the recent workspaces (the folders are left alone); ones open in a window stay', description: 'What a command does, on hover in the menus.' })), run: () => actions.clearRecent() },
+  { id: 'workspace.close', name: msg({ id: 'shell.command.workspace.close', defaultMessage: 'Close Workspace', description: 'A command (the menus, the command palette, Settings → Keyboard Shortcuts), in the File category.' }), category: 'file', when: hasWorkspace, tip: () => tr(msg({ id: 'shell.tip.workspace.close', defaultMessage: "Stop this workspace's agents and close it; the window stays open", description: 'What a command does, on hover in the menus.' })), run: () => actions.closeWorkspace() },
   {
     id: 'workspace.repairMove',
-    label: 'Repair Moved Workspace…',
-    category: 'File',
+    name: msg({ id: 'shell.command.workspace.repairMove', defaultMessage: 'Repair Moved Workspace…', description: 'A command (the menus, the command palette, Settings → Keyboard Shortcuts), in the File category. The … says it opens a dialog first: keep it.' }),
+    category: 'file',
     when: () => !!get().workspace?.moved,
-    tip: () => 'The workspace or a project moved to another folder: repair what still points to the old one',
+    tip: () => tr(msg({ id: 'shell.tip.workspace.repairMove', defaultMessage: 'The workspace or a project moved to another folder: repair what still points to the old one', description: 'What a command does, on hover in the menus.' })),
     run: () => set({ moveRepairOpen: true })
   },
-  { id: 'workspace.refresh', label: 'Refresh Workspace', category: 'File', keybinding: 'F5', when: hasWorkspace, run: () => actions.refreshWorkspace() },
-  { id: 'project.new', label: 'New Project…', category: 'Project', keybinding: 'Mod+Alt+N', when: hasWorkspace, run: () => actions.createProject() },
-  { id: 'project.toggleActive', label: 'Toggle Project Active', category: 'Project', keybinding: 'Mod+Alt+A', when: hasProject, run: () => actions.toggleActiveSelected() },
-  { id: 'project.next', label: 'Next Project', category: 'Project', keybinding: 'Mod+PageDown', when: hasWorkspace, run: () => actions.cycleProject(1) },
-  { id: 'project.previous', label: 'Previous Project', category: 'Project', keybinding: 'Mod+PageUp', when: hasWorkspace, run: () => actions.cycleProject(-1) },
-  { id: 'project.focus', label: 'Focus Project', category: 'Project', internal: true, run: (path: string) => path && actions.selectProject(path) },
-  { id: 'project.remove', label: 'Remove Project…', category: 'Project', when: hasProject, run: (path?: unknown) => set({ removeProjectFor: typeof path === 'string' ? path : get().selectedProject }) },
-  { id: 'project.openExplorer', label: 'Reveal Project in File Explorer', category: 'Project', when: hasProject, run: () => call('project:openInExplorer', get().selectedProject!) },
-  { id: 'project.openTerminal', label: 'Open External Terminal Here', category: 'Project', keybinding: 'Mod+Shift+`', when: hasProject, run: () => call('project:openTerminal', get().selectedProject!) },
-  { id: 'project.tab.session', label: 'Go to Session', category: 'Project', keybinding: 'Alt+1', when: hasProject, run: tab('session') },
-  { id: 'project.tab.overview', label: 'Go to Overview', category: 'Project', keybinding: 'Alt+2', when: hasProject, run: tab('overview') },
-  { id: 'project.tab.performance', label: 'Go to Performance', category: 'Project', when: hasProject, run: tab('performance') },
-  { id: 'project.tab.tasks', label: 'Go to Tasks', category: 'Project', when: hasProject, run: tab('tasks') },
-  { id: 'project.tab.sessions', label: 'Go to Sessions', category: 'Project', keybinding: 'Alt+3', when: hasProject, run: tab('sessions') },
-  { id: 'project.tab.files', label: 'Go to Files', category: 'Project', keybinding: 'Alt+4', when: hasProject, run: tab('files') },
-  { id: 'project.tab.images', label: 'Go to Attachments', category: 'Project', keybinding: 'Alt+5', when: hasProject, run: tab('images') },
-  { id: 'project.tab.changes', label: 'Go to Git', category: 'Project', keybinding: 'Alt+6', when: hasProject, run: tab('changes') },
-  { id: 'project.tab.memory', label: 'Go to Memory', category: 'Project', keybinding: 'Alt+7', when: hasProject, run: tab('memory') },
-  { id: 'project.tab.skills', label: 'Go to Skills', category: 'Project', keybinding: 'Alt+8', when: hasProject, run: tab('skills') },
-  { id: 'project.tab.templates', label: 'Go to Templates', category: 'Project', when: hasProject, run: tab('templates') },
-  { id: 'project.tab.mcp', label: 'Go to MCP', category: 'Project', keybinding: 'Alt+9', when: hasProject, run: tab('mcp') },
-  { id: 'project.tab.settings', label: 'Go to Project Settings', category: 'Project', keybinding: 'Alt+0', when: hasProject, run: tab('settings') },
-  { id: 'project.storage', label: 'Project Storage and Clean Up…', category: 'Project', when: hasProject, run: () => openProjectSettings(get().selectedProject!, 'storage') },
-  { id: 'project.tab.next', label: 'Next Project Tab', category: 'Project', keybinding: 'Mod+Tab', when: hasProject, run: () => cycleTab(1) },
-  { id: 'project.tab.previous', label: 'Previous Project Tab', category: 'Project', keybinding: 'Mod+Shift+Tab', when: hasProject, run: () => cycleTab(-1) },
-  { id: 'session.new', label: 'New Session', category: 'Session', keybinding: 'Mod+Shift+N', when: hasProject, run: () => actions.newSession() },
-  { id: 'session.resume', label: 'Resume Last Session', category: 'Session', keybinding: 'Mod+Shift+R', when: hasProject, run: () => actions.resumeLast() },
-  { id: 'session.stop', label: 'Stop Session', category: 'Session', keybinding: 'Mod+Shift+X', when: hasLive, run: () => actions.stopSession() },
+  { id: 'workspace.refresh', name: msg({ id: 'shell.command.workspace.refresh', defaultMessage: 'Refresh Workspace', description: 'A command (the menus, the command palette, Settings → Keyboard Shortcuts), in the File category.' }), category: 'file', keybinding: 'F5', when: hasWorkspace, run: () => actions.refreshWorkspace() },
+  { id: 'project.new', name: msg({ id: 'shell.command.project.new', defaultMessage: 'New Project…', description: 'A command (the menus, the command palette, Settings → Keyboard Shortcuts), in the Project category. The … says it opens a dialog first: keep it.' }), category: 'project', keybinding: 'Mod+Alt+N', when: hasWorkspace, run: () => actions.createProject() }, // i18n-ignore: a shortcut's keys
+  { id: 'project.toggleActive', name: msg({ id: 'shell.command.project.toggleActive', defaultMessage: 'Toggle Project Active', description: 'A command (the menus, the command palette, Settings → Keyboard Shortcuts), in the Project category.' }), category: 'project', keybinding: 'Mod+Alt+A', when: hasProject, run: () => actions.toggleActiveSelected() }, // i18n-ignore: a shortcut's keys
+  { id: 'project.next', name: msg({ id: 'shell.command.project.next', defaultMessage: 'Next Project', description: 'A command (the menus, the command palette, Settings → Keyboard Shortcuts), in the Project category.' }), category: 'project', keybinding: 'Mod+PageDown', when: hasWorkspace, run: () => actions.cycleProject(1) }, // i18n-ignore: a shortcut's keys
+  { id: 'project.previous', name: msg({ id: 'shell.command.project.previous', defaultMessage: 'Previous Project', description: 'A command (the menus, the command palette, Settings → Keyboard Shortcuts), in the Project category.' }), category: 'project', keybinding: 'Mod+PageUp', when: hasWorkspace, run: () => actions.cycleProject(-1) }, // i18n-ignore: a shortcut's keys
+  { id: 'project.focus', name: msg({ id: 'shell.command.project.focus', defaultMessage: 'Focus Project', description: "A command (the menus, the command palette, Settings → Keyboard Shortcuts), in the Project category. It isn't in the menus or the palette: notifications and buttons run it by its name." }), category: 'project', internal: true, run: (path: string) => path && actions.selectProject(path) },
+  { id: 'project.remove', name: msg({ id: 'shell.command.project.remove', defaultMessage: 'Remove Project…', description: 'A command (the menus, the command palette, Settings → Keyboard Shortcuts), in the Project category. The … says it opens a dialog first: keep it.' }), category: 'project', when: hasProject, run: (path?: unknown) => set({ removeProjectFor: typeof path === 'string' ? path : get().selectedProject }) },
+  { id: 'project.openExplorer', name: msg({ id: 'shell.command.project.openExplorer', defaultMessage: 'Reveal Project in File Explorer', description: 'A command (the menus, the command palette, Settings → Keyboard Shortcuts), in the Project category.' }), category: 'project', when: hasProject, run: () => call('project:openInExplorer', get().selectedProject!) },
+  { id: 'project.openTerminal', name: msg({ id: 'shell.command.project.openTerminal', defaultMessage: 'Open External Terminal Here', description: 'A command (the menus, the command palette, Settings → Keyboard Shortcuts), in the Project category.' }), category: 'project', keybinding: 'Mod+Shift+`', when: hasProject, run: () => call('project:openTerminal', get().selectedProject!) }, // i18n-ignore: a shortcut's keys
+  { id: 'project.tab.session', name: msg({ id: 'shell.command.project.tab.session', defaultMessage: 'Go to Session', description: 'A command (the menus, the command palette, Settings → Keyboard Shortcuts), in the Project category.' }), category: 'project', keybinding: 'Alt+1', when: hasProject, run: tab('session') },
+  { id: 'project.tab.overview', name: msg({ id: 'shell.command.project.tab.overview', defaultMessage: 'Go to Overview', description: 'A command (the menus, the command palette, Settings → Keyboard Shortcuts), in the Project category.' }), category: 'project', keybinding: 'Alt+2', when: hasProject, run: tab('overview') },
+  { id: 'project.tab.performance', name: msg({ id: 'shell.command.project.tab.performance', defaultMessage: 'Go to Performance', description: 'A command (the menus, the command palette, Settings → Keyboard Shortcuts), in the Project category.' }), category: 'project', when: hasProject, run: tab('performance') },
+  { id: 'project.tab.tasks', name: msg({ id: 'shell.command.project.tab.tasks', defaultMessage: 'Go to Tasks', description: 'A command (the menus, the command palette, Settings → Keyboard Shortcuts), in the Project category.' }), category: 'project', when: hasProject, run: tab('tasks') },
+  { id: 'project.tab.sessions', name: msg({ id: 'shell.command.project.tab.sessions', defaultMessage: 'Go to Sessions', description: 'A command (the menus, the command palette, Settings → Keyboard Shortcuts), in the Project category.' }), category: 'project', keybinding: 'Alt+3', when: hasProject, run: tab('sessions') },
+  { id: 'project.tab.files', name: msg({ id: 'shell.command.project.tab.files', defaultMessage: 'Go to Files', description: 'A command (the menus, the command palette, Settings → Keyboard Shortcuts), in the Project category.' }), category: 'project', keybinding: 'Alt+4', when: hasProject, run: tab('files') },
+  { id: 'project.tab.images', name: msg({ id: 'shell.command.project.tab.images', defaultMessage: 'Go to Attachments', description: 'A command (the menus, the command palette, Settings → Keyboard Shortcuts), in the Project category.' }), category: 'project', keybinding: 'Alt+5', when: hasProject, run: tab('images') },
+  { id: 'project.tab.changes', name: msg({ id: 'shell.command.project.tab.changes', defaultMessage: 'Go to Git', description: 'A command (the menus, the command palette, Settings → Keyboard Shortcuts), in the Project category.' }), category: 'project', keybinding: 'Alt+6', when: hasProject, run: tab('changes') },
+  { id: 'project.tab.memory', name: msg({ id: 'shell.command.project.tab.memory', defaultMessage: 'Go to Memory', description: 'A command (the menus, the command palette, Settings → Keyboard Shortcuts), in the Project category.' }), category: 'project', keybinding: 'Alt+7', when: hasProject, run: tab('memory') },
+  { id: 'project.tab.skills', name: msg({ id: 'shell.command.project.tab.skills', defaultMessage: 'Go to Skills', description: 'A command (the menus, the command palette, Settings → Keyboard Shortcuts), in the Project category.' }), category: 'project', keybinding: 'Alt+8', when: hasProject, run: tab('skills') },
+  { id: 'project.tab.templates', name: msg({ id: 'shell.command.project.tab.templates', defaultMessage: 'Go to Templates', description: 'A command (the menus, the command palette, Settings → Keyboard Shortcuts), in the Project category.' }), category: 'project', when: hasProject, run: tab('templates') },
+  { id: 'project.tab.mcp', name: msg({ id: 'shell.command.project.tab.mcp', defaultMessage: 'Go to MCP', description: 'A command (the menus, the command palette, Settings → Keyboard Shortcuts), in the Project category.' }), category: 'project', keybinding: 'Alt+9', when: hasProject, run: tab('mcp') },
+  { id: 'project.tab.settings', name: msg({ id: 'shell.command.project.tab.settings', defaultMessage: 'Go to Project Settings', description: 'A command (the menus, the command palette, Settings → Keyboard Shortcuts), in the Project category.' }), category: 'project', keybinding: 'Alt+0', when: hasProject, run: tab('settings') },
+  { id: 'project.storage', name: msg({ id: 'shell.command.project.storage', defaultMessage: 'Project Storage and Clean Up…', description: 'A command (the menus, the command palette, Settings → Keyboard Shortcuts), in the Project category. The … says it opens a dialog first: keep it.' }), category: 'project', when: hasProject, run: () => openProjectSettings(get().selectedProject!, 'storage') },
+  { id: 'project.tab.next', name: msg({ id: 'shell.command.project.tab.next', defaultMessage: 'Next Project Tab', description: 'A command (the menus, the command palette, Settings → Keyboard Shortcuts), in the Project category.' }), category: 'project', keybinding: 'Mod+Tab', when: hasProject, run: () => cycleTab(1) }, // i18n-ignore: a shortcut's keys
+  { id: 'project.tab.previous', name: msg({ id: 'shell.command.project.tab.previous', defaultMessage: 'Previous Project Tab', description: 'A command (the menus, the command palette, Settings → Keyboard Shortcuts), in the Project category.' }), category: 'project', keybinding: 'Mod+Shift+Tab', when: hasProject, run: () => cycleTab(-1) }, // i18n-ignore: a shortcut's keys
+  { id: 'session.new', name: msg({ id: 'shell.command.session.new', defaultMessage: 'New Session', description: 'A command (the menus, the command palette, Settings → Keyboard Shortcuts), in the Session category.' }), category: 'session', keybinding: 'Mod+Shift+N', when: hasProject, run: () => actions.newSession() }, // i18n-ignore: a shortcut's keys
+  { id: 'session.resume', name: msg({ id: 'shell.command.session.resume', defaultMessage: 'Resume Last Session', description: 'A command (the menus, the command palette, Settings → Keyboard Shortcuts), in the Session category.' }), category: 'session', keybinding: 'Mod+Shift+R', when: hasProject, run: () => actions.resumeLast() }, // i18n-ignore: a shortcut's keys
+  { id: 'session.stop', name: msg({ id: 'shell.command.session.stop', defaultMessage: 'Stop Session', description: 'A command (the menus, the command palette, Settings → Keyboard Shortcuts), in the Session category.' }), category: 'session', keybinding: 'Mod+Shift+X', when: hasLive, run: () => actions.stopSession() }, // i18n-ignore: a shortcut's keys
   {
     id: 'session.compact',
-    label: 'Compact Conversation…',
-    category: 'Session',
-    keybinding: 'Mod+Alt+C',
+    name: msg({ id: 'shell.command.session.compact', defaultMessage: 'Compact Conversation…', description: 'A command (the menus, the command palette, Settings → Keyboard Shortcuts), in the Session category. The … says it opens a dialog first: keep it.' }),
+    category: 'session',
+    keybinding: 'Mod+Alt+C', // i18n-ignore: a shortcut's keys
     when: hasLive,
     run: (path?: string, agentId?: string) => {
       const p = path ?? get().selectedProject
@@ -205,9 +239,9 @@ export const commands: Command[] = [
   },
   {
     id: 'session.permissionMode',
-    label: 'Switch Permission Mode…',
-    category: 'Session',
-    keybinding: 'Mod+Alt+M',
+    name: msg({ id: 'shell.command.session.permissionMode', defaultMessage: 'Switch Permission Mode…', description: 'A command (the menus, the command palette, Settings → Keyboard Shortcuts), in the Session category. The … says it opens a dialog first: keep it.' }),
+    category: 'session',
+    keybinding: 'Mod+Alt+M', // i18n-ignore: a shortcut's keys
     when: hasProject,
     run: () => {
       const p = selected()
@@ -217,8 +251,8 @@ export const commands: Command[] = [
   },
   {
     id: 'session.handOverTo',
-    label: 'Hand Over an Agent\'s Work',
-    category: 'Session',
+    name: msg({ id: 'shell.command.session.handOverTo', defaultMessage: "Hand Over an Agent's Work", description: "A command (the menus, the command palette, Settings → Keyboard Shortcuts), in the Session category. It isn't in the menus or the palette: notifications and buttons run it by its name." }),
+    category: 'session',
     // From the long-conversation notification, which passes the agent.
     internal: true,
     run: (projectPath?: unknown, agentId?: unknown) => {
@@ -227,56 +261,56 @@ export const commands: Command[] = [
   },
   {
     id: 'session.allowLockedEdit',
-    label: 'Allow a Locked Edit',
-    category: 'Session',
+    name: msg({ id: 'shell.command.session.allowLockedEdit', defaultMessage: 'Allow a Locked Edit', description: "A command (the menus, the command palette, Settings → Keyboard Shortcuts), in the Session category. It isn't in the menus or the palette: notifications and buttons run it by its name." }),
+    category: 'session',
     // Only from the notification, which passes the agent and file.
     internal: true,
     run: (projectPath?: unknown, agentId?: unknown, path?: unknown) => {
       if (typeof projectPath === 'string' && typeof agentId === 'string' && typeof path === 'string')
-        void actions.attempt('Could not allow the edit', () => call('session:allowLockedEdit', projectPath, agentId, path))
+        void actions.attempt(tr(msg({ id: 'shell.error.allowEdit', defaultMessage: 'Could not allow the edit', description: "An error's title: allowing an agent's edit of a locked file failed." })), () => call('session:allowLockedEdit', projectPath, agentId, path))
     }
   },
   {
     id: 'session.settleLeftovers',
-    label: 'End or Keep the Processes an Agent Left Running',
-    category: 'Session',
+    name: msg({ id: 'shell.command.session.settleLeftovers', defaultMessage: 'End or Keep the Processes an Agent Left Running', description: "A command (the menus, the command palette, Settings → Keyboard Shortcuts), in the Session category. It isn't in the menus or the palette: notifications and buttons run it by its name." }),
+    category: 'session',
     // Only from the notification and the pane header, which pass the agent and what to do.
     internal: true,
     run: (projectPath?: unknown, agentId?: unknown, how?: unknown) => {
       if (typeof projectPath === 'string' && typeof agentId === 'string' && (how === 'end' || how === 'keep'))
-        void actions.attempt(how === 'end' ? 'Could not end the processes' : 'Could not keep the processes', () => call('session:settleLeftovers', projectPath, agentId, how))
+        void actions.attempt(how === 'end' ? tr(msg({ id: 'shell.error.endProcesses', defaultMessage: 'Could not end the processes', description: "An error's title: ending the processes an agent left running failed." })) : tr(msg({ id: 'shell.error.keepProcesses', defaultMessage: 'Could not keep the processes', description: "An error's title: keeping the processes an agent left running failed." })), () => call('session:settleLeftovers', projectPath, agentId, how))
     }
   },
   {
     id: 'session.stopBackgroundAndResume',
-    label: 'Stop a Background Session and Resume It',
-    category: 'Session',
+    name: msg({ id: 'shell.command.session.stopBackgroundAndResume', defaultMessage: 'Stop a Background Session and Resume It', description: "A command (the menus, the command palette, Settings → Keyboard Shortcuts), in the Session category. It isn't in the menus or the palette: notifications and buttons run it by its name." }),
+    category: 'session',
     // Only from the notification, which names the job and the conversation.
     internal: true,
     run: (projectPath?: unknown, agentId?: unknown, jobId?: unknown, sessionId?: unknown) => {
       if (typeof projectPath === 'string' && typeof agentId === 'string' && typeof jobId === 'string' && typeof sessionId === 'string')
-        void actions.attempt('Could not stop the background session', () => call('session:stopBackgroundAndResume', projectPath, agentId, jobId, sessionId))
+        void actions.attempt(tr(msg({ id: 'shell.error.stopBackground', defaultMessage: 'Could not stop the background session', description: "An error's title: stopping an agent's background session failed." })), () => call('session:stopBackgroundAndResume', projectPath, agentId, jobId, sessionId))
     }
   },
   {
     id: 'session.applyPermissionModes',
-    label: 'Switch Running Agents to Their Permission Mode Settings',
-    category: 'Session',
+    name: msg({ id: 'shell.command.session.applyPermissionModes', defaultMessage: 'Switch Running Agents to Their Permission Mode Settings', description: 'A command (the menus, the command palette, Settings → Keyboard Shortcuts), in the Session category.' }),
+    category: 'session',
     run: async () => {
-      const r = await actions.attempt('Could not switch permission modes', () => call('session:applyModes'))
+      const r = await actions.attempt(tr(msg({ id: 'shell.error.switchModes', defaultMessage: 'Could not switch permission modes', description: "An error's title: switching running agents to their permission mode settings failed." })), () => call('session:applyModes'))
       if (!r) return
-      if (r.switched.length) notify('success', 'Permission mode switched', r.switched.join('\n'))
-      if (r.skipped.length) notify('warning', r.switched.length ? 'Some agents were not switched' : 'Permission mode not switched', r.skipped.join('\n'))
-      if (!r.switched.length && !r.skipped.length) notify('info', 'Nothing to switch', 'Every running agent is already in the mode its settings ask for.')
+      if (r.switched.length) notify('success', tr(msg({ id: 'shell.modes.switched', defaultMessage: 'Permission mode switched', description: 'A notice after running agents were switched to their permission mode settings; the agents are listed under it.' })), r.switched.join('\n'))
+      if (r.skipped.length) notify('warning', r.switched.length ? tr(msg({ id: 'shell.modes.someSkipped', defaultMessage: 'Some agents were not switched', description: 'A notice after switching permission modes: the agents listed under it were not switched.' })) : tr(msg({ id: 'shell.modes.noneSwitched', defaultMessage: 'Permission mode not switched', description: 'A notice after switching permission modes: none could be switched; why is listed under it.' })), r.skipped.join('\n'))
+      if (!r.switched.length && !r.skipped.length) notify('info', tr(msg({ id: 'shell.modes.nothing', defaultMessage: 'Nothing to switch', description: 'A notice: every running agent already has its permission mode.' })), tr(msg({ id: 'shell.modes.nothingDetail', defaultMessage: 'Every running agent is already in the mode its settings ask for.', description: 'More in the notice that there was nothing to switch.' })))
     }
   },
-  { id: 'session.focusTerminal', label: 'Focus Session Terminal', category: 'Session', keybinding: 'Mod+`', when: hasProject, run: () => focusTerminal() },
-  { id: 'agent.add', label: 'Add Agent', category: 'Session', keybinding: 'Mod+Alt+Shift+N', when: hasProject, run: (path?: string) => void actions.quickAddAgent(path ?? get().selectedProject) },
-  { id: 'agent.addWith', label: 'Add Agent…', category: 'Session', when: hasProject, run: (path?: string) => set({ addAgentFor: path ?? get().selectedProject }) },
+  { id: 'session.focusTerminal', name: msg({ id: 'shell.command.session.focusTerminal', defaultMessage: 'Focus Session Terminal', description: 'A command (the menus, the command palette, Settings → Keyboard Shortcuts), in the Session category.' }), category: 'session', keybinding: 'Mod+`', when: hasProject, run: () => focusTerminal() }, // i18n-ignore: a shortcut's keys
+  { id: 'agent.add', name: msg({ id: 'shell.command.agent.add', defaultMessage: 'Add Agent', description: 'A command (the menus, the command palette, Settings → Keyboard Shortcuts), in the Session category.' }), category: 'session', keybinding: 'Mod+Alt+Shift+N', when: hasProject, run: (path?: string) => void actions.quickAddAgent(path ?? get().selectedProject) }, // i18n-ignore: a shortcut's keys
+  { id: 'agent.addWith', name: msg({ id: 'shell.command.agent.addWith', defaultMessage: 'Add Agent…', description: 'A command (the menus, the command palette, Settings → Keyboard Shortcuts), in the Session category. The … says it opens a dialog first: keep it.' }), category: 'session', when: hasProject, run: (path?: string) => set({ addAgentFor: path ?? get().selectedProject }) },
   {
     id: 'agent.settings',
-    label: 'Agent Settings…',
-    category: 'Session',
+    name: msg({ id: 'shell.command.agent.settings', defaultMessage: 'Agent Settings…', description: 'A command (the menus, the command palette, Settings → Keyboard Shortcuts), in the Session category. The … says it opens a dialog first: keep it.' }),
+    category: 'session',
     when: () => !!selected()?.agents.length,
     // From a notice (#702: an agent to rename), that agent; from the palette, the focused one.
     run: (path?: string, agentId?: string) => {
@@ -287,49 +321,50 @@ export const commands: Command[] = [
   },
   {
     id: 'agent.next',
-    label: 'Focus Next Agent',
-    category: 'Session',
-    keybinding: 'Mod+Alt+]',
+    name: msg({ id: 'shell.command.agent.next', defaultMessage: 'Focus Next Agent', description: 'A command (the menus, the command palette, Settings → Keyboard Shortcuts), in the Session category.' }),
+    category: 'session',
+    keybinding: 'Mod+Alt+]', // i18n-ignore: a shortcut's keys
     when: hasProject,
     run: () => cycleAgent(1)
   },
-  { id: 'agent.previous', label: 'Focus Previous Agent', category: 'Session', keybinding: 'Mod+Alt+[', when: hasProject, run: () => cycleAgent(-1) },
-  { id: 'agent.moveLeft', label: 'Move Agent Left', category: 'Session', keybinding: 'Mod+Alt+Shift+ArrowLeft', when: () => (selected()?.agents.length ?? 0) > 1, run: () => actions.nudgeAgent(-1) },
-  { id: 'agent.moveRight', label: 'Move Agent Right', category: 'Session', keybinding: 'Mod+Alt+Shift+ArrowRight', when: () => (selected()?.agents.length ?? 0) > 1, run: () => actions.nudgeAgent(1) },
-  { id: 'agent.nextPage', label: 'Next Agent Page', category: 'Session', keybinding: 'Mod+Alt+PageDown', when: () => pageCount() > 1, run: () => cyclePage(1) },
-  { id: 'agent.previousPage', label: 'Previous Agent Page', category: 'Session', keybinding: 'Mod+Alt+PageUp', when: () => pageCount() > 1, run: () => cyclePage(-1) },
-  ...[1, 2, 3, 4, 5, 6, 7, 8, 9].map((n): Command => ({ id: `agent.focus${n}`, label: `Focus Agent ${n}`, category: 'Session', keybinding: `Mod+${n}`, when: () => (selected()?.agents.length ?? 0) >= n, run: () => focusAgentN(n) })),
+  { id: 'agent.previous', name: msg({ id: 'shell.command.agent.previous', defaultMessage: 'Focus Previous Agent', description: 'A command (the menus, the command palette, Settings → Keyboard Shortcuts), in the Session category.' }), category: 'session', keybinding: 'Mod+Alt+[', when: hasProject, run: () => cycleAgent(-1) }, // i18n-ignore: a shortcut's keys
+  { id: 'agent.moveLeft', name: msg({ id: 'shell.command.agent.moveLeft', defaultMessage: 'Move Agent Left', description: 'A command (the menus, the command palette, Settings → Keyboard Shortcuts), in the Session category.' }), category: 'session', keybinding: 'Mod+Alt+Shift+ArrowLeft', when: () => (selected()?.agents.length ?? 0) > 1, run: () => actions.nudgeAgent(-1) }, // i18n-ignore: a shortcut's keys
+  { id: 'agent.moveRight', name: msg({ id: 'shell.command.agent.moveRight', defaultMessage: 'Move Agent Right', description: 'A command (the menus, the command palette, Settings → Keyboard Shortcuts), in the Session category.' }), category: 'session', keybinding: 'Mod+Alt+Shift+ArrowRight', when: () => (selected()?.agents.length ?? 0) > 1, run: () => actions.nudgeAgent(1) }, // i18n-ignore: a shortcut's keys
+  { id: 'agent.nextPage', name: msg({ id: 'shell.command.agent.nextPage', defaultMessage: 'Next Agent Page', description: 'A command (the menus, the command palette, Settings → Keyboard Shortcuts), in the Session category.' }), category: 'session', keybinding: 'Mod+Alt+PageDown', when: () => pageCount() > 1, run: () => cyclePage(1) }, // i18n-ignore: a shortcut's keys
+  { id: 'agent.previousPage', name: msg({ id: 'shell.command.agent.previousPage', defaultMessage: 'Previous Agent Page', description: 'A command (the menus, the command palette, Settings → Keyboard Shortcuts), in the Session category.' }), category: 'session', keybinding: 'Mod+Alt+PageUp', when: () => pageCount() > 1, run: () => cyclePage(-1) }, // i18n-ignore: a shortcut's keys
+  ...[1, 2, 3, 4, 5, 6, 7, 8, 9].map((n): CommandDef => ({ id: `agent.focus${n}`, name: msg({ id: 'shell.command.agent.focusN', defaultMessage: 'Focus Agent {n}', description: "A command per agent number (the menus, the command palette, Settings → Keyboard Shortcuts), in the Session category. {n} is the agent's place in the strip, 1 to 9." }), nameValues: { n }, category: 'session', keybinding: `Mod+${n}`, // i18n-ignore: a shortcut's keys
+    when: () => (selected()?.agents.length ?? 0) >= n, run: () => focusAgentN(n) })),
   layoutCommand('single', 1),
   layoutCommand('columns2', 2),
   layoutCommand('columns3', 3),
   layoutCommand('grid', 4),
   layoutCommand('grid6', 5),
-  { id: 'session.archive', label: 'Archive Session and Start New…', category: 'Session', when: hasProject, run: () => actions.archiveCurrent() },
+  { id: 'session.archive', name: msg({ id: 'shell.command.session.archive', defaultMessage: 'Archive Session and Start New…', description: 'A command (the menus, the command palette, Settings → Keyboard Shortcuts), in the Session category. The … says it opens a dialog first: keep it.' }), category: 'session', when: hasProject, run: () => actions.archiveCurrent() },
   // Every agent of the project at once, after one confirmation (#216); the menus and the palette say how many (#275).
-  { id: 'session.startNewAll', label: 'Start New (All)…', category: 'Session', when: () => hasProject() && !!selected()?.agents.length, liveLabel: () => batchLabel('Start New', 'startNew'), run: () => void actions.startNewAll(get().selectedProject!) },
+  { id: 'session.startNewAll', name: msg({ id: 'shell.command.session.startNewAll', defaultMessage: 'Start New (All)…', description: 'A command (the menus, the command palette, Settings → Keyboard Shortcuts), in the Session category. The … says it opens a dialog first: keep it.' }), category: 'session', when: () => hasProject() && !!selected()?.agents.length, liveLabel: () => batchLabel(msg({ id: 'shell.command.session.startNewAllLive', defaultMessage: '{several, select, yes {Start New ({n})…} other {Start New…}}', description: 'The command that gives every agent of the project a new session, as the menus and the palette show it: with several agents, how many it acts on ({n}). The … says it asks first: keep it.' }), 'startNew'), run: () => void actions.startNewAll(get().selectedProject!) },
   // The project's agents and layout as a template (#126); loading one and adding one of its agents open the agent strip's menus (#286).
-  { id: 'template.save', label: 'Save Agents as Template…', category: 'Session', when: () => hasProject() && !!selected()?.agents.length, run: () => void actions.saveTemplate(get().selectedProject!) },
-  { id: 'template.load', label: 'Load Template…', category: 'Session', when: () => !!selected(), run: () => stripMenu('loadTemplate') },
-  { id: 'template.addAgent', label: 'Add Agent from Template…', category: 'Session', when: () => !!selected(), run: () => stripMenu('addFromTemplate') },
-  { id: 'session.archiveAll', label: 'Archive and Start New (All)…', category: 'Session', when: () => hasProject() && !!batchCounts(selected()?.agents ?? []).archive, liveLabel: () => batchLabel('Archive and Start New', 'archive'), run: () => void actions.startNewAll(get().selectedProject!, true) },
+  { id: 'template.save', name: msg({ id: 'shell.command.template.save', defaultMessage: 'Save Agents as Template…', description: 'A command (the menus, the command palette, Settings → Keyboard Shortcuts), in the Session category. The … says it opens a dialog first: keep it.' }), category: 'session', when: () => hasProject() && !!selected()?.agents.length, run: () => void actions.saveTemplate(get().selectedProject!) },
+  { id: 'template.load', name: msg({ id: 'shell.command.template.load', defaultMessage: 'Load Template…', description: 'A command (the menus, the command palette, Settings → Keyboard Shortcuts), in the Session category. The … says it opens a dialog first: keep it.' }), category: 'session', when: () => !!selected(), run: () => stripMenu('loadTemplate') },
+  { id: 'template.addAgent', name: msg({ id: 'shell.command.template.addAgent', defaultMessage: 'Add Agent from Template…', description: 'A command (the menus, the command palette, Settings → Keyboard Shortcuts), in the Session category. The … says it opens a dialog first: keep it.' }), category: 'session', when: () => !!selected(), run: () => stripMenu('addFromTemplate') },
+  { id: 'session.archiveAll', name: msg({ id: 'shell.command.session.archiveAll', defaultMessage: 'Archive and Start New (All)…', description: 'A command (the menus, the command palette, Settings → Keyboard Shortcuts), in the Session category. The … says it opens a dialog first: keep it.' }), category: 'session', when: () => hasProject() && !!batchCounts(selected()?.agents ?? []).archive, liveLabel: () => batchLabel(msg({ id: 'shell.command.session.archiveAllLive', defaultMessage: '{several, select, yes {Archive and Start New ({n})…} other {Archive and Start New…}}', description: "The command that archives the agents' sessions and starts new ones, as the menus and the palette show it: with several agents, how many it acts on ({n}). The … says it asks first: keep it." }), 'archive'), run: () => void actions.startNewAll(get().selectedProject!, true) },
   // Remove All (#291): every agent of the project after one question; user-only (not in the Agent API).
   {
     id: 'session.removeAll',
-    label: 'Remove All Agents…',
-    category: 'Session',
+    name: msg({ id: 'shell.command.session.removeAll', defaultMessage: 'Remove All Agents…', description: 'A command (the menus, the command palette, Settings → Keyboard Shortcuts), in the Session category. The … says it opens a dialog first: keep it.' }),
+    category: 'session',
     when: () => hasProject() && !!selected()?.agents.length,
-    liveLabel: () => ((selected()?.agents.length ?? 0) > 1 ? `Remove All Agents (${selected()!.agents.length})…` : 'Remove Agent…'),
+    liveLabel: () => tr(msg({ id: 'shell.command.session.removeAllLive', defaultMessage: '{n, plural, one {Remove Agent…} other {Remove All Agents (#)…}}', description: "The command that removes the project's agents, as the menus and the palette show it: how many it removes. The … says it asks first: keep it." }), { n: selected()?.agents.length ?? 0 }),
     run: () => void actions.removeAllAgents(get().selectedProject!)
   },
-  { id: 'view.projects', label: 'Show Projects', category: 'View', keybinding: 'Mod+Shift+E', run: () => setActivity('projects') },
-  { id: 'view.overview', label: 'Show Workspace Overview', category: 'View', keybinding: 'Mod+Shift+O', run: () => setActivity('overview') },
-  { id: 'view.performance', label: 'Show Performance', category: 'View', run: () => setActivity('performance') },
-  { id: 'view.board', label: 'Show Task Board', category: 'View', keybinding: 'Mod+Shift+J', run: () => setActivity('board') },
+  { id: 'view.projects', name: msg({ id: 'shell.command.view.projects', defaultMessage: 'Show Projects', description: 'A command (the menus, the command palette, Settings → Keyboard Shortcuts), in the View category.' }), category: 'view', keybinding: 'Mod+Shift+E', run: () => setActivity('projects') }, // i18n-ignore: a shortcut's keys
+  { id: 'view.overview', name: msg({ id: 'shell.command.view.overview', defaultMessage: 'Show Workspace Overview', description: 'A command (the menus, the command palette, Settings → Keyboard Shortcuts), in the View category.' }), category: 'view', keybinding: 'Mod+Shift+O', run: () => setActivity('overview') }, // i18n-ignore: a shortcut's keys
+  { id: 'view.performance', name: msg({ id: 'shell.command.view.performance', defaultMessage: 'Show Performance', description: 'A command (the menus, the command palette, Settings → Keyboard Shortcuts), in the View category.' }), category: 'view', run: () => setActivity('performance') },
+  { id: 'view.board', name: msg({ id: 'shell.command.view.board', defaultMessage: 'Show Task Board', description: 'A command (the menus, the command palette, Settings → Keyboard Shortcuts), in the View category.' }), category: 'view', keybinding: 'Mod+Shift+J', run: () => setActivity('board') }, // i18n-ignore: a shortcut's keys
   {
     id: 'task.new',
-    label: 'New Card…',
-    category: 'Tasks',
-    keybinding: 'Mod+Alt+T',
+    name: msg({ id: 'shell.command.task.new', defaultMessage: 'New Card…', description: 'A command (the menus, the command palette, Settings → Keyboard Shortcuts), in the Tasks category. The … says it opens a dialog first: keep it.' }),
+    category: 'tasks',
+    keybinding: 'Mod+Alt+T', // i18n-ignore: a shortcut's keys
     when: hasWorkspace,
     // For the selected project when its Tasks tab or the Session tab is shown, else the board's filter.
     run: () => {
@@ -340,16 +375,16 @@ export const commands: Command[] = [
   },
   {
     id: 'task.undoArchive',
-    label: 'Undo Archive',
-    category: 'Tasks',
+    name: msg({ id: 'shell.command.task.undoArchive', defaultMessage: 'Undo Archive', description: "A command (the menus, the command palette, Settings → Keyboard Shortcuts), in the Tasks category. It isn't in the menus or the palette: notifications and buttons run it by its name." }),
+    category: 'tasks',
     // The Undo of an Archived n cards toast (#351): its batch back where it was.
     internal: true,
     run: (id: string) => void unarchiveBatch(id)
   },
   {
     id: 'agent.show',
-    label: 'Show Agent',
-    category: 'Session',
+    name: msg({ id: 'shell.command.agent.show', defaultMessage: 'Show Agent', description: "A command (the menus, the command palette, Settings → Keyboard Shortcuts), in the Session category. It isn't in the menus or the palette: notifications and buttons run it by its name." }),
+    category: 'session',
     // From a notification or the tray, which name the agent; the Assistant's opens its panel.
     internal: true,
     run: (path?: unknown, agentId?: unknown) => {
@@ -363,8 +398,8 @@ export const commands: Command[] = [
   },
   {
     id: 'project.unusedWorktrees',
-    label: 'Show Unused Worktrees',
-    category: 'Project',
+    name: msg({ id: 'shell.command.project.unusedWorktrees', defaultMessage: 'Show Unused Worktrees', description: "A command (the menus, the command palette, Settings → Keyboard Shortcuts), in the Project category. It isn't in the menus or the palette: notifications and buttons run it by its name." }),
+    category: 'project',
     // From a notification or Storage, which name the project (#353).
     internal: true,
     run: (path?: unknown) => {
@@ -375,37 +410,37 @@ export const commands: Command[] = [
       showUnusedWorktrees(p.path)
     }
   },
-  { id: 'view.notes', label: 'Show Shared Notes', category: 'View', keybinding: 'Mod+Shift+H', run: () => setActivity('notes') },
-  { id: 'view.skills', label: 'Show Skills', category: 'View', keybinding: 'Mod+Shift+K', run: () => setActivity('skills') },
-  { id: 'view.templates', label: 'Show Templates', category: 'View', run: () => setActivity('templates') },
-  { id: 'view.mcp', label: 'Show MCP Servers', category: 'View', keybinding: 'Mod+Shift+M', run: () => setActivity('mcp') },
-  { id: 'view.assistant', label: 'Show Hive Assistant View', category: 'View', run: () => setActivity('assistant') },
-  { id: 'view.assistantConversations', label: 'Show Assistant Conversations', category: 'View', run: () => showAssistantView('conversations') },
-  { id: 'view.personas', label: 'Show Assistant Modes', category: 'View', run: () => showAssistantView('personas') },
-  { id: 'view.assistantImages', label: 'Show Assistant Attachments', category: 'View', run: () => showAssistantView('images') },
-  { id: 'assistant.toggle', label: 'Toggle Hive Assistant', category: 'Assistant', keybinding: 'Mod+Alt+I', when: hasWorkspace, run: () => setAssistantOpen(!get().assistantOpen) },
-  { id: 'assistant.settings', label: 'Assistant Settings…', category: 'Assistant', when: hasWorkspace, run: () => set({ assistantSettingsOpen: true }) },
+  { id: 'view.notes', name: msg({ id: 'shell.command.view.notes', defaultMessage: 'Show Shared Notes', description: 'A command (the menus, the command palette, Settings → Keyboard Shortcuts), in the View category.' }), category: 'view', keybinding: 'Mod+Shift+H', run: () => setActivity('notes') }, // i18n-ignore: a shortcut's keys
+  { id: 'view.skills', name: msg({ id: 'shell.command.view.skills', defaultMessage: 'Show Skills', description: 'A command (the menus, the command palette, Settings → Keyboard Shortcuts), in the View category.' }), category: 'view', keybinding: 'Mod+Shift+K', run: () => setActivity('skills') }, // i18n-ignore: a shortcut's keys
+  { id: 'view.templates', name: msg({ id: 'shell.command.view.templates', defaultMessage: 'Show Templates', description: 'A command (the menus, the command palette, Settings → Keyboard Shortcuts), in the View category.' }), category: 'view', run: () => setActivity('templates') },
+  { id: 'view.mcp', name: msg({ id: 'shell.command.view.mcp', defaultMessage: 'Show MCP Servers', description: 'A command (the menus, the command palette, Settings → Keyboard Shortcuts), in the View category.' }), category: 'view', keybinding: 'Mod+Shift+M', run: () => setActivity('mcp') }, // i18n-ignore: a shortcut's keys
+  { id: 'view.assistant', name: msg({ id: 'shell.command.view.assistant', defaultMessage: 'Show Hive Assistant View', description: 'A command (the menus, the command palette, Settings → Keyboard Shortcuts), in the View category.' }), category: 'view', run: () => setActivity('assistant') },
+  { id: 'view.assistantConversations', name: msg({ id: 'shell.command.view.assistantConversations', defaultMessage: 'Show Assistant Conversations', description: 'A command (the menus, the command palette, Settings → Keyboard Shortcuts), in the View category.' }), category: 'view', run: () => showAssistantView('conversations') },
+  { id: 'view.personas', name: msg({ id: 'shell.command.view.personas', defaultMessage: 'Show Assistant Modes', description: 'A command (the menus, the command palette, Settings → Keyboard Shortcuts), in the View category.' }), category: 'view', run: () => showAssistantView('personas') },
+  { id: 'view.assistantImages', name: msg({ id: 'shell.command.view.assistantImages', defaultMessage: 'Show Assistant Attachments', description: 'A command (the menus, the command palette, Settings → Keyboard Shortcuts), in the View category.' }), category: 'view', run: () => showAssistantView('images') },
+  { id: 'assistant.toggle', name: msg({ id: 'shell.command.assistant.toggle', defaultMessage: 'Toggle Hive Assistant', description: 'A command (the menus, the command palette, Settings → Keyboard Shortcuts), in the Assistant category.' }), category: 'assistant', keybinding: 'Mod+Alt+I', when: hasWorkspace, run: () => setAssistantOpen(!get().assistantOpen) }, // i18n-ignore: a shortcut's keys
+  { id: 'assistant.settings', name: msg({ id: 'shell.command.assistant.settings', defaultMessage: 'Assistant Settings…', description: 'A command (the menus, the command palette, Settings → Keyboard Shortcuts), in the Assistant category. The … says it opens a dialog first: keep it.' }), category: 'assistant', when: hasWorkspace, run: () => set({ assistantSettingsOpen: true }) },
   {
     id: 'assistant.moveSide',
-    label: 'Move Assistant Panel Left or Right',
-    liveLabel: () => (assistantOnLeft(get()) ? 'Move Assistant Panel to the Right' : 'Move Assistant Panel to the Left'),
-    category: 'Assistant',
+    name: msg({ id: 'shell.command.assistant.moveSide', defaultMessage: 'Move Assistant Panel Left or Right', description: 'A command (the menus, the command palette, Settings → Keyboard Shortcuts), in the Assistant category.' }),
+    liveLabel: () => (assistantOnLeft(get()) ? tr(msg({ id: 'shell.command.assistant.moveRight', defaultMessage: 'Move Assistant Panel to the Right', description: "The command that moves the Assistant's panel, while it is on the left." })) : tr(msg({ id: 'shell.command.assistant.moveLeft', defaultMessage: 'Move Assistant Panel to the Left', description: "The command that moves the Assistant's panel, while it is on the right." }))),
+    category: 'assistant',
     run: () => void setAssistantSide(assistantOnLeft(get()) ? 'right' : 'left')
   },
   {
     id: 'progress.toggle',
-    label: 'Toggle Progress Panel',
-    category: 'View',
-    keybinding: 'Mod+Alt+P',
+    name: msg({ id: 'shell.command.progress.toggle', defaultMessage: 'Toggle Progress Panel', description: 'A command (the menus, the command palette, Settings → Keyboard Shortcuts), in the View category.' }),
+    category: 'view',
+    keybinding: 'Mod+Alt+P', // i18n-ignore: a shortcut's keys
     when: () => hasWorkspace() && get().settings?.general.progressPanel !== false,
     run: () => setProgressOpen(!progressIsOpen())
   },
   // The answer to a question the Assistant waits on (its card in the panel, or a notification).
-  { id: 'assistant.answer', label: 'Answer the Hive Assistant', category: 'Assistant', internal: true, run: (id: string, yes: boolean) => void call('assistant:answer', id, yes) },
+  { id: 'assistant.answer', name: msg({ id: 'shell.command.assistant.answer', defaultMessage: 'Answer the Hive Assistant', description: "A command (the menus, the command palette, Settings → Keyboard Shortcuts), in the Assistant category. It isn't in the menus or the palette: notifications and buttons run it by its name." }), category: 'assistant', internal: true, run: (id: string, yes: boolean) => void call('assistant:answer', id, yes) },
   {
     id: 'assistant.start',
-    label: 'Start the Hive Assistant',
-    category: 'Assistant',
+    name: msg({ id: 'shell.command.assistant.start', defaultMessage: 'Start the Hive Assistant', description: 'A command (the menus, the command palette, Settings → Keyboard Shortcuts), in the Assistant category.' }),
+    category: 'assistant',
     when: () => !!get().workspace?.assistant && !get().workspace?.assistant?.agents[0]?.live,
     run: () => {
       setAssistantOpen(true)
@@ -413,45 +448,56 @@ export const commands: Command[] = [
       if (a) void actions.newSession(a.path, a.agents[0]?.id)
     }
   },
-  { id: 'view.toggleSidebar', label: 'Toggle Sidebar', category: 'View', keybinding: 'Mod+B', run: () => set((s) => ({ sidebarVisible: !s.sidebarVisible })) },
-  { id: 'view.compactSidebar', label: 'Toggle Compact Sidebar', category: 'View', keybinding: 'Mod+Alt+B', run: () => toggleCompactSidebar() },
-  { id: 'view.notifications', label: 'Show Notifications', category: 'View', keybinding: 'Mod+Alt+U', run: () => set({ showNotifications: true, unread: 0 }) },
-  { id: 'view.zoomIn', label: 'Zoom In', category: 'View', keybinding: 'Mod+=', run: () => call('window:zoom', 'in') },
-  { id: 'view.zoomOut', label: 'Zoom Out', category: 'View', keybinding: 'Mod+-', run: () => call('window:zoom', 'out') },
-  { id: 'view.zoomReset', label: 'Reset Zoom', category: 'View', keybinding: 'Mod+0', run: () => call('window:zoom', 'reset') },
-  { id: 'view.fullScreen', label: 'Toggle Full Screen', category: 'View', keybinding: 'F11', run: () => call('window:toggleFullScreen') },
-  { id: 'view.alwaysOnTop', label: 'Always on Top', category: 'View', keybinding: 'Mod+Alt+O', checked: () => get().alwaysOnTop, run: () => toggleAlwaysOnTop() },
-  { id: 'view.devTools', label: 'Toggle Developer Tools', category: 'Developer', keybinding: 'Mod+Shift+I', run: () => call('window:toggleDevTools') },
-  { id: 'help.devConsole', label: 'Developer Console', category: 'Developer', keybinding: 'Mod+Alt+J', when: hasWorkspace, hidden: () => !get().settings?.advanced.showDeveloperFeatures, tip: () => 'What each CLI sends Hive, next to what Hive made of it, in a window of its own', run: () => call('console:open') },
-  { id: 'view.reload', label: 'Reload Window', category: 'Developer', run: () => void actions.saveUnsavedFirst('reload the window').then((ok) => ok && location.reload()) },
-  { id: 'notes.open', label: 'Open Shared Note', category: 'Notes', internal: true, run: (path: string) => { showView('notes'); set({ selectedNote: path }) } },
-  { id: 'mcp.import', label: 'Copy Project MCP Servers to Workspace', category: 'MCP', internal: true, run: (path: string, names: string[]) => actions.importProjectMcp(path, names) },
-  { id: 'help.agentSetup', label: 'Agent Setup…', category: 'Help', run: (provider?: unknown) => set({ setupOpen: typeof provider === 'string' ? provider : true }) },
-  { id: 'help.checkProviders', label: 'Check Coding Agents for Updates', category: 'Help', run: () => actions.refreshProviders() },
-  { id: 'help.docs', label: 'Documentation', category: 'Help', keybinding: 'F1', run: () => { set({ docsPage: 'guide' }); setActivity('docs') } },
-  { id: 'help.api', label: 'Agent API Reference', category: 'Help', run: () => { set({ docsPage: 'api' }); setActivity('docs') } },
-  { id: 'help.shortcuts', label: 'Keyboard Shortcuts', category: 'Help', keybinding: 'Mod+K Mod+S', run: () => set({ shortcutsOpen: true }) },
-  { id: 'help.tips', label: 'Tips…', category: 'Help', run: () => set({ tipsOpen: true }) },
-  { id: 'help.releaseNotes', label: 'Release Notes', category: 'Help', run: () => { set({ docsPage: 'changelog' }); setActivity('docs') } },
-  { id: 'help.logs', label: 'Open Logs Folder', category: 'Help', run: () => call('app:openLogs') },
-  { id: 'help.diagnostics', label: 'Copy Diagnostics…', category: 'Help', run: () => set({ diagnosticsOpen: true }) },
-  { id: 'help.about', label: `About ${APP_NAME}`, category: 'Help', run: () => set({ aboutOpen: true }) },
-  { id: 'help.checkUpdates', label: 'Check for Updates…', category: 'Help', run: () => checkForUpdates() },
-  { id: 'update.show', label: 'Show Hive Update', category: 'Help', when: () => ['available', 'downloading', 'ready'].includes(get().update?.status ?? ''), run: () => set({ updateOpen: true }) },
-  { id: 'update.install', label: 'Restart and Update Hive', category: 'Help', when: () => get().update?.status === 'ready', run: () => call('update:install') },
-  { id: 'update.releaseNotes', label: "What's New in Hive", category: 'Help', run: (version?: unknown) => openReleaseNotes(typeof version === 'string' ? version : get().appInfo?.version) },
+  { id: 'view.toggleSidebar', name: msg({ id: 'shell.command.view.toggleSidebar', defaultMessage: 'Toggle Sidebar', description: 'A command (the menus, the command palette, Settings → Keyboard Shortcuts), in the View category.' }), category: 'view', keybinding: 'Mod+B', run: () => set((s) => ({ sidebarVisible: !s.sidebarVisible })) }, // i18n-ignore: a shortcut's keys
+  { id: 'view.compactSidebar', name: msg({ id: 'shell.command.view.compactSidebar', defaultMessage: 'Toggle Compact Sidebar', description: 'A command (the menus, the command palette, Settings → Keyboard Shortcuts), in the View category.' }), category: 'view', keybinding: 'Mod+Alt+B', run: () => toggleCompactSidebar() }, // i18n-ignore: a shortcut's keys
+  { id: 'view.notifications', name: msg({ id: 'shell.command.view.notifications', defaultMessage: 'Show Notifications', description: 'A command (the menus, the command palette, Settings → Keyboard Shortcuts), in the View category.' }), category: 'view', keybinding: 'Mod+Alt+U', run: () => set({ showNotifications: true, unread: 0 }) }, // i18n-ignore: a shortcut's keys
+  { id: 'view.zoomIn', name: msg({ id: 'shell.command.view.zoomIn', defaultMessage: 'Zoom In', description: 'A command (the menus, the command palette, Settings → Keyboard Shortcuts), in the View category.' }), category: 'view', keybinding: 'Mod+=', run: () => call('window:zoom', 'in') }, // i18n-ignore: a shortcut's keys
+  { id: 'view.zoomOut', name: msg({ id: 'shell.command.view.zoomOut', defaultMessage: 'Zoom Out', description: 'A command (the menus, the command palette, Settings → Keyboard Shortcuts), in the View category.' }), category: 'view', keybinding: 'Mod+-', run: () => call('window:zoom', 'out') }, // i18n-ignore: a shortcut's keys
+  { id: 'view.zoomReset', name: msg({ id: 'shell.command.view.zoomReset', defaultMessage: 'Reset Zoom', description: 'A command (the menus, the command palette, Settings → Keyboard Shortcuts), in the View category.' }), category: 'view', keybinding: 'Mod+0', run: () => call('window:zoom', 'reset') }, // i18n-ignore: a shortcut's keys
+  { id: 'view.fullScreen', name: msg({ id: 'shell.command.view.fullScreen', defaultMessage: 'Toggle Full Screen', description: 'A command (the menus, the command palette, Settings → Keyboard Shortcuts), in the View category.' }), category: 'view', keybinding: 'F11', run: () => call('window:toggleFullScreen') },
+  { id: 'view.alwaysOnTop', name: msg({ id: 'shell.command.view.alwaysOnTop', defaultMessage: 'Always on Top', description: 'A command (the menus, the command palette, Settings → Keyboard Shortcuts), in the View category.' }), category: 'view', keybinding: 'Mod+Alt+O', checked: () => get().alwaysOnTop, run: () => toggleAlwaysOnTop() }, // i18n-ignore: a shortcut's keys
+  { id: 'view.devTools', name: msg({ id: 'shell.command.view.devTools', defaultMessage: 'Toggle Developer Tools', description: 'A command (the menus, the command palette, Settings → Keyboard Shortcuts), in the Developer category.' }), category: 'developer', keybinding: 'Mod+Shift+I', run: () => call('window:toggleDevTools') }, // i18n-ignore: a shortcut's keys
+  { id: 'help.devConsole', name: msg({ id: 'shell.command.help.devConsole', defaultMessage: 'Developer Console', description: 'A command (the menus, the command palette, Settings → Keyboard Shortcuts), in the Developer category.' }), category: 'developer', keybinding: 'Mod+Alt+J', when: hasWorkspace, hidden: () => !get().settings?.advanced.showDeveloperFeatures, tip: () => tr(msg({ id: 'shell.tip.help.devConsole', defaultMessage: 'What each CLI sends Hive, next to what Hive made of it, in a window of its own', description: 'What a command does, on hover in the menus.' })), run: () => call('console:open') }, // i18n-ignore: a shortcut's keys
+  { id: 'view.reload', name: msg({ id: 'shell.command.view.reload', defaultMessage: 'Reload Window', description: 'A command (the menus, the command palette, Settings → Keyboard Shortcuts), in the Developer category.' }), category: 'developer', run: () => void actions.saveUnsavedFirst('reload the window' /* i18n-ignore: actions.ts slots the phrase into its sentence (E5b) */).then((ok) => ok && location.reload()) },
+  { id: 'notes.open', name: msg({ id: 'shell.command.notes.open', defaultMessage: 'Open Shared Note', description: "A command (the menus, the command palette, Settings → Keyboard Shortcuts), in the Notes category. It isn't in the menus or the palette: notifications and buttons run it by its name." }), category: 'notes', internal: true, run: (path: string) => { showView('notes'); set({ selectedNote: path }) } },
+  { id: 'mcp.import', name: msg({ id: 'shell.command.mcp.import', defaultMessage: 'Copy Project MCP Servers to Workspace', description: "A command (the menus, the command palette, Settings → Keyboard Shortcuts), in the MCP category. It isn't in the menus or the palette: notifications and buttons run it by its name." }), category: 'mcp', internal: true, run: (path: string, names: string[]) => actions.importProjectMcp(path, names) },
+  { id: 'help.agentSetup', name: msg({ id: 'shell.command.help.agentSetup', defaultMessage: 'Agent Setup…', description: 'A command (the menus, the command palette, Settings → Keyboard Shortcuts), in the Help category. The … says it opens a dialog first: keep it.' }), category: 'help', run: (provider?: unknown) => set({ setupOpen: typeof provider === 'string' ? provider : true }) },
+  { id: 'help.checkProviders', name: msg({ id: 'shell.command.help.checkProviders', defaultMessage: 'Check Coding Agents for Updates', description: 'A command (the menus, the command palette, Settings → Keyboard Shortcuts), in the Help category.' }), category: 'help', run: () => actions.refreshProviders() },
+  { id: 'help.docs', name: msg({ id: 'shell.command.help.docs', defaultMessage: 'Documentation', description: 'A command (the menus, the command palette, Settings → Keyboard Shortcuts), in the Help category.' }), category: 'help', keybinding: 'F1', run: () => { set({ docsPage: 'guide' }); setActivity('docs') } },
+  { id: 'help.api', name: msg({ id: 'shell.command.help.api', defaultMessage: 'Agent API Reference', description: 'A command (the menus, the command palette, Settings → Keyboard Shortcuts), in the Help category.' }), category: 'help', run: () => { set({ docsPage: 'api' }); setActivity('docs') } },
+  { id: 'help.shortcuts', name: msg({ id: 'shell.command.help.shortcuts', defaultMessage: 'Keyboard Shortcuts', description: 'A command (the menus, the command palette, Settings → Keyboard Shortcuts), in the Help category.' }), category: 'help', keybinding: 'Mod+K Mod+S', run: () => set({ shortcutsOpen: true }) }, // i18n-ignore: a shortcut's keys
+  { id: 'help.tips', name: msg({ id: 'shell.command.help.tips', defaultMessage: 'Tips…', description: 'A command (the menus, the command palette, Settings → Keyboard Shortcuts), in the Help category. The … says it opens a dialog first: keep it.' }), category: 'help', run: () => set({ tipsOpen: true }) },
+  { id: 'help.releaseNotes', name: msg({ id: 'shell.command.help.releaseNotes', defaultMessage: 'Release Notes', description: 'A command (the menus, the command palette, Settings → Keyboard Shortcuts), in the Help category.' }), category: 'help', run: () => { set({ docsPage: 'changelog' }); setActivity('docs') } },
+  // Help → Improve This Translation (#795): how to fix a translation or add a language, in CONTRIBUTING on GitHub.
+  {
+    id: 'help.improveTranslation',
+    name: msg({ id: 'shell.command.help.improveTranslation', defaultMessage: 'Improve This Translation', description: 'A command (the Help menu, the command palette), in the Help category: opens the guide for translators, on GitHub, to fix a translation or add a language.' }),
+    category: 'help',
+    tip: () => tr(msg({ id: 'shell.tip.help.improveTranslation', defaultMessage: 'How to fix a translation, or add a language, on GitHub', description: 'What a command does, on hover in the menus.' })),
+    run: () => call('app:openExternal', TRANSLATING_URL)
+  },
+  { id: 'help.logs', name: msg({ id: 'shell.command.help.logs', defaultMessage: 'Open Logs Folder', description: 'A command (the menus, the command palette, Settings → Keyboard Shortcuts), in the Help category.' }), category: 'help', run: () => call('app:openLogs') },
+  { id: 'help.diagnostics', name: msg({ id: 'shell.command.help.diagnostics', defaultMessage: 'Copy Diagnostics…', description: 'A command (the menus, the command palette, Settings → Keyboard Shortcuts), in the Help category. The … says it opens a dialog first: keep it.' }), category: 'help', run: () => set({ diagnosticsOpen: true }) },
+  { id: 'help.about', name: msg({ id: 'shell.command.help.about', defaultMessage: 'About {app}', description: "A command (the Help menu, the command palette), in the Help category. {app} is Hive's name." }), nameValues: { app: APP_NAME }, category: 'help', run: () => set({ aboutOpen: true }) },
+  { id: 'help.checkUpdates', name: msg({ id: 'shell.command.help.checkUpdates', defaultMessage: 'Check for Updates…', description: 'A command (the menus, the command palette, Settings → Keyboard Shortcuts), in the Help category. The … says it opens a dialog first: keep it.' }), category: 'help', run: () => checkForUpdates() },
+  { id: 'update.show', name: msg({ id: 'shell.command.update.show', defaultMessage: 'Show Hive Update', description: 'A command (the menus, the command palette, Settings → Keyboard Shortcuts), in the Help category.' }), category: 'help', when: () => ['available', 'downloading', 'ready'].includes(get().update?.status ?? ''), run: () => set({ updateOpen: true }) },
+  { id: 'update.install', name: msg({ id: 'shell.command.update.install', defaultMessage: 'Restart and Update Hive', description: 'A command (the menus, the command palette, Settings → Keyboard Shortcuts), in the Help category.' }), category: 'help', when: () => get().update?.status === 'ready', run: () => call('update:install') },
+  { id: 'update.releaseNotes', name: msg({ id: 'shell.command.update.releaseNotes', defaultMessage: "What's New in Hive", description: 'A command (the menus, the command palette, Settings → Keyboard Shortcuts), in the Help category.' }), category: 'help', run: (version?: unknown) => openReleaseNotes(typeof version === 'string' ? version : get().appInfo?.version) },
   // As the window's X: with several open, it closes this one (stopping its workspace's agents); the last one goes to the tray or quits.
-  { id: 'window.close', label: 'Close Window', category: 'File', keybinding: 'Mod+Shift+W', tip: () => (severalWindows() ? "Close this window and stop its workspace's agents" : get().settings?.general.closeToTray ? 'Close the window; Hive keeps running in the tray' : 'Close the window and quit Hive'), run: () => call('window:close') },
+  { id: 'window.close', name: msg({ id: 'shell.command.window.close', defaultMessage: 'Close Window', description: 'A command (the menus, the command palette, Settings → Keyboard Shortcuts), in the File category.' }), category: 'file', keybinding: 'Mod+Shift+W', tip: () => (severalWindows() ? tr(msg({ id: 'shell.tip.window.closeSeveral', defaultMessage: "Close this window and stop its workspace's agents", description: 'What a command does, on hover in the menus. With several windows open.' })) : get().settings?.general.closeToTray ? tr(msg({ id: 'shell.tip.window.closeToTray', defaultMessage: 'Close the window; Hive keeps running in the tray', description: 'What a command does, on hover in the menus. With one window, and Close to tray on.' })) : tr(msg({ id: 'shell.tip.window.closeQuit', defaultMessage: 'Close the window and quit Hive', description: 'What a command does, on hover in the menus. With one window, and Close to tray off.' }))), run: () => call('window:close') }, // i18n-ignore: a shortcut's keys
   {
     id: 'app.quit',
-    label: 'Exit',
-    category: 'File',
-    keybinding: 'Mod+Q',
-    liveLabel: () => (severalWindows() ? 'Exit Hive (all windows)' : 'Exit'),
-    tip: () => (severalWindows() ? `Close all ${get().windowCount} windows and stop the agents in every workspace` : 'Quit Hive'),
+    name: msg({ id: 'shell.command.app.quit', defaultMessage: 'Exit', description: 'A command (the menus, the command palette, Settings → Keyboard Shortcuts), in the File category.' }),
+    category: 'file',
+    keybinding: 'Mod+Q', // i18n-ignore: a shortcut's keys
+    liveLabel: () => (severalWindows() ? tr(msg({ id: 'shell.command.app.quitAll', defaultMessage: 'Exit Hive (all windows)', description: "The File menu's Exit, with several windows open: it closes them all." })) : tr(msg({ id: 'shell.command.app.quit', defaultMessage: 'Exit', description: 'A command (the menus, the command palette, Settings → Keyboard Shortcuts), in the File category.' }))),
+    tip: () => (severalWindows() ? tr(msg({ id: 'shell.tip.app.quitAll', defaultMessage: 'Close all {n} windows and stop the agents in every workspace', description: 'What a command does, on hover in the menus. {n} is how many windows are open (2 or more).' }), { n: get().windowCount }) : tr(msg({ id: 'shell.tip.app.quit', defaultMessage: 'Quit Hive', description: 'What a command does, on hover in the menus.' }))),
     run: () => call('app:quit')
   }
 ]
+
+/** Every command: its `label` reads its name in the language shown, each time. */
+export const commands: Command[] = COMMAND_DEFS.map((d) => Object.defineProperty(d as Command, 'label', { get: () => tr(d.name, d.nameValues), enumerable: true }))
 
 export function runCommand(id: string, ...args: unknown[]): void {
   const c = commands.find((x) => x.id === id)
@@ -464,7 +510,7 @@ export function runCommand(id: string, ...args: unknown[]): void {
 
 /** Whether a project may override this command's shortcut. */
 export function isProjectScoped(c: Pick<Command, 'category'>): boolean {
-  return PROJECT_KEYBINDING_CATEGORIES.includes(c.category)
+  return PROJECT_KEYBINDING_CATEGORIES.some((x) => x.toLowerCase() === c.category)
 }
 
 /** The shortcut a command has now: the selected project's override, the user's, or the default. */
@@ -478,16 +524,16 @@ export function commandKeybinding(id: string): string | undefined {
 
 // Physical keys, so Shift and AltGr don't change what a combination is called (Ctrl+Shift+1 stays "1", not "!").
 const CODE_KEYS: Record<string, string> = {
-  Backquote: '`', Minus: '-', Equal: '=', BracketLeft: '[', BracketRight: ']', Backslash: '\\', Semicolon: ';', Quote: "'", Comma: ',', Period: '.', Slash: '/', Space: 'Space'
+  Backquote: '`', Minus: '-', Equal: '=', BracketLeft: '[', BracketRight: ']', Backslash: '\\', Semicolon: ';', Quote: "'", Comma: ',', Period: '.', Slash: '/', Space: 'Space' // i18n-ignore: a shortcut's keys
 }
 
 /** A key event as a combination string ("Mod+Shift+P"), or '' for a lone modifier. */
 export function eventToKey(e: KeyboardEvent): string {
   if (['Control', 'Shift', 'Alt', 'Meta', 'AltGraph'].includes(e.key)) return ''
   const parts: string[] = []
-  if (e.ctrlKey || e.metaKey) parts.push('Mod')
-  if (e.altKey) parts.push('Alt')
-  if (e.shiftKey) parts.push('Shift')
+  if (e.ctrlKey || e.metaKey) parts.push('Mod') // i18n-ignore: a shortcut's keys
+  if (e.altKey) parts.push('Alt') // i18n-ignore: a shortcut's keys
+  if (e.shiftKey) parts.push('Shift') // i18n-ignore: a shortcut's keys
   const code = e.code ?? ''
   let key: string
   if (/^Key[A-Z]$/.test(code)) key = code.slice(3)
@@ -495,7 +541,7 @@ export function eventToKey(e: KeyboardEvent): string {
   else if (/^Numpad\d$/.test(code)) key = code.slice(6)
   else if (CODE_KEYS[code]) key = CODE_KEYS[code]
   else {
-    key = e.key === ' ' ? 'Space' : e.key.length === 1 ? e.key.toUpperCase() : e.key
+    key = e.key === ' ' ? 'Space' : e.key.length === 1 ? e.key.toUpperCase() : e.key // i18n-ignore: a shortcut's keys
     if (key === '+') key = '='
     if (key === '_') key = '-'
   }

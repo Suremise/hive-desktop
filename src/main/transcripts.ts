@@ -3,7 +3,7 @@ import type { ProviderId, Transcript, TranscriptItem, TranscriptSearchResult, Tr
 import { TRANSCRIPT_WINDOW, assertSessionId } from '../shared/defaults'
 import { formatDateTime } from '../shared/dates'
 import { provider } from './providers'
-import { searchItems, transcriptMarkdown } from './providers/conversation'
+import { searchItems, shownNotice, transcriptMarkdown } from './providers/conversation'
 import type { ConversationParserLike } from './providers/types'
 import { sessions } from './sessions'
 import { setViewing, whileReading } from './transcriptReads'
@@ -103,6 +103,8 @@ async function parseNow(projectPath: string, sessionId: string, key: string): Pr
 const clip = (s: string): string => (s.length > DISPLAY_LIMIT ? s.slice(0, DISPLAY_LIMIT) : s)
 
 function forDisplay(item: TranscriptItem): TranscriptItem {
+  // Hive's own notices in the language the window shows (#797); the cache keeps them as data.
+  if (item.kind === 'notice') return item.message ? { ...item, text: shownNotice(item) } : item
   if (item.kind !== 'tool') return item
   const t = item.tool
   const tool: TranscriptTool = { ...t, input: clip(t.input), result: t.result === null ? null : clip(t.result) }

@@ -1,0 +1,282 @@
+{
+  "providers.action.install": {
+    "defaultMessage": "Install",
+    "description": "Agent Setup's button: installs the coding agent's CLI in a terminal."
+  },
+  "providers.action.signIn": {
+    "defaultMessage": "Sign in",
+    "description": "Agent Setup's button: signs the coding agent's CLI in, in a terminal."
+  },
+  "providers.action.update": {
+    "defaultMessage": "Update",
+    "description": "Agent Setup's button: updates the coding agent's CLI in a terminal."
+  },
+  "providers.autoCompact.autoIn": {
+    "defaultMessage": "{key}: \"auto\" in {scope}",
+    "description": "Where Claude Code's auto-compaction setting comes from, in the context tooltip of an agent's footer: a settings file sets it to auto. {key} is the setting as written (autoCompactWindow), {scope} the file. \"auto\" is its value: keep it."
+  },
+  "providers.autoCompact.badSources": {
+    "defaultMessage": "isn't a list Claude Code takes (user, project, local)",
+    "description": "Where Claude Code's auto-compaction setting comes from, in the context tooltip of an agent's footer: --setting-sources (a command-line option, before this) has a value Claude Code doesn't take. user, project and local are its values: keep them."
+  },
+  "providers.autoCompact.disabledIn": {
+    "defaultMessage": "autoCompactEnabled: false in {scope}",
+    "description": "Where Claude Code's auto-compaction setting comes from, in the context tooltip of an agent's footer: a settings file turns it off. autoCompactEnabled: false is the setting as written: keep it. {scope} is the file."
+  },
+  "providers.autoCompact.envIn": {
+    "defaultMessage": "{variable} (env in {scope})",
+    "description": "Where Claude Code's auto-compaction setting comes from, in the context tooltip of an agent's footer: an environment variable set in a settings file's env block. {variable} is its name, {scope} the file. env is the block's name: keep it."
+  },
+  "providers.autoCompact.estimate": {
+    "defaultMessage": "an estimate: {unsure}",
+    "description": "Where Claude Code's auto-compaction setting comes from, in the context tooltip of an agent's footer: it is an estimate. {unsure} says which settings files Hive can't be sure of."
+  },
+  "providers.autoCompact.estimateAnd": {
+    "defaultMessage": "{estimate}; and {unsure}",
+    "description": "Where Claude Code's auto-compaction setting comes from, in the context tooltip of an agent's footer: more reasons it is an estimate. {estimate} is the first (providers.autoCompact.unread), {unsure} the settings files Hive can't be sure of."
+  },
+  "providers.autoCompact.keyIn": {
+    "defaultMessage": "{key} in {scope}",
+    "description": "Where Claude Code's auto-compaction setting comes from, in the context tooltip of an agent's footer: a settings file sets it. {key} is the setting as written (autoCompactWindow), {scope} the file."
+  },
+  "providers.autoCompact.scope.local": {
+    "defaultMessage": "the project's .claude/settings.local.json",
+    "description": "Where Claude Code's auto-compaction setting comes from, in the context tooltip of an agent's footer: a settings file Claude Code reads, as Hive names it in that line ({scope} in providers.autoCompact.*). .claude/settings.local.json is a path: keep it."
+  },
+  "providers.autoCompact.scope.managed": {
+    "defaultMessage": "managed settings",
+    "description": "Where Claude Code's auto-compaction setting comes from, in the context tooltip of an agent's footer: a settings file Claude Code reads, as Hive names it in that line ({scope} in providers.autoCompact.*). The managed settings an administrator gives Claude Code."
+  },
+  "providers.autoCompact.scope.project": {
+    "defaultMessage": "the project's .claude/settings.json",
+    "description": "Where Claude Code's auto-compaction setting comes from, in the context tooltip of an agent's footer: a settings file Claude Code reads, as Hive names it in that line ({scope} in providers.autoCompact.*). .claude/settings.json is a path: keep it."
+  },
+  "providers.autoCompact.scope.user": {
+    "defaultMessage": "Claude Code's settings.json",
+    "description": "Where Claude Code's auto-compaction setting comes from, in the context tooltip of an agent's footer: a settings file Claude Code reads, as Hive names it in that line ({scope} in providers.autoCompact.*). The user's own settings file. settings.json is a file name: keep it."
+  },
+  "providers.autoCompact.unread": {
+    "defaultMessage": "an estimate: managed policies Hive can't read, such as Windows registry policies or your organisation's server-managed settings, could change it",
+    "description": "Where Claude Code's auto-compaction setting comes from, in the context tooltip of an agent's footer: its default is an estimate. A clause in brackets after the window."
+  },
+  "providers.autoCompact.unreadable": {
+    "defaultMessage": "couldn't be read ({why})",
+    "description": "Where Claude Code's auto-compaction setting comes from, in the context tooltip of an agent's footer: a settings file Hive couldn't read (after its name). {why} says why (providers.autoCompact.why.*, or the system's message)."
+  },
+  "providers.autoCompact.unsureMode": {
+    "defaultMessage": "may stop Claude Code reading some settings files",
+    "description": "Where Claude Code's auto-compaction setting comes from, in the context tooltip of an agent's footer: a command-line option (before this: --safe-mode, --bare) may change which settings files Claude Code reads."
+  },
+  "providers.autoCompact.unsureScope": {
+    "defaultMessage": "{scope} {unsure}",
+    "description": "Where Claude Code's auto-compaction setting comes from, in the context tooltip of an agent's footer: a settings file Hive can't be sure of. {scope} names it (providers.autoCompact.scope.*, or a command-line option), {unsure} says why (couldn't be read…)."
+  },
+  "providers.autoCompact.why.notFile": {
+    "defaultMessage": "it isn't a file",
+    "description": "Where Claude Code's auto-compaction setting comes from, in the context tooltip of an agent's footer: why Hive couldn't read a settings file (providers.autoCompact.unreadable)."
+  },
+  "providers.autoCompact.why.tooBig": {
+    "defaultMessage": "it's over Claude Code's 2 MiB limit",
+    "description": "Where Claude Code's auto-compaction setting comes from, in the context tooltip of an agent's footer: why Hive couldn't read a settings file (providers.autoCompact.unreadable). 2 MiB is the size limit: keep it."
+  },
+  "providers.claude.hint.args": {
+    "defaultMessage": "Claude Code refused an argument: check Extra arguments in Agent Settings and Settings → Claude Code.",
+    "description": "Why Claude Code didn't start, in the agent's pane, with a button that goes where it says. Agent Settings, Agent Setup and Settings → … are Hive's names: use them as shown."
+  },
+  "providers.claude.hint.broken": {
+    "defaultMessage": "Claude Code looks broken or missing: reinstall or update it in Agent Setup.",
+    "description": "Why Claude Code didn't start, in the agent's pane, with a button that goes where it says. Agent Settings, Agent Setup and Settings → … are Hive's names: use them as shown."
+  },
+  "providers.claude.hint.model": {
+    "defaultMessage": "Claude Code doesn't know this model: choose another in Agent Settings.",
+    "description": "Why Claude Code didn't start, in the agent's pane, with a button that goes where it says. Agent Settings, Agent Setup and Settings → … are Hive's names: use them as shown."
+  },
+  "providers.claude.hint.signIn": {
+    "defaultMessage": "Claude Code isn't signed in: start it again and sign in in its terminal.",
+    "description": "Why Claude Code didn't start, in the agent's pane, with a button that goes where it says. Agent Settings, Agent Setup and Settings → … are Hive's names: use them as shown."
+  },
+  "providers.codex.hint.broken": {
+    "defaultMessage": "Codex looks broken or not set up: check it in Agent Setup.",
+    "description": "Why Codex didn't start, in the agent's pane, with a button that goes where it says. Agent Settings, Agent Setup and Settings → … are Hive's names: use them as shown."
+  },
+  "providers.codex.hint.model": {
+    "defaultMessage": "Codex doesn't know this model: choose another in Agent Settings.",
+    "description": "Why Codex didn't start, in the agent's pane, with a button that goes where it says. Agent Settings, Agent Setup and Settings → … are Hive's names: use them as shown."
+  },
+  "providers.codex.hint.settings": {
+    "defaultMessage": "Codex refused its settings: check Extra arguments in Agent Settings and Settings → Codex, and your config.toml.",
+    "description": "Why Codex didn't start, in the agent's pane, with a button that goes where it says. Agent Settings, Agent Setup and Settings → … are Hive's names: use them as shown."
+  },
+  "providers.codex.hint.signIn": {
+    "defaultMessage": "Codex isn't signed in: sign in in Agent Setup, then start it again.",
+    "description": "Why Codex didn't start, in the agent's pane, with a button that goes where it says. Agent Settings, Agent Setup and Settings → … are Hive's names: use them as shown."
+  },
+  "providers.codex.sandbox.default": {
+    "defaultMessage": "**Set up default sandbox** (recommended): commands run under two local Windows accounts Codex creates for them (`CodexSandboxOffline` and `CodexSandboxOnline`), with a firewall rule that keeps them offline unless you allow it. It isolates commands best. Windows asks for Administrator permission once.",
+    "description": "Agent Setup, under Codex's sandbox setup (Windows): its first choice. **Set up default sandbox** is the choice as Codex names it (in English); `…` marks account names: keep them."
+  },
+  "providers.codex.sandbox.needed": {
+    "defaultMessage": "Codex needs a one-time setup of its Windows sandbox; until then it asks before every command.",
+    "description": "Agent Setup and Settings → Providers: Codex's Windows sandbox isn't set up yet."
+  },
+  "providers.codex.sandbox.nonAdmin": {
+    "defaultMessage": "**Use non-admin sandbox**: needs no Administrator permission. Commands run under your own account with restricted rights. It protects your files and blocks internet access in most cases, but Codex warns it carries more risk if the agent is tricked by instructions hidden in a file or web page it reads (prompt injection). You can upgrade to the default sandbox from here later.",
+    "description": "Agent Setup, under Codex's sandbox setup (Windows): its second choice. **Use non-admin sandbox** is the choice as Codex names it (in English)."
+  },
+  "providers.codex.sandbox.nonAdminUsed": {
+    "defaultMessage": "Codex uses its non-admin sandbox.",
+    "description": "Agent Setup and Settings → Providers: Codex runs commands in its non-admin sandbox (Windows), which can be upgraded."
+  },
+  "providers.codex.sandbox.setUp": {
+    "defaultMessage": "**Set up** opens Codex's sandbox setup, which offers two choices. With either, Codex agents in **Ask for approval** or **Approve for me** can edit files in their own folder (the project, or the agent's worktree) and run commands there without asking, and ask before going online or writing anywhere else. Hive's own features (status, file locks, handovers, shared notes) work the same with both.",
+    "description": "Agent Setup, under Codex's sandbox setup (Windows): what Set up does. **…** marks bold text: keep the marks. Set up is the button; Ask for approval and Approve for me are Codex's permission modes as Hive names them: use their names as shown."
+  },
+  "providers.codex.sandbox.setUpAction": {
+    "defaultMessage": "Set up",
+    "description": "Agent Setup's button: opens Codex's sandbox setup in a terminal."
+  },
+  "providers.codex.sandbox.upgrade": {
+    "defaultMessage": "**Upgrade** switches Codex to its default sandbox, which runs commands under separate Windows accounts instead of your own. Windows asks for Administrator permission once. Codex agents that are running keep their sandbox until they restart.",
+    "description": "Agent Setup, under Codex's sandbox setup (Windows): what Upgrade does. **…** marks bold text: keep the marks."
+  },
+  "providers.codex.sandbox.upgradeAction": {
+    "defaultMessage": "Upgrade",
+    "description": "Agent Setup's button: switches Codex to its default sandbox."
+  },
+  "providers.codex.stray.files": {
+    "defaultMessage": "{more, plural, =0 {{files}} other {{files} and {more, number} more}}",
+    "description": "The files a stray .codex folder holds, in its warning (providers.codex.stray.message): the first few, and how many more."
+  },
+  "providers.codex.stray.message": {
+    "defaultMessage": "{folder} holds {files}, which isn't Codex configuration (config.toml, agents, rules) or a file it names. Codex treats the folder as its own, and stray files in it (an agent's scratch or logs) can make every Codex agent's commands fail (\"setup refresh had errors\"). Move those files out of it (scratch belongs outside the project); leave Codex's configuration where it is.",
+    "description": "The warning about a stray .codex folder. {folder} is its path, {files} what it holds. config.toml, agents and rules are Codex's own names; \"setup refresh had errors\" is Codex's message, in English: keep them."
+  },
+  "providers.codex.stray.title": {
+    "defaultMessage": "A .codex folder here can stop Codex running commands",
+    "description": "A warning when an agent starts in a folder with a .codex folder that isn't Codex's configuration. .codex is a folder's name."
+  },
+  "providers.copilot.hint.args": {
+    "defaultMessage": "Copilot refused an argument: check Extra arguments in Agent Settings and Settings → GitHub Copilot.",
+    "description": "Why GitHub Copilot didn't start, in the agent's pane, with a button that goes where it says. Agent Settings, Agent Setup and Settings → … are Hive's names: use them as shown."
+  },
+  "providers.copilot.hint.broken": {
+    "defaultMessage": "Copilot looks broken or missing: check it in Agent Setup.",
+    "description": "Why GitHub Copilot didn't start, in the agent's pane, with a button that goes where it says. Agent Settings, Agent Setup and Settings → … are Hive's names: use them as shown."
+  },
+  "providers.copilot.hint.mcp": {
+    "defaultMessage": "Copilot couldn't read the MCP configuration Hive gave it: start it again.",
+    "description": "Why GitHub Copilot didn't start, in the agent's pane, with a button that goes where it says. Agent Settings, Agent Setup and Settings → … are Hive's names: use them as shown."
+  },
+  "providers.copilot.hint.model": {
+    "defaultMessage": "Copilot doesn't offer this model to this account (Copilot Free runs Auto only): choose another in Agent Settings.",
+    "description": "Why GitHub Copilot didn't start, in the agent's pane, with a button that goes where it says. Agent Settings, Agent Setup and Settings → … are Hive's names: use them as shown."
+  },
+  "providers.copilot.hint.signIn": {
+    "defaultMessage": "Copilot isn't signed in: sign in as Agent Setup shows, then start it again.",
+    "description": "Why GitHub Copilot didn't start, in the agent's pane, with a button that goes where it says. Agent Settings, Agent Setup and Settings → … are Hive's names: use them as shown."
+  },
+  "providers.copilot.parens.message": {
+    "defaultMessage": "Copilot can't approve edits in a folder whose path has parentheses, so this agent asks before each edit, as in Ask. Rename the folder to give it Accept edits.",
+    "description": "The notice that a GitHub Copilot agent asks before each edit. Ask and Accept edits are permission modes as Hive names them: use their names as shown."
+  },
+  "providers.copilot.parens.title": {
+    "defaultMessage": "Copilot will ask before each edit",
+    "description": "A notice as a GitHub Copilot agent starts in Accept edits, in a folder whose path has parentheses."
+  },
+  "providers.copilot.planNote": {
+    "defaultMessage": "Copilot Free uses Auto only; choosing a model needs a paid plan.",
+    "description": "A note in Agent Setup under GitHub Copilot. Copilot Free is the plan's name; Auto is Copilot's model choice: keep both names."
+  },
+  "providers.copilot.signIn.deviceCode": {
+    "defaultMessage": "For a code to enter on GitHub instead, run `copilot login --device-code` in a terminal.",
+    "description": "Agent Setup, under GitHub Copilot's Sign in: another way to sign in. `…` marks a command: keep it."
+  },
+  "providers.copilot.signIn.gh": {
+    "defaultMessage": "With no login of its own, Copilot uses the GitHub CLI’s (`gh auth login`).",
+    "description": "Agent Setup, under GitHub Copilot's Sign in: Copilot falls back to the GitHub CLI's sign-in. `…` marks a command: keep it."
+  },
+  "providers.copilot.signIn.ignored": {
+    "defaultMessage": "{n, plural, one {Copilot agents don’t get {variables} from Hive’s environment, so it doesn’t sign them in. For a token of Copilot’s own, set `COPILOT_GITHUB_TOKEN`.} other {Copilot agents don’t get {variables} from Hive’s environment, so they don’t sign them in. For a token of Copilot’s own, set `COPILOT_GITHUB_TOKEN`.}}",
+    "description": "Agent Setup, under GitHub Copilot's Sign in: environment variables with a GitHub token that Hive keeps from Copilot agents. {variables} lists them (joined with “or”), {n} is how many. `…` marks a variable name: keep it."
+  },
+  "providers.copilot.signIn.runs": {
+    "defaultMessage": "**Sign in** runs `copilot login` in a terminal: it opens GitHub in your browser to authorise Copilot. Hive never signs in for you.",
+    "description": "Agent Setup, under GitHub Copilot's Sign in: what it does. **…** marks bold text and `…` a command: keep the marks and the command."
+  },
+  "providers.copilot.updateManual": {
+    "defaultMessage": "Update {provider} the way you installed it: Hive’s Copilot agents run the installed version, not one `copilot update` downloads.",
+    "description": "Agent Setup, under a newer GitHub Copilot that Hive can't update itself. {provider} is its name. `…` marks a command: keep it."
+  },
+  "providers.export.compacted": {
+    "defaultMessage": "**Conversation compacted** ({trigger}) · {before} → {after} tokens",
+    "description": "The Markdown export of a conversation (Sessions tab → Export): where the conversation was compacted. **…** is Markdown bold: keep the marks. {trigger} is how (auto or manual, in English); {before} and {after} its size in tokens (12.3K)."
+  },
+  "providers.export.error": {
+    "defaultMessage": "**Error:**",
+    "description": "The Markdown export of a conversation (Sessions tab → Export): over a tool call's failed result. **…** is Markdown bold: keep the marks."
+  },
+  "providers.export.image": {
+    "defaultMessage": "*[Image]*",
+    "description": "The Markdown export of a conversation (Sessions tab → Export): an image the user sent. *[…]* is Markdown: keep the marks."
+  },
+  "providers.export.imageAt": {
+    "defaultMessage": "*[Image: {path}]*",
+    "description": "The Markdown export of a conversation (Sessions tab → Export): an image the user sent, where the conversation had it. *[…]* is Markdown: keep the marks. {path} is its file."
+  },
+  "providers.export.result": {
+    "defaultMessage": "**Result:**",
+    "description": "The Markdown export of a conversation (Sessions tab → Export): over a tool call's result. **…** is Markdown bold: keep the marks."
+  },
+  "providers.export.subtitle": {
+    "defaultMessage": "{provider} session `{session}` · project {project}",
+    "description": "The Markdown export of a conversation (Sessions tab → Export): the line under its title. {provider} is the coding agent (Claude Code), {session} the session's id (`…` marks it: keep the marks), {project} the project."
+  },
+  "providers.export.summary": {
+    "defaultMessage": "Summary",
+    "description": "The Markdown export of a conversation (Sessions tab → Export): the summary of a collapsed section holding a compaction's summary."
+  },
+  "providers.export.thinking": {
+    "defaultMessage": "Thinking",
+    "description": "The Markdown export of a conversation (Sessions tab → Export): the summary of a collapsed section holding the model's thinking."
+  },
+  "providers.export.you": {
+    "defaultMessage": "You",
+    "description": "The Markdown export of a conversation (Sessions tab → Export): the heading over the user's messages."
+  },
+  "providers.memory.user": {
+    "defaultMessage": "User {file} (all projects)",
+    "description": "In the Memory view: the user's own instructions file, which every project's agents read. {file} is its name (CLAUDE.md)."
+  },
+  "providers.readiness.notInstalled": {
+    "defaultMessage": "{provider} is not installed.",
+    "description": "Agent Setup and Settings → Providers: Hive didn't find the coding agent's CLI. {provider} is its name (Claude Code)."
+  },
+  "providers.readiness.signedOut": {
+    "defaultMessage": "{provider} is not signed in.",
+    "description": "Agent Setup and Settings → Providers: the coding agent's CLI has no sign-in. {provider} is its name."
+  },
+  "providers.readiness.update": {
+    "defaultMessage": "{provider} {version} is available.",
+    "description": "Agent Setup and Settings → Providers: a newer version of the coding agent is out. {provider} is its name, {version} the version."
+  },
+  "providers.transcript.aborted": {
+    "defaultMessage": "Turn ended: aborted",
+    "description": "A notice in a conversation, in the Sessions tab's transcript viewer and its Markdown export: the turn ended early, for no reason given."
+  },
+  "providers.transcript.apiError": {
+    "defaultMessage": "API error",
+    "description": "A notice in a conversation, in the Sessions tab's transcript viewer and its Markdown export: the coding agent's model API failed, with no message of its own."
+  },
+  "providers.transcript.interrupted": {
+    "defaultMessage": "Interrupted by you",
+    "description": "A notice in a conversation, in the Sessions tab's transcript viewer and its Markdown export: the user stopped the agent's turn."
+  },
+  "providers.transcript.resumed": {
+    "defaultMessage": "Session resumed",
+    "description": "A notice in a conversation, in the Sessions tab's transcript viewer and its Markdown export: the conversation was resumed here (GitHub Copilot)."
+  },
+  "providers.transcript.turnEnded": {
+    "defaultMessage": "Turn ended: {reason}",
+    "description": "A notice in a conversation, in the Sessions tab's transcript viewer and its Markdown export: the turn ended early. {reason} is the coding agent's own word for why (timeout), in English."
+  }
+}

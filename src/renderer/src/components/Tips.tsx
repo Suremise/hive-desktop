@@ -1,7 +1,7 @@
 import { useEffect, useLayoutEffect, useRef, useState, type RefObject } from 'react'
 import { cornerPlacement } from '@shared/corner'
-import { TIP_GROUPS, TIPS, type Tip } from '@shared/tips'
-import { tr } from '@shared/i18n'
+import { TIP_GROUP_TEXT, TIP_GROUPS, TIPS, type Tip } from '@shared/tips'
+import { msg, tr, tRich } from '@shared/i18n'
 import type { Msg } from '@shared/i18n/msg'
 import { commandKeybinding, commands, runCommand } from '../commands'
 import { call } from '../api'
@@ -21,22 +21,26 @@ const runnable = (tip: Tip): boolean => {
   return !!c && !c.hidden?.() && (!c.when || c.when())
 }
 
-/** A tip's text with its shortcuts as they are now: {key:<command>} shows the user's shortcut for it. */
-/** A tip's words in the language shown: a message's, or English not converted yet (#767). */
-const words = (t: string | Msg): string => (typeof t === 'string' ? t : tr(t))
+/** A tip's words in the language shown (#767); its {key} as nothing, for searching. */
+const words = (t: string | Msg): string => (typeof t === 'string' ? t : tr(t, { key: '' }))
 
-function TipText({ text }: { text: string }) {
-  const parts = text.split(/(\{key:[\w.]+\})/)
+/** Where a tip's {key} goes in its text, whatever the language put around it. */
+const KEY = { key: true } as const
+
+/** A tip's text with its shortcut as it is now: {key} shows the user's shortcut for the tip's `key` command. */
+function TipText({ tip }: { tip: Tip }) {
+  if (typeof tip.text === 'string') return <>{tip.text}</>
+  const parts = tRich<typeof KEY>(tip.text, { key: KEY })
   return (
     <>
       {parts.map((p, i) => {
-        const id = /^\{key:([\w.]+)\}$/.exec(p)?.[1]
-        if (!id) return p
-        const key = commandKeybinding(id)
-        if (key) return <kbd key={i}>{formatKeybinding(key)}</kbd>
+        if (p !== KEY) return p
+        const id = tip.key ?? ''
+        const keys = commandKeybinding(id)
+        if (keys) return <kbd key={i}>{formatKeybinding(keys)}</kbd>
         // No shortcut: left out at the end, named by the command elsewhere.
-        const last = parts.slice(i + 1).every((x) => !x.trim())
-        return last ? null : `“${commands.find((c) => c.id === id)?.label ?? id}”`
+        const last = parts.slice(i + 1).every((x) => typeof x === 'string' && !x.trim())
+        return last ? null : tr(msg({ id: 'tips.commandName', defaultMessage: '“{command}”', description: "A command's name in a tip's text, where its shortcut would be when it has none. Use your language's quotation marks." }), { command: commands.find((c) => c.id === id)?.label ?? id })
       })}
     </>
   )
@@ -57,7 +61,7 @@ function TipActions({ tip, onTry, onLearn }: { tip: Tip; onTry?: () => void; onL
             runCommand(tip.command!)
           }}
         >
-          Try it
+          {tr(msg({ id: 'tips.ui.tryIt', defaultMessage: 'Try it', description: 'Button on a tip: runs the command it is about.' }))}
         </button>
       )}
       {tip.docs && (
@@ -68,7 +72,7 @@ function TipActions({ tip, onTry, onLearn }: { tip: Tip; onTry?: () => void; onL
             openGuideAt(tip.docs!)
           }}
         >
-          Learn more
+          {tr(msg({ id: 'tips.ui.learnMore', defaultMessage: 'Learn more', description: 'Button on a tip: opens the user guide where it explains it.' }))}
         </button>
       )}
     </>
@@ -155,26 +159,24 @@ export function TipCard() {
   })
   if (!tip) return null
   return (
-    <div ref={ref} className={cx('tip-card', over && 'stepped-aside')} role="complementary" aria-label="Tip" aria-hidden={over || undefined}>
+    <div ref={ref} className={cx('tip-card', over && 'stepped-aside')} role="complementary" aria-label={tr(msg({ id: 'tips.ui.tip', defaultMessage: 'Tip', description: 'The name, for screen readers, of the tip card.' }))} aria-hidden={over || undefined}>
       <div className="tip-head">
         <Icon name="lightbulb" />
-        <span className="grow">
-          Tip · {TIPS.indexOf(tip) + 1} of {TIPS.length}
-        </span>
-        <IconButton icon="close" title="Close" onClick={closeTip} />
+        <span className="grow">{tr(msg({ id: 'tips.ui.counter', defaultMessage: 'Tip · {n} of {total}', description: "The tip card's heading: which tip of how many it is." }), { n: TIPS.indexOf(tip) + 1, total: TIPS.length })}</span>
+        <IconButton icon="close" action="close-tip" title={tr(msg({ id: 'tips.ui.close', defaultMessage: 'Close', description: 'Closes the tip card or Help → Tips.' }))} onClick={closeTip} />
       </div>
       <div className="tip-title">{words(tip.title)}</div>
       <div className="tip-text">
-        <TipText text={words(tip.text)} />
+        <TipText tip={tip} />
       </div>
       <div className="tip-actions">
         <TipActions tip={tip} onTry={closeTip} />
         <button className="btn small subtle" onClick={showNextTip}>
-          Next tip
+          {tr(msg({ id: 'tips.ui.next', defaultMessage: 'Next tip', description: 'Button on the tip card: shows the next tip.' }))}
         </button>
       </div>
       <button className="link tip-off" onClick={() => void turnOffTips()}>
-        Don't show tips
+        {tr(msg({ id: 'tips.ui.off', defaultMessage: "Don't show tips", description: 'A link on the tip card: turns off the tip when Hive starts.' }))}
       </button>
     </div>
   )
@@ -191,23 +193,23 @@ export function TipsDialog() {
     setQuery('')
   }
   const q = query.trim().toLowerCase()
-  const found = TIPS.filter((t) => !q || `${words(t.title)} ${words(t.text)} ${t.group}`.toLowerCase().includes(q))
+  const found = TIPS.filter((t) => !q || `${words(t.title)} ${words(t.text)} ${tr(TIP_GROUP_TEXT[t.group])}`.toLowerCase().includes(q))
   return (
     <Modal
-      title="Tips"
+      title={tr(msg({ id: 'tips.ui.title', defaultMessage: 'Tips', description: 'The title of Help → Tips.' }))}
       icon="lightbulb"
       wide
       onClose={close}
       footer={
         <button className="btn primary" onClick={close}>
-          Close
+          {tr(msg({ id: 'tips.ui.close', defaultMessage: 'Close', description: 'Closes the tip card or Help → Tips.' }))}
         </button>
       }
     >
       <div className="tips-top">
-        <SearchInput autoFocus placeholder="Search tips" value={query} onChange={setQuery} />
+        <SearchInput autoFocus placeholder={tr(msg({ id: 'tips.ui.search', defaultMessage: 'Search tips', description: "Placeholder of Help → Tips' search box." }))} value={query} onChange={setQuery} />
         <label className="flex muted tips-switch">
-          <Switch checked={on} label="Show a tip when Hive starts" onChange={(v) => void call('settings:update', { general: { showTips: v } }).then((s) => set({ settings: s }))} /> Show a tip when Hive starts
+          <Switch checked={on} label={tr(msg({ id: 'tips.ui.showOnStart', defaultMessage: 'Show a tip when Hive starts', description: 'A switch in Help → Tips: shows a tip of the day when Hive starts (the same as Settings → General → Show a tip when Hive starts).' }))} onChange={(v) => void call('settings:update', { general: { showTips: v } }).then((s) => set({ settings: s }))} /> {tr(msg({ id: 'tips.ui.showOnStart', defaultMessage: 'Show a tip when Hive starts', description: 'A switch in Help → Tips: shows a tip of the day when Hive starts (the same as Settings → General → Show a tip when Hive starts).' }))}
         </label>
       </div>
       <div className="tips-list">
@@ -215,14 +217,14 @@ export function TipsDialog() {
           const list = found.filter((t) => t.group === g)
           if (!list.length) return null
           return (
-            <section key={g}>
-              <h3>{g}</h3>
+            <section key={g} data-group={g}>
+              <h3>{tr(TIP_GROUP_TEXT[g])}</h3>
               {list.map((t) => (
-                <div key={t.id} className="tips-item">
+                <div key={t.id} className="tips-item" data-tip={t.id}>
                   <div className="grow">
                     <div className="tip-title">{words(t.title)}</div>
                     <div className="tip-text">
-                      <TipText text={words(t.text)} />
+                      <TipText tip={t} />
                     </div>
                   </div>
                   <div className="tip-actions">
@@ -233,7 +235,7 @@ export function TipsDialog() {
             </section>
           )
         })}
-        {!found.length && <div className="pane-empty">No tips match “{query}”.</div>}
+        {!found.length && <div className="pane-empty">{tr(msg({ id: 'tips.ui.noMatch', defaultMessage: 'No tips match “{query}”.', description: "Help → Tips when its search finds nothing. {query} is what was typed; use your language's quotation marks." }), { query })}</div>}
       </div>
     </Modal>
   )

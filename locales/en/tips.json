@@ -1,4 +1,584 @@
 {
+  "tips.advancedSettings.text": {
+    "defaultMessage": "After a coding agent's update, Hive no longer sees its trust question or its sign-in errors? Settings → Advanced has the text and fields Hive looks for, and its timeouts: change one, with the default beside it, or edit advanced.json.",
+    "description": "A tip. Names of Hive's menus, views, settings and commands: keep them as Hive shows them."
+  },
+  "tips.advancedSettings.title": {
+    "defaultMessage": "Fix a CLI change yourself",
+    "description": "A tip's title."
+  },
+  "tips.agentConsole.text": {
+    "defaultMessage": "Settings → Agent API → Let agents read the developer console gives agents a read-only tool showing their CLI's hooks and status line next to what Hive made of each, redacted, so they can debug what Hive sees.",
+    "description": "A tip. Names of Hive's menus, views, settings and commands: keep them as Hive shows them."
+  },
+  "tips.agentConsole.title": {
+    "defaultMessage": "Let agents see what their CLI sends",
+    "description": "A tip's title."
+  },
+  "tips.agentLayouts.text": {
+    "defaultMessage": "Each agent has its own pane: choose a layout at the right of the agent row, and drag tabs or panes to rearrange them. File locks stop two agents editing the same file.",
+    "description": "A tip. Names of Hive's menus, views, settings and commands: keep them as Hive shows them."
+  },
+  "tips.agentLayouts.title": {
+    "defaultMessage": "Several agents side by side",
+    "description": "A tip's title."
+  },
+  "tips.agentSettings.text": {
+    "defaultMessage": "Click an agent's model in its footer for Agent Settings: give a reviewer a faster model while another agent codes with the strongest.",
+    "description": "A tip. Names of Hive's menus, views, settings and commands: keep them as Hive shows them."
+  },
+  "tips.agentSettings.title": {
+    "defaultMessage": "A model per agent",
+    "description": "A tip's title."
+  },
+  "tips.alwaysOnTop.text": {
+    "defaultMessage": "The pin in the title bar (or Ctrl+Alt+O) keeps the window above your other apps, so a test run or an emulator can work underneath. Each window has its own, remembered for its workspace.",
+    "description": "A tip. Names of Hive's menus, views, settings and commands: keep them as Hive shows them."
+  },
+  "tips.alwaysOnTop.title": {
+    "defaultMessage": "Keep a Hive window on top",
+    "description": "A tip's title."
+  },
+  "tips.antivirus.text": {
+    "defaultMessage": "On Windows, Microsoft Defender scans every file builds, tests and git touch. Settings → Workspace → Antivirus scanning shows whether it scans your workspace and can exclude its folders, with your consent.",
+    "description": "A tip. Names of Hive's menus, views, settings and commands: keep them as Hive shows them."
+  },
+  "tips.antivirus.title": {
+    "defaultMessage": "Antivirus and your workspace",
+    "description": "A tip's title."
+  },
+  "tips.archiveNew.text": {
+    "defaultMessage": "The cheapest way to carry on after a long session: archive it and start clean, so nothing old is re-cached. Write a handover first so the new one knows where to pick up.",
+    "description": "A tip. Names of Hive's menus, views, settings and commands: keep them as Hive shows them."
+  },
+  "tips.archiveNew.title": {
+    "defaultMessage": "Archive and Start New",
+    "description": "A tip's title."
+  },
+  "tips.assistant.text": {
+    "defaultMessage": "The panel on the right oversees the workspace: ask what the agents are doing, what things cost, or for a plan. {key}",
+    "description": "A tip. {key} is a shortcut (its keys, or the command's name when it has none). Names of Hive's menus, views, settings and commands: keep them as Hive shows them."
+  },
+  "tips.assistant.title": {
+    "defaultMessage": "Ask the Hive Assistant",
+    "description": "A tip's title."
+  },
+  "tips.assistantBatch.text": {
+    "defaultMessage": "The Assistant can move or label up to 100 cards in one step, each card still listed on its own. The step counts as one of its 30 changes for a message, so it never stops part-way through them.",
+    "description": "A tip. Names of Hive's menus, views, settings and commands: keep them as Hive shows them."
+  },
+  "tips.assistantBatch.title": {
+    "defaultMessage": "Many cards in one step",
+    "description": "A tip's title."
+  },
+  "tips.assistantCompact.text": {
+    "defaultMessage": "The Assistant usually works with a bigger context than your agents, so its Compact button turns orange later: past 500,000 tokens by default. Settings → Assistant → Highlight Compact over changes that, or Never turns it off.",
+    "description": "A tip. Names of Hive's menus, views, settings and commands: keep them as Hive shows them."
+  },
+  "tips.assistantCompact.title": {
+    "defaultMessage": "When the Assistant suggests compacting",
+    "description": "A tip's title."
+  },
+  "tips.assistantControl.text": {
+    "defaultMessage": "Settings → Assistant → Control decides what it may do: only advise, or also add, start and brief agents and start cards when you ask.",
+    "description": "A tip. Names of Hive's menus, views, settings and commands: keep them as Hive shows them."
+  },
+  "tips.assistantControl.title": {
+    "defaultMessage": "Let the Assistant run agents",
+    "description": "A tip's title."
+  },
+  "tips.assistantImages.text": {
+    "defaultMessage": "The Assistant view's Attachments shows every screenshot and file you've pasted or dropped into its conversations, by conversation. Click a conversation's name to read it again.",
+    "description": "A tip. Names of Hive's menus, views, settings and commands: keep them as Hive shows them."
+  },
+  "tips.assistantImages.title": {
+    "defaultMessage": "What you've attached to the Assistant",
+    "description": "A tip's title."
+  },
+  "tips.assistantLaneWatch.text": {
+    "defaultMessage": "Running several lanes, the Assistant waits on all of them at once and is woken only for a failed review, a blocked or stalled card, a lane ready to merge or one that ended.",
+    "description": "A tip. Names of Hive's menus, views, settings and commands: keep them as Hive shows them."
+  },
+  "tips.assistantLaneWatch.title": {
+    "defaultMessage": "One watch for all the lanes",
+    "description": "A tip's title."
+  },
+  "tips.assistantLanes.text": {
+    "defaultMessage": "When the Assistant starts an agent on its next set of cards, it gives it a new conversation in the same step (the old one stays in the Sessions tab). Short conversations cost much less: ask it to do the same for any new task.",
+    "description": "A tip. Names of Hive's menus, views, settings and commands: keep them as Hive shows them."
+  },
+  "tips.assistantLanes.title": {
+    "defaultMessage": "A new conversation for each lane",
+    "description": "A tip's title."
+  },
+  "tips.assistantMessages.text": {
+    "defaultMessage": "The Assistant can't give a waiting or working agent a new task, but it can leave it a message, such as your answer: delivered as soon as the agent can take it. Its pane shows ✉ 1 unread until then; click to cancel.",
+    "description": "A tip. Names of Hive's menus, views, settings and commands: keep them as Hive shows them."
+  },
+  "tips.assistantMessages.title": {
+    "defaultMessage": "The Assistant can reach a busy agent",
+    "description": "A tip's title."
+  },
+  "tips.assistantReplies.text": {
+    "defaultMessage": "When you answer an agent in its pane while the Assistant watches it or its card, the Assistant is told the first line, so it doesn't ask you again. Settings → General → Your name sets how it names you; Settings → Assistant turns it off.",
+    "description": "A tip. Names of Hive's menus, views, settings and commands: keep them as Hive shows them."
+  },
+  "tips.assistantReplies.title": {
+    "defaultMessage": "The Assistant hears your answers to agents",
+    "description": "A tip's title."
+  },
+  "tips.assistantSettings.text": {
+    "defaultMessage": "Not sure which setting would help? Ask the Assistant: it explains any of them and says where it is. With Settings → Assistant → Control → Change settings on, it can make the change, which you can revert from its panel.",
+    "description": "A tip. Names of Hive's menus, views, settings and commands: keep them as Hive shows them."
+  },
+  "tips.assistantSettings.title": {
+    "defaultMessage": "Ask the Assistant about a setting",
+    "description": "A tip's title."
+  },
+  "tips.assistantSide.text": {
+    "defaultMessage": "Windows notifications or another app covering the right of the screen? View → Move Assistant Panel to the Left puts the Assistant beside the project list.",
+    "description": "A tip. Names of Hive's menus, views, settings and commands: keep them as Hive shows them."
+  },
+  "tips.assistantSide.title": {
+    "defaultMessage": "The Assistant on the left",
+    "description": "A tip's title."
+  },
+  "tips.assistantStatus.text": {
+    "defaultMessage": "The line under the Assistant's header says what it is doing, and when it waits on cards, which ones and until when: click a card to open it. Click Done by the Assistant to fold its list away, and the arrow before a project's name to fold it to one line.",
+    "description": "A tip. Names of Hive's menus, views, settings and commands: keep them as Hive shows them."
+  },
+  "tips.assistantStatus.title": {
+    "defaultMessage": "What the Assistant is doing",
+    "description": "A tip's title."
+  },
+  "tips.assistantTeam.text": {
+    "defaultMessage": "With three or more agents, or builders and reviewers, ask the Assistant in Coordinator mode to run your cards as lanes: it splits them by the files they touch, briefs each pair and watches every lane to the end. With one or two agents it keeps out of the way.",
+    "description": "A tip. Names of Hive's menus, views, settings and commands: keep them as Hive shows them."
+  },
+  "tips.assistantTeam.title": {
+    "defaultMessage": "The Assistant runs your team",
+    "description": "A tip's title."
+  },
+  "tips.assistantToldWaiting.text": {
+    "defaultMessage": "While the Assistant watches the lanes, an agent showing a permission prompt or asking you something wakes it, and it tells you which agent, its card and what it asks. It never answers for you. Its watch can follow a release card outside the lanes too.",
+    "description": "A tip. Names of Hive's menus, views, settings and commands: keep them as Hive shows them."
+  },
+  "tips.assistantToldWaiting.title": {
+    "defaultMessage": "The Assistant tells you when an agent needs you",
+    "description": "A tip's title."
+  },
+  "tips.assistantWaits.text": {
+    "defaultMessage": "Ask the Assistant to let you know when an agent finishes a build or a test run: it waits without checking in, and Hive wakes it when the agent finishes, needs you or stops.",
+    "description": "A tip. Names of Hive's menus, views, settings and commands: keep them as Hive shows them."
+  },
+  "tips.assistantWaits.title": {
+    "defaultMessage": "Have the Assistant tell you when an agent is done",
+    "description": "A tip's title."
+  },
+  "tips.attachFiles.text": {
+    "defaultMessage": "Drop a PDF, a log or any file onto an agent's terminal: Hive keeps a copy with the session and pastes its path. A chip shows what's attached, and says when the agent's CLI doesn't read that kind of file itself, so the agent opens it by its path.",
+    "description": "A tip. Names of Hive's menus, views, settings and commands: keep them as Hive shows them."
+  },
+  "tips.attachFiles.title": {
+    "defaultMessage": "Attach any file to a prompt",
+    "description": "A tip's title."
+  },
+  "tips.banners.text": {
+    "defaultMessage": "While you use Hive, an agent finishing or needing you is a banner in the window, not a Windows notification over the Assistant. Settings → Notifications chooses where it shows, for which workspaces, and for how long.",
+    "description": "A tip. Names of Hive's menus, views, settings and commands: keep them as Hive shows them."
+  },
+  "tips.banners.title": {
+    "defaultMessage": "Notices in Hive, not over it",
+    "description": "A tip's title."
+  },
+  "tips.board.text": {
+    "defaultMessage": "Cards in On Hold, Todo, Doing, Review, Passed and Done, each for a project. Start… gives a card to an agent with the card as its prompt. {key}",
+    "description": "A tip. {key} is a shortcut (its keys, or the command's name when it has none). Names of Hive's menus, views, settings and commands: keep them as Hive shows them."
+  },
+  "tips.board.title": {
+    "defaultMessage": "Plan work on the task board",
+    "description": "A tip's title."
+  },
+  "tips.boardArchive.text": {
+    "defaultMessage": "Tick Archived on the board for a table of archived cards: sort and filter them by project, label or the column they came from, and Unarchive one or a whole selection.",
+    "description": "A tip. Names of Hive's menus, views, settings and commands: keep them as Hive shows them."
+  },
+  "tips.boardArchive.title": {
+    "defaultMessage": "Find an archived card",
+    "description": "A tip's title."
+  },
+  "tips.boardArchiveAll.text": {
+    "defaultMessage": "A column's ⋯ has Archive All in Done (n)…, and the board's ⋯ Archive All Cards…. Cards agents are on are skipped unless you say, and Undo puts everything back where it was.",
+    "description": "A tip. Names of Hive's menus, views, settings and commands: keep them as Hive shows them."
+  },
+  "tips.boardArchiveAll.title": {
+    "defaultMessage": "Clear a column in one go",
+    "description": "A tip's title."
+  },
+  "tips.boardDoing.text": {
+    "defaultMessage": "Drag a card into Doing and Hive asks: nobody yet, an agent without starting anything, or an agent that starts on it now.",
+    "description": "A tip. Names of Hive's menus, views, settings and commands: keep them as Hive shows them."
+  },
+  "tips.boardDoing.title": {
+    "defaultMessage": "Choose who works on a card in Doing",
+    "description": "A tip's title."
+  },
+  "tips.boardDone.text": {
+    "defaultMessage": "A reviewer moves a card that passes its review to Passed; Done means merged, and an agent moves its cards there after merging its work. Say \"merged, move #65 to done\" and it does; the card's history shows who moved it.",
+    "description": "A tip. Names of Hive's menus, views, settings and commands: keep them as Hive shows them."
+  },
+  "tips.boardDone.title": {
+    "defaultMessage": "Passed, then Done once merged",
+    "description": "A tip's title."
+  },
+  "tips.boardFold.text": {
+    "defaultMessage": "Collapse a column to a narrow strip with the « in its header, and fold cards to one line with their ▾; a column's ⋯ collapses or expands all its cards. Hive remembers them for the workspace.",
+    "description": "A tip. Names of Hive's menus, views, settings and commands: keep them as Hive shows them."
+  },
+  "tips.boardFold.title": {
+    "defaultMessage": "Fold the board to what matters",
+    "description": "A tip's title."
+  },
+  "tips.boardOrder.text": {
+    "defaultMessage": "Drag the most important cards to the top, or ask the Assistant or an agent to prioritise: they reorder the board itself.",
+    "description": "A tip. Names of Hive's menus, views, settings and commands: keep them as Hive shows them."
+  },
+  "tips.boardOrder.title": {
+    "defaultMessage": "A column's order is its priority",
+    "description": "A tip's title."
+  },
+  "tips.boardReview.text": {
+    "defaultMessage": "Say \"review #87\" to another agent: the card stays in Review with the agent that did the work, shows who is reviewing it, and gets the verdict as a comment. When it passes, the reviewer moves it to Passed.",
+    "description": "A tip. Names of Hive's menus, views, settings and commands: keep them as Hive shows them."
+  },
+  "tips.boardReview.title": {
+    "defaultMessage": "Have an agent review a card",
+    "description": "A tip's title."
+  },
+  "tips.cardCost.text": {
+    "defaultMessage": "A card's panel says what its agents used while they held it, \"cost: ≈ $1.84 · 2 rounds\", with the builder's and reviewer's parts and tokens on hover. Performance lists every card's cost, and a lane's hover in the Progress panel its overhead.",
+    "description": "A tip. Names of Hive's menus, views, settings and commands: keep them as Hive shows them."
+  },
+  "tips.cardCost.title": {
+    "defaultMessage": "What a card cost",
+    "description": "A tip's title."
+  },
+  "tips.cardDecisions.text": {
+    "defaultMessage": "A card's Decisions, above its comments, hold what you decided: agents check their work against them before Review, and reviewers fail work that ignores one. Tell the Assistant a decision and it records it there; an agent waiting for your answer is told.",
+    "description": "A tip. Names of Hive's menus, views, settings and commands: keep them as Hive shows them."
+  },
+  "tips.cardDecisions.title": {
+    "defaultMessage": "Put what you decide on the card",
+    "description": "A tip's title."
+  },
+  "tips.cardLinks.text": {
+    "defaultMessage": "Card numbers an agent or the Assistant prints, like #12, are links: hover one for its title and column, and Ctrl+click it to open the card.",
+    "description": "A tip. Names of Hive's menus, views, settings and commands: keep them as Hive shows them."
+  },
+  "tips.cardLinks.title": {
+    "defaultMessage": "Ctrl+click a card number in the terminal",
+    "description": "A tip's title."
+  },
+  "tips.cardLoop.text": {
+    "defaultMessage": "Tell one agent to work through some cards as the builder and another to review them: each waits for the other at no cost, and Hive wakes it when the card changes.",
+    "description": "A tip. Names of Hive's menus, views, settings and commands: keep them as Hive shows them."
+  },
+  "tips.cardLoop.title": {
+    "defaultMessage": "Let two agents build and review in turn",
+    "description": "A tip's title."
+  },
+  "tips.cardMove.text": {
+    "defaultMessage": "Drag any dialog by its header (a card, Add Agent, Agent Settings…) to see what's behind it; Escape while dragging puts it back.",
+    "description": "A tip. Names of Hive's menus, views, settings and commands: keep them as Hive shows them."
+  },
+  "tips.cardMove.title": {
+    "defaultMessage": "Move a dialog out of the way",
+    "description": "A tip's title."
+  },
+  "tips.cardSummaries.text": {
+    "defaultMessage": "Agents start a card's report or review verdict with one line saying what is ready or what was found, the details below; they and the Assistant read just those lines when that's enough.",
+    "description": "A tip. Names of Hive's menus, views, settings and commands: keep them as Hive shows them."
+  },
+  "tips.cardSummaries.title": {
+    "defaultMessage": "Reports start with the gist",
+    "description": "A tip's title."
+  },
+  "tips.closeWindow.text": {
+    "defaultMessage": "With several windows open, File → Close Window ({key}) closes just this one, as its X does. Exit Hive (all windows) closes every window and stops all their agents.",
+    "description": "A tip. {key} is a shortcut (its keys, or the command's name when it has none). Names of Hive's menus, views, settings and commands: keep them as Hive shows them."
+  },
+  "tips.closeWindow.title": {
+    "defaultMessage": "Close one window, or all of them",
+    "description": "A tip's title."
+  },
+  "tips.commandName": {
+    "defaultMessage": "“{command}”",
+    "description": "A command's name in a tip's text, where its shortcut would be when it has none. Use your language's quotation marks."
+  },
+  "tips.compactFocus.text": {
+    "defaultMessage": "Compact summarises the conversation so every later message costs less. Give it a focus (\"keep the API decisions, drop the test output\") and the agent keeps what matters. {key}",
+    "description": "A tip. {key} is a shortcut (its keys, or the command's name when it has none). Names of Hive's menus, views, settings and commands: keep them as Hive shows them."
+  },
+  "tips.compactFocus.title": {
+    "defaultMessage": "Compact with a focus",
+    "description": "A tip's title."
+  },
+  "tips.compactSidebar.text": {
+    "defaultMessage": "Toggle Compact Sidebar turns the project list into a narrow rail of tiles with each project's agents, leaving more room for the terminals.",
+    "description": "A tip. Names of Hive's menus, views, settings and commands: keep them as Hive shows them."
+  },
+  "tips.compactSidebar.title": {
+    "defaultMessage": "A compact project list",
+    "description": "A tip's title."
+  },
+  "tips.compactionHistory.text": {
+    "defaultMessage": "The Overview's compaction history pages, filters and sorts a long session's compactions; click one to read it in the transcript, with the summary the agent carried on from.",
+    "description": "A tip. Names of Hive's menus, views, settings and commands: keep them as Hive shows them."
+  },
+  "tips.compactionHistory.title": {
+    "defaultMessage": "Read a compaction where it happened",
+    "description": "A tip's title."
+  },
+  "tips.consoleRecording.text": {
+    "defaultMessage": "In the developer console, Record writes what an agent's CLI sends Hive to a file, redacted unless you tick text for that recording, and Copy Diagnostics can attach it to a bug report.",
+    "description": "A tip. Names of Hive's menus, views, settings and commands: keep them as Hive shows them."
+  },
+  "tips.consoleRecording.title": {
+    "defaultMessage": "Record what a CLI sends",
+    "description": "A tip's title."
+  },
+  "tips.consoleText.text": {
+    "defaultMessage": "Settings → Advanced → Developer console: show prompt, reply and command text shows them in the developer console, under a banner saying so, and ticks text for new recordings. Tokens and sign-ins stay masked, and agents' hive_console stays redacted.",
+    "description": "A tip. Names of Hive's menus, views, settings and commands: keep them as Hive shows them."
+  },
+  "tips.consoleText.title": {
+    "defaultMessage": "See the text in the developer console",
+    "description": "A tip's title."
+  },
+  "tips.copilot.text": {
+    "defaultMessage": "Agents can use the GitHub Copilot CLI, Copilot Free included. Agent Setup installs it and says who it is signed in as: its own login or the GitHub CLI’s.",
+    "description": "A tip. Names of Hive's menus, views, settings and commands: keep them as Hive shows them."
+  },
+  "tips.copilot.title": {
+    "defaultMessage": "Run agents on GitHub Copilot",
+    "description": "A tip's title."
+  },
+  "tips.copilotModes.text": {
+    "defaultMessage": "Copilot agents start in Accept edits: they edit files in their own folder and use the hive tools without asking, and ask before other commands, other MCP tools and web access. Choose Ask to approve each edit too, or Allow all to approve everything.",
+    "description": "A tip. Names of Hive's menus, views, settings and commands: keep them as Hive shows them."
+  },
+  "tips.copilotModes.title": {
+    "defaultMessage": "What Copilot agents ask before",
+    "description": "A tip's title."
+  },
+  "tips.copyDiagnostics.text": {
+    "defaultMessage": "Help → Copy Diagnostics… gathers Hive's version, your coding agents, key settings and the end of the log for a bug report, with names, folders and tokens taken out.",
+    "description": "A tip. Names of Hive's menus, views, settings and commands: keep them as Hive shows them."
+  },
+  "tips.copyDiagnostics.title": {
+    "defaultMessage": "Found a bug? Copy Diagnostics",
+    "description": "A tip's title."
+  },
+  "tips.dateFormat.text": {
+    "defaultMessage": "Hive shows dates as 2026-10-04 and times as 14:05. Settings → General → Date format and Time format change them everywhere, sessions named by when they started too.",
+    "description": "A tip. Names of Hive's menus, views, settings and commands: keep them as Hive shows them."
+  },
+  "tips.dateFormat.title": {
+    "defaultMessage": "Dates your way",
+    "description": "A tip's title."
+  },
+  "tips.defaultProvider.text": {
+    "defaultMessage": "Default provider is Automatic unless you choose one: new agents use the first coding agent that is turned on and installed, so Codex or GitHub Copilot alone works without Claude Code. Choose one in Settings → Providers to always use it.",
+    "description": "A tip. Names of Hive's menus, views, settings and commands: keep them as Hive shows them."
+  },
+  "tips.defaultProvider.title": {
+    "defaultMessage": "New agents use what you have installed",
+    "description": "A tip's title."
+  },
+  "tips.developerConsole.text": {
+    "defaultMessage": "Turn on Settings → Advanced → Show developer features, then Help → Developer Console opens a window of its own: pick an agent and see each hook and status line beside what Hive made of it, redacted. Filter, search and pause as it runs.",
+    "description": "A tip. Names of Hive's menus, views, settings and commands: keep them as Hive shows them."
+  },
+  "tips.developerConsole.title": {
+    "defaultMessage": "Watch what a CLI sends Hive",
+    "description": "A tip's title."
+  },
+  "tips.editTemplates.text": {
+    "defaultMessage": "Select a template in the Templates view and choose Edit…: add, copy, reorder or remove its agents, change each in the Agent Settings dialog (its Save saves the template too), rename it and pick its layout.",
+    "description": "A tip. Names of Hive's menus, views, settings and commands: keep them as Hive shows them."
+  },
+  "tips.editTemplates.title": {
+    "defaultMessage": "Edit a template in place",
+    "description": "A tip's title."
+  },
+  "tips.fileLinks.text": {
+    "defaultMessage": "File paths an agent prints, like src/app.ts:42, are links: Ctrl+click one to open the file in the Files tab at that line.",
+    "description": "A tip. Names of Hive's menus, views, settings and commands: keep them as Hive shows them."
+  },
+  "tips.fileLinks.title": {
+    "defaultMessage": "Ctrl+click a path in the terminal",
+    "description": "A tip's title."
+  },
+  "tips.filesTab.text": {
+    "defaultMessage": "The Files tab browses and edits the project, previews Markdown, CSV, HTML and images, and keeps unsaved edits as you switch.",
+    "description": "A tip. Names of Hive's menus, views, settings and commands: keep them as Hive shows them."
+  },
+  "tips.filesTab.title": {
+    "defaultMessage": "Edit files without leaving Hive",
+    "description": "A tip's title."
+  },
+  "tips.gitCheck.text": {
+    "defaultMessage": "Help → Agent Setup… shows the git Hive found and its version. Worktree agents, merging and the Git tab need Git for Windows 2.38 or later.",
+    "description": "A tip. Names of Hive's menus, views, settings and commands: keep them as Hive shows them."
+  },
+  "tips.gitCheck.title": {
+    "defaultMessage": "Is git ready for worktrees?",
+    "description": "A tip's title."
+  },
+  "tips.gitInit.text": {
+    "defaultMessage": "A project without git? Its Git tab's Initialise repository… makes it one on main, keeps .hive out, adds a starter .gitignore if you like and makes the first commit, so agents can work in worktrees at once.",
+    "description": "A tip. Names of Hive's menus, views, settings and commands: keep them as Hive shows them."
+  },
+  "tips.gitInit.title": {
+    "defaultMessage": "Make a project a git repository in one click",
+    "description": "A tip's title."
+  },
+  "tips.gitView.text": {
+    "defaultMessage": "The Git tab shows its branch, remotes, history and tags, and lets you switch or create a branch, fetch, pull, push, tag and set its commit identity. The status bar shows \"main · origin · ↑2 ↓0\": click it to get there.",
+    "description": "A tip. Names of Hive's menus, views, settings and commands: keep them as Hive shows them."
+  },
+  "tips.gitView.title": {
+    "defaultMessage": "See and change a project's git",
+    "description": "A tip's title."
+  },
+  "tips.gotoProject.text": {
+    "defaultMessage": "Press {key} and type a few letters of its name.",
+    "description": "A tip. {key} is a shortcut (its keys, or the command's name when it has none). Names of Hive's menus, views, settings and commands: keep them as Hive shows them."
+  },
+  "tips.gotoProject.title": {
+    "defaultMessage": "Jump to a project",
+    "description": "A tip's title."
+  },
+  "tips.group.agents": {
+    "defaultMessage": "Agents",
+    "description": "A heading of Help → Tips: tips about agents."
+  },
+  "tips.group.assistant": {
+    "defaultMessage": "Assistant",
+    "description": "A heading of Help → Tips: tips about the Hive Assistant."
+  },
+  "tips.group.board": {
+    "defaultMessage": "Board",
+    "description": "A heading of Help → Tips: tips about the task board."
+  },
+  "tips.group.files": {
+    "defaultMessage": "Files",
+    "description": "A heading of Help → Tips: tips about files and a project's git."
+  },
+  "tips.group.sessions": {
+    "defaultMessage": "Sessions",
+    "description": "A heading of Help → Tips: tips about sessions."
+  },
+  "tips.group.shortcuts": {
+    "defaultMessage": "Shortcuts",
+    "description": "A heading of Help → Tips: shortcuts and other ways to get around Hive."
+  },
+  "tips.handoverSelf.text": {
+    "defaultMessage": "When an agent's transcript size turns amber, click it and choose the agent itself: it writes a handover, and a new conversation picks up from it, short and fast again.",
+    "description": "A tip. Names of Hive's menus, views, settings and commands: keep them as Hive shows them."
+  },
+  "tips.handoverSelf.title": {
+    "defaultMessage": "A long conversation? Hand it over to itself",
+    "description": "A tip's title."
+  },
+  "tips.hiveFolder.text": {
+    "defaultMessage": "Hive keeps each project's .hive folder (sessions, backups, launch settings) out of git by itself. Where it can't, say with no git, another version control system, or a folder OneDrive or Dropbox syncs, the project's Overview tells you.",
+    "description": "A tip. Names of Hive's menus, views, settings and commands: keep them as Hive shows them."
+  },
+  "tips.hiveFolder.title": {
+    "defaultMessage": "A project's .hive stays on this computer",
+    "description": "A tip's title."
+  },
+  "tips.hiveSkills.text": {
+    "defaultMessage": "Agents and the Assistant get Hive's own skills: work-on-card, review-agent-work, handover and more. Hive keeps them up to date; ones you edit stay yours.",
+    "description": "A tip. Names of Hive's menus, views, settings and commands: keep them as Hive shows them."
+  },
+  "tips.hiveSkills.title": {
+    "defaultMessage": "Skills for working with Hive",
+    "description": "A tip's title."
+  },
+  "tips.imagesTab.text": {
+    "defaultMessage": "The Attachments tab keeps each screenshot and file pasted or dropped into the project's sessions, grouped by session, with previews and a filter by kind, ready to insert again.",
+    "description": "A tip. Names of Hive's menus, views, settings and commands: keep them as Hive shows them."
+  },
+  "tips.imagesTab.title": {
+    "defaultMessage": "Everything you attached, in one place",
+    "description": "A tip's title."
+  },
+  "tips.improveTranslation.text": {
+    "defaultMessage": "Spotted a clumsy or wrong word in your language? Help → Improve This Translation shows how to fix it, or add a language, with a pull request on GitHub.",
+    "description": "A tip. Help → Improve This Translation is a name in Hive: keep it as Hive shows it. GitHub is a name."
+  },
+  "tips.improveTranslation.title": {
+    "defaultMessage": "Make Hive read better in your language",
+    "description": "A tip's title."
+  },
+  "tips.inboxNotices.text": {
+    "defaultMessage": "A message the Assistant leaves a working agent reaches it at its next tool call, or before its turn ends, as a short notice from Hive: nothing is typed over its work. The agent reads it from its inbox and acks it; its pane shows ✉ 1 unread until it does.",
+    "description": "A tip. Names of Hive's menus, views, settings and commands: keep them as Hive shows them."
+  },
+  "tips.inboxNotices.title": {
+    "defaultMessage": "Messages reach a busy agent between steps",
+    "description": "A tip's title."
+  },
+  "tips.keepAwake.text": {
+    "defaultMessage": "While an agent works, Hive stops Windows from sleeping (the screen can still lock), and lets it sleep once they're done. Choose when in Settings → General.",
+    "description": "A tip. Names of Hive's menus, views, settings and commands: keep them as Hive shows them."
+  },
+  "tips.keepAwake.title": {
+    "defaultMessage": "Leave agents working, the PC stays awake",
+    "description": "A tip's title."
+  },
+  "tips.language.text": {
+    "defaultMessage": "Hive follows Windows' display language when it has it. Settings → General → Language picks another; languages translated by AI are marked, and improvements are welcome. Agents are still spoken to in English.",
+    "description": "A tip. Names of Hive's menus, views, settings and commands: keep them as Hive shows them."
+  },
+  "tips.language.title": {
+    "defaultMessage": "Hive in your language",
+    "description": "A tip's title."
+  },
+  "tips.leftoverProcesses.text": {
+    "defaultMessage": "A preview server or a tail -f an agent started can keep running after it stops, holding the project's folder or a port. Hive lists them in the agent's pane header and offers to end them; Settings → Agents can end them every time.",
+    "description": "A tip. Names of Hive's menus, views, settings and commands: keep them as Hive shows them."
+  },
+  "tips.leftoverProcesses.title": {
+    "defaultMessage": "End what a stopped agent left running",
+    "description": "A tip's title."
+  },
+  "tips.loopDefaults.text": {
+    "defaultMessage": "Settings → Workspace → Card loop rounds and Card loop wait set what loops use when you don't say (10 rounds and 6 hours to start with); a project can have its own. Saying \"rounds: 3\" when you start one still wins.",
+    "description": "A tip. Names of Hive's menus, views, settings and commands: keep them as Hive shows them."
+  },
+  "tips.loopDefaults.title": {
+    "defaultMessage": "Your rounds and wait for every loop",
+    "description": "A tip's title."
+  },
+  "tips.loopLanes.text": {
+    "defaultMessage": "When two agents build and review cards in turn, Hive keeps the loop as a lane: its cards in order, the one it's on, and whether it's paused on a blocked card. Ask the Assistant which lanes are running.",
+    "description": "A tip. Names of Hive's menus, views, settings and commands: keep them as Hive shows them."
+  },
+  "tips.loopLanes.title": {
+    "defaultMessage": "Hive keeps your card loops as lanes",
+    "description": "A tip's title."
+  },
+  "tips.loopWakes.text": {
+    "defaultMessage": "When a card arrives in Review, Hive wakes its reviewer, and on the verdict its builder, even if one forgot to wait. To drive reviews by hand, turn it off in the project's Settings → Card loops.",
+    "description": "A tip. Names of Hive's menus, views, settings and commands: keep them as Hive shows them."
+  },
+  "tips.loopWakes.title": {
+    "defaultMessage": "Loops keep going on their own",
+    "description": "A tip's title."
+  },
   "tips.mcpFromFile.text": {
     "defaultMessage": "Got a server as a .json definition or a .zip of its folder? Add MCP Server from File in the MCP view shows what it runs and asks where to turn it on: the selected project, all projects or none yet.",
     "description": "A tip. Add MCP Server from File and the MCP view are names in Hive: keep them as Hive shows them."
@@ -7,12 +587,496 @@
     "defaultMessage": "Add an MCP server from a file",
     "description": "A tip's title."
   },
+  "tips.mcpPerAgent.text": {
+    "defaultMessage": "In an agent's settings, MCP servers: Only these gives it just the servers it needs, such as a sandbox server for a release tester, and keeps the others' tools out of its context.",
+    "description": "A tip. Names of Hive's menus, views, settings and commands: keep them as Hive shows them."
+  },
+  "tips.mcpPerAgent.title": {
+    "defaultMessage": "MCP servers for some agents only",
+    "description": "A tip's title."
+  },
   "tips.mcpPerProject.text": {
     "defaultMessage": "A workspace MCP server runs only in the projects that turn it on: switch it on in a project's MCP tab, or for all projects in the MCP view. Its tools stay out of the other projects' agents' context.",
     "description": "A tip. The MCP tab and the MCP view are names in Hive: keep them as Hive shows them."
   },
   "tips.mcpPerProject.title": {
     "defaultMessage": "MCP servers only where they are needed",
+    "description": "A tip's title."
+  },
+  "tips.mergeSlot.text": {
+    "defaultMessage": "When several agents finish at once, each claims the project's merge slot before it merges main in, checks and merges, so nobody's checks have to run twice. Who holds it and who waits shows in the Overview and the Progress panel.",
+    "description": "A tip. Names of Hive's menus, views, settings and commands: keep them as Hive shows them."
+  },
+  "tips.mergeSlot.title": {
+    "defaultMessage": "Agents take turns to merge",
+    "description": "A tip's title."
+  },
+  "tips.messageReceipts.text": {
+    "defaultMessage": "Every message the Assistant leaves an agent has an id and is kept, even across a restart: it is received once the agent reads its inbox, and acked once the agent acted on it. One not acked in 30 minutes shows as ✉ 1 overdue in its pane.",
+    "description": "A tip. Names of Hive's menus, views, settings and commands: keep them as Hive shows them."
+  },
+  "tips.messageReceipts.title": {
+    "defaultMessage": "See where a message got to",
+    "description": "A tip's title."
+  },
+  "tips.modelFallbacks.text": {
+    "defaultMessage": "Hive asks Claude Code and Codex which models they have and which effort levels each takes. If a CLI can't say, the model, effort and price lists on its Settings page are yours to edit.",
+    "description": "A tip. Names of Hive's menus, views, settings and commands: keep them as Hive shows them."
+  },
+  "tips.modelFallbacks.title": {
+    "defaultMessage": "New models without a Hive update",
+    "description": "A tip's title."
+  },
+  "tips.moreAgents.text": {
+    "defaultMessage": "Need more than twelve agents in a project? Raise Agents per project in Settings → Advanced, up to 24, for every workspace or just this one. Above 12 it shows what they cost on your computer: the memory your running agents take, and how much is free.",
+    "description": "A tip. Names of Hive's menus, views, settings and commands: keep them as Hive shows them."
+  },
+  "tips.moreAgents.title": {
+    "defaultMessage": "More than twelve agents",
+    "description": "A tip's title."
+  },
+  "tips.myPrices.text": {
+    "defaultMessage": "Claude Code's cost is its own figure, from its price table. On other rates (a discount, another tier)? Set Session costs to My prices, and Hive prices every session from your table instead.",
+    "description": "A tip. Names of Hive's menus, views, settings and commands: keep them as Hive shows them."
+  },
+  "tips.myPrices.title": {
+    "defaultMessage": "Your own prices for Claude Code",
+    "description": "A tip's title."
+  },
+  "tips.newCard.text": {
+    "defaultMessage": "Press {key} for a new card for the project you are in, without leaving what you are doing.",
+    "description": "A tip. {key} is a shortcut (its keys, or the command's name when it has none). Names of Hive's menus, views, settings and commands: keep them as Hive shows them."
+  },
+  "tips.newCard.title": {
+    "defaultMessage": "Jot down a card",
+    "description": "A tip's title."
+  },
+  "tips.off.message": {
+    "defaultMessage": "Help → Tips… still has them, and Settings → General turns them back on.",
+    "description": "More in the notice after the tips were turned off. Help → Tips… and Settings → General are names in Hive: keep them as Hive shows them."
+  },
+  "tips.off.title": {
+    "defaultMessage": "Tips are off",
+    "description": "A notice after \"Don't show tips\" on the tip card."
+  },
+  "tips.overview.text": {
+    "defaultMessage": "The Workspace Overview shows what every project used, what runs now and the board, by day. {key}",
+    "description": "A tip. {key} is a shortcut (its keys, or the command's name when it has none). Names of Hive's menus, views, settings and commands: keep them as Hive shows them."
+  },
+  "tips.overview.title": {
+    "defaultMessage": "The whole workspace at a glance",
+    "description": "A tip's title."
+  },
+  "tips.ownShortcuts.text": {
+    "defaultMessage": "Settings → Keyboard Shortcuts changes any shortcut, and Project Settings can change them for one project.",
+    "description": "A tip. Names of Hive's menus, views, settings and commands: keep them as Hive shows them."
+  },
+  "tips.ownShortcuts.title": {
+    "defaultMessage": "Make the shortcuts yours",
+    "description": "A tip's title."
+  },
+  "tips.palette.text": {
+    "defaultMessage": "Press {key} and type: every command, with its shortcut.",
+    "description": "A tip. {key} is a shortcut (its keys, or the command's name when it has none). Names of Hive's menus, views, settings and commands: keep them as Hive shows them."
+  },
+  "tips.palette.title": {
+    "defaultMessage": "Everything is in the command palette",
+    "description": "A tip's title."
+  },
+  "tips.pasteScreenshot.text": {
+    "defaultMessage": "Press Ctrl+V in an agent's terminal with an image on the clipboard, or drop an image onto it: the agent sees it, and Hive keeps a copy.",
+    "description": "A tip. Names of Hive's menus, views, settings and commands: keep them as Hive shows them."
+  },
+  "tips.pasteScreenshot.title": {
+    "defaultMessage": "Paste a screenshot into a session",
+    "description": "A tip's title."
+  },
+  "tips.perfCompare.text": {
+    "defaultMessage": "Performance → Compare: keep the current view before a change and again after it, and see whether Hive’s traffic fell while the work still got done.",
+    "description": "A tip. Names of Hive's menus, views, settings and commands: keep them as Hive shows them."
+  },
+  "tips.perfCompare.title": {
+    "defaultMessage": "Before and after a change",
+    "description": "A tip's title."
+  },
+  "tips.performance.text": {
+    "defaultMessage": "Performance, in the activity bar, shows what Hive's API, tools and guidance cost for the last day, week or month: the whole workspace or one project. Each project has its own Performance tab too.",
+    "description": "A tip. Names of Hive's menus, views, settings and commands: keep them as Hive shows them."
+  },
+  "tips.performance.title": {
+    "defaultMessage": "What Hive itself costs",
+    "description": "A tip's title."
+  },
+  "tips.permissionMode.text": {
+    "defaultMessage": "Click the mode in an agent's footer, or press {key}, to move between asking first, accepting edits and planning.",
+    "description": "A tip. {key} is a shortcut (its keys, or the command's name when it has none). Names of Hive's menus, views, settings and commands: keep them as Hive shows them."
+  },
+  "tips.permissionMode.title": {
+    "defaultMessage": "Switch permission mode",
+    "description": "A tip's title."
+  },
+  "tips.personas.text": {
+    "defaultMessage": "Coordinator runs the agents, Planner shapes work, QA triager turns reports into cards, Release manager takes a release through its checklist. Switch mode from the panel at once, keeping the conversation, or write your own.",
+    "description": "A tip. Names of Hive's menus, views, settings and commands: keep them as Hive shows them."
+  },
+  "tips.personas.title": {
+    "defaultMessage": "Modes for the Assistant",
+    "description": "A tip's title."
+  },
+  "tips.progressCommand.text": {
+    "defaultMessage": "Agents run long commands such as tests and builds through hive-progress, so the Progress panel shows them under the agent's name, with about how long is left from the second time. Settings can have them do it only when you ask.",
+    "description": "A tip. Names of Hive's menus, views, settings and commands: keep them as Hive shows them."
+  },
+  "tips.progressCommand.title": {
+    "defaultMessage": "Progress for any command",
+    "description": "A tip's title."
+  },
+  "tips.progressDetails.text": {
+    "defaultMessage": "Click a run in the Progress panel, or one under Recent, for its details: the whole command, when it ran and how long it took, its exit code, the log it wrote and why it failed.",
+    "description": "A tip. Names of Hive's menus, views, settings and commands: keep them as Hive shows them."
+  },
+  "tips.progressDetails.title": {
+    "defaultMessage": "What did that run do?",
+    "description": "A tip's title."
+  },
+  "tips.progressFilter.text": {
+    "defaultMessage": "When several projects run tests and builds, the dropdown at the top of the Progress panel shows just one project's runs, or one agent's. Each workspace remembers the choice.",
+    "description": "A tip. Names of Hive's menus, views, settings and commands: keep them as Hive shows them."
+  },
+  "tips.progressFilter.title": {
+    "defaultMessage": "Only one project's runs",
+    "description": "A tip's title."
+  },
+  "tips.progressHistory.text": {
+    "defaultMessage": "Recent in the Progress panel shows the last 10 runs; Show all scrolls through the last 200, even after Hive restarts. The project filter applies to them all.",
+    "description": "A tip. Names of Hive's menus, views, settings and commands: keep them as Hive shows them."
+  },
+  "tips.progressHistory.title": {
+    "defaultMessage": "What ran this morning?",
+    "description": "A tip's title."
+  },
+  "tips.progressLanes.text": {
+    "defaultMessage": "When pairs of agents work through cards, the bottom of the Progress panel shows each lane as a bar, a segment per card coloured by where it is. Hover one for its card and round; click to open it. A merge going on shows as a teal card at the top.",
+    "description": "A tip. Names of Hive's menus, views, settings and commands: keep them as Hive shows them."
+  },
+  "tips.progressLanes.title": {
+    "defaultMessage": "How far along is each pair?",
+    "description": "A tip's title."
+  },
+  "tips.progressLanesHeight.text": {
+    "defaultMessage": "The Progress panel shows up to four lanes. Drag the line above Lanes up to see more, a whole lane at a time; double-click it to go back to four. Each workspace remembers it.",
+    "description": "A tip. Names of Hive's menus, views, settings and commands: keep them as Hive shows them."
+  },
+  "tips.progressLanesHeight.title": {
+    "defaultMessage": "See more lanes at once",
+    "description": "A tip's title."
+  },
+  "tips.progressLanesOrder.text": {
+    "defaultMessage": "Drag a running lane up or down in the Progress panel, or focus it and press Alt+Up or Alt+Down. Each workspace keeps your order; a new lane comes in on top, and merged ones drop to the bottom.",
+    "description": "A tip. Names of Hive's menus, views, settings and commands: keep them as Hive shows them."
+  },
+  "tips.progressLanesOrder.title": {
+    "defaultMessage": "Put your lanes in order",
+    "description": "A tip's title."
+  },
+  "tips.progressPanel.text": {
+    "defaultMessage": "When agents run tests or builds that report progress, the Progress panel on the right shows each run: the agent, how far along it is and the time left, and Hive's taskbar button fills as they go. {key} shows it.",
+    "description": "A tip. {key} is a shortcut (its keys, or the command's name when it has none). Names of Hive's menus, views, settings and commands: keep them as Hive shows them."
+  },
+  "tips.progressPanel.title": {
+    "defaultMessage": "How long until the tests finish?",
+    "description": "A tip's title."
+  },
+  "tips.projectCards.text": {
+    "defaultMessage": "A project's Overview starts with its cards: how many are in each column, stalled or blocked. Click a number to open its Tasks tab.",
+    "description": "A tip. Names of Hive's menus, views, settings and commands: keep them as Hive shows them."
+  },
+  "tips.projectCards.title": {
+    "defaultMessage": "A project's cards at a glance",
+    "description": "A tip's title."
+  },
+  "tips.projectTabs.text": {
+    "defaultMessage": "When space is short, a project's tabs shrink to icons, and the tab you're on keeps its name while it fits. Hover a tab for its name and shortcut.",
+    "description": "A tip. Names of Hive's menus, views, settings and commands: keep them as Hive shows them."
+  },
+  "tips.projectTabs.title": {
+    "defaultMessage": "Tabs that make room",
+    "description": "A tip's title."
+  },
+  "tips.quitWhenDone.text": {
+    "defaultMessage": "Quitting while an agent works offers Quit when agents finish: Hive hides and quits by itself once they're done. Conversations are always kept.",
+    "description": "A tip. Names of Hive's menus, views, settings and commands: keep them as Hive shows them."
+  },
+  "tips.quitWhenDone.title": {
+    "defaultMessage": "Quit when agents finish",
+    "description": "A tip's title."
+  },
+  "tips.recentWorkspaces.text": {
+    "defaultMessage": "Remove a workspace from File → Open Recent or the welcome page with its ✕, or right-click it. Clear Recently Opened forgets them all; folders that are gone show as not found.",
+    "description": "A tip. Names of Hive's menus, views, settings and commands: keep them as Hive shows them."
+  },
+  "tips.recentWorkspaces.title": {
+    "defaultMessage": "Tidy your recent workspaces",
+    "description": "A tip's title."
+  },
+  "tips.removeAll.text": {
+    "defaultMessage": "Remove All in the project header removes all of a project's agents after one question. Worktrees are kept unless you tick the box, which deletes only merged, clean ones.",
+    "description": "A tip. Names of Hive's menus, views, settings and commands: keep them as Hive shows them."
+  },
+  "tips.removeAll.title": {
+    "defaultMessage": "Remove every agent at once",
+    "description": "A tip's title."
+  },
+  "tips.resumeAll.text": {
+    "defaultMessage": "After a restart, Resume All Agents in the project header resumes every stopped agent's last session in one go.",
+    "description": "A tip. Names of Hive's menus, views, settings and commands: keep them as Hive shows them."
+  },
+  "tips.resumeAll.title": {
+    "defaultMessage": "Resume all agents at once",
+    "description": "A tip's title."
+  },
+  "tips.safeguardStops.text": {
+    "defaultMessage": "A shield beside an agent's status means its CLI's safety classifier stopped a response: hover it for when, the model, and the agent's last tool calls before it. Orange means its model changed since, or it waits on you.",
+    "description": "A tip. Names of Hive's menus, views, settings and commands: keep them as Hive shows them."
+  },
+  "tips.safeguardStops.title": {
+    "defaultMessage": "See when a safety classifier stops an agent",
+    "description": "A tip's title."
+  },
+  "tips.saveTemplate.text": {
+    "defaultMessage": "Set agents up once and reuse them: Template ▾ → Save Template… on the agent strip keeps their settings, roles and layout, and the same menu loads them into any project.",
+    "description": "A tip. Names of Hive's menus, views, settings and commands: keep them as Hive shows them."
+  },
+  "tips.saveTemplate.title": {
+    "defaultMessage": "Save your agents as a template",
+    "description": "A tip's title."
+  },
+  "tips.searchClear.text": {
+    "defaultMessage": "Every search and filter box has an × while it has text: click it, or press Escape, to see everything again. In a dialog or the palette, the next Escape closes it.",
+    "description": "A tip. Names of Hive's menus, views, settings and commands: keep them as Hive shows them."
+  },
+  "tips.searchClear.title": {
+    "defaultMessage": "Clear a search in one go",
+    "description": "A tip's title."
+  },
+  "tips.searchTranscripts.text": {
+    "defaultMessage": "The Sessions tab searches every session's name, date and transcript (Ctrl+F there): the tree keeps what matches, and a hit opens the conversation at that message.",
+    "description": "A tip. Names of Hive's menus, views, settings and commands: keep them as Hive shows them."
+  },
+  "tips.searchTranscripts.title": {
+    "defaultMessage": "Search every past session",
+    "description": "A tip's title."
+  },
+  "tips.sessionSizes.text": {
+    "defaultMessage": "The Sessions tab shows each session's transcript size. One in amber is past Warn when a transcript is over: hand its work over to a new conversation to keep things quick.",
+    "description": "A tip. Names of Hive's menus, views, settings and commands: keep them as Hive shows them."
+  },
+  "tips.sessionSizes.title": {
+    "defaultMessage": "Spot the conversations that grew too long",
+    "description": "A tip's title."
+  },
+  "tips.sessionTree.text": {
+    "defaultMessage": "In the Sessions tab, right-click a provider, an agent or a session with sub-sessions to archive or delete everything in it at once. Running sessions and ones in use are skipped, and Hive says which.",
+    "description": "A tip. Names of Hive's menus, views, settings and commands: keep them as Hive shows them."
+  },
+  "tips.sessionTree.title": {
+    "defaultMessage": "Clear out a whole branch of sessions",
+    "description": "A tip's title."
+  },
+  "tips.shareTemplates.text": {
+    "defaultMessage": "The Templates view (activity bar) and a project's Templates tab list every template. Export… saves one as a file for teammates; Import… brings one in, for the workspace or a project.",
+    "description": "A tip. Names of Hive's menus, views, settings and commands: keep them as Hive shows them."
+  },
+  "tips.shareTemplates.title": {
+    "defaultMessage": "Share agent templates",
+    "description": "A tip's title."
+  },
+  "tips.sharedNotes.text": {
+    "defaultMessage": "Shared notes and handovers live in the workspace, so every project's agents can read them with Hive's tools.",
+    "description": "A tip. Names of Hive's menus, views, settings and commands: keep them as Hive shows them."
+  },
+  "tips.sharedNotes.title": {
+    "defaultMessage": "Notes every project shares",
+    "description": "A tip's title."
+  },
+  "tips.signInExpired.text": {
+    "defaultMessage": "If Claude Code's or Codex's sign-in expires, its agents show Needs sign-in (a violet dot) and you're told once. Sign in again, then Resume All Agents in the project header carries on the ones that stopped.",
+    "description": "A tip. Names of Hive's menus, views, settings and commands: keep them as Hive shows them."
+  },
+  "tips.signInExpired.title": {
+    "defaultMessage": "When a sign-in expires",
+    "description": "A tip's title."
+  },
+  "tips.silentUnknown.text": {
+    "defaultMessage": "Hive never guesses an agent is idle: when its turn has been silent for a while with no sign of its end, its pane says so. If its terminal waits at its prompt, Mark idle puts it right.",
+    "description": "A tip. Names of Hive's menus, views, settings and commands: keep them as Hive shows them."
+  },
+  "tips.silentUnknown.title": {
+    "defaultMessage": "An agent silent with its state unknown",
+    "description": "A tip's title."
+  },
+  "tips.sortTables.text": {
+    "defaultMessage": "Click a column's header in Hive's tables (shortcuts, Performance, Storage, the Overviews) to sort by it, again for the other way. Hive remembers each table's sort and rows per page.",
+    "description": "A tip. Names of Hive's menus, views, settings and commands: keep them as Hive shows them."
+  },
+  "tips.sortTables.title": {
+    "defaultMessage": "Sort any table",
+    "description": "A tip's title."
+  },
+  "tips.staleMessages.text": {
+    "defaultMessage": "When the Assistant relays something about a card's current round, it ties the message to that card: if the card passes or starts another round before the agent reads it, Hive drops it as stale, so no agent reopens a passed card for an old finding.",
+    "description": "A tip. Names of Hive's menus, views, settings and commands: keep them as Hive shows them."
+  },
+  "tips.staleMessages.title": {
+    "defaultMessage": "A message about a round goes stale, not late",
+    "description": "A tip's title."
+  },
+  "tips.startNewAll.text": {
+    "defaultMessage": "Start New in the project header gives every agent a new session after one question; Archive and Start New archives their old ones first. Their conversations stay in the Sessions tab.",
+    "description": "A tip. Names of Hive's menus, views, settings and commands: keep them as Hive shows them."
+  },
+  "tips.startNewAll.title": {
+    "defaultMessage": "Fresh sessions for every agent",
+    "description": "A tip's title."
+  },
+  "tips.storageCleanup.text": {
+    "defaultMessage": "Project Settings → Storage shows how much space a project's backups, archive, attachments and worktrees take. Clean Up… moves old attachments and backups to the Recycle Bin, and shows you exactly what goes first.",
+    "description": "A tip. Names of Hive's menus, views, settings and commands: keep them as Hive shows them."
+  },
+  "tips.storageCleanup.title": {
+    "defaultMessage": "See what Hive keeps, and clean up",
+    "description": "A tip's title."
+  },
+  "tips.taskbarBadge.text": {
+    "defaultMessage": "Hive's taskbar button shows how many agents need you, and flashes when one asks you something while Hive is in the background.",
+    "description": "A tip. Names of Hive's menus, views, settings and commands: keep them as Hive shows them."
+  },
+  "tips.taskbarBadge.title": {
+    "defaultMessage": "Glance at the taskbar",
+    "description": "A tip's title."
+  },
+  "tips.templateNames.text": {
+    "defaultMessage": "Agent names are unique across the workspace. Loading a template from another project, give its agents new names in the list beside the template's own: Load template waits until none is taken.",
+    "description": "A tip. Names of Hive's menus, views, settings and commands: keep them as Hive shows them."
+  },
+  "tips.templateNames.title": {
+    "defaultMessage": "Name a template's agents as you load it",
+    "description": "A tip's title."
+  },
+  "tips.templateWorktrees.text": {
+    "defaultMessage": "Loading a template puts an agent back in the clean worktree of its name, its branch left as it is, instead of making a new one. Old worktrees that are merged and clean can go too: tick the box in the Load dialog.",
+    "description": "A tip. Names of Hive's menus, views, settings and commands: keep them as Hive shows them."
+  },
+  "tips.templateWorktrees.title": {
+    "defaultMessage": "Templates reuse worktrees",
+    "description": "A tip's title."
+  },
+  "tips.testedClis.text": {
+    "defaultMessage": "Claude Code, Codex and Copilot update on their own. Agent Setup shows the version this Hive release was tested with next to the one you have, and says when yours is newer or older.",
+    "description": "A tip. Names of Hive's menus, views, settings and commands: keep them as Hive shows them."
+  },
+  "tips.testedClis.title": {
+    "defaultMessage": "See which CLI versions Hive was tested with",
+    "description": "A tip's title."
+  },
+  "tips.twoProviders.text": {
+    "defaultMessage": "Agents in one project can use different providers: say a Codex reviewer next to a Claude Code agent. Hand Over to… passes work between them.",
+    "description": "A tip. Names of Hive's menus, views, settings and commands: keep them as Hive shows them."
+  },
+  "tips.twoProviders.title": {
+    "defaultMessage": "Mix Claude Code and Codex",
+    "description": "A tip's title."
+  },
+  "tips.ui.close": {
+    "defaultMessage": "Close",
+    "description": "Closes the tip card or Help → Tips."
+  },
+  "tips.ui.counter": {
+    "defaultMessage": "Tip · {n} of {total}",
+    "description": "The tip card's heading: which tip of how many it is."
+  },
+  "tips.ui.learnMore": {
+    "defaultMessage": "Learn more",
+    "description": "Button on a tip: opens the user guide where it explains it."
+  },
+  "tips.ui.next": {
+    "defaultMessage": "Next tip",
+    "description": "Button on the tip card: shows the next tip."
+  },
+  "tips.ui.noMatch": {
+    "defaultMessage": "No tips match “{query}”.",
+    "description": "Help → Tips when its search finds nothing. {query} is what was typed; use your language's quotation marks."
+  },
+  "tips.ui.off": {
+    "defaultMessage": "Don't show tips",
+    "description": "A link on the tip card: turns off the tip when Hive starts."
+  },
+  "tips.ui.search": {
+    "defaultMessage": "Search tips",
+    "description": "Placeholder of Help → Tips' search box."
+  },
+  "tips.ui.showOnStart": {
+    "defaultMessage": "Show a tip when Hive starts",
+    "description": "A switch in Help → Tips: shows a tip of the day when Hive starts (the same as Settings → General → Show a tip when Hive starts)."
+  },
+  "tips.ui.tip": {
+    "defaultMessage": "Tip",
+    "description": "The name, for screen readers, of the tip card."
+  },
+  "tips.ui.title": {
+    "defaultMessage": "Tips",
+    "description": "The title of Help → Tips."
+  },
+  "tips.ui.tryIt": {
+    "defaultMessage": "Try it",
+    "description": "Button on a tip: runs the command it is about."
+  },
+  "tips.unmerged.text": {
+    "defaultMessage": "Merge… turns orange with the number of commits not yet merged, and Git → Changes shows everything the agent changed since it branched.",
+    "description": "A tip. Names of Hive's menus, views, settings and commands: keep them as Hive shows them."
+  },
+  "tips.unmerged.title": {
+    "defaultMessage": "See what a worktree agent has to merge",
+    "description": "A tip's title."
+  },
+  "tips.unusedWorktrees.text": {
+    "defaultMessage": "Removed an agent but kept its worktree? Git → Changes opens on the worktrees no agent uses, saying who made each: open one to see its work and merge it, remove the merged ones with their branches, or give one back to an agent.",
+    "description": "A tip. Names of Hive's menus, views, settings and commands: keep them as Hive shows them."
+  },
+  "tips.unusedWorktrees.title": {
+    "defaultMessage": "Tidy kept worktrees",
+    "description": "A tip's title."
+  },
+  "tips.viewerTokens.text": {
+    "defaultMessage": "An app that shows what your agents are doing, such as Apiary, needs only a viewer token: Settings → Agent API → Viewer tokens makes one that can read everything and change nothing, and revokes it again.",
+    "description": "A tip. Names of Hive's menus, views, settings and commands: keep them as Hive shows them."
+  },
+  "tips.viewerTokens.title": {
+    "defaultMessage": "Let another app watch Hive",
+    "description": "A tip's title."
+  },
+  "tips.workspaceMoved.text": {
+    "defaultMessage": "Moved the workspace folder, say to another drive? Open it from its new place and choose Repair… in the banner: agents' worktrees, their sessions, and Claude Code's conversations and memory follow it.",
+    "description": "A tip. Names of Hive's menus, views, settings and commands: keep them as Hive shows them."
+  },
+  "tips.workspaceMoved.title": {
+    "defaultMessage": "Move a workspace without losing its agents",
+    "description": "A tip's title."
+  },
+  "tips.worktreeReuse.text": {
+    "defaultMessage": "Adding an agent with a new worktree named like one you kept (B4, and B4's worktree is unused)? If it's merged and clean, Hive gives the agent that folder, brought up to main: its node_modules are already there.",
+    "description": "A tip. Names of Hive's menus, views, settings and commands: keep them as Hive shows them."
+  },
+  "tips.worktreeReuse.title": {
+    "defaultMessage": "A kept worktree is used again",
+    "description": "A tip's title."
+  },
+  "tips.worktrees.text": {
+    "defaultMessage": "In Add Agent…, choose New worktree: the agent works on its own branch, and Merge… brings its work back when you're happy with it.",
+    "description": "A tip. Names of Hive's menus, views, settings and commands: keep them as Hive shows them."
+  },
+  "tips.worktrees.title": {
+    "defaultMessage": "Give an agent its own worktree",
     "description": "A tip's title."
   }
 }

@@ -1,0 +1,3078 @@
+{
+  "settings.advanced.claude-code.hooks.preToolUseTimeoutSeconds.desc": {
+    "defaultMessage": "How long Claude Code waits for Hive's answer before a tool runs (an edit waits for a file lock). If Hive doesn't answer in time, the tool goes ahead.",
+    "description": "What the advanced setting \"Hooks: before a tool, timeout\" is for, and what goes wrong when it is wrong (Settings → Advanced)."
+  },
+  "settings.advanced.claude-code.hooks.preToolUseTimeoutSeconds.title": {
+    "defaultMessage": "Hooks: before a tool, timeout",
+    "description": "An advanced setting's title (Settings → Advanced), listed under its CLI or Hive."
+  },
+  "settings.advanced.claude-code.hooks.timeoutSeconds.desc": {
+    "defaultMessage": "How long Claude Code waits for Hive to take one of its hooks (a turn starting or ending, a notification). Hive answers at once; raise it only if Hive's log shows hooks timing out on a slow machine.",
+    "description": "What the advanced setting \"Hooks: timeout\" is for, and what goes wrong when it is wrong (Settings → Advanced)."
+  },
+  "settings.advanced.claude-code.hooks.timeoutSeconds.title": {
+    "defaultMessage": "Hooks: timeout",
+    "description": "An advanced setting's title (Settings → Advanced), listed under its CLI or Hive."
+  },
+  "settings.advanced.claude-code.safeguard.note.desc": {
+    "defaultMessage": "Claude Code's note in its transcript when its safety classifier stops a response, and the notice it adds for the model (#606). Wrong, Hive misses such stops: no shield on the agent's pane, and Performance doesn't count them.",
+    "description": "What the advanced setting \"Safeguard stop: transcript note\" is for, and what goes wrong when it is wrong (Settings → Advanced)."
+  },
+  "settings.advanced.claude-code.safeguard.note.title": {
+    "defaultMessage": "Safeguard stop: transcript note",
+    "description": "An advanced setting's title (Settings → Advanced), listed under its CLI or Hive."
+  },
+  "settings.advanced.claude-code.safeguard.prompt.desc": {
+    "defaultMessage": "Claude Code's question after a safeguard stop, whether to switch models, told by its open dialog's choices in the lines it wrote last. Hive shows the agent waiting for you, and why, while it is open; wrong, the agent shows only \"Claude needs your permission\".",
+    "description": "What the advanced setting \"Safeguard stop: question\" is for, and what goes wrong when it is wrong (Settings → Advanced)."
+  },
+  "settings.advanced.claude-code.safeguard.prompt.title": {
+    "defaultMessage": "Safeguard stop: question",
+    "description": "An advanced setting's title (Settings → Advanced), listed under its CLI or Hive."
+  },
+  "settings.advanced.claude-code.signIn.stopError.desc": {
+    "defaultMessage": "The error a StopFailure hook names when Claude Code's sign-in was refused (expired, revoked, an invalid key): Hive shows the agent signed out and offers to carry on once it's renewed (#309). Any other error ends the turn as failed.",
+    "description": "What the advanced setting \"Sign-in refused: StopFailure error\" is for, and what goes wrong when it is wrong (Settings → Advanced)."
+  },
+  "settings.advanced.claude-code.signIn.stopError.title": {
+    "defaultMessage": "Sign-in refused: StopFailure error",
+    "description": "An advanced setting's title (Settings → Advanced), listed under its CLI or Hive."
+  },
+  "settings.advanced.claude-code.statusLine.fiveHour.desc": {
+    "defaultMessage": "The plan limits' field for the 5-hour window.",
+    "description": "What the advanced setting \"Status line: 5-hour limit field\" is for, and what goes wrong when it is wrong (Settings → Advanced)."
+  },
+  "settings.advanced.claude-code.statusLine.fiveHour.title": {
+    "defaultMessage": "Status line: 5-hour limit field",
+    "description": "An advanced setting's title (Settings → Advanced), listed under its CLI or Hive."
+  },
+  "settings.advanced.claude-code.statusLine.rateLimits.desc": {
+    "defaultMessage": "The status line's field with a subscription's limits (the 5-hour and weekly use the status bar shows). Wrong, Hive shows no plan limits for Claude Code.",
+    "description": "What the advanced setting \"Status line: plan limits field\" is for, and what goes wrong when it is wrong (Settings → Advanced)."
+  },
+  "settings.advanced.claude-code.statusLine.rateLimits.title": {
+    "defaultMessage": "Status line: plan limits field",
+    "description": "An advanced setting's title (Settings → Advanced), listed under its CLI or Hive."
+  },
+  "settings.advanced.claude-code.statusLine.usedPercent.desc": {
+    "defaultMessage": "A limit's field with the percentage used.",
+    "description": "What the advanced setting \"Status line: percentage used field\" is for, and what goes wrong when it is wrong (Settings → Advanced)."
+  },
+  "settings.advanced.claude-code.statusLine.usedPercent.title": {
+    "defaultMessage": "Status line: percentage used field",
+    "description": "An advanced setting's title (Settings → Advanced), listed under its CLI or Hive."
+  },
+  "settings.advanced.claude-code.statusLine.weekly.desc": {
+    "defaultMessage": "The plan limits' field for the weekly window.",
+    "description": "What the advanced setting \"Status line: weekly limit field\" is for, and what goes wrong when it is wrong (Settings → Advanced)."
+  },
+  "settings.advanced.claude-code.statusLine.weekly.title": {
+    "defaultMessage": "Status line: weekly limit field",
+    "description": "An advanced setting's title (Settings → Advanced), listed under its CLI or Hive."
+  },
+  "settings.advanced.claude-code.trust.prompt.desc": {
+    "defaultMessage": "Claude Code's question before a folder's first session. Hive shows the agent as waiting for you while it is on screen.",
+    "description": "What the advanced setting \"Trust question\" is for, and what goes wrong when it is wrong (Settings → Advanced)."
+  },
+  "settings.advanced.claude-code.trust.prompt.title": {
+    "defaultMessage": "Trust question",
+    "description": "An advanced setting's title (Settings → Advanced), listed under its CLI or Hive."
+  },
+  "settings.advanced.claude-code.turnScreen.done.desc": {
+    "defaultMessage": "Claude Code's line above its input when the last turn is done (\"✻ Worked for 12s · done 16:52\"). When Hive missed a turn's end, it takes this on screen to mean the agent is idle; wrong, it leaves such an agent's status unknown, with Mark idle.",
+    "description": "What the advanced setting \"Screen: turn done\" is for, and what goes wrong when it is wrong (Settings → Advanced)."
+  },
+  "settings.advanced.claude-code.turnScreen.done.title": {
+    "defaultMessage": "Screen: turn done",
+    "description": "An advanced setting's title (Settings → Advanced), listed under its CLI or Hive."
+  },
+  "settings.advanced.claudeFooter.desc": {
+    "defaultMessage": "Claude Code's footer in the {mode} mode (\"{footer}\"). Hive reads an agent's permission mode from its footer (the mode found last on screen), and switches modes by pressing Shift+Tab until the footer shows the one wanted; wrong, Hive doesn't see the agent in {mode}, and can't switch to it without a restart.",
+    "description": "What the advanced setting is for (Settings → Advanced, under Claude Code). {mode} is a permission mode's name; {footer} is Claude Code's own footer text, in English: keep it as it is."
+  },
+  "settings.advanced.claudeFooter.title": {
+    "defaultMessage": "Footer: {mode}",
+    "description": "An advanced setting's title (Settings → Advanced, under Claude Code): the footer Claude Code shows in a permission mode. {mode} is the mode's name."
+  },
+  "settings.advanced.codex.hooks.preToolUseTimeoutSeconds.desc": {
+    "defaultMessage": "How long Codex waits for Hive's answer before a tool runs (an edit waits for a file lock). If Hive doesn't answer in time, the tool goes ahead.",
+    "description": "What the advanced setting \"Hooks: before a tool, timeout\" is for, and what goes wrong when it is wrong (Settings → Advanced)."
+  },
+  "settings.advanced.codex.hooks.preToolUseTimeoutSeconds.title": {
+    "defaultMessage": "Hooks: before a tool, timeout",
+    "description": "An advanced setting's title (Settings → Advanced), listed under its CLI or Hive."
+  },
+  "settings.advanced.codex.hooks.timeoutSeconds.desc": {
+    "defaultMessage": "How long Codex waits for Hive to take one of its hooks. Codex itself holds the interrupt and session-end hooks to 3 s at most. Hive approves its hooks for Codex itself, so a change needs no review in Codex.",
+    "description": "What the advanced setting \"Hooks: timeout\" is for, and what goes wrong when it is wrong (Settings → Advanced)."
+  },
+  "settings.advanced.codex.hooks.timeoutSeconds.title": {
+    "defaultMessage": "Hooks: timeout",
+    "description": "An advanced setting's title (Settings → Advanced), listed under its CLI or Hive."
+  },
+  "settings.advanced.codex.mcp.toolTimeoutSeconds.desc": {
+    "defaultMessage": "How long Codex lets one of Hive's tools run (its tool_timeout_sec for the hive server). Hive's waits stay a minute under it.",
+    "description": "What the advanced setting \"hive tools: timeout in Codex\" is for, and what goes wrong when it is wrong (Settings → Advanced)."
+  },
+  "settings.advanced.codex.mcp.toolTimeoutSeconds.title": {
+    "defaultMessage": "hive tools: timeout in Codex",
+    "description": "An advanced setting's title (Settings → Advanced), listed under its CLI or Hive."
+  },
+  "settings.advanced.codex.queue.hint.desc": {
+    "defaultMessage": "Codex's hint on the last line it draws while it is busy and queues what is typed. Hive waits for it to go before typing into Codex (a message, its /permissions menu at setup); wrong, what Hive types can be queued rather than run.",
+    "description": "What the advanced setting \"Screen: holding what was typed\" is for, and what goes wrong when it is wrong (Settings → Advanced)."
+  },
+  "settings.advanced.codex.queue.hint.title": {
+    "defaultMessage": "Screen: holding what was typed",
+    "description": "An advanced setting's title (Settings → Advanced), listed under its CLI or Hive."
+  },
+  "settings.advanced.codex.rateLimits.field.desc": {
+    "defaultMessage": "The field of Codex's token counts with a subscription's limits. Wrong, Hive shows no plan limits for Codex.",
+    "description": "What the advanced setting \"Session file: plan limits field\" is for, and what goes wrong when it is wrong (Settings → Advanced)."
+  },
+  "settings.advanced.codex.rateLimits.field.title": {
+    "defaultMessage": "Session file: plan limits field",
+    "description": "An advanced setting's title (Settings → Advanced), listed under its CLI or Hive."
+  },
+  "settings.advanced.codex.rateLimits.usedPercent.desc": {
+    "defaultMessage": "A limit's field with the percentage used.",
+    "description": "What the advanced setting \"Session file: percentage used field\" is for, and what goes wrong when it is wrong (Settings → Advanced)."
+  },
+  "settings.advanced.codex.rateLimits.usedPercent.title": {
+    "defaultMessage": "Session file: percentage used field",
+    "description": "An advanced setting's title (Settings → Advanced), listed under its CLI or Hive."
+  },
+  "settings.advanced.codex.rateLimits.windowMinutes.desc": {
+    "defaultMessage": "A limit's field with its window in minutes (300 is the 5-hour limit, 10080 the weekly one).",
+    "description": "What the advanced setting \"Session file: limit's window field\" is for, and what goes wrong when it is wrong (Settings → Advanced)."
+  },
+  "settings.advanced.codex.rateLimits.windowMinutes.title": {
+    "defaultMessage": "Session file: limit's window field",
+    "description": "An advanced setting's title (Settings → Advanced), listed under its CLI or Hive."
+  },
+  "settings.advanced.codex.ready.placeholder.desc": {
+    "defaultMessage": "The text Codex's empty input shows. Codex only says it has started with the first prompt, so Hive takes this text on screen to mean it is ready, and an input line showing only this to mean it is idle.",
+    "description": "What the advanced setting \"Composer placeholder\" is for, and what goes wrong when it is wrong (Settings → Advanced)."
+  },
+  "settings.advanced.codex.ready.placeholder.title": {
+    "defaultMessage": "Composer placeholder",
+    "description": "An advanced setting's title (Settings → Advanced), listed under its CLI or Hive."
+  },
+  "settings.advanced.codex.signIn.expired.desc": {
+    "defaultMessage": "A turn's error, in Codex's session file, that means its sign-in was refused or has expired, when Codex doesn't mark the error itself (#309).",
+    "description": "What the advanced setting \"Sign-in refused: error message\" is for, and what goes wrong when it is wrong (Settings → Advanced)."
+  },
+  "settings.advanced.codex.signIn.expired.title": {
+    "defaultMessage": "Sign-in refused: error message",
+    "description": "An advanced setting's title (Settings → Advanced), listed under its CLI or Hive."
+  },
+  "settings.advanced.codex.title.items.desc": {
+    "defaultMessage": "What Hive asks Codex to put in its terminal title (tui.terminal_title): its activity, which shows the busy spinner and \"Action Required\", and the project's name. Without activity, Hive can't tell from the title that Codex is working or needs you.",
+    "description": "What the advanced setting \"Terminal title items\" is for, and what goes wrong when it is wrong (Settings → Advanced)."
+  },
+  "settings.advanced.codex.title.items.title": {
+    "defaultMessage": "Terminal title items",
+    "description": "An advanced setting's title (Settings → Advanced), listed under its CLI or Hive."
+  },
+  "settings.advanced.codex.trust.prompt.desc": {
+    "defaultMessage": "Codex's question before a folder's first session (in a Git repository). Hive shows the agent as waiting for you while it is on screen.",
+    "description": "What the advanced setting \"Trust question\" is for, and what goes wrong when it is wrong (Settings → Advanced)."
+  },
+  "settings.advanced.codex.trust.prompt.title": {
+    "defaultMessage": "Trust question",
+    "description": "An advanced setting's title (Settings → Advanced), listed under its CLI or Hive."
+  },
+  "settings.advanced.codex.turnScreen.working.desc": {
+    "defaultMessage": "Codex's Working line, drawn only while a turn runs. When Hive missed a turn's start or end, it takes this on screen to mean the agent is working; wrong, it can take a working agent for idle.",
+    "description": "What the advanced setting \"Screen: working\" is for, and what goes wrong when it is wrong (Settings → Advanced)."
+  },
+  "settings.advanced.codex.turnScreen.working.title": {
+    "defaultMessage": "Screen: working",
+    "description": "An advanced setting's title (Settings → Advanced), listed under its CLI or Hive."
+  },
+  "settings.advanced.codexPermissions.desc": {
+    "defaultMessage": "The label Codex's /permissions menu shows for its {label} preset. Hive types the number beside it to give an agent the {mode} mode; wrong, Hive can't find it, and says so rather than choosing another.",
+    "description": "What the advanced setting is for (Settings → Advanced, under Codex). {label} is Codex's own name for a preset and {mode} Hive's id for the mode (read-only, ask…), both in English: keep them as they are."
+  },
+  "settings.advanced.codexPermissions.title": {
+    "defaultMessage": "/permissions menu: {label}",
+    "description": "An advanced setting's title (Settings → Advanced, under Codex). /permissions is a Codex command and {label} Codex's own name for a preset, in English: keep both as they are."
+  },
+  "settings.advanced.copilot.exit.graceSeconds.desc": {
+    "defaultMessage": "When Hive stops Copilot (Stop, Restart, closing a project or quitting), how long it gives Copilot to exit by itself after its Ctrl+C before killing it. Copilot writes the session's token totals only as it exits by itself: one killed first loses them. It took up to 2.4 s on a busy machine (#716); quitting Hive or closing a workspace waits up to this long, and a second more, for a Copilot that hangs.",
+    "description": "What the advanced setting \"Stop: exit grace\" is for, and what goes wrong when it is wrong (Settings → Advanced)."
+  },
+  "settings.advanced.copilot.exit.graceSeconds.title": {
+    "defaultMessage": "Stop: exit grace",
+    "description": "An advanced setting's title (Settings → Advanced), listed under its CLI or Hive."
+  },
+  "settings.advanced.copilot.hooks.preToolUseTimeoutSeconds.desc": {
+    "defaultMessage": "How long Copilot waits for Hive's answer before a tool runs (an edit waits for a file lock). If Hive doesn't answer in time, the tool goes ahead.",
+    "description": "What the advanced setting \"Hooks: before a tool, timeout\" is for, and what goes wrong when it is wrong (Settings → Advanced)."
+  },
+  "settings.advanced.copilot.hooks.preToolUseTimeoutSeconds.title": {
+    "defaultMessage": "Hooks: before a tool, timeout",
+    "description": "An advanced setting's title (Settings → Advanced), listed under its CLI or Hive."
+  },
+  "settings.advanced.copilot.hooks.timeoutSeconds.desc": {
+    "defaultMessage": "How long Copilot waits for Hive to take one of its hooks.",
+    "description": "What the advanced setting \"Hooks: timeout\" is for, and what goes wrong when it is wrong (Settings → Advanced)."
+  },
+  "settings.advanced.copilot.hooks.timeoutSeconds.title": {
+    "defaultMessage": "Hooks: timeout",
+    "description": "An advanced setting's title (Settings → Advanced), listed under its CLI or Hive."
+  },
+  "settings.advanced.copilot.ready.footer.desc": {
+    "defaultMessage": "Copilot only says it has started with the first prompt, so Hive takes its footer on screen to mean it is ready.",
+    "description": "What the advanced setting \"Ready footer\" is for, and what goes wrong when it is wrong (Settings → Advanced)."
+  },
+  "settings.advanced.copilot.ready.footer.title": {
+    "defaultMessage": "Ready footer",
+    "description": "An advanced setting's title (Settings → Advanced), listed under its CLI or Hive."
+  },
+  "settings.advanced.copilot.signIn.errorMessage.desc": {
+    "defaultMessage": "A session error's message, in Copilot's session file, that means its sign-in was refused, when its type doesn't say so.",
+    "description": "What the advanced setting \"Sign-in refused: error message\" is for, and what goes wrong when it is wrong (Settings → Advanced)."
+  },
+  "settings.advanced.copilot.signIn.errorMessage.title": {
+    "defaultMessage": "Sign-in refused: error message",
+    "description": "An advanced setting's title (Settings → Advanced), listed under its CLI or Hive."
+  },
+  "settings.advanced.copilot.signIn.errorType.desc": {
+    "defaultMessage": "A session error's type, in Copilot's session file, that means its sign-in was refused or is missing (#309): Hive shows the agent signed out.",
+    "description": "What the advanced setting \"Sign-in refused: error type\" is for, and what goes wrong when it is wrong (Settings → Advanced)."
+  },
+  "settings.advanced.copilot.signIn.errorType.title": {
+    "defaultMessage": "Sign-in refused: error type",
+    "description": "An advanced setting's title (Settings → Advanced), listed under its CLI or Hive."
+  },
+  "settings.advanced.copilot.signIn.hookMessage.desc": {
+    "defaultMessage": "The message of Copilot's ErrorOccurred hook that means a model call was refused for the sign-in: the turn ends signed out. Another error that ends the turn ends it as failed.",
+    "description": "What the advanced setting \"Sign-in refused: ErrorOccurred hook\" is for, and what goes wrong when it is wrong (Settings → Advanced)."
+  },
+  "settings.advanced.copilot.signIn.hookMessage.title": {
+    "defaultMessage": "Sign-in refused: ErrorOccurred hook",
+    "description": "An advanced setting's title (Settings → Advanced), listed under its CLI or Hive."
+  },
+  "settings.advanced.copilot.trust.prompt.desc": {
+    "defaultMessage": "Copilot's question before a folder's first session. Hive shows the agent as waiting for you while it is on screen.",
+    "description": "What the advanced setting \"Trust question\" is for, and what goes wrong when it is wrong (Settings → Advanced)."
+  },
+  "settings.advanced.copilot.trust.prompt.title": {
+    "defaultMessage": "Trust question",
+    "description": "An advanced setting's title (Settings → Advanced), listed under its CLI or Hive."
+  },
+  "settings.advanced.copilotFooter.desc": {
+    "defaultMessage": "Copilot's footer in the {mode} mode (\"{footer}\"){shared, select, yes {, which Ask and Accept edits share (Hive tells them apart by the mode the session started in)} other {}}. Hive reads an agent's mode from its footer (the mode found last on screen), and switches modes by pressing Shift+Tab until the footer shows the one wanted; wrong, Hive doesn't see the agent in that mode, and can't switch to it without a restart.",
+    "description": "What the advanced setting is for (Settings → Advanced, under GitHub Copilot). {mode} is a mode's name; {footer} is Copilot's own footer text, in English: keep it as it is. {shared} is yes for the footer two modes share."
+  },
+  "settings.advanced.copilotFooter.title": {
+    "defaultMessage": "Footer: {mode}",
+    "description": "An advanced setting's title (Settings → Advanced, under GitHub Copilot): the footer Copilot shows in a mode. {mode} is the mode's name."
+  },
+  "settings.advanced.data.desc": {
+    "defaultMessage": "Hive keeps its settings in %APPDATA%\\Hive\\config.json.",
+    "description": "What the setting \"Settings file\" does, under its title (Settings → Advanced)."
+  },
+  "settings.advanced.data.tip": {
+    "defaultMessage": "Project settings live in each project's .hive folder; workspace settings in the workspace .hive folder.",
+    "description": "The info tip of the setting \"Settings file\" (Settings → Advanced): more on what it does and when it applies."
+  },
+  "settings.advanced.data.title": {
+    "defaultMessage": "Settings file",
+    "description": "A setting's title (Settings → Advanced)."
+  },
+  "settings.advanced.error.badPattern": {
+    "defaultMessage": "{title} isn't a valid regular expression: {why}",
+    "description": "Why an advanced setting's new value isn't taken. {title} is the setting's title; {why} the browser engine's own reason, in English."
+  },
+  "settings.advanced.error.boolean": {
+    "defaultMessage": "{title} takes true or false.",
+    "description": "Why an advanced setting's new value isn't taken. {title} is the setting's title; true and false are the values as written: keep them."
+  },
+  "settings.advanced.error.field": {
+    "defaultMessage": "{title} takes a field name: letters, digits and _ (not starting with a digit).",
+    "description": "Why an advanced setting's new value isn't taken: it must be a field name of a CLI's data. {title} is the setting's title."
+  },
+  "settings.advanced.error.list": {
+    "defaultMessage": "{title} takes 1 to 10 names (letters, digits, - and _), as a list or separated by commas.",
+    "description": "Why an advanced setting's new value isn't taken. {title} is the setting's title."
+  },
+  "settings.advanced.error.matchesAll": {
+    "defaultMessage": "{title} would match anything (it matches empty text).",
+    "description": "Why an advanced setting's new value (a regular expression) isn't taken. {title} is the setting's title."
+  },
+  "settings.advanced.error.number": {
+    "defaultMessage": "{title} takes a whole number from {min} to {max}.",
+    "description": "Why an advanced setting's new value isn't taken. {title} is the setting's title; {min} and {max} are numbers."
+  },
+  "settings.advanced.error.oneLine": {
+    "defaultMessage": "{title} takes one line of at most {most} characters.",
+    "description": "Why an advanced setting's new value isn't taken. {title} is the setting's title; {most} a number of characters."
+  },
+  "settings.advanced.error.pattern": {
+    "defaultMessage": "{title} takes a regular expression (as text).",
+    "description": "Why an advanced setting's new value isn't taken (Settings → Advanced). {title} is the setting's title."
+  },
+  "settings.advanced.error.text": {
+    "defaultMessage": "{title} takes text.",
+    "description": "Why an advanced setting's new value isn't taken. {title} is the setting's title."
+  },
+  "settings.advanced.hive.agents.perProject.desc": {
+    "defaultMessage": "How many agents a project can have (#562): {usual} unless you need more, up to {most}. Each agent runs its own copy of its CLI, so more agents take more memory, and they all share your plans' usage limits. Lowering it removes no agents: a project with more just can't add another. Templates and the Agent API keep to it too.",
+    "description": "What the advanced setting \"Agents per project\" is for (Settings → Advanced). {usual} and {most} are numbers of agents. #562 is an issue number: keep it."
+  },
+  "settings.advanced.hive.agents.perProject.title": {
+    "defaultMessage": "Agents per project",
+    "description": "An advanced setting's title (Settings → Advanced), listed under its CLI or Hive."
+  },
+  "settings.advanced.hive.console.showText.desc": {
+    "defaultMessage": "Show the text in the developer console: prompts, replies, commands and tools' arguments, under a banner saying it is unredacted, and start each recording with its text box ticked. Tokens, API keys and sign-in details stay masked whatever this says; agents' hive_console stays redacted, and a recording with text is never attached to Copy Diagnostics.",
+    "description": "What the advanced setting \"Developer console: show prompt, reply and command text\" is for, and what goes wrong when it is wrong (Settings → Advanced)."
+  },
+  "settings.advanced.hive.console.showText.title": {
+    "defaultMessage": "Developer console: show prompt, reply and command text",
+    "description": "An advanced setting's title (Settings → Advanced), listed under its CLI or Hive."
+  },
+  "settings.advanced.hive.mcp.replySeconds.desc": {
+    "defaultMessage": "How long the hive MCP server waits for Hive to answer one of its tools (a wait's own time comes on top). Raise it when a slow or very busy machine makes hive tools fail with \"Hive didn't reply within 300 s\" (#371).",
+    "description": "What the advanced setting \"hive tools: reply timeout\" is for, and what goes wrong when it is wrong (Settings → Advanced)."
+  },
+  "settings.advanced.hive.mcp.replySeconds.title": {
+    "defaultMessage": "hive tools: reply timeout",
+    "description": "An advanced setting's title (Settings → Advanced), listed under its CLI or Hive."
+  },
+  "settings.advanced.hive.progress.lanesShown.desc": {
+    "defaultMessage": "How many card-loop lanes the Progress panel shows before its lanes scroll, until you drag the section's top edge (the drag is kept per workspace). A workspace that runs many lanes at once can set its own.",
+    "description": "What the advanced setting \"Progress panel: lanes shown\" is for, and what goes wrong when it is wrong (Settings → Advanced)."
+  },
+  "settings.advanced.hive.progress.lanesShown.title": {
+    "defaultMessage": "Progress panel: lanes shown",
+    "description": "An advanced setting's title (Settings → Advanced), listed under its CLI or Hive."
+  },
+  "settings.advanced.hive.showDeveloperFeatures.desc": {
+    "defaultMessage": "Show Help → Developer Console (Ctrl+Alt+J): what each CLI sends Hive, next to what Hive made of it.",
+    "description": "What the advanced setting \"Show developer features\" is for, and what goes wrong when it is wrong (Settings → Advanced)."
+  },
+  "settings.advanced.hive.showDeveloperFeatures.title": {
+    "defaultMessage": "Show developer features",
+    "description": "An advanced setting's title (Settings → Advanced), listed under its CLI or Hive."
+  },
+  "settings.advanced.hive.wait.agentsMaxSeconds.desc": {
+    "defaultMessage": "The longest hive_wait_for_agents waits for agents to finish before it answers. Kept a minute below Codex's hive tool timeout, as card waits are.",
+    "description": "What the advanced setting \"Agent waits: longest\" is for, and what goes wrong when it is wrong (Settings → Advanced)."
+  },
+  "settings.advanced.hive.wait.agentsMaxSeconds.title": {
+    "defaultMessage": "Agent waits: longest",
+    "description": "An advanced setting's title (Settings → Advanced), listed under its CLI or Hive."
+  },
+  "settings.advanced.hive.wait.cardMaxSeconds.desc": {
+    "defaultMessage": "The longest an agent's hive_wait_for_tasks call (without wake) waits before it answers. It has to stay under the CLIs' own tool timeouts, so Hive keeps it a minute below Codex's hive tool timeout whatever is set here.",
+    "description": "What the advanced setting \"Card waits: longest\" is for, and what goes wrong when it is wrong (Settings → Advanced)."
+  },
+  "settings.advanced.hive.wait.cardMaxSeconds.title": {
+    "defaultMessage": "Card waits: longest",
+    "description": "An advanced setting's title (Settings → Advanced), listed under its CLI or Hive."
+  },
+  "settings.advanced.logs.desc": {
+    "defaultMessage": "Open the folder containing Hive's log files.",
+    "description": "What the setting \"Logs\" does, under its title (Settings → Advanced)."
+  },
+  "settings.advanced.logs.tip": {
+    "defaultMessage": "Useful when reporting a problem.",
+    "description": "The info tip of the setting \"Logs\" (Settings → Advanced): more on what it does and when it applies."
+  },
+  "settings.advanced.logs.title": {
+    "defaultMessage": "Logs",
+    "description": "A setting's title (Settings → Advanced)."
+  },
+  "settings.advanced.miss.field": {
+    "defaultMessage": "{cli} {version} sent no field \"{field}\" here (it sent {fields}). Fine if {cli} has changed since.",
+    "description": "Under an advanced setting whose value no longer reads what the CLI was recorded sending (Settings → Advanced). {cli} is the CLI's name, {version} its version; {field} and {fields} are field names, as the CLI sends them."
+  },
+  "settings.advanced.miss.text": {
+    "defaultMessage": "It doesn't find what {cli} {version} showed (\"{shown}\"). Fine if {cli} has changed since.",
+    "description": "Under an advanced setting whose value no longer finds what the CLI was recorded showing (Settings → Advanced). {cli} is the CLI's name, {version} its version; {shown} is the CLI's own text, in English."
+  },
+  "settings.advanced.off": {
+    "defaultMessage": "off",
+    "description": "An advanced setting's value when it is off (Settings → Advanced)."
+  },
+  "settings.advanced.on": {
+    "defaultMessage": "on",
+    "description": "An advanced setting's value when it is on (Settings → Advanced)."
+  },
+  "settings.advanced.openLogs": {
+    "defaultMessage": "Open logs",
+    "description": "Button in Settings → Advanced → Logs: opens the folder of Hive's log files."
+  },
+  "settings.advanced.reset.desc": {
+    "defaultMessage": "Restore every setting in Settings to its default, the advanced settings in advanced.json too. Workspaces and projects, and a workspace's own advanced values, are not affected.",
+    "description": "What the setting \"Reset all settings\" does, under its title (Settings → Advanced)."
+  },
+  "settings.advanced.reset.tip": {
+    "defaultMessage": "Recent workspaces and window position are kept.",
+    "description": "The info tip of the setting \"Reset all settings\" (Settings → Advanced): more on what it does and when it applies."
+  },
+  "settings.advanced.reset.title": {
+    "defaultMessage": "Reset all settings",
+    "description": "A setting's title (Settings → Advanced)."
+  },
+  "settings.advanced.showDeveloperFeatures.tip": {
+    "defaultMessage": "For power users and for developing Hive. The console opens in a window of its own; Hive captures a source only while it is open on it, redacted. Turning this off closes it.",
+    "description": "The info tip of the setting this (Settings → Advanced): more on what it does and when it applies."
+  },
+  "settings.advanced.takes.boolean": {
+    "defaultMessage": "On or off (true or false).",
+    "description": "What an advanced setting takes (Settings → Advanced). true and false are the values as written in advanced.json: keep them."
+  },
+  "settings.advanced.takes.field": {
+    "defaultMessage": "A field name.",
+    "description": "What an advanced setting takes (Settings → Advanced): the name of a field in a CLI's data."
+  },
+  "settings.advanced.takes.list": {
+    "defaultMessage": "Names separated by commas.",
+    "description": "What an advanced setting takes (Settings → Advanced)."
+  },
+  "settings.advanced.takes.number": {
+    "defaultMessage": "A whole number of {unit, select, s {seconds} lanes {lanes} agents {agents} other {units}}, {min} to {max}.",
+    "description": "What an advanced setting takes (its info tip in Settings → Advanced). {unit} picks the word; {min} and {max} are numbers, as advanced.json takes them."
+  },
+  "settings.advanced.takes.pattern": {
+    "defaultMessage": "A regular expression (JavaScript).",
+    "description": "What an advanced setting takes (Settings → Advanced)."
+  },
+  "settings.advanced.takes.patternFlags": {
+    "defaultMessage": "A regular expression (JavaScript, flags {flags}).",
+    "description": "What an advanced setting takes (Settings → Advanced). {flags} are a regular expression's flags (such as i): keep them."
+  },
+  "settings.advanced.takes.text": {
+    "defaultMessage": "Text, found as it is.",
+    "description": "What an advanced setting takes (Settings → Advanced): text Hive looks for on a CLI's screen, as it is."
+  },
+  "settings.advanced.unit.agents": {
+    "defaultMessage": "{n, plural, one {# agent} other {# agents}}",
+    "description": "An advanced setting's value: a number of agents."
+  },
+  "settings.advanced.unit.lanes": {
+    "defaultMessage": "{n, plural, one {# lane} other {# lanes}}",
+    "description": "An advanced setting's value: a number of card-loop lanes the Progress panel shows."
+  },
+  "settings.advanced.unit.seconds": {
+    "defaultMessage": "{n} s",
+    "description": "An advanced setting's value in seconds, short: \"300 s\". {n} is the number."
+  },
+  "settings.advanced.values.desc": {
+    "defaultMessage": "Details Hive relies on that a CLI update can break (the text of its prompts, the fields it sends), and timeouts and limits for power users. Change one only when something doesn't work, or Hive's notes on a CLI update say to.",
+    "description": "What the setting \"Advanced settings\" does, under its title (Settings → Advanced)."
+  },
+  "settings.advanced.values.tip": {
+    "defaultMessage": "Each shows its default beside it once changed, and Reset puts the default back. A value that isn't valid is ignored, with a warning, and the default used. They are kept in advanced.json in your Hive profile, which you can also edit by hand (Open advanced.json): Hive reads it again when it changes. A value for a CLI records the CLI version it was made for, and is flagged when another version is installed. Some take a workspace's own value too.",
+    "description": "The info tip of the setting \"Advanced settings\" (Settings → Advanced): more on what it does and when it applies."
+  },
+  "settings.advanced.values.title": {
+    "defaultMessage": "Advanced settings",
+    "description": "A setting's title (Settings → Advanced)."
+  },
+  "settings.advanced.workspaceProblem": {
+    "defaultMessage": "This workspace's: {problem}",
+    "description": "Why a workspace's own advanced value isn't used (Settings → Advanced). {problem} is the reason."
+  },
+  "settings.advancedList.alsoSetting": {
+    "defaultMessage": "Hive's setting {key}, kept in advanced.json too.",
+    "description": "A line of an advanced value's info tip, for one of Hive's settings shown here. {key} is its key in Hive's settings: keep it."
+  },
+  "settings.advancedList.appliesToSessions": {
+    "defaultMessage": "Applies to sessions started afterwards.",
+    "description": "A line of an advanced value's info tip."
+  },
+  "settings.advancedList.cliVersion": {
+    "defaultMessage": "It is {cli}'s: a change records the version it was made for.",
+    "description": "A line of an advanced value's info tip, for a CLI's value. {cli} is the CLI's name."
+  },
+  "settings.advancedList.default": {
+    "defaultMessage": "Default: {value}",
+    "description": "Under an advanced value changed from its default: what the default is. {value} is the default, shown as code."
+  },
+  "settings.advancedList.fileError": {
+    "defaultMessage": "{problem} Hive keeps using the values it read before; fix the file to change them.",
+    "description": "Above Settings → Advanced's list when advanced.json can't be read. {problem} says why (in English for now)."
+  },
+  "settings.advancedList.filter": {
+    "defaultMessage": "Filter advanced settings",
+    "description": "Placeholder and name of the filter box in Settings → Advanced's list."
+  },
+  "settings.advancedList.keep": {
+    "defaultMessage": "Keep for {version}",
+    "description": "Button under a CLI's advanced value made for another version: keeps it for the installed one. {version} is that version's number."
+  },
+  "settings.advancedList.keepFailed": {
+    "defaultMessage": "Could not keep it",
+    "description": "An error's title: keeping an advanced value for the installed CLI version failed."
+  },
+  "settings.advancedList.label": {
+    "defaultMessage": "{group}: {title}",
+    "description": "The name, for screen readers, of an advanced value's box: Hive or the CLI it belongs to, then its title."
+  },
+  "settings.advancedList.madeFor": {
+    "defaultMessage": "Made for {cli} {version}; {installed} is installed now. Check it still works, then keep it for {installed}.",
+    "description": "Under a CLI's advanced value made for another version of the CLI. {cli} is its name; {version} and {installed} are version numbers."
+  },
+  "settings.advancedList.modified": {
+    "defaultMessage": "Modified from the default",
+    "description": "Tooltip of the dot beside an advanced value changed from its default."
+  },
+  "settings.advancedList.modifiedOnly": {
+    "defaultMessage": "Modified only",
+    "description": "A box above Settings → Advanced's list: ticked, only values changed from their default show."
+  },
+  "settings.advancedList.noMatch": {
+    "defaultMessage": "No advanced settings match.",
+    "description": "Settings → Advanced's list when its filter finds nothing."
+  },
+  "settings.advancedList.notValid": {
+    "defaultMessage": "Not valid, so Hive uses the default: {problem}",
+    "description": "Under an advanced value that isn't valid. {problem} says why."
+  },
+  "settings.advancedList.open": {
+    "defaultMessage": "Open advanced.json",
+    "description": "Button above Settings → Advanced's list: opens the file the values are kept in. advanced.json is a file name: keep it."
+  },
+  "settings.advancedList.openFailed": {
+    "defaultMessage": "Could not open advanced.json",
+    "description": "An error's title: opening advanced.json (the advanced settings' file) failed."
+  },
+  "settings.advancedList.reset": {
+    "defaultMessage": "Reset to default ({value})",
+    "description": "Button beside an advanced value changed from its default: puts it back. {value} is the default."
+  },
+  "settings.advancedList.unknown": {
+    "defaultMessage": "advanced.json also names {ids}, which this Hive doesn't know (a typo, or a newer Hive's): kept in the file, not used.",
+    "description": "Above Settings → Advanced's list. {ids} lists values' ids, as advanced.json writes them; advanced.json is a file name: keep it."
+  },
+  "settings.advancedList.workspace": {
+    "defaultMessage": "This workspace",
+    "description": "Beside the box for the open workspace's own advanced value."
+  },
+  "settings.advancedList.workspaceLabel": {
+    "defaultMessage": "{label}, this workspace",
+    "description": "The name, for screen readers, of the box for the open workspace's own advanced value. {label} is the value's name."
+  },
+  "settings.advancedList.workspacePlaceholder": {
+    "defaultMessage": "{value} (Settings')",
+    "description": "Placeholder of the box for the workspace's own advanced value: the value Settings has, which applies while it is empty."
+  },
+  "settings.advancedRow.tip": {
+    "defaultMessage": "{takes} null (or Reset) goes back to Hive's default.{cli, select, yes { It is {group}'s: an override records the version it was made for, and is flagged when another version is installed.{tried, select, yes { Hive tries it on what the CLI was recorded sending, and says when it doesn't find that.} other {}}} other {}}",
+    "description": "More on an advanced setting: {takes} says what it takes; null is the value that resets it (keep it). {cli} is yes for a CLI's value, {group} that CLI's name; {tried} is yes when Hive tries the value on what the CLI sent."
+  },
+  "settings.advancedRow.title": {
+    "defaultMessage": "{group}: {title}",
+    "description": "An advanced setting's title where it is named alone: {group} is Hive or the CLI it belongs to, {title} the setting's own title."
+  },
+  "settings.advancedRow.workspaceDesc": {
+    "defaultMessage": "This workspace's own value; empty uses Settings → Advanced's. {desc}",
+    "description": "What a workspace's own advanced value is. {desc} is the setting's own description."
+  },
+  "settings.advancedRow.workspaceTitle": {
+    "defaultMessage": "{title} (this workspace)",
+    "description": "An advanced setting's title for the open workspace's own value. {title} is the setting's title."
+  },
+  "settings.agentApi.allowSessionInput.confirm.message": {
+    "defaultMessage": "Any program with the API token will be able to type commands into running sessions.",
+    "description": "The confirmation before the setting \"Allow sending input to sessions\" is turned on (Settings → Agent API): its message."
+  },
+  "settings.agentApi.allowSessionInput.confirm.title": {
+    "defaultMessage": "Allow API input to sessions?",
+    "description": "The confirmation before the setting \"Allow sending input to sessions\" is turned on (Settings → Agent API): its title, a question."
+  },
+  "settings.agentApi.allowSessionInput.desc": {
+    "defaultMessage": "Let API clients type into running sessions (POST /v1/projects/'{'name'}'/input).",
+    "description": "What the setting \"Allow sending input to sessions\" does, under its title (Settings → Agent API)."
+  },
+  "settings.agentApi.allowSessionInput.tip": {
+    "defaultMessage": "Powerful: an agent in one project could drive another project's session. Keep off unless you need orchestration.",
+    "description": "The info tip of the setting \"Allow sending input to sessions\" (Settings → Agent API): more on what it does and when it applies."
+  },
+  "settings.agentApi.allowSessionInput.title": {
+    "defaultMessage": "Allow sending input to sessions",
+    "description": "A setting's title (Settings → Agent API)."
+  },
+  "settings.agentApi.devConsole.desc": {
+    "defaultMessage": "Give agents and the Hive Assistant a read-only hive tool for the developer console: what their CLI sends Hive, next to what Hive made of it.",
+    "description": "What the setting \"Let agents read the developer console\" does, under its title (Settings → Agent API)."
+  },
+  "settings.agentApi.devConsole.tip": {
+    "defaultMessage": "Each agent reads only its own sessions; the Assistant reads its workspace's agents and Hive's own events. Hive captures only while the developer console is open on a source (reading starts nothing), and what it captures is redacted: no prompt or reply text, commands, tokens or sign-in details. Running sessions get the tool after a restart.",
+    "description": "The info tip of the setting \"Let agents read the developer console\" (Settings → Agent API): more on what it does and when it applies."
+  },
+  "settings.agentApi.devConsole.title": {
+    "defaultMessage": "Let agents read the developer console",
+    "description": "A setting's title (Settings → Agent API)."
+  },
+  "settings.agentApi.enabled.desc": {
+    "defaultMessage": "Run a local HTTP API that agents and scripts can use to talk to Hive.",
+    "description": "What the setting \"Enable Agent API\" does, under its title (Settings → Agent API)."
+  },
+  "settings.agentApi.enabled.tip": {
+    "defaultMessage": "Listens on 127.0.0.1 only and requires the bearer token below. See Help → Agent API Reference. Turned off, the port still answers the Hive Assistant alone (it has its own token, and Settings → Assistant → Control decides what it may do).",
+    "description": "The info tip of the setting \"Enable Agent API\" (Settings → Agent API): more on what it does and when it applies."
+  },
+  "settings.agentApi.enabled.title": {
+    "defaultMessage": "Enable Agent API",
+    "description": "A setting's title (Settings → Agent API)."
+  },
+  "settings.agentApi.port.desc": {
+    "defaultMessage": "Local port for the Agent API.",
+    "description": "What the setting \"Port\" does, under its title (Settings → Agent API)."
+  },
+  "settings.agentApi.port.tip": {
+    "defaultMessage": "Change this if the port is used by another program.",
+    "description": "The info tip of the setting \"Port\" (Settings → Agent API): more on what it does and when it applies."
+  },
+  "settings.agentApi.port.title": {
+    "defaultMessage": "Port",
+    "description": "A setting's title (Settings → Agent API)."
+  },
+  "settings.agentApi.provideHiveMcp.desc": {
+    "defaultMessage": "Add the built-in \"hive\" MCP server to every session.",
+    "description": "What the setting \"Provide Hive tools to sessions\" does, under its title (Settings → Agent API)."
+  },
+  "settings.agentApi.provideHiveMcp.tip": {
+    "defaultMessage": "Gives agents tools for shared notes, handovers, project status and notifications.",
+    "description": "The info tip of the setting \"Provide Hive tools to sessions\" (Settings → Agent API): more on what it does and when it applies."
+  },
+  "settings.agentApi.provideHiveMcp.title": {
+    "defaultMessage": "Provide Hive tools to sessions",
+    "description": "A setting's title (Settings → Agent API)."
+  },
+  "settings.agentApi.status.tip": {
+    "defaultMessage": "Whether the Agent API is listening.",
+    "description": "The info tip of the setting \"Status\" (Settings → Agent API): more on what it does and when it applies."
+  },
+  "settings.agentApi.status.title": {
+    "defaultMessage": "Status",
+    "description": "A setting's title (Settings → Agent API)."
+  },
+  "settings.agentApi.token.desc": {
+    "defaultMessage": "Bearer token required by the Agent API.",
+    "description": "What the setting \"Access token\" does, under its title (Settings → Agent API)."
+  },
+  "settings.agentApi.token.tip": {
+    "defaultMessage": "Stored in %APPDATA%\\Hive\\agent-api.json. Sessions receive it automatically as HIVE_API_TOKEN.",
+    "description": "The info tip of the setting \"Access token\" (Settings → Agent API): more on what it does and when it applies."
+  },
+  "settings.agentApi.token.title": {
+    "defaultMessage": "Access token",
+    "description": "A setting's title (Settings → Agent API)."
+  },
+  "settings.agentApi.viewers.desc": {
+    "defaultMessage": "Read-only tokens for apps that show Hive, such as Apiary: they can read everything and follow its events, and change nothing.",
+    "description": "What the setting \"Viewer tokens\" does, under its title (Settings → Agent API)."
+  },
+  "settings.agentApi.viewers.tip": {
+    "defaultMessage": "Name each one for its app. Stored in %APPDATA%\\Hive\\agent-api-viewers.json. Revoking one cuts its app off at once. Apps find a running Hive by %APPDATA%\\Hive\\agent-api-discovery.json (the address, no token).",
+    "description": "The info tip of the setting \"Viewer tokens\" (Settings → Agent API): more on what it does and when it applies."
+  },
+  "settings.agentApi.viewers.title": {
+    "defaultMessage": "Viewer tokens",
+    "description": "A setting's title (Settings → Agent API)."
+  },
+  "settings.agents.backgroundTaskMinutes.desc": {
+    "defaultMessage": "Minutes an agent waits on a background task it started (such as a test run) before Hive counts it as finished anyway.",
+    "description": "What the setting \"Count background tasks for up to\" does, under its title (Settings → Agents & Worktrees)."
+  },
+  "settings.agents.backgroundTaskMinutes.tip": {
+    "defaultMessage": "An agent that ends its turn while a task it started is still running shows as waiting on background tasks, not finished: Claude Code carries on by itself when the task ends. Hive can't tell a test run from something that never ends, such as a dev server, so it stops counting a task after this long (a Monitor also when it expires). Codex isn't told when its background terminals end, so they are only counted and shown. 10 to 480 minutes.",
+    "description": "The info tip of the setting \"Count background tasks for up to\" (Settings → Agents & Worktrees): more on what it does and when it applies."
+  },
+  "settings.agents.backgroundTaskMinutes.title": {
+    "defaultMessage": "Count background tasks for up to",
+    "description": "A setting's title (Settings → Agents & Worktrees)."
+  },
+  "settings.agents.fileLocks.desc": {
+    "defaultMessage": "What happens when an agent tries to edit a file another agent in the same folder is editing.",
+    "description": "What the setting \"File locks\" does, under its title (Settings → Agents & Worktrees)."
+  },
+  "settings.agents.fileLocks.tip": {
+    "defaultMessage": "An agent claims a file when it edits it and releases it when its turn ends (or after 15 minutes). Agents in their own worktrees never collide. Edits made through shell commands are not covered.",
+    "description": "The last paragraph of the info tip of the setting \"File locks\" (Settings → Agents & Worktrees), under a line per mode."
+  },
+  "settings.agents.fileLocks.title": {
+    "defaultMessage": "File locks",
+    "description": "A setting's title (Settings → Agents & Worktrees)."
+  },
+  "settings.agents.leftoverProcesses.desc": {
+    "defaultMessage": "What Hive does with processes an agent started that are still running when it stops, such as a preview server or a tail -f.",
+    "description": "What the setting \"Processes left running\" does, under its title (Settings → Agents & Worktrees)."
+  },
+  "settings.agents.leftoverProcesses.option.ask": {
+    "defaultMessage": "Ask",
+    "description": "A choice of the setting \"Processes left running\" (Settings → Agents & Worktrees)."
+  },
+  "settings.agents.leftoverProcesses.option.end": {
+    "defaultMessage": "End them",
+    "description": "A choice of the setting \"Processes left running\" (Settings → Agents & Worktrees)."
+  },
+  "settings.agents.leftoverProcesses.tip": {
+    "defaultMessage": "Hive follows every process an agent's session starts, however it was started. Ask: a notification lists them and offers to end them; the agent's pane header shows them until they end or you decide. End them: Hive ends them as the agent stops. Hive never ends a process the agent didn't start, and asks about the ones still running when you quit.",
+    "description": "The info tip of the setting \"Processes left running\" (Settings → Agents & Worktrees): more on what it does and when it applies."
+  },
+  "settings.agents.leftoverProcesses.title": {
+    "defaultMessage": "Processes left running",
+    "description": "A setting's title (Settings → Agents & Worktrees)."
+  },
+  "settings.agents.mergeStyle.desc": {
+    "defaultMessage": "How a worktree agent's branch is merged back, unless you choose otherwise in the Merge dialog.",
+    "description": "What the setting \"Default merge style\" does, under its title (Settings → Agents & Worktrees)."
+  },
+  "settings.agents.mergeStyle.option.merge": {
+    "defaultMessage": "Merge commit",
+    "description": "A choice of the setting \"Default merge style\" (Settings → Agents & Worktrees)."
+  },
+  "settings.agents.mergeStyle.option.squash": {
+    "defaultMessage": "Squash",
+    "description": "A choice of the setting \"Default merge style\" (Settings → Agents & Worktrees)."
+  },
+  "settings.agents.mergeStyle.tip": {
+    "defaultMessage": "Merge keeps the agent's commits and their messages, plus a merge commit: right for an agent that keeps its worktree for task after task. Squash makes one commit with everything the agent did.",
+    "description": "The info tip of the setting \"Default merge style\" (Settings → Agents & Worktrees): more on what it does and when it applies."
+  },
+  "settings.agents.mergeStyle.title": {
+    "defaultMessage": "Default merge style",
+    "description": "A setting's title (Settings → Agents & Worktrees)."
+  },
+  "settings.agents.worktreeCopy.desc": {
+    "defaultMessage": "Git-ignored files copied from the project folder into each new worktree, comma separated (e.g. .env*, config/local.json).",
+    "description": "What the setting \"Copy into new worktrees\" does, under its title (Settings → Agents & Worktrees)."
+  },
+  "settings.agents.worktreeCopy.tip": {
+    "defaultMessage": "A new worktree only gets the files git tracks. Patterns without a slash match a file or folder name anywhere; with a slash they match a path from the project root. Projects can set their own list and a setup command (e.g. npm install) in Project Settings → Agents & Worktrees.",
+    "description": "The info tip of the setting \"Copy into new worktrees\" (Settings → Agents & Worktrees): more on what it does and when it applies."
+  },
+  "settings.agents.worktreeCopy.title": {
+    "defaultMessage": "Copy into new worktrees",
+    "description": "A setting's title (Settings → Agents & Worktrees)."
+  },
+  "settings.api.listening": {
+    "defaultMessage": "Listening on {url}",
+    "description": "Settings → Agent API → Status while the API runs. {url} is its address."
+  },
+  "settings.api.off": {
+    "defaultMessage": "Off",
+    "description": "Settings → Agent API → Status while the API is turned off."
+  },
+  "settings.appearance.terminalCursorBlink.desc": {
+    "defaultMessage": "Blink the terminal cursor.",
+    "description": "What the setting \"Blinking cursor\" does, under its title (Settings → Appearance)."
+  },
+  "settings.appearance.terminalCursorBlink.tip": {
+    "defaultMessage": "Purely cosmetic.",
+    "description": "The info tip of the setting \"Blinking cursor\" (Settings → Appearance): more on what it does and when it applies."
+  },
+  "settings.appearance.terminalCursorBlink.title": {
+    "defaultMessage": "Blinking cursor",
+    "description": "A setting's title (Settings → Appearance)."
+  },
+  "settings.appearance.terminalFontFamily.desc": {
+    "defaultMessage": "Font family for session terminals (CSS font list).",
+    "description": "What the setting \"Terminal font\" does, under its title (Settings → Appearance)."
+  },
+  "settings.appearance.terminalFontFamily.tip": {
+    "defaultMessage": "Monospace fonts work best. Cascadia Code ships with Windows Terminal; Nerd Fonts add extra glyphs.",
+    "description": "The info tip of the setting \"Terminal font\" (Settings → Appearance): more on what it does and when it applies."
+  },
+  "settings.appearance.terminalFontFamily.title": {
+    "defaultMessage": "Terminal font",
+    "description": "A setting's title (Settings → Appearance)."
+  },
+  "settings.appearance.terminalFontSize.desc": {
+    "defaultMessage": "Font size for session terminals, in pixels.",
+    "description": "What the setting \"Terminal font size\" does, under its title (Settings → Appearance)."
+  },
+  "settings.appearance.terminalFontSize.tip": {
+    "defaultMessage": "Applies to open terminals immediately.",
+    "description": "The info tip of the setting \"Terminal font size\" (Settings → Appearance): more on what it does and when it applies."
+  },
+  "settings.appearance.terminalFontSize.title": {
+    "defaultMessage": "Terminal font size",
+    "description": "A setting's title (Settings → Appearance)."
+  },
+  "settings.appearance.terminalScrollback.desc": {
+    "defaultMessage": "Lines kept in each terminal for scrolling back.",
+    "description": "What the setting \"Terminal scrollback\" does, under its title (Settings → Appearance)."
+  },
+  "settings.appearance.terminalScrollback.tip": {
+    "defaultMessage": "Higher values use more memory per running session.",
+    "description": "The info tip of the setting \"Terminal scrollback\" (Settings → Appearance): more on what it does and when it applies."
+  },
+  "settings.appearance.terminalScrollback.title": {
+    "defaultMessage": "Terminal scrollback",
+    "description": "A setting's title (Settings → Appearance)."
+  },
+  "settings.appearance.theme.desc": {
+    "defaultMessage": "Colour theme for Hive.",
+    "description": "What the setting \"Theme\" does, under its title (Settings → Appearance)."
+  },
+  "settings.appearance.theme.option.dark": {
+    "defaultMessage": "Dark",
+    "description": "A choice of the setting \"Theme\" (Settings → Appearance)."
+  },
+  "settings.appearance.theme.option.light": {
+    "defaultMessage": "Light",
+    "description": "A choice of the setting \"Theme\" (Settings → Appearance)."
+  },
+  "settings.appearance.theme.option.system": {
+    "defaultMessage": "System",
+    "description": "A choice of the setting \"Theme\" (Settings → Appearance)."
+  },
+  "settings.appearance.theme.tip": {
+    "defaultMessage": "System follows your Windows light/dark setting.",
+    "description": "The info tip of the setting \"Theme\" (Settings → Appearance): more on what it does and when it applies."
+  },
+  "settings.appearance.theme.title": {
+    "defaultMessage": "Theme",
+    "description": "A setting's title (Settings → Appearance)."
+  },
+  "settings.appearance.uiFontSize.desc": {
+    "defaultMessage": "Font size for menus, lists and panels, in pixels.",
+    "description": "What the setting \"Interface font size\" does, under its title (Settings → Appearance)."
+  },
+  "settings.appearance.uiFontSize.tip": {
+    "defaultMessage": "Use View → Zoom to scale everything, including the terminal.",
+    "description": "The info tip of the setting \"Interface font size\" (Settings → Appearance): more on what it does and when it applies."
+  },
+  "settings.appearance.uiFontSize.title": {
+    "defaultMessage": "Interface font size",
+    "description": "A setting's title (Settings → Appearance)."
+  },
+  "settings.assistant.changeSettings.desc": {
+    "defaultMessage": "Let the Assistant change Hive's settings when you ask it to, in every workspace. Whatever this says, it can read and explain them.",
+    "description": "What the setting \"Change settings\" does, under its title (Settings → Assistant)."
+  },
+  "settings.assistant.changeSettings.tip": {
+    "defaultMessage": "It suggests a setting first and changes one only when you agree. Each change is listed in its panel with the old and new value and a Revert button, and counts towards its 30 changes per message. It can never change its own Control, permission modes, the Agent API or what Hive runs (CLI paths, extra arguments, setup commands): it tells you where to change those. A running Assistant takes a change after a restart.",
+    "description": "The info tip of the setting \"Change settings\" (Settings → Assistant): more on what it does and when it applies."
+  },
+  "settings.assistant.changeSettings.title": {
+    "defaultMessage": "Change settings",
+    "description": "A setting's title (Settings → Assistant)."
+  },
+  "settings.assistant.compactSuggestTokens.desc": {
+    "defaultMessage": "Context size, in tokens, at which the Assistant's Compact button and the context count in its footer turn orange. Never: they never do.",
+    "description": "What the setting \"Highlight Compact over\" does, under its title (Settings → Assistant)."
+  },
+  "settings.assistant.compactSuggestTokens.off": {
+    "defaultMessage": "Never",
+    "description": "The Off box of the number setting \"Highlight Compact over\" (Settings → Assistant): ticked, the setting is off (0)."
+  },
+  "settings.assistant.compactSuggestTokens.tip": {
+    "defaultMessage": "The Assistant usually runs a bigger context than your agents, so it has its own threshold (your agents' is Settings → Sessions → Suggest compacting above). Compacting summarises the conversation so every later message is cheaper; the full history stays in the transcript.",
+    "description": "The info tip of the setting \"Highlight Compact over\" (Settings → Assistant): more on what it does and when it applies."
+  },
+  "settings.assistant.compactSuggestTokens.title": {
+    "defaultMessage": "Highlight Compact over",
+    "description": "A setting's title (Settings → Assistant)."
+  },
+  "settings.assistant.control.desc": {
+    "defaultMessage": "What the Assistant may do beyond looking and advising, in every workspace.",
+    "description": "What the setting \"Control\" does, under its title (Settings → Assistant)."
+  },
+  "settings.assistant.control.option.agents": {
+    "defaultMessage": "Control agents",
+    "description": "A choice of the setting \"Control\" (Settings → Assistant)."
+  },
+  "settings.assistant.control.option.look": {
+    "defaultMessage": "Look and advise",
+    "description": "A choice of the setting \"Control\" (Settings → Assistant)."
+  },
+  "settings.assistant.control.option.projects": {
+    "defaultMessage": "Control agents and create projects",
+    "description": "A choice of the setting \"Control\" (Settings → Assistant)."
+  },
+  "settings.assistant.control.tip": {
+    "defaultMessage": "It never removes agents, discards worktrees or deletes projects, never types into an agent that is working, asking you something or that you just typed in (see Pause after you type), and makes at most 30 changes per message. What it does is listed in its panel. A running Assistant takes a change after a restart.",
+    "description": "The info tip of the setting \"Control\" (Settings → Assistant): its last paragraph. Pause after you type is another setting: keep its name as Hive shows it."
+  },
+  "settings.assistant.control.tip.agents": {
+    "defaultMessage": "Control agents: it can also add agents, change their settings, start and stop them, and give idle ones tasks, when you ask it to. Stopping a busy agent asks you first.",
+    "description": "The info tip of the setting \"Control\" (Settings → Assistant): a line on the choice Control agents."
+  },
+  "settings.assistant.control.tip.look": {
+    "defaultMessage": "Look and advise: it reads and suggests, and you act.",
+    "description": "The info tip of the setting \"Control\" (Settings → Assistant): a line on the choice Look and advise."
+  },
+  "settings.assistant.control.tip.projects": {
+    "defaultMessage": "Control agents and create projects: also new projects.",
+    "description": "The info tip of the setting \"Control\" (Settings → Assistant): a line on the choice Control agents and create projects."
+  },
+  "settings.assistant.control.title": {
+    "defaultMessage": "Control",
+    "description": "A setting's title (Settings → Assistant)."
+  },
+  "settings.assistant.defaultIs": {
+    "defaultMessage": "Default ({value})",
+    "description": "The first choice of a list in Settings → Assistant → With <provider>: what applies when nothing is chosen. {value} says what that is."
+  },
+  "settings.assistant.defaultProvider": {
+    "defaultMessage": "Default provider ({provider})",
+    "description": "The first choice of Settings → Assistant → Provider: the default provider, and which one that is now."
+  },
+  "settings.assistant.enterEndsPause.desc": {
+    "defaultMessage": "Once you press Enter in the terminal (you sent what you typed), the Assistant may type there at once.",
+    "description": "What the setting \"Enter ends the pause\" does, under its title (Settings → Assistant)."
+  },
+  "settings.assistant.enterEndsPause.tip": {
+    "defaultMessage": "Turn this off if you often type a line and then keep writing (e.g. answering a question, then adding more).",
+    "description": "The info tip of the setting \"Enter ends the pause\" (Settings → Assistant): more on what it does and when it applies."
+  },
+  "settings.assistant.enterEndsPause.title": {
+    "defaultMessage": "Enter ends the pause",
+    "description": "A setting's title (Settings → Assistant)."
+  },
+  "settings.assistant.panelSide.desc": {
+    "defaultMessage": "Which side of the window the Assistant's panel is on, in every workspace.",
+    "description": "What the setting \"Panel side\" does, under its title (Settings → Assistant)."
+  },
+  "settings.assistant.panelSide.option.left": {
+    "defaultMessage": "Left",
+    "description": "A choice of the setting \"Panel side\" (Settings → Assistant)."
+  },
+  "settings.assistant.panelSide.option.right": {
+    "defaultMessage": "Right",
+    "description": "A choice of the setting \"Panel side\" (Settings → Assistant)."
+  },
+  "settings.assistant.panelSide.tip": {
+    "defaultMessage": "On the left it sits between the project list and your work, which keeps it clear of Windows notifications and other windows at the bottom right. View → Move Assistant Panel… and the panel's ⋯ menu switch it too.",
+    "description": "The info tip of the setting \"Panel side\" (Settings → Assistant): more on what it does and when it applies."
+  },
+  "settings.assistant.panelSide.title": {
+    "defaultMessage": "Panel side",
+    "description": "A setting's title (Settings → Assistant)."
+  },
+  "settings.assistant.persona.desc": {
+    "defaultMessage": "How the Assistant works in a new conversation (Coordinator, Planner, QA triager, Release manager, or your own), unless a workspace chooses another.",
+    "description": "What the setting \"Default mode\" does, under its title (Settings → Assistant)."
+  },
+  "settings.assistant.persona.tip": {
+    "defaultMessage": "Modes are Markdown files in each workspace (.hive/personas): edit them, or add your own, in the Hive Assistant view (the robot on the left). The panel switches mode at once, keeping the conversation.",
+    "description": "The info tip of the setting \"Default mode\" (Settings → Assistant): more on what it does and when it applies."
+  },
+  "settings.assistant.persona.title": {
+    "defaultMessage": "Default mode",
+    "description": "A setting's title (Settings → Assistant)."
+  },
+  "settings.assistant.provider.desc": {
+    "defaultMessage": "The coding agent the Assistant runs, unless a workspace chooses another.",
+    "description": "What the setting \"Provider\" does, under its title (Settings → Assistant)."
+  },
+  "settings.assistant.provider.tip": {
+    "defaultMessage": "The Assistant is independent of your project agents: a Codex Assistant can look after Claude Code agents, and the other way round.",
+    "description": "The info tip of the setting \"Provider\" (Settings → Assistant): more on what it does and when it applies."
+  },
+  "settings.assistant.provider.title": {
+    "defaultMessage": "Provider",
+    "description": "A setting's title (Settings → Assistant)."
+  },
+  "settings.assistant.providersEffort": {
+    "defaultMessage": "{provider}'s",
+    "description": "In the Assistant's effort list, \"Default ({effort})\", when it is the CLI's own default. {provider} is its name."
+  },
+  "settings.assistant.tellReplies.desc": {
+    "defaultMessage": "The Assistant's watch on an agent or its card hears the first line of what you send that agent from its pane.",
+    "description": "What the setting \"Tell the Assistant when I reply to an agent\" does, under its title (Settings → Assistant)."
+  },
+  "settings.assistant.tellReplies.tip": {
+    "defaultMessage": "So it knows what you told the agent (an answer, a decision) without asking you again, and can record a decision on the card. Only the first line, only to the Assistant of the same workspace, and only when it is watching that agent or its card.",
+    "description": "The info tip of the setting \"Tell the Assistant when I reply to an agent\" (Settings → Assistant): more on what it does and when it applies."
+  },
+  "settings.assistant.tellReplies.title": {
+    "defaultMessage": "Tell the Assistant when I reply to an agent",
+    "description": "A setting's title (Settings → Assistant)."
+  },
+  "settings.assistant.typingPause.desc": {
+    "defaultMessage": "Seconds after you type in an agent's terminal before the Assistant may type there (give it a task or hand its work over).",
+    "description": "What the setting \"Pause after you type\" does, under its title (Settings → Assistant)."
+  },
+  "settings.assistant.typingPause.off": {
+    "defaultMessage": "No pause",
+    "description": "The Off box of the number setting \"Pause after you type\" (Settings → Assistant): ticked, the setting is off (0)."
+  },
+  "settings.assistant.typingPause.tip": {
+    "defaultMessage": "The Assistant types a task by clearing the agent's input line (Ctrl+U) and entering it, which would wipe or mix with something you were writing. During the pause it asks you instead.",
+    "description": "The info tip of the setting \"Pause after you type\" (Settings → Assistant): more on what it does and when it applies."
+  },
+  "settings.assistant.typingPause.title": {
+    "defaultMessage": "Pause after you type",
+    "description": "A setting's title (Settings → Assistant)."
+  },
+  "settings.assistant.withProvider.desc": {
+    "defaultMessage": "The model, effort, permission mode{context, select, yes {, context} other {}} and extra arguments when the Assistant runs {provider}. Default follows {provider}'s own settings, except the mode: {mode}, where {provider} approves safe actions itself and only asks about risky ones.",
+    "description": "What the setting \"With <provider>\" does (Settings → Assistant). {provider} is a coding agent's name, {mode} a permission mode's name; {context} is yes when the provider has a context-size choice."
+  },
+  "settings.assistant.withProvider.tip": {
+    "defaultMessage": "By default it uses the same model and effort as your agents. A lighter model or low effort saves tokens but makes it careless (for example, saying it will check on an agent later and never doing so). Its default mode is the one your agents default to, so it rarely asks. Hive's own tools never ask: what they may do is set by Control above.",
+    "description": "The info tip of the setting \"With <provider>\" (Settings → Assistant)."
+  },
+  "settings.assistant.withProvider.title": {
+    "defaultMessage": "With {provider}",
+    "description": "A setting's title (Settings → Assistant): the Assistant's model, effort and mode when it runs this provider. {provider} is a coding agent's name."
+  },
+  "settings.assistantDefaults.extraArgsPlaceholder": {
+    "defaultMessage": "e.g. --verbose",
+    "description": "The empty box's placeholder of the setting \"Extra arguments\". --verbose is an argument: keep it."
+  },
+  "settings.assistantProvider.effort.desc": {
+    "defaultMessage": "Its reasoning effort with {provider}. Empty follows Settings → {provider} → Default effort.",
+    "description": "A field of Settings → Assistant → With <provider>: what it is. {provider} is a coding agent's name."
+  },
+  "settings.assistantProvider.effort.title": {
+    "defaultMessage": "Effort",
+    "description": "A field's title in Settings → Assistant → With <provider>: the Assistant's reasoning effort."
+  },
+  "settings.assistantProvider.extraArgs.desc": {
+    "defaultMessage": "Additional {cli} command-line arguments when the Assistant runs {provider}.",
+    "description": "A field of Settings → Assistant → With <provider>: what it is. {provider} is a coding agent's name. {cli} is the CLI's command (claude, codex, copilot): keep it."
+  },
+  "settings.assistantProvider.extraArgs.title": {
+    "defaultMessage": "Extra arguments",
+    "description": "A field's title in Settings → Assistant → With <provider>: command-line arguments."
+  },
+  "settings.assistantProvider.model.desc": {
+    "defaultMessage": "The model when the Assistant runs {provider}. Empty follows Settings → {provider} → Default model.",
+    "description": "A field of Settings → Assistant → With <provider>: what it is. {provider} is a coding agent's name."
+  },
+  "settings.assistantProvider.model.title": {
+    "defaultMessage": "Model",
+    "description": "A field's title in Settings → Assistant → With <provider>: the Assistant's model."
+  },
+  "settings.assistantProvider.permissionMode.desc": {
+    "defaultMessage": "Its permission mode with {provider}. Empty is {mode}, where {provider} approves safe actions itself and only asks about risky ones.",
+    "description": "A field of Settings → Assistant → With <provider>: what it is. {provider} is a coding agent's name. {mode} is a permission mode's name."
+  },
+  "settings.assistantProvider.permissionMode.title": {
+    "defaultMessage": "Permission mode",
+    "description": "A field's title in Settings → Assistant → With <provider>: the Assistant's permission mode."
+  },
+  "settings.assistantProvider.use200kContext.desc": {
+    "defaultMessage": "A 200K-token context window for it with {provider}. Empty follows Settings → {provider}.",
+    "description": "A field of Settings → Assistant → With <provider>: what it is. {provider} is a coding agent's name."
+  },
+  "settings.assistantProvider.use200kContext.title": {
+    "defaultMessage": "Use 200K context (instead of 1M)",
+    "description": "A field's title in Settings → Assistant → With <provider>. 200K and 1M are numbers of tokens."
+  },
+  "settings.board.archiveDoneDays.desc": {
+    "defaultMessage": "Days a card stays in Done before Hive archives it.",
+    "description": "What the setting \"Archive Done cards after\" does, under its title (Settings → Board)."
+  },
+  "settings.board.archiveDoneDays.off": {
+    "defaultMessage": "Never",
+    "description": "The Off box of the number setting \"Archive Done cards after\" (Settings → Board): ticked, the setting is off (0)."
+  },
+  "settings.board.archiveDoneDays.tip": {
+    "defaultMessage": "Counted from when the card last went into Done (or was brought back from the archive), not from its last change. An archived card is kept: the board's Archived list shows it, and you can bring it back. Hive checks when a workspace opens and every hour.",
+    "description": "The info tip of the setting \"Archive Done cards after\" (Settings → Board): more on what it does and when it applies."
+  },
+  "settings.board.archiveDoneDays.title": {
+    "defaultMessage": "Archive Done cards after",
+    "description": "A setting's title (Settings → Board)."
+  },
+  "settings.board.colors.desc": {
+    "defaultMessage": "Pick the colour of each column.",
+    "description": "What the setting \"Column colours\" does, under its title (Settings → Board)."
+  },
+  "settings.board.colors.tip": {
+    "defaultMessage": "The tint on cards is a light mix of the colour with the theme, so it works in light and dark themes. Reset puts back the default.",
+    "description": "The info tip of the setting \"Column colours\" (Settings → Board): more on what it does and when it applies."
+  },
+  "settings.board.colors.title": {
+    "defaultMessage": "Column colours",
+    "description": "A setting's title (Settings → Board)."
+  },
+  "settings.board.columnColors.desc": {
+    "defaultMessage": "Give each column's heading its colour and tint its cards with it.",
+    "description": "What the setting \"Colour columns\" does, under its title (Settings → Board)."
+  },
+  "settings.board.columnColors.tip": {
+    "defaultMessage": "A card takes the colour of the column it is in. Blocked, stalled and finished cards keep their red, amber and green edge, and their text, over the tint.",
+    "description": "The info tip of the setting \"Colour columns\" (Settings → Board): more on what it does and when it applies."
+  },
+  "settings.board.columnColors.title": {
+    "defaultMessage": "Colour columns",
+    "description": "A setting's title (Settings → Board)."
+  },
+  "settings.chime.bell": {
+    "defaultMessage": "Bell",
+    "description": "A sound of Settings → Notifications → Chime sound."
+  },
+  "settings.chime.chime": {
+    "defaultMessage": "Chime",
+    "description": "A sound of Settings → Notifications → Chime sound."
+  },
+  "settings.chime.play": {
+    "defaultMessage": "Play",
+    "description": "Button beside Settings → Notifications → Chime sound: plays it."
+  },
+  "settings.chime.pop": {
+    "defaultMessage": "Pop",
+    "description": "A sound of Settings → Notifications → Chime sound."
+  },
+  "settings.chime.soft": {
+    "defaultMessage": "Soft",
+    "description": "A sound of Settings → Notifications → Chime sound."
+  },
+  "settings.columnColors.pick": {
+    "defaultMessage": "{column} colour",
+    "description": "The name, for screen readers, of a board column's colour picker (Settings → Board → Column colours). {column} is the column's name."
+  },
+  "settings.columnColors.reset": {
+    "defaultMessage": "Reset {column} to its default",
+    "description": "Button beside a board column's colour: puts back its default colour. {column} is the column's name."
+  },
+  "settings.data.copied": {
+    "defaultMessage": "Path copied",
+    "description": "A notice after a path was copied."
+  },
+  "settings.data.copyPath": {
+    "defaultMessage": "Copy path",
+    "description": "Button beside the settings file's path (Settings → Advanced → Settings file): copies it."
+  },
+  "settings.emptyDefault": {
+    "defaultMessage": "empty",
+    "description": "In \"Reset to default (empty)\": the setting's default is empty."
+  },
+  "settings.enable": {
+    "defaultMessage": "Enable",
+    "description": "Button of the confirmation before a risky setting is turned on."
+  },
+  "settings.fallback.add": {
+    "defaultMessage": "Add",
+    "description": "Button under a fallback list: adds the value typed beside it."
+  },
+  "settings.fallback.level": {
+    "defaultMessage": "Level",
+    "description": "A column of a provider's fallback list of effort levels: the value Hive passes to the CLI."
+  },
+  "settings.fallback.levelPlaceholder": {
+    "defaultMessage": "e.g. xhigh",
+    "description": "Placeholder of the box where a new effort level is typed. xhigh is a level's value: keep it."
+  },
+  "settings.fallback.levelsPerModel": {
+    "defaultMessage": "{source}: each model offers its own levels; this list names them and is used for models it doesn't describe.",
+    "description": "Above a provider's fallback list of effort levels, when the CLI reports each model's levels. {source} says where the models come from."
+  },
+  "settings.fallback.levelsUsed": {
+    "defaultMessage": "Used now: {provider} hasn't reported per-model levels.",
+    "description": "Above a provider's fallback list of effort levels, when the CLI reports none per model. {provider} is its name."
+  },
+  "settings.fallback.modelId": {
+    "defaultMessage": "Model ID",
+    "description": "A column of a provider's fallback list of models: the ID Hive passes to the CLI."
+  },
+  "settings.fallback.modelsNow": {
+    "defaultMessage": "Models now: {source}",
+    "description": "Above a provider's fallback list of models: where the model pickers' models come from now. {source} says it."
+  },
+  "settings.fallback.name": {
+    "defaultMessage": "Name",
+    "description": "A column of a provider's fallback list: the name pickers show."
+  },
+  "settings.fallback.nameCell": {
+    "defaultMessage": "Name {n}",
+    "description": "The name, for screen readers, of a row's Name box in a fallback list. {n} is the row's number."
+  },
+  "settings.fallback.newLevel": {
+    "defaultMessage": "New level",
+    "description": "The name, for screen readers, of the box under a fallback list of effort levels where a new one is typed."
+  },
+  "settings.fallback.newModel": {
+    "defaultMessage": "New model ID",
+    "description": "The name, for screen readers, of the box under a fallback list of models where a new one is typed."
+  },
+  "settings.fallback.older": {
+    "defaultMessage": "Older",
+    "description": "A column of a provider's fallback list of models: ticked, the model is listed under Older models."
+  },
+  "settings.fallback.olderCell": {
+    "defaultMessage": "Older {n}",
+    "description": "The name, for screen readers, of a row's Older box in a fallback list. {n} is the row's number."
+  },
+  "settings.fallback.remove": {
+    "defaultMessage": "Remove",
+    "description": "Button on a row of a fallback list: removes it."
+  },
+  "settings.fallback.reset": {
+    "defaultMessage": "Reset to defaults",
+    "description": "Button under a provider's table (prices, models or effort levels): goes back to Hive's own."
+  },
+  "settings.fallback.saveFailed": {
+    "defaultMessage": "Could not save the list",
+    "description": "An error's title: saving a provider's fallback list of models or effort levels failed."
+  },
+  "settings.fallback.showLevels": {
+    "defaultMessage": "Show the list ({n, plural, one {# level} other {# levels}})",
+    "description": "A link that unfolds a provider's fallback list of effort levels. {n} is how many it holds."
+  },
+  "settings.fallback.showModels": {
+    "defaultMessage": "Show the list ({n, plural, one {# model} other {# models}})",
+    "description": "A link that unfolds a provider's fallback list of models. {n} is how many it holds."
+  },
+  "settings.fallback.valueCell": {
+    "defaultMessage": "{column} {n}",
+    "description": "The name, for screen readers, of a box in a fallback list: the column and the row's number."
+  },
+  "settings.fileLocks.modeLine": {
+    "defaultMessage": "{mode}: {what}",
+    "description": "A line of the File locks setting's info tip: a mode's name and what it does."
+  },
+  "settings.general.closeToTray.desc": {
+    "defaultMessage": "Closing the window keeps Hive running in the system tray so sessions continue.",
+    "description": "What the setting \"Close to tray\" does, under its title (Settings → General)."
+  },
+  "settings.general.closeToTray.tip": {
+    "defaultMessage": "When off, closing the window quits Hive (asking first if sessions are running). Use File → Exit or the tray menu to quit.",
+    "description": "The info tip of the setting \"Close to tray\" (Settings → General): more on what it does and when it applies."
+  },
+  "settings.general.closeToTray.title": {
+    "defaultMessage": "Close to tray",
+    "description": "A setting's title (Settings → General)."
+  },
+  "settings.general.confirmOnQuit.desc": {
+    "defaultMessage": "When to ask before quitting stops running sessions.",
+    "description": "What the setting \"Confirm before quitting\" does, under its title (Settings → General)."
+  },
+  "settings.general.confirmOnQuit.option.always": {
+    "defaultMessage": "Whenever sessions are running",
+    "description": "A choice of the setting \"Confirm before quitting\" (Settings → General)."
+  },
+  "settings.general.confirmOnQuit.option.never": {
+    "defaultMessage": "Never",
+    "description": "A choice of the setting \"Confirm before quitting\" (Settings → General)."
+  },
+  "settings.general.confirmOnQuit.option.working": {
+    "defaultMessage": "When an agent is working",
+    "description": "A choice of the setting \"Confirm before quitting\" (Settings → General)."
+  },
+  "settings.general.confirmOnQuit.tip": {
+    "defaultMessage": "Quitting stops every running session. Their conversations are kept and can be resumed, so by default Hive only asks when an agent is in the middle of something (working, or waiting for your answer).",
+    "description": "The info tip of the setting \"Confirm before quitting\" (Settings → General): more on what it does and when it applies."
+  },
+  "settings.general.confirmOnQuit.title": {
+    "defaultMessage": "Confirm before quitting",
+    "description": "A setting's title (Settings → General)."
+  },
+  "settings.general.dateFormat.desc": {
+    "defaultMessage": "How dates show in Hive: sessions named by when they started, the session lists and their tooltips, exports.",
+    "description": "What the setting \"Date format\" does, under its title (Settings → General)."
+  },
+  "settings.general.dateFormat.option.dmy": {
+    "defaultMessage": "dd/mm/yyyy (04/10/2026)",
+    "description": "A choice of the setting \"Date format\" (Settings → General)."
+  },
+  "settings.general.dateFormat.option.mdy": {
+    "defaultMessage": "mm/dd/yyyy (10/04/2026)",
+    "description": "A choice of the setting \"Date format\" (Settings → General)."
+  },
+  "settings.general.dateFormat.option.system": {
+    "defaultMessage": "System",
+    "description": "A choice of the setting \"Date format\" (Settings → General)."
+  },
+  "settings.general.dateFormat.option.ymd": {
+    "defaultMessage": "yyyy-mm-dd (2026-10-04)",
+    "description": "A choice of the setting \"Date format\" (Settings → General)."
+  },
+  "settings.general.dateFormat.tip": {
+    "defaultMessage": "System uses your Windows language's short date. Names you give sessions stay as you typed them: only the automatic ones (when a session started) follow this. How long ago something happened (\"2 hours ago\") stays, with the date on hover.",
+    "description": "The info tip of the setting \"Date format\" (Settings → General): more on what it does and when it applies."
+  },
+  "settings.general.dateFormat.title": {
+    "defaultMessage": "Date format",
+    "description": "A setting's title (Settings → General)."
+  },
+  "settings.general.keepAwake.desc": {
+    "defaultMessage": "Stop Windows from sleeping while an agent is working or waiting on background tasks, so it doesn't stop mid-task.",
+    "description": "What the setting \"Keep the PC awake while agents work\" does, under its title (Settings → General)."
+  },
+  "settings.general.keepAwake.option.always": {
+    "defaultMessage": "Always, on battery too",
+    "description": "A choice of the setting \"Keep the PC awake while agents work\" (Settings → General)."
+  },
+  "settings.general.keepAwake.option.never": {
+    "defaultMessage": "Never",
+    "description": "A choice of the setting \"Keep the PC awake while agents work\" (Settings → General)."
+  },
+  "settings.general.keepAwake.option.pluggedIn": {
+    "defaultMessage": "When plugged in",
+    "description": "A choice of the setting \"Keep the PC awake while agents work\" (Settings → General)."
+  },
+  "settings.general.keepAwake.tip": {
+    "defaultMessage": "Hive lets the PC sleep again as soon as no agent is working. The screen can still turn off and lock. On a laptop, \"When plugged in\" lets it sleep on battery.",
+    "description": "The info tip of the setting \"Keep the PC awake while agents work\" (Settings → General): more on what it does and when it applies."
+  },
+  "settings.general.keepAwake.title": {
+    "defaultMessage": "Keep the PC awake while agents work",
+    "description": "A setting's title (Settings → General)."
+  },
+  "settings.general.launchAtLogin.desc": {
+    "defaultMessage": "Start Hive automatically when you sign in to Windows.",
+    "description": "What the setting \"Launch at login\" does, under its title (Settings → General)."
+  },
+  "settings.general.launchAtLogin.tip": {
+    "defaultMessage": "Hive starts hidden in the tray when launched at login.",
+    "description": "The info tip of the setting \"Launch at login\" (Settings → General): more on what it does and when it applies."
+  },
+  "settings.general.launchAtLogin.title": {
+    "defaultMessage": "Launch at login",
+    "description": "A setting's title (Settings → General)."
+  },
+  "settings.general.minimizeToTray.desc": {
+    "defaultMessage": "Minimising hides Hive to the system tray instead of the taskbar.",
+    "description": "What the setting \"Minimise to tray\" does, under its title (Settings → General)."
+  },
+  "settings.general.minimizeToTray.tip": {
+    "defaultMessage": "Click the tray icon to bring Hive back.",
+    "description": "The info tip of the setting \"Minimise to tray\" (Settings → General): more on what it does and when it applies."
+  },
+  "settings.general.minimizeToTray.title": {
+    "defaultMessage": "Minimise to tray",
+    "description": "A setting's title (Settings → General)."
+  },
+  "settings.general.progressCommands.desc": {
+    "defaultMessage": "Agents run tests, builds and other commands that take more than about 30 seconds through hive-progress without being asked, so they show in the panel. Off: only when you ask.",
+    "description": "What the setting \"Agents show long commands in the Progress panel\" does, under its title (Settings → General)."
+  },
+  "settings.general.progressCommands.disabled": {
+    "defaultMessage": "Turn on the Progress panel to use this.",
+    "description": "Under the setting \"Agents show long commands in the Progress panel\" (Settings → General) while the Progress panel is off."
+  },
+  "settings.general.progressCommands.tip": {
+    "defaultMessage": "hive-progress runs the command unchanged (same output and exit code). Hive's session guidance tells agents to use it, so a change applies to agents started or restarted afterwards. With the Progress panel off, agents aren't told to use it either.",
+    "description": "The info tip of the setting \"Agents show long commands in the Progress panel\" (Settings → General): more on what it does and when it applies."
+  },
+  "settings.general.progressCommands.title": {
+    "defaultMessage": "Agents show long commands in the Progress panel",
+    "description": "A setting's title (Settings → General)."
+  },
+  "settings.general.progressPanel.desc": {
+    "defaultMessage": "Show long runs agents report, such as tests and builds: how far along each is and the time left, in a panel on the right and on the taskbar button.",
+    "description": "What the setting \"Progress panel\" does, under its title (Settings → General)."
+  },
+  "settings.general.progressPanel.tip": {
+    "defaultMessage": "Folded, the panel is a strip with a small bar per run; click it, or use Toggle Progress Panel in the command palette. Off hides the panel, the strip and the taskbar progress; agents can still report, and Hive ignores it.",
+    "description": "The info tip of the setting \"Progress panel\" (Settings → General): more on what it does and when it applies."
+  },
+  "settings.general.progressPanel.title": {
+    "defaultMessage": "Progress panel",
+    "description": "A setting's title (Settings → General)."
+  },
+  "settings.general.reopenLastWorkspace.desc": {
+    "defaultMessage": "Open the workspace you used last when Hive starts.",
+    "description": "What the setting \"Reopen last workspace\" does, under its title (Settings → General)."
+  },
+  "settings.general.reopenLastWorkspace.tip": {
+    "defaultMessage": "Sessions are never resumed automatically — only the workspace is reopened.",
+    "description": "The info tip of the setting \"Reopen last workspace\" (Settings → General): more on what it does and when it applies."
+  },
+  "settings.general.reopenLastWorkspace.title": {
+    "defaultMessage": "Reopen last workspace",
+    "description": "A setting's title (Settings → General)."
+  },
+  "settings.general.showTips.desc": {
+    "defaultMessage": "One tip a day about something Hive can do, and a tip at the moments one helps.",
+    "description": "What the setting \"Show a tip when Hive starts\" does, under its title (Settings → General)."
+  },
+  "settings.general.showTips.tip": {
+    "defaultMessage": "Tips show in a small card in the bottom corner and never get in the way. Help → Tips… lists them all, whether this is on or off.",
+    "description": "The info tip of the setting \"Show a tip when Hive starts\" (Settings → General): more on what it does and when it applies."
+  },
+  "settings.general.showTips.title": {
+    "defaultMessage": "Show a tip when Hive starts",
+    "description": "A setting's title (Settings → General)."
+  },
+  "settings.general.startMinimized.desc": {
+    "defaultMessage": "Start Hive hidden in the system tray.",
+    "description": "What the setting \"Start in tray\" does, under its title (Settings → General)."
+  },
+  "settings.general.startMinimized.tip": {
+    "defaultMessage": "Useful together with \"Launch at login\".",
+    "description": "The info tip of the setting \"Start in tray\" (Settings → General): more on what it does and when it applies."
+  },
+  "settings.general.startMinimized.title": {
+    "defaultMessage": "Start in tray",
+    "description": "A setting's title (Settings → General)."
+  },
+  "settings.general.timeFormat.desc": {
+    "defaultMessage": "How times show with the dates.",
+    "description": "What the setting \"Time format\" does, under its title (Settings → General)."
+  },
+  "settings.general.timeFormat.option.12h": {
+    "defaultMessage": "12-hour (2:05 PM)",
+    "description": "A choice of the setting \"Time format\" (Settings → General)."
+  },
+  "settings.general.timeFormat.option.24h": {
+    "defaultMessage": "24-hour (14:05)",
+    "description": "A choice of the setting \"Time format\" (Settings → General)."
+  },
+  "settings.general.timeFormat.tip": {
+    "defaultMessage": "Applies wherever Hive shows a time, such as a session that started today or the time a screenshot was pasted.",
+    "description": "The info tip of the setting \"Time format\" (Settings → General): more on what it does and when it applies."
+  },
+  "settings.general.timeFormat.title": {
+    "defaultMessage": "Time format",
+    "description": "A setting's title (Settings → General)."
+  },
+  "settings.general.userName.desc": {
+    "defaultMessage": "How Hive names you to the Hive Assistant when it tells it you replied to an agent (\"Darren replied to B1 on #399\").",
+    "description": "What the setting \"Your name\" does, under its title (Settings → General)."
+  },
+  "settings.general.userName.placeholder": {
+    "defaultMessage": "User",
+    "description": "The empty box's placeholder of the setting \"Your name\" (Settings → General)."
+  },
+  "settings.general.userName.tip": {
+    "defaultMessage": "It goes into the Assistant's conversation, so use whatever form you like it to see. Empty uses \"User\".",
+    "description": "The info tip of the setting \"Your name\" (Settings → General): more on what it does and when it applies."
+  },
+  "settings.general.userName.title": {
+    "defaultMessage": "Your name",
+    "description": "A setting's title (Settings → General)."
+  },
+  "settings.keybindings.editor.desc": {
+    "defaultMessage": "Click the pencil (or double-click a shortcut), then press the new keys. Wait a moment after the first combination, or press a second one for a chord such as Ctrl+K Ctrl+S.",
+    "description": "What the setting \"Shortcuts\" does, under its title (Settings → Keyboard Shortcuts)."
+  },
+  "settings.keybindings.editor.tip": {
+    "defaultMessage": "Shortcuts need Ctrl or Alt (or are F-keys). Ctrl+C, Ctrl+V, Ctrl+X, Ctrl+A, Ctrl+Z, Ctrl+Y and Shift+Tab stay with editing and the agents' terminals. Some keys go to the agent while its terminal has focus (for Claude Code: Ctrl+B, Ctrl+K, Ctrl+O, Ctrl+R, Ctrl+T and Ctrl+G).",
+    "description": "The info tip of the setting \"Shortcuts\" (Settings → Keyboard Shortcuts): more on what it does and when it applies."
+  },
+  "settings.keybindings.editor.title": {
+    "defaultMessage": "Shortcuts",
+    "description": "A setting's title (Settings → Keyboard Shortcuts)."
+  },
+  "settings.keys.alsoUsed": {
+    "defaultMessage": "Also used by {commands}",
+    "description": "Tooltip of the warning beside a shortcut other commands use too. {commands} lists them."
+  },
+  "settings.keys.cantUse": {
+    "defaultMessage": "{keys} can't be used",
+    "description": "Title of a warning when a recorded shortcut can't be used. {keys} is the shortcut (Ctrl+K)."
+  },
+  "settings.keys.change": {
+    "defaultMessage": "Change shortcut (or double-click it)",
+    "description": "Button on a command's row of the shortcuts editor: records a new shortcut."
+  },
+  "settings.keys.chordNext": {
+    "defaultMessage": "then another key for a chord…",
+    "description": "While a shortcut is recorded, after its first key combination: press a second one for a chord (such as Ctrl+K Ctrl+S)."
+  },
+  "settings.keys.column.category": {
+    "defaultMessage": "Category",
+    "description": "A column of the keyboard shortcuts editor: the command's category (Project, Session…)."
+  },
+  "settings.keys.column.command": {
+    "defaultMessage": "Command",
+    "description": "A column of the keyboard shortcuts editor: the command."
+  },
+  "settings.keys.column.set": {
+    "defaultMessage": "Set",
+    "description": "A column of the keyboard shortcuts editor: where the shortcut comes from (changed, removed, this project…). Keep it short."
+  },
+  "settings.keys.column.shortcut": {
+    "defaultMessage": "Shortcut",
+    "description": "A column of the keyboard shortcuts editor: the keys."
+  },
+  "settings.keys.inUseDetail": {
+    "defaultMessage": "When two commands share a shortcut, the first one listed that is available runs. Change the other one to avoid surprises.",
+    "description": "More in the question when a recorded shortcut is already used."
+  },
+  "settings.keys.inUseMessage": {
+    "defaultMessage": "{keys} is used by {commands}. Use it here too?",
+    "description": "The question when a recorded shortcut is already used. {keys} is the shortcut; {commands} lists the commands using it."
+  },
+  "settings.keys.inUseTitle": {
+    "defaultMessage": "Shortcut already in use",
+    "description": "Title of the question when a recorded shortcut is already used by another command."
+  },
+  "settings.keys.noMatch": {
+    "defaultMessage": "No commands match.",
+    "description": "The keyboard shortcuts editor when its search finds nothing."
+  },
+  "settings.keys.press": {
+    "defaultMessage": "Press the keys… <faint>(Esc to cancel)</faint>",
+    "description": "While a shortcut is recorded, before any key. <faint> marks the part shown greyed; Esc is a key: keep it."
+  },
+  "settings.keys.projectNote": {
+    "defaultMessage": "Changes here apply while {project} is selected, over the global shortcuts. Other commands are set in Settings → Keyboard Shortcuts.",
+    "description": "Above a project's shortcuts (Project Settings → Keyboard Shortcuts). {project} is its name."
+  },
+  "settings.keys.remove": {
+    "defaultMessage": "Remove shortcut",
+    "description": "Button on a command's row of the shortcuts editor: removes its shortcut."
+  },
+  "settings.keys.reset": {
+    "defaultMessage": "Reset",
+    "description": "Button of the question before shortcuts go back to their defaults."
+  },
+  "settings.keys.resetAll": {
+    "defaultMessage": "Reset all",
+    "description": "Button of the keyboard shortcuts editor: every changed shortcut goes back."
+  },
+  "settings.keys.resetAllGlobal": {
+    "defaultMessage": "{n, plural, one {Return # changed shortcut to the defaults.} other {Return # changed shortcuts to the defaults.}}",
+    "description": "The question before every changed shortcut goes back to its default (Settings → Keyboard Shortcuts). {n} is how many."
+  },
+  "settings.keys.resetAllProject": {
+    "defaultMessage": "{n, plural, one {Remove {project}'s shortcut change; it uses the global shortcuts again.} other {Remove {project}'s # shortcut changes; it uses the global shortcuts again.}}",
+    "description": "The question before a project's own shortcuts are removed (Project Settings → Keyboard Shortcuts). {project} is its name; {n} how many it changed."
+  },
+  "settings.keys.resetAllTitle": {
+    "defaultMessage": "Reset all shortcuts?",
+    "description": "Title of the question before every changed shortcut goes back."
+  },
+  "settings.keys.resetFailed": {
+    "defaultMessage": "Could not reset",
+    "description": "An error's title: resetting a project's shortcuts failed."
+  },
+  "settings.keys.resetToKeys": {
+    "defaultMessage": "Reset to default ({keys})",
+    "description": "Button on a command's row of the shortcuts editor: goes back to its default. {keys} is the default shortcut."
+  },
+  "settings.keys.resetToNone": {
+    "defaultMessage": "Reset to default",
+    "description": "Button on a command's row of the shortcuts editor: goes back to its default (none)."
+  },
+  "settings.keys.saveFailed": {
+    "defaultMessage": "Could not save the shortcut",
+    "description": "An error's title: saving a keyboard shortcut failed."
+  },
+  "settings.keys.search": {
+    "defaultMessage": "Search commands or keys",
+    "description": "Placeholder of the search box of the keyboard shortcuts editor."
+  },
+  "settings.keys.source.changed": {
+    "defaultMessage": "Changed",
+    "description": "The Set column of the shortcuts editor: the user changed this command's shortcut."
+  },
+  "settings.keys.source.default": {
+    "defaultMessage": "Default",
+    "description": "The Set column's filter, for the commands that keep their default shortcut."
+  },
+  "settings.keys.source.global": {
+    "defaultMessage": "Global",
+    "description": "The Set column of a project's shortcuts: the global one (Settings)."
+  },
+  "settings.keys.source.project": {
+    "defaultMessage": "This project",
+    "description": "The Set column of a project's shortcuts: the project's own."
+  },
+  "settings.keys.source.removed": {
+    "defaultMessage": "Removed",
+    "description": "The Set column of the shortcuts editor: the user removed this command's shortcut."
+  },
+  "settings.keys.terminalKey": {
+    "defaultMessage": "While an agent's terminal has focus this key goes to the agent, so the shortcut only works elsewhere.",
+    "description": "Tooltip of the terminal icon beside a shortcut that agents' terminals keep."
+  },
+  "settings.keys.useGlobal": {
+    "defaultMessage": "Use the global shortcut",
+    "description": "Button on a command's row of a project's shortcuts: goes back to the global one."
+  },
+  "settings.keys.useIt": {
+    "defaultMessage": "Use it",
+    "description": "Button of the question when a recorded shortcut is already used: uses it for this command too."
+  },
+  "settings.metrics.resetDetail": {
+    "defaultMessage": "The history starts again from now.",
+    "description": "More in the question before the performance metrics are cleared."
+  },
+  "settings.metrics.resetFailed": {
+    "defaultMessage": "Could not reset the performance metrics",
+    "description": "An error's title: clearing the performance metrics failed."
+  },
+  "settings.metrics.resetMessage": {
+    "defaultMessage": "Clear this workspace's recorded performance metrics?",
+    "description": "The question before the recorded performance metrics are cleared."
+  },
+  "settings.metrics.resetTitle": {
+    "defaultMessage": "Reset performance metrics?",
+    "description": "Title of the question before the recorded performance metrics are cleared."
+  },
+  "settings.metrics.wasReset": {
+    "defaultMessage": "Performance metrics reset",
+    "description": "A notice after the performance metrics were cleared."
+  },
+  "settings.modified": {
+    "defaultMessage": "Modified from the default",
+    "description": "Tooltip of the dot beside a setting changed from its default."
+  },
+  "settings.modifiedOnly": {
+    "defaultMessage": "Modified only",
+    "description": "A box at the top of Settings: ticked, only settings changed from their default show."
+  },
+  "settings.noMatch": {
+    "defaultMessage": "No settings match.",
+    "description": "Settings when its search finds nothing."
+  },
+  "settings.notifications.bannerPosition.desc": {
+    "defaultMessage": "Where banners show in the window.",
+    "description": "What the setting \"Banner position\" does, under its title (Settings → Notifications)."
+  },
+  "settings.notifications.bannerPosition.option.bottomCenter": {
+    "defaultMessage": "Bottom centre",
+    "description": "A choice of the setting \"Banner position\" (Settings → Notifications)."
+  },
+  "settings.notifications.bannerPosition.option.bottomLeft": {
+    "defaultMessage": "Bottom left",
+    "description": "A choice of the setting \"Banner position\" (Settings → Notifications)."
+  },
+  "settings.notifications.bannerPosition.option.bottomRight": {
+    "defaultMessage": "Bottom right",
+    "description": "A choice of the setting \"Banner position\" (Settings → Notifications)."
+  },
+  "settings.notifications.bannerPosition.option.topCenter": {
+    "defaultMessage": "Top centre",
+    "description": "A choice of the setting \"Banner position\" (Settings → Notifications)."
+  },
+  "settings.notifications.bannerPosition.option.topLeft": {
+    "defaultMessage": "Top left",
+    "description": "A choice of the setting \"Banner position\" (Settings → Notifications)."
+  },
+  "settings.notifications.bannerPosition.option.topRight": {
+    "defaultMessage": "Top right",
+    "description": "A choice of the setting \"Banner position\" (Settings → Notifications)."
+  },
+  "settings.notifications.bannerPosition.tip": {
+    "defaultMessage": "Several stack, the newest nearest the edge.",
+    "description": "The info tip of the setting \"Banner position\" (Settings → Notifications): more on what it does and when it applies."
+  },
+  "settings.notifications.bannerPosition.title": {
+    "defaultMessage": "Banner position",
+    "description": "A setting's title (Settings → Notifications)."
+  },
+  "settings.notifications.bannerScope.desc": {
+    "defaultMessage": "Which notices the window you are using shows as banners.",
+    "description": "What the setting \"Show banners for\" does, under its title (Settings → Notifications)."
+  },
+  "settings.notifications.bannerScope.option.all": {
+    "defaultMessage": "All workspaces",
+    "description": "A choice of the setting \"Show banners for\" (Settings → Notifications)."
+  },
+  "settings.notifications.bannerScope.option.project": {
+    "defaultMessage": "This project",
+    "description": "A choice of the setting \"Show banners for\" (Settings → Notifications)."
+  },
+  "settings.notifications.bannerScope.option.workspace": {
+    "defaultMessage": "This workspace",
+    "description": "A choice of the setting \"Show banners for\" (Settings → Notifications)."
+  },
+  "settings.notifications.bannerScope.tip": {
+    "defaultMessage": "Clicking a banner from another window brings that window up. A notice left out shows nothing, but still counts on its own window's taskbar button and in its inbox.",
+    "description": "The info tip of the setting \"Show banners for\" (Settings → Notifications): more on what it does and when it applies."
+  },
+  "settings.notifications.bannerScope.title": {
+    "defaultMessage": "Show banners for",
+    "description": "A setting's title (Settings → Notifications)."
+  },
+  "settings.notifications.bannerSeconds.desc": {
+    "defaultMessage": "How long a banner for a finished agent, or another notice, stays.",
+    "description": "What the setting \"Finished banners close after (seconds)\" does, under its title (Settings → Notifications)."
+  },
+  "settings.notifications.bannerSeconds.tip": {
+    "defaultMessage": "It stays while the pointer is on it.",
+    "description": "The info tip of the setting \"Finished banners close after (seconds)\" (Settings → Notifications): more on what it does and when it applies."
+  },
+  "settings.notifications.bannerSeconds.title": {
+    "defaultMessage": "Finished banners close after (seconds)",
+    "description": "A setting's title (Settings → Notifications)."
+  },
+  "settings.notifications.chimeEnabled.desc": {
+    "defaultMessage": "Play a sound when an agent finishes or needs your input.",
+    "description": "What the setting \"Completion chime\" does, under its title (Settings → Notifications)."
+  },
+  "settings.notifications.chimeEnabled.tip": {
+    "defaultMessage": "Projects can override this in their settings.",
+    "description": "The info tip of the setting \"Completion chime\" (Settings → Notifications): more on what it does and when it applies."
+  },
+  "settings.notifications.chimeEnabled.title": {
+    "defaultMessage": "Completion chime",
+    "description": "A setting's title (Settings → Notifications)."
+  },
+  "settings.notifications.chimeSound.desc": {
+    "defaultMessage": "Which sound to play.",
+    "description": "What the setting \"Chime sound\" does, under its title (Settings → Notifications)."
+  },
+  "settings.notifications.chimeSound.tip": {
+    "defaultMessage": "Sounds are synthesised by Hive — no audio files needed.",
+    "description": "The info tip of the setting \"Chime sound\" (Settings → Notifications): more on what it does and when it applies."
+  },
+  "settings.notifications.chimeSound.title": {
+    "defaultMessage": "Chime sound",
+    "description": "A setting's title (Settings → Notifications)."
+  },
+  "settings.notifications.chimeVolume.desc": {
+    "defaultMessage": "Volume of the chime.",
+    "description": "What the setting \"Chime volume\" does, under its title (Settings → Notifications)."
+  },
+  "settings.notifications.chimeVolume.tip": {
+    "defaultMessage": "Independent of Windows notification sounds.",
+    "description": "The info tip of the setting \"Chime volume\" (Settings → Notifications): more on what it does and when it applies."
+  },
+  "settings.notifications.chimeVolume.title": {
+    "defaultMessage": "Chime volume",
+    "description": "A setting's title (Settings → Notifications)."
+  },
+  "settings.notifications.desktopNotifications.desc": {
+    "defaultMessage": "Tell you when an agent finishes or needs input: in Hive while you use it, else with a Windows notification.",
+    "description": "What the setting \"Notifications\" does, under its title (Settings → Notifications)."
+  },
+  "settings.notifications.desktopNotifications.tip": {
+    "defaultMessage": "Clicking one shows its project. Off, nothing is shown either way; the chime and the taskbar have settings of their own.",
+    "description": "The info tip of the setting \"Notifications\" (Settings → Notifications): more on what it does and when it applies."
+  },
+  "settings.notifications.desktopNotifications.title": {
+    "defaultMessage": "Notifications",
+    "description": "A setting's title (Settings → Notifications)."
+  },
+  "settings.notifications.flashOnWaiting.desc": {
+    "defaultMessage": "When an agent starts waiting for your answer while Hive is in the background.",
+    "description": "What the setting \"Flash the taskbar button when an agent needs input\" does, under its title (Settings → Notifications)."
+  },
+  "settings.notifications.flashOnWaiting.tip": {
+    "defaultMessage": "It stops when you switch to the window. Finishing agents never flash it.",
+    "description": "The info tip of the setting \"Flash the taskbar button when an agent needs input\" (Settings → Notifications): more on what it does and when it applies."
+  },
+  "settings.notifications.flashOnWaiting.title": {
+    "defaultMessage": "Flash the taskbar button when an agent needs input",
+    "description": "A setting's title (Settings → Notifications)."
+  },
+  "settings.notifications.notifyOnFinished.desc": {
+    "defaultMessage": "Notify when a session completes its task.",
+    "description": "What the setting \"Notify when an agent finishes\" does, under its title (Settings → Notifications)."
+  },
+  "settings.notifications.notifyOnFinished.tip": {
+    "defaultMessage": "Triggered when the agent's turn ends (its Stop hook), or for an agent waiting on background tasks it started, when they have ended.",
+    "description": "The info tip of the setting \"Notify when an agent finishes\" (Settings → Notifications): more on what it does and when it applies."
+  },
+  "settings.notifications.notifyOnFinished.title": {
+    "defaultMessage": "Notify when an agent finishes",
+    "description": "A setting's title (Settings → Notifications)."
+  },
+  "settings.notifications.notifyOnWaiting.desc": {
+    "defaultMessage": "Notify when a session is waiting for permission or input.",
+    "description": "What the setting \"Notify when input is needed\" does, under its title (Settings → Notifications)."
+  },
+  "settings.notifications.notifyOnWaiting.tip": {
+    "defaultMessage": "Triggered by the agent's permission prompts and questions.",
+    "description": "The info tip of the setting \"Notify when input is needed\" (Settings → Notifications): more on what it does and when it applies."
+  },
+  "settings.notifications.notifyOnWaiting.title": {
+    "defaultMessage": "Notify when input is needed",
+    "description": "A setting's title (Settings → Notifications)."
+  },
+  "settings.notifications.taskbarCount.desc": {
+    "defaultMessage": "A badge on Hive's taskbar button, and the window title, show how many agents need you.",
+    "description": "What the setting \"Show a count on the taskbar button\" does, under its title (Settings → Notifications)."
+  },
+  "settings.notifications.taskbarCount.tip": {
+    "defaultMessage": "The same count as the status bar: agents waiting for your input, and those that finished while you were not looking. Each window shows its own workspace.",
+    "description": "The info tip of the setting \"Show a count on the taskbar button\" (Settings → Notifications): more on what it does and when it applies."
+  },
+  "settings.notifications.taskbarCount.title": {
+    "defaultMessage": "Show a count on the taskbar button",
+    "description": "A setting's title (Settings → Notifications)."
+  },
+  "settings.notifications.waitingBannerStays.desc": {
+    "defaultMessage": "Until you click or dismiss it, or answer the agent. Off, they close like the others.",
+    "description": "What the setting \"Banners for an agent waiting for you stay until handled\" does, under its title (Settings → Notifications)."
+  },
+  "settings.notifications.waitingBannerStays.tip": {
+    "defaultMessage": "Answering the agent anywhere (its terminal, another window) closes its banner.",
+    "description": "The info tip of the setting \"Banners for an agent waiting for you stay until handled\" (Settings → Notifications): more on what it does and when it applies."
+  },
+  "settings.notifications.waitingBannerStays.title": {
+    "defaultMessage": "Banners for an agent waiting for you stay until handled",
+    "description": "A setting's title (Settings → Notifications)."
+  },
+  "settings.notifications.whileFocused.desc": {
+    "defaultMessage": "What to show while you are using a Hive window. With Hive in the background, a Windows notification.",
+    "description": "What the setting \"While Hive is focused\" does, under its title (Settings → Notifications)."
+  },
+  "settings.notifications.whileFocused.option.inApp": {
+    "defaultMessage": "Show in Hive",
+    "description": "A choice of the setting \"While Hive is focused\" (Settings → Notifications)."
+  },
+  "settings.notifications.whileFocused.option.nothing": {
+    "defaultMessage": "Show nothing",
+    "description": "A choice of the setting \"While Hive is focused\" (Settings → Notifications)."
+  },
+  "settings.notifications.whileFocused.option.windows": {
+    "defaultMessage": "Windows notification",
+    "description": "A choice of the setting \"While Hive is focused\" (Settings → Notifications)."
+  },
+  "settings.notifications.whileFocused.tip": {
+    "defaultMessage": "Show in Hive: a banner in the window you are using, where Windows notifications would cover the Assistant. The chime still plays either way.",
+    "description": "The info tip of the setting \"While Hive is focused\" (Settings → Notifications): more on what it does and when it applies."
+  },
+  "settings.notifications.whileFocused.title": {
+    "defaultMessage": "While Hive is focused",
+    "description": "A setting's title (Settings → Notifications)."
+  },
+  "settings.number.any": {
+    "defaultMessage": "A number",
+    "description": "Under a number setting's box, when it takes any number."
+  },
+  "settings.number.atLeast": {
+    "defaultMessage": "{min, number} or more",
+    "description": "Under a number setting's box whose value is too small. {min} is a number."
+  },
+  "settings.number.atMost": {
+    "defaultMessage": "{max, number} or less",
+    "description": "Under a number setting's box whose value is too big. {max} is a number."
+  },
+  "settings.number.between": {
+    "defaultMessage": "Between {min, number} and {max, number}",
+    "description": "Under a number setting's box whose value is out of range. {min} and {max} are numbers."
+  },
+  "settings.number.notNumber": {
+    "defaultMessage": "Enter a number. {range}.",
+    "description": "Under a number setting's box when what was typed isn't a number. {range} is the range it takes (\"Between 1,000 and 100,000\")."
+  },
+  "settings.number.outOfRange": {
+    "defaultMessage": "{range}.",
+    "description": "Under a number setting's box when the number is out of range. {range} is the range (\"Between 1,000 and 100,000\"); keep the full stop as your language ends a sentence."
+  },
+  "settings.option.inherit": {
+    "defaultMessage": "Inherit",
+    "description": "A choice of a project's setting: use Hive's own setting (Settings) instead of one of its own."
+  },
+  "settings.option.off": {
+    "defaultMessage": "Off",
+    "description": "A choice of a setting that is on or off, beside Inherit or Default."
+  },
+  "settings.option.on": {
+    "defaultMessage": "On",
+    "description": "A choice of a setting that is on or off, beside Inherit or Default."
+  },
+  "settings.path.assistant": {
+    "defaultMessage": "Settings → {assistant} → With {provider} → {title}",
+    "description": "Where a field of the Assistant's settings with a provider is. {assistant} is the Assistant section's name, {provider} a coding agent's name."
+  },
+  "settings.path.project": {
+    "defaultMessage": "Project Settings → {section} → {title}",
+    "description": "Where a project's setting is: Project Settings, its section and its title."
+  },
+  "settings.path.settings": {
+    "defaultMessage": "Settings → {section} → {title}",
+    "description": "Where a setting is: Settings, its section and its title. Settings is the name of the Settings view."
+  },
+  "settings.permissionModes.modeLine": {
+    "defaultMessage": "{mode}: {what}",
+    "description": "A line of a permission mode setting's info tip: a mode's name and what it does."
+  },
+  "settings.prices.add": {
+    "defaultMessage": "Add model",
+    "description": "Button under a price table: adds the model typed beside it."
+  },
+  "settings.prices.back": {
+    "defaultMessage": "Back to Hive's price",
+    "description": "Button on an edited model in a price table: puts Hive's price back."
+  },
+  "settings.prices.cacheWrite": {
+    "defaultMessage": "Cache write",
+    "description": "A column of a provider's price table: the price of writing tokens to the cache."
+  },
+  "settings.prices.cachedInput": {
+    "defaultMessage": "Cached input",
+    "description": "A column of a provider's price table: the price of input tokens read from the cache."
+  },
+  "settings.prices.cell": {
+    "defaultMessage": "{model} {column}",
+    "description": "A price box's name for screen readers: the model's ID and the column."
+  },
+  "settings.prices.checked": {
+    "defaultMessage": "Hive's starting prices, checked {checked}: edit them if they are out of date.",
+    "description": "Above a provider's price table. {checked} is a date."
+  },
+  "settings.prices.edited": {
+    "defaultMessage": "edited",
+    "description": "A badge on a model in a price table: one of Hive's prices that the user changed."
+  },
+  "settings.prices.input": {
+    "defaultMessage": "Input",
+    "description": "A column of a provider's price table (Settings → <provider> → API prices): the price of input tokens."
+  },
+  "settings.prices.model": {
+    "defaultMessage": "Model",
+    "description": "The first column of a provider's price table: the model's ID."
+  },
+  "settings.prices.newLabel": {
+    "defaultMessage": "New model's ID",
+    "description": "The name, for screen readers, of the box under a price table where a model's ID is typed."
+  },
+  "settings.prices.newPlaceholder": {
+    "defaultMessage": "Model ID, e.g. a new model",
+    "description": "Placeholder of the box under a price table where a model's ID is typed to add it."
+  },
+  "settings.prices.noPrice": {
+    "defaultMessage": "No price: enter one",
+    "description": "A badge on a model in a price table that has no price yet."
+  },
+  "settings.prices.noReports": {
+    "defaultMessage": "{provider} doesn't report costs, so Hive estimates them from these prices. Check them against <link>{company}'s pricing</link>.",
+    "description": "Above a provider's price table when the provider reports no costs. {provider} is its name, {company} the company's; <link> opens the company's price page."
+  },
+  "settings.prices.output": {
+    "defaultMessage": "Output",
+    "description": "A column of a provider's price table: the price of output tokens."
+  },
+  "settings.prices.remove": {
+    "defaultMessage": "Remove from the table",
+    "description": "Button on a model in a price table: removes it."
+  },
+  "settings.prices.saveFailed": {
+    "defaultMessage": "Could not save prices",
+    "description": "An error's title: saving a provider's price table failed."
+  },
+  "settings.prices.unlisted": {
+    "defaultMessage": "not in {provider}'s list",
+    "description": "A badge on a model in a price table that the provider no longer lists. {provider} is its name."
+  },
+  "settings.prices.unlistedTip": {
+    "defaultMessage": "{provider} doesn't list this model now; its price stays for older sessions.",
+    "description": "Tooltip of a model in a price table that the provider no longer lists. {provider} is its name."
+  },
+  "settings.prices.yours": {
+    "defaultMessage": "yours",
+    "description": "A badge on a model in a price table: a model the user added."
+  },
+  "settings.project.agents.desc": {
+    "defaultMessage": "Up to 12 agents can work on the project at once (up to 24 with Settings → Advanced → Agents per project), each in the project folder or its own worktree. Agents without their own settings use this project's.",
+    "description": "What the setting \"Agents\" does, under its title (Project Settings → Agents & Worktrees)."
+  },
+  "settings.project.agents.title": {
+    "defaultMessage": "Agents",
+    "description": "A setting's title (Project Settings → Agents & Worktrees)."
+  },
+  "settings.project.chime.desc": {
+    "defaultMessage": "Play a sound when an agent in this project finishes or needs input.",
+    "description": "What the setting \"Completion chime\" does, under its title (Project Settings → Sessions)."
+  },
+  "settings.project.chime.tip": {
+    "defaultMessage": "Inherit follows Settings → Notifications.",
+    "description": "The info tip of the setting \"Completion chime\" (Project Settings → Sessions): more on what it does and when it applies."
+  },
+  "settings.project.chime.title": {
+    "defaultMessage": "Completion chime",
+    "description": "A setting's title (Project Settings → Sessions)."
+  },
+  "settings.project.compactSuggestTokens.desc": {
+    "defaultMessage": "Context size (tokens) at which Compact is highlighted for this project. Empty inherits Settings → Sessions → Suggest compacting above.",
+    "description": "What the setting \"Suggest compacting above\" does, under its title (Project Settings → Sessions)."
+  },
+  "settings.project.compactSuggestTokens.off": {
+    "defaultMessage": "Never",
+    "description": "The Off box of the number setting \"Suggest compacting above\" (Project Settings → Sessions): ticked, the setting is off (0)."
+  },
+  "settings.project.compactSuggestTokens.tip": {
+    "defaultMessage": "Only changes when the Compact button turns orange; compacting is always available once the agent has finished.",
+    "description": "The info tip of the setting \"Suggest compacting above\" (Project Settings → Sessions): more on what it does and when it applies."
+  },
+  "settings.project.compactSuggestTokens.title": {
+    "defaultMessage": "Suggest compacting above",
+    "description": "A setting's title (Project Settings → Sessions)."
+  },
+  "settings.project.defaultProvider.desc": {
+    "defaultMessage": "The provider Add Agent uses for this project's new agents (the dialog can choose another). Inherit uses Settings → Providers → Default provider.",
+    "description": "What the setting \"Default provider\" does, under its title (Project Settings → Agents & Worktrees)."
+  },
+  "settings.project.defaultProvider.tip": {
+    "defaultMessage": "Each agent keeps the provider it was given; change it in the agent’s settings.",
+    "description": "The info tip of the setting \"Default provider\" (Project Settings → Agents & Worktrees): more on what it does and when it applies."
+  },
+  "settings.project.defaultProvider.title": {
+    "defaultMessage": "Default provider",
+    "description": "A setting's title (Project Settings → Agents & Worktrees)."
+  },
+  "settings.project.fileLocks.desc": {
+    "defaultMessage": "What happens when an agent tries to edit a file another agent in this project's folder is editing. Inherit uses Settings → Agents & Worktrees → File locks.",
+    "description": "What the setting \"File locks\" does, under its title (Project Settings → Agents & Worktrees)."
+  },
+  "settings.project.fileLocks.tip": {
+    "defaultMessage": "Applies to agents sharing a folder (agents in their own worktrees never collide). An agent claims a file when it edits it and releases it when its turn ends. Edits made through shell commands are not covered.",
+    "description": "The last paragraph of the info tip of the setting \"File locks\" (Project Settings → Agents & Worktrees), under a line per mode."
+  },
+  "settings.project.fileLocks.title": {
+    "defaultMessage": "File locks",
+    "description": "A setting's title (Project Settings → Agents & Worktrees)."
+  },
+  "settings.project.keybindings.desc": {
+    "defaultMessage": "Change one to give this project its own; Reset returns it to the global shortcut. Stored in the project’s .hive folder, which is not committed.",
+    "description": "What the setting \"Shortcuts\" does, under its title (Project Settings → Keyboard Shortcuts)."
+  },
+  "settings.project.keybindings.title": {
+    "defaultMessage": "Shortcuts",
+    "description": "A setting's title (Project Settings → Keyboard Shortcuts)."
+  },
+  "settings.project.loopRounds.desc": {
+    "defaultMessage": "How many rounds a card gets in this project's card loops before its agents stop and ask you, when you don't say. Empty inherits Settings → Workspace → Card loop rounds.",
+    "description": "What the setting \"Rounds\" does, under its title (Project Settings → Card loops)."
+  },
+  "settings.project.loopRounds.tip": {
+    "defaultMessage": "Saying \"rounds: 5\" when you start a loop still wins.",
+    "description": "The info tip of the setting \"Rounds\" (Project Settings → Card loops): more on what it does and when it applies."
+  },
+  "settings.project.loopRounds.title": {
+    "defaultMessage": "Rounds",
+    "description": "A setting's title (Project Settings → Card loops)."
+  },
+  "settings.project.loopWaitHours.desc": {
+    "defaultMessage": "How many hours an agent in this project's card loops waits with no change before it tells you, when you don't say. Empty inherits Settings → Workspace → Card loop wait.",
+    "description": "What the setting \"Wait (hours)\" does, under its title (Project Settings → Card loops)."
+  },
+  "settings.project.loopWaitHours.tip": {
+    "defaultMessage": "Saying \"wait: 2h\" when you start a loop still wins. Up to a day.",
+    "description": "The info tip of the setting \"Wait (hours)\" (Project Settings → Card loops): more on what it does and when it applies."
+  },
+  "settings.project.loopWaitHours.title": {
+    "defaultMessage": "Wait (hours)",
+    "description": "A setting's title (Project Settings → Card loops)."
+  },
+  "settings.project.loopWakes.desc": {
+    "defaultMessage": "When a card with a reviewer arrives in Review, Hive wakes the reviewer; when the review gives its verdict, Hive wakes the card's builder. Off: only the agents' own card watches wake them.",
+    "description": "What the setting \"Wake reviewers and builders\" does, under its title (Project Settings → Card loops)."
+  },
+  "settings.project.loopWakes.tip": {
+    "defaultMessage": "A card's reviewer is the reviewer of a lane with the card, else the agent that last reviewed it: cards nobody reviews never wake anyone. An agent is only woken while it is idle, never by its own change, and not when its own card watch already tells it.",
+    "description": "The info tip of the setting \"Wake reviewers and builders\" (Project Settings → Card loops): more on what it does and when it applies."
+  },
+  "settings.project.loopWakes.title": {
+    "defaultMessage": "Wake reviewers and builders",
+    "description": "A setting's title (Project Settings → Card loops)."
+  },
+  "settings.project.metadata.desc": {
+    "defaultMessage": "Stored in the project's .hive/project.json (excluded from git). Changes apply to new sessions; restart a running session to apply them.",
+    "description": "What the setting \"Settings file\" does, under its title (Project Settings → Advanced)."
+  },
+  "settings.project.metadata.title": {
+    "defaultMessage": "Settings file",
+    "description": "A setting's title (Project Settings → Advanced)."
+  },
+  "settings.project.reset.desc": {
+    "defaultMessage": "Everything on this page goes back to Inherit. Agents, and skill and MCP opt-outs, are kept.",
+    "description": "What the setting \"Reset project settings\" does, under its title (Project Settings → Advanced)."
+  },
+  "settings.project.reset.title": {
+    "defaultMessage": "Reset project settings",
+    "description": "A setting's title (Project Settings → Advanced)."
+  },
+  "settings.project.storage.desc": {
+    "defaultMessage": "Measured in the background; Refresh measures again. The coding agents’ own transcripts (in ~/.claude and ~/.codex) aren’t counted, and Clean Up… never touches them.",
+    "description": "What the setting \"What Hive keeps\" does, under its title (Project Settings → Storage)."
+  },
+  "settings.project.storage.title": {
+    "defaultMessage": "What Hive keeps",
+    "description": "A setting's title (Project Settings → Storage)."
+  },
+  "settings.project.transcriptWarnMB.desc": {
+    "defaultMessage": "Size, in MB, at which a running conversation's transcript is flagged for this project. Empty inherits Settings → Sessions → Warn when a transcript is over.",
+    "description": "What the setting \"Warn when a transcript is over\" does, under its title (Project Settings → Sessions)."
+  },
+  "settings.project.transcriptWarnMB.off": {
+    "defaultMessage": "Never",
+    "description": "The Off box of the number setting \"Warn when a transcript is over\" (Project Settings → Sessions): ticked, the setting is off (0)."
+  },
+  "settings.project.transcriptWarnMB.tip": {
+    "defaultMessage": "A long conversation slows down the CLI and Hive; handing the work over to a new conversation makes it short again.",
+    "description": "The info tip of the setting \"Warn when a transcript is over\" (Project Settings → Sessions): more on what it does and when it applies."
+  },
+  "settings.project.transcriptWarnMB.title": {
+    "defaultMessage": "Warn when a transcript is over",
+    "description": "A setting's title (Project Settings → Sessions)."
+  },
+  "settings.project.worktreeCopy.desc": {
+    "defaultMessage": "Git-ignored files to copy from the project folder into a new worktree, such as .env files. One pattern per line; empty inherits Settings → Agents & Worktrees → Copy into new worktrees.",
+    "description": "What the setting \"Copy into new worktrees\" does, under its title (Project Settings → Agents & Worktrees)."
+  },
+  "settings.project.worktreeCopy.tip": {
+    "defaultMessage": "A new worktree only gets the files git tracks. Patterns without a slash match a file or folder name anywhere (e.g. .env*); with a slash they match a path from the project root (e.g. config/local.json). Large folders such as node_modules are better recreated by the setup command.",
+    "description": "The info tip of the setting \"Copy into new worktrees\" (Project Settings → Agents & Worktrees): more on what it does and when it applies."
+  },
+  "settings.project.worktreeCopy.title": {
+    "defaultMessage": "Copy into new worktrees",
+    "description": "A setting's title (Project Settings → Agents & Worktrees)."
+  },
+  "settings.project.worktreeSetup.desc": {
+    "defaultMessage": "Runs in a new worktree before its agent's first session, e.g. npm install. Its output shows in the agent's pane.",
+    "description": "What the setting \"Setup command\" does, under its title (Project Settings → Agents & Worktrees)."
+  },
+  "settings.project.worktreeSetup.tip": {
+    "defaultMessage": "Runs with cmd.exe in the worktree folder. If it fails, the pane offers to retry or to start the agent without it.",
+    "description": "The info tip of the setting \"Setup command\" (Project Settings → Agents & Worktrees): more on what it does and when it applies."
+  },
+  "settings.project.worktreeSetup.title": {
+    "defaultMessage": "Setup command",
+    "description": "A setting's title (Project Settings → Agents & Worktrees)."
+  },
+  "settings.projectProvider.effort.desc": {
+    "defaultMessage": "How much reasoning effort the model uses. Higher is more thorough but slower and uses more tokens.",
+    "description": "What the setting \"Effort\" does, under its title (Project Settings → a provider section: Claude Code, Codex or GitHub Copilot)."
+  },
+  "settings.projectProvider.effort.tip": {
+    "defaultMessage": "Passed to {provider} when a session starts. Inherit uses Settings → {provider} → Default effort.",
+    "description": "The info tip of the setting \"Effort\" (Project Settings → a provider section: Claude Code, Codex or GitHub Copilot). {provider} is its name."
+  },
+  "settings.projectProvider.effort.title": {
+    "defaultMessage": "Effort",
+    "description": "A setting's title (Project Settings → a provider section: Claude Code, Codex or GitHub Copilot)."
+  },
+  "settings.projectProvider.extraArgs.desc": {
+    "defaultMessage": "Additional {cli} command-line arguments for this project, added after the global ones.",
+    "description": "What the setting \"Extra arguments\" does (Project Settings → a provider section: Claude Code, Codex or GitHub Copilot). {cli} is the CLI's command: keep it."
+  },
+  "settings.projectProvider.extraArgs.tip": {
+    "defaultMessage": "Split like a command line; quote arguments with spaces.",
+    "description": "The info tip of the setting \"Extra arguments\" (Project Settings → a provider section: Claude Code, Codex or GitHub Copilot): more on what it does and when it applies."
+  },
+  "settings.projectProvider.extraArgs.title": {
+    "defaultMessage": "Extra arguments",
+    "description": "A setting's title (Project Settings → a provider section: Claude Code, Codex or GitHub Copilot)."
+  },
+  "settings.projectProvider.model.desc": {
+    "defaultMessage": "Model for this project's {provider} agents. Inherit uses Settings → {provider} → Default model.",
+    "description": "What the setting \"Model\" does (Project Settings → a provider section: Claude Code, Codex or GitHub Copilot). {provider} is its name."
+  },
+  "settings.projectProvider.model.tip": {
+    "defaultMessage": "Passed to {provider} when a session starts. Agents can choose their own.",
+    "description": "The info tip of the setting \"Model\" (Project Settings → a provider section: Claude Code, Codex or GitHub Copilot). {provider} is its name."
+  },
+  "settings.projectProvider.model.title": {
+    "defaultMessage": "Model",
+    "description": "A setting's title (Project Settings → a provider section: Claude Code, Codex or GitHub Copilot)."
+  },
+  "settings.projectProvider.permissionMode.cycle": {
+    "defaultMessage": "You can still switch modes inside a running session with Shift+Tab.",
+    "description": "The last line of the setting \"Permission mode\"'s info tip (Project Settings → a provider section: Claude Code, Codex or GitHub Copilot), for a provider that switches modes in a session."
+  },
+  "settings.projectProvider.permissionMode.desc": {
+    "defaultMessage": "The mode this project's {provider} sessions start in. Inherit uses Settings → {provider} → Default permission mode.",
+    "description": "What the setting \"Permission mode\" does (Project Settings → a provider section: Claude Code, Codex or GitHub Copilot). {provider} is its name."
+  },
+  "settings.projectProvider.permissionMode.title": {
+    "defaultMessage": "Permission mode",
+    "description": "A setting's title (Project Settings → a provider section: Claude Code, Codex or GitHub Copilot)."
+  },
+  "settings.projectProvider.use200kContext.desc": {
+    "defaultMessage": "A 200K-token context window for this project's {provider} agents instead of the model's 1M one. Inherit uses Settings → {provider}.",
+    "description": "What the setting \"Use 200K context (instead of 1M)\" does (Project Settings → a provider section: Claude Code, Codex or GitHub Copilot). {provider} is its name."
+  },
+  "settings.projectProvider.use200kContext.tip": {
+    "defaultMessage": "Applies to sessions started afterwards. Agents can choose for themselves.",
+    "description": "The info tip of the setting \"Use 200K context (instead of 1M)\" (Project Settings → a provider section: Claude Code, Codex or GitHub Copilot): more on what it does and when it applies."
+  },
+  "settings.projectProvider.use200kContext.title": {
+    "defaultMessage": "Use 200K context (instead of 1M)",
+    "description": "A setting's title (Project Settings → a provider section: Claude Code, Codex or GitHub Copilot)."
+  },
+  "settings.projectSection.advanced.desc": {
+    "defaultMessage": "Where the settings are stored, and resetting them.",
+    "description": "Under the heading of the section \"Advanced\" of Project Settings: what it holds."
+  },
+  "settings.projectSection.advanced.label": {
+    "defaultMessage": "Advanced",
+    "description": "A section of Project Settings, in its list on the left."
+  },
+  "settings.projectSection.agents.desc": {
+    "defaultMessage": "The project’s agents and their providers, file locks between them, and how new worktrees are set up.",
+    "description": "Under the heading of the section \"Agents & Worktrees\" of Project Settings: what it holds."
+  },
+  "settings.projectSection.agents.label": {
+    "defaultMessage": "Agents & Worktrees",
+    "description": "A section of Project Settings, in its list on the left."
+  },
+  "settings.projectSection.keys.desc": {
+    "defaultMessage": "Shortcuts for project and session commands while this project is selected, over the global ones.",
+    "description": "Under the heading of the section \"Keyboard Shortcuts\" of Project Settings: what it holds."
+  },
+  "settings.projectSection.keys.label": {
+    "defaultMessage": "Keyboard Shortcuts",
+    "description": "A section of Project Settings, in its list on the left."
+  },
+  "settings.projectSection.loops.desc": {
+    "defaultMessage": "How Hive helps agents that work through cards as builder and reviewer in this project.",
+    "description": "Under the heading of the section \"Card loops\" of Project Settings: what it holds."
+  },
+  "settings.projectSection.loops.label": {
+    "defaultMessage": "Card loops",
+    "description": "A section of Project Settings, in its list on the left."
+  },
+  "settings.projectSection.provider.desc": {
+    "defaultMessage": "Model, effort and permissions for this project’s {provider} agents. Agents can override these for themselves.",
+    "description": "Under the heading of a provider's section of Project Settings: what it holds. {provider} is a coding agent's name."
+  },
+  "settings.projectSection.sessions.desc": {
+    "defaultMessage": "Compacting and notifications for this project.",
+    "description": "Under the heading of the section \"Sessions\" of Project Settings: what it holds."
+  },
+  "settings.projectSection.sessions.label": {
+    "defaultMessage": "Sessions",
+    "description": "A section of Project Settings, in its list on the left."
+  },
+  "settings.projectSection.storage.desc": {
+    "defaultMessage": "What Hive keeps for this project: transcript backups, archived sessions, attachments and the agents’ worktrees. Clean Up… moves old backups and attachments to the Recycle Bin.",
+    "description": "Under the heading of the section \"Storage\" of Project Settings: what it holds."
+  },
+  "settings.projectSection.storage.label": {
+    "defaultMessage": "Storage",
+    "description": "A section of Project Settings, in its list on the left."
+  },
+  "settings.provider.allowBackgroundSessions.desc": {
+    "defaultMessage": "Let {provider}'s agent view move a session into its own background service. Applies to sessions started afterwards.",
+    "description": "What the setting \"Allow background sessions\" does (Settings → a provider page: Claude Code, Codex or GitHub Copilot). {provider} is its name; its agent view is a screen of that CLI."
+  },
+  "settings.provider.allowBackgroundSessions.tip": {
+    "defaultMessage": "Off by default. In {provider}, pressing ← on an empty prompt (easy to do while moving through text) opens its agent view and moves the session into the background. Hive can then no longer see it or stop it: Stop only closes the terminal, the session keeps running, and resuming it fails until it is stopped with \"{cli} stop\".",
+    "description": "The info tip of the setting \"Allow background sessions\" (Settings → a provider page: Claude Code, Codex or GitHub Copilot). {provider} is its name; \"{cli} stop\" is a command: keep it."
+  },
+  "settings.provider.allowBackgroundSessions.title": {
+    "defaultMessage": "Allow background sessions",
+    "description": "A setting's title (Settings → a provider page: Claude Code, Codex or GitHub Copilot)."
+  },
+  "settings.provider.by": {
+    "defaultMessage": "by {company}",
+    "description": "Beside a provider's name in Settings → Providers: the company that makes it."
+  },
+  "settings.provider.checkNow": {
+    "defaultMessage": "Check now",
+    "description": "Button on a provider's page: looks for its CLI and updates again."
+  },
+  "settings.provider.checkUpdatesOnLaunch.desc": {
+    "defaultMessage": "Compare the installed version with the latest release when Hive starts.",
+    "description": "What the setting \"Check for updates on launch\" does, under its title (Settings → a provider page: Claude Code, Codex or GitHub Copilot)."
+  },
+  "settings.provider.checkUpdatesOnLaunch.tip": {
+    "defaultMessage": "Hive never updates {provider} without asking. Standalone installs may also update themselves.",
+    "description": "The info tip of the setting \"Check for updates on launch\" (Settings → a provider page: Claude Code, Codex or GitHub Copilot). {provider} is its name."
+  },
+  "settings.provider.checkUpdatesOnLaunch.title": {
+    "defaultMessage": "Check for updates on launch",
+    "description": "A setting's title (Settings → a provider page: Claude Code, Codex or GitHub Copilot)."
+  },
+  "settings.provider.checking": {
+    "defaultMessage": "Checking…",
+    "description": "While Hive looks for a provider's CLI (Settings → <provider> → Installation)."
+  },
+  "settings.provider.cliDefault": {
+    "defaultMessage": "{provider} default",
+    "description": "The first choice of a model or effort list: the CLI's own default. {provider} is its name."
+  },
+  "settings.provider.cliDefaultIs": {
+    "defaultMessage": "{provider} default ({which})",
+    "description": "The first choice of a model or effort list: the CLI's own default, and which model or level that is. {provider} is its name."
+  },
+  "settings.provider.costSource.desc": {
+    "defaultMessage": "Where a session's API-equivalent cost comes from: {provider}'s own report, or your prices in the table below.",
+    "description": "What the setting \"Session costs\" does (Settings → a provider page: Claude Code, Codex or GitHub Copilot). {provider} is its name."
+  },
+  "settings.provider.costSource.option.prices": {
+    "defaultMessage": "My prices (the table below)",
+    "description": "A choice of the setting \"Session costs\" (Settings → a provider page: Claude Code, Codex or GitHub Copilot)."
+  },
+  "settings.provider.costSource.option.reported": {
+    "defaultMessage": "{provider}'s reported cost",
+    "description": "A choice of the setting \"Session costs\" (Settings → a provider page: Claude Code, Codex or GitHub Copilot). {provider} is its name."
+  },
+  "settings.provider.costSource.tip": {
+    "defaultMessage": "{provider}'s reported cost follows its own price table and updates with the CLI; Hive never recomputes it, even when that table lags a price change. Choose your prices for your own rates (a discount, another tier). Either way the table is used for sessions with no reported cost.",
+    "description": "The info tip of the setting \"Session costs\" (Settings → a provider page: Claude Code, Codex or GitHub Copilot). {provider} is its name."
+  },
+  "settings.provider.costSource.title": {
+    "defaultMessage": "Session costs",
+    "description": "A setting's title (Settings → a provider page: Claude Code, Codex or GitHub Copilot)."
+  },
+  "settings.provider.defaultEffort.desc": {
+    "defaultMessage": "Reasoning effort unless a project overrides it. The levels are the default model's, as the CLI reports them.",
+    "description": "What the setting \"Default effort\" does, under its title (Settings → a provider page: Claude Code, Codex or GitHub Copilot)."
+  },
+  "settings.provider.defaultEffort.tip": {
+    "defaultMessage": "Higher effort is more thorough but slower and uses more tokens.",
+    "description": "The info tip of the setting \"Default effort\" (Settings → a provider page: Claude Code, Codex or GitHub Copilot): more on what it does and when it applies."
+  },
+  "settings.provider.defaultEffort.title": {
+    "defaultMessage": "Default effort",
+    "description": "A setting's title (Settings → a provider page: Claude Code, Codex or GitHub Copilot)."
+  },
+  "settings.provider.defaultModel.desc": {
+    "defaultMessage": "Model for {provider} sessions unless a project overrides it. {provider} default uses its own choice.",
+    "description": "What the setting \"Default model\" does (Settings → a provider page: Claude Code, Codex or GitHub Copilot). {provider} is its name; \"<provider> default\" is the first choice of the model list."
+  },
+  "settings.provider.defaultModel.tip": {
+    "defaultMessage": "Whether your account can use a model is only known when a session starts.",
+    "description": "The info tip of the setting \"Default model\" (Settings → a provider page: Claude Code, Codex or GitHub Copilot): more on what it does and when it applies."
+  },
+  "settings.provider.defaultModel.title": {
+    "defaultMessage": "Default model",
+    "description": "A setting's title (Settings → a provider page: Claude Code, Codex or GitHub Copilot)."
+  },
+  "settings.provider.defaultPermissionMode.desc": {
+    "defaultMessage": "The mode sessions start in unless a project overrides it.",
+    "description": "What the setting \"Default permission mode\" does, under its title (Settings → a provider page: Claude Code, Codex or GitHub Copilot)."
+  },
+  "settings.provider.defaultPermissionMode.title": {
+    "defaultMessage": "Default permission mode",
+    "description": "A setting's title (Settings → a provider page: Claude Code, Codex or GitHub Copilot)."
+  },
+  "settings.provider.effortFallback.desc": {
+    "defaultMessage": "The effort levels offered when {provider} doesn't report a model's own. With the CLI's answer, each model offers just the levels it takes.",
+    "description": "What the setting \"Effort levels (fallback)\" is (Settings → a provider page: Claude Code, Codex or GitHub Copilot). {provider} is its name."
+  },
+  "settings.provider.effortFallback.tip": {
+    "defaultMessage": "The value is what Hive passes to {provider}; the name is what the pickers and footer show.",
+    "description": "The info tip of the setting \"Effort levels (fallback)\" (Settings → a provider page: Claude Code, Codex or GitHub Copilot): its table's two columns. {provider} is its name."
+  },
+  "settings.provider.effortFallback.title": {
+    "defaultMessage": "Effort levels (fallback)",
+    "description": "A setting's title (Settings → a provider page: Claude Code, Codex or GitHub Copilot)."
+  },
+  "settings.provider.enableDangerousMode.confirm.detail": {
+    "defaultMessage": "Recommended only for disposable environments. Each project still has to choose it, and doing so asks for confirmation.",
+    "description": "The confirmation before the setting is turned on (Settings → a provider page: Claude Code, Codex or GitHub Copilot): its detail."
+  },
+  "settings.provider.enableDangerousMode.confirm.message": {
+    "defaultMessage": "Projects will be able to run sessions where {provider} executes every command, file edit and network request without asking.",
+    "description": "The confirmation before the setting \"Enable the <mode> option\" is turned on (Settings → a provider page: Claude Code, Codex or GitHub Copilot). {provider} is a coding agent's name."
+  },
+  "settings.provider.enableDangerousMode.confirm.title": {
+    "defaultMessage": "{n, plural, one {Enable the {names} option?} other {Enable the {names} options?}}",
+    "description": "The title of the confirmation before the setting \"Enable the <mode> option\" is turned on (Settings → a provider page: Claude Code, Codex or GitHub Copilot). {names} lists the modes' names; {n} is how many."
+  },
+  "settings.provider.enableDangerousMode.desc": {
+    "defaultMessage": "Allow projects and agents to choose {choices}, where the agent runs every action without asking.",
+    "description": "What the setting \"Enable the <mode> option\" does (Settings → a provider page: Claude Code, Codex or GitHub Copilot). {choices} lists the modes' names, in quotes, joined with \"or\"."
+  },
+  "settings.provider.enableDangerousMode.quoted": {
+    "defaultMessage": "\"{mode}\"",
+    "description": "A mode's name in quotes, in a list of the modes a setting unlocks. Use your language's quotation marks."
+  },
+  "settings.provider.enableDangerousMode.tip": {
+    "defaultMessage": "{n, plural, one {{names} is never a global default. When turned off, projects and agents using it return to Inherit.} other {{names} are never a global default. When turned off, projects and agents using them return to Inherit.}}",
+    "description": "The info tip of the setting \"Enable the <mode> option\" (Settings → a provider page: Claude Code, Codex or GitHub Copilot). {names} lists the modes' names; {n} is how many. Inherit is a choice of the project's settings: keep it as Hive shows it."
+  },
+  "settings.provider.enableDangerousMode.title": {
+    "defaultMessage": "{n, plural, one {Enable the {names} option} other {Enable the {names} options}}",
+    "description": "A setting's title (Settings → a provider page: Claude Code, Codex or GitHub Copilot): lets projects choose the modes that run every action without asking. {names} lists those modes' names; {n} is how many."
+  },
+  "settings.provider.enabled.desc": {
+    "defaultMessage": "Let project agents run {provider}.",
+    "description": "What the setting \"Use <provider>\" does (Settings → a provider page: Claude Code, Codex or GitHub Copilot)."
+  },
+  "settings.provider.enabled.tip": {
+    "defaultMessage": "When off, {provider} agents stay listed but can't start, and Hive doesn't check for its CLI.",
+    "description": "The info tip of the setting \"Use <provider>\" (Settings → a provider page: Claude Code, Codex or GitHub Copilot)."
+  },
+  "settings.provider.enabled.title": {
+    "defaultMessage": "Use {provider}",
+    "description": "A setting's title (Settings → a provider page: Claude Code, Codex or GitHub Copilot): turns the provider on. {provider} is its name."
+  },
+  "settings.provider.executablePath.desc": {
+    "defaultMessage": "Full path to the {provider} CLI ({cli}.exe). Leave empty to detect it automatically.",
+    "description": "What the setting \"CLI path\" does (Settings → a provider page: Claude Code, Codex or GitHub Copilot). {provider} is its name, {cli} its command: keep it."
+  },
+  "settings.provider.executablePath.placeholder": {
+    "defaultMessage": "Auto-detect",
+    "description": "The empty box's placeholder of the setting \"CLI path\" (Settings → a provider page: Claude Code, Codex or GitHub Copilot)."
+  },
+  "settings.provider.executablePath.tip": {
+    "defaultMessage": "Detection checks PATH and the usual install folders. Copies bundled with editor extensions (VS Code, Cursor…) are never used — Hive requires the standalone CLI.",
+    "description": "The info tip of the setting \"CLI path\" (Settings → a provider page: Claude Code, Codex or GitHub Copilot): more on what it does and when it applies."
+  },
+  "settings.provider.executablePath.title": {
+    "defaultMessage": "CLI path",
+    "description": "A setting's title (Settings → a provider page: Claude Code, Codex or GitHub Copilot)."
+  },
+  "settings.provider.extraArgs.desc": {
+    "defaultMessage": "Additional {cli} command-line arguments for every session.",
+    "description": "What the setting \"Extra arguments\" does (Settings → a provider page: Claude Code, Codex or GitHub Copilot). {cli} is the CLI's command: keep it."
+  },
+  "settings.provider.extraArgs.placeholder": {
+    "defaultMessage": "e.g. --verbose",
+    "description": "The empty box's placeholder of the setting \"Extra arguments\" (Settings → a provider page: Claude Code, Codex or GitHub Copilot)."
+  },
+  "settings.provider.extraArgs.tip": {
+    "defaultMessage": "Projects can add more in their own settings.",
+    "description": "The info tip of the setting \"Extra arguments\" (Settings → a provider page: Claude Code, Codex or GitHub Copilot): more on what it does and when it applies."
+  },
+  "settings.provider.extraArgs.title": {
+    "defaultMessage": "Extra arguments",
+    "description": "A setting's title (Settings → a provider page: Claude Code, Codex or GitHub Copilot)."
+  },
+  "settings.provider.install": {
+    "defaultMessage": "Install",
+    "description": "Button on a provider's page: opens Agent Setup to install its CLI."
+  },
+  "settings.provider.installed": {
+    "defaultMessage": "Installed · {version}",
+    "description": "Under a provider in Settings → Providers: its CLI is installed. {version} is its number."
+  },
+  "settings.provider.manage": {
+    "defaultMessage": "Manage",
+    "description": "Button on a provider's page: opens Agent Setup for the installed CLI."
+  },
+  "settings.provider.modelFallback.desc": {
+    "defaultMessage": "Hive asks {provider} which models it has and what each can do. This list is only used when it can't be asked (not installed, too old, or an unexpected answer).",
+    "description": "What the setting \"Models (fallback)\" is (Settings → a provider page: Claude Code, Codex or GitHub Copilot). {provider} is its name."
+  },
+  "settings.provider.modelFallback.tip": {
+    "defaultMessage": "Add, remove and rename models; a custom model ID can still be typed in any model picker. Reset to defaults goes back to Hive's list, which then follows Hive's updates.",
+    "description": "The info tip of the setting \"Models (fallback)\" (Settings → a provider page: Claude Code, Codex or GitHub Copilot): more on what it does and when it applies."
+  },
+  "settings.provider.modelFallback.title": {
+    "defaultMessage": "Models (fallback)",
+    "description": "A setting's title (Settings → a provider page: Claude Code, Codex or GitHub Copilot)."
+  },
+  "settings.provider.notInstalled": {
+    "defaultMessage": "CLI not installed",
+    "description": "A badge on a provider's page: Hive didn't find its CLI."
+  },
+  "settings.provider.notInstalledShort": {
+    "defaultMessage": "Not installed",
+    "description": "Under a provider in Settings → Providers: Hive didn't find its CLI."
+  },
+  "settings.provider.off": {
+    "defaultMessage": "{provider} (off)",
+    "description": "A provider in a list of providers (Settings → Providers → Default provider, Settings → Assistant → Provider) while it is turned off. {provider} is its name."
+  },
+  "settings.provider.prices.descEstimated": {
+    "defaultMessage": "Used to estimate what {provider} sessions would cost at API prices (shown with ≈ on the Overview). USD per million tokens.",
+    "description": "What the setting \"API prices\" is (Settings → a provider page: Claude Code, Codex or GitHub Copilot), for a provider that reports no costs. {provider} is its name."
+  },
+  "settings.provider.prices.descReported": {
+    "defaultMessage": "{provider} reports each session's cost itself; these prices are used for sessions without one, or for all of them with Session costs set to your prices. USD per million tokens.",
+    "description": "What the setting \"API prices\" is (Settings → a provider page: Claude Code, Codex or GitHub Copilot), for a provider that reports its costs. {provider} is its name; Session costs is the setting above it."
+  },
+  "settings.provider.prices.tip": {
+    "defaultMessage": "Hive's starting prices are the published ones, checked {checked}: edit any that are out of date, add models and remove them. The table lists the models {provider} has, so a new one shows with \"No price\" until you enter one. Hive never fetches prices. On a subscription you are not charged these — they show how heavy the work was.",
+    "description": "The info tip of the setting \"API prices\" (Settings → a provider page: Claude Code, Codex or GitHub Copilot). {checked} is a date; {provider} is its name; \"No price\" is a badge in the table."
+  },
+  "settings.provider.prices.title": {
+    "defaultMessage": "API prices",
+    "description": "A setting's title (Settings → a provider page: Claude Code, Codex or GitHub Copilot)."
+  },
+  "settings.provider.settings": {
+    "defaultMessage": "Settings",
+    "description": "Button beside a provider in Settings → Providers: opens its page."
+  },
+  "settings.provider.status.tip": {
+    "defaultMessage": "Where Hive found {provider}, whether it is signed in and whether an update is available.",
+    "description": "The info tip of the setting \"Installation\" (Settings → a provider page: Claude Code, Codex or GitHub Copilot). {provider} is its name."
+  },
+  "settings.provider.status.title": {
+    "defaultMessage": "Installation",
+    "description": "A setting's title (Settings → a provider page: Claude Code, Codex or GitHub Copilot)."
+  },
+  "settings.provider.updateAvailable": {
+    "defaultMessage": "{version} available",
+    "description": "A badge on a provider's page: a newer version of its CLI. {version} is its number."
+  },
+  "settings.provider.use": {
+    "defaultMessage": "Use {provider}",
+    "description": "The switch that turns a provider on (Settings → Providers, and its own page). {provider} is its name."
+  },
+  "settings.provider.use200kContext.desc": {
+    "defaultMessage": "Run {provider} sessions with a 200K-token context window instead of the model's 1M one, unless a project or agent chooses otherwise. Applies to sessions started afterwards.",
+    "description": "What the setting \"Use 200K context (instead of 1M)\" does (Settings → a provider page: Claude Code, Codex or GitHub Copilot). {provider} is its name."
+  },
+  "settings.provider.use200kContext.tip": {
+    "defaultMessage": "Current models have a 1M window at no extra price per token, but a long conversation sends more tokens with every message, and answers slow down as the context fills. With 200K, {provider} compacts the conversation sooner.",
+    "description": "The info tip of the setting \"Use 200K context (instead of 1M)\" (Settings → a provider page: Claude Code, Codex or GitHub Copilot). {provider} is its name."
+  },
+  "settings.provider.use200kContext.title": {
+    "defaultMessage": "Use 200K context (instead of 1M)",
+    "description": "A setting's title (Settings → a provider page: Claude Code, Codex or GitHub Copilot)."
+  },
+  "settings.providerOff.detail": {
+    "defaultMessage": "Stop them now, or let them run until they are stopped. Either way no new ones start while it is off.",
+    "description": "More in the question before a provider is turned off while its agents run."
+  },
+  "settings.providerOff.listFailed": {
+    "defaultMessage": "Could not list the running agents",
+    "description": "An error's title: listing the agents that run a provider, before turning it off, failed."
+  },
+  "settings.providerOff.message": {
+    "defaultMessage": "{n, plural, one {An agent is running {provider}: {agents}.} other {# agents are running {provider}: {agents}.}}",
+    "description": "The question before a provider is turned off while its agents run. {provider} is its name; {agents} lists them (project · agent)."
+  },
+  "settings.providerOff.otherWindow": {
+    "defaultMessage": "{workspace}/{project} (another window)",
+    "description": "In the list of agents running a provider that is being turned off: a project open in another window. {workspace} and {project} are folder names."
+  },
+  "settings.providerOff.run": {
+    "defaultMessage": "Let them run",
+    "description": "Choice in the question before a provider is turned off: its agents keep running."
+  },
+  "settings.providerOff.stop": {
+    "defaultMessage": "Stop them now",
+    "description": "Choice in the question before a provider is turned off: its agents stop now."
+  },
+  "settings.providerOff.stopFailed": {
+    "defaultMessage": "Could not stop the {provider} agents",
+    "description": "An error's title: stopping a provider's agents failed. {provider} is its name."
+  },
+  "settings.providerOff.title": {
+    "defaultMessage": "Turn off {provider}?",
+    "description": "Title of the question before a provider is turned off while its agents run. {provider} is its name."
+  },
+  "settings.providers.defaultProvider.desc": {
+    "defaultMessage": "The provider Add Agent uses for new agents (one click, with its default settings) unless the project chooses another. Automatic uses the first provider that is turned on and installed (Claude Code, then Codex, then GitHub Copilot).",
+    "description": "What the setting \"Default provider\" does, under its title (Settings → Providers)."
+  },
+  "settings.providers.defaultProvider.tip": {
+    "defaultMessage": "Projects can choose their own default in Project Settings. Agents keep the provider they were given; Add Agent… (▾) can choose another.",
+    "description": "The info tip of the setting \"Default provider\" (Settings → Providers): more on what it does and when it applies."
+  },
+  "settings.providers.defaultProvider.title": {
+    "defaultMessage": "Default provider",
+    "description": "A setting's title (Settings → Providers)."
+  },
+  "settings.providers.list.desc": {
+    "defaultMessage": "Turn on the coding agents you want to use. Agents of a provider that is off stay listed but can't start.",
+    "description": "What the setting \"Providers\" does, under its title (Settings → Providers)."
+  },
+  "settings.providers.list.tip": {
+    "defaultMessage": "Each project agent runs one provider, chosen when you add it (Add Agent) or in its settings. A provider needs its CLI installed and signed in.",
+    "description": "The info tip of the setting \"Providers\" (Settings → Providers): more on what it does and when it applies."
+  },
+  "settings.providers.list.title": {
+    "defaultMessage": "Providers",
+    "description": "A setting's title (Settings → Providers)."
+  },
+  "settings.reset": {
+    "defaultMessage": "Reset",
+    "description": "Button of a confirmation that resets something to its defaults or clears it."
+  },
+  "settings.resetAll.done": {
+    "defaultMessage": "Settings reset",
+    "description": "A notice after every setting went back to its default."
+  },
+  "settings.resetAll.failed": {
+    "defaultMessage": "Could not reset the settings",
+    "description": "An error's title: resetting the settings failed."
+  },
+  "settings.resetAll.message": {
+    "defaultMessage": "Every setting in Settings returns to its default, the advanced settings in advanced.json too. A workspace's own advanced values are kept.",
+    "description": "The question before every setting goes back to its default."
+  },
+  "settings.resetAll.title": {
+    "defaultMessage": "Reset all settings?",
+    "description": "Title of the question before every setting goes back to its default (Settings → Advanced → Reset all settings)."
+  },
+  "settings.resetToDefault": {
+    "defaultMessage": "Reset to default ({value})",
+    "description": "Button beside a setting changed from its default: puts it back. {value} is the default."
+  },
+  "settings.saveFailed": {
+    "defaultMessage": "Could not save setting",
+    "description": "An error's title: saving a setting failed."
+  },
+  "settings.search": {
+    "defaultMessage": "Search settings",
+    "description": "Placeholder of Settings' search box."
+  },
+  "settings.section.advanced.desc": {
+    "defaultMessage": "Developer features, the details Hive relies on that a CLI update can break (advanced.json), logs, data and resetting Hive.",
+    "description": "Under the heading of the section \"Advanced\" of Settings: what it holds."
+  },
+  "settings.section.advanced.label": {
+    "defaultMessage": "Advanced",
+    "description": "A section of Settings, in its list on the left."
+  },
+  "settings.section.agentApi.desc": {
+    "defaultMessage": "Local API and built-in MCP server that let agents interact with Hive.",
+    "description": "Under the heading of the section \"Agent API\" of Settings: what it holds."
+  },
+  "settings.section.agentApi.label": {
+    "defaultMessage": "Agent API",
+    "description": "A section of Settings, in its list on the left."
+  },
+  "settings.section.agents.desc": {
+    "defaultMessage": "Defaults for projects running several agents: file locks, new worktrees and merging (projects can override them), and how long background tasks count.",
+    "description": "Under the heading of the section \"Agents & Worktrees\" of Settings: what it holds."
+  },
+  "settings.section.agents.label": {
+    "defaultMessage": "Agents & Worktrees",
+    "description": "A section of Settings, in its list on the left."
+  },
+  "settings.section.appearance.desc": {
+    "defaultMessage": "Theme, fonts and terminal look.",
+    "description": "Under the heading of the section \"Appearance\" of Settings: what it holds."
+  },
+  "settings.section.appearance.label": {
+    "defaultMessage": "Appearance",
+    "description": "A section of Settings, in its list on the left."
+  },
+  "settings.section.assistant.desc": {
+    "defaultMessage": "The Hive Assistant's defaults: the side panel's overseer of each workspace (Ctrl+Alt+I). Each workspace can change them in the panel's Assistant Settings.",
+    "description": "Under the heading of the section \"Assistant\" of Settings: what it holds."
+  },
+  "settings.section.assistant.label": {
+    "defaultMessage": "Assistant",
+    "description": "A section of Settings, in its list on the left."
+  },
+  "settings.section.board.desc": {
+    "defaultMessage": "The task board's colours and housekeeping, the same in every workspace.",
+    "description": "Under the heading of the section \"Board\" of Settings: what it holds."
+  },
+  "settings.section.board.label": {
+    "defaultMessage": "Board",
+    "description": "A section of Settings, in its list on the left."
+  },
+  "settings.section.general.desc": {
+    "defaultMessage": "Startup, window and tray behaviour.",
+    "description": "Under the heading of the section \"General\" of Settings: what it holds."
+  },
+  "settings.section.general.label": {
+    "defaultMessage": "General",
+    "description": "A section of Settings, in its list on the left."
+  },
+  "settings.section.keybindings.desc": {
+    "defaultMessage": "Change, remove or add shortcuts for any command. Projects can set their own for project and session commands (Project Settings → Keyboard Shortcuts).",
+    "description": "Under the heading of the section \"Keyboard Shortcuts\" of Settings: what it holds."
+  },
+  "settings.section.keybindings.label": {
+    "defaultMessage": "Keyboard Shortcuts",
+    "description": "A section of Settings, in its list on the left."
+  },
+  "settings.section.notifications.desc": {
+    "defaultMessage": "Chimes and desktop notifications when agents finish or need you.",
+    "description": "Under the heading of the section \"Notifications\" of Settings: what it holds."
+  },
+  "settings.section.notifications.label": {
+    "defaultMessage": "Notifications",
+    "description": "A section of Settings, in its list on the left."
+  },
+  "settings.section.provider.desc": {
+    "defaultMessage": "The {provider} CLI (the standalone one — copies bundled with editor extensions are not used) and the defaults every project inherits for {provider} agents.",
+    "description": "Under the heading of a provider's page in Settings: what it holds. {provider} is a coding agent's name (Claude Code, Codex, GitHub Copilot)."
+  },
+  "settings.section.providers.desc": {
+    "defaultMessage": "The coding agents Hive can run. Turn on the ones you use; each has its own page below with its CLI and the defaults every project inherits.",
+    "description": "Under the heading of the section \"Providers\" of Settings: what it holds."
+  },
+  "settings.section.providers.label": {
+    "defaultMessage": "Providers",
+    "description": "A section of Settings, in its list on the left."
+  },
+  "settings.section.sessions.desc": {
+    "defaultMessage": "Transcript backups, cache estimates and session behaviour.",
+    "description": "Under the heading of the section \"Sessions\" of Settings: what it holds."
+  },
+  "settings.section.sessions.label": {
+    "defaultMessage": "Sessions",
+    "description": "A section of Settings, in its list on the left."
+  },
+  "settings.section.updates.desc": {
+    "defaultMessage": "Keeping Hive itself up to date. New versions come from Hive's GitHub releases and are verified before they install.",
+    "description": "Under the heading of the section \"Updates\" of Settings: what it holds."
+  },
+  "settings.section.updates.label": {
+    "defaultMessage": "Updates",
+    "description": "A section of Settings, in its list on the left."
+  },
+  "settings.section.workspace.desc": {
+    "defaultMessage": "The open workspace's card loops, its projects that Hive leaves out (hidden, or removed from Hive with their handovers and cards packed into the folder), and how much Hive keeps for each project.",
+    "description": "Under the heading of the section \"Workspace\" of Settings: what it holds."
+  },
+  "settings.section.workspace.label": {
+    "defaultMessage": "Workspace",
+    "description": "A section of Settings, in its list on the left."
+  },
+  "settings.sessions.backupTranscripts.desc": {
+    "defaultMessage": "Copy each session's transcript into the project's .hive/sessions folder.",
+    "description": "What the setting \"Back up transcripts\" does, under its title (Settings → Sessions)."
+  },
+  "settings.sessions.backupTranscripts.tip": {
+    "defaultMessage": "Agents delete old transcripts after a while (Claude Code: 30 days by default). Backups let you resume and review sessions later. Archived sessions are always preserved.",
+    "description": "The info tip of the setting \"Back up transcripts\" (Settings → Sessions): more on what it does and when it applies."
+  },
+  "settings.sessions.backupTranscripts.title": {
+    "defaultMessage": "Back up transcripts",
+    "description": "A setting's title (Settings → Sessions)."
+  },
+  "settings.sessions.cacheTtl.desc": {
+    "defaultMessage": "Used to estimate whether resuming a session needs to re-cache its context.",
+    "description": "What the setting \"Prompt cache lifetime\" does, under its title (Settings → Sessions)."
+  },
+  "settings.sessions.cacheTtl.option.1h": {
+    "defaultMessage": "1 hour",
+    "description": "A choice of the setting \"Prompt cache lifetime\" (Settings → Sessions)."
+  },
+  "settings.sessions.cacheTtl.option.5m": {
+    "defaultMessage": "5 minutes",
+    "description": "A choice of the setting \"Prompt cache lifetime\" (Settings → Sessions)."
+  },
+  "settings.sessions.cacheTtl.option.auto": {
+    "defaultMessage": "Auto-detect",
+    "description": "A choice of the setting \"Prompt cache lifetime\" (Settings → Sessions)."
+  },
+  "settings.sessions.cacheTtl.tip": {
+    "defaultMessage": "Auto detects the cache type from the transcript (5 minutes or 1 hour).",
+    "description": "The info tip of the setting \"Prompt cache lifetime\" (Settings → Sessions): more on what it does and when it applies."
+  },
+  "settings.sessions.cacheTtl.title": {
+    "defaultMessage": "Prompt cache lifetime",
+    "description": "A setting's title (Settings → Sessions)."
+  },
+  "settings.sessions.compactSuggestTokens.desc": {
+    "defaultMessage": "Context size, in tokens, at which the Compact button and the context count in the status bar turn orange. Never: the button never turns orange.",
+    "description": "What the setting \"Suggest compacting above\" does, under its title (Settings → Sessions)."
+  },
+  "settings.sessions.compactSuggestTokens.off": {
+    "defaultMessage": "Never",
+    "description": "The Off box of the number setting \"Suggest compacting above\" (Settings → Sessions): ticked, the setting is off (0)."
+  },
+  "settings.sessions.compactSuggestTokens.tip": {
+    "defaultMessage": "Compacting summarises the conversation so every later message is cheaper; the full history stays in the transcript. Projects can set their own value in Project Settings, and the Assistant has its own (Settings → Assistant). Compact is always available once the agent has finished.",
+    "description": "The info tip of the setting \"Suggest compacting above\" (Settings → Sessions): more on what it does and when it applies."
+  },
+  "settings.sessions.compactSuggestTokens.title": {
+    "defaultMessage": "Suggest compacting above",
+    "description": "A setting's title (Settings → Sessions)."
+  },
+  "settings.sessions.confirmStop.desc": {
+    "defaultMessage": "Ask before stopping a running session.",
+    "description": "What the setting \"Confirm before stopping\" does, under its title (Settings → Sessions)."
+  },
+  "settings.sessions.confirmStop.tip": {
+    "defaultMessage": "Stopped sessions can always be resumed.",
+    "description": "The info tip of the setting \"Confirm before stopping\" (Settings → Sessions): more on what it does and when it applies."
+  },
+  "settings.sessions.confirmStop.title": {
+    "defaultMessage": "Confirm before stopping",
+    "description": "A setting's title (Settings → Sessions)."
+  },
+  "settings.sessions.followTranscripts.desc": {
+    "defaultMessage": "The Sessions tab shows new messages of a running session as they arrive.",
+    "description": "What the setting \"Follow running sessions in the transcript viewer\" does, under its title (Settings → Sessions)."
+  },
+  "settings.sessions.followTranscripts.tip": {
+    "defaultMessage": "Off: the transcript shows what was there when you opened it; Refresh loads what is new. You can also switch following on in the viewer itself. The Session tab always shows the agent working.",
+    "description": "The info tip of the setting \"Follow running sessions in the transcript viewer\" (Settings → Sessions): more on what it does and when it applies."
+  },
+  "settings.sessions.followTranscripts.title": {
+    "defaultMessage": "Follow running sessions in the transcript viewer",
+    "description": "A setting's title (Settings → Sessions)."
+  },
+  "settings.sessions.overviewRefresh.desc": {
+    "defaultMessage": "How the Overview and the session lists update while agents work.",
+    "description": "What the setting \"Overview updates\" does, under its title (Settings → Sessions)."
+  },
+  "settings.sessions.overviewRefresh.option.live": {
+    "defaultMessage": "Live (at most every 15 s)",
+    "description": "A choice of the setting \"Overview updates\" (Settings → Sessions)."
+  },
+  "settings.sessions.overviewRefresh.option.manual": {
+    "defaultMessage": "Only when I click Refresh",
+    "description": "A choice of the setting \"Overview updates\" (Settings → Sessions)."
+  },
+  "settings.sessions.overviewRefresh.option.minute": {
+    "defaultMessage": "Every minute",
+    "description": "A choice of the setting \"Overview updates\" (Settings → Sessions)."
+  },
+  "settings.sessions.overviewRefresh.tip": {
+    "defaultMessage": "Live updates as sessions change, at most every 15 seconds and only while the tab is shown. Each update reads the project's session files, so with many sessions or agents a slower choice keeps Hive lighter. Refresh always updates at once.",
+    "description": "The info tip of the setting \"Overview updates\" (Settings → Sessions): more on what it does and when it applies."
+  },
+  "settings.sessions.overviewRefresh.title": {
+    "defaultMessage": "Overview updates",
+    "description": "A setting's title (Settings → Sessions)."
+  },
+  "settings.sessions.recordPerformance.desc": {
+    "defaultMessage": "Count what Hive's Agent API, tools, guidance and skills cost, for the Performance view.",
+    "description": "What the setting \"Record performance metrics\" does, under its title (Settings → Sessions)."
+  },
+  "settings.sessions.recordPerformance.tip": {
+    "defaultMessage": "Only totals are kept: request and reply sizes, times and outcomes, the size of what each session was given, and the providers' own reported usage. Never prompts, replies, tokens or paths. Kept 30 days per workspace in .hive/metrics (git-ignored, this machine's). Turned off, nothing new is recorded; what was recorded stays until you reset it.",
+    "description": "The info tip of the setting \"Record performance metrics\" (Settings → Sessions): more on what it does and when it applies."
+  },
+  "settings.sessions.recordPerformance.title": {
+    "defaultMessage": "Record performance metrics",
+    "description": "A setting's title (Settings → Sessions)."
+  },
+  "settings.sessions.resetPerformance.desc": {
+    "defaultMessage": "Clear this workspace's recorded performance metrics.",
+    "description": "What the setting \"Reset performance metrics\" does, under its title (Settings → Sessions)."
+  },
+  "settings.sessions.resetPerformance.tip": {
+    "defaultMessage": "Starts the history again from now. Session usage and transcripts are not affected.",
+    "description": "The info tip of the setting \"Reset performance metrics\" (Settings → Sessions): more on what it does and when it applies."
+  },
+  "settings.sessions.resetPerformance.title": {
+    "defaultMessage": "Reset performance metrics",
+    "description": "A setting's title (Settings → Sessions)."
+  },
+  "settings.sessions.transcriptWarnMB.desc": {
+    "defaultMessage": "Size, in MB, at which a running conversation's transcript turns orange in its footer and Hive notifies you once.",
+    "description": "What the setting \"Warn when a transcript is over\" does, under its title (Settings → Sessions)."
+  },
+  "settings.sessions.transcriptWarnMB.off": {
+    "defaultMessage": "Never",
+    "description": "The Off box of the number setting \"Warn when a transcript is over\" (Settings → Sessions): ticked, the setting is off (0)."
+  },
+  "settings.sessions.transcriptWarnMB.tip": {
+    "defaultMessage": "A long conversation slows down the CLI and Hive: each turn, resume and transcript view has more to read. Compacting doesn't shrink the file, which keeps the whole history; handing the work over to a new conversation does (click the size in the footer for Hand Over to…, and choose the agent itself). Projects can set their own value in Project Settings.",
+    "description": "The info tip of the setting \"Warn when a transcript is over\" (Settings → Sessions): more on what it does and when it applies."
+  },
+  "settings.sessions.transcriptWarnMB.title": {
+    "defaultMessage": "Warn when a transcript is over",
+    "description": "A setting's title (Settings → Sessions)."
+  },
+  "settings.sessions.usageCacheClear.desc": {
+    "defaultMessage": "Forget what the cache holds; each transcript is read again the next time it is shown.",
+    "description": "What the setting \"Clear the usage cache\" does, under its title (Settings → Sessions)."
+  },
+  "settings.sessions.usageCacheClear.tip": {
+    "defaultMessage": "Only needed if the token counts look wrong. Nothing else is lost: sessions, transcripts and backups stay as they are.",
+    "description": "The info tip of the setting \"Clear the usage cache\" (Settings → Sessions): more on what it does and when it applies."
+  },
+  "settings.sessions.usageCacheClear.title": {
+    "defaultMessage": "Clear the usage cache",
+    "description": "A setting's title (Settings → Sessions)."
+  },
+  "settings.sessions.usageCacheSize.desc": {
+    "defaultMessage": "How many transcripts Hive remembers the token use of, so the Overview and session lists open without reading them again, also after a restart.",
+    "description": "What the setting \"Usage cache size\" does, under its title (Settings → Sessions)."
+  },
+  "settings.sessions.usageCacheSize.tip": {
+    "defaultMessage": "Kept in usage-cache.json in your Hive profile: a few KB per transcript. A transcript is read again only when it changed (for example, a session you continued outside Hive), and the cache starts afresh with each Hive version. The least recently used go first when it is full. 100 to 50,000.",
+    "description": "The info tip of the setting \"Usage cache size\" (Settings → Sessions): more on what it does and when it applies."
+  },
+  "settings.sessions.usageCacheSize.title": {
+    "defaultMessage": "Usage cache size",
+    "description": "A setting's title (Settings → Sessions)."
+  },
+  "settings.token.copied": {
+    "defaultMessage": "Token copied",
+    "description": "A notice after a token was copied."
+  },
+  "settings.token.copy": {
+    "defaultMessage": "Copy",
+    "description": "Button beside a token: copies it."
+  },
+  "settings.token.hide": {
+    "defaultMessage": "Hide",
+    "description": "Button beside a token: hides it again."
+  },
+  "settings.token.regenerate": {
+    "defaultMessage": "Regenerate",
+    "description": "Button beside the Agent API's token: makes a new one."
+  },
+  "settings.token.regenerateMessage": {
+    "defaultMessage": "Programs using the current token will stop working. Running sessions pick up the new token when restarted.",
+    "description": "The question before the Agent API's token is replaced."
+  },
+  "settings.token.regenerateTitle": {
+    "defaultMessage": "Regenerate token?",
+    "description": "Title of the question before the Agent API's token is replaced."
+  },
+  "settings.token.show": {
+    "defaultMessage": "Show",
+    "description": "Button beside a hidden token: shows it."
+  },
+  "settings.updates.checkAutomatically.desc": {
+    "defaultMessage": "Look for a new version of Hive shortly after it starts and every 6 hours.",
+    "description": "What the setting \"Check for updates automatically\" does, under its title (Settings → Updates)."
+  },
+  "settings.updates.checkAutomatically.tip": {
+    "defaultMessage": "When off, Hive only checks when you choose Help → Check for Updates. Development builds never update.",
+    "description": "The info tip of the setting \"Check for updates automatically\" (Settings → Updates): more on what it does and when it applies."
+  },
+  "settings.updates.checkAutomatically.title": {
+    "defaultMessage": "Check for updates automatically",
+    "description": "A setting's title (Settings → Updates)."
+  },
+  "settings.updates.downloadAutomatically.desc": {
+    "defaultMessage": "Download a new version in the background as soon as it is found.",
+    "description": "What the setting \"Download updates automatically\" does, under its title (Settings → Updates)."
+  },
+  "settings.updates.downloadAutomatically.tip": {
+    "defaultMessage": "When off, the status bar says a new version is available and you choose when to download it. Downloads are checked against the release checksum.",
+    "description": "The info tip of the setting \"Download updates automatically\" (Settings → Updates): more on what it does and when it applies."
+  },
+  "settings.updates.downloadAutomatically.title": {
+    "defaultMessage": "Download updates automatically",
+    "description": "A setting's title (Settings → Updates)."
+  },
+  "settings.updates.install.desc": {
+    "defaultMessage": "When a downloaded update is installed.",
+    "description": "What the setting \"Install updates\" does, under its title (Settings → Updates)."
+  },
+  "settings.updates.install.option.auto": {
+    "defaultMessage": "Automatically, when Hive quits",
+    "description": "A choice of the setting \"Install updates\" (Settings → Updates)."
+  },
+  "settings.updates.install.option.manual": {
+    "defaultMessage": "Manually, with Restart and Update",
+    "description": "A choice of the setting \"Install updates\" (Settings → Updates)."
+  },
+  "settings.updates.install.tip": {
+    "defaultMessage": "Automatically: the update installs when you next quit Hive (never while it is running, so your sessions are not interrupted); Restart and Update installs it straight away. Manually: it installs only when you choose Restart and Update. Either way, Hive asks before stopping agents that are working.",
+    "description": "The info tip of the setting \"Install updates\" (Settings → Updates): more on what it does and when it applies."
+  },
+  "settings.updates.install.title": {
+    "defaultMessage": "Install updates",
+    "description": "A setting's title (Settings → Updates)."
+  },
+  "settings.updates.prerelease.desc": {
+    "defaultMessage": "Also offer beta versions published before a full release.",
+    "description": "What the setting \"Include pre-releases\" does, under its title (Settings → Updates)."
+  },
+  "settings.updates.prerelease.tip": {
+    "defaultMessage": "Pre-releases get new features first and may have rough edges. Turning this off again waits for the next full release rather than going back.",
+    "description": "The info tip of the setting \"Include pre-releases\" (Settings → Updates): more on what it does and when it applies."
+  },
+  "settings.updates.prerelease.title": {
+    "defaultMessage": "Include pre-releases",
+    "description": "A setting's title (Settings → Updates)."
+  },
+  "settings.updates.status.tip": {
+    "defaultMessage": "The version you are running and the result of the last check.",
+    "description": "The info tip of the setting \"Hive Desktop version\" (Settings → Updates): more on what it does and when it applies."
+  },
+  "settings.updates.status.title": {
+    "defaultMessage": "Hive Desktop version",
+    "description": "A setting's title (Settings → Updates)."
+  },
+  "settings.usageCache.clear": {
+    "defaultMessage": "Clear",
+    "description": "Button of Settings → Sessions → Clear the usage cache."
+  },
+  "settings.usageCache.clearFailed": {
+    "defaultMessage": "Could not clear the usage cache",
+    "description": "An error's title: clearing the usage cache failed."
+  },
+  "settings.usageCache.cleared": {
+    "defaultMessage": "Usage cache cleared",
+    "description": "A notice after Settings → Sessions → Clear the usage cache."
+  },
+  "settings.usageCache.clearedDetail": {
+    "defaultMessage": "Each transcript is read again the next time it is shown.",
+    "description": "More in the notice after the usage cache was cleared."
+  },
+  "settings.viewers.made": {
+    "defaultMessage": "Viewer token \"{name}\" made",
+    "description": "A notice after a viewer token was made (Settings → Agent API → Viewer tokens). {name} is the name the user gave it."
+  },
+  "settings.viewers.madeColumn": {
+    "defaultMessage": "Made",
+    "description": "A column of the viewer tokens table: when the token was made."
+  },
+  "settings.viewers.madeDetail": {
+    "defaultMessage": "Copy it into the app it is for.",
+    "description": "More in the notice after a viewer token was made."
+  },
+  "settings.viewers.make": {
+    "defaultMessage": "Make viewer token",
+    "description": "Button: makes a viewer token with the name typed beside it."
+  },
+  "settings.viewers.makeFailed": {
+    "defaultMessage": "Could not make the viewer token",
+    "description": "An error's title: making a viewer token failed."
+  },
+  "settings.viewers.name": {
+    "defaultMessage": "Name",
+    "description": "A column of the viewer tokens table: the name the user gave a token."
+  },
+  "settings.viewers.nameLabel": {
+    "defaultMessage": "New viewer token's name",
+    "description": "The name, for screen readers, of the box where a new viewer token's name is typed."
+  },
+  "settings.viewers.namePlaceholder": {
+    "defaultMessage": "Name, e.g. Apiary",
+    "description": "Placeholder of the box where a new viewer token's name is typed. Apiary is an app's name: keep it."
+  },
+  "settings.viewers.revoke": {
+    "defaultMessage": "Revoke",
+    "description": "Button: revokes a viewer token."
+  },
+  "settings.viewers.revokeFailed": {
+    "defaultMessage": "Could not revoke the viewer token",
+    "description": "An error's title: revoking a viewer token failed."
+  },
+  "settings.viewers.revokeMessage": {
+    "defaultMessage": "The app using it can no longer read Hive, and its event stream ends now.",
+    "description": "The question before a viewer token is revoked."
+  },
+  "settings.viewers.revokeTitle": {
+    "defaultMessage": "Revoke \"{name}\"?",
+    "description": "Title of the question before a viewer token is revoked. {name} is its name."
+  },
+  "settings.viewers.token": {
+    "defaultMessage": "Token",
+    "description": "A column of the viewer tokens table: the token."
+  },
+  "settings.viewers.tokenOf": {
+    "defaultMessage": "{name}'s token",
+    "description": "The name, for screen readers, of a viewer token's box. {name} is the token's name."
+  },
+  "settings.workspace.antivirus.desc": {
+    "defaultMessage": "Whether Microsoft Defender scans the workspace's folders as Hive's work changes them (builds, tests, git, worktrees), and the exclusions Hive can add for them, with your consent.",
+    "description": "What the setting \"Antivirus scanning\" does, under its title (Settings → Workspace)."
+  },
+  "settings.workspace.antivirus.tip": {
+    "defaultMessage": "Hive checks without administrator rights, so Defender may not show its exclusions (unknown). Adding or removing exclusions asks for administrator rights once. Hive only ever offers these folders: the workspace, its worktrees folder once it exists, and its test area for people developing Hive. It never changes other antivirus products.",
+    "description": "The info tip of the setting \"Antivirus scanning\" (Settings → Workspace): more on what it does and when it applies."
+  },
+  "settings.workspace.antivirus.title": {
+    "defaultMessage": "Antivirus scanning",
+    "description": "A setting's title (Settings → Workspace)."
+  },
+  "settings.workspace.hiddenProjects.desc": {
+    "defaultMessage": "Restore one to bring it back with its cards (and, for a removed one, the handovers packed into its folder). A folder that has left the workspace can be forgotten.",
+    "description": "What the setting \"Hidden and removed projects\" does, under its title (Settings → Workspace)."
+  },
+  "settings.workspace.hiddenProjects.tip": {
+    "defaultMessage": "Project → Remove Project… hides a project, removes it from Hive (its folder keeps its handovers and cards in .hive/removed, so it can move to another workspace) or deletes it (to the Recycle Bin). Deleted projects are not listed here: restore the folder from the Recycle Bin and Hive sees it as a new project.",
+    "description": "The info tip of the setting \"Hidden and removed projects\" (Settings → Workspace): more on what it does and when it applies."
+  },
+  "settings.workspace.hiddenProjects.title": {
+    "defaultMessage": "Hidden and removed projects",
+    "description": "A setting's title (Settings → Workspace)."
+  },
+  "settings.workspace.loopRounds.desc": {
+    "defaultMessage": "How many rounds a card gets in a card loop (a build and its review each) before its agents stop and ask you, when you don't say. Projects can set their own.",
+    "description": "What the setting \"Card loop rounds\" does, under its title (Settings → Workspace)."
+  },
+  "settings.workspace.loopRounds.tip": {
+    "defaultMessage": "Saying \"rounds: 5\" when you start a loop still wins. Agents read this when they register the loop (its lane), so a change applies to loops started afterwards.",
+    "description": "The info tip of the setting \"Card loop rounds\" (Settings → Workspace): more on what it does and when it applies."
+  },
+  "settings.workspace.loopRounds.title": {
+    "defaultMessage": "Card loop rounds",
+    "description": "A setting's title (Settings → Workspace)."
+  },
+  "settings.workspace.loopWaitHours.desc": {
+    "defaultMessage": "How many hours an agent in a card loop waits with no change before it tells you, when you don't say. Projects can set their own.",
+    "description": "What the setting \"Card loop wait\" does, under its title (Settings → Workspace)."
+  },
+  "settings.workspace.loopWaitHours.tip": {
+    "defaultMessage": "Saying \"wait: 2h\" when you start a loop still wins. Up to a day. Agents read this when they register the loop (its lane), so a change applies to loops started afterwards.",
+    "description": "The info tip of the setting \"Card loop wait\" (Settings → Workspace): more on what it does and when it applies."
+  },
+  "settings.workspace.loopWaitHours.title": {
+    "defaultMessage": "Card loop wait",
+    "description": "A setting's title (Settings → Workspace)."
+  },
+  "settings.workspace.storage.desc": {
+    "defaultMessage": "What Hive keeps for each of the workspace's projects (the biggest first) and the Hive Assistant: transcript backups, archived sessions, attachments and worktrees. Storage opens a project's page, with Clean Up….",
+    "description": "What the setting \"Storage\" does, under its title (Settings → Workspace)."
+  },
+  "settings.workspace.storage.tip": {
+    "defaultMessage": "Measured in the background, a project at a time. The coding agents' own transcripts (in ~/.claude and ~/.codex) aren't counted. Hidden projects aren't included.",
+    "description": "The info tip of the setting \"Storage\" (Settings → Workspace): more on what it does and when it applies."
+  },
+  "settings.workspace.storage.title": {
+    "defaultMessage": "Storage",
+    "description": "A setting's title (Settings → Workspace)."
+  }
+}
