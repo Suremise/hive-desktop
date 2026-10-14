@@ -1,0 +1,143 @@
+// Generated from locales/en/files.json: do not edit. Each message's placeholders and their types, for tr(): a
+// global script, so its interface merges with every other area's (shared/i18n/msg.ts).
+interface HiveMessageValues {
+  'files.attachments.all': undefined
+  'files.attachments.archived': { host: string }
+  'files.attachments.archivedBadge': undefined
+  'files.attachments.copyImage': undefined
+  'files.attachments.copyImageFailed': undefined
+  'files.attachments.deleteDetail': undefined
+  'files.attachments.deleteFailed': undefined
+  'files.attachments.deleteMessage': { name: string | number }
+  'files.attachments.desc': undefined
+  'files.attachments.descAssistant': undefined
+  'files.attachments.filters': undefined
+  'files.attachments.groupCount': { count: number; when: string | number }
+  'files.attachments.groupDelete': { host: string }
+  'files.attachments.groupDeleteDetail': { filtered: string; host: string }
+  'files.attachments.groupDeleteFailed': undefined
+  'files.attachments.groupDeleteMessage': { count: number; name: string | number }
+  'files.attachments.groupDeleteTitle': { count: number }
+  'files.attachments.groupDeleted': { count: number }
+  'files.attachments.info': undefined
+  'files.attachments.infoAssistant': undefined
+  'files.attachments.kind.image': undefined
+  'files.attachments.kind.other': undefined
+  'files.attachments.kind.pdf': undefined
+  'files.attachments.kind.text': undefined
+  'files.attachments.none': undefined
+  'files.attachments.noneHint': undefined
+  'files.attachments.noneHintAssistant': undefined
+  'files.attachments.openFolder': undefined
+  'files.attachments.openTranscript': { host: string }
+  'files.attachments.running': { host: string }
+  'files.attachments.runningBadge': undefined
+  'files.attachments.title': undefined
+  'files.attachments.total': { host: string; total: string | number; groups: number }
+  'files.attachments.unnamed': { host: string; id: string | number }
+  'files.attachments.view': undefined
+  'files.collapseAll': undefined
+  'files.csv.firstRows': { count: number }
+  'files.delete': undefined
+  'files.details.extFile': { ext: string | number }
+  'files.details.file': undefined
+  'files.details.folder': undefined
+  'files.details.git': undefined
+  'files.details.ignored': undefined
+  'files.details.modified': undefined
+  'files.details.none': undefined
+  'files.details.noneHint': undefined
+  'files.details.rename': undefined
+  'files.details.selected': { count: number }
+  'files.details.selectedHint': undefined
+  'files.details.size': undefined
+  'files.details.type': undefined
+  'files.doc.discard': undefined
+  'files.doc.discardMessage': undefined
+  'files.doc.discardTitle': undefined
+  'files.doc.edit': undefined
+  'files.doc.new': undefined
+  'files.doc.overwrite': undefined
+  'files.doc.overwriteDetail': undefined
+  'files.doc.overwriteMessage': { name: string | number }
+  'files.doc.overwriteTitle': undefined
+  'files.doc.preview': undefined
+  'files.doc.saveFailed': undefined
+  'files.doc.viewSource': undefined
+  'files.error.copy': undefined
+  'files.error.copyIn': undefined
+  'files.error.createFile': undefined
+  'files.error.createFolder': undefined
+  'files.error.delete': undefined
+  'files.error.duplicate': undefined
+  'files.error.move': undefined
+  'files.error.paste': undefined
+  'files.error.rename': undefined
+  'files.fileEmpty': undefined
+  'files.find.clear': undefined
+  'files.find.noMatch': { filter: string | number }
+  'files.find.placeholder': undefined
+  'files.find.searching': undefined
+  'files.git.inFolder': { status: string | number }
+  'files.git.status': { status: string }
+  'files.header': undefined
+  'files.header.info': undefined
+  'files.image.actualSize': undefined
+  'files.image.fit': undefined
+  'files.insertIntoSession': undefined
+  'files.loading': undefined
+  'files.menu.copy': undefined
+  'files.menu.copyPath': undefined
+  'files.menu.copyRelativePath': undefined
+  'files.menu.cut': undefined
+  'files.menu.duplicate': undefined
+  'files.menu.insertPath': undefined
+  'files.menu.newFile': undefined
+  'files.menu.newFolder': undefined
+  'files.menu.openInDefaultApp': undefined
+  'files.menu.paste': undefined
+  'files.menu.rename': undefined
+  'files.open': undefined
+  'files.openFailed': undefined
+  'files.refresh': undefined
+  'files.reveal': undefined
+  'files.revealInExplorer': undefined
+  'files.root.projectFolder': undefined
+  'files.root.tip': undefined
+  'files.root.worktree': { agent: string | number; branch: string | number }
+  'files.save': undefined
+  'files.saveAll.changedOnDisk': { file: string | number }
+  'files.trash.button': undefined
+  'files.trash.detail': { unsaved: number; file: string | number }
+  'files.trash.message': { count: number; folder: string; name: string | number }
+  'files.trash.title': undefined
+  'files.tree.empty': undefined
+  'files.unsavedChanges': undefined
+  'files.view.binary': undefined
+  'files.view.changedBanner': { name: string | number }
+  'files.view.changedBody': undefined
+  'files.view.changedTitle': { name: string | number }
+  'files.view.discardMessage': { name: string | number }
+  'files.view.discardTitle': undefined
+  'files.view.edit': undefined
+  'files.view.gone': undefined
+  'files.view.htmlPreview': undefined
+  'files.view.image': undefined
+  'files.view.openInApp': undefined
+  'files.view.overwrite': undefined
+  'files.view.pdf': undefined
+  'files.view.pdfPreview': undefined
+  'files.view.preview': undefined
+  'files.view.reload': undefined
+  'files.view.saveFailed': { name: string | number }
+  'files.view.saveTip': undefined
+  'files.view.split': undefined
+  'files.view.table': undefined
+  'files.view.tooLarge': { size: string | number }
+  'files.viewer.newer': undefined
+  'files.viewer.noPreview': undefined
+  'files.viewer.older': undefined
+  'files.viewer.position': { index: string | number; count: string | number }
+  'files.viewer.readFailed': { error: string | number }
+  'files.viewer.tooLarge': undefined
+}

@@ -1,0 +1,558 @@
+{
+  "files.attachments.all": {
+    "defaultMessage": "All",
+    "description": "Attachments filter: every kind. Followed by a count."
+  },
+  "files.attachments.archived": {
+    "defaultMessage": "{host, select, assistant {Archived conversations} other {Archived sessions}}",
+    "description": "Heading over the archived sessions' attachments."
+  },
+  "files.attachments.archivedBadge": {
+    "defaultMessage": "archived",
+    "description": "Badge beside an archived session's name in the Attachments tab."
+  },
+  "files.attachments.copyImage": {
+    "defaultMessage": "Copy Image",
+    "description": "Menu item or button: copies the attachment's picture to the clipboard."
+  },
+  "files.attachments.copyImageFailed": {
+    "defaultMessage": "Could not copy image",
+    "description": "Title of an error notification."
+  },
+  "files.attachments.deleteDetail": {
+    "defaultMessage": "The transcript will still mention its path.",
+    "description": "Under the confirmation before deleting an attachment."
+  },
+  "files.attachments.deleteFailed": {
+    "defaultMessage": "Could not delete the attachment",
+    "description": "Title of an error notification."
+  },
+  "files.attachments.deleteMessage": {
+    "defaultMessage": "Move \"{name}\" to the Recycle Bin?",
+    "description": "The confirmation before deleting an attachment. {name} is its file name."
+  },
+  "files.attachments.desc": {
+    "defaultMessage": "Files pasted or dropped into this project's agents' sessions, by session.",
+    "description": "Under a project's Attachments heading."
+  },
+  "files.attachments.descAssistant": {
+    "defaultMessage": "Files pasted or dropped into the Assistant, by conversation.",
+    "description": "Under the Hive Assistant's Attachments heading."
+  },
+  "files.attachments.filters": {
+    "defaultMessage": "Show",
+    "description": "Accessible name of the Attachments tab's filter buttons (All, Images, PDFs…)."
+  },
+  "files.attachments.groupCount": {
+    "defaultMessage": "{count, plural, one {# attachment} other {# attachments}} · last {when}",
+    "description": "Beside a session's name in the Attachments tab. {when} is how long ago the newest was added, such as \"5 min ago\"."
+  },
+  "files.attachments.groupDelete": {
+    "defaultMessage": "{host, select, assistant {Delete This Conversation's Attachments…} other {Delete This Session's Attachments…}}",
+    "description": "Tooltip on a session's delete button in the Attachments tab."
+  },
+  "files.attachments.groupDeleteDetail": {
+    "defaultMessage": "{filtered, select, yes {All of its attachments go, whatever the filter shows. } other {}}{host, select, assistant {The conversation keeps its transcript, which still mentions their paths.} other {The session keeps its transcript, which still mentions their paths.}} You can restore them from the Recycle Bin.",
+    "description": "Under the confirmation before deleting a session's attachments. {filtered} is yes when a filter hides some of them; {host} is assistant for the Hive Assistant's conversations."
+  },
+  "files.attachments.groupDeleteFailed": {
+    "defaultMessage": "Could not delete the attachments",
+    "description": "Title of an error notification."
+  },
+  "files.attachments.groupDeleteMessage": {
+    "defaultMessage": "Move {count, plural, one {the attachment} other {all # attachments}} of \"{name}\" to the Recycle Bin?",
+    "description": "The confirmation before deleting all of a session's attachments. {name} is the session's (or conversation's) name."
+  },
+  "files.attachments.groupDeleteTitle": {
+    "defaultMessage": "Move {count, plural, one {# attachment} other {# attachments}} to the Recycle Bin?",
+    "description": "Title of the confirmation before deleting all of a session's attachments."
+  },
+  "files.attachments.groupDeleted": {
+    "defaultMessage": "Moved {count, plural, one {# attachment} other {# attachments}} to the Recycle Bin.",
+    "description": "Notification after deleting a session's attachments."
+  },
+  "files.attachments.info": {
+    "defaultMessage": "Kept in the project's .hive/attachments. Drag one onto the Session tab to send it again; click a session's name to read it.",
+    "description": "The (i) beside a project's Attachments heading. Keep .hive/attachments as it is."
+  },
+  "files.attachments.infoAssistant": {
+    "defaultMessage": "Kept in the Assistant's home, .hive/attachments. Click a conversation's name to read it.",
+    "description": "The (i) beside the Hive Assistant's Attachments heading. Keep .hive/attachments as it is."
+  },
+  "files.attachments.kind.image": {
+    "defaultMessage": "Images",
+    "description": "Attachments filter. Followed by a count."
+  },
+  "files.attachments.kind.other": {
+    "defaultMessage": "Other",
+    "description": "Attachments filter: any other kind of file. Followed by a count."
+  },
+  "files.attachments.kind.pdf": {
+    "defaultMessage": "PDFs",
+    "description": "Attachments filter. Followed by a count."
+  },
+  "files.attachments.kind.text": {
+    "defaultMessage": "Text",
+    "description": "Attachments filter: text files. Followed by a count."
+  },
+  "files.attachments.none": {
+    "defaultMessage": "No attachments yet",
+    "description": "The Attachments tab when there are none."
+  },
+  "files.attachments.noneHint": {
+    "defaultMessage": "Paste a screenshot into a session with <kbd>Ctrl+V</kbd>, or drag files onto the terminal: images, PDFs, logs, any file. Hive keeps a copy of each one here, grouped by session.",
+    "description": "Under \"No attachments yet\" in a project's Attachments tab. <kbd> marks a key: keep it as it is."
+  },
+  "files.attachments.noneHintAssistant": {
+    "defaultMessage": "Paste a screenshot into the Assistant's panel with <kbd>Ctrl+V</kbd>, or drag files onto it: images, PDFs, logs, any file. Hive keeps a copy of each one here, grouped by conversation.",
+    "description": "Under \"No attachments yet\" in the Hive Assistant's Attachments. <kbd> marks a key: keep it as it is."
+  },
+  "files.attachments.openFolder": {
+    "defaultMessage": "Open Attachments Folder",
+    "description": "Tooltip on the button that opens the attachments' folder in File Explorer."
+  },
+  "files.attachments.openTranscript": {
+    "defaultMessage": "{host, select, assistant {Open this conversation's transcript} other {Open this session's transcript}}",
+    "description": "Tooltip on a session's name in the Attachments tab. {host} is assistant for the Hive Assistant's conversations."
+  },
+  "files.attachments.running": {
+    "defaultMessage": "{host, select, assistant {Its conversation is running} other {Its session is running}}",
+    "description": "Why an attachment can't be deleted now. {host} is assistant for the Hive Assistant's conversations."
+  },
+  "files.attachments.runningBadge": {
+    "defaultMessage": "Running",
+    "description": "Badge beside a session's name in the Attachments tab: it is running now."
+  },
+  "files.attachments.title": {
+    "defaultMessage": "Attachments",
+    "description": "Heading of the Attachments tab."
+  },
+  "files.attachments.total": {
+    "defaultMessage": "{host, select, assistant {{total} in {groups, plural, one {# conversation} other {# conversations}}} other {{total} in {groups, plural, one {# session} other {# sessions}}}}",
+    "description": "Beside the Attachments heading: how many attachments, in how many sessions (conversations for the Hive Assistant)."
+  },
+  "files.attachments.unnamed": {
+    "defaultMessage": "{host, select, assistant {Conversation {id}} other {Session {id}}}",
+    "description": "A session without a name, in the Attachments tab. {id} is the start of its id."
+  },
+  "files.attachments.view": {
+    "defaultMessage": "View",
+    "description": "An attachment's right-click menu: opens it in the viewer."
+  },
+  "files.collapseAll": {
+    "defaultMessage": "Collapse All",
+    "description": "Files tab's toolbar: closes every open folder."
+  },
+  "files.csv.firstRows": {
+    "defaultMessage": "Showing the first {count, plural, one {# row} other {# rows}}. Switch to Edit to see everything.",
+    "description": "Under a CSV file's table when the file has more rows than it shows. Edit is the mode button of that name."
+  },
+  "files.delete": {
+    "defaultMessage": "Delete",
+    "description": "Menu item or button: moves the files or attachments to the Recycle Bin."
+  },
+  "files.details.extFile": {
+    "defaultMessage": "{ext} file",
+    "description": "A file's type in its details, from its extension: \"PNG file\". {ext} is the extension in capitals."
+  },
+  "files.details.file": {
+    "defaultMessage": "File",
+    "description": "The type of a file with no extension, in its details."
+  },
+  "files.details.folder": {
+    "defaultMessage": "Folder",
+    "description": "A folder's type in its details."
+  },
+  "files.details.git": {
+    "defaultMessage": "Git",
+    "description": "Label in a file's details: its git status. Usually kept as Git."
+  },
+  "files.details.ignored": {
+    "defaultMessage": "Ignored",
+    "description": "A file's git status in its details: git ignores it."
+  },
+  "files.details.modified": {
+    "defaultMessage": "Modified",
+    "description": "Label in a file's details: when it last changed."
+  },
+  "files.details.none": {
+    "defaultMessage": "Select a file or folder",
+    "description": "The Files tab's right pane when nothing is selected."
+  },
+  "files.details.noneHint": {
+    "defaultMessage": "Select a file to view or edit it. Right-click for more. <kbd>F2</kbd> renames, <kbd>Del</kbd> moves to the Recycle Bin, <kbd>Ctrl+C</kbd> / <kbd>Ctrl+X</kbd> / <kbd>Ctrl+V</kbd> copy, cut and paste.",
+    "description": "Under \"Select a file or folder\". <kbd> marks a key: keep the keys as they are."
+  },
+  "files.details.rename": {
+    "defaultMessage": "Rename",
+    "description": "Button in a file's details."
+  },
+  "files.details.selected": {
+    "defaultMessage": "{count, plural, one {# item selected} other {# items selected}}",
+    "description": "The Files tab's right pane when several files are selected."
+  },
+  "files.details.selectedHint": {
+    "defaultMessage": "Drag them onto a folder to move them (hold Ctrl to copy), or onto the Session tab to paste their paths.",
+    "description": "Under \"n items selected\" in the Files tab."
+  },
+  "files.details.size": {
+    "defaultMessage": "Size",
+    "description": "Label in a file's details."
+  },
+  "files.details.type": {
+    "defaultMessage": "Type",
+    "description": "Label in a file's or folder's details."
+  },
+  "files.doc.discard": {
+    "defaultMessage": "Discard",
+    "description": "Button: drops the unsaved edits."
+  },
+  "files.doc.discardMessage": {
+    "defaultMessage": "You have unsaved changes.",
+    "description": "The confirmation before leaving a file with unsaved edits."
+  },
+  "files.doc.discardTitle": {
+    "defaultMessage": "Discard changes?",
+    "description": "Title of the confirmation before leaving a file with unsaved edits."
+  },
+  "files.doc.edit": {
+    "defaultMessage": "Edit",
+    "description": "Tooltip on a button that switches a Markdown file from its preview to the editor."
+  },
+  "files.doc.new": {
+    "defaultMessage": "(new)",
+    "description": "Beside a file's name in the editor's toolbar: the file doesn't exist yet and is created when saved."
+  },
+  "files.doc.overwrite": {
+    "defaultMessage": "Overwrite",
+    "description": "Button: saves your version over the file changed on disk."
+  },
+  "files.doc.overwriteDetail": {
+    "defaultMessage": "Cancel keeps your edits here unsaved, so you can copy them and reopen the file.",
+    "description": "Under the confirmation before saving over a file changed on disk."
+  },
+  "files.doc.overwriteMessage": {
+    "defaultMessage": "{name} has changed on disk since you opened it (an agent may have edited it). Save your version over it?",
+    "description": "The confirmation before saving over a file changed on disk. {name} is the file name."
+  },
+  "files.doc.overwriteTitle": {
+    "defaultMessage": "Overwrite the changes on disk?",
+    "description": "Title of the confirmation when saving a file (a note, a skill…) that changed on disk since it was opened."
+  },
+  "files.doc.preview": {
+    "defaultMessage": "Preview",
+    "description": "Tooltip on a button that shows a Markdown file rendered."
+  },
+  "files.doc.saveFailed": {
+    "defaultMessage": "Could not save",
+    "description": "Title of an error notification: a file could not be saved."
+  },
+  "files.doc.viewSource": {
+    "defaultMessage": "View source",
+    "description": "Tooltip on a button that shows a read-only Markdown file as text."
+  },
+  "files.error.copy": {
+    "defaultMessage": "Could not copy",
+    "description": "Title of an error notification in the Files tab."
+  },
+  "files.error.copyIn": {
+    "defaultMessage": "Could not copy files in",
+    "description": "Title of an error notification: files dropped from File Explorer could not be copied into the project."
+  },
+  "files.error.createFile": {
+    "defaultMessage": "Could not create file",
+    "description": "Title of an error notification in the Files tab."
+  },
+  "files.error.createFolder": {
+    "defaultMessage": "Could not create folder",
+    "description": "Title of an error notification in the Files tab."
+  },
+  "files.error.delete": {
+    "defaultMessage": "Could not delete",
+    "description": "Title of an error notification in the Files tab: moving files to the Recycle Bin failed."
+  },
+  "files.error.duplicate": {
+    "defaultMessage": "Could not duplicate",
+    "description": "Title of an error notification in the Files tab."
+  },
+  "files.error.move": {
+    "defaultMessage": "Could not move",
+    "description": "Title of an error notification in the Files tab."
+  },
+  "files.error.paste": {
+    "defaultMessage": "Could not paste",
+    "description": "Title of an error notification in the Files tab."
+  },
+  "files.error.rename": {
+    "defaultMessage": "Could not rename",
+    "description": "Title of an error notification in the Files tab."
+  },
+  "files.fileEmpty": {
+    "defaultMessage": "This file is empty.",
+    "description": "Shown in a file's preview when the file has no content."
+  },
+  "files.find.clear": {
+    "defaultMessage": "Clear",
+    "description": "Tooltip on the button that empties the Files tab's search box."
+  },
+  "files.find.noMatch": {
+    "defaultMessage": "No files match “{filter}”.",
+    "description": "The Files tab's list when a search finds nothing. {filter} is what was typed."
+  },
+  "files.find.placeholder": {
+    "defaultMessage": "Find files by name or path",
+    "description": "The Files tab's search box, empty."
+  },
+  "files.find.searching": {
+    "defaultMessage": "Searching…",
+    "description": "The Files tab's list while a search runs."
+  },
+  "files.git.inFolder": {
+    "defaultMessage": "{status} (contains changes)",
+    "description": "A folder's git status in the Files tab's details: {status} is the first change inside it, such as Modified."
+  },
+  "files.git.status": {
+    "defaultMessage": "{status, select, M {Modified} A {Added} D {Deleted} R {Renamed} U {Untracked} C {Copied} other {{status}}}",
+    "description": "A file's git status in the Files tab's details, after its letter. Translate the words, not the letters that pick them."
+  },
+  "files.header": {
+    "defaultMessage": "Files",
+    "description": "Heading of the Files tab's file tree."
+  },
+  "files.header.info": {
+    "defaultMessage": "Everything in the project folder. Drag files in from Explorer to copy them here, or drag files onto the Session tab to paste their paths into the session. Deleted files go to the Recycle Bin.",
+    "description": "The (i) beside the Files tab's heading."
+  },
+  "files.image.actualSize": {
+    "defaultMessage": "Click for actual size",
+    "description": "Tooltip on an image fitted to the pane."
+  },
+  "files.image.fit": {
+    "defaultMessage": "Click to fit",
+    "description": "Tooltip on an image shown at its actual size."
+  },
+  "files.insertIntoSession": {
+    "defaultMessage": "Insert into Session",
+    "description": "Button or menu item: attaches the file to the agent's running session."
+  },
+  "files.loading": {
+    "defaultMessage": "Loading…",
+    "description": "Shown while the attachments (or one of them) load."
+  },
+  "files.menu.copy": {
+    "defaultMessage": "Copy",
+    "description": "Files tab's right-click menu: copies the files (to paste elsewhere)."
+  },
+  "files.menu.copyPath": {
+    "defaultMessage": "Copy Path",
+    "description": "Menu item or button: copies the full path to the clipboard."
+  },
+  "files.menu.copyRelativePath": {
+    "defaultMessage": "Copy Relative Path",
+    "description": "Files tab's right-click menu: copies the path within the project."
+  },
+  "files.menu.cut": {
+    "defaultMessage": "Cut",
+    "description": "Files tab's right-click menu."
+  },
+  "files.menu.duplicate": {
+    "defaultMessage": "Duplicate",
+    "description": "Files tab's right-click menu: copies the files beside themselves."
+  },
+  "files.menu.insertPath": {
+    "defaultMessage": "Insert Path into Session",
+    "description": "Files tab's right-click menu and toolbar: attaches the files to the agent's running session."
+  },
+  "files.menu.newFile": {
+    "defaultMessage": "New File…",
+    "description": "Files tab's right-click menu and toolbar: creates a file."
+  },
+  "files.menu.newFolder": {
+    "defaultMessage": "New Folder…",
+    "description": "Files tab's right-click menu and toolbar: creates a folder."
+  },
+  "files.menu.openInDefaultApp": {
+    "defaultMessage": "Open in Default App",
+    "description": "Files tab's right-click menu and toolbar: opens the file in its Windows app."
+  },
+  "files.menu.paste": {
+    "defaultMessage": "Paste",
+    "description": "Files tab's right-click menu."
+  },
+  "files.menu.rename": {
+    "defaultMessage": "Rename…",
+    "description": "Files tab's right-click menu."
+  },
+  "files.open": {
+    "defaultMessage": "Open",
+    "description": "Button: opens a file in its default Windows app."
+  },
+  "files.openFailed": {
+    "defaultMessage": "Could not open file",
+    "description": "Title of an error notification: a file could not be opened (read, or opened in its default app)."
+  },
+  "files.refresh": {
+    "defaultMessage": "Refresh",
+    "description": "Button or menu item: reads the folder (or the attachments) again."
+  },
+  "files.reveal": {
+    "defaultMessage": "Reveal",
+    "description": "Short button: shows the file in Windows File Explorer."
+  },
+  "files.revealInExplorer": {
+    "defaultMessage": "Reveal in File Explorer",
+    "description": "Button or menu item: shows the file or folder in Windows File Explorer."
+  },
+  "files.root.projectFolder": {
+    "defaultMessage": "Project folder",
+    "description": "The Files tab's folder picker: the project's own folder."
+  },
+  "files.root.tip": {
+    "defaultMessage": "Show the project folder, or the worktree a worktree agent works in",
+    "description": "Tooltip on the Files tab's folder picker, shown when agents work in worktrees."
+  },
+  "files.root.worktree": {
+    "defaultMessage": "{agent}'s worktree · {branch}",
+    "description": "The Files tab's folder picker: a worktree agent's folder. {agent} is the agent's name, {branch} its git branch."
+  },
+  "files.save": {
+    "defaultMessage": "Save",
+    "description": "Button in a file editor's toolbar: saves the file."
+  },
+  "files.saveAll.changedOnDisk": {
+    "defaultMessage": "{file}: changed on disk since you opened it",
+    "description": "Why Save All did not save a file: it changed on disk meanwhile. {file} is its path in the project."
+  },
+  "files.trash.button": {
+    "defaultMessage": "Move to Recycle Bin",
+    "description": "Button: moves the files or attachments to the Recycle Bin."
+  },
+  "files.trash.detail": {
+    "defaultMessage": "You can restore it from the Recycle Bin.{unsaved, plural, =0 {} =1 { Unsaved changes to {file} will be lost.} other { Unsaved changes to # files will be lost.}}",
+    "description": "Under the confirmation before deleting in the Files tab. {unsaved} is how many of the files have unsaved edits; {file} the one such file."
+  },
+  "files.trash.message": {
+    "defaultMessage": "Move {count, plural, =1 {{folder, select, yes {\"{name}\" and everything in it} other {\"{name}\"}}} other {# items}} to the Recycle Bin?",
+    "description": "The confirmation before deleting in the Files tab. {name} is the one file or folder ({folder} is yes for a folder); {count} how many are selected."
+  },
+  "files.trash.title": {
+    "defaultMessage": "Move to Recycle Bin?",
+    "description": "Title of the confirmation before files or attachments go to the Recycle Bin."
+  },
+  "files.tree.empty": {
+    "defaultMessage": "This project folder is empty.",
+    "description": "The Files tab's list for a project folder with nothing in it."
+  },
+  "files.unsavedChanges": {
+    "defaultMessage": "Unsaved changes",
+    "description": "Tooltip on the dot beside a file that has unsaved edits."
+  },
+  "files.view.binary": {
+    "defaultMessage": "This is a binary file.",
+    "description": "Shown in place of a file Hive cannot show as text."
+  },
+  "files.view.changedBanner": {
+    "defaultMessage": "{name} has changed on disk since you opened it.",
+    "description": "Banner over an open file with unsaved edits that changed on disk. Followed by Reload and Overwrite with Mine. {name} is the file name."
+  },
+  "files.view.changedBody": {
+    "defaultMessage": "Reload it, or overwrite it with your version.",
+    "description": "Under \"{name} changed on disk\"."
+  },
+  "files.view.changedTitle": {
+    "defaultMessage": "{name} changed on disk",
+    "description": "Title of a warning when saving a file that changed on disk since it was opened. {name} is the file name."
+  },
+  "files.view.discardMessage": {
+    "defaultMessage": "Reload {name} from disk and discard your unsaved changes?",
+    "description": "Confirmation before reloading a file. {name} is the file name."
+  },
+  "files.view.discardTitle": {
+    "defaultMessage": "Discard your changes?",
+    "description": "Title of the confirmation before reloading a file with unsaved edits from disk."
+  },
+  "files.view.edit": {
+    "defaultMessage": "Edit",
+    "description": "A file view's mode button: the text editor."
+  },
+  "files.view.gone": {
+    "defaultMessage": "This file no longer exists on disk. Save to recreate it.",
+    "description": "Banner over an open file that was deleted on disk."
+  },
+  "files.view.htmlPreview": {
+    "defaultMessage": "HTML preview",
+    "description": "Accessible title of the frame that shows an HTML file's preview."
+  },
+  "files.view.image": {
+    "defaultMessage": "Image",
+    "description": "A file view's mode button: an image file (or SVG) shown as a picture."
+  },
+  "files.view.openInApp": {
+    "defaultMessage": "Open it in its default app instead.",
+    "description": "Under \"This is a binary file.\" or \"This file is too large to open here\", above an Open button."
+  },
+  "files.view.overwrite": {
+    "defaultMessage": "Overwrite with mine",
+    "description": "Button in the \"changed on disk\" banner: saves your version over the file on disk."
+  },
+  "files.view.pdf": {
+    "defaultMessage": "PDF",
+    "description": "A file view's mode button: a PDF shown in the PDF viewer."
+  },
+  "files.view.pdfPreview": {
+    "defaultMessage": "PDF preview",
+    "description": "Accessible title of the frame that shows a PDF file."
+  },
+  "files.view.preview": {
+    "defaultMessage": "Preview",
+    "description": "A file view's mode button: the rendered Markdown or HTML."
+  },
+  "files.view.reload": {
+    "defaultMessage": "Reload",
+    "description": "Button: reads the file from disk again, dropping unsaved edits."
+  },
+  "files.view.saveFailed": {
+    "defaultMessage": "Could not save {name}",
+    "description": "Title of an error notification. {name} is the file name."
+  },
+  "files.view.saveTip": {
+    "defaultMessage": "Save (Ctrl+S)",
+    "description": "Tooltip on the Save button. Keep Ctrl+S as it is."
+  },
+  "files.view.split": {
+    "defaultMessage": "Split",
+    "description": "A file view's mode button: the editor and the preview side by side."
+  },
+  "files.view.table": {
+    "defaultMessage": "Table",
+    "description": "A file view's mode button: a CSV or TSV file shown as a table."
+  },
+  "files.view.tooLarge": {
+    "defaultMessage": "This file is too large to open here ({size}).",
+    "description": "Shown in place of a file too large for the editor. {size} is its size, such as \"12.4 MB\"."
+  },
+  "files.viewer.newer": {
+    "defaultMessage": "Newer (←)",
+    "description": "Tooltip on the attachment viewer's left arrow. Keep the arrow."
+  },
+  "files.viewer.noPreview": {
+    "defaultMessage": "No preview for this kind of file. Reveal it, or insert it into a session.",
+    "description": "The attachment viewer for a file it cannot show. Reveal and Insert into Session are its buttons."
+  },
+  "files.viewer.older": {
+    "defaultMessage": "Older (→)",
+    "description": "Tooltip on the attachment viewer's right arrow. Keep the arrow."
+  },
+  "files.viewer.position": {
+    "defaultMessage": "{index} of {count}",
+    "description": "The attachment viewer's footer: which attachment of how many is shown."
+  },
+  "files.viewer.readFailed": {
+    "defaultMessage": "Couldn't read it: {error}",
+    "description": "The attachment viewer when the file can't be read. {error} is why (from Windows, may be English)."
+  },
+  "files.viewer.tooLarge": {
+    "defaultMessage": "Too large to preview here. Reveal it to open it in another program.",
+    "description": "The attachment viewer for a file too large to show."
+  }
+}
