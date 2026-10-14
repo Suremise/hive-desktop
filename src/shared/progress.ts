@@ -1,4 +1,4 @@
-import type { ProgressRun } from './types'
+import type { MergeSlotInfo, ProgressRun } from './types'
 import { formatDateTime } from './dates'
 import { msg } from './i18n/msg'
 import { providerName } from './providers'
@@ -333,4 +333,19 @@ export function activeFilter(runs: readonly ProgressRun[], chosen: ProgressFilte
 export function filterRuns(runs: readonly ProgressRun[], f: ProgressFilter): ProgressRun[] {
   if (f.project === ALL_PROJECTS) return [...runs]
   return runs.filter((r) => projectOf(r) === f.project && (!f.agent || agentOf(r) === f.agent))
+}
+
+/** A project folder as the filter keeps it: lower case, backslashes, no trailing separator (C:/ws/Alpha/ is c:\ws\alpha). */
+const projectKeyOf = (p: string): string => p.replace(/\//g, '\\').replace(/\\+$/, '').toLowerCase()
+
+/**
+ * The merges a filter shows (#810): slots their holder has taken (a turn not claimed yet isn't a merge), in the filtered
+ * project, and with an agent chosen, those it holds or waits for (as a lane shows when the agent is either of its two).
+ * Every project's with no filter; none for the Assistant and scripts, which hold no project's slot.
+ */
+export function filterMergeSlots(slots: readonly MergeSlotInfo[], f: ProgressFilter): MergeSlotInfo[] {
+  const taken = slots.filter((s) => s.holder?.taken)
+  if (f.project === ALL_PROJECTS) return taken
+  const project = projectKeyOf(f.project)
+  return taken.filter((s) => projectKeyOf(s.project) === project && (!f.agent || s.holder?.agentId === f.agent || s.waiting.some((w) => w.agentId === f.agent)))
 }

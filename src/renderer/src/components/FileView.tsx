@@ -231,6 +231,46 @@ const joinRel = (dir: string, rel: string): string => {
   return parts.join('/')
 }
 
+/** Room the file's name keeps before the toolbar drops its labels, and the room to spare before it takes them back. */
+const PATH_ROOM = 80
+const COMPACT_SPARE = 12
+
+/**
+ * A file toolbar that drops its labels when they don't fit (#814): its mode buttons and Save become icons (their names in
+ * tooltips and for screen readers) and the size and time go, so Save stays on screen in a narrow pane and in languages
+ * longer than English. What the labelled toolbar needs is measured while it shows (all but the path, which gives way
+ * down to PATH_ROOM), so it follows the language; it takes the labels back once that fits with room to spare.
+ */
+function useCompactToolbar(): { ref: (el: HTMLDivElement | null) => void; compact: boolean } {
+  const [el, setEl] = useState<HTMLDivElement | null>(null)
+  const [width, setWidth] = useState(0)
+  const [compact, setCompact] = useState(false)
+  // Bumped when what the toolbar shows changes (a label, the language, a button): it may need more or less room.
+  const [shown, setShown] = useState(0)
+  const need = useRef(0)
+  useLayoutEffect(() => {
+    if (!el) return
+    const ro = new ResizeObserver(() => setWidth(el.clientWidth))
+    ro.observe(el)
+    const mo = new MutationObserver(() => setShown((n) => n + 1))
+    mo.observe(el, { childList: true, subtree: true, characterData: true })
+    setWidth(el.clientWidth)
+    return () => {
+      ro.disconnect()
+      mo.disconnect()
+    }
+  }, [el])
+  useLayoutEffect(() => {
+    if (!el || width === 0) return
+    if (!compact) {
+      const path = el.querySelector<HTMLElement>('.path')
+      need.current = el.scrollWidth - (path?.offsetWidth ?? 0) + PATH_ROOM
+      if (need.current > width) setCompact(true)
+    } else if (need.current + COMPACT_SPARE <= width) setCompact(false)
+  }, [el, width, compact, shown])
+  return { ref: setEl, compact }
+}
+
 /**
  * The Files tab's right pane for a file: a Monaco editor for any text file, plus preview views from
  * the registry. Ctrl+S saves; saving is refused if the file changed on disk since it was opened.
@@ -375,33 +415,43 @@ export function FileView({
     ...(pv && canEdit ? [{ id: 'edit' as Mode, label: M.edit, icon: 'edit' }] : [])
   ]
   const effectiveMode: Mode = !pv ? 'edit' : !canEdit ? 'preview' : mode
+  const { ref: toolbarRef, compact } = useCompactToolbar()
 
   const header = (
-    <div className="editor-toolbar">
+    <div className={cx('editor-toolbar', compact && 'compact')} ref={toolbarRef}>
       <Icon name={pv?.icon ?? 'file'} />
       <span className="path" title={abs}>
         <strong>{name}</strong>
         {dirty && <span className="dirty-dot" title={tr(FILES_TEXT.unsaved)}> ●</span>} {rel.includes('/') && <span className="faint">{rel.slice(0, rel.lastIndexOf('/'))}</span>}
       </span>
-      {content && content.modified && content.kind === 'text' && (
+      {content && content.modified && content.kind === 'text' && !compact && (
         <span className="faint small">
           {formatBytes(content.size)} · {timeAgo(content.modified)}
         </span>
       )}
       {modes.length > 1 && (
         <div className="segmented">
-          {modes.map((m) => (
-            <button key={m.id} className={cx(effectiveMode === m.id && 'active')} onClick={() => setMode(m.id)}>
-              <Icon name={m.icon} /> {tr(m.label)}
-            </button>
-          ))}
+          {modes.map((m) =>
+            compact ? (
+              <Tooltip key={m.id} content={tr(m.label)}>
+                <button className={cx(effectiveMode === m.id && 'active')} aria-label={tr(m.label)} onClick={() => setMode(m.id)}>
+                  <Icon name={m.icon} />
+                </button>
+              </Tooltip>
+            ) : (
+              <button key={m.id} className={cx(effectiveMode === m.id && 'active')} onClick={() => setMode(m.id)}>
+                <Icon name={m.icon} /> {tr(m.label)}
+              </button>
+            )
+          )}
         </div>
       )}
       {toolbarExtra}
       {content?.kind === 'text' && canEdit && (
         <Tooltip content={tr(M.saveTip)}>
-          <button className="btn small primary" disabled={!dirty} onClick={() => void save()}>
-            <Icon name="save" /> {tr(FILES_TEXT.save)}
+          <button className="btn small primary" disabled={!dirty} aria-label={compact ? tr(FILES_TEXT.save) : undefined} onClick={() => void save()}>
+            <Icon name="save" />
+            {!compact && ` ${tr(FILES_TEXT.save)}`}
           </button>
         </Tooltip>
       )}

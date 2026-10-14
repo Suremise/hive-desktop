@@ -375,6 +375,26 @@ const near = (a, b) => Math.abs(a - b) < 0.001
   await projectFilter.focus()
   await page.keyboard.press('Home')
   check('the filter works from the keyboard: Home is All projects again', !!(await until(async () => JSON.stringify(await agentsShown()) === JSON.stringify(['Alfie', 'Betty']), HUNG_MS)), JSON.stringify(await agentsShown()))
+  // Merges follow the filter too (#810): each project's slot held, both show under All projects, one project's alone
+  // under it. Screenshots of beta's in both themes.
+  const merges = async () => (await panel.locator('.progress-merge-card').allInnerTexts()).map((t) => /(\w+) is merging/.exec(t)?.[1] ?? t).sort()
+  const claimA = await call(alfieToken, 'POST', '/v1/projects/alpha/merge-slot/claim', { branch: 'main', timeoutSeconds: 0 })
+  const claimB = await call(bettyToken, 'POST', '/v1/projects/beta/merge-slot/claim', { branch: 'main', timeoutSeconds: 0 })
+  check('Alfie and Betty each hold their project\'s merge slot', claimA.body?.held === true && claimB.body?.held === true, JSON.stringify([claimA, claimB]))
+  check('All projects shows both merges', !!(await until(async () => JSON.stringify(await merges()) === JSON.stringify(['Alfie', 'Betty']), HUNG_MS)), JSON.stringify(await merges()))
+  await projectFilter.selectOption({ label: 'beta' })
+  check("beta shows only beta's merge", !!(await until(async () => JSON.stringify(await merges()) === JSON.stringify(['Betty']), HUNG_MS)), JSON.stringify(await merges()))
+  for (const theme of ['light', 'dark']) {
+    await inv('settings:update', { appearance: { theme } })
+    await until(async () => (await page.evaluate(() => document.documentElement.dataset.theme)) === theme, HUNG_MS)
+    await page.screenshot({ path: path.join(shots, `${theme}-filtered-merge.png`) })
+  }
+  await projectFilter.selectOption({ label: 'alpha' })
+  check("alpha shows only alpha's merge", !!(await until(async () => JSON.stringify(await merges()) === JSON.stringify(['Alfie']), HUNG_MS)), JSON.stringify(await merges()))
+  await call(alfieToken, 'POST', '/v1/projects/alpha/merge-slot/release', { branch: 'main' })
+  await call(bettyToken, 'POST', '/v1/projects/beta/merge-slot/release', { branch: 'main' })
+  await projectFilter.selectOption({ label: 'All projects' })
+  check('released, no merge shows', !!(await until(async () => (await panel.locator('.progress-merge, .progress-divider').count()) === 0, HUNG_MS)))
   await projectFilter.selectOption({ label: 'beta' })
   await page.keyboard.press('Control+Alt+P')
   check("folded, the strip counts beta's runs only, and says how many there are in all", !!(await until(async () => /^Show the Progress panel \(beta only: .*; \d+ in all\)$/.test((await rail.getAttribute('aria-label').catch(() => '')) ?? ''), HUNG_MS)) && (await rail.locator('.progress-rail-filter').count()) === 1, await rail.getAttribute('aria-label').catch(() => ''))

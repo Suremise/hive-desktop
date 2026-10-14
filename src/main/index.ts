@@ -38,6 +38,7 @@ import { watchRenderer } from './rendererWatch'
 import { startPowerWatch } from './power'
 import { startTaskbarFlash } from './taskbar'
 import { setTitleBarColors, trackTitleBar } from './titleBar'
+import { fitToWorkArea } from './windowBounds'
 import { startBranchWatch } from './branchWatch'
 import { createLogger, userText, logsDir } from './logger'
 import { killAll } from './ptyHost'
@@ -161,6 +162,9 @@ function titleBarColors(): { color: string; symbolColor: string } {
   return dark ? { color: '#1f1f1f', symbolColor: '#cccccc' } : { color: '#f3f3f3', symbolColor: '#333333' }
 }
 
+/** The smallest a Hive window can be. */
+const WINDOW_MIN = { width: 900, height: 560 }
+
 /** Whether a saved position is still on a screen. */
 function onScreen(b: WindowState): boolean {
   return (
@@ -185,6 +189,8 @@ function createWindow(opts: { workspacePath?: string | null; bounds?: WindowStat
     b = { x: r.x + 30, y: r.y + 30, width: r.width, height: r.height, maximized: false }
   }
   const visible = onScreen(b)
+  // Fitted to the display it opens on: the one its corner is on, else the primary one, where it is centred (#812).
+  b = fitToWorkArea(visible ? b : { ...b, x: undefined, y: undefined }, (visible ? screen.getDisplayNearestPoint({ x: b.x!, y: b.y! }) : screen.getPrimaryDisplay()).workArea, WINDOW_MIN)
   // A quiet test copy's windows open off screen, never over the user's (testQuiet).
   const offScreen = testQuiet() ? offScreenOrigin(b.width) : null
   const win = new BrowserWindow({
@@ -192,8 +198,8 @@ function createWindow(opts: { workspacePath?: string | null; bounds?: WindowStat
     height: b.height,
     x: offScreen ? offScreen.x : visible ? b.x : undefined,
     y: offScreen ? offScreen.y : visible ? b.y : undefined,
-    minWidth: 900,
-    minHeight: 560,
+    minWidth: WINDOW_MIN.width,
+    minHeight: WINDOW_MIN.height,
     show: false,
     // Off screen and never handed the focus either: when the user's active window closes, Windows passes the focus to
     // the next window, and it mustn't be an invisible test window (testQuiet).

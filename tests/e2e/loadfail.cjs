@@ -1,7 +1,9 @@
 // A failed load says so, with Retry, instead of looking like an empty result: the Sessions tab's search, the
 // project's Skills tab and the Workspace Overview (first load, and a refresh over the last figures). What a view
 // loaded belongs to its project: switching to another whose load fails, or whose load is overtaken by a late answer
-// for the last project, never shows the last project's results as its own. Uses the test-only HIVE_TEST_FAIL_IPC and
+// for the last project, never shows the last project's results as its own. The Skills and Templates views, whose
+// sidebar and main area both failed to read: the sidebar's Retry reads them again in both, so selecting an item shows it
+// (#841). Uses the test-only HIVE_TEST_FAIL_IPC and
 // HIVE_TEST_SLOW_IPC (unpackaged builds), set in the main process as each step needs it.
 // No agents. Dev build, throwaway profile and workspace.
 const lib = require('./lib.cjs')
@@ -41,6 +43,8 @@ const check = (name, ok, extra = '') => {
   // Each call to fail (a new value each time: the same one again isn't read as a change).
   let round = 0
   const failNext = (channel) => app.evaluate((_e, v) => (process.env.HIVE_TEST_FAIL_IPC = v), `${channel}*1,round${++round}`)
+  // Every call fails until cleared (failAll('')): the sidebar's and the main area's read both fail.
+  const failAll = (channel) => app.evaluate((_e, v) => (process.env.HIVE_TEST_FAIL_IPC = v), channel && `${channel},round${++round}`)
   const slowNext = (channel, ms) => app.evaluate((_e, v) => (process.env.HIVE_TEST_SLOW_IPC = v), `${channel}=${ms}*1,round${++round}`)
   const until = async (fn, ms = 10000) => {
     const t = Date.now()
@@ -120,6 +124,31 @@ const check = (name, ok, extra = '') => {
   await lib.sleep(600)
   check("skills: while beta loads, alpha's skills aren't shown", (await alphaOnly.count()) === 0 && /Loading/.test(await text('.split-list .pane-body')))
   check('skills: then beta has its own', !!(await until(async () => (await page.locator('.skill-group').count()) > 0, HUNG_MS)) && (await alphaOnly.count()) === 0)
+
+  // --- Skills and Templates views: the sidebar's Retry reads the main area's list again too (#841).
+  const activity = (name) => page.locator(`.activity-btn[aria-label="${name}"]`).click()
+  const sideFailed = page.locator('.sidebar .load-failed')
+  await failAll('skills:workspace')
+  await activity('Skills')
+  check('skills view: the failed read says so in the sidebar', !!(await until(async () => (await sideFailed.count()) === 1, HUNG_MS)))
+  await failAll('')
+  await sideFailed.getByRole('button', { name: 'Retry' }).click()
+  const skillRow = page.locator('.sidebar .skill-row').first()
+  check("skills view: the sidebar's Retry lists the skills", !!(await until(async () => (await skillRow.count()) === 1, HUNG_MS)))
+  await skillRow.click()
+  check('skills view: a skill selected then shows, not a failed read', !!(await until(async () => (await page.locator('.main-area .split .editor-toolbar').count()) === 1 && (await page.locator('.main-area .load-failed').count()) === 0, HUNG_MS)))
+  await lib.addAgent(inv, alpha, { name: 'One' })
+  await inv('templates:save', alpha, 'workspace', 'Pair', true)
+  await failAll('templates:all')
+  await activity('Templates')
+  check('templates view: the failed read says so in the sidebar', !!(await until(async () => (await sideFailed.count()) === 1, HUNG_MS)))
+  await failAll('')
+  await sideFailed.getByRole('button', { name: 'Retry' }).click()
+  const templateRow = page.locator('.sidebar .template-row').first()
+  check("templates view: the sidebar's Retry lists the templates", !!(await until(async () => (await templateRow.count()) === 1, HUNG_MS)))
+  await templateRow.click()
+  check('templates view: a template selected then shows', !!(await until(async () => (await page.locator('.template-detail').count()) === 1, HUNG_MS)))
+  await page.screenshot({ path: path.join(lib.WORK, 'loadfail-6-templates-retried.png') })
 
   // --- Workspace Overview: a failed first load isn't a spinner forever.
   await failNext('workspace:usage')

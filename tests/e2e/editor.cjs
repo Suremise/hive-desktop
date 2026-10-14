@@ -153,6 +153,43 @@ const HUNG_MS = 10000
   await lib.until(async () => (await pane.locator('.md-preview h1').count()) === 1 && (await page.evaluate(() => document.documentElement.getAttribute('data-theme'))) === 'light', 10000)
   await page.screenshot({ path: path.join(shots, '6-md-light.png') })
 
+  // A narrow file pane (#814): the toolbar drops its labels rather than push Save out of sight. The mode buttons and
+  // Save become icons, named for screen readers, and still work; wider again, the labels come back.
+  const bar = pane.locator('.editor-toolbar')
+  /** The toolbar's state: compact or not, overflowing or not, Save wholly inside it, and the file's name shown. */
+  const toolbar = () =>
+    bar.evaluate((t) => {
+      const box = t.getBoundingClientRect()
+      const save = [...t.querySelectorAll('button.primary')].pop()?.getBoundingClientRect()
+      return {
+        compact: t.classList.contains('compact'),
+        overflows: t.scrollWidth > t.clientWidth,
+        saveInside: !!save && save.width > 0 && save.left >= box.left - 0.5 && save.right <= box.right + 0.5,
+        name: t.querySelector('.path strong')?.getBoundingClientRect().width ?? 0,
+        modes: [...t.querySelectorAll('.segmented button')].map((m) => m.getAttribute('aria-label') ?? m.textContent.trim())
+      }
+    })
+  for (const theme of ['light', 'dark']) {
+    await inv('settings:update', { appearance: { theme } })
+    await lib.fitWindow(app, page, { width: 900, height: 700 })
+    const narrow = await lib.until(async () => { const t = await toolbar(); return t.compact ? t : null }, HUNG_MS)
+    check(`narrow pane (${theme}): toolbar drops its labels`, !!narrow)
+    check(`narrow pane (${theme}): Save in view, nothing overflows, the name shown`, !!narrow && narrow.saveInside && !narrow.overflows && narrow.name > 0)
+    await page.screenshot({ path: path.join(shots, `7-narrow-toolbar-${theme}.png`) })
+  }
+  check('narrow pane: mode buttons keep their names', JSON.stringify((await toolbar()).modes) === JSON.stringify(['Preview', 'Split', 'Edit']))
+  await bar.getByRole('button', { name: 'Edit', exact: true }).click()
+  check('narrow pane: an icon-only mode button still switches', !!(await lib.until(async () => (await pane.locator('.monaco').count()) === 1, HUNG_MS)))
+  // The narrow editor's left edge: further right is the side panels' rails.
+  await pane.locator('.monaco').first().click({ position: { x: 30, y: 20 } })
+  await page.keyboard.press('Control+End')
+  await page.keyboard.type('\nnarrow\n')
+  await bar.getByRole('button', { name: 'Save', exact: true }).click()
+  check('narrow pane: the icon-only Save saves', !!(await lib.until(() => read('README.md').includes('narrow'), HUNG_MS)))
+  await lib.fitWindow(app, page, { width: 1700, height: 900 })
+  const wide = await lib.until(async () => { const t = await toolbar(); return !t.compact ? t : null }, HUNG_MS)
+  check('wide pane: labels back', !!wide && wide.saveInside && !wide.overflows && (await bar.locator('.segmented button', { hasText: 'Split' }).count()) === 1)
+
   console.log(results.join('\n'))
   await app.close()
 })().catch((e) => {
