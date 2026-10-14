@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
 import type { FileContent, ProjectInfo } from '@shared/types'
+import { msg, tr, type Msg } from '@shared/i18n'
 import * as actions from '../actions'
 import { call, errorMessage } from '../api'
 import { languageFor } from '../monacoLang'
@@ -9,6 +10,45 @@ import { cx, formatBytes, imageUrl, timeAgo } from '../util'
 import { CodeEditor, type EditorGoto } from './Editors'
 import { PaneResizer, usePaneSize } from './Resizer'
 import { Icon, Markdown, Tooltip } from './ui'
+
+/** The Files area's words used by more than one editor (#803): the Files tab, its file view and DocEditor. */
+export const FILES_TEXT = {
+  save: msg({ id: 'files.save', defaultMessage: 'Save', description: "Button in a file editor's toolbar: saves the file." }),
+  unsaved: msg({ id: 'files.unsavedChanges', defaultMessage: 'Unsaved changes', description: 'Tooltip on the dot beside a file that has unsaved edits.' }),
+  empty: msg({ id: 'files.fileEmpty', defaultMessage: 'This file is empty.', description: "Shown in a file's preview when the file has no content." }),
+  openFailed: msg({ id: 'files.openFailed', defaultMessage: 'Could not open file', description: 'Title of an error notification: a file could not be opened (read, or opened in its default app).' }),
+  open: msg({ id: 'files.open', defaultMessage: 'Open', description: 'Button: opens a file in its default Windows app.' }),
+  revealInExplorer: msg({ id: 'files.revealInExplorer', defaultMessage: 'Reveal in File Explorer', description: 'Button or menu item: shows the file or folder in Windows File Explorer.' }),
+  reveal: msg({ id: 'files.reveal', defaultMessage: 'Reveal', description: 'Short button: shows the file in Windows File Explorer.' })
+}
+
+const M = {
+  preview: msg({ id: 'files.view.preview', defaultMessage: 'Preview', description: "A file view's mode button: the rendered Markdown or HTML." }),
+  table: msg({ id: 'files.view.table', defaultMessage: 'Table', description: "A file view's mode button: a CSV or TSV file shown as a table." }),
+  image: msg({ id: 'files.view.image', defaultMessage: 'Image', description: "A file view's mode button: an image file (or SVG) shown as a picture." }),
+  pdf: msg({ id: 'files.view.pdf', defaultMessage: 'PDF', description: "A file view's mode button: a PDF shown in the PDF viewer." }),
+  split: msg({ id: 'files.view.split', defaultMessage: 'Split', description: "A file view's mode button: the editor and the preview side by side." }),
+  edit: msg({ id: 'files.view.edit', defaultMessage: 'Edit', description: "A file view's mode button: the text editor." }),
+  changedOnDiskShort: msg({ id: 'files.saveAll.changedOnDisk', defaultMessage: '{file}: changed on disk since you opened it', description: 'Why Save All did not save a file: it changed on disk meanwhile. {file} is its path in the project.' }),
+  goneFromDisk: msg({ id: 'files.view.gone', defaultMessage: 'This file no longer exists on disk. Save to recreate it.', description: 'Banner over an open file that was deleted on disk.' }),
+  changedTitle: msg({ id: 'files.view.changedTitle', defaultMessage: '{name} changed on disk', description: 'Title of a warning when saving a file that changed on disk since it was opened. {name} is the file name.' }),
+  changedBody: msg({ id: 'files.view.changedBody', defaultMessage: 'Reload it, or overwrite it with your version.', description: 'Under "{name} changed on disk".' }),
+  saveFailed: msg({ id: 'files.view.saveFailed', defaultMessage: 'Could not save {name}', description: 'Title of an error notification. {name} is the file name.' }),
+  discardTitle: msg({ id: 'files.view.discardTitle', defaultMessage: 'Discard your changes?', description: 'Title of the confirmation before reloading a file with unsaved edits from disk.' }),
+  discardMessage: msg({ id: 'files.view.discardMessage', defaultMessage: 'Reload {name} from disk and discard your unsaved changes?', description: 'Confirmation before reloading a file. {name} is the file name.' }),
+  reload: msg({ id: 'files.view.reload', defaultMessage: 'Reload', description: 'Button: reads the file from disk again, dropping unsaved edits.' }),
+  saveTip: msg({ id: 'files.view.saveTip', defaultMessage: 'Save (Ctrl+S)', description: 'Tooltip on the Save button. Keep Ctrl+S as it is.' }),
+  binary: msg({ id: 'files.view.binary', defaultMessage: 'This is a binary file.', description: 'Shown in place of a file Hive cannot show as text.' }),
+  tooLarge: msg({ id: 'files.view.tooLarge', defaultMessage: 'This file is too large to open here ({size}).', description: 'Shown in place of a file too large for the editor. {size} is its size, such as "12.4 MB".' }),
+  openInApp: msg({ id: 'files.view.openInApp', defaultMessage: 'Open it in its default app instead.', description: 'Under "This is a binary file." or "This file is too large to open here", above an Open button.' }),
+  changedBanner: msg({ id: 'files.view.changedBanner', defaultMessage: '{name} has changed on disk since you opened it.', description: 'Banner over an open file with unsaved edits that changed on disk. Followed by Reload and Overwrite with Mine. {name} is the file name.' }),
+  overwrite: msg({ id: 'files.view.overwrite', defaultMessage: 'Overwrite with mine', description: 'Button in the "changed on disk" banner: saves your version over the file on disk.' }),
+  csvFirstRows: msg({ id: 'files.csv.firstRows', defaultMessage: 'Showing the first {count, plural, one {# row} other {# rows}}. Switch to Edit to see everything.', description: "Under a CSV file's table when the file has more rows than it shows. Edit is the mode button of that name." }),
+  htmlPreview: msg({ id: 'files.view.htmlPreview', defaultMessage: 'HTML preview', description: "Accessible title of the frame that shows an HTML file's preview." }),
+  pdfPreview: msg({ id: 'files.view.pdfPreview', defaultMessage: 'PDF preview', description: 'Accessible title of the frame that shows a PDF file.' }),
+  fit: msg({ id: 'files.image.fit', defaultMessage: 'Click to fit', description: 'Tooltip on an image shown at its actual size.' }),
+  actualSize: msg({ id: 'files.image.actualSize', defaultMessage: 'Click for actual size', description: 'Tooltip on an image fitted to the pane.' })
+}
 
 // ---------------------------------------------------------------------------
 // Previewer registry: which views a file gets besides the text editor.
@@ -26,7 +66,7 @@ interface PreviewProps {
 
 interface Previewer {
   id: string
-  label: string
+  label: Msg
   icon: string
   match: RegExp
   /** Views that need the file's text; others (images, PDF) load it from disk themselves. */
@@ -40,12 +80,12 @@ interface Previewer {
 }
 
 const PREVIEWERS: Previewer[] = [
-  { id: 'markdown', label: 'Preview', icon: 'open-preview', match: /\.(md|markdown|mdx)$/i, needsText: true, editable: true, preferred: true, split: true, render: (p) => <MarkdownPreview {...p} /> },
-  { id: 'csv', label: 'Table', icon: 'table', match: /\.(csv|tsv)$/i, needsText: true, editable: true, preferred: true, render: (p) => <CsvPreview {...p} /> },
-  { id: 'html', label: 'Preview', icon: 'open-preview', match: /\.html?$/i, needsText: true, editable: true, preferred: false, split: true, render: (p) => <HtmlPreview {...p} /> },
-  { id: 'svg', label: 'Image', icon: 'file-media', match: /\.svg$/i, needsText: true, editable: true, preferred: true, render: (p) => <SvgPreview {...p} /> },
-  { id: 'image', label: 'Image', icon: 'file-media', match: /\.(png|jpe?g|gif|webp|bmp|ico)$/i, needsText: false, editable: false, preferred: true, render: (p) => <ImagePreview {...p} /> },
-  { id: 'pdf', label: 'PDF', icon: 'file-pdf', match: /\.pdf$/i, needsText: false, editable: false, preferred: true, render: (p) => <PdfPreview {...p} /> }
+  { id: 'markdown', label: M.preview, icon: 'open-preview', match: /\.(md|markdown|mdx)$/i, needsText: true, editable: true, preferred: true, split: true, render: (p) => <MarkdownPreview {...p} /> },
+  { id: 'csv', label: M.table, icon: 'table', match: /\.(csv|tsv)$/i, needsText: true, editable: true, preferred: true, render: (p) => <CsvPreview {...p} /> },
+  { id: 'html', label: M.preview, icon: 'open-preview', match: /\.html?$/i, needsText: true, editable: true, preferred: false, split: true, render: (p) => <HtmlPreview {...p} /> },
+  { id: 'svg', label: M.image, icon: 'file-media', match: /\.svg$/i, needsText: true, editable: true, preferred: true, render: (p) => <SvgPreview {...p} /> },
+  { id: 'image', label: M.image, icon: 'file-media', match: /\.(png|jpe?g|gif|webp|bmp|ico)$/i, needsText: false, editable: false, preferred: true, render: (p) => <ImagePreview {...p} /> },
+  { id: 'pdf', label: M.pdf, icon: 'file-pdf', match: /\.pdf$/i, needsText: false, editable: false, preferred: true, render: (p) => <PdfPreview {...p} /> }
 ]
 
 const previewerFor = (name: string): Previewer | undefined => PREVIEWERS.find((p) => p.match.test(name))
@@ -148,7 +188,7 @@ export async function saveAllDrafts(): Promise<{ saved: number; failed: { abs: s
       else if (now) now.base = { ...now.base, text: d.text, modified: w.modified }
       saved++
     } catch (e) {
-      failed.push({ abs: absOf(d.root, d.rel), message: `${d.rel}: ${errorMessage(e).includes('CONFLICT') ? 'changed on disk since you opened it' : errorMessage(e)}` })
+      failed.push({ abs: absOf(d.root, d.rel), message: errorMessage(e).includes('CONFLICT') ? tr(M.changedOnDiskShort, { file: d.rel }) : `${d.rel}: ${errorMessage(e)}` })
       // Not saved: a draft edited back to what was loaded is no draft after all.
       const now = drafts.get(key)
       if (now && now.text === now.base.text) drafts.delete(key)
@@ -301,7 +341,7 @@ export function FileView({
           setText(disk.text)
         } else setChangedOnDisk(true)
       })
-      .catch(() => setError('This file no longer exists on disk. Save to recreate it.'))
+      .catch(() => setError(tr(M.goneFromDisk)))
   }, [changeTick, project.path, rel, pv])
 
   const save = async (force = false): Promise<void> => {
@@ -316,23 +356,23 @@ export function FileView({
     } catch (e) {
       if (errorMessage(e).includes('CONFLICT')) {
         setChangedOnDisk(true)
-        notify('warning', `${name} changed on disk`, 'Reload it, or overwrite it with your version.')
-      } else notify('error', `Could not save ${name}`, errorMessage(e))
+        notify('warning', tr(M.changedTitle, { name }), tr(M.changedBody))
+      } else notify('error', tr(M.saveFailed, { name }), errorMessage(e))
     }
   }
 
   const reloadFromDisk = async (): Promise<void> => {
-    if (dirty && !(await confirm({ title: 'Discard your changes?', message: `Reload ${name} from disk and discard your unsaved changes?`, confirmLabel: 'Reload', danger: true }))) return
+    if (dirty && !(await confirm({ title: tr(M.discardTitle), message: tr(M.discardMessage, { name }), confirmLabel: tr(M.reload), danger: true }))) return
     setDraft(abs, null)
     await load(false)
     setChangedOnDisk(false)
   }
 
   const canEdit = !pv || pv.editable
-  const modes: { id: Mode; label: string; icon: string }[] = [
+  const modes: { id: Mode; label: Msg; icon: string }[] = [
     ...(pv ? [{ id: 'preview' as Mode, label: pv.label, icon: pv.icon }] : []),
-    ...(pv?.split ? [{ id: 'split' as Mode, label: 'Split', icon: 'split-horizontal' }] : []),
-    ...(pv && canEdit ? [{ id: 'edit' as Mode, label: 'Edit', icon: 'edit' }] : [])
+    ...(pv?.split ? [{ id: 'split' as Mode, label: M.split, icon: 'split-horizontal' }] : []),
+    ...(pv && canEdit ? [{ id: 'edit' as Mode, label: M.edit, icon: 'edit' }] : [])
   ]
   const effectiveMode: Mode = !pv ? 'edit' : !canEdit ? 'preview' : mode
 
@@ -341,7 +381,7 @@ export function FileView({
       <Icon name={pv?.icon ?? 'file'} />
       <span className="path" title={abs}>
         <strong>{name}</strong>
-        {dirty && <span className="dirty-dot" title="Unsaved changes"> ●</span>} {rel.includes('/') && <span className="faint">{rel.slice(0, rel.lastIndexOf('/'))}</span>}
+        {dirty && <span className="dirty-dot" title={tr(FILES_TEXT.unsaved)}> ●</span>} {rel.includes('/') && <span className="faint">{rel.slice(0, rel.lastIndexOf('/'))}</span>}
       </span>
       {content && content.modified && content.kind === 'text' && (
         <span className="faint small">
@@ -352,16 +392,16 @@ export function FileView({
         <div className="segmented">
           {modes.map((m) => (
             <button key={m.id} className={cx(effectiveMode === m.id && 'active')} onClick={() => setMode(m.id)}>
-              <Icon name={m.icon} /> {m.label}
+              <Icon name={m.icon} /> {tr(m.label)}
             </button>
           ))}
         </div>
       )}
       {toolbarExtra}
       {content?.kind === 'text' && canEdit && (
-        <Tooltip content="Save (Ctrl+S)">
+        <Tooltip content={tr(M.saveTip)}>
           <button className="btn small primary" disabled={!dirty} onClick={() => void save()}>
-            <Icon name="save" /> Save
+            <Icon name="save" /> {tr(FILES_TEXT.save)}
           </button>
         </Tooltip>
       )}
@@ -387,10 +427,10 @@ export function FileView({
         {header}
         <div className="empty-state">
           <Icon name={content.kind === 'binary' ? 'file-binary' : 'file'} />
-          {content.kind === 'binary' ? 'This is a binary file.' : `This file is too large to open here (${formatBytes(content.size)}).`}
-          <p className="hint">Open it in its default app instead.</p>
-          <button className="btn subtle" onClick={() => void actions.attempt('Could not open file', () => call('files:open', project.path, rel))}>
-            <Icon name="link-external" /> Open
+          {content.kind === 'binary' ? tr(M.binary) : tr(M.tooLarge, { size: formatBytes(content.size) })}
+          <p className="hint">{tr(M.openInApp)}</p>
+          <button className="btn subtle" onClick={() => void actions.attempt(tr(FILES_TEXT.openFailed), () => call('files:open', project.path, rel))}>
+            <Icon name="link-external" /> {tr(FILES_TEXT.open)}
           </button>
         </div>
       </>
@@ -414,12 +454,12 @@ export function FileView({
       {header}
       {changedOnDisk && (
         <div className="banner warn">
-          <Icon name="warning" /> {name} has changed on disk since you opened it.
+          <Icon name="warning" /> {tr(M.changedBanner, { name })}
           <button className="btn small" onClick={() => void reloadFromDisk()}>
-            Reload
+            {tr(M.reload)}
           </button>
           <button className="btn small" style={{ marginLeft: 0 }} onClick={() => void save(true)}>
-            Overwrite with mine
+            {tr(M.overwrite)}
           </button>
         </div>
       )}
@@ -500,7 +540,7 @@ function MarkdownPreview({ text, root, rel, onOpenRel }: PreviewProps) {
           }}
         />
       ) : (
-        <div className="empty-state">This file is empty.</div>
+        <div className="empty-state">{tr(FILES_TEXT.empty)}</div>
       )}
     </div>
   )
@@ -549,7 +589,7 @@ function CsvPreview({ text, rel }: PreviewProps) {
     const sep = /\.tsv$/i.test(rel) ? '\t' : (firstLine.match(/;/g)?.length ?? 0) > (firstLine.match(/,/g)?.length ?? 0) ? ';' : ','
     return parseDelimited(text, sep, MAX + 1)
   }, [text, rel])
-  if (!rows.length) return <div className="empty-state">This file is empty.</div>
+  if (!rows.length) return <div className="empty-state">{tr(FILES_TEXT.empty)}</div>
   const [head, ...body] = rows
   return (
     <div className="csv-preview">
@@ -573,14 +613,14 @@ function CsvPreview({ text, rel }: PreviewProps) {
           ))}
         </tbody>
       </table>
-      {rows.length > MAX && <div className="faint" style={{ padding: 10 }}>Showing the first {MAX.toLocaleString()} rows. Switch to Edit to see everything.</div>}
+      {rows.length > MAX && <div className="faint" style={{ padding: 10 }}>{tr(M.csvFirstRows, { count: MAX })}</div>}
     </div>
   )
 }
 
 function HtmlPreview({ text }: PreviewProps) {
   // Sandboxed with no permissions: scripts, forms and navigation are all blocked.
-  return <iframe className="html-preview" sandbox="" srcDoc={text} title="HTML preview" />
+  return <iframe className="html-preview" sandbox="" srcDoc={text} title={tr(M.htmlPreview)} />
 }
 
 function SvgPreview({ text }: PreviewProps) {
@@ -598,7 +638,8 @@ function ImagePreview({ abs }: PreviewProps) {
   const [size, setSize] = useState<{ w: number; h: number } | null>(null)
   const [bust] = useState(() => Date.now())
   return (
-    <div className={cx('image-preview checker', actual && 'actual')} onClick={() => setActual(!actual)} title={actual ? 'Click to fit' : 'Click for actual size'}>
+    // i18n-ignore: class names
+    <div className={cx('image-preview checker', actual && 'actual')} onClick={() => setActual(!actual)} title={tr(actual ? M.fit : M.actualSize)}>
       <img src={`${imageUrl(abs)}?t=${bust}`} alt="" onLoad={(e) => setSize({ w: e.currentTarget.naturalWidth, h: e.currentTarget.naturalHeight })} />
       {size && (
         <span className="image-size">
@@ -612,5 +653,5 @@ function ImagePreview({ abs }: PreviewProps) {
 function PdfPreview({ abs }: PreviewProps) {
   // Chromium's PDF viewer doesn't run in a sandboxed frame; the source is hive-img:, which only serves images and PDFs from the workspace.
   // eslint-disable-next-line react/iframe-missing-sandbox
-  return <iframe className="pdf-preview" src={imageUrl(abs)} title="PDF preview" />
+  return <iframe className="pdf-preview" src={imageUrl(abs)} title={tr(M.pdfPreview)} />
 }

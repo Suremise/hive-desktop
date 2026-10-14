@@ -3,6 +3,7 @@ import { CLAUDE_CODE, baseModel } from './claude'
 import { CODEX } from './codex'
 import { COPILOT } from './copilot'
 import { providerDescriptor, providerSettings } from './providers'
+import { msg, tr } from './i18n'
 
 /**
  * API prices Hive ships, in USD per million tokens, for estimating what a session would have cost at
@@ -132,9 +133,14 @@ export function unpricedModel(provider: ProviderId, model: string | null | undef
   return model && !modelPrice(provider, model, settings) ? model : null
 }
 
+const UNPRICED = msg({
+  id: 'project.cost.unpriced',
+  defaultMessage: "Hive has no API price for {model}, so it can't estimate this session's cost. Add one in Settings → {provider} → API prices.",
+  description: 'Tooltip on a cost shown as Unknown. {model} is the model; {provider} the provider (Claude Code, Codex…). Settings → {provider} → API prices is where prices are set: name it as Settings does.'
+})
+
 /** What to say about a cost that is unknown because the model has no price: where to add one. */
-export const unpricedText = (model: string, providerName: string): string =>
-  `Hive has no API price for ${model}, so it can't estimate this session's cost. Add one in Settings → ${providerName} → API prices.`
+export const unpricedText = (model: string, providerName: string): string => tr(UNPRICED, { model, provider: providerName })
 
 /** A session's API-equivalent cost from its token counts; null when the model's price is unknown. */
 export function estimateCost(usage: Pick<SessionUsage, 'provider' | 'model' | 'inputTokens' | 'cacheReadTokens' | 'cacheWriteTokens' | 'outputTokens'>, settings?: Pick<AppSettings, 'providers'> | null): number | null {

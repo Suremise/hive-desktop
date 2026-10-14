@@ -8,7 +8,35 @@
  * projects live in it), its worktrees folder once it exists, and Hive's test area for people developing Hive. Nothing
  * broader is ever offered (a drive, a share, the home folder or the profile, or a folder holding one of them), and
  * Hive only ever removes the exclusions it added itself.
+ *
+ * Its sentences are window text, worked out in the language Hive shows (main's for a change's outcome).
  */
+import { tr, type Msg } from './i18n'
+import { msg } from './i18n/msg'
+
+const M = {
+  notAbsolute: msg({ id: 'workspace.antivirus.notAbsolute', defaultMessage: 'not an absolute folder', description: "Why Hive won't offer to exclude a folder from Defender's scans. Lower case: it follows the folder." }),
+  wholeDrive: msg({ id: 'workspace.antivirus.wholeDrive', defaultMessage: 'a whole drive', description: "Why Hive won't offer to exclude a folder from Defender's scans. Lower case: it follows the folder." }),
+  wholeShare: msg({ id: 'workspace.antivirus.wholeShare', defaultMessage: 'a whole network share', description: "Why Hive won't offer to exclude a folder from Defender's scans. Lower case: it follows the folder." }),
+  holdsHome: msg({ id: 'workspace.antivirus.holdsHome', defaultMessage: 'it is, or holds, your home folder, profile or a system folder', description: "Why Hive won't offer to exclude a folder from Defender's scans. Lower case: it follows the folder." }),
+  unresolved: msg({ id: 'workspace.antivirus.unresolved', defaultMessage: 'its real location couldn’t be established', description: "Why Hive won't offer to exclude a folder from Defender's scans (a link it couldn't follow). Lower case: it follows the folder." }),
+  declined: msg({ id: 'workspace.antivirus.declined', defaultMessage: 'The administrator prompt was declined: nothing changed.', description: "After a change to Defender's exclusions: Windows' administrator (UAC) prompt was answered No." }),
+  noPrompt: msg({ id: 'workspace.antivirus.noPrompt', defaultMessage: "Windows couldn't start the administrator prompt{hasError, select, yes {: {error}} other {.}}", description: "After a change to Defender's exclusions: Windows' administrator (UAC) prompt didn't start; {error} is Windows' reason." }),
+  noReport: msg({ id: 'workspace.antivirus.noReport', defaultMessage: 'The change ran with administrator rights but reported nothing: check again to see what Defender has.', description: "After a change to Defender's exclusions." }),
+  unknownError: msg({ id: 'workspace.antivirus.unknownError', defaultMessage: 'unknown error', description: "Defender's reason for refusing a change, when it gave none. Lower case: it follows a colon." }),
+  policy: msg({ id: 'workspace.antivirus.policy', defaultMessage: 'Defender refused the change, probably because your organisation manages its settings: {error}', description: "After a change to Defender's exclusions; {error} is Defender's own message." }),
+  refused: msg({ id: 'workspace.antivirus.refused', defaultMessage: 'Defender refused the change: {error}', description: "After a change to Defender's exclusions; {error} is Defender's own message." }),
+  unreadable: msg({ id: 'workspace.antivirus.unreadable', defaultMessage: 'The change ran, but Defender’s list couldn’t be read afterwards: check again to see what it has.', description: "After a change to Defender's exclusions." }),
+  checked: msg({ id: 'workspace.antivirus.checked', defaultMessage: 'Read Defender’s exclusions with administrator rights.', description: "After Check with administrator rights: Defender's exclusion list was read." }),
+  alreadySkips: msg({ id: 'workspace.antivirus.alreadySkips', defaultMessage: 'Defender already skips these folders (an existing exclusion covers them): nothing added.', description: "After Add exclusions, when there was nothing to add." }),
+  noneLeft: msg({ id: 'workspace.antivirus.noneLeft', defaultMessage: 'None of Hive’s exclusions is in Defender’s list any more: nothing removed.', description: "After Remove exclusions, when there was nothing to remove." }),
+  notApplied: msg({ id: 'workspace.antivirus.notApplied', defaultMessage: "Defender accepted the change but {action, select, add {doesn't list {missing, plural, one {one folder} other {# folders}}} other {still lists {missing, plural, one {one folder} other {# folders}}}}: your organisation's settings probably override local exclusions.", description: "After a change to Defender's exclusions that Defender accepted but doesn't show (added ones missing, or removed ones still there)." }),
+  added: msg({ id: 'workspace.antivirus.added', defaultMessage: 'Defender no longer scans {count, plural, one {this folder} other {these # folders}}.', description: 'After Add exclusions: done.' }),
+  removed: msg({ id: 'workspace.antivirus.removed', defaultMessage: 'Removed {count, plural, one {the exclusion} other {# exclusions}} Hive added.', description: 'After Remove exclusions: done.' }),
+  kindWorkspace: msg({ id: 'workspace.antivirus.kindWorkspace', defaultMessage: 'The workspace (every project in it)', description: "A folder Defender may scan, as the antivirus status and Hive's offer name it." }),
+  kindWorktrees: msg({ id: 'workspace.antivirus.kindWorktrees', defaultMessage: 'Its worktrees', description: "A folder Defender may scan: the workspace's worktrees folder." }),
+  kindTests: msg({ id: 'workspace.antivirus.kindTests', defaultMessage: 'Hive’s test area (developing Hive)', description: "A folder Defender may scan: where Hive's own tests work, offered to people developing Hive." })
+}
 
 /** Which folder of the workspace's set a path is. */
 export type AvPathKind = 'workspace' | 'worktrees' | 'tests'
@@ -174,12 +202,12 @@ export function devDriveOf(text: unknown): 'trusted' | 'untrusted' | 'no' | null
  */
 export function unsafeFolder(path: string, guarded: string[]): string | null {
   const p = normPath(path)
-  if (!/^[a-z]:(\\|$)|^\\\\[^\\]+\\[^\\]+/i.test(path.replace(/\//g, '\\'))) return 'not an absolute folder'
-  if (/^[a-z]:$/.test(p)) return 'a whole drive'
-  if (/^\\\\[^\\]+\\[^\\]+$/.test(p)) return 'a whole network share'
+  if (!/^[a-z]:(\\|$)|^\\\\[^\\]+\\[^\\]+/i.test(path.replace(/\//g, '\\'))) return tr(M.notAbsolute)
+  if (/^[a-z]:$/.test(p)) return tr(M.wholeDrive)
+  if (/^\\\\[^\\]+\\[^\\]+$/.test(p)) return tr(M.wholeShare)
   for (const g of guarded) {
     const x = normPath(g)
-    if (x && (x === p || x.startsWith(`${p}\\`))) return 'it is, or holds, your home folder, profile or a system folder'
+    if (x && (x === p || x.startsWith(`${p}\\`))) return tr(M.holdsHome)
   }
   return null
 }
@@ -194,7 +222,7 @@ export const testsEligible = (opts: { packaged: boolean; holdsHive: boolean }): 
 export function folderPlan(input: { root: string | null; rootUnresolved?: string; trees: string | null; tests: string | null }, guarded: string[]): { path: string; kind: AvPathKind; unsafe?: string }[] {
   const out: { path: string; kind: AvPathKind; unsafe?: string }[] = []
   const add = (path: string | null, kind: AvPathKind, unresolved?: string): void => {
-    if (unresolved) return void out.push({ path: unresolved, kind, unsafe: 'its real location couldn’t be established' })
+    if (unresolved) return void out.push({ path: unresolved, kind, unsafe: tr(M.unresolved) })
     if (!path || out.some((f) => normPath(f.path) === normPath(path))) return
     const unsafe = unsafeFolder(path, guarded)
     out.push({ path, kind, ...(unsafe ? { unsafe } : {}) })
@@ -354,11 +382,11 @@ export interface AvChangeResult {
  */
 export function changeOutcome(action: AvAction, launch: { started: boolean; error?: string; cancelled?: boolean }, result: unknown): AvChangeResult {
   if (!launch.started) {
-    if (launch.cancelled) return { outcome: 'refused', message: 'The administrator prompt was declined: nothing changed.' }
-    return { outcome: 'error', message: `Windows couldn't start the administrator prompt${launch.error ? `: ${launch.error}` : '.'}` }
+    if (launch.cancelled) return { outcome: 'refused', message: tr(M.declined) }
+    return { outcome: 'error', message: tr(M.noPrompt, { hasError: launch.error ? 'yes' : 'no', error: launch.error ?? '' }) }
   }
   const r = obj(result)
-  if (!r) return { outcome: 'error', message: 'The change ran with administrator rights but reported nothing: check again to see what Defender has.' }
+  if (!r) return { outcome: 'error', message: tr(M.noReport) }
   // Only a list that was read, and is a list, counts: a missing or malformed one stays unknown.
   const exclusions = r.listed === true ? (readableList(r.exclusions) ?? undefined) : undefined
   const requested = pathList(r.requested) ?? []
@@ -373,23 +401,23 @@ export function changeOutcome(action: AvAction, launch: { started: boolean; erro
   const removed = action === 'remove' && exclusions ? requested.filter((p) => !listed(p, exclusions)) : []
   const changed = { ...(added.length ? { added } : {}), ...(removed.length ? { removed } : {}) }
   if (r.ok !== true) {
-    const error = str(r.error) ?? 'unknown error'
+    const error = str(r.error) ?? tr(M.unknownError)
     // Organisation-managed machines (group policy, Intune, tamper protection over exclusions) refuse local changes.
-    if (/polic|managed|tamper|0x800106ba|access is denied/i.test(error)) return { outcome: 'policy', message: `Defender refused the change, probably because your organisation manages its settings: ${error}`, ...extra, ...changed }
-    return { outcome: 'error', message: `Defender refused the change: ${error}`, ...extra, ...changed }
+    if (/polic|managed|tamper|0x800106ba|access is denied/i.test(error)) return { outcome: 'policy', message: tr(M.policy, { error }), ...extra, ...changed }
+    return { outcome: 'error', message: tr(M.refused, { error }), ...extra, ...changed }
   }
-  if (!exclusions) return { outcome: 'error', message: 'The change ran, but Defender’s list couldn’t be read afterwards: check again to see what it has.', ...extra }
-  if (action === 'check') return { outcome: 'done', message: 'Read Defender’s exclusions with administrator rights.', ...extra }
-  if (!requested.length) return { outcome: 'done', message: action === 'add' ? 'Defender already skips these folders (an existing exclusion covers them): nothing added.' : 'None of Hive’s exclusions is in Defender’s list any more: nothing removed.', ...extra }
+  if (!exclusions) return { outcome: 'error', message: tr(M.unreadable), ...extra }
+  if (action === 'check') return { outcome: 'done', message: tr(M.checked), ...extra }
+  if (!requested.length) return { outcome: 'done', message: tr(action === 'add' ? M.alreadySkips : M.noneLeft), ...extra }
   const missing = action === 'add' ? requested.length - added.length : requested.length - removed.length
   // A change Defender accepted but doesn't show: a policy keeps local exclusions from applying.
-  if (missing) return { outcome: 'policy', message: `Defender accepted the change but ${action === 'add' ? "doesn't list" : 'still lists'} ${missing === 1 ? 'one folder' : `${missing} folders`}: your organisation's settings probably override local exclusions.`, ...extra, ...changed }
+  if (missing) return { outcome: 'policy', message: tr(M.notApplied, { action: action === 'add' ? 'add' : 'remove', missing }), ...extra, ...changed }
   const n = requested.length
-  return { outcome: 'done', message: action === 'add' ? `Defender no longer scans ${n === 1 ? 'this folder' : `these ${n} folders`}.` : `Removed ${n === 1 ? 'the exclusion' : `${n} exclusions`} Hive added.`, ...extra, ...changed }
+  return { outcome: 'done', message: tr(action === 'add' ? M.added : M.removed, { count: n }), ...extra, ...changed }
 }
 
-/** The folders' labels, as the status and the offer say them. */
-export const KIND_LABEL: Record<AvPathKind, string> = { workspace: 'The workspace (every project in it)', worktrees: 'Its worktrees', tests: 'Hive’s test area (developing Hive)' }
+/** The folders' labels, as the status and the offer say them: messages, shown with tr(). */
+export const KIND_LABEL: Record<AvPathKind, Msg> = { workspace: M.kindWorkspace, worktrees: M.kindWorktrees, tests: M.kindTests }
 
 /** Microsoft's Dev Drive documentation. */
 export const DEV_DRIVE_URL = 'https://learn.microsoft.com/windows/dev-drive/'

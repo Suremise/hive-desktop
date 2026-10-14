@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useRef, useState } from 'react'
+import { Children, useCallback, useEffect, useRef, useState } from 'react'
 import type { CleanupItem, CleanupOptions, ProjectStorage, WorkspaceStorage } from '@shared/types'
 import { DEFAULT_CLEANUP, formatSize } from '@shared/storage'
 import { call, errorMessage } from '../api'
@@ -7,8 +7,62 @@ import { runCommand } from '../commands'
 import { cx, timeAgo } from '../util'
 import { BusyButton, Icon, LoadFailed, Modal, useBusy } from './ui'
 import { DataTable, type DataColumn } from './DataTable'
+import { fmt, msg, tr, tRich, type Msg } from '@shared/i18n'
 
-const plural = (n: number, one: string, many = `${one}s`): string => `${n} ${n === 1 ? one : many}`
+const M = {
+  what: msg({ id: 'workspace.storage.what', defaultMessage: 'What', description: "Storage's table: the column of what Hive keeps." }),
+  size: msg({ id: 'workspace.storage.size', defaultMessage: 'Size', description: "Storage's tables: the column of sizes." }),
+  reviewInChanges: msg({ id: 'workspace.storage.reviewInChanges', defaultMessage: 'Review in Changes', description: "Storage, beside the unused worktrees: a link to them in the Git tab's Changes." }),
+  loadTarget: msg({ id: 'workspace.storage.loadTarget', defaultMessage: 'the storage sizes', description: 'What could not be loaded when Storage measured: shown in "Could not load {what}: {error}", with Retry.' }),
+  backups: msg({ id: 'workspace.storage.backups', defaultMessage: 'Transcript backups', description: "Storage: Hive's copies of the sessions' transcripts (.hive/sessions)." }),
+  archive: msg({ id: 'workspace.storage.archive', defaultMessage: 'Archive', description: "Storage: Hive's archive folder (.hive/archive)." }),
+  attachments: msg({ id: 'workspace.storage.attachments', defaultMessage: 'Attachments', description: 'Storage: files pasted or dropped into sessions (.hive/attachments).' }),
+  worktree: msg({ id: 'workspace.storage.worktree', defaultMessage: "{agent}'s worktree", description: "Storage: an agent's worktree." }),
+  unused: msg({ id: 'workspace.storage.unused', defaultMessage: 'Unused worktrees ({count})', description: 'Storage: the worktrees no agent works in, on one line.' }),
+  measuring: msg({ id: 'workspace.storage.measuring', defaultMessage: 'Measuring…', description: 'Storage while it measures the folders.' }),
+  nothingKept: msg({ id: 'workspace.storage.nothingKept', defaultMessage: 'Nothing kept.', description: "Storage's table when Hive keeps nothing for the project." }),
+  total: msg({ id: 'workspace.storage.total', defaultMessage: 'Total', description: "Storage's table: the last row, the project's total." }),
+  measuringAgain: msg({ id: 'workspace.storage.measuringAgain', defaultMessage: 'Measuring again…', description: 'Storage while Refresh measures again.' }),
+  measured: msg({ id: 'workspace.storage.measured', defaultMessage: 'Measured {when}', description: 'Storage: when the sizes were measured ({when}: "4 minutes ago").' }),
+  refresh: msg({ id: 'workspace.storage.refresh', defaultMessage: 'Refresh', description: 'Storage: measures again.' }),
+  cleanUp: msg({ id: 'workspace.storage.cleanUp', defaultMessage: 'Clean Up…', description: 'Storage: opens the Clean Up dialog.' }),
+  kindArchivedAttachments: msg({ id: 'workspace.storage.kindArchivedAttachments', defaultMessage: 'Attachments of archived sessions', description: 'Clean Up, a group of what goes.' }),
+  kindOrphanAttachments: msg({ id: 'workspace.storage.kindOrphanAttachments', defaultMessage: 'Attachments of deleted sessions', description: 'Clean Up, a group of what goes; and its choice.' }),
+  kindArchivedBackup: msg({ id: 'workspace.storage.kindArchivedBackup', defaultMessage: 'Backups of archived sessions (the CLI still has them)', description: 'Clean Up, a group of what goes.' }),
+  kindGoneBackup: msg({ id: 'workspace.storage.kindGoneBackup', defaultMessage: 'Last copies of archived sessions (deletes them)', description: 'Clean Up, a group of what goes.' }),
+  moved: msg({ id: 'workspace.storage.moved', defaultMessage: 'Moved {count, plural, one {# item} other {# items}} ({size}) to the Recycle Bin', description: 'A notice after Clean Up ({size}: "12 MB").' }),
+  nothingRemoved: msg({ id: 'workspace.storage.nothingRemoved', defaultMessage: 'Nothing was removed', description: 'A notice after Clean Up when nothing went.' }),
+  skipped: msg({ id: 'workspace.storage.skipped', defaultMessage: '{count, plural, one {# item skipped:} other {# items skipped:}}', description: "Under the notice after Clean Up: items that couldn't be moved (each follows on a line)." }),
+  title: msg({ id: 'workspace.storage.title', defaultMessage: 'Clean Up {name}', description: "The Clean Up dialog's title ({name}: the project)." }),
+  cancel: msg({ id: 'workspace.storage.cancel', defaultMessage: 'Cancel', description: "The Clean Up dialog's button that closes it." }),
+  movingBusy: msg({ id: 'workspace.storage.movingBusy', defaultMessage: 'Moving to the Recycle Bin…', description: "The Clean Up dialog's button while it works." }),
+  moveItems: msg({ id: 'workspace.storage.moveItems', defaultMessage: 'Move {count, plural, one {# item} other {# items}} ({size}) to the Recycle Bin', description: "The Clean Up dialog's button ({size}: \"12 MB\")." }),
+  move: msg({ id: 'workspace.storage.move', defaultMessage: 'Move to the Recycle Bin', description: "The Clean Up dialog's button with nothing chosen." }),
+  neverTouched: msg({ id: 'workspace.storage.neverTouched', defaultMessage: "Running sessions and sessions that aren't archived are never touched, nor the coding agents' own transcripts (in ~/.claude and ~/.codex). What the sessions used still counts in the totals.", description: 'The Clean Up dialog, at the top. Keep the paths as they are.' }),
+  oldAttachments: msg({ id: 'workspace.storage.oldAttachments', defaultMessage: 'Attachments of archived sessions last active more than {days} days ago', description: 'A Clean Up choice; {days} is a box where you type the number of days.' }),
+  oldAttachmentsDesc: msg({ id: 'workspace.storage.oldAttachmentsDesc', defaultMessage: 'Files pasted or dropped into those sessions (.hive/attachments).', description: 'Under a Clean Up choice. Keep .hive/attachments as it is.' }),
+  attachmentDays: msg({ id: 'workspace.storage.attachmentDays', defaultMessage: 'Attachment age in days', description: "Clean Up: the days box's accessible name." }),
+  orphansDesc: msg({ id: 'workspace.storage.orphansDesc', defaultMessage: 'Attachments whose session was deleted, or whose launch never got a session (folders named run-…).', description: 'Under a Clean Up choice. Keep run-… as it is (the folders\' names).' }),
+  oldBackups: msg({ id: 'workspace.storage.oldBackups', defaultMessage: "Hive's backups of archived sessions last active more than {days} days ago", description: 'A Clean Up choice; {days} is a box where you type the number of days.' }),
+  oldBackupsDesc: msg({ id: 'workspace.storage.oldBackupsDesc', defaultMessage: "Only where Claude Code or Codex still has the transcript: the session stays, and can be resumed and read from the CLI's copy for as long as the CLI keeps it.", description: 'Under a Clean Up choice.' }),
+  backupDays: msg({ id: 'workspace.storage.backupDays', defaultMessage: 'Backup age in days', description: "Clean Up: the days box's accessible name." }),
+  goneBackups: msg({ id: 'workspace.storage.goneBackups', defaultMessage: 'Backups of archived sessions the CLI no longer has', description: 'A Clean Up choice (it deletes those sessions).' }),
+  goneBackupsDesc: msg({ id: 'workspace.storage.goneBackupsDesc', defaultMessage: "Hive's copy is the last one: the sessions are deleted, as Delete Session does.", description: 'Under a Clean Up choice. Delete Session is the Sessions tab\'s command.' }),
+  goneWarning: msg({ id: 'workspace.storage.goneWarning', defaultMessage: "These sessions can't be resumed or read afterwards: Hive's backup is the only copy left. They leave the Sessions tab; what they used still counts in the totals.", description: 'The Clean Up dialog, while it would delete sessions.' }),
+  whatGoes: msg({ id: 'workspace.storage.whatGoes', defaultMessage: 'What goes to the Recycle Bin', description: "The Clean Up dialog's heading over the files." }),
+  looking: msg({ id: 'workspace.storage.looking', defaultMessage: 'Looking…', description: 'The Clean Up dialog while it finds the files.' }),
+  nothingMatches: msg({ id: 'workspace.storage.nothingMatches', defaultMessage: 'Nothing matches.', description: 'The Clean Up dialog when no file matches the choices.' }),
+  groupCount: msg({ id: 'workspace.storage.groupCount', defaultMessage: '{count, plural, one {# item} other {# items}}, {size}', description: 'The Clean Up dialog, beside a group: how many and how big.' }),
+  nothing: msg({ id: 'workspace.storage.nothing', defaultMessage: 'Nothing.', description: 'An empty group in the Clean Up dialog.' }),
+  assistant: msg({ id: 'workspace.storage.assistant', defaultMessage: 'Hive Assistant', description: "Settings → Workspace's storage: the Assistant's row and heading. Hive's name stays as it is." }),
+  project: msg({ id: 'workspace.storage.project', defaultMessage: 'Project', description: "Settings → Workspace's storage table: the column of projects." }),
+  hide: msg({ id: 'workspace.storage.hide', defaultMessage: 'Hide', description: "Settings → Workspace's storage: hides the Assistant's storage." }),
+  storage: msg({ id: 'workspace.storage.storage', defaultMessage: 'Storage', description: "Settings → Workspace's storage: shows a project's (or the Assistant's) storage." }),
+  noWorkspace: msg({ id: 'workspace.storage.noWorkspace', defaultMessage: 'Open a workspace to see what Hive keeps for it.', description: "Settings → Workspace's storage with no workspace open." }),
+  measuringProjects: msg({ id: 'workspace.storage.measuringProjects', defaultMessage: 'Measuring the projects…', description: "Settings → Workspace's storage while it measures." }),
+  noProjects: msg({ id: 'workspace.storage.noProjects', defaultMessage: 'No projects.', description: "Settings → Workspace's storage table with no projects." }),
+  workspace: msg({ id: 'workspace.storage.workspace', defaultMessage: 'Workspace', description: "Settings → Workspace's storage table: the last row, the workspace's total." })
+}
 
 /** A row of a project's storage: what it is, where, how big. */
 interface StorageRow {
@@ -18,10 +72,11 @@ interface StorageRow {
   /** The project whose Overview lists them, for a Review link (unused worktrees, #353). */
   review?: string
 }
-const STORAGE_COLUMNS: DataColumn<StorageRow>[] = [
+/** Its columns, worded when the table is drawn (they follow a change of language). */
+const storageColumns = (): DataColumn<StorageRow>[] => [
   {
     key: 'what',
-    header: 'What',
+    header: tr(M.what),
     cell: (r) => (
       <>
         {r.label} <span className="faint small mono">{r.where}</span>
@@ -29,7 +84,7 @@ const STORAGE_COLUMNS: DataColumn<StorageRow>[] = [
           <>
             {' '}
             <a className="small" onClick={() => runCommand('project.unusedWorktrees', r.review)}>
-              Review in Changes
+              {tr(M.reviewInChanges)}
             </a>
           </>
         )}
@@ -37,7 +92,7 @@ const STORAGE_COLUMNS: DataColumn<StorageRow>[] = [
     ),
     sortValue: (r) => r.label
   },
-  { key: 'size', header: 'Size', num: true, descFirst: true, cell: (r) => formatSize(r.bytes), sortValue: (r) => r.bytes }
+  { key: 'size', header: tr(M.size), num: true, descFirst: true, cell: (r) => formatSize(r.bytes), sortValue: (r) => r.bytes }
 ]
 
 /**
@@ -87,16 +142,16 @@ export function StorageView({ path }: { path: string }) {
     load(false)
   }, [load])
 
-  if (error) return <LoadFailed inline what="the storage sizes" error={error} onRetry={() => load(true)} />
+  if (error) return <LoadFailed inline what={tr(M.loadTarget)} error={error} onRetry={() => load(true)} />
   const rows: StorageRow[] = data
     ? [
-        { label: 'Transcript backups', where: '.hive/sessions', bytes: data.sessions },
-        { label: 'Archive', where: '.hive/archive', bytes: data.archive },
-        { label: 'Attachments', where: '.hive/attachments', bytes: data.attachments },
-        ...data.worktrees.map((w) => ({ label: `${w.agent}'s worktree`, where: w.path, bytes: w.bytes })),
+        { label: tr(M.backups), where: '.hive/sessions', bytes: data.sessions },
+        { label: tr(M.archive), where: '.hive/archive', bytes: data.archive },
+        { label: tr(M.attachments), where: '.hive/attachments', bytes: data.attachments },
+        ...data.worktrees.map((w) => ({ label: tr(M.worktree, { agent: w.agent }), where: w.path, bytes: w.bytes })),
         // The worktrees no agent works in (#353), on one line: the Overview lists and tidies them.
         ...(data.unusedWorktrees?.length
-          ? [{ label: `Unused worktrees (${data.unusedWorktrees.length})`, where: data.unusedWorktrees.map((w) => w.branch ?? w.path).join(', '), bytes: data.unusedWorktrees.reduce((n, w) => n + w.bytes, 0), review: data.path }]
+          ? [{ label: tr(M.unused, { count: data.unusedWorktrees.length }), where: fmt.list(data.unusedWorktrees.map((w) => w.branch ?? w.path), 'unit'), bytes: data.unusedWorktrees.reduce((n, w) => n + w.bytes, 0), review: data.path }]
           : [])
       ]
     : []
@@ -104,31 +159,31 @@ export function StorageView({ path }: { path: string }) {
     <div className="storage">
       {!data ? (
         <div className="faint">
-          <Icon name="loading" spin /> Measuring…
+          <Icon name="loading" spin /> {tr(M.measuring)}
         </div>
       ) : (
         <DataTable
           id="storage-project"
           className="storage-table"
           rows={rows}
-          columns={STORAGE_COLUMNS}
+          columns={storageColumns()}
           rowKey={(r) => r.where}
-          empty="Nothing kept."
+          empty={tr(M.nothingKept)}
           foot={
             <tr className="storage-total">
-              <td>Total</td>
+              <td>{tr(M.total)}</td>
               <td className="num">{formatSize(data.total)}</td>
             </tr>
           }
         />
       )}
       <div className="storage-actions">
-        <span className="faint small">{measuring ? (data ? 'Measuring again…' : '') : data ? `Measured ${timeAgo(data.computedAt)}` : ''}</span>
+        <span className="faint small">{measuring ? (data ? tr(M.measuringAgain) : '') : data ? tr(M.measured, { when: timeAgo(data.computedAt) }) : ''}</span>
         <button className="btn subtle small" disabled={measuring} onClick={() => load(true)}>
-          <Icon name="refresh" /> Refresh
+          <Icon name="refresh" /> {tr(M.refresh)}
         </button>
         <button className="btn small" disabled={!data} onClick={() => setCleaning(true)}>
-          <Icon name="trash" /> Clean Up…
+          <Icon name="trash" /> {tr(M.cleanUp)}
         </button>
       </div>
       {cleaning && data && (
@@ -146,10 +201,10 @@ export function StorageView({ path }: { path: string }) {
   )
 }
 
-const CLEANUP_COLUMNS: DataColumn<CleanupItem>[] = [
+const cleanupColumns = (): DataColumn<CleanupItem>[] => [
   {
     key: 'what',
-    header: 'What',
+    header: tr(M.what),
     cell: (i) => (
       <span title={i.path}>
         {i.label} <span className="faint small mono">{i.path.split(/[\\/]/).slice(-2).join('/')}</span>
@@ -158,14 +213,14 @@ const CLEANUP_COLUMNS: DataColumn<CleanupItem>[] = [
     sortValue: (i) => i.label,
     filter: { kind: 'text', value: (i) => `${i.label} ${i.path}` }
   },
-  { key: 'size', header: 'Size', num: true, descFirst: true, cell: (i) => formatSize(i.bytes), sortValue: (i) => i.bytes }
+  { key: 'size', header: tr(M.size), num: true, descFirst: true, cell: (i) => formatSize(i.bytes), sortValue: (i) => i.bytes }
 ]
 
-const KIND_LABEL: Record<CleanupItem['kind'], string> = {
-  'archived-attachments': 'Attachments of archived sessions',
-  'orphan-attachments': 'Attachments of deleted sessions',
-  'archived-backup': "Backups of archived sessions (the CLI still has them)",
-  'gone-backup': 'Last copies of archived sessions (deletes them)'
+const KIND_LABEL: Record<CleanupItem['kind'], Msg> = {
+  'archived-attachments': M.kindArchivedAttachments,
+  'orphan-attachments': M.kindOrphanAttachments,
+  'archived-backup': M.kindArchivedBackup,
+  'gone-backup': M.kindGoneBackup
 }
 
 /** A days field that commits a whole number from 1 to 3650 (keeps the last good one while typing). */
@@ -227,7 +282,7 @@ export function CleanupDialog({ path, name, onClose, onDone }: { path: string; n
     const r = await action.run('clean', () => call('storage:cleanup', path, opts, items.map((i) => i.path)))
     if (!r) return
     const { removed, bytes, skipped } = r.value
-    notify(removed ? 'success' : 'info', removed ? `Moved ${plural(removed, 'item')} (${formatSize(bytes)}) to the Recycle Bin` : 'Nothing was removed', skipped.length ? `${plural(skipped.length, 'item')} skipped:\n${skipped.join('\n')}` : undefined)
+    notify(removed ? 'success' : 'info', removed ? tr(M.moved, { count: removed, size: formatSize(bytes) }) : tr(M.nothingRemoved), skipped.length ? [tr(M.skipped, { count: skipped.length }), ...skipped].join('\n') : undefined)
     onDone()
   }
 
@@ -245,7 +300,7 @@ export function CleanupDialog({ path, name, onClose, onDone }: { path: string; n
 
   return (
     <Modal
-      title={`Clean Up ${name}`}
+      title={tr(M.title, { name })}
       icon="trash"
       wide
       onClose={onClose}
@@ -254,59 +309,55 @@ export function CleanupDialog({ path, name, onClose, onDone }: { path: string; n
       footer={
         <>
           <button className="btn subtle" onClick={onClose}>
-            Cancel
+            {tr(M.cancel)}
           </button>
-          <BusyButton className={gone ? 'danger' : 'primary'} disabled={!items?.length} busy={action.busy === 'clean'} busyLabel="Moving to the Recycle Bin…" onClick={() => void go()}>
-            {items?.length ? `Move ${plural(items.length, 'item')} (${formatSize(total)}) to the Recycle Bin` : 'Move to the Recycle Bin'}
+          <BusyButton className={gone ? 'danger' : 'primary'} disabled={!items?.length} busy={action.busy === 'clean'} busyLabel={tr(M.movingBusy)} onClick={() => void go()}>
+            {items?.length ? tr(M.moveItems, { count: items.length, size: formatSize(total) }) : tr(M.move)}
           </BusyButton>
         </>
       }
     >
       <p className="faint" style={{ marginTop: 0 }}>
-        Running sessions and sessions that aren't archived are never touched, nor the coding agents' own transcripts (in ~/.claude and ~/.codex). What the sessions used still counts in the totals.
+        {tr(M.neverTouched)}
       </p>
       <div className="choice-list cleanup-options">
         {option(
           attachmentsOn,
           setAttachmentsOn,
-          <>
-            Attachments of archived sessions last active more than <DaysInput label="Attachment age in days" value={attachmentDays} disabled={busy || !attachmentsOn} onChange={setAttachmentDays} /> days ago
-          </>,
-          'Files pasted or dropped into those sessions (.hive/attachments).'
+          <>{Children.toArray(tRich<React.ReactNode>(M.oldAttachments, { days: <DaysInput label={tr(M.attachmentDays)} value={attachmentDays} disabled={busy || !attachmentsOn} onChange={setAttachmentDays} /> }))}</>,
+          tr(M.oldAttachmentsDesc)
         )}
-        {option(orphans, setOrphans, 'Attachments of deleted sessions', "Attachments whose session was deleted, or whose launch never got a session (folders named run-…).")}
+        {option(orphans, setOrphans, tr(M.kindOrphanAttachments), tr(M.orphansDesc))}
         {option(
           backupsOn,
           setBackupsOn,
-          <>
-            Hive's backups of archived sessions last active more than <DaysInput label="Backup age in days" value={backupDays} disabled={busy || !backupsOn} onChange={setBackupDays} /> days ago
-          </>,
-          "Only where Claude Code or Codex still has the transcript: the session stays, and can be resumed and read from the CLI's copy for as long as the CLI keeps it."
+          <>{Children.toArray(tRich<React.ReactNode>(M.oldBackups, { days: <DaysInput label={tr(M.backupDays)} value={backupDays} disabled={busy || !backupsOn} onChange={setBackupDays} /> }))}</>,
+          tr(M.oldBackupsDesc)
         )}
-        {option(gone, setGone, "Backups of archived sessions the CLI no longer has", "Hive's copy is the last one: the sessions are deleted, as Delete Session does.", true)}
+        {option(gone, setGone, tr(M.goneBackups), tr(M.goneBackupsDesc), true)}
       </div>
       {gone && (
         <div className="banner danger">
-          <Icon name="warning" /> These sessions can't be resumed or read afterwards: Hive's backup is the only copy left. They leave the Sessions tab; what they used still counts in the totals.
+          <Icon name="warning" /> {tr(M.goneWarning)}
         </div>
       )}
-      <div className="agent-dialog-h">What goes to the Recycle Bin</div>
+      <div className="agent-dialog-h">{tr(M.whatGoes)}</div>
       {previewError ? (
         <div className="field-error">{previewError}</div>
       ) : !items ? (
         <div className="faint">
-          <Icon name="loading" spin /> Looking…
+          <Icon name="loading" spin /> {tr(M.looking)}
         </div>
       ) : !items.length ? (
-        <div className="faint">Nothing matches.</div>
+        <div className="faint">{tr(M.nothingMatches)}</div>
       ) : (
         <div className="cleanup-preview">
           {groups.map((g) => (
             <div key={g.kind}>
               <div className="cleanup-kind">
-                {KIND_LABEL[g.kind]} <span className="faint">· {plural(g.list.length, 'item')}, {formatSize(g.list.reduce((n, i) => n + i.bytes, 0))}</span>
+                {tr(KIND_LABEL[g.kind])} <span className="faint">· {tr(M.groupCount, { count: g.list.length, size: formatSize(g.list.reduce((n, i) => n + i.bytes, 0)) })}</span>
               </div>
-              <DataTable id="storage-cleanup" rows={g.list} columns={CLEANUP_COLUMNS} rowKey={(i) => i.path} defaultPageSize={10} filterFrom={10} empty="Nothing." />
+              <DataTable id="storage-cleanup" rows={g.list} columns={cleanupColumns()} rowKey={(i) => i.path} defaultPageSize={10} filterFrom={10} empty={tr(M.nothing)} />
             </div>
           ))}
         </div>
@@ -317,12 +368,12 @@ export function CleanupDialog({ path, name, onClose, onDone }: { path: string; n
 
 type WorkspaceRow = WorkspaceStorage['projects'][number]
 const BIGGEST_FIRST = { key: 'size', desc: true }
-const projectLabel = (p: WorkspaceRow): string => (p.assistant ? 'Hive Assistant' : p.name)
+const projectLabel = (p: WorkspaceRow): string => (p.assistant ? tr(M.assistant) : p.name)
 /** Settings → Workspace's columns: each project (and the Assistant), its size, and a link to its Storage page. */
 function workspaceColumns(assistantOpen: boolean, toggleAssistant: () => void): DataColumn<WorkspaceRow>[] {
   return [
-    { key: 'project', header: 'Project', cell: projectLabel, sortValue: projectLabel, filter: { kind: 'text', value: projectLabel } },
-    { key: 'size', header: 'Size', num: true, descFirst: true, cell: (p) => formatSize(p.total), sortValue: (p) => p.total },
+    { key: 'project', header: tr(M.project), cell: projectLabel, sortValue: projectLabel, filter: { kind: 'text', value: projectLabel } },
+    { key: 'size', header: tr(M.size), num: true, descFirst: true, cell: (p) => formatSize(p.total), sortValue: (p) => p.total },
     {
       key: 'actions',
       header: '',
@@ -330,11 +381,11 @@ function workspaceColumns(assistantOpen: boolean, toggleAssistant: () => void): 
       cell: (p) =>
         p.assistant ? (
           <button className="btn small subtle" onClick={toggleAssistant}>
-            {assistantOpen ? 'Hide' : 'Storage'}
+            {tr(assistantOpen ? M.hide : M.storage)}
           </button>
         ) : (
           <button className="btn small subtle" onClick={() => openProjectSettings(p.path, 'storage')}>
-            Storage
+            {tr(M.storage)}
           </button>
         )
     }
@@ -368,14 +419,14 @@ export function WorkspaceStorageList() {
     setData(null)
     load(false)
   }, [load])
-  if (!workspace) return <div className="faint">Open a workspace to see what Hive keeps for it.</div>
-  if (error) return <LoadFailed inline what="the storage sizes" error={error} onRetry={() => load(true)} />
+  if (!workspace) return <div className="faint">{tr(M.noWorkspace)}</div>
+  if (error) return <LoadFailed inline what={tr(M.loadTarget)} error={error} onRetry={() => load(true)} />
   const assistant = data?.projects.find((p) => p.assistant)
   return (
     <div className="storage">
       {!data ? (
         <div className="faint">
-          <Icon name="loading" spin /> Measuring the projects…
+          <Icon name="loading" spin /> {tr(M.measuringProjects)}
         </div>
       ) : (
         <DataTable
@@ -387,10 +438,10 @@ export function WorkspaceStorageList() {
           defaultSort={BIGGEST_FIRST}
           defaultPageSize={10}
           filterFrom={10}
-          empty="No projects."
+          empty={tr(M.noProjects)}
           foot={
             <tr className="storage-total">
-              <td>Workspace</td>
+              <td>{tr(M.workspace)}</td>
               <td className="num">{formatSize(data.total)}</td>
               <td />
             </tr>
@@ -398,14 +449,14 @@ export function WorkspaceStorageList() {
         />
       )}
       <div className="storage-actions">
-        <span className="faint small">{measuring && data ? 'Measuring again…' : ''}</span>
+        <span className="faint small">{measuring && data ? tr(M.measuringAgain) : ''}</span>
         <button className="btn subtle small" disabled={measuring} onClick={() => load(true)}>
-          <Icon name="refresh" /> Refresh
+          <Icon name="refresh" /> {tr(M.refresh)}
         </button>
       </div>
       {assistantOpen && assistant && (
         <div className="storage-assistant">
-          <div className="agent-dialog-h">Hive Assistant</div>
+          <div className="agent-dialog-h">{tr(M.assistant)}</div>
           <StorageView path={assistant.path} />
         </div>
       )}

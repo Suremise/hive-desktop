@@ -9,6 +9,44 @@ import { openGuideAt } from '../tips'
 import { cx, timeAgo } from '../util'
 import { BusyButton, Icon, InfoTip } from './ui'
 import { useStorageRequests } from './Storage'
+import { msg, tr } from '@shared/i18n'
+
+const M = {
+  loading: msg({ id: 'workspace.unusedList.loading', defaultMessage: 'Loading…', description: "The Changes tab's Unused worktrees while git lists them." }),
+  gitProblem: msg({ id: 'workspace.unusedList.gitProblem', defaultMessage: "{problem}, so Hive can't list the unused worktrees.", description: "The Changes tab's Unused worktrees when git can't run ({problem}: what is wrong with git)." }),
+  none: msg({ id: 'workspace.unusedList.none', defaultMessage: '{project} has no unused worktrees: every worktree belongs to an agent.', description: "The Changes tab's Unused worktrees with none." }),
+  mainBranch: msg({ id: 'workspace.unusedList.mainBranch', defaultMessage: 'the main branch', description: "Unused worktrees: what they'd be merged into when git doesn't say which branch. Lower case." }),
+  keptTitle: msg({ id: 'workspace.unusedList.keptTitle', defaultMessage: '{name} was kept', description: "A notice: an unused worktree ({name}: its branch or folder) wasn't removed; the reason follows." }),
+  branchKept: msg({ id: 'workspace.unusedList.branchKept', defaultMessage: '{path} was removed, its branch kept', description: "A notice: an unused worktree's folder went but its branch stayed; the reason follows." }),
+  removeFailed: msg({ id: 'workspace.unusedList.removeFailed', defaultMessage: "Couldn't remove the worktree", description: 'An error notice; the reason follows.' }),
+  removeMergedTitle: msg({ id: 'workspace.unusedList.removeMergedTitle', defaultMessage: 'Remove {count, plural, one {# merged worktree} other {# merged worktrees}}?', description: 'Confirmation before Remove all merged.' }),
+  removeMergedMessage: msg({ id: 'workspace.unusedList.removeMergedMessage', defaultMessage: 'Each is merged into {into} and clean: its folder and its branch are deleted. One that changed since is kept.', description: 'Confirmation before Remove all merged ({into}: the main branch). The worktrees follow, one a line.' }),
+  remove: msg({ id: 'workspace.unusedList.remove', defaultMessage: 'Remove', description: "Remove all merged's confirmation, and a merged worktree's button." }),
+  removing: msg({ id: 'workspace.unusedList.removing', defaultMessage: 'Removing…', description: 'A remove button while it works.' }),
+  keptReason: msg({ id: 'workspace.unusedList.keptReason', defaultMessage: 'kept', description: "A line after Remove all merged, for a worktree kept with no reason given (it follows its branch and a colon). Lower case." }),
+  keptMany: msg({ id: 'workspace.unusedList.keptMany', defaultMessage: '{count, plural, one {# worktree was kept} other {# worktrees were kept}}', description: 'A notice after Remove all merged: some stayed (why follows, one a line).' }),
+  nothingRemoved: msg({ id: 'workspace.unusedList.nothingRemoved', defaultMessage: 'Nothing was removed', description: 'An error notice: Remove anyway checked the worktree again and that failed.' }),
+  checkFailed: msg({ id: 'workspace.unusedList.checkFailed', defaultMessage: '{refused}. Checking it again failed: {error}', description: "Under Nothing was removed: why the first try was refused ({refused}), and why checking again failed ({error})." }),
+  anywayAgainTitle: msg({ id: 'workspace.unusedList.anywayAgainTitle', defaultMessage: 'Checked again: remove it anyway?', description: 'Confirmation before Remove anyway, after a first try was refused because the worktree changed.' }),
+  anywayTitle: msg({ id: 'workspace.unusedList.anywayTitle', defaultMessage: 'Remove the worktree anyway?', description: 'Confirmation before Remove anyway: the worktree holds work that is nowhere else.' }),
+  anywayMessage: msg({ id: 'workspace.unusedList.anywayMessage', defaultMessage: '{again, select, yes {Nothing was removed: {refused}. As it is now, this} other {This}} deletes {path}{hasBranch, select, yes { and its branch {branch}} other {}}, with work that is nowhere else:', description: 'Confirmation before Remove anyway. What would be lost follows, one a line. {refused}: why the first try was refused.' }),
+  anywayDetail: msg({ id: 'workspace.unusedList.anywayDetail', defaultMessage: "It can't be undone. If anything in it changes before you confirm (a file, its branch, its commit), nothing is removed.", description: 'Confirmation before Remove anyway.' }),
+  removeAnyway: msg({ id: 'workspace.unusedList.removeAnyway', defaultMessage: 'Remove Anyway', description: "Remove anyway's confirmation: its button." }),
+  changed: msg({ id: 'workspace.unusedList.changed', defaultMessage: 'what it holds changed', description: 'Why Remove anyway removed nothing, when Hive gave no other reason. Lower case: it follows "Nothing was removed:".' }),
+  removeAllMerged: msg({ id: 'workspace.unusedList.removeAllMerged', defaultMessage: 'Remove all merged ({count})…', description: "The Changes tab's Unused worktrees: removes every merged, clean one." }),
+  detached: msg({ id: 'workspace.unusedList.detached', defaultMessage: '(detached)', description: 'An unused worktree with no branch (a detached HEAD).' }),
+  measuring: msg({ id: 'workspace.unusedList.measuring', defaultMessage: 'measuring…', description: "An unused worktree's size while Storage measures it. Lower case." }),
+  openTip: msg({ id: 'workspace.unusedList.openTip', defaultMessage: "{work, select, yes {Show {branch}'s changes, and merge them} other {Show {branch}'s changes}}", description: "Tooltip on an unused worktree's Open." }),
+  open: msg({ id: 'workspace.unusedList.open', defaultMessage: 'Open', description: "An unused worktree's button: shows its changes." }),
+  give: msg({ id: 'workspace.unusedList.give', defaultMessage: 'Give to an agent…', description: "An unused worktree's button: an agent works in it again." }),
+  checking: msg({ id: 'workspace.unusedList.checking', defaultMessage: 'Checking…', description: 'Remove anyway while it checks the worktree.' }),
+  removeAnywayButton: msg({ id: 'workspace.unusedList.removeAnywayButton', defaultMessage: 'Remove anyway…', description: "An unused worktree's button when it holds work." }),
+  heading: msg({ id: 'workspace.unusedList.heading', defaultMessage: 'Unused worktrees', description: "The Changes tab's Unused worktrees page: its heading (a count follows)." }),
+  headingTip: msg({ id: 'workspace.unusedList.headingTip', defaultMessage: 'Worktrees no agent of this project uses right now, e.g. from another template (loading that template gives them back to its agents).', description: 'Tooltip on Unused worktrees.' }),
+  learnMore: msg({ id: 'workspace.unusedList.learnMore', defaultMessage: 'Learn more', description: 'Unused worktrees: opens the user guide there.' }),
+  review: msg({ id: 'workspace.unusedList.review', defaultMessage: 'Review', description: "The Changes tab's notice on unused worktrees holding work: shows them." }),
+  reviewInChanges: msg({ id: 'workspace.unusedList.reviewInChanges', defaultMessage: 'Review in Changes', description: "The Overview's line on unused worktrees: shows them in the Git tab's Changes." })
+}
 
 /**
  * Each project's unused worktrees as last listed (#476), with when: shown at once, while git is asked again, by every
@@ -92,25 +130,25 @@ export function UnusedWorktreesSection({ project, data, reload, onOpen }: { proj
     )
   }, [paths, project.path, request])
 
-  if (!data) return <div className="empty-state"><Icon name="loading" spin />Loading…</div>
+  if (!data) return <div className="empty-state"><Icon name="loading" spin />{tr(M.loading)}</div>
   if (!list.length)
     return (
       <div className="unused-worktrees">
         <UnusedHeading project={project} count={0} />
-        <div className="empty-state">{data.gitProblem ? `${data.gitProblem}, so Hive can't list the unused worktrees.` : `${project.name} has no unused worktrees: every worktree belongs to an agent.`}</div>
+        <div className="empty-state">{data.gitProblem ? tr(M.gitProblem, { problem: data.gitProblem }) : tr(M.none, { project: project.name })}</div>
       </div>
     )
   const merged = list.filter((w) => w.check.removable)
-  const into = list.find((w) => w.check.into)?.check.into ?? 'the main branch'
+  const into = list.find((w) => w.check.into)?.check.into ?? tr(M.mainBranch)
 
   const removeOne = async (w: UnusedWorktree): Promise<void> => {
     setBusy(w.path)
     try {
       const r = await call('worktrees:removeUnused', project.path, w.path, { expectInto: w.check.into })
-      if (!r.deleted) notify('warning', `${w.branch ?? w.path} was kept`, r.reason)
-      else if (r.branchKept) notify('warning', `${w.path} was removed, its branch kept`, r.reason)
+      if (!r.deleted) notify('warning', tr(M.keptTitle, { name: w.branch ?? w.path }), r.reason)
+      else if (r.branchKept) notify('warning', tr(M.branchKept, { path: w.path }), r.reason)
     } catch (e) {
-      notify('error', "Couldn't remove the worktree", errorMessage(e))
+      notify('error', tr(M.removeFailed), errorMessage(e))
     } finally {
       setBusy(null)
       reload()
@@ -120,20 +158,20 @@ export function UnusedWorktreesSection({ project, data, reload, onOpen }: { proj
   const removeMerged = async (): Promise<void> => {
     const kept: string[] = []
     const ok = await confirm({
-      title: `Remove ${merged.length} merged worktree${merged.length === 1 ? '' : 's'}?`,
-      message: `Each is merged into ${into} and clean: its folder and its branch are deleted. One that changed since is kept.`,
+      title: tr(M.removeMergedTitle, { count: merged.length }),
+      message: tr(M.removeMergedMessage, { into }),
       list: merged.map((w) => `${w.branch} — ${w.path}`),
-      confirmLabel: 'Remove',
-      busyLabel: 'Removing…',
+      confirmLabel: tr(M.remove),
+      busyLabel: tr(M.removing),
       run: async () => {
         for (const w of merged) {
           const r = await call('worktrees:removeUnused', project.path, w.path, { expectInto: w.check.into }).catch((e: unknown) => ({ deleted: false, reason: errorMessage(e) }))
-          if (!r.deleted) kept.push(`${w.branch}: ${r.reason ?? 'kept'}`)
+          if (!r.deleted) kept.push(`${w.branch}: ${r.reason ?? tr(M.keptReason)}`)
         }
       }
     })
     reload()
-    if (ok && kept.length) notify('warning', `${kept.length} worktree${kept.length === 1 ? ' was' : 's were'} kept`, kept.join('\n'))
+    if (ok && kept.length) notify('warning', tr(M.keptMany, { count: kept.length }), kept.join('\n'))
   }
 
   // What it loses, checked now in main (not the list's older counts), under a token the removal presents: main removes it
@@ -148,20 +186,20 @@ export function UnusedWorktreesSection({ project, data, reload, onOpen }: { proj
       try {
         preview = await call('worktrees:removalPreview', project.path, w.path)
       } catch (e) {
-        notify('error', 'Nothing was removed', refused ? `${refused}. Checking it again failed: ${errorMessage(e)}` : errorMessage(e))
+        notify('error', tr(M.nothingRemoved), refused ? tr(M.checkFailed, { refused, error: errorMessage(e) }) : errorMessage(e))
         break
       } finally {
         setBusy(null)
       }
       const outcome: { removal: UnusedWorktreeRemoval | null; error: string | null } = { removal: null, error: null }
       const ok = await confirm({
-        title: refused ? 'Checked again: remove it anyway?' : 'Remove the worktree anyway?',
-        message: `${refused ? `Nothing was removed: ${refused}. As it is now, this` : 'This'} deletes ${preview.path}${preview.branch ? ` and its branch ${preview.branch}` : ''}, with work that is nowhere else:`,
+        title: tr(refused ? M.anywayAgainTitle : M.anywayTitle),
+        message: tr(M.anywayMessage, { again: refused ? 'yes' : 'no', refused: refused ?? '', path: preview.path, hasBranch: preview.branch ? 'yes' : 'no', branch: preview.branch ?? '' }),
         list: preview.lost,
-        detail: "It can't be undone. If anything in it changes before you confirm (a file, its branch, its commit), nothing is removed.",
+        detail: tr(M.anywayDetail),
         danger: true,
-        confirmLabel: 'Remove Anyway',
-        busyLabel: 'Removing…',
+        confirmLabel: tr(M.removeAnyway),
+        busyLabel: tr(M.removing),
         run: async () => {
           // Never thrown: a failed run would offer Try Again with this spent token.
           outcome.removal = await call('worktrees:removeUnused', project.path, w.path, { force: preview.token }).catch((e: unknown) => {
@@ -173,19 +211,19 @@ export function UnusedWorktreesSection({ project, data, reload, onOpen }: { proj
       if (!ok) break
       const r = outcome.removal
       if (outcome.error || !r) {
-        notify('error', "Couldn't remove the worktree", outcome.error ?? undefined)
+        notify('error', tr(M.removeFailed), outcome.error ?? undefined)
         break
       }
       if (r.deleted) {
-        if (r.branchKept) notify('warning', `${w.path} was removed, its branch kept`, r.reason)
+        if (r.branchKept) notify('warning', tr(M.branchKept, { path: w.path }), r.reason)
         break
       }
       if (!r.lookAgain) {
-        notify('warning', `${w.branch ?? w.path} was kept`, r.reason)
+        notify('warning', tr(M.keptTitle, { name: w.branch ?? w.path }), r.reason)
         break
       }
       // Its own "look again" is what follows: the question says it once.
-      refused = (r.reason ?? 'what it holds changed').replace(/:\s*(nothing was removed, )?look again$/, '')
+      refused = (r.reason ?? tr(M.changed)).replace(/:\s*(nothing was removed, )?look again$/, '')
     }
     // Removed, kept or cancelled: the list as it is now.
     reload()
@@ -196,7 +234,7 @@ export function UnusedWorktreesSection({ project, data, reload, onOpen }: { proj
       <UnusedHeading project={project} count={list.length} into={into}>
         {merged.length > 0 && (
           <button className="btn small" onClick={() => void removeMerged()}>
-            Remove all merged ({merged.length})…
+            {tr(M.removeAllMerged, { count: merged.length })}
           </button>
         )}
       </UnusedHeading>
@@ -207,7 +245,7 @@ export function UnusedWorktreesSection({ project, data, reload, onOpen }: { proj
             <Icon name="git-branch" />
             <div className="grow">
               <div>
-                <strong>{w.branch ?? '(detached)'}</strong>{' '}
+                <strong>{w.branch ?? tr(M.detached)}</strong>{' '}
                 <span className={cx('badge', w.check.removable ? 'success' : holdsWork(w) ? 'warn' : '')}>{unusedState(w)}</span>{' '}
                 {w.origin && (
                   <span className={cx('badge', w.origin.madeBy === 'other' && 'accent')} data-origin={w.origin.madeBy}>
@@ -219,27 +257,27 @@ export function UnusedWorktreesSection({ project, data, reload, onOpen }: { proj
                 {w.path}
               </div>
               <div className="faint" style={{ fontSize: 12 }}>
-                {[w.lastCommit ? `${timeAgo(w.lastCommit.at)}: ${w.lastCommit.subject}` : '', size === undefined ? (sizes ? '' : 'measuring…') : formatSize(size)].filter(Boolean).join(' · ')}
+                {[w.lastCommit ? `${timeAgo(w.lastCommit.at)}: ${w.lastCommit.subject}` : '', size === undefined ? (sizes ? '' : tr(M.measuring)) : formatSize(size)].filter(Boolean).join(' · ')}
               </div>
             </div>
             <div className="flex">
               {w.branch && (
-                <button className="btn small subtle" title={`Show ${w.branch}'s changes${holdsWork(w) ? ', and merge them' : ''}`} onClick={() => onOpen(w.path)}>
-                  Open
+                <button className="btn small subtle" title={tr(M.openTip, { branch: w.branch, work: holdsWork(w) ? 'yes' : 'no' })} onClick={() => onOpen(w.path)}>
+                  {tr(M.open)}
                 </button>
               )}
               {w.check.removable ? (
-                <BusyButton className="btn small" busy={busy === w.path} busyLabel="Removing…" disabled={!!busy} onClick={() => void removeOne(w)}>
-                  Remove
+                <BusyButton className="btn small" busy={busy === w.path} busyLabel={tr(M.removing)} disabled={!!busy} onClick={() => void removeOne(w)}>
+                  {tr(M.remove)}
                 </BusyButton>
               ) : (
                 <>
                   <button className="btn small" onClick={() => giveWorktreeToAgent(project.path, w.path)}>
-                    Give to an agent…
+                    {tr(M.give)}
                   </button>
                   {lostByRemoving(w) && (
-                    <BusyButton className="btn small danger-text" busy={busy === w.path} busyLabel="Checking…" disabled={!!busy} onClick={() => void removeAnyway(w)}>
-                      Remove anyway…
+                    <BusyButton className="btn small danger-text" busy={busy === w.path} busyLabel={tr(M.checking)} disabled={!!busy} onClick={() => void removeAnyway(w)}>
+                      {tr(M.removeAnywayButton)}
                     </BusyButton>
                   )}
                 </>
@@ -260,12 +298,12 @@ export function UnusedHeading({ project, count, into, children }: { project: Pro
   return (
     <>
       <h2 className="section" id="unused-worktrees">
-        Unused worktrees {count !== undefined && <span className="badge">{count}</span>}
-        <InfoTip text="Worktrees no agent of this project uses right now, e.g. from another template (loading that template gives them back to its agents)." />
+        {tr(M.heading)} {count !== undefined && <span className="badge">{count}</span>}
+        <InfoTip text={tr(M.headingTip)} />
         <div className="grow" />
         {children}
         <button className="btn small subtle" onClick={() => openGuideAt(UNUSED_WORKTREES_GUIDE)}>
-          Learn more
+          {tr(M.learnMore)}
         </button>
       </h2>
       <p className="hint changes-about" data-about="unused">
@@ -283,7 +321,7 @@ export function UnusedWorkNotice({ project, data }: { project: ProjectInfo; data
     <div className="unused-work-notice">
       <Icon name="git-branch" />
       <span>{text}</span>
-      <a onClick={() => showUnusedWorktrees(project.path)}>Review</a>
+      <a onClick={() => showUnusedWorktrees(project.path)}>{tr(M.review)}</a>
     </div>
   )
 }
@@ -298,7 +336,7 @@ export function UnusedWorktreesLine({ project }: { project: ProjectInfo }) {
       <Icon name="git-branch" />
       <span>{text}</span>
       <span className="faint">—</span>
-      <a onClick={() => showUnusedWorktrees(project.path)}>Review in Changes</a>
+      <a onClick={() => showUnusedWorktrees(project.path)}>{tr(M.reviewInChanges)}</a>
     </div>
   )
 }

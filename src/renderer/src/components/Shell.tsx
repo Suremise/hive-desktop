@@ -16,17 +16,57 @@ import { useInbox } from '../inbox'
 import { GitStatusBarItem } from '../views/GitTab'
 import { AGENT_LIMIT_MAX } from '@shared/defaults'
 import { AgentRowsTable, CARD_COLUMN, PROJECT_COLUMN, STATE_COLUMN, WAITING_COLUMN, agentRow, tableText, type AgentTableData, type AgentTableRow } from './AgentsTable'
+import { limitWindow } from '../views/ProjectTabs'
+import { msg, tr, type Msg } from '@shared/i18n'
 
-const ACTIVITIES: { id: Activity; icon: string; label: string; command: string }[] = [
-  { id: 'projects', icon: 'files', label: 'Projects', command: 'view.projects' },
-  { id: 'overview', icon: 'dashboard', label: 'Workspace Overview', command: 'view.overview' },
-  { id: 'performance', icon: 'pulse', label: 'Performance', command: 'view.performance' },
-  { id: 'board', icon: 'project', label: 'Task Board', command: 'view.board' },
-  { id: 'notes', icon: 'notebook', label: 'Shared Notes', command: 'view.notes' },
-  { id: 'skills', icon: 'sparkle', label: 'Skills', command: 'view.skills' },
-  { id: 'templates', icon: 'library', label: 'Templates', command: 'view.templates' },
-  { id: 'mcp', icon: 'plug', label: 'MCP Servers', command: 'view.mcp' },
-  { id: 'assistant', icon: 'hubot', label: 'Hive Assistant', command: 'view.assistant' }
+const M = {
+  projects: msg({ id: 'workspace.activity.projects', defaultMessage: 'Projects', description: 'The activity bar (left edge): the Projects view.' }),
+  overview: msg({ id: 'workspace.activity.overview', defaultMessage: 'Workspace Overview', description: 'The activity bar (left edge): the Workspace Overview.' }),
+  performance: msg({ id: 'workspace.activity.performance', defaultMessage: 'Performance', description: "The activity bar (left edge): the Performance view (how agents' turns perform)." }),
+  board: msg({ id: 'workspace.activity.board', defaultMessage: 'Task Board', description: 'The activity bar (left edge): the task board.' }),
+  notes: msg({ id: 'workspace.activity.notes', defaultMessage: 'Shared Notes', description: 'The activity bar (left edge): the workspace\'s shared notes.' }),
+  skills: msg({ id: 'workspace.activity.skills', defaultMessage: 'Skills', description: "The activity bar (left edge): the workspace's Hive skills." }),
+  templates: msg({ id: 'workspace.activity.templates', defaultMessage: 'Templates', description: "The activity bar (left edge): agent templates." }),
+  mcp: msg({ id: 'workspace.activity.mcp', defaultMessage: 'MCP Servers', description: "The activity bar (left edge): the workspace's MCP servers." }),
+  assistant: msg({ id: 'workspace.activity.assistant', defaultMessage: 'Hive Assistant', description: "The activity bar (left edge): the Hive Assistant's view. Hive's name stays as it is." }),
+  docs: msg({ id: 'workspace.activity.docs', defaultMessage: 'Documentation', description: "The activity bar (left edge): Hive's documentation." }),
+  settings: msg({ id: 'workspace.activity.settings', defaultMessage: 'Settings', description: "The activity bar (left edge): Hive's settings." }),
+  withKey: msg({ id: 'workspace.activity.withKey', defaultMessage: '{label} ({key})', description: 'Tooltip on an activity bar button: its name and its shortcut ({key}: "Ctrl+Shift+E").' }),
+  notifications: msg({ id: 'workspace.activity.notifications', defaultMessage: 'Notifications', description: 'The activity bar: the button that shows the notifications.' }),
+  notificationsTip: msg({ id: 'workspace.activity.notificationsTip', defaultMessage: '{unread, plural, =0 {Notifications} other {Notifications (# unread)}}', description: 'Tooltip on the notifications button.' }),
+  unread: msg({ id: 'workspace.activity.unread', defaultMessage: '{count, plural, other {# unread}}', description: 'The notifications button, for screen readers: how many notifications are unread.' }),
+  more: msg({ id: 'workspace.statusBar.more', defaultMessage: 'and {count} more', description: "Under the running agents' table in the status bar's tooltip: agents not listed." }),
+  openWorkspace: msg({ id: 'workspace.statusBar.openWorkspace', defaultMessage: 'Open a workspace', description: 'The status bar with no workspace open: opens one.' }),
+  running: msg({ id: 'workspace.statusBar.running', defaultMessage: '{count, plural, other {# running session(s)}}: {working} working, {background, plural, =0 {} other {# waiting on background tasks, }}{waiting} waiting for you', description: "The status bar's running sessions (English keeps session(s); use your language's plural forms): how many, working, waiting on background tasks (only when some are) and waiting for you." }),
+  workspace: msg({ id: 'workspace.statusBar.workspace', defaultMessage: 'Workspace: {path}', description: "Tooltip on the status bar's workspace." }),
+  apiOn: msg({ id: 'workspace.statusBar.apiOn', defaultMessage: 'Agent API listening on {url}', description: "Tooltip on the status bar's API: Hive's Agent API is on ({url}: its address)." }),
+  apiError: msg({ id: 'workspace.statusBar.apiError', defaultMessage: 'Agent API: {error}', description: "Tooltip on the status bar's API: it couldn't start; {error} says why." }),
+  apiOff: msg({ id: 'workspace.statusBar.apiOff', defaultMessage: 'Agent API is off', description: "Tooltip on the status bar's API." }),
+  api: msg({ id: 'workspace.statusBar.api', defaultMessage: 'API', description: "The status bar's item for Hive's Agent API. Keep it short." }),
+  awakeTip: msg({ id: 'workspace.statusBar.awakeTip', defaultMessage: "Windows won't sleep until the agents finish (the screen may still turn off). Settings → General → Keep the PC awake while agents work.", description: "Tooltip on the status bar's keep-awake note. Keep the setting's path as Settings shows it." }),
+  shortLimit: msg({ id: 'workspace.statusBar.shortLimit', defaultMessage: '{window, select, fiveHour {5h} weekly {Week} other {{label}}}', description: "The status bar's plan limits, before each one's percent: the 5-hour window, the weekly one, or the provider's own name for another. Keep it very short." }),
+  planLine: msg({ id: 'workspace.statusBar.planLine', defaultMessage: '{provider}{hasPlan, select, yes { ({plan} plan)} other {}}', description: "The first line of the status bar's plan limits tooltip (GitHub issue #1): the coding agent ({provider}: Claude Code) and its plan's name ({plan}: max, pro…)." }),
+  limitLine: msg({ id: 'workspace.statusBar.limitLine', defaultMessage: '{window, select, fiveHour {5-hour limit} weekly {Weekly limit} other {{label} limit}}: {used, number, ::percent} used{hasReset, select, yes {, resets {when}} other {}}', description: 'A line of the status bar\'s plan limits tooltip (GitHub issue #1): a rolling usage window, how much of it is used, and when it resets ({when}: "in 2 h 5 min", or a weekday and time).' }),
+  asOf: msg({ id: 'workspace.statusBar.asOf', defaultMessage: 'As of {when}. Updates while a session is running.', description: 'The last line of the status bar\'s plan limits tooltip (GitHub issue #1): when the limits were reported ({when}: "4 minutes ago").' }),
+  notInstalledUnused: msg({ id: 'workspace.statusBar.notInstalledUnused', defaultMessage: "{provider} isn't installed. Nothing uses it: new agents use another provider.", description: "Tooltip on a coding agent's status bar item: it is turned on but not installed, and nothing needs it." }),
+  notInstalled: msg({ id: 'workspace.statusBar.notInstalled', defaultMessage: 'not installed', description: "A coding agent's status bar item, after its icon: it isn't installed. Lower case; keep it short." }),
+  notInstalledTip: msg({ id: 'workspace.statusBar.notInstalledTip', defaultMessage: '{provider} is not installed.', description: "Tooltip on a coding agent's status bar warning." }),
+  providerTip: msg({ id: 'workspace.statusBar.providerTip', defaultMessage: '{provider} {version} ({source}){hasWarning, select, yes { — {warning}} other {}}{hasUpdate, select, yes { — {latest} available} other {}}', description: "Tooltip on a coding agent's status bar item: its version, where it was found ({source}), a warning, and a newer version when there is one." }),
+  gitOld: msg({ id: 'workspace.statusBar.gitOld', defaultMessage: "Git {version} is older than {min}: some git features don't work.", description: "Tooltip on the status bar's Git warning." }),
+  gitProblem: msg({ id: 'workspace.statusBar.gitProblem', defaultMessage: '{problem}. {fix}', description: "Tooltip on the status bar's Git warning: what is wrong with git and how to fix it." }),
+  git: msg({ id: 'workspace.statusBar.git', defaultMessage: '{hasVersion, select, yes {Git {version}} other {Git}}', description: "The status bar's Git warning. Usually kept as Git." })
+}
+
+const ACTIVITIES: { id: Activity; icon: string; label: Msg; command: string }[] = [
+  { id: 'projects', icon: 'files', label: M.projects, command: 'view.projects' },
+  { id: 'overview', icon: 'dashboard', label: M.overview, command: 'view.overview' },
+  { id: 'performance', icon: 'pulse', label: M.performance, command: 'view.performance' },
+  { id: 'board', icon: 'project', label: M.board, command: 'view.board' },
+  { id: 'notes', icon: 'notebook', label: M.notes, command: 'view.notes' },
+  { id: 'skills', icon: 'sparkle', label: M.skills, command: 'view.skills' },
+  { id: 'templates', icon: 'library', label: M.templates, command: 'view.templates' },
+  { id: 'mcp', icon: 'plug', label: M.mcp, command: 'view.mcp' },
+  { id: 'assistant', icon: 'hubot', label: M.assistant, command: 'view.assistant' }
 ]
 
 export function ActivityBar() {
@@ -38,10 +78,11 @@ export function ActivityBar() {
   // Cards waiting for the user to look at them.
   const review = useStore((s) => s.tasks.filter((c) => !c.archived && c.column === 'review').length)
 
-  const button = (id: Activity, icon: string, label: string, command: string, badge?: number) => {
+  const button = (id: Activity, icon: string, labelMsg: Msg, command: string, badge?: number) => {
     const kb = commandKeybinding(command)
+    const label = tr(labelMsg)
     return (
-      <Tooltip key={id} content={`${label}${kb ? ` (${formatKeybinding(kb)})` : ''}`}>
+      <Tooltip key={id} content={kb ? tr(M.withKey, { label, key: formatKeybinding(kb) }) : label}>
         <button className={cx('activity-btn', activity === id && (sidebarVisible || id === 'docs' || id === 'settings') && 'active')} onClick={() => setActivity(id)} aria-label={label}>
           <Icon name={icon} />
           {!!badge && <span className="activity-badge">{badge}</span>}
@@ -54,18 +95,18 @@ export function ActivityBar() {
     <div className="activitybar">
       {ACTIVITIES.map((a) => button(a.id, a.icon, a.label, a.command, a.id === 'projects' ? attention : a.id === 'board' ? review : undefined))}
       <div className="activity-spacer" />
-      <Tooltip content={unread ? `Notifications (${unread} unread)` : 'Notifications'}>
+      <Tooltip content={tr(M.notificationsTip, { unread })}>
         <button
           className={cx('activity-btn', unread > 0 && 'unread')}
           onClick={() => set((s) => ({ showNotifications: !s.showNotifications, unread: 0 }))}
-          aria-label="Notifications"
-          aria-description={unread ? `${unread} unread` : undefined}
+          aria-label={tr(M.notifications)}
+          aria-description={unread ? tr(M.unread, { count: unread }) : undefined}
         >
           <Icon name={unread ? 'bell-dot' : 'bell'} />
         </button>
       </Tooltip>
-      {button('docs', 'book', 'Documentation', 'help.docs')}
-      {button('settings', 'settings-gear', 'Settings', 'settings.open')}
+      {button('docs', 'book', M.docs, 'help.docs')}
+      {button('settings', 'settings-gear', M.settings, 'settings.open')}
     </div>
   )
 }
@@ -94,7 +135,7 @@ function RunningAgentsTip({ workspace, summary, count }: { workspace: WorkspaceI
     <div className="rail-tip">
       <strong>{summary}</strong>
       <AgentRowsTable {...data} />
-      {count > data.rows.length && <div className="faint">and {count - data.rows.length} more</div>}
+      {count > data.rows.length && <div className="faint">{tr(M.more, { count: count - data.rows.length })}</div>}
     </div>
   )
 }
@@ -110,7 +151,7 @@ export function StatusBar() {
     return (
       <div className="statusbar no-workspace">
         <div className="status-item" onClick={() => runCommand('workspace.open')}>
-          <Icon name="folder-opened" /> Open a workspace
+          <Icon name="folder-opened" /> {tr(M.openWorkspace)}
         </div>
         <div className="status-spacer" />
         <ProviderStatusItems />
@@ -123,13 +164,13 @@ export function StatusBar() {
   const working = live.filter((l) => l!.status === 'working').length
   const waiting = live.filter((l) => asksYou(l)).length
   const background = live.filter((l) => l!.status === 'background').length
-  const summary = `${live.length} running session(s): ${working} working, ${background ? `${background} waiting on background tasks, ` : ''}${waiting} waiting for you`
+  const summary = tr(M.running, { count: live.length, working, background, waiting })
   // The table's plain text, every agent, for screen readers (#572).
   const agentLines = live.length ? tableText(runningAgentsData(workspace, tasks)) : ''
 
   return (
     <div className="statusbar">
-      <Tooltip content={`Workspace: ${workspace.path}`}>
+      <Tooltip content={tr(M.workspace, { path: workspace.path })}>
         <div className="status-item" onClick={() => runCommand('view.projects')}>
           <Icon name="root-folder" /> {workspace.name}
         </div>
@@ -145,12 +186,12 @@ export function StatusBar() {
       <KeepAwakeStatusItem />
       {/* App-wide items only: each agent's model, effort, mode and context are in its pane's footer. */}
       <PlanUsageStatus />
-      <Tooltip content={api?.running ? `Agent API listening on ${api.url}` : api?.error ? `Agent API: ${api.error}` : 'Agent API is off'}>
+      <Tooltip content={api?.running ? tr(M.apiOn, { url: api.url ?? '' }) : api?.error ? tr(M.apiError, { error: api.error }) : tr(M.apiOff)}>
         <div className="status-item" onClick={() => {
             set({ settingsSection: 'agentApi' })
             setActivity('settings')
           }}>
-          <Icon name={api?.running ? 'broadcast' : 'circle-slash'} /> API
+          <Icon name={api?.running ? 'broadcast' : 'circle-slash'} /> {tr(M.api)}
         </div>
       </Tooltip>
       <ProviderStatusItems />
@@ -164,7 +205,7 @@ function KeepAwakeStatusItem() {
   const working = useStore((s) => s.keepAwake)
   if (!working) return null
   return (
-    <Tooltip content="Windows won't sleep until the agents finish (the screen may still turn off). Settings → General → Keep the PC awake while agents work.">
+    <Tooltip content={tr(M.awakeTip)}>
       <div className="status-item keep-awake" onClick={() => {
           set({ settingsSection: 'general' })
           setActivity('settings')
@@ -177,9 +218,7 @@ function KeepAwakeStatusItem() {
 
 /** "5h" / "Week" for the status bar; other windows by their label. */
 function shortLimit(l: PlanLimit): string {
-  if (l.windowMinutes === 300) return '5h'
-  if (l.windowMinutes === 10080) return 'Week'
-  return l.label
+  return tr(M.shortLimit, { window: limitWindow(l), label: l.label })
 }
 
 /** Each enabled provider's plan limits, as its sessions last reported them: one item per provider. */
@@ -193,11 +232,12 @@ function PlanUsageStatus() {
         const usage = all[p.id]
         if (!usage?.limits.length) return null
         const worst = Math.max(...usage.limits.map((l) => l.usedPercent))
-        const lines = usage.limits.map((l) => `${l.label} limit: ${Math.round(l.usedPercent)}% used${l.resetsAt ? `, resets ${resetsIn(l.resetsAt)}` : ''}`)
-        const tip = [`${p.name}${usage.plan ? ` (${usage.plan} plan)` : ''}`, ...lines, `As of ${timeAgo(usage.updatedAt)}. Updates while a session is running.`].join('\n')
+        // GitHub issue #1: every part in the window's language (the window's name, the percent, when it resets, how long ago).
+        const lines = usage.limits.map((l) => tr(M.limitLine, { window: limitWindow(l), label: l.label, used: Math.round(l.usedPercent) / 100, hasReset: l.resetsAt ? 'yes' : 'no', when: l.resetsAt ? resetsIn(l.resetsAt) : '' }))
+        const tip = [tr(M.planLine, { provider: p.name, hasPlan: usage.plan ? 'yes' : 'no', plan: usage.plan ?? '' }), ...lines, tr(M.asOf, { when: timeAgo(usage.updatedAt) })].join('\n')
         return (
           <Tooltip key={p.id} content={<span style={{ whiteSpace: 'pre-line' }}>{tip}</span>}>
-            <div className={cx('status-item', worst >= 95 ? 'warn' : worst >= 80 && 'caution')} onClick={() => runCommand('project.tab.overview')}>
+            <div className={cx('status-item', worst >= 95 ? 'warn' : worst >= 80 && 'caution')} data-plan={p.id} onClick={() => runCommand('project.tab.overview')}>
               <ProviderIcon provider={p.id} mono />
               {usage.limits.map((l, i) => (
                 <span key={l.id}>
@@ -236,16 +276,16 @@ function ProviderStatusItems() {
         const warned = warn.noneInstalled || warn.providers.includes(p)
         if (!info.found && !warned) {
           return (
-            <Tooltip key={p.id} content={`${p.name} isn't installed. Nothing uses it: new agents use another provider.`}>
+            <Tooltip key={p.id} content={tr(M.notInstalledUnused, { provider: p.name })}>
               <div className="status-item faint" data-unused-provider={p.id} onClick={() => set({ setupOpen: p.id })}>
-                <ProviderIcon provider={p.id} mono /> not installed
+                <ProviderIcon provider={p.id} mono /> {tr(M.notInstalled)}
               </div>
             </Tooltip>
           )
         }
         if (!info.found || (blocking && warned)) {
           return (
-            <Tooltip key={p.id} content={blocking?.message ?? `${p.name} is not installed.`}>
+            <Tooltip key={p.id} content={blocking?.message ?? tr(M.notInstalledTip, { provider: p.name })}>
               <div className="status-item warn" onClick={() => set({ setupOpen: p.id })}>
                 <Icon name="warning" /> {p.name}
               </div>
@@ -253,7 +293,7 @@ function ProviderStatusItems() {
           )
         }
         const warning = info.readiness?.find((r) => r.level === 'warning')
-        const tip = `${p.name} ${info.version} (${info.source})${warning ? ` — ${warning.message}` : ''}${info.updateAvailable ? ` — ${info.latestVersion} available` : ''}`
+        const tip = tr(M.providerTip, { provider: p.name, version: info.version ?? '', source: info.source ?? '', hasWarning: warning ? 'yes' : 'no', warning: warning?.message ?? '', hasUpdate: info.updateAvailable ? 'yes' : 'no', latest: info.latestVersion ?? '' })
         return (
           <Tooltip key={p.id} content={tip}>
             <div className={cx('status-item', warning && 'caution')} onClick={() => set({ setupOpen: p.id })}>
@@ -274,9 +314,9 @@ function GitStatusItem() {
   if (!git || git.state === 'ok' || git.state === 'unknown') return null
   const problem = gitProblemText(git)
   return (
-    <Tooltip content={problem ? `${problem}. ${gitFixText(git)}` : `Git ${git.version} is older than ${GIT_MIN}: some git features don't work.`}>
+    <Tooltip content={problem ? tr(M.gitProblem, { problem, fix: gitFixText(git) }) : tr(M.gitOld, { version: git.version ?? '', min: GIT_MIN })}>
       <div className={cx('status-item', problem ? 'warn' : 'caution')} onClick={() => set({ setupOpen: true })}>
-        <Icon name="warning" /> {problem ? 'Git' : `Git ${git.version}`}
+        <Icon name="warning" /> {tr(M.git, { hasVersion: problem ? 'no' : 'yes', version: git.version ?? '' })}
       </div>
     </Tooltip>
   )
