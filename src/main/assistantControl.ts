@@ -3,6 +3,7 @@ import { app } from 'electron'
 import { dirname, join } from 'path'
 import { mkdir } from 'original-fs/promises'
 import { ASSISTANT_DIR } from '../shared/assistant'
+import { activityFields, publicReason, type ActivityTarget } from '../shared/assistantActivity'
 import { controlAllows } from '../shared/assistantTools'
 import { HIVE_DIR } from '../shared/defaults'
 import type { AssistantAction, AssistantControl, AssistantQuestion, AssistantSettingChange } from '../shared/types'
@@ -98,12 +99,15 @@ export function allows(need: AssistantControl): boolean {
 }
 
 /**
- * Records something the Assistant did (or was refused), in its panel's list and hive.log; with `more`, the setting it
- * changed (for Revert), the change the user reverted, or the line without what it quotes (`brief`).
+ * Records something the Assistant did (or was refused), in its panel's list and hive.log: `act`, its kind and targets
+ * (#763; a refusal, the kind it tried); with `more`, the setting it changed (for Revert), the change the user reverted,
+ * the line without what it quotes (`brief`), or a refusal's `reason` as the event stream says it (Hive's own words,
+ * never the error's text: "Failed" when not given).
  */
-export function record(workspacePath: string, text: string, error?: string, more: { setting?: AssistantSettingChange; revertOf?: string; brief?: string } = {}): AssistantAction {
+export function record(workspacePath: string, act: ActivityTarget, text: string, error?: string, more: { setting?: AssistantSettingChange; revertOf?: string; brief?: string; reason?: string } = {}): AssistantAction {
   const s = stateOf(workspacePath)
-  const action: AssistantAction = { id: randomUUID(), at: new Date().toISOString(), text, ok: !error, ...(error ? { error } : {}), ...more }
+  const reason = error ? (more.reason ?? publicReason(undefined)) : undefined
+  const action: AssistantAction = { id: randomUUID(), at: new Date().toISOString(), text, ok: !error, ...(error ? { error } : {}), ...more, ...(reason ? { reason } : {}), ...activityFields(act) }
   s.actions.push(action)
   if (s.actions.length > MAX_LISTED) s.actions.splice(0, s.actions.length - MAX_LISTED)
   log.info(`${userText(workspacePath)}: ${userText(text)}${error ? ` (refused: ${userText(error)})` : ''}`)
@@ -145,9 +149,10 @@ export class ChangeRefused extends Error {
 export const LEVEL_NAME: Record<AssistantControl, string> = { look: 'Look and advise', agents: 'Control agents', projects: 'Control agents and create projects' }
 
 /** Refuses (and records) a change the control level doesn't allow: the Assistant's change boundary, before anything counts. */
-export function refuseUnlessAllowed(workspacePath: string, need: AssistantControl, what: string): void {
+export function refuseUnlessAllowed(workspacePath: string, need: AssistantControl, what: string, act: ActivityTarget): void {
   if (allows(need)) return
-  record(workspacePath, what.charAt(0).toUpperCase() + what.slice(1), 'not allowed by Settings → Assistant → Control')
+  // i18n-ignore: the Agent API's event stream (#763) speaks English, as the rest of the API does
+  record(workspacePath, act, what.charAt(0).toUpperCase() + what.slice(1), 'not allowed by Settings → Assistant → Control', { reason: 'Not allowed by Settings → Assistant → Control' })
   throw new ChangeRefused(403, `The user's settings (Settings → Assistant → Control: ${LEVEL_NAME[controlLevel()]}) don't let you ${what}. Tell the user what you would do instead.`)
 }
 
@@ -158,10 +163,10 @@ export function refuseUnlessAllowed(workspacePath: string, need: AssistantContro
  * to run again as each card is written: the control level and the session must still allow the change then, after the
  * last read, or nothing is saved.
  */
-export function admit(workspacePath: string, token: string, need: AssistantControl, what: string): () => void {
-  refuseUnlessAllowed(workspacePath, need, what)
+export function admit(workspacePath: string, token: string, need: AssistantControl, what: string, act: ActivityTarget): () => void {
+  refuseUnlessAllowed(workspacePath, need, what, act)
   if (!countAction(workspacePath)) {
-    record(workspacePath, what.charAt(0).toUpperCase() + what.slice(1), `limit of ${MAX_ACTIONS_PER_TURN} changes for one message`)
+    record(workspacePath, act, what.charAt(0).toUpperCase() + what.slice(1), `limit of ${MAX_ACTIONS_PER_TURN} changes for one message`, { reason: publicReason(429) })
     // `fits` (none, now) stays on the refusal: the batch route's reply contract (#417).
     throw new ChangeRefused(429, `You have made ${MAX_ACTIONS_PER_TURN} changes for this message, the most Hive allows for one. Tell the user what is done and ask whether to go on.`, { fits: 0 })
   }

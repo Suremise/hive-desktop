@@ -10,8 +10,6 @@
   "jsx-attr|aria-label|{} agents: {}": 1,
   "jsx-attr|content|Bypass permissions: sessions run every action without asking.": 1,
   "jsx-attr|content|Controlled in Settings → Agent API": 1,
-  "jsx-attr|content|Disabled. Click to enable for all projects (new sessions).": 1,
-  "jsx-attr|content|Enabled for all projects (new sessions). Click to disable.": 1,
   "jsx-attr|content|Expand Sidebar{}": 1,
   "jsx-attr|content|Mark as a project you are working on. Only active projects run sessions and show status.": 1,
   "jsx-attr|content|Open Workspace": 1,

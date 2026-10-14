@@ -25,7 +25,7 @@ async function withPrices(own: Record<string, unknown>, removed: string[], fn: (
 /** Lists a change as the Agent API does, for Revert. */
 function listed(r: Awaited<ReturnType<typeof applySetting>>) {
   const { oldText, newText } = settingChangeTexts(prices, r.old, r.new, r.removed)
-  return assistant.record(WS, `Changed prices: ${oldText} → ${newText}`, undefined, { setting: { id: prices.id, path: 'Settings → Codex → API prices', old: r.old, new: r.new, ...(r.removed ? { removed: r.removed } : {}), oldText, newText } })
+  return assistant.record(WS, { kind: 'setting', settingId: prices.id }, `Changed prices: ${oldText} → ${newText}`, undefined, { setting: { id: prices.id, path: 'Settings → Codex → API prices', old: r.old, new: r.new, ...(r.removed ? { removed: r.removed } : {}), oldText, newText } })
 }
 
 describe("the settings tools on a provider's prices", () => {

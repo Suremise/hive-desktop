@@ -261,7 +261,7 @@ export async function revertSetting(workspacePath: string, actionId: string): Pr
     }
     await applySetting(e, change.old, change.project ?? null, guard, change.removed?.old)
     const what = `You reverted ${change.path}${change.project ? ` in ${basename(change.project)}` : ''}`
-    assistant.record(workspacePath, `${what}: ${change.newText} → ${change.oldText}`, undefined, { revertOf: actionId, brief: what })
+    assistant.record(workspacePath, { kind: 'revert-setting', settingId: change.id, ...(change.project ? { project: basename(change.project) } : {}) }, `${what}: ${change.newText} → ${change.oldText}`, undefined, { revertOf: actionId, brief: what })
   } finally {
     reverting.delete(actionId)
   }

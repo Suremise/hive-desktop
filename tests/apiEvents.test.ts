@@ -63,9 +63,35 @@ describe('apiEventFor', () => {
     const sent = apiEventFor({ type: 'assistant-activity', projectPath: home, action }, null)
     expect(sent).toEqual({ type: 'assistant-activity', workspacePath: ws, action: { id: 'x', at: action.at, text: 'Gave B1 in alpha a task', ok: true } })
     expect(JSON.stringify(sent)).not.toContain('secret')
-    // A line that quotes nothing is sent as it is, with why it was refused.
-    expect((apiEventFor({ type: 'assistant-activity', projectPath: home, action: { id: 'y', at: '', text: 'Stop B1 in alpha', ok: false, error: 'not allowed' } }, null) as { action: unknown }).action).toEqual({ id: 'y', at: '', text: 'Stop B1 in alpha', ok: false, error: 'not allowed' })
+    // A line that quotes nothing is sent as it is, with why it was refused in Hive's own words (#763).
+    expect((apiEventFor({ type: 'assistant-activity', projectPath: home, action: { id: 'y', at: '', text: 'Stop B1 in alpha', ok: false, error: 'not allowed', reason: 'Not allowed' } }, null) as { action: unknown }).action).toEqual({ id: 'y', at: '', text: 'Stop B1 in alpha', ok: false, error: 'Not allowed' })
     expect(apiEventFor({ type: 'assistant-activity', projectPath: home, action }, agent)).toBeNull()
+  })
+
+  it("sends the Assistant's action's kind and targets (#763), and nothing else it holds", () => {
+    const home = join(ws, '.hive', 'assistant')
+    const agentB1 = { id: 'a1', name: 'B1' }
+    const action = {
+      id: 'x', at: 't', text: 'Left B1 in alpha a message (m3) for #12 round 1: the secret message', brief: 'Left B1 in alpha a message (m3) for #12 round 1', ok: true,
+      kind: 'message-agent' as const, project: 'alpha', agent: { ...agentB1, token: 'secret-token' } as never, card: 12,
+      setting: { id: 's', path: 'p', old: 'secret-old', new: 'secret-new', oldText: 'secret-old', newText: 'secret-new' }
+    }
+    const sent = apiEventFor({ type: 'assistant-activity', projectPath: home, action }, null) as { action: Record<string, unknown> }
+    expect(sent.action).toEqual({ id: 'x', at: 't', text: action.brief, ok: true, kind: 'message-agent', project: 'alpha', agent: agentB1, card: 12 })
+    expect(JSON.stringify(sent)).not.toContain('secret')
+    // A refusal: the kind it tried, with its targets, and its public reason, never the error's text (it can quote what
+    // was sent: here a setting's value), nor "Failed" replaced by it when no reason was given.
+    const refused = { id: 'y', at: 't', text: 'Change B1’s settings in alpha', ok: false, error: '"secret-value/x" isn’t an MCP server’s name.', reason: 'The request was invalid', kind: 'update-agent' as const, project: 'alpha', agent: agentB1 }
+    const sentRefused = apiEventFor({ type: 'assistant-activity', projectPath: home, action: refused }, null) as { action: unknown }
+    expect(sentRefused.action).toEqual({ id: 'y', at: 't', text: refused.text, ok: false, error: 'The request was invalid', kind: 'update-agent', project: 'alpha', agent: agentB1 })
+    expect(JSON.stringify(sentRefused)).not.toContain('secret')
+    const noReason = apiEventFor({ type: 'assistant-activity', projectPath: home, action: { ...refused, reason: undefined } }, null) as { action: { error: string } }
+    expect(noReason.action.error).toBe('Failed')
+    // Lanes, batches and settings: their ids and numbers, never a setting's value.
+    const lane = { id: 'z', at: 't', text: 'Lane l1 started', ok: true, kind: 'lane-start' as const, lane: 'lane-1', cards: [3, 4], agent: agentB1, project: 'alpha' }
+    expect((apiEventFor({ type: 'assistant-activity', projectPath: home, action: lane }, null) as { action: unknown }).action).toEqual(lane)
+    const setting = { id: 's', at: 't', text: 'Changed Settings → Sessions → Confirm before stopping: secret → value', brief: 'Changed Settings → Sessions → Confirm before stopping', ok: true, kind: 'setting' as const, settingId: 'sessions.confirmStop' }
+    expect(JSON.stringify(apiEventFor({ type: 'assistant-activity', projectPath: home, action: setting }, null))).not.toContain('secret')
   })
 
   // Every free-text field holds SECRET: none of it may reach the stream, for any token (#620 review, round 1).

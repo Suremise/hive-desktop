@@ -50,7 +50,7 @@ export const EXCLUDED = [
   [/^src\/main\/mcp\//, 'agent-facing: the hive MCP server'],
   [/^src\/main\/progressReporters\//, 'agent-facing: hive-progress output'],
   [/^src\/main\/(agentMessages|agentTokens|apiDiscovery|cardBusy|decisionNotices|decisionWakes|deliveries|guidance|hookTokens|inboxNotices|loopWakes|mergeSlots|servers|settingsTools|taskBatch|viewerTokens|watches)\.ts$/, 'agent-facing: tool replies, guidance, wakes, inbox and the Agent API'],
-  [/^src\/shared\/(agentMcp|assistant|assistantTools|deliveries|doorbell|hiveGuidance|instructions|lanes|laneWatch|mergeSlot|toolReplies|watch)\.ts$/, 'agent-facing: tool replies, guidance, wakes, inbox and the Agent API'],
+  [/^src\/shared\/(agentMcp|assistant|assistantActivity|assistantTools|deliveries|doorbell|hiveGuidance|instructions|lanes|laneWatch|mergeSlot|toolReplies|watch)\.ts$/, 'agent-facing: tool replies, guidance, wakes, inbox and the Agent API'],
   [/^src\/main\/(launchGate|screenRecognition|terminalScreen)\.ts$/, "CLI-facing: a CLI's screen and text (#367)"],
   [/^src\/shared\/appName\.ts$/, 'brand names'],
   [/^src\/shared\/redact\.ts$/, 'log markers'],

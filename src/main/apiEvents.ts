@@ -1,5 +1,6 @@
 import { dirname, resolve as resolvePath } from 'path'
 import type { HiveEvent, LiveSessionState, ProgressRun } from '../shared/types'
+import { activityFields, publicReason } from '../shared/assistantActivity'
 
 /**
  * What the Agent API's event stream (`GET /v1/events`) sends of Hive's events, and to whom (#620). Pure, so it is unit
@@ -173,13 +174,14 @@ export function apiEventFor(event: HiveEvent, agent: StreamScope | null): Record
     case 'agent-added':
       return own(event.projectPath) ? { type: event.type, projectPath: event.projectPath, agentId: event.agentId } : null
     // The Assistant's actions are the workspace's, not a project's: its line without what it quotes (`brief`: a
-    // prompt, a message, a setting's values).
+    // prompt, a message, a setting's values), and its kind and targets (#763), for viewers that don't read the line.
     case 'assistant-activity': {
       if (agent) return null
       const a = event.action
       // Its home is <workspace>\.hive\assistant.
       const workspacePath = dirname(dirname(event.projectPath))
-      return { type: event.type, workspacePath, action: { id: a.id, at: a.at, text: a.brief ?? a.text, ok: a.ok, ...(a.error ? { error: a.error } : {}), ...(a.revertOf ? { revertOf: a.revertOf } : {}) } }
+      // A refusal's reason in Hive's own words (#763), never its error's text, which can quote what was sent.
+      return { type: event.type, workspacePath, action: { id: a.id, at: a.at, text: a.brief ?? a.text, ok: a.ok, ...(a.ok ? {} : { error: a.reason ?? publicReason(undefined) }), ...(a.revertOf ? { revertOf: a.revertOf } : {}), ...activityFields(a) } }
     }
     default:
       return null

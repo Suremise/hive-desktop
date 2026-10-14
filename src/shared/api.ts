@@ -49,6 +49,9 @@ import type {
   LiveSessionState,
   McpFileServer,
   McpShown,
+  McpProjectServer,
+  McpTurnOn,
+  McpServerDef,
   McpServerInfo,
   MergeResult,
   MergeSlotInfo,
@@ -462,22 +465,30 @@ export interface HiveRequests {
   'skills:openFolder': () => void
 
   'mcp:list': () => McpServerInfo[]
-  /** Turning it on with `expected` (the server the user was shown): refused if it has been replaced or edited since. */
+  /** On or off for all projects (#713). Turning it on with `expected` (the server the user was shown): refused if it has been replaced or edited since. */
   'mcp:setGlobal': (name: string, enabled: boolean, expected?: McpShown) => void
-  'mcp:setProject': (projectPath: string, name: string, enabled: boolean) => void
+  /** On or off in one project, its own choice (#713); `expected` as for mcp:setGlobal. */
+  'mcp:setProject': (projectPath: string, name: string, enabled: boolean, expected?: McpShown) => void
   'mcp:create': (name: string) => McpServerInfo
   'mcp:read': (name: string) => string
   /** With `expected` (the text as read), refuses with CONFLICT if the file has changed on disk since. */
   'mcp:save': (name: string, text: string, expected?: string) => McpServerInfo
   'mcp:delete': (name: string) => void
-  'mcp:importFromProject': (projectPath: string, names: string[]) => string[]
+  /** The servers the project defines in its own config that the workspace hasn't got, with what each runs. */
+  'mcp:projectServers': (projectPath: string) => McpProjectServer[]
+  /** Copies them to the workspace, each on in the project when it is still the definition shown (by name), else off. */
+  'mcp:importFromProject': (projectPath: string, names: string[], shown?: Record<string, McpServerDef>) => { copied: string[]; on: string[] }
   'mcp:openFolder': () => void
   /** Add MCP Server from File (#550): the file the user picks (.json or .zip), or null. */
   'mcp:pickFile': () => string | null
   /** What adding the file would add: its name, what it runs, whether the name is taken. Adds nothing. */
   'mcp:previewFile': (file: string) => McpFileServer
-  /** Adds it as `name`, turned off; a name in use is refused unless `replace` (the old one goes to the Recycle Bin). */
-  'mcp:addFromFile': (file: string, name: string, replace: boolean) => McpServerInfo
+  /**
+   * Adds it as `name`, on where `turnOn` says (#713; default none) and off elsewhere; a name in use is refused unless
+   * `replace` (the old one goes to the Recycle Bin). `shown`: the preview's hash, needed to turn it on anywhere;
+   * refused if the file has changed since.
+   */
+  'mcp:addFromFile': (file: string, name: string, replace: boolean, turnOn?: McpTurnOn, shown?: string) => McpServerInfo
 
   'notes:tree': () => NoteFile[]
   'notes:create': (relPath: string, isDir: boolean) => string

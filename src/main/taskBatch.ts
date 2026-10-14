@@ -4,6 +4,7 @@ import { COLUMN_CHOICES, isTaskColumn } from '../shared/tasks'
 import * as assistant from './assistantControl'
 import { ChangeRefused } from './assistantControl'
 import * as tasks from './tasks'
+import { cardAgent, knownAgent } from './activityTargets'
 
 /**
  * The fields a batch takes besides its card numbers and reply. A title, comment, decision or link is one card's: a batch
@@ -53,11 +54,20 @@ const clip = (s: string, max: number): string => {
  * some of its cards are refused, as a refused single change does. Returns each card's outcome, in the order given.
  */
 export async function assistantBatch(ws: string, token: string, numbers: number[], patch: tasks.BatchPatch, actor: tasks.TaskActor): Promise<tasks.BatchItem[]> {
-  const guard = assistant.admit(ws, token, 'agents', `change ${numbers.length} card${numbers.length === 1 ? '' : 's'} on the board`)
+  const column = typeof patch.column === 'string' ? { column: patch.column } : {}
+  const guard = assistant.admit(ws, token, 'agents', `change ${numbers.length} card${numbers.length === 1 ? '' : 's'} on the board`, { kind: 'update-tasks', cards: numbers, ...column })
   const items = await tasks.updateTasks(numbers, patch, actor, { commit: guard })
+  // Each card's line names its card, its project and the agent it is with (#763): a viewer follows a bulk move card by
+  // card. A refused card: the agent it was to be given, if there is one.
   for (const i of items) {
-    if (i.card) assistant.record(ws, `#${i.number} ${clip(i.card.title, 60)}: ${i.said.join(', ') || 'no change'}`)
-    else assistant.record(ws, `#${i.number}: change`, i.error ?? 'refused')
+    if (i.card) {
+      const agent = await cardAgent(i.card)
+      assistant.record(ws, { kind: 'update-tasks', card: i.number, column: i.card.column, ...(i.card.project ? { project: i.card.project } : {}), ...(agent ? { agent } : {}) }, `#${i.number} ${clip(i.card.title, 60)}: ${i.said.join(', ') || 'no change'}`)
+    } else {
+      const was = await tasks.getTask(i.number).catch(() => null)
+      const agent = typeof patch.agent === 'string' ? await knownAgent(was?.project, patch.agent) : undefined
+      assistant.record(ws, { kind: 'update-tasks', card: i.number, ...column, ...(was?.project ? { project: was.project } : {}), ...(agent ? { agent } : {}) }, `#${i.number}: change`, i.error ?? 'refused', { reason: 'Refused' })
+    }
   }
   return items
 }
