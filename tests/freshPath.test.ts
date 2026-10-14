@@ -1,8 +1,19 @@
 // A CLI installed while Hive runs (#472): Hive adds the registry PATH's new folders to its own before it looks for the
 // CLIs, so the install is found without a restart. The registry is stubbed (HIVE_TEST_REGISTRY_PATH): this test
 // never reads the machine's.
-import { afterEach, describe, expect, it } from 'vitest'
-import { expandVars, mergePath, parseRegQuery, pathFolders, refreshPath, testRegistryPath } from '../src/main/freshPath'
+import { afterEach, describe, expect, it, vi } from 'vitest'
+import { expandVars, mergePath, parseRegQuery, pathFolders, refreshPath, refreshPathBeforeStart, testRegistryPath } from '../src/main/freshPath'
+
+// The longest a wait here waits: a bound for a hung run, never how long it should take.
+const HUNG_MS = 10_000
+
+// The registry reads (PowerShell, reg.exe) are held until a test answers them: only the slow-read test makes one.
+const held = vi.hoisted(() => [] as ((err: Error | null, stdout: string) => void)[])
+vi.mock('child_process', () => ({
+  execFile: (_file: string, _args: string[], _opts: unknown, cb: (err: Error | null, stdout: string) => void) => {
+    held.push(cb)
+  }
+}))
 
 const saved = { ...process.env }
 
@@ -82,5 +93,36 @@ describe.runIf(process.platform === 'win32')('refreshPath', () => {
     expect(a).toEqual(['C:\\New'])
     expect(b).toEqual(['C:\\New'])
     expect(process.env[key]).toBe('C:\\Windows;C:\\New')
+  })
+})
+
+// Before Hive starts an agent or a terminal (#821): the PATH a new process gets, with what was installed since Hive
+// started, and never a long wait for it.
+describe.runIf(process.platform === 'win32')('refreshPathBeforeStart', () => {
+  it('gives the next process the folders added to the registry since Hive started', async () => {
+    const key = Object.keys(process.env).find((k) => k.toUpperCase() === 'PATH') ?? 'PATH'
+    process.env[key] = 'C:\\Windows'
+    process.env.HIVE_TEST_REGISTRY_PATH = 'C:\\Windows'
+    await refreshPathBeforeStart()
+    expect(process.env[key]).toBe('C:\\Windows')
+    // An installer adds a folder while Hive runs.
+    process.env.HIVE_TEST_REGISTRY_PATH = 'C:\\Windows;C:\\Installed'
+    await refreshPathBeforeStart()
+    expect(process.env[key]).toBe('C:\\Windows;C:\\Installed')
+  })
+
+  it("goes on with Hive's PATH when the registry is slow, and the read still counts once it ends", async () => {
+    const key = Object.keys(process.env).find((k) => k.toUpperCase() === 'PATH') ?? 'PATH'
+    process.env[key] = 'C:\\Windows'
+    delete process.env.HIVE_TEST_REGISTRY_PATH
+    delete process.env.HIVE_USER_DATA
+    held.length = 0
+    // The registry isn't answering: the start goes on after its wait, with the PATH as it was.
+    await refreshPathBeforeStart(20)
+    expect(process.env[key]).toBe('C:\\Windows')
+    expect(held).toHaveLength(1)
+    // PowerShell answers late: its folders are on Hive's PATH for the next start.
+    held[0](null, 'M=C:\\Windows\r\nU=C:\\Late\r\n')
+    await vi.waitFor(() => expect(process.env[key]).toBe('C:\\Windows;C:\\Late'), { timeout: HUNG_MS })
   })
 })

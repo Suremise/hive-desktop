@@ -866,7 +866,7 @@ export function AgentSetupDialog() {
             <div>
               {tRich(msg({ id: 'shell.setup.found', defaultMessage: '<b>{provider} {version}</b> <muted>— found via {source}</muted>', description: 'Agent Setup: the CLI Hive found. {provider} is its name, {version} its version, {source} where it was found (PATH, an install folder); <b> is bold, <muted> greyed.' }), { provider: p.name, version: info.version ?? '', source: info.source ?? '', b: bold, muted })}
             </div>
-            <div className="muted mono" style={{ fontSize: 11 }}>
+            <div className="setup-path muted mono" title={info.path ?? undefined}>
               {info.path}
             </div>
             {info.tested && <TestedLine tested={info.tested} installed={info.version} />}
@@ -893,7 +893,7 @@ export function AgentSetupDialog() {
               </div>
             )}
           </div>
-          <div className="flex">
+          <div className="setup-actions">
             {issues
               .filter((r) => r.action)
               .map((r) => (
@@ -941,7 +941,7 @@ export function AgentSetupDialog() {
         </>
       )}
       {!!info?.rejected?.length && (
-        <p className="hint">
+        <p className="hint setup-wrap">
           <Icon name="info" /> {tRich(msg({ id: 'shell.setup.rejected', defaultMessage: '{n, plural, one {Ignored a copy} other {Ignored copies}} bundled with an editor extension ({path}). Hive only uses the standalone CLI.', description: "Agent Setup when it found a CLI only inside an editor's extension. {n} is how many; {path} is where (one of them)." }), { n: info.rejected.length, path: <code key="path">{info.rejected[0]}</code> })}
         </p>
       )}

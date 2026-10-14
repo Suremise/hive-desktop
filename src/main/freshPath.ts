@@ -8,6 +8,9 @@ import { createLogger, userText } from './logger'
 // Setup's Check again, after an install or update task), it reads the PATH Windows gives a new process and adds the
 // folders it doesn't have yet to its own, so where.exe finds the new CLI and sessions started from then on get it
 // (childEnv copies Hive's environment). Hive's own folders keep their order and come first; nothing is removed.
+// Hive also reads it just before it starts a process of its own (#821): an agent, a provider task's terminal, an
+// external terminal. Without that, a CLI or tool installed outside Hive stayed unknown to them until something made
+// Hive look for the CLIs again.
 
 const log = createLogger('path')
 
@@ -132,4 +135,20 @@ export function refreshPath(): Promise<string[]> {
       refreshing = null
     })
   return refreshing
+}
+
+/** The longest a new process waits for the registry's PATH: slower, it starts with the PATH Hive has (as before #821). */
+export const FRESH_WAIT_MS = 2000
+
+/**
+ * refreshPath() before Hive starts an agent or a terminal (#821), so it gets the folders installers have added since
+ * Hive started. Waits at most `maxMs`; a slower read carries on and counts for the next start.
+ */
+export async function refreshPathBeforeStart(maxMs = FRESH_WAIT_MS): Promise<void> {
+  let timer: ReturnType<typeof setTimeout> | undefined
+  const late = new Promise<void>((resolve) => {
+    timer = setTimeout(resolve, maxMs)
+  })
+  await Promise.race([refreshPath().then(() => undefined), late])
+  clearTimeout(timer)
 }

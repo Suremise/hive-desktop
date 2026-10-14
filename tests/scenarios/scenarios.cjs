@@ -7,7 +7,7 @@
 // commands: those runs check the harness, the board rules and Hive's own costs (benchmarks) for free. The real CLIs are the model trials (opt-in, see README.md).
 //
 // Fixture version: bump when a scenario's setup or checks change, so results can be compared across versions.
-const FIXTURES_VERSION = 55
+const FIXTURES_VERSION = 56
 
 /** The subject's hive tool calls that the server ran, by tool (each has ok, error and args). */
 const called = (o, tool) => o.hiveCalls.filter((c) => c.tool === tool)
@@ -524,6 +524,30 @@ module.exports.SCENARIOS = [
       ['its verdict leads with one line saying it (#532)', summaryLine(leadLine(o.cards.b, /Coder/)) && /pass|fail/i.test(leadLine(o.cards.b, /Coder/).line), JSON.stringify(leadLine(o.cards.b, /Coder/)?.line ?? null)],
       ['the card stays in Review with the implementer', o.cards.b?.column === 'review' && o.cards.b?.agent?.id === c.agents.implementer.id, `${o.cards.b?.column} / ${o.cards.b?.agent?.name}`],
       ['never moved to Doing', movedInto(o.cards.b, 'Doing') < 0],
+      ['changed no files (a review only reads)', o.gitStatus.trim() === '', o.gitStatus]
+    ]
+  },
+  {
+    id: 'review-asks-user',
+    title: "A review that needs the user's decision (#840): the reviewer blocks the card with its question and tells the user, before any verdict",
+    files: { 'price.js': "module.exports = (cents) => (cents / 100).toFixed(2).replace('.', ',') + ' €'\n" },
+    async setup(c) {
+      await c.card('q', {
+        title: 'Price display',
+        description: 'price.js formats a price (in cents) for the shop page.',
+        column: 'review',
+        agent: 'implementer',
+        comments: ["Done: price.js formats prices as \"12,50 €\". The card doesn't say which currency or format the shop uses, so I guessed euros: that's for the user to choose, not me."]
+      })
+    },
+    prompt: (c) => `Review card #${c.cards.q}.`,
+    fake: (c) => `skill review-agent-work boardreview ${c.cards.q} start then hive hive_update_task {"number":${c.cards.q},"blocked":"Which currency and format does the shop show prices in? price.js guesses euros (12,50 €)."} then hive hive_notify {"title":"#${c.cards.q} needs your decision","message":"Which currency and format should prices use? The card doesn't say; price.js guesses euros."}`,
+    expect: (o, c) => [
+      ['read the review-agent-work skill', read(o, 'review-agent-work'), o.skillsRead.join(',')],
+      ['blocked the card with its question', !!o.cards.q?.blocked && history(o.cards.q).some((h) => h.startsWith('Blocked: ')), `${o.cards.q?.blocked ?? 'not blocked'} | ${history(o.cards.q).join(' | ')}`],
+      ['told the user (hive_notify)', ran(o, 'hive_notify').length >= 1, o.hiveCalls.map((x) => x.tool).join(',')],
+      ['gave no verdict meanwhile', !history(o.cards.q).some((h) => /^Review (passed|failed)$/.test(h)), history(o.cards.q).join(' | ')],
+      ['the card stays in Review with the implementer', o.cards.q?.column === 'review' && o.cards.q?.agent?.id === c.agents.implementer.id, `${o.cards.q?.column} / ${o.cards.q?.agent?.name}`],
       ['changed no files (a review only reads)', o.gitStatus.trim() === '', o.gitStatus]
     ]
   },
@@ -1477,7 +1501,7 @@ module.exports.SCENARIOS = [
   },
   {
     id: 'card-loop-rounds',
-    title: 'A card loop at its round limit: the builder asks the user (hive_notify) instead of another round',
+    title: 'A card loop at its round limit: the builder asks the user (blocks the card, hive_notify) instead of another round',
     async setup(c) {
       await c.card('w', {
         title: 'Retry the sync',
@@ -1493,10 +1517,12 @@ module.exports.SCENARIOS = [
       })
     },
     prompt: (c) => `Work through card #${c.cards.w} as its builder (rounds: 2). Round 1 (the first build and its review) and round 2 (the fix and its review) have both failed review; round 2's review is its last comment.`,
-    fake: () => 'skill card-loop hive hive_notify {"title":"#1 at its round limit","message":"Round 1: no delay (fixed). Round 2: the delay is never awaited (the same finding came back). Carry on, split, accept with follow-ups, or take over?"}',
+    fake: (c) => `skill card-loop hive hive_update_task {"number":${c.cards.w},"blocked":"At its round limit: carry on, split, accept with follow-ups, or take over?"} then hive hive_notify {"title":"#${c.cards.w} at its round limit","message":"Round 1: no delay (fixed). Round 2: the delay is never awaited (the same finding came back). Carry on, split, accept with follow-ups, or take over?"}`,
     expect: (o) => [
       ['read the card-loop skill', read(o, 'card-loop'), o.skillsRead.join(',')],
       ['asked the user (hive_notify)', ran(o, 'hive_notify').length >= 1, o.hiveCalls.map((x) => x.tool).join(',')],
+      // A lane watch wakes on a card becoming blocked, never on a notification alone (#840).
+      ['blocked the card with its question', !!o.cards.w?.blocked, o.cards.w?.blocked ?? 'not blocked'],
       // Only the setup's own move into Review: no round three sent, and not Done.
       ["didn't send it round three (not back to Review, not Done)", reviewMoves(o.cards.w) === 1 && o.cards.w?.column === 'review', history(o.cards.w).join(' | ')]
     ]

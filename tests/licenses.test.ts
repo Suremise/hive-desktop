@@ -7,7 +7,7 @@ import { describe, expect, it } from 'vitest'
 // @ts-expect-error: a plain .mjs module without types
 import { licenceText, noticesDrift, noticesToWrite, staleNoticesMessage, toLf } from '../scripts/licenseText.mjs'
 // @ts-expect-error: a plain .mjs module without types
-import { generateNotices } from '../scripts/thirdPartyNotices.mjs'
+import { generateNotices, repoWebUrl } from '../scripts/thirdPartyNotices.mjs'
 import { tempDir } from './tempDir'
 
 const repo = join(__dirname, '..')
@@ -81,5 +81,89 @@ describe('the committed notices are up to date (#386)', () => {
     expect(staleNoticesMessage(drift)).toBe('THIRD_PARTY_NOTICES.md is out of date: run `npm run licenses` and commit it.')
     expect(noticesDrift(text, null)).toEqual({ packages: ['new: react 19.1.0'] })
     expect(noticesDrift(text, text.replace(/\n/g, '\r\n'))).toBeNull()
+  })
+})
+
+// Every package links to a web page (#788): npm's repository field has short and SSH forms that aren't links.
+describe("the notices' links", () => {
+  it('turns every repository form npm documents into an https:// page', () => {
+    const cases: [string, string][] = [
+      // The forms of the 11 packages whose links were broken, as their package.json files say them.
+      ['formatjs/formatjs.git', 'https://github.com/formatjs/formatjs'], // @formatjs/fast-memoize
+      ['git@github.com:formatjs/formatjs.git', 'https://github.com/formatjs/formatjs'], // @formatjs/intl, intl-messageformat
+      ['nodeca/argparse', 'https://github.com/nodeca/argparse'],
+      ['nodeca/js-yaml', 'https://github.com/nodeca/js-yaml'],
+      ['git@github.com:jprichardson/node-jsonfile.git', 'https://github.com/jprichardson/node-jsonfile'],
+      ['develar/lazy-val', 'https://github.com/develar/lazy-val'],
+      ['lodash/lodash', 'https://github.com/lodash/lodash'], // lodash.escaperegexp, lodash.isequal
+      ['vercel/ms', 'https://github.com/vercel/ms'],
+      ['git+ssh://git@github.com/isaacs/sax-js.git', 'https://github.com/isaacs/sax-js'],
+      // npm's other forms.
+      ['github:owner/repo', 'https://github.com/owner/repo'],
+      ['gitlab:owner/repo', 'https://gitlab.com/owner/repo'],
+      ['bitbucket:owner/repo', 'https://bitbucket.org/owner/repo'],
+      ['gist:11081aaa281', 'https://gist.github.com/11081aaa281'],
+      ['git@gitlab.com:owner/repo.git', 'https://gitlab.com/owner/repo'],
+      ['ssh://git@github.com/owner/repo.git', 'https://github.com/owner/repo'],
+      ['git+https://github.com/owner/repo.git', 'https://github.com/owner/repo'],
+      ['git://github.com/owner/repo.git', 'https://github.com/owner/repo'],
+      ['https://github.com/owner/repo#readme', 'https://github.com/owner/repo'],
+      ['https://github.com/owner/repo/', 'https://github.com/owner/repo'],
+      ['http://example.org/project', 'https://example.org/project'],
+      // npm's own examples of git URLs (docs.npmjs.com, package.json, "Git URLs as Dependencies"): the ssh path after a
+      // colon or a slash, and a #commit-ish or #semver: range.
+      ['git+ssh://git@github.com:npm/cli.git#v1.0.27', 'https://github.com/npm/cli'],
+      ['git+ssh://git@github.com:npm/cli#semver:^5.0', 'https://github.com/npm/cli'],
+      ['git+ssh://git@github.com/npm/cli.git', 'https://github.com/npm/cli'],
+      // A numeric port stays.
+      ['ssh://git@example.org:2222/owner/repo.git', 'https://example.org:2222/owner/repo'],
+      ['https://example.org:8443/owner/repo', 'https://example.org:8443/owner/repo']
+    ]
+    for (const [value, want] of cases) expect(repoWebUrl(value), value).toBe(want)
+    // Not a web page, or not a valid URL once normalised (a bad port or host).
+    for (const value of ['', 'nonsense', 'file:../local', undefined, 'https://example.org:bad/repo', 'https://example.org:99999/repo', 'https://[invalid.host]/repo', 'https://localhost/repo'])
+      expect(repoWebUrl(value), String(value)).toBeNull()
+  })
+
+  it("falls back to the homepage when the repository isn't a web page, else lists the name without a link", () => {
+    const root = tempDir('hive-notices-links-')
+    try {
+      const pkg = (meta: Record<string, unknown>) => {
+        const dir = join(root, 'node_modules', meta.name as string)
+        mkdirSync(dir, { recursive: true })
+        writeFileSync(join(dir, 'package.json'), JSON.stringify({ version: '1.0.0', license: 'MIT', ...meta }))
+      }
+      pkg({ name: 'home', repository: 'file:../somewhere', homepage: 'https://home.example.org/' })
+      pkg({ name: 'badport', repository: { type: 'git', url: 'https://example.org:bad/repo' }, homepage: 'https://badport.example.org' })
+      pkg({ name: 'bare', repository: 'nonsense', homepage: 'not a page' })
+      pkg({ name: 'badhome', repository: 'nonsense', homepage: 'https://example.org:99999/home' })
+      writeFileSync(join(root, 'package.json'), JSON.stringify({ dependencies: { home: '*', badport: '*', bare: '*', badhome: '*' } }))
+      const { text } = generateNotices(root, join(repo, 'scripts', 'notices'))
+      expect(text).toContain('| [home](https://home.example.org/) | 1.0.0 | MIT |')
+      expect(text).toContain('| [badport](https://badport.example.org) | 1.0.0 | MIT |')
+      expect(text).toContain('| bare | 1.0.0 | MIT |')
+      expect(text).toContain('| badhome | 1.0.0 | MIT |')
+    } finally {
+      rmSync(root, { recursive: true, force: true })
+    }
+  })
+
+  it('the committed file links only to https:// pages', () => {
+    const rows = readFileSync(join(repo, 'THIRD_PARTY_NOTICES.md'), 'utf8').split(/\r?\n/).filter((l) => l.startsWith('| ['))
+    expect(rows.length).toBeGreaterThan(10)
+    // Each link parses as an https:// URL to a named host (not merely starts with https://).
+    const opens = (link: string): boolean => {
+      try {
+        const u = new URL(link)
+        return u.protocol === 'https:' && /^[a-z0-9-]+(\.[a-z0-9-]+)+$/i.test(u.hostname)
+      } catch {
+        return false
+      }
+    }
+    const broken = rows.filter((l) => {
+      const link = /^\| \[[^\]]+\]\(([^)\s]+)\)/.exec(l)?.[1]
+      return !link || !opens(link)
+    })
+    expect(broken).toEqual([])
   })
 })

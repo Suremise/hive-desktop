@@ -67,6 +67,7 @@ import { launchEnded, leftoversOf, noteUntracked, settleLeftovers, trackingProbl
 import type { GateWord } from './launchGate'
 import { leftoversSummary, processCount } from '../shared/agentProcesses'
 import { childEnv, killPty, refreshPty, spawnPty, startSize, writePty } from './ptyHost'
+import { refreshPathBeforeStart } from './freshPath'
 import { TerminalScreen } from './terminalScreen'
 import { KeysStopped, PickNotFound, typeKeySteps } from './keySteps'
 import { withBinOnPath } from './progressReporters/shims'
@@ -1054,6 +1055,8 @@ class SessionManager {
     const providerId = recorded ?? agentLaunchSettings(agent, cfg, config.settings).provider
     // At start, Hive may still be looking for that CLI.
     await providerService.settle(providerId)
+    // The PATH a new process gets now, with what was installed since Hive started (#821).
+    await refreshPathBeforeStart()
     this.assertStarting(id)
     const adapter = providerAdapter(providerId)
     const name = adapter.descriptor.name
