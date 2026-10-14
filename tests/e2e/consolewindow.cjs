@@ -7,7 +7,8 @@
 // its window's workspace (switching or closing it there closes the console and ends its capture, another window's
 // console carrying on); recording writes a file, redacted unless text is ticked for that recording, with the CLIs' versions
 // in its header, ending with the window or its workspace; Copy Diagnostics attaches the newest recording when asked, only
-// a redacted one; and turning the setting off closes it.
+// a redacted one; opened on a display smaller than its saved bounds, it fits that display (#862); and turning the setting
+// off closes it.
 // Fake Claude Code; dev build, throwaway profile, workspace and CLAUDE_CONFIG_DIR.
 const lib = require('./lib.cjs')
 const { _electron } = require('playwright-core')
@@ -396,6 +397,28 @@ const check = (name, ok, extra = '') => {
     await inv2('window:close').catch(() => undefined)
     await lib.until(() => !consoles().includes(dc2), HUNG_MS)
     check('a console closes with its window', !consoles().includes(dc2))
+
+    // --- Opening on a display smaller than its saved bounds (saved on a larger display: #862), it fits that display
+    // rather than running off its edge. The display is a stand-in (Electron's screen, answering for a 1000 x 640 one,
+    // as tabstrip's #812 check does); its bounds are saved larger than that first.
+    const consoleSize = () => app.evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows().find((w) => w.getTitle().startsWith('Developer Console'))?.getSize() ?? null)
+    await inv('console:open')
+    const large = await lib.until(() => consoles()[0] ?? null, HUNG_MS)
+    await app.evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows().find((w) => w.getTitle().startsWith('Developer Console'))?.setSize(1600, 900))
+    const savedLarge = await lib.until(() => JSON.parse(fs.readFileSync(cfgFile, 'utf8')).consoleWindow?.width === 1600, HUNG_MS)
+    check('its larger size is saved', !!savedLarge, JSON.stringify(JSON.parse(fs.readFileSync(cfgFile, 'utf8')).consoleWindow))
+    await large.close()
+    await lib.until(() => consoles().length === 0, HUNG_MS)
+    const SMALL = { x: 0, y: 0, width: 1000, height: 640 }
+    await app.evaluate(({ screen }, area) => {
+      const display = { ...screen.getPrimaryDisplay(), bounds: area, workArea: area }
+      screen.getPrimaryDisplay = () => display
+      screen.getAllDisplays = () => [display]
+      screen.getDisplayNearestPoint = () => display
+    }, SMALL)
+    await inv('console:open')
+    const fitted = await lib.until(async () => (consoles().length === 1 ? await consoleSize() : null), HUNG_MS)
+    check('opened on a display smaller than its saved bounds, it fits that display', !!fitted && fitted[0] <= SMALL.width && fitted[1] <= SMALL.height, JSON.stringify(fitted))
 
     // --- Turning the setting off closes it and hides it again.
     await inv('console:open')
