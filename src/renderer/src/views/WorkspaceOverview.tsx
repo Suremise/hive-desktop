@@ -5,7 +5,7 @@ import { usesOwnPrices } from '@shared/prices'
 import { PERIODS, activeIn, costText, periodFrom, stackedDaily, sumUsage, totalTokens, type DayTotal, type UsageGroup } from '@shared/usageTotals'
 import { call, errorMessage } from '../api'
 import { selectProject } from '../actions'
-import { get, revealAgent, set, setAssistantOpen, setProjectTab, showView, useStore } from '../store'
+import { get, revealAgent, set, setAssistantOpen, setProjectTab, showView, useLanguage, useStore } from '../store'
 import { cx, formatNumber, formatTokens, timeAgo } from '../util'
 import { useNow } from '../usage'
 import { Icon, IconButton, InfoTip, LoadFailed, StaleNote, Tooltip } from '../components/ui'
@@ -245,7 +245,10 @@ export function WorkspaceOverviewView() {
   const workspace = useStore((s) => s.workspace)
   const settings = useStore((s) => s.settings)
   const now = useNow(60000)
-  const groups = useMemo(() => (usage ? usageGroups() : []), [usage])
+  // The groups' labels are worded here (the Assistant's): made again when the language changes, as when the usage does.
+  const language = useLanguage()
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  const groups = useMemo(() => (usage ? usageGroups() : []), [usage, language])
   if (!workspace) return <div className="empty-state">{tr(M.noWorkspace)}</div>
   if (!usage || usage.workspacePath !== workspace.path) {
     if (failed) return <LoadFailed what={tr(M.loadTarget)} error={failed} onRetry={reload} />
@@ -381,7 +384,10 @@ export function WorkspaceOverviewPanel() {
   const from = periodFrom(period, now)
   // Another workspace's figures (opened in this window before) aren't this one's: none until this one's load.
   const mine = !!usage && usage.workspacePath === workspace?.path
-  const groups = useMemo(() => (mine && usage ? usageGroups() : []), [usage, mine])
+  // As the overview's: the Assistant's label follows a change of language.
+  const language = useLanguage()
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  const groups = useMemo(() => (mine && usage ? usageGroups() : []), [usage, mine, language])
   const live = (key: string): number => [...(workspace?.projects ?? []), ...(workspace?.assistant ? [workspace.assistant] : [])].find((p) => (key === 'assistant' ? p.path === workspace?.assistant?.path : p.path === key))?.agents.filter((a) => a.live).length ?? 0
   return (
     <>

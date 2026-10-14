@@ -6,6 +6,8 @@
 // section 4) with locale-independent means only: IPC failures (HIVE_TEST_FAIL_IPC), events sent as main sends them,
 // command ids and structural hooks (data-plan, data-section, classes, icons), never English text. See
 // tests/e2e/i18nshots.cjs for ctx.
+const fs = require('fs')
+const path = require('path')
 
 /** Waits for a locator to be on the page; throws saying what didn't show. */
 async function shown(ctx, locator, what) {
@@ -92,10 +94,62 @@ async function statusBar(ctx) {
   return shown(ctx, ctx.page.locator('.statusbar'), 'the status bar')
 }
 
-/** The Workspace Overview. */
+/**
+ * A session of the Hive Assistant with usage today, as a Hive backup (.hive/sessions in its home), so the Workspace
+ * Overview has an Assistant row and chart series (wsoverview seeds projects the same way).
+ */
+function seedAssistantUsage(ctx) {
+  const home = path.join(ctx.workspace, '.hive', 'assistant', '.hive')
+  const id = '77777777-aaaa-bbbb-cccc-000000000807'
+  const at = new Date().toISOString()
+  fs.mkdirSync(path.join(home, 'sessions'), { recursive: true })
+  const lines = [
+    { type: 'user', timestamp: at, message: { role: 'user', content: 'Go' } },
+    { type: 'assistant', requestId: `${id}-0`, timestamp: at, message: { model: 'claude-opus-5-5', content: [{ type: 'text', text: 'Done.' }], usage: { input_tokens: 5, cache_read_input_tokens: 1000, cache_creation_input_tokens: 100, output_tokens: 500 } } }
+  ]
+  fs.writeFileSync(path.join(home, 'sessions', `${id}.jsonl`), lines.map((l) => JSON.stringify(l)).join('\n') + '\n')
+  const file = path.join(home, 'sessions.json')
+  const kept = fs.existsSync(file) ? JSON.parse(fs.readFileSync(file, 'utf8')) : { version: 1, sessions: [] }
+  if (!kept.sessions.some((x) => x.id === id)) kept.sessions.push({ id, agent: 'claude-code', agentId: 'assistant', name: 'Assistant work', createdAt: at, lastActiveAt: at, archived: false })
+  fs.writeFileSync(file, JSON.stringify(kept))
+}
+
+/** The Workspace Overview's sidebar row and chart legend entry for the Assistant. */
+const assistantRow = (ctx) => ctx.page.locator('.sidebar .row', { has: ctx.page.locator('.assistant-mark') }).first().locator('.label')
+const assistantLegend = (ctx) => ctx.page.locator('.overview-page .stack-legend > span').evaluateAll((spans) => spans.map((s) => s.textContent.trim()))
+
+/** The Workspace Overview, with the Assistant's usage beside the projects'. */
 async function overview(ctx) {
+  seedAssistantUsage(ctx)
   await ctx.command('view.overview')
   await shown(ctx, ctx.page.locator('.overview-page .cards .card'), "the Workspace Overview's figures")
+  await shown(ctx, ctx.page.locator('.sidebar .row .assistant-mark'), "the Assistant's row")
+  await shown(ctx, ctx.page.locator('.overview-page .stack-legend .swatch'), "the chart's legend")
+  if ((await assistantLegend(ctx)).length < 2) throw new Error(`the chart has no Assistant series: ${JSON.stringify(await assistantLegend(ctx))}`)
+  return windowShot()
+}
+
+/** Sends the window a change of language, as main does when Settings → General → Language changes. */
+const switchLanguage = (ctx, language) => sendEvent(ctx, { type: 'language-changed', language })
+
+/**
+ * A live change of language (#807, HR3's review): the Overview's Assistant label, worked out with its groups, follows
+ * it in the sidebar and the chart's legend without a refresh. Under the pseudo-locale: to English and back.
+ */
+async function overviewLanguage(ctx) {
+  if (ctx.lang === 'en-XA') {
+    const info = (await ctx.inv('app:info')).language
+    const pseudo = (t) => /^\[.*\]$/.test(t)
+    if (!pseudo(await assistantRow(ctx).innerText())) throw new Error(`the Assistant's row isn't in the pseudo-locale: ${await assistantRow(ctx).innerText()}`)
+    // i18n-ignore: the English the window changes to, compared with what it shows
+    const english = 'Assistant'
+    await switchLanguage(ctx, { ...info, code: 'en', locale: 'en', messages: {} })
+    const followed = await ctx.lib.until(async () => (await assistantRow(ctx).innerText()) === english && (await assistantLegend(ctx)).includes(english), ctx.hungMs)
+    const seen = `row ${JSON.stringify(await assistantRow(ctx).innerText())}, legend ${JSON.stringify(await assistantLegend(ctx))}`
+    await switchLanguage(ctx, info)
+    if (!followed) throw new Error(`after a change to English the Assistant shows as: ${seen}`)
+    if (!(await ctx.lib.until(async () => pseudo(await assistantRow(ctx).innerText()) && (await assistantLegend(ctx)).some(pseudo), ctx.hungMs))) throw new Error("back in the pseudo-locale, the Assistant's row or legend stayed English")
+  }
   return windowShot()
 }
 
@@ -190,6 +244,7 @@ module.exports = {
     { name: 'plan-tooltip', open: planTooltip, close: leaveTooltip },
     { name: 'status-bar', open: statusBar },
     { name: 'overview', open: overview },
+    { name: 'overview-language', open: overviewLanguage },
     { name: 'overview-refresh-failed', open: overviewRefreshFailed, close: retryOverview },
     { name: 'docs', open: docs },
     { name: 'mcp-builtin', open: mcpBuiltIn },
