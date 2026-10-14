@@ -3,7 +3,7 @@ import type { AppSettings, ChimeSound, EffortLevel, EffortOption, FallbackModel,
 import { DEFAULT_COLUMN_COLORS, TASK_COLUMNS, columnColor } from '@shared/tasks'
 import { DEFAULT_PERSONA } from '@shared/assistant'
 import { PRICES_CHECKED, SHIPPED_PRICES, listedPriceModels, priceRows } from '@shared/prices'
-import { APP_SETTINGS_CATALOG, SETTINGS_SECTIONS, providerSection, settingDefault, settingPatch, settingValue, type SettingEntry, type SettingsSection } from '@shared/settingsCatalog'
+import { APP_SETTINGS_CATALOG, SETTINGS_SECTIONS, providerSection, settingDefault, settingPatch, settingValue, SETTINGS_TEXT, shownSetting, type SettingEntry, type SettingsSection, type SettingsSectionInfo } from '@shared/settingsCatalog'
 import { effortText, fallbackEfforts, fallbackModels, modelSource, modelSourceText, runsAsName } from '@shared/models'
 import type { SettingsPatch } from '@shared/api'
 import { AUTO_PROVIDER, PROVIDERS, defaultProviderLabel, enabledProviders, isProviderEnabled, offeredModes, permissionLabel, providerDescriptor, providerSettings } from '@shared/providers'
@@ -22,9 +22,9 @@ import { HiddenProjectsList } from '../components/ProjectRemoval'
 import { WorkspaceStorageList } from '../components/Storage'
 import { AntivirusPanel } from '../components/Antivirus'
 import { AdvancedSettings } from '../components/AdvancedSettings'
-import { ADVANCED_DEFS, groupName, type AdvancedState } from '@shared/advanced'
+import { ADVANCED_DEFS, groupName, shownText, type AdvancedState } from '@shared/advanced'
 import { choose, confirm, get, notify, set, useLanguage, useStore } from '../store'
-import { language, tr } from '@shared/i18n'
+import { fmt, msg, tr, tRich } from '@shared/i18n'
 import { LANGUAGES, SOURCE_LANGUAGE, languageOf } from '@shared/i18n/languages'
 import { LANGUAGE_TEXT } from '@shared/i18n/languageText'
 import { cx, timeAgo } from '../util'
@@ -39,7 +39,7 @@ interface SettingDef extends SettingEntry {
 
 const SECTION_ICONS: Record<string, string> = { general: 'settings-gear', updates: 'cloud-download', appearance: 'symbol-color', providers: 'hubot', notifications: 'bell', sessions: 'history', assistant: 'person', workspace: 'root-folder', board: 'project', agents: 'organization', keybindings: 'keyboard', agentApi: 'broadcast', advanced: 'tools' }
 
-const SECTIONS: { id: Section; label: string; icon: string; desc: string; provider?: ProviderId }[] = SETTINGS_SECTIONS.map((s) => ({ ...s, icon: SECTION_ICONS[s.id] ?? 'blank' }))
+const SECTIONS: (SettingsSectionInfo<Section> & { icon: string })[] = SETTINGS_SECTIONS.map((s) => ({ ...s, icon: SECTION_ICONS[s.id] ?? 'blank' }))
 
 /** The controls Settings draws itself (custom rows), by catalog id; the catalog has their text (settingsCatalog.ts). */
 const CONTROLS: Record<string, () => React.ReactNode> = {
@@ -63,7 +63,7 @@ const CONTROLS: Record<string, () => React.ReactNode> = {
   'agentApi.viewers': () => <ViewerTokens />,
   'advanced.logs': () => (
     <button className="btn subtle" onClick={() => void call('app:openLogs')}>
-      <Icon name="output" /> Open logs
+      <Icon name="output" /> {tr(msg({ id: 'settings.advanced.openLogs', defaultMessage: 'Open logs', description: "Button in Settings → Advanced → Logs: opens the folder of Hive's log files." }))}
     </button>
   ),
   'advanced.values': () => <AdvancedValues />,
@@ -95,6 +95,15 @@ function providerControl(provider: ProviderId, key: string): (() => React.ReactN
 // Fields drawn as part of another row (the Assistant's "With <provider>") aren't rows of their own.
 const SETTINGS: SettingDef[] = APP_SETTINGS_CATALOG.filter((e) => !e.hidden).map((e) => ({ ...e, render: e.provider ? providerControl(e.provider, e.key) : CONTROLS[e.id] }))
 
+/** A message's <link> part, opening a page in the browser. */
+const linkTo =
+  (url: string) =>
+  (chunks: React.ReactNode[]): React.ReactNode => (
+    <a key="link" onClick={() => void call('app:openExternal', url)}>
+      {chunks}
+    </a>
+  )
+
 /**
  * The price table for a provider's models: Hive's prices (editable defaults), with the user's changes, added and removed
  * models (#125), and the models the CLI lists (#436): one with no price marked to enter one, a priced one it no longer
@@ -112,14 +121,14 @@ function PriceTable({ provider }: { provider: ProviderId }) {
   const rows = priceRows(provider, settings, listed)
   const [adding, setAdding] = useState('')
   const cols: { key: keyof ModelPrice; label: string }[] = [
-    { key: 'input', label: 'Input' },
-    { key: 'cachedInput', label: 'Cached input' },
-    ...(Object.values(shipped).some((m) => m.cacheWrite !== undefined) ? [{ key: 'cacheWrite' as const, label: 'Cache write' }] : []),
-    { key: 'output', label: 'Output' }
+    { key: 'input', label: tr(msg({ id: 'settings.prices.input', defaultMessage: 'Input', description: "A column of a provider's price table (Settings → <provider> → API prices): the price of input tokens." })) },
+    { key: 'cachedInput', label: tr(msg({ id: 'settings.prices.cachedInput', defaultMessage: 'Cached input', description: "A column of a provider's price table: the price of input tokens read from the cache." })) },
+    ...(Object.values(shipped).some((m) => m.cacheWrite !== undefined) ? [{ key: 'cacheWrite' as const, label: tr(msg({ id: 'settings.prices.cacheWrite', defaultMessage: 'Cache write', description: "A column of a provider's price table: the price of writing tokens to the cache." })) }] : []),
+    { key: 'output', label: tr(msg({ id: 'settings.prices.output', defaultMessage: 'Output', description: "A column of a provider's price table: the price of output tokens." })) }
   ]
   const save = (next: Record<string, ModelPrice>, nextRemoved: string[] = removed): Promise<void> =>
     // Replaces the whole table (a deep merge can't remove a model's override).
-    actions.attempt('Could not save prices', () => call('settings:setProviderPrices', provider, next, nextRemoved)).then((s) => void (s && set({ settings: s })))
+    actions.attempt(tr(msg({ id: 'settings.prices.saveFailed', defaultMessage: 'Could not save prices', description: "An error's title: saving a provider's price table failed." })), () => call('settings:setProviderPrices', provider, next, nextRemoved)).then((s) => void (s && set({ settings: s })))
   const setPrice = (model: string, key: keyof ModelPrice, value: string): void => {
     const n = Number(value)
     if (value.trim() === '' || !Number.isFinite(n) || n < 0) return
@@ -149,16 +158,15 @@ function PriceTable({ provider }: { provider: ProviderId }) {
         <div className="fallback-source price-note">
           <Icon name="info" />
           <span>
-            {p.name} doesn't report costs, so Hive estimates them from these prices. Check them against{' '}
-            <a onClick={() => void call('app:openExternal', p.pricingUrl)}>{p.company}'s pricing</a>.
+            {tRich(msg({ id: 'settings.prices.noReports', defaultMessage: "{provider} doesn't report costs, so Hive estimates them from these prices. Check them against <link>{company}'s pricing</link>.", description: "Above a provider's price table when the provider reports no costs. {provider} is its name, {company} the company's; <link> opens the company's price page." }), { provider: p.name, company: p.company, link: linkTo(p.pricingUrl) })}
           </span>
         </div>
       )}
-      <div className="fallback-source faint">Hive's starting prices, checked {PRICES_CHECKED}: edit them if they are out of date.</div>
+      <div className="fallback-source faint">{tr(msg({ id: 'settings.prices.checked', defaultMessage: "Hive's starting prices, checked {checked}: edit them if they are out of date.", description: "Above a provider's price table. {checked} is a date." }), { checked: PRICES_CHECKED })}</div>
       <table className="table price-table">
         <thead>
           <tr>
-            <th>Model</th>
+            <th>{tr(msg({ id: 'settings.prices.model', defaultMessage: 'Model', description: "The first column of a provider's price table: the model's ID." }))}</th>
             {cols.map((c) => (
               <th key={c.key} className="num">
                 {c.label}
@@ -171,34 +179,34 @@ function PriceTable({ provider }: { provider: ProviderId }) {
           {rows.map(({ model: m, price, shipped: isShipped, edited: isEdited, listed: isListed }) => (
             <tr key={m} className={cx(isListed === false && 'unlisted')}>
               <td className="mono">
-                {m} {isEdited && <span className="badge">{isShipped ? 'edited' : 'yours'}</span>}
-                {!price && <span className="badge warn">No price: enter one</span>}
+                {m} {isEdited && <span className="badge">{isShipped ? tr(msg({ id: 'settings.prices.edited', defaultMessage: 'edited', description: "A badge on a model in a price table: one of Hive's prices that the user changed." })) : tr(msg({ id: 'settings.prices.yours', defaultMessage: 'yours', description: 'A badge on a model in a price table: a model the user added.' }))}</span>}
+                {!price && <span className="badge warn">{tr(msg({ id: 'settings.prices.noPrice', defaultMessage: 'No price: enter one', description: 'A badge on a model in a price table that has no price yet.' }))}</span>}
                 {isListed === false && (
-                  <Tooltip content={`${p.name} doesn't list this model now; its price stays for older sessions.`}>
-                    <span className="badge">not in {p.name}'s list</span>
+                  <Tooltip content={tr(msg({ id: 'settings.prices.unlistedTip', defaultMessage: "{provider} doesn't list this model now; its price stays for older sessions.", description: 'Tooltip of a model in a price table that the provider no longer lists. {provider} is its name.' }), { provider: p.name })}>
+                    <span className="badge">{tr(msg({ id: 'settings.prices.unlisted', defaultMessage: "not in {provider}'s list", description: 'A badge on a model in a price table that the provider no longer lists. {provider} is its name.' }), { provider: p.name })}</span>
                   </Tooltip>
                 )}
               </td>
               {cols.map((c) => (
                 <td key={c.key} className="num">
-                  <input className="input price-input" type="number" min={0} step={0.01} aria-label={`${m} ${c.label}`} defaultValue={price?.[c.key] ?? ''} key={`${m}:${c.key}:${price?.[c.key]}`} onBlur={(e) => e.target.value !== String(price?.[c.key] ?? '') && setPrice(m, c.key, e.target.value)} />
+                  <input className="input price-input" type="number" min={0} step={0.01} aria-label={tr(msg({ id: 'settings.prices.cell', defaultMessage: '{model} {column}', description: "A price box's name for screen readers: the model's ID and the column." }), { model: m, column: c.label })} defaultValue={price?.[c.key] ?? ''} key={`${m}:${c.key}:${price?.[c.key]}`} onBlur={(e) => e.target.value !== String(price?.[c.key] ?? '') && setPrice(m, c.key, e.target.value)} />
                 </td>
               ))}
               <td className="row-actions">
-                {isEdited && isShipped && <IconButton icon="discard" title="Back to Hive's price" onClick={() => back(m)} />}
-                {price && <IconButton icon="trash" title="Remove from the table" onClick={() => remove(m)} />}
+                {isEdited && isShipped && <IconButton icon="discard" title={tr(msg({ id: 'settings.prices.back', defaultMessage: "Back to Hive's price", description: "Button on an edited model in a price table: puts Hive's price back." }))} onClick={() => back(m)} />}
+                {price && <IconButton icon="trash" title={tr(msg({ id: 'settings.prices.remove', defaultMessage: 'Remove from the table', description: 'Button on a model in a price table: removes it.' }))} onClick={() => remove(m)} />}
               </td>
             </tr>
           ))}
         </tbody>
       </table>
       <div className="fallback-actions">
-        <input className="input mono" placeholder="Model ID, e.g. a new model" aria-label="New model's ID" value={adding} onChange={(e) => setAdding(e.target.value)} onKeyDown={(e) => e.key === 'Enter' && add()} />
+        <input className="input mono" placeholder={tr(msg({ id: 'settings.prices.newPlaceholder', defaultMessage: 'Model ID, e.g. a new model', description: "Placeholder of the box under a price table where a model's ID is typed to add it." }))} aria-label={tr(msg({ id: 'settings.prices.newLabel', defaultMessage: "New model's ID", description: "The name, for screen readers, of the box under a price table where a model's ID is typed." }))} value={adding} onChange={(e) => setAdding(e.target.value)} onKeyDown={(e) => e.key === 'Enter' && add()} />
         <button className="btn subtle" disabled={!adding.trim()} onClick={add}>
-          <Icon name="add" /> Add model
+          <Icon name="add" /> {tr(msg({ id: 'settings.prices.add', defaultMessage: 'Add model', description: 'Button under a price table: adds the model typed beside it.' }))}
         </button>
         <button className="btn subtle" disabled={!edited} onClick={() => void save({}, [])}>
-          <Icon name="discard" /> Reset to defaults
+          <Icon name="discard" /> {tr(msg({ id: 'settings.fallback.reset', defaultMessage: 'Reset to defaults', description: "Button under a provider's table (prices, models or effort levels): goes back to Hive's own." }))}
         </button>
       </div>
     </div>
@@ -209,14 +217,14 @@ function PriceTable({ provider }: { provider: ProviderId }) {
  * An editable list for a provider's fallback (models or effort levels): value, name and, for models, Older. Any edit
  * stores the whole list as the user's; Reset to defaults removes it, so Hive's own list (and its updates) applies again.
  */
-function FallbackRows<T extends FallbackModel | EffortOption>({ provider, kind, rows, edited, valueLabel, placeholder, open: startOpen }: { provider: ProviderId; kind: 'models' | 'efforts'; rows: T[]; edited: boolean; valueLabel: string; placeholder: string; open: boolean }) {
+function FallbackRows<T extends FallbackModel | EffortOption>({ provider, kind, rows, edited, valueLabel, newLabel, placeholder, open: startOpen }: { provider: ProviderId; kind: 'models' | 'efforts'; rows: T[]; edited: boolean; valueLabel: string; newLabel: string; placeholder: string; open: boolean }) {
   const [adding, setAdding] = useState('')
   // Folded while the CLI's answer is in use and the list is Hive's own: it is only used without one.
   const [open, setOpen] = useState(startOpen)
   useEffect(() => {
     if (startOpen) setOpen(true)
   }, [startOpen])
-  const save = (next: T[] | null): Promise<void> => actions.attempt('Could not save the list', () => call('settings:setProviderFallback', provider, kind, next)).then((s) => void (s && set({ settings: s })))
+  const save = (next: T[] | null): Promise<void> => actions.attempt(tr(msg({ id: 'settings.fallback.saveFailed', defaultMessage: 'Could not save the list', description: "An error's title: saving a provider's fallback list of models or effort levels failed." })), () => call('settings:setProviderFallback', provider, kind, next)).then((s) => void (s && set({ settings: s })))
   const change = (i: number, patch: Partial<FallbackModel>): void => void save(rows.map((r, j) => (j === i ? { ...r, ...patch } : r)))
   const add = (): void => {
     const v = adding.trim()
@@ -227,7 +235,7 @@ function FallbackRows<T extends FallbackModel | EffortOption>({ provider, kind, 
   if (!open)
     return (
       <a className="fallback-toggle" onClick={() => setOpen(true)}>
-        Show the list ({rows.length} {kind === 'models' ? 'models' : 'levels'})
+        {kind === 'models' ? tr(msg({ id: 'settings.fallback.showModels', defaultMessage: 'Show the list ({n, plural, one {# model} other {# models}})', description: "A link that unfolds a provider's fallback list of models. {n} is how many it holds." }), { n: rows.length }) : tr(msg({ id: 'settings.fallback.showLevels', defaultMessage: 'Show the list ({n, plural, one {# level} other {# levels}})', description: "A link that unfolds a provider's fallback list of effort levels. {n} is how many it holds." }), { n: rows.length })}
       </a>
     )
   return (
@@ -236,8 +244,8 @@ function FallbackRows<T extends FallbackModel | EffortOption>({ provider, kind, 
         <thead>
           <tr>
             <th>{valueLabel}</th>
-            <th>Name</th>
-            {kind === 'models' && <th>Older</th>}
+            <th>{tr(msg({ id: 'settings.fallback.name', defaultMessage: 'Name', description: "A column of a provider's fallback list: the name pickers show." }))}</th>
+            {kind === 'models' && <th>{tr(msg({ id: 'settings.fallback.older', defaultMessage: 'Older', description: "A column of a provider's fallback list of models: ticked, the model is listed under Older models." }))}</th>}
             <th />
           </tr>
         </thead>
@@ -245,30 +253,30 @@ function FallbackRows<T extends FallbackModel | EffortOption>({ provider, kind, 
           {rows.map((r, i) => (
             <tr key={r.value}>
               <td>
-                <input className="input mono" aria-label={`${valueLabel} ${i + 1}`} defaultValue={r.value} key={`v:${r.value}`} onBlur={(e) => e.target.value.trim() && e.target.value.trim() !== r.value && change(i, { value: e.target.value.trim() })} />
+                <input className="input mono" aria-label={tr(msg({ id: 'settings.fallback.valueCell', defaultMessage: '{column} {n}', description: "The name, for screen readers, of a box in a fallback list: the column and the row's number." }), { column: valueLabel, n: i + 1 })} defaultValue={r.value} key={`v:${r.value}`} onBlur={(e) => e.target.value.trim() && e.target.value.trim() !== r.value && change(i, { value: e.target.value.trim() })} />
               </td>
               <td>
-                <input className="input" aria-label={`Name ${i + 1}`} defaultValue={r.label} key={`l:${r.value}:${r.label}`} onBlur={(e) => e.target.value.trim() !== r.label && change(i, { label: e.target.value.trim() || r.value })} />
+                <input className="input" aria-label={tr(msg({ id: 'settings.fallback.nameCell', defaultMessage: 'Name {n}', description: "The name, for screen readers, of a row's Name box in a fallback list. {n} is the row's number." }), { n: i + 1 })} defaultValue={r.label} key={`l:${r.value}:${r.label}`} onBlur={(e) => e.target.value.trim() !== r.label && change(i, { label: e.target.value.trim() || r.value })} />
               </td>
               {kind === 'models' && (
                 <td>
-                  <input type="checkbox" aria-label={`Older ${i + 1}`} checked={!!(r as FallbackModel).older} onChange={(e) => change(i, { older: e.target.checked })} />
+                  <input type="checkbox" aria-label={tr(msg({ id: 'settings.fallback.olderCell', defaultMessage: 'Older {n}', description: "The name, for screen readers, of a row's Older box in a fallback list. {n} is the row's number." }), { n: i + 1 })} checked={!!(r as FallbackModel).older} onChange={(e) => change(i, { older: e.target.checked })} />
                 </td>
               )}
               <td className="row-actions">
-                <IconButton icon="trash" title="Remove" disabled={rows.length < 2} onClick={() => void save(rows.filter((_, j) => j !== i))} />
+                <IconButton icon="trash" title={tr(msg({ id: 'settings.fallback.remove', defaultMessage: 'Remove', description: 'Button on a row of a fallback list: removes it.' }))} disabled={rows.length < 2} onClick={() => void save(rows.filter((_, j) => j !== i))} />
               </td>
             </tr>
           ))}
         </tbody>
       </table>
       <div className="fallback-actions">
-        <input className="input mono" placeholder={placeholder} aria-label={`New ${valueLabel.toLowerCase()}`} value={adding} onChange={(e) => setAdding(e.target.value)} onKeyDown={(e) => e.key === 'Enter' && add()} />
+        <input className="input mono" placeholder={placeholder} aria-label={newLabel} value={adding} onChange={(e) => setAdding(e.target.value)} onKeyDown={(e) => e.key === 'Enter' && add()} />
         <button className="btn subtle" disabled={!adding.trim()} onClick={add}>
-          <Icon name="add" /> Add
+          <Icon name="add" /> {tr(msg({ id: 'settings.fallback.add', defaultMessage: 'Add', description: 'Button under a fallback list: adds the value typed beside it.' }))}
         </button>
         <button className="btn subtle" disabled={!edited} onClick={() => void save(null)}>
-          <Icon name="discard" /> Reset to defaults
+          <Icon name="discard" /> {tr(msg({ id: 'settings.fallback.reset', defaultMessage: 'Reset to defaults', description: "Button under a provider's table (prices, models or effort levels): goes back to Hive's own." }))}
         </button>
       </div>
     </>
@@ -284,9 +292,9 @@ function ModelFallbackTable({ provider }: { provider: ProviderId }) {
   return (
     <div className="fallback-table">
       <div className={cx('fallback-source', src.kind === 'fallback' ? 'warn' : 'faint')}>
-        <Icon name={src.kind === 'fallback' ? 'warning' : 'check'} /> Models now: {modelSourceText(provider, { ...src, edited })}
+        <Icon name={src.kind === 'fallback' ? 'warning' : 'check'} /> {tr(msg({ id: 'settings.fallback.modelsNow', defaultMessage: 'Models now: {source}', description: "Above a provider's fallback list of models: where the model pickers' models come from now. {source} says it." }), { source: modelSourceText(provider, { ...src, edited }) })}
       </div>
-      <FallbackRows provider={provider} kind="models" rows={fallbackModels(provider, settings)} edited={edited} valueLabel="Model ID" placeholder={providerDescriptor(provider).modelPlaceholder} open={src.kind === 'fallback' || edited} />
+      <FallbackRows provider={provider} kind="models" rows={fallbackModels(provider, settings)} edited={edited} valueLabel={tr(msg({ id: 'settings.fallback.modelId', defaultMessage: 'Model ID', description: "A column of a provider's fallback list of models: the ID Hive passes to the CLI." }))} newLabel={tr(msg({ id: 'settings.fallback.newModel', defaultMessage: 'New model ID', description: 'The name, for screen readers, of the box under a fallback list of models where a new one is typed.' }))} placeholder={providerDescriptor(provider).modelPlaceholder} open={src.kind === 'fallback' || edited} />
     </div>
   )
 }
@@ -300,9 +308,12 @@ function EffortFallbackTable({ provider }: { provider: ProviderId }) {
   return (
     <div className="fallback-table">
       <div className="fallback-source faint">
-        <Icon name={perModel ? 'check' : 'info'} /> {perModel ? `${modelSourceText(provider, modelSource(provider, info, settings))}: each model offers its own levels; this list names them and is used for models it doesn't describe.` : `Used now: ${providerDescriptor(provider).name} hasn't reported per-model levels.`}
+        <Icon name={perModel ? 'check' : 'info'} />{' '}
+        {perModel
+          ? tr(msg({ id: 'settings.fallback.levelsPerModel', defaultMessage: "{source}: each model offers its own levels; this list names them and is used for models it doesn't describe.", description: "Above a provider's fallback list of effort levels, when the CLI reports each model's levels. {source} says where the models come from." }), { source: modelSourceText(provider, modelSource(provider, info, settings)) })
+          : tr(msg({ id: 'settings.fallback.levelsUsed', defaultMessage: "Used now: {provider} hasn't reported per-model levels.", description: "Above a provider's fallback list of effort levels, when the CLI reports none per model. {provider} is its name." }), { provider: providerDescriptor(provider).name })}
       </div>
-      <FallbackRows provider={provider} kind="efforts" rows={fallbackEfforts(provider, settings)} edited={edited} valueLabel="Level" placeholder="e.g. xhigh" open={!perModel || edited} />
+      <FallbackRows provider={provider} kind="efforts" rows={fallbackEfforts(provider, settings)} edited={edited} valueLabel={tr(msg({ id: 'settings.fallback.level', defaultMessage: 'Level', description: "A column of a provider's fallback list of effort levels: the value Hive passes to the CLI." }))} newLabel={tr(msg({ id: 'settings.fallback.newLevel', defaultMessage: 'New level', description: 'The name, for screen readers, of the box under a fallback list of effort levels where a new one is typed.' }))} placeholder={tr(msg({ id: 'settings.fallback.levelPlaceholder', defaultMessage: 'e.g. xhigh', description: "Placeholder of the box where a new effort level is typed. xhigh is a level's value: keep it." }))} open={!perModel || edited} />
     </div>
   )
 }
@@ -315,13 +326,13 @@ function GlobalEffortPicker({ provider }: { provider: ProviderId }) {
   const def = SETTINGS.find((d) => d.provider === provider && d.key === 'defaultEffort')!
   const model = g.defaultModel || info?.defaultModel || null
   const text = effortText(provider, null, model, info, settings)
-  return <EffortPicker provider={provider} model={model} value={g.defaultEffort} base={{ value: '', label: `${providerDescriptor(provider).name} default${text === 'default' ? '' : ` (${text.replace(/, default$/, '')})`}` }} onChange={(v) => void update(def, v)} />
+  return <EffortPicker provider={provider} model={model} value={g.defaultEffort} base={{ value: '', label: text === 'default' ? tr(msg({ id: 'settings.provider.cliDefault', defaultMessage: '{provider} default', description: "The first choice of a model or effort list: the CLI's own default. {provider} is its name." }), { provider: providerDescriptor(provider).name }) : tr(msg({ id: 'settings.provider.cliDefaultIs', defaultMessage: '{provider} default ({which})', description: "The first choice of a model or effort list: the CLI's own default, and which model or level that is. {provider} is its name." }), { provider: providerDescriptor(provider).name, which: text.replace(/, default$/, '') }) }} onChange={(v) => void update(def, v)} />
 }
 
 function GlobalModelPicker({ provider }: { provider: ProviderId }) {
   const value = useStore((s) => providerSettings(s.settings, provider).defaultModel)
   const def = SETTINGS.find((d) => d.provider === provider && d.key === 'defaultModel')!
-  return <ModelPicker provider={provider} value={value} base={{ value: '', label: `${providerDescriptor(provider).name} default` }} onChange={(v) => void update(def, v)} />
+  return <ModelPicker provider={provider} value={value} base={{ value: '', label: tr(msg({ id: 'settings.provider.cliDefault', defaultMessage: '{provider} default', description: "The first choice of a model or effort list: the CLI's own default. {provider} is its name." }), { provider: providerDescriptor(provider).name }) }} onChange={(v) => void update(def, v)} />
 }
 
 /** A row's value: Hive's settings, or the open workspace's own (Settings → Workspace's card loops, #412). */
@@ -330,27 +341,32 @@ const getValue = (s: AppSettings, def: SettingDef, loops: WorkspaceConfig['loops
 const defaultValue = (def: SettingDef): unknown => settingDefault(def)
 
 async function saveSettings(patch: SettingsPatch): Promise<void> {
-  const s = await actions.attempt('Could not save setting', () => call('settings:update', patch))
+  const s = await actions.attempt(tr(msg({ id: 'settings.saveFailed', defaultMessage: 'Could not save setting', description: "An error's title: saving a setting failed." })), () => call('settings:update', patch))
   if (s) set({ settings: s })
 }
 
-/** Saves a row's new value through the change the catalog gives for it (the Assistant's settings tool makes the same). */
-/**
- * A row's text as Settings shows it: its messages in the user's language where it has them (#767), else its English.
- * A title that also says its English does so in any other language: "Język (Language)".
- */
-function rowText(d: SettingEntry): { title: string; desc: string; tip: string } {
-  if (!d.text) return d
-  const title = tr(d.text.title)
-  return { title: d.text.englishTitle && language() !== SOURCE_LANGUAGE && title !== d.title ? `${title} (${d.title})` : title, desc: tr(d.text.desc), tip: tr(d.text.tip) }
+/** A row's text as Settings shows it, in the user's language (#767). */
+const rowText = (d: SettingEntry): { title: string; desc: string; tip: string } => shownSetting(d)
+
+/** Why a row can't be changed now, as shown; null when it can. */
+function disabledText(d: SettingEntry, settings: AppSettings): string | null {
+  const why = d.disabledBy?.(settings)
+  return why ? shownText(why) : null
 }
 
+/** A row's default as its Reset button names it: the value as it is, or empty. */
+function defaultShown(d: SettingEntry): string {
+  const v = defaultValue(d)
+  return v ? String(v) : tr(msg({ id: 'settings.emptyDefault', defaultMessage: 'empty', description: 'In "Reset to default (empty)": the setting\'s default is empty.' }))
+}
+
+/** Saves a row's new value through the change the catalog gives for it (the Assistant's settings tool makes the same). */
 async function update(def: SettingDef, value: unknown): Promise<void> {
   if (def.action) return
   const change = settingPatch(def, value)
   if ('settings' in change) return saveSettings(change.settings as SettingsPatch)
   if ('workspace' in change) {
-    const info = await actions.attempt('Could not save setting', () => call('workspace:setLoops', change.workspace))
+    const info = await actions.attempt(tr(msg({ id: 'settings.saveFailed', defaultMessage: 'Could not save setting', description: "An error's title: saving a setting failed." })), () => call('workspace:setLoops', change.workspace))
     if (info) set({ workspace: info })
   }
 }
@@ -362,26 +378,26 @@ export async function setProviderEnabled(provider: ProviderId, on: boolean): Pro
     // Providers are app-wide: list the agents running it in every window, naming the other windows' workspaces.
     const here = get().workspace?.path.toLowerCase()
     const leaf = (p: string): string => p.split(/[\\/]/).filter(Boolean).pop() ?? p
-    const live = (await actions.attempt('Could not list the running agents', () => call('session:live'))) ?? []
+    const live = (await actions.attempt(tr(msg({ id: 'settings.providerOff.listFailed', defaultMessage: 'Could not list the running agents', description: "An error's title: listing the agents that run a provider, before turning it off, failed." })), () => call('session:live'))) ?? []
     const running = live
       .filter((s) => s.provider === provider)
       .map((s) => {
         const parent = s.projectPath.replace(/[\\/][^\\/]+[\\/]?$/, '')
-        const where = parent.toLowerCase() === here ? leaf(s.projectPath) : `${leaf(parent)}/${leaf(s.projectPath)} (another window)`
+        const where = parent.toLowerCase() === here ? leaf(s.projectPath) : tr(msg({ id: 'settings.providerOff.otherWindow', defaultMessage: '{workspace}/{project} (another window)', description: 'In the list of agents running a provider that is being turned off: a project open in another window. {workspace} and {project} are folder names.' }), { workspace: leaf(parent), project: leaf(s.projectPath) })
         return s.agentName ? `${where} · ${s.agentName}` : where
       })
     if (running.length) {
       const choice = await choose({
-        title: `Turn off ${name}?`,
-        message: `${running.length === 1 ? 'An agent is' : `${running.length} agents are`} running ${name}: ${running.join(', ')}.`,
-        detail: 'Stop them now, or let them run until they are stopped. Either way no new ones start while it is off.',
+        title: tr(msg({ id: 'settings.providerOff.title', defaultMessage: 'Turn off {provider}?', description: 'Title of the question before a provider is turned off while its agents run. {provider} is its name.' }), { provider: name }),
+        message: tr(msg({ id: 'settings.providerOff.message', defaultMessage: '{n, plural, one {An agent is running {provider}: {agents}.} other {# agents are running {provider}: {agents}.}}', description: 'The question before a provider is turned off while its agents run. {provider} is its name; {agents} lists them (project · agent).' }), { n: running.length, provider: name, agents: fmt.list(running) }),
+        detail: tr(msg({ id: 'settings.providerOff.detail', defaultMessage: 'Stop them now, or let them run until they are stopped. Either way no new ones start while it is off.', description: 'More in the question before a provider is turned off while its agents run.' })),
         choices: [
-          { label: 'Let them run', value: 'run' },
-          { label: 'Stop them now', value: 'stop' }
+          { label: tr(msg({ id: 'settings.providerOff.run', defaultMessage: 'Let them run', description: 'Choice in the question before a provider is turned off: its agents keep running.' })), value: 'run' },
+          { label: tr(msg({ id: 'settings.providerOff.stop', defaultMessage: 'Stop them now', description: 'Choice in the question before a provider is turned off: its agents stop now.' })), value: 'stop' }
         ]
       })
       if (!choice) return
-      if (choice === 'stop') await actions.attempt(`Could not stop the ${name} agents`, () => call('provider:stopAgents', provider))
+      if (choice === 'stop') await actions.attempt(tr(msg({ id: 'settings.providerOff.stopFailed', defaultMessage: 'Could not stop the {provider} agents', description: "An error's title: stopping a provider's agents failed. {provider} is its name." }), { provider: name }), () => call('provider:stopAgents', provider))
     }
   }
   await saveSettings({ providers: { [provider]: { enabled: on } } } as SettingsPatch)
@@ -403,7 +419,8 @@ function Control({ def, settings }: { def: SettingDef; settings: AppSettings }) 
           label={rowText(def).title}
           disabled={!!def.disabledBy?.(settings)}
           onChange={async (v) => {
-            if (v && def.confirmOn && !(await confirm({ ...def.confirmOn, confirmLabel: 'Enable', danger: true }))) return
+            const ask = def.text.confirmOn
+            if (v && ask && !(await confirm({ title: shownText(ask.title), message: shownText(ask.message), ...(ask.detail ? { detail: shownText(ask.detail) } : {}), confirmLabel: tr(msg({ id: 'settings.enable', defaultMessage: 'Enable', description: 'Button of the confirmation before a risky setting is turned on.' })), danger: true }))) return
             void update(def, v)
           }}
         />
@@ -413,7 +430,7 @@ function Control({ def, settings }: { def: SettingDef; settings: AppSettings }) 
         <select className="select" value={String(value ?? '')} onChange={(e) => void update(def, e.target.value)}>
           {def.options!.map((o) => (
             <option key={o.value} value={o.value}>
-              {o.label}
+              {shownText(o.text)}
             </option>
           ))}
         </select>
@@ -433,7 +450,7 @@ function Control({ def, settings }: { def: SettingDef; settings: AppSettings }) 
           max={def.max}
           step={def.step}
           label={rowText(def).title}
-          off={def.off ? { label: def.off, restore: Number(defaultValue(def)) || null } : undefined}
+          off={def.off && def.text.off ? { label: shownText(def.text.off), restore: Number(defaultValue(def)) || null } : undefined}
           onCommit={(v) => update(def, v)}
         />
       )
@@ -441,19 +458,24 @@ function Control({ def, settings }: { def: SettingDef; settings: AppSettings }) 
       const commit = (): void => {
         if (draft !== value) void update(def, draft.trim())
       }
-      return <input className="input" value={draft} placeholder={def.placeholder} onChange={(e) => setDraft(e.target.value)} onBlur={commit} onKeyDown={(e) => e.key === 'Enter' && commit()} />
+      return <input className="input" value={draft} placeholder={def.placeholder === undefined ? undefined : shownText(def.placeholder)} onChange={(e) => setDraft(e.target.value)} onBlur={commit} onKeyDown={(e) => e.key === 'Enter' && commit()} />
     }
   }
 }
 
 function ProviderToggle({ provider }: { provider: ProviderId }) {
   const on = useStore((s) => isProviderEnabled(s.settings, provider))
-  return <Switch checked={on} label={`Use ${providerDescriptor(provider).name}`} onChange={(v) => void setProviderEnabled(provider, v)} />
+  return <Switch checked={on} label={tr(msg({ id: 'settings.provider.use', defaultMessage: 'Use {provider}', description: 'The switch that turns a provider on (Settings → Providers, and its own page). {provider} is its name.' }), { provider: providerDescriptor(provider).name })} onChange={(v) => void setProviderEnabled(provider, v)} />
 }
 
 function ProviderStatus({ provider }: { provider: ProviderId }) {
   const info = useStore((s) => s.providers[provider])
-  if (!info || info.checking) return <span className="muted"><Icon name="loading" spin /> Checking…</span>
+  if (!info || info.checking)
+    return (
+      <span className="muted">
+        <Icon name="loading" spin /> {tr(msg({ id: 'settings.provider.checking', defaultMessage: 'Checking…', description: "While Hive looks for a provider's CLI (Settings → <provider> → Installation)." }))}
+      </span>
+    )
   const problems = (info.readiness ?? []).filter((r) => r.level !== 'info')
   return (
     <div className="flex" style={{ flexWrap: 'wrap', justifyContent: 'flex-end' }}>
@@ -464,7 +486,7 @@ function ProviderStatus({ provider }: { provider: ProviderId }) {
           </span>
         </Tooltip>
       ) : (
-        <span className="badge error">CLI not installed</span>
+        <span className="badge error">{tr(msg({ id: 'settings.provider.notInstalled', defaultMessage: 'CLI not installed', description: "A badge on a provider's page: Hive didn't find its CLI." }))}</span>
       )}
       {info.found &&
         problems.map((r) => (
@@ -472,12 +494,12 @@ function ProviderStatus({ provider }: { provider: ProviderId }) {
             {r.message}
           </span>
         ))}
-      {info.updateAvailable && <span className="badge accent">{info.latestVersion} available</span>}
+      {info.updateAvailable && <span className="badge accent">{tr(msg({ id: 'settings.provider.updateAvailable', defaultMessage: '{version} available', description: "A badge on a provider's page: a newer version of its CLI. {version} is its number." }), { version: info.latestVersion ?? '' })}</span>}
       <button className="btn small subtle" onClick={() => void actions.refreshProviders()}>
-        Check now
+        {tr(msg({ id: 'settings.provider.checkNow', defaultMessage: 'Check now', description: "Button on a provider's page: looks for its CLI and updates again." }))}
       </button>
       <button className="btn small primary" onClick={() => set({ setupOpen: provider })}>
-        {info.found ? 'Manage' : 'Install'}
+        {info.found ? tr(msg({ id: 'settings.provider.manage', defaultMessage: 'Manage', description: "Button on a provider's page: opens Agent Setup for the installed CLI." })) : tr(msg({ id: 'settings.provider.install', defaultMessage: 'Install', description: "Button on a provider's page: opens Agent Setup to install its CLI." }))}
       </button>
     </div>
   )
@@ -492,20 +514,20 @@ function ProvidersList() {
       {PROVIDERS.map((p) => {
         const info = providers[p.id]
         const on = isProviderEnabled(settings, p.id)
-        const state = !info || info.checking ? 'Checking…' : !info.found ? 'Not installed' : info.readiness?.find((r) => r.level === 'error')?.message ?? `Installed · ${info.version}`
+        const state = !info || info.checking ? tr(msg({ id: 'settings.provider.checking', defaultMessage: 'Checking…', description: "While Hive looks for a provider's CLI (Settings → <provider> → Installation)." })) : !info.found ? tr(msg({ id: 'settings.provider.notInstalledShort', defaultMessage: 'Not installed', description: "Under a provider in Settings → Providers: Hive didn't find its CLI." })) : (info.readiness?.find((r) => r.level === 'error')?.message ?? tr(msg({ id: 'settings.provider.installed', defaultMessage: 'Installed · {version}', description: 'Under a provider in Settings → Providers: its CLI is installed. {version} is its number.' }), { version: info.version ?? '' }))
         return (
           <div key={p.id} className={cx('provider-row', !on && 'off')}>
             <ProviderIcon provider={p.id} />
             <div className="grow">
               <div>
-                <strong>{p.name}</strong> <span className="faint">by {p.company}</span>
+                <strong>{p.name}</strong> <span className="faint">{tr(msg({ id: 'settings.provider.by', defaultMessage: 'by {company}', description: "Beside a provider's name in Settings → Providers: the company that makes it." }), { company: p.company })}</span>
               </div>
               <div className="faint small">{state}</div>
             </div>
             <button className="btn small subtle" onClick={() => set({ settingsSection: providerSection(p.id), settingsQuery: '' })}>
-              Settings
+              {tr(msg({ id: 'settings.provider.settings', defaultMessage: 'Settings', description: 'Button beside a provider in Settings → Providers: opens its page.' }))}
             </button>
-            <Switch checked={on} label={`Use ${p.name}`} onChange={(v) => void setProviderEnabled(p.id, v)} />
+            <Switch checked={on} label={tr(msg({ id: 'settings.provider.use', defaultMessage: 'Use {provider}', description: 'The switch that turns a provider on (Settings → Providers, and its own page). {provider} is its name.' }), { provider: p.name })} onChange={(v) => void setProviderEnabled(p.id, v)} />
           </div>
         )
       })}
@@ -521,11 +543,10 @@ function AssistantProviderPicker() {
   useStore((s) => s.providers)
   return (
     <select className="select" value={current} onChange={(e) => void saveSettings({ assistant: { provider: e.target.value } })}>
-      <option value="">Default provider ({defaultProviderLabel(settings)})</option>
+      <option value="">{tr(msg({ id: 'settings.assistant.defaultProvider', defaultMessage: 'Default provider ({provider})', description: 'The first choice of Settings → Assistant → Provider: the default provider, and which one that is now.' }), { provider: defaultProviderLabel(settings) })}</option>
       {PROVIDERS.filter((p) => on.includes(p) || p.id === current).map((p) => (
         <option key={p.id} value={p.id}>
-          {p.name}
-          {on.includes(p) ? '' : ' (off)'}
+          {on.includes(p) ? p.name : tr(SETTINGS_TEXT.providerOff, { provider: p.name })}
         </option>
       ))}
     </select>
@@ -534,10 +555,10 @@ function AssistantProviderPicker() {
 
 /** Hive's personas, for choosing a default before a workspace is open. */
 const SHIPPED_PERSONAS = [
-  { id: 'coordinator', name: 'Coordinator', icon: '🧭' },
-  { id: 'planner', name: 'Planner', icon: '🗺️' },
-  { id: 'qa-triager', name: 'QA triager', icon: '🔍' },
-  { id: 'release-manager', name: 'Release manager', icon: '📦' }
+  { id: 'coordinator', name: 'Coordinator', icon: '🧭' }, // i18n-ignore: the shipped modes' names, as their files name them
+  { id: 'planner', name: 'Planner', icon: '🗺️' }, // i18n-ignore: the shipped modes' names, as their files name them
+  { id: 'qa-triager', name: 'QA triager', icon: '🔍' }, // i18n-ignore: the shipped modes' names, as their files name them
+  { id: 'release-manager', name: 'Release manager', icon: '📦' } // i18n-ignore: the shipped modes' names, as their files name them
 ]
 
 function AssistantPersonaPicker() {
@@ -570,16 +591,16 @@ function AssistantProviderDefaults({ provider }: { provider: ProviderId }) {
   const cliDefault = info?.defaultModel ?? null
   const runModel = a.model || g.defaultModel || cliDefault
   const inherited = effortText(provider, g.defaultEffort, runModel, info, settings)
-  const effortName = inherited === 'default' ? `${p.name}'s` : inherited
+  const effortName = inherited === 'default' ? tr(msg({ id: 'settings.assistant.providersEffort', defaultMessage: "{provider}'s", description: 'In the Assistant\'s effort list, "Default ({effort})", when it is the CLI\'s own default. {provider} is its name.' }), { provider: p.name }) : inherited
   return (
     <div className="agent-form assistant-defaults">
-      <label>Model</label>
-      <ModelPicker provider={provider} value={a.model} base={{ value: '', label: `${p.name} default${g.defaultModel ? ` (${runsAsName(provider, g.defaultModel, info)})` : ''}` }} onChange={(v) => save({ model: v })} />
-      <label>Effort</label>
-      <EffortPicker provider={provider} model={runModel} value={a.effort} base={{ value: '', label: `Default (${effortName})` }} onChange={(v) => save({ effort: v as EffortLevel | '' })} />
-      <label>Permission mode</label>
+      <label>{tr(msg({ id: 'settings.assistantProvider.model.title', defaultMessage: 'Model', description: "A field's title in Settings → Assistant → With <provider>: the Assistant's model." }))}</label>
+      <ModelPicker provider={provider} value={a.model} base={{ value: '', label: g.defaultModel ? tr(msg({ id: 'settings.provider.cliDefaultIs', defaultMessage: '{provider} default ({which})', description: "The first choice of a model or effort list: the CLI's own default, and which model or level that is. {provider} is its name." }), { provider: p.name, which: runsAsName(provider, g.defaultModel, info) }) : tr(msg({ id: 'settings.provider.cliDefault', defaultMessage: '{provider} default', description: "The first choice of a model or effort list: the CLI's own default. {provider} is its name." }), { provider: p.name }) }} onChange={(v) => save({ model: v })} />
+      <label>{tr(msg({ id: 'settings.assistantProvider.effort.title', defaultMessage: 'Effort', description: "A field's title in Settings → Assistant → With <provider>: the Assistant's reasoning effort." }))}</label>
+      <EffortPicker provider={provider} model={runModel} value={a.effort} base={{ value: '', label: tr(msg({ id: 'settings.assistant.defaultIs', defaultMessage: 'Default ({value})', description: 'The first choice of a list in Settings → Assistant → With <provider>: what applies when nothing is chosen. {value} says what that is.' }), { value: effortName }) }} onChange={(v) => save({ effort: v as EffortLevel | '' })} />
+      <label>{tr(msg({ id: 'settings.assistantProvider.permissionMode.title', defaultMessage: 'Permission mode', description: "A field's title in Settings → Assistant → With <provider>: the Assistant's permission mode." }))}</label>
       <select className="select" value={a.permissionMode} onChange={(e) => save({ permissionMode: e.target.value as PermissionMode | '' })}>
-        <option value="">Default ({permissionLabel(provider, p.assistantMode)})</option>
+        <option value="">{tr(msg({ id: 'settings.assistant.defaultIs', defaultMessage: 'Default ({value})', description: 'The first choice of a list in Settings → Assistant → With <provider>: what applies when nothing is chosen. {value} says what that is.' }), { value: permissionLabel(provider, p.assistantMode) })}</option>
         {offeredModes(provider, settings)
           .filter((m) => m.value !== p.assistantMode)
           .map((m) => (
@@ -591,16 +612,16 @@ function AssistantProviderDefaults({ provider }: { provider: ProviderId }) {
       <ModeCaveat provider={provider} mode={a.permissionMode || p.assistantMode} model={a.model || g.defaultModel || cliDefault} />
       {p.capabilities.contextLimit && (
         <>
-          <label>Use 200K context (instead of 1M)</label>
+          <label>{tr(msg({ id: 'settings.assistantProvider.use200kContext.title', defaultMessage: 'Use 200K context (instead of 1M)', description: "A field's title in Settings → Assistant → With <provider>. 200K and 1M are numbers of tokens." }))}</label>
           <select className="select" value={a.use200kContext ?? ''} onChange={(e) => save({ use200kContext: e.target.value as '' | 'on' | 'off' })}>
-            <option value="">Default ({g.use200kContext ? 'On' : 'Off'})</option>
-            <option value="on">On</option>
-            <option value="off">Off</option>
+            <option value="">{tr(msg({ id: 'settings.assistant.defaultIs', defaultMessage: 'Default ({value})', description: 'The first choice of a list in Settings → Assistant → With <provider>: what applies when nothing is chosen. {value} says what that is.' }), { value: g.use200kContext ? tr(msg({ id: 'settings.option.on', defaultMessage: 'On', description: 'A choice of a setting that is on or off, beside Inherit or Default.' })) : tr(msg({ id: 'settings.option.off', defaultMessage: 'Off', description: 'A choice of a setting that is on or off, beside Inherit or Default.' })) })}</option>
+            <option value="on">{tr(msg({ id: 'settings.option.on', defaultMessage: 'On', description: 'A choice of a setting that is on or off, beside Inherit or Default.' }))}</option>
+            <option value="off">{tr(msg({ id: 'settings.option.off', defaultMessage: 'Off', description: 'A choice of a setting that is on or off, beside Inherit or Default.' }))}</option>
           </select>
         </>
       )}
-      <label>Extra arguments</label>
-      <input className="input" value={args} placeholder="e.g. --verbose" onChange={(e) => setArgs(e.target.value)} onBlur={() => args !== a.extraArgs && save({ extraArgs: args.trim() })} />
+      <label>{tr(msg({ id: 'settings.assistantProvider.extraArgs.title', defaultMessage: 'Extra arguments', description: "A field's title in Settings → Assistant → With <provider>: command-line arguments." }))}</label>
+      <input className="input" value={args} placeholder={tr(msg({ id: 'settings.assistantDefaults.extraArgsPlaceholder', defaultMessage: 'e.g. --verbose', description: 'The empty box\'s placeholder of the setting "Extra arguments". --verbose is an argument: keep it.' }))} onChange={(e) => setArgs(e.target.value)} onBlur={() => args !== a.extraArgs && save({ extraArgs: args.trim() })} />
     </div>
   )
 }
@@ -617,8 +638,7 @@ function DefaultProviderPicker() {
       <option value={AUTO_PROVIDER}>{defaultProviderLabel(settings && { ...settings, defaultProvider: AUTO_PROVIDER })}</option>
       {PROVIDERS.filter((p) => on.includes(p) || p.id === current).map((p) => (
         <option key={p.id} value={p.id}>
-          {p.name}
-          {on.includes(p) ? '' : ' (off)'}
+          {on.includes(p) ? p.name : tr(SETTINGS_TEXT.providerOff, { provider: p.name })}
         </option>
       ))}
     </select>
@@ -634,12 +654,12 @@ function ClearUsageCacheButton() {
       onClick={() => {
         setBusy(true)
         void call('session:clearUsageCache')
-          .then(() => notify('info', 'Usage cache cleared', 'Each transcript is read again the next time it is shown.'))
-          .catch((e) => notify('error', 'Could not clear the usage cache', errorMessage(e)))
+          .then(() => notify('info', tr(msg({ id: 'settings.usageCache.cleared', defaultMessage: 'Usage cache cleared', description: 'A notice after Settings → Sessions → Clear the usage cache.' })), tr(msg({ id: 'settings.usageCache.clearedDetail', defaultMessage: 'Each transcript is read again the next time it is shown.', description: 'More in the notice after the usage cache was cleared.' }))))
+          .catch((e) => notify('error', tr(msg({ id: 'settings.usageCache.clearFailed', defaultMessage: 'Could not clear the usage cache', description: "An error's title: clearing the usage cache failed." })), errorMessage(e)))
           .finally(() => setBusy(false))
       }}
     >
-      <Icon name="clear-all" /> Clear
+      <Icon name="clear-all" /> {tr(msg({ id: 'settings.usageCache.clear', defaultMessage: 'Clear', description: 'Button of Settings → Sessions → Clear the usage cache.' }))}
     </button>
   )
 }
@@ -652,17 +672,23 @@ function ResetMetricsButton() {
       className="btn subtle"
       disabled={busy || !workspace}
       onClick={() => {
-        void confirm({ title: 'Reset performance metrics?', message: "Clear this workspace's recorded performance metrics?", detail: 'The history starts again from now.', confirmLabel: 'Reset', danger: true }).then((ok) => {
+        void confirm({
+          title: tr(msg({ id: 'settings.metrics.resetTitle', defaultMessage: 'Reset performance metrics?', description: 'Title of the question before the recorded performance metrics are cleared.' })),
+          message: tr(msg({ id: 'settings.metrics.resetMessage', defaultMessage: "Clear this workspace's recorded performance metrics?", description: 'The question before the recorded performance metrics are cleared.' })),
+          detail: tr(msg({ id: 'settings.metrics.resetDetail', defaultMessage: 'The history starts again from now.', description: 'More in the question before the performance metrics are cleared.' })),
+          confirmLabel: tr(msg({ id: 'settings.reset', defaultMessage: 'Reset', description: 'Button of a confirmation that resets something to its defaults or clears it.' })),
+          danger: true
+        }).then((ok) => {
           if (!ok) return
           setBusy(true)
           void call('metrics:reset')
-            .then(() => notify('info', 'Performance metrics reset'))
-            .catch((e) => notify('error', 'Could not reset the performance metrics', errorMessage(e)))
+            .then(() => notify('info', tr(msg({ id: 'settings.metrics.wasReset', defaultMessage: 'Performance metrics reset', description: 'A notice after the performance metrics were cleared.' }))))
+            .catch((e) => notify('error', tr(msg({ id: 'settings.metrics.resetFailed', defaultMessage: 'Could not reset the performance metrics', description: "An error's title: clearing the performance metrics failed." })), errorMessage(e)))
             .finally(() => setBusy(false))
         })
       }}
     >
-      <Icon name="discard" /> Reset
+      <Icon name="discard" /> {tr(msg({ id: 'settings.reset', defaultMessage: 'Reset', description: 'Button of a confirmation that resets something to its defaults or clears it.' }))}
     </button>
   )
 }
@@ -685,10 +711,10 @@ function ColumnColors() {
         const value = draft[c.id] ?? columnColor(board.colors, c.id)
         return (
           <label key={c.id} className="column-color">
-            <input type="color" value={value} aria-label={`${c.label} colour`} onChange={(e) => setDraft((d) => ({ ...d, [c.id]: e.target.value }))} />
+            <input type="color" value={value} aria-label={tr(msg({ id: 'settings.columnColors.pick', defaultMessage: '{column} colour', description: "The name, for screen readers, of a board column's colour picker (Settings → Board → Column colours). {column} is the column's name." }), { column: c.label })} onChange={(e) => setDraft((d) => ({ ...d, [c.id]: e.target.value }))} />
             <span>{c.label}</span>
             {value.toLowerCase() !== DEFAULT_COLUMN_COLORS[c.id] && (
-              <IconButton icon="discard" title={`Reset ${c.label} to its default`} onClick={() => void saveSettings({ board: { colors: { [c.id]: DEFAULT_COLUMN_COLORS[c.id] } } } as SettingsPatch)} />
+              <IconButton icon="discard" title={tr(msg({ id: 'settings.columnColors.reset', defaultMessage: 'Reset {column} to its default', description: "Button beside a board column's colour: puts back its default colour. {column} is the column's name." }), { column: c.label })} onClick={() => void saveSettings({ board: { colors: { [c.id]: DEFAULT_COLUMN_COLORS[c.id] } } } as SettingsPatch)} />
             )}
           </label>
         )
@@ -732,10 +758,10 @@ function LanguagePicker() {
 function ChimePicker() {
   const s = useStore((st) => st.settings!)
   const sounds: { value: ChimeSound; label: string }[] = [
-    { value: 'chime', label: 'Chime' },
-    { value: 'bell', label: 'Bell' },
-    { value: 'soft', label: 'Soft' },
-    { value: 'pop', label: 'Pop' }
+    { value: 'chime', label: tr(msg({ id: 'settings.chime.chime', defaultMessage: 'Chime', description: 'A sound of Settings → Notifications → Chime sound.' })) },
+    { value: 'bell', label: tr(msg({ id: 'settings.chime.bell', defaultMessage: 'Bell', description: 'A sound of Settings → Notifications → Chime sound.' })) },
+    { value: 'soft', label: tr(msg({ id: 'settings.chime.soft', defaultMessage: 'Soft', description: 'A sound of Settings → Notifications → Chime sound.' })) },
+    { value: 'pop', label: tr(msg({ id: 'settings.chime.pop', defaultMessage: 'Pop', description: 'A sound of Settings → Notifications → Chime sound.' })) }
   ]
   return (
     <div className="flex" style={{ width: '100%' }}>
@@ -746,7 +772,7 @@ function ChimePicker() {
           </option>
         ))}
       </select>
-      <IconButton icon="play" title="Play" onClick={() => playChime(s.notifications.chimeSound, s.notifications.chimeVolume)} />
+      <IconButton icon="play" title={tr(msg({ id: 'settings.chime.play', defaultMessage: 'Play', description: 'Button beside Settings → Notifications → Chime sound: plays it.' }))} onClick={() => playChime(s.notifications.chimeSound, s.notifications.chimeVolume)} />
     </div>
   )
 }
@@ -756,12 +782,12 @@ function ApiStatus() {
   if (!api) return null
   return api.running ? (
     <span className="badge success">
-      <Icon name="broadcast" /> Listening on {api.url}
+      <Icon name="broadcast" /> {tr(msg({ id: 'settings.api.listening', defaultMessage: 'Listening on {url}', description: 'Settings → Agent API → Status while the API runs. {url} is its address.' }), { url: api.url ?? '' })}
     </span>
   ) : api.error ? (
     <span className="badge error">{api.error}</span>
   ) : (
-    <span className="badge">Off</span>
+    <span className="badge">{tr(msg({ id: 'settings.api.off', defaultMessage: 'Off', description: 'Settings → Agent API → Status while the API is turned off.' }))}</span>
   )
 }
 
@@ -772,20 +798,29 @@ function ApiToken() {
   return (
     <div className="token-box">
       <input className="input" readOnly value={show ? api.token : '•'.repeat(24)} />
-      <IconButton icon={show ? 'eye-closed' : 'eye'} title={show ? 'Hide' : 'Show'} onClick={() => setShow(!show)} />
+      <IconButton icon={show ? 'eye-closed' : 'eye'} title={show ? tr(msg({ id: 'settings.token.hide', defaultMessage: 'Hide', description: 'Button beside a token: hides it again.' })) : tr(msg({ id: 'settings.token.show', defaultMessage: 'Show', description: 'Button beside a hidden token: shows it.' }))} onClick={() => setShow(!show)} />
       <IconButton
         icon="copy"
-        title="Copy"
+        title={tr(msg({ id: 'settings.token.copy', defaultMessage: 'Copy', description: 'Button beside a token: copies it.' }))}
         onClick={() => {
           void navigator.clipboard.writeText(api.token)
-          notify('success', 'Token copied')
+          notify('success', tr(msg({ id: 'settings.token.copied', defaultMessage: 'Token copied', description: 'A notice after a token was copied.' })))
         }}
       />
       <IconButton
         icon="refresh"
-        title="Regenerate"
+        action="regenerate-token"
+        title={tr(msg({ id: 'settings.token.regenerate', defaultMessage: 'Regenerate', description: "Button beside the Agent API's token: makes a new one." }))}
         onClick={async () => {
-          if (!(await confirm({ title: 'Regenerate token?', message: 'Programs using the current token will stop working. Running sessions pick up the new token when restarted.', confirmLabel: 'Regenerate', danger: true }))) return
+          if (
+            !(await confirm({
+              title: tr(msg({ id: 'settings.token.regenerateTitle', defaultMessage: 'Regenerate token?', description: "Title of the question before the Agent API's token is replaced." })),
+              message: tr(msg({ id: 'settings.token.regenerateMessage', defaultMessage: 'Programs using the current token will stop working. Running sessions pick up the new token when restarted.', description: "The question before the Agent API's token is replaced." })),
+              confirmLabel: tr(msg({ id: 'settings.token.regenerate', defaultMessage: 'Regenerate', description: "Button beside the Agent API's token: makes a new one." })),
+              danger: true
+            }))
+          )
+            return
           set({ api: await call('api:regenerateToken') })
         }}
       />
@@ -808,17 +843,25 @@ function ViewerTokens() {
       setName('')
       // The new one shows, ready to copy into its app.
       setShown(info.viewers.find((v) => v.name === n)?.id ?? null)
-      notify('success', `Viewer token "${n}" made`, 'Copy it into the app it is for.')
+      notify('success', tr(msg({ id: 'settings.viewers.made', defaultMessage: 'Viewer token "{name}" made', description: 'A notice after a viewer token was made (Settings → Agent API → Viewer tokens). {name} is the name the user gave it.' }), { name: n }), tr(msg({ id: 'settings.viewers.madeDetail', defaultMessage: 'Copy it into the app it is for.', description: 'More in the notice after a viewer token was made.' })))
     } catch (e) {
-      notify('error', 'Could not make the viewer token', errorMessage(e))
+      notify('error', tr(msg({ id: 'settings.viewers.makeFailed', defaultMessage: 'Could not make the viewer token', description: "An error's title: making a viewer token failed." })), errorMessage(e))
     }
   }
   const revoke = async (id: string, label: string): Promise<void> => {
-    if (!(await confirm({ title: `Revoke "${label}"?`, message: 'The app using it can no longer read Hive, and its event stream ends now.', confirmLabel: 'Revoke', danger: true }))) return
+    if (
+      !(await confirm({
+        title: tr(msg({ id: 'settings.viewers.revokeTitle', defaultMessage: 'Revoke "{name}"?', description: 'Title of the question before a viewer token is revoked. {name} is its name.' }), { name: label }),
+        message: tr(msg({ id: 'settings.viewers.revokeMessage', defaultMessage: 'The app using it can no longer read Hive, and its event stream ends now.', description: 'The question before a viewer token is revoked.' })),
+        confirmLabel: tr(msg({ id: 'settings.viewers.revoke', defaultMessage: 'Revoke', description: 'Button: revokes a viewer token.' })),
+        danger: true
+      }))
+    )
+      return
     try {
       set({ api: await call('api:revokeViewer', id) })
     } catch (e) {
-      notify('error', 'Could not revoke the viewer token', errorMessage(e))
+      notify('error', tr(msg({ id: 'settings.viewers.revokeFailed', defaultMessage: 'Could not revoke the viewer token', description: "An error's title: revoking a viewer token failed." })), errorMessage(e))
     }
   }
   return (
@@ -827,9 +870,9 @@ function ViewerTokens() {
         <table className="table">
           <thead>
             <tr>
-              <th>Name</th>
-              <th>Token</th>
-              <th>Made</th>
+              <th>{tr(msg({ id: 'settings.viewers.name', defaultMessage: 'Name', description: 'A column of the viewer tokens table: the name the user gave a token.' }))}</th>
+              <th>{tr(msg({ id: 'settings.viewers.token', defaultMessage: 'Token', description: 'A column of the viewer tokens table: the token.' }))}</th>
+              <th>{tr(msg({ id: 'settings.viewers.madeColumn', defaultMessage: 'Made', description: 'A column of the viewer tokens table: when the token was made.' }))}</th>
               <th />
             </tr>
           </thead>
@@ -839,14 +882,14 @@ function ViewerTokens() {
                 <td>{v.name}</td>
                 <td>
                   <div className="token-box">
-                    <input className="input" readOnly aria-label={`${v.name}'s token`} value={shown === v.id ? v.token : '•'.repeat(24)} />
-                    <IconButton icon={shown === v.id ? 'eye-closed' : 'eye'} title={shown === v.id ? 'Hide' : 'Show'} onClick={() => setShown(shown === v.id ? null : v.id)} />
+                    <input className="input" readOnly aria-label={tr(msg({ id: 'settings.viewers.tokenOf', defaultMessage: "{name}'s token", description: "The name, for screen readers, of a viewer token's box. {name} is the token's name." }), { name: v.name })} value={shown === v.id ? v.token : '•'.repeat(24)} />
+                    <IconButton icon={shown === v.id ? 'eye-closed' : 'eye'} title={shown === v.id ? tr(msg({ id: 'settings.token.hide', defaultMessage: 'Hide', description: 'Button beside a token: hides it again.' })) : tr(msg({ id: 'settings.token.show', defaultMessage: 'Show', description: 'Button beside a hidden token: shows it.' }))} onClick={() => setShown(shown === v.id ? null : v.id)} />
                     <IconButton
                       icon="copy"
-                      title="Copy"
+                      title={tr(msg({ id: 'settings.token.copy', defaultMessage: 'Copy', description: 'Button beside a token: copies it.' }))}
                       onClick={() => {
                         void navigator.clipboard.writeText(v.token)
-                        notify('success', 'Token copied')
+                        notify('success', tr(msg({ id: 'settings.token.copied', defaultMessage: 'Token copied', description: 'A notice after a token was copied.' })))
                       }}
                     />
                   </div>
@@ -854,7 +897,7 @@ function ViewerTokens() {
                 <td className="faint">{timeAgo(v.createdAt)}</td>
                 <td className="row-actions">
                   <button className="btn small subtle" onClick={() => void revoke(v.id, v.name)}>
-                    Revoke
+                    {tr(msg({ id: 'settings.viewers.revoke', defaultMessage: 'Revoke', description: 'Button: revokes a viewer token.' }))}
                   </button>
                 </td>
               </tr>
@@ -863,9 +906,9 @@ function ViewerTokens() {
         </table>
       )}
       <div className="fallback-actions">
-        <input className="input" placeholder="Name, e.g. Apiary" aria-label="New viewer token's name" maxLength={40} value={name} onChange={(e) => setName(e.target.value)} onKeyDown={(e) => e.key === 'Enter' && void create()} />
+        <input className="input" placeholder={tr(msg({ id: 'settings.viewers.namePlaceholder', defaultMessage: 'Name, e.g. Apiary', description: "Placeholder of the box where a new viewer token's name is typed. Apiary is an app's name: keep it." }))} aria-label={tr(msg({ id: 'settings.viewers.nameLabel', defaultMessage: "New viewer token's name", description: "The name, for screen readers, of the box where a new viewer token's name is typed." }))} maxLength={40} value={name} onChange={(e) => setName(e.target.value)} onKeyDown={(e) => e.key === 'Enter' && void create()} />
         <button className="btn subtle" disabled={!name.trim()} onClick={() => void create()}>
-          <Icon name="add" /> Make viewer token
+          <Icon name="add" /> {tr(msg({ id: 'settings.viewers.make', defaultMessage: 'Make viewer token', description: 'Button: makes a viewer token with the name typed beside it.' }))}
         </button>
       </div>
     </div>
@@ -883,7 +926,8 @@ function AdvancedValues() {
 function advancedMatches(q: string, modifiedOnly: boolean, advanced: AdvancedState | null): boolean {
   const words = q.split(/\s+/).filter(Boolean)
   const hits = (text: string): boolean => words.every((w) => text.toLowerCase().includes(w))
-  return ADVANCED_DEFS.some((d) => (!modifiedOnly || advanced?.values[d.id] !== undefined || advanced?.workspace?.[d.id] !== undefined) && hits(`${d.id} ${d.setting ?? ''} ${groupName(d.group)} ${d.title} ${d.desc}`))
+  // Its English matches as well as what it shows, as Settings' own rows do.
+  return ADVANCED_DEFS.some((d) => (!modifiedOnly || advanced?.values[d.id] !== undefined || advanced?.workspace?.[d.id] !== undefined) && hits(`${d.id} ${d.setting ?? ''} ${groupName(d.group)} ${d.title} ${d.desc} ${shownText(d.text.title)} ${shownText(d.text.desc)}`))
 }
 
 function DataFolder() {
@@ -894,10 +938,10 @@ function DataFolder() {
       <input className="input" readOnly value={path} />
       <IconButton
         icon="copy"
-        title="Copy path"
+        title={tr(msg({ id: 'settings.data.copyPath', defaultMessage: 'Copy path', description: "Button beside the settings file's path (Settings → Advanced → Settings file): copies it." }))}
         onClick={() => {
           void navigator.clipboard.writeText(path)
-          notify('success', 'Path copied')
+          notify('success', tr(msg({ id: 'settings.data.copied', defaultMessage: 'Path copied', description: 'A notice after a path was copied.' })))
         }}
       />
     </div>
@@ -908,17 +952,26 @@ function ResetAll() {
   return (
     <button
       className="btn danger"
+      data-action="reset-all"
       onClick={async () => {
-        if (!(await confirm({ title: 'Reset all settings?', message: "Every setting in Settings returns to its default, the advanced settings in advanced.json too. A workspace's own advanced values are kept.", confirmLabel: 'Reset', danger: true }))) return
+        if (
+          !(await confirm({
+            title: tr(msg({ id: 'settings.resetAll.title', defaultMessage: 'Reset all settings?', description: 'Title of the question before every setting goes back to its default (Settings → Advanced → Reset all settings).' })),
+            message: tr(msg({ id: 'settings.resetAll.message', defaultMessage: "Every setting in Settings returns to its default, the advanced settings in advanced.json too. A workspace's own advanced values are kept.", description: 'The question before every setting goes back to its default.' })),
+            confirmLabel: tr(msg({ id: 'settings.reset', defaultMessage: 'Reset', description: 'Button of a confirmation that resets something to its defaults or clears it.' })),
+            danger: true
+          }))
+        )
+          return
         try {
           set({ settings: await call('settings:reset') })
-          notify('success', 'Settings reset')
+          notify('success', tr(msg({ id: 'settings.resetAll.done', defaultMessage: 'Settings reset', description: 'A notice after every setting went back to its default.' })))
         } catch (e) {
-          notify('error', 'Could not reset the settings', errorMessage(e))
+          notify('error', tr(msg({ id: 'settings.resetAll.failed', defaultMessage: 'Could not reset the settings', description: "An error's title: resetting the settings failed." })), errorMessage(e))
         }
       }}
     >
-      Reset
+      {tr(msg({ id: 'settings.reset', defaultMessage: 'Reset', description: 'Button of a confirmation that resets something to its defaults or clears it.' }))}
     </button>
   )
 }
@@ -941,7 +994,7 @@ export function SettingsView() {
     return SETTINGS.filter((d) => {
       if (d.id === 'advanced.values' && (q || modifiedOnly)) return advancedMatches(q, modifiedOnly, advanced)
       // Its English matches as well as what it shows: Settings can be searched in either.
-      if (q && !`${d.title} ${d.desc} ${d.tip} ${d.key}${d.text && shownLanguage !== SOURCE_LANGUAGE ? ` ${Object.values(rowText(d)).join(' ')}` : ''}`.toLowerCase().includes(q)) return false
+      if (q && !`${d.title} ${d.desc} ${d.tip} ${d.key}${shownLanguage !== SOURCE_LANGUAGE ? ` ${Object.values(rowText(d)).join(' ')}` : ''}`.toLowerCase().includes(q)) return false
       if (modifiedOnly && (d.type === 'custom' || getValue(settings!, d, loops) === defaultValue(d))) return false
       if (!q && !modifiedOnly && d.section !== section) return false
       return true
@@ -950,40 +1003,42 @@ export function SettingsView() {
 
   if (!settings) return null
   const grouped = SECTIONS.map((s) => ({ ...s, items: visible.filter((d) => d.section === s.id) })).filter((g) => g.items.length)
+  // Shown in the user's language: a provider's page is its name.
+  const sectionText = (s: (typeof SECTIONS)[number]): { label: string; desc: string } => ({ label: shownText(s.text.label), desc: shownText(s.text.desc) })
   const navIcon = (s: (typeof SECTIONS)[number]): React.ReactNode => (s.provider ? <ProviderIcon provider={s.provider} /> : <Icon name={s.icon} />)
 
   return (
     <div className="settings">
       <div className="settings-top">
         <Icon name="search" />
-        <SearchInput autoFocus placeholder="Search settings" value={query} onChange={(v) => set({ settingsQuery: v })} />
+        <SearchInput autoFocus placeholder={tr(msg({ id: 'settings.search', defaultMessage: 'Search settings', description: "Placeholder of Settings' search box." }))} value={query} onChange={(v) => set({ settingsQuery: v })} />
         <label className="flex muted">
-          <input type="checkbox" className="checkbox" checked={modifiedOnly} onChange={(e) => setModifiedOnly(e.target.checked)} /> Modified only
+          <input type="checkbox" className="checkbox" checked={modifiedOnly} onChange={(e) => setModifiedOnly(e.target.checked)} /> {tr(msg({ id: 'settings.modifiedOnly', defaultMessage: 'Modified only', description: 'A box at the top of Settings: ticked, only settings changed from their default show.' }))}
         </label>
       </div>
       <div className="settings-body">
         <div className="settings-nav">
           {SECTIONS.map((s) => (
-            <div key={s.id} className={cx('row', !query && !modifiedOnly && section === s.id && 'selected')} onClick={() => {
+            <div key={s.id} className={cx('row', !query && !modifiedOnly && section === s.id && 'selected')} data-section={s.id} onClick={() => {
                 set({ settingsSection: s.id, settingsQuery: '' })
                 setModifiedOnly(false)
               }}
             >
-              {navIcon(s)} <span className={cx('label', s.provider && 'settings-sub')}>{s.label}</span>
+              {navIcon(s)} <span className={cx('label', s.provider && 'settings-sub')}>{sectionText(s).label}</span>
             </div>
           ))}
         </div>
         <div className="settings-content">
-          {grouped.length === 0 && <div className="empty-state">No settings match.</div>}
+          {grouped.length === 0 && <div className="empty-state">{tr(msg({ id: 'settings.noMatch', defaultMessage: 'No settings match.', description: 'Settings when its search finds nothing.' }))}</div>}
           {grouped.map((g) => (
-            <div key={g.id} className="settings-group">
-              <h2>{g.label}</h2>
-              <p>{g.desc}</p>
+            <div key={g.id} className="settings-group" data-section={g.id}>
+              <h2>{sectionText(g).label}</h2>
+              <p>{sectionText(g).desc}</p>
               {g.items.map((d) => {
                 const modified = (d.type !== 'custom' || ['defaultModel', 'defaultEffort', 'defaultProvider', 'modelFallback', 'effortFallback'].includes(d.key)) && getValue(settings, d, loops) !== defaultValue(d)
                 return (
                   d.wide ? (
-                    <div key={`${d.section}.${d.key}`} className="setting wide">
+                    <div key={`${d.section}.${d.key}`} className="setting wide" data-setting={d.id}>
                       <div className="s-text">
                         <div className="s-title">
                           {rowText(d).title} <InfoTip text={<span style={{ whiteSpace: 'pre-line' }}>{rowText(d).tip}</span>} />
@@ -993,21 +1048,21 @@ export function SettingsView() {
                       </div>
                     </div>
                   ) : (
-                  <div key={`${d.section}.${d.key}`} className={cx('setting', d.danger && 'danger')}>
+                  <div key={`${d.section}.${d.key}`} className={cx('setting', d.danger && 'danger')} data-setting={d.id}>
                     <div className="s-text">
                       <div className="s-title">
                         {modified && (
-                          <Tooltip content="Modified from the default">
+                          <Tooltip content={tr(msg({ id: 'settings.modified', defaultMessage: 'Modified from the default', description: 'Tooltip of the dot beside a setting changed from its default.' }))}>
                             <span className="modified" />
                           </Tooltip>
                         )}
                         {rowText(d).title} <InfoTip text={<span style={{ whiteSpace: 'pre-line' }}>{rowText(d).tip}</span>} />
                         {modified && (
-                          <IconButton icon="discard" title={`Reset to default (${String(defaultValue(d) || 'empty')})`} onClick={() => void update(d, defaultValue(d))} />
+                          <IconButton icon="discard" title={tr(msg({ id: 'settings.resetToDefault', defaultMessage: 'Reset to default ({value})', description: 'Button beside a setting changed from its default: puts it back. {value} is the default.' }), { value: defaultShown(d) })} onClick={() => void update(d, defaultValue(d))} />
                         )}
                       </div>
                       {d.desc && <div className="s-desc">{rowText(d).desc}</div>}
-                      {d.disabledBy?.(settings) && <div className="s-desc muted">{d.disabledBy(settings)}</div>}
+                      {disabledText(d, settings) && <div className="s-desc muted">{disabledText(d, settings)}</div>}
                     </div>
                     <div className="s-control">
                       <Control def={d} settings={settings} />

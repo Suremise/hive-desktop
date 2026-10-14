@@ -1,6 +1,8 @@
 import { isAbsolute, join } from 'path'
 import { closeSync, fstatSync, openSync, readSync, statSync } from 'original-fs'
 import type { AutoCompactSetting } from '../../../shared/types'
+import { englishText } from '../../../shared/advanced'
+import { msg, tr } from '../../../shared/i18n'
 
 /**
  * Where Claude Code compacts by itself, as its settings say (#242; code.claude.com/docs/en/model-config, "Context window
@@ -56,7 +58,9 @@ export interface SettingsScope {
 }
 
 /** What a default is labelled with: what Hive can't read could still change it (#273). */
-export const UNREAD_SOURCES = "an estimate: managed policies Hive can't read, such as Windows registry policies or your organisation's server-managed settings, could change it"
+const UNREAD = msg({ id: 'providers.autoCompact.unread', defaultMessage: "an estimate: managed policies Hive can't read, such as Windows registry policies or your organisation's server-managed settings, could change it", description: "Where Claude Code's auto-compaction setting comes from, in the context tooltip of an agent's footer: its default is an estimate. A clause in brackets after the window." })
+/** The same in English (#797): the window is shown it in its language. */
+export const UNREAD_SOURCES = englishText(UNREAD)
 
 /**
  * The environment a session ends up with: the launch's, with each scope's `env` block over it (the lowest scope first,
@@ -116,16 +120,20 @@ function envSwitch(v: string | undefined): boolean | undefined {
  */
 export function autoCompactOf(args: readonly string[], launchEnv: Record<string, string | undefined>, scopes: readonly SettingsScope[], models: readonly string[]): AutoCompactSetting {
   // What a scope Hive can't be sure of holds could change any answer (its env block is over the launch's): an estimate (#333).
-  const unsure = scopes.filter((s) => s.unsure).map((s) => `${s.label} ${s.unsure}`).join('; ')
+  // Whole clauses, each saying what it is about: kept apart with semicolons, as their own commas would blur a list.
+  const unsure = scopes
+    .filter((s) => s.unsure)
+    .map((s) => tr(msg({ id: 'providers.autoCompact.unsureScope', defaultMessage: '{scope} {unsure}', description: "Where Claude Code's auto-compaction setting comes from, in the context tooltip of an agent's footer: a settings file Hive can't be sure of. {scope} names it (providers.autoCompact.scope.*, or a command-line option), {unsure} says why (couldn't be read…)." }), { scope: s.label, unsure: s.unsure! }))
+    .join('; ')
   const result = autoCompactRead(args, launchEnv, scopes, models)
   if (!unsure) return result
-  return { ...result, estimate: result.estimate ? `${result.estimate}; and ${unsure}` : `an estimate: ${unsure}` }
+  return { ...result, estimate: result.estimate ? tr(msg({ id: 'providers.autoCompact.estimateAnd', defaultMessage: '{estimate}; and {unsure}', description: "Where Claude Code's auto-compaction setting comes from, in the context tooltip of an agent's footer: more reasons it is an estimate. {estimate} is the first (providers.autoCompact.unread), {unsure} the settings files Hive can't be sure of." }), { estimate: result.estimate, unsure }) : tr(msg({ id: 'providers.autoCompact.estimate', defaultMessage: 'an estimate: {unsure}', description: "Where Claude Code's auto-compaction setting comes from, in the context tooltip of an agent's footer: it is an estimate. {unsure} says which settings files Hive can't be sure of." }), { unsure }) }
 }
 
 function autoCompactRead(args: readonly string[], launchEnv: Record<string, string | undefined>, scopes: readonly SettingsScope[], models: readonly string[]): AutoCompactSetting {
   // The variables as Claude Code reads them: a settings file's env block over the launch environment.
   const { env, from } = effectiveEnv(launchEnv, scopes)
-  const named = (k: string): string => (from[k] ? `${k} (env in ${from[k]})` : k)
+  const named = (k: string): string => (from[k] ? tr(msg({ id: 'providers.autoCompact.envIn', defaultMessage: '{variable} (env in {scope})', description: "Where Claude Code's auto-compaction setting comes from, in the context tooltip of an agent's footer: an environment variable set in a settings file's env block. {variable} is its name, {scope} the file. env is the block's name: keep it." }), { variable: k, scope: from[k] }) : k)
   const pct = parseInt(env.CLAUDE_AUTOCOMPACT_PCT_OVERRIDE ?? '', 10)
   const percent = Number.isFinite(pct) && pct >= 1 && pct <= 100 ? { percent: pct } : {}
   const pctOnly = 'percent' in percent ? named('CLAUDE_AUTOCOMPACT_PCT_OVERRIDE') : null
@@ -134,7 +142,7 @@ function autoCompactRead(args: readonly string[], launchEnv: Record<string, stri
   if (disableAuto) return { window: 'off', source: named('DISABLE_AUTO_COMPACT') }
   for (const s of disableAuto === false ? [] : scopes) {
     const enabled = s.json && typeof s.json === 'object' ? (s.json as Record<string, unknown>).autoCompactEnabled : undefined
-    if (enabled === false) return { window: 'off', source: `autoCompactEnabled: false in ${s.label}` }
+    if (enabled === false) return { window: 'off', source: tr(msg({ id: 'providers.autoCompact.disabledIn', defaultMessage: 'autoCompactEnabled: false in {scope}', description: "Where Claude Code's auto-compaction setting comes from, in the context tooltip of an agent's footer: a settings file turns it off. autoCompactEnabled: false is the setting as written: keep it. {scope} is the file." }), { scope: s.label }) }
     if (enabled === true) break
   }
   const fromEnv = envWindow(env.CLAUDE_CODE_AUTO_COMPACT_WINDOW)
@@ -151,10 +159,12 @@ function autoCompactRead(args: readonly string[], launchEnv: Record<string, stri
   for (const s of scopes) {
     const w = scopeWindow(s.json, ids)
     if (!w) continue
-    return w.value === 'auto' ? { window: null, source: `${w.key}: "auto" in ${s.label}`, ...percent } : { window: w.value, source: `${w.key} in ${s.label}`, ...percent }
+    return w.value === 'auto'
+      ? { window: null, source: tr(msg({ id: 'providers.autoCompact.autoIn', defaultMessage: '{key}: "auto" in {scope}', description: 'Where Claude Code\'s auto-compaction setting comes from, in the context tooltip of an agent\'s footer: a settings file sets it to auto. {key} is the setting as written (autoCompactWindow), {scope} the file. "auto" is its value: keep it.' }), { key: w.key, scope: s.label }), ...percent }
+      : { window: w.value, source: tr(msg({ id: 'providers.autoCompact.keyIn', defaultMessage: '{key} in {scope}', description: "Where Claude Code's auto-compaction setting comes from, in the context tooltip of an agent's footer: a settings file sets it. {key} is the setting as written (autoCompactWindow), {scope} the file." }), { key: w.key, scope: s.label }), ...percent }
   }
   // Nothing Hive can read sets it: Claude Code's default, as far as Hive can tell.
-  return { window: null, source: pctOnly, ...percent, estimate: UNREAD_SOURCES }
+  return { window: null, source: pctOnly, ...percent, estimate: tr(UNREAD) }
 }
 
 /** The most of a settings file Claude Code reads: it refuses a larger `--settings` (2.1.292: "exceeds the 2MiB limit"). */
@@ -171,15 +181,15 @@ export const SETTINGS_READ_CHUNK = 64 * 1024
  * may have been replaced or grown since the stat.
  */
 function readSettings(file: string): { json: unknown; unsure?: string } {
-  const unread = (why: string): { json: null; unsure: string } => ({ json: null, unsure: `couldn't be read (${why})` })
+  const unread = (why: string): { json: null; unsure: string } => ({ json: null, unsure: tr(msg({ id: 'providers.autoCompact.unreadable', defaultMessage: "couldn't be read ({why})", description: "Where Claude Code's auto-compaction setting comes from, in the context tooltip of an agent's footer: a settings file Hive couldn't read (after its name). {why} says why (providers.autoCompact.why.*, or the system's message)." }), { why }) })
   let fd: number | null = null
   try {
     const st = statSync(file, { throwIfNoEntry: false })
     if (!st) return { json: null }
-    if (!st.isFile()) return unread("it isn't a file")
-    if (st.size > SETTINGS_FILE_LIMIT) return unread("it's over Claude Code's 2 MiB limit")
+    if (!st.isFile()) return unread(tr(msg({ id: 'providers.autoCompact.why.notFile', defaultMessage: "it isn't a file", description: "Where Claude Code's auto-compaction setting comes from, in the context tooltip of an agent's footer: why Hive couldn't read a settings file (providers.autoCompact.unreadable)." })))
+    if (st.size > SETTINGS_FILE_LIMIT) return unread(tr(msg({ id: 'providers.autoCompact.why.tooBig', defaultMessage: "it's over Claude Code's 2 MiB limit", description: "Where Claude Code's auto-compaction setting comes from, in the context tooltip of an agent's footer: why Hive couldn't read a settings file (providers.autoCompact.unreadable). 2 MiB is the size limit: keep it." })))
     fd = openSync(file, 'r')
-    if (!fstatSync(fd).isFile()) return unread("it isn't a file")
+    if (!fstatSync(fd).isFile()) return unread(tr(msg({ id: 'providers.autoCompact.why.notFile', defaultMessage: "it isn't a file", description: "Where Claude Code's auto-compaction setting comes from, in the context tooltip of an agent's footer: why Hive couldn't read a settings file (providers.autoCompact.unreadable)." })))
     const chunks: Buffer[] = []
     let n = 0
     for (;;) {
@@ -188,7 +198,7 @@ function readSettings(file: string): { json: unknown; unsure?: string } {
       if (!got) break
       chunks.push(chunk.subarray(0, got))
       n += got
-      if (n > SETTINGS_FILE_LIMIT) return unread("it's over Claude Code's 2 MiB limit")
+      if (n > SETTINGS_FILE_LIMIT) return unread(tr(msg({ id: 'providers.autoCompact.why.tooBig', defaultMessage: "it's over Claude Code's 2 MiB limit", description: "Where Claude Code's auto-compaction setting comes from, in the context tooltip of an agent's footer: why Hive couldn't read a settings file (providers.autoCompact.unreadable). 2 MiB is the size limit: keep it." })))
     }
     try {
       return { json: JSON.parse(Buffer.concat(chunks, n).toString('utf8').replace(/^\uFEFF/, '')) }
@@ -229,12 +239,12 @@ export function cliSettings(args: readonly string[], cwd: string): SettingsScope
   if (!v) return null
   if (v.startsWith('{')) {
     try {
-      return { label: '--settings', json: JSON.parse(v) }
+      return { label: '--settings', json: JSON.parse(v) } // i18n-ignore: a command-line option
     } catch {
-      return { label: '--settings', json: null }
+      return { label: '--settings', json: null } // i18n-ignore: a command-line option
     }
   }
-  return { label: `--settings ${v}`, ...readSettings(isAbsolute(v) ? v : join(cwd, v)) }
+  return { label: `--settings ${v}`, ...readSettings(isAbsolute(v) ? v : join(cwd, v)) } // i18n-ignore: a command-line option and its file
 }
 
 /** The settings files `--setting-sources` can name. */
@@ -280,12 +290,12 @@ export function settingsScopes(cwd: string, configDir: string, args: readonly st
   const reads = (s: SettingSource): boolean => !sources || sources.has(s)
   const file = (label: string, path: string): SettingsScope => ({ label, ...readSettings(path) })
   return [
-    file('managed settings', join(programFiles, 'ClaudeCode', 'managed-settings.json')),
+    file(tr(msg({ id: 'providers.autoCompact.scope.managed', defaultMessage: 'managed settings', description: "Where Claude Code's auto-compaction setting comes from, in the context tooltip of an agent's footer: a settings file Claude Code reads, as Hive names it in that line ({scope} in providers.autoCompact.*). The managed settings an administrator gives Claude Code." })), join(programFiles, 'ClaudeCode', 'managed-settings.json')),
     ...(cli ? [cli] : []),
-    ...(reads('local') ? [file("the project's .claude/settings.local.json", join(cwd, '.claude', 'settings.local.json'))] : []),
-    ...(reads('project') ? [file("the project's .claude/settings.json", join(cwd, '.claude', 'settings.json'))] : []),
-    ...(reads('user') ? [file("Claude Code's settings.json", join(configDir, 'settings.json'))] : []),
-    ...(invalid !== undefined ? [{ label: `--setting-sources ${invalid}`.trim(), json: null, unsure: "isn't a list Claude Code takes (user, project, local)" }] : []),
-    ...UNSURE_MODES.filter((m) => args.includes(m)).map((m) => ({ label: m, json: null, unsure: 'may stop Claude Code reading some settings files' }))
+    ...(reads('local') ? [file(tr(msg({ id: 'providers.autoCompact.scope.local', defaultMessage: "the project's .claude/settings.local.json", description: "Where Claude Code's auto-compaction setting comes from, in the context tooltip of an agent's footer: a settings file Claude Code reads, as Hive names it in that line ({scope} in providers.autoCompact.*). .claude/settings.local.json is a path: keep it." })), join(cwd, '.claude', 'settings.local.json'))] : []),
+    ...(reads('project') ? [file(tr(msg({ id: 'providers.autoCompact.scope.project', defaultMessage: "the project's .claude/settings.json", description: "Where Claude Code's auto-compaction setting comes from, in the context tooltip of an agent's footer: a settings file Claude Code reads, as Hive names it in that line ({scope} in providers.autoCompact.*). .claude/settings.json is a path: keep it." })), join(cwd, '.claude', 'settings.json'))] : []),
+    ...(reads('user') ? [file(tr(msg({ id: 'providers.autoCompact.scope.user', defaultMessage: "Claude Code's settings.json", description: "Where Claude Code's auto-compaction setting comes from, in the context tooltip of an agent's footer: a settings file Claude Code reads, as Hive names it in that line ({scope} in providers.autoCompact.*). The user's own settings file. settings.json is a file name: keep it." })), join(configDir, 'settings.json'))] : []),
+    ...(invalid !== undefined ? [{ label: `--setting-sources ${invalid}`.trim(), json: null, unsure: tr(msg({ id: 'providers.autoCompact.badSources', defaultMessage: "isn't a list Claude Code takes (user, project, local)", description: "Where Claude Code's auto-compaction setting comes from, in the context tooltip of an agent's footer: --setting-sources (a command-line option, before this) has a value Claude Code doesn't take. user, project and local are its values: keep them." })) }] : []),
+    ...UNSURE_MODES.filter((m) => args.includes(m)).map((m) => ({ label: m, json: null, unsure: tr(msg({ id: 'providers.autoCompact.unsureMode', defaultMessage: 'may stop Claude Code reading some settings files', description: "Where Claude Code's auto-compaction setting comes from, in the context tooltip of an agent's footer: a command-line option (before this: --safe-mode, --bare) may change which settings files Claude Code reads." })) }))
   ]
 }

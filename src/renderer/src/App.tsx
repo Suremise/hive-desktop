@@ -1,3 +1,4 @@
+import { fmt, msg, tr } from '@shared/i18n'
 import { useAntivirusOffer } from './components/Antivirus'
 import { useEffect, useRef } from 'react'
 import type { HiveEvent } from '@shared/types'
@@ -55,9 +56,9 @@ function noticeUnmanagedMcp(): void {
     pushToast({
       id: `mcp-${p.path}`,
       level: 'warning',
-      title: `${p.name}: MCP servers not in the workspace`,
-      message: `${p.unmanagedMcp.join(', ')} ${p.unmanagedMcp.length === 1 ? 'is' : 'are'} defined in the project's .mcp.json and will stay disabled until copied to the workspace.`,
-      actions: [{ label: 'Copy to workspace', command: 'mcp.import', args: [p.path, p.unmanagedMcp] }],
+      title: tr(msg({ id: 'shell.mcp.notInWorkspace', defaultMessage: '{project}: MCP servers not in the workspace', description: "A notice: a project defines MCP servers of its own (in its .mcp.json) that the workspace doesn't have. {project} is its name." }), { project: p.name }),
+      message: tr(msg({ id: 'shell.mcp.notInWorkspaceDetail', defaultMessage: "{n, plural, one {{servers} is defined in the project's .mcp.json and will stay disabled until copied to the workspace.} other {{servers} are defined in the project's .mcp.json and will stay disabled until copied to the workspace.}}", description: "More in the notice about a project's own MCP servers. {servers} lists their names; {n} is how many. .mcp.json is a file name: keep it." }), { n: p.unmanagedMcp.length, servers: fmt.list(p.unmanagedMcp) }),
+      actions: [{ label: tr(msg({ id: 'shell.mcp.copyToWorkspace', defaultMessage: 'Copy to workspace', description: "The notice's button: copies the project's MCP servers to the workspace." })), command: 'mcp.import', args: [p.path, p.unmanagedMcp] }],
       timestamp: new Date().toISOString()
     })
   }
@@ -113,15 +114,15 @@ function handleEvent(e: HiveEvent): void {
       const failure = e.failure
       set((s) => ({ startFailures: { ...s.startFailures, [projectKey(path, e.agentId)]: failure } }))
       // Its pane says why; a toast only when the pane isn't on screen.
-      const name = p?.agents.find((a) => a.id === e.agentId)?.name ?? 'An agent'
+      const name = p?.agents.find((a) => a.id === e.agentId)?.name
       const shown = get().workspace?.projects.some((x) => x.path === path)
       if (!agentOnScreen(path, e.agentId))
         pushToast({
           id: `start-failed-${projectKey(path, e.agentId)}`,
           level: 'error',
-          title: `${p ? `${p.name} · ` : ''}${name} couldn't start`,
+          title: name ? (p ? tr(msg({ id: 'shell.startFailed.named', defaultMessage: "{project} · {agent} couldn't start", description: "A notice when an agent's session failed to start, while its pane isn't on screen. {project} and {agent} are names." }), { project: p.name, agent: name }) : tr(msg({ id: 'shell.startFailed.agent', defaultMessage: "{agent} couldn't start", description: "A notice when an agent's session failed to start. {agent} is its name." }), { agent: name })) : tr(msg({ id: 'shell.startFailed.unnamed', defaultMessage: "An agent couldn't start", description: "A notice when a session failed to start and its agent isn't known." })),
           message: failure.hint ?? failure.reason,
-          actions: shown ? [{ label: 'Show', command: 'agent.show', args: [path, e.agentId] }] : undefined,
+          actions: shown ? [{ label: tr(msg({ id: 'shell.startFailed.show', defaultMessage: 'Show', description: "The notice's button: shows the agent's pane." })), command: 'agent.show', args: [path, e.agentId] }] : undefined,
           timestamp: failure.at
         })
       break
@@ -422,7 +423,7 @@ export function App() {
         <ActivityBar />
         <Sidebar />
         {workspace && assistantLeft && (
-          <ErrorBoundary label="The Assistant">
+          <ErrorBoundary label={tr(msg({ id: 'shell.view.assistant', defaultMessage: 'The Assistant', description: 'Names a part of the window that failed to show ("The Assistant ran into a problem…").' }))}>
             <AssistantPanel />
           </ErrorBoundary>
         )}
@@ -433,19 +434,19 @@ export function App() {
           {workspace && <ProjectView visible={activity === 'projects'} />}
           {main && (
             <div className="tab-body">
-              <ErrorBoundary label="This view" resetKey={activity}>
+              <ErrorBoundary resetKey={activity}>
                 {main}
               </ErrorBoundary>
             </div>
           )}
         </div>
         {workspace && (
-          <ErrorBoundary label="The Progress panel">
+          <ErrorBoundary label={tr(msg({ id: 'shell.view.progress', defaultMessage: 'The Progress panel', description: 'Names a part of the window that failed to show ("The Progress panel ran into a problem…").' }))}>
             <ProgressPanel />
           </ErrorBoundary>
         )}
         {workspace && !assistantLeft && (
-          <ErrorBoundary label="The Assistant">
+          <ErrorBoundary label={tr(msg({ id: 'shell.view.assistant', defaultMessage: 'The Assistant', description: 'Names a part of the window that failed to show ("The Assistant ran into a problem…").' }))}>
             <AssistantPanel />
           </ErrorBoundary>
         )}

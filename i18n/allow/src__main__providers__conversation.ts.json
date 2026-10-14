@@ -1,8 +1,0 @@
-{
-  "prose|call|**Conversation compacted** ({}) · {} → {} tokens{}": 1,
-  "prose|call|Summary": 1,
-  "prose|call|Thinking": 1,
-  "prose|call|You": 1,
-  "prose|return|{}{} {} {}": 1,
-  "prose|top|Claude": 1
-}

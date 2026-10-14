@@ -1,6 +1,8 @@
 import { randomUUID } from 'crypto'
 import type { BrowserWindow } from 'electron'
 import { noticeRoute, type FocusedHive, type NoticeRoute } from '../shared/bursts'
+import { englishText } from '../shared/advanced'
+import { msg, tr } from '../shared/i18n'
 import { asksYou } from '../shared/inbox'
 import { config } from './config'
 import { emit, emitTo, onHiveEvent, tellListeners } from './events'
@@ -19,18 +21,26 @@ export function focusedHive(): (FocusedHive & { win: BrowserWindow }) | null {
 /**
  * Tells an app-wide notice (plan usage, Hive closing) the way agent notices are told (noticeRoute): a banner in the
  * Hive window you are using, a Windows notification (`showWindows`), or nothing (notifications off, or Show nothing).
- * Returns where it went.
+ * `apiTitle` is the title in English, for the Agent API's stream. Returns where it went.
  */
-export function routeAppNotice(title: string, body: string, showWindows: () => void): NoticeRoute {
+export function routeAppNotice(title: string, body: string, showWindows: () => void, apiTitle?: string): NoticeRoute {
   const at = focusedHive()
   const route = noticeRoute(config.settings.notifications, 'notice', at, { workspacePath: null, projectPath: null })
-  const notice = { id: randomUUID(), kind: 'notice' as const, title, body, projectPath: null }
+  const notice = { id: randomUUID(), kind: 'notice' as const, title, ...(apiTitle ? { apiTitle } : {}), body, projectPath: null }
   if (route === 'windows') {
     // The Agent API's stream hears of it either way (#620).
     tellListeners({ type: 'notice', notice, windows: true })
     showWindows()
   } else if (route === 'banner' && at) emitTo(at.win, { type: 'notice', notice })
   return route
+}
+
+const CLOSED = msg({ id: 'main.quit.closed', defaultMessage: 'Hive has closed', description: 'A notice after Hive quit without asking, its sessions stopped.' })
+const CLOSED_BODY = msg({ id: 'main.quit.closedBody', defaultMessage: '{n, plural, one {# session was stopped. Resume it from Hive next time; nothing was lost.} other {# sessions were stopped. Resume them from Hive next time; nothing was lost.}}', description: 'The notice after Hive quit: how many sessions it stopped.' })
+
+/** The notice after Hive quit without asking: in the language shown, its title in English for the Agent API too. */
+export function closedNotice(stopped: number): { title: string; body: string; apiTitle: string } {
+  return { title: tr(CLOSED), body: tr(CLOSED_BODY, { n: stopped }), apiTitle: englishText(CLOSED) }
 }
 
 /**

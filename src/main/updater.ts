@@ -1,3 +1,4 @@
+import { msg, tr } from '../shared/i18n'
 import { app } from 'electron'
 import { writeFileSync } from 'original-fs'
 import { join } from 'path'
@@ -43,7 +44,7 @@ const testCache = (): string => {
 function enabledReason(): string | null {
   if (app.isPackaged) return null
   if (testFeed()) return null
-  return 'Updates are checked by the installed app, not development builds.'
+  return tr(msg({ id: 'main.update.devBuild', defaultMessage: 'Updates are checked by the installed app, not development builds.', description: 'Settings → Updates in a development build of Hive, which never updates.' }))
 }
 
 function applySettings(): void {
@@ -68,11 +69,11 @@ function notesOf(info: UpdateInfo): string | undefined {
 }
 
 function friendlyError(e: unknown): string {
-  const msg = String((e as Error)?.message ?? e)
-  if (/\b404\b|not found|no published versions|unable to find latest version|cannot find latest\.yml/i.test(msg)) return 'No release of Hive has been published yet.'
-  if (/ENOTFOUND|ETIMEDOUT|ECONNREFUSED|ECONNRESET|EAI_AGAIN|net::ERR_/i.test(msg)) return "Couldn't reach GitHub to check for updates. Check your internet connection."
-  if (/sha512|checksum/i.test(msg)) return 'The downloaded update did not match its checksum and was discarded.'
-  return msg.split('\n')[0].slice(0, 300)
+  const said = String((e as Error)?.message ?? e)
+  if (/\b404\b|not found|no published versions|unable to find latest version|cannot find latest\.yml/i.test(said)) return tr(msg({ id: 'main.update.noRelease', defaultMessage: 'No release of Hive has been published yet.', description: 'Why checking for updates found none.' }))
+  if (/ENOTFOUND|ETIMEDOUT|ECONNREFUSED|ECONNRESET|EAI_AGAIN|net::ERR_/i.test(said)) return tr(msg({ id: 'main.update.offline', defaultMessage: "Couldn't reach GitHub to check for updates. Check your internet connection.", description: 'Why checking for updates failed. GitHub is a name.' }))
+  if (/sha512|checksum/i.test(said)) return tr(msg({ id: 'main.update.checksum', defaultMessage: 'The downloaded update did not match its checksum and was discarded.', description: 'Why a downloaded update was thrown away.' }))
+  return said.split('\n')[0].slice(0, 300)
 }
 
 const skipped = (version: string): boolean => config.get().skippedUpdate === version
@@ -146,7 +147,7 @@ export function initUpdater(opts: { restart: () => void }): void {
   if (feed) {
     // Tests: a generic feed, with its own download cache so the installed Hive's is never touched.
     const file = join(app.getPath('userData'), 'test-app-update.yml')
-    writeFileSync(file, `provider: generic\nurl: ${feed}\nupdaterCacheDirName: ${testCache()}\n`)
+    writeFileSync(file, `provider: generic\nurl: ${feed}\nupdaterCacheDirName: ${testCache()}\n`) // i18n-ignore: a file's content, not text
     autoUpdater.updateConfigPath = file
     autoUpdater.forceDevUpdateConfig = true
   }
@@ -176,7 +177,12 @@ export function initUpdater(opts: { restart: () => void }): void {
   autoUpdater.on('update-downloaded', (info: UpdateInfo) => {
     set({ status: 'ready', version: info.version, progress: undefined })
     const auto = config.settings.updates.install === 'auto'
-    toast('info', `${APP_NAME} ${info.version} is ready`, auto ? 'It installs when you quit Hive, or restart now.' : 'Restart Hive to install it.', [{ label: 'Restart and Update', command: 'update.install' }])
+    toast(
+      'info',
+      tr(msg({ id: 'main.update.ready', defaultMessage: '{app} {version} is ready', description: "A notice: an update was downloaded. {app} is Hive's name, {version} the new version." }), { app: APP_NAME, version: info.version }),
+      auto ? tr(msg({ id: 'main.update.readyAuto', defaultMessage: 'It installs when you quit Hive, or restart now.', description: 'The notice that an update is ready, with updates installed automatically.' })) : tr(msg({ id: 'main.update.readyManual', defaultMessage: 'Restart Hive to install it.', description: 'The notice that an update is ready, with updates installed manually.' })),
+      [{ label: tr(msg({ id: 'main.update.restart', defaultMessage: 'Restart and Update', description: "The notice's button: restarts Hive and installs the update." })), command: 'update.install' }]
+    )
   })
 
   applySettings()
@@ -204,5 +210,11 @@ function noticeUpdated(): void {
     })
   }
   if (!last || last === current || !app.isPackaged) return
-  setTimeout(() => toast('success', `${APP_NAME} updated to ${current}`, 'See what changed in this version.', [{ label: "What's New", command: 'update.releaseNotes', args: [current] }]), 4000)
+  setTimeout(
+    () =>
+      toast('success', tr(msg({ id: 'main.update.updated', defaultMessage: '{app} updated to {version}', description: 'A notice after Hive was updated. {app} is its name, {version} the new version.' }), { app: APP_NAME, version: current }), tr(msg({ id: 'main.update.updatedBody', defaultMessage: 'See what changed in this version.', description: 'The notice after Hive was updated.' })), [
+        { label: tr(msg({ id: 'main.update.whatsNew', defaultMessage: "What's New", description: "The notice's button: opens the release notes." })), command: 'update.releaseNotes', args: [current] }
+      ]),
+    4000
+  )
 }

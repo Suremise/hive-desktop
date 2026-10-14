@@ -4,6 +4,7 @@ import { basename, join, resolve, sep } from 'path'
 import { lstat, opendir, readdir } from 'original-fs/promises'
 import { ASSISTANT_NAME } from '../shared/assistant'
 import { HIVE_DIR, projectAgents } from '../shared/defaults'
+import { msg, tr } from '../shared/i18n'
 import { planCleanup, type CleanupFacts, type CleanupSession } from '../shared/storage'
 import type { CleanupItem, CleanupOptions, CleanupResult, ProjectStorage, WorkspaceStorage } from '../shared/types'
 import { createLogger, userText } from './logger'
@@ -77,7 +78,7 @@ export async function folderSize(root: string, cache: 'use' | 'refresh' | 'none'
 /** A request whose window stopped waiting for it (storage:abandon). */
 export class StorageStopped extends Error {
   constructor() {
-    super('Measuring stopped: nothing waits for it.')
+    super('Measuring stopped: nothing waits for it.') // i18n-ignore: no window waits for it, so it is never shown
   }
 }
 
@@ -276,10 +277,10 @@ async function trashAttachments(projectPath: string, i: CleanupItem): Promise<vo
   const name = basename(i.path).toLowerCase()
   await sessions.whileCleaning(projectPath, name, async () => {
     const rec = (await workspace.sessionsFile(projectPath)).sessions.find((s) => s.id.toLowerCase() === name)
-    if (i.kind === 'archived-attachments' && !rec?.archived) throw new Error('The session is no longer archived.')
-    if (i.kind === 'orphan-attachments' && rec) throw new Error('The folder belongs to a session again.')
+    if (i.kind === 'archived-attachments' && !rec?.archived) throw new Error(tr(msg({ id: 'main.storage.unarchived', defaultMessage: 'The session is no longer archived.', description: "Why Clean Up (Settings → Storage) skipped a session's attachments folder: its session was unarchived meanwhile." })))
+    if (i.kind === 'orphan-attachments' && rec) throw new Error(tr(msg({ id: 'main.storage.claimed', defaultMessage: 'The folder belongs to a session again.', description: "Why Clean Up (Settings → Storage) skipped a session's attachments folder: it had no session, and has one now." })))
     // After the read above: nothing is awaited between this check and the removal.
-    if (sessions.projectStates(projectPath).some((s) => s.sessionId.toLowerCase() === name || `run-${s.runId}`.toLowerCase() === name)) throw new Error('The session is running.')
+    if (sessions.projectStates(projectPath).some((s) => s.sessionId.toLowerCase() === name || `run-${s.runId}`.toLowerCase() === name)) throw new Error(tr(msg({ id: 'main.storage.running', defaultMessage: 'The session is running.', description: "Why Clean Up (Settings → Storage) skipped a session's attachments folder." })))
     await trash(i.path)
   })
 }
@@ -295,7 +296,7 @@ export async function cleanup(projectPath: string, opts: CleanupOptions, listed:
   const want = new Set(listed.map((p) => p.toLowerCase()))
   const items = now.filter((i) => want.has(i.path.toLowerCase()))
   const qualifying = new Set(items.map((i) => i.path.toLowerCase()))
-  const skipped = listed.filter((p) => !qualifying.has(p.toLowerCase())).map((p) => `${p}: no longer qualifies`)
+  const skipped = listed.filter((p) => !qualifying.has(p.toLowerCase())).map((p) => tr(msg({ id: 'main.storage.noLonger', defaultMessage: '{path}: no longer qualifies', description: 'What Clean Up (Settings → Storage) skipped: it changed since the preview listed it. {path} is the file or folder.' }), { path: p }))
   const attachmentsRoot = resolve(await attachmentsDir(projectPath)).toLowerCase() + sep
   let removed = 0
   let bytes = 0

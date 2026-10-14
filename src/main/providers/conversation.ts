@@ -1,4 +1,6 @@
 import type { TranscriptItem, TranscriptSearchHit } from '../../shared/types'
+import { englishText, shownText, type Text } from '../../shared/advanced'
+import { msg, tr } from '../../shared/i18n'
 import { isAbsolute } from 'path'
 import { formatDateTime } from '../../shared/dates'
 import { relativeInside } from '../fsutil'
@@ -42,6 +44,21 @@ function realInside(root: string, p: string): string | null {
 export const firstLine = (s: unknown): string => (typeof s === 'string' ? s.trim().split('\n')[0] : '')
 
 /** Everything searchable in an item, in the order it is shown. */
+/** Hive's notices in a conversation (#797), kept as data and shown in the language the window shows (shownNotice). */
+export const NOTICE_TEXT = {
+  interrupted: msg({ id: 'providers.transcript.interrupted', defaultMessage: 'Interrupted by you', description: "A notice in a conversation, in the Sessions tab's transcript viewer and its Markdown export: the user stopped the agent's turn." }),
+  apiError: msg({ id: 'providers.transcript.apiError', defaultMessage: 'API error', description: "A notice in a conversation, in the Sessions tab's transcript viewer and its Markdown export: the coding agent's model API failed, with no message of its own." }),
+  turnEnded: msg({ id: 'providers.transcript.turnEnded', defaultMessage: 'Turn ended: {reason}', description: "A notice in a conversation, in the Sessions tab's transcript viewer and its Markdown export: the turn ended early. {reason} is the coding agent's own word for why (timeout), in English." }),
+  aborted: msg({ id: 'providers.transcript.aborted', defaultMessage: 'Turn ended: aborted', description: "A notice in a conversation, in the Sessions tab's transcript viewer and its Markdown export: the turn ended early, for no reason given." }),
+  resumed: msg({ id: 'providers.transcript.resumed', defaultMessage: 'Session resumed', description: "A notice in a conversation, in the Sessions tab's transcript viewer and its Markdown export: the conversation was resumed here (GitHub Copilot)." })
+}
+
+/** A notice of Hive's: its English text (the transcript's own words, as cached) and the same as data, for the window. */
+export const noticeOf = (message: Text, level: 'info' | 'error'): { kind: 'notice'; text: string; level: 'info' | 'error'; message: Text } => ({ kind: 'notice', text: englishText(message), level, message })
+
+/** A notice's text in the language the window shows: Hive's own words translated, a CLI's as they are. */
+export const shownNotice = (item: { text: string; message?: Text }): string => (item.message ? shownText(item.message) : item.text)
+
 export function itemText(item: TranscriptItem): string {
   switch (item.kind) {
     case 'tool':
@@ -50,6 +67,8 @@ export function itemText(item: TranscriptItem): string {
       return item.summary ?? ''
     case 'command':
       return [item.name, item.args, item.output].join('\n')
+    case 'notice':
+      return shownNotice(item)
     default:
       return item.text
   }
@@ -76,20 +95,20 @@ export function searchItems(items: TranscriptItem[], query: string, limit = 200)
 function fence(text: string, lang = ''): string {
   const longest = Math.max(2, ...[...text.matchAll(/`+/g)].map((m) => m[0].length))
   const f = '`'.repeat(longest + 1)
-  return `${f}${lang}\n${text}\n${f}`
+  return `${f}${lang}\n${text}\n${f}` // i18n-ignore: Markdown's code fence
 }
 
 const when = (ts: string | null): string => (ts ? formatDateTime(ts) : '')
 const tokens = (n: number): string => (n >= 1000 ? `${(n / 1000).toFixed(1)}K` : String(n))
 
 /** The conversation as Markdown, with tool calls, thinking and summaries in collapsible sections. */
-export function transcriptMarkdown(items: TranscriptItem[], title: string, subtitle: string, assistant = 'Claude'): string {
+export function transcriptMarkdown(items: TranscriptItem[], title: string, subtitle: string, assistant = 'Claude' /* i18n-ignore: the model's name */): string {
   const out: string[] = [`# ${title}`, '', subtitle, '']
   let speaker: 'user' | 'assistant' | null = null
   const heading = (who: 'user' | 'assistant', ts: string | null): void => {
     if (speaker === who) return
     speaker = who
-    out.push(`## ${who === 'user' ? 'You' : assistant}${when(ts) ? ` · ${when(ts)}` : ''}`, '')
+    out.push(`## ${who === 'user' ? tr(msg({ id: 'providers.export.you', defaultMessage: 'You', description: "The Markdown export of a conversation (Sessions tab → Export): the heading over the user's messages." })) : assistant}${when(ts) ? ` · ${when(ts)}` : ''}`, '')
   }
   const details = (summary: string, body: string): void => {
     out.push('<details>', `<summary>${summary.replace(/</g, '&lt;')}</summary>`, '', body, '', '</details>', '')
@@ -99,7 +118,7 @@ export function transcriptMarkdown(items: TranscriptItem[], title: string, subti
       case 'user':
         heading('user', item.timestamp)
         out.push(item.text, '')
-        for (const img of item.images) out.push(`*[Image${img.path ? `: ${img.path}` : ''}]*`, '')
+        for (const img of item.images) out.push(img.path ? tr(msg({ id: 'providers.export.imageAt', defaultMessage: '*[Image: {path}]*', description: 'The Markdown export of a conversation (Sessions tab → Export): an image the user sent, where the conversation had it. *[…]* is Markdown: keep the marks. {path} is its file.' }), { path: img.path }) : tr(msg({ id: 'providers.export.image', defaultMessage: '*[Image]*', description: 'The Markdown export of a conversation (Sessions tab → Export): an image the user sent. *[…]* is Markdown: keep the marks.' })), '')
         speaker = 'user'
         break
       case 'assistant':
@@ -108,20 +127,20 @@ export function transcriptMarkdown(items: TranscriptItem[], title: string, subti
         break
       case 'thinking':
         heading('assistant', item.timestamp)
-        details('Thinking', item.text)
+        details(tr(msg({ id: 'providers.export.thinking', defaultMessage: 'Thinking', description: "The Markdown export of a conversation (Sessions tab → Export): the summary of a collapsed section holding the model's thinking." })), item.text)
         break
       case 'tool': {
         heading('assistant', item.timestamp)
         const t = item.tool
         const body = [fence(t.input)]
-        if (t.result !== null) body.push('', t.isError ? '**Error:**' : '**Result:**', '', fence(t.result))
+        if (t.result !== null) body.push('', t.isError ? tr(msg({ id: 'providers.export.error', defaultMessage: '**Error:**', description: "The Markdown export of a conversation (Sessions tab → Export): over a tool call's failed result. **…** is Markdown bold: keep the marks." })) : tr(msg({ id: 'providers.export.result', defaultMessage: '**Result:**', description: "The Markdown export of a conversation (Sessions tab → Export): over a tool call's result. **…** is Markdown bold: keep the marks." })), '', fence(t.result))
         details(`${t.name}${t.summary ? `: ${t.summary}` : ''}`, body.join('\n'))
         break
       }
       case 'compaction':
         speaker = null
-        out.push('---', '', `**Conversation compacted** (${item.trigger}) · ${tokens(item.preTokens)} → ${tokens(item.postTokens)} tokens${when(item.timestamp) ? ` · ${when(item.timestamp)}` : ''}`, '')
-        if (item.summary) details('Summary', item.summary)
+        out.push('---', '', `${tr(msg({ id: 'providers.export.compacted', defaultMessage: '**Conversation compacted** ({trigger}) · {before} → {after} tokens', description: 'The Markdown export of a conversation (Sessions tab → Export): where the conversation was compacted. **…** is Markdown bold: keep the marks. {trigger} is how (auto or manual, in English); {before} and {after} its size in tokens (12.3K).' }), { trigger: item.trigger, before: tokens(item.preTokens), after: tokens(item.postTokens) })}${when(item.timestamp) ? ` · ${when(item.timestamp)}` : ''}`, '')
+        if (item.summary) details(tr(msg({ id: 'providers.export.summary', defaultMessage: 'Summary', description: "The Markdown export of a conversation (Sessions tab → Export): the summary of a collapsed section holding a compaction's summary." })), item.summary)
         out.push('---', '')
         break
       case 'command':
@@ -130,7 +149,7 @@ export function transcriptMarkdown(items: TranscriptItem[], title: string, subti
         if (item.output) out.push(fence(item.output), '')
         break
       case 'notice':
-        out.push(`> *${item.text.replace(/\n+/g, ' ')}*`, '')
+        out.push(`> *${shownNotice(item).replace(/\n+/g, ' ')}*`, '')
         break
     }
   }

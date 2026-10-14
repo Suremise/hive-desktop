@@ -1,4 +1,5 @@
 import { execFile } from 'child_process'
+import { msg, tr } from '../shared/i18n'
 import { randomUUID } from 'crypto'
 import { tmpdir } from 'os'
 import { basename, join, resolve } from 'path'
@@ -52,7 +53,7 @@ function runPowerShell(script: string, timeout: number): Promise<string> {
   const encoded = encode(script)
   return new Promise((done, fail) => {
     execFile(POWERSHELL, ['-NoProfile', '-NonInteractive', '-ExecutionPolicy', 'Bypass', '-EncodedCommand', encoded], { windowsHide: true, timeout, maxBuffer: 1 << 20, encoding: 'utf8' }, (err, stdout, stderr) => {
-      if (err) fail(new Error(err.killed ? `PowerShell took longer than ${Math.round(timeout / 1000)} s` : (stderr || err.message).trim().slice(0, 300)))
+      if (err) fail(new Error(err.killed ? tr(msg({ id: 'main.antivirus.timeout', defaultMessage: 'PowerShell took longer than {seconds} s', description: "An error in Settings → Workspace → Antivirus scanning: Hive's PowerShell check didn't finish in time." }), { seconds: Math.round(timeout / 1000) }) : (stderr || err.message).trim().slice(0, 300)))
       else done(stdout)
     })
   })
@@ -136,7 +137,7 @@ interface Fixture {
 }
 
 /** Defender's answer for a hidden list, as a fixture's redacted administrator read gives it. */
-const HIDDEN = 'N/A: Must be an administrator to view exclusions'
+const HIDDEN = 'N/A: Must be an administrator to view exclusions' // i18n-ignore: what Defender's PowerShell says, matched
 
 /** The exclusion list a fixture's elevated changes act on (as administrator rights would see it), per fixture file: the last few. */
 const simulated = new Map<string, string[]>()
@@ -148,7 +149,7 @@ async function readFixture(): Promise<Fixture | null> {
   try {
     return JSON.parse(await readFile(file, 'utf8')) as Fixture
   } catch (e) {
-    throw new Error(`The antivirus test fixture couldn't be read: ${(e as Error).message}`, { cause: e })
+    throw new Error(`The antivirus test fixture couldn't be read: ${(e as Error).message}`, { cause: e }) // i18n-ignore: test copies only
   }
 }
 
@@ -275,7 +276,7 @@ export function antivirusStatus(refresh = false): Promise<AntivirusStatus> {
 
 export async function statusFor(w: WorkspaceService, refresh = false): Promise<AntivirusStatus> {
   const root = w.path
-  if (!root) throw new Error('No workspace is open')
+  if (!root) throw new Error(tr(msg({ id: 'main.antivirus.noWorkspace', defaultMessage: 'No workspace is open', description: 'An error in Settings → Workspace → Antivirus scanning.' })))
   const key = root.toLowerCase()
   const folders = await workspaceFolders(w)
   const set = folderKey(folders)
@@ -344,11 +345,11 @@ const prepared = new Map<string, Prepared>()
 /** The folders an action would change now: Add the safe ones not known to be excluded, Remove the safe ones Hive added. */
 async function planFor(w: WorkspaceService, action: AvAction): Promise<{ status: AntivirusStatus; paths: string[] }> {
   const status = await statusFor(w, true)
-  if (status.scan !== 'defender') throw new Error(status.scan === 'other' ? 'Another antivirus is active: Hive can only change Microsoft Defender’s exclusions.' : 'Microsoft Defender isn’t the active antivirus here.')
+  if (status.scan !== 'defender') throw new Error(status.scan === 'other' ? tr(msg({ id: 'main.antivirus.other', defaultMessage: 'Another antivirus is active: Hive can only change Microsoft Defender’s exclusions.', description: 'An error in Settings → Workspace → Antivirus scanning. Microsoft Defender is a name.' })) : tr(msg({ id: 'main.antivirus.notDefender', defaultMessage: 'Microsoft Defender isn’t the active antivirus here.', description: 'An error in Settings → Workspace → Antivirus scanning.' })))
   const added = (remembered().added ?? []).map(normPath)
   const safe = status.paths.filter((p) => !p.unsafe)
   const paths = action === 'add' ? safe.filter((p) => p.state !== 'excluded').map((p) => p.path) : action === 'remove' ? safe.filter((p) => added.includes(normPath(p.path))).map((p) => p.path) : []
-  if (action !== 'check' && !paths.length) throw new Error(action === 'add' ? 'Every folder Hive may offer is already excluded.' : 'Hive added no exclusions for this workspace.')
+  if (action !== 'check' && !paths.length) throw new Error(action === 'add' ? tr(msg({ id: 'main.antivirus.allExcluded', defaultMessage: 'Every folder Hive may offer is already excluded.', description: 'An error in Settings → Workspace → Antivirus scanning: nothing to add.' })) : tr(msg({ id: 'main.antivirus.noneAdded', defaultMessage: 'Hive added no exclusions for this workspace.', description: 'An error in Settings → Workspace → Antivirus scanning: nothing to remove.' })))
   return { status, paths }
 }
 
@@ -357,13 +358,13 @@ async function planFor(w: WorkspaceService, action: AvAction): Promise<{ status:
  * runs until `applyAntivirus` gets its id back.
  */
 export async function prepareAntivirus(action: AvAction): Promise<{ id: string; action: AvAction; paths: string[]; workspacePath: string }> {
-  if (action !== 'add' && action !== 'remove' && action !== 'check') throw new Error('Not an antivirus action.')
+  if (action !== 'add' && action !== 'remove' && action !== 'check') throw new Error('Not an antivirus action.') // i18n-ignore: a programming error, never shown
   const w = currentWorkspace()
   const root = w.path
-  if (!root) throw new Error('No workspace is open')
+  if (!root) throw new Error(tr(msg({ id: 'main.antivirus.noWorkspace', defaultMessage: 'No workspace is open', description: 'An error in Settings → Workspace → Antivirus scanning.' })))
   const life = w.lifetime
   const { status, paths } = await planFor(w, action)
-  if (life.aborted || w.path !== root) throw new Error('The workspace closed meanwhile.')
+  if (life.aborted || w.path !== root) throw new Error(tr(msg({ id: 'main.antivirus.closed', defaultMessage: 'The workspace closed meanwhile.', description: 'An error in Settings → Workspace → Antivirus scanning.' })))
   const now = Date.now()
   for (const [id, p] of prepared) if (now - p.at > PREPARED_MS || p.life.aborted) prepared.delete(id)
   while (prepared.size >= PREPARED_MAX) prepared.delete(prepared.keys().next().value!)
@@ -379,14 +380,14 @@ export async function prepareAntivirus(action: AvAction): Promise<{ id: string; 
  */
 export async function applyAntivirus(id: string): Promise<{ result: AvChangeResult; status: AntivirusStatus | null }> {
   const op = typeof id === 'string' ? prepared.get(id) : undefined
-  if (!op) throw new Error('That change is no longer waiting: ask again.')
+  if (!op) throw new Error(tr(msg({ id: 'main.antivirus.notWaiting', defaultMessage: 'That change is no longer waiting: ask again.', description: 'An error in Settings → Workspace → Antivirus scanning: an exclusion change asked for was answered too late or twice.' })))
   prepared.delete(id)
-  if (Date.now() - op.at > PREPARED_MS) throw new Error('That change waited too long for an answer: ask again.')
-  if (op.life.aborted || currentWorkspace() !== op.w || op.w.path !== op.root) throw new Error('The workspace changed since you were asked: nothing was changed.')
+  if (Date.now() - op.at > PREPARED_MS) throw new Error(tr(msg({ id: 'main.antivirus.tooLong', defaultMessage: 'That change waited too long for an answer: ask again.', description: 'An error in Settings → Workspace → Antivirus scanning.' })))
+  if (op.life.aborted || currentWorkspace() !== op.w || op.w.path !== op.root) throw new Error(tr(msg({ id: 'main.antivirus.changed', defaultMessage: 'The workspace changed since you were asked: nothing was changed.', description: 'An error in Settings → Workspace → Antivirus scanning.' })))
   const { paths } = await planFor(op.w, op.action)
-  if (op.life.aborted || op.w.path !== op.root) throw new Error('The workspace changed since you were asked: nothing was changed.')
+  if (op.life.aborted || op.w.path !== op.root) throw new Error(tr(msg({ id: 'main.antivirus.changed', defaultMessage: 'The workspace changed since you were asked: nothing was changed.', description: 'An error in Settings → Workspace → Antivirus scanning.' })))
   const same = paths.length === op.paths.length && paths.every((p) => op.paths.some((q) => normPath(q) === normPath(p)))
-  if (!same) throw new Error('The folders changed since you were asked: review them again. Nothing was changed.')
+  if (!same) throw new Error(tr(msg({ id: 'main.antivirus.foldersChanged', defaultMessage: 'The folders changed since you were asked: review them again. Nothing was changed.', description: 'An error in Settings → Workspace → Antivirus scanning.' })))
   log.info(`antivirus ${op.action}: ${op.paths.map((p) => userText(p)).join(', ') || '(read the list)'}`)
   const result = await elevated(op.action, op.paths, op.drives)
   // What happened to Defender is the machine's, whatever the window shows now: remembered either way.
@@ -405,8 +406,8 @@ export async function applyAntivirus(id: string): Promise<{ result: AvChangeResu
 async function elevated(action: AvAction, paths: string[], drives: string[]): Promise<AvChangeResult> {
   const fixture = await readFixture()
   if (fixture) return fixtureChange(fixture, action, paths)
-  if (isTestCopy()) throw new Error('Test copies of Hive never change Defender’s settings.')
-  if (process.platform !== 'win32') throw new Error('Only Windows has Defender exclusions.')
+  if (isTestCopy()) throw new Error('Test copies of Hive never change Defender’s settings.') // i18n-ignore: test copies only
+  if (process.platform !== 'win32') throw new Error(tr(msg({ id: 'main.antivirus.windowsOnly', defaultMessage: 'Only Windows has Defender exclusions.', description: 'An error in Settings → Workspace → Antivirus scanning on another system.' })))
   const dir = join(tmpdir(), `hive-antivirus-${randomUUID()}`)
   await mkdir(dir, { recursive: true })
   try {
@@ -438,7 +439,7 @@ function fixtureChange(f: Fixture, action: AvAction, paths: string[]): AvChangeR
   if (e.launchError) return changeOutcome(action, { started: false, error: e.launchError }, null)
   // A redacted list even with administrator rights: which exclusions exist can't be known, so nothing changes, and the
   // list it reports (Defender's "N/A" answer, as if it had slipped through) must count as unknown.
-  if (e.redacted) return changeOutcome(action, { started: true }, { ok: action === 'check', ...(action === 'check' ? {} : { error: "Defender's exclusions couldn't be read even with administrator rights, so nothing was changed." }), requested: [], listed: true, exclusions: [HIDDEN] })
+  if (e.redacted) return changeOutcome(action, { started: true }, { ok: action === 'check', ...(action === 'check' ? {} : { error: tr(msg({ id: 'main.antivirus.unreadable', defaultMessage: "Defender's exclusions couldn't be read even with administrator rights, so nothing was changed.", description: 'An error in Settings → Workspace → Antivirus scanning.' })) }), requested: [], listed: true, exclusions: [HIDDEN] })
   const need = action === 'add' ? paths.filter((p) => !covered(p, current)) : action === 'remove' ? paths.filter((p) => listed(p, current)) : []
   const applied = e.policy ? [] : e.error ? need.slice(0, e.partial ?? 0) : need
   if (action === 'add') current = [...current, ...applied]

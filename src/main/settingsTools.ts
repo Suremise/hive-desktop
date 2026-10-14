@@ -4,8 +4,10 @@ import type { EffortOption, FallbackModel, ModelPrice, ProjectConfig, ProviderId
 import { modelCaps } from '../shared/models'
 import { advancedDef, advancedTakes } from '../shared/advanced'
 import { projectProviderConfig, providerSettings } from '../shared/providers'
-import { SETTINGS_CATALOG, checkSettingValue, effortTakes, settingDefault, settingEntry, settingKind, settingOptions, settingPatch, settingPath, settingValue, settingValueText, type SettingContext, type SettingEntry, type SettingScope } from '../shared/settingsCatalog'
+import { SETTINGS_CATALOG, checkSettingValue, effortTakes, settingDefault, settingEntry, settingKind, settingOptions, settingPatch, settingPath, settingValue, settingValueText, shownSettingPath, type SettingContext, type SettingEntry, type SettingScope } from '../shared/settingsCatalog'
 import type { SettingDetail, SettingRow } from '../shared/toolReplies'
+import { language } from '../shared/i18n'
+import { SOURCE_LANGUAGE } from '../shared/i18n/languages'
 import * as assistant from './assistantControl'
 import { config } from './config'
 import { providerService } from './providerService'
@@ -108,7 +110,8 @@ export function settingRows(opts: { query?: string; scope?: SettingScope; projec
   const words = (opts.query ?? '').toLowerCase().split(/\s+/).filter(Boolean)
   const rows = SETTINGS_CATALOG.filter((e) => !e.action && (e.scope !== 'project' || !!opts.project) && (!opts.scope || e.scope === opts.scope))
     .filter((e) => {
-      const text = `${e.id} ${settingPath(e)} ${e.desc} ${e.tip} ${e.helps ?? ''}`.toLowerCase()
+      // Where the user sees it too, in their language: the Assistant can look a setting up by the user's own words.
+      const text = `${e.id} ${settingPath(e)} ${shownAs(e) ?? ''} ${e.desc} ${e.tip} ${e.helps ?? ''}`.toLowerCase()
       return words.every((w) => text.includes(w))
     })
     .map((e) => {
@@ -126,6 +129,16 @@ export function settingRows(opts: { query?: string; scope?: SettingScope; projec
   ]
 }
 
+/**
+ * Where the user sees a setting, in the language Hive shows them (#767), when that isn't English: the tools speak
+ * English, so the Assistant can name it as the user reads it ("Ustawienia → Sesje → …"). undefined in English.
+ */
+function shownAs(e: SettingEntry): string | undefined {
+  if (language() === SOURCE_LANGUAGE) return undefined
+  const shown = shownSettingPath(e)
+  return shown === settingPath(e) ? undefined : shown
+}
+
 /** One setting in full, with its value (a project's for a project setting; a table as it is). */
 export function settingDetail(e: SettingEntry, project: { name: string; config: ProjectConfig } | null): SettingDetail {
   if (e.scope === 'project' && !project) throw new SettingRefused(400, `${e.id} is a project's setting: say which project.`)
@@ -134,6 +147,7 @@ export function settingDetail(e: SettingEntry, project: { name: string; config: 
     id: e.id,
     title: e.title,
     path: settingPath(e),
+    ...(shownAs(e) ? { shownAs: shownAs(e) } : {}),
     scope: e.scope,
     ...(project && e.scope === 'project' ? { project: project.name } : {}),
     value: settingValueText(e, settingValue(e, config.settings, cfg, workspace.config, advanced.overrides()), true),

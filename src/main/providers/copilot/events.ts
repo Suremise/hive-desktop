@@ -7,7 +7,7 @@ import { isSessionId } from '../../../shared/defaults'
 import { placeMatcher } from '../../fsutil'
 import { COPILOT } from '../../../shared/copilot'
 import { formatToolInput } from '../claude/conversation'
-import { firstLine, shortPath, type NewItem } from '../conversation'
+import { NOTICE_TEXT, firstLine, noticeOf, shortPath, type NewItem } from '../conversation'
 import type { ConversationParserLike, ExternalSession, ImageLocation, LiveDetails } from '../types'
 import { advanced } from '../../advanced'
 
@@ -53,7 +53,7 @@ export function signInRefused(data: unknown): string | null {
   const d = data as { errorType?: unknown; message?: unknown }
   const message = typeof d.message === 'string' ? d.message : ''
   // Both patterns are advanced settings (#367).
-  if (typeof d.errorType === 'string' && advanced.pattern('copilot.signIn.errorType').test(d.errorType)) return message || 'Copilot isn’t signed in.'
+  if (typeof d.errorType === 'string' && advanced.pattern('copilot.signIn.errorType').test(d.errorType)) return message || 'Copilot isn’t signed in.' // i18n-ignore: a status message in the CLI's place, which agents read (GET /v1/projects)
   return advanced.pattern('copilot.signIn.errorMessage').test(message) ? message : null
 }
 
@@ -391,15 +391,15 @@ export function parseEvents(text: string, sessionId: string, title: string | nul
 /** How the Sessions tab shows Copilot's tools: Claude Code's names where they do the same. */
 const TOOL_NAMES: Record<string, string> = {
   powershell: 'PowerShell',
-  bash: 'Bash',
-  view: 'Read',
-  edit: 'Edit',
-  create: 'Write',
-  grep: 'Grep',
-  glob: 'Glob',
+  bash: 'Bash', // i18n-ignore: a tool's name, as agents read it (hive_agent_activity)
+  view: 'Read', // i18n-ignore: a tool's name, as agents read it (hive_agent_activity)
+  edit: 'Edit', // i18n-ignore: a tool's name, as agents read it (hive_agent_activity)
+  create: 'Write', // i18n-ignore: a tool's name, as agents read it (hive_agent_activity)
+  grep: 'Grep', // i18n-ignore: a tool's name, as agents read it (hive_agent_activity)
+  glob: 'Glob', // i18n-ignore: a tool's name, as agents read it (hive_agent_activity)
   web_fetch: 'WebFetch',
-  ask_user: 'Question',
-  task: 'Agent'
+  ask_user: 'Question', // i18n-ignore: a tool's name, as agents read it (hive_agent_activity)
+  task: 'Agent' // i18n-ignore: a tool's name, as agents read it (hive_agent_activity)
 }
 
 /** One line describing a tool call, e.g. the command's description or the file it edits. */
@@ -500,15 +500,15 @@ export class CopilotConversationParser implements ConversationParserLike {
         const tool = this.tools.get(String(d.toolCallId ?? ''))
         if (!tool || tool.result !== null || !kind || kind === 'approved') break
         const reason = typeof d.result?.reason === 'string' ? d.result.reason : ''
-        tool.result = `${kind === 'cancelled' ? 'Cancelled' : 'Denied'}${reason ? `: ${reason}` : ''}`
+        tool.result = `${kind === 'cancelled' ? 'Cancelled' : 'Denied'}${reason ? `: ${reason}` : ''}` // i18n-ignore: a tool call's result, as the transcript records it
         tool.isError = true
         break
       }
       case 'abort':
-        this.push({ kind: 'notice', timestamp: ts, text: d.reason === 'user_initiated' ? 'Interrupted by you' : `Turn ended: ${d.reason ?? 'aborted'}`, level: 'info' })
+        this.push({ ...noticeOf(d.reason === 'user_initiated' ? NOTICE_TEXT.interrupted : d.reason ? { m: NOTICE_TEXT.turnEnded, values: { reason: String(d.reason) } } : NOTICE_TEXT.aborted, 'info'), timestamp: ts })
         break
       case 'session.resume':
-        this.push({ kind: 'notice', timestamp: ts, text: 'Session resumed', level: 'info' })
+        this.push({ ...noticeOf(NOTICE_TEXT.resumed, 'info'), timestamp: ts })
         break
       case 'session.error':
         if (typeof d.message === 'string' && d.message) this.push({ kind: 'notice', timestamp: ts, text: d.message, level: 'error' })

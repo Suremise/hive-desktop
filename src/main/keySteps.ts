@@ -3,7 +3,7 @@ import type { KeySteps } from './providers/types'
 /** A pick step couldn't find what it looks for on the CLI's screen: `what` says what (the adapter's words). */
 export class PickNotFound extends Error {
   constructor(readonly what: string) {
-    super(`Couldn't find ${what}.`)
+    super(`Couldn't find ${what}.`) // i18n-ignore: never shown: callers say what wasn't found in their own words (`what`, the CLI's menu item)
   }
 }
 

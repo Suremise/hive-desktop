@@ -1,6 +1,7 @@
 import { Fragment, useEffect, useMemo, useState } from 'react'
 import { PAGE_SIZES, choices, nextSort, rememberedSort, sortPanes, tableView, type ColumnRules, type Sort } from '@shared/tableView'
 import { call } from '../api'
+import { msg, tr } from '@shared/i18n'
 import { set, useDateStyle, useStore } from '../store'
 import { cx } from '../util'
 import { Icon, IconButton, InfoTip, SearchInput, Tooltip } from './ui'
@@ -152,7 +153,7 @@ export function DataTable<T>({
                   <input
                     type="checkbox"
                     className="checkbox"
-                    aria-label={`Select all ${matchingKeys.length} ${filtered ? 'matching ' : ''}rows`}
+                    aria-label={filtered ? tr(msg({ id: 'shell.table.selectAllMatching', defaultMessage: '{n, plural, one {Select all # matching row} other {Select all # matching rows}}', description: "The name, for screen readers, of a table's tick box that selects every row its filters match (on every page)." }), { n: matchingKeys.length }) : tr(msg({ id: 'shell.table.selectAll', defaultMessage: '{n, plural, one {Select all # row} other {Select all # rows}}', description: "The name, for screen readers, of a table's tick box that selects every row." }), { n: matchingKeys.length })}
                     checked={allSelected}
                     ref={(el) => {
                       if (el) el.indeterminate = someSelected && !allSelected
@@ -166,7 +167,7 @@ export function DataTable<T>({
                 return (
                   <th key={c.key} className={cx(c.num && 'num', c.sortValue && 'sortable', c.className)} aria-sort={sorted ? (sort!.desc ? 'descending' : 'ascending') : undefined}>
                     {c.sortValue ? (
-                      <button type="button" className="th-sort" onClick={() => setSort(nextSort(sort, c.key, !!c.descFirst, defaultSort))} title={`Sort by ${c.header.toLowerCase()}`}>
+                      <button type="button" className="th-sort" onClick={() => setSort(nextSort(sort, c.key, !!c.descFirst, defaultSort))} title={tr(msg({ id: 'shell.table.sortBy', defaultMessage: 'Sort by {column}', description: "Tooltip of a table's column heading: sorts by it. {column} is the heading." }), { column: c.header })}>
                         {c.header}
                         {sorted && <Icon name={sort!.desc ? 'chevron-down' : 'chevron-up'} />}
                       </button>
@@ -188,8 +189,8 @@ export function DataTable<T>({
                 {columns.map((c) => (
                   <th key={c.key} className={cx(c.num && 'num')}>
                     {c.filter?.kind === 'choice' ? (
-                      <select className="select" aria-label={`Filter ${c.header}`} value={filters[c.key] ?? ''} onChange={(e) => setFilter(c.key, e.target.value)}>
-                        <option value="">All</option>
+                      <select className="select" aria-label={tr(msg({ id: 'shell.table.filterBy', defaultMessage: 'Filter {column}', description: "The name, for screen readers, of a table's filter under a column. {column} is the heading." }), { column: c.header })} value={filters[c.key] ?? ''} onChange={(e) => setFilter(c.key, e.target.value)}>
+                        <option value="">{tr(msg({ id: 'shell.table.all', defaultMessage: 'All', description: "A table's column filter's first choice: no filter." }))}</option>
                         {choices(rows, c.filter.value, c.filter.values).map((v) => (
                           <option key={v} value={v}>
                             {c.choiceLabel?.(v) ?? v}
@@ -197,7 +198,7 @@ export function DataTable<T>({
                         ))}
                       </select>
                     ) : c.filter ? (
-                      <SearchInput aria-label={`Filter ${c.header}`} placeholder="Filter" value={filters[c.key] ?? ''} onChange={(v) => setFilter(c.key, v)} />
+                      <SearchInput aria-label={tr(msg({ id: 'shell.table.filterBy', defaultMessage: 'Filter {column}', description: "The name, for screen readers, of a table's filter under a column. {column} is the heading." }), { column: c.header })} placeholder={tr(msg({ id: 'shell.table.filter', defaultMessage: 'Filter', description: "Placeholder of a table's text filter under a column." }))} value={filters[c.key] ?? ''} onChange={(v) => setFilter(c.key, v)} />
                     ) : null}
                   </th>
                 ))}
@@ -252,10 +253,10 @@ export function DataTable<T>({
             {view.matched === 0 && (
               <tr className="table-no-match">
                 <td colSpan={columns.length + (selection ? 1 : 0)}>
-                  No rows match the filters.{' '}
+                  {tr(msg({ id: 'shell.table.noMatch', defaultMessage: 'No rows match the filters.', description: 'A table whose filters match nothing.' }))}{' '}
                   {filtered && (
                     <button type="button" className="btn small subtle" onClick={() => (setFilters({}), setPage(1))}>
-                      Clear filters
+                      {tr(msg({ id: 'shell.table.clearFilters', defaultMessage: 'Clear filters', description: 'Button in a table whose filters match nothing: clears them.' }))}
                     </button>
                   )}
                 </td>
@@ -267,9 +268,9 @@ export function DataTable<T>({
       </div>
       {/* Also on one page while there are more rows than the fewest per page, so a bigger size can be made smaller again. */}
       {(view.pages > 1 || view.matched > Math.min(...pageSizes)) && (
-        <div className="table-paging" role="navigation" aria-label="Pages">
+        <div className="table-paging" role="navigation" aria-label={tr(msg({ id: 'shell.table.pages', defaultMessage: 'Pages', description: "The name, for screen readers, of a table's page controls." }))}>
           <label className="table-page-size">
-            Rows per page
+            {tr(msg({ id: 'shell.table.rowsPerPage', defaultMessage: 'Rows per page', description: "Beside a table's choice of how many rows a page shows." }))}
             <select className="select" value={pageSize} onChange={(e) => setSize(Number(e.target.value))}>
               {pageSizes.map((n) => (
                 <option key={n} value={n}>
@@ -279,16 +280,16 @@ export function DataTable<T>({
             </select>
           </label>
           <span className="faint table-range">
-            {view.from}–{view.to} of {view.matched}
+            {tr(msg({ id: 'shell.table.range', defaultMessage: '{from}–{to} of {total}', description: 'Under a table: which of its rows the page shows.' }), { from: view.from, to: view.to, total: view.matched })}
           </span>
           <div className="grow" />
-          <PageButton label="«" title="First page" disabled={view.page === 1} onClick={() => setPage(1)} />
-          <IconButton icon="chevron-left" title="Previous page" disabled={view.page === 1} onClick={() => setPage(view.page - 1)} />
+          <PageButton label="«" title={tr(msg({ id: 'shell.table.first', defaultMessage: 'First page', description: "A table's button: its first page." }))} disabled={view.page === 1} onClick={() => setPage(1)} />
+          <IconButton icon="chevron-left" title={tr(msg({ id: 'shell.table.previous', defaultMessage: 'Previous page', description: "A table's button." }))} disabled={view.page === 1} onClick={() => setPage(view.page - 1)} />
           <span className="table-page">
-            Page {view.page} of {view.pages}
+            {tr(msg({ id: 'shell.table.page', defaultMessage: 'Page {page} of {pages}', description: 'Under a table: which page it shows.' }), { page: view.page, pages: view.pages })}
           </span>
-          <IconButton icon="chevron-right" title="Next page" disabled={view.page === view.pages} onClick={() => setPage(view.page + 1)} />
-          <PageButton label="»" title="Last page" disabled={view.page === view.pages} onClick={() => setPage(view.pages)} />
+          <IconButton icon="chevron-right" title={tr(msg({ id: 'shell.table.next', defaultMessage: 'Next page', description: "A table's button." }))} disabled={view.page === view.pages} onClick={() => setPage(view.page + 1)} />
+          <PageButton label="»" title={tr(msg({ id: 'shell.table.last', defaultMessage: 'Last page', description: "A table's button: its last page." }))} disabled={view.page === view.pages} onClick={() => setPage(view.pages)} />
         </div>
       )}
     </div>

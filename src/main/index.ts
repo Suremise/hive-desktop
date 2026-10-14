@@ -42,7 +42,7 @@ import { startBranchWatch } from './branchWatch'
 import { createLogger, userText, logsDir } from './logger'
 import { killAll } from './ptyHost'
 import { allLeftovers, closeProcessTracking, leftoversSaved, leftoversSettled, restoreLeftovers, settleAllLeftovers, settleLeftovers } from './agentProcesses'
-import { leftoversSummary, processCount } from '../shared/agentProcesses'
+import { leftoversSummary } from '../shared/agentProcesses'
 import { installShims } from './progressReporters/shims'
 import { insideArchive, onCorruptFile } from './fsutil'
 import { apiEnv, assistantApiUrl, startApiServer, startHookServer } from './servers'
@@ -54,7 +54,7 @@ import { notificationIcon } from './paths'
 import { createTray, destroyTray, resourcesDir, setTrayPendingQuit, showWindow } from './tray'
 import { keepOffScreen, offScreenOrigin, showOsNotification, testQuiet } from './testQuiet'
 import { pinFollower } from './pin'
-import { focusedHive, routeAppNotice, setFocusedHive, startNoticeResolver } from './notices'
+import { closedNotice, focusedHive, routeAppNotice, setFocusedHive, startNoticeResolver } from './notices'
 import { initUpdater, installNow } from './updater'
 import { flushMetrics } from './metrics'
 import { createWorkspaceService, disposeWorkspaceService, inWorkspace, openWorkspaces, workspace, workspaceFor, workspaceOf, type WorkspaceService } from './workspace'
@@ -66,6 +66,7 @@ import { startMergeSlots } from './mergeSlotHost'
 import { startLanes } from './lanes'
 import { checkInstallDir } from './installDir'
 import { chooseStartLanguage, languageInfo, startI18n, switchLanguage } from './i18n'
+import { fmt, msg, tr } from '../shared/i18n'
 
 const log = createLogger('main')
 let quitting = false
@@ -566,11 +567,15 @@ async function quitNow(tellUser: boolean): Promise<void> {
   // Quitting without a dialog (or after waiting): say where the sessions went, as other notices are told (a banner in
   // the window you are using while it is still open, a Windows notification with Hive in the background, or nothing).
   if (tellUser && stopped > 0) {
-    const title = 'Hive has closed'
-    const body = `${stopped} session${stopped === 1 ? ' was' : 's were'} stopped. Resume ${stopped === 1 ? 'it' : 'them'} from Hive next time; nothing was lost.`
-    routeAppNotice(title, body, () => {
-      if (Notification.isSupported()) showOsNotification(new Notification({ title, icon: notificationIcon(), body, silent: true }), title, body)
-    })
+    const { title, body, apiTitle } = closedNotice(stopped)
+    routeAppNotice(
+      title,
+      body,
+      () => {
+        if (Notification.isSupported()) showOsNotification(new Notification({ title, icon: notificationIcon(), body, silent: true }), title, body)
+      },
+      apiTitle
+    )
   }
   await sessions.stopAllAndWait(3000)
   await quitLeftovers()
@@ -602,10 +607,11 @@ async function quitLeftovers(): Promise<void> {
       const n = left.reduce((sum, l) => sum + l.processes.length + l.more, 0)
       const { response } = await dialog.showMessageBox(shown.win, {
         type: 'question',
-        title: 'Quit Hive',
-        message: `Agents left ${processCount(n)} running`,
-        detail: `${left.map((l) => `${basename(l.projectPath)} · ${l.agentName}: ${leftoversSummary(l)}`).join('\n')}\n\nThe agents started ${n === 1 ? 'it' : 'them'}, and ${n === 1 ? 'it' : 'they'} may hold project folders or ports. End ${n === 1 ? 'it' : 'them'} as Hive quits, or leave ${n === 1 ? 'it' : 'them'} running?`,
-        buttons: ['End Them', 'Leave Running'],
+        title: tr(msg({ id: 'main.quit.dialogTitle', defaultMessage: 'Quit Hive', description: 'The title of the question, as Hive quits, about the processes agents left running.' })),
+        message: tr(msg({ id: 'main.leftovers.quitMessage', defaultMessage: '{n, plural, one {Agents left # process running} other {Agents left # processes running}}', description: 'The question as Hive quits: processes the agents started are still running. {n} is how many.' }), { n }),
+        // The processes, a line per agent, then the question.
+        detail: `${left.map((l) => `${basename(l.projectPath)} · ${l.agentName}: ${leftoversSummary(l)}`).join('\n')}\n\n${tr(msg({ id: 'main.leftovers.quitDetail', defaultMessage: '{n, plural, one {The agents started it, and it may hold project folders or ports. End it as Hive quits, or leave it running?} other {The agents started them, and they may hold project folders or ports. End them as Hive quits, or leave them running?}}', description: 'The question as Hive quits, under the list of the processes agents left running. {n} is how many.' }), { n })}`,
+        buttons: [tr(msg({ id: 'main.leftovers.end', defaultMessage: 'End Them', description: 'Button: ends the processes the agents left running.' })), tr(msg({ id: 'main.leftovers.leave', defaultMessage: 'Leave Running', description: 'Button: leaves the processes the agents left running.' }))],
         defaultId: 0,
         cancelId: 1,
         noLink: true
@@ -629,11 +635,11 @@ async function offerRestoredLeftovers(): Promise<void> {
     const n = l.processes.length + l.more
     toast(
       'warning',
-      `${l.agentName || basename(l.projectPath)} left ${processCount(n)} running`,
-      `${leftoversSummary(l)}. ${n === 1 ? 'It was' : 'They were'} started by the agent before Hive last closed, and may hold the project's folder or ports.`,
+      tr(msg({ id: 'main.leftovers.restoredTitle', defaultMessage: '{n, plural, one {{agent} left # process running} other {{agent} left # processes running}}', description: 'A notice at start: processes an agent started before Hive last closed still run. {agent} is the agent (or project) name; {n} how many.' }), { agent: l.agentName || basename(l.projectPath), n }),
+      tr(msg({ id: 'main.leftovers.restoredBody', defaultMessage: "{n, plural, one {{processes}. It was started by the agent before Hive last closed, and may hold the project's folder or ports.} other {{processes}. They were started by the agent before Hive last closed, and may hold the project's folder or ports.}}", description: 'The notice at start about processes an agent left running. {processes} lists them (in English for now); {n} is how many.' }), { processes: leftoversSummary(l), n }),
       [
-        { label: 'End Them', command: 'session.settleLeftovers', args: [l.projectPath, l.agentId, 'end'] },
-        { label: 'Keep Running', command: 'session.settleLeftovers', args: [l.projectPath, l.agentId, 'keep'] }
+        { label: tr(msg({ id: 'main.leftovers.end', defaultMessage: 'End Them', description: 'Button: ends the processes the agents left running.' })), command: 'session.settleLeftovers', args: [l.projectPath, l.agentId, 'end'] },
+        { label: tr(msg({ id: 'main.leftovers.keep', defaultMessage: 'Keep Running', description: 'Button: leaves the processes an agent left running.' })), command: 'session.settleLeftovers', args: [l.projectPath, l.agentId, 'keep'] }
       ],
       l.projectPath
     )
@@ -714,7 +720,11 @@ async function revertDangerousModes(provider: string): Promise<void> {
     }
   }
   if (changed.length) {
-    toast('warning', `${labelList(danger.map((m) => m.label))} turned off`, `These projects were switched back to Inherit: ${changed.join(', ')}. Running sessions keep their mode until restarted.`)
+    toast(
+      'warning',
+      tr(msg({ id: 'main.danger.off', defaultMessage: '{modes} turned off', description: "A notice after a provider's dangerous permission modes were turned off in Settings. {modes} lists them." }), { modes: labelList(danger.map((m) => m.label)) }),
+      tr(msg({ id: 'main.danger.offBody', defaultMessage: 'These projects were switched back to Inherit: {projects}. Running sessions keep their mode until restarted.', description: "The notice after dangerous permission modes were turned off: the projects that used one. Inherit is a choice of the project's settings: keep it as Hive shows it." }), { projects: fmt.list(changed) })
+    )
   }
 }
 
@@ -725,8 +735,8 @@ function showCorrupt(file: string, aside: string, restored: boolean): void {
   log.warn(`${userText(file)} could not be read; set aside as ${userText(aside)}${restored ? ', restored from its .bak copy' : ''}`)
   toast(
     restored ? 'warning' : 'error',
-    restored ? `${basename(file)} was damaged and has been restored` : `${basename(file)} was damaged`,
-    `${restored ? 'Hive went back to its last good copy.' : 'Hive had no good copy, so it started from defaults.'} The damaged file was kept as ${aside}.`,
+    restored ? tr(msg({ id: 'main.corrupt.restored', defaultMessage: '{file} was damaged and has been restored', description: "A notice: one of Hive's settings or record files couldn't be read, and Hive went back to its last good copy. {file} is its name." }), { file: basename(file) }) : tr(msg({ id: 'main.corrupt.damaged', defaultMessage: '{file} was damaged', description: "A notice: one of Hive's settings or record files couldn't be read. {file} is its name." }), { file: basename(file) }),
+    restored ? tr(msg({ id: 'main.corrupt.restoredBody', defaultMessage: 'Hive went back to its last good copy. The damaged file was kept as {aside}.', description: 'The notice about a damaged file Hive restored. {aside} is where the damaged file was kept.' }), { aside }) : tr(msg({ id: 'main.corrupt.defaultsBody', defaultMessage: 'Hive had no good copy, so it started from defaults. The damaged file was kept as {aside}.', description: 'The notice about a damaged file Hive had no good copy of. {aside} is where the damaged file was kept.' }), { aside }),
     undefined,
     file
   )
@@ -748,7 +758,7 @@ app.whenReady().then(async () => {
   session.defaultSession.setPermissionCheckHandler((_wc, permission) => ALLOWED_PERMISSIONS.has(permission))
   protocol.handle('hive-img', async (req) => {
     let p = resolve(decodeURIComponent(new URL(req.url).pathname.slice(1)))
-    if (!SERVABLE_EXT.test(p) || insideArchive(p) || !workspace.isAllowedPath(p)) return new Response('Not found', { status: 404 })
+    if (!SERVABLE_EXT.test(p) || insideArchive(p) || !workspace.isAllowedPath(p)) return new Response('Not found', { status: 404 }) // i18n-ignore: an HTTP reply to the window, never shown
     // Read with original-fs, never Electron's file: loader, which would open an archive on the path and keep it (#246, #261).
     let st = await stat(p).catch(() => null)
     // A path into the old .hive/images serves the file where it is now, in .hive/attachments (#387).
@@ -757,7 +767,7 @@ app.whenReady().then(async () => {
       st = await stat(moved).catch(() => null)
       p = moved
     }
-    if (!st?.isFile()) return new Response('Not found', { status: 404 })
+    if (!st?.isFile()) return new Response('Not found', { status: 404 }) // i18n-ignore: an HTTP reply to the window, never shown
     return new Response(Readable.toWeb(createReadStream(p)) as ReadableStream, { headers: { 'Content-Type': servableType(p), 'Content-Length': String(st.size) } })
   })
   nativeTheme.themeSource = config.settings.appearance.theme
@@ -956,7 +966,7 @@ app.whenReady().then(async () => {
     if (e.type === 'tasks-changed') void recordLiveCards(e.workspacePath, sessions.liveStates())
     // A reviewer whose session ended isn't reviewing any more: its cards stop showing it.
     if (e.type === 'session-exit' && !workspaceOf(e.projectPath).isAssistantHome(e.projectPath)) {
-      void endReviews(basename(e.projectPath), e.agentId, 'its session ended', workspaceOf(e.projectPath)).catch(() => undefined)
+      void endReviews(basename(e.projectPath), e.agentId, 'its session ended', workspaceOf(e.projectPath)).catch(() => undefined) // i18n-ignore: card history, kept in English (E10b)
     }
   })
   initUpdater({

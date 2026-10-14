@@ -1,0 +1,870 @@
+{
+  "main.antivirus.allExcluded": {
+    "defaultMessage": "Every folder Hive may offer is already excluded.",
+    "description": "An error in Settings → Workspace → Antivirus scanning: nothing to add."
+  },
+  "main.antivirus.changed": {
+    "defaultMessage": "The workspace changed since you were asked: nothing was changed.",
+    "description": "An error in Settings → Workspace → Antivirus scanning."
+  },
+  "main.antivirus.closed": {
+    "defaultMessage": "The workspace closed meanwhile.",
+    "description": "An error in Settings → Workspace → Antivirus scanning."
+  },
+  "main.antivirus.foldersChanged": {
+    "defaultMessage": "The folders changed since you were asked: review them again. Nothing was changed.",
+    "description": "An error in Settings → Workspace → Antivirus scanning."
+  },
+  "main.antivirus.noWorkspace": {
+    "defaultMessage": "No workspace is open",
+    "description": "An error in Settings → Workspace → Antivirus scanning."
+  },
+  "main.antivirus.noneAdded": {
+    "defaultMessage": "Hive added no exclusions for this workspace.",
+    "description": "An error in Settings → Workspace → Antivirus scanning: nothing to remove."
+  },
+  "main.antivirus.notDefender": {
+    "defaultMessage": "Microsoft Defender isn’t the active antivirus here.",
+    "description": "An error in Settings → Workspace → Antivirus scanning."
+  },
+  "main.antivirus.notWaiting": {
+    "defaultMessage": "That change is no longer waiting: ask again.",
+    "description": "An error in Settings → Workspace → Antivirus scanning: an exclusion change asked for was answered too late or twice."
+  },
+  "main.antivirus.other": {
+    "defaultMessage": "Another antivirus is active: Hive can only change Microsoft Defender’s exclusions.",
+    "description": "An error in Settings → Workspace → Antivirus scanning. Microsoft Defender is a name."
+  },
+  "main.antivirus.timeout": {
+    "defaultMessage": "PowerShell took longer than {seconds} s",
+    "description": "An error in Settings → Workspace → Antivirus scanning: Hive's PowerShell check didn't finish in time."
+  },
+  "main.antivirus.tooLong": {
+    "defaultMessage": "That change waited too long for an answer: ask again.",
+    "description": "An error in Settings → Workspace → Antivirus scanning."
+  },
+  "main.antivirus.unreadable": {
+    "defaultMessage": "Defender's exclusions couldn't be read even with administrator rights, so nothing was changed.",
+    "description": "An error in Settings → Workspace → Antivirus scanning."
+  },
+  "main.antivirus.windowsOnly": {
+    "defaultMessage": "Only Windows has Defender exclusions.",
+    "description": "An error in Settings → Workspace → Antivirus scanning on another system."
+  },
+  "main.console.noWorkspace": {
+    "defaultMessage": "Open a workspace first: the developer console shows a workspace's agents and Hive's work there.",
+    "description": "An error when the developer console is opened with no workspace open."
+  },
+  "main.console.title": {
+    "defaultMessage": "Developer Console — {workspace}",
+    "description": "The developer console's window title. {workspace} is the workspace's folder name."
+  },
+  "main.corrupt.damaged": {
+    "defaultMessage": "{file} was damaged",
+    "description": "A notice: one of Hive's settings or record files couldn't be read. {file} is its name."
+  },
+  "main.corrupt.defaultsBody": {
+    "defaultMessage": "Hive had no good copy, so it started from defaults. The damaged file was kept as {aside}.",
+    "description": "The notice about a damaged file Hive had no good copy of. {aside} is where the damaged file was kept."
+  },
+  "main.corrupt.restored": {
+    "defaultMessage": "{file} was damaged and has been restored",
+    "description": "A notice: one of Hive's settings or record files couldn't be read, and Hive went back to its last good copy. {file} is its name."
+  },
+  "main.corrupt.restoredBody": {
+    "defaultMessage": "Hive went back to its last good copy. The damaged file was kept as {aside}.",
+    "description": "The notice about a damaged file Hive restored. {aside} is where the damaged file was kept."
+  },
+  "main.danger.off": {
+    "defaultMessage": "{modes} turned off",
+    "description": "A notice after a provider's dangerous permission modes were turned off in Settings. {modes} lists them."
+  },
+  "main.danger.offBody": {
+    "defaultMessage": "These projects were switched back to Inherit: {projects}. Running sessions keep their mode until restarted.",
+    "description": "The notice after dangerous permission modes were turned off: the projects that used one. Inherit is a choice of the project's settings: keep it as Hive shows it."
+  },
+  "main.finished.inProject": {
+    "defaultMessage": "{n} agents finished in {project}",
+    "description": "A notification for several agents of one project that finished together. {n} is how many (2 or more); the agents are listed under it."
+  },
+  "main.finished.many": {
+    "defaultMessage": "{n} agents finished",
+    "description": "A notification for agents of several projects that finished together. {n} is how many; the projects are listed under it."
+  },
+  "main.finished.project": {
+    "defaultMessage": "{project} ({n})",
+    "description": "A project in the notification for agents that finished together, with how many of its agents finished."
+  },
+  "main.gitInit.already": {
+    "defaultMessage": "This folder is a git repository already.",
+    "description": "Why a folder can't be made a git repository again."
+  },
+  "main.gitInit.done": {
+    "defaultMessage": "{steps}. .hive stays out of git. Agents can work in worktrees now.",
+    "description": "What making a git repository did. {steps} lists the steps (main.gitInit.step.*), its first capitalised. .hive is a folder's name."
+  },
+  "main.gitInit.failed.commit": {
+    "defaultMessage": "couldn't make the first commit",
+    "description": "What failed in making a git repository, a clause (main.gitInit.stoppedAfter)."
+  },
+  "main.gitInit.failed.config": {
+    "defaultMessage": "couldn't set {key}",
+    "description": "What failed in making a git repository, a clause (main.gitInit.stoppedAfter). {key} is a git setting (user.name, user.email)."
+  },
+  "main.gitInit.failed.exclude": {
+    "defaultMessage": "couldn't keep .hive out of git",
+    "description": "What failed in making a git repository, a clause (main.gitInit.stoppedAfter). .hive is a folder's name."
+  },
+  "main.gitInit.failed.gitignore": {
+    "defaultMessage": "couldn't write the .gitignore",
+    "description": "What failed in making a git repository, a clause (main.gitInit.stoppedAfter). .gitignore is a file name."
+  },
+  "main.gitInit.failed.identity": {
+    "defaultMessage": "{which, select, name {git has no name to make the first commit as here} email {git has no email to make the first commit as here} other {git has no name or email to make the first commit as here}}",
+    "description": "What failed in making a git repository, a clause (main.gitInit.stoppedAfter): git has no identity to commit as. {which} says what it lacks."
+  },
+  "main.gitInit.failed.ignored": {
+    "defaultMessage": "git still doesn't ignore .hive here (a rule in a .gitignore may bring it back), so nothing was committed",
+    "description": "What failed in making a git repository, a clause (main.gitInit.stoppedAfter). .hive and .gitignore are names."
+  },
+  "main.gitInit.failed.init": {
+    "defaultMessage": "couldn't initialise the repository",
+    "description": "What failed in making a git repository, a clause (main.gitInit.stoppedAfter)."
+  },
+  "main.gitInit.failed.stage": {
+    "defaultMessage": "couldn't stage the folder's files",
+    "description": "What failed in making a git repository, a clause (main.gitInit.stoppedAfter)."
+  },
+  "main.gitInit.failed.staged": {
+    "defaultMessage": ".hive was staged, so nothing was committed",
+    "description": "What failed in making a git repository, a clause (main.gitInit.stoppedAfter). .hive is a folder's name."
+  },
+  "main.gitInit.fix.commit": {
+    "defaultMessage": "{git}. Commit in a terminal, or ask an agent to",
+    "description": "Why the first commit failed and what to do. {git} is git's own message."
+  },
+  "main.gitInit.fix.identity": {
+    "defaultMessage": "{which, select, name {enter it and choose Make first commit} email {enter it and choose Make first commit} other {enter them and choose Make first commit}}",
+    "description": "What to do when git has no name or email to commit as (main.gitInit.failed.identity). Make first commit is a button: use its name as shown."
+  },
+  "main.gitInit.fix.ignored": {
+    "defaultMessage": "fix that, then choose Make first commit on the Git tab",
+    "description": "What to do after .hive was found not ignored by git (main.gitInit.failed.ignored). Make first commit is a button on the Git tab: use its name as shown."
+  },
+  "main.gitInit.fix.staged": {
+    "defaultMessage": "check the .gitignore for a rule that brings .hive back",
+    "description": "What to do after .hive was staged (main.gitInit.failed.staged)."
+  },
+  "main.gitInit.nested": {
+    "defaultMessage": "This folder is inside the git repository in {root}. Confirm that you want a repository of its own inside it.",
+    "description": "Why a folder wasn't made a git repository yet: it is inside another one, {root}, and the user didn't confirm a repository of its own."
+  },
+  "main.gitInit.noEmail": {
+    "defaultMessage": "Git has no email to make the first commit as: enter one.",
+    "description": "Why a folder was not made a git repository: no email address to commit as is set, and the user entered none."
+  },
+  "main.gitInit.noGit": {
+    "defaultMessage": "{problem}: Agent Setup says how to fix it.",
+    "description": "Why a folder can't be made a git repository (the Initialise Git Repository dialog): git is missing or broken. {problem} says what's wrong. Agent Setup is a view's name."
+  },
+  "main.gitInit.noName": {
+    "defaultMessage": "Git has no name to make the first commit as: enter one.",
+    "description": "Why a folder was not made a git repository: no name to commit as is set, and the user entered none."
+  },
+  "main.gitInit.otherVcs": {
+    "defaultMessage": "{vcs} keeps this folder (in {root}): Hive makes a git repository only where no other version control system is.",
+    "description": "Why a folder can't be made a git repository: another version control system (Jujutsu, Mercurial…), {vcs}, keeps it. {root} is the folder it keeps."
+  },
+  "main.gitInit.step.commit": {
+    "defaultMessage": "{n, plural, one {committed # file} other {committed # files}}",
+    "description": "A step that worked in making a git repository: a clause in a list of them (\"Initialised a git repository on main, added a Node .gitignore and committed 3 files.\"); Hive capitalises the first of the list. {n} is how many files the first commit has."
+  },
+  "main.gitInit.step.empty": {
+    "defaultMessage": "made an empty first commit",
+    "description": "A step that worked in making a git repository: a clause in a list of them (\"Initialised a git repository on main, added a Node .gitignore and committed 3 files.\"); Hive capitalises the first of the list."
+  },
+  "main.gitInit.step.gitignore": {
+    "defaultMessage": "added {gitignore}",
+    "description": "A step that worked in making a git repository: a clause in a list of them (\"Initialised a git repository on main, added a Node .gitignore and committed 3 files.\"); Hive capitalises the first of the list. {gitignore} names the starter .gitignore (a Node .gitignore)."
+  },
+  "main.gitInit.step.identity": {
+    "defaultMessage": "set this repository's commit identity",
+    "description": "A step that worked in making a git repository: a clause in a list of them (\"Initialised a git repository on main, added a Node .gitignore and committed 3 files.\"); Hive capitalises the first of the list: the name and email the commits are made as."
+  },
+  "main.gitInit.step.init": {
+    "defaultMessage": "initialised a git repository on main",
+    "description": "A step that worked in making a git repository: a clause in a list of them (\"Initialised a git repository on main, added a Node .gitignore and committed 3 files.\"); Hive capitalises the first of the list. main is the branch's name: keep it."
+  },
+  "main.gitInit.steps": {
+    "defaultMessage": "{count, plural, =1 {{a}} =2 {{a} and {b}} =3 {{a}, {b} and {c}} other {{a}, {b}, {c} and {d}}}",
+    "description": "The steps that worked in making a git repository, joined as a list (main.gitInit.step.*): {count} is how many (1 to 4), {a} to {d} the steps in order. Hive capitalises the first letter of the whole."
+  },
+  "main.gitInit.stopped": {
+    "defaultMessage": "{what}: {why}",
+    "description": "Why making a git repository failed at its first step. {what} is what failed (main.gitInit.failed.*, which starts with a small letter in English), {why} why."
+  },
+  "main.gitInit.stoppedAfter": {
+    "defaultMessage": "{done}, but {what}: {why}",
+    "description": "Why making a git repository stopped part way. {done} lists the steps that worked (main.gitInit.step.*), {what} what failed (main.gitInit.failed.*), {why} why (git's message, or what to do)."
+  },
+  "main.gitInit.unreadable": {
+    "defaultMessage": "Git couldn't read this repository: {why}",
+    "description": "Why a folder can't be made a git repository. {why} is git's own message."
+  },
+  "main.installDir.close": {
+    "defaultMessage": "Close",
+    "description": "A button of the message window when Hive can't start from its install folder: closes it (Hive then quits)."
+  },
+  "main.installDir.copied": {
+    "defaultMessage": "Copied",
+    "description": "A button of the message window when Hive can't start from its install folder: what Copy Command says once it has copied the command."
+  },
+  "main.installDir.copy": {
+    "defaultMessage": "(Ctrl+C copies this message.)",
+    "description": "The last line of Electron's error box when Hive can't start from its install folder. Ctrl+C is a key: keep it."
+  },
+  "main.installDir.copyCommand": {
+    "defaultMessage": "Copy Command",
+    "description": "A button of the message window when Hive can't start from its install folder: copies the command to run."
+  },
+  "main.installDir.title": {
+    "defaultMessage": "Hive can't start",
+    "description": "The title of the message when Hive can't start from its install folder."
+  },
+  "main.installDir.whatFile": {
+    "defaultMessage": "Windows won't let Hive's windows read a file in the folder Hive is installed in:",
+    "description": "The message when Hive can't start from its install folder, its first line (the file's path follows on the next)."
+  },
+  "main.installDir.whatFolder": {
+    "defaultMessage": "Windows won't let Hive's windows read the folder Hive is installed in:",
+    "description": "The message when Hive can't start from its install folder, its first line (the folder's path follows on the next)."
+  },
+  "main.installDir.whyFile": {
+    "defaultMessage": "Its permissions have an entry for an app package but none for ALL APPLICATION PACKAGES, which Hive's sandboxed windows need, and Hive couldn't add one. Run this command in PowerShell (as an administrator if you don't own them): it adds the entry to the folder and to the file. Then start Hive again:",
+    "description": "The message when Hive can't start from its install folder, its last paragraph (a command follows). ALL APPLICATION PACKAGES is a Windows name and PowerShell a program: keep them."
+  },
+  "main.installDir.whyFolder": {
+    "defaultMessage": "Its permissions have an entry for an app package but none for ALL APPLICATION PACKAGES, which Hive's sandboxed windows need, and Hive couldn't add one. Run this command in PowerShell (as an administrator if you don't own the folder), then start Hive again:",
+    "description": "The message when Hive can't start from its install folder, its last paragraph (a command follows). ALL APPLICATION PACKAGES is a Windows name and PowerShell a program: keep them."
+  },
+  "main.leftovers.end": {
+    "defaultMessage": "End Them",
+    "description": "Button: ends the processes the agents left running."
+  },
+  "main.leftovers.keep": {
+    "defaultMessage": "Keep Running",
+    "description": "Button: leaves the processes an agent left running."
+  },
+  "main.leftovers.leave": {
+    "defaultMessage": "Leave Running",
+    "description": "Button: leaves the processes the agents left running."
+  },
+  "main.leftovers.quitDetail": {
+    "defaultMessage": "{n, plural, one {The agents started it, and it may hold project folders or ports. End it as Hive quits, or leave it running?} other {The agents started them, and they may hold project folders or ports. End them as Hive quits, or leave them running?}}",
+    "description": "The question as Hive quits, under the list of the processes agents left running. {n} is how many."
+  },
+  "main.leftovers.quitMessage": {
+    "defaultMessage": "{n, plural, one {Agents left # process running} other {Agents left # processes running}}",
+    "description": "The question as Hive quits: processes the agents started are still running. {n} is how many."
+  },
+  "main.leftovers.restoredBody": {
+    "defaultMessage": "{n, plural, one {{processes}. It was started by the agent before Hive last closed, and may hold the project's folder or ports.} other {{processes}. They were started by the agent before Hive last closed, and may hold the project's folder or ports.}}",
+    "description": "The notice at start about processes an agent left running. {processes} lists them (in English for now); {n} is how many."
+  },
+  "main.leftovers.restoredTitle": {
+    "defaultMessage": "{n, plural, one {{agent} left # process running} other {{agent} left # processes running}}",
+    "description": "A notice at start: processes an agent started before Hive last closed still run. {agent} is the agent (or project) name; {n} how many."
+  },
+  "main.move.adoptFailed": {
+    "defaultMessage": "The handovers and kept comparisons saved under a project's earlier name couldn't all be given to it ({why}). Repair tries again.",
+    "description": "A line of Repair's report, after a workspace or project moved to another folder (the moved-workspace banner). {why} is the system's message. Kept comparisons are benchmarks kept in Performance → Compare."
+  },
+  "main.move.already": {
+    "defaultMessage": "A repair is already running in this window.",
+    "description": "An error: Repair (after a workspace moved) was asked for twice."
+  },
+  "main.move.alsoMoved": {
+    "defaultMessage": "{n, plural, one {{things} of {from} now is {to}'s.} other {{things} of {from} now are {to}'s.}}",
+    "description": "A line of Repair's report, after a workspace or project moved to another folder (the moved-workspace banner): what was left under a project's old name went to the project. {from} is the old name, {to} the project. {things} lists the lanes and card watches (main.move.lanes, main.move.watches); {n} is how many in all."
+  },
+  "main.move.andMore": {
+    "defaultMessage": "{list} and {n, number} more",
+    "description": "The end of a long list in Repair's report (after a workspace moved): the first few, and how many more. {list} is the first few."
+  },
+  "main.move.assistant": {
+    "defaultMessage": "Hive Assistant",
+    "description": "The Hive Assistant's name, where Repair (after a workspace moved) lists what it repairs and the agents still running."
+  },
+  "main.move.cards": {
+    "defaultMessage": "{n, plural, one {# card of {from} now belongs to {to}, with its agents.} other {# cards of {from} now belong to {to}, with their agents.}}",
+    "description": "A line of Repair's report, after a workspace or project moved to another folder (the moved-workspace banner): what was left under a project's old name went to the project. {from} is the old name, {to} the project. {n} is how many cards."
+  },
+  "main.move.copied": {
+    "defaultMessage": "{n, plural, one {{owner, select, project {{host}: copied {n, number} file of {provider}'s conversations and memory for the project to its folder for the new path (the old folder is kept).} assistant {{host}: copied {n, number} file of {provider}'s conversations and memory for the Assistant to its folder for the new path (the old folder is kept).} worktree {{host}: copied {n, number} file of {provider}'s conversations and memory for {agent}'s worktree to its folder for the new path (the old folder is kept).} other {{host}: copied {n, number} file of {provider}'s conversations and memory for {of} to its folder for the new path (the old folder is kept).}}} other {{owner, select, project {{host}: copied {n, number} files of {provider}'s conversations and memory for the project to its folder for the new path (the old folder is kept).} assistant {{host}: copied {n, number} files of {provider}'s conversations and memory for the Assistant to its folder for the new path (the old folder is kept).} worktree {{host}: copied {n, number} files of {provider}'s conversations and memory for {agent}'s worktree to its folder for the new path (the old folder is kept).} other {{host}: copied {n, number} files of {provider}'s conversations and memory for {of} to its folder for the new path (the old folder is kept).}}}}",
+    "description": "A line of Repair's report, after a workspace or project moved to another folder (the moved-workspace banner). {host} is the project (or the Assistant) it is about; {n} is how many files; {provider} is the coding agent (Claude Code); {owner} whose folder the files are for: the project, the Assistant, an agent's worktree ({agent} is the agent), or other (a name kept from an older record, {of})."
+  },
+  "main.move.copyFailed": {
+    "defaultMessage": "{n, plural, one {{owner, select, project {{host}: {n, number} file of {provider}'s for the project couldn't be copied to {folder}: {files}. Repair tries them again.} assistant {{host}: {n, number} file of {provider}'s for the Assistant couldn't be copied to {folder}: {files}. Repair tries them again.} worktree {{host}: {n, number} file of {provider}'s for {agent}'s worktree couldn't be copied to {folder}: {files}. Repair tries them again.} other {{host}: {n, number} file of {provider}'s for {of} couldn't be copied to {folder}: {files}. Repair tries them again.}}} other {{owner, select, project {{host}: {n, number} files of {provider}'s for the project couldn't be copied to {folder}: {files}. Repair tries them again.} assistant {{host}: {n, number} files of {provider}'s for the Assistant couldn't be copied to {folder}: {files}. Repair tries them again.} worktree {{host}: {n, number} files of {provider}'s for {agent}'s worktree couldn't be copied to {folder}: {files}. Repair tries them again.} other {{host}: {n, number} files of {provider}'s for {of} couldn't be copied to {folder}: {files}. Repair tries them again.}}}}",
+    "description": "A line of Repair's report, after a workspace or project moved to another folder (the moved-workspace banner). {host} is the project (or the Assistant) it is about; {n} is how many files; {provider} is the coding agent (Claude Code); {owner} whose folder the files are for: the project, the Assistant, an agent's worktree ({agent} is the agent), or other (a name kept from an older record, {of}); {folder} is where they would go; {files} lists them."
+  },
+  "main.move.copyKept": {
+    "defaultMessage": "{n, plural, one {{owner, select, project {{host}: {n, number} file of {provider}'s for the project already in {folder} with other content, not overwritten: {files}.} assistant {{host}: {n, number} file of {provider}'s for the Assistant already in {folder} with other content, not overwritten: {files}.} worktree {{host}: {n, number} file of {provider}'s for {agent}'s worktree already in {folder} with other content, not overwritten: {files}.} other {{host}: {n, number} file of {provider}'s for {of} already in {folder} with other content, not overwritten: {files}.}}} other {{owner, select, project {{host}: {n, number} files of {provider}'s for the project already in {folder} with other content, not overwritten: {files}.} assistant {{host}: {n, number} files of {provider}'s for the Assistant already in {folder} with other content, not overwritten: {files}.} worktree {{host}: {n, number} files of {provider}'s for {agent}'s worktree already in {folder} with other content, not overwritten: {files}.} other {{host}: {n, number} files of {provider}'s for {of} already in {folder} with other content, not overwritten: {files}.}}}}",
+    "description": "A line of Repair's report, after a workspace or project moved to another folder (the moved-workspace banner). {host} is the project (or the Assistant) it is about; {n} is how many files; {provider} is the coding agent (Claude Code); {owner} whose folder the files are for: the project, the Assistant, an agent's worktree ({agent} is the agent), or other (a name kept from an older record, {of}); {folder} is where they would go; {files} lists them."
+  },
+  "main.move.gitFailed": {
+    "defaultMessage": "{command} failed",
+    "description": "Why git couldn't do something, when it said nothing itself. {command} is the git command: keep it."
+  },
+  "main.move.lanes": {
+    "defaultMessage": "{n, plural, one {# lane} other {# lanes}}",
+    "description": "Card loops (lanes) that went to a project, in a list (main.move.alsoMoved). {n} is how many."
+  },
+  "main.move.madeNew": {
+    "defaultMessage": "{host}: {agent}'s worktree was made new on {branch} (its branch was gone), at {path}.",
+    "description": "A line of Repair's report, after a workspace or project moved to another folder (the moved-workspace banner). {host} is the project (or the Assistant) it is about; {agent} an agent. {branch} is the new branch, {path} the new worktree."
+  },
+  "main.move.makeNewFailed": {
+    "defaultMessage": "{host}: {agent}'s worktree couldn't be made new: {why}",
+    "description": "A line of Repair's report, after a workspace or project moved to another folder (the moved-workspace banner). {host} is the project (or the Assistant) it is about; {agent} an agent. {why} says why."
+  },
+  "main.move.missing": {
+    "defaultMessage": "{host}: {agent}'s worktree wasn't found (it was at {path}). Recreate it on its branch, locate it, or remove the agent's worktree link.",
+    "description": "A line of Repair's report, after a workspace or project moved to another folder (the moved-workspace banner). {host} is the project (or the Assistant) it is about; {agent} an agent. {path} is where it was. Its branch is still there."
+  },
+  "main.move.missingNoBranch": {
+    "defaultMessage": "{host}: {agent}'s worktree wasn't found (it was at {path}). Create a new worktree, locate it, or remove the agent's worktree link.",
+    "description": "A line of Repair's report, after a workspace or project moved to another folder (the moved-workspace banner). {host} is the project (or the Assistant) it is about; {agent} an agent. {path} is where it was. Its branch has gone too."
+  },
+  "main.move.movedTo": {
+    "defaultMessage": "{host}: {agent}'s worktree is now at {path}.",
+    "description": "A line of Repair's report, after a workspace or project moved to another folder (the moved-workspace banner). {host} is the project (or the Assistant) it is about; {agent} an agent. {path} is where the worktree is now."
+  },
+  "main.move.notRepaired": {
+    "defaultMessage": "{host}: {agent}'s worktree at {path} couldn't be repaired.",
+    "description": "A line of Repair's report, after a workspace or project moved to another folder (the moved-workspace banner). {host} is the project (or the Assistant) it is about; {agent} an agent. {path} is the worktree."
+  },
+  "main.move.notRepairedWhy": {
+    "defaultMessage": "{host}: {agent}'s worktree at {path} couldn't be repaired ({why}).",
+    "description": "A line of Repair's report, after a workspace or project moved to another folder (the moved-workspace banner). {host} is the project (or the Assistant) it is about; {agent} an agent. {path} is the worktree, {why} git's message."
+  },
+  "main.move.nothing": {
+    "defaultMessage": "Nothing to repair: everything already points to where the workspace is now.",
+    "description": "A line of Repair's report, after a workspace or project moved to another folder (the moved-workspace banner): there was nothing to do."
+  },
+  "main.move.original": {
+    "defaultMessage": "{host}: {agent}'s worktree at {path} stays linked to the project at {project}, which is still there.",
+    "description": "A line of Repair's report, after a workspace or project moved to another folder (the moved-workspace banner). {host} is the project (or the Assistant) it is about; {agent} an agent. {path} is the worktree, {project} the project folder it was made from (a copy was moved, not that one)."
+  },
+  "main.move.recent": {
+    "defaultMessage": "Open Recent lists {to} instead of {from}.",
+    "description": "A line of Repair's report, after a workspace or project moved to another folder (the moved-workspace banner). Open Recent is a menu (File → Open Recent): use its name as shown. {to} is the workspace folder now, {from} where it was."
+  },
+  "main.move.recreateFailed": {
+    "defaultMessage": "{host}: {agent}'s worktree couldn't be recreated: {why}",
+    "description": "A line of Repair's report, after a workspace or project moved to another folder (the moved-workspace banner). {host} is the project (or the Assistant) it is about; {agent} an agent. {why} says why."
+  },
+  "main.move.recreated": {
+    "defaultMessage": "{host}: {agent}'s worktree was recreated on its branch {branch}, at {path}.",
+    "description": "A line of Repair's report, after a workspace or project moved to another folder (the moved-workspace banner). {host} is the project (or the Assistant) it is about; {agent} an agent. {branch} is its branch, {path} the new worktree."
+  },
+  "main.move.relinked": {
+    "defaultMessage": "{host}: {agent}'s worktree at {path} is linked to the project again.",
+    "description": "A line of Repair's report, after a workspace or project moved to another folder (the moved-workspace banner). {host} is the project (or the Assistant) it is about; {agent} an agent. {path} is the worktree."
+  },
+  "main.move.running": {
+    "defaultMessage": "Stop the running agents first: {agents}.",
+    "description": "Why Repair (after a workspace moved) can't start: agents are running. {agents} lists them (project · agent)."
+  },
+  "main.move.savedFailed": {
+    "defaultMessage": "What was saved under {from} couldn't all be given to {to} ({why}). Repair tries again.",
+    "description": "A line of Repair's report, after a workspace or project moved to another folder (the moved-workspace banner). {from} is a project's old name, {to} the project, {why} the system's message."
+  },
+  "main.move.sessions": {
+    "defaultMessage": "{n, plural, one {{host}: # session now points to the new folder.} other {{host}: # sessions now point to the new folder.}}",
+    "description": "A line of Repair's report, after a workspace or project moved to another folder (the moved-workspace banner). {host} is the project (or the Assistant) it is about; {agent} an agent. {n} is how many sessions."
+  },
+  "main.move.sessionsFailed": {
+    "defaultMessage": "{host}: the sessions' folders couldn't be updated ({why}). Repair tries again.",
+    "description": "A line of Repair's report, after a workspace or project moved to another folder (the moved-workspace banner). {host} is the project (or the Assistant) it is about; {agent} an agent. {why} is the system's message."
+  },
+  "main.move.unlinked": {
+    "defaultMessage": "{host}: {agent} no longer has a worktree (its folder {path} was left as it was).",
+    "description": "A line of Repair's report, after a workspace or project moved to another folder (the moved-workspace banner). {host} is the project (or the Assistant) it is about; {agent} an agent. {path} is the old worktree."
+  },
+  "main.move.watches": {
+    "defaultMessage": "{n, plural, one {# card watch} other {# card watches}}",
+    "description": "Agents' card watches that went to a project, in a list (main.move.alsoMoved). {n} is how many."
+  },
+  "main.move.workingMoved": {
+    "defaultMessage": "Working on: {projects}, as before the move.",
+    "description": "A line of Repair's report, after a workspace or project moved to another folder (the moved-workspace banner): the projects stay Working on. Working on is how the sidebar marks projects: use its name as shown. {projects} lists them."
+  },
+  "main.move.workingRenamed": {
+    "defaultMessage": "{n, plural, one {Working on: {projects}, as before its rename.} other {Working on: {projects}, as before their rename.}}",
+    "description": "A line of Repair's report, after a workspace or project moved to another folder (the moved-workspace banner): renamed projects stay Working on. Working on is how the sidebar marks projects: use its name as shown. {projects} lists them; {n} is how many."
+  },
+  "main.personas.retiredBody": {
+    "defaultMessage": "Coordinator, Planner, QA triager and Release manager replace Hive's character personas ({moved}). Switch modes from the Assistant's header; your own personas are unchanged.",
+    "description": "The notice that personas became working modes. The four names are the modes' own names: keep them. {moved} lists which persona became which mode (\"Pirate → Coordinator\")."
+  },
+  "main.personas.retiredTitle": {
+    "defaultMessage": "The Assistant's personas are now working modes",
+    "description": "A notice once, after an update: the Assistant's character personas became working modes."
+  },
+  "main.plan.close": {
+    "defaultMessage": "You are getting close to the limit.",
+    "description": "A plan-usage notice, below 95% used."
+  },
+  "main.plan.pause": {
+    "defaultMessage": "Sessions will pause when it runs out.",
+    "description": "A plan-usage notice, at 95% used or more."
+  },
+  "main.plan.resetsAt": {
+    "defaultMessage": "It resets at {time}.",
+    "description": "The end of a plan-usage notice: the limit resets today. {time} is the time."
+  },
+  "main.plan.resetsOn": {
+    "defaultMessage": "It resets on {when}.",
+    "description": "The end of a plan-usage notice: the limit resets another day. {when} is the day and time."
+  },
+  "main.plan.used": {
+    "defaultMessage": "{percent}% of your {provider} {limit} limit used",
+    "description": "A notice: how much of a plan's usage limit is used. {provider} is the coding agent; {limit} names the limit as the provider does (5-hour, weekly), in English for now."
+  },
+  "main.quit.closed": {
+    "defaultMessage": "Hive has closed",
+    "description": "A notice after Hive quit without asking, its sessions stopped."
+  },
+  "main.quit.closedBody": {
+    "defaultMessage": "{n, plural, one {# session was stopped. Resume it from Hive next time; nothing was lost.} other {# sessions were stopped. Resume them from Hive next time; nothing was lost.}}",
+    "description": "The notice after Hive quit: how many sessions it stopped."
+  },
+  "main.quit.dialogTitle": {
+    "defaultMessage": "Quit Hive",
+    "description": "The title of the question, as Hive quits, about the processes agents left running."
+  },
+  "main.removal.ahead": {
+    "defaultMessage": "{n, plural, one {# commit not merged} other {# commits not merged}}",
+    "description": "Work in an agent's worktree that stops Remove from Hive: its commits not merged. {n} is how many."
+  },
+  "main.removal.already": {
+    "defaultMessage": "{project} is already being removed.",
+    "description": "An error: the project is being removed, hidden or deleted already."
+  },
+  "main.removal.cardsKept": {
+    "defaultMessage": "Its cards couldn't all be deleted: {why}",
+    "description": "A warning after Delete: some of the project's cards stayed. {why} is the system's message."
+  },
+  "main.removal.dirty": {
+    "defaultMessage": "{n, plural, one {# uncommitted file} other {# uncommitted files}}",
+    "description": "Work in an agent's worktree that stops Remove from Hive: its files not committed. {n} is how many."
+  },
+  "main.removal.folderGone": {
+    "defaultMessage": "The folder {folder} is no longer in the workspace. Put it back, or forget it.",
+    "description": "An error restoring a project whose folder has gone. Forget is the button that stops listing it."
+  },
+  "main.removal.handoverKept": {
+    "defaultMessage": "{note} stayed in the shared notes (a copy is packed in the folder): {why}",
+    "description": "A warning after Remove from Hive: a handover note couldn't be moved to the Recycle Bin. {note} is its path, {why} the system's message."
+  },
+  "main.removal.heldTree": {
+    "defaultMessage": "{agent}'s worktree ({work})",
+    "description": "An agent's worktree with work in it, in the reason Remove from Hive can't go ahead. {work} says what (commits not merged, uncommitted files) or why git couldn't check."
+  },
+  "main.removal.leftAlone": {
+    "defaultMessage": "Left alone: {worktree}.",
+    "description": "A warning after Delete: an agent's worktree Hive didn't delete with the project (main.removal.refusedTree)."
+  },
+  "main.removal.notHidden": {
+    "defaultMessage": "{project} isn't hidden or removed.",
+    "description": "An error restoring a project (Settings → Workspace → Projects): it is shown already."
+  },
+  "main.removal.notProject": {
+    "defaultMessage": "Not a project in the open workspace: {path}",
+    "description": "An error removing, hiding or restoring a project: the folder {path} is not one of the workspace's projects."
+  },
+  "main.removal.notTrashed": {
+    "defaultMessage": "{path} couldn't be moved to the Recycle Bin: {why}",
+    "description": "A warning after Delete: a worktree or handover note of the project couldn't go to the Recycle Bin. {path} is it, {why} the system's message."
+  },
+  "main.removal.refusedTree": {
+    "defaultMessage": "{agent}'s worktree {path} ({why})",
+    "description": "An agent's worktree Hive won't remove or delete with its project. {agent} is the agent's name, {path} the worktree's folder, {why} why (main.removal.why.*)."
+  },
+  "main.removal.stillThere": {
+    "defaultMessage": "{project} is still in the workspace: restore it instead.",
+    "description": "An error forgetting a hidden project whose folder is still there."
+  },
+  "main.removal.stopFailed": {
+    "defaultMessage": "Could not stop {project}'s agents. Stop them, then try again.",
+    "description": "An error removing, hiding or deleting a project: its agents kept running."
+  },
+  "main.removal.tooManyNames": {
+    "defaultMessage": "Too many handovers named like {note}",
+    "description": "Why restoring a project's handovers stopped: a thousand notes have its name already."
+  },
+  "main.removal.trashFailed": {
+    "defaultMessage": "Could not move {project} to the Recycle Bin: {why}. Close any program using its folder (a terminal, an editor), then try again. Nothing was deleted.",
+    "description": "Why Delete failed: the project's folder couldn't go to the Recycle Bin. {why} is the system's message."
+  },
+  "main.removal.unmerged": {
+    "defaultMessage": "Merge or discard the work in {worktrees} first: a worktree can't go with the project folder.",
+    "description": "Why Remove from Hive can't go ahead. {worktrees} lists the agents' worktrees with work in them (main.removal.heldTree)."
+  },
+  "main.removal.why.contains": {
+    "defaultMessage": "it contains the project or the workspace",
+    "description": "Why Hive won't remove or delete an agent's worktree with its project: a clause in brackets (main.removal.refusedTree)."
+  },
+  "main.removal.why.notListed": {
+    "defaultMessage": "git doesn't list it as one of the project's worktrees",
+    "description": "Why Hive won't remove or delete an agent's worktree with its project: a clause in brackets (main.removal.refusedTree)."
+  },
+  "main.removal.why.otherProject": {
+    "defaultMessage": "it is another project of the workspace",
+    "description": "Why Hive won't remove or delete an agent's worktree with its project: a clause in brackets (main.removal.refusedTree)."
+  },
+  "main.removal.wontRemove": {
+    "defaultMessage": "Hive won't remove {worktrees}. Fix or remove that agent first.",
+    "description": "Why Remove from Hive refused: agents' worktrees it won't remove. {worktrees} lists them, joined with “or” (main.removal.refusedTree)."
+  },
+  "main.storage.claimed": {
+    "defaultMessage": "The folder belongs to a session again.",
+    "description": "Why Clean Up (Settings → Storage) skipped a session's attachments folder: it had no session, and has one now."
+  },
+  "main.storage.noLonger": {
+    "defaultMessage": "{path}: no longer qualifies",
+    "description": "What Clean Up (Settings → Storage) skipped: it changed since the preview listed it. {path} is the file or folder."
+  },
+  "main.storage.running": {
+    "defaultMessage": "The session is running.",
+    "description": "Why Clean Up (Settings → Storage) skipped a session's attachments folder."
+  },
+  "main.storage.unarchived": {
+    "defaultMessage": "The session is no longer archived.",
+    "description": "Why Clean Up (Settings → Storage) skipped a session's attachments folder: its session was unarchived meanwhile."
+  },
+  "main.tray.active": {
+    "defaultMessage": "Active projects",
+    "description": "A section of the tray menu: the active projects."
+  },
+  "main.tray.cancelQuit": {
+    "defaultMessage": "Cancel Pending Quit",
+    "description": "The tray menu: Hive no longer quits when the agents finish."
+  },
+  "main.tray.counts": {
+    "defaultMessage": "{working} working, {needYou, plural, one {# needs you} other {# need you}}",
+    "description": "A line of the tray icon's tooltip: how many agents are working and how many need you."
+  },
+  "main.tray.more": {
+    "defaultMessage": "and {n} more",
+    "description": "The tray menu, under a section's first ten items: how many more there are."
+  },
+  "main.tray.needYou": {
+    "defaultMessage": "Need you",
+    "description": "A section of the tray menu: agents waiting for you."
+  },
+  "main.tray.noProjects": {
+    "defaultMessage": "No active projects",
+    "description": "The tray menu when no project is active."
+  },
+  "main.tray.quit": {
+    "defaultMessage": "Quit Hive",
+    "description": "The tray menu: quits Hive."
+  },
+  "main.tray.quitNow": {
+    "defaultMessage": "Quit Now",
+    "description": "The tray menu: quits without waiting for the agents."
+  },
+  "main.tray.quitting": {
+    "defaultMessage": "{n, plural, one {Quitting when the agent finishes} other {Quitting when # agents finish}}",
+    "description": "The tray menu while Hive waits for working agents to finish before quitting."
+  },
+  "main.tray.restartToUpdate": {
+    "defaultMessage": "Restart to Update ({version})",
+    "description": "The tray menu when an update is downloaded. {version} is its version."
+  },
+  "main.tray.section": {
+    "defaultMessage": "{title} ({n})",
+    "description": "A section's heading in the tray menu: its name and how many items it has."
+  },
+  "main.tray.settings": {
+    "defaultMessage": "Settings",
+    "description": "The tray menu: opens Settings."
+  },
+  "main.tray.show": {
+    "defaultMessage": "Show Hive",
+    "description": "The tray menu: brings Hive's window up."
+  },
+  "main.tray.status.background": {
+    "defaultMessage": "Background tasks",
+    "description": "An agent's status in the tray menu, after its project's name. Its turn ended while background tasks it started run."
+  },
+  "main.tray.status.error": {
+    "defaultMessage": "Error",
+    "description": "An agent's status in the tray menu, after its project's name."
+  },
+  "main.tray.status.finished": {
+    "defaultMessage": "Finished",
+    "description": "An agent's status in the tray menu, after its project's name."
+  },
+  "main.tray.status.ready": {
+    "defaultMessage": "Ready",
+    "description": "An agent's status in the tray menu, after its project's name."
+  },
+  "main.tray.status.signin": {
+    "defaultMessage": "Needs sign-in",
+    "description": "An agent's status in the tray menu, after its project's name. Its CLI's sign-in was refused or has expired."
+  },
+  "main.tray.status.starting": {
+    "defaultMessage": "Starting…",
+    "description": "An agent's status in the tray menu, after its project's name."
+  },
+  "main.tray.status.stopped": {
+    "defaultMessage": "Stopped",
+    "description": "An agent's status in the tray menu, after its project's name."
+  },
+  "main.tray.status.waiting": {
+    "defaultMessage": "Needs input",
+    "description": "An agent's status in the tray menu, after its project's name."
+  },
+  "main.tray.status.watching": {
+    "defaultMessage": "Waiting on cards",
+    "description": "An agent's status in the tray menu, after its project's name. It waits for cards to change."
+  },
+  "main.tray.status.working": {
+    "defaultMessage": "Working…",
+    "description": "An agent's status in the tray menu, after its project's name."
+  },
+  "main.tray.statusOfMany": {
+    "defaultMessage": "{status} ({n} agents)",
+    "description": "A project's line in the tray menu with several agents: the most urgent one's status, and how many agents it has (2 or more)."
+  },
+  "main.tray.toReview": {
+    "defaultMessage": "To review",
+    "description": "A section of the tray menu: agents' work to look at."
+  },
+  "main.tray.willQuit": {
+    "defaultMessage": "Will quit when agents finish",
+    "description": "A line of the tray icon's tooltip while Hive waits for agents to finish before quitting."
+  },
+  "main.unused.branchKept": {
+    "defaultMessage": "git kept {branch}: {why}",
+    "description": "After Remove anyway removed one of the Overview's unused worktrees (Remove, Remove anyway, Merge): its branch, {branch}, stayed. {why} is git's message."
+  },
+  "main.unused.cantCheck": {
+    "defaultMessage": "Hive couldn't check what it holds: {why}",
+    "description": "An error asking to Remove anyway one of the Overview's unused worktrees (Remove, Remove anyway, Merge). {why} says why (main.unused.read.*, or git's message)."
+  },
+  "main.unused.changed": {
+    "defaultMessage": "it changed since you were shown what it holds ({changed}): nothing was removed, look again",
+    "description": "Why Remove anyway did nothing to one of the Overview's unused worktrees (Remove, Remove anyway, Merge). {changed} lists what changed (main.unused.field.*). A clause."
+  },
+  "main.unused.field.ahead": {
+    "defaultMessage": "its unmerged commits",
+    "description": "What changed in one of the Overview's unused worktrees (Remove, Remove anyway, Merge) since the user was shown it, in a list (main.unused.changed)."
+  },
+  "main.unused.field.branch": {
+    "defaultMessage": "its branch",
+    "description": "What changed in one of the Overview's unused worktrees (Remove, Remove anyway, Merge) since the user was shown it, in a list (main.unused.changed)."
+  },
+  "main.unused.field.dirty": {
+    "defaultMessage": "its uncommitted files",
+    "description": "What changed in one of the Overview's unused worktrees (Remove, Remove anyway, Merge) since the user was shown it, in a list (main.unused.changed)."
+  },
+  "main.unused.field.files": {
+    "defaultMessage": "its files",
+    "description": "What changed in one of the Overview's unused worktrees (Remove, Remove anyway, Merge) since the user was shown it, in a list (main.unused.changed)."
+  },
+  "main.unused.field.head": {
+    "defaultMessage": "its commit",
+    "description": "What changed in one of the Overview's unused worktrees (Remove, Remove anyway, Merge) since the user was shown it, in a list (main.unused.changed)."
+  },
+  "main.unused.field.into": {
+    "defaultMessage": "the main branch",
+    "description": "What changed in one of the Overview's unused worktrees (Remove, Remove anyway, Merge) since the user was shown it, in a list (main.unused.changed)."
+  },
+  "main.unused.field.intoTip": {
+    "defaultMessage": "the main branch's commit",
+    "description": "What changed in one of the Overview's unused worktrees (Remove, Remove anyway, Merge) since the user was shown it, in a list (main.unused.changed)."
+  },
+  "main.unused.field.path": {
+    "defaultMessage": "its folder",
+    "description": "What changed in one of the Overview's unused worktrees (Remove, Remove anyway, Merge) since the user was shown it, in a list (main.unused.changed)."
+  },
+  "main.unused.gitFailed": {
+    "defaultMessage": "{command} failed",
+    "description": "Why git couldn't do something, when it said nothing itself. {command} is the git command: keep it."
+  },
+  "main.unused.gone": {
+    "defaultMessage": "It isn't one of the project's unused worktrees any more.",
+    "description": "An error merging one of the Overview's unused worktrees (Remove, Remove anyway, Merge): it changed meanwhile."
+  },
+  "main.unused.kept": {
+    "defaultMessage": "it was kept",
+    "description": "After merging one of the Overview's unused worktrees (Remove, Remove anyway, Merge) and removing it: it was kept, for no reason given. A clause."
+  },
+  "main.unused.noBase": {
+    "defaultMessage": "Git couldn't say which branch it would merge into.",
+    "description": "An error merging one of the Overview's unused worktrees (Remove, Remove anyway, Merge)."
+  },
+  "main.unused.noIndex": {
+    "defaultMessage": "git couldn't list its index ({why})",
+    "description": "Why Hive couldn't check what one of the Overview's unused worktrees (Remove, Remove anyway, Merge) holds. {why} is git's message. index is git's term."
+  },
+  "main.unused.notChecked": {
+    "defaultMessage": "what it holds was not checked for this removal: look again",
+    "description": "Why Remove anyway did nothing to one of the Overview's unused worktrees (Remove, Remove anyway, Merge): the confirmation was not for it. A clause; the window then looks again."
+  },
+  "main.unused.nothingToMerge": {
+    "defaultMessage": "It is not on a branch (detached HEAD): there is nothing to merge.",
+    "description": "An error merging one of the Overview's unused worktrees (Remove, Remove anyway, Merge). detached HEAD is git's term."
+  },
+  "main.unused.ownedMerge": {
+    "defaultMessage": "An agent works in it now: merge it from that agent.",
+    "description": "An error merging one of the Overview's unused worktrees (Remove, Remove anyway, Merge): an agent was given it meanwhile."
+  },
+  "main.unused.read.base": {
+    "defaultMessage": "git could not read {branch}",
+    "description": "Why Hive couldn't check what one of the Overview's unused worktrees (Remove, Remove anyway, Merge) holds: a clause (main.unused.cantCheck). {branch} is the project's main branch."
+  },
+  "main.unused.read.branch": {
+    "defaultMessage": "git could not read its branch",
+    "description": "Why Hive couldn't check what one of the Overview's unused worktrees (Remove, Remove anyway, Merge) holds: a clause (main.unused.cantCheck)."
+  },
+  "main.unused.read.commits": {
+    "defaultMessage": "git could not count its commits",
+    "description": "Why Hive couldn't check what one of the Overview's unused worktrees (Remove, Remove anyway, Merge) holds: a clause (main.unused.cantCheck)."
+  },
+  "main.unused.read.head": {
+    "defaultMessage": "git could not read its HEAD",
+    "description": "Why Hive couldn't check what one of the Overview's unused worktrees (Remove, Remove anyway, Merge) holds: a clause (main.unused.cantCheck). HEAD is git's term."
+  },
+  "main.unused.read.status": {
+    "defaultMessage": "git status failed",
+    "description": "Why Hive couldn't check what one of the Overview's unused worktrees (Remove, Remove anyway, Merge) holds: a clause (main.unused.cantCheck). git status is a command: keep it."
+  },
+  "main.unused.refused": {
+    "defaultMessage": "Hive doesn't remove it: {why}.",
+    "description": "An error asking to Remove anyway one of the Overview's unused worktrees (Remove, Remove anyway, Merge). {why} says why (main.unused.why.*)."
+  },
+  "main.unused.stale": {
+    "defaultMessage": "{n, plural, one {what it holds was checked more than # minute ago: nothing was removed, look again} other {what it holds was checked more than # minutes ago: nothing was removed, look again}}",
+    "description": "Why Remove anyway did nothing to one of the Overview's unused worktrees (Remove, Remove anyway, Merge): the confirmation was too old. {n} is how many minutes it lasts. A clause."
+  },
+  "main.unused.tooBig": {
+    "defaultMessage": "it holds more than {n, number} GB of files, too much to check",
+    "description": "Why Hive couldn't check what one of the Overview's unused worktrees (Remove, Remove anyway, Merge) holds: a clause. {n} is the limit."
+  },
+  "main.unused.tooMany": {
+    "defaultMessage": "it holds more than {n, number} files and folders, too many to check",
+    "description": "Why Hive couldn't check what one of the Overview's unused worktrees (Remove, Remove anyway, Merge) holds: a clause. {n} is the limit."
+  },
+  "main.unused.why.contains": {
+    "defaultMessage": "it contains the project or the workspace",
+    "description": "Why Hive won't remove or merge one of the Overview's unused worktrees (Remove, Remove anyway, Merge): a clause."
+  },
+  "main.unused.why.detached": {
+    "defaultMessage": "it is not on a branch (detached HEAD)",
+    "description": "Why Hive won't remove or merge one of the Overview's unused worktrees (Remove, Remove anyway, Merge): a clause. detached HEAD is git's term."
+  },
+  "main.unused.why.notListed": {
+    "defaultMessage": "git doesn't list it as one of the project's worktrees",
+    "description": "Why Hive won't remove or merge one of the Overview's unused worktrees (Remove, Remove anyway, Merge): a clause."
+  },
+  "main.unused.why.otherProject": {
+    "defaultMessage": "it is another project of the workspace",
+    "description": "Why Hive won't remove or merge one of the Overview's unused worktrees (Remove, Remove anyway, Merge): a clause."
+  },
+  "main.unused.why.owned": {
+    "defaultMessage": "an agent works in it now",
+    "description": "Why Hive won't remove or merge one of the Overview's unused worktrees (Remove, Remove anyway, Merge): a clause."
+  },
+  "main.update.checksum": {
+    "defaultMessage": "The downloaded update did not match its checksum and was discarded.",
+    "description": "Why a downloaded update was thrown away."
+  },
+  "main.update.devBuild": {
+    "defaultMessage": "Updates are checked by the installed app, not development builds.",
+    "description": "Settings → Updates in a development build of Hive, which never updates."
+  },
+  "main.update.noRelease": {
+    "defaultMessage": "No release of Hive has been published yet.",
+    "description": "Why checking for updates found none."
+  },
+  "main.update.offline": {
+    "defaultMessage": "Couldn't reach GitHub to check for updates. Check your internet connection.",
+    "description": "Why checking for updates failed. GitHub is a name."
+  },
+  "main.update.ready": {
+    "defaultMessage": "{app} {version} is ready",
+    "description": "A notice: an update was downloaded. {app} is Hive's name, {version} the new version."
+  },
+  "main.update.readyAuto": {
+    "defaultMessage": "It installs when you quit Hive, or restart now.",
+    "description": "The notice that an update is ready, with updates installed automatically."
+  },
+  "main.update.readyManual": {
+    "defaultMessage": "Restart Hive to install it.",
+    "description": "The notice that an update is ready, with updates installed manually."
+  },
+  "main.update.restart": {
+    "defaultMessage": "Restart and Update",
+    "description": "The notice's button: restarts Hive and installs the update."
+  },
+  "main.update.updated": {
+    "defaultMessage": "{app} updated to {version}",
+    "description": "A notice after Hive was updated. {app} is its name, {version} the new version."
+  },
+  "main.update.updatedBody": {
+    "defaultMessage": "See what changed in this version.",
+    "description": "The notice after Hive was updated."
+  },
+  "main.update.whatsNew": {
+    "defaultMessage": "What's New",
+    "description": "The notice's button: opens the release notes."
+  },
+  "main.window.openLogs": {
+    "defaultMessage": "Open Logs",
+    "description": "Button: opens the folder of Hive's log files."
+  },
+  "main.window.quit": {
+    "defaultMessage": "Quit Hive",
+    "description": "Button: quits Hive."
+  },
+  "main.window.reload": {
+    "defaultMessage": "Reload",
+    "description": "Button: reloads Hive's window."
+  },
+  "main.window.reloaded": {
+    "defaultMessage": "Your agents kept running.",
+    "description": "The notice after Hive's window crashed and was reloaded."
+  },
+  "main.window.reloadedLost": {
+    "defaultMessage": "{n, plural, one {Your agents kept running. Unsaved changes to one file were lost.} other {Your agents kept running. Unsaved changes to # files were lost.}}",
+    "description": "The notice after Hive's window crashed and was reloaded, when files had unsaved edits. {n} is how many."
+  },
+  "main.window.reloadedTitle": {
+    "defaultMessage": "Hive's window stopped and was reloaded",
+    "description": "A notice's title after Hive's window crashed and was reloaded."
+  },
+  "main.window.stillRunning": {
+    "defaultMessage": "Your agents are still running: reloading the window reconnects to them.",
+    "description": "Hive's question when its window stopped or isn't responding."
+  },
+  "main.window.stopped": {
+    "defaultMessage": "Hive's window stopped working.",
+    "description": "Hive's question when its window crashed again soon after a reload."
+  },
+  "main.window.unresponsive": {
+    "defaultMessage": "Hive's window isn't responding.",
+    "description": "Hive's question when its window has stopped responding."
+  },
+  "main.window.unresponsiveDetail": {
+    "defaultMessage": "{stillRunning} Wait for it, or reload it.",
+    "description": "Hive's question when its window isn't responding. {stillRunning} says the agents are still running."
+  },
+  "main.window.wait": {
+    "defaultMessage": "Wait",
+    "description": "Button: waits for Hive's window to respond."
+  }
+}
