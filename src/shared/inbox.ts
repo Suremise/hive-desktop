@@ -1,6 +1,7 @@
 import type { AgentBranchStatus, LiveSessionState, ProjectInfo } from './types'
 import type { StartFailure } from './startFailure'
 import { providerDescriptor } from './providers'
+import { fmt, msg, tr } from './i18n'
 
 /**
  * The attention inbox: the agents that need you (waiting for input, with a question pending, on another model after a
@@ -19,6 +20,8 @@ export interface InboxItem {
   /** When it got to this state (ISO), '' when not known. */
   since: string
   message?: string
+  /** safeguard: the models it moved between (their names), worded when shown. */
+  switched?: { from: string; to: string }
   /** A worktree agent's unmerged work. */
   branch?: AgentBranchStatus
 }
@@ -52,6 +55,15 @@ const idle = (live: LiveSessionState | null): boolean => !live || live.status ==
 /** Oldest first; unknown times last. */
 const byAge = (a: InboxItem, b: InboxItem): number => (a.since || '￿').localeCompare(b.since || '￿')
 
+/** The Hive Assistant's name where an inbox row names its project. */
+const ASSISTANT_NAME = msg({ id: 'board.inbox.assistant', defaultMessage: 'Hive Assistant', description: "The Hive Assistant, named in the attention inbox (status bar popover, tray menu) where a project name goes. Hive is the app's name: keep it." })
+
+/**
+ * An inbox row's project as the window shows it, worded when shown (#798): the Assistant's name follows a change of
+ * language even in an inbox built before it (projectName is worded when built, for the tray).
+ */
+export const inboxName = (i: InboxItem): string => (i.assistant ? tr(ASSISTANT_NAME) : i.projectName)
+
 /** `failureOf`: why an agent's last launch failed to start, where the caller knows (the window does; the tray doesn't). */
 export function inbox(
   projects: readonly ProjectInfo[],
@@ -69,7 +81,7 @@ export function inbox(
       const branch = a.worktree ? branchOf(p.path, a.id) : null
       const item = (kind: InboxItem['kind']): InboxItem => ({
         projectPath: p.path,
-        projectName: isAssistant ? 'Hive Assistant' : p.name,
+        projectName: isAssistant ? tr(ASSISTANT_NAME) : p.name,
         agentId: a.id,
         agentName: a.name,
         assistant: isAssistant,
@@ -84,7 +96,7 @@ export function inbox(
       else if (live?.question) needYou.push({ ...item('question'), since: live.question.since, ...(live.question.text ? { message: live.question.text } : {}) })
       else if (live?.safeguard?.switched && live.safeguard.unseen) {
         const label = providerDescriptor(live.provider).modelLabel
-        needYou.push({ ...item('safeguard'), since: live.safeguard.switched.at, message: `Now runs on ${label(live.safeguard.switched.to)} instead of ${label(live.safeguard.switched.from)}` })
+        needYou.push({ ...item('safeguard'), since: live.safeguard.switched.at, switched: { from: label(live.safeguard.switched.from), to: label(live.safeguard.switched.to) } })
       }
       else if (needsYou(live)) needYou.push(item('finished'))
       else if (hasWork(branch) && idle(live)) toReview.push(item('review'))
@@ -102,24 +114,22 @@ export function firstAcross<O>(parts: readonly { owner: O; items: readonly Inbox
   return { shown: all.slice(0, limit), total: all.length }
 }
 
-const plural = (n: number, word: string): string => `${n.toLocaleString()} ${word}${n === 1 ? '' : 's'}`
-
-/** "3 files, +120 −40 · 2 commits, 1 uncommitted file" */
+/** "3 files, +120 −40 · 2 commits, 1 uncommitted file", in the language Hive shows. */
 export function branchSummary(b: AgentBranchStatus): string {
   const parts: string[] = []
-  if (b.diff && b.diff.files) parts.push(`${plural(b.diff.files, 'file')}, +${b.diff.insertions.toLocaleString()} −${b.diff.deletions.toLocaleString()}`)
+  if (b.diff && b.diff.files) parts.push(tr(msg({ id: 'board.inbox.diff', defaultMessage: '{files, plural, one {# file} other {# files}}, +{insertions} −{deletions}', description: "A worktree agent's unmerged changes, in the attention inbox: how many files differ from its base branch, and the lines added (+) and removed (−)." }), { files: b.diff.files, insertions: fmt.number(b.diff.insertions), deletions: fmt.number(b.diff.deletions) }))
   const counts: string[] = []
-  if (b.ahead) counts.push(plural(b.ahead, 'commit'))
-  if (b.dirty) counts.push(`${b.dirty.toLocaleString()} uncommitted ${b.dirty === 1 ? 'file' : 'files'}`)
-  if (counts.length) parts.push(counts.join(', '))
+  if (b.ahead) counts.push(tr(msg({ id: 'board.inbox.commits', defaultMessage: '{n, plural, one {# commit} other {# commits}}', description: "A worktree agent's unmerged commits, in the attention inbox (\"2 commits\")." }), { n: b.ahead }))
+  if (b.dirty) counts.push(tr(msg({ id: 'board.inbox.uncommitted', defaultMessage: '{n, plural, one {# uncommitted file} other {# uncommitted files}}', description: "A worktree agent's files with changes not committed yet, in the attention inbox (\"1 uncommitted file\")." }), { n: b.dirty }))
+  if (counts.length) parts.push(fmt.list(counts, 'unit'))
   return parts.join(' · ')
 }
 
 /** "Needs input: <its question>", "Asks: <its question>", "After a safeguard stop: <model>", "Couldn't start: <why>", "Finished", "To review" */
 export function inboxStateText(i: InboxItem): string {
-  if (i.kind === 'waiting') return i.message ? `Needs input: ${i.message}` : 'Needs input'
-  if (i.kind === 'question') return i.message ? `Asks: ${i.message}` : 'Asks you something'
-  if (i.kind === 'failed') return i.message ? `Couldn't start: ${i.message}` : "Couldn't start"
-  if (i.kind === 'safeguard') return `After a safeguard stop${i.message ? `: ${i.message}` : ''}`
-  return i.kind === 'finished' ? 'Finished' : 'To review'
+  if (i.kind === 'waiting') return i.message ? tr(msg({ id: 'board.inbox.needsInputWhat', defaultMessage: 'Needs input: {message}', description: "An agent in the attention inbox waits for the user's answer; {message} is what its CLI shows (its own words)." }), { message: i.message }) : tr(msg({ id: 'board.inbox.needsInput', defaultMessage: 'Needs input', description: "An agent in the attention inbox waits for the user's answer." }))
+  if (i.kind === 'question') return i.message ? tr(msg({ id: 'board.inbox.asksWhat', defaultMessage: 'Asks: {message}', description: "An agent in the attention inbox has asked the user a question ({message}, in the agent's own words)." }), { message: i.message }) : tr(msg({ id: 'board.inbox.asks', defaultMessage: 'Asks you something', description: 'An agent in the attention inbox has asked the user a question.' }))
+  if (i.kind === 'failed') return i.message ? tr(msg({ id: 'board.inbox.failedWhy', defaultMessage: "Couldn't start: {message}", description: "An agent in the attention inbox failed to start; {message} is why (an error's first line)." }), { message: i.message }) : tr(msg({ id: 'board.inbox.failed', defaultMessage: "Couldn't start", description: 'An agent in the attention inbox failed to start.' }))
+  if (i.kind === 'safeguard') return i.switched ? tr(msg({ id: 'board.inbox.safeguardSwitched', defaultMessage: 'After a safeguard stop: Now runs on {to} instead of {from}', description: "An agent in the attention inbox whose CLI's safety classifier stopped a response, so it moved to another model: {to} and {from} are the models' names." }), i.switched) : tr(msg({ id: 'board.inbox.safeguard', defaultMessage: 'After a safeguard stop', description: "An agent in the attention inbox whose CLI's safety classifier stopped a response." }))
+  return i.kind === 'finished' ? tr(msg({ id: 'board.inbox.finished', defaultMessage: 'Finished', description: 'An agent in the attention inbox finished its turn and the user has not looked at it since.' })) : tr(msg({ id: 'board.inbox.toReview', defaultMessage: 'To review', description: 'A worktree agent in the attention inbox has unmerged work for the user to review.' }))
 }

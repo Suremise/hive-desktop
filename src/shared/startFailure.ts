@@ -4,6 +4,7 @@
  */
 
 import type { SessionStatus } from './types'
+import { msg, tr } from './i18n'
 
 /** Where the hint's fix is: the agent's settings (model, extra arguments), Agent Setup (install, sign-in), or its terminal. */
 export type StartFix = 'agent-settings' | 'agent-setup' | 'terminal'
@@ -74,6 +75,6 @@ export interface ExitInput {
  */
 export function failedStart(s: ExitInput, code: number, output: string, cli: { name: string; startHint?(text: string): StartHint | null }, at = new Date().toISOString()): StartFailure | undefined {
   if (s.status !== 'starting' || s.settingUp || s.stopRequested || s.backgroundJob) return undefined
-  const reason = lastErrorLines(output) || `${cli.name} exited with code ${code}.`
+  const reason = lastErrorLines(output) || tr(msg({ id: 'agents.start.exited', defaultMessage: '{cli} exited with code {code}.', description: "Why an agent couldn't start, when its CLI ({cli}) said nothing: it exited with an exit code ({code}, a number)." }), { cli: cli.name, code })
   return { reason, exitCode: code, resumed: s.resumed, at, ...cli.startHint?.(terminalLines(output).slice(-12).join('\n')) }
 }

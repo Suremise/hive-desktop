@@ -1,9 +1,9 @@
-import { holderText, minutes } from '@shared/mergeSlot'
 import type { MergeSlotInfo } from '@shared/types'
+import { msg, tr } from '@shared/i18n'
 import { call } from '../api'
-import { findProject, set, useStore } from '../store'
+import { findProject, set, useLanguage, useStore } from '../store'
 import { cx } from '../util'
-import { releaseSlot } from './MergeSlots'
+import { holderWords, intoBranch, minutesText, releaseLabel, releaseSlot, releaseTip, waitingWords } from './MergeSlots'
 import { Icon, IconButton, Tooltip } from './ui'
 
 /**
@@ -26,14 +26,13 @@ export function usePanelFold(key: string | null): [boolean, () => void] {
   return [folded, toggle]
 }
 
-const capital = (s: string): string => s[0].toUpperCase() + s.slice(1)
-
 export function MergeCards({ slots, projectName, showProject, stepOf, now }: { slots: MergeSlotInfo[]; projectName: (path: string) => string; showProject: boolean; stepOf: (s: MergeSlotInfo) => string | null; now: number }) {
+  useLanguage()
   const ws = useStore((s) => s.workspace?.path ?? null)
   const [folded, toggle] = usePanelFold(ws ? foldKey(ws) : null)
   if (!slots.length) return null
   return (
-    <div className="progress-merge" role="region" aria-label="Merging">
+    <div className="progress-merge" role="region" aria-label={tr(msg({ id: 'board.merge.region', defaultMessage: 'Merging', description: "Accessible name of the top of the Progress panel: a card for each merge going on." }))}>
       {slots.map((s) => (
         <MergeCard key={`${s.project}#${s.branch}`} slot={s} project={projectName(s.project)} showProject={showProject} step={stepOf(s)} now={now} folded={folded} onFold={toggle} />
       ))}
@@ -48,22 +47,26 @@ function MergeCard({ slot: s, project, showProject, step, now, folded, onFold }:
   const from = useStore((st) => (h.agentId ? (findProject(st, s.project)?.agents.find((a) => a.id === h.agentId)?.worktree?.branch ?? null) : null))
   const late = h.until < now
   const left = h.until - now
-  const time = `${minutes(now - h.since)} so far · ${left > 0 ? `${minutes(left)} left` : 'over its time'}`
+  const sofar = minutesText(now - h.since)
+  const time =
+    left > 0
+      ? tr(msg({ id: 'board.merge.time', defaultMessage: '{sofar} so far · {left} left', description: 'How long a merge has held the merge slot ({sofar}: "3 min") and how long its hold has left ({left}: "57 min"), on its card in the Progress panel.' }), { sofar, left: minutesText(left) })
+      : tr(msg({ id: 'board.merge.timeOver', defaultMessage: '{sofar} so far · over its time', description: 'How long a merge has held the merge slot ({sofar}: "63 min"), on its card in the Progress panel, once its hold has run out.' }), { sofar })
   return (
     <div className={cx('progress-merge-card', late && 'late', folded && 'folded')} data-slot={`${project}#${s.branch}`}>
       <div className="progress-merge-top">
         <Icon name="git-merge" />
-        <span className="progress-merge-who">{capital(holderText(h))}</span>
-        {folded && <span className="progress-merge-short">{minutes(now - h.since)}</span>}
+        <span className="progress-merge-who">{holderWords(h, true)}</span>
+        {folded && <span className="progress-merge-short">{sofar}</span>}
         <div className="grow" />
         {!folded && (
-          <Tooltip content={`Release the merge slot ${h.kind === 'agent' ? `${h.name} holds` : 'your merge holds'}, if it is stuck`}>
+          <Tooltip content={releaseTip(h)}>
             <button type="button" className="btn small subtle" onClick={() => void releaseSlot(s, project)}>
-              Release
+              {releaseLabel()}
             </button>
           </Tooltip>
         )}
-        <IconButton icon={folded ? 'chevron-down' : 'chevron-up'} title={folded ? 'Show the merge in full' : 'Fold the merge to one line'} expanded={!folded} onClick={onFold} />
+        <IconButton icon={folded ? 'chevron-down' : 'chevron-up'} title={folded ? tr(msg({ id: 'board.merge.unfold', defaultMessage: 'Show the merge in full', description: "Tooltip of the button unfolding a merge's card in the Progress panel." })) : tr(msg({ id: 'board.merge.fold', defaultMessage: 'Fold the merge to one line', description: "Tooltip of the button folding a merge's card in the Progress panel to its first line." }))} expanded={!folded} onClick={onFold} />
       </div>
       {!folded && (
         <>
@@ -74,9 +77,7 @@ function MergeCard({ slot: s, project, showProject, step, now, folded, onFold }:
                 <code>{from}</code> → <code>{s.branch}</code>
               </>
             ) : (
-              <>
-                into <code>{s.branch}</code>
-              </>
+              <>{intoBranch(s.branch)}</>
             )}
           </div>
           {step && (
@@ -84,8 +85,8 @@ function MergeCard({ slot: s, project, showProject, step, now, folded, onFold }:
               <div className="progress-merge-step">{step}</div>
             </Tooltip>
           )}
-          <div className={cx('progress-merge-time faint', late && 'late')}>{time}</div>
-          {s.waiting.length > 0 && <div className="progress-merge-waiting faint">Waiting: {s.waiting.map((w) => w.name).join(', ')}</div>}
+          <div className={cx('progress-merge-time', 'faint', late && 'late')}>{time}</div>
+          {s.waiting.length > 0 && <div className="progress-merge-waiting faint">{waitingWords(s)}</div>}
         </>
       )}
     </div>

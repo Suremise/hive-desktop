@@ -1,3 +1,5 @@
+import { EFFORT_TEXT, OLDER_VERSIONS } from './claude'
+import { msg } from './i18n/msg'
 import type { ModeOption, ModelGroup, ProviderDescriptor } from './providers'
 
 /**
@@ -8,11 +10,46 @@ import type { ModeOption, ModelGroup, ProviderDescriptor } from './providers'
 export const CODEX = 'codex'
 
 /** The presets of Codex's /permissions menu, in its order (checked with Codex 0.159). */
+// The English labels and descriptions are what agents and the Agent API read; `text` is the window's (#800).
 export const CODEX_PERMISSION_MODES: ModeOption[] = [
-  { value: 'read-only', label: 'Read only', description: 'Reads workspace files; asks before any edit or internet access.' },
-  { value: 'ask', label: 'Ask for approval', description: 'Reads and edits workspace files and runs commands in its sandbox; asks before internet access or edits outside the workspace.' },
-  { value: 'approve-for-me', label: 'Approve for me', description: 'An automatic reviewer approves safe actions itself and only asks about ones it thinks are risky.', reviewed: true },
-  { value: 'full-access', label: 'Full access', description: 'No sandbox and no approvals: edits anything and uses the internet without asking. Use only in disposable environments.', danger: true }
+  {
+    value: 'read-only',
+    label: 'Read only', // i18n-ignore: agent-facing English (text is the window's)
+    description: 'Reads workspace files; asks before any edit or internet access.', // i18n-ignore: agent-facing English (text is the window's)
+    text: {
+      label: msg({ id: 'agents.codex.readOnly', defaultMessage: 'Read only', description: "Codex's permission preset: it only reads. Keep it short." }),
+      description: msg({ id: 'agents.codex.readOnlyDescription', defaultMessage: 'Reads workspace files; asks before any edit or internet access.', description: "What Codex's Read only permission preset does (the mode picker)." })
+    }
+  },
+  {
+    value: 'ask',
+    label: 'Ask for approval', // i18n-ignore: agent-facing English (text is the window's)
+    description: 'Reads and edits workspace files and runs commands in its sandbox; asks before internet access or edits outside the workspace.', // i18n-ignore: agent-facing English (text is the window's)
+    text: {
+      label: msg({ id: 'agents.codex.ask', defaultMessage: 'Ask for approval', description: "Codex's permission preset: it asks before internet access or edits outside the workspace. Keep it short." }),
+      description: msg({ id: 'agents.codex.askDescription', defaultMessage: 'Reads and edits workspace files and runs commands in its sandbox; asks before internet access or edits outside the workspace.', description: "What Codex's Ask for approval permission preset does (the mode picker)." })
+    }
+  },
+  {
+    value: 'approve-for-me',
+    label: 'Approve for me', // i18n-ignore: agent-facing English (text is the window's)
+    description: 'An automatic reviewer approves safe actions itself and only asks about ones it thinks are risky.', // i18n-ignore: agent-facing English (text is the window's)
+    reviewed: true,
+    text: {
+      label: msg({ id: 'agents.codex.approveForMe', defaultMessage: 'Approve for me', description: "Codex's permission preset: its own reviewer approves safe actions. Keep it short." }),
+      description: msg({ id: 'agents.codex.approveForMeDescription', defaultMessage: 'An automatic reviewer approves safe actions itself and only asks about ones it thinks are risky.', description: "What Codex's Approve for me permission preset does (the mode picker)." })
+    }
+  },
+  {
+    value: 'full-access',
+    label: 'Full access', // i18n-ignore: agent-facing English (text is the window's)
+    description: 'No sandbox and no approvals: edits anything and uses the internet without asking. Use only in disposable environments.', // i18n-ignore: agent-facing English (text is the window's)
+    danger: true,
+    text: {
+      label: msg({ id: 'agents.codex.fullAccess', defaultMessage: 'Full access', description: "Codex's permission preset with no guardrails. Keep it short." }),
+      description: msg({ id: 'agents.codex.fullAccessDescription', defaultMessage: 'No sandbox and no approvals: edits anything and uses the internet without asking. Use only in disposable environments.', description: "What Codex's Full access permission preset does (the mode picker): a warning." })
+    }
+  }
 ]
 
 /** Command-line flags for each preset. */
@@ -44,16 +81,16 @@ const models = (...ids: string[]) => ids.map((id) => ({ value: id, label: codexM
  * ones an account can use depends on its plan; anything else can be typed as a custom ID.
  */
 export const CODEX_MODEL_GROUPS: ModelGroup[] = [
-  { label: 'GPT-6.1', models: models('gpt-6.1-sol') },
-  { label: 'GPT-6', models: models('gpt-6-astra', 'gpt-6-sol', 'gpt-6-luna') },
-  { label: 'Older versions', older: true, models: models('gpt-5.6-sol', 'gpt-5.6-terra', 'gpt-5.6-luna', 'gpt-5.5') }
+  { label: 'GPT-6.1', models: models('gpt-6.1-sol') }, // i18n-ignore: a model family's name
+  { label: 'GPT-6', models: models('gpt-6-astra', 'gpt-6-sol', 'gpt-6-luna') }, // i18n-ignore: a model family's name
+  { label: 'Older versions', text: OLDER_VERSIONS, older: true, models: models('gpt-5.6-sol', 'gpt-5.6-terra', 'gpt-5.6-luna', 'gpt-5.5') } // i18n-ignore: agent-facing English (text is the window's)
 ]
 
 export const CODEX_DESCRIPTOR: ProviderDescriptor = {
   id: CODEX,
-  name: 'Codex',
-  assistant: 'Codex',
-  company: 'OpenAI',
+  name: 'Codex', // i18n-ignore: a product name
+  assistant: 'Codex', // i18n-ignore: a product name
+  company: 'OpenAI', // i18n-ignore: a company name
   cliName: 'codex',
   icon: 'codex',
   setupUrl: 'https://developers.openai.com/codex/cli',
@@ -62,15 +99,15 @@ export const CODEX_DESCRIPTOR: ProviderDescriptor = {
   defaultPermissionMode: 'approve-for-me',
   assistantMode: 'approve-for-me',
   effortLevels: [
-    { value: 'low', label: 'Low' },
-    { value: 'medium', label: 'Medium' },
-    { value: 'high', label: 'High' },
-    { value: 'xhigh', label: 'Extra high' },
-    { value: 'max', label: 'Max' },
-    { value: 'ultra', label: 'Ultra' }
+    { value: 'low', label: 'Low', text: EFFORT_TEXT.low }, // i18n-ignore: agent-facing English (text is the window's)
+    { value: 'medium', label: 'Medium', text: EFFORT_TEXT.medium }, // i18n-ignore: agent-facing English (text is the window's)
+    { value: 'high', label: 'High', text: EFFORT_TEXT.high }, // i18n-ignore: agent-facing English (text is the window's)
+    { value: 'xhigh', label: 'Extra high', text: EFFORT_TEXT.xhigh }, // i18n-ignore: agent-facing English (text is the window's)
+    { value: 'max', label: 'Max', text: EFFORT_TEXT.max }, // i18n-ignore: agent-facing English (text is the window's)
+    { value: 'ultra', label: 'Ultra', text: EFFORT_TEXT.ultra } // i18n-ignore: agent-facing English (text is the window's)
   ],
   modelGroups: CODEX_MODEL_GROUPS,
-  modelPlaceholder: 'Model ID, e.g. gpt-6-sol',
+  modelPlaceholder: 'Model ID, e.g. gpt-6-sol', // i18n-ignore: English (text.modelPlaceholder is the window's)
   capabilities: {
     fixedSessionId: false,
     liveModeSwitch: 'menu',
@@ -96,11 +133,18 @@ export const CODEX_DESCRIPTOR: ProviderDescriptor = {
   reservedKeys: ['MOD+T', 'MOD+G'],
   instructionsFile: 'AGENTS.md',
   installNote:
-    'The installer runs `irm https://chatgpt.com/codex/install.ps1 | iex` in PowerShell and installs to `%LOCALAPPDATA%\\Programs\\OpenAI\\Codex`. After installing, sign in with your ChatGPT account (Plus, Pro, Business or Enterprise) or an API key, then set up its Windows sandbox once. If the CLI is installed somewhere else, set its path in Settings → Codex.',
+    'The installer runs `irm https://chatgpt.com/codex/install.ps1 | iex` in PowerShell and installs to `%LOCALAPPDATA%\\Programs\\OpenAI\\Codex`. After installing, sign in with your ChatGPT account (Plus, Pro, Business or Enterprise) or an API key, then set up its Windows sandbox once. If the CLI is installed somewhere else, set its path in Settings → Codex.', // i18n-ignore: English, as main's notices use it (text has the window's)
   extensionNote:
-    "You have the Codex extension for VS Code (or a similar editor). Hive doesn't use it — the extension's built-in copy moves with every extension update. Install the CLI; your extension keeps working as before.",
-  signInHelp: 'Sign in again in Help → Agent Setup → Codex → Sign in (or run codex login in a terminal).',
-  safeguardHelp: 'Codex sends a request it flags to another model, or stops the turn. For security work, OpenAI’s Trusted Access for Cyber program lifts that.',
+    "You have the Codex extension for VS Code (or a similar editor). Hive doesn't use it — the extension's built-in copy moves with every extension update. Install the CLI; your extension keeps working as before.", // i18n-ignore: English, as main's notices use it (text has the window's)
+  signInHelp: 'Sign in again in Help → Agent Setup → Codex → Sign in (or run codex login in a terminal).', // i18n-ignore: English for main's notices (text has the window's)
+  safeguardHelp: 'Codex sends a request it flags to another model, or stops the turn. For security work, OpenAI’s Trusted Access for Cyber program lifts that.', // i18n-ignore: English for card comments (text has the window's)
+  text: {
+    installNote: msg({ id: 'agents.codex.installNote', defaultMessage: 'The installer runs `irm https://chatgpt.com/codex/install.ps1 | iex` in PowerShell and installs to `%LOCALAPPDATA%\\Programs\\OpenAI\\Codex`. After installing, sign in with your ChatGPT account (Plus, Pro, Business or Enterprise) or an API key, then set up its Windows sandbox once. If the CLI is installed somewhere else, set its path in Settings → Codex.', description: "Agent Setup → Codex: how its installer works. Keep the command and the path in backticks exactly as they are, and the plan names (Plus, Pro, Business, Enterprise); Settings → Codex is a place in Hive's settings." }),
+    extensionNote: msg({ id: 'agents.codex.extensionNote', defaultMessage: "You have the Codex extension for VS Code (or a similar editor). Hive doesn't use it — the extension's built-in copy moves with every extension update. Install the CLI; your extension keeps working as before.", description: 'Agent Setup → Codex, when only an editor extension was found: why Hive needs the standalone CLI.' }),
+    signInHelp: msg({ id: 'agents.codex.signInHelp', defaultMessage: 'Sign in again in Help → Agent Setup → Codex → Sign in (or run codex login in a terminal).', description: "How to sign in to Codex again after its sign-in expired (an agent's pane, a notification). Help → Agent Setup → Codex → Sign in is a menu path in Hive; codex login is a command: keep it." }),
+    safeguardHelp: msg({ id: 'agents.codex.safeguardHelp', defaultMessage: 'Codex sends a request it flags to another model, or stops the turn. For security work, OpenAI’s Trusted Access for Cyber program lifts that.', description: "What happens after Codex's safety check flags a request (an agent's safeguard note). Trusted Access for Cyber is the name of OpenAI's program: keep it." }),
+    modelPlaceholder: msg({ id: 'agents.codex.modelPlaceholder', defaultMessage: 'Model ID, e.g. gpt-6-sol', description: 'Placeholder of the custom model ID box (Codex). Keep the model ID exactly as it is.' })
+  },
   modelLabel: codexModelLabel,
   // Every preset is in Codex's /permissions menu, so each can be switched to in a running session.
   canSwitchLive: () => true

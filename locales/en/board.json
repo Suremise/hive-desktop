@@ -1,0 +1,1878 @@
+{
+  "board.agent.folded": {
+    "defaultMessage": "{agent}: {status}",
+    "description": "Tooltip on a folded card's agent dot: the agent's name and what it is doing ({status}: \"Working…\", \"Not running\")."
+  },
+  "board.agent.notRunning": {
+    "defaultMessage": "Not running",
+    "description": "A card's agent's state, on the card: its session isn't running."
+  },
+  "board.agent.removed": {
+    "defaultMessage": "{agent} (removed)",
+    "description": "A card's agent that was removed from its project, on the card. {agent} is its name."
+  },
+  "board.agent.tip": {
+    "defaultMessage": "{agent}: {status}. Click to show it.",
+    "description": "Tooltip on a card's agent line: the agent's name and what it is doing ({status}: \"Working…\", \"Not running\")."
+  },
+  "board.agent.unnamed": {
+    "defaultMessage": "its agent",
+    "description": "Stands for a card's agent when its name isn't known (it was removed), in place of a name in other messages. Lower case."
+  },
+  "board.archiveAll.allBusy": {
+    "defaultMessage": "{n, plural, one {Every card here is one an agent is on. Tick the box below to archive it anyway.} other {Every card here is one an agent is on. Tick the box below to archive them anyway.}}",
+    "description": "In the Archive All dialog when an agent is on every card it would archive ({n} cards). The box is \"Also archive cards agents are working on\"."
+  },
+  "board.archiveAll.button": {
+    "defaultMessage": "{n, plural, one {Archive # card} other {Archive # cards}}",
+    "description": "The Archive All dialog's button: archives {n} cards."
+  },
+  "board.archiveAll.columnCount": {
+    "defaultMessage": "{column} {n}",
+    "description": "In the Archive All dialog for the whole board: how many cards it archives from a column (\"Done 4\"), listed with the other columns."
+  },
+  "board.archiveAll.filteredNote": {
+    "defaultMessage": "Cards the search or filter hides stay on the board.",
+    "description": "In the Archive All dialog when a search or filter narrows the board."
+  },
+  "board.archiveAll.heldIncluded": {
+    "defaultMessage": "{n, plural, one {Archived too: a card an agent is on} other {Archived too: # cards agents are on}}",
+    "description": "In the Archive All dialog, above the cards agents are on, when the user ticked to archive them too ({n} cards)."
+  },
+  "board.archiveAll.heldRow": {
+    "defaultMessage": "#{card} {title} · {why}",
+    "description": "A card an agent is on, listed in the Archive All dialog: its number, title and who is on it ({why}: \"Alfie is working on it\")."
+  },
+  "board.archiveAll.heldRowSkipped": {
+    "defaultMessage": "#{card} {title} · {why} · skipped",
+    "description": "A card an agent is on, listed in the Archive All dialog, which it leaves on the board: its number, title and who is on it ({why}: \"Alfie is working on it\")."
+  },
+  "board.archiveAll.heldSkipped": {
+    "defaultMessage": "{n, plural, one {Skipped: a card an agent is on} other {Skipped: # cards agents are on}}",
+    "description": "In the Archive All dialog, above the cards agents are on, which it leaves on the board ({n} cards)."
+  },
+  "board.archiveAll.includeBusy": {
+    "defaultMessage": "Also archive cards agents are working on",
+    "description": "A checkbox in the Archive All dialog: archives the cards agents are on too."
+  },
+  "board.archiveAll.includeWarning": {
+    "defaultMessage": "Their agents lose their card: an archived card can't be changed or moved by them, and a watch on it ends, telling the agent it was archived.",
+    "description": "A warning in the Archive All dialog once the user ticks to archive the cards agents are on. A watch is how an agent waits for a card to change."
+  },
+  "board.archiveAll.menuAll": {
+    "defaultMessage": "Archive All Cards ({total})…",
+    "description": "Menu item in the board's ⋯ menu: archive all {total} cards. Opens a dialog (…)."
+  },
+  "board.archiveAll.menuColumn": {
+    "defaultMessage": "Archive All in {column} ({total})…",
+    "description": "Menu item in a board column's ⋯ menu: archive all {total} cards of the column ({column}, its name). Opens a dialog (…)."
+  },
+  "board.archiveAll.menuShown": {
+    "defaultMessage": "{n, plural, one {Archive the # Shown Card (of {total})…} other {Archive the # Shown Cards (of {total})…}}",
+    "description": "Menu item in the board's ⋯ menu, when a search hides some cards: archive the {n} cards shown, of the board's {total}. Opens a dialog (…)."
+  },
+  "board.archiveAll.menuShownIn": {
+    "defaultMessage": "Archive the {n} Shown (of {total})…",
+    "description": "Menu item in a board column's ⋯ menu, when a search hides some of its cards: archive the {n} cards shown, of the column's {total}. Opens a dialog (…)."
+  },
+  "board.archiveAll.messageAll": {
+    "defaultMessage": "Archive {n, plural, one {# card} other {# cards}}? You can unarchive them from Archived.",
+    "description": "The Archive All dialog for the whole board: archives its {n} cards. Archived is the checkbox that shows archived cards."
+  },
+  "board.archiveAll.messageColumn": {
+    "defaultMessage": "Archive {n, plural, one {# card} other {# cards}} in {column}? You can unarchive them from Archived.",
+    "description": "The Archive All dialog for a column: archives its {n} cards ({column}, its name). Archived is the checkbox that shows archived cards."
+  },
+  "board.archiveAll.messageShown": {
+    "defaultMessage": "Archive the {n, plural, one {# card} other {# cards}} shown (of {total})? You can unarchive them from Archived.",
+    "description": "The Archive All dialog for the whole board when a search narrows it: archives the {n} cards shown, of the board's {total}. Archived is the checkbox that shows archived cards."
+  },
+  "board.archiveAll.messageShownIn": {
+    "defaultMessage": "Archive the {n, plural, one {# card} other {# cards}} shown in {column} (of {total})? You can unarchive them from Archived.",
+    "description": "The Archive All dialog for a column a search narrows: archives the {n} cards shown in {column} (its name), of its {total}. Archived is the checkbox that shows archived cards."
+  },
+  "board.archiveAll.titleAll": {
+    "defaultMessage": "Archive All Cards?",
+    "description": "Title of the Archive All dialog for the whole board."
+  },
+  "board.archiveAll.titleColumn": {
+    "defaultMessage": "Archive All in {column}?",
+    "description": "Title of the Archive All dialog for a board column ({column}, its name)."
+  },
+  "board.archiveAll.titleShown": {
+    "defaultMessage": "{n, plural, one {Archive the # Shown Card?} other {Archive the # Shown Cards?}}",
+    "description": "Title of the Archive All dialog for the whole board when a search narrows its cards: the {n} cards shown."
+  },
+  "board.archiveAll.titleShownIn": {
+    "defaultMessage": "Archive the {n} Shown in {column}?",
+    "description": "Title of the Archive All dialog for a column whose cards a search narrows: the {n} cards shown in the column ({column}, its name)."
+  },
+  "board.archived.agent": {
+    "defaultMessage": "Agent",
+    "description": "A column header of the archived cards' table: the agent the card last had."
+  },
+  "board.archived.allBatches": {
+    "defaultMessage": "All archived cards",
+    "description": "The archived cards' batch picker's first choice: every archived card, whatever archived it."
+  },
+  "board.archived.archived": {
+    "defaultMessage": "Archived",
+    "description": "A column header of the archived cards' table: when the card was archived (a date and time)."
+  },
+  "board.archived.batch": {
+    "defaultMessage": "Batch",
+    "description": "Label of the archived cards' batch picker: which bulk archive (Archive All) to show."
+  },
+  "board.archived.count": {
+    "defaultMessage": "{n, plural, one {# archived card} other {# archived cards}}",
+    "description": "Above the archived cards' table: how many archived cards it shows."
+  },
+  "board.archived.countSelected": {
+    "defaultMessage": "{n, plural, one {# archived card} other {# archived cards}} · {selected} selected",
+    "description": "Above the archived cards' table: how many archived cards it shows ({n}) and how many of them are selected ({selected})."
+  },
+  "board.archived.created": {
+    "defaultMessage": "Created",
+    "description": "A column header of the archived cards' table: when the card was created (a date and time)."
+  },
+  "board.archived.from": {
+    "defaultMessage": "From",
+    "description": "A column header of the archived cards' table: the board column the card was archived from."
+  },
+  "board.archived.labels": {
+    "defaultMessage": "Labels",
+    "description": "A column header of the archived cards' table: the card's labels."
+  },
+  "board.archived.none": {
+    "defaultMessage": "No archived cards.",
+    "description": "The archived cards' view (and its table) when there are none."
+  },
+  "board.archived.noneMatch": {
+    "defaultMessage": "No archived cards match.",
+    "description": "The archived cards' view when none match the board's search."
+  },
+  "board.archived.openRow": {
+    "defaultMessage": "Open #{card} {title}",
+    "description": "Accessible name of a row of the archived cards' table: opens the card. {card} is its number (after #), {title} its title."
+  },
+  "board.archived.project": {
+    "defaultMessage": "Project",
+    "description": "A column header of the archived cards' table: the card's project."
+  },
+  "board.archived.selectRow": {
+    "defaultMessage": "Select #{card}",
+    "description": "Accessible name of a row's checkbox in the archived cards' table. {card} is the card's number (after #)."
+  },
+  "board.archived.title": {
+    "defaultMessage": "Title",
+    "description": "A column header of the archived cards' table: the card's title."
+  },
+  "board.archived.unarchive": {
+    "defaultMessage": "Unarchive",
+    "description": "Button on an archived card in the archived cards' table: brings it back to the board."
+  },
+  "board.archived.unarchiveBatch": {
+    "defaultMessage": "Unarchive this batch ({n})",
+    "description": "Button above the archived cards' table: brings the {n} cards of the chosen bulk archive back where they were."
+  },
+  "board.archived.unarchiveBatchTip": {
+    "defaultMessage": "{n, plural, one {Bring the # card archived in this batch back to its column, where it was} other {Bring the # cards archived in this batch back to their columns, where they were}}",
+    "description": "Tooltip on Unarchive this batch: brings the {n} cards of one bulk archive back where they were on the board."
+  },
+  "board.archived.unarchiveSelected": {
+    "defaultMessage": "Unarchive Selected",
+    "description": "Button above the archived cards' table (off while none is selected): brings the selected cards back to the board."
+  },
+  "board.archived.unarchiveSelectedN": {
+    "defaultMessage": "Unarchive Selected ({n})",
+    "description": "Button above the archived cards' table: brings the {n} selected cards back to the board."
+  },
+  "board.archived.unarchiveTip": {
+    "defaultMessage": "Bring #{card} back to the end of {column}",
+    "description": "Tooltip on an archived card's Unarchive button. {card} is its number (after #), {column} the board column it was archived from."
+  },
+  "board.batch.andMore": {
+    "defaultMessage": "{cards} and {n} more",
+    "description": "Cards that could not be brought back from an archive, cut short: the first six card numbers ({cards}: \"#3, #4\") and how many more ({n})."
+  },
+  "board.batch.archived": {
+    "defaultMessage": "Archived {n, plural, one {# card} other {# cards}}",
+    "description": "A notification's title after Archive All: how many cards it archived. It has an Undo button."
+  },
+  "board.batch.backFailed": {
+    "defaultMessage": "Could not bring the batch back",
+    "description": "An error's title: unarchiving a batch of cards failed."
+  },
+  "board.batch.broughtBack": {
+    "defaultMessage": "Brought back {n, plural, one {# card} other {# cards}}",
+    "description": "A notification's title: unarchiving a batch brought all its cards back to the board."
+  },
+  "board.batch.leftOnBoard": {
+    "defaultMessage": "{n, plural, one {One card was} other {# cards were}} left on the board: {why}.",
+    "description": "After Archive All, the cards it left on the board (an agent took one meanwhile, one moved): how many, then each card's number and why ({why}, separated by semicolons)."
+  },
+  "board.batch.noneBack": {
+    "defaultMessage": "Couldn't bring back {failed}",
+    "description": "A notification's title: unarchiving a batch brought back none of its cards ({failed}: \"#3, #4\")."
+  },
+  "board.batch.nothingArchived": {
+    "defaultMessage": "Nothing was archived",
+    "description": "A notification's title: Archive All archived no card."
+  },
+  "board.batch.someBack": {
+    "defaultMessage": "Brought back {n, plural, one {# card} other {# cards}}; {failed} couldn't be",
+    "description": "A notification's title: unarchiving a batch brought back {n} cards but not the ones listed ({failed}: \"#3, #4\")."
+  },
+  "board.batch.stayArchived": {
+    "defaultMessage": "They stay archived with their batch: Unarchive this batch in Archived tries again (a card's file may be open in another program).",
+    "description": "The notification when cards could not be brought back from an archive. \"Unarchive this batch\" is a button and \"Archived\" the archive's view: use their translations."
+  },
+  "board.batch.undo": {
+    "defaultMessage": "Undo",
+    "description": "Button on the notification after Archive All: brings the archived cards back."
+  },
+  "board.batchName.allCards": {
+    "defaultMessage": "All Cards",
+    "description": "An Archive All batch's name in the archived cards' batch picker: every card on the board."
+  },
+  "board.batchName.allIn": {
+    "defaultMessage": "All in {column}",
+    "description": "An Archive All batch's name in the archived cards' batch picker: every card of a column ({column}: \"Done\")."
+  },
+  "board.batchName.shownCards": {
+    "defaultMessage": "{n} shown cards",
+    "description": "An Archive All batch's name in the archived cards' batch picker: the {n} cards a search showed on the whole board."
+  },
+  "board.batchName.shownIn": {
+    "defaultMessage": "{n} shown in {column}",
+    "description": "An Archive All batch's name in the archived cards' batch picker: the {n} cards a search showed in a column ({column}: \"Done\")."
+  },
+  "board.busy.assistantWatching": {
+    "defaultMessage": "The Assistant is watching it",
+    "description": "Why Archive All skips a card (listed in its dialog): the Hive Assistant waits for it to change."
+  },
+  "board.busy.reviewing": {
+    "defaultMessage": "{agent} is reviewing it",
+    "description": "Why Archive All skips a card (listed in its dialog): an agent ({agent}, its name) is reviewing it."
+  },
+  "board.busy.watching": {
+    "defaultMessage": "{agent} is watching it",
+    "description": "Why Archive All skips a card (listed in its dialog): an agent ({agent}, its name) waits for it to change."
+  },
+  "board.busy.working": {
+    "defaultMessage": "{agent} is working on it",
+    "description": "Why Archive All skips a card (listed in its dialog): an agent ({agent}, its name) is working on it."
+  },
+  "board.card.archive": {
+    "defaultMessage": "Archive",
+    "description": "Menu item (a card's right-click menu) and button (its dialog): archives the card (off the board, still searchable)."
+  },
+  "board.card.blocked": {
+    "defaultMessage": "Blocked",
+    "description": "Accessible name of a folded card's blocked mark (a card that can't go on)."
+  },
+  "board.card.blockedTip": {
+    "defaultMessage": "Blocked: {reason}",
+    "description": "Tooltip on a blocked card: why it can't go on ({reason}, in the user's or an agent's own words)."
+  },
+  "board.card.bringBack": {
+    "defaultMessage": "Bring Back",
+    "description": "Menu item (a card's right-click menu) and button (its dialog) on an archived card: brings it back to the board."
+  },
+  "board.card.collapse": {
+    "defaultMessage": "Collapse #{card} to one line",
+    "description": "Tooltip on the chevron of a card: folds it to one line. {card} is its number (after #)."
+  },
+  "board.card.decisionsCount": {
+    "defaultMessage": "Decisions: {n}",
+    "description": "Accessible name of a card's decision count: how many decisions the user recorded about it."
+  },
+  "board.card.decisionsTip": {
+    "defaultMessage": "Decisions: {n}. {decisions}",
+    "description": "Tooltip on a card's decision count: how many decisions the user recorded ({n}), then each one, cut short ({decisions}, the user's own words, separated by ·)."
+  },
+  "board.card.dependsOn": {
+    "defaultMessage": "Depends on {cards}",
+    "description": "Tooltip on a card's dependencies: the cards to finish first ({cards}: \"#3, #5\")."
+  },
+  "board.card.expand": {
+    "defaultMessage": "Expand #{card}",
+    "description": "Tooltip on the chevron of a card folded to one line: shows it in full. {card} is its number (after #)."
+  },
+  "board.card.stalled": {
+    "defaultMessage": "Stalled: {why}",
+    "description": "On a stalled card (and its tooltip when folded): nobody is getting on with it, and why ({why}, a sentence)."
+  },
+  "board.card.stalledMark": {
+    "defaultMessage": "Stalled",
+    "description": "Accessible name of a folded card's stalled mark (nobody is getting on with it)."
+  },
+  "board.card.workspace": {
+    "defaultMessage": "workspace",
+    "description": "Where a card that belongs to no project is (it is about the whole workspace): shown in place of a project's name on the card. Lower case."
+  },
+  "board.cards.count": {
+    "defaultMessage": "{n, plural, one {# card} other {# cards}}",
+    "description": "A number of cards (\"3 cards\"), in Archive All and the archived cards' batch picker."
+  },
+  "board.chip.card": {
+    "defaultMessage": "#{card} {title}{decisions, plural, =0 {} one { (decisions: #)} other { (decisions: #)}}",
+    "description": "A card in the hover of an agent's card chip: its number, title (the user's own words) and how many decisions the user made about it (none: leave that branch empty)."
+  },
+  "board.chip.clickToOpen": {
+    "defaultMessage": "Click to open #{card}.",
+    "description": "The last line of the hover of an agent's card chip. {card} is the card's number."
+  },
+  "board.chip.doing": {
+    "defaultMessage": "Working on (Doing):",
+    "description": "Heading in the hover of an agent's card chip, above the cards it works on. Doing is the board column."
+  },
+  "board.chip.open": {
+    "defaultMessage": "Open card #{card}",
+    "description": "A card chip's accessible name (on an agent's pane or row): opens the card. {card} is its number."
+  },
+  "board.chip.reviewing": {
+    "defaultMessage": "Reviewing:",
+    "description": "Heading in the hover of an agent's card chip, above the cards it reviews."
+  },
+  "board.clash.message": {
+    "defaultMessage": "Your {fields} replaced the change made meanwhile (see its history).",
+    "description": "A warning toast after saving the card dialog: the user's values won over a change made meanwhile. {fields} lists the fields (\"title, labels\")."
+  },
+  "board.clash.title": {
+    "defaultMessage": "#{card} was also changed while you edited it",
+    "description": "A warning toast's title after saving the card dialog: someone (an agent, say) changed the same fields meanwhile. {card} is the card's number (after #)."
+  },
+  "board.column.doing": {
+    "defaultMessage": "Doing",
+    "description": "A board column's name: cards being worked on."
+  },
+  "board.column.doingDescription": {
+    "defaultMessage": "Being worked on: its agent shows what it is doing now.",
+    "description": "The Doing column's description (its hover)."
+  },
+  "board.column.done": {
+    "defaultMessage": "Done",
+    "description": "A board column's name: merged cards."
+  },
+  "board.column.doneDescription": {
+    "defaultMessage": "Merged: its builder moves it here after merging (or you do). Archive cards when you no longer need to see them.",
+    "description": "The Done column's description (its hover). The builder is the agent that did the card's work."
+  },
+  "board.column.hold": {
+    "defaultMessage": "On Hold",
+    "description": "A board column's name: parked cards nobody picks up until the user moves them on."
+  },
+  "board.column.holdDescription": {
+    "defaultMessage": "Parked: nobody picks these up until they move to Todo. Only you and the Assistant put cards here.",
+    "description": "The On Hold column's description (its hover). Todo is the column's name; the Assistant is the Hive Assistant."
+  },
+  "board.column.passed": {
+    "defaultMessage": "Passed",
+    "description": "A board column's name: cards that passed review and wait to be merged."
+  },
+  "board.column.passedDescription": {
+    "defaultMessage": "Passed its review, waiting to be merged. A reviewer moves a card here when it passes.",
+    "description": "The Passed column's description (its hover)."
+  },
+  "board.column.review": {
+    "defaultMessage": "Review",
+    "description": "A board column's name: cards whose work is done, waiting for review."
+  },
+  "board.column.reviewDescription": {
+    "defaultMessage": "Work done, waiting for its review.",
+    "description": "The Review column's description (its hover)."
+  },
+  "board.column.todo": {
+    "defaultMessage": "Todo",
+    "description": "A board column's name: cards ready to start."
+  },
+  "board.column.todoDescription": {
+    "defaultMessage": "Ready to start.",
+    "description": "The Todo column's description (its hover)."
+  },
+  "board.columns.collapse": {
+    "defaultMessage": "Collapse {column}",
+    "description": "Tooltip, accessible name and menu item: folds a board column ({column}, its name) sideways into a narrow strip."
+  },
+  "board.columns.collapseCards": {
+    "defaultMessage": "Collapse All Cards",
+    "description": "Menu item in a board column's menu: folds each of its cards to one line."
+  },
+  "board.columns.empty": {
+    "defaultMessage": "Nothing here.",
+    "description": "In an empty board column."
+  },
+  "board.columns.emptyTodo": {
+    "defaultMessage": "No cards. + adds one.",
+    "description": "In the empty Todo column of the board. + is the button in its header that adds a card."
+  },
+  "board.columns.expand": {
+    "defaultMessage": "Expand {column}",
+    "description": "Accessible name of a collapsed board column's strip: expands the column ({column}, its name)."
+  },
+  "board.columns.expandCards": {
+    "defaultMessage": "Expand All Cards",
+    "description": "Menu item in a board column's menu: shows each of its folded cards in full."
+  },
+  "board.columns.expandTip": {
+    "defaultMessage": "Expand {column}: {description}",
+    "description": "Tooltip on a collapsed board column's strip: expands it. {column} is its name, {description} what the column is for."
+  },
+  "board.columns.more": {
+    "defaultMessage": "{column}: more",
+    "description": "Tooltip on a board column's ⋯ button: opens its menu. {column} is its name."
+  },
+  "board.cost.cardLine": {
+    "defaultMessage": "cost: {cost}{rounds, plural, =0 {} one { · # round} other { · # rounds}}",
+    "description": "A card's cost on the board, under its title: what its agents used ({cost}: \"≈ $1.84\", \"Unknown\"), then how many review rounds it has had (none: leave that branch empty). Lower case: it reads as a note."
+  },
+  "board.cost.nothingUsed": {
+    "defaultMessage": "nothing used",
+    "description": "A card's or lane's token use, in a cost hover: no tokens at all. Lower case: it follows a cost."
+  },
+  "board.cost.perFinished": {
+    "defaultMessage": "{estimated, select, yes {≈ } other {}}{cost}{unpriced, select, yes { + ?} other {}} a finished card",
+    "description": "A lane's cost per finished card ({cost}: \"$2.10\"), in its cost hover (Progress panel): ≈ first when it is an estimate, + ? when some usage couldn't be priced."
+  },
+  "board.cost.tokens": {
+    "defaultMessage": "{estimated, select, yes {≈ } other {}}in {input} · out {output} · cache write {cacheWrite} · cache read {cacheRead}{unknown, select, yes { + unknown} other {}}{requests, plural, =0 {} one { · # request} other { · # requests}}",
+    "description": "A card's or lane's token use, in a cost hover: input, output, cache write and cache read tokens (\"12K\"); ≈ first when some are Hive's estimate; + unknown when some aren't known; then how many requests (none: leave that branch empty). Lower case: it follows a cost."
+  },
+  "board.cost.tokensUnknown": {
+    "defaultMessage": "tokens unknown{requests, plural, =0 {} one { · # request} other { · # requests}}",
+    "description": "A card's or lane's token use, in a cost hover: the provider didn't say how many tokens, then how many requests (none: leave that branch empty). Lower case: it follows a cost."
+  },
+  "board.costs.builder": {
+    "defaultMessage": "Builder",
+    "description": "In a card's cost hover, before what the agent that built it used. Keep it short."
+  },
+  "board.costs.cost": {
+    "defaultMessage": "Cost",
+    "description": "A lane's cost hover (Progress panel), before what its agents used in all. Keep it short."
+  },
+  "board.costs.laneFailed": {
+    "defaultMessage": "Its cost couldn’t be worked out.",
+    "description": "A lane's cost hover (Progress panel) when Hive couldn't work the cost out."
+  },
+  "board.costs.laneLoading": {
+    "defaultMessage": "Working out its cost…",
+    "description": "A lane's cost hover (Progress panel) while Hive works the cost out."
+  },
+  "board.costs.note": {
+    "defaultMessage": "What its agents used while they held it, as the providers reported it: ≈ is Hive’s estimate, ? or Unknown what isn’t known (never $0).",
+    "description": "Under a card's cost breakdown (its hover): what the cost is. ≈, ? and Unknown are how costs show: keep ≈ and ?, and use the same word for Unknown as the costs do."
+  },
+  "board.costs.onCards": {
+    "defaultMessage": "On cards",
+    "description": "A lane's cost hover (Progress panel), before what its agents used while holding a card. Keep it short."
+  },
+  "board.costs.overhead": {
+    "defaultMessage": "Overhead",
+    "description": "A lane's cost hover (Progress panel), before what its agents used holding no card (merges, watching). Keep it short."
+  },
+  "board.costs.overheadNote": {
+    "defaultMessage": "Overhead: what the builder and reviewer used holding no card (merges, watching, compactions). ≈ is Hive’s estimate; ? or Unknown what isn’t known.",
+    "description": "Under a lane's cost breakdown (its hover, Progress panel): what Overhead is. Use the same word for Overhead as above it, and for Unknown as the costs do; keep ≈ and ?."
+  },
+  "board.costs.reviewer": {
+    "defaultMessage": "Reviewer",
+    "description": "In a card's cost hover, before what the agent that reviewed it used. Keep it short."
+  },
+  "board.costs.unmatched": {
+    "defaultMessage": "{n, plural, one {One agent that held it has} other {# agents that held it have}} no session Hive knows of: unknown.",
+    "description": "In a card's cost hover: some agents that held the card have no session Hive knows of, so what they used is unknown."
+  },
+  "board.decision.add": {
+    "defaultMessage": "Add Decision",
+    "description": "Button in the card dialog: records the decision written above."
+  },
+  "board.decision.blank": {
+    "defaultMessage": "A decision can't be empty: write it again, cancel the change, or remove the decision with its bin.",
+    "description": "An error in the card dialog: Save with a decision changed to nothing. The bin is the button that removes a decision."
+  },
+  "board.decision.by": {
+    "defaultMessage": "Decided by you",
+    "description": "Under a decision in the card dialog: the user decided it (and recorded it)."
+  },
+  "board.decision.byRecorded": {
+    "defaultMessage": "Decided by you · recorded by {recorder}",
+    "description": "Under a decision in the card dialog: the user decided it, and an agent or the Assistant wrote it down ({recorder}, its name)."
+  },
+  "board.decision.change": {
+    "defaultMessage": "Change this decision",
+    "description": "Tooltip on the pencil button beside a decision (card dialog)."
+  },
+  "board.decision.editLabel": {
+    "defaultMessage": "Decision",
+    "description": "Accessible name of the box where a decision is changed (card dialog)."
+  },
+  "board.decision.edited": {
+    "defaultMessage": "edited",
+    "description": "Under a decision in the card dialog, after when it was decided: it was changed since. Lower case."
+  },
+  "board.decision.heading": {
+    "defaultMessage": "Decisions ({n})",
+    "description": "A heading in the card dialog: the decisions the user recorded about the card, and how many ({n})."
+  },
+  "board.decision.info": {
+    "defaultMessage": "What you decided about this card: scope, wording, a default. Agents read them when they start and again before Review, and follow them where the description says otherwise; reviewers check the work against them. An agent or the Assistant can write down a decision you made; only you change or remove one.",
+    "description": "The (i) beside the card dialog's Decisions heading. Review is the board column; the Assistant is the Hive Assistant."
+  },
+  "board.decision.new": {
+    "defaultMessage": "new since start",
+    "description": "A badge on a decision in the card dialog: it was recorded after work on the card began. Lower case, short."
+  },
+  "board.decision.newLabel": {
+    "defaultMessage": "New decision",
+    "description": "Accessible name of the box where a new decision is written (card dialog)."
+  },
+  "board.decision.newPlaceholder": {
+    "defaultMessage": "Record a decision you made about this card (agents follow it over the description)",
+    "description": "Placeholder of the box where a new decision is written (card dialog)."
+  },
+  "board.decision.remove": {
+    "defaultMessage": "Remove",
+    "description": "Button: removes the decision from the card."
+  },
+  "board.decision.removeMessage": {
+    "defaultMessage": "\"{decision}\" leaves #{card}. Its history keeps what it said.",
+    "description": "The confirmation before a decision is removed: {decision} is its text (cut short), {card} the card's number (after #)."
+  },
+  "board.decision.removeTip": {
+    "defaultMessage": "Remove this decision",
+    "description": "Tooltip on the bin button beside a decision (card dialog)."
+  },
+  "board.decision.removeTitle": {
+    "defaultMessage": "Remove this decision?",
+    "description": "Title of the confirmation before a card's decision is removed."
+  },
+  "board.decision.removing": {
+    "defaultMessage": "Removing…",
+    "description": "The Remove button while the decision is being removed."
+  },
+  "board.decision.saveAddsIt": {
+    "defaultMessage": "Save adds it too",
+    "description": "Beside Add Decision once something is written: the card dialog's Save button adds the decision as well."
+  },
+  "board.delete.busy": {
+    "defaultMessage": "Deleting…",
+    "description": "The Delete button while the card is being deleted."
+  },
+  "board.delete.button": {
+    "defaultMessage": "Delete",
+    "description": "Button: deletes the card (to the Recycle Bin)."
+  },
+  "board.delete.message": {
+    "defaultMessage": "\"{title}\" goes to the Recycle Bin, with its comments and history. Archive it instead to keep it out of sight but searchable.",
+    "description": "The confirmation before a card is deleted. {title} is the card's title. Recycle Bin is Windows' name for it."
+  },
+  "board.delete.title": {
+    "defaultMessage": "Delete #{card}?",
+    "description": "Title of the confirmation before a card is deleted. {card} is its number (after #)."
+  },
+  "board.details.agent": {
+    "defaultMessage": "Agent",
+    "description": "A label in a run's details (Progress panel): the agent that ran it (and its project) follows."
+  },
+  "board.details.command": {
+    "defaultMessage": "Command",
+    "description": "A label in a run's details (Progress panel): the command it ran follows."
+  },
+  "board.details.ended": {
+    "defaultMessage": "Ended",
+    "description": "A label in a run's details (Progress panel): a date and time follows."
+  },
+  "board.details.exitCode": {
+    "defaultMessage": "Exit code",
+    "description": "A label in a run's details (Progress panel): its command's exit code follows (a number)."
+  },
+  "board.details.gone": {
+    "defaultMessage": "Ended without a report: its process ended before it said how it went",
+    "description": "A run's state in its details (Progress panel): its process ended without reporting."
+  },
+  "board.details.interrupted": {
+    "defaultMessage": "Stopped: its command was interrupted",
+    "description": "A run's state in its details (Progress panel): its command was interrupted."
+  },
+  "board.details.lastStep": {
+    "defaultMessage": "Last: {step}",
+    "description": "A run's details in the Progress panel, its steps: the last step reported ({step}, as the reporter named it), with no count."
+  },
+  "board.details.line": {
+    "defaultMessage": "{label}: {text}",
+    "description": "A line of a run's details copied as text (Copy details, Progress panel): a label (\"Command\") and its text."
+  },
+  "board.details.log": {
+    "defaultMessage": "Log",
+    "description": "A label in a run's details (Progress panel): the path of its log file follows."
+  },
+  "board.details.provider": {
+    "defaultMessage": "Provider",
+    "description": "A label in a run's details (Progress panel): the agent's CLI follows (Claude Code, Codex…)."
+  },
+  "board.details.run": {
+    "defaultMessage": "Run",
+    "description": "A label in a run's details (Progress panel): the run's title follows."
+  },
+  "board.details.staleAgentStopped": {
+    "defaultMessage": "Stopped reporting: its agent stopped before it finished",
+    "description": "A run's state in its details (Progress panel): the agent that ran it stopped first."
+  },
+  "board.details.staleQuiet": {
+    "defaultMessage": "Stopped reporting: no report for {quiet}",
+    "description": "A run's state in its details (Progress panel): no news from it for {quiet} (\"12 min\")."
+  },
+  "board.details.started": {
+    "defaultMessage": "Started",
+    "description": "A label in a run's details (Progress panel): a date and time follows."
+  },
+  "board.details.state": {
+    "defaultMessage": "{state, select, running {Running} failed {Failed} passed {Passed} other {Stopped}}{dismissed, select, yes { (dismissed)} other {}}",
+    "description": "A run's state in its details (Progress panel): running, failed or passed; then \" (dismissed)\" when the user dismissed the run."
+  },
+  "board.details.stateLabel": {
+    "defaultMessage": "State",
+    "description": "A label in a run's details (Progress panel): its state follows (Running, Failed…)."
+  },
+  "board.details.steps": {
+    "defaultMessage": "{done} of {total} done",
+    "description": "A run's details in the Progress panel, its steps: {done} of {total} steps done."
+  },
+  "board.details.stepsLabel": {
+    "defaultMessage": "Steps",
+    "description": "A label in a run's details (Progress panel): its steps follow (\"4 of 12 done\")."
+  },
+  "board.details.stepsLast": {
+    "defaultMessage": "{done} of {total} done · last: {step}",
+    "description": "A run's details in the Progress panel, its steps: {done} of {total} steps done, and the last step reported ({step}, as the reporter named it)."
+  },
+  "board.details.summary": {
+    "defaultMessage": "Summary",
+    "description": "A label in a run's details copied as text (Copy details, Progress panel): the summary its reporter gave follows."
+  },
+  "board.details.took": {
+    "defaultMessage": "Took",
+    "description": "A label in a run's details (Progress panel): how long it ran follows."
+  },
+  "board.details.tookSoFar": {
+    "defaultMessage": "{took} so far{expected, select, none {} other { · expected about {expected}}}",
+    "description": "How long a run that is still going has run, in its details (Progress panel): {took} (\"4 min\"), then about how long runs like it take ({expected}, a duration, or none when unknown: keep that branch empty)."
+  },
+  "board.details.tookTotal": {
+    "defaultMessage": "{took}{expected, select, none {} other { · expected about {expected}}}",
+    "description": "How long a finished run took, in its details (Progress panel): {took} (\"4 min\"), then about how long runs like it take ({expected}, a duration, or none when unknown: keep that branch empty)."
+  },
+  "board.details.waitingSince": {
+    "defaultMessage": "Waiting since {since}: {waiting}",
+    "description": "A run's state in its details (Progress panel): waiting since a date and time ({since}) for what its reporter says ({waiting}, in its own words: \"a test slot\")."
+  },
+  "board.dialog.addCard": {
+    "defaultMessage": "Add Card",
+    "description": "The New Card dialog's main button: adds the card."
+  },
+  "board.dialog.added": {
+    "defaultMessage": "Added by {by} {added} · changed {changed}",
+    "description": "At the foot of the card dialog: who added the card ({by}: \"You\", an agent's name), when ({added}: \"3 days ago\"), and when it last changed ({changed})."
+  },
+  "board.dialog.addedUnknown": {
+    "defaultMessage": "Added by unknown {added} · changed {changed}",
+    "description": "At the foot of the card dialog when who added the card isn't known: when it was added ({added}: \"3 days ago\") and last changed ({changed})."
+  },
+  "board.dialog.adding": {
+    "defaultMessage": "Adding…",
+    "description": "A button while a new card or decision is being added."
+  },
+  "board.dialog.agent": {
+    "defaultMessage": "Agent",
+    "description": "A field label in the card dialog: the agent the card is given to."
+  },
+  "board.dialog.agentStatus": {
+    "defaultMessage": "{agent} ({status})",
+    "description": "An agent in the card dialog's agent choice, with what it is doing ({status}: \"Working…\")."
+  },
+  "board.dialog.archivedBanner": {
+    "defaultMessage": "{cause, select, hidden {Archived when {project} was hidden.} removed {Archived when {project} was removed from Hive.} done {Archived automatically after its days in Done (Settings → Board).} other {Archived.}} Bring it back to change it.",
+    "description": "A banner in an archived card's dialog: why it was archived (its project {project} hidden or removed, or after its days in the Done column: Settings → Board is where that is set), and that it must be brought back to be changed."
+  },
+  "board.dialog.archiving": {
+    "defaultMessage": "Archiving…",
+    "description": "A button while cards are being archived."
+  },
+  "board.dialog.blocked": {
+    "defaultMessage": "Blocked",
+    "description": "A field label in the card dialog: why the card can't go on (empty: it isn't blocked)."
+  },
+  "board.dialog.blockedPlaceholder": {
+    "defaultMessage": "Why it can't go on (empty: not blocked)",
+    "description": "Placeholder of the card dialog's Blocked box: why the card can't go on; empty means it isn't blocked."
+  },
+  "board.dialog.bringingBack": {
+    "defaultMessage": "Bringing back…",
+    "description": "The Bring Back button while the archived card is being brought back."
+  },
+  "board.dialog.cancel": {
+    "defaultMessage": "Cancel",
+    "description": "Button: closes a board dialog without doing anything."
+  },
+  "board.dialog.column": {
+    "defaultMessage": "Column",
+    "description": "A field label in the card dialog: the board column the card is in."
+  },
+  "board.dialog.comment": {
+    "defaultMessage": "Comment",
+    "description": "Button in the card dialog: posts the comment written above."
+  },
+  "board.dialog.commentPlaceholder": {
+    "defaultMessage": "Add a comment",
+    "description": "Placeholder of the card dialog's comment box."
+  },
+  "board.dialog.comments": {
+    "defaultMessage": "Comments ({n})",
+    "description": "A heading in the card dialog: the card's comments, and how many ({n})."
+  },
+  "board.dialog.creatingWorktree": {
+    "defaultMessage": "Creating the worktree…",
+    "description": "A button while a card is being started on a new agent in its own git worktree (making the worktree takes a moment)."
+  },
+  "board.dialog.delete": {
+    "defaultMessage": "Delete",
+    "description": "Button in the card dialog: deletes the card (after asking)."
+  },
+  "board.dialog.dependsOn": {
+    "defaultMessage": "Depends on",
+    "description": "A field label in the card dialog: the cards to finish before this one."
+  },
+  "board.dialog.dependsOnPlaceholder": {
+    "defaultMessage": "Cards to finish first, e.g. #3 #5",
+    "description": "Placeholder of the card dialog's Depends on box: card numbers (#3 #5 are examples)."
+  },
+  "board.dialog.description": {
+    "defaultMessage": "Description",
+    "description": "A heading in the card dialog: the card's description."
+  },
+  "board.dialog.descriptionPlaceholder": {
+    "defaultMessage": "What to do, and how to tell it's done (Markdown). Whoever starts the card reads only this.",
+    "description": "Placeholder of the card dialog's description box."
+  },
+  "board.dialog.history": {
+    "defaultMessage": "History ({n})",
+    "description": "A heading in the card dialog (click to show or hide): the card's history of changes, and how many entries ({n})."
+  },
+  "board.dialog.labels": {
+    "defaultMessage": "Labels",
+    "description": "A field label in the card dialog: the card's labels."
+  },
+  "board.dialog.labelsPlaceholder": {
+    "defaultMessage": "Comma separated, e.g. bug, ui",
+    "description": "Placeholder of the card dialog's labels box: labels separated by commas (bug and ui are examples)."
+  },
+  "board.dialog.needsProject": {
+    "defaultMessage": "Give it a project first: its agent works there.",
+    "description": "Why a card with no project can't be started (a tooltip, and the Start dialog)."
+  },
+  "board.dialog.needsTitle": {
+    "defaultMessage": "A card needs a title.",
+    "description": "An error in the card dialog: Save with an empty title."
+  },
+  "board.dialog.newComment": {
+    "defaultMessage": "New comment",
+    "description": "Accessible name of the box where a comment is written (card dialog)."
+  },
+  "board.dialog.noDescription": {
+    "defaultMessage": "No description. Double-click to write one.",
+    "description": "The card dialog's description preview when there is none."
+  },
+  "board.dialog.noProject": {
+    "defaultMessage": "None (about the workspace)",
+    "description": "The card dialog's project choice for a card of no project: it is about the whole workspace."
+  },
+  "board.dialog.nobodyYet": {
+    "defaultMessage": "Nobody yet",
+    "description": "No agent has the card: the card dialog's agent choice, and a choice of the Move to Doing dialog."
+  },
+  "board.dialog.posting": {
+    "defaultMessage": "Posting…",
+    "description": "The Comment button while the comment is being posted."
+  },
+  "board.dialog.preview": {
+    "defaultMessage": "Preview",
+    "description": "A tab button in the card dialog: show the description as it reads (Markdown rendered)."
+  },
+  "board.dialog.project": {
+    "defaultMessage": "Project",
+    "description": "A field label in the card dialog: the card's project."
+  },
+  "board.dialog.projectGone": {
+    "defaultMessage": "{project} (not in the workspace)",
+    "description": "The card dialog's project choice when the card's project ({project}) is no longer in the workspace."
+  },
+  "board.dialog.related": {
+    "defaultMessage": "Related",
+    "description": "A field label in the card dialog: related cards."
+  },
+  "board.dialog.relatedPlaceholder": {
+    "defaultMessage": "Related cards, e.g. #7",
+    "description": "Placeholder of the card dialog's Related box: card numbers (#7 is an example)."
+  },
+  "board.dialog.save": {
+    "defaultMessage": "Save",
+    "description": "Button: saves the card (or a changed decision)."
+  },
+  "board.dialog.saveAndStart": {
+    "defaultMessage": "Save and Start…",
+    "description": "Button in the card dialog with unsaved changes: saves them, then asks which agent starts the card."
+  },
+  "board.dialog.savePostsIt": {
+    "defaultMessage": "Save posts it too",
+    "description": "Beside the Comment button once something is written: the card dialog's Save button posts the comment as well."
+  },
+  "board.dialog.saving": {
+    "defaultMessage": "Saving…",
+    "description": "A button while the card (or a decision) is being saved."
+  },
+  "board.dialog.start": {
+    "defaultMessage": "Start…",
+    "description": "Button in the card dialog: asks which agent starts the card."
+  },
+  "board.dialog.startButton": {
+    "defaultMessage": "Start",
+    "description": "Button of the Start dialog (and of Move to Doing with Assign and start): starts the card on the chosen agent."
+  },
+  "board.dialog.startTip": {
+    "defaultMessage": "Give it to an agent, with the card as its prompt.",
+    "description": "Tooltip on the card dialog's Start… button."
+  },
+  "board.dialog.startTipSave": {
+    "defaultMessage": "Save your changes, then give it to an agent with the card as its prompt.",
+    "description": "Tooltip on the card dialog's Save and Start… button."
+  },
+  "board.dialog.starting": {
+    "defaultMessage": "Starting…",
+    "description": "A button while a card is being started on an agent."
+  },
+  "board.dialog.titlePlaceholder": {
+    "defaultMessage": "Title",
+    "description": "Placeholder of the card dialog's title box."
+  },
+  "board.dialog.tryAgain": {
+    "defaultMessage": "Try Again",
+    "description": "A board dialog's main button after it failed: does it again."
+  },
+  "board.dialog.write": {
+    "defaultMessage": "Write",
+    "description": "A tab button in the card dialog: edit the description's Markdown."
+  },
+  "board.discard.changes": {
+    "defaultMessage": "your changes to the card",
+    "description": "What closing the card dialog would lose, in \"Closing loses {what}.\": changed fields. Lower case."
+  },
+  "board.discard.comment": {
+    "defaultMessage": "the comment you are writing",
+    "description": "What closing the card dialog would lose, in \"Closing loses {what}.\": a comment not posted. Lower case."
+  },
+  "board.discard.decision": {
+    "defaultMessage": "the decision you are writing",
+    "description": "What closing the card dialog would lose, in \"Closing loses {what}.\": a decision not added. Lower case."
+  },
+  "board.discard.decisionChange": {
+    "defaultMessage": "your change to a decision",
+    "description": "What closing the card dialog would lose, in \"Closing loses {what}.\": a decision changed and not saved. Lower case."
+  },
+  "board.discard.discard": {
+    "defaultMessage": "Discard",
+    "description": "Button: closes the card dialog, losing what was not saved."
+  },
+  "board.discard.keep": {
+    "defaultMessage": "Keep Editing",
+    "description": "Button: goes back to the card dialog, nothing lost."
+  },
+  "board.discard.message": {
+    "defaultMessage": "Closing loses {what}.",
+    "description": "When the card dialog closes with something not saved: {what} lists what would be lost (\"your changes to the card and the comment you are writing\")."
+  },
+  "board.discard.newCard": {
+    "defaultMessage": "this new card",
+    "description": "What closing the card dialog would lose, in \"Closing loses {what}.\": a card not added yet. Lower case."
+  },
+  "board.discard.title": {
+    "defaultMessage": "Discard unsaved changes?",
+    "description": "Title of the question when the card dialog closes with something not saved."
+  },
+  "board.doing.agent": {
+    "defaultMessage": "Agent",
+    "description": "A field label in the Move to Doing dialog: which agent gets the card."
+  },
+  "board.doing.agentStatus": {
+    "defaultMessage": "{agent} ({status})",
+    "description": "An agent in the Move to Doing dialog's agent choice, with what it is doing ({status}: \"Working…\", \"Stopped\")."
+  },
+  "board.doing.assign": {
+    "defaultMessage": "Assign an agent",
+    "description": "A choice in the Move to Doing dialog: give the card to an agent without starting anything."
+  },
+  "board.doing.assignText": {
+    "defaultMessage": "Gives it to an agent of the project. Nothing is sent to the agent and nothing starts.",
+    "description": "Under \"Assign an agent\" in the Move to Doing dialog."
+  },
+  "board.doing.button": {
+    "defaultMessage": "Move to Doing",
+    "description": "The Move to Doing dialog's button: moves the card into the Doing column (a board column)."
+  },
+  "board.doing.moving": {
+    "defaultMessage": "Moving…",
+    "description": "The Move to Doing button while the card is being moved."
+  },
+  "board.doing.noAgents": {
+    "defaultMessage": "The project has no agents yet.",
+    "description": "Under \"Assign an agent\" in the Move to Doing dialog (off) when the project has no agents."
+  },
+  "board.doing.nobody": {
+    "defaultMessage": "Moves it with no agent.",
+    "description": "Under \"Nobody yet\" in the Move to Doing dialog."
+  },
+  "board.doing.nobodyFrom": {
+    "defaultMessage": "Moves it with no agent. Takes it from {agent}.",
+    "description": "Under \"Nobody yet\" in the Move to Doing dialog, when the card has an agent ({agent}, its name)."
+  },
+  "board.doing.start": {
+    "defaultMessage": "Assign and start",
+    "description": "A choice in the Move to Doing dialog: give the card to an agent and start it on the card."
+  },
+  "board.doing.startText": {
+    "defaultMessage": "The agent gets the card as its prompt: a stopped one starts a new conversation, an idle one gets it as its next message.",
+    "description": "Under \"Assign and start\" in the Move to Doing dialog."
+  },
+  "board.doing.stopped": {
+    "defaultMessage": "Stopped",
+    "description": "An agent's state in the Move to Doing dialog's agent choice: its session isn't running."
+  },
+  "board.doing.title": {
+    "defaultMessage": "Move #{card} to Doing",
+    "description": "Title of the Move to Doing dialog: {card} is the card's number (after #). Doing is a board column."
+  },
+  "board.duration.hours": {
+    "defaultMessage": "{h} h",
+    "description": "A short duration in whole hours (\"2 h\"), in the Progress panel and on cards. Keep it short: an abbreviation."
+  },
+  "board.duration.hoursMinutes": {
+    "defaultMessage": "{h} h {min} min",
+    "description": "A short duration in hours and minutes (\"1 h 5 min\"), in the Progress panel and on cards. Keep it short: abbreviations."
+  },
+  "board.duration.minutes": {
+    "defaultMessage": "{min} min",
+    "description": "A short duration in minutes (\"4 min\"), in the Progress panel and on cards. Keep it short: an abbreviation."
+  },
+  "board.duration.seconds": {
+    "defaultMessage": "{s} s",
+    "description": "A short duration in seconds (\"40 s\"), in the Progress panel and on cards. Keep it short: an abbreviation."
+  },
+  "board.error.archive": {
+    "defaultMessage": "Could not archive the card",
+    "description": "An error toast's title: archiving a card failed."
+  },
+  "board.error.change": {
+    "defaultMessage": "Could not change the card",
+    "description": "An error toast's title: changing a card failed."
+  },
+  "board.error.move": {
+    "defaultMessage": "Could not move the card",
+    "description": "An error toast's title: moving a card to another column failed."
+  },
+  "board.error.unarchive": {
+    "defaultMessage": "Could not bring the card back",
+    "description": "An error toast's title: bringing an archived card back to the board failed."
+  },
+  "board.field.agent": {
+    "defaultMessage": "agent",
+    "description": "A card's field, named in a list (\"Your agent replaced the change made meanwhile\"). Lower case."
+  },
+  "board.field.blocked": {
+    "defaultMessage": "blocked",
+    "description": "A card's field, named in a list (\"Your blocked replaced the change made meanwhile\"): why it can't go on. Lower case."
+  },
+  "board.field.blockedBy": {
+    "defaultMessage": "blockedBy",
+    "description": "A card's field, named in a list (\"Your blockedBy replaced the change made meanwhile\"): the cards it depends on. Lower case."
+  },
+  "board.field.column": {
+    "defaultMessage": "column",
+    "description": "A card's field, named in a list (\"Your column replaced the change made meanwhile\"): the board column it is in. Lower case."
+  },
+  "board.field.description": {
+    "defaultMessage": "description",
+    "description": "A card's field, named in a list (\"Your title, description replaced the change made meanwhile\"). Lower case."
+  },
+  "board.field.labels": {
+    "defaultMessage": "labels",
+    "description": "A card's field, named in a list (\"Your labels replaced the change made meanwhile\"). Lower case."
+  },
+  "board.field.links": {
+    "defaultMessage": "links",
+    "description": "A card's field, named in a list (\"Your links replaced the change made meanwhile\"): its related cards. Lower case."
+  },
+  "board.field.project": {
+    "defaultMessage": "project",
+    "description": "A card's field, named in a list (\"Your project replaced the change made meanwhile\"). Lower case."
+  },
+  "board.field.title": {
+    "defaultMessage": "title",
+    "description": "A card's field, named in a list (\"Your title, labels replaced the change made meanwhile\"). Lower case."
+  },
+  "board.filter.noProject": {
+    "defaultMessage": "Assistant and scripts",
+    "description": "A choice of the Progress panel's project filter: the runs of the Hive Assistant and of scripts, which belong to no project."
+  },
+  "board.inbox.asks": {
+    "defaultMessage": "Asks you something",
+    "description": "An agent in the attention inbox has asked the user a question."
+  },
+  "board.inbox.asksWhat": {
+    "defaultMessage": "Asks: {message}",
+    "description": "An agent in the attention inbox has asked the user a question ({message}, in the agent's own words)."
+  },
+  "board.inbox.assistant": {
+    "defaultMessage": "Hive Assistant",
+    "description": "The Hive Assistant, named in the attention inbox (status bar popover, tray menu) where a project name goes. Hive is the app's name: keep it."
+  },
+  "board.inbox.changes": {
+    "defaultMessage": "Changes",
+    "description": "Button on a worktree agent's row in the inbox: shows its changes in the Git tab."
+  },
+  "board.inbox.commits": {
+    "defaultMessage": "{n, plural, one {# commit} other {# commits}}",
+    "description": "A worktree agent's unmerged commits, in the attention inbox (\"2 commits\")."
+  },
+  "board.inbox.diff": {
+    "defaultMessage": "{files, plural, one {# file} other {# files}}, +{insertions} −{deletions}",
+    "description": "A worktree agent's unmerged changes, in the attention inbox: how many files differ from its base branch, and the lines added (+) and removed (−)."
+  },
+  "board.inbox.failed": {
+    "defaultMessage": "Couldn't start",
+    "description": "An agent in the attention inbox failed to start."
+  },
+  "board.inbox.failedWhy": {
+    "defaultMessage": "Couldn't start: {message}",
+    "description": "An agent in the attention inbox failed to start; {message} is why (an error's first line)."
+  },
+  "board.inbox.finished": {
+    "defaultMessage": "Finished",
+    "description": "An agent in the attention inbox finished its turn and the user has not looked at it since."
+  },
+  "board.inbox.merge": {
+    "defaultMessage": "Merge…",
+    "description": "Button on a worktree agent's row in the inbox: opens the merge dialog for its branch."
+  },
+  "board.inbox.needYouCount": {
+    "defaultMessage": "{n, plural, one {# needs you} other {# need you}}",
+    "description": "The status bar's inbox item: how many agents wait for the user or finished unseen (\"2 need you\"). Keep it short."
+  },
+  "board.inbox.needYouEmptyHeading": {
+    "defaultMessage": "Need you",
+    "description": "Heading in the inbox popover above the agents that wait for the user, when there are none."
+  },
+  "board.inbox.needYouHeading": {
+    "defaultMessage": "Need you ({n})",
+    "description": "Heading in the inbox popover above the agents that wait for the user, with how many ({n})."
+  },
+  "board.inbox.needYouTip": {
+    "defaultMessage": "Agents waiting for you or finished since you last looked",
+    "description": "Tooltip of the status bar's inbox item (\"2 need you\")."
+  },
+  "board.inbox.needsInput": {
+    "defaultMessage": "Needs input",
+    "description": "An agent in the attention inbox waits for the user's answer."
+  },
+  "board.inbox.needsInputWhat": {
+    "defaultMessage": "Needs input: {message}",
+    "description": "An agent in the attention inbox waits for the user's answer; {message} is what its CLI shows (its own words)."
+  },
+  "board.inbox.nothing": {
+    "defaultMessage": "Nothing needs you right now.",
+    "description": "The inbox popover when no agent waits for the user."
+  },
+  "board.inbox.panel": {
+    "defaultMessage": "Agents that need you",
+    "description": "The inbox popover's accessible name (above the status bar)."
+  },
+  "board.inbox.safeguard": {
+    "defaultMessage": "After a safeguard stop",
+    "description": "An agent in the attention inbox whose CLI's safety classifier stopped a response."
+  },
+  "board.inbox.safeguardSwitched": {
+    "defaultMessage": "After a safeguard stop: Now runs on {to} instead of {from}",
+    "description": "An agent in the attention inbox whose CLI's safety classifier stopped a response, so it moved to another model: {to} and {from} are the models' names."
+  },
+  "board.inbox.toReview": {
+    "defaultMessage": "To review",
+    "description": "A worktree agent in the attention inbox has unmerged work for the user to review."
+  },
+  "board.inbox.toReviewCount": {
+    "defaultMessage": "{n, plural, one {# to review} other {# to review}}",
+    "description": "The status bar's inbox item: how many worktree agents have work for the user to review (\"1 to review\"). Keep it short."
+  },
+  "board.inbox.toReviewHeading": {
+    "defaultMessage": "To review ({n})",
+    "description": "Heading in the inbox popover above worktree agents whose work waits for the user's review, with how many ({n})."
+  },
+  "board.inbox.toReviewTip": {
+    "defaultMessage": "Worktree agents with work to review",
+    "description": "Tooltip of the status bar's inbox item when only worktree agents' work waits (\"1 to review\")."
+  },
+  "board.inbox.uncommitted": {
+    "defaultMessage": "{n, plural, one {# uncommitted file} other {# uncommitted files}}",
+    "description": "A worktree agent's files with changes not committed yet, in the attention inbox (\"1 uncommitted file\")."
+  },
+  "board.lane.afterRound": {
+    "defaultMessage": "{where} in round {round}",
+    "description": "Where a lane's finished card is, in its segment's label (Progress panel): its column ({where}, \"Passed\" or \"Done\") and the review round it passed in ({round}, a number above 1)."
+  },
+  "board.lane.andMore": {
+    "defaultMessage": "{cards} and {n} more",
+    "description": "A folded lane segment's list of cards (Progress panel), cut short: the first eight card numbers ({cards}: \"#3, #4\") and how many more ({n})."
+  },
+  "board.lane.blocked": {
+    "defaultMessage": "#{card}: blocked",
+    "description": "A lane segment's note in the Progress panel (its hover): the card is blocked, with no reason given. {card} is its number."
+  },
+  "board.lane.blockedReason": {
+    "defaultMessage": "#{card}: blocked: {reason}",
+    "description": "A lane segment's note in the Progress panel (its hover): the card is blocked, and why, in the user's or an agent's own words ({reason}). {card} is its number."
+  },
+  "board.lane.finished": {
+    "defaultMessage": "{n} finished: {cards}",
+    "description": "A lane segment's label (Progress panel) for its finished cards folded into one: how many ({n}) and which ({cards}: \"#3, #4\")."
+  },
+  "board.lane.goneWhenEnded": {
+    "defaultMessage": "#{card} · not on the board when the lane ended",
+    "description": "A lane segment's label (Progress panel), in a lane that has ended: the card wasn't on the board then. {card} is its number."
+  },
+  "board.lane.holdReason": {
+    "defaultMessage": "#{card}: On Hold: {reason}",
+    "description": "A lane segment's note in the Progress panel (its hover): the card is On Hold (a board column), and why, in the user's own words ({reason}). {card} is its number."
+  },
+  "board.lane.holdWaiting": {
+    "defaultMessage": "#{card}: On Hold: waiting for you to move it on",
+    "description": "A lane segment's note in the Progress panel (its hover): the card is On Hold (a board column) until the user moves it. {card} is its number."
+  },
+  "board.lane.holdWaitingShort": {
+    "defaultMessage": "On Hold, waiting for you",
+    "description": "Where a lane's card is, in its segment's label (Progress panel): On Hold (a board column) until the user moves it on."
+  },
+  "board.lane.inRound": {
+    "defaultMessage": "{where}, round {round}",
+    "description": "Where a lane's card is, in its segment's label (Progress panel): its column ({where}, \"Doing\" or \"Review\") and the review round it is in ({round}, a number)."
+  },
+  "board.lane.label": {
+    "defaultMessage": "#{card} {title} · {where}",
+    "description": "A lane segment's label (Progress panel): the card's number, title (the user's own words) and where it is ({where}: \"Review, round 2\")."
+  },
+  "board.lane.labelWhenEnded": {
+    "defaultMessage": "#{card} {title} · {where}, when the lane ended",
+    "description": "A lane segment's label (Progress panel), in a lane that has ended: the card's number, title (the user's own words) and where it was then ({where}: \"Review, round 2\")."
+  },
+  "board.lane.more": {
+    "defaultMessage": "{n} more: {cards}",
+    "description": "A lane segment's label (Progress panel) for the cards that don't fit its bar, folded into one: how many ({n}) and which ({cards}: \"#3, #4\")."
+  },
+  "board.lane.notOnBoard": {
+    "defaultMessage": "#{card} · not on the board",
+    "description": "A lane segment's label (Progress panel) for a card that isn't on the board (archived or deleted). {card} is its number."
+  },
+  "board.lane.reviewFailed": {
+    "defaultMessage": "#{card}: review failed (round {round}): waiting for round {next}",
+    "description": "A lane segment's note in the Progress panel (its hover, under a red underline): the card's review round {round} failed and the next round ({next}) hasn't started. {card} is its number."
+  },
+  "board.lane.reviewerGist": {
+    "defaultMessage": "Reviewer: {gist}",
+    "description": "A lane segment's note in the Progress panel: the first line of the reviewer's failed verdict ({gist}, in the reviewer's own words)."
+  },
+  "board.lane.roundFailed": {
+    "defaultMessage": "{where}, round {round} failed review",
+    "description": "Where a lane's card is, in its segment's label (Progress panel): its column ({where}, \"Review\"), and that its review round {round} failed."
+  },
+  "board.lane.unrecorded": {
+    "defaultMessage": "#{card} {title} · not recorded: the lane ended before Hive kept where its cards were",
+    "description": "A lane segment's label (Progress panel), in a lane that ended before Hive recorded its cards' columns. {card} is the card's number, {title} its title (the user's own words)."
+  },
+  "board.lane.unrecordedUntitled": {
+    "defaultMessage": "#{card} · not recorded: the lane ended before Hive kept where its cards were",
+    "description": "A lane segment's label (Progress panel), in a lane that ended before Hive recorded its cards' columns. {card} is the card's number."
+  },
+  "board.lanes.alreadyEnd": {
+    "defaultMessage": "{where, select, first {{lane} is already the first running lane} other {{lane} is already the last running lane}}",
+    "description": "Said to screen readers when a lane (its builder / reviewer: {lane}) is moved with Alt+Up or Alt+Down but is already first or last among the running lanes."
+  },
+  "board.lanes.bar": {
+    "defaultMessage": "{pair}: {finished} of {total, plural, one {# card} other {# cards}} finished",
+    "description": "Accessible name of a lane's bar (Progress panel): the builder / reviewer ({pair}), and how many of its cards are finished (passed or done)."
+  },
+  "board.lanes.barUnrecorded": {
+    "defaultMessage": "{pair}: {total, plural, one {# card} other {# cards}}, not recorded",
+    "description": "Accessible name of a lane's bar (Progress panel) when the lane ended before Hive recorded where its cards were: the builder / reviewer ({pair}) and how many cards."
+  },
+  "board.lanes.edge": {
+    "defaultMessage": "Lanes shown",
+    "description": "Accessible name of the handle on the top edge of the Progress panel's lanes: drag it for more or fewer lanes."
+  },
+  "board.lanes.edgeTip": {
+    "defaultMessage": "Drag to show more or fewer lanes; double-click for {lanes}",
+    "description": "Tooltip of the handle on the top edge of the Progress panel's lanes. {lanes} is the default number of lanes shown."
+  },
+  "board.lanes.edgeValue": {
+    "defaultMessage": "{shown} of {count, plural, one {# lane} other {# lanes}} shown",
+    "description": "The value of the handle on the top edge of the Progress panel's lanes, for screen readers: {shown} of the {count} lanes show."
+  },
+  "board.lanes.fold": {
+    "defaultMessage": "Fold the lanes",
+    "description": "Tooltip of the Progress panel's Lanes bar: folds the lanes down to the bar."
+  },
+  "board.lanes.moveDown": {
+    "defaultMessage": "Move Down",
+    "description": "A lane's context menu item in the Progress panel: moves it down among the running lanes."
+  },
+  "board.lanes.moveUp": {
+    "defaultMessage": "Move Up",
+    "description": "A lane's context menu item in the Progress panel: moves it up among the running lanes."
+  },
+  "board.lanes.moved": {
+    "defaultMessage": "{lane} moved: {at} of {n, plural, one {# running lane} other {# running lanes}}",
+    "description": "Said to screen readers after a lane is moved in the Progress panel: the lane (its builder / reviewer, and its name in brackets), and its place now ({at}) among the {n} running lanes."
+  },
+  "board.lanes.show": {
+    "defaultMessage": "Show the lanes",
+    "description": "Tooltip of the Progress panel's Lanes bar when the lanes are folded away."
+  },
+  "board.lanes.stalled": {
+    "defaultMessage": "stalled",
+    "description": "A lane's mark in its header (Progress panel), lower case: one of its cards is stalled (nobody is working on it); its tooltip says why."
+  },
+  "board.lanes.state": {
+    "defaultMessage": "{state, select, paused {paused} ended {merged} other {abandoned}}",
+    "description": "A lane's state in its header in the Progress panel, lower case (a lane: a builder and its reviewer working through cards in turn): paused, merged (it ended: its cards were merged) or abandoned."
+  },
+  "board.lanes.title": {
+    "defaultMessage": "Lanes",
+    "description": "The Progress panel's section of lanes (a builder and its reviewer working through cards in turn): its bar's label and accessible name."
+  },
+  "board.lanes.usualOrder": {
+    "defaultMessage": "Usual Order",
+    "description": "A lane's context menu item in the Progress panel: puts the lanes back in their usual order, undoing the user's own."
+  },
+  "board.lanes.usualOrderDetail": {
+    "defaultMessage": "Running lanes newest first, paused ones after them",
+    "description": "Under Usual Order in a lane's context menu (Progress panel): what the usual order is."
+  },
+  "board.lanes.usualOrderSaid": {
+    "defaultMessage": "Lanes back in the usual order",
+    "description": "Said to screen readers after the Progress panel's lanes go back to their usual order (Usual Order, in a lane's menu)."
+  },
+  "board.links.archivedTitle": {
+    "defaultMessage": "#{card} {title} · Archived (from {column}) · Ctrl+click to open",
+    "description": "The hover of a card number (#12) in a terminal, for an archived card: its number, title (the user's own words), the column it was archived from ({column}), and how to open it."
+  },
+  "board.links.title": {
+    "defaultMessage": "#{card} {title} · {column} · Ctrl+click to open",
+    "description": "The hover of a card number (#12) in a terminal: its number, title (the user's own words), its board column ({column}), and how to open it."
+  },
+  "board.menu.delete": {
+    "defaultMessage": "Delete…",
+    "description": "Menu item on a card (right-click): deletes it after asking."
+  },
+  "board.menu.moveTo": {
+    "defaultMessage": "Move to",
+    "description": "A heading in a card's right-click menu, above the board columns it can move to."
+  },
+  "board.menu.nextRound": {
+    "defaultMessage": "Review (next round)",
+    "description": "Menu item on a card that failed review and is still in Review: returns it to its reviewer for the next round. Review is the board column."
+  },
+  "board.menu.open": {
+    "defaultMessage": "Open",
+    "description": "Menu item on a card (right-click): opens the card's dialog."
+  },
+  "board.menu.start": {
+    "defaultMessage": "Start…",
+    "description": "Menu item on a card (right-click): gives it to an agent to start (opens a dialog)."
+  },
+  "board.merge.fold": {
+    "defaultMessage": "Fold the merge to one line",
+    "description": "Tooltip of the button folding a merge's card in the Progress panel to its first line."
+  },
+  "board.merge.region": {
+    "defaultMessage": "Merging",
+    "description": "Accessible name of the top of the Progress panel: a card for each merge going on."
+  },
+  "board.merge.time": {
+    "defaultMessage": "{sofar} so far · {left} left",
+    "description": "How long a merge has held the merge slot ({sofar}: \"3 min\") and how long its hold has left ({left}: \"57 min\"), on its card in the Progress panel."
+  },
+  "board.merge.timeOver": {
+    "defaultMessage": "{sofar} so far · over its time",
+    "description": "How long a merge has held the merge slot ({sofar}: \"63 min\"), on its card in the Progress panel, once its hold has run out."
+  },
+  "board.merge.unfold": {
+    "defaultMessage": "Show the merge in full",
+    "description": "Tooltip of the button unfolding a merge's card in the Progress panel."
+  },
+  "board.newCard.button": {
+    "defaultMessage": "New Card",
+    "description": "The board toolbar's button that adds a card, and the title of the dialog it opens."
+  },
+  "board.newCard.tip": {
+    "defaultMessage": "New card",
+    "description": "Tooltip on the + buttons that add a card (the Todo column, the Board sidebar)."
+  },
+  "board.overview.blocked": {
+    "defaultMessage": "Blocked",
+    "description": "A count on the Overview's board strip: cards that are blocked (can't go on). Follows the number."
+  },
+  "board.overview.noCards": {
+    "defaultMessage": "No cards for this project.",
+    "description": "A project's Overview, where its cards are counted, when it has none."
+  },
+  "board.overview.openTasks": {
+    "defaultMessage": "Open Tasks",
+    "description": "Button on a project's Overview with no cards: opens its Tasks tab."
+  },
+  "board.overview.stalled": {
+    "defaultMessage": "Stalled",
+    "description": "Cards nobody is getting on with, counted: on the Overview's board strip (after the number) and as a heading in the Board sidebar."
+  },
+  "board.overview.waitingForReview": {
+    "defaultMessage": "Waiting for review",
+    "description": "Cards in the Review column, counted: on the Overview's board strip (after the number) and as a heading in the Board sidebar."
+  },
+  "board.panel.allProjects": {
+    "defaultMessage": "All projects",
+    "description": "The Board sidebar's first row: shows every project's cards."
+  },
+  "board.panel.info": {
+    "defaultMessage": "The workspace's cards, in .hive/tasks. Agents and the Assistant read, change and move them through Hive's tools (finished work goes to Review); only you archive or delete them.",
+    "description": "The (i) beside the Board sidebar's title. Keep .hive/tasks as it is (a folder). Review is a board column."
+  },
+  "board.panel.refresh": {
+    "defaultMessage": "Refresh",
+    "description": "Tooltip on the Board sidebar's refresh button: reads the cards again."
+  },
+  "board.panel.stalledInfo": {
+    "defaultMessage": "Cards in Doing that nobody is working on: no agent has them, or their agent was removed or isn't running. Also cards in Doing or Review that an agent in a card loop left without waiting on them.",
+    "description": "The (i) beside the Board sidebar's Stalled heading. Doing and Review are board columns."
+  },
+  "board.panel.workspace": {
+    "defaultMessage": "Workspace",
+    "description": "A row of the Board sidebar: shows the cards of no project (about the whole workspace)."
+  },
+  "board.progress.agentGone": {
+    "defaultMessage": "{agent} has been removed from {project}.",
+    "description": "Why a Progress panel run's agent can't be shown: the agent ({agent}) was removed from its project ({project})."
+  },
+  "board.progress.allAgents": {
+    "defaultMessage": "All agents",
+    "description": "A choice of the Progress panel's agent filter: the runs of every agent of the chosen project."
+  },
+  "board.progress.allProjects": {
+    "defaultMessage": "All projects",
+    "description": "A choice of the Progress panel's project filter: every project's runs."
+  },
+  "board.progress.cantShow": {
+    "defaultMessage": "Can't show {agent}",
+    "description": "A notification's title: the agent ({agent}) that ran a Progress panel run can't be shown. Its message says why."
+  },
+  "board.progress.copied": {
+    "defaultMessage": "{what, select, command {Command copied} other {Details copied}}",
+    "description": "A notification after copying a run's command or its details from the Progress panel."
+  },
+  "board.progress.copyCommand": {
+    "defaultMessage": "Copy command",
+    "description": "Button in a run's details (Progress panel): copies the command it ran."
+  },
+  "board.progress.copyDetails": {
+    "defaultMessage": "Copy details",
+    "description": "Button in a run's details (Progress panel): copies all of them as text, to paste elsewhere."
+  },
+  "board.progress.copyFailed": {
+    "defaultMessage": "{what, select, command {Could not copy the command} other {Could not copy the details}}",
+    "description": "A notification: copying a run's command or its details from the Progress panel failed."
+  },
+  "board.progress.detailsOf": {
+    "defaultMessage": "Details of {run}",
+    "description": "Accessible name of a run's details in the Progress panel ({run}: the run's title)."
+  },
+  "board.progress.dismiss": {
+    "defaultMessage": "Dismiss (it stays under Recent)",
+    "description": "Tooltip of the button dismissing a failed or stale run in the Progress panel. Recent is the panel's section of older runs."
+  },
+  "board.progress.empty": {
+    "defaultMessage": "Nothing is running. When an agent runs tests or a build with progress reporting, it shows here with how far along it is and the time left.",
+    "description": "The Progress panel when it has no runs."
+  },
+  "board.progress.filterAgent": {
+    "defaultMessage": "…and of the agent",
+    "description": "Accessible name of the Progress panel's agent filter, continuing the project filter's (Show the runs of): a list of the project's agents follows."
+  },
+  "board.progress.filterProject": {
+    "defaultMessage": "Show the runs of",
+    "description": "Accessible name of the Progress panel's project filter (a list of projects follows; the agent filter's name continues the sentence: …and of the agent)."
+  },
+  "board.progress.fold": {
+    "defaultMessage": "Fold the Progress panel",
+    "description": "Tooltip of the button folding the Progress panel to a strip at the window's edge. A shortcut may follow in brackets."
+  },
+  "board.progress.hideDetails": {
+    "defaultMessage": "Hide details for {run}",
+    "description": "Tooltip of the button closing a run's details in the Progress panel ({run}: the run's title)."
+  },
+  "board.progress.miniWaiting": {
+    "defaultMessage": "{agent}: {run} (waiting)",
+    "description": "Tooltip of a run's small bar on the folded Progress strip: its agent, its title ({run}), and that it is waiting (for a test slot, say)."
+  },
+  "board.progress.moreOthers": {
+    "defaultMessage": "and {n} others: open the panel to see them",
+    "description": "The last line of the folded Progress strip's +N tooltip, after the runs it lists: how many more there are ({n})."
+  },
+  "board.progress.moreRuns": {
+    "defaultMessage": "{n} more:",
+    "description": "Heading of the folded Progress strip's +N tooltip: the runs without a bar of their own ({n} of them) are listed under it."
+  },
+  "board.progress.noAssistant": {
+    "defaultMessage": "The Assistant is not in this workspace.",
+    "description": "Why a Progress panel run's agent can't be shown: the run is the Hive Assistant's, and this workspace has none."
+  },
+  "board.progress.openLog": {
+    "defaultMessage": "Open log",
+    "description": "Button in a run's details (Progress panel): opens the log file its reporter named."
+  },
+  "board.progress.openLogFailed": {
+    "defaultMessage": "Couldn't open the log",
+    "description": "An error's title: opening a run's log file (Progress panel) failed."
+  },
+  "board.progress.projectGone": {
+    "defaultMessage": "Its project is no longer in this workspace.",
+    "description": "Why a Progress panel run's agent can't be shown: its project was removed from the workspace."
+  },
+  "board.progress.railFiltered": {
+    "defaultMessage": "{name} only: {summary}; {all} in all",
+    "description": "The folded Progress strip's name when the panel is filtered: the project (or project · agent) shown ({name}), its runs in words ({summary}: 3 runs: 2 running, 1 failed), and how many runs there are in all ({all})."
+  },
+  "board.progress.railFilteredNone": {
+    "defaultMessage": "{name} only: no runs; {all} in all",
+    "description": "The folded Progress strip's name when the panel is filtered and the project (or project · agent) shown ({name}) has no runs: how many runs there are in all ({all})."
+  },
+  "board.progress.railLabel": {
+    "defaultMessage": "Progress",
+    "description": "The folded Progress panel's label, written down the strip at the window's edge. Keep it short."
+  },
+  "board.progress.railShowing": {
+    "defaultMessage": "Showing {name} only ({shown} of {all})",
+    "description": "Tooltip of the filter mark on the folded Progress strip: only one project's (or agent's) runs ({name}) show, {shown} of {all} runs."
+  },
+  "board.progress.recent": {
+    "defaultMessage": "Recent",
+    "description": "A section heading in the Progress panel: runs that finished a while ago."
+  },
+  "board.progress.recentHover": {
+    "defaultMessage": "{agent}: {run} {state}",
+    "description": "Tooltip of a run under the Progress panel's Recent: its agent, its title ({run}) and its state in a few words ({state}: failed, stopped reporting…)."
+  },
+  "board.progress.recentHoverTook": {
+    "defaultMessage": "{agent}: {run} {state} ({took})",
+    "description": "Tooltip of a run under the Progress panel's Recent: its agent, its title ({run}), its state in a few words ({state}: failed, stopped reporting…) and how long it took ({took}: 4 min)."
+  },
+  "board.progress.recentRuns": {
+    "defaultMessage": "Recent runs",
+    "description": "What the Progress panel's Recent list holds, for its Show all button and accessible name."
+  },
+  "board.progress.region": {
+    "defaultMessage": "Progress",
+    "description": "Accessible name of the Progress panel (long runs agents report: tests, builds)."
+  },
+  "board.progress.scriptRun": {
+    "defaultMessage": "A script reported it, not an agent: there is no agent to show.",
+    "description": "Why a Progress panel run's agent can't be shown: a script reported the run."
+  },
+  "board.progress.show": {
+    "defaultMessage": "Show the Progress panel",
+    "description": "Tooltip and accessible name of the folded Progress strip at the window's edge: opens the panel. Its runs in words, or a shortcut, may follow in brackets."
+  },
+  "board.progress.showAgent": {
+    "defaultMessage": "Show {agent}, which ran {run}",
+    "description": "Accessible name of the button showing the agent ({agent}) that ran a Progress panel run ({run}: the run's title)."
+  },
+  "board.progress.showAssistant": {
+    "defaultMessage": "Show the Assistant, which ran {run}",
+    "description": "Accessible name of the button showing the Hive Assistant, which ran a Progress panel run ({run}: the run's title)."
+  },
+  "board.progress.showDetails": {
+    "defaultMessage": "Show details for {run}",
+    "description": "Tooltip of the button opening a run's details in the Progress panel ({run}: the run's title)."
+  },
+  "board.progress.showLog": {
+    "defaultMessage": "Show in folder",
+    "description": "Button in a run's details (Progress panel): shows its log file in File Explorer."
+  },
+  "board.progress.showLogFailed": {
+    "defaultMessage": "Couldn't show the log",
+    "description": "An error's title: showing a run's log file in its folder (Progress panel) failed."
+  },
+  "board.progress.showTheAgent": {
+    "defaultMessage": "Show the agent",
+    "description": "Button and tooltip on a Progress panel run: shows the agent that ran it."
+  },
+  "board.progress.stepOf": {
+    "defaultMessage": "{step} of {total}",
+    "description": "A run's step in the Progress panel, under its bar: step {step} of {total}."
+  },
+  "board.progress.stepOfNamed": {
+    "defaultMessage": "{step} of {total}: {name}",
+    "description": "A run's step in the Progress panel, under its bar: step {step} of {total}, and the step's name ({name}, as its reporter named it)."
+  },
+  "board.progress.title": {
+    "defaultMessage": "Progress",
+    "description": "The Progress panel's title, in its header (long runs agents report: tests, builds)."
+  },
+  "board.progress.waiting": {
+    "defaultMessage": "waiting",
+    "description": "A run's state on its bar (accessible value) and in a list of runs (build (waiting)), lower case: it waits (for a test slot, say)."
+  },
+  "board.review.line": {
+    "defaultMessage": "Reviewing: {agent} · {ago}",
+    "description": "A card's reviewer line on the board: who is reviewing it and since when ({ago}: \"5 min ago\")."
+  },
+  "board.review.lineNotRunning": {
+    "defaultMessage": "Reviewing: {agent} (not running)",
+    "description": "A card's reviewer line on the board, in amber: its reviewer's session isn't running."
+  },
+  "board.review.lineRemoved": {
+    "defaultMessage": "Reviewing: {agent} (removed)",
+    "description": "A card's reviewer line on the board, in amber: its reviewer was removed from the project."
+  },
+  "board.review.tip": {
+    "defaultMessage": "{agent} is reviewing it (since {ago}). Click to show it.",
+    "description": "Tooltip on a card's reviewer line: who is reviewing it, since when ({ago}: \"5 min ago\")."
+  },
+  "board.review.tipNotRunning": {
+    "defaultMessage": "{agent} started reviewing it {ago}, and isn't running.",
+    "description": "Tooltip on a card's reviewer line, in amber: the reviewer ({agent}) started {ago} (\"5 min ago\") but its session isn't running now."
+  },
+  "board.review.tipRemoved": {
+    "defaultMessage": "{agent} started reviewing it {ago}, and was removed.",
+    "description": "Tooltip on a card's reviewer line, in amber: the reviewer ({agent}) started {ago} (\"5 min ago\") and was removed from the project since."
+  },
+  "board.run.agentStopped": {
+    "defaultMessage": "Its agent stopped before it finished",
+    "description": "A run's status line in the Progress panel: the agent that ran it stopped first."
+  },
+  "board.run.failedAfter": {
+    "defaultMessage": "Failed after {took}",
+    "description": "A failed run's status line in the Progress panel. {took} is how long it ran (\"4 min\")."
+  },
+  "board.run.finishing": {
+    "defaultMessage": "{took} · finishing",
+    "description": "A running run's status line in the Progress panel, just past its estimate. {took} is how long it has run (\"3 min\")."
+  },
+  "board.run.goneAfter": {
+    "defaultMessage": "Ended without a report after {took}",
+    "description": "A run's status line in the Progress panel: its process ended without saying how it went. {took} is how long it ran (\"4 min\")."
+  },
+  "board.run.overEstimate": {
+    "defaultMessage": "{took} · longer than expected",
+    "description": "A running run's status line in the Progress panel, well past its estimate. {took} is how long it has run (\"3 min\")."
+  },
+  "board.run.passedIn": {
+    "defaultMessage": "Passed in {took}",
+    "description": "A finished run's status line in the Progress panel. {took} is how long it took (\"4 min\")."
+  },
+  "board.run.ranThenWaiting": {
+    "defaultMessage": "{took} · waiting {waited}",
+    "description": "A run's status line in the Progress panel: it ran for {took}, then has been waiting (for a test slot, say) for {waited}. Both are durations (\"3 min\")."
+  },
+  "board.run.staleFor": {
+    "defaultMessage": "Stopped reporting {ago} ago",
+    "description": "A run's status line in the Progress panel: no news from it for a while. {ago} is how long (\"12 min\")."
+  },
+  "board.run.state": {
+    "defaultMessage": "{state, select, running {running} failed {failed} stale {stopped reporting} passed {passed} stopped {stopped} gone {ended without a report} other {{state}}}",
+    "description": "A Progress panel run's state in a few words, lower case: in a hover (\"Copy the summary (failed)\") and a run's accessible name. stale: it stopped reporting; gone: its process ended without saying how it went."
+  },
+  "board.run.stoppedAfter": {
+    "defaultMessage": "Stopped after {took}",
+    "description": "A run's status line in the Progress panel: its command was interrupted. {took} is how long it ran (\"4 min\")."
+  },
+  "board.run.timeLeft": {
+    "defaultMessage": "{took} · about {left} left",
+    "description": "A running run's status line in the Progress panel: how long it has run ({took}) and about how long it has left ({left}). Both are durations (\"3 min\")."
+  },
+  "board.run.waiting": {
+    "defaultMessage": "waiting {waited}",
+    "description": "A run's status line in the Progress panel: it has been waiting (for a test slot, say) for {waited} (\"3 min\"). Lower case, as the line may follow a duration."
+  },
+  "board.run.wordsStale": {
+    "defaultMessage": "{run} · stopped reporting",
+    "description": "A run in a few words, for an agent's status line: {run} is its title and steps (\"e2e 4/12\"); it stopped reporting."
+  },
+  "board.run.wordsWaiting": {
+    "defaultMessage": "{run} · waiting",
+    "description": "A run in a few words, for an agent's status line: {run} is its title and steps (\"e2e 4/12\"); it is waiting (for a test slot, say)."
+  },
+  "board.slots.agentMerging": {
+    "defaultMessage": "{agent} is merging{cards, select, none {} other { {cards}}}",
+    "description": "Who holds the merge slot: an agent ({agent}) merging, then the cards it merges ({cards}: \"#305, #306\"; none: leave that branch empty)."
+  },
+  "board.slots.agentNext": {
+    "defaultMessage": "{agent} is next to merge{cards, select, none {} other { {cards}}}",
+    "description": "Who holds the merge slot: an agent ({agent}) whose turn it is, not started yet, then the cards it will merge ({cards}: \"#305, #306\"; none: leave that branch empty)."
+  },
+  "board.slots.free": {
+    "defaultMessage": "free",
+    "description": "A merge slot nobody holds, after its branch (\"main: free\"). Lower case."
+  },
+  "board.slots.freeNext": {
+    "defaultMessage": "free, {agent} next",
+    "description": "A merge slot nobody holds, after its branch (\"main: free, B4 next\"): the agent next in line ({agent}) gets it. Lower case."
+  },
+  "board.slots.held": {
+    "defaultMessage": "{holder} ({sofar} so far, {left} left)",
+    "description": "A merge slot in a line, after its branch: who holds it ({holder}: \"B4 is merging #305\"), how long so far ({sofar}: \"3 min\") and how long its hold has left ({left}: \"57 min\")."
+  },
+  "board.slots.heldOver": {
+    "defaultMessage": "{holder} ({sofar} so far, over its time)",
+    "description": "A merge slot in a line, after its branch: who holds it ({holder}: \"B4 is merging #305\"), how long so far ({sofar}: \"63 min\"), and that its hold has run out."
+  },
+  "board.slots.into": {
+    "defaultMessage": "into <code>{branch}</code>",
+    "description": "Where a merge goes: into a branch ({branch}, shown as code; keep the <code> tags around it)."
+  },
+  "board.slots.minutes": {
+    "defaultMessage": "{n} min",
+    "description": "How long a merge has held the merge slot (or has left), in whole minutes (\"48 min\"). Keep it short: an abbreviation."
+  },
+  "board.slots.note": {
+    "defaultMessage": "{who} into {branch} (the merge slot). Merge waits until it is free{waiting, plural, =0 {} other {; # waiting}}.",
+    "description": "The Merge dialog's note while the branch it merges into ({branch}) is taken: who holds it ({who}: \"B4 is merging #305\"), that the merge waits, and how many wait in line ({waiting}; none: leave that branch empty)."
+  },
+  "board.slots.release": {
+    "defaultMessage": "Release",
+    "description": "Button on a merge slot: frees the slot from a holder that is stuck. Keep it short."
+  },
+  "board.slots.releaseAgent": {
+    "defaultMessage": "{agent} holds the merge slot for {project} · {branch}. Release it only if it is stuck: {agent} may be in the middle of merging, and is told the slot was released when it next asks.",
+    "description": "The confirmation before freeing a merge slot an agent ({agent}) holds, for a project ({project}) and its branch ({branch})."
+  },
+  "board.slots.releaseFailed": {
+    "defaultMessage": "Couldn't release the merge slot",
+    "description": "An error's title: freeing a merge slot failed."
+  },
+  "board.slots.releaseNext": {
+    "defaultMessage": "{agent} is next in line and gets it.",
+    "description": "Under the confirmation before freeing a merge slot: the agent next in line ({agent}) gets the slot."
+  },
+  "board.slots.releaseTipAgent": {
+    "defaultMessage": "Release the merge slot {agent} holds, if it is stuck",
+    "description": "Tooltip of the Release button on a merge slot an agent ({agent}) holds."
+  },
+  "board.slots.releaseTipYou": {
+    "defaultMessage": "Release the merge slot your merge holds, if it is stuck",
+    "description": "Tooltip of the Release button on a merge slot the user's own merge holds."
+  },
+  "board.slots.releaseTitle": {
+    "defaultMessage": "Release the merge slot?",
+    "description": "Title of the confirmation before freeing a merge slot from its holder."
+  },
+  "board.slots.releaseYours": {
+    "defaultMessage": "Your merge holds the merge slot for {project} · {branch}. Release it only if it is stuck: the merge may still be running.",
+    "description": "The confirmation before freeing a merge slot the user's own merge holds, for a project ({project}) and its branch ({branch})."
+  },
+  "board.slots.underMinute": {
+    "defaultMessage": "under a minute",
+    "description": "How long a merge has held the merge slot (or has left), when under a minute. Lower case: it starts a phrase (\"under a minute so far\")."
+  },
+  "board.slots.waiting": {
+    "defaultMessage": "Waiting: {agents}",
+    "description": "Who waits for the merge slot, in line order ({agents}: their names, listed)."
+  },
+  "board.slots.waitingToMerge": {
+    "defaultMessage": "{agent} is waiting to merge",
+    "description": "Who has the merge slot in the Merge dialog's note when nobody holds it: the agent first in line ({agent}). It starts the note."
+  },
+  "board.slots.youMerging": {
+    "defaultMessage": "you are merging",
+    "description": "Who holds the merge slot, inside a line (\"main: you are merging (3 min so far…)\"): the user (merging from the window). Lower case."
+  },
+  "board.slots.youMergingStart": {
+    "defaultMessage": "You are merging",
+    "description": "Who holds the merge slot, at the start of a line: the user (merging from the window)."
+  },
+  "board.stall.hintNobody": {
+    "defaultMessage": "Nobody is working on it. Start it again (on this agent or another), or move it back to Todo.",
+    "description": "Tooltip on a card stalled in Doing: no agent is working on it. Todo is a board column."
+  },
+  "board.stall.hintNotWatching": {
+    "defaultMessage": "Nothing will wake that agent when this card changes. Show it and ask it to carry on its card loop.",
+    "description": "Tooltip on a stalled card: an agent in a card loop stopped without a card watch (what wakes it when the card changes)."
+  },
+  "board.stall.hintReviewSilent": {
+    "defaultMessage": "Its reviewer may have finished its turn without Hive seeing it end. Show the reviewer: if its terminal waits at its prompt, Mark idle, and the watch wakes it.",
+    "description": "Tooltip on a card stalled in Review whose reviewer Hive has heard nothing from. \"Mark idle\" is a command in the agent's menu: keep its wording as that command is translated."
+  },
+  "board.stall.hintReviewWait": {
+    "defaultMessage": "Its reviewer's watch didn't wake it. Show the reviewer and ask it to review the card.",
+    "description": "Tooltip on a card stalled in Review: its reviewer watches it but has not started."
+  },
+  "board.stalled.noAgent": {
+    "defaultMessage": "In Doing, but no agent has it.",
+    "description": "Why a card in the Doing column is stalled (on the card). Doing is the column."
+  },
+  "board.stalled.notRunning": {
+    "defaultMessage": "{agent} isn't running.",
+    "description": "Why a card's work or review is stalled: its agent's session isn't running. {agent} is the agent's name."
+  },
+  "board.stalled.notWatching": {
+    "defaultMessage": "{agent} isn't watching #{card}: its turn ended with no card watch.",
+    "description": "Why a card in a card loop is stalled: the agent looping on it stopped without waiting for the card to change. {agent} is its name, {card} the card number (after #). A card watch is what wakes an agent when a card changes."
+  },
+  "board.stalled.removed": {
+    "defaultMessage": "{agent} was removed.",
+    "description": "Why a card's work or review is stalled: its agent was removed from the project. {agent} is the agent's name."
+  },
+  "board.stalled.removedUnnamed": {
+    "defaultMessage": "Its agent was removed.",
+    "description": "Why a card's work is stalled: its agent (name unknown) was removed from the project."
+  },
+  "board.stalled.reviewWait": {
+    "defaultMessage": "{agent} is watching #{card} but hasn't started reviewing it: in Review for {waited}.",
+    "description": "Why a card waiting in Review is stalled: its reviewer watches it but hasn't started. {agent} is the reviewer's name, {card} the card number (after #), {waited} how long it has waited (\"40 min\", \"2 h 5 min\")."
+  },
+  "board.stalled.reviewWaitBusy": {
+    "defaultMessage": "{agent} is watching #{card} but hasn't started reviewing it (it is working on something else): in Review for {waited}.",
+    "description": "Why a card waiting in Review is stalled: its reviewer watches it but is busy with other work. {agent} is the reviewer's name, {card} the card number (after #), {waited} how long it has waited (\"40 min\", \"2 h 5 min\")."
+  },
+  "board.stalled.reviewWaitSilent": {
+    "defaultMessage": "{agent} is watching #{card} but hasn't started reviewing it (it shows working, but has been silent for {silent} min: state unknown): in Review for {waited}.",
+    "description": "Why a card waiting in Review is stalled: its reviewer watches it but hasn't started, and Hive can't tell what the reviewer is doing. {agent} is the reviewer's name, {card} the card number (after #), {silent} minutes, {waited} how long it has waited (\"40 min\", \"2 h 5 min\")."
+  },
+  "board.start.busy": {
+    "defaultMessage": "{status}. Choose it once it's idle.",
+    "description": "Under a busy agent in the Start dialog, which can't take the card yet: what it is doing ({status}: \"Working\")."
+  },
+  "board.start.idle": {
+    "defaultMessage": "{status}: gets the card as its next message.",
+    "description": "Under an idle agent in the Start dialog: what it is doing ({status}: \"Ready\", \"Finished\"), and that the card is typed to it next."
+  },
+  "board.start.intro": {
+    "defaultMessage": "The agent gets the card as its prompt (title and description), and the card moves to Doing. A stopped agent starts a new conversation; an idle one gets it as its next message.",
+    "description": "At the top of the Start dialog. Doing is a board column."
+  },
+  "board.start.name": {
+    "defaultMessage": "Name",
+    "description": "A field label in the Start dialog: the new agent's name."
+  },
+  "board.start.namePlaceholder": {
+    "defaultMessage": "Default: Agent n",
+    "description": "Placeholder of the new agent's name in the Start dialog: left empty, it is named Agent and a number."
+  },
+  "board.start.newAgent": {
+    "defaultMessage": "A new agent",
+    "description": "A choice in the Start dialog: the card starts on a new agent of the project."
+  },
+  "board.start.newAgentText": {
+    "defaultMessage": "Works in the project folder, next to the others.",
+    "description": "Under \"A new agent\" in the Start dialog."
+  },
+  "board.start.noProject": {
+    "defaultMessage": "The card has no project.",
+    "description": "Why a card can't start: it belongs to no project."
+  },
+  "board.start.notGit": {
+    "defaultMessage": "The project is not a git repository.",
+    "description": "Why a card cannot start on a new agent in its own worktree (the Start dialog): the project has no git repository."
+  },
+  "board.start.ok": {
+    "defaultMessage": "OK",
+    "description": "Button: closes the Start dialog of a card that has no project."
+  },
+  "board.start.projectDefault": {
+    "defaultMessage": "Project default ({provider})",
+    "description": "The Start dialog's provider choice: the project's default CLI ({provider}, its name)."
+  },
+  "board.start.projectGone": {
+    "defaultMessage": "{project} isn't a project in this workspace.",
+    "description": "Why a card can't start: its project ({project}) isn't in the workspace."
+  },
+  "board.start.provider": {
+    "defaultMessage": "Provider",
+    "description": "A field label in the Start dialog: the new agent's CLI (Claude Code, Codex…)."
+  },
+  "board.start.providerOff": {
+    "defaultMessage": "{provider} is turned off.",
+    "description": "Under an agent in the Start dialog that can't take the card: its CLI ({provider}: Claude Code, Codex…) is turned off in Settings."
+  },
+  "board.start.show": {
+    "defaultMessage": "Show",
+    "description": "A button on the toast after a card started: shows the agent it started on."
+  },
+  "board.start.started": {
+    "defaultMessage": "#{card} started on {agent}",
+    "description": "A toast's title after a card started: its number (after #) and the agent ({agent}, its name). The card's title follows."
+  },
+  "board.start.stopped": {
+    "defaultMessage": "Stopped: starts a new conversation on the card.",
+    "description": "Under a stopped agent in the Start dialog: starting the card starts it with a new conversation."
+  },
+  "board.start.title": {
+    "defaultMessage": "Start #{card}: {title}",
+    "description": "Title of the Start dialog: the card's number (after #) and title."
+  },
+  "board.start.titleShort": {
+    "defaultMessage": "Start #{card}",
+    "description": "Title of the Start dialog when the card can't start: {card} is its number (after #)."
+  },
+  "board.start.worktreeAgent": {
+    "defaultMessage": "A new agent in its own worktree",
+    "description": "A choice in the Start dialog: the card starts on a new agent with its own git worktree (branch and folder)."
+  },
+  "board.start.worktreeText": {
+    "defaultMessage": "Its own branch and folder; merge its work back when the card is done.",
+    "description": "Under \"A new agent in its own worktree\" in the Start dialog."
+  },
+  "board.strip.count": {
+    "defaultMessage": "{state, select, running {{n, plural, one {# running} other {# running}}} failed {{n, plural, one {# failed} other {# failed}}} stale {{n, plural, one {# stopped reporting} other {# stopped reporting}}} passed {{n, plural, one {# passed} other {# passed}}} other {{n, plural, one {# stopped} other {# stopped}}}}",
+    "description": "How many runs of the folded Progress strip are in a state (\"3 running\", \"1 stopped reporting\"), listed after its total (\"8 runs: 3 running, 1 failed\"). stale: stopped reporting."
+  },
+  "board.strip.oneRun": {
+    "defaultMessage": "1 run, {state, select, running {running} failed {failed} stale {stopped reporting} passed {passed} other {stopped}}",
+    "description": "The folded Progress strip's name when it has one run, with that run's state (stale: it stopped reporting)."
+  },
+  "board.strip.runs": {
+    "defaultMessage": "{n, plural, one {# run} other {# runs}}: {states}",
+    "description": "The folded Progress strip's name: how many runs, then how many are in each state (\"8 runs: 5 running, 2 failed\"). {states} is that list."
+  },
+  "board.toolbar.archived": {
+    "defaultMessage": "Archived ({n})",
+    "description": "A checkbox in the board's toolbar: shows the archived cards instead (how many there are: {n})."
+  },
+  "board.toolbar.more": {
+    "defaultMessage": "Board: more",
+    "description": "Tooltip on the board toolbar's ⋯ button: opens the board's menu (Archive All Cards…)."
+  },
+  "board.toolbar.search": {
+    "defaultMessage": "Search cards (#12, words, labels)",
+    "description": "Placeholder of the board's search box: finds cards by number (#12), words or labels."
+  },
+  "board.view.intro": {
+    "defaultMessage": "Plan work as cards, start them on agents, and see where each one is. Agents put finished work in Review, and reviewers move what passes to Passed.",
+    "description": "Under the Task Board's title. Review and Passed are board columns."
+  },
+  "board.view.noWorkspace": {
+    "defaultMessage": "Open a workspace to see its task board.",
+    "description": "The Task Board view with no workspace open."
+  },
+  "board.view.title": {
+    "defaultMessage": "Task Board",
+    "description": "The board's name: the title of the Task Board view and of its sidebar."
+  },
+  "board.view.workspaceCards": {
+    "defaultMessage": "workspace cards",
+    "description": "After the Task Board's title when the sidebar shows the cards of no project (about the whole workspace). Lower case."
+  }
+}

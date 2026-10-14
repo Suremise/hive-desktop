@@ -4,6 +4,8 @@ import { DEFAULT_COLUMN_COLORS } from './tasks'
 import { formatDateTime } from './dates'
 import { AUTO_PROVIDER, DEFAULT_PROVIDER, PROVIDERS, defaultProviderSettings, isDefaultProviderValue, providerDescriptor } from './providers'
 import { chosenName, effortName, modelIdName, resolvedModel, runsAsName, type ModelInfo } from './models'
+import { msg, tr as trNow, type Msg } from './i18n'
+import type { Tr } from './tasks'
 
 export const HIVE_DIR = '.hive'
 
@@ -12,7 +14,7 @@ export const isSessionId = (id: unknown): id is string => typeof id === 'string'
 
 /** Throws unless id is a valid session id (see isSessionId). Session ids end up in file names. */
 export function assertSessionId(id: unknown): string {
-  if (!isSessionId(id)) throw new Error('Invalid session id')
+  if (!isSessionId(id)) throw new Error('Invalid session id') // i18n-ignore: a programming error's message (E10 formats errors)
   return id
 }
 export const DEFAULT_API_PORT = 47821
@@ -44,13 +46,13 @@ export const DEFAULT_SETTINGS: AppSettings = {
     progressCommands: true,
     dateFormat: 'ymd',
     timeFormat: '24h',
-    userName: 'User',
+    userName: 'User', // i18n-ignore: a stored default name, which agents' wake lines quote
     language: 'auto'
   },
   appearance: {
     theme: 'dark',
     uiFontSize: 13,
-    terminalFontFamily: "'Cascadia Code', 'Cascadia Mono', Consolas, 'Courier New', monospace",
+    terminalFontFamily: "'Cascadia Code', 'Cascadia Mono', Consolas, 'Courier New', monospace", // i18n-ignore: CSS font names
     terminalFontSize: 13,
     terminalScrollback: 10000,
     terminalCursorBlink: true
@@ -169,17 +171,23 @@ export const AGENT_LIMIT_DEFAULT = 12
 /** The most the setting allows (Darren, 11 Oct: four pages of six; more than that should be another project). Templates hold at most this many. */
 export const AGENT_LIMIT_MAX = 24
 /** Why another agent can't be added: the project has `limit` already. */
-export const agentLimitText = (limit: number): string => `A project can have up to ${limit} agents (Settings → Advanced → Agents per project).`
+export const agentLimitText = (limit: number, tr?: Tr): string =>
+  tr
+    ? tr(msg({ id: 'agents.limit.reached', defaultMessage: 'A project can have up to {limit} agents (Settings → Advanced → Agents per project).', description: "Why another agent can't be added to a project. {limit} is a number; \"Settings → Advanced → Agents per project\" is where the setting is: use its translated names." }), { limit })
+    : `A project can have up to ${limit} agents (Settings → Advanced → Agents per project).` // i18n-ignore: English for main's error (the window passes tr)
 /** Memory as the agents note says it: MB, or GB from 1 GB. */
-const memoryText = (n: number): string => (n >= 1024 ** 3 ? `${(n / 1024 ** 3).toFixed(1)} GB` : formatBytes(n))
+const memoryText = (n: number): string => (n >= 1024 ** 3 ? `${(n / 1024 ** 3).toFixed(1)} GB` : formatBytes(n)) // i18n-ignore: a size (units are the formatting sweep's, F3)
 
 /**
  * Settings → Advanced's note once Agents per project goes over the default (Darren, 11 Oct): what more agents cost, in
  * the machine's own figures (the memory running agents take now, measured; the computer's), and the plans' limits.
  */
 export function manyAgentsNote(m: { running: { agents: number; bytes: number } | null; total: number; free: number }): string {
-  const now = m.running && m.running.agents > 0 ? `. Your ${m.running.agents} running agent${m.running.agents === 1 ? ' takes' : 's take'} ${memoryText(m.running.bytes)} now (about ${memoryText(m.running.bytes / m.running.agents)} each);` : ', roughly 200–500 MB of memory each;'
-  return `More than ${AGENT_LIMIT_DEFAULT} agents: each runs its own copy of its CLI${now} this computer has ${memoryText(m.total)} of memory, ${memoryText(m.free)} free. They all share your plans' usage limits, so they reach them sooner.`
+  const machine = { limit: AGENT_LIMIT_DEFAULT, total: memoryText(m.total), free: memoryText(m.free) }
+  if (m.running && m.running.agents > 0) {
+    return trNow(msg({ id: 'agents.limit.manyMeasured', defaultMessage: "More than {limit} agents: each runs its own copy of its CLI. {running, plural, one {Your # running agent takes} other {Your # running agents take}} {used} now (about {each} each); this computer has {total} of memory, {free} free. They all share your plans' usage limits, so they reach them sooner.", description: "Settings → Advanced, under Agents per project once it is over the default ({limit}): what more agents cost. {running} agents run now and take {used} of memory ({each} each); {total} and {free} are the computer's memory (\"16.0 GB\")." }), { ...machine, running: m.running.agents, used: memoryText(m.running.bytes), each: memoryText(m.running.bytes / m.running.agents) })
+  }
+  return trNow(msg({ id: 'agents.limit.many', defaultMessage: "More than {limit} agents: each runs its own copy of its CLI, roughly 200–500 MB of memory each; this computer has {total} of memory, {free} free. They all share your plans' usage limits, so they reach them sooner.", description: "Settings → Advanced, under Agents per project once it is over the default ({limit}): what more agents cost. {total} and {free} are the computer's memory (\"16.0 GB\")." }), machine)
 }
 /** An agent's role (#126) is at most this long. */
 export const ROLE_MAX = 60
@@ -281,19 +289,56 @@ export function chosenLayout(cfg: Pick<ProjectConfig, 'agents'>, layout: Session
   return layout === layoutForAgents(projectAgents(cfg).length) ? 'auto' : layout
 }
 
-export const FILE_LOCK_MODES: { value: FileLockMode; label: string; description: string }[] = [
-  { value: 'block', label: 'Block', description: 'An agent that tries to edit a file another agent is editing is told to wait or work on something else.' },
-  { value: 'ask', label: 'Ask me', description: 'The edit waits for your approval, like a permission prompt.' },
-  { value: 'warn', label: 'Warn', description: 'The edit goes ahead, and the agent is told another agent is editing the file.' },
-  { value: 'off', label: 'Off', description: 'Agents edit freely. Use with care when several agents share the project folder.' }
+/**
+ * The file lock modes (#71). Their English is the settings catalogue's, which the Assistant's tools read; `text` is the
+ * window's words (#800), shown with shownText().
+ */
+export const FILE_LOCK_MODES: { value: FileLockMode; label: string; description: string; text: { label: Msg; description: Msg } }[] = [
+  {
+    value: 'block',
+    label: 'Block', // i18n-ignore: the catalogue's English (text is the window's)
+    description: 'An agent that tries to edit a file another agent is editing is told to wait or work on something else.', // i18n-ignore: the catalogue's English (text is the window's)
+    text: {
+      label: msg({ id: 'agents.fileLock.block', defaultMessage: 'Block', description: "A file lock mode (Settings, a project's settings): an agent may not edit a file another agent is editing. Keep it short." }),
+      description: msg({ id: 'agents.fileLock.blockDescription', defaultMessage: 'An agent that tries to edit a file another agent is editing is told to wait or work on something else.', description: 'What the Block file lock mode does.' })
+    }
+  },
+  {
+    value: 'ask',
+    label: 'Ask me', // i18n-ignore: the catalogue's English (text is the window's)
+    description: 'The edit waits for your approval, like a permission prompt.', // i18n-ignore: the catalogue's English (text is the window's)
+    text: {
+      label: msg({ id: 'agents.fileLock.ask', defaultMessage: 'Ask me', description: "A file lock mode (Settings, a project's settings): the user approves an edit of a file another agent is editing. Keep it short." }),
+      description: msg({ id: 'agents.fileLock.askDescription', defaultMessage: 'The edit waits for your approval, like a permission prompt.', description: 'What the Ask me file lock mode does.' })
+    }
+  },
+  {
+    value: 'warn',
+    label: 'Warn', // i18n-ignore: the catalogue's English (text is the window's)
+    description: 'The edit goes ahead, and the agent is told another agent is editing the file.', // i18n-ignore: the catalogue's English (text is the window's)
+    text: {
+      label: msg({ id: 'agents.fileLock.warn', defaultMessage: 'Warn', description: "A file lock mode (Settings, a project's settings): the edit goes ahead with a warning to the agent. Keep it short." }),
+      description: msg({ id: 'agents.fileLock.warnDescription', defaultMessage: 'The edit goes ahead, and the agent is told another agent is editing the file.', description: 'What the Warn file lock mode does.' })
+    }
+  },
+  {
+    value: 'off',
+    label: 'Off', // i18n-ignore: the catalogue's English (text is the window's)
+    description: 'Agents edit freely. Use with care when several agents share the project folder.', // i18n-ignore: the catalogue's English (text is the window's)
+    text: {
+      label: msg({ id: 'agents.fileLock.off', defaultMessage: 'Off', description: "A file lock mode (Settings, a project's settings): no locking. Keep it short." }),
+      description: msg({ id: 'agents.fileLock.offDescription', defaultMessage: 'Agents edit freely. Use with care when several agents share the project folder.', description: 'What the Off file lock mode does.' })
+    }
+  }
 ]
 
-export const SESSION_LAYOUTS: { value: SessionLayout; label: string; panes: number; icon: string }[] = [
-  { value: 'single', label: 'One at a time', panes: 1, icon: 'layout-single' },
-  { value: 'columns2', label: 'Two columns', panes: 2, icon: 'layout-columns2' },
-  { value: 'columns3', label: 'Three columns', panes: 3, icon: 'layout-columns3' },
-  { value: 'grid', label: 'Grid of four', panes: 4, icon: 'layout-grid' },
-  { value: 'grid6', label: 'Grid of six', panes: 6, icon: 'layout-grid6' }
+/** The session layouts. `label` is the English templates and commands keep (#800: `text` is the window's words). */
+export const SESSION_LAYOUTS: { value: SessionLayout; label: string; text: Msg; panes: number; icon: string }[] = [
+  { value: 'single', label: 'One at a time', text: msg({ id: 'agents.layout.single', defaultMessage: 'One at a time', description: 'A session layout: one agent pane at a time. Keep it short.' }), panes: 1, icon: 'layout-single' }, // i18n-ignore: the English label (text is the window's)
+  { value: 'columns2', label: 'Two columns', text: msg({ id: 'agents.layout.columns2', defaultMessage: 'Two columns', description: 'A session layout: two agent panes side by side. Keep it short.' }), panes: 2, icon: 'layout-columns2' }, // i18n-ignore: the English label (text is the window's)
+  { value: 'columns3', label: 'Three columns', text: msg({ id: 'agents.layout.columns3', defaultMessage: 'Three columns', description: 'A session layout: three agent panes side by side. Keep it short.' }), panes: 3, icon: 'layout-columns3' }, // i18n-ignore: the English label (text is the window's)
+  { value: 'grid', label: 'Grid of four', text: msg({ id: 'agents.layout.grid', defaultMessage: 'Grid of four', description: 'A session layout: four agent panes, two by two. Keep it short.' }), panes: 4, icon: 'layout-grid' }, // i18n-ignore: the English label (text is the window's)
+  { value: 'grid6', label: 'Grid of six', text: msg({ id: 'agents.layout.grid6', defaultMessage: 'Grid of six', description: 'A session layout: six agent panes, three by two. Keep it short.' }), panes: 6, icon: 'layout-grid6' } // i18n-ignore: the English label (text is the window's)
 ]
 
 export function layoutPanes(layout: SessionLayout | undefined): number {
@@ -314,7 +359,7 @@ export function mostUrgent<T extends { status: string; unseen?: boolean }>(state
 }
 
 /** The status message of a session while it compacts its conversation (started from Hive or by the CLI itself). */
-export const COMPACTING_MESSAGE = 'Compacting the conversation…'
+export const COMPACTING_MESSAGE = 'Compacting the conversation…' // i18n-ignore: a stored status message that isCompacting compares (the window's words are the session statuses', E10c)
 
 /** Whether a session is compacting its conversation now. */
 export function isCompacting(live: { status: SessionStatus; statusMessage?: string } | null | undefined): boolean {
@@ -325,21 +370,21 @@ export function isCompacting(live: { status: SessionStatus; statusMessage?: stri
  * Why a worktree agent's work can't be merged now, or null. A merge commits the worktree's uncommitted files first,
  * so not while the agent is in the middle of a task (working, asking you something, waiting on background tasks or on cards).
  */
-export function mergeBlocked(name: string, status: SessionStatus | null | undefined): string | null {
-  switch (status) {
-    case 'starting':
+export function mergeBlocked(name: string, status: SessionStatus | null | undefined, tr?: Tr): string | null {
+  const why = status === 'starting' ? 'working' : status
+  if (why !== 'working' && why !== 'waiting' && why !== 'background' && why !== 'watching' && why !== 'signin') return null
+  if (tr) return tr(msg({ id: 'agents.merge.blocked', defaultMessage: '{why, select, waiting {{agent} is waiting for your answer. Merge once it has finished.} background {{agent} is waiting on background tasks it started. Merge once it has finished.} watching {{agent} is waiting for cards to change (a card watch) and carries on when they do. Merge once it has finished, or cancel its watch first.} signin {{agent} stopped in the middle of a task when its sign-in expired. Sign in again and let it finish first.} other {{agent} is working. Merge once it has finished.}}', description: "Why a worktree agent's work can't be merged now ({agent}: its name), by what it is doing: answering the user (waiting), waiting on its own background tasks, waiting for cards to change (a card watch), stopped by an expired sign-in, or working (other)." }), { agent: name, why })
+  switch (why) {
     case 'working':
-      return `${name} is working. Merge once it has finished.`
+      return `${name} is working. Merge once it has finished.` // i18n-ignore: English for main's error (the window passes tr)
     case 'waiting':
-      return `${name} is waiting for your answer. Merge once it has finished.`
+      return `${name} is waiting for your answer. Merge once it has finished.` // i18n-ignore: English for main's error (the window passes tr)
     case 'background':
-      return `${name} is waiting on background tasks it started. Merge once it has finished.`
+      return `${name} is waiting on background tasks it started. Merge once it has finished.` // i18n-ignore: English for main's error (the window passes tr)
     case 'watching':
-      return `${name} is waiting for cards to change (a card watch) and carries on when they do. Merge once it has finished, or cancel its watch first.`
+      return `${name} is waiting for cards to change (a card watch) and carries on when they do. Merge once it has finished, or cancel its watch first.` // i18n-ignore: English for main's error (the window passes tr)
     case 'signin':
-      return `${name} stopped in the middle of a task when its sign-in expired. Sign in again and let it finish first.`
-    default:
-      return null
+      return `${name} stopped in the middle of a task when its sign-in expired. Sign in again and let it finish first.` // i18n-ignore: English for main's error (the window passes tr)
   }
 }
 
@@ -379,11 +424,11 @@ export function agentModelShown(provider: ProviderId, chosen: string | undefined
   // Nothing chosen in Hive: the CLI's default, which its own settings may give as an alias too (Claude Code's `model`).
   const choice = own || globalModel || info?.defaultModel || ''
   const name = running ? modelIdName(provider, running, info) : choice ? runsAsName(provider, choice, info) : null
-  if (!name) return { label: `${providerDescriptor(provider).name} default`, chosenAs: null }
+  if (!name) return { label: trNow(msg({ id: 'agents.model.cliDefault', defaultMessage: '{cli} default', description: "An agent's model when nothing is chosen and the CLI doesn't say which it uses: the CLI's own default ({cli}: \"Claude Code\")." }), { cli: providerDescriptor(provider).name }), chosenAs: null }
   // The CLI's default is named in the tooltip only when it is an alias ("chosen as Opus"): an id was nobody's choice.
   const fromCli = !own && !globalModel
   const picked = choice && (!fromCli || resolvedModel(info, choice) !== choice) ? chosenName(provider, choice, info) : null
-  return { label: own ? name : `${name} (default)`, chosenAs: picked && picked !== name ? picked : null }
+  return { label: own ? name : trNow(msg({ id: 'agents.model.inherited', defaultMessage: '{model} (default)', description: "An agent's model when the agent didn't choose it (it comes from the project or Settings): {model} is its name (\"Opus 5.5\")." }), { model: name }), chosenAs: picked && picked !== name ? picked : null }
 }
 
 /** agentModelShown's label for new sessions (no running model). */
@@ -423,13 +468,13 @@ export function formatBytes(n: number): string {
 /** A session's transcript size in the Sessions list (#671), as the footer shows it: "—" with no file to measure; long once past limitMB (0 never). */
 export function transcriptSizeInfo(bytes: number | null | undefined, limitMB: number): { text: string; long: boolean } {
   if (typeof bytes !== 'number' || !(bytes >= 0)) return { text: '—', long: false }
-  return { text: bytes === 0 ? '0 KB' : formatBytes(bytes), long: limitMB > 0 && bytes >= limitMB * 1024 * 1024 }
+  return { text: bytes === 0 ? '0 KB' : formatBytes(bytes), long: limitMB > 0 && bytes >= limitMB * 1024 * 1024 } // i18n-ignore: a size (units are the formatting sweep's, F3)
 }
 
 /** Claude Code's plan limits as 0.1 stored them. */
 const V1_LIMITS: Record<string, Pick<PlanLimit, 'id' | 'label' | 'windowMinutes'>> = {
-  fiveHour: { id: 'five_hour', label: '5-hour', windowMinutes: 300 },
-  sevenDay: { id: 'seven_day', label: 'weekly', windowMinutes: 10080 }
+  fiveHour: { id: 'five_hour', label: '5-hour', windowMinutes: 300 }, // i18n-ignore: labels as 0.1 stored them (a migration)
+  sevenDay: { id: 'seven_day', label: 'weekly', windowMinutes: 10080 } // i18n-ignore: labels as 0.1 stored them (a migration)
 }
 
 /**
@@ -619,10 +664,10 @@ export function mergeDefaults<T>(defaults: T, saved: unknown): T {
  */
 export function effortLabel(provider: string, live: string | undefined, chosen: string | undefined, global: string | undefined, modelDefault?: string | null, settings?: Pick<AppSettings, 'providers'> | null): string | null {
   // The names the pickers use: the effort fallback as the user named it, else the descriptor's (#230).
-  const name = (v: string): string => effortName(provider, v, settings)
+  const name = (v: string): string => effortName(provider, v, settings, trNow)
   const v = live || (chosen && chosen !== 'inherit' ? chosen : global)
   if (v) return name(v)
-  return modelDefault ? `${name(modelDefault)} (default)` : null
+  return modelDefault ? trNow(msg({ id: 'agents.effort.inherited', defaultMessage: '{effort} (default)', description: "An agent's effort level when nobody chose one: the model's default ({effort}: \"High\")." }), { effort: name(modelDefault) }) : null
 }
 
 /** Whether a session record ran in the folder an agent works in (its worktree, or the project folder). */
@@ -703,26 +748,34 @@ export function turnPushedCompaction(c: Pick<CompactionEvent, 'preTokens' | 'las
  * changes after it; then the CLI's. Without either, the CLI's title, else when the session started ("2026-10-04 14:05",
  * in the user's date and time format).
  */
-export function sessionLabel(s: SessionNaming, projectName: string): string {
+export function sessionLabel(s: SessionNaming, projectName: string, tr?: Tr): string {
   const cli = cliRename(s, projectName)
   if (cli) return cli
   if (!isAutoSessionName(s.name, projectName)) return s.name!
   if (s.title && !isAutoSessionName(s.title, projectName)) return s.title
   const at = s.startedAt || s.createdAt || s.usage?.firstActivity
-  return (at && formatDateTime(at)) || `Session ${s.id.slice(0, 8)}`
+  if (at && formatDateTime(at)) return formatDateTime(at)
+  if (tr) return tr(msg({ id: 'agents.session.unnamed', defaultMessage: 'Session {id}', description: 'A session with no name and no start time, named by the start of its id ({id}: "3f9a1c2b").' }), { id: s.id.slice(0, 8) })
+  return `Session ${s.id.slice(0, 8)}` // i18n-ignore: English for main (the window passes tr)
 }
 
 /**
  * A worktree agent's work not yet merged, for its Merge… button and tab: `badge` is the number of commits
  * (• when there are only uncommitted files, null when there is nothing to merge) and `text` says it in words.
  */
-export function unmergedWork(st: AgentBranchStatus | null | undefined): { badge: string | null; text: string } | null {
+export function unmergedWork(st: AgentBranchStatus | null | undefined, tr?: Tr): { badge: string | null; text: string } | null {
   if (!st) return null
   const into = st.into ?? st.base
   const parts: string[] = []
-  if (st.ahead > 0) parts.push(`${st.ahead} commit${st.ahead === 1 ? '' : 's'} not merged into ${into}`)
-  if (st.dirty > 0) parts.push(`${st.dirty} uncommitted file${st.dirty === 1 ? '' : 's'}`)
-  if (!parts.length) return { badge: null, text: `Nothing to merge into ${into}` }
+  if (tr) {
+    if (st.ahead > 0) parts.push(tr(msg({ id: 'agents.merge.commits', defaultMessage: '{n, plural, one {# commit} other {# commits}} not merged into {into}', description: "A worktree agent's unmerged work: commits not yet merged into a branch ({into})." }), { n: st.ahead, into }))
+    if (st.dirty > 0) parts.push(tr(msg({ id: 'agents.merge.uncommitted', defaultMessage: '{n, plural, one {# uncommitted file} other {# uncommitted files}}', description: "A worktree agent's unmerged work: files changed and not committed yet." }), { n: st.dirty }))
+    if (!parts.length) return { badge: null, text: tr(msg({ id: 'agents.merge.nothing', defaultMessage: 'Nothing to merge into {into}', description: "A worktree agent's Merge button when it has no work to merge into a branch ({into})." }), { into }) }
+  } else {
+    if (st.ahead > 0) parts.push(`${st.ahead} commit${st.ahead === 1 ? '' : 's'} not merged into ${into}`) // i18n-ignore: English for main (the window passes tr)
+    if (st.dirty > 0) parts.push(`${st.dirty} uncommitted file${st.dirty === 1 ? '' : 's'}`) // i18n-ignore: English for main (the window passes tr)
+    if (!parts.length) return { badge: null, text: `Nothing to merge into ${into}` } // i18n-ignore: English for main (the window passes tr)
+  }
   return { badge: st.ahead > 0 ? String(st.ahead) : '•', text: parts.join(' · ') }
 }
 
@@ -734,7 +787,7 @@ export const RELEASES_URL = 'https://github.com/Suremise/hive-desktop/releases'
 // ---------------------------------------------------------------------------
 
 /** Command categories whose shortcuts a project can override. */
-export const PROJECT_KEYBINDING_CATEGORIES = ['Project', 'Session']
+export const PROJECT_KEYBINDING_CATEGORIES = ['Project', 'Session'] // i18n-ignore: command category ids
 
 /**
  * The shortcut a command uses: the project's override, else the user's, else the default. An override
@@ -753,11 +806,11 @@ export function keybindingProblem(key: string): string | null {
     const mods = p.split('+').slice(0, -1)
     const k = p.split('+').pop() ?? ''
     const fn = /^F\d{1,2}$/.test(k)
-    if (!mods.length && !fn && k !== 'Escape') return 'Add Ctrl or Alt: a single key would stop you typing it.'
-    if (mods.length === 1 && mods[0] === 'Shift' && !fn) return 'Add Ctrl or Alt: Shift alone types a character.'
-    if (mods.join('+') === 'Mod' && ['C', 'V', 'X', 'A', 'Z', 'Y'].includes(k)) return `Ctrl+${k} is kept for copy, paste and undo.`
-    if (mods.join('+') === 'Shift' && k === 'Tab') return "Shift+Tab switches modes inside the agents' terminals."
-    if (!mods.length && k === 'Escape') return 'Escape closes dialogs and interrupts the agent.'
+    if (!mods.length && !fn && k !== 'Escape') return trNow(msg({ id: 'agents.keys.singleKey', defaultMessage: 'Add Ctrl or Alt: a single key would stop you typing it.', description: 'Why a keyboard shortcut is refused (Settings → Keyboard shortcuts): one key alone. Ctrl and Alt are key names.' }))
+    if (mods.length === 1 && mods[0] === 'Shift' && !fn) return trNow(msg({ id: 'agents.keys.shiftOnly', defaultMessage: 'Add Ctrl or Alt: Shift alone types a character.', description: 'Why a keyboard shortcut is refused: Shift with one key. Ctrl, Alt and Shift are key names.' }))
+    if (mods.join('+') === 'Mod' && ['C', 'V', 'X', 'A', 'Z', 'Y'].includes(k)) return trNow(msg({ id: 'agents.keys.clipboard', defaultMessage: 'Ctrl+{key} is kept for copy, paste and undo.', description: 'Why a keyboard shortcut is refused: Ctrl with C, V, X, A, Z or Y ({key}). Ctrl is a key name.' }), { key: k })
+    if (mods.join('+') === 'Shift' && k === 'Tab') return trNow(msg({ id: 'agents.keys.shiftTab', defaultMessage: "Shift+Tab switches modes inside the agents' terminals.", description: "Why a keyboard shortcut is refused: Shift+Tab, which the agents' CLIs use to switch permission modes. Key names." }))
+    if (!mods.length && k === 'Escape') return trNow(msg({ id: 'agents.keys.escape', defaultMessage: 'Escape closes dialogs and interrupts the agent.', description: 'Why a keyboard shortcut is refused: Escape alone. Escape is a key name.' }))
   }
   return null
 }

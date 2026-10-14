@@ -1,0 +1,974 @@
+{
+  "actions.agent.addFailed": {
+    "defaultMessage": "Could not add an agent",
+    "description": "An error's title: adding an agent failed."
+  },
+  "actions.agent.manyMessage": {
+    "defaultMessage": "Each agent runs its own copy of its CLI (roughly 200–500 MB of memory each), and they all share your plan's usage limits.",
+    "description": "Under the notification that a project has many agents: what each costs."
+  },
+  "actions.agent.manyTitle": {
+    "defaultMessage": "{n} agents in this project",
+    "description": "A notification's title when a project gets its seventh agent ({n})."
+  },
+  "actions.agent.moveFailed": {
+    "defaultMessage": "Could not move the agent",
+    "description": "An error's title: moving an agent in the project's order failed."
+  },
+  "actions.agent.noRoom": {
+    "defaultMessage": "No room for another agent",
+    "description": "A warning's title: the project has as many agents as it may have."
+  },
+  "actions.agent.noRoomMessage": {
+    "defaultMessage": "{why} Remove one first.",
+    "description": "Under the warning that a project has no room for another agent: {why} says the limit and where it is set."
+  },
+  "actions.ago.days": {
+    "defaultMessage": "{n, plural, one {# day ago} other {# days ago}}",
+    "description": "When something happened, in days, 2 to 29 (inbox, sessions, cards). Lower case."
+  },
+  "actions.ago.hours": {
+    "defaultMessage": "{n, plural, one {# hour ago} other {# hours ago}}",
+    "description": "When something happened, in hours (inbox, sessions, cards). Lower case."
+  },
+  "actions.ago.justNow": {
+    "defaultMessage": "just now",
+    "description": "When something happened, under a minute ago (inbox, sessions, cards). Lower case."
+  },
+  "actions.ago.minutes": {
+    "defaultMessage": "{n, plural, one {# minute ago} other {# minutes ago}}",
+    "description": "When something happened, in minutes (inbox, sessions, cards). Lower case."
+  },
+  "actions.ago.yesterday": {
+    "defaultMessage": "yesterday",
+    "description": "When something happened: a day ago (inbox, sessions, cards). Lower case."
+  },
+  "actions.archive.confirm": {
+    "defaultMessage": "Archive and start new",
+    "description": "Button: archives the session (or sessions) and starts a new one."
+  },
+  "actions.archive.detail": {
+    "defaultMessage": "The transcript is preserved in the project's .hive/archive folder. A new session starts with an empty context, which avoids re-caching the old conversation.",
+    "description": "Under the question before archiving a session. Keep .hive/archive as it is."
+  },
+  "actions.archive.failed": {
+    "defaultMessage": "Could not archive session",
+    "description": "An error's title: archiving a session failed."
+  },
+  "actions.archive.message": {
+    "defaultMessage": "Archive \"{session}\" and start a new session?",
+    "description": "The question before archiving a session ({session}: its name or title) and starting a new one."
+  },
+  "actions.archive.nothing": {
+    "defaultMessage": "Nothing to archive",
+    "description": "A notification's title: the agent has no session to archive."
+  },
+  "actions.archive.title": {
+    "defaultMessage": "Archive session and start fresh?",
+    "description": "Title of the question before archiving the session and starting a new one."
+  },
+  "actions.attach.attach": {
+    "defaultMessage": "Attach",
+    "description": "Button: attaches the large file anyway. Keep it short."
+  },
+  "actions.attach.attachAll": {
+    "defaultMessage": "Attach All",
+    "description": "Button: attaches the large files anyway. Keep it short."
+  },
+  "actions.attach.failed": {
+    "defaultMessage": "Could not attach",
+    "description": "An error's title: attaching files to an agent's prompt failed."
+  },
+  "actions.attach.largeDetail": {
+    "defaultMessage": "An agent may not manage a file this large: its CLI can refuse it, or reading it can fill much of its context.{copy, select, yes { Hive keeps a copy with the session.} other {}}",
+    "description": "Why attaching a large file needs a confirmation; then, when Hive copies it into the session's attachments, that it keeps a copy (copy: yes)."
+  },
+  "actions.attach.largeMany": {
+    "defaultMessage": "These files are over {size}:",
+    "description": "The confirmation before attaching several large files, above their list: the size they are over ({size}: \"20 MB\")."
+  },
+  "actions.attach.largeOne": {
+    "defaultMessage": "\"{file}\" is {size}.",
+    "description": "The confirmation before attaching one large file: its name ({file}) and size ({size}: \"48 MB\")."
+  },
+  "actions.attach.largeTitle": {
+    "defaultMessage": "{n, plural, one {Attach a large file?} other {Attach # large files?}}",
+    "description": "Title of the confirmation before attaching large files to an agent's prompt."
+  },
+  "actions.batch.providerMissing": {
+    "defaultMessage": "{cli} isn't installed (Agent Setup).",
+    "description": "Why an agent couldn't start or resume in a batch: its CLI ({cli}) isn't installed. Agent Setup is a Help window: use its translated name."
+  },
+  "actions.batch.providerOff": {
+    "defaultMessage": "{cli} is turned off in Settings → Providers.",
+    "description": "Why an agent couldn't start or resume in a batch (Resume All, Start New All): its CLI ({cli}) is turned off. Settings → Providers is where: use its translated names."
+  },
+  "actions.cards.andMore": {
+    "defaultMessage": "{cards} and {n} more",
+    "description": "A removed agent's open cards, cut short: the first five ({cards}: \"#3 Title, #4 Title\") and how many more ({n})."
+  },
+  "actions.cards.detail": {
+    "defaultMessage": "{cards, plural, one {Move it back: nobody has it, and if it is in Doing it goes to Todo, ready to start on another agent. Leave it: it keeps showing {agent, select, none {its agent} other {{agent}}} (removed), and in Doing shows as stalled.} other {Move them back: nobody has them, and those in Doing go to Todo, ready to start on another agent. Leave them: they keep showing {agent, select, none {their agent} other {{agent}}} (removed), and those in Doing show as stalled.}}",
+    "description": "Under the question about a removed agent's open cards: what Move back and Leave do. Doing and Todo are board columns; {agent} is the agent's name (none when several agents are removed)."
+  },
+  "actions.cards.leave": {
+    "defaultMessage": "{cards, plural, one {Leave it} other {Leave them}}",
+    "description": "Button: leaves a removed agent's open cards as they are."
+  },
+  "actions.cards.release": {
+    "defaultMessage": "{cards, plural, one {Move it back} other {Move them back}}",
+    "description": "Button: takes a removed agent's open cards back (nobody has them; Doing ones go to Todo)."
+  },
+  "actions.cards.title": {
+    "defaultMessage": "{agents, plural, one {{agent} has} other {The # agents have}} {cards, plural, one {# open card} other {# open cards}}",
+    "description": "Title of the question about the open cards of an agent being removed ({agent}: its name), or of {agents} agents (Remove All)."
+  },
+  "actions.delete.busy": {
+    "defaultMessage": "Deleting…",
+    "description": "The Delete button while it works."
+  },
+  "actions.delete.confirm": {
+    "defaultMessage": "Delete",
+    "description": "Button: moves it to the Recycle Bin."
+  },
+  "actions.delete.message": {
+    "defaultMessage": "{folder, select, yes {Move \"{name}\" and everything in it to the Recycle Bin?} other {Move \"{name}\" to the Recycle Bin?}}",
+    "description": "The question before deleting a shared note or folder ({name}; folder: yes when it is a folder). The Recycle Bin is Windows' name for it."
+  },
+  "actions.delete.title": {
+    "defaultMessage": "Delete?",
+    "description": "Title of the question before deleting a shared note or folder."
+  },
+  "actions.discard.confirm": {
+    "defaultMessage": "Discard",
+    "description": "Button: deletes the agent's worktree and branch and removes it."
+  },
+  "actions.discard.detail": {
+    "defaultMessage": "Everything on the branch that hasn't been merged is lost. Its sessions stay in the Sessions tab.",
+    "description": "Under the question before discarding a worktree agent's work."
+  },
+  "actions.discard.failed": {
+    "defaultMessage": "Could not discard agent",
+    "description": "An error's title: discarding a worktree agent failed."
+  },
+  "actions.discard.message": {
+    "defaultMessage": "Delete the worktree {path} and branch {branch}, and remove {agent}?",
+    "description": "The question before discarding a worktree agent's ({agent}) work: its worktree folder ({path}) and git branch ({branch})."
+  },
+  "actions.discard.title": {
+    "defaultMessage": "Discard {agent}'s work?",
+    "description": "Title of the question before deleting a worktree agent's ({agent}) worktree and branch and removing it."
+  },
+  "actions.drafts.changedOnDisk": {
+    "defaultMessage": "changed on disk since you opened it",
+    "description": "Why an unsaved file couldn't be saved (after its name, in a list): it changed on disk since it was opened. Lower case."
+  },
+  "actions.duration.hoursMinutes": {
+    "defaultMessage": "{h}h {m}m",
+    "description": "A very short duration in hours and minutes (\"1h 5m\"), as a compact figure. Keep it as short as possible."
+  },
+  "actions.duration.minutes": {
+    "defaultMessage": "{m}m",
+    "description": "A very short duration in minutes (\"4m\"), as a compact figure. Keep it as short as possible."
+  },
+  "actions.duration.seconds": {
+    "defaultMessage": "{s}s",
+    "description": "A very short duration in seconds (\"40s\"), as a compact figure. Keep it as short as possible."
+  },
+  "actions.keys.ctrl": {
+    "defaultMessage": "Ctrl",
+    "description": "The Ctrl key's name as shortcuts show it (\"Ctrl+B\"): as printed on keyboards in the language (German: Strg)."
+  },
+  "actions.layout.failed": {
+    "defaultMessage": "Could not change layout",
+    "description": "An error's title: changing the project's layout failed."
+  },
+  "actions.mcp.add": {
+    "defaultMessage": "Add",
+    "description": "Button: adds the MCP server to the workspace."
+  },
+  "actions.mcp.addFailed": {
+    "defaultMessage": "Could not add the server",
+    "description": "An error's title: adding an MCP server from a file failed."
+  },
+  "actions.mcp.addTitle": {
+    "defaultMessage": "Add MCP Server from File",
+    "description": "Title of the Add MCP Server from File dialog (the command of the same name). MCP is a name: keep it."
+  },
+  "actions.mcp.badName": {
+    "defaultMessage": "Use letters, numbers, \"-\" and \"_\". \"hive\" is reserved.",
+    "description": "Why an MCP server's name can't be used. Keep \"hive\" as it is: it is the built-in server's name."
+  },
+  "actions.mcp.copied": {
+    "defaultMessage": "Copied {names} to the workspace",
+    "description": "A notification's title after Copy to workspace: the MCP servers copied ({names}, listed)."
+  },
+  "actions.mcp.copyFailed": {
+    "defaultMessage": "Could not copy MCP servers",
+    "description": "An error's title: copying a project's MCP servers to the workspace failed."
+  },
+  "actions.mcp.deleteMessage": {
+    "defaultMessage": "Move {name}.json to the Recycle Bin, with its folder if it was added from a .zip? Projects will no longer be able to use it.",
+    "description": "The question before deleting a workspace MCP server: its file ({name}.json) goes to the Recycle Bin (Windows' name for it)."
+  },
+  "actions.mcp.deleteTitle": {
+    "defaultMessage": "Delete MCP server?",
+    "description": "Title of the question before deleting a workspace MCP server."
+  },
+  "actions.mcp.listFailed": {
+    "defaultMessage": "Could not list the servers",
+    "description": "An error's title: reading the workspace's MCP servers failed."
+  },
+  "actions.mcp.namePlaceholder": {
+    "defaultMessage": "server-name",
+    "description": "Placeholder of the server's name box: an example name (lower case, a dash)."
+  },
+  "actions.mcp.openFailed": {
+    "defaultMessage": "Could not open the file",
+    "description": "An error's title: picking an MCP server's file failed."
+  },
+  "actions.mcp.rename": {
+    "defaultMessage": "Choose Another Name",
+    "description": "Button: goes back to choose another name for the MCP server."
+  },
+  "actions.mcp.replace": {
+    "defaultMessage": "Replace",
+    "description": "Button: replaces the MCP server of that name."
+  },
+  "actions.mcp.replaceMessage": {
+    "defaultMessage": "The workspace has a server named {name}.",
+    "description": "The question when the workspace already has an MCP server of that name ({name})."
+  },
+  "actions.mcp.replaceTitle": {
+    "defaultMessage": "Replace {name}?",
+    "description": "Title of the question when the workspace already has an MCP server of that name ({name})."
+  },
+  "actions.mcp.updateFailed": {
+    "defaultMessage": "Could not update the server",
+    "description": "An error's title: turning an MCP server on or off for all projects failed."
+  },
+  "actions.project.activateFailed": {
+    "defaultMessage": "Could not activate project",
+    "description": "An error's title: marking a project active failed."
+  },
+  "actions.project.create": {
+    "defaultMessage": "Create",
+    "description": "Button: creates the project."
+  },
+  "actions.project.createFailed": {
+    "defaultMessage": "Could not create project",
+    "description": "An error's title: creating a project failed."
+  },
+  "actions.project.created": {
+    "defaultMessage": "Project \"{name}\" created",
+    "description": "A notification: a new project ({name}) was created."
+  },
+  "actions.project.deactivateDetail": {
+    "defaultMessage": "{n, plural, one {The session is} other {They are}} stopped (and can be resumed later) and the project is marked inactive.",
+    "description": "Under the question before marking a project inactive: what happens to its {n} running agents."
+  },
+  "actions.project.deactivateFailed": {
+    "defaultMessage": "Could not deactivate project",
+    "description": "An error's title: marking a project inactive failed."
+  },
+  "actions.project.deactivateMessage": {
+    "defaultMessage": "{n, plural, one {{project} has a running session.} other {{project} has # agents running.}}",
+    "description": "The question before marking a project ({project}) inactive while {n} of its agents run."
+  },
+  "actions.project.deactivateTitle": {
+    "defaultMessage": "{n, plural, one {Stop session and deactivate?} other {Stop agents and deactivate?}}",
+    "description": "Title of the question before marking a project inactive while {n} of its agents run."
+  },
+  "actions.project.nameChars": {
+    "defaultMessage": "Names cannot contain {chars}",
+    "description": "Why a new project's name can't be used: it has a character Windows doesn't allow in a folder name ({chars}: the characters)."
+  },
+  "actions.project.nameDot": {
+    "defaultMessage": "Names cannot start with \".\"",
+    "description": "Why a new project's name can't be used: it starts with a dot."
+  },
+  "actions.project.nameEmpty": {
+    "defaultMessage": "Enter a name",
+    "description": "Why a new project's name can't be used: it is empty."
+  },
+  "actions.project.namePlaceholder": {
+    "defaultMessage": "project-name",
+    "description": "Placeholder of the New Project dialog's name box: an example folder name (lower case, a dash)."
+  },
+  "actions.project.newMessage": {
+    "defaultMessage": "A new folder is created in the workspace. Hive adds its .hive metadata folder automatically.",
+    "description": "The New Project dialog. Keep .hive as it is."
+  },
+  "actions.project.newTitle": {
+    "defaultMessage": "New Project",
+    "description": "Title of the New Project dialog."
+  },
+  "actions.project.noWorkspace": {
+    "defaultMessage": "Open a workspace first",
+    "description": "A warning: a project can't be created without an open workspace."
+  },
+  "actions.project.saveFailed": {
+    "defaultMessage": "Could not save project settings",
+    "description": "An error's title: saving a project's settings failed."
+  },
+  "actions.project.stopAndDeactivate": {
+    "defaultMessage": "Stop and deactivate",
+    "description": "Button: stops the project's agents and marks it inactive."
+  },
+  "actions.provider.lookingMessage": {
+    "defaultMessage": "Hive is still finding out which coding agent CLIs are installed. Try again in a moment.",
+    "description": "Under the warning that Hive is still looking for the coding agent CLIs."
+  },
+  "actions.provider.lookingTitle": {
+    "defaultMessage": "Still looking for the coding agents",
+    "description": "A warning's title: Hive hasn't finished finding which coding agent CLIs are installed."
+  },
+  "actions.provider.offAgent": {
+    "defaultMessage": "Turn it on in Settings → Providers to run this agent, or give the agent another provider in its settings.",
+    "description": "Under the warning that an agent's CLI is turned off. Settings → Providers is where: use its translated names."
+  },
+  "actions.provider.offTitle": {
+    "defaultMessage": "{cli} is turned off",
+    "description": "A warning's title: the agent's CLI ({cli}: \"Claude Code\") is turned off in Settings."
+  },
+  "actions.provider.openSettings": {
+    "defaultMessage": "Open Settings",
+    "description": "A notification's button: opens Settings → Providers. Keep it short."
+  },
+  "actions.providers.agentSetup": {
+    "defaultMessage": "Agent Setup",
+    "description": "A notification's button: opens Agent Setup (a Help window). Keep it short."
+  },
+  "actions.providers.checkFailed": {
+    "defaultMessage": "Could not check the providers",
+    "description": "An error's title: looking for the coding agent CLIs again failed."
+  },
+  "actions.providers.noneOn": {
+    "defaultMessage": "No providers are turned on",
+    "description": "A notification's title: no coding agent CLI is turned on in Settings."
+  },
+  "actions.providers.noneOnMessage": {
+    "defaultMessage": "Turn on Claude Code or another provider in Settings → Providers.",
+    "description": "Under the notification that no provider is on. Claude Code is a name; Settings → Providers is where: use its translated names."
+  },
+  "actions.providers.notInstalled": {
+    "defaultMessage": "{cli} not installed",
+    "description": "A warning's title: a coding agent CLI ({cli}: \"Codex\") isn't installed."
+  },
+  "actions.providers.notInstalledMessage": {
+    "defaultMessage": "Open Help → Agent Setup to install it.",
+    "description": "Under the warning that a CLI isn't installed. Help → Agent Setup is a menu command: use its translated names."
+  },
+  "actions.providers.upToDate": {
+    "defaultMessage": "{cli} is up to date",
+    "description": "A notification's title: a CLI ({cli}) is the latest version."
+  },
+  "actions.providers.update": {
+    "defaultMessage": "Update",
+    "description": "A notification's button: opens Agent Setup to update the CLI. Keep it short."
+  },
+  "actions.providers.updateTitle": {
+    "defaultMessage": "{cli} {version} is available",
+    "description": "A notification's title: a newer version ({version}) of a CLI ({cli}) is out."
+  },
+  "actions.providers.version": {
+    "defaultMessage": "Version {version}",
+    "description": "Under the notification that a CLI is up to date: its version ({version})."
+  },
+  "actions.providers.youHave": {
+    "defaultMessage": "You have {version}.",
+    "description": "Under the notification that a newer CLI is out: the installed version ({version})."
+  },
+  "actions.recache.archiveFailed": {
+    "defaultMessage": "{what, select, conversation {Could not archive conversation} other {Could not archive session}}",
+    "description": "An error's title: archiving a session (other) or an Assistant conversation failed."
+  },
+  "actions.recache.detail": {
+    "defaultMessage": "{what, select, conversation {To save tokens, archive it and start a fresh conversation instead. The archived one stays readable.} other {To save tokens, archive it and start a fresh session instead. The archived one stays readable, and a handover note can carry the work on.}}",
+    "description": "Under the question before resuming a session (other) or an Assistant conversation whose prompt cache expired."
+  },
+  "actions.recache.fresh": {
+    "defaultMessage": "Archive and Start Fresh",
+    "description": "Button: archives the session and starts a new one."
+  },
+  "actions.recache.message": {
+    "defaultMessage": "{what, select, conversation {The prompt cache for this conversation has expired.} other {The prompt cache for this session has expired.}} Resuming will re-cache about {tokens} tokens on the first message.",
+    "description": "The question before resuming a session whose prompt cache expired: resuming costs about {tokens} tokens (\"120K\") again."
+  },
+  "actions.recache.resume": {
+    "defaultMessage": "Resume",
+    "description": "Button: resumes the session anyway."
+  },
+  "actions.recache.title": {
+    "defaultMessage": "{what, select, conversation {Resume conversation?} other {Resume session?}}",
+    "description": "Title of the question before resuming a session (other) or an Assistant conversation whose prompt cache expired."
+  },
+  "actions.recent.clear": {
+    "defaultMessage": "Clear",
+    "description": "Button: forgets the recently opened workspaces."
+  },
+  "actions.recent.clearFailed": {
+    "defaultMessage": "Could not clear the recent list",
+    "description": "An error's title: forgetting the recently opened workspaces failed."
+  },
+  "actions.recent.clearMessage": {
+    "defaultMessage": "File → Open Recent and the welcome page forget them. The folders are left alone, and workspaces open in a window stay in the list.",
+    "description": "The question before forgetting the recently opened workspaces. File → Open Recent is a menu: use its translated names."
+  },
+  "actions.recent.clearTitle": {
+    "defaultMessage": "Clear recently opened workspaces?",
+    "description": "Title of the question before forgetting the recently opened workspaces."
+  },
+  "actions.recent.elsewhere": {
+    "defaultMessage": "open in another window",
+    "description": "Beside a recent workspace's name: another Hive window has it open. Lower case."
+  },
+  "actions.recent.elsewhereTip": {
+    "defaultMessage": "Open in another window: choosing it brings that window forward.",
+    "description": "A recent workspace's tooltip, under its path: another Hive window has it open."
+  },
+  "actions.recent.keep": {
+    "defaultMessage": "Keep",
+    "description": "Button: keeps the recent workspace in the list."
+  },
+  "actions.recent.notFound": {
+    "defaultMessage": "not found",
+    "description": "Beside a recent workspace's name: its folder isn't there. Lower case."
+  },
+  "actions.recent.notFoundMessage": {
+    "defaultMessage": "{path} can't be found. It may have been moved or deleted, or be on a drive that isn't connected.",
+    "description": "A recent workspace's folder ({path}) can't be found."
+  },
+  "actions.recent.notFoundTip": {
+    "defaultMessage": "Not found: moved or deleted, or on a drive that isn't connected.",
+    "description": "A recent workspace's tooltip, under its path: its folder isn't there."
+  },
+  "actions.recent.notFoundTitle": {
+    "defaultMessage": "Workspace folder not found",
+    "description": "Title of the question when a recent workspace's folder can't be found."
+  },
+  "actions.recent.removeFailed": {
+    "defaultMessage": "Could not remove it from the recent list",
+    "description": "An error's title: forgetting a recently opened workspace failed."
+  },
+  "actions.recent.removeFromRecent": {
+    "defaultMessage": "Remove from Recent",
+    "description": "Button: forgets the recent workspace whose folder is gone."
+  },
+  "actions.remove.confirm": {
+    "defaultMessage": "Remove",
+    "description": "Button: removes the agent."
+  },
+  "actions.remove.deleteConfirm": {
+    "defaultMessage": "Delete worktree and branch",
+    "description": "Button: deletes the agent's worktree and branch and removes it."
+  },
+  "actions.remove.deleteDetail": {
+    "defaultMessage": "Anything on {branch} that hasn't been merged is lost. Cancel keeps the agent.",
+    "description": "Under the question before deleting a worktree and branch ({branch}). Cancel is the dialog's other button."
+  },
+  "actions.remove.deleteMessage": {
+    "defaultMessage": "Delete {path} and branch {branch}?",
+    "description": "The question before deleting a removed agent's worktree folder ({path}) and git branch ({branch})."
+  },
+  "actions.remove.deleteThem": {
+    "defaultMessage": "Delete them…",
+    "description": "Button: goes on to delete the agent's worktree and branch (asks again)."
+  },
+  "actions.remove.deleteTitle": {
+    "defaultMessage": "Delete the worktree and branch?",
+    "description": "Title of the question before deleting a removed agent's worktree and branch."
+  },
+  "actions.remove.failed": {
+    "defaultMessage": "Could not remove agent",
+    "description": "An error's title: removing an agent failed."
+  },
+  "actions.remove.keepWorktree": {
+    "defaultMessage": "Keep worktree and branch",
+    "description": "Button: removes the agent and keeps its worktree and branch."
+  },
+  "actions.remove.keptMessage": {
+    "defaultMessage": "{branch} in {path}. Git → Changes lists the project's unused worktrees, merged or not.",
+    "description": "Under the notification that a removed agent's worktree was kept: its branch ({branch}) and folder ({path}). Git → Changes is a project tab: use its translated names."
+  },
+  "actions.remove.keptTitle": {
+    "defaultMessage": "{agent}'s worktree is kept",
+    "description": "A notification's title: a removed agent's ({agent}) worktree was kept."
+  },
+  "actions.remove.message": {
+    "defaultMessage": "{agent} is removed from {project}. Its sessions stay in the Sessions tab.",
+    "description": "The question before removing an agent ({agent}) from a project ({project})."
+  },
+  "actions.remove.reviewUnused": {
+    "defaultMessage": "Review unused worktrees",
+    "description": "A notification's button: shows the project's unused worktrees."
+  },
+  "actions.remove.title": {
+    "defaultMessage": "Remove {agent}?",
+    "description": "Title of the question before removing an agent ({agent})."
+  },
+  "actions.remove.worktreeDetail": {
+    "defaultMessage": "Keep the worktree and branch to merge or reuse them later (Add Agent → Existing worktree), or delete both. Its sessions stay in the Sessions tab either way.",
+    "description": "Under the question before removing a worktree agent. Add Agent → Existing worktree is where: use the translated names."
+  },
+  "actions.remove.worktreeMessage": {
+    "defaultMessage": "{agent} works in its own worktree on branch {branch}.",
+    "description": "The question before removing a worktree agent ({agent}): its git branch ({branch})."
+  },
+  "actions.removeAll.branchKept": {
+    "defaultMessage": "branch {branch} ({why}; its worktree was deleted)",
+    "description": "Remove All's report, in the list of worktrees kept: a branch ({branch}) kept, and why ({why}), though its worktree was deleted. Lower case: listed after \"Worktrees kept:\"."
+  },
+  "actions.removeAll.checkFailed": {
+    "defaultMessage": "Could not check the worktrees",
+    "description": "An error's title: checking whether the agents' worktrees are merged failed (Remove All)."
+  },
+  "actions.removeAll.confirm": {
+    "defaultMessage": "{n, plural, one {Remove} other {Remove # agents}}",
+    "description": "Remove All's button ({n} agents)."
+  },
+  "actions.removeAll.deleteMerged": {
+    "defaultMessage": "Also delete the worktrees and branches fully merged into {into} with no uncommitted changes: {branches}",
+    "description": "Remove All's tick box: also delete the agents' worktrees and branches merged into a branch ({into}) with no changes. {branches} lists them."
+  },
+  "actions.removeAll.deleted": {
+    "defaultMessage": "Worktrees deleted: {branches}",
+    "description": "Remove All's report: the worktrees it deleted ({branches}: their branches, listed)."
+  },
+  "actions.removeAll.failed": {
+    "defaultMessage": "{all, select, yes {{tried, plural, one {Could not remove the agent} other {Could not remove the agents}}} other {{failed} of {tried} agents could not be removed}}",
+    "description": "An error's title after Remove All: none of the {tried} agents was removed (yes), or {failed} of them weren't."
+  },
+  "actions.removeAll.kept": {
+    "defaultMessage": "Worktrees kept: {branches}",
+    "description": "Remove All's report: the worktrees it kept, each with why ({branches}, listed)."
+  },
+  "actions.removeAll.keptMessage": {
+    "defaultMessage": "The Overview lists the project's unused worktrees, merged or not.",
+    "description": "Under the notification that Remove All kept worktrees. The Overview is a project tab: use its translated name."
+  },
+  "actions.removeAll.keptTitle": {
+    "defaultMessage": "{n, plural, one {Its worktree is kept} other {# worktrees are kept}}",
+    "description": "A notification's title after Remove All: {n} worktrees were kept and are unused now."
+  },
+  "actions.removeAll.message": {
+    "defaultMessage": "{n, plural, one {{agent} is removed from {project}:} other {Every agent of {project} is removed:}}",
+    "description": "Remove All's question, above the table of a project's ({project}) {n} agents ({agent}: the one's name)."
+  },
+  "actions.removeAll.notChecked": {
+    "defaultMessage": "{branch} (not checked)",
+    "description": "Remove All's report, in the list of worktrees kept: a branch ({branch}) Hive couldn't check."
+  },
+  "actions.removeAll.note": {
+    "defaultMessage": "{running, select, yes {Running agents are stopped first. } other {}}Their sessions stay in the Sessions tab.{trees, select, tick { Worktrees and branches are kept unless you tick the box; unmerged or changed ones are kept either way.} kept { Their worktrees and branches are kept.} other {}}",
+    "description": "Under Remove All's table: running agents stop first (running: yes); sessions stay; worktrees are kept unless the box is ticked (tick), always kept (kept), or there are none (other)."
+  },
+  "actions.removeAll.removed": {
+    "defaultMessage": "{n, plural, one {Removed {agent}} other {Removed # agents}}",
+    "description": "A notification's title after Remove All removed {n} agents ({agent}: the one's name)."
+  },
+  "actions.removeAll.removedList": {
+    "defaultMessage": "Removed: {agents}",
+    "description": "Remove All's report: the agents it removed ({agents}: their names, listed)."
+  },
+  "actions.removeAll.title": {
+    "defaultMessage": "{n, plural, one {Remove {agent}?} other {Remove all # agents?}}",
+    "description": "Title of Remove All's question: {n} agents ({agent}: the one's name)."
+  },
+  "actions.removeAll.worktreeKept": {
+    "defaultMessage": "{branch} ({why})",
+    "description": "Remove All's report, in the list of worktrees kept: a branch ({branch}) and why it was kept ({why})."
+  },
+  "actions.resets.hours": {
+    "defaultMessage": "in {h} h {min} min",
+    "description": "When a usage limit resets, today: in {h} hours and {min} minutes. Lower case; keep it short."
+  },
+  "actions.resets.minutes": {
+    "defaultMessage": "in {min} min",
+    "description": "When a usage limit resets, soon: in {min} minutes. Lower case; keep it short."
+  },
+  "actions.resets.now": {
+    "defaultMessage": "now",
+    "description": "When a usage limit resets: now (it has reset). Lower case."
+  },
+  "actions.resume.alreadyOpen": {
+    "defaultMessage": "Already open",
+    "description": "A notification's title: the conversation is open in another agent."
+  },
+  "actions.resume.alreadyOpenMessage": {
+    "defaultMessage": "This conversation is open in {agent}. An agent can only resume a session no other agent is running.",
+    "description": "Under the notification that a conversation is open in another agent ({agent})."
+  },
+  "actions.resume.cantFolder": {
+    "defaultMessage": "It ran in the project folder, and no agent works there. Add an agent to resume it (it runs in {cli, select, none {its provider} other {{cli}}}).",
+    "description": "Why a session can't be resumed: no agent works in the project folder; it runs in its CLI ({cli}: \"Claude Code\"; none when unknown)."
+  },
+  "actions.resume.cantTitle": {
+    "defaultMessage": "Can't resume this session",
+    "description": "A warning's title: no agent can resume the session."
+  },
+  "actions.resume.cantWorktree": {
+    "defaultMessage": "It ran in a worktree no agent uses any more ({folder}). Add an agent for that worktree (Add Agent → existing worktree) to resume it.",
+    "description": "Why a session can't be resumed: no agent works in the worktree folder it ran in ({folder}). Add Agent → existing worktree is where: use the translated names."
+  },
+  "actions.resume.noneMessage": {
+    "defaultMessage": "{agent, select, none {There is no session to resume.} other {{agent} has no session to resume.}} Start a new one instead.",
+    "description": "Under the notification that there is no session to resume: the agent ({agent}; none in a project with one agent)."
+  },
+  "actions.resume.noneTitle": {
+    "defaultMessage": "No previous session",
+    "description": "A notification's title: there is no session to resume."
+  },
+  "actions.resumeAll.coldLine": {
+    "defaultMessage": "• {agent} — about {tokens} tokens",
+    "description": "A line of Resume All's question: an agent ({agent}) whose prompt cache expired, and about how many tokens ({tokens}: \"120K\") resuming re-caches."
+  },
+  "actions.resumeAll.confirm": {
+    "defaultMessage": "{n, plural, one {Resume} other {Resume all}}",
+    "description": "Resume All's button ({n} agents)."
+  },
+  "actions.resumeAll.failed": {
+    "defaultMessage": "{all, select, yes {{tried, plural, one {Could not resume the agent} other {Could not resume the agents}}} other {{failed} of {tried} agents could not resume}}",
+    "description": "An error's title after Resume All: none of the {tried} agents resumed (yes), or {failed} of them didn't."
+  },
+  "actions.resumeAll.message": {
+    "defaultMessage": "The prompt cache has expired for {who, select, all {all of them} other {{cold, plural, one {one agent} other {# agents}}}}. Resuming re-caches on the first message:",
+    "description": "Resume All's question, above the agents whose prompt cache expired: all of them (all), or how many ({cold})."
+  },
+  "actions.resumeAll.nothing": {
+    "defaultMessage": "Nothing to resume",
+    "description": "A notification's title: Resume All found no agent to resume."
+  },
+  "actions.resumeAll.nothingMessage": {
+    "defaultMessage": "No stopped agent has a session to resume.",
+    "description": "Under the notification that Resume All found nothing to resume."
+  },
+  "actions.resumeAll.resumed": {
+    "defaultMessage": "Resumed: {agents}",
+    "description": "Resume All's report: the agents that did resume ({agents}: their names, listed)."
+  },
+  "actions.resumeAll.title": {
+    "defaultMessage": "{n, plural, one {Resume the agent?} other {Resume all agents?}}",
+    "description": "Title of Resume All's question about expired prompt caches ({n} agents to resume)."
+  },
+  "actions.session.listFailed": {
+    "defaultMessage": "Could not list sessions",
+    "description": "An error's title: reading a project's sessions failed."
+  },
+  "actions.session.resumeFailed": {
+    "defaultMessage": "Could not resume session",
+    "description": "An error's title: resuming a session failed."
+  },
+  "actions.session.startFailed": {
+    "defaultMessage": "Could not start session",
+    "description": "An error's title: starting a session failed."
+  },
+  "actions.startAll.archiveMessage": {
+    "defaultMessage": "{n, plural, one {{agent}'s session is archived in {project}, and each starts a fresh one:} other {The sessions of these # agents are archived in {project}, and each starts a fresh one:}}",
+    "description": "Archive and Start New (All)'s question, above the table of {n} agents ({agent}: the one's name) of a project ({project})."
+  },
+  "actions.startAll.failed": {
+    "defaultMessage": "{all, select, yes {{tried, plural, one {Could not start the agent} other {Could not start the agents}}} other {{failed} of {tried} agents could not start}}",
+    "description": "An error's title after Start New (All): none of the {tried} agents started (yes), or {failed} of them didn't."
+  },
+  "actions.startAll.noAgents": {
+    "defaultMessage": "No agents",
+    "description": "A notification's title: the project has no agents to start."
+  },
+  "actions.startAll.noAgentsMessage": {
+    "defaultMessage": "Add an agent first.",
+    "description": "Under the notification that the project has no agents."
+  },
+  "actions.startAll.note": {
+    "defaultMessage": "{running, select, yes {Running agents are stopped first. } other {}}{archive, select, yes {The transcripts are kept in the project's .hive/archive folder.} other {Their conversations are kept and can be resumed from the Sessions tab.}}",
+    "description": "Under the table of Start New (All) (archive: no) or Archive and Start New (All) (archive: yes): running agents stop first (running: yes), and where the old conversations are. Keep .hive/archive as it is."
+  },
+  "actions.startAll.nothingToArchive": {
+    "defaultMessage": "No agent has a session to archive.",
+    "description": "Under the notification that Archive and Start New (All) found nothing to archive."
+  },
+  "actions.startAll.start": {
+    "defaultMessage": "Start new",
+    "description": "Start New (All)'s button."
+  },
+  "actions.startAll.startMessage": {
+    "defaultMessage": "{n, plural, one {This agent starts a fresh session:} other {Every agent in {project} starts a fresh session:}}",
+    "description": "Start New (All)'s question, above the table of {n} agents of a project ({project})."
+  },
+  "actions.startAll.started": {
+    "defaultMessage": "Started: {agents}",
+    "description": "Start New (All)'s report: the agents that did start ({agents}: their names, listed)."
+  },
+  "actions.startAll.title": {
+    "defaultMessage": "{kind, select, archive {{n, plural, one {Archive and start new?} other {Archive and start new for all agents?}}} other {{n, plural, one {Start a new session?} other {Start new sessions for all agents?}}}}",
+    "description": "Title of the question before Start New (All) or Archive and Start New (All) (archive) for {n} agents."
+  },
+  "actions.stop.confirm": {
+    "defaultMessage": "Stop",
+    "description": "Button: stops the session."
+  },
+  "actions.stop.detail": {
+    "defaultMessage": "The conversation is kept and can be resumed later.",
+    "description": "Under the question before stopping a session."
+  },
+  "actions.stop.failed": {
+    "defaultMessage": "Could not stop session",
+    "description": "An error's title: stopping a session failed."
+  },
+  "actions.stop.message": {
+    "defaultMessage": "Stop the running session in {project}{agent}?",
+    "description": "The question before stopping a session: the project ({project}) and, when it has several agents, the agent in brackets ({agent}: \" (B1)\", or empty)."
+  },
+  "actions.stop.title": {
+    "defaultMessage": "Stop session?",
+    "description": "Title of the question before stopping a session."
+  },
+  "actions.stopAll.busy": {
+    "defaultMessage": "Stopping…",
+    "description": "Stop All's button while the agents stop."
+  },
+  "actions.stopAll.confirm": {
+    "defaultMessage": "{n, plural, one {Stop} other {Stop all}}",
+    "description": "Stop All's button ({n} agents)."
+  },
+  "actions.stopAll.message": {
+    "defaultMessage": "{n, plural, one {These agent stops in {project}:} other {These # agents stop in {project}:}}",
+    "description": "Stop All's question, above the table of the {n} running agents of a project ({project})."
+  },
+  "actions.stopAll.note": {
+    "defaultMessage": "Their conversations are kept and can be resumed later.",
+    "description": "Under the table of agents Stop All stops."
+  },
+  "actions.stopAll.title": {
+    "defaultMessage": "{n, plural, one {Stop the agent?} other {Stop all agents?}}",
+    "description": "Title of Stop All's question: {n} agents run."
+  },
+  "actions.stopFirst.confirm": {
+    "defaultMessage": "{what, select, new {Stop and start a new session} resume {Stop and resume this session} other {Stop and remove {agent}}}",
+    "description": "Button: stops the running session, then starts a new one (new), resumes this one (resume), or removes the agent ({agent}; other)."
+  },
+  "actions.stopFirst.detail": {
+    "defaultMessage": "It will be stopped first. Its conversation is kept and can be resumed from the Sessions tab.",
+    "description": "Under the question before replacing or removing a running session."
+  },
+  "actions.stopFirst.message": {
+    "defaultMessage": "{project}{agent} already has a running session.",
+    "description": "The question before replacing or removing a running session: the project ({project}) and, when it has several agents, the agent in brackets ({agent}: \" (B1)\", or empty)."
+  },
+  "actions.stopFirst.title": {
+    "defaultMessage": "{what, select, new {Start a new session?} resume {Resume this session?} other {Remove {agent}?}}",
+    "description": "Title of the question before starting a new session (new), resuming one (resume) or removing an agent ({agent}; other) while it runs."
+  },
+  "actions.template.addAgentFailed": {
+    "defaultMessage": "Could not add the agent",
+    "description": "An error's title: adding an agent from a template failed."
+  },
+  "actions.template.blockedMessage": {
+    "defaultMessage": "It can't be loaded into {project, select, none {this project} other {{project}}} yet:",
+    "description": "Above the reasons a template can't be loaded into a project ({project}; none when unknown)."
+  },
+  "actions.template.blockedTitle": {
+    "defaultMessage": "Can't load \"{name}\" yet",
+    "description": "Title of the message when a template ({name}) can't be loaded now (an agent runs, a provider is off…)."
+  },
+  "actions.template.everyProject": {
+    "defaultMessage": "For every project in the workspace (else for this project only)",
+    "description": "A tick box in the Save as Template dialog: the template is the workspace's (ticked) or this project's."
+  },
+  "actions.template.load": {
+    "defaultMessage": "Load template",
+    "description": "Button: loads the template into the project."
+  },
+  "actions.template.loadAdds": {
+    "defaultMessage": "It adds its agents to {project}.",
+    "description": "The question before loading a template into a project ({project}) with no agents."
+  },
+  "actions.template.loadReplaces": {
+    "defaultMessage": "It replaces every agent of {project}.",
+    "description": "The question before loading a template: its agents replace every agent of the project ({project})."
+  },
+  "actions.template.loadTitle": {
+    "defaultMessage": "Load \"{name}\"?",
+    "description": "Title of the question before loading a template ({name}) into a project."
+  },
+  "actions.template.loading": {
+    "defaultMessage": "Loading…",
+    "description": "The Load template button while it works."
+  },
+  "actions.template.nameEmpty": {
+    "defaultMessage": "Enter a name.",
+    "description": "Why a template's name can't be used: it is empty."
+  },
+  "actions.template.namePlaceholder": {
+    "defaultMessage": "Template name",
+    "description": "Placeholder of the Save as Template dialog's name box."
+  },
+  "actions.template.nameTooLong": {
+    "defaultMessage": "At most {max} characters.",
+    "description": "Why a template's name can't be used: it is longer than {max} characters."
+  },
+  "actions.template.noAgents": {
+    "defaultMessage": "No agents to save",
+    "description": "A notification's title: the project has no agents to save as a template."
+  },
+  "actions.template.noAgentsMessage": {
+    "defaultMessage": "Add the agents first, then save them as a template.",
+    "description": "Under the notification that there are no agents to save as a template."
+  },
+  "actions.template.ok": {
+    "defaultMessage": "OK",
+    "description": "Button: closes the message that a template can't be loaded yet."
+  },
+  "actions.template.openSetup": {
+    "defaultMessage": "Open Agent Setup",
+    "description": "Button: opens Agent Setup (a Help window) to install a missing CLI."
+  },
+  "actions.template.providerOff": {
+    "defaultMessage": "A provider it needs is turned off",
+    "description": "A warning's title: a template needs a CLI that is turned off."
+  },
+  "actions.template.providerOffMessage": {
+    "defaultMessage": "Turn it on in Settings → Providers, then load the template again.",
+    "description": "Under the warning that a template needs a CLI that is turned off. Settings → Providers is where: use its translated names."
+  },
+  "actions.template.readFailed": {
+    "defaultMessage": "Could not read the template",
+    "description": "An error's title: reading a template failed."
+  },
+  "actions.template.removeOld": {
+    "defaultMessage": "{n, plural, one {Also remove the old worktree and its branch} other {Also remove # old worktrees and their branches}} (merged into {into, select, none {the main branch} other {{into}}} and clean): {branches}",
+    "description": "A tick box when loading a template: also delete the replaced agents' {n} worktrees and branches that are merged into a branch ({into}; none when it isn't known) and have no changes. {branches} lists them."
+  },
+  "actions.template.replace": {
+    "defaultMessage": "Replace",
+    "description": "Button: replaces the template of that name."
+  },
+  "actions.template.replaceDetail": {
+    "defaultMessage": "Saving replaces it with these agents and this layout.",
+    "description": "Under the question when a template of that name exists."
+  },
+  "actions.template.replaceMessage": {
+    "defaultMessage": "{scope, select, workspace {The workspace already has a template called \"{name}\".} other {This project already has a template called \"{name}\".}}",
+    "description": "The question when the workspace's (workspace) or this project's (other) templates already have one called {name}."
+  },
+  "actions.template.replaceTitle": {
+    "defaultMessage": "Replace the template?",
+    "description": "Title of the question when a template of that name exists."
+  },
+  "actions.template.reusedMessage": {
+    "defaultMessage": "{branch} in {path}: it was clean, and its branch is left as it is.",
+    "description": "Under the notification that an agent works in its old worktree again: its branch ({branch}) and folder ({path})."
+  },
+  "actions.template.reusedTitle": {
+    "defaultMessage": "{agent} works in its worktree again",
+    "description": "A notification's title: an agent added from a template ({agent}) works in the clean worktree it had before."
+  },
+  "actions.template.save": {
+    "defaultMessage": "Save",
+    "description": "Button: saves the template."
+  },
+  "actions.template.saveFailed": {
+    "defaultMessage": "Could not save the template",
+    "description": "An error's title: saving a template failed."
+  },
+  "actions.template.saveMessage": {
+    "defaultMessage": "{n, plural, one {Its agent} other {Its # agents}} (settings and roles) and the layout, to load into any project later. Sessions and worktrees aren't saved.",
+    "description": "The Save as Template dialog: what a template keeps of the project's {n} agents."
+  },
+  "actions.template.saveTitle": {
+    "defaultMessage": "Save as template",
+    "description": "Title of the Save as Template dialog."
+  },
+  "actions.template.saved": {
+    "defaultMessage": "Template saved",
+    "description": "A notification's title: the template was saved."
+  },
+  "actions.template.savedMessage": {
+    "defaultMessage": "\"{name}\" ({n, plural, one {# agent} other {# agents}}), for {scope, select, workspace {the workspace} other {this project}}.",
+    "description": "Under the notification that a template ({name}) of {n} agents was saved for the workspace (workspace) or this project (other)."
+  },
+  "actions.unsaved.changedMessage": {
+    "defaultMessage": "Save them, then {action, select, switch {switch workspace} close {close the workspace} other {reload the window}} again.",
+    "description": "Under the warning that files changed while they were saved: what to do (switch: switching workspace; close: closing it; other: reloading the window)."
+  },
+  "actions.unsaved.changedTitle": {
+    "defaultMessage": "Some files changed while they were being saved",
+    "description": "A warning's title: files were edited again while Save All saved them."
+  },
+  "actions.unsaved.message": {
+    "defaultMessage": "{n, plural, one {{file} has unsaved changes. Save it before you {action, select, switch {switch workspace} close {close the workspace} other {reload the window}}?} other {# files have unsaved changes. Save them before you {action, select, switch {switch workspace} close {close the workspace} other {reload the window}}?}}",
+    "description": "The question before switching workspace (switch), closing the workspace (close) or reloading the window (other) while {n} files have unsaved changes; {file} is the one file's path when there is one."
+  },
+  "actions.unsaved.saveAll": {
+    "defaultMessage": "Save All",
+    "description": "Button: saves every file with unsaved changes, then goes on."
+  },
+  "actions.unsaved.saveFailed": {
+    "defaultMessage": "Couldn't save {n, plural, one {a file} other {# files}}",
+    "description": "An error's title: saving files before switching or closing the workspace failed for {n} of them."
+  },
+  "actions.unsaved.title": {
+    "defaultMessage": "Save your changes?",
+    "description": "Title of the question before switching or closing the workspace, or reloading the window, while files have unsaved changes."
+  },
+  "actions.workspace.closeFailed": {
+    "defaultMessage": "Could not close workspace",
+    "description": "An error's title: closing the workspace failed."
+  },
+  "actions.workspace.createFailed": {
+    "defaultMessage": "Could not create workspace",
+    "description": "An error's title: creating a workspace failed."
+  },
+  "actions.workspace.openFailed": {
+    "defaultMessage": "Could not open workspace",
+    "description": "An error's title: opening a workspace failed."
+  },
+  "actions.worktree.createFailed": {
+    "defaultMessage": "Could not create the worktree",
+    "description": "An error's title: making an agent's worktree again failed."
+  },
+  "actions.worktree.createNew": {
+    "defaultMessage": "Create a New Worktree",
+    "description": "Button: makes a new worktree for the agent."
+  },
+  "actions.worktree.goneDetail": {
+    "defaultMessage": "{setup} If the workspace moved, Repair… in its banner can also locate the folder.",
+    "description": "Under the question when a worktree agent's folder and branch are gone: {setup} is what making it again involves; Repair… is a button in the workspace's banner."
+  },
+  "actions.worktree.goneMessage": {
+    "defaultMessage": "{agent}'s worktree folder is missing ({path}), and its branch {branch} is gone too. Create a new worktree on {branch} from {base}, or remove the agent's worktree link so it works in the project folder?",
+    "description": "The question when a worktree agent's ({agent}) folder ({path}) and git branch ({branch}) are gone: make a new worktree on that branch from {base}, or have the agent work in the project folder."
+  },
+  "actions.worktree.goneTitle": {
+    "defaultMessage": "The worktree is gone",
+    "description": "Title of the question when a worktree agent's folder and branch are both gone."
+  },
+  "actions.worktree.recreate": {
+    "defaultMessage": "Recreate and Start",
+    "description": "Button: makes the agent's worktree again on its branch and starts the agent."
+  },
+  "actions.worktree.recreateMessage": {
+    "defaultMessage": "{agent}'s worktree folder is missing: {path}. Its branch {branch} is still in the repository: recreate the worktree on it, with its commits, and start?",
+    "description": "The question when a worktree agent's ({agent}) folder ({path}) is missing but its git branch ({branch}) is there."
+  },
+  "actions.worktree.recreateTitle": {
+    "defaultMessage": "Recreate the worktree?",
+    "description": "Title of the question when a worktree agent's folder is missing but its branch is there."
+  },
+  "actions.worktree.recreating": {
+    "defaultMessage": "Recreating…",
+    "description": "The Recreate and Start button while it works."
+  },
+  "actions.worktree.setup": {
+    "defaultMessage": "Hive copies in the files it copies into new worktrees, and the project's worktree setup command, if it has one, runs before the agent starts. Nothing is deleted.",
+    "description": "Under the question before recreating an agent's missing worktree: what making it again involves."
+  },
+  "actions.worktree.unlink": {
+    "defaultMessage": "Remove the Worktree Link",
+    "description": "Button: the agent works in the project folder from now on."
+  },
+  "actions.worktree.unlinkFailed": {
+    "defaultMessage": "Could not remove the worktree link",
+    "description": "An error's title: removing an agent's worktree link failed."
+  }
+}

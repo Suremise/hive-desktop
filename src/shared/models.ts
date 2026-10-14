@@ -1,5 +1,8 @@
 import type { AgentInstallInfo, AppSettings, CatalogModel, EffortLevel, EffortOption, FallbackModel, ProviderId } from './types'
+import { OLDER_VERSIONS } from './claude'
+import { msg } from './i18n/msg'
 import { providerDescriptor, type ModelGroup } from './providers'
+import type { Tr } from './tasks'
 
 /**
  * Which models and effort levels a provider offers, and what each model can do (#125). The CLI is the source of truth
@@ -25,9 +28,14 @@ export function fallbackEfforts(provider: ProviderId, settings: Settings): Effor
   return valid.length ? valid : shippedEfforts(provider)
 }
 
-/** What to call an effort level: its name in the fallback list (the user's, then the descriptor's), else capitalised. */
-export function effortName(provider: ProviderId, value: EffortLevel, settings?: Settings): string {
+/**
+ * What to call an effort level: its name in the fallback list (the user's, then the descriptor's), else capitalised. With
+ * tr, a descriptor's name is in the window's language (#800); a name the user gave stays theirs.
+ */
+export function effortName(provider: ProviderId, value: EffortLevel, settings?: Settings, tr?: Tr): string {
   const found = fallbackEfforts(provider, settings).find((e) => e.value === value) ?? shippedEfforts(provider).find((e) => e.value === value)
+  const shipped = tr ? providerDescriptor(provider).effortLevels.find((e) => e.value === value && e.label === found?.label) : undefined
+  if (tr && shipped?.text) return tr(shipped.text)
   return found?.label ?? value.charAt(0).toUpperCase() + value.slice(1)
 }
 
@@ -64,33 +72,47 @@ export function modelSource(provider: ProviderId, info: Info, settings: Settings
   return { kind: 'fallback', version: null, edited: !!ownModels(provider, settings) }
 }
 
-/** "From Claude Code 2.1.289", "From Claude Code 2.1.289 (last start; checking again)", "Fallback (CLI not available)". */
-export function modelSourceText(provider: ProviderId, src: ModelSource): string {
+/**
+ * "From Claude Code 2.1.289", "From Claude Code 2.1.289 (last start; checking again)", "Fallback (CLI not available)". In
+ * the window's language with tr (#800), else English.
+ */
+export function modelSourceText(provider: ProviderId, src: ModelSource, tr?: Tr): string {
   const name = providerDescriptor(provider).name
-  if (src.kind === 'cli') return `From ${name}${src.version ? ` ${src.version}` : ''}`
-  if (src.kind === 'cache') return `From ${name}${src.version ? ` ${src.version}` : ''} (as it last said; asking again)`
-  return `Fallback (${name} couldn't be asked)${src.edited ? ', as you edited it' : ''}`
+  if (tr) {
+    const values = { provider: name, version: src.version || 'none', edited: src.edited ? 'yes' : 'no' }
+    if (src.kind === 'cli') return tr(msg({ id: 'agents.models.fromCli', defaultMessage: 'From {provider}{version, select, none {} other { {version}}}', description: "Settings → a provider: where its models come from now: the CLI ({provider}: its name) told Hive, in that version ({version}; none: leave that branch empty)." }), values)
+    if (src.kind === 'cache') return tr(msg({ id: 'agents.models.fromCache', defaultMessage: 'From {provider}{version, select, none {} other { {version}}} (as it last said; asking again)', description: "Settings → a provider: where its models come from now: what the CLI ({provider}) said when last asked ({version}: its version, none: leave that branch empty), while Hive asks again." }), values)
+    return tr(msg({ id: 'agents.models.fallback', defaultMessage: "Fallback ({provider} couldn't be asked){edited, select, yes {, as you edited it} other {}}", description: "Settings → a provider: its models are Hive's fallback list, because the CLI ({provider}) couldn't be asked; and whether the user edited that list." }), values)
+  }
+  if (src.kind === 'cli') return `From ${name}${src.version ? ` ${src.version}` : ''}` // i18n-ignore: English without tr (Settings passes tr once its area converts it)
+  if (src.kind === 'cache') return `From ${name}${src.version ? ` ${src.version}` : ''} (as it last said; asking again)` // i18n-ignore: English without tr
+  return `Fallback (${name} couldn't be asked)${src.edited ? ', as you edited it' : ''}` // i18n-ignore: English without tr
 }
 
 /**
  * The pickers' groups: the CLI's models (those it lists as unavailable to the account in a group of their own), else
- * the fallback (the descriptor's groups as shipped, or the user's list with older versions apart).
+ * the fallback (the descriptor's groups as shipped, or the user's list with older versions apart). With tr, the groups
+ * made here are named in the window's language (#800; the descriptor's carry their words in `text`); the Agent API
+ * reads only the models, never a group's name.
  */
-export function modelGroups(provider: ProviderId, info: Info, settings: Settings): ModelGroup[] {
+export function modelGroups(provider: ProviderId, info: Info, settings: Settings, tr?: Tr): ModelGroup[] {
   const p = providerDescriptor(provider)
   const c = info?.catalog
+  const named = tr ? tr(msg({ id: 'agents.models.providerGroup', defaultMessage: '{provider} models', description: "A group of the model picker: the models the CLI ({provider}: its name) offers, or the user's list of them." }), { provider: p.name }) : `${p.name} models` // i18n-ignore: English without tr
   if (c?.models.length) {
-    const groups: ModelGroup[] = [{ label: `${p.name} models`, models: c.models.filter((m) => !m.unavailable).map((m) => ({ value: m.value, label: catalogLabel(provider, m, info) })) }]
+    const groups: ModelGroup[] = [{ label: named, models: c.models.filter((m) => !m.unavailable).map((m) => ({ value: m.value, label: catalogLabel(provider, m, info) })) }]
     const off = c.models.filter((m) => m.unavailable)
-    if (off.length) groups.push({ label: 'Not available to this account', unavailable: true, models: off.map((m) => ({ value: m.value, label: catalogLabel(provider, m, info) })) })
+    const offLabel = tr ? tr(msg({ id: 'agents.models.unavailableGroup', defaultMessage: 'Not available to this account', description: "A group of the model picker: models the CLI lists that the user's account can't use (shown, not offered)." })) : 'Not available to this account' // i18n-ignore: English without tr
+    if (off.length) groups.push({ label: offLabel, unavailable: true, models: off.map((m) => ({ value: m.value, label: catalogLabel(provider, m, info) })) })
     return groups
   }
   const own = ownModels(provider, settings)
   if (!own) return p.modelGroups
   const older = own.filter((m) => m.older)
+  const olderLabel = tr ? tr(OLDER_VERSIONS) : 'Older versions' // i18n-ignore: English without tr
   return [
-    { label: `${p.name} models`, models: own.filter((m) => !m.older).map(({ value, label }) => ({ value, label })) },
-    ...(older.length ? [{ label: 'Older versions', older: true, models: older.map(({ value, label }) => ({ value, label })) }] : [])
+    { label: named, models: own.filter((m) => !m.older).map(({ value, label }) => ({ value, label })) },
+    ...(older.length ? [{ label: olderLabel, older: true, models: older.map(({ value, label }) => ({ value, label })) }] : [])
   ]
 }
 
@@ -177,10 +199,11 @@ export function modelCaps(provider: ProviderId, model: string | null | undefined
  * The effort a choice comes to, for a base option ("Inherit (High)"): the chosen level's name, else the model's own
  * default when the CLI said what it is ("Medium, default"), else "default".
  */
-export function effortText(provider: ProviderId, chosen: string | null | undefined, model: string | null | undefined, info: Info, settings: Settings): string {
-  if (chosen && chosen !== 'inherit') return effortName(provider, chosen, settings)
+export function effortText(provider: ProviderId, chosen: string | null | undefined, model: string | null | undefined, info: Info, settings: Settings, tr?: Tr): string {
+  if (chosen && chosen !== 'inherit') return effortName(provider, chosen, settings, tr)
   const def = modelCaps(provider, model, info, settings).defaultEffort
-  return def ? `${effortName(provider, def, settings)}, default` : 'default'
+  if (tr) return def ? tr(msg({ id: 'agents.efforts.defaultIs', defaultMessage: '{effort}, default', description: "The effort a choice comes to, in a picker's base option (\"Inherit (Medium, default)\"): the model's own default effort level ({effort}). Lower case after the comma." }), { effort: effortName(provider, def, settings, tr) }) : tr(msg({ id: 'agents.efforts.default', defaultMessage: 'default', description: "The effort a choice comes to, in a picker's base option (\"Inherit (default)\"), when the model's default isn't known. Lower case." }))
+  return def ? `${effortName(provider, def, settings)}, default` : 'default' // i18n-ignore: English without tr (pickers in other areas pass tr once converted)
 }
 
 /** The key observedDefaultEffort keeps a model's effort under. */

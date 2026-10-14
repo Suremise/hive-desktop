@@ -11,13 +11,14 @@ import * as actions from '../actions'
 import { call, errorMessage } from '../api'
 import { PaneResizer, usePaneSize } from '../components/Resizer'
 import { Icon, IconButton, InfoTip, LoadFailed, Markdown, Modal, SearchInput, StaleNote, Tooltip, useContextMenu, type MenuEntry } from '../components/ui'
-import { agentProviderOf, confirm, focusedAgentId, notify, openInSessionsTab, prompt, revealAgent, set, setAssistantOpen, useDateStyle, useStore } from '../store'
+import { agentProviderOf, confirm, focusedAgentId, notify, openInSessionsTab, prompt, revealAgent, set, setAssistantOpen, useDateStyle, useLanguage, useStore } from '../store'
 import { cx, formatDuration, formatTokens, sessionLabel, timeAgo } from '../util'
 import { useSessions } from './ProjectTabs'
 import { useScopedLoad } from '../scopedLoad'
 import { sessionOrigin, type SessionOrigin } from '@shared/sessionOrigin'
 import { MAX_TREE_PREFS } from '@shared/uiPrefs'
 import { rememberProjectPref } from '../projectPrefs'
+import { fmt, msg, tr, type Msg } from '@shared/i18n'
 
 /**
  * Sessions tab: the project's sessions as a tree on the left (provider → agent → session → the sub-sessions it
@@ -35,15 +36,23 @@ const copyText = (text: string): void => void navigator.clipboard.writeText(text
 const NO_PREFS: Record<string, boolean> = {}
 /** Branches whose open or folded state is remembered per project (the most recently changed). */
 
-const SKIP_TEXT: Record<SessionSkipReason, string> = { live: 'running', 'in-use': 'in use', reading: 'being read by Hive', open: 'open in another Hive window', external: 'started outside Hive', failed: 'failed' }
-const BULK_VERB: Record<SessionBulkAction, string> = { archive: 'Archived', unarchive: 'Unarchived', delete: 'Deleted' }
+/** Why a bulk action passed over a session, in a few words. */
+function skipText(reason: SessionSkipReason): string {
+  // A select's key can't have a dash: 'in-use' is inUse.
+  const key = reason === 'in-use' ? 'inUse' : reason
+  return tr(msg({ id: 'sessions.bulk.skipReason', defaultMessage: '{reason, select, live {running} inUse {in use} reading {being read by Hive} open {open in another Hive window} external {started outside Hive} other {failed}}', description: 'Why archiving, unarchiving or deleting passed over a session, in a few words (lower case): it is running, its files are in use, Hive is reading it, another Hive window has it open, it was started outside Hive, or it failed (other).' }), { reason: key })
+}
+
+/** "Session" or "Conversation" (the Assistant's) in a few messages' selects. */
+type Kind = 'session' | 'conversation'
 
 export function SessionsTab({ project, assistant = false }: { project: ProjectInfo; assistant?: boolean }) {
   const { items, reload, error: listError, loadedAt } = useSessions(project)
   const limit = useAgentLimit()
   const listWidth = usePaneSize('sessions', 320)
   const [showArchived, setShowArchived] = useState(false)
-  const noun = assistant ? 'conversation' : 'session'
+  const kind: Kind = assistant ? 'conversation' : 'session'
+  useLanguage()
   const newOne = (): void => {
     void actions.newSession(project.path)
     if (assistant) setAssistantOpen(true)
@@ -73,7 +82,7 @@ export function SessionsTab({ project, assistant = false }: { project: ProjectIn
   const many = project.agents.length > 1
   // Where each session ran and whose it was, as it recorded (the Assistant's conversations have one place to run).
   const origin = (s: SessionListItem): SessionOrigin | null => (assistant ? null : sessionOrigin(project.path, project.agents, s))
-  const sessionName = (s: SessionListItem): string => sessionLabel(s, project.name)
+  const sessionName = (s: SessionListItem): string => sessionLabel(s, project.name, tr)
   const menu = useContextMenu()
   const resumeMenu = useContextMenu()
   useDateStyle() // session names and times follow the date format
@@ -178,35 +187,35 @@ export function SessionsTab({ project, assistant = false }: { project: ProjectIn
 
   const rename = async (s: SessionListItem): Promise<void> => {
     const current = sessionName(s)
-    const name = (await prompt({ title: 'Rename session', initial: current, confirmLabel: 'Rename' }))?.trim()
+    const name = (await prompt({ title: tr(msg({ id: 'sessions.rename.title', defaultMessage: 'Rename session', description: "Title of the prompt for a session's new name (Sessions tab)." })), initial: current, confirmLabel: tr(RENAME) }))?.trim()
     if (!name || name === current) return
-    await actions.attempt('Could not rename', () => call('session:rename', project.path, s.id, name))
+    await actions.attempt(tr(msg({ id: 'sessions.rename.failed', defaultMessage: 'Could not rename', description: "An error's title: renaming a session failed." })), () => call('session:rename', project.path, s.id, name))
     reload()
   }
   const remove = async (s: SessionListItem): Promise<void> => {
     const who = providerName(s.provider)
     const ok = await confirm({
-      title: `Delete ${noun}?`,
-      message: `Delete "${sessionName(s)}" from Hive?`,
+      title: tr(msg({ id: 'sessions.delete.title', defaultMessage: '{kind, select, conversation {Delete conversation?} other {Delete session?}}', description: "Title of the confirmation before deleting a session (the Hive Assistant's: a conversation) from Hive." }), { kind }),
+      message: tr(msg({ id: 'sessions.delete.message', defaultMessage: 'Delete "{name}" from Hive?', description: 'The confirmation before deleting a session from Hive: its name ({name}).' }), { name: sessionName(s) }),
       detail:
         s.source === 'hive'
-          ? `Hive's copies of its transcript go to the Recycle Bin and it no longer shows here; what it used stays in the totals. ${who} keeps its own transcript, so ${who}'s own resume list still has it.`
-          : `Hive stops listing it. ${who} keeps its transcript, so ${who}'s own resume list still has it.`,
-      confirmLabel: 'Delete',
+          ? tr(msg({ id: 'sessions.delete.detailHive', defaultMessage: "Hive's copies of its transcript go to the Recycle Bin and it no longer shows here; what it used stays in the totals. {cli} keeps its own transcript, so {cli}'s own resume list still has it.", description: "What deleting a session Hive started does: Hive's copies go to the Recycle Bin, its usage stays counted, and the CLI ({cli}: \"Claude Code\") keeps its own transcript." }), { cli: who })
+          : tr(msg({ id: 'sessions.delete.detailExternal', defaultMessage: "Hive stops listing it. {cli} keeps its transcript, so {cli}'s own resume list still has it.", description: 'What deleting a session started outside Hive does: Hive stops listing it, and the CLI ({cli}: "Claude Code") keeps its transcript.' }), { cli: who }),
+      confirmLabel: tr(msg({ id: 'sessions.delete.button', defaultMessage: 'Delete', description: 'Button: deletes the session from Hive. Keep it short.' })),
       danger: true
     })
     if (!ok) return
     const closed = await closeView([s.id])
-    const done = await actions.attempt(`Could not delete the ${noun}`, () => call('session:delete', project.path, s.id).then(() => true))
+    const done = await actions.attempt(tr(msg({ id: 'sessions.delete.failed', defaultMessage: '{kind, select, conversation {Could not delete the conversation} other {Could not delete the session}}', description: "An error's title: deleting a session (the Hive Assistant's: a conversation) failed." }), { kind }), () => call('session:delete', project.path, s.id).then(() => true))
     moving.current = false
     // Still there (it couldn't be deleted): open it again.
     if (!done && closed) setSelectedId(closed)
     reload()
   }
   const archive = async (s: SessionListItem, archived: boolean): Promise<void> => {
-    if (archived && !(await confirm({ title: 'Archive session?', message: 'The transcript is preserved in .hive/archive and hidden from this list. You can unarchive it at any time.', confirmLabel: 'Archive' }))) return
+    if (archived && !(await confirm({ title: tr(msg({ id: 'sessions.archive.title', defaultMessage: 'Archive session?', description: 'Title of the confirmation before archiving a session (Sessions tab).' })), message: tr(msg({ id: 'sessions.archive.message', defaultMessage: 'The transcript is preserved in .hive/archive and hidden from this list. You can unarchive it at any time.', description: 'What archiving a session does. .hive/archive is a folder: keep it as it is.' })), confirmLabel: tr(ARCHIVE) }))) return
     const closed = await closeView([s.id])
-    await actions.attempt('Could not archive', () => call('session:archive', project.path, s.id, archived))
+    await actions.attempt(tr(msg({ id: 'sessions.archive.failed', defaultMessage: 'Could not archive', description: "An error's title: archiving or unarchiving a session failed." })), () => call('session:archive', project.path, s.id, archived))
     moving.current = false
     // Its files have moved (or stayed): open it again from where they are.
     if (closed) setSelectedId(closed)
@@ -237,30 +246,31 @@ export function SessionsTab({ project, assistant = false }: { project: ProjectIn
     if (!list.length) return
     const what = countText({ sessions: list.filter((s) => !s.sub).length, subs: list.filter((s) => !!s.sub).length })
     const running = list.filter((s) => isLive(s.id)).length
-    const skipNote = `${running ? `${running} running now ${running === 1 ? 'is' : 'are'} skipped, as are` : 'Running sessions are skipped, and'} any whose files are in use; the result says which.`
+    const skipNote = tr(msg({ id: 'sessions.bulk.skipNote', defaultMessage: '{running, plural, =0 {Running sessions are skipped, and} one {# running now is skipped, as are} other {# running now are skipped, as are}} any whose files are in use; the result says which.', description: "In the confirmation before archiving or deleting many sessions: running sessions ({running} of them now; none: a general note) and any whose files are in use are passed over, and the result lists them." }), { running })
+    const where = { what, branch: branchName(n) }
     const ok =
       action === 'unarchive' ||
       (await confirm(
         action === 'delete'
           ? {
-              title: `Delete ${what}?`,
-              message: `Delete ${what} under ${branchName(n)} from Hive?`,
-              detail: `Hive's copies of their transcripts go to the Recycle Bin (restore them from there) and Hive stops listing them; what they used stays in the totals. Claude Code and Codex keep their own transcripts. ${skipNote}`,
-              confirmLabel: 'Delete All',
+              title: tr(msg({ id: 'sessions.bulk.deleteTitle', defaultMessage: 'Delete {what}?', description: 'Title of the confirmation before deleting many sessions: how many ({what}: "3 sessions and 12 sub-sessions").' }), where),
+              message: tr(msg({ id: 'sessions.bulk.deleteMessage', defaultMessage: 'Delete {what} under {branch} from Hive?', description: 'The confirmation before deleting many sessions ({what}: "3 sessions") under a branch of the Sessions tree ({branch}: a provider, an agent or a session).' }), where),
+              detail: tr(msg({ id: 'sessions.bulk.deleteDetail', defaultMessage: "Hive's copies of their transcripts go to the Recycle Bin (restore them from there) and Hive stops listing them; what they used stays in the totals. Claude Code and Codex keep their own transcripts. {skipNote}", description: 'What deleting many sessions does; then which are passed over ({skipNote}, a sentence).' }), { skipNote }),
+              confirmLabel: tr(msg({ id: 'sessions.bulk.deleteAll', defaultMessage: 'Delete All', description: 'Button: deletes all the sessions listed. Keep it short.' })),
               danger: true
             }
           : {
-              title: `Archive ${what}?`,
-              message: `Archive ${what} under ${branchName(n)}?`,
-              detail: `Their transcripts are kept in .hive/archive and hidden from this list: tick Archived to see them, and unarchive any at any time. ${skipNote}`,
-              confirmLabel: 'Archive All'
+              title: tr(msg({ id: 'sessions.bulk.archiveTitle', defaultMessage: 'Archive {what}?', description: 'Title of the confirmation before archiving many sessions: how many ({what}: "3 sessions and 12 sub-sessions").' }), where),
+              message: tr(msg({ id: 'sessions.bulk.archiveMessage', defaultMessage: 'Archive {what} under {branch}?', description: 'The confirmation before archiving many sessions ({what}: "3 sessions") under a branch of the Sessions tree ({branch}: a provider, an agent or a session).' }), where),
+              detail: tr(msg({ id: 'sessions.bulk.archiveDetail', defaultMessage: 'Their transcripts are kept in .hive/archive and hidden from this list: tick Archived to see them, and unarchive any at any time. {skipNote}', description: 'What archiving many sessions does (.hive/archive is a folder; Archived is a checkbox above the list: use its translation); then which are passed over ({skipNote}, a sentence).' }), { skipNote }),
+              confirmLabel: tr(msg({ id: 'sessions.bulk.archiveAll', defaultMessage: 'Archive All', description: 'Button: archives all the sessions listed. Keep it short.' }))
             }
       ))
     if (!ok) return
     // The transcript open here, if it is one of them, closes first (an open one is in use); it opens again if its
     // session was left alone, and the result says when it stays closed.
     const closed = await closeView(list.map((s) => s.id))
-    const r = await actions.attempt(`Could not ${action} the ${noun}s`, () => call('session:bulk', project.path, action, list.map((s) => s.id)))
+    const r = await actions.attempt(tr(msg({ id: 'sessions.bulk.failed', defaultMessage: '{action, select, archive {Could not archive the {kind, select, conversation {conversations} other {sessions}}} unarchive {Could not unarchive the {kind, select, conversation {conversations} other {sessions}}} other {Could not delete the {kind, select, conversation {conversations} other {sessions}}}}', description: "An error's title: archiving, unarchiving or deleting many sessions (the Hive Assistant's: conversations) failed." }), { action, kind }), () => call('session:bulk', project.path, action, list.map((s) => s.id)))
     moving.current = false
     if (closed && (!r || !r.done.includes(closed))) setSelectedId(closed)
     if (!r) return
@@ -296,15 +306,15 @@ export function SessionsTab({ project, assistant = false }: { project: ProjectIn
     const entries: MenuEntry[] = []
     if (live) {
       const holder = project.agents.find((a) => a.live?.sessionId === s.id)
-      if (holder) entries.push({ label: assistant ? 'Show the Assistant' : `Show ${holder.name}`, icon: 'terminal', onClick: () => (assistant ? setAssistantOpen(true) : revealAgent(project, holder.id)) })
-    } else if (!s.archived) entries.push({ label: 'Resume', icon: 'debug-continue', action: 'resume', disabled: !!block, detail: block ?? undefined, onClick: () => void actions.resumeSession(project.path, s) })
-    if (s.source === 'external' && !s.sub) entries.push({ label: 'Adopt', icon: 'add', onClick: () => void actions.attempt('Could not adopt', () => call('session:adopt', project.path, s.id)).then(reload) })
-    if (s.source === 'hive') entries.push({ label: 'Rename…', icon: 'tag', keybinding: 'F2', onClick: () => void rename(s) })
+      if (holder) entries.push({ label: assistant ? tr(msg({ id: 'sessions.menu.showAssistant', defaultMessage: 'Show the Assistant', description: "Menu item on the Hive Assistant's running conversation: opens its panel." })) : tr(msg({ id: 'sessions.menu.showAgent', defaultMessage: 'Show {agent}', description: "Menu item on a running session: shows the agent running it ({agent}: its name)." }), { agent: holder.name }), icon: 'terminal', onClick: () => (assistant ? setAssistantOpen(true) : revealAgent(project, holder.id)) })
+    } else if (!s.archived) entries.push({ label: tr(RESUME), icon: 'debug-continue', action: 'resume', disabled: !!block, detail: block ?? undefined, onClick: () => void actions.resumeSession(project.path, s) })
+    if (s.source === 'external' && !s.sub) entries.push({ label: tr(ADOPT), icon: 'add', onClick: () => void actions.attempt(tr(ADOPT_FAILED), () => call('session:adopt', project.path, s.id)).then(reload) })
+    if (s.source === 'hive') entries.push({ label: tr(msg({ id: 'sessions.menu.rename', defaultMessage: 'Rename…', description: 'Menu item on a session: renames it.' })), icon: 'tag', keybinding: 'F2', onClick: () => void rename(s) })
     entries.push({ separator: true })
-    if (s.source === 'hive' && !live) entries.push({ label: s.archived ? 'Unarchive' : 'Archive', icon: s.archived ? 'unarchive' : 'archive', onClick: () => void archive(s, !s.archived) })
-    entries.push({ label: `Delete ${noun === 'session' ? 'Session' : 'Conversation'}…`, icon: 'trash', keybinding: 'Del', danger: true, disabled: live, onClick: () => void remove(s) })
+    if (s.source === 'hive' && !live) entries.push({ label: s.archived ? tr(UNARCHIVE) : tr(ARCHIVE), icon: s.archived ? 'unarchive' : 'archive', onClick: () => void archive(s, !s.archived) })
+    entries.push({ label: tr(msg({ id: 'sessions.menu.delete', defaultMessage: '{kind, select, conversation {Delete Conversation…} other {Delete Session…}}', description: "Menu item on a session (the Hive Assistant's: a conversation): deletes it from Hive, after a confirmation." }), { kind }), icon: 'trash', keybinding: 'Del', danger: true, disabled: live, onClick: () => void remove(s) }) // i18n-ignore: 'Del' is the key's name in the shortcut column
     if (n.children.length) entries.push({ separator: true }, ...branchEntries(n))
-    entries.push({ separator: true }, { label: 'Copy Session ID', icon: 'copy', onClick: () => copyText(s.id) })
+    entries.push({ separator: true }, { label: tr(msg({ id: 'sessions.menu.copyId', defaultMessage: 'Copy Session ID', description: "Menu item on a session: copies its id (the CLI's session id) to the clipboard." })), icon: 'copy', onClick: () => copyText(s.id) })
     return entries
   }
   const branchEntries = (n: TreeNode): MenuEntry[] => {
@@ -313,19 +323,20 @@ export function SessionsTab({ project, assistant = false }: { project: ProjectIn
     const archiving = count('archive')
     const unarchiving = count('unarchive')
     const deleting = count('delete')
-    const scope = n.kind === 'session' ? ' with Its Sub-sessions' : ' All'
+    const scope = n.kind === 'session' ? 'session' : 'branch'
     return [
-      { label: 'Expand All', icon: 'expand-all', onClick: () => setOpen(keys, true) },
-      { label: 'Collapse All', icon: 'collapse-all', onClick: () => setOpen(keys, false) },
+      { label: tr(EXPAND_ALL), icon: 'expand-all', onClick: () => setOpen(keys, true) },
+      { label: tr(COLLAPSE_ALL), icon: 'collapse-all', onClick: () => setOpen(keys, false) },
       { separator: true },
-      { label: `Archive${scope}… (${archiving})`, icon: 'archive', disabled: !archiving, detail: archiving ? undefined : "Nothing of Hive's to archive here", onClick: () => void runBulk(n, 'archive') },
-      ...(unarchiving ? [{ label: `Unarchive${scope} (${unarchiving})`, icon: 'unarchive', onClick: () => void runBulk(n, 'unarchive') }] : []),
-      { label: `Delete${scope}… (${deleting})`, icon: 'trash', danger: true, disabled: !deleting, onClick: () => void runBulk(n, 'delete') }
+      { label: tr(msg({ id: 'sessions.branch.archive', defaultMessage: '{scope, select, session {Archive with Its Sub-sessions… ({n})} other {Archive All… ({n})}}', description: 'Menu item on a branch of the Sessions tree (a provider or an agent: All; a session: with the sessions it started): archives the {n} sessions in it.' }), { scope, n: archiving }), icon: 'archive', disabled: !archiving, detail: archiving ? undefined : tr(msg({ id: 'sessions.branch.nothingToArchive', defaultMessage: "Nothing of Hive's to archive here", description: "Why Archive All is greyed out: no session in the branch is Hive's own (only Hive's sessions can be archived)." })), onClick: () => void runBulk(n, 'archive') },
+      ...(unarchiving ? [{ label: tr(msg({ id: 'sessions.branch.unarchive', defaultMessage: '{scope, select, session {Unarchive with Its Sub-sessions ({n})} other {Unarchive All ({n})}}', description: 'Menu item on a branch of the Sessions tree (a provider or an agent: All; a session: with the sessions it started): unarchives the {n} archived sessions in it.' }), { scope, n: unarchiving }), icon: 'unarchive', onClick: () => void runBulk(n, 'unarchive') }] : []),
+      { label: tr(msg({ id: 'sessions.branch.delete', defaultMessage: '{scope, select, session {Delete with Its Sub-sessions… ({n})} other {Delete All… ({n})}}', description: 'Menu item on a branch of the Sessions tree (a provider or an agent: All; a session: with the sessions it started): deletes the {n} sessions in it from Hive.' }), { scope, n: deleting }), icon: 'trash', danger: true, disabled: !deleting, onClick: () => void runBulk(n, 'delete') }
     ]
   }
   const menuFor = (n: TreeNode): MenuEntry[] => (n.kind === 'session' ? sessionMenu(n) : branchEntries(n))
 
-  if (!items) return listError ? <LoadFailed what={`the ${noun}s`} error={listError} onRetry={reload} /> : <div className="empty-state"><Icon name="loading" spin />Loading…</div>
+  const theList = tr(msg({ id: 'sessions.list.what', defaultMessage: '{kind, select, conversation {the conversations} other {the sessions}}', description: "What could not be loaded, in \"Could not load …\" (the Sessions tab's list; the Hive Assistant's: conversations). Lower case." }), { kind })
+  if (!items) return listError ? <LoadFailed what={theList} error={listError} onRetry={reload} /> : <div className="empty-state"><Icon name="loading" spin />{tr(LOADING)}</div>
 
   // The tree's rows as shown: open branches' children, and while searching each session's matches under it.
   const rows: Row[] = []
@@ -398,26 +409,26 @@ export function SessionsTab({ project, assistant = false }: { project: ProjectIn
       <div className="split-list sessions-list" style={{ width: listWidth }}>
         <PaneResizer paneKey="sessions" />
         <div className="pane-header" style={{ paddingLeft: 14 }}>
-          {assistant ? 'Conversations' : 'Sessions'}
+          {tr(msg({ id: 'sessions.list.heading', defaultMessage: '{kind, select, conversation {Conversations} other {Sessions}}', description: "The heading of the Sessions tab's list (the Hive Assistant's: Conversations)." }), { kind })}
           <InfoTip
             text={
               assistant
-                ? "Every conversation of this workspace's Hive Assistant, by provider. Select one to read it in full, including what came before each compaction."
-                : "Every session of this project, by provider and agent, with the sessions each one started (such as Codex's guardian reviews) under it. Select one to read its transcript, including what came before each compaction; right-click a branch to archive or delete everything in it. Transcripts a CLI has deleted are read from Hive's backup."
+                ? tr(msg({ id: 'sessions.list.infoAssistant', defaultMessage: "Every conversation of this workspace's Hive Assistant, by provider. Select one to read it in full, including what came before each compaction.", description: "The info tip of the Hive Assistant's conversations list. A compaction is when the CLI summarises the conversation to free context." }))
+                : tr(msg({ id: 'sessions.list.info', defaultMessage: "Every session of this project, by provider and agent, with the sessions each one started (such as Codex's guardian reviews) under it. Select one to read its transcript, including what came before each compaction; right-click a branch to archive or delete everything in it. Transcripts a CLI has deleted are read from Hive's backup.", description: "The info tip of the Sessions tab's list. Codex's guardian reviews are sessions Codex starts (keep the name); a compaction is when the CLI summarises the conversation." }))
             }
           />
           <div className="actions">
-            <IconButton icon="add" title={assistant ? 'New Conversation' : 'New Session'} onClick={newOne} />
-            <IconButton icon="refresh" title="Refresh" onClick={reload} />
-            <IconButton icon="expand-all" title="Expand All" onClick={() => setOpen(branchKeys(tree), true)} />
-            <IconButton icon="collapse-all" title="Collapse All" onClick={() => setOpen(branchKeys(tree), false)} />
+            <IconButton icon="add" title={tr(msg({ id: 'sessions.list.new', defaultMessage: '{kind, select, conversation {New Conversation} other {New Session}}', description: "Tooltip of the Sessions tab's + button: starts a new session (the Hive Assistant's: conversation)." }), { kind })} onClick={newOne} />
+            <IconButton icon="refresh" title={tr(msg({ id: 'sessions.list.refresh', defaultMessage: 'Refresh', description: "Tooltip of the Sessions tab's refresh button: reads the list again." }))} onClick={reload} />
+            <IconButton icon="expand-all" title={tr(EXPAND_ALL)} onClick={() => setOpen(branchKeys(tree), true)} />
+            <IconButton icon="collapse-all" title={tr(COLLAPSE_ALL)} onClick={() => setOpen(branchKeys(tree), false)} />
           </div>
         </div>
         <div className="files-filter">
           <Icon name="search" />
           <SearchInput
             ref={searchRef}
-            placeholder={`Search ${noun}s: names, dates, transcripts`}
+            placeholder={tr(msg({ id: 'sessions.search.placeholder', defaultMessage: '{kind, select, conversation {Search conversations: names, dates, transcripts} other {Search sessions: names, dates, transcripts}}', description: "The Sessions tab's search box (the Hive Assistant's: conversations): what it searches." }), { kind })}
             value={query}
             onChange={setQuery}
             onKeyDown={(e) => {
@@ -433,31 +444,31 @@ export function SessionsTab({ project, assistant = false }: { project: ProjectIn
               }
             }}
           />
-          {query && <IconButton icon="close" title="Clear" onClick={() => setQuery('')} />}
+          {query && <IconButton icon="close" title={tr(msg({ id: 'sessions.search.clear', defaultMessage: 'Clear', description: "Tooltip of the button that empties the Sessions tab's search box." }))} onClick={() => setQuery('')} />}
         </div>
         <div className="sessions-filters">
           <label className="flex muted">
-            <input type="checkbox" className="checkbox" checked={showArchived} onChange={(e) => setShowArchived(e.target.checked)} /> Archived
+            <input type="checkbox" className="checkbox" checked={showArchived} onChange={(e) => setShowArchived(e.target.checked)} /> {tr(msg({ id: 'sessions.filter.archived', defaultMessage: 'Archived', description: 'A checkbox above the Sessions list: shows archived sessions too.' }))}
           </label>
           {q && (
             <span className="sessions-scope faint">
               {searchError ? null : !results ? (
                 <>
-                  <Icon name="loading" spin /> Searching…
+                  <Icon name="loading" spin /> {tr(msg({ id: 'sessions.search.searching', defaultMessage: 'Searching…', description: "Under the Sessions tab's search box while it searches the transcripts." }))}
                 </>
               ) : matched === 0 ? (
-                'No matches'
+                tr(msg({ id: 'sessions.search.none', defaultMessage: 'No matches', description: "Under the Sessions tab's search box: nothing matches." }))
               ) : (
-                `${matched} ${noun}${matched === 1 ? '' : 's'}${hitCount ? ` · ${hitCount}${results.some((r) => r.more) ? '+' : ''} match${hitCount === 1 ? '' : 'es'}` : ''}`
+                tr(msg({ id: 'sessions.search.count', defaultMessage: '{kind, select, conversation {{sessions, plural, one {# conversation} other {# conversations}}} other {{sessions, plural, one {# session} other {# sessions}}}}{hits, plural, =0 {} one { · #{more} match} other { · #{more} matches}}', description: "Under the Sessions tab's search box: how many sessions match (the Hive Assistant's: conversations), then how many matches in their transcripts ({more} is \"+\" when there are more than shown, else empty; none: leave it empty)." }), { kind, sessions: matched, hits: hitCount, more: results.some((r) => r.more) ? '+' : '' })
               )}
             </span>
           )}
         </div>
-        {listError && <StaleNote what={`the ${noun}s`} error={listError} at={loadedAt} onRetry={reload} />}
-        {q && searchError && <LoadFailed inline what="the search results" error={searchError} onRetry={() => setSearchTry((n) => n + 1)} />}
+        {listError && <StaleNote what={theList} error={listError} at={loadedAt} onRetry={reload} />}
+        {q && searchError && <LoadFailed inline what={tr(msg({ id: 'sessions.search.what', defaultMessage: 'the search results', description: "What could not be loaded, in \"Could not load …\": the Sessions tab's search. Lower case." }))} error={searchError} onRetry={() => setSearchTry((n) => n + 1)} />}
         <div className="pane-body file-tree sessions-tree" tabIndex={0} ref={treeRef} onKeyDown={onKeyDown}>
-          {items.length === 0 && <div className="pane-empty">No {noun}s yet.</div>}
-          {items.length > 0 && rows.length === 0 && !q && <div className="pane-empty">No {noun}s here: tick Archived to see archived ones.</div>}
+          {items.length === 0 && <div className="pane-empty">{tr(NONE_YET, { kind })}</div>}
+          {items.length > 0 && rows.length === 0 && !q && <div className="pane-empty">{tr(msg({ id: 'sessions.list.noneHere', defaultMessage: '{kind, select, conversation {No conversations here: tick Archived to see archived ones.} other {No sessions here: tick Archived to see archived ones.}}', description: "The Sessions list when every session is archived (the Hive Assistant's: conversations). Archived is the checkbox above it: use its translation." }), { kind })}</div>}
           {rows.map((r) => {
             if (r.kind === 'hit') {
               return (
@@ -468,7 +479,7 @@ export function SessionsTab({ project, assistant = false }: { project: ProjectIn
                   style={{ paddingLeft: 28 + r.depth * 14 }}
                   onClick={() => activate(r)}
                 >
-                  <span className="hit-kind">{HIT_KIND[r.hit.kind]}</span>
+                  <span className="hit-kind">{tr(HIT_KIND[r.hit.kind])}</span>
                   <Highlight text={r.hit.snippet} query={q} />
                 </div>
               )
@@ -508,9 +519,9 @@ export function SessionsTab({ project, assistant = false }: { project: ProjectIn
                 onContextMenu={onContextMenu}
                 buttons={
                   <>
-                    {s.source === 'hive' && <IconButton icon="tag" title="Rename" onClick={() => void rename(s)} />}
-                    {!isLive(s.id) && <IconButton icon="trash" title={`Delete ${noun}`} onClick={() => void remove(s)} />}
-                    <IconButton icon="ellipsis" title="More Actions" onClick={more} />
+                    {s.source === 'hive' && <IconButton icon="tag" title={tr(RENAME)} onClick={() => void rename(s)} />}
+                    {!isLive(s.id) && <IconButton icon="trash" title={tr(DELETE_ONE, { kind })} onClick={() => void remove(s)} />}
+                    <IconButton icon="ellipsis" title={tr(MORE_ACTIONS)} onClick={more} />
                   </>
                 }
               />
@@ -533,21 +544,21 @@ export function SessionsTab({ project, assistant = false }: { project: ProjectIn
             toolbar={
               <>
                 {selected.source === 'external' && !selected.sub && (
-                  <button className="btn small subtle" onClick={() => void actions.attempt('Could not adopt', () => call('session:adopt', project.path, selected.id)).then(reload)}>
-                    Adopt
+                  <button className="btn small subtle" onClick={() => void actions.attempt(tr(ADOPT_FAILED), () => call('session:adopt', project.path, selected.id)).then(reload)}>
+                    {tr(ADOPT)}
                   </button>
                 )}
-                {selected.source === 'hive' && <IconButton icon="tag" title="Rename" onClick={() => void rename(selected)} />}
+                {selected.source === 'hive' && <IconButton icon="tag" title={tr(RENAME)} onClick={() => void rename(selected)} />}
                 {selected.source === 'hive' && !isLive(selected.id) && (
-                  <IconButton icon={selected.archived ? 'unarchive' : 'archive'} title={selected.archived ? 'Unarchive' : 'Archive'} onClick={() => void archive(selected, !selected.archived)} />
+                  <IconButton icon={selected.archived ? 'unarchive' : 'archive'} title={selected.archived ? tr(UNARCHIVE) : tr(ARCHIVE)} onClick={() => void archive(selected, !selected.archived)} />
                 )}
-                {!isLive(selected.id) && <IconButton icon="trash" title={`Delete ${noun}`} onClick={() => void remove(selected)} />}
+                {!isLive(selected.id) && <IconButton icon="trash" title={tr(DELETE_ONE, { kind })} onClick={() => void remove(selected)} />}
                 {isLive(selected.id) && (() => {
                   const holder = project.agents.find((a) => a.live?.sessionId === selected.id)!
                   return (
-                    <Tooltip content={assistant ? 'The Assistant is running this conversation. Show its panel.' : `This conversation is running in ${holder.name}. Show its terminal.`}>
+                    <Tooltip content={assistant ? tr(msg({ id: 'sessions.running.assistantTip', defaultMessage: 'The Assistant is running this conversation. Show its panel.', description: "Tooltip of Show over the Hive Assistant's running conversation." })) : tr(msg({ id: 'sessions.running.agentTip', defaultMessage: 'This conversation is running in {agent}. Show its terminal.', description: "Tooltip of Show over a running session's transcript: the agent running it ({agent}: its name)." }), { agent: holder.name })}>
                       <button className="btn small" onClick={() => (assistant ? setAssistantOpen(true) : revealAgent(project, holder.id))}>
-                        <Icon name="terminal" /> Show{many ? ` ${holder.name}` : ''}
+                        <Icon name="terminal" /> {many ? tr(msg({ id: 'sessions.running.showAgent', defaultMessage: 'Show {agent}', description: "Button over a running session's transcript: shows the agent running it ({agent}: its name)." }), { agent: holder.name }) : tr(msg({ id: 'sessions.running.show', defaultMessage: 'Show', description: "Button over a running session's transcript: shows its agent's terminal (the Assistant's panel). Keep it short." }))}
                       </button>
                     </Tooltip>
                   )
@@ -560,7 +571,7 @@ export function SessionsTab({ project, assistant = false }: { project: ProjectIn
                       <Tooltip content={block}>
                         <span className="resume-blocked">
                           <button className="btn small act-resume" disabled>
-                            <Icon name="debug-continue" /> Resume
+                            <Icon name="debug-continue" /> {tr(RESUME)}
                           </button>
                         </span>
                       </Tooltip>
@@ -574,30 +585,30 @@ export function SessionsTab({ project, assistant = false }: { project: ProjectIn
                   if (agents.length < 2) {
                     const button = (
                       <button className="btn small act-resume" onClick={() => void actions.resumeSession(project.path, selected)}>
-                        <Icon name="debug-continue" /> Resume
+                        <Icon name="debug-continue" /> {tr(RESUME)}
                       </button>
                     )
                     return note ? <Tooltip content={note}>{button}</Tooltip> : button
                   }
                   return (
                     <span className="split-btn">
-                      <Tooltip content={note ?? (targetName ? `Resume in ${targetName}` : 'Resume (adds an agent if none can run it)')}>
+                      <Tooltip content={note ?? (targetName ? tr(RESUME_IN, { agent: targetName }) : tr(msg({ id: 'sessions.resume.addsTip', defaultMessage: 'Resume (adds an agent if none can run it)', description: "Tooltip of Resume when no agent can run the session: Resume adds one." })))}>
                         <button className="btn small act-resume" onClick={() => void actions.resumeSession(project.path, selected)}>
-                          <Icon name="debug-continue" /> Resume{targetName ? ` in ${targetName}` : ''}
+                          <Icon name="debug-continue" /> {targetName ? tr(RESUME_IN, { agent: targetName }) : tr(RESUME)}
                         </button>
                       </Tooltip>
-                      <Tooltip content="Resume in another agent">
+                      <Tooltip content={tr(RESUME_ELSEWHERE)}>
                         <button
                           className="btn small act-resume split-caret"
-                          aria-label="Resume in another agent"
+                          aria-label={tr(RESUME_ELSEWHERE)}
                           onClick={(e) => {
                             const r = e.currentTarget.getBoundingClientRect()
                             resumeMenu.openAt(r.left, r.bottom + 2, [
-                              { header: true, label: 'Resume in' },
+                              { header: true, label: tr(msg({ id: 'sessions.resume.menuHeader', defaultMessage: 'Resume in', description: 'The heading of the menu of agents a session can resume in.' })) },
                               ...agents.map((a) => ({
                                 label: a.name,
                                 icon: a.id === target ? 'debug-continue' : 'person',
-                                detail: `${a.worktree ? `worktree · ${a.worktree.branch}` : 'project folder'}${a.live ? ' · running, its current session stops first' : ''}`,
+                                detail: tr(msg({ id: 'sessions.resume.agentDetail', defaultMessage: '{where, select, worktree {worktree · {branch}} other {project folder}}{running, select, yes { · running, its current session stops first} other {}}', description: 'Under an agent in the Resume in menu: where it works (a worktree and its branch, or the project folder; lower case), and, when it runs, that its current session stops first.' }), { where: a.worktree ? 'worktree' : 'folder', branch: a.worktree?.branch ?? '', running: a.live ? 'yes' : 'no' }),
                                 onClick: () => void actions.resumeSession(project.path, selected, a.id)
                               }))
                             ])
@@ -616,7 +627,7 @@ export function SessionsTab({ project, assistant = false }: { project: ProjectIn
         ) : (
           <div className="empty-state">
             <Icon name="history" />
-            {items.length ? `Select a ${noun} to read its transcript.` : `No ${noun}s yet.`}
+            {items.length ? tr(msg({ id: 'sessions.empty.select', defaultMessage: '{kind, select, conversation {Select a conversation to read its transcript.} other {Select a session to read its transcript.}}', description: "The Sessions tab's reading pane with nothing selected (the Hive Assistant's: conversation)." }), { kind }) : tr(NONE_YET, { kind })}
           </div>
         )}
       </div>
@@ -628,26 +639,46 @@ export function SessionsTab({ project, assistant = false }: { project: ProjectIn
 /** What a bulk action did: one line, and what it skipped and why. */
 function reportBulk(action: SessionBulkAction, r: SessionBulkResult, name: (id: string) => string, closedView: boolean): void {
   const n = r.done.length
-  const head = `${BULK_VERB[action]} ${n} session${n === 1 ? '' : 's'}`
-  const closed = closedView ? 'The transcript you were reading was one of them: it was closed first.' : undefined
-  if (!r.skipped.length) return notify('success', `${head}.`, closed)
+  const head = { action, n }
+  const closed = closedView ? tr(msg({ id: 'sessions.bulk.closedView', defaultMessage: 'The transcript you were reading was one of them: it was closed first.', description: 'In the report of archiving or deleting many sessions: the transcript open in the tab was one of them, so it was closed.' })) : undefined
+  if (!r.skipped.length) return notify('success', tr(msg({ id: 'sessions.bulk.done', defaultMessage: '{action, select, archive {Archived} unarchive {Unarchived} other {Deleted}} {n, plural, one {# session} other {# sessions}}.', description: "A notification's title: how many sessions were archived, unarchived or deleted." }), head), closed)
   const reasons = new Map<SessionSkipReason, number>()
   for (const s of r.skipped) reasons.set(s.reason, (reasons.get(s.reason) ?? 0) + 1)
-  const why = [...reasons].map(([k, v]) => `${v} ${SKIP_TEXT[k]}`).join(', ')
-  const shown = r.skipped.slice(0, 6).map((s) => `• ${name(s.id)}: ${SKIP_TEXT[s.reason]}${s.message ? ` (${s.message})` : ''}`)
-  if (r.skipped.length > shown.length) shown.push(`…and ${r.skipped.length - shown.length} more`)
+  const why = fmt.list(
+    [...reasons].map(([k, v]) => tr(msg({ id: 'sessions.bulk.skipCount', defaultMessage: '{n} {reason}', description: 'How many sessions were passed over for one reason ({reason}: "running", "in use"), listed after "n skipped:".' }), { n: v, reason: skipText(k) })),
+    'unit'
+  )
+  const shown = r.skipped.slice(0, 6).map((s) => `• ${name(s.id)}: ${skipText(s.reason)}${s.message ? ` (${s.message})` : ''}`)
+  if (r.skipped.length > shown.length) shown.push(tr(msg({ id: 'sessions.bulk.andMore', defaultMessage: '…and {n} more', description: 'The last line of the list of sessions passed over, when it is cut short: how many more.' }), { n: r.skipped.length - shown.length }))
   if (closed) shown.push(closed)
-  notify(n ? 'warning' : 'error', `${head}; ${r.skipped.length} skipped: ${why}`, shown.join('\n'))
+  notify(n ? 'warning' : 'error', tr(msg({ id: 'sessions.bulk.doneSkipped', defaultMessage: '{action, select, archive {Archived} unarchive {Unarchived} other {Deleted}} {n, plural, one {# session} other {# sessions}}; {skipped} skipped: {why}', description: "A notification's title: how many sessions were archived, unarchived or deleted, and how many were passed over and why ({why}: \"2 running, 1 in use\")." }), { ...head, skipped: r.skipped.length, why }), shown.join('\n'))
 }
 
-const HIT_KIND: Record<TranscriptItem['kind'], string> = {
-  user: 'You',
-  assistant: 'Reply',
-  thinking: 'Thinking',
-  tool: 'Tool',
-  compaction: 'Summary',
-  command: 'Command',
-  notice: 'Notice'
+// The words used in several places of the tab, as messages (shown with tr() where they render).
+const RENAME = msg({ id: 'sessions.common.rename', defaultMessage: 'Rename', description: 'Button or tooltip: renames a session. Keep it short.' })
+const ARCHIVE = msg({ id: 'sessions.common.archive', defaultMessage: 'Archive', description: 'Button, menu item or tooltip: archives a session (hides it, keeping its transcript). Keep it short.' })
+const UNARCHIVE = msg({ id: 'sessions.common.unarchive', defaultMessage: 'Unarchive', description: 'Button, menu item or tooltip: brings an archived session back to the list. Keep it short.' })
+const RESUME = msg({ id: 'sessions.common.resume', defaultMessage: 'Resume', description: 'Button or menu item: resumes a session in its agent. Keep it short.' })
+const RESUME_IN = msg({ id: 'sessions.common.resumeIn', defaultMessage: 'Resume in {agent}', description: 'Button or tooltip: resumes the session in an agent ({agent}: its name).' })
+const RESUME_ELSEWHERE = msg({ id: 'sessions.common.resumeElsewhere', defaultMessage: 'Resume in another agent', description: "Tooltip and accessible name of the Resume button's arrow: choose the agent to resume in." })
+const ADOPT = msg({ id: 'sessions.common.adopt', defaultMessage: 'Adopt', description: 'Button or menu item on a session started outside Hive: lets Hive manage it. Keep it short.' })
+const ADOPT_FAILED = msg({ id: 'sessions.common.adoptFailed', defaultMessage: 'Could not adopt', description: "An error's title: adopting a session started outside Hive failed." })
+const EXPAND_ALL = msg({ id: 'sessions.common.expandAll', defaultMessage: 'Expand All', description: 'Menu item or tooltip: opens every branch of the Sessions tree.' })
+const COLLAPSE_ALL = msg({ id: 'sessions.common.collapseAll', defaultMessage: 'Collapse All', description: 'Menu item or tooltip: folds every branch of the Sessions tree.' })
+const MORE_ACTIONS = msg({ id: 'sessions.common.moreActions', defaultMessage: 'More Actions', description: "Tooltip of a row's ⋯ button: opens its menu." })
+const LOADING = msg({ id: 'sessions.common.loading', defaultMessage: 'Loading…', description: 'While the Sessions list or a transcript loads.' })
+const DELETE_ONE = msg({ id: 'sessions.common.delete', defaultMessage: '{kind, select, conversation {Delete conversation} other {Delete session}}', description: "Tooltip of a session's delete button (the Hive Assistant's: conversation)." })
+const NONE_YET = msg({ id: 'sessions.common.noneYet', defaultMessage: '{kind, select, conversation {No conversations yet.} other {No sessions yet.}}', description: "The Sessions tab with no sessions (the Hive Assistant's: conversations)." })
+
+/** What a search match is in: a message of the transcript, by its kind. */
+const HIT_KIND: Record<TranscriptItem['kind'], Msg> = {
+  user: msg({ id: 'sessions.hit.user', defaultMessage: 'You', description: "A search match's kind (Sessions search): in the user's prompt. Keep it short." }),
+  assistant: msg({ id: 'sessions.hit.assistant', defaultMessage: 'Reply', description: "A search match's kind: in the agent's reply. Keep it short." }),
+  thinking: msg({ id: 'sessions.hit.thinking', defaultMessage: 'Thinking', description: "A search match's kind: in the agent's thinking. Keep it short." }),
+  tool: msg({ id: 'sessions.hit.tool', defaultMessage: 'Tool', description: "A search match's kind: in a tool call. Keep it short." }),
+  compaction: msg({ id: 'sessions.hit.compaction', defaultMessage: 'Summary', description: "A search match's kind: in a compaction's summary. Keep it short." }),
+  command: msg({ id: 'sessions.hit.command', defaultMessage: 'Command', description: "A search match's kind: in a command the user typed (/compact…). Keep it short." }),
+  notice: msg({ id: 'sessions.hit.notice', defaultMessage: 'Notice', description: "A search match's kind: in a notice from the CLI. Keep it short." })
 }
 
 function Highlight({ text, query }: { text: string; query: string }) {
@@ -666,7 +697,7 @@ function Highlight({ text, query }: { text: string; query: string }) {
 function BranchRow({ n, depth, open, cursor, onClick, onContextMenu, onMore }: { n: Exclude<TreeNode, { kind: 'session' }>; depth: number; open: boolean; cursor: boolean; onClick: () => void; onContextMenu: (e: React.MouseEvent) => void; onMore: (e: React.MouseEvent) => void }) {
   const c = countsIn(n)
   return (
-    <div data-key={n.key} className={cx('row file-row session-branch', `session-branch-${n.kind}`, cursor && 'cursor')} style={{ paddingLeft: 8 + depth * 14 }} onClick={onClick} onContextMenu={onContextMenu}>
+    <div data-key={n.key} className={cx('row', 'file-row', 'session-branch', `session-branch-${n.kind}`, cursor && 'cursor')} style={{ paddingLeft: 8 + depth * 14 }} onClick={onClick} onContextMenu={onContextMenu}>
       <Icon name={open ? 'chevron-down' : 'chevron-right'} className="twistie" />
       {n.kind === 'provider' ? <ProviderIcon provider={n.provider} /> : <Icon name={n.agentId ? 'person' : 'circle-slash'} className="file-icon" />}
       <span className={cx('label', n.removed && 'removed')}>{n.label}</span>
@@ -677,7 +708,7 @@ function BranchRow({ n, depth, open, cursor, onClick, onContextMenu, onMore }: {
         </span>
       </Tooltip>
       <div className="row-actions" onClick={(e) => e.stopPropagation()}>
-        <IconButton icon="ellipsis" title="More Actions" onClick={onMore} />
+        <IconButton icon="ellipsis" title={tr(MORE_ACTIONS)} onClick={onMore} />
       </div>
     </div>
   )
@@ -687,7 +718,7 @@ function BranchRow({ n, depth, open, cursor, onClick, onContextMenu, onMore }: {
 function SessionMarker({ s, block, live, orphan }: { s: SessionListItem; block: string | null; live: boolean; orphan: boolean }) {
   if (s.sub) {
     return (
-      <Tooltip content={`${block ?? ''}${orphan ? `\nThe session that started it isn't listed (deleted, or not from this project).` : ''}`.trim()}>
+      <Tooltip content={`${block ?? ''}${orphan ? `\n${tr(msg({ id: 'sessions.marker.orphan', defaultMessage: "The session that started it isn't listed (deleted, or not from this project).", description: "On a sub-session (a session another one started): the session that started it isn't in the list." }))}` : ''}`.trim()}>
         <span className="badge sub-kind">
           <Icon name="type-hierarchy-sub" /> {s.sub.kind}
         </span>
@@ -698,7 +729,7 @@ function SessionMarker({ s, block, live, orphan }: { s: SessionListItem; block: 
   return (
     <Tooltip content={block}>
       <span className="badge cant-resume">
-        <Icon name="debug-disconnect" /> can't resume
+        <Icon name="debug-disconnect" /> {tr(msg({ id: 'sessions.marker.cantResume', defaultMessage: "can't resume", description: "A badge on a session that can't be resumed (its hover says why). Lower case; keep it short." }))}
       </span>
     </Tooltip>
   )
@@ -707,14 +738,11 @@ function SessionMarker({ s, block, live, orphan }: { s: SessionListItem; block: 
 /** The transcript's size on disk (#671): amber past Warn when a transcript is over, with what to do about it. */
 function TranscriptSize({ s, warnMB, assistant }: { s: SessionListItem; warnMB: number; assistant: boolean }) {
   const { text, long } = transcriptSizeInfo(s.transcriptBytes, warnMB)
+  const kind: Kind = assistant ? 'conversation' : 'session'
   const tip =
     text === '—'
-      ? `${providerName(s.provider)} has no transcript file for this ${assistant ? 'conversation' : 'session'}${s.hasBackup ? ' (Hive keeps a backup of it)' : ''}.`
-      : `Transcript: ${text} on disk${warnMB > 0 ? ` (flagged over ${warnMB} MB: Settings → Sessions)` : ''}.${
-          long
-            ? ` A long conversation slows down the CLI and Hive, and compacting doesn't shrink the file. ${assistant ? 'Start a new conversation (⋯ → New Conversation) to make it short again.' : 'Hand the work over to a new conversation (Hand Over to…) to make it short again.'}`
-            : ''
-        }`
+      ? tr(msg({ id: 'sessions.size.none', defaultMessage: '{kind, select, conversation {{cli} has no transcript file for this conversation} other {{cli} has no transcript file for this session}}{backup, select, yes { (Hive keeps a backup of it)} other {}}.', description: "Hover of a session's transcript size when the CLI ({cli}) has no file for it; and when Hive has a backup of it, that it does." }), { kind, cli: providerName(s.provider), backup: s.hasBackup ? 'yes' : 'no' })
+      : tr(msg({ id: 'sessions.size.tip', defaultMessage: 'Transcript: {size} on disk{limit, plural, =0 {} other { (flagged over # MB: Settings → Sessions)}}.{long, select, conversation { A long conversation slows down the CLI and Hive, and compacting doesn\'t shrink the file. Start a new conversation (⋯ → New Conversation) to make it short again.} session { A long conversation slows down the CLI and Hive, and compacting doesn\'t shrink the file. Hand the work over to a new conversation (Hand Over to…) to make it short again.} other {}}', description: "Hover of a session's transcript size ({size}: \"6.1 MB\"), the size it is flagged over ({limit} MB, set in Settings → Sessions; 0: leave it empty), and, when it is over (long: the Hive Assistant's conversation or an agent's session), what to do. \"New Conversation\" and \"Hand Over to…\" are commands: use their translations." }), { size: text, limit: warnMB, long: long ? kind : 'no' })
   return (
     <Tooltip content={tip}>
       <span className={cx('session-row-size', long && 'warn-text')}>{text}</span>
@@ -776,13 +804,13 @@ function SessionRow(props: {
       </div>
       <div className="session-row-meta">
         {s.lastActivity ? (
-          <Tooltip content={`Last active ${formatDateTime(s.lastActivity)}`}>
+          <Tooltip content={tr(msg({ id: 'sessions.row.lastActive', defaultMessage: 'Last active {when}', description: "Hover of a session's time in the list: when it was last active ({when}: a date and time)." }), { when: formatDateTime(s.lastActivity) })}>
             <span className="session-row-when">{timeAgo(s.lastActivity)}</span>
           </Tooltip>
         ) : (
           <span>{timeAgo(s.lastActivity)}</span>
         )}
-        {s.usage && <span>{formatTokens(s.usage.contextTokens)} context</span>}
+        {s.usage && <span>{tr(msg({ id: 'sessions.row.context', defaultMessage: '{tokens} context', description: 'A session row in the list: how many tokens its context holds ({tokens}: "120K"). Keep it short.' }), { tokens: formatTokens(s.usage.contextTokens) })}</span>}
         <TranscriptSize s={s} warnMB={props.warnMB} assistant={props.assistant} />
         {origin && (
           <Tooltip content={<span style={{ whiteSpace: 'pre-line' }}>{origin.detail}</span>}>
@@ -790,21 +818,21 @@ function SessionRow(props: {
           </Tooltip>
         )}
         {s.source === 'external' && !s.sub && (
-          <Tooltip content="Started outside Hive (e.g. in VS Code or a terminal). Adopt it to manage it here.">
-            <span className="badge info">external</span>
+          <Tooltip content={tr(msg({ id: 'sessions.row.externalTip', defaultMessage: 'Started outside Hive (e.g. in VS Code or a terminal). Adopt it to manage it here.', description: 'Hover of the external badge on a session started outside Hive. Adopt is a button: use its translation.' }))}>
+            <span className="badge info">{tr(msg({ id: 'sessions.row.external', defaultMessage: 'external', description: 'A badge on a session started outside Hive. Lower case; keep it short.' }))}</span>
           </Tooltip>
         )}
-        {s.archived && <span className="badge">archived</span>}
+        {s.archived && <span className="badge">{tr(msg({ id: 'sessions.row.archived', defaultMessage: 'archived', description: 'A badge on an archived session. Lower case; keep it short.' }))}</span>}
         {!s.hasTranscript && s.hasBackup && (
-          <Tooltip content={`${providerName(s.provider)} no longer has this transcript; Hive shows and resumes it from its backup.`}>
-            <span className="badge warn">backup</span>
+          <Tooltip content={tr(msg({ id: 'sessions.row.backupTip', defaultMessage: '{cli} no longer has this transcript; Hive shows and resumes it from its backup.', description: "Hover of the backup badge: the CLI ({cli}) deleted the session's transcript, and Hive uses its own copy." }), { cli: providerName(s.provider) })}>
+            <span className="badge warn">{tr(msg({ id: 'sessions.row.backup', defaultMessage: 'backup', description: "A badge on a session read from Hive's backup (the CLI deleted its own copy). Lower case; keep it short." }))}</span>
           </Tooltip>
         )}
         <SessionMarker s={s} block={props.block} live={!!live} orphan={props.orphan} />
         {kids.length > 0 && (
-          <Tooltip content={`Sessions ${providerName(s.provider)} started for this one: ${kids.length}`}>
+          <Tooltip content={tr(msg({ id: 'sessions.row.subsTip', defaultMessage: 'Sessions {cli} started for this one: {n}', description: 'Hover of the badge counting the sessions this one started ({cli}: the CLI that started them; {n}: how many).' }), { cli: providerName(s.provider), n: kids.length })}>
             <span className="badge sub-count">
-              {kids.length} {kind ? `${kind}${kids.length === 1 ? '' : 's'}` : `sub-session${kids.length === 1 ? '' : 's'}`}
+              {kind ? `${kids.length} ${kind}${kids.length === 1 ? '' : 's'}` /* i18n-ignore: the CLI's own name for these sessions ("guardian review"), made plural as the CLI's English is */ : tr(msg({ id: 'sessions.row.subs', defaultMessage: '{n, plural, one {# sub-session} other {# sub-sessions}}', description: 'A badge counting the sessions this one started (sub-sessions). Keep it short.' }), { n: kids.length })}
             </span>
           </Tooltip>
         )}
@@ -996,8 +1024,8 @@ function TranscriptView({ project, session, origin, live, jump, query, viewId, m
 
   const u = session.usage
   const exportMd = async (): Promise<void> => {
-    const path = await actions.attempt('Could not export', () => call('transcript:export', project.path, session.id, sessionLabel(session, project.name)))
-    if (path) notify('success', 'Transcript exported', path)
+    const path = await actions.attempt(tr(msg({ id: 'sessions.export.failed', defaultMessage: 'Could not export', description: "An error's title: exporting a transcript as Markdown failed." })), () => call('transcript:export', project.path, session.id, sessionLabel(session, project.name, tr)))
+    if (path) notify('success', tr(msg({ id: 'sessions.export.done', defaultMessage: 'Transcript exported', description: "A notification's title: the transcript was saved as a Markdown file (its path follows)." })), path)
   }
 
   return (
@@ -1005,42 +1033,41 @@ function TranscriptView({ project, session, origin, live, jump, query, viewId, m
       <div className="editor-toolbar transcript-toolbar">
         <Icon name="comment-discussion" />
         <span className="path">
-          <strong>{sessionLabel(session, project.name)}</strong>
-          {live && <span className="badge accent" style={{ marginLeft: 8 }}>Running</span>}
+          <strong>{sessionLabel(session, project.name, tr)}</strong>
+          {live && <span className="badge accent" style={{ marginLeft: 8 }}>{tr(msg({ id: 'sessions.view.running', defaultMessage: 'Running', description: "A badge over a running session's transcript. Keep it short." }))}</span>}
           {marker && <span style={{ marginLeft: 8 }}>{marker}</span>}
           {session.handedOverFrom && (
-            <Tooltip content="Another agent's work was handed over to this session. Click to open that session.">
+            <Tooltip content={tr(msg({ id: 'sessions.view.handedOverTip', defaultMessage: "Another agent's work was handed over to this session. Click to open that session.", description: "Hover of the handed over badge over a transcript: the session it continues from." }))}>
               <span className="badge link" style={{ marginLeft: 8 }} onClick={() => openInSessionsTab(project.path, session.handedOverFrom!)}>
-                <Icon name="arrow-swap" /> handed over
+                <Icon name="arrow-swap" /> {tr(msg({ id: 'sessions.view.handedOver', defaultMessage: 'handed over', description: "A badge over a transcript: another agent's work was handed over to this session. Lower case; keep it short." }))}
               </span>
             </Tooltip>
           )}
           {u && (
             <span className="faint" style={{ marginLeft: 8 }}>
-              {formatTokens(u.contextTokens)} context · {formatTokens(u.outputTokens)} output · {u.userMessages} prompt{u.userMessages === 1 ? '' : 's'}
-              {u.compactions.length > 0 && ` · ${u.compactions.length} compaction${u.compactions.length === 1 ? '' : 's'}`}
-              {session.recache && (session.recache.warm ? ` · cache warm ${formatDuration(session.recache.secondsLeft)}` : ' · cache expired')}
+              {tr(msg({ id: 'sessions.view.usage', defaultMessage: '{context} context · {output} output · {prompts, plural, one {# prompt} other {# prompts}}{compactions, plural, =0 {} one { · # compaction} other { · # compactions}}', description: 'Over a transcript: its context and output tokens ("120K"), how many prompts the user sent, and how many times it was compacted (none: leave it empty).' }), { context: formatTokens(u.contextTokens), output: formatTokens(u.outputTokens), prompts: u.userMessages, compactions: u.compactions.length })}
+              {session.recache && (session.recache.warm ? tr(msg({ id: 'sessions.view.cacheWarm', defaultMessage: ' · cache warm {left}', description: "After a transcript's usage line (starts with a separator): the provider's prompt cache is still warm for {left} (\"4m\")." }), { left: formatDuration(session.recache.secondsLeft) }) : tr(msg({ id: 'sessions.view.cacheExpired', defaultMessage: ' · cache expired', description: "After a transcript's usage line (starts with a separator): the provider's prompt cache has expired, so resuming re-caches the conversation." })))}
             </span>
           )}
         </span>
-        <IconButton icon={allOpen ? 'collapse-all' : 'expand-all'} title={allOpen ? 'Collapse Tool Calls' : 'Expand Tool Calls'} onClick={() => {
+        <IconButton icon={allOpen ? 'collapse-all' : 'expand-all'} title={allOpen ? tr(msg({ id: 'sessions.view.collapseTools', defaultMessage: 'Collapse Tool Calls', description: "Tooltip over a transcript: folds every tool call and the agent's thinking." })) : tr(msg({ id: 'sessions.view.expandTools', defaultMessage: 'Expand Tool Calls', description: "Tooltip over a transcript: opens every tool call and the agent's thinking." }))} onClick={() => {
           setAllOpen(!allOpen)
           setExpanded(new Set())
         }} />
-        <IconButton icon="export" title="Export as Markdown…" disabled={!transcript} onClick={() => void exportMd()} />
+        <IconButton icon="export" title={tr(msg({ id: 'sessions.view.export', defaultMessage: 'Export as Markdown…', description: 'Tooltip over a transcript: saves it as a Markdown file.' }))} disabled={!transcript} onClick={() => void exportMd()} />
         {live && (
-          <Tooltip content={follow ? 'Following new messages as they arrive. Click to stop.' : 'Follow new messages as they arrive (Settings → Sessions sets the default)'}>
-            <button className={cx('btn small subtle', follow && 'active')} onClick={() => setFollow(!follow)}>
-              <Icon name={follow ? 'eye' : 'eye-closed'} /> Follow
+          <Tooltip content={follow ? tr(msg({ id: 'sessions.view.followingTip', defaultMessage: 'Following new messages as they arrive. Click to stop.', description: "Tooltip of Follow over a running session's transcript, while on." })) : tr(msg({ id: 'sessions.view.followTip', defaultMessage: 'Follow new messages as they arrive (Settings → Sessions sets the default)', description: "Tooltip of Follow over a running session's transcript, while off. Settings → Sessions is where: use its translated names." }))}>
+            <button className={cx('btn', 'small', 'subtle', follow && 'active')} onClick={() => setFollow(!follow)}>
+              <Icon name={follow ? 'eye' : 'eye-closed'} /> {tr(msg({ id: 'sessions.view.follow', defaultMessage: 'Follow', description: "Button over a running session's transcript: keeps showing new messages as they arrive. Keep it short." }))}
             </button>
           </Tooltip>
         )}
-        {!follow && <IconButton icon="refresh" title="Refresh (load new messages)" onClick={() => void load({ force: true })} />}
+        {!follow && <IconButton icon="refresh" title={tr(msg({ id: 'sessions.view.refresh', defaultMessage: 'Refresh (load new messages)', description: 'Tooltip over a transcript: reads it again for new messages.' }))} onClick={() => void load({ force: true })} />}
         {toolbar}
       </div>
       {origin && (
         <div className="session-ran-in faint">
-          <Icon name={origin.location === 'Project folder' ? 'folder' : 'git-branch'} /> Ran in{' '}
+          <Icon name={!session.cwd || session.cwd.toLowerCase() === project.path.toLowerCase() ? 'folder' : 'git-branch'} /> {tr(msg({ id: 'sessions.view.ranIn', defaultMessage: 'Ran in', description: 'Over a transcript, before where the session ran (its agent and the project folder or a worktree).' }))}{' '}
           <Tooltip content={<span style={{ whiteSpace: 'pre-line' }}>{origin.detail}</span>}>
             <span>{origin.label}</span>
           </Tooltip>
@@ -1057,17 +1084,17 @@ function TranscriptView({ project, session, origin, live, jump, query, viewId, m
         }}
       >
         {error ? (
-          <div className="empty-state">{/no transcript/i.test(error) ? 'Nothing has been said in this session yet.' : error}</div>
+          <div className="empty-state">{/no transcript/i.test(error) ? tr(NOTHING_SAID) : error}</div>
         ) : !transcript ? (
-          <div className="empty-state"><Icon name="loading" spin />Loading…</div>
+          <div className="empty-state"><Icon name="loading" spin />{tr(LOADING)}</div>
         ) : blocks.length === 0 ? (
-          <div className="empty-state">Nothing has been said in this session yet.</div>
+          <div className="empty-state">{tr(NOTHING_SAID)}</div>
         ) : (
           <div className="transcript-body">
             {transcript.from > 0 && (
               <div className="transcript-earlier faint">
                 <button className="btn small subtle" onClick={() => void loadEarlier()}>
-                  <Icon name="fold-up" /> {transcript.from} earlier item{transcript.from === 1 ? '' : 's'} — scroll up or click to load
+                  <Icon name="fold-up" /> {tr(msg({ id: 'sessions.view.earlier', defaultMessage: '{n, plural, one {# earlier item} other {# earlier items}} — scroll up or click to load', description: 'At the top of a long transcript: how many earlier messages are not loaded yet, and how to load them.' }), { n: transcript.from })}
                 </button>
               </div>
             )}
@@ -1080,7 +1107,7 @@ function TranscriptView({ project, session, origin, live, jump, query, viewId, m
                 <OtherItem key={b.item.id} item={b.item} open={isOpen(b.item.id)} toggle={toggle} />
               )
             )}
-            {live && follow && <div className="transcript-live faint"><Icon name="loading" spin /> Following the running session</div>}
+            {live && follow && <div className="transcript-live faint"><Icon name="loading" spin /> {tr(msg({ id: 'sessions.view.following', defaultMessage: 'Following the running session', description: "At the end of a running session's transcript while Follow is on." }))}</div>}
           </div>
         )}
       </div>
@@ -1089,12 +1116,14 @@ function TranscriptView({ project, session, origin, live, jump, query, viewId, m
   )
 }
 
-function CopyButton({ text, title = 'Copy' }: { text: string; title?: string }) {
+const NOTHING_SAID = msg({ id: 'sessions.view.empty', defaultMessage: 'Nothing has been said in this session yet.', description: 'A transcript with no messages yet.' })
+
+function CopyButton({ text, title }: { text: string; title?: string }) {
   const [done, setDone] = useState(false)
   return (
     <IconButton
       icon={done ? 'check' : 'copy'}
-      title={title}
+      title={title ?? tr(msg({ id: 'sessions.view.copy', defaultMessage: 'Copy', description: 'Tooltip of a copy button in a transcript. Keep it short.' }))}
       onClick={() => {
         copyText(text)
         setDone(true)
@@ -1107,14 +1136,15 @@ function CopyButton({ text, title = 'Copy' }: { text: string; title?: string }) 
 const MemoMarkdown = memo(Markdown)
 
 const UserMessage = memo(function UserMessage({ item, project, sessionId, onImage }: { item: Extract<TranscriptItem, { kind: 'user' }>; project: ProjectInfo; sessionId: string; onImage: (img: TranscriptImageRef) => void }) {
+  useLanguage()
   return (
     <div className="tx-block tx-user" id={`tx-${item.id}`}>
       <div className="tx-head">
         <Icon name="person" />
-        <strong>You</strong>
+        <strong>{tr(msg({ id: 'sessions.view.you', defaultMessage: 'You', description: "The heading of the user's own message in a transcript. Keep it short." }))}</strong>
         <span className="faint">{time(item.timestamp)}</span>
         <div className="tx-actions">
-          <CopyButton text={item.text} title="Copy Message" />
+          <CopyButton text={item.text} title={tr(msg({ id: 'sessions.view.copyMessage', defaultMessage: 'Copy Message', description: "Tooltip: copies the user's message in a transcript." }))} />
         </div>
       </div>
       {item.text.trim() && <div className="tx-user-text">{item.text}</div>}
@@ -1141,12 +1171,12 @@ function Reply({ items, project, sessionId, assistant, isOpen, toggle, onImage }
         item.kind === 'assistant' ? (
           <div key={item.id} id={`tx-${item.id}`} className="tx-text">
             <div className="tx-actions">
-              <CopyButton text={item.text} title="Copy Reply" />
+              <CopyButton text={item.text} title={tr(msg({ id: 'sessions.view.copyReply', defaultMessage: 'Copy Reply', description: "Tooltip: copies the agent's reply in a transcript." }))} />
             </div>
             <MemoMarkdown source={item.text} />
           </div>
         ) : item.kind === 'thinking' ? (
-          <Collapsible key={item.id} id={item.id} open={isOpen(item.id)} toggle={toggle} icon="lightbulb" label="Thinking" className="tx-thinking">
+          <Collapsible key={item.id} id={item.id} open={isOpen(item.id)} toggle={toggle} icon="lightbulb" label={tr(msg({ id: 'sessions.view.thinking', defaultMessage: 'Thinking', description: "A folded part of a transcript: the agent's thinking. Keep it short." }))} className="tx-thinking">
             <div className="tx-pre">{item.text}</div>
           </Collapsible>
         ) : item.kind === 'tool' ? (
@@ -1186,24 +1216,24 @@ function ToolCall({ id, tool, open, toggle, project, sessionId, onImage }: { id:
       icon={TOOL_ICON[tool.name] ?? (tool.name.includes(' · ') ? 'plug' : 'tools')}
       label={tool.name}
       detail={tool.summary}
-      badge={tool.isError ? <span className="badge error">error</span> : tool.result === null ? <span className="badge">no result</span> : null}
+      badge={tool.isError ? <span className="badge error">{tr(msg({ id: 'sessions.tool.errorBadge', defaultMessage: 'error', description: 'A badge on a tool call in a transcript that failed. Lower case; keep it short.' }))}</span> : tool.result === null ? <span className="badge">{tr(msg({ id: 'sessions.tool.noResult', defaultMessage: 'no result', description: 'A badge on a tool call in a transcript that has no result (yet). Lower case; keep it short.' }))}</span> : null}
       className="tx-tool"
     >
       <div className="tx-io-label">
-        Input <CopyButton text={t.input} title="Copy Input" />
+        {tr(msg({ id: 'sessions.tool.input', defaultMessage: 'Input', description: "Label above a tool call's input in a transcript." }))} <CopyButton text={t.input} title={tr(msg({ id: 'sessions.tool.copyInput', defaultMessage: 'Copy Input', description: "Tooltip: copies a tool call's input." }))} />
       </div>
       <div className="tx-pre">{t.input}</div>
       {t.result !== null && (
         <>
           <div className="tx-io-label">
-            {t.isError ? 'Error' : 'Result'} <CopyButton text={t.result} title="Copy Result" />
+            {t.isError ? tr(msg({ id: 'sessions.tool.error', defaultMessage: 'Error', description: "Label above a failed tool call's result in a transcript." })) : tr(msg({ id: 'sessions.tool.result', defaultMessage: 'Result', description: "Label above a tool call's result in a transcript." }))} <CopyButton text={t.result} title={tr(msg({ id: 'sessions.tool.copyResult', defaultMessage: 'Copy Result', description: "Tooltip: copies a tool call's result." }))} />
           </div>
-          <div className={cx('tx-pre tx-result', t.isError && 'error')}>{t.result || <span className="faint">(empty)</span>}</div>
+          <div className={cx('tx-pre', 'tx-result', t.isError && 'error')}>{t.result || <span className="faint">{tr(msg({ id: 'sessions.tool.empty', defaultMessage: '(empty)', description: "A tool call's result when it is empty." }))}</span>}</div>
         </>
       )}
       {truncated && (
-        <button className="btn small subtle" style={{ marginTop: 6 }} onClick={() => void actions.attempt('Could not load the tool call', () => call('transcript:tool', project.path, sessionId, id)).then((f) => f && setFull(f))}>
-          Show all ({((tool.inputLength ?? 0) + (tool.resultLength ?? 0)).toLocaleString()} characters)
+        <button className="btn small subtle" style={{ marginTop: 6 }} onClick={() => void actions.attempt(tr(msg({ id: 'sessions.tool.loadFailed', defaultMessage: 'Could not load the tool call', description: "An error's title: loading a long tool call in full failed." })), () => call('transcript:tool', project.path, sessionId, id)).then((f) => f && setFull(f))}>
+          {tr(msg({ id: 'sessions.tool.showAll', defaultMessage: 'Show all ({n, plural, one {# character} other {# characters}})', description: 'Button under a long tool call cut short in a transcript: shows it all ({n}: its length in characters).' }), { n: (tool.inputLength ?? 0) + (tool.resultLength ?? 0) })}
         </button>
       )}
       {t.images.length > 0 && (
@@ -1225,10 +1255,9 @@ function OtherItem({ item, open, toggle }: { item: TranscriptItem; open: boolean
         <div className="tx-compaction-line" onClick={() => item.summary && toggle(item.id)}>
           <span className="rule" />
           <span className="tx-compaction-label">
-            <Icon name="fold" /> Conversation compacted <span className={cx('badge', item.trigger === 'auto' ? 'accent' : 'info')}>{item.trigger}</span>
+            <Icon name="fold" /> {tr(msg({ id: 'sessions.compaction.title', defaultMessage: 'Conversation compacted', description: 'A divider in a transcript: the CLI summarised the conversation here to free context. A badge saying how (auto or manual, as the CLI names it) follows.' }))} <span className={cx('badge', item.trigger === 'auto' ? 'accent' : 'info')}>{item.trigger}</span>
             <span className="faint">
-              {formatTokens(item.preTokens)} → {formatTokens(item.postTokens)}
-              {item.nextRequestTokens !== null && ` (${formatTokens(item.nextRequestTokens)} with instructions)`} · freed {formatTokens(freed)} · {time(item.timestamp)}
+              {tr(msg({ id: 'sessions.compaction.tokens', defaultMessage: '{before} → {after}{next, select, none {} other { ({next} with instructions)}} · freed {freed} · {when}', description: "A compaction divider in a transcript: context tokens before and after (\"120K\"), then the next request's with its instructions (none: leave it empty), how many it freed, and when." }), { before: formatTokens(item.preTokens), after: formatTokens(item.postTokens), next: item.nextRequestTokens !== null ? formatTokens(item.nextRequestTokens) : 'none', freed: formatTokens(freed), when: time(item.timestamp) })}
             </span>
             {item.summary && <Icon name={open ? 'chevron-down' : 'chevron-right'} />}
           </span>
@@ -1237,7 +1266,7 @@ function OtherItem({ item, open, toggle }: { item: TranscriptItem; open: boolean
         {open && item.summary && (
           <div className="tx-compaction-summary">
             <div className="tx-actions">
-              <CopyButton text={item.summary} title="Copy Summary" />
+              <CopyButton text={item.summary} title={tr(msg({ id: 'sessions.compaction.copy', defaultMessage: 'Copy Summary', description: "Tooltip: copies a compaction's summary." }))} />
             </div>
             <MemoMarkdown source={item.summary} />
           </div>
@@ -1270,6 +1299,8 @@ function OtherItem({ item, open, toggle }: { item: TranscriptItem; open: boolean
 // ---------------------------------------------------------------------------
 // Images
 // ---------------------------------------------------------------------------
+
+const IMAGE = msg({ id: 'sessions.image.untitled', defaultMessage: 'Image', description: "An image in a transcript that has no file name (a thumbnail's tooltip, the image viewer's title)." })
 
 const imageCache = new Map<string, string>()
 
@@ -1308,7 +1339,7 @@ function TranscriptThumb({ project, sessionId, image, onOpen }: { project: Proje
   }, [])
   const src = useTranscriptImage(project, sessionId, image.id, visible)
   return (
-    <div className="thumb" ref={ref} onClick={() => onOpen(image)} title={image.path ?? 'Image'}>
+    <div className="thumb" ref={ref} onClick={() => onOpen(image)} title={image.path ?? tr(IMAGE)}>
       {src ? <img src={src} alt="" draggable={false} /> : <Icon name="file-media" />}
     </div>
   )
@@ -1331,7 +1362,7 @@ function TranscriptImageViewer({ project, sessionId, image, images, onNavigate, 
   }, [prev, next, onNavigate])
   return (
     <Modal
-      title={image.path ? image.path.split(/[\\/]/).pop()! : 'Image'}
+      title={image.path ? image.path.split(/[\\/]/).pop()! : tr(IMAGE)}
       icon="file-media"
       onClose={onClose}
       wide
@@ -1340,15 +1371,15 @@ function TranscriptImageViewer({ project, sessionId, image, images, onNavigate, 
       footer={
         <>
           <span className="faint" style={{ marginRight: 'auto' }}>
-            {i + 1} of {images.length}
+            {tr(msg({ id: 'sessions.image.position', defaultMessage: '{n} of {total}', description: "In a transcript's image viewer: which image this is ({n}) of how many ({total})." }), { n: i + 1, total: images.length })}
           </span>
           {image.path && (
             <>
               <button className="btn subtle" onClick={() => void call('app:showInFolder', image.path!)}>
-                <Icon name="folder-opened" /> Reveal
+                <Icon name="folder-opened" /> {tr(msg({ id: 'sessions.image.reveal', defaultMessage: 'Reveal', description: "Button in a transcript's image viewer: shows the image's file in File Explorer. Keep it short." }))}
               </button>
               <button className="btn subtle" onClick={() => copyText(image.path!)}>
-                Copy Path
+                {tr(msg({ id: 'sessions.image.copyPath', defaultMessage: 'Copy Path', description: "Button in a transcript's image viewer: copies the image file's path." }))}
               </button>
             </>
           )}
@@ -1356,9 +1387,9 @@ function TranscriptImageViewer({ project, sessionId, image, images, onNavigate, 
       }
     >
       <div className="image-viewer">
-        <IconButton icon="chevron-left" title="Earlier (←)" disabled={!prev} onClick={() => prev && onNavigate(prev)} />
+        <IconButton icon="chevron-left" title={tr(msg({ id: 'sessions.image.earlier', defaultMessage: 'Earlier (←)', description: "Tooltip in a transcript's image viewer: the previous image (the ← key)." }))} disabled={!prev} onClick={() => prev && onNavigate(prev)} />
         <div className="image-frame">{src ? <img src={src} alt="" /> : <Icon name="loading" spin />}</div>
-        <IconButton icon="chevron-right" title="Later (→)" disabled={!next} onClick={() => next && onNavigate(next)} />
+        <IconButton icon="chevron-right" title={tr(msg({ id: 'sessions.image.later', defaultMessage: 'Later (→)', description: "Tooltip in a transcript's image viewer: the next image (the → key)." }))} disabled={!next} onClick={() => next && onNavigate(next)} />
       </div>
     </Modal>
   )
@@ -1371,8 +1402,8 @@ function WorkedOn({ cards }: { cards: SessionListItem['cards'] }) {
   if (!cards?.length) return null
   return (
     <>
-      <CardsLine icon="project" label="Worked on" cards={cards.filter((c) => !c.review)} />
-      <CardsLine icon="eye" label="Reviewed" cards={cards.filter((c) => c.review)} />
+      <CardsLine icon="project" label={tr(msg({ id: 'sessions.cards.workedOn', defaultMessage: 'Worked on', description: "Over a transcript, before the board cards the session's agent worked on (#5 Title, …)." }))} cards={cards.filter((c) => !c.review)} />
+      <CardsLine icon="eye" label={tr(msg({ id: 'sessions.cards.reviewed', defaultMessage: 'Reviewed', description: "Over a transcript, before the board cards the session's agent reviewed (#5 Title, …)." }))} cards={cards.filter((c) => c.review)} />
     </>
   )
 }
@@ -1394,7 +1425,7 @@ function CardsLine({ icon, label, cards }: { icon: string; label: string; cards:
                 {text}
               </a>
             ) : (
-              <Tooltip content="This card was deleted.">
+              <Tooltip content={tr(msg({ id: 'sessions.cards.deleted', defaultMessage: 'This card was deleted.', description: 'Hover of a card over a transcript that is no longer on the board.' }))}>
                 <span>{text}</span>
               </Tooltip>
             )}

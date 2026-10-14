@@ -5,13 +5,15 @@ import { agentChoosesMcp, agentMcpText } from '@shared/agentMcp'
 import { SESSION_LAYOUTS, agentLimitText, agentPageCount, agentsPerPage, dropIndex, pageEndIndex, compactThreshold, contextPercent, agentModelShown, effortLabel, formatBytes, isCompacting, layoutPanes, mergeBlocked, mostUrgent, pageAgents, pageOfAgent, projectLayout, sessionInAgentFolder, transcriptWarnLimit, unmergedWork } from '@shared/defaults'
 import { agentLimit, useAgentLimit } from '../advanced'
 import type { AgentInfo, LiveSessionState, PageLayout, ProjectInfo, SessionLayout, SessionListItem, SessionUsage } from '@shared/types'
-import { TEMPLATE_SCOPES, type TemplateEntry, type TemplateScope } from '@shared/templates'
+import { TEMPLATE_SCOPES, type TemplateEntry } from '@shared/templates'
 import type { StartFailure } from '@shared/startFailure'
 import { processCount } from '@shared/agentProcesses'
+import { fmt, msg, tr, tRich } from '@shared/i18n'
+import { watchText } from '@shared/agentWatch'
 import { formatDateTime, formatWhen } from '@shared/dates'
 import * as actions from '../actions'
 import { call, errorMessage } from '../api'
-import { NO_IDS, NO_PROJECTS, agentPage, agentProviderOf, clearStartFailure, focusAgent, focusedAgentId, isAssistantPath, notify, openInSessionsTab, paneAssignment, projectKey, prompt, revealAgent, seenAgents, set, setProjectTab, showAgent, showGit, showInOverview, showPage, useDateStyle, useStore } from '../store'
+import { NO_IDS, NO_PROJECTS, agentPage, agentProviderOf, clearStartFailure, focusAgent, focusedAgentId, isAssistantPath, notify, openInSessionsTab, paneAssignment, projectKey, prompt, revealAgent, seenAgents, set, setProjectTab, showAgent, showGit, showInOverview, showPage, useDateStyle, useLanguage, useStore } from '../store'
 import { useLiveUsage, useLiveUsageState } from '../usage'
 import { commandKeybinding } from '../commands'
 import { cx, formatKeybinding, formatTokens, sessionLabel, timeAgo } from '../util'
@@ -111,26 +113,40 @@ function sessionPickerItems(project: ProjectInfo, a: AgentInfo, list: SessionLis
   const many = project.agents.length > 1
   // Conversations only: a sub-session (a Codex guardian review, say) is never resumed.
   const all = list.filter((s) => s.source === 'hive' && !s.archived && !s.sub && sessionInAgentFolder(project.path, a, s))
-  const items: MenuEntry[] = [{ header: true, label: many ? `Resume in ${a.name}` : 'Resume a session' }]
-  if (!all.length) items.push({ label: 'No sessions to resume here yet', disabled: true })
+  const items: MenuEntry[] = [
+    {
+      header: true,
+      label: many
+        ? tr(msg({ id: 'panes.resume.headerIn', defaultMessage: 'Resume in {agent}', description: "Heading of the session picker (an agent's Resume ▾): the sessions listed resume in this agent ({agent}: its name)." }), { agent: a.name })
+        : tr(msg({ id: 'panes.resume.header', defaultMessage: 'Resume a session', description: "Heading of the session picker (an agent's Resume ▾) in a project with one agent." }))
+    }
+  ]
+  if (!all.length) items.push({ label: tr(msg({ id: 'panes.resume.none', defaultMessage: 'No sessions to resume here yet', description: 'The session picker when the agent has no session to resume.' })), disabled: true })
   for (const s of all.slice(0, PICKER_MAX)) {
     const holder = holders.get(s.id)
     const ranBy = project.agents.find((x) => x.id === s.agentId)
     const bits = [timeAgo(s.lastActivity)]
-    if (holder) bits.push(`open in ${holder.name} — click to show it`)
+    if (holder) bits.push(tr(msg({ id: 'panes.resume.openIn', defaultMessage: 'open in {agent} — click to show it', description: "A session in the session picker that another agent has open ({agent}: its name). Lower case: it follows how long ago it ran." }), { agent: holder.name }))
     else {
-      if (many && !a.worktree && ranBy && ranBy.id !== a.id) bits.push(`last run by ${ranBy.name}`)
-      if (s.recache && !s.recache.warm && s.recache.tokens > 20000) bits.push(`cache expired, ~${formatTokens(s.recache.tokens)} to re-cache`)
+      if (many && !a.worktree && ranBy && ranBy.id !== a.id) bits.push(tr(msg({ id: 'panes.resume.lastRunBy', defaultMessage: 'last run by {agent}', description: 'A session in the session picker that another agent ({agent}: its name) ran last. Lower case.' }), { agent: ranBy.name }))
+      if (s.recache && !s.recache.warm && s.recache.tokens > 20000) bits.push(tr(msg({ id: 'panes.resume.recache', defaultMessage: 'cache expired, ~{tokens} to re-cache', description: "A session in the session picker whose prompt cache has expired: resuming it re-reads about {tokens} tokens (\"120K\"). Lower case." }), { tokens: formatTokens(s.recache.tokens) }))
     }
     items.push({
-      label: sessionLabel(s, project.name),
+      label: sessionLabel(s, project.name, tr),
       detail: bits.join(' · '),
       icon: holder ? 'circle-filled' : s.id === a.resume?.id ? 'debug-continue' : 'history',
       muted: !!holder,
       onClick: () => (holder ? revealAgent(project, holder.id) : void actions.resumeSession(project.path, s, a.id))
     })
   }
-  items.push({ separator: true }, { label: all.length > PICKER_MAX ? `All ${all.length} Sessions…` : 'Sessions Tab…', icon: 'history', onClick: () => setProjectTab(project.path, 'sessions') })
+  items.push(
+    { separator: true },
+    {
+      label: all.length > PICKER_MAX ? tr(msg({ id: 'panes.resume.allSessions', defaultMessage: 'All {n} Sessions…', description: 'Last item of the session picker when it lists only the newest: opens the Sessions tab with all {n}.' }), { n: all.length }) : tr(msg({ id: 'panes.resume.sessionsTab', defaultMessage: 'Sessions Tab…', description: "Last item of the session picker: opens the project's Sessions tab." })),
+      icon: 'history',
+      onClick: () => setProjectTab(project.path, 'sessions')
+    }
+  )
   return items
 }
 
@@ -138,7 +154,7 @@ function sessionPickerItems(project: ProjectInfo, a: AgentInfo, list: SessionLis
 function useSessionPicker() {
   const menu = useContextMenu()
   const openAt = async (project: ProjectInfo, a: AgentInfo, x: number, y: number): Promise<void> => {
-    const list = await actions.attempt('Could not list sessions', () => call('session:list', project.path))
+    const list = await actions.attempt(tr(msg({ id: 'panes.resume.listFailed', defaultMessage: 'Could not list sessions', description: "An error's title: the session picker couldn't read the sessions." })), () => call('session:list', project.path))
     if (list) menu.openAt(x, y, sessionPickerItems(project, a, list))
   }
   const openBelow = (el: Element, project: ProjectInfo, a: AgentInfo): void => {
@@ -149,25 +165,36 @@ function useSessionPicker() {
 }
 
 function resumeTip(project: ProjectInfo, a: AgentInfo): string {
-  if (a.resume) return `Resume "${sessionLabel(a.resume, project.name)}", last active ${timeAgo(a.resume.lastActiveAt)}`
-  return `${project.agents.length > 1 ? `${a.name} has` : 'There is'} no session of its own to resume. Choose one with ▾, or start a new one.`
+  if (a.resume) return tr(msg({ id: 'panes.resume.tip', defaultMessage: 'Resume "{session}", last active {when}', description: "Tooltip of an agent's Resume button: the session it resumes ({session}: its name) and when it was last active ({when}: \"5 min ago\")." }), { session: sessionLabel(a.resume, project.name), when: timeAgo(a.resume.lastActiveAt) })
+  if (project.agents.length > 1) return tr(msg({ id: 'panes.resume.noneOfAgent', defaultMessage: '{agent} has no session of its own to resume. Choose one with ▾, or start a new one.', description: "Tooltip of an agent's Resume button when the agent ({agent}: its name) has no session to resume. ▾ is the button beside it." }), { agent: a.name })
+  return tr(msg({ id: 'panes.resume.noneOwn', defaultMessage: 'There is no session of its own to resume. Choose one with ▾, or start a new one.', description: "Tooltip of the Resume button when the project's agent has no session to resume. ▾ is the button beside it." }))
 }
 
 /** The colour every secondary Resume button wears (agent panes, the project header, the Assistant's panel): Resume's (#344). */
 export const RESUME_TINT = 'act-resume'
 
+const RESUME = msg({ id: 'panes.resume.button', defaultMessage: 'Resume', description: "Button (an agent's pane, its menu): resumes the agent's last session. Keep it short." })
+const NEW_SESSION = msg({ id: 'panes.session.new', defaultMessage: 'New Session', description: 'Button and menu item (an agent\'s pane): starts the agent in a new conversation. Keep it short.' })
+const RESUME_SESSION = msg({ id: 'panes.resume.pick', defaultMessage: 'Resume a Session…', description: "Menu item (an agent's pane): opens the session picker to resume one of its sessions." })
+const MERGE = msg({ id: 'panes.agent.merge', defaultMessage: 'Merge…', description: "Button and menu item (a worktree agent's pane): opens the merge dialog for its branch." })
+const AGENT_SETTINGS = msg({ id: 'panes.agent.settings', defaultMessage: 'Agent Settings…', description: "Menu item and button (an agent's pane): opens the agent's settings." })
+const COMPACT = msg({ id: 'panes.compact.button', defaultMessage: 'Compact', description: "Button on an agent's pane: summarises its conversation to shrink its context. Keep it short." })
+const STOP = msg({ id: 'panes.agent.stop', defaultMessage: 'Stop', description: "Button and menu item (an agent's pane): stops the agent's session (the conversation is kept). Keep it short." })
+
 /** Resume split button: the main part resumes the agent's last session, ▾ picks another. */
-export function ResumeButton({ project, a, className, label = 'Resume' }: { project: ProjectInfo; a: AgentInfo; className?: string; label?: string }) {
+export function ResumeButton({ project, a, className, label }: { project: ProjectInfo; a: AgentInfo; className?: string; label?: string }) {
+  useLanguage()
   const picker = useSessionPicker()
+  const choose = tr(msg({ id: 'panes.resume.choose', defaultMessage: 'Choose a session to resume', description: "Tooltip and accessible name of the ▾ beside an agent's Resume button: opens the session picker." }))
   return (
     <span className="split-btn">
       <Tooltip content={resumeTip(project, a)}>
         <button className={cx('btn', className)} disabled={!a.resume} onClick={() => void actions.resumeLast(project.path, a.id)}>
-          <Icon name="debug-continue" /> {label}
+          <Icon name="debug-continue" /> {label ?? tr(RESUME)}
         </button>
       </Tooltip>
-      <Tooltip content="Choose a session to resume">
-        <button className={cx('btn split-caret', className)} onClick={(e) => picker.openBelow(e.currentTarget, project, a)} aria-label="Choose a session to resume">
+      <Tooltip content={choose}>
+        <button className={cx('btn', 'split-caret', className)} onClick={(e) => picker.openBelow(e.currentTarget, project, a)} aria-label={choose}>
           <Icon name="chevron-down" />
         </button>
       </Tooltip>
@@ -181,13 +208,13 @@ export function ResumeButton({ project, a, className, label = 'Resume' }: { proj
  * record's time, as in the Sessions tab: a resumed one's isn't this launch's).
  */
 function liveSessionLabel(project: ProjectInfo, live: LiveSessionState, usage: SessionUsage | null | undefined): string {
-  return sessionLabel({ id: live.sessionId, name: live.sessionName, title: usage?.title, customTitle: usage?.customTitle, titleAtRename: live.titleAtRename, startedAt: live.sessionCreatedAt || live.startedAt }, project.name)
+  return sessionLabel({ id: live.sessionId, name: live.sessionName, title: usage?.title, customTitle: usage?.customTitle, titleAtRename: live.titleAtRename, startedAt: live.sessionCreatedAt || live.startedAt }, project.name, tr)
 }
 
 async function renameSession(project: ProjectInfo, sessionId: string, current: string): Promise<void> {
-  const name = (await prompt({ title: 'Rename session', initial: current, confirmLabel: 'Rename' }))?.trim()
+  const name = (await prompt({ title: tr(msg({ id: 'panes.session.renameTitle', defaultMessage: 'Rename session', description: "Title of the dialog renaming an agent's session (from its footer)." })), initial: current, confirmLabel: tr(msg({ id: 'panes.session.renameButton', defaultMessage: 'Rename', description: 'Button of the dialog renaming a session.' })) }))?.trim()
   if (!name || name === current) return
-  await actions.attempt('Could not rename', () => call('session:rename', project.path, sessionId, name))
+  await actions.attempt(tr(msg({ id: 'panes.session.renameFailed', defaultMessage: 'Could not rename', description: "An error's title: renaming a session failed." })), () => call('session:rename', project.path, sessionId, name))
 }
 
 /**
@@ -199,22 +226,19 @@ function SessionName({ project, a, usage }: { project: ProjectInfo; a: AgentInfo
   const live = a.live
   if (!live || live.settingUp || !live.sessionId) return null
   const label = liveSessionLabel(project, live, usage)
-  const tip = `${label}
-Running since ${formatDateTime(live.startedAt)}
-Session ${live.sessionId}
-Click to read it in the Sessions tab; right-click to rename it.`
+  const tip = tr(msg({ id: 'panes.session.tip', defaultMessage: '{session}\nRunning since {since}\nSession {id}\nClick to read it in the Sessions tab; right-click to rename it.', description: "Hover of the session icon in an agent's footer, four lines: the session's name, when it started ({since}: a date and time), its id, and what clicking does. Keep the line breaks." }), { session: label, since: formatDateTime(live.startedAt), id: live.sessionId })
   const open = (): void => openInSessionsTab(project.path, live.sessionId)
   return (
     <>
       <Tooltip content={<span style={{ whiteSpace: 'pre-line' }}>{tip}</span>}>
         <span
           className="pane-foot-item session-tag"
-          aria-label={`Session: ${label}`}
+          aria-label={tr(msg({ id: 'panes.session.name', defaultMessage: 'Session: {session}', description: "Accessible name of the session icon in an agent's footer ({session}: the session's name)." }), { session: label })}
           onClick={open}
           onContextMenu={(e) =>
             menu.open(e, [
-              { label: 'Rename…', icon: 'tag', onClick: () => void renameSession(project, live.sessionId, label) },
-              { label: 'Open in Sessions Tab', icon: 'history', onClick: open }
+              { label: tr(msg({ id: 'panes.session.rename', defaultMessage: 'Rename…', description: "Menu item on the session icon in an agent's footer: renames the session." })), icon: 'tag', onClick: () => void renameSession(project, live.sessionId, label) },
+              { label: tr(msg({ id: 'panes.session.openInTab', defaultMessage: 'Open in Sessions Tab', description: "Menu item on the session icon in an agent's footer: reads the session in the Sessions tab." })), icon: 'history', onClick: open }
             ])
           }
         >
@@ -335,6 +359,10 @@ function useDragCleanup(): void {
 }
 
 
+const REMOVE_AGENT = msg({ id: 'panes.menu.remove', defaultMessage: 'Remove Agent…', description: "Menu item (an agent's menu): removes the agent from the project (asks first)." })
+const CANCEL_WATCH_FAILED = msg({ id: 'panes.watchCancel.failed', defaultMessage: 'Could not cancel the watch', description: "An error's title: ending an agent's watch failed." })
+const CONFIGURE_AGENT = msg({ id: 'panes.add.configure', defaultMessage: 'Configure Agent and Add…', description: 'Button and menu item (the agent strip): opens the Add Agent dialog (provider, where it works, settings).' })
+
 /** Move Left / Move Right, for a project with several agents (they cross pages at the edges). */
 function moveItems(project: ProjectInfo, a: AgentInfo): MenuEntry[] {
   if (project.agents.length < 2 || isAssistantPath(project.path)) return []
@@ -345,15 +373,15 @@ function moveItems(project: ProjectInfo, a: AgentInfo): MenuEntry[] {
   }
   return [
     { separator: true },
-    { label: 'Move Left', icon: 'arrow-left', disabled: i <= 0, keybinding: kb('agent.moveLeft'), onClick: () => actions.nudgeAgent(-1, project.path, a.id) },
-    { label: 'Move Right', icon: 'arrow-right', disabled: i >= project.agents.length - 1, keybinding: kb('agent.moveRight'), onClick: () => actions.nudgeAgent(1, project.path, a.id) }
+    { label: tr(msg({ id: 'panes.menu.moveLeft', defaultMessage: 'Move Left', description: "Menu item (an agent's menu): moves the agent one place left among the project's agents." })), icon: 'arrow-left', disabled: i <= 0, keybinding: kb('agent.moveLeft'), onClick: () => actions.nudgeAgent(-1, project.path, a.id) },
+    { label: tr(msg({ id: 'panes.menu.moveRight', defaultMessage: 'Move Right', description: "Menu item (an agent's menu): moves the agent one place right among the project's agents." })), icon: 'arrow-right', disabled: i >= project.agents.length - 1, keybinding: kb('agent.moveRight'), onClick: () => actions.nudgeAgent(1, project.path, a.id) }
   ]
 }
 
 /** An agent's menu. `inHeader`: the pane's header shows the session and Merge buttons, so the menu leaves them out. */
 function agentMenu(project: ProjectInfo, a: AgentInfo, pick: () => void, inHeader = false): MenuEntry[] {
   const worktree = !!a.worktree
-  const archiveItem = { label: 'Archive and Start New…', icon: 'archive', action: 'archive-start' as const, onClick: () => void actions.archiveCurrent(project.path, a.id) }
+  const archiveItem = { label: tr(msg({ id: 'panes.menu.archiveStartNew', defaultMessage: 'Archive and Start New…', description: "Menu item (an agent's menu): archives the agent's conversation and starts a new one." })), icon: 'archive', action: 'archive-start' as const, onClick: () => void actions.archiveCurrent(project.path, a.id) }
   return [
     ...(inHeader
       ? // The header's buttons are Compact and Stop; archiving is used less often, so it's here.
@@ -362,32 +390,32 @@ function agentMenu(project: ProjectInfo, a: AgentInfo, pick: () => void, inHeade
         : []
       : a.live
       ? [
-          { label: 'Stop', icon: 'debug-stop', action: 'stop' as const, onClick: () => void actions.stopSession(project.path, a.id) },
-          { label: 'Compact…', icon: 'fold', disabled: !(a.live.status === 'ready' || a.live.status === 'finished' || a.live.status === 'watching'), onClick: () => set({ compactFor: { project: project.path, agentId: a.id } }) },
+          { label: tr(STOP), icon: 'debug-stop', action: 'stop' as const, onClick: () => void actions.stopSession(project.path, a.id) },
+          { label: tr(msg({ id: 'panes.menu.compact', defaultMessage: 'Compact…', description: "Menu item (an agent's menu): summarises its conversation to shrink its context (asks first)." })), icon: 'fold', disabled: !(a.live.status === 'ready' || a.live.status === 'finished' || a.live.status === 'watching'), onClick: () => set({ compactFor: { project: project.path, agentId: a.id } }) },
           archiveItem
         ]
       : [
-          { label: 'Resume', icon: 'debug-continue', action: 'resume' as const, disabled: !a.resume, onClick: () => void actions.resumeLast(project.path, a.id) },
-          { label: 'Resume a Session…', icon: 'history', action: 'resume' as const, onClick: pick },
-          { label: 'New Session', icon: 'add', action: 'start' as const, onClick: () => void actions.newSession(project.path, a.id) }
+          { label: tr(RESUME), icon: 'debug-continue', action: 'resume' as const, disabled: !a.resume, onClick: () => void actions.resumeLast(project.path, a.id) },
+          { label: tr(RESUME_SESSION), icon: 'history', action: 'resume' as const, onClick: pick },
+          { label: tr(NEW_SESSION), icon: 'add', action: 'start' as const, onClick: () => void actions.newSession(project.path, a.id) }
         ]),
     // Also in the header; here too for a pane too narrow to show it.
     ...(a.live?.status === 'watching'
-      ? [{ label: 'Cancel Card Watch', icon: 'eye-closed', onClick: () => void call('watch:cancel', project.path, a.id).catch((e) => notify('error', 'Could not cancel the watch', String((e as Error).message ?? e))) }]
+      ? [{ label: tr(msg({ id: 'panes.menu.cancelWatch', defaultMessage: 'Cancel Card Watch', description: "Menu item (a watching agent's menu): ends its watch, so nothing wakes it." })), icon: 'eye-closed', onClick: () => void call('watch:cancel', project.path, a.id).catch((e) => notify('error', tr(CANCEL_WATCH_FAILED), String((e as Error).message ?? e))) }]
       : []),
-    { label: 'Hand Over to…', icon: 'arrow-swap', onClick: () => set({ handOverFor: { project: project.path, agentId: a.id } }) },
+    { label: tr(msg({ id: 'panes.menu.handOver', defaultMessage: 'Hand Over to…', description: "Menu item (an agent's menu): hands its work over to another agent or a new conversation." })), icon: 'arrow-swap', onClick: () => set({ handOverFor: { project: project.path, agentId: a.id } }) },
     ...moveItems(project, a),
     { separator: true },
-    { label: 'Agent Settings…', icon: 'settings', onClick: () => set({ agentSettingsFor: { project: project.path, agentId: a.id } }) },
+    { label: tr(AGENT_SETTINGS), icon: 'settings', onClick: () => set({ agentSettingsFor: { project: project.path, agentId: a.id } }) },
     ...(worktree
       ? [
-          { label: 'Review Changes', icon: 'git-compare', onClick: () => reviewChanges(project, a) },
-          ...(inHeader ? [] : [{ label: 'Merge…', icon: 'git-merge', disabled: !!mergeBlocked(a.name, a.live?.status), detail: mergeBlocked(a.name, a.live?.status) ?? undefined, onClick: () => set({ mergeFor: { project: project.path, agentId: a.id } }) }]),
+          { label: tr(msg({ id: 'panes.menu.reviewChanges', defaultMessage: 'Review Changes', description: "Menu item (a worktree agent's menu): shows its changes in the Git tab." })), icon: 'git-compare', onClick: () => reviewChanges(project, a) },
+          ...(inHeader ? [] : [{ label: tr(MERGE), icon: 'git-merge', disabled: !!mergeBlocked(a.name, a.live?.status, tr), detail: mergeBlocked(a.name, a.live?.status, tr) ?? undefined, onClick: () => set({ mergeFor: { project: project.path, agentId: a.id } }) }]),
           { separator: true },
-          { label: 'Remove Agent…', icon: 'close', action: 'remove' as const, onClick: () => void actions.removeAgent(project.path, a.id) },
-          { label: 'Discard Worktree and Branch…', icon: 'trash', danger: true, onClick: () => void actions.discardAgent(project.path, a.id) }
+          { label: tr(REMOVE_AGENT), icon: 'close', action: 'remove' as const, onClick: () => void actions.removeAgent(project.path, a.id) },
+          { label: tr(msg({ id: 'panes.menu.discard', defaultMessage: 'Discard Worktree and Branch…', description: "Menu item (a worktree agent's menu): removes the agent and deletes its worktree and branch (asks first)." })), icon: 'trash', danger: true, onClick: () => void actions.discardAgent(project.path, a.id) }
         ]
-      : [{ separator: true }, { label: 'Remove Agent…', icon: 'close', action: 'remove' as const, onClick: () => void actions.removeAgent(project.path, a.id) }])
+      : [{ separator: true }, { label: tr(REMOVE_AGENT), icon: 'close', action: 'remove' as const, onClick: () => void actions.removeAgent(project.path, a.id) }])
   ]
 }
 
@@ -397,14 +425,15 @@ function agentMenu(project: ProjectInfo, a: AgentInfo, pick: () => void, inHeade
  * with default settings is the palette's Add Agent (Ctrl+Alt+Shift+N). `strip`: the agent strip's, which also answers
  * the palette's Add Agent from Template….
  */
-export function AddAgentButton({ project, className, label = 'Add Agent', strip }: { project: ProjectInfo; className?: string; label?: string; strip?: boolean }) {
+export function AddAgentButton({ project, className, label, strip }: { project: ProjectInfo; className?: string; label?: string; strip?: boolean }) {
+  useLanguage()
   const menu = useContextMenu()
   const caret = useRef<HTMLButtonElement>(null)
   const limit = useAgentLimit()
   const full = project.agents.length >= limit
   const templates = !isAssistantPath(project.path)
   const configure = (): void => set({ addAgentFor: project.path })
-  const tip = full ? agentLimitText(limit) : 'Configure Agent and Add…: choose its provider, where it works and its settings'
+  const tip = full ? agentLimitText(limit, tr) : tr(msg({ id: 'panes.add.tip', defaultMessage: 'Configure Agent and Add…: choose its provider, where it works and its settings', description: 'Tooltip of the Add Agent button (the agent strip). "Configure Agent and Add…" names the dialog it opens: use its translation.' }))
   const fromTemplate = async (keyboard: boolean): Promise<void> => {
     const at = caret.current && below(caret.current)
     const all = await templateList(project.path)
@@ -415,8 +444,8 @@ export function AddAgentButton({ project, className, label = 'Add Agent', strip 
     menu.openAt(
       ...below(caret.current),
       [
-        { label: 'Configure Agent and Add…', icon: 'settings-gear', disabled: full, onClick: configure },
-        ...(templates ? [{ label: 'Add Agent from Template', icon: 'library', more: true, disabled: full, onClick: (k: boolean) => void fromTemplate(k) }] : [])
+        { label: tr(CONFIGURE_AGENT), icon: 'settings-gear', disabled: full, onClick: configure },
+        ...(templates ? [{ label: tr(msg({ id: 'panes.add.fromTemplate', defaultMessage: 'Add Agent from Template', description: 'Menu item (Add Agent ▾): adds one agent of a saved template.' })), icon: 'library', more: true, disabled: full, onClick: (k: boolean) => void fromTemplate(k) }] : [])
       ],
       keyboard
     )
@@ -426,11 +455,11 @@ export function AddAgentButton({ project, className, label = 'Add Agent', strip 
     <span className="split-btn">
       <Tooltip content={tip}>
         <button className={cx('btn', className)} disabled={full} onClick={configure}>
-          <Icon name="add" /> {label}
+          <Icon name="add" /> {label ?? tr(msg({ id: 'panes.add.button', defaultMessage: 'Add Agent', description: 'Button (the agent strip): adds an agent to the project. Keep it short.' }))}
         </button>
       </Tooltip>
-      <Tooltip content={templates ? 'Configure Agent and Add…, or Add Agent from Template' : 'Configure Agent and Add… (choose the provider, where it works and its settings)'}>
-        <button ref={caret} className={cx('btn split-caret', className)} disabled={full} onClick={(e) => open(e.detail === 0)} aria-label="Add Agent…" aria-haspopup="menu">
+      <Tooltip content={templates ? tr(msg({ id: 'panes.add.caretTip', defaultMessage: 'Configure Agent and Add…, or Add Agent from Template', description: 'Tooltip of the ▾ beside Add Agent: its two menu items (use their translations).' })) : tr(msg({ id: 'panes.add.caretTipNoTemplates', defaultMessage: 'Configure Agent and Add… (choose the provider, where it works and its settings)', description: 'Tooltip of the ▾ beside Add Agent where templates are not offered (the Assistant). "Configure Agent and Add…" is its menu item.' }))}>
+        <button ref={caret} className={cx('btn', 'split-caret', className)} disabled={full} onClick={(e) => open(e.detail === 0)} aria-label={tr(msg({ id: 'panes.add.caretLabel', defaultMessage: 'Add Agent…', description: 'Accessible name of the ▾ beside the Add Agent button: opens its menu.' }))} aria-haspopup="menu">
           <Icon name="chevron-down" />
         </button>
       </Tooltip>
@@ -447,8 +476,10 @@ function reviewChanges(project: ProjectInfo, a: AgentInfo): void {
 /** A worktree agent's work not merged into the project folder yet (null: not a worktree agent, or not checked yet). */
 function useUnmerged(project: ProjectInfo, a: AgentInfo): ReturnType<typeof unmergedWork> {
   const st = useStore((s) => (a.worktree ? s.branchStatus[projectKey(project.path, a.id)] : undefined))
-  return a.worktree ? unmergedWork(st) : null
+  return a.worktree ? unmergedWork(st, tr) : null
 }
+
+const TO_MERGE = msg({ id: 'panes.worktree.toMerge', defaultMessage: 'To merge: {work}', description: "In a worktree agent's hover: what is left to merge ({work}: \"2 commits not merged into main\")." })
 
 /**
  * A worktree agent's mark on its tab and pane header (#287): the worktree icon only; its branch, folder, base and what
@@ -458,10 +489,13 @@ function WorktreeMark({ project, a }: { project: ProjectInfo; a: AgentInfo }) {
   const work = useUnmerged(project, a)
   if (!a.worktree) return null
   const { branch, path, base } = a.worktree
-  const tip = [`Worktree: ${branch}`, `in ${path}`, `branched from ${base}`, ...(work?.badge ? [`To merge: ${work.text}`] : [])].join('\n')
+  const tip = [
+    tr(msg({ id: 'panes.worktree.tip', defaultMessage: 'Worktree: {branch}\nin {path}\nbranched from {base}', description: "Hover of a worktree agent's mark (its tab and pane header), three lines: its branch, its folder and the branch it was made from. Keep the line breaks." }), { branch, path, base }),
+    ...(work?.badge ? [tr(TO_MERGE, { work: work.text })] : [])
+  ].join('\n')
   return (
     <Tooltip content={<span style={{ whiteSpace: 'pre-line' }}>{tip}</span>} focus>
-      <span className="agent-branch" role="img" tabIndex={0} aria-label={`Worktree: ${branch} in ${path}`}>
+      <span className="agent-branch" role="img" tabIndex={0} aria-label={tr(msg({ id: 'panes.worktree.label', defaultMessage: 'Worktree: {branch} in {path}', description: "Accessible name of a worktree agent's mark: its branch and its folder." }), { branch, path })}>
         <Icon name="worktree" />
       </span>
     </Tooltip>
@@ -479,13 +513,19 @@ function UnmergedBadge({ project, a }: { project: ProjectInfo; a: AgentInfo }) {
   )
 }
 
+/** "…and 5 more", the last line of a list cut short. */
+const MORE_LINES = msg({ id: 'panes.list.more', defaultMessage: '…and {n} more', description: 'The last line of a list in a hover cut short (files, processes): how many more ({n}).' })
+
 function Locks({ a }: { a: AgentInfo }) {
   const files = a.live?.lockedFiles
   if (!files?.length) return null
   // A worktree has one agent, so nobody waits for its files; in a shared folder the lock is what matters.
-  const title = a.worktree ? 'Files it is editing this turn:' : 'Files it is editing this turn. Other agents in this folder wait until it finishes with them:'
+  const title = a.worktree
+    ? tr(msg({ id: 'panes.locks.title', defaultMessage: 'Files it is editing this turn:', description: "Hover of an agent's lock mark (a worktree agent), above the files it is editing." }))
+    : tr(msg({ id: 'panes.locks.titleShared', defaultMessage: 'Files it is editing this turn. Other agents in this folder wait until it finishes with them:', description: "Hover of an agent's lock mark (an agent sharing the project's folder), above the files it is editing." }))
+  const more = files.length > 20 ? `\n${tr(MORE_LINES, { n: files.length - 20 })}` : ''
   return (
-    <Tooltip content={<span style={{ whiteSpace: 'pre-line' }}>{`${title}\n${files.slice(0, 20).join('\n')}${files.length > 20 ? `\n…and ${files.length - 20} more` : ''}`}</span>}>
+    <Tooltip content={<span style={{ whiteSpace: 'pre-line' }}>{`${title}\n${files.slice(0, 20).join('\n')}${more}`}</span>}>
       <span className="agent-locks">
         <Icon name="lock" /> {files.length}
       </span>
@@ -507,14 +547,18 @@ function AgentInbox({ project, a, live }: { project: ProjectInfo; a: AgentInfo; 
   if (!inbox) return null
   const n = inbox.unread.length
   const waiting = inbox.unread.filter((m) => m.state === 'queued' || m.state === 'uncertain').length
-  const cancel = () => void actions.attempt('Could not cancel the messages', () => call('session:cancelMessages', project.path, a.id))
-  const label = [n ? `${n} unread` : '', inbox.overdue ? `${inbox.overdue} overdue` : ''].filter(Boolean).join(' · ')
-  const state = (s: string): string => (s === 'queued' ? 'waiting' : s === 'offered' ? 'typed, not fetched or acked yet' : 'its offer not confirmed')
-  const lines = inbox.unread.map((m) => `${m.id} from ${m.from} (${state(m.state)}): ${m.text}`)
+  const cancel = () => void actions.attempt(tr(msg({ id: 'panes.messages.cancelFailed', defaultMessage: 'Could not cancel the messages', description: "An error's title: cancelling messages left for an agent failed." })), () => call('session:cancelMessages', project.path, a.id))
+  const label = [
+    n ? tr(msg({ id: 'panes.messages.unread', defaultMessage: '{n} unread', description: "On an agent's tab: how many messages left for it it hasn't fetched or acked yet. Keep it short." }), { n }) : '',
+    inbox.overdue ? tr(msg({ id: 'panes.messages.overdue', defaultMessage: '{n} overdue', description: "On an agent's tab: how many deliveries it didn't ack in time. Keep it short." }), { n: inbox.overdue }) : ''
+  ]
+    .filter(Boolean)
+    .join(' · ')
+  const lines = inbox.unread.map((m) => tr(msg({ id: 'panes.messages.line', defaultMessage: '{id} from {from} ({state, select, queued {waiting} offered {typed, not fetched or acked yet} other {its offer not confirmed}}): {text}', description: "A message left for an agent, in its tab's hover: its id, who from ({from}), its state (waiting; typed into the agent but not fetched or acked; or offered but not confirmed), and the start of its text ({text}, the sender's own words)." }), { id: m.id, from: m.from, state: m.state, text: m.text }))
   const tip = [
-    n ? `${n === 1 ? 'A message' : `${n} messages`} for ${a.name} that it hasn't fetched or acked yet: offered as its next line once it is idle, or read with hive_inbox.\n${lines.join('\n')}` : '',
-    inbox.overdue ? `${inbox.overdue === 1 ? 'One delivery was' : `${inbox.overdue} deliveries were`} not acked in time: the agent hasn't said it acted on ${inbox.overdue === 1 ? 'it' : 'them'}.` : '',
-    waiting ? `Click to cancel ${waiting === 1 ? 'the one waiting' : `the ${waiting} waiting`}.` : ''
+    n ? `${tr(msg({ id: 'panes.messages.tip', defaultMessage: "{n, plural, one {A message} other {# messages}} for {agent} that it hasn't fetched or acked yet: offered as its next line once it is idle, or read with hive_inbox.", description: "Hover of an agent's unread messages, above the list of them: how many ({n}) for the agent ({agent}: its name). hive_inbox is a tool's name: keep it." }), { n, agent: a.name })}\n${lines.join('\n')}` : '',
+    inbox.overdue ? tr(msg({ id: 'panes.messages.overdueTip', defaultMessage: "{n, plural, one {One delivery was not acked in time: the agent hasn't said it acted on it.} other {# deliveries were not acked in time: the agent hasn't said it acted on them.}}", description: "Hover of an agent's unread messages: how many deliveries ({n}) it didn't ack in time." }), { n: inbox.overdue }) : '',
+    waiting ? tr(msg({ id: 'panes.messages.clickCancel', defaultMessage: '{n, plural, one {Click to cancel the one waiting.} other {Click to cancel the # waiting.}}', description: "Hover of an agent's unread messages: clicking cancels the {n} still waiting." }), { n: waiting }) : ''
   ]
     .filter(Boolean)
     .join('\n\n')
@@ -527,7 +571,7 @@ function AgentInbox({ project, a, live }: { project: ProjectInfo; a: AgentInfo; 
           aria-label={label}
           onClick={(e) => {
             e.stopPropagation()
-            if (waiting) menu.openAt(...below(e.currentTarget), [{ label: waiting === 1 ? 'Cancel the Message' : `Cancel the ${waiting} Messages`, icon: 'close', onClick: cancel }])
+            if (waiting) menu.openAt(...below(e.currentTarget), [{ label: tr(msg({ id: 'panes.messages.cancel', defaultMessage: '{n, plural, one {Cancel the Message} other {Cancel the # Messages}}', description: "Menu item on an agent's unread messages: cancels the {n} still waiting to be delivered." }), { n: waiting }), icon: 'close', onClick: cancel }])
           }}
         >
           <Icon name="mail" /> {label}
@@ -545,23 +589,29 @@ function Leftovers({ project, a }: { project: ProjectInfo; a: AgentInfo }) {
   const n = left.processes.length + left.more
   const labels = left.processes.slice(0, 15).map((p) => p.label)
   const rest = n - labels.length
-  const settle = (how: 'end' | 'keep') => () => void actions.attempt(how === 'end' ? 'Could not end the processes' : 'Could not keep the processes', () => call('session:settleLeftovers', project.path, a.id, how))
+  const settle = (how: 'end' | 'keep') => () =>
+    void actions.attempt(
+      how === 'end' ? tr(msg({ id: 'panes.leftovers.endFailed', defaultMessage: 'Could not end the processes', description: "An error's title: ending the processes an agent left running failed." })) : tr(msg({ id: 'panes.leftovers.keepFailed', defaultMessage: 'Could not keep the processes', description: "An error's title: keeping the processes an agent left running (and no longer listing them) failed." })),
+      () => call('session:settleLeftovers', project.path, a.id, how)
+    )
+  const head = tr(msg({ id: 'panes.leftovers.tip', defaultMessage: "{n, plural, one {# process this agent started is still running after it stopped. It may hold the project's folder or ports:} other {# processes this agent started are still running after it stopped. They may hold the project's folder or ports:}}", description: "Hover of an agent's left-running mark, above the processes listed: how many ({n}) its stopped launches left running." }), { n })
+  const foot = tr(msg({ id: 'panes.leftovers.tipClick', defaultMessage: '{n, plural, one {Click to end it, or keep it running.} other {Click to end them, or keep them running.}}', description: "Hover of an agent's left-running mark, its last line: what clicking offers ({n} processes)." }), { n })
   return (
     <>
-      <Tooltip content={<span style={{ whiteSpace: 'pre-line' }}>{`${processCount(n)} this agent started ${n === 1 ? 'is' : 'are'} still running after it stopped. ${n === 1 ? 'It' : 'They'} may hold the project's folder or ports:\n${labels.join('\n')}${rest > 0 ? `\n…and ${rest} more` : ''}\n\nClick to end ${n === 1 ? 'it' : 'them'}, or keep ${n === 1 ? 'it' : 'them'} running.`}</span>}>
+      <Tooltip content={<span style={{ whiteSpace: 'pre-line' }}>{[head, ...labels, ...(rest > 0 ? [tr(MORE_LINES, { n: rest })] : []), '', foot].join('\n')}</span>}>
         <button
           type="button"
           className="agent-leftovers"
-          aria-label={`${processCount(n)} left running`}
+          aria-label={tr(msg({ id: 'panes.leftovers.label', defaultMessage: '{processes} left running', description: "Accessible name of an agent's left-running mark ({processes}: \"2 processes\")." }), { processes: processCount(n, tr) })}
           onClick={(e) => {
             e.stopPropagation()
             menu.openAt(...below(e.currentTarget), [
-              { label: `End ${n === 1 ? 'It' : `All ${n}`}`, icon: 'stop-circle', onClick: settle('end') },
-              { label: 'Keep Running (Stop Listing)', icon: 'check', onClick: settle('keep') }
+              { label: tr(msg({ id: 'panes.leftovers.end', defaultMessage: '{n, plural, one {End It} other {End All #}}', description: 'Menu item on the processes an agent left running: ends it or all {n} of them.' }), { n }), icon: 'stop-circle', onClick: settle('end') },
+              { label: tr(msg({ id: 'panes.leftovers.keep', defaultMessage: 'Keep Running (Stop Listing)', description: 'Menu item on the processes an agent left running: keeps them running and stops listing them.' })), icon: 'check', onClick: settle('keep') }
             ])
           }}
         >
-          <Icon name="warning" /> {n} left running
+          <Icon name="warning" /> {tr(msg({ id: 'panes.leftovers.count', defaultMessage: '{n} left running', description: "On an agent's tab: how many processes it left running ({n}). Keep it short." }), { n })}
         </button>
       </Tooltip>
       {menu.element}
@@ -575,13 +625,14 @@ const below = (el: Element): [number, number] => {
   return [r.left, r.bottom + 2]
 }
 
-const layoutName = (l: PageLayout): string => (l === 'auto' ? 'automatic layout' : (SESSION_LAYOUTS.find((x) => x.value === l)?.label ?? l).toLowerCase())
-const scopeName = (s: TemplateScope): string => (s === 'workspace' ? 'Workspace' : 'This project')
+/** A template's layout in a menu item's detail: "automatic layout", "two columns". */
+const layoutName = (l: PageLayout): string =>
+  tr(msg({ id: 'panes.template.layout', defaultMessage: '{layout, select, auto {automatic layout} single {one at a time} columns2 {two columns} columns3 {three columns} grid {grid of four} grid6 {grid of six} other {{layout}}}', description: "A template's layout, after how many agents it has (Template ▾ menu): its pane layout, lower case." }), { layout: l })
 
 /** The templates a project can use (the workspace's and its own), or null after saying why they couldn't be listed. */
 const templateList = (path: string): Promise<TemplateEntry[] | null> =>
   call('templates:list', path).catch((e) => {
-    notify('error', 'Could not list the templates', errorMessage(e))
+    notify('error', tr(msg({ id: 'panes.template.listFailed', defaultMessage: 'Could not list the templates', description: "An error's title: Hive couldn't read the templates (Template ▾, Add Agent from Template)." })), errorMessage(e))
     return null
   })
 
@@ -591,16 +642,16 @@ function addFromTemplateItems(project: ProjectInfo, list: TemplateEntry[]): Menu
   const full = project.agents.length >= agentLimit()
   return all.length
     ? all.flatMap((t) => [
-        { header: true, label: `${t.name} · ${scopeName(t.scope).toLowerCase()}` },
+        { header: true, label: tr(msg({ id: 'panes.template.heading', defaultMessage: '{template} · {scope, select, workspace {workspace} other {this project}}', description: 'A heading in Add Agent from Template: the template\'s name ({template}) and where it is kept (lower case).' }), { template: t.name, scope: t.scope }) },
         ...t.agents.map((a, i) => ({
           label: a.name,
           icon: 'person-add',
-          detail: [a.role, providerName(a.provider), a.worktree ? 'own worktree' : ''].filter(Boolean).join(' · '),
+          detail: [a.role, providerName(a.provider), a.worktree ? tr(msg({ id: 'panes.template.ownWorktree', defaultMessage: 'own worktree', description: "A template agent's detail (Add Agent from Template): it works in its own worktree. Lower case." })) : ''].filter(Boolean).join(' · '),
           disabled: full,
           onClick: () => void actions.addAgentFromTemplate(project.path, t, i)
         }))
       ])
-    : [{ label: 'No templates yet: Template ▾ → Save Template… first', disabled: true }]
+    : [{ label: tr(msg({ id: 'panes.template.noneYet', defaultMessage: 'No templates yet: Template ▾ → Save Template… first', description: 'Add Agent from Template with no template: how to save one first. "Template ▾" and "Save Template…" are the button and its menu item: use their translations.' })), disabled: true }]
 }
 
 /** Template ▾: Save Template…, then the templates to load, by scope (loading replaces the agents, after saying who goes and who comes). */
@@ -610,13 +661,13 @@ function templateMenuItems(project: ProjectInfo, all: TemplateEntry[]): MenuEntr
         const here = all.filter((t) => t.scope === scope)
         return here.length
           ? [
-              { header: true, label: `${scopeName(scope)} templates` },
-              ...here.map((t) => ({ label: t.name, icon: 'library', detail: t.problem ?? `${t.agents.length} ${t.agents.length === 1 ? 'agent' : 'agents'} · ${layoutName(t.layout)}`, disabled: !!t.problem, onClick: () => void actions.loadTemplate(project.path, t) }))
+              { header: true, label: tr(msg({ id: 'panes.template.scopeHeading', defaultMessage: '{scope, select, workspace {Workspace templates} other {This project templates}}', description: "A heading in Template ▾ above the templates kept in the workspace, or in this project." }), { scope }) },
+              ...here.map((t) => ({ label: t.name, icon: 'library', detail: t.problem ?? tr(msg({ id: 'panes.template.detail', defaultMessage: '{n, plural, one {# agent} other {# agents}} · {layout}', description: "A template's detail in Template ▾: how many agents it has and its layout ({layout}: \"two columns\")." }), { n: t.agents.length, layout: layoutName(t.layout) }), disabled: !!t.problem, onClick: () => void actions.loadTemplate(project.path, t) }))
             ]
           : []
       })
-    : [{ label: 'No templates saved yet', disabled: true }]
-  return [{ label: 'Save Template…', icon: 'save', disabled: !project.agents.length, onClick: () => void actions.saveTemplate(project.path) }, { separator: true }, ...load]
+    : [{ label: tr(msg({ id: 'panes.template.noneSaved', defaultMessage: 'No templates saved yet', description: 'Template ▾ with no template saved.' })), disabled: true }]
+  return [{ label: tr(msg({ id: 'panes.template.save', defaultMessage: 'Save Template…', description: "Menu item (Template ▾): saves this project's agents and layout as a template." })), icon: 'save', disabled: !project.agents.length, onClick: () => void actions.saveTemplate(project.path) }, { separator: true }, ...load]
 }
 
 /** Opens a strip menu the palette asked for, now or once this strip shows (`project` null: not the strip's). */
@@ -635,6 +686,8 @@ function useStripMenu(project: string | null, which: StripMenu, open: () => void
  * The agent strip's Template ▾ (#126, #286): Save Template…, then the workspace's and the project's templates to load.
  * Labelled when there's room, its icon when less; the agent tabs give way first (they scroll).
  */
+const TEMPLATE = msg({ id: 'panes.template.button', defaultMessage: 'Template', description: 'The Template ▾ button on the agent strip (save or load agent templates). Keep it short.' })
+
 function TemplateButton({ project, labelled }: { project: ProjectInfo; labelled: boolean }) {
   const menu = useContextMenu()
   const button = useRef<HTMLButtonElement>(null)
@@ -646,10 +699,10 @@ function TemplateButton({ project, labelled }: { project: ProjectInfo; labelled:
   useStripMenu(project.path, 'loadTemplate', () => void open(true))
   return (
     <div className="template-controls">
-      <Tooltip content="Templates: save this project's agents and layout as one, or load one (it replaces the agents and layout)">
-        <button ref={button} className="btn subtle small" aria-label="Template" aria-haspopup="menu" onClick={(e) => void open(e.detail === 0)}>
+      <Tooltip content={tr(msg({ id: 'panes.template.tip', defaultMessage: "Templates: save this project's agents and layout as one, or load one (it replaces the agents and layout)", description: 'Tooltip of the Template ▾ button (the agent strip).' }))}>
+        <button ref={button} className="btn subtle small" aria-label={tr(TEMPLATE)} aria-haspopup="menu" onClick={(e) => void open(e.detail === 0)}>
           <Icon name="library" />
-          {labelled && ' Template'} <Icon name="chevron-down" />
+          {labelled && ` ${tr(TEMPLATE)}`} <Icon name="chevron-down" />
         </button>
       </Tooltip>
       {menu.element}
@@ -670,27 +723,36 @@ function AgentTabTip({ project, a }: { project: ProjectInfo; a: AgentInfo }) {
   const unmerged = useUnmerged(project, a)
   const live = a.live
   const failure = useStartFailure(project, a)
-  const lines = [`${a.name} (${providerName(agentProviderOf(project, a))}): ${live ? statusText(live) : failure ? `failed to start: ${failure.reason.split('\n')[0]}` : 'not running'}`]
+  const state = live
+    ? statusText(live)
+    : failure
+      ? tr(msg({ id: 'panes.tab.failed', defaultMessage: 'failed to start: {why}', description: "An agent's state in its tab's hover, after its name: its last launch failed ({why}: the error's first line). Lower case." }), { why: failure.reason.split('\n')[0] })
+      : tr(msg({ id: 'panes.tab.notRunning', defaultMessage: 'not running', description: "An agent's state in its tab's hover, after its name: its session isn't running. Lower case." }))
+  const lines = [tr(msg({ id: 'panes.tab.title', defaultMessage: '{agent} ({provider}): {state}', description: "The first line of an agent tab's hover: its name, its provider (\"Claude Code\") and its state." }), { agent: a.name, provider: providerName(agentProviderOf(project, a)), state })]
   const signIn = signInNote(live)
   if (signIn) lines.push(signIn)
-  if (live?.safeguard) lines.push(safeguardText(live.safeguard, providerDescriptor(live.provider).modelLabel))
-  if (a.role) lines.push(`Role: ${a.role}`)
+  if (live?.safeguard) lines.push(safeguardText(live.safeguard, providerDescriptor(live.provider).modelLabel, tr))
+  if (a.role) lines.push(tr(msg({ id: 'panes.tab.role', defaultMessage: 'Role: {role}', description: "A line of an agent tab's hover: its role (the user's own words)." }), { role: a.role }))
   // Only shown when it has a choice of its own (#537): the default, all of the project's servers, goes without saying.
-  if (agentChoosesMcp(a)) lines.push(`MCP servers: ${agentMcpText(a)}`)
-  for (const c of cards) lines.push(`Working on #${c.number} ${c.title}`)
-  for (const c of reviewing) lines.push(`Reviewing #${c.number} ${c.title}`)
-  if (live) lines.push(`Session: ${liveSessionLabel(project, live, usage)}`)
-  else if (a.resume) lines.push(`Resume opens: ${sessionLabel(a.resume, project.name)} (${timeAgo(a.resume.lastActiveAt)})`)
-  if (a.worktree) lines.push(`Worktree ${a.worktree.path} on ${a.worktree.branch}, branched from ${a.worktree.base}`)
-  if (unmerged?.badge) lines.push(`To merge: ${unmerged.text}`)
+  if (agentChoosesMcp(a)) lines.push(tr(msg({ id: 'panes.tab.mcp', defaultMessage: 'MCP servers: {servers}', description: "A line of an agent tab's hover: the MCP servers it has on ({servers})." }), { servers: agentMcpText(a) }))
+  for (const c of cards) lines.push(tr(msg({ id: 'panes.tab.workingOn', defaultMessage: 'Working on #{card} {title}', description: "A line of an agent tab's hover: a card it works on (its number and title, the user's own words)." }), { card: c.number, title: c.title }))
+  for (const c of reviewing) lines.push(tr(msg({ id: 'panes.tab.reviewing', defaultMessage: 'Reviewing #{card} {title}', description: "A line of an agent tab's hover: a card it reviews (its number and title, the user's own words)." }), { card: c.number, title: c.title }))
+  if (live) lines.push(tr(msg({ id: 'panes.tab.session', defaultMessage: 'Session: {session}', description: "A line of an agent tab's hover: the session it runs ({session}: its name)." }), { session: liveSessionLabel(project, live, usage) }))
+  else if (a.resume) lines.push(tr(msg({ id: 'panes.tab.resumeOpens', defaultMessage: 'Resume opens: {session} ({when})', description: "A line of a stopped agent tab's hover: the session Resume opens ({session}: its name) and when it was last active ({when}: \"5 min ago\")." }), { session: sessionLabel(a.resume, project.name), when: timeAgo(a.resume.lastActiveAt) }))
+  if (a.worktree) lines.push(tr(msg({ id: 'panes.tab.worktree', defaultMessage: 'Worktree {path} on {branch}, branched from {base}', description: "A line of a worktree agent tab's hover: its folder, its branch and the branch it was made from." }), { path: a.worktree.path, branch: a.worktree.branch, base: a.worktree.base }))
+  if (unmerged?.badge) lines.push(tr(TO_MERGE, { work: unmerged.text }))
   return <span style={{ whiteSpace: 'pre-line' }}>{lines.join('\n')}</span>
 }
+
+/** A layout's name, for its button on the agent strip: "Two columns". */
+const layoutLabel = (l: SessionLayout): string => tr(msg({ id: 'panes.layout.name', defaultMessage: '{layout, select, single {One at a time} columns2 {Two columns} columns3 {Three columns} grid {Grid of four} other {Grid of six}}', description: "A pane layout's name: its button's tooltip and accessible name on the agent strip." }), { layout: l })
 
 /** The strip's width from which Template ▾ is labelled (else its icon). */
 const TEMPLATE_LABEL_FROM = 720
 
 /** The row above the Session tab: one tab per agent, Add Agent, Template ▾, the pages and the layout choice. */
 export function AgentStrip({ project }: { project: ProjectInfo }) {
+  useLanguage()
   const panes = usePanes(project)
   const [stripRef, stripWidth] = useWidth<HTMLDivElement>()
   // A second agent: the tip about layouts and file locks, the first time.
@@ -747,11 +809,21 @@ export function AgentStrip({ project }: { project: ProjectInfo }) {
     // the button still shows its page, to drop on a pane there.
     const moves = !!dragging && pageEndIndex(project.agents.length, i, perPage) !== project.agents.findIndex((a) => a.id === dragging)
     return (
-      <Tooltip key={as ? as.name : i} content={`${as ? `${as.name} (page ${i + 1})` : `Page ${i + 1}`}: ${onPage.length === 1 ? `agent ${i * perPage + 1}` : `agents ${i * perPage + 1}–${i * perPage + onPage.length}`}${added ? ', with an agent the Assistant added' : ''}${pageKb ? ` (${formatKeybinding(pageKb)} for the next page)` : ''}`}>
+      <Tooltip
+        key={as ? as.name : i}
+        content={tr(
+          msg({
+            id: 'panes.pages.tip',
+            defaultMessage: '{button, select, none {Page {page}} other {{button} (page {page})}}: {count, plural, one {agent {first}} other {agents {first}–{last}}}{added, select, yes {, with an agent the Assistant added} other {}}{key, select, none {} other { ({key} for the next page)}}',
+            description: "Tooltip of a page button on the agent strip: which page ({page}), or the ‹ › button's name ({button}; none for a numbered button), the agents on it by position ({first}–{last}), whether the Assistant added one there, and the shortcut for the next page ({key}: \"Ctrl+Alt+PageDown\"; none: leave that branch empty)."
+          }),
+          { button: as ? as.name : 'none', page: i + 1, count: onPage.length, first: i * perPage + 1, last: i * perPage + onPage.length, added: added ? 'yes' : 'no', key: pageKb ? formatKeybinding(pageKb) : 'none' }
+        )}
+      >
         <button
           className={cx(!as && page === i && 'active', moves && dropPage === i && 'drop-target')}
           onClick={() => showPage(project, i)}
-          aria-label={as ? as.name : `Agent page ${i + 1}`}
+          aria-label={as ? as.name : tr(msg({ id: 'panes.pages.button', defaultMessage: 'Agent page {page}', description: 'Accessible name of a numbered page button on the agent strip.' }), { page: i + 1 })}
           onDragOver={(e) => {
             if (!dragging) return
             if (moves) e.preventDefault()
@@ -791,7 +863,7 @@ export function AgentStrip({ project }: { project: ProjectInfo }) {
       r.left,
       r.bottom + 2,
       Array.from({ length: pages }, (_, k) => ({
-        label: `Page ${k + 1}`,
+        label: tr(msg({ id: 'panes.pages.item', defaultMessage: 'Page {page}', description: "An item of the agent strip's page menu (many pages); its detail lists the page's agents." }), { page: k + 1 }),
         icon: k === page ? 'check' : undefined,
         detail: pageAgents(project.agents, k, perPage).map((a) => a.name).join(', '),
         onClick: () => showPage(project, k)
@@ -832,7 +904,7 @@ export function AgentStrip({ project }: { project: ProjectInfo }) {
               menu.open(e, agentMenu(project, a, () => void picker.openAt(project, a, x, y)))
             }}
           >
-            {removing[`removeAgent:${project.path}#${a.id}`] ? <Icon name="loading" spin title="Removing…" /> : <AgentDot project={project} a={a} />}
+            {removing[`removeAgent:${project.path}#${a.id}`] ? <Icon name="loading" spin title={tr(msg({ id: 'panes.tab.removing', defaultMessage: 'Removing…', description: "Tooltip of the spinner on an agent's tab while it is being removed." }))} /> : <AgentDot project={project} a={a} />}
             <ProviderIcon provider={agentProviderOf(project, a)} />
             <span className="agent-name">{a.name}</span>
             <WorktreeMark project={project} a={a} />
@@ -851,22 +923,22 @@ export function AgentStrip({ project }: { project: ProjectInfo }) {
       {/* More pages than fit as buttons (up to 24 agents, #562): ‹, which page of how many (a menu of them all), ›. */}
       {pages > PAGE_BUTTONS_MAX && (
         <div className="segmented page-switch compact">
-          {pageButton((page - 1 + pages) % pages, { label: '‹', name: 'Previous agent page' })}
-          <Tooltip content={`Page ${page + 1} of ${pages}: choose a page${pageKb ? ` (${formatKeybinding(pageKb)} for the next page)` : ''}`}>
-            <button className="page-menu" aria-label="Agent pages" aria-haspopup="menu" onClick={(e) => pageMenu(e.currentTarget, e.detail === 0)}>
+          {pageButton((page - 1 + pages) % pages, { label: '‹', name: tr(msg({ id: 'panes.pages.previous', defaultMessage: 'Previous agent page', description: 'The ‹ button of the agent strip\'s compact pager (many pages): shows the previous page of agents.' })) })}
+          <Tooltip content={tr(msg({ id: 'panes.pages.menuTip', defaultMessage: 'Page {page} of {pages}: choose a page{key, select, none {} other { ({key} for the next page)}}', description: "Tooltip of the agent strip's page menu (many pages): the page shown of how many, and the shortcut for the next page ({key}; none: leave that branch empty)." }), { page: page + 1, pages, key: pageKb ? formatKeybinding(pageKb) : 'none' })}>
+            <button className="page-menu" aria-label={tr(msg({ id: 'panes.pages.menu', defaultMessage: 'Agent pages', description: "Accessible name of the agent strip's page menu (many pages)." }))} aria-haspopup="menu" onClick={(e) => pageMenu(e.currentTarget, e.detail === 0)}>
               {page + 1} / {pages}
               <Icon name="chevron-down" />
               {elsewhere && <span className={cx('dot', elsewhere.status, elsewhere.unseen && 'unseen')} />}
             </button>
           </Tooltip>
-          {pageButton((page + 1) % pages, { label: '›', name: 'Next agent page' })}
+          {pageButton((page + 1) % pages, { label: '›', name: tr(msg({ id: 'panes.pages.next', defaultMessage: 'Next agent page', description: "The › button of the agent strip's compact pager (many pages): shows the next page of agents." })) })}
         </div>
       )}
       {(many || layout !== 'single') && (
         <div className="segmented layout-switch">
           {SESSION_LAYOUTS.map((l) => (
-            <Tooltip key={l.value} content={`${l.label}${l.panes > 2 ? ' (works best on a wide window, or with the sidebar hidden: Ctrl+B)' : ''}`}>
-              <button className={cx(layout === l.value && 'active')} onClick={() => void actions.setLayout(project.path, l.value)} aria-label={l.label}>
+            <Tooltip key={l.value} content={l.panes > 2 ? tr(msg({ id: 'panes.layout.wide', defaultMessage: '{layout} (works best on a wide window, or with the sidebar hidden: Ctrl+B)', description: "Tooltip of a layout button with three or more panes (the agent strip): its name ({layout}) and a hint. Ctrl+B hides the sidebar." }), { layout: layoutLabel(l.value) }) : layoutLabel(l.value)}>
+              <button className={cx(layout === l.value && 'active')} onClick={() => void actions.setLayout(project.path, l.value)} aria-label={layoutLabel(l.value)}>
                 <LayoutGlyph layout={l.value} />
               </button>
             </Tooltip>
@@ -895,6 +967,8 @@ export function useWidth<T extends HTMLElement>(): [(el: T | null) => void, numb
   return [ref, w]
 }
 
+const MARK_IDLE = msg({ id: 'panes.header.markIdle', defaultMessage: 'Mark idle', description: "Button beside a pane's unknown state: tells Hive the agent is idle (its terminal shows it at its prompt). Keep it short." })
+
 /**
  * Header buttons with labels while the pane is wide, icons when narrower, and only in ⋯ (which has them all) when narrow.
  * The mode follows the header's width both ways. The agent's details (name, branch, status, card) give way to the buttons,
@@ -905,6 +979,7 @@ const LABELS_FROM = 565
 const ICONS_FROM = 340
 
 function PaneHeader({ project, a, focused }: { project: ProjectInfo; a: AgentInfo; focused: boolean }) {
+  useLanguage()
   const menu = useContextMenu()
   const picker = useSessionPicker()
   const [ref, width] = useWidth<HTMLDivElement>()
@@ -922,14 +997,14 @@ function PaneHeader({ project, a, focused }: { project: ProjectInfo; a: AgentInf
   const empty = !usage || usage.userMessages === 0 || tokens === 0
   const compacting = isCompacting(live)
   const compactTip = compacting
-    ? 'Compacting the conversation…'
+    ? tr(msg({ id: 'panes.compact.running', defaultMessage: 'Compacting the conversation…', description: 'Tooltip of the Compact button while the agent compacts its conversation.' }))
     : idle && empty
-      ? 'Nothing to compact yet: the conversation has no messages.'
+      ? tr(msg({ id: 'panes.compact.empty', defaultMessage: 'Nothing to compact yet: the conversation has no messages.', description: 'Tooltip of the Compact button (disabled) when the conversation has no messages.' }))
       : !idle
         ? live?.status === 'waiting'
-          ? 'The agent is waiting for your answer. Compact after it has finished.'
-          : 'Available once the agent has finished.'
-        : `Summarise the conversation to shrink its context${usage ? ` (now ${formatTokens(tokens)} tokens)` : ''}. The full history stays in the transcript.${suggested ? ' Recommended: the context is over your threshold.' : ''}`
+          ? tr(msg({ id: 'panes.compact.waiting', defaultMessage: 'The agent is waiting for your answer. Compact after it has finished.', description: 'Tooltip of the Compact button (disabled) while the agent waits for the user.' }))
+          : tr(msg({ id: 'panes.compact.busy', defaultMessage: 'Available once the agent has finished.', description: 'Tooltip of the Compact button (disabled) while the agent works.' }))
+        : tr(msg({ id: 'panes.compact.tip', defaultMessage: 'Summarise the conversation to shrink its context{tokens, select, none {} other { (now {tokens} tokens)}}. The full history stays in the transcript.{suggested, select, yes { Recommended: the context is over your threshold.} other {}}', description: "Tooltip of the Compact button: what it does, how big the context is now ({tokens}: \"120K\"; none: leave that branch empty) and, past the user's threshold, that it is recommended." }), { tokens: usage ? formatTokens(tokens) : 'none', suggested: suggested ? 'yes' : 'no' })
   const pick = (x: number, y: number) => () => void picker.openAt(project, a, x, y)
   const size = width >= LABELS_FROM ? 'labels' : width >= ICONS_FROM ? 'icons' : 'menu'
   /**
@@ -938,7 +1013,7 @@ function PaneHeader({ project, a, focused }: { project: ProjectInfo; a: AgentInf
    */
   const btn = (icon: string, label: string, onClick: (e: React.MouseEvent<HTMLButtonElement>) => void, tone: string, opts: { disabled?: boolean; tip?: string; iconOnly?: boolean; count?: string | null; spin?: boolean } = {}) => (
     <Tooltip key={label} content={opts.tip ?? label}>
-      <button type="button" className={cx('btn small pane-btn', tone, (size === 'icons' || opts.iconOnly) && 'icon-only')} disabled={opts.disabled} aria-label={label} onClick={(e) => { e.stopPropagation(); onClick(e) }}>
+      <button type="button" className={cx('btn', 'small', 'pane-btn', tone, (size === 'icons' || opts.iconOnly) && 'icon-only')} disabled={opts.disabled} aria-label={label} onClick={(e) => { e.stopPropagation(); onClick(e) }}>
         <Icon name={icon} spin={opts.spin} />
         {size === 'labels' && !opts.iconOnly && <span>{label}</span>}
         {opts.count && <span className="btn-count">{opts.count}</span>}
@@ -948,7 +1023,7 @@ function PaneHeader({ project, a, focused }: { project: ProjectInfo; a: AgentInf
   return (
     <div ref={ref} className={cx('pane-header-bar', focused && 'focused')} data-buttons={size} {...agentDragProps(project, a)} onMouseDown={() => focusAgent(project.path, a.id)} onContextMenu={(e) => menu.open(e, agentMenu(project, a, pick(e.clientX, e.clientY), size !== 'menu'))}>
       {!live && failure ? (
-        <Tooltip content={`Failed to start: ${failure.reason}`}>
+        <Tooltip content={tr(msg({ id: 'panes.header.failedTip', defaultMessage: 'Failed to start: {why}', description: "Tooltip of a pane's error dot: the agent's last launch failed ({why}: the error)." }), { why: failure.reason })}>
           <span className="dot error" />
         </Tooltip>
       ) : (
@@ -965,38 +1040,51 @@ function PaneHeader({ project, a, focused }: { project: ProjectInfo; a: AgentInf
       <WorktreeMark project={project} a={a} />
       {live?.untakenLine ? (
         // A line Hive typed that its CLI didn't take (#430): the user sees to it, nothing more is typed meanwhile.
-        <Tooltip content={`Hive typed this, but its CLI hasn't taken it (it wasn't reading its input): "${live.untakenLine.text}". Click its terminal and press Enter. Hive types nothing more into it until its CLI takes it.`}>
-          <span className="faint pane-status asks">A line Hive typed wasn't taken</span>
+        <Tooltip content={tr(msg({ id: 'panes.header.untakenTip', defaultMessage: "Hive typed this, but its CLI hasn't taken it (it wasn't reading its input): \"{line}\". Click its terminal and press Enter. Hive types nothing more into it until its CLI takes it.", description: "Tooltip of a pane's status when a line Hive typed into the agent's CLI wasn't taken ({line}: the line)." }), { line: live.untakenLine.text })}>
+          <span className="faint pane-status asks">{tr(msg({ id: 'panes.header.untaken', defaultMessage: "A line Hive typed wasn't taken", description: "A pane's status: a line Hive typed into the agent's CLI wasn't taken." }))}</span>
         </Tooltip>
-      ) : unknownStateText(live) ? (
+      ) : unknownStateText(live, Date.now(), tr) ? (
         // A running turn Hive has heard nothing of, with no sign of its end (#648): not idle, so nothing is typed into it.
         <span className="pane-status unknown-state">
-          <Tooltip content="Hive has heard nothing of this agent's turn for a while and sees no sign that it ended: no Stop from its CLI, nothing in its CLI's records, no idle prompt on its screen. Until it hears more, the agent counts as busy and nothing is typed into it. If its terminal shows it waiting at its prompt, mark it idle.">
-            <span className="faint pane-status asks">{unknownStateText(live)}</span>
+          <Tooltip content={tr(msg({ id: 'panes.header.unknownTip', defaultMessage: "Hive has heard nothing of this agent's turn for a while and sees no sign that it ended: no Stop from its CLI, nothing in its CLI's records, no idle prompt on its screen. Until it hears more, the agent counts as busy and nothing is typed into it. If its terminal shows it waiting at its prompt, mark it idle.", description: "Tooltip of a pane's status when the agent's state is unknown. Stop is the CLI's event: keep it. \"mark it idle\" refers to the Mark idle button beside it." }))}>
+            <span className="faint pane-status asks">{unknownStateText(live, Date.now(), tr)}</span>
           </Tooltip>
-          <button className="btn small subtle mark-idle" aria-label="Mark idle" onClick={() => void call('session:markIdle', project.path, a.id).catch((e) => notify('error', 'Could not mark the agent idle', String((e as Error).message ?? e)))}>
-            Mark idle
+          <button className="btn small subtle mark-idle" aria-label={tr(MARK_IDLE)} onClick={() => void call('session:markIdle', project.path, a.id).catch((e) => notify('error', tr(msg({ id: 'panes.header.markIdleFailed', defaultMessage: 'Could not mark the agent idle', description: "An error's title: Mark idle failed." })), String((e as Error).message ?? e)))}>
+            {tr(MARK_IDLE)}
           </button>
         </span>
       ) : live?.question ? (
-        <Tooltip content={live.question.text ? `Asks: ${live.question.text}` : 'Asks you something'}>
+        <Tooltip content={live.question.text ? tr(msg({ id: 'panes.header.asks', defaultMessage: 'Asks: {question}', description: "Tooltip of a pane's status: the agent's question to the user ({question}, the agent's own words)." }), { question: live.question.text }) : tr(msg({ id: 'panes.header.asksSomething', defaultMessage: 'Asks you something', description: "Tooltip of a pane's status: the agent has asked the user something." }))}>
           <span className="faint pane-status asks">{statusText(live)}</span>
         </Tooltip>
       ) : live?.status === 'watching' && live.watch ? (
         // Waiting on cards (a watch): what for, until when, and Cancel (it takes no other work while it waits).
         <span className="pane-status watching">
-          <Tooltip content={`${live.watch.label}: Hive types a line into it when ${live.watch.agents ? `${live.watch.agents.length === 1 ? 'it finishes' : 'one of them finishes'}, waits for you or stops` : live.watch.lanes ? 'a review fails, a card is blocked or stalled, or a lane is due to merge or ends' : live.watch.cards.length === 1 ? 'the card changes' : 'one of them changes'}, or at ${formatWhen(live.watch.limitAt)} if nothing does. Nothing runs meanwhile, and it takes no other work.`}>
+          <Tooltip
+            content={tr(
+              msg({
+                id: 'panes.header.watchTip',
+                defaultMessage: '{watch}: Hive types a line into it when {kind, select, agent {{n, plural, one {it finishes} other {one of them finishes}}, waits for you or stops} lane {a review fails, a card is blocked or stalled, or a lane is due to merge or ends} other {{n, plural, one {the card changes} other {one of them changes}}}}, or at {limit} if nothing does. Nothing runs meanwhile, and it takes no other work.',
+                description: "Tooltip of a watching agent's status: what it waits for ({watch}: \"Waiting for #12 → Review\"), what wakes it (an agent watch: the agents finishing; a lane watch: lane events; a card watch: its cards changing; {n} is how many agents or cards), and when it is woken anyway ({limit}: a time)."
+              }),
+              { watch: watchText(live.watch, tr, (l) => fmt.list(l, 'unit')), kind: live.watch.agents ? 'agent' : live.watch.lanes ? 'lane' : 'card', n: live.watch.agents ? live.watch.agents.length : live.watch.cards.length, limit: formatWhen(live.watch.limitAt) }
+            )}
+          >
             <span className="watch-label">
-              <Icon name="eye" /> {live.watch.label}
+              <Icon name="eye" /> {watchText(live.watch, tr, (l) => fmt.list(l, 'unit'))}
             </span>
           </Tooltip>
-          <button className="btn small subtle watch-cancel" aria-label={live.watch.agents ? 'Cancel the agent watch' : live.watch.lanes ? 'Cancel the lane watch' : 'Cancel the card watch'} onClick={() => void call('watch:cancel', project.path, a.id).catch((e) => notify('error', 'Could not cancel the watch', String((e as Error).message ?? e)))}>
-            Cancel
+          <button
+            className="btn small subtle watch-cancel"
+            aria-label={tr(msg({ id: 'panes.header.cancelWatch', defaultMessage: '{kind, select, agent {Cancel the agent watch} lane {Cancel the lane watch} other {Cancel the card watch}}', description: "Accessible name of the Cancel button beside a watching agent's status: ends its agent, lane or card watch." }), { kind: live.watch.agents ? 'agent' : live.watch.lanes ? 'lane' : 'card' })}
+            onClick={() => void call('watch:cancel', project.path, a.id).catch((e) => notify('error', tr(CANCEL_WATCH_FAILED), String((e as Error).message ?? e)))}
+          >
+            {tr(msg({ id: 'panes.header.cancel', defaultMessage: 'Cancel', description: "Button beside a watching agent's status: ends its watch. Keep it short." }))}
           </button>
         </span>
       ) : (
         <SignInTip live={live}>
-          <span className={cx('faint pane-status', !live && failure && 'failed', live?.status === 'signin' && 'signin')}>{live ? statusText(live) : failure ? 'Failed to start' : 'Not running'}</span>
+          <span className={cx('faint', 'pane-status', !live && failure && 'failed', live?.status === 'signin' && 'signin')}>{live ? statusText(live) : failure ? tr(msg({ id: 'panes.header.failed', defaultMessage: 'Failed to start', description: "A pane's status: the agent's last launch failed." })) : tr(msg({ id: 'panes.header.notRunning', defaultMessage: 'Not running', description: "A pane's status: the agent's session isn't running." }))}</span>
         </SignInTip>
       )}
       <ReviewMark live={live} />
@@ -1009,27 +1097,34 @@ function PaneHeader({ project, a, focused }: { project: ProjectInfo; a: AgentInf
       {size !== 'menu' &&
         (live ? (
           <>
-            {btn(compacting ? 'loading' : 'fold', 'Compact', () => set({ compactFor: { project: project.path, agentId: a.id } }), cx('subtle', suggested && idle && 'suggest'), { disabled: !idle || empty, tip: compactTip, iconOnly: true, spin: compacting })}
-            {btn('stop-circle', 'Stop', () => void actions.stopSession(project.path, a.id), 'act-stop', { tip: 'Stop this agent (the conversation is kept; resume it any time)', iconOnly: true })}
+            {btn(compacting ? 'loading' : 'fold', tr(COMPACT), () => set({ compactFor: { project: project.path, agentId: a.id } }), cx('subtle', suggested && idle && 'suggest'), { disabled: !idle || empty, tip: compactTip, iconOnly: true, spin: compacting })}
+            {btn('stop-circle', tr(STOP), () => void actions.stopSession(project.path, a.id), 'act-stop', { tip: tr(msg({ id: 'panes.header.stopTip', defaultMessage: 'Stop this agent (the conversation is kept; resume it any time)', description: "Tooltip of a pane's Stop button." })), iconOnly: true })}
           </>
         ) : (
           <>
-            {btn('debug-continue', 'Resume', () => void actions.resumeLast(project.path, a.id), 'act-resume', { disabled: !a.resume, tip: resumeTip(project, a) })}
-            {btn('history', 'Resume a Session…', (e) => picker.openBelow(e.currentTarget, project, a), 'act-resume')}
-            {btn('add', 'New Session', () => void actions.newSession(project.path, a.id), 'act-start solid')}
+            {btn('debug-continue', tr(RESUME), () => void actions.resumeLast(project.path, a.id), 'act-resume', { disabled: !a.resume, tip: resumeTip(project, a) })}
+            {btn('history', tr(RESUME_SESSION), (e) => picker.openBelow(e.currentTarget, project, a), 'act-resume')}
+            {btn('add', tr(NEW_SESSION), () => void actions.newSession(project.path, a.id), cx('act-start', 'solid'))}
           </>
         ))}
       {a.worktree &&
         size !== 'menu' &&
-        btn('git-merge', 'Merge…', () => set({ mergeFor: { project: project.path, agentId: a.id } }), cx('subtle', unmerged?.badge && 'suggest'), {
+        btn('git-merge', tr(MERGE), () => set({ mergeFor: { project: project.path, agentId: a.id } }), cx('subtle', unmerged?.badge && 'suggest'), {
           // Its icon and count only, like Compact and Stop: the tooltip says what it merges.
           iconOnly: true,
           count: unmerged?.badge,
           // Not while it is in the middle of a task; the count still shows what is waiting to be merged.
-          disabled: !!mergeBlocked(a.name, live?.status),
-          tip: [mergeBlocked(a.name, live?.status), unmerged ? `Merge ${a.worktree.branch}: ${unmerged.text}` : `Merge ${a.worktree.branch} into the project folder`].filter(Boolean).join(' ')
+          disabled: !!mergeBlocked(a.name, live?.status, tr),
+          tip: [
+            mergeBlocked(a.name, live?.status, tr),
+            unmerged
+              ? tr(msg({ id: 'panes.header.mergeTip', defaultMessage: 'Merge {branch}: {work}', description: "Tooltip of a worktree pane's Merge button: its branch and what is left to merge ({work}: \"2 commits not merged into main\")." }), { branch: a.worktree.branch, work: unmerged.text })
+              : tr(msg({ id: 'panes.header.mergeInto', defaultMessage: 'Merge {branch} into the project folder', description: "Tooltip of a worktree pane's Merge button before Hive knows what is left to merge." }), { branch: a.worktree.branch })
+          ]
+            .filter(Boolean)
+            .join(' ')
         })}
-      <IconButton icon="ellipsis" title="More" onClick={(e) => menu.open(e, agentMenu(project, a, pick(e.clientX, e.clientY), size !== 'menu'))} />
+      <IconButton icon="ellipsis" title={tr(msg({ id: 'panes.header.more', defaultMessage: 'More', description: "Tooltip of the ⋯ button on a pane's header: the agent's menu." }))} onClick={(e) => menu.open(e, agentMenu(project, a, pick(e.clientX, e.clientY), size !== 'menu'))} />
       {menu.element}
       {picker.element}
     </div>
@@ -1037,7 +1132,10 @@ function PaneHeader({ project, a, focused }: { project: ProjectInfo; a: AgentInf
 }
 
 /** What a click on the footer's cost does, as its tooltip says. */
-const COST_CLICK = "Click to see this session's details in the Overview"
+const COST_CLICK = msg({ id: 'panes.footer.costClick', defaultMessage: "Click to see this session's details in the Overview", description: "The last line of the hover of a pane footer's cost: what clicking does (the project's Overview tab)." })
+
+/** The footer's context in tokens when its window's size isn't known: "120K ctx". */
+const CTX = msg({ id: 'panes.footer.ctx', defaultMessage: '{tokens} ctx', description: "A pane footer's context used, in tokens (\"120K ctx\"; – before it is read). ctx is short for context: keep it short." })
 
 /** Between an item's icon and its text (.fit-text's margin in app.css). */
 const FIT_TEXT_GAP = 4
@@ -1111,8 +1209,8 @@ export function PaneFooter({
   onSettings,
   onContext,
   onTranscript,
-  transcriptAdvice = 'Hand it over to a new conversation: click for Hand Over to…, and choose the agent itself.',
-  settingsName = 'Agent Settings or Project Settings',
+  transcriptAdvice,
+  settingsName,
   showSession = true
 }: {
   project: ProjectInfo
@@ -1125,6 +1223,7 @@ export function PaneFooter({
   /** The running session's name, right-aligned before the context (agents; the Assistant shows its own). */
   showSession?: boolean
 }) {
+  useLanguage()
   const settings = useStore((s) => s.settings)
   const providers = useStore((s) => s.providers)
   const { usage, pending } = useLiveUsageState(project, a.id)
@@ -1157,7 +1256,16 @@ export function PaneFooter({
   const [footerRef, fit] = useFooterFit()
   return (
     <div ref={footerRef} className="pane-footer-bar" data-fit={fit} onMouseDown={() => focusAgent(project.path, a.id)}>
-      <Tooltip content={`${shown.chosenAs ? `${model} · chosen as ${shown.chosenAs}. ` : ''}${providerName(provider)} model${effort ? ' and effort' : ''} ${live ? 'of this session' : 'for new sessions'}${live?.effort ? ' (effort as the session reports it)' : ''}. Change them in ${settingsName}.`}>
+      <Tooltip
+        content={tr(
+          msg({
+            id: 'panes.footer.modelTip',
+            defaultMessage: '{chosenAs, select, none {} other {{model} · chosen as {chosenAs}. }}{provider} {effort, select, yes {model and effort} other {model}} {live, select, yes {of this session} other {for new sessions}}{reported, select, yes { (effort as the session reports it)} other {}}. Change them in {where}.',
+            description: "Hover of the model in a pane's footer: the model shown and the name it was chosen by ({chosenAs}; none: leave that branch empty), the provider (\"Claude Code\"), whether effort is shown too, whether it is the running session's or new sessions', and where to change them ({where}: \"Agent Settings or Project Settings\")."
+          }),
+          { chosenAs: shown.chosenAs || 'none', model, provider: providerName(provider), effort: effort ? 'yes' : 'no', live: live ? 'yes' : 'no', reported: live?.effort ? 'yes' : 'no', where: settingsName ?? tr(msg({ id: 'panes.footer.settingsName', defaultMessage: 'Agent Settings or Project Settings', description: "Where an agent's model and effort are changed, ending the footer model's hover (\"Change them in …\"): the two dialogs' names." })) }
+        )}
+      >
         <span className="pane-foot-item foot-model fit-clip" onClick={() => (onSettings ? onSettings() : set({ agentSettingsFor: { project: project.path, agentId: a.id } }))}>
           {model}
           {effort && <span className="faint"> · {effort}</span>}
@@ -1171,7 +1279,12 @@ export function PaneFooter({
           content={
             // A click opens the session in the Overview, with its compaction history (the Assistant's footer opens nothing).
             <span className="ctx-tip" style={{ whiteSpace: 'pre-line' }}>
-              {`${contextLines(usage, live?.autoCompact).join('\n')}\n${usage.compactions.length} compaction${usage.compactions.length === 1 ? '' : 's'} so far${over ? ' — consider compacting' : ''}${usage.stale ? '\nCouldn’t read it again just now: this may be behind.' : ''}${onContext ? '' : '\n\nClick to view compaction history'}`}
+              {[
+                ...contextLines(usage, live?.autoCompact, tr),
+                tr(msg({ id: 'panes.footer.compactions', defaultMessage: '{n, plural, one {# compaction so far} other {# compactions so far}}{over, select, yes { — consider compacting} other {}}', description: "A line of the hover of a pane footer's context: how many times the conversation was compacted, and (over the user's threshold) a suggestion to compact." }), { n: usage.compactions.length, over: over ? 'yes' : 'no' }),
+                ...(usage.stale ? [tr(msg({ id: 'panes.footer.stale', defaultMessage: 'Couldn’t read it again just now: this may be behind.', description: "A line of the hover of a pane footer's context: Hive couldn't read the usage again, so the numbers may be old." }))] : []),
+                ...(onContext ? [] : ['', tr(msg({ id: 'panes.footer.compactionHistory', defaultMessage: 'Click to view compaction history', description: "The last line of the hover of a pane footer's context: clicking shows the session's compactions in the Overview." }))])
+              ].join('\n')}
             </span>
           }
         >
@@ -1180,7 +1293,7 @@ export function PaneFooter({
             {/* Short of room the tokens give way, then the percentage (useFooterFit): the tooltip has them. */}
             <span className="fit-text ctx-text">
               {pct === null ? (
-                `${formatTokens(ctx)} ctx`
+                tr(CTX, { tokens: formatTokens(ctx) })
               ) : (
                 <>
                   <span className="ctx-tokens">{formatTokens(ctx)} · </span>
@@ -1193,16 +1306,27 @@ export function PaneFooter({
       ) : (
         // A new or other conversation: its own numbers aren't read yet (the previous one's never show).
         pending && (
-          <Tooltip content="Reading this conversation's usage…">
+          <Tooltip content={tr(msg({ id: 'panes.footer.reading', defaultMessage: "Reading this conversation's usage…", description: "Hover of a pane footer's context before its numbers are read." }))}>
             <span className="pane-foot-item faint usage-pending">
-              <Icon name="dashboard" /> – ctx
+              <Icon name="dashboard" /> {tr(CTX, { tokens: '–' })}
             </span>
           </Tooltip>
         )
       )}
       {bytes !== undefined && (
         <Tooltip
-          content={`Transcript: ${formatBytes(bytes)}${sizeLimit > 0 ? ` (flagged over ${sizeLimit} MB: Settings → Sessions)` : ''}. A long conversation slows down the CLI and Hive, and compacting doesn't shrink the file: it keeps the whole history.${long ? ` ${transcriptAdvice}` : ''}`}
+          content={tr(
+            msg({
+              id: 'panes.footer.transcriptTip',
+              defaultMessage: "Transcript: {size}{limit, select, none {} other { (flagged over {limit} MB: Settings → Sessions)}}. A long conversation slows down the CLI and Hive, and compacting doesn't shrink the file: it keeps the whole history.{advice, select, none {} other { {advice}}}",
+              description: "Hover of a pane footer's transcript size ({size}: \"12 MB\"): the size it is flagged over ({limit} MB, set in Settings → Sessions; none: leave that branch empty), why a long one matters, and when it is long what to do ({advice}; none: leave it empty)."
+            }),
+            {
+              size: formatBytes(bytes),
+              limit: sizeLimit > 0 ? String(sizeLimit) : 'none',
+              advice: long ? (transcriptAdvice ?? tr(msg({ id: 'panes.footer.handOverAdvice', defaultMessage: 'Hand it over to a new conversation: click for Hand Over to…, and choose the agent itself.', description: "What to do about a long transcript, in its hover (pane footer). \"Hand Over to…\" is the agent menu's item: use its translation." }))) : 'none'
+            }
+          )}
         >
           <span className={cx('pane-foot-item', long ? 'warn' : 'faint')} onClick={() => (onTranscript ? onTranscript() : set({ handOverFor: { project: project.path, agentId: a.id } }))}>
             <Icon name="file" />
@@ -1211,14 +1335,20 @@ export function PaneFooter({
         </Tooltip>
       )}
       {cost !== null && cost > 0 && (
-        <Tooltip content={<span style={{ whiteSpace: 'pre-line' }}>{`${estimated ? 'API-equivalent cost of this session, estimated by Hive from its tokens' : 'API-equivalent cost of this session, as the provider reports it'}${costClick ? `\n\n${COST_CLICK}` : ''}`}</span>}>
+        <Tooltip
+          content={
+            <span style={{ whiteSpace: 'pre-line' }}>
+              {`${estimated ? tr(msg({ id: 'panes.footer.costEstimated', defaultMessage: 'API-equivalent cost of this session, estimated by Hive from its tokens', description: "Hover of a pane footer's cost (≈): Hive estimated it from the session's tokens at API prices." })) : tr(msg({ id: 'panes.footer.costReported', defaultMessage: 'API-equivalent cost of this session, as the provider reports it', description: "Hover of a pane footer's cost: the provider reported it, at API prices." }))}${costClick ? `\n\n${tr(COST_CLICK)}` : ''}`}
+            </span>
+          }
+        >
           <span className="pane-foot-item faint foot-cost" onClick={costClick}>
             {estimated ? '≈' : ''}${cost < 0.01 ? '<0.01' : cost.toFixed(2)}
           </span>
         </Tooltip>
       )}
       {cost === null && usage && unpricedModel(usage.provider, usage.model, settings) && (
-        <Tooltip content={<span style={{ whiteSpace: 'pre-line' }}>{`${unpricedText(usage.model!, providerName(usage.provider))}${costClick ? `\n\n${COST_CLICK}` : ''}`}</span>}>
+        <Tooltip content={<span style={{ whiteSpace: 'pre-line' }}>{`${unpricedText(usage.model!, providerName(usage.provider))}${costClick ? `\n\n${tr(COST_CLICK)}` : ''}`}</span>}>
           <span className="pane-foot-item faint foot-cost" onClick={costClick}>
             $?
           </span>
@@ -1241,37 +1371,45 @@ function AgentDot({ project, a }: { project: ProjectInfo; a: AgentInfo }) {
 
 /** In place of "Session ended": why the CLI didn't start, what to do about it, Retry. The terminal above keeps the full output. */
 function StartFailedBar({ project, a, failure, single }: { project: ProjectInfo; a: AgentInfo; failure: StartFailure; single: boolean }) {
+  useLanguage()
   const retry = (): void => void (failure.resumed ? actions.resumeLast(project.path, a.id) : actions.newSession(project.path, a.id))
   return (
-    <div className={cx('session-ended start-failed', !single && 'compact')} role="alert">
+    <div className={cx('session-ended', 'start-failed', !single && 'compact')} role="alert">
       <Icon name="error" />
       <div className="grow start-failed-text">
         <div className="start-failed-reason">
-          <strong>Couldn't start:</strong> {failure.reason}
+          <strong>{tr(msg({ id: 'panes.failed.title', defaultMessage: "Couldn't start:", description: "In place of a pane's \"Session ended\" bar: the agent's CLI exited before its session started; the reason follows." }))}</strong> {failure.reason}
         </div>
         {failure.hint && <div className="start-failed-hint">{failure.hint}</div>}
       </div>
       <div className="start-failed-actions">
-        <button className={cx('btn small solid', failure.resumed ? 'act-resume' : 'act-start')} onClick={retry}>
-          <Icon name="refresh" /> Retry
+        <button className={cx('btn', 'small', 'solid', failure.resumed ? 'act-resume' : 'act-start')} onClick={retry}>
+          <Icon name="refresh" /> {tr(msg({ id: 'panes.failed.retry', defaultMessage: 'Retry', description: 'Button on the bar of an agent that failed to start: tries the launch again. Keep it short.' }))}
         </button>
         {failure.fix === 'agent-setup' ? (
           <button className="btn small subtle" onClick={() => set({ setupOpen: agentProviderOf(project, a) })}>
-            Agent Setup…
+            {tr(msg({ id: 'panes.failed.setup', defaultMessage: 'Agent Setup…', description: "Button on the bar of an agent that failed to start: opens Agent Setup (installing or signing in to its CLI)." }))}
           </button>
         ) : (
           <button className="btn small subtle" onClick={() => set({ agentSettingsFor: { project: project.path, agentId: a.id } })}>
-            Agent Settings…
+            {tr(AGENT_SETTINGS)}
           </button>
         )}
-        <IconButton icon="close" title="Dismiss (the terminal keeps the output)" onClick={() => clearStartFailure(project.path, a.id)} />
+        <IconButton icon="close" title={tr(msg({ id: 'panes.failed.dismiss', defaultMessage: 'Dismiss (the terminal keeps the output)', description: 'Tooltip of the ✕ on the bar of an agent that failed to start.' }))} onClick={() => clearStartFailure(project.path, a.id)} />
       </div>
     </div>
   )
 }
 
+/** "<b>B1</b> is not running.", the agent's name in bold. */
+const notRunningText = (agent: string): ReactNode[] => tRich<ReactNode>(msg({ id: 'panes.body.notRunning', defaultMessage: '<b>{agent}</b> is not running.', description: "A pane of an agent that isn't running ({agent}: its name, in bold; keep the <b> tags around it)." }), { agent, b: (chunks) => <strong key="b">{chunks}</strong> })
+
+/** "Works in its own worktree on <code>hive/b1</code>." */
+const ownWorktreeText = (branch: string): ReactNode[] => tRich<ReactNode>(msg({ id: 'panes.body.worktree', defaultMessage: 'Works in its own worktree on <code>{branch}</code>.', description: "A stopped worktree agent's pane: its branch ({branch}, shown as code; keep the <code> tags around it)." }), { branch, code: (chunks) => <code key="code">{chunks}</code> })
+
 /** What a pane shows when its agent has no terminal yet, or when the pane is empty. */
 function PaneBody({ project, a, hasTerminal, single }: { project: ProjectInfo; a: AgentInfo | null; hasTerminal: boolean; single: boolean }) {
+  useLanguage()
   const failure = useStartFailure(project, a)
   const limit = useAgentLimit()
   if (!a) {
@@ -1279,7 +1417,7 @@ function PaneBody({ project, a, hasTerminal, single }: { project: ProjectInfo; a
     if (single) return null
     return (
       <div className="pane-placeholder">
-        <p className="faint">Empty pane</p>
+        <p className="faint">{tr(msg({ id: 'panes.body.empty', defaultMessage: 'Empty pane', description: 'A pane with no agent in it (the layout has more panes than the page has agents).' }))}</p>
         {project.agents.length < limit && <AddAgentButton project={project} className="subtle small" />}
       </div>
     )
@@ -1292,21 +1430,27 @@ function PaneBody({ project, a, hasTerminal, single }: { project: ProjectInfo; a
     return (
       <div className={cx('session-ended', !single && 'compact')}>
         <Icon name="debug-disconnect" />
-        <span className="grow">{setupPending ? 'Setup did not finish.' : single ? 'The session has ended. Resume it, or start a new one.' : 'Session ended.'}</span>
+        <span className="grow">
+          {setupPending
+            ? tr(msg({ id: 'panes.body.setupFailed', defaultMessage: 'Setup did not finish.', description: "The bar under a worktree agent's ended session: its worktree setup command didn't finish." }))
+            : single
+              ? tr(msg({ id: 'panes.body.endedLong', defaultMessage: 'The session has ended. Resume it, or start a new one.', description: "The bar under an agent's ended session (one pane)." }))
+              : tr(msg({ id: 'panes.body.ended', defaultMessage: 'Session ended.', description: "The bar under an agent's ended session (several panes: short)." }))}
+        </span>
         {setupPending ? (
           <>
             <button className="btn small act-start solid" onClick={() => void actions.newSession(project.path, a.id)}>
-              <Icon name="refresh" /> Retry Setup
+              <Icon name="refresh" /> {tr(msg({ id: 'panes.body.retrySetup', defaultMessage: 'Retry Setup', description: "Button under a worktree agent's ended session: runs its setup command again, then starts it." }))}
             </button>
             <button className="btn small act-start" onClick={() => void actions.newSession(project.path, a.id, { skipSetup: true })}>
-              Start Without Setup
+              {tr(msg({ id: 'panes.body.skipSetup', defaultMessage: 'Start Without Setup', description: "Button under a worktree agent's ended session: starts it without its setup command." }))}
             </button>
           </>
         ) : (
           <>
-            <ResumeButton project={project} a={a} className={cx('act-resume solid', !single && 'small')} />
-            <button className={cx('btn act-start', !single && 'small')} onClick={() => void actions.newSession(project.path, a.id)}>
-              <Icon name="add" /> New Session
+            <ResumeButton project={project} a={a} className={cx('act-resume', 'solid', !single && 'small')} />
+            <button className={cx('btn', 'act-start', !single && 'small')} onClick={() => void actions.newSession(project.path, a.id)}>
+              <Icon name="add" /> {tr(NEW_SESSION)}
             </button>
           </>
         )}
@@ -1316,18 +1460,12 @@ function PaneBody({ project, a, hasTerminal, single }: { project: ProjectInfo; a
   if (single) return null
   return (
     <div className="pane-placeholder">
-      <p>
-        <strong>{a.name}</strong> is not running.
-      </p>
-      {a.worktree && (
-        <p className="faint">
-          Works in its own worktree on <code>{a.worktree.branch}</code>.
-        </p>
-      )}
-      {setupPending && <p className="faint">Its setup command runs first.</p>}
+      <p>{notRunningText(a.name)}</p>
+      {a.worktree && <p className="faint">{ownWorktreeText(a.worktree.branch)}</p>}
+      {setupPending && <p className="faint">{tr(msg({ id: 'panes.body.setupFirst', defaultMessage: 'Its setup command runs first.', description: "A stopped worktree agent's pane: its worktree setup command runs before its next session." }))}</p>}
       <div className="btns">
         <button className="btn act-start solid small" onClick={() => void actions.newSession(project.path, a.id)}>
-          <Icon name="add" /> New Session
+          <Icon name="add" /> {tr(NEW_SESSION)}
         </button>
         <ResumeButton project={project} a={a} className={cx(RESUME_TINT, 'small')} />
       </div>
@@ -1337,6 +1475,7 @@ function PaneBody({ project, a, hasTerminal, single }: { project: ProjectInfo; a
 
 /** Pane frames (headers, borders, placeholders) over the terminals of the selected project. */
 export function PaneChrome({ project, panes }: { project: ProjectInfo; panes: (string | null)[] }) {
+  useLanguage()
   const epochs = useStore((s) => s.sessionEpoch)
   const focused = useStore((s) => s.focusedAgent[project.path]) ?? project.agents[0]?.id
   // A pane something just asked to show (a run's agent in the Progress panel): highlighted for a moment.
@@ -1386,7 +1525,7 @@ export function PaneChrome({ project, panes }: { project: ProjectInfo; panes: (s
                 }}
               >
                 <span>
-                  <Icon name="arrow-swap" /> {a ? `Swap with ${a.name}` : 'Move here'}
+                  <Icon name="arrow-swap" /> {a ? tr(msg({ id: 'panes.drop.swap', defaultMessage: 'Swap with {agent}', description: "Shown over another agent's pane while an agent is dragged onto it: dropping swaps the two ({agent}: the other agent's name)." }), { agent: a.name }) : tr(msg({ id: 'panes.drop.move', defaultMessage: 'Move here', description: 'Shown over an empty pane while an agent is dragged onto it: dropping moves it there.' }))}
                 </span>
               </div>
             )}

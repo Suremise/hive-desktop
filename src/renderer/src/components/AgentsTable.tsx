@@ -1,24 +1,24 @@
 import { useMemo, type ReactNode } from 'react'
 import { AGENT_LIMIT_DEFAULT } from '@shared/defaults'
 import type { ProjectInfo, TaskCard } from '@shared/types'
-import { agentCardText, agentRowsText, laneOrder, waitingFor, type TableLane } from '@shared/agentTable'
+import { fmt, msg, tr, type Msg } from '@shared/i18n'
+import { agentCardText, agentRowsText, laneOrder, type TableLane } from '@shared/agentTable'
+import { watchText } from '@shared/agentWatch'
 import { batchOutcome, removeWorktreeText, type BatchKind, type BatchWorktree } from '@shared/startAll'
 import { statusText } from './ui'
 import { cx } from '../util'
 import { useLanes } from '../laneSource'
-import { useStore } from '../store'
+import { useLanguage, useStore } from '../store'
 
 type Agent = ProjectInfo['agents'][number]
-
-const plural = (n: number): string => `${n} background task${n === 1 ? '' : 's'}`
 
 /** An agent's row: its state in a few words, the card it works on (or reviews), and what it waits for. */
 export function agentRow(p: ProjectInfo, a: Agent, tasks: readonly TaskCard[]): { state: string; card: string; waits: string } {
   const card = agentCardText(tasks, p.name, a.id)
   const l = a.live
-  if (!l) return { state: 'Not running', card, waits: '' }
-  if (l.status === 'watching' && l.watch) return { state: 'Watching', card, waits: waitingFor(l.watch) }
-  if (l.status === 'background') return { state: `Waiting on ${plural(l.backgroundTasks ?? 0)}`, card, waits: '' }
+  if (!l) return { state: tr(msg({ id: 'panes.table.notRunning', defaultMessage: 'Not running', description: "An agents table's State column: the agent's session isn't running." })), card, waits: '' }
+  if (l.status === 'watching' && l.watch) return { state: tr(msg({ id: 'panes.table.watching', defaultMessage: 'Watching', description: "An agents table's State column: the agent waits for cards or agents to change (a watch); the Waiting for column says what." })), card, waits: watchText(l.watch, tr, (x) => fmt.list(x), 'cell') }
+  if (l.status === 'background') return { state: tr(msg({ id: 'panes.table.background', defaultMessage: 'Waiting on {n, plural, one {# background task} other {# background tasks}}', description: "An agents table's State column: the agent's turn ended but tasks it started in the background still run." }), { n: l.backgroundTasks ?? 0 }), card, waits: '' }
   return { state: statusText(l), card, waits: '' }
 }
 
@@ -27,7 +27,8 @@ export function agentsText(p: ProjectInfo, tasks: TaskCard[], lanes: readonly Ta
   return laneOrder(p.agents, lanes)
     .map((a) => {
       const r = agentRow(p, a, tasks)
-      return `${a.name}: ${r.waits ? `Waiting for ${r.waits}` : r.state}${r.card ? ` · ${r.card}` : ''}`
+      const what = r.waits ? tr(msg({ id: 'panes.table.waitingFor', defaultMessage: 'Waiting for {what}', description: "An agent in a line of text (a screen reader's description of a project's agents): what it waits for ({what}: \"#12 → Review\", \"B6 to finish\")." }), { what: r.waits }) : r.state
+      return `${a.name}: ${what}${r.card ? ` · ${r.card}` : ''}`
     })
     .join('\n')
 }
@@ -37,10 +38,14 @@ export function agentsText(p: ProjectInfo, tasks: TaskCard[], lanes: readonly Ta
  * or a project, never wraps in a dialog) and the words before its cell in the plain text (`agentRowsText`).
  */
 export interface AgentColumn {
-  label: string
+  /** Its heading: a message (#799), or text a caller hasn't converted yet. */
+  label: string | Msg
   kind?: 'card' | 'short'
-  prefix?: string
+  prefix?: string | Msg
 }
+
+/** A column's heading or prefix in the language shown now. */
+const words = (t: string | Msg): string => (typeof t === 'string' ? t : tr(t))
 
 /** A row: the agent (its name and status dot; `off` when it isn't running) and one cell per column. */
 export interface AgentTableRow {
@@ -72,7 +77,7 @@ export interface AgentTableData {
 /** The table as plain text (#572): every cell it shows, a line an agent, for screen readers and a confirm's copy. */
 export function tableText(d: AgentTableData): string {
   return agentRowsText(
-    d.columns,
+    d.columns.map((c) => ({ prefix: c.prefix === undefined || typeof c.prefix === 'string' ? c.prefix : `${tr(c.prefix)} ` })),
     d.rows.map((r) => ('group' in r ? { groupText: r.text } : r))
   )
 }
@@ -84,14 +89,15 @@ export function tableText(d: AgentTableData): string {
  * More agents than the default limit (up to 24, #562) take tighter rows, so they still fit a window's height.
  */
 export function AgentRowsTable({ columns, rows, className, bodyClassName }: { columns: AgentColumn[]; rows: (AgentTableRow | AgentTableGroup)[]; className?: string; bodyClassName?: string }) {
+  useLanguage()
   const agents = rows.filter((r): r is AgentTableRow => 'cells' in r).length
   return (
-    <table className={cx('table agents-table', `cols-${columns.length + 1}`, agents > AGENT_LIMIT_DEFAULT && 'many', className)} data-agents={agents}>
+    <table className={cx('table', 'agents-table', `cols-${columns.length + 1}`, agents > AGENT_LIMIT_DEFAULT && 'many', className)} data-agents={agents}>
       <thead>
         <tr>
-          <th>Agent</th>
-          {columns.map((c) => (
-            <th key={c.label}>{c.label}</th>
+          <th>{tr(msg({ id: 'panes.table.agent', defaultMessage: 'Agent', description: "An agents table's first column heading: the agent's name and status dot." }))}</th>
+          {columns.map((c, i) => (
+            <th key={i}>{words(c.label)}</th>
           ))}
         </tr>
       </thead>
@@ -110,7 +116,7 @@ export function AgentRowsTable({ columns, rows, className, bodyClassName }: { co
                 </span>
               </td>
               {columns.map((c, i) => (
-                <td key={c.label} className={cx('agents-table-cut', c.kind === 'card' && 'agents-table-card', c.kind === 'short' && 'agents-table-short', r.cells[i]?.warn && 'agents-table-warn')}>
+                <td key={i} className={cx('agents-table-cut', c.kind === 'card' && 'agents-table-card', c.kind === 'short' && 'agents-table-short', r.cells[i]?.warn && 'agents-table-warn')}>
                   <span>{r.cells[i]?.text || (c.kind === 'card' ? '—' : '')}</span>
                 </td>
               ))}
@@ -123,10 +129,21 @@ export function AgentRowsTable({ columns, rows, className, bodyClassName }: { co
 }
 
 /** The columns the tables share, with their words in the plain text (#572). */
-export const STATE_COLUMN: AgentColumn = { label: 'State', kind: 'short' }
-export const CARD_COLUMN: AgentColumn = { label: 'Card', kind: 'card', prefix: 'card ' }
-export const WAITING_COLUMN: AgentColumn = { label: 'Waiting for', prefix: 'waiting for ' }
-export const PROJECT_COLUMN: AgentColumn = { label: 'Project', kind: 'short', prefix: 'in ' }
+export const STATE_COLUMN: AgentColumn = { label: msg({ id: 'panes.table.state', defaultMessage: 'State', description: "An agents table's column heading: what the agent is doing." }), kind: 'short' }
+export const CARD_COLUMN: AgentColumn = {
+  label: msg({ id: 'panes.table.card', defaultMessage: 'Card', description: "An agents table's column heading: the card the agent works on or reviews." }),
+  kind: 'card',
+  prefix: msg({ id: 'panes.table.cardPrefix', defaultMessage: 'card', description: "Before the agent's card in a line of text (screen readers, a dialog's copy): \"card #12 Title\". Lower case." })
+}
+export const WAITING_COLUMN: AgentColumn = {
+  label: msg({ id: 'panes.table.waiting', defaultMessage: 'Waiting for', description: "An agents table's column heading: what a watching agent waits for (cards, agents, lanes)." }),
+  prefix: msg({ id: 'panes.table.waitingPrefix', defaultMessage: 'waiting for', description: "Before what a watching agent waits for, in a line of text (screen readers, a dialog's copy): \"waiting for #12 → Review\". Lower case." })
+}
+export const PROJECT_COLUMN: AgentColumn = {
+  label: msg({ id: 'panes.table.project', defaultMessage: 'Project', description: "An agents table's column heading: the agent's project." }),
+  kind: 'short',
+  prefix: msg({ id: 'panes.table.projectPrefix', defaultMessage: 'in', description: "Before the agent's project in a line of text (screen readers, a dialog's copy): \"in hive\". Lower case." })
+}
 
 /**
  * A project's agents (#529): Agent · State · Card · Waiting for (only when one waits), in lane order (a builder, then
@@ -161,7 +178,12 @@ export function batchAgentsData(p: ProjectInfo, tasks: readonly TaskCard[], kind
     const tree = a.worktree ? (kind === 'remove' ? removeWorktreeText({ branch: a.worktree.branch, check: check?.(a.id) }) : a.worktree.branch) : ''
     return { key: a.id, name: a.name, dot: a.live?.status ?? 'stopped', off: !a.live, cells: [{ text: r.state }, { text: r.card }, ...(trees ? [{ text: tree }] : []), { text: outcome.text, warn: outcome.warn }] }
   })
-  return { columns: [STATE_COLUMN, CARD_COLUMN, ...(trees ? [{ label: 'Worktree', prefix: 'worktree ' }] : []), { label: 'What happens' }], rows }
+  const worktree: AgentColumn = {
+    label: msg({ id: 'panes.table.worktree', defaultMessage: 'Worktree', description: "An agents table's column heading (Start New All, Remove All…): the agent's worktree branch." }),
+    prefix: msg({ id: 'panes.table.worktreePrefix', defaultMessage: 'worktree', description: "Before the agent's worktree branch in a line of text (screen readers, a dialog's copy). Lower case." })
+  }
+  const happens: AgentColumn = { label: msg({ id: 'panes.table.happens', defaultMessage: 'What happens', description: "An agents table's column heading (Start New All, Remove All…): what the action does to each agent." }) }
+  return { columns: [STATE_COLUMN, CARD_COLUMN, ...(trees ? [worktree] : []), happens], rows }
 }
 
 /**

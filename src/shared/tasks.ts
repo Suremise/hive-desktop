@@ -1,26 +1,91 @@
+import { msg, type Msg } from './i18n/msg'
 import type { BoardFold, TaskCard, TaskColumn } from './types'
+
+/**
+ * The window's tr() (#798), passed in: agent scripts (hive-mcp.js) import this module and must not load the
+ * translations, so it holds messages and the window formats them. Without it, a function words its text in English, for
+ * agents and the Agent API.
+ */
+export type Tr = typeof import('./i18n').tr
 
 /**
  * The board's columns, in order. Fixed: the Assistant, agents and the API all work with these six (#170). On Hold is
  * parked work (the user's and the Assistant's), Passed is work that passed its review and waits to be merged, and Done
- * is merged.
+ * is merged. Their labels and descriptions are English, as agents, the Agent API and card history name them; the window
+ * shows COLUMN_TEXT's.
  */
 export const TASK_COLUMNS: { id: TaskColumn; label: string; description: string }[] = [
-  { id: 'hold', label: 'On Hold', description: 'Parked: nobody picks these up until they move to Todo. Only you and the Assistant put cards here.' },
-  { id: 'todo', label: 'Todo', description: 'Ready to start.' },
-  { id: 'doing', label: 'Doing', description: 'Being worked on: its agent shows what it is doing now.' },
-  { id: 'review', label: 'Review', description: 'Work done, waiting for its review.' },
-  { id: 'passed', label: 'Passed', description: 'Passed its review, waiting to be merged. A reviewer moves a card here when it passes.' },
-  { id: 'done', label: 'Done', description: 'Merged: its builder moves it here after merging (or you do). Archive cards when you no longer need to see them.' }
+  { id: 'hold', label: 'On Hold', description: 'Parked: nobody picks these up until they move to Todo. Only you and the Assistant put cards here.' }, // i18n-ignore: agent-facing column name (COLUMN_TEXT is the window's)
+  { id: 'todo', label: 'Todo', description: 'Ready to start.' }, // i18n-ignore: agent-facing column name (COLUMN_TEXT is the window's)
+  { id: 'doing', label: 'Doing', description: 'Being worked on: its agent shows what it is doing now.' }, // i18n-ignore: agent-facing column name (COLUMN_TEXT is the window's)
+  { id: 'review', label: 'Review', description: 'Work done, waiting for its review.' }, // i18n-ignore: agent-facing column name (COLUMN_TEXT is the window's)
+  { id: 'passed', label: 'Passed', description: 'Passed its review, waiting to be merged. A reviewer moves a card here when it passes.' }, // i18n-ignore: agent-facing column name (COLUMN_TEXT is the window's)
+  { id: 'done', label: 'Done', description: 'Merged: its builder moves it here after merging (or you do). Archive cards when you no longer need to see them.' } // i18n-ignore: agent-facing column name (COLUMN_TEXT is the window's)
 ]
 
 export const isTaskColumn = (v: unknown): v is TaskColumn => typeof v === 'string' && TASK_COLUMNS.some((c) => c.id === v)
 
 export const columnLabel = (c: TaskColumn): string => TASK_COLUMNS.find((x) => x.id === c)?.label ?? c
 
+/** Each column's name and description as the window shows them (#798), in the user's language. */
+export const COLUMN_TEXT: Record<TaskColumn, { label: Msg; description: Msg }> = {
+  hold: {
+    label: msg({ id: 'board.column.hold', defaultMessage: 'On Hold', description: "A board column's name: parked cards nobody picks up until the user moves them on." }),
+    description: msg({ id: 'board.column.holdDescription', defaultMessage: 'Parked: nobody picks these up until they move to Todo. Only you and the Assistant put cards here.', description: "The On Hold column's description (its hover). Todo is the column's name; the Assistant is the Hive Assistant." })
+  },
+  todo: {
+    label: msg({ id: 'board.column.todo', defaultMessage: 'Todo', description: "A board column's name: cards ready to start." }),
+    description: msg({ id: 'board.column.todoDescription', defaultMessage: 'Ready to start.', description: "The Todo column's description (its hover)." })
+  },
+  doing: {
+    label: msg({ id: 'board.column.doing', defaultMessage: 'Doing', description: "A board column's name: cards being worked on." }),
+    description: msg({ id: 'board.column.doingDescription', defaultMessage: 'Being worked on: its agent shows what it is doing now.', description: "The Doing column's description (its hover)." })
+  },
+  review: {
+    label: msg({ id: 'board.column.review', defaultMessage: 'Review', description: "A board column's name: cards whose work is done, waiting for review." }),
+    description: msg({ id: 'board.column.reviewDescription', defaultMessage: 'Work done, waiting for its review.', description: "The Review column's description (its hover)." })
+  },
+  passed: {
+    label: msg({ id: 'board.column.passed', defaultMessage: 'Passed', description: "A board column's name: cards that passed review and wait to be merged." }),
+    description: msg({ id: 'board.column.passedDescription', defaultMessage: 'Passed its review, waiting to be merged. A reviewer moves a card here when it passes.', description: "The Passed column's description (its hover)." })
+  },
+  done: {
+    label: msg({ id: 'board.column.done', defaultMessage: 'Done', description: "A board column's name: merged cards." }),
+    description: msg({ id: 'board.column.doneDescription', defaultMessage: 'Merged: its builder moves it here after merging (or you do). Archive cards when you no longer need to see them.', description: "The Done column's description (its hover). The builder is the agent that did the card's work." })
+  }
+}
+
+/**
+ * An Archive All batch's name (#351), kept with the batch in English: its cards' history quotes it ("Brought back with
+ * its batch (All in Done)"), and history stays English. `n` is how many cards were shown when only some were.
+ */
+export function archiveBatchLabel(column: TaskColumn | null, shown: number | null): string {
+  const english = column === null ? null : columnLabel(column)
+  if (english) return shown !== null ? `${shown} shown in ${english}` : `All in ${english}` // i18n-ignore: stored with the batch and quoted in card history (English)
+  return shown !== null ? `${shown} shown cards` : 'All Cards' // i18n-ignore: stored with the batch and quoted in card history (English)
+}
+
+/**
+ * A batch's name as the window shows it (#798): the names archiveBatchLabel makes, in the window's language; any other
+ * name as it is.
+ */
+export function archiveBatchText(label: string, tr: Tr): string {
+  const byLabel = new Map(TASK_COLUMNS.map((c) => [c.label, c.id]))
+  const m = /^(?:All in (.+)|(\d+) shown in (.+)|(\d+) shown cards|(All Cards))$/.exec(label)
+  const column = m ? byLabel.get(m[1] ?? m[3] ?? '') : undefined
+  if (m?.[1] && column) return tr(msg({ id: 'board.batchName.allIn', defaultMessage: 'All in {column}', description: "An Archive All batch's name in the archived cards' batch picker: every card of a column ({column}: \"Done\")." }), { column: columnName(column, tr) })
+  if (m?.[2] && column) return tr(msg({ id: 'board.batchName.shownIn', defaultMessage: '{n} shown in {column}', description: "An Archive All batch's name in the archived cards' batch picker: the {n} cards a search showed in a column ({column}: \"Done\")." }), { n: Number(m[2]), column: columnName(column, tr) })
+  if (m?.[4]) return tr(msg({ id: 'board.batchName.shownCards', defaultMessage: '{n} shown cards', description: "An Archive All batch's name in the archived cards' batch picker: the {n} cards a search showed on the whole board." }), { n: Number(m[4]) })
+  if (m?.[5]) return tr(msg({ id: 'board.batchName.allCards', defaultMessage: 'All Cards', description: "An Archive All batch's name in the archived cards' batch picker: every card on the board." }))
+  return label
+}
+
+/** A column's name in the window's language (tr given), else in English (columnLabel). */
+export const columnName = (c: TaskColumn, tr?: Tr): string => (tr && COLUMN_TEXT[c] ? tr(COLUMN_TEXT[c].label) : columnLabel(c))
+
 /** The column ids, in order, and as an error message lists them ("hold, todo, doing, review, passed or done"). */
 export const COLUMN_IDS: readonly TaskColumn[] = TASK_COLUMNS.map((c) => c.id)
-export const COLUMN_CHOICES = `${COLUMN_IDS.slice(0, -1).join(', ')} or ${COLUMN_IDS.at(-1)}`
+export const COLUMN_CHOICES = `${COLUMN_IDS.slice(0, -1).join(', ')} or ${COLUMN_IDS.at(-1)}` // i18n-ignore: agent-facing (the Agent API's errors)
 
 /** Each column's colour (its heading, and a tint on its cards): grey, slate blue, blue, purple, teal and green. */
 export const DEFAULT_COLUMN_COLORS: Record<TaskColumn, string> = { hold: '#8b8f98', todo: '#7a88b8', doing: '#3b82f6', review: '#a371f7', passed: '#14b8a6', done: '#2ea043' }
@@ -88,24 +153,36 @@ export function columnColor(colors: Partial<Record<TaskColumn, string>> | undefi
  * has finished its turn isn't stalled: it is waiting for the user to look. Cards in any other column never are: nobody is
  * expected to be on them (On Hold and Passed included, #170).
  */
-export function stalledReason(card: Pick<TaskCard, 'column' | 'archived' | 'agent' | 'agentName'>, agentNow: { name: string; running: boolean } | null): string | null {
+export function stalledReason(card: Pick<TaskCard, 'column' | 'archived' | 'agent' | 'agentName'>, agentNow: { name: string; running: boolean } | null, tr?: Tr): string | null {
   if (card.archived || card.column !== 'doing') return null
-  if (!card.agent) return 'In Doing, but no agent has it.'
-  if (!agentNow) return `${card.agentName ?? 'Its agent'} was removed.`
-  if (!agentNow.running) return `${agentNow.name} isn't running.`
+  if (!card.agent) return tr ? tr(msg({ id: 'board.stalled.noAgent', defaultMessage: 'In Doing, but no agent has it.', description: 'Why a card in the Doing column is stalled (on the card). Doing is the column.' })) : 'In Doing, but no agent has it.' // i18n-ignore: agent-facing (the Agent API's stalled)
+  if (!agentNow) return removedText(card.agentName, tr)
+  if (!agentNow.running) return notRunningText(agentNow.name, tr)
   return null
 }
+
+/** "<agent> was removed." (no name kept: "Its agent was removed."), in the window's language with tr, else English. */
+function removedText(name: string | null | undefined, tr?: Tr): string {
+  if (tr) return name ? tr(msg({ id: 'board.stalled.removed', defaultMessage: '{agent} was removed.', description: "Why a card's work or review is stalled: its agent was removed from the project. {agent} is the agent's name." }), { agent: name }) : tr(msg({ id: 'board.stalled.removedUnnamed', defaultMessage: 'Its agent was removed.', description: "Why a card's work is stalled: its agent (name unknown) was removed from the project." }))
+  return `${name ?? 'Its agent'} was removed.` // i18n-ignore: agent-facing (the Agent API's stalled)
+}
+
+/** "<agent> isn't running.", in the window's language with tr, else English. */
+const notRunningText = (name: string, tr?: Tr): string =>
+  tr ? tr(msg({ id: 'board.stalled.notRunning', defaultMessage: "{agent} isn't running.", description: "Why a card's work or review is stalled: its agent's session isn't running. {agent} is the agent's name." }), { agent: name }) : `${name} isn't running.` // i18n-ignore: agent-facing (the Agent API's stalled)
 
 /**
  * Why a card in a card loop is stuck (#376): an agent that was looping on it ended its turn with no card watch
  * (`notWatching`, set by Hive after a short grace), so nothing wakes it when the card changes. Only for cards in play
  * (Doing or Review); null otherwise.
  */
-export function notWatchingReason(card: Pick<TaskCard, 'number' | 'column' | 'archived' | 'project'>, agents: { name: string; project: string; notWatching?: number[] }[]): string | null {
+export function notWatchingReason(card: Pick<TaskCard, 'number' | 'column' | 'archived' | 'project'>, agents: { name: string; project: string; notWatching?: number[] }[], tr?: Tr): string | null {
   if (card.archived || (card.column !== 'doing' && card.column !== 'review')) return null
   // Only an agent of the card's project: one whose card has moved to another project isn't on it any more.
   const a = agents.find((x) => x.project.toLowerCase() === card.project.toLowerCase() && x.notWatching?.includes(card.number))
-  return a ? `${a.name} isn't watching #${card.number}: its turn ended with no card watch.` : null
+  if (!a) return null
+  if (tr) return tr(msg({ id: 'board.stalled.notWatching', defaultMessage: "{agent} isn't watching #{card}: its turn ended with no card watch.", description: 'Why a card in a card loop is stalled: the agent looping on it stopped without waiting for the card to change. {agent} is its name, {card} the card number (after #). A card watch is what wakes an agent when a card changes.' }), { agent: a.name, card: card.number })
+  return `${a.name} isn't watching #${card.number}: its turn ended with no card watch.` // i18n-ignore: agent-facing (the Agent API's stalled)
 }
 
 /** The longest a comment's summary line runs before it is cut (#532). */
@@ -143,7 +220,7 @@ export function inReviewSince(card: Pick<TaskCard, 'history'>): string | null {
  * (its status, and how long it has been silent when its state is unknown, #648: #642's reviewer showed working, silent
  * for 37 min, and was said to be watching). Null otherwise.
  */
-export function reviewWaitReason(card: Pick<TaskCard, 'number' | 'column' | 'archived' | 'project' | 'agent' | 'review' | 'blocked' | 'history'>, watchers: { name: string; project: string; agentId: string; cards: number[]; status?: string; silentMinutes?: number }[], now = Date.now()): string | null {
+export function reviewWaitReason(card: Pick<TaskCard, 'number' | 'column' | 'archived' | 'project' | 'agent' | 'review' | 'blocked' | 'history'>, watchers: { name: string; project: string; agentId: string; cards: number[]; status?: string; silentMinutes?: number }[], now = Date.now(), tr?: Tr): string | null {
   if (card.archived || card.column !== 'review' || card.review || card.blocked) return null
   const since = inReviewSince(card)
   const ms = since ? now - Date.parse(since) : NaN
@@ -151,9 +228,29 @@ export function reviewWaitReason(card: Pick<TaskCard, 'number' | 'column' | 'arc
   const w = watchers.find((x) => x.project.toLowerCase() === card.project.toLowerCase() && x.agentId !== card.agent && x.cards.includes(card.number))
   if (!w) return null
   const min = Math.round(ms / 60_000)
+  if (tr) {
+    const values = { agent: w.name, card: card.number, waited: durationText(min * 60_000, tr) }
+    if (w.silentMinutes !== undefined) return tr(msg({ id: 'board.stalled.reviewWaitSilent', defaultMessage: "{agent} is watching #{card} but hasn't started reviewing it (it shows working, but has been silent for {silent} min: state unknown): in Review for {waited}.", description: "Why a card waiting in Review is stalled: its reviewer watches it but hasn't started, and Hive can't tell what the reviewer is doing. {agent} is the reviewer's name, {card} the card number (after #), {silent} minutes, {waited} how long it has waited (\"40 min\", \"2 h 5 min\")." }), { ...values, silent: w.silentMinutes })
+    if (w.status === 'working') return tr(msg({ id: 'board.stalled.reviewWaitBusy', defaultMessage: "{agent} is watching #{card} but hasn't started reviewing it (it is working on something else): in Review for {waited}.", description: "Why a card waiting in Review is stalled: its reviewer watches it but is busy with other work. {agent} is the reviewer's name, {card} the card number (after #), {waited} how long it has waited (\"40 min\", \"2 h 5 min\")." }), values)
+    return tr(msg({ id: 'board.stalled.reviewWait', defaultMessage: "{agent} is watching #{card} but hasn't started reviewing it: in Review for {waited}.", description: "Why a card waiting in Review is stalled: its reviewer watches it but hasn't started. {agent} is the reviewer's name, {card} the card number (after #), {waited} how long it has waited (\"40 min\", \"2 h 5 min\")." }), values)
+  }
   const dur = min < 60 ? `${min} min` : `${Math.floor(min / 60)} h${min % 60 ? ` ${min % 60} min` : ''}`
-  const state = w.silentMinutes !== undefined ? ` (it shows working, but has been silent for ${w.silentMinutes} min: state unknown)` : w.status === 'working' ? ' (it is working on something else)' : ''
-  return `${w.name} is watching #${card.number} but hasn't started reviewing it${state}: in Review for ${dur}.`
+  const state = w.silentMinutes !== undefined ? ` (it shows working, but has been silent for ${w.silentMinutes} min: state unknown)` : w.status === 'working' ? ' (it is working on something else)' : '' // i18n-ignore: agent-facing (the Agent API's stalled)
+  return `${w.name} is watching #${card.number} but hasn't started reviewing it${state}: in Review for ${dur}.` // i18n-ignore: agent-facing (the Agent API's stalled)
+}
+
+/**
+ * A duration in the window's language, as the board and the Progress panel show one (#798): "40 s", "4 min",
+ * "1 h 5 min". shortDuration (shared/progress) is its English for agents.
+ */
+export function durationText(ms: number, tr: Tr): string {
+  const s = Math.max(0, Math.round(ms / 1000))
+  if (s < 60) return tr(msg({ id: 'board.duration.seconds', defaultMessage: '{s} s', description: 'A short duration in seconds ("40 s"), in the Progress panel and on cards. Keep it short: an abbreviation.' }), { s })
+  const min = Math.round(s / 60)
+  if (min < 60) return tr(msg({ id: 'board.duration.minutes', defaultMessage: '{min} min', description: 'A short duration in minutes ("4 min"), in the Progress panel and on cards. Keep it short: an abbreviation.' }), { min })
+  const h = Math.floor(min / 60)
+  if (!(min % 60)) return tr(msg({ id: 'board.duration.hours', defaultMessage: '{h} h', description: 'A short duration in whole hours ("2 h"), in the Progress panel and on cards. Keep it short: an abbreviation.' }), { h })
+  return tr(msg({ id: 'board.duration.hoursMinutes', defaultMessage: '{h} h {min} min', description: 'A short duration in hours and minutes ("1 h 5 min"), in the Progress panel and on cards. Keep it short: abbreviations.' }), { h, min: min % 60 })
 }
 
 /**
@@ -265,10 +362,10 @@ export function agentReviewCards(cards: readonly TaskCard[], project: string, ag
 }
 
 /** Why a card's review isn't going on (its reviewer removed, or not running), or null while it is or there's none. */
-export function reviewStalled(card: Pick<TaskCard, 'review' | 'archived'>, reviewerNow: { name: string; running: boolean } | null): string | null {
+export function reviewStalled(card: Pick<TaskCard, 'review' | 'archived'>, reviewerNow: { name: string; running: boolean } | null, tr?: Tr): string | null {
   if (!card.review || card.archived) return null
-  if (!reviewerNow) return `${card.review.agentName} was removed.`
-  if (!reviewerNow.running) return `${reviewerNow.name} isn't running.`
+  if (!reviewerNow) return removedText(card.review.agentName, tr)
+  if (!reviewerNow.running) return notRunningText(reviewerNow.name, tr)
   return null
 }
 
@@ -283,17 +380,17 @@ const PROMPT_COMMENT_MAX = 4000
  * from; note: what to do now.
  */
 export function taskPrompt(card: TaskCard, withTools: boolean, opts: { from?: TaskColumn; note?: string } = {}): string {
-  const parts = [`Work on task #${card.number} from the Hive task board: ${card.title}`]
+  const parts = [`Work on task #${card.number} from the Hive task board: ${card.title}`] // i18n-ignore: agent-facing: the prompt an agent starts a card with
   const again = opts.from === 'review' || opts.from === 'passed' || opts.from === 'done'
-  if (again) parts.push(`It was in ${columnLabel(opts.from!)} and is back in Doing for more work.`)
+  if (again) parts.push(`It was in ${columnLabel(opts.from!)} and is back in Doing for more work.`) // i18n-ignore: agent-facing: the prompt an agent starts a card with
   if (opts.note?.trim()) parts.push(opts.note.trim())
   if (card.description.trim()) parts.push(card.description.trim())
-  if (card.blockedBy.length) parts.push(`It depends on ${card.blockedBy.map((n) => `#${n}`).join(', ')}.`)
+  if (card.blockedBy.length) parts.push(`It depends on ${card.blockedBy.map((n) => `#${n}`).join(', ')}.`) // i18n-ignore: agent-facing: the prompt an agent starts a card with
   const latest = card.comments[card.comments.length - 1]
   if (again && latest?.text.trim()) {
     const text = latest.text.trim()
-    parts.push(`Its latest comment (${latest.by}, ${latest.at.slice(0, 10)}):\n\n${text.length > PROMPT_COMMENT_MAX ? `${text.slice(0, PROMPT_COMMENT_MAX)}… (cut short: hive_read_task has it all)` : text}`)
+    parts.push(`Its latest comment (${latest.by}, ${latest.at.slice(0, 10)}):\n\n${text.length > PROMPT_COMMENT_MAX ? `${text.slice(0, PROMPT_COMMENT_MAX)}… (cut short: hive_read_task has it all)` : text}`) // i18n-ignore: agent-facing: the prompt an agent starts a card with
   }
-  if (withTools) parts.push(`Use the work-on-card skill.${card.comments.length ? ` The card has ${card.comments.length} comment${card.comments.length === 1 ? '' : 's'}: read ${again ? 'the rest' : 'them'} with hive_read_task.` : ''}`)
+  if (withTools) parts.push(`Use the work-on-card skill.${card.comments.length ? ` The card has ${card.comments.length} comment${card.comments.length === 1 ? '' : 's'}: read ${again ? 'the rest' : 'them'} with hive_read_task.` : ''}`) // i18n-ignore: agent-facing: the prompt an agent starts a card with
   return parts.join('\n\n')
 }

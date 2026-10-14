@@ -1,6 +1,8 @@
 import type { ProgressRun } from './types'
 import { formatDateTime } from './dates'
+import { msg } from './i18n/msg'
 import { providerName } from './providers'
+import { durationText, type Tr } from './tasks'
 
 /**
  * The Progress panel's rules, shared by the main process (staleness, taskbar progress) and the panel (time left,
@@ -110,32 +112,44 @@ export function taskbarProgress(runs: readonly ProgressRun[], failureUnseen: boo
 /** How many runs the folded strip shows a bar for; the rest are counted below them. */
 export const STRIP_BARS = 6
 
-/** A run's state in a sentence. */
-export const RUN_STATE_WORDS: Record<ProgressRun['state'], string> = { running: 'running', failed: 'failed', stale: 'stopped reporting', passed: 'passed', stopped: 'stopped' }
+/** The run states, in the order the folded strip counts them. */
+const RUN_STATES: readonly ProgressRun['state'][] = ['running', 'failed', 'stale', 'passed', 'stopped']
 
-/** A run's state in a few words, by why where it matters: a stopped run whose process went without a report says so. */
-export const runStateWord = (r: Pick<ProgressRun, 'state' | 'stopReason'>): string => (r.state === 'stopped' && r.stopReason === 'gone' ? 'ended without a report' : RUN_STATE_WORDS[r.state])
+/** A run's state in a few words (#798: in the window's language), by why where it matters: a stopped run whose process went without a report says so. */
+export function runStateWord(r: Pick<ProgressRun, 'state' | 'stopReason'>, tr: Tr): string {
+  const state = r.state === 'stopped' && r.stopReason === 'gone' ? 'gone' : r.state
+  return tr(msg({ id: 'board.run.state', defaultMessage: '{state, select, running {running} failed {failed} stale {stopped reporting} passed {passed} stopped {stopped} gone {ended without a report} other {{state}}}', description: "A Progress panel run's state in a few words, lower case: in a hover (\"Copy the summary (failed)\") and a run's accessible name. stale: it stopped reporting; gone: its process ended without saying how it went." }), { state })
+}
 
 /**
  * A run's state in a line (#549): how long it took (passed, failed, stopped: interrupted, or ended without a report); a
  * waiting one how long it has waited, never a time left; a running one how long it has been going and about how long is
  * left, or, past its estimate, "finishing" and then "longer than expected", never "0 s left"; why a stale one is.
  */
-export function runStatusLine(r: ProgressRun, now: number): string {
-  const took = shortDuration((r.finishedAt ?? now) - r.startedAt)
-  if (r.state === 'passed') return `Passed in ${took}`
-  if (r.state === 'failed') return `Failed after ${took}`
-  if (r.state === 'stopped') return r.stopReason === 'gone' ? `Ended without a report after ${took}` : `Stopped after ${took}`
-  if (r.state === 'stale') return r.staleReason === 'agent-stopped' ? 'Its agent stopped before it finished' : `Stopped reporting ${shortDuration(now - r.updatedAt)} ago`
+export function runStatusLine(r: ProgressRun, now: number, tr: Tr): string {
+  const took = durationText((r.finishedAt ?? now) - r.startedAt, tr)
+  if (r.state === 'passed') return tr(msg({ id: 'board.run.passedIn', defaultMessage: 'Passed in {took}', description: "A finished run's status line in the Progress panel. {took} is how long it took (\"4 min\")." }), { took })
+  if (r.state === 'failed') return tr(msg({ id: 'board.run.failedAfter', defaultMessage: 'Failed after {took}', description: "A failed run's status line in the Progress panel. {took} is how long it ran (\"4 min\")." }), { took })
+  if (r.state === 'stopped') {
+    if (r.stopReason === 'gone') return tr(msg({ id: 'board.run.goneAfter', defaultMessage: 'Ended without a report after {took}', description: "A run's status line in the Progress panel: its process ended without saying how it went. {took} is how long it ran (\"4 min\")." }), { took })
+    return tr(msg({ id: 'board.run.stoppedAfter', defaultMessage: 'Stopped after {took}', description: "A run's status line in the Progress panel: its command was interrupted. {took} is how long it ran (\"4 min\")." }), { took })
+  }
+  if (r.state === 'stale') {
+    if (r.staleReason === 'agent-stopped') return tr(msg({ id: 'board.run.agentStopped', defaultMessage: 'Its agent stopped before it finished', description: "A run's status line in the Progress panel: the agent that ran it stopped first." }))
+    return tr(msg({ id: 'board.run.staleFor', defaultMessage: 'Stopped reporting {ago} ago', description: "A run's status line in the Progress panel: no news from it for a while. {ago} is how long (\"12 min\")." }), { ago: durationText(now - r.updatedAt, tr) })
+  }
   if (r.waiting) {
     const since = r.waitingSince ?? r.startedAt
+    const waited = durationText(now - since, tr)
     // How long it ran before it began to wait, when that was more than a moment.
-    return `${since - r.startedAt >= 5000 ? `${took} · ` : ''}waiting ${shortDuration(now - since)}`
+    if (since - r.startedAt >= 5000) return tr(msg({ id: 'board.run.ranThenWaiting', defaultMessage: '{took} · waiting {waited}', description: "A run's status line in the Progress panel: it ran for {took}, then has been waiting (for a test slot, say) for {waited}. Both are durations (\"3 min\")." }), { took, waited })
+    return tr(msg({ id: 'board.run.waiting', defaultMessage: 'waiting {waited}', description: "A run's status line in the Progress panel: it has been waiting (for a test slot, say) for {waited} (\"3 min\"). Lower case, as the line may follow a duration." }), { waited })
   }
   if (r.estimateMs === null) return took
   const left = r.updatedAt + r.estimateMs - now
-  if (left >= 1000) return `${took} · about ${shortDuration(left)} left`
-  return `${took} · ${-left < FINISHING_MS ? 'finishing' : 'longer than expected'}`
+  if (left >= 1000) return tr(msg({ id: 'board.run.timeLeft', defaultMessage: '{took} · about {left} left', description: "A running run's status line in the Progress panel: how long it has run ({took}) and about how long it has left ({left}). Both are durations (\"3 min\")." }), { took, left: durationText(left, tr) })
+  if (-left < FINISHING_MS) return tr(msg({ id: 'board.run.finishing', defaultMessage: '{took} · finishing', description: "A running run's status line in the Progress panel, just past its estimate. {took} is how long it has run (\"3 min\")." }), { took })
+  return tr(msg({ id: 'board.run.overEstimate', defaultMessage: '{took} · longer than expected', description: "A running run's status line in the Progress panel, well past its estimate. {took} is how long it has run (\"3 min\")." }), { took })
 }
 
 /** How a run's bar looks: filled to its steps, moving (running with no steps), still and hatched (waiting), or full. */
@@ -152,20 +166,30 @@ export interface StripRuns {
   more: ProgressRun[]
   /** The count's colour: a failed run among the rest, else a stale one. */
   moreState: 'failed' | 'stale' | null
-  /** Every run in a few words, for the strip's name: "8 runs: 5 running, 2 failed, 1 stopped reporting". */
-  summary: string
+  /** How many runs are in each state, for the strip's name ("8 runs: 5 running, 2 failed, 1 stopped reporting"): stripSummary words them. */
+  counts: { state: ProgressRun['state']; n: number }[]
 }
 
 /** The folded strip's runs: a bar for each of the newest few, the rest counted, and all of them in words. */
 export function stripRuns(runs: readonly ProgressRun[]): StripRuns {
   const more = runs.slice(STRIP_BARS)
   const moreState = more.some((r) => r.state === 'failed') ? 'failed' : more.some((r) => r.state === 'stale') ? 'stale' : null
-  const counts = (Object.keys(RUN_STATE_WORDS) as ProgressRun['state'][])
-    .map((s) => [runs.filter((r) => r.state === s).length, RUN_STATE_WORDS[s]] as const)
-    .filter(([n]) => n > 0)
-    .map(([n, word]) => `${n} ${word}`)
-  const summary = runs.length === 0 ? '' : runs.length === 1 ? `1 run, ${counts[0].replace(/^1 /, '')}` : `${runs.length} runs: ${counts.join(', ')}`
-  return { bars: runs.slice(0, STRIP_BARS), more, moreState, summary }
+  const counts = RUN_STATES.map((state) => ({ state, n: runs.filter((r) => r.state === state).length })).filter((c) => c.n > 0)
+  return { bars: runs.slice(0, STRIP_BARS), more, moreState, counts }
+}
+
+/**
+ * The folded strip's runs in words, for its name: "8 runs: 5 running, 2 failed, 1 stopped reporting", "1 run, failed",
+ * or '' with none. `list` joins the counts (fmt.list's unit form, which the window has and this module can't load).
+ */
+export function stripSummary(counts: StripRuns['counts'], tr: Tr, list: (items: string[]) => string): string {
+  const total = counts.reduce((n, c) => n + c.n, 0)
+  if (!total) return ''
+  if (total === 1) return tr(msg({ id: 'board.strip.oneRun', defaultMessage: '1 run, {state, select, running {running} failed {failed} stale {stopped reporting} passed {passed} other {stopped}}', description: "The folded Progress strip's name when it has one run, with that run's state (stale: it stopped reporting)." }), { state: counts[0].state })
+  const each = counts.map(({ state, n }) =>
+    tr(msg({ id: 'board.strip.count', defaultMessage: '{state, select, running {{n, plural, one {# running} other {# running}}} failed {{n, plural, one {# failed} other {# failed}}} stale {{n, plural, one {# stopped reporting} other {# stopped reporting}}} passed {{n, plural, one {# passed} other {# passed}}} other {{n, plural, one {# stopped} other {# stopped}}}}', description: 'How many runs of the folded Progress strip are in a state ("3 running", "1 stopped reporting"), listed after its total ("8 runs: 3 running, 1 failed"). stale: stopped reporting.' }), { state, n })
+  )
+  return tr(msg({ id: 'board.strip.runs', defaultMessage: '{n, plural, one {# run} other {# runs}}: {states}', description: "The folded Progress strip's name: how many runs, then how many are in each state (\"8 runs: 5 running, 2 failed\"). {states} is that list." }), { n: total, states: list(each) })
 }
 
 /** "4 min", "1 h 5 min", "40 s": a duration for the panel. */
@@ -184,10 +208,19 @@ export function agentOpenRun(runs: readonly ProgressRun[], projectPath: string, 
   return runs.find((r) => r.source === 'agent' && r.agentId === agentId && r.projectPath?.toLowerCase() === p && isOpenRun(r)) ?? null
 }
 
-/** A run in a few words for a status line: "e2e: 12 suites 4/12", or "build" without steps; a stale one says so. */
-export function runWords(r: Pick<ProgressRun, 'title' | 'total' | 'step' | 'state'> & { waiting?: string | null }): string {
+/**
+ * A run in a few words for a status line: "e2e: 12 suites 4/12", or "build" without steps; a stale one says so. In the
+ * window's language with tr, else English (the Assistant's overview passes it once its area is converted, #798).
+ */
+export function runWords(r: Pick<ProgressRun, 'title' | 'total' | 'step' | 'state'> & { waiting?: string | null }, tr?: Tr): string {
   const steps = r.total !== null ? ` ${Math.min(r.step ?? 0, r.total)}/${r.total}` : ''
-  return `${r.title}${steps}${r.state === 'stale' ? ` · ${RUN_STATE_WORDS.stale}` : r.waiting ? ' · waiting' : ''}`
+  const words = `${r.title}${steps}`
+  if (r.state !== 'stale' && !r.waiting) return words
+  if (tr) {
+    if (r.state === 'stale') return tr(msg({ id: 'board.run.wordsStale', defaultMessage: '{run} · stopped reporting', description: "A run in a few words, for an agent's status line: {run} is its title and steps (\"e2e 4/12\"); it stopped reporting." }), { run: words })
+    return tr(msg({ id: 'board.run.wordsWaiting', defaultMessage: '{run} · waiting', description: "A run in a few words, for an agent's status line: {run} is its title and steps (\"e2e 4/12\"); it is waiting (for a test slot, say)." }), { run: words })
+  }
+  return `${words}${r.state === 'stale' ? ' · stopped reporting' : ' · waiting'}` // i18n-ignore: English until the Assistant's overview (E7) passes tr
 }
 
 /** One line of a run's details (#251): its label, its text, and whether it is a command or a path (shown as code). */
@@ -202,38 +235,56 @@ export interface RunDetail {
  * project, provider), when it started and ended (in the user's date and time format), how long against what was
  * expected, its steps, its state and why, the exit code and a log the reporter named. `project` is its project's name.
  */
-export function runDetails(r: ProgressRun, project: string | null, now: number): RunDetail[] {
+export function runDetails(r: ProgressRun, project: string | null, now: number, tr: Tr): RunDetail[] {
   const took = (r.finishedAt ?? now) - r.startedAt
-  const steps = r.total !== null ? `${Math.min(r.step ?? 0, r.total)} of ${r.total} done${r.stepName ? ` · last: ${r.stepName}` : ''}` : r.stepName ? `Last: ${r.stepName}` : null
-  const word = runStateWord(r)
-  const state =
-    r.state === 'stale'
-      ? `Stopped reporting: ${r.staleReason === 'agent-stopped' ? 'its agent stopped before it finished' : `no report for ${shortDuration(now - r.updatedAt)}`}`
-      : r.state === 'stopped'
-        ? r.stopReason === 'gone'
-          ? 'Ended without a report: its process ended before it said how it went'
-          : 'Stopped: its command was interrupted'
-        : r.waiting
-          ? `Waiting since ${formatDateTime(r.waitingSince ?? r.startedAt)}: ${r.waiting}`
-          : `${word[0].toUpperCase()}${word.slice(1)}${r.dismissed ? ' (dismissed)' : ''}`
-  const out: RunDetail[] = [{ label: 'Run', text: r.title }]
-  if (r.command) out.push({ label: 'Command', text: r.command, code: true })
-  out.push({ label: 'Agent', text: `${r.agentName}${project ? ` · ${project}` : ''}` })
-  if (r.provider) out.push({ label: 'Provider', text: providerName(r.provider) })
-  out.push({ label: 'Started', text: formatDateTime(r.startedAt) })
-  if (r.finishedAt !== null) out.push({ label: 'Ended', text: formatDateTime(r.finishedAt) })
-  out.push({ label: 'Took', text: `${shortDuration(took)}${r.finishedAt === null ? ' so far' : ''}${r.expectedMs !== null ? ` · expected about ${shortDuration(r.expectedMs)}` : ''}` })
-  if (steps) out.push({ label: 'Steps', text: steps })
-  out.push({ label: 'State', text: state })
-  if (r.exitCode !== null) out.push({ label: 'Exit code', text: String(r.exitCode) })
-  if (r.logPath) out.push({ label: 'Log', text: r.logPath, code: true })
+  let steps: string | null = null
+  if (r.total !== null) {
+    const values = { done: Math.min(r.step ?? 0, r.total), total: r.total }
+    steps = r.stepName
+      ? tr(msg({ id: 'board.details.stepsLast', defaultMessage: '{done} of {total} done · last: {step}', description: "A run's details in the Progress panel, its steps: {done} of {total} steps done, and the last step reported ({step}, as the reporter named it)." }), { ...values, step: r.stepName })
+      : tr(msg({ id: 'board.details.steps', defaultMessage: '{done} of {total} done', description: "A run's details in the Progress panel, its steps: {done} of {total} steps done." }), values)
+  } else if (r.stepName) steps = tr(msg({ id: 'board.details.lastStep', defaultMessage: 'Last: {step}', description: "A run's details in the Progress panel, its steps: the last step reported ({step}, as the reporter named it), with no count." }), { step: r.stepName })
+  let state: string
+  if (r.state === 'stale') {
+    state =
+      r.staleReason === 'agent-stopped'
+        ? tr(msg({ id: 'board.details.staleAgentStopped', defaultMessage: 'Stopped reporting: its agent stopped before it finished', description: "A run's state in its details (Progress panel): the agent that ran it stopped first." }))
+        : tr(msg({ id: 'board.details.staleQuiet', defaultMessage: 'Stopped reporting: no report for {quiet}', description: "A run's state in its details (Progress panel): no news from it for {quiet} (\"12 min\")." }), { quiet: durationText(now - r.updatedAt, tr) })
+  } else if (r.state === 'stopped') {
+    state =
+      r.stopReason === 'gone'
+        ? tr(msg({ id: 'board.details.gone', defaultMessage: 'Ended without a report: its process ended before it said how it went', description: "A run's state in its details (Progress panel): its process ended without reporting." }))
+        : tr(msg({ id: 'board.details.interrupted', defaultMessage: 'Stopped: its command was interrupted', description: "A run's state in its details (Progress panel): its command was interrupted." }))
+  } else if (r.waiting) {
+    state = tr(msg({ id: 'board.details.waitingSince', defaultMessage: 'Waiting since {since}: {waiting}', description: "A run's state in its details (Progress panel): waiting since a date and time ({since}) for what its reporter says ({waiting}, in its own words: \"a test slot\")." }), { since: formatDateTime(r.waitingSince ?? r.startedAt), waiting: r.waiting })
+  } else {
+    state = tr(msg({ id: 'board.details.state', defaultMessage: '{state, select, running {Running} failed {Failed} passed {Passed} other {Stopped}}{dismissed, select, yes { (dismissed)} other {}}', description: "A run's state in its details (Progress panel): running, failed or passed; then \" (dismissed)\" when the user dismissed the run." }), { state: r.state, dismissed: r.dismissed ? 'yes' : 'no' })
+  }
+  const ran = durationText(took, tr)
+  const expected = r.expectedMs !== null ? durationText(r.expectedMs, tr) : 'none'
+  const tookText =
+    r.finishedAt === null
+      ? tr(msg({ id: 'board.details.tookSoFar', defaultMessage: '{took} so far{expected, select, none {} other { · expected about {expected}}}', description: "How long a run that is still going has run, in its details (Progress panel): {took} (\"4 min\"), then about how long runs like it take ({expected}, a duration, or none when unknown: keep that branch empty)." }), { took: ran, expected })
+      : tr(msg({ id: 'board.details.tookTotal', defaultMessage: '{took}{expected, select, none {} other { · expected about {expected}}}', description: "How long a finished run took, in its details (Progress panel): {took} (\"4 min\"), then about how long runs like it take ({expected}, a duration, or none when unknown: keep that branch empty)." }), { took: ran, expected })
+  const out: RunDetail[] = [{ label: tr(msg({ id: 'board.details.run', defaultMessage: 'Run', description: "A label in a run's details (Progress panel): the run's title follows." })), text: r.title }]
+  if (r.command) out.push({ label: tr(msg({ id: 'board.details.command', defaultMessage: 'Command', description: "A label in a run's details (Progress panel): the command it ran follows." })), text: r.command, code: true })
+  out.push({ label: tr(msg({ id: 'board.details.agent', defaultMessage: 'Agent', description: "A label in a run's details (Progress panel): the agent that ran it (and its project) follows." })), text: `${r.agentName}${project ? ` · ${project}` : ''}` })
+  if (r.provider) out.push({ label: tr(msg({ id: 'board.details.provider', defaultMessage: 'Provider', description: "A label in a run's details (Progress panel): the agent's CLI follows (Claude Code, Codex…)." })), text: providerName(r.provider) })
+  out.push({ label: tr(msg({ id: 'board.details.started', defaultMessage: 'Started', description: "A label in a run's details (Progress panel): a date and time follows." })), text: formatDateTime(r.startedAt) })
+  if (r.finishedAt !== null) out.push({ label: tr(msg({ id: 'board.details.ended', defaultMessage: 'Ended', description: "A label in a run's details (Progress panel): a date and time follows." })), text: formatDateTime(r.finishedAt) })
+  out.push({ label: tr(msg({ id: 'board.details.took', defaultMessage: 'Took', description: "A label in a run's details (Progress panel): how long it ran follows." })), text: tookText })
+  if (steps) out.push({ label: tr(msg({ id: 'board.details.stepsLabel', defaultMessage: 'Steps', description: "A label in a run's details (Progress panel): its steps follow (\"4 of 12 done\")." })), text: steps })
+  out.push({ label: tr(msg({ id: 'board.details.stateLabel', defaultMessage: 'State', description: "A label in a run's details (Progress panel): its state follows (Running, Failed…)." })), text: state })
+  if (r.exitCode !== null) out.push({ label: tr(msg({ id: 'board.details.exitCode', defaultMessage: 'Exit code', description: "A label in a run's details (Progress panel): its command's exit code follows (a number)." })), text: String(r.exitCode) })
+  if (r.logPath) out.push({ label: tr(msg({ id: 'board.details.log', defaultMessage: 'Log', description: "A label in a run's details (Progress panel): the path of its log file follows." })), text: r.logPath, code: true })
   return out
 }
 
 /** A run's details as plain text for pasting (Copy details, #251): a "Label: text" line for each, then its summary. */
-export function runDetailsText(r: ProgressRun, project: string | null, now: number): string {
-  const lines = runDetails(r, project, now).map((d) => `${d.label}: ${d.text}`)
-  if (r.summary) lines.push(`Summary: ${r.summary}`)
+export function runDetailsText(r: ProgressRun, project: string | null, now: number, tr: Tr): string {
+  const line = (label: string, text: string): string => tr(msg({ id: 'board.details.line', defaultMessage: '{label}: {text}', description: "A line of a run's details copied as text (Copy details, Progress panel): a label (\"Command\") and its text." }), { label, text })
+  const lines = runDetails(r, project, now, tr).map((d) => line(d.label, d.text))
+  if (r.summary) lines.push(line(tr(msg({ id: 'board.details.summary', defaultMessage: 'Summary', description: "A label in a run's details copied as text (Copy details, Progress panel): the summary its reporter gave follows." })), r.summary))
   return lines.join('\n')
 }
 
@@ -251,11 +302,11 @@ const projectOf = (r: ProgressRun): string => (r.projectPath ? r.projectPath.toL
 const agentOf = (r: ProgressRun): string => r.agentId ?? r.agentName
 
 /** The filter's choices for these runs: each project that has runs, by its name, then "Assistant and scripts" when some run has no project. */
-export function filterChoices(runs: readonly ProgressRun[], nameOf: (projectPath: string) => string): { value: string; label: string }[] {
+export function filterChoices(runs: readonly ProgressRun[], nameOf: (projectPath: string) => string, tr: Tr): { value: string; label: string }[] {
   const seen = new Map<string, string>()
   for (const r of runs) if (r.projectPath && !seen.has(projectOf(r))) seen.set(projectOf(r), nameOf(r.projectPath))
   const out = [...seen].map(([value, label]) => ({ value, label })).sort((a, b) => a.label.localeCompare(b.label))
-  if (runs.some((r) => !r.projectPath)) out.push({ value: NO_PROJECT, label: 'Assistant and scripts' })
+  if (runs.some((r) => !r.projectPath)) out.push({ value: NO_PROJECT, label: tr(msg({ id: 'board.filter.noProject', defaultMessage: 'Assistant and scripts', description: "A choice of the Progress panel's project filter: the runs of the Hive Assistant and of scripts, which belong to no project." })) })
   return out
 }
 
