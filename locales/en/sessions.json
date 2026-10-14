@@ -1,0 +1,642 @@
+{
+  "sessions.archive.failed": {
+    "defaultMessage": "Could not archive",
+    "description": "An error's title: archiving or unarchiving a session failed."
+  },
+  "sessions.archive.message": {
+    "defaultMessage": "The transcript is preserved in .hive/archive and hidden from this list. You can unarchive it at any time.",
+    "description": "What archiving a session does. .hive/archive is a folder: keep it as it is."
+  },
+  "sessions.archive.title": {
+    "defaultMessage": "Archive session?",
+    "description": "Title of the confirmation before archiving a session (Sessions tab)."
+  },
+  "sessions.attach.byPath": {
+    "defaultMessage": "{kind} · by path",
+    "description": "An attachment chip's label when the agent's CLI doesn't read that kind of file itself: the kind ({kind}: \"PDF\"), and that the agent gets only its path."
+  },
+  "sessions.attach.byPathDetail": {
+    "defaultMessage": "{cli} doesn't read {kind, select, pdf {PDFs} other {this kind of file}} itself: the agent gets its path and opens it with its tools.",
+    "description": "An attachment chip's hover when the agent's CLI ({cli}) doesn't read the file's kind (PDFs, or another kind) itself."
+  },
+  "sessions.attach.file": {
+    "defaultMessage": "File",
+    "description": "An attachment's kind: any other file (a zip, a binary). Keep it short."
+  },
+  "sessions.attach.image": {
+    "defaultMessage": "Image",
+    "description": "An attachment's kind (a chip on an agent's prompt, the Attachments tab's filter): an image. Keep it short."
+  },
+  "sessions.attach.native": {
+    "defaultMessage": "{cli} {kind, select, image {sees the image} pdf {reads the PDF} other {reads the text}} itself.",
+    "description": "An attachment chip's hover: the agent's CLI ({cli}: \"Claude Code\") reads this kind of file itself (an image, a PDF, or text)."
+  },
+  "sessions.attach.pdf": {
+    "defaultMessage": "PDF",
+    "description": "An attachment's kind: a PDF document. Keep it short."
+  },
+  "sessions.attach.text": {
+    "defaultMessage": "Text",
+    "description": "An attachment's kind: a text or code file. Keep it short."
+  },
+  "sessions.branch.archive": {
+    "defaultMessage": "{scope, select, session {Archive with Its Sub-sessions… ({n})} other {Archive All… ({n})}}",
+    "description": "Menu item on a branch of the Sessions tree (a provider or an agent: All; a session: with the sessions it started): archives the {n} sessions in it."
+  },
+  "sessions.branch.delete": {
+    "defaultMessage": "{scope, select, session {Delete with Its Sub-sessions… ({n})} other {Delete All… ({n})}}",
+    "description": "Menu item on a branch of the Sessions tree (a provider or an agent: All; a session: with the sessions it started): deletes the {n} sessions in it from Hive."
+  },
+  "sessions.branch.nothingToArchive": {
+    "defaultMessage": "Nothing of Hive's to archive here",
+    "description": "Why Archive All is greyed out: no session in the branch is Hive's own (only Hive's sessions can be archived)."
+  },
+  "sessions.branch.unarchive": {
+    "defaultMessage": "{scope, select, session {Unarchive with Its Sub-sessions ({n})} other {Unarchive All ({n})}}",
+    "description": "Menu item on a branch of the Sessions tree (a provider or an agent: All; a session: with the sessions it started): unarchives the {n} archived sessions in it."
+  },
+  "sessions.bulk.andMore": {
+    "defaultMessage": "…and {n} more",
+    "description": "The last line of the list of sessions passed over, when it is cut short: how many more."
+  },
+  "sessions.bulk.archiveAll": {
+    "defaultMessage": "Archive All",
+    "description": "Button: archives all the sessions listed. Keep it short."
+  },
+  "sessions.bulk.archiveDetail": {
+    "defaultMessage": "Their transcripts are kept in .hive/archive and hidden from this list: tick Archived to see them, and unarchive any at any time. {skipNote}",
+    "description": "What archiving many sessions does (.hive/archive is a folder; Archived is a checkbox above the list: use its translation); then which are passed over ({skipNote}, a sentence)."
+  },
+  "sessions.bulk.archiveMessage": {
+    "defaultMessage": "Archive {what} under {branch}?",
+    "description": "The confirmation before archiving many sessions ({what}: \"3 sessions\") under a branch of the Sessions tree ({branch}: a provider, an agent or a session)."
+  },
+  "sessions.bulk.archiveTitle": {
+    "defaultMessage": "Archive {what}?",
+    "description": "Title of the confirmation before archiving many sessions: how many ({what}: \"3 sessions and 12 sub-sessions\")."
+  },
+  "sessions.bulk.closedView": {
+    "defaultMessage": "The transcript you were reading was one of them: it was closed first.",
+    "description": "In the report of archiving or deleting many sessions: the transcript open in the tab was one of them, so it was closed."
+  },
+  "sessions.bulk.deleteAll": {
+    "defaultMessage": "Delete All",
+    "description": "Button: deletes all the sessions listed. Keep it short."
+  },
+  "sessions.bulk.deleteDetail": {
+    "defaultMessage": "Hive's copies of their transcripts go to the Recycle Bin (restore them from there) and Hive stops listing them; what they used stays in the totals. Claude Code and Codex keep their own transcripts. {skipNote}",
+    "description": "What deleting many sessions does; then which are passed over ({skipNote}, a sentence)."
+  },
+  "sessions.bulk.deleteMessage": {
+    "defaultMessage": "Delete {what} under {branch} from Hive?",
+    "description": "The confirmation before deleting many sessions ({what}: \"3 sessions\") under a branch of the Sessions tree ({branch}: a provider, an agent or a session)."
+  },
+  "sessions.bulk.deleteTitle": {
+    "defaultMessage": "Delete {what}?",
+    "description": "Title of the confirmation before deleting many sessions: how many ({what}: \"3 sessions and 12 sub-sessions\")."
+  },
+  "sessions.bulk.done": {
+    "defaultMessage": "{action, select, archive {Archived} unarchive {Unarchived} other {Deleted}} {n, plural, one {# session} other {# sessions}}.",
+    "description": "A notification's title: how many sessions were archived, unarchived or deleted."
+  },
+  "sessions.bulk.doneSkipped": {
+    "defaultMessage": "{action, select, archive {Archived} unarchive {Unarchived} other {Deleted}} {n, plural, one {# session} other {# sessions}}; {skipped} skipped: {why}",
+    "description": "A notification's title: how many sessions were archived, unarchived or deleted, and how many were passed over and why ({why}: \"2 running, 1 in use\")."
+  },
+  "sessions.bulk.failed": {
+    "defaultMessage": "{action, select, archive {Could not archive the {kind, select, conversation {conversations} other {sessions}}} unarchive {Could not unarchive the {kind, select, conversation {conversations} other {sessions}}} other {Could not delete the {kind, select, conversation {conversations} other {sessions}}}}",
+    "description": "An error's title: archiving, unarchiving or deleting many sessions (the Hive Assistant's: conversations) failed."
+  },
+  "sessions.bulk.skipCount": {
+    "defaultMessage": "{n} {reason}",
+    "description": "How many sessions were passed over for one reason ({reason}: \"running\", \"in use\"), listed after \"n skipped:\"."
+  },
+  "sessions.bulk.skipNote": {
+    "defaultMessage": "{running, plural, =0 {Running sessions are skipped, and} one {# running now is skipped, as are} other {# running now are skipped, as are}} any whose files are in use; the result says which.",
+    "description": "In the confirmation before archiving or deleting many sessions: running sessions ({running} of them now; none: a general note) and any whose files are in use are passed over, and the result lists them."
+  },
+  "sessions.bulk.skipReason": {
+    "defaultMessage": "{reason, select, live {running} inUse {in use} reading {being read by Hive} open {open in another Hive window} external {started outside Hive} other {failed}}",
+    "description": "Why archiving, unarchiving or deleting passed over a session, in a few words (lower case): it is running, its files are in use, Hive is reading it, another Hive window has it open, it was started outside Hive, or it failed (other)."
+  },
+  "sessions.cards.deleted": {
+    "defaultMessage": "This card was deleted.",
+    "description": "Hover of a card over a transcript that is no longer on the board."
+  },
+  "sessions.cards.reviewed": {
+    "defaultMessage": "Reviewed",
+    "description": "Over a transcript, before the board cards the session's agent reviewed (#5 Title, …)."
+  },
+  "sessions.cards.workedOn": {
+    "defaultMessage": "Worked on",
+    "description": "Over a transcript, before the board cards the session's agent worked on (#5 Title, …)."
+  },
+  "sessions.chips.dismiss": {
+    "defaultMessage": "Dismiss {file}",
+    "description": "An attachment chip's close button (its accessible name): removes the chip ({file}: the file's name); its path stays in the prompt."
+  },
+  "sessions.chips.label": {
+    "defaultMessage": "Attached to this prompt",
+    "description": "The attachment chips' accessible name, over an agent's terminal: files attached to the prompt being written."
+  },
+  "sessions.common.adopt": {
+    "defaultMessage": "Adopt",
+    "description": "Button or menu item on a session started outside Hive: lets Hive manage it. Keep it short."
+  },
+  "sessions.common.adoptFailed": {
+    "defaultMessage": "Could not adopt",
+    "description": "An error's title: adopting a session started outside Hive failed."
+  },
+  "sessions.common.archive": {
+    "defaultMessage": "Archive",
+    "description": "Button, menu item or tooltip: archives a session (hides it, keeping its transcript). Keep it short."
+  },
+  "sessions.common.collapseAll": {
+    "defaultMessage": "Collapse All",
+    "description": "Menu item or tooltip: folds every branch of the Sessions tree."
+  },
+  "sessions.common.delete": {
+    "defaultMessage": "{kind, select, conversation {Delete conversation} other {Delete session}}",
+    "description": "Tooltip of a session's delete button (the Hive Assistant's: conversation)."
+  },
+  "sessions.common.expandAll": {
+    "defaultMessage": "Expand All",
+    "description": "Menu item or tooltip: opens every branch of the Sessions tree."
+  },
+  "sessions.common.loading": {
+    "defaultMessage": "Loading…",
+    "description": "While the Sessions list or a transcript loads."
+  },
+  "sessions.common.moreActions": {
+    "defaultMessage": "More Actions",
+    "description": "Tooltip of a row's ⋯ button: opens its menu."
+  },
+  "sessions.common.noneYet": {
+    "defaultMessage": "{kind, select, conversation {No conversations yet.} other {No sessions yet.}}",
+    "description": "The Sessions tab with no sessions (the Hive Assistant's: conversations)."
+  },
+  "sessions.common.rename": {
+    "defaultMessage": "Rename",
+    "description": "Button or tooltip: renames a session. Keep it short."
+  },
+  "sessions.common.resume": {
+    "defaultMessage": "Resume",
+    "description": "Button or menu item: resumes a session in its agent. Keep it short."
+  },
+  "sessions.common.resumeElsewhere": {
+    "defaultMessage": "Resume in another agent",
+    "description": "Tooltip and accessible name of the Resume button's arrow: choose the agent to resume in."
+  },
+  "sessions.common.resumeIn": {
+    "defaultMessage": "Resume in {agent}",
+    "description": "Button or tooltip: resumes the session in an agent ({agent}: its name)."
+  },
+  "sessions.common.unarchive": {
+    "defaultMessage": "Unarchive",
+    "description": "Button, menu item or tooltip: brings an archived session back to the list. Keep it short."
+  },
+  "sessions.compaction.copy": {
+    "defaultMessage": "Copy Summary",
+    "description": "Tooltip: copies a compaction's summary."
+  },
+  "sessions.compaction.title": {
+    "defaultMessage": "Conversation compacted",
+    "description": "A divider in a transcript: the CLI summarised the conversation here to free context. A badge saying how (auto or manual, as the CLI names it) follows."
+  },
+  "sessions.compaction.tokens": {
+    "defaultMessage": "{before} → {after}{next, select, none {} other { ({next} with instructions)}} · freed {freed} · {when}",
+    "description": "A compaction divider in a transcript: context tokens before and after (\"120K\"), then the next request's with its instructions (none: leave it empty), how many it freed, and when."
+  },
+  "sessions.delete.button": {
+    "defaultMessage": "Delete",
+    "description": "Button: deletes the session from Hive. Keep it short."
+  },
+  "sessions.delete.detailExternal": {
+    "defaultMessage": "Hive stops listing it. {cli} keeps its transcript, so {cli}'s own resume list still has it.",
+    "description": "What deleting a session started outside Hive does: Hive stops listing it, and the CLI ({cli}: \"Claude Code\") keeps its transcript."
+  },
+  "sessions.delete.detailHive": {
+    "defaultMessage": "Hive's copies of its transcript go to the Recycle Bin and it no longer shows here; what it used stays in the totals. {cli} keeps its own transcript, so {cli}'s own resume list still has it.",
+    "description": "What deleting a session Hive started does: Hive's copies go to the Recycle Bin, its usage stays counted, and the CLI ({cli}: \"Claude Code\") keeps its own transcript."
+  },
+  "sessions.delete.failed": {
+    "defaultMessage": "{kind, select, conversation {Could not delete the conversation} other {Could not delete the session}}",
+    "description": "An error's title: deleting a session (the Hive Assistant's: a conversation) failed."
+  },
+  "sessions.delete.message": {
+    "defaultMessage": "Delete \"{name}\" from Hive?",
+    "description": "The confirmation before deleting a session from Hive: its name ({name})."
+  },
+  "sessions.delete.title": {
+    "defaultMessage": "{kind, select, conversation {Delete conversation?} other {Delete session?}}",
+    "description": "Title of the confirmation before deleting a session (the Hive Assistant's: a conversation) from Hive."
+  },
+  "sessions.empty.select": {
+    "defaultMessage": "{kind, select, conversation {Select a conversation to read its transcript.} other {Select a session to read its transcript.}}",
+    "description": "The Sessions tab's reading pane with nothing selected (the Hive Assistant's: conversation)."
+  },
+  "sessions.export.done": {
+    "defaultMessage": "Transcript exported",
+    "description": "A notification's title: the transcript was saved as a Markdown file (its path follows)."
+  },
+  "sessions.export.failed": {
+    "defaultMessage": "Could not export",
+    "description": "An error's title: exporting a transcript as Markdown failed."
+  },
+  "sessions.filter.archived": {
+    "defaultMessage": "Archived",
+    "description": "A checkbox above the Sessions list: shows archived sessions too."
+  },
+  "sessions.hit.assistant": {
+    "defaultMessage": "Reply",
+    "description": "A search match's kind: in the agent's reply. Keep it short."
+  },
+  "sessions.hit.command": {
+    "defaultMessage": "Command",
+    "description": "A search match's kind: in a command the user typed (/compact…). Keep it short."
+  },
+  "sessions.hit.compaction": {
+    "defaultMessage": "Summary",
+    "description": "A search match's kind: in a compaction's summary. Keep it short."
+  },
+  "sessions.hit.notice": {
+    "defaultMessage": "Notice",
+    "description": "A search match's kind: in a notice from the CLI. Keep it short."
+  },
+  "sessions.hit.thinking": {
+    "defaultMessage": "Thinking",
+    "description": "A search match's kind: in the agent's thinking. Keep it short."
+  },
+  "sessions.hit.tool": {
+    "defaultMessage": "Tool",
+    "description": "A search match's kind: in a tool call. Keep it short."
+  },
+  "sessions.hit.user": {
+    "defaultMessage": "You",
+    "description": "A search match's kind (Sessions search): in the user's prompt. Keep it short."
+  },
+  "sessions.image.copyPath": {
+    "defaultMessage": "Copy Path",
+    "description": "Button in a transcript's image viewer: copies the image file's path."
+  },
+  "sessions.image.earlier": {
+    "defaultMessage": "Earlier (←)",
+    "description": "Tooltip in a transcript's image viewer: the previous image (the ← key)."
+  },
+  "sessions.image.later": {
+    "defaultMessage": "Later (→)",
+    "description": "Tooltip in a transcript's image viewer: the next image (the → key)."
+  },
+  "sessions.image.position": {
+    "defaultMessage": "{n} of {total}",
+    "description": "In a transcript's image viewer: which image this is ({n}) of how many ({total})."
+  },
+  "sessions.image.reveal": {
+    "defaultMessage": "Reveal",
+    "description": "Button in a transcript's image viewer: shows the image's file in File Explorer. Keep it short."
+  },
+  "sessions.image.untitled": {
+    "defaultMessage": "Image",
+    "description": "An image in a transcript that has no file name (a thumbnail's tooltip, the image viewer's title)."
+  },
+  "sessions.list.heading": {
+    "defaultMessage": "{kind, select, conversation {Conversations} other {Sessions}}",
+    "description": "The heading of the Sessions tab's list (the Hive Assistant's: Conversations)."
+  },
+  "sessions.list.info": {
+    "defaultMessage": "Every session of this project, by provider and agent, with the sessions each one started (such as Codex's guardian reviews) under it. Select one to read its transcript, including what came before each compaction; right-click a branch to archive or delete everything in it. Transcripts a CLI has deleted are read from Hive's backup.",
+    "description": "The info tip of the Sessions tab's list. Codex's guardian reviews are sessions Codex starts (keep the name); a compaction is when the CLI summarises the conversation."
+  },
+  "sessions.list.infoAssistant": {
+    "defaultMessage": "Every conversation of this workspace's Hive Assistant, by provider. Select one to read it in full, including what came before each compaction.",
+    "description": "The info tip of the Hive Assistant's conversations list. A compaction is when the CLI summarises the conversation to free context."
+  },
+  "sessions.list.new": {
+    "defaultMessage": "{kind, select, conversation {New Conversation} other {New Session}}",
+    "description": "Tooltip of the Sessions tab's + button: starts a new session (the Hive Assistant's: conversation)."
+  },
+  "sessions.list.noneHere": {
+    "defaultMessage": "{kind, select, conversation {No conversations here: tick Archived to see archived ones.} other {No sessions here: tick Archived to see archived ones.}}",
+    "description": "The Sessions list when every session is archived (the Hive Assistant's: conversations). Archived is the checkbox above it: use its translation."
+  },
+  "sessions.list.refresh": {
+    "defaultMessage": "Refresh",
+    "description": "Tooltip of the Sessions tab's refresh button: reads the list again."
+  },
+  "sessions.list.what": {
+    "defaultMessage": "{kind, select, conversation {the conversations} other {the sessions}}",
+    "description": "What could not be loaded, in \"Could not load …\" (the Sessions tab's list; the Hive Assistant's: conversations). Lower case."
+  },
+  "sessions.marker.cantResume": {
+    "defaultMessage": "can't resume",
+    "description": "A badge on a session that can't be resumed (its hover says why). Lower case; keep it short."
+  },
+  "sessions.marker.orphan": {
+    "defaultMessage": "The session that started it isn't listed (deleted, or not from this project).",
+    "description": "On a sub-session (a session another one started): the session that started it isn't in the list."
+  },
+  "sessions.menu.copyId": {
+    "defaultMessage": "Copy Session ID",
+    "description": "Menu item on a session: copies its id (the CLI's session id) to the clipboard."
+  },
+  "sessions.menu.delete": {
+    "defaultMessage": "{kind, select, conversation {Delete Conversation…} other {Delete Session…}}",
+    "description": "Menu item on a session (the Hive Assistant's: a conversation): deletes it from Hive, after a confirmation."
+  },
+  "sessions.menu.rename": {
+    "defaultMessage": "Rename…",
+    "description": "Menu item on a session: renames it."
+  },
+  "sessions.menu.showAgent": {
+    "defaultMessage": "Show {agent}",
+    "description": "Menu item on a running session: shows the agent running it ({agent}: its name)."
+  },
+  "sessions.menu.showAssistant": {
+    "defaultMessage": "Show the Assistant",
+    "description": "Menu item on the Hive Assistant's running conversation: opens its panel."
+  },
+  "sessions.origin.agent": {
+    "defaultMessage": "Agent {agent} ({id}).",
+    "description": "A session's origin hover (the Sessions tab): the agent that ran it, by name ({agent}) and id ({id})."
+  },
+  "sessions.origin.noAgent": {
+    "defaultMessage": "No agent recorded (adopted, or from before Hive recorded agents).",
+    "description": "A session's origin hover (the Sessions tab): Hive has no record of which agent ran it."
+  },
+  "sessions.origin.projectFolder": {
+    "defaultMessage": "Project folder",
+    "description": "Where a session ran (the Sessions tab): in the project's own folder."
+  },
+  "sessions.origin.ranIn": {
+    "defaultMessage": "Ran in {folder}",
+    "description": "A session's origin hover (the Sessions tab), its first line: the folder it ran in ({folder}, a path)."
+  },
+  "sessions.origin.removed": {
+    "defaultMessage": "Its agent ({id}) has since been removed.",
+    "description": "A session's origin hover (the Sessions tab): the agent that ran it ({id}: its id) was removed from the project."
+  },
+  "sessions.origin.removedName": {
+    "defaultMessage": "{agent} (removed)",
+    "description": "An agent that ran sessions and has since been removed from the project, in the Sessions tab: its name ({agent})."
+  },
+  "sessions.origin.removedUnnamed": {
+    "defaultMessage": "Removed agent",
+    "description": "An agent that ran sessions and has since been removed, from before Hive kept agents' names (the Sessions tab)."
+  },
+  "sessions.origin.worktree": {
+    "defaultMessage": "Worktree · {branch}",
+    "description": "Where a session ran (the Sessions tab): in a worktree, named by its branch ({branch}) or folder."
+  },
+  "sessions.rename.failed": {
+    "defaultMessage": "Could not rename",
+    "description": "An error's title: renaming a session failed."
+  },
+  "sessions.rename.title": {
+    "defaultMessage": "Rename session",
+    "description": "Title of the prompt for a session's new name (Sessions tab)."
+  },
+  "sessions.resume.addsTip": {
+    "defaultMessage": "Resume (adds an agent if none can run it)",
+    "description": "Tooltip of Resume when no agent can run the session: Resume adds one."
+  },
+  "sessions.resume.agentDetail": {
+    "defaultMessage": "{where, select, worktree {worktree · {branch}} other {project folder}}{running, select, yes { · running, its current session stops first} other {}}",
+    "description": "Under an agent in the Resume in menu: where it works (a worktree and its branch, or the project folder; lower case), and, when it runs, that its current session stops first."
+  },
+  "sessions.resume.menuHeader": {
+    "defaultMessage": "Resume in",
+    "description": "The heading of the menu of agents a session can resume in."
+  },
+  "sessions.row.archived": {
+    "defaultMessage": "archived",
+    "description": "A badge on an archived session. Lower case; keep it short."
+  },
+  "sessions.row.backup": {
+    "defaultMessage": "backup",
+    "description": "A badge on a session read from Hive's backup (the CLI deleted its own copy). Lower case; keep it short."
+  },
+  "sessions.row.backupTip": {
+    "defaultMessage": "{cli} no longer has this transcript; Hive shows and resumes it from its backup.",
+    "description": "Hover of the backup badge: the CLI ({cli}) deleted the session's transcript, and Hive uses its own copy."
+  },
+  "sessions.row.context": {
+    "defaultMessage": "{tokens} context",
+    "description": "A session row in the list: how many tokens its context holds ({tokens}: \"120K\"). Keep it short."
+  },
+  "sessions.row.external": {
+    "defaultMessage": "external",
+    "description": "A badge on a session started outside Hive. Lower case; keep it short."
+  },
+  "sessions.row.externalTip": {
+    "defaultMessage": "Started outside Hive (e.g. in VS Code or a terminal). Adopt it to manage it here.",
+    "description": "Hover of the external badge on a session started outside Hive. Adopt is a button: use its translation."
+  },
+  "sessions.row.lastActive": {
+    "defaultMessage": "Last active {when}",
+    "description": "Hover of a session's time in the list: when it was last active ({when}: a date and time)."
+  },
+  "sessions.row.subs": {
+    "defaultMessage": "{n, plural, one {# sub-session} other {# sub-sessions}}",
+    "description": "A badge counting the sessions this one started (sub-sessions). Keep it short."
+  },
+  "sessions.row.subsTip": {
+    "defaultMessage": "Sessions {cli} started for this one: {n}",
+    "description": "Hover of the badge counting the sessions this one started ({cli}: the CLI that started them; {n}: how many)."
+  },
+  "sessions.running.agentTip": {
+    "defaultMessage": "This conversation is running in {agent}. Show its terminal.",
+    "description": "Tooltip of Show over a running session's transcript: the agent running it ({agent}: its name)."
+  },
+  "sessions.running.assistantTip": {
+    "defaultMessage": "The Assistant is running this conversation. Show its panel.",
+    "description": "Tooltip of Show over the Hive Assistant's running conversation."
+  },
+  "sessions.running.show": {
+    "defaultMessage": "Show",
+    "description": "Button over a running session's transcript: shows its agent's terminal (the Assistant's panel). Keep it short."
+  },
+  "sessions.running.showAgent": {
+    "defaultMessage": "Show {agent}",
+    "description": "Button over a running session's transcript: shows the agent running it ({agent}: its name)."
+  },
+  "sessions.search.clear": {
+    "defaultMessage": "Clear",
+    "description": "Tooltip of the button that empties the Sessions tab's search box."
+  },
+  "sessions.search.count": {
+    "defaultMessage": "{kind, select, conversation {{sessions, plural, one {# conversation} other {# conversations}}} other {{sessions, plural, one {# session} other {# sessions}}}}{hits, plural, =0 {} one { · #{more} match} other { · #{more} matches}}",
+    "description": "Under the Sessions tab's search box: how many sessions match (the Hive Assistant's: conversations), then how many matches in their transcripts ({more} is \"+\" when there are more than shown, else empty; none: leave it empty)."
+  },
+  "sessions.search.none": {
+    "defaultMessage": "No matches",
+    "description": "Under the Sessions tab's search box: nothing matches."
+  },
+  "sessions.search.placeholder": {
+    "defaultMessage": "{kind, select, conversation {Search conversations: names, dates, transcripts} other {Search sessions: names, dates, transcripts}}",
+    "description": "The Sessions tab's search box (the Hive Assistant's: conversations): what it searches."
+  },
+  "sessions.search.searching": {
+    "defaultMessage": "Searching…",
+    "description": "Under the Sessions tab's search box while it searches the transcripts."
+  },
+  "sessions.search.what": {
+    "defaultMessage": "the search results",
+    "description": "What could not be loaded, in \"Could not load …\": the Sessions tab's search. Lower case."
+  },
+  "sessions.size.none": {
+    "defaultMessage": "{kind, select, conversation {{cli} has no transcript file for this conversation} other {{cli} has no transcript file for this session}}{backup, select, yes { (Hive keeps a backup of it)} other {}}.",
+    "description": "Hover of a session's transcript size when the CLI ({cli}) has no file for it; and when Hive has a backup of it, that it does."
+  },
+  "sessions.size.tip": {
+    "defaultMessage": "Transcript: {size} on disk{limit, plural, =0 {} other { (flagged over # MB: Settings → Sessions)}}.{long, select, conversation { A long conversation slows down the CLI and Hive, and compacting doesn't shrink the file. Start a new conversation (⋯ → New Conversation) to make it short again.} session { A long conversation slows down the CLI and Hive, and compacting doesn't shrink the file. Hand the work over to a new conversation (Hand Over to…) to make it short again.} other {}}",
+    "description": "Hover of a session's transcript size ({size}: \"6.1 MB\"), the size it is flagged over ({limit} MB, set in Settings → Sessions; 0: leave it empty), and, when it is over (long: the Hive Assistant's conversation or an agent's session), what to do. \"New Conversation\" and \"Hand Over to…\" are commands: use their translations."
+  },
+  "sessions.tool.copyInput": {
+    "defaultMessage": "Copy Input",
+    "description": "Tooltip: copies a tool call's input."
+  },
+  "sessions.tool.copyResult": {
+    "defaultMessage": "Copy Result",
+    "description": "Tooltip: copies a tool call's result."
+  },
+  "sessions.tool.empty": {
+    "defaultMessage": "(empty)",
+    "description": "A tool call's result when it is empty."
+  },
+  "sessions.tool.error": {
+    "defaultMessage": "Error",
+    "description": "Label above a failed tool call's result in a transcript."
+  },
+  "sessions.tool.errorBadge": {
+    "defaultMessage": "error",
+    "description": "A badge on a tool call in a transcript that failed. Lower case; keep it short."
+  },
+  "sessions.tool.input": {
+    "defaultMessage": "Input",
+    "description": "Label above a tool call's input in a transcript."
+  },
+  "sessions.tool.loadFailed": {
+    "defaultMessage": "Could not load the tool call",
+    "description": "An error's title: loading a long tool call in full failed."
+  },
+  "sessions.tool.noResult": {
+    "defaultMessage": "no result",
+    "description": "A badge on a tool call in a transcript that has no result (yet). Lower case; keep it short."
+  },
+  "sessions.tool.result": {
+    "defaultMessage": "Result",
+    "description": "Label above a tool call's result in a transcript."
+  },
+  "sessions.tool.showAll": {
+    "defaultMessage": "Show all ({n, plural, one {# character} other {# characters}})",
+    "description": "Button under a long tool call cut short in a transcript: shows it all ({n}: its length in characters)."
+  },
+  "sessions.tree.both": {
+    "defaultMessage": "{n, plural, one {# session} other {# sessions}} and {subs, plural, one {# sub-session} other {# sub-sessions}}",
+    "description": "A group's count in the Sessions tab's list: how many sessions and sub-sessions (sessions a CLI ran for another, such as subagents)."
+  },
+  "sessions.tree.none": {
+    "defaultMessage": "no sessions",
+    "description": "A group's count in the Sessions tab's list when it has none. Lower case."
+  },
+  "sessions.tree.notFromAgent": {
+    "defaultMessage": "Not from an agent",
+    "description": "A group in the Sessions tab's list: sessions no agent ran (adopted, or from before Hive recorded agents)."
+  },
+  "sessions.tree.sessions": {
+    "defaultMessage": "{n, plural, one {# session} other {# sessions}}",
+    "description": "A group's count in the Sessions tab's list: how many sessions."
+  },
+  "sessions.tree.subs": {
+    "defaultMessage": "{n, plural, one {# sub-session} other {# sub-sessions}}",
+    "description": "A group's count in the Sessions tab's list: how many sub-sessions (sessions a CLI ran for another, such as subagents)."
+  },
+  "sessions.view.cacheExpired": {
+    "defaultMessage": "· cache expired",
+    "description": "After a transcript's usage line (starts with a separator): the provider's prompt cache has expired, so resuming re-caches the conversation."
+  },
+  "sessions.view.cacheWarm": {
+    "defaultMessage": "· cache warm {left}",
+    "description": "After a transcript's usage line (starts with a separator): the provider's prompt cache is still warm for {left} (\"4m\")."
+  },
+  "sessions.view.collapseTools": {
+    "defaultMessage": "Collapse Tool Calls",
+    "description": "Tooltip over a transcript: folds every tool call and the agent's thinking."
+  },
+  "sessions.view.copy": {
+    "defaultMessage": "Copy",
+    "description": "Tooltip of a copy button in a transcript. Keep it short."
+  },
+  "sessions.view.copyMessage": {
+    "defaultMessage": "Copy Message",
+    "description": "Tooltip: copies the user's message in a transcript."
+  },
+  "sessions.view.copyReply": {
+    "defaultMessage": "Copy Reply",
+    "description": "Tooltip: copies the agent's reply in a transcript."
+  },
+  "sessions.view.earlier": {
+    "defaultMessage": "{n, plural, one {# earlier item} other {# earlier items}} — scroll up or click to load",
+    "description": "At the top of a long transcript: how many earlier messages are not loaded yet, and how to load them."
+  },
+  "sessions.view.empty": {
+    "defaultMessage": "Nothing has been said in this session yet.",
+    "description": "A transcript with no messages yet."
+  },
+  "sessions.view.expandTools": {
+    "defaultMessage": "Expand Tool Calls",
+    "description": "Tooltip over a transcript: opens every tool call and the agent's thinking."
+  },
+  "sessions.view.export": {
+    "defaultMessage": "Export as Markdown…",
+    "description": "Tooltip over a transcript: saves it as a Markdown file."
+  },
+  "sessions.view.follow": {
+    "defaultMessage": "Follow",
+    "description": "Button over a running session's transcript: keeps showing new messages as they arrive. Keep it short."
+  },
+  "sessions.view.followTip": {
+    "defaultMessage": "Follow new messages as they arrive (Settings → Sessions sets the default)",
+    "description": "Tooltip of Follow over a running session's transcript, while off. Settings → Sessions is where: use its translated names."
+  },
+  "sessions.view.following": {
+    "defaultMessage": "Following the running session",
+    "description": "At the end of a running session's transcript while Follow is on."
+  },
+  "sessions.view.followingTip": {
+    "defaultMessage": "Following new messages as they arrive. Click to stop.",
+    "description": "Tooltip of Follow over a running session's transcript, while on."
+  },
+  "sessions.view.handedOver": {
+    "defaultMessage": "handed over",
+    "description": "A badge over a transcript: another agent's work was handed over to this session. Lower case; keep it short."
+  },
+  "sessions.view.handedOverTip": {
+    "defaultMessage": "Another agent's work was handed over to this session. Click to open that session.",
+    "description": "Hover of the handed over badge over a transcript: the session it continues from."
+  },
+  "sessions.view.ranIn": {
+    "defaultMessage": "Ran in",
+    "description": "Over a transcript, before where the session ran (its agent and the project folder or a worktree)."
+  },
+  "sessions.view.refresh": {
+    "defaultMessage": "Refresh (load new messages)",
+    "description": "Tooltip over a transcript: reads it again for new messages."
+  },
+  "sessions.view.running": {
+    "defaultMessage": "Running",
+    "description": "A badge over a running session's transcript. Keep it short."
+  },
+  "sessions.view.thinking": {
+    "defaultMessage": "Thinking",
+    "description": "A folded part of a transcript: the agent's thinking. Keep it short."
+  },
+  "sessions.view.usage": {
+    "defaultMessage": "{context} context · {output} output · {prompts, plural, one {# prompt} other {# prompts}}{compactions, plural, =0 {} one { · # compaction} other { · # compactions}}",
+    "description": "Over a transcript: its context and output tokens (\"120K\"), how many prompts the user sent, and how many times it was compacted (none: leave it empty)."
+  },
+  "sessions.view.you": {
+    "defaultMessage": "You",
+    "description": "The heading of the user's own message in a transcript. Keep it short."
+  }
+}

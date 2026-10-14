@@ -1,4 +1,5 @@
 import { useMemo } from 'react'
+import { msg, tr } from '@shared/i18n'
 import type { AgentInfo, ProjectInfo, TaskCard, TaskColumn } from '@shared/types'
 import { agentDoingCards, agentReviewCards, columnColor } from '@shared/tasks'
 import { cardsText } from '@shared/agentTable'
@@ -42,7 +43,7 @@ export function TaskChip({ number, column, title, short, more = 0, label, onOpen
       data-review={review || undefined}
       role="button"
       tabIndex={0}
-      aria-label={label ?? `Open card #${number}`}
+      aria-label={label ?? tr(msg({ id: 'board.chip.open', defaultMessage: 'Open card #{card}', description: "A card chip's accessible name (on an agent's pane or row): opens the card. {card} is its number." }), { card: number })}
       onClick={(e) => {
         e.stopPropagation()
         open()
@@ -78,7 +79,11 @@ export function CardChip({ project, a, short, tip = true }: { project: ProjectIn
   const chip = <TaskChip number={first.number} column={review ? 'review' : 'doing'} title={first.title} short={short} more={more.length} />
   if (!tip) return chip
   // Each card's decisions counted (#357): what the user decided about it, read in the card.
-  const decided = (c: TaskCard): string => (c.decisions?.length ? ` (decisions: ${c.decisions.length})` : '')
-  const list = (title: string, l: TaskCard[]): string => (l.length ? `${title}:\n${l.map((c) => `#${c.number} ${c.title}${decided(c)}`).join('\n')}\n` : '')
-  return <Tooltip content={<span style={{ whiteSpace: 'pre-line' }}>{`${list('Working on (Doing)', doing)}${list('Reviewing', reviewing)}Click to open #${first.number}.`}</span>}>{chip}</Tooltip>
+  const line = (c: TaskCard): string => tr(msg({ id: 'board.chip.card', defaultMessage: '#{card} {title}{decisions, plural, =0 {} one { (decisions: #)} other { (decisions: #)}}', description: "A card in the hover of an agent's card chip: its number, title (the user's own words) and how many decisions the user made about it (none: leave that branch empty)." }), { card: c.number, title: c.title, decisions: c.decisions?.length ?? 0 })
+  const lines = [
+    ...(doing.length ? [tr(msg({ id: 'board.chip.doing', defaultMessage: 'Working on (Doing):', description: "Heading in the hover of an agent's card chip, above the cards it works on. Doing is the board column." })), ...doing.map(line)] : []),
+    ...(reviewing.length ? [tr(msg({ id: 'board.chip.reviewing', defaultMessage: 'Reviewing:', description: "Heading in the hover of an agent's card chip, above the cards it reviews." })), ...reviewing.map(line)] : []),
+    tr(msg({ id: 'board.chip.clickToOpen', defaultMessage: 'Click to open #{card}.', description: "The last line of the hover of an agent's card chip. {card} is the card's number." }), { card: first.number })
+  ]
+  return <Tooltip content={<span style={{ whiteSpace: 'pre-line' }}>{lines.join('\n')}</span>}>{chip}</Tooltip>
 }

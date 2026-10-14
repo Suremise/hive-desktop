@@ -1,5 +1,7 @@
 import type { AgentDef, AppSettings, AutoCompactSetting, EffortLevel, PermissionMode, ProjectConfig, ProjectProviderConfig, ProviderId, ProviderSettings } from './types'
 import type { AttachmentKind } from './attachments'
+import { msg, type Msg } from './i18n/msg'
+import type { Tr } from './tasks'
 import { CLAUDE_CODE, CLAUDE_DESCRIPTOR } from './claude'
 import { CODEX_DESCRIPTOR } from './codex'
 import { COPILOT_DESCRIPTOR } from './copilot'
@@ -10,10 +12,35 @@ import { COPILOT_DESCRIPTOR } from './copilot'
  * here and an adapter in src/main/providers — nothing else checks which provider an agent uses.
  */
 
+/**
+ * The window's words for a provider's data (#800): message descriptors beside the English fields, which agents, the
+ * Agent API, card comments and a CLI's own names keep. Shown with shownText(); a field without one shows its English.
+ */
+export interface ModeText {
+  label: Msg
+  description: Msg
+  cliNote?: Msg
+}
+
+/** A provider's notes in the window's words (Agent Setup, a pane's sign-in and safeguard notes). */
+export interface ProviderText {
+  installNote: Msg
+  extensionNote: Msg
+  signInHelp: Msg
+  safeguardHelp: Msg | null
+  /** The custom model ID box's placeholder (modelPlaceholder). */
+  modelPlaceholder: Msg
+}
+
+/** A field as the window shows it: its message in the language shown now, else its English (#800). */
+export const shownText = (english: string, text: Msg | undefined | null, tr: Tr): string => (text ? tr(text) : english)
+
 export interface ModeOption {
   value: string
   label: string
   description: string
+  /** Its label, description and CLI note in the window's words. */
+  text?: ModeText
   /** The provider's no-guardrails mode: hidden unless enabled in its settings, confirmed, and marked. */
   danger?: boolean
   /** The CLI's own automatic reviewer, not the user, answers its permission requests (Codex's Approve for me). */
@@ -25,10 +52,14 @@ export interface ModeOption {
 export interface ModelOption {
   value: string
   label: string
+  /** Its label in the window's words, where it has words to translate ("Opus (latest)"); a model's name alone has none. */
+  text?: Msg
 }
 
 export interface ModelGroup {
   label: string
+  /** Its label in the window's words. */
+  text?: Msg
   older?: boolean
   /** Models the CLI lists as not available to this account: shown, not offered. */
   unavailable?: boolean
@@ -117,7 +148,7 @@ export interface ProviderDescriptor {
   permissionModes: ModeOption[]
   defaultPermissionMode: PermissionMode
   /** Effort levels and their names: the starting fallback when the CLI doesn't report a model's own (models.ts). */
-  effortLevels: { value: EffortLevel; label: string }[]
+  effortLevels: { value: EffortLevel; label: string; text?: Msg }[]
   /**
    * Models offered in pickers when the CLI can't be asked: the starting fallback, which the user can edit (models.ts).
    * The CLI's own catalog, when it gives one, replaces it.
@@ -141,7 +172,7 @@ export interface ProviderDescriptor {
    * rule: which models support a mode is the CLI's to decide and can change, and Hive shows the mode it runs in.
    * `known` is what the CLI reported about the model (models.ts modelCaps), which replaces any guess.
    */
-  modeCaveat?: (mode: PermissionMode, model: string, known?: ModeCaveatFacts) => string | null
+  modeCaveat?: (mode: PermissionMode, model: string, known?: ModeCaveatFacts, tr?: Tr) => string | null
   /** Agent Setup: how the installer works and which accounts can sign in. */
   installNote: string
   /** Agent Setup, when only an editor extension's copy was found: why Hive doesn't use it. */
@@ -153,6 +184,8 @@ export interface ProviderDescriptor {
    * detect them for this CLI (its transcript has no such record, shared/safeguards.ts): "not detected".
    */
   safeguardHelp: string | null
+  /** Its notes in the window's words (installNote, extensionNote, signInHelp, safeguardHelp stay English). */
+  text?: ProviderText
   modelLabel: (model: string) => string
   /** Whether a running session can switch to a mode without restarting (launched: the mode it started in). */
   canSwitchLive: (target: PermissionMode, current: PermissionMode | undefined, launched: PermissionMode | null | undefined) => boolean
@@ -166,8 +199,8 @@ export const PROVIDERS: ProviderDescriptor[] = [CLAUDE_DESCRIPTOR, CODEX_DESCRIP
 const UNKNOWN: ProviderDescriptor = {
   ...CLAUDE_DESCRIPTOR,
   id: 'unknown',
-  name: 'Unknown provider',
-  assistant: 'Agent',
+  name: 'Unknown provider', // i18n-ignore: a stand-in name for a provider id Hive doesn't know (agents read names as they are)
+  assistant: 'Agent', // i18n-ignore: a stand-in name for a provider id Hive doesn't know
   company: '',
   cliName: '',
   icon: 'question',
@@ -191,37 +224,57 @@ export function autoCompactAt(id: ProviderId | null | undefined, window: number 
  * a window set somewhere, which also caps it, a percentage bringing it earlier, or auto-compaction off). Without `auto`
  * (a session not running now), the settings weren't read: it says they can change it. Null when Hive has no rule.
  */
-export function autoCompactLine(provider: ProviderId, contextWindow: number | null, auto?: AutoCompactSetting | null): string | null {
+export function autoCompactLine(provider: ProviderId, contextWindow: number | null, auto?: AutoCompactSetting | null, tr?: Tr): string | null {
   const name = providerDescriptor(provider).name
+  const window = typeof auto?.window === 'number' && contextWindow ? Math.min(auto.window, contextWindow) : contextWindow
+  let at = auto?.window === 'off' ? null : autoCompactAt(provider, window)
+  if (auto?.window !== 'off' && (at === null || !window)) return null
+  if (at !== null && window && auto?.percent) at = Math.min(at, Math.round((window * auto.percent) / 100))
+  // In the window's words (#800): the source and estimate are what the launch's settings said, as they said it.
+  if (tr) {
+    const why = [auto?.source, auto?.percent ? tr(msg({ id: 'agents.provider.compactPercent', defaultMessage: 'at {percent}% of it', description: "Part of a context tooltip: a setting brings the CLI's compaction to a percentage ({percent}) of its context window. Lower case: it follows a settings file's name." }), { percent: auto.percent }) : null].filter(Boolean).join(', ')
+    const values = { provider: name, source: auto?.source ?? '', why: why || 'none', estimate: auto?.estimate || 'none', at: at ?? 0, window: window ?? 0 } // i18n-ignore: select keys, not text
+    if (auto?.window === 'off') return tr(msg({ id: 'agents.provider.compactOff', defaultMessage: "{provider} doesn't compact by itself: auto-compaction is off ({source}){estimate, select, none {} other { ({estimate})}}", description: "A context tooltip (an agent's footer, the Usage tab): the CLI ({provider}) won't compact its conversation by itself. {source} says where that is set (a settings file, in its words); {estimate} why the figure is an estimate (none: leave that branch empty)." }), values)
+    if (typeof auto?.window === 'number') return tr(msg({ id: 'agents.provider.compactWindow', defaultMessage: '{provider} compacts by itself at about {at, number}: its auto-compact window is {window, number} ({why}){estimate, select, none {} other { ({estimate})}}', description: "A context tooltip: where the CLI ({provider}) compacts its conversation by itself, in tokens ({at}), as its settings set its window ({window}, tokens; {why}: where that is set, in a settings file's words, and any percentage; {estimate}: why the figure is an estimate, none: leave that branch empty)." }), values)
+    if (auto) return tr(msg({ id: 'agents.provider.compactDefaultFor', defaultMessage: '{provider} compacts by itself at about {at, number}, its default for this window{why, select, none {} other { ({why})}}{estimate, select, none {} other { ({estimate})}}', description: "A context tooltip: where the CLI ({provider}) compacts its conversation by itself, in tokens ({at}), its default for the model's window ({why}: what brings it earlier, in a settings file's words, none: leave that branch empty; {estimate}: why the figure is an estimate, none: leave it empty)." }), values)
+    return tr(msg({ id: 'agents.provider.compactDefault', defaultMessage: '{provider} compacts by itself at about {at, number} by default (its settings can change this)', description: "A context tooltip for a session that isn't running: where the CLI ({provider}) compacts its conversation by itself by default, in tokens ({at})." }), values)
+  }
   // A settings file Hive couldn't be sure of makes any answer an estimate (#333); a default always is one (#273).
   const est = auto?.estimate ? ` (${auto.estimate})` : ''
-  if (auto?.window === 'off') return `${name} doesn't compact by itself: auto-compaction is off (${auto.source})${est}`
-  const window = typeof auto?.window === 'number' && contextWindow ? Math.min(auto.window, contextWindow) : contextWindow
-  let at = autoCompactAt(provider, window)
+  if (auto?.window === 'off') return `${name} doesn't compact by itself: auto-compaction is off (${auto.source})${est}` // i18n-ignore: English without tr (its callers in other areas pass tr once converted)
   if (at === null || !window) return null
-  if (auto?.percent) at = Math.min(at, Math.round((window * auto.percent) / 100))
   const n = (x: number): string => x.toLocaleString()
-  const why = [auto?.source, auto?.percent ? `at ${auto.percent}% of it` : null].filter(Boolean).join(', ')
-  if (typeof auto?.window === 'number') return `${name} compacts by itself at about ${n(at)}: its auto-compact window is ${n(window)} (${why})${est}`
-  if (auto) return `${name} compacts by itself at about ${n(at)}, its default for this window${why ? ` (${why})` : ''}${est}`
-  return `${name} compacts by itself at about ${n(at)} by default (its settings can change this)`
+  const why = [auto?.source, auto?.percent ? `at ${auto.percent}% of it` : null].filter(Boolean).join(', ') // i18n-ignore: English without tr
+  if (typeof auto?.window === 'number') return `${name} compacts by itself at about ${n(at)}: its auto-compact window is ${n(window)} (${why})${est}` // i18n-ignore: English without tr
+  if (auto) return `${name} compacts by itself at about ${n(at)}, its default for this window${why ? ` (${why})` : ''}${est}` // i18n-ignore: English without tr
+  return `${name} compacts by itself at about ${n(at)} by default (its settings can change this)` // i18n-ignore: English without tr
 }
 
 /**
  * The context in words, for its tooltips: the total, then (when known) its parts: the last request's input and its
  * output, thinking included; then where the CLI compacts by itself (autoCompactLine; `auto` from the running session).
  */
-export function contextLines(u: { provider: ProviderId; contextTokens: number; contextInputTokens?: number; lastOutputTokens?: number; contextWindow: number | null }, auto?: AutoCompactSetting | null): string[] {
+export function contextLines(u: { provider: ProviderId; contextTokens: number; contextInputTokens?: number; lastOutputTokens?: number; contextWindow: number | null }, auto?: AutoCompactSetting | null, tr?: Tr): string[] {
   const n = (x: number): string => x.toLocaleString()
-  const lines = [`Context: ${n(u.contextTokens)} tokens${u.contextWindow ? ` of ${n(u.contextWindow)}` : ''}`]
-  if (u.contextInputTokens !== undefined && u.lastOutputTokens) lines.push(`${n(u.contextInputTokens)} input + ${n(u.lastOutputTokens)} output of the last turn (thinking included)`)
-  const compacts = autoCompactLine(u.provider, u.contextWindow, auto)
+  const lines: string[] = []
+  if (tr) {
+    lines.push(
+      u.contextWindow
+        ? tr(msg({ id: 'agents.provider.contextOf', defaultMessage: 'Context: {tokens, number} tokens of {window, number}', description: "A context tooltip (an agent's footer, the Usage tab): how many tokens the conversation holds ({tokens}) of the model's context window ({window})." }), { tokens: u.contextTokens, window: u.contextWindow })
+        : tr(msg({ id: 'agents.provider.context', defaultMessage: 'Context: {tokens, number} tokens', description: "A context tooltip (an agent's footer, the Usage tab): how many tokens the conversation holds ({tokens})." }), { tokens: u.contextTokens })
+    )
+    if (u.contextInputTokens !== undefined && u.lastOutputTokens) lines.push(tr(msg({ id: 'agents.provider.lastTurn', defaultMessage: '{input, number} input + {output, number} output of the last turn (thinking included)', description: "A context tooltip: the last turn's input and output tokens, its thinking counted in the output." }), { input: u.contextInputTokens, output: u.lastOutputTokens }))
+  } else {
+    lines.push(`Context: ${n(u.contextTokens)} tokens${u.contextWindow ? ` of ${n(u.contextWindow)}` : ''}`) // i18n-ignore: English without tr (its callers in other areas pass tr once converted)
+    if (u.contextInputTokens !== undefined && u.lastOutputTokens) lines.push(`${n(u.contextInputTokens)} input + ${n(u.lastOutputTokens)} output of the last turn (thinking included)`) // i18n-ignore: English without tr
+  }
+  const compacts = autoCompactLine(u.provider, u.contextWindow, auto, tr)
   if (compacts) lines.push(compacts)
   return lines
 }
 
 export function providerDescriptor(id: ProviderId | null | undefined): ProviderDescriptor {
-  return PROVIDERS.find((p) => p.id === (id || DEFAULT_PROVIDER)) ?? { ...UNKNOWN, id: id ?? 'unknown', name: id ?? 'Unknown provider' }
+  return PROVIDERS.find((p) => p.id === (id || DEFAULT_PROVIDER)) ?? { ...UNKNOWN, id: id ?? 'unknown', name: id ?? 'Unknown provider' } // i18n-ignore: a stand-in name for a provider id Hive doesn't know
 }
 
 /**
@@ -325,11 +378,13 @@ export function defaultProviderPending(cfg: Pick<ProjectConfig, 'defaultProvider
 }
 
 /** Settings' default provider in words: a provider's name, or "Automatic (Codex)" (what it picks now, when any is on). */
-export function defaultProviderLabel(settings: Pick<AppSettings, 'defaultProvider' | 'providers'> | null | undefined): string {
+export function defaultProviderLabel(settings: Pick<AppSettings, 'defaultProvider' | 'providers'> | null | undefined, tr?: Tr): string {
   const v = settings?.defaultProvider
   if (v && v !== AUTO_PROVIDER) return providerName(v)
-  if (!enabledProviders(settings).length) return 'Automatic'
-  return autoProviderPending(settings) ? 'Automatic (checking…)' : `Automatic (${providerName(autoProvider(settings))})`
+  const state = !enabledProviders(settings).length ? 'none' : autoProviderPending(settings) ? 'checking' : 'picked'
+  if (tr) return tr(msg({ id: 'agents.provider.automatic', defaultMessage: '{state, select, checking {Automatic (checking…)} picked {Automatic ({provider})} other {Automatic}}', description: "The default provider Automatic (it follows what is installed), in the provider pickers: while Hive checks which CLIs are installed; with the provider it picks now ({provider}: its name); or plain." }), { state, provider: state === 'picked' ? providerName(autoProvider(settings)) : '' })
+  if (state === 'none') return 'Automatic' // i18n-ignore: English without tr (Settings' callers pass tr once converted)
+  return state === 'checking' ? 'Automatic (checking…)' : `Automatic (${providerName(autoProvider(settings))})` // i18n-ignore: English without tr
 }
 
 /** The default the user chose for a project's new agents (its own, else Settings'), or null when it is Automatic. */
@@ -354,18 +409,29 @@ export function projectDefaultProvider(cfg: Pick<ProjectConfig, 'defaultProvider
 export function defaultProviderWarning(
   cfg: Pick<ProjectConfig, 'defaultProvider'> | null | undefined,
   settings: Pick<AppSettings, 'defaultProvider' | 'providers'> | null | undefined,
-  info: (id: ProviderId) => { found: boolean; checking?: boolean } | undefined
+  info: (id: ProviderId) => { found: boolean; checking?: boolean } | undefined,
+  tr?: Tr
 ): { text: string; fix: 'providers' | 'setup' } | null {
   const chosen = chosenDefaultProvider(cfg, settings)
+  const say = (why: 'off' | 'missing' | 'noneOn' | 'noneInstalled', provider = ''): string =>
+    tr
+      ? tr(msg({ id: 'agents.provider.warning', defaultMessage: "{why, select, off {{provider} is turned off — Settings → Providers} missing {{provider} isn't installed — Help → Agent Setup} noneOn {No coding agents are turned on — Settings → Providers} other {No coding agent CLI is installed — Help → Agent Setup}}", description: "A warning about a project's new agents' provider ({provider}: its name): turned off, not installed, none turned on, or no CLI installed. Settings → Providers and Help → Agent Setup are places in Hive where it is fixed." }), { why, provider })
+      : why === 'off'
+        ? `${provider} is turned off — Settings → Providers` // i18n-ignore: English without tr (its caller in another area passes tr once converted)
+        : why === 'missing'
+          ? `${provider} isn't installed — Help → Agent Setup` // i18n-ignore: English without tr
+          : why === 'noneOn'
+            ? 'No coding agents are turned on — Settings → Providers' // i18n-ignore: English without tr
+            : 'No coding agent CLI is installed — Help → Agent Setup' // i18n-ignore: English without tr
   if (chosen) {
-    if (!isProviderEnabled(settings, chosen)) return { text: `${providerName(chosen)} is turned off — Settings → Providers`, fix: 'providers' }
+    if (!isProviderEnabled(settings, chosen)) return { text: say('off', providerName(chosen)), fix: 'providers' }
     const i = info(chosen)
-    return i && !i.checking && !i.found ? { text: `${providerName(chosen)} isn't installed — Help → Agent Setup`, fix: 'setup' } : null
+    return i && !i.checking && !i.found ? { text: say('missing', providerName(chosen)), fix: 'setup' } : null
   }
   const on = enabledProviders(settings)
-  if (!on.length) return { text: 'No coding agents are turned on — Settings → Providers', fix: 'providers' }
+  if (!on.length) return { text: say('noneOn'), fix: 'providers' }
   if (on.some((p) => !info(p.id) || info(p.id)!.checking || info(p.id)!.found)) return null
-  return { text: 'No coding agent CLI is installed — Help → Agent Setup', fix: 'setup' }
+  return { text: say('noneInstalled'), fix: 'setup' }
 }
 
 /**
@@ -420,14 +486,17 @@ export function modeOption(provider: ProviderId, mode: PermissionMode | null | u
 
 /**
  * The provider's warning for running this mode with this model (null when there is none, or the model isn't known).
- * `known`: what the CLI reported about the model (models.ts modelCaps), which replaces the descriptor's guess.
+ * `known`: what the CLI reported about the model (models.ts modelCaps), which replaces the descriptor's guess. In the
+ * window's language with tr (#800), else English.
  */
-export function modeCaveat(provider: ProviderId, mode: PermissionMode | '' | null | undefined, model: string | null | undefined, known?: ModeCaveatFacts): string | null {
-  return mode && model ? (providerDescriptor(provider).modeCaveat?.(mode, model, known) ?? null) : null
+export function modeCaveat(provider: ProviderId, mode: PermissionMode | '' | null | undefined, model: string | null | undefined, known?: ModeCaveatFacts, tr?: Tr): string | null {
+  return mode && model ? (providerDescriptor(provider).modeCaveat?.(mode, model, known, tr) ?? null) : null
 }
 
-export function permissionLabel(provider: ProviderId, mode: PermissionMode): string {
-  return modeOption(provider, mode)?.label ?? mode
+/** A mode's name: in the window's language with tr (#800), else English (main's messages, agents, the Agent API). */
+export function permissionLabel(provider: ProviderId, mode: PermissionMode, tr?: Tr): string {
+  const m = modeOption(provider, mode)
+  return m ? (tr ? shownText(m.label, m.text?.label, tr) : m.label) : mode
 }
 
 /** Whether a mode can be used: it's one of the provider's, and not its dangerous mode unless that is enabled. */
@@ -476,8 +545,10 @@ export function splitArgs(input: string): string[] {
  * after a "--" of its own, so one of the user's would either end the options early or be read as the task; Hive doesn't
  * guess which it meant. An option whose value is "--" is written with "=".
  */
-export function extraArgsProblem(input: string | string[]): string | null {
-  return (typeof input === 'string' ? splitArgs(input) : input).includes('--') ? 'Hive passes the task after "--"; remove it from extra arguments. For an option whose value is "--", write --option=--.' : null
+export function extraArgsProblem(input: string | string[], tr?: Tr): string | null {
+  if (!(typeof input === 'string' ? splitArgs(input) : input).includes('--')) return null
+  if (tr) return tr(msg({ id: 'agents.provider.extraArgsDashes', defaultMessage: 'Hive passes the task after "--"; remove it from extra arguments. For an option whose value is "--", write --option=--.', description: 'Why extra arguments for a CLI are refused: they contain a bare "--". Keep "--" and --option=-- exactly as they are.' }))
+  return 'Hive passes the task after "--"; remove it from extra arguments. For an option whose value is "--", write --option=--.' // i18n-ignore: English without tr (main's errors: their area converts them)
 }
 
 /** What an agent launches with: its own overrides, else the project's (for its provider), else the global defaults. */

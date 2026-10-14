@@ -2,7 +2,7 @@
 // (#756), each in a tree of its own, and Hive's own source checked against the merge base's allowlists, as CI does.
 import { afterEach, describe, expect, it } from 'vitest'
 import { spawnSync } from 'child_process'
-import { cpSync, mkdirSync, readFileSync, rmSync, writeFileSync } from 'fs'
+import { cpSync, existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from 'fs'
 import { createRequire } from 'module'
 import { dirname, join, resolve } from 'path'
 import { tempDir } from './tempDir'
@@ -325,7 +325,8 @@ describe("Hive's own source", () => {
     mkdirSync(join(root, ALLOW_DIR), { recursive: true })
     const code = readFileSync(join(ROOT, rel), 'utf8')
     writeFileSync(join(root, rel), code)
-    cpSync(join(ROOT, ALLOW_DIR, allowName(rel)), join(root, ALLOW_DIR, allowName(rel)))
+    // Its list, while it has one: a file whose text is all converted has none (#798 emptied Board.tsx's).
+    if (existsSync(join(ROOT, ALLOW_DIR, allowName(rel)))) cpSync(join(ROOT, ALLOW_DIR, allowName(rel)), join(root, ALLOW_DIR, allowName(rel)))
     expect(runGuard({ root }).exit).toBe(0)
     writeFileSync(join(root, rel), `${code}\nexport const Saved = () => <span title="Saved">Saved just now</span>\n`)
     const r = runGuard({ root }) as Result

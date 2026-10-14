@@ -1,8 +1,9 @@
 import { useEffect, useLayoutEffect, useRef, useState } from 'react'
 import { clampScroll, edgeSpeed, frameStep } from '@shared/edgeScroll'
 import { RUNS_KEEP_PX, draggedLaneRows, droppedLaneOrder, fitSegments, frozenSegment, keyedLaneRows, laneCards, laneRowsNow, laneRunning, laneSummary, mergedLaneOrder, nudgedLaneOrder, segmentName, segmentsThatFit, type LaneSegment } from '@shared/laneBar'
+import { msg, tr } from '@shared/i18n'
 import { call } from '../api'
-import { NO_PROJECTS, get, set, useStore } from '../store'
+import { NO_PROJECTS, get, set, useLanguage, useStore } from '../store'
 import { saveLaneOrder, useLaneOrder, type Lane } from '../laneSource'
 import { useNow } from '../usage'
 import { cx } from '../util'
@@ -39,12 +40,15 @@ const BAR_INSET_PX = 38
 /** A lane's height with its margin, until one is measured. */
 const PITCH_PX = 61
 
-const STATE_WORD: Record<Lane['state'], string | null> = { active: null, paused: 'paused', ended: 'merged', abandoned: 'abandoned' }
+/** A lane's state in a word, in its header: none while it runs. */
+const stateWord = (state: Lane['state']): string | null =>
+  state === 'active' ? null : tr(msg({ id: 'board.lanes.state', defaultMessage: '{state, select, paused {paused} ended {merged} other {abandoned}}', description: "A lane's state in its header in the Progress panel, lower case (a lane: a builder and its reviewer working through cards in turn): paused, merged (it ended: its cards were merged) or abandoned." }), { state })
 
 const lanePair = (l: Lane): string => (l.reviewer ? `${l.builder.name} / ${l.reviewer.name}` : l.builder.name)
 
 /** `lanes`: the lanes shown (the panel's filter applied); `all`: the workspace's, in the same order, to keep a move's order whole. */
 export function LanesSection({ lanes, all, width }: { lanes: Lane[]; all: Lane[]; width: number }) {
+  useLanguage()
   const ws = useStore((s) => s.workspace?.path ?? null)
   const [folded, toggle] = usePanelFold(ws ? foldKey(ws) : null)
   const key = ws ? rowsKey(ws) : null
@@ -81,19 +85,20 @@ export function LanesSection({ lanes, all, width }: { lanes: Lane[]; all: Lane[]
     // Filtered to a project or an agent, the lanes not shown keep their places.
     saveLaneOrder(mergedLaneOrder(all.filter((x) => laneRunning(x.state)).map((x) => x.id), next))
     const at = next.indexOf(l.id) + 1
-    setSaid(`${lanePair(l)}${l.name ? ` (${l.name})` : ''} moved: ${at} of ${next.length} running ${next.length === 1 ? 'lane' : 'lanes'}`)
+    const lane = l.name ? `${lanePair(l)} (${l.name})` : lanePair(l)
+    setSaid(tr(msg({ id: 'board.lanes.moved', defaultMessage: '{lane} moved: {at} of {n, plural, one {# running lane} other {# running lanes}}', description: 'Said to screen readers after a lane is moved in the Progress panel: the lane (its builder / reviewer, and its name in brackets), and its place now ({at}) among the {n} running lanes.' }), { lane, at, n: next.length }))
   }
   const usual = (): void => {
     saveLaneOrder(null)
-    setSaid('Lanes back in the usual order')
+    setSaid(tr(msg({ id: 'board.lanes.usualOrderSaid', defaultMessage: 'Lanes back in the usual order', description: "Said to screen readers after the Progress panel's lanes go back to their usual order (Usual Order, in a lane's menu)." })))
   }
   const laneMenu = (e: React.MouseEvent, l: Lane): void => {
     const i = running.indexOf(l.id)
     menu.open(e, [
-      { label: 'Move Up', icon: 'arrow-up', keybinding: 'Alt+Up', disabled: i <= 0, onClick: () => moved(nudgedLaneOrder(running, l.id, -1), l, true) },
-      { label: 'Move Down', icon: 'arrow-down', keybinding: 'Alt+Down', disabled: i >= running.length - 1, onClick: () => moved(nudgedLaneOrder(running, l.id, 1), l, true) },
+      { label: tr(msg({ id: 'board.lanes.moveUp', defaultMessage: 'Move Up', description: "A lane's context menu item in the Progress panel: moves it up among the running lanes." })), icon: 'arrow-up', keybinding: 'Alt+Up', disabled: i <= 0, onClick: () => moved(nudgedLaneOrder(running, l.id, -1), l, true) },
+      { label: tr(msg({ id: 'board.lanes.moveDown', defaultMessage: 'Move Down', description: "A lane's context menu item in the Progress panel: moves it down among the running lanes." })), icon: 'arrow-down', keybinding: 'Alt+Down', disabled: i >= running.length - 1, onClick: () => moved(nudgedLaneOrder(running, l.id, 1), l, true) },
       { separator: true },
-      { label: 'Usual Order', icon: 'list-ordered', detail: 'Running lanes newest first, paused ones after them', disabled: !custom, onClick: usual }
+      { label: tr(msg({ id: 'board.lanes.usualOrder', defaultMessage: 'Usual Order', description: "A lane's context menu item in the Progress panel: puts the lanes back in their usual order, undoing the user's own." })), icon: 'list-ordered', detail: tr(msg({ id: 'board.lanes.usualOrderDetail', defaultMessage: 'Running lanes newest first, paused ones after them', description: 'Under Usual Order in a lane\'s context menu (Progress panel): what the usual order is.' })), disabled: !custom, onClick: usual }
     ])
   }
   /**
@@ -190,7 +195,7 @@ export function LanesSection({ lanes, all, width }: { lanes: Lane[]; all: Lane[]
         e.stopPropagation()
         const next = nudgedLaneOrder(running, l.id, e.key === 'ArrowUp' ? -1 : 1)
         if (next) moved(next, l, true)
-        else setSaid(`${lanePair(l)} is already the ${e.key === 'ArrowUp' ? 'first' : 'last'} running lane`)
+        else setSaid(tr(msg({ id: 'board.lanes.alreadyEnd', defaultMessage: '{where, select, first {{lane} is already the first running lane} other {{lane} is already the last running lane}}', description: 'Said to screen readers when a lane (its builder / reviewer: {lane}) is moved with Alt+Up or Alt+Down but is already first or last among the running lanes.' }), { lane: lanePair(l), where: e.key === 'ArrowUp' ? 'first' : 'last' }))
       },
       onContextMenu: (e) => laneMenu(e, l)
     }
@@ -222,11 +227,11 @@ export function LanesSection({ lanes, all, width }: { lanes: Lane[]; all: Lane[]
   if (!lanes.length) return null
   const { chosen, shown, max } = laneRowsNow(kept, lanes.length, room, pitch, fallback)
   return (
-    <div className={cx('progress-lanes', folded && 'folded')} role="region" aria-label="Lanes">
+    <div className={cx('progress-lanes', folded && 'folded')} role="region" aria-label={tr(LANES)}>
       {!folded && key && <LanesEdge rowsKey={key} chosen={chosen} shown={shown} max={max} count={lanes.length} pitch={pitch} fallback={fallback} />}
-      <button type="button" className="progress-lanes-bar" aria-expanded={!folded} onClick={toggle} title={folded ? 'Show the lanes' : 'Fold the lanes'}>
+      <button type="button" className="progress-lanes-bar" aria-expanded={!folded} onClick={toggle} title={folded ? tr(msg({ id: 'board.lanes.show', defaultMessage: 'Show the lanes', description: "Tooltip of the Progress panel's Lanes bar when the lanes are folded away." })) : tr(msg({ id: 'board.lanes.fold', defaultMessage: 'Fold the lanes', description: "Tooltip of the Progress panel's Lanes bar: folds the lanes down to the bar." }))}>
         <Icon name={folded ? 'chevron-up' : 'chevron-down'} />
-        <span>Lanes</span>
+        <span>{tr(LANES)}</span>
         <span className="progress-lanes-count">{lanes.length}</span>
       </button>
       {!folded && (
@@ -298,13 +303,13 @@ function LanesEdge({ rowsKey: key, chosen, shown, max, count, pitch, fallback }:
       className={cx('progress-lanes-edge', dragging && 'dragging')}
       role="separator"
       aria-orientation="horizontal"
-      aria-label="Lanes shown"
+      aria-label={tr(msg({ id: 'board.lanes.edge', defaultMessage: 'Lanes shown', description: "Accessible name of the handle on the top edge of the Progress panel's lanes: drag it for more or fewer lanes." }))}
       aria-valuemin={1}
       aria-valuemax={max}
       aria-valuenow={shown}
-      aria-valuetext={`${shown} of ${count} ${count === 1 ? 'lane' : 'lanes'} shown`}
+      aria-valuetext={tr(msg({ id: 'board.lanes.edgeValue', defaultMessage: '{shown} of {count, plural, one {# lane} other {# lanes}} shown', description: "The value of the handle on the top edge of the Progress panel's lanes, for screen readers: {shown} of the {count} lanes show." }), { shown, count })}
       tabIndex={0}
-      title={`Drag to show more or fewer lanes; double-click for ${fallback}`}
+      title={tr(msg({ id: 'board.lanes.edgeTip', defaultMessage: 'Drag to show more or fewer lanes; double-click for {lanes}', description: "Tooltip of the handle on the top edge of the Progress panel's lanes. {lanes} is the default number of lanes shown." }), { lanes: fallback })}
       onPointerDown={start}
       onDoubleClick={reset}
       onKeyDown={(e) => {
@@ -321,6 +326,8 @@ function LanesEdge({ rowsKey: key, chosen, shown, max, count, pitch, fallback }:
 }
 
 const LANE_DRAG = 'application/x-hive-lane'
+
+const LANES = msg({ id: 'board.lanes.title', defaultMessage: 'Lanes', description: "The Progress panel's section of lanes (a builder and its reviewer working through cards in turn): its bar's label and accessible name." })
 
 /** What a running lane's row needs to be moved (#568); a finished lane has none. */
 interface LaneReorder {
@@ -342,7 +349,7 @@ function LaneRow({ lane: l, max, reorder: r }: { lane: Lane; max: number; reorde
   const projects = useStore((s) => s.workspace?.projects ?? NO_PROJECTS)
   // Read again each minute: a card waiting in Review becomes stalled with time (#521).
   useNow(60_000)
-  const cards = l.frozen ? l.frozen.map(frozenSegment) : laneCards(l.cards, tasks)
+  const cards = l.frozen ? l.frozen.map((c) => frozenSegment(c, tr)) : laneCards(l.cards, tasks, tr)
   let stalled: { n: number; why: string } | null = null
   for (const n of l.frozen ? [] : l.cards) {
     const c = tasks.find((t) => t.number === n)
@@ -355,9 +362,9 @@ function LaneRow({ lane: l, max, reorder: r }: { lane: Lane; max: number; reorde
   const { finished, total, current } = laneSummary(cards)
   // A lane that ended without a record of its cards doesn't know how many were finished (#512).
   const unknown = cards.some((c) => c.state === 'unrecorded')
-  const segments = fitSegments(cards, max)
+  const segments = fitSegments(cards, max, tr)
   const pair = lanePair(l)
-  const word = STATE_WORD[l.state]
+  const word = stateWord(l.state)
   // Its cost on the hover of its top line (#602), read when the hover first shows.
   const cost = useLaneCost(l.id)
   return (
@@ -389,7 +396,7 @@ function LaneRow({ lane: l, max, reorder: r }: { lane: Lane; max: number; reorde
           {word && <span className={cx('progress-lane-state', l.state)}>{word}</span>}
           {stalled && (
             <Tooltip content={`#${stalled.n}: ${stalled.why}`}>
-              <span className="progress-lane-state stalled">stalled</span>
+              <span className="progress-lane-state stalled">{tr(msg({ id: 'board.lanes.stalled', defaultMessage: 'stalled', description: "A lane's mark in its header (Progress panel), lower case: one of its cards is stalled (nobody is working on it); its tooltip says why." }))}</span>
             </Tooltip>
           )}
           {current !== null && !l.frozen && <span className="progress-lane-current">#{current}</span>}
@@ -398,7 +405,7 @@ function LaneRow({ lane: l, max, reorder: r }: { lane: Lane; max: number; reorde
           </span>
         </div>
       </Tooltip>
-      <div className="lane-bar" role="list" aria-label={unknown ? `${pair}: ${total} cards, not recorded` : `${pair}: ${finished} of ${total} cards finished`}>
+      <div className="lane-bar" role="list" aria-label={unknown ? tr(msg({ id: 'board.lanes.barUnrecorded', defaultMessage: '{pair}: {total, plural, one {# card} other {# cards}}, not recorded', description: "Accessible name of a lane's bar (Progress panel) when the lane ended before Hive recorded where its cards were: the builder / reviewer ({pair}) and how many cards." }), { pair, total }) : tr(msg({ id: 'board.lanes.bar', defaultMessage: '{pair}: {finished} of {total, plural, one {# card} other {# cards}} finished', description: "Accessible name of a lane's bar (Progress panel): the builder / reviewer ({pair}), and how many of its cards are finished (passed or done)." }), { pair, finished, total })}>
         {segments.map((s) => (
           <Segment key={s.kind === 'card' ? s.number : `${s.kind}-${s.numbers[0]}`} segment={s} />
         ))}

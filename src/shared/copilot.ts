@@ -2,6 +2,8 @@ import { footerPatterns, lastFooterMode, type FooterModeDef, type FooterPatterns
 import type { PermissionMode } from './types'
 import type { ModeOption, ModelGroup, ProviderDescriptor } from './providers'
 import { codexModelLabel } from './codex'
+import { EFFORT_TEXT, OLDER_VERSIONS } from './claude'
+import { msg } from './i18n/msg'
 
 /**
  * GitHub Copilot's side of the shared provider data (the Copilot CLI, `copilot`): its modes, reasoning levels and models.
@@ -16,14 +18,58 @@ import { codexModelLabel } from './codex'
 export const COPILOT = 'copilot'
 
 // Hive's own tools (the hive MCP server) never ask, in any mode: the adapter pre-approves them.
+// The English labels and descriptions are what agents and the Agent API read; `text` is the window's (#800).
 export const COPILOT_PERMISSION_MODES: ModeOption[] = [
-  { value: 'ask', label: 'Ask', description: 'Reads files and runs harmless commands without asking; asks before edits, other commands, other MCP tools and web access.' },
-  { value: 'accept-edits', label: 'Accept edits', description: 'Edits files in its folder without asking (not where the folder’s path has parentheses: Copilot can’t approve them there); still asks before other commands, other MCP tools, web access and changes outside its folder.', cliNote: 'Copilot’s own footer still says Manual Approval: Hive starts it with edits in its folder approved (an allow rule), which Copilot’s label doesn’t show.' },
-  { value: 'plan', label: 'Plan', description: 'Plans the work and asks before changing anything.' },
+  {
+    value: 'ask',
+    label: 'Ask', // i18n-ignore: agent-facing English (text is the window's)
+    description: 'Reads files and runs harmless commands without asking; asks before edits, other commands, other MCP tools and web access.', // i18n-ignore: agent-facing English (text is the window's)
+    text: {
+      label: msg({ id: 'agents.copilot.ask', defaultMessage: 'Ask', description: "GitHub Copilot's permission mode: it asks before edits and most commands. Keep it short." }),
+      description: msg({ id: 'agents.copilot.askDescription', defaultMessage: 'Reads files and runs harmless commands without asking; asks before edits, other commands, other MCP tools and web access.', description: "What GitHub Copilot's Ask mode does (the mode picker). MCP is a protocol's name: keep it." })
+    }
+  },
+  {
+    value: 'accept-edits',
+    label: 'Accept edits', // i18n-ignore: agent-facing English (text is the window's)
+    description: 'Edits files in its folder without asking (not where the folder’s path has parentheses: Copilot can’t approve them there); still asks before other commands, other MCP tools, web access and changes outside its folder.', // i18n-ignore: agent-facing English (text is the window's)
+    cliNote: 'Copilot’s own footer still says Manual Approval: Hive starts it with edits in its folder approved (an allow rule), which Copilot’s label doesn’t show.', // i18n-ignore: agent-facing English (text is the window's)
+    text: {
+      label: msg({ id: 'agents.copilot.acceptEdits', defaultMessage: 'Accept edits', description: "GitHub Copilot's permission mode: it edits files in its folder without asking. Keep it short." }),
+      description: msg({ id: 'agents.copilot.acceptEditsDescription', defaultMessage: 'Edits files in its folder without asking (not where the folder’s path has parentheses: Copilot can’t approve them there); still asks before other commands, other MCP tools, web access and changes outside its folder.', description: "What GitHub Copilot's Accept edits mode does (the mode picker). MCP is a protocol's name: keep it." }),
+      cliNote: msg({ id: 'agents.copilot.acceptEditsCliNote', defaultMessage: 'Copilot’s own footer still says Manual Approval: Hive starts it with edits in its folder approved (an allow rule), which Copilot’s label doesn’t show.', description: "Shown with the mode badge of a Copilot agent in Accept edits: why Copilot's own screen names another mode. Manual Approval is Copilot's own English label: keep it as it is." })
+    }
+  },
+  {
+    value: 'plan',
+    label: 'Plan', // i18n-ignore: agent-facing English (text is the window's)
+    description: 'Plans the work and asks before changing anything.', // i18n-ignore: agent-facing English (text is the window's)
+    text: {
+      label: msg({ id: 'agents.copilot.plan', defaultMessage: 'Plan', description: "GitHub Copilot's permission mode: it plans first. Keep it short." }),
+      description: msg({ id: 'agents.copilot.planDescription', defaultMessage: 'Plans the work and asks before changing anything.', description: "What GitHub Copilot's Plan mode does (the mode picker)." })
+    }
+  },
   // Behind the opt-in: entering it approves everything for the rest of the session, and it doesn't hand back (#490).
-  { value: 'autopilot', label: 'Autopilot', description: 'Allow all, and it carries on by itself until the task is done (up to 5 continuations) without handing back to you. Once it has run, the session approves every tool, path and web request, also after you switch out of it. Use only where unattended changes are acceptable.', danger: true },
+  {
+    value: 'autopilot',
+    label: 'Autopilot', // i18n-ignore: agent-facing English (text is the window's)
+    description: 'Allow all, and it carries on by itself until the task is done (up to 5 continuations) without handing back to you. Once it has run, the session approves every tool, path and web request, also after you switch out of it. Use only where unattended changes are acceptable.', // i18n-ignore: agent-facing English (text is the window's)
+    danger: true,
+    text: {
+      label: msg({ id: 'agents.copilot.autopilot', defaultMessage: 'Autopilot', description: "GitHub Copilot's permission mode that carries on by itself and approves everything. Keep it short." }),
+      description: msg({ id: 'agents.copilot.autopilotDescription', defaultMessage: 'Allow all, and it carries on by itself until the task is done (up to 5 continuations) without handing back to you. Once it has run, the session approves every tool, path and web request, also after you switch out of it. Use only where unattended changes are acceptable.', description: "What GitHub Copilot's Autopilot mode does (the mode picker): a warning. Allow all is another mode's name." })
+    }
+  },
   // Not behind the opt-in (Darren, #490): Copilot's one low-interaction mode; its description says plainly what it does.
-  { value: 'allow-all', label: 'Allow all', description: 'Approves every tool, path and web request without asking, in its folder and outside it.' }
+  {
+    value: 'allow-all',
+    label: 'Allow all', // i18n-ignore: agent-facing English (text is the window's)
+    description: 'Approves every tool, path and web request without asking, in its folder and outside it.', // i18n-ignore: agent-facing English (text is the window's)
+    text: {
+      label: msg({ id: 'agents.copilot.allowAll', defaultMessage: 'Allow all', description: "GitHub Copilot's permission mode that approves everything. Keep it short." }),
+      description: msg({ id: 'agents.copilot.allowAllDescription', defaultMessage: 'Approves every tool, path and web request without asking, in its folder and outside it.', description: "What GitHub Copilot's Allow all mode does (the mode picker)." })
+    }
+  }
 ]
 
 /**
@@ -73,10 +119,10 @@ export function copilotModeFlags(mode: PermissionMode, folder: string): string[]
  * footer is Ask's. Hive has no mode for Assisted approval.
  */
 export const COPILOT_FOOTER_MODES: readonly FooterModeDef[] = [
-  { mode: 'ask', key: 'ask', label: 'Ask', pattern: String.raw`\bInteractive ?· ?Manual\b` },
-  { mode: 'allow-all', key: 'allowAll', label: 'Allow all', pattern: String.raw`\bInteractive ?· ?Allow\b` },
-  { mode: 'plan', key: 'plan', label: 'Plan', pattern: String.raw`\bPlan ?· ?(?:Manual|Allow|Assisted)\b` },
-  { mode: 'autopilot', key: 'autopilot', label: 'Autopilot', pattern: String.raw`\bAutopilot ?· ?(?:Manual|Allow|Assisted)\b` }
+  { mode: 'ask', key: 'ask', label: 'Ask', pattern: String.raw`\bInteractive ?· ?Manual\b` }, // i18n-ignore: a footer's name in Settings → Advanced (advanced.ts words it)
+  { mode: 'allow-all', key: 'allowAll', label: 'Allow all', pattern: String.raw`\bInteractive ?· ?Allow\b` }, // i18n-ignore: a footer's name in Settings → Advanced (advanced.ts words it)
+  { mode: 'plan', key: 'plan', label: 'Plan', pattern: String.raw`\bPlan ?· ?(?:Manual|Allow|Assisted)\b` }, // i18n-ignore: a footer's name in Settings → Advanced (advanced.ts words it)
+  { mode: 'autopilot', key: 'autopilot', label: 'Autopilot', pattern: String.raw`\bAutopilot ?· ?(?:Manual|Allow|Assisted)\b` } // i18n-ignore: a footer's name in Settings → Advanced (advanced.ts words it)
 ]
 
 const FOOTER_DEFAULTS = footerPatterns(COPILOT_FOOTER_MODES, '')
@@ -127,12 +173,17 @@ const models = (...ids: string[]) => ids.map((id) => ({ value: id, label: copilo
  * need a paid plan. Anything else can be typed as a custom ID.
  */
 export const COPILOT_MODEL_GROUPS: ModelGroup[] = [
-  { label: 'Auto', models: models('auto') },
-  { label: 'Claude', models: models('claude-sonnet-5.5', 'claude-opus-5.5', 'claude-fable-5.1', 'claude-haiku-4.5') },
-  { label: 'GPT', models: models('gpt-6.1-sol', 'gpt-6-sol', 'gpt-6-luna', 'gpt-6-astra', 'gpt-5-mini') },
-  { label: 'Others', models: models('gemini-3.8-flash', 'grok-4.7', 'kimi-k3', 'mai-code-1.1-flash') },
+  { label: 'Auto', models: models('auto') }, // i18n-ignore: Copilot's model of that name
+  { label: 'Claude', models: models('claude-sonnet-5.5', 'claude-opus-5.5', 'claude-fable-5.1', 'claude-haiku-4.5') }, // i18n-ignore: a model family's name
+  { label: 'GPT', models: models('gpt-6.1-sol', 'gpt-6-sol', 'gpt-6-luna', 'gpt-6-astra', 'gpt-5-mini') }, // i18n-ignore: a model family's name
   {
-    label: 'Older versions',
+    label: 'Others', // i18n-ignore: agent-facing English (text is the window's)
+    text: msg({ id: 'agents.copilot.othersGroup', defaultMessage: 'Others', description: "A group of the model picker (GitHub Copilot): models from other companies (Gemini, Grok…). Keep it short." }),
+    models: models('gemini-3.8-flash', 'grok-4.7', 'kimi-k3', 'mai-code-1.1-flash')
+  },
+  {
+    label: 'Older versions', // i18n-ignore: agent-facing English (text is the window's)
+    text: OLDER_VERSIONS,
     older: true,
     models: models('claude-sonnet-5', 'claude-fable-5', 'claude-opus-5', 'claude-opus-4.8', 'claude-opus-4.8-fast', 'claude-sonnet-4.6', 'gpt-5.6-sol', 'gpt-5.6-terra', 'gpt-5.6-luna', 'gpt-5.5', 'gpt-5.4', 'gpt-5.4-mini', 'gpt-5.3-codex', 'gemini-3.7-flash', 'grok-4.6', 'grok-4.5')
   }
@@ -140,9 +191,9 @@ export const COPILOT_MODEL_GROUPS: ModelGroup[] = [
 
 export const COPILOT_DESCRIPTOR: ProviderDescriptor = {
   id: COPILOT,
-  name: 'GitHub Copilot',
-  assistant: 'Copilot',
-  company: 'GitHub',
+  name: 'GitHub Copilot', // i18n-ignore: a product name
+  assistant: 'Copilot', // i18n-ignore: a product name
+  company: 'GitHub', // i18n-ignore: a company name
   cliName: 'copilot',
   icon: 'copilot',
   setupUrl: 'https://docs.github.com/copilot/how-tos/copilot-cli',
@@ -153,16 +204,16 @@ export const COPILOT_DESCRIPTOR: ProviderDescriptor = {
   // Reads are approved by Copilot itself, and Hive's own tools are pre-approved (the Assistant's: trustedHiveTools).
   assistantMode: 'ask',
   effortLevels: [
-    { value: 'none', label: 'None' },
-    { value: 'minimal', label: 'Minimal' },
-    { value: 'low', label: 'Low' },
-    { value: 'medium', label: 'Medium' },
-    { value: 'high', label: 'High' },
-    { value: 'xhigh', label: 'Extra high' },
-    { value: 'max', label: 'Max' }
+    { value: 'none', label: 'None', text: EFFORT_TEXT.none }, // i18n-ignore: agent-facing English (text is the window's)
+    { value: 'minimal', label: 'Minimal', text: EFFORT_TEXT.minimal }, // i18n-ignore: agent-facing English (text is the window's)
+    { value: 'low', label: 'Low', text: EFFORT_TEXT.low }, // i18n-ignore: agent-facing English (text is the window's)
+    { value: 'medium', label: 'Medium', text: EFFORT_TEXT.medium }, // i18n-ignore: agent-facing English (text is the window's)
+    { value: 'high', label: 'High', text: EFFORT_TEXT.high }, // i18n-ignore: agent-facing English (text is the window's)
+    { value: 'xhigh', label: 'Extra high', text: EFFORT_TEXT.xhigh }, // i18n-ignore: agent-facing English (text is the window's)
+    { value: 'max', label: 'Max', text: EFFORT_TEXT.max } // i18n-ignore: agent-facing English (text is the window's)
   ],
   modelGroups: COPILOT_MODEL_GROUPS,
-  modelPlaceholder: 'Model ID, e.g. claude-sonnet-5.5 or auto',
+  modelPlaceholder: 'Model ID, e.g. claude-sonnet-5.5 or auto', // i18n-ignore: English (text.modelPlaceholder is the window's)
   capabilities: {
     // --session-id <uuid> names a new session; --resume <id> reopens it.
     fixedSessionId: true,
@@ -189,12 +240,19 @@ export const COPILOT_DESCRIPTOR: ProviderDescriptor = {
   reservedKeys: [],
   instructionsFile: 'AGENTS.md',
   installNote:
-    'Install the GitHub Copilot CLI with WinGet (`winget install GitHub.Copilot`) or npm (`npm install -g @github/copilot`), then sign in once with `copilot login` in a terminal (or with the GitHub CLI, which Copilot also uses). Copilot Free runs the Auto model only; choosing a model needs a paid plan. If the CLI is installed somewhere else, set its path in Settings → GitHub Copilot.',
+    'Install the GitHub Copilot CLI with WinGet (`winget install GitHub.Copilot`) or npm (`npm install -g @github/copilot`), then sign in once with `copilot login` in a terminal (or with the GitHub CLI, which Copilot also uses). Copilot Free runs the Auto model only; choosing a model needs a paid plan. If the CLI is installed somewhere else, set its path in Settings → GitHub Copilot.', // i18n-ignore: English, as main's notices use it (text has the window's)
   extensionNote:
-    "You have GitHub Copilot in VS Code (or a similar editor). Hive doesn't use the editor's copy — it moves with every extension update. Install the Copilot CLI; your extension keeps working as before.",
-  signInHelp: 'Sign in again: run copilot login in a terminal (Help → Agent Setup → GitHub Copilot shows how).',
+    "You have GitHub Copilot in VS Code (or a similar editor). Hive doesn't use the editor's copy — it moves with every extension update. Install the Copilot CLI; your extension keeps working as before.", // i18n-ignore: English, as main's notices use it (text has the window's)
+  signInHelp: 'Sign in again: run copilot login in a terminal (Help → Agent Setup → GitHub Copilot shows how).', // i18n-ignore: English for main's notices (text has the window's)
   // Its session events have no record of a safety classifier stopping a response or rerouting it (checked with 1.0.x, #606).
   safeguardHelp: null,
+  text: {
+    installNote: msg({ id: 'agents.copilot.installNote', defaultMessage: 'Install the GitHub Copilot CLI with WinGet (`winget install GitHub.Copilot`) or npm (`npm install -g @github/copilot`), then sign in once with `copilot login` in a terminal (or with the GitHub CLI, which Copilot also uses). Copilot Free runs the Auto model only; choosing a model needs a paid plan. If the CLI is installed somewhere else, set its path in Settings → GitHub Copilot.', description: "Agent Setup → GitHub Copilot: how to install it. Keep the commands in backticks exactly as they are; Copilot Free is a plan's name and Auto a model's; Settings → GitHub Copilot is a place in Hive's settings." }),
+    extensionNote: msg({ id: 'agents.copilot.extensionNote', defaultMessage: "You have GitHub Copilot in VS Code (or a similar editor). Hive doesn't use the editor's copy — it moves with every extension update. Install the Copilot CLI; your extension keeps working as before.", description: 'Agent Setup → GitHub Copilot, when only an editor extension was found: why Hive needs the standalone CLI.' }),
+    signInHelp: msg({ id: 'agents.copilot.signInHelp', defaultMessage: 'Sign in again: run copilot login in a terminal (Help → Agent Setup → GitHub Copilot shows how).', description: "How to sign in to GitHub Copilot again after its sign-in expired (an agent's pane, a notification). copilot login is a command: keep it; Help → Agent Setup → GitHub Copilot is a menu path in Hive." }),
+    safeguardHelp: null,
+    modelPlaceholder: msg({ id: 'agents.copilot.modelPlaceholder', defaultMessage: 'Model ID, e.g. claude-sonnet-5.5 or auto', description: 'Placeholder of the custom model ID box (GitHub Copilot). Keep the model IDs exactly as they are.' })
+  },
   modelLabel: copilotModelLabel,
   canSwitchLive: copilotCanSwitchLive
 }

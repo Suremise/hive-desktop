@@ -1,3 +1,6 @@
+import { msg } from './i18n/msg'
+import type { Tr } from './tasks'
+
 // Agent names are unique across the workspace (#702): two projects' agents called B1 can't be told apart on the board,
 // in notifications or by the Assistant. Adding, renaming and loading a template refuse a name another agent of the
 // workspace has, suggesting one with the project's prefix (B1 in amberlight: AB1); names from before stay, flagged once.
@@ -43,7 +46,7 @@ const fit = (base: string, suffix: string): string => `${base.slice(0, Math.max(
 export function suggestAgentName(name: string, project: string, taken: readonly string[]): string {
   const used = new Set(taken.map(key))
   const free = (n: string): boolean => !used.has(key(n))
-  const clean = name.replace(/\s+/g, ' ').trim() || 'Agent'
+  const clean = name.replace(/\s+/g, ' ').trim() || 'Agent' // i18n-ignore: a stored agent name, not text shown as words
   const word = project.replace(/[^A-Za-z0-9]+/g, '').toUpperCase()
   const prefixes = [projectPrefix(project), ...Array.from({ length: Math.max(0, word.length - 1) }, (_, i) => word.slice(0, i + 2))]
   const code = isCode(clean)
@@ -59,15 +62,16 @@ export function suggestAgentName(name: string, project: string, taken: readonly 
 }
 
 /** "There is already an agent called "B1" in amberlight…": the refusal, with a free name to use instead. */
-export function nameTakenMessage(name: string, owner: NamedAgent, suggestion: string): string {
-  return `There is already an agent called "${owner.name}" in ${owner.project}. Agent names are unique across the workspace: try "${suggestion}".`
+export function nameTakenMessage(name: string, owner: NamedAgent, suggestion: string, tr?: Tr): string {
+  if (tr) return tr(msg({ id: 'agents.name.taken', defaultMessage: 'There is already an agent called "{agent}" in {project}. Agent names are unique across the workspace: try "{suggestion}".', description: "Why an agent name can't be used: another agent ({agent}, in {project}) has it. {suggestion} is a free name to use instead." }), { agent: owner.name, project: owner.project, suggestion })
+  return `There is already an agent called "${owner.name}" in ${owner.project}. Agent names are unique across the workspace: try "${suggestion}".` // i18n-ignore: English for main's error (the window passes tr)
 }
 
-/** Why a name can't be used for an agent (empty, too long), or null. */
-export function agentNameProblem(name: string): string | null {
+/** Why a name can't be used for an agent (empty, too long), or null; in the window's language with tr, else English (main's errors). */
+export function agentNameProblem(name: string, tr?: Tr): string | null {
   const clean = name.replace(/\s+/g, ' ').trim()
-  if (!clean) return 'Enter a name.'
-  if (clean.length > AGENT_NAME_MAX) return `A name is at most ${AGENT_NAME_MAX} characters.`
+  if (!clean) return tr ? tr(msg({ id: 'agents.name.empty', defaultMessage: 'Enter a name.', description: "Why an agent name can't be used: it is empty." })) : 'Enter a name.' // i18n-ignore: English for main's error (the window passes tr)
+  if (clean.length > AGENT_NAME_MAX) return tr ? tr(msg({ id: 'agents.name.tooLong', defaultMessage: 'A name is at most {max} characters.', description: "Why an agent name can't be used: it is longer than {max} characters." }), { max: AGENT_NAME_MAX }) : `A name is at most ${AGENT_NAME_MAX} characters.` // i18n-ignore: English for main's error (the window passes tr)
   return null
 }
 

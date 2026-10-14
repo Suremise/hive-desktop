@@ -1,0 +1,1226 @@
+{
+  "agents.add.add": {
+    "defaultMessage": "Add Agent",
+    "description": "The Add Agent dialog's button: adds the agent."
+  },
+  "agents.add.basedOn": {
+    "defaultMessage": "Based on",
+    "description": "Label of the branch a new worktree's branch starts from (Add Agent dialog)."
+  },
+  "agents.add.branch": {
+    "defaultMessage": "Branch",
+    "description": "Label of the new worktree's branch name in the Add Agent dialog."
+  },
+  "agents.add.branchHint": {
+    "defaultMessage": "<code>hive/</code> marks branches Hive made, so it can reuse and tidy them up.",
+    "description": "Under the branch name in the Add Agent dialog. Keep <code>hive/</code> as it is: it is the start of the branch name."
+  },
+  "agents.add.checking": {
+    "defaultMessage": "Checking which coding agents are installed, for the default provider (Automatic)…",
+    "description": "The Add Agent dialog while Hive looks for the installed CLIs, to pick the default provider. Automatic is that setting's name."
+  },
+  "agents.add.createdIn": {
+    "defaultMessage": "Created in <code>{folder}</code>{copied, select, none {} other {, with <code>{copied}</code> copied from the project folder}}.",
+    "description": "Under the branch name in the Add Agent dialog: where the new worktree goes ({folder}, a path), and the files copied into it from the project folder ({copied}, a list; none: leave that branch empty). Keep the <code> tags."
+  },
+  "agents.add.currentBranch": {
+    "defaultMessage": "{branch} (current)",
+    "description": "A branch in the Based on list: the one checked out in the project folder now."
+  },
+  "agents.add.detached": {
+    "defaultMessage": "(detached)",
+    "description": "An existing worktree in the Add Agent dialog's list whose checkout is on no branch (git's detached HEAD)."
+  },
+  "agents.add.existingMerged": {
+    "defaultMessage": "One merged into {branch} and clean is brought up to it first; any other keeps its work as it is.",
+    "description": "Under the Existing worktree list: what happens to the chosen worktree ({branch}: the branch checked out in the project folder)."
+  },
+  "agents.add.existingMergedCurrent": {
+    "defaultMessage": "One merged into the current branch and clean is brought up to it first; any other keeps its work as it is.",
+    "description": "Under the Existing worktree list: what happens to the chosen worktree, when the project folder's branch isn't known."
+  },
+  "agents.add.existingNote": {
+    "defaultMessage": "A worktree of this project that no agent uses, e.g. one kept when an agent was removed.",
+    "description": "Under the Existing worktree choice in the Add Agent dialog."
+  },
+  "agents.add.existingWorktree": {
+    "defaultMessage": "Existing worktree",
+    "description": "A choice in the Add Agent dialog: the agent works in one of the project's worktrees that no agent uses."
+  },
+  "agents.add.failed": {
+    "defaultMessage": "Could not add agent",
+    "description": "An error's title: adding an agent to a project failed."
+  },
+  "agents.add.full": {
+    "defaultMessage": "{limit} Remove one first.",
+    "description": "The Add Agent dialog when the project has as many agents as it may: why ({limit}, a sentence), then what to do."
+  },
+  "agents.add.gitError": {
+    "defaultMessage": "Could not read the git repository: {error}",
+    "description": "Under the New worktree choice: Hive couldn't read the project's git repository; {error} is why."
+  },
+  "agents.add.gitProblem": {
+    "defaultMessage": "{problem}. Agent Setup says how to fix it.",
+    "description": "Under the New worktree choice: git can't be used ({problem}, a sentence without its full stop). Agent Setup is a Help window: use its translated name."
+  },
+  "agents.add.heldWorktree": {
+    "defaultMessage": "<code>{branch}</code> already has an unused worktree with work in it ({why}). Hive makes a new one, or <reuse>reuse it (it keeps its work)</reuse>.",
+    "description": "Under the branch name in the Add Agent dialog: an unused worktree on that branch ({branch}) has work in it ({why}). <reuse> is a link that chooses that worktree instead. Keep the tags."
+  },
+  "agents.add.nameTaken": {
+    "defaultMessage": "{project} already has an agent called {agent}: agent names are unique across the workspace.",
+    "description": "Under the name in the Add Agent dialog: an agent of another project ({project}) has that name ({agent})."
+  },
+  "agents.add.nameTakenHere": {
+    "defaultMessage": "{project} already has an agent called {agent}.",
+    "description": "Under the name in the Add Agent dialog: an agent of this project ({project}) has that name ({agent})."
+  },
+  "agents.add.needsRepo": {
+    "defaultMessage": "Needs a git repository.",
+    "description": "Under the New worktree choice: the project isn't a git repository."
+  },
+  "agents.add.newWorktree": {
+    "defaultMessage": "New worktree",
+    "description": "A choice in the Add Agent dialog: the agent works in a new git worktree (its own checkout on its own branch)."
+  },
+  "agents.add.newWorktreeNote": {
+    "defaultMessage": "Its own checkout on its own branch. Review and merge its work when it is done.",
+    "description": "Under the New worktree choice in the Add Agent dialog."
+  },
+  "agents.add.noUnused": {
+    "defaultMessage": "This project has no unused worktrees.",
+    "description": "Under the Existing worktree choice in the Add Agent dialog, when there is none to choose."
+  },
+  "agents.add.projectFolder": {
+    "defaultMessage": "Project folder",
+    "description": "A choice in the Add Agent dialog: the agent works in the project's own folder."
+  },
+  "agents.add.projectFolderNote": {
+    "defaultMessage": "Shares the folder with the project's other agents. File locks stop two agents editing the same file at once.",
+    "description": "Under the Project folder choice in the Add Agent dialog."
+  },
+  "agents.add.providerOff": {
+    "defaultMessage": "{cli} is turned off{whose, select, project {, and it is this project's default provider} yours {, and it is your default provider} other {}}. Turn it on in Settings → Providers, or choose another provider.",
+    "description": "The Add Agent dialog when the chosen provider ({cli}) is turned off; if it is the default provider, whose default it is: this project's (project) or the user's (yours); other: say nothing. Settings → Providers: use its translated names."
+  },
+  "agents.add.reuses": {
+    "defaultMessage": "Reuses <code>{path}</code>, the unused worktree already on <code>{branch}</code>: it is merged into {base} and clean, so Hive brings it up to {base}.",
+    "description": "Under the branch name in the Add Agent dialog: the new agent reuses an unused worktree ({path}, on {branch}) that is merged into {base}. Keep the <code> tags."
+  },
+  "agents.add.setupAgain": {
+    "defaultMessage": "<code>{setup}</code> runs again only if a lockfile changed.",
+    "description": "Under a reused worktree in the Add Agent dialog: the project's setup command ({setup}) runs again only when a lockfile changed. Keep the <code> tags."
+  },
+  "agents.add.setupNone": {
+    "defaultMessage": "Set a setup command (e.g. npm install) in Project Settings → Agents.",
+    "description": "Under the branch name in the Add Agent dialog when the project has no setup command: where to set one. npm install is a command: keep it. Project Settings → Agents: use their translated names."
+  },
+  "agents.add.setupRuns": {
+    "defaultMessage": "<code>{setup}</code> runs in the agent's pane before {cli} starts.",
+    "description": "Under the branch name in the Add Agent dialog: the project's setup command ({setup}) runs in the new agent's pane before its CLI ({cli}) starts. Keep the <code> tags."
+  },
+  "agents.add.startNow": {
+    "defaultMessage": "Start a session now",
+    "description": "Checkbox in the Add Agent dialog: start the new agent at once."
+  },
+  "agents.add.title": {
+    "defaultMessage": "Add an agent to {project}",
+    "description": "Title of the Add Agent dialog. {project} is the project."
+  },
+  "agents.add.useSuggestion": {
+    "defaultMessage": "Use {name}",
+    "description": "Link after a taken name in the Add Agent dialog: uses a free name ({name}) instead."
+  },
+  "agents.add.where": {
+    "defaultMessage": "Where it works",
+    "description": "A heading in the Add Agent dialog, above the choice of folder: the project folder, a new worktree or an existing one."
+  },
+  "agents.add.worktreeNotice": {
+    "defaultMessage": "{agent}: {reused, select, yes {worktree reused} other {new worktree}}",
+    "description": "A notification's title after adding a worktree agent ({agent}): whether it reused an unused worktree or made a new one. Its message says how."
+  },
+  "agents.batch.busy": {
+    "defaultMessage": "{status, select, working {will be interrupted} background {background tasks will stop} waiting {waiting for you} other {its card loop pauses until it is resumed}}",
+    "description": "What stopping a running agent costs, in a few words (the quit dialog, Start New All…; lower case, in brackets after Stopped): it is working, waiting on its background tasks, waiting for the user's answer, or in a card loop (other: watching)."
+  },
+  "agents.batch.outcome": {
+    "defaultMessage": "{kind, select, start {A new session} archive {Its session archived, then a new one} other {Removed}}",
+    "description": "What happens to an agent that isn't running in a batch (Start New All: start; Archive and Start New All: archive; Remove All: other), in an agents table's What happens column."
+  },
+  "agents.batch.stoppedThen": {
+    "defaultMessage": "Stopped{note, select, none {} other { ({note})}}, then {kind, select, start {a new session} archive {its session archived, then a new one} other {removed}}",
+    "description": "What happens to a running agent in a batch (What happens column): stopped first ({note}: what that interrupts, in a few words; none: leave it empty), then a new session (start), its session archived and a new one (archive), or removed (other)."
+  },
+  "agents.batch.worktreeKept": {
+    "defaultMessage": "{branch}: always kept ({why})",
+    "description": "Remove All's Worktree column: the agent's branch ({branch}) is kept, and why ({why})."
+  },
+  "agents.batch.worktreeRemovable": {
+    "defaultMessage": "{branch}: merged and clean",
+    "description": "Remove All's Worktree column: the agent's branch ({branch}) is merged and has no changes, so it can be deleted."
+  },
+  "agents.batch.worktreeUnchecked": {
+    "defaultMessage": "{branch}: always kept (couldn't be checked)",
+    "description": "Remove All's Worktree column: the agent's branch ({branch}) is kept because Hive couldn't check it."
+  },
+  "agents.choice.chooseOne": {
+    "defaultMessage": "Choose one in Settings → Providers",
+    "description": "Link under \"No providers are turned on.\": opens Settings → Providers. Use those translated names."
+  },
+  "agents.choice.noneOn": {
+    "defaultMessage": "No providers are turned on.",
+    "description": "The Coding agent choice (Add Agent, Agent Settings) when no provider (CLI) is turned on. A link to Settings follows."
+  },
+  "agents.choice.notInstalled": {
+    "defaultMessage": "Not installed",
+    "description": "Under a provider in the Coding agent choice: its CLI isn't installed."
+  },
+  "agents.choice.turnedOff": {
+    "defaultMessage": "Turned off in Settings",
+    "description": "Under a provider in the Coding agent choice: it is turned off in Settings → Providers."
+  },
+  "agents.claude.acceptEdits": {
+    "defaultMessage": "Accept edits",
+    "description": "Claude Code's permission mode: it edits files without asking. Keep it short."
+  },
+  "agents.claude.acceptEditsDescription": {
+    "defaultMessage": "Makes file edits in the working folder without asking; still asks before shell commands.",
+    "description": "What Claude Code's Accept edits permission mode does (the mode picker)."
+  },
+  "agents.claude.auto": {
+    "defaultMessage": "Auto",
+    "description": "Claude Code's permission mode: a classifier approves low-risk actions. Keep it short."
+  },
+  "agents.claude.autoDescription": {
+    "defaultMessage": "A safety classifier approves low-risk actions itself and only asks about risky ones.",
+    "description": "What Claude Code's Auto permission mode does (the mode picker)."
+  },
+  "agents.claude.autoMaybe": {
+    "defaultMessage": "Claude Code may not offer Auto with {model}. If it doesn't, it runs in Manual (asking before edits and commands), and Hive shows that mode.",
+    "description": "A warning under the model and mode pickers: Claude Code may not run this model ({model}: its name) in the Auto permission mode. Auto and Manual are mode names."
+  },
+  "agents.claude.autoUnsupported": {
+    "defaultMessage": "Claude Code doesn't offer Auto with {model}: it runs in Manual instead (asking before edits and commands), and Hive shows that mode.",
+    "description": "A warning under the model and mode pickers: Claude Code said it will not run this model ({model}: its name) in the Auto permission mode. Auto and Manual are mode names."
+  },
+  "agents.claude.bypass": {
+    "defaultMessage": "Bypass permissions",
+    "description": "Claude Code's permission mode with no guardrails: it allows everything. Keep it short."
+  },
+  "agents.claude.bypassDescription": {
+    "defaultMessage": "Never asks and allows everything — any edit, command or network call. Use only in disposable environments.",
+    "description": "What Claude Code's Bypass permissions mode does (the mode picker): a warning."
+  },
+  "agents.claude.dontAsk": {
+    "defaultMessage": "Don't ask",
+    "description": "Claude Code's permission mode: it never prompts, and refuses what isn't pre-approved. Keep it short."
+  },
+  "agents.claude.dontAskDescription": {
+    "defaultMessage": "Never prompts. Anything not pre-approved is refused instead of asked about.",
+    "description": "What Claude Code's Don't ask permission mode does (the mode picker)."
+  },
+  "agents.claude.extensionNote": {
+    "defaultMessage": "You have the Claude Code extension for VS Code (or a similar editor). Hive doesn't use it — the extension's built-in copy moves with every extension update and can't be updated on its own. Install the CLI; your extension keeps working as before.",
+    "description": "Agent Setup → Claude Code, when only an editor extension was found: why Hive needs the standalone CLI."
+  },
+  "agents.claude.installNote": {
+    "defaultMessage": "The installer runs `irm https://claude.ai/install.ps1 | iex` in PowerShell and installs to `%USERPROFILE%\\.local\\bin`. After installing, sign in with your Claude account (Pro, Max, Team or Enterprise) or an Anthropic Console account. If the CLI is installed somewhere else, set its path in Settings → Claude Code.",
+    "description": "Agent Setup → Claude Code: how its installer works. Keep the command and the path in backticks exactly as they are, and the plan names (Pro, Max, Team, Enterprise); Settings → Claude Code is a place in Hive's settings."
+  },
+  "agents.claude.latestFable": {
+    "defaultMessage": "Fable (latest)",
+    "description": "A model alias in the model picker (Claude Code): always the newest Fable model. Fable is a name: keep it. Keep it short."
+  },
+  "agents.claude.latestGroup": {
+    "defaultMessage": "Latest (follows new releases)",
+    "description": "A group of the model picker (Claude Code): aliases that always use the newest model of their family."
+  },
+  "agents.claude.latestHaiku": {
+    "defaultMessage": "Haiku (latest)",
+    "description": "A model alias in the model picker (Claude Code): always the newest Haiku model. Haiku is a name: keep it. Keep it short."
+  },
+  "agents.claude.latestOpus": {
+    "defaultMessage": "Opus (latest)",
+    "description": "A model alias in the model picker (Claude Code): always the newest Opus model. Opus is a name: keep it. Keep it short."
+  },
+  "agents.claude.latestSonnet": {
+    "defaultMessage": "Sonnet (latest)",
+    "description": "A model alias in the model picker (Claude Code): always the newest Sonnet model. Sonnet is a name: keep it. Keep it short."
+  },
+  "agents.claude.manual": {
+    "defaultMessage": "Manual",
+    "description": "Claude Code's permission mode: it asks before edits and commands. Keep it short."
+  },
+  "agents.claude.manualDescription": {
+    "defaultMessage": "Asks before file edits and shell commands unless you have pre-approved them.",
+    "description": "What Claude Code's Manual permission mode does (the mode picker)."
+  },
+  "agents.claude.modelPlaceholder": {
+    "defaultMessage": "Full model ID, e.g. claude-opus-5-5 or claude-opus-4-6[1m]",
+    "description": "Placeholder of the custom model ID box (Claude Code). Keep the model IDs exactly as they are."
+  },
+  "agents.claude.pinnedGroup": {
+    "defaultMessage": "Pinned versions",
+    "description": "A group of the model picker (Claude Code): full model IDs that stay on one version."
+  },
+  "agents.claude.plan": {
+    "defaultMessage": "Plan",
+    "description": "Claude Code's permission mode: it plans and changes nothing. Keep it short."
+  },
+  "agents.claude.planDescription": {
+    "defaultMessage": "Read-only: explores and proposes a plan, changes nothing until you approve.",
+    "description": "What Claude Code's Plan permission mode does (the mode picker)."
+  },
+  "agents.claude.safeguardHelp": {
+    "defaultMessage": "In its terminal: /feedback reports a false positive, /model switches back, and /config sets whether it switches models by itself when a message is flagged.",
+    "description": "What to do after Claude Code's safety classifier stopped a response (an agent's safeguard note). /feedback, /model and /config are commands: keep them."
+  },
+  "agents.claude.signInHelp": {
+    "defaultMessage": "Type /login in one of its agents’ terminals (that agent then carries on by itself), or use Help → Agent Setup → Claude Code → Sign in.",
+    "description": "How to sign in to Claude Code again after its sign-in expired (an agent's pane, a notification). /login is a command: keep it; Help → Agent Setup → Claude Code → Sign in is a menu path in Hive."
+  },
+  "agents.codex.approveForMe": {
+    "defaultMessage": "Approve for me",
+    "description": "Codex's permission preset: its own reviewer approves safe actions. Keep it short."
+  },
+  "agents.codex.approveForMeDescription": {
+    "defaultMessage": "An automatic reviewer approves safe actions itself and only asks about ones it thinks are risky.",
+    "description": "What Codex's Approve for me permission preset does (the mode picker)."
+  },
+  "agents.codex.ask": {
+    "defaultMessage": "Ask for approval",
+    "description": "Codex's permission preset: it asks before internet access or edits outside the workspace. Keep it short."
+  },
+  "agents.codex.askDescription": {
+    "defaultMessage": "Reads and edits workspace files and runs commands in its sandbox; asks before internet access or edits outside the workspace.",
+    "description": "What Codex's Ask for approval permission preset does (the mode picker)."
+  },
+  "agents.codex.extensionNote": {
+    "defaultMessage": "You have the Codex extension for VS Code (or a similar editor). Hive doesn't use it — the extension's built-in copy moves with every extension update. Install the CLI; your extension keeps working as before.",
+    "description": "Agent Setup → Codex, when only an editor extension was found: why Hive needs the standalone CLI."
+  },
+  "agents.codex.fullAccess": {
+    "defaultMessage": "Full access",
+    "description": "Codex's permission preset with no guardrails. Keep it short."
+  },
+  "agents.codex.fullAccessDescription": {
+    "defaultMessage": "No sandbox and no approvals: edits anything and uses the internet without asking. Use only in disposable environments.",
+    "description": "What Codex's Full access permission preset does (the mode picker): a warning."
+  },
+  "agents.codex.installNote": {
+    "defaultMessage": "The installer runs `irm https://chatgpt.com/codex/install.ps1 | iex` in PowerShell and installs to `%LOCALAPPDATA%\\Programs\\OpenAI\\Codex`. After installing, sign in with your ChatGPT account (Plus, Pro, Business or Enterprise) or an API key, then set up its Windows sandbox once. If the CLI is installed somewhere else, set its path in Settings → Codex.",
+    "description": "Agent Setup → Codex: how its installer works. Keep the command and the path in backticks exactly as they are, and the plan names (Plus, Pro, Business, Enterprise); Settings → Codex is a place in Hive's settings."
+  },
+  "agents.codex.modelPlaceholder": {
+    "defaultMessage": "Model ID, e.g. gpt-6-sol",
+    "description": "Placeholder of the custom model ID box (Codex). Keep the model ID exactly as it is."
+  },
+  "agents.codex.readOnly": {
+    "defaultMessage": "Read only",
+    "description": "Codex's permission preset: it only reads. Keep it short."
+  },
+  "agents.codex.readOnlyDescription": {
+    "defaultMessage": "Reads workspace files; asks before any edit or internet access.",
+    "description": "What Codex's Read only permission preset does (the mode picker)."
+  },
+  "agents.codex.safeguardHelp": {
+    "defaultMessage": "Codex sends a request it flags to another model, or stops the turn. For security work, OpenAI’s Trusted Access for Cyber program lifts that.",
+    "description": "What happens after Codex's safety check flags a request (an agent's safeguard note). Trusted Access for Cyber is the name of OpenAI's program: keep it."
+  },
+  "agents.codex.signInHelp": {
+    "defaultMessage": "Sign in again in Help → Agent Setup → Codex → Sign in (or run codex login in a terminal).",
+    "description": "How to sign in to Codex again after its sign-in expired (an agent's pane, a notification). Help → Agent Setup → Codex → Sign in is a menu path in Hive; codex login is a command: keep it."
+  },
+  "agents.copilot.acceptEdits": {
+    "defaultMessage": "Accept edits",
+    "description": "GitHub Copilot's permission mode: it edits files in its folder without asking. Keep it short."
+  },
+  "agents.copilot.acceptEditsCliNote": {
+    "defaultMessage": "Copilot’s own footer still says Manual Approval: Hive starts it with edits in its folder approved (an allow rule), which Copilot’s label doesn’t show.",
+    "description": "Shown with the mode badge of a Copilot agent in Accept edits: why Copilot's own screen names another mode. Manual Approval is Copilot's own English label: keep it as it is."
+  },
+  "agents.copilot.acceptEditsDescription": {
+    "defaultMessage": "Edits files in its folder without asking (not where the folder’s path has parentheses: Copilot can’t approve them there); still asks before other commands, other MCP tools, web access and changes outside its folder.",
+    "description": "What GitHub Copilot's Accept edits mode does (the mode picker). MCP is a protocol's name: keep it."
+  },
+  "agents.copilot.allowAll": {
+    "defaultMessage": "Allow all",
+    "description": "GitHub Copilot's permission mode that approves everything. Keep it short."
+  },
+  "agents.copilot.allowAllDescription": {
+    "defaultMessage": "Approves every tool, path and web request without asking, in its folder and outside it.",
+    "description": "What GitHub Copilot's Allow all mode does (the mode picker)."
+  },
+  "agents.copilot.ask": {
+    "defaultMessage": "Ask",
+    "description": "GitHub Copilot's permission mode: it asks before edits and most commands. Keep it short."
+  },
+  "agents.copilot.askDescription": {
+    "defaultMessage": "Reads files and runs harmless commands without asking; asks before edits, other commands, other MCP tools and web access.",
+    "description": "What GitHub Copilot's Ask mode does (the mode picker). MCP is a protocol's name: keep it."
+  },
+  "agents.copilot.autopilot": {
+    "defaultMessage": "Autopilot",
+    "description": "GitHub Copilot's permission mode that carries on by itself and approves everything. Keep it short."
+  },
+  "agents.copilot.autopilotDescription": {
+    "defaultMessage": "Allow all, and it carries on by itself until the task is done (up to 5 continuations) without handing back to you. Once it has run, the session approves every tool, path and web request, also after you switch out of it. Use only where unattended changes are acceptable.",
+    "description": "What GitHub Copilot's Autopilot mode does (the mode picker): a warning. Allow all is another mode's name."
+  },
+  "agents.copilot.extensionNote": {
+    "defaultMessage": "You have GitHub Copilot in VS Code (or a similar editor). Hive doesn't use the editor's copy — it moves with every extension update. Install the Copilot CLI; your extension keeps working as before.",
+    "description": "Agent Setup → GitHub Copilot, when only an editor extension was found: why Hive needs the standalone CLI."
+  },
+  "agents.copilot.installNote": {
+    "defaultMessage": "Install the GitHub Copilot CLI with WinGet (`winget install GitHub.Copilot`) or npm (`npm install -g @github/copilot`), then sign in once with `copilot login` in a terminal (or with the GitHub CLI, which Copilot also uses). Copilot Free runs the Auto model only; choosing a model needs a paid plan. If the CLI is installed somewhere else, set its path in Settings → GitHub Copilot.",
+    "description": "Agent Setup → GitHub Copilot: how to install it. Keep the commands in backticks exactly as they are; Copilot Free is a plan's name and Auto a model's; Settings → GitHub Copilot is a place in Hive's settings."
+  },
+  "agents.copilot.modelPlaceholder": {
+    "defaultMessage": "Model ID, e.g. claude-sonnet-5.5 or auto",
+    "description": "Placeholder of the custom model ID box (GitHub Copilot). Keep the model IDs exactly as they are."
+  },
+  "agents.copilot.othersGroup": {
+    "defaultMessage": "Others",
+    "description": "A group of the model picker (GitHub Copilot): models from other companies (Gemini, Grok…). Keep it short."
+  },
+  "agents.copilot.plan": {
+    "defaultMessage": "Plan",
+    "description": "GitHub Copilot's permission mode: it plans first. Keep it short."
+  },
+  "agents.copilot.planDescription": {
+    "defaultMessage": "Plans the work and asks before changing anything.",
+    "description": "What GitHub Copilot's Plan mode does (the mode picker)."
+  },
+  "agents.copilot.signInHelp": {
+    "defaultMessage": "Sign in again: run copilot login in a terminal (Help → Agent Setup → GitHub Copilot shows how).",
+    "description": "How to sign in to GitHub Copilot again after its sign-in expired (an agent's pane, a notification). copilot login is a command: keep it; Help → Agent Setup → GitHub Copilot is a menu path in Hive."
+  },
+  "agents.dialog.busy": {
+    "defaultMessage": "Busy. Choose it once it has finished.",
+    "description": "Under an agent in the Continue with… dialog: it is working, so it can't be chosen now."
+  },
+  "agents.dialog.cancel": {
+    "defaultMessage": "Cancel",
+    "description": "Button: closes an agent dialog without changing anything."
+  },
+  "agents.dialog.codingAgent": {
+    "defaultMessage": "Coding agent",
+    "description": "A heading in Add Agent and Agent Settings, above the choice of provider (Claude Code, Codex, GitHub Copilot)."
+  },
+  "agents.dialog.mcpServers": {
+    "defaultMessage": "MCP servers",
+    "description": "A heading in Agent Settings, above the agent's MCP servers."
+  },
+  "agents.dialog.merge": {
+    "defaultMessage": "Merge",
+    "description": "The Merge dialog's button, and its choice of a git merge (not a squash). Keep it short."
+  },
+  "agents.dialog.name": {
+    "defaultMessage": "Name",
+    "description": "Label of an agent's name (Add Agent, Agent Settings)."
+  },
+  "agents.dialog.projectFolder": {
+    "defaultMessage": "The project folder",
+    "description": "Where an agent works: the project's own folder (not a worktree)."
+  },
+  "agents.dialog.settings": {
+    "defaultMessage": "Settings",
+    "description": "A heading in Add Agent and Agent Settings, above the agent's model, effort, mode and context."
+  },
+  "agents.dialog.worksIn": {
+    "defaultMessage": "Works in",
+    "description": "Label of where an agent works (Agent Settings): its worktree or the project folder."
+  },
+  "agents.dialog.worktree": {
+    "defaultMessage": "Worktree",
+    "description": "Label of an agent's git worktree (a checkout of its own)."
+  },
+  "agents.effort.inherited": {
+    "defaultMessage": "{effort} (default)",
+    "description": "An agent's effort level when nobody chose one: the model's default ({effort}: \"High\")."
+  },
+  "agents.efforts.default": {
+    "defaultMessage": "default",
+    "description": "The effort a choice comes to, in a picker's base option (\"Inherit (default)\"), when the model's default isn't known. Lower case."
+  },
+  "agents.efforts.defaultIs": {
+    "defaultMessage": "{effort}, default",
+    "description": "The effort a choice comes to, in a picker's base option (\"Inherit (Medium, default)\"): the model's own default effort level ({effort}). Lower case after the comma."
+  },
+  "agents.efforts.high": {
+    "defaultMessage": "High",
+    "description": "An effort level (how hard the model thinks) in the effort picker. Keep it short."
+  },
+  "agents.efforts.low": {
+    "defaultMessage": "Low",
+    "description": "An effort level (how hard the model thinks) in the effort picker. Keep it short."
+  },
+  "agents.efforts.max": {
+    "defaultMessage": "Max",
+    "description": "The highest effort level (how hard the model thinks) of most models, in the effort picker. Keep it short."
+  },
+  "agents.efforts.medium": {
+    "defaultMessage": "Medium",
+    "description": "An effort level (how hard the model thinks) in the effort picker. Keep it short."
+  },
+  "agents.efforts.minimal": {
+    "defaultMessage": "Minimal",
+    "description": "An effort level (how hard the model thinks) in the effort picker. Keep it short."
+  },
+  "agents.efforts.none": {
+    "defaultMessage": "None",
+    "description": "An effort level (how hard the model thinks) in the effort picker: no reasoning. Keep it short."
+  },
+  "agents.efforts.ultra": {
+    "defaultMessage": "Ultra",
+    "description": "Codex's effort level above Max (how hard the model thinks), in the effort picker. Keep it short."
+  },
+  "agents.efforts.xhigh": {
+    "defaultMessage": "Extra high",
+    "description": "An effort level (how hard the model thinks) in the effort picker, between High and Max. Keep it short."
+  },
+  "agents.fileLock.ask": {
+    "defaultMessage": "Ask me",
+    "description": "A file lock mode (Settings, a project's settings): the user approves an edit of a file another agent is editing. Keep it short."
+  },
+  "agents.fileLock.askDescription": {
+    "defaultMessage": "The edit waits for your approval, like a permission prompt.",
+    "description": "What the Ask me file lock mode does."
+  },
+  "agents.fileLock.block": {
+    "defaultMessage": "Block",
+    "description": "A file lock mode (Settings, a project's settings): an agent may not edit a file another agent is editing. Keep it short."
+  },
+  "agents.fileLock.blockDescription": {
+    "defaultMessage": "An agent that tries to edit a file another agent is editing is told to wait or work on something else.",
+    "description": "What the Block file lock mode does."
+  },
+  "agents.fileLock.off": {
+    "defaultMessage": "Off",
+    "description": "A file lock mode (Settings, a project's settings): no locking. Keep it short."
+  },
+  "agents.fileLock.offDescription": {
+    "defaultMessage": "Agents edit freely. Use with care when several agents share the project folder.",
+    "description": "What the Off file lock mode does."
+  },
+  "agents.fileLock.warn": {
+    "defaultMessage": "Warn",
+    "description": "A file lock mode (Settings, a project's settings): the edit goes ahead with a warning to the agent. Keep it short."
+  },
+  "agents.fileLock.warnDescription": {
+    "defaultMessage": "The edit goes ahead, and the agent is told another agent is editing the file.",
+    "description": "What the Warn file lock mode does."
+  },
+  "agents.handOver.askFirst": {
+    "defaultMessage": "Ask {agent} to write a handover first",
+    "description": "Checkbox in the Continue with… dialog: the agent ({agent}) writes a handover before the next one starts."
+  },
+  "agents.handOver.busy": {
+    "defaultMessage": "{who, select, self {{from} is busy, so it continues from the latest handover.} other {{from} is busy, so {other} continues from the latest handover.} none {{from} is busy, so the other agent continues from the latest handover.}}",
+    "description": "Under Ask … to write a handover first, when the agent ({from}) is busy: the next one (itself: self; the chosen agent {other}; none chosen yet) carries on from the latest handover."
+  },
+  "agents.handOver.failed": {
+    "defaultMessage": "Could not hand over to {agent}",
+    "description": "An error's title: handing an agent's work to another ({agent}) failed."
+  },
+  "agents.handOver.go": {
+    "defaultMessage": "Hand Over",
+    "description": "The Continue with… dialog's button: hands the work to the chosen agent."
+  },
+  "agents.handOver.intro": {
+    "defaultMessage": "Another agent picks up the work from a handover. It can use a different provider: the conversation itself stays with {agent}; the handover carries the goal, what's done and the next steps. Or {agent} carries on itself in a new conversation, which keeps a long one from slowing things down.",
+    "description": "At the top of the Continue with… dialog ({agent}: the agent whose work is handed over). A handover is a note an agent writes for the next one."
+  },
+  "agents.handOver.needsTools": {
+    "defaultMessage": "This needs Hive's tools in sessions. Turn on \"Provide Hive tools to sessions\" in Settings → Agent API.",
+    "description": "The Continue with… dialog when sessions don't get Hive's tools: the setting to turn on (its name in quotes, and where: use their translated names)."
+  },
+  "agents.handOver.off": {
+    "defaultMessage": "{cli} is turned off.",
+    "description": "Under an agent in the Continue with… dialog: its provider ({cli}) is turned off, so it can't be chosen."
+  },
+  "agents.handOver.running": {
+    "defaultMessage": "Running: gets the message in its current session.",
+    "description": "Under a running agent in the Continue with… dialog."
+  },
+  "agents.handOver.self": {
+    "defaultMessage": "{agent}, in a new conversation",
+    "description": "A choice in the Continue with… dialog: the agent itself ({agent}) carries on in a new conversation."
+  },
+  "agents.handOver.selfNote": {
+    "defaultMessage": "Its conversation ends here (it stays in the Sessions tab) and a new one continues from the handover.{size, select, none {} other { Its transcript is {size}.}}",
+    "description": "Under the agent's own choice in the Continue with… dialog; then how big its conversation's file is ({size}: \"6.1 MB\"; none: leave that branch empty)."
+  },
+  "agents.handOver.starts": {
+    "defaultMessage": "Starts a new {cli} session.",
+    "description": "Under a stopped agent in the Continue with… dialog: it starts a new session of its CLI ({cli})."
+  },
+  "agents.handOver.stopped": {
+    "defaultMessage": "{who, select, self {{from} isn't running, so a new conversation continues from the latest handover.} other {{from} isn't running, so {other} continues from the latest handover.} none {{from} isn't running, so the other agent continues from the latest handover.}} Resume {from} first to have it write a new one.",
+    "description": "Under Ask … to write a handover first, when the agent ({from}) isn't running: the next one (a new conversation of its own: self; the chosen agent {other}; none chosen yet) carries on from the latest handover; Resume (a button) starts it again."
+  },
+  "agents.handOver.title": {
+    "defaultMessage": "Hand over {agent}'s work to…",
+    "description": "Title of the Continue with… dialog: which agent takes over this agent's ({agent}) work."
+  },
+  "agents.handOver.writes": {
+    "defaultMessage": "{who, select, self {{from} writes it with Hive's handover tool; {from} continues in a new conversation when it's done.} other {{from} writes it with Hive's handover tool; {other} starts when it's done.} none {{from} writes it with Hive's handover tool; the other agent starts when it's done.}}",
+    "description": "Under Ask … to write a handover first: the agent ({from}) writes the handover, then it carries on itself (self), the chosen agent ({other}) starts, or one not chosen yet (none)."
+  },
+  "agents.keys.clipboard": {
+    "defaultMessage": "Ctrl+{key} is kept for copy, paste and undo.",
+    "description": "Why a keyboard shortcut is refused: Ctrl with C, V, X, A, Z or Y ({key}). Ctrl is a key name."
+  },
+  "agents.keys.escape": {
+    "defaultMessage": "Escape closes dialogs and interrupts the agent.",
+    "description": "Why a keyboard shortcut is refused: Escape alone. Escape is a key name."
+  },
+  "agents.keys.shiftOnly": {
+    "defaultMessage": "Add Ctrl or Alt: Shift alone types a character.",
+    "description": "Why a keyboard shortcut is refused: Shift with one key. Ctrl, Alt and Shift are key names."
+  },
+  "agents.keys.shiftTab": {
+    "defaultMessage": "Shift+Tab switches modes inside the agents' terminals.",
+    "description": "Why a keyboard shortcut is refused: Shift+Tab, which the agents' CLIs use to switch permission modes. Key names."
+  },
+  "agents.keys.singleKey": {
+    "defaultMessage": "Add Ctrl or Alt: a single key would stop you typing it.",
+    "description": "Why a keyboard shortcut is refused (Settings → Keyboard shortcuts): one key alone. Ctrl and Alt are key names."
+  },
+  "agents.layout.columns2": {
+    "defaultMessage": "Two columns",
+    "description": "A session layout: two agent panes side by side. Keep it short."
+  },
+  "agents.layout.columns3": {
+    "defaultMessage": "Three columns",
+    "description": "A session layout: three agent panes side by side. Keep it short."
+  },
+  "agents.layout.grid": {
+    "defaultMessage": "Grid of four",
+    "description": "A session layout: four agent panes, two by two. Keep it short."
+  },
+  "agents.layout.grid6": {
+    "defaultMessage": "Grid of six",
+    "description": "A session layout: six agent panes, three by two. Keep it short."
+  },
+  "agents.layout.single": {
+    "defaultMessage": "One at a time",
+    "description": "A session layout: one agent pane at a time. Keep it short."
+  },
+  "agents.limit.many": {
+    "defaultMessage": "More than {limit} agents: each runs its own copy of its CLI, roughly 200–500 MB of memory each; this computer has {total} of memory, {free} free. They all share your plans' usage limits, so they reach them sooner.",
+    "description": "Settings → Advanced, under Agents per project once it is over the default ({limit}): what more agents cost. {total} and {free} are the computer's memory (\"16.0 GB\")."
+  },
+  "agents.limit.manyMeasured": {
+    "defaultMessage": "More than {limit} agents: each runs its own copy of its CLI. {running, plural, one {Your # running agent takes} other {Your # running agents take}} {used} now (about {each} each); this computer has {total} of memory, {free} free. They all share your plans' usage limits, so they reach them sooner.",
+    "description": "Settings → Advanced, under Agents per project once it is over the default ({limit}): what more agents cost. {running} agents run now and take {used} of memory ({each} each); {total} and {free} are the computer's memory (\"16.0 GB\")."
+  },
+  "agents.limit.reached": {
+    "defaultMessage": "A project can have up to {limit} agents (Settings → Advanced → Agents per project).",
+    "description": "Why another agent can't be added to a project. {limit} is a number; \"Settings → Advanced → Agents per project\" is where the setting is: use its translated names."
+  },
+  "agents.mcp.all": {
+    "defaultMessage": "All of the project's",
+    "description": "A choice of an agent's MCP servers (Agent Settings): every MCP server on in its project. Keep it short."
+  },
+  "agents.mcp.its": {
+    "defaultMessage": "Its MCP servers",
+    "description": "Accessible name of the list of MCP servers to tick for an agent (Agent Settings)."
+  },
+  "agents.mcp.loading": {
+    "defaultMessage": "Loading…",
+    "description": "Agent Settings while the list of MCP servers is read."
+  },
+  "agents.mcp.none": {
+    "defaultMessage": "{where, select, workspace {No MCP servers are on in this workspace: it gets none.} other {No MCP servers are on in this project: it gets none.}}",
+    "description": "Agent Settings, Only these, when no MCP server is on where the agent is (its project, or, for a template's agent, the workspace)."
+  },
+  "agents.mcp.notOn": {
+    "defaultMessage": "{where, select, workspace {not on in this workspace} other {not on in this project}}",
+    "description": "After an MCP server the agent was given that isn't on where it is now (its project, or the workspace). Lower case."
+  },
+  "agents.mcp.note": {
+    "defaultMessage": "The built-in hive server is always given. A server enabled later reaches it only with All.",
+    "description": "Under an agent's MCP servers (Agent Settings). hive is the built-in server's name: keep it. All is the first choice above (\"All of the project's\")."
+  },
+  "agents.mcp.only": {
+    "defaultMessage": "Only these",
+    "description": "A choice of an agent's MCP servers (Agent Settings): only the ones ticked below. Keep it short."
+  },
+  "agents.merge.blocked": {
+    "defaultMessage": "{why, select, waiting {{agent} is waiting for your answer. Merge once it has finished.} background {{agent} is waiting on background tasks it started. Merge once it has finished.} watching {{agent} is waiting for cards to change (a card watch) and carries on when they do. Merge once it has finished, or cancel its watch first.} signin {{agent} stopped in the middle of a task when its sign-in expired. Sign in again and let it finish first.} other {{agent} is working. Merge once it has finished.}}",
+    "description": "Why a worktree agent's work can't be merged now ({agent}: its name), by what it is doing: answering the user (waiting), waiting on its own background tasks, waiting for cards to change (a card watch), stopped by an expired sign-in, or working (other)."
+  },
+  "agents.merge.commits": {
+    "defaultMessage": "{n, plural, one {# commit} other {# commits}} not merged into {into}",
+    "description": "A worktree agent's unmerged work: commits not yet merged into a branch ({into})."
+  },
+  "agents.merge.nothing": {
+    "defaultMessage": "Nothing to merge into {into}",
+    "description": "A worktree agent's Merge button when it has no work to merge into a branch ({into})."
+  },
+  "agents.merge.uncommitted": {
+    "defaultMessage": "{n, plural, one {# uncommitted file} other {# uncommitted files}}",
+    "description": "A worktree agent's unmerged work: files changed and not committed yet."
+  },
+  "agents.mergeDialog.cantRead": {
+    "defaultMessage": "Nothing can be merged until Hive can read the branch.",
+    "description": "The Merge dialog when git couldn't read the worktree's branch; why comes before it."
+  },
+  "agents.mergeDialog.close": {
+    "defaultMessage": "Close",
+    "description": "Button: closes the Merge dialog after a merge that would conflict."
+  },
+  "agents.mergeDialog.commitsFirst": {
+    "defaultMessage": "The uncommitted changes are committed on {branch} first, with the message below.",
+    "description": "The Merge dialog when the worktree has uncommitted changes: they are committed on its branch ({branch}) before merging."
+  },
+  "agents.mergeDialog.conflict": {
+    "defaultMessage": "Merging would conflict. Nothing was changed.",
+    "description": "The Merge dialog after a merge that would conflict: Hive tried it and changed nothing."
+  },
+  "agents.mergeDialog.conflictFiles": {
+    "defaultMessage": "These files were changed on both {branch} and {into}:",
+    "description": "Above the files that would conflict: both branches ({branch}, the worktree's; {into}, the project folder's) changed them."
+  },
+  "agents.mergeDialog.conflictHelp": {
+    "defaultMessage": "An agent in the project folder can do the merge and resolve the conflicts. Send it these instructions, or copy them:",
+    "description": "The Merge dialog after a conflict, above the instructions for an agent (they stay in English: agents read them)."
+  },
+  "agents.mergeDialog.copied": {
+    "defaultMessage": "Instructions copied",
+    "description": "A notification: the merge instructions for an agent were copied to the clipboard."
+  },
+  "agents.mergeDialog.copy": {
+    "defaultMessage": "Copy",
+    "description": "Button: copies the merge instructions to the clipboard."
+  },
+  "agents.mergeDialog.mergeNote": {
+    "defaultMessage": "Keeps the agent's commits and their messages, plus a merge commit. Its next merge brings only what is new.",
+    "description": "Under the Merge choice (a git merge) for an agent's work."
+  },
+  "agents.mergeDialog.mergeNoteUnused": {
+    "defaultMessage": "Keeps its commits and their messages, plus a merge commit.",
+    "description": "Under the Merge choice (a git merge) for an unused worktree's branch."
+  },
+  "agents.mergeDialog.merges": {
+    "defaultMessage": "Merges <b>{commits, plural, =0 {} one {# commit} other {# commits}}</b>{both, select, yes { and } other {}}<b>{changes, plural, =0 {} one {# uncommitted change} other {# uncommitted changes}}</b> from <code>{branch}</code> into <code>{into}</code>, the branch checked out in the project folder.",
+    "description": "At the top of the Merge dialog: how many commits and uncommitted changes it merges (either may be none: leave that branch empty; both: say \"and\" between them), from the worktree's branch ({branch}) into the project folder's ({into}). Keep the tags."
+  },
+  "agents.mergeDialog.message": {
+    "defaultMessage": "Commit message",
+    "description": "Label of the merge's commit message in the Merge dialog."
+  },
+  "agents.mergeDialog.move": {
+    "defaultMessage": "Move {branch} to {known, select, yes {{into}} other {the merged branch}} afterwards",
+    "description": "Checkbox in the Merge dialog (Squash): points the agent's branch ({branch}) at the merged branch ({into}; when it isn't known, the merged branch) once merged."
+  },
+  "agents.mergeDialog.moveNote": {
+    "defaultMessage": "Its work is all in the squash commit, so {agent}'s next merge brings only what is new.",
+    "description": "Under Move … afterwards, ticked: why it helps the agent's ({agent}) next merge."
+  },
+  "agents.mergeDialog.noBranch": {
+    "defaultMessage": "(no branch)",
+    "description": "In the Merge dialog, where the project folder's branch goes, when it isn't on one."
+  },
+  "agents.mergeDialog.noFolderAgent": {
+    "defaultMessage": "Start an agent in the project folder (and let it finish what it is doing) to send it the instructions from here.",
+    "description": "The Merge dialog after a conflict when no agent of the project folder is ready to take the instructions."
+  },
+  "agents.mergeDialog.noInto": {
+    "defaultMessage": "The project folder is not on a branch. Check one out first.",
+    "description": "The Merge dialog when the project folder isn't on a git branch (detached HEAD)."
+  },
+  "agents.mergeDialog.noMoveNote": {
+    "defaultMessage": "Its old commits stay on it, and its next merge may conflict with them.",
+    "description": "Under Move … afterwards, not ticked: what that means for the next merge."
+  },
+  "agents.mergeDialog.nothing": {
+    "defaultMessage": "There is nothing to merge: {branch} has no changes that aren't in {into}.",
+    "description": "The Merge dialog when the worktree's branch ({branch}) has nothing new for the project folder's branch ({into})."
+  },
+  "agents.mergeDialog.otherBase": {
+    "defaultMessage": "{agent}'s branch started from {base}, but the project folder is on {into}.",
+    "description": "The Merge dialog when the agent's ({agent}) branch started from another branch ({base}) than the one the project folder is on now ({into})."
+  },
+  "agents.mergeDialog.reading": {
+    "defaultMessage": "Reading {branch}…",
+    "description": "The Merge dialog while it reads the worktree's branch ({branch})."
+  },
+  "agents.mergeDialog.remove": {
+    "defaultMessage": "Remove the worktree and branch afterwards (and the agent)",
+    "description": "Checkbox in the Merge dialog for an agent's work: removes its worktree, its branch and the agent once merged."
+  },
+  "agents.mergeDialog.removeUnused": {
+    "defaultMessage": "Remove the worktree and branch afterwards",
+    "description": "Checkbox in the Merge dialog for an unused worktree: removes it and its branch once merged."
+  },
+  "agents.mergeDialog.running": {
+    "defaultMessage": "{agent} is running, so its worktree stays. Stop it first to remove the worktree after merging.",
+    "description": "The Merge dialog while the agent ({agent}) runs: its worktree can't be removed."
+  },
+  "agents.mergeDialog.send": {
+    "defaultMessage": "Send to {agent}",
+    "description": "Button: types the merge instructions into an agent of the project folder ({agent})."
+  },
+  "agents.mergeDialog.squash": {
+    "defaultMessage": "Squash",
+    "description": "A choice in the Merge dialog: one commit with all the work (a git squash merge). Keep it short."
+  },
+  "agents.mergeDialog.squashNote": {
+    "defaultMessage": "One commit with everything the agent did, with the message below.",
+    "description": "Under the Squash choice for an agent's work."
+  },
+  "agents.mergeDialog.squashNoteUnused": {
+    "defaultMessage": "One commit with everything on it, with the message below.",
+    "description": "Under the Squash choice for an unused worktree's branch."
+  },
+  "agents.mergeDialog.title": {
+    "defaultMessage": "Merge {agent}'s work",
+    "description": "Title of the Merge dialog for a worktree agent's work ({agent})."
+  },
+  "agents.mergeDialog.titleUnused": {
+    "defaultMessage": "Merge {branch}",
+    "description": "Title of the Merge dialog for an unused worktree, named by its branch ({branch})."
+  },
+  "agents.merged.failed": {
+    "defaultMessage": "Could not merge",
+    "description": "An error's title: merging a worktree's branch failed."
+  },
+  "agents.merged.kept": {
+    "defaultMessage": "{branch} was merged, its worktree kept",
+    "description": "A warning's title after a merge: the branch ({branch}) was merged but its worktree couldn't be removed; the message says why."
+  },
+  "agents.merged.moved": {
+    "defaultMessage": "{branch} was moved to {folder, select, yes {the project folder} other {{into}}}, ready for {agent}'s next task.",
+    "description": "After a squash merge: the agent's branch ({branch}) now points at the merged branch ({into}), so its next merge brings only new work."
+  },
+  "agents.merged.notMoved": {
+    "defaultMessage": "{branch} was not moved to {folder, select, yes {the project folder} other {{into}}}",
+    "description": "A warning's title after a squash merge: the agent's branch ({branch}) couldn't be moved to the merged branch ({into})."
+  },
+  "agents.merged.notMovedWhy": {
+    "defaultMessage": "{why} Its old commits are still on it, so its next merge may conflict with them: ask {agent} to run git rebase {folder, select, yes {the project folder} other {{into}}}.",
+    "description": "Why the agent's branch wasn't moved ({why}: git's error, a sentence), and what to ask the agent ({agent}) to do. git rebase is a command: keep it."
+  },
+  "agents.merged.removed": {
+    "defaultMessage": "{agent}'s worktree and branch were removed.",
+    "description": "After merging an agent's work: its worktree and branch were removed ({agent}: the agent, removed too)."
+  },
+  "agents.merged.removedUnused": {
+    "defaultMessage": "Its worktree and branch were removed.",
+    "description": "After merging an unused worktree: it and its branch were removed."
+  },
+  "agents.merged.title": {
+    "defaultMessage": "Merged {branch} into {folder, select, yes {the project folder} other {{into}}}",
+    "description": "A notification's title after a merge: a worktree's branch ({branch}) merged into the project folder's branch ({into}; or the project folder, when its branch isn't known)."
+  },
+  "agents.model.cliDefault": {
+    "defaultMessage": "{cli} default",
+    "description": "An agent's model when nothing is chosen and the CLI doesn't say which it uses: the CLI's own default ({cli}: \"Claude Code\")."
+  },
+  "agents.model.inherited": {
+    "defaultMessage": "{model} (default)",
+    "description": "An agent's model when the agent didn't choose it (it comes from the project or Settings): {model} is its name (\"Opus 5.5\")."
+  },
+  "agents.models.fallback": {
+    "defaultMessage": "Fallback ({provider} couldn't be asked){edited, select, yes {, as you edited it} other {}}",
+    "description": "Settings → a provider: its models are Hive's fallback list, because the CLI ({provider}) couldn't be asked; and whether the user edited that list."
+  },
+  "agents.models.fromCache": {
+    "defaultMessage": "From {provider}{version, select, none {} other { {version}}} (as it last said; asking again)",
+    "description": "Settings → a provider: where its models come from now: what the CLI ({provider}) said when last asked ({version}: its version, none: leave that branch empty), while Hive asks again."
+  },
+  "agents.models.fromCli": {
+    "defaultMessage": "From {provider}{version, select, none {} other { {version}}}",
+    "description": "Settings → a provider: where its models come from now: the CLI ({provider}: its name) told Hive, in that version ({version}; none: leave that branch empty)."
+  },
+  "agents.models.olderGroup": {
+    "defaultMessage": "Older versions",
+    "description": "A group of the model picker: earlier models, hidden until shown."
+  },
+  "agents.models.providerGroup": {
+    "defaultMessage": "{provider} models",
+    "description": "A group of the model picker: the models the CLI ({provider}: its name) offers, or the user's list of them."
+  },
+  "agents.models.unavailableGroup": {
+    "defaultMessage": "Not available to this account",
+    "description": "A group of the model picker: models the CLI lists that the user's account can't use (shown, not offered)."
+  },
+  "agents.name.empty": {
+    "defaultMessage": "Enter a name.",
+    "description": "Why an agent name can't be used: it is empty."
+  },
+  "agents.name.taken": {
+    "defaultMessage": "There is already an agent called \"{agent}\" in {project}. Agent names are unique across the workspace: try \"{suggestion}\".",
+    "description": "Why an agent name can't be used: another agent ({agent}, in {project}) has it. {suggestion} is a free name to use instead."
+  },
+  "agents.name.tooLong": {
+    "defaultMessage": "A name is at most {max} characters.",
+    "description": "Why an agent name can't be used: it is longer than {max} characters."
+  },
+  "agents.overrides.context": {
+    "defaultMessage": "Use 200K context (instead of 1M)",
+    "description": "Label of an agent's choice to hold its sessions to a 200K-token context window instead of the model's 1M one."
+  },
+  "agents.overrides.effort": {
+    "defaultMessage": "Effort",
+    "description": "Label of an agent's effort (reasoning) choice (Add Agent, Agent Settings)."
+  },
+  "agents.overrides.inherited": {
+    "defaultMessage": "{whose} ({value})",
+    "description": "The first choice of an agent's model, effort, mode or context: whose setting it follows ({whose}: \"Project's\") and what that is now ({value}: \"Opus 5.5\")."
+  },
+  "agents.overrides.model": {
+    "defaultMessage": "Model",
+    "description": "Label of an agent's model choice (Add Agent, Agent Settings)."
+  },
+  "agents.overrides.off": {
+    "defaultMessage": "Off",
+    "description": "A choice of an agent's Use 200K context setting. Keep it short."
+  },
+  "agents.overrides.on": {
+    "defaultMessage": "On",
+    "description": "A choice of an agent's Use 200K context setting. Keep it short."
+  },
+  "agents.overrides.permission": {
+    "defaultMessage": "Permission mode",
+    "description": "Label of an agent's permission mode choice (Add Agent, Agent Settings)."
+  },
+  "agents.overrides.projects": {
+    "defaultMessage": "Project's",
+    "description": "An agent's model, effort, mode or context choice that follows the project's: the first choice of each, before the project's value in brackets (\"Project's (Opus 5.5)\"). Keep it short."
+  },
+  "agents.permission.agentNewSessions": {
+    "defaultMessage": "{agent}: mode for new sessions",
+    "description": "The heading of a stopped agent's permission mode menu, when the agent has its own mode ({agent}: its name)."
+  },
+  "agents.permission.answerFirst": {
+    "defaultMessage": "The agent is asking you something: answer it first",
+    "description": "In the permission mode menu, while the agent waits for an answer: its mode can be switched once it is answered."
+  },
+  "agents.permission.badgeTip": {
+    "defaultMessage": "{live, select, yes {Permission mode of the running session} other {Permission mode new sessions start in}}: {mode}.{note, select, none {} other { {note}}} Click to change{key, select, none {} other { ({key})}}.{cycles, select, yes { You can also press Shift+Tab in the terminal.} other {}}{plan, select, yes { Shift+Tab in the terminal turns Plan mode on and off.} other {}}",
+    "description": "Tooltip of an agent's permission mode badge: whose mode it is (the running session's, or new sessions'), the mode ({mode}), why the CLI's own screen names it differently ({note}; none: leave that branch empty), the shortcut that opens the menu ({key}; none: empty), and whether Shift+Tab switches it in the terminal. Shift+Tab is a key: keep it."
+  },
+  "agents.permission.current": {
+    "defaultMessage": "Current mode",
+    "description": "Under the permission mode the agent runs in now, in the mode menu."
+  },
+  "agents.permission.dangerConfirm": {
+    "defaultMessage": "Use {mode}",
+    "description": "Button: chooses the no-guardrails permission mode ({mode}: its name)."
+  },
+  "agents.permission.dangerDetail": {
+    "defaultMessage": "Only use this for disposable work where mistakes cannot do harm. {provider} may show its own warning the first time; answer it in the terminal.",
+    "description": "Under the confirmation before choosing a no-guardrails permission mode: the CLI ({provider}: its name) may ask itself too."
+  },
+  "agents.permission.dangerMessage": {
+    "defaultMessage": "{where} will run every command, edit and network call without asking.",
+    "description": "The confirmation before choosing a no-guardrails permission mode. {where} is what will run in it: an agent's name, or \"New sessions of <project>\"."
+  },
+  "agents.permission.dangerTitle": {
+    "defaultMessage": "Use {mode}?",
+    "description": "Title of the confirmation before choosing a provider's no-guardrails permission mode ({mode}: its name, Bypass permissions, Full access…)."
+  },
+  "agents.permission.inherit": {
+    "defaultMessage": "Inherit (Settings: {mode})",
+    "description": "In a stopped agent's permission mode menu: new sessions follow the mode set in Settings ({mode}: its name)."
+  },
+  "agents.permission.menu": {
+    "defaultMessage": "Permission mode",
+    "description": "The permission mode menu's heading."
+  },
+  "agents.permission.menuAgent": {
+    "defaultMessage": "Permission mode — {agent}",
+    "description": "The permission mode menu's heading, for one of several agents ({agent}: its name)."
+  },
+  "agents.permission.newSessionsOf": {
+    "defaultMessage": "New sessions of {name}",
+    "description": "The subject of the no-guardrails confirmation (\"New sessions of hive will run every command…\"): {name} is an agent's or a project's name."
+  },
+  "agents.permission.notSwitched": {
+    "defaultMessage": "Permission mode not switched",
+    "description": "A notification's title: Hive couldn't switch a running agent's permission mode (the message says why)."
+  },
+  "agents.permission.planFailed": {
+    "defaultMessage": "Could not switch Plan mode",
+    "description": "An error's title: turning a running agent's Plan mode on or off failed."
+  },
+  "agents.permission.planMode": {
+    "defaultMessage": "Plan mode",
+    "description": "In the permission mode menu (Codex): Plan mode, a toggle separate from the permission mode."
+  },
+  "agents.permission.planOff": {
+    "defaultMessage": "Plan first: the agent explores and proposes a plan without changing anything.",
+    "description": "Under Plan mode in the permission mode menu, while it is off."
+  },
+  "agents.permission.planOn": {
+    "defaultMessage": "On: the agent plans and asks before changing anything. Click to turn off.",
+    "description": "Under Plan mode in the permission mode menu, while it is on."
+  },
+  "agents.permission.projectNewSessions": {
+    "defaultMessage": "{project}: {provider} mode for new sessions",
+    "description": "The heading of a stopped agent's permission mode menu: the project's mode ({project}: its name) for its CLI ({provider})."
+  },
+  "agents.permission.restart": {
+    "defaultMessage": "Restart",
+    "description": "Button: restarts the agent's session in the chosen permission mode. Keep it short."
+  },
+  "agents.permission.restartAgent": {
+    "defaultMessage": "{mode} can't be switched to inside a running session, so {agent} restarts in it. The conversation continues where it left off.",
+    "description": "The confirmation before restarting an agent ({agent}: its name) in another permission mode ({mode}: its name)."
+  },
+  "agents.permission.restartFailed": {
+    "defaultMessage": "Could not restart the session",
+    "description": "An error's title: restarting an agent's session in another permission mode failed."
+  },
+  "agents.permission.restartSession": {
+    "defaultMessage": "{mode} can't be switched to inside a running session, so the session restarts in it. The conversation continues where it left off.",
+    "description": "The confirmation before restarting the project's one agent in another permission mode ({mode}: its name)."
+  },
+  "agents.permission.restartTitle": {
+    "defaultMessage": "Restart in {mode}?",
+    "description": "Title of the confirmation before restarting an agent's session in another permission mode ({mode}: its name)."
+  },
+  "agents.permission.restartWorking": {
+    "defaultMessage": "The agent is working and will be interrupted.",
+    "description": "Under the confirmation before restarting an agent in another permission mode: it is mid-turn."
+  },
+  "agents.permission.restarts": {
+    "defaultMessage": "Restarts the session; the conversation continues",
+    "description": "Under a permission mode in the mode menu that a running session can't switch to without a restart."
+  },
+  "agents.permission.saveFailed": {
+    "defaultMessage": "Could not save",
+    "description": "An error's title: saving an agent's permission mode for new sessions failed."
+  },
+  "agents.permission.sessionOnly": {
+    "defaultMessage": "Switches this session only. Settings decide the mode new sessions start in.",
+    "description": "The last line of a running agent's permission mode menu."
+  },
+  "agents.permission.switchFailed": {
+    "defaultMessage": "Could not switch the permission mode",
+    "description": "An error's title: switching a running agent's permission mode failed."
+  },
+  "agents.permission.switching": {
+    "defaultMessage": "Switching to {mode}…",
+    "description": "The permission mode badge while Hive switches the running session to another mode ({mode}: its name)."
+  },
+  "agents.permission.useProjects": {
+    "defaultMessage": "Use the project's ({mode})",
+    "description": "In a stopped agent's permission mode menu: use its project's mode for new sessions ({mode}: that mode's name)."
+  },
+  "agents.permission.withPlan": {
+    "defaultMessage": "{mode} · Plan",
+    "description": "The permission mode badge of a running session with Plan mode on (Codex): its mode ({mode}: its name), then Plan. Keep it short."
+  },
+  "agents.picker.customModel": {
+    "defaultMessage": "Custom model ID…",
+    "description": "The model picker's last choice: type a model ID that isn't listed."
+  },
+  "agents.picker.defaultModel": {
+    "defaultMessage": "{provider}'s default model",
+    "description": "The model that runs when none is chosen, named in the effort picker's warnings: the CLI's ({provider}: its name) default."
+  },
+  "agents.picker.effortNone": {
+    "defaultMessage": "{provider} doesn't offer {effort} with {model}, which has no effort setting: it may refuse it or use another.",
+    "description": "A warning under the effort picker: the CLI ({provider}) has no effort setting for this model ({model}), and an effort level ({effort}) is chosen."
+  },
+  "agents.picker.effortOffers": {
+    "defaultMessage": "{provider} doesn't offer {effort} with {model} (it offers {efforts}): it may refuse it or use another.",
+    "description": "A warning under the effort picker: the CLI ({provider}) doesn't list the chosen effort level ({effort}) for this model ({model}); {efforts} lists the levels it does."
+  },
+  "agents.picker.hideOlder": {
+    "defaultMessage": "Hide older versions",
+    "description": "Link under the model picker: hides the older models again."
+  },
+  "agents.picker.noEffort": {
+    "defaultMessage": "{model} has no effort setting.",
+    "description": "Under the effort picker: the chosen model ({model}: its name) doesn't take an effort level."
+  },
+  "agents.picker.notOffered": {
+    "defaultMessage": "{effort} (not offered with {model})",
+    "description": "The effort picker's choice for a level the model doesn't take ({effort}), kept chosen: {model} is the model's name."
+  },
+  "agents.picker.showOlder": {
+    "defaultMessage": "Show older versions",
+    "description": "Link under the model picker: shows the older models in it."
+  },
+  "agents.provider.automatic": {
+    "defaultMessage": "{state, select, checking {Automatic (checking…)} picked {Automatic ({provider})} other {Automatic}}",
+    "description": "The default provider Automatic (it follows what is installed), in the provider pickers: while Hive checks which CLIs are installed; with the provider it picks now ({provider}: its name); or plain."
+  },
+  "agents.provider.compactDefault": {
+    "defaultMessage": "{provider} compacts by itself at about {at, number} by default (its settings can change this)",
+    "description": "A context tooltip for a session that isn't running: where the CLI ({provider}) compacts its conversation by itself by default, in tokens ({at})."
+  },
+  "agents.provider.compactDefaultFor": {
+    "defaultMessage": "{provider} compacts by itself at about {at, number}, its default for this window{why, select, none {} other { ({why})}}{estimate, select, none {} other { ({estimate})}}",
+    "description": "A context tooltip: where the CLI ({provider}) compacts its conversation by itself, in tokens ({at}), its default for the model's window ({why}: what brings it earlier, in a settings file's words, none: leave that branch empty; {estimate}: why the figure is an estimate, none: leave it empty)."
+  },
+  "agents.provider.compactOff": {
+    "defaultMessage": "{provider} doesn't compact by itself: auto-compaction is off ({source}){estimate, select, none {} other { ({estimate})}}",
+    "description": "A context tooltip (an agent's footer, the Usage tab): the CLI ({provider}) won't compact its conversation by itself. {source} says where that is set (a settings file, in its words); {estimate} why the figure is an estimate (none: leave that branch empty)."
+  },
+  "agents.provider.compactPercent": {
+    "defaultMessage": "at {percent}% of it",
+    "description": "Part of a context tooltip: a setting brings the CLI's compaction to a percentage ({percent}) of its context window. Lower case: it follows a settings file's name."
+  },
+  "agents.provider.compactWindow": {
+    "defaultMessage": "{provider} compacts by itself at about {at, number}: its auto-compact window is {window, number} ({why}){estimate, select, none {} other { ({estimate})}}",
+    "description": "A context tooltip: where the CLI ({provider}) compacts its conversation by itself, in tokens ({at}), as its settings set its window ({window}, tokens; {why}: where that is set, in a settings file's words, and any percentage; {estimate}: why the figure is an estimate, none: leave that branch empty)."
+  },
+  "agents.provider.context": {
+    "defaultMessage": "Context: {tokens, number} tokens",
+    "description": "A context tooltip (an agent's footer, the Usage tab): how many tokens the conversation holds ({tokens})."
+  },
+  "agents.provider.contextOf": {
+    "defaultMessage": "Context: {tokens, number} tokens of {window, number}",
+    "description": "A context tooltip (an agent's footer, the Usage tab): how many tokens the conversation holds ({tokens}) of the model's context window ({window})."
+  },
+  "agents.provider.extraArgsDashes": {
+    "defaultMessage": "Hive passes the task after \"--\"; remove it from extra arguments. For an option whose value is \"--\", write --option=--.",
+    "description": "Why extra arguments for a CLI are refused: they contain a bare \"--\". Keep \"--\" and --option=-- exactly as they are."
+  },
+  "agents.provider.lastTurn": {
+    "defaultMessage": "{input, number} input + {output, number} output of the last turn (thinking included)",
+    "description": "A context tooltip: the last turn's input and output tokens, its thinking counted in the output."
+  },
+  "agents.provider.warning": {
+    "defaultMessage": "{why, select, off {{provider} is turned off — Settings → Providers} missing {{provider} isn't installed — Help → Agent Setup} noneOn {No coding agents are turned on — Settings → Providers} other {No coding agent CLI is installed — Help → Agent Setup}}",
+    "description": "A warning about a project's new agents' provider ({provider}: its name): turned off, not installed, none turned on, or no CLI installed. Settings → Providers and Help → Agent Setup are places in Hive where it is fixed."
+  },
+  "agents.resume.goneWorktree": {
+    "defaultMessage": "It ran in a worktree no agent uses any more ({folder}). Add an agent for that worktree to resume it.",
+    "description": "Why a session can't be resumed: no agent works in the worktree folder it ran in ({folder}, a path)."
+  },
+  "agents.resume.noRoom": {
+    "defaultMessage": "No agent works in the project folder, and the project has no room for another agent.",
+    "description": "Why a session can't be resumed: no agent works in the project's own folder, and the project has as many agents as it may have."
+  },
+  "agents.resume.noTranscript": {
+    "defaultMessage": "Neither {cli} nor Hive has its transcript any more, so there is nothing to resume.",
+    "description": "Why a session can't be resumed: its conversation's file is gone from the CLI ({cli}) and from Hive's backup."
+  },
+  "agents.resume.notInstalled": {
+    "defaultMessage": "{cli} isn't installed. Set it up in Agent Setup to resume it.",
+    "description": "Why a session can't be resumed: its CLI ({cli}) isn't installed. Agent Setup is a Help window: use its translated name."
+  },
+  "agents.resume.providerOff": {
+    "defaultMessage": "{cli} is turned off. Turn it on in Settings → Providers to resume it.",
+    "description": "Why a session can't be resumed: its CLI ({cli}) is turned off. Settings → Providers is where: use its translated names."
+  },
+  "agents.resume.removedAdd": {
+    "defaultMessage": "{agent, select, none {Its agent} other {Its agent {agent}}} was removed: Resume adds a {cli} agent for it.",
+    "description": "A note on a session in the Sessions tab whose agent ({agent}: its name; none when unknown) was removed: Resume (a button) adds an agent of its CLI ({cli}) for it."
+  },
+  "agents.resume.removedTo": {
+    "defaultMessage": "{agent, select, none {Its agent} other {Its agent {agent}}} was removed: it resumes in {target}.",
+    "description": "A note on a session in the Sessions tab whose agent ({agent}: its name; none when unknown) was removed: another agent ({target}) resumes it."
+  },
+  "agents.resume.running": {
+    "defaultMessage": "It is running now.",
+    "description": "Why a session in the Sessions tab can't be resumed: it is running."
+  },
+  "agents.resume.sub": {
+    "defaultMessage": "A {kind} {cli} ran for another session, not a conversation of its own: it can't be resumed.",
+    "description": "Why a session in the Sessions tab can't be resumed: it was a helper run (a {kind}, as the CLI names it: \"subagent\") that the CLI ({cli}) started for another session."
+  },
+  "agents.session.unnamed": {
+    "defaultMessage": "Session {id}",
+    "description": "A session with no name and no start time, named by the start of its id ({id}: \"3f9a1c2b\")."
+  },
+  "agents.settings.appliesNext": {
+    "defaultMessage": "Changes apply the next time {agent} starts; the running session keeps its settings until then.",
+    "description": "Under Agent Settings for a running agent ({agent})."
+  },
+  "agents.settings.ownWorktree": {
+    "defaultMessage": "Its own worktree",
+    "description": "A choice of where a template's agent works (Agent Settings): a worktree of its own. Keep it short."
+  },
+  "agents.settings.role": {
+    "defaultMessage": "Role",
+    "description": "Label of an agent's role (Agent Settings): what it is for, in the user's words (builder, reviewer…)."
+  },
+  "agents.settings.roleNone": {
+    "defaultMessage": "None (its name: {name})",
+    "description": "Placeholder of an agent's empty role (Agent Settings): no role, so its name ({name}) says what it is."
+  },
+  "agents.settings.save": {
+    "defaultMessage": "Save",
+    "description": "Agent Settings' button: saves the agent's settings."
+  },
+  "agents.settings.saving": {
+    "defaultMessage": "Saving…",
+    "description": "Agent Settings' Save button while it saves."
+  },
+  "agents.settings.stopToChange": {
+    "defaultMessage": "— stop {agent} to change it",
+    "description": "After a running agent's provider in Agent Settings ({agent}: its name): the provider can only change while it is stopped."
+  },
+  "agents.settings.title": {
+    "defaultMessage": "{agent} settings",
+    "description": "Title of the Agent Settings dialog. {agent} is the agent."
+  },
+  "agents.settings.worktreeOn": {
+    "defaultMessage": "Worktree on <code>{branch}</code> (from {base})",
+    "description": "Where an agent works (Agent Settings): its worktree's branch ({branch}) and the branch it started from ({base}). Keep the <code> tags."
+  },
+  "agents.start.exited": {
+    "defaultMessage": "{cli} exited with code {code}.",
+    "description": "Why an agent couldn't start, when its CLI ({cli}) said nothing: it exited with an exit code ({code}, a number)."
+  },
+  "agents.switch.confirm": {
+    "defaultMessage": "Switch",
+    "description": "Button: changes the agent's provider. Keep it short."
+  },
+  "agents.switch.detail": {
+    "defaultMessage": "To carry the work over, ask the agent for a handover before switching (Hive MCP: hive_create_handover), then ask the new agent to read it.",
+    "description": "Under the confirmation before an agent changes provider. hive_create_handover is a tool name: keep it."
+  },
+  "agents.switch.message": {
+    "defaultMessage": "Its conversations stay in the Sessions tab, but {cli} can't resume {was} conversations, so {agent} starts fresh next time.",
+    "description": "The confirmation before an agent ({agent}) changes provider: the new CLI ({cli}) can't resume the old one's ({was}) conversations."
+  },
+  "agents.switch.title": {
+    "defaultMessage": "Switch {agent} to {cli}?",
+    "description": "Title of the confirmation before an agent ({agent}) changes provider ({cli}: the new CLI's name)."
+  },
+  "agents.template.nameTaken": {
+    "defaultMessage": "Another agent of the template is called \"{name}\".",
+    "description": "Why a template's agent can't take a name ({name}): another agent of the template has it."
+  },
+  "agents.template.new": {
+    "defaultMessage": "New agent (template)",
+    "description": "Title of Agent Settings for a new agent of a template, from the template editor."
+  },
+  "agents.template.note": {
+    "defaultMessage": "For the template \"{template}\": Save saves it in the template. Settings left as \"{projects}\" follow the project it is loaded into.",
+    "description": "Under Agent Settings for a template's agent: Save (a button) saves it in the template ({template}); {projects} is the first choice of each setting (\"Project's\")."
+  },
+  "agents.template.title": {
+    "defaultMessage": "{agent} settings (template)",
+    "description": "Title of Agent Settings for an agent of a template ({agent}), from the template editor."
+  },
+  "agents.tested.newer": {
+    "defaultMessage": "This version came out after this Hive release was tested. Most updates work; if something behaves oddly, report it (Copy Diagnostics).",
+    "description": "Agent Setup: the installed CLI is newer than the one this Hive release was tested with. Copy Diagnostics is a Help command: use its translated name."
+  },
+  "agents.tested.older": {
+    "defaultMessage": "Older than tested; consider updating.",
+    "description": "Agent Setup: the installed CLI is older than the one this Hive release was tested with."
+  },
+  "agents.tested.summary": {
+    "defaultMessage": "Tested with {tested} · installed {installed}",
+    "description": "Agent Setup: the CLI version this Hive release was tested with ({tested}) and the one installed ({installed}), version numbers."
+  },
+  "agents.tested.summaryUnknown": {
+    "defaultMessage": "Tested with {tested} · installed version unknown",
+    "description": "Agent Setup: the CLI version this Hive release was tested with ({tested}), and that the installed one's version isn't known."
+  },
+  "agents.tested.unknown": {
+    "defaultMessage": "Hive couldn't tell which version is installed, so it can't compare it with the tested one.",
+    "description": "Agent Setup: Hive couldn't read the installed CLI's version."
+  }
+}

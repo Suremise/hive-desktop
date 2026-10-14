@@ -1,3 +1,8 @@
+import { msg, tr } from '../../shared/i18n'
+
+/** Why a draft couldn't be saved: the file changed on disk meanwhile. */
+const CHANGED_ON_DISK = msg({ id: 'actions.drafts.changedOnDisk', defaultMessage: 'changed on disk since you opened it', description: "Why an unsaved file couldn't be saved (after its name, in a list): it changed on disk since it was opened. Lower case." })
+
 /**
  * Unsaved edits in the editors outside the Files tab (shared notes, skills, instruction and memory files,
  * MCP servers). Like the Files tab's drafts they are kept while Hive is open, so changing view or file
@@ -85,8 +90,8 @@ export async function saveEditorDrafts(): Promise<{ saved: number; failed: { abs
       else if (now) now.base = written
       saved++
     } catch (e) {
-      const msg = e instanceof Error ? e.message : String(e)
-      failed.push({ abs: d.abs, message: `${d.label}: ${msg.includes('CONFLICT') ? 'changed on disk since you opened it' : msg}` })
+      const why = e instanceof Error ? e.message : String(e)
+      failed.push({ abs: d.abs, message: `${d.label}: ${why.includes('CONFLICT') ? tr(CHANGED_ON_DISK) : why}` })
       // Not saved: a draft edited back to its base is no draft after all.
       const now = drafts.get(k)
       if (now && now.text === now.base) drafts.delete(k)
