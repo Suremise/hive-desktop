@@ -15,7 +15,8 @@ import { PROVIDERS, contextLines, defaultProviderLabel, isProviderEnabled, modeO
 import { instructionsStarter } from '@shared/projectTabs'
 import { EffortPicker, ModelPicker } from '../components/ModelPicker'
 import { effortText, runsAsName } from '@shared/models'
-import { PROJECT_SETTINGS_SECTIONS, settingEntry, shownSetting } from '@shared/settingsCatalog'
+import { PROJECT_SETTINGS_SECTIONS, settingEntry, shownSetting, type SettingsSectionInfo } from '@shared/settingsCatalog'
+import { shownText } from '@shared/advanced'
 import { LANE_MAX_ROUNDS, LOOP_WAIT_MAX_HOURS, loopDefaults } from '@shared/lanes'
 import { NumberField } from '../components/NumberField'
 import { StorageView } from '../components/Storage'
@@ -1545,7 +1546,9 @@ type ProjectSection = 'agents' | 'sessions' | 'loops' | 'storage' | 'keys' | 'ad
 
 const PROJECT_SECTION_ICONS: Record<string, string> = { agents: 'organization', sessions: 'history', loops: 'sync', storage: 'database', keys: 'keyboard', advanced: 'tools' }
 
-const PROJECT_SECTIONS: { id: ProjectSection; label: string; icon: string; desc: string; provider?: ProviderId }[] = PROJECT_SETTINGS_SECTIONS.map((s) => ({ ...s, id: s.id as ProjectSection, icon: PROJECT_SECTION_ICONS[s.id] ?? 'blank' }))
+// Each section's label and description are shown from its messages (text), in the window's language when it renders;
+// label and desc stay the catalogue's English, for the Assistant's tools.
+const PROJECT_SECTIONS: (SettingsSectionInfo & { id: ProjectSection; icon: string })[] = PROJECT_SETTINGS_SECTIONS.map((s) => ({ ...s, id: s.id as ProjectSection, icon: PROJECT_SECTION_ICONS[s.id] ?? 'blank' }))
 
 /** A row's text from the settings catalog (settingsCatalog.ts), which Settings, Project Settings and the Assistant's settings tools share. */
 function rowText(id: string): { title: string; desc: string; tip?: string; wide?: boolean } {
@@ -1637,6 +1640,8 @@ function AgentList({ project }: { project: ProjectInfo }) {
 }
 
 export function ProjectSettingsTab({ project }: { project: ProjectInfo }) {
+  // Its sections and rows are formatted here: a change of language shows them in it at once.
+  useLanguage()
   const settings = useStore((s) => s.settings)
   const installs = useStore((s) => s.providers)
   const [section, setSection] = useState<ProjectSection>('agents')
@@ -1949,7 +1954,7 @@ export function ProjectSettingsTab({ project }: { project: ProjectInfo }) {
                 setQuery('')
               }}
             >
-              {s.provider ? <ProviderIcon provider={s.provider} /> : <Icon name={s.icon} />} <span className={cx('label', s.provider && 'settings-sub')}>{s.label}</span>
+              {s.provider ? <ProviderIcon provider={s.provider} /> : <Icon name={s.icon} />} <span className={cx('label', s.provider && 'settings-sub')}>{shownText(s.text.label)}</span>
             </div>
           ))}
         </div>
@@ -1957,8 +1962,8 @@ export function ProjectSettingsTab({ project }: { project: ProjectInfo }) {
           {groups.length === 0 && <div className="empty-state">{tr(S.noMatch)}</div>}
           {groups.map((g) => (
             <div key={g.id} className="settings-group">
-              <h2>{g.label}</h2>
-              <p>{g.desc}</p>
+              <h2>{shownText(g.text.label)}</h2>
+              <p>{shownText(g.text.desc)}</p>
               {g.items.map((d) =>
                 d.wide ? (
                   <div key={d.key} className="setting wide">

@@ -1,7 +1,9 @@
 // A change of language while the window is open (#795): the command palette, already open, relabels its rows without
 // a keystroke, and Settings → Keyboard Shortcuts keeps its clashes by command, not by label: a language change gives
 // no command a clash with itself, and two commands whose names translate alike still show a real clash. A stopped
-// session's transcript, open, shows Hive's own notices in the new language at once, with its file unchanged (#797). The
+// session's transcript, open, shows Hive's own notices in the new language at once, with its file unchanged (#797).
+// Project Settings opened in another language shows its sections (the list, the heading and its description) and its
+// rows in it, and follows a change of language while it is open (#793, E1's catalogue in lane C's view). The
 // window is sent language-changed as main sends it, with a small catalogue of test translations. Throwaway profile and
 // workspace.
 const lib = require('./lib.cjs')
@@ -88,6 +90,27 @@ const check = (name, ok, extra = '') => {
     const after = fs.statSync(transcript)
     check('…with the transcript file unchanged', after.size === before.size && after.mtimeMs === before.mtimeMs)
     check('…and the same prompt above it, the view not reloaded empty', (await page.locator('.tx-user').count()) === 1)
+
+    // Project Settings, opened while the window shows German: its section and rows in it.
+    await speak('de', {
+      'settings.projectSection.agents.label': 'Agenten und Arbeitsbäume',
+      'settings.projectSection.agents.desc': 'Die Agenten des Projekts und wie neue Arbeitsbäume eingerichtet werden.',
+      'settings.project.worktreeSetup.title': 'Einrichtungsbefehl'
+    })
+    await command('project.tab.settings')
+    const navLabel = page.locator('.settings-nav .row.selected .label')
+    const heading = page.locator('.settings-content .settings-group h2').first()
+    const about = page.locator('.settings-content .settings-group > p').first()
+    const content = page.locator('.settings-content')
+    const shows = (want) => lib.until(async () => {
+      const got = [await navLabel.innerText().catch(() => ''), await heading.innerText().catch(() => ''), await about.innerText().catch(() => ''), await content.innerText().catch(() => '')]
+      return got[0] === want.label && got[1] === want.label && got[2] === want.desc && got[3].includes(want.row)
+    }, HUNG_MS)
+    const seen = async () => JSON.stringify([await navLabel.innerText().catch(() => ''), await heading.innerText().catch(() => ''), await about.innerText().catch(() => '')])
+    check('Project Settings opened in German shows its section (list, heading, description) and its rows in German', !!(await shows({ label: 'Agenten und Arbeitsbäume', desc: 'Die Agenten des Projekts und wie neue Arbeitsbäume eingerichtet werden.', row: 'Einrichtungsbefehl' })), await seen())
+    // English while it is open: all of it follows at once.
+    await speak('en', {})
+    check('…and follows a change of language while it is open', !!(await shows({ label: 'Agents & Worktrees', desc: 'The project’s agents and their providers, file locks between them, and how new worktrees are set up.', row: 'Setup command' })), await seen())
   } catch (e) {
     check('the suite ran', false, String(e?.stack ?? e))
   } finally {
