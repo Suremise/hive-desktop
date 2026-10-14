@@ -1,4 +1,6 @@
 import type { SessionStatus } from './types'
+import { tr } from './i18n'
+import { msg } from './i18n/msg'
 
 /** Settings → General → Keep the PC awake while agents work. */
 export type KeepAwakeSetting = 'plugged-in' | 'always' | 'never'
@@ -14,7 +16,9 @@ export function shouldKeepAwake(working: number, setting: KeepAwakeSetting | und
   return setting === 'always' || !onBattery
 }
 
+const AWAKE = msg({ id: 'workspace.statusBar.keepAwake', defaultMessage: 'Keeping the PC awake: {working, plural, one {# agent} other {# agents}} working', description: "The status bar's note while Hive keeps Windows from sleeping because agents are working (Settings → General → Keep the PC awake)." })
+
 /** The status bar's note while it does. */
 export function keepAwakeText(working: number): string {
-  return `Keeping the PC awake: ${working === 1 ? '1 agent' : `${working} agents`} working`
+  return tr(AWAKE, { working })
 }

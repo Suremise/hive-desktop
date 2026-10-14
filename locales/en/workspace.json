@@ -1,0 +1,1962 @@
+{
+  "workspace.activity.assistant": {
+    "defaultMessage": "Hive Assistant",
+    "description": "The activity bar (left edge): the Hive Assistant's view. Hive's name stays as it is."
+  },
+  "workspace.activity.board": {
+    "defaultMessage": "Task Board",
+    "description": "The activity bar (left edge): the task board."
+  },
+  "workspace.activity.docs": {
+    "defaultMessage": "Documentation",
+    "description": "The activity bar (left edge): Hive's documentation."
+  },
+  "workspace.activity.mcp": {
+    "defaultMessage": "MCP Servers",
+    "description": "The activity bar (left edge): the workspace's MCP servers."
+  },
+  "workspace.activity.notes": {
+    "defaultMessage": "Shared Notes",
+    "description": "The activity bar (left edge): the workspace's shared notes."
+  },
+  "workspace.activity.notifications": {
+    "defaultMessage": "Notifications",
+    "description": "The activity bar: the button that shows the notifications."
+  },
+  "workspace.activity.notificationsTip": {
+    "defaultMessage": "{unread, plural, =0 {Notifications} other {Notifications (# unread)}}",
+    "description": "Tooltip on the notifications button."
+  },
+  "workspace.activity.overview": {
+    "defaultMessage": "Workspace Overview",
+    "description": "The activity bar (left edge): the Workspace Overview."
+  },
+  "workspace.activity.performance": {
+    "defaultMessage": "Performance",
+    "description": "The activity bar (left edge): the Performance view (how agents' turns perform)."
+  },
+  "workspace.activity.projects": {
+    "defaultMessage": "Projects",
+    "description": "The activity bar (left edge): the Projects view."
+  },
+  "workspace.activity.settings": {
+    "defaultMessage": "Settings",
+    "description": "The activity bar (left edge): Hive's settings."
+  },
+  "workspace.activity.skills": {
+    "defaultMessage": "Skills",
+    "description": "The activity bar (left edge): the workspace's Hive skills."
+  },
+  "workspace.activity.templates": {
+    "defaultMessage": "Templates",
+    "description": "The activity bar (left edge): agent templates."
+  },
+  "workspace.activity.unread": {
+    "defaultMessage": "{count, plural, other {# unread}}",
+    "description": "The notifications button, for screen readers: how many notifications are unread."
+  },
+  "workspace.activity.withKey": {
+    "defaultMessage": "{label} ({key})",
+    "description": "Tooltip on an activity bar button: its name and its shortcut ({key}: \"Ctrl+Shift+E\")."
+  },
+  "workspace.antivirus.aboutDevDrive": {
+    "defaultMessage": "About Dev Drive",
+    "description": "Settings → Workspace's antivirus: opens Microsoft's Dev Drive documentation."
+  },
+  "workspace.antivirus.addConfirm": {
+    "defaultMessage": "Add Exclusions",
+    "description": "Add Exclusions' confirmation: its button."
+  },
+  "workspace.antivirus.addDetail": {
+    "defaultMessage": "Defender won’t scan anything in them, including node_modules and whatever agents download there. Windows asks for administrator rights once. You can remove them again here.",
+    "description": "Confirmation before Add Exclusions. Keep node_modules as it is."
+  },
+  "workspace.antivirus.addExclusions": {
+    "defaultMessage": "Add Exclusions…",
+    "description": "Settings → Workspace's antivirus: a button."
+  },
+  "workspace.antivirus.addMessage": {
+    "defaultMessage": "Hive asks Defender to exclude:",
+    "description": "Confirmation before Add Exclusions; the folders follow."
+  },
+  "workspace.antivirus.addTitle": {
+    "defaultMessage": "Stop Defender scanning these folders?",
+    "description": "Confirmation before Add Exclusions."
+  },
+  "workspace.antivirus.added": {
+    "defaultMessage": "Defender no longer scans {count, plural, one {this folder} other {these # folders}}.",
+    "description": "After Add exclusions: done."
+  },
+  "workspace.antivirus.adminCheck": {
+    "defaultMessage": "As Defender listed its exclusions with administrator rights, {when}.",
+    "description": "Settings → Workspace's antivirus: the states come from the last check with administrator rights ({when}: a date and time)."
+  },
+  "workspace.antivirus.advice": {
+    "defaultMessage": "Excluded folders aren’t scanned at all, so only exclude folders whose contents you trust. A trusted Dev Drive, with Defender’s performance mode{mode, select, on { (on here)} off { (off here)} other {}}, is the alternative Microsoft recommends for code.",
+    "description": "Settings → Workspace's antivirus, under the table."
+  },
+  "workspace.antivirus.alreadySkips": {
+    "defaultMessage": "Defender already skips these folders (an existing exclusion covers them): nothing added.",
+    "description": "After Add exclusions, when there was nothing to add."
+  },
+  "workspace.antivirus.checkAdmin": {
+    "defaultMessage": "Check with Administrator Rights…",
+    "description": "Settings → Workspace's antivirus: a button (Windows asks for administrator rights)."
+  },
+  "workspace.antivirus.checkAgain": {
+    "defaultMessage": "Check Again",
+    "description": "Settings → Workspace's antivirus: a button."
+  },
+  "workspace.antivirus.checked": {
+    "defaultMessage": "Read Defender’s exclusions with administrator rights.",
+    "description": "After Check with administrator rights: Defender's exclusion list was read."
+  },
+  "workspace.antivirus.checkedAt": {
+    "defaultMessage": "Checked {when}",
+    "description": "When the antivirus status was checked ({when}: \"4 minutes ago\")."
+  },
+  "workspace.antivirus.checking": {
+    "defaultMessage": "Checking…",
+    "description": "Settings → Workspace's antivirus while it checks again."
+  },
+  "workspace.antivirus.checkingDefender": {
+    "defaultMessage": "Checking Defender…",
+    "description": "Settings → Workspace's antivirus while it checks."
+  },
+  "workspace.antivirus.declined": {
+    "defaultMessage": "The administrator prompt was declined: nothing changed.",
+    "description": "After a change to Defender's exclusions: Windows' administrator (UAC) prompt was answered No."
+  },
+  "workspace.antivirus.devDrive": {
+    "defaultMessage": "Dev Drive",
+    "description": "Settings → Workspace's antivirus table: a column (whether the folder is on a Dev Drive). Keep Windows' name for Dev Drive."
+  },
+  "workspace.antivirus.devNo": {
+    "defaultMessage": "no",
+    "description": "Whether a folder is on a Dev Drive. Lower case."
+  },
+  "workspace.antivirus.devNoTip": {
+    "defaultMessage": "Not a Dev Drive.",
+    "description": "Tooltip on no."
+  },
+  "workspace.antivirus.devRefs": {
+    "defaultMessage": "maybe (ReFS)",
+    "description": "Whether a folder is on a Dev Drive: its volume is ReFS, as Dev Drives are. Lower case; keep ReFS."
+  },
+  "workspace.antivirus.devRefsTip": {
+    "defaultMessage": "A ReFS volume, as Dev Drives are. Only a check with administrator rights can tell whether it is a trusted Dev Drive.",
+    "description": "Tooltip on maybe (ReFS)."
+  },
+  "workspace.antivirus.devTrusted": {
+    "defaultMessage": "yes, trusted",
+    "description": "Whether a folder is on a Dev Drive (a Windows volume for code), in Settings → Workspace's antivirus table. Lower case."
+  },
+  "workspace.antivirus.devTrustedTip": {
+    "defaultMessage": "A trusted Dev Drive: with Defender’s performance mode on, it is scanned much more lightly.",
+    "description": "Tooltip on yes, trusted."
+  },
+  "workspace.antivirus.devUnknown": {
+    "defaultMessage": "unknown",
+    "description": "Whether a folder is on a Dev Drive. Lower case."
+  },
+  "workspace.antivirus.devUnknownTip": {
+    "defaultMessage": "Its volume couldn’t be read.",
+    "description": "Tooltip on unknown."
+  },
+  "workspace.antivirus.devUntrusted": {
+    "defaultMessage": "yes, not trusted",
+    "description": "Whether a folder is on a Dev Drive. Lower case."
+  },
+  "workspace.antivirus.devUntrustedTip": {
+    "defaultMessage": "A Dev Drive that isn’t trusted: Defender scans it like any other drive.",
+    "description": "Tooltip on yes, not trusted."
+  },
+  "workspace.antivirus.dontAsk": {
+    "defaultMessage": "Don’t Ask Again",
+    "description": "The suggestion's button: no more suggestions for this workspace."
+  },
+  "workspace.antivirus.folder": {
+    "defaultMessage": "Folder",
+    "description": "Settings → Workspace's antivirus table: a column."
+  },
+  "workspace.antivirus.hidden": {
+    "defaultMessage": "Defender shows its exclusions only to administrators, so Hive can’t see them without asking.",
+    "description": "Settings → Workspace's antivirus: why the states are unknown."
+  },
+  "workspace.antivirus.holdsHome": {
+    "defaultMessage": "it is, or holds, your home folder, profile or a system folder",
+    "description": "Why Hive won't offer to exclude a folder from Defender's scans. Lower case: it follows the folder."
+  },
+  "workspace.antivirus.kindTests": {
+    "defaultMessage": "Hive’s test area (developing Hive)",
+    "description": "A folder Defender may scan: where Hive's own tests work, offered to people developing Hive."
+  },
+  "workspace.antivirus.kindWorkspace": {
+    "defaultMessage": "The workspace (every project in it)",
+    "description": "A folder Defender may scan, as the antivirus status and Hive's offer name it."
+  },
+  "workspace.antivirus.kindWorktrees": {
+    "defaultMessage": "Its worktrees",
+    "description": "A folder Defender may scan: the workspace's worktrees folder."
+  },
+  "workspace.antivirus.live": {
+    "defaultMessage": "As Defender lists its exclusions now.",
+    "description": "Settings → Workspace's antivirus: where the table's states come from."
+  },
+  "workspace.antivirus.loadTarget": {
+    "defaultMessage": "the antivirus status",
+    "description": "What could not be loaded: shown in \"Could not load {what}: {error}\", with Retry."
+  },
+  "workspace.antivirus.noPrompt": {
+    "defaultMessage": "Windows couldn't start the administrator prompt{hasError, select, yes {: {error}} other {.}}",
+    "description": "After a change to Defender's exclusions: Windows' administrator (UAC) prompt didn't start; {error} is Windows' reason."
+  },
+  "workspace.antivirus.noReport": {
+    "defaultMessage": "The change ran with administrator rights but reported nothing: check again to see what Defender has.",
+    "description": "After a change to Defender's exclusions."
+  },
+  "workspace.antivirus.noWorkspace": {
+    "defaultMessage": "Open a workspace to check how Defender treats it.",
+    "description": "Settings → Workspace's antivirus with no workspace open."
+  },
+  "workspace.antivirus.none": {
+    "defaultMessage": "No active antivirus was found.",
+    "description": "Settings → Workspace's antivirus status."
+  },
+  "workspace.antivirus.noneLeft": {
+    "defaultMessage": "None of Hive’s exclusions is in Defender’s list any more: nothing removed.",
+    "description": "After Remove exclusions, when there was nothing to remove."
+  },
+  "workspace.antivirus.notAbsolute": {
+    "defaultMessage": "not an absolute folder",
+    "description": "Why Hive won't offer to exclude a folder from Defender's scans. Lower case: it follows the folder."
+  },
+  "workspace.antivirus.notApplied": {
+    "defaultMessage": "Defender accepted the change but {action, select, add {doesn't list {missing, plural, one {one folder} other {# folders}}} other {still lists {missing, plural, one {one folder} other {# folders}}}}: your organisation's settings probably override local exclusions.",
+    "description": "After a change to Defender's exclusions that Defender accepted but doesn't show (added ones missing, or removed ones still there)."
+  },
+  "workspace.antivirus.notOffered": {
+    "defaultMessage": "Not offered: {why}.",
+    "description": "Under a folder Hive won't offer to exclude; {why} says why (lower case)."
+  },
+  "workspace.antivirus.notWindows": {
+    "defaultMessage": "Only Windows has Defender to check.",
+    "description": "Settings → Workspace's antivirus status, on another system."
+  },
+  "workspace.antivirus.other": {
+    "defaultMessage": "Another antivirus is active ({names}). Hive can only manage Microsoft Defender: see its own settings for exclusions.",
+    "description": "Settings → Workspace's antivirus status ({names}: the other antivirus products)."
+  },
+  "workspace.antivirus.policy": {
+    "defaultMessage": "Defender refused the change, probably because your organisation manages its settings: {error}",
+    "description": "After a change to Defender's exclusions; {error} is Defender's own message."
+  },
+  "workspace.antivirus.realTimeOff": {
+    "defaultMessage": "Microsoft Defender is the antivirus, with real-time protection off: it doesn’t slow Hive’s work now.",
+    "description": "Settings → Workspace's antivirus status."
+  },
+  "workspace.antivirus.realTimeOn": {
+    "defaultMessage": "Microsoft Defender scans files as they are created and opened (real-time protection is on).",
+    "description": "Settings → Workspace's antivirus status."
+  },
+  "workspace.antivirus.refused": {
+    "defaultMessage": "Defender refused the change: {error}",
+    "description": "After a change to Defender's exclusions; {error} is Defender's own message."
+  },
+  "workspace.antivirus.reminder": {
+    "defaultMessage": "A reminder: Microsoft Defender still scans every file Hive’s work creates or opens ({why}). Excluding the workspace’s folders, or a Dev Drive, can make builds, tests and git much faster. Hive reminds you at most once a day; Don’t Ask Again stops it for this workspace.",
+    "description": "The suggestion, as a reminder ({why}: why now). Don’t Ask Again is its button."
+  },
+  "workspace.antivirus.removeConfirm": {
+    "defaultMessage": "Remove Exclusions",
+    "description": "Remove Hive's Exclusions' confirmation: its button."
+  },
+  "workspace.antivirus.removeDetail": {
+    "defaultMessage": "Defender scans these folders again. Exclusions Hive didn’t add stay. Windows asks for administrator rights once.",
+    "description": "Confirmation before Remove Hive's Exclusions."
+  },
+  "workspace.antivirus.removeHive": {
+    "defaultMessage": "Remove Hive’s Exclusions…",
+    "description": "Settings → Workspace's antivirus: a button."
+  },
+  "workspace.antivirus.removeMessage": {
+    "defaultMessage": "Hive asks Defender to scan again:",
+    "description": "Confirmation before Remove Hive's Exclusions; the folders follow."
+  },
+  "workspace.antivirus.removeTitle": {
+    "defaultMessage": "Remove the exclusions Hive added?",
+    "description": "Confirmation before Remove Hive's Exclusions."
+  },
+  "workspace.antivirus.removed": {
+    "defaultMessage": "Removed {count, plural, one {the exclusion} other {# exclusions}} Hive added.",
+    "description": "After Remove exclusions: done."
+  },
+  "workspace.antivirus.review": {
+    "defaultMessage": "Review…",
+    "description": "The suggestion's button: opens the antivirus status."
+  },
+  "workspace.antivirus.scanning": {
+    "defaultMessage": "Scanning",
+    "description": "Settings → Workspace's antivirus table: a column (whether Defender scans the folder)."
+  },
+  "workspace.antivirus.slowLine": {
+    "defaultMessage": "Microsoft Defender scans this workspace’s folders as Hive’s work changes them, which slows builds, tests and git. <link>Antivirus scanning…</link>",
+    "description": "Performance, when Defender likely slows the workspace. <link> opens Settings → Workspace's antivirus."
+  },
+  "workspace.antivirus.stateAdded": {
+    "defaultMessage": "Added by Hive",
+    "description": "A folder's scanning: Hive added its exclusion (not confirmed)."
+  },
+  "workspace.antivirus.stateAddedTip": {
+    "defaultMessage": "Hive added this exclusion; Defender hides its list without administrator rights, so it isn’t confirmed.",
+    "description": "Tooltip on Added by Hive."
+  },
+  "workspace.antivirus.stateExcluded": {
+    "defaultMessage": "Excluded",
+    "description": "A folder's scanning in Settings → Workspace's antivirus table: Defender skips it."
+  },
+  "workspace.antivirus.stateExcludedTip": {
+    "defaultMessage": "Defender doesn’t scan it.",
+    "description": "Tooltip on Excluded."
+  },
+  "workspace.antivirus.stateScanned": {
+    "defaultMessage": "Scanned",
+    "description": "A folder's scanning: Defender scans it."
+  },
+  "workspace.antivirus.stateScannedTip": {
+    "defaultMessage": "Defender scans every file Hive’s work creates or opens here.",
+    "description": "Tooltip on Scanned."
+  },
+  "workspace.antivirus.stateUnknown": {
+    "defaultMessage": "Unknown",
+    "description": "A folder's scanning: Defender hides its exclusions without administrator rights."
+  },
+  "workspace.antivirus.stateUnknownTip": {
+    "defaultMessage": "Defender shows its exclusions only to administrators: Check with administrator rights to see them.",
+    "description": "Tooltip on Unknown. Check with administrator rights is a button below."
+  },
+  "workspace.antivirus.stillTitle": {
+    "defaultMessage": "Defender is still scanning this workspace",
+    "description": "The suggestion's title, as a reminder."
+  },
+  "workspace.antivirus.suggestion": {
+    "defaultMessage": "Microsoft Defender scans every file Hive’s work creates or opens ({why}). Excluding the workspace’s folders, or a Dev Drive, can make builds, tests and git much faster.",
+    "description": "The suggestion ({why}: why now)."
+  },
+  "workspace.antivirus.testCopy": {
+    "defaultMessage": "A test copy of Hive: it never asks Defender.",
+    "description": "Settings → Workspace's antivirus status, in a test copy."
+  },
+  "workspace.antivirus.title": {
+    "defaultMessage": "Defender is scanning this workspace",
+    "description": "The suggestion's title."
+  },
+  "workspace.antivirus.unavailable": {
+    "defaultMessage": "Hive couldn’t read Defender’s status{hasError, select, yes {: {error}} other {.}}",
+    "description": "Settings → Workspace's antivirus status when it couldn't be read ({error}: why)."
+  },
+  "workspace.antivirus.unknownError": {
+    "defaultMessage": "unknown error",
+    "description": "Defender's reason for refusing a change, when it gave none. Lower case: it follows a colon."
+  },
+  "workspace.antivirus.unreadable": {
+    "defaultMessage": "The change ran, but Defender’s list couldn’t be read afterwards: check again to see what it has.",
+    "description": "After a change to Defender's exclusions."
+  },
+  "workspace.antivirus.unresolved": {
+    "defaultMessage": "its real location couldn’t be established",
+    "description": "Why Hive won't offer to exclude a folder from Defender's scans (a link it couldn't follow). Lower case: it follows the folder."
+  },
+  "workspace.antivirus.wholeDrive": {
+    "defaultMessage": "a whole drive",
+    "description": "Why Hive won't offer to exclude a folder from Defender's scans. Lower case: it follows the folder."
+  },
+  "workspace.antivirus.wholeShare": {
+    "defaultMessage": "a whole network share",
+    "description": "Why Hive won't offer to exclude a folder from Defender's scans. Lower case: it follows the folder."
+  },
+  "workspace.antivirus.whyAgents": {
+    "defaultMessage": "several agents are running",
+    "description": "Why Hive suggests exclusions now. Lower case: it goes in brackets in the suggestion."
+  },
+  "workspace.antivirus.whySlow": {
+    "defaultMessage": "a long command just ran",
+    "description": "Why Hive suggests exclusions now. Lower case: it goes in brackets in the suggestion."
+  },
+  "workspace.banners.dismiss": {
+    "defaultMessage": "Dismiss",
+    "description": "A notification banner's close button, for screen readers."
+  },
+  "workspace.banners.more": {
+    "defaultMessage": "+{count} more",
+    "description": "Under the notification banners when more arrived than fit: shows the rest. Keep it short."
+  },
+  "workspace.banners.region": {
+    "defaultMessage": "Notifications",
+    "description": "The notification banners, for screen readers."
+  },
+  "workspace.banners.showProject": {
+    "defaultMessage": "Show the project",
+    "description": "Tooltip on a notification banner about a project: clicking it shows the project."
+  },
+  "workspace.banners.showProjectLabel": {
+    "defaultMessage": "Show the project: {title}",
+    "description": "A notification banner's text, for screen readers ({title}: the notification)."
+  },
+  "workspace.changes.aboutAgent": {
+    "defaultMessage": "{agent}'s worktree: everything on {branch} since it left {base}. Merge… brings it into {base}.",
+    "description": "The Changes tab, over an agent's worktree's changes. Merge… is the button."
+  },
+  "workspace.changes.aboutProject": {
+    "defaultMessage": "The project folder: what isn't committed yet, from you or the agents working in the folder itself (those without a worktree).",
+    "description": "The Changes tab, over the project folder's changes."
+  },
+  "workspace.changes.aboutUnused": {
+    "defaultMessage": "Worktrees no agent of {project} works in: kept when their agent was removed, or made outside Hive (by an agent's own git worktree add, say). Open one to see its changes and merge them, or give it to an agent.{known, select, yes { Those merged into {into} and clean can go with their branches; the others hold work that is nowhere else.} other {}}",
+    "description": "The Changes tab's Unused worktrees page, at the top. Keep git worktree add as it is; {into} is the main branch."
+  },
+  "workspace.changes.aboutUnusedOne": {
+    "defaultMessage": "An unused worktree: everything on {branch} that isn't on {into}. Merge it, or go back to Unused worktrees to give it to an agent or remove it.",
+    "description": "The Changes tab, over an unused worktree's changes. Unused worktrees is the page's name."
+  },
+  "workspace.docs.about": {
+    "defaultMessage": "About {app}",
+    "description": "The Documentation view: opens About ({app}: Hive's name)."
+  },
+  "workspace.docs.api": {
+    "defaultMessage": "Agent API",
+    "description": "The Documentation view: the Agent API's page."
+  },
+  "workspace.docs.changelog": {
+    "defaultMessage": "Release Notes",
+    "description": "The Documentation view: a page."
+  },
+  "workspace.docs.guide": {
+    "defaultMessage": "User Guide",
+    "description": "The Documentation view: a page."
+  },
+  "workspace.docs.license": {
+    "defaultMessage": "License",
+    "description": "The Documentation view: Hive's licence page, and its heading."
+  },
+  "workspace.docs.notices": {
+    "defaultMessage": "Third-Party Notices",
+    "description": "The Documentation view: a page (the licences of what Hive includes)."
+  },
+  "workspace.docs.seeAlso": {
+    "defaultMessage": "See also the [third-party notices]({file}).",
+    "description": "Under Hive's licence (Markdown: a link, its words in the brackets; {file} is the page it opens)."
+  },
+  "workspace.docs.shortcuts": {
+    "defaultMessage": "Keyboard Shortcuts",
+    "description": "The Documentation view: opens the keyboard shortcuts."
+  },
+  "workspace.docs.title": {
+    "defaultMessage": "Documentation",
+    "description": "The Documentation view's heading."
+  },
+  "workspace.mcpView.builtIn": {
+    "defaultMessage": "Built-in Hive MCP server",
+    "description": "The heading of the built-in hive server's page."
+  },
+  "workspace.mcpView.builtInText": {
+    "defaultMessage": "Every session started from Hive gets a <code>hive</code> MCP server that connects to the Agent API{hasUrl, select, yes { at {url}} other {}}. Turn it off in Settings → Agent API.",
+    "description": "The built-in server's page. <code> is the server's name: keep hive as it is."
+  },
+  "workspace.mcpView.deleteServer": {
+    "defaultMessage": "Delete server",
+    "description": "A button over an MCP server's definition."
+  },
+  "workspace.mcpView.dir": {
+    "defaultMessage": "Use {variable} to point at server code stored in `.hive/mcp`.",
+    "description": "An MCP server's view, beside its editor (Markdown). {variable} is ${HIVE_MCP_DIR}."
+  },
+  "workspace.mcpView.format": {
+    "defaultMessage": "**Format** — one server per file, in Claude Code's .mcp.json format (Hive converts it for other providers) plus an optional `description`:",
+    "description": "An MCP server's view, beside its editor (Markdown: keep ** and the backticks). An example follows."
+  },
+  "workspace.mcpView.invalidJson": {
+    "defaultMessage": "Invalid JSON: {error}",
+    "description": "An MCP server's view: what was typed isn't JSON ({error}: the parser's message)."
+  },
+  "workspace.mcpView.overwrite": {
+    "defaultMessage": "Overwrite",
+    "description": "That confirmation's button."
+  },
+  "workspace.mcpView.overwriteDetail": {
+    "defaultMessage": "Cancel keeps your edits here unsaved.",
+    "description": "Confirmation before saving over a server's file changed elsewhere."
+  },
+  "workspace.mcpView.overwriteMessage": {
+    "defaultMessage": "{file} has changed on disk since you opened it. Save your version over it?",
+    "description": "Confirmation before saving over a server's file changed elsewhere ({file}: github.json)."
+  },
+  "workspace.mcpView.overwriteTitle": {
+    "defaultMessage": "Overwrite the changes on disk?",
+    "description": "Confirmation before saving over a server's file changed elsewhere."
+  },
+  "workspace.mcpView.remote": {
+    "defaultMessage": "Remote servers use `\"type\": \"http\"` and `\"url\"`. Reference secrets as environment variables — this folder is meant to be committed.",
+    "description": "An MCP server's view, beside its editor (Markdown: keep the backticks and what is in them)."
+  },
+  "workspace.mcpView.save": {
+    "defaultMessage": "Save",
+    "description": "A button over an MCP server's definition."
+  },
+  "workspace.mcpView.saveFailed": {
+    "defaultMessage": "Could not save",
+    "description": "An error notice: an MCP server's definition."
+  },
+  "workspace.mcpView.select": {
+    "defaultMessage": "Select an MCP server to edit its definition.",
+    "description": "The MCP view with no server selected."
+  },
+  "workspace.mcpView.tool": {
+    "defaultMessage": "Tool",
+    "description": "The built-in server's tools table: a column (the tool's name)."
+  },
+  "workspace.mcpView.toolHandover": {
+    "defaultMessage": "Write a handover note for a future session",
+    "description": "What the built-in server's hive_create_handover tool does."
+  },
+  "workspace.mcpView.toolListNotes": {
+    "defaultMessage": "List notes in .hive/shared",
+    "description": "What the built-in server's hive_list_shared_notes tool does."
+  },
+  "workspace.mcpView.toolListProjects": {
+    "defaultMessage": "List projects and their session status",
+    "description": "What the built-in server's hive_list_projects tool does."
+  },
+  "workspace.mcpView.toolListSkills": {
+    "defaultMessage": "List skills available to a project",
+    "description": "What the built-in server's hive_list_skills tool does."
+  },
+  "workspace.mcpView.toolNotify": {
+    "defaultMessage": "Show a notification to you in Hive",
+    "description": "What the built-in server's hive_notify tool does."
+  },
+  "workspace.mcpView.toolProjectStatus": {
+    "defaultMessage": "Status and settings of one project",
+    "description": "What the built-in server's hive_project_status tool does."
+  },
+  "workspace.mcpView.toolReadNote": {
+    "defaultMessage": "Read a shared note",
+    "description": "What the built-in server's hive_read_shared_note tool does."
+  },
+  "workspace.mcpView.toolSessionUsage": {
+    "defaultMessage": "Token use, cache and compactions for a session",
+    "description": "What the built-in server's hive_session_usage tool does."
+  },
+  "workspace.mcpView.toolWriteNote": {
+    "defaultMessage": "Create, overwrite or append to a shared note",
+    "description": "What the built-in server's hive_write_shared_note tool does."
+  },
+  "workspace.mcpView.tryAsking": {
+    "defaultMessage": "Try asking an agent: *\"Write a handover for the next session using the hive tools.\"*",
+    "description": "The built-in server's page, under its tools (Markdown: keep the * around the example prompt)."
+  },
+  "workspace.mcpView.whatItDoes": {
+    "defaultMessage": "What it does",
+    "description": "The built-in server's tools table: a column."
+  },
+  "workspace.mcpView.whatItRuns": {
+    "defaultMessage": "What it runs",
+    "description": "An MCP server's view: the command it runs, for screen readers."
+  },
+  "workspace.move.board": {
+    "defaultMessage": "Board",
+    "description": "Repair's plan: the heading over the board's lines."
+  },
+  "workspace.move.cancel": {
+    "defaultMessage": "Cancel",
+    "description": "Repair's button that closes it."
+  },
+  "workspace.move.cards": {
+    "defaultMessage": "{count, plural, one {# card} other {# cards}}",
+    "description": "Board items saved under a project's old name: cards (listed with lanes and card watches)."
+  },
+  "workspace.move.cardsBanner": {
+    "defaultMessage": "{lines}, which was renamed or moved: the board still lists them under the old name.",
+    "description": "The banner when cards are listed under a project's old name ({lines}: \"9 cards of hive-website belong to website\", several separated by ;)."
+  },
+  "workspace.move.cardsLine": {
+    "defaultMessage": "{total, plural, one {{what} of {from} belongs to {to}} other {{what} of {from} belong to {to}}}",
+    "description": "What was left under a project's old name ({what}: \"9 cards and 1 lane\"; {from}: the old name; {to}: the project now). {total} counts them all."
+  },
+  "workspace.move.cardsOld": {
+    "defaultMessage": "Cards are listed under a project's old name. Repair will:",
+    "description": "Repair's plan, at the top; what it does follows."
+  },
+  "workspace.move.close": {
+    "defaultMessage": "Close",
+    "description": "Repair's button after it ran."
+  },
+  "workspace.move.copy": {
+    "defaultMessage": "Copy {count, plural, one {# file} other {# files}} of {provider}'s conversations and memory for {hasOf, select, yes {{of}} other {the folder}} to its folder for the new path (<mono>{to}</mono>); the old one stays.",
+    "description": "Repair's plan, a line: a coding agent's ({provider}: Claude Code) own folder for a project. <mono> is a folder."
+  },
+  "workspace.move.copyNone": {
+    "defaultMessage": "{provider}'s conversations and memory for {hasOf, select, yes {{of}} other {the folder}}:",
+    "description": "Repair's plan, a line: a coding agent's own folder, when nothing is copied (why follows)."
+  },
+  "workspace.move.createButton": {
+    "defaultMessage": "Create a new worktree",
+    "description": "Repair's plan: a missing worktree's choice when its branch is gone too."
+  },
+  "workspace.move.createNew": {
+    "defaultMessage": "Create a new worktree for <b>{agent}</b> on <mono>{branch}</mono> (its branch is gone too), at <mono>{to}</mono>; its setup command runs at its next start.",
+    "description": "Repair's plan, a line. <b> is bold; <mono> a branch or folder."
+  },
+  "workspace.move.found": {
+    "defaultMessage": "<b>{agent}</b>'s worktree: {how, select, stayed {relink <mono>{to}</mono> to the moved project} other {now at <mono>{to}</mono>}}{located, select, yes { (located)} other {}} — <faint>git worktree repair</faint>",
+    "description": "Repair's plan, a line. <b> is bold; <mono> a folder; <faint> is the git command Repair runs (keep it as it is)."
+  },
+  "workspace.move.fromWorkspace": {
+    "defaultMessage": "This workspace was moved from <mono>{from}</mono>.",
+    "description": "The banner over a moved workspace. <mono> is the old folder, in a fixed-width font."
+  },
+  "workspace.move.give": {
+    "defaultMessage": "Give the {what} saved under <b>{from}</b>{hasCards, select, yes { ({cards})} other {}} to <b>{to}</b>, where cards show with their agents, archived ones too.",
+    "description": "Repair's plan, a line ({what}: \"9 cards and 1 lane\"; {cards}: their numbers). <b> is bold."
+  },
+  "workspace.move.hide": {
+    "defaultMessage": "Hide for now (Repair Moved Workspace… stays in the command palette)",
+    "description": "The banner's close button. Repair Moved Workspace… is the command's name."
+  },
+  "workspace.move.kept": {
+    "defaultMessage": "{count, plural, one {# file is} other {# files are}} already in <mono>{to}</mono> with other content and won't be overwritten: {files}{more, plural, =0 {} other { and # more}}.",
+    "description": "Repair's plan: files left as they are ({files}: up to five names)."
+  },
+  "workspace.move.lanes": {
+    "defaultMessage": "{count, plural, one {# lane} other {# lanes}}",
+    "description": "Board items saved under a project's old name: card loops' lanes."
+  },
+  "workspace.move.leftToDo": {
+    "defaultMessage": "Repair finished; something is left to do:",
+    "description": "After Repair; what is left follows."
+  },
+  "workspace.move.locate": {
+    "defaultMessage": "Locate…",
+    "description": "Repair's plan: a missing worktree's choice (pick its folder)."
+  },
+  "workspace.move.missing": {
+    "defaultMessage": "<b>{agent}</b>'s worktree wasn't found (it was at <mono>{from}</mono>){gone, select, yes {, and its branch is gone too} other {}}.",
+    "description": "Repair's plan, a line; choices follow. <b> is bold; <mono> a folder."
+  },
+  "workspace.move.movedFromTo": {
+    "defaultMessage": "The workspace moved from <mono>{from}</mono> to <mono>{to}</mono>. Repair will:",
+    "description": "Repair's plan, at the top; what it does follows. <mono> is a folder."
+  },
+  "workspace.move.nothing": {
+    "defaultMessage": "Nothing to repair: everything already points to where the workspace is now.",
+    "description": "Repair with nothing to do."
+  },
+  "workspace.move.original": {
+    "defaultMessage": "<b>{agent}</b>'s worktree stays with the project at its old folder, which is still there (this looks like a copy).",
+    "description": "Repair's plan, a line. <b> is bold."
+  },
+  "workspace.move.pending": {
+    "defaultMessage": "A worktree of {projects} was made again at a new folder, and not everything has followed it yet.",
+    "description": "The banner when a worktree was made again elsewhere."
+  },
+  "workspace.move.problems": {
+    "defaultMessage": "Repair finished, with problems:",
+    "description": "After Repair; what failed follows."
+  },
+  "workspace.move.projects": {
+    "defaultMessage": "{count, plural, one {The project {name} was moved to another folder.} other {# projects were moved to another folder.}}",
+    "description": "The banner when projects moved."
+  },
+  "workspace.move.projectsMoved": {
+    "defaultMessage": "Projects moved to another folder. Repair will:",
+    "description": "Repair's plan, at the top; what it does follows."
+  },
+  "workspace.move.recent": {
+    "defaultMessage": "Open Recent: list <mono>{to}</mono> instead of the old folder.",
+    "description": "Repair's plan: File → Open Recent's entry. <mono> is a folder."
+  },
+  "workspace.move.recreate": {
+    "defaultMessage": "Recreate <b>{agent}</b>'s worktree on its branch <mono>{branch}</mono>, with its commits, at <mono>{to}</mono>; its setup command runs at its next start.",
+    "description": "Repair's plan, a line. <b> is bold; <mono> a branch or folder."
+  },
+  "workspace.move.recreateButton": {
+    "defaultMessage": "Recreate worktree",
+    "description": "Repair's plan: a missing worktree's choice."
+  },
+  "workspace.move.repair": {
+    "defaultMessage": "Repair",
+    "description": "Repair's button."
+  },
+  "workspace.move.repairButton": {
+    "defaultMessage": "Repair…",
+    "description": "The banner over a moved workspace: opens Repair."
+  },
+  "workspace.move.repaired": {
+    "defaultMessage": "Repaired. Everything now points to where the workspace is.",
+    "description": "After Repair."
+  },
+  "workspace.move.repairing": {
+    "defaultMessage": "Repairing…",
+    "description": "Repair's button while it works."
+  },
+  "workspace.move.sessions": {
+    "defaultMessage": "{count, plural, one {Point # session to the new folder, so it resumes where it ran.} other {Point # sessions to the new folders, so they resume where they ran.}}",
+    "description": "Repair's plan, a line."
+  },
+  "workspace.move.stays": {
+    "defaultMessage": "Repair… stays in the banner until it's done; running it again repeats nothing already done.",
+    "description": "After Repair, when something is left to do."
+  },
+  "workspace.move.stillPoint": {
+    "defaultMessage": "Agents' worktrees, sessions and conversations still point to the old folder.",
+    "description": "The banner over a moved workspace or project, after what moved."
+  },
+  "workspace.move.stopFirst": {
+    "defaultMessage": "Stop the running agents first: {agents}.",
+    "description": "Repair's plan: why Repair can't run yet."
+  },
+  "workspace.move.title": {
+    "defaultMessage": "Repair a Moved Workspace",
+    "description": "Repair's dialog title."
+  },
+  "workspace.move.undo": {
+    "defaultMessage": "Undo",
+    "description": "Repair's plan: takes back a choice made for a missing worktree."
+  },
+  "workspace.move.unlink": {
+    "defaultMessage": "Remove <b>{agent}</b>'s worktree link (its folder, if it turns up, is left as it is).",
+    "description": "Repair's plan, a line. <b> is bold."
+  },
+  "workspace.move.unlinkButton": {
+    "defaultMessage": "Remove the agent's worktree link",
+    "description": "Repair's plan: a missing worktree's choice."
+  },
+  "workspace.move.unreadable": {
+    "defaultMessage": "{count} can't be read: {files}{more, plural, =0 {} other { and # more}}. Repair tries {count, plural, one {it} other {them}} again.",
+    "description": "Repair's plan: files that couldn't be read ({files}: up to five names)."
+  },
+  "workspace.move.untouched": {
+    "defaultMessage": "Nothing at the old location is moved or deleted.",
+    "description": "Repair's plan, at the bottom."
+  },
+  "workspace.move.watches": {
+    "defaultMessage": "{count, plural, one {# card watch} other {# card watches}}",
+    "description": "Board items saved under a project's old name: agents' card watches."
+  },
+  "workspace.move.working": {
+    "defaultMessage": "Working out what moved…",
+    "description": "Repair while it reads what moved."
+  },
+  "workspace.move.workingOn": {
+    "defaultMessage": "Working on: mark {projects} again, as at the old folder.",
+    "description": "Repair's plan: the projects marked as being worked on."
+  },
+  "workspace.notes.delete": {
+    "defaultMessage": "Delete note",
+    "description": "A button over an open shared note."
+  },
+  "workspace.notes.select": {
+    "defaultMessage": "Select a note, or create one. Shared notes live in <code>.hive/shared</code> and are available to every project and agent.",
+    "description": "The Shared Notes view with no note selected. <code> is a folder: keep .hive/shared as it is."
+  },
+  "workspace.overview.agentLabel": {
+    "defaultMessage": "{project} · {agent}",
+    "description": "A running agent in the Workspace Overview: its project and name."
+  },
+  "workspace.overview.apiCost": {
+    "defaultMessage": "API-equivalent cost",
+    "description": "A figure's title: what the work would have cost at API prices."
+  },
+  "workspace.overview.asReported": {
+    "defaultMessage": "as reported",
+    "description": "Under API-equivalent cost: the provider reported it. Lower case."
+  },
+  "workspace.overview.assistant": {
+    "defaultMessage": "Assistant",
+    "description": "The Workspace Overview: the Hive Assistant's row and series (beside the projects)."
+  },
+  "workspace.overview.byDay": {
+    "defaultMessage": "Every project and the Assistant, by calendar day: a session that ran over several days counts only its part in the period.",
+    "description": "The Workspace Overview, under Summary."
+  },
+  "workspace.overview.byProject": {
+    "defaultMessage": "By project",
+    "description": "The Workspace Overview: the heading over the table by project."
+  },
+  "workspace.overview.chartLabel": {
+    "defaultMessage": "Tokens per day by project",
+    "description": "The Workspace Overview's chart, for screen readers."
+  },
+  "workspace.overview.colCost": {
+    "defaultMessage": "Cost",
+    "description": "The Workspace Overview's table by project: a column (at API prices)."
+  },
+  "workspace.overview.colLastActive": {
+    "defaultMessage": "Last active",
+    "description": "The Workspace Overview's table by project: a column."
+  },
+  "workspace.overview.colProject": {
+    "defaultMessage": "Project",
+    "description": "The Workspace Overview's table by project: a column."
+  },
+  "workspace.overview.colSessions": {
+    "defaultMessage": "Sessions",
+    "description": "The Workspace Overview's table by project: a column; and a figure's title."
+  },
+  "workspace.overview.colShare": {
+    "defaultMessage": "Share",
+    "description": "The Workspace Overview's table by project: a column (its share of the tokens)."
+  },
+  "workspace.overview.colTokens": {
+    "defaultMessage": "Tokens",
+    "description": "The Workspace Overview's table by project: a column; and a figure's title."
+  },
+  "workspace.overview.compactions": {
+    "defaultMessage": "{count, plural, one {# compaction} other {# compactions}}",
+    "description": "Under Prompts: how many times sessions were compacted."
+  },
+  "workspace.overview.costTip": {
+    "defaultMessage": "What this work would have cost at API prices: reported by the provider where it does (Claude Code), else estimated by Hive from token counts and the prices in Settings → the provider. On a subscription you are not charged this; it shows how heavy the work was.",
+    "description": "The Workspace Overview: tooltip on API-equivalent cost."
+  },
+  "workspace.overview.dayTip": {
+    "defaultMessage": "<b>{day}</b>: {tokens} tokens · {cost} · {prompts, plural, one {# prompt} other {# prompts}}",
+    "description": "Tooltip on a day of the chart: {tokens} like 1.2M; {cost} a cost. <b> is bold."
+  },
+  "workspace.overview.estimated": {
+    "defaultMessage": "estimated",
+    "description": "Under API-equivalent cost: Hive worked it out from prices. Lower case."
+  },
+  "workspace.overview.hidden": {
+    "defaultMessage": "{count, plural, one {# hidden or removed project isn't counted} other {# hidden or removed projects aren't counted}} (Settings → Workspace).",
+    "description": "Under the table by project."
+  },
+  "workspace.overview.loadTarget": {
+    "defaultMessage": "the workspace's usage",
+    "description": "What could not be loaded: shown in \"Could not load {what}: {error}\", with Retry."
+  },
+  "workspace.overview.loading": {
+    "defaultMessage": "Loading…",
+    "description": "The Workspace Overview while it reads the projects' usage."
+  },
+  "workspace.overview.noWorkspace": {
+    "defaultMessage": "Open a workspace to see its overview.",
+    "description": "The Workspace Overview with no workspace open."
+  },
+  "workspace.overview.nothingUsed": {
+    "defaultMessage": "Nothing used in this period.",
+    "description": "The table by project when nothing was used."
+  },
+  "workspace.overview.openAssistant": {
+    "defaultMessage": "Open the Assistant view",
+    "description": "The table by project: the Assistant's row, for screen readers."
+  },
+  "workspace.overview.openProject": {
+    "defaultMessage": "Open {project}'s Overview",
+    "description": "The table by project: a project's row, for screen readers."
+  },
+  "workspace.overview.outputSub": {
+    "defaultMessage": "{tokens} output",
+    "description": "Under a coding agent's Tokens (like 1.2M)."
+  },
+  "workspace.overview.panelTip": {
+    "defaultMessage": "What each project used in the period chosen in the overview. Click one for its own Overview.",
+    "description": "The Workspace Overview's sidebar: tooltip on its heading."
+  },
+  "workspace.overview.partlyEstimated": {
+    "defaultMessage": "partly estimated",
+    "description": "Under API-equivalent cost. Lower case."
+  },
+  "workspace.overview.period": {
+    "defaultMessage": "Period",
+    "description": "The period buttons (Today, 7 days…), for screen readers."
+  },
+  "workspace.overview.prompts": {
+    "defaultMessage": "Prompts",
+    "description": "A figure's title: prompts sent."
+  },
+  "workspace.overview.promptsSub": {
+    "defaultMessage": "{count, plural, one {# prompt} other {# prompts}}",
+    "description": "Under a coding agent's Sessions: prompts sent."
+  },
+  "workspace.overview.refresh": {
+    "defaultMessage": "Refresh",
+    "description": "The Workspace Overview: reads the usage again."
+  },
+  "workspace.overview.refreshTarget": {
+    "defaultMessage": "the usage",
+    "description": "What could not be refreshed while the figures shown stay on screen: shown in \"Could not refresh {what}; last updated …\", with Retry."
+  },
+  "workspace.overview.rowTip": {
+    "defaultMessage": "{tokens} tokens · {sessions, plural, one {# session} other {# sessions}}{running, plural, =0 {} other { · # running}}",
+    "description": "The Workspace Overview's sidebar: tooltip on a project ({tokens} like 1.2M)."
+  },
+  "workspace.overview.runningHeading": {
+    "defaultMessage": "Running now",
+    "description": "The Workspace Overview: the heading over the agents running now."
+  },
+  "workspace.overview.runningNowSub": {
+    "defaultMessage": "{count} running now",
+    "description": "Under Sessions: agents running now."
+  },
+  "workspace.overview.shareSmall": {
+    "defaultMessage": "< {share, number, ::percent}",
+    "description": "The table's Share when it is under 1% (\"< 1%\")."
+  },
+  "workspace.overview.subtitle": {
+    "defaultMessage": "What every project and the Assistant used, what runs now, and the board at a glance.",
+    "description": "The Workspace Overview, under its heading."
+  },
+  "workspace.overview.summary": {
+    "defaultMessage": "Summary",
+    "description": "The Workspace Overview: the heading over the period's figures."
+  },
+  "workspace.overview.title": {
+    "defaultMessage": "Workspace Overview",
+    "description": "The Workspace Overview's heading, and its sidebar's."
+  },
+  "workspace.overview.today": {
+    "defaultMessage": "Today",
+    "description": "The end of the chart's day axis."
+  },
+  "workspace.overview.tokensSub": {
+    "defaultMessage": "{input} in · {cached} cached · {output} out",
+    "description": "Under Tokens: new input (with cache writes), read from cache, and output (like 1.2M)."
+  },
+  "workspace.overview.tokensTip": {
+    "defaultMessage": "All tokens: new input, cache writes, input read from cache, and output.",
+    "description": "Tooltip on Tokens."
+  },
+  "workspace.overview.turnedOff": {
+    "defaultMessage": "— turned off",
+    "description": "Beside a coding agent's heading when it is turned off in Settings (its past use still shows)."
+  },
+  "workspace.overview.updated": {
+    "defaultMessage": "Updated {when}. How often it updates: Settings → Sessions → Overview updates.",
+    "description": "Tooltip on Refresh ({when}: \"4 minutes ago\"). Keep the setting's path as Settings shows it."
+  },
+  "workspace.overview.withoutPrice": {
+    "defaultMessage": "{count, plural, one {# session without a price} other {# sessions without a price}}",
+    "description": "Under API-equivalent cost: sessions whose model has no known price."
+  },
+  "workspace.overview.withoutPriceShort": {
+    "defaultMessage": "{count} without a price",
+    "description": "Under a coding agent's API-equivalent cost: sessions whose model has no known price."
+  },
+  "workspace.removal.back": {
+    "defaultMessage": "{name} is back",
+    "description": "A notice after Restore."
+  },
+  "workspace.removal.banner": {
+    "defaultMessage": "This folder holds {what} from when it was removed from Hive ({when}). Restore them to this workspace?",
+    "description": "A banner over a project whose folder holds what Remove from Hive packed ({when}: \"3 days ago\")."
+  },
+  "workspace.removal.blocked": {
+    "defaultMessage": "Merge or discard the work in {agents}'s worktree first: a worktree can't go with the project folder.{unchecked, select, yes { Git couldn't check one, so Hive can't tell whether anything would be lost.} other {}}",
+    "description": "Remove Project: why Remove from Hive can't go yet ({agents}: the agents whose worktrees hold work)."
+  },
+  "workspace.removal.cancel": {
+    "defaultMessage": "Cancel",
+    "description": "Remove Project's button that closes it."
+  },
+  "workspace.removal.cards": {
+    "defaultMessage": "{count, plural, one {# card} other {# cards}} on the board{archived, plural, =0 {} other { (and # archived)}}: {how, select, delete {deleted.} remove {archived, and a copy packed into the folder.} other {archived until you restore it.}}",
+    "description": "Remove Project, what it touches: the project's cards, for the choice made."
+  },
+  "workspace.removal.delete": {
+    "defaultMessage": "Delete",
+    "description": "Remove Project: a choice, and the dialog's button for it."
+  },
+  "workspace.removal.deleteSummary": {
+    "defaultMessage": "The project folder, its worktrees and its handovers go to the Recycle Bin, and its cards are deleted.",
+    "description": "Remove Project: what Delete does."
+  },
+  "workspace.removal.deletedDone": {
+    "defaultMessage": "{name} was moved to the Recycle Bin",
+    "description": "A notice after Delete."
+  },
+  "workspace.removal.deleting": {
+    "defaultMessage": "Moving to the Recycle Bin…",
+    "description": "Remove Project's button while it deletes."
+  },
+  "workspace.removal.discard": {
+    "defaultMessage": "Discard",
+    "description": "A button on that banner: drops the folder's packed data."
+  },
+  "workspace.removal.discardFailed": {
+    "defaultMessage": "Could not discard them",
+    "description": "An error notice: the folder's packed data."
+  },
+  "workspace.removal.drafts": {
+    "defaultMessage": "Files of this project have unsaved edits in Hive. They are lost.",
+    "description": "Remove Project, before Delete."
+  },
+  "workspace.removal.folder": {
+    "defaultMessage": "The folder {path}: {how, select, delete {to the Recycle Bin.} remove {stays where it is.} other {stays, hidden from Hive.}}",
+    "description": "Remove Project, what it touches: the project folder, for the choice made."
+  },
+  "workspace.removal.folderGone": {
+    "defaultMessage": "The folder is no longer in the workspace.",
+    "description": "Under a hidden project whose folder is gone."
+  },
+  "workspace.removal.forget": {
+    "defaultMessage": "Forget",
+    "description": "A button: drops a removed project whose folder is gone from Hive's list."
+  },
+  "workspace.removal.forgetFailed": {
+    "defaultMessage": "Could not forget {name}",
+    "description": "An error notice."
+  },
+  "workspace.removal.handovers": {
+    "defaultMessage": "{count, plural, one {# handover} other {# handovers}} in the shared notes: {how, select, hide {left where they are.} remove {packed into the folder, then moved to the Recycle Bin.} other {to the Recycle Bin.}}",
+    "description": "Remove Project, what it touches: the project's handovers, for the choice made."
+  },
+  "workspace.removal.hiddenDone": {
+    "defaultMessage": "{name} is hidden",
+    "description": "A notice after Hide."
+  },
+  "workspace.removal.hide": {
+    "defaultMessage": "Hide",
+    "description": "Remove Project: a choice, and the dialog's button for it."
+  },
+  "workspace.removal.hideSummary": {
+    "defaultMessage": "Hive leaves the project out until you restore it. Nothing is moved or deleted.",
+    "description": "Remove Project: what Hide does."
+  },
+  "workspace.removal.hiding": {
+    "defaultMessage": "Hiding…",
+    "description": "Remove Project's button while it hides the project."
+  },
+  "workspace.removal.how": {
+    "defaultMessage": "How",
+    "description": "Settings → Workspace's hidden projects table: a column (hidden, or removed from Hive)."
+  },
+  "workspace.removal.loadTarget": {
+    "defaultMessage": "the hidden projects",
+    "description": "What could not be loaded: shown in \"Could not load {what}: {error}\", with Retry."
+  },
+  "workspace.removal.loading": {
+    "defaultMessage": "Loading…",
+    "description": "Settings → Workspace, hidden projects, while they are read."
+  },
+  "workspace.removal.looking": {
+    "defaultMessage": "Looking at what the project has…",
+    "description": "Remove Project while it reads what the project has."
+  },
+  "workspace.removal.modeHidden": {
+    "defaultMessage": "Hidden",
+    "description": "A hidden project, in Settings → Workspace."
+  },
+  "workspace.removal.modeRemoved": {
+    "defaultMessage": "Removed from Hive",
+    "description": "A project removed from Hive, in Settings → Workspace."
+  },
+  "workspace.removal.noCards": {
+    "defaultMessage": "No cards on the board.",
+    "description": "Remove Project, what it touches."
+  },
+  "workspace.removal.noHandovers": {
+    "defaultMessage": "No handovers in the shared notes.",
+    "description": "Remove Project, what it touches."
+  },
+  "workspace.removal.noWorkspace": {
+    "defaultMessage": "Open a workspace to see its hidden projects.",
+    "description": "Settings → Workspace, hidden projects, with no workspace open."
+  },
+  "workspace.removal.none": {
+    "defaultMessage": "None. Project → Remove Project… hides a project or removes it from Hive.",
+    "description": "Settings → Workspace with no hidden projects. Project → Remove Project… is the menu item."
+  },
+  "workspace.removal.notAll": {
+    "defaultMessage": "Not everything of {name} could be removed",
+    "description": "A notice: some of the project's things stayed (why follows, one a line)."
+  },
+  "workspace.removal.project": {
+    "defaultMessage": "Project",
+    "description": "Settings → Workspace's hidden projects table: a column."
+  },
+  "workspace.removal.remove": {
+    "defaultMessage": "Remove from Hive",
+    "description": "Remove Project: a choice, and the dialog's button for it."
+  },
+  "workspace.removal.removeSummary": {
+    "defaultMessage": "The folder stays on disk, and its handovers and cards are packed into it (.hive/removed), so you can move it elsewhere. Hive offers them back wherever it sees the folder again.",
+    "description": "Remove Project: what Remove from Hive does. Keep .hive/removed as it is."
+  },
+  "workspace.removal.removedDone": {
+    "defaultMessage": "{name} was removed from Hive",
+    "description": "A notice after Remove from Hive."
+  },
+  "workspace.removal.removing": {
+    "defaultMessage": "Removing from Hive…",
+    "description": "Remove Project's button while it works."
+  },
+  "workspace.removal.restore": {
+    "defaultMessage": "Restore",
+    "description": "A button: brings a hidden project (or its packed data) back."
+  },
+  "workspace.removal.restoreFailed": {
+    "defaultMessage": "Could not restore {name}",
+    "description": "An error notice."
+  },
+  "workspace.removal.restoreIn": {
+    "defaultMessage": "Restore it in Settings → Workspace.",
+    "description": "Under the notice after Hide or Remove from Hive."
+  },
+  "workspace.removal.restoreThemFailed": {
+    "defaultMessage": "Could not restore them",
+    "description": "An error notice: the folder's packed data."
+  },
+  "workspace.removal.restored": {
+    "defaultMessage": "{project}: {what} restored",
+    "description": "A notice: the folder's packed handovers and cards are back ({what}: \"2 handovers and 3 board cards\")."
+  },
+  "workspace.removal.running": {
+    "defaultMessage": "{count, plural, one {# running agent} other {# running agents}}: stopped first (their conversations are kept).",
+    "description": "Remove Project, what it touches."
+  },
+  "workspace.removal.title": {
+    "defaultMessage": "Remove {name}",
+    "description": "Remove Project's dialog title."
+  },
+  "workspace.removal.touches": {
+    "defaultMessage": "What it touches",
+    "description": "Remove Project: the heading over what the choice does to the project's things."
+  },
+  "workspace.removal.transcripts": {
+    "defaultMessage": "The coding agents' own transcripts (in ~/.claude and ~/.codex) are left alone.",
+    "description": "Remove Project, what it touches. Keep the paths as they are."
+  },
+  "workspace.removal.typeName": {
+    "defaultMessage": "Type <b>{name}</b> to delete it.",
+    "description": "Remove Project, before Delete: type the project's name in the box below. <b> is bold."
+  },
+  "workspace.removal.what": {
+    "defaultMessage": "{which, select, both {{handovers, plural, one {# handover} other {# handovers}} and {cards, plural, one {# board card} other {# board cards}}} handovers {{handovers, plural, one {# handover} other {# handovers}}} cards {{cards, plural, one {# board card} other {# board cards}}} other {Hive data}}",
+    "description": "What a folder holds from when its project was removed from Hive: handovers, board cards, or both."
+  },
+  "workspace.removal.when": {
+    "defaultMessage": "When",
+    "description": "Settings → Workspace's hidden projects table: a column."
+  },
+  "workspace.removal.with": {
+    "defaultMessage": "With {which, select, both {{handovers, plural, one {# handover} other {# handovers}} and {cards, plural, one {# card} other {# cards}}} handovers {{handovers, plural, one {# handover} other {# handovers}}} other {{cards, plural, one {# card} other {# cards}}}}.",
+    "description": "Under {name} is back: the handovers and cards that came back with it."
+  },
+  "workspace.removal.worktree": {
+    "defaultMessage": "{agent} ({branch}){hasError, select, yes {: {error}} other {}}{ahead, plural, =0 {} one {: # commit not merged} other {: # commits not merged}}{dirty, plural, =0 {} other {{ahead, plural, =0 {:} other {,}} {dirty, plural, one {# uncommitted file} other {# uncommitted files}}}}",
+    "description": "Remove Project: an agent's worktree, and what in it isn't merged."
+  },
+  "workspace.removal.worktrees": {
+    "defaultMessage": "{count, plural, one {# worktree} other {# worktrees}}: {how, select, hide {left as they are.} remove {removed with their branches, once nothing in them is unmerged.} other {to the Recycle Bin.}}",
+    "description": "Remove Project, what it touches: the agents' worktrees (each follows), for the choice made."
+  },
+  "workspace.reuse.alreadyAt": {
+    "defaultMessage": "reused {branch}, already at {base}",
+    "description": "After adding an agent: it works in an unused worktree again, already up to {base} (main). Lower case: it follows the agent."
+  },
+  "workspace.reuse.keptWork": {
+    "defaultMessage": "reused {branch} as it is (it keeps its work)",
+    "description": "After adding an agent: it works in an unused worktree again, with its work. Lower case: it follows the agent."
+  },
+  "workspace.reuse.newTree": {
+    "defaultMessage": "made a new worktree, leaving {branch}'s unused one as it is ({why})",
+    "description": "After adding an agent: it got a new worktree rather than the unused one of its branch; {why} says why. Lower case: it follows the agent."
+  },
+  "workspace.reuse.notChecked": {
+    "defaultMessage": "not checked",
+    "description": "Why an unused worktree wasn't reused, when it couldn't be checked. Lower case."
+  },
+  "workspace.reuse.upTo": {
+    "defaultMessage": "reused {branch}, brought up to {base} at {commit}",
+    "description": "After adding an agent: it works in an unused worktree again, brought up to {base} (main) at commit {commit}. Lower case: it follows the agent."
+  },
+  "workspace.skillView.gone": {
+    "defaultMessage": "The skill <b>{name}</b> no longer exists in this workspace. It may have been deleted or renamed.",
+    "description": "The Skills view, for a skill deleted or renamed since it was chosen. <b> is bold."
+  },
+  "workspace.skillView.loadTarget": {
+    "defaultMessage": "the skill",
+    "description": "What could not be loaded: shown in \"Could not load {what}: {error}\", with Retry."
+  },
+  "workspace.skillView.ok": {
+    "defaultMessage": "OK",
+    "description": "The Skills view, under a skill that no longer exists: closes it."
+  },
+  "workspace.skillView.refreshTarget": {
+    "defaultMessage": "the skill",
+    "description": "What could not be refreshed while the skill stays open: shown in \"Could not refresh {what}; last updated …\", with Retry."
+  },
+  "workspace.skillView.select": {
+    "defaultMessage": "Select a Hive skill to view or edit it. The agents in every project of this workspace get these skills, except those marked for the Hive Assistant.",
+    "description": "The Skills view with no skill selected."
+  },
+  "workspace.statusBar.api": {
+    "defaultMessage": "API",
+    "description": "The status bar's item for Hive's Agent API. Keep it short."
+  },
+  "workspace.statusBar.apiError": {
+    "defaultMessage": "Agent API: {error}",
+    "description": "Tooltip on the status bar's API: it couldn't start; {error} says why."
+  },
+  "workspace.statusBar.apiOff": {
+    "defaultMessage": "Agent API is off",
+    "description": "Tooltip on the status bar's API."
+  },
+  "workspace.statusBar.apiOn": {
+    "defaultMessage": "Agent API listening on {url}",
+    "description": "Tooltip on the status bar's API: Hive's Agent API is on ({url}: its address)."
+  },
+  "workspace.statusBar.asOf": {
+    "defaultMessage": "As of {when}. Updates while a session is running.",
+    "description": "The last line of the status bar's plan limits tooltip (GitHub issue #1): when the limits were reported ({when}: \"4 minutes ago\")."
+  },
+  "workspace.statusBar.awakeTip": {
+    "defaultMessage": "Windows won't sleep until the agents finish (the screen may still turn off). Settings → General → Keep the PC awake while agents work.",
+    "description": "Tooltip on the status bar's keep-awake note. Keep the setting's path as Settings shows it."
+  },
+  "workspace.statusBar.git": {
+    "defaultMessage": "{hasVersion, select, yes {Git {version}} other {Git}}",
+    "description": "The status bar's Git warning. Usually kept as Git."
+  },
+  "workspace.statusBar.gitOld": {
+    "defaultMessage": "Git {version} is older than {min}: some git features don't work.",
+    "description": "Tooltip on the status bar's Git warning."
+  },
+  "workspace.statusBar.gitProblem": {
+    "defaultMessage": "{problem}. {fix}",
+    "description": "Tooltip on the status bar's Git warning: what is wrong with git and how to fix it."
+  },
+  "workspace.statusBar.keepAwake": {
+    "defaultMessage": "Keeping the PC awake: {working, plural, one {# agent} other {# agents}} working",
+    "description": "The status bar's note while Hive keeps Windows from sleeping because agents are working (Settings → General → Keep the PC awake)."
+  },
+  "workspace.statusBar.limitLine": {
+    "defaultMessage": "{window, select, fiveHour {5-hour limit} weekly {Weekly limit} other {{label} limit}}: {used, number, ::percent} used{hasReset, select, yes {, resets {when}} other {}}",
+    "description": "A line of the status bar's plan limits tooltip (GitHub issue #1): a rolling usage window, how much of it is used, and when it resets ({when}: \"in 2 h 5 min\", or a weekday and time)."
+  },
+  "workspace.statusBar.more": {
+    "defaultMessage": "and {count} more",
+    "description": "Under the running agents' table in the status bar's tooltip: agents not listed."
+  },
+  "workspace.statusBar.notInstalled": {
+    "defaultMessage": "not installed",
+    "description": "A coding agent's status bar item, after its icon: it isn't installed. Lower case; keep it short."
+  },
+  "workspace.statusBar.notInstalledTip": {
+    "defaultMessage": "{provider} is not installed.",
+    "description": "Tooltip on a coding agent's status bar warning."
+  },
+  "workspace.statusBar.notInstalledUnused": {
+    "defaultMessage": "{provider} isn't installed. Nothing uses it: new agents use another provider.",
+    "description": "Tooltip on a coding agent's status bar item: it is turned on but not installed, and nothing needs it."
+  },
+  "workspace.statusBar.openWorkspace": {
+    "defaultMessage": "Open a workspace",
+    "description": "The status bar with no workspace open: opens one."
+  },
+  "workspace.statusBar.planLine": {
+    "defaultMessage": "{provider}{hasPlan, select, yes { ({plan} plan)} other {}}",
+    "description": "The first line of the status bar's plan limits tooltip (GitHub issue #1): the coding agent ({provider}: Claude Code) and its plan's name ({plan}: max, pro…)."
+  },
+  "workspace.statusBar.providerTip": {
+    "defaultMessage": "{provider} {version} ({source}){hasWarning, select, yes { — {warning}} other {}}{hasUpdate, select, yes { — {latest} available} other {}}",
+    "description": "Tooltip on a coding agent's status bar item: its version, where it was found ({source}), a warning, and a newer version when there is one."
+  },
+  "workspace.statusBar.running": {
+    "defaultMessage": "{count, plural, other {# running session(s)}}: {working} working, {background, plural, =0 {} other {# waiting on background tasks, }}{waiting} waiting for you",
+    "description": "The status bar's running sessions (English keeps session(s); use your language's plural forms): how many, working, waiting on background tasks (only when some are) and waiting for you."
+  },
+  "workspace.statusBar.shortLimit": {
+    "defaultMessage": "{window, select, fiveHour {5h} weekly {Week} other {{label}}}",
+    "description": "The status bar's plan limits, before each one's percent: the 5-hour window, the weekly one, or the provider's own name for another. Keep it very short."
+  },
+  "workspace.statusBar.workspace": {
+    "defaultMessage": "Workspace: {path}",
+    "description": "Tooltip on the status bar's workspace."
+  },
+  "workspace.storage.archive": {
+    "defaultMessage": "Archive",
+    "description": "Storage: Hive's archive folder (.hive/archive)."
+  },
+  "workspace.storage.assistant": {
+    "defaultMessage": "Hive Assistant",
+    "description": "Settings → Workspace's storage: the Assistant's row and heading. Hive's name stays as it is."
+  },
+  "workspace.storage.attachmentDays": {
+    "defaultMessage": "Attachment age in days",
+    "description": "Clean Up: the days box's accessible name."
+  },
+  "workspace.storage.attachments": {
+    "defaultMessage": "Attachments",
+    "description": "Storage: files pasted or dropped into sessions (.hive/attachments)."
+  },
+  "workspace.storage.backupDays": {
+    "defaultMessage": "Backup age in days",
+    "description": "Clean Up: the days box's accessible name."
+  },
+  "workspace.storage.backups": {
+    "defaultMessage": "Transcript backups",
+    "description": "Storage: Hive's copies of the sessions' transcripts (.hive/sessions)."
+  },
+  "workspace.storage.cancel": {
+    "defaultMessage": "Cancel",
+    "description": "The Clean Up dialog's button that closes it."
+  },
+  "workspace.storage.cleanUp": {
+    "defaultMessage": "Clean Up…",
+    "description": "Storage: opens the Clean Up dialog."
+  },
+  "workspace.storage.deletedSession": {
+    "defaultMessage": "Deleted session {id}",
+    "description": "Storage, a folder of attachments to clean up: its session was deleted. {id} is the start of its id (8 characters)."
+  },
+  "workspace.storage.goneBackups": {
+    "defaultMessage": "Backups of archived sessions the CLI no longer has",
+    "description": "A Clean Up choice (it deletes those sessions)."
+  },
+  "workspace.storage.goneBackupsDesc": {
+    "defaultMessage": "Hive's copy is the last one: the sessions are deleted, as Delete Session does.",
+    "description": "Under a Clean Up choice. Delete Session is the Sessions tab's command."
+  },
+  "workspace.storage.goneWarning": {
+    "defaultMessage": "These sessions can't be resumed or read afterwards: Hive's backup is the only copy left. They leave the Sessions tab; what they used still counts in the totals.",
+    "description": "The Clean Up dialog, while it would delete sessions."
+  },
+  "workspace.storage.groupCount": {
+    "defaultMessage": "{count, plural, one {# item} other {# items}}, {size}",
+    "description": "The Clean Up dialog, beside a group: how many and how big."
+  },
+  "workspace.storage.hide": {
+    "defaultMessage": "Hide",
+    "description": "Settings → Workspace's storage: hides the Assistant's storage."
+  },
+  "workspace.storage.kindArchivedAttachments": {
+    "defaultMessage": "Attachments of archived sessions",
+    "description": "Clean Up, a group of what goes."
+  },
+  "workspace.storage.kindArchivedBackup": {
+    "defaultMessage": "Backups of archived sessions (the CLI still has them)",
+    "description": "Clean Up, a group of what goes."
+  },
+  "workspace.storage.kindGoneBackup": {
+    "defaultMessage": "Last copies of archived sessions (deletes them)",
+    "description": "Clean Up, a group of what goes."
+  },
+  "workspace.storage.kindOrphanAttachments": {
+    "defaultMessage": "Attachments of deleted sessions",
+    "description": "Clean Up, a group of what goes; and its choice."
+  },
+  "workspace.storage.loadTarget": {
+    "defaultMessage": "the storage sizes",
+    "description": "What could not be loaded when Storage measured: shown in \"Could not load {what}: {error}\", with Retry."
+  },
+  "workspace.storage.looking": {
+    "defaultMessage": "Looking…",
+    "description": "The Clean Up dialog while it finds the files."
+  },
+  "workspace.storage.measured": {
+    "defaultMessage": "Measured {when}",
+    "description": "Storage: when the sizes were measured ({when}: \"4 minutes ago\")."
+  },
+  "workspace.storage.measuring": {
+    "defaultMessage": "Measuring…",
+    "description": "Storage while it measures the folders."
+  },
+  "workspace.storage.measuringAgain": {
+    "defaultMessage": "Measuring again…",
+    "description": "Storage while Refresh measures again."
+  },
+  "workspace.storage.measuringProjects": {
+    "defaultMessage": "Measuring the projects…",
+    "description": "Settings → Workspace's storage while it measures."
+  },
+  "workspace.storage.move": {
+    "defaultMessage": "Move to the Recycle Bin",
+    "description": "The Clean Up dialog's button with nothing chosen."
+  },
+  "workspace.storage.moveItems": {
+    "defaultMessage": "Move {count, plural, one {# item} other {# items}} ({size}) to the Recycle Bin",
+    "description": "The Clean Up dialog's button ({size}: \"12 MB\")."
+  },
+  "workspace.storage.moved": {
+    "defaultMessage": "Moved {count, plural, one {# item} other {# items}} ({size}) to the Recycle Bin",
+    "description": "A notice after Clean Up ({size}: \"12 MB\")."
+  },
+  "workspace.storage.movingBusy": {
+    "defaultMessage": "Moving to the Recycle Bin…",
+    "description": "The Clean Up dialog's button while it works."
+  },
+  "workspace.storage.neverStarted": {
+    "defaultMessage": "A launch that never got a session",
+    "description": "Storage, a folder of attachments to clean up: pasted into a launch that never became a session."
+  },
+  "workspace.storage.neverTouched": {
+    "defaultMessage": "Running sessions and sessions that aren't archived are never touched, nor the coding agents' own transcripts (in ~/.claude and ~/.codex). What the sessions used still counts in the totals.",
+    "description": "The Clean Up dialog, at the top. Keep the paths as they are."
+  },
+  "workspace.storage.noProjects": {
+    "defaultMessage": "No projects.",
+    "description": "Settings → Workspace's storage table with no projects."
+  },
+  "workspace.storage.noWorkspace": {
+    "defaultMessage": "Open a workspace to see what Hive keeps for it.",
+    "description": "Settings → Workspace's storage with no workspace open."
+  },
+  "workspace.storage.nothing": {
+    "defaultMessage": "Nothing.",
+    "description": "An empty group in the Clean Up dialog."
+  },
+  "workspace.storage.nothingKept": {
+    "defaultMessage": "Nothing kept.",
+    "description": "Storage's table when Hive keeps nothing for the project."
+  },
+  "workspace.storage.nothingMatches": {
+    "defaultMessage": "Nothing matches.",
+    "description": "The Clean Up dialog when no file matches the choices."
+  },
+  "workspace.storage.nothingRemoved": {
+    "defaultMessage": "Nothing was removed",
+    "description": "A notice after Clean Up when nothing went."
+  },
+  "workspace.storage.oldAttachments": {
+    "defaultMessage": "Attachments of archived sessions last active more than {days} days ago",
+    "description": "A Clean Up choice; {days} is a box where you type the number of days."
+  },
+  "workspace.storage.oldAttachmentsDesc": {
+    "defaultMessage": "Files pasted or dropped into those sessions (.hive/attachments).",
+    "description": "Under a Clean Up choice. Keep .hive/attachments as it is."
+  },
+  "workspace.storage.oldBackups": {
+    "defaultMessage": "Hive's backups of archived sessions last active more than {days} days ago",
+    "description": "A Clean Up choice; {days} is a box where you type the number of days."
+  },
+  "workspace.storage.oldBackupsDesc": {
+    "defaultMessage": "Only where Claude Code or Codex still has the transcript: the session stays, and can be resumed and read from the CLI's copy for as long as the CLI keeps it.",
+    "description": "Under a Clean Up choice."
+  },
+  "workspace.storage.orphansDesc": {
+    "defaultMessage": "Attachments whose session was deleted, or whose launch never got a session (folders named run-…).",
+    "description": "Under a Clean Up choice. Keep run-… as it is (the folders' names)."
+  },
+  "workspace.storage.project": {
+    "defaultMessage": "Project",
+    "description": "Settings → Workspace's storage table: the column of projects."
+  },
+  "workspace.storage.refresh": {
+    "defaultMessage": "Refresh",
+    "description": "Storage: measures again."
+  },
+  "workspace.storage.reviewInChanges": {
+    "defaultMessage": "Review in Changes",
+    "description": "Storage, beside the unused worktrees: a link to them in the Git tab's Changes."
+  },
+  "workspace.storage.size": {
+    "defaultMessage": "Size",
+    "description": "Storage's tables: the column of sizes."
+  },
+  "workspace.storage.skipped": {
+    "defaultMessage": "{count, plural, one {# item skipped:} other {# items skipped:}}",
+    "description": "Under the notice after Clean Up: items that couldn't be moved (each follows on a line)."
+  },
+  "workspace.storage.storage": {
+    "defaultMessage": "Storage",
+    "description": "Settings → Workspace's storage: shows a project's (or the Assistant's) storage."
+  },
+  "workspace.storage.title": {
+    "defaultMessage": "Clean Up {name}",
+    "description": "The Clean Up dialog's title ({name}: the project)."
+  },
+  "workspace.storage.total": {
+    "defaultMessage": "Total",
+    "description": "Storage's table: the last row, the project's total."
+  },
+  "workspace.storage.unused": {
+    "defaultMessage": "Unused worktrees ({count})",
+    "description": "Storage: the worktrees no agent works in, on one line."
+  },
+  "workspace.storage.what": {
+    "defaultMessage": "What",
+    "description": "Storage's table: the column of what Hive keeps."
+  },
+  "workspace.storage.whatGoes": {
+    "defaultMessage": "What goes to the Recycle Bin",
+    "description": "The Clean Up dialog's heading over the files."
+  },
+  "workspace.storage.workspace": {
+    "defaultMessage": "Workspace",
+    "description": "Settings → Workspace's storage table: the last row, the workspace's total."
+  },
+  "workspace.storage.worktree": {
+    "defaultMessage": "{agent}'s worktree",
+    "description": "Storage: an agent's worktree."
+  },
+  "workspace.taskbar.needYou": {
+    "defaultMessage": "{count, plural, one {# agent needs you} other {# agents need you}}",
+    "description": "What the taskbar badge over Hive's icon says to screen readers: how many agents wait for you."
+  },
+  "workspace.unused.changedFiles": {
+    "defaultMessage": "{count, plural, one {# changed file} other {# changed files}}",
+    "description": "An unused worktree's state: files changed and not committed."
+  },
+  "workspace.unused.commitsNoBranch": {
+    "defaultMessage": "{count, plural, one {# commit} other {# commits}} on no branch",
+    "description": "An unused worktree's state: commits only its detached HEAD has."
+  },
+  "workspace.unused.commitsNotOn": {
+    "defaultMessage": "{count, plural, one {# commit} other {# commits}} not on {known, select, yes {{into}} other {the main branch}}",
+    "description": "An unused worktree's state: commits on its branch that {into} (main) doesn't have."
+  },
+  "workspace.unused.detached": {
+    "defaultMessage": "(detached)",
+    "description": "An unused worktree with no branch (a detached HEAD), in the Changes tab's picker."
+  },
+  "workspace.unused.hintDetail": {
+    "defaultMessage": "The template's worktree agents worked in them. Deleting the template left them as they are: review them in Changes.",
+    "description": "Under the notice of unused worktrees left by a deleted template. Changes is the Git tab's page."
+  },
+  "workspace.unused.hintTitle": {
+    "defaultMessage": "{count, plural, one {# unused worktree} other {# unused worktrees}} in {many, select, yes {{projects, plural, one {# project} other {# projects}}} other {{project}}}",
+    "description": "A notice after deleting a template whose worktree agents left unused worktrees: how many, and in which project (or how many projects)."
+  },
+  "workspace.unused.lostCommits": {
+    "defaultMessage": "{count, plural, one {# commit} other {# commits}} on {branch} not on {known, select, yes {{into}} other {any other branch}}",
+    "description": "What removing an unused worktree anyway loses: a line of the confirmation's list."
+  },
+  "workspace.unused.lostDetached": {
+    "defaultMessage": "{count, plural, one {# commit on no branch (only its detached HEAD has it)} other {# commits on no branch (only its detached HEAD has them)}}",
+    "description": "What removing an unused worktree anyway loses: a line of the confirmation's list."
+  },
+  "workspace.unused.lostFiles": {
+    "defaultMessage": "{count, plural, one {# uncommitted file} other {# uncommitted files}} in {path}",
+    "description": "What removing an unused worktree anyway loses: a line of the confirmation's list ({path}: its folder)."
+  },
+  "workspace.unused.lostIgnored": {
+    "defaultMessage": "the files git ignores in its folder (build output, copied .env files)",
+    "description": "What removing an unused worktree anyway loses: the last line of the confirmation's list. Lower case."
+  },
+  "workspace.unused.madeByHive": {
+    "defaultMessage": "made by Hive",
+    "description": "Who made an unused worktree: Hive, for an agent no longer known. Lower case: it follows its branch."
+  },
+  "workspace.unused.merged": {
+    "defaultMessage": "Merged into {into} · clean",
+    "description": "An unused worktree's state: its branch is merged into {into} (main) and it has no changes."
+  },
+  "workspace.unused.notChecked": {
+    "defaultMessage": "Hive couldn't check it",
+    "description": "An unused worktree's state when git couldn't say."
+  },
+  "workspace.unused.notMadeByHive": {
+    "defaultMessage": "not made by Hive",
+    "description": "Who made an unused worktree: something other than Hive (an agent's own git worktree add). Lower case: it follows its branch."
+  },
+  "workspace.unused.pickMerged": {
+    "defaultMessage": "merged, clean",
+    "description": "An unused worktree in the Changes tab's picker: merged and with no changes. Lower case."
+  },
+  "workspace.unused.pickNotChecked": {
+    "defaultMessage": "not checked",
+    "description": "An unused worktree in the Changes tab's picker: git couldn't check it. Lower case."
+  },
+  "workspace.unused.pickWork": {
+    "defaultMessage": "holds work",
+    "description": "An unused worktree in the Changes tab's picker: it holds work that is nowhere else. Lower case."
+  },
+  "workspace.unused.summary": {
+    "defaultMessage": "{count, plural, one {# unused worktree} other {# unused worktrees}} ({merged, number} merged)",
+    "description": "The Overview's line on a project's unused worktrees."
+  },
+  "workspace.unused.was": {
+    "defaultMessage": "was {agent}",
+    "description": "Who made an unused worktree: the Hive agent that worked in it ({agent}: its name). Lower case: it follows its branch."
+  },
+  "workspace.unused.workNotice": {
+    "defaultMessage": "{count, plural, one {# unused worktree has} other {# unused worktrees have}} work that isn't on {known, select, yes {{into}} other {the main branch}}",
+    "description": "The Changes tab's notice on unused worktrees holding work."
+  },
+  "workspace.unusedList.anywayAgainTitle": {
+    "defaultMessage": "Checked again: remove it anyway?",
+    "description": "Confirmation before Remove anyway, after a first try was refused because the worktree changed."
+  },
+  "workspace.unusedList.anywayDetail": {
+    "defaultMessage": "It can't be undone. If anything in it changes before you confirm (a file, its branch, its commit), nothing is removed.",
+    "description": "Confirmation before Remove anyway."
+  },
+  "workspace.unusedList.anywayMessage": {
+    "defaultMessage": "{again, select, yes {Nothing was removed: {refused}. As it is now, this} other {This}} deletes {path}{hasBranch, select, yes { and its branch {branch}} other {}}, with work that is nowhere else:",
+    "description": "Confirmation before Remove anyway. What would be lost follows, one a line. {refused}: why the first try was refused."
+  },
+  "workspace.unusedList.anywayTitle": {
+    "defaultMessage": "Remove the worktree anyway?",
+    "description": "Confirmation before Remove anyway: the worktree holds work that is nowhere else."
+  },
+  "workspace.unusedList.branchKept": {
+    "defaultMessage": "{path} was removed, its branch kept",
+    "description": "A notice: an unused worktree's folder went but its branch stayed; the reason follows."
+  },
+  "workspace.unusedList.changed": {
+    "defaultMessage": "what it holds changed",
+    "description": "Why Remove anyway removed nothing, when Hive gave no other reason. Lower case: it follows \"Nothing was removed:\"."
+  },
+  "workspace.unusedList.checkFailed": {
+    "defaultMessage": "{refused}. Checking it again failed: {error}",
+    "description": "Under Nothing was removed: why the first try was refused ({refused}), and why checking again failed ({error})."
+  },
+  "workspace.unusedList.checking": {
+    "defaultMessage": "Checking…",
+    "description": "Remove anyway while it checks the worktree."
+  },
+  "workspace.unusedList.detached": {
+    "defaultMessage": "(detached)",
+    "description": "An unused worktree with no branch (a detached HEAD)."
+  },
+  "workspace.unusedList.gitProblem": {
+    "defaultMessage": "{problem}, so Hive can't list the unused worktrees.",
+    "description": "The Changes tab's Unused worktrees when git can't run ({problem}: what is wrong with git)."
+  },
+  "workspace.unusedList.give": {
+    "defaultMessage": "Give to an agent…",
+    "description": "An unused worktree's button: an agent works in it again."
+  },
+  "workspace.unusedList.heading": {
+    "defaultMessage": "Unused worktrees",
+    "description": "The Changes tab's Unused worktrees page: its heading (a count follows)."
+  },
+  "workspace.unusedList.headingTip": {
+    "defaultMessage": "Worktrees no agent of this project uses right now, e.g. from another template (loading that template gives them back to its agents).",
+    "description": "Tooltip on Unused worktrees."
+  },
+  "workspace.unusedList.keptMany": {
+    "defaultMessage": "{count, plural, one {# worktree was kept} other {# worktrees were kept}}",
+    "description": "A notice after Remove all merged: some stayed (why follows, one a line)."
+  },
+  "workspace.unusedList.keptReason": {
+    "defaultMessage": "kept",
+    "description": "A line after Remove all merged, for a worktree kept with no reason given (it follows its branch and a colon). Lower case."
+  },
+  "workspace.unusedList.keptTitle": {
+    "defaultMessage": "{name} was kept",
+    "description": "A notice: an unused worktree ({name}: its branch or folder) wasn't removed; the reason follows."
+  },
+  "workspace.unusedList.learnMore": {
+    "defaultMessage": "Learn more",
+    "description": "Unused worktrees: opens the user guide there."
+  },
+  "workspace.unusedList.loading": {
+    "defaultMessage": "Loading…",
+    "description": "The Changes tab's Unused worktrees while git lists them."
+  },
+  "workspace.unusedList.mainBranch": {
+    "defaultMessage": "the main branch",
+    "description": "Unused worktrees: what they'd be merged into when git doesn't say which branch. Lower case."
+  },
+  "workspace.unusedList.measuring": {
+    "defaultMessage": "measuring…",
+    "description": "An unused worktree's size while Storage measures it. Lower case."
+  },
+  "workspace.unusedList.none": {
+    "defaultMessage": "{project} has no unused worktrees: every worktree belongs to an agent.",
+    "description": "The Changes tab's Unused worktrees with none."
+  },
+  "workspace.unusedList.nothingRemoved": {
+    "defaultMessage": "Nothing was removed",
+    "description": "An error notice: Remove anyway checked the worktree again and that failed."
+  },
+  "workspace.unusedList.open": {
+    "defaultMessage": "Open",
+    "description": "An unused worktree's button: shows its changes."
+  },
+  "workspace.unusedList.openTip": {
+    "defaultMessage": "{work, select, yes {Show {branch}'s changes, and merge them} other {Show {branch}'s changes}}",
+    "description": "Tooltip on an unused worktree's Open."
+  },
+  "workspace.unusedList.remove": {
+    "defaultMessage": "Remove",
+    "description": "Remove all merged's confirmation, and a merged worktree's button."
+  },
+  "workspace.unusedList.removeAllMerged": {
+    "defaultMessage": "Remove all merged ({count})…",
+    "description": "The Changes tab's Unused worktrees: removes every merged, clean one."
+  },
+  "workspace.unusedList.removeAnyway": {
+    "defaultMessage": "Remove Anyway",
+    "description": "Remove anyway's confirmation: its button."
+  },
+  "workspace.unusedList.removeAnywayButton": {
+    "defaultMessage": "Remove anyway…",
+    "description": "An unused worktree's button when it holds work."
+  },
+  "workspace.unusedList.removeFailed": {
+    "defaultMessage": "Couldn't remove the worktree",
+    "description": "An error notice; the reason follows."
+  },
+  "workspace.unusedList.removeMergedMessage": {
+    "defaultMessage": "Each is merged into {into} and clean: its folder and its branch are deleted. One that changed since is kept.",
+    "description": "Confirmation before Remove all merged ({into}: the main branch). The worktrees follow, one a line."
+  },
+  "workspace.unusedList.removeMergedTitle": {
+    "defaultMessage": "Remove {count, plural, one {# merged worktree} other {# merged worktrees}}?",
+    "description": "Confirmation before Remove all merged."
+  },
+  "workspace.unusedList.removing": {
+    "defaultMessage": "Removing…",
+    "description": "A remove button while it works."
+  },
+  "workspace.unusedList.review": {
+    "defaultMessage": "Review",
+    "description": "The Changes tab's notice on unused worktrees holding work: shows them."
+  },
+  "workspace.unusedList.reviewInChanges": {
+    "defaultMessage": "Review in Changes",
+    "description": "The Overview's line on unused worktrees: shows them in the Git tab's Changes."
+  },
+  "workspace.updates.available": {
+    "defaultMessage": "{skipped, select, yes {Version {version} is available (skipped).} other {Version {version} is available.}}",
+    "description": "Hive's updates, in Settings → Updates and About: a newer version; (skipped) when you chose Skip This Version."
+  },
+  "workspace.updates.checkNow": {
+    "defaultMessage": "Check Now",
+    "description": "Settings → Updates and About: checks for a newer Hive."
+  },
+  "workspace.updates.checkTip": {
+    "defaultMessage": "{hasKey, select, yes {Check GitHub for a newer Hive now ({key})} other {Check GitHub for a newer Hive now}}",
+    "description": "Tooltip on Check Now, with its shortcut ({key})."
+  },
+  "workspace.updates.checking": {
+    "defaultMessage": "Checking for updates…",
+    "description": "Hive's updates: a check is running."
+  },
+  "workspace.updates.details": {
+    "defaultMessage": "Details",
+    "description": "Settings → Updates: opens the update dialog."
+  },
+  "workspace.updates.download": {
+    "defaultMessage": "Download",
+    "description": "The update dialog's button: downloads the update."
+  },
+  "workspace.updates.downloading": {
+    "defaultMessage": "Downloading version {version}… {percent, number, ::percent}",
+    "description": "Hive's updates: the download's progress."
+  },
+  "workspace.updates.failed": {
+    "defaultMessage": "The last check failed.",
+    "description": "Hive's updates: the last check didn't work."
+  },
+  "workspace.updates.headAvailable": {
+    "defaultMessage": "{app} {version} is available",
+    "description": "The update dialog's heading: a newer Hive."
+  },
+  "workspace.updates.headReady": {
+    "defaultMessage": "{app} {version} is ready to install",
+    "description": "The update dialog's heading: the update is downloaded."
+  },
+  "workspace.updates.itemAvailable": {
+    "defaultMessage": "{app} {version} available",
+    "description": "The status bar: a newer Hive ({app}: Hive's name) can be downloaded. Keep it short."
+  },
+  "workspace.updates.itemDownloading": {
+    "defaultMessage": "Downloading {app} {version}… {percent, number, ::percent}",
+    "description": "The status bar: Hive's update downloading. Keep it short."
+  },
+  "workspace.updates.itemReady": {
+    "defaultMessage": "Restart to update to {version}",
+    "description": "The status bar: Hive's update is downloaded. Keep it short."
+  },
+  "workspace.updates.later": {
+    "defaultMessage": "Later",
+    "description": "The update dialog's button that closes it for now."
+  },
+  "workspace.updates.latest": {
+    "defaultMessage": "{app} {version} is the latest version.",
+    "description": "The update dialog: no newer Hive."
+  },
+  "workspace.updates.mb": {
+    "defaultMessage": "{mb, number, ::.0} MB",
+    "description": "A size in megabytes (an update's download). Keep MB unless your language writes it otherwise."
+  },
+  "workspace.updates.noNotes": {
+    "defaultMessage": "No release notes were published with this version.",
+    "description": "The update dialog when the release has no notes."
+  },
+  "workspace.updates.notChecked": {
+    "defaultMessage": "Not checked yet.",
+    "description": "Hive's updates: no check since Hive started."
+  },
+  "workspace.updates.off": {
+    "defaultMessage": "Updates are off in this build.",
+    "description": "Hive's updates, in Settings → Updates and About: this build doesn't update itself."
+  },
+  "workspace.updates.ok": {
+    "defaultMessage": "OK",
+    "description": "The update dialog's button that closes it."
+  },
+  "workspace.updates.onGitHub": {
+    "defaultMessage": "On GitHub",
+    "description": "The update dialog's button: the release on GitHub."
+  },
+  "workspace.updates.perSecond": {
+    "defaultMessage": "{size}/s",
+    "description": "The update dialog: the download's speed ({size}: \"1.2 MB\")."
+  },
+  "workspace.updates.progress": {
+    "defaultMessage": "{percent, number, ::percent} · {done} of {total}",
+    "description": "The update dialog: the download's progress ({done}, {total}: sizes in MB)."
+  },
+  "workspace.updates.ready": {
+    "defaultMessage": "Version {version} is ready to install.",
+    "description": "Hive's updates: downloaded, installed on restart."
+  },
+  "workspace.updates.readyNote": {
+    "defaultMessage": "{auto, select, yes {It installs automatically when you quit Hive. } other {}}Restart and Update closes Hive, installs the update and opens Hive again.{busy, select, yes { Some agents are busy: Hive asks before stopping them, and you can wait for them to finish.} other { Running sessions are stopped and can be resumed afterwards.}}",
+    "description": "The update dialog when the update is downloaded. Restart and Update is its button."
+  },
+  "workspace.updates.released": {
+    "defaultMessage": "released {date}",
+    "description": "The update dialog, under its heading: when the new version was released. Lower case: it follows a ·."
+  },
+  "workspace.updates.releasesPage": {
+    "defaultMessage": "Releases Page",
+    "description": "The update dialog after a failed check: opens Hive's releases on GitHub."
+  },
+  "workspace.updates.restartUpdate": {
+    "defaultMessage": "Restart and Update",
+    "description": "The update dialog's button: installs the downloaded update."
+  },
+  "workspace.updates.skip": {
+    "defaultMessage": "Skip This Version",
+    "description": "The update dialog's button: don't offer this version again."
+  },
+  "workspace.updates.tipHave": {
+    "defaultMessage": "You have {app} {version}. Click for details.",
+    "description": "Tooltip on the status bar's update item."
+  },
+  "workspace.updates.tipReady": {
+    "defaultMessage": "{app} {version} has been downloaded. Click to see what's new and restart.",
+    "description": "Tooltip on the status bar's update item."
+  },
+  "workspace.updates.titleAvailable": {
+    "defaultMessage": "Update Available",
+    "description": "The update dialog's title: a newer Hive."
+  },
+  "workspace.updates.titleReady": {
+    "defaultMessage": "Update Ready",
+    "description": "The update dialog's title: Hive's update is downloaded."
+  },
+  "workspace.updates.titleSoftware": {
+    "defaultMessage": "Software Update",
+    "description": "The update dialog's title otherwise."
+  },
+  "workspace.updates.tryAgain": {
+    "defaultMessage": "Try Again",
+    "description": "The update dialog after a failed check: checks again."
+  },
+  "workspace.updates.upToDate": {
+    "defaultMessage": "{checked, select, yes {Up to date, checked {when}.} other {Up to date.}}",
+    "description": "Hive's updates: no newer version ({when}: \"4 minutes ago\")."
+  },
+  "workspace.updates.versionTip": {
+    "defaultMessage": "{app} {version}{dev, select, yes { (development build)} other {}} · Electron {electron}{hasSummary, select, yes { · {summary}} other {}}",
+    "description": "Tooltip on the status bar's version: Hive's version, Electron's, and the update state ({summary}). Keep Electron as it is."
+  },
+  "workspace.updates.youHave": {
+    "defaultMessage": "You have {version}",
+    "description": "The update dialog, under its heading: the version installed (released and size follow)."
+  },
+  "workspace.welcome.apiReference": {
+    "defaultMessage": "Agent API reference",
+    "description": "The welcome page: a link to the Agent API's documentation."
+  },
+  "workspace.welcome.choose": {
+    "defaultMessage": "Choose your coding agents (Claude Code, …)",
+    "description": "The welcome page, with no coding agent turned on: opens Settings → Providers."
+  },
+  "workspace.welcome.create": {
+    "defaultMessage": "New Workspace…",
+    "description": "The welcome page: a link."
+  },
+  "workspace.welcome.flow": {
+    "defaultMessage": "Stay in flow",
+    "description": "The welcome page, How Hive works: a heading."
+  },
+  "workspace.welcome.flowText": {
+    "defaultMessage": "Hive chimes and notifies you when an agent finishes or needs input — even from the system tray.",
+    "description": "The welcome page, How Hive works."
+  },
+  "workspace.welcome.guide": {
+    "defaultMessage": "User guide",
+    "description": "The welcome page: a link to the user guide."
+  },
+  "workspace.welcome.help": {
+    "defaultMessage": "Help",
+    "description": "The welcome page: a heading."
+  },
+  "workspace.welcome.howItWorks": {
+    "defaultMessage": "How Hive works",
+    "description": "The welcome page: a heading."
+  },
+  "workspace.welcome.install": {
+    "defaultMessage": "Install {provider}…",
+    "description": "The welcome page: a coding agent turned on but not installed ({provider}: Claude Code)."
+  },
+  "workspace.welcome.noRecent": {
+    "defaultMessage": "No recent workspaces.",
+    "description": "The welcome page with no recent workspaces."
+  },
+  "workspace.welcome.open": {
+    "defaultMessage": "Open Workspace…",
+    "description": "The welcome page: a link."
+  },
+  "workspace.welcome.projects": {
+    "defaultMessage": "Projects",
+    "description": "The welcome page, How Hive works: a heading."
+  },
+  "workspace.welcome.projectsText": {
+    "defaultMessage": "Each subfolder is a project. Toggle the ones you're working on; each gets its own coding agents, running side by side.",
+    "description": "The welcome page, How Hive works."
+  },
+  "workspace.welcome.recent": {
+    "defaultMessage": "Recent",
+    "description": "The welcome page: the heading over recent workspaces."
+  },
+  "workspace.welcome.removeRecentLabel": {
+    "defaultMessage": "Remove {name} from recent",
+    "description": "A recent workspace's ✕ button, for screen readers."
+  },
+  "workspace.welcome.removeRecentMenu": {
+    "defaultMessage": "Remove from Recent",
+    "description": "A recent workspace's right-click menu."
+  },
+  "workspace.welcome.removeRecentTip": {
+    "defaultMessage": "Remove from recent",
+    "description": "Tooltip on a recent workspace's ✕ button."
+  },
+  "workspace.welcome.shortcuts": {
+    "defaultMessage": "Keyboard shortcuts",
+    "description": "The welcome page: a link."
+  },
+  "workspace.welcome.skills": {
+    "defaultMessage": "Skills & MCP",
+    "description": "The welcome page, How Hive works: a heading."
+  },
+  "workspace.welcome.skillsText": {
+    "defaultMessage": "Hive skills in the workspace reach the agents of every project (and the Hive Assistant, for those written for it); each project also shows its own and your user skills. MCP servers are turned on for the workspace and off per project. Changes apply to new sessions.",
+    "description": "The welcome page, How Hive works."
+  },
+  "workspace.welcome.start": {
+    "defaultMessage": "Start",
+    "description": "The welcome page: a heading."
+  },
+  "workspace.welcome.tagline": {
+    "defaultMessage": "Run AI coding agents across your projects, side by side.",
+    "description": "The welcome page (no workspace open), under Hive's name."
+  },
+  "workspace.welcome.workspace": {
+    "defaultMessage": "Workspace",
+    "description": "The welcome page, How Hive works: a heading."
+  },
+  "workspace.welcome.workspaceText": {
+    "defaultMessage": "A folder of projects. Hive adds a <code>.hive</code> folder for shared notes, skills and MCP servers — commit it to share with your team.",
+    "description": "The welcome page, How Hive works. <code> is a folder name: keep .hive as it is."
+  }
+}
