@@ -151,6 +151,7 @@ export const LEVEL_NAME: Record<AssistantControl, string> = { look: 'Look and ad
 /** Refuses (and records) a change the control level doesn't allow: the Assistant's change boundary, before anything counts. */
 export function refuseUnlessAllowed(workspacePath: string, need: AssistantControl, what: string, act: ActivityTarget): void {
   if (allows(need)) return
+  // i18n-ignore: the Agent API's event stream (#763) speaks English, as the rest of the API does
   record(workspacePath, act, what.charAt(0).toUpperCase() + what.slice(1), 'not allowed by Settings → Assistant → Control', { reason: 'Not allowed by Settings → Assistant → Control' })
   throw new ChangeRefused(403, `The user's settings (Settings → Assistant → Control: ${LEVEL_NAME[controlLevel()]}) don't let you ${what}. Tell the user what you would do instead.`)
 }

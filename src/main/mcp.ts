@@ -2,6 +2,8 @@ import { basename, dirname, extname, join } from 'path'
 import { mkdir, readdir, readFile, rm, stat, writeFile } from 'original-fs/promises'
 import { existsSync } from 'original-fs'
 import { createHash } from 'crypto'
+import { tr } from '../shared/i18n'
+import { msg } from '../shared/i18n/msg'
 import { unzipSync } from 'fflate'
 import type { McpFileServer, McpProjectServer, McpServerDef, McpServerInfo, McpShown, McpTurnOn } from '../shared/types'
 import { writeTextUnlessChanged } from './fsutil'
@@ -133,9 +135,9 @@ async function mcpRevision(path: string): Promise<string | null> {
  * all projects. Turning it on with `expected`: refused when the definition is no longer the one shown (checkShown).
  */
 export function setMcpProject(projectPath: string, name: string, enabled: boolean, expected?: McpShown): Promise<void> {
-  if (!validMcpName(name)) return Promise.reject(new Error('Invalid server name'))
+  if (!validMcpName(name)) return Promise.reject(new Error(tr(msg({ id: 'mcp.error.invalidName', defaultMessage: 'Invalid server name', description: 'An error: an MCP server name Hive refuses.' }))))
   return inTurn(async () => {
-    if (enabled && !existsSync(join(workspace.mcpDir, `${name}.json`))) throw new Error(`The workspace has no MCP server named ${name}.`)
+    if (enabled && !existsSync(join(workspace.mcpDir, `${name}.json`))) throw new Error(tr(msg({ id: 'mcp.error.noServer', defaultMessage: 'The workspace has no MCP server named {name}.', description: 'An error turning a server on in a project. {name} is its name.' }), { name }))
     if (enabled && expected) await checkShown(name, expected)
     await setProjectNow(projectPath, name, enabled)
   })
@@ -388,11 +390,10 @@ function retarget(def: McpServerDef, from: string, to: string): McpServerDef {
 async function readServerFile(file: string): Promise<{ def: McpServerDef; files: Map<string, Uint8Array> | null; folder: string | null; name: string; hash: string }> {
   const ext = extname(file).toLowerCase()
   if (ext !== '.json' && ext !== '.zip') throw new Error('Choose a .json definition or a .zip of a server folder.')
-  const max = ext === '.json' ? MCP_JSON_MAX_BYTES : MCP_ZIP_MAX_BYTES
-  const tooLarge = ext === '.json' ? 'The .json is too large for an MCP server definition (over 1 MB).' : 'The .zip is too large for an MCP server (over 200 MB).'
-  if ((await stat(file)).size > max) throw new Error(tooLarge)
+  const size = (await stat(file)).size
+  if (ext === '.json' && size > MCP_JSON_MAX_BYTES) throw new Error('The .json is too large for an MCP server definition (over 1 MB).')
+  if (ext === '.zip' && size > MCP_ZIP_MAX_BYTES) throw new Error('The .zip is too large for an MCP server (over 200 MB).')
   const data = await readFile(file)
-  if (data.length > max) throw new Error(tooLarge)
   const hash = createHash('sha256').update(data).digest('hex')
   if (ext === '.json') {
     let raw: unknown
@@ -436,7 +437,7 @@ function serverExists(name: string, folder: boolean): boolean {
 export async function addMcpFromFile(file: string, name: string, replace = false, turnOn: McpTurnOn = 'none', shown?: string): Promise<McpServerInfo> {
   if (!validMcpName(name)) throw new Error('Server names may contain letters, numbers, "-" and "_" (max 64 characters). "hive" is reserved.')
   const r = await readServerFile(file)
-  if ((turnOn !== 'none' || shown !== undefined) && r.hash !== shown) throw new Error(`${basename(file)} has changed since it was shown to you. Add it again to see what it runs.`)
+  if ((turnOn !== 'none' || shown !== undefined) && r.hash !== shown) throw new Error(tr(msg({ id: 'mcp.error.fileChanged', defaultMessage: '{file} has changed since it was shown to you. Add it again to see what it runs.', description: 'An error adding an MCP server from a file that changed after the add dialog showed it. {file} is the file name.' }), { file: basename(file) }))
   const def = r.folder ? retarget(r.def, r.folder, name) : r.def
   const taken = (): Error => new Error(`A server named "${name}" already exists: choose another name, or replace it.`)
   return inTurn(async () => {

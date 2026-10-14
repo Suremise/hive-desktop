@@ -19,6 +19,8 @@ import { AssistantSidePanel } from './AssistantView'
 import { BoardPanel } from './Board'
 import { WorkspaceOverviewPanel } from '../views/WorkspaceOverview'
 import { PerformancePanel } from '../views/Performance'
+import { tr } from '@shared/i18n'
+import { msg } from '@shared/i18n/msg'
 
 /** Width of the compact Projects rail, and how narrow a drag has to go before the sidebar snaps to it. */
 const RAIL_WIDTH = 48
@@ -712,8 +714,14 @@ function McpPanel() {
               <div className="row-actions" onClick={(e) => e.stopPropagation()}>
                 <IconButton icon="trash" title="Delete server" onClick={() => void actions.deleteMcpServer(m.name)} />
               </div>
-              <Tooltip content={m.globallyEnabled ? "On for all projects (new sessions), except projects that turned it off. Click to turn it off for all projects: projects that turned it on themselves keep it." : "Click to turn it on for all projects (new sessions). To use it in one project, turn it on in that project's MCP tab."}>
-                <Switch small checked={m.globallyEnabled} disabled={!!m.error} label={`${m.name}: on for all projects`} onChange={(v) => void actions.setMcpServerEnabled(m, v).then(load)} />
+              <Tooltip
+                content={
+                  m.globallyEnabled
+                    ? tr(msg({ id: 'mcp.list.allOnTip', defaultMessage: 'On for all projects (new sessions), except projects that turned it off. Click to turn it off for all projects: projects that turned it on themselves keep it.', description: "The tooltip of a server's switch in the MCP view while it is on for all projects." }))
+                    : tr(msg({ id: 'mcp.list.allOffTip', defaultMessage: "Click to turn it on for all projects (new sessions). To use it in one project, turn it on in that project's MCP tab.", description: "The tooltip of a server's switch in the MCP view while it isn't on for all projects." }))
+                }
+              >
+                <Switch small checked={m.globallyEnabled} disabled={!!m.error} label={tr(msg({ id: 'mcp.list.allSwitch', defaultMessage: '{name}: on for all projects', description: "A server's switch in the MCP view, for screen readers. {name} is the server." }), { name: m.name })} onChange={(v) => void actions.setMcpServerEnabled(m, v).then(load)} />
               </Tooltip>
             </div>
           ))}

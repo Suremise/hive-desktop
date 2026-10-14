@@ -1,6 +1,8 @@
 import { useEffect, useLayoutEffect, useRef, useState, type RefObject } from 'react'
 import { cornerPlacement } from '@shared/corner'
 import { TIP_GROUPS, TIPS, type Tip } from '@shared/tips'
+import { tr } from '@shared/i18n'
+import type { Msg } from '@shared/i18n/msg'
 import { commandKeybinding, commands, runCommand } from '../commands'
 import { call } from '../api'
 import { set, useStore } from '../store'
@@ -20,6 +22,9 @@ const runnable = (tip: Tip): boolean => {
 }
 
 /** A tip's text with its shortcuts as they are now: {key:<command>} shows the user's shortcut for it. */
+/** A tip's words in the language shown: a message's, or English not converted yet (#767). */
+const words = (t: string | Msg): string => (typeof t === 'string' ? t : tr(t))
+
 function TipText({ text }: { text: string }) {
   const parts = text.split(/(\{key:[\w.]+\})/)
   return (
@@ -158,9 +163,9 @@ export function TipCard() {
         </span>
         <IconButton icon="close" title="Close" onClick={closeTip} />
       </div>
-      <div className="tip-title">{tip.title}</div>
+      <div className="tip-title">{words(tip.title)}</div>
       <div className="tip-text">
-        <TipText text={tip.text} />
+        <TipText text={words(tip.text)} />
       </div>
       <div className="tip-actions">
         <TipActions tip={tip} onTry={closeTip} />
@@ -186,7 +191,7 @@ export function TipsDialog() {
     setQuery('')
   }
   const q = query.trim().toLowerCase()
-  const found = TIPS.filter((t) => !q || `${t.title} ${t.text} ${t.group}`.toLowerCase().includes(q))
+  const found = TIPS.filter((t) => !q || `${words(t.title)} ${words(t.text)} ${t.group}`.toLowerCase().includes(q))
   return (
     <Modal
       title="Tips"
@@ -215,9 +220,9 @@ export function TipsDialog() {
               {list.map((t) => (
                 <div key={t.id} className="tips-item">
                   <div className="grow">
-                    <div className="tip-title">{t.title}</div>
+                    <div className="tip-title">{words(t.title)}</div>
                     <div className="tip-text">
-                      <TipText text={t.text} />
+                      <TipText text={words(t.text)} />
                     </div>
                   </div>
                   <div className="tip-actions">

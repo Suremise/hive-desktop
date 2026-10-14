@@ -20,6 +20,8 @@ import { useScopedLoad } from '../scopedLoad'
 import { SkillDetail } from '../components/Skills'
 import { confirm, NO_PROJECTS, notify, set, useStore } from '../store'
 import { basename, cx, formatKeybinding, recentNote, recentTip } from '../util'
+import { tr } from '@shared/i18n'
+import { msg } from '@shared/i18n/msg'
 
 // ---------------------------------------------------------------------------
 // Welcome (no workspace open)
@@ -402,7 +404,7 @@ Try asking an agent: *"Write a handover for the next session using the hive tool
                   disabled={!!info.error}
                   onChange={(v) => void actions.setMcpServerEnabled(info, v)}
                 />
-                All projects
+                {tr(msg({ id: 'mcp.view.allProjects', defaultMessage: 'All projects', description: "Beside the switch in an MCP server's view that turns it on in every project." }))}
               </label>
             </>
           )}

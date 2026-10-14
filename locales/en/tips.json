@@ -1,0 +1,14 @@
+{
+  "tips.mcpFromFile.text": {
+    "defaultMessage": "Got a server as a .json definition or a .zip of its folder? Add MCP Server from File in the MCP view shows what it runs and asks where to turn it on: the selected project, all projects or none yet.",
+    "description": "A tip. Add MCP Server from File and the MCP view are names in Hive: keep them as Hive shows them."
+  },
+  "tips.mcpPerProject.text": {
+    "defaultMessage": "A workspace MCP server runs only in the projects that turn it on: switch it on in a project's MCP tab, or for all projects in the MCP view. Its tools stay out of the other projects' agents' context.",
+    "description": "A tip. The MCP tab and the MCP view are names in Hive: keep them as Hive shows them."
+  },
+  "tips.mcpPerProject.title": {
+    "defaultMessage": "MCP servers only where they are needed",
+    "description": "A tip's title."
+  }
+}
