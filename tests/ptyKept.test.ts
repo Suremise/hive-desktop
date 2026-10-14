@@ -2,15 +2,21 @@
 // process in that terminal (a restart, a resume) starts at it, and a quiet exit's output, for the process that
 // continues there. Both stay bounded however many keys come and go, never dropping a running terminal's, and a
 // removed agent's or project's are forgotten at once.
+import { existsSync, rmSync, writeFileSync } from 'fs'
+import { createRequire } from 'module'
+import { join } from 'path'
 import { afterAll, describe, expect, it, vi } from 'vitest'
 import { agentPtyKey } from '../src/shared/defaults'
 import { forgetPtys, keptPtyCounts, killPty, PTY_COLS, PTY_ROWS, resizePty, setPtyKeptLimitsForTests, spawnPty, startSize } from '../src/main/ptyHost'
+import { tempDir } from './tempDir'
 
 vi.mock('../src/main/events', () => ({ emit: () => undefined, sendPty: () => undefined }))
 vi.mock('../src/main/providers', () => ({ allProviders: () => [] }))
 
-const env: Record<string, string> = {}
-for (const [k, v] of Object.entries(process.env)) if (v !== undefined && !k.startsWith('HIVE_')) env[k] = v
+// The terminals' processes get the tests' allowlisted environment (runContext.baseEnv, #580), never the shell's the
+// tests were started from (its NODE_OPTIONS, an agent session's HIVE_ variables, a CLI home).
+const { baseEnv } = createRequire(import.meta.url)('./e2e/runContext.cjs') as { baseEnv: (parent?: NodeJS.ProcessEnv) => Record<string, string> }
+const env = baseEnv()
 const DEFAULT = { cols: PTY_COLS, rows: PTY_ROWS }
 
 describe('the sizes kept for terminals', () => {
@@ -93,4 +99,37 @@ describe.runIf(process.platform === 'win32')('the output kept from quiet exits',
     }
     expect(keptPtyCounts().carried).toBeLessThanOrEqual(20)
   }, 120000)
+})
+
+describe.runIf(process.platform === 'win32')('the environment the terminals get', () => {
+  it("is the allowlist: a shell's NODE_OPTIONS and HIVE_ variables don't reach a terminal's process (#580)", async () => {
+    // A shell that would load a script into every Node it starts, and an agent session's token.
+    const dir = tempDir('hive-ptykept-env-')
+    const marker = join(dir, 'loaded.txt')
+    const script = join(dir, 'marker.cjs')
+    writeFileSync(script, `require('fs').writeFileSync(${JSON.stringify(marker)}, 'loaded')\n`)
+    // Made from the allowlist and these made-up settings only: nothing of the real shell's own reaches either child
+    // (review round 1: its CLI homes and credentials stay out of the control too).
+    const shell: Record<string, string> = { ...baseEnv(), NODE_OPTIONS: `--require ${JSON.stringify(script)}`, HIVE_API_TOKEN: 'leaked-token', CLAUDE_CONFIG_DIR: join(dir, 'claude') }
+    // The process itself says what it was given.
+    const run = (key: string, given: Record<string, string>) =>
+      new Promise<string>((resolve) =>
+        spawnPty(key, { file: process.execPath, args: ['-e', 'console.log("ENV " + JSON.stringify([process.env.NODE_OPTIONS ?? null, process.env.HIVE_API_TOKEN ?? null, process.env.CLAUDE_CONFIG_DIR ?? null]))'], cwd: process.cwd(), env: given, quietExit: true, onExit: (_code: number, out: string) => resolve(out) })
+      )
+    try {
+      // What the tests gave terminals before (the shell, less its HIVE_ variables) carries the shell's NODE_OPTIONS:
+      // the script loads, so the check below can see it.
+      const before = Object.fromEntries(Object.entries(shell).filter(([k, v]) => v !== undefined && !k.startsWith('HIVE_'))) as Record<string, string>
+      expect(/ENV (\[.*\])/.exec(await run('task:env-before', before))?.[1]).toBe(JSON.stringify([shell.NODE_OPTIONS, null, shell.CLAUDE_CONFIG_DIR]))
+      expect(existsSync(marker)).toBe(true)
+      rmSync(marker)
+      // The allowlist: none of it, and the script never loads.
+      const given = baseEnv(shell)
+      expect(Object.keys(given).filter((k) => /^(NODE_OPTIONS|HIVE_|CLAUDE_CONFIG_DIR$)/.test(k))).toEqual([])
+      expect(/ENV (\[.*\])/.exec(await run('task:env-check', given))?.[1]).toBe('[null,null,null]')
+      expect(existsSync(marker)).toBe(false)
+    } finally {
+      rmSync(dir, { recursive: true, force: true })
+    }
+  }, 60000)
 })
