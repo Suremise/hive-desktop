@@ -4,6 +4,7 @@ import { mostUrgent } from '../shared/defaults'
 import { branchSummary, firstAcross, inbox, inboxStateText, type Inbox, type InboxItem } from '../shared/inbox'
 import type { LiveSessionState, ProjectInfo, SessionStatus } from '../shared/types'
 import { appName } from '../shared/appName'
+import { msg, onLanguageChange, tr, type Msg } from '../shared/i18n'
 import { knownStatus } from './branchWatch'
 import { emitTo, onHiveEvent } from './events'
 import { resourcesDir } from './paths'
@@ -44,17 +45,17 @@ function icon(name: 'tray' | 'tray-attention'): Electron.NativeImage {
   return img
 }
 
-const STATUS_LABEL: Record<SessionStatus, string> = {
-  stopped: 'Stopped',
-  starting: 'Starting…',
-  ready: 'Ready',
-  working: 'Working…',
-  waiting: 'Needs input',
-  background: 'Background tasks',
-  watching: 'Waiting on cards',
-  finished: 'Finished',
-  error: 'Error',
-  signin: 'Needs sign-in'
+const STATUS_LABEL: Record<SessionStatus, Msg> = {
+  stopped: msg({ id: 'main.tray.status.stopped', defaultMessage: 'Stopped', description: "An agent's status in the tray menu, after its project's name." }),
+  starting: msg({ id: 'main.tray.status.starting', defaultMessage: 'Starting…', description: "An agent's status in the tray menu, after its project's name." }),
+  ready: msg({ id: 'main.tray.status.ready', defaultMessage: 'Ready', description: "An agent's status in the tray menu, after its project's name." }),
+  working: msg({ id: 'main.tray.status.working', defaultMessage: 'Working…', description: "An agent's status in the tray menu, after its project's name." }),
+  waiting: msg({ id: 'main.tray.status.waiting', defaultMessage: 'Needs input', description: "An agent's status in the tray menu, after its project's name." }),
+  background: msg({ id: 'main.tray.status.background', defaultMessage: 'Background tasks', description: "An agent's status in the tray menu, after its project's name. Its turn ended while background tasks it started run." }),
+  watching: msg({ id: 'main.tray.status.watching', defaultMessage: 'Waiting on cards', description: "An agent's status in the tray menu, after its project's name. It waits for cards to change." }),
+  finished: msg({ id: 'main.tray.status.finished', defaultMessage: 'Finished', description: "An agent's status in the tray menu, after its project's name." }),
+  error: msg({ id: 'main.tray.status.error', defaultMessage: 'Error', description: "An agent's status in the tray menu, after its project's name." }),
+  signin: msg({ id: 'main.tray.status.signin', defaultMessage: 'Needs sign-in', description: "An agent's status in the tray menu, after its project's name. Its CLI's sign-in was refused or has expired." })
 }
 
 /** Items the tray lists per section; the rest are counted. */
@@ -85,8 +86,15 @@ export function createTray(getWindow: () => BrowserWindow | null, actions: TrayA
     attention = needYou > 0
     tray.setImage(icon(attention ? 'tray-attention' : 'tray'))
     const working = live.filter((s) => s.status === 'working' || s.status === 'background').length
+    // Hive's name and its workspaces, then (each a line) what its agents do and whether it waits to quit.
     tray.setToolTip(
-      `${appName(app.isPackaged)}${open.length ? ` — ${open.map((w) => basename(w.path!)).join(', ')}` : ''}${live.length ? `\n${working} working, ${needYou} need${needYou === 1 ? 's' : ''} you` : ''}${pendingQuit ? '\nWill quit when agents finish' : ''}`
+      [
+        `${appName(app.isPackaged)}${open.length ? ` — ${open.map((w) => basename(w.path!)).join(', ')}` : ''}`,
+        live.length ? tr(msg({ id: 'main.tray.counts', defaultMessage: '{working} working, {needYou, plural, one {# needs you} other {# need you}}', description: "A line of the tray icon's tooltip: how many agents are working and how many need you." }), { working, needYou }) : '',
+        pendingQuit ? tr(msg({ id: 'main.tray.willQuit', defaultMessage: 'Will quit when agents finish', description: "A line of the tray icon's tooltip while Hive waits for agents to finish before quitting." })) : ''
+      ]
+        .filter(Boolean)
+        .join('\n')
     )
     // The inbox, oldest first across every window: each item shows its agent in the window showing its workspace.
     const inboxSection = (title: string, pick: (b: Inbox) => InboxItem[]): Electron.MenuItemConstructorOptions[] => {
@@ -101,8 +109,8 @@ export function createTray(getWindow: () => BrowserWindow | null, actions: TrayA
           emitTo(win, { type: 'menu-command', command: 'agent.show', args: [item.projectPath, item.agentId] })
         }
       }))
-      if (total > shown.length) items.push({ label: `and ${total - shown.length} more`, enabled: false })
-      return [{ label: `${title} (${total})`, enabled: false }, ...items, { type: 'separator' }]
+      if (total > shown.length) items.push({ label: tr(msg({ id: 'main.tray.more', defaultMessage: 'and {n} more', description: "The tray menu, under a section's first ten items: how many more there are." }), { n: total - shown.length }), enabled: false })
+      return [{ label: tr(msg({ id: 'main.tray.section', defaultMessage: '{title} ({n})', description: "A section's heading in the tray menu: its name and how many items it has." }), { title, n: total }), enabled: false }, ...items, { type: 'separator' }]
     }
     // Each window's active projects; a project opens in the window showing its workspace.
     const projectItems: Electron.MenuItemConstructorOptions[] = []
@@ -114,7 +122,7 @@ export function createTray(getWindow: () => BrowserWindow | null, actions: TrayA
         const states = sessions.projectStates(p)
         const st = mostUrgent(states)
         projectItems.push({
-          label: `${open.length > 1 ? '   ' : ''}${name}  —  ${STATUS_LABEL[st?.status ?? 'stopped']}${states.length > 1 ? ` (${states.length} agents)` : ''}`,
+          label: `${open.length > 1 ? '   ' : ''}${name}  —  ${states.length > 1 ? tr(msg({ id: 'main.tray.statusOfMany', defaultMessage: '{status} ({n} agents)', description: "A project's line in the tray menu with several agents: the most urgent one's status, and how many agents it has (2 or more)." }), { status: tr(STATUS_LABEL[st?.status ?? 'stopped']), n: states.length }) : tr(STATUS_LABEL[st?.status ?? 'stopped'])}`,
           click: () => {
             const win = w.window ?? getWindow()
             if (!win) return
@@ -124,25 +132,25 @@ export function createTray(getWindow: () => BrowserWindow | null, actions: TrayA
         })
       }
     }
-    if (!projectItems.length) projectItems.push({ label: 'No active projects', enabled: false })
+    if (!projectItems.length) projectItems.push({ label: tr(msg({ id: 'main.tray.noProjects', defaultMessage: 'No active projects', description: 'The tray menu when no project is active.' })), enabled: false })
     tray.setContextMenu(
       Menu.buildFromTemplate([
-        { label: 'Show Hive', click: () => { const w = getWindow(); if (w) showWindow(w) } },
+        { label: tr(msg({ id: 'main.tray.show', defaultMessage: 'Show Hive', description: "The tray menu: brings Hive's window up." })), click: () => { const w = getWindow(); if (w) showWindow(w) } },
         { type: 'separator' },
-        ...inboxSection('Need you', (b) => b.needYou),
-        ...inboxSection('To review', (b) => b.toReview),
-        { label: 'Active projects', enabled: false },
+        ...inboxSection(tr(msg({ id: 'main.tray.needYou', defaultMessage: 'Need you', description: 'A section of the tray menu: agents waiting for you.' })), (b) => b.needYou),
+        ...inboxSection(tr(msg({ id: 'main.tray.toReview', defaultMessage: 'To review', description: "A section of the tray menu: agents' work to look at." })), (b) => b.toReview),
+        { label: tr(msg({ id: 'main.tray.active', defaultMessage: 'Active projects', description: 'A section of the tray menu: the active projects.' })), enabled: false },
         ...projectItems,
         { type: 'separator' },
-        { label: 'Settings', click: () => { const w = getWindow(); if (w) { showWindow(w); emitTo(w, { type: 'menu-command', command: 'settings.open' }) } } },
-        ...(updateState().status === 'ready' ? [{ label: `Restart to Update (${updateState().version})`, click: restartAndInstall }] : []),
+        { label: tr(msg({ id: 'main.tray.settings', defaultMessage: 'Settings', description: 'The tray menu: opens Settings.' })), click: () => { const w = getWindow(); if (w) { showWindow(w); emitTo(w, { type: 'menu-command', command: 'settings.open' }) } } },
+        ...(updateState().status === 'ready' ? [{ label: tr(msg({ id: 'main.tray.restartToUpdate', defaultMessage: 'Restart to Update ({version})', description: 'The tray menu when an update is downloaded. {version} is its version.' }), { version: updateState().version ?? '' }), click: restartAndInstall }] : []),
         ...(pendingQuit
           ? [
-              { label: `Quitting when ${working === 1 ? 'the agent finishes' : `${working} agents finish`}`, enabled: false },
-              { label: 'Quit Now', click: actions.quitNow },
-              { label: 'Cancel Pending Quit', click: actions.cancelPendingQuit }
+              { label: tr(msg({ id: 'main.tray.quitting', defaultMessage: '{n, plural, one {Quitting when the agent finishes} other {Quitting when # agents finish}}', description: 'The tray menu while Hive waits for working agents to finish before quitting.' }), { n: working }), enabled: false },
+              { label: tr(msg({ id: 'main.tray.quitNow', defaultMessage: 'Quit Now', description: 'The tray menu: quits without waiting for the agents.' })), click: actions.quitNow },
+              { label: tr(msg({ id: 'main.tray.cancelQuit', defaultMessage: 'Cancel Pending Quit', description: 'The tray menu: Hive no longer quits when the agents finish.' })), click: actions.cancelPendingQuit }
             ]
-          : [{ label: 'Quit Hive', click: actions.quit }])
+          : [{ label: tr(msg({ id: 'main.tray.quit', defaultMessage: 'Quit Hive', description: 'The tray menu: quits Hive.' })), click: actions.quit }])
       ])
     )
   }
@@ -162,6 +170,8 @@ export function createTray(getWindow: () => BrowserWindow | null, actions: TrayA
       rebuild()
     }, 500)
   })
+  // Its menu and tooltip in the language shown (#796).
+  onLanguageChange(() => rebuild())
   rebuild()
   return tray
 }

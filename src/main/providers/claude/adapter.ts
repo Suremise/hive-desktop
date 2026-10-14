@@ -1,4 +1,5 @@
 import { homedir } from 'os'
+import { msg, tr } from '../../../shared/i18n'
 import { join, basename } from 'path'
 import { mkdir, open, readdir, stat, writeFile } from 'original-fs/promises'
 import { existsSync, readFileSync, realpathSync } from 'original-fs'
@@ -10,7 +11,7 @@ import { samePath } from '../../../shared/movePaths'
 import { config } from '../../config'
 import { claudeFileAllowed, contentHash, ContentTooLarge, copyMissing, copySkillTree, sourceProblem, tooBigToDeliver, isDir, linksNotCopied, placeMatcher, readJson, realPath, removePath, writeJsonAtomic, type PlannedCopies } from '../../fsutil'
 import { createLogger, userText } from '../../logger'
-import { EDITOR_EXTENSION_PATH, EDITOR_ROOTS, compareVersions, hookForwardCommand, hookIds, readFirstLine, run, runsThroughCmd, taskArgs, toSpawnable } from '../common'
+import { EDITOR_EXTENSION_PATH, EDITOR_ROOTS, compareVersions, hookForwardCommand, exportSubtitleText, hookIds, notInstalledIssue, readFirstLine, run, runsThroughCmd, signedOutIssue, taskArgs, toSpawnable, updateIssue, userMemoryLabel } from '../common'
 import type { StartHint } from '../../../shared/startFailure'
 import type { Ask, BackgroundTaskEvent, CatalogRead, CommandSpec, ExternalSession, LaunchContext, LiveDetails, LockDecision, NormalizedHook, ProviderAdapter, SkillDelivery, SkillRoots } from '../types'
 import { autoCompactOf, settingsScopes } from './autoCompact'
@@ -36,10 +37,10 @@ const MAY_BE_SHORT = /-\d+(-|$)/
 /** How much of a transcript is read for the cwd it records (its first lines carry none). */
 const CWD_HEAD = 64 * 1024
 
-export const HOOK_EVENTS = ['SessionStart', 'UserPromptSubmit', 'PreToolUse', 'PostToolUse', 'Notification', 'Stop', 'StopFailure', 'PreCompact', 'PostCompact', 'SessionEnd'] as const
+export const HOOK_EVENTS = ['SessionStart', 'UserPromptSubmit', 'PreToolUse', 'PostToolUse', 'Notification', 'Stop', 'StopFailure', 'PreCompact', 'PostCompact', 'SessionEnd'] as const // i18n-ignore: Claude Code's hook event names
 
 /** Tools that edit files: PreToolUse checks them against other agents' file locks. */
-export const EDIT_TOOLS = 'Edit|Write|MultiEdit|NotebookEdit'
+export const EDIT_TOOLS = 'Edit|Write|MultiEdit|NotebookEdit' // i18n-ignore: Claude Code's tool names, matched
 const EDIT_TOOL = new RegExp(`^(?:${EDIT_TOOLS})$`)
 
 /**
@@ -153,7 +154,7 @@ export class ClaudeCodeAdapter implements ProviderAdapter {
       if (process.platform !== 'win32' || /\.(exe|cmd|bat)$/i.test(line)) out.push({ path: line, source: 'PATH' })
     }
     const exe = process.platform === 'win32' ? 'claude.exe' : 'claude'
-    out.push({ path: join(homedir(), '.local', 'bin', exe), source: 'native install' })
+    out.push({ path: join(homedir(), '.local', 'bin', exe), source: 'native install' }) // i18n-ignore: an install's source as Hive names it, in diagnostics and the Agent API's status
     if (process.platform === 'win32' && process.env.APPDATA) out.push({ path: join(process.env.APPDATA, 'npm', 'claude.cmd'), source: 'npm' })
     return out
   }
@@ -222,10 +223,11 @@ export class ClaudeCodeAdapter implements ProviderAdapter {
   }
 
   readiness(info: AgentInstallInfo): ReadinessIssue[] {
-    if (!info.found) return [{ id: 'not-installed', level: 'error', message: 'Claude Code is not installed.', action: { label: 'Install', task: 'install' } }]
+    const name = this.descriptor.name
+    if (!info.found) return [notInstalledIssue(name)]
     const out: ReadinessIssue[] = []
-    if (info.loggedIn === false) out.push({ id: 'signed-out', level: 'error', message: 'Claude Code is not signed in.', action: { label: 'Sign in', task: 'login' } })
-    if (info.updateAvailable) out.push({ id: 'update', level: 'info', message: `Claude Code ${info.latestVersion} is available.`, action: { label: 'Update', task: 'update' } })
+    if (info.loggedIn === false) out.push(signedOutIssue(name))
+    if (info.updateAvailable) out.push(updateIssue(name, info.latestVersion))
     return out
   }
 
@@ -250,10 +252,10 @@ export class ClaudeCodeAdapter implements ProviderAdapter {
     if (process.platform === 'win32') {
       return {
         file: 'powershell.exe',
-        args: ['-NoProfile', '-ExecutionPolicy', 'Bypass', '-Command', 'irm https://claude.ai/install.ps1 | iex']
+        args: ['-NoProfile', '-ExecutionPolicy', 'Bypass', '-Command', 'irm https://claude.ai/install.ps1 | iex'] // i18n-ignore: a command run in a terminal
       }
     }
-    return { file: '/bin/bash', args: ['-lc', 'curl -fsSL https://claude.ai/install.sh | bash'] }
+    return { file: '/bin/bash', args: ['-lc', 'curl -fsSL https://claude.ai/install.sh | bash'] } // i18n-ignore: a command run in a terminal
   }
 
   updateCommand(executable: string): CommandSpec {
@@ -307,7 +309,7 @@ export class ClaudeCodeAdapter implements ProviderAdapter {
     await writeJsonAtomic(join(pluginDir, '.claude-plugin', 'plugin.json'), {
       name: 'hive',
       version: '1.0.0',
-      description: "The workspace's Hive skills for this session. Regenerated by Hive on every launch — do not edit."
+      description: "The workspace's Hive skills for this session. Regenerated by Hive on every launch — do not edit." // i18n-ignore: a plugin manifest Claude Code reads
     })
     const hashes: Record<string, string> = {}
     // Each agent's own copies: what it gets is what was copied here (its revision read back from the copy).
@@ -353,7 +355,7 @@ export class ClaudeCodeAdapter implements ProviderAdapter {
       type: 'http',
       url: ctx.hookUrl,
       timeout,
-      headers: { Authorization: 'Bearer $HIVE_HOOK_TOKEN' },
+      headers: { Authorization: 'Bearer $HIVE_HOOK_TOKEN' }, // i18n-ignore: an HTTP header Claude Code sends
       allowedEnvVars: ['HIVE_HOOK_TOKEN']
     }
     const hooks: Record<string, unknown[]> = {}
@@ -442,11 +444,11 @@ export class ClaudeCodeAdapter implements ProviderAdapter {
   }
 
   startHint(text: string): StartHint | null {
-    if (/\bmodel\b/i.test(text) && /not found|invalid|unknown|not available|does not exist|isn't available/i.test(text)) return { hint: 'Claude Code doesn\'t know this model: choose another in Agent Settings.', fix: 'agent-settings' }
+    if (/\bmodel\b/i.test(text) && /not found|invalid|unknown|not available|does not exist|isn't available/i.test(text)) return { hint: tr(msg({ id: 'providers.claude.hint.model', defaultMessage: "Claude Code doesn't know this model: choose another in Agent Settings.", description: "Why Claude Code didn't start, in the agent's pane, with a button that goes where it says. Agent Settings, Agent Setup and Settings → … are Hive's names: use them as shown." })), fix: 'agent-settings' }
     // Its argument parser: "error: unknown option '--x'", "error: option '--effort <level>' argument 'x' is invalid".
-    if (/unknown option|unknown command|error: option|too many arguments|missing required argument|is invalid\. Allowed choices/i.test(text)) return { hint: 'Claude Code refused an argument: check Extra arguments in Agent Settings and Settings → Claude Code.', fix: 'agent-settings' }
-    if (/not logged in|please (run )?\/?login|invalid api key|authentication|OAuth/i.test(text)) return { hint: 'Claude Code isn\'t signed in: start it again and sign in in its terminal.', fix: 'terminal' }
-    if (/is not recognized|ENOENT|cannot find module|MODULE_NOT_FOUND/i.test(text)) return { hint: 'Claude Code looks broken or missing: reinstall or update it in Agent Setup.', fix: 'agent-setup' }
+    if (/unknown option|unknown command|error: option|too many arguments|missing required argument|is invalid\. Allowed choices/i.test(text)) return { hint: tr(msg({ id: 'providers.claude.hint.args', defaultMessage: 'Claude Code refused an argument: check Extra arguments in Agent Settings and Settings → Claude Code.', description: "Why Claude Code didn't start, in the agent's pane, with a button that goes where it says. Agent Settings, Agent Setup and Settings → … are Hive's names: use them as shown." })), fix: 'agent-settings' }
+    if (/not logged in|please (run )?\/?login|invalid api key|authentication|OAuth/i.test(text)) return { hint: tr(msg({ id: 'providers.claude.hint.signIn', defaultMessage: "Claude Code isn't signed in: start it again and sign in in its terminal.", description: "Why Claude Code didn't start, in the agent's pane, with a button that goes where it says. Agent Settings, Agent Setup and Settings → … are Hive's names: use them as shown." })), fix: 'terminal' }
+    if (/is not recognized|ENOENT|cannot find module|MODULE_NOT_FOUND/i.test(text)) return { hint: tr(msg({ id: 'providers.claude.hint.broken', defaultMessage: 'Claude Code looks broken or missing: reinstall or update it in Agent Setup.', description: "Why Claude Code didn't start, in the agent's pane, with a button that goes where it says. Agent Settings, Agent Setup and Settings → … are Hive's names: use them as shown." })), fix: 'agent-setup' }
     return null
   }
 
@@ -458,7 +460,7 @@ export class ClaudeCodeAdapter implements ProviderAdapter {
 
   async stopBackgroundJob(executable: string, jobId: string): Promise<void> {
     const r = await run(executable, ['stop', jobId], 20000)
-    if (r.code !== 0) throw new Error((r.stderr || r.stdout).trim() || `claude stop ${jobId} failed`)
+    if (r.code !== 0) throw new Error((r.stderr || r.stdout).trim() || `claude stop ${jobId} failed`) // i18n-ignore: a CLI command's name, when it said nothing itself
   }
 
   // -------------------------------------------------------------------------
@@ -474,7 +476,7 @@ export class ClaudeCodeAdapter implements ProviderAdapter {
       mode: hookMode(body.permission_mode),
       editedPaths: [],
       // Its turn is the prompt's (prompt_id, kept through a Stop hook's continuation); a sub-agent's hooks name it (agent_id).
-      ids: hookIds(body, { turn: 'prompt_id', call: 'tool_use_id', sub: 'agent_id' })
+      ids: hookIds(body, { turn: 'prompt_id', call: 'tool_use_id', sub: 'agent_id' }) // i18n-ignore: a hook field Claude Code sends
     }
     switch (event) {
       case 'SessionStart':
@@ -502,7 +504,7 @@ export class ClaudeCodeAdapter implements ProviderAdapter {
         if (kind === 'idle_prompt') out.event = { kind: 'idle' }
         else if (kind === 'permission_prompt' || /permission|approve|waiting for your input/i.test(message)) {
           // Claude Code sends this when it shows the user a prompt, so none of its modes is `reviewed`.
-          out.event = { kind: 'ask', ask: { kind: kind === 'permission_prompt' ? 'permission' : 'question', blocking: true, message: message || 'Waiting for your input' } }
+          out.event = { kind: 'ask', ask: { kind: kind === 'permission_prompt' ? 'permission' : 'question', blocking: true, message: message || 'Waiting for your input' } } // i18n-ignore: a status message in the CLI's place, which agents read (GET /v1/projects)
         }
         break
       }
@@ -721,7 +723,7 @@ export class ClaudeCodeAdapter implements ProviderAdapter {
   imageData = claudeImageData
 
   exportSubtitle(sessionId: string, project: string): string {
-    return `Claude Code session \`${sessionId}\` · project ${project}`
+    return exportSubtitleText(this.descriptor.name, sessionId, project)
   }
 
   // -------------------------------------------------------------------------
@@ -731,10 +733,10 @@ export class ClaudeCodeAdapter implements ProviderAdapter {
   async memorySources(projectPath: string): Promise<MemorySource[]> {
     const p = this.id
     const sources: MemorySource[] = [
-      { provider: p, id: 'project', label: 'CLAUDE.md', path: join(projectPath, 'CLAUDE.md'), kind: 'claude-md', exists: false },
-      { provider: p, id: 'project-dot', label: '.claude/CLAUDE.md', path: join(projectPath, '.claude', 'CLAUDE.md'), kind: 'claude-md', exists: false },
-      { provider: p, id: 'local', label: 'CLAUDE.local.md', path: join(projectPath, 'CLAUDE.local.md'), kind: 'local-md', exists: false },
-      { provider: p, id: 'user', label: 'User CLAUDE.md (all projects)', path: join(claudeHome(), 'CLAUDE.md'), kind: 'claude-md', exists: false }
+      { provider: p, id: 'project', label: 'CLAUDE.md', path: join(projectPath, 'CLAUDE.md'), kind: 'claude-md', exists: false }, // i18n-ignore: a file's name
+      { provider: p, id: 'project-dot', label: '.claude/CLAUDE.md', path: join(projectPath, '.claude', 'CLAUDE.md'), kind: 'claude-md', exists: false }, // i18n-ignore: a file's name
+      { provider: p, id: 'local', label: 'CLAUDE.local.md', path: join(projectPath, 'CLAUDE.local.md'), kind: 'local-md', exists: false }, // i18n-ignore: a file's name
+      { provider: p, id: 'user', label: userMemoryLabel('CLAUDE.md'), path: join(claudeHome(), 'CLAUDE.md'), kind: 'claude-md', exists: false }
     ]
     for (const s of sources) s.exists = existsSync(s.path)
     const dir = await this.transcriptDir(projectPath)

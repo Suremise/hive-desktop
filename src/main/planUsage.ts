@@ -1,3 +1,5 @@
+import { englishText } from '../shared/advanced'
+import { msg, tr } from '../shared/i18n'
 import { Notification } from 'electron'
 import type { PlanLimit, PlanUsage, ProviderId } from '../shared/types'
 import { providerName } from '../shared/providers'
@@ -39,7 +41,7 @@ function resetText(iso: string | null): string {
   if (!iso) return ''
   const d = new Date(iso)
   const sameDay = d.toDateString() === new Date().toDateString()
-  return ` It resets ${sameDay ? 'at' : 'on'} ${sameDay ? formatTime(d) : formatWeekdayTime(d)}.`
+  return ` ${sameDay ? tr(msg({ id: 'main.plan.resetsAt', defaultMessage: 'It resets at {time}.', description: 'The end of a plan-usage notice: the limit resets today. {time} is the time.' }), { time: formatTime(d) }) : tr(msg({ id: 'main.plan.resetsOn', defaultMessage: 'It resets on {when}.', description: 'The end of a plan-usage notice: the limit resets another day. {when} is the day and time.' }), { when: formatWeekdayTime(d) })}`
 }
 
 /** At most one save of plan usage per minute; the numbers are only shown, so a late save loses nothing that matters. */
@@ -54,6 +56,18 @@ function saveSoon(): void {
     lastSave = Date.now()
     config.update(() => undefined)
   }, Math.max(0, lastSave + SAVE_INTERVAL_MS - Date.now()))
+}
+
+const USED = msg({ id: 'main.plan.used', defaultMessage: '{percent}% of your {provider} {limit} limit used', description: "A notice: how much of a plan's usage limit is used. {provider} is the coding agent; {limit} names the limit as the provider does (5-hour, weekly), in English for now." })
+
+/**
+ * The notice that a limit is `level`% used: in the language shown, its title in English for the Agent API too.
+ * Exported for tests.
+ */
+export function planNotice(provider: ProviderId, l: Pick<PlanLimit, 'usedPercent' | 'resetsAt' | 'label'>, level: number): { title: string; body: string; apiTitle: string } {
+  const values = { percent: Math.round(l.usedPercent), provider: providerName(provider), limit: l.label }
+  const body = `${level >= 95 ? tr(msg({ id: 'main.plan.pause', defaultMessage: 'Sessions will pause when it runs out.', description: 'A plan-usage notice, at 95% used or more.' })) : tr(msg({ id: 'main.plan.close', defaultMessage: 'You are getting close to the limit.', description: 'A plan-usage notice, below 95% used.' }))}${resetText(l.resetsAt)}`
+  return { title: tr(USED, values), body, apiTitle: englishText({ m: USED, values }) }
 }
 
 /** What the user sees: whole percentages and the reset times. Anything else (the report time) isn't a change. */
@@ -79,17 +93,21 @@ export function reportPlanUsage(provider: ProviderId, usage: PlanUsage): void {
     const level = nextWarning(l, config.get().planWarnings[key])
     if (level === null) continue
     config.update((c) => (c.planWarnings[key] = { resetsAt: l.resetsAt, level }))
-    const title = `${Math.round(l.usedPercent)}% of your ${providerName(provider)} ${l.label} limit used`
-    const body = `${level >= 95 ? 'Sessions will pause when it runs out.' : 'You are getting close to the limit.'}${resetText(l.resetsAt)}`
+    const { title, body, apiTitle } = planNotice(provider, l, level)
     // Kept in the Notifications panel, and told as agent notices are (routeAppNotice): a banner in the window you are
     // using, a Windows notification with Hive in the background, or nothing (notifications off, or Show nothing).
     logNotice(level >= 95 ? 'error' : 'warning', title, body)
-    routeAppNotice(title, body, () => {
-      if (!Notification.isSupported()) return
-      const n = new Notification({ title, body, icon: notificationIcon() })
-      shown.add(n)
-      n.on('close', () => shown.delete(n))
-      if (!showOsNotification(n, title, body)) shown.delete(n)
-    })
+    routeAppNotice(
+      title,
+      body,
+      () => {
+        if (!Notification.isSupported()) return
+        const n = new Notification({ title, body, icon: notificationIcon() })
+        shown.add(n)
+        n.on('close', () => shown.delete(n))
+        if (!showOsNotification(n, title, body)) shown.delete(n)
+      },
+      apiTitle
+    )
   }
 }

@@ -17,6 +17,7 @@ import { useSessions } from './ProjectTabs'
 import { useScopedLoad } from '../scopedLoad'
 import { sessionOrigin, type SessionOrigin } from '@shared/sessionOrigin'
 import { MAX_TREE_PREFS } from '@shared/uiPrefs'
+import { shownText } from '@shared/advanced'
 import { rememberProjectPref } from '../projectPrefs'
 import { fmt, msg, tr, type Msg } from '@shared/i18n'
 
@@ -1248,6 +1249,8 @@ function ToolCall({ id, tool, open, toggle, project, sessionId, onImage }: { id:
 }
 
 function OtherItem({ item, open, toggle }: { item: TranscriptItem; open: boolean; toggle: (id: number) => void }) {
+  // Hive's own notices are formatted here, in the language shown (#797): a language change shows them in it at once.
+  useLanguage()
   if (item.kind === 'compaction') {
     const freed = Math.max(0, item.preTokens - item.postTokens)
     return (
@@ -1289,7 +1292,7 @@ function OtherItem({ item, open, toggle }: { item: TranscriptItem; open: boolean
   if (item.kind === 'notice') {
     return (
       <div className={cx('tx-notice', item.level === 'error' && 'error')} id={`tx-${item.id}`}>
-        <Icon name={item.level === 'error' ? 'warning' : 'info'} /> {item.text}
+        <Icon name={item.level === 'error' ? 'warning' : 'info'} /> {item.message ? shownText(item.message) : item.text}
       </div>
     )
   }

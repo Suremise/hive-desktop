@@ -18,6 +18,6 @@ export function hasProvider(id: unknown): id is ProviderId {
 /** The adapter for a provider id; throws for an unknown one (e.g. a config written by a newer Hive). */
 export function provider(id: ProviderId): ProviderAdapter {
   const a = ADAPTERS.find((x) => x.id === id)
-  if (!a) throw new Error(`Unknown provider "${id}". It may need a newer version of Hive.`)
+  if (!a) throw new Error(`Unknown provider "${id}". It may need a newer version of Hive.`) // i18n-ignore: both audiences: thrown wherever a provider is looked up, for the window and the Agent API alike; HiveError (E10a) carries it in both languages (#842)
   return a
 }

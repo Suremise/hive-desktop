@@ -353,6 +353,8 @@ export interface SettingDetail {
   title: string
   /** "Settings → Sessions → Suggest compacting above". */
   path: string
+  /** Where the user sees it, in the language Hive shows them, when that isn't English (#767). */
+  shownAs?: string
   scope: string
   project?: string
   value: string
@@ -371,6 +373,7 @@ export function settingText(d: SettingDetail): string {
   return [
     `${d.title} (${d.id})${d.project ? ` in ${d.project}` : ''}: ${d.value}${d.value !== d.default ? ` (default ${d.default})` : ' (the default)'}`,
     `Where: ${d.path}. Takes ${d.takes}.`,
+    d.shownAs ? `The user sees it as: ${d.shownAs}.` : '',
     d.desc,
     d.tip && d.tip.trim() !== '' ? d.tip : '',
     d.helps ? `When it helps: ${d.helps}` : '',

@@ -1,0 +1,106 @@
+// Screenshot cases for the `tips` area (#794): the tip card, the notice after "Don't show tips", and Help → Tips (its
+// top, each group whole, and its search finding nothing), reached for the i18nshots route (tests/e2e/i18nshots.cjs has
+// the case format) with locale-independent means only: IPC, command ids and structural hooks (data-group, data-action,
+// classes), never English text.
+const fs = require('fs')
+const path = require('path')
+
+const WINDOW = { width: 1400, height: 860 }
+const TALLEST = 4000
+const GROUPS = ['Sessions', 'Agents', 'Board', 'Assistant', 'Files', 'Shortcuts']
+
+/** Waits for a locator to be on the page; throws saying what didn't show. */
+async function shown(ctx, locator, what) {
+  if (!(await ctx.lib.until(async () => (await locator.count()) > 0, ctx.hungMs))) throw new Error(`${what} did not show`)
+  return locator.first()
+}
+
+const setTips = (ctx, on) => ctx.inv('settings:update', { general: { showTips: on } })
+
+/**
+ * The tip card: with tips on, a project of its own gets its second agent, and its agent strip offers the second-agent
+ * moment's tip (the route starts with tips off, so the moment is still unused). Its first agent is added before tips
+ * are on, so the strip offers it only when the second one comes.
+ */
+async function tipCard(ctx) {
+  const { inv, lib, page } = ctx
+  const beta = path.join(ctx.workspace, 'tipsbeta')
+  if (!fs.existsSync(beta)) {
+    fs.mkdirSync(beta, { recursive: true })
+    await inv('workspace:refresh')
+    await lib.addAgent(inv, beta, { name: 'Tipper' })
+    // A new project starts inactive: on, Next Project goes to it.
+    await inv('project:setActive', beta, true)
+  }
+  await setTips(ctx, true)
+  // The window has the setting once Help → Tips' switch shows it on: only then is the moment offered.
+  await ctx.command('help.tips')
+  await shown(ctx, page.locator('.tips-switch .switch.on'), "Help → Tips' switch on")
+  if (!(await lib.until(async () => (await page.locator('.tips-list').count()) === 0 || (await page.keyboard.press('Escape').then(() => false)), ctx.hungMs))) throw new Error("Help → Tips didn't close")
+  // The other project, shown, then its second agent.
+  await ctx.command('project.next')
+  await ctx.command('project.tab.session')
+  if (!(await lib.until(async () => (await page.title()).startsWith('tipsbeta'), ctx.hungMs))) throw new Error('the other project was not selected')
+  await lib.addAgent(inv, beta, { name: 'Tipster' })
+  return shown(ctx, page.locator('.tip-card'), 'the tip card')
+}
+
+/** "Don't show tips" on the card: the notice that says where they still are. */
+async function tipsOff(ctx) {
+  const { page } = ctx
+  await (await shown(ctx, page.locator('.tip-card .tip-off'), "the card's Don't show tips")).click()
+  return shown(ctx, page.locator('.toasts .toast'), 'the notice that tips are off')
+}
+
+async function closeNotice(ctx) {
+  const { page, lib } = ctx
+  const dismiss = () => page.locator('.toasts .toast .icon-btn').first().click({ timeout: 2000 }).then(() => false, () => false)
+  if (!(await lib.until(async () => (await page.locator('.toasts .toast').count()) === 0 || (await dismiss()), ctx.hungMs))) throw new Error("the notice didn't close")
+  await setTips(ctx, false)
+  // Back to alpha (two projects: the next one is it).
+  await ctx.command('project.next')
+}
+
+/** Help → Tips, open. */
+async function openTips(ctx) {
+  if (!(await ctx.page.locator('.tips-list').count())) await ctx.command('help.tips')
+  return shown(ctx, ctx.page.locator('.dialog', { has: ctx.page.locator('.tips-list') }), 'Help → Tips')
+}
+
+async function closeTips(ctx) {
+  const { page, lib } = ctx
+  if (!(await lib.until(async () => (await page.locator('.tips-list').count()) === 0 || (await page.keyboard.press('Escape').then(() => false)), ctx.hungMs))) throw new Error("Help → Tips didn't close")
+  await lib.fitWindow(ctx.app, page, WINDOW)
+}
+
+/** A group of Help → Tips, whole: the window made tall enough for its section. */
+const groupScreen = (group) => ({
+  name: `group-${group.toLowerCase()}`,
+  open: async (ctx) => {
+    const { page, lib, app } = ctx
+    await lib.fitWindow(app, page, { width: WINDOW.width, height: TALLEST })
+    await openTips(ctx)
+    const section = await shown(ctx, page.locator(`.tips-list section[data-group="${group}"]`), `Help → Tips' ${group} group`)
+    await section.scrollIntoViewIfNeeded()
+    return section
+  }
+})
+
+/** Help → Tips searched for what no tip says: its "No tips match". */
+async function noMatch(ctx) {
+  const dialog = await openTips(ctx)
+  await dialog.locator('input').first().fill('zzzz qqqq')
+  await shown(ctx, dialog.locator('.pane-empty'), "Help → Tips' empty search")
+  return dialog
+}
+
+module.exports = {
+  area: 'tips',
+  screens: [
+    { name: 'card', open: tipCard },
+    { name: 'off-notice', open: tipsOff, close: closeNotice },
+    { name: 'dialog', open: openTips },
+    ...GROUPS.map(groupScreen),
+    { name: 'no-match', open: noMatch, close: closeTips }
+  ]
+}

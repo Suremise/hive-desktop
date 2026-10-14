@@ -3,6 +3,8 @@
  * pop-up each. Waiting for input is never grouped or delayed (main/sessions.ts notify()).
  */
 
+import { englishText } from './advanced'
+import { fmt, msg, tr, type Msg } from './i18n'
 import type { AppSettings } from './types'
 
 /** Where a notice goes: a banner in the focused Hive window, a Windows notification, or nowhere. */
@@ -77,12 +79,30 @@ export interface Finish {
   body: string
 }
 
+const IN_PROJECT = msg({ id: 'main.finished.inProject', defaultMessage: '{n} agents finished in {project}', description: 'A notification for several agents of one project that finished together. {n} is how many (2 or more); the agents are listed under it.' })
+const MANY = msg({ id: 'main.finished.many', defaultMessage: '{n} agents finished', description: 'A notification for agents of several projects that finished together. {n} is how many; the projects are listed under it.' })
+
+/** The title of the notification for finishes that came together (2 or more), formatted by `format`. */
+function groupTitle(items: readonly Finish[], format: (m: Msg, values: { n: number; project?: string }) => string): string {
+  const projects = new Set(items.map((i) => i.project))
+  return projects.size === 1 ? format(IN_PROJECT, { n: items.length, project: items[0].project }) : format(MANY, { n: items.length })
+}
+
 /** One notification for finishes that came together: alone as before; else counted, by agent in one project or by project across several. */
 export function finishedNotice(items: readonly Finish[]): { title: string; body: string } {
   if (items.length === 1) return { title: items[0].title, body: items[0].body }
   const projects = [...new Set(items.map((i) => i.project))]
-  if (projects.length === 1) return { title: `${items.length} agents finished in ${projects[0]}`, body: items.map((i) => i.agent).join(', ') }
-  return { title: `${items.length} agents finished`, body: projects.map((p) => `${p} (${items.filter((i) => i.project === p).length})`).join(', ') }
+  const title = groupTitle(items, (m, values) => tr(m, values as never))
+  if (projects.length === 1) return { title, body: fmt.list(items.map((i) => i.agent), 'unit') }
+  return {
+    title,
+    body: fmt.list(projects.map((p) => tr(msg({ id: 'main.finished.project', defaultMessage: '{project} ({n})', description: 'A project in the notification for agents that finished together, with how many of its agents finished.' }), { project: p, n: items.filter((i) => i.project === p).length })), 'unit')
+  }
+}
+
+/** That notification's title in English, whatever language Hive shows, for the Agent API (#796: agent-facing text stays English). */
+export function finishedApiTitle(items: readonly Finish[]): string {
+  return items.length === 1 ? items[0].title : groupTitle(items, (m, values) => englishText({ m, values: { ...values } }))
 }
 
 /**

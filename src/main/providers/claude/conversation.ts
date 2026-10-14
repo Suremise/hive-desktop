@@ -1,5 +1,5 @@
 import type { TranscriptImageRef, TranscriptItem, TranscriptTool } from '../../../shared/types'
-import { firstLine, shortPath, toolLabel, type NewItem } from '../conversation'
+import { NOTICE_TEXT, firstLine, noticeOf, shortPath, toolLabel, type NewItem } from '../conversation'
 import type { ConversationParserLike, ImageLocation } from '../types'
 import { SidechainFilter } from './usage'
 
@@ -137,7 +137,7 @@ export class ConversationParser implements ConversationParserLike {
         this.push({ kind: 'thinking', timestamp: ts, text: b.thinking })
       } else if (b?.type === 'tool_use') {
         const input: Record<string, unknown> = b.input && typeof b.input === 'object' ? b.input : {}
-        const name = String(b.name ?? 'Tool')
+        const name = String(b.name ?? 'Tool') // i18n-ignore: a tool's name, as agents read it (hive_agent_activity)
         const tool: TranscriptTool = {
           toolUseId: String(b.id ?? ''),
           name: toolLabel(name),
@@ -206,7 +206,7 @@ export class ConversationParser implements ConversationParserLike {
     if (!images.length && this.special(t, ts)) return
     if (!t && !images.length) return
     if (/^\[Request interrupted by user[^\]]*\]$/.test(t) && !images.length) {
-      this.push({ kind: 'notice', timestamp: ts, text: 'Interrupted by you', level: 'info' })
+      this.push({ ...noticeOf(NOTICE_TEXT.interrupted, 'info'), timestamp: ts })
       return
     }
     this.lastUser = this.push({ kind: 'user', timestamp: ts, text, images })
@@ -254,7 +254,7 @@ export class ConversationParser implements ConversationParserLike {
     } else if (o.subtype === 'local_command' && typeof o.content === 'string') {
       this.special(o.content.trim(), ts)
     } else if ((o.subtype === 'api_error' || o.level === 'error') && (typeof o.content === 'string' || o.error)) {
-      this.push({ kind: 'notice', timestamp: ts, text: typeof o.content === 'string' ? o.content : 'API error', level: 'error' })
+      this.push(typeof o.content === 'string' ? { kind: 'notice', timestamp: ts, text: o.content, level: 'error' } : { ...noticeOf(NOTICE_TEXT.apiError, 'error'), timestamp: ts })
     } else if (o.subtype === 'informational' && typeof o.content === 'string') {
       this.push({ kind: 'notice', timestamp: ts, text: o.content, level: 'info' })
     }

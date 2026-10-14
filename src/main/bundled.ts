@@ -1,3 +1,4 @@
+import { fmt, msg, tr } from '../shared/i18n'
 import { existsSync } from 'original-fs'
 import { lstat, readdir } from 'original-fs/promises'
 import { join } from 'path'
@@ -190,7 +191,8 @@ export async function syncBundled(opts: { fresh?: boolean } = {}): Promise<void>
  */
 async function retirePersonas(m: Manifest): Promise<void> {
   const moved: string[] = []
-  const name = (id: string): string => (id === 'qa-triager' ? 'QA triager' : id.charAt(0).toUpperCase() + id.slice(1))
+  // The modes' own names, as their files name them.
+  const name = (id: string): string => (id === 'qa-triager' ? 'QA triager' : id.charAt(0).toUpperCase() + id.slice(1)) // i18n-ignore: a mode's name
   for (const [id, mode] of Object.entries(RETIRED_PERSONAS)) {
     const dest = itemPath(workspace.personasDir, 'personas', id)
     const present = await lstat(dest).then(() => true, () => false)
@@ -213,7 +215,12 @@ async function retirePersonas(m: Manifest): Promise<void> {
     if (await chooseModeFor(id, mode)) moved.push(`${name(id)} → ${name(mode)}`)
     else if (present) moved.push(`${name(id)} → ${name(mode)}`)
   }
-  if (moved.length) toast('info', "The Assistant's personas are now working modes", `Coordinator, Planner, QA triager and Release manager replace Hive's character personas (${moved.join(', ')}). Switch modes from the Assistant's header; your own personas are unchanged.`)
+  if (moved.length)
+    toast(
+      'info',
+      tr(msg({ id: 'main.personas.retiredTitle', defaultMessage: "The Assistant's personas are now working modes", description: "A notice once, after an update: the Assistant's character personas became working modes." })),
+      tr(msg({ id: 'main.personas.retiredBody', defaultMessage: "Coordinator, Planner, QA triager and Release manager replace Hive's character personas ({moved}). Switch modes from the Assistant's header; your own personas are unchanged.", description: 'The notice that personas became working modes. The four names are the modes\' own names: keep them. {moved} lists which persona became which mode ("Pirate → Coordinator").' }), { moved: fmt.list(moved) })
+    )
 }
 
 /**

@@ -2,7 +2,9 @@ import { execFile } from 'child_process'
 import { existsSync, readFileSync, statSync } from 'original-fs'
 import { appendFile, mkdir, open, readdir, readFile, writeFile } from 'original-fs/promises'
 import { basename, delimiter, dirname, isAbsolute, join, resolve as resolvePath } from 'path'
-import type { RecacheEstimate, SessionUsage } from '../../shared/types'
+import { englishText, shownText, type TextPart } from '../../shared/advanced'
+import { msg, tr } from '../../shared/i18n'
+import type { AgentInstallInfo, ReadinessIssue, RecacheEstimate, SessionUsage } from '../../shared/types'
 import { cleanSwaps, contentHash, ContentTooLarge, COPY_MARKER, CopyFailed, LinkNotCopied, removePath, sourceProblem, swapIn, tooBigToDeliver, withFileLock } from '../fsutil'
 import { createLogger, userText } from '../logger'
 import type { HookIds, LaunchContext, SkillDelivery } from './types'
@@ -67,18 +69,18 @@ export const CMD_MAX_CHARS = 8191
  */
 const NPM_SHIM_LINES = [
   '@ECHO off',
-  'GOTO start',
+  'GOTO start', // i18n-ignore: an npm shim's batch file
   ':find_dp0',
-  'SET dp0=%~dp0',
+  'SET dp0=%~dp0', // i18n-ignore: an npm shim's batch file
   'EXIT /b',
   ':start',
   'SETLOCAL',
   'CALL :find_dp0',
-  'IF EXIST "%dp0%\\node.exe" (',
-  'SET "_prog=%dp0%\\node.exe"',
-  ') ELSE (',
-  'SET "_prog=node"',
-  'SET PATHEXT=%PATHEXT:;.JS;=;%',
+  'IF EXIST "%dp0%\\node.exe" (', // i18n-ignore: an npm shim's batch file
+  'SET "_prog=%dp0%\\node.exe"', // i18n-ignore: an npm shim's batch file
+  ') ELSE (', // i18n-ignore: an npm shim's batch file
+  'SET "_prog=node"', // i18n-ignore: an npm shim's batch file
+  'SET PATHEXT=%PATHEXT:;.JS;=;%', // i18n-ignore: an npm shim's batch file
   ')'
 ]
 const NPM_SHIM_RUN = /^endLocal & goto #_undefined_# 2>NUL \|\| title %COMSPEC% & "%_prog%" +"%dp0%\\([^"%*?<>|&^]+\.[cm]?js)" %\*$/
@@ -143,7 +145,7 @@ export function toSpawnable(file: string, args: string[]): { file: string; args:
     const out = { file: process.env.ComSpec || 'cmd.exe', args: ['/d', '/s', '/c', file, ...args] }
     const length = commandLineLength(out.file, out.args)
     if (length > CMD_MAX_CHARS) {
-      throw new Error(`${basename(file)} has to run through cmd.exe, which takes a command line of at most ${CMD_MAX_CHARS.toLocaleString('en')} characters, and this launch needs about ${length.toLocaleString('en')}. Set the CLI's path in Settings to its .exe (or install the standalone CLI), which has no such limit.`)
+      throw new Error(`${basename(file)} has to run through cmd.exe, which takes a command line of at most ${CMD_MAX_CHARS.toLocaleString('en')} characters, and this launch needs about ${length.toLocaleString('en')}. Set the CLI's path in Settings to its .exe (or install the standalone CLI), which has no such limit.`) // i18n-ignore: both audiences: thrown at a launch, read by the window and the Agent API alike; HiveError (E10a) carries it in both languages (#842)
     }
     return out
   }
@@ -163,7 +165,7 @@ export function commandLineLength(file: string, args: string[]): number {
  */
 export function promptArg(executable: string, text: string): string {
   let t = runsThroughCmd(executable) ? text.replace(/["%^&|<>!]/g, ' ').replace(/\s+/g, ' ').trim() : text.trim()
-  if (t.startsWith('-')) t = `Task: ${t}`
+  if (t.startsWith('-')) t = `Task: ${t}` // i18n-ignore: typed to the CLI
   return t
 }
 
@@ -187,7 +189,7 @@ export function taskArgs(executable: string, text: string): string[] {
  */
 export function hookForwardCommand(hookUrl: string, authFile: string, seconds = 5): string {
   const curl = process.platform === 'win32' ? 'curl.exe' : 'curl'
-  return `${curl} -s -m ${seconds} -X POST -H "@${authFile.split('\\').join('/')}" -H "Content-Type: application/json" --data-binary "@-" "${hookUrl}"`
+  return `${curl} -s -m ${seconds} -X POST -H "@${authFile.split('\\').join('/')}" -H "Content-Type: application/json" --data-binary "@-" "${hookUrl}"` // i18n-ignore: a hook command the CLI runs
 }
 
 /**
@@ -240,7 +242,7 @@ async function skillMarker(folder: string): Promise<string | null> {
  */
 async function keptCopy(dest: string, problem: string): Promise<SkillDelivery> {
   const kept = existsSync(dest) && (await skillMarker(dest)) !== null ? await contentHash(dest).catch(() => null) : null
-  return { revision: kept, problem: kept ? `${problem}, so it kept its old copy` : problem }
+  return { revision: kept, problem: kept ? `${problem}, so it kept its old copy` : problem } // i18n-ignore: the skills' launch record, which agents read (the Agent API's status): guidance.ts
 }
 
 /**
@@ -261,7 +263,7 @@ export async function syncAgentsSkills(ctx: LaunchContext, cli: string): Promise
     // Hive made at an earlier launch, read without the lock: another launch may be changing it).
     log.warn(`Could not copy skills for ${cli}`, e)
     const out: Record<string, SkillDelivery> = {}
-    for (const s of ctx.skills) out[s.name] = await keptCopy(agentsSkillCopyPath(ctx.cwd, s.name), 'the skills could not be copied')
+    for (const s of ctx.skills) out[s.name] = await keptCopy(agentsSkillCopyPath(ctx.cwd, s.name), 'the skills could not be copied') // i18n-ignore: the skills' launch record, which agents read (the Agent API's status): guidance.ts
     return out
   }
 }
@@ -284,7 +286,7 @@ async function syncAgentsSkillsNow(ctx: LaunchContext, cli: string): Promise<Rec
       out[s.name] = await deliverSkill(s, join(dir, folder), folder, cli)
     } catch (e) {
       log.warn(`Could not copy skill ${userText(s.name)} for ${cli}`, e)
-      out[s.name] = await keptCopy(join(dir, folder), 'it could not be copied')
+      out[s.name] = await keptCopy(join(dir, folder), 'it could not be copied') // i18n-ignore: the skills' launch record, which agents read (the Agent API's status): guidance.ts
     }
   }
   // Keeping the copies out of git: a failure here changes nothing about what was delivered.
@@ -313,7 +315,7 @@ async function deliverSkill(s: LaunchContext['skills'][number], dest: string, fo
     try {
       return { revision: await contentHash(dest) }
     } catch (e) {
-      return e instanceof ContentTooLarge ? { revision: null, problem: tooBigToDeliver(e), lasting: true } : { revision: null, problem: 'its copy could not be read' }
+      return e instanceof ContentTooLarge ? { revision: null, problem: tooBigToDeliver(e), lasting: true } : { revision: null, problem: 'its copy could not be read' } // i18n-ignore: the skills' launch record, which agents read (the Agent API's status): guidance.ts
     }
   }
   const had = existsSync(dest) ? await skillMarker(dest) : undefined
@@ -322,7 +324,7 @@ async function deliverSkill(s: LaunchContext['skills'][number], dest: string, fo
     // Not marked: the user's own folder, unless it is an unchanged copy from before markers.
     if ((await revision()) !== hash) {
       log.warn(`Not copying skill ${userText(s.name)} for ${cli}: ${userText(dest)} is not Hive's copy.`)
-      return { revision: null, problem: `a folder of the user's in .agents/skills is named ${folder}`, lasting: true }
+      return { revision: null, problem: `a folder of the user's in .agents/skills is named ${folder}`, lasting: true } // i18n-ignore: the skills' launch record, which agents read (the Agent API's status): guidance.ts
     }
     await writeFile(join(dest, COPY_MARKER), JSON.stringify({ source: s.sourcePath, hash }) + '\n')
     return current()
@@ -343,9 +345,9 @@ async function deliverSkill(s: LaunchContext['skills'][number], dest: string, fo
     // With a file in the old copy open, that copy stays until a later launch.
     const code = (e as NodeJS.ErrnoException).code
     const kept = existsSync(dest) ? await revision() : null
-    if (!kept) return { revision: null, problem: 'it could not be copied' }
+    if (!kept) return { revision: null, problem: 'it could not be copied' } // i18n-ignore: the skills' launch record, which agents read (the Agent API's status): guidance.ts
     // Windows won't move a folder with a file in it open (EBUSY, EPERM, EACCES): a running session is reading it.
-    return { revision: kept, problem: code === 'EBUSY' || code === 'EPERM' || code === 'EACCES' ? 'its old copy was in use, so it kept that one' : `it could not be copied${code ? ` (${code})` : ''}, so it kept its old copy` }
+    return { revision: kept, problem: code === 'EBUSY' || code === 'EPERM' || code === 'EACCES' ? 'its old copy was in use, so it kept that one' : `it could not be copied${code ? ` (${code})` : ''}, so it kept its old copy` } // i18n-ignore: the skills' launch record, which agents read (the Agent API's status): guidance.ts
   }
 }
 
@@ -364,3 +366,68 @@ export async function excludeCopies(cwd: string): Promise<void> {
     await appendFile(exclude, `${text && !text.endsWith('\n') ? '\n' : ''}${lines.some((l) => l.startsWith("# Hive's copies of workspace skills")) ? '' : "# Hive's copies of workspace skills for Codex and Copilot (added by Hive)\n"}${missing.join('\n')}\n`)
   }
 }
+
+/**
+ * The English text a provider's install info holds (its readiness, its notes), each with the same as data (#797):
+ * Hive's own code and the Agent API (GET /v1/status, /v1/providers) read the English, and the window is sent it in the
+ * language it shows (shownInstallInfo).
+ */
+const INSTALL_TEXT = new Map<string, TextPart>()
+
+/** Text for a provider's install info: its English, remembered as data so the window can be shown it in its language. */
+export function installText(t: TextPart): string {
+  const english = englishText(t)
+  INSTALL_TEXT.set(english, t)
+  return english
+}
+
+/** A provider's install info as the window shows it: its readiness and notes in the language shown (#797). */
+export function shownInstallInfo(info: AgentInstallInfo): AgentInstallInfo {
+  const shown = (s: string): string => {
+    const t = INSTALL_TEXT.get(s)
+    return t === undefined ? s : shownText(t)
+  }
+  return {
+    ...info,
+    ...(info.readiness ? { readiness: info.readiness.map((r) => ({ ...r, message: shown(r.message), ...(r.action ? { action: { ...r.action, label: shown(r.action.label) } } : {}), ...(r.detail ? { detail: r.detail.map(shown) } : {}) })) } : {}),
+    ...(info.notes ? { notes: info.notes.map(shown) } : {})
+  }
+}
+
+const READINESS = {
+  notInstalled: msg({ id: 'providers.readiness.notInstalled', defaultMessage: '{provider} is not installed.', description: "Agent Setup and Settings → Providers: Hive didn't find the coding agent's CLI. {provider} is its name (Claude Code)." }),
+  signedOut: msg({ id: 'providers.readiness.signedOut', defaultMessage: '{provider} is not signed in.', description: "Agent Setup and Settings → Providers: the coding agent's CLI has no sign-in. {provider} is its name." }),
+  update: msg({ id: 'providers.readiness.update', defaultMessage: '{provider} {version} is available.', description: 'Agent Setup and Settings → Providers: a newer version of the coding agent is out. {provider} is its name, {version} the version.' }),
+  install: msg({ id: 'providers.action.install', defaultMessage: 'Install', description: "Agent Setup's button: installs the coding agent's CLI in a terminal." }),
+  signIn: msg({ id: 'providers.action.signIn', defaultMessage: 'Sign in', description: "Agent Setup's button: signs the coding agent's CLI in, in a terminal." }),
+  updateAction: msg({ id: 'providers.action.update', defaultMessage: 'Update', description: "Agent Setup's button: updates the coding agent's CLI in a terminal." })
+}
+
+/** The CLI isn't installed: install it from Agent Setup. */
+export const notInstalledIssue = (provider: string): ReadinessIssue => ({ id: 'not-installed', level: 'error', message: installText({ m: READINESS.notInstalled, values: { provider } }), action: { label: installText(READINESS.install), task: 'install' } })
+
+/** The CLI isn't signed in: sign in from Agent Setup, with what that does (`detail`). */
+export const signedOutIssue = (provider: string, detail?: TextPart[]): ReadinessIssue => ({
+  id: 'signed-out',
+  level: 'error',
+  message: installText({ m: READINESS.signedOut, values: { provider } }),
+  action: { label: installText(READINESS.signIn), task: 'login' },
+  ...(detail ? { detail: detail.map(installText) } : {})
+})
+
+/** A newer version is out: Update, or (`detail`) how to update it where Hive can't. */
+export const updateIssue = (provider: string, version: string | null, detail?: TextPart[]): ReadinessIssue => ({
+  id: 'update',
+  level: 'info',
+  message: installText({ m: READINESS.update, values: { provider, version: version ?? '' } }),
+  ...(detail ? { detail: detail.map(installText) } : { action: { label: installText(READINESS.updateAction), task: 'update' } })
+})
+
+const EXPORT_SUBTITLE = msg({ id: 'providers.export.subtitle', defaultMessage: '{provider} session `{session}` · project {project}', description: "The Markdown export of a conversation (Sessions tab → Export): the line under its title. {provider} is the coding agent (Claude Code), {session} the session's id (`…` marks it: keep the marks), {project} the project." })
+const USER_MEMORY = msg({ id: 'providers.memory.user', defaultMessage: 'User {file} (all projects)', description: "In the Memory view: the user's own instructions file, which every project's agents read. {file} is its name (CLAUDE.md)." })
+
+/** The line under an exported conversation's title (#797). */
+export const exportSubtitleText = (provider: string, session: string, project: string): string => tr(EXPORT_SUBTITLE, { provider, session, project })
+
+/** The Memory view's label for the user's own instructions file, which every project's agents read. */
+export const userMemoryLabel = (file: string): string => tr(USER_MEMORY, { file })
