@@ -25,6 +25,7 @@ interface HiveMessageValues {
   'providers.claude.hint.broken': undefined
   'providers.claude.hint.model': undefined
   'providers.claude.hint.signIn': undefined
+  'providers.cmdTooLong': { file: string | number; max: number; length: number }
   'providers.codex.hint.broken': undefined
   'providers.codex.hint.model': undefined
   'providers.codex.hint.settings': undefined
@@ -66,9 +67,19 @@ interface HiveMessageValues {
   'providers.readiness.notInstalled': { provider: string | number }
   'providers.readiness.signedOut': { provider: string | number }
   'providers.readiness.update': { provider: string | number; version: string | number }
+  'providers.settings.hooksOff': { source: string; file: string | number }
+  'providers.settings.noFile': undefined
+  'providers.settings.noValue': undefined
+  'providers.settings.notAFile': undefined
+  'providers.settings.notJson': { file: string | number; why: string | number }
+  'providers.settings.notList': { source: string; file: string | number; key: string | number }
+  'providers.settings.notObject': { source: string; file: string | number }
+  'providers.settings.tooLarge': undefined
+  'providers.settings.unreadable': { file: string | number; why: string | number }
   'providers.transcript.aborted': undefined
   'providers.transcript.apiError': undefined
   'providers.transcript.interrupted': undefined
   'providers.transcript.resumed': undefined
   'providers.transcript.turnEnded': { reason: string | number }
+  'providers.unknown': { provider: string | number }
 }

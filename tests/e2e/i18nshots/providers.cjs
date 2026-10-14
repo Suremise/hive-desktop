@@ -42,6 +42,12 @@ async function closeSetup(ctx) {
   await lib.fitWindow(app, page, WINDOW)
 }
 
+/** Waits for a locator to be on the page; throws saying what didn't show. */
+async function shown(ctx, locator, what) {
+  if (!(await ctx.lib.until(async () => (await locator.count()) > 0, ctx.hungMs))) throw new Error(`${what} did not show`)
+  return locator.first()
+}
+
 async function closeToasts(ctx) {
   const { page, lib } = ctx
   const dismiss = () => page.locator('.toasts .toast .icon-btn').first().click({ timeout: 2000 }).then(() => false, () => false)
@@ -84,11 +90,32 @@ async function closeStray(ctx) {
   await setProviders(ctx, false)
 }
 
+/**
+ * A start refused at its launch (#842): alpha's Claude Code agents get a --settings with no value, so the window's New
+ * Session fails with main's HiveError, in the run's language.
+ */
+async function launchRefused(ctx) {
+  const { inv, page } = ctx
+  await closeToasts(ctx)
+  await inv('project:updateProvider', ctx.project, 'claude-code', { extraArgs: '--settings' })
+  await ctx.command('project.focus', ctx.project)
+  await ctx.command('project.tab.session')
+  await ctx.command('session.new')
+  return shown(ctx, page.locator('.toasts .toast.error'), 'the refused start')
+}
+
+/** Its notice closed and the extra arguments taken off again. */
+async function closeLaunchRefused(ctx) {
+  await closeToasts(ctx)
+  await ctx.inv('project:updateProvider', ctx.project, 'claude-code', { extraArgs: '' })
+}
+
 module.exports = {
   area: 'providers',
   screens: [
     { name: 'agent-setup-codex', open: agentSetup },
     { name: 'agent-setup-copilot', open: (ctx) => setupTab(ctx, 'copilot', 2), close: closeSetup },
-    { name: 'stray-codex', open: strayCodex, close: closeStray }
+    { name: 'stray-codex', open: strayCodex, close: closeStray },
+    { name: 'launch-refused', open: launchRefused, close: closeLaunchRefused }
   ]
 }

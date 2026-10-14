@@ -25,6 +25,8 @@ export const EVERYTHING = [
   'src/main/logger.ts',
   'src/main/ptyHost.ts',
   'src/main/testQuiet.ts',
+  // Every IPC call's errors and the Agent API's go through it (#845).
+  'src/main/hiveError.ts',
   // The language (#767): chosen before every window starts, and every translated text goes through it.
   'src/main/i18n.ts',
   'src/renderer/src/i18n.ts',

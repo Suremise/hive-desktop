@@ -95,6 +95,10 @@
     "defaultMessage": "Claude Code isn't signed in: start it again and sign in in its terminal.",
     "description": "Why Claude Code didn't start, in the agent's pane, with a button that goes where it says. Agent Settings, Agent Setup and Settings → … are Hive's names: use them as shown."
   },
+  "providers.cmdTooLong": {
+    "defaultMessage": "{file} has to run through cmd.exe, which takes a command line of at most {max, number} characters, and this launch needs about {length, number}. Set the CLI's path in Settings to its .exe (or install the standalone CLI), which has no such limit.",
+    "description": "Starting an agent is refused: its CLI is a .cmd or .bat launcher, and cmd.exe can't take a command line this long. {file} is the launcher's file name; {max} and {length} are numbers of characters. Keep cmd.exe and .exe as they are."
+  },
   "providers.codex.hint.broken": {
     "defaultMessage": "Codex looks broken or not set up: check it in Agent Setup.",
     "description": "Why Codex didn't start, in the agent's pane, with a button that goes where it says. Agent Settings, Agent Setup and Settings → … are Hive's names: use them as shown."
@@ -259,6 +263,42 @@
     "defaultMessage": "{provider} {version} is available.",
     "description": "Agent Setup and Settings → Providers: a newer version of the coding agent is out. {provider} is its name, {version} the version."
   },
+  "providers.settings.hooksOff": {
+    "defaultMessage": "{source, select, inline {The --settings in Extra arguments} other {The settings file {file} (--settings in Extra arguments)}} turns off all hooks (disableAllHooks), which Hive needs for the agent's status, file locks and status line. Remove it in Agent Settings or Settings → Claude Code.",
+    "description": "Starting a Claude Code agent is refused: its settings turn Claude Code's hooks off. {source} is inline (settings written in the argument itself) or file; {file} is the file's path as the user wrote it. Keep --settings and the setting names as they are; \"Agent Settings\" and \"Settings → Claude Code\" are where to change it, as Hive shows them."
+  },
+  "providers.settings.noFile": {
+    "defaultMessage": "there is no such file",
+    "description": "Why a settings file can't be read, after \"can't be read:\" in another message: it doesn't exist."
+  },
+  "providers.settings.noValue": {
+    "defaultMessage": "The last --settings in Extra arguments has no value. Give it a settings file or inline JSON (--settings '<file or JSON>'), or remove it in Agent Settings or Settings → Claude Code.",
+    "description": "Starting a Claude Code agent is refused: its extra arguments end with --settings and nothing after it. Keep --settings and <file or JSON> as they are; \"Agent Settings\" and \"Settings → Claude Code\" are where to change it, as Hive shows them."
+  },
+  "providers.settings.notAFile": {
+    "defaultMessage": "it isn't a file",
+    "description": "Why a settings file can't be read, after \"can't be read:\" in another message: the path is a folder or a device."
+  },
+  "providers.settings.notJson": {
+    "defaultMessage": "The settings file {file} (--settings in Extra arguments) isn't valid JSON ({why}). Fix it or remove it in Agent Settings or Settings → Claude Code.",
+    "description": "Starting a Claude Code agent is refused: its settings file isn't JSON. {file} is its path; {why} is the JSON parser's own words (English). Keep --settings and JSON as they are."
+  },
+  "providers.settings.notList": {
+    "defaultMessage": "{source, select, inline {The --settings in Extra arguments} other {The settings file {file} (--settings in Extra arguments)}} sets {key} to something other than a list, which stops Hive's hooks reaching it. Make it a list ([ … ]) or remove it in Agent Settings or Settings → Claude Code.",
+    "description": "Starting a Claude Code agent is refused: a hook allowlist in its settings isn't a list. {key} is the setting's name. {source} is inline (settings written in the argument itself) or file; {file} is the file's path as the user wrote it. Keep --settings and the setting names as they are; \"Agent Settings\" and \"Settings → Claude Code\" are where to change it, as Hive shows them. Keep [ … ] as it is."
+  },
+  "providers.settings.notObject": {
+    "defaultMessage": "{source, select, inline {The --settings in Extra arguments} other {The settings file {file} (--settings in Extra arguments)}} isn't a settings object ('{ … }'). Fix it or remove it in Agent Settings or Settings → Claude Code.",
+    "description": "Starting a Claude Code agent is refused: its settings aren't an object. {source} is inline (settings written in the argument itself) or file; {file} is the file's path as the user wrote it. Keep --settings and the setting names as they are; \"Agent Settings\" and \"Settings → Claude Code\" are where to change it, as Hive shows them. Keep { … } as it is."
+  },
+  "providers.settings.tooLarge": {
+    "defaultMessage": "it's over Claude Code's 2 MiB limit for settings files",
+    "description": "Why a settings file can't be read, after \"can't be read:\" in another message: it is larger than Claude Code takes. Keep 2 MiB as it is."
+  },
+  "providers.settings.unreadable": {
+    "defaultMessage": "The settings file {file} (--settings in Extra arguments) can't be read: {why}. Fix it or remove it in Agent Settings or Settings → Claude Code.",
+    "description": "Starting a Claude Code agent is refused: the settings file in its extra arguments can't be read. {file} is its path; {why} is the reason (\"there is no such file\", \"it isn't a file\", or the system's own words). Keep --settings as it is."
+  },
   "providers.transcript.aborted": {
     "defaultMessage": "Turn ended: aborted",
     "description": "A notice in a conversation, in the Sessions tab's transcript viewer and its Markdown export: the turn ended early, for no reason given."
@@ -278,5 +318,9 @@
   "providers.transcript.turnEnded": {
     "defaultMessage": "Turn ended: {reason}",
     "description": "A notice in a conversation, in the Sessions tab's transcript viewer and its Markdown export: the turn ended early. {reason} is the coding agent's own word for why (timeout), in English."
+  },
+  "providers.unknown": {
+    "defaultMessage": "Unknown provider \"{provider}\". It may need a newer version of Hive.",
+    "description": "An agent or a setting names a coding-agent CLI this version of Hive doesn't know, as when a newer Hive wrote it. {provider} is the id."
   }
 }
