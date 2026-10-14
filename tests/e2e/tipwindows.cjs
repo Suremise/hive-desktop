@@ -22,7 +22,11 @@ const check = (name, ok, extra = '') => {
 const src = fs.readFileSync(path.join(lib.ROOT, 'src', 'shared', 'tips.ts'), 'utf8')
 const ORDER = [...src.matchAll(/\{ id: '([^']+)', group: '[^']+', order: (\d+)/g)].sort((a, b) => Number(a[2]) - Number(b[2])).map((m) => m[1])
 const MOMENT = /'second-agent': '([^']+)'/.exec(src)?.[1]
-const TITLE = (id) => new RegExp(`\\{ id: '${id}', group: '[^']+', order: \\d+, title: '([^']+)'`).exec(src)?.[1] ?? new RegExp(`\\{ id: '${id}', group: '[^']+', order: \\d+, title: "([^"]+)"`).exec(src)?.[1]
+// A title in English, or a message's English (#767): `title: msg({ id: '…', defaultMessage: '…'`.
+const TITLE = (id) =>
+  new RegExp(`\\{ id: '${id}', group: '[^']+', order: \\d+, title: '([^']+)'`).exec(src)?.[1] ??
+  new RegExp(`\\{ id: '${id}', group: '[^']+', order: \\d+, title: "([^"]+)"`).exec(src)?.[1] ??
+  new RegExp(`\\{ id: '${id}', group: '[^']+', order: \\d+, title: msg\\(\\{ id: '[^']+', defaultMessage: (?:'([^']+)'|"([^"]+)")`).exec(src)?.slice(1).find(Boolean)
 
 ;(async () => {
   for (const d of [userData, wsA, wsB]) fs.rmSync(d, { recursive: true, force: true })
