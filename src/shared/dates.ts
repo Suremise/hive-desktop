@@ -4,7 +4,7 @@
  * settings); a formatter given a style uses that instead.
  */
 
-/** yyyy-mm-dd (2026-10-04), dd/mm/yyyy, mm/dd/yyyy, or the system's own short date. */
+/** yyyy-mm-dd (2026-10-04), dd/mm/yyyy, mm/dd/yyyy, or Windows' regional format's short date. */
 export type DateFormat = 'ymd' | 'dmy' | 'mdy' | 'system'
 /** 24-hour (14:05) or 12-hour (2:05 PM). */
 export type TimeFormat = '24h' | '12h'
@@ -31,6 +31,15 @@ export function dateStyle(): DateStyle {
   return current
 }
 
+/**
+ * Windows' regional format (a BCP 47 tag, en-GB), which System dates follow (#767): not the language Hive shows, which
+ * Chromium's default locale follows once Hive starts it in that language.
+ */
+let regional: string | undefined
+export function setRegionalFormat(locale: string | undefined): void {
+  regional = locale || undefined
+}
+
 const toDate = (d: Date | string | number): Date | null => {
   const x = d instanceof Date ? d : new Date(d)
   return isNaN(x.getTime()) ? null : x
@@ -48,7 +57,7 @@ export function formatDate(d: Date | string | number, style: DateStyle = current
     case 'mdy':
       return `${m}/${day}/${y}`
     case 'system':
-      return x.toLocaleDateString()
+      return x.toLocaleDateString(regional)
     default:
       return `${y}-${m}-${day}`
   }

@@ -12,6 +12,9 @@ import { LANE_MAX_ROUNDS, LOOP_ROUNDS, LOOP_WAIT_HOURS, LOOP_WAIT_MAX_HOURS, loo
 import { DEFAULT_PROJECT_CONFIG, DEFAULT_SETTINGS, FILE_LOCK_MODES } from './defaults'
 import { PRICES_CHECKED } from './prices'
 import { ADVANCED_DEFS, advancedDef, advancedTakes, advancedText, checkAdvanced, cliFacing, groupName } from './advanced'
+import type { Msg } from './i18n/msg'
+import { LANGUAGE_TEXT } from './i18n/languageText'
+import { LANGUAGES } from './i18n/languages'
 import { AUTO_PROVIDER, PROVIDERS, dangerModes, defaultProviderSettings, labelList, permissionLabel, projectProviderConfig, providerDescriptor, providerSettings, type ProviderDescriptor } from './providers'
 
 /** Where a setting lives: Hive's own (Settings), a provider's page in Settings, the open workspace, or one project (Project Settings). */
@@ -52,6 +55,12 @@ interface Row {
   hidden?: boolean
   /** An advanced value (#367, shared/advanced.ts): its id there, and whether this entry is advanced.json's or the workspace's own. */
   advanced?: { id: string; scope: 'app' | 'workspace' }
+  /**
+   * Its text as messages (#767), which Settings shows in the user's language; title, desc and tip stay their English
+   * for the Hive Assistant's tools. englishTitle: in another language the title also says its English, so someone who
+   * can't read the language finds the way back ("Język (Language)").
+   */
+  text?: { title: Msg; desc: Msg; tip: Msg; englishTitle?: boolean }
 }
 
 /** Advanced's values (#367) as catalog rows, drawn by Settings → Advanced's list: one each, and a workspace's own where it takes one. */
@@ -139,6 +148,7 @@ const APP_ROWS: Row[] = [
     disabledBy: (s) => (s.general.progressPanel === false ? 'Turn on the Progress panel to use this.' : null)
   },
   { section: 'general', key: 'keepAwake', title: 'Keep the PC awake while agents work', desc: "Stop Windows from sleeping while an agent is working or waiting on background tasks, so it doesn't stop mid-task.", tip: 'Hive lets the PC sleep again as soon as no agent is working. The screen can still turn off and lock. On a laptop, "When plugged in" lets it sleep on battery.', type: 'select', options: [{ value: 'plugged-in', label: 'When plugged in' }, { value: 'always', label: 'Always, on battery too' }, { value: 'never', label: 'Never' }] },
+  { section: 'general', key: 'language', title: LANGUAGE_TEXT.title.defaultMessage, desc: LANGUAGE_TEXT.desc.defaultMessage, tip: LANGUAGE_TEXT.tip.defaultMessage, text: { title: LANGUAGE_TEXT.title, desc: LANGUAGE_TEXT.desc, tip: LANGUAGE_TEXT.tip, englishTitle: true }, type: 'custom' },
   { section: 'general', key: 'dateFormat', title: 'Date format', desc: 'How dates show in Hive: sessions named by when they started, the session lists and their tooltips, exports.', tip: "System uses your Windows language's short date. Names you give sessions stay as you typed them: only the automatic ones (when a session started) follow this. How long ago something happened (\"2 hours ago\") stays, with the date on hover.", type: 'select', options: [{ value: 'ymd', label: 'yyyy-mm-dd (2026-10-04)' }, { value: 'dmy', label: 'dd/mm/yyyy (04/10/2026)' }, { value: 'mdy', label: 'mm/dd/yyyy (10/04/2026)' }, { value: 'system', label: 'System' }] },
   { section: 'general', key: 'timeFormat', title: 'Time format', desc: 'How times show with the dates.', tip: 'Applies wherever Hive shows a time, such as a session that started today or the time a screenshot was pasted.', type: 'select', options: [{ value: '24h', label: '24-hour (14:05)' }, { value: '12h', label: '12-hour (2:05 PM)' }] },
   { section: 'general', key: 'userName', title: 'Your name', desc: 'How Hive names you to the Hive Assistant when it tells it you replied to an agent ("Darren replied to B1 on #399").', tip: 'It goes into the Assistant\'s conversation, so use whatever form you like it to see. Empty uses "User".', type: 'text', placeholder: 'User' },
@@ -586,6 +596,7 @@ const ACTIONS = new Set([
 /** Custom controls whose value the tools can set (checked by checkSettingValue). */
 const CUSTOM_VALUES: Record<string, SettingEntry['value']> = {
   'notifications.chimeSound': 'select',
+  'general.language': 'select',
   'providers.defaultProvider': 'select',
   'assistant.provider': 'select',
   'assistant.persona': 'text',
@@ -640,6 +651,7 @@ const HELPS: Record<string, string> = {
   'general.keepAwake': 'Long runs stop when the PC sleeps (agents left working while the user is away).',
   'general.confirmOnQuit': 'The user quits Hive and stops agents by mistake, or finds the question tiresome.',
   'general.dateFormat': 'Session names and lists show dates in a format the user finds unfamiliar.',
+  'general.language': 'The user would rather use Hive in another language, or Hive shows a language they did not choose.',
   'general.showTips': 'The user finds the daily tip distracting, or wants to learn what Hive can do.',
   'appearance.uiFontSize': 'Menus and panels are hard to read at the current size.',
   'appearance.terminalFontSize': "The agents' terminals are hard to read, or too little fits.",
@@ -692,6 +704,7 @@ const DOCS_BY_ID: Record<string, string> = {
   'general.progressCommands': 'Progress panel',
   'general.keepAwake': 'Sleep and shutdown',
   'general.dateFormat': 'Dates and times',
+  'general.language': 'Language',
   'general.timeFormat': 'Dates and times',
   'general.showTips': 'Tips',
   'sessions.transcriptWarnMB': 'Long conversations',
@@ -800,6 +813,8 @@ export function settingOptions(e: SettingEntry): { value: string; label: string 
   const providers = PROVIDERS.map((p) => ({ value: p.id, label: p.name }))
   if (e.id === 'notifications.chimeSound') return ['chime', 'bell', 'soft', 'pop'].map((v) => ({ value: v, label: v.charAt(0).toUpperCase() + v.slice(1) }))
   if (e.id === 'providers.defaultProvider') return [{ value: AUTO_PROVIDER, label: 'Automatic' }, ...providers]
+  // The Assistant's tools name languages in English (Polish, or pl); Settings shows each by its own name.
+  if (e.id === 'general.language') return [{ value: 'auto', label: 'Automatic' }, ...LANGUAGES.map((l) => ({ value: l.code, label: l.english }))]
   if (e.id === 'assistant.provider') return [{ value: '', label: 'Default provider' }, ...providers]
   if (e.id === 'project.defaultProvider') return [INHERIT, ...providers]
   const modes = (p: ProviderId) => providerDescriptor(p).permissionModes.map((m) => ({ value: m.value, label: m.label }))

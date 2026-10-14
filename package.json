@@ -34,6 +34,8 @@
     "test:waits": "node scripts/testWaits.mjs"
   },
   "dependencies": {
+    "@formatjs/icu-messageformat-parser": "3.5.20",
+    "@formatjs/intl": "6.1.2",
     "@lydell/node-pty": "^1.2.0-beta.15",
     "@xterm/headless": "^6.0.0",
     "chokidar": "^5.0.0",

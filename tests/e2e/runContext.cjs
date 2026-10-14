@@ -140,7 +140,8 @@ function isUserCliHome(dir, parent = process.env) {
 
 /**
  * A test copy of Hive's environment: the allowlist; quiet (unless HIVE_TEST_QUIET=0 was set for the run) and with tips
- * off (a profile that sets Show a tip turns them on); its trash folder (HIVE_TEST_TRASH_DIR: the suite's, #414, so it
+ * off (a profile that sets Show a tip turns them on); in English (HIVE_LANG=en, #767: suites find the window by its English
+ * text, and dates and numbers format the same on any Windows; `vars` can set another language); its trash folder (HIVE_TEST_TRASH_DIR: the suite's, #414, so it
  * never uses the user's Recycle Bin); the CLI homes (CLAUDE_CONFIG_DIR, CODEX_HOME, COPILOT_HOME, GH_CONFIG_DIR: empty
  * folders of the suite's, cliHomes, #382, #452, so it never reads the user's); the suite's Agent API port from its runner
  * (HIVE_E2E_PORT), and the CARRIED variables; then `vars` (its profile, HIVE_USER_DATA, always; a port, test CLI homes,
@@ -150,6 +151,7 @@ function hiveEnv(vars = {}, parent = process.env) {
   const env = baseEnv(parent)
   env.HIVE_TEST_QUIET = parent.HIVE_TEST_QUIET === '0' ? '0' : '1'
   env.HIVE_TEST_TIPS = 'off'
+  env.HIVE_LANG = 'en'
   env.HIVE_TEST_TRASH_DIR = trashDir(parent)
   Object.assign(env, cliHomes(parent))
   if (parent.HIVE_E2E_PORT) env.HIVE_API_PORT = parent.HIVE_E2E_PORT
