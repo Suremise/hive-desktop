@@ -354,7 +354,7 @@ export function AddAgentDialog() {
       close()
       // What happened to an unused worktree it could reuse (#456): "Reused hive/b4, brought up to main at 66ce11b".
       if (def.reuse) {
-        const note = reuseNote(def.reuse)
+        const note = reuseNote(def.reuse, tr)
         notify('info', tr(msg({ id: 'agents.add.worktreeNotice', defaultMessage: '{agent}: {reused, select, yes {worktree reused} other {new worktree}}', description: "A notification's title after adding a worktree agent ({agent}): whether it reused an unused worktree or made a new one. Its message says how." }), { agent: def.name, reused: def.reuse.reused ? 'yes' : 'no' }), note.charAt(0).toUpperCase() + note.slice(1))
       }
       actions.noteManyAgents(project.path)
