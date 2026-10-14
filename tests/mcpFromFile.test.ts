@@ -7,8 +7,12 @@ import { strToU8, zipSync } from 'fflate'
 import * as electron from 'electron'
 import { tempDir } from './tempDir'
 
-// A write held at a gate (`hold`, for a path matching `path`): the race below makes its moment deterministic.
-const gate = vi.hoisted(() => ({ hold: null as null | { path: RegExp; reached: () => void; release: Promise<void> } }))
+// A write held at a gate (`hold`, for a path matching `path`): the race below makes its moment deterministic. `grow`:
+// the file at that path is rewritten with `data` just after its stat, so it grows between the stat and the read.
+const gate = vi.hoisted(() => ({
+  hold: null as null | { path: RegExp; reached: () => void; release: Promise<void> },
+  grow: null as null | { path: string; data: Uint8Array }
+}))
 vi.mock('fs/promises', async (original) => {
   const real = await original<typeof import('fs/promises')>()
   return {
@@ -21,7 +25,16 @@ vi.mock('fs/promises', async (original) => {
         await g.release
       }
       return real.writeFile(...a)
-    }
+    },
+    stat: (async (...a: Parameters<typeof real.stat>) => {
+      const st = await real.stat(...a)
+      const g = gate.grow
+      if (g && String(a[0]) === g.path) {
+        gate.grow = null
+        await real.writeFile(g.path, g.data)
+      }
+      return st
+    }) as typeof real.stat
   }
 })
 
@@ -252,6 +265,16 @@ describe('Add MCP Server from File', () => {
       expect(existsSync(join(mcpDir, name, 'keep.txt'))).toBe(true)
       expect(w.config.mcp.enabled).not.toContain(name)
     }
+  })
+
+  it('holds a file that grew after its size was checked to the limit by the bytes read', async () => {
+    const big = (n: number): Uint8Array => json({ command: 'node', description: 'x'.repeat(n) })
+    const small = file('grown.json', JSON.stringify({ command: 'node' }))
+    gate.grow = { path: small, data: big(1024 * 1024) }
+    await expect(run(() => mcp.previewMcpFile(small))).rejects.toThrow('The .json is too large for an MCP server definition (over 1 MB).')
+    expect(gate.grow).toBeNull()
+    expect(readFileSync(small).length).toBeGreaterThan(1024 * 1024)
+    // A .zip has the same check against its 200 MB, not made here (a file that size).
   })
 
   it('refuses other files, a bad .json, and the reserved name', async () => {
