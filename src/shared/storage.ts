@@ -1,5 +1,12 @@
 // What Hive keeps per project (Project Settings → Storage) and which of it Clean Up… may remove.
 import type { CleanupItem, CleanupOptions } from './types'
+import { tr } from './i18n'
+import { msg } from './i18n/msg'
+
+const M = {
+  neverStarted: msg({ id: 'workspace.storage.neverStarted', defaultMessage: 'A launch that never got a session', description: "Storage, a folder of attachments to clean up: pasted into a launch that never became a session." }),
+  deletedSession: msg({ id: 'workspace.storage.deletedSession', defaultMessage: 'Deleted session {id}', description: 'Storage, a folder of attachments to clean up: its session was deleted. {id} is the start of its id (8 characters).' })
+}
 
 const DAY = 24 * 60 * 60 * 1000
 
@@ -53,7 +60,7 @@ export function planCleanup(facts: CleanupFacts, opts: CleanupOptions): CleanupI
     const s = byId.get(f.name.toLowerCase())
     if (s) {
       if (!s.running && s.archived && opts.archivedAttachmentsDays !== null && old(s, opts.archivedAttachmentsDays)) items.push({ kind: 'archived-attachments', path: f.path, bytes: f.bytes, sessionId: s.id, label: label(s) })
-    } else if (opts.orphanAttachments) items.push({ kind: 'orphan-attachments', path: f.path, bytes: f.bytes, label: /^run-/i.test(f.name) ? 'A launch that never got a session' : `Deleted session ${f.name.slice(0, 8)}` })
+    } else if (opts.orphanAttachments) items.push({ kind: 'orphan-attachments', path: f.path, bytes: f.bytes, label: /^run-/i.test(f.name) ? tr(M.neverStarted) : tr(M.deletedSession, { id: f.name.slice(0, 8) }) })
   }
   for (const s of facts.sessions) {
     if (s.running || !s.archived || !s.backups.length) continue

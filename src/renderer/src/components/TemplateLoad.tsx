@@ -3,6 +3,7 @@ import { agentNameProblem, nameTaken, sameAgentName, workspaceAgentList } from '
 import { templateLoadView } from '@shared/templateLoad'
 import type { TemplateScope } from '@shared/templates'
 import type { TemplateLoadPlan } from '@shared/types'
+import { fmt, msg, tr } from '@shared/i18n'
 import { call, errorMessage } from '../api'
 import { set, useStore } from '../store'
 import { TemplatePlan } from './TemplatePlan'
@@ -15,6 +16,13 @@ import { TemplatePlan } from './TemplatePlan'
  * prefixes are filled in. The plan (worktrees reused or new, who replaces whom) is asked for again once typing pauses.
  * `onChange` hears the names the button loads.
  */
+const M = {
+  sameTwice: msg({ id: 'assistant.loadNames.sameTwice', defaultMessage: 'Another of its agents has this name.', description: "Load template, under a name box: another of the template's agents is given the same name." }),
+  taken: msg({ id: 'assistant.loadNames.taken', defaultMessage: '{project} has an agent called {name}.', description: 'Load template, under a name box: an agent of another project has that name.' }),
+  blocked: msg({ id: 'assistant.loadNames.blocked', defaultMessage: 'Agent names are unique across the workspace: change the marked names first.', description: "Load template: why its button can't be used yet." }),
+  takenNote: msg({ id: 'assistant.loadNames.takenNote', defaultMessage: 'Agent names are unique across the workspace, and {projects} already {count, plural, one {has an agent} other {has agents}} called {names}: give {count, plural, one {it} other {them}} other names below.', description: "Load template, above the plan: some of the template's names are taken. {projects} lists the projects, {names} the names; {count} is how many names." })
+}
+
 export function TemplateLoadNames({ path, scope, file, from, initial, onChange }: { path: string; scope: TemplateScope; file: string; from?: string; initial: TemplateLoadPlan; onChange: (names: string[]) => void }) {
   const project = useStore((s) => s.workspace?.projects.find((p) => p.path === path) ?? null)
   const projects = useStore((s) => s.workspace?.projects)
@@ -28,13 +36,13 @@ export function TemplateLoadNames({ path, scope, file, from, initial, onChange }
   const problems = names.map((n, i) => {
     const why = agentNameProblem(n)
     if (why) return why
-    if (names.findIndex((m) => sameAgentName(m, n)) !== i) return 'Another of its agents has this name.'
+    if (names.findIndex((m) => sameAgentName(m, n)) !== i) return tr(M.sameTwice)
     const owner = nameTaken(n, others)
-    return owner ? `${owner.project} has an agent called ${owner.name}.` : null
+    return owner ? tr(M.taken, { project: owner.project, name: owner.name }) : null
   })
   // Names the plan can't be made for (empty, too long, used twice): marked here, never asked about.
   const unusable = names.some((n, i) => !!agentNameProblem(n) || names.findIndex((m) => sameAgentName(m, n)) !== i)
-  const blocked = problems.some(Boolean) ? 'Agent names are unique across the workspace: change the marked names first.' : planError
+  const blocked = problems.some(Boolean) ? tr(M.blocked) : planError
   const key = names.join('\n')
   useEffect(() => onChange(key.split('\n')), [key, onChange])
   useEffect(() => set({ dialogBlocked: blocked }), [blocked])
@@ -61,7 +69,7 @@ export function TemplateLoadNames({ path, scope, file, from, initial, onChange }
     <>
       {initial.taken.length > 0 && (
         <p className="template-plan-note" data-names-taken>
-          Agent names are unique across the workspace, and {[...new Set(initial.taken.map((t) => t.project))].join(', ')} already {initial.taken.length === 1 ? 'has an agent' : 'has agents'} called {initial.taken.map((t) => t.name).join(', ')}: give {initial.taken.length === 1 ? 'it' : 'them'} other names below.
+          {tr(M.takenNote, { projects: fmt.list([...new Set(initial.taken.map((t) => t.project))], 'unit'), count: initial.taken.length, names: fmt.list(initial.taken.map((t) => t.name), 'unit') })}
         </p>
       )}
       <TemplatePlan view={view} edit={{ from: initial.templateNames, names, problems, onName: (i, v) => setNames((x) => x.map((n, j) => (j === i ? v : n))) }} />

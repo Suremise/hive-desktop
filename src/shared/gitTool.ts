@@ -1,4 +1,5 @@
 // Whether git itself can run, and what to tell the user when it can't (#346): shared by the main process, the window and their tests.
+import { msg, tr } from './i18n'
 
 /**
  * Git as Hive found it. `missing`: no git on Hive's PATH (or it failed to start); `old`: older than GIT_MIN; `unknown`:
@@ -24,7 +25,22 @@ export const GIT_REQUIRED = '2.17'
 export const GIT_DOWNLOAD = 'https://git-scm.com/download/win'
 
 /** The user guide's heading on git. */
+// i18n-ignore: a user guide heading, found by its English text
 export const GIT_GUIDE = 'Git'
+
+const M = {
+  missing: msg({ id: 'git.tool.missing', defaultMessage: "Git isn't installed (or isn't on Hive's PATH)", description: 'Said wherever git is needed when Hive cannot run git. No full stop: some places add more after it.' }),
+  tooOld: msg({ id: 'git.tool.tooOld', defaultMessage: 'Git {version} is too old for Hive (it needs {min} or later)', description: 'Said wherever git is needed when the installed git is too old to run. {version} and {min} are git versions. No full stop: some places add more after it.' }),
+  fixOld: msg({ id: 'git.tool.fixOld', defaultMessage: 'Update Git for Windows to {min} or later, then Check again in Agent Setup.', description: 'How to fix a git that is too old. {min} is a git version; Check again is a button in Agent Setup.' }),
+  fixMissing: msg({ id: 'git.tool.fixMissing', defaultMessage: 'Install Git for Windows ({min} or later), or add the folder holding git.exe to your PATH, then Check again in Agent Setup (no need to restart Hive).', description: 'How to fix git missing. {min} is a git version; Check again is a button in Agent Setup.' }),
+  tooOldToRun: msg({ id: 'git.tool.tooOldToRun', defaultMessage: "Hive's git commands fail with Git {version}: worktrees, merging, the Git tab and the unmerged counts don't work.", description: "Agent Setup, for a git too old for any of Hive's git commands. {version} is its version." }),
+  oldLoses: msg({
+    id: 'git.tool.oldLoses',
+    defaultMessage:
+      "{lost, select, recent {With Git {version}: merging can't check for conflicts before it starts (the merge still stops at one); squash-merged branches still count as unmerged, so Remove All and loading a template keep their worktrees; the merge-ready skill can't check a branch for conflicts.} older {With Git {version}: merging can't check for conflicts before it starts (the merge still stops at one); squash-merged branches still count as unmerged, so Remove All and loading a template keep their worktrees; the merge-ready skill can't check a branch for conflicts; moving a workspace can't repair its worktrees.} other {With Git {version}: merging can't check for conflicts before it starts (the merge still stops at one); squash-merged branches still count as unmerged, so Remove All and loading a template keep their worktrees; the merge-ready skill can't check a branch for conflicts; Remove All and loading a template keep the branches of the worktrees they remove; moving a workspace can't repair its worktrees.}}",
+    description: 'Agent Setup: what does not work with an older git that still runs. {version} is its version; {lost} says how old it is (the older, the more is listed). Remove All and merge-ready are names in Hive.'
+  })
+}
 
 /** Negative, zero or positive as version a is older than, the same as or newer than b (numbers only: 2.45.1.windows.1 is 2.45.1). */
 export function compareGitVersions(a: string, b: string): number {
@@ -52,29 +68,30 @@ export function gitUnusable(t: GitTool | null | undefined): boolean {
   return t?.state === 'missing' || (t?.state === 'old' && !!t.version && compareGitVersions(t.version, GIT_REQUIRED) < 0)
 }
 
-/** What every git-dependent screen says when git can't run (`gitUnusable`), in place of "not a git repository". */
+/** What every git-dependent screen in the window says when git can't run (`gitUnusable`), in place of "not a git repository". */
 export function gitProblemText(t: GitTool | null | undefined): string | null {
-  if (t?.state === 'missing') return "Git isn't installed (or isn't on Hive's PATH)"
-  if (gitUnusable(t)) return `Git ${t!.version} is too old for Hive (it needs ${GIT_MIN} or later)`
+  if (t?.state === 'missing') return tr(M.missing)
+  if (gitUnusable(t)) return tr(M.tooOld, { version: t!.version!, min: GIT_MIN })
+  return null
+}
+
+/**
+ * The same in English, for the main process: it goes into errors and statuses that agents read too (the Agent API),
+ * which stay English until they are formatted for each reader (#677). These two messages have plain placeholders only.
+ */
+export function gitProblemEnglish(t: GitTool | null | undefined): string | null {
+  if (t?.state === 'missing') return M.missing.defaultMessage
+  if (gitUnusable(t)) return M.tooOld.defaultMessage.replace('{version}', t!.version!).replace('{min}', GIT_MIN)
   return null
 }
 
 /** How to fix git missing or too old, after the problem. */
 export function gitFixText(t: GitTool | null | undefined): string {
-  return t?.state === 'old'
-    ? `Update Git for Windows to ${GIT_MIN} or later, then Check again in Agent Setup.`
-    : `Install Git for Windows (${GIT_MIN} or later), or add the folder holding git.exe to your PATH, then Check again in Agent Setup (no need to restart Hive).`
+  return t?.state === 'old' ? tr(M.fixOld, { min: GIT_MIN }) : tr(M.fixMissing, { min: GIT_MIN })
 }
 
 /** What doesn't work with an old git that still runs, for Agent Setup. */
 export function gitOldText(version: string): string {
-  if (compareGitVersions(version, GIT_REQUIRED) < 0) return `Hive's git commands fail with Git ${version}: worktrees, merging, the Git tab and the unmerged counts don't work.`
-  const lost = [
-    'merging can\'t check for conflicts before it starts (the merge still stops at one)',
-    'squash-merged branches still count as unmerged, so Remove All and loading a template keep their worktrees',
-    'the merge-ready skill can\'t check a branch for conflicts'
-  ]
-  if (compareGitVersions(version, '2.27') < 0) lost.push('Remove All and loading a template keep the branches of the worktrees they remove')
-  if (compareGitVersions(version, '2.30') < 0) lost.push('moving a workspace can\'t repair its worktrees')
-  return `With Git ${version}: ${lost.join('; ')}.`
+  if (compareGitVersions(version, GIT_REQUIRED) < 0) return tr(M.tooOldToRun, { version })
+  return tr(M.oldLoses, { version, lost: compareGitVersions(version, '2.27') < 0 ? 'oldest' : compareGitVersions(version, '2.30') < 0 ? 'older' : 'recent' })
 }

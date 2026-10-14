@@ -1,12 +1,13 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import { Children, useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import type { AttachmentContent, FileEntry, ProjectInfo, SessionAttachment, SessionAttachmentGroup } from '@shared/types'
 import { ATTACHMENT_KIND_ICON, ATTACHMENT_KINDS, attachmentLabel, type AttachmentKind } from '@shared/attachments'
 import { providerDescriptor } from '@shared/providers'
 import { formatDateTime, formatTime } from '@shared/dates'
+import { msg, tr, tRich, type Msg } from '@shared/i18n'
 import * as actions from '../actions'
 import { call, errorMessage } from '../api'
 import { attachFiles } from '../attach'
-import { discardDrafts, draftsUnder, FileView, hasDraft, moveDrafts, previewsFromDisk, ReadOnlyPreview, useDraftVersion } from '../components/FileView'
+import { discardDrafts, draftsUnder, FILES_TEXT, FileView, hasDraft, moveDrafts, previewsFromDisk, ReadOnlyPreview, useDraftVersion } from '../components/FileView'
 import { PaneResizer, usePaneSize } from '../components/Resizer'
 import { pasteIntoTerminal } from '../components/TerminalView'
 import { Icon, IconButton, InfoTip, LoadFailed, Modal, SearchInput, StaleNote, Tooltip, useContextMenu, type MenuEntry } from '../components/ui'
@@ -17,6 +18,112 @@ import { cx, formatBytes, HIVE_FILES_MIME, IMAGE_EXT, imageUrl, quotePath, timeA
 const parentOf = (rel: string): string => (rel.includes('/') ? rel.slice(0, rel.lastIndexOf('/')) : '')
 const absOf = (project: ProjectInfo, rel: string): string => (rel ? `${project.path}\\${rel.replace(/\//g, '\\')}` : project.path)
 const isUnder = (rel: string, dir: string): boolean => rel === dir || rel.startsWith(dir + '/')
+
+const kbd = (chunks: React.ReactNode[]): React.ReactNode => <kbd>{chunks}</kbd>
+/** A message with markup, as React children (keyed, so a list of parts renders without warnings). */
+const rich = (m: Msg, values: Parameters<typeof tRich<React.ReactNode>>[1]): React.ReactNode[] => Children.toArray(tRich<React.ReactNode>(m, values))
+
+const M = {
+  rootTip: msg({ id: 'files.root.tip', defaultMessage: 'Show the project folder, or the worktree a worktree agent works in', description: "Tooltip on the Files tab's folder picker, shown when agents work in worktrees." }),
+  projectFolder: msg({ id: 'files.root.projectFolder', defaultMessage: 'Project folder', description: "The Files tab's folder picker: the project's own folder." }),
+  agentWorktree: msg({ id: 'files.root.worktree', defaultMessage: "{agent}'s worktree · {branch}", description: "The Files tab's folder picker: a worktree agent's folder. {agent} is the agent's name, {branch} its git branch." }),
+  gitStatus: msg({ id: 'files.git.status', defaultMessage: '{status, select, M {Modified} A {Added} D {Deleted} R {Renamed} U {Untracked} C {Copied} other {{status}}}', description: "A file's git status in the Files tab's details, after its letter. Translate the words, not the letters that pick them." }),
+  gitInFolder: msg({ id: 'files.git.inFolder', defaultMessage: '{status} (contains changes)', description: "A folder's git status in the Files tab's details: {status} is the first change inside it, such as Modified." }),
+  couldNotRename: msg({ id: 'files.error.rename', defaultMessage: 'Could not rename', description: 'Title of an error notification in the Files tab.' }),
+  couldNotCreateFolder: msg({ id: 'files.error.createFolder', defaultMessage: 'Could not create folder', description: 'Title of an error notification in the Files tab.' }),
+  couldNotCreateFile: msg({ id: 'files.error.createFile', defaultMessage: 'Could not create file', description: 'Title of an error notification in the Files tab.' }),
+  couldNotDelete: msg({ id: 'files.error.delete', defaultMessage: 'Could not delete', description: 'Title of an error notification in the Files tab: moving files to the Recycle Bin failed.' }),
+  couldNotPaste: msg({ id: 'files.error.paste', defaultMessage: 'Could not paste', description: 'Title of an error notification in the Files tab.' }),
+  couldNotMove: msg({ id: 'files.error.move', defaultMessage: 'Could not move', description: 'Title of an error notification in the Files tab.' }),
+  couldNotCopy: msg({ id: 'files.error.copy', defaultMessage: 'Could not copy', description: 'Title of an error notification in the Files tab.' }),
+  couldNotCopyIn: msg({ id: 'files.error.copyIn', defaultMessage: 'Could not copy files in', description: 'Title of an error notification: files dropped from File Explorer could not be copied into the project.' }),
+  couldNotDuplicate: msg({ id: 'files.error.duplicate', defaultMessage: 'Could not duplicate', description: 'Title of an error notification in the Files tab.' }),
+  trashTitle: msg({ id: 'files.trash.title', defaultMessage: 'Move to Recycle Bin?', description: 'Title of the confirmation before files or attachments go to the Recycle Bin.' }),
+  trashButton: msg({ id: 'files.trash.button', defaultMessage: 'Move to Recycle Bin', description: 'Button: moves the files or attachments to the Recycle Bin.' }),
+  trashMessage: msg({ id: 'files.trash.message', defaultMessage: 'Move {count, plural, =1 {{folder, select, yes {"{name}" and everything in it} other {"{name}"}}} other {# items}} to the Recycle Bin?', description: 'The confirmation before deleting in the Files tab. {name} is the one file or folder ({folder} is yes for a folder); {count} how many are selected.' }),
+  trashDetail: msg({ id: 'files.trash.detail', defaultMessage: 'You can restore it from the Recycle Bin.{unsaved, plural, =0 {} =1 { Unsaved changes to {file} will be lost.} other { Unsaved changes to # files will be lost.}}', description: 'Under the confirmation before deleting in the Files tab. {unsaved} is how many of the files have unsaved edits; {file} the one such file.' }),
+  paste: msg({ id: 'files.menu.paste', defaultMessage: 'Paste', description: "Files tab's right-click menu." }),
+  newFile: msg({ id: 'files.menu.newFile', defaultMessage: 'New File…', description: "Files tab's right-click menu and toolbar: creates a file." }),
+  newFolder: msg({ id: 'files.menu.newFolder', defaultMessage: 'New Folder…', description: "Files tab's right-click menu and toolbar: creates a folder." }),
+  refresh: msg({ id: 'files.refresh', defaultMessage: 'Refresh', description: 'Button or menu item: reads the folder (or the attachments) again.' }),
+  openInDefaultApp: msg({ id: 'files.menu.openInDefaultApp', defaultMessage: 'Open in Default App', description: "Files tab's right-click menu and toolbar: opens the file in its Windows app." }),
+  insertPath: msg({ id: 'files.menu.insertPath', defaultMessage: 'Insert Path into Session', description: "Files tab's right-click menu and toolbar: attaches the files to the agent's running session." }),
+  cut: msg({ id: 'files.menu.cut', defaultMessage: 'Cut', description: "Files tab's right-click menu." }),
+  copy: msg({ id: 'files.menu.copy', defaultMessage: 'Copy', description: "Files tab's right-click menu: copies the files (to paste elsewhere)." }),
+  duplicate: msg({ id: 'files.menu.duplicate', defaultMessage: 'Duplicate', description: "Files tab's right-click menu: copies the files beside themselves." }),
+  copyPath: msg({ id: 'files.menu.copyPath', defaultMessage: 'Copy Path', description: 'Menu item or button: copies the full path to the clipboard.' }),
+  copyRelativePath: msg({ id: 'files.menu.copyRelativePath', defaultMessage: 'Copy Relative Path', description: "Files tab's right-click menu: copies the path within the project." }),
+  rename: msg({ id: 'files.menu.rename', defaultMessage: 'Rename…', description: "Files tab's right-click menu." }),
+  delete: msg({ id: 'files.delete', defaultMessage: 'Delete', description: 'Menu item or button: moves the files or attachments to the Recycle Bin.' }),
+  files: msg({ id: 'files.header', defaultMessage: 'Files', description: "Heading of the Files tab's file tree." }),
+  filesInfo: msg({ id: 'files.header.info', defaultMessage: 'Everything in the project folder. Drag files in from Explorer to copy them here, or drag files onto the Session tab to paste their paths into the session. Deleted files go to the Recycle Bin.', description: "The (i) beside the Files tab's heading." }),
+  collapseAll: msg({ id: 'files.collapseAll', defaultMessage: 'Collapse All', description: "Files tab's toolbar: closes every open folder." }),
+  findPlaceholder: msg({ id: 'files.find.placeholder', defaultMessage: 'Find files by name or path', description: "The Files tab's search box, empty." }),
+  clear: msg({ id: 'files.find.clear', defaultMessage: 'Clear', description: "Tooltip on the button that empties the Files tab's search box." }),
+  searching: msg({ id: 'files.find.searching', defaultMessage: 'Searching…', description: "The Files tab's list while a search runs." }),
+  findLoadTarget: msg({ id: 'files.find.loadTarget', defaultMessage: 'the matching files', description: 'What could not be loaded when a search of the Files tab failed: shown in "Could not load {what}: {error}", with Retry.' }),
+  noMatch: msg({ id: 'files.find.noMatch', defaultMessage: 'No files match “{filter}”.', description: "The Files tab's list when a search finds nothing. {filter} is what was typed." }),
+  folderEmpty: msg({ id: 'files.tree.empty', defaultMessage: 'This project folder is empty.', description: "The Files tab's list for a project folder with nothing in it." }),
+  itemsSelected: msg({ id: 'files.details.selected', defaultMessage: '{count, plural, one {# item selected} other {# items selected}}', description: "The Files tab's right pane when several files are selected." }),
+  itemsHint: msg({ id: 'files.details.selectedHint', defaultMessage: 'Drag them onto a folder to move them (hold Ctrl to copy), or onto the Session tab to paste their paths.', description: 'Under "n items selected" in the Files tab.' }),
+  selectSomething: msg({ id: 'files.details.none', defaultMessage: 'Select a file or folder', description: "The Files tab's right pane when nothing is selected." }),
+  selectHint: msg({ id: 'files.details.noneHint', defaultMessage: 'Select a file to view or edit it. Right-click for more. <kbd>F2</kbd> renames, <kbd>Del</kbd> moves to the Recycle Bin, <kbd>Ctrl+C</kbd> / <kbd>Ctrl+X</kbd> / <kbd>Ctrl+V</kbd> copy, cut and paste.', description: 'Under "Select a file or folder". <kbd> marks a key: keep the keys as they are.' }),
+  type: msg({ id: 'files.details.type', defaultMessage: 'Type', description: "Label in a file's or folder's details." }),
+  folder: msg({ id: 'files.details.folder', defaultMessage: 'Folder', description: "A folder's type in its details." }),
+  file: msg({ id: 'files.details.file', defaultMessage: 'File', description: 'The type of a file with no extension, in its details.' }),
+  extFile: msg({ id: 'files.details.extFile', defaultMessage: '{ext} file', description: 'A file\'s type in its details, from its extension: "PNG file". {ext} is the extension in capitals.' }),
+  size: msg({ id: 'files.details.size', defaultMessage: 'Size', description: "Label in a file's details." }),
+  modified: msg({ id: 'files.details.modified', defaultMessage: 'Modified', description: "Label in a file's details: when it last changed." }),
+  git: msg({ id: 'files.details.git', defaultMessage: 'Git', description: "Label in a file's details: its git status. Usually kept as Git." }),
+  ignored: msg({ id: 'files.details.ignored', defaultMessage: 'Ignored', description: "A file's git status in its details: git ignores it." }),
+  insertIntoSession: msg({ id: 'files.insertIntoSession', defaultMessage: 'Insert into Session', description: "Button or menu item: attaches the file to the agent's running session." }),
+  renameButton: msg({ id: 'files.details.rename', defaultMessage: 'Rename', description: "Button in a file's details." }),
+  // Attachments (#387)
+  attachDeleteMessage: msg({ id: 'files.attachments.deleteMessage', defaultMessage: 'Move "{name}" to the Recycle Bin?', description: 'The confirmation before deleting an attachment. {name} is its file name.' }),
+  attachDeleteDetail: msg({ id: 'files.attachments.deleteDetail', defaultMessage: 'The transcript will still mention its path.', description: 'Under the confirmation before deleting an attachment.' }),
+  attachDeleteFailed: msg({ id: 'files.attachments.deleteFailed', defaultMessage: 'Could not delete the attachment', description: 'Title of an error notification.' }),
+  groupDeleteTitle: msg({ id: 'files.attachments.groupDeleteTitle', defaultMessage: 'Move {count, plural, one {# attachment} other {# attachments}} to the Recycle Bin?', description: "Title of the confirmation before deleting all of a session's attachments." }),
+  groupDeleteMessage: msg({ id: 'files.attachments.groupDeleteMessage', defaultMessage: 'Move {count, plural, one {the attachment} other {all # attachments}} of "{name}" to the Recycle Bin?', description: "The confirmation before deleting all of a session's attachments. {name} is the session's (or conversation's) name." }),
+  groupDeleteDetail: msg({ id: 'files.attachments.groupDeleteDetail', defaultMessage: '{filtered, select, yes {All of its attachments go, whatever the filter shows. } other {}}{host, select, assistant {The conversation keeps its transcript, which still mentions their paths.} other {The session keeps its transcript, which still mentions their paths.}} You can restore them from the Recycle Bin.', description: "Under the confirmation before deleting a session's attachments. {filtered} is yes when a filter hides some of them; {host} is assistant for the Hive Assistant's conversations." }),
+  groupDeleteFailed: msg({ id: 'files.attachments.groupDeleteFailed', defaultMessage: 'Could not delete the attachments', description: 'Title of an error notification.' }),
+  groupDeleted: msg({ id: 'files.attachments.groupDeleted', defaultMessage: 'Moved {count, plural, one {# attachment} other {# attachments}} to the Recycle Bin.', description: "Notification after deleting a session's attachments." }),
+  view: msg({ id: 'files.attachments.view', defaultMessage: 'View', description: "An attachment's right-click menu: opens it in the viewer." }),
+  copyImage: msg({ id: 'files.attachments.copyImage', defaultMessage: 'Copy Image', description: "Menu item or button: copies the attachment's picture to the clipboard." }),
+  copyImageFailed: msg({ id: 'files.attachments.copyImageFailed', defaultMessage: 'Could not copy image', description: 'Title of an error notification.' }),
+  running: msg({ id: 'files.attachments.running', defaultMessage: '{host, select, assistant {Its conversation is running} other {Its session is running}}', description: "Why an attachment can't be deleted now. {host} is assistant for the Hive Assistant's conversations." }),
+  loading: msg({ id: 'files.loading', defaultMessage: 'Loading…', description: 'Shown while the attachments (or one of them) load.' }),
+  noneYet: msg({ id: 'files.attachments.none', defaultMessage: 'No attachments yet', description: 'The Attachments tab when there are none.' }),
+  noneHintAssistant: msg({ id: 'files.attachments.noneHintAssistant', defaultMessage: "Paste a screenshot into the Assistant's panel with <kbd>Ctrl+V</kbd>, or drag files onto it: images, PDFs, logs, any file. Hive keeps a copy of each one here, grouped by conversation.", description: "Under \"No attachments yet\" in the Hive Assistant's Attachments. <kbd> marks a key: keep it as it is." }),
+  noneHint: msg({ id: 'files.attachments.noneHint', defaultMessage: 'Paste a screenshot into a session with <kbd>Ctrl+V</kbd>, or drag files onto the terminal: images, PDFs, logs, any file. Hive keeps a copy of each one here, grouped by session.', description: 'Under "No attachments yet" in a project\'s Attachments tab. <kbd> marks a key: keep it as it is.' }),
+  openTranscript: msg({ id: 'files.attachments.openTranscript', defaultMessage: "{host, select, assistant {Open this conversation's transcript} other {Open this session's transcript}}", description: "Tooltip on a session's name in the Attachments tab. {host} is assistant for the Hive Assistant's conversations." }),
+  unnamedGroup: msg({ id: 'files.attachments.unnamed', defaultMessage: '{host, select, assistant {Conversation {id}} other {Session {id}}}', description: 'A session without a name, in the Attachments tab. {id} is the start of its id.' }),
+  runningBadge: msg({ id: 'files.attachments.runningBadge', defaultMessage: 'Running', description: "Badge beside a session's name in the Attachments tab: it is running now." }),
+  archivedBadge: msg({ id: 'files.attachments.archivedBadge', defaultMessage: 'archived', description: "Badge beside an archived session's name in the Attachments tab." }),
+  groupCount: msg({ id: 'files.attachments.groupCount', defaultMessage: '{count, plural, one {# attachment} other {# attachments}} · last {when}', description: "Beside a session's name in the Attachments tab. {when} is how long ago the newest was added, such as \"5 min ago\"." }),
+  groupDelete: msg({ id: 'files.attachments.groupDelete', defaultMessage: "{host, select, assistant {Delete This Conversation's Attachments…} other {Delete This Session's Attachments…}}", description: "Tooltip on a session's delete button in the Attachments tab." }),
+  attachmentsLoadTarget: msg({ id: 'files.attachments.loadTarget', defaultMessage: 'the attachments', description: 'What could not be loaded when the Attachments tab first opened: shown in "Could not load {what}: {error}", with Retry.' }),
+  attachmentsRefreshTarget: msg({ id: 'files.attachments.refreshTarget', defaultMessage: 'the attachments', description: 'What could not be refreshed while the attachments shown stay on screen: shown in "Could not refresh {what}; last updated …", with Retry.' }),
+  attachments: msg({ id: 'files.attachments.title', defaultMessage: 'Attachments', description: 'Heading of the Attachments tab.' }),
+  infoAssistant: msg({ id: 'files.attachments.infoAssistant', defaultMessage: "Kept in the Assistant's home, .hive/attachments. Click a conversation's name to read it.", description: "The (i) beside the Hive Assistant's Attachments heading. Keep .hive/attachments as it is." }),
+  info: msg({ id: 'files.attachments.info', defaultMessage: "Kept in the project's .hive/attachments. Drag one onto the Session tab to send it again; click a session's name to read it.", description: "The (i) beside a project's Attachments heading. Keep .hive/attachments as it is." }),
+  total: msg({ id: 'files.attachments.total', defaultMessage: '{host, select, assistant {{total} in {groups, plural, one {# conversation} other {# conversations}}} other {{total} in {groups, plural, one {# session} other {# sessions}}}}', description: 'Beside the Attachments heading: how many attachments, in how many sessions (conversations for the Hive Assistant).' }),
+  openFolder: msg({ id: 'files.attachments.openFolder', defaultMessage: 'Open Attachments Folder', description: "Tooltip on the button that opens the attachments' folder in File Explorer." }),
+  descAssistant: msg({ id: 'files.attachments.descAssistant', defaultMessage: 'Files pasted or dropped into the Assistant, by conversation.', description: "Under the Hive Assistant's Attachments heading." }),
+  desc: msg({ id: 'files.attachments.desc', defaultMessage: "Files pasted or dropped into this project's agents' sessions, by session.", description: "Under a project's Attachments heading." }),
+  show: msg({ id: 'files.attachments.filters', defaultMessage: 'Show', description: "Accessible name of the Attachments tab's filter buttons (All, Images, PDFs…)." }),
+  all: msg({ id: 'files.attachments.all', defaultMessage: 'All', description: 'Attachments filter: every kind. Followed by a count.' }),
+  archivedHeading: msg({ id: 'files.attachments.archived', defaultMessage: '{host, select, assistant {Archived conversations} other {Archived sessions}}', description: "Heading over the archived sessions' attachments." }),
+  images: msg({ id: 'files.attachments.kind.image', defaultMessage: 'Images', description: 'Attachments filter. Followed by a count.' }),
+  pdfs: msg({ id: 'files.attachments.kind.pdf', defaultMessage: 'PDFs', description: 'Attachments filter. Followed by a count.' }),
+  text: msg({ id: 'files.attachments.kind.text', defaultMessage: 'Text', description: 'Attachments filter: text files. Followed by a count.' }),
+  other: msg({ id: 'files.attachments.kind.other', defaultMessage: 'Other', description: 'Attachments filter: any other kind of file. Followed by a count.' }),
+  position: msg({ id: 'files.viewer.position', defaultMessage: '{index} of {count}', description: "The attachment viewer's footer: which attachment of how many is shown." }),
+  newer: msg({ id: 'files.viewer.newer', defaultMessage: 'Newer (←)', description: "Tooltip on the attachment viewer's left arrow. Keep the arrow." }),
+  older: msg({ id: 'files.viewer.older', defaultMessage: 'Older (→)', description: "Tooltip on the attachment viewer's right arrow. Keep the arrow." }),
+  readFailed: msg({ id: 'files.viewer.readFailed', defaultMessage: "Couldn't read it: {error}", description: "The attachment viewer when the file can't be read. {error} is why (from Windows, may be English)." }),
+  noPreview: msg({ id: 'files.viewer.noPreview', defaultMessage: 'No preview for this kind of file. Reveal it, or insert it into a session.', description: 'The attachment viewer for a file it cannot show. Reveal and Insert into Session are its buttons.' }),
+  tooLarge: msg({ id: 'files.viewer.tooLarge', defaultMessage: 'Too large to preview here. Reveal it to open it in another program.', description: 'The attachment viewer for a file too large to show.' })
+}
 
 /** Starts live file events for the project while mounted and calls onChange with the changed folders. */
 function useFileEvents(projectPath: string, onChange: (dirs: string[]) => void): void {
@@ -79,12 +186,12 @@ export function RootSelector({ project, value, onChange }: { project: ProjectInf
   const known = worktrees.some((a) => a.id === value)
   return (
     <div className="root-row">
-      <Tooltip content="Show the project folder, or the worktree a worktree agent works in">
+      <Tooltip content={tr(M.rootTip)}>
         <select className="select root-select" value={known ? value : ''} onChange={(e) => onChange(e.target.value)}>
-          <option value="">Project folder</option>
+          <option value="">{tr(M.projectFolder)}</option>
           {worktrees.map((a) => (
             <option key={a.id} value={a.id}>
-              {a.name}'s worktree · {a.worktree!.branch}
+              {tr(M.agentWorktree, { agent: a.name, branch: a.worktree!.branch })}
             </option>
           ))}
         </select>
@@ -119,8 +226,6 @@ function fileIcon(e: FileEntry, open: boolean): string {
   if (/\.(ts|tsx|js|jsx|mjs|cjs|py|cs|go|rs|java|c|cpp|h|css|scss|html|sh|ps1|yml|yaml|toml|xml|sql)$/.test(n)) return 'file-code'
   return 'file'
 }
-
-const GIT_TEXT: Record<string, string> = { M: 'Modified', A: 'Added', D: 'Deleted', R: 'Renamed', U: 'Untracked', C: 'Copied' }
 
 // Cut/copy between tabs and projects. Paste into another project always copies.
 let fileClipboard: { mode: 'copy' | 'cut'; project: string; rels: string[] } | null = null
@@ -334,7 +439,7 @@ function FilesBrowser({ project, selector, jump }: { project: ProjectInfo; selec
     if (ed.kind === 'rename') {
       const old = byRel.get(ed.rel)
       if (!old || value.trim() === old.name) return
-      const rel = await actions.attempt('Could not rename', () => call('files:rename', project.path, ed.rel, value))
+      const rel = await actions.attempt(tr(M.couldNotRename), () => call('files:rename', project.path, ed.rel, value))
       if (rel) {
         moveDrafts(project.path, ed.rel, rel)
         await loadDir(parentOf(ed.rel))
@@ -348,7 +453,7 @@ function FilesBrowser({ project, selector, jump }: { project: ProjectInfo; selec
       }
       return
     }
-    const rel = await actions.attempt(ed.kind === 'new-folder' ? 'Could not create folder' : 'Could not create file', () =>
+    const rel = await actions.attempt(tr(ed.kind === 'new-folder' ? M.couldNotCreateFolder : M.couldNotCreateFile), () =>
       call('files:create', project.path, ed.parent, value, ed.kind === 'new-folder')
     )
     if (rel) {
@@ -366,14 +471,18 @@ function FilesBrowser({ project, selector, jump }: { project: ProjectInfo; selec
 
   const trashSelected = async (items = selEntries): Promise<void> => {
     if (!items.length) return
-    const what = items.length === 1 ? `"${items[0].name}"${items[0].isDir ? ' and everything in it' : ''}` : `${items.length} items`
     const rels = items.map((i) => i.relPath)
     const dirty = draftsUnder(project.path, rels)
-    const lost = dirty.length ? ` Unsaved changes to ${dirty.length === 1 ? dirty[0] : `${dirty.length} files`} will be lost.` : ''
-    const ok = await confirm({ title: 'Move to Recycle Bin?', message: `Move ${what} to the Recycle Bin?`, detail: `You can restore it from the Recycle Bin.${lost}`, confirmLabel: 'Move to Recycle Bin', danger: true })
+    const ok = await confirm({
+      title: tr(M.trashTitle),
+      message: tr(M.trashMessage, { count: items.length, name: items[0].name, folder: items[0].isDir ? 'yes' : 'no' }),
+      detail: tr(M.trashDetail, { unsaved: dirty.length, file: dirty[0] ?? '' }),
+      confirmLabel: tr(M.trashButton),
+      danger: true
+    })
     if (!ok) return
     const unchanged = unchangedSelection()
-    const done = await actions.attempt('Could not delete', () => call('files:trash', project.path, rels).then(() => true))
+    const done = await actions.attempt(tr(M.couldNotDelete), () => call('files:trash', project.path, rels).then(() => true))
     if (done) discardDrafts(project.path, rels)
     if (unchanged()) setSelected([])
     for (const d of new Set(items.map((i) => parentOf(i.relPath)))) void loadDir(d)
@@ -393,15 +502,15 @@ function FilesBrowser({ project, selector, jump }: { project: ProjectInfo; selec
     let out: string[] | undefined
     if (clip.project !== project.path) {
       const sources = clip.rels.map((r) => `${clip.project}\\${r.replace(/\//g, '\\')}`)
-      out = await actions.attempt('Could not paste', () => call('files:import', project.path, sources, dest))
+      out = await actions.attempt(tr(M.couldNotPaste), () => call('files:import', project.path, sources, dest))
     } else if (clip.mode === 'cut') {
-      out = await actions.attempt('Could not move', () => call('files:move', project.path, clip.rels, dest))
+      out = await actions.attempt(tr(M.couldNotMove), () => call('files:move', project.path, clip.rels, dest))
       if (out) {
         clip.rels.forEach((r, i) => moveDrafts(project.path, r, out![i]))
         for (const d of new Set(clip.rels.map(parentOf))) void loadDir(d)
       }
     } else {
-      out = await actions.attempt('Could not copy', () => call('files:copy', project.path, clip.rels, dest))
+      out = await actions.attempt(tr(M.couldNotCopy), () => call('files:copy', project.path, clip.rels, dest))
     }
     if (clip.mode === 'cut') fileClipboard = null
     setClipVersion((v) => v + 1)
@@ -417,7 +526,7 @@ function FilesBrowser({ project, selector, jump }: { project: ProjectInfo; selec
     const byDir = new Map<string, string[]>()
     for (const i of items) byDir.set(parentOf(i.relPath), [...(byDir.get(parentOf(i.relPath)) ?? []), i.relPath])
     for (const [dir, rels] of byDir) {
-      const out = await actions.attempt('Could not duplicate', () => call('files:copy', project.path, rels, dir))
+      const out = await actions.attempt(tr(M.couldNotDuplicate), () => call('files:copy', project.path, rels, dir))
       if (out) created.push(...out)
       await loadDir(dir)
     }
@@ -428,47 +537,48 @@ function FilesBrowser({ project, selector, jump }: { project: ProjectInfo; selec
     if (e.isDir) expand(e.relPath, !expanded[e.relPath])
     else openExternally(e.relPath)
   }
-  const openExternally = (rel: string): void => void actions.attempt('Could not open file', () => call('files:open', project.path, rel))
+  const openExternally = (rel: string): void => void actions.attempt(tr(FILES_TEXT.openFailed), () => call('files:open', project.path, rel))
 
   const menuFor = (e: FileEntry | null): MenuEntry[] => {
     const items = e ? (selected.includes(e.relPath) ? selEntries : [e]) : []
     const dest = e ? (e.isDir ? e.relPath : parentOf(e.relPath)) : ''
     const abs = items.map((i) => absOf(project, i.relPath))
-    const pasteItem: MenuEntry = { label: 'Paste', icon: 'clippy', keybinding: 'Ctrl+V', disabled: !fileClipboard, onClick: () => void paste(dest) }
+    const pasteItem: MenuEntry = { label: tr(M.paste), icon: 'clippy', keybinding: 'Ctrl+V', disabled: !fileClipboard, onClick: () => void paste(dest) }
     if (!e) {
       return [
-        { label: 'New File…', icon: 'new-file', onClick: () => startNew(false, '') },
-        { label: 'New Folder…', icon: 'new-folder', onClick: () => startNew(true, '') },
+        { label: tr(M.newFile), icon: 'new-file', onClick: () => startNew(false, '') },
+        { label: tr(M.newFolder), icon: 'new-folder', onClick: () => startNew(true, '') },
         { separator: true },
         pasteItem,
         { separator: true },
-        { label: 'Reveal in File Explorer', icon: 'folder-opened', onClick: () => void call('project:openInExplorer', project.path) },
-        { label: 'Refresh', icon: 'refresh', onClick: reloadAll }
+        { label: tr(FILES_TEXT.revealInExplorer), icon: 'folder-opened', onClick: () => void call('project:openInExplorer', project.path) },
+        { label: tr(M.refresh), icon: 'refresh', onClick: reloadAll }
       ]
     }
     const single = items.length === 1
     return [
       ...(e.isDir && single
         ? [
-            { label: 'New File…', icon: 'new-file', onClick: () => startNew(false, e.relPath) },
-            { label: 'New Folder…', icon: 'new-folder', onClick: () => startNew(true, e.relPath) },
+            { label: tr(M.newFile), icon: 'new-file', onClick: () => startNew(false, e.relPath) },
+            { label: tr(M.newFolder), icon: 'new-folder', onClick: () => startNew(true, e.relPath) },
             { separator: true }
           ]
         : []),
-      ...(!e.isDir && single ? [{ label: 'Open in Default App', icon: 'link-external', onClick: () => open(e) }] : []),
-      { label: 'Reveal in File Explorer', icon: 'folder-opened', onClick: () => void call('files:reveal', project.path, e.relPath) },
-      ...(project.live ? [{ label: 'Insert Path into Session', icon: 'terminal', onClick: () => void insertIntoSession(project, abs) }] : []),
+      ...(!e.isDir && single ? [{ label: tr(M.openInDefaultApp), icon: 'link-external', onClick: () => open(e) }] : []),
+      { label: tr(FILES_TEXT.revealInExplorer), icon: 'folder-opened', onClick: () => void call('files:reveal', project.path, e.relPath) },
+      ...(project.live ? [{ label: tr(M.insertPath), icon: 'terminal', onClick: () => void insertIntoSession(project, abs) }] : []),
       { separator: true },
-      { label: 'Cut', icon: 'blank', keybinding: 'Ctrl+X', onClick: () => setClipboard('cut', items) },
-      { label: 'Copy', icon: 'copy', keybinding: 'Ctrl+C', onClick: () => setClipboard('copy', items) },
+      { label: tr(M.cut), icon: 'blank', keybinding: 'Ctrl+X', onClick: () => setClipboard('cut', items) },
+      { label: tr(M.copy), icon: 'copy', keybinding: 'Ctrl+C', onClick: () => setClipboard('copy', items) },
       pasteItem,
-      { label: 'Duplicate', icon: 'files', onClick: () => void duplicate(items) },
+      { label: tr(M.duplicate), icon: 'files', onClick: () => void duplicate(items) },
       { separator: true },
-      { label: 'Copy Path', icon: 'blank', keybinding: 'Shift+Alt+C', onClick: () => copyText(abs.join('\n')) },
-      { label: 'Copy Relative Path', icon: 'blank', onClick: () => copyText(items.map((i) => i.relPath).join('\n')) },
+      { label: tr(M.copyPath), icon: 'blank', keybinding: 'Shift+Alt+C', onClick: () => copyText(abs.join('\n')) },
+      { label: tr(M.copyRelativePath), icon: 'blank', onClick: () => copyText(items.map((i) => i.relPath).join('\n')) },
       { separator: true },
-      ...(single ? [{ label: 'Rename…', icon: 'tag', keybinding: 'F2', onClick: () => setEditing({ kind: 'rename', rel: e.relPath }) }] : []),
-      { label: 'Delete', icon: 'trash', keybinding: 'Del', danger: true, onClick: () => void trashSelected(items) }
+      ...(single ? [{ label: tr(M.rename), icon: 'tag', keybinding: 'F2', onClick: () => setEditing({ kind: 'rename', rel: e.relPath }) }] : []),
+      // i18n-ignore: a key's name, written as the other menu items' keys are (Ctrl+C, F2)
+      { label: tr(M.delete), icon: 'trash', keybinding: 'Del', danger: true, onClick: () => void trashSelected(items) }
     ]
   }
 
@@ -550,17 +660,17 @@ function FilesBrowser({ project, selector, jump }: { project: ProjectInfo; selec
     if (internal) {
       const data = JSON.parse(internal) as { project: string; rels?: string[]; paths: string[] }
       if (data.project === project.path && data.rels && !ev.ctrlKey) {
-        out = await actions.attempt('Could not move', () => call('files:move', project.path, data.rels!, dir))
+        out = await actions.attempt(tr(M.couldNotMove), () => call('files:move', project.path, data.rels!, dir))
         if (out) {
           data.rels.forEach((r, i) => moveDrafts(project.path, r, out![i]))
           for (const d of new Set(data.rels.map(parentOf))) void loadDir(d)
         }
       } else if (data.project === project.path && data.rels) {
-        out = await actions.attempt('Could not copy', () => call('files:copy', project.path, data.rels!, dir))
-      } else out = await actions.attempt('Could not copy', () => call('files:import', project.path, data.paths, dir))
+        out = await actions.attempt(tr(M.couldNotCopy), () => call('files:copy', project.path, data.rels!, dir))
+      } else out = await actions.attempt(tr(M.couldNotCopy), () => call('files:import', project.path, data.paths, dir))
     } else {
       const sources = [...ev.dataTransfer.files].map((f) => window.hive.pathForFile(f)).filter(Boolean)
-      if (sources.length) out = await actions.attempt('Could not copy files in', () => call('files:import', project.path, sources, dir))
+      if (sources.length) out = await actions.attempt(tr(M.couldNotCopyIn), () => call('files:import', project.path, sources, dir))
     }
     if (dir) expand(dir)
     await loadDir(dir)
@@ -576,20 +686,20 @@ function FilesBrowser({ project, selector, jump }: { project: ProjectInfo; selec
       <div className="split-list files-list" style={{ width: listWidth }}>
         <PaneResizer paneKey="files" />
         <div className="pane-header" style={{ paddingLeft: 14 }}>
-          Files
-          <InfoTip text="Everything in the project folder. Drag files in from Explorer to copy them here, or drag files onto the Session tab to paste their paths into the session. Deleted files go to the Recycle Bin." />
+          {tr(M.files)}
+          <InfoTip text={tr(M.filesInfo)} />
           <div className="actions">
-            <IconButton icon="new-file" title="New File…" onClick={() => startNew(false)} />
-            <IconButton icon="new-folder" title="New Folder…" onClick={() => startNew(true)} />
-            <IconButton icon="refresh" title="Refresh" onClick={reloadAll} />
-            <IconButton icon="collapse-all" title="Collapse All" onClick={() => setExpanded({})} />
+            <IconButton icon="new-file" title={tr(M.newFile)} onClick={() => startNew(false)} />
+            <IconButton icon="new-folder" title={tr(M.newFolder)} onClick={() => startNew(true)} />
+            <IconButton icon="refresh" title={tr(M.refresh)} onClick={reloadAll} />
+            <IconButton icon="collapse-all" title={tr(M.collapseAll)} onClick={() => setExpanded({})} />
           </div>
         </div>
         {selector}
         <div className="files-filter">
           <Icon name="search" />
           <SearchInput
-            placeholder="Find files by name or path"
+            placeholder={tr(M.findPlaceholder)}
             value={filter}
             onChange={setFilter}
             onKeyDown={(e) => {
@@ -600,9 +710,10 @@ function FilesBrowser({ project, selector, jump }: { project: ProjectInfo; selec
               }
             }}
           />
-          {filter && <IconButton icon="close" title="Clear" onClick={() => setFilter('')} />}
+          {filter && <IconButton icon="close" title={tr(M.clear)} onClick={() => setFilter('')} />}
         </div>
         <div
+          // i18n-ignore: class names
           className={cx('pane-body file-tree', dropTarget === '' && 'drop-root')}
           tabIndex={0}
           ref={treeRef}
@@ -613,14 +724,14 @@ function FilesBrowser({ project, selector, jump }: { project: ProjectInfo; selec
           onDragLeave={(e) => e.currentTarget === e.target && setDropTarget(null)}
           onDrop={(e) => void dropOn(e, '')}
         >
-          {findError && <LoadFailed inline what="the matching files" error={findError} onRetry={() => setFindTry((n) => n + 1)} />}
+          {findError && <LoadFailed inline what={tr(M.findLoadTarget)} error={findError} onRetry={() => setFindTry((n) => n + 1)} />}
           {filtering && !results && !findError && (
             <div className="pane-empty">
-              <Icon name="loading" spin /> Searching…
+              <Icon name="loading" spin /> {tr(M.searching)}
             </div>
           )}
-          {results && results.length === 0 && !findError && <div className="pane-empty">No files match “{filter}”.</div>}
-          {!filtering && dirs[''] && dirs[''].length === 0 && !editing && <div className="pane-empty">This project folder is empty.</div>}
+          {results && results.length === 0 && !findError && <div className="pane-empty">{tr(M.noMatch, { filter })}</div>}
+          {!filtering && dirs[''] && dirs[''].length === 0 && !editing && <div className="pane-empty">{tr(M.folderEmpty)}</div>}
           {rows.map((r, i) =>
             'edit' in r ? (
               <NameInput key={`edit-${i}`} depth={r.depth} icon={r.isDir ? 'folder' : 'file'} initial="" onDone={(v) => void commitEdit(v)} />
@@ -666,9 +777,9 @@ function FilesBrowser({ project, selector, jump }: { project: ProjectInfo; selec
             goto={goto?.rel === one.relPath && goto.line ? { line: goto.line, col: goto.col, nonce: goto.nonce } : undefined}
             toolbarExtra={
               <>
-                <IconButton icon="link-external" title="Open in Default App" onClick={() => openExternally(one.relPath)} />
-                <IconButton icon="folder-opened" title="Reveal in File Explorer" onClick={() => void call('files:reveal', project.path, one.relPath)} />
-                {project.live && <IconButton icon="terminal" title="Insert Path into Session" onClick={() => void insertIntoSession(project, [absOf(project, one.relPath)])} />}
+                <IconButton icon="link-external" title={tr(M.openInDefaultApp)} onClick={() => openExternally(one.relPath)} />
+                <IconButton icon="folder-opened" title={tr(FILES_TEXT.revealInExplorer)} onClick={() => void call('files:reveal', project.path, one.relPath)} />
+                {project.live && <IconButton icon="terminal" title={tr(M.insertPath)} onClick={() => void insertIntoSession(project, [absOf(project, one.relPath)])} />}
               </>
             }
           />
@@ -714,7 +825,7 @@ function FileRow(props: {
       {e.isDir && !flat ? <Icon name={open ? 'chevron-down' : 'chevron-right'} className="twistie" /> : <span className="twistie" />}
       <Icon name={fileIcon(e, open)} className={cx('file-icon', e.isDir && 'dir')} />
       <span className={cx('label', git && `git-${git}`)}>{e.name}</span>
-      {props.hasDraft && <span className="dirty-dot" title="Unsaved changes">●</span>}
+      {props.hasDraft && <span className="dirty-dot" title={tr(FILES_TEXT.unsaved)}>●</span>}
       {flat && <span className="desc">{parentOf(e.relPath)}</span>}
       {git && !e.isDir && <span className={cx('git-status', git)}>{git}</span>}
       {git && e.isDir && <span className={cx('git-dot', `git-${git}`)} />}
@@ -781,8 +892,8 @@ function FileDetails({
     return (
       <div className="empty-state">
         <Icon name="files" />
-        {count} items selected
-        <p className="hint">Drag them onto a folder to move them (hold Ctrl to copy), or onto the Session tab to paste their paths.</p>
+        {tr(M.itemsSelected, { count })}
+        <p className="hint">{tr(M.itemsHint)}</p>
       </div>
     )
   }
@@ -790,10 +901,8 @@ function FileDetails({
     return (
       <div className="empty-state">
         <Icon name="files" />
-        Select a file or folder
-        <p className="hint">
-          Select a file to view or edit it. Right-click for more. <kbd>F2</kbd> renames, <kbd>Del</kbd> moves to the Recycle Bin, <kbd>Ctrl+C</kbd> / <kbd>Ctrl+X</kbd> / <kbd>Ctrl+V</kbd> copy, cut and paste.
-        </p>
+        {tr(M.selectSomething)}
+        <p className="hint">{rich(M.selectHint, { kbd })}</p>
       </div>
     )
   }
@@ -809,34 +918,34 @@ function FileDetails({
       </div>
       <table className="kv">
         <tbody>
-          <tr><td>Type</td><td>{entry.isDir ? 'Folder' : entry.name.includes('.') ? `${entry.name.split('.').pop()!.toUpperCase()} file` : 'File'}</td></tr>
-          {!entry.isDir && <tr><td>Size</td><td>{formatBytes(entry.size)}</td></tr>}
-          {entry.modified && <tr><td>Modified</td><td>{formatDateTime(entry.modified)} <span className="faint">({timeAgo(entry.modified)})</span></td></tr>}
-          {git && <tr><td>Git</td><td><span className={cx('git-status', git)}>{git}</span> {GIT_TEXT[git] ?? git}{entry.isDir ? ' (contains changes)' : ''}</td></tr>}
-          {entry.ignored && <tr><td>Git</td><td className="faint">Ignored</td></tr>}
+          <tr><td>{tr(M.type)}</td><td>{entry.isDir ? tr(M.folder) : entry.name.includes('.') ? tr(M.extFile, { ext: entry.name.split('.').pop()!.toUpperCase() }) : tr(M.file)}</td></tr>
+          {!entry.isDir && <tr><td>{tr(M.size)}</td><td>{formatBytes(entry.size)}</td></tr>}
+          {entry.modified && <tr><td>{tr(M.modified)}</td><td>{formatDateTime(entry.modified)} <span className="faint">({timeAgo(entry.modified)})</span></td></tr>}
+          {git && <tr><td>{tr(M.git)}</td><td><span className={cx('git-status', git)}>{git}</span> {entry.isDir ? tr(M.gitInFolder, { status: tr(M.gitStatus, { status: git }) }) : tr(M.gitStatus, { status: git })}</td></tr>}
+          {entry.ignored && <tr><td>{tr(M.git)}</td><td className="faint">{tr(M.ignored)}</td></tr>}
         </tbody>
       </table>
       <div className="btns">
         {!entry.isDir && (
           <button className="btn primary" onClick={() => onOpen(entry)}>
-            <Icon name="link-external" /> Open
+            <Icon name="link-external" /> {tr(FILES_TEXT.open)}
           </button>
         )}
         <button className="btn subtle" onClick={() => void call('files:reveal', project.path, entry.relPath)}>
-          <Icon name="folder-opened" /> Reveal
+          <Icon name="folder-opened" /> {tr(FILES_TEXT.reveal)}
         </button>
         {project.live && (
           <button className="btn subtle" onClick={() => void insertIntoSession(project, [abs])}>
-            <Icon name="terminal" /> Insert into Session
+            <Icon name="terminal" /> {tr(M.insertIntoSession)}
           </button>
         )}
       </div>
       <div className="btns">
         <button className="btn subtle" onClick={() => onRename(entry)}>
-          <Icon name="tag" /> Rename
+          <Icon name="tag" /> {tr(M.renameButton)}
         </button>
         <button className="btn subtle danger-text" onClick={onDelete}>
-          <Icon name="trash" /> Delete
+          <Icon name="trash" /> {tr(M.delete)}
         </button>
       </div>
     </div>
@@ -858,7 +967,8 @@ export function AttachmentsTab({ project: owner, assistant = false }: { project:
   useStore((s) => s.focusedAgent[owner.path])
   useDateStyle()
   const project = projectView(owner)
-  const noun = assistant ? 'conversation' : 'session'
+  // The Assistant's sessions are conversations: the messages say which (a select on host).
+  const host = assistant ? 'assistant' : 'project'
   // This project's attachments only. A failed read: said in place of them (or over this project's last ones), not
   // "No attachments yet".
   const loaded = useScopedLoad<SessionAttachmentGroup[]>(project.path)
@@ -900,9 +1010,9 @@ export function AttachmentsTab({ project: owner, assistant = false }: { project:
   const total = useMemo(() => (all ?? []).reduce((n, g) => n + g.attachments.length, 0), [all])
 
   const remove = async (a: SessionAttachment): Promise<void> => {
-    const ok = await confirm({ title: 'Move to Recycle Bin?', message: `Move "${a.name}" to the Recycle Bin?`, detail: 'The transcript will still mention its path.', confirmLabel: 'Move to Recycle Bin', danger: true })
+    const ok = await confirm({ title: tr(M.trashTitle), message: tr(M.attachDeleteMessage, { name: a.name }), detail: tr(M.attachDeleteDetail), confirmLabel: tr(M.trashButton), danger: true })
     if (!ok) return
-    await actions.attempt('Could not delete the attachment', () => call('attachments:trash', project.path, a.path))
+    await actions.attempt(tr(M.attachDeleteFailed), () => call('attachments:trash', project.path, a.path))
     if (viewing?.path === a.path) {
       const i = flat.findIndex((x) => x.path === a.path)
       setViewing(flat[i + 1] ?? flat[i - 1] ?? null)
@@ -914,17 +1024,17 @@ export function AttachmentsTab({ project: owner, assistant = false }: { project:
   const removeGroup = async (g: SessionAttachmentGroup): Promise<void> => {
     const n = (all ?? []).find((x) => x.sessionId === g.sessionId)?.attachments.length ?? g.attachments.length
     const ok = await confirm({
-      title: `Move ${n} attachment${n === 1 ? '' : 's'} to the Recycle Bin?`,
-      message: `Move ${n === 1 ? 'the attachment' : `all ${n} attachments`} of "${g.name ?? g.sessionId.slice(0, 8)}" to the Recycle Bin?`,
-      detail: `${shownKind ? 'All of its attachments go, whatever the filter shows. ' : ''}The ${noun} keeps its transcript, which still mentions their paths. You can restore them from the Recycle Bin.`,
-      confirmLabel: 'Move to Recycle Bin',
+      title: tr(M.groupDeleteTitle, { count: n }),
+      message: tr(M.groupDeleteMessage, { count: n, name: g.name ?? g.sessionId.slice(0, 8) }),
+      detail: tr(M.groupDeleteDetail, { filtered: shownKind ? 'yes' : 'no', host }),
+      confirmLabel: tr(M.trashButton),
       danger: true
     })
     if (!ok) return
-    const done = await actions.attempt('Could not delete the attachments', () => call('attachments:trashGroup', project.path, g.sessionId))
+    const done = await actions.attempt(tr(M.groupDeleteFailed), () => call('attachments:trashGroup', project.path, g.sessionId))
     if (done !== undefined) {
       if (viewing && g.attachments.some((i) => i.path === viewing.path)) setViewing(null)
-      notify('success', `Moved ${done} attachment${done === 1 ? '' : 's'} to the Recycle Bin.`)
+      notify('success', tr(M.groupDeleted, { count: done }))
     }
     load()
   }
@@ -940,36 +1050,26 @@ export function AttachmentsTab({ project: owner, assistant = false }: { project:
     return owner.agents.some((x) => x.live?.sessionId === id)
   }
   const menuFor = (a: SessionAttachment): MenuEntry[] => [
-    { label: 'View', icon: 'eye', onClick: () => setViewing(a) },
-    ...(project.live ? [{ label: 'Insert into Session', icon: 'terminal', onClick: () => void insertIntoSession(project, [a.path]) }] : []),
+    { label: tr(M.view), icon: 'eye', onClick: () => setViewing(a) },
+    ...(project.live ? [{ label: tr(M.insertIntoSession), icon: 'terminal', onClick: () => void insertIntoSession(project, [a.path]) }] : []),
     { separator: true },
-    ...(a.kind === 'image' ? [{ label: 'Copy Image', icon: 'copy', onClick: () => void actions.attempt('Could not copy image', () => call('attachments:copyImage', a.path)) }] : []),
-    { label: 'Copy Path', icon: a.kind === 'image' ? 'blank' : 'copy', onClick: () => copyText(a.path) },
+    ...(a.kind === 'image' ? [{ label: tr(M.copyImage), icon: 'copy', onClick: () => void actions.attempt(tr(M.copyImageFailed), () => call('attachments:copyImage', a.path)) }] : []),
+    { label: tr(M.copyPath), icon: a.kind === 'image' ? 'blank' : 'copy', onClick: () => copyText(a.path) },
     // Opened in its program only when it can't be one that runs (#387: nothing attached is ever run): images and PDFs.
-    ...(a.kind === 'image' || a.kind === 'pdf' ? [{ label: 'Open', icon: 'link-external', onClick: () => void call('app:openPath', a.path) }] : []),
-    { label: 'Reveal in File Explorer', icon: 'folder-opened', onClick: () => void call('app:showInFolder', a.path) },
+    ...(a.kind === 'image' || a.kind === 'pdf' ? [{ label: tr(FILES_TEXT.open), icon: 'link-external', onClick: () => void call('app:openPath', a.path) }] : []),
+    { label: tr(FILES_TEXT.revealInExplorer), icon: 'folder-opened', onClick: () => void call('app:showInFolder', a.path) },
     { separator: true },
     // Not while its session runs (it may paste more): main refuses it too.
-    running(a) ? { label: 'Delete', icon: 'trash', disabled: true, detail: `Its ${noun} is running` } : { label: 'Delete', icon: 'trash', danger: true, onClick: () => void remove(a) }
+    running(a) ? { label: tr(M.delete), icon: 'trash', disabled: true, detail: tr(M.running, { host }) } : { label: tr(M.delete), icon: 'trash', danger: true, onClick: () => void remove(a) }
   ]
 
-  if (!all) return error ? <LoadFailed what="the attachments" error={error} onRetry={load} /> : <div className="empty-state"><Icon name="loading" spin />Loading…</div>
+  if (!all) return error ? <LoadFailed what={tr(M.attachmentsLoadTarget)} error={error} onRetry={load} /> : <div className="empty-state"><Icon name="loading" spin />{tr(M.loading)}</div>
   if (!all.length && !error) {
     return (
       <div className="empty-state" style={{ paddingTop: '15vh' }}>
         <Icon name="attach" />
-        No attachments yet
-        <p className="hint">
-          {assistant ? (
-            <>
-              Paste a screenshot into the Assistant's panel with <kbd>Ctrl+V</kbd>, or drag files onto it: images, PDFs, logs, any file. Hive keeps a copy of each one here, grouped by conversation.
-            </>
-          ) : (
-            <>
-              Paste a screenshot into a session with <kbd>Ctrl+V</kbd>, or drag files onto the terminal: images, PDFs, logs, any file. Hive keeps a copy of each one here, grouped by session.
-            </>
-          )}
-        </p>
+        {tr(M.noneYet)}
+        <p className="hint">{rich(assistant ? M.noneHintAssistant : M.noneHint, { kbd })}</p>
       </div>
     )
   }
@@ -982,17 +1082,17 @@ export function AttachmentsTab({ project: owner, assistant = false }: { project:
       <section key={g.sessionId} className="image-group">
         <div className="image-group-head">
           <Icon name="comment-discussion" />
-          <Tooltip content={`Open this ${noun}'s transcript`}>
+          <Tooltip content={tr(M.openTranscript, { host })}>
             <button className="image-group-name" onClick={() => openTranscript(g.sessionId)}>
-              {g.name ?? `${assistant ? 'Conversation' : 'Session'} ${g.sessionId.slice(0, 8)}`}
+              {g.name ?? tr(M.unnamedGroup, { host, id: g.sessionId.slice(0, 8) })}
             </button>
           </Tooltip>
-          {owner.agents.some((a) => a.live?.sessionId === g.sessionId) && <span className="badge accent">Running</span>}
-          {g.archived && <span className="badge">archived</span>}
+          {owner.agents.some((a) => a.live?.sessionId === g.sessionId) && <span className="badge accent">{tr(M.runningBadge)}</span>}
+          {g.archived && <span className="badge">{tr(M.archivedBadge)}</span>}
           <span className="faint">
-            {n} attachment{n === 1 ? '' : 's'} · last {timeAgo(g.attachments[0].modified)}
+            {tr(M.groupCount, { count: n, when: timeAgo(g.attachments[0].modified) })}
           </span>
-          <IconButton icon="trash" title={`Delete This ${assistant ? 'Conversation' : 'Session'}'s Attachments…`} disabled={owner.agents.some((a) => a.live?.sessionId === g.sessionId)} onClick={() => void removeGroup(g)} />
+          <IconButton icon="trash" title={tr(M.groupDelete, { host })} action="delete-attachments" disabled={owner.agents.some((a) => a.live?.sessionId === g.sessionId)} onClick={() => void removeGroup(g)} />
         </div>
         <div className="image-grid">
           {g.attachments.map((a) => {
@@ -1032,41 +1132,32 @@ export function AttachmentsTab({ project: owner, assistant = false }: { project:
   return (
     <div className="scroll-page images-page">
       <div className="images-toolbar">
-        <h2>Attachments</h2>
-        <InfoTip
-          text={
-            assistant
-              ? "Kept in the Assistant's home, .hive/attachments. Click a conversation's name to read it."
-              : "Kept in the project's .hive/attachments. Drag one onto the Session tab to send it again; click a session's name to read it."
-          }
-        />
-        <span className="faint">
-          {total} in {all.length} {noun}
-          {all.length === 1 ? '' : 's'}
-        </span>
+        <h2>{tr(M.attachments)}</h2>
+        <InfoTip text={tr(assistant ? M.infoAssistant : M.info)} />
+        <span className="faint">{tr(M.total, { host, total, groups: all.length })}</span>
         <div className="grow" />
-        <IconButton icon="refresh" title="Refresh" onClick={load} />
-        <IconButton icon="folder-opened" title="Open Attachments Folder" onClick={() => void call('app:openPath', `${project.path}\\.hive\\attachments`)} />
+        <IconButton icon="refresh" title={tr(M.refresh)} action="refresh-attachments" onClick={load} />
+        <IconButton icon="folder-opened" title={tr(M.openFolder)} onClick={() => void call('app:openPath', `${project.path}\\.hive\\attachments`)} />
       </div>
-      <p className="hint images-desc">{assistant ? 'Files pasted or dropped into the Assistant, by conversation.' : "Files pasted or dropped into this project's agents' sessions, by session."}</p>
+      <p className="hint images-desc">{tr(assistant ? M.descAssistant : M.desc)}</p>
       {counts.size > 1 && (
-        <div className="attachment-filters" role="group" aria-label="Show">
+        <div className="attachment-filters" role="group" aria-label={tr(M.show)}>
           <button className={cx('attachment-filter', !shownKind && 'selected')} aria-pressed={!shownKind} onClick={() => setFilter(null)}>
-            All <span className="faint">{total}</span>
+            {tr(M.all)} <span className="faint">{total}</span>
           </button>
           {ATTACHMENT_KINDS.filter((k) => counts.get(k)).map((k) => (
             <button key={k} className={cx('attachment-filter', shownKind === k && 'selected')} aria-pressed={shownKind === k} data-kind={k} onClick={() => setFilter(shownKind === k ? null : k)}>
-              <Icon name={ATTACHMENT_KIND_ICON[k]} /> {ATTACHMENT_FILTER_LABEL[k]} <span className="faint">{counts.get(k)}</span>
+              <Icon name={ATTACHMENT_KIND_ICON[k]} /> {tr(ATTACHMENT_FILTER_LABEL[k])} <span className="faint">{counts.get(k)}</span>
             </button>
           ))}
         </div>
       )}
-      {error && <StaleNote what="the attachments" error={error} at={loaded.at} onRetry={load} />}
+      {error && <StaleNote what={tr(M.attachmentsRefreshTarget)} error={error} at={loaded.at} onRetry={load} />}
       {current.map(renderGroup)}
       {archived.length > 0 && (
         <>
           <h3 className="images-archived">
-            <Icon name="archive" /> Archived {noun}s
+            <Icon name="archive" /> {tr(M.archivedHeading, { host })}
           </h3>
           {archived.map(renderGroup)}
         </>
@@ -1078,7 +1169,7 @@ export function AttachmentsTab({ project: owner, assistant = false }: { project:
           attachments={flat}
           live={!!project.live}
           // Worked out for the one shown, so it follows navigation and its session starting or stopping (main refuses too).
-          deleteBlocked={running(viewing) ? `Its ${noun} is running` : null}
+          deleteBlocked={running(viewing) ? tr(M.running, { host }) : null}
           onNavigate={setViewing}
           onClose={() => setViewing(null)}
           onInsert={(a) => {
@@ -1094,7 +1185,7 @@ export function AttachmentsTab({ project: owner, assistant = false }: { project:
 }
 
 /** The filters' names, plural. */
-const ATTACHMENT_FILTER_LABEL: Record<AttachmentKind, string> = { image: 'Images', pdf: 'PDFs', text: 'Text', file: 'Other' }
+const ATTACHMENT_FILTER_LABEL: Record<AttachmentKind, Msg> = { image: M.images, pdf: M.pdfs, text: M.text, file: M.other }
 
 /** A kept attachment's own name, without the time Hive put in front of it ("2026-10-12_09-30-00_report.pdf" is "report.pdf"). */
 const shownName = (name: string): string => name.replace(/^\d{4}-\d{2}-\d{2}_\d{2}-\d{2}-\d{2}_/, '')
@@ -1148,34 +1239,34 @@ function AttachmentViewer({
       footer={
         <>
           <span className="faint" style={{ marginRight: 'auto' }}>
-            {i + 1} of {attachments.length} · {formatBytes(attachment.size)}
+            {tr(M.position, { index: i + 1, count: attachments.length })} · {formatBytes(attachment.size)}
           </span>
           <Tooltip content={deleteBlocked}>
             <button className="btn subtle danger-text" disabled={!!deleteBlocked} aria-description={deleteBlocked ?? undefined} onClick={() => onDelete(attachment)}>
-              <Icon name="trash" /> Delete
+              <Icon name="trash" /> {tr(M.delete)}
             </button>
           </Tooltip>
           <button className="btn subtle" onClick={() => void call('app:showInFolder', attachment.path)}>
-            <Icon name="folder-opened" /> Reveal
+            <Icon name="folder-opened" /> {tr(FILES_TEXT.reveal)}
           </button>
           <button className="btn subtle" onClick={() => copyText(attachment.path)}>
-            Copy Path
+            {tr(M.copyPath)}
           </button>
           {image && (
-            <button className="btn subtle" onClick={() => void actions.attempt('Could not copy image', () => call('attachments:copyImage', attachment.path))}>
-              <Icon name="copy" /> Copy Image
+            <button className="btn subtle" onClick={() => void actions.attempt(tr(M.copyImageFailed), () => call('attachments:copyImage', attachment.path))}>
+              <Icon name="copy" /> {tr(M.copyImage)}
             </button>
           )}
           {live && (
             <button className="btn primary" onClick={() => onInsert(attachment)}>
-              <Icon name="terminal" /> Insert into Session
+              <Icon name="terminal" /> {tr(M.insertIntoSession)}
             </button>
           )}
         </>
       }
     >
       <div className="image-viewer">
-        <IconButton icon="chevron-left" title="Newer (←)" disabled={!prev} onClick={() => prev && onNavigate(prev)} />
+        <IconButton icon="chevron-left" title={tr(M.newer)} disabled={!prev} onClick={() => prev && onNavigate(prev)} />
         {image ? (
           <div className="image-frame">
             <img src={imageUrl(attachment.path)} alt={attachment.name} />
@@ -1183,7 +1274,7 @@ function AttachmentViewer({
         ) : (
           <AttachmentFrame host={host} attachment={attachment} />
         )}
-        <IconButton icon="chevron-right" title="Older (→)" disabled={!next} onClick={() => next && onNavigate(next)} />
+        <IconButton icon="chevron-right" title={tr(M.older)} disabled={!next} onClick={() => next && onNavigate(next)} />
       </div>
     </Modal>
   )
@@ -1215,11 +1306,11 @@ function AttachmentFrame({ host, attachment }: { host: string; attachment: Sessi
   )
   let body: React.ReactNode
   if (fromDisk) body = <ReadOnlyPreview root={host} abs={attachment.path} name={attachment.name} text={null} />
-  else if (failed) body = none('warning', `Couldn't read it: ${failed}`)
-  else if (attachment.kind === 'file' || content?.kind === 'binary') body = none(ATTACHMENT_KIND_ICON[attachment.kind], 'No preview for this kind of file. Reveal it, or insert it into a session.')
-  else if (content?.kind === 'too-large') body = none(ATTACHMENT_KIND_ICON[attachment.kind], 'Too large to preview here. Reveal it to open it in another program.')
+  else if (failed) body = none('warning', tr(M.readFailed, { error: failed }))
+  else if (attachment.kind === 'file' || content?.kind === 'binary') body = none(ATTACHMENT_KIND_ICON[attachment.kind], tr(M.noPreview))
+  else if (content?.kind === 'too-large') body = none(ATTACHMENT_KIND_ICON[attachment.kind], tr(M.tooLarge))
   else if (content) body = <ReadOnlyPreview root={host} abs={attachment.path} name={attachment.name} text={content.text} />
-  else body = none('loading', 'Loading…')
+  else body = none('loading', tr(M.loading))
   return (
     <div className="attachment-frame">
       {body}

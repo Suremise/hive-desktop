@@ -1,3 +1,4 @@
+import { fmt, msg, tr } from './i18n'
 import type { SessionListItem } from './types'
 import { dayOffset, localDay, usageFrom } from './usageDays'
 
@@ -7,11 +8,22 @@ import { dayOffset, localDay, usageFrom } from './usageDays'
  */
 
 export type Period = 'today' | 'week' | 'month' | 'all'
-export const PERIODS: { value: Period; label: string }[] = [
-  { value: 'today', label: 'Today' },
-  { value: 'week', label: '7 days' },
-  { value: 'month', label: '30 days' },
-  { value: 'all', label: 'All time' }
+const M = {
+  today: msg({ id: 'project.period.today', defaultMessage: 'Today', description: 'A period of the usage figures (Overview tabs, the Assistant).' }),
+  week: msg({ id: 'project.period.week', defaultMessage: '7 days', description: 'A period of the usage figures: the last seven days.' }),
+  month: msg({ id: 'project.period.month', defaultMessage: '30 days', description: 'A period of the usage figures: the last thirty days.' }),
+  all: msg({ id: 'project.period.all', defaultMessage: 'All time', description: 'A period of the usage figures: everything recorded.' }),
+  unknown: msg({ id: 'project.cost.unknown', defaultMessage: 'Unknown', description: 'A cost Hive cannot work out: no price is known for the model.' }),
+  belowCent: msg({ id: 'project.cost.belowCent', defaultMessage: '< {cent}', description: 'A cost under one cent. {cent} is one cent in dollars, such as "$0.01".' }),
+  other: msg({ id: 'project.chart.other', defaultMessage: 'Other ({count})', description: 'In the usage chart by project: the projects not shown on their own. {count} is how many.' })
+}
+
+/** The periods, with their labels in the window's language when read (a getter: each render reads it again). */
+export const PERIODS: { value: Period; readonly label: string }[] = [
+  { value: 'today', get label() { return tr(M.today) } },
+  { value: 'week', get label() { return tr(M.week) } },
+  { value: 'month', get label() { return tr(M.month) } },
+  { value: 'all', get label() { return tr(M.all) } }
 ]
 
 /** A period's first local day (calendar days: "7 days" is today and the six before); null for all time. */
@@ -44,13 +56,23 @@ export interface Totals {
 }
 
 /**
- * A total cost as shown: "≈ $1.20" when every session in it has a cost, "≈ $1.20 + ?" when some have none (a known
+ * A total cost as the window shows it: "≈ $1.20" when every session in it has a cost, "≈ $1.20 + ?" when some have none (a known
  * subtotal, incomplete), "Unknown" when none has: sessions Hive couldn't price never count as $0.
  */
 export function costText(t: { cost: number; estimated: boolean; priced: number; unpriced: number }): string {
-  if (t.unpriced && !t.priced) return 'Unknown'
+  if (t.unpriced && !t.priced) return tr(M.unknown)
   // Non-breaking spaces: "≈ $1.00 + ?" is one value, never split over lines (#241).
-  return `${t.estimated ? '≈ ' : ''}${money(t.cost)}${t.unpriced ? ' + ?' : ''}`
+  return `${t.estimated ? '≈ ' : ''}${moneyLabel(t.cost)}${t.unpriced ? ' + ?' : ''}`
+}
+
+/**
+ * Dollars as the window shows them, in its language (Intl): "$1.20", "1,20 USD"; whole dollars from $100; under a
+ * cent, "< $0.01". money() is the same in fixed English, for what agents read (card costs in the Agent API).
+ */
+export function moneyLabel(n: number): string {
+  if (n >= 100) return fmt.number(n, { style: 'currency', currency: 'USD', maximumFractionDigits: 0 })
+  if (n > 0 && n < 0.01) return tr(M.belowCent, { cent: fmt.usd(0.01) })
+  return fmt.usd(n)
 }
 
 /** Every token counted: new input, cache writes, input read from cache, and output. */
@@ -140,7 +162,7 @@ export function stackedDaily(groups: UsageGroup[], fromDay: string, now: number,
   const kept = used.slice(0, top).sort((a, b) => a.g.label.localeCompare(b.g.label))
   const rest = used.slice(top)
   const series = kept.map((x) => ({ key: x.g.key, label: x.g.label }))
-  if (rest.length) series.push({ key: '', label: `Other (${rest.length})` })
+  if (rest.length) series.push({ key: '', label: tr(M.other, { count: rest.length }) })
   const days = emptyDays(fromDay, now).map((d, i) => {
     const parts = kept.map((x) => x.days[i].tokens)
     if (rest.length) parts.push(rest.reduce((n, x) => n + x.days[i].tokens, 0))

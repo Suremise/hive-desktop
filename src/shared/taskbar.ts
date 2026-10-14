@@ -3,6 +3,8 @@
  * the window title (Alt+Tab, hover), and a flash when an agent comes to ask you something while the window
  * isn't focused. Each window shows its own workspace's count.
  */
+import { tr } from './i18n'
+import { msg } from './i18n/msg'
 
 /** The badge's text: nothing at 0, the number up to 9, then 9+. */
 export function badgeText(count: number): string {
@@ -15,9 +17,11 @@ export function windowTitle(title: string, count: number): string {
   return count > 0 ? `(${count}) ${title}` : title
 }
 
+const NEED_YOU = msg({ id: 'workspace.taskbar.needYou', defaultMessage: '{count, plural, one {# agent needs you} other {# agents need you}}', description: "What the taskbar badge over Hive's icon says to screen readers: how many agents wait for you." })
+
 /** What the badge says to screen readers. */
 export function badgeDescription(count: number): string {
-  return count === 1 ? '1 agent needs you' : `${count} agents need you`
+  return tr(NEED_YOU, { count })
 }
 
 /**

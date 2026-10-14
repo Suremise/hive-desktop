@@ -10,6 +10,7 @@ import { PERIODS, costText, periodFrom, sumUsage, useSessions, type Period } fro
 import { PERSONAS_TIP, PersonaList, PersonaView, createPersona } from './Personas'
 import { Section } from './Sidebar'
 import { Icon, IconButton, InfoTip, Tooltip } from './ui'
+import { msg, tr } from '@shared/i18n'
 
 /**
  * The Hive Assistant's view (activity bar): a summary of what it has used, then its modes, its conversations (the
@@ -17,8 +18,29 @@ import { Icon, IconButton, InfoTip, Tooltip } from './ui'
  * settings are in Settings → Assistant and its panel.
  */
 
-const SUMMARY_TIP =
-  "What this workspace's Assistant has used across its conversations, in the period chosen (by calendar day: Today is since midnight). It isn't counted in any project's Overview. The cost is what the work would have cost at API prices: on a subscription you are not charged this."
+const M = {
+  summaryTip: msg({ id: 'assistant.view.summaryTip', defaultMessage: "What this workspace's Assistant has used across its conversations, in the period chosen (by calendar day: Today is since midnight). It isn't counted in any project's Overview. The cost is what the work would have cost at API prices: on a subscription you are not charged this.", description: "The Assistant view: tooltip on Used so far. Today and Overview as Hive names them." }),
+  title: msg({ id: 'assistant.view.title', defaultMessage: 'Hive Assistant', description: "The Assistant view's heading in the sidebar. Hive's name stays as it is." }),
+  titleTip: msg({ id: 'assistant.view.titleTip', defaultMessage: "Your workspace's overseer: what it has used, its modes, its conversations and the files attached to them. Its panel is on the right (Ctrl+Alt+I); its defaults are in Settings → Assistant.", description: "The Assistant view: tooltip on its heading. Keep the shortcut as it is." }),
+  showPanel: msg({ id: 'assistant.view.showPanel', defaultMessage: "Show the Assistant's panel", description: "The Assistant view: a button that opens the Assistant's panel on the right." }),
+  noWorkspace: msg({ id: 'assistant.view.noWorkspace', defaultMessage: 'Open a workspace to see its Assistant.', description: 'The Assistant view with no workspace open.' }),
+  modes: msg({ id: 'assistant.view.modes', defaultMessage: 'Modes', description: "The Assistant view: the section of the Assistant's modes (how it works: Advisor, Builder…)." }),
+  newMode: msg({ id: 'assistant.view.newMode', defaultMessage: 'New Mode…', description: 'The Assistant view, Modes: a button that creates a mode.' }),
+  refresh: msg({ id: 'assistant.view.refresh', defaultMessage: 'Refresh', description: 'The Assistant view, Modes: a button that reads the modes again.' }),
+  openFolder: msg({ id: 'assistant.view.openFolder', defaultMessage: 'Open Modes Folder', description: "The Assistant view, Modes: a button that opens the modes' folder in Explorer." }),
+  conversations: msg({ id: 'assistant.view.conversations', defaultMessage: 'Conversations', description: "The Assistant view: the section of the Assistant's conversations." }),
+  allConversations: msg({ id: 'assistant.view.allConversations', defaultMessage: 'All Conversations', description: "The Assistant view: the row that shows the Assistant's conversations." }),
+  attachments: msg({ id: 'assistant.view.attachments', defaultMessage: 'Attachments', description: 'The Assistant view: the section of the files attached to its conversations.' }),
+  allAttachments: msg({ id: 'assistant.view.allAttachments', defaultMessage: 'All Attachments', description: 'The Assistant view: the row that shows the files attached to its conversations.' }),
+  usedSoFar: msg({ id: 'assistant.view.usedSoFar', defaultMessage: 'Used so far', description: "The Assistant view: the heading of what the Assistant has used (tokens, cost)." }),
+  period: msg({ id: 'assistant.view.period', defaultMessage: 'Period', description: 'The Assistant view: the accessible name of the period buttons (Today, 7 days…).' }),
+  conversationsStat: msg({ id: 'assistant.view.statConversations', defaultMessage: 'Conversations', description: 'The Assistant view, Used so far: how many conversations.' }),
+  prompts: msg({ id: 'assistant.view.statPrompts', defaultMessage: 'Prompts', description: 'The Assistant view, Used so far: how many prompts were sent.' }),
+  tokens: msg({ id: 'assistant.view.statTokens', defaultMessage: 'Tokens', description: 'The Assistant view, Used so far: tokens used.' }),
+  cost: msg({ id: 'assistant.view.statCost', defaultMessage: 'Cost', description: 'The Assistant view, Used so far: what it cost at API prices.' }),
+  unpriced: msg({ id: 'assistant.view.unpriced', defaultMessage: '{count, plural, one {# conversation without a price} other {# conversations without a price}}', description: "The Assistant view: tooltip on Cost when some conversations' models have no known price." }),
+  noWorkspaceMain: msg({ id: 'assistant.view.noWorkspaceMain', defaultMessage: "Open a workspace to see its Assistant's conversations.", description: "The Assistant view's main area with no workspace open." })
+}
 
 export function AssistantSidePanel() {
   const workspace = useStore((s) => s.workspace)
@@ -27,41 +49,41 @@ export function AssistantSidePanel() {
   return (
     <>
       <div className="pane-header">
-        Hive Assistant
-        <InfoTip text="Your workspace's overseer: what it has used, its modes, its conversations and the files attached to them. Its panel is on the right (Ctrl+Alt+I); its defaults are in Settings → Assistant." />
+        {tr(M.title)}
+        <InfoTip text={tr(M.titleTip)} />
         <div className="actions">
-          <IconButton icon="layout-sidebar-right" title="Show the Assistant's panel" disabled={!a} onClick={() => setAssistantOpen(true)} />
+          <IconButton icon="layout-sidebar-right" title={tr(M.showPanel)} disabled={!a} onClick={() => setAssistantOpen(true)} />
         </div>
       </div>
       <div className="pane-body">
         {!workspace || !a ? (
-          <div className="pane-empty">Open a workspace to see its Assistant.</div>
+          <div className="pane-empty">{tr(M.noWorkspace)}</div>
         ) : (
           <>
             <AssistantSummary assistant={a} />
             <Section
-              title="Modes"
-              tip={PERSONAS_TIP}
+              title={tr(M.modes)}
+              tip={tr(PERSONAS_TIP)}
               buttons={
                 <>
-                  <IconButton icon="add" title="New Mode…" onClick={() => void createPersona()} />
-                  <IconButton icon="refresh" title="Refresh" onClick={() => set((s) => ({ personasVersion: s.personasVersion + 1 }))} />
-                  <IconButton icon="folder-opened" title="Open Modes Folder" onClick={() => void call('app:openPath', `${workspace.path}\\.hive\\personas`)} />
+                  <IconButton icon="add" title={tr(M.newMode)} onClick={() => void createPersona()} />
+                  <IconButton icon="refresh" title={tr(M.refresh)} onClick={() => set((s) => ({ personasVersion: s.personasVersion + 1 }))} />
+                  <IconButton icon="folder-opened" title={tr(M.openFolder)} onClick={() => void call('app:openPath', `${workspace.path}\\.hive\\personas`)} />
                 </>
               }
             >
               <PersonaList />
             </Section>
-            <Section title="Conversations">
+            <Section title={tr(M.conversations)}>
               <div className={cx('row', section === 'conversations' && 'selected')} onClick={() => set({ assistantSection: 'conversations' })}>
                 <Icon name="comment-discussion" />
-                <span className="label">All Conversations</span>
+                <span className="label">{tr(M.allConversations)}</span>
               </div>
             </Section>
-            <Section title="Attachments">
+            <Section title={tr(M.attachments)}>
               <div className={cx('row', section === 'images' && 'selected')} onClick={() => set({ assistantSection: 'images' })}>
                 <Icon name="attach" />
-                <span className="label">All Attachments</span>
+                <span className="label">{tr(M.allAttachments)}</span>
               </div>
             </Section>
           </>
@@ -82,10 +104,10 @@ function AssistantSummary({ assistant }: { assistant: ProjectInfo }) {
   return (
     <div className="assistant-summary">
       <div className="assistant-summary-title">
-        Used so far
-        <InfoTip text={SUMMARY_TIP} />
+        {tr(M.usedSoFar)}
+        <InfoTip text={tr(M.summaryTip)} />
       </div>
-      <div className="segmented assistant-periods" role="group" aria-label="Period">
+      <div className="segmented assistant-periods" role="group" aria-label={tr(M.period)}>
         {PERIODS.map((p) => (
           <button key={p.value} className={cx(period === p.value && 'active')} onClick={() => setPeriod(p.value)}>
             {p.label}
@@ -93,10 +115,10 @@ function AssistantSummary({ assistant }: { assistant: ProjectInfo }) {
         ))}
       </div>
       <div className="assistant-summary-grid">
-        <Stat label="Conversations" value={items ? String(t.sessions) : '…'} />
-        <Stat label="Prompts" value={items ? formatNumber(t.prompts) : '…'} />
-        <Stat label="Tokens" value={items ? formatTokens(tokens) : '…'} />
-        <Stat label="Cost" value={items ? costText(t) : '…'} tip={t.unpriced ? `${t.unpriced} conversation${t.unpriced === 1 ? '' : 's'} without a price` : undefined} />
+        <Stat label={tr(M.conversationsStat)} value={items ? String(t.sessions) : '…'} />
+        <Stat label={tr(M.prompts)} value={items ? formatNumber(t.prompts) : '…'} />
+        <Stat label={tr(M.tokens)} value={items ? formatTokens(tokens) : '…'} />
+        <Stat label={tr(M.cost)} value={items ? costText(t) : '…'} tip={t.unpriced ? tr(M.unpriced, { count: t.unpriced }) : undefined} />
       </div>
     </div>
   )
@@ -122,7 +144,7 @@ export function AssistantMain() {
     return (
       <div className="empty-state" style={{ paddingTop: '18vh' }}>
         <Icon name="comment-discussion" />
-        Open a workspace to see its Assistant's conversations.
+        {tr(M.noWorkspaceMain)}
       </div>
     )
   }

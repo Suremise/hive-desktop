@@ -6,6 +6,8 @@ import { AGENT_LIMIT_MAX, ROLE_MAX, SESSION_LAYOUTS, projectAgents } from './def
 import { isKnownProvider } from './providers'
 import { cleanMcpServers } from './agentMcp'
 import type { AgentDef, EffortLevel, PageLayout, PermissionMode, ProviderId } from './types'
+import { tr } from './i18n'
+import { msg } from './i18n/msg'
 
 /** The format's version: a template made by a newer Hive (a higher one) is refused rather than half read. */
 export const TEMPLATE_VERSION = 1
@@ -113,35 +115,52 @@ const text = (v: unknown, max: number): v is string => typeof v === 'string' && 
 /** A model, effort or mode as a CLI names it: short, no spaces or control characters. */
 const setting = (v: unknown): v is string => typeof v === 'string' && /^[A-Za-z0-9._:/[\]-]{1,100}$/.test(v)
 
+// Why a template file can't be used: shown in the Templates view and the dialogs that read one (window text).
+const M = {
+  tooMany: msg({ id: 'assistant.template.tooManyHere', defaultMessage: 'It has {count} agents, and this project can have up to {limit} (Settings → Advanced → Agents per project).', description: "Why a template can't be loaded into this project: it has more agents than the project allows. Keep the setting's path as Settings shows it." }),
+  notTemplate: msg({ id: 'assistant.template.notTemplate', defaultMessage: "It isn't a Hive agent template.", description: "Why a template file can't be used: it isn't one." }),
+  noVersion: msg({ id: 'assistant.template.noVersion', defaultMessage: "It isn't a Hive agent template (no version).", description: "Why a template file can't be used: it has no format version." }),
+  newer: msg({ id: 'assistant.template.newer', defaultMessage: 'It was made by a newer version of Hive: update Hive to use it.', description: "Why a template file can't be used: a newer Hive made it." }),
+  badName: msg({ id: 'assistant.template.badName', defaultMessage: 'Its name is missing or longer than {max} characters.', description: "Why a template file can't be used: the template's name." }),
+  noAgents: msg({ id: 'assistant.template.noAgents', defaultMessage: 'It has no agents.', description: "Why a template file can't be used: it holds no agents." }),
+  tooManyAny: msg({ id: 'assistant.template.tooMany', defaultMessage: 'It has {count} agents; a project can have up to {max}.', description: "Why a template file can't be used: more agents than any project can have." }),
+  agentNoName: msg({ id: 'assistant.template.agentNoName', defaultMessage: 'Agent {n} has no name (or one over 60 characters).', description: "Why a template file can't be used: its agent number {n} (1, 2…) has no usable name." }),
+  sameName: msg({ id: 'assistant.template.sameName', defaultMessage: 'Two agents are called "{name}".', description: "Why a template file can't be used: two agents share a name." }),
+  badProvider: msg({ id: 'assistant.template.badProvider', defaultMessage: "{name}'s coding agent isn't one Hive can use ({given, select, yes {{provider}} other {none}}).", description: "Why a template file can't be used: an agent's coding agent (Claude Code, Codex…) is no id Hive could know. {name} is the agent; {provider} what the file says; none when it says nothing." }),
+  longRole: msg({ id: 'assistant.template.longRole', defaultMessage: "{name}'s role is over {max} characters.", description: "Why a template file can't be used: an agent's role is too long." }),
+  badSetting: msg({ id: 'assistant.template.badSetting', defaultMessage: "{name}'s {setting, select, model {model} effort {effort} other {permissionMode}} isn't one Hive can use.", description: "Why a template file can't be used: an agent's model, effort or permission mode is no value a coding agent takes. Keep permissionMode as it is (the file's field)." }),
+  badContext: msg({ id: 'assistant.template.badContext', defaultMessage: "{name}'s context setting isn't one Hive can use.", description: "Why a template file can't be used: an agent's 200K context setting isn't on or off." }),
+  badMcp: msg({ id: 'assistant.template.badMcp', defaultMessage: "{name}'s MCP servers aren't a list Hive can use.", description: "Why a template file can't be used: an agent's list of MCP servers." })
+}
+
 /** Why a template of `count` agents can't be loaded into a project that can have `limit` (#562). */
-export const templateLimitText = (count: number, limit: number): string => `It has ${count} agents, and this project can have up to ${limit} (Settings → Advanced → Agents per project).`
+export const templateLimitText = (count: number, limit: number): string => tr(M.tooMany, { count, limit })
 
 /** A template read from a file (untrusted): the template, or why it can't be used. */
 export function readTemplate(raw: unknown): AgentTemplate | string {
-  if (!isObj(raw)) return "It isn't a Hive agent template."
+  if (!isObj(raw)) return tr(M.notTemplate)
   const version = raw.version
-  if (typeof version !== 'number' || !Number.isInteger(version) || version < 1) return "It isn't a Hive agent template (no version)."
-  if (version > TEMPLATE_VERSION) return 'It was made by a newer version of Hive: update Hive to use it.'
-  if (!text(raw.name, TEMPLATE_NAME_MAX)) return `Its name is missing or longer than ${TEMPLATE_NAME_MAX} characters.`
-  if (!Array.isArray(raw.agents) || !raw.agents.length) return 'It has no agents.'
+  if (typeof version !== 'number' || !Number.isInteger(version) || version < 1) return tr(M.noVersion)
+  if (version > TEMPLATE_VERSION) return tr(M.newer)
+  if (!text(raw.name, TEMPLATE_NAME_MAX)) return tr(M.badName, { max: TEMPLATE_NAME_MAX })
+  if (!Array.isArray(raw.agents) || !raw.agents.length) return tr(M.noAgents)
   // Any template Hive could have saved (#562): whether it fits a project is its load's to say (templateLimitText).
-  if (raw.agents.length > AGENT_LIMIT_MAX) return `It has ${raw.agents.length} agents; a project can have up to ${AGENT_LIMIT_MAX}.`
+  if (raw.agents.length > AGENT_LIMIT_MAX) return tr(M.tooManyAny, { count: raw.agents.length, max: AGENT_LIMIT_MAX })
   const agents: TemplateAgent[] = []
   for (const [i, a] of raw.agents.entries()) {
-    const which = `Agent ${i + 1}`
-    if (!isObj(a) || !text(a.name, 60)) return `${which} has no name (or one over 60 characters).`
+    if (!isObj(a) || !text(a.name, 60)) return tr(M.agentNoName, { n: i + 1 })
     const name = a.name.trim()
-    if (agents.some((x) => x.name.toLowerCase() === name.toLowerCase())) return `Two agents are called "${name}".`
+    if (agents.some((x) => x.name.toLowerCase() === name.toLowerCase())) return tr(M.sameName, { name })
     // One this Hive doesn't know is kept (flagged where it is shown; loading it is refused), as long as it looks like one.
-    if (!isProviderId(a.provider)) return `${name}'s coding agent isn't one Hive can use (${typeof a.provider === 'string' ? a.provider.slice(0, 40) : 'none'}).`
-    if (a.role !== undefined && (typeof a.role !== 'string' || a.role.length > ROLE_MAX)) return `${name}'s role is over ${ROLE_MAX} characters.`
-    for (const k of ['model', 'effort', 'permissionMode'] as const) if (a[k] !== undefined && !setting(a[k])) return `${name}'s ${k} isn't one Hive can use.`
-    if (a.use200kContext !== undefined && typeof a.use200kContext !== 'boolean') return `${name}'s context setting isn't one Hive can use.`
+    if (!isProviderId(a.provider)) return tr(M.badProvider, { name, given: typeof a.provider === 'string' ? 'yes' : 'no', provider: typeof a.provider === 'string' ? a.provider.slice(0, 40) : '' })
+    if (a.role !== undefined && (typeof a.role !== 'string' || a.role.length > ROLE_MAX)) return tr(M.longRole, { name, max: ROLE_MAX })
+    for (const k of ['model', 'effort', 'permissionMode'] as const) if (a[k] !== undefined && !setting(a[k])) return tr(M.badSetting, { name, setting: k })
+    if (a.use200kContext !== undefined && typeof a.use200kContext !== 'boolean') return tr(M.badContext, { name })
     let mcpServers: string[] | undefined
     try {
       mcpServers = cleanMcpServers(a.mcpServers)
     } catch {
-      return `${name}'s MCP servers aren't a list Hive can use.`
+      return tr(M.badMcp, { name })
     }
     const role = typeof a.role === 'string' ? a.role.replace(/\s+/g, ' ').trim() : ''
     agents.push({

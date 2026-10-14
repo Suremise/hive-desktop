@@ -1,0 +1,858 @@
+{
+  "git.branches.branch": {
+    "defaultMessage": "Branch",
+    "description": "Heading in Git → Branches & remotes: the branch checked out in the project folder."
+  },
+  "git.branches.checkedOut": {
+    "defaultMessage": "{where, select, agent {Checked out in {agent}'s worktree: a branch is in one folder at a time.} other {Checked out in another worktree: a branch is in one folder at a time.}}",
+    "description": "Why a branch's Switch is disabled (its tooltip). {agent} is the agent whose worktree has it."
+  },
+  "git.branches.heading": {
+    "defaultMessage": "Branches",
+    "description": "Heading in Git → Branches & remotes, followed by how many there are."
+  },
+  "git.branches.loadTarget": {
+    "defaultMessage": "the branches and remotes",
+    "description": "What could not be read in Git → Branches & remotes: shown in \"Could not load {what}: {error}\" and \"Could not refresh {what}; last updated …\"."
+  },
+  "git.branches.noCommits": {
+    "defaultMessage": "No commits yet, and agents' worktrees need one.",
+    "description": "Banner in Git → Branches & remotes of a repository with no commit."
+  },
+  "git.branches.reload": {
+    "defaultMessage": "Read git again (doesn't fetch)",
+    "description": "Tooltip on the refresh button in Git → Branches & remotes."
+  },
+  "git.branches.remote": {
+    "defaultMessage": "Remote branches ({count})",
+    "description": "Button in Git → Branches & remotes that shows or hides the remote branches with no local one."
+  },
+  "git.branches.stateBanner": {
+    "defaultMessage": "Git is {state, select, merge {merging} rebase {rebasing} cherrypick {cherry-picking} revert {reverting} other {bisecting}} in the project folder. Finish or abort it in a terminal (or ask an agent to): Hive doesn't.",
+    "description": "Banner in Git → Branches & remotes while git has an operation in progress."
+  },
+  "git.branches.trackLocal": {
+    "defaultMessage": "A local {branch} tracking {remote}, and switch to it",
+    "description": "Tooltip on a remote branch's Switch button. {branch} is the local branch it makes; {remote} the remote branch, such as origin/feature."
+  },
+  "git.branches.tracks": {
+    "defaultMessage": "tracks {upstream} · <ab>{aheadBehind}</ab>",
+    "description": "Beside the branch checked out: the remote branch it tracks and how far apart they are (\"tracks origin/main · ↑2 ↓0\"). Keep <ab>…</ab> around the counts."
+  },
+  "git.branches.tracksNothing": {
+    "defaultMessage": "tracks no remote branch: Push sets one",
+    "description": "Beside the branch checked out. Push is the button of that name."
+  },
+  "git.busy.agent": {
+    "defaultMessage": "{agent} {status, select, starting {is starting} working {is working} waiting {is waiting for your answer} background {is waiting on background tasks it started} watching {is waiting for cards to change (a card watch)} other {stopped in the middle of a task when its sign-in expired}} in the project folder: {action, select, switch {switch branches} create {create and switch to a branch} other {pull}} once it has finished.",
+    "description": "Why switching branch (or creating one, or pulling) is refused now: an agent works in the project folder. {agent} is the agent's name; {status} what it is doing; {action} what was refused."
+  },
+  "git.busy.slotHeld": {
+    "defaultMessage": "{agent} holds the merge slot for {branch}: {action, select, switch {switch branches} create {create and switch to a branch} other {pull}} once that merge is done.",
+    "description": "Why switching branch (or creating one, or pulling) is refused now: an agent is merging into {branch} (it holds the merge slot). {agent} is the agent's name."
+  },
+  "git.busy.slotWaiting": {
+    "defaultMessage": "{agents} {count, plural, one {is} other {are}} waiting for the merge slot for {branch}: {action, select, switch {switch branches} create {create and switch to a branch} other {pull}} once those merges are done.",
+    "description": "Why switching branch (or creating one, or pulling) is refused now: agents wait to merge into {branch}. {agents} is their names as a list; {count} how many."
+  },
+  "git.busy.yourMerge": {
+    "defaultMessage": "Your merge into {branch} is running: {action, select, switch {switch branches} create {create and switch to a branch} other {pull}} once it is done.",
+    "description": "Why switching branch (or creating one, or pulling) is refused now: the user's own merge into {branch} is running."
+  },
+  "git.cancel": {
+    "defaultMessage": "Cancel",
+    "description": "Button: closes the Git tab's dialog or form without doing anything."
+  },
+  "git.fetch.at": {
+    "defaultMessage": "As of the last fetch, {when}. Hive never fetches by itself.",
+    "description": "In Git → Branches & remotes, beside Fetch. {when} is how long ago, such as \"5m ago\"."
+  },
+  "git.fetch.button": {
+    "defaultMessage": "Fetch",
+    "description": "Button: fetches every remote."
+  },
+  "git.fetch.failed": {
+    "defaultMessage": "Couldn't fetch",
+    "description": "Title of an error notification."
+  },
+  "git.fetch.never": {
+    "defaultMessage": "Never fetched. Hive never fetches by itself.",
+    "description": "In Git → Branches & remotes, beside Fetch."
+  },
+  "git.fetch.tip": {
+    "defaultMessage": "Fetch every remote: ahead/behind and remote branches as they are now",
+    "description": "Tooltip on the Fetch button."
+  },
+  "git.form.enterName": {
+    "defaultMessage": "Enter a name",
+    "description": "Under a form's name box (a branch, a tag) while it is empty."
+  },
+  "git.head.detachedAt": {
+    "defaultMessage": "detached at {commit}",
+    "description": "What the project folder has checked out when HEAD is detached. {commit} is a short commit hash. Lower case: also in the status bar (\"detached at abc1234 · rebasing\")."
+  },
+  "git.head.noCommits": {
+    "defaultMessage": "no commits yet",
+    "description": "What the project folder has checked out in a repository with no commit yet. Lower case: also in the status bar."
+  },
+  "git.history.heading": {
+    "defaultMessage": "History",
+    "description": "Heading of Git → History, before the branch is known."
+  },
+  "git.history.headingOf": {
+    "defaultMessage": "History <faint>of {head}</faint>",
+    "description": "Heading of Git → History. {head} is the branch checked out (or \"detached at abc1234\"). <faint> is the part shown dimmed."
+  },
+  "git.history.loadTarget": {
+    "defaultMessage": "the history",
+    "description": "What could not be read in Git → History: shown in \"Could not load {what}: {error}\" and \"Could not refresh {what}; last updated …\"."
+  },
+  "git.history.noCommits": {
+    "defaultMessage": "No commits yet.",
+    "description": "Git → History when the repository has no commit."
+  },
+  "git.history.reload": {
+    "defaultMessage": "Read the history again",
+    "description": "Tooltip on the refresh button in Git → History."
+  },
+  "git.hiveVcs.checking": {
+    "defaultMessage": "Checking…",
+    "description": "The Untrack… button while Hive lists the files git tracks in .hive."
+  },
+  "git.hiveVcs.dismiss": {
+    "defaultMessage": "Don't show this here again (Project Settings still says so)",
+    "description": "Tooltip on the × of the .hive notice in the Overview."
+  },
+  "git.hiveVcs.exclude": {
+    "defaultMessage": "Exclude",
+    "description": "Button in the .hive notice: adds .hive to the git repository's exclude file."
+  },
+  "git.hiveVcs.excludeFailed": {
+    "defaultMessage": "Couldn't exclude .hive",
+    "description": "Title of an error notification: Exclude in the .hive notice failed."
+  },
+  "git.hiveVcs.excludedDone": {
+    "defaultMessage": "{project}: .hive excluded from git",
+    "description": "Notification after Exclude in the .hive notice. {project} is the project's name."
+  },
+  "git.hiveVcs.excluding": {
+    "defaultMessage": "Excluding…",
+    "description": "The Exclude button while it runs."
+  },
+  "git.hiveVcs.ignoredBut": {
+    "defaultMessage": "Git ignores this project's .hive, but {synced} {why}",
+    "description": "The notice when git ignores .hive but a sync service copies it. {synced} and {why} are the sentences about the service and about what .hive holds."
+  },
+  "git.hiveVcs.more": {
+    "defaultMessage": "… and {count, plural, one {# more} other {# more}}",
+    "description": "Last line of a long list of files: how many more are not listed."
+  },
+  "git.hiveVcs.noVcs": {
+    "defaultMessage": "No git repository holds this project; if you make one, Hive excludes .hive there by itself. With another version control system, add .hive to its ignore list.",
+    "description": "The notice for a project in no git repository."
+  },
+  "git.hiveVcs.notExcluded": {
+    "defaultMessage": "Hive adds it to the git repository's .git/info/exclude, but git doesn't ignore it: Hive couldn't write that file, or a .gitignore rule brings .hive back.",
+    "description": "The notice when git does not ignore .hive. Followed by why it matters."
+  },
+  "git.hiveVcs.notExcludedTitle": {
+    "defaultMessage": ".hive isn't excluded from version control",
+    "description": "Title of the notice when the project's .hive isn't kept out of version control. No full stop: the notice adds it."
+  },
+  "git.hiveVcs.otherVcs": {
+    "defaultMessage": "This project is in a {vcs} working copy, which Hive doesn't set up: add .hive to its ignore list.",
+    "description": "The notice for a project kept in another version control system. {vcs} is its name (Subversion, Mercurial…)."
+  },
+  "git.hiveVcs.synced": {
+    "defaultMessage": "{service} copies the project folder, .hive included: exclude .hive in {service} if it lets you, or keep the project in a folder it doesn't sync.",
+    "description": "When the project is in a sync service's folder. {service} is its name (OneDrive, Dropbox…)."
+  },
+  "git.hiveVcs.syncedTitle": {
+    "defaultMessage": ".hive is synced by {service}",
+    "description": "Title of the notice when the project's .hive is in a sync service's folder. {service} is its name (OneDrive, Dropbox…). No full stop: the notice adds it."
+  },
+  "git.hiveVcs.titleSentence": {
+    "defaultMessage": "{title}.",
+    "description": "The .hive notice's title as the first sentence of the notice, in bold: {title} with the full stop your language ends a sentence with."
+  },
+  "git.hiveVcs.trackedDetail": {
+    "defaultMessage": "Excluding .hive keeps new files out of git, but {count, plural, one {this one was committed before, so git still tracks it and commits its changes} other {these were committed before, so git still tracks them and commits their changes}}. Run `git rm -r --cached .hive` in the project folder, then commit: the files stay on disk.{notExcluded, select, yes { Hive couldn't exclude .hive either: a rule in a .gitignore may bring it back.} other {}}",
+    "description": "Under \"n files in .hive are committed to git\". Keep the git command as it is."
+  },
+  "git.hiveVcs.trackedTitle": {
+    "defaultMessage": "{count, plural, one {# file in .hive is committed to git} other {# files in .hive are committed to git}}",
+    "description": "Title of the notice in a project's Overview and Project Settings: files in the project's .hive folder were committed to git. Keep .hive. No full stop: the notice adds it."
+  },
+  "git.hiveVcs.untrack": {
+    "defaultMessage": "Untrack",
+    "description": "Button in the confirmation: stops git tracking .hive's files."
+  },
+  "git.hiveVcs.untrackButton": {
+    "defaultMessage": "Untrack…",
+    "description": "Button in the .hive notice: stops git tracking .hive's files, after a confirmation."
+  },
+  "git.hiveVcs.untrackFailed": {
+    "defaultMessage": "Couldn't untrack .hive",
+    "description": "Title of an error notification."
+  },
+  "git.hiveVcs.untrackMessage": {
+    "defaultMessage": "{count, plural, one {Hive runs git rm --cached on it in {project}, and nothing else: git stops tracking it and stages its removal from the repository. The file stays on disk. Commit afterwards to finish.} other {Hive runs git rm --cached on them in {project}, and nothing else: git stops tracking them and stages their removal from the repository. The files stay on disk. Commit afterwards to finish.}}",
+    "description": "The confirmation before untracking .hive's files, above the list of them. {project} is the project's name. Keep git rm --cached as it is."
+  },
+  "git.hiveVcs.untrackTitle": {
+    "defaultMessage": "{count, plural, one {Untrack this file?} other {Untrack these # files?}}",
+    "description": "Title of the confirmation before Hive stops git tracking files in the project's .hive."
+  },
+  "git.hiveVcs.untracked": {
+    "defaultMessage": "{project}: .hive untracked",
+    "description": "Notification after untracking .hive's files. {project} is the project's name."
+  },
+  "git.hiveVcs.untrackedDetail": {
+    "defaultMessage": "Commit the change to finish (git commit). The files are still on disk.",
+    "description": "Under \"{project}: .hive untracked\". Keep git commit as it is."
+  },
+  "git.hiveVcs.untracking": {
+    "defaultMessage": "Untracking…",
+    "description": "The Untrack button while it runs."
+  },
+  "git.hiveVcs.why": {
+    "defaultMessage": "It holds this computer's sessions, transcript backups and launch settings, which don't belong in commits or shared copies.",
+    "description": "Why .hive should be kept out of version control and sync services: what Hive keeps there. Follows the notice's first sentence."
+  },
+  "git.identity.about": {
+    "defaultMessage": "{hasGlobal, select, yes {Who {project}'s commits are made as, agents' too (git config --local). Leave both empty to use your global identity ({global}). On GitHub, its no-reply address keeps your email private.} other {Who {project}'s commits are made as, agents' too (git config --local). Leave both empty to use your global identity. On GitHub, its no-reply address keeps your email private.}}",
+    "description": "The commit identity form. {project} is the project's name; {global} the global email ({hasGlobal} is no when there is none). Keep git config --local."
+  },
+  "git.identity.email": {
+    "defaultMessage": "Email",
+    "description": "Row of the commit identity table, and a form field."
+  },
+  "git.identity.global": {
+    "defaultMessage": "Global",
+    "description": "Column of the commit identity table: the user's global git setting."
+  },
+  "git.identity.heading": {
+    "defaultMessage": "Commit identity",
+    "description": "Heading in Git → Branches & remotes: who commits are made as."
+  },
+  "git.identity.missing": {
+    "defaultMessage": "Git has no {missing, select, both {user.name or user.email} name {user.name} other {user.email}} for this repository, so commits fail. Set them here (or in your global git config).",
+    "description": "Warning in Git → Branches & remotes → Commit identity. user.name and user.email are git settings: keep them."
+  },
+  "git.identity.name": {
+    "defaultMessage": "Name",
+    "description": "Row of the commit identity table, and a form field."
+  },
+  "git.identity.namePlaceholder": {
+    "defaultMessage": "Your Name",
+    "description": "Placeholder in the commit identity form's name box: an example name."
+  },
+  "git.identity.notSet": {
+    "defaultMessage": "not set",
+    "description": "In the commit identity table: no value there."
+  },
+  "git.identity.public": {
+    "defaultMessage": "Commits pushed to GitHub show {email} to anyone who reads them. GitHub's no-reply address (…@users.noreply.github.com, in GitHub's email settings) keeps your address private.",
+    "description": "Warning in Git → Branches & remotes → Commit identity. {email} is the address commits are made as."
+  },
+  "git.identity.save": {
+    "defaultMessage": "Save",
+    "description": "The commit identity form's button."
+  },
+  "git.identity.saving": {
+    "defaultMessage": "Saving…",
+    "description": "The commit identity form's button while it runs."
+  },
+  "git.identity.set": {
+    "defaultMessage": "Set for this repository…",
+    "description": "Button: opens the form that sets this repository's own commit name and email."
+  },
+  "git.identity.thisRepo": {
+    "defaultMessage": "This repository",
+    "description": "Column of the commit identity table: this repository's own setting."
+  },
+  "git.identity.title": {
+    "defaultMessage": "Commit identity for this repository",
+    "description": "Title of the commit identity form."
+  },
+  "git.identity.used": {
+    "defaultMessage": "Commits use",
+    "description": "Column of the commit identity table: what git uses."
+  },
+  "git.init.button": {
+    "defaultMessage": "Initialise repository…",
+    "description": "Button on the Git tab of a project that is not a git repository: opens the Initialise dialog."
+  },
+  "git.init.cancel": {
+    "defaultMessage": "Cancel",
+    "description": "Button: closes the Initialise dialog without doing anything."
+  },
+  "git.init.close": {
+    "defaultMessage": "Close",
+    "description": "Button: closes the Initialise dialog when it can only say why it cannot be done."
+  },
+  "git.init.commitsAs": {
+    "defaultMessage": "Commits as {name} <{email}>.",
+    "description": "The Initialise dialog, when git already knows who commits: the name and email it will use."
+  },
+  "git.init.committing": {
+    "defaultMessage": "Committing…",
+    "description": "The Make first commit button while it runs."
+  },
+  "git.init.conditional": {
+    "defaultMessage": "Your git config has conditional includes (includeIf), which may set the {missing, select, both {name and email} name {name} other {email}} for this repository. Hive uses what you enter only where they don't, and saves it to this repository's config only, never your global one.",
+    "description": "Under the name and email boxes, when git config has includeIf rules. Keep includeIf."
+  },
+  "git.init.enterEmail": {
+    "defaultMessage": "Enter the email your commits are made as",
+    "description": "Under the Initialise repository dialog while the email git needs is empty."
+  },
+  "git.init.enterName": {
+    "defaultMessage": "Enter the name your commits are made as",
+    "description": "Under the Initialise repository dialog while the name git needs is empty."
+  },
+  "git.init.firstCommitButton": {
+    "defaultMessage": "Make first commit…",
+    "description": "Button on the Git tab of a repository with no commit yet: opens the dialog that makes one."
+  },
+  "git.init.gitignore.dotnet": {
+    "defaultMessage": ".NET",
+    "description": "Initialise repository, Starter .gitignore: for a .NET project. A name: usually kept."
+  },
+  "git.init.gitignore.godot": {
+    "defaultMessage": "Godot",
+    "description": "Initialise repository, Starter .gitignore: for a Godot game. A name: usually kept."
+  },
+  "git.init.gitignore.minimal": {
+    "defaultMessage": "Minimal (OS files, logs)",
+    "description": "Initialise repository, Starter .gitignore: one that leaves out OS and editor files and logs."
+  },
+  "git.init.gitignore.node": {
+    "defaultMessage": "Node",
+    "description": "Initialise repository, Starter .gitignore: for a Node project. A name: usually kept."
+  },
+  "git.init.gitignore.none": {
+    "defaultMessage": "None",
+    "description": "Initialise repository, Starter .gitignore: no .gitignore."
+  },
+  "git.init.gitignore.python": {
+    "defaultMessage": "Python",
+    "description": "Initialise repository, Starter .gitignore: for a Python project. A name: usually kept."
+  },
+  "git.init.gitignoreName": {
+    "defaultMessage": "{choice, select, none {no .gitignore} minimal {a minimal .gitignore} other {a {kind} .gitignore}}",
+    "description": "The starter .gitignore, in what Initialise repository reports it did (\"added a Node .gitignore\"). {kind} is Node, Python, .NET or Godot."
+  },
+  "git.init.initialise": {
+    "defaultMessage": "Initialise",
+    "description": "The dialog's button: makes the folder a git repository."
+  },
+  "git.init.initialising": {
+    "defaultMessage": "Initialising…",
+    "description": "The Initialise button while it runs."
+  },
+  "git.init.kept": {
+    "defaultMessage": "Its own .gitignore is kept.",
+    "description": "The Initialise repository dialog, after what it will do, when the folder has a .gitignore."
+  },
+  "git.init.looking": {
+    "defaultMessage": "Looking at the folder…",
+    "description": "The Initialise dialog while Hive checks the folder."
+  },
+  "git.init.makeFirstCommit": {
+    "defaultMessage": "Make first commit",
+    "description": "The dialog's button: makes the repository's first commit."
+  },
+  "git.init.makes": {
+    "defaultMessage": "Makes {name} a git repository on a branch called main, keeps its .hive out of git, and commits {empty, select, yes {nothing yet (an empty first commit)} other {everything in the folder}} as the first commit, so agents can work in worktrees at once.",
+    "description": "The Initialise repository dialog: what it will do. {name} is the project; {empty} is yes when its folder has nothing to commit. Keep main (the branch name)."
+  },
+  "git.init.namePlaceholder": {
+    "defaultMessage": "Your Name",
+    "description": "Placeholder in the box for the name commits are made as: an example name."
+  },
+  "git.init.nested": {
+    "defaultMessage": "It is inside the git repository in {folder}: a repository inside another is usually a mistake, and that one will no longer see the files here as its own.",
+    "description": "The Initialise repository dialog, when the project's folder is inside another repository. {folder} is that repository's folder."
+  },
+  "git.init.nestedAnyway": {
+    "defaultMessage": "Make a repository of its own inside {folder} anyway",
+    "description": "Check box in the Initialise dialog of a project inside another repository. {folder} is that repository's folder."
+  },
+  "git.init.noIdentity": {
+    "defaultMessage": "Git has no {missing, select, both {name or email} name {name} other {email}} to commit as: Hive saves what you enter to this repository's config only, never your global one.",
+    "description": "Under the name and email boxes, when git has none to commit as."
+  },
+  "git.init.noReply": {
+    "defaultMessage": "On GitHub, its no-reply address keeps your email private.",
+    "description": "After the note under the name and email boxes."
+  },
+  "git.init.ownRepoButton": {
+    "defaultMessage": "Initialise its own repository…",
+    "description": "Button on the Git tab of a project inside another repository: opens the Initialise dialog."
+  },
+  "git.init.resume": {
+    "defaultMessage": "{name} is a git repository with no commits yet, and worktrees need one. This keeps its .hive out of git and commits {empty, select, yes {nothing yet (an empty first commit)} other {everything in the folder}} as the first commit.{gitignore, select, yes { Its own .gitignore is kept.} other {}}",
+    "description": "Make the first commit dialog, for a repository with no commit. {name} is the project; {empty} is yes when its folder has nothing to commit; {gitignore} is yes when it has a .gitignore of its own."
+  },
+  "git.init.starterGitignore": {
+    "defaultMessage": "Starter .gitignore",
+    "description": "Label of the drop-down of starter .gitignore files."
+  },
+  "git.init.title": {
+    "defaultMessage": "Initialise {project} as a git repository",
+    "description": "Title of the Initialise repository dialog. {project} is the project's name."
+  },
+  "git.init.titleResume": {
+    "defaultMessage": "Make the first commit in {project}",
+    "description": "Title of the dialog that makes a repository's first commit. {project} is the project's name."
+  },
+  "git.init.yourEmail": {
+    "defaultMessage": "Your email",
+    "description": "Label of the box for the email commits are made as."
+  },
+  "git.init.yourName": {
+    "defaultMessage": "Your name",
+    "description": "Label of the box for the name commits are made as."
+  },
+  "git.learnMore": {
+    "defaultMessage": "Learn more",
+    "description": "Link or button that opens the user guide's section about this."
+  },
+  "git.newBranch.blocked": {
+    "defaultMessage": "It can't be switched to now: {why}",
+    "description": "After \"A branch at …\" in the New branch form, when switching branch is refused now. {why} says why."
+  },
+  "git.newBranch.button": {
+    "defaultMessage": "New branch…",
+    "description": "Button: opens the New branch form."
+  },
+  "git.newBranch.commitFirst": {
+    "defaultMessage": "Commit something first",
+    "description": "Why New branch… is disabled (its tooltip): there is no commit to start a branch at."
+  },
+  "git.newBranch.create": {
+    "defaultMessage": "Create",
+    "description": "The New branch form's button."
+  },
+  "git.newBranch.failed": {
+    "defaultMessage": "Couldn't create {branch}",
+    "description": "Title of an error notification."
+  },
+  "git.newBranch.message": {
+    "defaultMessage": "{onBranch, select, yes {A branch at {commit}, where {current} is now.} other {A branch at {commit}.}}",
+    "description": "The New branch form. {commit} is the short hash of the commit checked out; {current} the branch there now ({onBranch} is no when HEAD is detached)."
+  },
+  "git.newBranch.noSpaces": {
+    "defaultMessage": "Branch names have no spaces",
+    "description": "Under the New branch form's box."
+  },
+  "git.newBranch.placeholder": {
+    "defaultMessage": "feature/name",
+    "description": "Placeholder in the New branch form's box: an example branch name."
+  },
+  "git.newBranch.switchNow": {
+    "defaultMessage": "Switch to it now",
+    "description": "Check box in the New branch form."
+  },
+  "git.newBranch.tip": {
+    "defaultMessage": "A branch at {commit}",
+    "description": "Tooltip on New branch…. {commit} is the short hash of the commit checked out."
+  },
+  "git.newBranch.title": {
+    "defaultMessage": "New branch",
+    "description": "Title of the form that creates a branch."
+  },
+  "git.parentRepo": {
+    "defaultMessage": "This project is inside the git repository in {folder}, so the Git view only shows it: Hive changes only a project's own repository.",
+    "description": "Banner in the Git tab of a project whose folder is inside another repository (a workspace kept in git). {folder} is that repository's folder."
+  },
+  "git.problem.agentSetup": {
+    "defaultMessage": "Agent Setup",
+    "description": "Button: opens Agent Setup, which checks git and says how to fix it."
+  },
+  "git.problem.cantRead": {
+    "defaultMessage": "{problem}, so Hive can't read this repository.",
+    "description": "The Git tab when git cannot run. {problem} says why, such as \"Git isn't installed (or isn't on Hive's PATH)\"."
+  },
+  "git.pull.busy": {
+    "defaultMessage": "Pulling…",
+    "description": "The Pull button while it runs."
+  },
+  "git.pull.button": {
+    "defaultMessage": "Pull",
+    "description": "Button: pulls the branch from the remote branch it tracks."
+  },
+  "git.pull.detached": {
+    "defaultMessage": "HEAD is detached: switch to a branch to pull.",
+    "description": "Why Pull is disabled (its tooltip)."
+  },
+  "git.pull.failed": {
+    "defaultMessage": "Couldn't pull",
+    "description": "Title of an error notification."
+  },
+  "git.pull.noUpstream": {
+    "defaultMessage": "{branch} tracks no remote branch to pull from.",
+    "description": "Why Pull is disabled (its tooltip)."
+  },
+  "git.pull.state": {
+    "defaultMessage": "Git is {state, select, merge {merging} rebase {rebasing} cherrypick {cherry-picking} revert {reverting} other {bisecting}}: finish or abort it first.",
+    "description": "Why Pull is disabled (its tooltip): git has an operation in progress in the project folder."
+  },
+  "git.pull.tip": {
+    "defaultMessage": "Fetch {upstream} and bring {branch} up to it (only when that needs no merge)",
+    "description": "Tooltip on the Pull button."
+  },
+  "git.push.busy": {
+    "defaultMessage": "Pushing…",
+    "description": "The Push button while it runs."
+  },
+  "git.push.button": {
+    "defaultMessage": "Push",
+    "description": "Button: pushes the branch to a remote."
+  },
+  "git.push.detached": {
+    "defaultMessage": "HEAD is detached: switch to a branch to push.",
+    "description": "Why Push is disabled (its tooltip)."
+  },
+  "git.push.failed": {
+    "defaultMessage": "Couldn't push {branch}",
+    "description": "Title of an error notification."
+  },
+  "git.push.message": {
+    "defaultMessage": "{branch} tracks no remote branch yet. Push it, and track it from now on:",
+    "description": "The Push dialog, above the drop-down of remotes."
+  },
+  "git.push.noCommits": {
+    "defaultMessage": "No commits to push yet.",
+    "description": "Why Push is disabled (its tooltip)."
+  },
+  "git.push.noRemote": {
+    "defaultMessage": "Add a remote to push to.",
+    "description": "Why Push is disabled (its tooltip)."
+  },
+  "git.push.remote": {
+    "defaultMessage": "Remote",
+    "description": "Label of the Push dialog's drop-down of remotes."
+  },
+  "git.push.tipTo": {
+    "defaultMessage": "Push {branch} to {upstream} (never forced)",
+    "description": "Tooltip on the Push button."
+  },
+  "git.push.tipTrack": {
+    "defaultMessage": "Push {branch} to a remote and track it",
+    "description": "Tooltip on the Push button, when the branch tracks no remote branch yet."
+  },
+  "git.push.title": {
+    "defaultMessage": "Push {branch}",
+    "description": "Title of the dialog that pushes a branch that tracks no remote branch yet."
+  },
+  "git.reading": {
+    "defaultMessage": "Reading git…",
+    "description": "A Git tab section while it reads git for the first time."
+  },
+  "git.remote.change": {
+    "defaultMessage": "Change",
+    "description": "The button of the form that changes a remote's URL."
+  },
+  "git.remote.changeFailed": {
+    "defaultMessage": "Couldn't change {remote}'s URL",
+    "description": "Title of an error notification."
+  },
+  "git.remote.changeTitle": {
+    "defaultMessage": "Change {remote}'s URL",
+    "description": "Title of the form that changes a remote's URL, and the tooltip of its button. {remote} is its name, such as origin."
+  },
+  "git.remotes.add": {
+    "defaultMessage": "Add remote…",
+    "description": "Button: opens the Add a remote form."
+  },
+  "git.remotes.addAbout": {
+    "defaultMessage": "A repository to fetch from and push to: a URL (https://github.com/you/repo.git, git@github.com:you/repo.git) or a folder.",
+    "description": "The Add a remote form. Keep the example URLs."
+  },
+  "git.remotes.addButton": {
+    "defaultMessage": "Add",
+    "description": "The Add a remote form's button."
+  },
+  "git.remotes.addTitle": {
+    "defaultMessage": "Add a remote",
+    "description": "Title of the Add a remote form."
+  },
+  "git.remotes.adding": {
+    "defaultMessage": "Adding…",
+    "description": "The Add a remote form's button while it runs."
+  },
+  "git.remotes.heading": {
+    "defaultMessage": "Remotes",
+    "description": "Heading in Git → Branches & remotes, followed by how many there are."
+  },
+  "git.remotes.none": {
+    "defaultMessage": "No remotes: this repository is only on this computer. Add one (a GitHub repository's URL, say) to push to it.",
+    "description": "Git → Branches & remotes of a repository with no remote."
+  },
+  "git.remotes.pushesTo": {
+    "defaultMessage": "(pushes to {url})",
+    "description": "After a remote's URL, when it pushes to another URL."
+  },
+  "git.remotes.url": {
+    "defaultMessage": "URL",
+    "description": "Field of the Add a remote form."
+  },
+  "git.retry": {
+    "defaultMessage": "Retry",
+    "description": "Button: reads git again."
+  },
+  "git.section.branches": {
+    "defaultMessage": "Branches & remotes",
+    "description": "The Git tab's section with the branch, branches, remotes, worktrees and commit identity."
+  },
+  "git.section.changes": {
+    "defaultMessage": "Changes",
+    "description": "The Git tab's section with the uncommitted changes."
+  },
+  "git.section.history": {
+    "defaultMessage": "History",
+    "description": "The Git tab's section with the last commits and the tags."
+  },
+  "git.setup.howTo": {
+    "defaultMessage": "To use them, make it a repository: Initialise makes it one on a branch called main, keeps its .hive out of git, and commits its files, so agents can work in worktrees at once. Then add a remote under Branches & remotes to push it.",
+    "description": "The Git tab of a project that isn't a git repository. Initialise and Branches & remotes are a button and a section: keep them as they are named there. Keep main (the branch name)."
+  },
+  "git.setup.learnMore": {
+    "defaultMessage": "Learn more",
+    "description": "Link on the Git tab of a project that isn't a git repository: opens the user guide's Git view section."
+  },
+  "git.setup.notRepo": {
+    "defaultMessage": "{project} isn't a git repository",
+    "description": "Heading on the Git tab of a project that isn't a git repository. {project} is its name."
+  },
+  "git.setup.withoutGit": {
+    "defaultMessage": "Without git, agents work in the project folder, and Hive has no worktrees, merging or Git view for it.",
+    "description": "The Git tab of a project that isn't a git repository."
+  },
+  "git.state": {
+    "defaultMessage": "{state, select, merge {merging} rebase {rebasing} cherrypick {cherry-picking} revert {reverting} other {bisecting}}",
+    "description": "What git has in progress in the project folder, in the status bar and the Git tab (badge), lower case: \"main · merging\"."
+  },
+  "git.status.noUpstream": {
+    "defaultMessage": "no upstream",
+    "description": "Status bar, after the branch: it tracks no remote branch (\"main · no upstream\")."
+  },
+  "git.statusBar.tip": {
+    "defaultMessage": "Git branch of the selected project",
+    "description": "Tooltip on the status bar's git item before git has been read."
+  },
+  "git.switch.button": {
+    "defaultMessage": "Switch",
+    "description": "Button: switches the project folder to that branch."
+  },
+  "git.switch.detachedHead": {
+    "defaultMessage": "its detached HEAD",
+    "description": "In \"The project folder leaves {current} for {branch}…\", when no branch is checked out."
+  },
+  "git.switch.failed": {
+    "defaultMessage": "Couldn't switch to {branch}",
+    "description": "Title of an error notification."
+  },
+  "git.switch.idle": {
+    "defaultMessage": "{agents} {count, plural, one {has a session in the project folder: it finds {branch} on the next turn.} other {have sessions in the project folder: they find {branch} on the next turn.}}",
+    "description": "Under the confirmation before switching branch: agents whose sessions run in the project folder. {agents} is their names as a list."
+  },
+  "git.switch.message": {
+    "defaultMessage": "The project folder leaves {current} for {branch}. Uncommitted changes come along when they don't clash with {branch}; if they do, git refuses and nothing changes.",
+    "description": "The confirmation before switching branch. {current} is the branch it is on now (or \"its detached HEAD\")."
+  },
+  "git.switch.tip": {
+    "defaultMessage": "Switch the project folder to {branch}",
+    "description": "Tooltip on a branch's Switch button."
+  },
+  "git.switch.title": {
+    "defaultMessage": "Switch {project} to {branch}?",
+    "description": "Title of the confirmation before switching the project folder's branch."
+  },
+  "git.tab.sections": {
+    "defaultMessage": "Git",
+    "description": "Accessible name of the Git tab's row of sections (Changes, History, Branches & remotes)."
+  },
+  "git.tags.about": {
+    "defaultMessage": "{onBranch, select, yes {Tags the commit the project folder has checked out ({branch}). With a message, it's an annotated tag.} other {Tags the commit the project folder has checked out. With a message, it's an annotated tag.}}",
+    "description": "The Create tag form. {branch} is the branch checked out ({onBranch} is no when HEAD is detached)."
+  },
+  "git.tags.busy": {
+    "defaultMessage": "Tagging…",
+    "description": "The Create tag form's button while it runs."
+  },
+  "git.tags.create": {
+    "defaultMessage": "Create tag…",
+    "description": "Button in Git → History: opens the form that tags the commit checked out."
+  },
+  "git.tags.createButton": {
+    "defaultMessage": "Create tag",
+    "description": "The Create tag form's button."
+  },
+  "git.tags.dontPush": {
+    "defaultMessage": "Don't push",
+    "description": "The first choice of the Create tag form's Push it to drop-down."
+  },
+  "git.tags.heading": {
+    "defaultMessage": "Tags",
+    "description": "Heading in Git → History, followed by how many tags there are."
+  },
+  "git.tags.message": {
+    "defaultMessage": "Message",
+    "description": "Field of the Create tag form."
+  },
+  "git.tags.noSpaces": {
+    "defaultMessage": "Tag names have no spaces",
+    "description": "Under the Create tag form's name box."
+  },
+  "git.tags.none": {
+    "defaultMessage": "No tags. Create tag… tags the commit the project folder has checked out.",
+    "description": "Git → History when there are no tags. Create tag… is the button of that name."
+  },
+  "git.tags.older": {
+    "defaultMessage": "and {count} older",
+    "description": "Under the tags listed in Git → History: how many older tags are not listed."
+  },
+  "git.tags.optional": {
+    "defaultMessage": "Optional",
+    "description": "Placeholder in the Create tag form's message box."
+  },
+  "git.tags.pushTo": {
+    "defaultMessage": "Push it to",
+    "description": "Field of the Create tag form: the remote to push the tag to."
+  },
+  "git.tags.title": {
+    "defaultMessage": "Tag {commit}",
+    "description": "Title of the Create tag form. {commit} is the short hash of the commit checked out."
+  },
+  "git.tags.titleNoCommit": {
+    "defaultMessage": "Tag the commit",
+    "description": "Title of the Create tag form before the commit is known."
+  },
+  "git.tip.click": {
+    "defaultMessage": "Click for Git → Branches & remotes.",
+    "description": "Last line of the status bar's git tooltip. Git → Branches & remotes is the tab and its section: keep them as they are named there."
+  },
+  "git.tip.detached": {
+    "defaultMessage": "HEAD is detached at {commit}",
+    "description": "First line of the status bar's git tooltip. {commit} is a short commit hash."
+  },
+  "git.tip.fetched": {
+    "defaultMessage": "As of the last fetch, {when}. Hive never fetches by itself.",
+    "description": "The status bar's git tooltip. {when} is how long ago, such as \"5m ago\"."
+  },
+  "git.tip.gone": {
+    "defaultMessage": "It tracked {upstream}, which is gone from the remote.",
+    "description": "The status bar's git tooltip. {upstream} is the remote branch, such as origin/main."
+  },
+  "git.tip.neverFetched": {
+    "defaultMessage": "Never fetched: Hive never fetches by itself.",
+    "description": "The status bar's git tooltip, when the repository was never fetched."
+  },
+  "git.tip.noCommits": {
+    "defaultMessage": "No commits yet",
+    "description": "First line of the status bar's git tooltip, in a repository with no commit yet."
+  },
+  "git.tip.noRemotes": {
+    "defaultMessage": "No remotes.",
+    "description": "The status bar's git tooltip: the repository has no remote."
+  },
+  "git.tip.noTracking": {
+    "defaultMessage": "It tracks no remote branch: Push sets one.",
+    "description": "The status bar's git tooltip. Push is the Git tab's button."
+  },
+  "git.tip.on": {
+    "defaultMessage": "On {branch}",
+    "description": "First line of the status bar's git tooltip: the branch checked out."
+  },
+  "git.tip.state": {
+    "defaultMessage": "Git is {state, select, merge {merging} rebase {rebasing} cherrypick {cherry-picking} revert {reverting} other {bisecting}}: finish or abort it in a terminal.",
+    "description": "The status bar's git tooltip, while git has an operation in progress in the project folder."
+  },
+  "git.tip.tracks": {
+    "defaultMessage": "Tracks {upstream}: {ahead, plural, =0 {nothing} one {# commit} other {# commits}} to push, {behind, plural, =0 {nothing} one {# commit} other {# commits}} to pull.",
+    "description": "The status bar's git tooltip. {upstream} is the remote branch, such as origin/main; the counts are as of the last fetch."
+  },
+  "git.tool.fixMissing": {
+    "defaultMessage": "Install Git for Windows ({min} or later), or add the folder holding git.exe to your PATH, then Check again in Agent Setup (no need to restart Hive).",
+    "description": "How to fix git missing. {min} is a git version; Check again is a button in Agent Setup."
+  },
+  "git.tool.fixOld": {
+    "defaultMessage": "Update Git for Windows to {min} or later, then Check again in Agent Setup.",
+    "description": "How to fix a git that is too old. {min} is a git version; Check again is a button in Agent Setup."
+  },
+  "git.tool.missing": {
+    "defaultMessage": "Git isn't installed (or isn't on Hive's PATH)",
+    "description": "Said wherever git is needed when Hive cannot run git. No full stop: some places add more after it."
+  },
+  "git.tool.oldLoses": {
+    "defaultMessage": "{lost, select, recent {With Git {version}: merging can't check for conflicts before it starts (the merge still stops at one); squash-merged branches still count as unmerged, so Remove All and loading a template keep their worktrees; the merge-ready skill can't check a branch for conflicts.} older {With Git {version}: merging can't check for conflicts before it starts (the merge still stops at one); squash-merged branches still count as unmerged, so Remove All and loading a template keep their worktrees; the merge-ready skill can't check a branch for conflicts; moving a workspace can't repair its worktrees.} other {With Git {version}: merging can't check for conflicts before it starts (the merge still stops at one); squash-merged branches still count as unmerged, so Remove All and loading a template keep their worktrees; the merge-ready skill can't check a branch for conflicts; Remove All and loading a template keep the branches of the worktrees they remove; moving a workspace can't repair its worktrees.}}",
+    "description": "Agent Setup: what does not work with an older git that still runs. {version} is its version; {lost} says how old it is (the older, the more is listed). Remove All and merge-ready are names in Hive."
+  },
+  "git.tool.tooOld": {
+    "defaultMessage": "Git {version} is too old for Hive (it needs {min} or later)",
+    "description": "Said wherever git is needed when the installed git is too old to run. {version} and {min} are git versions. No full stop: some places add more after it."
+  },
+  "git.tool.tooOldToRun": {
+    "defaultMessage": "Hive's git commands fail with Git {version}: worktrees, merging, the Git tab and the unmerged counts don't work.",
+    "description": "Agent Setup, for a git too old for any of Hive's git commands. {version} is its version."
+  },
+  "git.upstream.gone": {
+    "defaultMessage": "upstream gone",
+    "description": "In place of the ahead/behind counts: the remote branch a branch tracked was deleted on the remote."
+  },
+  "git.validate.enterName": {
+    "defaultMessage": "Enter a name",
+    "description": "Under a form's name box (a remote, a branch, a tag) while it is empty."
+  },
+  "git.validate.enterUrl": {
+    "defaultMessage": "Enter a URL",
+    "description": "Under a remote's URL box while it is empty."
+  },
+  "git.validate.nameLine": {
+    "defaultMessage": "A name is one line, without < or >",
+    "description": "Under a commit identity form when the name has a line break, < or >."
+  },
+  "git.validate.notEmail": {
+    "defaultMessage": "That isn't an email address",
+    "description": "Under a commit identity form."
+  },
+  "git.validate.notUrl": {
+    "defaultMessage": "That isn't a URL or path",
+    "description": "Under a remote's URL box."
+  },
+  "git.validate.remoteName": {
+    "defaultMessage": "Use letters, digits, \".\", \"_\" and \"-\"",
+    "description": "Under Add a remote's name box when the name has other characters."
+  },
+  "git.validate.wholeUrl": {
+    "defaultMessage": "Type the whole URL: its password or token is hidden here",
+    "description": "Under a remote's URL box when it still has ••• for a hidden password."
+  },
+  "git.worktree.agent": {
+    "defaultMessage": "{agent}'s worktree",
+    "description": "A worktree that belongs to an agent. {agent} is the agent's name."
+  },
+  "git.worktree.badge": {
+    "defaultMessage": "worktree",
+    "description": "Badge on a branch checked out in a worktree that isn't an agent's."
+  },
+  "git.worktree.unused": {
+    "defaultMessage": "Unused worktree",
+    "description": "A worktree of the repository that belongs to no agent."
+  },
+  "git.worktrees.changes": {
+    "defaultMessage": "Changes",
+    "description": "Button on a worktree's row: shows its changes in Git → Changes."
+  },
+  "git.worktrees.heading": {
+    "defaultMessage": "Worktrees",
+    "description": "Heading in Git → Branches & remotes, followed by how many there are."
+  },
+  "git.worktrees.readOnly": {
+    "defaultMessage": "Read-only here: an agent's work comes into the project folder through Merge.",
+    "description": "Under the Worktrees heading. Merge is the name of the action that brings an agent's branch in."
+  }
+}

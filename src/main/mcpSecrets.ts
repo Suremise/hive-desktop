@@ -1,4 +1,6 @@
 import type { McpServerDef } from '../shared/types'
+import { tr } from '../shared/i18n'
+import { msg } from '../shared/i18n/msg'
 
 /** Spotting literal secrets in MCP server definitions (they should be ${ENV} references). */
 
@@ -10,10 +12,15 @@ function isEnvRef(v: string): boolean {
   return /^\$\{[^}]+\}$/.test(t) || /^\$[A-Z_][A-Z0-9_]*$/.test(t)
 }
 
-/** Flags values that look like literal secrets rather than ${ENV} references. */
+const M = {
+  named: msg({ id: 'assistant.mcpSecret.named', defaultMessage: '{where, select, header {header} other {env}} "{key}" looks like a literal secret. Use an environment variable reference such as "{ref}".', description: "A warning on an MCP server's definition: an environment variable (env) or HTTP header of that name holds what looks like a password or token. Keep env and header as they are (the definition's fields); {ref} is the reference to use instead, such as ${GITHUB_TOKEN}." }),
+  argument: msg({ id: 'assistant.mcpSecret.argument', defaultMessage: 'An argument starting "{start}…" looks like a literal secret.', description: "A warning on an MCP server's definition: one of its command's arguments looks like a password or token. {start} is its first characters." })
+}
+
+/** Flags values that look like literal secrets rather than ${ENV} references (window text: in Hive's language). */
 export function findSecretWarnings(def: McpServerDef): string[] {
   const warnings: string[] = []
-  const check = (where: string, key: string, raw: unknown): void => {
+  const check = (where: 'env' | 'header', key: string, raw: unknown): void => {
     if (typeof raw !== 'string') return
     const value = raw.replace(/^Bearer\s+/i, '').trim()
     if (!value || isEnvRef(value) || value.includes('${')) return
@@ -21,13 +28,13 @@ export function findSecretWarnings(def: McpServerDef): string[] {
     if (/_(FILE|PATH|DIR)$/i.test(key)) return
     if (SECRET_VALUE.test(value) || (SECRET_KEY.test(key) && value.length >= 8)) {
       const envName = key.toUpperCase().replace(/[^A-Z0-9]/g, '_')
-      warnings.push(`${where} "${key}" looks like a literal secret. Use an environment variable reference such as "\${${envName}}".`)
+      warnings.push(tr(M.named, { where, key, ref: `\${${envName}}` }))
     }
   }
   for (const [k, v] of Object.entries(def.env ?? {})) check('env', k, v)
   for (const [k, v] of Object.entries(def.headers ?? {})) check('header', k, v)
   for (const a of def.args ?? []) {
-    if (typeof a === 'string' && SECRET_VALUE.test(a.trim())) warnings.push(`An argument starting "${a.slice(0, 6)}…" looks like a literal secret.`)
+    if (typeof a === 'string' && SECRET_VALUE.test(a.trim())) warnings.push(tr(M.argument, { start: a.slice(0, 6) }))
   }
   return warnings
 }
