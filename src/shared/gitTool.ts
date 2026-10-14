@@ -1,5 +1,6 @@
 // Whether git itself can run, and what to tell the user when it can't (#346): shared by the main process, the window and their tests.
 import { msg, tr } from './i18n'
+import type { Text } from './advanced'
 
 /**
  * Git as Hive found it. `missing`: no git on Hive's PATH (or it failed to start); `old`: older than GIT_MIN; `unknown`:
@@ -82,6 +83,16 @@ export function gitProblemText(t: GitTool | null | undefined): string | null {
 export function gitProblemEnglish(t: GitTool | null | undefined): string | null {
   if (t?.state === 'missing') return M.missing.defaultMessage
   if (gitUnusable(t)) return M.tooOld.defaultMessage.replace('{version}', t!.version!).replace('{min}', GIT_MIN)
+  return null
+}
+
+/**
+ * The same as text as data (#848), for errors both audiences read: formatted in English for agents and in the window's
+ * language for the window (a HiveError's value, shared/advanced.ts `Text`). Null when git runs.
+ */
+export function gitProblemData(t: GitTool | null | undefined): Text | null {
+  if (t?.state === 'missing') return M.missing
+  if (gitUnusable(t)) return { m: M.tooOld, values: { version: t!.version!, min: GIT_MIN } }
   return null
 }
 

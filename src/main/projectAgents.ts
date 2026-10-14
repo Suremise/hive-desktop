@@ -19,7 +19,11 @@ import { endReviews, releaseAgentCards } from './tasks'
 import { laneAgentRemoved } from './lanes'
 import { workspace, workspaceOf } from './workspace'
 import * as wt from './worktrees'
-import { gitProblem } from './gitTool'
+import { gitProblem, gitTool } from './gitTool'
+import { gitProblemData } from '../shared/gitTool'
+import { englishText, listOf, shownText, withValues, type Text } from '../shared/advanced'
+import { msg, tr } from '../shared/i18n'
+import { capturedText, HiveError, hiveError, shownError } from './hiveError'
 import { providerService } from './providerService'
 import { assertNameFree, withAgentNames, workspaceAgents } from './agentNames'
 import { sameAgentName } from '../shared/agentNames'
@@ -28,6 +32,22 @@ import { AGENTS_PER_PROJECT } from '../shared/advanced'
 import { advanced } from './advanced'
 
 const log = createLogger('agents')
+
+/**
+ * A project's agents' refusals (#848, E10d of #677) are HiveErrors: the window reads them in its language, agents (the
+ * Agent API's add and change agent) in English, as before. Why an unused worktree isn't reused is text as data: English
+ * for the Agent API (`notReused`), the window's language for the window (`notReusedText`, the Add Agent dialog's look).
+ */
+const M = {
+  noAgent: msg({ id: 'worktrees.agent.gone', defaultMessage: 'That agent no longer exists.', description: 'An error: the agent being changed was removed meanwhile.' }),
+  sharedTree: msg({ id: 'worktrees.agent.sharedTree', defaultMessage: 'Another agent already works in that worktree.', description: 'An error: an agent was to be added in a worktree another agent of the project already works in.' }),
+  unknownProvider: msg({ id: 'worktrees.agent.unknownProvider', defaultMessage: 'Unknown provider "{provider}".', description: 'An error: {provider} is not a coding-agent CLI this Hive knows (Claude Code, Codex…).' }),
+  cantCheckAgainst: msg({ id: 'worktrees.reuse.cantCheck', defaultMessage: "git couldn't check it against {base}", description: "Why an unused worktree isn't reused for a new agent: git couldn't check whether it is merged into the branch {base}. A clause, lower case." }),
+  notChecked: msg({ id: 'worktrees.reuse.notChecked', defaultMessage: 'not checked', description: "Why an unused worktree isn't reused for a new agent: it wasn't checked. A clause, lower case." })
+}
+
+/** A shared helper's text for the window (`agentLimitText`, `mergeBlocked`, given the `tr` capturedText passes), as a HiveError. */
+const helperError = (fn: Parameters<typeof capturedText>[0]): HiveError => new HiveError(capturedText(fn)!)
 
 /** Branches and worktrees for the Add Agent dialog. */
 export async function gitInfo(projectPath: string): Promise<ProjectGitInfo> {
@@ -67,7 +87,7 @@ const worktreeKey = placeKey
 export function reserveForRemoval(path: string): () => void {
   const key = worktreeKey(path)
   const was = removals.get(key)
-  if (was && was.end === undefined) throw new Error('That worktree is already being removed or merged.')
+  if (was && was.end === undefined) throw hiveError(msg({ id: 'worktrees.agent.removing', defaultMessage: 'That worktree is already being removed or merged.', description: 'An error: the worktree is being removed or merged by another action right now.' }))
   const entry: { start: number; end?: number } = { start: ++removalClock }
   removals.delete(key)
   removals.set(key, entry)
@@ -130,12 +150,12 @@ export async function addAgent(projectPath: string, opts: AddAgentOptions): Prom
   const cfg = await workspace.projectConfig(projectPath)
   const agents = projectAgents(cfg)
   const limit = agentLimit(projectPath)
-  if (agents.length >= limit) throw new Error(agentLimitText(limit))
+  if (agents.length >= limit) throw helperError((t) => agentLimitText(limit, t))
   // Unique across the workspace (#702): the default "Agent n" too, numbered past the other projects' names.
   const everyone = await workspaceAgents(projectPath)
   let n = agents.length + 1
-  while (everyone.some((a) => sameAgentName(a.name, `Agent ${n}`))) n++
-  const name = opts.name?.trim() || `Agent ${n}`
+  while (everyone.some((a) => sameAgentName(a.name, `Agent ${n}`))) n++ // i18n-ignore: the default agent name, kept as it is (agents address each other by it)
+  const name = opts.name?.trim() || `Agent ${n}` // i18n-ignore: the default agent name, kept as it is (agents address each other by it)
   // Before a worktree is made for it, then again with the write (below).
   await assertNameFree(projectPath, name)
   // Before the worktrees are looked at: a removal since then refuses the claim (#289).
@@ -149,11 +169,11 @@ export async function addAgent(projectPath: string, opts: AddAgentOptions): Prom
         const list = projectAgents(now)
         // The limit as it is now: Settings may have lowered it since the check above.
         const max = agentLimit(projectPath)
-        if (list.length >= max) throw new Error(agentLimitText(max))
-        if (list.some((a) => sameAgentName(a.name, name))) throw new Error(`There is already an agent called "${name}".`)
+        if (list.length >= max) throw helperError((t) => agentLimitText(max, t))
+        if (list.some((a) => sameAgentName(a.name, name))) throw hiveError(msg({ id: 'worktrees.agent.nameTaken', defaultMessage: 'There is already an agent called "{name}".', description: 'An error: the project already has an agent with the name {name}.' }), { name })
         const wtPath = def.worktree && placeKey(def.worktree.path)
-        if (wtPath && list.some((a) => a.worktree && placeKey(a.worktree.path) === wtPath)) throw new Error('Another agent already works in that worktree.')
-        if (def.worktree && (removedSince(def.worktree.path, mark) || !existsSync(def.worktree.path))) throw new Error('That worktree is being removed, or was just removed.')
+        if (wtPath && list.some((a) => a.worktree && placeKey(a.worktree.path) === wtPath)) throw hiveError(M.sharedTree)
+        if (def.worktree && (removedSince(def.worktree.path, mark) || !existsSync(def.worktree.path))) throw hiveError(msg({ id: 'worktrees.agent.treeRemoved', defaultMessage: 'That worktree is being removed, or was just removed.', description: "An error: the worktree a new agent was to work in is being removed, or was removed while it was being added." }))
         // An existing worktree whose setup never ran runs it first (#289), one reused for a new one too (#456).
         const pending = opts.location === 'existing-worktree' || reuse?.reused ? takePendingSetup(now, def) : null
         // An automatic layout follows the agents, so the new one shows; with one chosen by hand, a full page sends it to the next (#134).
@@ -170,12 +190,15 @@ export async function addAgent(projectPath: string, opts: AddAgentOptions): Prom
 }
 
 /** Whether a worktree on `branch` is merged into `base` (a squash merge counting) and clean: its commits then, or why not. */
-async function reuseCheck(projectPath: string, path: string, branch: string, base: string): Promise<{ tip: string; baseTip: string } | { why: string }> {
+async function reuseCheck(projectPath: string, path: string, branch: string, base: string): Promise<{ tip: string; baseTip: string } | { why: Text }> {
   const [tip, baseTip] = await Promise.all([wt.tipOf(projectPath, branch), wt.tipOf(projectPath, base)])
   const [ahead, dirty] = tip && baseTip ? await Promise.all([wt.unmergedCommits(projectPath, baseTip, tip), wt.dirtyCount(path)]) : [null, null]
-  if (!tip || !baseTip || ahead === null || dirty === null) return { why: gitProblem() ?? `git couldn't check it against ${base}` }
-  const why = [ahead ? `${ahead} commit${ahead === 1 ? '' : 's'} not merged into ${base}` : '', dirty ? `${dirty} uncommitted file${dirty === 1 ? '' : 's'}` : ''].filter(Boolean)
-  return why.length ? { why: why.join(' and ') } : { tip, baseTip }
+  if (!tip || !baseTip || ahead === null || dirty === null) return { why: gitProblemData(gitTool()) ?? withValues(M.cantCheckAgainst, { base }) }
+  const why: Text[] = [
+    ...(ahead ? [withValues(msg({ id: 'worktrees.reuse.notMerged', defaultMessage: '{n, plural, one {# commit} other {# commits}} not merged into {base}', description: "Why an unused worktree isn't reused for a new agent: commits on its branch that the branch {base} doesn't have. A clause, lower case; it may be joined with the uncommitted files in a list." }), { n: ahead, base })] : []),
+    ...(dirty ? [withValues(msg({ id: 'worktrees.reuse.uncommitted', defaultMessage: '{n, plural, one {# uncommitted file} other {# uncommitted files}}', description: "Why an unused worktree isn't reused for a new agent: files changed in it and not committed. A clause, lower case; it may be joined with the unmerged commits in a list." }), { n: dirty })] : [])
+  ]
+  return why.length ? { why: why.length === 1 ? why[0] : listOf(why) } : { tip, baseTip }
 }
 
 /**
@@ -214,6 +237,15 @@ async function recordSpace(projectPath: string, space: string): Promise<void> {
  * form first. Null when there is none.
  */
 export async function matchingWorktree(projectPath: string, branch: string, base: string, others: readonly AgentDef[], name?: string): Promise<WorktreeMatch | null> {
+  const m = await matchingTree(projectPath, branch, base, others, name)
+  if (!m) return null
+  const { whyText, ...match } = m
+  // The Add Agent dialog's look: the window's.
+  return whyText ? { ...match, why: shownText(whyText) } : match
+}
+
+/** `matchingWorktree`, with why it isn't reusable as text as data (for a reuse's note, in English and the window's language). */
+async function matchingTree(projectPath: string, branch: string, base: string, others: readonly AgentDef[], name?: string): Promise<(Omit<WorktreeMatch, 'why'> & { whyText?: Text }) | null> {
   const root = placeKey(join(workspaceOf(projectPath).worktreesRoot, basename(projectPath)))
   const used = new Set(others.flatMap((a) => (a.worktree ? [placeKey(a.worktree.path)] : [])))
   const listed = (await wt.listWorktrees(projectPath)).filter((x) => !samePlace(x.path, projectPath) && placeKey(dirname(x.path)) === root && !used.has(placeKey(x.path)) && existsSync(x.path))
@@ -222,7 +254,7 @@ export async function matchingWorktree(projectPath: string, branch: string, base
     .find((x) => !!x)
   if (!w?.branch) return null
   const checked = await reuseCheck(projectPath, w.path, w.branch, base)
-  return { path: w.path, branch: w.branch, base, reusable: !('why' in checked), ...('why' in checked ? { why: checked.why } : {}) }
+  return { path: w.path, branch: w.branch, base, reusable: !('why' in checked), ...('why' in checked ? { whyText: checked.why } : {}) }
 }
 
 /** The Add Agent dialog's look before adding (#456): the unused worktree a new one on `branch` from `base` would reuse. */
@@ -239,24 +271,24 @@ const bringingUp = new Set<string>()
  * index, HEAD or branch), or a process in it. Windows refuses to rename a folder while a process has its working folder,
  * or a file open, anywhere in it, so Hive renames it aside and back; when that fails, or Hive can't tell, it counts as used.
  */
-async function inUse(path: string, branch: string): Promise<string | null> {
+async function inUse(path: string, branch: string): Promise<Text | null> {
   // Where git itself keeps each lock (the branch's and packed-refs' in the project's common git folder).
   const locks = ['index.lock', 'HEAD.lock', `refs/heads/${branch}.lock`, 'packed-refs.lock']
   const where = await git(path, ['rev-parse', '--path-format=absolute', ...locks.flatMap((l) => ['--git-path', l])])
   const files = where.ok ? where.out.split(/\r?\n/).filter(Boolean) : []
-  if (files.length !== locks.length) return gitProblem() ?? "git couldn't read it"
-  if (files.some((f) => existsSync(f))) return 'git is busy in it'
+  if (files.length !== locks.length) return gitProblemData(gitTool()) ?? msg({ id: 'worktrees.reuse.unreadable', defaultMessage: "git couldn't read it", description: "Why an unused worktree isn't reused for a new agent: git couldn't read where its locks are. A clause, lower case." })
+  if (files.some((f) => existsSync(f))) return msg({ id: 'worktrees.reuse.gitBusy', defaultMessage: 'git is busy in it', description: "Why an unused worktree isn't reused for a new agent: git is working in it (a lock file). A clause, lower case." })
   const aside = `${path}.hive-${randomBytes(4).toString('hex')}`
   try {
     await rename(path, aside)
   } catch {
-    return 'a program is using it'
+    return msg({ id: 'worktrees.reuse.inUse', defaultMessage: 'a program is using it', description: "Why an unused worktree isn't reused for a new agent: a program has it open (Windows won't let it be moved). A clause, lower case." })
   }
   try {
     await rename(aside, path)
   } catch (err) {
     log.warn(`Could not move ${userText(aside)} back to ${userText(path)}`, err)
-    throw new Error(`Hive moved ${path} aside to check it and couldn't move it back: it is at ${aside}.`, { cause: err })
+    throw hiveError(msg({ id: 'worktrees.reuse.movedAside', defaultMessage: "Hive moved {folder} aside to check it and couldn't move it back: it is at {aside}.", description: "An error: to check nothing used an unused worktree, Hive renamed its folder {folder} and couldn't rename it back; it is now at {aside}." }), { folder: path, aside }, { cause: err })
   }
   return null
 }
@@ -268,10 +300,10 @@ async function inUse(path: string, branch: string): Promise<string | null> {
  * it isn't reused; else `upTo` (the commit, when it moved) and `setup` (a lockfile changed, so the project's worktree
  * setup runs again).
  */
-async function bringUp(projectPath: string, path: string, branch: string, base: string): Promise<{ upTo?: string; setup: boolean } | { why: string }> {
+async function bringUp(projectPath: string, path: string, branch: string, base: string): Promise<{ upTo?: string; setup: boolean } | { why: Text }> {
   const key = placeKey(path)
-  if (beingRemoved(path)) return { why: 'it is being removed or merged' }
-  if (bringingUp.has(key)) return { why: 'another agent is taking it' }
+  if (beingRemoved(path)) return { why: msg({ id: 'worktrees.reuse.beingRemoved', defaultMessage: 'it is being removed or merged', description: "Why an unused worktree isn't reused for a new agent: it is being removed or merged right now. A clause, lower case." }) }
+  if (bringingUp.has(key)) return { why: msg({ id: 'worktrees.reuse.taken', defaultMessage: 'another agent is taking it', description: "Why an unused worktree isn't reused for a new agent: another agent being added is taking it. A clause, lower case." }) }
   bringingUp.add(key)
   try {
     const busy = await inUse(path, branch)
@@ -281,7 +313,7 @@ async function bringUp(projectPath: string, path: string, branch: string, base: 
     const { tip, baseTip } = checked
     if (tip === baseTip) return { setup: false }
     const moved = await git(path, ['reset', '--keep', baseTip])
-    if (!moved.ok) return { why: `git couldn't bring it up to ${base} (${moved.err.split(/\r?\n/)[0] || 'reset failed'})` }
+    if (!moved.ok) return { why: withValues(msg({ id: 'worktrees.reuse.resetFailed', defaultMessage: "git couldn't bring it up to {base} ({why})", description: "Why an unused worktree isn't reused for a new agent: git couldn't move it to the branch {base}; {why} is git's message. A clause, lower case." }), { base, why: moved.err.split(/\r?\n/)[0] || withValues(wt.GIT_FAILED, { command: 'reset' }) }) }
     const diff = await git(projectPath, ['diff', '--name-only', tip, baseTip])
     log.info(`Brought ${userText(branch)} up to ${userText(base)} at ${baseTip.slice(0, 7)} to reuse it`)
     return { upTo: baseTip, setup: !diff.ok || lockfileChanged(diff.out.split(/\r?\n/)) }
@@ -327,7 +359,7 @@ export async function prepareAgent(projectPath: string, cfg: ProjectConfig, opts
   // known once Hive has looked for every CLI before the one it found (#506).
   if (!opts.provider && defaultProviderPending(cfg, config.settings)) await providerService.settle()
   const provider = opts.provider || agentProvider(null, cfg, config.settings)
-  if (!isKnownProvider(provider)) throw new Error(`Unknown provider "${provider}".`)
+  if (!isKnownProvider(provider)) throw hiveError(M.unknownProvider, { provider }, { kind: 'invalid' })
   const def: AgentDef = { id, name, provider }
   if (opts.model) def.model = opts.model
   if (opts.effort) def.effort = opts.effort
@@ -341,12 +373,18 @@ export async function prepareAgent(projectPath: string, cfg: ProjectConfig, opts
   let reuse: WorktreeReuse | undefined
   if (opts.location === 'new-worktree') {
     const base = opts.base || (await (reads ? reads.currentBranch() : wt.currentBranch(projectPath)))
-    if (!base) throw new Error(gitProblem() ? `${gitProblem()}, so Hive can't make a worktree.` : 'The project folder is not on a branch. Choose the branch to start from.')
+    if (!base) {
+      const problem = gitProblemData(gitTool())
+      throw problem
+        ? hiveError(msg({ id: 'worktrees.agent.noGitForTree', defaultMessage: "{problem}, so Hive can't make a worktree.", description: "An error: a new agent's worktree can't be made because git can't run ({problem} says why)." }), { problem })
+        : hiveError(msg({ id: 'worktrees.agent.noBase', defaultMessage: 'The project folder is not on a branch. Choose the branch to start from.', description: "An error: a new agent's worktree needs a branch to start from, and the project folder has none checked out." }))
+    }
     // An unused worktree on the branch it would get is worked in again when merged and clean (#456), else a new one.
-    const match = opts.reuseWorktree ? await matchingWorktree(projectPath, opts.branch?.trim() || hiveBranch(await branchHome(projectPath), name), base, others, name) : null
+    const match = opts.reuseWorktree ? await matchingTree(projectPath, opts.branch?.trim() || hiveBranch(await branchHome(projectPath), name), base, others, name) : null
     if (match) {
-      const took = match.reusable ? await bringUp(projectPath, match.path, match.branch, base) : { why: match.why ?? 'not checked' }
-      if ('why' in took) reuse = { branch: match.branch, reused: false, base, notReused: took.why }
+      const took = match.reusable ? await bringUp(projectPath, match.path, match.branch, base) : { why: match.whyText ?? M.notChecked }
+      // Why not, in English for the Agent API's reply and as data for the window (#845).
+      if ('why' in took) reuse = { branch: match.branch, reused: false, base, notReused: englishText(took.why), notReusedText: took.why }
       else {
         def.worktree = { path: match.path, branch: match.branch, base }
         if (took.setup && cfg.worktreeSetup.trim()) def.needsSetup = true
@@ -368,12 +406,17 @@ export async function prepareAgent(projectPath: string, cfg: ProjectConfig, opts
       if (cfg.worktreeSetup.trim()) def.needsSetup = true
     }
   } else if (opts.location === 'existing-worktree') {
-    if (!opts.worktreePath) throw new Error('Choose a worktree.')
+    if (!opts.worktreePath) throw hiveError(msg({ id: 'worktrees.agent.chooseTree', defaultMessage: 'Choose a worktree.', description: 'An error: a new agent was to work in an existing worktree, and none was chosen.' }))
     const target = placeKey(opts.worktreePath)
     const found = (await (reads ? reads.worktrees() : wt.listWorktrees(projectPath))).find((w) => placeKey(w.path) === target)
-    if (!found || target === placeKey(projectPath)) throw new Error(gitProblem() ? `${gitProblem()}, so Hive can't check that worktree.` : 'That folder is not a worktree of this project.')
-    if (others.some((a) => a.worktree && placeKey(a.worktree.path) === target)) throw new Error('Another agent already works in that worktree.')
-    if (!found.branch) throw new Error('That worktree is not on a branch (detached HEAD).')
+    if (!found || target === placeKey(projectPath)) {
+      const problem = gitProblemData(gitTool())
+      throw problem
+        ? hiveError(msg({ id: 'worktrees.agent.noGitToCheck', defaultMessage: "{problem}, so Hive can't check that worktree.", description: "An error: the worktree chosen for a new agent can't be checked because git can't run ({problem} says why)." }), { problem })
+        : hiveError(msg({ id: 'worktrees.agent.notATree', defaultMessage: 'That folder is not a worktree of this project.', description: "An error: the folder chosen for a new agent to work in isn't one of the project's git worktrees." }))
+    }
+    if (others.some((a) => a.worktree && placeKey(a.worktree.path) === target)) throw hiveError(M.sharedTree)
+    if (!found.branch) throw hiveError(msg({ id: 'worktrees.agent.detached', defaultMessage: 'That worktree is not on a branch (detached HEAD).', description: "An error: the worktree chosen for a new agent has no branch checked out. detached HEAD is git's term." }))
     const base = (await (reads ? reads.currentBranch() : wt.currentBranch(projectPath))) ?? found.branch
     def.worktree = { path: found.path, branch: found.branch, base }
     // Chosen by the user (#456): brought up to the base when merged and clean, else taken as it is, with its work.
@@ -398,7 +441,7 @@ export async function prepareAgent(projectPath: string, cfg: ProjectConfig, opts
 export function cleanRole(role: unknown): string {
   if (typeof role !== 'string') return ''
   const r = role.replace(/\s+/g, ' ').trim()
-  if (r.length > ROLE_MAX) throw new Error(`A role is at most ${ROLE_MAX} characters.`)
+  if (r.length > ROLE_MAX) throw hiveError(msg({ id: 'worktrees.agent.roleTooLong', defaultMessage: 'A role is at most {max} characters.', description: "An error: an agent's role (what it does, in a few words) is longer than it may be ({max}, a number)." }), { max: ROLE_MAX })
   return r
 }
 
@@ -414,7 +457,7 @@ export async function updateAgent(projectPath: string, agentId: string, patch: A
   const agents = projectAgents(cfg)
   if (patch.name !== undefined) {
     patch.name = patch.name.trim()
-    if (!patch.name) throw new Error('Enter a name.')
+    if (!patch.name) throw hiveError(msg({ id: 'worktrees.agent.enterName', defaultMessage: 'Enter a name.', description: "An error: an agent's name was emptied." }))
   }
   // Empty values clear an override so the agent follows the project again (and an empty role: its name is its role).
   const { use200kContext, mcpServers, ...rest } = patch
@@ -426,9 +469,9 @@ export async function updateAgent(projectPath: string, agentId: string, patch: A
   if (use200kContext !== undefined) clean.use200kContext = typeof use200kContext === 'boolean' ? use200kContext : undefined
   if (patch.provider !== undefined) {
     const current = agents.find((a) => a.id === agentId)
-    if (!isKnownProvider(patch.provider)) throw new Error(`Unknown provider "${patch.provider}".`)
+    if (!isKnownProvider(patch.provider)) throw hiveError(M.unknownProvider, { provider: patch.provider }, { kind: 'invalid' })
     if (current && agentProvider(current, cfg, config.settings) !== patch.provider) {
-      if (sessions.liveFor(projectPath, agentId)) throw new Error('Stop the agent before changing its provider.')
+      if (sessions.liveFor(projectPath, agentId)) throw hiveError(msg({ id: 'worktrees.agent.stopForProvider', defaultMessage: 'Stop the agent before changing its provider.', description: "An error: an agent's provider (its coding-agent CLI) can't change while it runs." }), undefined, { kind: 'conflict' })
       // Model, effort, mode and context belong to the old provider, and its conversations can't be resumed by the new one.
       Object.assign(clean, { model: patch.model || undefined, effort: patch.effort || undefined, permissionMode: patch.permissionMode || undefined, use200kContext: typeof use200kContext === 'boolean' ? use200kContext : undefined, lastSessionId: undefined })
     }
@@ -460,7 +503,7 @@ export async function updateAgent(projectPath: string, agentId: string, patch: A
  */
 export async function removeAgent(projectPath: string, agentId: string, opts: { deleteWorktree: boolean | 'merged-clean'; mergedInto?: string | null; releaseCards?: boolean }): Promise<RemovedAgent> {
   projectPath = workspace.assertProject(projectPath)
-  if (sessions.liveFor(projectPath, agentId)) throw new Error('Stop the agent before removing it.')
+  if (sessions.liveFor(projectPath, agentId)) throw hiveError(msg({ id: 'worktrees.agent.stopToRemove', defaultMessage: 'Stop the agent before removing it.', description: "An error: a running agent can't be removed." }), undefined, { kind: 'conflict' })
   const cfg = await workspace.projectConfig(projectPath)
   const def = cfg.agents.find((a) => a.id === agentId)
   if (!def) return {}
@@ -468,7 +511,7 @@ export async function removeAgent(projectPath: string, agentId: string, opts: { 
   let result: RemovedAgent = {}
   if (tree && opts.deleteWorktree === 'merged-clean') {
     const shared = projectAgents(cfg).some((a) => a.id !== agentId && a.worktree && samePlace(a.worktree.path, tree.path))
-    const done = shared ? { deleted: false, reason: 'another agent works in it' } : await wt.removeCheckedWorktree(projectPath, tree, await wt.worktreeCheck(projectPath, tree), opts.mergedInto)
+    const done = shared ? { deleted: false, reason: tr(msg({ id: 'worktrees.agent.treeShared', defaultMessage: 'another agent works in it', description: "Why a removed agent's worktree was kept: another agent of the project works in it. A clause, lower case." })) } : await wt.removeCheckedWorktree(projectPath, tree, await wt.worktreeCheck(projectPath, tree), opts.mergedInto)
     result = { worktree: { path: tree.path, branch: tree.branch, ...done } }
   } else if (tree && opts.deleteWorktree) {
     await wt.removeWorktree(projectPath, tree, true)
@@ -486,7 +529,7 @@ export async function removeAgent(projectPath: string, agentId: string, opts: { 
   })
   if (opts.releaseCards) await releaseAgentCards(basename(projectPath), agentId, { kind: 'user' })
   // A review it left going (from before Hive last started) ends with it.
-  await endReviews(basename(projectPath), agentId, 'the agent was removed', workspaceOf(projectPath))
+  await endReviews(basename(projectPath), agentId, 'the agent was removed', workspaceOf(projectPath)) // i18n-ignore: the reason's key (ReviewEnd): the history line is a message (#846)
   // Its lanes, as builder or reviewer, are abandoned (#483).
   await laneAgentRemoved(workspaceOf(projectPath), basename(projectPath), agentId).catch((e) => log.warn('abandoning the lanes of a removed agent', e))
   // Its terminal's kept size and output go: a new agent never has its id (#489).
@@ -512,10 +555,10 @@ export async function worktreeChecks(projectPath: string): Promise<({ agentId: s
 /** Moves an agent to `index` in the project's order (its position afterwards); returns the agents' ids in the new order. */
 export async function moveAgent(projectPath: string, agentId: string, index: number): Promise<string[]> {
   projectPath = workspace.assertProject(projectPath)
-  if (!Number.isFinite(index)) throw new Error('Choose where to move the agent.')
+  if (!Number.isFinite(index)) throw hiveError(msg({ id: 'worktrees.agent.chooseMove', defaultMessage: 'Choose where to move the agent.', description: "An error: an agent was to be moved in the project's order, with no place given." }))
   const next = await workspace.mutateProjectConfig(projectPath, (now) => {
     const list = projectAgents(now)
-    if (!list.some((a) => a.id === agentId)) throw new Error('That agent no longer exists.')
+    if (!list.some((a) => a.id === agentId)) throw hiveError(M.noAgent, undefined, { kind: 'notFound' })
     return { agents: moveAgentTo(list, agentId, index) }
   })
   await workspaceOf(projectPath).refresh()
@@ -530,7 +573,7 @@ export async function swapAgents(projectPath: string, agentId: string, otherId: 
   projectPath = workspace.assertProject(projectPath)
   const next = await workspace.mutateProjectConfig(projectPath, (now) => {
     const list = projectAgents(now)
-    if (!list.some((a) => a.id === agentId) || !list.some((a) => a.id === otherId)) throw new Error('That agent no longer exists.')
+    if (!list.some((a) => a.id === agentId) || !list.some((a) => a.id === otherId)) throw hiveError(M.noAgent, undefined, { kind: 'notFound' })
     return { agents: swapAgentsIn(list, agentId, otherId) }
   })
   await workspaceOf(projectPath).refresh()
@@ -539,7 +582,7 @@ export async function swapAgents(projectPath: string, agentId: string, otherId: 
 
 async function worktreeOf(projectPath: string, agentId: string) {
   const def = projectAgents(await workspace.projectConfig(projectPath)).find((a) => a.id === agentId)
-  if (!def?.worktree) throw new Error('This agent works in the project folder, not a worktree.')
+  if (!def?.worktree) throw hiveError(msg({ id: 'worktrees.agent.noTree', defaultMessage: 'This agent works in the project folder, not a worktree.', description: "An error: something only a worktree agent has (its branch's state, a merge) was asked of an agent working in the project folder." }))
   return { def, worktree: def.worktree }
 }
 
@@ -571,10 +614,10 @@ export async function mergeInProject(projectPath: string, worktree: AgentWorktre
 export async function merge(projectPath: string, agentId: string, opts: { squash: boolean; message: string; cleanup: boolean; moveBranch?: boolean }): Promise<MergeResult> {
   projectPath = workspace.assertProject(projectPath)
   const { def, worktree } = await worktreeOf(projectPath, agentId)
-  if (opts.cleanup && sessions.liveFor(projectPath, agentId)) throw new Error(`Stop ${def.name} before merging and removing its worktree.`)
+  if (opts.cleanup && sessions.liveFor(projectPath, agentId)) throw hiveError(msg({ id: 'worktrees.agent.stopToMerge', defaultMessage: 'Stop {agent} before merging and removing its worktree.', description: 'An error: a merge that also removes the worktree needs the agent {agent} (its name) stopped first.' }), { agent: def.name })
   // Its uncommitted work is committed first: not while it is still in the middle of a task.
-  const blocked = mergeBlocked(def.name, sessions.liveFor(projectPath, agentId)?.status)
-  if (blocked) throw new Error(blocked)
+  const status = sessions.liveFor(projectPath, agentId)?.status
+  if (mergeBlocked(def.name, status)) throw helperError((t) => mergeBlocked(def.name, status, t))
   // One merge at a time, holding the slot (the Merge dialog waits until it is free). A branch removed afterwards isn't moved.
   const result = await mergeInProject(projectPath, worktree, { ...opts, moveBranch: opts.moveBranch && !opts.cleanup })
   // The project folder's branch moved on: every worktree agent's unmerged work is counted again.
@@ -590,7 +633,7 @@ export async function merge(projectPath: string, agentId: string, opts: { squash
     void checkProject(projectPath)
     return { ...result, cleanedUp: true }
   } catch (e) {
-    toast('warning', 'Merged, but the worktree was not removed', (e as Error).message, undefined, projectPath)
+    toast('warning', tr(msg({ id: 'worktrees.merge.notRemoved', defaultMessage: 'Merged, but the worktree was not removed', description: "A notification's title: the agent's work was merged, but removing its worktree afterwards failed (the reason follows)." })), shownError(e), undefined, projectPath)
     return result
   }
 }

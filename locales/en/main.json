@@ -656,8 +656,8 @@
     "description": "An error asking to Remove anyway one of the Overview's unused worktrees (Remove, Remove anyway, Merge). {why} says why (main.unused.read.*, or git's message)."
   },
   "main.unused.changed": {
-    "defaultMessage": "it changed since you were shown what it holds ({changed}): nothing was removed, look again",
-    "description": "Why Remove anyway did nothing to one of the Overview's unused worktrees (Remove, Remove anyway, Merge). {changed} lists what changed (main.unused.field.*). A clause."
+    "defaultMessage": "it changed since you were shown what it holds ({changed})",
+    "description": "Why Remove anyway did nothing to one of the Overview's unused worktrees (Remove, Remove anyway, Merge). {changed} lists what changed (main.unused.field.*). A clause; the window then looks again and asks again, saying this."
   },
   "main.unused.field.ahead": {
     "defaultMessage": "its unmerged commits",
@@ -712,8 +712,8 @@
     "description": "Why Hive couldn't check what one of the Overview's unused worktrees (Remove, Remove anyway, Merge) holds. {why} is git's message. index is git's term."
   },
   "main.unused.notChecked": {
-    "defaultMessage": "what it holds was not checked for this removal: look again",
-    "description": "Why Remove anyway did nothing to one of the Overview's unused worktrees (Remove, Remove anyway, Merge): the confirmation was not for it. A clause; the window then looks again."
+    "defaultMessage": "what it holds was not checked for this removal",
+    "description": "Why Remove anyway did nothing to one of the Overview's unused worktrees (Remove, Remove anyway, Merge): the confirmation was not for it. A clause; the window then looks again and asks again, saying this."
   },
   "main.unused.nothingToMerge": {
     "defaultMessage": "It is not on a branch (detached HEAD): there is nothing to merge.",
@@ -748,8 +748,8 @@
     "description": "An error asking to Remove anyway one of the Overview's unused worktrees (Remove, Remove anyway, Merge). {why} says why (main.unused.why.*)."
   },
   "main.unused.stale": {
-    "defaultMessage": "{n, plural, one {what it holds was checked more than # minute ago: nothing was removed, look again} other {what it holds was checked more than # minutes ago: nothing was removed, look again}}",
-    "description": "Why Remove anyway did nothing to one of the Overview's unused worktrees (Remove, Remove anyway, Merge): the confirmation was too old. {n} is how many minutes it lasts. A clause."
+    "defaultMessage": "{n, plural, one {what it holds was checked more than # minute ago} other {what it holds was checked more than # minutes ago}}",
+    "description": "Why Remove anyway did nothing to one of the Overview's unused worktrees (Remove, Remove anyway, Merge): the confirmation was too old. {n} is how many minutes it lasts. A clause; the window then looks again and asks again, saying this."
   },
   "main.unused.tooBig": {
     "defaultMessage": "it holds more than {n, number} GB of files, too much to check",
