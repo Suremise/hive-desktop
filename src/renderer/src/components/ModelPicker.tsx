@@ -1,9 +1,10 @@
 import { useEffect, useState } from 'react'
-import { providerDescriptor, type ModelOption } from '@shared/providers'
+import { fmt, msg, tr } from '@shared/i18n'
+import { providerDescriptor, shownText, type ModelOption } from '@shared/providers'
 import { modelLabel } from '@shared/defaults'
 import { effortName, modelCaps, modelGroups } from '@shared/models'
 import type { ProviderId } from '@shared/types'
-import { useStore } from '../store'
+import { useLanguage, useStore } from '../store'
 import { Icon } from './ui'
 
 /**
@@ -12,10 +13,11 @@ import { Icon } from './ui'
  * custom model ID. `base` is the option meaning "no choice here" (Inherit, or the CLI's default).
  */
 export function ModelPicker({ provider, value, base, onChange }: { provider: ProviderId; value: string; base: ModelOption; onChange: (value: string) => void }) {
+  useLanguage()
   const p = providerDescriptor(provider)
   const info = useStore((s) => s.providers[provider])
   const settings = useStore((s) => s.settings)
-  const groups = modelGroups(provider, info, settings)
+  const groups = modelGroups(provider, info, settings, tr)
   const presets = groups.filter((g) => !g.unavailable).flatMap((g) => g.models)
   const isOlder = (v: string): boolean => groups.some((g) => g.older && g.models.some((m) => m.value === v))
   const known = presets.some((m) => m.value === value)
@@ -51,22 +53,22 @@ export function ModelPicker({ provider, value, base, onChange }: { provider: Pro
           {groups
             .filter((g) => !g.older || showOlder)
             .map((g) => (
-              <optgroup key={g.label} label={g.label}>
+              <optgroup key={g.label} label={shownText(g.label, g.text, tr)}>
                 {g.models.map((m) => (
                   <option key={m.value} value={m.value} disabled={g.unavailable}>
-                    {m.label}
+                    {shownText(m.label, m.text, tr)}
                   </option>
                 ))}
               </optgroup>
             ))}
-          <option value="custom">Custom model ID…</option>
+          <option value="custom">{tr(msg({ id: 'agents.picker.customModel', defaultMessage: 'Custom model ID…', description: "The model picker's last choice: type a model ID that isn't listed." }))}</option>
         </select>
       </div>
       {custom && (
         <input
           className="input"
           style={{ marginTop: 6 }}
-          placeholder={p.modelPlaceholder}
+          placeholder={shownText(p.modelPlaceholder, p.text?.modelPlaceholder, tr)}
           autoFocus
           value={draft}
           onChange={(e) => setDraft(e.target.value)}
@@ -79,7 +81,7 @@ export function ModelPicker({ provider, value, base, onChange }: { provider: Pro
       )}
       {hasOlder && (
         <a className="model-picker-older" onClick={() => setShowOlder(!showOlder)}>
-          {showOlder ? 'Hide older versions' : 'Show older versions'}
+          {showOlder ? tr(msg({ id: 'agents.picker.hideOlder', defaultMessage: 'Hide older versions', description: 'Link under the model picker: hides the older models again.' })) : tr(msg({ id: 'agents.picker.showOlder', defaultMessage: 'Show older versions', description: 'Link under the model picker: shows the older models in it.' }))}
         </a>
       )}
     </div>
@@ -92,29 +94,37 @@ export function ModelPicker({ provider, value, base, onChange }: { provider: Pro
  * than being changed behind the user's back: the CLI decides what to do with it (#125).
  */
 export function EffortPicker({ provider, model, value, base, onChange }: { provider: ProviderId; model: string | null | undefined; value: string; base: ModelOption; onChange: (value: string) => void }) {
+  useLanguage()
   const info = useStore((s) => s.providers[provider])
   const settings = useStore((s) => s.settings)
   const caps = modelCaps(provider, model, info, settings)
-  const name = caps.label ?? (model ? modelLabel(model, provider) : `${providerDescriptor(provider).name}'s default model`)
+  const providerName = providerDescriptor(provider).name
+  const name = caps.label ?? (model ? modelLabel(model, provider) : tr(msg({ id: 'agents.picker.defaultModel', defaultMessage: "{provider}'s default model", description: "The model that runs when none is chosen, named in the effort picker's warnings: the CLI's ({provider}: its name) default." }), { provider: providerName }))
   const chosen = value && value !== base.value ? value : null
   const unsupported = !!chosen && !caps.efforts.some((e) => e.value === chosen)
+  const effort = (v: string): string => effortName(provider, v, settings, tr)
   return (
     <div className="effort-picker-wrap">
       <select className="select effort-picker" value={value} onChange={(e) => onChange(e.target.value)}>
         <option value={base.value}>{base.label}</option>
         {caps.efforts.map((l) => (
           <option key={l.value} value={l.value}>
-            {l.label}
+            {effort(l.value)}
           </option>
         ))}
-        {unsupported && <option value={chosen}>{effortName(provider, chosen, settings)} (not offered with {name})</option>}
+        {unsupported && <option value={chosen}>{tr(msg({ id: 'agents.picker.notOffered', defaultMessage: '{effort} (not offered with {model})', description: "The effort picker's choice for a level the model doesn't take ({effort}), kept chosen: {model} is the model's name." }), { effort: effort(chosen), model: name })}</option>}
       </select>
       {unsupported ? (
         <div className="mode-caveat effort-caveat">
-          <Icon name="warning" /> <span>{`${providerDescriptor(provider).name} doesn't offer ${effortName(provider, chosen, settings)} with ${name}${caps.efforts.length ? ` (it offers ${caps.efforts.map((e) => e.label).join(', ')})` : ', which has no effort setting'}: it may refuse it or use another.`}</span>
+          <Icon name="warning" />{' '}
+          <span>
+            {caps.efforts.length
+              ? tr(msg({ id: 'agents.picker.effortOffers', defaultMessage: "{provider} doesn't offer {effort} with {model} (it offers {efforts}): it may refuse it or use another.", description: "A warning under the effort picker: the CLI ({provider}) doesn't list the chosen effort level ({effort}) for this model ({model}); {efforts} lists the levels it does." }), { provider: providerName, effort: effort(chosen), model: name, efforts: fmt.list(caps.efforts.map((e) => effort(e.value)), 'unit') })
+              : tr(msg({ id: 'agents.picker.effortNone', defaultMessage: "{provider} doesn't offer {effort} with {model}, which has no effort setting: it may refuse it or use another.", description: "A warning under the effort picker: the CLI ({provider}) has no effort setting for this model ({model}), and an effort level ({effort}) is chosen." }), { provider: providerName, effort: effort(chosen), model: name })}
+          </span>
         </div>
       ) : (
-        caps.perModel && !caps.efforts.length && <div className="mode-caveat effort-caveat faint">{`${name} has no effort setting.`}</div>
+        caps.perModel && !caps.efforts.length && <div className="mode-caveat effort-caveat faint">{tr(msg({ id: 'agents.picker.noEffort', defaultMessage: '{model} has no effort setting.', description: "Under the effort picker: the chosen model ({model}: its name) doesn't take an effort level." }), { model: name })}</div>
       )}
     </div>
   )

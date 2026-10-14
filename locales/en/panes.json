@@ -1,0 +1,730 @@
+{
+  "panes.add.button": {
+    "defaultMessage": "Add Agent",
+    "description": "Button (the agent strip): adds an agent to the project. Keep it short."
+  },
+  "panes.add.caretLabel": {
+    "defaultMessage": "Add Agent…",
+    "description": "Accessible name of the ▾ beside the Add Agent button: opens its menu."
+  },
+  "panes.add.caretTip": {
+    "defaultMessage": "Configure Agent and Add…, or Add Agent from Template",
+    "description": "Tooltip of the ▾ beside Add Agent: its two menu items (use their translations)."
+  },
+  "panes.add.caretTipNoTemplates": {
+    "defaultMessage": "Configure Agent and Add… (choose the provider, where it works and its settings)",
+    "description": "Tooltip of the ▾ beside Add Agent where templates are not offered (the Assistant). \"Configure Agent and Add…\" is its menu item."
+  },
+  "panes.add.configure": {
+    "defaultMessage": "Configure Agent and Add…",
+    "description": "Button and menu item (the agent strip): opens the Add Agent dialog (provider, where it works, settings)."
+  },
+  "panes.add.fromTemplate": {
+    "defaultMessage": "Add Agent from Template",
+    "description": "Menu item (Add Agent ▾): adds one agent of a saved template."
+  },
+  "panes.add.tip": {
+    "defaultMessage": "Configure Agent and Add…: choose its provider, where it works and its settings",
+    "description": "Tooltip of the Add Agent button (the agent strip). \"Configure Agent and Add…\" names the dialog it opens: use its translation."
+  },
+  "panes.agent.merge": {
+    "defaultMessage": "Merge…",
+    "description": "Button and menu item (a worktree agent's pane): opens the merge dialog for its branch."
+  },
+  "panes.agent.settings": {
+    "defaultMessage": "Agent Settings…",
+    "description": "Menu item and button (an agent's pane): opens the agent's settings."
+  },
+  "panes.agent.stop": {
+    "defaultMessage": "Stop",
+    "description": "Button and menu item (an agent's pane): stops the agent's session (the conversation is kept). Keep it short."
+  },
+  "panes.body.empty": {
+    "defaultMessage": "Empty pane",
+    "description": "A pane with no agent in it (the layout has more panes than the page has agents)."
+  },
+  "panes.body.ended": {
+    "defaultMessage": "Session ended.",
+    "description": "The bar under an agent's ended session (several panes: short)."
+  },
+  "panes.body.endedLong": {
+    "defaultMessage": "The session has ended. Resume it, or start a new one.",
+    "description": "The bar under an agent's ended session (one pane)."
+  },
+  "panes.body.notRunning": {
+    "defaultMessage": "<b>{agent}</b> is not running.",
+    "description": "A pane of an agent that isn't running ({agent}: its name, in bold; keep the <b> tags around it)."
+  },
+  "panes.body.retrySetup": {
+    "defaultMessage": "Retry Setup",
+    "description": "Button under a worktree agent's ended session: runs its setup command again, then starts it."
+  },
+  "panes.body.setupFailed": {
+    "defaultMessage": "Setup did not finish.",
+    "description": "The bar under a worktree agent's ended session: its worktree setup command didn't finish."
+  },
+  "panes.body.setupFirst": {
+    "defaultMessage": "Its setup command runs first.",
+    "description": "A stopped worktree agent's pane: its worktree setup command runs before its next session."
+  },
+  "panes.body.skipSetup": {
+    "defaultMessage": "Start Without Setup",
+    "description": "Button under a worktree agent's ended session: starts it without its setup command."
+  },
+  "panes.body.worktree": {
+    "defaultMessage": "Works in its own worktree on <code>{branch}</code>.",
+    "description": "A stopped worktree agent's pane: its branch ({branch}, shown as code; keep the <code> tags around it)."
+  },
+  "panes.compact.busy": {
+    "defaultMessage": "Available once the agent has finished.",
+    "description": "Tooltip of the Compact button (disabled) while the agent works."
+  },
+  "panes.compact.button": {
+    "defaultMessage": "Compact",
+    "description": "Button on an agent's pane: summarises its conversation to shrink its context. Keep it short."
+  },
+  "panes.compact.empty": {
+    "defaultMessage": "Nothing to compact yet: the conversation has no messages.",
+    "description": "Tooltip of the Compact button (disabled) when the conversation has no messages."
+  },
+  "panes.compact.running": {
+    "defaultMessage": "Compacting the conversation…",
+    "description": "Tooltip of the Compact button while the agent compacts its conversation."
+  },
+  "panes.compact.tip": {
+    "defaultMessage": "Summarise the conversation to shrink its context{tokens, select, none {} other { (now {tokens} tokens)}}. The full history stays in the transcript.{suggested, select, yes { Recommended: the context is over your threshold.} other {}}",
+    "description": "Tooltip of the Compact button: what it does, how big the context is now ({tokens}: \"120K\"; none: leave that branch empty) and, past the user's threshold, that it is recommended."
+  },
+  "panes.compact.waiting": {
+    "defaultMessage": "The agent is waiting for your answer. Compact after it has finished.",
+    "description": "Tooltip of the Compact button (disabled) while the agent waits for the user."
+  },
+  "panes.drop.move": {
+    "defaultMessage": "Move here",
+    "description": "Shown over an empty pane while an agent is dragged onto it: dropping moves it there."
+  },
+  "panes.drop.swap": {
+    "defaultMessage": "Swap with {agent}",
+    "description": "Shown over another agent's pane while an agent is dragged onto it: dropping swaps the two ({agent}: the other agent's name)."
+  },
+  "panes.failed.dismiss": {
+    "defaultMessage": "Dismiss (the terminal keeps the output)",
+    "description": "Tooltip of the ✕ on the bar of an agent that failed to start."
+  },
+  "panes.failed.retry": {
+    "defaultMessage": "Retry",
+    "description": "Button on the bar of an agent that failed to start: tries the launch again. Keep it short."
+  },
+  "panes.failed.setup": {
+    "defaultMessage": "Agent Setup…",
+    "description": "Button on the bar of an agent that failed to start: opens Agent Setup (installing or signing in to its CLI)."
+  },
+  "panes.failed.title": {
+    "defaultMessage": "Couldn't start:",
+    "description": "In place of a pane's \"Session ended\" bar: the agent's CLI exited before its session started; the reason follows."
+  },
+  "panes.footer.compactionHistory": {
+    "defaultMessage": "Click to view compaction history",
+    "description": "The last line of the hover of a pane footer's context: clicking shows the session's compactions in the Overview."
+  },
+  "panes.footer.compactions": {
+    "defaultMessage": "{n, plural, one {# compaction so far} other {# compactions so far}}{over, select, yes { — consider compacting} other {}}",
+    "description": "A line of the hover of a pane footer's context: how many times the conversation was compacted, and (over the user's threshold) a suggestion to compact."
+  },
+  "panes.footer.costClick": {
+    "defaultMessage": "Click to see this session's details in the Overview",
+    "description": "The last line of the hover of a pane footer's cost: what clicking does (the project's Overview tab)."
+  },
+  "panes.footer.costEstimated": {
+    "defaultMessage": "API-equivalent cost of this session, estimated by Hive from its tokens",
+    "description": "Hover of a pane footer's cost (≈): Hive estimated it from the session's tokens at API prices."
+  },
+  "panes.footer.costReported": {
+    "defaultMessage": "API-equivalent cost of this session, as the provider reports it",
+    "description": "Hover of a pane footer's cost: the provider reported it, at API prices."
+  },
+  "panes.footer.ctx": {
+    "defaultMessage": "{tokens} ctx",
+    "description": "A pane footer's context used, in tokens (\"120K ctx\"; – before it is read). ctx is short for context: keep it short."
+  },
+  "panes.footer.handOverAdvice": {
+    "defaultMessage": "Hand it over to a new conversation: click for Hand Over to…, and choose the agent itself.",
+    "description": "What to do about a long transcript, in its hover (pane footer). \"Hand Over to…\" is the agent menu's item: use its translation."
+  },
+  "panes.footer.modelTip": {
+    "defaultMessage": "{chosenAs, select, none {} other {{model} · chosen as {chosenAs}. }}{provider} {effort, select, yes {model and effort} other {model}} {live, select, yes {of this session} other {for new sessions}}{reported, select, yes { (effort as the session reports it)} other {}}. Change them in {where}.",
+    "description": "Hover of the model in a pane's footer: the model shown and the name it was chosen by ({chosenAs}; none: leave that branch empty), the provider (\"Claude Code\"), whether effort is shown too, whether it is the running session's or new sessions', and where to change them ({where}: \"Agent Settings or Project Settings\")."
+  },
+  "panes.footer.reading": {
+    "defaultMessage": "Reading this conversation's usage…",
+    "description": "Hover of a pane footer's context before its numbers are read."
+  },
+  "panes.footer.settingsName": {
+    "defaultMessage": "Agent Settings or Project Settings",
+    "description": "Where an agent's model and effort are changed, ending the footer model's hover (\"Change them in …\"): the two dialogs' names."
+  },
+  "panes.footer.stale": {
+    "defaultMessage": "Couldn’t read it again just now: this may be behind.",
+    "description": "A line of the hover of a pane footer's context: Hive couldn't read the usage again, so the numbers may be old."
+  },
+  "panes.footer.transcriptTip": {
+    "defaultMessage": "Transcript: {size}{limit, select, none {} other { (flagged over {limit} MB: Settings → Sessions)}}. A long conversation slows down the CLI and Hive, and compacting doesn't shrink the file: it keeps the whole history.{advice, select, none {} other { {advice}}}",
+    "description": "Hover of a pane footer's transcript size ({size}: \"12 MB\"): the size it is flagged over ({limit} MB, set in Settings → Sessions; none: leave that branch empty), why a long one matters, and when it is long what to do ({advice}; none: leave it empty)."
+  },
+  "panes.header.asks": {
+    "defaultMessage": "Asks: {question}",
+    "description": "Tooltip of a pane's status: the agent's question to the user ({question}, the agent's own words)."
+  },
+  "panes.header.asksSomething": {
+    "defaultMessage": "Asks you something",
+    "description": "Tooltip of a pane's status: the agent has asked the user something."
+  },
+  "panes.header.cancel": {
+    "defaultMessage": "Cancel",
+    "description": "Button beside a watching agent's status: ends its watch. Keep it short."
+  },
+  "panes.header.cancelWatch": {
+    "defaultMessage": "{kind, select, agent {Cancel the agent watch} lane {Cancel the lane watch} other {Cancel the card watch}}",
+    "description": "Accessible name of the Cancel button beside a watching agent's status: ends its agent, lane or card watch."
+  },
+  "panes.header.failed": {
+    "defaultMessage": "Failed to start",
+    "description": "A pane's status: the agent's last launch failed."
+  },
+  "panes.header.failedTip": {
+    "defaultMessage": "Failed to start: {why}",
+    "description": "Tooltip of a pane's error dot: the agent's last launch failed ({why}: the error)."
+  },
+  "panes.header.markIdle": {
+    "defaultMessage": "Mark idle",
+    "description": "Button beside a pane's unknown state: tells Hive the agent is idle (its terminal shows it at its prompt). Keep it short."
+  },
+  "panes.header.markIdleFailed": {
+    "defaultMessage": "Could not mark the agent idle",
+    "description": "An error's title: Mark idle failed."
+  },
+  "panes.header.mergeInto": {
+    "defaultMessage": "Merge {branch} into the project folder",
+    "description": "Tooltip of a worktree pane's Merge button before Hive knows what is left to merge."
+  },
+  "panes.header.mergeTip": {
+    "defaultMessage": "Merge {branch}: {work}",
+    "description": "Tooltip of a worktree pane's Merge button: its branch and what is left to merge ({work}: \"2 commits not merged into main\")."
+  },
+  "panes.header.more": {
+    "defaultMessage": "More",
+    "description": "Tooltip of the ⋯ button on a pane's header: the agent's menu."
+  },
+  "panes.header.notRunning": {
+    "defaultMessage": "Not running",
+    "description": "A pane's status: the agent's session isn't running."
+  },
+  "panes.header.stopTip": {
+    "defaultMessage": "Stop this agent (the conversation is kept; resume it any time)",
+    "description": "Tooltip of a pane's Stop button."
+  },
+  "panes.header.unknownTip": {
+    "defaultMessage": "Hive has heard nothing of this agent's turn for a while and sees no sign that it ended: no Stop from its CLI, nothing in its CLI's records, no idle prompt on its screen. Until it hears more, the agent counts as busy and nothing is typed into it. If its terminal shows it waiting at its prompt, mark it idle.",
+    "description": "Tooltip of a pane's status when the agent's state is unknown. Stop is the CLI's event: keep it. \"mark it idle\" refers to the Mark idle button beside it."
+  },
+  "panes.header.untaken": {
+    "defaultMessage": "A line Hive typed wasn't taken",
+    "description": "A pane's status: a line Hive typed into the agent's CLI wasn't taken."
+  },
+  "panes.header.untakenTip": {
+    "defaultMessage": "Hive typed this, but its CLI hasn't taken it (it wasn't reading its input): \"{line}\". Click its terminal and press Enter. Hive types nothing more into it until its CLI takes it.",
+    "description": "Tooltip of a pane's status when a line Hive typed into the agent's CLI wasn't taken ({line}: the line)."
+  },
+  "panes.header.watchTip": {
+    "defaultMessage": "{watch}: Hive types a line into it when {kind, select, agent {{n, plural, one {it finishes} other {one of them finishes}}, waits for you or stops} lane {a review fails, a card is blocked or stalled, or a lane is due to merge or ends} other {{n, plural, one {the card changes} other {one of them changes}}}}, or at {limit} if nothing does. Nothing runs meanwhile, and it takes no other work.",
+    "description": "Tooltip of a watching agent's status: what it waits for ({watch}: \"Waiting for #12 → Review\"), what wakes it (an agent watch: the agents finishing; a lane watch: lane events; a card watch: its cards changing; {n} is how many agents or cards), and when it is woken anyway ({limit}: a time)."
+  },
+  "panes.layout.name": {
+    "defaultMessage": "{layout, select, single {One at a time} columns2 {Two columns} columns3 {Three columns} grid {Grid of four} other {Grid of six}}",
+    "description": "A pane layout's name: its button's tooltip and accessible name on the agent strip."
+  },
+  "panes.layout.wide": {
+    "defaultMessage": "{layout} (works best on a wide window, or with the sidebar hidden: Ctrl+B)",
+    "description": "Tooltip of a layout button with three or more panes (the agent strip): its name ({layout}) and a hint. Ctrl+B hides the sidebar."
+  },
+  "panes.leftovers.count": {
+    "defaultMessage": "{n} left running",
+    "description": "On an agent's tab: how many processes it left running ({n}). Keep it short."
+  },
+  "panes.leftovers.end": {
+    "defaultMessage": "{n, plural, one {End It} other {End All #}}",
+    "description": "Menu item on the processes an agent left running: ends it or all {n} of them."
+  },
+  "panes.leftovers.endFailed": {
+    "defaultMessage": "Could not end the processes",
+    "description": "An error's title: ending the processes an agent left running failed."
+  },
+  "panes.leftovers.keep": {
+    "defaultMessage": "Keep Running (Stop Listing)",
+    "description": "Menu item on the processes an agent left running: keeps them running and stops listing them."
+  },
+  "panes.leftovers.keepFailed": {
+    "defaultMessage": "Could not keep the processes",
+    "description": "An error's title: keeping the processes an agent left running (and no longer listing them) failed."
+  },
+  "panes.leftovers.label": {
+    "defaultMessage": "{processes} left running",
+    "description": "Accessible name of an agent's left-running mark ({processes}: \"2 processes\")."
+  },
+  "panes.leftovers.tip": {
+    "defaultMessage": "{n, plural, one {# process this agent started is still running after it stopped. It may hold the project's folder or ports:} other {# processes this agent started are still running after it stopped. They may hold the project's folder or ports:}}",
+    "description": "Hover of an agent's left-running mark, above the processes listed: how many ({n}) its stopped launches left running."
+  },
+  "panes.leftovers.tipClick": {
+    "defaultMessage": "{n, plural, one {Click to end it, or keep it running.} other {Click to end them, or keep them running.}}",
+    "description": "Hover of an agent's left-running mark, its last line: what clicking offers ({n} processes)."
+  },
+  "panes.list.more": {
+    "defaultMessage": "…and {n} more",
+    "description": "The last line of a list in a hover cut short (files, processes): how many more ({n})."
+  },
+  "panes.locks.title": {
+    "defaultMessage": "Files it is editing this turn:",
+    "description": "Hover of an agent's lock mark (a worktree agent), above the files it is editing."
+  },
+  "panes.locks.titleShared": {
+    "defaultMessage": "Files it is editing this turn. Other agents in this folder wait until it finishes with them:",
+    "description": "Hover of an agent's lock mark (an agent sharing the project's folder), above the files it is editing."
+  },
+  "panes.menu.archiveStartNew": {
+    "defaultMessage": "Archive and Start New…",
+    "description": "Menu item (an agent's menu): archives the agent's conversation and starts a new one."
+  },
+  "panes.menu.cancelWatch": {
+    "defaultMessage": "Cancel Card Watch",
+    "description": "Menu item (a watching agent's menu): ends its watch, so nothing wakes it."
+  },
+  "panes.menu.compact": {
+    "defaultMessage": "Compact…",
+    "description": "Menu item (an agent's menu): summarises its conversation to shrink its context (asks first)."
+  },
+  "panes.menu.discard": {
+    "defaultMessage": "Discard Worktree and Branch…",
+    "description": "Menu item (a worktree agent's menu): removes the agent and deletes its worktree and branch (asks first)."
+  },
+  "panes.menu.handOver": {
+    "defaultMessage": "Hand Over to…",
+    "description": "Menu item (an agent's menu): hands its work over to another agent or a new conversation."
+  },
+  "panes.menu.moveLeft": {
+    "defaultMessage": "Move Left",
+    "description": "Menu item (an agent's menu): moves the agent one place left among the project's agents."
+  },
+  "panes.menu.moveRight": {
+    "defaultMessage": "Move Right",
+    "description": "Menu item (an agent's menu): moves the agent one place right among the project's agents."
+  },
+  "panes.menu.remove": {
+    "defaultMessage": "Remove Agent…",
+    "description": "Menu item (an agent's menu): removes the agent from the project (asks first)."
+  },
+  "panes.menu.reviewChanges": {
+    "defaultMessage": "Review Changes",
+    "description": "Menu item (a worktree agent's menu): shows its changes in the Git tab."
+  },
+  "panes.messages.cancel": {
+    "defaultMessage": "{n, plural, one {Cancel the Message} other {Cancel the # Messages}}",
+    "description": "Menu item on an agent's unread messages: cancels the {n} still waiting to be delivered."
+  },
+  "panes.messages.cancelFailed": {
+    "defaultMessage": "Could not cancel the messages",
+    "description": "An error's title: cancelling messages left for an agent failed."
+  },
+  "panes.messages.clickCancel": {
+    "defaultMessage": "{n, plural, one {Click to cancel the one waiting.} other {Click to cancel the # waiting.}}",
+    "description": "Hover of an agent's unread messages: clicking cancels the {n} still waiting."
+  },
+  "panes.messages.line": {
+    "defaultMessage": "{id} from {from} ({state, select, queued {waiting} offered {typed, not fetched or acked yet} other {its offer not confirmed}}): {text}",
+    "description": "A message left for an agent, in its tab's hover: its id, who from ({from}), its state (waiting; typed into the agent but not fetched or acked; or offered but not confirmed), and the start of its text ({text}, the sender's own words)."
+  },
+  "panes.messages.overdue": {
+    "defaultMessage": "{n} overdue",
+    "description": "On an agent's tab: how many deliveries it didn't ack in time. Keep it short."
+  },
+  "panes.messages.overdueTip": {
+    "defaultMessage": "{n, plural, one {One delivery was not acked in time: the agent hasn't said it acted on it.} other {# deliveries were not acked in time: the agent hasn't said it acted on them.}}",
+    "description": "Hover of an agent's unread messages: how many deliveries ({n}) it didn't ack in time."
+  },
+  "panes.messages.tip": {
+    "defaultMessage": "{n, plural, one {A message} other {# messages}} for {agent} that it hasn't fetched or acked yet: offered as its next line once it is idle, or read with hive_inbox.",
+    "description": "Hover of an agent's unread messages, above the list of them: how many ({n}) for the agent ({agent}: its name). hive_inbox is a tool's name: keep it."
+  },
+  "panes.messages.unread": {
+    "defaultMessage": "{n} unread",
+    "description": "On an agent's tab: how many messages left for it it hasn't fetched or acked yet. Keep it short."
+  },
+  "panes.pages.button": {
+    "defaultMessage": "Agent page {page}",
+    "description": "Accessible name of a numbered page button on the agent strip."
+  },
+  "panes.pages.item": {
+    "defaultMessage": "Page {page}",
+    "description": "An item of the agent strip's page menu (many pages); its detail lists the page's agents."
+  },
+  "panes.pages.menu": {
+    "defaultMessage": "Agent pages",
+    "description": "Accessible name of the agent strip's page menu (many pages)."
+  },
+  "panes.pages.menuTip": {
+    "defaultMessage": "Page {page} of {pages}: choose a page{key, select, none {} other { ({key} for the next page)}}",
+    "description": "Tooltip of the agent strip's page menu (many pages): the page shown of how many, and the shortcut for the next page ({key}; none: leave that branch empty)."
+  },
+  "panes.pages.next": {
+    "defaultMessage": "Next agent page",
+    "description": "The › button of the agent strip's compact pager (many pages): shows the next page of agents."
+  },
+  "panes.pages.previous": {
+    "defaultMessage": "Previous agent page",
+    "description": "The ‹ button of the agent strip's compact pager (many pages): shows the previous page of agents."
+  },
+  "panes.pages.tip": {
+    "defaultMessage": "{button, select, none {Page {page}} other {{button} (page {page})}}: {count, plural, one {agent {first}} other {agents {first}–{last}}}{added, select, yes {, with an agent the Assistant added} other {}}{key, select, none {} other { ({key} for the next page)}}",
+    "description": "Tooltip of a page button on the agent strip: which page ({page}), or the ‹ › button's name ({button}; none for a numbered button), the agents on it by position ({first}–{last}), whether the Assistant added one there, and the shortcut for the next page ({key}: \"Ctrl+Alt+PageDown\"; none: leave that branch empty)."
+  },
+  "panes.processes.andMore": {
+    "defaultMessage": "{shown} and {n, plural, one {# process} other {# processes}} more",
+    "description": "The processes an agent left running, cut short: the first few ({shown}: \"node serve.js, 4 × tail -f\") and how many more."
+  },
+  "panes.processes.count": {
+    "defaultMessage": "{n, plural, one {# process} other {# processes}}",
+    "description": "How many processes an agent left running (\"2 processes\")."
+  },
+  "panes.resume.allSessions": {
+    "defaultMessage": "All {n} Sessions…",
+    "description": "Last item of the session picker when it lists only the newest: opens the Sessions tab with all {n}."
+  },
+  "panes.resume.button": {
+    "defaultMessage": "Resume",
+    "description": "Button (an agent's pane, its menu): resumes the agent's last session. Keep it short."
+  },
+  "panes.resume.choose": {
+    "defaultMessage": "Choose a session to resume",
+    "description": "Tooltip and accessible name of the ▾ beside an agent's Resume button: opens the session picker."
+  },
+  "panes.resume.header": {
+    "defaultMessage": "Resume a session",
+    "description": "Heading of the session picker (an agent's Resume ▾) in a project with one agent."
+  },
+  "panes.resume.headerIn": {
+    "defaultMessage": "Resume in {agent}",
+    "description": "Heading of the session picker (an agent's Resume ▾): the sessions listed resume in this agent ({agent}: its name)."
+  },
+  "panes.resume.lastRunBy": {
+    "defaultMessage": "last run by {agent}",
+    "description": "A session in the session picker that another agent ({agent}: its name) ran last. Lower case."
+  },
+  "panes.resume.listFailed": {
+    "defaultMessage": "Could not list sessions",
+    "description": "An error's title: the session picker couldn't read the sessions."
+  },
+  "panes.resume.none": {
+    "defaultMessage": "No sessions to resume here yet",
+    "description": "The session picker when the agent has no session to resume."
+  },
+  "panes.resume.noneOfAgent": {
+    "defaultMessage": "{agent} has no session of its own to resume. Choose one with ▾, or start a new one.",
+    "description": "Tooltip of an agent's Resume button when the agent ({agent}: its name) has no session to resume. ▾ is the button beside it."
+  },
+  "panes.resume.noneOwn": {
+    "defaultMessage": "There is no session of its own to resume. Choose one with ▾, or start a new one.",
+    "description": "Tooltip of the Resume button when the project's agent has no session to resume. ▾ is the button beside it."
+  },
+  "panes.resume.openIn": {
+    "defaultMessage": "open in {agent} — click to show it",
+    "description": "A session in the session picker that another agent has open ({agent}: its name). Lower case: it follows how long ago it ran."
+  },
+  "panes.resume.pick": {
+    "defaultMessage": "Resume a Session…",
+    "description": "Menu item (an agent's pane): opens the session picker to resume one of its sessions."
+  },
+  "panes.resume.recache": {
+    "defaultMessage": "cache expired, ~{tokens} to re-cache",
+    "description": "A session in the session picker whose prompt cache has expired: resuming it re-reads about {tokens} tokens (\"120K\"). Lower case."
+  },
+  "panes.resume.sessionsTab": {
+    "defaultMessage": "Sessions Tab…",
+    "description": "Last item of the session picker: opens the project's Sessions tab."
+  },
+  "panes.resume.tip": {
+    "defaultMessage": "Resume \"{session}\", last active {when}",
+    "description": "Tooltip of an agent's Resume button: the session it resumes ({session}: its name) and when it was last active ({when}: \"5 min ago\")."
+  },
+  "panes.runtime.needsInput": {
+    "defaultMessage": "Needs your input",
+    "description": "An agent's status: its CLI waits for the user's answer."
+  },
+  "panes.runtime.signin": {
+    "defaultMessage": "Needs sign-in",
+    "description": "An agent's status: its CLI waits for the user to sign in."
+  },
+  "panes.runtime.silent": {
+    "defaultMessage": "Silent {minutes} min · state unknown",
+    "description": "An agent's status (its pane, the agents table): Hive has heard nothing of its turn for {minutes} minutes (? when it can't tell) and can't tell what it is doing. Keep it short."
+  },
+  "panes.runtime.starting": {
+    "defaultMessage": "Starting…",
+    "description": "An agent's status: its CLI is starting."
+  },
+  "panes.runtime.stopped": {
+    "defaultMessage": "Stopped",
+    "description": "An agent's status: its session isn't running."
+  },
+  "panes.runtime.working": {
+    "defaultMessage": "Working…",
+    "description": "An agent's status: it is working on a turn."
+  },
+  "panes.safeguard.asks": {
+    "defaultMessage": "Its CLI asks what to do about it.",
+    "description": "An agent's safeguard note: after the stop, its CLI asks the user what to do (switch model, carry on)."
+  },
+  "panes.safeguard.idle": {
+    "defaultMessage": "Idle after the stop: give it a nudge.",
+    "description": "An agent's safeguard note: after the stop the agent sits idle; the user can prompt it to carry on."
+  },
+  "panes.safeguard.stopped": {
+    "defaultMessage": "A safety classifier stopped a response{model, select, none {} other { on {model}}} at {time}{stops, plural, =0 {} =1 {} other { (# this session)}}.",
+    "description": "An agent's safeguard note (its pane, a hover): its CLI's safety classifier stopped a response, on a model ({model}: its name; none: leave that branch empty), at a time ({time}: \"15:12\"), and how many times this session ({stops}; once: leave it empty)."
+  },
+  "panes.safeguard.switched": {
+    "defaultMessage": "It now runs on {to} instead of {from} (since {time}).",
+    "description": "An agent's safeguard note: after the stop it moved to another model ({to}, {from}: their names) at a time ({time}: \"15:12\")."
+  },
+  "panes.safeguard.tools": {
+    "defaultMessage": "Before it, its last tool calls: {tools}.",
+    "description": "An agent's safeguard note: the names of the agent's last tool calls before the stop ({tools}: \"Bash, Edit\"; tool names, keep them)."
+  },
+  "panes.session.name": {
+    "defaultMessage": "Session: {session}",
+    "description": "Accessible name of the session icon in an agent's footer ({session}: the session's name)."
+  },
+  "panes.session.new": {
+    "defaultMessage": "New Session",
+    "description": "Button and menu item (an agent's pane): starts the agent in a new conversation. Keep it short."
+  },
+  "panes.session.openInTab": {
+    "defaultMessage": "Open in Sessions Tab",
+    "description": "Menu item on the session icon in an agent's footer: reads the session in the Sessions tab."
+  },
+  "panes.session.rename": {
+    "defaultMessage": "Rename…",
+    "description": "Menu item on the session icon in an agent's footer: renames the session."
+  },
+  "panes.session.renameButton": {
+    "defaultMessage": "Rename",
+    "description": "Button of the dialog renaming a session."
+  },
+  "panes.session.renameFailed": {
+    "defaultMessage": "Could not rename",
+    "description": "An error's title: renaming a session failed."
+  },
+  "panes.session.renameTitle": {
+    "defaultMessage": "Rename session",
+    "description": "Title of the dialog renaming an agent's session (from its footer)."
+  },
+  "panes.session.tip": {
+    "defaultMessage": "{session} Running since {since} Session {id} Click to read it in the Sessions tab; right-click to rename it.",
+    "description": "Hover of the session icon in an agent's footer, four lines: the session's name, when it started ({since}: a date and time), its id, and what clicking does. Keep the line breaks."
+  },
+  "panes.tab.failed": {
+    "defaultMessage": "failed to start: {why}",
+    "description": "An agent's state in its tab's hover, after its name: its last launch failed ({why}: the error's first line). Lower case."
+  },
+  "panes.tab.mcp": {
+    "defaultMessage": "MCP servers: {servers}",
+    "description": "A line of an agent tab's hover: the MCP servers it has on ({servers})."
+  },
+  "panes.tab.notRunning": {
+    "defaultMessage": "not running",
+    "description": "An agent's state in its tab's hover, after its name: its session isn't running. Lower case."
+  },
+  "panes.tab.removing": {
+    "defaultMessage": "Removing…",
+    "description": "Tooltip of the spinner on an agent's tab while it is being removed."
+  },
+  "panes.tab.resumeOpens": {
+    "defaultMessage": "Resume opens: {session} ({when})",
+    "description": "A line of a stopped agent tab's hover: the session Resume opens ({session}: its name) and when it was last active ({when}: \"5 min ago\")."
+  },
+  "panes.tab.reviewing": {
+    "defaultMessage": "Reviewing #{card} {title}",
+    "description": "A line of an agent tab's hover: a card it reviews (its number and title, the user's own words)."
+  },
+  "panes.tab.role": {
+    "defaultMessage": "Role: {role}",
+    "description": "A line of an agent tab's hover: its role (the user's own words)."
+  },
+  "panes.tab.session": {
+    "defaultMessage": "Session: {session}",
+    "description": "A line of an agent tab's hover: the session it runs ({session}: its name)."
+  },
+  "panes.tab.title": {
+    "defaultMessage": "{agent} ({provider}): {state}",
+    "description": "The first line of an agent tab's hover: its name, its provider (\"Claude Code\") and its state."
+  },
+  "panes.tab.workingOn": {
+    "defaultMessage": "Working on #{card} {title}",
+    "description": "A line of an agent tab's hover: a card it works on (its number and title, the user's own words)."
+  },
+  "panes.tab.worktree": {
+    "defaultMessage": "Worktree {path} on {branch}, branched from {base}",
+    "description": "A line of a worktree agent tab's hover: its folder, its branch and the branch it was made from."
+  },
+  "panes.table.agent": {
+    "defaultMessage": "Agent",
+    "description": "An agents table's first column heading: the agent's name and status dot."
+  },
+  "panes.table.background": {
+    "defaultMessage": "Waiting on {n, plural, one {# background task} other {# background tasks}}",
+    "description": "An agents table's State column: the agent's turn ended but tasks it started in the background still run."
+  },
+  "panes.table.card": {
+    "defaultMessage": "Card",
+    "description": "An agents table's column heading: the card the agent works on or reviews."
+  },
+  "panes.table.cardPrefix": {
+    "defaultMessage": "card",
+    "description": "Before the agent's card in a line of text (screen readers, a dialog's copy): \"card #12 Title\". Lower case."
+  },
+  "panes.table.happens": {
+    "defaultMessage": "What happens",
+    "description": "An agents table's column heading (Start New All, Remove All…): what the action does to each agent."
+  },
+  "panes.table.notRunning": {
+    "defaultMessage": "Not running",
+    "description": "An agents table's State column: the agent's session isn't running."
+  },
+  "panes.table.project": {
+    "defaultMessage": "Project",
+    "description": "An agents table's column heading: the agent's project."
+  },
+  "panes.table.projectPrefix": {
+    "defaultMessage": "in",
+    "description": "Before the agent's project in a line of text (screen readers, a dialog's copy): \"in hive\". Lower case."
+  },
+  "panes.table.state": {
+    "defaultMessage": "State",
+    "description": "An agents table's column heading: what the agent is doing."
+  },
+  "panes.table.waiting": {
+    "defaultMessage": "Waiting for",
+    "description": "An agents table's column heading: what a watching agent waits for (cards, agents, lanes)."
+  },
+  "panes.table.waitingFor": {
+    "defaultMessage": "Waiting for {what}",
+    "description": "An agent in a line of text (a screen reader's description of a project's agents): what it waits for ({what}: \"#12 → Review\", \"B6 to finish\")."
+  },
+  "panes.table.waitingPrefix": {
+    "defaultMessage": "waiting for",
+    "description": "Before what a watching agent waits for, in a line of text (screen readers, a dialog's copy): \"waiting for #12 → Review\". Lower case."
+  },
+  "panes.table.watching": {
+    "defaultMessage": "Watching",
+    "description": "An agents table's State column: the agent waits for cards or agents to change (a watch); the Waiting for column says what."
+  },
+  "panes.table.worktree": {
+    "defaultMessage": "Worktree",
+    "description": "An agents table's column heading (Start New All, Remove All…): the agent's worktree branch."
+  },
+  "panes.table.worktreePrefix": {
+    "defaultMessage": "worktree",
+    "description": "Before the agent's worktree branch in a line of text (screen readers, a dialog's copy). Lower case."
+  },
+  "panes.template.button": {
+    "defaultMessage": "Template",
+    "description": "The Template ▾ button on the agent strip (save or load agent templates). Keep it short."
+  },
+  "panes.template.detail": {
+    "defaultMessage": "{n, plural, one {# agent} other {# agents}} · {layout}",
+    "description": "A template's detail in Template ▾: how many agents it has and its layout ({layout}: \"two columns\")."
+  },
+  "panes.template.heading": {
+    "defaultMessage": "{template} · {scope, select, workspace {workspace} other {this project}}",
+    "description": "A heading in Add Agent from Template: the template's name ({template}) and where it is kept (lower case)."
+  },
+  "panes.template.layout": {
+    "defaultMessage": "{layout, select, auto {automatic layout} single {one at a time} columns2 {two columns} columns3 {three columns} grid {grid of four} grid6 {grid of six} other {{layout}}}",
+    "description": "A template's layout, after how many agents it has (Template ▾ menu): its pane layout, lower case."
+  },
+  "panes.template.listFailed": {
+    "defaultMessage": "Could not list the templates",
+    "description": "An error's title: Hive couldn't read the templates (Template ▾, Add Agent from Template)."
+  },
+  "panes.template.noneSaved": {
+    "defaultMessage": "No templates saved yet",
+    "description": "Template ▾ with no template saved."
+  },
+  "panes.template.noneYet": {
+    "defaultMessage": "No templates yet: Template ▾ → Save Template… first",
+    "description": "Add Agent from Template with no template: how to save one first. \"Template ▾\" and \"Save Template…\" are the button and its menu item: use their translations."
+  },
+  "panes.template.ownWorktree": {
+    "defaultMessage": "own worktree",
+    "description": "A template agent's detail (Add Agent from Template): it works in its own worktree. Lower case."
+  },
+  "panes.template.save": {
+    "defaultMessage": "Save Template…",
+    "description": "Menu item (Template ▾): saves this project's agents and layout as a template."
+  },
+  "panes.template.scopeHeading": {
+    "defaultMessage": "{scope, select, workspace {Workspace templates} other {This project templates}}",
+    "description": "A heading in Template ▾ above the templates kept in the workspace, or in this project."
+  },
+  "panes.template.tip": {
+    "defaultMessage": "Templates: save this project's agents and layout as one, or load one (it replaces the agents and layout)",
+    "description": "Tooltip of the Template ▾ button (the agent strip)."
+  },
+  "panes.terminal.exited": {
+    "defaultMessage": "process exited with code {code}",
+    "description": "Written into a terminal (in grey, in brackets) when its process ends. {code} is the exit code, a number."
+  },
+  "panes.terminal.pasteFailed": {
+    "defaultMessage": "Could not paste image",
+    "description": "An error's title: pasting a screenshot into an agent's terminal (saved as an attachment) failed."
+  },
+  "panes.watch.agents": {
+    "defaultMessage": "Waiting for {agents} to finish",
+    "description": "A watching agent's status (its pane): it waits for these agents ({agents}: their names, listed) to finish their turns."
+  },
+  "panes.watch.cards": {
+    "defaultMessage": "Waiting for {cards}",
+    "description": "A watching agent's status (its pane): it waits for these cards ({cards}: \"#12, #13\") to change."
+  },
+  "panes.watch.cardsInto": {
+    "defaultMessage": "Waiting for {cards} → {column}",
+    "description": "A watching agent's status (its pane): it waits for cards ({cards}: \"#12, #13\") to move into a board column ({column})."
+  },
+  "panes.watch.lanes": {
+    "defaultMessage": "Waiting on {lanes, select, all {all running lanes} one {lane {lane}} other {{n} lanes}}{cards, select, none {} other { and {cards}}}",
+    "description": "A watching agent's status (its pane): it waits on card loops (lanes): all of them, one ({lane}: its id) or {n}; then any cards it also watches ({cards}: \"#4, #5\"; none: leave that branch empty)."
+  },
+  "panes.watchCancel.failed": {
+    "defaultMessage": "Could not cancel the watch",
+    "description": "An error's title: ending an agent's watch failed."
+  },
+  "panes.watchCell.agents": {
+    "defaultMessage": "{agents} to finish",
+    "description": "An agents table's Waiting for column: the agents a watching agent waits for ({agents}: their names, listed) to finish their turns."
+  },
+  "panes.watchCell.cardsInto": {
+    "defaultMessage": "{cards} → {column}",
+    "description": "An agents table's Waiting for column: the cards a watching agent waits for ({cards}: \"#12, #13\") to move into a board column ({column})."
+  },
+  "panes.worktree.label": {
+    "defaultMessage": "Worktree: {branch} in {path}",
+    "description": "Accessible name of a worktree agent's mark: its branch and its folder."
+  },
+  "panes.worktree.tip": {
+    "defaultMessage": "Worktree: {branch} in {path} branched from {base}",
+    "description": "Hover of a worktree agent's mark (its tab and pane header), three lines: its branch, its folder and the branch it was made from. Keep the line breaks."
+  },
+  "panes.worktree.toMerge": {
+    "defaultMessage": "To merge: {work}",
+    "description": "In a worktree agent's hover: what is left to merge ({work}: \"2 commits not merged into main\")."
+  }
+}

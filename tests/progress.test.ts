@@ -2,9 +2,17 @@
 // updates; stale runs; the taskbar's combined bar; time left.
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { ProgressError, ProgressStore, admitReport, keptRuns, type ProgressCaller, type ProgressHistory } from '../src/main/progress'
-import { FINISHING_MS, MAX_OPEN_PER_OWNER, MAX_OPEN_PER_WORKSPACE, PASSED_SHOWN_MS, RECENT_KEPT, STRIP_BARS, ALL_PROJECTS, agentOpenRun, barLook, runStateWord, runStatusLine, runWords, NO_PROJECT, SHOW_ALL, activeFilter, agentChoices, filterChoices, filterRuns, inStrip, isListed, isOpenRun, isOverdue, isRecent, runDetailsText, stripRuns, taskbarProgress, timeLeft, unseenTrouble } from '../src/shared/progress'
+import { FINISHING_MS, MAX_OPEN_PER_OWNER, MAX_OPEN_PER_WORKSPACE, PASSED_SHOWN_MS, RECENT_KEPT, STRIP_BARS, ALL_PROJECTS, agentOpenRun, barLook, runStateWord as stateWordIn, runStatusLine as statusLineIn, runWords, NO_PROJECT, SHOW_ALL, activeFilter, agentChoices, filterChoices as filterChoicesIn, filterRuns, inStrip, isListed, isOpenRun, isOverdue, isRecent, runDetailsText as detailsTextIn, stripRuns, stripSummary, taskbarProgress, timeLeft, unseenTrouble } from '../src/shared/progress'
 import type { ProgressRun } from '../src/shared/types'
 import { setDateStyle } from '../src/shared/dates'
+import { fmt, tr } from '../src/shared/i18n'
+
+// The panel's text is the window's (#798): worded with tr(), in English here.
+const runStateWord = (r: Parameters<typeof stateWordIn>[0]): string => stateWordIn(r, tr)
+const runStatusLine = (r: ProgressRun, now: number): string => statusLineIn(r, now, tr)
+const runDetailsText = (r: ProgressRun, project: string | null, now: number): string => detailsTextIn(r, project, now, tr)
+const filterChoices = (runs: readonly ProgressRun[], nameOf: (p: string) => string): ReturnType<typeof filterChoicesIn> => filterChoicesIn(runs, nameOf, tr)
+const summaryOf = (runs: readonly ProgressRun[]): string => stripSummary(stripRuns(runs).counts, tr, (items) => fmt.list(items, 'unit'))
 
 const WS = 'C:\\ws'
 const alfie: ProgressCaller = { source: 'agent', workspacePath: WS, projectPath: 'C:\\ws\\alpha', agentId: 'a-1', agentName: 'Alfie', provider: 'claude-code' }
@@ -549,16 +557,17 @@ describe('progress rules', () => {
 
   it(`the folded strip: a bar for the newest ${STRIP_BARS}, the rest counted with the worst state, and every run in words`, () => {
     const runs = (states: ProgressRun['state'][]): ProgressRun[] => states.map((state, i) => ({ ...run({ state }), id: `r${i}` }))
-    expect(stripRuns([])).toEqual({ bars: [], more: [], moreState: null, summary: '' })
-    expect(stripRuns(runs(['stale'])).summary).toBe('1 run, stopped reporting')
+    expect(stripRuns([])).toEqual({ bars: [], more: [], moreState: null, counts: [] })
+    expect(summaryOf([])).toBe('')
+    expect(summaryOf(runs(['stale']))).toBe('1 run, stopped reporting')
     const six = stripRuns(runs(['running', 'failed', 'running', 'stale', 'passed', 'running']))
     expect([six.bars.length, six.more.length, six.moreState]).toEqual([6, 0, null])
-    expect(six.summary).toBe('6 runs: 3 running, 1 failed, 1 stopped reporting, 1 passed')
+    expect(summaryOf(runs(['running', 'failed', 'running', 'stale', 'passed', 'running']))).toBe('6 runs: 3 running, 1 failed, 1 stopped reporting, 1 passed')
     const nine = stripRuns(runs(['running', 'running', 'running', 'running', 'running', 'running', 'running', 'stale', 'failed']))
     expect(nine.bars.map((r) => r.id)).toEqual(['r0', 'r1', 'r2', 'r3', 'r4', 'r5'])
     expect(nine.more.map((r) => r.id)).toEqual(['r6', 'r7', 'r8'])
     expect(nine.moreState).toBe('failed')
-    expect(nine.summary).toBe('9 runs: 7 running, 1 failed, 1 stopped reporting')
+    expect(summaryOf(runs(['running', 'running', 'running', 'running', 'running', 'running', 'running', 'stale', 'failed']))).toBe('9 runs: 7 running, 1 failed, 1 stopped reporting')
     expect(stripRuns(runs(['running', 'running', 'running', 'running', 'running', 'running', 'stale'])).moreState).toBe('stale')
     expect(stripRuns(runs(['failed', 'running', 'running', 'running', 'running', 'running', 'running'])).moreState).toBeNull()
   })

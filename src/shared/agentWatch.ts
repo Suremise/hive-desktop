@@ -4,7 +4,9 @@
  * stops; its line names every agent that did. Pure, so the watches, the Agent API and tests share it.
  */
 import { AGENT_LIMIT_MAX } from './defaults'
-import type { SessionStatus } from './types'
+import { msg } from './i18n/msg'
+import { columnName, type Tr } from './tasks'
+import type { SessionStatus, TaskWatchInfo } from './types'
 import { DEFAULT_USER_NAME, WAKE_MAX_BYTES } from './watch'
 import { isProjectId } from './projectIds'
 
@@ -110,7 +112,31 @@ export function readSavedAgentMark(v: unknown): AgentMark | null {
 const names = (agents: Pick<WatchedAgent, 'name'>[]): string => agents.map((a) => a.name).join(', ')
 
 /** What a watching agent shows: "Waiting for B6 to finish". */
-export const agentWatchLabel = (cond: AgentWatchCondition): string => `Waiting for ${names(cond.agents)} to finish`
+export const agentWatchLabel = (cond: AgentWatchCondition): string => `Waiting for ${names(cond.agents)} to finish` // i18n-ignore: agent-facing: what a watching agent reads (its wake line, hive_agent_activity)
+
+/**
+ * A watch as the window shows it (#799), in the user's language, from its fields: "Waiting for B6 to finish", "Waiting
+ * for #12 → Review", "Waiting on lane l-1 and #4". Its `label` is the English agents and the Agent API read.
+ */
+export function watchText(w: Pick<TaskWatchInfo, 'cards' | 'column' | 'agents' | 'lanes'>, tr: Tr, list: (items: string[]) => string, form: 'line' | 'cell' = 'line'): string {
+  const cards = w.cards.map((n) => `#${n}`).join(', ')
+  // A lane watch's cell says it whole ("Waiting on all running lanes"), as its English label does.
+  if (form === 'cell' && !w.lanes?.length) return watchCell(w, cards, tr, list)
+  if (w.agents?.length) return tr(msg({ id: 'panes.watch.agents', defaultMessage: 'Waiting for {agents} to finish', description: "A watching agent's status (its pane): it waits for these agents ({agents}: their names, listed) to finish their turns." }), { agents: list(w.agents) })
+  if (w.lanes?.length) {
+    const lanes = w.lanes[0] === 'all' ? 'all' : w.lanes.length === 1 ? 'one' : 'some'
+    return tr(msg({ id: 'panes.watch.lanes', defaultMessage: 'Waiting on {lanes, select, all {all running lanes} one {lane {lane}} other {{n} lanes}}{cards, select, none {} other { and {cards}}}', description: "A watching agent's status (its pane): it waits on card loops (lanes): all of them, one ({lane}: its id) or {n}; then any cards it also watches ({cards}: \"#4, #5\"; none: leave that branch empty)." }), { lanes, lane: w.lanes[0], n: w.lanes.length, cards: cards || 'none' })
+  }
+  if (w.column) return tr(msg({ id: 'panes.watch.cardsInto', defaultMessage: 'Waiting for {cards} → {column}', description: "A watching agent's status (its pane): it waits for cards ({cards}: \"#12, #13\") to move into a board column ({column})." }), { cards, column: columnName(w.column, tr) })
+  return tr(msg({ id: 'panes.watch.cards', defaultMessage: 'Waiting for {cards}', description: "A watching agent's status (its pane): it waits for these cards ({cards}: \"#12, #13\") to change." }), { cards })
+}
+
+/** A card or agent watch in an agents table's "Waiting for" cell: what watchText says, after its "Waiting for". */
+function watchCell(w: Pick<TaskWatchInfo, 'cards' | 'column' | 'agents' | 'lanes'>, cards: string, tr: Tr, list: (items: string[]) => string): string {
+  if (w.agents?.length) return tr(msg({ id: 'panes.watchCell.agents', defaultMessage: '{agents} to finish', description: "An agents table's Waiting for column: the agents a watching agent waits for ({agents}: their names, listed) to finish their turns." }), { agents: list(w.agents) })
+  if (w.column) return tr(msg({ id: 'panes.watchCell.cardsInto', defaultMessage: '{cards} → {column}', description: "An agents table's Waiting for column: the cards a watching agent waits for ({cards}: \"#12, #13\") to move into a board column ({column})." }), { cards, column: columnName(w.column, tr) })
+  return cards
+}
 
 const oneLine = (text: string): string => text.replace(/\s+/g, ' ').trim()
 const clipChars = (text: string, max: number): string => {
@@ -124,7 +150,7 @@ const jsonBytes = (s: string): number => new TextEncoder().encode(JSON.stringify
  * state now, for an answer at once; `again`: it did so, and is working again since.
  */
 export function agentPart(a: Pick<WatchedAgent, 'name' | 'project'>, ev: AgentEvent, now: AgentNow, max = 200, already = false, again = false): string {
-  return again ? `${partOf(a, ev, now, max, already)} (working again now)` : partOf(a, ev, now, max, already)
+  return again ? `${partOf(a, ev, now, max, already)} (working again now)` : partOf(a, ev, now, max, already) // i18n-ignore: agent-facing: what a watching agent reads (its wake line, hive_agent_activity)
 }
 
 function partOf(a: Pick<WatchedAgent, 'name' | 'project'>, ev: AgentEvent, now: AgentNow, max: number, already: boolean): string {
@@ -132,17 +158,17 @@ function partOf(a: Pick<WatchedAgent, 'name' | 'project'>, ev: AgentEvent, now: 
   const quote = (t: string | null | undefined): string => (t && max > 0 ? `: "${clipChars(t, max)}"` : '')
   switch (ev) {
     case 'stopped':
-      return `${who} ${already ? 'is stopped' : 'stopped'}`
+      return `${who} ${already ? 'is stopped' : 'stopped'}` // i18n-ignore: agent-facing: what a watching agent reads (its wake line, hive_agent_activity)
     case 'error':
-      return `${who} is in error${quote(now.statusMessage)}`
+      return `${who} is in error${quote(now.statusMessage)}` // i18n-ignore: agent-facing: what a watching agent reads (its wake line, hive_agent_activity)
     case 'waiting':
-      return now.status === 'signin' ? `${who} is waiting for the user to sign in to its CLI again` : `${who} is waiting for the user${quote(now.statusMessage)}`
+      return now.status === 'signin' ? `${who} is waiting for the user to sign in to its CLI again` : `${who} is waiting for the user${quote(now.statusMessage)}` // i18n-ignore: agent-facing: what a watching agent reads (its wake line, hive_agent_activity)
     case 'untaken':
-      return `${who} is idle: its CLI hasn't taken the prompt it was given`
+      return `${who} is idle: its CLI hasn't taken the prompt it was given` // i18n-ignore: agent-facing: what a watching agent reads (its wake line, hive_agent_activity)
     case 'finished': {
       const n = now.backgroundTasks ?? 0
-      const also = now.watch ? ` (${now.watch.replace(/^Waiting/, 'now waiting')})` : n ? ` (${n} background task${n === 1 ? '' : 's'} still running)` : ''
-      return `${who} ${already ? 'is idle' : 'finished'}${also}${quote(now.reply)}`
+      const also = now.watch ? ` (${now.watch.replace(/^Waiting/, 'now waiting')})` : n ? ` (${n} background task${n === 1 ? '' : 's'} still running)` : '' // i18n-ignore: agent-facing: what a watching agent reads (its wake line, hive_agent_activity)
+      return `${who} ${already ? 'is idle' : 'finished'}${also}${quote(now.reply)}` // i18n-ignore: agent-facing: what a watching agent reads (its wake line, hive_agent_activity)
     }
   }
 }
@@ -153,7 +179,7 @@ export const replyFirstLine = (text: string): string => clipChars(text.split('\n
 
 /** The user's reply to an agent, for a wake line (#418): "User replied to B1 on #399: "C, the hive cell"", by its name (#426). */
 export function replyPart(agentName: string, where: string, text: string, max = REPLY_CHARS, user = DEFAULT_USER_NAME): string {
-  return `${user} replied to ${agentName}${where ? ` ${where}` : ''}${max > 0 ? `: "${clipChars(text, max)}"` : ''}`
+  return `${user} replied to ${agentName}${where ? ` ${where}` : ''}${max > 0 ? `: "${clipChars(text, max)}"` : ''}` // i18n-ignore: agent-facing: what a watching agent reads (its wake line, hive_agent_activity)
 }
 
 /**
@@ -170,7 +196,7 @@ export function agentWakeLine(changes: { agent: WatchedAgent; event: AgentEvent 
   // Too many for that: who replied to whom and who changed, by name, else by count; the user's replies stay replies.
   const replied = changes.filter((c) => c.reply !== undefined).map((c) => c.agent)
   const changed = changes.filter((c) => c.event).map((c) => c.agent)
-  const counted = (agents: WatchedAgent[]): string => `${agents.length} watched agent${agents.length === 1 ? '' : 's'}`
+  const counted = (agents: WatchedAgent[]): string => `${agents.length} watched agent${agents.length === 1 ? '' : 's'}` // i18n-ignore: agent-facing: what a watching agent reads (its wake line, hive_agent_activity)
   const brief = (who: (agents: WatchedAgent[]) => string): string => `[Hive] ${[replied.length ? `${user} replied to ${who(replied)}` : '', changed.length ? `${who(changed)} changed` : ''].filter(Boolean).join('; ')}${tail}`
   const short = brief(names)
   return jsonBytes(short) <= WAKE_MAX_BYTES ? short : brief(counted)
@@ -180,5 +206,5 @@ export function agentWakeLine(changes: { agent: WatchedAgent; event: AgentEvent 
 export function agentLimitLine(cond: AgentWatchCondition, minutes: number): string {
   const one = cond.agents.length === 1
   const dur = minutes >= 60 ? `${Math.round((minutes / 60) * 10) / 10} h` : `${minutes} min`
-  return `[Hive] ${names(cond.agents)} ${one ? 'is' : 'are'} still working after ${dur}: your agent watch has ended. Check on ${one ? 'it' : 'them'} (hive_agent_activity) and watch again, or tell the user (hive_notify) if ${one ? 'it seems' : 'one seems'} stuck.`
+  return `[Hive] ${names(cond.agents)} ${one ? 'is' : 'are'} still working after ${dur}: your agent watch has ended. Check on ${one ? 'it' : 'them'} (hive_agent_activity) and watch again, or tell the user (hive_notify) if ${one ? 'it seems' : 'one seems'} stuck.` // i18n-ignore: agent-facing: what a watching agent reads (its wake line, hive_agent_activity)
 }

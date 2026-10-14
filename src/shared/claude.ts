@@ -1,4 +1,6 @@
 import { footerPatterns, lastFooterMode, type FooterModeDef, type FooterPatterns } from './footerModes'
+import { msg } from './i18n/msg'
+import type { Tr } from './tasks'
 import type { PermissionMode } from './types'
 import type { ModeCaveatFacts, ModeOption, ModelGroup, ModelOption, ProviderDescriptor } from './providers'
 
@@ -9,13 +11,82 @@ import type { ModeCaveatFacts, ModeOption, ModelGroup, ModelOption, ProviderDesc
 
 export const CLAUDE_CODE = 'claude-code'
 
+/**
+ * Effort levels' names in the window's words (#800), every provider's: the descriptors' effortLevels keep the English
+ * for agents and the Agent API. Here, in the first descriptor's module, so codex.ts and copilot.ts take them without a
+ * cycle.
+ */
+export const EFFORT_TEXT = {
+  none: msg({ id: 'agents.efforts.none', defaultMessage: 'None', description: 'An effort level (how hard the model thinks) in the effort picker: no reasoning. Keep it short.' }),
+  minimal: msg({ id: 'agents.efforts.minimal', defaultMessage: 'Minimal', description: 'An effort level (how hard the model thinks) in the effort picker. Keep it short.' }),
+  low: msg({ id: 'agents.efforts.low', defaultMessage: 'Low', description: 'An effort level (how hard the model thinks) in the effort picker. Keep it short.' }),
+  medium: msg({ id: 'agents.efforts.medium', defaultMessage: 'Medium', description: 'An effort level (how hard the model thinks) in the effort picker. Keep it short.' }),
+  high: msg({ id: 'agents.efforts.high', defaultMessage: 'High', description: 'An effort level (how hard the model thinks) in the effort picker. Keep it short.' }),
+  xhigh: msg({ id: 'agents.efforts.xhigh', defaultMessage: 'Extra high', description: 'An effort level (how hard the model thinks) in the effort picker, between High and Max. Keep it short.' }),
+  max: msg({ id: 'agents.efforts.max', defaultMessage: 'Max', description: 'The highest effort level (how hard the model thinks) of most models, in the effort picker. Keep it short.' }),
+  ultra: msg({ id: 'agents.efforts.ultra', defaultMessage: 'Ultra', description: "Codex's effort level above Max (how hard the model thinks), in the effort picker. Keep it short." })
+}
+
+/** The model pickers' group of older models, every provider's (#800). */
+export const OLDER_VERSIONS = msg({ id: 'agents.models.olderGroup', defaultMessage: 'Older versions', description: 'A group of the model picker: earlier models, hidden until shown.' })
+
+// The English labels and descriptions are what agents and the Agent API read; `text` is the window's (#800).
 export const CLAUDE_PERMISSION_MODES: ModeOption[] = [
-  { value: 'manual', label: 'Manual', description: 'Asks before file edits and shell commands unless you have pre-approved them.' },
-  { value: 'acceptEdits', label: 'Accept edits', description: 'Makes file edits in the working folder without asking; still asks before shell commands.' },
-  { value: 'plan', label: 'Plan', description: 'Read-only: explores and proposes a plan, changes nothing until you approve.' },
-  { value: 'auto', label: 'Auto', description: 'A safety classifier approves low-risk actions itself and only asks about risky ones.' },
-  { value: 'dontAsk', label: "Don't ask", description: 'Never prompts. Anything not pre-approved is refused instead of asked about.' },
-  { value: 'bypassPermissions', label: 'Bypass permissions', description: 'Never asks and allows everything — any edit, command or network call. Use only in disposable environments.', danger: true }
+  {
+    value: 'manual',
+    label: 'Manual', // i18n-ignore: agent-facing English (text is the window's)
+    description: 'Asks before file edits and shell commands unless you have pre-approved them.', // i18n-ignore: agent-facing English (text is the window's)
+    text: {
+      label: msg({ id: 'agents.claude.manual', defaultMessage: 'Manual', description: "Claude Code's permission mode: it asks before edits and commands. Keep it short." }),
+      description: msg({ id: 'agents.claude.manualDescription', defaultMessage: 'Asks before file edits and shell commands unless you have pre-approved them.', description: "What Claude Code's Manual permission mode does (the mode picker)." })
+    }
+  },
+  {
+    value: 'acceptEdits',
+    label: 'Accept edits', // i18n-ignore: agent-facing English (text is the window's)
+    description: 'Makes file edits in the working folder without asking; still asks before shell commands.', // i18n-ignore: agent-facing English (text is the window's)
+    text: {
+      label: msg({ id: 'agents.claude.acceptEdits', defaultMessage: 'Accept edits', description: "Claude Code's permission mode: it edits files without asking. Keep it short." }),
+      description: msg({ id: 'agents.claude.acceptEditsDescription', defaultMessage: 'Makes file edits in the working folder without asking; still asks before shell commands.', description: "What Claude Code's Accept edits permission mode does (the mode picker)." })
+    }
+  },
+  {
+    value: 'plan',
+    label: 'Plan', // i18n-ignore: agent-facing English (text is the window's)
+    description: 'Read-only: explores and proposes a plan, changes nothing until you approve.', // i18n-ignore: agent-facing English (text is the window's)
+    text: {
+      label: msg({ id: 'agents.claude.plan', defaultMessage: 'Plan', description: "Claude Code's permission mode: it plans and changes nothing. Keep it short." }),
+      description: msg({ id: 'agents.claude.planDescription', defaultMessage: 'Read-only: explores and proposes a plan, changes nothing until you approve.', description: "What Claude Code's Plan permission mode does (the mode picker)." })
+    }
+  },
+  {
+    value: 'auto',
+    label: 'Auto', // i18n-ignore: agent-facing English (text is the window's)
+    description: 'A safety classifier approves low-risk actions itself and only asks about risky ones.', // i18n-ignore: agent-facing English (text is the window's)
+    text: {
+      label: msg({ id: 'agents.claude.auto', defaultMessage: 'Auto', description: "Claude Code's permission mode: a classifier approves low-risk actions. Keep it short." }),
+      description: msg({ id: 'agents.claude.autoDescription', defaultMessage: 'A safety classifier approves low-risk actions itself and only asks about risky ones.', description: "What Claude Code's Auto permission mode does (the mode picker)." })
+    }
+  },
+  {
+    value: 'dontAsk',
+    label: "Don't ask", // i18n-ignore: agent-facing English (text is the window's)
+    description: 'Never prompts. Anything not pre-approved is refused instead of asked about.', // i18n-ignore: agent-facing English (text is the window's)
+    text: {
+      label: msg({ id: 'agents.claude.dontAsk', defaultMessage: "Don't ask", description: "Claude Code's permission mode: it never prompts, and refuses what isn't pre-approved. Keep it short." }),
+      description: msg({ id: 'agents.claude.dontAskDescription', defaultMessage: 'Never prompts. Anything not pre-approved is refused instead of asked about.', description: "What Claude Code's Don't ask permission mode does (the mode picker)." })
+    }
+  },
+  {
+    value: 'bypassPermissions',
+    label: 'Bypass permissions', // i18n-ignore: agent-facing English (text is the window's)
+    description: 'Never asks and allows everything — any edit, command or network call. Use only in disposable environments.', // i18n-ignore: agent-facing English (text is the window's)
+    danger: true,
+    text: {
+      label: msg({ id: 'agents.claude.bypass', defaultMessage: 'Bypass permissions', description: "Claude Code's permission mode with no guardrails: it allows everything. Keep it short." }),
+      description: msg({ id: 'agents.claude.bypassDescription', defaultMessage: 'Never asks and allows everything — any edit, command or network call. Use only in disposable environments.', description: "What Claude Code's Bypass permissions mode does (the mode picker): a warning." })
+    }
+  }
 ]
 
 const cap = (s: string): string => s.charAt(0).toUpperCase() + s.slice(1).toLowerCase()
@@ -44,17 +115,23 @@ const pinned = (...ids: string[]): ModelOption[] => ids.map((id) => ({ value: id
  */
 export const CLAUDE_MODEL_GROUPS: ModelGroup[] = [
   {
-    label: 'Latest (follows new releases)',
+    label: 'Latest (follows new releases)', // i18n-ignore: agent-facing English (text is the window's)
+    text: msg({ id: 'agents.claude.latestGroup', defaultMessage: 'Latest (follows new releases)', description: 'A group of the model picker (Claude Code): aliases that always use the newest model of their family.' }),
     models: [
-      { value: 'fable', label: 'Fable (latest)' },
-      { value: 'opus', label: 'Opus (latest)' },
-      { value: 'sonnet', label: 'Sonnet (latest)' },
-      { value: 'haiku', label: 'Haiku (latest)' }
+      { value: 'fable', label: 'Fable (latest)', text: msg({ id: 'agents.claude.latestFable', defaultMessage: 'Fable (latest)', description: 'A model alias in the model picker (Claude Code): always the newest Fable model. Fable is a name: keep it. Keep it short.' }) }, // i18n-ignore: agent-facing English (text is the window's)
+      { value: 'opus', label: 'Opus (latest)', text: msg({ id: 'agents.claude.latestOpus', defaultMessage: 'Opus (latest)', description: 'A model alias in the model picker (Claude Code): always the newest Opus model. Opus is a name: keep it. Keep it short.' }) }, // i18n-ignore: agent-facing English (text is the window's)
+      { value: 'sonnet', label: 'Sonnet (latest)', text: msg({ id: 'agents.claude.latestSonnet', defaultMessage: 'Sonnet (latest)', description: 'A model alias in the model picker (Claude Code): always the newest Sonnet model. Sonnet is a name: keep it. Keep it short.' }) }, // i18n-ignore: agent-facing English (text is the window's)
+      { value: 'haiku', label: 'Haiku (latest)', text: msg({ id: 'agents.claude.latestHaiku', defaultMessage: 'Haiku (latest)', description: 'A model alias in the model picker (Claude Code): always the newest Haiku model. Haiku is a name: keep it. Keep it short.' }) } // i18n-ignore: agent-facing English (text is the window's)
     ]
   },
-  { label: 'Pinned versions', models: pinned('claude-fable-5-1', 'claude-opus-5-5', 'claude-sonnet-5-5', 'claude-haiku-5-5') },
   {
-    label: 'Older versions',
+    label: 'Pinned versions', // i18n-ignore: agent-facing English (text is the window's)
+    text: msg({ id: 'agents.claude.pinnedGroup', defaultMessage: 'Pinned versions', description: 'A group of the model picker (Claude Code): full model IDs that stay on one version.' }),
+    models: pinned('claude-fable-5-1', 'claude-opus-5-5', 'claude-sonnet-5-5', 'claude-haiku-5-5')
+  },
+  {
+    label: 'Older versions', // i18n-ignore: agent-facing English (text is the window's)
+    text: OLDER_VERSIONS,
     older: true,
     models: pinned('claude-fable-5', 'claude-opus-5', 'claude-sonnet-5', 'claude-opus-4-8', 'claude-opus-4-7', 'claude-opus-4-6', 'claude-sonnet-4-6', 'claude-opus-4-5', 'claude-sonnet-4-5', 'claude-haiku-4-5', 'claude-opus-4-1')
   }
@@ -83,12 +160,12 @@ const footer = (words: string): string => String.raw`[⏵⏸][\s⏵⏸]*${words}
 
 /** Each mode's footer (Claude Code 2.1.296): the defaults of the advanced settings claude-code.footer.<key> (#696), flags i. */
 export const CLAUDE_FOOTER_MODES: readonly FooterModeDef[] = [
-  { mode: 'manual', key: 'manual', label: 'Manual', pattern: footer(String.raw`manual\s*mode`) },
-  { mode: 'acceptEdits', key: 'acceptEdits', label: 'Accept edits', pattern: footer(String.raw`accept\s*edits`) },
-  { mode: 'plan', key: 'plan', label: 'Plan', pattern: footer(String.raw`plan\s*mode`) },
-  { mode: 'auto', key: 'auto', label: 'Auto', pattern: footer(String.raw`auto\s*mode`) },
-  { mode: 'bypassPermissions', key: 'bypassPermissions', label: 'Bypass permissions', pattern: footer(String.raw`bypass\s*permissions`) },
-  { mode: 'dontAsk', key: 'dontAsk', label: "Don't ask", pattern: footer(String.raw`don['’]?t\s*ask`) }
+  { mode: 'manual', key: 'manual', label: 'Manual', pattern: footer(String.raw`manual\s*mode`) }, // i18n-ignore: a footer's name in Settings → Advanced (advanced.ts words it)
+  { mode: 'acceptEdits', key: 'acceptEdits', label: 'Accept edits', pattern: footer(String.raw`accept\s*edits`) }, // i18n-ignore: a footer's name in Settings → Advanced (advanced.ts words it)
+  { mode: 'plan', key: 'plan', label: 'Plan', pattern: footer(String.raw`plan\s*mode`) }, // i18n-ignore: a footer's name in Settings → Advanced (advanced.ts words it)
+  { mode: 'auto', key: 'auto', label: 'Auto', pattern: footer(String.raw`auto\s*mode`) }, // i18n-ignore: a footer's name in Settings → Advanced (advanced.ts words it)
+  { mode: 'bypassPermissions', key: 'bypassPermissions', label: 'Bypass permissions', pattern: footer(String.raw`bypass\s*permissions`) }, // i18n-ignore: a footer's name in Settings → Advanced (advanced.ts words it)
+  { mode: 'dontAsk', key: 'dontAsk', label: "Don't ask", pattern: footer(String.raw`don['’]?t\s*ask`) } // i18n-ignore: a footer's name in Settings → Advanced (advanced.ts words it)
 ]
 
 const FOOTER_DEFAULTS = footerPatterns(CLAUDE_FOOTER_MODES, 'i')
@@ -124,21 +201,26 @@ export function canSwitchLive(target: PermissionMode, current: PermissionMode | 
  * the account (supportsAutoMode, absent for Haiku 4.5 with 2.1.289, #129); such a session runs in Manual instead (2.1.286
  * and 2.1.289; claude-real checks it against the installed CLI). Without the reply's word, the guess from 2.1.286.
  */
-export function claudeModeCaveat(mode: string, model: string, known?: ModeCaveatFacts): string | null {
+export function claudeModeCaveat(mode: string, model: string, known?: ModeCaveatFacts, tr?: Tr): string | null {
   if (mode !== 'auto') return null
   const unsupported = known?.supportsAuto !== undefined ? !known.supportsAuto : /haiku/i.test(model)
   if (!unsupported) return null
-  const name = known?.label ?? (/haiku/i.test(model) ? 'Haiku' : claudeModelLabel(model))
+  const name = known?.label ?? (/haiku/i.test(model) ? 'Haiku' : claudeModelLabel(model)) // i18n-ignore: a model's name
+  if (tr) {
+    return known?.supportsAuto === false
+      ? tr(msg({ id: 'agents.claude.autoUnsupported', defaultMessage: "Claude Code doesn't offer Auto with {model}: it runs in Manual instead (asking before edits and commands), and Hive shows that mode.", description: 'A warning under the model and mode pickers: Claude Code said it will not run this model ({model}: its name) in the Auto permission mode. Auto and Manual are mode names.' }), { model: name })
+      : tr(msg({ id: 'agents.claude.autoMaybe', defaultMessage: "Claude Code may not offer Auto with {model}. If it doesn't, it runs in Manual (asking before edits and commands), and Hive shows that mode.", description: 'A warning under the model and mode pickers: Claude Code may not run this model ({model}: its name) in the Auto permission mode. Auto and Manual are mode names.' }), { model: name })
+  }
   return known?.supportsAuto === false
-    ? `Claude Code doesn't offer Auto with ${name}: it runs in Manual instead (asking before edits and commands), and Hive shows that mode.`
-    : `Claude Code may not offer Auto with ${name}. If it doesn't, it runs in Manual (asking before edits and commands), and Hive shows that mode.`
+    ? `Claude Code doesn't offer Auto with ${name}: it runs in Manual instead (asking before edits and commands), and Hive shows that mode.` // i18n-ignore: English without tr (main's and the Agent API's)
+    : `Claude Code may not offer Auto with ${name}. If it doesn't, it runs in Manual (asking before edits and commands), and Hive shows that mode.` // i18n-ignore: English without tr (main's and the Agent API's)
 }
 
 export const CLAUDE_DESCRIPTOR: ProviderDescriptor = {
   id: CLAUDE_CODE,
-  name: 'Claude Code',
-  assistant: 'Claude',
-  company: 'Anthropic',
+  name: 'Claude Code', // i18n-ignore: a product name
+  assistant: 'Claude', // i18n-ignore: a product name
+  company: 'Anthropic', // i18n-ignore: a company name
   cliName: 'claude',
   icon: 'claude',
   setupUrl: 'https://code.claude.com/docs/en/setup',
@@ -149,14 +231,14 @@ export const CLAUDE_DESCRIPTOR: ProviderDescriptor = {
   assistantMode: 'auto',
   modeCaveat: claudeModeCaveat,
   effortLevels: [
-    { value: 'low', label: 'Low' },
-    { value: 'medium', label: 'Medium' },
-    { value: 'high', label: 'High' },
-    { value: 'xhigh', label: 'Extra high' },
-    { value: 'max', label: 'Max' }
+    { value: 'low', label: 'Low', text: EFFORT_TEXT.low }, // i18n-ignore: agent-facing English (text is the window's)
+    { value: 'medium', label: 'Medium', text: EFFORT_TEXT.medium }, // i18n-ignore: agent-facing English (text is the window's)
+    { value: 'high', label: 'High', text: EFFORT_TEXT.high }, // i18n-ignore: agent-facing English (text is the window's)
+    { value: 'xhigh', label: 'Extra high', text: EFFORT_TEXT.xhigh }, // i18n-ignore: agent-facing English (text is the window's)
+    { value: 'max', label: 'Max', text: EFFORT_TEXT.max } // i18n-ignore: agent-facing English (text is the window's)
   ],
   modelGroups: CLAUDE_MODEL_GROUPS,
-  modelPlaceholder: 'Full model ID, e.g. claude-opus-5-5 or claude-opus-4-6[1m]',
+  modelPlaceholder: 'Full model ID, e.g. claude-opus-5-5 or claude-opus-4-6[1m]', // i18n-ignore: English (text.modelPlaceholder is the window's)
   capabilities: {
     fixedSessionId: true,
     liveModeSwitch: 'cycle',
@@ -179,11 +261,18 @@ export const CLAUDE_DESCRIPTOR: ProviderDescriptor = {
   instructionsFile: 'CLAUDE.md',
   instructionsImport: '@AGENTS.md',
   installNote:
-    'The installer runs `irm https://claude.ai/install.ps1 | iex` in PowerShell and installs to `%USERPROFILE%\\.local\\bin`. After installing, sign in with your Claude account (Pro, Max, Team or Enterprise) or an Anthropic Console account. If the CLI is installed somewhere else, set its path in Settings → Claude Code.',
+    'The installer runs `irm https://claude.ai/install.ps1 | iex` in PowerShell and installs to `%USERPROFILE%\\.local\\bin`. After installing, sign in with your Claude account (Pro, Max, Team or Enterprise) or an Anthropic Console account. If the CLI is installed somewhere else, set its path in Settings → Claude Code.', // i18n-ignore: English, as main's notices use it (text has the window's)
   extensionNote:
-    "You have the Claude Code extension for VS Code (or a similar editor). Hive doesn't use it — the extension's built-in copy moves with every extension update and can't be updated on its own. Install the CLI; your extension keeps working as before.",
-  signInHelp: 'Type /login in one of its agents’ terminals (that agent then carries on by itself), or use Help → Agent Setup → Claude Code → Sign in.',
-  safeguardHelp: 'In its terminal: /feedback reports a false positive, /model switches back, and /config sets whether it switches models by itself when a message is flagged.',
+    "You have the Claude Code extension for VS Code (or a similar editor). Hive doesn't use it — the extension's built-in copy moves with every extension update and can't be updated on its own. Install the CLI; your extension keeps working as before.", // i18n-ignore: English, as main's notices use it (text has the window's)
+  signInHelp: 'Type /login in one of its agents’ terminals (that agent then carries on by itself), or use Help → Agent Setup → Claude Code → Sign in.', // i18n-ignore: English for main's notices (text has the window's)
+  safeguardHelp: 'In its terminal: /feedback reports a false positive, /model switches back, and /config sets whether it switches models by itself when a message is flagged.', // i18n-ignore: English for card comments (text has the window's)
+  text: {
+    installNote: msg({ id: 'agents.claude.installNote', defaultMessage: 'The installer runs `irm https://claude.ai/install.ps1 | iex` in PowerShell and installs to `%USERPROFILE%\\.local\\bin`. After installing, sign in with your Claude account (Pro, Max, Team or Enterprise) or an Anthropic Console account. If the CLI is installed somewhere else, set its path in Settings → Claude Code.', description: "Agent Setup → Claude Code: how its installer works. Keep the command and the path in backticks exactly as they are, and the plan names (Pro, Max, Team, Enterprise); Settings → Claude Code is a place in Hive's settings." }),
+    extensionNote: msg({ id: 'agents.claude.extensionNote', defaultMessage: "You have the Claude Code extension for VS Code (or a similar editor). Hive doesn't use it — the extension's built-in copy moves with every extension update and can't be updated on its own. Install the CLI; your extension keeps working as before.", description: 'Agent Setup → Claude Code, when only an editor extension was found: why Hive needs the standalone CLI.' }),
+    signInHelp: msg({ id: 'agents.claude.signInHelp', defaultMessage: 'Type /login in one of its agents’ terminals (that agent then carries on by itself), or use Help → Agent Setup → Claude Code → Sign in.', description: "How to sign in to Claude Code again after its sign-in expired (an agent's pane, a notification). /login is a command: keep it; Help → Agent Setup → Claude Code → Sign in is a menu path in Hive." }),
+    safeguardHelp: msg({ id: 'agents.claude.safeguardHelp', defaultMessage: 'In its terminal: /feedback reports a false positive, /model switches back, and /config sets whether it switches models by itself when a message is flagged.', description: "What to do after Claude Code's safety classifier stopped a response (an agent's safeguard note). /feedback, /model and /config are commands: keep them." }),
+    modelPlaceholder: msg({ id: 'agents.claude.modelPlaceholder', defaultMessage: 'Full model ID, e.g. claude-opus-5-5 or claude-opus-4-6[1m]', description: 'Placeholder of the custom model ID box (Claude Code). Keep the model IDs exactly as they are.' })
+  },
   modelLabel: claudeModelLabel,
   canSwitchLive
 }

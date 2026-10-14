@@ -1,6 +1,0 @@
-{
-  "prose|return|A name is at most {} characters.": 1,
-  "prose|return|Enter a name.": 1,
-  "prose|return|There is already an agent called \"{}\" in {}. Agent names are unique across the workspace: try \"{}\".": 1,
-  "prose|var|Agent": 1
-}

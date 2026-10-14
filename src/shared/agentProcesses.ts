@@ -1,3 +1,6 @@
+import { msg } from './i18n/msg'
+import type { Tr } from './tasks'
+
 /** A process an agent's launch started (its job's, #507), as listed to the user. */
 export interface AgentProcess {
   pid: number
@@ -62,16 +65,19 @@ export function processLabel(name: string, commandLine: string): string {
   return label.length > MAX_LABEL ? `${label.slice(0, MAX_LABEL - 1)}…` : label
 }
 
-/** "2 processes": a count with its noun. */
-export const processCount = (n: number): string => `${n} process${n === 1 ? '' : 'es'}`
+/** "2 processes": a count with its noun; in the window's language with tr (#799), else English (main's notices, until theirs are converted). */
+export const processCount = (n: number, tr?: Tr): string =>
+  tr ? tr(msg({ id: 'panes.processes.count', defaultMessage: '{n, plural, one {# process} other {# processes}}', description: 'How many processes an agent left running ("2 processes").' }), { n }) : `${n} process${n === 1 ? '' : 'es'}` // i18n-ignore: English for main's notices (the window passes tr)
 
 /** The leftovers in a line: "node serve.js, 4 × tail -f …" (each label once, with how many share it), at most `max` labels. */
-export function leftoversSummary(l: Pick<AgentLeftovers, 'processes' | 'more'>, max = 4): string {
+export function leftoversSummary(l: Pick<AgentLeftovers, 'processes' | 'more'>, max = 4, tr?: Tr): string {
   const counts = new Map<string, number>()
   for (const p of l.processes) counts.set(p.label, (counts.get(p.label) ?? 0) + 1)
   const labels = [...counts].map(([label, n]) => (n > 1 ? `${n} × ${label}` : label))
   const rest = labels.length - max
   const shown = labels.slice(0, max).join(', ')
   const extra = (rest > 0 ? l.processes.length - [...counts.values()].slice(0, max).reduce((a, b) => a + b, 0) : 0) + l.more
-  return extra > 0 ? `${shown} and ${processCount(extra)} more` : shown
+  if (extra <= 0) return shown
+  if (tr) return tr(msg({ id: 'panes.processes.andMore', defaultMessage: '{shown} and {n, plural, one {# process} other {# processes}} more', description: 'The processes an agent left running, cut short: the first few ({shown}: "node serve.js, 4 × tail -f") and how many more.' }), { shown, n: extra })
+  return `${shown} and ${processCount(extra)} more` // i18n-ignore: English for main's notices (the window passes tr)
 }

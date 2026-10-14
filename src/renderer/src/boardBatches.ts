@@ -1,9 +1,13 @@
+import { msg, tr } from '@shared/i18n'
 import type { ArchiveResult } from '@shared/types'
 import { call, errorMessage } from './api'
 import { loadTasks, notify, pushToast } from './store'
 
-const cardsWord = (n: number): string => `${n} card${n === 1 ? '' : 's'}`
-const numbers = (ns: number[]): string => (ns.length > 6 ? `${ns.slice(0, 6).map((n) => `#${n}`).join(', ')} and ${ns.length - 6} more` : ns.map((n) => `#${n}`).join(', '))
+/** "#3, #4, #5", or the first six and how many more. */
+function numbers(ns: number[]): string {
+  const shown = ns.slice(0, 6).map((n) => `#${n}`).join(', ')
+  return ns.length > 6 ? tr(msg({ id: 'board.batch.andMore', defaultMessage: '{cards} and {n} more', description: 'Cards that could not be brought back from an archive, cut short: the first six card numbers ({cards}: "#3, #4") and how many more ({n}).' }), { cards: shown, n: ns.length - 6 }) : shown
+}
 
 /**
  * Tells the user what an Archive All did (#351): Archived n cards with Undo, and the cards it left on the board after all
@@ -11,18 +15,21 @@ const numbers = (ns: number[]): string => (ns.length > 6 ? `${ns.slice(0, 6).map
  */
 export function reportArchived(r: ArchiveResult): void {
   const left = r.skipped.length
-    ? `${r.skipped.length === 1 ? 'One card was' : `${r.skipped.length} cards were`} left on the board: ${r.skipped
-        .slice(0, 4)
-        .map((s) => `#${s.number} ${s.why}`)
-        .join('; ')}${r.skipped.length > 4 ? '; …' : ''}.`
+    ? tr(msg({ id: 'board.batch.leftOnBoard', defaultMessage: '{n, plural, one {One card was} other {# cards were}} left on the board: {why}.', description: "After Archive All, the cards it left on the board (an agent took one meanwhile, one moved): how many, then each card's number and why ({why}, separated by semicolons)." }), {
+        n: r.skipped.length,
+        why: `${r.skipped
+          .slice(0, 4)
+          .map((s) => `#${s.number} ${s.why}`)
+          .join('; ')}${r.skipped.length > 4 ? '; …' : ''}`
+      })
     : undefined
-  if (!r.batch) return notify('warning', 'Nothing was archived', left)
+  if (!r.batch) return notify('warning', tr(msg({ id: 'board.batch.nothingArchived', defaultMessage: 'Nothing was archived', description: "A notification's title: Archive All archived no card." })), left)
   pushToast({
     id: `archived-${r.batch.id}`,
     level: 'success',
-    title: `Archived ${cardsWord(r.archived.length)}`,
+    title: tr(msg({ id: 'board.batch.archived', defaultMessage: 'Archived {n, plural, one {# card} other {# cards}}', description: "A notification's title after Archive All: how many cards it archived. It has an Undo button." }), { n: r.archived.length }),
     message: left,
-    actions: [{ label: 'Undo', command: 'task.undoArchive', args: [r.batch.id] }],
+    actions: [{ label: tr(msg({ id: 'board.batch.undo', defaultMessage: 'Undo', description: 'Button on the notification after Archive All: brings the archived cards back.' })), command: 'task.undoArchive', args: [r.batch.id] }],
     timestamp: new Date().toISOString(),
     timeoutMs: 10_000
   })
@@ -39,15 +46,17 @@ export async function unarchiveBatch(id: string): Promise<boolean> {
     if (failed.length) {
       notify(
         'error',
-        restored.length ? `Brought back ${cardsWord(restored.length)}; ${numbers(failed)} couldn't be` : `Couldn't bring back ${numbers(failed)}`,
-        "They stay archived with their batch: Unarchive this batch in Archived tries again (a card's file may be open in another program)."
+        restored.length
+          ? tr(msg({ id: 'board.batch.someBack', defaultMessage: "Brought back {n, plural, one {# card} other {# cards}}; {failed} couldn't be", description: "A notification's title: unarchiving a batch brought back {n} cards but not the ones listed ({failed}: \"#3, #4\")." }), { n: restored.length, failed: numbers(failed) })
+          : tr(msg({ id: 'board.batch.noneBack', defaultMessage: "Couldn't bring back {failed}", description: "A notification's title: unarchiving a batch brought back none of its cards ({failed}: \"#3, #4\")." }), { failed: numbers(failed) }),
+        tr(msg({ id: 'board.batch.stayArchived', defaultMessage: "They stay archived with their batch: Unarchive this batch in Archived tries again (a card's file may be open in another program).", description: "The notification when cards could not be brought back from an archive. \"Unarchive this batch\" is a button and \"Archived\" the archive's view: use their translations." }))
       )
       return false
     }
-    notify('success', `Brought back ${cardsWord(restored.length)}`)
+    notify('success', tr(msg({ id: 'board.batch.broughtBack', defaultMessage: 'Brought back {n, plural, one {# card} other {# cards}}', description: "A notification's title: unarchiving a batch brought all its cards back to the board." }), { n: restored.length }))
     return true
   } catch (e) {
-    notify('error', 'Could not bring the batch back', errorMessage(e))
+    notify('error', tr(msg({ id: 'board.batch.backFailed', defaultMessage: 'Could not bring the batch back', description: "An error's title: unarchiving a batch of cards failed." })), errorMessage(e))
     return false
   }
 }

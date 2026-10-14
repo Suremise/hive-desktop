@@ -1,13 +1,16 @@
 import type { ILink, ILinkProvider, Terminal } from '@xterm/xterm'
 import { findCardRefs } from '@shared/cardLinks'
-import { columnLabel } from '@shared/tasks'
+import { msg, tr } from '@shared/i18n'
+import { columnName } from '@shared/tasks'
 import type { TaskCard } from '@shared/types'
 import { lineText } from './fileLinks'
 import { get, set } from './store'
 
 /** The hover text for a card's link: its number, title and column, and how to open it. */
 export function cardLinkTitle(c: TaskCard): string {
-  return `#${c.number} ${c.title} · ${c.archived ? `Archived (from ${columnLabel(c.column)})` : columnLabel(c.column)} · Ctrl+click to open`
+  const column = columnName(c.column, tr)
+  if (c.archived) return tr(msg({ id: 'board.links.archivedTitle', defaultMessage: '#{card} {title} · Archived (from {column}) · Ctrl+click to open', description: "The hover of a card number (#12) in a terminal, for an archived card: its number, title (the user's own words), the column it was archived from ({column}), and how to open it." }), { card: c.number, title: c.title, column })
+  return tr(msg({ id: 'board.links.title', defaultMessage: '#{card} {title} · {column} · Ctrl+click to open', description: "The hover of a card number (#12) in a terminal: its number, title (the user's own words), its board column ({column}), and how to open it." }), { card: c.number, title: c.title, column })
 }
 
 /**
