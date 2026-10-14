@@ -374,8 +374,14 @@ minutes, the network off and Hive's fake CLIs only: no real CLI, sign-in or cred
   `CreateProcessAsUserW failed: 5 (Access is denied.)` (`-1073283067` by the package's path) and the command never
   runs. In a CLI step that is an environment SKIP only when that session's Codex transcript records the refusal with
   the command's executable the Store's pwsh (its WindowsApps alias or the package's path; the terminal cuts it off):
-  another shell, another code, or a command that can't be read stays a FAIL. Windows PowerShell 5.1 and cmd aren't affected; steering the suites to them is #584, the product side
-  #585.
+  another shell, another code, or a command that can't be read stays a FAIL. Windows PowerShell 5.1 and cmd aren't
+  affected, so the suites that run the real Codex (codex, codex-background, codex-extra, codex-handover, codex-setup,
+  and real Codex scenario trials) give their test Hive a PATH without the Store's aliases
+  (`lib.pathWithoutStoreAliases()`, #584): Codex then runs commands in Windows PowerShell, even with a Store pwsh
+  open. `leftovers-codex` keeps the Store's on purpose (what escapes through it is its subject, #543), and
+  `codex-storepwsh` checks the refusal itself, with a Store pwsh held open: it passes while the sandbox refuses the
+  Store's pwsh and starts Windows PowerShell, and fails if Codex starts the Store's one day (then #585 and the PATH
+  are to be looked at again). It needs no model (`codex sandbox`), and is skipped where the Store's isn't installed.
 
 ## Where they work
 
