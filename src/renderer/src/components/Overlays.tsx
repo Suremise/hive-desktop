@@ -839,7 +839,7 @@ export function AgentSetupDialog() {
               </strong>{' '}
               <span className="muted">— found via {info.source}</span>
             </div>
-            <div className="muted mono" style={{ fontSize: 11 }}>
+            <div className="setup-path muted mono" title={info.path ?? undefined}>
               {info.path}
             </div>
             {info.tested && <TestedLine tested={info.tested} installed={info.version} />}
@@ -867,7 +867,7 @@ export function AgentSetupDialog() {
               </div>
             )}
           </div>
-          <div className="flex">
+          <div className="setup-actions">
             {issues
               .filter((r) => r.action)
               .map((r) => (
@@ -917,7 +917,7 @@ export function AgentSetupDialog() {
         </>
       )}
       {!!info?.rejected?.length && (
-        <p className="hint">
+        <p className="hint setup-wrap">
           <Icon name="info" /> Ignored {info.rejected.length === 1 ? 'a copy' : 'copies'} bundled with an editor extension (<code>{info.rejected[0]}</code>). Hive only uses the standalone CLI.
         </p>
       )}
