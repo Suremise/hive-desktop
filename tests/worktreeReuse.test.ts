@@ -115,7 +115,8 @@ describe('a new worktree agent named like an unused worktree', () => {
     const tip = head(ahead.path)
     const a = await add(`B${n}`)
     expect(a.worktree!.branch).toBe(full(ahead))
-    expect(a.reuse).toEqual({ branch: ahead.branch, reused: false, base: 'main', notReused: '1 commit not merged into main' })
+    // In English for the Agent API (`notReused`), and as data for the window (`notReusedText`, #848).
+    expect(a.reuse).toEqual({ branch: ahead.branch, reused: false, base: 'main', notReused: '1 commit not merged into main', notReusedText: expect.objectContaining({ values: { n: 1, base: 'main' } }) })
     expect(reuseNote(a.reuse!)).toBe(`made a new worktree, leaving ${ahead.branch}'s unused one as it is (1 commit not merged into main)`)
     expect(head(ahead.path)).toBe(tip)
 

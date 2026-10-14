@@ -222,8 +222,8 @@ export function UnusedWorktreesSection({ project, data, reload, onOpen }: { proj
         notify('warning', tr(M.keptTitle, { name: w.branch ?? w.path }), r.reason)
         break
       }
-      // Its own "look again" is what follows: the question says it once.
-      refused = (r.reason ?? tr(M.changed)).replace(/:\s*(nothing was removed, )?look again$/, '')
+      // Looking again is what follows: the question says why the first try removed nothing (#848: main's reason is just that).
+      refused = r.reason ?? tr(M.changed)
     }
     // Removed, kept or cancelled: the list as it is now.
     reload()
