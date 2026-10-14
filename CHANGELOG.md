@@ -13,6 +13,7 @@
 - **A decision on a card in Review reaches its card loop.** Recording your decision on a card in Review, or clearing its block, wakes neither the card's builder nor its reviewer, so the Assistant now follows it with a message to the builder, and to the reviewer when it changes what they check, instead of the loop waiting until its watch runs out.
 
 ### Fixes
+- **The workspace no longer goes back to how it was before a change.** When Hive read the projects twice close together on a busy machine, the earlier reading could finish last and show an agent list from before the change, and say again that two agents share a name. The later reading now stands.
 - **Copy Diagnostics no longer briefly offers an old recording.** Opened again, the dialog showed the last open's developer console recording row, with its checkbox, until it had read the newest one, even when the newest had prompt and reply text and couldn't be attached (nothing was attached either way). It now shows no row until the newest is read.
 
 ## 0.7.1 — 13 October 2026

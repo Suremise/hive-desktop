@@ -2,6 +2,7 @@
 // before), and Hive keeping them — Add Agent and its default name, a rename (its own name kept), a template's load
 // (renamed, refused while a name is another project's, a name taken while it stages) and one of its agents (numbered), adds and renames in two projects at once (only one gets the name), duplicates from before flagged
 // once, and why a template couldn't be loaded into a project without git.
+import { AsyncLocalStorage } from 'async_hooks'
 import { execFileSync } from 'child_process'
 import { mkdirSync, readFileSync, writeFileSync } from 'fs'
 import { join } from 'path'
@@ -216,14 +217,58 @@ describe('Hive keeps agent names unique across the workspace', () => {
       await run(() => w.refresh())
       await run(() => w.refresh())
       expect(toasts).toEqual(["Two agents are called R1 | Agent names are unique across the workspace now, so each agent can be told apart. R1 is in alpha and beta: they keep working, but rename one of each, e.g. beta's R1 to BR1. | Rename beta's R1…"])
-      expect(JSON.parse(readFileSync(join(wsPath, '.hive', 'workspace.json'), 'utf8')).flaggedAgentNames).toEqual(['r1'])
+      // workspace.json is saved behind the refresh (#731: read once, it could still be the save before).
+      const flagged = () => JSON.parse(readFileSync(join(wsPath, '.hive', 'workspace.json'), 'utf8')).flaggedAgentNames
+      await vi.waitFor(() => expect(flagged()).toEqual(['r1']), { timeout: HUNG_MS })
       // Renamed: forgotten, so a new clash of that name is said again.
       await run(() => updateAgent(beta, 'dup', { name: 'BR1' }))
       await run(() => w.refresh())
-      expect(JSON.parse(readFileSync(join(wsPath, '.hive', 'workspace.json'), 'utf8')).flaggedAgentNames).toBeUndefined()
+      await vi.waitFor(() => expect(flagged()).toBeUndefined(), { timeout: HUNG_MS })
       expect(toasts).toHaveLength(1)
     } finally {
       off()
+    }
+  })
+
+  it('a refresh begun before a newer one that has reported changes nothing: no agent list from before, no name said twice (#731)', async () => {
+    const toasts: string[] = []
+    const off = onHiveEvent((e: HiveEvent) => void (e.type === 'toast' && toasts.push(e.toast.title)))
+    // The older refresh is held once it has read beta, as one begun just before a change and slow to end. Only the test's
+    // own: it runs in a context of its own, which a refresh the watcher schedules meanwhile doesn't have.
+    const service = w as unknown as { projectInfo: (p: string) => Promise<{ path: string }> }
+    const real = service.projectInfo.bind(w)
+    const mine = new AsyncLocalStorage<string>()
+    const gate: { open: () => void } = { open: () => undefined }
+    const held = new Promise<void>((r) => (gate.open = r))
+    let holding = true
+    const spy = vi.spyOn(service, 'projectInfo').mockImplementation(async (p: string) => {
+      const info = await real(p)
+      if (holding && p === beta && mine.getStore() === 'older') {
+        holding = false
+        await held
+      }
+      return info
+    })
+    try {
+      const older = mine.run('older', () => run(() => w.refresh()))
+      await vi.waitFor(() => expect(holding).toBe(false), { timeout: HUNG_MS })
+      // Meanwhile beta gets an agent with alpha's agent's name (from before names were unique), and a newer refresh says so.
+      await run(() => w.mutateProjectConfig(beta, (c) => ({ agents: [...c.agents, { id: 'late', name: 'R1', provider: 'claude-code' }] })))
+      const newer = await run(() => w.refresh())
+      expect(newer.projects.find((p) => p.path === beta)?.agents.map((a) => a.id)).toContain('late')
+      expect(toasts).toEqual(['Two agents are called R1'])
+      gate.open()
+      // The older one ends: what it read is from before, so the workspace stays as the newer one found it.
+      expect((await older).projects.find((p) => p.path === beta)?.agents.map((a) => a.id)).toContain('late')
+      expect(w.info()?.projects.find((p) => p.path === beta)?.agents.map((a) => a.id)).toContain('late')
+      await run(() => w.refresh())
+      expect(toasts).toEqual(['Two agents are called R1'])
+    } finally {
+      spy.mockRestore()
+      gate.open()
+      off()
+      await run(() => w.mutateProjectConfig(beta, (c) => ({ agents: c.agents.filter((a) => a.id !== 'late') })))
+      await run(() => w.refresh())
     }
   })
 })

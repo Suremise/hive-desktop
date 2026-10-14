@@ -148,6 +148,40 @@ if (needsSlot({ count: chosen.length, repeat: opts.repeat })) {
   }
 }
 
+// The runner's lane (lanes.mjs): ports and suite folders no other runner on this machine uses while this one runs, so
+// runners started at the same time from different worktrees don't take each other's. A runner started inside a suite
+// (progressreport runs one in its agent's shell) claims none: it takes ports well clear of its parent's (portBase).
+// With every lane taken it waits for one, saying who holds them (and in the Progress panel), #707; --no-wait: fail.
+// Before the code's fingerprint and the build (#735): a run that waited tests the source as it is once it has a lane.
+let lane = null
+if (!nested) {
+  const queue = slotWaitProgress('e2e', `npm run e2e -- ${args.join(' ')}`.trim(), args, 'a test lane')
+  let said = ''
+  const got = await waitForLane(runContext.LANES_DIR, {
+    root,
+    what: `e2e: ${chosen.length} suite${chosen.length === 1 ? '' : 's'}${opts.repeat > 1 ? ` × ${opts.repeat}` : ''}`,
+    wait: !opts.noWait,
+    onWait: (look) => {
+      const line = laneWaitLine(look)
+      if (line !== said) console.log(line)
+      said = line
+      queue.waiting(look.holders.map((c) => describeHolder(c)).join('; '))
+    }
+  })
+  if (got.refused) {
+    console.error(`No test lane free (--no-wait): every e2e lane (${LANES}) is taken, by ${got.refused.holders.map((c) => describeHolder(c)).join('; ') || 'runs just finishing'}.`)
+    process.exit(2)
+  }
+  if (said) {
+    const after = `${Math.round(got.waitedMs / 1000)} s`
+    console.log(`Got a test lane after ${after}.\n`)
+    await queue.finish(`got a test lane after ${after}`)
+  }
+  lane = got
+  process.on('exit', lane.release)
+  process.on('SIGINT', () => process.exit(130))
+}
+
 // The code under test, before anything runs: a run record names it only if it is still the same at the end.
 const codeBefore = opts.record ? fingerprint(root) : null
 
@@ -182,38 +216,6 @@ const packagedCheck = () => (chosen.some((s) => (s.needs ?? []).includes('packag
 const packagedStale = packagedCheck()
 if (packagedStale) console.warn(`Warning: ${packagedStale}: the installer's suites may test other code. Run npm run dist first${opts.record ? '; the run record will say it is not valid' : ''}.\n`)
 
-// The runner's lane (lanes.mjs): ports and suite folders no other runner on this machine uses while this one runs, so
-// runners started at the same time from different worktrees don't take each other's. A runner started inside a suite
-// (progressreport runs one in its agent's shell) claims none: it takes ports well clear of its parent's (portBase).
-// With every lane taken it waits for one, saying who holds them (and in the Progress panel), #707; --no-wait: fail.
-let lane = null
-if (!nested) {
-  const queue = slotWaitProgress('e2e', `npm run e2e -- ${args.join(' ')}`.trim(), args, 'a test lane')
-  let said = ''
-  const got = await waitForLane(runContext.LANES_DIR, {
-    root,
-    what: `e2e: ${chosen.length} suite${chosen.length === 1 ? '' : 's'}${opts.repeat > 1 ? ` × ${opts.repeat}` : ''}`,
-    wait: !opts.noWait,
-    onWait: (look) => {
-      const line = laneWaitLine(look)
-      if (line !== said) console.log(line)
-      said = line
-      queue.waiting(look.holders.map((c) => describeHolder(c)).join('; '))
-    }
-  })
-  if (got.refused) {
-    console.error(`No test lane free (--no-wait): every e2e lane (${LANES}) is taken, by ${got.refused.holders.map((c) => describeHolder(c)).join('; ') || 'runs just finishing'}.`)
-    process.exit(2)
-  }
-  if (said) {
-    const after = `${Math.round(got.waitedMs / 1000)} s`
-    console.log(`Got a test lane after ${after}.\n`)
-    await queue.finish(`got a test lane after ${after}`)
-  }
-  lane = got
-  process.on('exit', lane.release)
-  process.on('SIGINT', () => process.exit(130))
-}
 /**
  * Where the suites keep their profiles, workspaces and screenshots: the lane's folder (the logs stay in lib.WORK). A
  * runner inside a suite uses nested/ in its parent's (E2E_RUN_DIR: Hive drops HIVE_E2E_DIR from an agent's shell).

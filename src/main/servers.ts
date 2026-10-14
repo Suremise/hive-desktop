@@ -63,7 +63,7 @@ import { agentForToken, agentToken, agentTokenFile, type AgentIdentity } from '.
 import { API_EVENTS, apiEventFor, publicRun } from './apiEvents'
 import { clearDiscovery, writeDiscovery } from './apiDiscovery'
 import { createViewerToken, loadViewerTokens, revokeViewerToken, viewerForToken, viewerTokens } from './viewerTokens'
-import { hookTokenMatches } from './hookTokens'
+import { hookTokenMatches, refusedHookNote } from './hookTokens'
 import { unusedWorktreeCounts } from './unusedWorktrees'
 import { devConsole, hiveSourceId, sessionSourceId } from './devConsole'
 import { consoleSources } from './devConsoleSources'
@@ -130,6 +130,9 @@ export async function startHookServer(): Promise<string> {
     if (!hookTokenMatches(run, req.headers.authorization)) {
       // The developer console (#636): a hook refused (an ended launch's, or a wrong token), in every workspace watched.
       devConsole.capture(devConsole.capturedLike('hive:'), () => ({ kind: 'hook-server', name: 'refused', raw: { statusline: query.has('statusline'), run: !!run }, made: { status: 401 }, summary: `hook refused (${run ? "not this launch's token, or it has ended" : 'no launch named'})` }))
+      // In the log too, once a run (#711): a hook the CLI sent but Hive refused leaves a trace on Hive's side.
+      const note = refusedHookNote(run)
+      if (note) log.info(note)
       return send(res, 401, { error: 'unauthorized' })
     }
     try {

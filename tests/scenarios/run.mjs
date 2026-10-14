@@ -133,27 +133,6 @@ if (needsSlot({ count: chosen.length, repeat: repeats })) {
   }
 }
 
-// Under the worktree's build lock (build.mjs): an e2e or scenario run started beside this one builds it once.
-let build
-try {
-  build = ensureBuild({
-    root: lib.ROOT,
-    build: true,
-    runBuild: () => {
-      console.log('Building (the dev build is not from this source)…')
-      devBuild(lib.ROOT)
-    }
-  })
-} catch (e) {
-  console.error(e.message)
-  process.exit(e.status ?? 2)
-}
-if (build.waited) console.log(`Waited for another runner's build of this worktree${build.built ? '' : ': it is from this source'}.`)
-if (build.stale) {
-  console.error(`The dev build isn't from this source (${build.why}): run the scenarios again once it has stopped changing.`)
-  process.exit(2)
-}
-
 // This run's lane: its own folders and Agent API port, so another run at the same time can't remove, open or answer
 // for this one's test Hive. With every lane taken it waits for one (#707), as for a test slot; --no-wait: fail at once.
 const laneQueue = slotWaitProgress('scenarios', `npm run scenarios -- ${argv.join(' ')}`.trim(), argv, 'a test lane')
@@ -180,6 +159,29 @@ if (laneSaid) {
 }
 process.on('exit', lane.release)
 process.on('SIGINT', () => process.exit(130))
+
+// Under the worktree's build lock (build.mjs): an e2e or scenario run started beside this one builds it once. Once it
+// has a lane (#735): a run that waited for one tests the source as it is then, not as it was when it started.
+let build
+try {
+  build = ensureBuild({
+    root: lib.ROOT,
+    build: true,
+    runBuild: () => {
+      console.log('Building (the dev build is not from this source)…')
+      devBuild(lib.ROOT)
+    }
+  })
+} catch (e) {
+  console.error(e.message)
+  process.exit(e.status ?? 2)
+}
+if (build.waited) console.log(`Waited for another runner's build of this worktree${build.built ? '' : ': it is from this source'}.`)
+if (build.stale) {
+  console.error(`The dev build isn't from this source (${build.why}): run the scenarios again once it has stopped changing.`)
+  process.exit(2)
+}
+
 const workRoot = laneWork(join(lib.WORK, '..', 'scenarios'), lane.lane)
 console.log(`Lane ${lane.lane}: Agent API port ${lane.first}, folders in ${workRoot}`)
 

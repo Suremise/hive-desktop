@@ -8,7 +8,8 @@ const { _electron } = require('playwright-core')
 const fs = require('fs')
 const path = require('path')
 // The longest a wait here waits for what it waits on: a bound for a hung run, never how long it should take (#570).
-const HUNG_MS = 30000
+// Under load a doorbell Hive re-offered was read 24 s after the decisions (#729).
+const HUNG_MS = 60000
 
 const userData = path.join(lib.WORK, 'decisionwake-profile')
 const ws = path.join(lib.WORK, 'decisionwake-ws')
@@ -59,11 +60,6 @@ const check = (name, ok, extra = '') => {
     return (fs.existsSync(f) ? fs.readFileSync(f, 'utf8').trim().split('\n').filter(Boolean).map((l) => JSON.parse(l)) : []).map((w) => w.text)
   }
   const reads = (n) => (fs.existsSync(mcpLog) ? fs.readFileSync(mcpLog, 'utf8').trim().split('\n').filter(Boolean).map((l) => JSON.parse(l)) : []).filter((c) => c.tool === 'hive_read_task' && c.ok && JSON.parse(c.args).number === n)
-  const say = async (id, text) => {
-    await inv('pty:write', lib.ptyKey(alpha, id), text)
-    await lib.sleep(300)
-    await inv('pty:write', lib.ptyKey(alpha, id), '\r')
-  }
   const idle = async (id) => ['ready', 'finished'].includes((await live(id))?.status)
   const card = async (n) => (await inv('tasks:list')).find((c) => c.number === n)
 
@@ -75,36 +71,53 @@ const check = (name, ok, extra = '') => {
   fs.writeFileSync(path.join(claudeHome, 'fake-wakes-Asker.txt'), `hive hive_read_task {"number":${n}}\nhive hive_read_task {"number":${n}}\nhive hive_read_task {"number":${n}}\n`)
   await inv('session:start', alpha, { agentId: agent.id })
   check('the agent starts', !!(await until(() => idle(agent.id), HUNG_MS)))
+  // Its own turns, typed once it takes prompts and waited for to their end (#729: an idle wait returned before the fake,
+  // starved under load, had taken the prompt, so the decisions came while it was about to work).
+  const prompts = lib.fakePrompts(inv, lib.ptyKey(alpha, agent.id), () => live(agent.id), { home: claudeHome })
+  const takesPrompts = async (what) => check(`${what}: it takes prompts again`, !!(await lib.until(prompts.takesPrompts, HUNG_MS)))
   // It asks the user and its turn ends (waiting for the user: finished, no question menu).
-  await say(agent.id, 'Here is the shot list: approve it? work 1')
-  await until(() => idle(agent.id), 15000)
+  check('it asks the user, and its turn ends', !!(await prompts.say('Here is the shot list: approve it? work 1')))
 
   // Two decisions within the settle: one line.
   await inv('tasks:update', n, { decision: 'Shot 1: wide, from the door.' })
   await lib.sleep(800)
   await inv('tasks:update', n, { decision: 'Shot 2: close on the counter.' })
-  check('one line for the two decisions', !!(await until(async () => wakes().length >= 1, 20000)), JSON.stringify(wakes()))
+  check('one line for the two decisions', !!(await until(async () => wakes().length >= 1, HUNG_MS)), JSON.stringify(wakes()))
   await lib.sleep(4000) // A fixed wait on purpose: this checks that a second line does NOT come.
   check('…exactly one, naming the card and both', wakes().length === 1 && /^\[Hive\] #\d+ has 2 new decisions from the user: read them \(hive_read_task\) and carry on from where you asked\.$/.test(wakes()[0]) && wakes()[0].startsWith(`[Hive] #${n} `), JSON.stringify(wakes()))
-  check('it reads them', !!(await until(async () => reads(n).length >= 1, 15000)))
-  check("the card's history says whom Hive told", !!(await until(async () => (await card(n))?.history.some((h) => h.by === 'Hive' && h.what === 'Told Asker (alpha) of 2 new decisions'), 10000)), JSON.stringify((await card(n))?.history.map((h) => h.what)))
-  await until(() => idle(agent.id), 15000)
+  check('it reads them', !!(await until(async () => reads(n).length >= 1, HUNG_MS)))
+  check("the card's history says whom Hive told", !!(await until(async () => (await card(n))?.history.some((h) => h.by === 'Hive' && h.what === 'Told Asker (alpha) of 2 new decisions'), HUNG_MS)), JSON.stringify((await card(n))?.history.map((h) => h.what)))
+  await takesPrompts('after the decisions')
 
-  // A decision while it works: nothing typed into its work; one line once its turn ends.
-  await say(agent.id, 'work 8')
-  await until(async () => (await live(agent.id))?.status === 'working', 10000)
+  // A decision while it works: nothing typed into its work; one line once its turn ends. Its turn is held until the
+  // check is done (#729: an 8 s turn could end first under load).
+  await prompts.type('holduntil decisionwake-busy')
+  check('it works', !!(await until(async () => (await live(agent.id))?.status === 'working', HUNG_MS)))
   await inv('tasks:update', n, { decision: 'Shot 3: the van outside.' })
   await lib.sleep(4500) // A fixed wait on purpose: this checks that nothing is typed while it works.
   check('nothing typed while it works', wakes().length === 1 && (await live(agent.id))?.status === 'working', JSON.stringify({ wakes: wakes().length, status: (await live(agent.id))?.status }))
-  check('…then one line once its turn ends', !!(await until(async () => wakes().length === 2, 25000)) && wakes()[1].startsWith(`[Hive] #${n} has 1 new decision from the user: read it`), JSON.stringify(wakes().slice(1)))
-  await until(() => idle(agent.id), 15000)
+  fs.writeFileSync(path.join(claudeHome, 'decisionwake-busy'), '')
+  check('…then one line once its turn ends', !!(await until(async () => wakes().length === 2, HUNG_MS)) && wakes()[1].startsWith(`[Hive] #${n} has 1 new decision from the user: read it`), JSON.stringify(wakes().slice(1)))
+  await takesPrompts('after the decision')
 
-  // While the user types in its terminal (no Enter): not until the typing pause has passed.
-  await inv('pty:write', lib.ptyKey(alpha, agent.id), 'half a thought')
+  // While the user types in its terminal (no Enter): not until the typing pause has passed. The user keeps typing for
+  // as long as the check runs (#729: a slow step under load could outlast the 4 s pause).
+  const key = lib.ptyKey(alpha, agent.id)
+  await inv('pty:write', key, 'half a thought')
+  const typing = { on: true }
+  const keepTyping = (async () => {
+    // A key every half second, well inside the 4 s pause: typing, not a wait for a check.
+    while (typing.on) {
+      await lib.sleep(500)
+      if (typing.on) await inv('pty:write', key, '.')
+    }
+  })()
   await inv('tasks:update', n, { decision: 'Shot 4: the sign.' })
   await lib.sleep(3500) // A fixed wait on purpose: this checks that nothing is typed over the user's typing.
   check('nothing typed while the user types there', wakes().length === 2, JSON.stringify(wakes().slice(2)))
-  check('…then one line once the pause has passed', !!(await until(async () => wakes().length === 3, 25000)) && /^\[Hive\] #\d+ has 1 new decision/.test(wakes()[2] ?? ''), JSON.stringify(wakes().slice(2)))
+  typing.on = false
+  await keepTyping
+  check('…then one line once the pause has passed', !!(await until(async () => wakes().length === 3, HUNG_MS)) && /^\[Hive\] #\d+ has 1 new decision/.test(wakes()[2] ?? ''), JSON.stringify(wakes().slice(2)))
 
   await app.close()
   console.log(failed ? `\n${failed} FAILED` : '\nALL PASSED')

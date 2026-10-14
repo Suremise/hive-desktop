@@ -26,8 +26,11 @@ const path = require('path')
 const LOCAL = process.env.LOCALAPPDATA || os.tmpdir()
 /** Everything the tests keep on this machine. */
 const TEST_ROOT = path.join(LOCAL, 'hive-test')
-/** Where runners claim their lanes (lanes.mjs): e2e and scenario runs take them from the same pool. */
-const LANES_DIR = path.join(TEST_ROOT, 'e2e-lanes')
+/**
+ * Where runners claim their lanes (lanes.mjs): e2e and scenario runs take them from the same pool. HIVE_TEST_LANES_DIR
+ * gives a pool of its own, for checking a run that waits for a lane (concurrency.mjs, #735) without holding real runs'.
+ */
+const LANES_DIR = process.env.HIVE_TEST_LANES_DIR || path.join(TEST_ROOT, 'e2e-lanes')
 /**
  * Where heavy runs claim their slots (slots.mjs): one pool for the machine. HIVE_TEST_HEAVY_DIR gives a pool of its own,
  * for checking the queue (concurrency.mjs --heavy) without waiting behind real runs; HIVE_TEST_HEAVY_SLOTS, how many.

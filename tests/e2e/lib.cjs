@@ -751,6 +751,9 @@ function fakePrompts(inv, key, live, { hungMs = TURN_HUNG_MS, home = null, why =
     console.log(`DIAGNOSTIC its screen ends ${JSON.stringify((await screen()).slice(-400))}`)
     const failed = home && fs.existsSync(path.join(home, 'fake-hook-errors.jsonl')) ? fs.readFileSync(path.join(home, 'fake-hook-errors.jsonl'), 'utf8').trim().split(/\r?\n/) : []
     console.log(`DIAGNOSTIC hooks that didn't reach Hive: ${home ? (failed.length ? failed.join(' | ') : 'none') : '(its home not given)'}`)
+    // Prompts the fake dropped because it was busy (#725: one typed as a compaction ended).
+    const dropped = home && fs.existsSync(path.join(home, 'fake-dropped.jsonl')) ? fs.readFileSync(path.join(home, 'fake-dropped.jsonl'), 'utf8').trim().split(/\r?\n/) : []
+    console.log(`DIAGNOSTIC prompts the fake dropped while busy: ${home ? (dropped.length ? dropped.join(' | ') : 'none') : '(its home not given)'}`)
     if (why) await why(text)
     return null
   }
@@ -867,6 +870,21 @@ function processRunning(pid) {
 
 const codexSignedIn = () => fs.existsSync(path.join(CODEX_HOME, 'auth.json'))
 
+/**
+ * The run context's PATH without the Microsoft Store's app aliases (%LOCALAPPDATA%\Microsoft\WindowsApps), for a test
+ * Hive whose agents run the real Codex (#584): give it as PATH in hiveEnv. Codex runs its commands in PowerShell 7 where
+ * it finds one, and its sandbox can't start the Store's while any other process of that package runs on the machine
+ * (#499: a test Hive's terminal, an agent's command), while Windows PowerShell is never refused. leftovers-codex keeps
+ * the Store's on purpose, and codex-storepwsh checks the refusal itself.
+ */
+function pathWithoutStoreAliases(parent = process.env) {
+  const key = Object.keys(parent).find((k) => k.toUpperCase() === 'PATH')
+  return String((key && parent[key]) || '')
+    .split(';')
+    .filter((d) => d && !/[\\/]Microsoft[\\/]WindowsApps[\\/]?$/i.test(d.trim().replace(/^"|"$/g, '')))
+    .join(';')
+}
+
 /** A real PNG (a w×h gradient) for image previews, pastes and drops. */
 function samplePng(w = 64, h = 40) {
   const zlib = require('zlib')
@@ -947,4 +965,4 @@ async function haikuAutoCaveat(page, autoOffered, timeoutMs = 10000) {
   return [ok, JSON.stringify(await caveat())]
 }
 
-module.exports = { ROOT, ELECTRON, WORK, CODEX_HOME, CLAUDE_TEST_HOME, TRASH, trashed, tidyUp, ownClaudeHome, probeDir, hiveEnv, childEnv, baseEnv, git, GIT_LOCKED, plainText, trustChoice, haikuAutoMode, haikuAutoCaveat, sleep, port, until, hoverTip, quitWatch, appReady, openWorkspace, hadEstimate, fitWindow, enableProviders, fakeClaude, launch, waitForProvider, addAgent, soloAgent, ptyKey, acceptClaudeTrust, acceptRelaunchTrust, withFileLock, trustForCodex, gitProject, codexSignedIn, launchDir, launchHook, codexHook, processTree, stopProcessesIn, identify, stillSame, endExactly, endTreeExactly, endChildTree, processRunning, samplePng, environmentProblem, environmentProblems, storePwshRefusals, stepVerdict, checked, cliStep, sendPrompt, TURN_HUNG_MS, fakePrompts, skip }
+module.exports = { ROOT, ELECTRON, WORK, CODEX_HOME, CLAUDE_TEST_HOME, TRASH, trashed, tidyUp, ownClaudeHome, probeDir, hiveEnv, childEnv, baseEnv, git, GIT_LOCKED, plainText, trustChoice, haikuAutoMode, haikuAutoCaveat, sleep, port, until, hoverTip, quitWatch, appReady, openWorkspace, hadEstimate, fitWindow, enableProviders, fakeClaude, launch, waitForProvider, addAgent, soloAgent, ptyKey, acceptClaudeTrust, acceptRelaunchTrust, withFileLock, trustForCodex, gitProject, codexSignedIn, pathWithoutStoreAliases, launchDir, launchHook, codexHook, processTree, stopProcessesIn, identify, stillSame, endExactly, endTreeExactly, endChildTree, processRunning, samplePng, environmentProblem, environmentProblems, storePwshRefusals, stepVerdict, checked, cliStep, sendPrompt, TURN_HUNG_MS, fakePrompts, skip }

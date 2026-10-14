@@ -780,14 +780,23 @@ export class WorkspaceService {
     }
   }
 
+  /** Refreshes begun, and the latest one whose reading was reported (#731). */
+  private refreshes = 0
+  private refreshReported = 0
+
   async refresh(): Promise<WorkspaceInfo> {
     if (!this.path) throw new Error('No workspace is open')
     const gen = this.generation
+    const seq = ++this.refreshes
     const projects: ProjectInfo[] = []
     for (const p of await this.listProjectPaths()) projects.push(await this.projectInfo(p))
     const assistant = await this.projectInfo(this.assistantHome).catch((e) => (log.warn('the Assistant', e), null))
     // Closed or switched meanwhile: the new workspace's own refresh reports it.
     if (gen !== this.generation || !this.path) throw new Error('The workspace was closed')
+    // A refresh begun after this one has reported already (#731): this one read the projects earlier, so what it found
+    // is older and changes nothing (it put back an agent list from before a change, and said a shared name twice).
+    if (seq < this.refreshReported && this.cached) return this.cached
+    this.refreshReported = seq
     // Worktrees of projects that are gone (deleted, renamed) no longer belong to this workspace.
     const known = new Set(projects.map((p) => p.path.toLowerCase()))
     for (const [k, v] of this.roots) if (!known.has(v.toLowerCase())) this.roots.delete(k)

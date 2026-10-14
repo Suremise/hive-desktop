@@ -16,6 +16,8 @@ import { join } from 'path'
  */
 
 const tokens = new Map<string, string>()
+/** Every run id this Hive has made a token for (#711): only these are ever named in the log, never what a caller sent. */
+const issued = new Set<string>()
 
 function launchesDir(): string {
   return join(app.getPath('userData'), 'launches')
@@ -38,6 +40,9 @@ export async function newHookToken(runId: string): Promise<{ token: string; file
   const dir = launchPrivateDir(runId)
   const file = hookAuthFile(runId)
   tokens.set(runId, token)
+  issued.add(runId)
+  // A bounded record: the oldest go first (a run that old has long ended).
+  if (issued.size > 5000) issued.delete(issued.values().next().value!)
   await mkdir(dir, { recursive: true })
   await writeFile(file, `Authorization: Bearer ${token}\n`)
   return { token, file, dir }
@@ -50,6 +55,24 @@ export function hookTokenMatches(runId: string | null, header: string | undefine
   const got = Buffer.from((header ?? '').replace(/^Bearer\s+/i, ''))
   const want = Buffer.from(token)
   return got.length === want.length && timingSafeEqual(got, want)
+}
+
+/** Run ids whose refused hook calls the log has told of (refusedHookNote): once each, a bounded few. */
+const refusedTold = new Set<string>()
+
+/**
+ * The log line for a hook call refused (#711: a Stop lost under load left no trace on Hive's side), the first time for
+ * its run id; null after that, so an ended launch's late hooks don't fill the log. Only a run id this Hive made is
+ * named: what an unknown caller sent is never logged (review round 1: the query is anyone's text).
+ */
+export function refusedHookNote(runId: string | null): string | null {
+  const ours = !!runId && issued.has(runId)
+  const key = ours ? runId! : runId ? '(not ours)' : '(none)'
+  if (refusedTold.has(key) || refusedTold.size >= 200) return null
+  refusedTold.add(key)
+  if (!runId) return 'Refused a hook call that named no launch'
+  if (!ours) return "Refused a hook call naming a run this Hive didn't start"
+  return `Refused a hook call for run ${runId}: ${tokens.has(runId!) ? "its token didn't match the launch's" : 'that launch has ended'}`
 }
 
 /** The launch `runId` ended: its token stops working and its private folder goes. */

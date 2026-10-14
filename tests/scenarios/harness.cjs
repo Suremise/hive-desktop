@@ -295,6 +295,8 @@ async function runScenario(sc, providerKey, opts = {}) {
       HIVE_TEST_MERGE_SLOT_LOG: slotLog,
       CLAUDE_CONFIG_DIR: providerKey === 'claude-code' ? CLAUDE_TEST_HOME : fakeHome,
       CODEX_HOME: providerKey === 'fake-codex' ? fakeCodexHome : lib.CODEX_HOME,
+      // The real Codex runs its commands in Windows PowerShell, not the Store's PowerShell 7 (#584, lib.cjs).
+      ...(providerKey === 'codex' ? { PATH: lib.pathWithoutStoreAliases() } : {}),
       // Copilot in the run's own home, its profile folder faked and the GitHub CLI's login hidden (fake-copilot-api.cjs).
       ...(standIn ? copilotTestEnv(standIn, root) : {})
     }
