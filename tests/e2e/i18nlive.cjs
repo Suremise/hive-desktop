@@ -3,7 +3,8 @@
 // no command a clash with itself, and two commands whose names translate alike still show a real clash. A stopped
 // session's transcript, open, shows Hive's own notices in the new language at once, with its file unchanged (#797).
 // Project Settings opened in another language shows its sections (the list, the heading and its description) and its
-// rows in it, and follows a change of language while it is open (#793, E1's catalogue in lane C's view). The
+// rows in it, and follows a change of language while it is open (#793, E1's catalogue in lane C's view). An agent
+// whose sign-in expired says how to sign in with its provider's message in the window's language (#847). The
 // window is sent language-changed as main sends it, with a small catalogue of test translations. Throwaway profile and
 // workspace.
 const lib = require('./lib.cjs')
@@ -111,6 +112,26 @@ const check = (name, ok, extra = '') => {
     // English while it is open: all of it follows at once.
     await speak('en', {})
     check('…and follows a change of language while it is open', !!(await shows({ label: 'Agents & Worktrees', desc: 'The project’s agents and their providers, file locks between them, and how new worktrees are set up.', row: 'Setup command' })), await seen())
+
+    // An agent whose sign-in expired (#847): its tab's hover says how to sign in with the provider's own message in the
+    // window's language, not its English, and in English again after a change of language. Its state is sent as main
+    // sends it (no CLI runs); sent again while it is hovered, in case a refresh of the workspace replaced it.
+    const signer = await lib.addAgent(inv, proj, { name: 'Signer' })
+    await command('project.tab.session')
+    const tab = page.locator(`.agent-tab[data-agent="${signer.id}"]`)
+    await lib.until(async () => (await tab.count()) === 1, HUNG_MS)
+    const signedOut = { provider: 'claude-code', runId: 'i18nlive-signin', projectPath: proj, agentId: signer.id, agentName: 'Signer', cwd: proj, sessionId: '', status: 'signin', runtime: { lifecycle: 'signin', maintenance: null, attention: null, composer: 'free' }, startedAt: new Date().toISOString(), launchSignature: '', unseen: false, signIn: { message: 'Login expired · Please run /login', since: new Date().toISOString() } }
+    const tipSays = (want) =>
+      lib.until(async () => {
+        await app.evaluate(({ BrowserWindow }, ev) => BrowserWindow.getAllWindows()[0].webContents.send('hive:event', ev), { type: 'session-status', state: signedOut })
+        const tip = await lib.hoverTip(page, tab, (t) => t.includes(want), 3000)
+        return tip.includes(want) && tip
+      }, HUNG_MS)
+    const help = 'Tippe /login in das Terminal eines seiner Agenten oder nutze Hilfe → Agent-Einrichtung → Claude Code → Anmelden.'
+    await speak('de', { 'agents.claude.signInHelp': help })
+    check("an agent that needs sign-in: its hover says how to sign in in the window's language", !!(await tipSays(help)))
+    await speak('en', {})
+    check('…and in English after a change of language', !!(await tipSays('Type /login in one of its agents’ terminals')))
   } catch (e) {
     check('the suite ran', false, String(e?.stack ?? e))
   } finally {

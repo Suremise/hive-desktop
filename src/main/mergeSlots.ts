@@ -38,6 +38,9 @@ export interface SlotAgent {
   runId: string
 }
 
+/** What an agent's merge-slot note is about: holding the slot to merge into a branch, or waiting behind its holder. */
+export type SlotNote = { holding: string } | { waitingFor: MergeSlotInfo['holder'] }
+
 type Who = ({ kind: 'agent' } & SlotAgent) | { kind: 'user' }
 
 interface Hold {
@@ -97,7 +100,8 @@ export interface MergeSlotDeps {
   /** A project's slots changed: tell its window, and keep the record. */
   changed: (projectPath: string) => void
   /** The agent's status note about the slot (null clears it). */
-  note: (agent: SlotAgent, text: string | null) => void
+  /** The agent's status note (English), and what it is about, so the window can say it in its language (#847). */
+  note: (agent: SlotAgent, text: string | null, about?: SlotNote) => void
   /** Tell the user something went wrong with a hold (an expiry). */
   warn: (projectPath: string, title: string, message: string) => void
   /** How long a hold lasts (HOLD_MS; test builds can shorten it). */
@@ -420,8 +424,8 @@ export class MergeSlots {
   /** After a change: status notes, waiting claims woken, the next deadline, the window told. The slot stays registered. */
   private settled(s: Slot): void {
     const holder = this.info(s).holder
-    if (s.hold?.who.kind === 'agent') this.deps.note(s.hold.who, holdingNote(s.branch))
-    for (const w of s.queue) this.deps.note(w.agent, waitingNote(holder))
+    if (s.hold?.who.kind === 'agent') this.deps.note(s.hold.who, holdingNote(s.branch), { holding: s.branch })
+    for (const w of s.queue) this.deps.note(w.agent, waitingNote(holder), { waitingFor: holder })
     for (const wake of [...s.wakers]) wake()
     if (s.timer) clearTimeout(s.timer)
     s.timer = null

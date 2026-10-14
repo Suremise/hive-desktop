@@ -1,4 +1,7 @@
+import { englishText, type Text } from '../shared/advanced'
 import { COMPACTING_MESSAGE, isCompacting } from '../shared/defaults'
+import { msg } from '../shared/i18n'
+import { COMPACTING_TEXT } from '../shared/runtime'
 import type { SessionStatus } from '../shared/types'
 import type { Ask, HookEvent } from './providers/types'
 
@@ -80,6 +83,8 @@ export interface HookStep {
   next: SessionStatus | null
   /** The status message: a string sets it, null clears it, undefined leaves it (a move to working or ready clears it). */
   message?: string | null
+  /** Beside a `message` that is Hive's own (not the CLI's words): how the window shows it (LiveSessionState.statusText). */
+  messageText?: Text
   /** The pending question: a string sets it, null clears it, undefined leaves it. */
   question?: string | null
   /** The action under the CLI's automatic review (what it asks to do): a string sets it, null clears it, undefined leaves it. */
@@ -108,7 +113,7 @@ const RESOLVED = { open: [] as Ask[], waitingOn: null }
 function raise(ask: Ask | null, s: HookStatusInput): HookStep {
   const waiting = s.status === 'waiting'
   // A person is asked now: no review of it is shown beside the wait.
-  if (!ask || ask.blocking) return { next: 'waiting', message: ask?.message || null, waitingOn: ask, review: null, actions: waiting ? [] : ['notifyWaiting'] }
+  if (!ask || ask.blocking) return { next: 'waiting', message: ask?.message || null, ...(ask?.message && ask.text ? { messageText: ask.text } : {}), waitingOn: ask, review: null, actions: waiting ? [] : ['notifyWaiting'] }
   const unsaid = waiting && !s.waitingOn
   return { next: unsaid ? 'working' : null, ...(unsaid ? { message: null } : {}), question: ask.message, actions: waiting || s.question ? [] : ['notifyQuestion'] }
 }
@@ -192,8 +197,9 @@ export function markedIdle(s: HookStatusInput): HookStep {
   return { next: idleAfter(s, 'ready'), message: null, review: null, ...RESOLVED, actions: ['releaseLocks', ...(s.compacting ? (['compactEnded'] as const) : [])] }
 }
 
-/** What an agent idle after its CLI's safeguard prompt was answered shows (#606). */
-export const SAFEGUARD_IDLE_MESSAGE = 'Idle after a safeguard stop: give it a nudge'
+/** What an agent idle after its CLI's safeguard prompt was answered shows (#606): `SAFEGUARD_IDLE_MESSAGE` is its English, which Hive compares. */
+export const SAFEGUARD_IDLE_TEXT = msg({ id: 'session.status.safeguardIdle', defaultMessage: 'Idle after a safeguard stop: give it a nudge', description: "An agent's status: its CLI's safety classifier stopped a response, the user answered its prompt about it, and the agent now waits for a new prompt." })
+export const SAFEGUARD_IDLE_MESSAGE = englishText(SAFEGUARD_IDLE_TEXT)
 
 /**
  * The CLI's prompt about a safeguard stop was answered (#606): it sends no hook for the answer, so HB3 showed "Claude
@@ -204,7 +210,7 @@ export const SAFEGUARD_IDLE_MESSAGE = 'Idle after a safeguard stop: give it a nu
 export function safeguardAnswered(s: HookStatusInput): HookStep {
   if (!s.safeguardPrompt || s.status !== 'waiting') return { next: null, actions: [] }
   const next = idleAfter(s, 'ready')
-  return { next, message: next === 'ready' ? SAFEGUARD_IDLE_MESSAGE : null, review: null, ...RESOLVED, actions: ['releaseLocks'] }
+  return { next, ...(next === 'ready' ? { message: SAFEGUARD_IDLE_MESSAGE, messageText: SAFEGUARD_IDLE_TEXT } : { message: null }), review: null, ...RESOLVED, actions: ['releaseLocks'] }
 }
 
 export function hookStep(ev: HookEvent, s: HookStatusInput): HookStep {
@@ -237,7 +243,7 @@ export function hookStep(ev: HookEvent, s: HookStatusInput): HookStep {
       const open = s.open.filter((a) => !a.blocking || !sameCall(a, ev.call))
       // Another prompt still up (calls side by side, the title still on): the wait moves on to it, already told.
       const still = answered && s.attention === 'title' && s.titleAsks ? open.findLast((a) => a.blocking) : undefined
-      if (still) return { next: null, message: still.message || null, waitingOn: still, open: open.filter((a) => a !== still), ...reviewed(s), actions: [] }
+      if (still) return { next: null, message: still.message || null, ...(still.message && still.text ? { messageText: still.text } : {}), waitingOn: still, open: open.filter((a) => a !== still), ...reviewed(s), actions: [] }
       const next = answered || IDLE.has(s.status) ? 'working' : null
       return { next, ...(open.length !== s.open.length ? { open } : {}), ...(answered ? { waitingOn: null } : {}), ...reviewed(s), actions: [] }
     }
@@ -277,7 +283,7 @@ export function hookStep(ev: HookEvent, s: HookStatusInput): HookStep {
       return { next: idleAfter(s, 'ready'), message: null, review: null, ...RESOLVED, actions: ['releaseLocks', 'idleAgain'] }
     case 'compactStart': {
       const actions: HookAction[] = s.compacting === 'requested' ? ['compactBegan'] : s.compacting ? [] : ['autoCompact']
-      return s.status === 'working' ? { next: null, actions } : { next: 'working', message: COMPACTING_MESSAGE, actions }
+      return s.status === 'working' ? { next: null, actions } : { next: 'working', message: COMPACTING_MESSAGE, messageText: COMPACTING_TEXT, actions }
     }
     case 'compactEnd':
       // Hive's, or one the CLI did while idle (/compact typed in it): idle again. One mid-turn leaves the turn working.
@@ -290,7 +296,7 @@ export function hookStep(ev: HookEvent, s: HookStatusInput): HookStep {
 }
 
 /** Applies a step's status, message, question and review to an agent's state. True when any of them changed (the state needs sending). */
-export function applyStep(st: { status: SessionStatus; statusMessage?: string; unseen?: boolean; question?: { text: string; since: string }; review?: string }, step: HookStep, now = new Date().toISOString()): boolean {
+export function applyStep(st: { status: SessionStatus; statusMessage?: string; statusText?: Text; unseen?: boolean; question?: { text: string; since: string }; review?: string }, step: HookStep, now = new Date().toISOString()): boolean {
   let changed = false
   if (step.review !== undefined && (step.review ?? undefined) !== st.review) {
     st.review = step.review ?? undefined
@@ -298,6 +304,7 @@ export function applyStep(st: { status: SessionStatus; statusMessage?: string; u
   }
   if (step.message !== undefined && (step.message ?? undefined) !== st.statusMessage) {
     st.statusMessage = step.message ?? undefined
+    st.statusText = step.message ? step.messageText : undefined
     changed = true
   }
   if (step.question !== undefined && step.question !== (st.question?.text ?? null)) {
@@ -306,7 +313,10 @@ export function applyStep(st: { status: SessionStatus; statusMessage?: string; u
   }
   if (!step.next || step.next === st.status) return changed
   st.status = step.next
-  if ((step.next === 'working' || step.next === 'ready') && step.message === undefined) st.statusMessage = undefined
+  if ((step.next === 'working' || step.next === 'ready') && step.message === undefined) {
+    st.statusMessage = undefined
+    st.statusText = undefined
+  }
   // Unseen until the window shows its pane (the renderer marks it seen, at once when it is on screen).
   if (step.next === 'finished' || step.next === 'waiting' || step.next === 'signin') st.unseen = true
   return true
