@@ -23,13 +23,13 @@ export interface UsageFilter {
  * Scripts have no sessions: their usage is none, and the note says so.
  */
 export async function providerUsage(w: WorkspaceService, f: UsageFilter, from: number, to: number): Promise<{ providers: ProviderUsageSummary[]; safeguards?: SafeguardCount[]; note?: string; unreadable?: number; hosts?: number }> {
-  if (f.role === 'api') return { providers: [], note: 'Scripts start no sessions, so they have no provider usage.' }
-  if (f.project && f.role === 'assistant') return { providers: [], note: 'The Assistant’s sessions are the workspace’s, not a project’s.' }
+  if (f.role === 'api') return { providers: [], note: 'Scripts start no sessions, so they have no provider usage.' } // i18n-ignore: the Agent API's metrics report and its export, in English (mixed audience: the Performance view gets messages with E10a's pattern)
+  if (f.project && f.role === 'assistant') return { providers: [], note: 'The Assistant’s sessions are the workspace’s, not a project’s.' } // i18n-ignore: the Agent API's metrics report and its export, in English (mixed audience: the Performance view gets messages with E10a's pattern)
   // The workspace as it is now: if it closes (or its window opens another) while this reads, the answer is refused
   // rather than mixing two workspaces' sessions.
   const lifetime = w.lifetime
   const still = (): void => {
-    if (lifetime.aborted) throw new Error('The workspace was closed while its metrics were read')
+    if (lifetime.aborted) throw new Error('The workspace was closed while its metrics were read') // i18n-ignore: the Agent API's metrics report and its export, in English (mixed audience: the Performance view gets messages with E10a's pattern)
   }
   return inWorkspace(w, async () => {
     const all = await w.listProjectPaths()
@@ -77,8 +77,8 @@ export async function providerUsage(w: WorkspaceService, f: UsageFilter, from: n
         for (const [model, stops] of Object.entries(u.safeguards ?? {})) {
           if (!(stops > 0)) continue
           s.safeguardStops += stops
-          const project = role === 'assistant' ? 'Hive Assistant' : basename(path)
-          const agent = role === 'assistant' ? 'Assistant' : (it.agentName ?? it.agentId ?? 'unknown agent')
+          const project = role === 'assistant' ? 'Hive Assistant' : basename(path) // i18n-ignore: the Agent API's metrics report and its export, in English (mixed audience: the Performance view gets messages with E10a's pattern)
+          const agent = role === 'assistant' ? 'Assistant' : (it.agentName ?? it.agentId ?? 'unknown agent') // i18n-ignore: the Agent API's metrics report and its export, in English (mixed audience: the Performance view gets messages with E10a's pattern)
           const k = JSON.stringify([project, agent, it.provider, model])
           const g = guards.get(k) ?? { project, agent, provider: it.provider, role, model, stops: 0 }
           g.stops += stops
@@ -132,10 +132,10 @@ export { METRICS_EXPORT_SCHEMA }
 export function metricsExport(r: MetricsReport, appVersion: string, sanitize: boolean): Record<string, unknown> {
   const units = {
     bytes: 'UTF-8 bytes',
-    chars: 'characters as UTF-16 code units (JavaScript string length)',
-    ms: 'milliseconds, monotonic clock',
-    tokens: 'as the provider reported them; Hive estimates none',
-    costUsd: 'API-equivalent cost in US dollars, reported or estimated (not a bill)'
+    chars: 'characters as UTF-16 code units (JavaScript string length)', // i18n-ignore: the Agent API's metrics report and its export, in English (mixed audience: the Performance view gets messages with E10a's pattern)
+    ms: 'milliseconds, monotonic clock', // i18n-ignore: the Agent API's metrics report and its export, in English (mixed audience: the Performance view gets messages with E10a's pattern)
+    tokens: 'as the provider reported them; Hive estimates none', // i18n-ignore: the Agent API's metrics report and its export, in English (mixed audience: the Performance view gets messages with E10a's pattern)
+    costUsd: 'API-equivalent cost in US dollars, reported or estimated (not a bill)' // i18n-ignore: the Agent API's metrics report and its export, in English (mixed audience: the Performance view gets messages with E10a's pattern)
   }
   let report: MetricsReport = r
   if (sanitize) {
@@ -154,5 +154,5 @@ export function metricsExport(r: MetricsReport, appVersion: string, sanitize: bo
       ...(r.safeguards ? { safeguards: sanitizeAgents(r.safeguards, alias) } : {})
     }
   }
-  return { schema: METRICS_EXPORT_SCHEMA, app: { name: 'Hive', version: appVersion }, exportedAt: new Date().toISOString(), sanitized: sanitize, units, range: { from: r.from, to: r.to }, filters: r.filters, coverage: r.coverage, report }
+  return { schema: METRICS_EXPORT_SCHEMA, app: { name: 'Hive', version: appVersion }, exportedAt: new Date().toISOString(), sanitized: sanitize, units, range: { from: r.from, to: r.to }, filters: r.filters, coverage: r.coverage, report } // i18n-ignore: the Agent API's metrics report and its export, in English (mixed audience: the Performance view gets messages with E10a's pattern)
 }

@@ -1,3 +1,4 @@
+import { msg, tr } from '../shared/i18n'
 import { dialog, type MessageBoxOptions, type RenderProcessGoneDetails } from 'electron'
 import { randomUUID } from 'crypto'
 import { emitTo } from './events'
@@ -19,11 +20,12 @@ export function crashResponse(lastCrashAt: number | null, now: number): 'reload'
 
 /** The note shown once a crashed window has reloaded. */
 export function reloadedMessage(unsaved: number): string {
-  const lost = unsaved ? ` Unsaved changes to ${unsaved === 1 ? 'one file' : `${unsaved} files`} were lost.` : ''
-  return `Your agents kept running.${lost}`
+  return unsaved
+    ? tr(msg({ id: 'main.window.reloadedLost', defaultMessage: '{n, plural, one {Your agents kept running. Unsaved changes to one file were lost.} other {Your agents kept running. Unsaved changes to # files were lost.}}', description: "The notice after Hive's window crashed and was reloaded, when files had unsaved edits. {n} is how many." }), { n: unsaved })
+    : tr(msg({ id: 'main.window.reloaded', defaultMessage: 'Your agents kept running.', description: "The notice after Hive's window crashed and was reloaded." }))
 }
 
-const STILL_RUNNING = 'Your agents are still running: reloading the window reconnects to them.'
+const stillRunning = (): string => tr(msg({ id: 'main.window.stillRunning', defaultMessage: 'Your agents are still running: reloading the window reconnects to them.', description: "Hive's question when its window stopped or isn't responding." }))
 
 /**
  * Keeps a window usable when its page crashes or hangs. Agents run in the main process, so they're
@@ -50,7 +52,7 @@ export function watchRenderer(entry: HiveWindow, opts: { quitting: () => boolean
         // Give the page a moment to subscribe to events.
         setTimeout(() => {
           if (win.isDestroyed()) return
-          emitTo(win, { type: 'toast', toast: { id: randomUUID(), level: 'warning', title: "Hive's window stopped and was reloaded", message: reloadedMessage(unsaved), timestamp: new Date().toISOString() } })
+          emitTo(win, { type: 'toast', toast: { id: randomUUID(), level: 'warning', title: tr(msg({ id: 'main.window.reloadedTitle', defaultMessage: "Hive's window stopped and was reloaded", description: "A notice's title after Hive's window crashed and was reloaded." })), message: reloadedMessage(unsaved), timestamp: new Date().toISOString() } })
         }, 1500)
       })
     }
@@ -73,7 +75,15 @@ export function watchRenderer(entry: HiveWindow, opts: { quitting: () => boolean
     if (response === 'reload') return reload(true)
     void (async () => {
       for (;;) {
-        const choice = await ask({ type: 'error', title: APP_NAME, message: "Hive's window stopped working.", detail: STILL_RUNNING, buttons: ['Reload', 'Open Logs', 'Quit Hive'], defaultId: 0, cancelId: 0 })
+        const choice = await ask({
+          type: 'error',
+          title: APP_NAME,
+          message: tr(msg({ id: 'main.window.stopped', defaultMessage: "Hive's window stopped working.", description: "Hive's question when its window crashed again soon after a reload." })),
+          detail: stillRunning(),
+          buttons: [tr(msg({ id: 'main.window.reload', defaultMessage: 'Reload', description: "Button: reloads Hive's window." })), tr(msg({ id: 'main.window.openLogs', defaultMessage: 'Open Logs', description: "Button: opens the folder of Hive's log files." })), tr(msg({ id: 'main.window.quit', defaultMessage: 'Quit Hive', description: 'Button: quits Hive.' }))],
+          defaultId: 0,
+          cancelId: 0
+        })
         if (choice === 1) {
           opts.openLogs()
           continue
@@ -99,7 +109,18 @@ export function watchRenderer(entry: HiveWindow, opts: { quitting: () => boolean
       log.warn("The window's page isn't responding")
       const prompt = new AbortController()
       hangPrompt = prompt
-      void ask({ type: 'warning', title: APP_NAME, message: "Hive's window isn't responding.", detail: `${STILL_RUNNING} Wait for it, or reload it.`, buttons: ['Wait', 'Reload'], defaultId: 0, cancelId: 0 }, prompt.signal)
+      void ask(
+        {
+          type: 'warning',
+          title: APP_NAME,
+          message: tr(msg({ id: 'main.window.unresponsive', defaultMessage: "Hive's window isn't responding.", description: "Hive's question when its window has stopped responding." })),
+          detail: tr(msg({ id: 'main.window.unresponsiveDetail', defaultMessage: '{stillRunning} Wait for it, or reload it.', description: "Hive's question when its window isn't responding. {stillRunning} says the agents are still running." }), { stillRunning: stillRunning() }),
+          buttons: [tr(msg({ id: 'main.window.wait', defaultMessage: 'Wait', description: "Button: waits for Hive's window to respond." })), tr(msg({ id: 'main.window.reload', defaultMessage: 'Reload', description: "Button: reloads Hive's window." }))],
+          defaultId: 0,
+          cancelId: 0
+        },
+        prompt.signal
+      )
         .then((choice) => {
           if (prompt.signal.aborted || hangPrompt !== prompt) return
           hangPrompt = null

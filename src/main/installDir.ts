@@ -5,6 +5,9 @@ import { dirname, join } from 'path'
 import { app, dialog } from 'electron'
 import { createLogger, userText } from './logger'
 import { testNotifyLog, testQuiet } from './testQuiet'
+import { config } from './config'
+import { msg, setLanguage, tr, type Catalogue } from '../shared/i18n'
+import { resolveLanguage, type LanguageSetting } from '../shared/i18n/languages'
 
 const log = createLogger('installDir')
 
@@ -27,8 +30,8 @@ function psQuote(s: string): string {
  * in it that doesn't inherit that from the folder, if given.
  */
 export function grantCommand(dir: string, file?: string): string {
-  const folder = `icacls ${psQuote(dir)} /grant ${psQuote(FOLDER_GRANT)}`
-  return file ? `${folder}; icacls ${psQuote(file)} /grant ${psQuote(FILE_GRANT)}` : folder
+  const folder = `icacls ${psQuote(dir)} /grant ${psQuote(FOLDER_GRANT)}` // i18n-ignore: a command, not text
+  return file ? `${folder}; icacls ${psQuote(file)} /grant ${psQuote(FILE_GRANT)}` : folder // i18n-ignore: a command, not text
 }
 
 /** The SIDs of an SDDL's DACL entries (aliases such as AC as they are), upper case. */
@@ -118,10 +121,10 @@ $c.Height = ($c.GetLineFromCharIndex($c.TextLength) + 1) * $c.Font.Height + 8
 $b = New-Object System.Windows.Forms.FlowLayoutPanel
 $b.FlowDirection = 'RightToLeft'; $b.AutoSize = $true; $b.Dock = 'Fill'; $b.Margin = New-Object System.Windows.Forms.Padding(0, 12, 0, 0)
 $close = New-Object System.Windows.Forms.Button
-$close.Text = 'Close'; $close.AutoSize = $true; $close.DialogResult = 'Cancel'
+$close.Text = $env:HIVE_DIALOG_CLOSE; $close.AutoSize = $true; $close.DialogResult = 'Cancel'
 $copy = New-Object System.Windows.Forms.Button
-$copy.Text = 'Copy Command'; $copy.AutoSize = $true
-$copy.add_Click({ [System.Windows.Forms.Clipboard]::SetText($c.Text); $copy.Text = 'Copied' })
+$copy.Text = $env:HIVE_DIALOG_COPY; $copy.AutoSize = $true
+$copy.add_Click({ [System.Windows.Forms.Clipboard]::SetText($c.Text); $copy.Text = $env:HIVE_DIALOG_COPIED })
 $b.Controls.AddRange(@($close, $copy))
 $t.Controls.AddRange(@($l, $c, $b))
 $f.Controls.Add($t)
@@ -142,15 +145,23 @@ if ($env:HIVE_DIALOG_SNAPSHOT) {
  * What Hive tells the user when it can't start from its folder: about the folder, or about the file in it that Electron
  * checks, when that is what still lacks the entry (a file that doesn't inherit the folder's permissions).
  */
-export function cantStartMessage(dir: string, file?: string): { title: string; text: string; command: string } {
-  const what = file ? `a file in the folder Hive is installed in:\n${file}` : `the folder Hive is installed in:\n${dir}`
-  const run = file
-    ? "Run this command in PowerShell (as an administrator if you don't own them): it adds the entry to the folder and to the file. Then start Hive again:"
-    : "Run this command in PowerShell (as an administrator if you don't own the folder), then start Hive again:"
+export function cantStartMessage(dir: string, file?: string): { title: string; text: string; command: string; buttons: { copy: string; copied: string; close: string } } {
+  // Each paragraph a message (a message keeps no line break): what Windows won't let it read, the path, why and what to run.
+  const what = file
+    ? tr(msg({ id: 'main.installDir.whatFile', defaultMessage: "Windows won't let Hive's windows read a file in the folder Hive is installed in:", description: "The message when Hive can't start from its install folder, its first line (the file's path follows on the next)." }))
+    : tr(msg({ id: 'main.installDir.whatFolder', defaultMessage: "Windows won't let Hive's windows read the folder Hive is installed in:", description: "The message when Hive can't start from its install folder, its first line (the folder's path follows on the next)." }))
+  const why = file
+    ? tr(msg({ id: 'main.installDir.whyFile', defaultMessage: "Its permissions have an entry for an app package but none for ALL APPLICATION PACKAGES, which Hive's sandboxed windows need, and Hive couldn't add one. Run this command in PowerShell (as an administrator if you don't own them): it adds the entry to the folder and to the file. Then start Hive again:", description: "The message when Hive can't start from its install folder, its last paragraph (a command follows). ALL APPLICATION PACKAGES is a Windows name and PowerShell a program: keep them." }))
+    : tr(msg({ id: 'main.installDir.whyFolder', defaultMessage: "Its permissions have an entry for an app package but none for ALL APPLICATION PACKAGES, which Hive's sandboxed windows need, and Hive couldn't add one. Run this command in PowerShell (as an administrator if you don't own the folder), then start Hive again:", description: "The message when Hive can't start from its install folder, its last paragraph (a command follows). ALL APPLICATION PACKAGES is a Windows name and PowerShell a program: keep them." }))
   return {
-    title: "Hive can't start",
-    text: `Windows won't let Hive's windows read ${what}\n\nIts permissions have an entry for an app package but none for ALL APPLICATION PACKAGES, which Hive's sandboxed windows need, and Hive couldn't add one. ${run}`,
-    command: grantCommand(dir, file)
+    title: tr(msg({ id: 'main.installDir.title', defaultMessage: "Hive can't start", description: "The title of the message when Hive can't start from its install folder." })),
+    text: `${what}\n${file ?? dir}\n\n${why}`,
+    command: grantCommand(dir, file),
+    buttons: {
+      copy: tr(msg({ id: 'main.installDir.copyCommand', defaultMessage: 'Copy Command', description: "A button of the message window when Hive can't start from its install folder: copies the command to run." })),
+      copied: tr(msg({ id: 'main.installDir.copied', defaultMessage: 'Copied', description: "A button of the message window when Hive can't start from its install folder: what Copy Command says once it has copied the command." })),
+      close: tr(msg({ id: 'main.installDir.close', defaultMessage: 'Close', description: "A button of the message window when Hive can't start from its install folder: closes it (Hive then quits)." }))
+    }
   }
 }
 
@@ -168,7 +179,7 @@ export interface MessageTools {
 function powershellWindow(message: ReturnType<typeof cantStartMessage>, snapshot?: string): boolean {
   const r = spawnSync(system32('WindowsPowerShell', 'v1.0', 'powershell.exe'), ['-NoProfile', '-NonInteractive', '-Sta', '-EncodedCommand', Buffer.from(DIALOG_SCRIPT, 'utf16le').toString('base64')], {
     windowsHide: true,
-    env: { ...process.env, HIVE_DIALOG_TITLE: message.title, HIVE_DIALOG_TEXT: message.text, HIVE_DIALOG_COMMAND: message.command, HIVE_DIALOG_ICON: process.execPath, HIVE_DIALOG_SNAPSHOT: snapshot ?? '' }
+    env: { ...process.env, HIVE_DIALOG_TITLE: message.title, HIVE_DIALOG_TEXT: message.text, HIVE_DIALOG_COMMAND: message.command, HIVE_DIALOG_COPY: message.buttons.copy, HIVE_DIALOG_COPIED: message.buttons.copied, HIVE_DIALOG_CLOSE: message.buttons.close, HIVE_DIALOG_ICON: process.execPath, HIVE_DIALOG_SNAPSHOT: snapshot ?? '' }
   })
   if (r.status === 0) return true
   log.error(`Couldn't show the message window (PowerShell exited with ${r.status ?? r.error?.message})`)
@@ -198,7 +209,7 @@ export function tellCantStart(dir: string, file?: string, tools: MessageTools = 
   }
   if (tools.window(message)) return
   try {
-    tools.errorBox(message.title, `${message.text}\n\n${message.command}\n\n(Ctrl+C copies this message.)`)
+    tools.errorBox(message.title, `${message.text}\n\n${message.command}\n\n${tr(msg({ id: 'main.installDir.copy', defaultMessage: '(Ctrl+C copies this message.)', description: "The last line of Electron's error box when Hive can't start from its install folder. Ctrl+C is a key: keep it." }))}`)
   } catch (e) {
     log.error("Couldn't show the error box either", e)
   }
@@ -216,11 +227,32 @@ export interface InstallDirTools {
   exit(code: number): void
 }
 
+/**
+ * The main area's translations, in the bundle (#796): the install folder's message shows before Hive is ready, when it
+ * hasn't loaded any (they load, a file at a time, once it is).
+ */
+const MAIN_TEXT = import.meta.glob<Catalogue>(['../../locales/*/main.json', '!../../locales/en/main.json'], { eager: true, import: 'default' })
+
+/**
+ * The language Hive would start in, before it has chosen it (chooseStartLanguage) or loaded its translations: --lang
+ * (HIVE_LANG in an unpackaged build), else the setting in config.json, else Windows' display languages.
+ */
+export function setLanguageBeforeReady(): void {
+  const forced = app.commandLine.getSwitchValue('lang') || (!app.isPackaged && process.env.HIVE_LANG) || null
+  const codeOf = (path: string): string => path.split('/').at(-2) ?? ''
+  const available = Object.keys(MAIN_TEXT).map(codeOf)
+  const chosen = resolveLanguage(config.savedLanguage() as LanguageSetting | undefined, app.getPreferredSystemLanguages(), available, forced)
+  setLanguage(chosen.code, Object.entries(MAIN_TEXT).find(([p]) => codeOf(p) === chosen.code)?.[1] ?? {}, chosen.locale)
+}
+
 const windowsTools: InstallDirTools = {
   read: readSddl,
   exists: existsSync,
   grant: (path, entry) => spawnSync(system32('icacls.exe'), [path, '/grant', entry], { windowsHide: true, timeout: 120_000 }).status,
-  tell: (dir, file) => tellCantStart(dir, file),
+  tell: (dir, file) => {
+    setLanguageBeforeReady()
+    tellCantStart(dir, file)
+  },
   exit: (code) => process.exit(code)
 }
 

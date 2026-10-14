@@ -3,6 +3,7 @@ import { basename, join, resolve } from 'path'
 import { createReadStream, existsSync } from 'original-fs'
 import { lstat, readdir, readlink } from 'original-fs/promises'
 import { projectAgents, slugify } from '../shared/defaults'
+import { fmt, msg, tr, type Msg } from '../shared/i18n'
 import type { AgentBranchStatus, AgentWorktree, MergeResult, SessionRecord, UnusedWorktree, UnusedWorktreeOrigin, UnusedWorktreePreview, UnusedWorktreeRemoval, UnusedWorktrees } from '../shared/types'
 import { lostLines } from '../shared/unusedWorktrees'
 import { hiveBranchNumber } from '../shared/hiveBranches'
@@ -33,9 +34,9 @@ const contains = containsPlace
 /** Why Hive won't touch a listed worktree folder (null: it may), whoever uses it. */
 async function unsafe(projectPath: string, path: string): Promise<string | null> {
   const ws = workspaceOf(projectPath)
-  if (contains(path, projectPath) || (ws.path && contains(path, ws.path))) return 'it contains the project or the workspace'
+  if (contains(path, projectPath) || (ws.path && contains(path, ws.path))) return tr(msg({ id: 'main.unused.why.contains', defaultMessage: 'it contains the project or the workspace', description: "Why Hive won't remove or merge one of the Overview's unused worktrees (Remove, Remove anyway, Merge): a clause." }))
   const projects = [...(await ws.listProjectPaths()), ...(await ws.listProjectPaths({ hidden: true }))]
-  if (projects.some((p) => key(p) === key(path)) || workspace.isAssistantHome(path)) return 'it is another project of the workspace'
+  if (projects.some((p) => key(p) === key(path)) || workspace.isAssistantHome(path)) return tr(msg({ id: 'main.unused.why.otherProject', defaultMessage: 'it is another project of the workspace', description: "Why Hive won't remove or merge one of the Overview's unused worktrees (Remove, Remove anyway, Merge): a clause." }))
   return null
 }
 
@@ -63,7 +64,7 @@ async function candidates(projectPath: string, reads?: wt.RepoReads): Promise<{ 
  */
 async function detachedCheck(projectPath: string, path: string, reads: wt.RepoReads): Promise<UnusedWorktree['check']> {
   const [dirty, alone] = await Promise.all([reads.dirty(path), unreferencedCommits(path)])
-  return { removable: false, into: await reads.primaryBranchStrict().catch(() => null), reason: gitProblem() ?? 'it is not on a branch (detached HEAD)', ...(dirty === null ? {} : { dirty }), ...(alone === null ? {} : { ahead: alone }) }
+  return { removable: false, into: await reads.primaryBranchStrict().catch(() => null), reason: gitProblem() ?? tr(msg({ id: 'main.unused.why.detached', defaultMessage: 'it is not on a branch (detached HEAD)', description: "Why Hive won't remove or merge one of the Overview's unused worktrees (Remove, Remove anyway, Merge): a clause. detached HEAD is git's term." })), ...(dirty === null ? {} : { dirty }), ...(alone === null ? {} : { ahead: alone }) }
 }
 
 /**
@@ -133,10 +134,10 @@ export async function unusedWorktrees(projectPath: string): Promise<UnusedWorktr
 async function unusedWorktree(projectPath: string, path: string): Promise<AgentWorktree> {
   const { listed, problem } = await candidates(projectPath)
   const w = listed.find((x) => key(x.path) === key(path))
-  if (!w) throw new Error(problem ?? "It isn't one of the project's unused worktrees any more.")
-  if (!w.branch) throw new Error('It is not on a branch (detached HEAD): there is nothing to merge.')
+  if (!w) throw new Error(problem ?? tr(msg({ id: 'main.unused.gone', defaultMessage: "It isn't one of the project's unused worktrees any more.", description: "An error merging one of the Overview's unused worktrees (Remove, Remove anyway, Merge): it changed meanwhile." })))
+  if (!w.branch) throw new Error(tr(msg({ id: 'main.unused.nothingToMerge', defaultMessage: 'It is not on a branch (detached HEAD): there is nothing to merge.', description: "An error merging one of the Overview's unused worktrees (Remove, Remove anyway, Merge). detached HEAD is git's term." })))
   const into = await wt.primaryBranch(projectPath)
-  if (!into) throw new Error(gitProblem() ?? "Git couldn't say which branch it would merge into.")
+  if (!into) throw new Error(gitProblem() ?? tr(msg({ id: 'main.unused.noBase', defaultMessage: "Git couldn't say which branch it would merge into.", description: "An error merging one of the Overview's unused worktrees (Remove, Remove anyway, Merge)." })))
   return { path: w.path, branch: w.branch, base: into }
 }
 
@@ -166,7 +167,7 @@ export async function mergeUnused(projectPath: string, path: string, opts: { squ
       owned = projectAgents(now).some((a) => a.worktree && key(a.worktree.path) === key(path))
       return {}
     })
-    if (owned) throw new Error('An agent works in it now: merge it from that agent.')
+    if (owned) throw new Error(tr(msg({ id: 'main.unused.ownedMerge', defaultMessage: 'An agent works in it now: merge it from that agent.', description: "An error merging one of the Overview's unused worktrees (Remove, Remove anyway, Merge): an agent was given it meanwhile." })))
     worktree = await unusedWorktree(projectPath, path)
     result = await mergeInProject(projectPath, worktree, { squash: opts.squash, message: opts.message })
   } finally {
@@ -176,7 +177,7 @@ export async function mergeUnused(projectPath: string, path: string, opts: { squ
   void checkProject(projectPath)
   if (!result.ok || !opts.cleanup) return result
   const removed = await removeUnusedWorktree(projectPath, worktree.path, { expectInto: worktree.base })
-  return removed.deleted ? { ...result, cleanedUp: true } : { ...result, cleanupKept: removed.reason ?? 'it was kept' }
+  return removed.deleted ? { ...result, cleanedUp: true } : { ...result, cleanupKept: removed.reason ?? tr(msg({ id: 'main.unused.kept', defaultMessage: 'it was kept', description: "After merging one of the Overview's unused worktrees (Remove, Remove anyway, Merge) and removing it: it was kept, for no reason given. A clause." })) }
 }
 
 /** Counts for the Assistant's project status (#353): how many, and how many are merged and clean. Null with none. */
@@ -234,7 +235,7 @@ const SNAPSHOT_MAX_BYTES = 4 * 1024 ** 3
 async function fingerprint(root: string): Promise<string> {
   const h = createHash('sha256')
   const index = await gitReading(root, ['ls-files', '--stage', '-z'])
-  if (!index.ok) throw new Error(`git couldn't list its index (${index.err.split(/\r?\n/)[0] || 'ls-files failed'})`)
+  if (!index.ok) throw new Error(tr(msg({ id: 'main.unused.noIndex', defaultMessage: "git couldn't list its index ({why})", description: "Why Hive couldn't check what one of the Overview's unused worktrees (Remove, Remove anyway, Merge) holds. {why} is git's message. index is git's term." }), { why: index.err.split(/\r?\n/)[0] || tr(msg({ id: 'main.unused.gitFailed', defaultMessage: '{command} failed', description: "Why git couldn't do something, when it said nothing itself. {command} is the git command: keep it." }), { command: 'ls-files' }) }))
   h.update('index\0').update(index.buf)
   let entries = 0
   let bytes = 0
@@ -247,7 +248,7 @@ async function fingerprint(root: string): Promise<string> {
       if (!rel && e.name === '.git') continue
       const r = rel ? `${rel}/${e.name}` : e.name
       const kind = e.isSymbolicLink() ? 'l' : e.isDirectory() ? 'd' : 'f'
-      if (++entries > SNAPSHOT_MAX_ENTRIES) throw new Error(`it holds more than ${SNAPSHOT_MAX_ENTRIES.toLocaleString('en')} files and folders, too many to check`)
+      if (++entries > SNAPSHOT_MAX_ENTRIES) throw new Error(tr(msg({ id: 'main.unused.tooMany', defaultMessage: 'it holds more than {n, number} files and folders, too many to check', description: "Why Hive couldn't check what one of the Overview's unused worktrees (Remove, Remove anyway, Merge) holds: a clause. {n} is the limit." }), { n: SNAPSHOT_MAX_ENTRIES }))
       found.push({ rel: r, kind })
       if (kind === 'd') dirs.push(r)
     }
@@ -259,7 +260,7 @@ async function fingerprint(root: string): Promise<string> {
     if (f.kind === 'l') h.update(await readlink(abs))
     else if (f.kind === 'f') {
       const size = (await lstat(abs)).size
-      if ((bytes += size) > SNAPSHOT_MAX_BYTES) throw new Error(`it holds more than ${SNAPSHOT_MAX_BYTES / 1024 ** 3} GB of files, too much to check`)
+      if ((bytes += size) > SNAPSHOT_MAX_BYTES) throw new Error(tr(msg({ id: 'main.unused.tooBig', defaultMessage: 'it holds more than {n, number} GB of files, too much to check', description: "Why Hive couldn't check what one of the Overview's unused worktrees (Remove, Remove anyway, Merge) holds: a clause. {n} is the limit." }), { n: SNAPSHOT_MAX_BYTES / 1024 ** 3 }))
       h.update(`${size}\0`)
       await new Promise<void>((res, rej) => {
         const s = createReadStream(abs)
@@ -275,14 +276,14 @@ async function fingerprint(root: string): Promise<string> {
 /** The snapshot of an unused worktree as it is now; throws (saying why) when git or the folder can't say. */
 async function snapshot(projectPath: string, path: string): Promise<Snapshot> {
   const fail = (why: string): never => {
-    throw new Error(`Hive couldn't check what it holds: ${gitProblem() ?? why}`)
+    throw new Error(tr(msg({ id: 'main.unused.cantCheck', defaultMessage: "Hive couldn't check what it holds: {why}", description: "An error asking to Remove anyway one of the Overview's unused worktrees (Remove, Remove anyway, Merge). {why} says why (main.unused.read.*, or git's message)." }), { why: gitProblem() ?? why }))
   }
   const head = await git(path, ['rev-parse', '--verify', '--quiet', 'HEAD'])
   const tip = head.ok ? head.out.trim() : ''
-  if (!tip) fail('git could not read its HEAD')
+  if (!tip) fail(tr(msg({ id: 'main.unused.read.head', defaultMessage: 'git could not read its HEAD', description: "Why Hive couldn't check what one of the Overview's unused worktrees (Remove, Remove anyway, Merge) holds: a clause (main.unused.cantCheck). HEAD is git's term." })))
   const sym = await git(path, ['symbolic-ref', '--quiet', '--short', 'HEAD'])
   // Exit 1 with nothing said: detached. Anything else that fails: can't tell.
-  if (!sym.ok && !(sym.code === 1 && !sym.err)) fail('git could not read its branch')
+  if (!sym.ok && !(sym.code === 1 && !sym.err)) fail(tr(msg({ id: 'main.unused.read.branch', defaultMessage: 'git could not read its branch', description: "Why Hive couldn't check what one of the Overview's unused worktrees (Remove, Remove anyway, Merge) holds: a clause (main.unused.cantCheck)." })))
   const branch = sym.ok ? sym.out.trim() : null
   // Strictly: a main branch git couldn't look for is not "none" (that would count the commits against no branch).
   let into: string | null = null
@@ -292,13 +293,13 @@ async function snapshot(projectPath: string, path: string): Promise<Snapshot> {
     fail((e as Error).message)
   }
   const intoTip = into ? await wt.tipOf(projectPath, into) : null
-  if (into && !intoTip) fail(`git could not read ${into}`)
+  if (into && !intoTip) fail(tr(msg({ id: 'main.unused.read.base', defaultMessage: 'git could not read {branch}', description: "Why Hive couldn't check what one of the Overview's unused worktrees (Remove, Remove anyway, Merge) holds: a clause (main.unused.cantCheck). {branch} is the project's main branch." }), { branch: into }))
   // On a branch: its commits not on the main branch (a squash merge counting). Detached, or no main branch: the commits
   // no branch, tag or remote branch has.
   const ahead = branch && intoTip ? await wt.unmergedCommits(projectPath, intoTip, tip) : await unreferencedCommits(path, branch ?? undefined)
-  if (ahead === null) fail('git could not count its commits')
+  if (ahead === null) fail(tr(msg({ id: 'main.unused.read.commits', defaultMessage: 'git could not count its commits', description: "Why Hive couldn't check what one of the Overview's unused worktrees (Remove, Remove anyway, Merge) holds: a clause (main.unused.cantCheck)." })))
   const dirty = await wt.dirtyCount(path)
-  if (dirty === null) fail('git status failed')
+  if (dirty === null) fail(tr(msg({ id: 'main.unused.read.status', defaultMessage: 'git status failed', description: "Why Hive couldn't check what one of the Overview's unused worktrees (Remove, Remove anyway, Merge) holds: a clause (main.unused.cantCheck). git status is a command: keep it." })))
   let files = ''
   try {
     files = await fingerprint(path)
@@ -319,8 +320,12 @@ export const PREVIEW_MS = 15 * 60_000
 function takePreview(token: string): { ok: true; preview: { project: string; at: number; snap: Snapshot } } | { ok: false; reason: string } {
   const shown = previews.get(token)
   previews.delete(token)
-  if (!shown) return { ok: false, reason: 'what it holds was not checked for this removal: look again' }
-  if (Date.now() - shown.at > PREVIEW_MS) return { ok: false, reason: `what it holds was checked more than ${PREVIEW_MS / 60_000} minutes ago: nothing was removed, look again` }
+  if (!shown) return { ok: false, reason: tr(msg({ id: 'main.unused.notChecked', defaultMessage: 'what it holds was not checked for this removal: look again', description: "Why Remove anyway did nothing to one of the Overview's unused worktrees (Remove, Remove anyway, Merge): the confirmation was not for it. A clause; the window then looks again." })) }
+  if (Date.now() - shown.at > PREVIEW_MS)
+    return {
+      ok: false,
+      reason: tr(msg({ id: 'main.unused.stale', defaultMessage: '{n, plural, one {what it holds was checked more than # minute ago: nothing was removed, look again} other {what it holds was checked more than # minutes ago: nothing was removed, look again}}', description: "Why Remove anyway did nothing to one of the Overview's unused worktrees (Remove, Remove anyway, Merge): the confirmation was too old. {n} is how many minutes it lasts. A clause." }), { n: PREVIEW_MS / 60_000 })
+    }
   return { ok: true, preview: shown }
 }
 
@@ -331,9 +336,9 @@ function takePreview(token: string): { ok: true; preview: { project: string; at:
 export async function removalPreview(projectPath: string, path: string): Promise<UnusedWorktreePreview> {
   projectPath = workspace.assertProject(projectPath)
   const listed = (await wt.listWorktrees(projectPath)).find((w) => key(w.path) === key(path))
-  if (!listed || key(listed.path) === key(projectPath)) throw new Error(gitProblem() ?? "git doesn't list it as one of the project's worktrees")
+  if (!listed || key(listed.path) === key(projectPath)) throw new Error(gitProblem() ?? tr(msg({ id: 'main.unused.why.notListed', defaultMessage: "git doesn't list it as one of the project's worktrees", description: "Why Hive won't remove or merge one of the Overview's unused worktrees (Remove, Remove anyway, Merge): a clause." })))
   const why = await unsafe(projectPath, listed.path)
-  if (why) throw new Error(`Hive doesn't remove it: ${why}.`)
+  if (why) throw new Error(tr(msg({ id: 'main.unused.refused', defaultMessage: "Hive doesn't remove it: {why}.", description: "An error asking to Remove anyway one of the Overview's unused worktrees (Remove, Remove anyway, Merge). {why} says why (main.unused.why.*)." }), { why }))
   const snap = await snapshot(projectPath, listed.path)
   const now = Date.now()
   for (const [k, p] of previews) if (now - p.at > PREVIEW_MS) previews.delete(k)
@@ -344,15 +349,15 @@ export async function removalPreview(projectPath: string, path: string): Promise
 }
 
 /** What each snapshot field is, for the refusal. */
-const SNAPSHOT_FIELD: Record<keyof Snapshot, string> = {
-  path: 'its folder',
-  branch: 'its branch',
-  head: 'its commit',
-  into: 'the main branch',
-  intoTip: "the main branch's commit",
-  ahead: 'its unmerged commits',
-  dirty: 'its uncommitted files',
-  files: 'its files'
+const SNAPSHOT_FIELD: Record<keyof Snapshot, Msg> = {
+  path: msg({ id: 'main.unused.field.path', defaultMessage: 'its folder', description: "What changed in one of the Overview's unused worktrees (Remove, Remove anyway, Merge) since the user was shown it, in a list (main.unused.changed)." }),
+  branch: msg({ id: 'main.unused.field.branch', defaultMessage: 'its branch', description: "What changed in one of the Overview's unused worktrees (Remove, Remove anyway, Merge) since the user was shown it, in a list (main.unused.changed)." }),
+  head: msg({ id: 'main.unused.field.head', defaultMessage: 'its commit', description: "What changed in one of the Overview's unused worktrees (Remove, Remove anyway, Merge) since the user was shown it, in a list (main.unused.changed)." }),
+  into: msg({ id: 'main.unused.field.into', defaultMessage: 'the main branch', description: "What changed in one of the Overview's unused worktrees (Remove, Remove anyway, Merge) since the user was shown it, in a list (main.unused.changed)." }),
+  intoTip: msg({ id: 'main.unused.field.intoTip', defaultMessage: "the main branch's commit", description: "What changed in one of the Overview's unused worktrees (Remove, Remove anyway, Merge) since the user was shown it, in a list (main.unused.changed)." }),
+  ahead: msg({ id: 'main.unused.field.ahead', defaultMessage: 'its unmerged commits', description: "What changed in one of the Overview's unused worktrees (Remove, Remove anyway, Merge) since the user was shown it, in a list (main.unused.changed)." }),
+  dirty: msg({ id: 'main.unused.field.dirty', defaultMessage: 'its uncommitted files', description: "What changed in one of the Overview's unused worktrees (Remove, Remove anyway, Merge) since the user was shown it, in a list (main.unused.changed)." }),
+  files: msg({ id: 'main.unused.field.files', defaultMessage: 'its files', description: "What changed in one of the Overview's unused worktrees (Remove, Remove anyway, Merge) since the user was shown it, in a list (main.unused.changed)." })
 }
 
 /**
@@ -378,7 +383,7 @@ export async function removeUnusedWorktree(projectPath: string, path: string, op
   }
   try {
     const listed = (await wt.listWorktrees(projectPath)).find((w) => key(w.path) === key(path))
-    if (!listed || key(listed.path) === key(projectPath)) return { deleted: false, reason: gitProblem() ?? "git doesn't list it as one of the project's worktrees" }
+    if (!listed || key(listed.path) === key(projectPath)) return { deleted: false, reason: gitProblem() ?? tr(msg({ id: 'main.unused.why.notListed', defaultMessage: "git doesn't list it as one of the project's worktrees", description: "Why Hive won't remove or merge one of the Overview's unused worktrees (Remove, Remove anyway, Merge): a clause." })) }
     const why = await unsafe(projectPath, listed.path)
     if (why) return { deleted: false, reason: why }
     // Under the project file's lock, after the reservation: an agent given it before keeps it; none can be from now on.
@@ -387,13 +392,13 @@ export async function removeUnusedWorktree(projectPath: string, path: string, op
       owned = projectAgents(now).some((a) => a.worktree && key(a.worktree.path) === key(listed.path))
       return {}
     })
-    if (owned) return { deleted: false, reason: 'an agent works in it now' }
+    if (owned) return { deleted: false, reason: tr(msg({ id: 'main.unused.why.owned', defaultMessage: 'an agent works in it now', description: "Why Hive won't remove or merge one of the Overview's unused worktrees (Remove, Remove anyway, Merge): a clause." })) }
     let done: UnusedWorktreeRemoval
     if (opts.force !== undefined) {
       // Refusals a new look settles are marked `lookAgain` (#377): the window checks again and asks again.
-      if (!taken?.ok) return { deleted: false, lookAgain: true, reason: taken?.reason ?? 'what it holds was not checked for this removal: look again' }
+      if (!taken?.ok) return { deleted: false, lookAgain: true, reason: taken?.reason ?? tr(msg({ id: 'main.unused.notChecked', defaultMessage: 'what it holds was not checked for this removal: look again', description: "Why Remove anyway did nothing to one of the Overview's unused worktrees (Remove, Remove anyway, Merge): the confirmation was not for it. A clause; the window then looks again." })) }
       const shown = taken.preview
-      if (shown.project !== key(projectPath) || shown.snap.path !== realPath(resolve(listed.path))) return { deleted: false, lookAgain: true, reason: 'what it holds was not checked for this removal: look again' }
+      if (shown.project !== key(projectPath) || shown.snap.path !== realPath(resolve(listed.path))) return { deleted: false, lookAgain: true, reason: tr(msg({ id: 'main.unused.notChecked', defaultMessage: 'what it holds was not checked for this removal: look again', description: "Why Remove anyway did nothing to one of the Overview's unused worktrees (Remove, Remove anyway, Merge): the confirmation was not for it. A clause; the window then looks again." })) }
       let now: Snapshot
       try {
         now = await snapshot(projectPath, listed.path)
@@ -401,15 +406,20 @@ export async function removeUnusedWorktree(projectPath: string, path: string, op
         return { deleted: false, reason: (e as Error).message }
       }
       const changed = (Object.keys(now) as (keyof Snapshot)[]).filter((k) => now[k] !== shown.snap[k])
-      if (changed.length) return { deleted: false, lookAgain: true, reason: `it changed since you were shown what it holds (${changed.map((k) => SNAPSHOT_FIELD[k]).join(', ')}): nothing was removed, look again` }
+      if (changed.length)
+        return {
+          deleted: false,
+          lookAgain: true,
+          reason: tr(msg({ id: 'main.unused.changed', defaultMessage: 'it changed since you were shown what it holds ({changed}): nothing was removed, look again', description: "Why Remove anyway did nothing to one of the Overview's unused worktrees (Remove, Remove anyway, Merge). {changed} lists what changed (main.unused.field.*). A clause." }), { changed: fmt.list(changed.map((k) => tr(SNAPSHOT_FIELD[k]))) })
+        }
       const snap = shown.snap
       await wt.removeWorktree(projectPath, { path: listed.path, branch: snap.branch ?? '', base: '' }, false)
       // The branch shown, and only from the commit shown (git refuses otherwise).
       const branch = snap.branch ? await git(projectPath, ['update-ref', '-d', `refs/heads/${snap.branch}`, snap.head]) : null
-      done = branch && !branch.ok ? { deleted: true, branchKept: true, reason: `git kept ${snap.branch}: ${branch.err.split(/\r?\n/)[0] || 'update-ref failed'}` } : { deleted: true }
+      done = branch && !branch.ok ? { deleted: true, branchKept: true, reason: tr(msg({ id: 'main.unused.branchKept', defaultMessage: 'git kept {branch}: {why}', description: "After Remove anyway removed one of the Overview's unused worktrees (Remove, Remove anyway, Merge): its branch, {branch}, stayed. {why} is git's message." }), { branch: snap.branch ?? '', why: branch.err.split(/\r?\n/)[0] || tr(msg({ id: 'main.unused.gitFailed', defaultMessage: '{command} failed', description: "Why git couldn't do something, when it said nothing itself. {command} is the git command: keep it." }), { command: 'update-ref' }) }) } : { deleted: true }
       log.info(`Removed unused worktree ${userText(listed.path)} anyway (${snap.ahead} commits only it held, ${snap.dirty} uncommitted files)`)
     } else {
-      if (!listed.branch) return { deleted: false, reason: 'it is not on a branch (detached HEAD)' }
+      if (!listed.branch) return { deleted: false, reason: tr(msg({ id: 'main.unused.why.detached', defaultMessage: 'it is not on a branch (detached HEAD)', description: "Why Hive won't remove or merge one of the Overview's unused worktrees (Remove, Remove anyway, Merge): a clause. detached HEAD is git's term." })) }
       const tree: AgentWorktree = { path: listed.path, branch: listed.branch, base: '' }
       const check = await wt.worktreeCheck(projectPath, tree)
       done = await wt.removeCheckedWorktree(projectPath, tree, check, opts.expectInto).catch((e: Error) => ({ deleted: false, reason: e.message.split('\n')[0] }))

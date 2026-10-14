@@ -73,28 +73,28 @@ export async function diagnostics(opts: { recording?: boolean } = {}): Promise<s
   const providers = providerService.all()
   const providerLines = (Object.entries(providers) as [ProviderId, AgentInstallInfo][]).flatMap(([id, info]) => {
     const set = s.providers[id]
-    const head = `- **${providerName(id)}**: ${set?.enabled ? 'on' : 'off'}; ${info.found ? `${info.version ?? 'version unknown'} at \`${info.path ?? '?'}\`${info.source ? ` (${info.source})` : ''}` : 'not found'}; signed in: ${yesNo(info.loggedIn)}${info.updateAvailable && info.latestVersion ? `; ${info.latestVersion} available` : ''}`
+    const head = `- **${providerName(id)}**: ${set?.enabled ? 'on' : 'off'}; ${info.found ? `${info.version ?? 'version unknown'} at \`${info.path ?? '?'}\`${info.source ? ` (${info.source})` : ''}` : 'not found'}; signed in: ${yesNo(info.loggedIn)}${info.updateAvailable && info.latestVersion ? `; ${info.latestVersion} available` : ''}` // i18n-ignore: Copy Diagnostics' report: a bug report for the maintainer, in English (the design keeps diagnostics content English)
     const extra = [
       // The version this release was tested with (#365): what a bug report about the CLI needs first.
-      ...(info.tested ? [`  - this Hive release was tested with ${info.tested.version}${info.tested.testedAt ? ` (${info.tested.testedAt})` : ''}; installed: ${info.found ? testedComparison(info.tested) : 'not found'}`] : ['  - no tested version recorded for this Hive release']),
-      ...(set?.executablePath ? ['  - its path is set in Settings'] : []),
-      ...(set?.extraArgs ? ['  - extra arguments are set'] : []),
-      ...(info.editorExtensionOnly ? ["  - only an editor extension's copy was found"] : []),
+      ...(info.tested ? [`  - this Hive release was tested with ${info.tested.version}${info.tested.testedAt ? ` (${info.tested.testedAt})` : ''}; installed: ${info.found ? testedComparison(info.tested) : 'not found'}`] : ['  - no tested version recorded for this Hive release']), // i18n-ignore: Copy Diagnostics' report: a bug report for the maintainer, in English (the design keeps diagnostics content English)
+      ...(set?.executablePath ? ['  - its path is set in Settings'] : []), // i18n-ignore: Copy Diagnostics' report: a bug report for the maintainer, in English (the design keeps diagnostics content English)
+      ...(set?.extraArgs ? ['  - extra arguments are set'] : []), // i18n-ignore: Copy Diagnostics' report: a bug report for the maintainer, in English (the design keeps diagnostics content English)
+      ...(info.editorExtensionOnly ? ["  - only an editor extension's copy was found"] : []), // i18n-ignore: Copy Diagnostics' report: a bug report for the maintainer, in English (the design keeps diagnostics content English)
       ...(provider(id).diagnostics?.() ?? []).map((l) => `  - ${l}`),
       ...(info.readiness ?? []).map((r) => `  - ${r.level}: ${r.message}`)
     ]
     return [head, ...extra]
   })
   const g = gitTool()
-  providerLines.push(`- **Git**: ${g.state === 'missing' ? "not found on Hive's PATH" : g.version ? `${g.version}${g.path ? ` at \`${g.path}\`` : ''}${g.state === 'old' ? ' (older than Hive needs)' : ''}` : `unknown${g.error ? ` (${g.error})` : ''}`}`)
+  providerLines.push(`- **Git**: ${g.state === 'missing' ? "not found on Hive's PATH" : g.version ? `${g.version}${g.path ? ` at \`${g.path}\`` : ''}${g.state === 'old' ? ' (older than Hive needs)' : ''}` : `unknown${g.error ? ` (${g.error})` : ''}`}`) // i18n-ignore: Copy Diagnostics' report: a bug report for the maintainer, in English (the design keeps diagnostics content English)
 
   // Bundled skills: Hive's own names, so they are shown; the user's own skills only as a count.
   const skillLines: string[] = []
   for (const w of windows) {
     if (!w.ws.path) continue
     const list = await inWorkspace(w.ws, () => hiveSkills(true)).catch(() => [])
-    const mark = (x: (typeof list)[number]): string => `${x.name} ${x.bundled}${x.updateAvailable ? ' (update available)' : ''}`
-    skillLines.push(`- Workspace ${skillLines.length + 1}: ${list.filter((x) => x.bundled).map(mark).join(', ') || 'no bundled skills'}; ${list.filter((x) => !x.bundled).length} of its own`)
+    const mark = (x: (typeof list)[number]): string => `${x.name} ${x.bundled}${x.updateAvailable ? ' (update available)' : ''}` // i18n-ignore: Copy Diagnostics' report: a bug report for the maintainer, in English (the design keeps diagnostics content English)
+    skillLines.push(`- Workspace ${skillLines.length + 1}: ${list.filter((x) => x.bundled).map(mark).join(', ') || 'no bundled skills'}; ${list.filter((x) => !x.bundled).length} of its own`) // i18n-ignore: Copy Diagnostics' report: a bug report for the maintainer, in English (the design keeps diagnostics content English)
   }
   const running = agents.flatMap((a) => (a.live ? [a.live] : []))
   const older = running.filter((l) => l.launched && l.launched.guidance !== GUIDANCE_REVISION).length
@@ -129,7 +129,7 @@ export async function diagnostics(opts: { recording?: boolean } = {}): Promise<s
     `- Transcript backups: ${s.sessions.backupTranscripts ? 'on' : 'off'}; cache TTL: ${s.sessions.cacheTtl}; Overview refresh: ${s.sessions.overviewRefresh}`,
     `- Agent API: ${s.agentApi.enabled ? 'on' : 'off'}; built-in hive MCP server: ${s.agentApi.provideHiveMcp ? 'on' : 'off'}; session input: ${s.agentApi.allowSessionInput ? 'allowed' : 'off'}`,
     `- Assistant control: ${typeof s.assistant.control === 'string' ? s.assistant.control : 'custom'}`,
-    `- Notifications: ${s.notifications.desktopNotifications ? 'on' : 'off'}; while Hive is focused: ${{ inApp: 'in Hive', nothing: 'nothing', windows: 'Windows notifications' }[s.notifications.whileFocused]}${s.notifications.whileFocused === 'inApp' ? ` (banners for ${{ all: 'all workspaces', workspace: 'this workspace', project: 'this project' }[s.notifications.bannerScope]}, ${s.notifications.bannerPosition}, ${s.notifications.bannerSeconds} s; waiting banners ${s.notifications.waitingBannerStays ? 'stay' : 'close too'})` : ''}; chime ${s.notifications.chimeEnabled ? 'on' : 'off'}`,
+    `- Notifications: ${s.notifications.desktopNotifications ? 'on' : 'off'}; while Hive is focused: ${{ inApp: 'in Hive', nothing: 'nothing', windows: 'Windows notifications' }[s.notifications.whileFocused]}${s.notifications.whileFocused === 'inApp' ? ` (banners for ${{ all: 'all workspaces', workspace: 'this workspace', project: 'this project' }[s.notifications.bannerScope]}, ${s.notifications.bannerPosition}, ${s.notifications.bannerSeconds} s; waiting banners ${s.notifications.waitingBannerStays ? 'stay' : 'close too'})` : ''}; chime ${s.notifications.chimeEnabled ? 'on' : 'off'}`, // i18n-ignore: Copy Diagnostics' report: a bug report for the maintainer, in English (the design keeps diagnostics content English)
     `- Theme: ${s.appearance.theme}`,
     // Overrides of Hive's defaults (#367): how many and which, by Hive's names; never their values.
     ...advanced.diagnostics(windows.map((w) => (w.ws.path ? (w.ws.config.advanced ?? null) : null)))
@@ -152,15 +152,15 @@ export async function diagnostics(opts: { recording?: boolean } = {}): Promise<s
   // Names are only taken out of the log: the summary above has none, and a project called "Hive" would take Hive's own name with it.
   // The whole tail is redacted first: which run of Hive a line is from depends on the start lines before it.
   const log = redactLog((await logTail()).join('\n'), ctx).split('\n').slice(-LOG_LINES).join('\n')
-  return `${redact(header, { ...ctx, names: [] })}\n\n### Log (last ${LOG_LINES} lines)\n\n\`\`\`\n${log}\n\`\`\`\n${opts.recording ? await recordingSection(ctx) : ''}`
+  return `${redact(header, { ...ctx, names: [] })}\n\n### Log (last ${LOG_LINES} lines)\n\n\`\`\`\n${log}\n\`\`\`\n${opts.recording ? await recordingSection(ctx) : ''}` // i18n-ignore: Copy Diagnostics' report: a bug report for the maintainer, in English (the design keeps diagnostics content English)
 }
 
 /** The newest developer console recording, if it is redacted: a line about it and its newest events, redacted again. */
 async function recordingSection(ctx: RedactContext): Promise<string> {
   const latest = await latestRecording()
-  if (!latest) return '\n### Developer console recording\n\nNone.\n'
-  if (latest.includeText) return '\n### Developer console recording\n\nThe newest recording includes prompt and reply text, so it is not attached.\n'
+  if (!latest) return '\n### Developer console recording\n\nNone.\n' // i18n-ignore: Copy Diagnostics' report: a bug report for the maintainer, in English (the design keeps diagnostics content English)
+  if (latest.includeText) return '\n### Developer console recording\n\nThe newest recording includes prompt and reply text, so it is not attached.\n' // i18n-ignore: Copy Diagnostics' report: a bug report for the maintainer, in English (the design keeps diagnostics content English)
   const part = diagnosticRecording(await readRecordingText(latest.file), (s) => redact(s, ctx))
   if (!part) return ''
-  return `\n### Developer console recording\n\n${part.summary}\n\n\`\`\`jsonl\n${part.lines.join('\n')}\n\`\`\`\n`
+  return `\n### Developer console recording\n\n${part.summary}\n\n\`\`\`jsonl\n${part.lines.join('\n')}\n\`\`\`\n` // i18n-ignore: Copy Diagnostics' report: a bug report for the maintainer, in English (the design keeps diagnostics content English)
 }

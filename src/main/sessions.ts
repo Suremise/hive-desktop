@@ -58,7 +58,7 @@ import { asksYou } from '../shared/inbox'
 import type { DeliveryHooks, NewDelivery } from './deliveries'
 import { readyFor } from './readiness'
 import { NOTICE_PREFIX } from '../shared/doorbell'
-import { FinishBatcher, finishedNotice, noticeRoute, type FocusedHive, type NoticeRoute } from '../shared/bursts'
+import { FinishBatcher, finishedApiTitle, finishedNotice, noticeRoute, type FocusedHive, type NoticeRoute } from '../shared/bursts'
 import { commentOnDoingCards, recordCards } from './cardSessions'
 import { listMcp, toLaunchDef } from './mcp'
 import { agentGetsMcp, serverOnIn } from '../shared/agentMcp'
@@ -3852,10 +3852,10 @@ class SessionManager {
     return noticeRoute(config.settings.notifications, kind, this.focusedHive(), { workspacePath: workspaceOf(projectPath)?.path ?? null, projectPath })
   }
 
-  /** A banner in the focused window, or a Windows notification, as route() says now. */
-  private deliver(projectPath: string, title: string, body: string, kind: 'finished' | 'waiting' | 'notice', agentId?: string): void {
+  /** A banner in the focused window, or a Windows notification, as route() says now; `apiTitle`: its title in English, when `title` is translated. */
+  private deliver(projectPath: string, title: string, body: string, kind: 'finished' | 'waiting' | 'notice', agentId?: string, apiTitle?: string): void {
     const route = this.route(projectPath, kind)
-    const notice = { id: randomUUID(), kind, title, body, projectPath, ...(agentId ? { agentId } : {}) }
+    const notice = { id: randomUUID(), kind, title, ...(apiTitle && apiTitle !== title ? { apiTitle } : {}), body, projectPath, ...(agentId ? { agentId } : {}) }
     if (route === 'windows') {
       // The Agent API's stream hears of every notice Hive tells, as a banner or a Windows notification (#620).
       tellListeners({ type: 'notice', notice, windows: true })
@@ -3875,7 +3875,7 @@ class SessionManager {
     const items = all.filter((i) => this.route(i.projectPath, 'finished') !== 'none')
     if (!items.length) return
     const { title, body } = finishedNotice(items)
-    this.deliver(items[0].projectPath, title, body, 'finished')
+    this.deliver(items[0].projectPath, title, body, 'finished', undefined, finishedApiTitle(items))
   })
 
   /** A Windows notification; clicking it shows the project (the first one's, for finishes in several). */
