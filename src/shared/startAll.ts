@@ -3,6 +3,7 @@
 // agents, which sessions, what the confirmation says about each, running them one at a time), so they are tested.
 import { agentsToResume } from './resumeAll'
 import type { SessionStatus, WorktreeCheck } from './types'
+import { msg, tr } from './i18n'
 
 export interface BatchAgent {
   id: string
@@ -19,15 +20,9 @@ export interface BatchSession {
 
 /** What stopping a running agent costs it, as the quit dialog says it (null: nothing in progress). */
 export function busyNote(status: SessionStatus): string | null {
-  return status === 'working'
-    ? 'will be interrupted'
-    : status === 'background'
-      ? 'background tasks will stop'
-      : status === 'waiting'
-        ? 'waiting for you'
-        : status === 'watching'
-          ? 'its card loop pauses until it is resumed'
-          : null
+  return status === 'working' || status === 'background' || status === 'waiting' || status === 'watching'
+    ? tr(msg({ id: 'agents.batch.busy', defaultMessage: '{status, select, working {will be interrupted} background {background tasks will stop} waiting {waiting for you} other {its card loop pauses until it is resumed}}', description: "What stopping a running agent costs, in a few words (the quit dialog, Start New All…; lower case, in brackets after Stopped): it is working, waiting on its background tasks, waiting for the user's answer, or in a card loop (other: watching)." }), { status })
+    : null
 }
 
 /**
@@ -86,10 +81,9 @@ export type BatchKind = 'start' | 'archive' | 'remove'
  * interrupts as the line does (`busyNote`, then `warn`), and what follows.
  */
 export function batchOutcome(kind: BatchKind, agent: Pick<BatchAgent, 'live'>): { text: string; warn: boolean } {
-  const then = kind === 'start' ? 'a new session' : kind === 'archive' ? 'its session archived, then a new one' : 'removed'
-  if (!agent.live) return { text: then.charAt(0).toUpperCase() + then.slice(1), warn: false }
+  if (!agent.live) return { text: tr(msg({ id: 'agents.batch.outcome', defaultMessage: '{kind, select, start {A new session} archive {Its session archived, then a new one} other {Removed}}', description: "What happens to an agent that isn't running in a batch (Start New All: start; Archive and Start New All: archive; Remove All: other), in an agents table's What happens column." }), { kind }), warn: false }
   const note = busyNote(agent.live.status)
-  return { text: `Stopped${note ? ` (${note})` : ''}, then ${then}`, warn: !!note }
+  return { text: tr(msg({ id: 'agents.batch.stoppedThen', defaultMessage: 'Stopped{note, select, none {} other { ({note})}}, then {kind, select, start {a new session} archive {its session archived, then a new one} other {removed}}', description: "What happens to a running agent in a batch (What happens column): stopped first ({note}: what that interrupts, in a few words; none: leave it empty), then a new session (start), its session archived and a new one (archive), or removed (other)." }), { note: note ?? 'none', kind }), warn: !!note }
 }
 
 /**
@@ -98,7 +92,9 @@ export function batchOutcome(kind: BatchKind, agent: Pick<BatchAgent, 'live'>): 
  */
 export function removeWorktreeText(worktree: BatchWorktree): string {
   const check = worktree.check
-  return `${worktree.branch}: ${check?.removable ? 'merged and clean' : `always kept (${check?.reason ?? "couldn't be checked"})`}`
+  if (check?.removable) return tr(msg({ id: 'agents.batch.worktreeRemovable', defaultMessage: '{branch}: merged and clean', description: "Remove All's Worktree column: the agent's branch ({branch}) is merged and has no changes, so it can be deleted." }), { branch: worktree.branch })
+  if (check?.reason) return tr(msg({ id: 'agents.batch.worktreeKept', defaultMessage: '{branch}: always kept ({why})', description: "Remove All's Worktree column: the agent's branch ({branch}) is kept, and why ({why})." }), { branch: worktree.branch, why: check.reason })
+  return tr(msg({ id: 'agents.batch.worktreeUnchecked', defaultMessage: "{branch}: always kept (couldn't be checked)", description: "Remove All's Worktree column: the agent's branch ({branch}) is kept because Hive couldn't check it." }), { branch: worktree.branch })
 }
 
 export interface BatchResult {

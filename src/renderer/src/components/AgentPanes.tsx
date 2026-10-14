@@ -132,7 +132,7 @@ function sessionPickerItems(project: ProjectInfo, a: AgentInfo, list: SessionLis
       if (s.recache && !s.recache.warm && s.recache.tokens > 20000) bits.push(tr(msg({ id: 'panes.resume.recache', defaultMessage: 'cache expired, ~{tokens} to re-cache', description: "A session in the session picker whose prompt cache has expired: resuming it re-reads about {tokens} tokens (\"120K\"). Lower case." }), { tokens: formatTokens(s.recache.tokens) }))
     }
     items.push({
-      label: sessionLabel(s, project.name),
+      label: sessionLabel(s, project.name, tr),
       detail: bits.join(' · '),
       icon: holder ? 'circle-filled' : s.id === a.resume?.id ? 'debug-continue' : 'history',
       muted: !!holder,
@@ -208,7 +208,7 @@ export function ResumeButton({ project, a, className, label }: { project: Projec
  * record's time, as in the Sessions tab: a resumed one's isn't this launch's).
  */
 function liveSessionLabel(project: ProjectInfo, live: LiveSessionState, usage: SessionUsage | null | undefined): string {
-  return sessionLabel({ id: live.sessionId, name: live.sessionName, title: usage?.title, customTitle: usage?.customTitle, titleAtRename: live.titleAtRename, startedAt: live.sessionCreatedAt || live.startedAt }, project.name)
+  return sessionLabel({ id: live.sessionId, name: live.sessionName, title: usage?.title, customTitle: usage?.customTitle, titleAtRename: live.titleAtRename, startedAt: live.sessionCreatedAt || live.startedAt }, project.name, tr)
 }
 
 async function renameSession(project: ProjectInfo, sessionId: string, current: string): Promise<void> {
@@ -410,7 +410,7 @@ function agentMenu(project: ProjectInfo, a: AgentInfo, pick: () => void, inHeade
     ...(worktree
       ? [
           { label: tr(msg({ id: 'panes.menu.reviewChanges', defaultMessage: 'Review Changes', description: "Menu item (a worktree agent's menu): shows its changes in the Git tab." })), icon: 'git-compare', onClick: () => reviewChanges(project, a) },
-          ...(inHeader ? [] : [{ label: tr(MERGE), icon: 'git-merge', disabled: !!mergeBlocked(a.name, a.live?.status), detail: mergeBlocked(a.name, a.live?.status) ?? undefined, onClick: () => set({ mergeFor: { project: project.path, agentId: a.id } }) }]),
+          ...(inHeader ? [] : [{ label: tr(MERGE), icon: 'git-merge', disabled: !!mergeBlocked(a.name, a.live?.status, tr), detail: mergeBlocked(a.name, a.live?.status, tr) ?? undefined, onClick: () => set({ mergeFor: { project: project.path, agentId: a.id } }) }]),
           { separator: true },
           { label: tr(REMOVE_AGENT), icon: 'close', action: 'remove' as const, onClick: () => void actions.removeAgent(project.path, a.id) },
           { label: tr(msg({ id: 'panes.menu.discard', defaultMessage: 'Discard Worktree and Branch…', description: "Menu item (a worktree agent's menu): removes the agent and deletes its worktree and branch (asks first)." })), icon: 'trash', danger: true, onClick: () => void actions.discardAgent(project.path, a.id) }
@@ -433,7 +433,7 @@ export function AddAgentButton({ project, className, label, strip }: { project: 
   const full = project.agents.length >= limit
   const templates = !isAssistantPath(project.path)
   const configure = (): void => set({ addAgentFor: project.path })
-  const tip = full ? agentLimitText(limit) : tr(msg({ id: 'panes.add.tip', defaultMessage: 'Configure Agent and Add…: choose its provider, where it works and its settings', description: 'Tooltip of the Add Agent button (the agent strip). "Configure Agent and Add…" names the dialog it opens: use its translation.' }))
+  const tip = full ? agentLimitText(limit, tr) : tr(msg({ id: 'panes.add.tip', defaultMessage: 'Configure Agent and Add…: choose its provider, where it works and its settings', description: 'Tooltip of the Add Agent button (the agent strip). "Configure Agent and Add…" names the dialog it opens: use its translation.' }))
   const fromTemplate = async (keyboard: boolean): Promise<void> => {
     const at = caret.current && below(caret.current)
     const all = await templateList(project.path)
@@ -476,7 +476,7 @@ function reviewChanges(project: ProjectInfo, a: AgentInfo): void {
 /** A worktree agent's work not merged into the project folder yet (null: not a worktree agent, or not checked yet). */
 function useUnmerged(project: ProjectInfo, a: AgentInfo): ReturnType<typeof unmergedWork> {
   const st = useStore((s) => (a.worktree ? s.branchStatus[projectKey(project.path, a.id)] : undefined))
-  return a.worktree ? unmergedWork(st) : null
+  return a.worktree ? unmergedWork(st, tr) : null
 }
 
 const TO_MERGE = msg({ id: 'panes.worktree.toMerge', defaultMessage: 'To merge: {work}', description: "In a worktree agent's hover: what is left to merge ({work}: \"2 commits not merged into main\")." })
@@ -1114,9 +1114,9 @@ function PaneHeader({ project, a, focused }: { project: ProjectInfo; a: AgentInf
           iconOnly: true,
           count: unmerged?.badge,
           // Not while it is in the middle of a task; the count still shows what is waiting to be merged.
-          disabled: !!mergeBlocked(a.name, live?.status),
+          disabled: !!mergeBlocked(a.name, live?.status, tr),
           tip: [
-            mergeBlocked(a.name, live?.status),
+            mergeBlocked(a.name, live?.status, tr),
             unmerged
               ? tr(msg({ id: 'panes.header.mergeTip', defaultMessage: 'Merge {branch}: {work}', description: "Tooltip of a worktree pane's Merge button: its branch and what is left to merge ({work}: \"2 commits not merged into main\")." }), { branch: a.worktree.branch, work: unmerged.text })
               : tr(msg({ id: 'panes.header.mergeInto', defaultMessage: 'Merge {branch} into the project folder', description: "Tooltip of a worktree pane's Merge button before Hive knows what is left to merge." }), { branch: a.worktree.branch })
@@ -1280,7 +1280,7 @@ export function PaneFooter({
             // A click opens the session in the Overview, with its compaction history (the Assistant's footer opens nothing).
             <span className="ctx-tip" style={{ whiteSpace: 'pre-line' }}>
               {[
-                ...contextLines(usage, live?.autoCompact),
+                ...contextLines(usage, live?.autoCompact, tr),
                 tr(msg({ id: 'panes.footer.compactions', defaultMessage: '{n, plural, one {# compaction so far} other {# compactions so far}}{over, select, yes { — consider compacting} other {}}', description: "A line of the hover of a pane footer's context: how many times the conversation was compacted, and (over the user's threshold) a suggestion to compact." }), { n: usage.compactions.length, over: over ? 'yes' : 'no' }),
                 ...(usage.stale ? [tr(msg({ id: 'panes.footer.stale', defaultMessage: 'Couldn’t read it again just now: this may be behind.', description: "A line of the hover of a pane footer's context: Hive couldn't read the usage again, so the numbers may be old." }))] : []),
                 ...(onContext ? [] : ['', tr(msg({ id: 'panes.footer.compactionHistory', defaultMessage: 'Click to view compaction history', description: "The last line of the hover of a pane footer's context: clicking shows the session's compactions in the Overview." }))])
