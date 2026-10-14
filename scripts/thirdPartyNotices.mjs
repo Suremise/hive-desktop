@@ -20,9 +20,56 @@ const declaredLicence = (meta) =>
 /** Its licence as published, and the one Hive uses when it has a choice ("(MPL-2.0 OR Apache-2.0), used under Apache-2.0"). */
 const licenceOf = (meta) =>
   `${declaredLicence(meta)}${CHOSEN[meta.name] ? `, used under ${CHOSEN[meta.name]}` : ''}${NOTES[meta.name] ? `; ${NOTES[meta.name]}` : ''}`
+
+// The hosts of npm's repository shortcuts ("github:owner/repo", "gist:id"…).
+const SHORTCUT_HOSTS = { github: 'github.com', gitlab: 'gitlab.com', bitbucket: 'bitbucket.org', gist: 'gist.github.com' }
+/**
+ * Whether a link opens a web page: it parses as a URL (a host name with a dot, a valid port if any, no sign-in) and is
+ * https://. A shape alone isn't enough: `https://example.org:bad/repo` looks like one and goes nowhere.
+ */
+function isWebUrl(u) {
+  if (!/^https:\/\/\S+$/.test(u)) return false
+  try {
+    const url = new URL(u)
+    return url.protocol === 'https:' && /^[a-z0-9-]+(\.[a-z0-9-]+)+$/i.test(url.hostname) && !url.username && !url.password
+  } catch {
+    return false
+  }
+}
+
+/**
+ * A package.json `repository` (its string or its `url`), in any form npm documents, as an https:// web page: the
+ * shorthand owner/repo (GitHub), github:, gitlab:, bitbucket: and gist: shortcuts, scp-style git@host:owner/repo,
+ * ssh://, git://, git+ssh:// and git+https:// URLs, an ssh URL's path after a colon too (git+ssh://git@github.com:npm/cli);
+ * a trailing .git and a #fragment (#semver) dropped (#788). Null when it is none of those, or isn't a valid URL then.
+ */
+export function repoWebUrl(value) {
+  if (typeof value !== 'string') return null
+  let v = value.trim().replace(/#.*$/, '')
+  const shortcut = /^(github|gitlab|bitbucket|gist):(.+)$/.exec(v)
+  if (shortcut) v = `https://${SHORTCUT_HOSTS[shortcut[1]]}/${shortcut[2]}`
+  else if (/^[\w.-]+\/[\w.-]+$/.test(v)) v = `https://github.com/${v}`
+  else {
+    v = v.replace(/^git\+/, '')
+    // scp-style: [user@]host:path, never a URL's scheme (followed by //).
+    const scp = /^(?:[\w.-]+@)?([\w-]+(?:\.[\w-]+)+):(?!\/\/)\/?(.+)$/.exec(v)
+    if (scp) v = `https://${scp[1]}/${scp[2]}`
+    else {
+      // An ssh URL may put the path after a colon, as scp does: ssh://git@host:owner/repo. A port is digits only.
+      if (v.startsWith('ssh://')) v =v.replace(/^(ssh:\/\/(?:[^@/]+@)?[^/:]+):(?!\d+(?:\/|$))/, '$1/')
+      v = v.replace(/^(?:ssh|git|https?):\/\/(?:[^@/]+@)?/, 'https://')
+    }
+  }
+  v = v.replace(/\/+$/, '').replace(/\.git$/, '')
+  return isWebUrl(v) ? v : null
+}
+
+/** Where a package's row links: its repository's page, else its homepage when that is a web page, else nowhere. */
 const repoOf = (meta) => {
-  const r = typeof meta.repository === 'string' ? meta.repository : meta.repository?.url
-  return (r ?? meta.homepage ?? '').replace(/^git\+/, '').replace(/\.git$/, '').replace(/^git:\/\//, 'https://').replace(/^github:/, 'https://github.com/')
+  const repo = repoWebUrl(typeof meta.repository === 'string' ? meta.repository : meta.repository?.url)
+  if (repo) return repo
+  const home = typeof meta.homepage === 'string' ? meta.homepage.trim().replace(/^http:\/\//, 'https://') : ''
+  return isWebUrl(home) ? home : null
 }
 const licenceFiles = (dir) =>
   readdirSync(dir)

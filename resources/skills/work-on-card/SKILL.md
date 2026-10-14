@@ -15,7 +15,7 @@ The card is the brief, and the board is how the user, the Hive Assistant and oth
 2. **Work or review?** If you are asked to check work rather than do it, this is a review: use the review-agent-work skill and leave the card where it is.
 3. **Can it start?** Cards it depends on (`blockedBy`) that aren't done block it: set `blocked` with the reason, tell the user, and don't guess.
 4. **Move it to `doing`** with `hive_update_task` before you change anything or ask the user about it, which gives it to you. Do this also when it comes back from Review, Passed or Done. A card On Hold is parked: work on it only when the user asks.
-5. **A question only the user can answer** blocks it too, now or later: with the card yours in Doing, set `blocked` with the question, ask the user, and don't guess. Hive tells you of the decision they record on your card (below).
+5. **A question only the user can answer** blocks it too, now or later: with the card yours in Doing, set `blocked` with the question and ask the user (`hive_notify`; a comment alone reaches no one), and don't guess. Hive tells you of the decision they record on your card (below): clear `blocked` and carry on.
 
 ## While working
 

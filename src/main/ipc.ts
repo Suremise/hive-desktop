@@ -27,7 +27,7 @@ import { gitDiff, gitStatus } from './git'
 import { initCheck, initRepo } from './gitInit'
 import { addRemote, createBranch, createTag, fetchAll, pull, push, repoHistory, repoInfo, repoSummary, setIdentity, setRemoteUrl, switchBranch } from './gitRepo'
 import { checkGit, gitTool } from './gitTool'
-import { refreshPath } from './freshPath'
+import { refreshPath, refreshPathBeforeStart } from './freshPath'
 import { mergeUnused, removalPreview, removeUnusedWorktree, unusedBranchStatus, unusedWorktrees } from './unusedWorktrees'
 import { createLogger, logsDir, userText } from './logger'
 import { diagnostics } from './diagnostics'
@@ -575,8 +575,10 @@ export function registerIpc(getAppInfo: () => ReturnType<HiveRequests['app:info'
       return workspace.mutateProjectConfig(workspace.assertProject(p), (cfg) => ({ providers: { ...cfg.providers, [id]: { ...projectProviderConfig(cfg, id), ...patch } } }))
     },
     'project:openInExplorer': (p) => void shell.openPath(workspace.assertProject(p)),
-    'project:openTerminal': (p) => {
+    'project:openTerminal': async (p) => {
       const dir = workspace.assertProject(p)
+      // A new terminal gets what was installed since Hive started (#821).
+      await refreshPathBeforeStart()
       if (process.platform === 'win32') {
         if (!spawnDetached('wt.exe', ['-d', `"${dir}"`])) spawnDetached('cmd.exe', ['/c', 'start', 'cmd.exe'], dir)
       } else spawnDetached('x-terminal-emulator', [], dir)
@@ -1044,7 +1046,10 @@ export function registerIpc(getAppInfo: () => ReturnType<HiveRequests['app:info'
       await Promise.all([providerService.refresh(id, true), checkGit()])
       return providerService.all()
     },
-    'provider:task': (id, task) => providerService.runProviderTask(id, task),
+    'provider:task': async (id, task) => {
+      await refreshPathBeforeStart()
+      return providerService.runProviderTask(id, task)
+    },
     'provider:stopAgents': (id) => sessions.stopProvider(id),
 
     'api:info': () => apiInfo(),
