@@ -1,0 +1,12 @@
+{
+  "prose|call|The Assistant's session that asked for this ended before the change was made: nothing changed here.": 1,
+  "prose|call|The user turned Settings → Assistant → Control down before this change was made: nothing changed here.": 1,
+  "prose|call|The user's settings (Settings → Assistant → Control: {}) don't let you {}. Tell the user what you would do instead.": 1,
+  "prose|call|You have made {} changes for this message, the most Hive allows for one. Tell the user what is done and ask whether to go on.": 1,
+  "prose|call|limit of {} changes for one message": 1,
+  "prose|call|not allowed by Settings → Assistant → Control": 1,
+  "prose|prop:other|Control agents": 1,
+  "prose|prop:other|Control agents and create projects": 1,
+  "prose|prop:other|Look and advise": 1,
+  "prose|prop:text|The Hive Assistant's Agent API token for one workspace. Hive replaces it each time the Assistant starts.": 1
+}

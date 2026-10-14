@@ -1,0 +1,14 @@
+{
+  "jsx-expr||has agents": 1,
+  "jsx-expr||has an agent": 1,
+  "jsx-expr||it": 1,
+  "jsx-expr||them": 1,
+  "jsx-text||: give": 1,
+  "jsx-text||Agent names are unique across the workspace, and": 1,
+  "jsx-text||already": 1,
+  "jsx-text||called": 1,
+  "jsx-text||other names below.": 1,
+  "prose|return|Another of its agents has this name.": 1,
+  "prose|return|{} has an agent called {}.": 1,
+  "prose|var|Agent names are unique across the workspace: change the marked names first.": 1
+}

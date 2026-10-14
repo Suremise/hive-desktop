@@ -1,0 +1,13 @@
+{
+  "prose|error|The last --settings in Extra arguments has no value. Give it a settings file or inline JSON (--settings <file or JSON>), or remove it in Agent Settings or Settings → Claude Code.": 1,
+  "prose|error|it isn't a file": 2,
+  "prose|error|it's over Claude Code's 2 MiB limit for settings files": 1,
+  "prose|error|there is no such file": 1,
+  "prose|error|{} can't be read: {}. Fix it or remove it in Agent Settings or Settings → Claude Code.": 1,
+  "prose|error|{} isn't a settings object ({ … }). Fix it or remove it in Agent Settings or Settings → Claude Code.": 1,
+  "prose|error|{} isn't valid JSON ({}). Fix it or remove it in Agent Settings or Settings → Claude Code.": 1,
+  "prose|error|{} sets {} to something other than a list, which stops Hive's hooks reaching it. Make it a list ([ … ]) or remove it in Agent Settings or Settings → Claude Code.": 1,
+  "prose|error|{} turns off all hooks (disableAllHooks), which Hive needs for the agent's status, file locks and status line. Remove it in Agent Settings or Settings → Claude Code.": 1,
+  "prose|var|The --settings in Extra arguments": 1,
+  "prose|var|The settings file {} (--settings in Extra arguments)": 1
+}

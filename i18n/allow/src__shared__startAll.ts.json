@@ -1,0 +1,12 @@
+{
+  "prop|text|Stopped{}, then {}": 1,
+  "prose|return|always kept ({})": 1,
+  "prose|return|background tasks will stop": 1,
+  "prose|return|couldn't be checked": 1,
+  "prose|return|its card loop pauses until it is resumed": 1,
+  "prose|return|merged and clean": 1,
+  "prose|return|waiting for you": 1,
+  "prose|return|will be interrupted": 1,
+  "prose|var|a new session": 1,
+  "prose|var|its session archived, then a new one": 1
+}

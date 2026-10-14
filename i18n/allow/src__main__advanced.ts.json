@@ -1,0 +1,15 @@
+{
+  "prose|error|No advanced setting \"{}\"": 1,
+  "prose|error|No advanced setting \"{}\".": 1,
+  "prose|error|advanced.json was changed outside Hive meanwhile: Settings shows it now. Try again.": 1,
+  "prose|error|{} Fix advanced.json (Settings → Advanced → Open advanced.json) before changing settings here.": 1,
+  "prose|error|{} Fix or delete advanced.json first (Settings → Advanced → Open advanced.json).": 1,
+  "prose|return|- Advanced settings: {}{}": 1,
+  "prose|return|- advanced.json can't be read as it is now": 1,
+  "prose|return|- made for another CLI version than the installed one: {}": 1,
+  "prose|return|- not valid, so the default is used: {}": 1,
+  "prose|return|- unknown to this Hive: {}": 1,
+  "prose|return|; {} workspace value{}": 1,
+  "prose|return|no overrides": 1,
+  "prose|return|{} override{} ({})": 1
+}

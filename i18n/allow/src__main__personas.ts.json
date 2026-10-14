@@ -1,0 +1,7 @@
+{
+  "prose|error|\"{}\" isn't one of Hive's modes.": 1,
+  "prose|error|Give the mode a name with letters or numbers.": 1,
+  "prose|error|Invalid mode": 1,
+  "prose|error|There is already a mode called \"{}\".": 1,
+  "prose|var|# Your mode: {} {}": 1
+}

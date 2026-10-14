@@ -1,0 +1,9 @@
+{
+  "prop|label|Not available to this account": 1,
+  "prop|label|Older versions": 1,
+  "prop|label|{} models": 2,
+  "prose|return|, as you edited it": 1,
+  "prose|return|Fallback ({} couldn't be asked){}": 1,
+  "prose|return|From {}{}": 1,
+  "prose|return|From {}{} (as it last said; asking again)": 1
+}

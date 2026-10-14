@@ -1,0 +1,6 @@
+{
+  "prose|return|It resets {} {}.": 1,
+  "prose|var|Sessions will pause when it runs out.": 1,
+  "prose|var|You are getting close to the limit.": 1,
+  "prose|var|{}% of your {} {} limit used": 1
+}

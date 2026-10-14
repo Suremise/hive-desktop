@@ -1,0 +1,14 @@
+{
+  "call|toast|It installs when you quit Hive, or restart now.": 1,
+  "call|toast|Restart Hive to install it.": 1,
+  "call|toast|See what changed in this version.": 1,
+  "call|toast|{} updated to {}": 1,
+  "call|toast|{} {} is ready": 1,
+  "prop|label|Restart and Update": 1,
+  "prop|label|What's New": 1,
+  "prose|call|provider: generic url: {} updaterCacheDirName: {}": 1,
+  "prose|return|Couldn't reach GitHub to check for updates. Check your internet connection.": 1,
+  "prose|return|No release of Hive has been published yet.": 1,
+  "prose|return|The downloaded update did not match its checksum and was discarded.": 1,
+  "prose|return|Updates are checked by the installed app, not development builds.": 1
+}

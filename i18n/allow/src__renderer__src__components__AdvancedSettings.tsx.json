@@ -1,0 +1,23 @@
+{
+  "call|notify|Could not keep it": 1,
+  "call|notify|Could not open advanced.json": 1,
+  "jsx-attr|aria-label|Filter advanced settings": 1,
+  "jsx-attr|content|Modified from the default": 1,
+  "jsx-attr|label|{}, this workspace": 1,
+  "jsx-attr|placeholder|Filter advanced settings": 1,
+  "jsx-attr|placeholder|{} (Settings')": 1,
+  "jsx-attr|title|Reset to default ({})": 1,
+  "jsx-text||, which this Hive doesn't know (a typo, or a newer Hive's): kept in the file, not used.": 1,
+  "jsx-text||Default:": 1,
+  "jsx-text||Hive keeps using the values it read before; fix the file to change them.": 1,
+  "jsx-text||Keep for": 1,
+  "jsx-text||Made for": 1,
+  "jsx-text||Modified only": 1,
+  "jsx-text||No advanced settings match.": 1,
+  "jsx-text||Not valid, so Hive uses the default:": 1,
+  "jsx-text||Open advanced.json": 1,
+  "jsx-text||This workspace": 1,
+  "jsx-text||advanced.json also names": 1,
+  "jsx-text||is installed now. Check it still works, then keep it for": 1,
+  "prose|call|setting advanced-row": 1
+}

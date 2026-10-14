@@ -1,0 +1,19 @@
+{
+  "prose|error|Another antivirus is active: Hive can only change Microsoft Defender’s exclusions.": 1,
+  "prose|error|Every folder Hive may offer is already excluded.": 1,
+  "prose|error|Hive added no exclusions for this workspace.": 1,
+  "prose|error|Microsoft Defender isn’t the active antivirus here.": 1,
+  "prose|error|No workspace is open": 2,
+  "prose|error|Not an antivirus action.": 1,
+  "prose|error|Only Windows has Defender exclusions.": 1,
+  "prose|error|PowerShell took longer than {} s": 1,
+  "prose|error|Test copies of Hive never change Defender’s settings.": 1,
+  "prose|error|That change is no longer waiting: ask again.": 1,
+  "prose|error|That change waited too long for an answer: ask again.": 1,
+  "prose|error|The antivirus test fixture couldn't be read: {}": 1,
+  "prose|error|The folders changed since you were asked: review them again. Nothing was changed.": 1,
+  "prose|error|The workspace changed since you were asked: nothing was changed.": 2,
+  "prose|error|The workspace closed meanwhile.": 1,
+  "prose|prop:text|Defender's exclusions couldn't be read even with administrator rights, so nothing was changed.": 1,
+  "prose|var|N/A: Must be an administrator to view exclusions": 1
+}

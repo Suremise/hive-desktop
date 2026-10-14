@@ -1,0 +1,10 @@
+{
+  "prop|text|Interrupted by you": 1,
+  "prop|text|Turn ended: {}": 1,
+  "prop|text|aborted": 1,
+  "prose|call|Edit": 1,
+  "prose|call|Script": 1,
+  "prose|call|Shell": 1,
+  "prose|return|Codex isn’t signed in.": 1,
+  "prose|var|guardian review": 1
+}

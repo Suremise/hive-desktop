@@ -1,0 +1,6 @@
+{
+  "prose|call|Edit": 1,
+  "prose|call|Shell": 2,
+  "prose|call|{} reroute {}>{}": 1,
+  "prose|return|turn {}": 1
+}
