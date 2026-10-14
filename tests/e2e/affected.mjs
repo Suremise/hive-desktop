@@ -245,6 +245,9 @@ export const AREAS = [
   { paths: ['resources/personas/', 'src/main/assistantMode.ts'], suites: ['assistant', 'assistant-control', 'assistantend', 'assistantmode', 'assistantresume'] },
   // Bundled into the Docs view (About's licence pages, Release Notes, the Agent API reference).
   { paths: ['docs/', 'CHANGELOG.md', 'LICENSE', 'THIRD_PARTY_NOTICES.md', 'scripts/licenses.mjs', 'scripts/licenseText.mjs', 'scripts/thirdPartyNotices.mjs', 'scripts/notices/'], suites: ['about'] },
+  // The i18n screenshot route (#769): its case files (each area's, found by name), the translations it shows (every
+  // other suite runs in English), and the screens its core cases reach by their hooks.
+  { paths: ['tests/e2e/i18nshots/', 'locales/', 'src/renderer/src/views/ProjectTabs.tsx', 'src/renderer/src/components/Progress.tsx', 'src/renderer/src/components/NoticeBanners.tsx', 'src/renderer/src/components/Overlays.tsx', 'src/renderer/src/views/SettingsView.tsx', 'src/main/progress.ts'], suites: ['i18nshots'] },
   // The installer's copies (npm run dist first).
   { paths: ['electron-builder.yml', 'scripts/dist.mjs', 'scripts/distCopy.mjs'], suites: ['packaged', 'packaged-mcp', 'packaged-progress', 'packaged-transcript'] }
 ]
@@ -263,7 +266,7 @@ export function under(file, paths) {
  * .agents/skills, are neither shipped nor read by the app; Hive's own copies there are git-ignored), and the unit tests
  * (npm test runs those).
  */
-export const DOCS_ONLY = ['README.md', 'AGENTS.md', 'CLAUDE.md', 'RELEASING.md', 'tests/README.md', 'tests/e2e/README.md', 'tests/scenarios/', 'reference/', '.gitattributes', '.gitignore', '.claude/skills/', '.agents/skills/']
+export const DOCS_ONLY = ['README.md', 'CONTRIBUTING.md', 'AGENTS.md', 'CLAUDE.md', 'RELEASING.md', 'tests/README.md', 'tests/e2e/README.md', 'tests/scenarios/', 'reference/', '.gitattributes', '.gitignore', '.claude/skills/', '.agents/skills/']
 
 /** Fixtures the fake CLIs answer with too (#125): a change to one needs the suites its area names, not only npm test. */
 const FAKE_FIXTURES = ['tests/fixtures/claude-initialize.json', 'tests/fixtures/codex-debug-models.json']
@@ -272,9 +275,12 @@ const FAKE_FIXTURES = ['tests/fixtures/claude-initialize.json', 'tests/fixtures/
  * What only the unit tests use (#390): Vitest's config, CI's workflow (it runs npm test, lint and typecheck, never an e2e
  * suite) and the unit tests' helpers in tests/ (electron-stub.ts, tempDir.ts…; no e2e suite or scenario loads a .ts
  * file from there, which tests/e2esuites.test.ts checks), and the sleeps checker (npm run test:waits: its unit test
- * and a scenario use it, no e2e suite). tests/progressReport.mts is the runners' and in EVERYTHING.
+ * and a scenario use it, no e2e suite). The i18n tooling too (#768): extracting, checking and counting translations and
+ * the guard against new hard-coded text (npm test and CI run them; the app never reads them, nor the guard's allowlists
+ * in i18n/allow/), and each area's i18n unit tests (tests/i18n/). tests/progressReport.mts is the runners' and in
+ * EVERYTHING.
  */
-export const UNIT_ONLY = ['vitest.config.ts', '.github/workflows/ci.yml', 'scripts/testWaits.mjs']
+export const UNIT_ONLY = ['vitest.config.ts', '.github/workflows/ci.yml', 'scripts/testWaits.mjs', 'scripts/i18nExtract.mjs', 'scripts/i18nValues.mjs', 'scripts/i18nCheck.mjs', 'scripts/i18nCoverage.mjs', 'scripts/i18nGuard.mjs', 'i18n/allow/', 'tests/i18n/']
 
 /** Whether a file is a unit test (tests/*.test.ts, their helpers and fixtures, UNIT_ONLY): npm test covers it, no e2e suite. */
 export const unitTest = (f) => /^tests\/[^/]+\.ts$/i.test(f) || under(f, UNIT_ONLY) || (/^tests\/fixtures\//i.test(f) && !FAKE_FIXTURES.includes(f))

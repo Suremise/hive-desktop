@@ -144,7 +144,8 @@ export function IconButton({
   active,
   className,
   expanded,
-  spin
+  spin,
+  action
 }: {
   icon: string
   title: string
@@ -156,6 +157,8 @@ export function IconButton({
   expanded?: boolean
   /** Its icon turns (a loading icon, while what it does runs). */
   spin?: boolean
+  /** What it does, as data-action: a hook for tests that can't read its name, which is translated (the i18nshots route, #769). */
+  action?: string
 }) {
   return (
     <Tooltip content={title}>
@@ -168,6 +171,7 @@ export function IconButton({
         disabled={disabled}
         aria-label={title}
         aria-expanded={expanded}
+        data-action={action}
       >
         <Icon name={icon} spin={spin} />
       </button>
