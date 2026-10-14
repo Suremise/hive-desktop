@@ -1,6 +1,6 @@
 import { app } from 'electron'
 import { join } from 'path'
-import { copyFileSync, existsSync } from 'original-fs'
+import { copyFileSync, existsSync, readFileSync } from 'original-fs'
 import { DEFAULT_APP_CONFIG, mergeDefaults, migrateConfig, withLegacySettings } from '../shared/defaults'
 import { extraArgsProblem } from '../shared/providers'
 import type { AppConfig, AppSettings, EffortOption, FallbackModel, ModelPrice, ProviderSettings } from '../shared/types'
@@ -38,6 +38,19 @@ class ConfigStore {
     }
     // Tests (unpackaged builds): no tip card over what a suite clicks, unless its profile turns tips on.
     if (!app.isPackaged && process.env.HIVE_TEST_TIPS === 'off' && raw?.settings?.general?.showTips === undefined) this.data.settings.general.showTips = false
+  }
+
+  /**
+   * Settings → General → Language as config.json has it, before ready (Chromium's --lang, i18n.ts). Only a peek: a
+   * damaged file is recovered by load(), after ready, and reads as no setting here.
+   */
+  savedLanguage(): string | undefined {
+    try {
+      const language = (JSON.parse(readFileSync(this.path, 'utf8')) as { settings?: { general?: { language?: unknown } } } | null)?.settings?.general?.language
+      return typeof language === 'string' ? language : undefined
+    } catch {
+      return undefined
+    }
   }
 
   get(): AppConfig {

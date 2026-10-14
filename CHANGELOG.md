@@ -2,6 +2,10 @@
 
 ## Unreleased
 
+### Language
+- **Choose the language Hive shows.** Settings → General → Language: *Automatic* follows Windows' display language, or choose a language by its own name; the change shows at once. Languages translated by AI are marked, and improvements are welcome. Hive's text is being translated for this release, so much of it is still English. Agents and the Hive Assistant are still spoken to in English. `--lang=<code>` starts Hive in a language for one run.
+- **Date format: System now follows Windows' regional format**, not the language Hive shows.
+
 ### Agents
 - **Remove All and the unused worktrees list are quicker on a busy machine.** Checking which worktrees could be deleted reads the project's worktree list and main branch once, not once per worktree.
 - **Agents as a table in more places.** Stop All, Start New, Archive and Start New, Remove All and the quit dialog list their agents as a table (each one's state, card, worktree and what happens to it) instead of a line each, and hovering the status bar's running sessions shows the running agents the same way (#572).

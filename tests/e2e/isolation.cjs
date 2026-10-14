@@ -61,7 +61,7 @@ const leaked = (env) => Object.entries(env).filter(([k, v]) => LEAKS[k.toUpperCa
   try {
     const env = await app.evaluate(() => Object.fromEntries(Object.entries(process.env)))
     check("a test Hive gets none of the suite's environment", !leaked(env).length, leaked(env).join(', '))
-    const allowed = new Set(upper([...ctx.ALLOW, 'HIVE_USER_DATA', 'HIVE_TEST_QUIET', 'HIVE_TEST_TIPS', 'HIVE_TEST_TRASH_DIR', ...Object.keys(ctx.cliHomes()), 'HIVE_API_PORT', ...ctx.CARRIED]))
+    const allowed = new Set(upper([...ctx.ALLOW, 'HIVE_USER_DATA', 'HIVE_TEST_QUIET', 'HIVE_TEST_TIPS', 'HIVE_LANG', 'HIVE_TEST_TRASH_DIR', ...Object.keys(ctx.cliHomes()), 'HIVE_API_PORT', ...ctx.CARRIED]))
     // PROMPT: cmd.exe's default ($P$G), which Playwright's start of Electron on Windows sets; not the suite's.
     const extra = upper(Object.keys(env)).filter((k) => !allowed.has(k) && !(k === 'PROMPT' && env[Object.keys(env).find((x) => x.toUpperCase() === 'PROMPT')] === '$P$G'))
     check('…only the allowlist and its run context', !extra.length, extra.join(', '))

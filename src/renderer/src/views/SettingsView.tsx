@@ -23,7 +23,10 @@ import { WorkspaceStorageList } from '../components/Storage'
 import { AntivirusPanel } from '../components/Antivirus'
 import { AdvancedSettings } from '../components/AdvancedSettings'
 import { ADVANCED_DEFS, groupName, type AdvancedState } from '@shared/advanced'
-import { choose, confirm, get, notify, set, useStore } from '../store'
+import { choose, confirm, get, notify, set, useLanguage, useStore } from '../store'
+import { language, tr } from '@shared/i18n'
+import { LANGUAGES, SOURCE_LANGUAGE, languageOf } from '@shared/i18n/languages'
+import { LANGUAGE_TEXT } from '@shared/i18n/languageText'
 import { cx, timeAgo } from '../util'
 
 /** A settings section: a group of AppSettings, "providers" (turning them on), one provider's page ("provider:<id>"), or "advanced". */
@@ -44,6 +47,7 @@ const CONTROLS: Record<string, () => React.ReactNode> = {
   'keybindings.editor': () => <KeybindingsEditor />,
   'providers.list': () => <ProvidersList />,
   'providers.defaultProvider': () => <DefaultProviderPicker />,
+  'general.language': () => <LanguagePicker />,
   'notifications.chimeSound': () => <ChimePicker />,
   'sessions.usageCacheClear': () => <ClearUsageCacheButton />,
   'sessions.resetPerformance': () => <ResetMetricsButton />,
@@ -331,6 +335,16 @@ async function saveSettings(patch: SettingsPatch): Promise<void> {
 }
 
 /** Saves a row's new value through the change the catalog gives for it (the Assistant's settings tool makes the same). */
+/**
+ * A row's text as Settings shows it: its messages in the user's language where it has them (#767), else its English.
+ * A title that also says its English does so in any other language: "Język (Language)".
+ */
+function rowText(d: SettingEntry): { title: string; desc: string; tip: string } {
+  if (!d.text) return d
+  const title = tr(d.text.title)
+  return { title: d.text.englishTitle && language() !== SOURCE_LANGUAGE && title !== d.title ? `${title} (${d.title})` : title, desc: tr(d.text.desc), tip: tr(d.text.tip) }
+}
+
 async function update(def: SettingDef, value: unknown): Promise<void> {
   if (def.action) return
   const change = settingPatch(def, value)
@@ -386,7 +400,7 @@ function Control({ def, settings }: { def: SettingDef; settings: AppSettings }) 
       return (
         <Switch
           checked={!!value}
-          label={def.title}
+          label={rowText(def).title}
           disabled={!!def.disabledBy?.(settings)}
           onChange={async (v) => {
             if (v && def.confirmOn && !(await confirm({ ...def.confirmOn, confirmLabel: 'Enable', danger: true }))) return
@@ -418,7 +432,7 @@ function Control({ def, settings }: { def: SettingDef; settings: AppSettings }) 
           min={def.min}
           max={def.max}
           step={def.step}
-          label={def.title}
+          label={rowText(def).title}
           off={def.off ? { label: def.off, restore: Number(defaultValue(def)) || null } : undefined}
           onCommit={(v) => update(def, v)}
         />
@@ -683,6 +697,38 @@ function ColumnColors() {
   )
 }
 
+/**
+ * Settings → General → Language (#767): Automatic, then each of Hive's languages by its own name, those drafted by AI
+ * marked, with the chosen one's note in its own words under the list. What a language hasn't translated yet shows in
+ * English.
+ */
+function LanguagePicker() {
+  useLanguage()
+  const value = useStore((s) => s.settings?.general.language ?? 'auto')
+  const info = useStore((s) => s.appInfo?.language)
+  const def = SETTINGS.find((d) => d.id === 'general.language')!
+  const automatic = languageOf(info?.automatic ?? SOURCE_LANGUAGE)
+  const noted = languageOf(value === 'auto' ? (info?.automatic ?? SOURCE_LANGUAGE) : value)
+  return (
+    <div className="language-picker" style={{ display: 'flex', flexDirection: 'column', gap: 4, width: '100%' }}>
+      <select className="select" value={value} onChange={(e) => void update(def, e.target.value)}>
+        <option value="auto">{tr(LANGUAGE_TEXT.automatic, { language: automatic?.name ?? SOURCE_LANGUAGE })}</option>
+        {LANGUAGES.map((l) => (
+          <option key={l.code} value={l.code} lang={l.code}>
+            {l.ai && l.aiMark ? `${l.name} ${l.aiMark}` : l.name}
+          </option>
+        ))}
+      </select>
+      {noted?.ai && noted.aiNote && (
+        <div className="s-desc" lang={noted.code}>
+          {noted.aiNote}
+        </div>
+      )}
+      {info?.forced ? <div className="s-desc muted">{tr(LANGUAGE_TEXT.forced, { language: info.forced })}</div> : info && info.code !== info.startCode && <div className="s-desc muted">{tr(LANGUAGE_TEXT.restart)}</div>}
+    </div>
+  )
+}
+
 function ChimePicker() {
   const s = useStore((st) => st.settings!)
   const sounds: { value: ChimeSound; label: string }[] = [
@@ -887,17 +933,20 @@ export function SettingsView() {
   useEffect(() => () => set({ settingsModifiedOnly: false }), [])
   const loops = useStore((s) => s.workspace?.config.loops)
   const advanced = useStore((s) => s.advanced)
+  // Searching matches the text as shown, in the language shown.
+  const shownLanguage = useLanguage()
 
   const visible = useMemo(() => {
     const q = query.trim().toLowerCase()
     return SETTINGS.filter((d) => {
       if (d.id === 'advanced.values' && (q || modifiedOnly)) return advancedMatches(q, modifiedOnly, advanced)
-      if (q && !`${d.title} ${d.desc} ${d.tip} ${d.key}`.toLowerCase().includes(q)) return false
+      // Its English matches as well as what it shows: Settings can be searched in either.
+      if (q && !`${d.title} ${d.desc} ${d.tip} ${d.key}${d.text && shownLanguage !== SOURCE_LANGUAGE ? ` ${Object.values(rowText(d)).join(' ')}` : ''}`.toLowerCase().includes(q)) return false
       if (modifiedOnly && (d.type === 'custom' || getValue(settings!, d, loops) === defaultValue(d))) return false
       if (!q && !modifiedOnly && d.section !== section) return false
       return true
     })
-  }, [query, section, settings, modifiedOnly, loops, advanced])
+  }, [query, section, settings, modifiedOnly, loops, advanced, shownLanguage])
 
   if (!settings) return null
   const grouped = SECTIONS.map((s) => ({ ...s, items: visible.filter((d) => d.section === s.id) })).filter((g) => g.items.length)
@@ -937,9 +986,9 @@ export function SettingsView() {
                     <div key={`${d.section}.${d.key}`} className="setting wide">
                       <div className="s-text">
                         <div className="s-title">
-                          {d.title} <InfoTip text={<span style={{ whiteSpace: 'pre-line' }}>{d.tip}</span>} />
+                          {rowText(d).title} <InfoTip text={<span style={{ whiteSpace: 'pre-line' }}>{rowText(d).tip}</span>} />
                         </div>
-                        {d.desc && <div className="s-desc">{d.desc}</div>}
+                        {d.desc && <div className="s-desc">{rowText(d).desc}</div>}
                         {d.render?.()}
                       </div>
                     </div>
@@ -952,12 +1001,12 @@ export function SettingsView() {
                             <span className="modified" />
                           </Tooltip>
                         )}
-                        {d.title} <InfoTip text={<span style={{ whiteSpace: 'pre-line' }}>{d.tip}</span>} />
+                        {rowText(d).title} <InfoTip text={<span style={{ whiteSpace: 'pre-line' }}>{rowText(d).tip}</span>} />
                         {modified && (
                           <IconButton icon="discard" title={`Reset to default (${String(defaultValue(d) || 'empty')})`} onClick={() => void update(d, defaultValue(d))} />
                         )}
                       </div>
-                      {d.desc && <div className="s-desc">{d.desc}</div>}
+                      {d.desc && <div className="s-desc">{rowText(d).desc}</div>}
                       {d.disabledBy?.(settings) && <div className="s-desc muted">{d.disabledBy(settings)}</div>}
                     </div>
                     <div className="s-control">

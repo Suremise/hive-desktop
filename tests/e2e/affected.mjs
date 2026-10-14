@@ -25,6 +25,10 @@ export const EVERYTHING = [
   'src/main/logger.ts',
   'src/main/ptyHost.ts',
   'src/main/testQuiet.ts',
+  // The language (#767): chosen before every window starts, and every translated text goes through it.
+  'src/main/i18n.ts',
+  'src/renderer/src/i18n.ts',
+  'src/shared/i18n/',
   'src/main/raw.d.ts',
   'src/preload/',
   'src/renderer/index.html',

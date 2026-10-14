@@ -65,6 +65,7 @@ import { progress, setTaskbarTestHook, startProgress } from './progressService'
 import { startMergeSlots } from './mergeSlotHost'
 import { startLanes } from './lanes'
 import { checkInstallDir } from './installDir'
+import { chooseStartLanguage, languageInfo, startI18n, switchLanguage } from './i18n'
 
 const log = createLogger('main')
 let quitting = false
@@ -101,6 +102,9 @@ if (process.platform === 'win32') checkInstallDir()
 // One Hive process, with a window per workspace (like VS Code): starting Hive again brings it forward.
 // A quiet test copy's windows are off screen (testQuiet): Chromium mustn't take them for covered and stop drawing them.
 if (testQuiet()) app.commandLine.appendSwitch('disable-features', 'CalculateNativeWinOcclusion')
+
+// Chromium takes its language only at start (#767): --lang or HIVE_LANG, the setting, or Windows' languages.
+chooseStartLanguage(config.savedLanguage())
 
 if (!app.requestSingleInstanceLock()) {
   app.quit()
@@ -146,7 +150,8 @@ function appInfo(): AppInfo {
     arch: process.arch,
     userData: app.getPath('userData'),
     logsPath: logsDir(),
-    isPackaged: app.isPackaged
+    isPackaged: app.isPackaged,
+    language: languageInfo()
   }
 }
 
@@ -647,6 +652,14 @@ function wireSettingsEffects(): void {
     sendToConsoles({ type: 'settings-changed', settings: s })
     if (prev.advanced.showDeveloperFeatures && !s.advanced.showDeveloperFeatures) closeConsoleWindows()
     setDateStyle({ date: s.general.dateFormat, time: s.general.timeFormat })
+    // A new language: main's own text at once, then every window, the developer consoles too (#767).
+    if (s.general.language !== prev.general.language) {
+      void switchLanguage(s).then((language) => {
+        if (!language) return
+        emit({ type: 'language-changed', language })
+        sendToConsoles({ type: 'language-changed', language })
+      })
+    }
     if (s.board.archiveDoneDays !== prev.board.archiveDoneDays) archiveOldDoneEverywhere()
     if (s.general.launchAtLogin !== prev.general.launchAtLogin) {
       app.setLoginItemSettings({ openAtLogin: s.general.launchAtLogin, args: ['--hidden'] })
@@ -725,6 +738,8 @@ const ALLOWED_PERMISSIONS = new Set(['clipboard-read', 'clipboard-sanitized-writ
 
 app.whenReady().then(async () => {
   config.load()
+  // Before anything shows text: notifications, the tray and dialogs in the user's language (#767).
+  await startI18n(config.settings)
   // Advanced settings (#367): advanced.json's overrides, followed as it changes.
   advanced.load()
   // Show developer features is one of them too, kept under its settings key: the file and the setting stay one value.

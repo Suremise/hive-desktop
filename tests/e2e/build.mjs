@@ -19,8 +19,11 @@ import { processAlive } from './logs.mjs'
 
 const runContext = createRequire(import.meta.url)('./runContext.cjs')
 
-/** What the build reads: its source, bundled resources and docs, the root files the app imports, and its config. */
-export const BUILD_INPUTS = ['src', 'resources', 'docs', 'CHANGELOG.md', 'LICENSE', 'THIRD_PARTY_NOTICES.md', 'electron.vite.config.ts', 'package.json', 'package-lock.json', 'tsconfig.json', 'tsconfig.node.json', 'tsconfig.web.json']
+/**
+ * What the build reads: its source, bundled resources and docs, the translations main bundles (locales, #767), the root
+ * files the app imports, and its config.
+ */
+export const BUILD_INPUTS = ['src', 'resources', 'docs', 'locales', 'CHANGELOG.md', 'LICENSE', 'THIRD_PARTY_NOTICES.md', 'electron.vite.config.ts', 'package.json', 'package-lock.json', 'tsconfig.json', 'tsconfig.node.json', 'tsconfig.web.json']
 const STAMP = join('out', '.e2e-build.json')
 
 /** A hash of the build's inputs: every file's path and contents (line endings ignored), so an added, deleted or changed

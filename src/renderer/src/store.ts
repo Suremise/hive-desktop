@@ -9,6 +9,7 @@ import { EMPTY_TIPS_STATE, type TipsState } from '@shared/tips'
 import { agentPtyKey, layoutPanes, mostUrgent, pageAgents, pageOfAgent, projectLayout, projectPerPage } from '@shared/defaults'
 import { agentProvider, providersInUse, providerWarnings, setInstalledCheck } from '@shared/providers'
 import { setDateStyle } from '@shared/dates'
+import { language as shownLanguage, onLanguageChange } from '@shared/i18n'
 import { chooseFocus, deferredFocus } from './deferredFocus'
 import type { ProjectTab } from '@shared/projectTabs'
 import type { GitSection } from '@shared/gitRepo'
@@ -180,6 +181,8 @@ interface State {
   tipsOpen: boolean
   api: AgentApiInfo | null
   appInfo: AppInfo | null
+  /** The language Hive shows (#767): components render again when it changes (useLanguage). */
+  language: string
 
   activity: Activity
   lastSideActivity: Exclude<Activity, 'docs' | 'settings'>
@@ -396,6 +399,7 @@ export const useStore = create<State>(() => ({
   tipsOpen: false,
   api: null,
   appInfo: null,
+  language: shownLanguage(),
 
   activity: 'projects',
   lastSideActivity: 'projects',
@@ -521,11 +525,19 @@ setInstalledCheck((id) => {
 export const set = useStore.setState
 export const get = useStore.getState
 
+// A change of language (Settings → General → Language) renders the window again in it (#767).
+onLanguageChange((code) => useStore.setState({ language: code }))
+
 // Dates follow Settings → General. Subscribed before any component, so the formatters have the new choice by the
 // time anything renders with the new settings (components that show dates read the choice with useDateStyle()).
 useStore.subscribe((s, prev) => {
   if (s.settings !== prev.settings) setDateStyle({ date: s.settings?.general.dateFormat, time: s.settings?.general.timeFormat })
 })
+
+/** The language Hive shows, for a component that shows translated text: it renders again when it changes (#767). */
+export function useLanguage(): string {
+  return useStore((s) => s.language)
+}
 
 /** The user's date and time format, for a component that shows dates: it renders again when they change. */
 export function useDateStyle(): string {

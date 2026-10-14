@@ -116,6 +116,8 @@ export interface AppSettings {
     timeFormat: TimeFormat
     /** How Hive names the user to the Hive Assistant (#426): "User replied to B1 on #399". "User" by default. */
     userName: string
+    /** The language Hive shows (#767): 'auto' (Windows' display languages) or a language's code (de, pl…). */
+    language: string
   }
   appearance: {
     theme: ThemeSetting
@@ -2047,6 +2049,28 @@ export interface AppInfo {
   userData: string
   logsPath: string
   isPackaged: boolean
+  /** The language Hive shows, with its translations. */
+  language: LanguageInfo
+}
+
+/** The language Hive shows (#767), as main chose it, for the window. */
+export interface LanguageInfo {
+  /** Hive's language now: a language's code, or the pseudo-locale (en-XA). */
+  code: string
+  /** The locale dates and numbers are formatted with (en-GB, pl-PL). */
+  locale: string
+  /** The language Chromium started in: its own parts (the PDF viewer, date pickers) change only at the next start. */
+  startCode: string
+  /** The language Automatic picks now. */
+  automatic: string
+  /** The languages with translations (English aside): Automatic picks only from these. */
+  available: string[]
+  /** Windows' regional format, for dates shown as Windows shows them (Date format: System). */
+  regionalFormat: string
+  /** The --lang start option or HIVE_LANG, which wins over the setting for this run; null without one. */
+  forced: string | null
+  /** Its translations (id → ICU message), loaded once by main. */
+  messages: Record<string, string>
 }
 
 export interface AgentApiInfo {
@@ -2122,6 +2146,8 @@ export type HiveEvent =
   /** The agent no longer waits for you: its waiting banner closes, in whichever window shows it. */
   | { type: 'notice-resolved'; projectPath: string; agentId: string }
   | { type: 'update-state'; state: UpdateState }
+  /** The language Hive shows changed (Settings → General → Language): every window shows it. */
+  | { type: 'language-changed'; language: LanguageInfo }
   /** A workspace's progress runs changed (all of them, newest first). */
   | { type: 'progress-changed'; workspacePath: string; runs: ProgressRun[] }
   /** A workspace's merge slots changed (those held or waited for). */
