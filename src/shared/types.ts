@@ -1,5 +1,6 @@
 // Types shared by the main process, preload bridge and renderer.
 
+import type { Text } from './advanced'
 import type { AvOffer } from './antivirus'
 import type { ActivityTarget } from './assistantActivity'
 import type { AttachmentKind } from './attachments'
@@ -1826,7 +1827,7 @@ export type TranscriptItem = TranscriptItemBase &
      * A note in the conversation: the CLI's own (an API error, a sign-in or usage limit, an interruption), or what it
      * relays (`from`): a background task's summary, or a command's output with no command (#342).
      */
-    | { kind: 'notice'; text: string; level: 'info' | 'error'; from?: 'task' | 'command' }
+    | { kind: 'notice'; text: string; level: 'info' | 'error'; from?: 'task' | 'command'; /** Hive's own notice as data (#797): `text` is its English, the window is sent it in its language. */ message?: Text }
   )
 
 export interface Transcript {

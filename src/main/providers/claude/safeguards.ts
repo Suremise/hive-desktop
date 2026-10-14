@@ -103,7 +103,7 @@ export function claudeSafeguards(appended: string, memo: Record<string, unknown>
     } else if (o.type === 'user' && !str(o.refusedMessageId)) {
       // Each prompt the person sent (isUserPrompt, as the usage counts them) starts a turn. More turns than Claude Code's
       // own are safe: nothing is written between its prompt about a stop and its record of it, so they share a turn.
-      if (isUserPrompt(o)) m.turn = str(o.uuid) ?? `prompt ${o.timestamp ?? at}`
+      if (isUserPrompt(o)) m.turn = str(o.uuid) ?? `prompt ${o.timestamp ?? at}` // i18n-ignore: an id for a turn, never shown
     } else if (o.type === 'user') {
       // The note's pair (the same stop, already counted by the note) or a stop of its own.
       if (afterNote || (str(o.parentUuid) && o.parentUuid === m.noteUuid)) newStop(m, o.refusedMessageId)

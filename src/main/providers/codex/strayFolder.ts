@@ -1,4 +1,5 @@
 import { dirname, isAbsolute, join, relative, resolve, sep } from 'path'
+import { fmt, msg, tr } from '../../../shared/i18n'
 import { readFileSync, readdirSync, statSync } from 'original-fs'
 import { parse as parseToml } from 'smol-toml'
 
@@ -79,9 +80,9 @@ export function strayCodexEntries(folder: string): string[] | null {
 export function strayCodexWarning(folder: string): { title: string; message: string } | null {
   const stray = strayCodexEntries(folder)
   if (!stray) return null
-  const shown = stray.slice(0, 3).join(', ') + (stray.length > 3 ? ` and ${stray.length - 3} more` : '')
+  const files = tr(msg({ id: 'providers.codex.stray.files', defaultMessage: '{more, plural, =0 {{files}} other {{files} and {more, number} more}}', description: 'The files a stray .codex folder holds, in its warning (providers.codex.stray.message): the first few, and how many more.' }), { files: fmt.list(stray.slice(0, 3), 'unit'), more: Math.max(0, stray.length - 3) })
   return {
-    title: 'A .codex folder here can stop Codex running commands',
-    message: `${join(folder, '.codex')} holds ${shown}, which isn't Codex configuration (config.toml, agents, rules) or a file it names. Codex treats the folder as its own, and stray files in it (an agent's scratch or logs) can make every Codex agent's commands fail ("setup refresh had errors"). Move those files out of it (scratch belongs outside the project); leave Codex's configuration where it is.`
+    title: tr(msg({ id: 'providers.codex.stray.title', defaultMessage: 'A .codex folder here can stop Codex running commands', description: "A warning when an agent starts in a folder with a .codex folder that isn't Codex's configuration. .codex is a folder's name." })),
+    message: tr(msg({ id: 'providers.codex.stray.message', defaultMessage: '{folder} holds {files}, which isn\'t Codex configuration (config.toml, agents, rules) or a file it names. Codex treats the folder as its own, and stray files in it (an agent\'s scratch or logs) can make every Codex agent\'s commands fail ("setup refresh had errors"). Move those files out of it (scratch belongs outside the project); leave Codex\'s configuration where it is.', description: 'The warning about a stray .codex folder. {folder} is its path, {files} what it holds. config.toml, agents and rules are Codex\'s own names; "setup refresh had errors" is Codex\'s message, in English: keep them.' }), { folder: join(folder, '.codex'), files })
   }
 }

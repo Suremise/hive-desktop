@@ -1,4 +1,5 @@
 import { homedir } from 'os'
+import { msg } from '../../../shared/i18n'
 import { join } from 'path'
 import { existsSync } from 'original-fs'
 import { readFile } from 'original-fs/promises'
@@ -7,7 +8,8 @@ import { COPILOT, COPILOT_DESCRIPTOR } from '../../../shared/copilot'
 import { providerSettings } from '../../../shared/providers'
 import { config } from '../../config'
 import { createLogger, userText } from '../../logger'
-import { EDITOR_EXTENSION_PATH, run, toSpawnable } from '../common'
+import { listOf } from '../../../shared/advanced'
+import { EDITOR_EXTENSION_PATH, installText, notInstalledIssue, run, signedOutIssue, toSpawnable, updateIssue } from '../common'
 import type { CommandSpec } from '../types'
 import { COPILOT_ENV_STRIP, copilotEnv, copilotHome } from './home'
 
@@ -21,7 +23,7 @@ const NAME = COPILOT_DESCRIPTOR.name
 const WINGET_ID = 'GitHub.Copilot'
 const NPM_PACKAGE = '@github/copilot'
 /** The CLI can't say which plan an account has, so Agent Setup always says it. */
-export const COPILOT_PLAN_NOTE = 'Copilot Free uses Auto only; choosing a model needs a paid plan.'
+export const COPILOT_PLAN_NOTE = msg({ id: 'providers.copilot.planNote', defaultMessage: 'Copilot Free uses Auto only; choosing a model needs a paid plan.', description: "A note in Agent Setup under GitHub Copilot. Copilot Free is the plan's name; Auto is Copilot's model choice: keep both names." })
 
 /** How Copilot agents are signed in: a token in their environment, Copilot's own login, or the GitHub CLI's (gh). */
 export type CopilotSignInSource = 'token' | 'stored' | 'gh'
@@ -157,10 +159,10 @@ export async function locateCopilot(): Promise<AgentInstallInfo> {
     break
   }
   if (!info.path) return info
-  info.notes = [COPILOT_PLAN_NOTE]
+  info.notes = [installText(COPILOT_PLAN_NOTE)]
   const signIn = await checkSignIn(env)
   info.loggedIn = signIn.loggedIn
-  info.authMethod = signIn.source === 'token' ? signIn.variable : signIn.source === 'stored' ? 'Copilot login' : signIn.source === 'gh' ? 'GitHub CLI' : null
+  info.authMethod = signIn.source === 'token' ? signIn.variable : signIn.source === 'stored' ? 'Copilot login' : signIn.source === 'gh' ? 'GitHub CLI' : null // i18n-ignore: how the CLI signed in, as the CLIs name it (their own words), matched by tests (data-signin)
   info.account = signIn.account
   return info
 }
@@ -181,27 +183,23 @@ async function checkSignIn(env: Record<string, string>): Promise<CopilotSignIn> 
 }
 
 export function copilotReadiness(info: AgentInstallInfo, hiveEnv: NodeJS.ProcessEnv = process.env): ReadinessIssue[] {
-  if (!info.found) return [{ id: 'not-installed', level: 'error', message: `${NAME} is not installed.`, action: { label: 'Install', task: 'install' } }]
+  if (!info.found) return [notInstalledIssue(NAME)]
   const out: ReadinessIssue[] = []
   if (info.loggedIn === false) {
     const ignored = ignoredTokens(hiveEnv)
-    out.push({
-      id: 'signed-out',
-      level: 'error',
-      message: `${NAME} is not signed in.`,
-      action: { label: 'Sign in', task: 'login' },
-      detail: [
-        '**Sign in** runs `copilot login` in a terminal: it opens GitHub in your browser to authorise Copilot. Hive never signs in for you.',
-        'For a code to enter on GitHub instead, run `copilot login --device-code` in a terminal.',
-        'With no login of its own, Copilot uses the GitHub CLI’s (`gh auth login`).',
-        ...(ignored.length ? [`Copilot agents don’t get ${ignored.map((k) => `\`${k}\``).join(' or ')} from Hive’s environment, so ${ignored.length > 1 ? 'they don’t' : 'it doesn’t'} sign them in. For a token of Copilot’s own, set \`COPILOT_GITHUB_TOKEN\`.`] : [])
-      ]
-    })
+    out.push(
+      signedOutIssue(NAME, [
+        msg({ id: 'providers.copilot.signIn.runs', defaultMessage: '**Sign in** runs `copilot login` in a terminal: it opens GitHub in your browser to authorise Copilot. Hive never signs in for you.', description: "Agent Setup, under GitHub Copilot's Sign in: what it does. **…** marks bold text and `…` a command: keep the marks and the command." }),
+        msg({ id: 'providers.copilot.signIn.deviceCode', defaultMessage: 'For a code to enter on GitHub instead, run `copilot login --device-code` in a terminal.', description: "Agent Setup, under GitHub Copilot's Sign in: another way to sign in. `…` marks a command: keep it." }),
+        msg({ id: 'providers.copilot.signIn.gh', defaultMessage: 'With no login of its own, Copilot uses the GitHub CLI’s (`gh auth login`).', description: "Agent Setup, under GitHub Copilot's Sign in: Copilot falls back to the GitHub CLI's sign-in. `…` marks a command: keep it." }),
+        ...(ignored.length ? [{ m: msg({ id: 'providers.copilot.signIn.ignored', defaultMessage: '{n, plural, one {Copilot agents don’t get {variables} from Hive’s environment, so it doesn’t sign them in. For a token of Copilot’s own, set `COPILOT_GITHUB_TOKEN`.} other {Copilot agents don’t get {variables} from Hive’s environment, so they don’t sign them in. For a token of Copilot’s own, set `COPILOT_GITHUB_TOKEN`.}}', description: "Agent Setup, under GitHub Copilot's Sign in: environment variables with a GitHub token that Hive keeps from Copilot agents. {variables} lists them (joined with “or”), {n} is how many. `…` marks a variable name: keep it." }), values: { variables: listOf(ignored.map((k) => `\`${k}\``), 'disjunction'), n: ignored.length } }] : [])
+      ])
+    )
   }
   if (info.updateAvailable) {
     // `copilot update` alone downloads into its home, which agents don't run: only WinGet and npm installs update here.
     const updatable = !!info.path && installKind(info.path) !== 'other'
-    out.push({ id: 'update', level: 'info', message: `${NAME} ${info.latestVersion} is available.`, ...(updatable ? { action: { label: 'Update', task: 'update' as const } } : { detail: [`Update ${NAME} the way you installed it: Hive’s Copilot agents run the installed version, not one \`copilot update\` downloads.`] }) })
+    out.push(updateIssue(NAME, info.latestVersion, updatable ? undefined : [{ m: msg({ id: 'providers.copilot.updateManual', defaultMessage: 'Update {provider} the way you installed it: Hive’s Copilot agents run the installed version, not one `copilot update` downloads.', description: "Agent Setup, under a newer GitHub Copilot that Hive can't update itself. {provider} is its name. `…` marks a command: keep it." }), values: { provider: NAME } }]))
   }
   return out
 }
@@ -222,7 +220,7 @@ export async function copilotLatestVersion(): Promise<string | null> {
 
 export function copilotInstallCommand(): CommandSpec {
   if (process.platform === 'win32') return { file: 'winget.exe', args: ['install', '--id', WINGET_ID, '--exact', '--source', 'winget'] }
-  return { file: '/bin/bash', args: ['-lc', `npm install -g ${NPM_PACKAGE}`] }
+  return { file: '/bin/bash', args: ['-lc', `npm install -g ${NPM_PACKAGE}`] } // i18n-ignore: a command run in a terminal
 }
 
 /**
@@ -232,7 +230,7 @@ export function copilotInstallCommand(): CommandSpec {
 export function copilotUpdateCommand(executable: string): CommandSpec {
   if (installKind(executable) === 'winget') return { file: 'winget.exe', args: ['upgrade', '--id', WINGET_ID, '--exact', '--source', 'winget'] }
   if (process.platform === 'win32') return { file: process.env.ComSpec || 'cmd.exe', args: ['/d', '/s', '/c', 'npm', 'install', '-g', `${NPM_PACKAGE}@latest`] }
-  return { file: '/bin/bash', args: ['-lc', `npm install -g ${NPM_PACKAGE}@latest`] }
+  return { file: '/bin/bash', args: ['-lc', `npm install -g ${NPM_PACKAGE}@latest`] } // i18n-ignore: a command run in a terminal
 }
 
 /** `copilot login` in a terminal the user signs in with (Hive types nothing into it). */

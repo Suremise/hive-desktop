@@ -29,7 +29,7 @@ export async function userSettings(args: readonly string[], cwd: string): Promis
   const v = settingsArgValue(args)
   if (v === null) return null
   // `--settings` at the end, `--settings=` or an empty value: a mistake to fix, not "no settings" (#361).
-  if (!v) throw new Error('The last --settings in Extra arguments has no value. Give it a settings file or inline JSON (--settings <file or JSON>), or remove it in Agent Settings or Settings → Claude Code.')
+  if (!v) throw new Error('The last --settings in Extra arguments has no value. Give it a settings file or inline JSON (--settings <file or JSON>), or remove it in Agent Settings or Settings → Claude Code.') // i18n-ignore: both audiences: thrown at a launch, read by the window and the Agent API alike; HiveError (E10a) carries it in both languages (#842)
   // Claude Code takes a value that parses as JSON as inline settings, and anything else as a file's path.
   let json: unknown
   let inline = false
@@ -41,27 +41,27 @@ export async function userSettings(args: readonly string[], cwd: string): Promis
       // not JSON: a file's name, as Claude Code reads it
     }
   }
-  const what = inline ? 'The --settings in Extra arguments' : `The settings file ${v} (--settings in Extra arguments)`
+  const what = inline ? 'The --settings in Extra arguments' : `The settings file ${v} (--settings in Extra arguments)` // i18n-ignore: both audiences: thrown at a launch, read by the window and the Agent API alike; HiveError (E10a) carries it in both languages (#842)
   if (!inline) {
     const file = isAbsolute(v) ? v : join(cwd, v)
     let text: string
     try {
       text = await readSettingsFile(file)
     } catch (e) {
-      throw new Error(`${what} can't be read: ${(e as NodeJS.ErrnoException).code === 'ENOENT' ? 'there is no such file' : (e as Error).message}. Fix it or remove it in Agent Settings or Settings → Claude Code.`, { cause: e })
+      throw new Error(`${what} can't be read: ${(e as NodeJS.ErrnoException).code === 'ENOENT' ? 'there is no such file' : (e as Error).message}. Fix it or remove it in Agent Settings or Settings → Claude Code.`, { cause: e }) // i18n-ignore: both audiences: thrown at a launch, read by the window and the Agent API alike; HiveError (E10a) carries it in both languages (#842)
     }
     try {
       json = JSON.parse(text.replace(/^﻿/, ''))
     } catch (e) {
-      throw new Error(`${what} isn't valid JSON (${(e as Error).message}). Fix it or remove it in Agent Settings or Settings → Claude Code.`, { cause: e })
+      throw new Error(`${what} isn't valid JSON (${(e as Error).message}). Fix it or remove it in Agent Settings or Settings → Claude Code.`, { cause: e }) // i18n-ignore: both audiences: thrown at a launch, read by the window and the Agent API alike; HiveError (E10a) carries it in both languages (#842)
     }
   }
-  if (!json || typeof json !== 'object' || Array.isArray(json)) throw new Error(`${what} isn't a settings object ({ … }). Fix it or remove it in Agent Settings or Settings → Claude Code.`)
+  if (!json || typeof json !== 'object' || Array.isArray(json)) throw new Error(`${what} isn't a settings object ({ … }). Fix it or remove it in Agent Settings or Settings → Claude Code.`) // i18n-ignore: both audiences: thrown at a launch, read by the window and the Agent API alike; HiveError (E10a) carries it in both languages (#842)
   // It would turn off Hive's hooks and status line with the user's (Claude Code 2.1.292): Hive can't keep both.
-  if ((json as Record<string, unknown>).disableAllHooks === true) throw new Error(`${what} turns off all hooks (disableAllHooks), which Hive needs for the agent's status, file locks and status line. Remove it in Agent Settings or Settings → Claude Code.`)
+  if ((json as Record<string, unknown>).disableAllHooks === true) throw new Error(`${what} turns off all hooks (disableAllHooks), which Hive needs for the agent's status, file locks and status line. Remove it in Agent Settings or Settings → Claude Code.`) // i18n-ignore: both audiences: thrown at a launch, read by the window and the Agent API alike; HiveError (E10a) carries it in both languages (#842)
   // A list's entries are added to (mergeLaunchSettings); anything else in its place blocks Hive's hooks (2.1.292).
   for (const key of HOOK_ALLOWLISTS) {
-    if (key in json && !Array.isArray((json as Record<string, unknown>)[key])) throw new Error(`${what} sets ${key} to something other than a list, which stops Hive's hooks reaching it. Make it a list ([ … ]) or remove it in Agent Settings or Settings → Claude Code.`)
+    if (key in json && !Array.isArray((json as Record<string, unknown>)[key])) throw new Error(`${what} sets ${key} to something other than a list, which stops Hive's hooks reaching it. Make it a list ([ … ]) or remove it in Agent Settings or Settings → Claude Code.`) // i18n-ignore: both audiences: thrown at a launch, read by the window and the Agent API alike; HiveError (E10a) carries it in both languages (#842)
   }
   return json as Record<string, unknown>
 }
@@ -74,12 +74,12 @@ export async function userSettings(args: readonly string[], cwd: string): Promis
  */
 async function readSettingsFile(file: string): Promise<string> {
   const st = await stat(file)
-  if (!st.isFile()) throw new Error("it isn't a file")
-  const over = (): Error => new Error("it's over Claude Code's 2 MiB limit for settings files")
+  if (!st.isFile()) throw new Error("it isn't a file") // i18n-ignore: both audiences: thrown at a launch, read by the window and the Agent API alike; HiveError (E10a) carries it in both languages (#842)
+  const over = (): Error => new Error("it's over Claude Code's 2 MiB limit for settings files") // i18n-ignore: both audiences: thrown at a launch, read by the window and the Agent API alike; HiveError (E10a) carries it in both languages (#842)
   if (st.size > SETTINGS_FILE_LIMIT) throw over()
   const fh = await open(file, 'r')
   try {
-    if (!(await fh.stat()).isFile()) throw new Error("it isn't a file")
+    if (!(await fh.stat()).isFile()) throw new Error("it isn't a file") // i18n-ignore: both audiences: thrown at a launch, read by the window and the Agent API alike; HiveError (E10a) carries it in both languages (#842)
     const chunks: Buffer[] = []
     let n = 0
     for (;;) {

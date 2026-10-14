@@ -3,9 +3,10 @@ import { app } from 'electron'
 import type { AgentInstallInfo, ModelCatalog, ProviderId, ProviderTask } from '../shared/types'
 import { observedEffortKey } from '../shared/models'
 import { autoProviderPending, isProviderEnabled, providerSettings, setInstalledCheck } from '../shared/providers'
-import { toSpawnable } from './providers/common'
+import { shownInstallInfo, toSpawnable } from './providers/common'
 import { allProviders, provider } from './providers'
 import type { KeySteps } from './providers/types'
+import { onLanguageChange } from '../shared/i18n'
 import { config } from './config'
 import { refreshPath } from './freshPath'
 import { emit, toast } from './events'
@@ -45,6 +46,16 @@ class ProviderService {
 
   all(): Record<ProviderId, AgentInstallInfo> {
     return Object.fromEntries(this.infos)
+  }
+
+  /** Each provider's install info as the window shows it: its readiness and notes in the language shown (#797). */
+  shown(): Record<ProviderId, AgentInstallInfo> {
+    return Object.fromEntries([...this.infos].map(([id, info]) => [id, shownInstallInfo(info)]))
+  }
+
+  /** The language Hive shows changed (#797): the windows are sent each provider's install info in it. */
+  relabel(): void {
+    for (const [id, info] of this.infos) emit({ type: 'provider-install', provider: id, info: shownInstallInfo(info) })
   }
 
   /**
@@ -114,7 +125,7 @@ class ProviderService {
   private set(id: ProviderId, info: AgentInstallInfo): void {
     const was = this.infos.get(id)?.loggedIn
     this.infos.set(id, info)
-    emit({ type: 'provider-install', provider: id, info })
+    emit({ type: 'provider-install', provider: id, info: shownInstallInfo(info) })
     for (const fn of [...this.changed]) fn()
     if (was === false && info.loggedIn === true) this.signedIn(id)
   }
@@ -345,6 +356,7 @@ class ProviderService {
 }
 
 export const providerService = new ProviderService()
+onLanguageChange(() => providerService.relabel())
 
 // Automatic's default provider (#474) follows what this process found.
 setInstalledCheck((id) => {

@@ -1,4 +1,5 @@
 import { randomUUID, randomBytes } from 'crypto'
+import { onLanguageChange } from '../shared/i18n'
 import { basename, dirname, extname, isAbsolute, join, resolve } from 'path'
 import { copyFile, lstat, mkdir, open, readdir, rename, rm, rmdir, stat, writeFile } from 'original-fs/promises'
 import { constants as fsConstants, existsSync, realpathSync } from 'original-fs'
@@ -2921,6 +2922,20 @@ class SessionManager {
     this.notify(st.projectPath, `${label}: long conversation`, `Its transcript is ${formatBytes(bytes)}. ${advice}`, 'notice')
   }
 
+  /**
+   * The language Hive shows changed (#797): what a live session's state says in Hive's words (where its
+   * auto-compaction setting comes from) is said again in it.
+   */
+  relabel(): void {
+    for (const l of this.live.values()) {
+      if (!l.autoCompactFor) continue
+      const autoCompact = l.autoCompactFor(l.state.modelId ?? undefined)
+      if (JSON.stringify(autoCompact) === JSON.stringify(l.state.autoCompact)) continue
+      l.state.autoCompact = autoCompact
+      this.emitState(l.state)
+    }
+  }
+
   private emitState(state: LiveSessionState): void {
     // Its input as Hive holds it now (#648): a line typed or given up since the last report.
     const l = state.projectPath ? this.live.get(liveId(state.projectPath, state.agentId)) : undefined
@@ -4705,3 +4720,4 @@ class SessionManager {
 }
 
 export const sessions = new SessionManager()
+onLanguageChange(() => sessions.relabel())

@@ -144,7 +144,7 @@ export function codexBackgroundTasks(appended: string, memo: CodexBackgroundMemo
     // whose commands ended within it (so none printed a finished command's output), are its ids.
     const whole = parts.join('\n')
     const header = whole.indexOf('Output:\n')
-    const printed = header < 0 ? '' : whole.slice(header + 'Output:\n'.length).trim()
+    const printed = header < 0 ? '' : whole.slice(header + 'Output:\n'.length).trim() // i18n-ignore: Codex's own output marker, matched
     if (call.ended.length || call.unclear) continue
     if (/\bsession_id\b/.test(call.code) && /^\d+(?:[\s,]+\d+)*$/.test(printed)) {
       for (const id of new Set(printed.split(/[\s,]+/))) start(id, at)
