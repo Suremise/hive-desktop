@@ -8,7 +8,7 @@ import type { AgentApiInfo, AssistantControl, EffortLevel, HiveEvent, LiveSessio
 import { DEFAULT_API_PORT, HIVE_DIR, projectAgents, stopAsksUser, transcriptWarnLimit } from '../shared/defaults'
 import { PROVIDERS, agentProvider, defaultProviderPending, isKnownProvider, isProviderEnabled, offeredModes, projectDefaultProvider, providerDescriptor, providerName } from '../shared/providers'
 import type { SafeguardNote } from '../shared/safeguards'
-import { agentChoosesMcp, agentGetsMcp, cleanMcpServers } from '../shared/agentMcp'
+import { agentChoosesMcp, agentGetsMcp, cleanMcpServers, serverOnIn } from '../shared/agentMcp'
 import { fallbackEfforts, modelGroups } from '../shared/models'
 import { agentRuntime, unknownStateText } from '../shared/runtime'
 import { ASSISTANT_AGENT_ID, ASSISTANT_DIR, ASSISTANT_NAME } from '../shared/assistant'
@@ -388,9 +388,10 @@ const statusMessageOf = (live: LiveSessionState | null | undefined): string | nu
 
 async function projectSummary(p: string) {
   const info = await workspace.projectInfo(p)
-  // The workspace's servers this project has on: each agent gets them all, or those of them it was given (#537).
-  const off = new Set(info.config.mcp.disabled)
-  const mcpOn = (await inWorkspace(workspaceOf(p), () => listMcp()).catch(() => [])).filter((m) => m.globallyEnabled && m.def && !off.has(m.name)).map((m) => m.name)
+  // The workspace's servers, available to every project, and those this project has on (#713): each agent gets them
+  // all, or those of them it was given (#537).
+  const servers = await inWorkspace(workspaceOf(p), () => listMcp()).catch(() => [])
+  const mcpOn = servers.filter((m) => serverOnIn(m, info.config.mcp)).map((m) => m.name)
   return {
     name: info.name,
     path: info.path,
@@ -421,6 +422,8 @@ async function projectSummary(p: string) {
       // The guidance and skill revisions it launched with (compare with GET /v1/status's to spot an old launch).
       launched: a.live?.launched ?? null
     })),
+    // The workspace's MCP servers (#713): all available to the project, on only where turned on.
+    mcp: { available: servers.filter((m) => m.def).map((m) => m.name), on: mcpOn },
     settings: info.config
   }
 }

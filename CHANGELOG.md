@@ -10,6 +10,9 @@
 - **Remove All and the unused worktrees list are quicker on a busy machine.** Checking which worktrees could be deleted reads the project's worktree list and main branch once, not once per worktree.
 - **Agents as a table in more places.** Stop All, Start New, Archive and Start New, Remove All and the quit dialog list their agents as a table (each one's state, card, worktree and what happens to it) instead of a line each, and hovering the status bar's running sessions shows the running agents the same way (#572).
 
+### MCP servers
+- **Turn a server on only in the projects that need it.** A server in the workspace is now available to every project and runs only where it is on: each project's MCP tab has a switch for every workspace server, and the switch in the MCP view turns one on for all projects. Adding a server from a file asks where to turn it on: the selected project, all projects, or none yet. Copy to workspace turns a project's own server on in that project. Servers you had on stay on where they were (#713).
+
 ### Progress panel
 - **Put your lanes in your own order.** Drag a running lane up or down in the Progress panel's lane list (a line shows where it goes), or focus it and press Alt+Up or Alt+Down; its right-click menu has Move Up, Move Down and Usual Order. Each workspace keeps the order, after a restart too: a new lane comes in on top, and a lane that is merged or abandoned drops to the bottom, after those that stopped before it, so the latest is always last (#568).
 

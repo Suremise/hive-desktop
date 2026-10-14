@@ -2,7 +2,8 @@ import { useEffect, useRef, useState, type ReactNode } from 'react'
 import { DEFAULT_PROJECT_CONFIG, ROLE_MAX, agentLimitText, effectiveModelLabel, formatBytes, mergeBlocked, projectAgents, slugify, transcriptWarnLimit } from '@shared/defaults'
 import { useAgentLimit } from '../advanced'
 import { PROVIDERS, agentProvider, chosenDefaultProvider, defaultProviderPending, isProviderEnabled, modeCaveat, offeredModes, permissionLabel, projectDefaultProvider, projectProviderConfig, projectUse200k, providerDescriptor, providerName, providerSettings } from '@shared/providers'
-import type { AddAgentOptions, AgentBranchStatus, EffortLevel, MergeResult, PermissionMode, ProjectGitInfo, ProjectInfo, ProviderId, WorktreeMatch } from '@shared/types'
+import type { AddAgentOptions, AgentBranchStatus, EffortLevel, MergeResult, PermissionMode, ProjectConfig, ProjectGitInfo, ProjectInfo, ProviderId, WorktreeMatch } from '@shared/types'
+import { serverOnIn } from '@shared/agentMcp'
 import { reuseNote } from '@shared/unusedWorktrees'
 import { hiveBranch, reusableBranches } from '@shared/hiveBranches'
 import { nameTaken, nameTakenMessage, sameAgentName, suggestAgentName, workspaceAgentList } from '@shared/agentNames'
@@ -522,23 +523,23 @@ interface AgentFields {
 }
 
 /**
- * The MCP servers an agent can be given (#537): those on in the workspace and not turned off in `disabled` (a project's;
- * null for a template's agent, which may be loaded anywhere). Null until they are read.
+ * The MCP servers an agent can be given (#537): those on in the project (`project`, its MCP choices, #713), or for a
+ * template's agent (null), which may be loaded anywhere, every server the workspace has. Null until they are read.
  */
-function useMcpOffered(disabled: readonly string[] | null): string[] | null {
+function useMcpOffered(project: ProjectConfig['mcp'] | null): string[] | null {
   const version = useStore((s) => s.skillsVersion)
   const [list, setList] = useState<string[] | null>(null)
-  const off = disabled?.join('|') ?? ''
+  const key = project ? JSON.stringify(project) : ''
   useEffect(() => {
     let live = true
-    const skip = new Set(off ? off.split('|') : [])
+    const mcp = key ? (JSON.parse(key) as ProjectConfig['mcp']) : null
     call('mcp:list')
-      .then((l) => live && setList(l.filter((m) => m.globallyEnabled && m.def && !skip.has(m.name)).map((m) => m.name)))
+      .then((l) => live && setList(l.filter((m) => (mcp ? serverOnIn(m, mcp) : !!m.def)).map((m) => m.name)))
       .catch(() => live && setList([]))
     return () => {
       live = false
     }
-  }, [version, off])
+  }, [version, key])
   return list
 }
 
@@ -583,8 +584,8 @@ function McpChoice({ value, offered, where, onChange }: { value: string[] | null
 
 /**
  * The Agent Settings dialog (#126, #271): name, role, where it works, coding agent, model, effort, mode, context and
- * MCP servers (#537: those on in the workspace and not in `mcpDisabled`, a project's or null for a template's agent;
- * `mcpWhere` says where they are on, in words).
+ * MCP servers (#537: those on in the project, `mcpProject` its MCP choices, or every server of the workspace for a
+ * template's agent, null; `mcpWhere` says where they are on, in words).
  * `works`: what the agent works in, shown (a project's agent), or `choice` to pick it (a template's: its own worktree or
  * the project folder). `providerLocked`: why the coding agent can't change now (a running agent). `config`: whose
  * settings an empty choice follows. `nameProblem`: why a name can't be used. `confirmSave`: asked first (false keeps it
@@ -597,7 +598,7 @@ function AgentSettingsModal({
   config,
   roles,
   works,
-  mcpDisabled,
+  mcpProject,
   mcpWhere,
   providerLocked,
   note,
@@ -612,7 +613,7 @@ function AgentSettingsModal({
   config: Pick<ProjectInfo, 'config'>
   roles: string[]
   works: ReactNode | 'choice'
-  mcpDisabled: readonly string[] | null
+  mcpProject: ProjectConfig['mcp'] | null
   mcpWhere: string
   providerLocked?: ReactNode
   note?: ReactNode
@@ -624,7 +625,7 @@ function AgentSettingsModal({
   const [f, setF] = useState<AgentFields>(initial)
   const action = useBusy()
   // Read as the dialog opens (the dialogs stay mounted while closed, and the workspace may have changed).
-  const mcpOffered = useMcpOffered(mcpDisabled)
+  const mcpOffered = useMcpOffered(mcpProject)
   useEffect(() => {
     action.setError(null)
     setF(initial)
@@ -730,7 +731,7 @@ export function AgentSettingsDialog() {
       initial={initial}
       config={project}
       roles={roleSuggestions(project.agents)}
-      mcpDisabled={project.config.mcp.disabled}
+      mcpProject={project.config.mcp}
       mcpWhere="in this project"
       works={
         agent.worktree ? (
@@ -808,7 +809,7 @@ export function TemplateAgentDialog() {
       config={project ?? { config: DEFAULT_PROJECT_CONFIG }}
       roles={roleSuggestions(req.others)}
       works="choice"
-      mcpDisabled={null}
+      mcpProject={null}
       mcpWhere="in this workspace"
       note={`For the template "${req.template}": Save saves it in the template. Settings left as "Project's" follow the project it is loaded into.`}
       nameProblem={(n) => (req.others.some((o) => o.name.toLowerCase() === n.toLowerCase()) ? `Another agent of the template is called "${n}".` : null)}

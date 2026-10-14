@@ -1,8 +1,9 @@
 import { basename, dirname, extname, join } from 'path'
 import { mkdir, readdir, readFile, rm, stat, writeFile } from 'original-fs/promises'
 import { existsSync } from 'original-fs'
+import { createHash } from 'crypto'
 import { unzipSync } from 'fflate'
-import type { McpFileServer, McpServerDef, McpServerInfo, McpShown } from '../shared/types'
+import type { McpFileServer, McpProjectServer, McpServerDef, McpServerInfo, McpShown, McpTurnOn } from '../shared/types'
 import { writeTextUnlessChanged } from './fsutil'
 import { findSecretWarnings } from './mcpSecrets'
 import { allProviders } from './providers'
@@ -95,19 +96,24 @@ async function setGlobalNow(name: string, enabled: boolean): Promise<void> {
 }
 
 /**
- * Turns a server on or off for every project. Turning it on with `expected`, the definition the user was shown what it
- * runs from: refused when the definition is no longer that one (replaced or edited meanwhile), so a server never goes
- * on with a definition the user hasn't seen.
+ * Refuses when the server's definition is no longer `expected`, the one the user was shown what it runs from (replaced
+ * or edited meanwhile), so a server never goes on with a definition the user hasn't seen.
+ */
+async function checkShown(name: string, expected: McpShown): Promise<void> {
+  const path = join(workspace.mcpDir, `${name}.json`)
+  // The installation (a replace writes a new file, even with the same text and new code beside it) and the text.
+  const revision = await mcpRevision(path)
+  const now = await readFile(path, 'utf8').then((t) => JSON.parse(t) as unknown, () => null)
+  if (!now || !revision || revision !== expected.revision || JSON.stringify(now) !== JSON.stringify(expected.def)) throw new Error(`${name} has changed since it was shown to you. Check what it runs and enable it again.`)
+}
+
+/**
+ * Turns a server on or off for all projects (#713: a project that turned it on or off itself keeps its own choice).
+ * Turning it on with `expected`: refused when the definition is no longer the one shown (checkShown).
  */
 export function setMcpGlobal(name: string, enabled: boolean, expected?: McpShown): Promise<void> {
   return inTurn(async () => {
-    if (enabled && expected) {
-      const path = join(workspace.mcpDir, `${name}.json`)
-      // The installation (a replace writes a new file, even with the same text and new code beside it) and the text.
-      const revision = await mcpRevision(path)
-      const now = await readFile(path, 'utf8').then((t) => JSON.parse(t) as unknown, () => null)
-      if (!now || !revision || revision !== expected.revision || JSON.stringify(now) !== JSON.stringify(expected.def)) throw new Error(`${name} has changed since it was shown to you. Check what it runs and enable it again.`)
-    }
+    if (enabled && expected) await checkShown(name, expected)
     await setGlobalNow(name, enabled)
   })
 }
@@ -122,13 +128,61 @@ async function mcpRevision(path: string): Promise<string | null> {
   return s ? `${s.ino}:${s.mtimeNs}:${s.size}` : null
 }
 
-export async function setMcpProject(projectPath: string, name: string, enabled: boolean): Promise<void> {
-  await workspace.mutateProjectConfig(projectPath, (cfg) => {
-    const set = new Set(cfg.mcp.disabled)
-    if (enabled) set.delete(name)
-    else set.add(name)
-    return { mcp: { ...cfg.mcp, disabled: [...set].sort() } }
+/**
+ * Turns a workspace server on or off in one project (#713): the project's own choice, which wins over the workspace's
+ * all projects. Turning it on with `expected`: refused when the definition is no longer the one shown (checkShown).
+ */
+export function setMcpProject(projectPath: string, name: string, enabled: boolean, expected?: McpShown): Promise<void> {
+  if (!validMcpName(name)) return Promise.reject(new Error('Invalid server name'))
+  return inTurn(async () => {
+    if (enabled && !existsSync(join(workspace.mcpDir, `${name}.json`))) throw new Error(`The workspace has no MCP server named ${name}.`)
+    if (enabled && expected) await checkShown(name, expected)
+    await setProjectNow(projectPath, name, enabled)
   })
+}
+
+/** A list from a config file: its names (a hand-edited file may hold anything). */
+const listed = (list: unknown): string[] => (Array.isArray(list) ? list.filter((n): n is string => typeof n === 'string') : [])
+
+async function setProjectNow(projectPath: string, name: string, enabled: boolean): Promise<void> {
+  await workspace.mutateProjectConfig(projectPath, (cfg) => {
+    const on = new Set(listed(cfg.mcp.enabled))
+    const off = new Set(listed(cfg.mcp.disabled))
+    if (enabled) {
+      on.add(name)
+      off.delete(name)
+    } else {
+      off.add(name)
+      on.delete(name)
+    }
+    return { mcp: { ...cfg.mcp, enabled: [...on].sort(), disabled: [...off].sort() } }
+  })
+}
+
+/**
+ * Every project's own choice for a server name goes (hidden projects' too), in a turn: a server added under a name used
+ * before (deleted, replaced, or its file removed by hand) starts with no project's choice, so an old switch never turns
+ * it on.
+ */
+async function forgetInProjects(name: string): Promise<void> {
+  const paths = [...(await workspace.listProjectPaths()), ...(await workspace.listProjectPaths({ hidden: true }))]
+  for (const p of paths) {
+    const cfg = await workspace.projectConfig(p).catch(() => null)
+    if (!cfg || ![cfg.mcp.enabled, cfg.mcp.disabled].some((l) => listed(l).includes(name))) continue
+    await workspace.mutateProjectConfig(p, (c) => ({ mcp: { ...c.mcp, enabled: listed(c.mcp.enabled).filter((n) => n !== name), disabled: listed(c.mcp.disabled).filter((n) => n !== name) } }))
+  }
+}
+
+/** Off everywhere, in a turn: for all projects and in each project, whatever an earlier server of the name had. */
+async function offEverywhere(name: string): Promise<void> {
+  await setGlobalNow(name, false)
+  await forgetInProjects(name)
+}
+
+/** A new server turned on where the user chose when adding it (#713), in the turn that added it. */
+async function turnOnNew(name: string, turnOn: McpTurnOn): Promise<void> {
+  if (turnOn === 'all') await setGlobalNow(name, true)
+  else if (turnOn !== 'none') await setProjectNow(turnOn.project, name, true)
 }
 
 export function validMcpName(name: string): boolean {
@@ -138,17 +192,21 @@ export function validMcpName(name: string): boolean {
 export async function createMcp(name: string): Promise<McpServerInfo> {
   if (!validMcpName(name)) throw new Error('Server names may contain letters, numbers, "-" and "_" (max 64 characters). "hive" is reserved.')
   const path = join(workspace.mcpDir, `${name}.json`)
-  if (existsSync(path)) throw new Error(`A server named "${name}" already exists`)
   const template: McpServerDef = {
     description: 'Describe what this server provides.',
     command: 'npx',
     args: ['-y', 'your-mcp-server-package'],
     env: { EXAMPLE_TOKEN: '${EXAMPLE_TOKEN}' }
   }
-  await writeFile(path, JSON.stringify(template, null, 2) + '\n', { flag: 'wx' }).catch((e: NodeJS.ErrnoException) => {
-    throw e.code === 'EEXIST' ? new Error(`A server named "${name}" already exists`) : e
+  // Off everywhere (#713): a template runs nothing until it is written and turned on.
+  return inTurn(async () => {
+    if (existsSync(path)) throw new Error(`A server named "${name}" already exists`)
+    await offEverywhere(name)
+    await writeFile(path, JSON.stringify(template, null, 2) + '\n', { flag: 'wx' }).catch((e: NodeJS.ErrnoException) => {
+      throw e.code === 'EEXIST' ? new Error(`A server named "${name}" already exists`) : e
+    })
+    return (await listMcp()).find((m) => m.name === name)!
   })
-  return (await listMcp()).find((m) => m.name === name)!
 }
 
 export async function readMcp(name: string): Promise<string> {
@@ -184,7 +242,7 @@ export async function deleteMcp(name: string): Promise<void> {
     )
     if (def && existsSync(folder) && usesFolder(def, name)) await trash(folder)
     if (existsSync(file)) await trash(file)
-    await setGlobalNow(name, false)
+    await offEverywhere(name)
   })
 }
 
@@ -323,38 +381,42 @@ function retarget(def: McpServerDef, from: string, to: string): McpServerDef {
   return out
 }
 
-/** A server's file read and checked: its definition, and for a .zip its files and folder. */
-async function readServerFile(file: string): Promise<{ def: McpServerDef; files: Map<string, Uint8Array> | null; folder: string | null; name: string }> {
+/**
+ * A server's file read once and checked: its definition, for a .zip its files and folder, and `hash`, which copy of the
+ * file this is (its bytes), so an add can be held to the copy the user was shown (#713).
+ */
+async function readServerFile(file: string): Promise<{ def: McpServerDef; files: Map<string, Uint8Array> | null; folder: string | null; name: string; hash: string }> {
   const ext = extname(file).toLowerCase()
-  const size = (await stat(file)).size
+  if (ext !== '.json' && ext !== '.zip') throw new Error('Choose a .json definition or a .zip of a server folder.')
+  const max = ext === '.json' ? MCP_JSON_MAX_BYTES : MCP_ZIP_MAX_BYTES
+  const tooLarge = ext === '.json' ? 'The .json is too large for an MCP server definition (over 1 MB).' : 'The .zip is too large for an MCP server (over 200 MB).'
+  if ((await stat(file)).size > max) throw new Error(tooLarge)
+  const data = await readFile(file)
+  if (data.length > max) throw new Error(tooLarge)
+  const hash = createHash('sha256').update(data).digest('hex')
   if (ext === '.json') {
-    if (size > MCP_JSON_MAX_BYTES) throw new Error('The .json is too large for an MCP server definition (over 1 MB).')
     let raw: unknown
     try {
-      raw = JSON.parse(await readFile(file, 'utf8'))
+      raw = JSON.parse(data.toString('utf8'))
     } catch (e) {
       throw new Error(`${basename(file)} isn't valid JSON (${(e as Error).message}).`, { cause: e })
     }
     const stem = basename(file, ext)
     // The mcp repo's hive-mcp.example.json is named after its folder.
     const name = MCP_ZIP_DEFINITIONS.includes(basename(file).toLowerCase()) ? basename(dirname(file)) : stem
-    return { def: checkMcpDef(raw), files: null, folder: null, name: serverName(name) }
+    return { def: checkMcpDef(raw), files: null, folder: null, name: serverName(name), hash }
   }
-  if (ext === '.zip') {
-    if (size > MCP_ZIP_MAX_BYTES) throw new Error('The .zip is too large for an MCP server (over 200 MB).')
-    const z = serverFromZip(await readFile(file))
-    // A zip with its files at the top: their folder is named after the zip.
-    const folder = z.folder ?? basename(file, ext)
-    return { ...z, folder, name: serverName(folder) }
-  }
-  throw new Error('Choose a .json definition or a .zip of a server folder.')
+  const z = serverFromZip(data)
+  // A zip with its files at the top: their folder is named after the zip.
+  const folder = z.folder ?? basename(file, ext)
+  return { ...z, folder, name: serverName(folder), hash }
 }
 
 /** What adding a file would add (the dialog shows it first): its name, what it runs, and whether the name is taken. */
 export async function previewMcpFile(file: string): Promise<McpFileServer> {
   const r = await readServerFile(file)
   const def = r.folder ? retarget(r.def, r.folder, r.name) : r.def
-  return { name: r.name, def, runs: mcpRuns(def), secretWarnings: findSecretWarnings(def), files: r.files?.size ?? 0, exists: serverExists(r.name, !!r.files) }
+  return { name: r.name, def, runs: mcpRuns(def), secretWarnings: findSecretWarnings(def), files: r.files?.size ?? 0, exists: serverExists(r.name, !!r.files), hash: r.hash }
 }
 
 /** A server named so: its definition, or (for a .zip) its folder. */
@@ -363,14 +425,18 @@ function serverExists(name: string, folder: boolean): boolean {
 }
 
 /**
- * Adds a server from a .json or .zip as `name`, turned off: it runs nothing until the user enables it (which shows
- * what it runs first). A name in use is refused unless `replace`, which moves the old definition (and its folder) to
- * the Recycle Bin. Everything is read and checked before anything is written, and the change is one turn with
- * enables (inTurn): an enable waiting meanwhile was for the old definition, so it is refused (setMcpGlobal's expected).
+ * Adds a server from a .json or .zip as `name`, on where `turnOn` says (#713) and off everywhere else; with `none` it
+ * runs nothing until all projects or a project turn it on (which shows what it runs first). `shown` is the copy of the
+ * file the add dialog showed (previewMcpFile's hash): turning it on anywhere needs it, and a file changed since (its
+ * definition or a zip's code) is refused before anything is written, so nothing goes on that the user hasn't seen.
+ * A name in use is refused unless `replace`, which moves the old definition (and its folder) to the
+ * Recycle Bin. Everything is read and checked before anything is written, and the change is one turn with enables
+ * (inTurn): an enable waiting meanwhile was for the old definition, so it is refused (setMcpGlobal's expected).
  */
-export async function addMcpFromFile(file: string, name: string, replace = false): Promise<McpServerInfo> {
+export async function addMcpFromFile(file: string, name: string, replace = false, turnOn: McpTurnOn = 'none', shown?: string): Promise<McpServerInfo> {
   if (!validMcpName(name)) throw new Error('Server names may contain letters, numbers, "-" and "_" (max 64 characters). "hive" is reserved.')
   const r = await readServerFile(file)
+  if ((turnOn !== 'none' || shown !== undefined) && r.hash !== shown) throw new Error(`${basename(file)} has changed since it was shown to you. Add it again to see what it runs.`)
   const def = r.folder ? retarget(r.def, r.folder, name) : r.def
   const taken = (): Error => new Error(`A server named "${name}" already exists: choose another name, or replace it.`)
   return inTurn(async () => {
@@ -379,8 +445,9 @@ export async function addMcpFromFile(file: string, name: string, replace = false
     const folder = join(dir, name)
     if (serverExists(name, !!r.files) && !replace) throw taken()
     await mkdir(dir, { recursive: true })
-    // Off before it exists: a name enabled earlier (the old server, or a definition deleted by hand) mustn't turn it on.
-    await setGlobalNow(name, false)
+    // Off before it exists: a name enabled earlier (the old server, or a definition deleted by hand) mustn't turn it on,
+    // for all projects or in one.
+    await offEverywhere(name)
     if (replace) {
       // A .zip brings its own folder; a .json keeps the one there (its definition may run what is in it).
       if (r.files && existsSync(folder)) await trash(folder)
@@ -409,31 +476,60 @@ export async function addMcpFromFile(file: string, name: string, replace = false
       if (claimed) await rm(folder, { recursive: true, force: true }).catch(() => undefined)
       throw e
     }
+    await turnOnNew(name, turnOn)
     return (await listMcp()).find((m) => m.name === name)!
   })
 }
 
-/** Copies servers defined in a project's own config (.mcp.json…) into the workspace. Returns the names imported. */
-export async function importFromProject(projectPath: string, names: string[]): Promise<string[]> {
+/** The servers a project defines in its own config (.mcp.json…), the first provider's where two name one. */
+async function projectDefs(projectPath: string): Promise<Record<string, McpServerDef>> {
   const defs: Record<string, McpServerDef> = {}
   for (const p of allProviders()) {
     for (const [n, d] of Object.entries(await p.projectMcpServers(projectPath).catch(() => ({})))) defs[n] ??= d
   }
-  const imported: string[] = []
+  return defs
+}
+
+/** The servers a project defines in its own config that the workspace hasn't got, with what each runs: what copying them adds. */
+export async function projectMcpServers(projectPath: string): Promise<McpProjectServer[]> {
+  return Object.entries(await projectDefs(projectPath))
+    .filter(([n]) => validMcpName(n) && !existsSync(join(workspace.mcpDir, `${n}.json`)))
+    .sort(([a], [b]) => a.localeCompare(b))
+    .map(([name, def]) => ({ name, def, runs: mcpRuns(def), secretWarnings: findSecretWarnings(def) }))
+}
+
+/**
+ * Copies servers defined in a project's own config (.mcp.json…) into the workspace, each turned on in that project
+ * (#713: added from the project, it is on there straight away) when it is still the definition the user was shown
+ * (`shown`, by name); one changed meanwhile, or not shown, is copied turned off. Returns the names copied and those on.
+ */
+export async function importFromProject(projectPath: string, names: string[], shown: Record<string, McpServerDef> = {}): Promise<{ copied: string[]; on: string[] }> {
+  const defs = await projectDefs(projectPath)
+  const copied: string[] = []
+  const on: string[] = []
   for (const n of names) {
     const def = defs[n]
     if (!def || !validMcpName(n)) continue
     const path = join(workspace.mcpDir, `${n}.json`)
-    if (existsSync(path)) continue
-    // Never over one that appeared meanwhile.
-    const wrote = await writeFile(path, JSON.stringify({ description: `Imported from project ${basename(projectPath)}`, ...def }, null, 2) + '\n', { flag: 'wx' }).then(
-      () => true,
-      (e: NodeJS.ErrnoException) => {
-        if (e.code === 'EEXIST') return false
-        throw e
+    await inTurn(async () => {
+      if (existsSync(path)) return
+      // A name used before starts with no project's choice.
+      await offEverywhere(n)
+      // Never over one that appeared meanwhile.
+      const wrote = await writeFile(path, JSON.stringify({ description: `Imported from project ${basename(projectPath)}`, ...def }, null, 2) + '\n', { flag: 'wx' }).then(
+        () => true,
+        (e: NodeJS.ErrnoException) => {
+          if (e.code === 'EEXIST') return false
+          throw e
+        }
+      )
+      if (!wrote) return
+      copied.push(n)
+      if (shown[n] && JSON.stringify(shown[n]) === JSON.stringify(def)) {
+        await setProjectNow(projectPath, n, true)
+        on.push(n)
       }
-    )
-    if (wrote) imported.push(n)
+    })
   }
-  return imported
+  return { copied, on }
 }

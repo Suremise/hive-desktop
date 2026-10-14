@@ -1,10 +1,26 @@
 /**
  * Which of a project's MCP servers an agent gets (#537): all of them (the default, `mcpServers` absent), or only those
- * its settings name (`mcpServers`, saved by templates). Only servers the workspace has on and the project hasn't turned
- * off reach anyone; a name chosen here that isn't one of them reaches nobody. The built-in hive server isn't one of
- * them: every session gets it, whatever this says.
+ * its settings name (`mcpServers`, saved by templates). Only servers on in the project reach anyone (mcpOnInProject);
+ * a name chosen here that isn't one of them reaches nobody. The built-in hive server isn't one of them: every session
+ * gets it, whatever this says.
  */
-import type { AgentDef } from './types'
+import type { AgentDef, McpServerInfo, ProjectConfig } from './types'
+
+/**
+ * Whether a workspace MCP server is on in a project (#713). The workspace's servers are available to every project and
+ * on only where turned on: the project's own choice (its MCP tab) wins, and a server it hasn't chosen is on when the
+ * workspace has it on for all projects (`allProjects`, workspace.json's mcp.enabled). A list Hive can't read (a
+ * hand-edited file) turns nothing on.
+ */
+export function mcpOnInProject(name: string, allProjects: readonly string[], project: Partial<ProjectConfig['mcp']> | null | undefined): boolean {
+  const has = (list: unknown): boolean => Array.isArray(list) && list.includes(name)
+  if (has(project?.disabled)) return false
+  return has(project?.enabled) || has(allProjects)
+}
+
+/** A listed server (mcp:list, listMcp) on in a project: a valid definition, on there (mcpOnInProject). */
+export const serverOnIn = (m: Pick<McpServerInfo, 'name' | 'def' | 'globallyEnabled'>, project: Partial<ProjectConfig['mcp']> | null | undefined): boolean =>
+  !!m.def && mcpOnInProject(m.name, m.globallyEnabled ? [m.name] : [], project)
 
 /** The most servers an agent's choice names. */
 export const AGENT_MCP_MAX = 50

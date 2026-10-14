@@ -61,7 +61,7 @@ import { NOTICE_PREFIX } from '../shared/doorbell'
 import { FinishBatcher, finishedNotice, noticeRoute, type FocusedHive, type NoticeRoute } from '../shared/bursts'
 import { commentOnDoingCards, recordCards } from './cardSessions'
 import { listMcp, toLaunchDef } from './mcp'
-import { agentGetsMcp } from '../shared/agentMcp'
+import { agentGetsMcp, serverOnIn } from '../shared/agentMcp'
 import { launchEnded, leftoversOf, noteUntracked, settleLeftovers, trackingProblem, trackingReady, trackLaunch, type TrackResult } from './agentProcesses'
 import type { GateWord } from './launchGate'
 import { leftoversSummary, processCount } from '../shared/agentProcesses'
@@ -818,12 +818,12 @@ class SessionManager {
         skillHashes[sk.name] = await revisionOf(sk.path).catch(() => '')
       }
     }
-    const mcpDisabled = new Set(pc.mcp.disabled)
-    // The agent's own choice narrows the project's servers (#537): all of them unless it names some.
+    // The workspace's servers on in the project (#713); the agent's own choice narrows them (#537): all of them unless
+    // it names some.
     const forAgent = agent ?? projectAgents(pc)[0]
     const mcpServers: Record<string, McpServerDef> = {}
     for (const m of await listMcp()) {
-      if (m.globallyEnabled && !mcpDisabled.has(m.name) && m.def && agentGetsMcp(forAgent, m.name)) mcpServers[m.name] = toLaunchDef(m.def, workspace.mcpDir)
+      if (serverOnIn(m, pc.mcp) && m.def && agentGetsMcp(forAgent, m.name)) mcpServers[m.name] = toLaunchDef(m.def, workspace.mcpDir)
     }
     const hive = this.hiveMcp(projectPath, agent?.id)
     if (hive) mcpServers.hive = hive

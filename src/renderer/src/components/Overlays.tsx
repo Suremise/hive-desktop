@@ -42,7 +42,7 @@ export function Dialogs() {
       setError(null)
       setTimeout(() => inputRef.current?.select(), 30)
     }
-    if (dialog?.kind === 'choice' && dialog.select) setPicked(dialog.select.initial)
+    if ((dialog?.kind === 'choice' || dialog?.kind === 'prompt') && dialog.select) setPicked(dialog.select.initial)
   }, [dialog, setActionError])
 
   if (!dialog) return null
@@ -53,6 +53,7 @@ export function Dialogs() {
       dialog.resolve(result === true)
     } else if (dialog.kind === 'prompt') {
       dialog.check?.set(checked)
+      if (typeof result === 'string') dialog.select?.set(picked)
       dialog.resolve(typeof result === 'string' ? result : null)
     }
   }
@@ -83,18 +84,7 @@ export function Dialogs() {
       >
         <div>{dialog.message}</div>
         {dialog.detail && <div className="detail">{dialog.detail}</div>}
-        {dialog.select && (
-          <label className="dialog-select">
-            {dialog.select.label}
-            <select className="select" aria-label={dialog.select.label} value={picked} onChange={(e) => setPicked(e.target.value)}>
-              {dialog.select.options.map((o) => (
-                <option key={o.value} value={o.value}>
-                  {o.label}
-                </option>
-              ))}
-            </select>
-          </label>
-        )}
+        {dialog.select && <DialogSelect select={dialog.select} picked={picked} setPicked={setPicked} />}
       </Modal>
     )
   }
@@ -180,12 +170,29 @@ export function Dialogs() {
         onKeyDown={(e) => e.key === 'Enter' && submit()}
       />
       {error && <div className="field-error">{error}</div>}
+      {dialog.select && <DialogSelect select={dialog.select} picked={picked} setPicked={setPicked} />}
       {dialog.check && (
         <label className="flex" style={{ marginTop: 10 }}>
           <input type="checkbox" checked={checked} onChange={(e) => setChecked(e.target.checked)} /> {dialog.check.label}
         </label>
       )}
     </Modal>
+  )
+}
+
+/** A dialog's drop-down (a choice's or a prompt's), its label beside it. */
+function DialogSelect({ select, picked, setPicked }: { select: { label: string; options: { label: string; value: string }[] }; picked: string; setPicked: (v: string) => void }) {
+  return (
+    <label className="dialog-select">
+      {select.label}
+      <select className="select" aria-label={select.label} value={picked} onChange={(e) => setPicked(e.target.value)}>
+        {select.options.map((o) => (
+          <option key={o.value} value={o.value}>
+            {o.label}
+          </option>
+        ))}
+      </select>
+    </label>
   )
 }
 

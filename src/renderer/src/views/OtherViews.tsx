@@ -18,7 +18,7 @@ import { PaneResizer, usePaneSize } from '../components/Resizer'
 import { Icon, IconButton, LoadFailed, Markdown, StaleNote, Switch, useContextMenu } from '../components/ui'
 import { useScopedLoad } from '../scopedLoad'
 import { SkillDetail } from '../components/Skills'
-import { confirm, notify, set, useStore } from '../store'
+import { confirm, NO_PROJECTS, notify, set, useStore } from '../store'
 import { basename, cx, formatKeybinding, recentNote, recentTip } from '../util'
 
 // ---------------------------------------------------------------------------
@@ -254,6 +254,7 @@ export function McpView() {
 function McpServerView({ selected }: { selected: string | null }) {
   const version = useStore((s) => s.skillsVersion)
   const api = useStore((s) => s.api)
+  const projects = useStore((s) => s.workspace?.projects ?? NO_PROJECTS)
   const [text, setText] = useState('')
   const [saved, setSaved] = useState('')
   const [info, setInfo] = useState<McpServerInfo | null>(null)
@@ -392,15 +393,18 @@ Try asking an agent: *"Write a handover for the next session using the hive tool
             {dirty && ' ●'} <span className="faint">{info?.path}</span>
           </span>
           {info && (
-            <label className="flex muted" style={{ fontSize: 12 }}>
-              <Switch
-                small
-                checked={info.globallyEnabled}
-                disabled={!!info.error}
-                onChange={(v) => void actions.setMcpServerEnabled(info, v)}
-              />
-              Enabled
-            </label>
+            <>
+              {!info.error && <span className="faint mcp-where">{actions.mcpWhereText(info, projects)}</span>}
+              <label className="flex muted" style={{ fontSize: 12 }}>
+                <Switch
+                  small
+                  checked={info.globallyEnabled}
+                  disabled={!!info.error}
+                  onChange={(v) => void actions.setMcpServerEnabled(info, v)}
+                />
+                All projects
+              </label>
+            </>
           )}
           <IconButton icon="trash" title="Delete server" onClick={() => void remove()} />
           <button className="btn small primary" disabled={!dirty} onClick={() => void save()}>
