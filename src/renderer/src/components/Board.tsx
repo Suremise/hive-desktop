@@ -2,7 +2,7 @@ import { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
 import type { AgentInfo, ArchiveBatch, BoardFold, ProjectInfo, ProviderId, TaskCard, TaskColumn, TaskDecision, TaskPatch, TaskStartTarget } from '@shared/types'
 import { gitProblemText } from '@shared/gitTool'
 import { agentRuntime } from '@shared/runtime'
-import { COLUMN_TEXT, TASK_COLUMNS, applyBoardFold, archiveBatchLabel, archiveBatchText, cardMatches, newSinceStart, archivedAt, columnColor, columnName, notWatchingReason, reviewStalled, reviewWaitReason, stalledReason, taskOverview, type BoardFoldChange } from '@shared/tasks'
+import { COLUMN_TEXT, TASK_COLUMNS, applyBoardFold, archiveBatchLabel, archiveBatchText, cardMatches, newSinceStart, archivedAt, columnColor, columnName, notWatchingReason, reviewStalled, reviewVerdictWaitReason, reviewWaitReason, stalledReason, taskOverview, type BoardFoldChange } from '@shared/tasks'
 import { enabledProviders, isProviderEnabled, projectDefaultProvider, providerName } from '@shared/providers'
 import { fmt, msg, tr, type Msg } from '@shared/i18n'
 import { call, errorMessage } from '../api'
@@ -65,14 +65,14 @@ function cardAgent(projects: ProjectInfo[], c: TaskCard): { project: ProjectInfo
 /**
  * Why nobody is working on the card, from the agents as the window knows them: a Doing card's agent gone or stopped, an
  * agent looping on the card (Doing or Review) whose turn ended with no card watch (#376), or a card in Review an agent
- * watches but hasn't started reviewing for a while (#521).
+ * watches but hasn't started reviewing for a while (#521), or one its reviewer started and only watches, with no verdict (#843).
  */
 export function cardStalled(projects: ProjectInfo[], c: TaskCard): string | null {
   return cardStall(projects, c)?.text ?? null
 }
 
 /** What a stalled card's hover says to do, by why it is stalled. */
-type StallKind = 'nobody' | 'not-watching' | 'review-silent' | 'review-wait'
+type StallKind = 'nobody' | 'not-watching' | 'review-silent' | 'review-wait' | 'review-verdict'
 
 /** Why the card is stalled (cardStalled), in the window's language, and which kind of stall it is. */
 function cardStall(projects: ProjectInfo[], c: TaskCard): { text: string; kind: StallKind } | null {
@@ -81,9 +81,12 @@ function cardStall(projects: ProjectInfo[], c: TaskCard): { text: string; kind: 
   if (nobody) return { text: nobody, kind: 'nobody' }
   const looping = notWatchingReason(c, projects.flatMap((p) => p.agents.map((a) => ({ name: a.name, project: p.name, notWatching: a.live?.notWatching }))), tr)
   if (looping) return { text: looping, kind: 'not-watching' }
-  const watchers = projects.flatMap((p) => p.agents.flatMap((a) => (a.live?.watch?.cards.length ? [{ name: a.name, project: p.name, agentId: a.id, cards: a.live.watch.cards, status: a.live.status, silentMinutes: agentRuntime(a.live).silentMinutes }] : [])))
+  const watchers = projects.flatMap((p) => p.agents.flatMap((a) => (a.live?.watch?.cards.length ? [{ name: a.name, project: p.name, agentId: a.id, cards: a.live.watch.cards, watchSince: a.live.watch.since, status: a.live.status, silentMinutes: agentRuntime(a.live).silentMinutes }] : [])))
   const waiting = reviewWaitReason(c, watchers, Date.now(), tr)
-  if (!waiting) return null
+  if (!waiting) {
+    const verdict = reviewVerdictWaitReason(c, watchers, Date.now(), tr)
+    return verdict ? { text: verdict, kind: 'review-verdict' } : null
+  }
   // The watcher reviewWaitReason names: its state unknown (silent) or not.
   const w = watchers.find((x) => x.project.toLowerCase() === c.project.toLowerCase() && x.agentId !== c.agent && x.cards.includes(c.number))
   return { text: waiting, kind: w?.silentMinutes !== undefined ? 'review-silent' : 'review-wait' }
@@ -93,6 +96,7 @@ function cardStall(projects: ProjectInfo[], c: TaskCard): { text: string; kind: 
 function stallHint(kind: StallKind): string {
   if (kind === 'not-watching') return tr(msg({ id: 'board.stall.hintNotWatching', defaultMessage: 'Nothing will wake that agent when this card changes. Show it and ask it to carry on its card loop.', description: "Tooltip on a stalled card: an agent in a card loop stopped without a card watch (what wakes it when the card changes)." }))
   if (kind === 'review-silent') return tr(msg({ id: 'board.stall.hintReviewSilent', defaultMessage: 'Its reviewer may have finished its turn without Hive seeing it end. Show the reviewer: if its terminal waits at its prompt, Mark idle, and the watch wakes it.', description: 'Tooltip on a card stalled in Review whose reviewer Hive has heard nothing from. "Mark idle" is a command in the agent\'s menu: keep its wording as that command is translated.' }))
+  if (kind === 'review-verdict') return tr(msg({ id: 'board.stall.hintReviewVerdict', defaultMessage: 'Its reviewer stopped without a verdict and waits on the card. Read its latest comment (it may have a question for you), then show the reviewer and ask it to finish its review.', description: 'Tooltip on a card stalled in Review: its reviewer started reviewing, then went back to waiting on the card without passing or failing it.' }))
   if (kind === 'review-wait') return tr(msg({ id: 'board.stall.hintReviewWait', defaultMessage: "Its reviewer's watch didn't wake it. Show the reviewer and ask it to review the card.", description: 'Tooltip on a card stalled in Review: its reviewer watches it but has not started.' }))
   return tr(msg({ id: 'board.stall.hintNobody', defaultMessage: 'Nobody is working on it. Start it again (on this agent or another), or move it back to Todo.', description: 'Tooltip on a card stalled in Doing: no agent is working on it. Todo is a board column.' }))
 }
