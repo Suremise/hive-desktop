@@ -99,9 +99,10 @@ export function useSessions(project: ProjectInfo) {
 }
 
 
-function Card({ title, value, sub, tip, accent, children }: { title: string; value: React.ReactNode; sub?: React.ReactNode; tip?: React.ReactNode; accent?: boolean; children?: React.ReactNode }) {
+/** A figure on the Usage tab; `stat` names it as data-stat, a hook for tests that can't read its translated title (#769). */
+function Card({ title, value, sub, tip, accent, children, stat }: { title: string; value: React.ReactNode; sub?: React.ReactNode; tip?: React.ReactNode; accent?: boolean; children?: React.ReactNode; stat?: string }) {
   return (
-    <div className={cx('card', accent && 'accent')}>
+    <div className={cx('card', accent && 'accent')} data-stat={stat}>
       <h3>
         {title} {tip && <InfoTip text={tip} />}
       </h3>
@@ -194,6 +195,7 @@ export function OverviewTab({ project }: { project: ProjectInfo }) {
           <Card accent title="Tokens" value={formatTokens(tokens(total))} sub={`${formatTokens(total.input + total.cacheWrite)} in · ${formatTokens(total.cached)} cached · ${formatTokens(total.output)} out`} tip="All tokens: new input, cache writes, input read from cache, and output." />
           <Card
             title="API-equivalent cost"
+            stat="cost"
             value={costText(total)}
             sub={total.unpriced ? `${total.unpriced} session${total.unpriced === 1 ? '' : 's'} without a price` : total.estimated ? 'partly estimated' : 'as reported'}
             tip={costTip}
@@ -1334,7 +1336,7 @@ function AgentList({ project }: { project: ProjectInfo }) {
         const overrides = [a.model && `model ${modelLabel(a.model, provider)}`, a.effort && `effort ${a.effort}`, a.permissionMode && permissionLabel(provider, a.permissionMode), a.use200kContext !== undefined && `200K context ${a.use200kContext ? 'on' : 'off'}`, agentChoosesMcp(a) && `MCP servers ${agentMcpText(a)}`].filter(Boolean)
         const off = !isProviderEnabled(settings, provider)
         return (
-          <div key={a.id} className={cx('agent-list-row', off && 'off')}>
+          <div key={a.id} className={cx('agent-list-row', off && 'off')} data-agent={a.id}>
             <StatusDot live={a.live} active={project.active} />
             <Tooltip content={off ? `${providerName(provider)} is turned off in Settings → Providers` : providerName(provider)}>
               <span>
@@ -1359,7 +1361,7 @@ function AgentList({ project }: { project: ProjectInfo }) {
             </div>
             <IconButton icon="settings" title="Agent settings…" onClick={() => set({ agentSettingsFor: { project: project.path, agentId: a.id } })} />
             {a.worktree && <IconButton icon="git-merge" title={mergeBlocked(a.name, a.live?.status) ?? 'Merge…'} disabled={!!mergeBlocked(a.name, a.live?.status)} onClick={() => set({ mergeFor: { project: project.path, agentId: a.id } })} />}
-            <IconButton icon="close" title="Remove agent…" className="act-remove" onClick={() => void actions.removeAgent(project.path, a.id)} />
+            <IconButton icon="close" title="Remove agent…" className="act-remove" action="remove-agent" onClick={() => void actions.removeAgent(project.path, a.id)} />
           </div>
         )
       })}

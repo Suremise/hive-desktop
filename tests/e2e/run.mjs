@@ -19,6 +19,8 @@
 //   --repeat N      run the suites N times, stopping at the first run that fails; with --record, one record for all
 //                   of them, valid only if every run passed. For changes that could make tests flaky.
 //   --fingerprint   print the code's fingerprint and stop (to compare with a run record).
+//   --lang L[,L…]   the i18n screenshot route (i18nshots, #769) in these languages (en-XA, the pseudo-locale, when not
+//                   given): run alone, its screenshots kept as with --keep-files. Every other suite runs in English.
 //   --build         build first (npx electron-vite build), only if the build isn't from this source (build.mjs).
 //   --packaged      include the installer's suites (need npm run dist); --no-progress: don't report to Hive.
 //   --no-wait       a heavy run (more than 5 suites, or --repeat) fails at once when every test slot on this machine is
@@ -41,7 +43,7 @@ import { e2eProgress, slotWaitProgress } from '../progressReport.mts'
 import { SUITES } from './suites.mjs'
 import { affectedSuites, changedFiles, mergeBase } from './affected.mjs'
 import { CLI_LOG, fingerprint, readCliLog, realCliHomes, realCliVersions, recordJson, recordMarkdown, selectionOf } from './record.mjs'
-import { isRealCli, needsDevBuild, packagedStatus, parentSuite, parseArgs, portBase, realNotRun, repeatStatus, resultLines, selectSuites, suiteOutcome } from './runner.mjs'
+import { LANG_SUITE, isRealCli, needsDevBuild, packagedStatus, parentSuite, parseArgs, portBase, realNotRun, repeatStatus, resultLines, selectSuites, suiteOutcome } from './runner.mjs'
 import { devBuild, ensureBuild } from './build.mjs'
 import { FAILED_KEEP_MS, finishRunDirs, keepSuiteFiles, logsRootFor, markRunFailed, newRunDir, omittedLine, pruneRunDirsReleasing } from './logs.mjs'
 import { LANES, describeHolder, laneWaitLine, laneWork, waitForLane } from './lanes.mjs'
@@ -62,7 +64,7 @@ const { describeExit, windowsCodesIn } = createRequire(import.meta.url)('./windo
 const args = process.argv.slice(2)
 const opts = parseArgs(args, SUITES.map((s) => s.name))
 if (opts.error) {
-  console.error(`${opts.error}. Suites: ${SUITES.map((s) => s.name).join(', ')}`)
+  console.error(opts.error.startsWith('Unknown suite') ? `${opts.error}. Suites: ${SUITES.map((s) => s.name).join(', ')}` : opts.error)
   process.exit(2)
 }
 const { jobs } = opts
@@ -232,7 +234,12 @@ if (lane) console.log(`Lane ${lane.lane}: ports ${lane.first}–${lane.last}\n  
  * same said without the HIVE_ prefix (E2E_RUN_*), which Hive keeps in its sessions: a runner started in an agent's
  * shell inside the suite's Hive (progressreport does) knows it is inside a suite, and which port to keep clear of.
  */
-const suiteEnv = (name, port, dir) => runContext.suiteEnv({ name, port, work: dir, runDir: dir ?? lib.WORK, cliLog: dir ? join(dir, CLI_LOG) : null })
+const suiteEnv = (name, port, dir) => {
+  const env = runContext.suiteEnv({ name, port, work: dir, runDir: dir ?? lib.WORK, cliLog: dir ? join(dir, CLI_LOG) : null })
+  // --lang: the languages the i18n screenshot route photographs (it reads E2E_I18N_LANGS; the others are pinned to English).
+  if (name === LANG_SUITE && opts.lang.length) env.E2E_I18N_LANGS = opts.lang.join(',')
+  return env
+}
 /** The CLIs the suite's test copies of Hive selected (record.mjs readCliLog), read before its folder goes. */
 const suiteClis = (dir) => {
   try {

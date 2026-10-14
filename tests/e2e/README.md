@@ -16,6 +16,7 @@ npm run e2e -- <suites> --repeat 3 --build --record # three runs, stopping at th
 npm run e2e -- --all --no-wait   # a heavy run: fail at once rather than wait while two others hold the test slots
 npm run e2e -- <suites> --build --keep-files # passed suites' screenshots and files kept too, in the run's log folder (<run>\<suite>)
 npm run e2e -- --clear-dir <folder>          # empty a probe's or a suite's own folder from Node, for a rerun into the same place
+npm run e2e -- --lang en-XA,pl --build       # the i18n screenshot route (i18nshots) in these languages, its screenshots kept
 npm run dist && npm run e2e -- --packaged   # also the installed-app suites (dist/win-unpacked)
 ```
 
@@ -288,6 +289,37 @@ selects them (a change to the console's capture or recording, or to that provide
 update is the point: read what changed, fix Hive's side (or #367's advanced defaults), and when the new behaviour is
 right, record the fixture again. `contract-copilot` needs no sign-in: the real Copilot CLI runs offline against the
 scripted stand-in model.
+
+### The i18n screenshot route: every screen in another language
+
+Every suite runs Hive in English (`lib.hiveEnv` sets `HIVE_LANG=en`, #767): they find what they click by its English
+text, and numbers and dates come out the same on any Windows. Whether the window works in **another language** is
+the **i18nshots** route's (#769; #756's design, section 4): it opens each screen and photographs it in both themes, for
+a person or an agent to look at. Under the pseudo-locale (`en-XA`: English accented, longer and in brackets) any text
+still plain English was missed; under a language, text that is cut off or wraps badly shows.
+
+```bash
+npm run e2e -- --lang en-XA,pl --build   # the route alone, in these languages; the screenshots are kept
+npm run e2e -- i18nshots                 # as part of a run (the full set, or --affected): en-XA, screenshots not kept
+```
+
+- **It finds nothing by its words**, which are translated: IPC calls, the Agent API, command ids (the `menu-command`
+  event, as the menu sends) and structural hooks (`data-run`, `data-agent`, `data-action`, `data-stat`, `data-task`,
+  classes). A unit test (`tests/i18nshots.test.ts`) fails for a text, role-name, label or title locator in it.
+- **It fails when a screen can't be reached** (`FAIL pl: core/banner reached in both themes (<why>)`), or when Hive
+  doesn't show the language asked for (a code it doesn't have), **never on wording**: judging the words is for whoever
+  looks at the screenshots.
+- **Its screens are case files** in `tests/e2e/i18nshots/`, found by name: `core.cjs` first, then each area's
+  `<area>.cjs`, written by the card that translates that area, so no two cards edit the same file. A case file is
+  `{ area, screens: [{ name, open(ctx), close?(ctx) }] }`: `open()` shows the screen and resolves to the locator to
+  photograph (`null`: the whole window), or throws saying what didn't show; `close()` leaves the window as the next
+  screen needs it. `ctx` is in the header of `i18nshots.cjs`. A screen that needs a hook gets one in the component, as
+  `data-action` on `IconButton` and `data-stat` on the Usage tab's figures did.
+- **What it writes**, in its suite folder's `i18nshots-shots` (with `--lang`, or `--keep-files`, copied into the run's
+  log folder, `<run>\i18nshots\i18nshots-shots`): `<lang>\<area>-<screen>-<theme>.png`, and `reached.json`, each
+  language's screens with the screenshots taken or why one wasn't. `--lang` takes codes separated by commas (or the
+  option again), runs the route alone (with another suite, `--all` or `--affected`, the runner refuses) and keeps its
+  screenshots; without it the route photographs `en-XA`.
 
 ### The installer on a clean machine: the Sandbox checks
 

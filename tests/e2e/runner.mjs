@@ -5,21 +5,28 @@ import { createRequire } from 'module'
 
 const { exitText } = createRequire(import.meta.url)('./windowsExits.cjs')
 
-const VALUE_FLAGS = ['--jobs', '--affected', '--repeat', '--clear-dir']
+const VALUE_FLAGS = ['--jobs', '--affected', '--repeat', '--clear-dir', '--lang']
 const PLAIN_FLAGS = ['--all', '--real', '--only-real', '--record', '--fingerprint', '--build', '--packaged', '--no-progress', '--no-wait', '--pre-merge', '--keep-files']
+
+/** The suite --lang runs (#769): the i18n screenshot route, the one suite that isn't pinned to English. */
+export const LANG_SUITE = 'i18nshots'
+/** A language tag as --lang takes it (pl, pt-BR, en-XA); whether Hive has the language, the suite checks by starting it. */
+const LANG_TAG = /^[a-z]{2,3}(?:-[a-z0-9]{2,8})*$/i
 
 /** Whether a suite starts a real CLI (Claude Code, or Codex in its test home): the real tier, opt-in with --real. */
 export const isRealCli = (s) => (s.needs ?? []).some((n) => n === 'claude' || n === 'codex')
 
 /**
  * The command line: { jobs, all, affected (a base, or null), named, tier, record, fingerprint, build, packaged, noWait, preMerge } or
- * { error }. tier: 'fake' (default: no real-CLI suite unless named or, with --affected, needed), 'real' (--real: the
+ * { error }. lang: the languages --lang gives (comma-separated, or the option again) for the i18nshots route, which
+ * it runs alone (named, or nothing named) and keeps the screenshots of (keepFiles); every other suite runs in English.
+ * tier: 'fake' (default: no real-CLI suite unless named or, with --affected, needed), 'real' (--real: the
  * real tier too) or 'only' (--only-real). A flag's value is taken only when it really is one: --jobs takes a number;
  * --affected takes a base only if the next word is neither a flag nor a suite name (so `--affected board` means board,
  * plus what changed since main). Every suite name given is kept.
  */
 export function parseArgs(argv, suiteNames) {
-  const o = { jobs: 4, repeat: 1, all: false, affected: null, named: [], tier: 'fake', record: false, fingerprint: false, build: false, packaged: false, noWait: false, preMerge: false, keepFiles: false, clearDir: null }
+  const o = { jobs: 4, repeat: 1, all: false, affected: null, named: [], tier: 'fake', record: false, fingerprint: false, build: false, packaged: false, noWait: false, preMerge: false, keepFiles: false, clearDir: null, lang: [] }
   const tiers = new Set()
   for (let i = 0; i < argv.length; i++) {
     const a = argv[i]
@@ -37,6 +44,13 @@ export function parseArgs(argv, suiteNames) {
     } else if (a === '--clear-dir') {
       if (!next || next.startsWith('--')) return { error: '--clear-dir needs the folder to empty' }
       o.clearDir = next
+      i++
+    } else if (a === '--lang') {
+      const langs = (next ?? '').split(',').map((l) => l.trim()).filter(Boolean)
+      if (!next || next.startsWith('--') || !langs.length) return { error: '--lang needs a language code, or several separated by commas (en-XA,pl)' }
+      const bad = langs.filter((l) => !LANG_TAG.test(l))
+      if (bad.length) return { error: `--lang: ${bad.join(', ')} isn't a language code (pl, pt-BR, en-XA)` }
+      o.lang.push(...langs.filter((l) => !o.lang.includes(l)))
       i++
     } else if (a === '--affected') {
       const isBase = next !== undefined && !next.startsWith('--') && !suiteNames.includes(next)
@@ -63,6 +77,11 @@ export function parseArgs(argv, suiteNames) {
   if (o.all && o.affected) return { error: '--all runs every suite and --affected only some: use one of them' }
   if (tiers.size > 1) return { error: '--real adds the real tier and --only-real runs only it: use one of them' }
   o.tier = [...tiers][0] ?? 'fake'
+  if (o.lang.length) {
+    if (o.all || o.affected || tiers.size || o.named.some((n) => n !== LANG_SUITE)) return { error: `--lang runs the ${LANG_SUITE} route in those languages, alone: every other suite runs in English` }
+    o.named = [LANG_SUITE]
+    o.keepFiles = true
+  }
   if (o.named.some((n) => n.startsWith('packaged'))) o.packaged = true
   return o
 }
