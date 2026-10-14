@@ -18,6 +18,7 @@
 
 ### Card loops
 - **An agent's question for you no longer sits unseen on a card.** A builder or reviewer that needs your decision now blocks the card with its question as well as notifying you, so the card shows as blocked, the Assistant's lane watch picks it up, and the agent clears it once you decide. Before, a reviewer could ask only in a comment, which nothing flagged (#840).
+- **A review left without a verdict shows as stalled.** A reviewer that started reviewing a card and then went back to waiting on it for 15 minutes, with no verdict and no question blocking the card, now stalls it, on the board, in the Progress panel and for the Assistant's lane watch, so a question left only in a comment no longer waits unseen (#843).
 
 ### Hive Assistant
 - **Apps that follow the Assistant no longer have to read its sentences.** Each of its actions on the Agent API's event stream now says what it was (`kind`: starting a card, giving an agent a task, moving cards…) and what it was about (the project, the agent, the card or cards, the lane, the column), so a viewer such as Apiary keeps working when the sentence is reworded or translated. Nothing private is added. The API's version is now 5 (#763).

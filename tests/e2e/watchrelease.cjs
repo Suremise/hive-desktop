@@ -2,7 +2,8 @@
 // reviewer waiting for a card to arrive in Review is woken once when the card is given to another agent, and no longer
 // waits; a watch on two cards keeps one that gets blocked (#481: paused, not gone), and wakes when it is unblocked and
 // back in Review, also when the wake before told it there (#521); the card's new agent keeps its own watch; the card's history
-// says whose watch ended. Dev build, throwaway profile,
+// says whose watch ended; a card in Review stalls on a reviewer that hasn't started (#521), or that started and only
+// watches it, with no verdict (#843). Dev build, throwaway profile,
 // workspace and CLAUDE_CONFIG_DIR.
 const lib = require('./lib.cjs')
 const { _electron } = require('playwright-core')
@@ -145,6 +146,20 @@ const check = (name, ok, extra = '') => {
   await until(async () => wakes('Reviewer').some((t) => t.startsWith(`[Hive] #${c3} (Builder's card) is in Review. You review this card`)) && (await idle(reviewer.id)), 20000)
   await say(reviewer.id, `boardreview ${c3} start`)
   check('…until its review starts', !!(await until(async () => (await marker.count()) === 0, 15000)))
+
+  // #843: its review started, the reviewer goes back to watching it with no verdict and no block (a question left in a
+  // comment): stalled again, for that, once it has only watched it for 15 min (the window's clock is still 20 min on).
+  await until(() => idle(reviewer.id), 15000)
+  await say(reviewer.id, watch([c3], { changes: ['verdict'] }))
+  check('the reviewer watches the card it started reviewing', !!(await until(async () => (await live(reviewer.id))?.status === 'watching', 15000)))
+  check('…and the lane says it is stalled again', !!(await until(async () => (await marker.count()) === 1, 15000)))
+  await page.mouse.move(0, 0)
+  await marker.hover()
+  const verdictTip = page.locator('.tip', { hasText: `#${c3}: Reviewer started reviewing #${c3} but has given no verdict, and has only been watching it for 20 min.` })
+  check('…its tooltip says the review has no verdict', !!(await until(async () => (await verdictTip.count()) === 1, 5000)), (await page.locator('.tip').allInnerTexts()).join(' | '))
+  await page.screenshot({ path: path.join(lib.WORK, 'watchrelease-stalled-verdict.png') })
+  await inv('tasks:update', c3, { blocked: 'Should the icon be a bee?' })
+  check('…until its question blocks the card', !!(await until(async () => (await marker.count()) === 0, 15000)))
 
   await app.close()
   console.log(failed ? `\n${failed} FAILED` : '\nALL PASSED')

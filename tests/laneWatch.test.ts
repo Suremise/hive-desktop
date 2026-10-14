@@ -10,6 +10,7 @@ import * as electron from 'electron'
 import { LANE_CARD_CHANGES, LANE_DEFAULT_EVENTS, laneHits, laneWakeLine, readLaneCards, readLaneCondition, type LaneMark, type LaneNow } from '../src/shared/laneWatch'
 import { WAKE_MAX_BYTES, type CardChange } from '../src/shared/watch'
 import { taskWaitText } from '../src/shared/toolReplies'
+import { REVIEW_WAIT_STALL_MS } from '../src/shared/tasks'
 import { tempDir } from './tempDir'
 import { follow } from './followDoorbell'
 // The longest a wait here waits for what it waits on: a bound for a hung run, never how long it should take (#570).
@@ -450,6 +451,33 @@ describe('lane watches (main/watches.ts, #531)', async () => {
     await watches.evaluateWatches(w)
     await vi.waitFor(() => expect(st.told).toHaveLength(1), { timeout: HUNG_MS })
     expect(st.told[0]).toContain(`#${a} is stalled: "B1 isn't running."`)
+    await disposeWorkspaceService(w)
+  })
+
+  it('a review started with no verdict, its reviewer only watching the card, wakes it once it has watched for the limit (#843)', async () => {
+    const { w, alpha, home } = await open()
+    const st = fake(alpha, home)
+    const [a] = await newCards(w, 'b1', 1)
+    await lanes.startLane(w, { project: 'alpha', builder: 'b1', reviewer: 'r1', cards: [a], by: 'B1 (alpha)' })
+    await inWorkspace(w, () => tasks.updateTask(a, { column: 'review' }, agent('b1')))
+    await inWorkspace(w, () => tasks.updateTask(a, { review: 'start' }, agent('r1')))
+    // R1 asks the user in a comment, not blocking the card, and goes back to watching it (#805's reviewer, 14 Oct).
+    const since = new Date().toISOString()
+    Object.assign(sessions, { liveStates: () => [{ projectPath: alpha, agentId: 'r1', agentName: 'R1', status: 'watching', watch: { cards: [a], changes: ['verdict', 'column'], column: 'review', label: '', since, limitAt: '' } }] })
+    await watchAll(w, home, st)
+    await watches.evaluateWatches(w)
+    await watches.settled()
+    expect(st.typed).toEqual([])
+    // Its only-watching passes the limit: Hive's clock moves on (the lane tick looks again now and then).
+    vi.useFakeTimers({ toFake: ['Date'] })
+    try {
+      vi.setSystemTime(Date.parse(since) + REVIEW_WAIT_STALL_MS + 60_000)
+      await watches.evaluateWatches(w)
+      await vi.waitFor(() => expect(st.told).toHaveLength(1), { timeout: HUNG_MS })
+    } finally {
+      vi.useRealTimers()
+    }
+    expect(st.told[0]).toContain(`#${a} is stalled: "R1 started reviewing #${a} but has given no verdict, and has only been watching it for 16 min."`)
     await disposeWorkspaceService(w)
   })
 
