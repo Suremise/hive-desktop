@@ -1,7 +1,10 @@
 // Getting Hive ready for Apiary (#620): the discovery file (the API's address, no token) is written on start, cleared
 // while the Agent API is off and on quit; a viewer token made in Settings → Agent API reads every documented GET route
 // and follows the event stream, and every documented write is refused (403) with nothing changed; the stream sends the
-// new events (progress, merge slots, notices, the Assistant's actions and the agents it adds) live, without a notice's
+// new events (progress, merge slots, notices, the Assistant's actions with their kind and targets (#763: a task, a
+// message, cards added, given, moved, batched, ordered, commented and started, a lane started, joined and ended, a
+// project turned on, an agent's settings, refusals with the agent named and Hive's own reason, never the value sent)
+// and the agents it adds) live, without a notice's
 // body, and a project agent's stream only its project's; GET /v1/progress is the Progress panel's runs; nothing private
 // reaches a viewer, on the stream or in GET /v1/progress: not a message queued for a working agent, nor a wrapped
 // command's arguments (a credential) or a reporter's text; a revoked viewer is refused at once and its stream ends.
@@ -107,7 +110,7 @@ function stream(token) {
 
   // --- Discovery: the address, never a token.
   const found = await lib.until(readDiscovery, HUNG_MS)
-  check('the discovery file names the running API', found?.app === 'Hive' && found.url === BASE && found.port === PORT && found.api === 4 && typeof found.pid === 'number', JSON.stringify(found))
+  check('the discovery file names the running API', found?.app === 'Hive' && found.url === BASE && found.port === PORT && found.api === 5 && typeof found.pid === 'number', JSON.stringify(found))
   const discoveryText = fs.readFileSync(discovery, 'utf8')
   check('…and holds no token', !/token"\s*:/i.test(discoveryText) && !discoveryText.includes(apiToken), discoveryText)
   check('its health check answers', (await fetch(`${found.url}/v1/health`).then((r) => r.json())).ok === true)
@@ -128,7 +131,7 @@ function stream(token) {
   const viewer = made.token
   const as = (method, route, body) => api(method, route, body, viewer)
   const status = await as('GET', '/v1/status')
-  check('GET /v1/status says who it is: a read-only viewer of the workspace', status.status === 200 && status.body.caller?.role === 'viewer' && status.body.caller.name === 'Apiary' && status.body.caller.readOnly === true && status.body.api?.version === 4, JSON.stringify(status.body?.caller))
+  check('GET /v1/status says who it is: a read-only viewer of the workspace', status.status === 200 && status.body.caller?.role === 'viewer' && status.body.caller.name === 'Apiary' && status.body.caller.readOnly === true && status.body.api?.version === 5, JSON.stringify(status.body?.caller))
 
   // --- An agent, for the merge slot, its activity and its own token's stream.
   await page.keyboard.press('Escape')
@@ -241,6 +244,80 @@ function stream(token) {
   check("the Assistant's action arrives, without the message", !!left && !left.data.action.text.includes(SECRET), JSON.stringify(left?.data))
   const added = await api('POST', '/v1/projects/alpha/agents', { name: 'Runner' }, assistantToken)
   check('agent-added arrives for the agent the Assistant adds', added.status === 200 && !!(await seen(viewerStream, 'agent-added', (d) => d.agentId === added.body?.agent?.id)), JSON.stringify(added.body?.agent ?? added))
+
+  // --- #763: each action says what it was with fields (kind and targets), so a viewer needn't read its line.
+  const act = (test) => seen(viewerStream, 'assistant-activity', (d) => test(d.action))
+  const shown = (e) => JSON.stringify(e?.data?.action ?? viewerStream.events.filter((x) => x.type === 'assistant-activity').map((x) => x.data.action))
+  const prompted = await act((a) => a.kind === 'prompt-agent' && a.agent?.id === ann.id)
+  check('the task the Assistant gave carries kind, project and agent', prompted?.data.action.project === 'alpha' && prompted.data.action.agent.name === 'Ann' && prompted.data.action.ok === true, shown(prompted))
+  check('…its message too', left?.data.action.kind === 'message-agent' && left.data.action.project === 'alpha' && left.data.action.agent?.id === ann.id && left.data.action.agent?.name === 'Ann', shown(left))
+  check('…and the agent it added, by id', !!(await act((a) => a.kind === 'add-agent' && a.project === 'alpha' && a.agent?.id === added.body?.agent?.id && a.agent?.name === 'Runner')), shown())
+  const tourCard = await api('POST', '/v1/tasks', { title: 'Office tour', project: 'alpha' }, assistantToken)
+  const tour = tourCard.body?.number
+  check('a card it adds carries its number and column', !!(await act((a) => a.kind === 'create-task' && a.card === tour && a.column === 'todo' && a.project === 'alpha')), shown())
+  await api('PATCH', `/v1/tasks/${tour}`, { column: 'hold' }, assistantToken)
+  check('a card it moves carries the column it went to', !!(await act((a) => a.kind === 'update-task' && a.card === tour && a.column === 'hold' && a.ok)), shown())
+  await api('POST', '/v1/tasks/batch', { numbers: [tour], column: 'todo' }, assistantToken)
+  check('a batch says each card and where it went', !!(await act((a) => a.kind === 'update-tasks' && a.card === tour && a.column === 'todo' && a.ok)), shown())
+  await api('POST', '/v1/tasks/reorder', { column: 'todo', cards: [tour] }, assistantToken)
+  check('putting cards in order says the column and the cards', !!(await act((a) => a.kind === 'reorder-tasks' && a.column === 'todo' && JSON.stringify(a.cards) === JSON.stringify([tour]))), shown())
+  const started = await api('POST', `/v1/tasks/${tour}/start`, { name: 'Starter' }, assistantToken)
+  check('starting a card says the card, its project, the agent and Doing', started.status === 200 && !!(await act((a) => a.kind === 'start-task' && a.card === tour && a.project === 'alpha' && a.agent?.name === 'Starter' && typeof a.agent?.id === 'string' && a.column === 'doing')), shown())
+  const refused = await api('POST', '/v1/projects/alpha/agents/Runner/prompt', { text: `Again, ${SECRET}` }, assistantToken)
+  check('a refusal has the kind it tried, ok false, its targets', refused.status === 409 && !!(await act((a) => a.kind === 'prompt-agent' && a.ok === false && !!a.error && a.agent?.id === added.body?.agent?.id)), shown())
+  // A refusal whose error quotes what was sent (a setting's value): the stream gets Hive's own reason, the agent named.
+  const badSetting = await api('PATCH', `/v1/projects/alpha/agents/${ann.id}`, { mcpServers: [`${SECRET}/invalid`] }, assistantToken)
+  check("a refused setting change says why in Hive's words, not with the value sent", badSetting.status === 400 && !!(await act((a) => a.kind === 'update-agent' && a.ok === false && a.error === 'The request was invalid' && a.agent?.id === ann.id)), shown())
+  // The agents Hive knows before a change are named on it, a refusal's too.
+  const desk = (await api('POST', '/v1/tasks', { title: 'Desk work', project: 'alpha', agent: 'Ann' }, assistantToken)).body?.number
+  check('a card added for an agent names it', !!(await act((a) => a.kind === 'create-task' && a.card === desk && a.agent?.id === ann.id && a.agent?.name === 'Ann')), shown())
+  const loose = (await api('POST', '/v1/tasks', { title: 'Loose card', project: 'alpha' }, assistantToken)).body?.number
+  await api('PATCH', `/v1/tasks/${loose}`, { agent: ann.id }, assistantToken)
+  check('a card given to an agent names it', !!(await act((a) => a.kind === 'update-task' && a.card === loose && a.ok && a.agent?.id === ann.id)), shown())
+  await api('POST', `/v1/tasks/${loose}/comments`, { text: `Note ${SECRET}` }, assistantToken)
+  check('a comment says its card, not what it says', !!(await act((a) => a.kind === 'comment-task' && a.card === loose && a.ok)), shown())
+  await inv('settings:update', { assistant: { control: 'look' } })
+  const lookStart = await api('POST', `/v1/tasks/${loose}/start`, { agent: ann.id }, assistantToken)
+  check('a card start refused by Control names the agent it was for', lookStart.status === 403 && !!(await act((a) => a.kind === 'start-task' && a.ok === false && a.card === loose && a.agent?.id === ann.id && a.error === 'Not allowed by Settings → Assistant → Control')), shown())
+  await inv('settings:update', { assistant: { control: 'projects' } })
+  const lane = await api('POST', '/v1/lanes', { project: 'alpha', builder: 'Ann', cards: [desk] }, assistantToken)
+  const laneId = lane.body?.lane?.id
+  check('a lane it starts says its id, cards and builder', lane.status === 200 && !!(await act((a) => a.kind === 'lane-start' && a.lane === laneId && JSON.stringify(a.cards) === JSON.stringify([desk]) && a.agent?.id === ann.id)), shown())
+  const joined = await api('POST', '/v1/lanes/join', { project: 'alpha', builder: 'Ann', reviewer: 'Runner' }, assistantToken)
+  check('a reviewer joining it is named, with the lane', joined.status === 200 && !!(await act((a) => a.kind === 'lane-join' && a.lane === laneId && a.agent?.name === 'Runner' && a.ok)), shown())
+  await api('POST', `/v1/lanes/${laneId}/end`, { abandoned: true }, assistantToken)
+  check('…and ending it', !!(await act((a) => a.kind === 'lane-end' && a.lane === laneId && a.ok)), shown())
+  await api('POST', '/v1/projects/beta/activate', {}, assistantToken)
+  check('turning a project on names it', !!(await act((a) => a.kind === 'activate-project' && a.project === 'beta' && a.ok)), shown())
+  await api('PATCH', `/v1/projects/alpha/agents/${ann.id}`, { effort: '' }, assistantToken)
+  check("changing an agent's settings names it", !!(await act((a) => a.kind === 'update-agent' && a.ok && a.agent?.id === ann.id)), shown())
+  // An agent added whose start then fails, the error carrying a private value (round 3: a lower-level error can quote
+  // anything): the stream says it in Hive's own words; the Assistant's panel keeps the error.
+  const LAUNCH_SECRET = 'PRIVATE_LAUNCH_ERROR_763'
+  const mainFs = (arg) => app.evaluate((_main, a) => {
+    const fsp = process.mainModule.require('original-fs/promises')
+    globalThis.__viewerRealWriteFile ??= fsp.writeFile
+    if (a === null) fsp.writeFile = globalThis.__viewerRealWriteFile
+    else fsp.writeFile = async (file, ...rest) => {
+      if (/[\\/]launches[\\/]/i.test(String(file))) throw new Error(`Launch setup refused: ${a}`)
+      return globalThis.__viewerRealWriteFile.call(fsp, file, ...rest)
+    }
+  }, arg)
+  let failsToStart
+  try {
+    await mainFs(LAUNCH_SECRET)
+    failsToStart = await api('POST', '/v1/projects/alpha/agents', { name: 'FailsToStart', start: true }, assistantToken)
+  } finally {
+    await mainFs(null)
+  }
+  const failedAdd = await act((a) => a.kind === 'add-agent' && a.agent?.name === 'FailsToStart')
+  check("an agent added whose start failed is said in Hive's words, not with the error", failsToStart?.status === 200 && failedAdd?.data.action.ok === true && failedAdd.data.action.text === "Added FailsToStart to alpha; it didn't start", shown(failedAdd))
+  check('…nothing of the error is on the stream', !viewerStream.events.some((e) => JSON.stringify(e.data).includes(LAUNCH_SECRET)))
+  check("…and the Assistant's panel keeps it", (await inv('assistant:actions')).some((a) => a.kind === 'add-agent' && a.text.includes(LAUNCH_SECRET)))
+  const kinds = viewerStream.events.filter((e) => e.type === 'assistant-activity').map((e) => e.data.action)
+  check('every action on the stream has a kind', kinds.length > 0 && kinds.every((a) => typeof a.kind === 'string'), shown())
+  const FIELDS = ['id', 'at', 'text', 'ok', 'error', 'revertOf', 'kind', 'project', 'agent', 'toAgent', 'card', 'cards', 'lane', 'column', 'settingId']
+  check('…and only the documented fields', kinds.every((a) => Object.keys(a).every((k) => FIELDS.includes(k))), shown())
   // Real wrapped commands, as an agent runs them: one with no title of its own, so its command line is its title, longer
   // than a title (120) and a command (200) are kept, the credential early in its arguments (round 2's finding); one with
   // a title of its own.

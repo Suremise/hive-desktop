@@ -141,7 +141,7 @@ export const DEFAULT_WORKSPACE_CONFIG: WorkspaceConfig = {
 
 export const DEFAULT_PROJECT_CONFIG: ProjectConfig = {
   version: 2,
-  mcp: { disabled: [] },
+  mcp: { disabled: [], enabled: [] },
   chime: 'inherit',
   defaultProvider: 'inherit',
   providers: {},

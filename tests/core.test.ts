@@ -315,7 +315,8 @@ describe('providers migration', () => {
     const { migrateProjectConfig, withoutSkillSwitches, DEFAULT_PROJECT_CONFIG, DEFAULT_WORKSPACE_CONFIG } = await import('../src/shared/defaults')
     const project = migrateProjectConfig({ version: 2, providers: {}, layout: 'auto', skills: { disabled: ['handover'] }, mcp: { disabled: ['github'] } })
     expect('skills' in project).toBe(false)
-    expect(mergeDefaults(structuredClone(DEFAULT_PROJECT_CONFIG), project).mcp).toEqual({ disabled: ['github'] })
+    // A project.json from before #713 has chosen no server on itself: its disabled list is kept, its enabled list empty.
+    expect(mergeDefaults(structuredClone(DEFAULT_PROJECT_CONFIG), project).mcp).toEqual({ disabled: ['github'], enabled: [] })
     const ws = mergeDefaults(structuredClone(DEFAULT_WORKSPACE_CONFIG), withoutSkillSwitches({ version: 1, skills: { enabled: ['handover'] }, mcp: { enabled: ['github'] } }))
     expect(ws).toEqual({ version: 1, mcp: { enabled: ['github'] } })
   })

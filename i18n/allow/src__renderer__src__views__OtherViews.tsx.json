@@ -17,7 +17,6 @@
   "jsx-text||Choose your coding agents (Claude Code, …)": 1,
   "jsx-text||Documentation": 1,
   "jsx-text||Each subfolder is a project. Toggle the ones you're working on; each gets its own coding agents, running side by side.": 1,
-  "jsx-text||Enabled": 1,
   "jsx-text||Every session started from Hive gets a": 1,
   "jsx-text||Help": 1,
   "jsx-text||Hive chimes and notifies you when an agent finishes or needs input — even from the system tray.": 1,

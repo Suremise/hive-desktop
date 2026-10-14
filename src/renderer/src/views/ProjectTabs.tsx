@@ -5,7 +5,7 @@ import { KeybindingsEditor } from '../components/Keybindings'
 import type { CompactionEvent, GitDiff, GitStatus, McpServerInfo, MemorySource, PlanLimit, ProjectConfig, ProjectInfo, ProviderId, SessionListItem, SessionUsage, SkillInfo, UnusedWorktree } from '@shared/types'
 import { unpricedModel, unpricedText, usesOwnPrices } from '@shared/prices'
 import { formatDateTime } from '@shared/dates'
-import { agentChoosesMcp, agentGetsMcp, agentMcpText } from '@shared/agentMcp'
+import { agentChoosesMcp, agentGetsMcp, agentMcpText, serverOnIn } from '@shared/agentMcp'
 import { gitFixText } from '@shared/gitTool'
 import { UnusedHeading, UnusedWorkNotice, UnusedWorktreesLine, UnusedWorktreesSection, useUnusedWorktrees } from '../components/UnusedWorktrees'
 import { PERIODS, activeIn, costText, dailyTotals, money, periodFrom, sumUsage, type DayTotal, type Period, type Totals } from '@shared/usageTotals'
@@ -39,6 +39,8 @@ import { InitRepoButton } from '../components/InitRepo'
 import { MergeSlotList, projectSlots, useMergeSlots } from '../components/MergeSlots'
 import { cx, formatDuration, formatNumber, formatTokens, resetsIn, timeAgo } from '../util'
 import { useLiveUsage, useNow } from '../usage'
+import { tr } from '@shared/i18n'
+import { msg } from '@shared/i18n/msg'
 
 // ---------------------------------------------------------------------------
 // Overview
@@ -1007,7 +1009,7 @@ export function MemoryTab({ project }: { project: ProjectInfo }) {
 function ChangesApplyNote({ project }: { project: ProjectInfo }) {
   return (
     <p className="hint">
-      Changes apply to new sessions{project.live ? ' — restart the running session to apply them' : ''}. Items must be enabled in the workspace before a project can use them.
+      Changes apply to new sessions{project.live ? ' — restart the running session to apply them' : ''}.
     </p>
   )
 }
@@ -1178,11 +1180,6 @@ export function ProjectMcpTab({ project }: { project: ProjectInfo }) {
   const { load: loadScoped } = loaded
   const load = useCallback(() => loadScoped(wsPath, () => call('mcp:list')), [wsPath, loadScoped])
   useEffect(load, [load, version])
-  const disabled = new Set(project.config.mcp.disabled)
-  const toggle = async (name: string, enabled: boolean): Promise<void> => {
-    await actions.attempt('Could not update server', () => call('mcp:setProject', project.path, name, enabled))
-    await actions.refreshWorkspace()
-  }
   const hiveOn = !!(settings?.agentApi.enabled && settings.agentApi.provideHiveMcp && api?.running)
   // Which agents get a server, once any agent has a choice of its own (#537, Agent Settings → MCP servers).
   const choosing = project.agents.some((a) => agentChoosesMcp(a))
@@ -1195,6 +1192,7 @@ export function ProjectMcpTab({ project }: { project: ProjectInfo }) {
     <div className="scroll-page">
       <div className="page-narrow">
         <h2 className="section">Workspace MCP servers</h2>
+        <p className="hint">{tr(msg({ id: 'mcp.tab.hint', defaultMessage: "Every MCP server in the workspace is available here: turn on the ones this project's agents need. A server on for all projects is on here unless you turn it off.", description: "Under Workspace MCP servers in a project's MCP tab." }))}</p>
         <ChangesApplyNote project={project} />
         {error && servers && <StaleNote what="the workspace's MCP servers" error={error} at={loaded.at} onRetry={load} />}
         {!servers ? (
@@ -1212,19 +1210,19 @@ export function ProjectMcpTab({ project }: { project: ProjectInfo }) {
         ) : (
           <div className="toggle-list">
             {servers.map((m) => {
-              const on = m.globallyEnabled && !disabled.has(m.name)
+              const on = serverOnIn(m, project.config.mcp)
               const given = givenTo(m.name)
               return (
-                <div key={m.name} className={cx('toggle-item', !m.globallyEnabled && 'disabled')}>
+                <div key={m.name} className={cx('toggle-item', !on && 'disabled')} data-mcp={m.name}>
                   <Icon name={m.def?.url ? 'globe' : 'plug'} />
                   <div className="ti-text">
                     <div className="ti-name">
-                      {m.name} {!m.globallyEnabled && <span className="badge">disabled in workspace</span>} {m.error && <span className="badge error">invalid</span>}
+                      {m.name} <span className="badge">{tr(msg({ id: 'mcp.tab.workspaceBadge', defaultMessage: 'workspace', description: "A badge on a server in a project's MCP tab: it is one of the workspace's servers." }))}</span> {m.globallyEnabled && <span className="badge">{tr(msg({ id: 'mcp.tab.allBadge', defaultMessage: 'on for all projects', description: "A badge on a server in a project's MCP tab: it is on in every project unless one turns it off." }))}</span>} {m.error && <span className="badge error">invalid</span>}
                     </div>
                     <div className="ti-desc">{m.error ?? m.def?.description ?? m.def?.command}</div>
                     {on && given && <div className="ti-desc">{given}</div>}
                   </div>
-                  <Switch checked={on} disabled={!m.globallyEnabled || !!m.error} onChange={(v) => void toggle(m.name, v)} />
+                  <Switch checked={on} disabled={!!m.error} label={tr(msg({ id: 'mcp.tab.switch', defaultMessage: '{name} on in {project}', description: "A server's switch in a project's MCP tab, for screen readers. {name} is the server, {project} the project." }), { name: m.name, project: project.name })} onChange={(v) => void actions.setMcpServerInProject(project, m, v)} />
                 </div>
               )
             })}
@@ -1233,7 +1231,7 @@ export function ProjectMcpTab({ project }: { project: ProjectInfo }) {
         {project.unmanagedMcp.length > 0 && (
           <>
             <h2 className="section">Defined by the project (disabled)</h2>
-            <p className="hint">These servers are in the project's own agent config (such as .mcp.json). Hive starts sessions with only workspace servers, so they stay disabled until copied to the workspace.</p>
+            <p className="hint">{tr(msg({ id: 'mcp.tab.projectDefined', defaultMessage: "These servers are in the project's own agent config (such as .mcp.json). Hive starts sessions with only workspace servers, so they stay disabled until copied to the workspace, which turns them on here.", description: "Under Defined by the project in a project's MCP tab. Keep .mcp.json as it is." }))}</p>
             <div className="toggle-list">
               {project.unmanagedMcp.map((n) => (
                 <div key={n} className="toggle-item disabled">

@@ -808,8 +808,8 @@ export function registerIpc(getAppInfo: () => ReturnType<HiveRequests['app:info'
       emit({ type: 'skills-changed' })
       workspace.scheduleRefresh()
     },
-    'mcp:setProject': async (p, name, enabled) => {
-      await mcp.setMcpProject(workspace.assertProject(p), name, enabled)
+    'mcp:setProject': async (p, name, enabled, expected) => {
+      await mcp.setMcpProject(workspace.assertProject(p), name, enabled, expected)
       emit({ type: 'skills-changed' })
     },
     'mcp:create': async (name) => {
@@ -829,8 +829,9 @@ export function registerIpc(getAppInfo: () => ReturnType<HiveRequests['app:info'
       emit({ type: 'skills-changed' })
       workspace.scheduleRefresh()
     },
-    'mcp:importFromProject': async (p, names) => {
-      const imported = await mcp.importFromProject(workspace.assertProject(p), names)
+    'mcp:projectServers': (p) => mcp.projectMcpServers(workspace.assertProject(p)),
+    'mcp:importFromProject': async (p, names, shown) => {
+      const imported = await mcp.importFromProject(workspace.assertProject(p), names, shown)
       emit({ type: 'skills-changed' })
       workspace.scheduleRefresh()
       return imported
@@ -845,8 +846,10 @@ export function registerIpc(getAppInfo: () => ReturnType<HiveRequests['app:info'
       return r.canceled || !r.filePaths[0] ? null : r.filePaths[0]
     },
     'mcp:previewFile': (file) => mcp.previewMcpFile(file),
-    'mcp:addFromFile': async (file, name, replace) => {
-      const m = await mcp.addMcpFromFile(file, name, replace)
+    'mcp:addFromFile': async (file, name, replace, turnOn, shown) => {
+      // A project to turn it on in is one of this window's workspace's.
+      const on = turnOn && typeof turnOn === 'object' ? { project: workspace.assertProject(turnOn.project) } : turnOn === 'all' ? 'all' : 'none'
+      const m = await mcp.addMcpFromFile(file, name, replace, on, typeof shown === 'string' ? shown : undefined)
       emit({ type: 'skills-changed' })
       workspace.scheduleRefresh()
       return m

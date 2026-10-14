@@ -727,17 +727,28 @@ MCP servers give agents extra tools. Each server is a JSON file in `Workspace/.h
 }
 ```
 
-Enable servers in the MCP view, and turn them off per project in the project's **MCP** tab. Sessions of every provider use **only** the servers Hive enables. If a project has its own `.mcp.json` (or, for Codex, `.codex/config.toml` servers), Hive tells you which of its servers aren't in the workspace and offers to copy them there; until then they stay disabled.
-
 Reference secrets with environment variables (`${NAME}`), never literal values — Hive warns when a definition looks like it contains one. Sessions get the environment Hive was started with, so after setting a variable (for example in Windows' *Edit environment variables for your account*), quit Hive completely, including from the tray, and open it again.
 
 A server can be a program Hive starts (`command`, `args`, `env`, as above) or one reached over HTTP (`"type": "http"`, `"url"` and optional `"headers"`), the same fields as in Claude Code's `.mcp.json`. To keep a server's own code with the workspace, put it in a folder next to its definition, for example `.hive/mcp/notes/server.js`, and refer to it as `${HIVE_MCP_DIR}`, which Hive replaces with the path of the `.hive/mcp` folder: `"args": ["${HIVE_MCP_DIR}/notes/server.js"]`. Keep build output and `node_modules` out of git there.
 
 A server you add or change is used by sessions started afterwards; restart a running session to give it the change.
 
+### Turning servers on where they're needed
+
+A server in the workspace is **available** to every project, and runs only in the projects where it is **on**, so a big server you need in one project doesn't fill every other project's agents' context with its tools:
+
+- **In a project:** its **MCP** tab lists every workspace server with a switch. Turn on the ones that project's agents need.
+- **In all projects:** the switch beside a server in the MCP view (**All projects** in the server's own view) turns it on everywhere. A project can still turn it off in its **MCP** tab, and a project's own choice stays when you turn all projects on or off.
+
+Each server in the MCP view says where it is on ("On in Amberlight", "On in all projects", "Not on in any project"). Turning a server on shows what it runs and asks first. Sessions of every provider use **only** the servers on in their project.
+
+Servers you had turned on before this change stay on where they were: nothing changes until you change it.
+
+If a project has its own `.mcp.json` (or, for Codex, `.codex/config.toml` servers), Hive tells you which of its servers aren't in the workspace and offers to copy them there; until then they stay disabled. **Copy to workspace** shows what each runs, then copies it and turns it on in that project straight away (other projects can turn it on in their **MCP** tab).
+
 ### Giving a server to some agents only
 
-By default every agent in a project gets all of the project's servers. To keep a server's tools away from agents that don't need it (each server's tools take up room in an agent's context), open the agent's settings (right-click its tab → **Agent Settings…**) and under **MCP servers** choose **Only these**, then untick the servers it shouldn't have. For example, a release-testing agent can have a sandbox server that the builders don't. Choosing **Only these** starts with every server ticked, so nothing changes until you untick one; **All of the project's** puts it back.
+By default every agent in a project gets all the servers on in its project. To keep a server's tools away from agents that don't need it (each server's tools take up room in an agent's context), open the agent's settings (right-click its tab → **Agent Settings…**) and under **MCP servers** choose **Only these**, then untick the servers it shouldn't have. For example, a release-testing agent can have a sandbox server that the builders don't. Choosing **Only these** starts with every server ticked, so nothing changes until you untick one; **All of the project's** puts it back.
 
 - Hive's own `hive` server is always given, whatever you choose.
 - An agent with **Only these** doesn't get a server enabled later: tick it in its settings. One with **All** gets it.
@@ -752,7 +763,7 @@ By default every agent in a project gets all of the project's servers. To keep a
 - a **`.json`** definition, in the format above: it becomes `.hive/mcp/<name>.json`;
 - a **`.zip`** of a server's folder: its code is unpacked to `.hive/mcp/<name>/` and its definition becomes `.hive/mcp/<name>.json`. The definition is a file named `hive-mcp.json` (or `hive-mcp.example.json`) at the top of the zip, or inside one folder at its top. It refers to the server's code through `${HIVE_MCP_DIR}`, for example `"args": ["${HIVE_MCP_DIR}/notes/server.js"]` for a zip of a `notes` folder holding `hive-mcp.json` and `server.js`. Added under another name, Hive changes those references to the new folder.
 
-Before adding it, Hive shows the name it will have (the file's or the folder's, which you can change) and **what it runs**: the command and its arguments, or the address it connects to, and the names of its environment variables and headers (a `${NAME}` reference shown as itself, never a value). A name already in use asks whether to **Replace** that server (the old one goes to the Recycle Bin) or choose another name. The server is added **turned off**: it runs nothing until you enable it, and enabling a server shows what it runs again and asks first. A server's view shows what it runs above its definition, and deleting a server added from a `.zip` also moves its folder to the Recycle Bin.
+Before adding it, Hive shows the name it will have (the file's or the folder's, which you can change) and **what it runs**: the command and its arguments, or the address it connects to, and the names of its environment variables and headers (a `${NAME}` reference shown as itself, never a value). A name already in use asks whether to **Replace** that server (the old one goes to the Recycle Bin) or choose another name. **Turn on for** says where it runs: the project selected in Hive (the default), **All projects**, or **None yet** (turn it on later in a project's **MCP** tab). Replacing a server turns the new one on only where you choose, even where the old one was on. Turning a server on later shows what it runs again and asks first. A server's view shows what it runs above its definition, and deleting a server added from a `.zip` also moves its folder to the Recycle Bin.
 
 Nothing in the file runs while it's added. Hive refuses a zip with files that would land outside the server's folder (`..`, a drive or a leading `/`), names Windows can't hold, links, more than 5,000 files or more than 200 MB unpacked, and a definition without a `command` or `url`.
 

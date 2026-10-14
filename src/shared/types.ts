@@ -1,6 +1,7 @@
 // Types shared by the main process, preload bridge and renderer.
 
 import type { AvOffer } from './antivirus'
+import type { ActivityTarget } from './assistantActivity'
 import type { AttachmentKind } from './attachments'
 import type { StartFailure } from './startFailure'
 import type { TipsState } from './tips'
@@ -246,14 +247,17 @@ export interface AssistantSettings {
 export type AssistantControl = 'look' | 'agents' | 'projects'
 
 /** Something the Hive Assistant did (or tried), for the list in its panel and hive.log. */
-export interface AssistantAction {
+/** Also its kind and targets (#763, assistantActivity.ts): what the event stream gives viewers instead of the line. */
+export interface AssistantAction extends Partial<ActivityTarget> {
   id: string
   at: string
   /** One line, e.g. "Started Agent 2 in hive". */
   text: string
   ok: boolean
-  /** Why it failed or was refused. */
+  /** Why it failed or was refused, in full (its panel). */
   error?: string
+  /** Why, as the event stream says it (#763): Hive's own short words, never the error's text (publicReason). */
+  reason?: string
   /** A setting it changed (#186): old → new, which the list's Revert puts back. */
   setting?: AssistantSettingChange
   /** The user reverted that change (this action's id): the list marks the change as reverted. */
@@ -501,6 +505,7 @@ export interface WorkspaceConfig {
   lastPath?: string
   /** The last project rename (#514, `project-names.json`'s number) its hidden and removed projects follow. */
   renamesApplied?: number
+  /** The MCP servers on for all projects (#713): every project has them on unless it turned one off itself. */
   mcp: { enabled: string[] }
   /** Project folders Hive leaves out (Hide, or Remove from Hive while the folder is still in the workspace), by folder name. */
   hiddenProjects?: HiddenProject[]
@@ -746,7 +751,11 @@ export interface ProjectConfig {
   id?: string
   /** Project-scoped shortcut overrides (project, session and agent commands), over the global ones. */
   keybindings?: KeybindingOverrides
-  mcp: { disabled: string[] }
+  /**
+   * The workspace's MCP servers this project turned on or off itself (#713, its MCP tab). Its own choice wins; a server
+   * it hasn't chosen is on when the workspace has it on for all projects (mcpOnInProject).
+   */
+  mcp: { disabled: string[]; enabled: string[] }
   chime: 'inherit' | 'on' | 'off'
   /** The provider new agents get (Add Agent's quick add); inherit uses the global default. */
   defaultProvider: Inherit<ProviderId>
@@ -1520,6 +1529,7 @@ export interface McpServerInfo {
   path: string
   def: McpServerDef | null
   error?: string
+  /** On for all projects (#713): each project has it on unless it turned it off. Else only where a project turned it on. */
   globallyEnabled: boolean
   secretWarnings: string[]
   /** What it runs, shown before it is enabled (#550): the command or URL, folder, environment and header names. */
@@ -1545,6 +1555,22 @@ export interface McpFileServer {
   files: number
   /** A server of this name exists already. */
   exists: boolean
+  /** Which copy of the file this is (its bytes): adding it turned on carries it, refused if the file has changed since (#713). */
+  hash: string
+}
+
+/**
+ * Where a server added to the workspace is turned on (#713): in all projects, in one project (its path), or in none
+ * yet. Servers are available to every project and on only where turned on.
+ */
+export type McpTurnOn = 'all' | 'none' | { project: string }
+
+/** A server a project defines in its own config (.mcp.json…), as copying it to the workspace would add it. */
+export interface McpProjectServer {
+  name: string
+  def: McpServerDef
+  runs: string[]
+  secretWarnings: string[]
 }
 
 export interface CompactionEvent {

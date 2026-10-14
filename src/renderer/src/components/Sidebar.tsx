@@ -19,6 +19,8 @@ import { AssistantSidePanel } from './AssistantView'
 import { BoardPanel } from './Board'
 import { WorkspaceOverviewPanel } from '../views/WorkspaceOverview'
 import { PerformancePanel } from '../views/Performance'
+import { tr } from '@shared/i18n'
+import { msg } from '@shared/i18n/msg'
 
 /** Width of the compact Projects rail, and how narrow a drag has to go before the sidebar snaps to it. */
 const RAIL_WIDTH = 48
@@ -677,7 +679,7 @@ function McpPanel() {
     <>
       <div className="pane-header">
         MCP Servers
-        <InfoTip text="MCP servers deployed to the workspace (.hive/mcp). Enable them for all projects here; turn them off per project in the project's MCP tab. Changes apply to new sessions." />
+        <InfoTip text="MCP servers deployed to the workspace (.hive/mcp) are available to every project and run only where they are on: turn one on in a project's MCP tab, or for all projects with its switch here. Changes apply to new sessions." />
         <div className="actions">
           <IconButton icon="add" title="New MCP Server…" onClick={() => void create()} />
           <IconButton icon="file-add" title="Add MCP Server from File (.json or .zip)…" onClick={() => void actions.addMcpServerFromFile().then((m) => m && load())} />
@@ -703,12 +705,23 @@ function McpPanel() {
                 <div className="desc" style={{ whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
                   {m.error ?? m.def?.description ?? m.def?.command ?? m.def?.url}
                 </div>
+                {!m.error && (
+                  <div className="desc mcp-where" style={{ whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
+                    {actions.mcpWhereText(m, workspace.projects)}
+                  </div>
+                )}
               </div>
               <div className="row-actions" onClick={(e) => e.stopPropagation()}>
                 <IconButton icon="trash" title="Delete server" onClick={() => void actions.deleteMcpServer(m.name)} />
               </div>
-              <Tooltip content={m.globallyEnabled ? 'Enabled for all projects (new sessions). Click to disable.' : 'Disabled. Click to enable for all projects (new sessions).'}>
-                <Switch small checked={m.globallyEnabled} disabled={!!m.error} onChange={(v) => void actions.setMcpServerEnabled(m, v).then(load)} />
+              <Tooltip
+                content={
+                  m.globallyEnabled
+                    ? tr(msg({ id: 'mcp.list.allOnTip', defaultMessage: 'On for all projects (new sessions), except projects that turned it off. Click to turn it off for all projects: projects that turned it on themselves keep it.', description: "The tooltip of a server's switch in the MCP view while it is on for all projects." }))
+                    : tr(msg({ id: 'mcp.list.allOffTip', defaultMessage: "Click to turn it on for all projects (new sessions). To use it in one project, turn it on in that project's MCP tab.", description: "The tooltip of a server's switch in the MCP view while it isn't on for all projects." }))
+                }
+              >
+                <Switch small checked={m.globallyEnabled} disabled={!!m.error} label={tr(msg({ id: 'mcp.list.allSwitch', defaultMessage: '{name}: on for all projects', description: "A server's switch in the MCP view, for screen readers. {name} is the server." }), { name: m.name })} onChange={(v) => void actions.setMcpServerEnabled(m, v).then(load)} />
               </Tooltip>
             </div>
           ))}

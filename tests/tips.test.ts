@@ -60,7 +60,7 @@ describe('the tips', () => {
     expect(new Set(TIPS.map((x) => x.id)).size).toBe(TIPS.length)
     for (const tip of TIPS) {
       expect(TIP_GROUPS).toContain(tip.group)
-      expect(tip.text.length, tip.id).toBeLessThanOrEqual(260)
+      expect((typeof tip.text === 'string' ? tip.text : tip.text.defaultMessage).length, tip.id).toBeLessThanOrEqual(260)
       if (tip.docs) expect(headings.has(tip.docs), `${tip.id}: "${tip.docs}"`).toBe(true)
     }
   })
