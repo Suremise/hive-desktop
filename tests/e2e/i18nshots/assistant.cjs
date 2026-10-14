@@ -6,6 +6,9 @@
 // the i18nshots route (#756's design, section 4) with locale-independent means only: IPC calls and failures
 // (HIVE_TEST_FAIL_IPC), command ids and structural hooks (classes, icons, data-path), never English text. See
 // tests/e2e/i18nshots.cjs for ctx.
+const fs = require('fs')
+const path = require('path')
+
 /** Waits for a locator to be on the page; throws saying what didn't show. */
 async function shown(ctx, locator, what) {
   if (!(await ctx.lib.until(async () => (await locator.count()) > 0, ctx.hungMs))) throw new Error(`${what} did not show`)
@@ -95,11 +98,35 @@ async function rail(ctx) {
 
 // --- The Assistant view and its modes.
 
-/** The Assistant view: what it has used, its modes, its conversations. */
+/** The modes Hive ships, by their files (resources/personas): their names are the window's, their files Hive's. */
+const SHIPPED_MODES = ['coordinator', 'planner', 'qa-triager', 'release-manager']
+
+/** A mode's name as its row shows it (the badges after it aside). */
+const modeName = (ctx, id) => ctx.page.locator(`.sidebar .persona-row[data-persona="${id}"] .label`).first().evaluate((el) => el.firstChild?.textContent ?? '')
+
+/** A mode file's own name (its front matter). */
+const fileName = (ctx, id) => /^name:\s*(.+)$/m.exec(fs.readFileSync(path.join(ctx.workspace, '.hive', 'personas', `${id}.md`), 'utf8'))?.[1].trim()
+
+/**
+ * The Assistant view: what it has used, its modes (one of the user's own among them), its conversations. Under the
+ * pseudo-locale the shipped modes' names are translated while the user's keeps its own, and no file changes (#806).
+ */
 async function assistantView(ctx) {
+  const own = await ctx.inv('personas:create', 'Night owl')
   await ctx.command('view.assistant')
   await shown(ctx, ctx.page.locator('.sidebar .assistant-summary'), 'the Assistant view')
-  await shown(ctx, ctx.page.locator('.sidebar .persona-row'), 'its modes')
+  await shown(ctx, ctx.page.locator(`.sidebar .persona-row[data-persona="${own.id}"]`), 'its modes, with the new one')
+  if (ctx.lang === 'en-XA') {
+    for (const id of SHIPPED_MODES) {
+      const name = await modeName(ctx, id)
+      if (!/^\[.*\]$/.test(name)) throw new Error(`the shipped mode ${id} shows as ${JSON.stringify(name)}, not in the window's language`)
+    }
+    const ownName = await modeName(ctx, own.id)
+    if (ownName !== 'Night owl') throw new Error(`the user's mode shows as ${JSON.stringify(ownName)}, not its own name`)
+  }
+  const files = [...SHIPPED_MODES, own.id].map((id) => fileName(ctx, id))
+  // The names the files keep, whatever the window's language.
+  if (JSON.stringify(files) !== JSON.stringify(['Coordinator', 'Planner', 'QA triager', 'Release manager', 'Night owl'])) throw new Error(`the mode files' names changed: ${JSON.stringify(files)}`)
   return windowShot()
 }
 

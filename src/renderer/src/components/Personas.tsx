@@ -5,7 +5,7 @@ import { call } from '../api'
 import { clearEditorDraftsUnder } from '../editorDrafts'
 import { confirm, prompt, set, useStore } from '../store'
 import { cx } from '../util'
-import { choosePersona, usePersonas } from './Assistant'
+import { choosePersona, personaName, usePersonas } from './Assistant'
 import { DocEditor } from './DocEditor'
 import { Icon, IconButton, Tooltip } from './ui'
 import { msg, tr } from '@shared/i18n'
@@ -64,7 +64,7 @@ export async function createPersona(): Promise<void> {
 }
 
 async function deletePersona(p: PersonaInfo): Promise<void> {
-  const ok = await confirm({ title: tr(M.deleteTitle, { name: p.name }), message: tr(M.deleteMessage, { file: `${p.id}.md`, bundled: p.bundled ? 'yes' : 'no' }), confirmLabel: tr(M.delete), danger: true })
+  const ok = await confirm({ title: tr(M.deleteTitle, { name: personaName(p) }), message: tr(M.deleteMessage, { file: `${p.id}.md`, bundled: p.bundled ? 'yes' : 'no' }), confirmLabel: tr(M.delete), danger: true })
   if (!ok) return
   if (!(await actions.attempt(tr(M.deleteFailed), () => call('personas:delete', p.id).then(() => true)))) return
   clearEditorDraftsUnder(p.path)
@@ -73,7 +73,7 @@ async function deletePersona(p: PersonaInfo): Promise<void> {
 
 async function restorePersona(p: PersonaInfo): Promise<void> {
   if (p.bundled === 'changed') {
-    const ok = await confirm({ title: tr(M.revertTitle, { name: p.name }), message: tr(M.revertMessage), confirmLabel: tr(M.revert) })
+    const ok = await confirm({ title: tr(M.revertTitle, { name: personaName(p) }), message: tr(M.revertMessage), confirmLabel: tr(M.revert) })
     if (!ok) return
   }
   const r = await actions.attempt(tr(M.restoreFailed), () => call('personas:restore', p.id))
@@ -92,11 +92,11 @@ export function PersonaList() {
   return (
     <>
       {personas.map((p) => (
-          <div key={p.id} className={cx(/* i18n-ignore: class names */ 'row tall persona-row', selected === p.path && 'selected', p.bundled === 'missing' && 'missing')} onClick={() => set({ selectedPersona: p.path, assistantSection: 'personas' })}>
+          <div key={p.id} className={cx(/* i18n-ignore: class names */ 'row tall persona-row', selected === p.path && 'selected', p.bundled === 'missing' && 'missing')} data-persona={p.id} onClick={() => set({ selectedPersona: p.path, assistantSection: 'personas' })}>
             <span className="persona-icon">{p.icon || '🐝'}</span>
             <div style={{ flex: 1, minWidth: 0 }}>
               <div className="label">
-                {p.name}
+                {personaName(p)}
                 {p.id === inUse && p.bundled !== 'missing' && <span className="badge success">{tr(M.inUseBadge)}</span>}
                 {p.id === byDefault && <span className="badge">{tr(M.defaultBadge)}</span>}
               </div>
@@ -139,7 +139,7 @@ export function PersonaView() {
     return (
       <div className="empty-state" style={{ paddingTop: '18vh' }}>
         <span style={{ fontSize: 32 }}>{p.icon || '🐝'}</span>
-        <strong>{p.name}</strong>
+        <strong>{personaName(p)}</strong>
         <span className="faint">{p.description}</span>
         <button className="btn primary" onClick={() => void restorePersona(p)}>
           <Icon name="history" /> {tr(M.restoreHere)}
@@ -153,7 +153,7 @@ export function PersonaView() {
       <DocEditor
         key={p.path}
         path={p.path}
-        title={`${p.icon ? `${p.icon} ` : ''}${p.name}`}
+        title={`${p.icon ? `${p.icon} ` : ''}${personaName(p)}`}
         onSaved={() => set((s) => ({ personasVersion: s.personasVersion + 1 }))}
         toolbarExtra={
           <>

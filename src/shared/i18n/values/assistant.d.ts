@@ -32,6 +32,10 @@ interface HiveMessageValues {
   'assistant.modes.revertTip': undefined
   'assistant.modes.revertTitle': { name: string | number }
   'assistant.modes.selectOne': undefined
+  'assistant.modes.shipped.coordinator': undefined
+  'assistant.modes.shipped.planner': undefined
+  'assistant.modes.shipped.qaTriager': undefined
+  'assistant.modes.shipped.releaseManager': undefined
   'assistant.modes.shipsMissing': undefined
   'assistant.modes.tip': undefined
   'assistant.modes.updateBadge': undefined

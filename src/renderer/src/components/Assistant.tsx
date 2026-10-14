@@ -24,7 +24,7 @@ import { PaneResizer, usePaneSize } from './Resizer'
 import { ShowAllList } from './ShowAllList'
 import { TerminalView } from './TerminalView'
 import { Icon, IconButton, Modal, ReviewMark, statusText, Tooltip, useContextMenu, type MenuEntry } from './ui'
-import { msg, tr, tRich } from '@shared/i18n'
+import { msg, tr, tRich, type Msg } from '@shared/i18n'
 
 /**
  * The Hive Assistant's side panel: the workspace's overseer. Its header (persona, controls) and status line, what is
@@ -149,6 +149,26 @@ const settingsLink = (c: React.ReactNode[]): React.ReactNode => (
   </a>
 )
 
+/**
+ * The names of the modes Hive ships (resources/personas), as the window shows them (#806). Display only: the files keep
+ * their names, and what the Assistant reads is the file.
+ */
+const SHIPPED_NAMES: Record<string, Msg> = {
+  coordinator: msg({ id: 'assistant.modes.shipped.coordinator', defaultMessage: 'Coordinator', description: "The name of a mode of the Hive Assistant that ships with Hive: it runs the work across the agents. Shown in its menus and the Assistant view; keep it short." }),
+  planner: msg({ id: 'assistant.modes.shipped.planner', defaultMessage: 'Planner', description: "The name of a mode of the Hive Assistant that ships with Hive: it shapes work before anyone starts it. Shown in its menus and the Assistant view; keep it short." }),
+  'qa-triager': msg({ id: 'assistant.modes.shipped.qaTriager', defaultMessage: 'QA triager', description: "The name of a mode of the Hive Assistant that ships with Hive: it turns a bug report into a card with evidence. Shown in its menus and the Assistant view; keep it short." }),
+  'release-manager': msg({ id: 'assistant.modes.shipped.releaseManager', defaultMessage: 'Release manager', description: "The name of a mode of the Hive Assistant that ships with Hive: it takes a release through its checklist. Shown in its menus and the Assistant view; keep it short." })
+}
+
+/**
+ * A mode's name in the window: one Hive ships, in the window's language while its file still has Hive's name for it;
+ * any other (the user's own, or one they renamed) as its file has it.
+ */
+export function personaName(p: Pick<PersonaInfo, 'id' | 'name' | 'bundled'>): string {
+  const shipped = p.bundled ? SHIPPED_NAMES[p.id] : undefined
+  return shipped && p.name === shipped.defaultMessage ? tr(shipped) : p.name
+}
+
 /** The workspace's personas, reloaded when they change. */
 export function usePersonas(): PersonaInfo[] {
   const version = useStore((s) => s.personasVersion)
@@ -192,28 +212,28 @@ async function changeAssistant(patch: Omit<AgentPatch, 'name'>, restart: { title
  * is told in its conversation (now, or when it has finished what it is doing), which keeps its context; its next
  * launch starts in the mode.
  */
-export async function choosePersona(p: Pick<PersonaInfo, 'id' | 'name'>): Promise<void> {
+export async function choosePersona(p: Pick<PersonaInfo, 'id' | 'name' | 'bundled'>): Promise<void> {
   const agent = get().workspace?.assistant?.agents[0]
   if (!agent) return
   if (assistantPersona(agent, get().settings) === p.id && agent.persona === p.id) return
   const how = await actions.attempt(tr(M.switchFailed), () => call('assistant:switchMode', p.id))
   await actions.refreshWorkspace()
-  if (how === 'told') notify('info', tr(M.modeTitle, { name: p.name }), tr(M.modeTold))
-  else if (how === 'later') notify('info', tr(M.modeTitle, { name: p.name }), tr(M.modeLater))
+  if (how === 'told') notify('info', tr(M.modeTitle, { name: personaName(p) }), tr(M.modeTold))
+  else if (how === 'later') notify('info', tr(M.modeTitle, { name: personaName(p) }), tr(M.modeLater))
 }
 
 /**
  * Restart in This Mode: the Assistant stops and resumes the same conversation with the mode's full instructions (a
  * switch only tells it the mode's habits). Its whole conversation is cached again, so it asks first.
  */
-export async function restartInMode(p: Pick<PersonaInfo, 'id' | 'name'>): Promise<void> {
+export async function restartInMode(p: Pick<PersonaInfo, 'id' | 'name' | 'bundled'>): Promise<void> {
   const a = get().workspace?.assistant
   const agent = a?.agents[0]
   const live = agent?.live
   if (!a || !agent || !live) return
   const ok = await confirm({
-    title: tr(M.restartTitle, { name: p.name }),
-    message: tr(M.restartMessage, { name: p.name }),
+    title: tr(M.restartTitle, { name: personaName(p) }),
+    message: tr(M.restartMessage, { name: personaName(p) }),
     detail: tr(M.restartDetail),
     confirmLabel: tr(M.restart)
   })
@@ -399,7 +419,7 @@ function AssistantIdle({ project, a, ended }: { project: ProjectInfo; a: AgentIn
     <div className="assistant-idle">
       <div className="assistant-idle-mark">{persona?.icon || '🐝'}</div>
       <p>
-        {Children.toArray(tRich<React.ReactNode>(M.watches, { name: persona?.name ?? tr(M.theAssistant), b: bold }))}
+        {Children.toArray(tRich<React.ReactNode>(M.watches, { name: persona ? personaName(persona) : tr(M.theAssistant), b: bold }))}
       </p>
       <p className="faint">{tr(M.noEdits)}</p>
       <div className="btns">
@@ -474,7 +494,7 @@ function AssistantHeader({ project, a }: { project: ProjectInfo; a: AgentInfo })
         .filter((p) => p.bundled !== 'missing')
         .map(
           (p): MenuEntry => ({
-            label: `${p.icon ? `${p.icon}  ` : ''}${p.name}`,
+            label: `${p.icon ? `${p.icon}  ` : ''}${personaName(p)}`,
             detail: p.description,
             icon: p.id === personaId ? 'check' : undefined,
             onClick: () => void choosePersona(p)
@@ -541,10 +561,10 @@ function AssistantHeader({ project, a }: { project: ProjectInfo; a: AgentInfo })
         </span>
       </Tooltip>
       <strong className="assistant-title">{tr(M.title)}</strong>
-      <Tooltip content={persona ? tr(M.personaTip, { name: persona.name, description: persona.description }) : tr(M.chooseMode)}>
+      <Tooltip content={persona ? tr(M.personaTip, { name: personaName(persona), description: persona.description }) : tr(M.chooseMode)}>
         <button className="btn subtle small assistant-persona" onClick={personaMenu}>
           <span className="assistant-persona-icon">{persona?.icon || '🐝'}</span>
-          <span className="assistant-persona-name">{persona?.name ?? personaId}</span>
+          <span className="assistant-persona-name">{persona ? personaName(persona) : personaId}</span>
           <Icon name="chevron-down" />
         </button>
       </Tooltip>
@@ -953,13 +973,13 @@ export function AssistantSettingsDialog() {
       <div className="agent-form">
         <label>{tr(M.mode)}</label>
         <select className="select" value={persona} onChange={(e) => setPersona(e.target.value)}>
-          <option value="">{tr(M.defaultMode, { name: defaultPersona?.name ?? settings?.assistant.persona ?? 'Overseer' /* i18n-ignore: the default mode's name, as Hive ships it */ })}</option>
+          <option value="">{tr(M.defaultMode, { name: (defaultPersona && personaName(defaultPersona)) ?? settings?.assistant.persona ?? 'Overseer' /* i18n-ignore: the default mode's name, as Hive ships it */ })}</option>
           {personas
             .filter((p) => p.bundled !== 'missing')
             .map((p) => (
               <option key={p.id} value={p.id}>
                 {p.icon ? `${p.icon} ` : ''}
-                {p.name}
+                {personaName(p)}
               </option>
             ))}
         </select>

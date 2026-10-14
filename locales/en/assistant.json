@@ -123,6 +123,22 @@
     "defaultMessage": "Select a mode to read or edit it.",
     "description": "The Assistant view's main area with no mode selected."
   },
+  "assistant.modes.shipped.coordinator": {
+    "defaultMessage": "Coordinator",
+    "description": "The name of a mode of the Hive Assistant that ships with Hive: it runs the work across the agents. Shown in its menus and the Assistant view; keep it short."
+  },
+  "assistant.modes.shipped.planner": {
+    "defaultMessage": "Planner",
+    "description": "The name of a mode of the Hive Assistant that ships with Hive: it shapes work before anyone starts it. Shown in its menus and the Assistant view; keep it short."
+  },
+  "assistant.modes.shipped.qaTriager": {
+    "defaultMessage": "QA triager",
+    "description": "The name of a mode of the Hive Assistant that ships with Hive: it turns a bug report into a card with evidence. Shown in its menus and the Assistant view; keep it short."
+  },
+  "assistant.modes.shipped.releaseManager": {
+    "defaultMessage": "Release manager",
+    "description": "The name of a mode of the Hive Assistant that ships with Hive: it takes a release through its checklist. Shown in its menus and the Assistant view; keep it short."
+  },
   "assistant.modes.shipsMissing": {
     "defaultMessage": "Ships with Hive. Restore it to use it.",
     "description": "Under a mode of Hive's own that was deleted from the workspace."
