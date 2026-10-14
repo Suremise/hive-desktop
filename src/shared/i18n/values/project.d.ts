@@ -1,0 +1,325 @@
+// Generated from locales/en/project.json: do not edit. Each message's placeholders and their types, for tr(): a
+// global script, so its interface merges with every other area's (shared/i18n/msg.ts).
+interface HiveMessageValues {
+  'project.agents.add': undefined
+  'project.agents.merge': undefined
+  'project.agents.off': undefined
+  'project.agents.own200k': { on: string }
+  'project.agents.ownEffort': { effort: string | number }
+  'project.agents.ownMcp': { servers: string | number }
+  'project.agents.ownModel': { model: string | number }
+  'project.agents.ownSettings': { settings: string | number }
+  'project.agents.projectFolder': undefined
+  'project.agents.projectSettings': { model: string | number }
+  'project.agents.remove': undefined
+  'project.agents.settings': undefined
+  'project.agents.turnedOff': { provider: string | number }
+  'project.apply.new': { live: string }
+  'project.banner.change': undefined
+  'project.banner.copyToWorkspace': undefined
+  'project.banner.dangerous': { modes: string | number; count: number }
+  'project.banner.dangerousMode': { agent: string | number; mode: string | number }
+  'project.banner.restart': undefined
+  'project.banner.restartNeeded': { many: string; agent: string | number }
+  'project.banner.unmanagedMcp': { names: string | number }
+  'project.card.asReported': undefined
+  'project.card.cache': undefined
+  'project.card.cacheReads': undefined
+  'project.card.cacheTip': { company: string | number }
+  'project.card.cacheWrites': undefined
+  'project.card.compactions': undefined
+  'project.card.compactionsSub': { count: number }
+  'project.card.compactionsTip': { provider: string | number }
+  'project.card.context': undefined
+  'project.card.contextLastTurn': { input: string | number; output: string | number }
+  'project.card.contextRequest': { tokens: string | number }
+  'project.card.contextTip': undefined
+  'project.card.cost': undefined
+  'project.card.estimated': undefined
+  'project.card.expired': undefined
+  'project.card.fromCache': { percent: string | number }
+  'project.card.input': undefined
+  'project.card.inputTip': undefined
+  'project.card.lastActivity': { when: string | number }
+  'project.card.lastCompaction': { when: string | number }
+  'project.card.noPriceFor': { model: string | number }
+  'project.card.noneYet': undefined
+  'project.card.output': undefined
+  'project.card.outputDetail': { requests: number; prompts: number }
+  'project.card.outputSub': { tokens: string | number }
+  'project.card.partlyEstimated': undefined
+  'project.card.prompts': undefined
+  'project.card.promptsSub': { count: string | number }
+  'project.card.readFromCache': undefined
+  'project.card.recache': undefined
+  'project.card.recacheTip': undefined
+  'project.card.runningNow': { count: string | number }
+  'project.card.sessionAtPrices': undefined
+  'project.card.sessionCostTip': { estimated: string; company: string | number; provider: string | number }
+  'project.card.sessionEstimated': undefined
+  'project.card.sessions': undefined
+  'project.card.stillWarm': undefined
+  'project.card.tokens': undefined
+  'project.card.tokensSub': { input: string | number; cached: string | number; output: string | number }
+  'project.card.tokensTip': undefined
+  'project.card.warm': undefined
+  'project.card.warmLeft': { left: string | number; ttl: string }
+  'project.card.withoutPrice': { count: number }
+  'project.card.withoutPriceShort': { count: string | number }
+  'project.card.writtenNext': undefined
+  'project.card.writtenToCache': undefined
+  'project.changes.agentSetup': undefined
+  'project.changes.agentWorktree': { agent: string | number; branch: string | number }
+  'project.changes.binary': undefined
+  'project.changes.cantShow': { problem: string | number; project: string | number }
+  'project.changes.checkingAgain': undefined
+  'project.changes.clean': undefined
+  'project.changes.diffFailed': { error: string | number }
+  'project.changes.diffStale': { error: string | number }
+  'project.changes.headWorkingTree': undefined
+  'project.changes.heading': undefined
+  'project.changes.inUseGroup': undefined
+  'project.changes.initHint': undefined
+  'project.changes.inline': undefined
+  'project.changes.listFailed': { error: string | number }
+  'project.changes.loadingDiff': undefined
+  'project.changes.looking': undefined
+  'project.changes.lookingHint': { project: string | number }
+  'project.changes.lookingTip': undefined
+  'project.changes.mainBranch': undefined
+  'project.changes.mergeAgent': { agent: string | number }
+  'project.changes.mergeBranch': { branch: string | number }
+  'project.changes.noAgentChanges': { branch: string | number }
+  'project.changes.notRepo': { project: string | number }
+  'project.changes.nothingOn': { branch: string | number; base: string | number }
+  'project.changes.openFailed': undefined
+  'project.changes.openFile': undefined
+  'project.changes.pickerTip': undefined
+  'project.changes.projectFolder': { branch: string | number }
+  'project.changes.projectGroup': undefined
+  'project.changes.readFailed': { error: string | number }
+  'project.changes.refreshFailed': { error: string | number }
+  'project.changes.refreshUnused': undefined
+  'project.changes.selectFile': undefined
+  'project.changes.sideBySide': undefined
+  'project.changes.sinceLeft': { base: string | number }
+  'project.changes.staged': { status: string | number; path: string | number }
+  'project.changes.status': { status: string }
+  'project.changes.unstaged': { status: string | number; path: string | number }
+  'project.changes.unusedCount': { count: string | number }
+  'project.changes.unusedFailed': undefined
+  'project.changes.unusedGroup': undefined
+  'project.changes.unusedLooking': undefined
+  'project.changes.unusedTarget': undefined
+  'project.changes.worktreeOf': { agent: string | number }
+  'project.chart.dayTip': { day: string | number; tokens: string | number; cost: string | number; prompts: number }
+  'project.chart.label': undefined
+  'project.chart.other': { count: string | number }
+  'project.chart.today': undefined
+  'project.col.after': undefined
+  'project.col.agent': undefined
+  'project.col.before': undefined
+  'project.col.cost': undefined
+  'project.col.freed': undefined
+  'project.col.lastTurn': undefined
+  'project.col.provider': undefined
+  'project.col.sessions': undefined
+  'project.col.tokens': undefined
+  'project.col.trigger': undefined
+  'project.col.when': undefined
+  'project.compaction.heading': undefined
+  'project.compaction.lastTurnTip': { output: string | number; input: string | number; total: string | number }
+  'project.compaction.none': undefined
+  'project.compaction.open': { trigger: string | number; when: string | number }
+  'project.compaction.turnAdded': { output: string | number }
+  'project.compaction.unknownTime': undefined
+  'project.cost.belowCent': { cent: string | number }
+  'project.cost.tip': undefined
+  'project.cost.unknown': undefined
+  'project.cost.unpriced': { model: string | number; provider: string | number }
+  'project.empty.addAgent': { project: string | number; provider: string | number }
+  'project.empty.allSessions': undefined
+  'project.empty.markActive': undefined
+  'project.empty.markWorking': undefined
+  'project.empty.noAgents': undefined
+  'project.empty.noSession': undefined
+  'project.empty.notActive': { project: string | number }
+  'project.empty.notRunning': { agent: string | number }
+  'project.empty.providerMissing': { provider: string | number }
+  'project.empty.providerOff': { provider: string | number }
+  'project.empty.resumeLast': undefined
+  'project.empty.startOrResume': { provider: string | number }
+  'project.header.active': undefined
+  'project.header.archiveNew': { many: string; count: string | number }
+  'project.header.archiveNewTip': { many: string; count: number; agent: string | number }
+  'project.header.carryOnManyTip': { stopped: number; stalled: number }
+  'project.header.carryOnTip': { agent: string | number }
+  'project.header.inStatus': { count: string | number; total: string | number }
+  'project.header.more': undefined
+  'project.header.noAgents': undefined
+  'project.header.noSession': undefined
+  'project.header.notWorkingOn': undefined
+  'project.header.removeAll': { many: string; count: string | number }
+  'project.header.removeAllMenu': { many: string; count: string | number }
+  'project.header.removeAllTip': { many: string; count: string | number; agent: string | number }
+  'project.header.resumeAgent': undefined
+  'project.header.resumeAll': { count: string | number }
+  'project.header.resumeManyTip': { count: string | number }
+  'project.header.resumeOneTip': { agent: string | number }
+  'project.header.resumeShort': { count: string | number }
+  'project.header.resuming': undefined
+  'project.header.startNew': { many: string; count: string | number }
+  'project.header.startNewTip': { many: string; count: string | number }
+  'project.header.stopAgent': undefined
+  'project.header.stopMany': { count: string | number }
+  'project.header.stopTip': { count: number }
+  'project.header.workingOn': undefined
+  'project.limit.heading': { plan: string; when: string | number }
+  'project.limit.none': { provider: string | number }
+  'project.limit.resets': { when: string | number }
+  'project.limit.tip': { window: string; label: string | number; provider: string | number }
+  'project.limit.title': { window: string; label: string | number }
+  'project.limit.used': undefined
+  'project.loading': undefined
+  'project.mcp.builtIn': undefined
+  'project.mcp.copy': undefined
+  'project.mcp.definedByProject': undefined
+  'project.mcp.givenAll': undefined
+  'project.mcp.givenNone': undefined
+  'project.mcp.givenTo': { agents: string | number }
+  'project.mcp.heading': undefined
+  'project.mcp.hiveDesc': undefined
+  'project.mcp.invalid': undefined
+  'project.mcp.manage': undefined
+  'project.mcp.none': undefined
+  'project.mcp.off': undefined
+  'project.mcp.onAll': undefined
+  'project.mcp.target': undefined
+  'project.memory.autoTip': { provider: string | number }
+  'project.memory.create': undefined
+  'project.memory.groupInstructions': { provider: string | number }
+  'project.memory.groupMemory': { provider: string | number }
+  'project.memory.heading': undefined
+  'project.memory.localTip': { provider: string | number }
+  'project.memory.newFile': { provider: string | number }
+  'project.memory.nothingSaved': undefined
+  'project.memory.ownFile': undefined
+  'project.memory.projectTip': { provider: string | number }
+  'project.memory.select': undefined
+  'project.memory.share': undefined
+  'project.memory.shareButton': undefined
+  'project.memory.shareDot': undefined
+  'project.memory.shareFailed': undefined
+  'project.memory.shareImport': { file: string | number; line: string | number; provider: string | number }
+  'project.memory.shareMessage': { providers: string | number }
+  'project.memory.shareMoves': undefined
+  'project.memory.shareNext': undefined
+  'project.memory.shareTitle': undefined
+  'project.memory.shared': undefined
+  'project.memory.target': undefined
+  'project.memory.updated': { files: string | number }
+  'project.menu.explorer': undefined
+  'project.menu.remove': undefined
+  'project.menu.settings': undefined
+  'project.menu.terminal': undefined
+  'project.meta.lastActivity': undefined
+  'project.meta.lastPrompt': undefined
+  'project.meta.model': undefined
+  'project.meta.started': undefined
+  'project.meta.version': { provider: string | number }
+  'project.none.createFirst': undefined
+  'project.none.newProject': undefined
+  'project.none.select': undefined
+  'project.overview.byAgent': undefined
+  'project.overview.mergeSlot': undefined
+  'project.overview.noAgents': undefined
+  'project.overview.period': undefined
+  'project.overview.periodHint': undefined
+  'project.overview.running': undefined
+  'project.overview.sessionsTarget': undefined
+  'project.overview.summary': undefined
+  'project.overview.turnedOff': undefined
+  'project.overview.updated': { when: string | number }
+  'project.period.all': undefined
+  'project.period.month': undefined
+  'project.period.today': undefined
+  'project.period.week': undefined
+  'project.refresh': undefined
+  'project.retry': undefined
+  'project.running.context': { used: string | number }
+  'project.running.contextOf': { used: string | number; window: string | number }
+  'project.running.contextShort': { tokens: string | number }
+  'project.running.plan': undefined
+  'project.running.unknownCost': undefined
+  'project.session.agentLabel': undefined
+  'project.session.current': undefined
+  'project.session.ended': undefined
+  'project.session.new': undefined
+  'project.session.noData': undefined
+  'project.session.noDataAgent': { agent: string | number }
+  'project.session.recent': undefined
+  'project.session.resume': undefined
+  'project.session.whoseTip': undefined
+  'project.settings.compactAbove': undefined
+  'project.settings.global': undefined
+  'project.settings.hours': { count: string | number }
+  'project.settings.inherit': { value: string | number }
+  'project.settings.inheritList': { value: string | number }
+  'project.settings.megabytes': { count: string | number }
+  'project.settings.never': undefined
+  'project.settings.neverChoice': undefined
+  'project.settings.noMatch': undefined
+  'project.settings.now': { desc: string | number; current: string | number }
+  'project.settings.off': undefined
+  'project.settings.offLower': undefined
+  'project.settings.on': undefined
+  'project.settings.onLower': undefined
+  'project.settings.openHive': undefined
+  'project.settings.overrides': undefined
+  'project.settings.providerDefault': { provider: string | number }
+  'project.settings.reset': undefined
+  'project.settings.resetButton': undefined
+  'project.settings.resetMessage': undefined
+  'project.settings.resetTitle': undefined
+  'project.settings.rounds': undefined
+  'project.settings.saveFailed': undefined
+  'project.settings.search': { project: string | number }
+  'project.settings.sessionsIn': { project: string | number }
+  'project.settings.waitHours': undefined
+  'project.settings.wake': undefined
+  'project.settings.warnOver': undefined
+  'project.skills.addLocal': { provider: string | number }
+  'project.skills.assistantOnly': { count: number }
+  'project.skills.delete': undefined
+  'project.skills.editInWorkspace': undefined
+  'project.skills.heading': undefined
+  'project.skills.hive': undefined
+  'project.skills.local': undefined
+  'project.skills.newLocal': { provider: string | number }
+  'project.skills.noHive': undefined
+  'project.skills.noneLocal': undefined
+  'project.skills.noneUser': undefined
+  'project.skills.plugins': undefined
+  'project.skills.providerGroup': { provider: string | number }
+  'project.skills.seeThem': undefined
+  'project.skills.select': undefined
+  'project.skills.showOf': undefined
+  'project.skills.target': undefined
+  'project.skills.turnOn': undefined
+  'project.skills.user': undefined
+  'project.tab.attachments': undefined
+  'project.tab.files': undefined
+  'project.tab.git': undefined
+  'project.tab.mcp': undefined
+  'project.tab.memory': undefined
+  'project.tab.overview': undefined
+  'project.tab.performance': undefined
+  'project.tab.session': undefined
+  'project.tab.sessions': undefined
+  'project.tab.settings': undefined
+  'project.tab.skills': undefined
+  'project.tab.tasks': undefined
+  'project.tab.templates': undefined
+  'project.tabs.errorLabel': undefined
+  'project.tabs.tip': { tab: string | number; key: string | number }
+}

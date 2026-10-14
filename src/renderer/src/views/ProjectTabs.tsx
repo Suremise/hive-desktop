@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import { Children, useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { AssistantMark } from '../components/AssistantMark'
 import { CardChip } from '../components/CardChip'
 import { KeybindingsEditor } from '../components/Keybindings'
@@ -6,9 +6,9 @@ import type { CompactionEvent, GitDiff, GitStatus, McpServerInfo, MemorySource, 
 import { unpricedModel, unpricedText, usesOwnPrices } from '@shared/prices'
 import { formatDateTime } from '@shared/dates'
 import { agentChoosesMcp, agentGetsMcp, agentMcpText, serverOnIn } from '@shared/agentMcp'
-import { gitFixText } from '@shared/gitTool'
+import { gitFixText, gitProblemText } from '@shared/gitTool'
 import { UnusedHeading, UnusedWorkNotice, UnusedWorktreesLine, UnusedWorktreesSection, useUnusedWorktrees } from '../components/UnusedWorktrees'
-import { PERIODS, activeIn, costText, dailyTotals, money, periodFrom, sumUsage, type DayTotal, type Period, type Totals } from '@shared/usageTotals'
+import { PERIODS, activeIn, costText, dailyTotals, moneyLabel, periodFrom, sumUsage, type DayTotal, type Period, type Totals } from '@shared/usageTotals'
 import { FILE_LOCK_MODES, contextPercent, turnPushedCompaction, effectiveModelLabel, mergeBlocked, modelLabel } from '@shared/defaults'
 import { useAgentLimit } from '../advanced'
 import { PROVIDERS, contextLines, defaultProviderLabel, isProviderEnabled, modeOption, offeredModes, permissionLabel, projectDefaultProvider, projectProviderConfig, providerDescriptor, providerName, providerSettings } from '@shared/providers'
@@ -32,15 +32,272 @@ import { languageFor } from '../monacoLang'
 import { useScopedLoad } from '../scopedLoad'
 import { addSkill, deleteSkill, editInWorkspace, otherLocal, SKILL_LEVEL_TIP, SkillDetail, SkillRow } from '../components/Skills'
 import { CHANGES_ABOUT, unusedPickerLabel } from '@shared/unusedWorktrees'
-import { agentProviderOf, confirm, notify, openInSessionsTab, set, setActivity, showView, UNUSED_ROOT, unusedRoot, useDateStyle, useFocusedAgent, useStore } from '../store'
+import { agentProviderOf, confirm, notify, openInSessionsTab, set, setActivity, showView, UNUSED_ROOT, unusedRoot, useDateStyle, useFocusedAgent, useLanguage, useStore } from '../store'
 import { rememberProjectPref } from '../projectPrefs'
 import { HiveVcsNotice } from '../components/HiveVcsNotice'
 import { InitRepoButton } from '../components/InitRepo'
 import { MergeSlotList, projectSlots, useMergeSlots } from '../components/MergeSlots'
 import { cx, formatDuration, formatNumber, formatTokens, resetsIn, timeAgo } from '../util'
 import { useLiveUsage, useNow } from '../usage'
-import { tr } from '@shared/i18n'
-import { msg } from '@shared/i18n/msg'
+import { fmt, locale, msg, tr, tRich } from '@shared/i18n'
+
+const M = {
+  loading: msg({ id: 'project.loading', defaultMessage: 'Loading…', description: 'A project tab while its data loads.' }),
+  sessionsTarget: msg({ id: 'project.overview.sessionsTarget', defaultMessage: 'the sessions', description: 'What could not be read in the Overview tab: shown in "Could not load {what}: {error}" and "Could not refresh {what}; last updated …".' }),
+  tokensPerDay: msg({ id: 'project.chart.label', defaultMessage: 'Tokens per day', description: "Accessible name of the Overview's chart of tokens per day." }),
+  dayTip: msg({ id: 'project.chart.dayTip', defaultMessage: '{day}: {tokens} tokens · {cost} · {prompts, plural, one {# prompt} other {# prompts}}', description: 'Tooltip on a day of the chart. {day} is the date, {tokens} a token count such as 1.2M, {cost} a cost.' }),
+  today: msg({ id: 'project.chart.today', defaultMessage: 'Today', description: "The chart's last day, under its bar." }),
+  costTip: msg({ id: 'project.cost.tip', defaultMessage: 'What this work would have cost at API prices: reported by the provider where it does (Claude Code), else estimated by Hive from token counts and the prices in Settings → the provider. On a subscription you are not charged this; it shows how heavy the work was.', description: 'The (i) beside API-equivalent cost in the Overview.' }),
+  mergeSlot: msg({ id: 'project.overview.mergeSlot', defaultMessage: 'Merge slot', description: "Heading in the Overview: the project's merge slot and who waits for it." }),
+  summary: msg({ id: 'project.overview.summary', defaultMessage: 'Project summary', description: "Heading of the Overview's figures." }),
+  updated: msg({ id: 'project.overview.updated', defaultMessage: 'Updated {when}. How often it updates: Settings → Sessions → Overview updates.', description: 'Tooltip on the Overview\'s refresh button. {when} is how long ago, such as "5m ago". The setting\'s path: name it as Settings does.' }),
+  refresh: msg({ id: 'project.refresh', defaultMessage: 'Refresh', description: 'Tooltip on a refresh button.' }),
+  period: msg({ id: 'project.overview.period', defaultMessage: 'Period', description: "Accessible name of the Overview's period buttons (Today, 7 days…)." }),
+  periodHint: msg({ id: 'project.overview.periodHint', defaultMessage: 'What was used in the period across every provider, by calendar day: a session that ran over several days counts only its part in the period.', description: "Under the Overview's period buttons." }),
+  tokens: msg({ id: 'project.card.tokens', defaultMessage: 'Tokens', description: 'A figure in the Overview: tokens used.' }),
+  tokensSub: msg({ id: 'project.card.tokensSub', defaultMessage: '{input} in · {cached} cached · {output} out', description: 'Under the token total: input, input read from cache and output, each a count such as 1.2M.' }),
+  tokensTip: msg({ id: 'project.card.tokensTip', defaultMessage: 'All tokens: new input, cache writes, input read from cache, and output.', description: 'The (i) beside Tokens.' }),
+  cost: msg({ id: 'project.card.cost', defaultMessage: 'API-equivalent cost', description: 'A figure in the Overview: what the work would cost at API prices.' }),
+  withoutPrice: msg({ id: 'project.card.withoutPrice', defaultMessage: '{count, plural, one {# session without a price} other {# sessions without a price}}', description: 'Under the cost: sessions whose model has no known price.' }),
+  withoutPriceShort: msg({ id: 'project.card.withoutPriceShort', defaultMessage: '{count} without a price', description: "Under a provider's cost: its sessions whose model has no known price." }),
+  partlyEstimated: msg({ id: 'project.card.partlyEstimated', defaultMessage: 'partly estimated', description: 'Under the cost: some of it is estimated by Hive.' }),
+  asReported: msg({ id: 'project.card.asReported', defaultMessage: 'as reported', description: 'Under the cost: all of it as the provider reported it.' }),
+  estimated: msg({ id: 'project.card.estimated', defaultMessage: 'estimated', description: 'Under the cost: estimated by Hive from token counts.' }),
+  sessions: msg({ id: 'project.card.sessions', defaultMessage: 'Sessions', description: 'A figure in the Overview: how many sessions.' }),
+  runningNow: msg({ id: 'project.card.runningNow', defaultMessage: '{count} running now', description: 'Under Sessions: how many run now.' }),
+  prompts: msg({ id: 'project.card.prompts', defaultMessage: 'Prompts', description: 'A figure in the Overview: prompts sent.' }),
+  compactions: msg({ id: 'project.card.compactionsSub', defaultMessage: '{count, plural, one {# compaction} other {# compactions}}', description: 'Under Prompts: how many times sessions were compacted.' }),
+  runningHeading: msg({ id: 'project.overview.running', defaultMessage: 'Running now', description: 'Heading in the Overview: the agents running now.' }),
+  turnedOff: msg({ id: 'project.overview.turnedOff', defaultMessage: '— turned off', description: "After a provider's name in the Overview when it is turned off in Settings → Providers." }),
+  outputSub: msg({ id: 'project.card.outputSub', defaultMessage: '{tokens} output', description: "Under a provider's tokens: its output tokens, such as 1.2M." }),
+  promptsSub: msg({ id: 'project.card.promptsSub', defaultMessage: '{count} prompts', description: "Under a provider's sessions: prompts sent. {count} is formatted." }),
+  byAgent: msg({ id: 'project.overview.byAgent', defaultMessage: 'By agent', description: 'Heading in the Overview: a table of what each agent used.' }),
+  noAgents: msg({ id: 'project.overview.noAgents', defaultMessage: 'No agents.', description: 'The By agent table when there are none.' }),
+  colAgent: msg({ id: 'project.col.agent', defaultMessage: 'Agent', description: 'Column of the By agent table.' }),
+  colProvider: msg({ id: 'project.col.provider', defaultMessage: 'Provider', description: 'Column of the By agent table.' }),
+  colSessions: msg({ id: 'project.col.sessions', defaultMessage: 'Sessions', description: 'Column of the By agent table.' }),
+  colTokens: msg({ id: 'project.col.tokens', defaultMessage: 'Tokens', description: 'Column of the By agent table.' }),
+  colCost: msg({ id: 'project.col.cost', defaultMessage: 'Cost', description: 'Column of the By agent table.' }),
+  plan: msg({ id: 'project.running.plan', defaultMessage: 'Plan', description: "In a running agent's row: it is in plan mode." }),
+  contextOf: msg({ id: 'project.running.contextOf', defaultMessage: '{used} of {window} tokens of context', description: "Tooltip on a running agent's context: tokens used of the model's context window, both formatted." }),
+  contextUsed: msg({ id: 'project.running.context', defaultMessage: '{used} tokens of context', description: "Tooltip on a running agent's context when the window size is unknown." }),
+  contextShort: msg({ id: 'project.running.contextShort', defaultMessage: '{tokens} context', description: "A running agent's context in its row, such as \"120k context\"." }),
+  unknownCost: msg({ id: 'project.running.unknownCost', defaultMessage: 'Unknown', description: "A running agent's cost when its model has no price." }),
+  colWhen: msg({ id: 'project.col.when', defaultMessage: 'When', description: 'Column of the compaction history.' }),
+  colTrigger: msg({ id: 'project.col.trigger', defaultMessage: 'Trigger', description: 'Column of the compaction history: what started it (auto or manual).' }),
+  colBefore: msg({ id: 'project.col.before', defaultMessage: 'Before', description: 'Column of the compaction history: tokens before it.' }),
+  colAfter: msg({ id: 'project.col.after', defaultMessage: 'After', description: 'Column of the compaction history: tokens after it.' }),
+  colFreed: msg({ id: 'project.col.freed', defaultMessage: 'Freed', description: 'Column of the compaction history: tokens it freed.' }),
+  colLastTurn: msg({ id: 'project.col.lastTurn', defaultMessage: 'Last turn', description: 'Column of the compaction history: what the turn before it added.' }),
+  lastTurnTip: msg({ id: 'project.compaction.lastTurnTip', defaultMessage: 'The last turn added {output} of output (thinking included) to the {input} the context showed before it, so it reached {total} and was compacted.', description: 'Tooltip on a compaction caused by a large last turn. The values are token counts such as 12k.' }),
+  turnAdded: msg({ id: 'project.compaction.turnAdded', defaultMessage: 'turn added {output} output', description: 'Badge on a compaction caused by a large last turn. {output} is a token count.' }),
+  noCompactions: msg({ id: 'project.compaction.none', defaultMessage: 'No compactions yet.', description: 'The compaction history when there are none.' }),
+  openCompaction: msg({ id: 'project.compaction.open', defaultMessage: 'Open the {trigger} compaction of {when} in the transcript', description: 'Accessible name of a compaction row. {trigger} is auto or manual; {when} its date and time.' }),
+  unknownTime: msg({ id: 'project.compaction.unknownTime', defaultMessage: 'unknown time', description: 'In "Open the … compaction of {when}…" when its time is not known.' }),
+  currentSession: msg({ id: 'project.session.current', defaultMessage: 'Current session', description: "Heading in the Overview: the agent's running session." }),
+  recentSession: msg({ id: 'project.session.recent', defaultMessage: 'Most recent session', description: "Heading in the Overview: the agent's last session." }),
+  whoseTip: msg({ id: 'project.session.whoseTip', defaultMessage: 'Whose session to show. It follows the focused agent until you pick one.', description: "Tooltip on the Overview's agent picker." }),
+  agent: msg({ id: 'project.session.agentLabel', defaultMessage: 'Agent', description: "Accessible name of the Overview's agent picker." }),
+  noDataAgent: msg({ id: 'project.session.noDataAgent', defaultMessage: '{agent} has no session data yet. Start a session and its token use, cache and compaction history will appear here.', description: 'The Overview when the picked agent has never had a session.' }),
+  noData: msg({ id: 'project.session.noData', defaultMessage: 'No session data yet. Start a session and its token use, cache and compaction history will appear here.', description: 'The Overview when there has been no session.' }),
+  context: msg({ id: 'project.card.context', defaultMessage: 'Context', description: "A figure: how many tokens the session's conversation occupies now." }),
+  contextLastTurn: msg({ id: 'project.card.contextLastTurn', defaultMessage: '{input} input + {output} output of the last turn', description: 'Under Context. Token counts such as 12k.' }),
+  contextRequest: msg({ id: 'project.card.contextRequest', defaultMessage: '{tokens} tokens in the last request', description: 'Under Context, when the last turn is not known in detail.' }),
+  contextTip: msg({ id: 'project.card.contextTip', defaultMessage: "How many tokens the conversation occupies now: the last request's input and its output (thinking included), which stays in the context.", description: 'The (i) beside Context, above details of the context window.' }),
+  cache: msg({ id: 'project.card.cache', defaultMessage: 'Cache', description: "A figure: whether the provider's prompt cache is still warm." }),
+  warm: msg({ id: 'project.card.warm', defaultMessage: 'Warm', description: 'The cache figure: the prompt cache is still valid.' }),
+  expired: msg({ id: 'project.card.expired', defaultMessage: 'Expired', description: 'The cache figure: the prompt cache has expired.' }),
+  warmLeft: msg({ id: 'project.card.warmLeft', defaultMessage: '≈ {left} left of {ttl, select, hour {1 h} other {5 min}} TTL', description: "Under Warm: how long the cache stays warm. {left} is a duration; TTL is the cache's time to live." }),
+  lastActivity: msg({ id: 'project.card.lastActivity', defaultMessage: 'Last activity {when}', description: 'Under Expired. {when} is how long ago, such as "5m ago".' }),
+  cacheTip: msg({ id: 'project.card.cacheTip', defaultMessage: "{company}'s prompt cache keeps the conversation prefix for a limited time (5 minutes or 1 hour). While warm, each message reads the context cheaply from cache.", description: 'The (i) beside Cache. {company} is Anthropic, OpenAI…' }),
+  recache: msg({ id: 'project.card.recache', defaultMessage: 'Re-cache on resume', description: 'A figure: tokens written to cache again when the session resumes after its cache expired.' }),
+  stillWarm: msg({ id: 'project.card.stillWarm', defaultMessage: 'Cache is still warm', description: 'Under Re-cache on resume.' }),
+  writtenNext: msg({ id: 'project.card.writtenNext', defaultMessage: 'tokens written to cache on the next message', description: 'Under Re-cache on resume.' }),
+  recacheTip: msg({ id: 'project.card.recacheTip', defaultMessage: 'Estimate: when the cache has expired, the first message after resuming writes the whole context to cache again. Archive and start a new session to avoid it.', description: 'The (i) beside Re-cache on resume.' }),
+  compactionsCard: msg({ id: 'project.card.compactions', defaultMessage: 'Compactions', description: "A figure: how often the session's conversation was summarised." }),
+  lastCompaction: msg({ id: 'project.card.lastCompaction', defaultMessage: 'Last {when}', description: 'Under Compactions: the last one, such as "Last 5m ago".' }),
+  noneYet: msg({ id: 'project.card.noneYet', defaultMessage: 'None yet', description: 'Under Compactions.' }),
+  compactionsTip: msg({ id: 'project.card.compactionsTip', defaultMessage: '{provider} summarises the conversation when the context fills up. Each compaction frees space but loses detail.', description: 'The (i) beside Compactions.' }),
+  output: msg({ id: 'project.card.output', defaultMessage: 'Output', description: 'A figure: output tokens.' }),
+  outputDetail: msg({ id: 'project.card.outputDetail', defaultMessage: '{requests, plural, one {# request} other {# requests}} · {prompts, plural, one {# prompt} other {# prompts}}', description: 'Under Output.' }),
+  input: msg({ id: 'project.card.input', defaultMessage: 'Input', description: 'A figure: input tokens.' }),
+  fromCache: msg({ id: 'project.card.fromCache', defaultMessage: '{percent}% read from cache', description: 'Under Input.' }),
+  inputTip: msg({ id: 'project.card.inputTip', defaultMessage: 'All input tokens: uncached input, cache writes and cache reads.', description: 'The (i) beside Input.' }),
+  cacheWrites: msg({ id: 'project.card.cacheWrites', defaultMessage: 'Cache writes', description: 'A figure: tokens written to cache.' }),
+  writtenToCache: msg({ id: 'project.card.writtenToCache', defaultMessage: 'tokens written to cache', description: 'Under Cache writes.' }),
+  cacheReads: msg({ id: 'project.card.cacheReads', defaultMessage: 'Cache reads', description: 'A figure: tokens read from cache.' }),
+  readFromCache: msg({ id: 'project.card.readFromCache', defaultMessage: 'tokens read from cache', description: 'Under Cache reads.' }),
+  sessionEstimated: msg({ id: 'project.card.sessionEstimated', defaultMessage: 'this session, estimated at API prices', description: "Under a session's cost." }),
+  sessionAtPrices: msg({ id: 'project.card.sessionAtPrices', defaultMessage: 'this session, at API prices', description: "Under a session's cost." }),
+  sessionCostTip: msg({ id: 'project.card.sessionCostTip', defaultMessage: '{estimated, select, yes {What this session would have cost at {company} API prices, estimated by Hive from its token counts. On a subscription you are not charged this; it shows how heavy the session has been.} other {What this session would have cost at {company} API prices, as {provider} calculates it. On a subscription you are not charged this; it shows how heavy the session has been.}}', description: "The (i) beside a session's cost. {company} is Anthropic, OpenAI…; {provider} Claude Code, Codex…" }),
+  noPriceFor: msg({ id: 'project.card.noPriceFor', defaultMessage: 'no price for {model}', description: 'Under a cost shown as Unknown.' }),
+  model: msg({ id: 'project.meta.model', defaultMessage: 'Model', description: "A row of the session's details." }),
+  cliVersion: msg({ id: 'project.meta.version', defaultMessage: '{provider} version', description: "A row of the session's details: the CLI's version. {provider} is Claude Code, Codex…" }),
+  started: msg({ id: 'project.meta.started', defaultMessage: 'Started', description: "A row of the session's details." }),
+  lastActivityRow: msg({ id: 'project.meta.lastActivity', defaultMessage: 'Last activity', description: "A row of the session's details." }),
+  lastPrompt: msg({ id: 'project.meta.lastPrompt', defaultMessage: 'Last prompt', description: "A row of the session's details." }),
+  compactionHistory: msg({ id: 'project.compaction.heading', defaultMessage: 'Compaction history', description: "Heading of the session's compactions." }),
+  limitTitle: msg({ id: 'project.limit.title', defaultMessage: '{window, select, fiveHour {5-hour limit} weekly {Weekly limit} other {{label} limit}}', description: "Title of a plan limit figure: the provider's rolling usage window. {label} is the provider's own name for a window Hive doesn't know." }),
+  limitUsed: msg({ id: 'project.limit.used', defaultMessage: 'used', description: 'Under a plan limit\'s percent: "42% used".' }),
+  limitResets: msg({ id: 'project.limit.resets', defaultMessage: 'used · resets {when}', description: 'Under a plan limit\'s percent. {when} is when it resets: "in 2 h 5 min", or a day and time.' }),
+  limitTip: msg({ id: 'project.limit.tip', defaultMessage: "How much of your plan’s {window, select, fiveHour {5-hour} weekly {weekly} other {{label}}} allowance is used, across all your {provider} sessions (not just Hive).", description: 'The (i) beside a plan limit.' }),
+  planLimits: msg({ id: 'project.limit.heading', defaultMessage: '{plan, select, none {Plan limits, account-wide, as of {when}} other {Plan limits ({plan}), account-wide, as of {when}}}', description: "Above the plan limits. {plan} is the plan's name (none when unknown); {when} how long ago they were reported." }),
+  noLimits: msg({ id: 'project.limit.none', defaultMessage: "{provider} reports your plan’s limits while a session runs; they appear here after the next message in any {provider} session. Accounts that use an API key have no plan limits.", description: 'In place of the plan limits before any were reported.' })
+}
+
+const C = {
+  gitStatus: msg({ id: 'project.changes.status', defaultMessage: '{status, select, M {Modified} A {Added} D {Deleted} R {Renamed} C {Copied} U {Conflict} untracked {Untracked} other {{status}}}', description: "A changed file's git status, in its tooltip in the Changes list." }),
+  staged: msg({ id: 'project.changes.staged', defaultMessage: '{status} (staged): {path}', description: "Tooltip on a changed file that is staged. {status} is its status, such as Modified." }),
+  unstaged: msg({ id: 'project.changes.unstaged', defaultMessage: '{status}: {path}', description: 'Tooltip on a changed file. {status} is its status, such as Modified.' }),
+  pickerTip: msg({ id: 'project.changes.pickerTip', defaultMessage: 'Unused worktrees, a worktree an agent works in, or the project folder', description: "Tooltip on the Changes tab's folder picker." }),
+  unusedGroup: msg({ id: 'project.changes.unusedGroup', defaultMessage: 'Unused worktrees (no agent works in them)', description: "A group of the Changes tab's folder picker." }),
+  unusedLooking: msg({ id: 'project.changes.unusedLooking', defaultMessage: 'Unused worktrees (looking…)', description: "The picker's entry for all unused worktrees while Hive lists them." }),
+  unusedCount: msg({ id: 'project.changes.unusedCount', defaultMessage: 'Unused worktrees ({count})', description: "The picker's entry for all unused worktrees." }),
+  unusedFailed: msg({ id: 'project.changes.unusedFailed', defaultMessage: "Unused worktrees (couldn't list)", description: "The picker's entry for all unused worktrees when listing them failed." }),
+  inUseGroup: msg({ id: 'project.changes.inUseGroup', defaultMessage: 'Worktrees in use', description: "A group of the Changes tab's folder picker: agents' worktrees." }),
+  agentWorktree: msg({ id: 'project.changes.agentWorktree', defaultMessage: "{agent}'s worktree · {branch}", description: "An agent's worktree in the picker. {branch} is its git branch." }),
+  projectGroup: msg({ id: 'project.changes.projectGroup', defaultMessage: 'Project folder', description: "A group of the Changes tab's folder picker." }),
+  projectFolder: msg({ id: 'project.changes.projectFolder', defaultMessage: 'Project folder · {branch}', description: "The project folder in the picker. {branch} is its git branch (or the project's name)." }),
+  worktreeOf: msg({ id: 'project.changes.worktreeOf', defaultMessage: "{agent}'s worktree", description: "Who the changes shown are: an agent's worktree." }),
+  cantShow: msg({ id: 'project.changes.cantShow', defaultMessage: "{problem}, so Hive can't show {project}'s changes.", description: 'The Changes tab when git cannot run. {problem} says why, such as "Git isn\'t installed (or isn\'t on Hive\'s PATH)".' }),
+  agentSetup: msg({ id: 'project.changes.agentSetup', defaultMessage: 'Agent Setup', description: 'Button: opens Agent Setup, which checks git and says how to fix it.' }),
+  retry: msg({ id: 'project.retry', defaultMessage: 'Retry', description: 'Button: tries again.' }),
+  changes: msg({ id: 'project.changes.heading', defaultMessage: 'Changes', description: "Heading of the Changes list (the Git tab's Changes section)." }),
+  lookingUnused: msg({ id: 'project.changes.lookingTip', defaultMessage: 'Looking for unused worktrees…', description: 'Tooltip on the refresh button while Hive looks for unused worktrees.' }),
+  refreshUnused: msg({ id: 'project.changes.refreshUnused', defaultMessage: 'Refresh: look for unused worktrees again', description: 'Tooltip on the refresh button above the unused worktrees.' }),
+  unusedTarget: msg({ id: 'project.changes.unusedTarget', defaultMessage: 'the unused worktrees', description: 'What could not be refreshed: shown in "Could not refresh {what}; last updated …".' }),
+  unusedListFailed: msg({ id: 'project.changes.listFailed', defaultMessage: "Couldn't list the unused worktrees: {error}", description: 'In place of the unused worktrees when listing them failed. {error} is why.' }),
+  lookingBody: msg({ id: 'project.changes.looking', defaultMessage: 'Looking for unused worktrees…', description: 'In place of the unused worktrees while Hive lists them.' }),
+  lookingHint: msg({ id: 'project.changes.lookingHint', defaultMessage: "Hive asks git about each of {project}'s worktrees, which can take a few seconds.", description: 'Under "Looking for unused worktrees…".' }),
+  checkingAgain: msg({ id: 'project.changes.checkingAgain', defaultMessage: 'Checking them again…', description: 'Over the unused worktrees while Hive lists them again.' }),
+  readFailed: msg({ id: 'project.changes.readFailed', defaultMessage: 'Could not read the changes: {error}', description: 'In place of the changes when git status failed.' }),
+  notRepo: msg({ id: 'project.changes.notRepo', defaultMessage: '{project} is not a git repository, so there are no changes to review.', description: 'The Changes section of a project without git.' }),
+  initHint: msg({ id: 'project.changes.initHint', defaultMessage: 'Initialise it to review its changes here: it gets a first commit, so agents can work in worktrees too.', description: 'Under "… is not a git repository", above the Initialise button.' }),
+  mergeAgent: msg({ id: 'project.changes.mergeAgent', defaultMessage: "Merge {agent}'s work…", description: "Tooltip on the merge button of an agent's worktree changes." }),
+  mergeBranch: msg({ id: 'project.changes.mergeBranch', defaultMessage: 'Merge {branch}…', description: "Tooltip on the merge button of an unused worktree's changes." }),
+  refreshFailed: msg({ id: 'project.changes.refreshFailed', defaultMessage: 'Could not refresh: {error}', description: 'Banner when reading the changes again failed (the last ones stay).' }),
+  sinceLeft: msg({ id: 'project.changes.sinceLeft', defaultMessage: 'since it left {base}', description: 'After the branch above a worktree\'s changes: everything since it left {base}, the branch it started from.' }),
+  noAgentChanges: msg({ id: 'project.changes.noAgentChanges', defaultMessage: 'No changes on {branch} yet.', description: "The changes of an agent's worktree when there are none." }),
+  nothingOn: msg({ id: 'project.changes.nothingOn', defaultMessage: "Nothing on {branch} that isn't on {base}.", description: "The changes of an unused worktree when there are none." }),
+  clean: msg({ id: 'project.changes.clean', defaultMessage: 'Working tree clean.', description: 'The changes of the project folder when there are none.' }),
+  headWorkingTree: msg({ id: 'project.changes.headWorkingTree', defaultMessage: 'HEAD ↔ working tree', description: "Above a diff: what it compares. Keep HEAD (git's word)." }),
+  sideBySide: msg({ id: 'project.changes.sideBySide', defaultMessage: 'Side by side', description: 'Tooltip on the button that shows the diff in two columns.' }),
+  inline: msg({ id: 'project.changes.inline', defaultMessage: 'Inline', description: 'Tooltip on the button that shows the diff in one column.' }),
+  openFile: msg({ id: 'project.changes.openFile', defaultMessage: 'Open file', description: 'Tooltip on the button that opens the changed file.' }),
+  openFailed: msg({ id: 'project.changes.openFailed', defaultMessage: 'Could not open the file', description: 'Title of an error notification.' }),
+  diffStale: msg({ id: 'project.changes.diffStale', defaultMessage: 'Could not refresh the diff, so this may be out of date: {error}', description: 'Banner over a diff that could not be read again.' }),
+  binary: msg({ id: 'project.changes.binary', defaultMessage: 'Binary file — no text diff.', description: 'In place of the diff of a binary file.' }),
+  diffFailed: msg({ id: 'project.changes.diffFailed', defaultMessage: 'Could not load the diff: {error}', description: 'In place of a diff that could not be read.' }),
+  loadingDiff: msg({ id: 'project.changes.loadingDiff', defaultMessage: 'Loading the diff…', description: 'While the diff loads.' }),
+  mainBranch: msg({ id: 'project.changes.mainBranch', defaultMessage: 'the main branch', description: "Said of the branch an unused worktree would merge into, when git can't say which." }),
+  selectFile: msg({ id: 'project.changes.selectFile', defaultMessage: 'Select a file to see its changes.', description: 'The Changes section when no file is selected.' }),
+  memLocal: msg({ id: 'project.memory.localTip', defaultMessage: 'Personal project instructions {provider} reads that are not committed.', description: "Tooltip on a provider's local instructions file (such as CLAUDE.local.md)." }),
+  memAuto: msg({ id: 'project.memory.autoTip', defaultMessage: "{provider}'s own memory for this project — facts it chose to remember across sessions.", description: "Tooltip on a provider's own memory file." }),
+  memProject: msg({ id: 'project.memory.projectTip', defaultMessage: 'Project instructions {provider} reads at the start of every session. Usually committed to git.', description: "Tooltip on a provider's project instructions file (such as CLAUDE.md, AGENTS.md)." }),
+  shareTitle: msg({ id: 'project.memory.shareTitle', defaultMessage: 'Share instructions', description: 'Title of the confirmation before agents of several providers share one AGENTS.md.' }),
+  shareMessage: msg({ id: 'project.memory.shareMessage', defaultMessage: '{providers} will read the same AGENTS.md.', description: 'The confirmation. {providers} is the providers as a list, such as "Claude Code and Codex". Keep AGENTS.md.' }),
+  shareImport: msg({ id: 'project.memory.shareImport', defaultMessage: '{file} gets an "{line}" line that includes AGENTS.md; anything else in it still applies to {provider} only.', description: "In the confirmation, for each provider whose own file gets a line importing AGENTS.md. {file} is its file (CLAUDE.md); {line} the import line, as it is written." }),
+  shareMoves: msg({ id: 'project.memory.shareMoves', defaultMessage: "If there's no AGENTS.md yet, the current instructions move into it, so nothing is lost.", description: 'In the share confirmation.' }),
+  shareDot: msg({ id: 'project.memory.shareDot', defaultMessage: 'Your .claude/CLAUDE.md stays as it is and applies to Claude Code only: move anything the other agents should know into AGENTS.md.', description: 'In the share confirmation, when the project has a .claude/CLAUDE.md. Keep the file names.' }),
+  shareNext: msg({ id: 'project.memory.shareNext', defaultMessage: 'Running sessions read the change when they next start.', description: 'Last in the share confirmation.' }),
+  share: msg({ id: 'project.memory.share', defaultMessage: 'Share', description: "The share confirmation's button." }),
+  shareFailed: msg({ id: 'project.memory.shareFailed', defaultMessage: 'Could not share the instructions', description: 'Title of an error notification.' }),
+  shared: msg({ id: 'project.memory.shared', defaultMessage: 'Instructions shared', description: 'Notification after sharing AGENTS.md.' }),
+  updated: msg({ id: 'project.memory.updated', defaultMessage: 'Updated {files}.', description: 'Under "Instructions shared": the files written, as a list.' }),
+  groupInstructions: msg({ id: 'project.memory.groupInstructions', defaultMessage: '{provider}: instructions', description: "A group in the Memory tab: a provider's instructions files." }),
+  groupMemory: msg({ id: 'project.memory.groupMemory', defaultMessage: '{provider}: memory', description: "A group in the Memory tab: a provider's own memory files." }),
+  memoryHeading: msg({ id: 'project.memory.heading', defaultMessage: 'Memory', description: "Heading of the Memory tab's list." }),
+  memoryTarget: msg({ id: 'project.memory.target', defaultMessage: 'the instructions and memory', description: 'What could not be read in the Memory tab: shown in "Could not load {what}: {error}" and "Could not refresh {what}; last updated …".' }),
+  ownFile: msg({ id: 'project.memory.ownFile', defaultMessage: 'Each provider reads its own instructions file.', description: 'In the Memory tab of a project with agents of several providers, before Share one AGENTS.md….' }),
+  shareButton: msg({ id: 'project.memory.shareButton', defaultMessage: 'Share one AGENTS.md…', description: 'Button: makes every provider read one AGENTS.md (asks first). Keep AGENTS.md.' }),
+  nothingSaved: msg({ id: 'project.memory.nothingSaved', defaultMessage: 'Nothing saved for this project yet.', description: "Under a provider's memory group when it has none." }),
+  create: msg({ id: 'project.memory.create', defaultMessage: 'create', description: "Beside an instructions file that doesn't exist yet: selecting it creates it." }),
+  newFile: msg({ id: 'project.memory.newFile', defaultMessage: 'Instructions for {provider} in this project.', description: "The line a new instructions file starts with, under a heading of the project's name. {provider} is Claude Code, Codex…" }),
+  selectFileMem: msg({ id: 'project.memory.select', defaultMessage: 'Select a memory file.', description: 'The Memory tab when no file is selected.' }),
+  applyNew: msg({ id: 'project.apply.new', defaultMessage: '{live, select, yes {Changes apply to new sessions — restart the running session to apply them.} other {Changes apply to new sessions.}}', description: 'Under the Skills and MCP tabs.' }),
+  skillsHeading: msg({ id: 'project.skills.heading', defaultMessage: 'Skills available to agents', description: "Heading of the project's Skills tab list." }),
+  skillsTarget: msg({ id: 'project.skills.target', defaultMessage: 'the skills', description: 'What could not be read in the Skills tab: shown in "Could not load {what}: {error}" and "Could not refresh {what}; last updated …".' }),
+  hiveGroup: msg({ id: 'project.skills.hive', defaultMessage: 'Hive', description: "The group of Hive's own skills (the workspace's). Usually kept as Hive." }),
+  noHiveSkills: msg({ id: 'project.skills.noHive', defaultMessage: 'No Hive skills in this workspace.', description: 'Under the Hive group when it is empty.' }),
+  editInWorkspace: msg({ id: 'project.skills.editInWorkspace', defaultMessage: "Edit in the workspace's Skills view (Hive skills are shared by every project)", description: 'Tooltip on the button beside a Hive skill.' }),
+  assistantOnly: msg({ id: 'project.skills.assistantOnly', defaultMessage: "{count, plural, one {1 Hive skill is for the Hive Assistant only, so it isn't listed: this project's agents don't get it.} other {# Hive skills are for the Hive Assistant only, so they aren't listed: this project's agents don't get them.}}", description: 'Under the Hive skills, when some are for the Hive Assistant alone.' }),
+  seeThem: msg({ id: 'project.skills.seeThem', defaultMessage: 'See them in the Skills view', description: 'Link after the note about skills for the Hive Assistant.' }),
+  showSkillsOf: msg({ id: 'project.skills.showOf', defaultMessage: 'Show the skills of', description: "Accessible name of the provider picker in the Skills tab." }),
+  providerSkills: msg({ id: 'project.skills.providerGroup', defaultMessage: '{provider} skills', description: "The fold of a provider's skills, such as \"Claude Code skills\"." }),
+  local: msg({ id: 'project.skills.local', defaultMessage: 'Local (User Managed)', description: "A group of a provider's skills: this project's own." }),
+  newLocal: msg({ id: 'project.skills.newLocal', defaultMessage: 'New local skill for {provider}…', description: 'Tooltip on the + of the Local group.' }),
+  addLocal: msg({ id: 'project.skills.addLocal', defaultMessage: 'Add a local skill for {provider} from a file (.md or .zip)…', description: 'Tooltip on the add-from-file button of the Local group.' }),
+  noneLocal: msg({ id: 'project.skills.noneLocal', defaultMessage: 'None yet. Add one with +, or from a .md or .zip.', description: 'Under the Local group when it is empty.' }),
+  deleteSkill: msg({ id: 'project.skills.delete', defaultMessage: 'Delete skill', description: 'Tooltip on the delete button beside a local skill.' }),
+  user: msg({ id: 'project.skills.user', defaultMessage: 'User', description: "A group of a provider's skills: in your user profile." }),
+  noneUser: msg({ id: 'project.skills.noneUser', defaultMessage: 'None in your user profile.', description: 'Under the User group when it is empty.' }),
+  plugins: msg({ id: 'project.skills.plugins', defaultMessage: 'Plugins', description: "A group of a provider's skills: from its plugins." }),
+  turnOnProvider: msg({ id: 'project.skills.turnOn', defaultMessage: 'Turn on a coding agent in Settings → Providers to see its skills.', description: 'The Skills tab when no provider is turned on.' }),
+  selectSkill: msg({ id: 'project.skills.select', defaultMessage: "Select a skill to view it. <b>Hive</b> skills reach every project's agents (those for the Hive Assistant alone aren't listed here) and are edited in the workspace's Skills view; <b>local</b> skills belong to this project and one provider, and you can add, edit and delete them here.", description: 'The Skills tab when no skill is selected. <b> marks the group names, in bold.' }),
+  givenAll: msg({ id: 'project.mcp.givenAll', defaultMessage: 'Given to every agent', description: "Under an MCP server in a project's MCP tab, once agents choose their own servers." }),
+  givenTo: msg({ id: 'project.mcp.givenTo', defaultMessage: 'Given to {agents} only', description: 'Under an MCP server: the agents that get it, as a list.' }),
+  givenNone: msg({ id: 'project.mcp.givenNone', defaultMessage: 'Given to no agent (each chose others)', description: 'Under an MCP server no agent gets.' }),
+  mcpHeading: msg({ id: 'project.mcp.heading', defaultMessage: 'Workspace MCP servers', description: "Heading in a project's MCP tab." }),
+  mcpTarget: msg({ id: 'project.mcp.target', defaultMessage: "the workspace's MCP servers", description: 'What could not be read in the MCP tab: shown in "Could not load {what}: {error}" and "Could not refresh {what}; last updated …".' }),
+  noServers: msg({ id: 'project.mcp.none', defaultMessage: 'No MCP servers in this workspace.', description: "A project's MCP tab when the workspace has none." }),
+  manage: msg({ id: 'project.mcp.manage', defaultMessage: 'Manage MCP servers', description: 'Link: opens the workspace\'s MCP view.' }),
+  invalid: msg({ id: 'project.mcp.invalid', defaultMessage: 'invalid', description: "Badge on an MCP server whose file can't be read." }),
+  definedByProject: msg({ id: 'project.mcp.definedByProject', defaultMessage: 'Defined by the project (disabled)', description: "Heading in a project's MCP tab: servers in the project's own agent config." }),
+  copyToWorkspace: msg({ id: 'project.mcp.copy', defaultMessage: 'Copy to workspace', description: "Button: copies the project's own MCP server to the workspace." }),
+  builtIn: msg({ id: 'project.mcp.builtIn', defaultMessage: 'Built-in', description: "Heading in a project's MCP tab: Hive's own server." }),
+  hiveDesc: msg({ id: 'project.mcp.hiveDesc', defaultMessage: 'Lets agents see other projects, read and write shared notes, create handovers and notify you.', description: "What Hive's own MCP server (hive) does." }),
+  onAll: msg({ id: 'project.mcp.onAll', defaultMessage: 'On for all sessions', description: "Badge on Hive's own MCP server when it is on." }),
+  off: msg({ id: 'project.mcp.off', defaultMessage: 'Off', description: "Badge on Hive's own MCP server when it is off." })
+}
+
+const bold = (c: React.ReactNode[]): React.ReactNode => <strong>{c}</strong>
+
+const S = {
+  overrides: msg({ id: 'project.settings.overrides', defaultMessage: 'Overrides the global default', description: 'Tooltip on the mark beside a project setting that is not Inherit.' }),
+  now: msg({ id: 'project.settings.now', defaultMessage: '{desc} Now: {current}', description: "A setting's description followed by what the value in use does. {desc} is the description; {current} what is in use." }),
+  turnedOff: msg({ id: 'project.agents.turnedOff', defaultMessage: '{provider} is turned off in Settings → Providers', description: "Tooltip on an agent's provider icon when the provider is turned off." }),
+  off: msg({ id: 'project.agents.off', defaultMessage: '(off)', description: "After a provider's name when it is turned off." }),
+  projectFolder: msg({ id: 'project.agents.projectFolder', defaultMessage: 'project folder', description: 'Where an agent works when it has no worktree.' }),
+  ownModel: msg({ id: 'project.agents.ownModel', defaultMessage: 'model {model}', description: "One of an agent's own settings, in a list." }),
+  ownEffort: msg({ id: 'project.agents.ownEffort', defaultMessage: 'effort {effort}', description: "One of an agent's own settings, in a list." }),
+  own200k: msg({ id: 'project.agents.own200k', defaultMessage: '{on, select, yes {200K context on} other {200K context off}}', description: "One of an agent's own settings, in a list. Keep 200K." }),
+  ownMcp: msg({ id: 'project.agents.ownMcp', defaultMessage: 'MCP servers {servers}', description: "One of an agent's own settings, in a list: which MCP servers it gets." }),
+  ownSettings: msg({ id: 'project.agents.ownSettings', defaultMessage: 'Own settings: {settings}', description: "Under an agent: the settings it sets for itself, as a list." }),
+  projectSettings: msg({ id: 'project.agents.projectSettings', defaultMessage: 'Project settings ({model})', description: "Under an agent that uses the project's settings. {model} is the model it runs." }),
+  agentSettings: msg({ id: 'project.agents.settings', defaultMessage: 'Agent settings…', description: "Tooltip on an agent's settings button." }),
+  merge: msg({ id: 'project.agents.merge', defaultMessage: 'Merge…', description: "Tooltip on a worktree agent's merge button." }),
+  remove: msg({ id: 'project.agents.remove', defaultMessage: 'Remove agent…', description: "Tooltip on an agent's remove button (asks first)." }),
+  addAgent: msg({ id: 'project.agents.add', defaultMessage: 'Add Agent', description: 'Button: adds an agent to the project.' }),
+  saveFailed: msg({ id: 'project.settings.saveFailed', defaultMessage: 'Could not save project settings', description: 'Title of an error notification.' }),
+  never: msg({ id: 'project.settings.never', defaultMessage: 'never', description: 'A global setting turned off, shown in "Inherit (never)".' }),
+  megabytes: msg({ id: 'project.settings.megabytes', defaultMessage: '{count} MB', description: 'A size in megabytes.' }),
+  providerDefault: msg({ id: 'project.settings.providerDefault', defaultMessage: '{provider} default', description: "The provider's own default model, in \"Inherit (Claude Code default)\"." }),
+  inherit: msg({ id: 'project.settings.inherit', defaultMessage: 'Inherit ({value})', description: 'The choice that takes the global (or workspace) setting. {value} is what that is now.' }),
+  inheritNewline: msg({ id: 'project.settings.inheritList', defaultMessage: 'Inherit:\n{value}', description: "Placeholder of a box that takes a list when it is empty: Inherit, then the global list on the lines after it. Keep the line break." }),
+  on: msg({ id: 'project.settings.on', defaultMessage: 'On', description: 'A choice: on.' }),
+  offChoice: msg({ id: 'project.settings.off', defaultMessage: 'Off', description: 'A choice: off.' }),
+  onLower: msg({ id: 'project.settings.onLower', defaultMessage: 'on', description: 'A global setting that is on, shown in "Inherit (on)".' }),
+  offLower: msg({ id: 'project.settings.offLower', defaultMessage: 'off', description: 'A global setting that is off, shown in "Inherit (off)".' }),
+  sessionsIn: msg({ id: 'project.settings.sessionsIn', defaultMessage: 'Sessions in {project}', description: 'Who a dangerous permission mode applies to, in its confirmation ("Sessions in alpha will run every command without asking").' }),
+  compactAbove: msg({ id: 'project.settings.compactAbove', defaultMessage: 'Suggest compacting above', description: 'Accessible name of the number box of tokens above which compacting is suggested.' }),
+  neverChoice: msg({ id: 'project.settings.neverChoice', defaultMessage: 'Never', description: 'A choice: the warning or suggestion is off.' }),
+  warnOver: msg({ id: 'project.settings.warnOver', defaultMessage: 'Warn when a transcript is over', description: 'Accessible name of the number box of megabytes above which a transcript is flagged.' }),
+  wake: msg({ id: 'project.settings.wake', defaultMessage: 'Wake reviewers and builders', description: "Accessible name of the card-loop wakes switch." }),
+  rounds: msg({ id: 'project.settings.rounds', defaultMessage: 'Rounds', description: 'Accessible name of the card-loop rounds box.' }),
+  waitHours: msg({ id: 'project.settings.waitHours', defaultMessage: 'Wait (hours)', description: "Accessible name of the card-loop wait box." }),
+  hours: msg({ id: 'project.settings.hours', defaultMessage: '{count} h', description: 'Hours, short, as in "Inherit (6 h)".' }),
+  openHive: msg({ id: 'project.settings.openHive', defaultMessage: 'Open .hive folder', description: "Button: opens the project's .hive folder. Keep .hive." }),
+  resetTitle: msg({ id: 'project.settings.resetTitle', defaultMessage: 'Reset project settings?', description: 'Title of the confirmation before resetting the project settings.' }),
+  resetMessage: msg({ id: 'project.settings.resetMessage', defaultMessage: "The default provider, each provider’s model, effort, permission mode, context and extra arguments, the chime, the compact threshold, the transcript size warning, file locks, worktree setup and the card-loop rounds and wait go back to Inherit, and loop wakes back on. Agents and skill and MCP opt-outs are kept.", description: 'The confirmation before resetting the project settings.' }),
+  reset: msg({ id: 'project.settings.reset', defaultMessage: 'Reset', description: "The reset confirmation's button." }),
+  resetButton: msg({ id: 'project.settings.resetButton', defaultMessage: 'Reset to defaults', description: 'Button: resets the project settings (asks first).' }),
+  search: msg({ id: 'project.settings.search', defaultMessage: 'Search {project} settings', description: "Placeholder of Project Settings' search box." }),
+  global: msg({ id: 'project.settings.global', defaultMessage: 'Global settings', description: 'Link: opens Settings.' }),
+  noMatch: msg({ id: 'project.settings.noMatch', defaultMessage: 'No settings match.', description: "Project Settings when the search finds nothing." })
+}
+
+/** A plan limit's window as the messages select on: the 5-hour and weekly windows Hive knows, else its own label. */
+export const limitWindow = (l: PlanLimit): string => (l.windowMinutes === 300 ? 'fiveHour' : l.windowMinutes === 7 * 24 * 60 ? 'weekly' : 'other')
 
 // ---------------------------------------------------------------------------
 // Overview
@@ -120,12 +377,12 @@ export { PERIODS, activeIn, costText, dailyTotals, money, periodFrom, sumUsage, 
 /** A small bar per day (tokens), for the 7- and 30-day periods; hover a day for its numbers. */
 export function DailyChart({ days }: { days: DayTotal[] }) {
   const max = Math.max(1, ...days.map((d) => d.tokens))
-  const label = (day: string): string => new Date(`${day}T12:00:00`).toLocaleDateString(undefined, { weekday: 'short', day: 'numeric', month: 'short' })
+  const label = (day: string): string => new Date(`${day}T12:00:00`).toLocaleDateString(locale(), { weekday: 'short', day: 'numeric', month: 'short' })
   return (
-    <div className="daily-chart" role="img" aria-label="Tokens per day">
+    <div className="daily-chart" role="img" aria-label={tr(M.tokensPerDay)}>
       <div className="daily-bars">
         {days.map((d) => (
-          <Tooltip key={d.day} content={`${label(d.day)}: ${formatTokens(d.tokens)} tokens · ${costText(d)} · ${d.prompts} prompt${d.prompts === 1 ? '' : 's'}`}>
+          <Tooltip key={d.day} content={tr(M.dayTip, { day: label(d.day), tokens: formatTokens(d.tokens), cost: costText(d), prompts: d.prompts })}>
             <div className="daily-col">
               <div className="daily-bar" style={{ height: `${d.tokens ? Math.max(3, (d.tokens / max) * 100) : 0}%` }} />
             </div>
@@ -134,7 +391,7 @@ export function DailyChart({ days }: { days: DayTotal[] }) {
       </div>
       <div className="daily-axis">
         <span>{label(days[0].day)}</span>
-        <span>Today</span>
+        <span>{tr(M.today)}</span>
       </div>
     </div>
   )
@@ -153,7 +410,7 @@ export function OverviewTab({ project }: { project: ProjectInfo }) {
   const slots = projectSlots(useMergeSlots(), project.path)
   const [period, setPeriod] = useState<Period>('all')
   const now = useNow(60000)
-  if (!items) return error ? <LoadFailed what="the sessions" error={error} onRetry={reload} /> : <div className="empty-state"><Icon name="loading" spin />Loading…</div>
+  if (!items) return error ? <LoadFailed what={tr(M.sessionsTarget)} error={error} onRetry={reload} /> : <div className="empty-state"><Icon name="loading" spin />{tr(M.loading)}</div>
 
   const from = periodFrom(period, now)
   const inPeriod = activeIn([...items.filter((i) => i.source === 'hive'), ...kept], from)
@@ -162,7 +419,7 @@ export function OverviewTab({ project }: { project: ProjectInfo }) {
   const used = new Set([...inPeriod.map((i) => i.provider), ...running.map((a) => a.live!.provider)])
   const providers = PROVIDERS.filter((p) => used.has(p.id) || isProviderEnabled(settings, p.id))
   const tokens = (t: Totals): number => t.input + t.cached + t.cacheWrite + t.output
-  const costTip = 'What this work would have cost at API prices: reported by the provider where it does (Claude Code), else estimated by Hive from token counts and the prices in Settings → the provider. On a subscription you are not charged this; it shows how heavy the work was.'
+  const costTip = tr(M.costTip)
 
   return (
     <div className="scroll-page overview-page">
@@ -171,19 +428,19 @@ export function OverviewTab({ project }: { project: ProjectInfo }) {
         <HiveVcsNotice project={project} dismissible />
         {slots.length > 0 && (
           <>
-            <h2 className="section">Merge slot</h2>
+            <h2 className="section">{tr(M.mergeSlot)}</h2>
             <MergeSlotList slots={slots} projectName={() => project.name} showProject={false} />
           </>
         )}
         <div className="overview-head">
-          <h2 className="section">Project summary</h2>
-          <Tooltip content={`Updated ${timeAgo(new Date(loadedAt).toISOString())}. How often it updates: Settings → Sessions → Overview updates.`}>
+          <h2 className="section">{tr(M.summary)}</h2>
+          <Tooltip content={tr(M.updated, { when: timeAgo(new Date(loadedAt).toISOString()) })}>
             <span>
-              <IconButton icon="refresh" title="Refresh" onClick={reload} />
+              <IconButton icon="refresh" title={tr(M.refresh)} onClick={reload} />
             </span>
           </Tooltip>
           <div className="grow" />
-          <div className="segmented" role="group" aria-label="Period">
+          <div className="segmented" role="group" aria-label={tr(M.period)}>
             {PERIODS.map((p) => (
               <button key={p.value} className={cx(period === p.value && 'active')} onClick={() => setPeriod(p.value)}>
                 {p.label}
@@ -191,25 +448,25 @@ export function OverviewTab({ project }: { project: ProjectInfo }) {
             ))}
           </div>
         </div>
-        {error && <StaleNote what="the sessions" error={error} at={loadedAt} onRetry={reload} />}
-        <p className="hint">What was used in the period across every provider, by calendar day: a session that ran over several days counts only its part in the period.</p>
+        {error && <StaleNote what={tr(M.sessionsTarget)} error={error} at={loadedAt} onRetry={reload} />}
+        <p className="hint">{tr(M.periodHint)}</p>
         <div className="cards">
-          <Card accent title="Tokens" value={formatTokens(tokens(total))} sub={`${formatTokens(total.input + total.cacheWrite)} in · ${formatTokens(total.cached)} cached · ${formatTokens(total.output)} out`} tip="All tokens: new input, cache writes, input read from cache, and output." />
+          <Card accent title={tr(M.tokens)} value={formatTokens(tokens(total))} sub={tr(M.tokensSub, { input: formatTokens(total.input + total.cacheWrite), cached: formatTokens(total.cached), output: formatTokens(total.output) })} tip={tr(M.tokensTip)} />
           <Card
-            title="API-equivalent cost"
+            title={tr(M.cost)}
             stat="cost"
             value={costText(total)}
-            sub={total.unpriced ? `${total.unpriced} session${total.unpriced === 1 ? '' : 's'} without a price` : total.estimated ? 'partly estimated' : 'as reported'}
+            sub={total.unpriced ? tr(M.withoutPrice, { count: total.unpriced }) : tr(total.estimated ? M.partlyEstimated : M.asReported)}
             tip={costTip}
           />
-          <Card title="Sessions" value={total.sessions} sub={`${running.length} running now`} />
-          <Card title="Prompts" value={formatNumber(total.prompts)} sub={`${total.compactions} compaction${total.compactions === 1 ? '' : 's'}`} />
+          <Card title={tr(M.sessions)} value={total.sessions} sub={tr(M.runningNow, { count: running.length })} />
+          <Card title={tr(M.prompts)} value={formatNumber(total.prompts)} sub={tr(M.compactions, { count: total.compactions })} />
         </div>
         {from && period !== 'today' && <DailyChart days={dailyTotals(inPeriod, from, now)} />}
 
         {running.length > 0 && (
           <>
-            <h2 className="section">Running now</h2>
+            <h2 className="section">{tr(M.runningHeading)}</h2>
             <div className="running-list">
               {running.map((a) => (
                 <RunningAgent key={a.id} project={project} a={a} />
@@ -225,12 +482,12 @@ export function OverviewTab({ project }: { project: ProjectInfo }) {
             <div key={p.id}>
               <h2 className="section">
                 <ProviderIcon provider={p.id} /> {p.name}
-                {!isProviderEnabled(settings, p.id) && <span className="muted" style={{ fontWeight: 400 }}> — turned off</span>}
+                {!isProviderEnabled(settings, p.id) && <span className="muted" style={{ fontWeight: 400 }}> {tr(M.turnedOff)}</span>}
               </h2>
               <div className="cards">
-                <Card title="Tokens" value={formatTokens(tokens(t))} sub={`${formatTokens(t.output)} output`} />
-                <Card title="API-equivalent cost" value={costText(t)} sub={t.unpriced ? `${t.unpriced} without a price` : !t.estimated ? 'as reported' : p.capabilities.reportsCost && !usesOwnPrices(p.id, settings) ? 'partly estimated' : 'estimated'} tip={costTip} />
-                <Card title="Sessions" value={t.sessions} sub={`${formatNumber(t.prompts)} prompts`} />
+                <Card title={tr(M.tokens)} value={formatTokens(tokens(t))} sub={tr(M.outputSub, { tokens: formatTokens(t.output) })} />
+                <Card title={tr(M.cost)} value={costText(t)} sub={t.unpriced ? tr(M.withoutPriceShort, { count: t.unpriced }) : tr(!t.estimated ? M.asReported : p.capabilities.reportsCost && !usesOwnPrices(p.id, settings) ? M.partlyEstimated : M.estimated)} tip={costTip} />
+                <Card title={tr(M.sessions)} value={t.sessions} sub={tr(M.promptsSub, { count: formatNumber(t.prompts) })} />
               </div>
               <PlanLimits provider={p.id} />
             </div>
@@ -239,14 +496,8 @@ export function OverviewTab({ project }: { project: ProjectInfo }) {
 
         {project.agents.length > 1 && (
           <>
-            <h2 className="section">By agent</h2>
-            <DataTable
-              id="overview-agents"
-              rows={project.agents.map((a) => ({ id: a.id, name: a.name, provider: agentProviderOf(project, a), t: sumUsage(inPeriod.filter((i) => sessionAgent(project, i) === a.id), from) }))}
-              columns={AGENT_COLUMNS}
-              rowKey={(r) => r.id}
-              empty="No agents."
-            />
+            <h2 className="section">{tr(M.byAgent)}</h2>
+            <AgentsByUsage rows={project.agents.map((a) => ({ id: a.id, name: a.name, provider: agentProviderOf(project, a), t: sumUsage(inPeriod.filter((i) => sessionAgent(project, i) === a.id), from) }))} />
           </>
         )}
 
@@ -266,11 +517,12 @@ interface AgentRow {
   t: Totals
 }
 const allTokens = (t: Totals): number => t.input + t.cached + t.cacheWrite + t.output
-const AGENT_COLUMNS: DataColumn<AgentRow>[] = [
-  { key: 'agent', header: 'Agent', cell: (r) => r.name, sortValue: (r) => r.name },
+/** The table's columns, their headers in the current language (made again when it changes). */
+const agentColumns = (): DataColumn<AgentRow>[] => [
+  { key: 'agent', header: tr(M.colAgent), cell: (r) => r.name, sortValue: (r) => r.name },
   {
     key: 'provider',
-    header: 'Provider',
+    header: tr(M.colProvider),
     className: 'nowrap',
     cell: (r) => (
       <>
@@ -279,10 +531,18 @@ const AGENT_COLUMNS: DataColumn<AgentRow>[] = [
     ),
     sortValue: (r) => providerName(r.provider)
   },
-  { key: 'sessions', header: 'Sessions', num: true, descFirst: true, cell: (r) => r.t.sessions, sortValue: (r) => r.t.sessions },
-  { key: 'tokens', header: 'Tokens', num: true, descFirst: true, cell: (r) => formatTokens(allTokens(r.t)), sortValue: (r) => allTokens(r.t) },
-  { key: 'cost', header: 'Cost', num: true, descFirst: true, cell: (r) => (r.t.sessions ? costText(r.t) : '—'), sortValue: (r) => (r.t.sessions ? r.t.cost : null) }
+  { key: 'sessions', header: tr(M.colSessions), num: true, descFirst: true, cell: (r) => r.t.sessions, sortValue: (r) => r.t.sessions },
+  { key: 'tokens', header: tr(M.colTokens), num: true, descFirst: true, cell: (r) => formatTokens(allTokens(r.t)), sortValue: (r) => allTokens(r.t) },
+  { key: 'cost', header: tr(M.colCost), num: true, descFirst: true, cell: (r) => (r.t.sessions ? costText(r.t) : '—'), sortValue: (r) => (r.t.sessions ? r.t.cost : null) }
 ]
+
+/** The Overview's table by agent. */
+function AgentsByUsage({ rows }: { rows: AgentRow[] }) {
+  const language = useLanguage()
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  const columns = useMemo(agentColumns, [language])
+  return <DataTable id="overview-agents" rows={rows} columns={columns} rowKey={(r) => r.id} empty={tr(M.noAgents)} />
+}
 
 /** One running agent: provider, model, mode, status, context used and cost so far. `onOpen` makes it a link. */
 export function RunningAgent({ project, a, label, onOpen, assistant }: { project: ProjectInfo; a: ProjectInfo['agents'][number]; label?: string; onOpen?: () => void; assistant?: boolean }) {
@@ -310,12 +570,12 @@ export function RunningAgent({ project, a, label, onOpen, assistant }: { project
           <strong>{label ?? a.name}</strong> <span className="faint">{statusText(live)}</span> <CardChip project={project} a={a} />
         </div>
         <div className="faint small">
-          {[live.modelName ?? usage?.model ?? null, live.permissionMode ? permissionLabel(live.provider, live.permissionMode) : null, live.planMode ? 'Plan' : null].filter(Boolean).join(' · ')}
+          {[live.modelName ?? usage?.model ?? null, live.permissionMode ? permissionLabel(live.provider, live.permissionMode) : null, live.planMode ? tr(M.plan) : null].filter(Boolean).join(' · ')}
         </div>
       </div>
-      <Tooltip content={window ? `${ctx.toLocaleString()} of ${window.toLocaleString()} tokens of context` : `${ctx.toLocaleString()} tokens of context`}>
+      <Tooltip content={window ? tr(M.contextOf, { used: fmt.number(ctx), window: fmt.number(window) }) : tr(M.contextUsed, { used: fmt.number(ctx) })}>
         <div className="running-ctx">
-          <span className="small">{formatTokens(ctx)} context{pct !== null ? ` · ${pct}%` : ''}</span>
+          <span className="small">{tr(M.contextShort, { tokens: formatTokens(ctx) })}{pct !== null ? ` · ${pct}%` : ''}</span>
           {pct !== null && (
             <div className={cx('meter', pct >= 90 ? 'danger' : pct >= 75 && 'caution')}>
               <div style={{ width: `${pct}%` }} />
@@ -325,10 +585,10 @@ export function RunningAgent({ project, a, label, onOpen, assistant }: { project
       </Tooltip>
       {cost === null && usage && unpricedModel(usage.provider, usage.model, settings) ? (
         <Tooltip content={unpricedText(usage.model!, providerName(usage.provider))}>
-          <span className="running-cost small faint">Unknown</span>
+          <span className="running-cost small faint">{tr(M.unknownCost)}</span>
         </Tooltip>
       ) : (
-        <span className="running-cost small">{cost !== null ? `${estimated ? '≈ ' : ''}${money(cost)}` : ''}</span>
+        <span className="running-cost small">{cost !== null ? `${estimated ? '≈ ' : ''}${moneyLabel(cost)}` : ''}</span>
       )}
     </div>
   )
@@ -337,13 +597,14 @@ export function RunningAgent({ project, a, label, onOpen, assistant }: { project
 /** A compaction, with its place among the session's (oldest first), which opens it in the transcript. */
 type CompactionRow = CompactionEvent & { n: number }
 
-const COMPACTION_COLUMNS: DataColumn<CompactionRow>[] = [
-  { key: 'when', header: 'When', cell: (c) => (c.timestamp ? formatDateTime(c.timestamp) : '—'), sortValue: (c) => c.timestamp || null, descFirst: true, filter: { kind: 'text', value: (c) => (c.timestamp ? formatDateTime(c.timestamp) : '') } },
-  { key: 'trigger', header: 'Trigger', cell: (c) => <span className={cx('badge', c.trigger === 'auto' ? 'accent' : 'info')}>{c.trigger}</span>, sortValue: (c) => c.trigger, filter: { kind: 'choice', value: (c) => c.trigger } },
-  { key: 'before', header: 'Before', num: true, descFirst: true, cell: (c) => formatTokens(c.preTokens), sortValue: (c) => c.preTokens },
-  { key: 'after', header: 'After', num: true, descFirst: true, cell: (c) => formatTokens(c.postTokens), sortValue: (c) => c.postTokens },
-  { key: 'freed', header: 'Freed', num: true, descFirst: true, cell: (c) => formatTokens(Math.max(0, c.preTokens - c.postTokens)), sortValue: (c) => Math.max(0, c.preTokens - c.postTokens) },
-  { key: 'turn', header: 'Last turn', num: true, descFirst: true, cell: (c) => <LastTurn c={c} />, sortValue: (c) => c.lastOutputTokens ?? null }
+/** The compaction history's columns, their headers in the current language (made again when it changes). */
+const compactionColumns = (): DataColumn<CompactionRow>[] => [
+  { key: 'when', header: tr(M.colWhen), cell: (c) => (c.timestamp ? formatDateTime(c.timestamp) : '—'), sortValue: (c) => c.timestamp || null, descFirst: true, filter: { kind: 'text', value: (c) => (c.timestamp ? formatDateTime(c.timestamp) : '') } },
+  { key: 'trigger', header: tr(M.colTrigger), cell: (c) => <span className={cx('badge', c.trigger === 'auto' ? 'accent' : 'info')}>{c.trigger}</span>, sortValue: (c) => c.trigger, filter: { kind: 'choice', value: (c) => c.trigger } },
+  { key: 'before', header: tr(M.colBefore), num: true, descFirst: true, cell: (c) => formatTokens(c.preTokens), sortValue: (c) => c.preTokens },
+  { key: 'after', header: tr(M.colAfter), num: true, descFirst: true, cell: (c) => formatTokens(c.postTokens), sortValue: (c) => c.postTokens },
+  { key: 'freed', header: tr(M.colFreed), num: true, descFirst: true, cell: (c) => formatTokens(Math.max(0, c.preTokens - c.postTokens)), sortValue: (c) => Math.max(0, c.preTokens - c.postTokens) },
+  { key: 'turn', header: tr(M.colLastTurn), num: true, descFirst: true, cell: (c) => <LastTurn c={c} />, sortValue: (c) => c.lastOutputTokens ?? null }
 ]
 
 /** What the last turn before a compaction added, said when it explains the compaction. */
@@ -352,9 +613,9 @@ function LastTurn({ c }: { c: CompactionEvent }) {
   const text = `+${formatTokens(c.lastOutputTokens)}`
   if (!turnPushedCompaction(c)) return <span className="faint">{text}</span>
   return (
-    <Tooltip content={`The last turn added ${formatTokens(c.lastOutputTokens)} of output (thinking included) to the ${formatTokens(c.lastInputTokens ?? 0)} the context showed before it, so it reached ${formatTokens(c.preTokens)} and was compacted.`}>
+    <Tooltip content={tr(M.lastTurnTip, { output: formatTokens(c.lastOutputTokens), input: formatTokens(c.lastInputTokens ?? 0), total: formatTokens(c.preTokens) })}>
       <span className="badge warn compaction-turn">
-        turn added {formatTokens(c.lastOutputTokens)} output
+        {tr(M.turnAdded, { output: formatTokens(c.lastOutputTokens) })}
       </span>
     </Tooltip>
   )
@@ -366,7 +627,9 @@ function LastTurn({ c }: { c: CompactionEvent }) {
  */
 function CompactionHistory({ project, session, compactions }: { project: ProjectInfo; session: SessionListItem; compactions: CompactionEvent[] }) {
   // Its When filter matches the dates as shown, in the current format.
-  const columns = useDateColumns(COMPACTION_COLUMNS)
+  const language = useLanguage()
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  const columns = useDateColumns(useMemo(compactionColumns, [language]))
   const rows = useMemo(() => compactions.map((c, n) => ({ ...c, n })), [compactions])
   const readable = session.hasTranscript || session.hasBackup
   return (
@@ -378,9 +641,9 @@ function CompactionHistory({ project, session, compactions }: { project: Project
       rowKey={(c) => String(c.n)}
       defaultSort={{ key: 'when', desc: true }}
       defaultPageSize={10}
-      empty="No compactions yet."
+      empty={tr(M.noCompactions)}
       onRowClick={readable ? (c) => openInSessionsTab(project.path, session.id, c.n) : undefined}
-      rowLabel={(c) => `Open the ${c.trigger} compaction of ${c.timestamp ? formatDateTime(c.timestamp) : 'unknown time'} in the transcript`}
+      rowLabel={(c) => tr(M.openCompaction, { trigger: c.trigger, when: c.timestamp ? formatDateTime(c.timestamp) : tr(M.unknownTime) })}
     />
   )
 }
@@ -427,13 +690,13 @@ function SessionDetails({ project, items }: { project: ProjectInfo; items: Sessi
     <>
         <div className="overview-head session-head" ref={head}>
           <h2 className="section">
-            {liveState ? 'Current session' : 'Most recent session'}
+            {tr(liveState ? M.currentSession : M.recentSession)}
             {current && <span className="muted" style={{ fontWeight: 400 }}>— {current.name || current.title || current.id.slice(0, 8)} · {provider.name}</span>}
           </h2>
           {project.agents.length > 1 && agent && (
-            <Tooltip content="Whose session to show. It follows the focused agent until you pick one.">
+            <Tooltip content={tr(M.whoseTip)}>
               <span>
-              <select className="select" aria-label="Agent" value={agent.id} onChange={(e) => setPickedId(e.target.value)}>
+              <select className="select" aria-label={tr(M.agent)} value={agent.id} onChange={(e) => setPickedId(e.target.value)}>
                 {project.agents.map((a) => (
                   <option key={a.id} value={a.id}>
                     {a.name} · {providerName(agentProviderOf(project, a))}
@@ -445,16 +708,16 @@ function SessionDetails({ project, items }: { project: ProjectInfo; items: Sessi
           )}
         </div>
         {!u ? (
-          <p className="hint">{project.agents.length > 1 && agent ? `${agent.name} has no session data yet.` : 'No session data yet.'} Start a session and its token use, cache and compaction history will appear here.</p>
+          <p className="hint">{project.agents.length > 1 && agent ? tr(M.noDataAgent, { agent: agent.name }) : tr(M.noData)}</p>
         ) : (
           <>
             <div className="cards">
               <Card
                 accent
-                title="Context"
+                title={tr(M.context)}
                 value={formatTokens(u.contextTokens)}
-                sub={u.contextInputTokens !== undefined && u.lastOutputTokens ? `${formatTokens(u.contextInputTokens)} input + ${formatTokens(u.lastOutputTokens)} output of the last turn` : `${formatNumber(u.contextTokens)} tokens in the last request`}
-                tip={<span style={{ whiteSpace: 'pre-line' }}>{`How many tokens the conversation occupies now: the last request's input and its output (thinking included), which stays in the context.\n${contextLines(u, liveState && liveState.sessionId === current?.id ? liveState.autoCompact : undefined).slice(1).join('\n')}`.trim()}</span>}
+                sub={u.contextInputTokens !== undefined && u.lastOutputTokens ? tr(M.contextLastTurn, { input: formatTokens(u.contextInputTokens), output: formatTokens(u.lastOutputTokens) }) : tr(M.contextRequest, { tokens: formatNumber(u.contextTokens) })}
+                tip={<span style={{ whiteSpace: 'pre-line' }}>{`${tr(M.contextTip)}\n${contextLines(u, liveState && liveState.sessionId === current?.id ? liveState.autoCompact : undefined).slice(1).join('\n')}`.trim()}</span>}
               >
                 {u.contextWindow ? (
                   <div className="meter">
@@ -465,38 +728,38 @@ function SessionDetails({ project, items }: { project: ProjectInfo; items: Sessi
               {cacheTtl && (
                 <>
                   <Card
-                    title="Cache"
-                    value={warm ? 'Warm' : 'Expired'}
-                    sub={warm ? `≈ ${formatDuration(ttl - elapsed)} left of ${ttl === 3600 ? '1 h' : '5 min'} TTL` : `Last activity ${timeAgo(u.lastActivity)}`}
-                    tip={`${provider.company}'s prompt cache keeps the conversation prefix for a limited time (5 minutes or 1 hour). While warm, each message reads the context cheaply from cache.`}
+                    title={tr(M.cache)}
+                    value={tr(warm ? M.warm : M.expired)}
+                    sub={warm ? tr(M.warmLeft, { left: formatDuration(ttl - elapsed), ttl: ttl === 3600 ? 'hour' : 'minutes' }) : tr(M.lastActivity, { when: timeAgo(u.lastActivity) })}
+                    tip={tr(M.cacheTip, { company: provider.company })}
                   />
                   <Card
-                    title="Re-cache on resume"
+                    title={tr(M.recache)}
                     value={warm ? '—' : `≈ ${formatTokens(u.contextTokens)}`}
-                    sub={warm ? 'Cache is still warm' : 'tokens written to cache on the next message'}
-                    tip="Estimate: when the cache has expired, the first message after resuming writes the whole context to cache again. Archive and start a new session to avoid it."
+                    sub={tr(warm ? M.stillWarm : M.writtenNext)}
+                    tip={tr(M.recacheTip)}
                   />
                 </>
               )}
-              <Card title="Compactions" value={u.compactions.length} sub={u.compactions.length ? `Last ${timeAgo(u.compactions[u.compactions.length - 1].timestamp)}` : 'None yet'} tip={`${provider.name} summarises the conversation when the context fills up. Each compaction frees space but loses detail.`} />
-              <Card title="Output" value={formatTokens(u.outputTokens)} sub={`${u.requests} requests · ${u.userMessages} prompts`} />
-              <Card title="Input" value={formatTokens(u.inputTokens + u.cacheWriteTokens + u.cacheReadTokens)} sub={`${hitRate}% read from cache`} tip="All input tokens: uncached input, cache writes and cache reads.">
+              <Card title={tr(M.compactionsCard)} value={u.compactions.length} sub={u.compactions.length ? tr(M.lastCompaction, { when: timeAgo(u.compactions[u.compactions.length - 1].timestamp) }) : tr(M.noneYet)} tip={tr(M.compactionsTip, { provider: provider.name })} />
+              <Card title={tr(M.output)} value={formatTokens(u.outputTokens)} sub={tr(M.outputDetail, { requests: u.requests, prompts: u.userMessages })} />
+              <Card title={tr(M.input)} value={formatTokens(u.inputTokens + u.cacheWriteTokens + u.cacheReadTokens)} sub={tr(M.fromCache, { percent: hitRate })} tip={tr(M.inputTip)}>
                 <div className="meter">
                   <div style={{ width: `${hitRate}%` }} />
                 </div>
               </Card>
-              {cacheTtl && <Card title="Cache writes" value={formatTokens(u.cacheWriteTokens)} sub="tokens written to cache" />}
-              <Card title="Cache reads" value={formatTokens(u.cacheReadTokens)} sub="tokens read from cache" />
+              {cacheTtl && <Card title={tr(M.cacheWrites)} value={formatTokens(u.cacheWriteTokens)} sub={tr(M.writtenToCache)} />}
+              <Card title={tr(M.cacheReads)} value={formatTokens(u.cacheReadTokens)} sub={tr(M.readFromCache)} />
               {cost !== null && (
                 <Card
-                  title="API-equivalent cost"
-                  value={`${costEstimated ? '≈ ' : ''}${money(cost)}`}
-                  sub={costEstimated ? 'this session, estimated at API prices' : 'this session, at API prices'}
-                  tip={`What this session would have cost at ${provider.company} API prices${costEstimated ? ', estimated by Hive from its token counts' : `, as ${provider.name} calculates it`}. On a subscription you are not charged this; it shows how heavy the session has been.`}
+                  title={tr(M.cost)}
+                  value={`${costEstimated ? '≈ ' : ''}${moneyLabel(cost)}`}
+                  sub={tr(costEstimated ? M.sessionEstimated : M.sessionAtPrices)}
+                  tip={tr(M.sessionCostTip, { estimated: costEstimated ? 'yes' : 'no', company: provider.company, provider: provider.name })}
                 />
               )}
               {cost === null && unpricedModel(u.provider, u.model, settings) && (
-                <Card title="API-equivalent cost" value="Unknown" sub={`no price for ${u.model}`} tip={unpricedText(u.model!, provider.name)} />
+                <Card title={tr(M.cost)} value={tr(M.unknownCost)} sub={tr(M.noPriceFor, { model: u.model ?? '' })} tip={unpricedText(u.model!, provider.name)} />
               )}
             </div>
             {/* Its own sideways scroll in a very narrow page (#307), as the Overview's other tables have. */}
@@ -504,24 +767,24 @@ function SessionDetails({ project, items }: { project: ProjectInfo; items: Sessi
               <table className="table">
                 <tbody>
                   <tr>
-                    <td className="muted" style={{ width: 180 }}>Model</td>
+                    <td className="muted" style={{ width: 180 }}>{tr(M.model)}</td>
                     <td className="mono">{u.model ?? '—'}</td>
                   </tr>
                   <tr>
-                    <td className="muted">{provider.name} version</td>
+                    <td className="muted">{tr(M.cliVersion, { provider: provider.name })}</td>
                     <td>{u.cliVersion ?? '—'}</td>
                   </tr>
                   <tr>
-                    <td className="muted">Started</td>
+                    <td className="muted">{tr(M.started)}</td>
                     <td>{u.firstActivity ? formatDateTime(u.firstActivity) : '—'}</td>
                   </tr>
                   <tr>
-                    <td className="muted">Last activity</td>
+                    <td className="muted">{tr(M.lastActivityRow)}</td>
                     <td>{u.lastActivity ? `${formatDateTime(u.lastActivity)} (${timeAgo(u.lastActivity)})` : '—'}</td>
                   </tr>
                   {u.lastPrompt && (
                     <tr>
-                      <td className="muted">Last prompt</td>
+                      <td className="muted">{tr(M.lastPrompt)}</td>
                       <td style={{ whiteSpace: 'pre-wrap' }}>{u.lastPrompt.slice(0, 400)}</td>
                     </tr>
                   )}
@@ -531,7 +794,7 @@ function SessionDetails({ project, items }: { project: ProjectInfo; items: Sessi
             {u.compactions.length > 0 && current && (
               <>
                 <h2 className="section" id="compaction-history">
-                  Compaction history
+                  {tr(M.compactionHistory)}
                 </h2>
                 <CompactionHistory project={project} session={current} compactions={u.compactions} />
               </>
@@ -548,7 +811,7 @@ export function PlanLimits({ provider }: { provider: ProviderId }) {
   useNow(60000)
   const p = providerDescriptor(provider)
   const card = (id: ProviderId, l: PlanLimit): React.ReactNode => (
-    <Card key={l.id} title={`${l.label.charAt(0).toUpperCase()}${l.label.slice(1)} limit`} value={`${Math.round(l.usedPercent)}%`} sub={l.resetsAt ? `used · resets ${resetsIn(l.resetsAt)}` : 'used'} tip={`How much of your plan’s ${l.label} allowance is used, across all your ${providerName(id)} sessions (not just Hive).`} accent={l.usedPercent >= 80}>
+    <Card key={l.id} title={tr(M.limitTitle, { window: limitWindow(l), label: `${l.label.charAt(0).toUpperCase()}${l.label.slice(1)}` })} value={`${Math.round(l.usedPercent)}%`} sub={l.resetsAt ? tr(M.limitResets, { when: resetsIn(l.resetsAt) }) : tr(M.limitUsed)} tip={tr(M.limitTip, { window: limitWindow(l), label: l.label, provider: providerName(id) })} accent={l.usedPercent >= 80}>
       <div className={cx('meter', l.usedPercent >= 95 ? 'danger' : l.usedPercent >= 80 && 'caution')}>
         <div style={{ width: `${Math.min(100, l.usedPercent)}%` }} />
       </div>
@@ -557,20 +820,18 @@ export function PlanLimits({ provider }: { provider: ProviderId }) {
   return usage?.limits.length ? (
     <>
       <div className="faint small overview-plan">
-        Plan limits{usage.plan ? ` (${usage.plan})` : ''}, account-wide, as of {timeAgo(usage.updatedAt)}
+        {tr(M.planLimits, { plan: usage.plan || 'none', when: timeAgo(usage.updatedAt) })}
       </div>
       <div className="cards">{usage.limits.map((l) => card(provider, l))}</div>
     </>
   ) : (
-    <p className="hint">{p.name} reports your plan’s limits while a session runs; they appear here after the next message in any {p.name} session. Accounts that use an API key have no plan limits.</p>
+    <p className="hint">{tr(M.noLimits, { provider: p.name })}</p>
   )
 }
 
 // ---------------------------------------------------------------------------
 // Changes (git)
 // ---------------------------------------------------------------------------
-
-const GIT_LABEL: Record<string, string> = { M: 'Modified', A: 'Added', D: 'Deleted', R: 'Renamed', C: 'Copied', U: 'Conflict', '?': 'Untracked' }
 
 /**
  * Whose changes the Changes tab shows (#476): the unused worktrees first (all, or one, each with who made it), then the
@@ -580,10 +841,10 @@ function ChangesPicker({ project, value, onChange, unused, looking, listed }: { 
   const inUse = project.agents.filter((a) => a.worktree)
   return (
     <div className="root-row">
-      <Tooltip content="Unused worktrees, a worktree an agent works in, or the project folder">
+      <Tooltip content={tr(C.pickerTip)}>
         <select className="select root-select changes-picker" value={value} onChange={(e) => onChange(e.target.value)}>
-          <optgroup label="Unused worktrees (no agent works in them)">
-            <option value={UNUSED_ROOT}>{looking ? 'Unused worktrees (looking…)' : listed ? `Unused worktrees (${unused.length})` : "Unused worktrees (couldn't list)"}</option>
+          <optgroup label={tr(C.unusedGroup)}>
+            <option value={UNUSED_ROOT}>{looking ? tr(C.unusedLooking) : listed ? tr(C.unusedCount, { count: unused.length }) : tr(C.unusedFailed)}</option>
             {unused
               .filter((w) => w.branch)
               .map((w) => (
@@ -593,16 +854,16 @@ function ChangesPicker({ project, value, onChange, unused, looking, listed }: { 
               ))}
           </optgroup>
           {inUse.length > 0 && (
-            <optgroup label="Worktrees in use">
+            <optgroup label={tr(C.inUseGroup)}>
               {inUse.map((a) => (
                 <option key={a.id} value={a.id}>
-                  {a.name}'s worktree · {a.worktree!.branch}
+                  {tr(C.agentWorktree, { agent: a.name, branch: a.worktree!.branch })}
                 </option>
               ))}
             </optgroup>
           )}
-          <optgroup label="Project folder">
-            <option value="">Project folder · {project.branch ?? project.name}</option>
+          <optgroup label={tr(C.projectGroup)}>
+            <option value="">{tr(C.projectFolder, { branch: project.branch ?? project.name })}</option>
           </optgroup>
         </select>
       </Tooltip>
@@ -641,7 +902,7 @@ export function ChangesTab({ project: owner }: { project: ProjectInfo }) {
   const base = agent?.worktree?.base ?? spare?.check.into ?? undefined
   const project = agent || spare ? { ...owner, path: root } : owner
   // Who the worktree is, in its labels: the agent, or the unused worktree's branch.
-  const whose = agent ? `${agent.name}'s worktree` : spare ? spare.branch! : null
+  const whose = agent ? tr(C.worktreeOf, { agent: agent.name }) : spare ? spare.branch! : null
 
   const [statusError, setStatusError] = useState<string | null>(null)
   const [diffTry, setDiffTry] = useState(0)
@@ -696,14 +957,15 @@ export function ChangesTab({ project: owner }: { project: ProjectInfo }) {
   const gitMissing = (problem: string, retry: () => void): React.ReactNode => (
     <div className="empty-state changes-git-missing" style={{ paddingTop: '15vh' }}>
       <Icon name="warning" />
-      {problem}, so Hive can't show {project.name}'s changes.
+      {/* Main's text is English (agents read it too): the window's own, in its language, while it knows git's state. */}
+      {tr(C.cantShow, { problem: gitProblemText(gitTool) ?? problem, project: project.name })}
       <p className="hint">{gitFixText(gitTool)}</p>
       <div className="flex" style={{ justifyContent: 'center' }}>
         <button className="btn small" onClick={() => set({ setupOpen: true })}>
-          <Icon name="hubot" /> Agent Setup
+          <Icon name="hubot" /> {tr(C.agentSetup)}
         </button>
         <button className="btn small" onClick={retry}>
-          <Icon name="refresh" /> Retry
+          <Icon name="refresh" /> {tr(C.retry)}
         </button>
       </div>
     </div>
@@ -712,7 +974,7 @@ export function ChangesTab({ project: owner }: { project: ProjectInfo }) {
   // unused worktrees page has its own header, UnusedHeading).
   const about = (
     <div className="changes-about changes-page-head" data-about={spare ? 'unused-one' : agent ? 'agent' : 'project'}>
-      {spare ? CHANGES_ABOUT.unusedOne(spare.branch!, spare.check.into ?? 'the main branch') : agent ? CHANGES_ABOUT.agent(agent.name, agent.worktree!.branch, agent.worktree!.base) : CHANGES_ABOUT.project}
+      {spare ? CHANGES_ABOUT.unusedOne(spare.branch!, spare.check.into ?? tr(C.mainBranch)) : agent ? CHANGES_ABOUT.agent(agent.name, agent.worktree!.branch, agent.worktree!.base) : CHANGES_ABOUT.project}
     </div>
   )
 
@@ -725,23 +987,23 @@ export function ChangesTab({ project: owner }: { project: ProjectInfo }) {
         <div className="split-list" style={{ width: listWidth }}>
           <PaneResizer paneKey="changes" />
           <div className="pane-header" style={{ paddingLeft: 14 }}>
-            Changes
+            {tr(C.changes)}
             <div className="actions">
-              <IconButton icon={unusedLoading ? 'loading' : 'refresh'} spin={unusedLoading} title={unusedLoading ? 'Looking for unused worktrees…' : 'Refresh: look for unused worktrees again'} disabled={unusedLoading} onClick={reloadUnused} />
+              <IconButton icon={unusedLoading ? 'loading' : 'refresh'} spin={unusedLoading} title={tr(unusedLoading ? C.lookingUnused : C.refreshUnused)} disabled={unusedLoading} onClick={reloadUnused} />
             </div>
           </div>
           {selector}
         </div>
         <div className="split-main unused-worktrees-pane">
-          {unusedData && unusedError && !unusedLoading && <StaleNote what="the unused worktrees" error={unusedError} at={unusedAt} onRetry={reloadUnused} />}
+          {unusedData && unusedError && !unusedLoading && <StaleNote what={tr(C.unusedTarget)} error={unusedError} at={unusedAt} onRetry={reloadUnused} />}
           {!unusedData ? (
             unusedError && !unusedLoading ? (
               <div className="unused-worktrees">
                 <UnusedHeading project={owner} />
                 <div className="empty-state" data-unused-error="">
-                  <Icon name="error" /> Couldn't list the unused worktrees: {unusedError}
+                  <Icon name="error" /> {tr(C.unusedListFailed, { error: unusedError })}
                   <button className="btn small" style={{ marginTop: 10 }} onClick={reloadUnused}>
-                    <Icon name="refresh" /> Retry
+                    <Icon name="refresh" /> {tr(C.retry)}
                   </button>
                 </div>
               </div>
@@ -749,8 +1011,8 @@ export function ChangesTab({ project: owner }: { project: ProjectInfo }) {
               <div className="unused-worktrees">
                 <UnusedHeading project={owner} />
                 <div className="empty-state" data-unused-loading="">
-                  <Icon name="loading" spin /> Looking for unused worktrees…
-                  <p className="hint">Hive asks git about each of {owner.name}'s worktrees, which can take a few seconds.</p>
+                  <Icon name="loading" spin /> {tr(C.lookingBody)}
+                  <p className="hint">{tr(C.lookingHint, { project: owner.name })}</p>
                 </div>
               </div>
             )
@@ -758,7 +1020,7 @@ export function ChangesTab({ project: owner }: { project: ProjectInfo }) {
             <>
               {unusedLoading && (
                 <div className="hint unused-refreshing" data-unused-refreshing="">
-                  <Icon name="loading" spin /> Checking them again…
+                  <Icon name="loading" spin /> {tr(C.checkingAgain)}
                 </div>
               )}
               <UnusedWorktreesSection project={owner} data={unusedData} reload={reloadUnused} onOpen={(path) => choose(unusedRoot(path))} />
@@ -772,21 +1034,21 @@ export function ChangesTab({ project: owner }: { project: ProjectInfo }) {
   if (!status && statusError) {
     return (
       <div className="empty-state">
-        <Icon name="error" /> Could not read the changes: {statusError}
+        <Icon name="error" /> {tr(C.readFailed, { error: statusError })}
         <button className="btn small" style={{ marginTop: 10 }} onClick={load}>
-          <Icon name="refresh" /> Retry
+          <Icon name="refresh" /> {tr(C.retry)}
         </button>
       </div>
     )
   }
-  if (!status) return <div className="empty-state"><Icon name="loading" spin />Loading…</div>
+  if (!status) return <div className="empty-state"><Icon name="loading" spin />{tr(M.loading)}</div>
   if (status.gitProblem) return gitMissing(status.gitProblem, load)
   if (!status.isRepo) {
     return (
       <div className="empty-state" style={{ paddingTop: '15vh' }}>
         <Icon name="source-control" />
-        {project.name} is not a git repository, so there are no changes to review.
-        <p className="hint">Initialise it to review its changes here: it gets a first commit, so agents can work in worktrees too.</p>
+        {tr(C.notRepo, { project: project.name })}
+        <p className="hint">{tr(C.initHint)}</p>
         {project === owner && <InitRepoButton project={owner} small />}
       </div>
     )
@@ -796,34 +1058,34 @@ export function ChangesTab({ project: owner }: { project: ProjectInfo }) {
       <div className="split-list" style={{ width: listWidth }}>
         <PaneResizer paneKey="changes" />
         <div className="pane-header" style={{ paddingLeft: 14 }}>
-          Changes <span className="badge" style={{ marginLeft: 6 }}>{status.files.length}</span>
+          {tr(C.changes)} <span className="badge" style={{ marginLeft: 6 }}>{status.files.length}</span>
           <div className="actions">
-            {agent && <IconButton icon="git-merge" title={mergeBlocked(agent.name, agent.live?.status) ?? `Merge ${agent.name}'s work…`} disabled={!!mergeBlocked(agent.name, agent.live?.status)} onClick={() => set({ mergeFor: { project: owner.path, agentId: agent.id } })} />}
-            {spare && !spare.check.removable && <IconButton icon="git-merge" title={`Merge ${spare.branch}…`} onClick={() => set({ mergeFor: { project: owner.path, agentId: '', worktree: { path: spare.path, branch: spare.branch! } } })} />}
-            <IconButton icon="refresh" title="Refresh" onClick={load} />
+            {agent && <IconButton icon="git-merge" title={mergeBlocked(agent.name, agent.live?.status) ?? tr(C.mergeAgent, { agent: agent.name })} disabled={!!mergeBlocked(agent.name, agent.live?.status)} onClick={() => set({ mergeFor: { project: owner.path, agentId: agent.id } })} />}
+            {spare && !spare.check.removable && <IconButton icon="git-merge" title={tr(C.mergeBranch, { branch: spare.branch! })} onClick={() => set({ mergeFor: { project: owner.path, agentId: '', worktree: { path: spare.path, branch: spare.branch! } } })} />}
+            <IconButton icon="refresh" title={tr(M.refresh)} onClick={load} />
           </div>
         </div>
         {selector}
         {!spare && <UnusedWorkNotice project={owner} data={unusedData} />}
         {statusError && (
           <div className="banner warn">
-            <Icon name="warning" /> Could not refresh: {statusError}
+            <Icon name="warning" /> {tr(C.refreshFailed, { error: statusError })}
             <button className="btn small" onClick={load}>
-              Retry
+              {tr(C.retry)}
             </button>
           </div>
         )}
         <div className="muted" style={{ padding: '0 14px 8px', fontSize: 12 }}>
-          <Icon name="git-branch" /> {status.branch} {whose ? <span className="faint">since it left {base}</span> : <>{status.ahead > 0 && `↑${status.ahead}`} {status.behind > 0 && `↓${status.behind}`}</>}
+          <Icon name="git-branch" /> {status.branch} {whose ? <span className="faint">{tr(C.sinceLeft, { base: base ?? '' })}</span> : <>{status.ahead > 0 && `↑${status.ahead}`} {status.behind > 0 && `↓${status.behind}`}</>}
         </div>
         <div className="pane-body">
-          {status.files.length === 0 && <div className="pane-empty">{agent ? `No changes on ${agent.worktree!.branch} yet.` : spare ? `Nothing on ${spare.branch} that isn't on ${base}.` : 'Working tree clean.'}</div>}
+          {status.files.length === 0 && <div className="pane-empty">{agent ? tr(C.noAgentChanges, { branch: agent.worktree!.branch }) : spare ? tr(C.nothingOn, { branch: spare.branch ?? '', base: base ?? '' }) : tr(C.clean)}</div>}
           {status.files.map((f) => (
-            <Tooltip block key={f.path} content={`${GIT_LABEL[f.status] ?? f.status}${f.staged ? ' (staged)' : ''}: ${f.path}`}>
+            <Tooltip block key={f.path} content={tr(f.staged ? C.staged : C.unstaged, { status: tr(C.gitStatus, { status: f.status === '?' ? 'untracked' : f.status }), path: f.path })}>
               <div className={cx('row', file === f.path && 'selected')} style={{ width: '100%' }} onClick={() => setFile(f.path)}>
                 <span className="label">{f.path.split('/').pop()}</span>
                 <span className="desc" style={{ flex: 1, minWidth: 0 }}>{f.path.includes('/') ? f.path.slice(0, f.path.lastIndexOf('/')) : ''}</span>
-                <span className={cx('git-status', f.status === '?' ? 'U' : f.status)}>{f.status === '?' ? 'U' : f.status}</span>
+                <span className={cx('git-status', f.status === '?' ? 'U' : f.status)}>{f.status === '?' ? 'U' : f.status /* i18n-ignore: git's status letter */}</span>
               </div>
             </Tooltip>
           ))}
@@ -836,23 +1098,23 @@ export function ChangesTab({ project: owner }: { project: ProjectInfo }) {
             <div className="editor-toolbar">
               <Icon name="git-compare" />
               <span className="path">
-                <strong>{diff.path}</strong> <span className="faint">{whose ? `${base} ↔ ${whose}` : 'HEAD ↔ working tree'}</span>
+                <strong>{diff.path}</strong> <span className="faint">{whose ? `${base} ↔ ${whose}` : tr(C.headWorkingTree)}</span>
               </span>
-              <IconButton icon={inline ? 'split-horizontal' : 'list-flat'} title={inline ? 'Side by side' : 'Inline'} onClick={() => setInline(!inline)} />
-              <IconButton icon="go-to-file" title="Open file" onClick={() => void actions.attempt('Could not open the file', () => call('changes:openFile', root, diff.path))} />
+              <IconButton icon={inline ? 'split-horizontal' : 'list-flat'} title={tr(inline ? C.sideBySide : C.inline)} onClick={() => setInline(!inline)} />
+              <IconButton icon="go-to-file" title={tr(C.openFile)} onClick={() => void actions.attempt(tr(C.openFailed), () => call('changes:openFile', root, diff.path))} />
             </div>
             {/* A refresh of the shown file failed: its last diff stays, but it may be out of date. */}
             {diffError && (
               <div className="banner warn">
-                <Icon name="warning" /> Could not refresh the diff, so this may be out of date: {diffError}
+                <Icon name="warning" /> {tr(C.diffStale, { error: diffError })}
                 <button className="btn small" onClick={() => setDiffTry((n) => n + 1)}>
-                  Retry
+                  {tr(C.retry)}
                 </button>
               </div>
             )}
             <div className="editor-host">
               {diff.binary ? (
-                <div className="empty-state">{diff.modified || 'Binary file — no text diff.'}</div>
+                <div className="empty-state">{diff.modified || tr(C.binary)}</div>
               ) : (
                 <DiffView original={diff.original} modified={diff.modified} language={languageFor(diff.path)} inline={inline} />
               )}
@@ -860,17 +1122,17 @@ export function ChangesTab({ project: owner }: { project: ProjectInfo }) {
           </>
         ) : diffError ? (
           <div className="empty-state">
-            <Icon name="error" /> Could not load the diff: {diffError}
+            <Icon name="error" /> {tr(C.diffFailed, { error: diffError })}
             <button className="btn small" style={{ marginTop: 10 }} onClick={() => setDiffTry((n) => n + 1)}>
-              <Icon name="refresh" /> Retry
+              <Icon name="refresh" /> {tr(C.retry)}
             </button>
           </div>
         ) : file ? (
           <div className="empty-state">
-            <Icon name="loading" spin /> Loading the diff…
+            <Icon name="loading" spin /> {tr(C.loadingDiff)}
           </div>
         ) : (
-          <div className="empty-state">Select a file to see its changes.</div>
+          <div className="empty-state">{tr(C.selectFile)}</div>
         )}
       </div>
     </div>
@@ -883,9 +1145,7 @@ export function ChangesTab({ project: owner }: { project: ProjectInfo }) {
 
 const memoryTip = (s: MemorySource): string => {
   const name = providerName(s.provider)
-  if (s.kind === 'local-md') return `Personal project instructions ${name} reads that are not committed.`
-  if (s.kind === 'auto-memory') return `${name}'s own memory for this project — facts it chose to remember across sessions.`
-  return `Project instructions ${name} reads at the start of every session. Usually committed to git.`
+  return tr(s.kind === 'local-md' ? C.memLocal : s.kind === 'auto-memory' ? C.memAuto : C.memProject, { provider: name })
 }
 
 const NO_SOURCES: MemorySource[] = []
@@ -924,62 +1184,64 @@ export function MemoryTab({ project }: { project: ProjectInfo }) {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [project.path, usedIds.join(), sources])
   const share = async (): Promise<void> => {
-    const names = usedIds.map((id) => providerName(id)).join(' and ')
+    const names = fmt.list(usedIds.map((id) => providerName(id)))
     const importers = PROVIDERS.filter((p) => used.has(p.id) && p.instructionsImport && p.instructionsFile !== 'AGENTS.md')
-    const ok = await confirm({
-      title: 'Share instructions',
-      message: `${names} will read the same AGENTS.md.`,
-      detail: `${importers.map((p) => `${p.instructionsFile} gets an "${p.instructionsImport}" line that includes AGENTS.md; anything else in it still applies to ${p.name} only.`).join(' ')} If there's no AGENTS.md yet, the current instructions move into it, so nothing is lost.${sources.some((x) => x.id === 'project-dot' && x.exists) ? ' Your .claude/CLAUDE.md stays as it is and applies to Claude Code only: move anything the other agents should know into AGENTS.md.' : ''} Running sessions read the change when they next start.`,
-      confirmLabel: 'Share'
-    })
+    // Sentences, each a message of its own.
+    const detail = [
+      ...importers.map((p) => tr(C.shareImport, { file: p.instructionsFile, line: p.instructionsImport ?? '', provider: p.name })),
+      tr(C.shareMoves),
+      ...(sources.some((x) => x.id === 'project-dot' && x.exists) ? [tr(C.shareDot)] : []),
+      tr(C.shareNext)
+    ].join(' ')
+    const ok = await confirm({ title: tr(C.shareTitle), message: tr(C.shareMessage, { providers: names }), detail, confirmLabel: tr(C.share) })
     if (!ok) return
-    const written = await actions.attempt('Could not share the instructions', () => call('memory:shareInstructions', project.path, usedIds))
+    const written = await actions.attempt(tr(C.shareFailed), () => call('memory:shareInstructions', project.path, usedIds))
     if (written) {
-      notify('success', 'Instructions shared', written.length ? `Updated ${written.join(', ')}.` : undefined)
+      notify('success', tr(C.shared), written.length ? tr(C.updated, { files: fmt.list(written, 'unit') }) : undefined)
       load()
     }
   }
-  const groups: [string, MemorySource[]][] = providers.flatMap((p): [string, MemorySource[]][] => [
-    [`${p.name}: instructions`, sources.filter((s) => s.provider === p.id && s.kind !== 'auto-memory')],
-    [`${p.name}: memory`, sources.filter((s) => s.provider === p.id && s.kind === 'auto-memory')]
+  const groups: [string, MemorySource[], boolean][] = providers.flatMap((p): [string, MemorySource[], boolean][] => [
+    [tr(C.groupInstructions, { provider: p.name }), sources.filter((s) => s.provider === p.id && s.kind !== 'auto-memory'), false],
+    [tr(C.groupMemory, { provider: p.name }), sources.filter((s) => s.provider === p.id && s.kind === 'auto-memory'), true]
   ])
   return (
     <div className="split">
       <div className="split-list" style={{ width: listWidth }}>
         <PaneResizer paneKey="memory" />
         <div className="pane-header" style={{ paddingLeft: 14 }}>
-          Memory
+          {tr(C.memoryHeading)}
           <div className="actions">
-            <IconButton icon="refresh" title="Refresh" onClick={load} />
+            <IconButton icon="refresh" title={tr(M.refresh)} onClick={load} />
           </div>
         </div>
-        {error && memory.data && <StaleNote what="the instructions and memory" error={error} at={memory.at} onRetry={load} />}
+        {error && memory.data && <StaleNote what={tr(C.memoryTarget)} error={error} at={memory.at} onRetry={load} />}
         <div className="pane-body">
-          {error && !memory.data && <LoadFailed inline what="the instructions and memory" error={error} onRetry={load} />}
+          {error && !memory.data && <LoadFailed inline what={tr(C.memoryTarget)} error={error} onRetry={load} />}
           {!error && !memory.data && (
             <div className="pane-empty">
-              <Icon name="loading" spin /> Loading…
+              <Icon name="loading" spin /> {tr(M.loading)}
             </div>
           )}
           {!shared && (
             <div className="memory-share">
-              <Icon name="info" /> Each provider reads its own instructions file.
+              <Icon name="info" /> {tr(C.ownFile)}
               <button className="btn subtle small" onClick={() => void share()}>
-                Share one AGENTS.md…
+                {tr(C.shareButton)}
               </button>
             </div>
           )}
           {memory.data &&
-            groups.map(([title, list]) => (
+            groups.map(([title, list, isMemory]) => (
             <div key={title}>
               <div className="section-header" style={{ cursor: 'default' }}>{title}</div>
-              {list.length === 0 && <div className="pane-empty" style={{ paddingTop: 6 }}>{title.endsWith('memory') ? 'Nothing saved for this project yet.' : ''}</div>}
+              {list.length === 0 && <div className="pane-empty" style={{ paddingTop: 6 }}>{isMemory ? tr(C.nothingSaved) : ''}</div>}
               {list.map((s) => (
                 <Tooltip block key={`${s.provider}:${s.id}`} content={<span style={{ whiteSpace: 'pre-line' }}>{`${memoryTip(s)}\n${s.path}`}</span>}>
                   <div className={cx('row', selected === `${s.provider}:${s.id}` && 'selected')} style={{ width: '100%' }} onClick={() => setSelected(`${s.provider}:${s.id}`)}>
                     <Icon name={s.kind === 'auto-memory' ? 'lightbulb' : 'book'} />
                     <span className="label" style={!s.exists ? { color: 'var(--fg-faint)' } : undefined}>{s.label}</span>
-                    {!s.exists && <span className="desc">create</span>}
+                    {!s.exists && <span className="desc">{tr(C.create)}</span>}
                   </div>
                 </Tooltip>
               ))}
@@ -992,12 +1254,12 @@ export function MemoryTab({ project }: { project: ProjectInfo }) {
           key={sel.path}
           path={sel.path}
           title={sel.label}
-          createIfMissing={sel.exists ? undefined : `# ${project.name}\n\nInstructions for ${providerName(sel.provider)} in this project.\n`}
+          createIfMissing={sel.exists ? undefined : `# ${project.name}\n\n${tr(C.newFile, { provider: providerName(sel.provider) })}\n`}
           onSaved={load}
         />
       ) : (
         <div className="split-main">
-          <div className="empty-state">Select a memory file.</div>
+          <div className="empty-state">{tr(C.selectFileMem)}</div>
         </div>
       )}
     </div>
@@ -1010,9 +1272,7 @@ export function MemoryTab({ project }: { project: ProjectInfo }) {
 
 function ChangesApplyNote({ project }: { project: ProjectInfo }) {
   return (
-    <p className="hint">
-      Changes apply to new sessions{project.live ? ' — restart the running session to apply them' : ''}.
-    </p>
+    <p className="hint">{tr(C.applyNew, { live: project.live ? 'yes' : 'no' })}</p>
   )
 }
 
@@ -1075,41 +1335,40 @@ export function ProjectSkillsTab({ project }: { project: ProjectInfo }) {
       <div className="split-list" style={{ width: listWidth }}>
         <PaneResizer paneKey="projectSkills" max={600} />
         <div className="pane-header" style={{ paddingLeft: 14 }}>
-          Skills available to agents
+          {tr(C.skillsHeading)}
           <div className="actions">
-            <IconButton icon="refresh" title="Refresh" onClick={load} />
+            <IconButton icon="refresh" title={tr(M.refresh)} onClick={load} />
           </div>
         </div>
-        {error && skills && <StaleNote what="the skills" error={error} at={loaded.at} onRetry={load} />}
+        {error && skills && <StaleNote what={tr(C.skillsTarget)} error={error} at={loaded.at} onRetry={load} />}
         <div className="pane-body">
-          {error && !skills && <LoadFailed inline what="the skills" error={error} onRetry={load} />}
+          {error && !skills && <LoadFailed inline what={tr(C.skillsTarget)} error={error} onRetry={load} />}
           {!error && !skills && (
             <div className="pane-empty">
-              <Icon name="loading" spin /> Loading…
+              <Icon name="loading" spin /> {tr(M.loading)}
             </div>
           )}
           {skills && (
             <div className="skill-group skill-group-toggle" role="button" tabIndex={0} aria-expanded={hiveOpen} onClick={() => setHiveOpen(!hiveOpen)} onKeyDown={(e) => (e.key === 'Enter' || e.key === ' ') && (e.preventDefault(), setHiveOpen(!hiveOpen))}>
-              <Icon name={hiveOpen ? 'chevron-down' : 'chevron-right'} /> Hive <span className="count">{hive.length}</span> <InfoTip text={SKILL_LEVEL_TIP.hive} />
+              <Icon name={hiveOpen ? 'chevron-down' : 'chevron-right'} /> {tr(C.hiveGroup)} <span className="count">{hive.length}</span> <InfoTip text={SKILL_LEVEL_TIP.hive} />
             </div>
           )}
-          {skills && hiveOpen && hive.length === 0 && <div className="pane-empty">No Hive skills in this workspace.</div>}
+          {skills && hiveOpen && hive.length === 0 && <div className="pane-empty">{tr(C.noHiveSkills)}</div>}
           {hiveOpen &&
             hive.map((sk) =>
               row(
                 sk,
-                <IconButton icon="go-to-file" title="Edit in the workspace's Skills view (Hive skills are shared by every project)" onClick={() => editInWorkspace(sk)} />
+                <IconButton icon="go-to-file" title={tr(C.editInWorkspace)} onClick={() => editInWorkspace(sk)} />
               )
             )}
           {skills && hiveOpen && assistantOnly > 0 && (
             <div className="pane-empty assistant-only-note">
-              {assistantOnly === 1 ? "1 Hive skill is for the Hive Assistant only, so it isn't listed: this project's agents don't get it." : `${assistantOnly} Hive skills are for the Hive Assistant only, so they aren't listed: this project's agents don't get them.`}{' '}
-              <a onClick={() => showView('skills')}>See them in the Skills view</a>
+              {tr(C.assistantOnly, { count: assistantOnly })} <a onClick={() => showView('skills')}>{tr(C.seeThem)}</a>
             </div>
           )}
           {skills && providers.length > 0 && (
             <div className="skill-provider-pick">
-              <select className="select" aria-label="Show the skills of" value={shown?.id ?? ''} onChange={(e) => showProvider(e.target.value)}>
+              <select className="select" aria-label={tr(C.showSkillsOf)} value={shown?.id ?? ''} onChange={(e) => showProvider(e.target.value)}>
                 {providers.map((p) => (
                   <option key={p.id} value={p.id}>
                     {p.name} ({all.filter((sk) => sk.provider === p.id).length})
@@ -1127,31 +1386,31 @@ export function ProjectSkillsTab({ project }: { project: ProjectInfo }) {
             return (
               <div key={p.id} className="skill-provider">
                 <div className="skill-group skill-group-toggle skill-provider-toggle" role="button" tabIndex={0} aria-expanded={providerOpen} onClick={() => setFold({ provider: !providerOpen })} onKeyDown={(e) => (e.key === 'Enter' || e.key === ' ') && (e.preventDefault(), setFold({ provider: !providerOpen }))}>
-                  <Icon name={providerOpen ? 'chevron-down' : 'chevron-right'} /> <ProviderIcon provider={p.id} /> {p.name} skills <span className="count">{mine.length}</span>
+                  <Icon name={providerOpen ? 'chevron-down' : 'chevron-right'} /> <ProviderIcon provider={p.id} /> {tr(C.providerSkills, { provider: p.name })} <span className="count">{mine.length}</span>
                 </div>
                 {providerOpen && (
                 <>
                 {group(
-                  'Local (User Managed)',
+                  tr(C.local),
                   SKILL_LEVEL_TIP.local,
                   local,
                   <>
-                    <IconButton icon="add" title={`New local skill for ${p.name}…`} onClick={() => void add('new', p.id)} />
-                    <IconButton icon="file-add" title={`Add a local skill for ${p.name} from a file (.md or .zip)…`} onClick={() => void add('file', p.id)} />
+                    <IconButton icon="add" title={tr(C.newLocal, { provider: p.name })} onClick={() => void add('new', p.id)} />
+                    <IconButton icon="file-add" title={tr(C.addLocal, { provider: p.name })} onClick={() => void add('file', p.id)} />
                   </>,
-                  `None yet. Add one with +, or from a .md or .zip.`
+                  tr(C.noneLocal)
                 )}
-                {local.map((sk) => row(sk, <IconButton icon="trash" title="Delete skill" onClick={() => void deleteSkill(sk).then((ok) => ok && selected === sk.path && setSelected(null))} />))}
-                {group('User', SKILL_LEVEL_TIP.machine, user, undefined, 'None in your user profile.')}
+                {local.map((sk) => row(sk, <IconButton icon="trash" title={tr(C.deleteSkill)} onClick={() => void deleteSkill(sk).then((ok) => ok && selected === sk.path && setSelected(null))} />))}
+                {group(tr(C.user), SKILL_LEVEL_TIP.machine, user, undefined, tr(C.noneUser))}
                 {user.map((sk) => row(sk))}
-                {plugin.length > 0 && group('Plugins', SKILL_LEVEL_TIP.plugin, plugin)}
+                {plugin.length > 0 && group(tr(C.plugins), SKILL_LEVEL_TIP.plugin, plugin)}
                 {plugin.map((sk) => row(sk))}
                 </>
                 )}
               </div>
             )
           })}
-          {providers.length === 0 && <div className="pane-empty">Turn on a coding agent in Settings → Providers to see its skills.</div>}
+          {providers.length === 0 && <div className="pane-empty">{tr(C.turnOnProvider)}</div>}
         </div>
       </div>
       <div className="split-main">
@@ -1160,9 +1419,7 @@ export function ProjectSkillsTab({ project }: { project: ProjectInfo }) {
         ) : (
           <div className="empty-state" style={{ paddingTop: '14vh' }}>
             <Icon name="sparkle" />
-            <div>
-              Select a skill to view it. <strong>Hive</strong> skills reach every project's agents (those for the Hive Assistant alone aren't listed here) and are edited in the workspace's Skills view; <strong>local</strong> skills belong to this project and one provider, and you can add, edit and delete them here.
-            </div>
+            <div>{Children.toArray(tRich<React.ReactNode>(C.selectSkill, { b: bold }))}</div>
           </div>
         )}
       </div>
@@ -1188,26 +1445,26 @@ export function ProjectMcpTab({ project }: { project: ProjectInfo }) {
   const givenTo = (name: string): string | null => {
     if (!choosing) return null
     const to = project.agents.filter((a) => agentGetsMcp(a, name)).map((a) => a.name)
-    return to.length === project.agents.length ? 'Given to every agent' : to.length ? `Given to ${to.join(', ')} only` : 'Given to no agent (each chose others)'
+    return to.length === project.agents.length ? tr(C.givenAll) : to.length ? tr(C.givenTo, { agents: fmt.list(to, 'unit') }) : tr(C.givenNone)
   }
   return (
     <div className="scroll-page">
       <div className="page-narrow">
-        <h2 className="section">Workspace MCP servers</h2>
+        <h2 className="section">{tr(C.mcpHeading)}</h2>
         <p className="hint">{tr(msg({ id: 'mcp.tab.hint', defaultMessage: "Every MCP server in the workspace is available here: turn on the ones this project's agents need. A server on for all projects is on here unless you turn it off.", description: "Under Workspace MCP servers in a project's MCP tab." }))}</p>
         <ChangesApplyNote project={project} />
-        {error && servers && <StaleNote what="the workspace's MCP servers" error={error} at={loaded.at} onRetry={load} />}
+        {error && servers && <StaleNote what={tr(C.mcpTarget)} error={error} at={loaded.at} onRetry={load} />}
         {!servers ? (
           error ? (
-            <LoadFailed inline what="the workspace's MCP servers" error={error} onRetry={load} />
+            <LoadFailed inline what={tr(C.mcpTarget)} error={error} onRetry={load} />
           ) : (
             <p className="hint">
-              <Icon name="loading" spin /> Loading…
+              <Icon name="loading" spin /> {tr(M.loading)}
             </p>
           )
         ) : servers.length === 0 ? (
           <p className="hint">
-            No MCP servers in this workspace. <a onClick={() => setActivity('mcp')}>Manage MCP servers</a>
+            {tr(C.noServers)} <a onClick={() => setActivity('mcp')}>{tr(C.manage)}</a>
           </p>
         ) : (
           <div className="toggle-list">
@@ -1219,7 +1476,7 @@ export function ProjectMcpTab({ project }: { project: ProjectInfo }) {
                   <Icon name={m.def?.url ? 'globe' : 'plug'} />
                   <div className="ti-text">
                     <div className="ti-name">
-                      {m.name} <span className="badge">{tr(msg({ id: 'mcp.tab.workspaceBadge', defaultMessage: 'workspace', description: "A badge on a server in a project's MCP tab: it is one of the workspace's servers." }))}</span> {m.globallyEnabled && <span className="badge">{tr(msg({ id: 'mcp.tab.allBadge', defaultMessage: 'on for all projects', description: "A badge on a server in a project's MCP tab: it is on in every project unless one turns it off." }))}</span>} {m.error && <span className="badge error">invalid</span>}
+                      {m.name} <span className="badge">{tr(msg({ id: 'mcp.tab.workspaceBadge', defaultMessage: 'workspace', description: "A badge on a server in a project's MCP tab: it is one of the workspace's servers." }))}</span> {m.globallyEnabled && <span className="badge">{tr(msg({ id: 'mcp.tab.allBadge', defaultMessage: 'on for all projects', description: "A badge on a server in a project's MCP tab: it is on in every project unless one turns it off." }))}</span>} {m.error && <span className="badge error">{tr(C.invalid)}</span>}
                     </div>
                     <div className="ti-desc">{m.error ?? m.def?.description ?? m.def?.command}</div>
                     {on && given && <div className="ti-desc">{given}</div>}
@@ -1232,7 +1489,7 @@ export function ProjectMcpTab({ project }: { project: ProjectInfo }) {
         )}
         {project.unmanagedMcp.length > 0 && (
           <>
-            <h2 className="section">Defined by the project (disabled)</h2>
+            <h2 className="section">{tr(C.definedByProject)}</h2>
             <p className="hint">{tr(msg({ id: 'mcp.tab.projectDefined', defaultMessage: "These servers are in the project's own agent config (such as .mcp.json). Hive starts sessions with only workspace servers, so they stay disabled until copied to the workspace, which turns them on here.", description: "Under Defined by the project in a project's MCP tab. Keep .mcp.json as it is." }))}</p>
             <div className="toggle-list">
               {project.unmanagedMcp.map((n) => (
@@ -1242,22 +1499,22 @@ export function ProjectMcpTab({ project }: { project: ProjectInfo }) {
                     <div className="ti-name">{n}</div>
                   </div>
                   <button className="btn small subtle" onClick={() => void actions.importProjectMcp(project.path, [n])}>
-                    <Icon name="cloud-upload" /> Copy to workspace
+                    <Icon name="cloud-upload" /> {tr(C.copyToWorkspace)}
                   </button>
                 </div>
               ))}
             </div>
           </>
         )}
-        <h2 className="section">Built-in</h2>
+        <h2 className="section">{tr(C.builtIn)}</h2>
         <div className="toggle-list">
           <div className="toggle-item">
             <Icon name="hubot" />
             <div className="ti-text">
-              <div className="ti-name">hive</div>
-              <div className="ti-desc">Lets agents see other projects, read and write shared notes, create handovers and notify you.</div>
+              <div className="ti-name">{'hive' /* i18n-ignore: the server's name */}</div>
+              <div className="ti-desc">{tr(C.hiveDesc)}</div>
             </div>
-            <span className={cx('badge', hiveOn ? 'success' : '')}>{hiveOn ? 'On for all sessions' : 'Off'}</span>
+            <span className={cx('badge', hiveOn ? 'success' : '')}>{tr(hiveOn ? C.onAll : C.off)}</span>
           </div>
         </div>
       </div>
@@ -1274,7 +1531,7 @@ function SettingRow({ title, desc, tip, children, modified }: { title: string; d
     <div className="setting">
       <div className="s-text">
         <div className="s-title">
-          {modified && <Tooltip content="Overrides the global default"><span className="modified" /></Tooltip>}
+          {modified && <Tooltip content={tr(S.overrides)}><span className="modified" /></Tooltip>}
           {title} {tip && <InfoTip text={tip} />}
         </div>
         <div className="s-desc">{desc}</div>
@@ -1293,8 +1550,12 @@ const PROJECT_SECTIONS: { id: ProjectSection; label: string; icon: string; desc:
 /** A row's text from the settings catalog (settingsCatalog.ts), which Settings, Project Settings and the Assistant's settings tools share. */
 function rowText(id: string): { title: string; desc: string; tip?: string; wide?: boolean } {
   const e = settingEntry(id)
+  // i18n-ignore: an internal error (a row missing from the catalog), never a message the user reads
   if (!e) throw new Error(`No settings catalog entry ${id}`)
-  return { title: e.title, desc: e.desc, ...(e.tip ? { tip: e.tip } : {}), ...(e.wide ? { wide: true } : {}) }
+  // A row with messages shows them in the window's language; its English stays the Assistant's (settingsCatalog.ts).
+  const t = e.text
+  const tip = t ? tr(t.tip) : e.tip
+  return { title: t ? tr(t.title) : e.title, desc: t ? tr(t.desc) : e.desc, ...(tip ? { tip } : {}), ...(e.wide ? { wide: true } : {}) }
 }
 
 interface ProjectSettingDef {
@@ -1331,40 +1592,46 @@ function AgentList({ project }: { project: ProjectInfo }) {
       {project.agents.map((a) => {
         const provider = agentProviderOf(project, a)
         const model = effectiveModelLabel(provider, a.model || projectProviderConfig(cfg, provider).model, providerSettings(settings, provider).defaultModel, providers[provider])
-        const overrides = [a.model && `model ${modelLabel(a.model, provider)}`, a.effort && `effort ${a.effort}`, a.permissionMode && permissionLabel(provider, a.permissionMode), a.use200kContext !== undefined && `200K context ${a.use200kContext ? 'on' : 'off'}`, agentChoosesMcp(a) && `MCP servers ${agentMcpText(a)}`].filter(Boolean)
+        const overrides = [
+          a.model && tr(S.ownModel, { model: modelLabel(a.model, provider) }),
+          a.effort && tr(S.ownEffort, { effort: a.effort }),
+          a.permissionMode && permissionLabel(provider, a.permissionMode),
+          a.use200kContext !== undefined && tr(S.own200k, { on: a.use200kContext ? 'yes' : 'no' }),
+          agentChoosesMcp(a) && tr(S.ownMcp, { servers: agentMcpText(a) })
+        ].filter((x): x is string => !!x)
         const off = !isProviderEnabled(settings, provider)
         return (
           <div key={a.id} className={cx('agent-list-row', off && 'off')} data-agent={a.id}>
             <StatusDot live={a.live} active={project.active} />
-            <Tooltip content={off ? `${providerName(provider)} is turned off in Settings → Providers` : providerName(provider)}>
+            <Tooltip content={off ? tr(S.turnedOff, { provider: providerName(provider) }) : providerName(provider)}>
               <span>
                 <ProviderIcon provider={provider} />
               </span>
             </Tooltip>
             <div className="grow">
               <div>
-                <strong>{a.name}</strong> <span className="faint">{providerName(provider)}{off ? ' (off)' : ''}</span>{' '}
+                <strong>{a.name}</strong> <span className="faint">{providerName(provider)}{off ? ` ${tr(S.off)}` : ''}</span>{' '}
                 {a.worktree ? (
                   <span className="agent-branch">
                     <Icon name="git-branch" /> {a.worktree.branch}
                   </span>
                 ) : (
-                  <span className="faint">project folder</span>
+                  <span className="faint">{tr(S.projectFolder)}</span>
                 )}
               </div>
               <div className="faint small">
-                {overrides.length ? `Own settings: ${overrides.join(', ')}` : `Project settings (${model})`}
+                {overrides.length ? tr(S.ownSettings, { settings: fmt.list(overrides, 'unit') }) : tr(S.projectSettings, { model })}
                 {a.worktree && <> · {a.worktree.path}</>}
               </div>
             </div>
-            <IconButton icon="settings" title="Agent settings…" onClick={() => set({ agentSettingsFor: { project: project.path, agentId: a.id } })} />
-            {a.worktree && <IconButton icon="git-merge" title={mergeBlocked(a.name, a.live?.status) ?? 'Merge…'} disabled={!!mergeBlocked(a.name, a.live?.status)} onClick={() => set({ mergeFor: { project: project.path, agentId: a.id } })} />}
-            <IconButton icon="close" title="Remove agent…" className="act-remove" action="remove-agent" onClick={() => void actions.removeAgent(project.path, a.id)} />
+            <IconButton icon="settings" title={tr(S.agentSettings)} onClick={() => set({ agentSettingsFor: { project: project.path, agentId: a.id } })} />
+            {a.worktree && <IconButton icon="git-merge" title={mergeBlocked(a.name, a.live?.status) ?? tr(S.merge)} disabled={!!mergeBlocked(a.name, a.live?.status)} onClick={() => set({ mergeFor: { project: project.path, agentId: a.id } })} />}
+            <IconButton icon="close" title={tr(S.remove)} className="act-remove" action="remove-agent" onClick={() => void actions.removeAgent(project.path, a.id)} />
           </div>
         )
       })}
       <button className="btn subtle small" disabled={project.agents.length >= limit} onClick={() => set({ addAgentFor: project.path })}>
-        <Icon name="add" /> Add Agent
+        <Icon name="add" /> {tr(S.addAgent)}
       </button>
     </div>
   )
@@ -1388,14 +1655,15 @@ export function ProjectSettingsTab({ project }: { project: ProjectInfo }) {
   const workspaceLoops = loopDefaults({ loops: useStore((s) => s.workspace?.config.loops) })
   if (!settings) return null
   const update = async (patch: Partial<ProjectConfig>): Promise<void> => {
-    await actions.attempt('Could not save project settings', () => call('project:updateConfig', project.path, patch))
+    await actions.attempt(tr(S.saveFailed), () => call('project:updateConfig', project.path, patch))
     await actions.refreshWorkspace()
   }
   const globalLock = FILE_LOCK_MODES.find((m) => m.value === settings.agents.fileLocks)
   const lockMode = cfg.fileLocks === 'inherit' ? settings.agents.fileLocks : cfg.fileLocks
   const globalDefault = defaultProviderLabel(settings)
-  const globalCompact = settings.sessions.compactSuggestTokens ? settings.sessions.compactSuggestTokens.toLocaleString() : 'never'
-  const globalWarn = settings.sessions.transcriptWarnMB ? `${settings.sessions.transcriptWarnMB} MB` : 'never'
+  const globalCompact = settings.sessions.compactSuggestTokens ? fmt.number(settings.sessions.compactSuggestTokens) : tr(S.never)
+  const globalWarn = settings.sessions.transcriptWarnMB ? tr(S.megabytes, { count: settings.sessions.transcriptWarnMB }) : tr(S.never)
+  const inherit = (value: string | number): string => tr(S.inherit, { value })
 
   /** A project's model, effort, mode and arguments for one provider. */
   const providerDefs = (id: ProviderId): ProjectSettingDef[] => {
@@ -1404,7 +1672,7 @@ export function ProjectSettingsTab({ project }: { project: ProjectInfo }) {
     const g = providerSettings(settings, id)
     const sect = `provider:${id}` as ProjectSection
     const save = (patch: Partial<typeof pc>): Promise<void> => actions.updateProjectProvider(project.path, id, patch)
-    const globalModel = g.defaultModel ? runsAsName(id, g.defaultModel, installs[id]) : `${p.name} default`
+    const globalModel = g.defaultModel ? runsAsName(id, g.defaultModel, installs[id]) : tr(S.providerDefault, { provider: p.name })
     // The model this project's agents run unless they choose one, whose effort levels the picker offers (#125).
     const runModel = (pc.model && pc.model !== 'inherit' ? pc.model : g.defaultModel) || installs[id]?.defaultModel || null
     const globalEffort = effortText(id, g.defaultEffort, runModel, installs[id], settings)
@@ -1416,21 +1684,21 @@ export function ProjectSettingsTab({ project }: { project: ProjectInfo }) {
         key: `${id}.model`,
         ...rowText(`project.${id}.model`),
         modified: pc.model !== 'inherit',
-        render: () => <ModelPicker provider={id} value={pc.model} base={{ value: 'inherit', label: `Inherit (${globalModel})` }} onChange={(v) => void save({ model: v })} />
+        render: () => <ModelPicker provider={id} value={pc.model} base={{ value: 'inherit', label: inherit(globalModel) }} onChange={(v) => void save({ model: v })} />
       },
       {
         section: sect,
         key: `${id}.effort`,
         ...rowText(`project.${id}.effort`),
         modified: pc.effort !== 'inherit',
-        render: () => <EffortPicker provider={id} model={runModel} value={pc.effort} base={{ value: 'inherit', label: `Inherit (${globalEffort})` }} onChange={(v) => void save({ effort: v })} />
+        render: () => <EffortPicker provider={id} model={runModel} value={pc.effort} base={{ value: 'inherit', label: inherit(globalEffort) }} onChange={(v) => void save({ effort: v })} />
       },
       {
         section: sect,
         key: `${id}.permissionMode`,
         ...rowText(`project.${id}.permissionMode`),
         // What the mode in use does, after what the setting is.
-        desc: `${rowText(`project.${id}.permissionMode`).desc} Now: ${modeOption(id, mode)?.description ?? permissionLabel(id, mode)}`,
+        desc: tr(S.now, { desc: rowText(`project.${id}.permissionMode`).desc, current: modeOption(id, mode)?.description ?? permissionLabel(id, mode) }),
         modified: pc.permissionMode !== 'inherit',
         render: () => (
           <select
@@ -1438,11 +1706,11 @@ export function ProjectSettingsTab({ project }: { project: ProjectInfo }) {
             value={modes.some((m) => m.value === pc.permissionMode) ? pc.permissionMode : 'inherit'}
             onChange={async (e) => {
               const v = e.target.value
-              if (v !== 'inherit' && !(await confirmDangerousMode(id, v, `Sessions in ${project.name}`))) return
+              if (v !== 'inherit' && !(await confirmDangerousMode(id, v, tr(S.sessionsIn, { project: project.name })))) return
               await save({ permissionMode: v })
             }}
           >
-            <option value="inherit">Inherit ({permissionLabel(id, g.defaultPermissionMode)})</option>
+            <option value="inherit">{inherit(permissionLabel(id, g.defaultPermissionMode))}</option>
             {modes.map((m) => (
               <option key={m.value} value={m.value}>
                 {m.label}
@@ -1460,9 +1728,9 @@ export function ProjectSettingsTab({ project }: { project: ProjectInfo }) {
               modified: (pc.use200kContext ?? 'inherit') !== 'inherit',
               render: () => (
                 <select className="select" value={pc.use200kContext ?? 'inherit'} onChange={(e) => void save({ use200kContext: e.target.value as 'inherit' | 'on' | 'off' })}>
-                  <option value="inherit">Inherit ({g.use200kContext ? 'On' : 'Off'})</option>
-                  <option value="on">On</option>
-                  <option value="off">Off</option>
+                  <option value="inherit">{inherit(tr(g.use200kContext ? S.on : S.offChoice))}</option>
+                  <option value="on">{tr(S.on)}</option>
+                  <option value="off">{tr(S.offChoice)}</option>
                 </select>
               )
             }
@@ -1473,6 +1741,7 @@ export function ProjectSettingsTab({ project }: { project: ProjectInfo }) {
         key: `${id}.extraArgs`,
         ...rowText(`project.${id}.extraArgs`),
         modified: !!pc.extraArgs,
+        // i18n-ignore: an example of the CLI's own arguments
         render: () => <DraftInput className="input mono" value={pc.extraArgs} placeholder="--add-dir ../lib" onCommit={(v) => void save({ extraArgs: v })} />
       }
     ]
@@ -1486,11 +1755,11 @@ export function ProjectSettingsTab({ project }: { project: ProjectInfo }) {
       modified: cfg.defaultProvider !== 'inherit',
       render: () => (
         <select className="select" value={cfg.defaultProvider} onChange={(e) => void update({ defaultProvider: e.target.value })}>
-          <option value="inherit">Inherit ({globalDefault})</option>
+          <option value="inherit">{inherit(globalDefault)}</option>
           {PROVIDERS.map((p) => (
             <option key={p.id} value={p.id}>
               {p.name}
-              {isProviderEnabled(settings, p.id) ? '' : ' (off)'}
+              {isProviderEnabled(settings, p.id) ? '' : ` ${tr(S.off)}`}
             </option>
           ))}
         </select>
@@ -1508,9 +1777,9 @@ export function ProjectSettingsTab({ project }: { project: ProjectInfo }) {
           min={1000}
           max={2000000}
           step={10000}
-          label="Suggest compacting above"
-          inherit={`Inherit (${globalCompact})`}
-          off={{ label: 'Never', restore: null }}
+          label={tr(S.compactAbove)}
+          inherit={inherit(globalCompact)}
+          off={{ label: tr(S.neverChoice), restore: null }}
           onCommit={(v) => update({ compactSuggestTokens: v })}
         />
       )
@@ -1526,9 +1795,9 @@ export function ProjectSettingsTab({ project }: { project: ProjectInfo }) {
           min={1}
           max={2000}
           step={10}
-          label="Warn when a transcript is over"
-          inherit={`Inherit (${globalWarn})`}
-          off={{ label: 'Never', restore: null }}
+          label={tr(S.warnOver)}
+          inherit={inherit(globalWarn)}
+          off={{ label: tr(S.neverChoice), restore: null }}
           onCommit={(v) => update({ transcriptWarnMB: v })}
         />
       )
@@ -1540,9 +1809,9 @@ export function ProjectSettingsTab({ project }: { project: ProjectInfo }) {
       modified: cfg.chime !== 'inherit',
       render: () => (
         <select className="select" value={cfg.chime} onChange={(e) => void update({ chime: e.target.value as ProjectConfig['chime'] })}>
-          <option value="inherit">Inherit ({settings.notifications.chimeEnabled ? 'on' : 'off'})</option>
-          <option value="on">On</option>
-          <option value="off">Off</option>
+          <option value="inherit">{inherit(tr(settings.notifications.chimeEnabled ? S.onLower : S.offLower))}</option>
+          <option value="on">{tr(S.on)}</option>
+          <option value="off">{tr(S.offChoice)}</option>
         </select>
       )
     },
@@ -1551,21 +1820,21 @@ export function ProjectSettingsTab({ project }: { project: ProjectInfo }) {
       key: 'loopWakes',
       ...rowText('project.loopWakes'),
       modified: !cfg.loopWakes,
-      render: () => <Switch checked={cfg.loopWakes} label="Wake reviewers and builders" onChange={(v) => void update({ loopWakes: v })} />
+      render: () => <Switch checked={cfg.loopWakes} label={tr(S.wake)} onChange={(v) => void update({ loopWakes: v })} />
     },
     {
       section: 'loops',
       key: 'loopRounds',
       ...rowText('project.loopRounds'),
       modified: cfg.loopRounds !== null,
-      render: () => <NumberField value={cfg.loopRounds} min={1} max={LANE_MAX_ROUNDS} step={1} label="Rounds" inherit={`Inherit (${workspaceLoops.rounds})`} onCommit={(v) => update({ loopRounds: v })} />
+      render: () => <NumberField value={cfg.loopRounds} min={1} max={LANE_MAX_ROUNDS} step={1} label={tr(S.rounds)} inherit={inherit(workspaceLoops.rounds)} onCommit={(v) => update({ loopRounds: v })} />
     },
     {
       section: 'loops',
       key: 'loopWaitHours',
       ...rowText('project.loopWaitHours'),
       modified: cfg.loopWaitHours !== null,
-      render: () => <NumberField value={cfg.loopWaitHours} min={1} max={LOOP_WAIT_MAX_HOURS} step={1} label="Wait (hours)" inherit={`Inherit (${workspaceLoops.waitHours} h)`} onCommit={(v) => update({ loopWaitHours: v })} />
+      render: () => <NumberField value={cfg.loopWaitHours} min={1} max={LOOP_WAIT_MAX_HOURS} step={1} label={tr(S.waitHours)} inherit={inherit(tr(S.hours, { count: workspaceLoops.waitHours }))} onCommit={(v) => update({ loopWaitHours: v })} />
     },
     {
       section: 'storage',
@@ -1592,11 +1861,11 @@ export function ProjectSettingsTab({ project }: { project: ProjectInfo }) {
       section: 'agents',
       key: 'fileLocks',
       ...rowText('project.fileLocks'),
-      desc: `${rowText('project.fileLocks').desc} Now: ${FILE_LOCK_MODES.find((m) => m.value === lockMode)?.description ?? lockMode}`,
+      desc: tr(S.now, { desc: rowText('project.fileLocks').desc, current: FILE_LOCK_MODES.find((m) => m.value === lockMode)?.description ?? lockMode }),
       modified: cfg.fileLocks !== 'inherit',
       render: () => (
         <select className="select" value={cfg.fileLocks} onChange={(e) => void update({ fileLocks: e.target.value as ProjectConfig['fileLocks'] })}>
-          <option value="inherit">Inherit ({globalLock?.label})</option>
+          <option value="inherit">{inherit(globalLock?.label ?? '')}</option>
           {FILE_LOCK_MODES.map((m) => (
             <option key={m.value} value={m.value}>
               {m.label}
@@ -1611,7 +1880,7 @@ export function ProjectSettingsTab({ project }: { project: ProjectInfo }) {
       ...rowText('project.worktreeCopy'),
       modified: cfg.worktreeCopy !== null,
       render: () => (
-        <DraftTextarea className="input mono" rows={3} value={cfg.worktreeCopy ?? ''} placeholder={`Inherit:\n${settings.agents.worktreeCopy}`} onCommit={(v) => void update({ worktreeCopy: v.trim() ? v : null })} />
+        <DraftTextarea className="input mono" rows={3} value={cfg.worktreeCopy ?? ''} placeholder={tr(S.inheritNewline, { value: settings.agents.worktreeCopy })} onCommit={(v) => void update({ worktreeCopy: v.trim() ? v : null })} />
       )
     },
     {
@@ -1619,6 +1888,7 @@ export function ProjectSettingsTab({ project }: { project: ProjectInfo }) {
       key: 'worktreeSetup',
       ...rowText('project.worktreeSetup'),
       modified: !!cfg.worktreeSetup,
+      // i18n-ignore: an example command
       render: () => <DraftInput className="input mono" value={cfg.worktreeSetup} placeholder="npm install" onCommit={(v) => void update({ worktreeSetup: v.trim() })} />
     },
     {
@@ -1627,7 +1897,7 @@ export function ProjectSettingsTab({ project }: { project: ProjectInfo }) {
       ...rowText('project.metadata'),
       render: () => (
         <button className="btn subtle" onClick={() => void call('app:openPath', `${project.path}\\.hive`)}>
-          <Icon name="folder-opened" /> Open .hive folder
+          <Icon name="folder-opened" /> {tr(S.openHive)}
         </button>
       )
     },
@@ -1639,11 +1909,11 @@ export function ProjectSettingsTab({ project }: { project: ProjectInfo }) {
         <button
           className="btn subtle"
           onClick={async () => {
-            if (await confirm({ title: 'Reset project settings?', message: 'The default provider, each provider’s model, effort, permission mode, context and extra arguments, the chime, the compact threshold, the transcript size warning, file locks, worktree setup and the card-loop rounds and wait go back to Inherit, and loop wakes back on. Agents and skill and MCP opt-outs are kept.', confirmLabel: 'Reset' }))
+            if (await confirm({ title: tr(S.resetTitle), message: tr(S.resetMessage), confirmLabel: tr(S.reset) }))
               void update({ defaultProvider: 'inherit', providers: {}, chime: 'inherit', compactSuggestTokens: null, transcriptWarnMB: null, fileLocks: 'inherit', worktreeCopy: null, worktreeSetup: '', loopWakes: true, loopRounds: null, loopWaitHours: null })
           }}
         >
-          <Icon name="discard" /> Reset to defaults
+          <Icon name="discard" /> {tr(S.resetButton)}
         </button>
       )
     }
@@ -1657,7 +1927,7 @@ export function ProjectSettingsTab({ project }: { project: ProjectInfo }) {
     <div className="settings">
       <div className="settings-top">
         <Icon name="search" />
-        <SearchInput placeholder={`Search ${project.name} settings`} value={query} onChange={setQuery} />
+        <SearchInput placeholder={tr(S.search, { project: project.name })} value={query} onChange={setQuery} />
         <a
           className="muted"
           onClick={() => {
@@ -1665,7 +1935,7 @@ export function ProjectSettingsTab({ project }: { project: ProjectInfo }) {
             setActivity('settings')
           }}
         >
-          Global settings
+          {tr(S.global)}
         </a>
       </div>
       <HiveVcsNotice project={project} />
@@ -1685,7 +1955,7 @@ export function ProjectSettingsTab({ project }: { project: ProjectInfo }) {
           ))}
         </div>
         <div className="settings-content">
-          {groups.length === 0 && <div className="empty-state">No settings match.</div>}
+          {groups.length === 0 && <div className="empty-state">{tr(S.noMatch)}</div>}
           {groups.map((g) => (
             <div key={g.id} className="settings-group">
               <h2>{g.label}</h2>
