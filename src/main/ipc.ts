@@ -13,6 +13,7 @@ import { instructionFiles, instructionsShared, shareInstructions, SHARED_INSTRUC
 import { extraArgsProblem, isKnownProvider, projectProviderConfig, providerDescriptor } from '../shared/providers'
 import { isProjectPref, projectPrefValue, withProjectPref } from '../shared/uiPrefs'
 import { applyBoardFold } from '../shared/tasks'
+import { keptLaneOrder } from '../shared/laneBar'
 import { EMPTY_TIPS_STATE, applyTipsChange, tipsChange, tipsState } from '../shared/tips'
 import { allProviders } from './providers'
 import { providerService } from './providerService'
@@ -378,6 +379,19 @@ export function registerIpc(getAppInfo: () => ReturnType<HiveRequests['app:info'
       const ws = workspace.path
       if (ws && change && typeof change === 'object') config.update((c) => void (c.ui.boardFold = applyBoardFold(c.ui.boardFold, ws, change)))
       return config.get().ui.boardFold ?? {}
+    },
+    'ui:setLaneOrder': (ids) => {
+      // This window's workspace only, on what is saved now (#568): lane ids, a bounded list.
+      const ws = workspace.path
+      if (ws)
+        config.update((c) => {
+          const all = { ...c.ui.laneOrder }
+          const kept = keptLaneOrder(ids)
+          if (kept.length) all[ws.toLowerCase()] = kept
+          else delete all[ws.toLowerCase()]
+          c.ui.laneOrder = all
+        })
+      return config.get().ui.laneOrder ?? {}
     },
 
     'workspace:get': () => workspace.info(),

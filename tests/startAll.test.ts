@@ -5,7 +5,8 @@ import { readFileSync } from 'fs'
 import { join } from 'path'
 import { describe, expect, it } from 'vitest'
 import { PROJECT_MENU, PROJECT_TABS, tabCommand } from '../src/shared/projectTabs'
-import { archiveTarget, batchCounts, batchLine, busyNote, eachAgent, removeLine, sessionsToArchive, type BatchAgent } from '../src/shared/startAll'
+import { archiveTarget, batchCounts, batchOutcome, busyNote, eachAgent, removeWorktreeText, sessionsToArchive, type BatchAgent } from '../src/shared/startAll'
+import { agentRowsText } from '../src/shared/agentTable'
 
 const src = (p: string): string => readFileSync(join(__dirname, '..', p), 'utf8')
 
@@ -63,21 +64,10 @@ describe('Start New (All) and Archive and Start New (All)', () => {
   })
 
   it('flags what stopping a running agent costs, as the quit dialog does; idle and stopped ones get no flag', () => {
-    const text = (l: NonNullable<BatchAgent['live']>) => l.status
-    expect(batchLine(agent('w', { live: { sessionId: 's', status: 'working' } }), text)).toBe('• W — working (will be interrupted)')
-    expect(batchLine(agent('b', { live: { sessionId: 's', status: 'background' } }), text)).toBe('• B — background (background tasks will stop)')
-    expect(batchLine(agent('q', { live: { sessionId: 's', status: 'waiting' } }), text)).toBe('• Q — waiting (waiting for you)')
-    expect(batchLine(agent('i', { live: { sessionId: 's', status: 'ready' } }), text)).toBe('• I — ready')
-    expect(batchLine(agent('s'), text)).toBe('• S — not running')
+    expect(busyNote('working')).toBe('will be interrupted')
+    expect(busyNote('background')).toBe('background tasks will stop')
+    expect(busyNote('waiting')).toBe('waiting for you')
     for (const s of ['ready', 'finished', 'starting', 'error'] as const) expect(busyNote(s)).toBeNull()
-  })
-
-  it("Remove All's question marks each worktree: merged and clean, or always kept and why (#291)", () => {
-    const text = (l: NonNullable<BatchAgent['live']>) => l.status
-    expect(removeLine(agent('w', { live: { sessionId: 's', status: 'working' } }), text)).toBe('• W — working (will be interrupted)')
-    expect(removeLine(agent('m'), text, { branch: 'hive/m', check: { removable: true } })).toBe('• M — not running · worktree hive/m: merged and clean')
-    expect(removeLine(agent('u'), text, { branch: 'hive/u', check: { removable: false, reason: '2 unmerged commits' } })).toBe('• U — not running · worktree hive/u: always kept (2 unmerged commits)')
-    expect(removeLine(agent('x'), text, { branch: 'hive/x' })).toBe("• X — not running · worktree hive/x: always kept (couldn't be checked)")
   })
 
   it('goes one agent at a time: a failure is reported with its reason and the rest still start', async () => {
@@ -88,5 +78,41 @@ describe('Start New (All) and Archive and Start New (All)', () => {
     })
     expect(order).toEqual(['a', 'b', 'c'])
     expect(r).toEqual({ done: ['A', 'C'], failed: [{ name: 'B', error: 'Claude Code is turned off' }] })
+  })
+})
+
+describe("the confirms' table (#572): what happens to each agent, and Remove All's worktree", () => {
+  const live = (status: NonNullable<BatchAgent['live']>['status']) => ({ live: { sessionId: 's', status } })
+  it('a running agent is stopped first, flagged when that interrupts something; a stopped one only gets what follows', () => {
+    expect(batchOutcome('start', { live: null })).toEqual({ text: 'A new session', warn: false })
+    expect(batchOutcome('start', live('ready'))).toEqual({ text: 'Stopped, then a new session', warn: false })
+    expect(batchOutcome('start', live('working'))).toEqual({ text: 'Stopped (will be interrupted), then a new session', warn: true })
+    expect(batchOutcome('archive', { live: null })).toEqual({ text: 'Its session archived, then a new one', warn: false })
+    expect(batchOutcome('archive', live('background'))).toEqual({ text: 'Stopped (background tasks will stop), then its session archived, then a new one', warn: true })
+    expect(batchOutcome('remove', live('watching'))).toEqual({ text: 'Stopped (its card loop pauses until it is resumed), then removed', warn: true })
+    expect(batchOutcome('remove', { live: null })).toEqual({ text: 'Removed', warn: false })
+  })
+  it('the plain text says every cell the table shows, the card too (a reviewer\'s as such), a line an agent (#572)', () => {
+    const columns = [{}, { prefix: 'card ' }, { prefix: 'worktree ' }, {}]
+    const text = agentRowsText(columns, [
+      { name: 'W', cells: [{ text: 'Working…' }, { text: '#12 Lanes' }, { text: 'hive/w' }, { text: batchOutcome('start', live('working')).text }] },
+      { name: 'R', cells: [{ text: 'Watching' }, { text: 'reviewing #12 Lanes' }, { text: '' }, { text: batchOutcome('start', live('watching')).text }] },
+      { name: 'S', cells: [{ text: 'Not running' }, { text: '' }, { text: removeWorktreeText({ branch: 'hive/s', check: { removable: false, reason: '2 unmerged commits' } }) }, { text: 'Removed' }] }
+    ])
+    expect(text.split('\n')).toEqual([
+      '• W — Working… · card #12 Lanes · worktree hive/w · Stopped (will be interrupted), then a new session',
+      '• R — Watching · card reviewing #12 Lanes · Stopped (its card loop pauses until it is resumed), then a new session',
+      '• S — Not running · worktree hive/s: always kept (2 unmerged commits) · Removed'
+    ])
+  })
+
+  it("a heading's line goes over its agents (the quit dialog's workspaces)", () => {
+    expect(agentRowsText([{ prefix: 'in ' }, {}], [{ groupText: 'ws-a' }, { name: 'B1', cells: [{ text: 'alpha' }, { text: 'Ready' }] }, { groupText: 'ws-b' }, { name: 'B2', cells: [{ text: 'beta' }, { text: '' }] }])).toBe('ws-a:\n• B1 — in alpha · Ready\nws-b:\n• B2 — in beta')
+  })
+
+  it("Remove All's worktree cell says whether the box can delete it (#291)", () => {
+    expect(removeWorktreeText({ branch: 'hive/b1', check: { removable: true } })).toBe('hive/b1: merged and clean')
+    expect(removeWorktreeText({ branch: 'hive/b2', check: { removable: false, reason: '2 commits not merged' } })).toBe('hive/b2: always kept (2 commits not merged)')
+    expect(removeWorktreeText({ branch: 'hive/b3' })).toBe("hive/b3: always kept (couldn't be checked)")
   })
 })

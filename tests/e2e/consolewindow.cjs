@@ -247,8 +247,8 @@ const check = (name, ok, extra = '') => {
       await lib.until(async () => !/Collecting/.test((await page.locator('.diagnostics-preview').textContent().catch(() => 'Collecting')) ?? 'Collecting'), HUNG_MS)
     }
     // The dialog reads its recording row and its preview with two calls (#718): the row can come after the preview, and
-    // until it does the row is the previous open's (none at first, then the offerable one). The read is slowed here so it
-    // always comes last, and the checks wait for the newest recording's row rather than reading once.
+    // until it does there is no row (#723). The read is slowed here so it always comes last, and the checks wait for the
+    // newest recording's row rather than reading once.
     await app.evaluate(() => {
       process.env.HIVE_TEST_SLOW_IPC = 'console:recordings=1500'
     })
@@ -270,9 +270,15 @@ const check = (name, ok, extra = '') => {
     // The newest recording with text: never attached.
     await recordTurn(`edit a.ts ${SPOKEN}`, true)
     await openDiagnostics()
-    // Until the slowed read returns, the row is the previous open's offerable one: waited for.
-    const notOffered = async () => (await page.locator('.diagnostics-recording input').count()) === 0 && /includes prompt and reply text, so it can't be attached/.test((await page.locator('.diagnostics-recording').textContent().catch(() => '')) ?? '')
+    // Until the slowed read returns there is no row (#723: it was the previous open's offerable one): no checkbox shows
+    // at any point before the text row does.
+    let staleOffer = 0
+    const notOffered = async () => {
+      if ((await page.locator('.diagnostics-recording input').count()) > 0) staleOffer++
+      return (await page.locator('.diagnostics-recording input').count()) === 0 && /includes prompt and reply text, so it can't be attached/.test((await page.locator('.diagnostics-recording').textContent().catch(() => '')) ?? '')
+    }
     check('a recording with text is never offered', !!(await lib.until(notOffered, HUNG_MS)), JSON.stringify(await page.locator('.diagnostics-recording').allTextContents()))
+    check("…nor the last open's row while its read is pending (#723)", staleOffer === 0, `a checkbox showed in ${staleOffer} looks`)
     await app.evaluate(() => {
       delete process.env.HIVE_TEST_SLOW_IPC
     })

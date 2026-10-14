@@ -144,9 +144,16 @@ const check = (name, ok, extra = '') => {
   await removeButton.click()
   await shown(dialog, 'the question')
   const text = await dialog.innerText()
-  check('one question lists all four, flagging the working one', /Worker — Working.*\(will be interrupted\)/.test(text) && /Idle — not running/.test(text) && /Merged — not running · worktree hive\/removeall-ws\/alpha\/merged: merged and clean/.test(text) && /Unmerged — not running · worktree hive\/removeall-ws\/alpha\/unmerged: always kept \(1 commit not merged into (main|master)\)/.test(text), text)
+  check('one question lists all four, flagging the working one', /Worker — Working.*\(will be interrupted\)/.test(text) && /Idle — Not running · Removed/.test(text) && /Merged — Not running · worktree hive\/removeall-ws\/alpha\/merged: merged and clean · Removed/.test(text) && /Unmerged — Not running · worktree hive\/removeall-ws\/alpha\/unmerged: always kept \(1 commit not merged into (main|master)\) · Removed/.test(text), text)
   check('it says running agents stop first and sessions stay', /Running agents are stopped first\./.test(text) && /sessions stay in the Sessions tab/.test(text), text)
   check("in Remove's colour, filled (#344)", (await dialog.locator('button.act-remove.solid', { hasText: 'Remove 4 agents' }).count()) === 1)
+  // The agents as a table (#572): Agent · State · Card · Worktree (whether the box can delete it) · What happens.
+  const table = await dialog.locator('table.agents-table').evaluate((t) => ({
+    heads: [...t.querySelectorAll('thead th')].map((h) => h.textContent.trim()),
+    rows: Object.fromEntries([...t.querySelectorAll('tbody tr[data-agent]')].map((r) => [r.dataset.agent, [...r.children].map((c) => c.textContent.trim())]))
+  }))
+  check('…as a table: Agent, State, Card, Worktree, What happens', JSON.stringify(table.heads) === JSON.stringify(['Agent', 'State', 'Card', 'Worktree', 'What happens']) && Object.keys(table.rows).length === 4, JSON.stringify(table))
+  check('…each worktree and what can happen to it, and each agent stopped and removed', table.rows.Merged?.[3] === 'hive/removeall-ws/alpha/merged: merged and clean' && (table.rows.Unmerged?.[3] ?? '').startsWith('hive/removeall-ws/alpha/unmerged: always kept (1 commit not merged') && table.rows.Idle?.[3] === '' && table.rows.Worker?.[4] === 'Stopped (will be interrupted), then removed' && table.rows.Idle?.[4] === 'Removed', JSON.stringify(table.rows))
   const box = dialog.locator('.dialog-check')
   check('the box is offered for the merged, clean worktree only, unticked', (await box.count()) === 1 && (await box.innerText()).trim().endsWith('hive/removeall-ws/alpha/merged') && !/unmerged/.test(await box.innerText()) && !(await box.locator('input').isChecked()), await box.innerText().catch(() => ''))
   for (const theme of ['dark', 'light']) {

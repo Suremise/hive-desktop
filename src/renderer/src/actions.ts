@@ -5,14 +5,14 @@ import { agentOf, agentProviderOf, choose, confirm, findProject, focusAfterRemov
 import { MANY_AGENTS, agentLimitText, chosenLayout, moveAgentTo, sessionInAgentFolder, swapAgentsIn } from '@shared/defaults'
 import { defaultProviderPending, isProviderEnabled, projectDefaultProvider, providerName } from '@shared/providers'
 import { agentsToResume, resumeAll, stalledOnSignIn } from '@shared/resumeAll'
-import { batchLine, eachAgent, removeLine, sessionsToArchive, type BatchResult } from '@shared/startAll'
+import { eachAgent, sessionsToArchive, type BatchResult } from '@shared/startAll'
 import type { McpServerInfo, OldWorktreeOutcome, ProjectInfo, ProjectProviderConfig, ProviderId, SessionLayout, SessionListItem, ToastAction } from '@shared/types'
 import { TEMPLATE_NAME_MAX, type TemplateEntry, type TemplateScope } from '@shared/templates'
 import { oldWorktreesNotice, templateLoadDetail } from '@shared/templateLoad'
 import { formatTokens, type SessionAction } from './util'
-import { statusText } from './components/ui'
 import { createElement } from 'react'
 import { TemplateLoadNames } from './components/TemplateLoad'
+import { AgentsDetail, batchAgentsData, projectAgentsData, tableText } from './components/AgentsTable'
 import { clearEditorDraft, clearEditorDraftsUnder } from './editorDrafts'
 
 /** Runs an async action and shows a toast if it fails. */
@@ -477,12 +477,17 @@ export async function stopAllAgents(path: string): Promise<void> {
   const p = project(path)
   const running = p?.agents.filter((a) => a.live) ?? []
   if (!running.length) return
-  // Always asks, naming each agent that will stop and what it's doing.
+  // Always asks, naming each agent that will stop, what it's doing and its card, as a table (#572).
   // The question stays open, with a spinner, until they have stopped.
+  const data = projectAgentsData(p!, get().tasks, [], running.map((a) => a.id))
+  const lines = tableText(data)
+  const note = 'Their conversations are kept and can be resumed later.'
   await confirm({
     title: running.length === 1 ? 'Stop the agent?' : 'Stop all agents?',
     message: `These ${running.length === 1 ? 'agent stops' : `${running.length} agents stop`} in ${p!.name}:`,
-    detail: `${running.map((a) => `• ${a.name} — ${statusText(a.live!)}`).join('\n')}\n\nTheir conversations are kept and can be resumed later.`,
+    detail: `${lines}\n\n${note}`,
+    content: createElement(AgentsDetail, { data, note }),
+    wide: true,
     confirmLabel: running.length === 1 ? 'Stop' : 'Stop all',
     busyLabel: 'Stopping…',
     danger: true,
@@ -570,16 +575,18 @@ async function startNewAll_(path: string, archive: boolean): Promise<void> {
   const agents = archive ? archives.map((x) => x.agent) : p.agents
   const running = agents.filter((a) => a.live)
   const one = agents.length === 1
+  const data = batchAgentsData(p, get().tasks, archive ? 'archive' : 'start', agents)
+  const lines = tableText(data)
+  const note = `${running.length ? `Running agents are stopped first. ` : ''}${archive ? "The transcripts are kept in the project's .hive/archive folder." : 'Their conversations are kept and can be resumed from the Sessions tab.'}`
   const ok = await confirm({
     title: archive ? (one ? 'Archive and start new?' : 'Archive and start new for all agents?') : one ? 'Start a new session?' : 'Start new sessions for all agents?',
     message: archive
       ? `${one ? `${agents[0].name}'s session is` : `The sessions of these ${agents.length} agents are`} archived in ${p.name}, and each starts a fresh one:`
       : `${one ? 'This agent starts' : `Every agent in ${p.name} starts`} a fresh session:`,
-    detail: [
-      agents.map((a) => batchLine(a, statusText)).join('\n'),
-      '',
-      `${running.length ? `Running agents are stopped first. ` : ''}${archive ? "The transcripts are kept in the project's .hive/archive folder." : 'Their conversations are kept and can be resumed from the Sessions tab.'}`
-    ].join('\n'),
+    detail: [lines, '', note].join('\n'),
+    // The agents as a table (#572): state, card, worktree and what happens to each.
+    content: createElement(AgentsDetail, { data, note }),
+    wide: true,
     confirmLabel: archive ? 'Archive and start new' : 'Start new',
     action: archive ? 'archive-start' : 'start'
   })
@@ -985,20 +992,22 @@ async function removeAllAgents_(path: string): Promise<void> {
   const removable = trees.filter((a) => checkOf(a.id)?.removable)
   const into = checks.find((c) => c.into)?.into
   let deleteMerged = false
+  const data = batchAgentsData(p, get().tasks, 'remove', agents, (id: string) => checkOf(id))
+  const lines = tableText(data)
+  const note = [
+    agents.some((a) => a.live) ? 'Running agents are stopped first.' : '',
+    'Their sessions stay in the Sessions tab.',
+    trees.length ? (removable.length ? 'Worktrees and branches are kept unless you tick the box; unmerged or changed ones are kept either way.' : 'Their worktrees and branches are kept.') : ''
+  ]
+    .filter(Boolean)
+    .join(' ')
   const ok = await confirm({
     title: one ? `Remove ${agents[0].name}?` : `Remove all ${agents.length} agents?`,
     message: one ? `${agents[0].name} is removed from ${p.name}:` : `Every agent of ${p.name} is removed:`,
-    detail: [
-      agents.map((a) => removeLine(a, statusText, a.worktree && { branch: a.worktree.branch, check: checkOf(a.id) })).join('\n'),
-      '',
-      [
-        agents.some((a) => a.live) ? 'Running agents are stopped first.' : '',
-        'Their sessions stay in the Sessions tab.',
-        trees.length ? (removable.length ? 'Worktrees and branches are kept unless you tick the box; unmerged or changed ones are kept either way.' : 'Their worktrees and branches are kept.') : ''
-      ]
-        .filter(Boolean)
-        .join(' ')
-    ].join('\n'),
+    detail: [lines, '', note].join('\n'),
+    // The agents as a table (#572): state, card, worktree (whether the box can delete it) and what happens to each.
+    content: createElement(AgentsDetail, { data, note }),
+    wide: true,
     check: removable.length
       ? { label: `Also delete the worktrees and branches fully merged into ${into} with no uncommitted changes: ${removable.map((a) => a.worktree!.branch).join(', ')}`, initial: false, set: (v) => (deleteMerged = v) }
       : undefined,

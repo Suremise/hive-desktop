@@ -190,6 +190,8 @@ export interface HiveRequests {
   /** Applies one change to what the tips know, on what is saved (#266): several windows change it. Replies with the state saved. */
   'ui:changeTips': (change: TipsChange) => TipsState
   'ui:changeBoardFold': (change: BoardFoldChange) => Record<string, BoardFold>
+  /** Saves this window's workspace's running lanes in the user's order (#568; null: back to the usual order), leaving other workspaces' as they are; replies with them all. */
+  'ui:setLaneOrder': (ids: string[] | null) => Record<string, string[]>
 
   'workspace:get': () => WorkspaceInfo | null
   'workspace:open': (path?: string) => WorkspaceInfo | null
