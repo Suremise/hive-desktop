@@ -25,11 +25,13 @@ interface HiveMessageValues {
   'files.attachments.kind.other': undefined
   'files.attachments.kind.pdf': undefined
   'files.attachments.kind.text': undefined
+  'files.attachments.loadTarget': undefined
   'files.attachments.none': undefined
   'files.attachments.noneHint': undefined
   'files.attachments.noneHintAssistant': undefined
   'files.attachments.openFolder': undefined
   'files.attachments.openTranscript': { host: string }
+  'files.attachments.refreshTarget': undefined
   'files.attachments.running': { host: string }
   'files.attachments.runningBadge': undefined
   'files.attachments.title': undefined
@@ -75,6 +77,7 @@ interface HiveMessageValues {
   'files.error.rename': undefined
   'files.fileEmpty': undefined
   'files.find.clear': undefined
+  'files.find.loadTarget': undefined
   'files.find.noMatch': { filter: string | number }
   'files.find.placeholder': undefined
   'files.find.searching': undefined

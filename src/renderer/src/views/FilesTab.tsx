@@ -61,6 +61,7 @@ const M = {
   findPlaceholder: msg({ id: 'files.find.placeholder', defaultMessage: 'Find files by name or path', description: "The Files tab's search box, empty." }),
   clear: msg({ id: 'files.find.clear', defaultMessage: 'Clear', description: "Tooltip on the button that empties the Files tab's search box." }),
   searching: msg({ id: 'files.find.searching', defaultMessage: 'Searching…', description: "The Files tab's list while a search runs." }),
+  findLoadTarget: msg({ id: 'files.find.loadTarget', defaultMessage: 'the matching files', description: 'What could not be loaded when a search of the Files tab failed: shown in "Could not load {what}: {error}", with Retry.' }),
   noMatch: msg({ id: 'files.find.noMatch', defaultMessage: 'No files match “{filter}”.', description: "The Files tab's list when a search finds nothing. {filter} is what was typed." }),
   folderEmpty: msg({ id: 'files.tree.empty', defaultMessage: 'This project folder is empty.', description: "The Files tab's list for a project folder with nothing in it." }),
   itemsSelected: msg({ id: 'files.details.selected', defaultMessage: '{count, plural, one {# item selected} other {# items selected}}', description: "The Files tab's right pane when several files are selected." }),
@@ -100,6 +101,8 @@ const M = {
   archivedBadge: msg({ id: 'files.attachments.archivedBadge', defaultMessage: 'archived', description: "Badge beside an archived session's name in the Attachments tab." }),
   groupCount: msg({ id: 'files.attachments.groupCount', defaultMessage: '{count, plural, one {# attachment} other {# attachments}} · last {when}', description: "Beside a session's name in the Attachments tab. {when} is how long ago the newest was added, such as \"5 min ago\"." }),
   groupDelete: msg({ id: 'files.attachments.groupDelete', defaultMessage: "{host, select, assistant {Delete This Conversation's Attachments…} other {Delete This Session's Attachments…}}", description: "Tooltip on a session's delete button in the Attachments tab." }),
+  attachmentsLoadTarget: msg({ id: 'files.attachments.loadTarget', defaultMessage: 'the attachments', description: 'What could not be loaded when the Attachments tab first opened: shown in "Could not load {what}: {error}", with Retry.' }),
+  attachmentsRefreshTarget: msg({ id: 'files.attachments.refreshTarget', defaultMessage: 'the attachments', description: 'What could not be refreshed while the attachments shown stay on screen: shown in "Could not refresh {what}; last updated …", with Retry.' }),
   attachments: msg({ id: 'files.attachments.title', defaultMessage: 'Attachments', description: 'Heading of the Attachments tab.' }),
   infoAssistant: msg({ id: 'files.attachments.infoAssistant', defaultMessage: "Kept in the Assistant's home, .hive/attachments. Click a conversation's name to read it.", description: "The (i) beside the Hive Assistant's Attachments heading. Keep .hive/attachments as it is." }),
   info: msg({ id: 'files.attachments.info', defaultMessage: "Kept in the project's .hive/attachments. Drag one onto the Session tab to send it again; click a session's name to read it.", description: "The (i) beside a project's Attachments heading. Keep .hive/attachments as it is." }),
@@ -721,7 +724,7 @@ function FilesBrowser({ project, selector, jump }: { project: ProjectInfo; selec
           onDragLeave={(e) => e.currentTarget === e.target && setDropTarget(null)}
           onDrop={(e) => void dropOn(e, '')}
         >
-          {findError && <LoadFailed inline what="the matching files" error={findError} onRetry={() => setFindTry((n) => n + 1)} />}
+          {findError && <LoadFailed inline what={tr(M.findLoadTarget)} error={findError} onRetry={() => setFindTry((n) => n + 1)} />}
           {filtering && !results && !findError && (
             <div className="pane-empty">
               <Icon name="loading" spin /> {tr(M.searching)}
@@ -1060,7 +1063,7 @@ export function AttachmentsTab({ project: owner, assistant = false }: { project:
     running(a) ? { label: tr(M.delete), icon: 'trash', disabled: true, detail: tr(M.running, { host }) } : { label: tr(M.delete), icon: 'trash', danger: true, onClick: () => void remove(a) }
   ]
 
-  if (!all) return error ? <LoadFailed what="the attachments" error={error} onRetry={load} /> : <div className="empty-state"><Icon name="loading" spin />{tr(M.loading)}</div>
+  if (!all) return error ? <LoadFailed what={tr(M.attachmentsLoadTarget)} error={error} onRetry={load} /> : <div className="empty-state"><Icon name="loading" spin />{tr(M.loading)}</div>
   if (!all.length && !error) {
     return (
       <div className="empty-state" style={{ paddingTop: '15vh' }}>
@@ -1133,7 +1136,7 @@ export function AttachmentsTab({ project: owner, assistant = false }: { project:
         <InfoTip text={tr(assistant ? M.infoAssistant : M.info)} />
         <span className="faint">{tr(M.total, { host, total, groups: all.length })}</span>
         <div className="grow" />
-        <IconButton icon="refresh" title={tr(M.refresh)} onClick={load} />
+        <IconButton icon="refresh" title={tr(M.refresh)} action="refresh-attachments" onClick={load} />
         <IconButton icon="folder-opened" title={tr(M.openFolder)} onClick={() => void call('app:openPath', `${project.path}\\.hive\\attachments`)} />
       </div>
       <p className="hint images-desc">{tr(assistant ? M.descAssistant : M.desc)}</p>
@@ -1149,7 +1152,7 @@ export function AttachmentsTab({ project: owner, assistant = false }: { project:
           ))}
         </div>
       )}
-      {error && <StaleNote what="the attachments" error={error} at={loaded.at} onRetry={load} />}
+      {error && <StaleNote what={tr(M.attachmentsRefreshTarget)} error={error} at={loaded.at} onRetry={load} />}
       {current.map(renderGroup)}
       {archived.length > 0 && (
         <>

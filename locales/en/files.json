@@ -95,6 +95,10 @@
     "defaultMessage": "Text",
     "description": "Attachments filter: text files. Followed by a count."
   },
+  "files.attachments.loadTarget": {
+    "defaultMessage": "the attachments",
+    "description": "What could not be loaded when the Attachments tab first opened: shown in \"Could not load {what}: {error}\", with Retry."
+  },
   "files.attachments.none": {
     "defaultMessage": "No attachments yet",
     "description": "The Attachments tab when there are none."
@@ -114,6 +118,10 @@
   "files.attachments.openTranscript": {
     "defaultMessage": "{host, select, assistant {Open this conversation's transcript} other {Open this session's transcript}}",
     "description": "Tooltip on a session's name in the Attachments tab. {host} is assistant for the Hive Assistant's conversations."
+  },
+  "files.attachments.refreshTarget": {
+    "defaultMessage": "the attachments",
+    "description": "What could not be refreshed while the attachments shown stay on screen: shown in \"Could not refresh {what}; last updated …\", with Retry."
   },
   "files.attachments.running": {
     "defaultMessage": "{host, select, assistant {Its conversation is running} other {Its session is running}}",
@@ -294,6 +302,10 @@
   "files.find.clear": {
     "defaultMessage": "Clear",
     "description": "Tooltip on the button that empties the Files tab's search box."
+  },
+  "files.find.loadTarget": {
+    "defaultMessage": "the matching files",
+    "description": "What could not be loaded when a search of the Files tab failed: shown in \"Could not load {what}: {error}\", with Retry."
   },
   "files.find.noMatch": {
     "defaultMessage": "No files match “{filter}”.",

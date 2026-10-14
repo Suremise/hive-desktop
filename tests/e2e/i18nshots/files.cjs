@@ -1,7 +1,8 @@
 // Screenshot cases for the `files` area (#803): the Files tab (its tree, details, file views, menu and delete dialog),
-// the Attachments tab and its viewer, and DocEditor (the Memory tab's editor), reached for the i18nshots route (#756's
-// design, section 4) with locale-independent means only: files written to the project, command ids and structural
-// hooks (data-rel, data-kind, data-action, classes), never English text. See tests/e2e/i18nshots.cjs for ctx.
+// the Attachments tab and its viewer, the notes when a search, a load or a refresh fails, and DocEditor (the Memory
+// tab's editor), reached for the i18nshots route (#756's design, section 4) with locale-independent means only: files
+// written to the project, IPC failures (HIVE_TEST_FAIL_IPC), command ids and structural hooks (data-rel, data-kind,
+// data-action, classes), never English text. See tests/e2e/i18nshots.cjs for ctx.
 const fs = require('fs')
 const path = require('path')
 const { execFileSync } = require('child_process')
@@ -90,6 +91,28 @@ async function filesBinary(ctx) {
   return shown(ctx, ctx.page.locator('.split-main', { has: ctx.page.locator('.empty-state .hint') }).first(), "the binary file's view")
 }
 
+/**
+ * Makes calls on an IPC channel fail: the next one (`*1`), or all of them until failing(ctx, '') ends it (unpackaged
+ * builds read it as it changes: tests/e2e/README.md).
+ */
+const failing = (ctx, calls) => ctx.app.evaluate((_, c) => {
+  process.env.HIVE_TEST_FAIL_IPC = c
+}, calls)
+const failNext = (ctx, channel) => failing(ctx, `${channel}*1`)
+
+/** A search of the Files tab that failed: said in the list, with Retry. */
+async function filesFindFailed(ctx) {
+  await failNext(ctx, 'files:find')
+  await ctx.page.locator('.files-filter input').first().fill('app')
+  await shown(ctx, ctx.page.locator('.files-list .load-failed'), "the failed search's note")
+  return filesSplit(ctx)
+}
+
+async function clearFind(ctx) {
+  await ctx.page.locator('.files-filter input').first().fill('')
+  await shown(ctx, row(ctx, 'data.csv'), "the Files tab's tree again")
+}
+
 /** A file's right-click menu. */
 async function filesMenu(ctx) {
   await row(ctx, 'README.md').click({ button: 'right' })
@@ -116,6 +139,19 @@ async function docEditor(ctx) {
   return shown(ctx, ctx.page.locator('.split-main', { has: ctx.page.locator('.editor-toolbar') }).first(), 'the editor')
 }
 
+/** The Attachments tab when they could not be read: said in its place, with Retry. */
+async function attachmentsLoadFailed(ctx) {
+  await failNext(ctx, 'attachments:list')
+  await ctx.command('project.tab.images')
+  return shown(ctx, ctx.page.locator('.load-failed').first(), "the Attachments tab's failed load")
+}
+
+/** Its Retry (the next read works). */
+async function retryLoad(ctx) {
+  await ctx.page.locator('.load-failed button').first().click()
+  await gone(ctx, ctx.page.locator('.load-failed'), 'the failed load')
+}
+
 /** The Attachments tab with none yet. */
 async function attachmentsNone(ctx) {
   await ctx.command('project.tab.images')
@@ -128,6 +164,22 @@ async function attachments(ctx) {
   const page = ctx.page
   if (!(await ctx.lib.until(async () => (await page.locator('.images-page .thumb').count()) >= 4, ctx.hungMs))) throw new Error(`the Attachments tab shows ${await page.locator('.images-page .thumb').count()} of 4 attachments`)
   return page.locator('.images-page').first()
+}
+
+/** A refresh that failed while the attachments shown stay: the note over them, with Retry. */
+async function attachmentsRefreshFailed(ctx) {
+  // Every read fails until close: a reload the file watcher starts meanwhile can't take the one failure and leave the
+  // click's read to succeed.
+  await failing(ctx, 'attachments:list')
+  await ctx.page.locator('.images-page [data-action="refresh-attachments"]').first().click()
+  await shown(ctx, ctx.page.locator('.images-page .load-stale'), "the failed refresh's note")
+  return ctx.page.locator('.images-page').first()
+}
+
+async function retryRefresh(ctx) {
+  await failing(ctx, '')
+  await ctx.page.locator('.images-page .load-stale button').first().click()
+  await gone(ctx, ctx.page.locator('.images-page .load-stale'), "the failed refresh's note")
 }
 
 /** The viewer, on an attachment it has no preview for. */
@@ -160,11 +212,14 @@ module.exports = {
     { name: 'files-folder', open: filesFolder },
     { name: 'files-csv', open: filesCsv },
     { name: 'files-binary', open: filesBinary },
+    { name: 'files-find-failed', open: filesFindFailed, close: clearFind },
     { name: 'files-menu', open: filesMenu, close: closeMenu },
     { name: 'files-trash-dialog', open: filesTrash, close: cancelDialog },
     { name: 'doc-editor', open: docEditor },
+    { name: 'attachments-load-failed', open: attachmentsLoadFailed, close: retryLoad },
     { name: 'attachments-none', open: attachmentsNone },
     { name: 'attachments', open: attachments },
+    { name: 'attachments-refresh-failed', open: attachmentsRefreshFailed, close: retryRefresh },
     { name: 'attachment-viewer', open: attachmentViewer, close: closeViewer },
     { name: 'attachments-delete-dialog', open: attachmentsDelete, close: closeLast }
   ]
