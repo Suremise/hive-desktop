@@ -15,6 +15,8 @@ const path = require('path')
 const { execFileSync } = require('child_process')
 // The longest a wait here waits for what it waits on: a bound for a hung run, never how long it should take (#570).
 const HUNG_MS = 10000
+// A compaction's hung-run bound: under load the fake took about 60 s to read the long focus Hive typed (#725).
+const COMPACT_HUNG_MS = 180000
 
 const userData = path.join(lib.WORK, 'paneheader-profile')
 const ws = path.join(lib.WORK, 'paneheader-ws')
@@ -386,7 +388,19 @@ function commits(wt, n) {
     return !!(await until(async () => (await dialog.count()) === 0, 30000))
   }
   const LONG_FOCUS = `hold 6 ${'keep the header decisions, the merge badge findings and the open questions; drop the test runs. '.repeat(9)}`
-  for (const w of [900, 500]) {
+  /** Compactions in the fake's transcripts so far: each one it runs writes a compact_boundary. */
+  const compactionsRun = () => {
+    const dir = path.join(claudeHome, 'projects')
+    const files = fs.existsSync(dir) ? fs.readdirSync(dir, { recursive: true }).filter((f) => f.endsWith('.jsonl')) : []
+    return files.map((f) => fs.readFileSync(path.join(dir, f), 'utf8').split('"compact_boundary"').length - 1).reduce((x, y) => x + y, 0)
+  }
+  /** The fake's last compaction has ended and it has drawn its prompt again: it takes prompts (it drops them while busy). */
+  const promptAfterCompaction = async () => {
+    const b = await prompts.screen()
+    const at = b.lastIndexOf('Conversation compacted.')
+    return at > b.lastIndexOf('Compacting conversation…') && b.indexOf('❯', at) > at
+  }
+  for (const [i, w] of [900, 500].entries()) {
     await widthTo(w)
     await turn()
     check(`${w}px: Compact shows its fold icon and is still`, await idleIcon())
@@ -411,7 +425,11 @@ function commits(wt, n) {
     check(`${w}px: clicking the disabled button opens nothing`, (await page.locator('[role=dialog]', { hasText: 'Compact alpha' }).count()) === 0)
     const again = await inv('session:compact', alpha, 'again', long.id).then(() => 'sent', (e) => String(e.message ?? e))
     check(`${w}px: a second compaction is refused`, again.includes('already compacting'), again)
-    check(`${w}px: the agent is ready once it has compacted`, !!(await until(async () => (await live(long.id))?.status === 'ready', 15000)))
+    // The compaction it asked for has run, and the fake takes prompts again (#725: under load the fake began it after
+    // Hive's 20 s for it to begin had passed, so Hive showed the agent ready before it had begun, and the next prompt
+    // fell into the compaction and was dropped). Bounded only for a hung run.
+    check(`${w}px: the compaction ran`, !!(await until(() => compactionsRun() >= i + 1, COMPACT_HUNG_MS)), String(compactionsRun()))
+    check(`${w}px: the agent is ready once it has compacted`, !!(await until(async () => (await live(long.id))?.status === 'ready' && (await promptAfterCompaction()), COMPACT_HUNG_MS)), JSON.stringify({ status: (await live(long.id))?.status, screen: (await prompts.screen()).slice(-200) }))
     check(`${w}px: and Compact is the still fold icon again`, !!(await until(idleIcon, HUNG_MS)))
   }
   const boundaries = fs.readdirSync(path.join(claudeHome, 'projects'), { recursive: true }).filter((f) => f.endsWith('.jsonl'))

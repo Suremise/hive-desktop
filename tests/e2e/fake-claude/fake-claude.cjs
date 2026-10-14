@@ -907,6 +907,8 @@ process.stdin.on('data', (data) => {
         promptLine()
       }
       else if (text && !busy) void runPrompt(text, enter)
+      // A prompt sent while it is busy (a turn, a compaction) is dropped: recorded in fake-dropped.jsonl in its home (#725).
+      else if (text && home) fs.appendFileSync(path.join(home, 'fake-dropped.jsonl'), JSON.stringify({ agent: process.env.HIVE_AGENT || 'agent', text: text.slice(0, 200), at: new Date().toISOString() }) + '\n')
     } else if (ch === '\x7f' || ch === '\b') {
       if (line) out('\b \b')
       line = line.slice(0, -1)

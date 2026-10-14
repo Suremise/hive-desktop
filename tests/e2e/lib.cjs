@@ -751,6 +751,9 @@ function fakePrompts(inv, key, live, { hungMs = TURN_HUNG_MS, home = null, why =
     console.log(`DIAGNOSTIC its screen ends ${JSON.stringify((await screen()).slice(-400))}`)
     const failed = home && fs.existsSync(path.join(home, 'fake-hook-errors.jsonl')) ? fs.readFileSync(path.join(home, 'fake-hook-errors.jsonl'), 'utf8').trim().split(/\r?\n/) : []
     console.log(`DIAGNOSTIC hooks that didn't reach Hive: ${home ? (failed.length ? failed.join(' | ') : 'none') : '(its home not given)'}`)
+    // Prompts the fake dropped because it was busy (#725: one typed as a compaction ended).
+    const dropped = home && fs.existsSync(path.join(home, 'fake-dropped.jsonl')) ? fs.readFileSync(path.join(home, 'fake-dropped.jsonl'), 'utf8').trim().split(/\r?\n/) : []
+    console.log(`DIAGNOSTIC prompts the fake dropped while busy: ${home ? (dropped.length ? dropped.join(' | ') : 'none') : '(its home not given)'}`)
     if (why) await why(text)
     return null
   }
