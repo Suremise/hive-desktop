@@ -1,0 +1,20 @@
+{
+  "prop|detail|**Sign in** runs `copilot login` in a terminal: it opens GitHub in your browser to authorise Copilot. Hive never signs in for you.": 1,
+  "prop|detail|For a code to enter on GitHub instead, run `copilot login --device-code` in a terminal.": 1,
+  "prop|detail|Update {} the way you installed it: Hive’s Copilot agents run the installed version, not one `copilot update` downloads.": 1,
+  "prop|detail|With no login of its own, Copilot uses the GitHub CLI’s (`gh auth login`).": 1,
+  "prop|label|Install": 1,
+  "prop|label|Sign in": 1,
+  "prop|label|Update": 1,
+  "prop|message|{} is not installed.": 1,
+  "prop|message|{} is not signed in.": 1,
+  "prop|message|{} {} is available.": 1,
+  "prose|assign|Copilot login": 1,
+  "prose|assign|GitHub CLI": 1,
+  "prose|prop:other|npm install -g {}": 1,
+  "prose|prop:other|npm install -g {}@latest": 1,
+  "prose|prop:text|Copilot agents don’t get {} from Hive’s environment, so {} sign them in. For a token of Copilot’s own, set `COPILOT_GITHUB_TOKEN`.": 1,
+  "prose|prop:text|it doesn’t": 1,
+  "prose|prop:text|they don’t": 1,
+  "prose|var|Copilot Free uses Auto only; choosing a model needs a paid plan.": 1
+}

@@ -1,4 +1,4 @@
-# Checks every push to main and every pull request: types, lint and unit tests.
+# Checks every push to main and every pull request: types, lint, unit tests and the translations' checks.
 # The end-to-end suites (tests/e2e) need the real Claude Code and Codex CLIs and sign-ins, so they run
 # locally before releases (npm run e2e), not here.
 name: CI
@@ -21,6 +21,9 @@ jobs:
     runs-on: windows-latest
     steps:
       - uses: actions/checkout@v5
+        with:
+          # The i18n guard compares the allowlists with the merge base's, so it needs the history.
+          fetch-depth: 0
       - uses: actions/setup-node@v5
         with:
           node-version: 24
@@ -29,3 +32,9 @@ jobs:
       - run: npm run typecheck
       - run: npm run lint
       - run: npm test
+      # Translations (#768): npm test already runs these; here each has its own line in the log.
+      - run: npm run i18n:extract -- --check
+      - run: npm run i18n:check
+      - run: npm run i18n:guard
+      # Informational: missing translations show in English and never fail.
+      - run: npm run i18n:coverage

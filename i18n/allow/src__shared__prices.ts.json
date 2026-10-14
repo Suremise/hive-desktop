@@ -1,0 +1,3 @@
+{
+  "prose|return|Hive has no API price for {}, so it can't estimate this session's cost. Add one in Settings → {} → API prices.": 1
+}

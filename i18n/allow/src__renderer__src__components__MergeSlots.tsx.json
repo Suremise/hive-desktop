@@ -1,0 +1,19 @@
+{
+  "call|attempt|Couldn't release the merge slot": 1,
+  "jsx-attr|content|Release the merge slot {}, if it is stuck": 1,
+  "jsx-attr|content|your merge holds": 1,
+  "jsx-attr|content|{} holds": 1,
+  "jsx-expr||; {} waiting": 1,
+  "jsx-text||(the merge slot). Merge waits until it is free": 1,
+  "jsx-text||Release": 1,
+  "jsx-text||Waiting:": 1,
+  "jsx-text||into": 1,
+  "prop|confirmLabel|Release": 1,
+  "prop|detail|{} is next in line and gets it.": 1,
+  "prop|message|Your merge": 1,
+  "prop|message|the merge may still be running.": 1,
+  "prop|message|{} holds the merge slot for {} · {}. Release it only if it is stuck: {}": 1,
+  "prop|message|{} may be in the middle of merging, and is told the slot was released when it next asks.": 1,
+  "prop|title|Release the merge slot?": 1,
+  "prose|var|{} is waiting to merge": 1
+}

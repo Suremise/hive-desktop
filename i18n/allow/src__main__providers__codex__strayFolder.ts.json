@@ -1,0 +1,5 @@
+{
+  "prop|message|{} holds {}, which isn't Codex configuration (config.toml, agents, rules) or a file it names. Codex treats the folder as its own, and stray files in it (an agent's scratch or logs) can make every Codex agent's commands fail (\"setup refresh had errors\"). Move those files out of it (scratch belongs outside the project); leave Codex's configuration where it is.": 1,
+  "prop|title|A .codex folder here can stop Codex running commands": 1,
+  "prose|var|and {} more": 1
+}

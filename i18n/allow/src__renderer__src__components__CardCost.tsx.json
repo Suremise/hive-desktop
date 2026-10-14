@@ -1,0 +1,14 @@
+{
+  "jsx-attr|label|Builder": 1,
+  "jsx-attr|label|On cards": 1,
+  "jsx-attr|label|Overhead": 1,
+  "jsx-attr|label|Reviewer": 1,
+  "jsx-expr||One agent that held it has": 1,
+  "jsx-expr||{} agents that held it have": 1,
+  "jsx-text||Cost": 1,
+  "jsx-text||Its cost couldn’t be worked out.": 1,
+  "jsx-text||Overhead: what the builder and reviewer used holding no card (merges, watching, compactions). ≈ is Hive’s estimate; ? or Unknown what isn’t known.": 1,
+  "jsx-text||Working out its cost…": 1,
+  "jsx-text||no session Hive knows of: unknown.": 1,
+  "prose|var|What its agents used while they held it, as the providers reported it: ≈ is Hive’s estimate, ? or Unknown what isn’t known (never $0).": 1
+}

@@ -1,0 +1,9 @@
+{
+  "prop|detail|Ran in {} {}": 1,
+  "prose|var|Agent {} ({}).": 1,
+  "prose|var|Its agent ({}) has since been removed.": 1,
+  "prose|var|No agent recorded (adopted, or from before Hive recorded agents).": 1,
+  "prose|var|Project folder": 1,
+  "prose|var|Removed agent": 1,
+  "prose|var|Worktree · {}": 1
+}

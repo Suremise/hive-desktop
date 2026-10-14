@@ -1,0 +1,22 @@
+{
+  "jsx-attr|aria-label|Name of agent {}": 1,
+  "jsx-attr|title|Its name in the template": 1,
+  "jsx-text||(default)": 1,
+  "jsx-text||(replaced by a new agent with the same name)": 1,
+  "jsx-text||Agent": 1,
+  "jsx-text||Coding agent": 1,
+  "jsx-text||Created": 1,
+  "jsx-text||Effort": 1,
+  "jsx-text||Mode": 1,
+  "jsx-text||Model": 1,
+  "jsx-text||Removed": 1,
+  "jsx-text||Where": 1,
+  "jsx-text||new": 1,
+  "jsx-text||own worktree": 1,
+  "jsx-text||project folder": 1,
+  "prose|call|input template-plan-name-input": 1,
+  "prose|var|A new worktree in {}, from {}": 1,
+  "prose|var|Works in its worktree again: {} (clean; its branch is left as it is)": 1,
+  "prose|var|own worktree {}": 1,
+  "prose|var|reuses {}": 1
+}

@@ -1,0 +1,14 @@
+{
+  "call|notify|Brought back {}": 1,
+  "call|notify|Brought back {}; {} couldn't be": 1,
+  "call|notify|Could not bring the batch back": 1,
+  "call|notify|Couldn't bring back {}": 1,
+  "call|notify|Nothing was archived": 1,
+  "call|notify|They stay archived with their batch: Unarchive this batch in Archived tries again (a card's file may be open in another program).": 1,
+  "prop|label|Undo": 1,
+  "prop|title|Archived {}": 1,
+  "prose|return|{} and {} more": 1,
+  "prose|var|One card was": 1,
+  "prose|var|{} cards were": 1,
+  "prose|var|{} left on the board: {}{}.": 1
+}

@@ -1,0 +1,8 @@
+{
+  "prose|call|{} · exported from Hive {}": 1,
+  "prose|error|No such image": 1,
+  "prose|error|No such tool call": 1,
+  "prose|error|The image is not stored in the transcript": 1,
+  "prose|error|This session has no transcript yet.": 1,
+  "prose|error|This session is being archived or deleted. Try again in a moment.": 2
+}

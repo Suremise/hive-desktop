@@ -1,0 +1,23 @@
+{
+  "prop|label|Rename {}'s {}…": 1,
+  "prop|title|Agents share names": 1,
+  "prop|title|Two agents are called {}": 1,
+  "prose|error|A folder named \"{}\" already exists": 1,
+  "prose|error|Card loop rounds take a whole number from 1 to {}.": 1,
+  "prose|error|Card loop wait takes a whole number of hours from 1 to {}.": 1,
+  "prose|error|Folder not found: {}": 1,
+  "prose|error|No workspace is open": 6,
+  "prose|error|Not a project in the open workspace: {}": 1,
+  "prose|error|Not a project or agent worktree in the open workspace: {}": 1,
+  "prose|error|Project names cannot start with \".\" or contain < > : \" / \\ | ? *": 1,
+  "prose|error|That agent no longer exists.": 1,
+  "prose|error|The workspace was closed": 2,
+  "prose|error|The workspace {}, open in another window, is inside {}. Close it first to open {} as a workspace.": 1,
+  "prose|error|{} can't be set for a workspace.": 1,
+  "prose|error|{} is already open in another window.": 1,
+  "prose|error|{} is inside the workspace {}, which is open in another window. Close that workspace first, or open this folder's projects from there.": 1,
+  "prose|return|{} is in {}": 1,
+  "prose|var|# .hive This folder is managed by [Hive](https://github.com/) and is meant to be committed. - `shared/` — notes, instructions and handovers shared across AI sessions and projects. - `skills/` — Hive skills (one folder per skill, each with a `SKILL.md`). Every agent in every project gets them. - `mcp/` — MCP server definitions (one `<name>.json` per server). Enable them in Hive. - `workspace.json` — which MCP servers are enabled for all projects. MCP definitions must not contain secrets. Reference environment variables instead, e.g. `\"${GITHUB_TOKEN}\"`.": 1,
+  "prose|var|# Handovers Notes written at the end of a session so the next session (or another project) can pick up where it left off. Agents can create these with the Hive MCP tool `hive_create_handover`.": 1,
+  "prose|var|Agent names are unique across the workspace now, so each agent can be told apart. {}: they keep working, but rename one of each, e.g. {}'s {} to {}.": 1
+}
