@@ -11,12 +11,22 @@ const lane = /[\\/]lanes[\\/](\d+)[\\/]update(?:-\d+)?$/.exec(scratch)?.[1]
 const cacheName = lane ? `hive-test-updater-${lane}` : 'hive-test-updater'
 const cache = path.join(process.env.LOCALAPPDATA, cacheName)
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms))
+// The longest a wait here waits for what it waits on: a bound for a hung run, never how long it should take (#570).
+const HUNG_MS = 60000
 let pass = 0, fail = 0
 const check = (name, ok, extra = '') => { if (ok) pass++; else fail++; console.log(ok ? 'PASS' : 'FAIL', name, extra) }
 
 // --- fake release server
 let release = null // { version, file: Buffer, notes }
 let downloads = 0
+// A download the test holds half way (#729): the server waits for it before sending the rest, so the test sees the
+// progress whatever the machine's speed (a 3 s download could finish between two looks under load).
+let holdDownload = null
+const deferred = () => {
+  let resolve
+  const promise = new Promise((r) => (resolve = r))
+  return { promise, resolve }
+}
 const server = http.createServer(async (req, res) => {
   if (!release) { res.writeHead(404); return res.end('Not Found') }
   const name = `Hive-Setup-${release.version}.exe`
@@ -30,6 +40,10 @@ const server = http.createServer(async (req, res) => {
     res.writeHead(200, { 'Content-Type': 'application/octet-stream', 'Content-Length': release.file.length })
     // Slow enough to see progress.
     for (let i = 0; i < release.file.length; i += 256 * 1024) {
+      if (holdDownload && i >= release.file.length / 2) {
+        await holdDownload.promise
+        holdDownload = null
+      }
       res.write(release.file.subarray(i, i + 256 * 1024))
       await sleep(130)
     }
@@ -59,21 +73,24 @@ const log = (profile) => { try { return fs.readFileSync(path.join(scratch, profi
   const feed = `http://127.0.0.1:${server.address().port}/`
   release = { version: '9.1.1', file: crypto.randomBytes(6 * 1024 * 1024), notes: "## What's new\n\n- Faster **everything**\n- A new thing" }
 
-  // 1. Defaults: automatic check finds 9.1.1 and downloads it.
+  // 1. Defaults: automatic check finds 9.1.1 and downloads it, held half way until its progress has been seen.
+  holdDownload = deferred()
   let { app, page, inv } = await launch('upd-a', { HIVE_UPDATE_FEED: feed, HIVE_UPDATE_DELAY: '1500' })
-  const sawDownloading = await waitFor(async () => /Downloading Hive Desktop 9.1.1/.test(await statusText(page)), 15000)
+  const sawDownloading = await waitFor(async () => /Downloading Hive Desktop 9.1.1/.test(await statusText(page)), HUNG_MS)
   check('status bar shows the download', sawDownloading)
   await page.screenshot({ path: path.join(scratch, 'upd-1-downloading.png') })
   let maxPct = 0
-  const ready = await waitFor(async () => {
+  const sawProgress = await waitFor(async () => {
     const s = await inv('update:state')
     if (s.status === 'downloading') maxPct = Math.max(maxPct, s.progress?.percent ?? 0)
-    return s.status === 'ready'
-  }, 30000)
-  check('progress reported while downloading', maxPct > 10 && maxPct <= 100, `max ${Math.round(maxPct)}%`)
+    return maxPct > 10
+  }, HUNG_MS)
+  holdDownload?.resolve()
+  check('progress reported while downloading', sawProgress && maxPct <= 100, `max ${Math.round(maxPct)}%`)
+  const ready = await waitFor(async () => (await inv('update:state')).status === 'ready', HUNG_MS)
   check('update downloaded and verified', ready && downloads === 1, `downloads ${downloads}`)
-  check('status bar: restart to update', /Restart to update to 9.1.1/.test(await statusText(page)), await statusText(page))
-  check('toast offers Restart and Update', await page.locator('.toast', { hasText: 'Hive Desktop 9.1.1 is ready' }).count() === 1)
+  check('status bar: restart to update', await waitFor(async () => /Restart to update to 9.1.1/.test(await statusText(page)), HUNG_MS), await statusText(page))
+  check('toast offers Restart and Update', await waitFor(async () => (await page.locator('.toast', { hasText: 'Hive Desktop 9.1.1 is ready' }).count()) === 1, HUNG_MS))
   check('install mode auto logged', /install auto/.test(log('upd-a')))
   await page.locator('.statusbar .update-item').click(); await sleep(500)
   const dlg = page.locator('.dialog', { hasText: 'Update Ready' })

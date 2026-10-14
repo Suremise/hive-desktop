@@ -3,6 +3,7 @@
 import { existsSync, mkdirSync, readFileSync, readdirSync, rmSync, statSync, writeFileSync } from 'fs'
 import { join } from 'path'
 import { afterAll, describe, expect, it, vi } from 'vitest'
+import { redactLog } from '../src/shared/redact'
 import { tempDir } from './tempDir'
 
 // The longest a test waits for what it is waiting on: a bound for a hung run, never how long it should take.
@@ -12,7 +13,7 @@ const HUNG_MS = 10000
 const userData = await vi.hoisted(async () => (await import('./tempDir')).tempDir('hive-hook-tokens-'))
 vi.mock('electron', () => ({ app: { getPath: () => userData, getVersion: () => '0.0.0-test', isPackaged: false } }))
 
-const { clearHookAuth, endHookToken, hookAuthFile, hookTokenMatches, newHookToken } = await import('../src/main/hookTokens')
+const { clearHookAuth, endHookToken, hookAuthFile, hookTokenMatches, newHookToken, refusedHookNote } = await import('../src/main/hookTokens')
 
 const base = tempDir('hive-hook-launch-')
 afterAll(() => {
@@ -119,5 +120,26 @@ describe('hook tokens per launch (#345)', () => {
       endHookToken(runId)
       await vi.waitFor(() => expect(existsSync(auth.dir)).toBe(false), { timeout: HUNG_MS })
     }
+  })
+
+  it('logs a refused hook call once a run, saying why, and names only runs this Hive started (#711)', async () => {
+    await newHookToken('runlive')
+    await newHookToken('runended')
+    endHookToken('runended')
+    // A wrong token for a running launch, an ended launch, none named: each said once.
+    expect(refusedHookNote('runlive')).toBe("Refused a hook call for run runlive: its token didn't match the launch's")
+    expect(refusedHookNote('runlive')).toBeNull()
+    expect(refusedHookNote('runended')).toBe('Refused a hook call for run runended: that launch has ended')
+    expect(refusedHookNote('runended')).toBeNull()
+    expect(refusedHookNote(null)).toBe('Refused a hook call that named no launch')
+    expect(refusedHookNote(null)).toBeNull()
+    // What a caller sent that names no run of Hive's is never in the log, however it looks (review round 1: a plain
+    // word a character check takes for a run id, or a forged log line), and Copy Diagnostics keeps the reason.
+    const unknown = refusedHookNote('ConfidentialAcquisitionDelta')
+    expect(unknown).toBe("Refused a hook call naming a run this Hive didn't start")
+    expect(refusedHookNote('a b\n[ERROR] forged')).toBeNull()
+    const copied = redactLog(`2026-10-14T02:36:34.759Z [INFO] [servers] ${unknown}`, { home: 'C:\\Users\\nobody', folders: [], names: [] })
+    expect(copied).not.toContain('Confidential')
+    expect(copied).toContain("naming a run this Hive didn't start")
   })
 })

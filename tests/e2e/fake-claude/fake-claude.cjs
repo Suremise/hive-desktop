@@ -16,6 +16,7 @@
 //   N seconds; its task notification then starts a turn by itself, as in Claude Code. "pad N" adds N KB to the
 //   transcript. "context N": the reply's request reports N input tokens, so the session's context is about N. "ask" first asks for permission (a permission_prompt Notification), then carries on by itself.
 //   "holduntil NAME": the turn doesn't end until the test makes a file NAME in its home (CLAUDE_CONFIG_DIR).
+//   "askwhen NAME": the permission prompt once the test makes a file NAME in its home (#667), not after a set time.
 //   "waitfile NAME" as a step ("waitfile go then hive hive_inbox {}"): the steps after it wait for that file.
 //   "shell: <command line>" runs a command in cmd with the session's environment (fake-shell.jsonl records it).
 //   "linger N" leaves N processes running after it ends, as an agent's preview server or tail -f does (#507): each a
@@ -36,8 +37,8 @@
 //   doorbell ("[Hive] New in your inbox: …", #650) it follows as a model does: it reads its inbox with hive_inbox (and
 //   acks it too when it follows notices, below). New work (a task, a handover) it read is its prompt; what else it read
 //   (a card watch's wake, "[Hive] #12 is in Review…", a message), like a line Hive types to wake it, is logged in
-//   fake-wakes.jsonl and answered with the next line of fake-wakes-<agent>.txt (a test's script of what this agent does
-//   next); with a number N in
+//   fake-wakes.jsonl (with `enter`: which Enter since the line was begun sent it, 1 for the first, #664) and answered
+//   with the next line of fake-wakes-<agent>.txt (a test's script of what this agent does next); with a number N in
 //   fake-drop-enters-<agent>.txt, it drops the next N Enters after such a line, which stays typed (#376). It turns on
 //   bracketed paste, as Claude Code does. While fake-slow-input-<agent>.txt is in its home it reads no input, as a busy
 //   Claude Code (#597; fake-slow-input-<agent>.paused says it has stopped): what arrived meanwhile comes in one read,
@@ -386,7 +387,7 @@ function shell(cmd) {
 function wakeScript(text, doorbell = null) {
   if ((!doorbell && !text.startsWith('[Hive]')) || !home) return null
   const agent = String(process.env.HIVE_AGENT || 'agent').replace(/[^\w-]/g, '_')
-  fs.appendFileSync(path.join(home, 'fake-wakes.jsonl'), JSON.stringify({ agent, text, ...(doorbell ? { doorbell } : {}), at: new Date().toISOString() }) + '\n')
+  fs.appendFileSync(path.join(home, 'fake-wakes.jsonl'), JSON.stringify({ agent, text, ...(doorbell ? { doorbell } : {}), enter: promptEnter, at: new Date().toISOString() }) + '\n')
   const file = path.join(home, `fake-wakes-${agent}.txt`)
   if (!fs.existsSync(file)) return null
   const lines = fs.readFileSync(file, 'utf8').split('\n').filter((l) => l.trim())
@@ -411,8 +412,11 @@ let busy = false
 const isBusy = () => busy
 /** The prompt whose turn the expired sign-in stopped: "/login" carries it on. */
 let refused = null
-async function runPrompt(text) {
+/** Which Enter since its line was begun sent the prompt running now (#664): 1 for the first, null for one not typed. */
+let promptEnter = null
+async function runPrompt(text, enter = null) {
   busy = true
+  promptEnter = enter
   promptId = randomUUID()
   turnStarted = Date.now()
   out(`\r\n> ${text}\r\n`)
@@ -454,6 +458,15 @@ async function runPrompt(text) {
   // "askafter N": the permission prompt N seconds into the turn (it starts working first).
   const askAfter = /\baskafter\s+(\d+)/i.exec(text)
   if (askAfter) setTimeout(() => void hook('Notification', { notification_type: 'permission_prompt', message: 'Claude needs your permission to use Bash' }), Number(askAfter[1]) * 1000)
+  // "askwhen NAME": the permission prompt once the test makes NAME in its home (two minutes at most, in case the test
+  // died), so it comes after what the test waits for (#667: a watch that a loaded machine set up after a set time).
+  const askWhen = /\baskwhen\s+([\w.-]+)/i.exec(text)
+  if (askWhen)
+    void (async () => {
+      const go = path.join(process.env.CLAUDE_CONFIG_DIR || '', askWhen[1])
+      for (const end = Date.now() + 120_000; !fs.existsSync(go) && Date.now() < end; ) await sleep(100)
+      await hook('Notification', { notification_type: 'permission_prompt', message: 'Claude needs your permission to use Bash' })
+    })()
   // "pad N": N KB more transcript, as a long conversation has.
   const pad = /\bpad\s+(\d+)/i.exec(text)
   if (pad) write({ type: 'user', message: { role: 'user', content: [{ type: 'tool_result', tool_use_id: 'toolu_pad', content: 'x'.repeat(Number(pad[1]) * 1024) }] } })
@@ -826,6 +839,8 @@ if (home && process.stdin.isTTY) {
 
 // What arrives from the terminal: a line, Enter, Ctrl+U, Ctrl+C.
 let line = ''
+/** The Enters pressed since the line was begun, dropped and lost ones too (#664: was a line sent at its first Enter?). */
+let enters = 0
 let onEnter = null
 /** The trust question while it is asked: { on: 'No' | 'Yes' }, the choice its menu shows. */
 let trustMenu = null
@@ -860,10 +875,12 @@ process.stdin.on('data', (data) => {
     if (ch === '\x15') {
       if (line) out('\r\x1b[K')
       line = ''
+      enters = 0
     } else if ((ch === '\r' || ch === '\n') && !onEnter && Date.now() < drawingUntil) {
       // Still drawing the resumed conversation: the Enter is lost, what was typed stays on the line (#334).
       continue
     } else if (ch === '\r' || ch === '\n') {
+      enters++
       // A CLI that doesn't take the Enter after a line Hive typed (#376: Codex once left a wake in its prompt): the line
       // stays, as typed, for the next Enter.
       if (line.startsWith('[Hive]') && dropEnter()) continue
@@ -873,8 +890,10 @@ process.stdin.on('data', (data) => {
         continue
       }
       const text = line.trim()
+      const enter = enters
       if (line) out('\r\n')
       line = ''
+      enters = 0
       if (onEnter) {
         const f = onEnter
         onEnter = null
@@ -887,11 +906,14 @@ process.stdin.on('data', (data) => {
         write({ type: 'custom-title', customTitle: text.slice(8).trim() })
         promptLine()
       }
-      else if (text && !busy) void runPrompt(text)
+      else if (text && !busy) void runPrompt(text, enter)
+      // A prompt sent while it is busy (a turn, a compaction) is dropped: recorded in fake-dropped.jsonl in its home (#725).
+      else if (text && home) fs.appendFileSync(path.join(home, 'fake-dropped.jsonl'), JSON.stringify({ agent: process.env.HIVE_AGENT || 'agent', text: text.slice(0, 200), at: new Date().toISOString() }) + '\n')
     } else if (ch === '\x7f' || ch === '\b') {
       if (line) out('\b \b')
       line = line.slice(0, -1)
     } else if (ch >= ' ') {
+      if (!line) enters = 0
       line += ch
       out(ch)
     }

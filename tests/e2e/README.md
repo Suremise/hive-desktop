@@ -85,6 +85,8 @@ its ports, so anything else holding them (an older runner without lanes, another
 one. The runner prints its lane, its suites' folder and its logs folder when it starts. Ten runners at once is the
 most: an eleventh (e2e or scenarios) waits for a lane, printing who holds them and showing as "e2e: waiting for a test
 lane" in the Progress panel, and takes the first one let go (#707); with `--no-wait` it fails at once instead.
+A runner takes its lane before it looks at the code (its record's fingerprint) and the build (#735), so one that waited
+tests the source as it is once it has a lane, built from it.
 A runner started inside a suite claims no lane: it takes ports 1000 above its parent suite's (`portBase` in
 `runner.mjs`) and its suites' folders in `nested` inside the parent's (`E2E_RUN_DIR`). Logs stay in one place for every
 lane (`logs/` below), so `.active` there shows every run still going. Suites keep their test projects outside the
@@ -156,7 +158,9 @@ four runs at once with both builds stale: an e2e runner and a scenario run in th
 second worktree it makes for the check (a git worktree of `HEAD` with the uncommitted changes, sharing `node_modules`
 through a junction, removed afterwards), one in each worktree with an agent shell's environment (`NO_COLOR`,
 `HIVE_PROGRESS_WRAPPED`, a token…) and one with a plain one. It checks that every run passes in a lane, folders, ports
-and logs folder of its own, and that each worktree is built once and stamped. Run it after changing the runner,
+and logs folder of its own, and that each worktree is built once and stamped. After that (alone with `--lane-wait`),
+an e2e run and a scenario run wait for a lane of a pool of their own (`HIVE_TEST_LANES_DIR`) while a source file is
+added: both must build and test the changed source, and the record name it (#735). Run it after changing the runner,
 `lib.cjs`, `runContext.cjs`, `lanes.mjs`, `build.mjs` or the scenario harness. Two checkers can run at once, from two
 worktrees (#207): each keeps what it makes (its worktrees, decoy, heavy-run pool) in a folder of its own,
 `%LOCALAPPDATA%\hive-test\concurrency\run-<pid>-<time>` (`tempWorktrees.mjs`), and removes only that. A setup that
@@ -370,8 +374,14 @@ minutes, the network off and Hive's fake CLIs only: no real CLI, sign-in or cred
   `CreateProcessAsUserW failed: 5 (Access is denied.)` (`-1073283067` by the package's path) and the command never
   runs. In a CLI step that is an environment SKIP only when that session's Codex transcript records the refusal with
   the command's executable the Store's pwsh (its WindowsApps alias or the package's path; the terminal cuts it off):
-  another shell, another code, or a command that can't be read stays a FAIL. Windows PowerShell 5.1 and cmd aren't affected; steering the suites to them is #584, the product side
-  #585.
+  another shell, another code, or a command that can't be read stays a FAIL. Windows PowerShell 5.1 and cmd aren't
+  affected, so the suites that run the real Codex (codex, codex-background, codex-extra, codex-handover, codex-setup,
+  and real Codex scenario trials) give their test Hive a PATH without the Store's aliases
+  (`lib.pathWithoutStoreAliases()`, #584): Codex then runs commands in Windows PowerShell, even with a Store pwsh
+  open. `leftovers-codex` keeps the Store's on purpose (what escapes through it is its subject, #543), and
+  `codex-storepwsh` checks the refusal itself, with a Store pwsh held open: it passes while the sandbox refuses the
+  Store's pwsh and starts Windows PowerShell, and fails if Codex starts the Store's one day (then #585 and the PATH
+  are to be looked at again). It needs no model (`codex sandbox`), and is skipped where the Store's isn't installed.
 
 ## Where they work
 

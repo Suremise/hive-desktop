@@ -11,7 +11,8 @@ const path = require('path')
 const { createHash } = require('crypto')
 const { execFileSync } = require('child_process')
 // The longest a wait here waits for what it waits on: a bound for a hung run, never how long it should take (#570).
-const HUNG_MS = 15000
+// A loaded machine took longer than 15 s for an agent's turn (#724).
+const HUNG_MS = 60000
 
 const userData = path.join(lib.WORK, 'replysize-profile')
 const ws = path.join(lib.WORK, 'replysize-ws')
@@ -368,15 +369,19 @@ const prose = (seed, n) => {
   measure('hive_update_agent', tool('hive_update_agent', { project: 'beta', agent: 'Helper', effort: 'high' }, 'assistant'), 1000)
   const started = measure('hive_start_agent', tool('hive_start_agent', { project: 'beta', agent: 'Helper' }, 'assistant'), 400)
   check('a start: its status and session', /^Started Helper in beta: \w+, session [\w-]+\. Follow it with hive_wait_for_agents\.$/.test(started), started)
-  await until(async () => (await live(path.join(ws, 'beta'), (await inv('workspace:refresh')).projects.find((p) => p.name === 'beta').agents.find((a) => a.name === 'Helper').id))?.status === 'ready', HUNG_MS)
+  const helper = async () => live(path.join(ws, 'beta'), (await inv('workspace:refresh')).projects.find((p) => p.name === 'beta').agents.find((a) => a.name === 'Helper').id)
+  check('Helper is ready', !!(await until(async () => (await helper())?.status === 'ready', HUNG_MS)), (await helper())?.status)
   measure('hive_prompt_agent', tool('hive_prompt_agent', { project: 'beta', agent: 'Helper', text: 'turn 1' }, 'assistant'), 300)
-  await lib.until(async () => (await live(path.join(ws, 'beta'), (await inv('workspace:refresh')).projects.find((p) => p.name === 'beta').agents.find((a) => a.name === 'Helper').id))?.status === 'finished', 15000) // its turn over: stopping a working agent would ask the user
+  // Its turn over before the message, which is then told at once (#724: a 15 s wait ran out unchecked under load, and
+  // the message was queued for a working agent).
+  check("Helper's turn is over", !!(await until(async () => (await helper())?.status === 'finished', HUNG_MS)), (await helper())?.status)
   const msg = measure('hive_message_agent', tool('hive_message_agent', { project: 'beta', agent: 'Helper', text: 'turn 2' }, 'assistant'), 200)
   check('a message to an idle agent is told at once, with its id', /^Told Helper now \(m\d+\): it reads it with hive_inbox\.$/.test(msg), msg)
   // Until Helper reads it, a told message can still be cancelled (#650): nothing waits once it is received (#681).
   await lib.until(() => ['received', 'acked'].includes(JSON.parse(tool('hive_agent_activity', { project: 'beta', agent: 'Helper' }, 'assistant').text).inbox?.deliveries?.at(-1)?.state), HUNG_MS)
   check('cancel with nothing waiting says so', measure('hive_message_agent (cancel)', tool('hive_message_agent', { project: 'beta', agent: 'Helper', cancel: true }, 'assistant'), 100) === 'No message was waiting for Helper.', texts['hive_message_agent (cancel)'])
-  await lib.until(async () => (await live(path.join(ws, 'beta'), (await inv('workspace:refresh')).projects.find((p) => p.name === 'beta').agents.find((a) => a.name === 'Helper').id))?.status === 'finished', 15000)
+  // Its turn for the message over: stopping a working agent would ask the user.
+  check("…and its turn for the message is over", !!(await until(async () => (await helper())?.status === 'finished', HUNG_MS)), (await helper())?.status)
   measure('hive_stop_agent', tool('hive_stop_agent', { project: 'beta', agent: 'Helper' }, 'assistant'), 300)
   const startedCard = measure('hive_start_task', tool('hive_start_task', { number: todo[20], name: 'Starter' }, 'assistant'), 600)
   check('a started card: who has it', new RegExp(`^Started #${todo[20]} .+ on a new agent, Starter in \\w+; the card is in Doing\\.`).test(startedCard), startedCard)
