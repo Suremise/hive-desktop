@@ -1,3 +1,6 @@
+import { msg } from './i18n/msg'
+import type { Tr } from './tasks'
+
 /**
  * A CLI's safety classifier stopping an agent's response, or the model it runs on changing after one (#606): Opus 5.5's
  * safeguards stopped one of HB3's responses and asked whether to switch to Opus 4.8, and with the fallback set to switch
@@ -135,24 +138,45 @@ export function safeguardTime(iso: string): string {
   return Number.isNaN(d.getTime()) ? iso : `${String(d.getHours()).padStart(2, '0')}:${String(d.getMinutes()).padStart(2, '0')}`
 }
 
-/** "its last tool calls: Bash, Edit, Bash", or '' with none. */
+/** "its last tool calls: Bash, Edit, Bash", or '' with none (English: a card comment quotes it). */
 export function safeguardToolsText(note: Pick<SafeguardNote, 'tools'>): string {
-  return note.tools.length ? `its last tool calls: ${note.tools.join(', ')}` : ''
+  return note.tools.length ? `its last tool calls: ${note.tools.join(', ')}` : '' // i18n-ignore: agent-facing (a card comment, safeguardText without tr)
 }
 
 /**
  * The note in a sentence or two for a pane, a notification or the inbox (`label`: the CLI's model names): what happened
- * and when, the model it runs on now, and what the agent was doing just before. Only names, never content.
+ * and when, the model it runs on now, and what the agent was doing just before. Only names, never content. In the
+ * window's language with tr (#799); without it English, as a card comment and the notification (main's) say it.
  */
-export function safeguardText(note: SafeguardNote, label: (model: string) => string = (m) => m): string {
+export function safeguardText(note: SafeguardNote, label: (model: string) => string = (m) => m, tr?: Tr): string {
+  if (tr) return safeguardWords(note, label, tr)
   const parts: string[] = []
-  const stops = note.stops > 1 ? ` (${note.stops} this session)` : ''
-  if (note.stops > 0) parts.push(`A safety classifier stopped a response${note.model ? ` on ${label(note.model)}` : ''} at ${safeguardTime(note.at)}${stops}.`)
-  if (note.switched) parts.push(`It now runs on ${label(note.switched.to)} instead of ${label(note.switched.from)} (since ${safeguardTime(note.switched.at)}).`)
-  if (note.prompt) parts.push('Its CLI asks what to do about it.')
-  else if (note.idle) parts.push('Idle after the stop: give it a nudge.')
+  const stops = note.stops > 1 ? ` (${note.stops} this session)` : '' // i18n-ignore: English for a card comment (safeguardWords is the window's)
+  if (note.stops > 0) parts.push(`A safety classifier stopped a response${note.model ? ` on ${label(note.model)}` : ''} at ${safeguardTime(note.at)}${stops}.`) // i18n-ignore: English for a card comment
+  if (note.switched) parts.push(`It now runs on ${label(note.switched.to)} instead of ${label(note.switched.from)} (since ${safeguardTime(note.switched.at)}).`) // i18n-ignore: English for a card comment
+  if (note.prompt) parts.push('Its CLI asks what to do about it.') // i18n-ignore: English for a card comment
+  else if (note.idle) parts.push('Idle after the stop: give it a nudge.') // i18n-ignore: English for a card comment
   const tools = safeguardToolsText(note)
-  if (tools && note.stops > 0) parts.push(`Before it, ${tools}.`)
+  if (tools && note.stops > 0) parts.push(`Before it, ${tools}.`) // i18n-ignore: English for a card comment
+  return parts.join(' ')
+}
+
+/** safeguardText in the window's language: the same sentences, each a message. */
+function safeguardWords(note: SafeguardNote, label: (model: string) => string, tr: Tr): string {
+  const parts: string[] = []
+  if (note.stops > 0) {
+    parts.push(
+      tr(msg({ id: 'panes.safeguard.stopped', defaultMessage: 'A safety classifier stopped a response{model, select, none {} other { on {model}}} at {time}{stops, plural, =0 {} =1 {} other { (# this session)}}.', description: "An agent's safeguard note (its pane, a hover): its CLI's safety classifier stopped a response, on a model ({model}: its name; none: leave that branch empty), at a time ({time}: \"15:12\"), and how many times this session ({stops}; once: leave it empty)." }), {
+        model: note.model ? label(note.model) : 'none',
+        time: safeguardTime(note.at),
+        stops: note.stops
+      })
+    )
+  }
+  if (note.switched) parts.push(tr(msg({ id: 'panes.safeguard.switched', defaultMessage: 'It now runs on {to} instead of {from} (since {time}).', description: "An agent's safeguard note: after the stop it moved to another model ({to}, {from}: their names) at a time ({time}: \"15:12\")." }), { to: label(note.switched.to), from: label(note.switched.from), time: safeguardTime(note.switched.at) }))
+  if (note.prompt) parts.push(tr(msg({ id: 'panes.safeguard.asks', defaultMessage: 'Its CLI asks what to do about it.', description: "An agent's safeguard note: after the stop, its CLI asks the user what to do (switch model, carry on)." })))
+  else if (note.idle) parts.push(tr(msg({ id: 'panes.safeguard.idle', defaultMessage: 'Idle after the stop: give it a nudge.', description: "An agent's safeguard note: after the stop the agent sits idle; the user can prompt it to carry on." })))
+  if (note.tools.length && note.stops > 0) parts.push(tr(msg({ id: 'panes.safeguard.tools', defaultMessage: 'Before it, its last tool calls: {tools}.', description: "An agent's safeguard note: the names of the agent's last tool calls before the stop ({tools}: \"Bash, Edit\"; tool names, keep them)." }), { tools: note.tools.join(', ') }))
   return parts.join(' ')
 }
 

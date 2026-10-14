@@ -17,6 +17,7 @@ import { osc52, OSC52_INPUT_MS, type Osc52Refusal } from '@shared/osc52'
 import { carriesFiles, cx, HIVE_FILES_MIME, quotePath } from '../util'
 import { addChips, attachFiles, clearChips } from '../attach'
 import { AttachmentChips } from './AttachmentChips'
+import { msg, tr } from '@shared/i18n'
 
 type Listener = (data: string) => void
 const dataListeners = new Map<string, Set<Listener>>()
@@ -308,7 +309,7 @@ export function TerminalView({
           else if (pathRef.current) {
             // A screenshot: save it as an attachment and paste its path, which the agent's CLI attaches as an image.
             const p = pathRef.current
-            const saved = await attempt('Could not paste image', () => call('session:pasteImage', p, agentRef.current))
+            const saved = await attempt(tr(msg({ id: 'panes.terminal.pasteFailed', defaultMessage: 'Could not paste image', description: "An error's title: pasting a screenshot into an agent's terminal (saved as an attachment) failed." })), () => call('session:pasteImage', p, agentRef.current))
             if (saved) {
               // A space after it, as after dropped paths: a next attachment doesn't run into it.
               term.paste(quotePath(saved) + ' ')
@@ -406,7 +407,7 @@ export function TerminalView({
       if (terminals.get(ptyKey) === term) terminals.delete(ptyKey)
     }
     const unsubExit = subscribe(exitListeners, ptyKey, (code: number) => {
-      term.write(`\r\n\x1b[90m[process exited with code ${code}]\x1b[0m\r\n`)
+      term.write(`\r\n\x1b[90m[${tr(msg({ id: 'panes.terminal.exited', defaultMessage: 'process exited with code {code}', description: 'Written into a terminal (in grey, in brackets) when its process ends. {code} is the exit code, a number.' }), { code })}]\x1b[0m\r\n`)
       onExitRef.current?.(code)
     })
     // Until the window fits it, the terminal is its process's size, not xterm's 80 × 24: the process draws at its own

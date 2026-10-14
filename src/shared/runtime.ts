@@ -1,4 +1,6 @@
 import { COMPACTING_MESSAGE } from './defaults'
+import { msg, tr as trNow } from './i18n'
+import type { Tr } from './tasks'
 import type { LiveSessionState, RuntimeFacts } from './types'
 
 /**
@@ -37,10 +39,15 @@ export function agentRuntime(st: Pick<LiveSessionState, 'runtime' | 'turn' | 'ba
   }
 }
 
-/** "Silent 23 min · state unknown" for an agent whose state is unknown (#648); null otherwise. */
-export function unknownStateText(st: Pick<LiveSessionState, 'turn'> | null | undefined, now = Date.now()): string | null {
+/**
+ * "Silent 23 min · state unknown" for an agent whose state is unknown (#648); null otherwise. In the window's language
+ * with tr (#799), else English (the Agent API's).
+ */
+export function unknownStateText(st: Pick<LiveSessionState, 'turn'> | null | undefined, now = Date.now(), tr?: Tr): string | null {
   if (st?.turn?.state !== 'unknown') return null
-  return `Silent ${st.turn.silentSince ? minutesSince(st.turn.silentSince, now) : '?'} min · state unknown`
+  const minutes = st.turn.silentSince ? minutesSince(st.turn.silentSince, now) : null
+  if (tr) return tr(msg({ id: 'panes.runtime.silent', defaultMessage: 'Silent {minutes} min · state unknown', description: "An agent's status (its pane, the agents table): Hive has heard nothing of its turn for {minutes} minutes (? when it can't tell) and can't tell what it is doing. Keep it short." }), { minutes: minutes ?? '?' })
+  return `Silent ${minutes ?? '?'} min · state unknown` // i18n-ignore: agent-facing (the Agent API's agent state)
 }
 
 /**
@@ -50,13 +57,14 @@ export function unknownStateText(st: Pick<LiveSessionState, 'turn'> | null | und
  * ui.statusText).
  */
 export function runtimeLabel(st: Pick<LiveSessionState, 'runtime' | 'turn' | 'backgroundTasks' | 'statusMessage' | 'mergeSlot'>, now = Date.now()): string | null {
+  const tr = trNow
   const rt = agentRuntime(st, now)
-  if (rt.lifecycle === 'stopped') return 'Stopped'
-  if (rt.attention === 'waiting') return st.statusMessage || 'Needs your input'
-  if (rt.lifecycle === 'starting') return st.statusMessage || 'Starting…'
-  if (rt.lifecycle === 'signin') return 'Needs sign-in'
+  if (rt.lifecycle === 'stopped') return tr(msg({ id: 'panes.runtime.stopped', defaultMessage: 'Stopped', description: "An agent's status: its session isn't running." }))
+  if (rt.attention === 'waiting') return st.statusMessage || tr(msg({ id: 'panes.runtime.needsInput', defaultMessage: 'Needs your input', description: "An agent's status: its CLI waits for the user's answer." }))
+  if (rt.lifecycle === 'starting') return st.statusMessage || tr(msg({ id: 'panes.runtime.starting', defaultMessage: 'Starting…', description: "An agent's status: its CLI is starting." }))
+  if (rt.lifecycle === 'signin') return tr(msg({ id: 'panes.runtime.signin', defaultMessage: 'Needs sign-in', description: "An agent's status: its CLI waits for the user to sign in." }))
   if (rt.maintenance === 'compacting') return COMPACTING_MESSAGE
-  if (rt.turn === 'unknown') return unknownStateText(st, now)
-  if (rt.turn === 'running') return st.statusMessage || st.mergeSlot || 'Working…'
+  if (rt.turn === 'unknown') return unknownStateText(st, now, tr)
+  if (rt.turn === 'running') return st.statusMessage || st.mergeSlot || tr(msg({ id: 'panes.runtime.working', defaultMessage: 'Working…', description: "An agent's status: it is working on a turn." }))
   return null
 }
