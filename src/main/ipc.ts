@@ -83,6 +83,58 @@ import { CONSOLE_WINDOW_CHANNELS, consoleOwner, openConsoleWindow, sendToConsole
 import { isRecordingName, latestRecording, recordingOf, recordingsDir, startRecording, stopRecording, stopRecordingsWhere } from './consoleRecorder'
 import { mayRead, type ConsoleEvent } from '../shared/devConsole'
 import { benchContext, importBenchmark, keepReport, listBenchmarks, pinBenchmark, readBenchmark, removeBenchmark, selectBenchmarks } from './benchmarks'
+import { capturedText, HiveError, hiveError, windowError } from './hiveError'
+import { msg, tr } from '../shared/i18n'
+
+/**
+ * What the window is told when a call is refused (#845): thrown as HiveErrors, so the window reads them in its language
+ * and anything else that calls these services reads English. The native dialogs' text is the window's too.
+ */
+const M = {
+  unknownProvider: msg({ id: 'errors.provider.unknown', defaultMessage: 'Unknown provider "{provider}".', description: "A call named a coding-agent CLI this version of Hive doesn't know. {provider} is the id it gave." }),
+  insideArchive: msg({ id: 'errors.file.insideArchive', defaultMessage: 'Hive opens no files inside .asar archives.', description: 'Refusal to open a file inside an Electron .asar archive. Keep ".asar" as it is.' }),
+  outsideWorkspace: msg({ id: 'errors.file.outsideWorkspace', defaultMessage: "Hive can only read and write files inside the workspace, and the agents' instruction, memory and skill files.", description: 'Refusal to open or save a file outside what Hive may touch.' }),
+  noLog: msg({ id: 'errors.log.none', defaultMessage: 'That run reported no log.', description: "Progress panel: a run's log can't be opened because the run never said where it was." }),
+  logNotFull: msg({ id: 'errors.log.notFullPath', defaultMessage: 'The run reported its log without a full path: {path}', description: "Progress panel: a run gave its log as a relative path, which Hive won't open. {path} is that path." }),
+  logGone: msg({ id: 'errors.log.gone', defaultMessage: "The log isn't there any more: {path}", description: "Progress panel: a run's log file was deleted or moved. {path} is where it was." }),
+  logNotText: msg({ id: 'errors.log.notText', defaultMessage: 'Hive opens only text logs and reports, not {file}: use Show in folder.', description: "Progress panel: a run's log isn't a text file, so Hive won't open it. {file} is its file name. \"Show in folder\" is the menu item beside it." }),
+  notProjectPref: msg({ id: 'errors.pref.notProjectPref', defaultMessage: 'Not a project preference.', description: "Refusal of a call to save a per-project view setting that doesn't exist (a programming error, rarely seen)." }),
+  notPrefValue: msg({ id: 'errors.pref.notValue', defaultMessage: 'Not a {pref} value.', description: "Refusal of a per-project view setting's value. {pref} is the setting's internal name." }),
+  notTipsChange: msg({ id: 'errors.tips.notChange', defaultMessage: 'Not a tips change.', description: 'Refusal of a call to change which tips were seen (a programming error, rarely seen).' }),
+  workspaceNotFound: msg({ id: 'errors.workspace.notFound', defaultMessage: "The workspace folder {path} can't be found. It may have been moved or deleted, or be on a drive that isn't connected.", description: "Opening a workspace whose folder isn't there. {path} is the folder." }),
+  noWorkspace: msg({ id: 'errors.workspace.none', defaultMessage: 'No workspace is open.', description: 'An action needs an open workspace and this window has none.' }),
+  notWorktree: msg({ id: 'errors.worktree.notGit', defaultMessage: "{path} isn't a git worktree (it has no .git file). Choose the folder the worktree was moved to.", description: "Repair: the folder chosen as an agent's moved worktree isn't one. {path} is that folder. Keep \".git\" as it is." }),
+  removeHow: msg({ id: 'errors.project.removeHow', defaultMessage: 'Unknown way to remove a project: {how}', description: "Refusal of a call to remove a project in a way that doesn't exist (a programming error, rarely seen). {how} is what it asked for." }),
+  stopFirst: msg({ id: 'errors.project.stopFirst', defaultMessage: 'Stop the running session before deactivating this project.', description: 'Turning a project off while one of its agents is running.' }),
+  noRepo: msg({ id: 'errors.hive.noRepo', defaultMessage: 'No git repository holds this project: exclude .hive in the version control or sync service you use.', description: "Exclude .hive from git: the project isn't in a git repository. Keep \".hive\" as it is." }),
+  stillTracked: msg({ id: 'errors.hive.notIgnored', defaultMessage: "Git still doesn't ignore .hive here: a rule in a .gitignore (a line starting with !) may bring it back. Hive doesn't edit .gitignore files.", description: 'Exclude .hive from git: after excluding it, git still sees it. Keep ".hive", ".gitignore" and "!" as they are.' }),
+  cantList: msg({ id: 'errors.hive.cantList', defaultMessage: "Git couldn't list the files it tracks in .hive.", description: 'Listing the files of .hive that git tracks failed. Keep ".hive" as it is.' }),
+  notImage: msg({ id: 'errors.image.not', defaultMessage: 'Not an image', description: "Copy image: the file isn't an image Hive can read." }),
+  holdRequired: msg({ id: 'errors.mergeSlot.holdRequired', defaultMessage: 'Which hold to release is required', description: 'Releasing a merge slot without saying which (a programming error, rarely seen).' }),
+  laneRequired: msg({ id: 'errors.lane.required', defaultMessage: 'Which lane to end is required', description: 'Ending a card loop without saying which (a programming error, rarely seen).' }),
+  consoleHidden: msg({ id: 'errors.console.hidden', defaultMessage: 'The developer console is hidden: turn on Settings → Advanced → Show developer features.', description: 'Opening the developer console while it is turned off. "Settings → Advanced → Show developer features" is the way to the setting: translate it as Settings shows it.' }),
+  sourcesList: msg({ id: 'errors.console.sourcesList', defaultMessage: 'The sources to watch must be a list.', description: "The developer console asked to watch sources in a form Hive doesn't take (a programming error, rarely seen)." }),
+  notSource: msg({ id: 'errors.console.notSource', defaultMessage: 'Not a developer console source this window can record', description: "Recording a developer console source this window can't read." }),
+  notRecording: msg({ id: 'errors.console.notRecording', defaultMessage: 'Not a developer console recording', description: "Showing a developer console recording that isn't one of Hive's." }),
+  notFileOf: msg({ id: 'errors.changes.notFile', defaultMessage: "{file} isn't a file of {folder}.", description: 'Changes tab: opening a file outside the folder it shows. {file} is the file, {folder} the folder.' }),
+  // The native dialogs.
+  openWorkspace: msg({ id: 'errors.dialog.openWorkspace', defaultMessage: 'Open Workspace', description: "Title and button of Windows' folder picker for opening a workspace." }),
+  createWorkspaceTitle: msg({ id: 'errors.dialog.createWorkspaceTitle', defaultMessage: 'Choose or create a folder for the new workspace', description: "Title of Windows' folder picker for a new workspace." }),
+  createWorkspace: msg({ id: 'errors.dialog.createWorkspace', defaultMessage: 'Create Workspace', description: "Button of Windows' folder picker for a new workspace." }),
+  exportMetrics: msg({ id: 'errors.dialog.exportMetrics', defaultMessage: 'Export Performance Metrics', description: "Title of Windows' save dialog for exporting the Performance view." }),
+  importBenchmark: msg({ id: 'errors.dialog.importBenchmark', defaultMessage: 'Import a Benchmark or Performance Export', description: "Title of Windows' file picker in Performance → Compare." }),
+  locateWorktree: msg({ id: 'errors.dialog.locateWorktree', defaultMessage: "Locate {agent}'s worktree", description: "Title of Windows' folder picker in Repair, for an agent's moved worktree. {agent} is the agent's name." }),
+  locateAgentWorktree: msg({ id: 'errors.dialog.locateAgentWorktree', defaultMessage: "Locate the agent's worktree", description: "Title of Windows' folder picker in Repair, for a moved worktree whose agent is gone." }),
+  useFolder: msg({ id: 'errors.dialog.useFolder', defaultMessage: 'Use This Folder', description: "Button of Windows' folder picker in Repair." }),
+  exportTemplate: msg({ id: 'errors.dialog.exportTemplate', defaultMessage: 'Export Template', description: "Title of Windows' save dialog for a template." }),
+  importTemplate: msg({ id: 'errors.dialog.importTemplate', defaultMessage: 'Import a Template', description: "Title of Windows' file picker for a template." }),
+  templateFiles: msg({ id: 'errors.dialog.templateFiles', defaultMessage: 'Hive template', description: "The file type in Windows' file dialogs for templates." }),
+  exportTranscript: msg({ id: 'errors.dialog.exportTranscript', defaultMessage: 'Export Transcript as Markdown', description: "Title of Windows' save dialog for a session's transcript." }),
+  addSkill: msg({ id: 'errors.dialog.addSkill', defaultMessage: 'Add a skill from a file', description: "Title of Windows' file picker for a skill." }),
+  skillFiles: msg({ id: 'errors.dialog.skillFiles', defaultMessage: 'Skill (.md or .zip)', description: "The file type in Windows' file picker for a skill. Keep \".md\" and \".zip\" as they are." }),
+  addMcp: msg({ id: 'errors.dialog.addMcp', defaultMessage: 'Add an MCP server from a file', description: "Title of Windows' file picker for an MCP server." }),
+  mcpFiles: msg({ id: 'errors.dialog.mcpFiles', defaultMessage: 'MCP server (.json definition or .zip folder)', description: "The file type in Windows' file picker for an MCP server. Keep \".json\" and \".zip\" as they are." })
+}
 
 /** Settings → Advanced's state for the calling window: advanced.json's overrides and its workspace's own values (#367). */
 const advancedState = (): AdvancedState => advanced.state(workspace.path ? (workspace.config.advanced ?? {}) : null)
@@ -146,22 +198,22 @@ function spawnDetached(file: string, args: string[], cwd?: string): boolean {
 
 /** A provider id this version knows; anything else is refused (it would become a settings key). */
 function knownProvider(id: unknown): ProviderId {
-  if (typeof id !== 'string' || !isKnownProvider(id)) throw new Error(`Unknown provider "${String(id)}".`)
+  if (typeof id !== 'string' || !isKnownProvider(id)) throw hiveError(M.unknownProvider, { provider: String(id) }, { kind: 'invalid' })
   return id
 }
 
 /** Refuses extra arguments with a bare "--" (#523): Hive passes the task after its own. */
 function assertExtraArgs(args: unknown): void {
-  const problem = typeof args === 'string' ? extraArgsProblem(args) : null
-  if (problem) throw new Error(problem)
+  const problem = typeof args === 'string' ? capturedText((t) => extraArgsProblem(args, t)) : null
+  if (problem) throw new HiveError(problem, { kind: 'invalid' })
 }
 
 function guardFile(path: string, write = false): string {
-  if (insideArchive(path)) throw new Error('Hive opens no files inside .asar archives.')
+  if (insideArchive(path)) throw hiveError(M.insideArchive, undefined, { kind: 'forbidden' })
   if (workspace.isAllowedPath(path) || allProviders().some((p) => p.fileAllowed(path, write))) return path
   // The skills that ship with Hive, to view one the workspace doesn't have.
   if (!write && insideReal(path, [skills.bundledSkillsDir()])) return path
-  throw new Error("Hive can only read and write files inside the workspace, and the agents' instruction, memory and skill files.")
+  throw hiveError(M.outsideWorkspace, undefined, { kind: 'forbidden' })
 }
 
 /** The log files Hive opens itself (#251): text and reports. Anything else is only shown in its folder, never run. */
@@ -174,9 +226,9 @@ const OPENABLE_LOG = /\.(md|markdown|txt|log|out|err|json|jsonl|csv|tsv|xml|html
  */
 async function runLog(id: unknown): Promise<string> {
   const p = workspace.path && typeof id === 'string' ? progress.logOf(workspace.path, id) : null
-  if (!p) throw new Error('That run reported no log.')
-  if (!isAbsolute(p)) throw new Error(`The run reported its log without a full path: ${p}`)
-  if (!(await isFile(p))) throw new Error(`The log isn't there any more: ${p}`)
+  if (!p) throw hiveError(M.noLog, undefined, { kind: 'notFound' })
+  if (!isAbsolute(p)) throw hiveError(M.logNotFull, { path: p }, { kind: 'invalid' })
+  if (!(await isFile(p))) throw hiveError(M.logGone, { path: p }, { kind: 'notFound' })
   return p
 }
 
@@ -242,7 +294,7 @@ export function registerIpc(getAppInfo: () => ReturnType<HiveRequests['app:info'
   /** The window the current request came from. */
   const win = (): BrowserWindow => {
     const w = contextWorkspace()?.window
-    if (!w || w.isDestroyed()) throw new Error('No window')
+    if (!w || w.isDestroyed()) throw new Error('No window') // i18n-ignore: a call from a window that has closed: nobody sees it
     return w
   }
   /** Opening a workspace another window shows brings that window forward instead (as VS Code does). */
@@ -355,10 +407,10 @@ export function registerIpc(getAppInfo: () => ReturnType<HiveRequests['app:info'
         else delete c.ui.panes[String(key)]
       }),
     'ui:setProjectPref': (pref, project, value) => {
-      if (!isProjectPref(pref) || typeof project !== 'string' || !project) throw new Error('Not a project preference.')
+      if (!isProjectPref(pref) || typeof project !== 'string' || !project) throw hiveError(M.notProjectPref, undefined, { kind: 'invalid' })
       const key = project.toLowerCase()
       const kept = value === null ? null : projectPrefValue(pref, value)
-      if (kept === undefined) throw new Error(`Not a ${pref} value.`)
+      if (kept === undefined) throw hiveError(M.notPrefValue, { pref }, { kind: 'invalid' })
       // This project's value merged into the saved map, never the window's whole copy of it.
       config.update((c) => {
         ;(c.ui as Record<string, unknown>)[pref] = withProjectPref(c.ui[pref] as Record<string, unknown> | undefined, key, kept)
@@ -367,7 +419,7 @@ export function registerIpc(getAppInfo: () => ReturnType<HiveRequests['app:info'
     },
     'ui:changeTips': (change) => {
       const kept = tipsChange(change)
-      if (!kept) throw new Error('Not a tips change.')
+      if (!kept) throw hiveError(M.notTipsChange, undefined, { kind: 'invalid' })
       // The change applied to what is saved, never the window's whole copy of the state.
       let tips = EMPTY_TIPS_STATE
       config.update((c) => void (c.ui.tips = tips = applyTipsChange(tipsState(c.ui.tips), kept)))
@@ -398,13 +450,13 @@ export function registerIpc(getAppInfo: () => ReturnType<HiveRequests['app:info'
     'workspace:open': async (path) => {
       let target = path
       if (!target) {
-        const r = await dialog.showOpenDialog(win(), { title: 'Open Workspace', properties: ['openDirectory'], buttonLabel: 'Open Workspace' })
+        const r = await dialog.showOpenDialog(win(), { title: tr(M.openWorkspace), properties: ['openDirectory'], buttonLabel: tr(M.openWorkspace) })
         if (r.canceled || !r.filePaths[0]) return workspace.info()
         target = r.filePaths[0]
       }
       if (shownElsewhere(target)) return workspace.info()
       // A recent workspace whose folder was deleted or moved (#144): said plainly, so the window can offer to forget it.
-      if (!existsSync(target)) throw new Error(`The workspace folder ${target} can't be found. It may have been moved or deleted, or be on a drive that isn't connected.`)
+      if (!existsSync(target)) throw hiveError(M.workspaceNotFound, { path: target }, { kind: 'notFound' })
       // This window's workspace by another name (an 8.3 short name, a junction) is the same one: no switch, and it keeps
       // the name it has, which its agents' sessions use (#455).
       if (workspace.path && samePlace(target, workspace.path)) target = workspace.path
@@ -415,9 +467,9 @@ export function registerIpc(getAppInfo: () => ReturnType<HiveRequests['app:info'
     },
     'workspace:create': async () => {
       const r = await dialog.showOpenDialog(win(), {
-        title: 'Choose or create a folder for the new workspace',
+        title: tr(M.createWorkspaceTitle),
         properties: ['openDirectory', 'createDirectory', 'promptToCreate'],
-        buttonLabel: 'Create Workspace'
+        buttonLabel: tr(M.createWorkspace)
       })
       if (r.canceled || !r.filePaths[0]) return workspace.info()
       if (shownElsewhere(r.filePaths[0])) return workspace.info()
@@ -444,7 +496,7 @@ export function registerIpc(getAppInfo: () => ReturnType<HiveRequests['app:info'
     'workspace:recent': () => recentFor(workspace.path),
     'workspace:usage': async () => {
       const ws = workspace
-      if (!ws.path) throw new Error('No workspace is open')
+      if (!ws.path) throw hiveError(M.noWorkspace, undefined, { kind: 'conflict' })
       // One project at a time: each reads its sessions file and checks its transcripts against the usage cache.
       const projects = []
       for (const p of await ws.listProjectPaths()) projects.push({ name: basename(p), path: p, items: await sessions.usageItems(p).catch(() => []) })
@@ -458,7 +510,7 @@ export function registerIpc(getAppInfo: () => ReturnType<HiveRequests['app:info'
       const report = await metricsReport(currentWorkspace(), { ...q, trend: true })
       const scope = q.scope.kind === 'project' && !sanitize ? q.scope.project.replace(/[<>:"/\\|?*\x00-\x1f]+/g, ' ').trim().slice(0, 60) : q.own ? 'own-work' : q.scope.kind
       const r = await dialog.showSaveDialog(win(), {
-        title: 'Export Performance Metrics',
+        title: tr(M.exportMetrics),
         defaultPath: join(app.getPath('downloads'), `hive-performance-${scope}-${new Date().toISOString().slice(0, 10)}.json`),
         filters: [{ name: 'JSON', extensions: ['json'] }]
       })
@@ -469,12 +521,12 @@ export function registerIpc(getAppInfo: () => ReturnType<HiveRequests['app:info'
     // Each takes the workspace's folder and lifetime before awaiting anything (benchContext): work whose workspace closes
     // or switches meanwhile (a dialog left open, a slow read) is refused, never written into the next one.
     'watch:cancel': (projectPath, agentId) => cancelWatch(workspaceOf(projectPath), projectPath, agentId),
-    'session:cancelMessages': (projectPath, agentId) => cancelMessages(projectPath, agentId, 'the user'),
+    'session:cancelMessages': (projectPath, agentId) => cancelMessages(projectPath, agentId, 'the user'), // i18n-ignore: who cancelled them, as their agent is told (English)
     'benchmarks:list': (scope) => listBenchmarks(benchContext(currentWorkspace()), scope),
     'benchmarks:import': async (scope, answer) => {
       const ctx = benchContext(currentWorkspace())
       if (answer) return importBenchmark(ctx, scope, { token: answer.token, useProjectPart: answer.useProjectPart })
-      const r = await dialog.showOpenDialog(win(), { title: 'Import a Benchmark or Performance Export', properties: ['openFile'], filters: [{ name: 'JSON', extensions: ['json'] }] })
+      const r = await dialog.showOpenDialog(win(), { title: tr(M.importBenchmark), properties: ['openFile'], filters: [{ name: 'JSON', extensions: ['json'] }] })
       if (r.canceled || !r.filePaths[0]) return null
       return importBenchmark(ctx, scope, { path: r.filePaths[0] })
     },
@@ -504,16 +556,17 @@ export function registerIpc(getAppInfo: () => ReturnType<HiveRequests['app:info'
     'workspace:moveRepair': (opts) => repairMove(currentWorkspace(), moveOptions(opts)),
     'workspace:moveLocate': async (projectPath, agentId) => {
       const agent = agentsOf(await workspace.projectConfig(workspace.assertProject(projectPath))).find((a) => a.id === agentId)
-      const r = await dialog.showOpenDialog(win(), { title: `Locate ${agent?.name ?? 'the agent'}'s worktree`, properties: ['openDirectory'], buttonLabel: 'Use This Folder' })
+      const title = agent ? tr(M.locateWorktree, { agent: agent.name }) : tr(M.locateAgentWorktree)
+      const r = await dialog.showOpenDialog(win(), { title, properties: ['openDirectory'], buttonLabel: tr(M.useFolder) })
       if (r.canceled || !r.filePaths[0]) return null
-      if (!(await isFile(join(r.filePaths[0], '.git')))) throw new Error(`${r.filePaths[0]} isn't a git worktree (it has no .git file). Choose the folder the worktree was moved to.`)
+      if (!(await isFile(join(r.filePaths[0], '.git')))) throw hiveError(M.notWorktree, { path: r.filePaths[0] }, { kind: 'invalid' })
       return r.filePaths[0]
     },
 
     'project:create': (name) => workspace.createProject(name),
     'project:removalInfo': (p) => removal.removalInfo(p),
     'project:remove': (p, how) => {
-      if (!['hide', 'remove', 'delete'].includes(how)) throw new Error(`Unknown way to remove a project: ${String(how)}`)
+      if (!['hide', 'remove', 'delete'].includes(how)) throw hiveError(M.removeHow, { how: String(how) }, { kind: 'invalid' })
       return removal.removeProject(p, how)
     },
     'project:hidden': () => workspace.hiddenProjects(),
@@ -540,7 +593,7 @@ export function registerIpc(getAppInfo: () => ReturnType<HiveRequests['app:info'
     },
     'project:setActive': async (p, active) => {
       p = workspace.assertProject(p)
-      if (!active && sessions.liveFor(p)) throw new Error('Stop the running session before deactivating this project.')
+      if (!active && sessions.liveFor(p)) throw hiveError(M.stopFirst, undefined, { kind: 'conflict' })
       if (active) await workspace.ensureProject(p)
       workspace.setActive(p, active)
       return workspace.refresh()
@@ -552,8 +605,8 @@ export function registerIpc(getAppInfo: () => ReturnType<HiveRequests['app:info'
     'project:excludeHive': async (p) => {
       p = workspace.assertProject(p)
       const r = await ensureHiveExcluded(p)
-      if (!r) throw new Error("No git repository holds this project: exclude .hive in the version control or sync service you use.")
-      if (!r.excluded) throw new Error("Git still doesn't ignore .hive here: a rule in a .gitignore (a line starting with !) may bring it back. Hive doesn't edit .gitignore files.")
+      if (!r) throw hiveError(M.noRepo, undefined, { kind: 'conflict' })
+      if (!r.excluded) throw hiveError(M.stillTracked, undefined, { kind: 'conflict' })
       return workspace.refresh()
     },
     'project:hiveTracked': async (p) => {
@@ -561,7 +614,7 @@ export function registerIpc(getAppInfo: () => ReturnType<HiveRequests['app:info'
       const found = vcsOf(p)
       if (found?.kind !== 'git') return []
       const tracked = await trackedHiveFiles(p, found.root, { fresh: true })
-      if (tracked === null) throw new Error("Git couldn't list the files it tracks in .hive.")
+      if (tracked === null) throw hiveError(M.cantList)
       return tracked
     },
     'project:untrackHive': async (p, confirmed) => {
@@ -664,13 +717,13 @@ export function registerIpc(getAppInfo: () => ReturnType<HiveRequests['app:info'
     'templates:export': async (ref) => {
       // Checked before the dialog: a template that is gone or can't be used is said at once.
       const name = await templates.exportName(ref)
-      const r = await dialog.showSaveDialog(win(), { title: 'Export Template', defaultPath: join(app.getPath('downloads'), name), filters: [{ name: 'Hive template', extensions: ['json'] }] })
+      const r = await dialog.showSaveDialog(win(), { title: tr(M.exportTemplate), defaultPath: join(app.getPath('downloads'), name), filters: [{ name: tr(M.templateFiles), extensions: ['json'] }] })
       if (r.canceled || !r.filePath) return null
       await templates.exportTemplate(ref, r.filePath)
       return r.filePath
     },
     'templates:pickImport': async () => {
-      const r = await dialog.showOpenDialog(win(), { title: 'Import a Template', properties: ['openFile'], filters: [{ name: 'Hive template', extensions: ['json'] }] })
+      const r = await dialog.showOpenDialog(win(), { title: tr(M.importTemplate), properties: ['openFile'], filters: [{ name: tr(M.templateFiles), extensions: ['json'] }] })
       if (r.canceled || !r.filePaths[0]) return null
       return templates.inspectImport(r.filePaths[0])
     },
@@ -734,9 +787,9 @@ export function registerIpc(getAppInfo: () => ReturnType<HiveRequests['app:info'
     'transcript:export': async (p, id, title) => {
       const safe = title.replace(/[<>:"/\\|?*\x00-\x1f]+/g, ' ').replace(/\s+/g, ' ').trim().slice(0, 80) || id
       const r = await dialog.showSaveDialog(win(), {
-        title: 'Export Transcript as Markdown',
+        title: tr(M.exportTranscript),
         defaultPath: join(app.getPath('downloads'), `${safe}.md`),
-        filters: [{ name: 'Markdown', extensions: ['md'] }]
+        filters: [{ name: 'Markdown', extensions: ['md'] }] // i18n-ignore: a file format's name
       })
       if (r.canceled || !r.filePath) return null
       await writeTextAtomic(r.filePath, await transcripts.markdown(p, id, title))
@@ -745,7 +798,7 @@ export function registerIpc(getAppInfo: () => ReturnType<HiveRequests['app:info'
     'attachments:copyImage': async (path) => {
       // From its bytes: nativeImage reading a path itself is asar-aware (#246).
       const img = nativeImage.createFromBuffer(await readFile(guardFile(path)))
-      if (img.isEmpty()) throw new Error('Not an image')
+      if (img.isEmpty()) throw hiveError(M.notImage, undefined, { kind: 'invalid' })
       await clipboard.write([new ClipboardItem({ 'image/png': new Blob([new Uint8Array(img.toPNG())], { type: 'image/png' }) })])
     },
 
@@ -775,9 +828,9 @@ export function registerIpc(getAppInfo: () => ReturnType<HiveRequests['app:info'
     },
     'skills:pickFile': async () => {
       const r = await dialog.showOpenDialog(win(), {
-        title: 'Add a skill from a file',
+        title: tr(M.addSkill),
         properties: ['openFile'],
-        filters: [{ name: 'Skill (.md or .zip)', extensions: ['md', 'markdown', 'zip'] }]
+        filters: [{ name: tr(M.skillFiles), extensions: ['md', 'markdown', 'zip'] }]
       })
       if (r.canceled || !r.filePaths[0]) return null
       return { path: r.filePaths[0], name: await skills.suggestSkillName(r.filePaths[0]) }
@@ -841,9 +894,9 @@ export function registerIpc(getAppInfo: () => ReturnType<HiveRequests['app:info'
     'mcp:openFolder': () => void shell.openPath(workspace.mcpDir),
     'mcp:pickFile': async () => {
       const r = await dialog.showOpenDialog(win(), {
-        title: 'Add an MCP server from a file',
+        title: tr(M.addMcp),
         properties: ['openFile'],
-        filters: [{ name: 'MCP server (.json definition or .zip folder)', extensions: ['json', 'zip'] }]
+        filters: [{ name: tr(M.mcpFiles), extensions: ['json', 'zip'] }]
       })
       return r.canceled || !r.filePaths[0] ? null : r.filePaths[0]
     },
@@ -867,17 +920,17 @@ export function registerIpc(getAppInfo: () => ReturnType<HiveRequests['app:info'
     'assistant:answer': (id, yes) => assistantControl.answer(id, yes),
     'assistant:switchMode': (personaId, save) => switchMode(String(personaId), save !== false),
     'assistant:revertSetting': async (actionId) => {
-      if (!workspace.path) throw new Error('No workspace is open.')
+      if (!workspace.path) throw hiveError(M.noWorkspace, undefined, { kind: 'conflict' })
       await revertSetting(workspace.path, String(actionId))
     },
     'mergeSlots:list': () => (workspace.path ? workspaceSlots(workspace.path) : []),
     'mergeSlots:release': (p, branch, holdId) => {
-      if (typeof holdId !== 'string' || !holdId) throw new Error('Which hold to release is required')
+      if (typeof holdId !== 'string' || !holdId) throw hiveError(M.holdRequired, undefined, { kind: 'invalid' })
       return mergeSlots.releaseByUser(workspace.assertProject(p), slotBranch(branch), holdId)
     },
     'lanes:list': () => (workspace.path ? listLanes(currentWorkspace()) : []),
     'lanes:end': (id, abandoned) => {
-      if (typeof id !== 'string' || !id) throw new Error('Which lane to end is required')
+      if (typeof id !== 'string' || !id) throw hiveError(M.laneRequired, undefined, { kind: 'invalid' })
       return endLane(currentWorkspace(), id, { abandoned: abandoned === true })
     },
     'costs:cards': (q) => {
@@ -902,7 +955,7 @@ export function registerIpc(getAppInfo: () => ReturnType<HiveRequests['app:info'
     },
     'progress:openLog': async (id) => {
       const p = await runLog(id)
-      if (!OPENABLE_LOG.test(p)) throw new Error(`Hive opens only text logs and reports, not ${basename(p)}: use Show in folder.`)
+      if (!OPENABLE_LOG.test(p)) throw hiveError(M.logNotText, { file: basename(p) }, { kind: 'invalid' })
       const failed = await shell.openPath(p)
       if (failed) throw new Error(failed)
     },
@@ -911,16 +964,16 @@ export function registerIpc(getAppInfo: () => ReturnType<HiveRequests['app:info'
     'console:open': () => {
       const wc = senderStore.getStore()
       const owner = wc ? windowOf(wc) : null
-      if (!owner) throw new Error('Not allowed')
-      if (!config.settings.advanced.showDeveloperFeatures) throw new Error('The developer console is hidden: turn on Settings → Advanced → Show developer features.')
+      if (!owner) throw new Error('Not allowed') // i18n-ignore: a refusal of a page that isn't Hive's window (security, never shown)
+      if (!config.settings.advanced.showDeveloperFeatures) throw hiveError(M.consoleHidden, undefined, { kind: 'conflict' })
       openConsoleWindow(owner)
     },
     'console:sources': () => consoleSources(currentWorkspace()),
     'console:options': () => ({ showText: consoleShowsText() }),
     'console:subscribe': (sources) => {
       const wc = senderStore.getStore()
-      if (!wc) throw new Error('Not allowed')
-      if (!Array.isArray(sources)) throw new Error('sources must be a list')
+      if (!wc) throw new Error('Not allowed') // i18n-ignore: a refusal of a page that isn't Hive's window (security, never shown)
+      if (!Array.isArray(sources)) throw hiveError(M.sourcesList, undefined, { kind: 'invalid' })
       const ids = sources.filter((s): s is string => typeof s === 'string' && windowMayRead(s))
       const id = `window:${wc.id}`
       // A recording is of a source the window watches: watching another ends it, with what it captured until now.
@@ -955,7 +1008,7 @@ export function registerIpc(getAppInfo: () => ReturnType<HiveRequests['app:info'
       const wc = senderStore.getStore()
       const id = String(source)
       const row = wc && windowMayRead(id) ? consoleSources(currentWorkspace()).find((s) => s.id === id) : undefined
-      if (!wc || !row) throw new Error('Not a developer console source this window can record')
+      if (!wc || !row) throw hiveError(M.notSource, undefined, { kind: 'forbidden' })
       const shown = consoleWorkspace(wc)
       // Only while the window still watches that source in this workspace: a start overtaken by a close, another
       // source or another workspace records nothing.
@@ -972,7 +1025,7 @@ export function registerIpc(getAppInfo: () => ReturnType<HiveRequests['app:info'
     },
     'console:showRecording': (name) => {
       // Only Hive's own recordings, by name, in its folder: never a path the page gives.
-      if (typeof name !== 'string' || !isRecordingName(name)) throw new Error('Not a developer console recording')
+      if (typeof name !== 'string' || !isRecordingName(name)) throw hiveError(M.notRecording, undefined, { kind: 'invalid' })
       shell.showItemInFolder(join(recordingsDir(), name))
     },
     'personas:list': () => personas.listPersonas(),
@@ -1019,7 +1072,7 @@ export function registerIpc(getAppInfo: () => ReturnType<HiveRequests['app:info'
     'changes:openFile': (root, f) => {
       const dir = workspace.assertChangesRoot(root)
       const file = resolve(dir, f)
-      if (file === dir || !insideReal(file, [dir]) || insideArchive(file)) throw new Error(`${f} isn't a file of ${dir}.`)
+      if (file === dir || !insideReal(file, [dir]) || insideArchive(file)) throw hiveError(M.notFileOf, { file: f, folder: dir }, { kind: 'forbidden' })
       void shell.openPath(file)
     },
     'git:tool': (recheck) => (recheck ? checkGit() : gitTool()),
@@ -1091,14 +1144,18 @@ export function registerIpc(getAppInfo: () => ReturnType<HiveRequests['app:info'
       // Only Hive's own pages may call: not another window, and not a frame inside one (e.g. an HTML preview). A developer
       // console's page calls only the console's channels, in the workspace of the window it belongs to (#637).
       const w = windowOf(e.sender) ?? (CONSOLE_WINDOW_CHANNELS.has(channel) ? consoleOwner(e.sender) : null)
-      if (!w || e.senderFrame?.parent) throw new Error('Not allowed')
+      if (!w || e.senderFrame?.parent) throw new Error('Not allowed') // i18n-ignore: a refusal of a page that isn't Hive's window (security, never shown)
       slow = testCalls('HIVE_TEST_SLOW_IPC', slow)
       failing = testCalls('HIVE_TEST_FAIL_IPC', failing)
       const delay = take(slow, channel)
       if (delay?.ms) await new Promise((r) => setTimeout(r, delay.ms))
-      if (take(failing, channel)) throw new Error(`${channel} failed (HIVE_TEST_FAIL_IPC)`)
+      if (take(failing, channel)) throw new Error(`${channel} failed (HIVE_TEST_FAIL_IPC)`) // i18n-ignore: test-only
       // Everything the call does is for that window's workspace (and from that window: the console's subscriptions).
-      return senderStore.run(e.sender, () => inWorkspace(w.ws, () => (fn as (...a: unknown[]) => unknown)(...args)))
+      try {
+        return await senderStore.run(e.sender, () => inWorkspace(w.ws, () => (fn as (...a: unknown[]) => unknown)(...args)))
+      } catch (err) {
+        throw windowError(err)
+      }
     })
   }
 }

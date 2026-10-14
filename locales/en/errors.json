@@ -1,0 +1,170 @@
+{
+  "errors.changes.notFile": {
+    "defaultMessage": "{file} isn't a file of {folder}.",
+    "description": "Changes tab: opening a file outside the folder it shows. {file} is the file, {folder} the folder."
+  },
+  "errors.console.hidden": {
+    "defaultMessage": "The developer console is hidden: turn on Settings → Advanced → Show developer features.",
+    "description": "Opening the developer console while it is turned off. \"Settings → Advanced → Show developer features\" is the way to the setting: translate it as Settings shows it."
+  },
+  "errors.console.notRecording": {
+    "defaultMessage": "Not a developer console recording",
+    "description": "Showing a developer console recording that isn't one of Hive's."
+  },
+  "errors.console.notSource": {
+    "defaultMessage": "Not a developer console source this window can record",
+    "description": "Recording a developer console source this window can't read."
+  },
+  "errors.console.sourcesList": {
+    "defaultMessage": "The sources to watch must be a list.",
+    "description": "The developer console asked to watch sources in a form Hive doesn't take (a programming error, rarely seen)."
+  },
+  "errors.dialog.addMcp": {
+    "defaultMessage": "Add an MCP server from a file",
+    "description": "Title of Windows' file picker for an MCP server."
+  },
+  "errors.dialog.addSkill": {
+    "defaultMessage": "Add a skill from a file",
+    "description": "Title of Windows' file picker for a skill."
+  },
+  "errors.dialog.createWorkspace": {
+    "defaultMessage": "Create Workspace",
+    "description": "Button of Windows' folder picker for a new workspace."
+  },
+  "errors.dialog.createWorkspaceTitle": {
+    "defaultMessage": "Choose or create a folder for the new workspace",
+    "description": "Title of Windows' folder picker for a new workspace."
+  },
+  "errors.dialog.exportMetrics": {
+    "defaultMessage": "Export Performance Metrics",
+    "description": "Title of Windows' save dialog for exporting the Performance view."
+  },
+  "errors.dialog.exportTemplate": {
+    "defaultMessage": "Export Template",
+    "description": "Title of Windows' save dialog for a template."
+  },
+  "errors.dialog.exportTranscript": {
+    "defaultMessage": "Export Transcript as Markdown",
+    "description": "Title of Windows' save dialog for a session's transcript."
+  },
+  "errors.dialog.importBenchmark": {
+    "defaultMessage": "Import a Benchmark or Performance Export",
+    "description": "Title of Windows' file picker in Performance → Compare."
+  },
+  "errors.dialog.importTemplate": {
+    "defaultMessage": "Import a Template",
+    "description": "Title of Windows' file picker for a template."
+  },
+  "errors.dialog.locateAgentWorktree": {
+    "defaultMessage": "Locate the agent's worktree",
+    "description": "Title of Windows' folder picker in Repair, for a moved worktree whose agent is gone."
+  },
+  "errors.dialog.locateWorktree": {
+    "defaultMessage": "Locate {agent}'s worktree",
+    "description": "Title of Windows' folder picker in Repair, for an agent's moved worktree. {agent} is the agent's name."
+  },
+  "errors.dialog.mcpFiles": {
+    "defaultMessage": "MCP server (.json definition or .zip folder)",
+    "description": "The file type in Windows' file picker for an MCP server. Keep \".json\" and \".zip\" as they are."
+  },
+  "errors.dialog.openWorkspace": {
+    "defaultMessage": "Open Workspace",
+    "description": "Title and button of Windows' folder picker for opening a workspace."
+  },
+  "errors.dialog.skillFiles": {
+    "defaultMessage": "Skill (.md or .zip)",
+    "description": "The file type in Windows' file picker for a skill. Keep \".md\" and \".zip\" as they are."
+  },
+  "errors.dialog.templateFiles": {
+    "defaultMessage": "Hive template",
+    "description": "The file type in Windows' file dialogs for templates."
+  },
+  "errors.dialog.useFolder": {
+    "defaultMessage": "Use This Folder",
+    "description": "Button of Windows' folder picker in Repair."
+  },
+  "errors.file.insideArchive": {
+    "defaultMessage": "Hive opens no files inside .asar archives.",
+    "description": "Refusal to open a file inside an Electron .asar archive. Keep \".asar\" as it is."
+  },
+  "errors.file.outsideWorkspace": {
+    "defaultMessage": "Hive can only read and write files inside the workspace, and the agents' instruction, memory and skill files.",
+    "description": "Refusal to open or save a file outside what Hive may touch."
+  },
+  "errors.hive.cantList": {
+    "defaultMessage": "Git couldn't list the files it tracks in .hive.",
+    "description": "Listing the files of .hive that git tracks failed. Keep \".hive\" as it is."
+  },
+  "errors.hive.noRepo": {
+    "defaultMessage": "No git repository holds this project: exclude .hive in the version control or sync service you use.",
+    "description": "Exclude .hive from git: the project isn't in a git repository. Keep \".hive\" as it is."
+  },
+  "errors.hive.notIgnored": {
+    "defaultMessage": "Git still doesn't ignore .hive here: a rule in a .gitignore (a line starting with !) may bring it back. Hive doesn't edit .gitignore files.",
+    "description": "Exclude .hive from git: after excluding it, git still sees it. Keep \".hive\", \".gitignore\" and \"!\" as they are."
+  },
+  "errors.image.not": {
+    "defaultMessage": "Not an image",
+    "description": "Copy image: the file isn't an image Hive can read."
+  },
+  "errors.lane.required": {
+    "defaultMessage": "Which lane to end is required",
+    "description": "Ending a card loop without saying which (a programming error, rarely seen)."
+  },
+  "errors.log.gone": {
+    "defaultMessage": "The log isn't there any more: {path}",
+    "description": "Progress panel: a run's log file was deleted or moved. {path} is where it was."
+  },
+  "errors.log.none": {
+    "defaultMessage": "That run reported no log.",
+    "description": "Progress panel: a run's log can't be opened because the run never said where it was."
+  },
+  "errors.log.notFullPath": {
+    "defaultMessage": "The run reported its log without a full path: {path}",
+    "description": "Progress panel: a run gave its log as a relative path, which Hive won't open. {path} is that path."
+  },
+  "errors.log.notText": {
+    "defaultMessage": "Hive opens only text logs and reports, not {file}: use Show in folder.",
+    "description": "Progress panel: a run's log isn't a text file, so Hive won't open it. {file} is its file name. \"Show in folder\" is the menu item beside it."
+  },
+  "errors.mergeSlot.holdRequired": {
+    "defaultMessage": "Which hold to release is required",
+    "description": "Releasing a merge slot without saying which (a programming error, rarely seen)."
+  },
+  "errors.pref.notProjectPref": {
+    "defaultMessage": "Not a project preference.",
+    "description": "Refusal of a call to save a per-project view setting that doesn't exist (a programming error, rarely seen)."
+  },
+  "errors.pref.notValue": {
+    "defaultMessage": "Not a {pref} value.",
+    "description": "Refusal of a per-project view setting's value. {pref} is the setting's internal name."
+  },
+  "errors.project.removeHow": {
+    "defaultMessage": "Unknown way to remove a project: {how}",
+    "description": "Refusal of a call to remove a project in a way that doesn't exist (a programming error, rarely seen). {how} is what it asked for."
+  },
+  "errors.project.stopFirst": {
+    "defaultMessage": "Stop the running session before deactivating this project.",
+    "description": "Turning a project off while one of its agents is running."
+  },
+  "errors.provider.unknown": {
+    "defaultMessage": "Unknown provider \"{provider}\".",
+    "description": "A call named a coding-agent CLI this version of Hive doesn't know. {provider} is the id it gave."
+  },
+  "errors.tips.notChange": {
+    "defaultMessage": "Not a tips change.",
+    "description": "Refusal of a call to change which tips were seen (a programming error, rarely seen)."
+  },
+  "errors.workspace.none": {
+    "defaultMessage": "No workspace is open.",
+    "description": "An action needs an open workspace and this window has none."
+  },
+  "errors.workspace.notFound": {
+    "defaultMessage": "The workspace folder {path} can't be found. It may have been moved or deleted, or be on a drive that isn't connected.",
+    "description": "Opening a workspace whose folder isn't there. {path} is the folder."
+  },
+  "errors.worktree.notGit": {
+    "defaultMessage": "{path} isn't a git worktree (it has no .git file). Choose the folder the worktree was moved to.",
+    "description": "Repair: the folder chosen as an agent's moved worktree isn't one. {path} is that folder. Keep \".git\" as it is."
+  }
+}

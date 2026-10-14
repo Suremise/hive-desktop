@@ -7,7 +7,8 @@ import { tempDir, tempRoot } from '../tempDir'
 // provider's install info (readiness, notes) is kept in English, for GET /v1/status and /v1/providers, and the window is
 // sent it in its language (shownInstallInfo), again when the language changes; a transcript's notices are cached as data
 // and shown in the window's language; tool names, hook names, commands and status messages in the CLI's place stay as
-// they are. Errors thrown at a launch reach the window and the Agent API alike: they wait for HiveError (#842).
+// they are. Errors thrown at a launch reach the window and the Agent API alike: they are HiveErrors (#842), English for
+// the Agent API and in the window's language for the window.
 
 vi.mock('electron', () => ({ app: { getPath: () => tempRoot(), isPackaged: false, getVersion: () => '0.0.0' } }))
 
@@ -46,9 +47,75 @@ describe('the providers area', () => {
     }
   })
 
-  it("its files have no text left to convert; the errors both audiences read wait for HiveError (#842)", () => {
+  it('its files have no text left to convert, and no error both audiences read waits for HiveError any more (#842)', () => {
     for (const f of FILES) expect(existsSync(join(ROOT, 'i18n/allow', `${f.replace(/\//g, '__')}.json`)), f).toBe(false)
-    for (const f of ['claude/launchSettings', 'common', 'index']) expect(readFileSync(join(ROOT, `src/main/providers/${f}.ts`), 'utf8'), f).toMatch(/i18n-ignore: both audiences.*HiveError \(E10a\).*#842/)
+    for (const f of FILES) expect(readFileSync(join(ROOT, f), 'utf8'), f).not.toMatch(/HiveError \(E10a\)/)
+  })
+})
+
+describe('errors thrown at a launch (#842): English for the Agent API, as before, and the window in its language', () => {
+  /** A German translation of the launch errors (the rest stays English). */
+  const GERMAN = {
+    'providers.settings.noValue': 'Das letzte --settings in Zusätzliche Argumente hat keinen Wert.',
+    'providers.settings.unreadable': 'Die Einstellungsdatei {file} (--settings in Zusätzliche Argumente) kann nicht gelesen werden: {why}.',
+    'providers.settings.noFile': 'diese Datei gibt es nicht',
+    'providers.settings.tooLarge': 'sie ist größer als 2 MiB',
+    'providers.settings.hooksOff': '{source, select, inline {Das --settings in Zusätzliche Argumente} other {Die Einstellungsdatei {file}}} schaltet alle Hooks ab (disableAllHooks).',
+    'providers.cmdTooLong': '{file} läuft über cmd.exe, das höchstens {max, number} Zeichen nimmt; dieser Start braucht etwa {length, number}.',
+    'providers.unknown': 'Unbekannter Anbieter „{provider}“.'
+  }
+  const caught = async (p: Promise<unknown> | (() => unknown)): Promise<Error> => {
+    try {
+      await (typeof p === 'function' ? p() : p)
+    } catch (e) {
+      return e as Error
+    }
+    throw new Error('it did not throw')
+  }
+  const fix = 'Fix it or remove it in Agent Settings or Settings → Claude Code.'
+
+  it('says each in English exactly as before, whatever language Hive shows, and in German to the window', async () => {
+    const { userSettings } = await import('../../src/main/providers/claude/launchSettings')
+    const { shownError, windowError } = await import('../../src/main/hiveError')
+    const { apiErrorReply } = await import('../../src/main/servers')
+    const dir = tempDir('hive-launch-errors-')
+    mkdirSync(join(dir, 'folder.json'))
+    writeFileSync(join(dir, 'big.json'), `{"x":"${'a'.repeat(2 * 1024 * 1024)}"}`)
+    writeFileSync(join(dir, 'bad.json'), '{ not json')
+    writeFileSync(join(dir, 'list.json'), '[1]')
+    setLanguage('de', GERMAN)
+    const cases: [Error, string, string | null][] = [
+      [await caught(userSettings(['--settings'], dir)), 'The last --settings in Extra arguments has no value. Give it a settings file or inline JSON (--settings <file or JSON>), or remove it in Agent Settings or Settings → Claude Code.', GERMAN['providers.settings.noValue']],
+      [await caught(userSettings(['--settings', 'missing.json'], dir)), `The settings file missing.json (--settings in Extra arguments) can't be read: there is no such file. ${fix}`, 'Die Einstellungsdatei missing.json (--settings in Zusätzliche Argumente) kann nicht gelesen werden: diese Datei gibt es nicht.'],
+      [await caught(userSettings(['--settings', 'big.json'], dir)), `The settings file big.json (--settings in Extra arguments) can't be read: it's over Claude Code's 2 MiB limit for settings files. ${fix}`, 'Die Einstellungsdatei big.json (--settings in Zusätzliche Argumente) kann nicht gelesen werden: sie ist größer als 2 MiB.'],
+      [await caught(userSettings(['--settings', 'folder.json'], dir)), `The settings file folder.json (--settings in Extra arguments) can't be read: it isn't a file. ${fix}`, "Die Einstellungsdatei folder.json (--settings in Zusätzliche Argumente) kann nicht gelesen werden: it isn't a file."],
+      [await caught(userSettings(['--settings', 'list.json'], dir)), `The settings file list.json (--settings in Extra arguments) isn't a settings object ({ … }). ${fix}`, null],
+      [await caught(userSettings(['--settings', '{"disableAllHooks":true}'], dir)), "The --settings in Extra arguments turns off all hooks (disableAllHooks), which Hive needs for the agent's status, file locks and status line. Remove it in Agent Settings or Settings → Claude Code.", 'Das --settings in Zusätzliche Argumente schaltet alle Hooks ab (disableAllHooks).'],
+      [await caught(userSettings(['--settings', '{"allowedHttpHookUrls":"x"}'], dir)), "The --settings in Extra arguments sets allowedHttpHookUrls to something other than a list, which stops Hive's hooks reaching it. Make it a list ([ … ]) or remove it in Agent Settings or Settings → Claude Code.", null],
+      [await caught(() => provider('nope')), 'Unknown provider "nope". It may need a newer version of Hive.', 'Unbekannter Anbieter „nope“.']
+    ]
+    for (const [e, english, german] of cases) {
+      // The Agent API's reply (and every reader of .message): the English, as before.
+      expect(e.message).toBe(english)
+      expect(apiErrorReply(e).body.error).toBe(english)
+      // The window (IPC's conversion): in its language, or English where this test has no translation.
+      expect((windowError(e) as Error).message).toBe(german ?? english)
+      expect(shownError(e)).toBe(german ?? english)
+    }
+    // JSON.parse's own words stay as they came, inside either language.
+    const bad = await caught(userSettings(['--settings', 'bad.json'], dir))
+    expect(bad.message).toMatch(new RegExp(`^The settings file bad\\.json \\(--settings in Extra arguments\\) isn't valid JSON \\(.+\\)\\. ${fix.replace(/[.→]/g, '\\$&')}$`))
+    // An unknown provider is refused as invalid (400), as its English said before.
+    expect(apiErrorReply(cases.at(-1)![0]).status).toBe(400)
+  })
+
+  it.runIf(process.platform === 'win32')("formats cmd.exe's limit with its numbers in each language", async () => {
+    const { toSpawnable, CMD_MAX_CHARS } = await import('../../src/main/providers/common')
+    const { shownError } = await import('../../src/main/hiveError')
+    setLanguage('de', GERMAN)
+    const e = await caught(() => toSpawnable(join(tempDir('hive-cmd-'), 'tool.cmd'), ['x'.repeat(CMD_MAX_CHARS)]))
+    expect(e.message).toMatch(/^tool\.cmd has to run through cmd\.exe, which takes a command line of at most 8,191 characters, and this launch needs about \d{1,3}(,\d{3})+\. Set the CLI's path in Settings to its \.exe \(or install the standalone CLI\), which has no such limit\.$/)
+    expect(shownError(e)).toMatch(/^tool\.cmd läuft über cmd\.exe, das höchstens 8\.191 Zeichen nimmt; dieser Start braucht etwa \d{1,3}(\.\d{3})+\.$/)
   })
 })
 

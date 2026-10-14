@@ -7,6 +7,7 @@ import { msg, tr } from '../../shared/i18n'
 import type { AgentInstallInfo, ReadinessIssue, RecacheEstimate, SessionUsage } from '../../shared/types'
 import { cleanSwaps, contentHash, ContentTooLarge, COPY_MARKER, CopyFailed, LinkNotCopied, removePath, sourceProblem, swapIn, tooBigToDeliver, withFileLock } from '../fsutil'
 import { createLogger, userText } from '../logger'
+import { hiveError } from '../hiveError'
 import type { HookIds, LaunchContext, SkillDelivery } from './types'
 
 const log = createLogger('providers')
@@ -62,6 +63,8 @@ export const EDITOR_ROOTS = ['.vscode', '.vscode-insiders', '.cursor', '.windsur
 
 /** The longest command line cmd.exe runs; CreateProcess, which starts an .exe directly, allows 32,767 characters. */
 export const CMD_MAX_CHARS = 8191
+/** A .cmd/.bat launch too long for cmd.exe (#842): thrown at a launch, read by the window and agents alike. */
+const CMD_TOO_LONG = msg({ id: 'providers.cmdTooLong', defaultMessage: "{file} has to run through cmd.exe, which takes a command line of at most {max, number} characters, and this launch needs about {length, number}. Set the CLI's path in Settings to its .exe (or install the standalone CLI), which has no such limit.", description: "Starting an agent is refused: its CLI is a .cmd or .bat launcher, and cmd.exe can't take a command line this long. {file} is the launcher's file name; {max} and {length} are numbers of characters. Keep cmd.exe and .exe as they are." })
 
 /**
  * npm's launcher for a Node package's bin (cmd-shim), line by line, with the last line's script path left open: it
@@ -145,7 +148,7 @@ export function toSpawnable(file: string, args: string[]): { file: string; args:
     const out = { file: process.env.ComSpec || 'cmd.exe', args: ['/d', '/s', '/c', file, ...args] }
     const length = commandLineLength(out.file, out.args)
     if (length > CMD_MAX_CHARS) {
-      throw new Error(`${basename(file)} has to run through cmd.exe, which takes a command line of at most ${CMD_MAX_CHARS.toLocaleString('en')} characters, and this launch needs about ${length.toLocaleString('en')}. Set the CLI's path in Settings to its .exe (or install the standalone CLI), which has no such limit.`) // i18n-ignore: both audiences: thrown at a launch, read by the window and the Agent API alike; HiveError (E10a) carries it in both languages (#842)
+      throw hiveError(CMD_TOO_LONG, { file: basename(file), max: CMD_MAX_CHARS, length })
     }
     return out
   }

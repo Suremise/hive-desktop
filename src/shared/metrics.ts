@@ -4,6 +4,7 @@
  * UTF-16 code units, i.e. JavaScript string length, milliseconds on a monotonic clock); provider token usage is what the
  * provider reported. Hive estimates no tokens. Nothing here holds a prompt, a body, a token, a URL or a path.
  */
+import type { Text } from './advanced'
 
 /** Latency histogram bounds (ms, inclusive upper bounds); a last bucket counts everything above the highest. */
 export const LATENCY_BOUNDS_MS = [1, 2, 5, 10, 20, 50, 100, 200, 500, 1000, 2000, 5000, 10000] as const
@@ -221,6 +222,8 @@ export interface MetricsFilters {
   own?: true
   /** Parts of the report a filter doesn't narrow, each with why (e.g. API requests aren't recorded per provider). */
   notFiltered: string[]
+  /** `notFiltered` as the window shows it (#845): the same items, in order; `notFiltered` is their English. */
+  notFilteredText?: Text[]
 }
 
 /**
@@ -276,6 +279,8 @@ export interface MetricsReport {
   trendStep?: 'hour' | 'day'
   /** What isn't measured: said, rather than shown as zero. */
   notMeasured: string[]
+  /** `notMeasured` as the window shows it (#845): the same items, in order; `notMeasured` is their English. */
+  notMeasuredText?: Text[]
   /**
    * Measurements dropped because a cap was full, so totals may be low: the scope's own (a project scope: that project's
    * only).
