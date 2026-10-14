@@ -322,7 +322,7 @@ function Loading<T>({ read, what, children }: { read: { data: T | null; error: s
 
 function HistorySection({ project, summary }: { project: ProjectInfo; summary: GitRepoSummary | null }) {
   const read = useGitRead('git:history', project)
-  const [form, setForm] = useState<FormSpec | null>(null)
+  const [form, setForm] = useState<OpenForm | null>(null)
   useNow(60000)
   return (
     <Loading read={read} what={tr(M.historyLoad)}>
@@ -359,7 +359,7 @@ function HistorySection({ project, summary }: { project: ProjectInfo; summary: G
           <h2 className="section git-section-head">
             {tr(M.tags)} <span className="badge">{h.tags.length + h.moreTags}</span>
             <span className="git-section-actions">
-              <button className="btn small" data-action="create-tag" disabled={!summary?.head || !!summary.parentRepo} onClick={() => setForm(tagForm(project, summary))}>
+              <button className="btn small" data-action="create-tag" disabled={!summary?.head || !!summary.parentRepo} onClick={() => setForm({ make: () => tagForm(project, summary) })}>
                 <Icon name="tag" /> {tr(M.createTag)}
               </button>
             </span>
@@ -380,7 +380,7 @@ function HistorySection({ project, summary }: { project: ProjectInfo; summary: G
               {h.moreTags > 0 && <p className="hint">{tr(M.olderTags, { count: h.moreTags })}</p>}
             </div>
           )}
-          {form && <GitForm spec={form} onClose={() => setForm(null)} />}
+          {form && <GitForm make={form.make} onClose={() => setForm(null)} />}
         </div>
       )}
     </Loading>
@@ -395,7 +395,7 @@ function BranchesSection({ project }: { project: ProjectInfo }) {
   const read = useGitRead('git:info', project)
   const busyFor = useFolderBusy(project)
   const { busy, run } = useBusy()
-  const [form, setForm] = useState<FormSpec | null>(null)
+  const [form, setForm] = useState<OpenForm | null>(null)
   const [showRemote, setShowRemote] = useState(false)
   useNow(60000)
 
@@ -589,7 +589,7 @@ function BranchesSection({ project }: { project: ProjectInfo }) {
             <h2 className="section git-section-head">
               {tr(M.remotes)} <span className="badge">{info.remotes.length}</span>
               <span className="git-section-actions">
-                <button className="btn small" data-action="add-remote" disabled={off} onClick={() => setForm(remoteForm(project))}>
+                <button className="btn small" data-action="add-remote" disabled={off} onClick={() => setForm({ make: () => remoteForm(project) })}>
                   <Icon name="add" /> {tr(M.addRemote)}
                 </button>
               </span>
@@ -646,7 +646,7 @@ function BranchesSection({ project }: { project: ProjectInfo }) {
             <h2 className="section git-section-head">
               {tr(M.identity)}
               <span className="git-section-actions">
-                <button className="btn small" data-action="set-identity" disabled={off} onClick={() => setForm(identityForm(project, info))}>
+                <button className="btn small" data-action="set-identity" disabled={off} onClick={() => setForm({ make: () => identityForm(project, info) })}>
                   <Icon name="person" /> {tr(M.setIdentity)}
                 </button>
               </span>
@@ -676,7 +676,7 @@ function BranchesSection({ project }: { project: ProjectInfo }) {
                 ))}
               </tbody>
             </table>
-            {form && <GitForm spec={form} onClose={() => setForm(null)} />}
+            {form && <GitForm make={form.make} onClose={() => setForm(null)} />}
           </div>
         )
       }}
@@ -709,7 +709,16 @@ interface FormSpec {
   project: ProjectInfo
 }
 
-function GitForm({ spec, onClose }: { spec: FormSpec; onClose: () => void }) {
+/**
+ * An open form: how to make its spec, not the spec itself. Its text is formatted each time it renders, so an open form
+ * follows a change of language (what was typed stays: it is the form's state).
+ */
+interface OpenForm {
+  make: () => FormSpec
+}
+
+function GitForm({ make, onClose }: { make: () => FormSpec; onClose: () => void }) {
+  const spec = make()
   const [values, setValues] = useState<Record<string, string>>(() => Object.fromEntries(spec.fields.map((f) => [f.key, f.initial ?? ''])))
   const { busy, error, run } = useBusy()
   const problem = spec.validate(values)

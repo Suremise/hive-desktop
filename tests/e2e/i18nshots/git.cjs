@@ -1,9 +1,10 @@
 // Screenshot cases for the `git` area (#804): the Git tab without a repository and its Initialise dialog, History
-// (commits and tags), Branches & remotes (upstream, branches, remotes, worktrees, commit identity), its forms, the
-// failed-load and failed-refresh notes, the status bar's tooltip and the .hive notice with its Untrack dialog, reached
-// for the i18nshots route (#756's design, section 4) with locale-independent means only: git run on the project, IPC
-// failures (HIVE_TEST_FAIL_IPC), command ids and structural hooks (data-section, data-action, data-git-*, classes),
-// never English text. See tests/e2e/i18nshots.cjs for ctx.
+// (commits and tags), Branches & remotes (upstream, branches, remotes, worktrees, commit identity), its forms (each
+// checked to follow a change of language while it is open), the failed-load and failed-refresh notes, the status
+// bar's tooltip and the .hive notice with its Untrack dialog, reached for the i18nshots route (#756's design, section
+// 4) with locale-independent means only: git run on the project, IPC failures (HIVE_TEST_FAIL_IPC), the
+// language-changed event, command ids and structural hooks (data-section, data-action, data-git-*, classes), never
+// English text. See tests/e2e/i18nshots.cjs for ctx.
 const fs = require('fs')
 const path = require('path')
 const { execFileSync } = require('child_process')
@@ -109,11 +110,43 @@ async function history(ctx) {
   return gitView(ctx)
 }
 
-/** Create tag's form. */
-async function tagForm(ctx) {
-  await ctx.page.locator('[data-action="create-tag"]').first().click()
-  return shown(ctx, ctx.page.locator('.dialog', { has: ctx.page.locator('.git-form') }).last(), 'the Create tag form')
+/** Tells the window its language changed, as Settings → General → Language does (the language-changed event). */
+const sendLanguage = (ctx, language) =>
+  ctx.app.evaluate(({ BrowserWindow }, l) => BrowserWindow.getAllWindows()[0].webContents.send('hive:event', { type: 'language-changed', language: l }), language)
+
+/**
+ * A Git form opened in English that then follows the change to the run's language (#804, round 1: an open form keeps
+ * no text of its own). It opens with the window switched to English, takes some typing, and is switched back: its
+ * title, help, labels and button must each change, and what was typed must stay. Throws otherwise, so the screen
+ * isn't reached. The form is left open in the run's language, for its screenshots.
+ */
+async function formFollowsLanguage(ctx, action, what) {
+  const { page, lib } = ctx
+  const info = (await ctx.inv('app:info')).language
+  const english = info.code === 'en'
+  if (!english) await sendLanguage(ctx, { ...info, code: 'en', locale: 'en', messages: {} })
+  await page.locator(`[data-action="${action}"]`).first().click()
+  const dialog = await shown(ctx, page.locator('.dialog', { has: page.locator('.git-form') }).last(), what)
+  if (english) return dialog
+  const words = () => dialog.evaluate((d) => [...d.querySelectorAll('.dialog-header, .dialog-body > .hint, .git-form label, .dialog-footer button.primary')].map((e) => e.textContent.trim()))
+  const before = await words()
+  if (before.length < 4) throw new Error(`${what} shows ${before.length} of its words: ${JSON.stringify(before)}`)
+  const box = dialog.locator('.git-form input').first()
+  await box.fill('kept-1')
+  await sendLanguage(ctx, info)
+  let after = []
+  const followed = await lib.until(async () => {
+    after = await words()
+    return after.length === before.length && after.every((w, i) => w !== before[i])
+  }, ctx.hungMs)
+  if (!followed) throw new Error(`${what} didn't follow the language: ${JSON.stringify(before)} → ${JSON.stringify(after)}`)
+  const kept = await box.inputValue()
+  if (kept !== 'kept-1') throw new Error(`${what} lost what was typed: ${JSON.stringify(kept)}`)
+  return dialog
 }
+
+/** Create tag's form, following a change of language. */
+const tagForm = (ctx) => formFollowsLanguage(ctx, 'create-tag', 'the Create tag form')
 
 /** Branches & remotes: the branch and its upstream, branches, remotes, the worktree and the commit identity. */
 async function branches(ctx) {
@@ -143,17 +176,11 @@ async function newBranch(ctx) {
   return shown(ctx, ctx.page.locator('.dialog').last(), 'the New branch form')
 }
 
-/** Add a remote's form. */
-async function addRemote(ctx) {
-  await ctx.page.locator('[data-action="add-remote"]').first().click()
-  return shown(ctx, ctx.page.locator('.dialog', { has: ctx.page.locator('.git-form') }).last(), 'the Add a remote form')
-}
+/** Add a remote's form, following a change of language. */
+const addRemote = (ctx) => formFollowsLanguage(ctx, 'add-remote', 'the Add a remote form')
 
-/** Commit identity's form. */
-async function identityForm(ctx) {
-  await ctx.page.locator('[data-action="set-identity"]').first().click()
-  return shown(ctx, ctx.page.locator('.dialog', { has: ctx.page.locator('.git-form') }).last(), 'the commit identity form')
-}
+/** Commit identity's form, following a change of language. */
+const identityForm = (ctx) => formFollowsLanguage(ctx, 'set-identity', 'the commit identity form')
 
 /** The status bar's git item, with its tooltip. */
 async function statusBar(ctx) {
