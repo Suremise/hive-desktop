@@ -192,8 +192,8 @@
     "description": "A figure in the Overview: prompts sent."
   },
   "project.card.promptsSub": {
-    "defaultMessage": "{count} prompts",
-    "description": "Under a provider's sessions: prompts sent. {count} is formatted."
+    "defaultMessage": "{count, plural, one {# prompt} other {# prompts}}",
+    "description": "Under a provider's sessions: prompts sent."
   },
   "project.card.readFromCache": {
     "defaultMessage": "tokens read from cache",
@@ -798,10 +798,6 @@
   "project.memory.localTip": {
     "defaultMessage": "Personal project instructions {provider} reads that are not committed.",
     "description": "Tooltip on a provider's local instructions file (such as CLAUDE.local.md)."
-  },
-  "project.memory.newFile": {
-    "defaultMessage": "Instructions for {provider} in this project.",
-    "description": "The line a new instructions file starts with, under a heading of the project's name. {provider} is Claude Code, Codex…"
   },
   "project.memory.nothingSaved": {
     "defaultMessage": "Nothing saved for this project yet.",

@@ -25,6 +25,12 @@ export const PROJECT_TABS = [
 
 export type ProjectTab = (typeof PROJECT_TABS)[number]['id']
 
+/**
+ * What a new instructions file (CLAUDE.md, AGENTS.md…) starts with when Memory creates it: its agents read it, so it is
+ * English whatever the window's language, under a heading of the project's own name.
+ */
+export const instructionsStarter = (project: string, provider: string): string => `# ${project}\n\nInstructions for ${provider} in this project.\n` // i18n-ignore: an instructions file is what agents read, not the window's text
+
 /** The command that shows a tab. */
 export const tabCommand = (id: ProjectTab): string => `project.tab.${id}`
 

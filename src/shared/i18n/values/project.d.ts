@@ -49,7 +49,7 @@ interface HiveMessageValues {
   'project.card.outputSub': { tokens: string | number }
   'project.card.partlyEstimated': undefined
   'project.card.prompts': undefined
-  'project.card.promptsSub': { count: string | number }
+  'project.card.promptsSub': { count: number }
   'project.card.readFromCache': undefined
   'project.card.recache': undefined
   'project.card.recacheTip': undefined
@@ -201,7 +201,6 @@ interface HiveMessageValues {
   'project.memory.groupMemory': { provider: string | number }
   'project.memory.heading': undefined
   'project.memory.localTip': { provider: string | number }
-  'project.memory.newFile': { provider: string | number }
   'project.memory.nothingSaved': undefined
   'project.memory.ownFile': undefined
   'project.memory.projectTip': { provider: string | number }

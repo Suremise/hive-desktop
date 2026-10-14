@@ -12,6 +12,7 @@ import { PERIODS, activeIn, costText, dailyTotals, moneyLabel, periodFrom, sumUs
 import { FILE_LOCK_MODES, contextPercent, turnPushedCompaction, effectiveModelLabel, mergeBlocked, modelLabel } from '@shared/defaults'
 import { useAgentLimit } from '../advanced'
 import { PROVIDERS, contextLines, defaultProviderLabel, isProviderEnabled, modeOption, offeredModes, permissionLabel, projectDefaultProvider, projectProviderConfig, providerDescriptor, providerName, providerSettings } from '@shared/providers'
+import { instructionsStarter } from '@shared/projectTabs'
 import { EffortPicker, ModelPicker } from '../components/ModelPicker'
 import { effortText, runsAsName } from '@shared/models'
 import { PROJECT_SETTINGS_SECTIONS, settingEntry } from '@shared/settingsCatalog'
@@ -70,7 +71,7 @@ const M = {
   runningHeading: msg({ id: 'project.overview.running', defaultMessage: 'Running now', description: 'Heading in the Overview: the agents running now.' }),
   turnedOff: msg({ id: 'project.overview.turnedOff', defaultMessage: '— turned off', description: "After a provider's name in the Overview when it is turned off in Settings → Providers." }),
   outputSub: msg({ id: 'project.card.outputSub', defaultMessage: '{tokens} output', description: "Under a provider's tokens: its output tokens, such as 1.2M." }),
-  promptsSub: msg({ id: 'project.card.promptsSub', defaultMessage: '{count} prompts', description: "Under a provider's sessions: prompts sent. {count} is formatted." }),
+  promptsSub: msg({ id: 'project.card.promptsSub', defaultMessage: '{count, plural, one {# prompt} other {# prompts}}', description: "Under a provider's sessions: prompts sent." }),
   byAgent: msg({ id: 'project.overview.byAgent', defaultMessage: 'By agent', description: 'Heading in the Overview: a table of what each agent used.' }),
   noAgents: msg({ id: 'project.overview.noAgents', defaultMessage: 'No agents.', description: 'The By agent table when there are none.' }),
   colAgent: msg({ id: 'project.col.agent', defaultMessage: 'Agent', description: 'Column of the By agent table.' }),
@@ -212,7 +213,6 @@ const C = {
   shareButton: msg({ id: 'project.memory.shareButton', defaultMessage: 'Share one AGENTS.md…', description: 'Button: makes every provider read one AGENTS.md (asks first). Keep AGENTS.md.' }),
   nothingSaved: msg({ id: 'project.memory.nothingSaved', defaultMessage: 'Nothing saved for this project yet.', description: "Under a provider's memory group when it has none." }),
   create: msg({ id: 'project.memory.create', defaultMessage: 'create', description: "Beside an instructions file that doesn't exist yet: selecting it creates it." }),
-  newFile: msg({ id: 'project.memory.newFile', defaultMessage: 'Instructions for {provider} in this project.', description: "The line a new instructions file starts with, under a heading of the project's name. {provider} is Claude Code, Codex…" }),
   selectFileMem: msg({ id: 'project.memory.select', defaultMessage: 'Select a memory file.', description: 'The Memory tab when no file is selected.' }),
   applyNew: msg({ id: 'project.apply.new', defaultMessage: '{live, select, yes {Changes apply to new sessions — restart the running session to apply them.} other {Changes apply to new sessions.}}', description: 'Under the Skills and MCP tabs.' }),
   skillsHeading: msg({ id: 'project.skills.heading', defaultMessage: 'Skills available to agents', description: "Heading of the project's Skills tab list." }),
@@ -487,7 +487,7 @@ export function OverviewTab({ project }: { project: ProjectInfo }) {
               <div className="cards">
                 <Card title={tr(M.tokens)} value={formatTokens(tokens(t))} sub={tr(M.outputSub, { tokens: formatTokens(t.output) })} />
                 <Card title={tr(M.cost)} value={costText(t)} sub={t.unpriced ? tr(M.withoutPriceShort, { count: t.unpriced }) : tr(!t.estimated ? M.asReported : p.capabilities.reportsCost && !usesOwnPrices(p.id, settings) ? M.partlyEstimated : M.estimated)} tip={costTip} />
-                <Card title={tr(M.sessions)} value={t.sessions} sub={tr(M.promptsSub, { count: formatNumber(t.prompts) })} />
+                <Card title={tr(M.sessions)} value={t.sessions} sub={tr(M.promptsSub, { count: t.prompts })} />
               </div>
               <PlanLimits provider={p.id} />
             </div>
@@ -1238,7 +1238,7 @@ export function MemoryTab({ project }: { project: ProjectInfo }) {
               {list.length === 0 && <div className="pane-empty" style={{ paddingTop: 6 }}>{isMemory ? tr(C.nothingSaved) : ''}</div>}
               {list.map((s) => (
                 <Tooltip block key={`${s.provider}:${s.id}`} content={<span style={{ whiteSpace: 'pre-line' }}>{`${memoryTip(s)}\n${s.path}`}</span>}>
-                  <div className={cx('row', selected === `${s.provider}:${s.id}` && 'selected')} style={{ width: '100%' }} onClick={() => setSelected(`${s.provider}:${s.id}`)}>
+                  <div className={cx('row', selected === `${s.provider}:${s.id}` && 'selected')} data-path={s.path} style={{ width: '100%' }} onClick={() => setSelected(`${s.provider}:${s.id}`)}>
                     <Icon name={s.kind === 'auto-memory' ? 'lightbulb' : 'book'} />
                     <span className="label" style={!s.exists ? { color: 'var(--fg-faint)' } : undefined}>{s.label}</span>
                     {!s.exists && <span className="desc">{tr(C.create)}</span>}
@@ -1254,7 +1254,7 @@ export function MemoryTab({ project }: { project: ProjectInfo }) {
           key={sel.path}
           path={sel.path}
           title={sel.label}
-          createIfMissing={sel.exists ? undefined : `# ${project.name}\n\n${tr(C.newFile, { provider: providerName(sel.provider) })}\n`}
+          createIfMissing={sel.exists ? undefined : instructionsStarter(project.name, providerName(sel.provider))}
           onSaved={load}
         />
       ) : (

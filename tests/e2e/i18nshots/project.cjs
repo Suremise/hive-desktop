@@ -1,6 +1,7 @@
 // Screenshot cases for the `project` area (#805): the project's header, tab strip and menu; the Overview (figures, the
 // agents running, the table by agent, the session's details, and its failed load) and the plan limits of GitHub issue
-// #1; the Git tab's Changes; Memory, Skills and MCP (with their failed loads and refreshes); and Project Settings
+// #1; the Git tab's Changes; Memory (with a new instructions file saved, checked to be the English starter agents
+// read), Skills and MCP (with their failed loads and refreshes); and Project Settings
 // (sections and the reset dialog). Reached for the i18nshots route (#756's design, section 4) with locale-independent
 // means only: git run on the project, IPC failures (HIVE_TEST_FAIL_IPC), events sent as main sends them, command ids
 // and structural hooks (data-action, data-section, data-stat, classes, icons), never English text. See
@@ -138,11 +139,37 @@ async function retryMemory(ctx) {
   await gone(ctx, ctx.page.locator('.load-failed'), "Memory's failed load")
 }
 
-/** Memory: each provider's instructions and memory, one open. */
+/** The project's instructions file Memory offers to create (its row's path in the project, the file not there yet). */
+async function missingInstructions(ctx) {
+  await shown(ctx, ctx.page.locator('.split-list .pane-body .row[data-path]'), "Memory's files")
+  const paths = await ctx.page.locator('.split-list .pane-body .row[data-path]').evaluateAll((rows) => rows.map((r) => r.dataset.path))
+  const file = paths.find((p) => path.dirname(p) === ctx.project && !fs.existsSync(p))
+  if (!file) throw new Error(`no instructions file to create in the project (rows: ${paths.join(', ')})`)
+  return [file, paths.indexOf(file)]
+}
+
+/** Memory: each provider's instructions and memory, with the project's instructions file to create open. */
 async function memory(ctx) {
   await ctx.command('project.tab.memory')
-  await (await shown(ctx, ctx.page.locator('.split-list .pane-body .row'), "Memory's files")).first().click()
-  await shown(ctx, ctx.page.locator('.split-main .editor-toolbar'), 'the file')
+  ;[ctx.newInstructions, ctx.newInstructionsRow] = await missingInstructions(ctx)
+  await ctx.page.locator('.split-list .pane-body .row[data-path]').nth(ctx.newInstructionsRow).click()
+  await shown(ctx, ctx.page.locator('.split-main .editor-toolbar button.primary:not([disabled])'), 'the file to create, with Save')
+  return ctx.page.locator('.split').first()
+}
+
+/**
+ * Saved: what agents read stays English in any language (#805, HR3's review): the file starts with the English
+ * starter under the project's own name, not the window's language.
+ */
+async function memorySaved(ctx) {
+  const file = ctx.newInstructions
+  await ctx.page.locator('.split-main .editor-toolbar button.primary').first().click()
+  if (!(await ctx.lib.until(() => fs.existsSync(file), ctx.hungMs))) throw new Error(`${file} was not written`)
+  const text = fs.readFileSync(file, 'utf8').replace(/\r\n/g, '\n')
+  // The English starter (shared/projectTabs.ts instructionsStarter), whatever the window's language.
+  const english = new RegExp(`^# ${path.basename(ctx.project)}\n\nInstructions for [A-Za-z ]+ in this project\\.\n$`)
+  if (!english.test(text)) throw new Error(`the new instructions file isn't the English starter: ${JSON.stringify(text)}`)
+  await shown(ctx, ctx.page.locator('.split-main .editor-toolbar button.primary[disabled]'), 'the file, saved')
   return ctx.page.locator('.split').first()
 }
 
@@ -211,6 +238,7 @@ module.exports = {
     { name: 'changes', open: changes },
     { name: 'memory-failed', open: memoryFailed, close: retryMemory },
     { name: 'memory', open: memory },
+    { name: 'memory-saved', open: memorySaved },
     { name: 'skills', open: skills },
     { name: 'skills-refresh-failed', open: skillsRefreshFailed, close: retrySkills },
     { name: 'mcp', open: mcp },

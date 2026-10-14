@@ -4,9 +4,10 @@ import { join, resolve } from 'path'
 import { parse, TYPE, type MessageFormatElement } from '@formatjs/icu-messageformat-parser'
 import { PSEUDO_LANGUAGE } from '../../src/shared/i18n/languages'
 import { setLanguage, setProblemReporter, tr, type Msg } from '../../src/shared/i18n'
-import { PROJECT_TABS } from '../../src/shared/projectTabs'
+import { PROJECT_TABS, instructionsStarter } from '../../src/shared/projectTabs'
 import { PERIODS, costText, money, moneyLabel } from '../../src/shared/usageTotals'
 import { unpricedText } from '../../src/shared/prices'
+import { providerName } from '../../src/shared/providers'
 
 // #805: the `project` area (the project's header and tabs, the Overview and its plan limits, Changes, Memory, Skills,
 // MCP and Project Settings, with the shared tab list, periods and costs). Its messages are read from the English
@@ -99,6 +100,23 @@ describe('data kept at module level follows the language', () => {
   })
 })
 
+describe('plurals take the count itself', () => {
+  it("so a language with more forms picks its own (a provider's prompts in Polish)", () => {
+    setLanguage('pl', { 'project.card.promptsSub': '{count, plural, one {# prompt} few {# prompty} many {# promptów} other {# promptu}}' }, 'pl-PL')
+    expect([1, 2, 5, 22, 1.5].map((count) => tr(m('project.card.promptsSub'), { count }))).toEqual(['1 prompt', '2 prompty', '5 promptów', '22 prompty', '1,5 promptu'])
+  })
+})
+
+describe("what agents read stays English, whatever the window's language", () => {
+  it("a new instructions file from Memory: the English starter under the project's own name", () => {
+    setLanguage(PSEUDO_LANGUAGE, {})
+    expect(instructionsStarter('Żółw app', providerName('codex'))).toBe('# Żółw app\n\nInstructions for Codex in this project.\n')
+    setLanguage('pl', {}, 'pl-PL')
+    expect(instructionsStarter('alpha', providerName('claude-code'))).toBe('# alpha\n\nInstructions for Claude Code in this project.\n')
+    expect(Object.keys(CATALOGUE).some((id) => /Instructions for/.test(CATALOGUE[id].defaultMessage))).toBe(false)
+  })
+})
+
 describe('costs', () => {
   it('read in English as before, through Intl', () => {
     expect(moneyLabel(1.2)).toBe('$1.20')
@@ -143,6 +161,8 @@ describe('the sentences once built by hand read as before, in English', () => {
   it('the Overview and its plan limits (GitHub issue #1)', () => {
     expect(tr(m('project.card.withoutPrice'), { count: 1 })).toBe('1 session without a price')
     expect(tr(m('project.card.compactionsSub'), { count: 2 })).toBe('2 compactions')
+    expect(tr(m('project.card.promptsSub'), { count: 1 })).toBe('1 prompt')
+    expect(tr(m('project.card.promptsSub'), { count: 1234 })).toBe('1,234 prompts')
     expect(tr(m('project.chart.dayTip'), { day: 'Fri 10 Oct', tokens: '1.2M', cost: '$1.00', prompts: 1 })).toBe('Fri 10 Oct: 1.2M tokens · $1.00 · 1 prompt')
     expect(tr(m('project.card.warmLeft'), { left: '3 min', ttl: 'minutes' })).toBe('≈ 3 min left of 5 min TTL')
     expect(tr(m('project.limit.title'), { window: 'fiveHour', label: '' })).toBe('5-hour limit')
@@ -159,7 +179,6 @@ describe('the sentences once built by hand read as before, in English', () => {
     expect(tr(m('project.changes.staged'), { status: 'Modified', path: 'a.ts' })).toBe('Modified (staged): a.ts')
     expect(tr(m('project.apply.new'), { live: 'yes' })).toBe('Changes apply to new sessions — restart the running session to apply them.')
     expect(tr(m('project.skills.assistantOnly'), { count: 1 })).toBe("1 Hive skill is for the Hive Assistant only, so it isn't listed: this project's agents don't get it.")
-    expect(tr(m('project.memory.newFile'), { provider: 'Codex' })).toBe('Instructions for Codex in this project.')
     expect(tr(m('project.settings.inherit'), { value: 'on' })).toBe('Inherit (on)')
     expect(tr(m('project.settings.now'), { desc: 'Locks files.', current: 'Off.' })).toBe('Locks files. Now: Off.')
   })
