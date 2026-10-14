@@ -17,6 +17,7 @@
 - **Put your lanes in your own order.** Drag a running lane up or down in the Progress panel's lane list (a line shows where it goes), or focus it and press Alt+Up or Alt+Down; its right-click menu has Move Up, Move Down and Usual Order. Each workspace keeps the order, after a restart too: a new lane comes in on top, and a lane that is merged or abandoned drops to the bottom, after those that stopped before it, so the latest is always last (#568).
 
 ### Hive Assistant
+- **Apps that follow the Assistant no longer have to read its sentences.** Each of its actions on the Agent API's event stream now says what it was (`kind`: starting a card, giving an agent a task, moving cards…) and what it was about (the project, the agent, the card or cards, the lane, the column), so a viewer such as Apiary keeps working when the sentence is reworded or translated. Nothing private is added. The API's version is now 5 (#763).
 - **A decision on a card in Review reaches its card loop.** Recording your decision on a card in Review, or clearing its block, wakes neither the card's builder nor its reviewer, so the Assistant now follows it with a message to the builder, and to the reviewer when it changes what they check, instead of the loop waiting until its watch runs out.
 
 ### Fixes

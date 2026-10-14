@@ -1,4 +1,4 @@
-import { join } from 'path'
+import { basename, join } from 'path'
 import { mkdir, rename, rm, writeFile } from 'original-fs/promises'
 import { randomBytes } from 'crypto'
 import { app } from 'electron'
@@ -469,7 +469,7 @@ function set(store: Store, d: Draft, r: DeliveryRecord, to: DeliveryState, detai
   put(d, r, out)
   if ((to === 'refused' || to === 'stale') && r.from.kind === 'assistant') {
     const ws = r.from.workspace
-    d.after.push(() => assistant.record(ws, `A message for ${r.agentName ?? r.agentId} (${r.id}) was ${to === 'stale' ? 'dropped as stale' : 'refused'}`, detail ?? 'its sender may no longer send it'))
+    d.after.push(() => assistant.record(ws, { kind: 'message-agent', project: basename(store.host), agent: { id: r.agentId, name: r.agentName ?? r.agentId }, ...(r.card ? { card: r.card } : {}) }, `A message for ${r.agentName ?? r.agentId} (${r.id}) was ${to === 'stale' ? 'dropped as stale' : 'refused'}`, detail ?? 'its sender may no longer send it', { reason: to === 'stale' ? 'Dropped as stale' : 'Refused' }))
   }
   if (to === 'refused' || to === 'expired' || to === 'cancelled' || to === 'uncertain' || to === 'stale') d.after.push(() => log.info(`Delivery ${r.id} for ${userText(r.agentName ?? r.agentId)} ${to}${detail ? `: ${userText(detail)}` : ''}`))
   if ((to === 'received' || to === 'acked') && !r.received) tell(store, d, out, 'received')

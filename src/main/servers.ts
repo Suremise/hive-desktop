@@ -4,11 +4,13 @@ import { randomBytes, timingSafeEqual } from 'crypto'
 import { app } from 'electron'
 import { basename, dirname, join, resolve as resolvePath } from 'path'
 import { stat } from 'original-fs/promises'
-import type { AgentApiInfo, AssistantControl, EffortLevel, HiveEvent, LiveSessionState, PermissionMode, ProviderId, SkillInfo, TaskCard, TaskColumn, TaskPatch, TaskStartTarget, ToastLevel } from '../shared/types'
+import type { AgentApiInfo, AssistantControl, LaneInfo, EffortLevel, HiveEvent, LiveSessionState, PermissionMode, ProviderId, SkillInfo, TaskCard, TaskColumn, TaskPatch, TaskStartTarget, ToastLevel } from '../shared/types'
 import { DEFAULT_API_PORT, HIVE_DIR, projectAgents, stopAsksUser, transcriptWarnLimit } from '../shared/defaults'
 import { PROVIDERS, agentProvider, defaultProviderPending, isKnownProvider, isProviderEnabled, offeredModes, projectDefaultProvider, providerDescriptor, providerName } from '../shared/providers'
 import type { SafeguardNote } from '../shared/safeguards'
 import { agentChoosesMcp, agentGetsMcp, cleanMcpServers, serverOnIn } from '../shared/agentMcp'
+import { publicReason, type ActivityAgent, type ActivityTarget } from '../shared/assistantActivity'
+import { cardAgent, knownAgent } from './activityTargets'
 import { fallbackEfforts, modelGroups } from '../shared/models'
 import { agentRuntime, unknownStateText } from '../shared/runtime'
 import { ASSISTANT_AGENT_ID, ASSISTANT_DIR, ASSISTANT_NAME } from '../shared/assistant'
@@ -444,6 +446,9 @@ async function agentParam(p: string, value: unknown): Promise<string> {
 type Handler = (ctx: { params: string[]; query: URLSearchParams; body: any; signal: AbortSignal }) => Promise<unknown>
 
 
+/** The status a refusal answers with (an HttpError's, the change boundary's, a setting's), for its public reason (#763). */
+const statusOf = (e: unknown): number => (e instanceof assistant.ChangeRefused || e instanceof SettingRefused || e instanceof lanes.LaneError ? e.status : errorStatus(e))
+
 /** A refusal of the Assistant's change boundary, or of a batch's request, as the Agent API answers it. */
 const httpOf = (e: unknown): unknown => (e instanceof assistant.ChangeRefused ? new HttpError(e.status, e.message, e.extra) : e)
 
@@ -457,31 +462,39 @@ async function asRefused<T>(fn: () => Promise<T>): Promise<T> {
 
 /**
  * A change the Hive Assistant asks for: admitted by the Assistant's change boundary (control level, limit), run, and
- * recorded (its panel's list and hive.log). `fn` gets the boundary's guard, to run again as each write is made. Other
- * callers can't make these changes through the API.
+ * recorded (its panel's list and hive.log) with `act`, its kind and targets (#763), and what `fn` adds to them once
+ * known (`act`: a new card's number, a new agent). `fn` gets the boundary's guard, to run again as each write is made.
+ * Other callers can't make these changes through the API.
  */
-async function assistantChange<T>(need: AssistantControl, what: string, fn: (guard: () => void) => Promise<{ done: string; said?: string; result: T }>): Promise<T> {
+async function assistantChange<T>(need: AssistantControl, what: string, act: ActivityTarget, fn: (guard: () => void) => Promise<{ done: string; said?: string; brief?: string; act?: Partial<ActivityTarget>; result: T }>): Promise<T> {
   const ws = assistantCaller()
   if (!ws) throw new HttpError(403, `Only the Hive Assistant can ${what} through the Agent API.`)
   const line = what.charAt(0).toUpperCase() + what.slice(1)
-  const guard = await asRefused(async () => assistant.admit(ws, assistantCallerToken() ?? '', need, what))
+  const guard = await asRefused(async () => assistant.admit(ws, assistantCallerToken() ?? '', need, what, act))
   try {
     // `said`: what the line quotes (a prompt, a message), which the Agent API's event stream leaves out.
-    const { done, said, result } = await fn(guard)
-    assistant.record(ws, done + (said ?? ''), undefined, said ? { brief: done } : {})
+    // `brief`: the line in Hive's own words when `done` carries an error's text (#763: the stream never does).
+    const { done, said, brief, act: more, result } = await fn(guard)
+    const pub = brief ?? (said ? done : undefined)
+    assistant.record(ws, { ...act, ...more }, done + (said ?? ''), undefined, pub !== undefined ? { brief: pub } : {})
     return result
   } catch (e) {
-    assistant.record(ws, line, (e as Error).message)
+    assistant.record(ws, act, line, (e as Error).message, { reason: publicReason(statusOf(e)) })
     throw httpOf(e)
   }
 }
 
+/** An agent as an action names it (#763). */
+const actAgent = (a: { id: string; name: string }): ActivityAgent => ({ id: a.id, name: a.name })
+/** A lane as an action names it: its id, project, cards and builder. */
+const laneAct = (l: Pick<LaneInfo, 'id' | 'project' | 'cards' | 'builder'>): Partial<ActivityTarget> => ({ lane: l.id, project: l.project, cards: l.cards.map((c) => c.number), agent: actAgent(l.builder) })
+
 /** For routes that change something and that other callers may use too: the Assistant needs the control level. */
-function assistantMay(need: AssistantControl, what: string): void {
+function assistantMay(need: AssistantControl, what: string, act: ActivityTarget): void {
   const ws = assistantCaller()
   if (!ws) return
   try {
-    assistant.refuseUnlessAllowed(ws, need, what)
+    assistant.refuseUnlessAllowed(ws, need, what, act)
   } catch (e) {
     throw httpOf(e)
   }
@@ -496,7 +509,7 @@ function route(method: string, path: string, handler: Handler): void {
 }
 
 /** The Agent API's contract version: goes up when a route or field changes in a way a client would notice. */
-export const API_VERSION = 4
+export const API_VERSION = 5
 
 /** Who Hive takes a request's caller for, and what it may reach (GET /v1/status). */
 async function callerInfo(): Promise<Record<string, unknown>> {
@@ -563,7 +576,7 @@ route('GET', '/v1/projects/:name', async ({ params }) => {
 route('POST', '/v1/projects/:name/activate', async ({ params }) => {
   const p = projectByName(params[0])
   if (assistantCaller()) {
-    return assistantChange('agents', `activate the project ${basename(p)}`, async () => {
+    return assistantChange('agents', `activate the project ${basename(p)}`, { kind: 'activate-project', project: basename(p) }, async () => {
       workspace.setActive(p, true)
       await workspaceOf(p).refresh()
       return { done: `Activated ${basename(p)}`, result: await projectSummary(p) }
@@ -576,7 +589,7 @@ route('POST', '/v1/projects/:name/activate', async ({ params }) => {
 
 route('POST', '/v1/projects/:name/deactivate', async ({ params }) => {
   const p = projectByName(params[0])
-  assistantMay('agents', `deactivate the project ${basename(p)}`)
+  assistantMay('agents', `deactivate the project ${basename(p)}`, { kind: 'deactivate-project', project: basename(p) })
   if (sessions.liveFor(p)) throw new HttpError(409, 'Stop the running session before deactivating the project')
   workspace.setActive(p, false)
   await workspaceOf(p).refresh()
@@ -651,20 +664,21 @@ route('POST', '/v1/projects/:name/handover', async ({ params, body }) => {
   const handover = body?.handover !== false
   // Known at once rather than later in a notification: from the latest handover, there has to be one.
   if (!handover && !(await sessions.latestHandover(p))) throw new HttpError(409, `There is no handover for ${basename(p)} yet. Hand over with a new handover (handover: true) instead.`)
+  const names = projectAgents(await workspace.projectConfig(p))
+  const name = (id: string): string => names.find((a) => a.id === id)?.name ?? id
+  const act: ActivityTarget = { kind: 'hand-over', project: basename(p), agent: { id: from, name: name(from) }, toAgent: { id: to, name: name(to) } }
   const start = async (): Promise<void> => {
     // It can take minutes (the handover is written first): answer now, report failures in Hive.
     void sessions.handOver(p, from, to, { handover }).catch((e) => {
       toast('error', 'Could not hand over the work', (e as Error).message, undefined, p)
-      if (own) assistant.record(own, `Hand over in ${basename(p)}`, (e as Error).message)
+      if (own) assistant.record(own, act, `Hand over in ${basename(p)}`, (e as Error).message, { reason: publicReason(undefined) })
     })
   }
   if (!own) {
     await start()
     return { ok: true }
   }
-  const names = projectAgents(await workspace.projectConfig(p))
-  const name = (id: string): string => names.find((a) => a.id === id)?.name ?? id
-  return assistantChange('agents', `hand ${name(from)}'s work over to ${name(to)} in ${basename(p)}`, async () => {
+  return assistantChange('agents', `hand ${name(from)}'s work over to ${name(to)} in ${basename(p)}`, act, async () => {
     // Known at once rather than minutes later: without Hive's tools agents can't write or read a handover.
     if (!sessions.hiveMcp(p)) throw new HttpError(409, "The project's agents don't have Hive's tools (Settings → Agent API is off, or Provide Hive tools to sessions), so they can't write or read a handover. Tell the user.")
     for (const id of [from, to]) {
@@ -758,18 +772,20 @@ async function settingsChange(e: SettingEntry, value: unknown, projectPath: stri
   const ws = assistantCaller()
   if (!ws) throw new HttpError(403, `Only the Hive Assistant can change Hive's settings through the Agent API: the user changes them in ${path}.`)
   const line = `Change ${path}${where}`
+  // Which setting, never its value (#763).
+  const act: ActivityTarget = { kind: 'setting', settingId: e.id, ...(projectPath ? { project: basename(projectPath) } : {}) }
   if (config.settings.assistant?.changeSettings !== true) {
-    assistant.record(ws, line, 'not allowed: Settings → Assistant → Control → Change settings is off')
+    assistant.record(ws, act, line, 'not allowed: Settings → Assistant → Control → Change settings is off', { reason: 'Not allowed: Settings → Assistant → Control → Change settings is off' })
     throw new HttpError(403, `The user's settings don't let you change settings (Settings → Assistant → Control → Change settings is off). Tell the user how to change it in ${path}, or that turning Change settings on lets you.`)
   }
   if (e.sensitive) {
-    assistant.record(ws, line, 'only the user can change it')
+    assistant.record(ws, act, line, 'only the user can change it', { reason: 'Only the user can change it' })
     throw new HttpError(403, `${e.readOnly} Tell the user how, instead.`)
   }
   // Checked before it counts as a change: a value it can't take is the Assistant's to fix, not one of its 30.
   await settingsCall(() => checkedValue(e, value, projectPath))
   if (!assistant.countAction(ws)) {
-    assistant.record(ws, line, `limit of ${assistant.MAX_ACTIONS_PER_TURN} changes for one message`)
+    assistant.record(ws, act, line, `limit of ${assistant.MAX_ACTIONS_PER_TURN} changes for one message`, { reason: publicReason(429) })
     throw new HttpError(429, `You have made ${assistant.MAX_ACTIONS_PER_TURN} changes for this message, the most Hive allows for one. Tell the user what is done and ask whether to go on.`)
   }
   // Asked again at the moment of the change (a project's under its lock, after any wait for it): Change settings may have
@@ -788,12 +804,12 @@ async function settingsChange(e: SettingEntry, value: unknown, projectPath: stri
     const changed = JSON.stringify(r.old) !== JSON.stringify(r.new) || !!r.removed
     if (changed) {
       // The event stream says which setting, not its values (`brief`).
-      assistant.record(ws, `Changed ${path}${where}: ${oldText} → ${newText}`, undefined, { brief: `Changed ${path}${where}`, setting: { id: e.id, ...(projectPath ? { project: projectPath } : {}), path, old: r.old, new: r.new, ...(r.removed ? { removed: r.removed } : {}), oldText, newText } })
+      assistant.record(ws, act, `Changed ${path}${where}: ${oldText} → ${newText}`, undefined, { brief: `Changed ${path}${where}`, setting: { id: e.id, ...(projectPath ? { project: projectPath } : {}), path, old: r.old, new: r.new, ...(r.removed ? { removed: r.removed } : {}), oldText, newText } })
     }
     const restart = restartText(e)
     return { id: e.id, title: e.title, path, ...(projectPath ? { project: basename(projectPath) } : {}), changed, old: oldText, new: newText, ...(restart ? { restart } : {}) }
   } catch (err) {
-    assistant.record(ws, line, (err as Error).message)
+    assistant.record(ws, act, line, (err as Error).message, { reason: publicReason(statusOf(err)) })
     throw err instanceof SettingRefused ? new HttpError(err.status, err.message) : err
   }
 }
@@ -801,7 +817,7 @@ async function settingsChange(e: SettingEntry, value: unknown, projectPath: stri
 route('POST', '/v1/projects', async ({ body }) => {
   const name = String(body?.name ?? '').trim()
   if (!name) throw new HttpError(400, 'name is required')
-  return assistantChange('projects', `create the project "${name}"`, async () => {
+  return assistantChange('projects', `create the project "${name}"`, { kind: 'create-project', project: name }, async () => {
     await workspace.createProject(name)
     const p = join(workspace.path!, name)
     workspace.setActive(p, true)
@@ -867,7 +883,7 @@ function agentSettings(body: any): { provider?: ProviderId; model?: string; effo
 route('POST', '/v1/projects/:name/agents', async ({ params, body }) => {
   const p = projectByName(params[0])
   const project = basename(p)
-  return assistantChange('agents', `add an agent to ${project}`, async () => {
+  return assistantChange('agents', `add an agent to ${project}`, { kind: 'add-agent', project }, async () => {
     const set = agentSettings(body)
     const cfg = await workspace.projectConfig(p)
     if (!set.provider && defaultProviderPending(cfg, config.settings)) await providerService.settle()
@@ -893,18 +909,23 @@ route('POST', '/v1/projects/:name/agents', async ({ params, body }) => {
     emit({ type: 'agent-added', projectPath: p, agentId: def.id })
     const prompt = typeof body?.prompt === 'string' ? body.prompt.trim() : ''
     let started = ''
+    let didStart: boolean | null = null
     if (body?.start || prompt) {
       try {
         if (prompt) await startOnTask(p, def.id, def.name, prompt, (line) => sessions.start(p, { agentId: def.id, prompt: line }))
         else await sessions.start(p, { agentId: def.id })
         started = ' and started it'
+        didStart = true
       } catch (e) {
         started = ` (it didn't start: ${(e as Error).message})`
+        didStart = false
       }
     }
     const reuse = def.reuse ? reuseNote(def.reuse) : ''
-    const said = prompt && started === ' and started it' ? ` on: ${clip(prompt.replace(/\s+/g, ' '), 80)}` : undefined
-    return { done: `Added ${def.name} to ${project}${def.worktree ? ` (worktree, branch ${def.worktree.branch}${reuse ? `: ${reuse}` : ''})` : ''}${started}`, said, result: { agent: def, project: await projectSummary(p), ...(reuse ? { reuse } : {}) } }
+    const said = prompt && didStart ? ` on: ${clip(prompt.replace(/\s+/g, ' '), 80)}` : undefined
+    // The stream's line is Hive's own words: neither why it didn't start nor the reuse note (git's words) goes there.
+    const brief = `Added ${def.name} to ${project}${def.worktree ? ` (worktree, branch ${def.worktree.branch})` : ''}${didStart === true ? ' and started it' : didStart === false ? "; it didn't start" : ''}`
+    return { done: `Added ${def.name} to ${project}${def.worktree ? ` (worktree, branch ${def.worktree.branch}${reuse ? `: ${reuse}` : ''})` : ''}${started}`, said, brief, act: { agent: actAgent(def) }, result: { agent: def, project: await projectSummary(p), ...(reuse ? { reuse } : {}) } }
   })
 })
 
@@ -912,10 +933,10 @@ route('PATCH', '/v1/projects/:name/agents/:agent', async ({ params, body }) => {
   const p = projectByName(params[0])
   const agentId = await agentParam(p, params[1] && decodeURIComponent(params[1]))
   const a = await agentDefOf(p, agentId)
-  return assistantChange('agents', `change ${a.name}'s settings in ${basename(p)}`, async () => {
+  return assistantChange('agents', `change ${a.name}'s settings in ${basename(p)}`, { kind: 'update-agent', project: basename(p), agent: actAgent(a) }, async () => {
     const def = await updateAgent(p, agentId, { ...(body?.name !== undefined ? { name: String(body.name) } : {}), ...agentSettings(body) })
     const live = sessions.liveFor(p, agentId)
-    return { done: `Changed ${def.name}'s settings in ${basename(p)}${live ? ' (it applies them when restarted)' : ''}`, result: def }
+    return { done: `Changed ${def.name}'s settings in ${basename(p)}${live ? ' (it applies them when restarted)' : ''}`, act: { agent: actAgent(def) }, result: def }
   })
 })
 
@@ -923,7 +944,7 @@ route('POST', '/v1/projects/:name/agents/:agent/start', async ({ params, body })
   const p = projectByName(params[0])
   const agentId = await agentParam(p, decodeURIComponent(params[1]))
   const a = await agentDefOf(p, agentId)
-  return assistantChange('agents', `start ${a.name} in ${basename(p)}`, async () => {
+  return assistantChange('agents', `start ${a.name} in ${basename(p)}`, { kind: 'start-agent', project: basename(p), agent: actAgent(a) }, async () => {
     if (sessions.liveFor(p, agentId)) throw new HttpError(409, `${a.name} is already running. Use hive_prompt_agent to give it work once it's idle.`)
     let resumeId: string | undefined
     if (typeof body?.resume === 'string' && body.resume) resumeId = body.resume
@@ -942,7 +963,7 @@ route('POST', '/v1/projects/:name/agents/:agent/stop', async ({ params, body }) 
   const agentId = await agentParam(p, decodeURIComponent(params[1]))
   const a = await agentDefOf(p, agentId)
   const ws = assistantCaller()
-  return assistantChange('agents', `stop ${a.name} in ${basename(p)}`, async () => {
+  return assistantChange('agents', `stop ${a.name} in ${basename(p)}`, { kind: 'stop-agent', project: basename(p), agent: actAgent(a) }, async () => {
     const st = sessions.liveFor(p, agentId)
     if (!st) return { done: `${a.name} in ${basename(p)} wasn't running`, result: { ok: true, wasRunning: false } }
     // Stopping an agent in the middle of something is the user's call: also one watching cards (its card loop stops).
@@ -973,7 +994,7 @@ route('POST', '/v1/projects/:name/agents/:agent/prompt', async ({ params, body }
   if (!text) throw new HttpError(400, 'text is required')
   // A new conversation for the task (a new lane, say): the current one ends, as when it hands over to itself.
   const fresh = body?.newConversation === true
-  return assistantChange<{ ok: boolean; id?: string; newConversation?: boolean }>('agents', `give ${a.name} in ${basename(p)} a task${fresh ? ' in a new conversation' : ''}`, async (guard) => {
+  return assistantChange<{ ok: boolean; id?: string; newConversation?: boolean }>('agents', `give ${a.name} in ${basename(p)} a task${fresh ? ' in a new conversation' : ''}`, { kind: 'prompt-agent', project: basename(p), agent: actAgent(a) }, async (guard) => {
     const st = sessions.liveFor(p, agentId)
     // Never over the top of the agent's work, a question to the user, or the user's own typing.
     if (!st) throw new HttpError(409, `${a.name} isn't running. Start it with the task instead (hive_start_agent with prompt).`)
@@ -1019,7 +1040,7 @@ route('POST', '/v1/projects/:name/agents/:agent/message', async ({ params, body 
   const agentId = await agentParam(p, decodeURIComponent(params[1]))
   const a = await agentDefOf(p, agentId)
   if (body?.cancel === true) {
-    return assistantChange<{ cancelled: number }>('agents', `cancel the messages waiting for ${a.name} in ${basename(p)}`, async () => {
+    return assistantChange<{ cancelled: number }>('agents', `cancel the messages waiting for ${a.name} in ${basename(p)}`, { kind: 'cancel-messages', project: basename(p), agent: actAgent(a) }, async () => {
       const n = await cancelMessages(p, agentId, 'the Assistant')
       return { done: n ? `Cancelled ${n === 1 ? 'the message' : `${n} messages`} waiting for ${a.name} in ${basename(p)}` : `No message was waiting for ${a.name} in ${basename(p)}`, result: { cancelled: n } }
     })
@@ -1030,7 +1051,7 @@ route('POST', '/v1/projects/:name/agents/:agent/message', async ({ params, body 
   // Tied to a card's round (#652): stale, never given, once the card has moved on.
   const card = body?.card === undefined || body?.card === null ? undefined : Number(body.card)
   if (card !== undefined && !(Number.isInteger(card) && card > 0)) throw new HttpError(400, 'card must be a card number')
-  return assistantChange<{ id: string; typed: boolean; queued: number; status: string; round?: number }>('agents', `leave ${a.name} in ${basename(p)} a message`, async (guard) => {
+  return assistantChange<{ id: string; typed: boolean; queued: number; status: string; round?: number }>('agents', `leave ${a.name} in ${basename(p)} a message`, { kind: 'message-agent', project: basename(p), agent: actAgent(a), ...(card !== undefined ? { card } : {}) }, async (guard) => {
     const st = sessions.liveFor(p, agentId)
     if (!st) throw new HttpError(409, `${a.name} isn't running. Start it with the message as its task instead (hive_start_agent with prompt).`)
     guard()
@@ -1402,7 +1423,8 @@ route('POST', '/v1/lanes', async ({ body }) =>
       return note ? { ...r, note } : r
     }
     if (!assistantCaller()) return start()
-    return assistantChange('agents', `start a lane in ${basename(p)}`, async () => {
+    const builderAct = await knownAgent(basename(p), builder)
+    return assistantChange('agents', `start a lane in ${basename(p)}`, { kind: 'lane-start', project: basename(p), ...(args.cards ? { cards: args.cards } : {}), ...(builderAct ? { agent: builderAct } : {}) }, async () => {
       const r = await start()
       // #402: a lane the Assistant starts but doesn't watch goes unfollowed ("they'll tell you"): its reply says so. A
       // lane watch (#531) on every running lane, or on this one, follows it.
@@ -1410,7 +1432,7 @@ route('POST', '/v1/lanes', async ({ body }) =>
       const followed = !!w?.lanes && (w.lanes.includes('all') || w.lanes.includes(r.lane.id))
       const nudge = followed ? '' : 'No watch of yours follows this lane: watch the lanes (hive_wait_for_tasks with lanes ["all"], wake) to follow it to its end.'
       const result = nudge ? { ...r, note: [r.note, nudge].filter(Boolean).join(' ') } : r
-      return { done: `Lane ${r.lane.id} ${r.did} in ${basename(p)}: ${r.lane.builder.name} / ${r.lane.reviewer?.name ?? 'no reviewer'}, ${r.lane.cards.map((c) => `#${c.number}`).join(', ')}`, result }
+      return { done: `Lane ${r.lane.id} ${r.did} in ${basename(p)}: ${r.lane.builder.name} / ${r.lane.reviewer?.name ?? 'no reviewer'}, ${r.lane.cards.map((c) => `#${c.number}`).join(', ')}`, act: laneAct(r.lane), result }
     })
   })
 )
@@ -1426,9 +1448,10 @@ route('POST', '/v1/lanes/join', async ({ body }) =>
     const builder = await agentParam(p, body.builder)
     const joined = async () => lanes.joinLane(ws, { project: basename(p), builder, reviewer, cards: args.cards, by: await laneBy() })
     if (!assistantCaller()) return joined()
-    return assistantChange('agents', `join a lane in ${basename(p)}`, async () => {
+    const reviewerAct = await knownAgent(basename(p), reviewer)
+    return assistantChange('agents', `join a lane in ${basename(p)}`, { kind: 'lane-join', project: basename(p), ...(args.cards ? { cards: args.cards } : {}), ...(reviewerAct ? { agent: reviewerAct } : {}) }, async () => {
       const r = await joined()
-      return { done: `${r.lane.reviewer?.name ?? 'A reviewer'} joined lane ${r.lane.id} in ${basename(p)}`, result: r }
+      return { done: `${r.lane.reviewer?.name ?? 'A reviewer'} joined lane ${r.lane.id} in ${basename(p)}`, act: { ...laneAct(r.lane), ...(r.lane.reviewer ? { agent: actAgent(r.lane.reviewer) } : {}) }, result: r }
     })
   })
 )
@@ -1442,9 +1465,10 @@ route('POST', '/v1/lanes/:id/end', async ({ params, body }) =>
     if (commit !== undefined && commit !== null && (typeof commit !== 'string' || !/^[0-9a-zA-Z._/-]{4,64}$/.test(commit))) throw new HttpError(400, 'mergeCommit must be a commit (its hash)')
     const end = () => lanes.endLane(ws, id, { abandoned: body?.abandoned === true, mergeCommit: commit ?? null, ...(a ? { project: basename(a.projectPath), agent: a.agentId } : {}) })
     if (!assistantCaller()) return end()
-    return assistantChange('agents', `end lane ${id}`, async () => {
+    const laneId = /^[\w.-]{1,64}$/.test(id) ? id : null
+    return assistantChange('agents', laneId ? `end lane ${laneId}` : 'end a lane', { kind: 'lane-end', ...(laneId ? { lane: laneId } : {}) }, async () => {
       const l = await end()
-      return { done: `Lane ${l.id} in ${l.project}: ${l.state}`, result: l }
+      return { done: `Lane ${l.id} in ${l.project}: ${l.state}`, act: laneAct(l), result: l }
     })
   })
 )
@@ -1685,9 +1709,11 @@ route('POST', '/v1/tasks', async ({ body }) => {
   const actor = await taskActor()
   const reply = async (c: TaskCard) => (shortReply(body) ? taskChange(c, []) : taskView(c))
   if (actor.kind !== 'assistant') return reply(await tasks.createTask(input, actor))
-  return assistantChange('agents', `add the task "${clip(title, 60)}" to the board`, async () => {
+  const project = typeof input.project === 'string' && input.project ? input.project : null
+  const given = await knownAgent(project, input.agent)
+  return assistantChange('agents', `add the task "${clip(title, 60)}" to the board`, { kind: 'create-task', ...(project ? { project } : {}), ...(given ? { agent: given } : {}) }, async () => {
     const c = await tasks.createTask(input, actor)
-    return { done: `Added #${c.number} to the board${c.project ? ` (${c.project})` : ''}: ${clip(c.title, 80)}`, result: await reply(c) }
+    return { done: `Added #${c.number} to the board${c.project ? ` (${c.project})` : ''}: ${clip(c.title, 80)}`, act: { card: c.number, column: c.column, ...(c.project ? { project: c.project } : {}), agent: await cardAgent(c) }, result: await reply(c) }
   })
 })
 
@@ -1706,7 +1732,9 @@ route('PATCH', '/v1/tasks/:n', async ({ params, body }) => {
   }
   const reply = async (c: TaskCard) => (shortReply(body) ? taskChange(c, changes) : taskView(c))
   if (actor.kind !== 'assistant') return reply(await apply())
-  return assistantChange('agents', `change #${n} on the board`, async (commit) => {
+  const was = await tasks.getTask(n).catch(() => null)
+  const given = typeof patch.agent === 'string' ? await knownAgent(was?.project, patch.agent) : was ? await cardAgent(was) : undefined
+  return assistantChange('agents', `change #${n} on the board`, { kind: 'update-task', card: n, ...(patch.column ? { column: patch.column } : {}), ...(was?.project ? { project: was.project } : {}), ...(given ? { agent: given } : {}) }, async (commit) => {
     const before = await tasks.getTask(n)
     const placed = (patch.before !== undefined && patch.before !== null) || patch.position !== undefined
     const c = await apply(commit)
@@ -1725,7 +1753,7 @@ route('PATCH', '/v1/tasks/:n', async ({ params, body }) => {
     ]
       .filter(Boolean)
       .join(', ')
-    return { done: `#${n} ${clip(c.title, 60)}: ${what || 'no change'}`, result: await reply(c) }
+    return { done: `#${n} ${clip(c.title, 60)}: ${what || 'no change'}`, act: { column: c.column, ...(c.project ? { project: c.project } : {}), agent: await cardAgent(c) }, result: await reply(c) }
   })
 })
 
@@ -1776,7 +1804,8 @@ route('POST', '/v1/tasks/reorder', async ({ body }) => {
   }
   if (actor.kind !== 'assistant') return view(await tasks.reorderTasks(column, cards, actor))
   const count = Array.isArray(cards) ? cards.length : 0
-  return assistantChange('agents', `put ${count} card${count === 1 ? '' : 's'} in order in ${columnLabel(column)}`, async () => {
+  const ordered = Array.isArray(cards) ? cards.map((x) => Number(String(x).replace(/^#/, ''))).filter((x) => Number.isInteger(x) && x > 0) : []
+  return assistantChange('agents', `put ${count} card${count === 1 ? '' : 's'} in order in ${columnLabel(column)}`, { kind: 'reorder-tasks', column, cards: ordered }, async () => {
     const list = await tasks.reorderTasks(column, cards, actor)
     const top = (cards as unknown[]).map((x) => `#${String(x).replace(/^#/, '')}`).join(', ')
     return { done: `Put ${top} at the top of ${columnLabel(column)}`, result: await view(list) }
@@ -1799,7 +1828,7 @@ route('POST', '/v1/tasks/:n/comments', async ({ params, body }) => {
   const actor = await taskActor()
   const reply = async (c: TaskCard) => (shortReply(body) ? taskChange(c, ['Commented']) : taskView(c))
   if (actor.kind !== 'assistant') return reply(await tasks.commentTask(n, text, actor))
-  return assistantChange('agents', `comment on #${n}`, async () => ({ done: `Commented on #${n}`, result: await reply(await tasks.commentTask(n, text, actor)) }))
+  return assistantChange('agents', `comment on #${n}`, { kind: 'comment-task', card: n }, async () => ({ done: `Commented on #${n}`, result: await reply(await tasks.commentTask(n, text, actor)) }))
 })
 
 /** Bounded waits running now, per caller (an agent, the Assistant, a script): at most WAITS_PER_CALLER at a time. */
@@ -1972,11 +2001,14 @@ route('POST', '/v1/tasks/:n/start', async ({ params, body }) => {
   const target: TaskStartTarget = body?.agent
     ? { kind: 'agent', agentId: String(body.agent) }
     : { kind: 'new-agent', worktree: body?.worktree === true, name: body?.name ? String(body.name) : undefined, provider: body?.provider && isKnownProvider(String(body.provider)) ? (String(body.provider) as ProviderId) : undefined }
-  return assistantChange('agents', `start #${n} ${target.kind === 'agent' ? `on ${target.agentId}` : 'on a new agent'}${card.project ? ` in ${card.project}` : ''}`, async () => {
+  // The agent it is started on, when it exists (a new one is named once added).
+  const named = target.kind === 'agent' ? await knownAgent(card.project, target.agentId) : undefined
+  return assistantChange('agents', `start #${n} ${target.kind === 'agent' ? `on ${named?.name ?? 'an agent'}` : 'on a new agent'}${card.project ? ` in ${card.project}` : ''}`, { kind: 'start-task', card: n, ...(card.project ? { project: card.project } : {}), ...(named ? { agent: named } : {}) }, async () => {
     if (target.kind === 'new-agent' && body?.provider && !isKnownProvider(String(body.provider))) throw new HttpError(400, `Unknown provider "${body.provider}". hive_list_providers lists them.`)
     const r = await startTask(n, target, { kind: 'assistant' }, typeof body?.note === 'string' ? body.note : undefined)
     return {
       done: `Started #${n} on ${r.added ? 'a new agent, ' : ''}${r.agentName} in ${card.project}: ${clip(card.title, 80)}`,
+      act: { agent: { id: r.agentId, name: r.agentName }, column: r.card.column },
       result: { ok: true, agent: r.agentName, added: r.added, card: shortReply(body) ? taskRow(await taskView(r.card)) : await taskView(r.card) }
     }
   })
@@ -2389,7 +2421,7 @@ async function serveApi(req: IncomingMessage, res: ServerResponse, url: URL): Pr
     const notice = flagged ? await decisionsNotice(ws, before, began) : null
     send(res, 200, result ?? null, notice ? { 'X-Hive-Notice': encodeURIComponent(notice) } : {})
   } catch (e) {
-    const status = e instanceof HttpError ? e.status : e instanceof tasks.TaskPermissionError ? 403 : e instanceof tasks.TaskConflictError ? 409 : statusFor(e as Error)
+    const status = errorStatus(e)
     if (status === 500) log.error(`API ${req.method} ${url.pathname}`, e)
     send(res, status, { error: (e as Error).message, ...(e instanceof HttpError ? e.extra : undefined) })
   }
@@ -2444,6 +2476,11 @@ async function decisionsNotice(ws: WorkspaceService | null, before: Map<number, 
 }
 
 /** The HTTP status for an error thrown by the session and workspace services, which don't know about HTTP. */
+/** The status the Agent API answers an error with. */
+function errorStatus(e: unknown): number {
+  return e instanceof HttpError ? e.status : e instanceof tasks.TaskPermissionError ? 403 : e instanceof tasks.TaskConflictError ? 409 : statusFor(e as Error)
+}
+
 function statusFor(e: Error): number {
   const m = String(e?.message ?? '')
   if (/Invalid session id|URI malformed|Unknown provider|Project names cannot/i.test(m)) return 400

@@ -209,7 +209,7 @@ describe("the Hive Assistant's batch (through its change boundary)", () => {
   const singles = (n: number): number => {
     for (let i = 0; i < n; i++) {
       try {
-        control.admit(wsPath, token, 'agents', `activate the project batch (${i + 1})`)
+        control.admit(wsPath, token, 'agents', `activate the project batch (${i + 1})`, { kind: 'activate-project', project: 'batch' })
       } catch {
         return i
       }
@@ -229,6 +229,8 @@ describe("the Hive Assistant's batch (through its change boundary)", () => {
       expect(lines).toHaveLength(1)
       expect(lines[0].ok).toBe(true)
       expect(lines[0].text).toBe(`#${n} Asst ${i + 1}: Moved to Todo`)
+      // Its kind and targets (#763): a viewer follows a bulk move card by card.
+      expect(lines[0]).toMatchObject({ kind: 'update-tasks', card: n, column: 'todo', project: 'batch' })
     })
   })
 
@@ -276,6 +278,15 @@ describe("the Hive Assistant's batch (through its change boundary)", () => {
     expect(control.actionsLeft(wsPath)).toBe(control.MAX_ACTIONS_PER_TURN - 1)
     for (const c of [a, done, b]) expect(linesFor(c.number)).toHaveLength(1)
     expect(linesFor(done.number)[0].ok).toBe(false)
+    // The refused card has the kind tried, its number and project, and Hive's own reason for the stream (#763).
+    expect(linesFor(done.number)[0]).toMatchObject({ kind: 'update-tasks', card: done.number, project: 'batch', reason: 'Refused' })
+  })
+
+  it('names the agent a batch gives its cards to, on each card (#763)', async () => {
+    await fresh()
+    const cards = await Promise.all(['Desk one', 'Desk two'].map((t) => run(() => tasks.createTask({ title: t, project: 'alpha' }, user))))
+    await run(() => assistantBatch(wsPath, token, cards.map((c) => c.number), { agent: 'Agent 1' }, assistant))
+    for (const c of cards) expect(linesFor(c.number)[0]).toMatchObject({ ok: true, kind: 'update-tasks', card: c.number, project: 'alpha', agent: { id: 'a1', name: 'Agent 1' } })
   })
 
   it("batches at once don't exceed the message's limit: with two changes left, two of three apply", async () => {

@@ -104,7 +104,7 @@ Hive can show several workspaces, each in its own window (**File → New Window*
 ```json
 {
   "app": { "name": "Hive", "version": "0.3.1" },
-  "api": { "version": 4 },
+  "api": { "version": 5 },
   "caller": { "role": "agent", "project": "web", "agent": "Agent 1", "scope": "project" },
   "guidance": { "revision": "3f2a9c41d07be512", "skills": [{ "name": "work-on-card", "audience": "agents", "revision": "9b1c…", "bundled": "same" }] },
   "providers": [
@@ -556,7 +556,7 @@ Event types:
 | `merge-slots-changed` | `{ workspacePath, slots }`: the slots held or waited for, each `{ project (its folder), branch, holder, waiting }` as `GET /v1/projects/{name}/merge-slot` gives it | A merge slot was taken, released or waited for |
 | `notice` | `{ notice: { id, kind, title, projectPath, agentId? } }`: `kind` is `finished`, `waiting` or `notice`; `projectPath` is `null` for an app-wide one | Hive told the user something (a banner or a Windows notification; not when notifications are off). Its body (an agent's last reply, its question) isn't sent |
 | `notice-resolved` | `{ projectPath, agentId }` | That agent no longer waits for the user |
-| `assistant-activity` | `{ workspacePath, action: { id, at, text, ok, error?, revertOf? } }` | The Hive Assistant did something, or was refused (its panel's list). `text` is the line without what it quotes: the prompt or message it gave an agent, a setting's old and new values |
+| `assistant-activity` | `{ workspacePath, action: { id, at, text, ok, error?, revertOf?, kind, project?, agent?, toAgent?, card?, cards?, lane?, column?, settingId? } }` | The Hive Assistant did something, or was refused (its panel's list). `text` is the line for people, without what it quotes (the prompt or message it gave an agent, a setting's old and new values), and may be reworded or translated: a viewer reads `kind` and its targets instead ([Assistant activity](#assistant-activity), since `api.version` 5) |
 | `agent-added` | `{ projectPath, agentId }` | The Assistant (or a card it started) added an agent; it also comes as `workspace-changed` |
 
 **Nothing private is sent, to any token.** Every payload is built from a list of the fields it may carry, so there is no prompt, message, question or reply text, no terminal or CLI output, no command line, no notice body and no setting's value. A `session-status` event's `state` has: `provider`, `projectPath`, `agentId`, `agentName`, `cwd`, `sessionId`, `runId`, `sessionName`, `status`, `statusSince`, `startedAt`, `unseen`, `mergeSlot` and `watch` (Hive's own words: "Waiting for the merge slot (B4 is merging #305)", "Waiting for #12 → Review", with the watch's `cards`, `agents`, `lanes`, `column`, `changes`, `since` and `limitAt`), `notWatching`, `question: { since }` (it asked something without stopping; not what), `reviewing: true` (an action under the CLI's automatic review; not which), `signIn: { since }`, `untakenLine: { since }` (a line Hive typed that it hasn't taken), `inbox: { unread: [{ id, from, at, state }], overdue }` (its deliveries not received yet: who from, when and their state, not what they say; and how many weren't acked in time), `permissionMode`, `modeSwitching`, `planMode`, `modelName`, `modelId`, `effort`, `costUsd`, `costEstimated`, `contextWindow`, `backgroundTasks`, `settingUp` and `lockedFiles`. Its status message (the CLI's own words) isn't sent: `GET /v1/projects` gives it. Events cover every open workspace, so the Hive Assistant's token is refused here (403); it follows agents with `hive_wait_for_agents`. The workspace token and viewer tokens get every event. A project agent's own token gets its own project's `session-status`, `session-exit`, `notice`, `notice-resolved` and `agent-added` only (another project's carry their session names, which can name their cards), `progress-changed` and `merge-slots-changed` for its own workspace with its project's runs and slots only, and no `assistant-activity`; the other events carry no more than a path and come to it as to anyone. A client that stops reading (more than 1 MB of events waiting) is disconnected.
@@ -564,6 +564,45 @@ Event types:
 ```bash
 curl -N -H "Authorization: Bearer $HIVE_API_TOKEN" "$HIVE_API_URL/v1/events"
 ```
+
+### Assistant activity
+
+Each `assistant-activity` action says what it was with fields, from `api.version` 5 (#763), so a viewer (Apiary walking the Assistant to an agent's desk or the board) never reads `text`. `kind` is one of the set below; a refusal (`ok: false`) has the kind it tried, and its `error` is Hive's own short reason (`Not allowed`, `Not allowed by Settings → Assistant → Control`, `Not possible now`, `The request was invalid`, `Not found`, `Over the limit of changes for one message`, `Refused`, `Dropped as stale`, `Failed`), never the error's own text, which can quote what the Assistant sent; nor does `text` carry one (an agent added whose start failed is "Added B2 to hive; it didn't start"). The Assistant's panel shows the whole message. Its targets come wherever Hive knows them, on a refusal too:
+
+- `project`: the project, by name;
+- `agent`: `{ id, name }`, the agent it acted on: the one a card is started on, given to or is with after a change (also in a batch), a hand-over's from, a lane's builder, the reviewer joining a lane. An agent that doesn't exist yet (one being added) isn't named until it does;
+- `toAgent`: `{ id, name }`, a hand-over's to;
+- `card`: a card's number; `cards`: a lane's, a reorder's or a batch's cards;
+- `lane`: a lane's id;
+- `column`: where the card is after a move, or the column put in order (`hold`, `todo`, `doing`, `review`, `passed`, `done`);
+- `settingId`: a setting's id (as `hive_list_settings` lists it), never its value.
+
+Nothing private is added: no prompt or message text and no setting's value, the same allow-list as the rest of the stream. A field Hive doesn't know when the action is refused (a new card's number) isn't there.
+
+| `kind` | What the Assistant did | Example `action` (without `id` and `at`) |
+|---|---|---|
+| `start-task` | Started a card on an agent (`hive_start_task`) | `{ "kind": "start-task", "ok": true, "card": 741, "project": "amberlight", "agent": { "id": "a-3f9c01d2", "name": "AMB1" }, "column": "doing", "text": "Started #741 on AMB1 in amberlight: …" }` |
+| `prompt-agent` | Gave an agent a task (`hive_prompt_agent`) | `{ "kind": "prompt-agent", "ok": true, "project": "hive", "agent": { "id": "a-7b21e4aa", "name": "B1" } }` |
+| `message-agent` | Left an agent a message, maybe tied to a card (`hive_message_agent`); also a message of its that was refused or dropped as stale (`ok: false`) | `{ "kind": "message-agent", "ok": true, "project": "hive", "agent": { "id": "a-7b21e4aa", "name": "B1" }, "card": 12 }` |
+| `cancel-messages` | Cancelled the messages waiting for an agent | `{ "kind": "cancel-messages", "ok": true, "project": "hive", "agent": { "id": "a-7b21e4aa", "name": "B1" } }` |
+| `start-agent` | Started (or resumed) an agent | `{ "kind": "start-agent", "ok": true, "project": "hive", "agent": { "id": "a-7b21e4aa", "name": "B1" } }` |
+| `stop-agent` | Stopped an agent | `{ "kind": "stop-agent", "ok": false, "error": "Not possible now", "project": "hive", "agent": { "id": "a-7b21e4aa", "name": "B1" } }` |
+| `add-agent` | Added an agent (`agent` once it exists) | `{ "kind": "add-agent", "ok": true, "project": "hive", "agent": { "id": "a-0c55e1f9", "name": "B2" } }` |
+| `update-agent` | Changed an agent's settings | `{ "kind": "update-agent", "ok": true, "project": "hive", "agent": { "id": "a-7b21e4aa", "name": "B1" } }` |
+| `hand-over` | Handed one agent's work over to another | `{ "kind": "hand-over", "ok": true, "project": "hive", "agent": { "id": "a-7b21e4aa", "name": "B1" }, "toAgent": { "id": "a-0c55e1f9", "name": "B2" } }` |
+| `create-task` | Added a card | `{ "kind": "create-task", "ok": true, "card": 763, "column": "todo", "project": "hive" }` |
+| `update-task` | Changed, moved or commented on one card (`hive_update_task`) | `{ "kind": "update-task", "ok": true, "card": 12, "column": "review", "project": "hive", "agent": { "id": "a-7b21e4aa", "name": "B1" } }` |
+| `update-tasks` | A batch (`hive_update_tasks`): one action per card, each with its `card` and where it is | `{ "kind": "update-tasks", "ok": true, "card": 14, "column": "done", "project": "hive", "agent": { "id": "a-7b21e4aa", "name": "B1" } }` |
+| `reorder-tasks` | Put cards in order in a column | `{ "kind": "reorder-tasks", "ok": true, "column": "todo", "cards": [14, 12] }` |
+| `comment-task` | Commented on a card | `{ "kind": "comment-task", "ok": true, "card": 12 }` |
+| `lane-start` | Started (or changed) a lane | `{ "kind": "lane-start", "ok": true, "lane": "lane-0f89a0", "project": "hive", "cards": [713, 763], "agent": { "id": "a-745674db", "name": "HB3" } }` |
+| `lane-join` | Had a reviewer join a lane (`agent`: the reviewer) | `{ "kind": "lane-join", "ok": true, "lane": "lane-0f89a0", "project": "hive", "cards": [713, 763], "agent": { "id": "a-1d2e3f40", "name": "HR3" } }` |
+| `lane-end` | Ended a lane (merged or abandoned) | `{ "kind": "lane-end", "ok": true, "lane": "lane-0f89a0", "project": "hive", "cards": [713, 763], "agent": { "id": "a-745674db", "name": "HB3" } }` |
+| `create-project` | Created a project | `{ "kind": "create-project", "ok": true, "project": "apiary" }` |
+| `activate-project` | Turned a project on | `{ "kind": "activate-project", "ok": true, "project": "apiary" }` |
+| `deactivate-project` | Was refused turning a project off (only refusals are listed) | `{ "kind": "deactivate-project", "ok": false, "error": "Not allowed by Settings → Assistant → Control", "project": "apiary" }` |
+| `setting` | Changed one of Hive's settings | `{ "kind": "setting", "ok": true, "settingId": "sessions.confirmStop" }` |
+| `revert-setting` | The user reverted a setting the Assistant changed (`revertOf`: that action's id) | `{ "kind": "revert-setting", "ok": true, "settingId": "sessions.confirmStop", "revertOf": "…" }` |
 
 ---
 

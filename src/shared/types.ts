@@ -1,6 +1,7 @@
 // Types shared by the main process, preload bridge and renderer.
 
 import type { AvOffer } from './antivirus'
+import type { ActivityTarget } from './assistantActivity'
 import type { AttachmentKind } from './attachments'
 import type { StartFailure } from './startFailure'
 import type { TipsState } from './tips'
@@ -246,14 +247,17 @@ export interface AssistantSettings {
 export type AssistantControl = 'look' | 'agents' | 'projects'
 
 /** Something the Hive Assistant did (or tried), for the list in its panel and hive.log. */
-export interface AssistantAction {
+/** Also its kind and targets (#763, assistantActivity.ts): what the event stream gives viewers instead of the line. */
+export interface AssistantAction extends Partial<ActivityTarget> {
   id: string
   at: string
   /** One line, e.g. "Started Agent 2 in hive". */
   text: string
   ok: boolean
-  /** Why it failed or was refused. */
+  /** Why it failed or was refused, in full (its panel). */
   error?: string
+  /** Why, as the event stream says it (#763): Hive's own short words, never the error's text (publicReason). */
+  reason?: string
   /** A setting it changed (#186): old → new, which the list's Revert puts back. */
   setting?: AssistantSettingChange
   /** The user reverted that change (this action's id): the list marks the change as reverted. */
