@@ -7,8 +7,50 @@ import { commandKeybinding } from '../commands'
 import { set, useStore } from '../store'
 import { cx, formatKeybinding, timeAgo } from '../util'
 import { Icon, Markdown, Modal, Tooltip } from './ui'
+import { msg, tr } from '@shared/i18n'
 
-const mb = (bytes?: number): string => (bytes ? `${(bytes / 1024 / 1024).toFixed(1)} MB` : '')
+const M = {
+  mb: msg({ id: 'workspace.updates.mb', defaultMessage: '{mb, number, ::.0} MB', description: 'A size in megabytes (an update\'s download). Keep MB unless your language writes it otherwise.' }),
+  off: msg({ id: 'workspace.updates.off', defaultMessage: 'Updates are off in this build.', description: "Hive's updates, in Settings → Updates and About: this build doesn't update itself." }),
+  checking: msg({ id: 'workspace.updates.checking', defaultMessage: 'Checking for updates…', description: "Hive's updates: a check is running." }),
+  available: msg({ id: 'workspace.updates.available', defaultMessage: '{skipped, select, yes {Version {version} is available (skipped).} other {Version {version} is available.}}', description: "Hive's updates, in Settings → Updates and About: a newer version; (skipped) when you chose Skip This Version." }),
+  downloading: msg({ id: 'workspace.updates.downloading', defaultMessage: 'Downloading version {version}… {percent, number, ::percent}', description: "Hive's updates: the download's progress." }),
+  ready: msg({ id: 'workspace.updates.ready', defaultMessage: 'Version {version} is ready to install.', description: "Hive's updates: downloaded, installed on restart." }),
+  upToDate: msg({ id: 'workspace.updates.upToDate', defaultMessage: '{checked, select, yes {Up to date, checked {when}.} other {Up to date.}}', description: "Hive's updates: no newer version ({when}: \"4 minutes ago\")." }),
+  failed: msg({ id: 'workspace.updates.failed', defaultMessage: 'The last check failed.', description: "Hive's updates: the last check didn't work." }),
+  notChecked: msg({ id: 'workspace.updates.notChecked', defaultMessage: 'Not checked yet.', description: "Hive's updates: no check since Hive started." }),
+  itemAvailable: msg({ id: 'workspace.updates.itemAvailable', defaultMessage: '{app} {version} available', description: "The status bar: a newer Hive ({app}: Hive's name) can be downloaded. Keep it short." }),
+  itemDownloading: msg({ id: 'workspace.updates.itemDownloading', defaultMessage: 'Downloading {app} {version}… {percent, number, ::percent}', description: "The status bar: Hive's update downloading. Keep it short." }),
+  itemReady: msg({ id: 'workspace.updates.itemReady', defaultMessage: 'Restart to update to {version}', description: "The status bar: Hive's update is downloaded. Keep it short." }),
+  tipReady: msg({ id: 'workspace.updates.tipReady', defaultMessage: "{app} {version} has been downloaded. Click to see what's new and restart.", description: "Tooltip on the status bar's update item." }),
+  tipHave: msg({ id: 'workspace.updates.tipHave', defaultMessage: 'You have {app} {version}. Click for details.', description: "Tooltip on the status bar's update item." }),
+  versionTip: msg({ id: 'workspace.updates.versionTip', defaultMessage: '{app} {version}{dev, select, yes { (development build)} other {}} · Electron {electron}{hasSummary, select, yes { · {summary}} other {}}', description: "Tooltip on the status bar's version: Hive's version, Electron's, and the update state ({summary}). Keep Electron as it is." }),
+  titleReady: msg({ id: 'workspace.updates.titleReady', defaultMessage: 'Update Ready', description: "The update dialog's title: Hive's update is downloaded." }),
+  titleAvailable: msg({ id: 'workspace.updates.titleAvailable', defaultMessage: 'Update Available', description: "The update dialog's title: a newer Hive." }),
+  titleSoftware: msg({ id: 'workspace.updates.titleSoftware', defaultMessage: 'Software Update', description: "The update dialog's title otherwise." }),
+  ok: msg({ id: 'workspace.updates.ok', defaultMessage: 'OK', description: "The update dialog's button that closes it." }),
+  latest: msg({ id: 'workspace.updates.latest', defaultMessage: '{app} {version} is the latest version.', description: 'The update dialog: no newer Hive.' }),
+  releasesPage: msg({ id: 'workspace.updates.releasesPage', defaultMessage: 'Releases Page', description: "The update dialog after a failed check: opens Hive's releases on GitHub." }),
+  tryAgain: msg({ id: 'workspace.updates.tryAgain', defaultMessage: 'Try Again', description: 'The update dialog after a failed check: checks again.' }),
+  headReady: msg({ id: 'workspace.updates.headReady', defaultMessage: '{app} {version} is ready to install', description: 'The update dialog\'s heading: the update is downloaded.' }),
+  headAvailable: msg({ id: 'workspace.updates.headAvailable', defaultMessage: '{app} {version} is available', description: "The update dialog's heading: a newer Hive." }),
+  youHave: msg({ id: 'workspace.updates.youHave', defaultMessage: 'You have {version}', description: 'The update dialog, under its heading: the version installed (released and size follow).' }),
+  released: msg({ id: 'workspace.updates.released', defaultMessage: 'released {date}', description: "The update dialog, under its heading: when the new version was released. Lower case: it follows a ·." }),
+  progress: msg({ id: 'workspace.updates.progress', defaultMessage: '{percent, number, ::percent} · {done} of {total}', description: "The update dialog: the download's progress ({done}, {total}: sizes in MB)." }),
+  perSecond: msg({ id: 'workspace.updates.perSecond', defaultMessage: '{size}/s', description: "The update dialog: the download's speed ({size}: \"1.2 MB\")." }),
+  noNotes: msg({ id: 'workspace.updates.noNotes', defaultMessage: 'No release notes were published with this version.', description: 'The update dialog when the release has no notes.' }),
+  readyNote: msg({ id: 'workspace.updates.readyNote', defaultMessage: '{auto, select, yes {It installs automatically when you quit Hive. } other {}}Restart and Update closes Hive, installs the update and opens Hive again.{busy, select, yes { Some agents are busy: Hive asks before stopping them, and you can wait for them to finish.} other { Running sessions are stopped and can be resumed afterwards.}}', description: 'The update dialog when the update is downloaded. Restart and Update is its button.' }),
+  onGitHub: msg({ id: 'workspace.updates.onGitHub', defaultMessage: 'On GitHub', description: "The update dialog's button: the release on GitHub." }),
+  skip: msg({ id: 'workspace.updates.skip', defaultMessage: 'Skip This Version', description: "The update dialog's button: don't offer this version again." }),
+  later: msg({ id: 'workspace.updates.later', defaultMessage: 'Later', description: "The update dialog's button that closes it for now." }),
+  download: msg({ id: 'workspace.updates.download', defaultMessage: 'Download', description: "The update dialog's button: downloads the update." }),
+  restartUpdate: msg({ id: 'workspace.updates.restartUpdate', defaultMessage: 'Restart and Update', description: "The update dialog's button: installs the downloaded update." }),
+  details: msg({ id: 'workspace.updates.details', defaultMessage: 'Details', description: 'Settings → Updates: opens the update dialog.' }),
+  checkTip: msg({ id: 'workspace.updates.checkTip', defaultMessage: '{hasKey, select, yes {Check GitHub for a newer Hive now ({key})} other {Check GitHub for a newer Hive now}}', description: 'Tooltip on Check Now, with its shortcut ({key}).' }),
+  checkNow: msg({ id: 'workspace.updates.checkNow', defaultMessage: 'Check Now', description: 'Settings → Updates and About: checks for a newer Hive.' })
+}
+
+const mb = (bytes?: number): string => (bytes ? tr(M.mb, { mb: bytes / 1024 / 1024 }) : '')
 
 /** Checks now and shows the result in the update dialog. */
 export async function checkForUpdates(): Promise<void> {
@@ -25,21 +67,21 @@ export function updateSummary(u: UpdateState | null): string {
   if (!u) return ''
   switch (u.status) {
     case 'disabled':
-      return u.error ?? 'Updates are off in this build.'
+      return u.error ?? tr(M.off)
     case 'checking':
-      return 'Checking for updates…'
+      return tr(M.checking)
     case 'available':
-      return u.skipped ? `Version ${u.version} is available (skipped).` : `Version ${u.version} is available.`
+      return tr(M.available, { skipped: u.skipped ? 'yes' : 'no', version: u.version ?? '' })
     case 'downloading':
-      return `Downloading version ${u.version}… ${Math.round(u.progress?.percent ?? 0)}%`
+      return tr(M.downloading, { version: u.version ?? '', percent: Math.round(u.progress?.percent ?? 0) / 100 })
     case 'ready':
-      return `Version ${u.version} is ready to install.`
+      return tr(M.ready, { version: u.version ?? '' })
     case 'up-to-date':
-      return `Up to date${u.checkedAt ? `, checked ${timeAgo(u.checkedAt)}` : ''}.`
+      return tr(M.upToDate, { checked: u.checkedAt ? 'yes' : 'no', when: u.checkedAt ? timeAgo(u.checkedAt) : '' })
     case 'error':
-      return u.error ?? 'The last check failed.'
+      return u.error ?? tr(M.failed)
     default:
-      return 'Not checked yet.'
+      return tr(M.notChecked)
   }
 }
 
@@ -62,9 +104,9 @@ export function UpdateStatusItem() {
   const label = `${appName(info.isPackaged)} ${info.version}`
   const open = (): void => set({ updateOpen: true })
   if (u && !u.skipped && (u.status === 'available' || u.status === 'downloading' || u.status === 'ready')) {
-    const text =
-      u.status === 'available' ? `${APP_NAME} ${u.version} available` : u.status === 'downloading' ? `Downloading ${APP_NAME} ${u.version}… ${Math.round(u.progress?.percent ?? 0)}%` : `Restart to update to ${u.version}`
-    const tip = u.status === 'ready' ? `${APP_NAME} ${u.version} has been downloaded. Click to see what's new and restart.` : `You have ${APP_NAME} ${info.version}. Click for details.`
+    const version = u.version ?? ''
+    const text = u.status === 'available' ? tr(M.itemAvailable, { app: APP_NAME, version }) : u.status === 'downloading' ? tr(M.itemDownloading, { app: APP_NAME, version, percent: Math.round(u.progress?.percent ?? 0) / 100 }) : tr(M.itemReady, { version })
+    const tip = u.status === 'ready' ? tr(M.tipReady, { app: APP_NAME, version }) : tr(M.tipHave, { app: APP_NAME, version: info.version })
     return (
       <Tooltip content={tip}>
         <div className={cx('status-item update-item', u.status === 'ready' && 'ready')} onClick={open}>
@@ -74,7 +116,7 @@ export function UpdateStatusItem() {
     )
   }
   return (
-    <Tooltip content={`${APP_NAME} ${info.version}${info.isPackaged ? '' : ' (development build)'} · Electron ${info.electron}${u && u.status !== 'disabled' ? ` · ${updateSummary(u)}` : ''}`}>
+    <Tooltip content={tr(M.versionTip, { app: APP_NAME, version: info.version, dev: info.isPackaged ? 'no' : 'yes', electron: info.electron, hasSummary: u && u.status !== 'disabled' ? 'yes' : 'no', summary: u && u.status !== 'disabled' ? updateSummary(u) : '' })}>
       <div className="status-item" onClick={() => set({ aboutOpen: true })}>
         {u?.status === 'checking' ? <Icon name="loading" spin /> : <HiveMark />} {label}
       </div>
@@ -90,12 +132,12 @@ export function UpdateDialog() {
   if (!open || !u) return null
   const close = (): void => set({ updateOpen: false })
   const auto = settings?.updates.install === 'auto'
-  const title = u.status === 'ready' ? 'Update Ready' : u.status === 'available' || u.status === 'downloading' ? 'Update Available' : 'Software Update'
+  const title = tr(u.status === 'ready' ? M.titleReady : u.status === 'available' || u.status === 'downloading' ? M.titleAvailable : M.titleSoftware)
 
   let body: React.ReactNode
   let footer: React.ReactNode = (
     <button className="btn primary" onClick={close}>
-      OK
+      {tr(M.ok)}
     </button>
   )
   switch (u.status) {
@@ -103,14 +145,14 @@ export function UpdateDialog() {
     case 'idle':
       body = (
         <p className="update-line">
-          <Icon name="loading" spin /> Checking for updates…
+          <Icon name="loading" spin /> {tr(M.checking)}
         </p>
       )
       break
     case 'up-to-date':
       body = (
         <p className="update-line">
-          <Icon name="pass-filled" className="ok" /> {APP_NAME} {u.current} is the latest version.
+          <Icon name="pass-filled" className="ok" /> {tr(M.latest, { app: APP_NAME, version: u.current })}
         </p>
       )
       break
@@ -130,13 +172,13 @@ export function UpdateDialog() {
       footer = (
         <>
           <button className="btn subtle" onClick={() => openReleaseNotes()}>
-            Releases Page
+            {tr(M.releasesPage)}
           </button>
           <button className="btn subtle" onClick={() => void checkForUpdates()}>
-            Try Again
+            {tr(M.tryAgain)}
           </button>
           <button className="btn primary" onClick={close}>
-            OK
+            {tr(M.ok)}
           </button>
         </>
       )
@@ -149,12 +191,12 @@ export function UpdateDialog() {
             <Icon name={u.status === 'ready' ? 'debug-restart' : 'cloud-download'} />
             <div>
               <strong>
-                {u.status === 'ready' ? `${APP_NAME} ${u.version} is ready to install` : `${APP_NAME} ${u.version} is available`}
+                {tr(u.status === 'ready' ? M.headReady : M.headAvailable, { app: APP_NAME, version: u.version ?? '' })}
                 {u.releaseName && u.releaseName !== u.version && u.releaseName !== `v${u.version}` ? ` — ${u.releaseName}` : ''}
               </strong>
               <div className="faint">
-                You have {u.current}
-                {u.releaseDate ? ` · released ${formatDate(u.releaseDate)}` : ''}
+                {tr(M.youHave, { version: u.current })}
+                {u.releaseDate ? ` · ${tr(M.released, { date: formatDate(u.releaseDate) })}` : ''}
                 {u.size ? ` · ${mb(u.size)}` : ''}
               </div>
             </div>
@@ -165,8 +207,8 @@ export function UpdateDialog() {
                 <span style={{ width: `${pct}%` }} />
               </div>
               <span className="faint">
-                {pct}% · {mb(u.progress?.transferred)} of {mb(u.progress?.total || u.size)}
-                {u.progress?.bytesPerSecond ? ` · ${mb(u.progress.bytesPerSecond)}/s` : ''}
+                {tr(M.progress, { percent: pct / 100, done: mb(u.progress?.transferred), total: mb(u.progress?.total || u.size) })}
+                {u.progress?.bytesPerSecond ? ` · ${tr(M.perSecond, { size: mb(u.progress.bytesPerSecond) })}` : ''}
               </span>
             </div>
           )}
@@ -175,12 +217,11 @@ export function UpdateDialog() {
               <Markdown source={u.releaseNotes} />
             </div>
           ) : (
-            <p className="faint">No release notes were published with this version.</p>
+            <p className="faint">{tr(M.noNotes)}</p>
           )}
           {u.status === 'ready' && (
             <p className="faint update-note">
-              {auto ? 'It installs automatically when you quit Hive. ' : ''}Restart and Update closes Hive, installs the update and opens Hive again.
-              {working ? ' Some agents are busy: Hive asks before stopping them, and you can wait for them to finish.' : ' Running sessions are stopped and can be resumed afterwards.'}
+              {tr(M.readyNote, { auto: auto ? 'yes' : 'no', busy: working ? 'yes' : 'no' })}
             </p>
           )}
         </>
@@ -188,7 +229,7 @@ export function UpdateDialog() {
       footer = (
         <>
           <button className="btn subtle" onClick={() => openReleaseNotes(u.version)}>
-            <Icon name="link-external" /> On GitHub
+            <Icon name="link-external" /> {tr(M.onGitHub)}
           </button>
           {u.status === 'available' && !u.skipped && (
             <button
@@ -198,15 +239,15 @@ export function UpdateDialog() {
                 close()
               }}
             >
-              Skip This Version
+              {tr(M.skip)}
             </button>
           )}
           <button className="btn subtle" onClick={close}>
-            Later
+            {tr(M.later)}
           </button>
           {u.status === 'available' && (
             <button className="btn primary" onClick={() => void call('update:download')}>
-              <Icon name="cloud-download" /> Download
+              <Icon name="cloud-download" /> {tr(M.download)}
             </button>
           )}
           {u.status === 'ready' && (
@@ -217,7 +258,7 @@ export function UpdateDialog() {
                 void call('update:install')
               }}
             >
-              <Icon name="debug-restart" /> Restart and Update
+              <Icon name="debug-restart" /> {tr(M.restartUpdate)}
             </button>
           )}
         </>
@@ -240,12 +281,12 @@ export function UpdateStatusRow() {
       <span className={cx('badge', u?.status === 'ready' || u?.status === 'available' ? 'accent' : u?.status === 'up-to-date' ? 'success' : u?.status === 'error' ? 'error' : '')}>{updateSummary(u)}</span>
       {(u?.status === 'available' || u?.status === 'downloading' || u?.status === 'ready') && (
         <button className="btn small primary" onClick={() => set({ updateOpen: true })}>
-          Details
+          {tr(M.details)}
         </button>
       )}
-      <Tooltip content={`Check GitHub for a newer Hive now${kb ? ` (${formatKeybinding(kb)})` : ''}`}>
+      <Tooltip content={tr(M.checkTip, { hasKey: kb ? 'yes' : 'no', key: kb ? formatKeybinding(kb) : '' })}>
         <button className="btn small subtle" disabled={u?.status === 'disabled' || u?.status === 'checking' || u?.status === 'downloading'} onClick={() => void checkForUpdates()}>
-          Check Now
+          {tr(M.checkNow)}
         </button>
       </Tooltip>
     </div>

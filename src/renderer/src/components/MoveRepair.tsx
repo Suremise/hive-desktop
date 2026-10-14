@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from 'react'
+import { Children, useCallback, useEffect, useState } from 'react'
 import type { MoveCards, MoveOptions, MovePlan, MoveReport, MoveWorktree, WorkspaceMoved } from '@shared/types'
 import { providerName } from '@shared/providers'
 import { moveHasWork } from '@shared/movePaths'
@@ -6,6 +6,7 @@ import { call } from '../api'
 import { set, useStore } from '../store'
 import { BusyButton, Icon, IconButton, Modal, useBusy } from './ui'
 import { cx } from '../util'
+import { fmt, msg, tr, tRich, type Msg } from '@shared/i18n'
 
 /**
  * A workspace (or project) moved to another folder since Hive last opened it (#146): a banner over the main area, and
@@ -15,42 +16,91 @@ import { cx } from '../util'
 
 const movedKey = (m: WorkspaceMoved): string => `${m.from ?? ''}|${m.projects.join('|')}|${m.pending.join('|')}|${(m.cards ?? []).map((c) => `${c.from}>${c.to}:${c.cards.length}`).join('|')}`
 
-const counted = (n: number, one: string, many = `${one}s`): string => `${n} ${n === 1 ? one : many}`
-/** What was saved under a project's old name (#508): "9 cards", "9 cards and 1 lane". */
-const savedUnder = (m: MoveCards): string => {
-  const parts = [m.cards.length ? counted(m.cards.length, 'card') : '', m.lanes ? counted(m.lanes, 'lane') : '', m.watches ? counted(m.watches, 'card watch', 'card watches') : ''].filter(Boolean)
-  return parts.length > 1 ? `${parts.slice(0, -1).join(', ')} and ${parts.at(-1)}` : parts[0] ?? ''
+const M = {
+  cards: msg({ id: 'workspace.move.cards', defaultMessage: '{count, plural, one {# card} other {# cards}}', description: "Board items saved under a project's old name: cards (listed with lanes and card watches)." }),
+  lanes: msg({ id: 'workspace.move.lanes', defaultMessage: '{count, plural, one {# lane} other {# lanes}}', description: "Board items saved under a project's old name: card loops' lanes." }),
+  watches: msg({ id: 'workspace.move.watches', defaultMessage: '{count, plural, one {# card watch} other {# card watches}}', description: "Board items saved under a project's old name: agents' card watches." }),
+  cardsLine: msg({ id: 'workspace.move.cardsLine', defaultMessage: '{total, plural, one {{what} of {from} belongs to {to}} other {{what} of {from} belong to {to}}}', description: 'What was left under a project\'s old name ({what}: "9 cards and 1 lane"; {from}: the old name; {to}: the project now). {total} counts them all.' }),
+  fromWorkspace: msg({ id: 'workspace.move.fromWorkspace', defaultMessage: 'This workspace was moved from <mono>{from}</mono>.', description: 'The banner over a moved workspace. <mono> is the old folder, in a fixed-width font.' }),
+  projects: msg({ id: 'workspace.move.projects', defaultMessage: '{count, plural, one {The project {name} was moved to another folder.} other {# projects were moved to another folder.}}', description: 'The banner when projects moved.' }),
+  pending: msg({ id: 'workspace.move.pending', defaultMessage: 'A worktree of {projects} was made again at a new folder, and not everything has followed it yet.', description: 'The banner when a worktree was made again elsewhere.' }),
+  stillPoint: msg({ id: 'workspace.move.stillPoint', defaultMessage: "Agents' worktrees, sessions and conversations still point to the old folder.", description: 'The banner over a moved workspace or project, after what moved.' }),
+  cardsBanner: msg({ id: 'workspace.move.cardsBanner', defaultMessage: '{lines}, which was renamed or moved: the board still lists them under the old name.', description: 'The banner when cards are listed under a project\'s old name ({lines}: "9 cards of hive-website belong to website", several separated by ;).' }),
+  repair: msg({ id: 'workspace.move.repairButton', defaultMessage: 'Repair…', description: 'The banner over a moved workspace: opens Repair.' }),
+  hide: msg({ id: 'workspace.move.hide', defaultMessage: 'Hide for now (Repair Moved Workspace… stays in the command palette)', description: "The banner's close button. Repair Moved Workspace… is the command's name." }),
+  undo: msg({ id: 'workspace.move.undo', defaultMessage: 'Undo', description: "Repair's plan: takes back a choice made for a missing worktree." }),
+  unlink: msg({ id: 'workspace.move.unlink', defaultMessage: "Remove <b>{agent}</b>'s worktree link (its folder, if it turns up, is left as it is).", description: "Repair's plan, a line. <b> is bold." }),
+  recreate: msg({ id: 'workspace.move.recreate', defaultMessage: "Recreate <b>{agent}</b>'s worktree on its branch <mono>{branch}</mono>, with its commits, at <mono>{to}</mono>; its setup command runs at its next start.", description: "Repair's plan, a line. <b> is bold; <mono> a branch or folder." }),
+  createNew: msg({ id: 'workspace.move.createNew', defaultMessage: 'Create a new worktree for <b>{agent}</b> on <mono>{branch}</mono> (its branch is gone too), at <mono>{to}</mono>; its setup command runs at its next start.', description: "Repair's plan, a line. <b> is bold; <mono> a branch or folder." }),
+  missing: msg({ id: 'workspace.move.missing', defaultMessage: "<b>{agent}</b>'s worktree wasn't found (it was at <mono>{from}</mono>){gone, select, yes {, and its branch is gone too} other {}}.", description: "Repair's plan, a line; choices follow. <b> is bold; <mono> a folder." }),
+  recreateButton: msg({ id: 'workspace.move.recreateButton', defaultMessage: 'Recreate worktree', description: "Repair's plan: a missing worktree's choice." }),
+  createButton: msg({ id: 'workspace.move.createButton', defaultMessage: 'Create a new worktree', description: "Repair's plan: a missing worktree's choice when its branch is gone too." }),
+  locate: msg({ id: 'workspace.move.locate', defaultMessage: 'Locate…', description: "Repair's plan: a missing worktree's choice (pick its folder)." }),
+  unlinkButton: msg({ id: 'workspace.move.unlinkButton', defaultMessage: "Remove the agent's worktree link", description: "Repair's plan: a missing worktree's choice." }),
+  original: msg({ id: 'workspace.move.original', defaultMessage: "<b>{agent}</b>'s worktree stays with the project at its old folder, which is still there (this looks like a copy).", description: "Repair's plan, a line. <b> is bold." }),
+  found: msg({ id: 'workspace.move.found', defaultMessage: "<b>{agent}</b>'s worktree: {how, select, stayed {relink <mono>{to}</mono> to the moved project} other {now at <mono>{to}</mono>}}{located, select, yes { (located)} other {}} — <faint>git worktree repair</faint>", description: "Repair's plan, a line. <b> is bold; <mono> a folder; <faint> is the git command Repair runs (keep it as it is)." }),
+  close: msg({ id: 'workspace.move.close', defaultMessage: 'Close', description: "Repair's button after it ran." }),
+  cancel: msg({ id: 'workspace.move.cancel', defaultMessage: 'Cancel', description: "Repair's button that closes it." }),
+  repairing: msg({ id: 'workspace.move.repairing', defaultMessage: 'Repairing…', description: "Repair's button while it works." }),
+  repairConfirm: msg({ id: 'workspace.move.repair', defaultMessage: 'Repair', description: "Repair's button." }),
+  title: msg({ id: 'workspace.move.title', defaultMessage: 'Repair a Moved Workspace', description: "Repair's dialog title." }),
+  problems: msg({ id: 'workspace.move.problems', defaultMessage: 'Repair finished, with problems:', description: 'After Repair; what failed follows.' }),
+  repaired: msg({ id: 'workspace.move.repaired', defaultMessage: 'Repaired. Everything now points to where the workspace is.', description: 'After Repair.' }),
+  leftToDo: msg({ id: 'workspace.move.leftToDo', defaultMessage: 'Repair finished; something is left to do:', description: 'After Repair; what is left follows.' }),
+  stays: msg({ id: 'workspace.move.stays', defaultMessage: "Repair… stays in the banner until it's done; running it again repeats nothing already done.", description: 'After Repair, when something is left to do.' }),
+  working: msg({ id: 'workspace.move.working', defaultMessage: 'Working out what moved…', description: 'Repair while it reads what moved.' }),
+  nothing: msg({ id: 'workspace.move.nothing', defaultMessage: 'Nothing to repair: everything already points to where the workspace is now.', description: 'Repair with nothing to do.' }),
+  movedFromTo: msg({ id: 'workspace.move.movedFromTo', defaultMessage: 'The workspace moved from <mono>{from}</mono> to <mono>{to}</mono>. Repair will:', description: "Repair's plan, at the top; what it does follows. <mono> is a folder." }),
+  projectsMoved: msg({ id: 'workspace.move.projectsMoved', defaultMessage: 'Projects moved to another folder. Repair will:', description: "Repair's plan, at the top; what it does follows." }),
+  cardsOld: msg({ id: 'workspace.move.cardsOld', defaultMessage: "Cards are listed under a project's old name. Repair will:", description: "Repair's plan, at the top; what it does follows." }),
+  sessions: msg({ id: 'workspace.move.sessions', defaultMessage: '{count, plural, one {Point # session to the new folder, so it resumes where it ran.} other {Point # sessions to the new folders, so they resume where they ran.}}', description: "Repair's plan, a line." }),
+  copy: msg({ id: 'workspace.move.copy', defaultMessage: "Copy {count, plural, one {# file} other {# files}} of {provider}'s conversations and memory for {hasOf, select, yes {{of}} other {the folder}} to its folder for the new path (<mono>{to}</mono>); the old one stays.", description: "Repair's plan, a line: a coding agent's ({provider}: Claude Code) own folder for a project. <mono> is a folder." }),
+  copyNone: msg({ id: 'workspace.move.copyNone', defaultMessage: "{provider}'s conversations and memory for {hasOf, select, yes {{of}} other {the folder}}:", description: "Repair's plan, a line: a coding agent's own folder, when nothing is copied (why follows)." }),
+  kept: msg({ id: 'workspace.move.kept', defaultMessage: "{count, plural, one {# file is} other {# files are}} already in <mono>{to}</mono> with other content and won't be overwritten: {files}{more, plural, =0 {} other { and # more}}.", description: "Repair's plan: files left as they are ({files}: up to five names)." }),
+  unreadable: msg({ id: 'workspace.move.unreadable', defaultMessage: "{count} can't be read: {files}{more, plural, =0 {} other { and # more}}. Repair tries {count, plural, one {it} other {them}} again.", description: "Repair's plan: files that couldn't be read ({files}: up to five names)." }),
+  board: msg({ id: 'workspace.move.board', defaultMessage: 'Board', description: "Repair's plan: the heading over the board's lines." }),
+  give: msg({ id: 'workspace.move.give', defaultMessage: 'Give the {what} saved under <b>{from}</b>{hasCards, select, yes { ({cards})} other {}} to <b>{to}</b>, where cards show with their agents, archived ones too.', description: "Repair's plan, a line ({what}: \"9 cards and 1 lane\"; {cards}: their numbers). <b> is bold." }),
+  recent: msg({ id: 'workspace.move.recent', defaultMessage: 'Open Recent: list <mono>{to}</mono> instead of the old folder.', description: "Repair's plan: File → Open Recent's entry. <mono> is a folder." }),
+  workingOn: msg({ id: 'workspace.move.workingOn', defaultMessage: 'Working on: mark {projects} again, as at the old folder.', description: "Repair's plan: the projects marked as being worked on." }),
+  untouched: msg({ id: 'workspace.move.untouched', defaultMessage: 'Nothing at the old location is moved or deleted.', description: "Repair's plan, at the bottom." }),
+  stopFirst: msg({ id: 'workspace.move.stopFirst', defaultMessage: 'Stop the running agents first: {agents}.', description: "Repair's plan: why Repair can't run yet." })
 }
+
+const bold = (c: React.ReactNode[]): React.ReactNode => <strong>{c}</strong>
+const mono = (c: React.ReactNode[]): React.ReactNode => <span className="mono">{c}</span>
+const faint = (c: React.ReactNode[]): React.ReactNode => <span className="faint">{c}</span>
+const TAGS = { b: bold, mono, faint }
+/** A message with markup (<b>, <mono>, <faint>), as React nodes. */
+const rich = (m: Msg, values: Record<string, string | number>): React.ReactNode[] => Children.toArray(tRich<React.ReactNode>(m, { ...values, ...TAGS }))
+
+/** What was saved under a project's old name (#508): "9 cards", "9 cards and 1 lane". */
+const savedUnder = (m: MoveCards): string => fmt.list([m.cards.length ? tr(M.cards, { count: m.cards.length }) : '', m.lanes ? tr(M.lanes, { count: m.lanes }) : '', m.watches ? tr(M.watches, { count: m.watches }) : ''].filter(Boolean))
 /** "9 cards of hive-website belong to website": what was left under a project's old name (#508). */
-const cardsLine = (m: MoveCards): string => `${savedUnder(m)} of ${m.from} belong${m.cards.length + (m.lanes ?? 0) + (m.watches ?? 0) === 1 ? 's' : ''} to ${m.to}`
+const cardsLine = (m: MoveCards): string => tr(M.cardsLine, { what: savedUnder(m), from: m.from, to: m.to, total: m.cards.length + (m.lanes ?? 0) + (m.watches ?? 0) })
 
 export function MovedBanner() {
   const moved = useStore((s) => s.workspace?.moved ?? null)
   const hidden = useStore((s) => s.moveBannerHidden)
   if (!moved || hidden === movedKey(moved)) return null
   const what = moved.from ? (
-    <>
-      This workspace was moved from <span className="mono">{moved.from}</span>.
-    </>
+    <>{rich(M.fromWorkspace, { from: moved.from })}</>
   ) : moved.projects.length ? (
-    <>
-      {moved.projects.length === 1 ? `The project ${moved.projects[0]} was` : `${moved.projects.length} projects were`} moved to another folder.
-    </>
+    <>{tr(M.projects, { count: moved.projects.length, name: moved.projects[0] })}</>
   ) : moved.pending.length ? (
-    <>A worktree of {moved.pending.join(', ')} was made again at a new folder, and not everything has followed it yet.</>
+    <>{tr(M.pending, { projects: fmt.list(moved.pending, 'unit') })}</>
   ) : null
   const cards = moved.cards ?? []
   return (
     <div className="banner warn moved-banner">
       <Icon name="folder-opened" />{' '}
       <span className="grow">
-        {what ? <>{what} Agents' worktrees, sessions and conversations still point to the old folder.</> : null}
-        {cards.length > 0 && <>{what ? ' ' : ''}{cards.map(cardsLine).join('; ')}, which was renamed or moved: the board still lists them under the old name.</>}
+        {what ? <>{what} {tr(M.stillPoint)}</> : null}
+        {cards.length > 0 && <>{what ? ' ' : ''}{tr(M.cardsBanner, { lines: cards.map(cardsLine).join('; ') })}</>}
       </span>
       <button className="btn small primary" onClick={() => set({ moveRepairOpen: true })}>
-        Repair…
+        {tr(M.repair)}
       </button>
-      <IconButton icon="close" title="Hide for now (Repair Moved Workspace… stays in the command palette)" onClick={() => set({ moveBannerHidden: movedKey(moved) })} />
+      <IconButton icon="close" title={tr(M.hide)} onClick={() => set({ moveBannerHidden: movedKey(moved) })} />
     </div>
   )
 }
@@ -64,44 +114,35 @@ function WorktreeLine({ host, w, onLocate, onChoose }: { host: string; w: MoveWo
   const k = key(host, w.agentId)
   const undo = (
     <button className="btn small subtle" onClick={() => onChoose(k, null)}>
-      Undo
+      {tr(M.undo)}
     </button>
   )
   if (w.how === 'unlink') {
     return (
       <li>
-        Remove <strong>{w.agentName}</strong>'s worktree link (its folder, if it turns up, is left as it is). {undo}
+        {rich(M.unlink, { agent: w.agentName })} {undo}
       </li>
     )
   }
   if (w.how === 'recreate') {
     return (
       <li>
-        {w.branchExists ? (
-          <>
-            Recreate <strong>{w.agentName}</strong>'s worktree on its branch <span className="mono">{w.branch}</span>, with its commits
-          </>
-        ) : (
-          <>
-            Create a new worktree for <strong>{w.agentName}</strong> on <span className="mono">{w.branch}</span> (its branch is gone too)
-          </>
-        )}
-        , at <span className="mono">{w.to}</span>; its setup command runs at its next start. {undo}
+        {rich(w.branchExists ? M.recreate : M.createNew, { agent: w.agentName, branch: w.branch ?? '', to: w.to ?? '' })} {undo}
       </li>
     )
   }
   if (w.how === 'missing') {
     return (
       <li className="warn-text">
-        <strong>{w.agentName}</strong>'s worktree wasn't found (it was at <span className="mono">{w.from}</span>){w.branchExists ? '' : ', and its branch is gone too'}.{' '}
+        {rich(M.missing, { agent: w.agentName, from: w.from, gone: w.branchExists ? 'no' : 'yes' })}{' '}
         <button className="btn small subtle" onClick={() => onChoose(k, 'recreate')}>
-          {w.branchExists ? 'Recreate worktree' : 'Create a new worktree'}
+          {tr(w.branchExists ? M.recreateButton : M.createButton)}
         </button>{' '}
         <button className="btn small subtle" onClick={() => onLocate(k, w.agentId)}>
-          Locate…
+          {tr(M.locate)}
         </button>{' '}
         <button className="btn small subtle" onClick={() => onChoose(k, 'unlink')}>
-          Remove the agent's worktree link
+          {tr(M.unlinkButton)}
         </button>
       </li>
     )
@@ -109,14 +150,13 @@ function WorktreeLine({ host, w, onLocate, onChoose }: { host: string; w: MoveWo
   if (w.how === 'original') {
     return (
       <li className="faint">
-        <strong>{w.agentName}</strong>'s worktree stays with the project at its old folder, which is still there (this looks like a copy).
+        {rich(M.original, { agent: w.agentName })}
       </li>
     )
   }
   return (
     <li>
-      <strong>{w.agentName}</strong>'s worktree: {w.how === 'stayed' ? <>relink <span className="mono">{w.to}</span> to the moved project</> : <>now at <span className="mono">{w.to}</span></>}
-      {w.how === 'located' && ' (located)'} — <span className="faint">git worktree repair</span>
+      {rich(M.found, { agent: w.agentName, how: w.how === 'stayed' ? 'stayed' : 'moved', to: w.to ?? '', located: w.how === 'located' ? 'yes' : 'no' })}
     </li>
   )
 }
@@ -165,49 +205,38 @@ export function MoveRepairDialog() {
   const nothing = plan !== undefined && (!plan || !moveHasWork(plan))
   const footer = report ? (
     <button className="btn primary" onClick={close} autoFocus>
-      Close
+      {tr(M.close)}
     </button>
   ) : (
     <>
       <button className="btn" onClick={close}>
-        Cancel
+        {tr(M.cancel)}
       </button>
-      <BusyButton className="primary" busy={action.busy === 'repair'} busyLabel="Repairing…" disabled={!plan || nothing || plan.running.length > 0 || action.busy === 'plan'} onClick={() => void repair()}>
-        Repair
+      <BusyButton className="primary" busy={action.busy === 'repair'} busyLabel={tr(M.repairing)} disabled={!plan || nothing || plan.running.length > 0 || action.busy === 'plan'} onClick={() => void repair()}>
+        {tr(M.repairConfirm)}
       </BusyButton>
     </>
   )
   return (
-    <Modal title="Repair a Moved Workspace" icon="folder-opened" onClose={close} footer={footer} wide busy={action.busy === 'repair'} error={action.error}>
+    <Modal title={tr(M.title)} icon="folder-opened" onClose={close} footer={footer} wide busy={action.busy === 'repair'} error={action.error}>
       <div className="move-repair">
         {report ? (
           <>
-            <p>{report.failed.length ? 'Repair finished, with problems:' : report.complete ? 'Repaired. Everything now points to where the workspace is.' : 'Repair finished; something is left to do:'}</p>
+            <p>{tr(report.failed.length ? M.problems : report.complete ? M.repaired : M.leftToDo)}</p>
             {report.failed.length > 0 && <ReportList icon="error" className="warn-text" lines={report.failed} />}
             {report.done.length > 0 && <ReportList icon="check" lines={report.done} />}
             {report.skipped.length > 0 && <ReportList icon="info" className="faint" lines={report.skipped} />}
-            {!report.complete && <p className="hint">Repair… stays in the banner until it's done; running it again repeats nothing already done.</p>}
+            {!report.complete && <p className="hint">{tr(M.stays)}</p>}
           </>
         ) : plan === undefined ? (
           <p className="faint">
-            <Icon name="loading" spin /> Working out what moved…
+            <Icon name="loading" spin /> {tr(M.working)}
           </p>
         ) : !plan || nothing ? (
-          <p>Nothing to repair: everything already points to where the workspace is now.</p>
+          <p>{tr(M.nothing)}</p>
         ) : (
           <>
-            <p>
-              {plan.from ? (
-                <>
-                  The workspace moved from <span className="mono">{plan.from}</span> to <span className="mono">{plan.to}</span>.
-                </>
-              ) : plan.hosts.length ? (
-                <>Projects moved to another folder.</>
-              ) : (
-                <>Cards are listed under a project's old name.</>
-              )}{' '}
-              Repair will:
-            </p>
+            <p>{plan.from ? rich(M.movedFromTo, { from: plan.from, to: plan.to }) : tr(plan.hosts.length ? M.projectsMoved : M.cardsOld)}</p>
             {plan.hosts.map((h) => {
               const copies = h.folders.filter((f) => f.copy > 0 || f.kept.length > 0 || !!f.failed?.length)
               if (!h.worktrees.length && !h.sessions && !copies.length) return null
@@ -219,33 +248,21 @@ export function MoveRepairDialog() {
                       <WorktreeLine key={w.agentId} host={h.path} w={w} onLocate={(k, id) => void locate(k, id)} onChoose={pick} />
                     ))}
                     {h.sessions > 0 && (
-                      <li>
-                        Point {h.sessions} session{h.sessions === 1 ? '' : 's'} to the new folder{h.sessions === 1 ? '' : 's'}, so they resume where they ran.
-                      </li>
+                      <li>{tr(M.sessions, { count: h.sessions })}</li>
                     )}
                     {copies.map((f) => (
                       <li key={`${f.provider}:${f.from}`}>
-                        {f.copy > 0 ? (
-                          <>
-                            Copy {f.copy} file{f.copy === 1 ? '' : 's'} of {providerName(f.provider)}'s conversations and memory for {f.of ?? 'the folder'} to its folder for the new path (<span className="mono">{f.to}</span>); the old one stays.
-                          </>
-                        ) : (
-                          <>
-                            {providerName(f.provider)}'s conversations and memory for {f.of ?? 'the folder'}:
-                          </>
-                        )}
+                        {f.copy > 0 ? rich(M.copy, { count: f.copy, provider: providerName(f.provider), hasOf: f.of ? 'yes' : 'no', of: f.of ?? '', to: f.to }) : tr(M.copyNone, { provider: providerName(f.provider), hasOf: f.of ? 'yes' : 'no', of: f.of ?? '' })}
                         {f.kept.length > 0 && (
                           <span className="faint">
                             {' '}
-                            {f.kept.length} file{f.kept.length === 1 ? ' is' : 's are'} already in <span className="mono">{f.to}</span> with other content and won't be overwritten: {f.kept.slice(0, 5).join(', ')}
-                            {f.kept.length > 5 ? ` and ${f.kept.length - 5} more` : ''}.
+                            {rich(M.kept, { count: f.kept.length, to: f.to, files: fmt.list(f.kept.slice(0, 5), 'unit'), more: Math.max(0, f.kept.length - 5) })}
                           </span>
                         )}
                         {!!f.failed?.length && (
                           <span className="warn-text">
                             {' '}
-                            {f.failed.length} can't be read: {f.failed.slice(0, 5).join(', ')}
-                            {f.failed.length > 5 ? ` and ${f.failed.length - 5} more` : ''}. Repair tries {f.failed.length === 1 ? 'it' : 'them'} again.
+                            {tr(M.unreadable, { count: f.failed.length, files: fmt.list(f.failed.slice(0, 5), 'unit'), more: Math.max(0, f.failed.length - 5) })}
                           </span>
                         )}
                       </li>
@@ -256,26 +273,22 @@ export function MoveRepairDialog() {
             })}
             {(plan.cards ?? []).length > 0 && (
               <section>
-                <h4>Board</h4>
+                <h4>{tr(M.board)}</h4>
                 <ul>
                   {plan.cards!.map((m) => (
-                    <li key={m.from}>
-                      Give the {savedUnder(m)} saved under <strong>{m.from}</strong>{m.cards.length ? ` (${m.cards.map((n) => `#${n}`).join(', ')})` : ''} to <strong>{m.to}</strong>, where cards show with their agents, archived ones too.
-                    </li>
+                    <li key={m.from}>{rich(M.give, { what: savedUnder(m), from: m.from, to: m.to, hasCards: m.cards.length ? 'yes' : 'no', cards: fmt.list(m.cards.map((n) => `#${n}`), 'unit') })}</li>
                   ))}
                 </ul>
               </section>
             )}
             {plan.recent && (
-              <p>
-                Open Recent: list <span className="mono">{plan.to}</span> instead of the old folder.
-              </p>
+              <p>{rich(M.recent, { to: plan.to })}</p>
             )}
-            {plan.working.length > 0 && <p>Working on: mark {plan.working.join(', ')} again, as at the old folder.</p>}
-            <p className="hint">Nothing at the old location is moved or deleted.</p>
+            {plan.working.length > 0 && <p>{tr(M.workingOn, { projects: fmt.list(plan.working, 'unit') })}</p>}
+            <p className="hint">{tr(M.untouched)}</p>
             {plan.running.length > 0 && (
               <p className="warn-text">
-                <Icon name="warning" /> Stop the running agents first: {plan.running.join(', ')}.
+                <Icon name="warning" /> {tr(M.stopFirst, { agents: fmt.list(plan.running, 'unit') })}
               </p>
             )}
           </>

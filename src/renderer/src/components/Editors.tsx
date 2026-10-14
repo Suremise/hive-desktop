@@ -19,6 +19,7 @@ function useEditorTheme(): string {
 const baseOptions: Monaco.editor.IStandaloneEditorConstructionOptions = {
   automaticLayout: true,
   minimap: { enabled: false },
+  // i18n-ignore: font names, not text
   fontFamily: "'Cascadia Code', 'Cascadia Mono', Consolas, monospace",
   fontSize: 13,
   scrollBeyondLastLine: false,

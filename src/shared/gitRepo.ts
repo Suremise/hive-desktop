@@ -1,6 +1,7 @@
 // The Git view (#607): a project folder's branch, remotes, upstream, history, tags and commit identity, and what the
 // window says about them. Shared by the main process, the window and their tests. Only the user changes these: there is
 // no agent tool or Agent API route for any of it.
+import { fmt, msg, tr, type Msg } from './i18n'
 
 /** A merge, rebase or other operation git has in progress in the folder. */
 export type GitRepoState = 'merge' | 'rebase' | 'cherry-pick' | 'revert' | 'bisect'
@@ -128,18 +129,57 @@ export const HISTORY_TAGS = 50
 /** Branches listed (local and remote, each); the rest are counted. */
 export const BRANCHES_SHOWN = 200
 
+const M = {
+  changes: msg({ id: 'git.section.changes', defaultMessage: 'Changes', description: "The Git tab's section with the uncommitted changes." }),
+  history: msg({ id: 'git.section.history', defaultMessage: 'History', description: "The Git tab's section with the last commits and the tags." }),
+  branches: msg({ id: 'git.section.branches', defaultMessage: 'Branches & remotes', description: "The Git tab's section with the branch, branches, remotes, worktrees and commit identity." }),
+  agentBusy: msg({
+    id: 'git.busy.agent',
+    defaultMessage:
+      '{agent} {status, select, starting {is starting} working {is working} waiting {is waiting for your answer} background {is waiting on background tasks it started} watching {is waiting for cards to change (a card watch)} other {stopped in the middle of a task when its sign-in expired}} in the project folder: {action, select, switch {switch branches} create {create and switch to a branch} other {pull}} once it has finished.',
+    description: "Why switching branch (or creating one, or pulling) is refused now: an agent works in the project folder. {agent} is the agent's name; {status} what it is doing; {action} what was refused."
+  }),
+  yourMerge: msg({ id: 'git.busy.yourMerge', defaultMessage: 'Your merge into {branch} is running: {action, select, switch {switch branches} create {create and switch to a branch} other {pull}} once it is done.', description: "Why switching branch (or creating one, or pulling) is refused now: the user's own merge into {branch} is running." }),
+  slotHeld: msg({ id: 'git.busy.slotHeld', defaultMessage: '{agent} holds the merge slot for {branch}: {action, select, switch {switch branches} create {create and switch to a branch} other {pull}} once that merge is done.', description: "Why switching branch (or creating one, or pulling) is refused now: an agent is merging into {branch} (it holds the merge slot). {agent} is the agent's name." }),
+  slotWaiting: msg({ id: 'git.busy.slotWaiting', defaultMessage: '{agents} {count, plural, one {is} other {are}} waiting for the merge slot for {branch}: {action, select, switch {switch branches} create {create and switch to a branch} other {pull}} once those merges are done.', description: "Why switching branch (or creating one, or pulling) is refused now: agents wait to merge into {branch}. {agents} is their names as a list; {count} how many." }),
+  state: msg({ id: 'git.state', defaultMessage: '{state, select, merge {merging} rebase {rebasing} cherrypick {cherry-picking} revert {reverting} other {bisecting}}', description: 'What git has in progress in the project folder, in the status bar and the Git tab (badge), lower case: "main · merging".' }),
+  detachedAt: msg({ id: 'git.head.detachedAt', defaultMessage: 'detached at {commit}', description: 'What the project folder has checked out when HEAD is detached. {commit} is a short commit hash. Lower case: also in the status bar ("detached at abc1234 · rebasing").' }),
+  noCommitsYet: msg({ id: 'git.head.noCommits', defaultMessage: 'no commits yet', description: "What the project folder has checked out in a repository with no commit yet. Lower case: also in the status bar." }),
+  upstreamGone: msg({ id: 'git.upstream.gone', defaultMessage: 'upstream gone', description: 'In place of the ahead/behind counts: the remote branch a branch tracked was deleted on the remote.' }),
+  parentRepo: msg({ id: 'git.parentRepo', defaultMessage: "This project is inside the git repository in {folder}, so the Git view only shows it: Hive changes only a project's own repository.", description: "Banner in the Git tab of a project whose folder is inside another repository (a workspace kept in git). {folder} is that repository's folder." }),
+  noUpstream: msg({ id: 'git.status.noUpstream', defaultMessage: 'no upstream', description: 'Status bar, after the branch: it tracks no remote branch ("main · no upstream").' }),
+  tipOn: msg({ id: 'git.tip.on', defaultMessage: 'On {branch}', description: "First line of the status bar's git tooltip: the branch checked out." }),
+  tipDetached: msg({ id: 'git.tip.detached', defaultMessage: 'HEAD is detached at {commit}', description: "First line of the status bar's git tooltip. {commit} is a short commit hash." }),
+  tipNoCommits: msg({ id: 'git.tip.noCommits', defaultMessage: 'No commits yet', description: "First line of the status bar's git tooltip, in a repository with no commit yet." }),
+  tipState: msg({ id: 'git.tip.state', defaultMessage: 'Git is {state, select, merge {merging} rebase {rebasing} cherrypick {cherry-picking} revert {reverting} other {bisecting}}: finish or abort it in a terminal.', description: "The status bar's git tooltip, while git has an operation in progress in the project folder." }),
+  tipGone: msg({ id: 'git.tip.gone', defaultMessage: 'It tracked {upstream}, which is gone from the remote.', description: "The status bar's git tooltip. {upstream} is the remote branch, such as origin/main." }),
+  tipTracks: msg({ id: 'git.tip.tracks', defaultMessage: 'Tracks {upstream}: {ahead, plural, =0 {nothing} one {# commit} other {# commits}} to push, {behind, plural, =0 {nothing} one {# commit} other {# commits}} to pull.', description: "The status bar's git tooltip. {upstream} is the remote branch, such as origin/main; the counts are as of the last fetch." }),
+  tipNoTracking: msg({ id: 'git.tip.noTracking', defaultMessage: 'It tracks no remote branch: Push sets one.', description: "The status bar's git tooltip. Push is the Git tab's button." }),
+  tipNoRemotes: msg({ id: 'git.tip.noRemotes', defaultMessage: 'No remotes.', description: "The status bar's git tooltip: the repository has no remote." }),
+  tipFetched: msg({ id: 'git.tip.fetched', defaultMessage: 'As of the last fetch, {when}. Hive never fetches by itself.', description: 'The status bar\'s git tooltip. {when} is how long ago, such as "5m ago".' }),
+  tipNeverFetched: msg({ id: 'git.tip.neverFetched', defaultMessage: 'Never fetched: Hive never fetches by itself.', description: "The status bar's git tooltip, when the repository was never fetched." }),
+  tipClick: msg({ id: 'git.tip.click', defaultMessage: 'Click for Git → Branches & remotes.', description: "Last line of the status bar's git tooltip. Git → Branches & remotes is the tab and its section: keep them as they are named there." }),
+  identityMissing: msg({ id: 'git.identity.missing', defaultMessage: 'Git has no {missing, select, both {user.name or user.email} name {user.name} other {user.email}} for this repository, so commits fail. Set them here (or in your global git config).', description: 'Warning in Git → Branches & remotes → Commit identity. user.name and user.email are git settings: keep them.' }),
+  identityPublic: msg({ id: 'git.identity.public', defaultMessage: "Commits pushed to GitHub show {email} to anyone who reads them. GitHub's no-reply address (…@users.noreply.github.com, in GitHub's email settings) keeps your address private.", description: 'Warning in Git → Branches & remotes → Commit identity. {email} is the address commits are made as.' }),
+  enterName: msg({ id: 'git.validate.enterName', defaultMessage: 'Enter a name', description: "Under a form's name box (a remote, a branch, a tag) while it is empty." }),
+  remoteNameChars: msg({ id: 'git.validate.remoteName', defaultMessage: 'Use letters, digits, ".", "_" and "-"', description: "Under Add a remote's name box when the name has other characters." }),
+  enterUrl: msg({ id: 'git.validate.enterUrl', defaultMessage: 'Enter a URL', description: "Under a remote's URL box while it is empty." }),
+  notUrl: msg({ id: 'git.validate.notUrl', defaultMessage: "That isn't a URL or path", description: "Under a remote's URL box." }),
+  wholeUrl: msg({ id: 'git.validate.wholeUrl', defaultMessage: 'Type the whole URL: its password or token is hidden here', description: "Under a remote's URL box when it still has ••• for a hidden password." }),
+  nameLine: msg({ id: 'git.validate.nameLine', defaultMessage: 'A name is one line, without < or >', description: 'Under a commit identity form when the name has a line break, < or >.' }),
+  notEmail: msg({ id: 'git.validate.notEmail', defaultMessage: "That isn't an email address", description: 'Under a commit identity form.' })
+}
+
 /** The Git tab's sections. */
-export const GIT_SECTIONS = [
-  { id: 'changes', label: 'Changes', icon: 'git-compare' },
-  { id: 'history', label: 'History', icon: 'history' },
-  { id: 'branches', label: 'Branches & remotes', icon: 'git-branch' }
-] as const
+export const GIT_SECTIONS: readonly { id: 'changes' | 'history' | 'branches'; label: Msg; icon: string }[] = [
+  { id: 'changes', label: M.changes, icon: 'git-compare' },
+  { id: 'history', label: M.history, icon: 'history' },
+  { id: 'branches', label: M.branches, icon: 'git-branch' }
+]
 export type GitSection = (typeof GIT_SECTIONS)[number]['id']
 
 /** The actions refused while an agent works in the project folder or holds its merge slot. */
 export type GitFolderAction = 'switch' | 'create' | 'pull'
-
-const ACTION_TEXT: Record<GitFolderAction, string> = { switch: 'switch branches', create: 'create and switch to a branch', pull: 'pull' }
 
 /** An agent working in the project folder (no worktree), with its session's status. */
 export interface FolderAgent {
@@ -156,14 +196,8 @@ export interface FolderSlot {
   waiting: string[]
 }
 
-const BUSY: Record<string, string> = {
-  starting: 'is starting',
-  working: 'is working',
-  waiting: 'is waiting for your answer',
-  background: 'is waiting on background tasks it started',
-  watching: 'is waiting for cards to change (a card watch)',
-  signin: 'stopped in the middle of a task when its sign-in expired'
-}
+/** The sessions' statuses that keep the project folder busy. */
+const BUSY = new Set(['starting', 'working', 'waiting', 'background', 'watching', 'signin'])
 
 /**
  * Why switching branch or pulling in the project folder is refused now, or null: it moves the ground under an agent
@@ -171,39 +205,36 @@ const BUSY: Record<string, string> = {
  * reason) and again by the main process before it acts.
  */
 export function folderBusy(agents: FolderAgent[], slots: FolderSlot[], action: GitFolderAction): string | null {
-  const what = ACTION_TEXT[action]
-  for (const a of agents) {
-    const busy = a.status ? BUSY[a.status] : undefined
-    if (busy) return `${a.name} ${busy} in the project folder: ${what} once it has finished.`
-  }
+  for (const a of agents) if (a.status && BUSY.has(a.status)) return tr(M.agentBusy, { agent: a.name, status: a.status, action })
   for (const s of slots) {
-    if (s.byUser) return `Your merge into ${s.branch} is running: ${what} once it is done.`
-    if (s.holder) return `${s.holder} holds the merge slot for ${s.branch}: ${what} once that merge is done.`
-    if (s.waiting.length) return `${s.waiting.join(', ')} ${s.waiting.length === 1 ? 'is' : 'are'} waiting for the merge slot for ${s.branch}: ${what} once those merges are done.`
+    if (s.byUser) return tr(M.yourMerge, { branch: s.branch, action })
+    if (s.holder) return tr(M.slotHeld, { agent: s.holder, branch: s.branch, action })
+    if (s.waiting.length) return tr(M.slotWaiting, { agents: fmt.list(s.waiting, 'unit'), count: s.waiting.length, branch: s.branch, action })
   }
   return null
 }
 
-const STATE_TEXT: Record<GitRepoState, string> = { merge: 'merging', rebase: 'rebasing', 'cherry-pick': 'cherry-picking', revert: 'reverting', bisect: 'bisecting' }
+/** A state as messages select on (their keys have no "-"). */
+export const gitStateKey = (state: GitRepoState): string => state.replace('-', '')
 
 /** "merging" and so on, for a state git has in progress. */
 export function gitStateText(state: GitRepoState): string {
-  return STATE_TEXT[state]
+  return tr(M.state, { state: gitStateKey(state) })
 }
 
 /** What HEAD is: the branch, or "detached at abc1234" (or "no commits yet"). */
 export function headText(s: Pick<GitRepoSummary, 'branch' | 'head'>): string {
-  return s.branch ?? (s.head ? `detached at ${s.head}` : 'no commits yet')
+  return s.branch ?? (s.head ? tr(M.detachedAt, { commit: s.head }) : tr(M.noCommitsYet))
 }
 
 /** ↑2 ↓0, or "upstream gone". */
 export function aheadBehindText(u: Pick<GitUpstream, 'ahead' | 'behind' | 'gone'>): string {
-  return u.gone ? 'upstream gone' : `↑${u.ahead} ↓${u.behind}`
+  return u.gone ? tr(M.upstreamGone) : `↑${u.ahead} ↓${u.behind}`
 }
 
 /** Why the Git view doesn't change a folder inside another repository (`parentRepo`), or null. */
 export function parentRepoText(s: Pick<GitRepoSummary, 'parentRepo'>): string | null {
-  return s.parentRepo ? `This project is inside the git repository in ${s.parentRepo}, so the Git view only shows it: Hive changes only a project's own repository.` : null
+  return s.parentRepo ? tr(M.parentRepo, { folder: s.parentRepo }) : null
 }
 
 /** The status bar's item: "main · origin · ↑2 ↓0", "main · no upstream", "detached at abc1234 · rebasing". Empty when not a repository. */
@@ -212,25 +243,21 @@ export function gitStatusText(s: GitRepoSummary): string {
   const parts = [headText(s)]
   if (s.state) parts.push(gitStateText(s.state))
   if (s.upstream) parts.push(s.upstream.remote ?? s.upstream.name, aheadBehindText(s.upstream))
-  else if (s.branch && s.remotes.length) parts.push('no upstream')
+  else if (s.branch && s.remotes.length) parts.push(tr(M.noUpstream))
   return parts.join(' · ')
 }
 
 /** The status bar item's tooltip, with when the counts are from. */
 export function gitStatusTip(s: GitRepoSummary, fetched: string | null): string {
-  const lines = [s.branch ? `On ${s.branch}` : s.head ? `HEAD is detached at ${s.head}` : 'No commits yet']
-  if (s.state) lines.push(`Git is ${gitStateText(s.state)}: finish or abort it in a terminal.`)
-  if (s.upstream?.gone) lines.push(`It tracked ${s.upstream.name}, which is gone from the remote.`)
-  else if (s.upstream) lines.push(`Tracks ${s.upstream.name}: ${count(s.upstream.ahead, 'commit')} to push, ${count(s.upstream.behind, 'commit')} to pull.`)
-  else if (s.branch && s.remotes.length) lines.push(`It tracks no remote branch: Push sets one.`)
-  else if (!s.remotes.length) lines.push('No remotes.')
-  if (s.remotes.length) lines.push(fetched ? `As of the last fetch, ${fetched}. Hive never fetches by itself.` : 'Never fetched: Hive never fetches by itself.')
-  lines.push('Click for Git → Branches & remotes.')
+  const lines = [s.branch ? tr(M.tipOn, { branch: s.branch }) : s.head ? tr(M.tipDetached, { commit: s.head }) : tr(M.tipNoCommits)]
+  if (s.state) lines.push(tr(M.tipState, { state: gitStateKey(s.state) }))
+  if (s.upstream?.gone) lines.push(tr(M.tipGone, { upstream: s.upstream.name }))
+  else if (s.upstream) lines.push(tr(M.tipTracks, { upstream: s.upstream.name, ahead: s.upstream.ahead, behind: s.upstream.behind }))
+  else if (s.branch && s.remotes.length) lines.push(tr(M.tipNoTracking))
+  else if (!s.remotes.length) lines.push(tr(M.tipNoRemotes))
+  if (s.remotes.length) lines.push(fetched ? tr(M.tipFetched, { when: fetched }) : tr(M.tipNeverFetched))
+  lines.push(tr(M.tipClick))
   return lines.join('\n')
-}
-
-function count(n: number, what: string): string {
-  return n === 0 ? 'nothing' : `${n} ${what}${n === 1 ? '' : 's'}`
 }
 
 /** What stands for a hidden password or token. */
@@ -325,37 +352,36 @@ export function isNoReplyEmail(email: string): boolean {
  */
 export function identityWarnings(id: GitIdentity, remotes: Pick<GitRemote, 'fetchUrl' | 'pushUrl'>[]): string[] {
   const out: string[] = []
-  const missing = [!id.effective.name && 'user.name', !id.effective.email && 'user.email'].filter(Boolean)
-  if (missing.length) out.push(`Git has no ${missing.join(' or ')} for this repository, so commits fail. Set them here (or in your global git config).`)
+  const missing = !id.effective.name && !id.effective.email ? 'both' : !id.effective.name ? 'name' : !id.effective.email ? 'email' : null
+  if (missing) out.push(tr(M.identityMissing, { missing }))
   const email = id.effective.email
-  if (email && !isNoReplyEmail(email) && remotes.some((r) => isGitHubUrl(r.fetchUrl) || isGitHubUrl(r.pushUrl))) {
-    out.push(`Commits pushed to GitHub show ${email} to anyone who reads them. GitHub's no-reply address (…@users.noreply.github.com, in GitHub's email settings) keeps your address private.`)
-  }
+  if (email && !isNoReplyEmail(email) && remotes.some((r) => isGitHubUrl(r.fetchUrl) || isGitHubUrl(r.pushUrl))) out.push(tr(M.identityPublic, { email }))
   return out
 }
 
 /** A remote's name as `git remote add` takes it here: letters, digits, . _ - (not starting with - or .). */
 export function remoteNameProblem(name: string): string | null {
-  if (!name.trim()) return 'Enter a name'
-  if (!/^[A-Za-z0-9_][A-Za-z0-9._-]*$/.test(name.trim())) return 'Use letters, digits, ".", "_" and "-"'
+  if (!name.trim()) return tr(M.enterName)
+  if (!/^[A-Za-z0-9_][A-Za-z0-9._-]*$/.test(name.trim())) return tr(M.remoteNameChars)
   return null
 }
 
 /** A remote URL Hive passes to git: one line, not an option. */
 export function remoteUrlProblem(url: string): string | null {
   const u = url.trim()
-  if (!u) return 'Enter a URL'
-  if (/\s/.test(u) || u.startsWith('-')) return "That isn't a URL or path"
-  if (u.includes(HIDDEN)) return 'Type the whole URL: its password or token is hidden here'
+  if (!u) return tr(M.enterUrl)
+  if (/\s/.test(u) || u.startsWith('-')) return tr(M.notUrl)
+  if (u.includes(HIDDEN)) return tr(M.wholeUrl)
   return null
 }
 
 /** Name and email for `git config user.*`: one line each; an email has an @. Empty clears this repository's own. */
 export function identityProblem(name: string, email: string): string | null {
-  if (/[\r\n<>]/.test(name)) return 'A name is one line, without < or >'
-  if (email.trim() && (!/^[^\s<>@]+@[^\s<>@]+$/.test(email.trim()))) return "That isn't an email address"
+  if (/[\r\n<>]/.test(name)) return tr(M.nameLine)
+  if (email.trim() && (!/^[^\s<>@]+@[^\s<>@]+$/.test(email.trim()))) return tr(M.notEmail)
   return null
 }
 
 /** The user guide's heading for this view. */
+// i18n-ignore: a user guide heading, found by its English text
 export const GIT_VIEW_GUIDE = 'Git view'

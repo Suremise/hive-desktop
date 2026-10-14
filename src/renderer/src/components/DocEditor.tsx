@@ -1,11 +1,28 @@
 import { useEffect, useRef, useState } from 'react'
+import { msg, tr } from '@shared/i18n'
 import { call, errorMessage } from '../api'
 import { clearEditorDraft, editorDraft, onEditorDrafts, setEditorDraft } from '../editorDrafts'
 import { languageFor } from '../monacoLang'
 import { confirm, notify } from '../store'
 import { basename } from '../util'
 import { CodeEditor } from './Editors'
+import { FILES_TEXT } from './FileView'
 import { Icon, IconButton, Markdown } from './ui'
+
+const M = {
+  overwriteTitle: msg({ id: 'files.doc.overwriteTitle', defaultMessage: 'Overwrite the changes on disk?', description: "Title of the confirmation when saving a file (a note, a skill…) that changed on disk since it was opened." }),
+  overwriteMessage: msg({ id: 'files.doc.overwriteMessage', defaultMessage: '{name} has changed on disk since you opened it (an agent may have edited it). Save your version over it?', description: 'The confirmation before saving over a file changed on disk. {name} is the file name.' }),
+  overwriteDetail: msg({ id: 'files.doc.overwriteDetail', defaultMessage: 'Cancel keeps your edits here unsaved, so you can copy them and reopen the file.', description: 'Under the confirmation before saving over a file changed on disk.' }),
+  overwrite: msg({ id: 'files.doc.overwrite', defaultMessage: 'Overwrite', description: 'Button: saves your version over the file changed on disk.' }),
+  saveFailed: msg({ id: 'files.doc.saveFailed', defaultMessage: 'Could not save', description: 'Title of an error notification: a file could not be saved.' }),
+  isNew: msg({ id: 'files.doc.new', defaultMessage: '(new)', description: "Beside a file's name in the editor's toolbar: the file doesn't exist yet and is created when saved." }),
+  viewSource: msg({ id: 'files.doc.viewSource', defaultMessage: 'View source', description: 'Tooltip on a button that shows a read-only Markdown file as text.' }),
+  edit: msg({ id: 'files.doc.edit', defaultMessage: 'Edit', description: 'Tooltip on a button that switches a Markdown file from its preview to the editor.' }),
+  preview: msg({ id: 'files.doc.preview', defaultMessage: 'Preview', description: 'Tooltip on a button that shows a Markdown file rendered.' }),
+  discardTitle: msg({ id: 'files.doc.discardTitle', defaultMessage: 'Discard changes?', description: 'Title of the confirmation before leaving a file with unsaved edits.' }),
+  discardMessage: msg({ id: 'files.doc.discardMessage', defaultMessage: 'You have unsaved changes.', description: 'The confirmation before leaving a file with unsaved edits.' }),
+  discard: msg({ id: 'files.doc.discard', defaultMessage: 'Discard', description: 'Button: drops the unsaved edits.' })
+}
 
 /**
  * Loads a file through the main process, edits it in Monaco and saves with Ctrl+S.
@@ -60,7 +77,7 @@ export function DocEditor({
         setMissing(isMissing)
         if (isMissing || draft) setPreview(false)
       })
-      .catch((e) => notify('error', 'Could not open file', errorMessage(e)))
+      .catch((e) => notify('error', tr(FILES_TEXT.openFailed), errorMessage(e)))
       .finally(() => !cancelled && setLoading(false))
     return () => {
       cancelled = true
@@ -97,10 +114,10 @@ export function DocEditor({
       await writeFile(text, baseText()).catch(async (e) => {
         if (!errorMessage(e).includes('CONFLICT')) throw e
         const overwrite = await confirm({
-          title: 'Overwrite the changes on disk?',
-          message: `${basename(path)} has changed on disk since you opened it (an agent may have edited it). Save your version over it?`,
-          detail: 'Cancel keeps your edits here unsaved, so you can copy them and reopen the file.',
-          confirmLabel: 'Overwrite',
+          title: tr(M.overwriteTitle),
+          message: tr(M.overwriteMessage, { name: basename(path) }),
+          detail: tr(M.overwriteDetail),
+          confirmLabel: tr(M.overwrite),
           danger: true
         })
         if (!overwrite) throw new Error('CANCELLED')
@@ -116,7 +133,7 @@ export function DocEditor({
       onSaved?.()
     } catch (e) {
       if (errorMessage(e).includes('CANCELLED')) return
-      notify('error', 'Could not save', errorMessage(e))
+      notify('error', tr(M.saveFailed), errorMessage(e))
     }
   }
 
@@ -126,14 +143,14 @@ export function DocEditor({
         <Icon name={isMd ? 'markdown' : 'file'} />
         <span className="path" title={path}>
           <strong>{title ?? basename(path)}</strong>
-          {dirty && (missing ? ' (new)' : ' ●')} <span className="faint">{path}</span>
+          {dirty && (missing ? ` ${tr(M.isNew)}` : ' ●')} <span className="faint">{path}</span>
         </span>
         {toolbarExtra}
-        {isMd && <IconButton icon={preview ? (readOnly ? 'code' : 'edit') : 'open-preview'} title={preview ? (readOnly ? 'View source' : 'Edit') : 'Preview'} onClick={() => setPreview(!preview)} />}
-        <IconButton icon="folder-opened" title="Reveal in File Explorer" onClick={() => void call('app:showInFolder', path)} disabled={missing} />
+        {isMd && <IconButton icon={preview ? (readOnly ? 'code' : 'edit') : 'open-preview'} title={tr(preview ? (readOnly ? M.viewSource : M.edit) : M.preview)} onClick={() => setPreview(!preview)} />}
+        <IconButton icon="folder-opened" title={tr(FILES_TEXT.revealInExplorer)} onClick={() => void call('app:showInFolder', path)} disabled={missing} />
         {!readOnly && (
           <button className="btn small primary" disabled={!dirty} onClick={() => void save()}>
-            <Icon name="save" /> Save
+            <Icon name="save" /> {tr(FILES_TEXT.save)}
           </button>
         )}
       </div>
@@ -141,7 +158,7 @@ export function DocEditor({
       <div className="editor-host">
         {loading ? null : preview ? (
           <div className="scroll-page">
-            {text.trim() ? <Markdown source={text.replace(/^---\r?\n[\s\S]*?\r?\n---\r?\n/, '')} /> : <div className="empty-state">This file is empty.</div>}
+            {text.trim() ? <Markdown source={text.replace(/^---\r?\n[\s\S]*?\r?\n---\r?\n/, '')} /> : <div className="empty-state">{tr(FILES_TEXT.empty)}</div>}
           </div>
         ) : (
           <CodeEditor
@@ -163,5 +180,5 @@ export function DocEditor({
 
 export async function confirmDiscard(dirty: boolean): Promise<boolean> {
   if (!dirty) return true
-  return confirm({ title: 'Discard changes?', message: 'You have unsaved changes.', confirmLabel: 'Discard', danger: true })
+  return confirm({ title: tr(M.discardTitle), message: tr(M.discardMessage), confirmLabel: tr(M.discard), danger: true })
 }

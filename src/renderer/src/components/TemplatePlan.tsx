@@ -4,6 +4,33 @@ import { ProviderIcon } from './ProviderIcon'
 import { Icon, Tooltip } from './ui'
 import { AGENT_NAME_MAX } from '@shared/agentNames'
 import { cx } from '../util'
+import { locale, msg, tr } from '@shared/i18n'
+
+const M = {
+  removed: msg({ id: 'assistant.templatePlan.removed', defaultMessage: 'Removed', description: 'Load template: the heading over the agents that go.' }),
+  replaced: msg({ id: 'assistant.templatePlan.replaced', defaultMessage: '(replaced by a new agent with the same name)', description: 'Load template, after an agent that goes.' }),
+  noteSentence: msg({ id: 'assistant.templatePlan.noteSentence', defaultMessage: '{note}.', description: "Load template, under an agent that goes: what happens to its worktree ({note}), as a sentence (its first letter made a capital). Use your language's full stop." }),
+  created: msg({ id: 'assistant.templatePlan.created', defaultMessage: 'Created', description: "Load template: the heading over the template's agents." }),
+  agent: msg({ id: 'assistant.templatePlan.agent', defaultMessage: 'Agent', description: "Load template's table: the column of the agents' names." }),
+  codingAgent: msg({ id: 'assistant.templatePlan.codingAgent', defaultMessage: 'Coding agent', description: "Load template's table: the column of each agent's CLI (Claude Code, Codex…)." }),
+  model: msg({ id: 'assistant.templatePlan.model', defaultMessage: 'Model', description: "Load template's table: a column." }),
+  effort: msg({ id: 'assistant.templatePlan.effort', defaultMessage: 'Effort', description: "Load template's table: a column (the model's reasoning effort)." }),
+  mode: msg({ id: 'assistant.templatePlan.mode', defaultMessage: 'Mode', description: "Load template's table: a column (the permission mode)." }),
+  where: msg({ id: 'assistant.templatePlan.where', defaultMessage: 'Where', description: "Load template's table: a column (the folder or worktree each agent works in)." }),
+  fromTip: msg({ id: 'assistant.templatePlan.fromTip', defaultMessage: 'Its name in the template', description: "Load template's table: tooltip on an agent's name as the template has it, beside the box for its new name." }),
+  nameLabel: msg({ id: 'assistant.templatePlan.nameLabel', defaultMessage: 'Name of agent {n}', description: "Load template's table: the accessible name of the box for agent number {n}'s name." }),
+  newBadge: msg({ id: 'assistant.templatePlan.newBadge', defaultMessage: 'new', description: 'Load template\'s table: a badge on an agent that replaces one of the same name.' }),
+  isDefault: msg({ id: 'assistant.templatePlan.default', defaultMessage: '(default)', description: "Load template's table, after a model, effort or mode: the template leaves it to the project's or Hive's defaults." }),
+  folder: msg({ id: 'assistant.templatePlan.folder', defaultMessage: 'project folder', description: "Load template's table, Where: the agent works in the project's folder." }),
+  ownWorktree: msg({ id: 'assistant.templatePlan.ownWorktree', defaultMessage: 'own worktree', description: "Load template's table, Where: the agent gets a worktree of its own." }),
+  reuses: msg({ id: 'assistant.templatePlan.reuses', defaultMessage: 'reuses {branch}', description: "Load template's table, Where: the agent works in an old worktree again, on branch {branch}." }),
+  ownOn: msg({ id: 'assistant.templatePlan.ownOn', defaultMessage: 'own worktree {branch}', description: "Load template's table, Where: the agent's new worktree, on branch {branch}." }),
+  reuseTip: msg({ id: 'assistant.templatePlan.reuseTip', defaultMessage: 'Works in its worktree again: {path} (clean; its branch is left as it is)', description: "Load template's table: tooltip on a worktree worked in again ({path}: its folder)." }),
+  newTip: msg({ id: 'assistant.templatePlan.newTip', defaultMessage: 'A new worktree in {path}, from {base}', description: "Load template's table: tooltip on a new worktree ({path}: its folder; {base}: the branch it starts from)." })
+}
+
+/** A note's first letter as a capital, in the window's language. */
+const capitalised = (s: string): string => s.charAt(0).toLocaleUpperCase(locale()) + s.slice(1)
 
 /**
  * The Load template dialog's plan (#511): who goes, then who comes as a table (agent, coding agent, model, effort,
@@ -15,28 +42,28 @@ export function TemplatePlan({ view, edit }: { view: TemplateLoadView; edit?: Na
     <div className="template-plan">
       {view.removed.length > 0 && (
         <>
-          <h4>Removed</h4>
+          <h4>{tr(M.removed)}</h4>
           <ul className="template-plan-removed">
             {view.removed.map((a) => (
               <li key={a.name} data-agent={a.name}>
                 <strong>{a.name}</strong>
-                {a.replaced && <span className="faint"> (replaced by a new agent with the same name)</span>}
-                {a.note && <div className="faint">{a.note[0].toUpperCase() + a.note.slice(1)}.</div>}
+                {a.replaced && <span className="faint"> {tr(M.replaced)}</span>}
+                {a.note && <div className="faint">{tr(M.noteSentence, { note: capitalised(a.note) })}</div>}
               </li>
             ))}
           </ul>
         </>
       )}
-      <h4>Created</h4>
+      <h4>{tr(M.created)}</h4>
       <table className="table template-plan-table">
         <thead>
           <tr>
-            <th>Agent</th>
-            <th>Coding agent</th>
-            <th>Model</th>
-            <th>Effort</th>
-            <th>Mode</th>
-            <th>Where</th>
+            <th>{tr(M.agent)}</th>
+            <th>{tr(M.codingAgent)}</th>
+            <th>{tr(M.model)}</th>
+            <th>{tr(M.effort)}</th>
+            <th>{tr(M.mode)}</th>
+            <th>{tr(M.where)}</th>
           </tr>
         </thead>
         <tbody>
@@ -46,17 +73,17 @@ export function TemplatePlan({ view, edit }: { view: TemplateLoadView; edit?: Na
               <td>
                 {edit ? (
                   <>
-                    <span className="template-plan-from" title="Its name in the template">
+                    <span className="template-plan-from" title={tr(M.fromTip)}>
                       {edit.from[i]}
                     </span>
                     <Icon name="arrow-right" className="template-plan-arrow" />
-                    <input className={cx('input template-plan-name-input', edit.problems[i] && 'invalid')} aria-label={`Name of agent ${i + 1}`} value={edit.names[i] ?? ''} maxLength={AGENT_NAME_MAX} onChange={(e) => edit.onName(i, e.target.value)} />
+                    <input className={cx(/* i18n-ignore: class names */ 'input template-plan-name-input', edit.problems[i] && 'invalid')} aria-label={tr(M.nameLabel, { n: i + 1 })} value={edit.names[i] ?? ''} maxLength={AGENT_NAME_MAX} onChange={(e) => edit.onName(i, e.target.value)} />
                     {edit.problems[i] && <div className="field-error">{edit.problems[i]}</div>}
                   </>
                 ) : (
                   <span className="template-plan-name">{a.name}</span>
                 )}
-                {a.replaces && <span className="badge">new</span>}
+                {a.replaces && <span className="badge">{tr(M.newBadge)}</span>}
                 {a.role && <div className="faint">{a.role}</div>}
               </td>
               <td>
@@ -98,16 +125,16 @@ function Setting({ s }: { s: SettingShown }) {
   return (
     <>
       {s.text}
-      {s.isDefault && <span className="faint template-plan-default"> (default)</span>}
+      {s.isDefault && <span className="faint template-plan-default"> {tr(M.isDefault)}</span>}
     </>
   )
 }
 
 function Place({ w }: { w: PlaceShown }) {
-  if (w.kind === 'folder') return <>project folder</>
-  if (w.kind === 'own') return <>own worktree</>
-  const text = w.kind === 'reuse' ? `reuses ${w.branch}` : `own worktree ${w.branch}`
-  const tip = w.kind === 'reuse' ? `Works in its worktree again: ${w.path} (clean; its branch is left as it is)` : `A new worktree in ${w.path}, from ${w.base}`
+  if (w.kind === 'folder') return <>{tr(M.folder)}</>
+  if (w.kind === 'own') return <>{tr(M.ownWorktree)}</>
+  const text = tr(w.kind === 'reuse' ? M.reuses : M.ownOn, { branch: w.branch ?? '' })
+  const tip = w.kind === 'reuse' ? tr(M.reuseTip, { path: w.path ?? '' }) : tr(M.newTip, { path: w.path ?? '', base: w.base ?? '' })
   return (
     <Tooltip content={tip}>
       <span className="template-plan-place" data-path={w.path}>

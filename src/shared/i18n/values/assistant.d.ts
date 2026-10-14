@@ -1,0 +1,507 @@
+// Generated from locales/en/assistant.json: do not edit. Each message's placeholders and their types, for tr(): a
+// global script, so its interface merges with every other area's (shared/i18n/msg.ts).
+interface HiveMessageValues {
+  'assistant.loadNames.blocked': undefined
+  'assistant.loadNames.sameTwice': undefined
+  'assistant.loadNames.taken': { project: string | number; name: string | number }
+  'assistant.loadNames.takenNote': { projects: string | number; count: number; names: string | number }
+  'assistant.mcpSecret.argument': { start: string | number }
+  'assistant.mcpSecret.named': { where: string; key: string | number; ref: string | number }
+  'assistant.modes.create': undefined
+  'assistant.modes.createFailed': undefined
+  'assistant.modes.defaultBadge': undefined
+  'assistant.modes.delete': undefined
+  'assistant.modes.deleteFailed': undefined
+  'assistant.modes.deleteMessage': { file: string | number; bundled: string }
+  'assistant.modes.deleteTip': undefined
+  'assistant.modes.deleteTitle': { name: string | number }
+  'assistant.modes.hint': undefined
+  'assistant.modes.inUse': undefined
+  'assistant.modes.inUseBadge': undefined
+  'assistant.modes.inUseTip': undefined
+  'assistant.modes.lettersOrNumbers': undefined
+  'assistant.modes.namePlaceholder': undefined
+  'assistant.modes.newMessage': { file: string | number }
+  'assistant.modes.newTitle': undefined
+  'assistant.modes.restoreFailed': undefined
+  'assistant.modes.restoreHere': undefined
+  'assistant.modes.restoreTip': undefined
+  'assistant.modes.revert': undefined
+  'assistant.modes.revertButton': undefined
+  'assistant.modes.revertMessage': undefined
+  'assistant.modes.revertTip': undefined
+  'assistant.modes.revertTitle': { name: string | number }
+  'assistant.modes.selectOne': undefined
+  'assistant.modes.shipped.coordinator': undefined
+  'assistant.modes.shipped.planner': undefined
+  'assistant.modes.shipped.qaTriager': undefined
+  'assistant.modes.shipped.releaseManager': undefined
+  'assistant.modes.shipsMissing': undefined
+  'assistant.modes.tip': undefined
+  'assistant.modes.updateBadge': undefined
+  'assistant.modes.updateTip': undefined
+  'assistant.modes.useHere': undefined
+  'assistant.modes.useTip': undefined
+  'assistant.panel.agentTip': { running: string; name: string | number; status: string | number }
+  'assistant.panel.allConversations': undefined
+  'assistant.panel.appliesNext': undefined
+  'assistant.panel.asking': undefined
+  'assistant.panel.attention': { kind: string }
+  'assistant.panel.cancel': undefined
+  'assistant.panel.chooseMode': undefined
+  'assistant.panel.codingAgent': undefined
+  'assistant.panel.compact': undefined
+  'assistant.panel.compactLater': undefined
+  'assistant.panel.compactMenu': undefined
+  'assistant.panel.compactTip': { hasTokens: string; tokens: string | number; suggested: string }
+  'assistant.panel.compacting': undefined
+  'assistant.panel.conversations': undefined
+  'assistant.panel.counts': { running: string | number; projects: number }
+  'assistant.panel.default': undefined
+  'assistant.panel.defaultMode': { name: string | number }
+  'assistant.panel.doneBy': undefined
+  'assistant.panel.ended': undefined
+  'assistant.panel.foldLabel': { folded: string; project: string | number }
+  'assistant.panel.forWorkspace': undefined
+  'assistant.panel.hide': undefined
+  'assistant.panel.hideTip': { hasKey: string; key: string | number }
+  'assistant.panel.inactive': { count: number }
+  'assistant.panel.listFailed': undefined
+  'assistant.panel.manageModes': undefined
+  'assistant.panel.mode': undefined
+  'assistant.panel.modeHeader': undefined
+  'assistant.panel.modeHeaderLive': undefined
+  'assistant.panel.modeLater': undefined
+  'assistant.panel.modeTitle': { name: string | number }
+  'assistant.panel.modeTold': undefined
+  'assistant.panel.more': undefined
+  'assistant.panel.moveLeft': undefined
+  'assistant.panel.moveRight': undefined
+  'assistant.panel.new': undefined
+  'assistant.panel.newConversation': undefined
+  'assistant.panel.newConversationLabel': undefined
+  'assistant.panel.newConversationTip': undefined
+  'assistant.panel.noAgents': undefined
+  'assistant.panel.noConversations': undefined
+  'assistant.panel.noEdits': undefined
+  'assistant.panel.noProjects': undefined
+  'assistant.panel.notDone': { error: string | number }
+  'assistant.panel.notRunning': undefined
+  'assistant.panel.nothingToCompact': undefined
+  'assistant.panel.openCard': { known: string; number: string | number; column: string | number }
+  'assistant.panel.openNow': undefined
+  'assistant.panel.personaTip': { name: string | number; description: string | number }
+  'assistant.panel.progress': { hasStep: string; run: string | number; step: string | number }
+  'assistant.panel.railLabel': undefined
+  'assistant.panel.restart': undefined
+  'assistant.panel.restartButton': undefined
+  'assistant.panel.restartDetail': undefined
+  'assistant.panel.restartInMode': undefined
+  'assistant.panel.restartMessage': { name: string | number }
+  'assistant.panel.restartQuestion': undefined
+  'assistant.panel.restartTitle': { name: string | number }
+  'assistant.panel.resume': undefined
+  'assistant.panel.resumeConversation': undefined
+  'assistant.panel.resumeLater': undefined
+  'assistant.panel.resumeMenu': undefined
+  'assistant.panel.resumeOne': undefined
+  'assistant.panel.resumeTip': { name: string | number; when: string | number }
+  'assistant.panel.revert': undefined
+  'assistant.panel.revertFailed': undefined
+  'assistant.panel.revertLabel': { setting: string | number; value: string | number }
+  'assistant.panel.reverted': undefined
+  'assistant.panel.reviewing': { number: string | number; title: string | number }
+  'assistant.panel.running': { count: string | number }
+  'assistant.panel.save': undefined
+  'assistant.panel.saveFailed': undefined
+  'assistant.panel.saveModeFailed': undefined
+  'assistant.panel.settings': undefined
+  'assistant.panel.settingsMenu': undefined
+  'assistant.panel.settingsName': undefined
+  'assistant.panel.show': undefined
+  'assistant.panel.showTip': { hasKey: string; key: string | number }
+  'assistant.panel.start': undefined
+  'assistant.panel.startMenu': undefined
+  'assistant.panel.startTip': undefined
+  'assistant.panel.status': { text: string | number }
+  'assistant.panel.statusTitle': { running: string; status: string | number }
+  'assistant.panel.stop': undefined
+  'assistant.panel.stopFailed': undefined
+  'assistant.panel.stopTip': undefined
+  'assistant.panel.switchFailed': undefined
+  'assistant.panel.switching': { to: string | number; from: string | number }
+  'assistant.panel.tellFailed': undefined
+  'assistant.panel.theAssistant': undefined
+  'assistant.panel.title': undefined
+  'assistant.panel.transcriptAdvice': undefined
+  'assistant.panel.watches': { name: string | number }
+  'assistant.panel.workingOn': { number: string | number; title: string | number }
+  'assistant.panel.workspace': undefined
+  'assistant.panel.worktree': { branch: string | number }
+  'assistant.sidebar.activeLabel': { project: string | number }
+  'assistant.sidebar.activeTip': undefined
+  'assistant.sidebar.addAgent': undefined
+  'assistant.sidebar.addAgentDialog': undefined
+  'assistant.sidebar.builtIn': undefined
+  'assistant.sidebar.bypassTip': undefined
+  'assistant.sidebar.compactTip': { hasKey: string; key: string | number }
+  'assistant.sidebar.create': undefined
+  'assistant.sidebar.createFailed': undefined
+  'assistant.sidebar.createServerFailed': undefined
+  'assistant.sidebar.delete': undefined
+  'assistant.sidebar.deleteFolder': undefined
+  'assistant.sidebar.deleteNote': undefined
+  'assistant.sidebar.deleteServer': undefined
+  'assistant.sidebar.deleteSkill': undefined
+  'assistant.sidebar.expand': undefined
+  'assistant.sidebar.expandTip': { hasKey: string; key: string | number }
+  'assistant.sidebar.filterProjects': undefined
+  'assistant.sidebar.filterSkills': undefined
+  'assistant.sidebar.folderMessage': undefined
+  'assistant.sidebar.hiveGroup': undefined
+  'assistant.sidebar.hiveServerDesc': undefined
+  'assistant.sidebar.hiveServerTip': undefined
+  'assistant.sidebar.inactive': undefined
+  'assistant.sidebar.inactiveTip': undefined
+  'assistant.sidebar.loading': undefined
+  'assistant.sidebar.markNotWorking': undefined
+  'assistant.sidebar.markWorking': undefined
+  'assistant.sidebar.mcpServers': undefined
+  'assistant.sidebar.mcpTip': undefined
+  'assistant.sidebar.needYou': { count: number }
+  'assistant.sidebar.newFolder': undefined
+  'assistant.sidebar.newFolderButton': undefined
+  'assistant.sidebar.newFolderHere': undefined
+  'assistant.sidebar.newNote': undefined
+  'assistant.sidebar.newNoteButton': undefined
+  'assistant.sidebar.newNoteHere': undefined
+  'assistant.sidebar.newProject': undefined
+  'assistant.sidebar.newProjectButton': undefined
+  'assistant.sidebar.newServer': undefined
+  'assistant.sidebar.newServerMessage': { file: string | number }
+  'assistant.sidebar.newServerTitle': undefined
+  'assistant.sidebar.newSession': undefined
+  'assistant.sidebar.newSkill': undefined
+  'assistant.sidebar.newWorkspace': undefined
+  'assistant.sidebar.noNotes': undefined
+  'assistant.sidebar.noProjects': undefined
+  'assistant.sidebar.noServers': undefined
+  'assistant.sidebar.noSession': undefined
+  'assistant.sidebar.noSkills': undefined
+  'assistant.sidebar.noWorkspace': { what: string }
+  'assistant.sidebar.noWorkspaceSkills': undefined
+  'assistant.sidebar.noteMessage': undefined
+  'assistant.sidebar.notesTip': undefined
+  'assistant.sidebar.off': undefined
+  'assistant.sidebar.on': undefined
+  'assistant.sidebar.openFirst': undefined
+  'assistant.sidebar.openFolder': undefined
+  'assistant.sidebar.openMcpFolder': undefined
+  'assistant.sidebar.openSkillsFolder': undefined
+  'assistant.sidebar.openWorkspace': undefined
+  'assistant.sidebar.openWorkspaceFolder': undefined
+  'assistant.sidebar.otherProjects': undefined
+  'assistant.sidebar.projectSettings': undefined
+  'assistant.sidebar.projects': undefined
+  'assistant.sidebar.railLabel': { project: string | number; status: string | number }
+  'assistant.sidebar.refresh': undefined
+  'assistant.sidebar.removeProject': undefined
+  'assistant.sidebar.rename': undefined
+  'assistant.sidebar.renameFailed': undefined
+  'assistant.sidebar.renameMenu': undefined
+  'assistant.sidebar.restartTip': undefined
+  'assistant.sidebar.restoreSkill': undefined
+  'assistant.sidebar.resumeAll': undefined
+  'assistant.sidebar.resumeLast': undefined
+  'assistant.sidebar.reveal': undefined
+  'assistant.sidebar.saveFirst': { name: string | number }
+  'assistant.sidebar.saveFirstDetail': undefined
+  'assistant.sidebar.serverFromFile': undefined
+  'assistant.sidebar.serverNameRule': undefined
+  'assistant.sidebar.sharedNotes': undefined
+  'assistant.sidebar.skillFromFile': undefined
+  'assistant.sidebar.skills': undefined
+  'assistant.sidebar.skillsHint': undefined
+  'assistant.sidebar.skillsLoadTarget': undefined
+  'assistant.sidebar.skillsRefreshTarget': undefined
+  'assistant.sidebar.statusLabel': { project: string | number; status: string | number }
+  'assistant.sidebar.stopAll': undefined
+  'assistant.sidebar.stopSession': undefined
+  'assistant.sidebar.tasks': undefined
+  'assistant.sidebar.terminal': undefined
+  'assistant.sidebar.toggleOn': undefined
+  'assistant.sidebar.unmanagedTip': { servers: string | number }
+  'assistant.sidebar.workingOn': undefined
+  'assistant.sidebar.workingOnTip': undefined
+  'assistant.sidebar.workspace': { name: string | number }
+  'assistant.sidebar.workspaceGroup': undefined
+  'assistant.skills.add': undefined
+  'assistant.skills.addFailed': undefined
+  'assistant.skills.alsoFor': { provider: string | number }
+  'assistant.skills.audienceAgents': undefined
+  'assistant.skills.audienceAgentsTip': undefined
+  'assistant.skills.audienceAll': undefined
+  'assistant.skills.audienceAllTip': undefined
+  'assistant.skills.audienceAssistant': undefined
+  'assistant.skills.audienceAssistantTip': undefined
+  'assistant.skills.copied': { name: string | number }
+  'assistant.skills.copiedDetail': { audience: string }
+  'assistant.skills.copiedNobody': { name: string | number }
+  'assistant.skills.copiedNobodyDetail': { problem: string | number }
+  'assistant.skills.copy': undefined
+  'assistant.skills.copyFailed': undefined
+  'assistant.skills.copyTip': undefined
+  'assistant.skills.create': undefined
+  'assistant.skills.delete': undefined
+  'assistant.skills.deleteFailed': undefined
+  'assistant.skills.deleteHive': { audience: string }
+  'assistant.skills.deleteLocal': { known: string; provider: string | number }
+  'assistant.skills.deleteMessage': { name: string | number }
+  'assistant.skills.deleteNobody': { problem: string | number }
+  'assistant.skills.deleteTip': undefined
+  'assistant.skills.deleteTitle': undefined
+  'assistant.skills.deletedBadge': undefined
+  'assistant.skills.deletedHere': undefined
+  'assistant.skills.editInWorkspace': undefined
+  'assistant.skills.editTip': undefined
+  'assistant.skills.fileMessage': { file: string | number; where: string | number }
+  'assistant.skills.fileTitle': undefined
+  'assistant.skills.levelHive': undefined
+  'assistant.skills.levelLocal': undefined
+  'assistant.skills.levelPlugin': undefined
+  'assistant.skills.levelUser': undefined
+  'assistant.skills.nameRule': undefined
+  'assistant.skills.newMessage': { file: string | number; where: string | number }
+  'assistant.skills.newTitle': undefined
+  'assistant.skills.notGiven': undefined
+  'assistant.skills.notGivenTip': { problem: string | number }
+  'assistant.skills.readFailed': undefined
+  'assistant.skills.restore': undefined
+  'assistant.skills.restoreFailed': undefined
+  'assistant.skills.restored': { name: string | number }
+  'assistant.skills.revert': undefined
+  'assistant.skills.revertButton': undefined
+  'assistant.skills.revertDetail': undefined
+  'assistant.skills.revertMessage': { name: string | number }
+  'assistant.skills.revertTip': undefined
+  'assistant.skills.revertTitle': undefined
+  'assistant.skills.reverted': { name: string | number }
+  'assistant.skills.stillLocal': { known: string; provider: string | number }
+  'assistant.skills.tipHive': undefined
+  'assistant.skills.tipLocal': undefined
+  'assistant.skills.tipPlugin': undefined
+  'assistant.skills.tipUser': undefined
+  'assistant.skills.updateAvailable': undefined
+  'assistant.skills.updateBadge': undefined
+  'assistant.skills.updateTip': undefined
+  'assistant.skills.warning': undefined
+  'assistant.skills.whereHive': undefined
+  'assistant.skills.whereLocal': { provider: string | number }
+  'assistant.template.agentNoName': { n: string | number }
+  'assistant.template.badContext': { name: string | number }
+  'assistant.template.badMcp': { name: string | number }
+  'assistant.template.badName': { max: string | number }
+  'assistant.template.badProvider': { name: string | number; given: string; provider: string | number }
+  'assistant.template.badSetting': { name: string | number; setting: string }
+  'assistant.template.longRole': { name: string | number; max: string | number }
+  'assistant.template.newer': undefined
+  'assistant.template.noAgents': undefined
+  'assistant.template.noVersion': undefined
+  'assistant.template.notTemplate': undefined
+  'assistant.template.sameName': { name: string | number }
+  'assistant.template.tooMany': { count: string | number; max: string | number }
+  'assistant.template.tooManyHere': { count: string | number; limit: string | number }
+  'assistant.templateLoad.afterLoad': { removed: string }
+  'assistant.templateLoad.branchKeptTitle': { count: number }
+  'assistant.templateLoad.createdHeading': undefined
+  'assistant.templateLoad.createdLine': { name: string | number; hasRole: string; role: string | number; replaces: string; provider: string | number; settings: string | number }
+  'assistant.templateLoad.folderOnly': { branch: string | number; hasWhy: string; why: string | number }
+  'assistant.templateLoad.isDefault': { setting: string | number }
+  'assistant.templateLoad.keptLine': { branch: string | number; hasWhy: string; why: string | number }
+  'assistant.templateLoad.keptTitle': { count: number }
+  'assistant.templateLoad.newLine': { branch: string | number; base: string | number; path: string | number; hasNote: string; note: string | number }
+  'assistant.templateLoad.newWhy': { why: string | number }
+  'assistant.templateLoad.oldKept': { branch: string | number; hasWhy: string; why: string | number }
+  'assistant.templateLoad.oldRemovable': { branch: string | number; known: string; into: string | number }
+  'assistant.templateLoad.oldReused': { branch: string | number; name: string | number }
+  'assistant.templateLoad.ownLine': undefined
+  'assistant.templateLoad.removedHeading': undefined
+  'assistant.templateLoad.removedLine': { name: string | number; hasNote: string; note: string | number; replaced: string }
+  'assistant.templateLoad.removedWith': { count: number; branches: string | number }
+  'assistant.templateLoad.reuseLine': { branch: string | number; path: string | number }
+  'assistant.templateLoad.setup': { command: string | number }
+  'assistant.templateLoad.wholeDetail': { branches: string | number; count: number }
+  'assistant.templateLoad.wholeTitle': { count: number }
+  'assistant.templatePlan.agent': undefined
+  'assistant.templatePlan.codingAgent': undefined
+  'assistant.templatePlan.created': undefined
+  'assistant.templatePlan.default': undefined
+  'assistant.templatePlan.effort': undefined
+  'assistant.templatePlan.folder': undefined
+  'assistant.templatePlan.fromTip': undefined
+  'assistant.templatePlan.mode': undefined
+  'assistant.templatePlan.model': undefined
+  'assistant.templatePlan.nameLabel': { n: string | number }
+  'assistant.templatePlan.newBadge': undefined
+  'assistant.templatePlan.newTip': { path: string | number; base: string | number }
+  'assistant.templatePlan.noteSentence': { note: string | number }
+  'assistant.templatePlan.ownOn': { branch: string | number }
+  'assistant.templatePlan.ownWorktree': undefined
+  'assistant.templatePlan.removed': undefined
+  'assistant.templatePlan.replaced': undefined
+  'assistant.templatePlan.reuseTip': { path: string | number }
+  'assistant.templatePlan.reuses': { branch: string | number }
+  'assistant.templatePlan.where': undefined
+  'assistant.templates.aProject': undefined
+  'assistant.templates.addAgent': undefined
+  'assistant.templates.addProjectFirst': undefined
+  'assistant.templates.addTip': undefined
+  'assistant.templates.agentSaved': { name: string | number; agent: string | number }
+  'assistant.templates.agents': { count: number }
+  'assistant.templates.agentsHeading': undefined
+  'assistant.templates.allTemplates': undefined
+  'assistant.templates.atMost': { max: string | number }
+  'assistant.templates.automaticOption': undefined
+  'assistant.templates.cancel': undefined
+  'assistant.templates.cantBeUsed': undefined
+  'assistant.templates.cantEdit': undefined
+  'assistant.templates.changesNotSaved': undefined
+  'assistant.templates.clashDetail': undefined
+  'assistant.templates.clashMessage': { scope: string; project: string | number; name: string | number }
+  'assistant.templates.clashTitle': undefined
+  'assistant.templates.close': undefined
+  'assistant.templates.colActions': undefined
+  'assistant.templates.colAgent': undefined
+  'assistant.templates.colCodingAgent': undefined
+  'assistant.templates.colEffort': undefined
+  'assistant.templates.colMode': undefined
+  'assistant.templates.colModel': undefined
+  'assistant.templates.colRole': undefined
+  'assistant.templates.colWorksIn': undefined
+  'assistant.templates.context200k': undefined
+  'assistant.templates.continue': undefined
+  'assistant.templates.copyAgent': { name: string | number }
+  'assistant.templates.default': undefined
+  'assistant.templates.delete': undefined
+  'assistant.templates.deleteMessage': { scope: string; project: string | number }
+  'assistant.templates.deleteTip': undefined
+  'assistant.templates.deleteTitle': { name: string | number }
+  'assistant.templates.deleting': undefined
+  'assistant.templates.description': undefined
+  'assistant.templates.descriptionPlaceholder': undefined
+  'assistant.templates.discard': undefined
+  'assistant.templates.discardMessage': { name: string | number }
+  'assistant.templates.discardReload': undefined
+  'assistant.templates.discardTitle': undefined
+  'assistant.templates.draftLabel': { name: string | number }
+  'assistant.templates.duplicate': undefined
+  'assistant.templates.duplicateButton': undefined
+  'assistant.templates.duplicateFailed': undefined
+  'assistant.templates.duplicateMessage': undefined
+  'assistant.templates.duplicateTitle': { name: string | number }
+  'assistant.templates.duplicated': undefined
+  'assistant.templates.edit': undefined
+  'assistant.templates.editAgent': { name: string | number }
+  'assistant.templates.editTip': undefined
+  'assistant.templates.editTitle': { name: string | number }
+  'assistant.templates.editorHint': undefined
+  'assistant.templates.enterName': undefined
+  'assistant.templates.everyProject': undefined
+  'assistant.templates.exportButton': undefined
+  'assistant.templates.exportFailed': undefined
+  'assistant.templates.exported': undefined
+  'assistant.templates.exportedDetail': undefined
+  'assistant.templates.fullTip': { limit: string | number }
+  'assistant.templates.gone': undefined
+  'assistant.templates.import': undefined
+  'assistant.templates.importButton': undefined
+  'assistant.templates.importFailed': undefined
+  'assistant.templates.importMessage': { count: number; hasUnknown: string; unknown: string | number }
+  'assistant.templates.importTitle': { name: string | number }
+  'assistant.templates.imported': undefined
+  'assistant.templates.importedDetail': { name: string | number; scope: string; project: string | number; hasUnknown: string; unknown: string | number }
+  'assistant.templates.keepBoth': undefined
+  'assistant.templates.keepIn': undefined
+  'assistant.templates.layout': { layout: string }
+  'assistant.templates.layoutLabel': undefined
+  'assistant.templates.layoutPhrase': { layout: string }
+  'assistant.templates.loadAny': undefined
+  'assistant.templates.loadAnyTip': undefined
+  'assistant.templates.loadHere': undefined
+  'assistant.templates.loadHereTip': undefined
+  'assistant.templates.loadMessage': undefined
+  'assistant.templates.loadTarget': undefined
+  'assistant.templates.loadTitle': { name: string | number }
+  'assistant.templates.loading': undefined
+  'assistant.templates.mcpServers': { servers: string | number }
+  'assistant.templates.moveDown': { name: string | number }
+  'assistant.templates.moveUp': { name: string | number }
+  'assistant.templates.name': undefined
+  'assistant.templates.namePlaceholder': undefined
+  'assistant.templates.needAgent': undefined
+  'assistant.templates.needName': undefined
+  'assistant.templates.newAgentName': undefined
+  'assistant.templates.noLongerEdited': undefined
+  'assistant.templates.noProjects': undefined
+  'assistant.templates.noWorkspace': undefined
+  'assistant.templates.noWorkspaceTemplates': undefined
+  'assistant.templates.noneOfItsOwn': undefined
+  'assistant.templates.noneYet': undefined
+  'assistant.templates.notSaved': undefined
+  'assistant.templates.ownWorktree': undefined
+  'assistant.templates.panelHint': undefined
+  'assistant.templates.problem': { problem: string | number }
+  'assistant.templates.project': undefined
+  'assistant.templates.projectFolder': undefined
+  'assistant.templates.refresh': undefined
+  'assistant.templates.refreshTarget': undefined
+  'assistant.templates.removeAgent': { name: string | number }
+  'assistant.templates.rename': undefined
+  'assistant.templates.renameButton': undefined
+  'assistant.templates.renameFailed': undefined
+  'assistant.templates.renameTitle': { name: string | number }
+  'assistant.templates.replace': undefined
+  'assistant.templates.review': undefined
+  'assistant.templates.rowDesc': { count: number; layout: string | number }
+  'assistant.templates.saveTemplate': undefined
+  'assistant.templates.saved': undefined
+  'assistant.templates.savedDetail': { name: string | number; count: number; layout: string | number }
+  'assistant.templates.saving': undefined
+  'assistant.templates.selectOne': undefined
+  'assistant.templates.selectOneHere': undefined
+  'assistant.templates.showOf': undefined
+  'assistant.templates.stale': { name: string | number }
+  'assistant.templates.summary': { count: number; layout: string | number; hasSaved: string; when: string | number; scope: string; project: string | number }
+  'assistant.templates.tabHint': undefined
+  'assistant.templates.thisProject': undefined
+  'assistant.templates.thisProjectOnly': { project: string | number }
+  'assistant.templates.tip': undefined
+  'assistant.templates.title': undefined
+  'assistant.templates.unknown': { ids: string | number }
+  'assistant.templates.unknownAgent': undefined
+  'assistant.templates.unknownProvider': { provider: string | number }
+  'assistant.templates.unsavedTip': undefined
+  'assistant.templates.where': { name: string | number; scope: string; project: string | number }
+  'assistant.templates.workspace': undefined
+  'assistant.view.allAttachments': undefined
+  'assistant.view.allConversations': undefined
+  'assistant.view.attachments': undefined
+  'assistant.view.conversations': undefined
+  'assistant.view.modes': undefined
+  'assistant.view.newMode': undefined
+  'assistant.view.noWorkspace': undefined
+  'assistant.view.noWorkspaceMain': undefined
+  'assistant.view.openFolder': undefined
+  'assistant.view.period': undefined
+  'assistant.view.refresh': undefined
+  'assistant.view.showPanel': undefined
+  'assistant.view.statConversations': undefined
+  'assistant.view.statCost': undefined
+  'assistant.view.statPrompts': undefined
+  'assistant.view.statTokens': undefined
+  'assistant.view.summaryTip': undefined
+  'assistant.view.title': undefined
+  'assistant.view.titleTip': undefined
+  'assistant.view.unpriced': { count: number }
+  'assistant.view.usedSoFar': undefined
+}

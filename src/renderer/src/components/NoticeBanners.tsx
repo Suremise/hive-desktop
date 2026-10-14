@@ -5,6 +5,15 @@ import { call } from '../api'
 import { get, set, useStore } from '../store'
 import { cx } from '../util'
 import { Icon } from './ui'
+import { msg, tr } from '@shared/i18n'
+
+const M = {
+  more: msg({ id: 'workspace.banners.more', defaultMessage: '+{count} more', description: 'Under the notification banners when more arrived than fit: shows the rest. Keep it short.' }),
+  region: msg({ id: 'workspace.banners.region', defaultMessage: 'Notifications', description: 'The notification banners, for screen readers.' }),
+  showProject: msg({ id: 'workspace.banners.showProject', defaultMessage: 'Show the project', description: "Tooltip on a notification banner about a project: clicking it shows the project." }),
+  showProjectLabel: msg({ id: 'workspace.banners.showProjectLabel', defaultMessage: 'Show the project: {title}', description: "A notification banner's text, for screen readers ({title}: the notification)." }),
+  dismiss: msg({ id: 'workspace.banners.dismiss', defaultMessage: 'Dismiss', description: "A notification banner's close button, for screen readers." })
+}
 
 /** Stays until clicked, dismissed or answered: a waiting agent's banner, unless set to close like the others. */
 const staysUntilHandled = (n: Notice): boolean => n.kind === 'waiting' && (get().settings?.notifications.waitingBannerStays ?? true)
@@ -47,14 +56,14 @@ export function NoticeBanners() {
   const more = notices.length - shown.length
   const moreRow = more > 0 && (
     <button className="notice-more" onClick={() => setExpanded(true)}>
-      +{more} more
+      {tr(M.more, { count: more })}
     </button>
   )
   // Nearest the edge first: the newest at the top for banners at the top, at the bottom for those at the bottom.
   const bottom = position.startsWith('bottom')
   const list = bottom ? [...shown].reverse() : shown
   return (
-    <div className={cx('notice-banners', `at-${position}`, expanded && overflow && 'expanded')} role="region" aria-label="Notifications">
+    <div className={cx('notice-banners', `at-${position}`, expanded && overflow && 'expanded')} role="region" aria-label={tr(M.region)}>
       {bottom && moreRow}
       {list.map((n) => (
         <Banner key={n.id} notice={n} />
@@ -102,13 +111,13 @@ function Banner({ notice }: { notice: Notice }) {
       onFocus={() => setFocused(true)}
       onBlur={(e) => !e.currentTarget.contains(e.relatedTarget as Node | null) && setFocused(false)}
       onClick={open}
-      title={notice.projectPath ? 'Show the project' : undefined}
+      title={notice.projectPath ? tr(M.showProject) : undefined}
     >
       <Icon name={icon} className="lead" />
       {/* The text is the project's button for the keyboard (Tab, then Enter or Space; its click reaches the banner's);
           the banner keeps its live role, so it is still announced as it appears. */}
       {notice.projectPath ? (
-        <button className="notice-text notice-open" aria-label={`Show the project: ${notice.title}`}>
+        <button className="notice-text notice-open" aria-label={tr(M.showProjectLabel, { title: notice.title })}>
           {text}
         </button>
       ) : (
@@ -116,7 +125,7 @@ function Banner({ notice }: { notice: Notice }) {
       )}
       <button
         className="icon-btn notice-close"
-        aria-label="Dismiss"
+        aria-label={tr(M.dismiss)}
         onClick={(e) => {
           e.stopPropagation()
           dismissNotice(notice.id)

@@ -1,7 +1,7 @@
 import { execFile } from 'child_process'
 import { existsSync } from 'original-fs'
 import { delimiter, join } from 'path'
-import { gitProblemText, gitStateOf, parseGitVersion, type GitTool } from '../shared/gitTool'
+import { gitProblemEnglish, gitStateOf, parseGitVersion, type GitTool } from '../shared/gitTool'
 import { emit } from './events'
 import { createLogger } from './logger'
 
@@ -21,9 +21,12 @@ export function gitTool(): GitTool {
   return current
 }
 
-/** What git-dependent screens say instead of "not a git repository" when git can't run, or null when it can. */
+/**
+ * What git-dependent screens say instead of "not a git repository" when git can't run, or null when it can. In English:
+ * main's errors and statuses carry it, and agents read those too (the window says it in its language: gitProblemText).
+ */
 export function gitProblem(): string | null {
-  return gitProblemText(current)
+  return gitProblemEnglish(current)
 }
 
 function set(next: GitTool): void {
@@ -59,7 +62,7 @@ export function checkGit(): Promise<GitTool> {
         ? { state: gitStateOf(version), version, ...(path ? { path } : {}) }
         : typeof code === 'string' && code !== 'ETIMEDOUT' && code !== 'ERR_CHILD_PROCESS_STDIO_MAXBUFFER'
           ? { state: 'missing' }
-          : { state: 'unknown', error: err ? err.message.split(/\r?\n/)[0] : `git --version said "${(stdout ?? '').trim().slice(0, 80)}"` }
+          : { state: 'unknown', error: err ? err.message.split(/\r?\n/)[0] : `git --version said "${(stdout ?? '').trim().slice(0, 80)}"` } // i18n-ignore: git's own answer, quoted as git's errors are (it is logged too)
       set(next)
       res(next)
     })
