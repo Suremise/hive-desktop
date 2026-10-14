@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { keybindingProblem, resolveKeybinding } from '@shared/defaults'
+import { fmt, msg, tr, tRich } from '@shared/i18n'
 import type { KeybindingOverrides, ProjectInfo } from '@shared/types'
 import * as actions from '../actions'
 import { call } from '../api'
@@ -25,6 +26,13 @@ export function Kbd({ keys }: { keys: string | undefined }) {
     </span>
   )
 }
+
+/** A message's <faint> part, greyed. */
+const faint = (chunks: React.ReactNode[]): React.ReactNode => (
+  <span key="faint" className="faint">
+    {chunks}
+  </span>
+)
 
 /** Records a key combination (or a two-step chord) while mounted. Esc cancels. */
 function Recorder({ onDone, onCancel }: { onDone: (key: string) => void; onCancel: () => void }) {
@@ -57,10 +65,10 @@ function Recorder({ onDone, onCancel }: { onDone: (key: string) => void; onCance
     <span className="kbd-recorder">
       {first ? (
         <>
-          <Kbd keys={first} /> <span className="faint">then another key for a chord…</span>
+          <Kbd keys={first} /> <span className="faint">{tr(msg({ id: 'settings.keys.chordNext', defaultMessage: 'then another key for a chord…', description: 'While a shortcut is recorded, after its first key combination: press a second one for a chord (such as Ctrl+K Ctrl+S).' }))}</span>
         </>
       ) : (
-        <span>Press the keys… <span className="faint">(Esc to cancel)</span></span>
+        <span>{tRich(msg({ id: 'settings.keys.press', defaultMessage: 'Press the keys… <faint>(Esc to cancel)</faint>', description: 'While a shortcut is recorded, before any key. <faint> marks the part shown greyed; Esc is a key: keep it.' }), { faint })}</span>
       )}
     </span>
   )
@@ -120,10 +128,10 @@ export function KeybindingsEditor({ project }: { project?: ProjectInfo }) {
       const next = { ...local }
       if (key === undefined) delete next[id]
       else next[id] = key
-      await actions.attempt('Could not save the shortcut', () => call('project:updateConfig', project.path, { keybindings: next }))
+      await actions.attempt(tr(msg({ id: 'settings.keys.saveFailed', defaultMessage: 'Could not save the shortcut', description: "An error's title: saving a keyboard shortcut failed." })), () => call('project:updateConfig', project.path, { keybindings: next }))
       await actions.refreshWorkspace()
     } else {
-      const s = await actions.attempt('Could not save the shortcut', () => call('settings:setKeybinding', id, key))
+      const s = await actions.attempt(tr(msg({ id: 'settings.keys.saveFailed', defaultMessage: 'Could not save the shortcut', description: "An error's title: saving a keyboard shortcut failed." })), () => call('settings:setKeybinding', id, key))
       if (s) set({ settings: s })
     }
   }
@@ -131,18 +139,35 @@ export function KeybindingsEditor({ project }: { project?: ProjectInfo }) {
   const record = async (id: string, key: string): Promise<void> => {
     setRecording(null)
     const problem = keybindingProblem(key)
-    if (problem) return notify('warning', `${formatKeybinding(key)} can't be used`, problem)
+    if (problem) return notify('warning', tr(msg({ id: 'settings.keys.cantUse', defaultMessage: "{keys} can't be used", description: "Title of a warning when a recorded shortcut can't be used. {keys} is the shortcut (Ctrl+K)." }), { keys: formatKeybinding(key) }), problem)
     const others = (conflicts.get(key.toUpperCase()) ?? []).filter((l) => l !== rows.find((r) => r.c.id === id)?.c.label)
-    if (others.length && !(await confirm({ title: 'Shortcut already in use', message: `${formatKeybinding(key)} is used by ${others.join(', ')}. Use it here too?`, detail: 'When two commands share a shortcut, the first one listed that is available runs. Change the other one to avoid surprises.', confirmLabel: 'Use it' }))) return
+    if (
+      others.length &&
+      !(await confirm({
+        title: tr(msg({ id: 'settings.keys.inUseTitle', defaultMessage: 'Shortcut already in use', description: 'Title of the question when a recorded shortcut is already used by another command.' })),
+        message: tr(msg({ id: 'settings.keys.inUseMessage', defaultMessage: '{keys} is used by {commands}. Use it here too?', description: 'The question when a recorded shortcut is already used. {keys} is the shortcut; {commands} lists the commands using it.' }), { keys: formatKeybinding(key), commands: fmt.list(others) }),
+        detail: tr(msg({ id: 'settings.keys.inUseDetail', defaultMessage: 'When two commands share a shortcut, the first one listed that is available runs. Change the other one to avoid surprises.', description: 'More in the question when a recorded shortcut is already used.' })),
+        confirmLabel: tr(msg({ id: 'settings.keys.useIt', defaultMessage: 'Use it', description: 'Button of the question when a recorded shortcut is already used: uses it for this command too.' }))
+      }))
+    )
+      return
     await save(id, key)
   }
 
   const resetAll = async (): Promise<void> => {
     const n = rows.filter((r) => r.overridden).length
     if (!n) return
-    if (!(await confirm({ title: 'Reset all shortcuts?', message: project ? `Remove ${project.name}'s ${n} shortcut change${n === 1 ? '' : 's'}; it uses the global shortcuts again.` : `Return ${n} changed shortcut${n === 1 ? '' : 's'} to the defaults.`, confirmLabel: 'Reset', danger: true }))) return
+    if (
+      !(await confirm({
+        title: tr(msg({ id: 'settings.keys.resetAllTitle', defaultMessage: 'Reset all shortcuts?', description: 'Title of the question before every changed shortcut goes back.' })),
+        message: project ? tr(msg({ id: 'settings.keys.resetAllProject', defaultMessage: "{n, plural, one {Remove {project}'s shortcut change; it uses the global shortcuts again.} other {Remove {project}'s # shortcut changes; it uses the global shortcuts again.}}", description: "The question before a project's own shortcuts are removed (Project Settings → Keyboard Shortcuts). {project} is its name; {n} how many it changed." }), { n, project: project.name }) : tr(msg({ id: 'settings.keys.resetAllGlobal', defaultMessage: '{n, plural, one {Return # changed shortcut to the defaults.} other {Return # changed shortcuts to the defaults.}}', description: 'The question before every changed shortcut goes back to its default (Settings → Keyboard Shortcuts). {n} is how many.' }), { n }),
+        confirmLabel: tr(msg({ id: 'settings.keys.reset', defaultMessage: 'Reset', description: 'Button of the question before shortcuts go back to their defaults.' })),
+        danger: true
+      }))
+    )
+      return
     if (project) {
-      await actions.attempt('Could not reset', () => call('project:updateConfig', project.path, { keybindings: {} }))
+      await actions.attempt(tr(msg({ id: 'settings.keys.resetFailed', defaultMessage: 'Could not reset', description: "An error's title: resetting a project's shortcuts failed." })), () => call('project:updateConfig', project.path, { keybindings: {} }))
       await actions.refreshWorkspace()
     } else set({ settings: await call('settings:reset', 'keybindings') })
   }
@@ -153,12 +178,12 @@ export function KeybindingsEditor({ project }: { project?: ProjectInfo }) {
     <div className="kb-editor">
       <div className="kb-toolbar">
         <Icon name="search" />
-        <SearchInput placeholder="Search commands or keys" value={query} onChange={setQuery} />
+        <SearchInput placeholder={tr(msg({ id: 'settings.keys.search', defaultMessage: 'Search commands or keys', description: 'Placeholder of the search box of the keyboard shortcuts editor.' }))} value={query} onChange={setQuery} />
         <button className="btn subtle small" disabled={!rows.some((r) => r.overridden)} onClick={() => void resetAll()}>
-          <Icon name="discard" /> Reset all
+          <Icon name="discard" /> {tr(msg({ id: 'settings.keys.resetAll', defaultMessage: 'Reset all', description: 'Button of the keyboard shortcuts editor: every changed shortcut goes back.' }))}
         </button>
       </div>
-      {project && <p className="faint kb-note">Changes here apply while {project.name} is selected, over the global shortcuts. Other commands are set in Settings → Keyboard Shortcuts.</p>}
+      {project && <p className="faint kb-note">{tr(msg({ id: 'settings.keys.projectNote', defaultMessage: 'Changes here apply while {project} is selected, over the global shortcuts. Other commands are set in Settings → Keyboard Shortcuts.', description: "Above a project's shortcuts (Project Settings → Keyboard Shortcuts). {project} is its name." }), { project: project.name })}</p>}
       {/* Every command on one page (a settings page scrolls): sorting and the Category and Source filters, no paging. */}
       <DataTable
         id={project ? 'shortcuts-project' : 'shortcuts'}
@@ -169,7 +194,7 @@ export function KeybindingsEditor({ project }: { project?: ProjectInfo }) {
         pageSizes={ALL_ROWS}
         defaultPageSize={ALL_ROWS[0]}
         rowClassName={(r) => recording === r.c.id && 'recording'}
-        empty="No commands match."
+        empty={tr(msg({ id: 'settings.keys.noMatch', defaultMessage: 'No commands match.', description: 'The keyboard shortcuts editor when its search finds nothing.' }))}
       />
     </div>
   )
@@ -177,7 +202,24 @@ export function KeybindingsEditor({ project }: { project?: ProjectInfo }) {
 
 const ALL_ROWS = [1000]
 
-const sourceLabel = (r: Row): string => (r.source === 'default' ? '' : r.source === 'changed' ? 'Changed' : r.source === 'project' ? 'This project' : r.source === 'removed' ? 'Removed' : 'Global')
+/** Where a shortcut comes from, as the Set column shows it ('' for a default one). */
+function sourceLabel(r: Row): string {
+  switch (r.source) {
+    case 'default':
+      return ''
+    case 'changed':
+      return tr(msg({ id: 'settings.keys.source.changed', defaultMessage: 'Changed', description: "The Set column of the shortcuts editor: the user changed this command's shortcut." }))
+    case 'project':
+      return tr(msg({ id: 'settings.keys.source.project', defaultMessage: 'This project', description: "The Set column of a project's shortcuts: the project's own." }))
+    case 'removed':
+      return tr(msg({ id: 'settings.keys.source.removed', defaultMessage: 'Removed', description: "The Set column of the shortcuts editor: the user removed this command's shortcut." }))
+    default:
+      return globalLabel()
+  }
+}
+
+const globalLabel = (): string => tr(msg({ id: 'settings.keys.source.global', defaultMessage: 'Global', description: "The Set column of a project's shortcuts: the global one (Settings)." }))
+const defaultLabel = (): string => tr(msg({ id: 'settings.keys.source.default', defaultMessage: 'Default', description: "The Set column's filter, for the commands that keep their default shortcut." }))
 
 interface KeyEditing {
   project?: ProjectInfo
@@ -193,7 +235,7 @@ function keyColumns({ project, recording, setRecording, record, save, conflicts 
   return [
     {
       key: 'command',
-      header: 'Command',
+      header: tr(msg({ id: 'settings.keys.column.command', defaultMessage: 'Command', description: 'A column of the keyboard shortcuts editor: the command.' })),
       className: 'kb-label',
       cell: (r) => (
         <>
@@ -203,10 +245,10 @@ function keyColumns({ project, recording, setRecording, record, save, conflicts 
       ),
       sortValue: (r) => r.c.label
     },
-    { key: 'category', header: 'Category', className: 'kb-category faint', cell: (r) => r.c.category, sortValue: (r) => r.c.category, filter: { kind: 'choice', value: (r) => r.c.category } },
+    { key: 'category', header: tr(msg({ id: 'settings.keys.column.category', defaultMessage: 'Category', description: "A column of the keyboard shortcuts editor: the command's category (Project, Session…)." })), className: 'kb-category faint', cell: (r) => r.c.category, sortValue: (r) => r.c.category, filter: { kind: 'choice', value: (r) => r.c.category } }, // i18n-ignore: class names
     {
       key: 'key',
-      header: 'Shortcut',
+      header: tr(msg({ id: 'settings.keys.column.shortcut', defaultMessage: 'Shortcut', description: 'A column of the keyboard shortcuts editor: the keys.' })),
       className: 'kb-key',
       cell: (r) => {
         if (recording === r.c.id) return <Recorder onDone={(k) => record(r.c.id, k)} onCancel={() => setRecording(null)} />
@@ -216,12 +258,12 @@ function keyColumns({ project, recording, setRecording, record, save, conflicts 
           <span className="kb-key-value" onDoubleClick={() => setRecording(r.c.id)}>
             <Kbd keys={r.key} />
             {clash.length > 0 && (
-              <Tooltip content={`Also used by ${clash.join(', ')}`}>
+              <Tooltip content={tr(msg({ id: 'settings.keys.alsoUsed', defaultMessage: 'Also used by {commands}', description: 'Tooltip of the warning beside a shortcut other commands use too. {commands} lists them.' }), { commands: fmt.list(clash) })}>
                 <Icon name="warning" className="kb-warn" />
               </Tooltip>
             )}
             {terminal && (
-              <Tooltip content="While an agent's terminal has focus this key goes to the agent, so the shortcut only works elsewhere.">
+              <Tooltip content={tr(msg({ id: 'settings.keys.terminalKey', defaultMessage: "While an agent's terminal has focus this key goes to the agent, so the shortcut only works elsewhere.", description: "Tooltip of the terminal icon beside a shortcut that agents' terminals keep." }))}>
                 <Icon name="terminal" className="faint" />
               </Tooltip>
             )}
@@ -233,11 +275,11 @@ function keyColumns({ project, recording, setRecording, record, save, conflicts 
     },
     {
       key: 'source',
-      header: 'Set',
-      className: 'kb-source faint',
+      header: tr(msg({ id: 'settings.keys.column.set', defaultMessage: 'Set', description: 'A column of the keyboard shortcuts editor: where the shortcut comes from (changed, removed, this project…). Keep it short.' })),
+      className: 'kb-source faint', // i18n-ignore: class names
       cell: sourceLabel,
       sortValue: (r) => sourceLabel(r) || null,
-      filter: { kind: 'choice', value: (r) => sourceLabel(r) || (project ? 'Global' : 'Default') },
+      filter: { kind: 'choice', value: (r) => sourceLabel(r) || (project ? globalLabel() : defaultLabel()) },
       choiceLabel: (v) => v
     },
     {
@@ -246,9 +288,14 @@ function keyColumns({ project, recording, setRecording, record, save, conflicts 
       className: 'kb-actions',
       cell: (r) => (
         <>
-          <IconButton icon="edit" title="Change shortcut (or double-click it)" onClick={() => setRecording(r.c.id)} />
-          <IconButton icon="close" title="Remove shortcut" disabled={!r.key} onClick={() => save(r.c.id, null)} />
-          <IconButton icon="discard" title={project ? 'Use the global shortcut' : `Reset to default${r.c.keybinding ? ` (${formatKeybinding(r.c.keybinding)})` : ''}`} disabled={!r.overridden} onClick={() => save(r.c.id, undefined)} />
+          <IconButton icon="edit" action="edit-shortcut" title={tr(msg({ id: 'settings.keys.change', defaultMessage: 'Change shortcut (or double-click it)', description: "Button on a command's row of the shortcuts editor: records a new shortcut." }))} onClick={() => setRecording(r.c.id)} />
+          <IconButton icon="close" title={tr(msg({ id: 'settings.keys.remove', defaultMessage: 'Remove shortcut', description: "Button on a command's row of the shortcuts editor: removes its shortcut." }))} disabled={!r.key} onClick={() => save(r.c.id, null)} />
+          <IconButton
+            icon="discard"
+            title={project ? tr(msg({ id: 'settings.keys.useGlobal', defaultMessage: 'Use the global shortcut', description: "Button on a command's row of a project's shortcuts: goes back to the global one." })) : r.c.keybinding ? tr(msg({ id: 'settings.keys.resetToKeys', defaultMessage: 'Reset to default ({keys})', description: "Button on a command's row of the shortcuts editor: goes back to its default. {keys} is the default shortcut." }), { keys: formatKeybinding(r.c.keybinding) }) : tr(msg({ id: 'settings.keys.resetToNone', defaultMessage: 'Reset to default', description: "Button on a command's row of the shortcuts editor: goes back to its default (none)." }))}
+            disabled={!r.overridden}
+            onClick={() => save(r.c.id, undefined)}
+          />
         </>
       )
     }

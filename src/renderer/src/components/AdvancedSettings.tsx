@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useState } from 'react'
-import { ADVANCED_DEFS, AGENTS_PER_PROJECT, advancedRow, advancedTakes, advancedText, checkAdvanced, cliFacing, groupName, type AdvancedDef, type AdvancedRow } from '@shared/advanced'
+import { ADVANCED_DEFS, AGENTS_PER_PROJECT, advancedRow, advancedShown, advancedTakesText, checkAdvanced, cliFacing, groupName, shownText, type AdvancedDef, type AdvancedRow } from '@shared/advanced'
 import { AGENT_LIMIT_DEFAULT, manyAgentsNote } from '@shared/defaults'
+import { msg, tr, tRich } from '@shared/i18n'
 import type { ProviderId } from '@shared/types'
 import { call, errorMessage } from '../api'
 import { notify, set, useStore } from '../store'
@@ -25,28 +26,29 @@ export function AdvancedSettings({ query, modifiedOnly: outerModified }: { query
   const words = `${query} ${filter}`.toLowerCase().split(/\s+/).filter(Boolean)
   const rows = useMemo(() => ADVANCED_DEFS.map((d) => advancedRow(d, state)), [state])
   const matches = (text: string): boolean => words.every((w) => text.toLowerCase().includes(w))
-  const shown = rows.filter((r) => (!modifiedOnly || r.override !== undefined || r.workspaceValue !== undefined) && matches(`${r.def.id} ${r.def.setting ?? ''} ${groupName(r.def.group)} ${r.def.title} ${r.def.desc}`))
+  // Its English matches as well as what it shows, as Settings' own rows do.
+  const shown = rows.filter((r) => (!modifiedOnly || r.override !== undefined || r.workspaceValue !== undefined) && matches(`${r.def.id} ${r.def.setting ?? ''} ${groupName(r.def.group)} ${r.def.title} ${r.def.desc} ${shownText(r.def.text.title)} ${shownText(r.def.text.desc)}`))
   const groups = [...new Set(ADVANCED_DEFS.map((d) => d.group))]
   if (!state) return null
   return (
     <div className="advanced-list">
       <div className="advanced-bar">
-        <SearchInput placeholder="Filter advanced settings" aria-label="Filter advanced settings" value={filter} onChange={setFilter} />
+        <SearchInput placeholder={tr(msg({ id: 'settings.advancedList.filter', defaultMessage: 'Filter advanced settings', description: "Placeholder and name of the filter box in Settings → Advanced's list." }))} aria-label={tr(msg({ id: 'settings.advancedList.filter', defaultMessage: 'Filter advanced settings', description: "Placeholder and name of the filter box in Settings → Advanced's list." }))} value={filter} onChange={setFilter} />
         <label className="flex muted">
-          <input type="checkbox" className="checkbox" checked={modifiedOnly} disabled={outerModified} onChange={(e) => setModifiedOnly(e.target.checked)} /> Modified only
+          <input type="checkbox" className="checkbox" checked={modifiedOnly} disabled={outerModified} onChange={(e) => setModifiedOnly(e.target.checked)} /> {tr(msg({ id: 'settings.advancedList.modifiedOnly', defaultMessage: 'Modified only', description: "A box above Settings → Advanced's list: ticked, only values changed from their default show." }))}
         </label>
-        <button className="btn subtle" onClick={() => void call('advanced:open').catch((e) => notify('error', 'Could not open advanced.json', errorMessage(e)))}>
-          <Icon name="go-to-file" /> Open advanced.json
+        <button className="btn subtle" onClick={() => void call('advanced:open').catch((e) => notify('error', tr(msg({ id: 'settings.advancedList.openFailed', defaultMessage: 'Could not open advanced.json', description: "An error's title: opening advanced.json (the advanced settings' file) failed." })), errorMessage(e)))}>
+          <Icon name="go-to-file" /> {tr(msg({ id: 'settings.advancedList.open', defaultMessage: 'Open advanced.json', description: "Button above Settings → Advanced's list: opens the file the values are kept in. advanced.json is a file name: keep it." }))}
         </button>
       </div>
       {state.fileError && (
         <div className="advanced-note error" role="alert">
-          <Icon name="warning" /> {state.fileError} Hive keeps using the values it read before; fix the file to change them.
+          <Icon name="warning" /> {tr(msg({ id: 'settings.advancedList.fileError', defaultMessage: '{problem} Hive keeps using the values it read before; fix the file to change them.', description: "Above Settings → Advanced's list when advanced.json can't be read. {problem} says why (in English for now)." }), { problem: state.fileError })}
         </div>
       )}
       {state.unknown.length > 0 && (
         <div className="advanced-note">
-          <Icon name="info" /> advanced.json also names {state.unknown.join(', ')}, which this Hive doesn't know (a typo, or a newer Hive's): kept in the file, not used.
+          <Icon name="info" /> {tr(msg({ id: 'settings.advancedList.unknown', defaultMessage: "advanced.json also names {ids}, which this Hive doesn't know (a typo, or a newer Hive's): kept in the file, not used.", description: "Above Settings → Advanced's list. {ids} lists values' ids, as advanced.json writes them; advanced.json is a file name: keep it." }), { ids: state.unknown.join(', ') })}
         </div>
       )}
       {groups.map((g) => {
@@ -61,14 +63,14 @@ export function AdvancedSettings({ query, modifiedOnly: outerModified }: { query
           </div>
         )
       })}
-      {!shown.length && <div className="empty-state">No advanced settings match.</div>}
+      {!shown.length && <div className="empty-state">{tr(msg({ id: 'settings.advancedList.noMatch', defaultMessage: 'No advanced settings match.', description: "Settings → Advanced's list when its filter finds nothing." }))}</div>}
     </div>
   )
 }
 
 function Modified() {
   return (
-    <Tooltip content="Modified from the default">
+    <Tooltip content={tr(msg({ id: 'settings.advancedList.modified', defaultMessage: 'Modified from the default', description: 'Tooltip of the dot beside an advanced value changed from its default.' }))}>
       <span className="modified" />
     </Tooltip>
   )
@@ -100,48 +102,60 @@ function AdvancedItem({ row, cli, workspace }: { row: AdvancedRow; cli: string |
   const modified = row.override !== undefined
   const [error, setError] = useState<string | null>(null)
   const commit = async (v: unknown, scope: 'app' | 'workspace' = 'app'): Promise<void> => {
+    // Checked here first, as main checks it, so a refusal shows in the user's language (main's is English, for the tools).
+    const checked = v === null ? null : checkAdvanced(def, v)
+    if (checked && 'error' in checked) {
+      const why = shownText(checked.errorText)
+      setError(why)
+      throw new Error(why)
+    }
     const err = await save(def, v, scope)
     setError(err)
     if (err) throw new Error(err)
   }
-  const label = `${groupName(def.group)}: ${def.title}`
+  const title = shownText(def.text.title)
+  const label = tr(msg({ id: 'settings.advancedList.label', defaultMessage: '{group}: {title}', description: "The name, for screen readers, of an advanced value's box: Hive or the CLI it belongs to, then its title." }), { group: groupName(def.group), title })
   const about = [
-    advancedTakes(def),
-    def.applies === 'sessions' ? 'Applies to sessions started afterwards.' : '',
-    cliFacing(def) ? `It is ${groupName(def.group)}'s: a change records the version it was made for.` : '',
-    def.setting ? `Hive's setting ${def.setting}, kept in advanced.json too.` : ''
+    shownText(advancedTakesText(def)),
+    def.applies === 'sessions' ? tr(msg({ id: 'settings.advancedList.appliesToSessions', defaultMessage: 'Applies to sessions started afterwards.', description: "A line of an advanced value's info tip." })) : '',
+    cliFacing(def) ? tr(msg({ id: 'settings.advancedList.cliVersion', defaultMessage: "It is {cli}'s: a change records the version it was made for.", description: "A line of an advanced value's info tip, for a CLI's value. {cli} is the CLI's name." }), { cli: groupName(def.group) }) : '',
+    def.setting ? tr(msg({ id: 'settings.advancedList.alsoSetting', defaultMessage: "Hive's setting {key}, kept in advanced.json too.", description: "A line of an advanced value's info tip, for one of Hive's settings shown here. {key} is its key in Hive's settings: keep it." }), { key: def.setting }) : ''
   ].filter(Boolean)
   return (
-    <div className={cx('setting advanced-row', row.problem && 'invalid')} data-advanced={def.id}>
+    <div
+      // i18n-ignore: class names
+      className={cx('setting advanced-row', row.problem && 'invalid')}
+      data-advanced={def.id}
+    >
       <div className="s-text">
         <div className="s-title">
           {modified && <Modified />}
-          {def.title}
+          {title}
           <InfoTip text={<span style={{ whiteSpace: 'pre-line' }}>{about.join('\n')}</span>} />
-          {modified && <IconButton icon="discard" title={`Reset to default (${advancedText(def, def.default)})`} onClick={() => void commit(null).catch(() => undefined)} />}
+          {modified && <IconButton icon="discard" title={tr(msg({ id: 'settings.advancedList.reset', defaultMessage: 'Reset to default ({value})', description: 'Button beside an advanced value changed from its default: puts it back. {value} is the default.' }), { value: advancedShown(def, def.default) })} onClick={() => void commit(null).catch(() => undefined)} />}
         </div>
         <div className="advanced-id">{def.id}</div>
-        <div className="s-desc">{def.desc}</div>
+        <div className="s-desc">{shownText(def.text.desc)}</div>
         {modified && (
           <div className="s-desc">
-            Default: <code>{advancedText(def, def.default)}</code>
+            {tRich(msg({ id: 'settings.advancedList.default', defaultMessage: 'Default: {value}', description: 'Under an advanced value changed from its default: what the default is. {value} is the default, shown as code.' }), { value: <code key="value">{advancedShown(def, def.default)}</code> })}
           </div>
         )}
-        {row.problem && (
+        {row.problemText && (
           <div className="advanced-note error">
-            <Icon name="error" /> Not valid, so Hive uses the default: {row.problem}
+            <Icon name="error" /> {tr(msg({ id: 'settings.advancedList.notValid', defaultMessage: 'Not valid, so Hive uses the default: {problem}', description: "Under an advanced value that isn't valid. {problem} says why." }), { problem: shownText(row.problemText) })}
           </div>
         )}
-        {row.miss && (
+        {row.missText && (
           <div className="advanced-note warn">
-            <Icon name="warning" /> {row.miss}
+            <Icon name="warning" /> {shownText(row.missText)}
           </div>
         )}
         {row.madeForOther && (
           <div className="advanced-note warn">
-            <Icon name="warning" /> Made for {groupName(def.group)} {row.madeForOther}; {cli} is installed now. Check it still works, then keep it for {cli}.
-            <button className="btn small subtle" onClick={() => void call('advanced:keep', def.id).then((s) => set({ advanced: s })).catch((e) => notify('error', 'Could not keep it', errorMessage(e)))}>
-              Keep for {cli}
+            <Icon name="warning" /> {tr(msg({ id: 'settings.advancedList.madeFor', defaultMessage: 'Made for {cli} {version}; {installed} is installed now. Check it still works, then keep it for {installed}.', description: "Under a CLI's advanced value made for another version of the CLI. {cli} is its name; {version} and {installed} are version numbers." }), { cli: groupName(def.group), version: row.madeForOther, installed: cli ?? '' })}
+            <button className="btn small subtle" onClick={() => void call('advanced:keep', def.id).then((s) => set({ advanced: s })).catch((e) => notify('error', tr(msg({ id: 'settings.advancedList.keepFailed', defaultMessage: 'Could not keep it', description: "An error's title: keeping an advanced value for the installed CLI version failed." })), errorMessage(e)))}>
+              {tr(msg({ id: 'settings.advancedList.keep', defaultMessage: 'Keep for {version}', description: "Button under a CLI's advanced value made for another version: keeps it for the installed one. {version} is that version's number." }), { version: cli ?? '' })}
             </button>
           </div>
         )}
@@ -153,8 +167,8 @@ function AdvancedItem({ row, cli, workspace }: { row: AdvancedRow; cli: string |
         <ValueBox def={def} value={shownValue(def, row.override, def.default)} label={label} onCommit={(v) => commit(v)} />
         {def.workspace && workspace && (
           <div className="advanced-workspace">
-            <span className="muted">This workspace</span>
-            <ValueBox def={def} value={shownValue(def, row.workspaceValue, null)} label={`${label}, this workspace`} placeholder={`${advancedText(def, shownValue(def, row.override, def.default))} (Settings')`} onCommit={(v) => commit(v, 'workspace')} />
+            <span className="muted">{tr(msg({ id: 'settings.advancedList.workspace', defaultMessage: 'This workspace', description: "Beside the box for the open workspace's own advanced value." }))}</span>
+            <ValueBox def={def} value={shownValue(def, row.workspaceValue, null)} label={tr(msg({ id: 'settings.advancedList.workspaceLabel', defaultMessage: '{label}, this workspace', description: "The name, for screen readers, of the box for the open workspace's own advanced value. {label} is the value's name." }), { label })} placeholder={tr(msg({ id: 'settings.advancedList.workspacePlaceholder', defaultMessage: "{value} (Settings')", description: "Placeholder of the box for the workspace's own advanced value: the value Settings has, which applies while it is empty." }), { value: advancedShown(def, shownValue(def, row.override, def.default)) })} onCommit={(v) => commit(v, 'workspace')} />
           </div>
         )}
       </div>
@@ -201,7 +215,7 @@ function ValueBox({ def, value, label, placeholder, onCommit }: { def: AdvancedD
       aria-label={label}
       spellCheck={false}
       value={draft}
-      placeholder={placeholder ?? advancedText(def, def.default)}
+      placeholder={placeholder ?? advancedShown(def, def.default)}
       onChange={(e) => setDraft(e.target.value)}
       onBlur={commit}
       onKeyDown={(e) => {
