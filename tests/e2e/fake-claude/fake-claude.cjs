@@ -16,6 +16,7 @@
 //   N seconds; its task notification then starts a turn by itself, as in Claude Code. "pad N" adds N KB to the
 //   transcript. "context N": the reply's request reports N input tokens, so the session's context is about N. "ask" first asks for permission (a permission_prompt Notification), then carries on by itself.
 //   "holduntil NAME": the turn doesn't end until the test makes a file NAME in its home (CLAUDE_CONFIG_DIR).
+//   "askwhen NAME": the permission prompt once the test makes a file NAME in its home (#667), not after a set time.
 //   "waitfile NAME" as a step ("waitfile go then hive hive_inbox {}"): the steps after it wait for that file.
 //   "shell: <command line>" runs a command in cmd with the session's environment (fake-shell.jsonl records it).
 //   "linger N" leaves N processes running after it ends, as an agent's preview server or tail -f does (#507): each a
@@ -457,6 +458,15 @@ async function runPrompt(text, enter = null) {
   // "askafter N": the permission prompt N seconds into the turn (it starts working first).
   const askAfter = /\baskafter\s+(\d+)/i.exec(text)
   if (askAfter) setTimeout(() => void hook('Notification', { notification_type: 'permission_prompt', message: 'Claude needs your permission to use Bash' }), Number(askAfter[1]) * 1000)
+  // "askwhen NAME": the permission prompt once the test makes NAME in its home (two minutes at most, in case the test
+  // died), so it comes after what the test waits for (#667: a watch that a loaded machine set up after a set time).
+  const askWhen = /\baskwhen\s+([\w.-]+)/i.exec(text)
+  if (askWhen)
+    void (async () => {
+      const go = path.join(process.env.CLAUDE_CONFIG_DIR || '', askWhen[1])
+      for (const end = Date.now() + 120_000; !fs.existsSync(go) && Date.now() < end; ) await sleep(100)
+      await hook('Notification', { notification_type: 'permission_prompt', message: 'Claude needs your permission to use Bash' })
+    })()
   // "pad N": N KB more transcript, as a long conversation has.
   const pad = /\bpad\s+(\d+)/i.exec(text)
   if (pad) write({ type: 'user', message: { role: 'user', content: [{ type: 'tool_result', tool_use_id: 'toolu_pad', content: 'x'.repeat(Number(pad[1]) * 1024) }] } })
