@@ -256,13 +256,13 @@ export function SkillView() {
   const loaded = useScopedLoad<SkillInfo[]>(wsPath)
   const list = loaded.data
   const error = loaded.error
-  const [attempt, setAttempt] = useState(0)
   const { load } = loaded
 
-  useEffect(() => load(wsPath, () => call('skills:workspace')), [version, wsPath, attempt, load])
+  useEffect(() => load(wsPath, () => call('skills:workspace')), [version, wsPath, load])
 
   const skill = selected ? list?.find((s) => s.path === selected) : undefined
-  const retry = (): void => setAttempt((n) => n + 1)
+  // Read again everywhere the skills show, the sidebar too (#841).
+  const retry = (): void => set((s) => ({ skillsVersion: s.skillsVersion + 1 }))
   // Not read, or not found in a list that failed to refresh: unknown, so not "no longer exists".
   if (selected && error && !list?.some((s) => s.path === selected)) return <LoadFailed what={tr(M.skillLoadTarget)} error={error} onRetry={retry} />
   if (!selected || !list) {

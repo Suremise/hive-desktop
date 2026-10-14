@@ -666,6 +666,8 @@ function SkillsPanel() {
   const { load: loadScoped } = loaded
   const load = useCallback(() => loadScoped(wsPath, () => call('skills:workspace')), [wsPath, loadScoped])
   useEffect(load, [load, version])
+  // Refresh and Retry read the skills again everywhere they show, the Skills view's main area too (#841).
+  const reload = (): void => set((s) => ({ skillsVersion: s.skillsVersion + 1 }))
 
   const add = async (mode: 'new' | 'file'): Promise<void> => {
     if (!workspace) return notify('warning', tr(M.openFirst))
@@ -684,7 +686,7 @@ function SkillsPanel() {
         <div className="actions">
           <IconButton icon="add" title={tr(M.newSkill)} onClick={() => void add('new')} disabled={!workspace} />
           <IconButton icon="file-add" title={tr(M.skillFromFile)} onClick={() => void add('file')} disabled={!workspace} />
-          <IconButton icon="refresh" title={tr(M.refresh)} onClick={load} />
+          <IconButton icon="refresh" title={tr(M.refresh)} onClick={reload} />
           <IconButton icon="folder-opened" title={tr(M.openSkillsFolder)} onClick={() => void call('skills:openFolder')} disabled={!workspace} />
         </div>
       </div>
@@ -695,8 +697,8 @@ function SkillsPanel() {
       <div className="pane-body">
         <Section title={tr(M.hiveGroup)} count={skills.length - missing} tip={SKILL_LEVEL_TIP.hive}>
           {!workspace && <div className="pane-empty">{tr(M.noWorkspaceSkills)}</div>}
-          {workspace && error && loaded.data && <StaleNote what={tr(M.skillsRefreshTarget)} error={error} at={loaded.at} onRetry={load} />}
-          {workspace && error && !loaded.data && <LoadFailed inline what={tr(M.skillsLoadTarget)} error={error} onRetry={load} />}
+          {workspace && error && loaded.data && <StaleNote what={tr(M.skillsRefreshTarget)} error={error} at={loaded.at} onRetry={reload} />}
+          {workspace && error && !loaded.data && <LoadFailed inline what={tr(M.skillsLoadTarget)} error={error} onRetry={reload} />}
           {workspace && !error && !loaded.data && (
             <div className="pane-empty">
               <Icon name="loading" spin /> {tr(M.loading)}

@@ -48,17 +48,6 @@ async function showView(ctx, command, hook) {
   if (!(await ctx.page.locator(hook).count())) await ctx.command(command)
 }
 
-/**
- * The main area reads again: another view and back. Its own read failed with the sidebar's, and the sidebar's Retry
- * reads the sidebar's list only (a follow-up card).
- */
-async function remountMain(ctx, command, hook) {
-  await ctx.command('view.notes')
-  await shown(ctx, ctx.page.locator('.sidebar .pane-header .icon-btn .codicon-new-file'), 'Shared Notes')
-  await ctx.command(command)
-  await shown(ctx, ctx.page.locator(hook), 'the view again')
-}
-
 /** The whole sidebar and main area (null: the window). */
 const windowShot = () => null
 
@@ -156,7 +145,6 @@ async function retrySkills(ctx) {
   await failing(ctx, '')
   await ctx.page.locator('.sidebar .load-failed button').first().click()
   await shown(ctx, ctx.page.locator('.sidebar .skill-row'), 'the skills')
-  await remountMain(ctx, 'view.skills', '.sidebar .skill-row')
 }
 
 /** The Skills view, a skill of Hive's own open. */
@@ -258,7 +246,6 @@ async function retryTemplates(ctx) {
   for (const scope of ['workspace', 'project']) await ctx.inv('templates:save', ctx.project, scope, 'Pair', true)
   await ctx.page.locator('.sidebar .load-failed button').first().click()
   await shown(ctx, ctx.page.locator('.sidebar .template-row'), 'the templates')
-  await remountMain(ctx, 'view.templates', '.sidebar .template-row')
 }
 
 /** The Templates view, a template selected: what it holds. */
