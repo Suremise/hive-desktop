@@ -1715,6 +1715,10 @@
     "defaultMessage": "Its reviewer may have finished its turn without Hive seeing it end. Show the reviewer: if its terminal waits at its prompt, Mark idle, and the watch wakes it.",
     "description": "Tooltip on a card stalled in Review whose reviewer Hive has heard nothing from. \"Mark idle\" is a command in the agent's menu: keep its wording as that command is translated."
   },
+  "board.stall.hintReviewVerdict": {
+    "defaultMessage": "Its reviewer stopped without a verdict and waits on the card. Read its latest comment (it may have a question for you), then show the reviewer and ask it to finish its review.",
+    "description": "Tooltip on a card stalled in Review: its reviewer started reviewing, then went back to waiting on the card without passing or failing it."
+  },
   "board.stall.hintReviewWait": {
     "defaultMessage": "Its reviewer's watch didn't wake it. Show the reviewer and ask it to review the card.",
     "description": "Tooltip on a card stalled in Review: its reviewer watches it but has not started."
@@ -1738,6 +1742,10 @@
   "board.stalled.removedUnnamed": {
     "defaultMessage": "Its agent was removed.",
     "description": "Why a card's work is stalled: its agent (name unknown) was removed from the project."
+  },
+  "board.stalled.reviewVerdictWait": {
+    "defaultMessage": "{agent} started reviewing #{card} but has given no verdict, and has only been watching it for {waited}.",
+    "description": "Why a card in Review is stalled: its reviewer started its review, then went back to waiting on the card without passing or failing it (it may have left a question in a comment). {agent} is the reviewer's name, {card} the card number (after #), {waited} how long it has only been watching (\"40 min\", \"2 h 5 min\")."
   },
   "board.stalled.reviewWait": {
     "defaultMessage": "{agent} is watching #{card} but hasn't started reviewing it: in Review for {waited}.",

@@ -658,7 +658,11 @@ export function TemplateDetail({ t, project, onGone, onSelect }: { t: TemplateEn
   )
 }
 
-/** The workspace's templates and each project's, kept fresh (a change anywhere in this window bumps templatesVersion). */
+/**
+ * The workspace's templates and each project's, kept fresh (a change anywhere in this window bumps templatesVersion).
+ * The sidebar and the main area each read them; reload reads them again in both, so the main area recovers when the
+ * sidebar's Retry succeeds (#841).
+ */
 function useAllTemplates() {
   const wsPath = useStore((s) => s.workspace?.path ?? '')
   const version = useStore((s) => s.templatesVersion)
@@ -668,7 +672,7 @@ function useAllTemplates() {
     if (wsPath) loadScoped(wsPath, () => call('templates:all'))
   }, [wsPath, loadScoped])
   useEffect(load, [load, version])
-  return { ...loaded, load, wsPath }
+  return { ...loaded, reload: bump, wsPath }
 }
 
 const ALL = 'all'
@@ -676,7 +680,7 @@ const WORKSPACE = 'workspace'
 
 /** The Templates view's sidebar: every template, grouped by where it is kept, with a filter (All, Workspace, a project). */
 export function TemplatesPanel() {
-  const { data, error, at, load, wsPath } = useAllTemplates()
+  const { data, error, at, reload, wsPath } = useAllTemplates()
   const selected = useStore((s) => s.selectedTemplate)
   const filter = useStore((s) => s.templateFilter)
   const projects = useStore((s) => s.workspace?.projects) ?? []
@@ -694,7 +698,7 @@ export function TemplatesPanel() {
         {tr(M.title)} <InfoTip text={tr(TEMPLATES_TIP)} />
         <div className="actions">
           <IconButton icon="cloud-download" title={tr(M.importButton)} onClick={doImport} disabled={!wsPath} />
-          <IconButton icon="refresh" title={tr(M.refresh)} onClick={load} disabled={!wsPath} />
+          <IconButton icon="refresh" title={tr(M.refresh)} onClick={reload} disabled={!wsPath} />
         </div>
       </div>
       {wsPath && (
@@ -712,8 +716,8 @@ export function TemplatesPanel() {
       )}
       <div className="pane-body">
         {!wsPath && <div className="pane-empty">{tr(M.noWorkspace)}</div>}
-        {wsPath && error && data && <StaleNote what={tr(M.refreshTarget)} error={error} at={at} onRetry={load} />}
-        {wsPath && error && !data && <LoadFailed inline what={tr(M.loadTarget)} error={error} onRetry={load} />}
+        {wsPath && error && data && <StaleNote what={tr(M.refreshTarget)} error={error} at={at} onRetry={reload} />}
+        {wsPath && error && !data && <LoadFailed inline what={tr(M.loadTarget)} error={error} onRetry={reload} />}
         {wsPath && !error && !data && (
           <div className="pane-empty">
             <Icon name="loading" spin /> {tr(M.loading)}

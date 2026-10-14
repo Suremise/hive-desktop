@@ -3,7 +3,7 @@
 import { describe, expect, it } from 'vitest'
 import { cardsInPlay, unwatched } from '../src/main/loopCheck'
 import { providerDescriptor } from '../src/shared/providers'
-import { notWatchingReason, REVIEW_WAIT_STALL_MS, reviewWaitReason } from '../src/shared/tasks'
+import { notWatchingReason, REVIEW_WAIT_STALL_MS, reviewVerdictWaitReason, reviewWaitReason } from '../src/shared/tasks'
 import type { TaskCard } from '../src/shared/types'
 
 const card = (number: number, over: Partial<TaskCard> = {}): TaskCard => ({ number, title: `Card ${number}`, project: 'alpha', column: 'todo', agent: null, archived: false, labels: [], blockedBy: [], links: [], comments: [], history: [], ...over }) as unknown as TaskCard
@@ -89,5 +89,45 @@ describe('a card in Review its watching reviewer has not started on (#521)', () 
     const back = [...failed, h(600, 'HB2 (alpha)', 'Returned for review, round 2')]
     expect(reviewWaitReason(inReview({ history: back }), watchers, t0 + 600_000 + REVIEW_WAIT_STALL_MS - 1000)).toBeNull()
     expect(reviewWaitReason(inReview({ history: back }), watchers, t0 + 600_000 + REVIEW_WAIT_STALL_MS)).toBe("HR2 is watching #506 but hasn't started reviewing it: in Review for 15 min.")
+  })
+})
+
+describe('a card in Review whose reviewer started, gave no verdict and only watches it (#843)', () => {
+  const t0 = Date.parse('2026-10-14T15:00:00.000Z')
+  const at = (min: number) => new Date(t0 + min * 60_000).toISOString()
+  const started = (over: Partial<TaskCard> = {}) => card(805, { column: 'review', agent: 'b3', review: { agent: 'r3', agentName: 'HR3', since: at(0) }, ...over })
+  // HR3 asked the user in a comment two minutes in (a turn of its own), then went back to watching the card.
+  const watching = [{ name: 'HR3', project: 'alpha', agentId: 'r3', cards: [805], status: 'watching', watchSince: at(2) }]
+  it('stalled once it has only watched it for the limit, from the later of its review starting and its watch', () => {
+    expect(reviewVerdictWaitReason(started(), watching, t0 + 2 * 60_000 + REVIEW_WAIT_STALL_MS - 1000)).toBeNull()
+    expect(reviewVerdictWaitReason(started(), watching, t0 + 2 * 60_000 + REVIEW_WAIT_STALL_MS)).toBe('HR3 started reviewing #805 but has given no verdict, and has only been watching it for 15 min.')
+    expect(reviewVerdictWaitReason(started(), watching, t0 + 77 * 60_000)).toBe('HR3 started reviewing #805 but has given no verdict, and has only been watching it for 1 h 15 min.')
+    // A watch from before its review started counts from the review; one with no time known, from the review too.
+    expect(reviewVerdictWaitReason(started(), [{ ...watching[0], watchSince: at(-30) }], t0 + REVIEW_WAIT_STALL_MS)).toMatch(/only been watching it for 15 min\.$/)
+    expect(reviewVerdictWaitReason(started(), [{ ...watching[0], watchSince: undefined }], t0 + REVIEW_WAIT_STALL_MS)).toMatch(/^HR3 started reviewing #805/)
+  })
+  it('not while its reviewer works (or its state is unknown), nor once it is blocked with a question or has its verdict', () => {
+    const late = t0 + 3600_000
+    // Working on it (a long test run), or on something else with the watch still set.
+    expect(reviewVerdictWaitReason(started(), [{ ...watching[0], status: 'working' }], late)).toBeNull()
+    // Shows working but silent: its state is unknown (#648), not known to be only watching.
+    expect(reviewVerdictWaitReason(started(), [{ ...watching[0], status: 'working', silentMinutes: 40 } as never], late)).toBeNull()
+    // Waiting for the user (a permission prompt) isn't watching the card.
+    expect(reviewVerdictWaitReason(started(), [{ ...watching[0], status: 'waiting' }], late)).toBeNull()
+    // It asked the user the way #840 says: the card is blocked with its question.
+    expect(reviewVerdictWaitReason(started({ blocked: 'Should the notice name the branch?' }), watching, late)).toBeNull()
+    // Its verdict ends its review (the card keeps no review): a failed round waiting for its builder isn't stalled on it.
+    expect(reviewVerdictWaitReason(started({ review: undefined }), watching, late)).toBeNull()
+  })
+  it('only its own reviewer watching it counts, in its project, on a card still in Review', () => {
+    const late = t0 + 3600_000
+    expect(reviewVerdictWaitReason(started(), [{ ...watching[0], agentId: 'r1', name: 'HR1' }], late)).toBeNull()
+    expect(reviewVerdictWaitReason(started(), [{ ...watching[0], cards: [806] }], late)).toBeNull()
+    expect(reviewVerdictWaitReason(started(), [{ ...watching[0], project: 'beta' }], late)).toBeNull()
+    expect(reviewVerdictWaitReason(started({ column: 'passed' }), watching, late)).toBeNull()
+    expect(reviewVerdictWaitReason(started({ archived: true }), watching, late)).toBeNull()
+    expect(reviewVerdictWaitReason(started(), [], late)).toBeNull()
+    // The other review stall (#521) is for a review not started: the two never both apply.
+    expect(reviewWaitReason(started({ history: [{ at: at(-1), by: 'HB3 (alpha)', what: 'Moved to Review' }] }), watching, late)).toBeNull()
   })
 })

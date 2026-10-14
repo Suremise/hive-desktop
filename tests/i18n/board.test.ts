@@ -3,7 +3,7 @@ import { readFileSync } from 'fs'
 import { join, resolve } from 'path'
 import { fmt, setLanguage, tr } from '../../src/shared/i18n'
 import { PSEUDO_LANGUAGE } from '../../src/shared/i18n/languages'
-import { COLUMN_TEXT, TASK_COLUMNS, archiveBatchLabel, archiveBatchText, columnLabel, columnName, durationText, notWatchingReason, reviewStalled, reviewWaitReason, stalledReason } from '../../src/shared/tasks'
+import { COLUMN_TEXT, TASK_COLUMNS, archiveBatchLabel, archiveBatchText, columnLabel, columnName, durationText, notWatchingReason, reviewStalled, reviewVerdictWaitReason, reviewWaitReason, stalledReason } from '../../src/shared/tasks'
 import { runDetails, runStateWord, runStatusLine, runWords, shortDuration, stripRuns, stripSummary } from '../../src/shared/progress'
 import { cardSegment, fitSegments, frozenSegment } from '../../src/shared/laneBar'
 import { branchSummary, inbox, inboxName, inboxStateText, type InboxItem } from '../../src/shared/inbox'
@@ -93,6 +93,7 @@ function windowTexts(): string[] {
     stalledReason(doing, { name: 'B1', running: false }, tr)!,
     notWatchingReason(card(2, 'doing'), [{ name: 'B1', project: 'hive', notWatching: [2] }], tr)!,
     reviewWaitReason(watched, watchers, 60 * 60_000, tr)!,
+    reviewVerdictWaitReason(card(8, 'review', { review: { agent: 'a-2', agentName: 'R1', since: new Date(0).toISOString() } }), [{ ...watchers[0], cards: [8], status: 'watching' }], 60 * 60_000, tr)!,
     reviewStalled(card(3, 'review', { review: { agent: 'a-2', agentName: 'R1', since: '' } as unknown as TaskCard['review'] }), null, tr)!,
     durationText(65 * 60_000, tr),
     runStateWord(run({ state: 'stale' }), tr),
@@ -144,6 +145,10 @@ describe('the board area', () => {
       const watchers = [{ name: 'R1', project: 'hive', agentId: 'a-2', cards: [5], ...w }]
       for (const now of [20 * 60_000, 60 * 60_000, 65 * 60_000]) expect(reviewWaitReason(watched, watchers, now, tr)).toBe(reviewWaitReason(watched, watchers, now))
     }
+    // #843: a started review with no verdict, its reviewer only watching.
+    const started = card(8, 'review', { review: { agent: 'a-2', agentName: 'R1', since: new Date(0).toISOString() } })
+    const reviewer = [{ name: 'R1', project: 'hive', agentId: 'a-2', cards: [8], status: 'watching', watchSince: new Date(60_000).toISOString() }]
+    for (const now of [20 * 60_000, 61 * 60_000, 66 * 60_000, 121 * 60_000]) expect(reviewVerdictWaitReason(started, reviewer, now, tr)).toBe(reviewVerdictWaitReason(started, reviewer, now))
   })
 
   it('durations read as the English shortDuration agents get', () => {

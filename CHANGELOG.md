@@ -18,6 +18,7 @@
 
 ### Card loops
 - **An agent's question for you no longer sits unseen on a card.** A builder or reviewer that needs your decision now blocks the card with its question as well as notifying you, so the card shows as blocked, the Assistant's lane watch picks it up, and the agent clears it once you decide. Before, a reviewer could ask only in a comment, which nothing flagged (#840).
+- **A review left without a verdict shows as stalled.** A reviewer that started reviewing a card and then went back to waiting on it for 15 minutes, with no verdict and no question blocking the card, now stalls it, on the board, in the Progress panel and for the Assistant's lane watch, so a question left only in a comment no longer waits unseen (#843).
 
 ### Hive Assistant
 - **Apps that follow the Assistant no longer have to read its sentences.** Each of its actions on the Agent API's event stream now says what it was (`kind`: starting a card, giving an agent a task, moving cards…) and what it was about (the project, the agent, the card or cards, the lane, the column), so a viewer such as Apiary keeps working when the sentence is reworded or translated. Nothing private is added. The API's version is now 5 (#763).
@@ -29,6 +30,10 @@
 - **What you install while Hive is open reaches new terminals and agents.** Hive now reads the PATH Windows gives new programs just before it starts an agent, an Agent Setup terminal or **Open External Terminal Here**, so a CLI or tool installed outside Hive is found there without **Check again** or a restart (#821).
 - **The workspace no longer goes back to how it was before a change.** When Hive read the projects twice close together on a busy machine, the earlier reading could finish last and show an agent list from before the change, and say again that two agents share a name. The later reading now stands.
 - **Copy Diagnostics no longer briefly offers an old recording.** Opened again, the dialog showed the last open's developer console recording row, with its checkbox, until it had read the newest one, even when the newest had prompt and reply text and couldn't be attached (nothing was attached either way). It now shows no row until the newest is read.
+- **Hive's window fits the display it opens on.** Opened on a smaller display than the one it was last on, the window kept its old size and ran off the display's edge, so a project's tabs stayed labelled and were cut off until the window was resized. It now opens no larger than the display and wholly on it, unless the display is smaller than Hive's smallest window (900 × 560) (#812).
+- **Save stays in view in a narrow Files pane.** The file toolbar's buttons pushed Save out of sight when the pane was narrow or the labels long in the window's language; they now show as icons (named in tooltips), and wrap onto a second row when even those don't fit (#814).
+- **Retry in the Skills and Templates views shows the skill or template you then select.** When their list couldn't be read, Retry in the sidebar listed them again, but selecting one still showed the failed read (Skills) or nothing (Templates) until you left the view and came back (#841).
+- **The Progress panel's filter applies to merges too.** Filtered to a project (or one of its agents), the panel still showed every project's merge on top; it now shows only that project's, or that agent's (#810).
 
 ## 0.7.1 — 13 October 2026
 

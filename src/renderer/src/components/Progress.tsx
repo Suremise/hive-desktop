@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from 'react'
-import { ALL_PROJECTS, RECENT_RUNS, SHOW_ALL, activeFilter, agentChoices, barLook, filterChoices, filterRuns, fractionDone, inStrip, isListed, isOpenRun, isRecent, runDetails, runDetailsText, runStateWord, runStatusLine, stripRuns, stripSummary, unseenTrouble } from '@shared/progress'
+import { ALL_PROJECTS, RECENT_RUNS, SHOW_ALL, activeFilter, agentChoices, barLook, filterChoices, filterMergeSlots, filterRuns, fractionDone, inStrip, isListed, isOpenRun, isRecent, runDetails, runDetailsText, runStateWord, runStatusLine, stripRuns, stripSummary, unseenTrouble } from '@shared/progress'
 import { durationText } from '@shared/tasks'
 import type { MergeSlotInfo, ProgressRun } from '@shared/types'
 import { fmt, msg, tr, type Msg } from '@shared/i18n'
@@ -118,9 +118,8 @@ export function ProgressPanel() {
   const filterName = filter === SHOW_ALL ? null : `${choices.find((c) => c.value === filter.project)?.label ?? ''}${filter.agent ? ` · ${shown[0]?.agentName ?? ''}` : ''}`
   if (!open) return <ProgressRail runs={shown.filter((r) => inStrip(r, now))} filtered={filterName ? { name: filterName, all: runs.filter((r) => inStrip(r, now)).length } : null} />
   const listed = shown.filter((r) => isListed(r, now))
-  // The merges going on in every project: a slot its holder has taken (a turn not claimed yet isn't a merge, nor a line
-  // alone); the lanes of the project (and agent) the runs are filtered to.
-  const merging = slots.filter((s) => s.holder?.taken)
+  // The merges and lanes of the project (and agent) the runs are filtered to, or of every project (#810).
+  const merging = filterMergeSlots(slots, filter)
   const shownLanes = filter.project === ALL_PROJECTS ? lanes : lanes.filter((l) => l.project.toLowerCase() === filter.project && (!filter.agent || l.builder.agentId === filter.agent || l.reviewer?.agentId === filter.agent))
   // The holder's current step: its newest run still going, in its project.
   const stepOf = (s: MergeSlotInfo): string | null => {

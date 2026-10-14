@@ -430,12 +430,14 @@ interface HiveMessageValues {
   'board.stall.hintNobody': undefined
   'board.stall.hintNotWatching': undefined
   'board.stall.hintReviewSilent': undefined
+  'board.stall.hintReviewVerdict': undefined
   'board.stall.hintReviewWait': undefined
   'board.stalled.noAgent': undefined
   'board.stalled.notRunning': { agent: string | number }
   'board.stalled.notWatching': { agent: string | number; card: string | number }
   'board.stalled.removed': { agent: string | number }
   'board.stalled.removedUnnamed': undefined
+  'board.stalled.reviewVerdictWait': { agent: string | number; card: string | number; waited: string | number }
   'board.stalled.reviewWait': { agent: string | number; card: string | number; waited: string | number }
   'board.stalled.reviewWaitBusy': { agent: string | number; card: string | number; waited: string | number }
   'board.stalled.reviewWaitSilent': { agent: string | number; card: string | number; silent: string | number; waited: string | number }

@@ -2,7 +2,8 @@
 // Hive's worktrees folder and main has moved on: Add Agent named B4 on New worktree says it reuses that folder, brought
 // up to main; adding gets B4 that folder at main's commit (no hive/b4-2), and a notice says "Reused hive/b4, brought up
 // to main at …". An unused hive/held with a commit of its own: New worktree says it holds work and offers to reuse it,
-// which picks Existing worktree with it; adding keeps its commit, and the notice says so. Screenshots in both themes.
+// which picks Existing worktree with it; adding keeps its commit, and the notice says so. An unused, merged hive/xa added
+// with the window in the pseudo-locale: its notice is in the window's language, not English (#844). Screenshots in both themes.
 // Throwaway repository, profile and workspace; quiet; no agent is started.
 const lib = require('./lib.cjs')
 const fs = require('fs')
@@ -36,6 +37,7 @@ const same = (a, b) => path.resolve(a).toLowerCase() === path.resolve(b).toLower
   const held = path.join(trees, 'held')
   git(repo, 'worktree', 'add', '-q', '-b', 'hive/b4', b4, 'main')
   git(repo, 'worktree', 'add', '-q', '-b', 'hive/held', held, 'main')
+  git(repo, 'worktree', 'add', '-q', '-b', 'hive/xa', path.join(trees, 'xa'), 'main')
   commit(held, 'held.txt')
   const heldTip = git(held, 'rev-parse', 'HEAD')
   commit(repo, 'later.txt')
@@ -104,6 +106,23 @@ const same = (a, b) => path.resolve(a).toLowerCase() === path.resolve(b).toLower
   check('Held works in it, its commit kept', !!heldAgent && same(heldAgent.worktree?.path ?? '', held) && git(held, 'rev-parse', 'HEAD') === heldTip, JSON.stringify(heldAgent?.worktree))
   const kept = page.locator('.toast', { hasText: 'Reused hive/held as it is' })
   check('…and a notice says it keeps its work', !!(await lib.until(async () => (await kept.count()) === 1, 5000)), await page.locator('.toast').allInnerTexts().then((t) => t.join(' | ')))
+
+  // --- XA on New worktree, added with the window in the pseudo-locale (#844): the notice is in the window's language.
+  await openDialog()
+  await dialog.locator('input.input').first().fill('XA')
+  await dialog.locator('.choice', { hasText: 'New worktree' }).click()
+  check('New worktree named XA says it reuses hive/xa', !!(await lib.until(async () => (await reuse.count()) === 1, 8000)), await dialog.innerText())
+  // As main sends it when the language setting changes (HIVE_LANG pins the run's language, so not through Settings).
+  const info = (await inv('app:info')).language
+  await app.evaluate(({ BrowserWindow }, e) => BrowserWindow.getAllWindows()[0].webContents.send('hive:event', e), { type: 'language-changed', language: { ...info, code: 'en-XA', messages: {} } })
+  const addXa = page.locator('.dialog .btn.primary', { has: page.locator('.codicon-add') })
+  check('…and the dialog follows the pseudo-locale', !!(await lib.until(async () => /^\[.*\]$/.test((await addXa.innerText()).trim()), HUNG_MS)), await addXa.innerText())
+  await addXa.click()
+  check("XA works in hive/xa's folder", !!(await lib.until(async () => (await agents()).find((a) => a.name === 'XA' && a.worktree?.branch === 'hive/xa'), 15000)))
+  const xaNote = page.locator('.toast', { hasText: 'hive/xa' })
+  const xaText = async () => ((await xaNote.count()) === 1 ? await xaNote.innerText() : '')
+  check('…and its notice is in the pseudo-locale, not English', !!(await lib.until(async () => /\[[^\]]*hive\/xa[^\]]*\]/.test(await xaText()), 5000)) && !/reused/i.test(await xaText()), await page.locator('.toast').allInnerTexts().then((t) => t.join(' | ')))
+  await shot('pseudo-notice-dark')
 
   await app.close()
   console.log(failed ? `${failed} check(s) failed` : 'all checks passed')
