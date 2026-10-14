@@ -1,5 +1,5 @@
 // Runners at the same time share nothing (#203), and heavy runs queue (#204):
-//   npm run e2e:concurrency [-- --repeat N] [--keep] [--heavy]
+//   npm run e2e:concurrency [-- --repeat N] [--keep] [--heavy] [--lane-wait]
 //
 // Starts four test runs at once from two worktrees, with both dev builds made stale first: in this worktree an e2e
 // runner and a scenario run, and in a second worktree (a git worktree of this one's HEAD with its uncommitted changes,
@@ -23,6 +23,13 @@
 // says) takes the only slot before two runs that asked earlier, and a killed pre-merge run's place expires (#558); and
 // with the only slot held by a parent run, a heavy scenario run started inside its suite runs without asking for one
 // (even with --no-wait), while the same run at the top level is refused (#211).
+//
+// After the rounds (or alone, with --lane-wait): a run that waits for a test lane while its source changes (#735). In
+// the second worktree, an e2e run (--build --record) and a scenario run start while every lane of a pool of their own
+// is held (HIVE_TEST_LANES_DIR, and folders of their own: real runs neither wait for it nor make it wait); once both
+// say they wait, a source file is added there, then lanes are let go. Checked: both waited, then built the source as
+// it was once they had a lane, after the wait; both pass; the e2e record names that source and is valid; the build
+// is stamped as it.
 import { execFileSync, spawn } from 'child_process'
 import { existsSync, mkdirSync, readdirSync, readFileSync, rmSync, writeFileSync } from 'fs'
 import http from 'http'
@@ -30,6 +37,7 @@ import { createRequire } from 'module'
 import { dirname, join } from 'path'
 import { fileURLToPath } from 'url'
 import { BUILD_LOCKS, buildInputs, buildLock, buildStamp, buildStampedAt, builtOnce } from './build.mjs'
+import { LANES } from './lanes.mjs'
 import { trySlot } from './slots.mjs'
 import { addWorktree, invocationDir, keepDir, removeInvocation, removeStale } from './tempWorktrees.mjs'
 import { fingerprint } from './record.mjs'
@@ -44,6 +52,7 @@ const argv = process.argv.slice(2)
 const repeat = Math.max(1, Number(argv[argv.indexOf('--repeat') + 1]) || 1)
 const keep = argv.includes('--keep')
 const heavy = argv.includes('--heavy')
+const laneWaitOnly = argv.includes('--lane-wait')
 /** The small fake set each e2e runner runs, and the scenario. */
 const SUITES = ['isolation', 'about', 'bridgereport', 'busy']
 const SCENARIO = 'work-on-card'
@@ -273,6 +282,54 @@ async function heavyRound(k, worktrees) {
   }
 }
 
+/** A run that waits for a test lane while its source changes (#735): see the top of this file. */
+async function laneWaitCheck(wt) {
+  console.log('\n--- A run that waits for a test lane while its source changes (#735)')
+  const pool = join(RUN, 'lanes')
+  rmSync(pool, { recursive: true, force: true })
+  mkdirSync(pool, { recursive: true })
+  // Every lane held by this checker (a claim holds while its process runs), so both runs wait.
+  for (let k = 0; k < LANES; k++) writeFileSync(join(pool, `lane-${k}.json`), JSON.stringify({ pid: process.pid, at: Date.now(), what: 'the checker' }))
+  const env = { HIVE_TEST_LANES_DIR: pool, HIVE_E2E_DIR: join(RUN, 'lane-work', 'e2e') }
+  const probe = join(wt, 'src', 'main', 'lane-wait-probe.ts')
+  rmSync(probe, { force: true })
+  // What each run has said so far, as it says it.
+  const said = { e2e: '', scenario: '' }
+  const listen = (key) => (p) => {
+    p.stdout.on('data', (d) => (said[key] += d))
+    p.stderr.on('data', (d) => (said[key] += d))
+  }
+  const waitLine = /^Waiting for a test lane \(all \d+ are taken/m
+  try {
+    const runs = Promise.all([
+      start({ name: 'e2e waiting for a lane', cwd: wt, script: 'tests/e2e/run.mjs', args: ['about', '--build', '--record', '--no-progress'], env, started: listen('e2e') }),
+      start({ name: 'scenario waiting for a lane', cwd: wt, script: 'tests/scenarios/run.mjs', args: ['--only', SCENARIO, '--no-progress'], env, started: listen('scenario') })
+    ])
+    const waiting = await until(() => waitLine.test(said.e2e) && waitLine.test(said.scenario), 300_000)
+    check('both runs wait for a test lane, every lane of their pool being held', waiting, JSON.stringify({ e2e: said.e2e.slice(-300), scenario: said.scenario.slice(-300) }))
+    // The source changes while they wait: what they test must be this, not what was there when they started.
+    writeFileSync(probe, '// A source file added while runs waited for a test lane (concurrency.mjs, #735).\nexport {}\n')
+    const source = { inputs: buildInputs(wt), code: fingerprint(wt) }
+    for (let k = 0; k < 2; k++) rmSync(join(pool, `lane-${k}.json`), { force: true })
+    const [e2e, scenario] = await runs
+    for (const r of [e2e, scenario]) {
+      check(`${r.name}: passes`, r.code === 0, `exit ${r.code}\n${r.out.split(/\r?\n/).filter((l) => /FAIL|ERROR|Error|failed|isn't from this source/.test(l)).slice(0, 12).join('\n')}`)
+      check(`${r.name}: it got a lane after waiting`, /^Got a test lane after \d+ s/m.test(r.out), r.out.slice(0, 600))
+    }
+    // Built once, after the wait, by one of the two (the build lock): from the source as it was once they had a lane.
+    const builtAfter = [e2e, scenario].filter((r) => {
+      const got = r.out.search(/^Got a test lane after/m)
+      const built = r.out.search(/^Building \(the dev build/m)
+      return got >= 0 && built > got
+    })
+    check('the build is made after the wait, from the source as it is then', builtAfter.length === 1 && buildStamp(wt) === source.inputs, `${builtAfter.length} built after the wait; stamp ${buildStamp(wt) === source.inputs ? 'is' : 'is not'} the changed source's`)
+    check("the e2e run's record names the changed source, and is valid", e2e.out.includes(`code \`${source.code}\``) && !/Not valid/.test(e2e.out), /code `[^`]+`/.exec(e2e.out)?.[0] ?? 'no record')
+  } finally {
+    rmSync(probe, { force: true })
+    rmSync(pool, { recursive: true, force: true })
+  }
+}
+
 const made = []
 let decoyHead = null
 try {
@@ -293,12 +350,13 @@ try {
   }
   for (let k = 1; k <= repeat; k++) {
     if (heavy) await heavyRound(k, [root, ...made])
-    else await round(k, made[0], decoyHead)
+    else if (!laneWaitOnly) await round(k, made[0], decoyHead)
     if (failed) {
       if (k < repeat) console.log(`\nRound ${k} failed: stopping here.`)
       break
     }
   }
+  if (!heavy && !failed) await laneWaitCheck(made[0])
 } catch (e) {
   check('the check ran', false, e.stack ?? String(e))
 } finally {
