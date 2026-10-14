@@ -2,8 +2,8 @@
 // updates; stale runs; the taskbar's combined bar; time left.
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { ProgressError, ProgressStore, admitReport, keptRuns, type ProgressCaller, type ProgressHistory } from '../src/main/progress'
-import { FINISHING_MS, MAX_OPEN_PER_OWNER, MAX_OPEN_PER_WORKSPACE, PASSED_SHOWN_MS, RECENT_KEPT, STRIP_BARS, ALL_PROJECTS, agentOpenRun, barLook, runStateWord as stateWordIn, runStatusLine as statusLineIn, runWords, NO_PROJECT, SHOW_ALL, activeFilter, agentChoices, filterChoices as filterChoicesIn, filterRuns, inStrip, isListed, isOpenRun, isOverdue, isRecent, runDetailsText as detailsTextIn, stripRuns, stripSummary, taskbarProgress, timeLeft, unseenTrouble } from '../src/shared/progress'
-import type { ProgressRun } from '../src/shared/types'
+import { FINISHING_MS, MAX_OPEN_PER_OWNER, MAX_OPEN_PER_WORKSPACE, PASSED_SHOWN_MS, RECENT_KEPT, STRIP_BARS, ALL_PROJECTS, agentOpenRun, barLook, runStateWord as stateWordIn, runStatusLine as statusLineIn, runWords, NO_PROJECT, SHOW_ALL, activeFilter, agentChoices, filterChoices as filterChoicesIn, filterMergeSlots, filterRuns, inStrip, isListed, isOpenRun, isOverdue, isRecent, runDetailsText as detailsTextIn, stripRuns, stripSummary, taskbarProgress, timeLeft, unseenTrouble } from '../src/shared/progress'
+import type { MergeSlotInfo, ProgressRun } from '../src/shared/types'
 import { setDateStyle } from '../src/shared/dates'
 import { fmt, tr } from '../src/shared/i18n'
 
@@ -688,6 +688,30 @@ describe('progress rules', () => {
     // Every run in one project: nothing to choose between, so no filter.
     expect(activeFilter([a1, a2], { project: 'c:\\ws\\alpha', agent: 'x' })).toBe(SHOW_ALL)
     expect(activeFilter(all, undefined)).toBe(SHOW_ALL)
+  })
+
+  it('merge cards follow the filter (#810): the project, and an agent holding or waiting for its slot', () => {
+    const slot = (project: string, holder: string | null, taken: boolean, waiting: string[] = []): MergeSlotInfo => ({
+      project,
+      branch: 'main',
+      holder: holder ? { id: `h-${holder}`, kind: 'agent', agentId: holder, name: holder.toUpperCase(), cards: [], since: 0, until: 0, taken } : null,
+      waiting: waiting.map((w) => ({ agentId: w, name: w.toUpperCase(), cards: [], since: 0 }))
+    })
+    // Hive's own slot, as its folder may be written (another case, forward slashes, a trailing separator), and another project's.
+    const hive = slot('C:/ws/Hive/', 'hb3', true, ['hb2'])
+    const amber = slot('C:\\ws\\amberlight', 'amb2', true)
+    // A turn not claimed yet isn't a merge.
+    const turn = slot('C:\\ws\\hive', 'hb1', false)
+    const slots = [hive, amber, turn]
+    expect(filterMergeSlots(slots, SHOW_ALL)).toEqual([hive, amber])
+    expect(filterMergeSlots(slots, { project: 'c:\\ws\\hive' })).toEqual([hive])
+    expect(filterMergeSlots(slots, { project: 'c:\\ws\\amberlight' })).toEqual([amber])
+    // An agent: the slot it holds, or one it waits for; none for an agent in neither.
+    expect(filterMergeSlots(slots, { project: 'c:\\ws\\hive', agent: 'hb3' })).toEqual([hive])
+    expect(filterMergeSlots(slots, { project: 'c:\\ws\\hive', agent: 'hb2' })).toEqual([hive])
+    expect(filterMergeSlots(slots, { project: 'c:\\ws\\hive', agent: 'hb1' })).toEqual([])
+    // The Assistant's and scripts' runs hold no project's slot.
+    expect(filterMergeSlots(slots, { project: NO_PROJECT })).toEqual([])
   })
 
   it("Copy details is every field the details show, in their order, then the summary (#251)", () => {
