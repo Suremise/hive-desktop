@@ -24,6 +24,7 @@
 - **A decision on a card in Review reaches its card loop.** Recording your decision on a card in Review, or clearing its block, wakes neither the card's builder nor its reviewer, so the Assistant now follows it with a message to the builder, and to the reviewer when it changes what they check, instead of the loop waiting until its watch runs out.
 
 ### Fixes
+- **Every link in the third-party notices opens a web page.** Eleven packages that name their repository in a short or SSH form (`owner/repo`, `git@github.com:…`) had links that went nowhere (#788).
 - **Sign in is always in sight in Agent Setup.** A CLI installed at a long path (WinGet's package folders) widened the row and pushed **Sign in** out of the dialog, so a new GitHub Copilot user couldn't sign in. The path now wraps, with the full path in its tooltip (#821, Suremise/hive-desktop#2).
 - **What you install while Hive is open reaches new terminals and agents.** Hive now reads the PATH Windows gives new programs just before it starts an agent, an Agent Setup terminal or **Open External Terminal Here**, so a CLI or tool installed outside Hive is found there without **Check again** or a restart (#821).
 - **The workspace no longer goes back to how it was before a change.** When Hive read the projects twice close together on a busy machine, the earlier reading could finish last and show an agent list from before the change, and say again that two agents share a name. The later reading now stands.
