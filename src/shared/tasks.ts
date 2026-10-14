@@ -234,9 +234,32 @@ export function reviewWaitReason(card: Pick<TaskCard, 'number' | 'column' | 'arc
     if (w.status === 'working') return tr(msg({ id: 'board.stalled.reviewWaitBusy', defaultMessage: "{agent} is watching #{card} but hasn't started reviewing it (it is working on something else): in Review for {waited}.", description: "Why a card waiting in Review is stalled: its reviewer watches it but is busy with other work. {agent} is the reviewer's name, {card} the card number (after #), {waited} how long it has waited (\"40 min\", \"2 h 5 min\")." }), values)
     return tr(msg({ id: 'board.stalled.reviewWait', defaultMessage: "{agent} is watching #{card} but hasn't started reviewing it: in Review for {waited}.", description: "Why a card waiting in Review is stalled: its reviewer watches it but hasn't started. {agent} is the reviewer's name, {card} the card number (after #), {waited} how long it has waited (\"40 min\", \"2 h 5 min\")." }), values)
   }
-  const dur = min < 60 ? `${min} min` : `${Math.floor(min / 60)} h${min % 60 ? ` ${min % 60} min` : ''}`
   const state = w.silentMinutes !== undefined ? ` (it shows working, but has been silent for ${w.silentMinutes} min: state unknown)` : w.status === 'working' ? ' (it is working on something else)' : '' // i18n-ignore: agent-facing (the Agent API's stalled)
-  return `${w.name} is watching #${card.number} but hasn't started reviewing it${state}: in Review for ${dur}.` // i18n-ignore: agent-facing (the Agent API's stalled)
+  return `${w.name} is watching #${card.number} but hasn't started reviewing it${state}: in Review for ${minutesText(min)}.` // i18n-ignore: agent-facing (the Agent API's stalled)
+}
+
+/** Whole minutes as the Agent API's stall reasons say them: "40 min", "5 h 5 min", "2 h". */
+const minutesText = (min: number): string => (min < 60 ? `${min} min` : `${Math.floor(min / 60)} h${min % 60 ? ` ${min % 60} min` : ''}`)
+
+/**
+ * Why a card in Review is stuck on a review that started and has no verdict (#843, the safety net behind #840): its
+ * reviewer started reviewing it, gave no verdict, didn't block it with a question, and has only been watching it for
+ * REVIEW_WAIT_STALL_MS: its own session is `watching` (its turn ended) with a card watch on this card, since the later
+ * of its review's start and its watch's (each turn it takes, a comment included, ends its watch, so a reviewer at work
+ * or answering a wake starts the clock again). On 14 Oct a reviewer asked the user in a comment and went back to
+ * watching; nothing flagged it for 75 minutes. A reviewer working, or whose state is unknown, isn't. Null otherwise.
+ */
+export function reviewVerdictWaitReason(card: Pick<TaskCard, 'number' | 'column' | 'archived' | 'project' | 'review' | 'blocked'>, watchers: { name: string; project: string; agentId: string; cards: number[]; status?: string; watchSince?: string }[], now = Date.now(), tr?: Tr): string | null {
+  if (card.archived || card.column !== 'review' || !card.review || card.blocked) return null
+  const r = card.review
+  const w = watchers.find((x) => x.project.toLowerCase() === card.project.toLowerCase() && x.agentId === r.agent && x.status === 'watching' && x.cards.includes(card.number))
+  if (!w) return null
+  const times = [Date.parse(r.since), Date.parse(w.watchSince ?? '')].filter(Number.isFinite)
+  const ms = times.length ? now - Math.max(...times) : NaN
+  if (!(ms >= REVIEW_WAIT_STALL_MS)) return null
+  const min = Math.round(ms / 60_000)
+  if (tr) return tr(msg({ id: 'board.stalled.reviewVerdictWait', defaultMessage: '{agent} started reviewing #{card} but has given no verdict, and has only been watching it for {waited}.', description: "Why a card in Review is stalled: its reviewer started its review, then went back to waiting on the card without passing or failing it (it may have left a question in a comment). {agent} is the reviewer's name, {card} the card number (after #), {waited} how long it has only been watching (\"40 min\", \"2 h 5 min\")." }), { agent: w.name, card: card.number, waited: durationText(min * 60_000, tr) })
+  return `${w.name} started reviewing #${card.number} but has given no verdict, and has only been watching it for ${minutesText(min)}.` // i18n-ignore: agent-facing (the Agent API's stalled)
 }
 
 /**
