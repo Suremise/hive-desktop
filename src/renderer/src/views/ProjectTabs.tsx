@@ -11,7 +11,7 @@ import { UnusedHeading, UnusedWorkNotice, UnusedWorktreesLine, UnusedWorktreesSe
 import { PERIODS, activeIn, costText, dailyTotals, moneyLabel, periodFrom, sumUsage, type DayTotal, type Period, type Totals } from '@shared/usageTotals'
 import { FILE_LOCK_MODES, contextPercent, turnPushedCompaction, effectiveModelLabel, mergeBlocked, modelLabel } from '@shared/defaults'
 import { useAgentLimit } from '../advanced'
-import { PROVIDERS, contextLines, defaultProviderLabel, isProviderEnabled, modeOption, offeredModes, permissionLabel, projectDefaultProvider, projectProviderConfig, providerDescriptor, providerName, providerSettings } from '@shared/providers'
+import { PROVIDERS, contextLines, defaultProviderLabel, isProviderEnabled, modeDescription, offeredModes, permissionLabel, projectDefaultProvider, projectProviderConfig, providerDescriptor, providerName, providerSettings } from '@shared/providers'
 import { instructionsStarter } from '@shared/projectTabs'
 import { EffortPicker, ModelPicker } from '../components/ModelPicker'
 import { effortText, runsAsName } from '@shared/models'
@@ -571,7 +571,7 @@ export function RunningAgent({ project, a, label, onOpen, assistant }: { project
           <strong>{label ?? a.name}</strong> <span className="faint">{statusText(live)}</span> <CardChip project={project} a={a} />
         </div>
         <div className="faint small">
-          {[live.modelName ?? usage?.model ?? null, live.permissionMode ? permissionLabel(live.provider, live.permissionMode) : null, live.planMode ? tr(M.plan) : null].filter(Boolean).join(' · ')}
+          {[live.modelName ?? usage?.model ?? null, live.permissionMode ? permissionLabel(live.provider, live.permissionMode, tr) : null, live.planMode ? tr(M.plan) : null].filter(Boolean).join(' · ')}
         </div>
       </div>
       <Tooltip content={window ? tr(M.contextOf, { used: fmt.number(ctx), window: fmt.number(window) }) : tr(M.contextUsed, { used: fmt.number(ctx) })}>
@@ -1597,7 +1597,7 @@ function AgentList({ project }: { project: ProjectInfo }) {
         const overrides = [
           a.model && tr(S.ownModel, { model: modelLabel(a.model, provider) }),
           a.effort && tr(S.ownEffort, { effort: a.effort }),
-          a.permissionMode && permissionLabel(provider, a.permissionMode),
+          a.permissionMode && permissionLabel(provider, a.permissionMode, tr),
           a.use200kContext !== undefined && tr(S.own200k, { on: a.use200kContext ? 'yes' : 'no' }),
           agentChoosesMcp(a) && tr(S.ownMcp, { servers: agentMcpText(a) })
         ].filter((x): x is string => !!x)
@@ -1662,8 +1662,12 @@ export function ProjectSettingsTab({ project }: { project: ProjectInfo }) {
     await actions.attempt(tr(S.saveFailed), () => call('project:updateConfig', project.path, patch))
     await actions.refreshWorkspace()
   }
-  const globalLock = FILE_LOCK_MODES.find((m) => m.value === settings.agents.fileLocks)
   const lockMode = cfg.fileLocks === 'inherit' ? settings.agents.fileLocks : cfg.fileLocks
+  /** A file lock mode's name or what it does, in the window's language (#861); its id if it isn't one. */
+  const lockShown = (mode: string, part: 'label' | 'description'): string => {
+    const m = FILE_LOCK_MODES.find((x) => x.value === mode)
+    return m ? tr(m.text[part]) : mode
+  }
   const globalDefault = defaultProviderLabel(settings)
   const globalCompact = settings.sessions.compactSuggestTokens ? fmt.number(settings.sessions.compactSuggestTokens) : tr(S.never)
   const globalWarn = settings.sessions.transcriptWarnMB ? tr(S.megabytes, { count: settings.sessions.transcriptWarnMB }) : tr(S.never)
@@ -1702,7 +1706,7 @@ export function ProjectSettingsTab({ project }: { project: ProjectInfo }) {
         key: `${id}.permissionMode`,
         ...rowText(`project.${id}.permissionMode`),
         // What the mode in use does, after what the setting is.
-        desc: tr(S.now, { desc: rowText(`project.${id}.permissionMode`).desc, current: modeOption(id, mode)?.description ?? permissionLabel(id, mode) }),
+        desc: tr(S.now, { desc: rowText(`project.${id}.permissionMode`).desc, current: modeDescription(id, mode, tr) }),
         modified: pc.permissionMode !== 'inherit',
         render: () => (
           <select
@@ -1714,10 +1718,10 @@ export function ProjectSettingsTab({ project }: { project: ProjectInfo }) {
               await save({ permissionMode: v })
             }}
           >
-            <option value="inherit">{inherit(permissionLabel(id, g.defaultPermissionMode))}</option>
+            <option value="inherit">{inherit(permissionLabel(id, g.defaultPermissionMode, tr))}</option>
             {modes.map((m) => (
               <option key={m.value} value={m.value}>
-                {m.label}
+                {permissionLabel(id, m.value, tr)}
               </option>
             ))}
           </select>
@@ -1865,14 +1869,14 @@ export function ProjectSettingsTab({ project }: { project: ProjectInfo }) {
       section: 'agents',
       key: 'fileLocks',
       ...rowText('project.fileLocks'),
-      desc: tr(S.now, { desc: rowText('project.fileLocks').desc, current: FILE_LOCK_MODES.find((m) => m.value === lockMode)?.description ?? lockMode }),
+      desc: tr(S.now, { desc: rowText('project.fileLocks').desc, current: lockShown(lockMode, 'description') }),
       modified: cfg.fileLocks !== 'inherit',
       render: () => (
         <select className="select" value={cfg.fileLocks} onChange={(e) => void update({ fileLocks: e.target.value as ProjectConfig['fileLocks'] })}>
-          <option value="inherit">{inherit(globalLock?.label ?? '')}</option>
+          <option value="inherit">{inherit(lockShown(settings.agents.fileLocks, 'label'))}</option>
           {FILE_LOCK_MODES.map((m) => (
             <option key={m.value} value={m.value}>
-              {m.label}
+              {tr(m.text.label)}
             </option>
           ))}
         </select>

@@ -600,12 +600,12 @@ function AssistantProviderDefaults({ provider }: { provider: ProviderId }) {
       <EffortPicker provider={provider} model={runModel} value={a.effort} base={{ value: '', label: tr(msg({ id: 'settings.assistant.defaultIs', defaultMessage: 'Default ({value})', description: 'The first choice of a list in Settings → Assistant → With <provider>: what applies when nothing is chosen. {value} says what that is.' }), { value: effortName }) }} onChange={(v) => save({ effort: v as EffortLevel | '' })} />
       <label>{tr(msg({ id: 'settings.assistantProvider.permissionMode.title', defaultMessage: 'Permission mode', description: "A field's title in Settings → Assistant → With <provider>: the Assistant's permission mode." }))}</label>
       <select className="select" value={a.permissionMode} onChange={(e) => save({ permissionMode: e.target.value as PermissionMode | '' })}>
-        <option value="">{tr(msg({ id: 'settings.assistant.defaultIs', defaultMessage: 'Default ({value})', description: 'The first choice of a list in Settings → Assistant → With <provider>: what applies when nothing is chosen. {value} says what that is.' }), { value: permissionLabel(provider, p.assistantMode) })}</option>
+        <option value="">{tr(msg({ id: 'settings.assistant.defaultIs', defaultMessage: 'Default ({value})', description: 'The first choice of a list in Settings → Assistant → With <provider>: what applies when nothing is chosen. {value} says what that is.' }), { value: permissionLabel(provider, p.assistantMode, tr) })}</option>
         {offeredModes(provider, settings)
           .filter((m) => m.value !== p.assistantMode)
           .map((m) => (
             <option key={m.value} value={m.value}>
-              {m.label}
+              {permissionLabel(provider, m.value, tr)}
             </option>
           ))}
       </select>
