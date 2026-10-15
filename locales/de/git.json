@@ -84,7 +84,7 @@
   "git.init.gitignore.node": "Node",
   "git.init.gitignore.none": "Keine",
   "git.init.gitignore.python": "Python",
-  "git.init.gitignoreName": "{choice, select, none {keine .gitignore} minimal {eine minimale .gitignore} other {eine .gitignore für {kind}}}",
+  "git.init.gitignoreName": "{choice, select, minimal {eine minimale .gitignore} other {eine .gitignore für {kind}}}",
   "git.init.initialise": "Initialisieren",
   "git.init.initialising": "Wird initialisiert…",
   "git.init.kept": "Die vorhandene .gitignore bleibt erhalten.",

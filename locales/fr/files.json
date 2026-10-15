@@ -16,6 +16,7 @@
   "files.attachments.groupDeleteMessage": "Placer {count, plural, one {la pièce jointe} many {les # pièces jointes} other {les # pièces jointes}} de « {name} » dans la Corbeille ?",
   "files.attachments.groupDeleteTitle": "Placer {count, plural, one {# pièce jointe} many {# pièces jointes} other {# pièces jointes}} dans la Corbeille ?",
   "files.attachments.groupDeleted": "{count, plural, one {# pièce jointe placée} many {# pièces jointes placées} other {# pièces jointes placées}} dans la Corbeille.",
+  "files.attachments.groupSpan": "{count, plural, one {# pièce jointe} many {# pièces jointes} other {# pièces jointes}} · {days, select, one {{from}} other {{from} – {to}}}",
   "files.attachments.info": "Conservées dans le dossier .hive/attachments du projet. Fais-en glisser une sur l’onglet Session pour la renvoyer ; clique sur le nom d’une session pour la lire.",
   "files.attachments.infoAssistant": "Conservées dans le dossier de l’Assistant, .hive/attachments. Clique sur le nom d’une conversation pour la lire.",
   "files.attachments.kind.image": "Images",

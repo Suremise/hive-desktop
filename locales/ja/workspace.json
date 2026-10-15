@@ -486,7 +486,7 @@
   "workspace.welcome.removeRecentTip": "最近使った項目から削除",
   "workspace.welcome.shortcuts": "キーボードショートカット",
   "workspace.welcome.skills": "スキルとMCP",
-  "workspace.welcome.skillsText": "ワークスペースのHiveスキルは、すべてのプロジェクトのエージェントに届きます（Hive Assistant向けに書かれたものはHive Assistantに）。各プロジェクトには、そのプロジェクト独自のスキルと自分のユーザースキルも表示されます。MCPサーバーはワークスペースでオンにし、プロジェクトごとにオフにできます。変更は新しいセッションから適用されます。",
+  "workspace.welcome.skillsText": "ワークスペースのHiveスキルは、すべてのプロジェクトのエージェントに届きます（Hive Assistant向けに書かれたものはHive Assistantに）。各プロジェクトには、そのプロジェクト独自のスキルと自分のユーザースキルも表示されます。MCPサーバーは、オンにした場所（1つのプロジェクト、またはすべてのプロジェクト）でだけ有効です。変更は新しいセッションから適用されます。",
   "workspace.welcome.start": "開始",
   "workspace.welcome.tagline": "AIコーディングエージェントを、プロジェクトをまたいで並べて動かせます。",
   "workspace.welcome.workspace": "ワークスペース",

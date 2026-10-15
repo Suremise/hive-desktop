@@ -486,7 +486,7 @@
   "workspace.welcome.removeRecentTip": "Remover dos recentes",
   "workspace.welcome.shortcuts": "Atalhos de teclado",
   "workspace.welcome.skills": "Skills e MCP",
-  "workspace.welcome.skillsText": "As skills do Hive no espaço de trabalho chegam aos agentes de todos os projetos (e ao Hive Assistant, no caso das escritas para ele); cada projeto também mostra as próprias skills e as suas skills de usuário. Os servidores MCP são ativados para o espaço de trabalho e desativados por projeto. As alterações valem para novas sessões.",
+  "workspace.welcome.skillsText": "As skills do Hive no espaço de trabalho chegam aos agentes de todos os projetos (e ao Hive Assistant, no caso das escritas para ele); cada projeto também mostra as próprias skills e as suas skills de usuário. Um servidor MCP só fica ativado onde você o ativa: em um projeto ou em todos eles. As alterações valem para novas sessões.",
   "workspace.welcome.start": "Começar",
   "workspace.welcome.tagline": "Rode agentes de código com IA em todos os seus projetos, lado a lado.",
   "workspace.welcome.workspace": "Espaço de trabalho",
