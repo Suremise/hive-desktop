@@ -183,7 +183,7 @@ Status dots:
 
 A pulsing dot changes shade rather than fading, so it stays easy to see. Hive's grey text (timestamps, counts, hints) and its orange text and icons are drawn to be readable in both the light and dark themes, on hovered and selected rows too (they meet the WCAG AA contrast level).
 
-The sidebar and the lists in the Sessions, Files, Git (Changes) and Memory tabs can be made wider or narrower by dragging their right-hand edge, as can the two halves of a split view in the Files tab. Double-click the edge to reset it. Hive remembers the sizes.
+The sidebar and the lists in the Sessions, Files, Git (Changes) and Memory tabs can be made wider or narrower by dragging their right-hand edge, as can the two halves of a split view in the Files tab. Double-click the edge to reset it. Hive remembers the sizes. When the Git tab's Changes has little room (a narrow window, with the sidebar and panels open), its list gets narrower to leave room for what you selected, and with less room still it moves above it, so the changes or the unused worktrees always show.
 
 A project's tabs (Session, Overview, Performance, Tasks and the rest) shrink to **icons** when their names don't fit, as in a narrow window or with the sidebar and panels open; the tab you're on keeps its name. Hover a tab for its name and shortcut. They get their names back once there's room. In a very narrow window the tabs scroll sideways, keeping the one you're on in view.
 

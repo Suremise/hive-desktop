@@ -835,6 +835,18 @@ export function PlanLimits({ provider }: { provider: ProviderId }) {
 // ---------------------------------------------------------------------------
 
 /**
+ * The Changes tab's list beside its detail (#906): the list gives up width first, then, short of room for both, sits
+ * above the detail (app.css, `.changes-split`), so the detail is never squeezed to nothing or pushed out of the tab.
+ */
+function ChangesSplit({ listWidth, children }: { listWidth: number; children: React.ReactNode }) {
+  return (
+    <div className="changes-split" style={{ '--list-width': `${listWidth}px` } as React.CSSProperties}>
+      <div className="split">{children}</div>
+    </div>
+  )
+}
+
+/**
  * Whose changes the Changes tab shows (#476): the unused worktrees first (all, or one, each with who made it), then the
  * worktrees agents work in, then the project folder, last (agents working in the folder itself, and you).
  */
@@ -984,8 +996,8 @@ export function ChangesTab({ project: owner }: { project: ProjectInfo }) {
   if (listingUnused && unusedData?.gitProblem) return gitMissing(unusedData.gitProblem, reloadUnused)
   if (listingUnused) {
     return (
-      <div className="split">
-        <div className="split-list" style={{ width: listWidth }}>
+      <ChangesSplit listWidth={listWidth}>
+        <div className="split-list">
           <PaneResizer paneKey="changes" />
           <div className="pane-header" style={{ paddingLeft: 14 }}>
             {tr(C.changes)}
@@ -1028,7 +1040,7 @@ export function ChangesTab({ project: owner }: { project: ProjectInfo }) {
             </>
           )}
         </div>
-      </div>
+      </ChangesSplit>
     )
   }
 
@@ -1055,8 +1067,8 @@ export function ChangesTab({ project: owner }: { project: ProjectInfo }) {
     )
   }
   return (
-    <div className="split">
-      <div className="split-list" style={{ width: listWidth }}>
+    <ChangesSplit listWidth={listWidth}>
+      <div className="split-list">
         <PaneResizer paneKey="changes" />
         <div className="pane-header" style={{ paddingLeft: 14 }}>
           {tr(C.changes)} <span className="badge" style={{ marginLeft: 6 }}>{status.files.length}</span>
@@ -1136,7 +1148,7 @@ export function ChangesTab({ project: owner }: { project: ProjectInfo }) {
           <div className="empty-state">{tr(C.selectFile)}</div>
         )}
       </div>
-    </div>
+    </ChangesSplit>
   )
 }
 

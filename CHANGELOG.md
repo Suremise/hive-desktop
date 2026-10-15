@@ -43,6 +43,7 @@
 - **The developer console's window fits the display it opens on too.** Opened on a smaller display than the one it was last on, it no longer runs off the display's edge (#862).
 - **Save stays in view in a narrow Files pane.** The file toolbar's buttons pushed Save out of sight when the pane was narrow or the labels long in the window's language; they now show as icons (named in tooltips), and wrap onto a second row when even those don't fit (#814).
 - **Retry in the Skills and Templates views shows the skill or template you then select.** When their list couldn't be read, Retry in the sidebar listed them again, but selecting one still showed the failed read (Skills) or nothing (Templates) until you left the view and came back (#841).
+- **The Git tab's Changes fits a narrow window.** With the Projects sidebar and the Progress panel open in a small window, the list of changes kept its full width and pushed the unused worktrees or the diff out of sight behind Progress, where they couldn't be clicked. The list now gets narrower first, then moves above them when there's no room for both (#906).
 - **The Progress panel's filter applies to merges too.** Filtered to a project (or one of its agents), the panel still showed every project's merge on top; it now shows only that project's, or that agent's (#810).
 
 ## 0.7.1 — 13 October 2026
