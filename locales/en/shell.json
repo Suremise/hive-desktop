@@ -1249,7 +1249,7 @@
   },
   "shell.signIn.then": {
     "defaultMessage": "{help} Then Resume in the project's header carries on the agents it stopped.",
-    "description": "Tooltip of an agent that needs sign-in, its second line. {help} says how to sign in again (in English for now); Resume is a button in the project's header."
+    "description": "Tooltip of an agent that needs sign-in, its second line. {help} says how to sign in again (a sentence or two); Resume is a button in the project's header."
   },
   "shell.startFailed.agent": {
     "defaultMessage": "{agent} couldn't start",

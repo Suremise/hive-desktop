@@ -1,4 +1,4 @@
-import { COMPACTING_MESSAGE } from './defaults'
+import { shownText } from './advanced'
 import { msg, tr as trNow } from './i18n'
 import type { Tr } from './tasks'
 import type { LiveSessionState, RuntimeFacts } from './types'
@@ -51,20 +51,32 @@ export function unknownStateText(st: Pick<LiveSessionState, 'turn'> | null | und
 }
 
 /**
+ * The status of an agent compacting its conversation, as the window shows it (#847); COMPACTING_MESSAGE (defaults.ts) is
+ * its English, the status message agents read and isCompacting() compares.
+ */
+export const COMPACTING_TEXT = msg({ id: 'session.status.compacting', defaultMessage: 'Compacting the conversation…', description: "An agent's status while its CLI summarises the conversation to free up context space." })
+
+/** Hive's own status message in the window's language (`statusText`, #845), else the message as it came (the CLI's words). */
+export const shownStatusMessage = (st: Pick<LiveSessionState, 'statusMessage' | 'statusText'>): string | undefined => (st.statusText ? shownText(st.statusText) : st.statusMessage)
+
+/** The agent's place at the merge slot in the window's language (`mergeSlotText`, #845), else its English. */
+export const shownMergeSlot = (st: Pick<LiveSessionState, 'mergeSlot' | 'mergeSlotText'>): string | undefined => (st.mergeSlotText ? shownText(st.mergeSlotText) : st.mergeSlot)
+
+/**
  * What an agent is doing, in words, projected from its runtime facts: stopped, starting, signed out, asking, compacting,
  * silent with its state unknown, working; its status message where it has one (what it is asked, what it waits for).
  * Null when its facts say no turn runs: then Hive's policy words apply (watching, finished, ready, its background tasks:
  * ui.statusText).
  */
-export function runtimeLabel(st: Pick<LiveSessionState, 'runtime' | 'turn' | 'backgroundTasks' | 'statusMessage' | 'mergeSlot'>, now = Date.now()): string | null {
+export function runtimeLabel(st: Pick<LiveSessionState, 'runtime' | 'turn' | 'backgroundTasks' | 'statusMessage' | 'statusText' | 'mergeSlot' | 'mergeSlotText'>, now = Date.now()): string | null {
   const tr = trNow
   const rt = agentRuntime(st, now)
   if (rt.lifecycle === 'stopped') return tr(msg({ id: 'panes.runtime.stopped', defaultMessage: 'Stopped', description: "An agent's status: its session isn't running." }))
-  if (rt.attention === 'waiting') return st.statusMessage || tr(msg({ id: 'panes.runtime.needsInput', defaultMessage: 'Needs your input', description: "An agent's status: its CLI waits for the user's answer." }))
-  if (rt.lifecycle === 'starting') return st.statusMessage || tr(msg({ id: 'panes.runtime.starting', defaultMessage: 'Starting…', description: "An agent's status: its CLI is starting." }))
+  if (rt.attention === 'waiting') return shownStatusMessage(st) || tr(msg({ id: 'panes.runtime.needsInput', defaultMessage: 'Needs your input', description: "An agent's status: its CLI waits for the user's answer." }))
+  if (rt.lifecycle === 'starting') return shownStatusMessage(st) || tr(msg({ id: 'panes.runtime.starting', defaultMessage: 'Starting…', description: "An agent's status: its CLI is starting." }))
   if (rt.lifecycle === 'signin') return tr(msg({ id: 'panes.runtime.signin', defaultMessage: 'Needs sign-in', description: "An agent's status: its CLI waits for the user to sign in." }))
-  if (rt.maintenance === 'compacting') return COMPACTING_MESSAGE
+  if (rt.maintenance === 'compacting') return tr(COMPACTING_TEXT)
   if (rt.turn === 'unknown') return unknownStateText(st, now, tr)
-  if (rt.turn === 'running') return st.statusMessage || st.mergeSlot || tr(msg({ id: 'panes.runtime.working', defaultMessage: 'Working…', description: "An agent's status: it is working on a turn." }))
+  if (rt.turn === 'running') return shownStatusMessage(st) || shownMergeSlot(st) || tr(msg({ id: 'panes.runtime.working', defaultMessage: 'Working…', description: "An agent's status: it is working on a turn." }))
   return null
 }

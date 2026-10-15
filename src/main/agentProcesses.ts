@@ -6,7 +6,10 @@ import { emit, toast } from './events'
 import { readJson, writeJsonAtomic } from './fsutil'
 import { createLogger, userText } from './logger'
 import { POWERSHELL } from './launchGate'
-import { processCount, processLabel, type AgentLeftovers, type AgentProcess } from '../shared/agentProcesses'
+import { hiveError } from './hiveError'
+import { processLabel, type AgentLeftovers, type AgentProcess } from '../shared/agentProcesses'
+import { englishText, shownText, withValues, type TextPart } from '../shared/advanced'
+import { msg, tr } from '../shared/i18n'
 
 /**
  * The processes each agent's launch starts, and the ones it leaves running when it stops (#507).
@@ -514,7 +517,7 @@ class JobHost {
     if (this.ready) return this.ready
     // Test copies (unpackaged): HIVE_TEST_PROCESS_TRACKER=fail acts out a PC where PowerShell refuses the helper.
     if (!app.isPackaged && process.env.HIVE_TEST_PROCESS_TRACKER === 'fail') {
-      problem = 'PowerShell refused to run its helper (HIVE_TEST_PROCESS_TRACKER)'
+      problem = 'PowerShell refused to run its helper (HIVE_TEST_PROCESS_TRACKER)' // i18n-ignore: test copies only
       this.failed = true
       return Promise.resolve(false)
     }
@@ -529,7 +532,7 @@ class JobHost {
         p = spawn(POWERSHELL, ['-NoProfile', '-NonInteractive', '-ExecutionPolicy', 'Bypass', '-EncodedCommand', script], { windowsHide: true, stdio: 'pipe', cwd: tmpdir() })
       } catch (e) {
         log.warn('could not start the process job host: agents\u2019 leftover processes are not tracked', e)
-        problem = `PowerShell couldn't be started (${(e as Error).message})`
+        problem = withValues(TRACKER.noPowerShell, { error: (e as Error).message })
         this.failed = true
         return resolve(false)
       }
@@ -543,7 +546,7 @@ class JobHost {
         this.ready = null
         p.kill()
         log.warn(`the process job host didn't start within ${Math.round(waitMs() / 1000)} s: agents\u2019 leftover processes are not tracked`)
-        problem = `its PowerShell helper didn't start within ${Math.round(waitMs() / 1000)} s`
+        problem = withValues(TRACKER.slowHelper, { seconds: Math.round(waitMs() / 1000) })
         this.failed = true
         resolve(false)
       }, waitMs())
@@ -585,7 +588,7 @@ class JobHost {
         this.waiting.clear()
         if (!up) {
           log.warn(`the process job host didn't start (${why}): agents\u2019 leftover processes are not tracked. ${err.trim().slice(0, 300)}`)
-          problem = /language mode|ConstrainedLanguage|Add-Type/i.test(err) ? 'PowerShell refused to run its helper (Constrained Language Mode or a policy)' : `its PowerShell helper didn't start (${why})`
+          problem = /language mode|ConstrainedLanguage|Add-Type/i.test(err) ? TRACKER.refused : withValues(TRACKER.helperFailed, { why })
           this.failed = true
           resolve(false)
         } else {
@@ -595,7 +598,7 @@ class JobHost {
         }
       }
       p.on('error', (e) => ended(e.message))
-      p.on('exit', (code) => ended(`exit ${code}`))
+      p.on('exit', (code) => ended(`exit ${code}`)) // i18n-ignore: how the helper ended, a technical detail kept as it came (the log, Diagnostics)
       p.stdin.on('error', () => undefined)
     })
     return this.ready
@@ -669,8 +672,14 @@ let poll: ReturnType<typeof setInterval> | null = null
 
 const agentKey = (projectPath: string, agentId: string): string => `${projectPath.toLowerCase()}\n${agentId}`
 
-/** Whether a launch's processes are tracked, and if not, why. */
-export type TrackResult = { tracked: true } | { tracked: false; reason: string }
+/** Why a launch doesn't start: stopped while it was being tracked (the launch gate prints it in English, launchGate.ts). */
+export const STOPPED_BEFORE_START = 'it was stopped before it started' // i18n-ignore: the launch gate's reason, printed in the terminal by its script in English (CLI-facing)
+
+/**
+ * Whether a launch's processes are tracked, and if not, why: in English (`reason`, for the log and the launch gate) and as
+ * text for the notice (`text`, when it isn't the English). Stopped meanwhile, it doesn't start (STOPPED_BEFORE_START).
+ */
+export type TrackResult = { tracked: true } | { tracked: false; reason: string; text?: TextPart }
 
 /**
  * Puts a launch's terminal process (its gate, launchGate.ts) in the launch's job, so everything it starts is tracked.
@@ -678,7 +687,7 @@ export type TrackResult = { tracked: true } | { tracked: false; reason: string }
  * nothing is assigned to it after.
  */
 export async function trackLaunch(launch: Launch, pid: number, cancelled?: AbortSignal): Promise<TrackResult> {
-  if (process.platform !== 'win32') return { tracked: false, reason: 'tracking processes needs Windows' }
+  if (process.platform !== 'win32') return { tracked: false, reason: englishText(TRACKER.windowsOnly), text: TRACKER.windowsOnly }
   running.set(launch.runId, launch)
   const r = await host.request('add', launch.runId, pid)
   if (r === 'ok' && !cancelled?.aborted) {
@@ -688,12 +697,13 @@ export async function trackLaunch(launch: Launch, pid: number, cancelled?: Abort
   if (r === 'ok') {
     running.delete(launch.runId)
     void host.request('forget', launch.runId)
-    return { tracked: false, reason: 'it was stopped before it started' }
+    return { tracked: false, reason: STOPPED_BEFORE_START }
   }
-  const reason = r === null ? (host.usable ? `Hive's process tracker didn't answer` : (problem ?? `Hive's process tracker couldn't start`)) : String(r)
+  const text: TextPart = r === null ? (host.usable ? TRACKER.noAnswer : (problem ?? TRACKER.noStart)) : String(r)
+  const reason = englishText(text)
   log.warn(`could not track the processes of ${userText(launch.agentName)}: ${reason}`)
-  problem = reason
-  return { tracked: false, reason }
+  problem = text
+  return { tracked: false, reason, text }
 }
 
 /**
@@ -852,7 +862,7 @@ export async function settleLeftovers(projectPath: string, agentId: string, how:
   emit({ type: 'agent-leftovers', leftovers: leftoversOf(mine[0].projectPath, agentId) })
   if (failed) {
     log.warn(`could not end ${failed} process(es) ${userText(name)} left running`)
-    throw new Error(`${processCount(failed)} ${failed === 1 ? 'is' : 'are'} still running: Windows didn't let Hive end ${failed === 1 ? 'it' : 'them'}. ${failed === 1 ? 'It stays' : 'They stay'} listed in the agent's pane header, to try again or keep.`)
+    throw hiveError(msg({ id: 'session.leftovers.notEnded', defaultMessage: "{n, plural, one {# process is still running: Windows didn't let Hive end it. It stays listed in the agent's pane header, to try again or keep.} other {# processes are still running: Windows didn't let Hive end them. They stay listed in the agent's pane header, to try again or keep.}}", description: "Ending the processes an agent left running failed. {n} is how many are still running; the pane header lists them with End and Keep." }), { n: failed })
   }
   return done
 }
@@ -868,7 +878,19 @@ export async function settleAllLeftovers(how: 'end' | 'keep'): Promise<number> {
 const killFailsForTests = (): boolean => !app.isPackaged && process.env.HIVE_TEST_JOB_KILL_FAILS === '1'
 
 /** Why launches can't be tracked (the host couldn't start), or why the latest one wasn't; null while all is well. */
-let problem: string | null = null
+let problem: TextPart | null = null
+
+/** Why agents' processes aren't tracked, as the notice says it (Diagnostics has the English). */
+const TRACKER = {
+  noPowerShell: msg({ id: 'session.tracker.noPowerShell', defaultMessage: "PowerShell couldn't be started ({error})", description: "Why Hive can't track the processes agents start (a notice's first sentence, without its full stop). {error} is Windows' error, as it came." }),
+  slowHelper: msg({ id: 'session.tracker.slowHelper', defaultMessage: "its PowerShell helper didn't start within {seconds} s", description: "Why Hive can't track the processes agents start (a notice's first sentence, without its full stop; \"its\" is Hive's process tracker). {seconds} is a number of seconds." }),
+  refused: msg({ id: 'session.tracker.refused', defaultMessage: 'PowerShell refused to run its helper (Constrained Language Mode or a policy)', description: "Why Hive can't track the processes agents start (a notice's first sentence, without its full stop). Constrained Language Mode is PowerShell's term." }),
+  helperFailed: msg({ id: 'session.tracker.helperFailed', defaultMessage: "its PowerShell helper didn't start ({why})", description: "Why Hive can't track the processes agents start (a notice's first sentence, without its full stop; \"its\" is Hive's process tracker). {why} is a technical detail, as it came (\"exit 1\")." }),
+  windowsOnly: msg({ id: 'session.tracker.windowsOnly', defaultMessage: 'tracking processes needs Windows', description: "Why Hive can't track the processes agents start (a notice's first sentence, without its full stop)." }),
+  noAnswer: msg({ id: 'session.tracker.noAnswer', defaultMessage: "Hive's process tracker didn't answer", description: "Why Hive couldn't track the processes an agent starts (a notice's first sentence, without its full stop)." }),
+  noStart: msg({ id: 'session.tracker.noStart', defaultMessage: "Hive's process tracker couldn't start", description: "Why Hive can't track the processes agents start (a notice's first sentence, without its full stop)." }),
+  stopped: msg({ id: 'session.tracker.stopped', defaultMessage: "Hive's process tracker stopped ({why})", description: "Why Hive no longer tracks the processes agents start (a notice's first sentence, without its full stop). {why} is a technical detail, as it came (\"exit 1\")." })
+}
 
 /**
  * Whether launches can be tracked now: on Windows, with the job host running (started here if it isn't). A launch
@@ -878,8 +900,13 @@ export async function trackingReady(): Promise<boolean> {
   return process.platform === 'win32' && (await host.ensure())
 }
 
-/** Why agents' processes aren't being tracked, for the notice and Diagnostics; null when they are. */
+/** Why agents' processes aren't being tracked, for Diagnostics (in English); null when they are. */
 export function trackingProblem(): string | null {
+  return process.platform !== 'win32' || problem === null ? null : englishText(problem)
+}
+
+/** The same as text, for the notice (noteUntracked). */
+export function trackingProblemText(): TextPart | null {
   return process.platform !== 'win32' ? null : problem
 }
 
@@ -912,9 +939,14 @@ function jobsLost(why: string): void {
   }
   persist()
   for (const a of agents.values()) emit({ type: 'agent-leftovers', leftovers: leftoversOf(a.projectPath, a.agentId) })
+  // i18n-ignore: Copy Diagnostics' report, in English (the design keeps diagnostics content English)
   lost = `the process tracker stopped at ${new Date().toISOString()} (${why}): ${launches} running launch(es) and ${listed} listed process(es) were no longer tracked`
-  noteUntracked(`Hive's process tracker stopped (${why})`, `${listed ? `${processCount(listed)} listed as left running ${listed === 1 ? 'is' : 'are'} no longer tracked (still running), nor is ` : 'What '}${launches ? `what the ${launches === 1 ? 'running agent starts' : `${launches} running agents start`}` : 'running agents start'} until ${launches === 1 ? 'it restarts' : 'they restart'}.`)
+  noteUntracked(withValues(TRACKER.stopped, { why }), listed ? withValues(LOST_LISTED, { listed, launches }) : withValues(LOST, { launches }))
 }
+
+/** What the tracker stopping leaves untracked: what running agents start, until they restart; and what was listed. */
+const LOST = msg({ id: 'session.tracker.lost', defaultMessage: "{launches, plural, =0 {What agents start isn't tracked until they restart.} one {What the running agent starts isn't tracked until it restarts.} other {What the # running agents start isn't tracked until they restart.}}", description: "The notice after Hive's process tracker stopped: what is no longer tracked. {launches} is how many agents were running." })
+const LOST_LISTED = msg({ id: 'session.tracker.lostListed', defaultMessage: "{listed, plural, one {# process listed as left running is no longer tracked (it is still running).} other {# processes listed as left running are no longer tracked (they are still running).}} {launches, plural, =0 {Nor is what agents start until they restart.} one {Nor is what the running agent starts until it restarts.} other {Nor is what the # running agents start until they restart.}}", description: "The notice after Hive's process tracker stopped: what is no longer tracked. {listed} is how many processes agents left running were listed in their panes; {launches} how many agents were running." })
 
 /** Diagnostics: the tracker stopped earlier in this run, losing what it held; null if it never did. */
 let lost: string | null = null
@@ -926,14 +958,17 @@ let told = false
  * Agents' processes can't be tracked, or some no longer are (#507): said once a Hive run, in a notification, and in
  * Diagnostics (trackingProblem, trackingLost). Agents start and run all the same (decision B).
  */
-export function noteUntracked(reason: string | null, detail?: string): void {
+export function noteUntracked(reason: TextPart | null, detail?: TextPart): void {
   if (told) return
   told = true
-  log.warn(`agents' processes aren't tracked: ${userText(reason ?? 'unknown')}`)
+  log.warn(`agents' processes aren't tracked: ${userText(reason === null ? 'unknown' : englishText(reason))}`)
   toast(
     'warning',
-    "Hive can't keep track of agents' processes",
-    `${reason ?? "Its process tracker isn't available"}. ${detail ?? "Agents start as usual, but processes they leave running when they stop aren't listed or offered to end."} Help → Copy Diagnostics says why.`
+    tr(msg({ id: 'session.tracker.title', defaultMessage: "Hive can't keep track of agents' processes", description: "A notice's title: Hive can't track the processes agents start, so those they leave running aren't listed." })),
+    tr(msg({ id: 'session.tracker.body', defaultMessage: '{reason}. {detail} Help → Copy Diagnostics says why.', description: "The notice that Hive can't track agents' processes. {reason} says why (a clause, without its full stop); {detail} is one or two sentences on what that means. Help → Copy Diagnostics is a menu command." }), {
+      reason: shownText(reason ?? msg({ id: 'session.tracker.unavailable', defaultMessage: "Its process tracker isn't available", description: "Why Hive can't track the processes agents start, when it doesn't know why (a notice's first sentence, without its full stop)." })),
+      detail: shownText(detail ?? msg({ id: 'session.tracker.detail', defaultMessage: "Agents start as usual, but processes they leave running when they stop aren't listed or offered to end.", description: "The notice that Hive can't track agents' processes: what that means." }))
+    })
   )
 }
 
