@@ -279,7 +279,6 @@
   "project.settings.rounds": "ラウンド",
   "project.settings.saveFailed": "プロジェクトの設定を保存できませんでした",
   "project.settings.search": "{project}の設定を検索",
-  "project.settings.sessionsIn": "{project}のセッション",
   "project.settings.waitHours": "待機（時間）",
   "project.settings.wake": "レビュアーとビルダーを起こす",
   "project.settings.warnOver": "トランスクリプトがこのサイズを超えたら警告",

@@ -279,7 +279,6 @@
   "project.settings.rounds": "Runden",
   "project.settings.saveFailed": "Projekteinstellungen konnten nicht gespeichert werden",
   "project.settings.search": "Einstellungen von {project} durchsuchen",
-  "project.settings.sessionsIn": "Sitzungen im Projekt {project}",
   "project.settings.waitHours": "Wartezeit (Stunden)",
   "project.settings.wake": "Reviewer und Bearbeiter wecken",
   "project.settings.warnOver": "Warnen, wenn ein Transkript größer ist als",

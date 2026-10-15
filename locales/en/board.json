@@ -1180,7 +1180,7 @@
     "description": "A lane segment's label (Progress panel), in a lane that has ended: the card's number, title (the user's own words) and where it was then ({where}: \"Review, round 2\")."
   },
   "board.lane.more": {
-    "defaultMessage": "{n} more: {cards}",
+    "defaultMessage": "{n, plural, one {# more: {cards}} other {# more: {cards}}}",
     "description": "A lane segment's label (Progress panel) for the cards that don't fit its bar, folded into one: how many ({n}) and which ({cards}: \"#3, #4\")."
   },
   "board.lane.notOnBoard": {

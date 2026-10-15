@@ -1128,8 +1128,8 @@
     "description": "Placeholder of Project Settings' search box."
   },
   "project.settings.sessionsIn": {
-    "defaultMessage": "Sessions in {project}",
-    "description": "Who a dangerous permission mode applies to, in its confirmation (\"Sessions in alpha will run every command without asking\")."
+    "defaultMessage": "Sessions in {project} will run every command, edit and network call without asking.",
+    "description": "The confirmation before choosing a no-guardrails permission mode for a project's sessions ({project}: the project's name)."
   },
   "project.settings.waitHours": {
     "defaultMessage": "Wait (hours)",

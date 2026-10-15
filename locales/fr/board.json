@@ -289,7 +289,6 @@
   "board.lane.inRound": "{where}, tour {round}",
   "board.lane.label": "#{card} {title} · {where}",
   "board.lane.labelWhenEnded": "#{card} {title} · {where}, à la fin du couloir",
-  "board.lane.more": "Autres ({n}) : {cards}",
   "board.lane.notOnBoard": "#{card} · pas sur le tableau",
   "board.lane.reviewFailed": "#{card} : relecture échouée (tour {round}) : en attente du tour {next}",
   "board.lane.reviewerGist": "Relecteur : {gist}",

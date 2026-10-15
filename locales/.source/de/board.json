@@ -289,7 +289,6 @@
   "board.lane.inRound": "{where}, round {round}",
   "board.lane.label": "#{card} {title} · {where}",
   "board.lane.labelWhenEnded": "#{card} {title} · {where}, when the lane ended",
-  "board.lane.more": "{n} more: {cards}",
   "board.lane.notOnBoard": "#{card} · not on the board",
   "board.lane.reviewFailed": "#{card}: review failed (round {round}): waiting for round {next}",
   "board.lane.reviewerGist": "Reviewer: {gist}",

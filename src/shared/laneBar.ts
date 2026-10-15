@@ -297,7 +297,7 @@ export function fitSegments(cards: CardSegment[], max: number, tr: Tr, list: Lis
   const room = Math.max(1, max - out.length)
   if (rest.length <= room) return [...out, ...rest]
   const more = rest.slice(room - 1)
-  return [...out, ...rest.slice(0, room - 1), { kind: 'more', numbers: more.map((c) => c.number), label: tr(msg({ id: 'board.lane.more', defaultMessage: '{n} more: {cards}', description: "A lane segment's label (Progress panel) for the cards that don't fit its bar, folded into one: how many ({n}) and which ({cards}: \"#3, #4\")." }), { n: more.length, cards: cardList(more.map((c) => c.number), tr, list) }) }]
+  return [...out, ...rest.slice(0, room - 1), { kind: 'more', numbers: more.map((c) => c.number), label: tr(msg({ id: 'board.lane.more', defaultMessage: '{n, plural, one {# more: {cards}} other {# more: {cards}}}', description: "A lane segment's label (Progress panel) for the cards that don't fit its bar, folded into one: how many ({n}) and which ({cards}: \"#3, #4\")." }), { n: more.length, cards: cardList(more.map((c) => c.number), tr, list) }) }]
 }
 
 /** A lane's header numbers: its finished cards out of all, and the card it is on (currentCard). */

@@ -289,7 +289,6 @@
   "board.lane.inRound": "{where}, ronda {round}",
   "board.lane.label": "#{card} {title} · {where}",
   "board.lane.labelWhenEnded": "#{card} {title} · {where}, cuando terminó el carril",
-  "board.lane.more": "{n} más: {cards}",
   "board.lane.notOnBoard": "#{card} · no está en el tablero",
   "board.lane.reviewFailed": "#{card}: la revisión no se aprobó (ronda {round}): esperando la ronda {next}",
   "board.lane.reviewerGist": "Revisor: {gist}",

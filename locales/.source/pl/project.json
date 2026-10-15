@@ -279,7 +279,6 @@
   "project.settings.rounds": "Rounds",
   "project.settings.saveFailed": "Could not save project settings",
   "project.settings.search": "Search {project} settings",
-  "project.settings.sessionsIn": "Sessions in {project}",
   "project.settings.waitHours": "Wait (hours)",
   "project.settings.wake": "Wake reviewers and builders",
   "project.settings.warnOver": "Warn when a transcript is over",
