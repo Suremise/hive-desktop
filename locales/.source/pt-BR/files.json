@@ -16,6 +16,7 @@
   "files.attachments.groupDeleteMessage": "Move {count, plural, one {the attachment} other {all # attachments}} of \"{name}\" to the Recycle Bin?",
   "files.attachments.groupDeleteTitle": "Move {count, plural, one {# attachment} other {# attachments}} to the Recycle Bin?",
   "files.attachments.groupDeleted": "Moved {count, plural, one {# attachment} other {# attachments}} to the Recycle Bin.",
+  "files.attachments.groupSpan": "{count, plural, one {# attachment} other {# attachments}} · {days, select, one {{from}} other {{from} – {to}}}",
   "files.attachments.info": "Kept in the project's .hive/attachments. Drag one onto the Session tab to send it again; click a session's name to read it.",
   "files.attachments.infoAssistant": "Kept in the Assistant's home, .hive/attachments. Click a conversation's name to read it.",
   "files.attachments.kind.image": "Images",

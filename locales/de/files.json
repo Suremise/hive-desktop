@@ -16,6 +16,7 @@
   "files.attachments.groupDeleteMessage": "{count, plural, one {Den Anhang} other {Alle # Anhänge}} von „{name}“ in den Papierkorb verschieben?",
   "files.attachments.groupDeleteTitle": "{count, plural, one {# Anhang} other {# Anhänge}} in den Papierkorb verschieben?",
   "files.attachments.groupDeleted": "{count, plural, one {# Anhang} other {# Anhänge}} in den Papierkorb verschoben.",
+  "files.attachments.groupSpan": "{count, plural, one {# Anhang} other {# Anhänge}} · {days, select, one {{from}} other {{from} – {to}}}",
   "files.attachments.info": "Liegen im Ordner .hive/attachments des Projekts. Zieh einen auf den Tab „Sitzung“, um ihn erneut zu senden; klicke auf den Namen einer Sitzung, um sie zu lesen.",
   "files.attachments.infoAssistant": "Liegen im Ordner des Assistenten, .hive/attachments. Klicke auf den Namen einer Unterhaltung, um sie zu lesen.",
   "files.attachments.kind.image": "Bilder",

@@ -486,7 +486,7 @@
   "workspace.welcome.removeRecentTip": "Aus „Zuletzt verwendet“ entfernen",
   "workspace.welcome.shortcuts": "Tastenkombinationen",
   "workspace.welcome.skills": "Skills & MCP",
-  "workspace.welcome.skillsText": "Hive-Skills im Arbeitsbereich erreichen die Agenten jedes Projekts (und den Hive Assistant, bei denen, die für ihn geschrieben sind); jedes Projekt zeigt außerdem seine eigenen und deine Benutzer-Skills. MCP-Server werden für den Arbeitsbereich eingeschaltet und pro Projekt ausgeschaltet. Änderungen gelten für neue Sitzungen.",
+  "workspace.welcome.skillsText": "Hive-Skills im Arbeitsbereich erreichen die Agenten jedes Projekts (und den Hive Assistant, bei denen, die für ihn geschrieben sind); jedes Projekt zeigt außerdem seine eigenen und deine Benutzer-Skills. Ein MCP-Server ist nur dort eingeschaltet, wo du ihn einschaltest: in einem Projekt oder in allen. Änderungen gelten für neue Sitzungen.",
   "workspace.welcome.start": "Start",
   "workspace.welcome.tagline": "KI-Coding-Agenten in deinen Projekten ausführen, nebeneinander.",
   "workspace.welcome.workspace": "Arbeitsbereich",

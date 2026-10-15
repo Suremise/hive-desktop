@@ -122,6 +122,7 @@
   "service.providers.stillLooking": "Hive wciąż szuka {cli}. Spróbuj ponownie za chwilę.",
   "service.providers.stillLookingAll": "Hive wciąż szuka CLI agentów kodujących. Spróbuj ponownie za chwilę.",
   "service.providers.stopFirst": "Przed aktualizacją zatrzymaj wszystkich działających agentów {cli}.",
+  "service.providers.stoppedBusy": "{seconds, plural, one {program był zajęty przez # sekundę} few {program był zajęty przez # sekundy} many {program był zajęty przez # sekund} other {program był zajęty przez # sekundy}}",
   "service.providers.stoppedClosed": "zamknięto jego terminal",
   "service.providers.task": "{task, select, install {Instalacja {cli}} update {Aktualizacja {cli}} login {Logowanie do {cli}} other {Konfiguracja {cli}}}",
   "service.providers.taskDone": "{task}: zakończono",

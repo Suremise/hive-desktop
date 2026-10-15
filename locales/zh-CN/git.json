@@ -84,7 +84,7 @@
   "git.init.gitignore.node": "Node",
   "git.init.gitignore.none": "无",
   "git.init.gitignore.python": "Python",
-  "git.init.gitignoreName": "{choice, select, none {不含 .gitignore} minimal {极简 .gitignore} other {{kind} .gitignore}}",
+  "git.init.gitignoreName": "{choice, select, minimal {极简 .gitignore} other {{kind} .gitignore}}",
   "git.init.initialise": "初始化",
   "git.init.initialising": "正在初始化…",
   "git.init.kept": "保留文件夹中已有的 .gitignore。",

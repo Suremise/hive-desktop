@@ -486,7 +486,7 @@
   "workspace.welcome.removeRecentTip": "Usuń z ostatnich",
   "workspace.welcome.shortcuts": "Skróty klawiszowe",
   "workspace.welcome.skills": "Umiejętności i MCP",
-  "workspace.welcome.skillsText": "Umiejętności Hive w obszarze roboczym trafiają do agentów każdego projektu (i do Hive Assistant – te napisane dla niego); każdy projekt pokazuje też własne umiejętności i Twoje umiejętności użytkownika. Serwery MCP włącza się dla obszaru roboczego i wyłącza w poszczególnych projektach. Zmiany obowiązują w nowych sesjach.",
+  "workspace.welcome.skillsText": "Umiejętności Hive w obszarze roboczym trafiają do agentów każdego projektu (i do Hive Assistant – te napisane dla niego); każdy projekt pokazuje też własne umiejętności i Twoje umiejętności użytkownika. Serwer MCP jest włączony tylko tam, gdzie go włączysz: w jednym projekcie albo we wszystkich. Zmiany obowiązują w nowych sesjach.",
   "workspace.welcome.start": "Start",
   "workspace.welcome.tagline": "Uruchamiaj agentów AI w swoich projektach, obok siebie.",
   "workspace.welcome.workspace": "Obszar roboczy",

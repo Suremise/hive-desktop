@@ -16,6 +16,7 @@
   "files.attachments.groupDeleteMessage": "「{name}」の添付ファイル{count, plural, other {#件}}をごみ箱に移動しますか？",
   "files.attachments.groupDeleteTitle": "{count, plural, other {#件の添付ファイル}}をごみ箱に移動しますか？",
   "files.attachments.groupDeleted": "{count, plural, other {#件の添付ファイル}}をごみ箱に移動しました。",
+  "files.attachments.groupSpan": "{count, plural, other {添付ファイル#件}} · {days, select, one {{from}} other {{from}〜{to}}}",
   "files.attachments.info": "プロジェクトの.hive/attachmentsに保存されています。「セッション」タブにドラッグすると再送信できます。セッション名をクリックすると内容を読めます。",
   "files.attachments.infoAssistant": "アシスタントのホーム（.hive/attachments）に保存されています。会話名をクリックすると内容を読めます。",
   "files.attachments.kind.image": "画像",

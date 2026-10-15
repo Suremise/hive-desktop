@@ -122,6 +122,7 @@
   "service.providers.stillLooking": "Hive 仍在查找 {cli}。请稍后重试。",
   "service.providers.stillLookingAll": "Hive 仍在查找编程智能体 CLI。请稍后重试。",
   "service.providers.stopFirst": "请先停止所有正在运行的 {cli} 智能体，再更新它。",
+  "service.providers.stoppedBusy": "{seconds, plural, other {它持续忙碌了 # 秒}}",
   "service.providers.stoppedClosed": "其终端已关闭",
   "service.providers.task": "{task, select, install {{cli} 安装} update {{cli} 更新} login {{cli} 登录} other {{cli} 配置}}",
   "service.providers.taskDone": "{task}已完成",
