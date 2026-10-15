@@ -16,13 +16,13 @@ export function timeAgo(iso: string | null | undefined): string {
   const t = Date.parse(iso)
   if (!t) return '—'
   const s = Math.round((Date.now() - t) / 1000)
-  if (s < 45) return tr(msg({ id: 'actions.ago.justNow', defaultMessage: 'just now', description: 'When something happened, under a minute ago (inbox, sessions, cards). Lower case.' }))
+  if (s < 45) return tr(msg({ id: 'actions.ago.justNow', defaultMessage: 'just now', description: "When something happened, under a minute ago (inbox, sessions, cards). Lower case. It also follows a participle (\"saved {when}\", \"Updated {when}\", \"changed {changed}\"): where it can't, the translation of those messages puts it elsewhere." }))
   const m = s < 90 ? 1 : Math.round(s / 60)
-  if (m < 60) return tr(msg({ id: 'actions.ago.minutes', defaultMessage: '{n, plural, one {# minute ago} other {# minutes ago}}', description: 'When something happened, in minutes (inbox, sessions, cards). Lower case.' }), { n: m })
+  if (m < 60) return tr(msg({ id: 'actions.ago.minutes', defaultMessage: '{n, plural, one {# minute ago} other {# minutes ago}}', description: "When something happened, in minutes (inbox, sessions, cards). Lower case. It also follows a participle (\"saved {when}\", \"Updated {when}\", \"changed {changed}\"): where it can't, the translation of those messages puts it elsewhere." }), { n: m })
   const h = Math.round(m / 60)
-  if (h < 24) return tr(msg({ id: 'actions.ago.hours', defaultMessage: '{n, plural, one {# hour ago} other {# hours ago}}', description: 'When something happened, in hours (inbox, sessions, cards). Lower case.' }), { n: h })
+  if (h < 24) return tr(msg({ id: 'actions.ago.hours', defaultMessage: '{n, plural, one {# hour ago} other {# hours ago}}', description: "When something happened, in hours (inbox, sessions, cards). Lower case. It also follows a participle (\"saved {when}\", \"Updated {when}\", \"changed {changed}\"): where it can't, the translation of those messages puts it elsewhere." }), { n: h })
   const d = Math.round(h / 24)
-  if (d < 30) return d === 1 ? tr(msg({ id: 'actions.ago.yesterday', defaultMessage: 'yesterday', description: 'When something happened: a day ago (inbox, sessions, cards). Lower case.' })) : tr(msg({ id: 'actions.ago.days', defaultMessage: '{n, plural, one {# day ago} other {# days ago}}', description: 'When something happened, in days, 2 to 29 (inbox, sessions, cards). Lower case.' }), { n: d })
+  if (d < 30) return d === 1 ? tr(msg({ id: 'actions.ago.yesterday', defaultMessage: 'yesterday', description: "When something happened: a day ago (inbox, sessions, cards). Lower case. It also follows a participle (\"saved {when}\", \"Updated {when}\", \"changed {changed}\"): where it can't, the translation of those messages puts it elsewhere." })) : tr(msg({ id: 'actions.ago.days', defaultMessage: '{n, plural, one {# day ago} other {# days ago}}', description: "When something happened, in days, 2 to 29 (inbox, sessions, cards). Lower case. It also follows a participle (\"saved {when}\", \"Updated {when}\", \"changed {changed}\"): where it can't, the translation of those messages puts it elsewhere." }), { n: d })
   return formatDate(t)
 }
 

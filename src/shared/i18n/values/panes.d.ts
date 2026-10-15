@@ -63,7 +63,7 @@ interface HiveMessageValues {
   'panes.header.watchTip': { watch: string | number; kind: string; n: number; limit: string | number }
   'panes.layout.name': { layout: string }
   'panes.layout.wide': { layout: string | number }
-  'panes.leftovers.count': { n: string | number }
+  'panes.leftovers.count': { n: number }
   'panes.leftovers.end': { n: number }
   'panes.leftovers.endFailed': undefined
   'panes.leftovers.keep': undefined
@@ -87,10 +87,10 @@ interface HiveMessageValues {
   'panes.messages.cancelFailed': undefined
   'panes.messages.clickCancel': { n: number }
   'panes.messages.line': { id: string | number; from: string | number; state: string; text: string | number }
-  'panes.messages.overdue': { n: string | number }
+  'panes.messages.overdue': { n: number }
   'panes.messages.overdueTip': { n: number }
   'panes.messages.tip': { n: number; agent: string | number }
-  'panes.messages.unread': { n: string | number }
+  'panes.messages.unread': { n: number }
   'panes.pages.button': { page: string | number }
   'panes.pages.item': { page: string | number }
   'panes.pages.menu': undefined
@@ -147,18 +147,18 @@ interface HiveMessageValues {
   'panes.table.agent': undefined
   'panes.table.background': { n: number }
   'panes.table.card': undefined
-  'panes.table.cardPrefix': undefined
+  'panes.table.cardPrefix': { value: string | number }
   'panes.table.happens': undefined
   'panes.table.notRunning': undefined
   'panes.table.project': undefined
-  'panes.table.projectPrefix': undefined
+  'panes.table.projectPrefix': { value: string | number }
   'panes.table.state': undefined
   'panes.table.waiting': undefined
   'panes.table.waitingFor': { what: string | number }
-  'panes.table.waitingPrefix': undefined
+  'panes.table.waitingPrefix': { value: string | number }
   'panes.table.watching': undefined
   'panes.table.worktree': undefined
-  'panes.table.worktreePrefix': undefined
+  'panes.table.worktreePrefix': { value: string | number }
   'panes.template.button': undefined
   'panes.template.detail': { n: number; layout: string | number }
   'panes.template.heading': { template: string | number; scope: string }
@@ -175,7 +175,7 @@ interface HiveMessageValues {
   'panes.watch.agents': { agents: string | number }
   'panes.watch.cards': { cards: string | number }
   'panes.watch.cardsInto': { cards: string | number; column: string | number }
-  'panes.watch.lanes': { lanes: string; lane: string | number; n: string | number; cards: string }
+  'panes.watch.lanes': { lanes: string; lane: string | number; n: number; cards: string }
   'panes.watchCancel.failed': undefined
   'panes.watchCell.agents': { agents: string | number }
   'panes.watchCell.cardsInto': { cards: string | number; column: string | number }

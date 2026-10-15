@@ -551,8 +551,8 @@ function AgentInbox({ project, a, live }: { project: ProjectInfo; a: AgentInfo; 
   const waiting = inbox.unread.filter((m) => m.state === 'queued' || m.state === 'uncertain').length
   const cancel = () => void actions.attempt(tr(msg({ id: 'panes.messages.cancelFailed', defaultMessage: 'Could not cancel the messages', description: "An error's title: cancelling messages left for an agent failed." })), () => call('session:cancelMessages', project.path, a.id))
   const label = [
-    n ? tr(msg({ id: 'panes.messages.unread', defaultMessage: '{n} unread', description: "On an agent's tab: how many messages left for it it hasn't fetched or acked yet. Keep it short." }), { n }) : '',
-    inbox.overdue ? tr(msg({ id: 'panes.messages.overdue', defaultMessage: '{n} overdue', description: "On an agent's tab: how many deliveries it didn't ack in time. Keep it short." }), { n: inbox.overdue }) : ''
+    n ? tr(msg({ id: 'panes.messages.unread', defaultMessage: '{n, plural, one {# unread} other {# unread}}', description: "On an agent's tab: how many messages left for it it hasn't fetched or acked yet. Keep it short." }), { n }) : '',
+    inbox.overdue ? tr(msg({ id: 'panes.messages.overdue', defaultMessage: '{n, plural, one {# overdue} other {# overdue}}', description: "On an agent's tab: how many deliveries it didn't ack in time. Keep it short." }), { n: inbox.overdue }) : ''
   ]
     .filter(Boolean)
     .join(' · ')
@@ -613,7 +613,7 @@ function Leftovers({ project, a }: { project: ProjectInfo; a: AgentInfo }) {
             ])
           }}
         >
-          <Icon name="warning" /> {tr(msg({ id: 'panes.leftovers.count', defaultMessage: '{n} left running', description: "On an agent's tab: how many processes it left running ({n}). Keep it short." }), { n })}
+          <Icon name="warning" /> {tr(msg({ id: 'panes.leftovers.count', defaultMessage: '{n, plural, one {# left running} other {# left running}}', description: "On an agent's tab: how many processes it left running ({n}). Keep it short." }), { n })}
         </button>
       </Tooltip>
       {menu.element}
@@ -663,7 +663,7 @@ function templateMenuItems(project: ProjectInfo, all: TemplateEntry[]): MenuEntr
         const here = all.filter((t) => t.scope === scope)
         return here.length
           ? [
-              { header: true, label: tr(msg({ id: 'panes.template.scopeHeading', defaultMessage: '{scope, select, workspace {Workspace templates} other {This project templates}}', description: "A heading in Template ▾ above the templates kept in the workspace, or in this project." }), { scope }) },
+              { header: true, label: tr(msg({ id: 'panes.template.scopeHeading', defaultMessage: "{scope, select, workspace {Workspace templates} other {This project's templates}}", description: "A heading in Template ▾ above the templates kept in the workspace, or in this project." }), { scope }) },
               ...here.map((t) => ({ label: t.name, icon: 'library', detail: shownProblem(t) ?? tr(msg({ id: 'panes.template.detail', defaultMessage: '{n, plural, one {# agent} other {# agents}} · {layout}', description: "A template's detail in Template ▾: how many agents it has and its layout ({layout}: \"two columns\")." }), { n: t.agents.length, layout: layoutName(t.layout) }), disabled: !!t.problem, onClick: () => void actions.loadTemplate(project.path, t) }))
             ]
           : []

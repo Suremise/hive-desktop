@@ -248,7 +248,7 @@
     "description": "Tooltip of a layout button with three or more panes (the agent strip): its name ({layout}) and a hint. Ctrl+B hides the sidebar."
   },
   "panes.leftovers.count": {
-    "defaultMessage": "{n} left running",
+    "defaultMessage": "{n, plural, one {# left running} other {# left running}}",
     "description": "On an agent's tab: how many processes it left running ({n}). Keep it short."
   },
   "panes.leftovers.end": {
@@ -344,7 +344,7 @@
     "description": "A message left for an agent, in its tab's hover: its id, who from ({from}), its state (waiting; typed into the agent but not fetched or acked; or offered but not confirmed), and the start of its text ({text}, the sender's own words)."
   },
   "panes.messages.overdue": {
-    "defaultMessage": "{n} overdue",
+    "defaultMessage": "{n, plural, one {# overdue} other {# overdue}}",
     "description": "On an agent's tab: how many deliveries it didn't ack in time. Keep it short."
   },
   "panes.messages.overdueTip": {
@@ -356,7 +356,7 @@
     "description": "Hover of an agent's unread messages, above the list of them: how many ({n}) for the agent ({agent}: its name). hive_inbox is a tool's name: keep it."
   },
   "panes.messages.unread": {
-    "defaultMessage": "{n} unread",
+    "defaultMessage": "{n, plural, one {# unread} other {# unread}}",
     "description": "On an agent's tab: how many messages left for it it hasn't fetched or acked yet. Keep it short."
   },
   "panes.pages.button": {
@@ -485,11 +485,11 @@
   },
   "panes.safeguard.stopped": {
     "defaultMessage": "A safety classifier stopped a response{model, select, none {} other { on {model}}} at {time}{stops, plural, =0 {} =1 {} other { (# this session)}}.",
-    "description": "An agent's safeguard note (its pane, a hover): its CLI's safety classifier stopped a response, on a model ({model}: its name; none: leave that branch empty), at a time ({time}: \"15:12\"), and how many times this session ({stops}; once: leave it empty)."
+    "description": "An agent's safeguard note (its pane, a hover): its CLI's safety classifier stopped a response, on a model ({model}: its name; none: leave that branch empty), at a time ({time}: \"15:12\", hours and minutes on a 24-hour clock; in a language whose word before a time agrees with the hour, put it in brackets instead: \"(15:12)\"), and how many times this session ({stops}; once: leave it empty)."
   },
   "panes.safeguard.switched": {
     "defaultMessage": "It now runs on {to} instead of {from} (since {time}).",
-    "description": "An agent's safeguard note: after the stop it moved to another model ({to}, {from}: their names) at a time ({time}: \"15:12\")."
+    "description": "An agent's safeguard note: after the stop it moved to another model ({to}, {from}: their names) at a time ({time}: \"15:12\", hours and minutes on a 24-hour clock; in a language whose word before a time agrees with the hour, leave the word out: \"(15:12)\")."
   },
   "panes.safeguard.tools": {
     "defaultMessage": "Before it, its last tool calls: {tools}.",
@@ -584,8 +584,8 @@
     "description": "An agents table's column heading: the card the agent works on or reviews."
   },
   "panes.table.cardPrefix": {
-    "defaultMessage": "card",
-    "description": "Before the agent's card in a line of text (screen readers, a dialog's copy): \"card #12 Title\". Lower case."
+    "defaultMessage": "card {value}",
+    "description": "The agent's card in a line of text (screen readers, a dialog's copy): {value} is the card (\"#12 Title\", \"reviewing #12 Title\"). Lower case."
   },
   "panes.table.happens": {
     "defaultMessage": "What happens",
@@ -600,8 +600,8 @@
     "description": "An agents table's column heading: the agent's project."
   },
   "panes.table.projectPrefix": {
-    "defaultMessage": "in",
-    "description": "Before the agent's project in a line of text (screen readers, a dialog's copy): \"in hive\". Lower case."
+    "defaultMessage": "in {value}",
+    "description": "The agent's project in a line of text (screen readers, a dialog's copy): {value} is its name (\"in hive\"). Lower case."
   },
   "panes.table.state": {
     "defaultMessage": "State",
@@ -616,8 +616,8 @@
     "description": "An agent in a line of text (a screen reader's description of a project's agents): what it waits for ({what}: \"#12 → Review\", \"B6 to finish\")."
   },
   "panes.table.waitingPrefix": {
-    "defaultMessage": "waiting for",
-    "description": "Before what a watching agent waits for, in a line of text (screen readers, a dialog's copy): \"waiting for #12 → Review\". Lower case."
+    "defaultMessage": "waiting for {value}",
+    "description": "What a watching agent waits for, in a line of text (screen readers, a dialog's copy): {value} is what (\"#12 → Review\", \"B6 to finish\"). Lower case."
   },
   "panes.table.watching": {
     "defaultMessage": "Watching",
@@ -628,8 +628,8 @@
     "description": "An agents table's column heading (Start New All, Remove All…): the agent's worktree branch."
   },
   "panes.table.worktreePrefix": {
-    "defaultMessage": "worktree",
-    "description": "Before the agent's worktree branch in a line of text (screen readers, a dialog's copy). Lower case."
+    "defaultMessage": "worktree {value}",
+    "description": "The agent's worktree in a line of text (screen readers, a dialog's copy): {value} is its branch (\"hive/b1\"). Lower case."
   },
   "panes.template.button": {
     "defaultMessage": "Template",
@@ -668,7 +668,7 @@
     "description": "Menu item (Template ▾): saves this project's agents and layout as a template."
   },
   "panes.template.scopeHeading": {
-    "defaultMessage": "{scope, select, workspace {Workspace templates} other {This project templates}}",
+    "defaultMessage": "{scope, select, workspace {Workspace templates} other {This project's templates}}",
     "description": "A heading in Template ▾ above the templates kept in the workspace, or in this project."
   },
   "panes.template.tip": {
@@ -696,7 +696,7 @@
     "description": "A watching agent's status (its pane): it waits for cards ({cards}: \"#12, #13\") to move into a board column ({column})."
   },
   "panes.watch.lanes": {
-    "defaultMessage": "Waiting on {lanes, select, all {all running lanes} one {lane {lane}} other {{n} lanes}}{cards, select, none {} other { and {cards}}}",
+    "defaultMessage": "Waiting on {lanes, select, all {all running lanes} one {lane {lane}} other {{n, plural, one {# lane} other {# lanes}}}}{cards, select, none {} other { and {cards}}}",
     "description": "A watching agent's status (its pane): it waits on card loops (lanes): all of them, one ({lane}: its id) or {n}; then any cards it also watches ({cards}: \"#4, #5\"; none: leave that branch empty)."
   },
   "panes.watchCancel.failed": {

@@ -8,7 +8,8 @@
  * - **Throw** `hiveError(msg({ id: '<area>.<name>', defaultMessage, description }), values)`, or `new HiveError(text)` for
  *   text built with `withValues`/`listOf`/`linesOf`. Its `message` is the English, formatted at once: the Agent API's
  *   `{ error }`, `errorStatus()`'s patterns, Hive's log and every `catch` that reads `.message` see exactly what they saw
- *   before, so nothing agent-facing changes.
+ *   before, so nothing agent-facing changes. Where the window's words change and agents' must not (#910), the text is
+ *   `forAgents(text, english)`: the window shows `text`, and the message is `english`, word for word.
  * - **The window** gets it in its language: IPC (`ipc.ts`) formats `text` when a call fails (`shownError()`). Electron
  *   sends the renderer only an error's message, so the window gets formatted text, never the descriptor.
  * - **The Agent API** answers with `englishError()` (servers.ts), the English whatever language Hive shows.

@@ -118,7 +118,7 @@ interface HiveMessageValues {
   'board.costs.cost': undefined
   'board.costs.laneFailed': undefined
   'board.costs.laneLoading': undefined
-  'board.costs.note': undefined
+  'board.costs.note': { zero: string | number }
   'board.costs.onCards': undefined
   'board.costs.overhead': undefined
   'board.costs.overheadNote': undefined
@@ -171,7 +171,7 @@ interface HiveMessageValues {
   'board.details.tookTotal': { took: string | number; expected: string }
   'board.details.waitingSince': { since: string | number; waiting: string | number }
   'board.dialog.addCard': undefined
-  'board.dialog.added': { by: string | number; added: string | number; changed: string | number }
+  'board.dialog.added': { who: string; by: string | number; added: string | number; changed: string | number }
   'board.dialog.addedUnknown': { added: string | number; changed: string | number }
   'board.dialog.adding': undefined
   'board.dialog.agent': undefined
@@ -285,10 +285,10 @@ interface HiveMessageValues {
   'board.inbox.toReviewTip': undefined
   'board.inbox.uncommitted': { n: number }
   'board.lane.afterRound': { where: string | number; round: string | number }
-  'board.lane.andMore': { cards: string | number; n: string | number }
+  'board.lane.andMore': { n: number }
   'board.lane.blocked': { card: string | number }
   'board.lane.blockedReason': { card: string | number; reason: string | number }
-  'board.lane.finished': { n: string | number; cards: string | number }
+  'board.lane.finished': { n: number; cards: string | number }
   'board.lane.goneWhenEnded': { card: string | number }
   'board.lane.holdReason': { card: string | number; reason: string | number }
   'board.lane.holdWaiting': { card: string | number }

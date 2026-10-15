@@ -310,6 +310,7 @@ function scrubText(t: TextPart, secrets: string[]): TextPart {
   if ('list' in t) return { ...t, list: t.list.map((x) => scrubText(x, secrets)) }
   if ('lines' in t) return { lines: t.lines.map((x) => scrubText(x, secrets)) }
   if ('cap' in t) return { cap: scrubText(t.cap, secrets) }
+  if ('shown' in t) return { shown: scrubText(t.shown, secrets), english: scrubSecrets(t.english, secrets) }
   return { m: t.m, values: Object.fromEntries(Object.entries(t.values).map(([k, v]) => [k, scrubText(v, secrets)])) }
 }
 
