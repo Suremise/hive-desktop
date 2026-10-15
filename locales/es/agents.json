@@ -109,6 +109,7 @@
   "agents.dialog.worksIn": "Trabaja en",
   "agents.dialog.worktree": "Worktree",
   "agents.effort.inherited": "{effort} (predeterminado)",
+  "agents.efforts.cliDefault": "Predeterminado de {provider}",
   "agents.efforts.default": "predeterminado",
   "agents.efforts.defaultIs": "{effort}, predeterminado",
   "agents.efforts.high": "Alto",

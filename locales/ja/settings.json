@@ -240,7 +240,6 @@
   "settings.assistant.provider.desc": "アシスタントが実行するコーディングエージェントです。ワークスペースで別のものを選んだ場合を除きます。",
   "settings.assistant.provider.tip": "アシスタントはプロジェクトのエージェントとは独立しています。CodexのアシスタントがClaude Codeのエージェントを見守ることも、その逆もできます。",
   "settings.assistant.provider.title": "プロバイダー",
-  "settings.assistant.providersEffort": "{provider}の設定",
   "settings.assistant.tellReplies.desc": "エージェントのペインからそのエージェントに送った内容の1行目を、そのエージェントやカードを監視しているアシスタントに伝えます。",
   "settings.assistant.tellReplies.tip": "これにより、アシスタントは改めて尋ねなくても、エージェントに伝えたこと（回答や決定）がわかり、カードに決定事項を記録できます。伝えるのは1行目だけで、同じワークスペースのアシスタントが、そのエージェントかカードを監視している場合だけです。",
   "settings.assistant.tellReplies.title": "エージェントへの返信を伝える",

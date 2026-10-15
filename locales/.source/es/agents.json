@@ -109,6 +109,7 @@
   "agents.dialog.worksIn": "Works in",
   "agents.dialog.worktree": "Worktree",
   "agents.effort.inherited": "{effort} (default)",
+  "agents.efforts.cliDefault": "{provider}'s default",
   "agents.efforts.default": "default",
   "agents.efforts.defaultIs": "{effort}, default",
   "agents.efforts.high": "High",

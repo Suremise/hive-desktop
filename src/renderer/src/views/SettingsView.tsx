@@ -4,7 +4,7 @@ import { DEFAULT_COLUMN_COLORS, TASK_COLUMNS, columnColor, columnName } from '@s
 import { DEFAULT_PERSONA } from '@shared/assistant'
 import { PRICES_CHECKED, SHIPPED_PRICES, listedPriceModels, priceRows } from '@shared/prices'
 import { APP_SETTINGS_CATALOG, SETTINGS_SECTIONS, providerSection, settingDefault, settingPatch, settingValue, SETTINGS_TEXT, shownSetting, type SettingEntry, type SettingsSection, type SettingsSectionInfo } from '@shared/settingsCatalog'
-import { effortName, fallbackEfforts, fallbackModels, modelCaps, modelSource, modelSourceText, runsAsName } from '@shared/models'
+import { cliDefaultEffort, effortName, fallbackEfforts, fallbackModels, modelCaps, modelSource, modelSourceText, runsAsName } from '@shared/models'
 import type { SettingsPatch } from '@shared/api'
 import { AUTO_PROVIDER, PROVIDERS, defaultProviderLabel, enabledProviders, isProviderEnabled, installSourceText, offeredModes, permissionLabel, providerDescriptor, providerSettings, shownText as providerText } from '@shared/providers'
 import { personaName, usePersonas } from '../components/Assistant'
@@ -596,15 +596,15 @@ function AssistantProviderDefaults({ provider }: { provider: ProviderId }) {
   const info = useStore((s) => s.providers[provider])
   const cliDefault = info?.defaultModel ?? null
   const runModel = a.model || g.defaultModel || cliDefault
-  // The level itself, "Default (Medium)": effortText's "Medium, default" would say default twice (#911).
+  // The level itself, "Default (Medium)": effortText's "Medium, default" would say default twice (#911). Not known: "Claude Code's default", no outer "Default (…)" (#916).
   const effortLevel = g.defaultEffort && g.defaultEffort !== 'inherit' ? g.defaultEffort : modelCaps(provider, runModel, info, settings).defaultEffort
-  const effortLabel = !effortLevel ? tr(msg({ id: 'settings.assistant.providersEffort', defaultMessage: "{provider}'s", description: 'In the Assistant\'s effort list, "Default ({effort})", when it is the CLI\'s own default. {provider} is its name.' }), { provider: p.name }) : effortName(provider, effortLevel, settings, tr)
+  const effortLabel = !effortLevel ? cliDefaultEffort(provider, tr) : tr(msg({ id: 'settings.assistant.defaultIs', defaultMessage: 'Default ({value})', description: 'The first choice of a list in Settings → Assistant → With <provider>: what applies when nothing is chosen. {value} says what that is.' }), { value: effortName(provider, effortLevel, settings, tr) })
   return (
     <div className="agent-form assistant-defaults">
       <label>{tr(msg({ id: 'settings.assistantProvider.model.title', defaultMessage: 'Model', description: "A field's title in Settings → Assistant → With <provider>: the Assistant's model." }))}</label>
       <ModelPicker provider={provider} value={a.model} base={{ value: '', label: g.defaultModel ? tr(msg({ id: 'settings.provider.cliDefaultIs', defaultMessage: '{provider} default ({which})', description: "The first choice of a model or effort list: the CLI's own default, and which model or level that is. {provider} is its name." }), { provider: p.name, which: runsAsName(provider, g.defaultModel, info) }) : tr(msg({ id: 'settings.provider.cliDefault', defaultMessage: '{provider} default', description: "The first choice of a model or effort list: the CLI's own default. {provider} is its name." }), { provider: p.name }) }} onChange={(v) => save({ model: v })} />
       <label>{tr(msg({ id: 'settings.assistantProvider.effort.title', defaultMessage: 'Effort', description: "A field's title in Settings → Assistant → With <provider>: the Assistant's reasoning effort." }))}</label>
-      <EffortPicker provider={provider} model={runModel} value={a.effort} base={{ value: '', label: tr(msg({ id: 'settings.assistant.defaultIs', defaultMessage: 'Default ({value})', description: 'The first choice of a list in Settings → Assistant → With <provider>: what applies when nothing is chosen. {value} says what that is.' }), { value: effortLabel }) }} onChange={(v) => save({ effort: v as EffortLevel | '' })} />
+      <EffortPicker provider={provider} model={runModel} value={a.effort} base={{ value: '', label: effortLabel }} onChange={(v) => save({ effort: v as EffortLevel | '' })} />
       <label>{tr(msg({ id: 'settings.assistantProvider.permissionMode.title', defaultMessage: 'Permission mode', description: "A field's title in Settings → Assistant → With <provider>: the Assistant's permission mode." }))}</label>
       <select className="select" value={a.permissionMode} onChange={(e) => save({ permissionMode: e.target.value as PermissionMode | '' })}>
         <option value="">{tr(msg({ id: 'settings.assistant.defaultIs', defaultMessage: 'Default ({value})', description: 'The first choice of a list in Settings → Assistant → With <provider>: what applies when nothing is chosen. {value} says what that is.' }), { value: permissionLabel(provider, p.assistantMode, tr) })}</option>

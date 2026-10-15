@@ -240,7 +240,6 @@
   "settings.assistant.provider.desc": "助手运行的编程智能体，除非工作区另行选择。",
   "settings.assistant.provider.tip": "助手独立于项目中的智能体：Codex 助手可以照看 Claude Code 智能体，反之亦然。",
   "settings.assistant.provider.title": "提供方",
-  "settings.assistant.providersEffort": "{provider} 的设置",
   "settings.assistant.tellReplies.desc": "助手对某个智能体或其卡片的监视，会收到你从该智能体窗格发给它的内容的第一行。",
   "settings.assistant.tellReplies.tip": "这样助手无需再问你，就能知道你对智能体说了什么（回答、决定），并可以在卡片上记录决定。只发送第一行，只发给同一工作区的助手，并且只在它监视该智能体或其卡片时发送。",
   "settings.assistant.tellReplies.title": "我回复智能体时告诉助手",

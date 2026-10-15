@@ -245,7 +245,6 @@ interface HiveMessageValues {
   'settings.assistant.provider.desc': undefined
   'settings.assistant.provider.tip': undefined
   'settings.assistant.provider.title': undefined
-  'settings.assistant.providersEffort': { provider: string | number }
   'settings.assistant.tellReplies.desc': undefined
   'settings.assistant.tellReplies.tip': undefined
   'settings.assistant.tellReplies.title': undefined

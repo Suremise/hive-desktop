@@ -1005,7 +1005,7 @@ export function AssistantSettingsDialog() {
       <h3 className="agent-dialog-h">{tr(M.codingAgent)}</h3>
       <ProviderChoice value={provider} current={current} onChange={chooseProvider} />
       <h3 className="agent-dialog-h">{tr(M.settings)}</h3>
-      <Overrides project={a} provider={provider} model={model} effort={effort} permission={permission} context={context} onModel={setModel} onEffort={setEffort} onPermission={setPermission} onContext={setContext} inherit={tr(M.default)} />
+      <Overrides project={a} provider={provider} model={model} effort={effort} permission={permission} context={context} onModel={setModel} onEffort={setEffort} onPermission={setPermission} onContext={setContext} inherit={tr(M.default)} inheritIsDefault />
       {agent.live && <div className="detail">{tr(M.appliesNext)}</div>}
     </Modal>
   )

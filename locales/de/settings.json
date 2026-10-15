@@ -240,7 +240,6 @@
   "settings.assistant.provider.desc": "Der Coding-Agent, den der Assistent ausführt, wenn ein Arbeitsbereich keinen anderen wählt.",
   "settings.assistant.provider.tip": "Der Assistent ist unabhängig von deinen Projektagenten: Ein Codex-Assistent kann sich um Claude-Code-Agenten kümmern und umgekehrt.",
   "settings.assistant.provider.title": "Anbieter",
-  "settings.assistant.providersEffort": "von {provider}",
   "settings.assistant.tellReplies.desc": "Wenn der Assistent einen Agenten oder dessen Karte beobachtet, erfährt er die erste Zeile dessen, was du diesem Agenten aus seinem Bereich sendest.",
   "settings.assistant.tellReplies.tip": "So weiß er, was du dem Agenten gesagt hast (eine Antwort, eine Entscheidung), ohne dich erneut zu fragen, und kann eine Entscheidung auf der Karte festhalten. Nur die erste Zeile, nur an den Assistenten desselben Arbeitsbereichs und nur, wenn er diesen Agenten oder dessen Karte beobachtet.",
   "settings.assistant.tellReplies.title": "Assistenten informieren, wenn ich einem Agenten antworte",

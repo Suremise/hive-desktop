@@ -240,7 +240,6 @@
   "settings.assistant.provider.desc": "Agent kodujący, którego uruchamia Asystent, chyba że obszar roboczy wybierze innego.",
   "settings.assistant.provider.tip": "Asystent jest niezależny od agentów Twoich projektów: Asystent w Codex może doglądać agentów Claude Code i na odwrót.",
   "settings.assistant.provider.title": "Dostawca",
-  "settings.assistant.providersEffort": "Domyślny {provider}",
   "settings.assistant.tellReplies.desc": "Asystent obserwujący agenta lub jego kartę dostaje pierwszy wiersz tego, co wysyłasz temu agentowi z jego panelu.",
   "settings.assistant.tellReplies.tip": "Dzięki temu wie, co powiedziałeś agentowi (odpowiedź, decyzję), bez ponownego pytania Cię, i może zapisać decyzję na karcie. Tylko pierwszy wiersz, tylko Asystentowi tego samego obszaru roboczego i tylko wtedy, gdy obserwuje tego agenta lub jego kartę.",
   "settings.assistant.tellReplies.title": "Informuj Asystenta, gdy odpowiadam agentowi",

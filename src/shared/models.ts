@@ -211,5 +211,10 @@ export function effortUnknown(provider: ProviderId, chosen: string | null | unde
   return !(chosen && chosen !== 'inherit') && !modelCaps(provider, model, info, settings).defaultEffort
 }
 
+/** What an effort list calls that unknown default: "Claude Code's default", never "Default (Claude Code default)" (#916). */
+export function cliDefaultEffort(provider: ProviderId, tr: Tr): string {
+  return tr(msg({ id: 'agents.efforts.cliDefault', defaultMessage: "{provider}'s default", description: "The effort an effort list's first choice comes to when it is the CLI's own default and the CLI hasn't said which level that is. {provider} is the CLI's name (\"Claude Code\")." }), { provider: providerDescriptor(provider).name })
+}
+
 /** The key observedDefaultEffort keeps a model's effort under. */
 export const observedEffortKey = modelKey

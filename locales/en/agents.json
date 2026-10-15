@@ -439,6 +439,10 @@
     "defaultMessage": "{effort} (default)",
     "description": "An agent's effort level when nobody chose one: the model's default ({effort}: \"High\")."
   },
+  "agents.efforts.cliDefault": {
+    "defaultMessage": "{provider}'s default",
+    "description": "The effort an effort list's first choice comes to when it is the CLI's own default and the CLI hasn't said which level that is. {provider} is the CLI's name (\"Claude Code\")."
+  },
   "agents.efforts.default": {
     "defaultMessage": "default",
     "description": "The effort a choice comes to, in a picker's base option (\"Inherit (default)\"), when the model's default isn't known. Lower case."

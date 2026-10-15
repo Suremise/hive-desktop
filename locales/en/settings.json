@@ -975,10 +975,6 @@
     "defaultMessage": "Provider",
     "description": "A setting's title (Settings → Assistant)."
   },
-  "settings.assistant.providersEffort": {
-    "defaultMessage": "{provider}'s",
-    "description": "In the Assistant's effort list, \"Default ({effort})\", when it is the CLI's own default. {provider} is its name."
-  },
   "settings.assistant.tellReplies.desc": {
     "defaultMessage": "The Assistant's watch on an agent or its card hears the first line of what you send that agent from its pane.",
     "description": "What the setting \"Tell the Assistant when I reply to an agent\" does, under its title (Settings → Assistant)."
