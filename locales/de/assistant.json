@@ -19,6 +19,7 @@
   "assistant.modes.inUseTip": "Der Assistent dieses Arbeitsbereichs verwendet diesen Modus",
   "assistant.modes.lettersOrNumbers": "Verwende Buchstaben oder Ziffern.",
   "assistant.modes.namePlaceholder": "Name des Modus",
+  "assistant.modes.newDescription": "Wofür dieser Modus da ist, in einer Zeile.",
   "assistant.modes.newMessage": "Erstellt {file} im Arbeitsbereich, um in eigenen Worten zu beschreiben, wie der Assistent arbeiten soll.",
   "assistant.modes.newTitle": "Neuer Modus",
   "assistant.modes.restoreFailed": "Modus konnte nicht wiederhergestellt werden",

@@ -21,6 +21,7 @@ interface HiveMessageValues {
   'assistant.modes.inUseTip': undefined
   'assistant.modes.lettersOrNumbers': undefined
   'assistant.modes.namePlaceholder': undefined
+  'assistant.modes.newDescription': undefined
   'assistant.modes.newMessage': { file: string | number }
   'assistant.modes.newTitle': undefined
   'assistant.modes.restoreFailed': undefined

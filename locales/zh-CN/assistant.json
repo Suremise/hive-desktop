@@ -19,6 +19,7 @@
   "assistant.modes.inUseTip": "此工作区的助手正在使用此模式",
   "assistant.modes.lettersOrNumbers": "请使用字母或数字。",
   "assistant.modes.namePlaceholder": "模式名称",
+  "assistant.modes.newDescription": "用一句话说明此模式的用途。",
   "assistant.modes.newMessage": "在工作区中创建 {file}，用你自己的话描述助手应如何工作。",
   "assistant.modes.newTitle": "新建模式",
   "assistant.modes.restoreFailed": "无法恢复模式",

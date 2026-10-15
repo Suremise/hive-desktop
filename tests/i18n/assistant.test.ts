@@ -165,6 +165,13 @@ describe('what Hive works out in shared code is in the language when it is worke
     expect(left.model.text).toBe('Opus 5.5')
     expect(templateLoadDetail({ remove: [], create: [agents[1]], worktrees: [null], setup: null }, cfg, settings, () => info)).toContain('Opus 5.5 (domyślnie) · Medium (domyślnie)')
   })
+
+  it("names the permission mode in the language shown (#889: it said Auto in a Japanese window)", () => {
+    setLanguage(PSEUDO_LANGUAGE, {})
+    const parts = templateAgentParts({ name: 'Own', provider: 'claude-code', permissionMode: 'acceptEdits', worktree: false }, cfg, settings, info)
+    expect(parts.mode?.text).toContain('[')
+    expect(parts.mode?.text).not.toContain('Accept edits')
+  })
 })
 
 describe('the sentences once built by hand read as before, in English', () => {

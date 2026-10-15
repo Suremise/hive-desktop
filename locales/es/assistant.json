@@ -19,6 +19,7 @@
   "assistant.modes.inUseTip": "El Asistente de este espacio de trabajo usa este modo",
   "assistant.modes.lettersOrNumbers": "Usa letras o números.",
   "assistant.modes.namePlaceholder": "Nombre del modo",
+  "assistant.modes.newDescription": "Para qué sirve este modo, en una línea.",
   "assistant.modes.newMessage": "Crea {file} en el espacio de trabajo, para describir con tus propias palabras cómo debe trabajar el Asistente.",
   "assistant.modes.newTitle": "Nuevo modo",
   "assistant.modes.restoreFailed": "No se pudo restaurar el modo",

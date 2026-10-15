@@ -113,9 +113,12 @@ export function modeMessage(name: string, summary: string): string {
   return `[Hive] Mode: ${name} (chosen by the user). ${summary.replace(/\s+/g, ' ').trim()} Your tools and permissions are unchanged.`
 }
 
+/** A new mode's description until the user writes one (the window shows it in its language while the file has it, #889). */
+export const NEW_PERSONA_DESCRIPTION = 'What this mode is for, in one line.'
+
 /** A new mode's file: a header and a starting point for its instructions. */
 export function newPersonaText(name: string): string {
-  return `---\nname: ${name}\ndescription: What this mode is for, in one line.\nicon: 🐝\nsummary: |\n  Its habits in a few lines: what Hive tells the Assistant when you switch to it.\n---\n\nYou are in **${name}** mode.\n\nDescribe how the Assistant works in it: what it puts first, its habits and the shape of what it hands back.\n`
+  return `---\nname: ${name}\ndescription: ${NEW_PERSONA_DESCRIPTION}\nicon: 🐝\nsummary: |\n  Its habits in a few lines: what Hive tells the Assistant when you switch to it.\n---\n\nYou are in **${name}** mode.\n\nDescribe how the Assistant works in it: what it puts first, its habits and the shape of what it hands back.\n`
 }
 
 /** A persona id from a name: lower case, words joined by hyphens. */

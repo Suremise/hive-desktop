@@ -226,6 +226,11 @@ function FallbackRows<T extends FallbackModel | EffortOption>({ provider, kind, 
   }, [startOpen])
   const save = (next: T[] | null): Promise<void> => actions.attempt(tr(msg({ id: 'settings.fallback.saveFailed', defaultMessage: 'Could not save the list', description: "An error's title: saving a provider's fallback list of models or effort levels failed." })), () => call('settings:setProviderFallback', provider, kind, next)).then((s) => void (s && set({ settings: s })))
   const change = (i: number, patch: Partial<FallbackModel>): void => void save(rows.map((r, j) => (j === i ? { ...r, ...patch } : r)))
+  // A level's name as Hive ships it is shown in the window's language (#889), as the pickers show it; one the user gave stays theirs.
+  const shownName = (r: T): string => {
+    const shipped = kind === 'efforts' ? providerDescriptor(provider).effortLevels.find((e) => e.value === r.value && e.label === r.label) : undefined
+    return shipped?.text ? tr(shipped.text) : r.label
+  }
   const add = (): void => {
     const v = adding.trim()
     if (!v || rows.some((r) => r.value.toLowerCase() === v.toLowerCase())) return
@@ -256,7 +261,7 @@ function FallbackRows<T extends FallbackModel | EffortOption>({ provider, kind, 
                 <input className="input mono" aria-label={tr(msg({ id: 'settings.fallback.valueCell', defaultMessage: '{column} {n}', description: "The name, for screen readers, of a box in a fallback list: the column and the row's number." }), { column: valueLabel, n: i + 1 })} defaultValue={r.value} key={`v:${r.value}`} onBlur={(e) => e.target.value.trim() && e.target.value.trim() !== r.value && change(i, { value: e.target.value.trim() })} />
               </td>
               <td>
-                <input className="input" aria-label={tr(msg({ id: 'settings.fallback.nameCell', defaultMessage: 'Name {n}', description: "The name, for screen readers, of a row's Name box in a fallback list. {n} is the row's number." }), { n: i + 1 })} defaultValue={r.label} key={`l:${r.value}:${r.label}`} onBlur={(e) => e.target.value.trim() !== r.label && change(i, { label: e.target.value.trim() || r.value })} />
+                <input className="input" aria-label={tr(msg({ id: 'settings.fallback.nameCell', defaultMessage: 'Name {n}', description: "The name, for screen readers, of a row's Name box in a fallback list. {n} is the row's number." }), { n: i + 1 })} defaultValue={shownName(r)} key={`l:${r.value}:${shownName(r)}`} onBlur={(e) => e.target.value.trim() !== shownName(r) && change(i, { label: e.target.value.trim() || r.value })} />
               </td>
               {kind === 'models' && (
                 <td>

@@ -1,5 +1,5 @@
 import { Children, useEffect, useRef, useState } from 'react'
-import { ASSISTANT_AGENT_ID, DEFAULT_PERSONA, assistantPersona } from '@shared/assistant'
+import { ASSISTANT_AGENT_ID, DEFAULT_PERSONA, NEW_PERSONA_DESCRIPTION, assistantPersona } from '@shared/assistant'
 import { assistantStatusLine } from '@shared/assistantStatus'
 import { compactThreshold, isCompacting, mostUrgent } from '@shared/defaults'
 import { formatDateTime, formatTime } from '@shared/dates'
@@ -181,7 +181,10 @@ const SHIPPED_DESCRIPTIONS: Record<string, Msg> = {
 /** What a mode is for, in the window: as personaName, one Hive ships in the window's language while its file still has Hive's words. */
 export function personaDescription(p: Pick<PersonaInfo, 'id' | 'description' | 'bundled'>): string {
   const shipped = p.bundled ? SHIPPED_DESCRIPTIONS[p.id] : undefined
-  return shipped && p.description === shipped.defaultMessage ? tr(shipped) : p.description
+  if (shipped && p.description === shipped.defaultMessage) return tr(shipped)
+  // A new mode's description until the user writes one (#889).
+  if (p.description === NEW_PERSONA_DESCRIPTION) return tr(msg({ id: 'assistant.modes.newDescription', defaultMessage: 'What this mode is for, in one line.', description: "A new mode of the Hive Assistant's description, until the user writes one in its file: under its name in the mode menu and the Assistant view." }))
+  return p.description
 }
 
 /** The workspace's personas, reloaded when they change. */

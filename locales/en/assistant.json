@@ -79,6 +79,10 @@
     "defaultMessage": "Mode name",
     "description": "The New Mode dialog: the name box's placeholder."
   },
+  "assistant.modes.newDescription": {
+    "defaultMessage": "What this mode is for, in one line.",
+    "description": "A new mode of the Hive Assistant's description, until the user writes one in its file: under its name in the mode menu and the Assistant view."
+  },
   "assistant.modes.newMessage": {
     "defaultMessage": "Creates {file} in the workspace, to describe in your own words how the Assistant should work.",
     "description": "The New Mode dialog. {file} is .hive/personas/<name>.md, <name> standing for the name you type."

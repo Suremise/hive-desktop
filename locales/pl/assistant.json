@@ -19,6 +19,7 @@
   "assistant.modes.inUseTip": "Asystent tego obszaru roboczego używa tego trybu",
   "assistant.modes.lettersOrNumbers": "Użyj liter lub cyfr.",
   "assistant.modes.namePlaceholder": "Nazwa trybu",
+  "assistant.modes.newDescription": "Do czego służy ten tryb, w jednym wierszu.",
   "assistant.modes.newMessage": "Tworzy w obszarze roboczym plik {file}, w którym własnymi słowami opiszesz, jak ma działać Asystent.",
   "assistant.modes.newTitle": "Nowy tryb",
   "assistant.modes.restoreFailed": "Nie udało się przywrócić trybu",

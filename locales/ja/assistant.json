@@ -19,6 +19,7 @@
   "assistant.modes.inUseTip": "このワークスペースのアシスタントはこのモードを使っています",
   "assistant.modes.lettersOrNumbers": "英字か数字を使ってください。",
   "assistant.modes.namePlaceholder": "モード名",
+  "assistant.modes.newDescription": "このモードの用途を1行で。",
   "assistant.modes.newMessage": "ワークスペースに{file}を作成します。アシスタントにどう働いてほしいかを、自分の言葉で書いてください。",
   "assistant.modes.newTitle": "新しいモード",
   "assistant.modes.restoreFailed": "モードを復元できませんでした",
