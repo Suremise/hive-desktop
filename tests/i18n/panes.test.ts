@@ -62,7 +62,14 @@ describe('the panes area', () => {
     for (const n of notes) expect(safeguardText(n, label, tr)).toBe(safeguardText(n, label))
     for (const n of [1, 2, 7]) expect(processCount(n, tr)).toBe(processCount(n))
     const left = { processes: ['a', 'b', 'b', 'c', 'd', 'e', 'f'].map((l, i) => ({ pid: i, name: 'node.exe', label: l, created: '' })), more: 2 } as never
-    expect(leftoversSummary(left, 4, tr)).toBe(leftoversSummary(left, 4))
+    // Hive's English lists are British (no serial comma), as the window's are with Windows set to en-GB.
+    setLanguage('en', {}, 'en-GB')
+    expect(leftoversSummary(left, 4, { tr, list: fmt.list })).toBe(leftoversSummary(left, 4))
+    expect(leftoversSummary(left, 4)).toBe('a, 2 × b, c, d and 4 more processes')
+    // In another language: its counts, its plural and its list.
+    setLanguage('pl', { 'session.leftovers.times': '{n, number} × {label}', 'session.leftovers.more': '{n, plural, one {jeszcze # proces} few {jeszcze # procesy} many {jeszcze # procesów} other {jeszcze # procesu}}' }, 'pl-PL')
+    expect(leftoversSummary(left, 4, { tr, list: fmt.list })).toBe('a, 2 × b, c, d i jeszcze 4 procesy')
+    setLanguage('en', {})
     for (const w of watches) {
       expect(watchText(w, tr, unit)).toBe(agentLabel(w))
       expect(watchText(w, tr, unit, 'cell')).toBe(waitingFor({ label: agentLabel(w) }))

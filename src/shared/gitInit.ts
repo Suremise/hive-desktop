@@ -64,7 +64,7 @@ const M = {
   python: msg({ id: 'git.init.gitignore.python', defaultMessage: 'Python', description: 'Initialise repository, Starter .gitignore: for a Python project. A name: usually kept.' }),
   dotnet: msg({ id: 'git.init.gitignore.dotnet', defaultMessage: '.NET', description: 'Initialise repository, Starter .gitignore: for a .NET project. A name: usually kept.' }),
   godot: msg({ id: 'git.init.gitignore.godot', defaultMessage: 'Godot', description: 'Initialise repository, Starter .gitignore: for a Godot game. A name: usually kept.' }),
-  gitignoreName: msg({ id: 'git.init.gitignoreName', defaultMessage: '{choice, select, none {no .gitignore} minimal {a minimal .gitignore} other {a {kind} .gitignore}}', description: 'The starter .gitignore, in what Initialise repository reports it did ("added a Node .gitignore"). {kind} is Node, Python, .NET or Godot.' }),
+  gitignoreName: msg({ id: 'git.init.gitignoreName', defaultMessage: '{choice, select, minimal {a minimal .gitignore} other {a {kind} .gitignore}}', description: 'The starter .gitignore Initialise repository added, in what it reports it did ("added a Node .gitignore"). {choice} is minimal, or another kind: {kind} is Node, Python, .NET or Godot.' }),
   resume: msg({ id: 'git.init.resume', defaultMessage: '{name} is a git repository with no commits yet, and worktrees need one. This keeps its .hive out of git and commits {empty, select, yes {nothing yet (an empty first commit)} other {everything in the folder}} as the first commit.{gitignore, select, yes { Its own .gitignore is kept.} other {}}', description: "Make the first commit dialog, for a repository with no commit. {name} is the project; {empty} is yes when its folder has nothing to commit; {gitignore} is yes when it has a .gitignore of its own." }),
   makes: msg({ id: 'git.init.makes', defaultMessage: 'Makes {name} a git repository on a branch called main, keeps its .hive out of git, and commits {empty, select, yes {nothing yet (an empty first commit)} other {everything in the folder}} as the first commit, so agents can work in worktrees at once.', description: 'The Initialise repository dialog: what it will do. {name} is the project; {empty} is yes when its folder has nothing to commit. Keep main (the branch name).' }),
   kept: msg({ id: 'git.init.kept', defaultMessage: 'Its own .gitignore is kept.', description: 'The Initialise repository dialog, after what it will do, when the folder has a .gitignore.' }),
@@ -83,13 +83,13 @@ export const GITIGNORE_CHOICES: { value: GitignoreChoice; label: Msg }[] = [
   { value: 'godot', label: M.godot }
 ]
 
-/** The starter .gitignore in a sentence: "a Node .gitignore". */
-export function gitignoreName(choice: GitignoreChoice): string {
+/** The starter .gitignore added, in a sentence: "a Node .gitignore". */
+export function gitignoreName(choice: Exclude<GitignoreChoice, 'none'>): string {
   return tr(M.gitignoreName, { choice, kind: tr(GITIGNORE_CHOICES.find((c) => c.value === choice)!.label) })
 }
 
 /** The same as text, formatted when it is shown (in an error's English, or the window's language): #881. */
-export function gitignoreNameText(choice: GitignoreChoice): Text {
+export function gitignoreNameText(choice: Exclude<GitignoreChoice, 'none'>): Text {
   return { m: M.gitignoreName, values: { choice, kind: GITIGNORE_CHOICES.find((c) => c.value === choice)!.label } }
 }
 

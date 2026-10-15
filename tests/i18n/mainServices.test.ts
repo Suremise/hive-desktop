@@ -41,7 +41,7 @@ vi.mock('../../src/main/branchWatch', () => ({ checkProject: async () => undefin
 const { setLanguage } = await import('../../src/shared/i18n')
 const { PSEUDO_LANGUAGE } = await import('../../src/shared/i18n/languages')
 const { config } = await import('../../src/main/config')
-const { reportPlanUsage } = await import('../../src/main/planUsage')
+const { planNotice, reportPlanUsage } = await import('../../src/main/planUsage')
 const { onHiveEvent } = await import('../../src/main/events')
 const { closedNotice, routeAppNotice, setFocusedHive } = await import('../../src/main/notices')
 const { apiEventFor } = await import('../../src/main/apiEvents')
@@ -52,7 +52,7 @@ const { initRepo } = await import('../../src/main/gitInit')
 
 /** A German translation of the messages these tests show (the rest stays English). */
 const GERMAN = {
-  'main.plan.used': '{share, number, ::percent} Ihres {limit}-Limits für {provider} verbraucht',
+  'main.plan.used': '{share, number, ::percent} Ihres {window, select, hours {{hours, plural, one {#-Stunden-Limits} other {#-Stunden-Limits}}} weekly {Wochenlimits} other {{label}-Limits}} für {provider} verbraucht',
   'main.finished.inProject': '{n} Agenten in {project} fertig',
   'main.quit.closed': 'Hive wurde geschlossen',
   'main.move.copied':
@@ -91,7 +91,15 @@ describe('notices: in the language shown, their Agent API title in English', () 
     const [pseudo, german] = told()
     expect(pseudo.user).toMatch(PSEUDO)
     expect(pseudo.api).toBe('96% of your Claude Code 5-hour limit used')
-    expect(german).toEqual({ user: '97\u00a0% Ihres 5-hour-Limits für Claude Code verbraucht', api: '97% of your Claude Code 5-hour limit used' })
+    expect(german).toEqual({ user: '97\u00a0% Ihres 5-Stunden-Limits für Claude Code verbraucht', api: '97% of your Claude Code 5-hour limit used' })
+  })
+
+  it("a plan limit's window: its hours as a number, the weekly one, else the provider's own label", () => {
+    const limit = (windowMinutes: number | null, label: string) => ({ label, windowMinutes, usedPercent: 81, resetsAt: null })
+    setLanguage('de', GERMAN, 'de-DE')
+    const titles = [limit(120, '2-hour'), limit(10080, 'weekly'), limit(90, '2-hour'), limit(null, 'primary')].map((l) => planNotice('codex', l, 80))
+    expect(titles.map((t) => t.apiTitle)).toEqual(['81% of your Codex 2-hour limit used', '81% of your Codex weekly limit used', '81% of your Codex 2-hour limit used', '81% of your Codex primary limit used'])
+    expect(titles.map((t) => t.title)).toEqual(['81 % Ihres 2-Stunden-Limits für Codex verbraucht', '81 % Ihres Wochenlimits für Codex verbraucht', '81 % Ihres 2-hour-Limits für Codex verbraucht', '81 % Ihres primary-Limits für Codex verbraucht'])
   })
 
   it('Hive closing', () => {
@@ -170,7 +178,6 @@ describe("Initialise Git Repository's reply", () => {
     projects = [p]
     setLanguage('pl', {
       'main.gitInit.done': '{steps}. Folder .hive zostaje poza gitem.',
-      'main.gitInit.steps': '{count, plural, =1 {{a}} =2 {{a} i {b}} =3 {{a}, {b} i {c}} other {{a}, {b}, {c} i {d}}}',
       'main.gitInit.step.init': 'utworzono repozytorium git na main',
       'main.gitInit.step.commit': '{n, plural, one {zatwierdzono # plik} few {zatwierdzono # pliki} many {zatwierdzono # plików} other {zatwierdzono # pliku}}'
     }, 'pl-PL')

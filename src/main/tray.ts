@@ -109,7 +109,7 @@ export function createTray(getWindow: () => BrowserWindow | null, actions: TrayA
           emitTo(win, { type: 'menu-command', command: 'agent.show', args: [item.projectPath, item.agentId] })
         }
       }))
-      if (total > shown.length) items.push({ label: tr(msg({ id: 'main.tray.more', defaultMessage: 'and {n} more', description: "The tray menu, under a section's first ten items: how many more there are." }), { n: total - shown.length }), enabled: false })
+      if (total > shown.length) items.push({ label: tr(msg({ id: 'main.tray.more', defaultMessage: '{n, plural, one {and # more} other {and # more}}', description: "The tray menu, under a section's first ten items: how many more there are (the section's items: agents waiting, messages and the like)." }), { n: total - shown.length }), enabled: false })
       return [{ label: tr(msg({ id: 'main.tray.section', defaultMessage: '{title} ({n})', description: "A section's heading in the tray menu: its name and how many items it has." }), { title, n: total }), enabled: false }, ...items, { type: 'separator' }]
     }
     // Each window's active projects; a project opens in the window showing its workspace.
@@ -122,7 +122,7 @@ export function createTray(getWindow: () => BrowserWindow | null, actions: TrayA
         const states = sessions.projectStates(p)
         const st = mostUrgent(states)
         projectItems.push({
-          label: `${open.length > 1 ? '   ' : ''}${name}  —  ${states.length > 1 ? tr(msg({ id: 'main.tray.statusOfMany', defaultMessage: '{status} ({n} agents)', description: "A project's line in the tray menu with several agents: the most urgent one's status, and how many agents it has (2 or more)." }), { status: tr(STATUS_LABEL[st?.status ?? 'stopped']), n: states.length }) : tr(STATUS_LABEL[st?.status ?? 'stopped'])}`,
+          label: `${open.length > 1 ? '   ' : ''}${name}  —  ${states.length > 1 ? tr(msg({ id: 'main.tray.statusOfMany', defaultMessage: '{n, plural, one {{status} (# agent)} other {{status} (# agents)}}', description: "A project's line in the tray menu with several agents: the most urgent one's status, and how many agents it has (2 or more)." }), { status: tr(STATUS_LABEL[st?.status ?? 'stopped']), n: states.length }) : tr(STATUS_LABEL[st?.status ?? 'stopped'])}`,
           click: () => {
             const win = w.window ?? getWindow()
             if (!win) return

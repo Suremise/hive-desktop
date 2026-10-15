@@ -58,14 +58,18 @@ function saveSoon(): void {
   }, Math.max(0, lastSave + SAVE_INTERVAL_MS - Date.now()))
 }
 
-const USED = msg({ id: 'main.plan.used', defaultMessage: '{share, number, ::percent} of your {provider} {limit} limit used', description: "A notice: how much of a plan's usage limit is used ({share}: \"85%\"). {provider} is the coding agent; {limit} names the limit as the provider does (5-hour, weekly), in English for now." })
+const USED = msg({ id: 'main.plan.used', defaultMessage: '{share, number, ::percent} of your {provider} {window, select, hours {{hours, plural, one {#-hour limit} other {#-hour limit}}} weekly {weekly limit} other {{label} limit}} used', description: "A notice: how much of a plan's usage limit is used ({share}: \"85%\"). {provider} is the coding agent. The limit is a rolling window of {hours} hours (the 5-hour one), the weekly one, or another the provider names itself ({label}, in English as the provider says it)." })
+
+/** A limit's window as main.plan.used selects on: a whole number of hours (the 5-hour window), the weekly one, else its label. */
+const usedWindow = (l: Pick<PlanLimit, 'windowMinutes'>): { window: 'hours' | 'weekly' | 'other'; hours: number } =>
+  l.windowMinutes === 7 * 24 * 60 ? { window: 'weekly', hours: 0 } : l.windowMinutes && l.windowMinutes % 60 === 0 ? { window: 'hours', hours: l.windowMinutes / 60 } : { window: 'other', hours: 0 }
 
 /**
  * The notice that a limit is `level`% used: in the language shown, its title in English for the Agent API too.
  * Exported for tests.
  */
-export function planNotice(provider: ProviderId, l: Pick<PlanLimit, 'usedPercent' | 'resetsAt' | 'label'>, level: number): { title: string; body: string; apiTitle: string } {
-  const values = { share: Math.round(l.usedPercent) / 100, provider: providerName(provider), limit: l.label }
+export function planNotice(provider: ProviderId, l: Pick<PlanLimit, 'usedPercent' | 'resetsAt' | 'label' | 'windowMinutes'>, level: number): { title: string; body: string; apiTitle: string } {
+  const values = { share: Math.round(l.usedPercent) / 100, provider: providerName(provider), ...usedWindow(l), label: l.label }
   const body = `${level >= 95 ? tr(msg({ id: 'main.plan.pause', defaultMessage: 'Sessions will pause when it runs out.', description: 'A plan-usage notice, at 95% used or more.' })) : tr(msg({ id: 'main.plan.close', defaultMessage: 'You are getting close to the limit.', description: 'A plan-usage notice, below 95% used.' }))}${resetText(l.resetsAt)}`
   return { title: tr(USED, values), body, apiTitle: englishText({ m: USED, values }) }
 }

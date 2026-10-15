@@ -22,8 +22,8 @@ interface HiveMessageValues {
   'main.corrupt.restoredBody': { aside: string | number }
   'main.danger.off': { modes: string | number }
   'main.danger.offBody': { projects: string | number }
-  'main.finished.inProject': { n: string | number; project: string | number }
-  'main.finished.many': { n: string | number }
+  'main.finished.inProject': { n: number; project: string | number }
+  'main.finished.many': { n: number }
   'main.finished.project': { project: string | number; n: string | number }
   'main.gitInit.already': undefined
   'main.gitInit.done': { steps: string | number }
@@ -50,7 +50,6 @@ interface HiveMessageValues {
   'main.gitInit.step.gitignore': { gitignore: string | number }
   'main.gitInit.step.identity': undefined
   'main.gitInit.step.init': undefined
-  'main.gitInit.steps': { count: number; a: string | number; b: string | number; c: string | number; d: string | number }
   'main.gitInit.stopped': { what: string | number; why: string | number }
   'main.gitInit.stoppedAfter': { done: string | number; what: string | number; why: string | number }
   'main.gitInit.unreadable': { why: string | number }
@@ -73,7 +72,6 @@ interface HiveMessageValues {
   'main.move.adoptFailed': { why: string | number }
   'main.move.already': undefined
   'main.move.alsoMoved': { n: number; things: string | number; from: string | number; to: string | number }
-  'main.move.andMore': { list: string | number; n: number }
   'main.move.assistant': undefined
   'main.move.cards': { n: number; from: string | number; to: string | number }
   'main.move.copied': { n: number; owner: string; host: string | number; provider: string | number; agent: string | number; of: string | number }
@@ -85,6 +83,7 @@ interface HiveMessageValues {
   'main.move.makeNewFailed': { host: string | number; agent: string | number; why: string | number }
   'main.move.missing': { host: string | number; agent: string | number; path: string | number }
   'main.move.missingNoBranch': { host: string | number; agent: string | number; path: string | number }
+  'main.move.more': { n: number }
   'main.move.movedTo': { host: string | number; agent: string | number; path: string | number }
   'main.move.notRepaired': { host: string | number; agent: string | number; path: string | number }
   'main.move.notRepairedWhy': { host: string | number; agent: string | number; path: string | number; why: string | number }
@@ -108,7 +107,7 @@ interface HiveMessageValues {
   'main.plan.pause': undefined
   'main.plan.resetsAt': { time: string | number }
   'main.plan.resetsOn': { when: string | number }
-  'main.plan.used': { share: number; provider: string | number; limit: string | number }
+  'main.plan.used': { share: number; provider: string | number; window: string; hours: number; label: string | number }
   'main.quit.closed': undefined
   'main.quit.closedBody': { n: number }
   'main.quit.dialogTitle': undefined
@@ -140,7 +139,7 @@ interface HiveMessageValues {
   'main.tray.active': undefined
   'main.tray.cancelQuit': undefined
   'main.tray.counts': { working: string | number; needYou: number }
-  'main.tray.more': { n: string | number }
+  'main.tray.more': { n: number }
   'main.tray.needYou': undefined
   'main.tray.noProjects': undefined
   'main.tray.quit': undefined
@@ -160,7 +159,7 @@ interface HiveMessageValues {
   'main.tray.status.waiting': undefined
   'main.tray.status.watching': undefined
   'main.tray.status.working': undefined
-  'main.tray.statusOfMany': { status: string | number; n: string | number }
+  'main.tray.statusOfMany': { n: number; status: string | number }
   'main.tray.toReview': undefined
   'main.tray.willQuit': undefined
   'main.unused.branchKept': { branch: string | number; why: string | number }

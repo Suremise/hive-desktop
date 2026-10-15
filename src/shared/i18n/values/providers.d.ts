@@ -9,13 +9,16 @@ interface HiveMessageValues {
   'providers.autoCompact.disabledIn': { scope: string | number }
   'providers.autoCompact.envIn': { variable: string | number; scope: string | number }
   'providers.autoCompact.estimate': { unsure: string | number }
-  'providers.autoCompact.estimateAnd': { estimate: string | number; unsure: string | number }
   'providers.autoCompact.keyIn': { key: string | number; scope: string | number }
   'providers.autoCompact.scope.local': undefined
   'providers.autoCompact.scope.managed': undefined
   'providers.autoCompact.scope.project': undefined
   'providers.autoCompact.scope.user': undefined
-  'providers.autoCompact.unread': undefined
+  'providers.autoCompact.scopeSubject.local': undefined
+  'providers.autoCompact.scopeSubject.managed': undefined
+  'providers.autoCompact.scopeSubject.project': undefined
+  'providers.autoCompact.scopeSubject.user': undefined
+  'providers.autoCompact.unreadReason': undefined
   'providers.autoCompact.unreadable': { why: string | number }
   'providers.autoCompact.unsureMode': undefined
   'providers.autoCompact.unsureScope': { scope: string | number; unsure: string | number }
@@ -38,8 +41,8 @@ interface HiveMessageValues {
   'providers.codex.sandbox.setUpAction': undefined
   'providers.codex.sandbox.upgrade': undefined
   'providers.codex.sandbox.upgradeAction': undefined
-  'providers.codex.stray.files': { more: number; files: string | number }
   'providers.codex.stray.message': { folder: string | number; files: string | number }
+  'providers.codex.stray.more': { n: number }
   'providers.codex.stray.title': undefined
   'providers.copilot.hint.args': undefined
   'providers.copilot.hint.broken': undefined

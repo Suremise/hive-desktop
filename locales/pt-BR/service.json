@@ -122,7 +122,6 @@
   "service.providers.stillLooking": "O Hive ainda está procurando {cli}. Tente de novo daqui a pouco.",
   "service.providers.stillLookingAll": "O Hive ainda está procurando as CLIs de agentes de código. Tente de novo daqui a pouco.",
   "service.providers.stopFirst": "Pare todos os agentes do {cli} em execução antes de atualizá-lo.",
-  "service.providers.stoppedBusy": "ela ficou ocupada por 30 segundos",
   "service.providers.stoppedClosed": "o terminal dela foi fechado",
   "service.providers.task": "{task, select, install {instalação do {cli}} update {atualização do {cli}} login {login do {cli}} other {configuração do {cli}}}",
   "service.providers.taskDone": "{task} terminou",
