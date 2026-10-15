@@ -1,10 +1,14 @@
 import { afterEach, describe, expect, it } from 'vitest'
-import { dateStyle, formatDate, formatDateTime, formatTime, formatWeekdayTime, formatWhen, setDateStyle, type DateStyle } from '../src/shared/dates'
+import { dateStyle, daysAgo, formatDate, formatDateTime, formatLongDay, formatShortDay, formatTime, formatWeekdayTime, formatWhen, setDateStyle, type DateStyle } from '../src/shared/dates'
+import { setFormatLocale } from '../src/shared/i18n/locale'
 
 const at = new Date(2026, 9, 4, 14, 5)
 const style = (date: DateStyle['date'], time: DateStyle['time'] = '24h'): DateStyle => ({ date, time })
 
-afterEach(() => setDateStyle(undefined))
+afterEach(() => {
+  setDateStyle(undefined)
+  setFormatLocale('en')
+})
 
 describe('dates', () => {
   it('formats the date as chosen, yyyy-mm-dd by default', () => {
@@ -36,6 +40,25 @@ describe('dates', () => {
     expect(formatWhen(at, now)).toBe('14:05')
     expect(formatWhen(new Date(2026, 9, 3, 23, 59), now)).toBe('2026-10-03 23:59')
     expect(formatWeekdayTime(at, style('ymd', '12h'))).toMatch(/ 2:05 PM$/)
+  })
+
+  it('counts calendar days back, across midnight and a clock change', () => {
+    const now = new Date(2026, 9, 15, 0, 30)
+    expect(daysAgo(new Date(2026, 9, 15, 0, 1), now)).toBe(0)
+    expect(daysAgo(new Date(2026, 9, 14, 23, 59), now)).toBe(1)
+    expect(daysAgo(new Date(2026, 9, 9, 12, 0).toISOString(), now)).toBe(6)
+    expect(daysAgo(new Date(2026, 2, 28, 12), new Date(2026, 2, 30, 1))).toBe(2)
+  })
+
+  it('names a day in the language, with the year only when it is not this year', () => {
+    const now = new Date(2026, 9, 15, 12)
+    expect(formatShortDay(new Date(2026, 9, 9, 8), now)).toBe('Oct 9')
+    expect(formatShortDay(new Date(2025, 11, 30, 8), now)).toBe('Dec 30, 2025')
+    expect(formatLongDay(new Date(2026, 9, 14, 8), now)).toBe('Wednesday, Oct 14')
+    setFormatLocale('de')
+    expect(formatShortDay(new Date(2026, 9, 9, 8), now)).toBe('9. Okt.')
+    expect(formatLongDay(new Date(2026, 9, 14, 8), now)).toBe('Mittwoch, 14. Okt.')
+    expect(formatShortDay('not a date', now)).toBe('')
   })
 
   it('uses the chosen style until it changes, falling back to the default for unknown values', () => {

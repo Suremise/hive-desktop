@@ -112,6 +112,8 @@ export const fmt = {
       abs < 60 ? [s, 'second'] : abs < 3600 ? [Math.round(s / 60), 'minute'] : abs < 86400 ? [Math.round(s / 3600), 'hour'] : [Math.round(s / 86400), 'day']
     return intl.formatRelativeTime(v, unit, { numeric: 'auto', style })
   },
+  /** A day relative to today, in words where the language has them: 0 "today", -1 "yesterday", "heute", "gestern". */
+  day: (offset: number): string => intl.formatRelativeTime(offset, 'day', { numeric: 'auto' }),
   /** A number with exactly this many decimals and no grouping, for a figure beside a unit: "1.5", "1,5", "450". */
   figure: (n: number, decimals: number): string => intl.formatNumber(n, { minimumFractionDigits: decimals, maximumFractionDigits: decimals, useGrouping: false }),
   /** A share (0.25 is a quarter) as a percentage, with at most this many decimals: "25%", "25 %", "0.4%". */

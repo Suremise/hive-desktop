@@ -10,7 +10,6 @@
   "files.attachments.desc": "Archivos pegados o soltados en las sesiones de los agentes de este proyecto, por sesión.",
   "files.attachments.descAssistant": "Archivos pegados o soltados en el Asistente, por conversación.",
   "files.attachments.filters": "Mostrar",
-  "files.attachments.groupCount": "{count, plural, one {# adjunto} many {# adjuntos} other {# adjuntos}} · el último {when}",
   "files.attachments.groupDelete": "{host, select, assistant {Eliminar los adjuntos de esta conversación…} other {Eliminar los adjuntos de esta sesión…}}",
   "files.attachments.groupDeleteDetail": "{filtered, select, yes {Se eliminan todos sus adjuntos, muestre lo que muestre el filtro. } other {}}{host, select, assistant {La conversación conserva su transcripción, que sigue mencionando sus rutas.} other {La sesión conserva su transcripción, que sigue mencionando sus rutas.}} Puedes restaurarlos desde la Papelera de reciclaje.",
   "files.attachments.groupDeleteFailed": "No se pudieron eliminar los adjuntos",

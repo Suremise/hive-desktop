@@ -10,7 +10,6 @@
   "files.attachments.desc": "Dateien, die in Sitzungen der Agenten dieses Projekts eingefügt oder gezogen wurden, nach Sitzung.",
   "files.attachments.descAssistant": "Dateien, die in den Assistenten eingefügt oder gezogen wurden, nach Unterhaltung.",
   "files.attachments.filters": "Anzeigen",
-  "files.attachments.groupCount": "{count, plural, one {# Anhang} other {# Anhänge}} · zuletzt {when}",
   "files.attachments.groupDelete": "{host, select, assistant {Anhänge dieser Unterhaltung löschen…} other {Anhänge dieser Sitzung löschen…}}",
   "files.attachments.groupDeleteDetail": "{filtered, select, yes {Alle Anhänge werden gelöscht, egal was der Filter zeigt. } other {}}{host, select, assistant {Die Unterhaltung behält ihr Transkript, das ihre Pfade weiterhin nennt.} other {Die Sitzung behält ihr Transkript, das ihre Pfade weiterhin nennt.}} Du kannst sie aus dem Papierkorb wiederherstellen.",
   "files.attachments.groupDeleteFailed": "Anhänge konnten nicht gelöscht werden",

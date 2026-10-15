@@ -43,10 +43,6 @@
     "defaultMessage": "Show",
     "description": "Accessible name of the Attachments tab's filter buttons (All, Images, PDFs…)."
   },
-  "files.attachments.groupCount": {
-    "defaultMessage": "{count, plural, one {# attachment} other {# attachments}} · last {when}",
-    "description": "Beside a session's name in the Attachments tab. {when} is how long ago the newest was added, such as \"5 min ago\"."
-  },
   "files.attachments.groupDelete": {
     "defaultMessage": "{host, select, assistant {Delete This Conversation's Attachments…} other {Delete This Session's Attachments…}}",
     "description": "Tooltip on a session's delete button in the Attachments tab."
@@ -70,6 +66,10 @@
   "files.attachments.groupDeleted": {
     "defaultMessage": "Moved {count, plural, one {# attachment} other {# attachments}} to the Recycle Bin.",
     "description": "Notification after deleting a session's attachments."
+  },
+  "files.attachments.groupSpan": {
+    "defaultMessage": "{count, plural, one {# attachment} other {# attachments}} · {days, select, one {{from}} other {{from} – {to}}}",
+    "description": "Beside a session's name in the Attachments tab: how many, and the days they were added. {from} and {to} are days, such as \"9 Oct\", \"yesterday\" or \"today\"; {days} is one when they were all added on one day."
   },
   "files.attachments.info": {
     "defaultMessage": "Kept in the project's .hive/attachments. Drag one onto the Session tab to send it again; click a session's name to read it.",
