@@ -231,6 +231,32 @@ describe('the blocking check of the translations (i18n:check)', () => {
     expect(results.pl).toEqual(['pl/board.json: board.a is not text', 'pl/board.json: tips.b belongs in pl/tips.json', 'pl/tips.json: not an object of messages (id → text)'])
     expect(results.de).toEqual([expect.stringMatching(/^de\/board\.json: not JSON/)])
   })
+
+  it('a control character or a lone surrogate in a translation fails, and a line break only where the English has none (#888)', () => {
+    const root = tree({
+      'locales/en/board.json': JSON.stringify({
+        'board.a': { defaultMessage: 'Compress', description: 'x' },
+        'board.b': { defaultMessage: 'One\nTwo', description: 'x' },
+        'board.c': { defaultMessage: 'One two', description: 'x' },
+        'board.d': { defaultMessage: 'Tab', description: 'x' },
+        'board.e': { defaultMessage: 'Smile', description: 'x' }
+      }),
+      // As #853's heredoc left it: U+0001 in place of a K. The surrogates are escapes, as only an escape in JSON can make one.
+      'locales/de/board.json': `{ "board.a": "\\u0001omprimieren \\u0001", "board.b": "Eins\\nZwei", "board.c": "Eins\\nzwei", "board.d": "Tab\\t\\u007f", "board.e": "L\\ud83d\\ude00chle \\ud83d \\ude00" }`
+    })
+    for (const js of [true, false]) {
+      const { results } = checkTranslations(root, { js }) as { results: Record<string, string[]> }
+      expect(results.de).toEqual([
+        'de/board.json: board.a has a control character (U+0001)',
+        "de/board.json: board.c has a line break (U+000A) the English hasn't",
+        'de/board.json: board.d has a control character (U+0009, U+007F)',
+        'de/board.json: board.e has a lone surrogate (U+D83D, U+DE00)'
+      ])
+    }
+    const r = script('i18nCheck.mjs', '--root', root)
+    expect(r.status, r.stdout).toBe(1)
+    expect(r.stdout).toContain('de/board.json: board.a has a control character (U+0001)')
+  })
 })
 
 describe('coverage (i18n:coverage), informational', () => {
