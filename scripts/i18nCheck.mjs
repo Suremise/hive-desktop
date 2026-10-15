@@ -10,6 +10,8 @@
 // language, over every area's English (locales/en/<area>.json) and that language's files (locales/<code>/<area>.json).
 // Where FormatJS's CLI has no native binding (Windows on Arm), or with --js, the same checks run here with FormatJS's
 // own parser. tests/i18nCatalogues.test.ts runs this in `npm test` and CI, and checks the two ways agree.
+// A value the English doesn't use but the code passes too, for a language that wants it (ALTERNATE_VALUES, #904), counts
+// as the English placeholder it stands in for, in both ways.
 import { spawnSync } from 'child_process'
 import { existsSync, mkdtempSync, readdirSync, readFileSync, rmSync, writeFileSync } from 'fs'
 import { tmpdir } from 'os'
@@ -86,6 +88,24 @@ export function readLanguage(root, code, english = englishMessages(root)) {
   return { messages, problems }
 }
 
+/**
+ * Values the code passes beside the English's for a language that wants them, which a translation may write in place of
+ * the English placeholder (id → { alternate: the placeholder it stands in for }). The message's description tells
+ * translators of it (a unit test checks). #904: mode names each in its own quotes, for languages that quote them.
+ */
+export const ALTERNATE_VALUES = {
+  'settings.provider.enableDangerousMode.confirm.title': { quotedNames: 'names' },
+  'settings.provider.enableDangerousMode.tip': { quotedNames: 'names' },
+  'settings.provider.enableDangerousMode.title': { quotedNames: 'names' }
+}
+
+/** A translation as the structural check reads it: each alternate value it uses (a plain `{quotedNames}`) as the placeholder it stands in for. */
+export function asEnglishPlaceholders(id, text) {
+  let out = text
+  for (const [alt, name] of Object.entries(ALTERNATE_VALUES[id] ?? {})) out = out.replace(new RegExp(`\\{\\s*${alt}\\s*\\}`, 'g'), `{${name}}`)
+  return out
+}
+
 /** The checks with FormatJS's parser, as `formatjs verify --extra-keys --structural-equality` makes them. */
 export function verifyWithJs(english, translated) {
   const problems = []
@@ -124,7 +144,8 @@ export function checkTranslations(root = ROOT, { js = !hasNativeCli() } = {}) {
   const english = englishMessages(root)
   const results = {}
   for (const code of translatedLanguages(root)) {
-    const { messages, problems } = readLanguage(root, code, english)
+    const { messages: read, problems } = readLanguage(root, code, english)
+    const messages = Object.fromEntries(Object.entries(read).map(([id, text]) => [id, asEnglishPlaceholders(id, text)]))
     results[code] = [...problems, ...(js ? verifyWithJs(english, messages) : verifyWithCli(code, english, messages))]
   }
   return { results, engine: js ? 'js' : 'cli' }

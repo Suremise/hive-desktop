@@ -53,7 +53,8 @@ Translate the meaning, not the words, and keep the result as short and plain.
 
 - **Sentence punctuation:** full-width 。 and 、. A message that is a single label or button has no 。.
 - **Quotation marks:** 「…」, and 『…』 inside them. Never " in the text. A command, setting or tab named in a
-  sentence goes in 「」 too: 「設定」→「詳細」, 「エージェントを追加…」.
+  sentence goes in 「」 too: 「設定」→「詳細」, 「エージェントを追加…」. Never put 「」 around a list placeholder (it would
+  quote the whole list, 「AとB」): where a message offers `{quotedNames}`, write that, which quotes each name (「A」と「B」).
 - **Colon and parentheses:** full-width ：and （） in Japanese text; half-width : and () only around code, numbers or
   English alone (「Ctrl+K」, 「(--lang)」).
 - **Spaces:** no space between Japanese and Latin letters or numbers (「Claude Codeのセッション」, 「5分」), except where
