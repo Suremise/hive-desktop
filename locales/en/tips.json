@@ -867,6 +867,14 @@
     "defaultMessage": "Search every past session",
     "description": "A tip's title."
   },
+  "tips.sessionCleanup.text": {
+    "defaultMessage": "The Sessions tab's Clean Up Old Sessions… button archives or deletes every session last active more than 24 hours, 7 days or 30 days ago. Running sessions and the one you're reading are left alone.",
+    "description": "A tip. Names of Hive's menus, views, settings and commands: keep them as Hive shows them."
+  },
+  "tips.sessionCleanup.title": {
+    "defaultMessage": "Clear out old sessions",
+    "description": "A tip's title."
+  },
   "tips.sessionSizes.text": {
     "defaultMessage": "The Sessions tab shows each session's transcript size. One in amber is past Warn when a transcript is over: hand its work over to a new conversation to keep things quick.",
     "description": "A tip. Names of Hive's menus, views, settings and commands: keep them as Hive shows them."

@@ -78,7 +78,9 @@
 //   agent) or fake-follow-notices-<agent>.txt, it acts on one as a model that follows Hive's notices: hive_inbox, then
 //   hive_inbox with ack for the ids it listed. "checkpoint" as a step is a tool call (a Bash, PreToolUse and PostToolUse)
 //   whose PostToolUse reply it reads.
-// - `--name` and "/rename <name>" set the session's name in the transcript (a custom title), as Claude Code does.
+// - `--name` and "/rename <name>" set the session's name in the transcript (a custom title), as Claude Code does. With
+//   fake-title-untimed-<agent> in its home (taken at launch), --name's title line has no timestamp, so a resumed old
+//   session keeps its last activity until its next turn (#895).
 // - Its system prompt (the --append-system-prompt-file's text) is recorded on a conversation's first request and that
 //   record used on every later one and every resume, as Claude Code does since 2.1.267, until it compacts;
 //   `--system-prompt-snapshot off` uses the file's text each time instead (#334). A prompt with "whatmode" says the
@@ -966,7 +968,10 @@ async function main() {
     return
   }
   // --name: Claude Code keeps it as the session's name (a custom title, as /rename does).
-  if (opts['--name']) write({ type: 'custom-title', customTitle: opts['--name'] })
+  if (opts['--name']) {
+    if (take('fake-title-untimed')) fs.appendFileSync(transcript, JSON.stringify({ type: 'custom-title', customTitle: opts['--name'], sessionId }) + '\n')
+    else write({ type: 'custom-title', customTitle: opts['--name'] })
+  }
   await hook('SessionStart', { source: opts['--resume'] ? 'resume' : 'startup' })
   promptLine()
   setInterval(() => void whileIdle(), 200)

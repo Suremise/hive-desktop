@@ -16,6 +16,9 @@
 ### Progress panel
 - **Put your lanes in your own order.** Drag a running lane up or down in the Progress panel's lane list (a line shows where it goes), or focus it and press Alt+Up or Alt+Down; its right-click menu has Move Up, Move Down and Usual Order. Each workspace keeps the order, after a restart too: a new lane comes in on top, and a lane that is merged or abandoned drops to the bottom, after those that stopped before it, so the latest is always last (#568).
 
+### Sessions
+- **Clean up old sessions in one go.** The Sessions tab's new Clean Up Old Sessions… button archives (the default) or deletes every session last active more than 24 hours, 7 days or 30 days ago. The dialog says how many will go before you confirm; running sessions, the one you're reading, the Hive Assistant's current conversation and any in use are always left alone, and the result says which (#895).
+
 ### Card loops
 - **An agent's question for you no longer sits unseen on a card.** A builder or reviewer that needs your decision now blocks the card with its question as well as notifying you, so the card shows as blocked, the Assistant's lane watch picks it up, and the agent clears it once you decide. Before, a reviewer could ask only in a comment, which nothing flagged (#840).
 - **A lane's merge that waits on you no longer sits unseen.** A builder whose merge at the lane's end needs your OK (its CLI refused a commit, for example) now blocks the last card saying what it needs, as well as notifying you. And if a lane's cards have all passed while its builder sits idle for 10 minutes with no merge slot claimed, the Assistant's lane watch is woken: the lane's merge is stalled (#869).

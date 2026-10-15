@@ -36,6 +36,23 @@ interface HiveMessageValues {
   'sessions.cards.workedOn': undefined
   'sessions.chips.dismiss': { file: string | number }
   'sessions.chips.label': undefined
+  'sessions.cleanup.age': { age: string }
+  'sessions.cleanup.archive': undefined
+  'sessions.cleanup.archiveSummary': undefined
+  'sessions.cleanup.archived': { n: number }
+  'sessions.cleanup.busy': { action: string }
+  'sessions.cleanup.cancel': undefined
+  'sessions.cleanup.delete': undefined
+  'sessions.cleanup.deleteSummary': undefined
+  'sessions.cleanup.go': { action: string }
+  'sessions.cleanup.inUse': undefined
+  'sessions.cleanup.nothing': { age: string; action: string }
+  'sessions.cleanup.olderThan': undefined
+  'sessions.cleanup.skipCount': { n: number; reason: string | number }
+  'sessions.cleanup.skipReason': { reason: string }
+  'sessions.cleanup.skipped': { skips: string | number }
+  'sessions.cleanup.summary': { what: string | number; age: string }
+  'sessions.cleanup.title': { kind: string }
   'sessions.common.adopt': undefined
   'sessions.common.adoptFailed': undefined
   'sessions.common.archive': undefined
@@ -76,6 +93,7 @@ interface HiveMessageValues {
   'sessions.image.position': { n: number; total: number }
   'sessions.image.reveal': undefined
   'sessions.image.untitled': undefined
+  'sessions.list.cleanUp': { kind: string }
   'sessions.list.heading': { kind: string }
   'sessions.list.info': undefined
   'sessions.list.infoAssistant': undefined

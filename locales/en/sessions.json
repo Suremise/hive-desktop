@@ -139,6 +139,74 @@
     "defaultMessage": "Attached to this prompt",
     "description": "The attachment chips' accessible name, over an agent's terminal: files attached to the prompt being written."
   },
+  "sessions.cleanup.age": {
+    "defaultMessage": "{age, select, day {24 hours ago} week {7 days ago} other {30 days ago}}",
+    "description": "An age to pick in Clean Up, after \"Last active more than\": 24 hours, 7 days or 30 days ago."
+  },
+  "sessions.cleanup.archive": {
+    "defaultMessage": "Archive",
+    "description": "A choice in Clean Up (Sessions tab): archive the old sessions (the default). Keep it short."
+  },
+  "sessions.cleanup.archiveSummary": {
+    "defaultMessage": "Hive's own sessions are hidden from the list and their transcripts kept in .hive/archive: tick Archived to see them, and unarchive any at any time.",
+    "description": "Under the Archive choice in Clean Up: what archiving does (.hive/archive is a folder; Archived is a checkbox above the Sessions list: use its translation)."
+  },
+  "sessions.cleanup.archived": {
+    "defaultMessage": "{n, plural, one {# of them is archived.} other {# of them are archived.}}",
+    "description": "In Clean Up, after what Delete takes: how many of those sessions are archived ones."
+  },
+  "sessions.cleanup.busy": {
+    "defaultMessage": "{action, select, archive {Archiving…} other {Deleting…}}",
+    "description": "The Clean Up button while it archives or deletes."
+  },
+  "sessions.cleanup.cancel": {
+    "defaultMessage": "Cancel",
+    "description": "Button: closes Clean Up without doing anything."
+  },
+  "sessions.cleanup.delete": {
+    "defaultMessage": "Delete",
+    "description": "A choice in Clean Up (Sessions tab): delete the old sessions from Hive. Keep it short."
+  },
+  "sessions.cleanup.deleteSummary": {
+    "defaultMessage": "Archived ones too. Hive's copies of their transcripts go to the Recycle Bin and Hive stops listing them; what they used stays in the totals. Each CLI keeps its own transcript.",
+    "description": "Under the Delete choice in Clean Up: it takes archived sessions too; Hive's copies go to the Recycle Bin, usage stays counted, and the coding agents' CLIs keep their own transcripts."
+  },
+  "sessions.cleanup.go": {
+    "defaultMessage": "{action, select, archive {Archive} other {Delete}}",
+    "description": "Button of Clean Up: archives or deletes the old sessions. Keep it short."
+  },
+  "sessions.cleanup.inUse": {
+    "defaultMessage": "Running sessions, the one open here and any whose files are in use are always left alone; the result says which.",
+    "description": "In Clean Up: which sessions are never archived or deleted (running, the transcript open in the tab, files in use), and that the result lists them."
+  },
+  "sessions.cleanup.nothing": {
+    "defaultMessage": "Nothing older than {age, select, day {24 hours} week {7 days} other {30 days}} to {action, select, archive {archive} other {delete}}.",
+    "description": "In Clean Up: no session last active more than 24 hours, 7 days or 30 days ago is left to archive or delete."
+  },
+  "sessions.cleanup.olderThan": {
+    "defaultMessage": "Last active more than",
+    "description": "In Clean Up, above the ages (24 hours, 7 days, 30 days): sessions whose last activity is longer ago than the one picked."
+  },
+  "sessions.cleanup.skipCount": {
+    "defaultMessage": "{n, number} {reason}",
+    "description": "How many old sessions Clean Up leaves alone for one reason ({reason}: \"running\", \"open here\"), listed after \"Left alone:\"."
+  },
+  "sessions.cleanup.skipReason": {
+    "defaultMessage": "{reason, select, shown {open here} other {the Assistant's current conversation}}",
+    "description": "Why Clean Up passed over an old session, in a few words (lower case): its transcript is open in the Sessions tab, or it is the Hive Assistant's current conversation (other)."
+  },
+  "sessions.cleanup.skipped": {
+    "defaultMessage": "Left alone: {skips}.",
+    "description": "In Clean Up: the old sessions it leaves alone and why ({skips}: \"1 running, 1 open here\")."
+  },
+  "sessions.cleanup.summary": {
+    "defaultMessage": "{what} older than {age, select, day {24 hours} week {7 days} other {30 days}}.",
+    "description": "In Clean Up: what goes ({what}: \"3 sessions and 12 sub-sessions\"), last active more than 24 hours, 7 days or 30 days ago."
+  },
+  "sessions.cleanup.title": {
+    "defaultMessage": "{kind, select, conversation {Clean Up Old Conversations} other {Clean Up Old Sessions}}",
+    "description": "Title of the Sessions tab's Clean Up dialog (the Hive Assistant's: conversations): archives or deletes sessions older than an age."
+  },
   "sessions.common.adopt": {
     "defaultMessage": "Adopt",
     "description": "Button or menu item on a session started outside Hive: lets Hive manage it. Keep it short."
@@ -298,6 +366,10 @@
   "sessions.image.untitled": {
     "defaultMessage": "Image",
     "description": "An image in a transcript that has no file name (a thumbnail's tooltip, the image viewer's title)."
+  },
+  "sessions.list.cleanUp": {
+    "defaultMessage": "{kind, select, conversation {Clean Up Old Conversations…} other {Clean Up Old Sessions…}}",
+    "description": "Tooltip of the Sessions tab's Clean Up button (the Hive Assistant's: conversations): archives or deletes sessions older than an age, after a dialog."
   },
   "sessions.list.heading": {
     "defaultMessage": "{kind, select, conversation {Conversations} other {Sessions}}",
