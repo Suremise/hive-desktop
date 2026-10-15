@@ -2336,6 +2336,11 @@ export interface ProgressRun {
   agentId: string | null
   /** Its agent's name, "Hive Assistant", or "Script". */
   agentName: string
+  /**
+   * `agentName` is a name Hive gave the run, not one its caller has (#872): "Script" for an Agent API script, "Agent"
+   * for a kept run with no name. The window shows it in its language; the Agent API leaves this out (publicRun).
+   */
+  defaultName?: 'script' | 'agent'
   provider: ProviderId | null
   source: ProgressSource
   title: string

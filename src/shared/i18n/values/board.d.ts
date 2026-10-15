@@ -347,6 +347,7 @@ interface HiveMessageValues {
   'board.progress.agentGone': { agent: string | number; project: string | number }
   'board.progress.allAgents': undefined
   'board.progress.allProjects': undefined
+  'board.progress.anAgent': undefined
   'board.progress.cantShow': { agent: string | number }
   'board.progress.copied': { what: string }
   'board.progress.copyCommand': undefined
@@ -375,6 +376,7 @@ interface HiveMessageValues {
   'board.progress.recentHoverTook': { agent: string | number; run: string | number; state: string | number; took: string | number }
   'board.progress.recentRuns': undefined
   'board.progress.region': undefined
+  'board.progress.script': undefined
   'board.progress.scriptRun': undefined
   'board.progress.show': undefined
   'board.progress.showAgent': { agent: string | number; run: string | number }

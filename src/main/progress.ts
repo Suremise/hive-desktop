@@ -115,12 +115,16 @@ export function keptRuns(saved: unknown, workspacePath: string): ProgressRun[] {
     if (!id || ids.has(id) || !title || startedAt === null || finishedAt === null || !KEPT_STATES.has(r.state) || !SOURCES.has(r.source)) continue
     ids.add(id)
     const source = r.source as ProgressSource
+    const named = keptText(r.agentName, MAX_TITLE)
     out.push({
       id,
       workspacePath,
       projectPath: source === 'agent' ? keptText(r.projectPath, 1000) : null,
       agentId: source === 'agent' ? keptText(r.agentId, 200) : null,
-      agentName: keptText(r.agentName, MAX_TITLE) ?? (source === 'api' ? 'Script' : 'Agent'), // i18n-ignore: a run's stored name for a script, which agents read too
+      agentName: named ?? (source === 'api' ? 'Script' : 'Agent'), // i18n-ignore: a run's stored name for a script, which agents read too
+      // A script's name is always Hive's (scripts don't name themselves, start()); an agent's only when it has none, or
+      // when Hive's "Agent" was saved with its mark (a nameless run kept before: this file is read again after a save).
+      ...(source === 'api' ? (named === null || named === 'Script' ? { defaultName: 'script' as const } : {}) : named === null || (named === 'Agent' && r.defaultName === 'agent') ? { defaultName: 'agent' as const } : {}),
       provider: PROVIDERS.some((p) => p.id === r.provider) ? (r.provider as ProviderId) : null,
       source,
       title,
@@ -284,6 +288,7 @@ export class ProgressStore {
       projectPath: caller.source === 'agent' ? caller.projectPath : null,
       agentId: caller.source === 'agent' ? caller.agentId : null,
       agentName: caller.source === 'api' ? 'Script' : caller.agentName, // i18n-ignore: a run's stored name for a script, which agents read too
+      ...(caller.source === 'api' ? { defaultName: 'script' as const } : {}),
       provider: caller.source === 'api' ? null : caller.provider,
       source: caller.source as ProgressSource,
       title,
