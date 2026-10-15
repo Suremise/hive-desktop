@@ -95,7 +95,7 @@ English, it is as German developers say it.
 | the Assistant | der Assistent | The full name *Hive Assistant* stays in English. |
 | persona | Persona, Personas | |
 | task board / board | Aufgabenboard / Board | *Board* alone in running text. |
-| card | Karte | Never *Aufgabe* for a card; *Aufgaben* only in *Aufgabenboard* and the *Tasks* tab („Aufgaben“). |
+| card | Karte | Never *Aufgabe* for a card; *Aufgaben* only in *Aufgabenboard* and the *Tasks* tab („Aufgaben“), and for work given to an agent (below). |
 | On Hold / Todo / Doing / Review / Passed / Done | Geparkt / Offen / In Arbeit / Review / Geprüft / Erledigt | In running text: „in Review“, „nach Geprüft verschieben“; *park* a card: „parken“. |
 | decision | Entscheidung | |
 | blocked / stalled | blockiert / festgefahren | |
@@ -121,6 +121,7 @@ English, it is as German developers say it.
 | idle | untätig | „Als untätig markieren“. |
 | memory (a CLI's memory files) | Gedächtnis | The project tab „Gedächtnis“. |
 | background tasks | Hintergrundaufgaben | They aren't cards. |
+| a task (work given to an agent: what the Assistant types into its terminal) | Aufgabe | „eine Aufgabe geben“, „keine neue Aufgabe geben“. Not a card. |
 | backup | Sicherung | |
 | staged | bereitgestellt | As VS Code says. |
 | watch (a card watch) | Beobachtung, Kartenbeobachtung | |

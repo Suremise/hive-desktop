@@ -197,6 +197,26 @@ describe('the rest of the area', () => {
     expect(autoCompactOf([], {}, settingsScopes(cwd, join(cwd, 'home')), ['opus']).source).toBe('autoCompactWindow in .claude/settings.json des Projekts')
   })
 
+  it("a settings file Hive can't be sure of is a whole clause per file, so Chinese joins a Chinese name with no space (#917)", () => {
+    const programFiles = tempDir('hive-i18n-pf-')
+    mkdirSync(join(programFiles, 'ClaudeCode', 'managed-settings.json'), { recursive: true })
+    const cwd = tempDir('hive-i18n-ac-')
+    mkdirSync(join(cwd, 'home', 'settings.json'), { recursive: true })
+    vi.stubEnv('ProgramFiles', programFiles)
+    try {
+      const estimate = (): string | undefined => autoCompactOf([], {}, settingsScopes(cwd, join(cwd, 'home'), ['--safe-mode']), ['opus']).estimate
+      expect(estimate()).toContain("managed settings couldn't be read (it isn't a file)")
+      expect(estimate()).toContain("Claude Code's settings.json couldn't be read (it isn't a file)")
+      setLanguage('zh-CN', JSON.parse(readFileSync(join(ROOT, 'locales/zh-CN/providers.json'), 'utf8')))
+      // A Chinese name takes no space before the reason; a file name or a command-line option keeps one.
+      expect(estimate()).toContain('托管设置无法读取（它不是文件）')
+      expect(estimate()).toContain('Claude Code 的 settings.json 无法读取（它不是文件）')
+      expect(estimate()).toContain('--safe-mode 可能导致')
+    } finally {
+      vi.unstubAllEnvs()
+    }
+  })
+
   it("a stray .codex folder's warning, Copilot's launch notice, start hints, export subtitles and memory labels: all in the language shown", () => {
     const folder = tempDir('hive-i18n-stray-')
     mkdirSync(join(folder, '.codex'), { recursive: true })

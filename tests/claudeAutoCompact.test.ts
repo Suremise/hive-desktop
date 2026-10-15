@@ -230,7 +230,8 @@ describe('Claude Code auto-compaction settings (#242)', () => {
     mkdirSync(join(home, 'settings.json'))
     writeFileSync(join(cwd, '.claude', 'settings.json'), JSON.stringify({ autoCompactWindow: 450_000 }))
     const scopes = settingsScopes(cwd, home).slice(1)
-    expect(scopes.at(-1)).toEqual({ label: "Claude Code's settings.json", subject: "Claude Code's settings.json", json: null, unsure: "couldn't be read (it isn't a file)" })
+    expect(scopes.at(-1)).toMatchObject({ label: "Claude Code's settings.json", json: null, unsure: "couldn't be read (it isn't a file)" })
+    expect(scopes.at(-1)?.clause?.id).toBe('providers.autoCompact.unsureFile.user')
     expect(autoCompactOf([], {}, scopes, OPUS)).toEqual({ window: 450_000, source: "autoCompactWindow in the project's .claude/settings.json", estimate: "an estimate: Claude Code's settings.json couldn't be read (it isn't a file)" })
     // A missing file is certain: nothing set there.
     expect(autoCompactOf([], {}, settingsScopes(cwd, join(dir, 'nohome')).slice(1), OPUS)).toEqual({ window: 450_000, source: "autoCompactWindow in the project's .claude/settings.json" })
