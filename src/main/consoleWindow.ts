@@ -7,6 +7,7 @@ import { onHiveEvent } from './events'
 import { keepOffScreen, offScreenOrigin, testQuiet } from './testQuiet'
 import { resourcesDir } from './tray'
 import type { HiveWindow } from './windows'
+import { placeOnDisplay } from './windowBounds'
 
 /**
  * The developer console's window (#366, #637): its own window like Chrome DevTools, so it can go on a second screen, one
@@ -57,10 +58,8 @@ function dark(): boolean {
   return t === 'dark' || (t === 'system' && nativeTheme.shouldUseDarkColors)
 }
 
-function visible(b: WindowState): boolean {
-  if (b.x === undefined || b.y === undefined) return false
-  return screen.getAllDisplays().some(({ workArea: a }) => b.x! >= a.x - 50 && b.y! >= a.y - 50 && b.x! < a.x + a.width && b.y! < a.y + a.height)
-}
+/** The smallest a console window can be. */
+const CONSOLE_MIN = { width: 560, height: 320 }
 
 /** Opens the Hive window's console on its workspace, or brings it forward when it is open. */
 export function openConsoleWindow(owner: HiveWindow): BrowserWindow {
@@ -74,15 +73,16 @@ export function openConsoleWindow(owner: HiveWindow): BrowserWindow {
     else open.focus()
     return open
   }
-  const b = { ...DEFAULT_BOUNDS, ...config.get().consoleWindow }
+  // Fitted to the display it opens on, as Hive's windows are (#862): saved on a larger one, it would run off this one's edge.
+  const b = placeOnDisplay({ ...DEFAULT_BOUNDS, ...config.get().consoleWindow }, CONSOLE_MIN, screen)
   const offScreen = testQuiet() ? offScreenOrigin(b.width) : null
   const win = new BrowserWindow({
     width: b.width,
     height: b.height,
-    x: offScreen ? offScreen.x : visible(b) ? b.x : undefined,
-    y: offScreen ? offScreen.y : visible(b) ? b.y : undefined,
-    minWidth: 560,
-    minHeight: 320,
+    x: offScreen ? offScreen.x : b.x,
+    y: offScreen ? offScreen.y : b.y,
+    minWidth: CONSOLE_MIN.width,
+    minHeight: CONSOLE_MIN.height,
     show: false,
     focusable: !offScreen,
     title: tr(msg({ id: 'main.console.title', defaultMessage: 'Developer Console — {workspace}', description: "The developer console's window title. {workspace} is the workspace's folder name." }), { workspace: basename(owner.ws.path ?? '') || 'Hive' /* i18n-ignore: the app's name */ }),
