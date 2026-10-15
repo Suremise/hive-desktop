@@ -272,6 +272,8 @@ describe("main's language", () => {
   it('a language chosen without translations is shown, its text in English', async () => {
     const main = await import('../src/main/i18n')
     await main.startI18n(settings('en'))
+    // An empty catalogue stands for a language with no translations yet, whatever locales/ja holds (#894).
+    held.load = (c) => (c === 'ja' ? Promise.resolve({}) : null)
     expect(await main.switchLanguage(settings('ja'))).toMatchObject({ code: 'ja', messages: {} })
     expect(tr(LANGUAGE_TEXT.title)).toBe('Language')
     expect(main.languageInfo().automatic).toBe('en')
