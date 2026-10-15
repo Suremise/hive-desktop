@@ -84,12 +84,12 @@
     "description": "The notice after dangerous permission modes were turned off: the projects that used one. Inherit is a choice of the project's settings: keep it as Hive shows it."
   },
   "main.finished.inProject": {
-    "defaultMessage": "{n} agents finished in {project}",
+    "defaultMessage": "{n, plural, one {# agent finished in {project}} other {# agents finished in {project}}}",
     "description": "A notification for several agents of one project that finished together. {n} is how many (2 or more); the agents are listed under it."
   },
   "main.finished.many": {
-    "defaultMessage": "{n} agents finished",
-    "description": "A notification for agents of several projects that finished together. {n} is how many; the projects are listed under it."
+    "defaultMessage": "{n, plural, one {# agent finished} other {# agents finished}}",
+    "description": "A notification for agents of several projects that finished together. {n} is how many (2 or more); the projects are listed under it."
   },
   "main.finished.project": {
     "defaultMessage": "{project} ({n})",
@@ -195,10 +195,6 @@
     "defaultMessage": "initialised a git repository on main",
     "description": "A step that worked in making a git repository: a clause in a list of them (\"Initialised a git repository on main, added a Node .gitignore and committed 3 files.\"); Hive capitalises the first of the list. main is the branch's name: keep it."
   },
-  "main.gitInit.steps": {
-    "defaultMessage": "{count, plural, =1 {{a}} =2 {{a} and {b}} =3 {{a}, {b} and {c}} other {{a}, {b}, {c} and {d}}}",
-    "description": "The steps that worked in making a git repository, joined as a list (main.gitInit.step.*): {count} is how many (1 to 4), {a} to {d} the steps in order. Hive capitalises the first letter of the whole."
-  },
   "main.gitInit.stopped": {
     "defaultMessage": "{what}: {why}",
     "description": "Why making a git repository failed at its first step. {what} is what failed (main.gitInit.failed.*, which starts with a small letter in English), {why} why."
@@ -269,7 +265,7 @@
   },
   "main.leftovers.restoredBody": {
     "defaultMessage": "{n, plural, one {{processes}. It was started by the agent before Hive last closed, and may hold the project's folder or ports.} other {{processes}. They were started by the agent before Hive last closed, and may hold the project's folder or ports.}}",
-    "description": "The notice at start about processes an agent left running. {processes} lists them (in English for now); {n} is how many."
+    "description": "The notice at start about processes an agent left running. {processes} lists them (\"node serve.js, 2 × tail -f capture.log\"); {n} is how many."
   },
   "main.leftovers.restoredTitle": {
     "defaultMessage": "{n, plural, one {{agent} left # process running} other {{agent} left # processes running}}",
@@ -286,10 +282,6 @@
   "main.move.alsoMoved": {
     "defaultMessage": "{n, plural, one {{things} of {from} now is {to}'s.} other {{things} of {from} now are {to}'s.}}",
     "description": "A line of Repair's report, after a workspace or project moved to another folder (the moved-workspace banner): what was left under a project's old name went to the project. {from} is the old name, {to} the project. {things} lists the lanes and card watches (main.move.lanes, main.move.watches); {n} is how many in all."
-  },
-  "main.move.andMore": {
-    "defaultMessage": "{list} and {n, number} more",
-    "description": "The end of a long list in Repair's report (after a workspace moved): the first few, and how many more. {list} is the first few."
   },
   "main.move.assistant": {
     "defaultMessage": "Hive Assistant",
@@ -334,6 +326,10 @@
   "main.move.missingNoBranch": {
     "defaultMessage": "{host}: {agent}'s worktree wasn't found (it was at {path}). Create a new worktree, locate it, or remove the agent's worktree link.",
     "description": "A line of Repair's report, after a workspace or project moved to another folder (the moved-workspace banner). {host} is the project (or the Assistant) it is about; {agent} an agent. {path} is where it was. Its branch has gone too."
+  },
+  "main.move.more": {
+    "defaultMessage": "{n, plural, one {# more} other {# more}}",
+    "description": "The last item of a long list in Repair's report (after a workspace moved), after the first few: how many more there are (folders, files or names). Hive joins it to the list (\"A, B, C and 3 more\")."
   },
   "main.move.movedTo": {
     "defaultMessage": "{host}: {agent}'s worktree is now at {path}.",
@@ -381,11 +377,11 @@
   },
   "main.move.sessions": {
     "defaultMessage": "{n, plural, one {{host}: # session now points to the new folder.} other {{host}: # sessions now point to the new folder.}}",
-    "description": "A line of Repair's report, after a workspace or project moved to another folder (the moved-workspace banner). {host} is the project (or the Assistant) it is about; {agent} an agent. {n} is how many sessions."
+    "description": "A line of Repair's report, after a workspace or project moved to another folder (the moved-workspace banner). {host} is the project (or the Assistant) it is about; {n} is how many sessions."
   },
   "main.move.sessionsFailed": {
     "defaultMessage": "{host}: the sessions' folders couldn't be updated ({why}). Repair tries again.",
-    "description": "A line of Repair's report, after a workspace or project moved to another folder (the moved-workspace banner). {host} is the project (or the Assistant) it is about; {agent} an agent. {why} is the system's message."
+    "description": "A line of Repair's report, after a workspace or project moved to another folder (the moved-workspace banner). {host} is the project (or the Assistant) it is about; {why} is the system's message."
   },
   "main.move.unlinked": {
     "defaultMessage": "{host}: {agent} no longer has a worktree (its folder {path} was left as it was).",
@@ -428,8 +424,8 @@
     "description": "The end of a plan-usage notice: the limit resets another day. {when} is the day and time."
   },
   "main.plan.used": {
-    "defaultMessage": "{share, number, ::percent} of your {provider} {limit} limit used",
-    "description": "A notice: how much of a plan's usage limit is used ({share}: \"85%\"). {provider} is the coding agent; {limit} names the limit as the provider does (5-hour, weekly), in English for now."
+    "defaultMessage": "{share, number, ::percent} of your {provider} {window, select, hours {{hours, plural, one {#-hour limit} other {#-hour limit}}} weekly {weekly limit} other {{label} limit}} used",
+    "description": "A notice: how much of a plan's usage limit is used ({share}: \"85%\"). {provider} is the coding agent. The limit is a rolling window of {hours} hours (the 5-hour one), the weekly one, or another the provider names itself ({label}, in English as the provider says it)."
   },
   "main.quit.closed": {
     "defaultMessage": "Hive has closed",
@@ -556,8 +552,8 @@
     "description": "A line of the tray icon's tooltip: how many agents are working and how many need you."
   },
   "main.tray.more": {
-    "defaultMessage": "and {n} more",
-    "description": "The tray menu, under a section's first ten items: how many more there are."
+    "defaultMessage": "{n, plural, one {and # more} other {and # more}}",
+    "description": "The tray menu, under a section's first ten items: how many more there are (the section's items: agents waiting, messages and the like)."
   },
   "main.tray.needYou": {
     "defaultMessage": "Need you",
@@ -636,7 +632,7 @@
     "description": "An agent's status in the tray menu, after its project's name."
   },
   "main.tray.statusOfMany": {
-    "defaultMessage": "{status} ({n} agents)",
+    "defaultMessage": "{n, plural, one {{status} (# agent)} other {{status} (# agents)}}",
     "description": "A project's line in the tray menu with several agents: the most urgent one's status, and how many agents it has (2 or more)."
   },
   "main.tray.toReview": {

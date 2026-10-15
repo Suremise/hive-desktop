@@ -1882,6 +1882,52 @@ p.hint {
   display: flex;
   flex-direction: column;
 }
+/* The Changes tab's split (#906). Its list gives up width first, down to 200px, so the detail keeps the 320px a drag of
+   the divider leaves it; short of room for both, the list sits above the detail (at most 40% of the height, its files
+   scrolling) instead of pushing it out of the tab, behind the panels beside it. */
+.changes-split {
+  position: absolute;
+  inset: 0;
+  container: changes-split / inline-size;
+}
+.changes-split > .split > .split-list {
+  width: var(--list-width, 280px);
+  min-width: 200px;
+  max-width: calc(100% - 320px);
+}
+@container changes-split (max-width: 519px) {
+  .changes-split > .split {
+    flex-direction: column;
+  }
+  .changes-split > .split > .split-list {
+    width: auto;
+    min-width: 0;
+    max-width: none;
+    max-height: 40%;
+    border-right: none;
+    border-bottom: 1px solid var(--border-subtle);
+  }
+  .changes-split > .split > .split-list > .pane-resizer {
+    display: none;
+  }
+  .changes-split > .split > .split-main {
+    min-height: 0;
+  }
+  /* The unused worktrees' heading and rows wrap rather than run out of the pane: its buttons go under the title, a
+     row's buttons under its text, and a long path breaks anywhere. */
+  .changes-split #unused-worktrees,
+  .changes-split .unused-wt,
+  .changes-split .unused-wt > .flex {
+    flex-wrap: wrap;
+  }
+  .changes-split .unused-wt .mono {
+    overflow-wrap: anywhere;
+  }
+  .changes-split .unused-wt > .grow {
+    flex: 1 1 160px;
+    min-width: 0;
+  }
+}
 .editor-toolbar {
   display: flex;
   align-items: center;

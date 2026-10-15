@@ -80,8 +80,8 @@ export interface Finish {
   body: string
 }
 
-const IN_PROJECT = msg({ id: 'main.finished.inProject', defaultMessage: '{n} agents finished in {project}', description: 'A notification for several agents of one project that finished together. {n} is how many (2 or more); the agents are listed under it.' })
-const MANY = msg({ id: 'main.finished.many', defaultMessage: '{n} agents finished', description: 'A notification for agents of several projects that finished together. {n} is how many; the projects are listed under it.' })
+const IN_PROJECT = msg({ id: 'main.finished.inProject', defaultMessage: '{n, plural, one {# agent finished in {project}} other {# agents finished in {project}}}', description: 'A notification for several agents of one project that finished together. {n} is how many (2 or more); the agents are listed under it.' })
+const MANY = msg({ id: 'main.finished.many', defaultMessage: '{n, plural, one {# agent finished} other {# agents finished}}', description: 'A notification for agents of several projects that finished together. {n} is how many (2 or more); the projects are listed under it.' })
 
 /** The title of the notification for finishes that came together (2 or more), formatted by `format`. */
 function groupTitle(items: readonly Finish[], format: (m: Msg, values: { n: number; project?: string }) => string): string {

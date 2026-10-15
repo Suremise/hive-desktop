@@ -17,13 +17,15 @@ import { KeyGate } from './taskKeys'
 import { KeysStopped, PickNotFound, typeKeySteps } from './keySteps'
 import { compareTested, noteSelectedCli, testedVersion } from './testedClis'
 
+/** How long a key waits for a busy CLI before Hive stops typing a setup task's keys. */
+const BUSY_SECONDS = 30
 /** Why Hive stopped typing into a setup task (KeysStopped's reason, English for the log), and how the window says it (#850). */
-const STOPPED = { closed: 'its terminal closed', busy: 'it stayed busy for 30 seconds' } // i18n-ignore: the log's words; the toast says them with STOPPED_TEXT
+const STOPPED = { closed: 'its terminal closed', busy: `it stayed busy for ${BUSY_SECONDS} seconds` } // i18n-ignore: the log's words; the toast says them with STOPPED_TEXT
 const STOPPED_TEXT = {
   closed: msg({ id: 'service.providers.stoppedClosed', defaultMessage: 'its terminal closed', description: "Why Hive stopped typing a coding agent CLI's setup keys: its terminal closed. A clause, lower case (it follows \"as\")." }),
-  busy: msg({ id: 'service.providers.stoppedBusy', defaultMessage: 'it stayed busy for 30 seconds', description: "Why Hive stopped typing a coding agent CLI's setup keys: it stayed busy for 30 seconds. A clause, lower case (it follows \"as\")." })
+  busy: msg({ id: 'service.providers.stoppedBusy', defaultMessage: '{seconds, plural, one {it stayed busy for # second} other {it stayed busy for # seconds}}', description: "Why Hive stopped typing a coding agent CLI's setup keys: it stayed busy for {seconds} seconds. A clause, lower case (it follows \"as\")." })
 }
-const stoppedText = (why: string): string => (why === STOPPED.closed ? tr(STOPPED_TEXT.closed) : why === STOPPED.busy ? tr(STOPPED_TEXT.busy) : why)
+const stoppedText = (why: string): string => (why === STOPPED.closed ? tr(STOPPED_TEXT.closed) : why === STOPPED.busy ? tr(STOPPED_TEXT.busy, { seconds: BUSY_SECONDS }) : why)
 
 /** A CLI task's name in the window (its toasts): "Codex install", "Claude Code sign-in". */
 const TASK = msg({ id: 'service.providers.task', defaultMessage: '{task, select, install {{cli} install} update {{cli} update} login {{cli} sign-in} other {{cli} setup}}', description: "A coding agent CLI's task Hive runs in a terminal, as its notifications name it: {cli} is the CLI (\"Codex\"), {task} which task (install, update, sign-in, or another setup)." })
@@ -290,7 +292,7 @@ class ProviderService {
           // seconds. Still busy then, or closed, nothing more goes in (#363): a key typed into a busy CLI can be held
           // or queued, and the 30-second start above mustn't type into one either.
           ready: async () => {
-            for (const t0 = Date.now(); !settled() && hasPty(key) && Date.now() - t0 < 30_000; ) await new Promise((r) => setTimeout(r, 200))
+            for (const t0 = Date.now(); !settled() && hasPty(key) && Date.now() - t0 < BUSY_SECONDS * 1000; ) await new Promise((r) => setTimeout(r, 200))
             if (!hasPty(key)) return STOPPED.closed
             return settled() ? true : STOPPED.busy
           }

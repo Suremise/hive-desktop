@@ -340,8 +340,8 @@
     "description": "Initialise repository, Starter .gitignore: for a Python project. A name: usually kept."
   },
   "git.init.gitignoreName": {
-    "defaultMessage": "{choice, select, none {no .gitignore} minimal {a minimal .gitignore} other {a {kind} .gitignore}}",
-    "description": "The starter .gitignore, in what Initialise repository reports it did (\"added a Node .gitignore\"). {kind} is Node, Python, .NET or Godot."
+    "defaultMessage": "{choice, select, minimal {a minimal .gitignore} other {a {kind} .gitignore}}",
+    "description": "The starter .gitignore Initialise repository added, in what it reports it did (\"added a Node .gitignore\"). {choice} is minimal, or another kind: {kind} is Node, Python, .NET or Godot."
   },
   "git.init.initialise": {
     "defaultMessage": "Initialise",

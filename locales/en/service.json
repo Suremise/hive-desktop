@@ -492,8 +492,8 @@
     "description": "An error updating the coding agent CLI {cli} (\"Codex\") while agents run it."
   },
   "service.providers.stoppedBusy": {
-    "defaultMessage": "it stayed busy for 30 seconds",
-    "description": "Why Hive stopped typing a coding agent CLI's setup keys: it stayed busy for 30 seconds. A clause, lower case (it follows \"as\")."
+    "defaultMessage": "{seconds, plural, one {it stayed busy for # second} other {it stayed busy for # seconds}}",
+    "description": "Why Hive stopped typing a coding agent CLI's setup keys: it stayed busy for {seconds} seconds. A clause, lower case (it follows \"as\")."
   },
   "service.providers.stoppedClosed": {
     "defaultMessage": "its terminal closed",

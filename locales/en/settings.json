@@ -2345,7 +2345,7 @@
   },
   "settings.provider.enableDangerousMode.confirm.title": {
     "defaultMessage": "{n, plural, one {Enable the {names} option?} other {Enable the {names} options?}}",
-    "description": "The title of the confirmation before the setting \"Enable the <mode> option\" is turned on (Settings → a provider page: Claude Code, Codex or GitHub Copilot). {names} lists the modes' names; {n} is how many."
+    "description": "The title of the confirmation before the setting \"Enable the <mode> option\" is turned on (Settings → a provider page: Claude Code, Codex or GitHub Copilot). {names} lists the modes' names; {n} is how many. If your language puts the names of modes and options in quotation marks, write {quotedNames} in place of {names}: the same list with each name in its own quotation marks."
   },
   "settings.provider.enableDangerousMode.desc": {
     "defaultMessage": "Allow projects and agents to choose {choices}, where the agent runs every action without asking.",
@@ -2357,11 +2357,11 @@
   },
   "settings.provider.enableDangerousMode.tip": {
     "defaultMessage": "{n, plural, one {{names} is never a global default. When turned off, projects and agents using it return to Inherit.} other {{names} are never a global default. When turned off, projects and agents using them return to Inherit.}}",
-    "description": "The info tip of the setting \"Enable the <mode> option\" (Settings → a provider page: Claude Code, Codex or GitHub Copilot). {names} lists the modes' names; {n} is how many. Inherit is a choice of the project's settings: keep it as Hive shows it."
+    "description": "The info tip of the setting \"Enable the <mode> option\" (Settings → a provider page: Claude Code, Codex or GitHub Copilot). {names} lists the modes' names; {n} is how many. If your language puts the names of modes and options in quotation marks, write {quotedNames} in place of {names}: the same list with each name in its own quotation marks. Inherit is a choice of the project's settings: keep it as Hive shows it."
   },
   "settings.provider.enableDangerousMode.title": {
     "defaultMessage": "{n, plural, one {Enable the {names} option} other {Enable the {names} options}}",
-    "description": "A setting's title (Settings → a provider page: Claude Code, Codex or GitHub Copilot): lets projects choose the modes that run every action without asking. {names} lists those modes' names; {n} is how many."
+    "description": "A setting's title (Settings → a provider page: Claude Code, Codex or GitHub Copilot): lets projects choose the modes that run every action without asking. {names} lists those modes' names; {n} is how many. If your language puts the names of modes and options in quotation marks, write {quotedNames} in place of {names}: the same list with each name in its own quotation marks."
   },
   "settings.provider.enabled.desc": {
     "defaultMessage": "Let project agents run {provider}.",

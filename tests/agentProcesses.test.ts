@@ -43,7 +43,7 @@ describe('a process as the user recognises it', () => {
   it('sums several up in a line: each label once with its count, the rest counted', () => {
     const p = (label: string, pid: number) => ({ pid, name: 'x.exe', label })
     expect(leftoversSummary({ processes: [p('node serve.js', 1), p('tail -f a.log', 2), p('tail -f a.log', 3)], more: 0 })).toBe('node serve.js, 2 × tail -f a.log')
-    expect(leftoversSummary({ processes: [p('a', 1), p('b', 2), p('c', 3)], more: 2 }, 2)).toBe('a, b and 3 processes more')
+    expect(leftoversSummary({ processes: [p('a', 1), p('b', 2), p('c', 3)], more: 2 }, 2)).toBe('a, b and 3 more processes')
   })
 })
 

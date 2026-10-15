@@ -69,15 +69,24 @@ export function processLabel(name: string, commandLine: string): string {
 export const processCount = (n: number, tr?: Tr): string =>
   tr ? tr(msg({ id: 'panes.processes.count', defaultMessage: '{n, plural, one {# process} other {# processes}}', description: 'How many processes an agent left running ("2 processes").' }), { n }) : `${n} process${n === 1 ? '' : 'es'}` // i18n-ignore: English for main's notices (the window passes tr)
 
-/** The leftovers in a line: "node serve.js, 4 × tail -f …" (each label once, with how many share it), at most `max` labels. */
-export function leftoversSummary(l: Pick<AgentLeftovers, 'processes' | 'more'>, max = 4, tr?: Tr): string {
-  const counts = new Map<string, number>()
-  for (const p of l.processes) counts.set(p.label, (counts.get(p.label) ?? 0) + 1)
-  const labels = [...counts].map(([label, n]) => (n > 1 ? `${n} × ${label}` : label))
-  const rest = labels.length - max
-  const shown = labels.slice(0, max).join(', ')
-  const extra = (rest > 0 ? l.processes.length - [...counts.values()].slice(0, max).reduce((a, b) => a + b, 0) : 0) + l.more
-  if (extra <= 0) return shown
-  if (tr) return tr(msg({ id: 'panes.processes.andMore', defaultMessage: '{shown} and {n, plural, one {# process} other {# processes}} more', description: 'The processes an agent left running, cut short: the first few ({shown}: "node serve.js, 4 × tail -f") and how many more.' }), { shown, n: extra })
-  return `${shown} and ${processCount(extra)} more` // i18n-ignore: English for main's notices (the window passes tr)
+/** A list joined as a language joins it (fmt.list's shape): passed in with tr, as this module can't load the i18n runtime. */
+export type ListWords = (items: readonly string[], type?: 'conjunction' | 'unit') => string
+
+/** Lists in Hive's English, as the Agent API and agents read them: "A, B and C". */
+const englishList: ListWords = (items, type = 'conjunction') => new Intl.ListFormat('en-GB', { type, style: type === 'unit' ? 'short' : 'long' }).format(items)
+
+/**
+ * The leftovers in a line: "node serve.js, 4 × tail -f …" (each label once, with how many share it), at most `max` labels,
+ * then how many more. In the window's language with its tr and list (fmt.list), else English.
+ */
+export function leftoversSummary(l: Pick<AgentLeftovers, 'processes' | 'more'>, max = 4, words?: { tr: Tr; list: ListWords }): string {
+  const counts = [...l.processes.reduce((m, p) => m.set(p.label, (m.get(p.label) ?? 0) + 1), new Map<string, number>())]
+  const shown = counts.slice(0, max)
+  const extra = l.processes.length - shown.reduce((a, [, n]) => a + n, 0) + l.more
+  const tr = words?.tr
+  const labels = shown.map(([label, n]) => (n < 2 ? label : tr ? tr(msg({ id: 'session.leftovers.times', defaultMessage: '{n, number} × {label}', description: 'A process an agent left running, in a list of them, when several run the same command: how many, and the command ({label}: "tail -f capture.log").' }), { n, label }) : `${n} × ${label}`)) // i18n-ignore: English for agents and the Agent API (the window passes tr)
+  const list = words?.list ?? englishList
+  if (extra <= 0) return list(labels, 'unit')
+  const more = tr ? tr(msg({ id: 'session.leftovers.more', defaultMessage: '{n, plural, one {# more process} other {# more processes}}', description: 'The last item of a list of the processes an agent left running, after the first few: how many more there are. Hive joins it to the list ("node serve.js, 2 × tail -f capture.log and 3 more processes").' }), { n: extra }) : `${extra} more ${extra === 1 ? 'process' : 'processes'}` // i18n-ignore: English for agents and the Agent API (the window passes tr)
+  return list([...labels, more])
 }

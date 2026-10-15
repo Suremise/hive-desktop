@@ -215,6 +215,27 @@ describe('with a translation loaded (as a language file gives it)', () => {
     expect(refused.error).toMatch(/^Session file: plan limits field takes/)
     expect(problems).toEqual([])
   })
+
+  it("a language that quotes mode names quotes each one in a dangerous mode's opt-in; the English stays bare (#904)", () => {
+    const zh = Object.assign({}, ...['settings', 'agents'].map((a) => JSON.parse(readFileSync(join(ROOT, `locales/zh-CN/${a}.json`), 'utf8')) as Record<string, string>))
+    setProblemReporter((p) => problems.push(p))
+    setLanguage('zh-CN', zh, 'zh-CN')
+    for (const id of ['claude-code.enableDangerousMode', 'codex.enableDangerousMode', 'copilot.enableDangerousMode']) {
+      const e = settingEntry(id)!
+      const s = shownSetting(e)
+      expect([s.title, s.tip, shownText(e.text.confirmOn!.title)], id).toEqual([expect.stringMatching(/^启用“[^“”]+”选项$/), expect.stringMatching(/^“[^“”]+”永远不会/), expect.stringMatching(/^启用“[^“”]+”选项？$/)])
+    }
+    // Two modes (as Copilot's were, #461): each in its own quotes, not the whole list in one pair (“Autopilot和Allow all”).
+    const copilot = settingEntry('copilot.enableDangerousMode')!
+    const quote: Msg = { id: 'settings.provider.enableDangerousMode.quoted', ...EN['settings.provider.enableDangerousMode.quoted'] }
+    const two = { n: 2, names: listOf(['Autopilot', 'Allow all']), quotedNames: listOf(['Autopilot', 'Allow all'].map((mode) => withValues(quote, { mode }))) }
+    const titled = (t: TextPart | null | undefined): string => shownText(withValues((t as { m: Msg }).m, two))
+    expect([titled(copilot.text.title), titled(copilot.text.tip), titled(copilot.text.confirmOn?.title)]).toEqual([expect.stringMatching(/^启用“Autopilot”和“Allow all”选项$/), expect.stringMatching(/^“Autopilot”和“Allow all”永远不会/), '启用“Autopilot”和“Allow all”选项？'])
+    // What the Assistant's tools read doesn't follow it.
+    const claude = settingEntry('claude-code.enableDangerousMode')!
+    expect([claude.title, claude.confirmOn?.title, englishText(claude.text.title)]).toEqual(['Enable the Bypass permissions option', 'Enable the Bypass permissions option?', 'Enable the Bypass permissions option'])
+    expect(problems).toEqual([])
+  })
 })
 
 describe("a number setting's box", () => {
