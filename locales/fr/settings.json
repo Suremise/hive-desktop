@@ -240,7 +240,6 @@
   "settings.assistant.provider.desc": "L’agent de code que l’Assistant exécute, sauf si un espace de travail en choisit un autre.",
   "settings.assistant.provider.tip": "L’Assistant est indépendant des agents de tes projets : un Assistant Codex peut s’occuper d’agents Claude Code, et inversement.",
   "settings.assistant.provider.title": "Fournisseur",
-  "settings.assistant.providersEffort": "celui de {provider}",
   "settings.assistant.tellReplies.desc": "Quand l’Assistant surveille un agent ou sa carte, il reçoit la première ligne de ce que tu envoies à cet agent depuis son volet.",
   "settings.assistant.tellReplies.tip": "Ainsi, il sait ce que tu as dit à l’agent (une réponse, une décision) sans te le redemander, et peut noter une décision sur la carte. Seulement la première ligne, seulement à l’Assistant du même espace de travail, et seulement quand il surveille cet agent ou sa carte.",
   "settings.assistant.tellReplies.title": "Prévenir l’Assistant quand je réponds à un agent",

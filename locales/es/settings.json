@@ -240,7 +240,6 @@
   "settings.assistant.provider.desc": "El agente de programación que usa el Asistente, salvo que un espacio de trabajo elija otro.",
   "settings.assistant.provider.tip": "El Asistente es independiente de los agentes de tus proyectos: un Asistente con Codex puede ocuparse de agentes de Claude Code, y al revés.",
   "settings.assistant.provider.title": "Proveedor",
-  "settings.assistant.providersEffort": "el de {provider}",
   "settings.assistant.tellReplies.desc": "Cuando el Asistente vigila un agente o su tarjeta, recibe la primera línea de lo que le envías a ese agente desde su panel.",
   "settings.assistant.tellReplies.tip": "Así sabe lo que le dijiste al agente (una respuesta, una decisión) sin volver a preguntarte, y puede registrar una decisión en la tarjeta. Solo la primera línea, solo al Asistente del mismo espacio de trabajo y solo cuando vigila ese agente o su tarjeta.",
   "settings.assistant.tellReplies.title": "Avisar al Asistente cuando respondo a un agente",

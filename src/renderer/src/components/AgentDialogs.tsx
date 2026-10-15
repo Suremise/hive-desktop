@@ -20,7 +20,7 @@ import { cx } from '../util'
 import { formatSize } from '@shared/units'
 import { MergeSlotNote, projectSlots, useMergeSlots } from './MergeSlots'
 import { EffortPicker, ModelPicker } from './ModelPicker'
-import { effortText, effortUnknown, modelCaps } from '@shared/models'
+import { cliDefaultEffort, effortName, effortText, effortUnknown, modelCaps } from '@shared/models'
 import { pasteIntoTerminal } from './TerminalView'
 import { BusyButton, Icon, Modal, sentences, useBusy } from './ui'
 
@@ -114,10 +114,13 @@ export function Overrides({
   onEffort,
   onPermission,
   onContext,
-  inherit
+  inherit,
+  inheritIsDefault
 }: {
   /** What an empty choice is called (the project's, by default): the caller's own words. */
   inherit?: string
+  /** That name says it is the default ("Default"): the effort then names the level alone, not "High, default" (#916). */
+  inheritIsDefault?: boolean
   /** Whose settings an empty choice follows: the project's (a template's agent: the project it may be loaded into, or none). */
   project: Pick<ProjectInfo, 'config'>
   provider: ProviderId
@@ -151,16 +154,18 @@ export function Overrides({
   const runModel = model || (pc.model && pc.model !== 'inherit' ? pc.model : g.defaultModel) || cliDefault
   const runMode = permission || (pc.permissionMode !== 'inherit' ? pc.permissionMode : g.defaultPermissionMode)
   const chosenEffort = pc.effort !== 'inherit' ? pc.effort : g.defaultEffort
-  // The CLI's own default, when it hasn't said which level that is: "Default (Claude Code default)", not "Default (default)".
-  const projectEffort = effortUnknown(provider, chosenEffort, runModel, info, settings)
-    ? tr(msg({ id: 'settings.provider.cliDefault', defaultMessage: '{provider} default', description: "The first choice of a model or effort list: the CLI's own default. {provider} is its name." }), { provider: p.name })
-    : effortText(provider, chosenEffort, runModel, info, settings, tr)
+  // Default once (#916): the CLI's own default, when it hasn't said which level that is, alone ("Claude Code's default", not
+  // "Default (Claude Code default)"); else the level, bare after "Default" ("Default (High)"), "Project's (High, default)" for an agent.
+  const defaultLevel = chosenEffort && chosenEffort !== 'inherit' ? chosenEffort : modelCaps(provider, runModel, info, settings).defaultEffort
+  const effortBase = effortUnknown(provider, chosenEffort, runModel, info, settings)
+    ? cliDefaultEffort(provider, tr)
+    : inherited(inheritIsDefault && defaultLevel ? effortName(provider, defaultLevel, settings, tr) : effortText(provider, chosenEffort, runModel, info, settings, tr))
   return (
     <div className="agent-form">
       <label>{tr(msg({ id: 'agents.overrides.model', defaultMessage: 'Model', description: "Label of an agent's model choice (Add Agent, Agent Settings)." }))}</label>
       <ModelPicker key={provider} provider={provider} value={model} base={{ value: '', label: inherited(projectModel) }} onChange={onModel} />
       <label>{tr(msg({ id: 'agents.overrides.effort', defaultMessage: 'Effort', description: "Label of an agent's effort (reasoning) choice (Add Agent, Agent Settings)." }))}</label>
-      <EffortPicker provider={provider} model={runModel} value={effort} base={{ value: '', label: inherited(projectEffort) }} onChange={onEffort} />
+      <EffortPicker provider={provider} model={runModel} value={effort} base={{ value: '', label: effortBase }} onChange={onEffort} />
       <label>{tr(msg({ id: 'agents.overrides.permission', defaultMessage: 'Permission mode', description: "Label of an agent's permission mode choice (Add Agent, Agent Settings)." }))}</label>
       <select className="select" value={permission} onChange={(e) => onPermission(e.target.value)}>
         <option value="">{inherited(projectPermission)}</option>

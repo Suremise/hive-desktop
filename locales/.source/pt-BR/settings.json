@@ -240,7 +240,6 @@
   "settings.assistant.provider.desc": "The coding agent the Assistant runs, unless a workspace chooses another.",
   "settings.assistant.provider.tip": "The Assistant is independent of your project agents: a Codex Assistant can look after Claude Code agents, and the other way round.",
   "settings.assistant.provider.title": "Provider",
-  "settings.assistant.providersEffort": "{provider}'s",
   "settings.assistant.tellReplies.desc": "The Assistant's watch on an agent or its card hears the first line of what you send that agent from its pane.",
   "settings.assistant.tellReplies.tip": "So it knows what you told the agent (an answer, a decision) without asking you again, and can record a decision on the card. Only the first line, only to the Assistant of the same workspace, and only when it is watching that agent or its card.",
   "settings.assistant.tellReplies.title": "Tell the Assistant when I reply to an agent",

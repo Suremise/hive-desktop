@@ -111,6 +111,7 @@ interface HiveMessageValues {
   'agents.dialog.worksIn': undefined
   'agents.dialog.worktree': undefined
   'agents.effort.inherited': { effort: string | number }
+  'agents.efforts.cliDefault': { provider: string | number }
   'agents.efforts.default': undefined
   'agents.efforts.defaultIs': { effort: string | number }
   'agents.efforts.high': undefined
