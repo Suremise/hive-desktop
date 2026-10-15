@@ -375,6 +375,7 @@ interface HiveMessageValues {
   'assistant.templatePlan.reuseTip': { path: string | number }
   'assistant.templatePlan.reuses': { branch: string | number }
   'assistant.templatePlan.where': undefined
+  'assistant.templatePlan.withNote': { thing: string | number; note: string | number }
   'assistant.templates.aProject': undefined
   'assistant.templates.addAgent': undefined
   'assistant.templates.addProjectFirst': undefined

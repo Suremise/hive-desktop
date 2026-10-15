@@ -183,6 +183,10 @@
     "defaultMessage": "Modified",
     "description": "Label in a file's details: when it last changed."
   },
+  "files.details.modifiedAt": {
+    "defaultMessage": "{when} <faint>({ago})</faint>",
+    "description": "A file's details, Modified: its date and time ({when}), then how long ago, greyed ({ago}: \"2 hours ago\"). Keep the <faint> tags; use your language's brackets."
+  },
   "files.details.none": {
     "defaultMessage": "Select a file or folder",
     "description": "The Files tab's right pane when nothing is selected."

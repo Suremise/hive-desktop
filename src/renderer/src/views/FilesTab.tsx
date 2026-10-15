@@ -20,6 +20,7 @@ const absOf = (project: ProjectInfo, rel: string): string => (rel ? `${project.p
 const isUnder = (rel: string, dir: string): boolean => rel === dir || rel.startsWith(dir + '/')
 
 const kbd = (chunks: React.ReactNode[]): React.ReactNode => <kbd>{chunks}</kbd>
+const faint = (chunks: React.ReactNode[]): React.ReactNode => <span className="faint">{chunks}</span>
 /** A message with markup, as React children (keyed, so a list of parts renders without warnings). */
 const rich = (m: Msg, values: Parameters<typeof tRich<React.ReactNode>>[1]): React.ReactNode[] => Children.toArray(tRich<React.ReactNode>(m, values))
 
@@ -74,6 +75,7 @@ const M = {
   extFile: msg({ id: 'files.details.extFile', defaultMessage: '{ext} file', description: 'A file\'s type in its details, from its extension: "PNG file". {ext} is the extension in capitals.' }),
   size: msg({ id: 'files.details.size', defaultMessage: 'Size', description: "Label in a file's details." }),
   modified: msg({ id: 'files.details.modified', defaultMessage: 'Modified', description: "Label in a file's details: when it last changed." }),
+  modifiedAt: msg({ id: 'files.details.modifiedAt', defaultMessage: '{when} <faint>({ago})</faint>', description: "A file's details, Modified: its date and time ({when}), then how long ago, greyed ({ago}: \"2 hours ago\"). Keep the <faint> tags; use your language's brackets." }),
   git: msg({ id: 'files.details.git', defaultMessage: 'Git', description: "Label in a file's details: its git status. Usually kept as Git." }),
   ignored: msg({ id: 'files.details.ignored', defaultMessage: 'Ignored', description: "A file's git status in its details: git ignores it." }),
   insertIntoSession: msg({ id: 'files.insertIntoSession', defaultMessage: 'Insert into Session', description: "Button or menu item: attaches the file to the agent's running session." }),
@@ -924,7 +926,7 @@ function FileDetails({
         <tbody>
           <tr><td>{tr(M.type)}</td><td>{entry.isDir ? tr(M.folder) : entry.name.includes('.') ? tr(M.extFile, { ext: entry.name.split('.').pop()!.toUpperCase() }) : tr(M.file)}</td></tr>
           {!entry.isDir && <tr><td>{tr(M.size)}</td><td>{formatBytes(entry.size)}</td></tr>}
-          {entry.modified && <tr><td>{tr(M.modified)}</td><td>{formatDateTime(entry.modified)} <span className="faint">({timeAgo(entry.modified)})</span></td></tr>}
+          {entry.modified && <tr><td>{tr(M.modified)}</td><td>{rich(M.modifiedAt, { when: formatDateTime(entry.modified), ago: timeAgo(entry.modified), faint })}</td></tr>}
           {git && <tr><td>{tr(M.git)}</td><td><span className={cx('git-status', git)}>{git}</span> {entry.isDir ? tr(M.gitInFolder, { status: tr(M.gitStatus, { status: git }) }) : tr(M.gitStatus, { status: git })}</td></tr>}
           {entry.ignored && <tr><td>{tr(M.git)}</td><td className="faint">{tr(M.ignored)}</td></tr>}
         </tbody>

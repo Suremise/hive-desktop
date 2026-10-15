@@ -44,6 +44,7 @@
   "files.details.git": "Git",
   "files.details.ignored": "已忽略",
   "files.details.modified": "修改时间",
+  "files.details.modifiedAt": "{when}<faint>（{ago}）</faint>",
   "files.details.none": "选择文件或文件夹",
   "files.details.noneHint": "选择文件以查看或编辑。右键单击可执行更多操作。<kbd>F2</kbd> 重命名，<kbd>Del</kbd> 移到回收站，<kbd>Ctrl+C</kbd> / <kbd>Ctrl+X</kbd> / <kbd>Ctrl+V</kbd> 复制、剪切和粘贴。",
   "files.details.rename": "重命名",

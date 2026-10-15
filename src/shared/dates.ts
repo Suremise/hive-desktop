@@ -85,10 +85,14 @@ export function formatWhen(d: Date | string | number, now = new Date(), style: D
   return x.toDateString() === now.toDateString() ? formatTime(x, style) : formatDateTime(x, style)
 }
 
-/** A weekday and time, for something within the coming week: "Mon 14:05". */
+/**
+ * A weekday and time, for something within the coming week: "Mon 14:05". One formatter for both, so the language
+ * places and marks the weekday ("09:05 (日)" in Japanese, where 日 alone reads as "day"; #893).
+ */
 export function formatWeekdayTime(d: Date | string | number, style: DateStyle = current): string {
   const x = toDate(d)
-  return x ? `${dateWords(x, { weekday: 'short' })} ${formatTime(x, style)}` : ''
+  if (!x) return ''
+  return dateWords(x, style.time === '12h' ? { weekday: 'short', hour: 'numeric', minute: '2-digit', hour12: true } : { weekday: 'short', hour: '2-digit', minute: '2-digit', hourCycle: 'h23' })
 }
 
 /** A day under a chart's bar: its weekday, day and month in the language's words and order ("Mon 4 Oct", "pon., 4 paź"). */

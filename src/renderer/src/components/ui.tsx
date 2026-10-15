@@ -1,4 +1,4 @@
-import { createContext, useCallback, useContext, useEffect, useLayoutEffect, useRef, useState, type ReactNode } from 'react'
+import { Children, createContext, useCallback, useContext, useEffect, useLayoutEffect, useRef, useState, type ReactNode } from 'react'
 import { createPortal } from 'react-dom'
 import DOMPurify from 'dompurify'
 import { marked } from 'marked'
@@ -11,7 +11,7 @@ import { shownText } from '@shared/advanced'
 import { providerDescriptor, providerName } from '@shared/providers'
 import { safeguardText } from '@shared/safeguards'
 import { placeTip, type Box } from '@shared/tipPlacement'
-import { msg, tr, type Msg } from '@shared/i18n'
+import { msg, tr, tRich, type Msg } from '@shared/i18n'
 
 export function Icon({ name, className, title, spin }: { name: string; className?: string; title?: string; spin?: boolean }) {
   return <i className={cx('codicon', `codicon-${name}`, spin && 'spin', className)} title={title} aria-hidden={!title} />
@@ -19,6 +19,14 @@ export function Icon({ name, className, title, spin }: { name: string; className
 
 /** A tooltip's way to tell the one around it that it is showing, so only the innermost one shows (#287). */
 const TipParent = createContext<((inner: boolean) => void) | null>(null)
+
+/**
+ * Two sentences one after the other, each with its own full stop, spaced as the language does: a space in English,
+ * none in Japanese or Chinese (#893). Either can be markup.
+ */
+export function sentences(first: ReactNode, second: ReactNode): ReactNode[] {
+  return Children.toArray(tRich<ReactNode>(msg({ id: 'shell.text.sentences', defaultMessage: '{first} {second}', description: "Two sentences one after the other, each ending in its own full stop: put the space your language leaves between sentences (none in Japanese or Chinese)." }), { first, second }))
+}
 
 /**
  * Hover tooltip rendered in a portal so it is never clipped by scroll containers. It is measured hidden first, then

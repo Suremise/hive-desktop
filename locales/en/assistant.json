@@ -1495,6 +1495,10 @@
     "defaultMessage": "Where",
     "description": "Load template's table: a column (the folder or worktree each agent works in)."
   },
+  "assistant.templatePlan.withNote": {
+    "defaultMessage": "{thing} <faint>{note}</faint>",
+    "description": "Load template: a name or a setting ({thing}), then a note about it in brackets ({note}, which brings its brackets: \"(default)\"), greyed. Keep the <faint> tags around {note}. Japanese and Chinese: no space before full-width brackets."
+  },
   "assistant.templates.aProject": {
     "defaultMessage": "a project",
     "description": "A template's project when its name isn't known."

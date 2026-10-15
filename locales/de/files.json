@@ -44,6 +44,7 @@
   "files.details.git": "Git",
   "files.details.ignored": "Ignoriert",
   "files.details.modified": "Geändert",
+  "files.details.modifiedAt": "{when} <faint>({ago})</faint>",
   "files.details.none": "Datei oder Ordner auswählen",
   "files.details.noneHint": "Wähle eine Datei aus, um sie anzusehen oder zu bearbeiten. Rechtsklick für mehr. <kbd>F2</kbd> benennt um, <kbd>Entf</kbd> verschiebt in den Papierkorb, <kbd>Strg+C</kbd> / <kbd>Strg+X</kbd> / <kbd>Strg+V</kbd> kopieren, ausschneiden und einfügen.",
   "files.details.rename": "Umbenennen",

@@ -373,6 +373,7 @@
   "assistant.templatePlan.reuseTip": "再次在其工作树中工作：{path}（无改动；分支保持不变）",
   "assistant.templatePlan.reuses": "复用 {branch}",
   "assistant.templatePlan.where": "位置",
+  "assistant.templatePlan.withNote": "{thing}<faint>{note}</faint>",
   "assistant.templates.aProject": "某个项目",
   "assistant.templates.addAgent": "添加智能体…",
   "assistant.templates.addProjectFirst": "请先向工作区添加项目。",

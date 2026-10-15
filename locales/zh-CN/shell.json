@@ -347,6 +347,7 @@
   "shell.table.selectAll": "{n, plural, other {选择全部 # 行}}",
   "shell.table.selectAllMatching": "{n, plural, other {选择所有匹配的 # 行}}",
   "shell.table.sortBy": "按{column}排序",
+  "shell.text.sentences": "{first}{second}",
   "shell.tip.app.quit": "退出 Hive",
   "shell.tip.app.quitAll": "关闭全部 {n} 个窗口，并停止所有工作区中的智能体",
   "shell.tip.help.devConsole": "在单独的窗口中，并排显示每个 CLI 发给 Hive 的内容和 Hive 对其的解读",

@@ -44,6 +44,7 @@
   "files.details.git": "Git",
   "files.details.ignored": "Ignorowany",
   "files.details.modified": "Zmodyfikowano",
+  "files.details.modifiedAt": "{when} <faint>({ago})</faint>",
   "files.details.none": "Wybierz plik lub folder",
   "files.details.noneHint": "Wybierz plik, aby go wyświetlić lub edytować. Kliknij prawym przyciskiem, aby zobaczyć więcej. <kbd>F2</kbd> zmienia nazwę, <kbd>Del</kbd> przenosi do Kosza, a <kbd>Ctrl+C</kbd> / <kbd>Ctrl+X</kbd> / <kbd>Ctrl+V</kbd> kopiują, wycinają i wklejają.",
   "files.details.rename": "Zmień nazwę",

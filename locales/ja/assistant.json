@@ -373,6 +373,7 @@
   "assistant.templatePlan.reuseTip": "このワークツリーで再び作業します：{path}（未コミットの変更なし。ブランチはそのまま）",
   "assistant.templatePlan.reuses": "{branch}を再利用",
   "assistant.templatePlan.where": "場所",
+  "assistant.templatePlan.withNote": "{thing}<faint>{note}</faint>",
   "assistant.templates.aProject": "プロジェクト",
   "assistant.templates.addAgent": "エージェントを追加…",
   "assistant.templates.addProjectFirst": "先にワークスペースにプロジェクトを追加してください。",

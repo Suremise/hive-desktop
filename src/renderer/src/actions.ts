@@ -921,7 +921,7 @@ async function cardsOfRemovedAgents(p: ProjectInfo, agents: readonly { id: strin
   const ids = new Set(agents.map((a) => a.id))
   const open = get().tasks.filter((c) => !c.archived && c.column !== 'done' && !!c.agent && ids.has(c.agent) && c.project.toLowerCase() === p.name.toLowerCase())
   if (!open.length) return false
-  const shown = open.slice(0, 5).map((c) => `#${c.number} ${c.title}`).join(', ')
+  const shown = fmt.list(open.slice(0, 5).map((c) => `#${c.number} ${c.title}`), 'unit')
   const list = open.length > 5 ? tr(msg({ id: 'actions.cards.andMore', defaultMessage: '{cards} and {n} more', description: "A removed agent's open cards, cut short: the first five ({cards}: \"#3 Title, #4 Title\") and how many more ({n})." }), { cards: shown, n: open.length - 5 }) : shown
   const one = agents.length === 1
   const values = { cards: open.length, agents: agents.length, agent: one ? agents[0].name : 'none' }

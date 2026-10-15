@@ -44,6 +44,7 @@
   "files.details.git": "Git",
   "files.details.ignored": "Ignored",
   "files.details.modified": "Modified",
+  "files.details.modifiedAt": "{when} <faint>({ago})</faint>",
   "files.details.none": "Select a file or folder",
   "files.details.noneHint": "Select a file to view or edit it. Right-click for more. <kbd>F2</kbd> renames, <kbd>Del</kbd> moves to the Recycle Bin, <kbd>Ctrl+C</kbd> / <kbd>Ctrl+X</kbd> / <kbd>Ctrl+V</kbd> copy, cut and paste.",
   "files.details.rename": "Rename",

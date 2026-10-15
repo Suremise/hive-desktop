@@ -316,7 +316,8 @@ const MCP_EXAMPLE = `\`\`\`json
 \`\`\``
 
 /** The format help beside an MCP server's editor, worded when shown. */
-const mcpHelp = (): string => [tr(M.mcpFormat), MCP_EXAMPLE, `${tr(M.mcpRemote)}\n${tr(M.mcpDir, { variable: '`${HIVE_MCP_DIR}`' })}`].join('\n\n')
+// Each its own paragraph: a single line break is a space in Markdown, which Chinese and Japanese don't put between sentences (#893).
+const mcpHelp = (): string => [tr(M.mcpFormat), MCP_EXAMPLE, tr(M.mcpRemote), tr(M.mcpDir, { variable: '`${HIVE_MCP_DIR}`' })].join('\n\n')
 
 export function McpView() {
   const selected = useStore((s) => s.selectedMcp)

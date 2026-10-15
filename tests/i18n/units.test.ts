@@ -40,8 +40,20 @@ describe('the units area', () => {
     expect(fmt.percent(0.45)).toMatch(/^45\s?%$/)
     expect(formatDate(at)).toBe('2026-10-05')
     expect(formatTime(at)).toBe('14:05')
-    expect(formatWeekdayTime(at)).toBe('pon. 14:05')
+    expect(formatWeekdayTime(at)).toBe('pon., 14:05')
     expect(formatDayLabel(at)).toMatch(/^pon\., 5 paź/)
+  })
+
+  it('in Japanese and Chinese: the weekday marked as one, and a list of units joined with 、 (#893)', () => {
+    setLanguage('ja', {}, 'ja-JP')
+    expect(formatWeekdayTime(at)).toBe('14:05 (月)')
+    expect(fmt.list(['One', 'Two', 'Three'], 'unit')).toBe('One、Two、Three')
+    setLanguage('zh-CN', {})
+    expect(formatWeekdayTime(at)).toBe('周一14:05')
+    expect(fmt.list(['One', 'Two', 'Three'], 'unit')).toBe('One、Two、Three')
+    // Other languages keep CLDR's unit list.
+    setLanguage('en', {})
+    expect(fmt.list(['One', 'Two', 'Three'], 'unit')).toBe('One, Two, Three')
   })
 
   it('a translated unit is used, and AM and PM are in the language', () => {

@@ -44,6 +44,7 @@
   "files.details.git": "Git",
   "files.details.ignored": "Ignorado",
   "files.details.modified": "Modificado",
+  "files.details.modifiedAt": "{when} <faint>({ago})</faint>",
   "files.details.none": "Selecione um arquivo ou uma pasta",
   "files.details.noneHint": "Selecione um arquivo para visualizá-lo ou editá-lo. Clique com o botão direito para mais opções. <kbd>F2</kbd> renomeia, <kbd>Del</kbd> move para a Lixeira, <kbd>Ctrl+C</kbd> / <kbd>Ctrl+X</kbd> / <kbd>Ctrl+V</kbd> copiam, recortam e colam.",
   "files.details.rename": "Renomear",

@@ -347,6 +347,7 @@
   "shell.table.selectAll": "{n, plural, other {#行をすべて選択}}",
   "shell.table.selectAllMatching": "{n, plural, other {一致する#行をすべて選択}}",
   "shell.table.sortBy": "{column}で並べ替え",
+  "shell.text.sentences": "{first}{second}",
   "shell.tip.app.quit": "Hiveを終了します",
   "shell.tip.app.quitAll": "{n}個のウィンドウをすべて閉じ、すべてのワークスペースのエージェントを停止します",
   "shell.tip.help.devConsole": "各CLIがHiveに送る内容と、Hiveによる解釈を並べて、別のウィンドウに表示します",

@@ -837,7 +837,7 @@ export function AgentSetupDialog() {
         <div className="setup-tabs">
           {PROVIDERS.map((x) => (
             <button key={x.id} className={cx('setup-tab', tab === x.id && 'selected')} disabled={running} onClick={() => { setTab(x.id); setFinished(null) }}>
-              <ProviderIcon provider={x.id} /> {isProviderEnabled(settings, x.id) ? x.name : tRich(msg({ id: 'shell.setup.tabOff', defaultMessage: '{provider}<faint> (off)</faint>', description: 'A tab of Agent Setup for a provider that is turned off. {provider} is its name; <faint> is greyed.' }), { provider: x.name, faint })}
+              <ProviderIcon provider={x.id} /> {isProviderEnabled(settings, x.id) ? x.name : <span>{tRich(msg({ id: 'shell.setup.tabOff', defaultMessage: '{provider}<faint> (off)</faint>', description: 'A tab of Agent Setup for a provider that is turned off. {provider} is its name; <faint> is greyed.' }), { provider: x.name, faint })}</span>}
             </button>
           ))}
         </div>

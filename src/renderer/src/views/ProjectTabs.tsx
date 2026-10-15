@@ -29,7 +29,7 @@ import { DocEditor } from '../components/DocEditor'
 import { DiffView } from '../components/Editors'
 import { PaneResizer, usePaneSize } from '../components/Resizer'
 import { DataTable, useDateColumns, type DataColumn } from '../components/DataTable'
-import { Icon, IconButton, InfoTip, LoadFailed, SearchInput, StaleNote, statusText, StatusDot, Switch, Tooltip } from '../components/ui'
+import { Icon, IconButton, InfoTip, LoadFailed, SearchInput, sentences, StaleNote, statusText, StatusDot, Switch, Tooltip } from '../components/ui'
 import { languageFor } from '../monacoLang'
 import { useScopedLoad } from '../scopedLoad'
 import { addSkill, deleteSkill, editInWorkspace, otherLocal, SKILL_LEVEL_TIP, SkillDetail, SkillRow } from '../components/Skills'
@@ -1364,7 +1364,7 @@ export function ProjectSkillsTab({ project }: { project: ProjectInfo }) {
             )}
           {skills && hiveOpen && assistantOnly > 0 && (
             <div className="pane-empty assistant-only-note">
-              {tr(C.assistantOnly, { count: assistantOnly })} <a onClick={() => showView('skills')}>{tr(C.seeThem)}</a>
+              {sentences(tr(C.assistantOnly, { count: assistantOnly }), <a onClick={() => showView('skills')}>{tr(C.seeThem)}</a>)}
             </div>
           )}
           {skills && providers.length > 0 && (

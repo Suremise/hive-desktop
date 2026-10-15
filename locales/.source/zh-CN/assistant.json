@@ -373,6 +373,7 @@
   "assistant.templatePlan.reuseTip": "Works in its worktree again: {path} (clean; its branch is left as it is)",
   "assistant.templatePlan.reuses": "reuses {branch}",
   "assistant.templatePlan.where": "Where",
+  "assistant.templatePlan.withNote": "{thing} <faint>{note}</faint>",
   "assistant.templates.aProject": "a project",
   "assistant.templates.addAgent": "Add Agent…",
   "assistant.templates.addProjectFirst": "Add a project to the workspace first.",

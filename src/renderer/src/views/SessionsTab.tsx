@@ -841,7 +841,7 @@ function SessionRow(props: {
         ) : (
           <span>{timeAgo(s.lastActivity)}</span>
         )}
-        {s.usage && <span>{tr(msg({ id: 'sessions.row.context', defaultMessage: '{tokens} context', description: 'A session row in the list: how many tokens its context holds ({tokens}: "120K"). Keep it short.' }), { tokens: formatTokens(s.usage.contextTokens) })}</span>}
+        {s.usage && <span className="session-row-context">{tr(msg({ id: 'sessions.row.context', defaultMessage: '{tokens} context', description: 'A session row in the list: how many tokens its context holds ({tokens}: "120K"). Keep it short.' }), { tokens: formatTokens(s.usage.contextTokens) })}</span>}
         <TranscriptSize s={s} warnMB={props.warnMB} assistant={props.assistant} />
         {origin && (
           <Tooltip content={<span style={{ whiteSpace: 'pre-line' }}>{origin.detail}</span>}>
