@@ -6,7 +6,7 @@ import type { ProviderId } from '@shared/types'
 import { call, errorMessage } from '../api'
 import { notify, set, useStore } from '../store'
 import { NumberField } from './NumberField'
-import { Icon, IconButton, InfoTip, SearchInput, Switch, Tooltip } from './ui'
+import { DottedId, Icon, IconButton, InfoTip, SearchInput, Switch, Tooltip } from './ui'
 import { cx } from '../util'
 
 /**
@@ -134,7 +134,10 @@ function AdvancedItem({ row, cli, workspace }: { row: AdvancedRow; cli: string |
           <InfoTip text={<span style={{ whiteSpace: 'pre-line' }}>{about.join('\n')}</span>} />
           {modified && <IconButton icon="discard" title={tr(msg({ id: 'settings.advancedList.reset', defaultMessage: 'Reset to default ({value})', description: 'Button beside an advanced value changed from its default: puts it back. {value} is the default.' }), { value: advancedShown(def, def.default) })} onClick={() => void commit(null).catch(() => undefined)} />}
         </div>
-        <div className="advanced-id">{def.id}</div>
+        {/* Breaks after a dot, not mid-word, when the column is narrow (#887). */}
+        <div className="advanced-id">
+          <DottedId id={def.id} />
+        </div>
         <div className="s-desc">{shownText(def.text.desc)}</div>
         {modified && (
           <div className="s-desc">

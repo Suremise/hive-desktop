@@ -1,4 +1,4 @@
-import { Children, createContext, useCallback, useContext, useEffect, useLayoutEffect, useRef, useState, type ReactNode } from 'react'
+import { Children, createContext, Fragment, useCallback, useContext, useEffect, useLayoutEffect, useRef, useState, type ReactNode } from 'react'
 import { createPortal } from 'react-dom'
 import DOMPurify from 'dompurify'
 import { marked } from 'marked'
@@ -131,6 +131,24 @@ export function ScrollMore({ dir, target }: { dir: 'left' | 'right'; target: { c
     >
       <Icon name={`chevron-${dir}`} />
     </span>
+  )
+}
+
+/** An id such as `settings.open` that, short of room, breaks after a dot rather than mid-word (#887). */
+export function DottedId({ id }: { id: string }) {
+  return (
+    <>
+      {id.split('.').map((part, i, all) => (
+        <Fragment key={i}>
+          {part}
+          {i < all.length - 1 && (
+            <>
+              .<wbr />
+            </>
+          )}
+        </Fragment>
+      ))}
+    </>
   )
 }
 

@@ -163,6 +163,8 @@ function PriceTable({ provider }: { provider: ProviderId }) {
         </div>
       )}
       <div className="fallback-source faint">{tr(msg({ id: 'settings.prices.checked', defaultMessage: "Hive's starting prices, checked {checked}: edit them if they are out of date.", description: "Above a provider's price table. {checked} is a date." }), { checked: PRICES_CHECKED })}</div>
+      {/* Narrower than the table even with its boxes narrowed, it scrolls sideways in its own box (#887). */}
+      <div className="price-table-wrap">
       <table className="table price-table">
         <thead>
           <tr>
@@ -200,6 +202,7 @@ function PriceTable({ provider }: { provider: ProviderId }) {
           ))}
         </tbody>
       </table>
+      </div>
       <div className="fallback-actions">
         <input className="input mono" placeholder={tr(msg({ id: 'settings.prices.newPlaceholder', defaultMessage: 'Model ID, e.g. a new model', description: "Placeholder of the box under a price table where a model's ID is typed to add it." }))} aria-label={tr(msg({ id: 'settings.prices.newLabel', defaultMessage: "New model's ID", description: "The name, for screen readers, of the box under a price table where a model's ID is typed." }))} value={adding} onChange={(e) => setAdding(e.target.value)} onKeyDown={(e) => e.key === 'Enter' && add()} />
         <button className="btn subtle" disabled={!adding.trim()} onClick={add}>

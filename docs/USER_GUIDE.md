@@ -896,7 +896,7 @@ A project that isn't a git repository keeps working in its project folder, witho
 
 ## Project settings
 
-Each project can override the global defaults in its **Settings** tab, which has the same categories and search as Settings:
+Each project can override the global defaults in its **Settings** tab, which has the same categories and search as Settings. In a narrow window (or with the side panels open), Settings and Project Settings make room: a setting's control moves under its description, the list of categories narrows, and when even that doesn't fit, the categories become a row across the top that scrolls sideways.
 
 | Category | Setting | What it does |
 |---|---|---|

@@ -2678,6 +2678,57 @@ p.hint {
   padding: 16px 32px 60px;
   user-select: text;
 }
+/* Settings in a narrow pane (both side panels open beside a small window, #887): the sections list and the padding
+   give the settings more of the room, which was a few dozen pixels; narrower still, the sections are a row above the
+   settings, scrolling sideways, and the settings take the whole width. */
+.settings {
+  container-type: inline-size;
+}
+@container (max-width: 560px) {
+  .settings-nav {
+    width: 132px;
+  }
+  .settings-nav .row {
+    padding-left: 10px;
+  }
+  .settings-nav .row:has(.settings-sub) {
+    padding-left: 18px;
+  }
+  .settings-content {
+    padding: 12px 16px 60px;
+  }
+}
+@container (max-width: 420px) {
+  .settings-body {
+    flex-direction: column;
+  }
+  .settings-nav {
+    width: auto;
+    display: flex;
+    gap: 2px;
+    padding: 4px 8px;
+    overflow-x: auto;
+    overflow-y: hidden;
+    border-right: 0;
+    border-bottom: 1px solid var(--border-subtle);
+    scrollbar-width: thin;
+  }
+  .settings-nav .row,
+  .settings-nav .row:has(.settings-sub) {
+    flex: none;
+    padding: 0 8px;
+    border-radius: 4px;
+  }
+  .settings-nav .row.selected::before {
+    top: auto;
+    right: 0;
+    width: auto;
+    height: 2px;
+  }
+  .settings-nav .row .label {
+    flex: none;
+  }
+}
 .settings-group h2 {
   font-size: 20px;
   font-weight: 500;
@@ -2688,9 +2739,12 @@ p.hint {
   color: var(--fg-muted);
   margin: 0 0 12px;
 }
+/* A row too narrow for its text beside its control (a long language, a narrow pane: #887) puts the control under the
+   text, on the right, rather than squeeze the text into a column a few words wide. */
 .setting {
   display: flex;
-  gap: 24px;
+  flex-wrap: wrap;
+  gap: 8px 24px;
   align-items: flex-start;
   padding: 12px 12px;
   margin: 0 -12px;
@@ -2701,7 +2755,7 @@ p.hint {
   background: var(--bg-hover);
 }
 .setting .s-text {
-  flex: 1;
+  flex: 1 1 240px;
   min-width: 0;
 }
 .setting .s-title {
@@ -2725,6 +2779,8 @@ p.hint {
 }
 .setting .s-control {
   width: 300px;
+  max-width: 100%;
+  margin-left: auto;
   flex-shrink: 0;
   display: flex;
   justify-content: flex-end;
@@ -2734,6 +2790,10 @@ p.hint {
 .setting .s-control .input,
 .setting .s-control .select {
   width: 100%;
+}
+/* A switch alone needs only its own width, leaving the text the rest (#887). */
+.setting .s-control:has(> .switch:only-child) {
+  width: auto;
 }
 .setting.danger .s-title {
   color: var(--error);
@@ -2769,7 +2829,7 @@ p.hint {
   font-size: 11px;
   color: var(--fg-muted);
   margin-top: 2px;
-  overflow-wrap: anywhere;
+  overflow-wrap: break-word;
 }
 .advanced-row .s-desc code {
   font-family: 'Cascadia Code', Consolas, monospace;
@@ -2893,6 +2953,20 @@ p.hint {
 .about-table td:first-child {
   text-align: right;
   color: var(--fg-faint);
+  /* A label stays on one line ("GitHub Copilot", #887); the values beside it wrap. */
+  white-space: nowrap;
+}
+/* Settings → Updates: the status wraps inside its column rather than run over the row's title (#887). */
+.update-status-row {
+  min-width: 0;
+  max-width: 100%;
+}
+.update-status-row > .badge {
+  white-space: normal;
+  height: auto;
+  min-height: 18px;
+  max-width: 100%;
+  text-align: right;
 }
 
 /* ---------- Setup ---------- */
@@ -5399,7 +5473,8 @@ body.pane-resizing .monaco-editor {
   border: 1px solid var(--border-subtle);
   border-radius: 6px;
 }
-.setting.wide .s-text {
+/* Its own text only: the Advanced list's rows inside one are rows of their own (#887). */
+.setting.wide > .s-text {
   flex: 1;
 }
 .agent-list-row .small {
@@ -5587,11 +5662,23 @@ body.pane-resizing .monaco-editor {
   width: 64px;
   text-align: right;
 }
+/* In a narrow settings pane the price boxes narrow with it (90 px down to 60) and the headings wrap between words, so
+   the table fits; narrower still, it scrolls sideways in its own box, not the page (#887). */
+.fallback-table:has(> .price-table-wrap) {
+  container-type: inline-size;
+}
+.price-table-wrap {
+  overflow-x: auto;
+}
 .price-table {
   margin-top: 8px;
 }
+.price-table th {
+  white-space: normal;
+  vertical-align: bottom;
+}
 .price-table .price-input {
-  width: 90px;
+  width: clamp(60px, 14cqi, 90px);
   text-align: right;
 }
 .price-table .badge {
@@ -6018,8 +6105,27 @@ button.mode-badge.badge:hover {
 .kb-table tr.recording td {
   background: var(--accent-soft);
 }
+/* The command keeps room for a word or two and breaks between words, its id after a dot, rather than anywhere (#887:
+   a longer language left it a few letters wide). */
 .kb-label {
   width: 45%;
+  min-width: 10em;
+}
+.kb-table td.kb-label {
+  overflow-wrap: break-word;
+}
+/* A narrow pane can be narrower than the table (it then scrolls sideways): the row's buttons stay in view at its right
+   edge (#887). */
+.kb-table :is(th, td).kb-actions {
+  position: sticky;
+  right: 0;
+  background: var(--bg);
+}
+.kb-table tbody tr:hover td.kb-actions {
+  background: var(--bg-hover);
+}
+.kb-table tr.recording td.kb-actions {
+  background: linear-gradient(var(--accent-soft), var(--accent-soft)), var(--bg);
 }
 .kb-id {
   font-size: 11px;

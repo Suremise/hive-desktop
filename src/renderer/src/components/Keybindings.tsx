@@ -8,7 +8,7 @@ import { commandCategory, commands, eventToKey, isProjectScoped, terminalReserve
 import { confirm, notify, set, useStore } from '../store'
 import { formatKeybinding } from '../util'
 import { otherUsers, shortcutUsers } from '../keyConflicts'
-import { Icon, IconButton, SearchInput, Tooltip } from './ui'
+import { DottedId, Icon, IconButton, SearchInput, Tooltip } from './ui'
 import { DataTable, type DataColumn } from './DataTable'
 
 /** Waits this long after the first combination for a second one, which makes a chord ("Ctrl+K Ctrl+S"). */
@@ -242,7 +242,9 @@ function keyColumns({ project, recording, setRecording, record, save, conflicts 
       cell: (r) => (
         <>
           {r.c.label}
-          <div className="faint kb-id">{r.c.id}</div>
+          <div className="faint kb-id">
+            <DottedId id={r.c.id} />
+          </div>
         </>
       ),
       sortValue: (r) => r.c.label
