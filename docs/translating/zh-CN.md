@@ -50,7 +50,8 @@ Translate the meaning, not the words, and keep the result as short and plain.
 - **Punctuation:** full-width ，。：；？！（） in Chinese text. A message that is a single label or button has no 。.
   Half-width : and () only around code, numbers or English alone (“Ctrl+K”, “(--lang)”).
 - **Quotation marks:** “…”, and ‘…’ inside them. Never " in the text. A command, setting or tab named in a sentence
-  goes in “” too: “设置”→“高级”，“添加智能体…”.
+  goes in “” too: “设置”→“高级”，“添加智能体…”. Never put “” around a list placeholder (it would quote the whole list,
+  “A和B”): where a message offers `{quotedNames}`, write that, which quotes each name (“A”和“B”).
 - **Spaces:** one half-width space between Chinese and Latin letters, numbers or a placeholder (“Claude Code 会话”,
   “5 分钟”, “智能体 {agent}”), and none next to full-width punctuation (“（{n}）”, “：{error}”). A placeholder that
   holds Chinese text (a translated phrase, a quoted mode name) takes no space (“无法加载{what}”); one that holds Latin

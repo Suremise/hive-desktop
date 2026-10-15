@@ -12,7 +12,7 @@ import { extractDrift, extractMessages, extractWithCli, extractWithJs, hasNative
 // @ts-expect-error: plain .mjs modules without types
 import { valuesDts } from '../scripts/i18nValues.mjs'
 // @ts-expect-error: plain .mjs modules without types
-import { checkTranslations, verifyWithCli, verifyWithJs } from '../scripts/i18nCheck.mjs'
+import { ALTERNATE_VALUES, checkTranslations, verifyWithCli, verifyWithJs } from '../scripts/i18nCheck.mjs'
 // @ts-expect-error: plain .mjs modules without types
 import { coverage, coverageLines, recordSource } from '../scripts/i18nCoverage.mjs'
 
@@ -256,6 +256,33 @@ describe('the blocking check of the translations (i18n:check)', () => {
     const r = script('i18nCheck.mjs', '--root', root)
     expect(r.status, r.stdout).toBe(1)
     expect(r.stdout).toContain('de/board.json: board.a has a control character (U+0001)')
+  })
+
+  it('a translation may write an alternate value in place of the placeholder it stands in for, only where one is listed (#904)', () => {
+    const [id, alternates] = Object.entries(ALTERNATE_VALUES as Record<string, Record<string, string>>)[0]
+    const [alt, name] = Object.entries(alternates)[0]
+    const area = id.split('.')[0]
+    const root = tree({
+      [`locales/en/${area}.json`]: JSON.stringify({ [id]: { defaultMessage: `{n, plural, one {Enable {${name}}} other {Enable all {${name}}}}`, description: 'x' }, [`${area}.other`]: { defaultMessage: `Use {${name}}`, description: 'x' } }),
+      [`locales/zh-CN/${area}.json`]: JSON.stringify({ [id]: `{n, plural, other {启用{${alt}}}}`, [`${area}.other`]: `使用{${alt}}` })
+    })
+    for (const js of [true, false]) {
+      const { results } = checkTranslations(root, { js }) as { results: Record<string, string[]> }
+      const problems = results['zh-CN'].join('\n')
+      expect(problems, js ? 'parser' : 'CLI').toMatch(`${area}.other: Missing variable ${name}`)
+      expect(problems, js ? 'parser' : 'CLI').not.toContain(`${id}:`)
+    }
+  })
+
+  it("each alternate value stands in for a placeholder its English has, and its note for translators names it (#904)", () => {
+    for (const [id, alternates] of Object.entries(ALTERNATE_VALUES as Record<string, Record<string, string>>)) {
+      const english = JSON.parse(readFileSync(join(ROOT, `locales/en/${id.split('.')[0]}.json`), 'utf8')) as Messages
+      expect(english[id], id).toBeTruthy()
+      for (const [alt, name] of Object.entries(alternates)) {
+        expect(english[id].defaultMessage, id).toContain(`{${name}}`)
+        expect(english[id].description, id).toContain(`{${alt}}`)
+      }
+    }
   })
 })
 
