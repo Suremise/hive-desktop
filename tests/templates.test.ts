@@ -238,7 +238,7 @@ describe('saving and loading templates', () => {
     expect(plan.create.map((a) => a.name)).toEqual(['Builder', 'Reviewer'])
     // Its names are alpha's agents' (#702): said by the plan, and the load refused until they are renamed.
     expect(plan.taken).toEqual([{ name: 'Builder', project: 'alpha' }, { name: 'Reviewer', project: 'alpha' }])
-    await expect(run(() => templates.loadTemplate(beta, 'workspace', 'pair-2.json', ['b1']))).rejects.toThrow(/Builder, Reviewer are already agents in alpha: agent names are unique across the workspace/)
+    await expect(run(() => templates.loadTemplate(beta, 'workspace', 'pair-2.json', ['b1']))).rejects.toThrow(/Builder and Reviewer are already agents in alpha: agent names are unique across the workspace/)
     expect(names(beta)).toEqual(['Old'])
     const renamed = await run(() => templates.templatePlan(beta, 'workspace', 'pair-2.json', undefined, B))
     expect([renamed.create.map((a) => a.name), renamed.templateNames, renamed.taken]).toEqual([B, ['Builder', 'Reviewer'], []])
@@ -261,7 +261,7 @@ describe('saving and loading templates', () => {
     live.clear()
     config.settings.providers['claude-code'].enabled = false
     const off = await run(() => templates.templatePlan(beta, 'workspace', 'pair.json'))
-    expect(off.missing).toEqual([{ provider: 'claude-code', reason: expect.stringMatching(/turned off/), agents: ['Builder', 'Reviewer'] }])
+    expect(off.missing).toEqual([{ provider: 'claude-code', reason: expect.stringMatching(/turned off/), agents: ['Builder', 'Reviewer'], problem: 'off' }])
     config.settings.providers['claude-code'].enabled = true
     await expect(run(() => templates.loadTemplate(beta, 'workspace', 'pair.json', ['someone-else']))).rejects.toThrow(/changed since you looked/)
     expect(ids()).toHaveLength(2)

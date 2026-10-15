@@ -4,6 +4,9 @@ import { createHash } from 'crypto'
 import { config } from './config'
 import { writeTextAtomic } from './fsutil'
 import { createLogger } from './logger'
+import { englishText } from '../shared/advanced'
+import { msg } from '../shared/i18n'
+import { hiveError } from './hiveError'
 import type { WorkspaceService } from './workspace'
 import { HIVE_TOOLS } from '../shared/assistantTools'
 import { PROVIDERS } from '../shared/providers'
@@ -128,7 +131,7 @@ const emptyGuidance = (provider: string, role: GuidanceSeries['role']): Guidance
 // Labels: each from a fixed set. Anything else is "(other)", so a label never grows or carries what it shouldn't.
 // ---------------------------------------------------------------------------
 
-const ROUTES = new Set<string>(['(no route)'])
+const ROUTES = new Set<string>(['(no route)']) // i18n-ignore: a route label (a key, as metrics files keep it)
 /** The Agent API's route templates (servers.ts registers them), the only route labels. */
 export function knownRoute(template: string): void {
   ROUTES.add(template)
@@ -499,7 +502,7 @@ class Store {
       }
       mkdirSync(join(this.file, '..'), { recursive: true })
       const ignore = join(this.file, '..', '.gitignore')
-      if (!existsSync(ignore)) writeFileSync(ignore, "# Hive's performance metrics: this machine's (added by Hive)\n*\n")
+      if (!existsSync(ignore)) writeFileSync(ignore, "# Hive's performance metrics: this machine's (added by Hive)\n*\n") // i18n-ignore: a .gitignore's comment (a file)
       await writeTextAtomic(this.file, text)
     } catch (e) {
       log.warn('Could not save the performance metrics', e)
@@ -872,13 +875,22 @@ export const appMetrics = {
 
 const toPart = (p: PartData): MetricsPart => ({ api: Object.values(p.api), mcp: Object.values(p.mcp), guidance: Object.values(p.guidance), catalog: Object.values(p.catalog) })
 
-const NOT_MEASURED = [
-  'Provider tokens per Hive tool or per guidance part: providers report a session’s usage, not what each part of its context cost.',
-  'Provider network traffic: Hive starts the CLIs; it is not a proxy between them and their providers.',
-  'Context a CLI adds itself (its own system prompt, tool definitions, files it reads).',
-  'Whether a model read a skill: delivered skills are counted, reading one is not observable.',
-  'HTTP headers and transport: request sizes are the body bytes received, response sizes the JSON body written (an aborted reply may not all have been sent).'
+/** What Hive doesn't measure (#850): the window's text, and its English for agents (`notMeasured`), item for item. */
+const NOT_MEASURED_TEXT = [
+  msg({ id: 'service.metrics.notTokens', defaultMessage: 'Provider tokens per Hive tool or per guidance part: providers report a session’s usage, not what each part of its context cost.', description: "On the Performance page, under What isn't measured: Hive can't tell how many tokens each of its tools or guidance parts cost." }),
+  msg({ id: 'service.metrics.notNetwork', defaultMessage: 'Provider network traffic: Hive starts the CLIs; it is not a proxy between them and their providers.', description: "On the Performance page, under What isn't measured: the coding agent CLIs' own network traffic." }),
+  msg({ id: 'service.metrics.notCliContext', defaultMessage: 'Context a CLI adds itself (its own system prompt, tool definitions, files it reads).', description: "On the Performance page, under What isn't measured: what a coding agent CLI puts in its model's context itself." }),
+  msg({ id: 'service.metrics.notSkillReads', defaultMessage: 'Whether a model read a skill: delivered skills are counted, reading one is not observable.', description: "On the Performance page, under What isn't measured: whether a model read a skill Hive gave it." }),
+  msg({ id: 'service.metrics.notTransport', defaultMessage: 'HTTP headers and transport: request sizes are the body bytes received, response sizes the JSON body written (an aborted reply may not all have been sent).', description: "On the Performance page, under What isn't measured: the Agent API's request and response sizes count only the bodies." })
 ]
+const NOT_MEASURED = NOT_MEASURED_TEXT.map((m) => englishText(m))
+
+/** What a role or provider filter can't narrow (#850), each item's text for the window. */
+const NOT_FILTERED = {
+  provider: msg({ id: 'service.metrics.notPerProvider', defaultMessage: 'Agent API requests, tool calls and the tool list aren’t recorded per provider: they are every provider’s.', description: "A note on the Performance page while it is filtered by provider: these numbers can't be narrowed to one provider." }),
+  shared: msg({ id: 'service.metrics.sharedNumbers', defaultMessage: 'The skill service and Hive-wide numbers are shared: not per role or provider.', description: "A note on the Performance page while it is filtered by role or provider: these numbers can't be narrowed." }),
+  dropped: msg({ id: 'service.metrics.droppedPerProject', defaultMessage: 'Dropped measurements are counted per project, not per role or provider.', description: "A note on the Performance page while it is filtered by role or provider: dropped measurements can't be narrowed." })
+}
 
 /** At most this many points in a trend. */
 const TREND_MAX = 200
@@ -952,9 +964,9 @@ export function queryMetrics(w: WorkspaceService, q: MetricsQuery): Omit<Metrics
   const now = clock.now()
   const to = q.to ? Date.parse(q.to) : now
   const from = q.from ? Date.parse(q.from) : to - DAY
-  if (!Number.isFinite(from) || !Number.isFinite(to) || from > to) throw new Error('from and to must be ISO times, from before to')
-  if (q.role !== undefined && !QUERY_ROLES.has(q.role)) throw new Error('role must be agent, assistant, api or viewer')
-  if (q.provider !== undefined && (typeof q.provider !== 'string' || q.provider.length > 64)) throw new Error('provider must be a provider id')
+  if (!Number.isFinite(from) || !Number.isFinite(to) || from > to) throw hiveError(msg({ id: 'service.metrics.badRange', defaultMessage: 'from and to must be ISO times, from before to', description: 'An error reading metrics: the range asked for is not two times in order. from and to are the parameters\' names: keep them, and ISO.' }), undefined, { kind: 'invalid' })
+  if (q.role !== undefined && !QUERY_ROLES.has(q.role)) throw hiveError(msg({ id: 'service.metrics.badRole', defaultMessage: 'role must be agent, assistant, api or viewer', description: "An error reading metrics: the role filter isn't one of its values. Keep role, agent, assistant, api and viewer as they are (a parameter and its values)." }), undefined, { kind: 'invalid' })
+  if (q.provider !== undefined && (typeof q.provider !== 'string' || q.provider.length > 64)) throw hiveError(msg({ id: 'service.metrics.badProvider', defaultMessage: 'provider must be a provider id', description: "An error reading metrics: the provider filter isn't a provider's id. Keep provider as it is (a parameter's name)." }), undefined, { kind: 'invalid' })
   const h = metricsHandle(w)
   if (h) {
     h.store.touch(now)
@@ -988,12 +1000,14 @@ export function queryMetrics(w: WorkspaceService, q: MetricsQuery): Omit<Metrics
     // The storage's own fact (no project's): history it removed for space, if any of it was in the range.
     ...(evictedThrough > from ? { evictedThrough: new Date(Math.min(evictedThrough, to)).toISOString() } : {})
   }
-  const notFiltered: string[] = []
-  if (f.provider) notFiltered.push('Agent API requests, tool calls and the tool list aren’t recorded per provider: they are every provider’s.')
-  if ((f.role || f.provider) && q.scope.kind === 'workspace') notFiltered.push('The skill service and Hive-wide numbers are shared: not per role or provider.')
-  if (f.role || f.provider) notFiltered.push('Dropped measurements are counted per project, not per role or provider.')
-  const filters: MetricsFilters = { ...(f.role ? { role: f.role } : {}), ...(f.provider ? { provider: f.provider } : {}), ...(own ? { own: true as const } : {}), notFiltered }
-  const base = { workspacePath: w.path ?? '', from: new Date(from).toISOString(), to: new Date(to).toISOString(), recording: recording(), notMeasured: NOT_MEASURED, filters, coverage }
+  const notFilteredText = [
+    ...(f.provider ? [NOT_FILTERED.provider] : []),
+    ...((f.role || f.provider) && q.scope.kind === 'workspace' ? [NOT_FILTERED.shared] : []),
+    ...(f.role || f.provider ? [NOT_FILTERED.dropped] : [])
+  ]
+  const notFiltered = notFilteredText.map((m) => englishText(m))
+  const filters: MetricsFilters = { ...(f.role ? { role: f.role } : {}), ...(f.provider ? { provider: f.provider } : {}), ...(own ? { own: true as const } : {}), notFiltered, ...(notFilteredText.length ? { notFilteredText } : {}) }
+  const base = { workspacePath: w.path ?? '', from: new Date(from).toISOString(), to: new Date(to).toISOString(), recording: recording(), notMeasured: NOT_MEASURED, notMeasuredText: NOT_MEASURED_TEXT, filters, coverage }
   const trend = q.trend ? trendOf(inRange, from, to, (b) => partsOf(b).map(([, p]) => p), observed) : {}
 
   // A sum isn't capped like a bucket: it is bounded by the buckets it adds, which are.

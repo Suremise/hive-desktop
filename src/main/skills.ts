@@ -7,6 +7,9 @@ import type { ProviderId, SkillAudience, SkillInfo, SkillTarget } from '../share
 import { allProviders, provider } from './providers'
 import { bundledDir, bundledIds, bundledStatus, restoreBundled } from './bundled'
 import { copyDir, COPY_MARKER, isDir, isFile, readDirBounded } from './fsutil'
+import { englishText, withValues, type Text, type TextValues } from '../shared/advanced'
+import { msg, type Msg } from '../shared/i18n'
+import { hiveError } from './hiveError'
 import { createLogger } from './logger'
 import { headerOf, SKILL_HEAD_MAX } from './revisions'
 import { workspace } from './workspace'
@@ -27,6 +30,26 @@ export interface SkillHeader {
    * problem is given to nobody until it is fixed, rather than to a recipient Hive would have to guess.
    */
   problem?: string
+  /** `problem` as the window shows it (#849). */
+  problemText?: Text
+}
+
+/** A header's problem: its English (agents', sessions' and the log's) and its text for the window (#849). */
+function problemOf(m: Msg, values?: TextValues): { problem: string; problemText: Text } {
+  const text = values ? withValues(m, values) : m
+  return { problem: englishText(text), problemText: text }
+}
+
+/** Why a Hive skill's header can't be used (SkillInfo.problem), and the skills' refusals, in the window's language (#849). */
+const M = {
+  notClosedWithin: msg({ id: 'content.skill.notClosedWithin', defaultMessage: "its header isn't closed within its first {kb} KB", description: "Why nobody gets a Hive skill: its SKILL.md header (front matter, between --- lines) doesn't end within its first {kb} KB. It follows \"Nobody gets this skill until its header is fixed:\", so it starts in lower case." }),
+  notClosed: msg({ id: 'content.skill.notClosed', defaultMessage: "its header isn't closed (no line with --- after it)", description: "Why nobody gets a Hive skill: its SKILL.md header (front matter) starts with a --- line but no --- line ends it. Keep ---. It starts in lower case (it follows a colon)." }),
+  yamlAt: msg({ id: 'content.skill.yamlAt', defaultMessage: "its header isn't valid YAML (line {line}: {reason})", description: "Why nobody gets a Hive skill: its SKILL.md header can't be read as YAML. {line} is the line of the file, {reason} the YAML reader's own words (English). It starts in lower case (it follows a colon)." }),
+  yaml: msg({ id: 'content.skill.yaml', defaultMessage: "its header isn't valid YAML ({reason})", description: "Why nobody gets a Hive skill: its SKILL.md header can't be read as YAML. {reason} is the YAML reader's own words (English). It starts in lower case (it follows a colon)." }),
+  notFields: msg({ id: 'content.skill.notFields', defaultMessage: "its header isn't a list of fields (name: …, description: …)", description: "Why nobody gets a Hive skill: its SKILL.md header is YAML but not a set of fields. Keep name: and description: as they are. It starts in lower case (it follows a colon)." }),
+  metadata: msg({ id: 'content.skill.metadata', defaultMessage: "its metadata isn't a set of fields (metadata:, then audience: … indented under it)", description: "Why nobody gets a Hive skill: the metadata field of its SKILL.md header isn't a set of fields. Keep metadata: and audience: as they are. It starts in lower case (it follows a colon)." }),
+  audience: msg({ id: 'content.skill.audience', defaultMessage: '{kind, select, text {its audience is "{audience}", not agents, assistant or all} empty {its audience is empty, not agents, assistant or all} list {its audience is a list, not agents, assistant or all} other {its audience is a {type}, not agents, assistant or all}}', description: "Why nobody gets a Hive skill: its header's metadata.audience isn't agents, assistant or all (keep those three words, which the header must say). {kind} is what it is instead: text ({audience} is the text), empty, a list, or another YAML value ({type}: number, boolean or object, as YAML names them). It starts in lower case (it follows a colon)." }),
+  badName: msg({ id: 'content.skill.badName', defaultMessage: 'Skill names may contain letters, numbers, "-" and "_" (max 64 characters).', description: "An error adding a skill: its name has a character a skill's name can't have, or is too long." })
 }
 
 const AUDIENCES: readonly string[] = ['agents', 'assistant', 'all']
@@ -42,18 +65,18 @@ export function parseSkillFrontmatter(text: string, truncated = false): SkillHea
   const body = text.replace(/^﻿/, '')
   if (!/^---\r?\n/.test(body)) return {}
   const m = /^---\r?\n([\s\S]*?)(?:\r?\n)?^---[ \t]*(?:\r?\n|$)/m.exec(body)
-  if (!m) return { problem: truncated ? `its header isn't closed within its first ${Math.round(SKILL_HEAD_MAX / 1024)} KB` : "its header isn't closed (no line with --- after it)" }
+  if (!m) return truncated ? problemOf(M.notClosedWithin, { kb: Math.round(SKILL_HEAD_MAX / 1024) }) : problemOf(M.notClosed)
   let data: unknown
   try {
     // Not json mode: a key given twice is an error, not a silent last-one-wins.
     data = yaml.load(m[1], { schema: yaml.CORE_SCHEMA })
   } catch (e) {
     const line = (e as { mark?: { line?: number } }).mark?.line
-    const reason = String((e as { reason?: string }).reason ?? (e as Error).message ?? 'unreadable').slice(0, 120)
-    return { problem: `its header isn't valid YAML${line !== undefined ? ` (line ${line + 2}: ${reason})` : ` (${reason})`}` }
+    const reason = String((e as { reason?: string }).reason ?? (e as Error).message ?? 'unreadable').slice(0, 120) // i18n-ignore: the YAML reader's words, as it gave them
+    return line !== undefined ? problemOf(M.yamlAt, { line: line + 2, reason }) : problemOf(M.yaml, { reason })
   }
   if (data === null || data === undefined) return {}
-  if (typeof data !== 'object' || Array.isArray(data)) return { problem: "its header isn't a list of fields (name: …, description: …)" }
+  if (typeof data !== 'object' || Array.isArray(data)) return problemOf(M.notFields)
   const d = data as Record<string, unknown>
   const scalar = (v: unknown): string | undefined => (typeof v === 'string' ? v : typeof v === 'number' || typeof v === 'boolean' ? String(v) : undefined)
   const out: SkillHeader = {}
@@ -63,14 +86,14 @@ export function parseSkillFrontmatter(text: string, truncated = false): SkillHea
   if (description !== undefined) out.description = description.trim()
   const meta = d.metadata
   if (meta === undefined || meta === null) return out
-  if (typeof meta !== 'object' || Array.isArray(meta)) return { ...out, problem: "its metadata isn't a set of fields (metadata:, then audience: … indented under it)" }
+  if (typeof meta !== 'object' || Array.isArray(meta)) return { ...out, ...problemOf(M.metadata) }
   // Absent: the default. Present but empty (null, ~, nothing after the colon) is an audience Hive doesn't know.
   if (!Object.hasOwn(meta, 'audience')) return out
   const audience = (meta as Record<string, unknown>).audience
   const a = typeof audience === 'string' ? audience.trim().toLowerCase() : undefined
   if (a === undefined || !AUDIENCES.includes(a)) {
-    const shown = typeof audience === 'string' ? `"${audience.slice(0, 40)}"` : audience === null ? 'empty' : `a ${Array.isArray(audience) ? 'list' : typeof audience}`
-    return { ...out, problem: `its audience is ${shown}, not agents, assistant or all` }
+    const kind = typeof audience === 'string' ? 'text' : audience === null ? 'empty' : Array.isArray(audience) ? 'list' : 'other'
+    return { ...out, ...problemOf(M.audience, { kind, audience: typeof audience === 'string' ? audience.slice(0, 40) : '', type: typeof audience }) }
   }
   return { ...out, audience: a as SkillAudience }
 }
@@ -96,7 +119,7 @@ export function skillText(text: string, name: string): string {
   const m = body.match(/^---\r?\n([\s\S]*?)\r?\n---[^\S\r\n]*\r?\n?/)
   if (!m) {
     const heading = /^#\s+(.+)$/m.exec(body)?.[1]?.trim()
-    const desc = heading && heading.toLowerCase() !== name.toLowerCase() ? heading : 'Describe when the agent should use this skill.'
+    const desc = heading && heading.toLowerCase() !== name.toLowerCase() ? heading : 'Describe when the agent should use this skill.' // i18n-ignore: SKILL.md's text, which agents read
     return `---\nname: ${name}\ndescription: ${yamlText(desc)}\n---\n\n${body}`
   }
   const nl = m[0].includes('\r\n') ? '\r\n' : '\n'
@@ -104,7 +127,7 @@ export function skillText(text: string, name: string): string {
   const i = lines.findIndex((l) => l.startsWith('name:'))
   if (i >= 0) lines[i] = `name: ${name}`
   else lines.unshift(`name: ${name}`)
-  if (!lines.some((l) => l.startsWith('description:'))) lines.push('description: Describe when the agent should use this skill.')
+  if (!lines.some((l) => l.startsWith('description:'))) lines.push('description: Describe when the agent should use this skill.') // i18n-ignore: SKILL.md's text, which agents read
   return `---${nl}${lines.join(nl)}${nl}---${nl}` + body.slice(m[0].length)
 }
 
@@ -116,7 +139,7 @@ async function readSkill(dir: string, level: SkillInfo['level'], plugin?: string
   // A Hive skill whose header can't be read, or whose audience isn't one Hive knows, has no audience: nobody gets it,
   // and `problem` says why. Other skills only lend their name and description, so a broken header just leaves those out.
   if (level === 'hive') {
-    if (fm.problem) s.problem = fm.problem
+    if (fm.problem) Object.assign(s, { problem: fm.problem }, fm.problemText ? { problemText: fm.problemText } : {})
     else s.audience = fm.audience ?? 'agents'
   }
   return s
@@ -261,7 +284,7 @@ export async function skillFiles(dir: string, lim = SKILL_FILES_LIMITS): Promise
 /** The folder a provider's project skills are created in (e.g. <project>/.claude/skills): the first it loads them from. */
 function localDir(projectPath: string, id: ProviderId): string {
   const rel = provider(id).skillRoots().local[0]
-  if (!rel) throw new Error(`${provider(id).descriptor.name} has no project skills folder.`)
+  if (!rel) throw hiveError(msg({ id: 'content.skill.noLocalFolder', defaultMessage: '{cli} has no project skills folder.', description: "An error adding a project's own skill for a coding agent CLI ({cli}: \"Codex\") that reads no skills from a project's folder." }), { cli: provider(id).descriptor.name })
   return join(projectPath, rel)
 }
 
@@ -303,7 +326,7 @@ export function validSkillName(name: string): boolean {
 }
 
 function assertName(name: string): void {
-  if (!validSkillName(name)) throw new Error('Skill names may contain letters, numbers, "-" and "_" (max 64 characters).')
+  if (!validSkillName(name)) throw hiveError(M.badName, undefined, { kind: 'invalid' })
 }
 
 function targetDir(target: SkillTarget): string {
@@ -314,9 +337,9 @@ function targetDir(target: SkillTarget): string {
 /** Writes one skill (a map of relative paths to contents) into each target; fails before writing if any target has it already. */
 async function writeSkill(name: string, files: Map<string, Uint8Array | string>, targets: SkillTarget[]): Promise<SkillInfo> {
   assertName(name)
-  if (!targets.length) throw new Error('No place to add the skill to.')
+  if (!targets.length) throw hiveError(msg({ id: 'content.skill.noTarget', defaultMessage: 'No place to add the skill to.', description: 'An error adding a skill with no place chosen for it (the workspace, or a project for a coding agent).' }), undefined, { kind: 'invalid' })
   const dirs = targets.map((t) => join(targetDir(t), name))
-  const exists = (d: string): Error => new Error(`A skill named "${name}" already exists in ${relative(workspace.path ?? '', dirname(d)) || dirname(d)}`)
+  const exists = (d: string): Error => hiveError(msg({ id: 'content.skill.exists', defaultMessage: 'A skill named "{name}" already exists in {folder}', description: 'An error adding a skill: the skills folder {folder} (relative to the workspace) already has one called {name}.' }), { name, folder: relative(workspace.path ?? '', dirname(d)) || dirname(d) }, { kind: 'conflict' })
   for (const d of dirs) if (existsSync(d)) throw exists(d)
   // Each folder is claimed (created, never reused) before anything is written: two adds at once can't share one.
   // If anything fails, the folders claimed so far go again, so a retry isn't blocked by a half-written skill.
@@ -348,7 +371,8 @@ async function writeSkill(name: string, files: Map<string, Uint8Array | string>,
 
 /** A new skill with a starter SKILL.md, in the workspace or a project's local folders. */
 export async function createSkill(name: string, description: string, targets: SkillTarget[] = [{ kind: 'hive' }]): Promise<SkillInfo> {
-  const desc = yamlText(description || 'Describe when the agent should use this skill.')
+  const desc = yamlText(description || 'Describe when the agent should use this skill.') // i18n-ignore: SKILL.md's text, which agents read
+  // i18n-ignore: a new SKILL.md's text, which agents read
   const text = `---\nname: ${name}\ndescription: ${desc}\n---\n\n# ${name}\n\nWrite the instructions the agent should follow when this skill applies.\n`
   return writeSkill(name, new Map([['SKILL.md', text]]), targets)
 }
@@ -366,26 +390,26 @@ export function skillFromZip(data: Uint8Array): { files: Map<string, Uint8Array>
   const entries = unzipSync(data, {
     filter: (f) => {
       total += f.originalSize
-      if (total > ZIP_MAX_BYTES) throw new Error('The .zip is too large for a skill (over 50 MB unpacked).')
+      if (total > ZIP_MAX_BYTES) throw hiveError(msg({ id: 'content.skill.zipTooLarge', defaultMessage: 'The .zip is too large for a skill (over {mb} MB unpacked).', description: 'An error adding a skill from a .zip: its files take more than {mb} MB unpacked.' }), { mb: ZIP_MAX_BYTES / 1024 / 1024 })
       return true
     }
   })
   const names = Object.keys(entries).filter((n) => !n.endsWith('/') && !/(^|\/)(__MACOSX|\.DS_Store)(\/|$)/.test(n))
-  if (names.length > ZIP_MAX_FILES) throw new Error(`The .zip has too many files for a skill (over ${ZIP_MAX_FILES}).`)
+  if (names.length > ZIP_MAX_FILES) throw hiveError(msg({ id: 'content.skill.zipTooMany', defaultMessage: 'The .zip has too many files for a skill (over {max}).', description: 'An error adding a skill from a .zip: it has more than {max} files.' }), { max: ZIP_MAX_FILES })
   const norm = (n: string): string => n.replace(/\\/g, '/')
   let prefix = ''
   let folder: string | null = null
   if (!names.some((n) => norm(n) === 'SKILL.md')) {
     const tops = new Set(names.map((n) => norm(n).split('/')[0]))
     const top = tops.size === 1 ? [...tops][0] : null
-    if (!top || !names.some((n) => norm(n) === `${top}/SKILL.md`)) throw new Error('No SKILL.md found. A skill .zip has SKILL.md at its top level, or inside one folder.')
+    if (!top || !names.some((n) => norm(n) === `${top}/SKILL.md`)) throw hiveError(msg({ id: 'content.skill.zipNoSkill', defaultMessage: 'No SKILL.md found. A skill .zip has SKILL.md at its top level, or inside one folder.', description: 'An error adding a skill from a .zip that has no SKILL.md where Hive looks. Keep SKILL.md as it is: it is a file name.' }))
     prefix = `${top}/`
     folder = top
   }
   const files = new Map<string, Uint8Array>()
   for (const n of names) {
     const rel = norm(n).slice(prefix.length)
-    if (!rel || rel.split('/').some((p) => p === '..' || p === '') || /^[a-z]:|^\//i.test(rel)) throw new Error(`The .zip has a file with an unsafe path: ${n}`)
+    if (!rel || rel.split('/').some((p) => p === '..' || p === '') || /^[a-z]:|^\//i.test(rel)) throw hiveError(msg({ id: 'content.skill.zipUnsafe', defaultMessage: 'The .zip has a file with an unsafe path: {path}', description: "An error adding a skill from a .zip: a file's path ({path}) would land outside the skill's folder." }), { path: n })
     files.set(rel, entries[n])
   }
   return { files, folder }
@@ -416,7 +440,7 @@ export async function addSkillFromFile(file: string, name: string, targets: Skil
   } else if (ext === '.md' || ext === '.markdown') {
     files = new Map([['SKILL.md', skillText(await readFile(file, 'utf8'), name)]])
   } else {
-    throw new Error('Choose a .md file or a .zip.')
+    throw hiveError(msg({ id: 'content.skill.chooseFile', defaultMessage: 'Choose a .md file or a .zip.', description: 'An error adding a skill from a file that is neither Markdown (.md) nor a .zip.' }), undefined, { kind: 'invalid' })
   }
   return writeSkill(name, files, targets)
 }
@@ -436,14 +460,14 @@ async function deletableSkill(dir: string): Promise<boolean> {
 
 /** Moves a Hive or local skill folder to the Recycle Bin. */
 export async function deleteSkill(dir: string): Promise<void> {
-  if (!(await deletableSkill(dir)) || !existsSync(join(dir, 'SKILL.md'))) throw new Error('Only Hive skills and a project\'s local skills can be deleted in Hive.')
-  if (existsSync(join(dir, HIVE_COPY_MARKER))) throw new Error("That's Hive's own copy of a workspace skill; delete the skill in the workspace instead.")
+  if (!(await deletableSkill(dir)) || !existsSync(join(dir, 'SKILL.md'))) throw hiveError(msg({ id: 'content.skill.cantDelete', defaultMessage: "Only Hive skills and a project's local skills can be deleted in Hive.", description: "An error deleting a skill Hive doesn't manage (a CLI's own, from the user's profile or a plugin)." }), undefined, { kind: 'forbidden' })
+  if (existsSync(join(dir, HIVE_COPY_MARKER))) throw hiveError(msg({ id: 'content.skill.isCopy', defaultMessage: "That's Hive's own copy of a workspace skill; delete the skill in the workspace instead.", description: "An error deleting a skill in a project's folder that is Hive's copy of a workspace skill (Hive puts it there for a coding agent)." }), undefined, { kind: 'forbidden' })
   await trash(dir)
 }
 
 /** Puts back a bundled skill as this version of Hive ships it: the workspace copy (edited) goes to the Recycle Bin. */
 export async function restoreBundledSkill(name: string): Promise<SkillInfo> {
-  if (!(await bundledIds('skills')).includes(name)) throw new Error(`"${name}" isn't one of Hive's bundled skills.`)
+  if (!(await bundledIds('skills')).includes(name)) throw hiveError(msg({ id: 'content.skill.notBundled', defaultMessage: '"{name}" isn\'t one of Hive\'s bundled skills.', description: 'An error restoring a skill Hive ships: Hive ships no skill called {name}.' }), { name }, { kind: 'notFound' })
   const dest = join(workspace.skillsDir, name)
   if (existsSync(dest)) await trash(dest)
   await restoreBundled('skills', name)
@@ -454,10 +478,10 @@ export async function restoreBundledSkill(name: string): Promise<SkillInfo> {
 /** Deploys a Local or Machine skill into the workspace so Hive can manage it. */
 export async function copySkillToWorkspace(skillPath: string): Promise<SkillInfo> {
   const name = basename(skillPath)
-  if (!validSkillName(name)) throw new Error(`"${name}" can't be a Hive skill name: use letters, numbers, "-" and "_" (rename the folder first).`)
+  if (!validSkillName(name)) throw hiveError(msg({ id: 'content.skill.cantCopyName', defaultMessage: '"{name}" can\'t be a Hive skill name: use letters, numbers, "-" and "_" (rename the folder first).', description: "An error copying a skill into the workspace: its folder's name {name} can't be a Hive skill's name." }), { name }, { kind: 'invalid' })
   const dest = join(workspace.skillsDir, name)
-  if (existsSync(dest)) throw new Error(`The workspace already has a skill named "${name}"`)
-  if (!(await isFile(join(skillPath, 'SKILL.md')))) throw new Error('Not a skill folder (no SKILL.md)')
+  if (existsSync(dest)) throw hiveError(msg({ id: 'content.skill.copyExists', defaultMessage: 'The workspace already has a skill named "{name}"', description: 'An error copying a skill into the workspace: it has one called {name} already.' }), { name }, { kind: 'conflict' })
+  if (!(await isFile(join(skillPath, 'SKILL.md')))) throw hiveError(msg({ id: 'content.skill.notSkill', defaultMessage: 'Not a skill folder (no SKILL.md)', description: 'An error copying a skill into the workspace: its folder has no SKILL.md (a file name: keep it).' }))
   await copyDir(skillPath, dest)
   const s = (await readSkill(dest, 'hive'))!
   s.name = name

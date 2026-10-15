@@ -3,7 +3,10 @@ import { join } from 'path'
 import { existsSync } from 'original-fs'
 import { HIVE_DIR, projectAgents } from '../shared/defaults'
 import { allDone, isFrozen, loopDefaults, keptLanes, laneView, listedLanes, readLanes, running, type LaneAgent, type LaneChange, type LaneRecord } from '../shared/lanes'
-import type { LaneCard, LaneInfo, TaskCard } from '../shared/types'
+import type { HiveErrorKind, LaneCard, LaneInfo, TaskCard } from '../shared/types'
+import { withValues, type Text } from '../shared/advanced'
+import { msg } from '../shared/i18n'
+import { HiveError } from './hiveError'
 import { onHiveEvent } from './events'
 import { readJson, withFileLock, writeJsonAtomic } from './fsutil'
 import { isProjectId, projectIdNamed, projectNameOf, projectNow, savedProjectName } from '../shared/projectIds'
@@ -27,14 +30,26 @@ const log = createLogger('lanes')
 const fileOf = (ws: WorkspaceService): string => join(ws.hiveDir, 'lanes.json')
 const same = (a: string, b: string): boolean => a.toLowerCase() === b.toLowerCase()
 
-/** A lane change Hive refuses (status: the HTTP status the Agent API answers with). */
-export class LaneError extends Error {
+const KINDS: Record<number, HiveErrorKind> = { 400: 'invalid', 403: 'forbidden', 404: 'notFound', 409: 'conflict' }
+
+/**
+ * A lane change Hive refuses (status: the HTTP status the Agent API answers with). Most come only from agents (hive_lane),
+ * in English; one the window can meet too (Progress → Lanes: ending a lane) is text, in its language there (#850).
+ */
+export class LaneError extends HiveError {
   constructor(
     readonly status: number,
-    message: string
+    message: string | Text
   ) {
-    super(message)
+    // An agent's refusal, English only: its words as they are, in every language.
+    super(typeof message === 'string' ? { lines: [message] } : message, KINDS[status] ? { kind: KINDS[status] } : undefined)
   }
+}
+
+/** Refusals the window can meet (ending a lane from Progress → Lanes), in its language. */
+const M = {
+  noWorkspace: msg({ id: 'service.lanes.noWorkspace', defaultMessage: 'No workspace is open', description: "An error changing a workspace's lanes (card loops) while no workspace is open in the window." }),
+  unknown: msg({ id: 'service.lanes.unknown', defaultMessage: 'Unknown lane {id}', description: 'An error: there is no lane (a card loop) with the id {id}, perhaps removed meanwhile.' })
 }
 
 /** Each lane's project id as it was read, so a lane whose project the workspace doesn't have now keeps it. */
@@ -149,7 +164,7 @@ export async function legacyLanes(ws: WorkspaceService): Promise<{ name: string;
 
 /** Changes a workspace's lanes under its lock: fn changes the list it is given (or throws), and says whether it did. */
 async function mutate<T>(ws: WorkspaceService, fn: (lanes: LaneRecord[]) => T | Promise<T>): Promise<T> {
-  if (!ws.path) throw new LaneError(409, 'No workspace is open')
+  if (!ws.path) throw new LaneError(409, M.noWorkspace)
   const result = await withFileLock(fileOf(ws), async () => {
     const lanes = await read(ws)
     const r = await fn(lanes)
@@ -243,10 +258,10 @@ export interface StartLane {
  */
 export async function startLane(ws: WorkspaceService, s: StartLane): Promise<LaneChange> {
   const builder = await agentIn(ws, s.project, s.builder)
-  if (!builder) throw new LaneError(404, 'Unknown agent: the builder must be an agent of the project')
+  if (!builder) throw new LaneError(404, 'Unknown agent: the builder must be an agent of the project') // i18n-ignore: hive_lane's refusal, which only agents get
   const reviewer = s.reviewer ? await agentIn(ws, s.project, s.reviewer) : s.reviewer === undefined ? undefined : null
-  if (s.reviewer && !reviewer) throw new LaneError(404, 'Unknown agent: the reviewer must be an agent of the project')
-  if (reviewer && reviewer.id === builder.id) throw new LaneError(400, "A lane's builder can't be its reviewer")
+  if (s.reviewer && !reviewer) throw new LaneError(404, 'Unknown agent: the reviewer must be an agent of the project') // i18n-ignore: hive_lane's refusal, which only agents get
+  if (reviewer && reviewer.id === builder.id) throw new LaneError(400, "A lane's builder can't be its reviewer") // i18n-ignore: hive_lane's refusal, which only agents get
   // Rounds and wait the start doesn't give: the project's, else the workspace's (#412).
   const project = ws.path ? await ws.projectConfig(join(ws.path, s.project)).catch(() => null) : null
   const defaults = loopDefaults(ws.config, project)
@@ -304,8 +319,8 @@ export async function startLane(ws: WorkspaceService, s: StartLane): Promise<Lan
 export async function joinLane(ws: WorkspaceService, j: { project: string; builder: string; reviewer: string; cards?: number[]; by: string }): Promise<LaneChange> {
   const reviewer = await agentIn(ws, j.project, j.reviewer)
   const builder = await agentIn(ws, j.project, j.builder)
-  if (!reviewer || !builder) throw new LaneError(404, 'Unknown agent: the builder and reviewer must be agents of the project')
-  if (reviewer.id === builder.id) throw new LaneError(400, "A lane's builder can't be its reviewer")
+  if (!reviewer || !builder) throw new LaneError(404, 'Unknown agent: the builder and reviewer must be agents of the project') // i18n-ignore: hive_lane's refusal, which only agents get
+  if (reviewer.id === builder.id) throw new LaneError(400, "A lane's builder can't be its reviewer") // i18n-ignore: hive_lane's refusal, which only agents get
   const found = await mutate(ws, (lanes) => {
     const l = lanes.find((x) => running(x) && same(x.project, j.project) && x.builder.id === builder.id)
     if (!l || (j.cards?.length && !l.cards.some((n) => j.cards!.includes(n)))) return null
@@ -317,9 +332,9 @@ export async function joinLane(ws: WorkspaceService, j: { project: string; build
     log.info(`${userText(reviewer.name)} joined lane ${found.id}`)
     return { lane: (await views(ws, [found]))[0], did: 'joined' }
   }
-  if (!j.cards?.length) throw new LaneError(404, `${builder.name} has no lane running yet: give the cards too, and the lane starts with you as its reviewer`)
+  if (!j.cards?.length) throw new LaneError(404, `${builder.name} has no lane running yet: give the cards too, and the lane starts with you as its reviewer`) // i18n-ignore: hive_lane's refusal, which only agents get
   const r = await startLane(ws, { project: j.project, builder: builder.id, reviewer: reviewer.id, cards: j.cards, by: j.by })
-  return { ...r, did: 'joined', note: `${builder.name} hadn't registered it yet: its own start updates it.` }
+  return { ...r, did: 'joined', note: `${builder.name} hadn't registered it yet: its own start updates it.` } // i18n-ignore: hive_lane's reply (agents)
 }
 
 /**
@@ -329,8 +344,8 @@ export async function joinLane(ws: WorkspaceService, j: { project: string; build
 export async function endLane(ws: WorkspaceService, id: string, o: { abandoned?: boolean; mergeCommit?: string | null; project?: string; agent?: string }): Promise<LaneInfo> {
   const rec = await mutate(ws, async (lanes) => {
     const l = lanes.find((x) => x.id === id && (!o.project || same(x.project, o.project)))
-    if (!l) throw new LaneError(404, `Unknown lane ${id}`)
-    if (o.agent && l.builder.id !== o.agent && l.reviewer?.id !== o.agent) throw new LaneError(403, "Only a lane's builder or reviewer ends it (or the user, or the Assistant)")
+    if (!l) throw new LaneError(404, withValues(M.unknown, { id }))
+    if (o.agent && l.builder.id !== o.agent && l.reviewer?.id !== o.agent) throw new LaneError(403, "Only a lane's builder or reviewer ends it (or the user, or the Assistant)") // i18n-ignore: hive_lane's refusal, which only a project agent gets
     if (running(l)) close(l, o.abandoned ? 'abandoned' : 'ended', (await views(ws, [l]))[0].cards, o.mergeCommit)
     else if (o.mergeCommit && !l.mergeCommit) l.mergeCommit = o.mergeCommit
     return l
@@ -356,7 +371,7 @@ export async function listLanes(ws: WorkspaceService, o: { project?: string | nu
 /** One lane by id (`project`: only one of that project's). */
 export async function getLane(ws: WorkspaceService, id: string, project?: string | null): Promise<LaneInfo> {
   const l = (await read(ws)).find((x) => x.id === id && (!project || same(x.project, project)))
-  if (!l) throw new LaneError(404, `Unknown lane ${id}`)
+  if (!l) throw new LaneError(404, withValues(M.unknown, { id }))
   return (await views(ws, [l]))[0]
 }
 

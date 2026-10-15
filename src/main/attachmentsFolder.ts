@@ -6,6 +6,8 @@ import { extname, join, relative, sep } from 'path'
 import { ATTACHMENTS_DIR, OLD_ATTACHMENTS_DIR, movedAttachmentPath } from '../shared/attachments'
 import { HIVE_DIR } from '../shared/defaults'
 import { insideReal, writeJsonAtomic } from './fsutil'
+import { msg } from '../shared/i18n'
+import { hiveError } from './hiveError'
 import { createLogger, userText } from './logger'
 
 const log = createLogger('attachments')
@@ -56,14 +58,14 @@ const SESSION_FOLDER = /^(?!\.{1,2}$)[\w.-]+$/
  * or symbolic link, never really outside the host. Throws otherwise, so nothing is written through one.
  */
 export async function ownAttachmentsFolder(host: string, sessionFolder?: string): Promise<string> {
-  if (sessionFolder !== undefined && !SESSION_FOLDER.test(sessionFolder)) throw new Error('Not a session folder name.')
+  if (sessionFolder !== undefined && !SESSION_FOLDER.test(sessionFolder)) throw hiveError(msg({ id: 'service.attachments.badFolder', defaultMessage: 'Not a session folder name.', description: "An error: a name given for a session's attachments folder isn't one Hive makes (a session id)." }), undefined, { kind: 'invalid' })
   const root = await attachmentsDir(host)
   const chain = [join(host, HIVE_DIR), root, ...(sessionFolder !== undefined ? [join(root, sessionFolder)] : [])]
   for (const p of chain) {
     if (!(await lstat(p).catch(() => null))) await mkdir(p).catch((e: NodeJS.ErrnoException) => (e.code === 'EEXIST' ? undefined : Promise.reject(e)))
     if (!(await isOwnFolder(host, p))) {
       log.warn(`${userText(p)} is a link or not a folder: no attachments are kept through it`)
-      throw new Error(`${p} is a link or not a folder of the project's own, so Hive keeps no attachments in it.`)
+      throw hiveError(msg({ id: 'service.attachments.notOwn', defaultMessage: "{folder} is a link or not a folder of the project's own, so Hive keeps no attachments in it.", description: "An error keeping a pasted or dropped file for a session: its folder {folder} (in the project's .hive) is a link or leads elsewhere, so Hive writes nothing through it." }), { folder: p })
     }
   }
   return chain[chain.length - 1]
@@ -161,7 +163,7 @@ async function recordRenamed(root: string, from: string, to: string): Promise<vo
   let map: Record<string, string> = {}
   try {
     const v = JSON.parse(await readFile(path, 'utf8')) as unknown
-    if (!v || typeof v !== 'object' || Array.isArray(v)) throw new Error(`${MOVED_FILE} is not a record of moved files`)
+    if (!v || typeof v !== 'object' || Array.isArray(v)) throw hiveError(msg({ id: 'service.attachments.badRecord', defaultMessage: '{file} is not a record of moved files', description: "An error: the file {file} where Hive records attachments it renamed can't be read as one (damaged)." }), { file: MOVED_FILE })
     map = v as Record<string, string>
   } catch (e) {
     if ((e as NodeJS.ErrnoException).code !== 'ENOENT') throw e

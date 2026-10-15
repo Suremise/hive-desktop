@@ -1,0 +1,618 @@
+{
+  "service.advanced.asIs": {
+    "defaultMessage": "{problem}",
+    "description": "Why advanced.json can't be used, in English (kept from before Hive translated it). Keep it as {problem} alone."
+  },
+  "service.advanced.changedOutside": {
+    "defaultMessage": "advanced.json was changed outside Hive meanwhile: Settings shows it now. Try again.",
+    "description": "An error changing an advanced setting: advanced.json (a file name: keep it) was edited elsewhere meanwhile, so the change wasn't written."
+  },
+  "service.advanced.fixFirst": {
+    "defaultMessage": "{problem} Fix advanced.json (Settings → Advanced → Open advanced.json) before changing settings here.",
+    "description": "An error changing an advanced setting while advanced.json (a file name: keep it) can't be read; {problem} says why, a sentence. Settings → Advanced → Open advanced.json is where to open it: use its translated names."
+  },
+  "service.advanced.fixOrDelete": {
+    "defaultMessage": "{problem} Fix or delete advanced.json first (Settings → Advanced → Open advanced.json).",
+    "description": "An error resetting every advanced setting while advanced.json (a file name: keep it) can't be read; {problem} says why, a sentence. Settings → Advanced → Open advanced.json is where to open it: use its translated names."
+  },
+  "service.advanced.newer": {
+    "defaultMessage": "advanced.json is from a newer Hive (format {format}): this one reads format {supported}.",
+    "description": "Above Settings → Advanced's list: advanced.json (a file name: keep it) was written by a newer version of Hive, in a format ({format}) this one can't read ({supported} is the one it reads)."
+  },
+  "service.advanced.notJson": {
+    "defaultMessage": "advanced.json isn't valid JSON: {error}",
+    "description": "Above Settings → Advanced's list: Hive's advanced settings file (advanced.json, a file name: keep it) can't be read as JSON; {error} is the JSON reader's own words (English)."
+  },
+  "service.advanced.notObject": {
+    "defaultMessage": "advanced.json should hold an object: {example}.",
+    "description": "Above Settings → Advanced's list: advanced.json (a file name: keep it) holds JSON that isn't an object; {example} is what it should look like (JSON: keep it)."
+  },
+  "service.advanced.notValues": {
+    "defaultMessage": "advanced.json's \"values\" should be an object of setting → value.",
+    "description": "Above Settings → Advanced's list: the \"values\" field of advanced.json (keep both as they are) isn't a set of settings and their values."
+  },
+  "service.advanced.unknown": {
+    "defaultMessage": "No advanced setting \"{id}\".",
+    "description": "An error changing an advanced setting: Hive has none with the id {id}."
+  },
+  "service.attachments.badFolder": {
+    "defaultMessage": "Not a session folder name.",
+    "description": "An error: a name given for a session's attachments folder isn't one Hive makes (a session id)."
+  },
+  "service.attachments.badRecord": {
+    "defaultMessage": "{file} is not a record of moved files",
+    "description": "An error: the file {file} where Hive records attachments it renamed can't be read as one (damaged)."
+  },
+  "service.attachments.notOwn": {
+    "defaultMessage": "{folder} is a link or not a folder of the project's own, so Hive keeps no attachments in it.",
+    "description": "An error keeping a pasted or dropped file for a session: its folder {folder} (in the project's .hive) is a link or leads elsewhere, so Hive writes nothing through it."
+  },
+  "service.benchmarks.allPinned": {
+    "defaultMessage": "{n} are kept and all are pinned: unpin or remove one first.",
+    "description": "An error keeping a comparison on the Performance page: the most that can be kept ({n}) are kept, all pinned, so none can make room."
+  },
+  "service.benchmarks.cantRead": {
+    "defaultMessage": "The kept comparisons can’t be read: {error}",
+    "description": "An error on the Performance page: the list of kept comparisons (benchmarks kept to compare) can't be read; {error} is why (the system's words)."
+  },
+  "service.benchmarks.closed": {
+    "defaultMessage": "The workspace was closed or switched: nothing was changed.",
+    "description": "An error on the Performance page: the workspace closed, or another opened in its window, while kept comparisons were being changed; nothing changed."
+  },
+  "service.benchmarks.damaged": {
+    "defaultMessage": "That comparison file is missing or damaged: remove it and import it again.",
+    "description": "An error on the Performance page: a kept comparison's file can't be read."
+  },
+  "service.benchmarks.evictedStays": {
+    "defaultMessage": "An evicted comparison couldn’t be removed yet: Hive will try again.",
+    "description": "A note on the Performance page: an old comparison taken off the list to make room couldn't be deleted yet; Hive tries again later."
+  },
+  "service.benchmarks.fileGone": {
+    "defaultMessage": "A kept comparison’s file was gone: it was taken off the list.",
+    "description": "A note on the Performance page: a kept comparison's file was missing, so it is no longer listed."
+  },
+  "service.benchmarks.invalid": {
+    "defaultMessage": "{n, plural, one {# file that couldn’t be read was moved to quarantine/.} other {# files that couldn’t be read were moved to quarantine/.}}",
+    "description": "A note on the Performance page: kept comparison files that couldn't be read were moved to the quarantine/ folder (a folder name: keep it)."
+  },
+  "service.benchmarks.noFile": {
+    "defaultMessage": "No file.",
+    "description": "An error importing a comparison on the Performance page: no file was given."
+  },
+  "service.benchmarks.noSuch": {
+    "defaultMessage": "No such comparison",
+    "description": "An error on the Performance page: the kept comparison asked for is not there."
+  },
+  "service.benchmarks.noSuchHere": {
+    "defaultMessage": "No such comparison for this scope",
+    "description": "An error on the Performance page: the kept comparison asked for isn't one of the scope shown (the workspace, or a project)."
+  },
+  "service.benchmarks.noWorkspace": {
+    "defaultMessage": "No workspace is open.",
+    "description": "An error on the Performance page: kept comparisons need a workspace open."
+  },
+  "service.benchmarks.notRemoved": {
+    "defaultMessage": "It is off the list, but its file couldn’t be removed yet: Hive will try again.",
+    "description": "An error removing a kept comparison on the Performance page: it is no longer listed, but its file couldn't be deleted yet."
+  },
+  "service.benchmarks.notWaiting": {
+    "defaultMessage": "That file is no longer waiting: import it again.",
+    "description": "An error importing a comparison on the Performance page: the file picked earlier is no longer held for the question that was asked about it."
+  },
+  "service.benchmarks.overflow": {
+    "defaultMessage": "{n, plural, one {# more than can be listed was moved to quarantine/.} other {# more than can be listed were moved to quarantine/.}}",
+    "description": "A note on the Performance page: kept comparisons past the most that can be listed were moved to the quarantine/ folder (a folder name: keep it)."
+  },
+  "service.benchmarks.recovered": {
+    "defaultMessage": "Recovered: {reason}. {n, plural, one {# kept comparison is} other {# kept comparisons are}} listed again{setAside, select, yes {; the old list is kept as index.damaged-….json} other {}}",
+    "description": "A note on the Performance page's Compare after Hive rebuilt its list of kept comparisons: {reason} says why, {n} how many are listed again; with setAside, the damaged list was kept beside it as index.damaged-….json (a file name: keep it)."
+  },
+  "service.benchmarks.removalFinished": {
+    "defaultMessage": "An interrupted removal was finished.",
+    "description": "A note on the Performance page: removing a kept comparison was interrupted earlier, and Hive finished it."
+  },
+  "service.benchmarks.strays": {
+    "defaultMessage": "{n, plural, one {# file not in the list was moved to quarantine/.} other {# files not in the list were moved to quarantine/.}}",
+    "description": "A note on the Performance page: kept comparison files the list had no entry for were moved to the quarantine/ folder (a folder name: keep it)."
+  },
+  "service.benchmarks.stuck": {
+    "defaultMessage": "{n, plural, one {# removed comparison’s file couldn’t be deleted yet (in use?): nothing more can be kept until it is.} other {# removed comparisons’ files couldn’t be deleted yet (in use?): nothing more can be kept until they are.}} Hive retries each time it reads the list.",
+    "description": "An error keeping a comparison on the Performance page: {n} removed comparisons' files couldn't be deleted yet (another program may have them open), and the list has no room until they are."
+  },
+  "service.benchmarks.switched": {
+    "defaultMessage": "The workspace was switched: nothing was kept.",
+    "description": "An error keeping the Performance page's report as a comparison: the window opened another workspace meanwhile."
+  },
+  "service.benchmarks.tooLarge": {
+    "defaultMessage": "It is over {mb} MB.",
+    "description": "An error importing a comparison on the Performance page: the file is larger than {mb} MB."
+  },
+  "service.benchmarks.unwritable": {
+    "defaultMessage": "Hive refused to write a list of kept comparisons it couldn’t read back: nothing was changed.",
+    "description": "An error on the Performance page: the list of kept comparisons Hive was about to write wouldn't read back as valid, so it wasn't written."
+  },
+  "service.benchmarks.why": {
+    "defaultMessage": "{why, select, missing {the list of kept comparisons was missing} damaged {the list of kept comparisons was damaged} entry {an entry of the list of kept comparisons was damaged} other {the list of kept comparisons had too many entries}}",
+    "description": "Why Hive rebuilt the list of kept comparisons from their files: it was missing, damaged, had a damaged entry, or had too many entries. A clause, lower case (it follows \"Recovered:\")."
+  },
+  "service.benchmarks.wrongScope": {
+    "defaultMessage": "That comparison file doesn’t match its scope: remove it and import it again.",
+    "description": "An error on the Performance page: a kept comparison's file is of another scope than its entry in the list says."
+  },
+  "service.files.badName": {
+    "defaultMessage": "\"{name}\" is not a valid name",
+    "description": "An error making or renaming a file or folder: {name} is empty, . or .., or has a character Windows can't have in a name."
+  },
+  "service.files.exists": {
+    "defaultMessage": "\"{name}\" already exists",
+    "description": "An error making or renaming a file or folder in the Files tab: one called {name} is already there."
+  },
+  "service.files.existsIn": {
+    "defaultMessage": "{root, select, yes {\"{name}\" already exists in the project root} other {\"{name}\" already exists in {folder}}}",
+    "description": "An error moving files: the folder they go to already has one called {name}. {root} is yes when that folder is the project's own (its root), else {folder} is its path in the project."
+  },
+  "service.files.groupInUse": {
+    "defaultMessage": "Another program has one of these files open. Close it, then try again.",
+    "description": "An error deleting a session's attachments: another program has one of them open, so none was moved."
+  },
+  "service.files.inUse": {
+    "defaultMessage": "Another program has this file open. Close it, then try again.",
+    "description": "An error deleting a session's attachment: another program has the file open, so Windows won't move it."
+  },
+  "service.files.insideItself": {
+    "defaultMessage": "Cannot put \"{name}\" inside itself",
+    "description": "An error moving a folder ({name}) into itself, or into a folder inside it."
+  },
+  "service.files.nameRequired": {
+    "defaultMessage": "A name is required",
+    "description": "An error making a file or folder with no name."
+  },
+  "service.files.needsEntry": {
+    "defaultMessage": "This action needs a file or folder inside the project",
+    "description": "An error in the Files tab: the action (rename, move, delete…) was given the project's own folder, not something in it."
+  },
+  "service.files.notAttachment": {
+    "defaultMessage": "Not a session attachment",
+    "description": "An error opening or deleting a session's attachment: the path isn't a file in a session's attachments folder."
+  },
+  "service.files.notKept": {
+    "defaultMessage": "Not one of the session attachments Hive keeps.",
+    "description": "An error deleting a session's attachment (a file pasted or dropped into a session): it isn't one Hive keeps, or it is a link."
+  },
+  "service.files.outside": {
+    "defaultMessage": "Path is outside the project",
+    "description": "An error in the Files tab: a file's path leads out of the project."
+  },
+  "service.files.throughLink": {
+    "defaultMessage": "Path leads outside the project (through a link)",
+    "description": "An error in the Files tab: a file's path goes through a link (a symbolic link or junction) to somewhere outside the project."
+  },
+  "service.fsutil.notCopied": {
+    "defaultMessage": "{name} could not be copied",
+    "description": "An error putting back one of Hive's skills or modes: its copy couldn't be made ({name}: its folder or file name); nothing was replaced."
+  },
+  "service.git.exitCode": {
+    "defaultMessage": "exit code {code}",
+    "description": "Why a git command failed when git said nothing: the number it exited with."
+  },
+  "service.git.failed": {
+    "defaultMessage": "{command} failed: {why}",
+    "description": "An error in the Changes tab: a git command ({command}, as it is: \"git status\") failed; {why} is git's own first line, or why git can't run."
+  },
+  "service.git.outside": {
+    "defaultMessage": "Path is outside the project",
+    "description": "An error showing a file's changes: its path leads out of the project."
+  },
+  "service.git.tooLarge": {
+    "defaultMessage": "File is too large to diff ({kb} KB).",
+    "description": "Shown in place of a file's changes in the Changes tab: the file is too large ({kb} KB) to compare."
+  },
+  "service.gitRepo.addFailed": {
+    "defaultMessage": "Couldn't add {remote}: {why}",
+    "description": "An error adding the remote {remote} in the Git view; {why} is git's own words."
+  },
+  "service.gitRepo.added": {
+    "defaultMessage": "Added {remote}.",
+    "description": "After adding a remote in the Git view: {remote} is its name."
+  },
+  "service.gitRepo.alreadyOn": {
+    "defaultMessage": "Already on {branch}.",
+    "description": "After switching branch in the Git view: the project folder was on {branch} already."
+  },
+  "service.gitRepo.asShown": {
+    "defaultMessage": "{problem}",
+    "description": "Why a Git view action was refused, said in the window's language already. Keep it as {problem} alone."
+  },
+  "service.gitRepo.badName": {
+    "defaultMessage": "{kind, select, tag {{hasName, select, yes {{name} isn't a valid tag name.} other {That isn't a valid tag name.}}} other {{hasName, select, yes {{name} isn't a valid branch name.} other {That isn't a valid branch name.}}}}",
+    "description": "An error creating a branch or a tag ({kind}): its name {name} is one git refuses. {hasName} is no when no name was given (then it says That)."
+  },
+  "service.gitRepo.chooseRemote": {
+    "defaultMessage": "Choose the remote to push to.",
+    "description": "An error pushing in the Git view: the repository has several remotes and none was chosen."
+  },
+  "service.gitRepo.command": {
+    "defaultMessage": "{command}: {why}",
+    "description": "An error in the Git view: a git command ({command}, as it is: \"git log\") failed; {why} is git's own words, or why git can't run."
+  },
+  "service.gitRepo.createFailed": {
+    "defaultMessage": "Couldn't create {name}: {why}",
+    "description": "An error creating the branch or tag {name}; {why} is git's own words."
+  },
+  "service.gitRepo.createdAt": {
+    "defaultMessage": "Created {name} at {commit}.",
+    "description": "After creating a branch in the Git view without switching to it: {name} starts at the commit {commit} (a short hash)."
+  },
+  "service.gitRepo.createdSwitched": {
+    "defaultMessage": "Created {name} and switched to it.",
+    "description": "After creating a branch in the Git view: the project folder is on the new branch {name}."
+  },
+  "service.gitRepo.detachedPull": {
+    "defaultMessage": "HEAD is detached: switch to a branch to pull.",
+    "description": "An error pulling in the Git view: the project folder is on no branch (a detached HEAD: keep HEAD as it is)."
+  },
+  "service.gitRepo.detachedPush": {
+    "defaultMessage": "HEAD is detached: switch to a branch to push.",
+    "description": "An error pushing in the Git view: the project folder is on no branch (a detached HEAD: keep HEAD as it is)."
+  },
+  "service.gitRepo.diverged": {
+    "defaultMessage": "{branch} and {upstream} have diverged ({ahead, plural, one {# commit} other {# commits}} here, {behind} there), so pulling needs a merge or rebase. Do that in a terminal, or ask an agent to.",
+    "description": "An error pulling in the Git view: the branch {branch} has {ahead} commits the remote branch {upstream} hasn't, and it has {behind} the branch hasn't; Hive pulls only when no merge is needed."
+  },
+  "service.gitRepo.exitCode": {
+    "defaultMessage": "exit code {code}",
+    "description": "Why a git command failed when git said nothing: the number it exited with."
+  },
+  "service.gitRepo.fetchFailed": {
+    "defaultMessage": "Couldn't fetch: {why}",
+    "description": "An error fetching from the repository's remotes; {why} is git's own words (any password in a URL hidden)."
+  },
+  "service.gitRepo.fetched": {
+    "defaultMessage": "Fetched {remotes}.",
+    "description": "After fetching in the Git view: {remotes} lists the remotes fetched from (their names), in the language's way."
+  },
+  "service.gitRepo.gaveUp": {
+    "defaultMessage": "git gave up after {minutes} minutes (no answer from the remote, or a sign-in left open).",
+    "description": "Why fetching, pulling or pushing failed: git waited {minutes} minutes for the remote (or a sign-in window) and stopped."
+  },
+  "service.gitRepo.identityRemoved": {
+    "defaultMessage": "Removed this repository's own identity: your global one applies.",
+    "description": "After clearing the repository's own commit name and email in the Git view: git uses the user's global ones."
+  },
+  "service.gitRepo.identitySet": {
+    "defaultMessage": "Set this repository's commit identity.",
+    "description": "After setting the repository's own commit name and email in the Git view."
+  },
+  "service.gitRepo.inWorktree": {
+    "defaultMessage": "{branch} is checked out in another worktree ({folder}): a branch can be in only one folder at a time.",
+    "description": "An error switching branch in the Git view: the branch {branch} is checked out in the worktree {folder}."
+  },
+  "service.gitRepo.midOperation": {
+    "defaultMessage": "Git is in the middle of a {state}: finish or abort it first.",
+    "description": "An error pulling in the Git view: a git operation is under way in the project folder; {state} is git's word for it (merge, rebase, cherry-pick, revert or bisect: keep it as it is)."
+  },
+  "service.gitRepo.noBranch": {
+    "defaultMessage": "There's no branch {branch}.",
+    "description": "An error switching branch in the Git view: the repository has no branch called {branch}."
+  },
+  "service.gitRepo.noCommits": {
+    "defaultMessage": "The repository has no commits yet: commit something first.",
+    "description": "An error creating a branch in a repository with no commit yet."
+  },
+  "service.gitRepo.noRemote": {
+    "defaultMessage": "There's no remote {remote}.",
+    "description": "An error pushing or tagging: the repository has no remote called {remote}."
+  },
+  "service.gitRepo.noRemotes": {
+    "defaultMessage": "This repository has no remotes: add one first.",
+    "description": "An error pushing in the Git view: the repository has no remote."
+  },
+  "service.gitRepo.noRemotesFetch": {
+    "defaultMessage": "This repository has no remotes to fetch from: add one first.",
+    "description": "An error fetching in the Git view: the repository has no remote."
+  },
+  "service.gitRepo.noUpstream": {
+    "defaultMessage": "{branch} tracks no remote branch: push it first, or switch to one that does.",
+    "description": "An error pulling in the Git view: the branch {branch} follows no remote branch."
+  },
+  "service.gitRepo.notRepo": {
+    "defaultMessage": "{folder} isn't a git repository.",
+    "description": "An error in the Git view: the project folder {folder} is not in a git repository."
+  },
+  "service.gitRepo.nothingToPush": {
+    "defaultMessage": "The repository has no commits yet: nothing to push.",
+    "description": "An error pushing in the Git view: the repository has no commit yet."
+  },
+  "service.gitRepo.nothingToTag": {
+    "defaultMessage": "The repository has no commits yet: nothing to tag.",
+    "description": "An error tagging in the Git view: the repository has no commit yet."
+  },
+  "service.gitRepo.pullFailed": {
+    "defaultMessage": "Couldn't pull: {why}",
+    "description": "An error pulling in the Git view; {why} is git's own words."
+  },
+  "service.gitRepo.pulled": {
+    "defaultMessage": "Pulled {n, plural, one {# commit} other {# commits}} from {upstream}.",
+    "description": "After pulling in the Git view: {n} commits came from the remote branch {upstream}."
+  },
+  "service.gitRepo.pushFailed": {
+    "defaultMessage": "Couldn't push to {to}: {why}",
+    "description": "An error pushing to the remote branch {to} in the Git view; {why} is git's own words."
+  },
+  "service.gitRepo.pushed": {
+    "defaultMessage": "Pushed {branch} to {to}.",
+    "description": "After pushing in the Git view: the branch {branch} went to the remote branch {to}."
+  },
+  "service.gitRepo.rejected": {
+    "defaultMessage": "{to} has commits {branch} hasn't, so the push was refused (Hive never forces a push). Pull first, or merge them in a terminal.",
+    "description": "An error pushing the branch {branch} in the Git view: the remote branch {to} has commits it hasn't, so the remote refused."
+  },
+  "service.gitRepo.setFailed": {
+    "defaultMessage": "Couldn't set {key}: {why}",
+    "description": "An error setting the repository's commit identity in the Git view: the git setting {key} (user.name or user.email: keep it) couldn't be set; {why} is git's own words."
+  },
+  "service.gitRepo.switchFailed": {
+    "defaultMessage": "Couldn't switch to {branch}: {why}",
+    "description": "An error switching the project folder to the branch {branch}; {why} is git's own words."
+  },
+  "service.gitRepo.switched": {
+    "defaultMessage": "Switched to {branch}.",
+    "description": "After switching branch in the Git view: the project folder is on {branch} now."
+  },
+  "service.gitRepo.switchedTracking": {
+    "defaultMessage": "Switched to {branch}, tracking {remote}.",
+    "description": "After switching to a remote branch in the Git view: a new local branch {branch} was made, following the remote branch {remote} (origin/x)."
+  },
+  "service.gitRepo.tagPushFailed": {
+    "defaultMessage": "Tagged {commit} {name}, but couldn't push it to {remote}: {why}",
+    "description": "An error in the Git view: the commit {commit} was tagged {name}, but pushing the tag to the remote {remote} failed; {why} is git's own words."
+  },
+  "service.gitRepo.tagged": {
+    "defaultMessage": "Tagged {commit} {name}.",
+    "description": "After tagging in the Git view: the commit {commit} (a short hash) has the tag {name}."
+  },
+  "service.gitRepo.taggedPushed": {
+    "defaultMessage": "Tagged {commit} {name} and pushed it to {remote}.",
+    "description": "After tagging in the Git view: the commit {commit} has the tag {name}, which went to the remote {remote} too."
+  },
+  "service.gitRepo.upToDate": {
+    "defaultMessage": "{branch} is up to date with {upstream}.",
+    "description": "After pulling in the Git view: the branch {branch} has every commit of the remote branch {upstream} already."
+  },
+  "service.gitRepo.upstreamGone": {
+    "defaultMessage": "{upstream} is gone from the remote.",
+    "description": "An error pulling in the Git view: the remote branch {upstream} the branch follows was deleted there."
+  },
+  "service.gitRepo.urlChanged": {
+    "defaultMessage": "Changed {remote}'s URL.",
+    "description": "After changing the address of the remote {remote} in the Git view."
+  },
+  "service.gitRepo.urlFailed": {
+    "defaultMessage": "Couldn't change {remote}'s URL: {why}",
+    "description": "An error changing the address of the remote {remote} in the Git view; {why} is git's own words."
+  },
+  "service.hiveVcs.cantList": {
+    "defaultMessage": "Git couldn't list the files it tracks in .hive.",
+    "description": "An error untracking the project's .hive folder from git: git couldn't list them. Keep .hive as it is (a folder name)."
+  },
+  "service.hiveVcs.cantListWhy": {
+    "defaultMessage": "Git couldn't list the files it tracks in .hive ({problem}).",
+    "description": "An error untracking the project's .hive folder from git: git can't run; {problem} says why (\"Git isn't installed\"). Keep .hive as it is (a folder name)."
+  },
+  "service.hiveVcs.changed": {
+    "defaultMessage": "The files git tracks in .hive changed since you were shown them: nothing was untracked. Look again.",
+    "description": "An error untracking the project's .hive folder from git: the list of its tracked files changed after Hive showed it, so nothing changed. Keep .hive as it is."
+  },
+  "service.hiveVcs.exitCode": {
+    "defaultMessage": "exit code {code}",
+    "description": "Why a git command failed when git said nothing: the number it exited with."
+  },
+  "service.hiveVcs.noRepo": {
+    "defaultMessage": "No git repository holds this project.",
+    "description": "An error untracking the project's .hive folder (Hive's own files) from git: the project isn't in a git repository."
+  },
+  "service.hiveVcs.rmFailed": {
+    "defaultMessage": "git rm --cached failed: {why}",
+    "description": "An error untracking the project's .hive folder from git: the git command (git rm --cached: keep it) failed; {why} is git's own first line, or why git can't run."
+  },
+  "service.lanes.noWorkspace": {
+    "defaultMessage": "No workspace is open",
+    "description": "An error changing a workspace's lanes (card loops) while no workspace is open in the window."
+  },
+  "service.lanes.unknown": {
+    "defaultMessage": "Unknown lane {id}",
+    "description": "An error: there is no lane (a card loop) with the id {id}, perhaps removed meanwhile."
+  },
+  "service.metrics.badProvider": {
+    "defaultMessage": "provider must be a provider id",
+    "description": "An error reading metrics: the provider filter isn't a provider's id. Keep provider as it is (a parameter's name)."
+  },
+  "service.metrics.badRange": {
+    "defaultMessage": "from and to must be ISO times, from before to",
+    "description": "An error reading metrics: the range asked for is not two times in order. from and to are the parameters' names: keep them, and ISO."
+  },
+  "service.metrics.badRole": {
+    "defaultMessage": "role must be agent, assistant, api or viewer",
+    "description": "An error reading metrics: the role filter isn't one of its values. Keep role, agent, assistant, api and viewer as they are (a parameter and its values)."
+  },
+  "service.metrics.droppedPerProject": {
+    "defaultMessage": "Dropped measurements are counted per project, not per role or provider.",
+    "description": "A note on the Performance page while it is filtered by role or provider: dropped measurements can't be narrowed."
+  },
+  "service.metrics.notCliContext": {
+    "defaultMessage": "Context a CLI adds itself (its own system prompt, tool definitions, files it reads).",
+    "description": "On the Performance page, under What isn't measured: what a coding agent CLI puts in its model's context itself."
+  },
+  "service.metrics.notNetwork": {
+    "defaultMessage": "Provider network traffic: Hive starts the CLIs; it is not a proxy between them and their providers.",
+    "description": "On the Performance page, under What isn't measured: the coding agent CLIs' own network traffic."
+  },
+  "service.metrics.notPerProvider": {
+    "defaultMessage": "Agent API requests, tool calls and the tool list aren’t recorded per provider: they are every provider’s.",
+    "description": "A note on the Performance page while it is filtered by provider: these numbers can't be narrowed to one provider."
+  },
+  "service.metrics.notSkillReads": {
+    "defaultMessage": "Whether a model read a skill: delivered skills are counted, reading one is not observable.",
+    "description": "On the Performance page, under What isn't measured: whether a model read a skill Hive gave it."
+  },
+  "service.metrics.notTokens": {
+    "defaultMessage": "Provider tokens per Hive tool or per guidance part: providers report a session’s usage, not what each part of its context cost.",
+    "description": "On the Performance page, under What isn't measured: Hive can't tell how many tokens each of its tools or guidance parts cost."
+  },
+  "service.metrics.notTransport": {
+    "defaultMessage": "HTTP headers and transport: request sizes are the body bytes received, response sizes the JSON body written (an aborted reply may not all have been sent).",
+    "description": "On the Performance page, under What isn't measured: the Agent API's request and response sizes count only the bodies."
+  },
+  "service.metrics.sharedNumbers": {
+    "defaultMessage": "The skill service and Hive-wide numbers are shared: not per role or provider.",
+    "description": "A note on the Performance page while it is filtered by role or provider: these numbers can't be narrowed."
+  },
+  "service.providers.keysStopped": {
+    "defaultMessage": "{task}: Hive stopped typing into it, as {why}. Finish it in the terminal.",
+    "description": "A notification: Hive stopped typing the keys of a coding agent CLI's task ({task}: \"Codex setup\") into its terminal; {why} says why (a clause: \"its terminal closed\")."
+  },
+  "service.providers.noSetup": {
+    "defaultMessage": "{cli} has no setup task.",
+    "description": "An error: the coding agent CLI {cli} (\"Codex\") has no setup task for Hive to run."
+  },
+  "service.providers.notInstalled": {
+    "defaultMessage": "{cli} is not installed.",
+    "description": "An error running a coding agent CLI's task (update, sign-in, setup): the CLI {cli} (\"Codex\") is not installed."
+  },
+  "service.providers.pickNotFound": {
+    "defaultMessage": "{task}: Hive couldn't find {item}. Do it in the terminal, or update Hive.",
+    "description": "A notification: Hive types the keys of a coding agent CLI's task ({task}: \"Codex setup\") into its terminal, and couldn't find the menu item {item} (the CLI's own words) on its screen."
+  },
+  "service.providers.stillLooking": {
+    "defaultMessage": "Hive is still looking for {cli}. Try again in a moment.",
+    "description": "An error: Hive hasn't finished finding the coding agent CLI {cli} (\"Codex\"), so it can't use it yet."
+  },
+  "service.providers.stillLookingAll": {
+    "defaultMessage": "Hive is still looking for the coding agent CLIs. Try again in a moment.",
+    "description": "An error: Hive hasn't finished finding the coding agent CLIs installed (it does when it starts), so it can't choose one yet."
+  },
+  "service.providers.stopFirst": {
+    "defaultMessage": "Stop all running {cli} agents before updating it.",
+    "description": "An error updating the coding agent CLI {cli} (\"Codex\") while agents run it."
+  },
+  "service.providers.stoppedBusy": {
+    "defaultMessage": "it stayed busy for 30 seconds",
+    "description": "Why Hive stopped typing a coding agent CLI's setup keys: it stayed busy for 30 seconds. A clause, lower case (it follows \"as\")."
+  },
+  "service.providers.stoppedClosed": {
+    "defaultMessage": "its terminal closed",
+    "description": "Why Hive stopped typing a coding agent CLI's setup keys: its terminal closed. A clause, lower case (it follows \"as\")."
+  },
+  "service.providers.task": {
+    "defaultMessage": "{task, select, install {{cli} install} update {{cli} update} login {{cli} sign-in} other {{cli} setup}}",
+    "description": "A coding agent CLI's task Hive runs in a terminal, as its notifications name it: {cli} is the CLI (\"Codex\"), {task} which task (install, update, sign-in, or another setup)."
+  },
+  "service.providers.taskDone": {
+    "defaultMessage": "{task} finished",
+    "description": "A notification: a coding agent CLI's task ({task}: \"Codex install\") ended well."
+  },
+  "service.providers.taskFailed": {
+    "defaultMessage": "{task} exited with code {code}",
+    "description": "A notification: a coding agent CLI's task ({task}: \"Codex install\") ended with the exit code {code}."
+  },
+  "service.transcripts.busy": {
+    "defaultMessage": "This session is being archived or deleted. Try again in a moment.",
+    "description": "An error opening a session's conversation in the Sessions tab while it is being archived or deleted."
+  },
+  "service.transcripts.exported": {
+    "defaultMessage": "{session} · exported from Hive {date}",
+    "description": "The line under the title of a conversation exported as Markdown (Sessions tab → Export): {session} says which session it was, {date} when it was exported."
+  },
+  "service.transcripts.imageNotKept": {
+    "defaultMessage": "The image is not stored in the transcript",
+    "description": "An error in the Sessions tab: the conversation's file mentions the image but doesn't hold it."
+  },
+  "service.transcripts.noImage": {
+    "defaultMessage": "No such image",
+    "description": "An error in the Sessions tab: the image asked for isn't in the conversation (any more)."
+  },
+  "service.transcripts.noTool": {
+    "defaultMessage": "No such tool call",
+    "description": "An error in the Sessions tab: the tool call asked for isn't in the conversation (any more)."
+  },
+  "service.transcripts.none": {
+    "defaultMessage": "This session has no transcript yet.",
+    "description": "An error in the Sessions tab: the session's CLI hasn't written its conversation's file yet."
+  },
+  "service.workspace.advancedNotHere": {
+    "defaultMessage": "{setting} can't be set for a workspace.",
+    "description": "An error: the advanced setting {setting} (its title, or its id) has no value of its own for a workspace, only for Hive."
+  },
+  "service.workspace.agentGone": {
+    "defaultMessage": "That agent no longer exists.",
+    "description": "An error changing an agent's settings: it was removed meanwhile."
+  },
+  "service.workspace.badName": {
+    "defaultMessage": "Project names cannot start with \".\" or contain {chars}",
+    "description": "An error making a project: a project's name (its folder's) can't start with a dot or hold the characters {chars}, which Windows doesn't allow in a folder's name."
+  },
+  "service.workspace.closed": {
+    "defaultMessage": "The workspace was closed",
+    "description": "An error: the workspace was closed (or the window opened another) while the action was under way."
+  },
+  "service.workspace.folderExists": {
+    "defaultMessage": "A folder named \"{name}\" already exists",
+    "description": "An error making a project: the workspace already has a folder called {name}."
+  },
+  "service.workspace.holdsOpen": {
+    "defaultMessage": "The workspace {workspace}, open in another window, is inside {folder}. Close it first to open {name} as a workspace.",
+    "description": "An error opening a workspace: another Hive window's workspace {workspace} is inside the folder {folder} (its name: {name})."
+  },
+  "service.workspace.insideOpen": {
+    "defaultMessage": "{folder} is inside the workspace {workspace}, which is open in another window. Close that workspace first, or open this folder's projects from there.",
+    "description": "An error opening a workspace: the folder {folder} is inside {workspace}, the workspace of another Hive window (a workspace inside another would share its projects)."
+  },
+  "service.workspace.loopRounds": {
+    "defaultMessage": "Card loop rounds take a whole number from 1 to {max}.",
+    "description": "An error in Settings → Workspace: a card loop's rounds (how many reviews a card gets before the user is asked) must be a whole number from 1 to {max}."
+  },
+  "service.workspace.loopWait": {
+    "defaultMessage": "Card loop wait takes a whole number of hours from 1 to {max}.",
+    "description": "An error in Settings → Workspace: a card loop's wait (hours with no change before the user is told) must be a whole number from 1 to {max}."
+  },
+  "service.workspace.nameIn": {
+    "defaultMessage": "{name} is in {projects}",
+    "description": "Part of the notice that agents of several projects share a name: {name} is the name, {projects} the projects (a list, in the language's way: \"alpha and beta\")."
+  },
+  "service.workspace.namesShared": {
+    "defaultMessage": "Agents share names",
+    "description": "A notice's title: agents of several projects share names."
+  },
+  "service.workspace.none": {
+    "defaultMessage": "No workspace is open",
+    "description": "An error: the action needs a workspace, and none is open in this window."
+  },
+  "service.workspace.notFound": {
+    "defaultMessage": "Folder not found: {folder}",
+    "description": "An error opening a workspace: the folder {folder} is not there."
+  },
+  "service.workspace.notProject": {
+    "defaultMessage": "Not a project in the open workspace: {path}",
+    "description": "An error: {path} isn't one of the open workspace's projects (a folder in it, not hidden)."
+  },
+  "service.workspace.notRoot": {
+    "defaultMessage": "Not a project or agent worktree in the open workspace: {path}",
+    "description": "An error: {path} is neither one of the open workspace's projects nor the worktree of one of their agents."
+  },
+  "service.workspace.openElsewhere": {
+    "defaultMessage": "{folder} is already open in another window.",
+    "description": "An error opening a workspace: the folder {folder} is the workspace of another Hive window."
+  },
+  "service.workspace.renameAgent": {
+    "defaultMessage": "Rename {project}'s {agent}…",
+    "description": "The notice's button: opens the settings of the agent {agent} of the project {project}, to rename it."
+  },
+  "service.workspace.sharedNames": {
+    "defaultMessage": "Agent names are unique across the workspace now, so each agent can be told apart. {shared}: they keep working, but rename one of each, e.g. {project}'s {agent} to {suggestion}.",
+    "description": "A notice: agents of several projects share names from before names were unique. {shared} says which (\"R1 is in alpha and beta\"); {suggestion} is a free name for the agent {agent} of the project {project}."
+  },
+  "service.workspace.twoCalled": {
+    "defaultMessage": "Two agents are called {name}",
+    "description": "A notice's title: agents of two projects share the name {name}."
+  }
+}

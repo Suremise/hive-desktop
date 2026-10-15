@@ -74,16 +74,16 @@ const key = (p: string): string => p.toLowerCase()
 /** Optional integer field: undefined when absent, else a whole number in range (400 otherwise). */
 function int(v: unknown, name: string, min: number, max: number): number | undefined {
   if (v === undefined || v === null) return undefined
-  if (typeof v !== 'number' || !Number.isFinite(v)) throw new ProgressError(400, `${name} must be a number`)
+  if (typeof v !== 'number' || !Number.isFinite(v)) throw new ProgressError(400, `${name} must be a number`) // i18n-ignore: the Agent API's progress replies, which agents and hive-progress read
   const n = Math.round(v)
-  if (n < min || n > max) throw new ProgressError(400, `${name} must be between ${min} and ${max}`)
+  if (n < min || n > max) throw new ProgressError(400, `${name} must be between ${min} and ${max}`) // i18n-ignore: the Agent API's progress replies, which agents and hive-progress read
   return n
 }
 
 /** Optional text field, trimmed and cut to its limit; undefined when absent. */
 function text(v: unknown, name: string, max: number): string | undefined {
   if (v === undefined || v === null) return undefined
-  if (typeof v !== 'string') throw new ProgressError(400, `${name} must be text`)
+  if (typeof v !== 'string') throw new ProgressError(400, `${name} must be text`) // i18n-ignore: the Agent API's progress replies, which agents and hive-progress read
   const s = v.replace(/\s+/g, ' ').trim()
   return s.length > max ? `${s.slice(0, max - 1)}…` : s
 }
@@ -120,7 +120,7 @@ export function keptRuns(saved: unknown, workspacePath: string): ProgressRun[] {
       workspacePath,
       projectPath: source === 'agent' ? keptText(r.projectPath, 1000) : null,
       agentId: source === 'agent' ? keptText(r.agentId, 200) : null,
-      agentName: keptText(r.agentName, MAX_TITLE) ?? (source === 'api' ? 'Script' : 'Agent'),
+      agentName: keptText(r.agentName, MAX_TITLE) ?? (source === 'api' ? 'Script' : 'Agent'), // i18n-ignore: a run's stored name for a script, which agents read too
       provider: PROVIDERS.some((p) => p.id === r.provider) ? (r.provider as ProviderId) : null,
       source,
       title,
@@ -263,7 +263,7 @@ export class ProgressStore {
   start(caller: ProgressCaller, body: Record<string, unknown>): ProgressRun {
     // Every field is checked before anything changes.
     const title = text(body.title, 'title', MAX_TITLE)
-    if (!title) throw new ProgressError(400, 'title is required')
+    if (!title) throw new ProgressError(400, 'title is required') // i18n-ignore: the Agent API's progress replies, which agents and hive-progress read
     const total = int(body.total, 'total', 1, MAX_TOTAL)
     const step = int(body.step, 'step', 0, total ?? MAX_TOTAL)
     const command = text(body.command, 'command', MAX_COMMAND)
@@ -271,19 +271,19 @@ export class ProgressStore {
     const estimateMs = int(body.estimateMs, 'estimateMs', 0, MAX_ESTIMATE_MS)
     const waiting = text(body.waiting, 'waiting', MAX_STEP_NAME)
     const pid = int(body.pid, 'pid', 1, 4_294_967_295)
-    if (body.titleFromCommand !== undefined && typeof body.titleFromCommand !== 'boolean') throw new ProgressError(400, 'titleFromCommand must be true or false')
+    if (body.titleFromCommand !== undefined && typeof body.titleFromCommand !== 'boolean') throw new ProgressError(400, 'titleFromCommand must be true or false') // i18n-ignore: the Agent API's progress replies, which agents and hive-progress read
     const list = this.runs.get(key(caller.workspacePath)) ?? []
     const mine = list.filter((r) => isOpenRun(r) && this.owns(caller, r, true))
-    if (mine.length >= MAX_OPEN_PER_OWNER) throw new ProgressError(429, `At most ${MAX_OPEN_PER_OWNER} runs can be open at once: finish one first`)
+    if (mine.length >= MAX_OPEN_PER_OWNER) throw new ProgressError(429, `At most ${MAX_OPEN_PER_OWNER} runs can be open at once: finish one first`) // i18n-ignore: the Agent API's progress replies, which agents and hive-progress read
     // The workspace's bound holds whoever reports. Ended runs don't count: Recent keeps the newest RECENT_KEPT.
-    if (list.filter((r) => r.finishedAt === null).length >= MAX_OPEN_PER_WORKSPACE) throw new ProgressError(429, `This workspace already has ${MAX_OPEN_PER_WORKSPACE} open runs: finish some first`)
+    if (list.filter((r) => r.finishedAt === null).length >= MAX_OPEN_PER_WORKSPACE) throw new ProgressError(429, `This workspace already has ${MAX_OPEN_PER_WORKSPACE} open runs: finish some first`) // i18n-ignore: the Agent API's progress replies, which agents and hive-progress read
     const now = this.deps.now()
     const run: ProgressRun = {
       id: randomUUID(),
       workspacePath: caller.workspacePath,
       projectPath: caller.source === 'agent' ? caller.projectPath : null,
       agentId: caller.source === 'agent' ? caller.agentId : null,
-      agentName: caller.source === 'api' ? 'Script' : caller.agentName,
+      agentName: caller.source === 'api' ? 'Script' : caller.agentName, // i18n-ignore: a run's stored name for a script, which agents read too
       provider: caller.source === 'api' ? null : caller.provider,
       source: caller.source as ProgressSource,
       title,
@@ -318,10 +318,10 @@ export class ProgressStore {
 
   update(caller: ProgressCaller, id: string, body: Record<string, unknown>): ProgressRun {
     const run = this.find(caller, id)
-    if (run.finishedAt !== null) throw new ProgressError(409, 'That run has finished')
+    if (run.finishedAt !== null) throw new ProgressError(409, 'That run has finished') // i18n-ignore: the Agent API's progress replies, which agents and hive-progress read
     // A total comes at the start, or once later on a run started without one (a command that counts its steps late).
     const total = int(body.total, 'total', 1, MAX_TOTAL)
-    if (total !== undefined && run.total !== null) throw new ProgressError(409, 'That run already has a total')
+    if (total !== undefined && run.total !== null) throw new ProgressError(409, 'That run already has a total') // i18n-ignore: the Agent API's progress replies, which agents and hive-progress read
     const step = int(body.step, 'step', 0, total ?? run.total ?? MAX_TOTAL)
     const stepName = text(body.stepName, 'stepName', MAX_STEP_NAME)
     const estimateMs = int(body.estimateMs, 'estimateMs', 0, MAX_ESTIMATE_MS)
@@ -362,15 +362,15 @@ export class ProgressStore {
   }
 
   finish(caller: ProgressCaller, id: string, body: Record<string, unknown>): ProgressRun {
-    if (typeof body.ok !== 'boolean') throw new ProgressError(400, 'ok (true or false) is required')
-    if (body.stopped !== undefined && typeof body.stopped !== 'boolean') throw new ProgressError(400, 'stopped must be true or false')
+    if (typeof body.ok !== 'boolean') throw new ProgressError(400, 'ok (true or false) is required') // i18n-ignore: the Agent API's progress replies, which agents and hive-progress read
+    if (body.stopped !== undefined && typeof body.stopped !== 'boolean') throw new ProgressError(400, 'stopped must be true or false') // i18n-ignore: the Agent API's progress replies, which agents and hive-progress read
     // stopped (#549): it neither passed nor failed: its command was interrupted (Ctrl+C), whatever ok says.
     const stopped = body.stopped === true
     const summary = text(body.summary, 'summary', MAX_SUMMARY)
     const exitCode = int(body.exitCode, 'exitCode', -2_147_483_648, 4_294_967_295)
     const logPath = text(body.logPath, 'logPath', MAX_LOG_PATH)
     const run = this.find(caller, id)
-    if (run.finishedAt !== null) throw new ProgressError(409, 'That run has finished')
+    if (run.finishedAt !== null) throw new ProgressError(409, 'That run has finished') // i18n-ignore: the Agent API's progress replies, which agents and hive-progress read
     const now = this.deps.now()
     run.finishedAt = now
     run.updatedAt = now
@@ -516,7 +516,7 @@ export class ProgressStore {
   /** A run the caller may change; another's answers as if it didn't exist. */
   private find(caller: ProgressCaller, id: string): ProgressRun {
     const run = typeof id === 'string' ? this.runs.get(key(caller.workspacePath))?.find((r) => r.id === id) : undefined
-    if (!run || !this.owns(caller, run)) throw new ProgressError(404, 'Unknown progress run')
+    if (!run || !this.owns(caller, run)) throw new ProgressError(404, 'Unknown progress run') // i18n-ignore: the Agent API's progress replies, which agents and hive-progress read
     return run
   }
 

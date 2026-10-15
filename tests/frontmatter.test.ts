@@ -44,7 +44,7 @@ describe('reading the header as YAML', () => {
   })
 
   it("an audience Hive doesn't know, or the wrong type, is a problem rather than a default", () => {
-    expect(parse('name: a\nmetadata:\n  audience: assitant')).toEqual({ name: 'a', problem: 'its audience is "assitant", not agents, assistant or all' })
+    expect(parse('name: a\nmetadata:\n  audience: assitant')).toEqual({ name: 'a', problem: 'its audience is "assitant", not agents, assistant or all', problemText: expect.anything() })
     expect(parse('name: a\nmetadata:\n  audience: [assistant]').problem).toBe('its audience is a list, not agents, assistant or all')
     expect(parse('name: a\nmetadata:\n  audience: 3').problem).toBe('its audience is a number, not agents, assistant or all')
     expect(parse('name: a\nmetadata: assistant').problem).toMatch(/^its metadata isn't a set of fields/)
@@ -66,7 +66,7 @@ describe('reading the header as YAML', () => {
 
   it('an audience written but empty (null, ~, nothing) is a problem; only one left out is the default', () => {
     for (const y of ['metadata:\n  audience: null', 'metadata:\n  audience: ~', 'metadata:\n  audience:', 'metadata: { audience: }']) {
-      expect(parse(`name: a\n${y}`), y).toEqual({ name: 'a', problem: 'its audience is empty, not agents, assistant or all' })
+      expect(parse(`name: a\n${y}`), y).toEqual({ name: 'a', problem: 'its audience is empty, not agents, assistant or all', problemText: expect.anything() })
     }
     expect(parse('name: a\nmetadata:\n  other: 1')).toEqual({ name: 'a' })
   })

@@ -809,7 +809,7 @@ function McpPanel() {
                   )}
                 </div>
                 <div className="desc" style={{ whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
-                  {m.error ?? m.def?.description ?? m.def?.command ?? m.def?.url}
+                  {actions.mcpErrorText(m) ?? m.def?.description ?? m.def?.command ?? m.def?.url}
                 </div>
                 {!m.error && (
                   <div className="desc mcp-where" style={{ whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
