@@ -423,7 +423,7 @@ export function App() {
         <ActivityBar />
         <Sidebar />
         {workspace && assistantLeft && (
-          <ErrorBoundary label={tr(msg({ id: 'shell.view.assistant', defaultMessage: 'The Assistant', description: 'Names a part of the window that failed to show ("The Assistant ran into a problem…").' }))}>
+          <ErrorBoundary view="assistant">
             <AssistantPanel />
           </ErrorBoundary>
         )}
@@ -441,12 +441,12 @@ export function App() {
           )}
         </div>
         {workspace && (
-          <ErrorBoundary label={tr(msg({ id: 'shell.view.progress', defaultMessage: 'The Progress panel', description: 'Names a part of the window that failed to show ("The Progress panel ran into a problem…").' }))}>
+          <ErrorBoundary view="progress">
             <ProgressPanel />
           </ErrorBoundary>
         )}
         {workspace && !assistantLeft && (
-          <ErrorBoundary label={tr(msg({ id: 'shell.view.assistant', defaultMessage: 'The Assistant', description: 'Names a part of the window that failed to show ("The Assistant ran into a problem…").' }))}>
+          <ErrorBoundary view="assistant">
             <AssistantPanel />
           </ErrorBoundary>
         )}

@@ -375,7 +375,7 @@ export function partCost(p: CostPart): string {
 }
 
 /** "cost: ≈ $1.84 · 2 rounds" (the card's own line), in the window's language (#798). */
-export function cardCostLine(c: CardCost): string {
+export function cardCostLine(c: Pick<CardCost, 'total' | 'rounds'>): string {
   return tr(msg({ id: 'board.cost.cardLine', defaultMessage: 'cost: {cost}{rounds, plural, =0 {} one { · # round} other { · # rounds}}', description: "A card's cost on the board, under its title: what its agents used ({cost}: \"≈ $1.84\", \"Unknown\"), then how many review rounds it has had (none: leave that branch empty). Lower case: it reads as a note." }), { cost: partCost(c.total), rounds: c.rounds })
 }
 

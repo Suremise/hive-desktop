@@ -784,8 +784,8 @@
     "description": "Button under a view that failed: opens the folder of Hive's log files."
   },
   "shell.errorBoundary.named": {
-    "defaultMessage": "{view} ran into a problem and couldn't be shown.",
-    "description": "Where a part of the window failed to show. {view} names it (The Assistant, The Progress panel…), given in the window's code."
+    "defaultMessage": "{view, select, assistant {The Assistant ran into a problem and couldn't be shown.} progress {The Progress panel ran into a problem and couldn't be shown.} tab {This tab ran into a problem and couldn't be shown.} devConsole {The developer console ran into a problem and couldn't be shown.} other {Hive ran into a problem and couldn't be shown.}}",
+    "description": "Where a part of the window failed to show. {view} picks which: the Hive Assistant, the Progress panel, a project's tab, the developer console's window, or the whole window (other: Hive)."
   },
   "shell.errorBoundary.reload": {
     "defaultMessage": "Reload Window",
@@ -1020,8 +1020,8 @@
     "description": "The quit dialog's table: the heading of the column saying what stopping each agent interrupts."
   },
   "shell.quit.stops": {
-    "defaultMessage": "{how, select, workspace {Closing the workspace stops its} switch {Switching workspace stops this workspace's} window {Closing this window stops this workspace's} allWindows {Quitting closes all {windows} windows and stops} other {Quitting stops}} {busy, select, yes {{n, plural, one {session} other {{all, select, yes {all {n} sessions} other {{n} sessions}}}}} other {{n, plural, one {running session} other {# running sessions}}}}{everywhere, select, yes {, in every workspace} other {}}.",
-    "description": "The quit dialog: what closing or quitting stops. {how} is what it does (close the workspace, switch it, close the window, quit with {windows} windows open, or quit); {busy} is yes when an agent is busy (then the sentence before says so); {n} is how many sessions; {all} is yes when quitting; {everywhere} is yes with several windows."
+    "defaultMessage": "{how, select, workspace {{busy, select, yes {{n, plural, one {Closing the workspace stops its session.} other {Closing the workspace stops its # sessions.}}} other {{n, plural, one {Closing the workspace stops its running session.} other {Closing the workspace stops its # running sessions.}}}}} switch {{busy, select, yes {{n, plural, one {Switching workspace stops this workspace's session.} other {Switching workspace stops this workspace's # sessions.}}} other {{n, plural, one {Switching workspace stops this workspace's running session.} other {Switching workspace stops this workspace's # running sessions.}}}}} window {{busy, select, yes {{n, plural, one {Closing this window stops this workspace's session.} other {Closing this window stops this workspace's # sessions.}}} other {{n, plural, one {Closing this window stops this workspace's running session.} other {Closing this window stops this workspace's # running sessions.}}}}} allWindows {{windows, plural, other {{busy, select, yes {{n, plural, one {Quitting closes all {windows, number} windows and stops its session.} other {Quitting closes all {windows, number} windows and stops all # sessions, in every workspace.}}} other {{n, plural, one {Quitting closes all {windows, number} windows and stops the running session.} other {Quitting closes all {windows, number} windows and stops # running sessions, in every workspace.}}}}}}} other {{busy, select, yes {{n, plural, one {Quitting stops its session.} other {Quitting stops all # sessions.}}} other {{n, plural, one {Quitting stops the running session.} other {Quitting stops # running sessions.}}}}}}",
+    "description": "The quit dialog: what closing or quitting stops, a sentence each. {how} is what it does: close the workspace, switch it, close the window, quit with {windows} windows open (allWindows: their sessions in every workspace stop; a plural on {windows}, for the word windows) or quit (other); {busy} is yes when an agent is busy (then the sentence before says so, and \"its session\" is that agent's); {n} is how many sessions."
   },
   "shell.quit.title": {
     "defaultMessage": "{how, select, workspace {Close this workspace?} switch {Switch workspace?} window {Close this window?} allWindows {Quit Hive and close all {windows} windows?} other {Quit Hive?}}",
@@ -1446,17 +1446,5 @@
   "shell.toast.dismiss": {
     "defaultMessage": "Dismiss",
     "description": "Button on a notice in the corner: closes it."
-  },
-  "shell.view.assistant": {
-    "defaultMessage": "The Assistant",
-    "description": "Names a part of the window that failed to show (\"The Assistant ran into a problem…\")."
-  },
-  "shell.view.devConsole": {
-    "defaultMessage": "The developer console",
-    "description": "Names the developer console's window when it fails to show (\"The developer console ran into a problem…\")."
-  },
-  "shell.view.progress": {
-    "defaultMessage": "The Progress panel",
-    "description": "Names a part of the window that failed to show (\"The Progress panel ran into a problem…\")."
   }
 }

@@ -195,7 +195,6 @@
   "shell.error.stopBackground": "Hintergrundsitzung konnte nicht gestoppt werden",
   "shell.error.switchModes": "Berechtigungsmodi konnten nicht gewechselt werden",
   "shell.errorBoundary.logs": "Protokolle öffnen",
-  "shell.errorBoundary.named": "{view} hatte ein Problem und konnte nicht angezeigt werden.",
   "shell.errorBoundary.reload": "Fenster neu laden",
   "shell.errorBoundary.save": "{n, plural, one {# ungespeicherte Datei speichern} other {# ungespeicherte Dateien speichern}}",
   "shell.errorBoundary.saveFailed": "Speichern fehlgeschlagen: {why}",
@@ -254,7 +253,6 @@
   "shell.quit.stopping.watching": "Die Kartenschleife pausiert, bis sie fortgesetzt wird",
   "shell.quit.stopping.working": "Wird unterbrochen",
   "shell.quit.stoppingColumn": "Beim Stoppen",
-  "shell.quit.stops": "{how, select, workspace {Das Schließen des Arbeitsbereichs stoppt} switch {Der Wechsel des Arbeitsbereichs stoppt in diesem Arbeitsbereich} window {Das Schließen dieses Fensters stoppt in seinem Arbeitsbereich} allWindows {Beenden schließt alle {windows} Fenster und stoppt} other {Beenden stoppt}} {busy, select, yes {{n, plural, one {die Sitzung} other {{all, select, yes {alle {n} Sitzungen} other {{n} Sitzungen}}}}} other {{n, plural, one {die laufende Sitzung} other {# laufende Sitzungen}}}}{everywhere, select, yes {, in jedem Arbeitsbereich} other {}}.",
   "shell.quit.title": "{how, select, workspace {Diesen Arbeitsbereich schließen?} switch {Arbeitsbereich wechseln?} window {Dieses Fenster schließen?} allWindows {Hive beenden und alle {windows} Fenster schließen?} other {Hive beenden?}}",
   "shell.quit.unsaved": "{n, plural, one {# Datei hat ungespeicherte Änderungen.} other {# Dateien haben ungespeicherte Änderungen.}}",
   "shell.quit.when": "{action, select, saveAndClose {Speichern und schließen} closeWorkspace {Arbeitsbereich schließen} switchWorkspace {Arbeitsbereich wechseln} closeWindow {Fenster schließen} saveAndQuit {Speichern und beenden} other {Beenden}}, sobald {working, plural, one {der Agent fertig ist} other {die Agenten fertig sind}}",
@@ -360,8 +358,5 @@
   "shell.tip.workspace.repairMove": "Der Arbeitsbereich oder ein Projekt wurde in einen anderen Ordner verschoben: reparieren, was noch auf den alten zeigt",
   "shell.titlebar.pin": "Immer im Vordergrund",
   "shell.titlebar.pinTip": "{on, select, yes {Immer im Vordergrund (an)} other {Immer im Vordergrund (aus)}}",
-  "shell.toast.dismiss": "Schließen",
-  "shell.view.assistant": "Der Assistent",
-  "shell.view.devConsole": "Die Entwicklerkonsole",
-  "shell.view.progress": "Das Fortschrittspanel"
+  "shell.toast.dismiss": "Schließen"
 }

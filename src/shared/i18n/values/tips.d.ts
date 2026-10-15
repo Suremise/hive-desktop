@@ -17,9 +17,9 @@ interface HiveMessageValues {
   'tips.archiveNew.title': undefined
   'tips.assistant.text': { key: string | number }
   'tips.assistant.title': undefined
-  'tips.assistantBatch.text': undefined
+  'tips.assistantBatch.text': { cards: number; changes: number }
   'tips.assistantBatch.title': undefined
-  'tips.assistantCompact.text': undefined
+  'tips.assistantCompact.text': { tokens: number }
   'tips.assistantCompact.title': undefined
   'tips.assistantControl.text': undefined
   'tips.assistantControl.title': undefined
@@ -65,7 +65,7 @@ interface HiveMessageValues {
   'tips.boardOrder.title': undefined
   'tips.boardReview.text': undefined
   'tips.boardReview.title': undefined
-  'tips.cardCost.text': undefined
+  'tips.cardCost.text': { example: string | number }
   'tips.cardCost.title': undefined
   'tips.cardDecisions.text': undefined
   'tips.cardDecisions.title': undefined
@@ -96,7 +96,7 @@ interface HiveMessageValues {
   'tips.copilotModes.title': undefined
   'tips.copyDiagnostics.text': undefined
   'tips.copyDiagnostics.title': undefined
-  'tips.dateFormat.text': undefined
+  'tips.dateFormat.text': { date: string | number; time: string | number }
   'tips.dateFormat.title': undefined
   'tips.defaultProvider.text': undefined
   'tips.defaultProvider.title': undefined
@@ -112,7 +112,7 @@ interface HiveMessageValues {
   'tips.gitCheck.title': undefined
   'tips.gitInit.text': undefined
   'tips.gitInit.title': undefined
-  'tips.gitView.text': undefined
+  'tips.gitView.text': { example: string | number }
   'tips.gitView.title': undefined
   'tips.gotoProject.text': { key: string | number }
   'tips.gotoProject.title': undefined
@@ -140,7 +140,7 @@ interface HiveMessageValues {
   'tips.language.title': undefined
   'tips.leftoverProcesses.text': undefined
   'tips.leftoverProcesses.title': undefined
-  'tips.loopDefaults.text': undefined
+  'tips.loopDefaults.text': { rounds: number; hours: number }
   'tips.loopDefaults.title': undefined
   'tips.loopLanes.text': undefined
   'tips.loopLanes.title': undefined
@@ -154,12 +154,12 @@ interface HiveMessageValues {
   'tips.mcpPerProject.title': undefined
   'tips.mergeSlot.text': undefined
   'tips.mergeSlot.title': undefined
-  'tips.messageReceipts.text': undefined
+  'tips.messageReceipts.text': { minutes: number }
   'tips.messageReceipts.title': undefined
   'tips.modelFallbacks.text': undefined
   'tips.modelFallbacks.title': undefined
-  'tips.moreAgents.text': undefined
-  'tips.moreAgents.title': undefined
+  'tips.moreAgents.text': { usual: number; most: number }
+  'tips.moreAgents.title': { usual: number }
   'tips.myPrices.text': undefined
   'tips.myPrices.title': undefined
   'tips.newCard.text': { key: string | number }
@@ -188,7 +188,7 @@ interface HiveMessageValues {
   'tips.progressDetails.title': undefined
   'tips.progressFilter.text': undefined
   'tips.progressFilter.title': undefined
-  'tips.progressHistory.text': undefined
+  'tips.progressHistory.text': { recent: number; kept: number }
   'tips.progressHistory.title': undefined
   'tips.progressLanes.text': undefined
   'tips.progressLanes.title': undefined
@@ -218,7 +218,7 @@ interface HiveMessageValues {
   'tips.searchClear.title': undefined
   'tips.searchTranscripts.text': undefined
   'tips.searchTranscripts.title': undefined
-  'tips.sessionCleanup.text': undefined
+  'tips.sessionCleanup.text': { hours: number; week: number; month: number }
   'tips.sessionCleanup.title': undefined
   'tips.sessionSizes.text': undefined
   'tips.sessionSizes.title': undefined
@@ -251,7 +251,7 @@ interface HiveMessageValues {
   'tips.twoProviders.text': undefined
   'tips.twoProviders.title': undefined
   'tips.ui.close': undefined
-  'tips.ui.counter': { n: string | number; total: string | number }
+  'tips.ui.counter': { total: number; n: number }
   'tips.ui.learnMore': undefined
   'tips.ui.next': undefined
   'tips.ui.noMatch': { query: string | number }

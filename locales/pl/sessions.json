@@ -26,7 +26,6 @@
   "sessions.bulk.done": "{action, select, archive {Zarchiwizowano} unarchive {Przywrócono z archiwum} other {Usunięto}} {n, plural, one {# sesję} few {# sesje} many {# sesji} other {# sesji}}.",
   "sessions.bulk.doneSkipped": "{action, select, archive {Zarchiwizowano} unarchive {Przywrócono z archiwum} other {Usunięto}} {n, plural, one {# sesję} few {# sesje} many {# sesji} other {# sesji}}; pominięto {skipped, number}: {why}",
   "sessions.bulk.failed": "{action, select, archive {Nie udało się zarchiwizować {kind, select, conversation {rozmów} other {sesji}}} unarchive {Nie udało się przywrócić {kind, select, conversation {rozmów} other {sesji}} z archiwum} other {Nie udało się usunąć {kind, select, conversation {rozmów} other {sesji}}}}",
-  "sessions.bulk.skipCount": "{reason}: {n, number}",
   "sessions.bulk.skipNote": "{running, plural, =0 {Działające sesje są pomijane, podobnie jak} one {# teraz działająca jest pomijana, podobnie jak} few {# teraz działające są pomijane, podobnie jak} many {# teraz działających jest pomijanych, podobnie jak} other {# teraz działającej jest pomijane, podobnie jak}} te, których pliki są w użyciu; wynik pokaże, które.",
   "sessions.bulk.skipReason": "{reason, select, live {działające} inUse {w użyciu} reading {odczytywane przez Hive} open {otwarte w innym oknie Hive} external {uruchomione poza Hive} other {błąd}}",
   "sessions.cards.deleted": "Ta karta została usunięta.",

@@ -82,8 +82,7 @@ const M = {
   unmanagedMcp: msg({ id: 'project.banner.unmanagedMcp', defaultMessage: 'This project defines MCP servers that are not in the workspace: <b>{names}</b>. They stay disabled until copied to the workspace.', description: 'Banner of a project with MCP servers of its own. {names} is their names. <b> is bold.' }),
   copyToWorkspace: msg({ id: 'project.banner.copyToWorkspace', defaultMessage: 'Copy to workspace', description: "Button: copies the project's own MCP servers to the workspace." }),
   dangerous: msg({ id: 'project.banner.dangerous', defaultMessage: '{modes} {count, plural, one {is} other {are}} on in this project: the agent runs every command and edit without asking.', description: 'Banner when an agent of the project runs in a permission mode that never asks. {modes} names the modes (with the agents when there are several).' }),
-  change: msg({ id: 'project.banner.change', defaultMessage: 'Change', description: 'Button in that banner: opens Project Settings.' }),
-  thisTab: msg({ id: 'project.tabs.errorLabel', defaultMessage: 'This tab', description: 'What failed, in the message shown when a project tab crashes ("This tab hit a problem").' })
+  change: msg({ id: 'project.banner.change', defaultMessage: 'Change', description: 'Button in that banner: opens Project Settings.' })
 }
 
 const bold = (c: React.ReactNode[]): React.ReactNode => <strong>{c}</strong>
@@ -497,7 +496,7 @@ export function ProjectView({ visible }: { visible: boolean }) {
           {tab === 'session' && <PaneChrome project={project} panes={panes} />}
           {tab === 'session' && panes.length === 1 && !live && <SessionEmpty project={project} framed={!!focusedAgent} />}
         </div>
-        <ErrorBoundary label={tr(M.thisTab)} resetKey={`${project.path}|${tab}`}>
+        <ErrorBoundary view="tab" resetKey={`${project.path}|${tab}`}>
           {tab === 'overview' && <OverviewTab project={project} />}
           {tab === 'performance' && <PerformanceTab project={project} />}
           {tab === 'tasks' && <ProjectTasksTab project={project} />}

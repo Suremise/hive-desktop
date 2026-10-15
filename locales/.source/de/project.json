@@ -238,9 +238,7 @@
   "project.overview.turnedOff": "— turned off",
   "project.overview.updated": "Updated {when}. How often it updates: Settings → Sessions → Overview updates.",
   "project.period.all": "All time",
-  "project.period.month": "30 days",
   "project.period.today": "Today",
-  "project.period.week": "7 days",
   "project.refresh": "Refresh",
   "project.retry": "Retry",
   "project.running.context": "{used} tokens of context",
@@ -317,6 +315,5 @@
   "project.tab.skills": "Skills",
   "project.tab.tasks": "Tasks",
   "project.tab.templates": "Templates",
-  "project.tabs.errorLabel": "This tab",
   "project.tabs.tip": "{tab} ({key})"
 }
